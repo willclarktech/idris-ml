@@ -145,14 +145,7 @@ concatAlong : {rank : Nat} -> {dims: Vect rank Nat} -> (fRank : Fin rank) -> Ten
 concatAlong {dims = d :: ds} FZ x y = concat [x, y]
 concatAlong {dims = (d :: ds)} (FS z) (VTensor x) (VTensor y) = VTensor $ map (uncurry (concatAlong z)) (zip x y)
 
-multFoldEqProduct : (x : Nat) -> (xs : Vect n Nat) -> foldl (*) x xs = product (x :: xs)
-multFoldEqProduct x xs =
-  rewrite sym (multZeroRightZero x) in
-  rewrite multZeroRightZero x in
-  rewrite plusZeroRightNeutral x in
-    Refl
-
-multFoldAssociative : (d: Nat) -> (x : Nat) -> (xs : Vect n Nat) -> foldl (*) (mult d x) xs = mult d (foldl (*) x xs)
+multFoldAssociative : (d: Nat) -> (x : Nat) -> (xs : Vect n Nat) -> foldl (*) (d * x) xs = d * (foldl (*) x xs)
 multFoldAssociative d x [] = Refl
 multFoldAssociative d x (y :: ys) =
   rewrite sym (multAssociative d x y) in
@@ -160,14 +153,13 @@ multFoldAssociative d x (y :: ys) =
     Refl
 
 productCons : (d : Nat) -> (ds : Vect n Nat) -> product (d :: ds) = d * product ds
-productCons d [] = rewrite plusZeroRightNeutral d in rewrite multOneRightNeutral d in Refl
+productCons d [] =
+  rewrite plusZeroRightNeutral d in
+  rewrite multOneRightNeutral d in
+    Refl
 productCons d (x :: xs) =
   rewrite plusZeroRightNeutral d in
   rewrite plusZeroRightNeutral x in
-  rewrite multFoldEqProduct x xs in
-  rewrite multFoldEqProduct (mult d x) xs in
-  rewrite plusZeroRightNeutral x in
-  rewrite plusZeroRightNeutral (mult d x) in
   rewrite multFoldAssociative d x xs in
     Refl
 
