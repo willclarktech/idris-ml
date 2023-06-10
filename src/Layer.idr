@@ -16,9 +16,9 @@ data Layer : (inputSize : Nat) -> (outputSize : Nat) -> Type -> Type where
 
 public export
 implementation {inputSize : Nat} -> {outputSize : Nat} -> Show a => Show (Layer inputSize outputSize a) where
-  show {inputSize} {outputSize} (LinearLayer _ _) = "Linear(" ++ show outputSize ++ "x" ++ show inputSize ++ ")"
-  show (ActivationLayer name _) = "Activation(" ++ name ++ ")"
-  show (NormalizationLayer name _) = "Normalization(" ++ name ++ ")"
+  show {inputSize} {outputSize} (LinearLayer _ _) = "Linear<" ++ show outputSize ++ "x" ++ show inputSize ++ ">"
+  show (ActivationLayer name _) = "Activation<" ++ name ++ ">"
+  show (NormalizationLayer name _) = "Normalization<" ++ name ++ ">"
 
 public export
 implementation Endofunctor (Layer n m) where
