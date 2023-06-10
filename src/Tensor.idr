@@ -89,6 +89,10 @@ implementation {dims : Vect rank Nat} -> Num ty => Num (Tensor dims ty) where
   (+) = zipWith (+)
 
 public export
+implementation {dims : Vect rank Nat} -> FromDouble ty => FromDouble (Tensor dims ty) where
+  fromDouble = pure . fromDouble
+
+public export
 implementation {dims : Vect rank Nat} -> Neg ty => Neg (Tensor dims ty) where
   (-) = zipWith (-)
   negate = map negate
