@@ -100,6 +100,17 @@ implementation Abs Variable where
         children = [v]
       }
 
+public export
+implementation Fractional Variable where
+  v1 / v2 =
+    Var
+      { paramId = Nothing,
+        value = v1.value / v2.value,
+        grad = 0,
+        back = \g => [g / v2.value, -g * v1.value / (pow v2.value 2)],
+        children = [v1, v2]
+      }
+
 export
 param : String -> Double -> Variable
 param paramId = { paramId := Just paramId } . fromDouble
