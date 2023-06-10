@@ -112,6 +112,42 @@ implementation Fractional Variable where
       }
 
 export
+exp : Variable -> Variable
+exp v =
+    Var
+      { paramId = Nothing,
+        value = exp (v.value),
+        grad = 0,
+        back = \g => [g * exp (v.value)],
+        children = [v]
+      }
+
+export
+log : Variable -> Variable
+log v =
+  Var
+    { paramId = Nothing,
+      value = log (v.value),
+      grad = 0,
+      back = \g => [g / v.value],
+      children = [v]
+    }
+
+export
+pow : Variable -> Variable -> Variable
+pow v1 v2 =
+  Var {
+    paramId = Nothing,
+    value = pow v1.value v2.value,
+    grad = 0,
+    back = \g => [
+        g * (pow v1.value v2.value) * (log v1.value),
+        g * (pow v1.value v2.value) * (v1.value / v2.value)
+    ],
+    children = [v1, v2]
+  }
+
+export
 param : String -> Double -> Variable
 param paramId = { paramId := Just paramId } . fromDouble
 
