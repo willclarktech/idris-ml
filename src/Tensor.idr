@@ -19,6 +19,9 @@ export
 shapeOf : {dims : Vect rank Nat} -> Tensor dims ty -> Vect rank Nat
 shapeOf {dims = ds} _ = ds
 
+export length : {dim : Nat} -> Vector dim ty -> Nat
+length {dim} _ = dim
+
 export
 implementation Show ty => Show (Tensor dims ty) where
   show (STensor x) = show x
