@@ -5,7 +5,6 @@ import Data.Vect
 import Endofunctor
 import Math
 import Tensor
-import Variable
 
 
 public export
@@ -21,20 +20,20 @@ implementation {inputSize : Nat} -> {outputSize : Nat} -> Show a => Show (Layer 
   show (NormalizationLayer name _) = "Normalization<" ++ name ++ ">"
 
 public export
-implementation Endofunctor (Layer n m) where
+implementation Endofunctor (Layer i o) where
   emap f (LinearLayer w b) = LinearLayer (map f w) (map f b)
   emap _ l = l
 
 export
-applyLayer : Num ty => {m, n : Nat} -> Layer m n ty -> Vector m ty -> Vector n ty
-applyLayer (LinearLayer weights bias) xs = matrixVectorMultiply {m=n, n=m} weights xs + bias
+applyLayer : Num ty => {i, o : Nat} -> Layer i o ty -> Vector i ty -> Vector o ty
+applyLayer (LinearLayer weights bias) xs = matrixVectorMultiply {m=o, n=i} weights xs + bias
 applyLayer (ActivationLayer _ f) xs = map f xs
 applyLayer (NormalizationLayer _ f) xs = f xs
 
 export
-sigmoidLayer : Layer n n Variable
+sigmoidLayer : (FromDouble ty, Neg ty, Fractional ty, Floating ty) => Layer n n ty
 sigmoidLayer = ActivationLayer "sigmoid" sigmoid
 
 export
-softmaxLayer : Layer n n Variable
+softmaxLayer : (Fractional ty, Floating ty) => Layer n n ty
 softmaxLayer = NormalizationLayer "softmax" softmax

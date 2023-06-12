@@ -3,19 +3,29 @@ module Math
 import Data.Vect
 
 import Tensor
-import Variable
 
+
+public export
+interface Floating ty where
+  exp : ty -> ty
+  log : ty -> ty
+  pow : ty -> ty -> ty
+
+infixr 9 ^
+export
+(^) : Floating ty => ty -> ty -> ty
+(^) = Math.pow
 
 ActivationFunction ty = ty -> ty
 
 export
-sigmoid : ActivationFunction Variable
+sigmoid : (FromDouble ty, Neg ty, Fractional ty, Floating ty) => ActivationFunction ty
 sigmoid x = 1.0 / (1.0 + exp (-x))
 
 NormalizationFunction ty = {n : Nat} -> Vector n ty -> Vector n ty
 
 export
-softmax : NormalizationFunction Variable
+softmax : (Fractional ty, Floating ty) => NormalizationFunction ty
 softmax xs =
   let exps = map exp xs
   in map (/(sum exps)) exps
@@ -31,22 +41,22 @@ mean {n} xs =
 LossFunction ty = {n : Nat} -> Vector n ty -> Vector n ty -> ty
 
 export
-meanSquaredError : LossFunction Variable
+meanSquaredError : (Neg ty, Fractional ty, Floating ty) => LossFunction ty
 meanSquaredError {n} predictions ys = mean $ zipWith squaredError predictions ys
   where
-    squaredError : Variable -> Variable -> Variable
-    squaredError prediction y = pow (prediction - y) 2
+    squaredError : ty -> ty -> ty
+    squaredError prediction y = (prediction - y) ^ 2
 
 export
-binaryCrossEntropy : LossFunction Variable
+binaryCrossEntropy : (Neg ty, Fractional ty, Floating ty) => LossFunction ty
 binaryCrossEntropy predictions ys = mean $ zipWith bceError predictions ys
   where
-    bceError : Variable -> Variable -> Variable
+    bceError : ty -> ty -> ty
     bceError prediction y =
       -(y * log prediction + (1 - y) * log (1 - prediction))
 
 export
-crossEntropy : LossFunction Variable
+crossEntropy : (Num ty, Neg ty, Floating ty) => LossFunction ty
 crossEntropy predictions ys = ((-1) *) $ sum $ zipWith (\p, y => y * log p + (1 - y) * log (1 - p)) predictions ys
 
 -- Tensor
