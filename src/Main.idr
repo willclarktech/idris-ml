@@ -20,9 +20,6 @@ dataPoints =
       MkDataPoint (VTensor [2.9, -1.4]) (VTensor [1, 0])
     ]
 
-prepareDataPoint : DataPoint i o Double -> DataPoint i o Variable
-prepareDataPoint = map fromDouble
-
 main : IO ()
 main = do
   srand 123456
@@ -35,7 +32,7 @@ main = do
   let model = ll ~> OutputLayer softmaxLayer
   putStr "Model: "
   printLn model
-  let prepared = map prepareDataPoint dataPoints
+  let prepared = map (map fromDouble) dataPoints
   let predictions = evaluate model prepared
   let loss = calculateLoss lossFn model prepared
 
