@@ -3,6 +3,7 @@ module Tensor
 import Data.Vect
 import Data.Fin
 import System.Random
+import Util
 
 
 public export
@@ -80,14 +81,13 @@ implementation {dims : Vect rank Nat} -> Random ty => Random (Tensor dims ty) wh
     pure $ VTensor (x :: xs)
 
 export
-allFins : (n : Nat) -> Vect n (Fin n)
-allFins 0 = []
-allFins (S k) = FZ :: map FS (allFins k)
-
-export
 indices : {dims : Vect rank Nat} -> (startIndex : Nat) -> Tensor dims Nat
 indices {dims = []} startIndex = STensor startIndex
 indices {dims = (d :: ds)} startIndex = VTensor $ map (\i => indices (startIndex + ((finToNat i) * (product ds)))) (allFins d)
+
+export
+enumerate : {dims : Vect rank Nat} -> Tensor dims Nat
+enumerate = indices 0
 
 export
 generate : {dims : Vect rank Nat} -> (Nat -> ty) -> Tensor dims ty

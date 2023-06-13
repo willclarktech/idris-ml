@@ -36,7 +36,7 @@ main = do
   putStr "Model: "
   printLn model
   let prepared = map prepareDataPoint dataPoints
-  let predictions = map (forward model . x) prepared
+  let predictions = evaluate model prepared
   let loss = calculateLoss lossFn model prepared
 
   putStr "Pre loss: "
@@ -45,7 +45,7 @@ main = do
   printLn $ map (map value) predictions
 
   let trained = train lr model prepared lossFn epochs
-  let predictions' = map (forward trained . x) prepared
+  let predictions' = evaluate trained prepared
   let loss' = calculateLoss lossFn trained prepared
 
   putStr "Post loss: "
