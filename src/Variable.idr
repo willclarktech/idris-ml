@@ -2,6 +2,7 @@ module Variable
 
 import Data.List
 import Math
+import System.Random
 
 
 signum : Double -> Double
@@ -43,6 +44,19 @@ implementation FromDouble Variable where
         back = const [],
         children = []
       }
+
+public export
+implementation Cast Variable Double where
+  cast v = v.value
+
+public export
+implementation Cast Double Variable where
+  cast = fromDouble
+
+public export
+implementation Random Variable where
+  randomIO = map fromDouble randomIO
+  randomRIO (lo, hi) = map fromDouble (randomRIO (lo.value, hi.value))
 
 public export
 implementation Num Variable where
@@ -145,6 +159,10 @@ implementation Floating Variable where
 export
 param : String -> Double -> Variable
 param paramId = { paramId := Just paramId } . fromDouble
+
+export
+nameParam : String -> Nat -> Variable -> Variable
+nameParam prefx i p = { paramId := Just (prefx ++ show i) } p
 
 export
 backwardVariable : Double -> Variable -> Variable

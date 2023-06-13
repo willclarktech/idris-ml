@@ -1,6 +1,5 @@
 # To-do
 
-1. Automatic variable initialization (with generated param IDs and random values)
 1. Minibatches/SGD
 1. Early stopping
 1. Hyperparameters type
@@ -13,6 +12,7 @@
 1. Momentum/Adam
 1. NTM
 1. One-hot helper
+1. Noise other than uniform (eg Gaussian)
 1. Hyperparameter optimization
 1. C tensor operations
 1. Heterogeneous context (CPU/GPU)

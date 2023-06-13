@@ -2,6 +2,7 @@ module Tensor
 
 import Data.Vect
 import Data.Fin
+import System.Random
 
 
 public export
@@ -50,6 +51,47 @@ zeros = pure 0
 export
 ones : Num ty => {dims : Vect rank Nat} -> Tensor dims ty
 ones = pure 1
+
+implementation {n : Nat} -> Random ty => Random (Vect n ty) where
+  randomIO {n = Z} = pure []
+  randomIO {n = S k} = do
+    x <- randomIO
+    xs <- randomIO
+    pure $ x :: xs
+  randomRIO {n = Z} _ = pure []
+  randomRIO {n = S k} (lo::los, hi::his) = do
+    x <- randomRIO (lo, hi)
+    xs <- randomRIO (los, his)
+    pure $ x :: xs
+
+public export
+implementation {dims : Vect rank Nat} -> Random ty => Random (Tensor dims ty) where
+  randomIO {dims = []} = map pure randomIO
+  randomIO {dims = Z :: ds} = pure $ VTensor []
+  randomIO {dims = (S k) :: ds} = do
+    x <- randomIO
+    xs <- randomIO
+    pure $ VTensor (x :: xs)
+  randomRIO {dims = []} (STensor lo, STensor hi) = map pure (randomRIO (lo, hi))
+  randomRIO {dims = Z :: ds} _ = pure $ VTensor []
+  randomRIO {dims = (S k) :: ds} (VTensor (lo :: los), VTensor (hi :: his)) = do
+    x <- randomRIO (lo, hi)
+    xs <- randomRIO (los, his)
+    pure $ VTensor (x :: xs)
+
+export
+allFins : (n : Nat) -> Vect n (Fin n)
+allFins 0 = []
+allFins (S k) = FZ :: map FS (allFins k)
+
+export
+indices : {dims : Vect rank Nat} -> (startIndex : Nat) -> Tensor dims Nat
+indices {dims = []} startIndex = STensor startIndex
+indices {dims = (d :: ds)} startIndex = VTensor $ map (\i => indices (startIndex + ((finToNat i) * (product ds)))) (allFins d)
+
+export
+generate : {dims : Vect rank Nat} -> (Nat -> ty) -> Tensor dims ty
+generate f = map f (indices 0)
 
 public export
 implementation {dims : Vect rank Nat} -> Foldable (Tensor dims) where

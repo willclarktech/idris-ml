@@ -1,10 +1,12 @@
 module Layer
 
 import Data.Vect
+import System.Random
 
 import Endofunctor
 import Math
 import Tensor
+import Variable
 
 
 public export
@@ -29,6 +31,23 @@ applyLayer : Num ty => {i, o : Nat} -> Layer i o ty -> Vector i ty -> Vector o t
 applyLayer (LinearLayer weights bias) xs = matrixVectorMultiply {m=o, n=i} weights xs + bias
 applyLayer (ActivationLayer _ f) xs = map f xs
 applyLayer (NormalizationLayer _ f) xs = f xs
+
+linearLayer : {i, o : Nat} -> (Random ty, FromDouble ty, Neg ty) => IO (Layer i o ty)
+linearLayer = do
+  weights <- randomRIO (-1.0, 1.0)
+  bias <- randomRIO (-1.0, 1.0)
+  pure $ LinearLayer weights bias
+
+export
+linearLayerWithNamedParams : {i, o : Nat} -> IO (Layer i o Variable)
+linearLayerWithNamedParams = do
+  layer <- linearLayer
+  case layer of
+    (LinearLayer weights bias) => do
+      let namedWeights = zipWith (nameParam "weight") (indices 0) weights
+      let namedBias = zipWith (nameParam "bias") (indices 0) bias
+      pure $ LinearLayer namedWeights namedBias
+    _ => pure layer
 
 export
 sigmoidLayer : (FromDouble ty, Neg ty, Fractional ty, Floating ty) => Layer n n ty
