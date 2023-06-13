@@ -28,7 +28,7 @@ main = do
   let lr = 0.03
   let lossFn = crossEntropy
 
-  ll <- linearLayerWithNamedParams
+  ll <- nameParams "ll_" <$> linearLayer
   let model = ll ~> OutputLayer softmaxLayer
   putStr "Model: "
   printLn model

@@ -40,6 +40,7 @@ applyLayer (RnnLayer inputWeights recurrentWeights bias previousOutput) xs =
 applyLayer layer@(ActivationLayer _ f) xs = (layer, map f xs)
 applyLayer layer@(NormalizationLayer _ f) xs = (layer, f xs)
 
+export
 linearLayer : {i, o : Nat} -> (Random ty, FromDouble ty, Neg ty) => IO (Layer i o ty)
 linearLayer = do
   weights <- randomRIO (-1.0, 1.0)
@@ -47,15 +48,30 @@ linearLayer = do
   pure $ LinearLayer weights bias
 
 export
-linearLayerWithNamedParams : {i, o : Nat} -> IO (Layer i o Variable)
-linearLayerWithNamedParams = do
-  layer <- linearLayer
-  case layer of
-    (LinearLayer weights bias) => do
-      let namedWeights = zipWith (nameParam "weight") enumerate weights
-      let namedBias = zipWith (nameParam "bias") enumerate bias
-      pure $ LinearLayer namedWeights namedBias
-    _ => pure layer
+rnnLayer : {i, o : Nat} -> (Random ty, FromDouble ty, Neg ty) => IO (Layer i o ty)
+rnnLayer = do
+  inputWeights <- randomRIO (-1.0, 1.0)
+  recurrentWeights <- randomRIO (-1.0, 1.0)
+  bias <- randomRIO (-1.0, 1.0)
+  pure $ RnnLayer inputWeights recurrentWeights bias zeros
+
+export
+nameParams : {i, o : Nat} -> String -> (Layer i o Variable) -> (Layer i o Variable)
+nameParams prefx layer =
+  let np = nameParam . (prefx ++)
+  in case layer of
+    (LinearLayer weights bias) =>
+      let
+        namedWeights = zipWith (np "weight") enumerate weights
+        namedBias = zipWith (np "bias") enumerate bias
+      in LinearLayer namedWeights namedBias
+    (RnnLayer inputWeights recurrentWeights bias previousOutput) =>
+      let
+        namedInputWeights = zipWith (np "inputWeight") enumerate inputWeights
+        namedRecurrentWeights = zipWith (np "recurrentWeight") enumerate recurrentWeights
+        namedBias = zipWith (np "bias") enumerate bias
+      in RnnLayer namedInputWeights namedRecurrentWeights namedBias previousOutput
+    _ => layer
 
 export
 sigmoidLayer : (FromDouble ty, Neg ty, Fractional ty, Floating ty) => Layer n n ty
