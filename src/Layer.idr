@@ -18,8 +18,8 @@ data Layer : (inputSize : Nat) -> (outputSize : Nat) -> Type -> Type where
 
 public export
 implementation {inputSize : Nat} -> {outputSize : Nat} -> Show a => Show (Layer inputSize outputSize a) where
-  show {inputSize} {outputSize} (LinearLayer _ _) = "Linear<" ++ show inputSize ++ "->" ++ show outputSize ++ ">"
-  show {inputSize} {outputSize} (RnnLayer _ _ _ _) = "Rnn<" ++ show inputSize ++ "->" ++ show outputSize ++ ">"
+  show {inputSize} {outputSize} (LinearLayer _ _) = "Linear<" ++ show inputSize ++ ":" ++ show outputSize ++ ">"
+  show {inputSize} {outputSize} (RnnLayer _ _ _ _) = "Rnn<" ++ show inputSize ++ ":" ++ show outputSize ++ ">"
   show (ActivationLayer name _) = "Activation<" ++ name ++ ">"
   show (NormalizationLayer name _) = "Normalization<" ++ name ++ ">"
 
