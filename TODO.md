@@ -1,6 +1,5 @@
 # To-do
 
-1. Recurrent layers
 1. NTM
 1. Minibatches/SGD
 1. Early stopping

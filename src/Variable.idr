@@ -24,9 +24,10 @@ export
 partial
 Show Variable where
   show v =
-    "Variable" ++
+    "Var" ++
     (case v.paramId of (Just pid) => "<" ++ pid ++ ">"; Nothing => "") ++
-    "(" ++ show v.value ++ ":" ++ show v.grad ++ ") [" ++ concat (intersperse ", " (map show v.children)) ++ "]"
+    "(" ++ show v.value ++ ":" ++ show v.grad ++ ")"
+    -- ++ " [" ++ concat (intersperse ", " (map show v.children)) ++ "]" -- NOTE: Toggle this for children
 
 public export
 implementation Eq Variable where

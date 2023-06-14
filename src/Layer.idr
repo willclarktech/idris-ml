@@ -58,7 +58,7 @@ rnnLayer = do
 export
 nameParams : {i, o : Nat} -> String -> (Layer i o Variable) -> (Layer i o Variable)
 nameParams prefx layer =
-  let np = nameParam . (prefx ++)
+  let np = nameParam . (prefx ++ "_" ++)
   in case layer of
     (LinearLayer weights bias) =>
       let

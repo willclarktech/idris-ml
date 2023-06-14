@@ -21,8 +21,13 @@ export
 shapeOf : {dims : Vect rank Nat} -> Tensor dims ty -> Vect rank Nat
 shapeOf {dims = ds} _ = ds
 
-export length : {dim : Nat} -> Vector dim ty -> Nat
+export
+length : {dim : Nat} -> Vector dim ty -> Nat
 length {dim} _ = dim
+
+export
+fromList : (xs : List ty) -> Vector (length xs) ty
+fromList xs = VTensor $ map STensor $ Data.Vect.fromList xs
 
 export
 implementation Show ty => Show (Tensor dims ty) where

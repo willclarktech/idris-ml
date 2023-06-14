@@ -1,24 +1,16 @@
 module Network
 
+import Data.List
 import Data.Vect
 import Data.Zippable
 
+import DataPoint
 import Endofunctor
 import Layer
 import Math
 import Tensor
 import Util
 
-
-public export
-record DataPoint i o ty where
-  constructor MkDataPoint
-  x : Vector i ty
-  y : Vector o ty
-
-public export
-implementation Functor (DataPoint i o) where
-  map f (MkDataPoint x y) = MkDataPoint (map f x) (map f y)
 
 public export
 data Network : (inputDims : Nat) -> (hiddenDims : List Nat) -> (outputDims : Nat) -> Type -> Type where
@@ -42,31 +34,70 @@ implementation Endofunctor (Network i hs o) where
 
 export
 forward : (Num ty) => {i, o : Nat} -> {hs : List Nat} -> Network i hs o ty -> Vector i ty -> (Network i hs o ty, Vector o ty)
-forward (OutputLayer layer) xs =
-  let (updatedLayer, output) = applyLayer layer xs
+forward (OutputLayer layer) x =
+  let (updatedLayer, output) = applyLayer layer x
   in (OutputLayer updatedLayer, output)
-forward {hs = h :: _} (layer ~> layers) xs =
+forward {hs = h :: _} (layer ~> layers) x =
   let
-    (updatedLayer, layerOutput) = applyLayer layer xs
+    (updatedLayer, layerOutput) = applyLayer layer x
     (updatedNetwork, networkOutput) = forward layers layerOutput
   in (updatedLayer ~> updatedNetwork, networkOutput)
 
-export
-evaluate : Num ty => {i, o : Nat} -> {hs : List Nat} -> Network i hs o ty -> Vect n (DataPoint i o ty) -> Vect n (Vector o ty)
-evaluate model = map (snd . (forward model) . x)
+evaluateSingleDataPoint : Num ty => {i, o : Nat} -> {hs : List Nat} -> Network i hs o ty -> DataPoint i o ty -> Vector o ty
+evaluateSingleDataPoint model = snd . (forward model) . x
 
 export
-forwardMany : (Num ty) => {i, o : Nat} -> {hs : List Nat} -> (Network i hs o ty, Vect n (Vector o ty)) -> Vector i ty -> (Network i hs o ty, Vect (S n) (Vector o ty))
-forwardMany (model, outputs) input =
-  let (updatedModel, newOutput) = forward model input
+evaluate : Num ty => {i, o : Nat} -> {hs : List Nat} -> Network i hs o ty -> Vect n (DataPoint i o ty) -> Vect n (Vector o ty)
+evaluate model = map (evaluateSingleDataPoint model)
+
+forwardNext : (Num ty) => {i, o : Nat} -> {hs : List Nat} -> (Network i hs o ty, Vect n (Vector o ty)) -> Vector i ty -> (Network i hs o ty, Vect (1 + n) (Vector o ty))
+forwardNext (nn, outputs) inp =
+  let (updatedModel, newOutput) = forward nn inp
   in rewrite plusCommutative 1 n in (updatedModel, outputs ++ [newOutput])
+
+forwardMany : (Num ty) => {i, o : Nat} -> {hs : List Nat} -> Network i hs o ty -> Vect n (Vector i ty) -> (Network i hs o ty, Vect n (Vector o ty))
+forwardMany network xs = foldlD (\k => (Network i hs o ty, Vect k (Vector o ty))) forwardNext (network, []) xs
 
 export
 calculateLoss : (Num ty, Fractional ty) => {i, o, n : Nat} -> {hs : List Nat} -> LossFunction ty -> Network i hs o ty -> Vect n (DataPoint i o ty) -> ty
-calculateLoss lossFn m dataPoints =
+calculateLoss lossFn model dataPoints =
   let
     xs = map x dataPoints
     ys = map y dataPoints
-    (updatedNetwork, predictions) = foldlD (\k => (Network i hs o ty, Vect k (Vector o ty))) forwardMany (m, []) xs
+    (updatedNetwork, predictions) = forwardMany model xs
     losses = zipWith lossFn predictions ys
   in mean $ VTensor $ map STensor losses
+
+recur : (Num ty) => {i, o : Nat} -> {hs : List Nat} -> (Network i hs o ty, List (Vector o ty)) -> Vector i ty -> (Network i hs o ty, List (Vector o ty))
+recur (m, os) i =
+  let (updatedModel, output) = forward m i
+  in (updatedModel, os ++ [output])
+
+export
+forwardRecurrent : (Num ty) => {i, o : Nat} -> {hs : List Nat} -> Network i hs o ty -> List (Vector i ty) -> (Network i hs o ty, List (Vector o ty))
+forwardRecurrent model = foldl recur (model, [])
+
+evaluateSingleRecurrentDataPoint : Num ty => {i, o : Nat} -> {hs : List Nat} -> Network i hs o ty -> RecurrentDataPoint i o ty -> List (Vector o ty)
+evaluateSingleRecurrentDataPoint model dataPoints = snd $ (forwardRecurrent model) dataPoints.xs
+
+export
+evaluateRecurrent : Num ty => {i, o : Nat} -> {hs : List Nat} -> Network i hs o ty -> Vect n (RecurrentDataPoint i o ty) -> Vect n (List (Vector o ty))
+evaluateRecurrent model dataPoints = map (evaluateSingleRecurrentDataPoint model) dataPoints
+
+forwardNextRecurrent : (Num ty) => {i, o : Nat} -> {hs : List Nat} -> (Network i hs o ty, Vect n (List (Vector o ty))) -> List (Vector i ty) -> (Network i hs o ty, Vect (1 + n) (List (Vector o ty)))
+forwardNextRecurrent (nn, outputs) inps =
+  let (updatedModel, newOutput) = forwardRecurrent nn inps
+  in rewrite plusCommutative 1 n in (updatedModel, outputs ++ [newOutput])
+
+forwardManyRecurrent : (Num ty) => {i, o : Nat} -> {hs : List Nat} -> Network i hs o ty -> Vect n (List (Vector i ty)) -> (Network i hs o ty, Vect n (List (Vector o ty)))
+forwardManyRecurrent network xs = foldlD (\k => (Network i hs o ty, Vect k (List (Vector o ty)))) forwardNextRecurrent (network, []) xs
+
+export
+calculateLossRecurrent : (Num ty, Fractional ty) => {i, o, n : Nat} -> {hs : List Nat} -> LossFunction ty -> Network i hs o ty -> Vect n (RecurrentDataPoint i o ty) -> ty
+calculateLossRecurrent lossFn model dataPoints =
+  let
+    xs = map xs dataPoints
+    ys = map ys dataPoints
+    (updatedNetwork, predictions) = forwardManyRecurrent model xs
+    losses = zipWith (zipWith lossFn) predictions ys
+  in mean . VTensor $ map (STensor . mean) losses

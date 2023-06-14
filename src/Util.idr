@@ -3,6 +3,12 @@ module Util
 import Data.Vect
 
 
+export
+mean : (Num ty, Fractional ty) => List ty -> ty
+mean xs =
+  let tot = fromInteger $ natToInteger $ length xs
+  in sum xs / tot
+
 -- Copied from https://github.com/idris-lang/Idris2/blob/26c5c4db03f361443b0581d3d0878adcbf42832a/libs/base/Data/Vect.idr#L120-L126
 export
 allFins : (n : Nat) -> Vect n (Fin n)
