@@ -12,14 +12,14 @@ import Network
 import Tensor
 import Variable
 
--- f(x, y) = argmax(x - y - 10, -4x + y + 5)
-dataPoints : Vect 5 (DataPoint 2 2 Double)
+-- f(x, y) = argmax(x - y - 10, -4x + y + 5, 2x + y - 11)
+dataPoints : Vect 5 (DataPoint 2 3 Double)
 dataPoints =
-    [ MkDataPoint (VTensor [1.5, -2.7]) (VTensor [0, 1]),
-      MkDataPoint (VTensor [-3.2, 4.1]) (VTensor [0, 1]),
-      MkDataPoint (VTensor [5.7, 0]) (VTensor [1, 0]),
-      MkDataPoint (VTensor [-1.3, 8.8]) (VTensor [0, 1]),
-      MkDataPoint (VTensor [2.9, -1.4]) (VTensor [1, 0])
+    [ MkDataPoint (VTensor [1.5, -2.7]) (VTensor [0, 1, 0]),
+      MkDataPoint (VTensor [-3.2, 4.1]) (VTensor [0, 1, 0]),
+      MkDataPoint (VTensor [5.7, 0]) (VTensor [0, 0, 1]),
+      MkDataPoint (VTensor [-1.3, 8.8]) (VTensor [0, 1, 0]),
+      MkDataPoint (VTensor [2.9, -1.4]) (VTensor [1, 0, 0])
     ]
 
 main : IO ()
