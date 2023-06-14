@@ -5,6 +5,7 @@ import System.Random
 
 import Backprop
 import DataPoint
+import Floating
 import Layer
 import Math
 import Network

@@ -1,3 +1,4 @@
+||| Things I wish were provided by the base library
 module Util
 
 import Data.Vect
@@ -11,6 +12,13 @@ implementation Cast Bool Integer where
 export
 implementation Cast Bool Double where
   cast = fromInteger . cast
+
+export
+signum : Double -> Double
+signum x = case compare x 0 of
+  GT => 1.0
+  EQ => 0.0
+  LT => -1.0
 
 export
 mean : (Num ty, Fractional ty) => List ty -> ty

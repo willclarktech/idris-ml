@@ -5,13 +5,8 @@ import System.Random
 
 import Floating
 import Math
+import Util
 
-
-signum : Double -> Double
-signum x = case compare x 0 of
-  GT => 1.0
-  EQ => 0.0
-  LT => -1.0
 
 public export
 record Variable where
@@ -23,7 +18,6 @@ record Variable where
   children : List Variable
 
 export
-partial
 Show Variable where
   show v =
     "Var" ++
