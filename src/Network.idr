@@ -50,10 +50,10 @@ export
 evaluate : Num ty => {i, o : Nat} -> {hs : List Nat} -> Network i hs o ty -> Vect n (DataPoint i o ty) -> Vect n (Vector o ty)
 evaluate model = map (evaluateSingleDataPoint model)
 
-forwardNext : (Num ty) => {i, o : Nat} -> {hs : List Nat} -> (Network i hs o ty, Vect n (Vector o ty)) -> Vector i ty -> (Network i hs o ty, Vect (1 + n) (Vector o ty))
+forwardNext : (Num ty) => {i, o : Nat} -> {hs : List Nat} -> (Network i hs o ty, Vect n (Vector o ty)) -> Vector i ty -> (Network i hs o ty, Vect (S n) (Vector o ty))
 forwardNext (nn, outputs) inp =
   let (updatedModel, newOutput) = forward nn inp
-  in rewrite plusCommutative 1 n in (updatedModel, outputs ++ [newOutput])
+  in (updatedModel, snoc outputs newOutput)
 
 forwardMany : (Num ty) => {i, o : Nat} -> {hs : List Nat} -> Network i hs o ty -> Vect n (Vector i ty) -> (Network i hs o ty, Vect n (Vector o ty))
 forwardMany network xs = foldlD (\k => (Network i hs o ty, Vect k (Vector o ty))) forwardNext (network, []) xs
@@ -71,7 +71,7 @@ calculateLoss lossFn model dataPoints =
 recur : (Num ty) => {i, o : Nat} -> {hs : List Nat} -> (Network i hs o ty, List (Vector o ty)) -> Vector i ty -> (Network i hs o ty, List (Vector o ty))
 recur (m, os) i =
   let (updatedModel, output) = forward m i
-  in (updatedModel, os ++ [output])
+  in (updatedModel, snoc os output)
 
 export
 forwardRecurrent : (Num ty) => {i, o : Nat} -> {hs : List Nat} -> Network i hs o ty -> List (Vector i ty) -> (Network i hs o ty, List (Vector o ty))
@@ -87,7 +87,7 @@ evaluateRecurrent model dataPoints = map (evaluateSingleRecurrentDataPoint model
 forwardNextRecurrent : (Num ty) => {i, o : Nat} -> {hs : List Nat} -> (Network i hs o ty, Vect n (List (Vector o ty))) -> List (Vector i ty) -> (Network i hs o ty, Vect (1 + n) (List (Vector o ty)))
 forwardNextRecurrent (nn, outputs) inps =
   let (updatedModel, newOutput) = forwardRecurrent nn inps
-  in rewrite plusCommutative 1 n in (updatedModel, outputs ++ [newOutput])
+  in (updatedModel, snoc outputs newOutput)
 
 forwardManyRecurrent : (Num ty) => {i, o : Nat} -> {hs : List Nat} -> Network i hs o ty -> Vect n (List (Vector i ty)) -> (Network i hs o ty, Vect n (List (Vector o ty)))
 forwardManyRecurrent network xs = foldlD (\k => (Network i hs o ty, Vect k (List (Vector o ty)))) forwardNextRecurrent (network, []) xs

@@ -169,6 +169,7 @@ implementation {dims : Vect rank Nat} -> Floating ty => Floating (Tensor dims ty
   exp = map exp
   log = map log
   pow = zipWith pow
+  sqrt = map sqrt
 
 export
 head : Tensor (1 + dim :: dims) ty -> Tensor dims ty
@@ -195,6 +196,12 @@ unsqueeze (FS y) (VTensor xs) = VTensor $ map (unsqueeze y) xs
 export
 (++) : Tensor (a :: dims) ty -> Tensor (b :: dims) ty -> Tensor ((a + b) :: dims) ty
 (VTensor xs) ++ (VTensor ys) = VTensor $ xs ++ ys
+
+export
+splitAt : (n : Nat) -> (xs : Tensor ((n + m) :: dims) ty) -> (Tensor (n :: dims) ty, Tensor (m :: dims) ty)
+splitAt Z xs = (VTensor [], xs)
+splitAt (S k) (VTensor (x :: xs)) with (splitAt k {m} xs)
+  splitAt (S k) (VTensor (x :: xs)) | (tk, dr) = (VTensor (x :: tk), VTensor dr)
 
 -- TODO: Do concatentation properly: "All tensors must either have the same shape (except in the concatenating dimension) or be empty."
 

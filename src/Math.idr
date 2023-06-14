@@ -73,5 +73,13 @@ dotProduct : Num a => {n : Nat} -> Vector n a -> Vector n a -> a
 dotProduct {n} v1 v2 = sum $ v1 * v2
 
 export
+l2Norm : (Floating ty, Num ty) => {n : Nat} -> Vector n ty -> ty
+l2Norm v = sqrt $ sum $ map (^ 2) v
+
+export
+cosineSimilarity : (Floating ty, Fractional ty) => {n : Nat} -> Vector n ty -> Vector n ty -> ty
+cosineSimilarity a b = dotProduct a b / (l2Norm a * l2Norm b)
+
+export
 matrixVectorMultiply : Num a => {m, n : Nat} -> Matrix m n a -> Vector n a -> Vector m a
 matrixVectorMultiply {n} (VTensor m) v = VTensor $ map (STensor . dotProduct v) m
