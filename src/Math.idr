@@ -52,8 +52,17 @@ binaryCrossEntropy : (Neg ty, Fractional ty, Floating ty) => LossFunction ty
 binaryCrossEntropy predictions ys = mean $ zipWith bceError predictions ys
   where
     bceError : ty -> ty -> ty
+    bceError prediction y = -(y * log prediction + (1 - y) * log (1 - prediction))
+
+||| Equivalent to but more numerically stable than (BCE . sigmoid)
+export
+binaryCrossEntropyWithLogits : (FromDouble ty, Neg ty, Fractional ty, Floating ty) => LossFunction ty
+binaryCrossEntropyWithLogits predictions ys = mean $ zipWith bceError predictions ys
+  where
+    bceError : ty -> ty -> ty
     bceError prediction y =
-      -(y * log prediction + (1 - y) * log (1 - prediction))
+      let sigp = sigmoid prediction
+      in -(y * log sigp + (1 - y) * log (1 - sigp))
 
 export
 crossEntropy : (Num ty, Neg ty, Floating ty) => LossFunction ty

@@ -34,10 +34,10 @@ main = do
 
   let epochs = 1000
   let lr = 0.03
-  let lossFn = binaryCrossEntropy
+  let lossFn = binaryCrossEntropyWithLogits
 
   rnn <- nameParams "rnn" <$> rnnLayer
-  let model = rnn ~> OutputLayer sigmoidLayer
+  let model = OutputLayer rnn
   putStr "Model: "
   printLn model
   let prepared = map (map fromDouble) (dataPoints 8)
