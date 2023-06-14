@@ -35,6 +35,11 @@ implementation Show ty => Show (Tensor dims ty) where
   show (VTensor v) = show v
 
 export
+implementation Eq ty => Eq (Tensor dims ty) where
+  (STensor x) == (STensor y) = x == y
+  (VTensor v1) == (VTensor v2) = v1 == v2
+
+export
 implementation Functor (Tensor dims) where
   map f (STensor x) = STensor (f x)
   map f (VTensor xs) = VTensor (map (map f) xs)

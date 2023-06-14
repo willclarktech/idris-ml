@@ -11,7 +11,6 @@
 1. Transformer
 1. Momentum/Adam
 1. Automatically name parameters
-1. One-hot helper
 1. Noise other than uniform (eg Gaussian)
 1. Hyperparameter optimization
 1. C tensor operations

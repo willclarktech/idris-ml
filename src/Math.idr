@@ -71,6 +71,14 @@ crossEntropy predictions ys = ((-1) *) $ sum $ zipWith (\p, y => y * log p + (1 
 -- Tensor
 
 export
+oneHotEncode : {n : Nat} -> Fin n -> Vector n Nat
+oneHotEncode i = VTensor $ replaceAt i 1 $ replicate n 0
+
+export
+oneHotDecode : {n : Nat} -> Vector n Nat -> Maybe (Fin n)
+oneHotDecode (VTensor v) = findIndex (== STensor 1) v
+
+export
 dotProduct : Num a => {n : Nat} -> Vector n a -> Vector n a -> a
 dotProduct {n} v1 v2 = sum $ v1 * v2
 
