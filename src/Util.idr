@@ -4,6 +4,15 @@ import Data.Vect
 
 
 export
+implementation Cast Bool Integer where
+  cast True = 1
+  cast False = 0
+
+export
+implementation Cast Bool Double where
+  cast = fromInteger . cast
+
+export
 mean : (Num ty, Fractional ty) => List ty -> ty
 mean xs =
   let tot = fromInteger $ natToInteger $ length xs

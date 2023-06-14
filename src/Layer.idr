@@ -4,6 +4,7 @@ import Data.Vect
 import System.Random
 
 import Endofunctor
+import Floating
 import Math
 import Tensor
 import Variable

@@ -2,19 +2,9 @@ module Math
 
 import Data.Vect
 
+import Floating
 import Tensor
 
-
-public export
-interface Floating ty where
-  exp : ty -> ty
-  log : ty -> ty
-  pow : ty -> ty -> ty
-
-infixr 9 ^
-export
-(^) : Floating ty => ty -> ty -> ty
-(^) = Math.pow
 
 ActivationFunction ty = ty -> ty
 

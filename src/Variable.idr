@@ -1,8 +1,10 @@
 module Variable
 
 import Data.List
-import Math
 import System.Random
+
+import Floating
+import Math
 
 
 signum : Double -> Double

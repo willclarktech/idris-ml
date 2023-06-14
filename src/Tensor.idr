@@ -3,6 +3,8 @@ module Tensor
 import Data.Vect
 import Data.Fin
 import System.Random
+
+import Floating
 import Util
 
 
@@ -161,6 +163,12 @@ public export
 implementation {dims : Vect rank Nat} -> Integral ty => Integral (Tensor dims ty) where
   div = zipWith div
   mod = zipWith mod
+
+public export
+implementation {dims : Vect rank Nat} -> Floating ty => Floating (Tensor dims ty) where
+  exp = map exp
+  log = map log
+  pow = zipWith pow
 
 export
 head : Tensor (1 + dim :: dims) ty -> Tensor dims ty
