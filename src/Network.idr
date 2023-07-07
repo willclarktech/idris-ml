@@ -14,8 +14,8 @@ import Util
 
 public export
 data Network : (inputDims : Nat) -> (hiddenDims : List Nat) -> (outputDims : Nat) -> Type -> Type where
-  OutputLayer : Layer i o a -> Network i [] o a
-  (~>) : Layer i h a -> Network h hs o a -> Network i (h :: hs) o a
+  OutputLayer : Layer i o ty -> Network i [] o ty
+  (~>) : Layer i h ty -> Network h hs o ty -> Network i (h :: hs) o ty
 
 infixr 5 ~>
 
