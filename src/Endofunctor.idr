@@ -1,5 +1,6 @@
 module Endofunctor
 
+
 public export
 interface Endofunctor e where
   emap : (ty -> ty) -> e ty -> e ty
