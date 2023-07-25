@@ -31,17 +31,17 @@ export
 fromList : (xs : List ty) -> Vector (length xs) ty
 fromList xs = VTensor $ map STensor $ Data.Vect.fromList xs
 
-export
+public export
 implementation Show ty => Show (Tensor dims ty) where
   show (STensor x) = show x
   show (VTensor v) = show v
 
-export
+public export
 implementation Eq ty => Eq (Tensor dims ty) where
   (STensor x) == (STensor y) = x == y
   (VTensor v1) == (VTensor v2) = v1 == v2
 
-export
+public export
 implementation Functor (Tensor dims) where
   map f (STensor x) = STensor (f x)
   map f (VTensor xs) = VTensor (map (map f) xs)
@@ -169,6 +169,11 @@ implementation {dims : Vect rank Nat} -> Floating ty => Floating (Tensor dims ty
   exp = map exp
   log = map log
   pow = zipWith pow
+  sqrt = map sqrt
+
+export
+complement : (Neg ty) => Tensor dims ty -> Tensor dims ty
+complement = map (1-)
 
 export
 head : Tensor (1 + dim :: dims) ty -> Tensor dims ty
@@ -195,6 +200,12 @@ unsqueeze (FS y) (VTensor xs) = VTensor $ map (unsqueeze y) xs
 export
 (++) : Tensor (a :: dims) ty -> Tensor (b :: dims) ty -> Tensor ((a + b) :: dims) ty
 (VTensor xs) ++ (VTensor ys) = VTensor $ xs ++ ys
+
+export
+splitAt : (n : Nat) -> (xs : Tensor ((n + m) :: dims) ty) -> (Tensor (n :: dims) ty, Tensor (m :: dims) ty)
+splitAt Z xs = (VTensor [], xs)
+splitAt (S k) (VTensor (x :: xs)) with (splitAt k {m} xs)
+  splitAt (S k) (VTensor (x :: xs)) | (tk, dr) = (VTensor (x :: tk), VTensor dr)
 
 -- TODO: Do concatentation properly: "All tensors must either have the same shape (except in the concatenating dimension) or be empty."
 
