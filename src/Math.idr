@@ -69,9 +69,26 @@ oneHotDecode : {n : Nat} -> Vector n Nat -> Maybe (Fin n)
 oneHotDecode (VTensor v) = findIndex (== STensor 1) v
 
 export
-dotProduct : Num a => {n : Nat} -> Vector n a -> Vector n a -> a
-dotProduct {n} v1 v2 = sum $ v1 * v2
+dotProduct : Num ty => {n : Nat} -> Vector n ty -> Vector n ty -> ty
+dotProduct v1 v2 = sum $ v1 * v2
 
 export
-matrixVectorMultiply : Num a => {m, n : Nat} -> Matrix m n a -> Vector n a -> Vector m a
-matrixVectorMultiply {n} (VTensor m) v = VTensor $ map (STensor . dotProduct v) m
+l2Norm : (Floating ty, Fractional ty, Num ty) => {n : Nat} -> Vector n ty -> ty
+l2Norm v =
+  let
+    -- NOTE: Necessary to avoid division by 0
+    epsilon = 1/1000000
+    norm = sqrt $ sum $ map (^ 2) v
+  in norm + epsilon
+
+export
+cosineSimilarity : (Floating ty, Fractional ty) => {n : Nat} -> Vector n ty -> Vector n ty -> ty
+cosineSimilarity a b = dotProduct a b / (l2Norm a * l2Norm b)
+
+export
+matrixVectorMultiply : Num ty => {n : Nat} -> Matrix m n ty -> Vector n ty -> Vector m ty
+matrixVectorMultiply (VTensor mat) vec = VTensor $ map (STensor . dotProduct vec) mat
+
+export
+vectorMatrixMultiply : (Num ty) => {n : Nat} -> Vector n ty -> Matrix m n ty -> Vector m ty
+vectorMatrixMultiply = flip matrixVectorMultiply
