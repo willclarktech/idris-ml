@@ -12,6 +12,7 @@ import Network
 import Tensor
 import Variable
 
+
 -- f(x, y) = argmax(x - y - 10, -4x + y + 5, 2x + y - 11)
 dataPoints : Vect 5 (DataPoint 2 3 Double)
 dataPoints =
