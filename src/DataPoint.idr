@@ -22,5 +22,9 @@ record RecurrentDataPoint i o ty where
   ys : List (Vector o ty)
 
 public export
+implementation {i, o : Nat} -> Show ty => Show (RecurrentDataPoint i o ty) where
+  show (MkRecurrentDataPoint xs ys) = "RecurrentDataPoint<" ++ show i ++ "," ++ show o ++ ">(" ++ show xs ++ "," ++ show ys ++ ")"
+
+public export
 implementation Functor (RecurrentDataPoint i o) where
   map f (MkRecurrentDataPoint xs ys) = MkRecurrentDataPoint (map (map f) xs) (map (map f) ys)
