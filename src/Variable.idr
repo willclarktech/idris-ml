@@ -144,16 +144,24 @@ implementation Floating Variable where
         children = [v]
       }
   pow v1 v2 =
-    Var {
-      paramId = Nothing,
-      value = pow v1.value v2.value,
-      grad = 0,
-      back = \g => [
-          g * (pow v1.value v2.value) * (log v1.value),
-          g * (pow v1.value v2.value) * (v1.value / v2.value)
-      ],
-      children = [v1, v2]
-    }
+    Var
+      { paramId = Nothing,
+        value = pow v1.value v2.value,
+        grad = 0,
+        back = \g => [
+            g * (pow v1.value v2.value) * (log v1.value),
+            g * (pow v1.value v2.value) * (v1.value / v2.value)
+        ],
+        children = [v1, v2]
+      }
+  sqrt v =
+    Var
+      { paramId = Nothing,
+        value = sqrt (v.value),
+        grad = 0,
+        back = \g => [g / (2 * sqrt (v.value))],
+        children = [v]
+      }
 
 export
 param : String -> Double -> Variable
