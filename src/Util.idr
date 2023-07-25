@@ -32,6 +32,11 @@ allFins : (n : Nat) -> Vect n (Fin n)
 allFins 0 = []
 allFins (S k) = FZ :: map FS (allFins k)
 
+-- Copied from https://github.com/idris-lang/Idris2/blob/c6e476ed1a7811f05bc2174db45f5e50fa73ec24/libs/base/Data/Vect.idr#L915-L917
+export
+permute : (v : Vect len a) -> (p : Vect len (Fin len)) -> Vect len a
+permute v p = (`index` v) <$> p
+
 -- Copied from https://github.com/idris-lang/Idris2/pull/2707/files#diff-ff81a71a1254f20ad8ec34869deb9ada6f744fefee2e584c03a3c32367ddb8f7R395-R405
 export
 foldlD : (0 accTy : Nat -> Type) ->
