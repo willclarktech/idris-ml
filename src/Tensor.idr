@@ -42,6 +42,13 @@ implementation Eq ty => Eq (Tensor dims ty) where
   (VTensor v1) == (VTensor v2) = v1 == v2
 
 public export
+implementation Ord ty => Ord (Tensor [] ty) where
+  (STensor x) > (STensor y) = x > y
+  (STensor x) >= (STensor y) = x >= y
+  (STensor x) < (STensor y) = x < y
+  (STensor x) <= (STensor y) = x <= y
+
+public export
 implementation Functor (Tensor dims) where
   map f (STensor x) = STensor (f x)
   map f (VTensor xs) = VTensor (map (map f) xs)

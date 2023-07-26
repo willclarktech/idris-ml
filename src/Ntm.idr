@@ -60,7 +60,7 @@ initNtm controller memory =
   in MkNtm controller memory readHead writeHead output
 
 export
-forwardNtm : (Floating ty, Fractional ty, Neg ty, Num ty) => {n, w : Nat} -> {hs : List Nat} -> Ntm n w hs ty -> Vector w ty -> (Ntm n w hs ty, Vector w ty)
+forwardNtm : (Floating ty, Fractional ty, Neg ty, Num ty, Ord ty) => {n, w : Nat} -> {hs : List Nat} -> Ntm n w hs ty -> Vector w ty -> (Ntm n w hs ty, Vector w ty)
 forwardNtm ntm inp =
   let
     (newController, controllerOutput) = forward ntm.controller (ntm.readHeadOutput ++ inp)

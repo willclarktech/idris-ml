@@ -22,7 +22,7 @@ export
 initReadHead : (Num ty) => {n: Nat} -> ty -> ty -> ReadHead n ty
 initReadHead blending sharpening = MkReadHead blending sharpening zeros
 
-getContentAddress : (Floating ty, Fractional ty) => {n, w : Nat} -> Matrix n w ty -> Vector w ty -> Vector n ty
+getContentAddress : (Floating ty, Fractional ty, Ord ty) => {n, w : Nat} -> Matrix n w ty -> Vector w ty -> Vector n ty
 getContentAddress (VTensor memory) keyVector = softmax $ VTensor $ map (STensor . (cosineSimilarity keyVector)) memory
 
 interpolate : (Neg ty, Num ty) => ty -> Vector n ty -> Vector n ty -> Vector n ty
@@ -58,7 +58,7 @@ readOp rh (VTensor memoryRows) =
 
 ||| Input is key vector (w) + shift vector (n)
 export
-forwardReadHead : (Floating ty, Fractional ty, Neg ty) => {n, w : Nat} -> Matrix n w ty -> ReadHead n ty -> Vector (w + n) ty -> (ReadHead n ty, Vector w ty)
+forwardReadHead : (Floating ty, Fractional ty, Neg ty, Ord ty) => {n, w : Nat} -> Matrix n w ty -> ReadHead n ty -> Vector (w + n) ty -> (ReadHead n ty, Vector w ty)
 forwardReadHead memory rh inp =
   let
     (keyVector, shiftVector) = splitAt w inp
@@ -100,7 +100,7 @@ writeOp (MkWriteHead rh) memory eraseVector addVector =
 
 ||| Input is Read head input (w + n) + erase vector (w) + add vector (w)
 export
-forwardWriteHead : (Floating ty, Fractional ty, Neg ty) => {n, w : Nat} -> Matrix n w ty -> WriteHead n ty -> Vector (w + n + w + w) ty -> (WriteHead n ty, Matrix n w ty)
+forwardWriteHead : (Floating ty, Fractional ty, Neg ty, Ord ty) => {n, w : Nat} -> Matrix n w ty -> WriteHead n ty -> Vector (w + n + w + w) ty -> (WriteHead n ty, Matrix n w ty)
 forwardWriteHead memory (MkWriteHead readHead) inp =
   let
     inp' = rewrite plusAssociative (w + n) w w in inp

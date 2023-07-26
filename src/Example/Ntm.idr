@@ -17,7 +17,7 @@ import Util
 import Variable
 
 
-||| Input/output size
+||| Input/output size = token space + 1 (<BLANK>)
 W : Nat
 W = 5
 
@@ -38,28 +38,6 @@ sequences =
   , [1]
   ]
 
--- rawData : Vect n (RecurrentDataPoint N N Double)
--- rawData = map (uncurry MkRecurrentDataPoint . prep) sequences
---   where
---     prep : (sequence : List Double) -> (List (Vector N Double), List (Vector N Double))
---     prep sequence =
---       let
---         pad = Data.List.replicate (length sequence) 0
---         inp = sequence ++ pad
---         outp = pad ++ sequence
---       in (VTensor $ inp, [VTensor $ fromList outp])
-
--- dataSet : List (Vector N Nat, Vector N Nat)
--- dataSet = map getInputOutputPair sequences
---   where
---     getInputOutputPair : List Nat -> (Vect N Nat, Vect N Nat)
---     getInputOutputPair sequence =
---       let
---         pad = Data.List.replicate (length sequence) 0
---         inp = sequence ++ pad
---         outp = pad ++ sequence
---       in (map oneHotEncode inp, map oneHotEncode outp)
-
 prep : List (Fin W) -> RecurrentDataPoint W W Double
 prep sequence =
   let
@@ -74,25 +52,11 @@ prep sequence =
 rawData : Vect E (RecurrentDataPoint W W Double)
 rawData = map prep sequences
 
--- generateData : Nat -> (List Double, List Double)
--- generateData n =
---   let infinitePattern = cycle [0, 1, 0]
---   in (take n infinitePattern, take n (drop 1 infinitePattern))
+decodeYs : Vect E (RecurrentDataPoint W W Variable) -> Vect E (List (Vector W Double))
+decodeYs = map (map (map value) . ys)
 
--- generateDataSet : {n : Nat} -> Vect n (List Double, List Double)
--- generateDataSet = map (generateData. (+3) . finToNat) Data.Vect.Fin.range
-
--- rawData : (n : Nat) -> Vect n (RecurrentDataPoint 1 1 Double)
--- rawData n = map (\(is, os) => MkRecurrentDataPoint (prep is) (prep os)) $ generateDataSet {n}
---   where
---     prep : (ns : List Double) -> List (Vector 1 Double)
---     prep ns = map (flatten . STensor) ns
-
--- decodeYs : Vect n (RecurrentDataPoint 1 1 Variable) -> Vect n (List (Vector 1 Double))
--- decodeYs = map (map (map value) . ys)
-
--- decodeOutput : Vect n (List (Vector o Variable)) -> Vect n (List (Vector o Double))
--- decodeOutput = map (map (map (cast . (0<))))
+decodeOutput : Vect E (List (Vector W Variable)) -> Vect E (List (Fin W))
+decodeOutput = map (map argmax)
 
 
 main : IO ()
@@ -107,38 +71,41 @@ main = do
   -- printLn myNetwork
   -- printLn "hi"
 
-  -- let inp = VTensor [1, 2, 3, 4, 5]
+  -- let
+  --   inp : Vector 5 Nat
+  --   inp = VTensor [1, 2, 3, 4, 5]
+  -- printLn "ARGMAX:"
+  -- printLn $ argmax inp
   -- let (newNtm, out1) = forwardNtm myNtm inp
   -- printLn $ "Output: " ++ show out1
   -- printLn $ "New NTM: " ++ show newNtm
   -- let (newNtm', out2) = forwardNtm newNtm inp
   -- printLn $ "Output: " ++ show out2
 
-  let epochs = 1000
+  let epochs = 1
   let lr = 0.03
-  let lossFn = binaryCrossEntropyWithLogits
+  let lossFn = crossEntropy
 
-  -- rnn <- nameParams "rnn" <$> rnnLayer
-  -- let model = OutputLayer rnn
-  -- putStr "Model: "
-  -- printLn model
-  printLn rawData
-  -- let dataPoints = map (map fromDouble) (rawData 8)
-  -- putStr "Targets: "
-  -- printLn $ decodeYs dataPoints
-  -- let predictions = decodeOutput $ evaluateRecurrent model dataPoints
-  -- let loss = calculateLossRecurrent lossFn model dataPoints
+  rnn <- nameParams "rnn" <$> rnnLayer
+  let model = OutputLayer rnn
+  putStr "Model:\t\t"
+  printLn model
+  let dataPoints = map (map fromDouble) rawData
+  putStr "Targets:\t"
+  printLn $ decodeOutput $ map ys dataPoints
+  let predictions = decodeOutput $ evaluateRecurrent model dataPoints
+  let loss = calculateLossRecurrent lossFn model dataPoints
 
-  -- putStr "Pre loss: "
-  -- printLn $ value loss
-  -- putStr "Predictions: "
-  -- printLn $ predictions
+  putStr "Pre loss:\t"
+  printLn $ value loss
+  putStr "Predictions:\t"
+  printLn $ predictions
 
-  -- let trained = trainRecurrent lr model dataPoints lossFn epochs
-  -- let predictions' = decodeOutput $ evaluateRecurrent trained dataPoints
-  -- let loss' = calculateLossRecurrent lossFn trained dataPoints
+  let trained = trainRecurrent lr model dataPoints lossFn epochs
+  let predictions' = decodeOutput $ evaluateRecurrent trained dataPoints
+  let loss' = calculateLossRecurrent lossFn trained dataPoints
 
-  -- putStr "Post loss: "
-  -- printLn $ value loss'
-  -- putStr "Predictions: "
-  -- printLn $ predictions'
+  putStr "Post loss:\t"
+  printLn $ value loss'
+  putStr "Predictions:\t"
+  printLn $ predictions'
