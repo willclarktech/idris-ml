@@ -12,10 +12,16 @@ data Tensor : Vect rank Nat -> Type -> Type where
   STensor : ty -> Tensor [] ty
   VTensor : Vect dim (Tensor dims ty) -> Tensor (dim :: dims) ty
 
+public export
+0 Scalar : Type -> Type
 Scalar = Tensor []
 
+public export
+0 Vector : Nat -> Type -> Type
 Vector elems = Tensor [elems]
 
+public export
+0 Matrix : Nat -> Nat -> Type -> Type
 Matrix rows columns = Tensor [rows, columns]
 
 export

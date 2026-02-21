@@ -6,12 +6,16 @@ import Floating
 import Tensor
 
 
+public export
+0 ActivationFunction : Type -> Type
 ActivationFunction ty = ty -> ty
 
 export
 sigmoid : (FromDouble ty, Neg ty, Fractional ty, Floating ty) => ActivationFunction ty
 sigmoid x = 1.0 / (1.0 + exp (-x))
 
+public export
+0 NormalizationFunction : Type -> Type
 NormalizationFunction ty = {n : Nat} -> Vector n ty -> Vector n ty
 
 export
@@ -20,6 +24,8 @@ softmax xs =
   let exps = map exp xs
   in map (/(sum exps)) exps
 
+public export
+0 AggregateFunction : (Type -> Type) -> Type -> Type
 AggregateFunction f ty = f ty -> ty
 
 export
@@ -28,6 +34,8 @@ mean {n} xs =
   let tot = fromInteger $ natToInteger $ length xs
   in sum xs / tot
 
+public export
+0 LossFunction : Type -> Type
 LossFunction ty = {n : Nat} -> Vector n ty -> Vector n ty -> ty
 
 export
