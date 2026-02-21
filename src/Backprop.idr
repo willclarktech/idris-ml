@@ -4,8 +4,9 @@ import Data.Vect
 
 import DataPoint
 import Endofunctor
+import Floating
 import Math
-import Network
+import Layer
 import Tensor
 import Variable
 
@@ -34,9 +35,13 @@ backward loss m =
       grads = gradMap propagated
    in transferGrads m grads
 
+||| Update a parameter's value using gradient descent.
+||| Creates a fresh Variable to allow GC of the computation graph.
 export
 updateParam : Double -> Variable -> Variable
-updateParam lr p = {value $= \v => v - lr * p.grad} p
+updateParam lr p =
+  let newVal = p.value - lr * p.grad
+  in Var p.paramId newVal 0 (const []) []
 
 export
 step : Double -> Network i hs o Variable -> Network i hs o Variable

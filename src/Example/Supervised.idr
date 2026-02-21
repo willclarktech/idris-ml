@@ -8,7 +8,6 @@ import DataPoint
 import Floating
 import Layer
 import Math
-import Network
 import Tensor
 import Variable
 

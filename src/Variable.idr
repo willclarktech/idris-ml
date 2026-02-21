@@ -149,8 +149,8 @@ implementation Floating Variable where
         value = pow v1.value v2.value,
         grad = 0,
         back = \g => [
-            g * (pow v1.value v2.value) * (log v1.value),
-            g * (pow v1.value v2.value) * (v1.value / v2.value)
+            g * v2.value * (pow v1.value (v2.value - 1)),
+            g * (pow v1.value v2.value) * (log v1.value)
         ],
         children = [v1, v2]
       }

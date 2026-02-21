@@ -26,11 +26,8 @@ mean xs =
   let tot = fromInteger $ natToInteger $ length xs
   in sum xs / tot
 
--- Copied from https://github.com/idris-lang/Idris2/blob/26c5c4db03f361443b0581d3d0878adcbf42832a/libs/base/Data/Vect.idr#L120-L126
-export
-allFins : (n : Nat) -> Vect n (Fin n)
-allFins 0 = []
-allFins (S k) = FZ :: map FS (allFins k)
+-- Note: allFins is now provided by Data.Vect in recent Idris2 versions
+-- Use Data.Vect.allFins directly instead of Util.allFins
 
 -- Copied from https://github.com/idris-lang/Idris2/blob/c6e476ed1a7811f05bc2174db45f5e50fa73ec24/libs/base/Data/Vect.idr#L915-L917
 export

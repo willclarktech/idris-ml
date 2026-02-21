@@ -10,7 +10,6 @@ import DataPoint
 import Floating
 import Layer
 import Math
-import Network
 import Tensor
 import Util
 import Variable
@@ -22,7 +21,7 @@ generateData n =
   in (take n infinitePattern, take n (drop 1 infinitePattern))
 
 generateDataSet : {n : Nat} -> Vect n (List Double, List Double)
-generateDataSet = map (generateData. (+3) . finToNat) Data.Vect.Fin.range
+generateDataSet = map (generateData . (+3) . finToNat) Data.Vect.Fin.range
 
 rawData : (n : Nat) -> Vect n (RecurrentDataPoint 1 1 Double)
 rawData n = map (\(is, os) => MkRecurrentDataPoint (prep is) (prep os)) $ generateDataSet {n}

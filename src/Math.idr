@@ -54,11 +54,22 @@ binaryCrossEntropyWithLogits predictions ys = mean $ zipWith bceError prediction
       let sigp = sigmoid prediction
       in -(y * log sigp + (1 - y) * log (1 - sigp))
 
-export
-crossEntropy : (Num ty, Neg ty, Floating ty) => LossFunction ty
-crossEntropy predictions ys = ((-1) *) $ sum $ zipWith (\p, y => y * log p + (1 - y) * log (1 - p)) predictions ys
+-- export
+-- crossEntropy : (Num ty, Neg ty, Floating ty) => LossFunction ty
+-- crossEntropy predictions ys = ((-1) *) $ sum $ zipWith (\p, y => y * log p + (1 - y) * log (1 - p)) predictions ys
 
--- Tensor
+export
+crossEntropy : (Num ty, Neg ty, Floating ty, Fractional ty, Ord ty) => LossFunction ty
+crossEntropy {n} predictions ys =
+  let losses = zipWith loss predictions ys
+  in sum losses / fromInteger (natToInteger n)
+  where
+    epsilon : ty
+    epsilon = pow 10 (-7)
+    loss : ty -> ty -> ty
+    loss prediction y =
+      let p = max epsilon (min prediction (1 - epsilon))
+      in - (y * log p) + -(1 - y) * log (1 - p)
 
 export
 oneHotEncode : {n : Nat} -> Fin n -> Vector n Nat
@@ -68,10 +79,45 @@ export
 oneHotDecode : {n : Nat} -> Vector n Nat -> Maybe (Fin n)
 oneHotDecode (VTensor v) = findIndex (== STensor 1) v
 
+-- TODO: Improve efficiency
 export
-dotProduct : Num a => {n : Nat} -> Vector n a -> Vector n a -> a
-dotProduct {n} v1 v2 = sum $ v1 * v2
+argmax: Ord ty => {n : Nat} -> Vector (S n) ty -> Fin (S n)
+argmax (VTensor v@(x::xs)) =
+  foldl maxIndex FZ Data.Vect.Fin.range
+  where
+    -- current indexes v, next indexes xs
+    maxIndex : Fin (S n) -> Fin n -> Fin (S n)
+    maxIndex current next =
+      let
+        (STensor currentValue) = Data.Vect.index current v
+        (STensor nextValue) = Data.Vect.index next xs
+      -- Prioritise earlier value
+      in if nextValue > currentValue
+        -- Need to convert from index of xs to index of v
+        then FS next
+        else current
 
 export
-matrixVectorMultiply : Num a => {m, n : Nat} -> Matrix m n a -> Vector n a -> Vector m a
-matrixVectorMultiply {n} (VTensor m) v = VTensor $ map (STensor . dotProduct v) m
+dotProduct : Num ty => {n : Nat} -> Vector n ty -> Vector n ty -> ty
+dotProduct v1 v2 = sum $ v1 * v2
+
+export
+l2Norm : (Floating ty, Num ty, Ord ty) => {n : Nat} -> Vector n ty -> ty
+l2Norm v =
+  let
+    norm = sqrt $ sum $ map (^ 2) v
+    -- NOTE: Necessary to avoid division by 0
+    epsilon = pow 10 (-7)
+  in max norm epsilon
+
+export
+cosineSimilarity : (Floating ty, Fractional ty, Ord ty) => {n : Nat} -> Vector n ty -> Vector n ty -> ty
+cosineSimilarity a b = dotProduct a b / (l2Norm a * l2Norm b)
+
+export
+matrixVectorMultiply : Num ty => {n : Nat} -> Matrix m n ty -> Vector n ty -> Vector m ty
+matrixVectorMultiply (VTensor mat) vec = VTensor $ map (STensor . dotProduct vec) mat
+
+export
+vectorMatrixMultiply : (Num ty) => {n : Nat} -> Vector n ty -> Matrix m n ty -> Vector m ty
+vectorMatrixMultiply = flip matrixVectorMultiply

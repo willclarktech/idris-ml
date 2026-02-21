@@ -8,7 +8,7 @@ interface Floating ty where
   pow : ty -> ty -> ty
   sqrt : ty -> ty
 
-infixr 9 ^
+export infixr 9 ^
 export
 (^) : Floating ty => ty -> ty -> ty
 (^) = Floating.pow
