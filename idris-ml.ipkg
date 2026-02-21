@@ -1,0 +1,16 @@
+package idris-ml
+
+sourcedir = "src"
+
+depends = contrib
+
+modules = Backprop
+        , DataPoint
+        , Endofunctor
+        , Floating
+        , Layer
+        , Math
+        , Memory
+        , Tensor
+        , Util
+        , Variable

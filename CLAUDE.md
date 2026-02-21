@@ -4,13 +4,14 @@ Deep learning library in Idris 2 with compile-time tensor shape checking and aut
 
 ## Build Commands
 
-There is no `.ipkg` file. Both `--source-dir src` and `-p contrib` are always required.
-
 ```bash
-# Type-check a module
+# Type-check all library modules
+idris2 --build idris-ml.ipkg
+
+# Type-check a single module
 idris2 --source-dir src -p contrib --check src/<File>.idr
 
-# Build an example
+# Build an example (examples aren't in the package, so manual flags are needed)
 idris2 --source-dir src -p contrib -o <name> src/Example/<Name>.idr
 
 # Run a built example
