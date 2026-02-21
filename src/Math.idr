@@ -54,10 +54,6 @@ binaryCrossEntropyWithLogits predictions ys = mean $ zipWith bceError prediction
       let sigp = sigmoid prediction
       in -(y * log sigp + (1 - y) * log (1 - sigp))
 
--- export
--- crossEntropy : (Num ty, Neg ty, Floating ty) => LossFunction ty
--- crossEntropy predictions ys = ((-1) *) $ sum $ zipWith (\p, y => y * log p + (1 - y) * log (1 - p)) predictions ys
-
 export
 crossEntropy : (Num ty, Neg ty, Floating ty, Fractional ty, Ord ty) => LossFunction ty
 crossEntropy {n} predictions ys =
