@@ -25,6 +25,11 @@ export
 initReadHead : (Num ty) => {n: Nat} -> ty -> ty -> ReadHead n ty
 initReadHead blending sharpening = MkReadHead blending sharpening zeros
 
+public export
+Functor (ReadHead n) where
+  map f (MkReadHead blending sharpening addressingWeights) =
+    MkReadHead (f blending) (f sharpening) (map f addressingWeights)
+
 getContentAddress : (Floating ty, Fractional ty, Ord ty) => {n, w : Nat} -> Matrix n w ty -> Vector w ty -> Vector n ty
 getContentAddress (VTensor memory) keyVector = softmax $ VTensor $ map (STensor . (cosineSimilarity keyVector)) memory
 
@@ -87,6 +92,10 @@ initWriteHead : (Num ty) => {n: Nat} -> ty -> ty -> WriteHead n ty
 initWriteHead blending sharpening =
   let rh = initReadHead blending sharpening
   in MkWriteHead rh
+
+public export
+Functor (WriteHead n) where
+  map f (MkWriteHead rh) = MkWriteHead (map f rh)
 
 eraseMemory : (Neg ty, Num ty) => {n, w : Nat} -> Matrix n w ty -> Vector n ty -> Vector w ty -> Matrix n w ty
 eraseMemory memory (VTensor addressVector) eraseVector =

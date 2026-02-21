@@ -92,20 +92,13 @@ implementation {i, h : Nat} -> (Show ty, Show (Network h hs o ty)) => Show (Netw
 -- Endofunctor Instances
 ----------------------------------------------------------------------
 
-emapReadHead : (a -> b) -> ReadHead n a -> ReadHead n b
-emapReadHead f (MkReadHead blending sharpening addressingWeights) =
-  MkReadHead (f blending) (f sharpening) (map f addressingWeights)
-
-emapWriteHead : (a -> b) -> WriteHead n a -> WriteHead n b
-emapWriteHead f (MkWriteHead rh) = MkWriteHead (emapReadHead f rh)
-
 mutual
   public export
   implementation Endofunctor (Layer i o) where
     emap f (LinearLayer w b) = LinearLayer (map f w) (map f b)
     emap f (RnnLayer iw rw b po) = RnnLayer (map f iw) (map f rw) (map f b) (map f po)
     emap f (NtmLayer controller mem rh wh ro) =
-      NtmLayer (emap f controller) (map f mem) (emapReadHead f rh) (emapWriteHead f wh) (map f ro)
+      NtmLayer (emap f controller) (map f mem) (map f rh) (map f wh) (map f ro)
     emap _ l = l
 
   public export
