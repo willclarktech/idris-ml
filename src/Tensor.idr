@@ -142,6 +142,11 @@ implementation {dims : Vect rank Nat} -> Foldable (Tensor dims) where
   null {dims = dims} _ = any (== 0) dims
 
 public export
+implementation {dims : Vect rank Nat} -> Traversable (Tensor dims) where
+  traverse f (STensor x) = map STensor (f x)
+  traverse f (VTensor xs) = map VTensor (traverse (traverse f) xs)
+
+public export
 implementation Zippable (Tensor dims) where
   zipWith f (STensor x) (STensor y) = STensor (f x y)
   zipWith f (VTensor xs) (VTensor ys) = VTensor $ zipWith (zipWith f) xs ys
