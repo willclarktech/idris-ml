@@ -56,111 +56,39 @@ implementation Random Variable where
   randomIO = map fromDouble randomIO
   randomRIO (lo, hi) = map fromDouble (randomRIO (lo.value, hi.value))
 
+unaryOp : Double -> (Double -> Double) -> Variable -> Variable
+unaryOp val bk x = Var Nothing val 0 (\g => [bk g]) [x]
+
+binaryOp : Double -> (Double -> Double) -> (Double -> Double) -> Variable -> Variable -> Variable
+binaryOp val bkL bkR x y = Var Nothing val 0 (\g => [bkL g, bkR g]) [x, y]
+
 public export
 implementation Num Variable where
-  v1 + v2 =
-    Var
-      { paramId = Nothing,
-        value = v1.value + v2.value,
-        grad = 0,
-        back = \g => [g, g],
-        children = [v1, v2]
-      }
-  v1 * v2 =
-    Var
-      { paramId = Nothing,
-        value = v1.value * v2.value,
-        grad = 0,
-        back = \g => [g * v2.value, g * v1.value],
-        children = [v1, v2]
-      }
-  fromInteger v =
-    Var
-      { paramId = Nothing,
-        value = fromInteger v,
-        grad = 0,
-        back = const [],
-        children = []
-      }
+  v1 + v2 = binaryOp (v1.value + v2.value) id id v1 v2
+  v1 * v2 = binaryOp (v1.value * v2.value) (* v2.value) (* v1.value) v1 v2
+  fromInteger v = Var Nothing (fromInteger v) 0 (const []) []
 
 public export
 implementation Neg Variable where
-  v1 - v2 =
-    Var
-      { paramId = Nothing,
-        value = v1.value - v2.value,
-        grad = 0,
-        back = \g => [g, -g],
-        children = [v1, v2]
-      }
-  negate v =
-    Var
-      { paramId = Nothing,
-        value = negate $ v.value,
-        grad = 0,
-        back = \g => [-g],
-        children = [v]
-      }
+  v1 - v2 = binaryOp (v1.value - v2.value) id negate v1 v2
+  negate v = unaryOp (negate v.value) negate v
 
 public export
 implementation Abs Variable where
-  abs v =
-    Var
-      { paramId = Nothing,
-        value = abs $ v.value,
-        grad = 0,
-        back = \g => [g * signum (v.value)],
-        children = [v]
-      }
+  abs v = unaryOp (abs v.value) (* signum v.value) v
 
 public export
 implementation Fractional Variable where
-  v1 / v2 =
-    Var
-      { paramId = Nothing,
-        value = v1.value / v2.value,
-        grad = 0,
-        back = \g => [g / v2.value, -g * v1.value / (pow v2.value 2)],
-        children = [v1, v2]
-      }
+  v1 / v2 = binaryOp (v1.value / v2.value) (/ v2.value) (\g => -g * v1.value / pow v2.value 2) v1 v2
 
 public export
 implementation Floating Variable where
-  exp v =
-      Var
-        { paramId = Nothing,
-          value = exp (v.value),
-          grad = 0,
-          back = \g => [g * exp (v.value)],
-          children = [v]
-        }
-  log v =
-    Var
-      { paramId = Nothing,
-        value = log (v.value),
-        grad = 0,
-        back = \g => [g / v.value],
-        children = [v]
-      }
-  pow v1 v2 =
-    Var
-      { paramId = Nothing,
-        value = pow v1.value v2.value,
-        grad = 0,
-        back = \g => [
-            g * v2.value * (pow v1.value (v2.value - 1)),
-            g * (pow v1.value v2.value) * (log v1.value)
-        ],
-        children = [v1, v2]
-      }
-  sqrt v =
-    Var
-      { paramId = Nothing,
-        value = sqrt (v.value),
-        grad = 0,
-        back = \g => [g / (2 * sqrt (v.value))],
-        children = [v]
-      }
+  exp v  = unaryOp (exp v.value) (* exp v.value) v
+  log v  = unaryOp (log v.value) (/ v.value) v
+  pow v1 v2 = binaryOp (pow v1.value v2.value)
+    (* v2.value * pow v1.value (v2.value - 1))
+    (\g => g * pow v1.value v2.value * log v1.value) v1 v2
+  sqrt v = unaryOp (sqrt v.value) (/ (2 * sqrt v.value)) v
 
 export
 param : String -> Double -> Variable
