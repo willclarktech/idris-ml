@@ -5,7 +5,6 @@ import Data.Fin
 import System.Random
 
 import Floating
-import Util
 
 
 public export

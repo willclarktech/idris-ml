@@ -8,7 +8,6 @@ import Data.Vect
 import Floating
 import Math
 import Tensor
-import Util
 
 
 public export

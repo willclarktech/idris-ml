@@ -4,7 +4,6 @@ import Data.List
 import System.Random
 
 import Floating
-import Math
 import Util
 
 
