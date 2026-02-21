@@ -54,42 +54,32 @@ public export
 0 LossFunction : Type -> Type
 LossFunction ty = {n : Nat} -> Vector n ty -> Vector n ty -> ty
 
+reduceLoss : (Num ty, Fractional ty) => (ty -> ty -> ty) -> LossFunction ty
+reduceLoss pointwise predictions targets = mean $ zipWith pointwise predictions targets
+
 export
 meanSquaredError : (Neg ty, Fractional ty, Floating ty) => LossFunction ty
-meanSquaredError {n} predictions ys = mean $ zipWith squaredError predictions ys
-  where
-    squaredError : ty -> ty -> ty
-    squaredError prediction y = (prediction - y) ^ 2
+meanSquaredError = reduceLoss (\p, y => (p - y) ^ 2)
 
 export
 binaryCrossEntropy : (Neg ty, Fractional ty, Floating ty) => LossFunction ty
-binaryCrossEntropy predictions ys = mean $ zipWith bceError predictions ys
-  where
-    bceError : ty -> ty -> ty
-    bceError prediction y = -(y * log prediction + (1 - y) * log (1 - prediction))
+binaryCrossEntropy = reduceLoss (\p, y => -(y * log p + (1 - y) * log (1 - p)))
 
 ||| Equivalent to but more numerically stable than (BCE . sigmoid)
 export
 binaryCrossEntropyWithLogits : (FromDouble ty, Neg ty, Fractional ty, Floating ty) => LossFunction ty
-binaryCrossEntropyWithLogits predictions ys = mean $ zipWith bceError predictions ys
-  where
-    bceError : ty -> ty -> ty
-    bceError prediction y =
-      let sigp = sigmoid prediction
-      in -(y * log sigp + (1 - y) * log (1 - sigp))
+binaryCrossEntropyWithLogits = reduceLoss (\p, y =>
+  let sigp = sigmoid p in -(y * log sigp + (1 - y) * log (1 - sigp)))
 
 export
 crossEntropy : (Num ty, Neg ty, Floating ty, Fractional ty, Ord ty) => LossFunction ty
-crossEntropy {n} predictions ys =
-  let losses = zipWith loss predictions ys
-  in sum losses / fromInteger (natToInteger n)
+crossEntropy = reduceLoss clampedLoss
   where
-    epsilon : ty
-    epsilon = pow 10 (-7)
-    loss : ty -> ty -> ty
-    loss prediction y =
-      let p = max epsilon (min prediction (1 - epsilon))
-      in - (y * log p) + -(1 - y) * log (1 - p)
+    clampedLoss : ty -> ty -> ty
+    clampedLoss p y =
+      let ep = pow 10 (-7)
+          pp = max ep (min p (1 - ep))
+      in -(y * log pp) + -(1 - y) * log (1 - pp)
 
 ----------------------------------------------------------------------
 -- Encoding
