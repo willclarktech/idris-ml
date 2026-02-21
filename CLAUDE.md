@@ -162,7 +162,7 @@ let prepared = map (map fromDouble) dataPoints  -- DataPoint i o Double -> DataP
 - **Indentation**: 2 spaces for `.idr` files (see `.editorconfig`)
 - **Naming**: PascalCase for types/constructors, camelCase for functions/variables
 - **Imports**: Idris stdlib first (`Data.Vect`, `System.Random`), then internal modules alphabetically
-- **Commit messages**: Imperative present tense, concise (~50 chars). Examples: "Add sqrt/complement to Tensor", "Simplify Network", "Tidy Supervised". Commit work regularly in meaningful chunks — one logical change per commit
+- **Commits**: Follow [Conventional Commits](https://www.conventionalcommits.org/) — `feat:`, `fix:`, `refactor:`, `docs:`, `chore:`, etc. Keep subject concise (~50 chars), imperative present tense. Commit work regularly in meaningful chunks — one logical change per commit. Never include ads, branding, or promotional text in commit messages or PR descriptions
 - **Section dividers**: `----------------------------------------------------------------------` with section titles in Layer.idr style
 
 ## Gotchas
