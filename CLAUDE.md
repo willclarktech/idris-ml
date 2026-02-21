@@ -24,7 +24,6 @@ Concrete examples:
 idris2 --source-dir src -p contrib -o supervised src/Example/Supervised.idr && ./build/exec/supervised
 idris2 --source-dir src -p contrib -o rnn src/Example/Rnn.idr && ./build/exec/rnn
 idris2 --source-dir src -p contrib -o ntm src/Example/Ntm.idr && ./build/exec/ntm
-idris2 --source-dir src -p contrib -o ntmdebug src/Example/NtmDebug.idr && ./build/exec/ntmdebug
 ```
 
 ## Architecture
