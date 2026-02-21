@@ -7,6 +7,10 @@ import System.Random
 import Floating
 
 
+----------------------------------------------------------------------
+-- Core Type and Aliases
+----------------------------------------------------------------------
+
 public export
 data Tensor : Vect rank Nat -> Type -> Type where
   STensor : ty -> Tensor [] ty
@@ -35,6 +39,10 @@ length {dim} _ = dim
 export
 fromList : (xs : List ty) -> Vector (length xs) ty
 fromList xs = VTensor $ map STensor $ Data.Vect.fromList xs
+
+----------------------------------------------------------------------
+-- Instances
+----------------------------------------------------------------------
 
 public export
 implementation Show ty => Show (Tensor dims ty) where
@@ -77,6 +85,10 @@ export
 ones : Num ty => {dims : Vect rank Nat} -> Tensor dims ty
 ones = pure 1
 
+----------------------------------------------------------------------
+-- Random
+----------------------------------------------------------------------
+
 implementation {n : Nat} -> Random ty => Random (Vect n ty) where
   randomIO {n = Z} = pure []
   randomIO {n = S k} = do
@@ -117,6 +129,10 @@ export
 generate : {dims : Vect rank Nat} -> (Nat -> ty) -> Tensor dims ty
 generate f = map f (indices 0)
 
+----------------------------------------------------------------------
+-- Foldable and Zippable
+----------------------------------------------------------------------
+
 public export
 implementation {dims : Vect rank Nat} -> Foldable (Tensor dims) where
   foldr f acc (STensor x) = f x acc
@@ -146,6 +162,10 @@ implementation Zippable (Tensor dims) where
   unzipWith3 f (VTensor xs) =
     let (ls, ms, rs) = unzipWith3 (unzipWith3 f) xs
     in (VTensor ls, VTensor ms, VTensor rs)
+
+----------------------------------------------------------------------
+-- Arithmetic
+----------------------------------------------------------------------
 
 ||| Note that multiplication is elementwise
 public export
@@ -182,6 +202,10 @@ implementation {dims : Vect rank Nat} -> Floating ty => Floating (Tensor dims ty
   log = map log
   pow = zipWith pow
   sqrt = map sqrt
+
+----------------------------------------------------------------------
+-- Structural Operations
+----------------------------------------------------------------------
 
 export
 complement : (Neg ty) => Tensor dims ty -> Tensor dims ty

@@ -11,6 +11,10 @@ import Tensor
 import Variable
 
 
+----------------------------------------------------------------------
+-- Gradient Operations
+----------------------------------------------------------------------
+
 export
 zeroGrad : Network i hs o Variable -> Network i hs o Variable
 zeroGrad = emap {grad := 0}
@@ -35,6 +39,10 @@ backward loss m =
       grads = gradMap propagated
    in transferGrads m grads
 
+----------------------------------------------------------------------
+-- Parameter Update
+----------------------------------------------------------------------
+
 ||| Update a parameter's value using gradient descent.
 ||| Creates a fresh Variable to allow GC of the computation graph.
 export
@@ -46,6 +54,10 @@ updateParam lr p =
 export
 step : Double -> Network i hs o Variable -> Network i hs o Variable
 step lr = emap (updateParam lr)
+
+----------------------------------------------------------------------
+-- Supervised Training
+----------------------------------------------------------------------
 
 export
 epoch :
@@ -73,6 +85,10 @@ train :
   Int ->
   Network i hs o Variable
 train lr model dataPoints lossFn epochs = foldr (const $ epoch lr dataPoints lossFn) model [1 .. epochs]
+
+----------------------------------------------------------------------
+-- Recurrent Training
+----------------------------------------------------------------------
 
 export
 epochRecurrent :

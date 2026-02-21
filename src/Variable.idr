@@ -7,6 +7,10 @@ import Floating
 import Util
 
 
+----------------------------------------------------------------------
+-- Record Definition
+----------------------------------------------------------------------
+
 public export
 record Variable where
   constructor Var
@@ -15,6 +19,10 @@ record Variable where
   grad : Double
   back : Double -> List Double
   children : List Variable
+
+----------------------------------------------------------------------
+-- Instances
+----------------------------------------------------------------------
 
 export
 Show Variable where
@@ -56,6 +64,10 @@ implementation Random Variable where
   randomIO = map fromDouble randomIO
   randomRIO (lo, hi) = map fromDouble (randomRIO (lo.value, hi.value))
 
+----------------------------------------------------------------------
+-- Construction Helpers
+----------------------------------------------------------------------
+
 unaryOp : Double -> (Double -> Double) -> Variable -> Variable
 unaryOp val bk x = Var Nothing val 0 (\g => [bk g]) [x]
 
@@ -90,6 +102,10 @@ implementation Floating Variable where
     (\g => g * pow v1.value v2.value * log v1.value) v1 v2
   sqrt v = unaryOp (sqrt v.value) (/ (2 * sqrt v.value)) v
 
+----------------------------------------------------------------------
+-- Parameter Naming
+----------------------------------------------------------------------
+
 export
 param : String -> Double -> Variable
 param paramId = { paramId := Just paramId } . fromDouble
@@ -97,6 +113,10 @@ param paramId = { paramId := Just paramId } . fromDouble
 export
 nameParam : String -> Nat -> Variable -> Variable
 nameParam prefx i p = { paramId := Just (prefx ++ show i) } p
+
+----------------------------------------------------------------------
+-- Backpropagation
+----------------------------------------------------------------------
 
 export
 backwardVariable : Double -> Variable -> Variable

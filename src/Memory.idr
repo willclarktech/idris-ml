@@ -10,6 +10,10 @@ import Math
 import Tensor
 
 
+----------------------------------------------------------------------
+-- Read Head
+----------------------------------------------------------------------
+
 public export
 record ReadHead n ty where
   constructor MkReadHead
@@ -68,6 +72,10 @@ forwardReadHead memory rh inp =
     newReadHead = { addressingWeights := focused } rh
     output = readOp newReadHead memory
   in (newReadHead, output)
+
+----------------------------------------------------------------------
+-- Write Head
+----------------------------------------------------------------------
 
 public export
 record WriteHead n ty where

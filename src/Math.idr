@@ -6,6 +6,10 @@ import Floating
 import Tensor
 
 
+----------------------------------------------------------------------
+-- Activation Functions
+----------------------------------------------------------------------
+
 public export
 0 ActivationFunction : Type -> Type
 ActivationFunction ty = ty -> ty
@@ -13,6 +17,10 @@ ActivationFunction ty = ty -> ty
 export
 sigmoid : (FromDouble ty, Neg ty, Fractional ty, Floating ty) => ActivationFunction ty
 sigmoid x = 1.0 / (1.0 + exp (-x))
+
+----------------------------------------------------------------------
+-- Normalization Functions
+----------------------------------------------------------------------
 
 public export
 0 NormalizationFunction : Type -> Type
@@ -24,6 +32,10 @@ softmax xs =
   let exps = map exp xs
   in map (/(sum exps)) exps
 
+----------------------------------------------------------------------
+-- Aggregate Functions
+----------------------------------------------------------------------
+
 public export
 0 AggregateFunction : (Type -> Type) -> Type -> Type
 AggregateFunction f ty = f ty -> ty
@@ -33,6 +45,10 @@ mean : (Num ty, Fractional ty) => {n : Nat} -> AggregateFunction (Vector n) ty
 mean {n} xs =
   let tot = fromInteger $ natToInteger $ length xs
   in sum xs / tot
+
+----------------------------------------------------------------------
+-- Loss Functions
+----------------------------------------------------------------------
 
 public export
 0 LossFunction : Type -> Type
@@ -75,6 +91,10 @@ crossEntropy {n} predictions ys =
       let p = max epsilon (min prediction (1 - epsilon))
       in - (y * log p) + -(1 - y) * log (1 - p)
 
+----------------------------------------------------------------------
+-- Encoding
+----------------------------------------------------------------------
+
 export
 oneHotEncode : {n : Nat} -> Fin n -> Vector n Nat
 oneHotEncode i = VTensor $ replaceAt i 1 $ replicate n 0
@@ -100,6 +120,10 @@ argmax (VTensor v@(x::xs)) =
         -- Need to convert from index of xs to index of v
         then FS next
         else current
+
+----------------------------------------------------------------------
+-- Linear Algebra
+----------------------------------------------------------------------
 
 export
 dotProduct : Num ty => {n : Nat} -> Vector n ty -> Vector n ty -> ty
