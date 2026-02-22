@@ -23,7 +23,7 @@ W = 3
 
 ||| Number of memory slots
 N : Nat
-N = 2
+N = 3
 
 ||| Controller hidden layer size
 H : Nat
@@ -42,12 +42,12 @@ E = 1
 ||| Task: input [s, 0] -> output [0, s]
 sequences : Vect E (List (Fin W))
 sequences =
-  [ [1]
+  [ [1, 2]
   ]
 
 ||| Held-out test sequence to check generalization
 testSequences : Vect 1 (List (Fin W))
-testSequences = [ [2] ]
+testSequences = [ [2, 1] ]
 
 ||| Convert a sequence to a RecurrentDataPoint for copy task
 ||| Input: sequence ++ blanks (write phase)
