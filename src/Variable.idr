@@ -1,6 +1,7 @@
 module Variable
 
 import Data.List
+import Data.SortedMap
 import System.Random
 
 import Floating
@@ -119,14 +120,10 @@ nameParam prefx i p = { paramId := Just (prefx ++ show i) } p
 ----------------------------------------------------------------------
 
 export
-backwardVariable : Double -> Variable -> Variable
-backwardVariable g v =
-    { grad $= (g +),
-      children $= zipWith backwardVariable (v.back g)
-    } v
-
-export
-gradMap : Variable -> List (String, Double)
-gradMap v = case v.paramId of
-  (Just pid) => (pid, v.grad) :: concatMap gradMap v.children
-  Nothing => concatMap gradMap v.children
+collectGrads : Double -> Variable -> SortedMap String Double
+collectGrads g v =
+  let childGrads = zipWith collectGrads (v.back g) v.children
+      merged = foldl (mergeWith (+)) empty childGrads
+  in case v.paramId of
+    Just pid => mergeWith (+) (singleton pid g) merged
+    Nothing  => merged

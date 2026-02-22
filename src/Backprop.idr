@@ -1,5 +1,6 @@
 module Backprop
 
+import Data.SortedMap
 import Data.Vect
 
 import DataPoint
@@ -12,48 +13,15 @@ import Variable
 
 
 ----------------------------------------------------------------------
--- Gradient Operations
+-- Gradient Application
 ----------------------------------------------------------------------
 
-export
-zeroGrad : Network i hs o Variable -> Network i hs o Variable
-zeroGrad = emap {grad := 0}
-
-export
-transferGrads : Network i hs o Variable -> List (String, Double) -> Network i hs o Variable
-transferGrads = foldr addGrad
-  where
-    addGrad : (String, Double) -> (Network i hs o Variable) -> (Network i hs o Variable)
-    addGrad (pid, g) =
-      emap
-        ( \v =>
-            case paramId v of
-              Nothing => v
-              Just p => if p == pid then {grad $= (+ g)} v else v
-        )
-
-export
-backward : Variable -> Network i hs o Variable -> Network i hs o Variable
-backward loss m =
-  let propagated = backwardVariable 1 loss
-      grads = gradMap propagated
-   in transferGrads m grads
-
-----------------------------------------------------------------------
--- Parameter Update
-----------------------------------------------------------------------
-
-||| Update a parameter's value using gradient descent.
-||| Creates a fresh Variable to allow GC of the computation graph.
-export
-updateParam : Double -> Variable -> Variable
-updateParam lr p =
-  let newVal = p.value - lr * p.grad
-  in Var p.paramId newVal 0 (const []) []
-
-export
-step : Double -> Network i hs o Variable -> Network i hs o Variable
-step lr = emap (updateParam lr)
+applyGrads : Double -> SortedMap String Double -> Variable -> Variable
+applyGrads lr grads v = case v.paramId of
+  Just pid => case lookup pid grads of
+    Just g  => Var (Just pid) (v.value - lr * g) 0 (const []) []
+    Nothing => Var v.paramId v.value 0 (const []) []
+  Nothing  => v
 
 ----------------------------------------------------------------------
 -- Supervised Training
@@ -69,10 +37,9 @@ epoch :
   Network i hs o Variable ->
   Network i hs o Variable
 epoch lr dataPoints lossFn model =
-  let zeroed = zeroGrad model
-      loss = calculateLoss lossFn zeroed dataPoints
-      propagated = backward loss zeroed
-   in step lr propagated
+  let loss = calculateLoss lossFn model dataPoints
+      grads = collectGrads 1.0 loss
+  in emap (applyGrads lr grads) model
 
 export
 train :
@@ -84,7 +51,7 @@ train :
   LossFunction Variable ->
   Int ->
   Network i hs o Variable
-train lr model dataPoints lossFn epochs = foldr (const $ epoch lr dataPoints lossFn) model [1 .. epochs]
+train lr model dataPoints lossFn epochs = foldl (\m, _ => epoch lr dataPoints lossFn m) model [1 .. epochs]
 
 ----------------------------------------------------------------------
 -- Recurrent Training
@@ -100,10 +67,9 @@ epochRecurrent :
   Network i hs o Variable ->
   Network i hs o Variable
 epochRecurrent lr dataPoints lossFn model =
-  let zeroed = zeroGrad model
-      loss = calculateLossRecurrent lossFn zeroed dataPoints
-      propagated = backward loss zeroed
-   in step lr propagated
+  let loss = calculateLossRecurrent lossFn model dataPoints
+      grads = collectGrads 1.0 loss
+  in emap (applyGrads lr grads) model
 
 export
 trainRecurrent :
@@ -115,4 +81,4 @@ trainRecurrent :
   LossFunction Variable ->
   Int ->
   Network i hs o Variable
-trainRecurrent lr model dataPoints lossFn epochs = foldr (const $ epochRecurrent lr dataPoints lossFn) model [1 .. epochs]
+trainRecurrent lr model dataPoints lossFn epochs = foldl (\m, _ => epochRecurrent lr dataPoints lossFn m) model [1 .. epochs]
