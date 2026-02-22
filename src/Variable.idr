@@ -1,11 +1,26 @@
 module Variable
 
 import Data.List
+import Data.Maybe
 import Data.SortedMap
+import Data.SortedSet
 import System.Random
 
 import Floating
 import Util
+
+
+----------------------------------------------------------------------
+-- Global Node ID Counter (FFI)
+----------------------------------------------------------------------
+
+%foreign "scheme:(lambda (dummy) (when (not (top-level-bound? 'idris-ml-nid)) (set-top-level-value! 'idris-ml-nid 0)) (set-top-level-value! 'idris-ml-nid (+ (top-level-value 'idris-ml-nid) 1)) (top-level-value 'idris-ml-nid))"
+prim__nextNodeId : Double -> Int
+
+export
+%noinline
+nextNodeId : Double -> Nat
+nextNodeId x = cast (prim__nextNodeId x)
 
 
 ----------------------------------------------------------------------
@@ -15,6 +30,7 @@ import Util
 public export
 record Variable where
   constructor Var
+  nodeId : Nat
   paramId : Maybe String
   value : Double
   grad : Double
@@ -45,7 +61,8 @@ public export
 implementation FromDouble Variable where
   fromDouble n =
     Var
-      { paramId = Nothing,
+      { nodeId = nextNodeId n,
+        paramId = Nothing,
         value = n,
         grad = 0,
         back = const [],
@@ -70,16 +87,16 @@ implementation Random Variable where
 ----------------------------------------------------------------------
 
 unaryOp : Double -> (Double -> Double) -> Variable -> Variable
-unaryOp val bk x = Var Nothing val 0 (\g => [bk g]) [x]
+unaryOp val bk x = Var (nextNodeId val) Nothing val 0 (\g => [bk g]) [x]
 
 binaryOp : Double -> (Double -> Double) -> (Double -> Double) -> Variable -> Variable -> Variable
-binaryOp val bkL bkR x y = Var Nothing val 0 (\g => [bkL g, bkR g]) [x, y]
+binaryOp val bkL bkR x y = Var (nextNodeId val) Nothing val 0 (\g => [bkL g, bkR g]) [x, y]
 
 public export
 implementation Num Variable where
   v1 + v2 = binaryOp (v1.value + v2.value) id id v1 v2
   v1 * v2 = binaryOp (v1.value * v2.value) (* v2.value) (* v1.value) v1 v2
-  fromInteger v = Var Nothing (fromInteger v) 0 (const []) []
+  fromInteger v = let val = fromInteger v in Var (nextNodeId val) Nothing val 0 (const []) []
 
 public export
 implementation Neg Variable where
@@ -109,7 +126,7 @@ implementation Floating Variable where
 
 export
 param : String -> Double -> Variable
-param paramId = { paramId := Just paramId } . fromDouble
+param pid = { paramId := Just pid } . fromDouble
 
 export
 nameParam : String -> Nat -> Variable -> Variable
@@ -119,11 +136,40 @@ nameParam prefx i p = { paramId := Just (prefx ++ show i) } p
 -- Backpropagation
 ----------------------------------------------------------------------
 
+topoSort : Variable -> List Variable
+topoSort root = snd $ go empty root
+  where
+    go : SortedSet Nat -> Variable -> (SortedSet Nat, List Variable)
+    go visited v =
+      if contains v.nodeId visited
+        then (visited, [])
+        else
+          let visited' = insert v.nodeId visited
+              (visited'', childNodes) =
+                foldl (\(vis, acc), c =>
+                  let (vis', nodes) = go vis c
+                  in (vis', acc ++ nodes))
+                  (visited', []) v.children
+          in (visited'', childNodes ++ [v])
+
 export
 collectGrads : Double -> Variable -> SortedMap String Double
-collectGrads g v =
-  let childGrads = zipWith collectGrads (v.back g) v.children
-      merged = foldl (mergeWith (+)) empty childGrads
-  in case v.paramId of
-    Just pid => mergeWith (+) (singleton pid g) merged
-    Nothing  => merged
+collectGrads initGrad root =
+  let sorted = reverse $ topoSort root
+      nodeGrads = singleton root.nodeId initGrad
+  in snd $ foldl propagateOne (nodeGrads, empty) sorted
+  where
+    propagateOne :
+      (SortedMap Nat Double, SortedMap String Double) ->
+      Variable ->
+      (SortedMap Nat Double, SortedMap String Double)
+    propagateOne (nodeGrads, paramGrads) v =
+      let g = fromMaybe 0 $ lookup v.nodeId nodeGrads
+          childGs = v.back g
+          nodeGrads' = foldl (\m, (c, cg) =>
+            mergeWith (+) m (singleton c.nodeId cg))
+            nodeGrads (zip v.children childGs)
+          paramGrads' = case v.paramId of
+            Just pid => mergeWith (+) paramGrads (singleton pid g)
+            Nothing  => paramGrads
+      in (nodeGrads', paramGrads')

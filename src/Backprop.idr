@@ -19,8 +19,8 @@ import Variable
 applyGrads : Double -> SortedMap String Double -> Variable -> Variable
 applyGrads lr grads v = case v.paramId of
   Just pid => case lookup pid grads of
-    Just g  => Var (Just pid) (v.value - lr * g) 0 (const []) []
-    Nothing => Var v.paramId v.value 0 (const []) []
+    Just g  => let val = v.value - lr * g in Var (nextNodeId val) (Just pid) val 0 (const []) []
+    Nothing => Var (nextNodeId v.value) v.paramId v.value 0 (const []) []
   Nothing  => v
 
 ----------------------------------------------------------------------
