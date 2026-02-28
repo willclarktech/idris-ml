@@ -39,7 +39,7 @@ idris2 --source-dir src -p contrib -o supervised src/Example/Supervised.idr && .
 idris2 --source-dir src -p contrib -o rnn src/Example/Rnn.idr && ./build/exec/rnn
 idris2 --source-dir src -p contrib -o ntm src/Example/Ntm.idr && ./build/exec/ntm
 # NTM with custom hyperparameters
-./build/exec/ntm --lr 0.001 --max-norm 5.0 --epochs 6000 --patience 10 --seed 42
+./build/exec/ntm --lr 0.001 --max-norm 50.0 --epochs 6000 --patience 10 --seed 42
 # NTM with diagnostics (summary metrics + train/test comparison)
 ./build/exec/ntm --diagnose
 # NTM with verbose diagnostics (summary + raw per-timestep dumps)
@@ -62,6 +62,7 @@ bash scripts/sweep.sh --parallel 4 --quick
 6. **Memory** - NTM read/write head operations
 7. **Variable** - Tape-based autograd (Wengert list) with Chez Scheme FFI storage
 8. **DataPoint** - `DataPoint` and `RecurrentDataPoint` records
+8b. **Generate** - Random data generation: `SequenceTask` port, `copyTask` adapter, `randomBatchVect`
 9. **Endofunctor** - `emap : (ty -> ty) -> e ty -> e ty` for type-preserving maps
 10. **Layer** - Layer/Network types (mutually recursive), forward pass, constructors
 11. **Optimizer** - SGD and Adam optimizers with per-parameter or global norm gradient clipping
@@ -224,12 +225,14 @@ printDiagnostics "label" snapshots
 - **Tape-based backward pass**: `collectGrads` allocates a mutable gradient array via FFI, seeds it with the initial gradient, then scans the tape in reverse. Each entry propagates gradients to its inputs via `prim__gradAdd` (O(1) accumulation). Only parameter entries (non-empty `paramId`) are collected into the output `SortedMap`. The tape is reset at the end of `collectGrads` (gen++)
 - **Zero-arg FFI CSE trap**: Idris 2 compiles zero-argument `%noinline` definitions as constants evaluated once at load time. `tapeGeneration` must take a dummy argument (the tape index) passed through to `prim__tapeGen` to prevent the Chez backend from caching the result. This also applies to any other FFI wrapper reading mutable state
 - **FFI side-effect threading**: `let _ = ffiCall` is dropped by the compiler. FFI functions with side effects must return a value that is used in subsequent computation. `prim__gradAdd` returns the handle (`AnyPtr`), enabling handle threading through the backward pass
-- **Gradient clipping**: `adam` clips per-parameter; `adamGlobalClip` clips by global L2 norm (preserves gradient direction). Use `adamGlobalClip` for attention/recurrent models where parameters must coordinate — per-parameter clipping distorts direction and causes periodic loss spikes
+- **Gradient clipping**: `adam` clips per-parameter; `adamGlobalClip` clips by global L2 norm (preserves gradient direction). Use `adamGlobalClip` for attention/recurrent models where parameters must coordinate — per-parameter clipping distorts direction and causes periodic loss spikes. Default maxNorm is 50.0 (Collier & Beel); 5.0 was too aggressive
+- **Controller output clipping**: `applyLayerVar` clamps raw NTM controller output to [-20, 20] via `clampVar` (straight-through gradient). Prevents extreme head parameters from destabilizing training
+- **Curriculum learning**: NTM copy task trains in 3 stages (len 1-3, 1-5, 1-8) with loss thresholds. Fresh random data generated every 100 epochs via `Generate.randomBatchVect`. Required for feedforward controllers (ajithcodesit finding)
 - **Hyperparameter tuning**: Fix algorithmic issues first (bounded activations, correct clipping, efficient backward pass), then use `scripts/sweep.sh` for systematic grid search. Never manually loop over hyperparameters — see `docs/design-decisions.md` for rationale
 - **C shared library required**: `build/libidrisml.dylib` must exist before running any example. Build with `make build/libidrisml.dylib`. The library is loaded by the tape init guard in Variable.idr
 - **Scheme-native C memory access**: Use Chez Scheme's `foreign-ref`/`foreign-set!` for reading/writing C-allocated arrays instead of calling C functions per element. This avoids the Scheme→C boundary crossing overhead. See `prim__gradAdd`/`prim__gradGet` and `prim__setDouble`/`prim__setInt32` in Variable.idr
 - **`prim__seq` for evaluation ordering**: When two FFI side-effect chains must execute in order but have no data dependency, use `prim__seq a b` (Scheme `(lambda (a b) b)`) to force `a` to evaluate before `b` is used. Chez Scheme evaluates function arguments strictly
 - **Tensor Foldable reversal**: The `foldr` instance for `Tensor` processes elements in reversed order (head into accumulator first). `toList` produces elements backwards. Use direct `Vect` traversal instead when element order matters (e.g., packing into C buffers)
-- **Weight initialization**: `linearLayer`/`rnnLayer` default to Xavier uniform (was `U(-1,1)`). Biases are always zero. Use `linearLayerWith (uniformInit 1.0)` for the old behavior. NTM memory stays at `U(-0.1, 0.1)`. Custom strategies via `linearLayerWith`/`rnnLayerWith` accepting `InitStrategy` from `Init.idr`
+- **Weight initialization**: `linearLayer`/`rnnLayer` default to Xavier uniform (was `U(-1,1)`). Biases are always zero. Use `linearLayerWith (uniformInit 1.0)` for the old behavior. NTM memory initialized to constant `1e-6` (Collier & Beel: 3.5x faster convergence vs random). Custom strategies via `linearLayerWith`/`rnnLayerWith` accepting `InitStrategy` from `Init.idr`
 - **C-backed softmax/logSoftmax**: `softmaxVar`/`logSoftmaxVar` in Variable.idr use C kernels and record a single SoftmaxOp/LogSoftmaxOp tape entry per vector instead of ~29 scalar entries. `applyLayerVar` dispatches NormalizationLayer "softmax"/"logSoftmax" to these. NTM heads use `forwardReadHeadVar`/`forwardWriteHeadVar` in Layer.idr which call `softmaxVar` for content addressing and shift
 - **Chez Scheme output buffering**: Stdout is fully buffered when redirected to file/pipe (e.g. background tasks). Use `stdbuf -oL ./build/exec/<name>` to force line-buffering for long-running training

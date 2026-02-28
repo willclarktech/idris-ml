@@ -9,6 +9,7 @@ modules = Backprop
         , Debug
         , Endofunctor
         , Floating
+        , Generate
         , Init
         , Layer
         , Math

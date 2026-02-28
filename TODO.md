@@ -10,7 +10,8 @@
 
 | Item | Difficulty | Notes |
 |------|-----------|-------|
-| Minibatch sampling | S | Currently trains on full dataset every epoch |
+| NTM tanh memory bounding | S | Collier & Beel: keeps memory in [-1, 1] |
+| NTM learned initial addressing | M | Backprop through initial head weights |
 | Unit tests | M | No test framework yet; verify via `--check` + examples |
 | Automatically name parameters | S | |
 | More Tensor functions (eg concatenation) | M | |
@@ -47,3 +48,9 @@
 - C-backed softmax/logSoftmax (Phase 2 of buffer-backed tensors)
 - Xavier/He/LeCun weight initialization (Init.idr)
 - NTM debug/diagnostics module (Debug.idr, `--diagnose` flag)
+- Random data generation module (Generate.idr, `SequenceTask` port/adapter)
+- NTM constant memory init 1e-6 (Collier & Beel stability)
+- Controller output clipping [-20, 20] (`clampVar` in Variable.idr)
+- Curriculum training (3 stages: len 1-3, 1-5, 1-8)
+- Gradient clip norm 5.0 → 50.0 (Collier & Beel default)
+- 3-element shift kernel + hot-start addressing

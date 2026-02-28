@@ -254,13 +254,29 @@ Impact on dimensions:
 
 Read and write head addressing weights are initialized to focus on slot 0 (`[1, 0, 0, ...]`) instead of the previous uniform distribution (`[1/n, 1/n, ...]`). With a clear starting position, the model only needs to learn "shift right by 1 each step" for sequential access — a clean gradient signal compared to discovering both the starting position and the shift direction simultaneously.
 
-## NTM stability (not yet implemented)
+## NTM stability alignment with reference implementations
 
-[Collier & Beel 2018](https://isg.beel.org/blog/2018/08/01/a-stable-neural-turing-machine-ntm-implementation-source-code-and-pre-print/) ("Implementing Neural Turing Machines") found several stability factors for NTM training:
+Aligned with reference implementations to address generalization failures:
 
-1. **Constant memory initialization (1e-6)** instead of random — converges 3.5x faster on the copy task. Our current implementation uses `randomRIO (-0.1, 0.1)`.
-2. **tanh bounding on memory contents** — keeping values in [-1, 1] prevents unbounded memory growth.
-3. **Gradient clip norm of 50** — much higher than our current 5.0.
-4. **Learned initialization** — backpropagate through initial addressing weights and read vectors instead of fixed values.
+| Change | Before | After | Source |
+|--------|--------|-------|--------|
+| Memory init | random [-0.1, 0.1] | constant 1e-6 | Collier & Beel: 3.5x faster convergence |
+| Grad clip norm | 5.0 | 50.0 | Collier & Beel default; 5.0 too aggressive |
+| Controller output | unbounded | clamped [-20, 20] | Collier & Beel: prevents extreme head params |
+| Training data | 13 fixed sequences | random each chunk | All reference impls use random data |
+| Curriculum | none | 3 stages (len 1-3, 1-5, 1-8) | ajithcodesit: FFN "did NOT converge" without it |
 
-These findings are from a systematic study and should be prioritized over ad-hoc hyperparameter tuning.
+**Reference implementations** (all achieve near-perfect copy task performance):
+- [loudinthecloud/pytorch-ntm](https://github.com/loudinthecloud/pytorch-ntm) — most-starred PyTorch NTM, generalizes to length 80
+- [Collier & Beel 2018](https://arxiv.org/abs/1807.08518) — Best Paper ICANN 2018, controlled stability experiments
+- [ajithcodesit/Neural_Turing_Machine](https://github.com/ajithcodesit/Neural_Turing_Machine) — feedforward controller (like ours), requires curriculum
+
+**Constant memory init**: `ntmLayer` initializes memory to `1e-6` via `pure (fromDouble 1.0e-6)`. This removed the `Random ty` and `Neg ty` constraints from `ntmLayer` since random generation is no longer needed. Collier & Beel's controlled experiment showed this converges 3.5x faster than random init.
+
+**Controller output clipping**: `applyLayerVar` clamps the raw controller output to [-20, 20] using `clampVar` (straight-through gradient: detached constant when clamped, passthrough when in bounds). This prevents extreme head parameters (β, g, γ, erase/add vectors) from destabilizing training.
+
+**Curriculum learning**: Three stages with loss thresholds (0.15, 0.10, 0.0). Each stage generates fresh random data every 100 epochs via `Generate.randomBatchVect`. The model from each stage carries over to the next with its optimizer state. This prevents the model from memorizing fixed sequences and forces it to learn the general copy algorithm.
+
+**Random data generation**: The `Generate` module provides a port/adapter pattern — `SequenceTask` (port) defines the interface, `copyTask` (adapter) implements copy-task-specific generation. `randomBatchVect` generates typed `Vect n` batches. `randomSymbols` generates non-blank symbols (values 1..w-1). Data is regenerated every 100 training epochs to prevent overfitting.
+
+**Not yet implemented**: tanh memory bounding, learned initial addressing weights.
