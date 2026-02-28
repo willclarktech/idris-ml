@@ -16,8 +16,8 @@ class TestSupervised:
 
         # Measure initial loss
         with torch.no_grad():
-            losses = [cross_entropy(model(x), y) for x, y in data]
-            initial_loss = (sum(losses) / len(data)).item()  # type: ignore[union-attr]
+            losses = torch.stack([cross_entropy(model(x), y) for x, y in data])
+            initial_loss = losses.mean().item()
 
         # Train 100 epochs
         for _ in range(100):
@@ -26,8 +26,8 @@ class TestSupervised:
 
         # Measure final loss
         with torch.no_grad():
-            losses = [cross_entropy(model(x), y) for x, y in data]
-            final_loss = (sum(losses) / len(data)).item()  # type: ignore[union-attr]
+            losses = torch.stack([cross_entropy(model(x), y) for x, y in data])
+            final_loss = losses.mean().item()
 
         assert final_loss < initial_loss
 
