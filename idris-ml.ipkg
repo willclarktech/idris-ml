@@ -11,6 +11,7 @@ modules = Backprop
         , Layer
         , Math
         , Memory
+        , Optimizer
         , Tensor
         , Util
         , Variable
