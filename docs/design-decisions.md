@@ -110,6 +110,26 @@ Benchmark (`src/Example/Bench.idr`, seed 123456):
 
 The modest improvement reflects that weight packing was one of many costs per forward pass; other operations (input packing, tape appends, backward traversal, NTM head computations) dominate.
 
+## NTM training profile
+
+Profiling a single NTM epoch (`src/Example/Profile.idr`) reveals the time split across four phases:
+
+| Phase | Time (ms) | Share |
+|-------|-----------|-------|
+| Forward (calculateLossRecurrentVar) | ~35 | 45% |
+| Backward (collectGrads) | ~41 | 53% |
+| Optimizer (adam step) | ~1 | 1% |
+| Buffer sync | ~0.2 | <1% |
+
+**Tape size: 214,608 entries** per epoch — each must be visited during the backward scan. 891 named parameters.
+
+Key implications:
+- **Backward dominates**: the reverse tape scan over 214K entries is the single most expensive operation. Optimizing the forward pass alone yields at most ~45% of possible gains.
+- **Weight packing is negligible**: persistent weight buffers (phase 3) targeted sync/packing which together are <1.5% of epoch time, explaining the modest 5-12% speedup.
+- **Tape size is 5x expected**: the NTM's scalar head computations (read head, write head, memory addressing) generate far more intermediate tape entries than the controller's BLAS-backed matvec ops. Reducing tape entries per scalar op or batching head computations into C would have the largest impact.
+
+Build and run: `idris2 --source-dir src -p contrib -o profile src/Example/Profile.idr && ./build/exec/profile`
+
 ## Hyperparameter tuning protocol
 
 Manual hyperparameter tuning is an anti-pattern that wastes hours on random adjustments. The correct order is:
