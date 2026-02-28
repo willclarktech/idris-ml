@@ -14,6 +14,11 @@ endif
 $(CLIB): $(CSRC) | $(BUILD)
 	cc $(CFLAGS) -o $@ $<
 
+# Idris tests (check builds library .ttc files first)
+test: check
+	idris2 --source-dir src --source-dir test/src -p contrib -o test test/src/Main.idr
+	./build/exec/test
+
 # C tests
 test-c: csrc/test_tensor.c $(CSRC) | $(BUILD)
 	cc -O2 -o $(BUILD)/test_tensor csrc/test_tensor.c $(if $(filter Darwin,$(UNAME)),-framework Accelerate,-lm)
@@ -56,4 +61,4 @@ sweep-quick: $(CLIB)
 clean:
 	rm -f $(CLIB) $(BUILD)/test_tensor
 
-.PHONY: test-c check supervised rnn ntm-copy ntm-associative-recall bench sweep sweep-quick clean
+.PHONY: test test-c check supervised rnn ntm-copy ntm-associative-recall bench sweep sweep-quick clean

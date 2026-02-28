@@ -80,8 +80,8 @@ showMat (VTensor rows) = "[" ++ go rows ++ "]"
 -- Local Activation Helpers (matching Memory.idr's internal functions)
 ----------------------------------------------------------------------
 
-sig : Double -> Double
-sig x = 1.0 / (1.0 + exp (-x))
+sigD : Double -> Double
+sigD x = 1.0 / (1.0 + exp (-x))
 
 softplusD : Double -> Double
 softplusD x = log (1.0 + exp x)
@@ -179,16 +179,16 @@ debugApplyLayer {i} (NtmLayer {n} {hs} controller memory readHead writeHead read
     (rBetaRaw, rPrms2) = splitAt 1 rPrms
     (rGRaw, rGammaRaw) = splitAt 1 rPrms2
     rBeta = softplusD (sum rBetaRaw)
-    rG = sig (sum rGRaw)
-    rGamma = 1.0 + 4.0 * sig (sum rGammaRaw)
+    rG = sigD (sum rGRaw)
+    rGamma = 1.0 + 4.0 * sigD (sum rGammaRaw)
 
     -- Extract write head parameters via helper
     (wKey, wShift, wBetaRaw, wGRaw, wGammaRaw, wRawErase, wRawAdd) = splitWriteInput writeHeadInput
-    wEraseVec = map sig wRawErase
-    wAddVec = map (\x => 2.0 * sig (2.0 * x) - 1.0) wRawAdd
+    wEraseVec = map sigD wRawErase
+    wAddVec = map (\x => 2.0 * sigD (2.0 * x) - 1.0) wRawAdd
     wBeta = softplusD (sum wBetaRaw)
-    wG = sig (sum wGRaw)
-    wGamma = 1.0 + 4.0 * sig (sum wGammaRaw)
+    wG = sigD (sum wGRaw)
+    wGamma = 1.0 + 4.0 * sigD (sum wGammaRaw)
 
     -- Run actual forward step
     (newReadHead, newReadHeadOutput) = forwardReadHead memory readHead readHeadInput

@@ -40,15 +40,19 @@ public export
 Functor (ReadHead n) where
   map f (MkReadHead addressingWeights) = MkReadHead (map f addressingWeights)
 
+export
 sig : (Num ty, Neg ty, Fractional ty, Floating ty) => ty -> ty
 sig x = 1 / (1 + exp (-x))
 
+export
 softplus : (Num ty, Floating ty) => ty -> ty
 softplus x = log (1 + exp x)
 
+export
 getContentAddress : (Floating ty, Fractional ty, Ord ty) => {n, w : Nat} -> ty -> Matrix n w ty -> Vector w ty -> Vector n ty
 getContentAddress beta (VTensor memory) keyVector = softmax $ map (* beta) $ VTensor $ map (STensor . (cosineSimilarity keyVector)) memory
 
+export
 interpolate : (Neg ty, Num ty) => ty -> Vector n ty -> Vector n ty -> Vector n ty
 interpolate g = zipWith (\c, l => (c * g) + (l * (1 - g)))
 
@@ -60,6 +64,7 @@ cycleForward {n = (S k)} i xs =
   let indices = map (i+) (Data.Vect.allFins (S k))
   in Data.Vect.permute xs indices
 
+export
 shift : (Floating ty, Fractional ty) => {n : Nat} -> Vector n ty -> Vector ShiftKernelSize ty -> Vector n ty
 shift {n = Z} aw _ = aw
 shift {n = S Z} aw _ = aw
@@ -70,6 +75,7 @@ shift {n = S (S k)} aw kernel =
       bwdV = VTensor (cycleForward Fin.last ws)
   in map (sl *) fwdV + map (ss *) aw + map (sr *) bwdV
 
+export
 focus : (Floating ty, Fractional ty, Num ty) => {n : Nat} -> ty -> Vector n ty -> Vector n ty
 focus gamma addressingWeights =
   let
@@ -77,6 +83,7 @@ focus gamma addressingWeights =
     sigma = sum raised
   in map (/ sigma) raised
 
+export
 readOp : (Num ty) => {n, w : Nat} -> ReadHead n ty -> Matrix n w ty -> Vector w ty
 readOp rh (VTensor memoryRows) =
   let
@@ -121,16 +128,19 @@ public export
 Functor (WriteHead n) where
   map f (MkWriteHead rh) = MkWriteHead (map f rh)
 
+export
 eraseMemory : (Neg ty, Num ty) => {n, w : Nat} -> Matrix n w ty -> Vector n ty -> Vector w ty -> Matrix n w ty
 eraseMemory memory (VTensor addressVector) eraseVector =
   let complements = complement $ VTensor $ map (\(STensor weight) => map (* weight) eraseVector) addressVector
   in memory * complements
 
+export
 addMemory : (Num ty) => {n, w : Nat} -> Matrix n w ty -> Vector n ty -> Vector w ty -> Matrix n w ty
 addMemory memory (VTensor addressVector) addVector =
   let weightedAddVectors = VTensor $ map (\(STensor weight) => map (* weight) addVector) addressVector
   in memory + weightedAddVectors
 
+export
 writeOp : (Neg ty) => {n, w : Nat} -> WriteHead n ty -> Matrix n w ty -> Vector w ty -> Vector w ty -> Matrix n w ty
 writeOp (MkWriteHead rh) memory eraseVector addVector =
   let
