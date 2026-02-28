@@ -10,6 +10,7 @@ import DataPoint
 import Floating
 import Layer
 import Math
+import Optimizer
 import Tensor
 import Util
 import Variable
@@ -58,7 +59,7 @@ main = do
   putStr "Predictions: "
   printLn $ predictions
 
-  let trained = trainRecurrent lr (1.0/0.0) model dataPoints lossFn epochs
+  let trained = trainRecurrent (sgd lr (1.0/0.0)) model dataPoints lossFn epochs
   let predictions' = decodeOutput $ evaluateRecurrent trained dataPoints
   let loss' = calculateLossRecurrent lossFn trained dataPoints
 

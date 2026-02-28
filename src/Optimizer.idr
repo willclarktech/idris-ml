@@ -70,7 +70,7 @@ sgd lr maxGrad = MkOptimizer step
 -- Adam
 ----------------------------------------------------------------------
 
-||| Adam optimizer (Kingma & Ba, 2014)
+||| Adam optimizer (Kingma & Ba, 2014) with per-parameter gradient clipping.
 export
 adam : (lr : Double) -> (beta1 : Double) -> (beta2 : Double) ->
        (eps : Double) -> (maxGrad : Double) -> Optimizer

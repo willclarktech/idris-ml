@@ -9,6 +9,7 @@ import DataPoint
 import Floating
 import Layer
 import Math
+import Optimizer
 import Tensor
 import Variable
 
@@ -119,6 +120,7 @@ main = do
   putStrLn $ showSequences $ map (map argmax . ys) testPoints
 
   let lossFn = crossEntropy
+  let opt = adam 0.0001 0.9 0.999 (pow 10 (-8)) 1.0
 
   -- Pre-training evaluation
   let loss = calculateLossRecurrent lossFn model dataPoints
@@ -128,22 +130,19 @@ main = do
   putStrLn $ showSequences $ decodeOutput $ evaluateRecurrent model dataPoints
   putStrLn ""
 
-  let lr = 0.5
-  let maxGrad = 1.0
-
   -- Train in stages to show progress
   putStrLn "Training..."
-  let t1 = trainRecurrent lr maxGrad model dataPoints lossFn 500
+  let (t1, s1) = trainRecurrentFrom opt model dataPoints lossFn 3000 initState
   let l1 = calculateLossRecurrent lossFn t1 dataPoints
-  putStrLn $ "  500 epochs:\t" ++ show (value l1)
+  putStrLn $ "  3000 epochs:\t" ++ show (value l1)
 
-  let t2 = trainRecurrent lr maxGrad t1 dataPoints lossFn 500
+  let (t2, s2) = trainRecurrentFrom opt t1 dataPoints lossFn 3000 s1
   let l2 = calculateLossRecurrent lossFn t2 dataPoints
-  putStrLn $ "  1000 epochs:\t" ++ show (value l2)
+  putStrLn $ "  6000 epochs:\t" ++ show (value l2)
 
-  let t3 = trainRecurrent lr maxGrad t2 dataPoints lossFn 500
+  let (t3, s3) = trainRecurrentFrom opt t2 dataPoints lossFn 3000 s2
   let l3 = calculateLossRecurrent lossFn t3 dataPoints
-  putStrLn $ "  1500 epochs:\t" ++ show (value l3)
+  putStrLn $ "  9000 epochs:\t" ++ show (value l3)
 
   putStrLn ""
 
