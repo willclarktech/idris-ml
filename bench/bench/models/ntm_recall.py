@@ -25,7 +25,7 @@ class NtmRecallConfig:
     n: int = 128
     h: int = 100
     controller: str = "lstm"  # "lstm" (Graves et al. 2014) or "rnn"
-    batch_size: int = 1
+    batch_size: int = 16
     lr: float = 0.0001
     beta1: float = 0.9
     beta2: float = 0.999

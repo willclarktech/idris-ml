@@ -502,7 +502,7 @@ def main() -> None:
         "--recall-clip-value", type=float, default=10.0, help="Value clip bound (default: 10.0)"
     )
     parser.add_argument(
-        "--recall-batch-size", type=int, default=1, help="Recall batch size (default: 1)"
+        "--recall-batch-size", type=int, default=16, help="Recall batch size (default: 16)"
     )
     parser.add_argument(
         "--recall-curriculum", action="store_true", help="Use 3-stage curriculum (default: off)"
