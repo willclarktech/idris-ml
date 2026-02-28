@@ -137,20 +137,19 @@ nameParam prefx i p = { paramId := Just (prefx ++ show i) } p
 ----------------------------------------------------------------------
 
 topoSort : Variable -> List Variable
-topoSort root = snd $ go empty root
+topoSort root = snd $ go empty root []
   where
-    go : SortedSet Nat -> Variable -> (SortedSet Nat, List Variable)
-    go visited v =
+    go : SortedSet Nat -> Variable -> List Variable ->
+         (SortedSet Nat, List Variable)
+    go visited v acc =
       if contains v.nodeId visited
-        then (visited, [])
+        then (visited, acc)
         else
           let visited' = insert v.nodeId visited
-              (visited'', childNodes) =
-                foldl (\(vis, acc), c =>
-                  let (vis', nodes) = go vis c
-                  in (vis', acc ++ nodes))
-                  (visited', []) v.children
-          in (visited'', childNodes ++ [v])
+              (visited'', acc') =
+                foldl (\(vis, a), c => go vis c a)
+                  (visited', acc) v.children
+          in (visited'', v :: acc')
 
 export
 collectGrads : Double -> Variable -> SortedMap String Double
