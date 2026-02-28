@@ -25,7 +25,10 @@ idris2 --source-dir src -p contrib -o <name> src/Example/<Name>.idr
 # Run a built example
 ./build/exec/<name>
 
-# Run C library tests
+# Run Idris unit tests (77 tests)
+make test
+
+# Run C library tests (76 tests)
 make test-c
 
 # Run benchmark (Supervised + RNN + NTM)
@@ -240,7 +243,7 @@ printDiagnostics "label" snapshots
 - **Build flags**: Forgetting `--source-dir src` or `-p contrib` produces confusing import errors
 - **Elementwise `(*)`**: `Tensor`'s `Num` instance uses elementwise multiply. For matrix-vector products, use `matrixVectorMultiply` or `vectorMatrixMultiply` from Math.idr
 - **`paramId` requirement**: Variables without a `paramId` (i.e., `Nothing`) are invisible to gradient collection and won't receive updates. Always call `nameParams`/`nameNetworkParams` before training. `setParamId` writes to both the Variable record and the tape's pid vector
-- **No test framework**: No test suite exists. Verify changes by type-checking (`--check`) and running examples (TapeTest.idr for gradient smoke tests)
+- **Test suite**: Run `make test` for 77 Idris unit tests, `make test-c` for 76 C tests. Tests live in `test/src/Test/*.idr` with `Harness.idr` providing assertion helpers
 - **Tape generation staleness**: After `collectGrads` resets the tape (gen++), Variables from the previous epoch are stale. `ensureOnTape` detects this via generation mismatch and re-registers with current `.value`. Same stale Variable used N times creates N Const entries — gradients accumulate correctly via `mergeWith (+)` on paramId
 - **Mutual recursion in Layer.idr**: `Layer` and `Network` are mutually recursive (NtmLayer contains a Network). `applyLayer`, `forward`, `nameParams`, `nameNetworkParams`, and `Endofunctor` instances all live in `mutual` blocks
 - **NTM dimension calculations**: `ReadHeadInputWidth _ w = (w + ShiftKernelSize) + 3` (key + 3-element shift kernel + 3 dynamic params: β, g, γ). The shift vector is `ShiftKernelSize` (3) elements, not `n` — decoupled from memory slot count. The controller output width is `NtmOutputWidth n w = ReadHeadInputWidth n w + WriteHeadInputWidth n w + w`. Since `ReadHeadInputWidth` no longer depends on `n`, type annotations are needed in `ntmLayer` for `memory`/`readHead`/`writeHead`
@@ -263,5 +266,6 @@ printDiagnostics "label" snapshots
 - **`prim__seq` for evaluation ordering**: When two FFI side-effect chains must execute in order but have no data dependency, use `prim__seq a b` (Scheme `(lambda (a b) b)`) to force `a` to evaluate before `b` is used. Chez Scheme evaluates function arguments strictly
 - **Tensor Foldable reversal**: The `foldr` instance for `Tensor` processes elements in reversed order (head into accumulator first). `toList` produces elements backwards. Use direct `Vect` traversal instead when element order matters (e.g., packing into C buffers)
 - **Weight initialization**: `linearLayer`/`rnnLayer` default to Xavier uniform (was `U(-1,1)`). Biases are always zero. Use `linearLayerWith (uniformInit 1.0)` for the old behavior. NTM memory initialized to constant `1e-6` (Collier & Beel: 3.5x faster convergence vs random). Custom strategies via `linearLayerWith`/`rnnLayerWith` accepting `InitStrategy` from `Init.idr`
-- **C-backed softmax/logSoftmax**: `softmaxVar`/`logSoftmaxVar` in Variable.idr use C kernels and record a single SoftmaxOp/LogSoftmaxOp tape entry per vector instead of ~29 scalar entries. `applyLayerVar` dispatches NormalizationLayer "softmax"/"logSoftmax" to these. NTM heads use `forwardReadHeadVar`/`forwardWriteHeadVar` in Layer.idr which call `softmaxVar` for content addressing and shift
+- **C-backed softmax/logSoftmax**: `softmaxVar`/`logSoftmaxVar` in Variable.idr use C kernels and record a single SoftmaxOp/LogSoftmaxOp tape entry per vector instead of ~29 scalar entries. `applyLayerVar` dispatches NormalizationLayer "softmax"/"logSoftmax" to these
+- **C-backed NTM memory ops**: `batchCosineSimilarityVar`, `readOpVar`, `writeOpVar` in Variable.idr use C kernels (BatchCosSimOp/ReadOpOp/WriteOpOp, tags 15-17) to reduce ~12,500 tape entries per NTM timestep to ~4 C-backed entries. `forwardReadHeadVar`/`forwardWriteHeadVar` in Layer.idr wire these into the Variable-specialized NTM forward pass. Generic `forwardReadHead`/`forwardWriteHead` in Memory.idr remain parameterized on `NormalizationFunction ty` for the Double path
 - **Chez Scheme output buffering**: Stdout is fully buffered when redirected to file/pipe (e.g. background tasks). Use `stdbuf -oL ./build/exec/<name>` to force line-buffering for long-running training
