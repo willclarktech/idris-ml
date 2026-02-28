@@ -474,6 +474,21 @@ implementation Floating Variable where
 
 
 ----------------------------------------------------------------------
+-- Clamping
+----------------------------------------------------------------------
+
+||| Clamp a variable to [lo, hi] with straight-through gradient.
+||| When clamped, the output is a detached constant (no gradient).
+||| When within bounds, the original variable passes through unchanged.
+export
+clampVar : Double -> Double -> Variable -> Variable
+clampVar lo hi v =
+  if v.value < lo then fromDouble lo
+  else if v.value > hi then fromDouble hi
+  else v
+
+
+----------------------------------------------------------------------
 -- Parameter Naming
 ----------------------------------------------------------------------
 
