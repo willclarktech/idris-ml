@@ -114,7 +114,7 @@ record Config where
   diagnoseVerbose : Bool
 
 defaultConfig : Config
-defaultConfig = MkConfig 0.001 50.0 0.9 0.999 (pow 10 (-8)) 10.0 6000 200 123456 False False
+defaultConfig = MkConfig 0.003 5.0 0.9 0.999 (pow 10 (-8)) 10.0 6000 500 123456 False False
 
 parseConfig : List String -> Config
 parseConfig args = go args defaultConfig
