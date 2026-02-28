@@ -194,22 +194,15 @@ export
 evaluateRecurrent : (Floating ty, Fractional ty, Neg ty, Num ty, Ord ty) => {i, o : Nat} -> {hs : List Nat} -> Network i hs o ty -> Vect n (RecurrentDataPoint i o ty) -> Vect n (List (Vector o ty))
 evaluateRecurrent model dataPoints = map (evaluateSingleRecurrentDataPoint model) dataPoints
 
-forwardNextRecurrent : (Floating ty, Fractional ty, Neg ty, Num ty, Ord ty) => {i, o : Nat} -> {hs : List Nat} -> (Network i hs o ty, Vect n (List (Vector o ty))) -> List (Vector i ty) -> (Network i hs o ty, Vect (1 + n) (List (Vector o ty)))
-forwardNextRecurrent (nn, outputs) inps =
-  let (updatedModel, newOutput) = forwardRecurrent nn inps
-  in (updatedModel, snoc outputs newOutput)
-
-forwardManyRecurrent : (Floating ty, Fractional ty, Neg ty, Num ty, Ord ty) => {i, o : Nat} -> {hs : List Nat} -> Network i hs o ty -> Vect n (List (Vector i ty)) -> (Network i hs o ty, Vect n (List (Vector o ty)))
-forwardManyRecurrent network xs = foldlD (\k => (Network i hs o ty, Vect k (List (Vector o ty)))) forwardNextRecurrent (network, []) xs
-
 export
 calculateLossRecurrent : (Floating ty, Fractional ty, Neg ty, Num ty, Ord ty) => {i, o, n : Nat} -> {hs : List Nat} -> LossFunction ty -> Network i hs o ty -> Vect n (RecurrentDataPoint i o ty) -> ty
 calculateLossRecurrent lossFn model dataPoints =
   let
-    xs = map xs dataPoints
-    ys = map ys dataPoints
-    (updatedNetwork, predictions) = forwardManyRecurrent model xs
-    losses = zipWith (zipWith lossFn) predictions ys
+    perSequence : RecurrentDataPoint i o ty -> List ty
+    perSequence dp =
+      let (_, preds) = forwardRecurrent model (xs dp)
+      in zipWith lossFn preds (ys dp)
+    losses = map perSequence dataPoints
   in mean . VTensor $ map (STensor . mean) losses
 
 
