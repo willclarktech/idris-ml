@@ -110,12 +110,11 @@ let (updatedModel, output) = forward model input
 ### Training cycle
 
 ```idris
--- Backprop.idr: zeroGrad -> forward (via calculateLoss) -> backward -> step
-epoch lr dataPoints lossFn model =
-  let zeroed = zeroGrad model                        -- 1. Clear gradients
-      loss = calculateLoss lossFn zeroed dataPoints  -- 2. Forward pass + loss
-      propagated = backward loss zeroed              -- 3. Backprop gradients
-   in step lr propagated                             -- 4. Gradient descent update
+-- Backprop.idr: forward (via calculateLoss) -> collectGrads -> applyGrads
+epoch lr maxGrad dataPoints lossFn model =
+  let loss = calculateLoss lossFn model dataPoints   -- 1. Forward pass + loss
+      grads = collectGrads 1.0 loss                  -- 2. Backprop gradients
+  in emap (applyGrads lr maxGrad grads) model        -- 3. Clip & apply updates
 ```
 
 ### Parameter naming (required for gradient flow)
@@ -154,7 +153,7 @@ let prepared = map (map fromDouble) dataPoints  -- DataPoint i o Double -> DataP
 | Data type | `DataPoint i o ty` (x, y vectors) | `RecurrentDataPoint i o ty` (xs, ys lists) |
 | Forward | `forward` / `forwardMany` | `forwardRecurrent` (folds over list) |
 | Train | `train` / `epoch` | `trainRecurrent` / `epochRecurrent` |
-| State | Not carried between examples | Accumulated across timesteps |
+| State | Not carried between examples | Accumulated within a sequence, reset between sequences |
 | Loss fn | `crossEntropy`, `meanSquaredError` | `binaryCrossEntropyWithLogits`, `crossEntropy` |
 
 ## Conventions
