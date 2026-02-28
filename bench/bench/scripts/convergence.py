@@ -30,7 +30,7 @@ from bench.diagnostics.ntm_diagnostics import (
     print_summary,
 )
 from bench.models.ntm_copy import NtmCopyConfig, NtmCopyModel
-from bench.models.ntm_recall import NtmRecallConfig, NtmRecallModel
+from bench.models.ntm_recall import NtmRecallConfig, NtmRecallModel, train_ntm_recall_step
 from bench.training.curriculum import Stage, run_curriculum
 from bench.training.losses import nll_loss, weighted_nll_loss
 
@@ -233,51 +233,84 @@ def run_recall(args: argparse.Namespace) -> None:
     """Train and diagnose NTM associative recall task."""
     controller = getattr(args, "recall_controller", "lstm")
     n = getattr(args, "recall_n", 128)
+    optimizer_type = getattr(args, "recall_optimizer", "rmsprop")
+    clip_mode = getattr(args, "recall_clip", "value")
+    clip_value = getattr(args, "recall_clip_value", 10.0)
+    batch_size = getattr(args, "recall_batch_size", 1)
+    use_curriculum = getattr(args, "recall_curriculum", False)
+    recall_k = getattr(args, "recall_k", 2)
 
     print("=" * 60)
     print("NTM Associative Recall Convergence")
-    print(f"  controller={controller}  N={n}")
+    print(f"  controller={controller}  N={n}  optimizer={optimizer_type}")
+    print(f"  clip={clip_mode}  batch_size={batch_size}  curriculum={use_curriculum}")
     print("=" * 60)
 
-    cfg = NtmRecallConfig(epochs=args.recall_epochs, patience=1000, controller=controller, n=n)
+    cfg = NtmRecallConfig(
+        epochs=args.recall_epochs,
+        patience=1000,
+        controller=controller,
+        n=n,
+        optimizer=optimizer_type,
+        clip_mode=clip_mode,
+        clip_value=clip_value,
+        batch_size=batch_size,
+    )
     model = NtmRecallModel(cfg)
     w = cfg.w
 
-    # 3-stage curriculum (fixed K per stage, capped at K=3)
-    stages = [
-        Stage(
-            "Stage 1 (K=1)",
-            0.15,
-            partial(generate_recall_batch, cfg.batch_size, 1, 1, w),
-        ),
-        Stage(
-            "Stage 2 (K=2)",
-            0.12,
-            partial(generate_recall_batch, cfg.batch_size, 2, 2, w),
-        ),
-        Stage(
-            "Stage 3 (K=3)",
-            0.0,
-            partial(generate_recall_batch, cfg.batch_size, 3, 3, w),
-        ),
-    ]
+    if use_curriculum:
+        # 3-stage curriculum (fixed K per stage, capped at K=3)
+        stages = [
+            Stage(
+                "Stage 1 (K=1)",
+                0.15,
+                partial(generate_recall_batch, cfg.batch_size, 1, 1, w),
+            ),
+            Stage(
+                "Stage 2 (K=2)",
+                0.12,
+                partial(generate_recall_batch, cfg.batch_size, 2, 2, w),
+            ),
+            Stage(
+                "Stage 3 (K=3)",
+                0.0,
+                partial(generate_recall_batch, cfg.batch_size, 3, 3, w),
+            ),
+        ]
+    else:
+        # Single stage, direct K training (reference implementations use no curriculum)
+        stages = [
+            Stage(
+                f"Direct K={recall_k}",
+                0.0,
+                partial(generate_recall_batch, cfg.batch_size, recall_k, recall_k, w),
+            ),
+        ]
 
-    # One-cycle LR schedule
+    # Schedule: constant LR for RMSprop (reference), one-cycle for Adam
     base_lr = cfg.lr
-    peak_ratio = 25.0
-    pct_start = 0.25
+    if optimizer_type == "rmsprop":
 
-    def schedule_fn(epoch: int) -> float:
-        warmup = int(pct_start * cfg.epochs)
-        if epoch < warmup:
-            lr_start = base_lr / peak_ratio
-            return lr_start + (base_lr - lr_start) * epoch / max(warmup, 1)
-        else:
-            lr_end = base_lr / cfg.div_final
-            progress = (epoch - warmup) / max(cfg.epochs - warmup, 1)
-            return lr_end + (base_lr - lr_end) * 0.5 * (1 + math.cos(math.pi * progress))
+        def schedule_fn(epoch: int) -> float:
+            return base_lr
+    else:
+        peak_ratio = 25.0
+        pct_start = 0.25
 
-    def optimizer_factory(m: torch.nn.Module, lr: float) -> torch.optim.Adam:
+        def schedule_fn(epoch: int) -> float:
+            warmup = int(pct_start * cfg.epochs)
+            if epoch < warmup:
+                lr_start = base_lr / peak_ratio
+                return lr_start + (base_lr - lr_start) * epoch / max(warmup, 1)
+            else:
+                lr_end = base_lr / cfg.div_final
+                progress = (epoch - warmup) / max(cfg.epochs - warmup, 1)
+                return lr_end + (base_lr - lr_end) * 0.5 * (1 + math.cos(math.pi * progress))
+
+    def optimizer_factory(m: torch.nn.Module, lr: float) -> torch.optim.Optimizer:
+        if optimizer_type == "rmsprop":
+            return torch.optim.RMSprop(m.parameters(), lr=lr, alpha=0.95, momentum=0.9)
         return torch.optim.Adam(m.parameters(), lr=lr, betas=(cfg.beta1, cfg.beta2), eps=cfg.eps)
 
     def train_step(
@@ -286,21 +319,7 @@ def run_recall(args: argparse.Namespace) -> None:
         loss_fn: object,
         opt: torch.optim.Optimizer,
     ) -> float:
-        opt.zero_grad()
-        total_loss = torch.tensor(0.0)
-        for xs, ys in data:
-            m.reset_state()
-            seq_loss = torch.tensor(0.0)
-            for x, y in zip(xs, ys, strict=True):
-                pred = m(x)
-                seq_loss = seq_loss + weighted_nll_loss(pred, y, weight=cfg.recall_weight)
-            total_loss = total_loss + seq_loss / len(xs)
-        loss = total_loss / len(data)
-        loss.backward()
-        clip_grad_norm_(m.parameters(), cfg.max_norm)
-        opt.step()
-        m.project_addressing()
-        return loss.item()
+        return train_ntm_recall_step(m, data, loss_fn, opt)
 
     # Train
     epochs_done, final_loss = run_curriculum(
@@ -470,6 +489,30 @@ def main() -> None:
     )
     parser.add_argument(
         "--recall-n", type=int, default=128, help="Recall memory slots (default: 128)"
+    )
+    parser.add_argument(
+        "--recall-optimizer",
+        choices=["adam", "rmsprop"],
+        default="rmsprop",
+        help="Recall optimizer (default: rmsprop)",
+    )
+    parser.add_argument(
+        "--recall-clip",
+        choices=["norm", "value"],
+        default="value",
+        help="Gradient clipping mode (default: value)",
+    )
+    parser.add_argument(
+        "--recall-clip-value", type=float, default=10.0, help="Value clip bound (default: 10.0)"
+    )
+    parser.add_argument(
+        "--recall-batch-size", type=int, default=1, help="Recall batch size (default: 1)"
+    )
+    parser.add_argument(
+        "--recall-curriculum", action="store_true", help="Use 3-stage curriculum (default: off)"
+    )
+    parser.add_argument(
+        "--recall-k", type=int, default=2, help="K for direct training (default: 2)"
     )
     args = parser.parse_args()
 

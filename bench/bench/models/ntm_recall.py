@@ -12,7 +12,7 @@ from dataclasses import dataclass
 import torch
 import torch.nn as nn
 from torch import Tensor
-from torch.nn.utils import clip_grad_norm_
+from torch.nn.utils import clip_grad_norm_, clip_grad_value_
 
 from bench.models.rnn import LinearRNNCell
 from bench.ntm.ntm_layer import NTMLayer, ntm_input_width, ntm_output_width
@@ -25,14 +25,17 @@ class NtmRecallConfig:
     n: int = 128
     h: int = 100
     controller: str = "lstm"  # "lstm" (Graves et al. 2014) or "rnn"
-    batch_size: int = 48
+    batch_size: int = 1
     lr: float = 0.0001
     beta1: float = 0.9
     beta2: float = 0.999
     eps: float = 1e-8
     max_norm: float = 50.0
+    clip_mode: str = "value"  # "norm" (global L2) or "value" (per-param clamp)
+    clip_value: float = 10.0  # used when clip_mode="value"
+    optimizer: str = "rmsprop"  # "adam" or "rmsprop"
     div_final: float = 10.0
-    epochs: int = 30000
+    epochs: int = 100000
     patience: int = 2000
     chunk_size: int = 25
     recall_weight: float = 3.0
@@ -140,7 +143,10 @@ def train_ntm_recall_step(
         total_loss = total_loss + seq_loss / len(xs)
     loss = total_loss / len(data)
     loss.backward()
-    clip_grad_norm_(model.parameters(), model.cfg.max_norm)
+    if model.cfg.clip_mode == "value":
+        clip_grad_value_(model.parameters(), model.cfg.clip_value)
+    else:
+        clip_grad_norm_(model.parameters(), model.cfg.max_norm)
     optimizer.step()
     model.project_addressing()
     return loss.item()
