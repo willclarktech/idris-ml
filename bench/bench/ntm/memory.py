@@ -46,7 +46,7 @@ def forward_read_head(
 
     beta = softplus(params[0])
     g = sig(params[1])
-    gamma = 1 + 4 * sig(params[2])
+    gamma = 1 + softplus(params[2])
 
     content_weights = content_address(beta, memory, key_vector)
     interpolated = interpolate(g, content_weights, addressing_weights)
@@ -93,8 +93,9 @@ def forward_write_head(
     raw_add = head_input[read_head_size + w : read_head_size + 2 * w]
 
     erase_vector = sig(raw_erase)
-    # NOTE: idris-ml uses 2*sigmoid(2*x)-1 for add vectors, not plain tanh
-    add_vector = 2 * sig(2 * raw_add) - 1
+    # NOTE: Reference impls (loudinthecloud, vlgiitr) use raw linear add vectors.
+    # idris-ml uses 2*sigmoid(2*x)-1 for add vectors.
+    add_vector = raw_add
 
     # Compute new addressing weights (reuse read head logic)
     new_weights, _, _ = forward_read_head(memory, addressing_weights, read_head_input, w)
