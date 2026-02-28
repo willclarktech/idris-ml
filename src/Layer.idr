@@ -140,8 +140,8 @@ mutual
       (newController, controllerOutput) = forward controller (readHeadOutput ++ inp)
       (readHeadInput, controllerOutput') = Tensor.splitAt (ReadHeadInputWidth n i) controllerOutput
       (writeHeadInput, networkOutput) = Tensor.splitAt (WriteHeadInputWidth n i) controllerOutput'
-      (newReadHead, newReadHeadOutput) = forwardReadHead memory readHead readHeadInput
-      (newWriteHead, rawMemory) = forwardWriteHead memory writeHead writeHeadInput
+      (newReadHead, newReadHeadOutput) = forwardReadHead softmax memory readHead readHeadInput
+      (newWriteHead, rawMemory) = forwardWriteHead softmax memory writeHead writeHeadInput
       newMemory = map tanhBound rawMemory
       newLayer = NtmLayer newController newMemory newReadHead newWriteHead newReadHeadOutput
     in (newLayer, networkOutput)
@@ -157,86 +157,6 @@ mutual
       (updatedNetwork, networkOutput) = forward layers layerOutput
     in (updatedLayer ~> updatedNetwork, networkOutput)
 
-
-----------------------------------------------------------------------
--- Variable-specialized NTM Head Operations (C-backed softmax)
-----------------------------------------------------------------------
-
-getContentAddressVar : {n, w : Nat} -> Variable -> Matrix n w Variable -> Vector w Variable -> Vector n Variable
-getContentAddressVar beta (VTensor memory) keyVector = softmaxVar $ map (* beta) $ VTensor $ map (STensor . (cosineSimilarity keyVector)) memory
-
-shiftVar : {n : Nat} -> Vector n Variable -> Vector ShiftKernelSize Variable -> Vector n Variable
-shiftVar {n = Z} aw _ = aw
-shiftVar {n = S Z} aw _ = aw
-shiftVar {n = S (S k)} aw kernel =
-  let (VTensor [STensor sl, STensor ss, STensor sr]) = softmaxVar kernel
-      (VTensor ws) = aw
-      fwdV = VTensor (cycleForward 1 ws)
-      bwdV = VTensor (cycleForward Fin.last ws)
-  in map (sl *) fwdV + map (ss *) aw + map (sr *) bwdV
-
-forwardReadHeadVar : {n, w : Nat} -> Matrix n w Variable -> ReadHead n Variable -> Vector ((w + ShiftKernelSize) + 3) Variable -> (ReadHead n Variable, Vector w Variable)
-forwardReadHeadVar memory rh inp =
-  let
-    (mainInput, params) = splitAt (w + ShiftKernelSize) inp
-    (keyVector, shiftVector) = splitAt w mainInput
-    (betaVec, params') = splitAt 1 params
-    (gVec, gammaVec) = splitAt 1 params'
-    beta = softplus (sum betaVec)
-    g = sig (sum gVec)
-    gamma = 1 + 4 * sig (sum gammaVec)
-    contentWeights = getContentAddressVar beta memory keyVector
-    interpolated = interpolate g rh.addressingWeights contentWeights
-    shifted = shiftVar interpolated shiftVector
-    focused = focus gamma shifted
-    newReadHead = { addressingWeights := focused } rh
-    output = readOp newReadHead memory
-  in (newReadHead, output)
-  where
-    sig : Variable -> Variable
-    sig x = 1 / (1 + exp (-x))
-    softplus : Variable -> Variable
-    softplus x = log (1 + exp x)
-    interpolate : Variable -> Vector n Variable -> Vector n Variable -> Vector n Variable
-    interpolate g' = zipWith (\c, l => (c * g') + (l * (1 - g')))
-    focus : Variable -> Vector n Variable -> Vector n Variable
-    focus gamma' aw =
-      let raised = map (^ gamma') aw
-          sigma = sum raised
-      in map (/ sigma) raised
-    readOp : ReadHead n Variable -> Matrix n w Variable -> Vector w Variable
-    readOp rh' (VTensor memoryRows) =
-      let (VTensor aw) = rh'.addressingWeights
-          weightedRows = zipWith (\(STensor weight), row => map (*weight) row) aw memoryRows
-      in sum weightedRows
-
-forwardWriteHeadVar : {n, w : Nat} -> Matrix n w Variable -> WriteHead n Variable -> Vector ((w + ShiftKernelSize) + 3 + w + w) Variable -> (WriteHead n Variable, Matrix n w Variable)
-forwardWriteHeadVar memory (MkWriteHead readHead) inp =
-  let
-    inp' = rewrite plusAssociative ((w + ShiftKernelSize) + 3) w w in inp
-    (readHeadInput, remainingInput) = Tensor.splitAt ((w + ShiftKernelSize) + 3) inp'
-    (rawErase, rawAdd) = splitAt w remainingInput
-    eraseVector = map sig rawErase
-    addVector = map (\x => 2 * sig (2 * x) - 1) rawAdd
-    (newReadHead, _) = forwardReadHeadVar memory readHead readHeadInput
-    newWriteHead = MkWriteHead newReadHead
-    newMemoryMatrix = writeOp newWriteHead memory eraseVector addVector
-  in (newWriteHead, newMemoryMatrix)
-  where
-    sig : Variable -> Variable
-    sig x = 1 / (1 + exp (-x))
-    eraseMemory : Matrix n w Variable -> Vector n Variable -> Vector w Variable -> Matrix n w Variable
-    eraseMemory mem (VTensor addressVector) eraseVec =
-      let complements = complement $ VTensor $ map (\(STensor weight) => map (* weight) eraseVec) addressVector
-      in mem * complements
-    addMemory : Matrix n w Variable -> Vector n Variable -> Vector w Variable -> Matrix n w Variable
-    addMemory mem (VTensor addressVector) addVec =
-      let weightedAddVectors = VTensor $ map (\(STensor weight) => map (* weight) addVec) addressVector
-      in mem + weightedAddVectors
-    writeOp : WriteHead n Variable -> Matrix n w Variable -> Vector w Variable -> Vector w Variable -> Matrix n w Variable
-    writeOp (MkWriteHead rh) mem eraseVec addVec =
-      let erased = eraseMemory mem rh.addressingWeights eraseVec
-      in addMemory erased rh.addressingWeights addVec
 
 
 ----------------------------------------------------------------------
@@ -275,8 +195,8 @@ mutual
       controllerOutput = map (clampVar (-20.0) 20.0) rawControllerOutput
       (readHeadInput, controllerOutput') = Tensor.splitAt (ReadHeadInputWidth n i) controllerOutput
       (writeHeadInput, networkOutput) = Tensor.splitAt (WriteHeadInputWidth n i) controllerOutput'
-      (newReadHead, newReadHeadOutput) = forwardReadHeadVar memory readHead readHeadInput
-      (newWriteHead, rawMemory) = forwardWriteHeadVar memory writeHead writeHeadInput
+      (newReadHead, newReadHeadOutput) = forwardReadHead softmaxVar memory readHead readHeadInput
+      (newWriteHead, rawMemory) = forwardWriteHead softmaxVar memory writeHead writeHeadInput
       newMemory = map tanhBound rawMemory
       newLayer = NtmLayer newController newMemory newReadHead newWriteHead newReadHeadOutput
     in (newLayer, networkOutput)

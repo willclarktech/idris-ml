@@ -191,8 +191,8 @@ debugApplyLayer {i} (NtmLayer {n} {hs} controller memory readHead writeHead read
     wGamma = 1.0 + 4.0 * sigD (sum wGammaRaw)
 
     -- Run actual forward step
-    (newReadHead, newReadHeadOutput) = forwardReadHead memory readHead readHeadInput
-    (newWriteHead, rawMemory) = forwardWriteHead memory writeHead writeHeadInput
+    (newReadHead, newReadHeadOutput) = forwardReadHead softmax memory readHead readHeadInput
+    (newWriteHead, rawMemory) = forwardWriteHead softmax memory writeHead writeHeadInput
     newMemory = map tanhBound rawMemory
     newLayer = NtmLayer newController newMemory newReadHead newWriteHead newReadHeadOutput
 

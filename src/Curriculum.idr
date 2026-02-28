@@ -31,7 +31,7 @@ record Stage (i : Nat) (o : Nat) (n : Nat) where
 ----------------------------------------------------------------------
 
 minDelta : Double
-minDelta = 0.0001
+minDelta = 0.001
 
 ||| Run a chunk of training epochs with fixed data (pure).
 runChunk : {i, o, n : Nat} -> {hs : List Nat} ->

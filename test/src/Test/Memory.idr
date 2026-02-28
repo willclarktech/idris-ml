@@ -46,7 +46,7 @@ tests =
           , VTensor [STensor 0.7, STensor 0.1]
           ])
         key = the (Vector 2 Double) (VTensor [STensor 1.0, STensor 0.0])
-        addr = getContentAddress 10.0 mem key
+        addr = getContentAddress softmax 10.0 mem key
         (VTensor [STensor a0, STensor a1, STensor a2]) = addr
     -- With high beta, weight should concentrate on row 0 (most similar)
     in check "getContentAddress" (a0 > a1 && a0 > a2)

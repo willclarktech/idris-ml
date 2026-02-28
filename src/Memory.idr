@@ -49,8 +49,8 @@ softplus : (Num ty, Floating ty) => ty -> ty
 softplus x = log (1 + exp x)
 
 export
-getContentAddress : (Floating ty, Fractional ty, Ord ty) => {n, w : Nat} -> ty -> Matrix n w ty -> Vector w ty -> Vector n ty
-getContentAddress beta (VTensor memory) keyVector = softmax $ map (* beta) $ VTensor $ map (STensor . (cosineSimilarity keyVector)) memory
+getContentAddress : (Floating ty, Fractional ty, Ord ty) => {n, w : Nat} -> NormalizationFunction ty -> ty -> Matrix n w ty -> Vector w ty -> Vector n ty
+getContentAddress smFn beta (VTensor memory) keyVector = smFn $ map (* beta) $ VTensor $ map (STensor . (cosineSimilarity keyVector)) memory
 
 export
 interpolate : (Neg ty, Num ty) => ty -> Vector n ty -> Vector n ty -> Vector n ty
@@ -65,11 +65,11 @@ cycleForward {n = (S k)} i xs =
   in Data.Vect.permute xs indices
 
 export
-shift : (Floating ty, Fractional ty) => {n : Nat} -> Vector n ty -> Vector ShiftKernelSize ty -> Vector n ty
-shift {n = Z} aw _ = aw
-shift {n = S Z} aw _ = aw
-shift {n = S (S k)} aw kernel =
-  let (VTensor [STensor sl, STensor ss, STensor sr]) = softmax kernel
+shift : (Floating ty, Fractional ty) => {n : Nat} -> NormalizationFunction ty -> Vector n ty -> Vector ShiftKernelSize ty -> Vector n ty
+shift {n = Z} _ aw _ = aw
+shift {n = S Z} _ aw _ = aw
+shift {n = S (S k)} smFn aw kernel =
+  let (VTensor [STensor sl, STensor ss, STensor sr]) = smFn kernel
       (VTensor ws) = aw
       fwdV = VTensor (cycleForward 1 ws)
       bwdV = VTensor (cycleForward Fin.last ws)
@@ -93,8 +93,8 @@ readOp rh (VTensor memoryRows) =
 
 ||| Input is key vector (w) + shift vector (ShiftKernelSize) + params (3: beta, g, gamma)
 export
-forwardReadHead : (Floating ty, Fractional ty, Neg ty, Ord ty) => {n, w : Nat} -> Matrix n w ty -> ReadHead n ty -> Vector ((w + ShiftKernelSize) + 3) ty -> (ReadHead n ty, Vector w ty)
-forwardReadHead memory rh inp =
+forwardReadHead : (Floating ty, Fractional ty, Neg ty, Ord ty) => {n, w : Nat} -> NormalizationFunction ty -> Matrix n w ty -> ReadHead n ty -> Vector ((w + ShiftKernelSize) + 3) ty -> (ReadHead n ty, Vector w ty)
+forwardReadHead smFn memory rh inp =
   let
     (mainInput, params) = splitAt (w + ShiftKernelSize) inp
     (keyVector, shiftVector) = splitAt w mainInput
@@ -103,9 +103,9 @@ forwardReadHead memory rh inp =
     beta = softplus (sum betaVec)
     g = sig (sum gVec)
     gamma = 1 + 4 * sig (sum gammaVec)
-    contentWeights = getContentAddress beta memory keyVector
+    contentWeights = getContentAddress smFn beta memory keyVector
     interpolated = interpolate g rh.addressingWeights contentWeights
-    shifted = shift interpolated shiftVector
+    shifted = shift smFn interpolated shiftVector
     focused = focus gamma shifted
     newReadHead = { addressingWeights := focused } rh
     output = readOp newReadHead memory
@@ -150,15 +150,15 @@ writeOp (MkWriteHead rh) memory eraseVector addVector =
 
 ||| Input is Read head input ((w + ShiftKernelSize) + 3) + erase vector (w) + add vector (w)
 export
-forwardWriteHead : (Floating ty, Fractional ty, Neg ty, Ord ty) => {n, w : Nat} -> Matrix n w ty -> WriteHead n ty -> Vector ((w + ShiftKernelSize) + 3 + w + w) ty -> (WriteHead n ty, Matrix n w ty)
-forwardWriteHead memory (MkWriteHead readHead) inp =
+forwardWriteHead : (Floating ty, Fractional ty, Neg ty, Ord ty) => {n, w : Nat} -> NormalizationFunction ty -> Matrix n w ty -> WriteHead n ty -> Vector ((w + ShiftKernelSize) + 3 + w + w) ty -> (WriteHead n ty, Matrix n w ty)
+forwardWriteHead smFn memory (MkWriteHead readHead) inp =
   let
     inp' = rewrite plusAssociative ((w + ShiftKernelSize) + 3) w w in inp
     (readHeadInput, remainingInput) = Tensor.splitAt ((w + ShiftKernelSize) + 3) inp'
     (rawErase, rawAdd) = splitAt w remainingInput
     eraseVector = map sig rawErase
     addVector = map (\x => 2 * sig (2 * x) - 1) rawAdd
-    (newReadHead, _) = forwardReadHead memory readHead readHeadInput
+    (newReadHead, _) = forwardReadHead smFn memory readHead readHeadInput
     newWriteHead = MkWriteHead newReadHead
     newMemoryMatrix = writeOp newWriteHead memory eraseVector addVector
   in (newWriteHead, newMemoryMatrix)
