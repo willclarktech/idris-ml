@@ -111,6 +111,46 @@ def _extract_write_params(
 # ---------------------------------------------------------------------------
 
 
+def _extract_timestep(model: torch.nn.Module, t: int, x: Tensor, y: Tensor, w: int) -> NtmTimestep:
+    """Run one timestep and extract diagnostics."""
+    _ = model(x)  # type: ignore[operator]
+    diag: dict[str, Tensor] = model.ntm._diag  # type: ignore[attr-defined]
+
+    read_raw = diag["read_params"]
+    write_raw = diag["write_params"]
+
+    r_key, r_beta, r_g, r_gamma, r_shift = _extract_read_params(read_raw, w)
+    w_key, w_beta, w_g, w_gamma, w_shift, w_erase, w_add = _extract_write_params(write_raw, w)
+
+    memory = diag["memory"]
+    content_read_w = content_address(torch.tensor(r_beta), memory, r_key)
+    content_write_w = content_address(torch.tensor(w_beta), memory, w_key)
+
+    return NtmTimestep(
+        timestep=t,
+        input_symbol=int(x.argmax().item()),
+        target_symbol=int(y.argmax().item()),
+        read_addr=diag["read_addr"],
+        write_addr=diag["write_addr"],
+        read_key=r_key,
+        read_beta=r_beta,
+        read_g=r_g,
+        read_gamma=r_gamma,
+        read_shift=r_shift,
+        write_key=w_key,
+        write_beta=w_beta,
+        write_g=w_g,
+        write_gamma=w_gamma,
+        write_shift=w_shift,
+        write_erase=w_erase,
+        write_add=w_add,
+        memory=memory,
+        read_output=diag["read_output"],
+        content_read_weights=content_read_w,
+        content_write_weights=content_write_w,
+    )
+
+
 def instrumented_forward(
     model: torch.nn.Module,
     inputs: list[Tensor],
@@ -127,50 +167,50 @@ def instrumented_forward(
 
     with torch.no_grad():
         for t, (x, y) in enumerate(zip(inputs, targets, strict=True)):
-            _ = model(x)  # type: ignore[operator]
-            # pyright can't infer dict type through dynamic attr
-            diag: dict[str, Tensor] = model.ntm._diag  # type: ignore[attr-defined]
+            timesteps.append(_extract_timestep(model, t, x, y, w))
 
-            # Head params are stashed directly from separate FCs
-            read_raw = diag["read_params"]
-            write_raw = diag["write_params"]
+    return timesteps
 
-            # Extract head parameters
-            r_key, r_beta, r_g, r_gamma, r_shift = _extract_read_params(read_raw, w)
-            w_key, w_beta, w_g, w_gamma, w_shift, w_erase, w_add = _extract_write_params(
-                write_raw, w
-            )
 
-            # Compute content weights (pre-interpolation)
-            memory = diag["memory"]
-            content_read_w = content_address(torch.tensor(r_beta), memory, r_key)
-            content_write_w = content_address(torch.tensor(w_beta), memory, w_key)
+def instrumented_forward_recall(
+    model: torch.nn.Module,
+    input_seq: Tensor,
+    target_seq: Tensor,
+) -> list[NtmTimestep]:
+    """Run recall model timestep-by-timestep, extracting NTM diagnostics.
 
-            timesteps.append(
-                NtmTimestep(
-                    timestep=t,
-                    input_symbol=int(x.argmax().item()),
-                    target_symbol=int(y.argmax().item()),
-                    read_addr=diag["read_addr"],
-                    write_addr=diag["write_addr"],
-                    read_key=r_key,
-                    read_beta=r_beta,
-                    read_g=r_g,
-                    read_gamma=r_gamma,
-                    read_shift=r_shift,
-                    write_key=w_key,
-                    write_beta=w_beta,
-                    write_g=w_g,
-                    write_gamma=w_gamma,
-                    write_shift=w_shift,
-                    write_erase=w_erase,
-                    write_add=w_add,
-                    memory=memory,
-                    read_output=diag["read_output"],
-                    content_read_weights=content_read_w,
-                    content_write_weights=content_write_w,
-                )
-            )
+    Handles the recall format where input_seq covers the encoding phase and
+    target_seq covers only the output phase (fed with zero inputs).
+
+    Args:
+        model: NtmRecallModel (must have .ntm with ._diag and .num_inputs).
+        input_seq: (total_input_timesteps, input_width) — full encoding sequence.
+        target_seq: (output_len, seq_width) — target vectors for output phase.
+
+    Returns:
+        List of NtmTimestep for all timesteps (encoding + output).
+        Encoding timesteps use a zero dummy target.
+    """
+    model.reset_state()  # type: ignore[attr-defined]
+    w: int = model.ntm.m  # type: ignore[attr-defined]
+    num_inputs: int = model.ntm.num_inputs  # type: ignore[attr-defined]
+    seq_width = target_seq.shape[1]
+    timesteps: list[NtmTimestep] = []
+
+    dummy_target = torch.zeros(seq_width)
+
+    with torch.no_grad():
+        # Encoding phase: feed all input rows with dummy targets
+        for t in range(input_seq.shape[0]):
+            ts = _extract_timestep(model, t, input_seq[t], dummy_target, w)
+            timesteps.append(ts)
+
+        # Output phase: feed zeros with real targets
+        zero_input = torch.zeros(num_inputs)
+        for i in range(target_seq.shape[0]):
+            t = input_seq.shape[0] + i
+            ts = _extract_timestep(model, t, zero_input, target_seq[i], w)
+            timesteps.append(ts)
 
     return timesteps
 
