@@ -90,11 +90,31 @@ genData mnK mxK = map (map (map fromDouble)) (randomBatchVect (associativeRecall
 
 stages : List (Stage W W BatchSize)
 stages =
-  [ MkStage "Stage 1 (K=2 pairs)" 0.12 (genData 2 2)
-  , MkStage "Stage 2 (K=3 pairs)" 0.10 (genData 3 3)
+  [ MkStage "Stage 0 (K=1 pair)"    0.15 (genData 1 1)
+  , MkStage "Stage 1 (K=2 pairs)"   0.12 (genData 2 2)
+  , MkStage "Stage 2 (K=3 pairs)"   0.10 (genData 3 3)
   , MkStage "Stage 3 (K=3-4 pairs)" 0.08 (genData 3 4)
   , MkStage "Stage 4 (K=4-5 pairs)" 0.0  (genData 4 5)
   ]
+
+
+----------------------------------------------------------------------
+-- Weighted NLL Loss
+----------------------------------------------------------------------
+
+||| Check if a target vector represents the blank symbol (index 0).
+isBlankTarget : {n : Nat} -> Vector n Variable -> Bool
+isBlankTarget (VTensor []) = True
+isBlankTarget (VTensor ((STensor v) :: _)) = v.value >= 0.5
+
+||| NLL loss that weights non-blank timesteps more heavily.
+||| Blank timesteps dominate (e.g. 78% for K=2), drowning the
+||| gradient signal for actual recall. Weight ~3.0 roughly equalizes
+||| blank vs non-blank contribution across K=1..5.
+weightedNllLoss : Double -> LossFunction Variable
+weightedNllLoss w preds targets =
+  let baseLoss = nllLoss preds targets
+  in if isBlankTarget targets then baseLoss else baseLoss * fromDouble w
 
 
 ----------------------------------------------------------------------
@@ -113,11 +133,12 @@ record Config where
   patience : Nat
   seed : Bits64
   chunkSize : Nat
+  recallWeight : Double
   diagnose : Bool
   diagnoseVerbose : Bool
 
 defaultConfig : Config
-defaultConfig = MkConfig 0.001 10.0 0.9 0.999 (pow 10 (-8)) 10.0 10000 800 123456 25 False False
+defaultConfig = MkConfig 0.001 10.0 0.9 0.999 (pow 10 (-8)) 10.0 10000 800 123456 25 3.0 False False
 
 parseConfig : List String -> Config
 parseConfig args = go args defaultConfig
@@ -134,6 +155,7 @@ parseConfig args = go args defaultConfig
     go ("--patience" :: v :: rest) c = go rest ({ patience := cast (cast {to=Integer} v) } c)
     go ("--seed" :: v :: rest) c = go rest ({ seed := cast (cast {to=Integer} v) } c)
     go ("--chunk-size" :: v :: rest) c = go rest ({ chunkSize := cast (cast {to=Integer} v) } c)
+    go ("--recall-weight" :: v :: rest) c = go rest ({ recallWeight := cast v } c)
     go ("--diagnose" :: rest) c = go rest ({ diagnose := True } c)
     go ("--diagnose-verbose" :: rest) c = go rest ({ diagnose := True, diagnoseVerbose := True } c)
     go (_ :: rest) c = go rest c
@@ -158,6 +180,7 @@ main = do
            ++ " epochs=" ++ show cfg.epochs
            ++ " patience=" ++ show cfg.patience
            ++ " chunkSize=" ++ show cfg.chunkSize
+           ++ " recallWeight=" ++ show cfg.recallWeight
            ++ " seed=" ++ show cfg.seed
            ++ " H=" ++ show H
   putStrLn ""
@@ -178,7 +201,7 @@ main = do
   let schedule = oneCycle cfg.lr 25.0 cfg.divFinal 0.25 cfg.epochs
   putStrLn "Training (curriculum + one-cycle)..."
   (trained, finalSt, epochsDone) <- runCurriculum makeOpt schedule model
-    nllLoss stages cfg.epochs cfg.patience cfg.chunkSize initState
+    (weightedNllLoss cfg.recallWeight) stages cfg.epochs cfg.patience cfg.chunkSize initState
 
   putStrLn ""
 
