@@ -17,21 +17,24 @@ import Tensor
 public export
 record ReadHead n ty where
   constructor MkReadHead
-  blending : ty
-  sharpening : ty
   addressingWeights : Vector n ty
 
 export
-initReadHead : (Num ty) => {n: Nat} -> ty -> ty -> ReadHead n ty
-initReadHead blending sharpening = MkReadHead blending sharpening zeros
+initReadHead : (Num ty) => {n: Nat} -> ReadHead n ty
+initReadHead = MkReadHead zeros
 
 public export
 Functor (ReadHead n) where
-  map f (MkReadHead blending sharpening addressingWeights) =
-    MkReadHead (f blending) (f sharpening) (map f addressingWeights)
+  map f (MkReadHead addressingWeights) = MkReadHead (map f addressingWeights)
 
-getContentAddress : (Floating ty, Fractional ty, Ord ty) => {n, w : Nat} -> Matrix n w ty -> Vector w ty -> Vector n ty
-getContentAddress (VTensor memory) keyVector = softmax $ VTensor $ map (STensor . (cosineSimilarity keyVector)) memory
+sig : (Num ty, Neg ty, Fractional ty, Floating ty) => ty -> ty
+sig x = 1 / (1 + exp (-x))
+
+softplus : (Num ty, Floating ty) => ty -> ty
+softplus x = log (1 + exp x)
+
+getContentAddress : (Floating ty, Fractional ty, Ord ty) => {n, w : Nat} -> ty -> Matrix n w ty -> Vector w ty -> Vector n ty
+getContentAddress beta (VTensor memory) keyVector = softmax $ map (* beta) $ VTensor $ map (STensor . (cosineSimilarity keyVector)) memory
 
 interpolate : (Neg ty, Num ty) => ty -> Vector n ty -> Vector n ty -> Vector n ty
 interpolate g = zipWith (\c, l => (c * g) + (l * (1 - g)))
@@ -64,16 +67,22 @@ readOp rh (VTensor memoryRows) =
     weightedRows = zipWith (\(STensor weight), row => map (*weight) row) addressingWeights memoryRows
   in sum weightedRows
 
-||| Input is key vector (w) + shift vector (n)
+||| Input is key vector (w) + shift vector (n) + params (3: beta, g, gamma)
 export
-forwardReadHead : (Floating ty, Fractional ty, Neg ty, Ord ty) => {n, w : Nat} -> Matrix n w ty -> ReadHead n ty -> Vector (w + n) ty -> (ReadHead n ty, Vector w ty)
+forwardReadHead : (Floating ty, Fractional ty, Neg ty, Ord ty) => {n, w : Nat} -> Matrix n w ty -> ReadHead n ty -> Vector ((w + n) + 3) ty -> (ReadHead n ty, Vector w ty)
 forwardReadHead memory rh inp =
   let
-    (keyVector, shiftVector) = splitAt w inp
-    contentWeights = getContentAddress memory keyVector
-    interpolated = interpolate rh.blending rh.addressingWeights contentWeights
+    (mainInput, params) = splitAt (w + n) inp
+    (keyVector, shiftVector) = splitAt w mainInput
+    (betaVec, params') = splitAt 1 params
+    (gVec, gammaVec) = splitAt 1 params'
+    beta = softplus (sum betaVec)
+    g = sig (sum gVec)
+    gamma = softplus (sum gammaVec) + 1
+    contentWeights = getContentAddress beta memory keyVector
+    interpolated = interpolate g rh.addressingWeights contentWeights
     shifted = shift interpolated shiftVector
-    focused = focus rh.sharpening shifted
+    focused = focus gamma shifted
     newReadHead = { addressingWeights := focused } rh
     output = readOp newReadHead memory
   in (newReadHead, output)
@@ -88,10 +97,8 @@ record WriteHead n ty where
   readHead : ReadHead n ty
 
 export
-initWriteHead : (Num ty) => {n: Nat} -> ty -> ty -> WriteHead n ty
-initWriteHead blending sharpening =
-  let rh = initReadHead blending sharpening
-  in MkWriteHead rh
+initWriteHead : (Num ty) => {n: Nat} -> WriteHead n ty
+initWriteHead = MkWriteHead initReadHead
 
 public export
 Functor (WriteHead n) where
@@ -114,14 +121,16 @@ writeOp (MkWriteHead rh) memory eraseVector addVector =
     newMemory = addMemory erased rh.addressingWeights addVector
   in newMemory
 
-||| Input is Read head input (w + n) + erase vector (w) + add vector (w)
+||| Input is Read head input ((w + n) + 3) + erase vector (w) + add vector (w)
 export
-forwardWriteHead : (Floating ty, Fractional ty, Neg ty, Ord ty) => {n, w : Nat} -> Matrix n w ty -> WriteHead n ty -> Vector (w + n + w + w) ty -> (WriteHead n ty, Matrix n w ty)
+forwardWriteHead : (Floating ty, Fractional ty, Neg ty, Ord ty) => {n, w : Nat} -> Matrix n w ty -> WriteHead n ty -> Vector ((w + n) + 3 + w + w) ty -> (WriteHead n ty, Matrix n w ty)
 forwardWriteHead memory (MkWriteHead readHead) inp =
   let
-    inp' = rewrite plusAssociative (w + n) w w in inp
-    (readHeadInput, remainingInput) = Tensor.splitAt (w + n) inp'
-    (eraseVector, addVector) = splitAt w remainingInput
+    inp' = rewrite plusAssociative ((w + n) + 3) w w in inp
+    (readHeadInput, remainingInput) = Tensor.splitAt ((w + n) + 3) inp'
+    (rawErase, rawAdd) = splitAt w remainingInput
+    eraseVector = map sig rawErase
+    addVector = map (\x => 2 * sig (2 * x) - 1) rawAdd
     (newReadHead, _) = forwardReadHead memory readHead readHeadInput
     newWriteHead = MkWriteHead newReadHead
     newMemoryMatrix = writeOp newWriteHead memory eraseVector addVector

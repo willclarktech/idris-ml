@@ -24,10 +24,10 @@ public export
 NtmInputWidth : Nat -> Nat
 NtmInputWidth w = w + w
 
-||| Key vector + shift vector
+||| Key vector + shift vector + params (beta, g, gamma)
 public export
 ReadHeadInputWidth : Nat -> Nat -> Nat
-ReadHeadInputWidth n w = w + n
+ReadHeadInputWidth n w = (w + n) + 3
 
 ||| Read head input + erase vector + add vector
 public export
@@ -230,10 +230,8 @@ ntmLayer : {n, w : Nat} -> {hs : List Nat} -> (Random ty, FromDouble ty, Neg ty,
            Network (NtmInputWidth w) hs (NtmOutputWidth n w) ty -> IO (Layer w w ty)
 ntmLayer controller = do
   memory <- randomRIO (-0.1, 0.1)
-  let blending = 0.5
-  let sharpening = 1.5
-  let readHead = initReadHead blending sharpening
-  let writeHead = initWriteHead blending sharpening
+  let readHead = initReadHead
+  let writeHead = initWriteHead
   let readHeadOutput = zeros
   pure $ NtmLayer controller memory readHead writeHead readHeadOutput
 
