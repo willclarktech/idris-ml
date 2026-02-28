@@ -46,3 +46,4 @@
 - Learning rate schedules (one-cycle, cosine annealing in Schedule.idr)
 - C-backed softmax/logSoftmax (Phase 2 of buffer-backed tensors)
 - Xavier/He/LeCun weight initialization (Init.idr)
+- NTM debug/diagnostics module (Debug.idr, `--diagnose` flag)

@@ -35,6 +35,8 @@ idris2 --source-dir src -p contrib -o rnn src/Example/Rnn.idr && ./build/exec/rn
 idris2 --source-dir src -p contrib -o ntm src/Example/Ntm.idr && ./build/exec/ntm
 # NTM with custom hyperparameters
 ./build/exec/ntm --lr 0.001 --max-norm 5.0 --epochs 6000 --patience 10 --seed 42
+# NTM with diagnostics (dumps per-timestep addressing/memory/head params)
+./build/exec/ntm --diagnose
 # Hyperparameter sweep (builds once, runs grid in parallel)
 bash scripts/sweep.sh --parallel 4
 # Quick sweep (2000 epochs for fast screening)
@@ -58,6 +60,7 @@ bash scripts/sweep.sh --parallel 4 --quick
 11. **Optimizer** - SGD and Adam optimizers with per-parameter or global norm gradient clipping
 12. **Schedule** - Learning rate schedules: `constant`, `cosineAnnealing`, `oneCycle`
 13. **Backprop** - Training loop: `epoch`, `train`, `trainFrom`, `epochRecurrent`, `trainRecurrent`, `trainRecurrentFrom`, `trainScheduledFrom`, `trainRecurrentScheduledFrom`
+14. **Debug** - Generic forward-pass diagnostics: `debugForward`, `debugForwardRecurrent`, per-layer state extraction, `toDoubleNetwork`
 
 ### Core type signatures
 
@@ -167,6 +170,17 @@ Raw data is `Double`; training requires `Variable`. Convert with `map fromDouble
 let prepared = map (map fromDouble) dataPoints  -- DataPoint i o Double -> DataPoint i o Variable
 ```
 
+### Debug / diagnostics
+
+Convert a trained `Variable`-typed network to `Double` and run the debug forward pass to dump per-timestep internal state:
+
+```idris
+import Debug
+let dblModel = toDoubleNetwork trained
+let (_, _, snapshots) = debugForwardRecurrent dblModel inputs
+printDiagnostics "label" snapshots
+```
+
 ### Supervised vs Recurrent API
 
 | Aspect | Supervised | Recurrent |
@@ -184,6 +198,7 @@ let prepared = map (map fromDouble) dataPoints  -- DataPoint i o Double -> DataP
 - **Imports**: Idris stdlib first (`Data.Vect`, `System.Random`), then internal modules alphabetically
 - **Commits**: Follow [Conventional Commits](https://www.conventionalcommits.org/) — `feat:`, `fix:`, `refactor:`, `docs:`, `chore:`, etc. Keep subject concise (~50 chars), imperative present tense. Commit work regularly in meaningful chunks — one logical change per commit. Never include ads, branding, or promotional text in commit messages or PR descriptions
 - **Section dividers**: `----------------------------------------------------------------------` with section titles in Layer.idr style
+- **Documentation**: Always update CLAUDE.md, docs/design-decisions.md, and TODO.md when adding features, changing architecture, or making design decisions
 
 ## Gotchas
 
