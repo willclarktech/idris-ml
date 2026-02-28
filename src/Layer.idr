@@ -47,8 +47,8 @@ NtmOutputWidth n w = ReadHeadInputWidth n w + (WriteHeadInputWidth n w + w)
 mutual
   public export
   data Layer : (inputSize : Nat) -> (outputSize : Nat) -> Type -> Type where
-    LinearLayer : (weights : Matrix outputSize inputSize ty) -> (bias : Vector outputSize ty) -> Layer inputSize outputSize ty
-    RnnLayer : (inputWeights : Matrix outputSize inputSize ty) -> (recurrentWeights : Matrix outputSize outputSize ty) -> (bias : Vector outputSize ty) -> (previousOutput : Vector outputSize ty) -> Layer inputSize outputSize ty
+    LinearLayer : (weights : Matrix outputSize inputSize ty) -> (bias : Vector outputSize ty) -> (wBuf : Maybe AnyPtr) -> Layer inputSize outputSize ty
+    RnnLayer : (inputWeights : Matrix outputSize inputSize ty) -> (recurrentWeights : Matrix outputSize outputSize ty) -> (bias : Vector outputSize ty) -> (previousOutput : Vector outputSize ty) -> (iwBuf : Maybe AnyPtr) -> (rwBuf : Maybe AnyPtr) -> Layer inputSize outputSize ty
     ActivationLayer : (name : String) -> (f : ActivationFunction ty) -> Layer n n ty
     NormalizationLayer : (name : String) -> (f : NormalizationFunction ty) -> Layer n n ty
     NtmLayer : {n : Nat} -> {hs : List Nat} ->
@@ -73,8 +73,8 @@ export infixr 5 ~>
 
 public export
 implementation {inputSize : Nat} -> {outputSize : Nat} -> Show a => Show (Layer inputSize outputSize a) where
-  show {inputSize} {outputSize} (LinearLayer _ _) = "Linear<" ++ show inputSize ++ ":" ++ show outputSize ++ ">"
-  show {inputSize} {outputSize} (RnnLayer _ _ _ _) = "Rnn<" ++ show inputSize ++ ":" ++ show outputSize ++ ">"
+  show {inputSize} {outputSize} (LinearLayer _ _ _) = "Linear<" ++ show inputSize ++ ":" ++ show outputSize ++ ">"
+  show {inputSize} {outputSize} (RnnLayer _ _ _ _ _ _) = "Rnn<" ++ show inputSize ++ ":" ++ show outputSize ++ ">"
   show (ActivationLayer name _) = "Activation<" ++ name ++ ">"
   show (NormalizationLayer name _) = "Normalization<" ++ name ++ ">"
   show {inputSize} (NtmLayer {n} _ _ _ _ _) = "Ntm<" ++ show inputSize ++ ", mem=" ++ show n ++ ">"
@@ -95,8 +95,8 @@ implementation {i, h : Nat} -> (Show ty, Show (Network h hs o ty)) => Show (Netw
 mutual
   public export
   implementation Endofunctor (Layer i o) where
-    emap f (LinearLayer w b) = LinearLayer (map f w) (map f b)
-    emap f (RnnLayer iw rw b po) = RnnLayer (map f iw) (map f rw) (map f b) (map f po)
+    emap f (LinearLayer w b wb) = LinearLayer (map f w) (map f b) wb
+    emap f (RnnLayer iw rw b po iwb rwb) = RnnLayer (map f iw) (map f rw) (map f b) (map f po) iwb rwb
     emap f (NtmLayer controller mem rh wh ro) =
       NtmLayer (emap f controller) (map f mem) (map f rh) (map f wh) (map f ro)
     emap _ l = l
@@ -114,11 +114,11 @@ mutual
 mutual
   export
   applyLayer : (Floating ty, Fractional ty, Neg ty, Num ty, Ord ty) => {i, o : Nat} -> Layer i o ty -> Vector i ty -> (Layer i o ty, Vector o ty)
-  applyLayer layer@(LinearLayer weights bias) xs = (layer, matrixVectorMultiply {m=o, n=i} weights xs + bias)
-  applyLayer (RnnLayer inputWeights recurrentWeights bias previousOutput) xs =
+  applyLayer layer@(LinearLayer weights bias _) xs = (layer, matrixVectorMultiply {m=o, n=i} weights xs + bias)
+  applyLayer (RnnLayer inputWeights recurrentWeights bias previousOutput iwb rwb) xs =
     let
       output = matrixVectorMultiply inputWeights xs + matrixVectorMultiply recurrentWeights previousOutput + bias
-      updatedLayer = RnnLayer inputWeights recurrentWeights bias output
+      updatedLayer = RnnLayer inputWeights recurrentWeights bias output iwb rwb
     in (updatedLayer, output)
   applyLayer layer@(ActivationLayer _ f) xs = (layer, map f xs)
   applyLayer layer@(NormalizationLayer _ f) xs = (layer, f xs)
@@ -151,16 +151,24 @@ mutual
 mutual
   export
   applyLayerVar : {i, o : Nat} -> Layer i o Variable -> Vector i Variable -> (Layer i o Variable, Vector o Variable)
-  applyLayerVar layer@(LinearLayer weights bias) xs =
+  applyLayerVar layer@(LinearLayer weights bias wBuf) xs =
     if i * o <= 4
       then applyLayer layer xs
-      else (layer, matrixVectorMultiplyVar {m=o, n=i} weights xs + bias)
-  applyLayerVar (RnnLayer inputWeights recurrentWeights bias previousOutput) xs =
+      else case wBuf of
+        Just wb => (layer, matrixVectorMultiplyVarBuf {m=o, n=i} wb xs + bias)
+        Nothing => (layer, matrixVectorMultiplyVar {m=o, n=i} weights xs + bias)
+  applyLayerVar (RnnLayer inputWeights recurrentWeights bias previousOutput iwBuf rwBuf) xs =
     if i * o <= 4
-      then applyLayer (RnnLayer inputWeights recurrentWeights bias previousOutput) xs
+      then applyLayer (RnnLayer inputWeights recurrentWeights bias previousOutput iwBuf rwBuf) xs
       else let
-        output = matrixVectorMultiplyVar inputWeights xs + matrixVectorMultiplyVar recurrentWeights previousOutput + bias
-        updatedLayer = RnnLayer inputWeights recurrentWeights bias output
+        mulIW : Vector o Variable
+        mulIW = maybe (matrixVectorMultiplyVar inputWeights xs)
+                      (\wb => matrixVectorMultiplyVarBuf {m=o, n=i} wb xs) iwBuf
+        mulRW : Vector o Variable
+        mulRW = maybe (matrixVectorMultiplyVar recurrentWeights previousOutput)
+                      (\wb => matrixVectorMultiplyVarBuf {m=o, n=o} wb previousOutput) rwBuf
+        output = mulIW + mulRW + bias
+        updatedLayer = RnnLayer inputWeights recurrentWeights bias output iwBuf rwBuf
       in (updatedLayer, output)
   applyLayerVar layer@(ActivationLayer _ f) xs = (layer, map f xs)
   applyLayerVar layer@(NormalizationLayer _ f) xs = (layer, f xs)
@@ -295,7 +303,7 @@ linearLayer : {i, o : Nat} -> (Random ty, FromDouble ty, Neg ty) => IO (Layer i 
 linearLayer = do
   weights <- randomRIO (-1.0, 1.0)
   bias <- randomRIO (-1.0, 1.0)
-  pure $ LinearLayer weights bias
+  pure $ LinearLayer weights bias Nothing
 
 export
 rnnLayer : {i, o : Nat} -> (Random ty, FromDouble ty, Neg ty) => IO (Layer i o ty)
@@ -303,7 +311,7 @@ rnnLayer = do
   inputWeights <- randomRIO (-1.0, 1.0)
   recurrentWeights <- randomRIO (-1.0, 1.0)
   bias <- randomRIO (-1.0, 1.0)
-  pure $ RnnLayer inputWeights recurrentWeights bias zeros
+  pure $ RnnLayer inputWeights recurrentWeights bias zeros Nothing Nothing
 
 export
 ntmLayer : {n, w : Nat} -> {hs : List Nat} -> (Random ty, FromDouble ty, Neg ty, Num ty) =>
@@ -335,20 +343,33 @@ logSoftmaxLayer = NormalizationLayer "logSoftmax" logSoftmax
 mutual
   export
   nameParams : {i, o : Nat} -> String -> (Layer i o Variable) -> (Layer i o Variable)
-  nameParams prefx layer =
+  nameParams {i} {o} prefx layer =
     let np = nameParam . (prefx ++ "_" ++)
     in case layer of
-      (LinearLayer weights bias) =>
+      (LinearLayer weights bias _) =>
         let
           namedWeights = zipWith (np "weight") enumerate weights
           namedBias = zipWith (np "bias") enumerate bias
-        in LinearLayer namedWeights namedBias
-      (RnnLayer inputWeights recurrentWeights bias previousOutput) =>
+        in if i * o <= 4
+          then LinearLayer namedWeights namedBias Nothing
+          else let (VTensor namedRows) = namedWeights
+                   wBuf = prim__weightBufAlloc (cast (o * i))
+                   wBuf' = initWeightBuf wBuf 0 namedRows
+               in LinearLayer namedWeights namedBias (Just wBuf')
+      (RnnLayer inputWeights recurrentWeights bias previousOutput _ _) =>
         let
           namedInputWeights = zipWith (np "inputWeight") enumerate inputWeights
           namedRecurrentWeights = zipWith (np "recurrentWeight") enumerate recurrentWeights
           namedBias = zipWith (np "bias") enumerate bias
-        in RnnLayer namedInputWeights namedRecurrentWeights namedBias previousOutput
+        in if i * o <= 4
+          then RnnLayer namedInputWeights namedRecurrentWeights namedBias previousOutput Nothing Nothing
+          else let (VTensor iwRows) = namedInputWeights
+                   (VTensor rwRows) = namedRecurrentWeights
+                   iwBuf = prim__weightBufAlloc (cast (o * i))
+                   iwBuf' = initWeightBuf iwBuf 0 iwRows
+                   rwBuf = prim__weightBufAlloc (cast (o * o))
+                   rwBuf' = initWeightBuf rwBuf 0 rwRows
+               in RnnLayer namedInputWeights namedRecurrentWeights namedBias previousOutput (Just iwBuf') (Just rwBuf')
       (NtmLayer controller memory readHead writeHead readHeadOutput) =>
         let namedMemory = zipWith (np "mem") enumerate memory
         in NtmLayer (nameNetworkParams (prefx ++ "_ctrl") controller)
@@ -359,3 +380,27 @@ mutual
   nameNetworkParams : {i, o : Nat} -> {hs : List Nat} -> String -> Network i hs o Variable -> Network i hs o Variable
   nameNetworkParams prefx (OutputLayer layer) = OutputLayer (nameParams prefx layer)
   nameNetworkParams prefx (layer ~> rest) = nameParams prefx layer ~> nameNetworkParams prefx rest
+
+
+----------------------------------------------------------------------
+-- Weight Buffer Sync (after applyDeltas)
+----------------------------------------------------------------------
+
+mutual
+  export
+  syncLayerBuffers : {i, o : Nat} -> Layer i o Variable -> Layer i o Variable
+  syncLayerBuffers (LinearLayer (VTensor wRows) bias (Just wb)) =
+    let wb' = syncWeightBuf wb 0 wRows
+    in LinearLayer (VTensor wRows) bias (Just wb')
+  syncLayerBuffers (RnnLayer (VTensor iwRows) (VTensor rwRows) bias po (Just iwb) (Just rwb)) =
+    let iwb' = syncWeightBuf iwb 0 iwRows
+        rwb' = syncWeightBuf rwb 0 rwRows
+    in RnnLayer (VTensor iwRows) (VTensor rwRows) bias po (Just iwb') (Just rwb')
+  syncLayerBuffers (NtmLayer controller mem rh wh ro) =
+    NtmLayer (syncNetworkBuffers controller) mem rh wh ro
+  syncLayerBuffers l = l
+
+  export
+  syncNetworkBuffers : {i, o : Nat} -> {hs : List Nat} -> Network i hs o Variable -> Network i hs o Variable
+  syncNetworkBuffers (OutputLayer layer) = OutputLayer (syncLayerBuffers layer)
+  syncNetworkBuffers (layer ~> rest) = syncLayerBuffers layer ~> syncNetworkBuffers rest

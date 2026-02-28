@@ -139,6 +139,35 @@ prim__resetTapeReturn : AnyPtr -> Int -> AnyPtr
 
 
 ----------------------------------------------------------------------
+-- Weight Buffer FFI
+----------------------------------------------------------------------
+
+-- Allocate a weight buffer: Scheme vector #(c-double-ptr, pid-scheme-vector).
+-- Slot 0 = C double* from tensor_alloc, slot 1 = Scheme vector of pid strings.
+export
+%foreign "scheme:(lambda (count) (let ((cbuf ((foreign-procedure \"tensor_alloc\" (int) void*) count)) (pids (make-vector count \"\"))) (vector cbuf pids)))"
+prim__weightBufAlloc : Int -> AnyPtr
+
+-- Get the C double* from a weight buffer.
+%foreign "scheme:(lambda (wbuf) (vector-ref wbuf 0))"
+prim__weightBufVals : AnyPtr -> AnyPtr
+
+-- Write a double value to the C buffer at index.
+%foreign "scheme:(lambda (wbuf idx val) (let ((ptr (vector-ref wbuf 0))) (foreign-set! 'double ptr (* idx 8) val) wbuf))"
+prim__weightBufSetVal : AnyPtr -> Int -> Double -> AnyPtr
+
+-- Write a pid string to the pid vector at index.
+%foreign "scheme:(lambda (wbuf idx pid) (let ((pids (vector-ref wbuf 1))) (vector-set! pids idx pid) wbuf))"
+prim__weightBufSetPid : AnyPtr -> Int -> String -> AnyPtr
+
+-- Bulk append count ConstOp entries from weight buffer to tape.
+-- Reads values from C buffer (foreign-ref 'double), pids from pid vector.
+-- Returns the starting tape index of the block.
+%foreign "scheme:(lambda (wbuf count) (let* ((cbuf (vector-ref wbuf 0)) (pids (vector-ref wbuf 1)) (start (top-level-value 'tape-size)) (end (+ start count)) (ensure (top-level-value 'tape-ensure-cap!))) (ensure (- end 1)) (let ((tags (top-level-value 'tape-tags)) (vals (top-level-value 'tape-vals)) (pidv (top-level-value 'tape-pids))) (do ((k 0 (+ k 1))) ((= k count)) (let ((idx (+ start k))) (vector-set! tags idx 0) (vector-set! vals idx (foreign-ref 'double cbuf (* k 8))) (vector-set! pidv idx (vector-ref pids k))))) (set-top-level-value! 'tape-size end) start))"
+prim__tapeAppendBulkConst : AnyPtr -> Int -> Int
+
+
+----------------------------------------------------------------------
 -- Tensor C FFI
 ----------------------------------------------------------------------
 
@@ -169,6 +198,10 @@ prim__setInt32 : AnyPtr -> Int -> Int -> AnyPtr
 -- MatVec meta: alloc, get internal pointers, compute, backward
 %foreign "scheme:(lambda (m n) ((foreign-procedure \"matvec_meta_alloc\" (int int) void*) m n))"
 prim__matvecMetaAlloc : Int -> Int -> AnyPtr
+
+-- Allocate meta for persistent buffer path (no arena w_vals/w_tape copy)
+%foreign "scheme:(lambda (m n wptr wstart) ((foreign-procedure \"matvec_meta_alloc_buf\" (int int void* int) void*) m n wptr wstart))"
+prim__matvecMetaAllocBuf : Int -> Int -> AnyPtr -> Int -> AnyPtr
 
 -- Raw array accessors (one C call each, cached for bulk writes)
 %foreign "scheme:(lambda (meta) ((foreign-procedure \"matvec_meta_w_vals\" (void*) void*) meta))"
@@ -232,6 +265,11 @@ tapeAppendBinary op a1 a2 val = cast (prim__tapeAppendBinary (toTag op) (cast a1
 %noinline
 tapeAppendMatVecOp : Int -> AnyPtr -> AnyPtr -> AnyPtr
 tapeAppendMatVecOp count meta outBuf = prim__tapeAppendMatVecOp count meta outBuf
+
+-- Bulk register weight entries from buffer. Returns start index.
+%noinline
+tapeAppendBulkConst : AnyPtr -> Int -> Int
+tapeAppendBulkConst wBuf count = prim__tapeAppendBulkConst wBuf count
 
 -- Append DotOp + output ConstOp + set meta->out_tape_idx. Returns ConstOp tape index.
 %noinline
@@ -476,6 +514,65 @@ matrixVectorMultiplyVar {m} {n} (VTensor rows) (VTensor xs) =
       -- Append MatVecOp entry + set meta->out_tape_start.
       outBuf'' = tapeAppendMatVecOp mI meta outBuf'
   in VTensor $ buildOutputScalars outBuf'' 0 m
+
+
+||| Matrix-vector multiply using persistent weight buffer.
+||| Bulk-registers all weights in one FFI call instead of per-element packing.
+export
+matrixVectorMultiplyVarBuf : {m, n : Nat} -> AnyPtr -> Vector n Variable -> Vector m Variable
+matrixVectorMultiplyVarBuf {m} {n} wBuf (VTensor xs) =
+  let mI = cast {to=Int} m
+      nI = cast {to=Int} n
+      -- Bulk register weights: 1 FFI call for m*n entries
+      wTapeStart = tapeAppendBulkConst wBuf (mI * nI)
+      -- Allocate meta using persistent buffer path
+      wValsPtr = prim__weightBufVals wBuf
+      meta = prim__matvecMetaAllocBuf mI nI wValsPtr wTapeStart
+      outBuf = prim__tensorAlloc mI
+      -- Pack input values and tape indices (unchanged)
+      xvPtr = prim__matvecXVals meta
+      xtPtr = prim__matvecXTape meta
+      xvPtr' = packVec xvPtr xtPtr 0 xs
+      -- Compute forward
+      outBuf' = prim__matvecCompute meta (prim__seq xvPtr' outBuf)
+      -- Append MatVecOp entry
+      outBuf'' = tapeAppendMatVecOp mI meta outBuf'
+  in VTensor $ buildOutputScalars outBuf'' 0 m
+
+
+----------------------------------------------------------------------
+-- Weight Buffer Helpers
+----------------------------------------------------------------------
+
+-- Write initial values and pids from a matrix of Variables into a weight buffer.
+-- Returns the buffer pointer for threading.
+initWeightBufRow : AnyPtr -> Int -> Vect k (Scalar Variable) -> AnyPtr
+initWeightBufRow wBuf _ [] = wBuf
+initWeightBufRow wBuf off (STensor v :: rest) =
+  let wBuf' = prim__weightBufSetVal wBuf off v.value
+      wBuf'' = prim__weightBufSetPid wBuf' off (fromMaybe "" v.paramId)
+  in initWeightBufRow wBuf'' (off + 1) rest
+
+export
+initWeightBuf : AnyPtr -> Int -> {n : Nat} -> Vect m (Vector n Variable) -> AnyPtr
+initWeightBuf wBuf _ {m=Z} [] = wBuf
+initWeightBuf wBuf off {m=S k} {n} (VTensor row :: rows) =
+  let wBuf' = initWeightBufRow wBuf off row
+  in initWeightBuf wBuf' (off + cast {to=Int} n) rows
+
+-- Sync updated values from Variables into the C buffer after applyDeltas.
+syncWeightBufRow : AnyPtr -> Int -> Vect k (Scalar Variable) -> AnyPtr
+syncWeightBufRow wBuf _ [] = wBuf
+syncWeightBufRow wBuf off (STensor v :: rest) =
+  let wBuf' = prim__weightBufSetVal wBuf off v.value
+  in syncWeightBufRow wBuf' (off + 1) rest
+
+export
+syncWeightBuf : AnyPtr -> Int -> {n : Nat} -> Vect m (Vector n Variable) -> AnyPtr
+syncWeightBuf wBuf _ {m=Z} [] = wBuf
+syncWeightBuf wBuf off {m=S k} {n} (VTensor row :: rows) =
+  let wBuf' = syncWeightBufRow wBuf off row
+  in syncWeightBuf wBuf' (off + cast {to=Int} n) rows
 
 
 ||| Dot product using C BLAS, recording a single DotOp tape entry.

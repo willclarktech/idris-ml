@@ -31,7 +31,8 @@ epoch opt dataPoints lossFn model st =
   let loss = calculateLossVar lossFn model dataPoints
       grads = collectGrads 1.0 loss
       (deltas, st') = opt.step grads st
-  in (emap (applyDeltas deltas) model, st')
+      model' = syncNetworkBuffers (emap (applyDeltas deltas) model)
+  in (model', st')
 
 export
 trainFrom :
@@ -78,7 +79,8 @@ epochRecurrent opt dataPoints lossFn model st =
   let loss = calculateLossRecurrentVar lossFn model dataPoints
       grads = collectGrads 1.0 loss
       (deltas, st') = opt.step grads st
-  in (emap (applyDeltas deltas) model, st')
+      model' = syncNetworkBuffers (emap (applyDeltas deltas) model)
+  in (model', st')
 
 export
 trainRecurrentFrom :

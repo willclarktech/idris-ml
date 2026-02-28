@@ -116,11 +116,12 @@ void tensor_scale_vec(double alpha, const double *x, double *out, int n) {
 
 typedef struct {
   int m, n;
-  double *w_vals;     /* m*n weight values (copy from forward) */
+  double *w_vals;     /* m*n weight values (copy or persistent buffer) */
   double *x_vals;     /* n input values (copy from forward) */
-  int *w_tape_idx;    /* m*n tape indices of weight elements */
+  int *w_tape_idx;    /* m*n tape indices of weight elements (NULL if bulk) */
   int *x_tape_idx;    /* n tape indices of input elements */
   int out_tape_start; /* tape index of first output element */
+  int w_tape_start;   /* tape start index for bulk-registered weights */
 } MatVecMeta;
 
 typedef struct {
@@ -147,6 +148,24 @@ MatVecMeta *matvec_meta_alloc(int m, int n) {
   meta->w_tape_idx = (int *)arena_alloc(m * n * sizeof(int));
   meta->x_tape_idx = (int *)arena_alloc(n * sizeof(int));
   meta->out_tape_start = 0;
+  meta->w_tape_start = 0;
+  return meta;
+}
+
+/* Allocate MatVecMeta for persistent weight buffer path.
+ * w_vals points to the persistent C buffer (no arena copy).
+ * w_tape_idx is NULL — backward computes indices from w_tape_start. */
+MatVecMeta *matvec_meta_alloc_buf(int m, int n, double *w_vals_ptr,
+                                  int w_tape_start) {
+  MatVecMeta *meta = (MatVecMeta *)arena_alloc(sizeof(MatVecMeta));
+  meta->m = m;
+  meta->n = n;
+  meta->w_vals = w_vals_ptr;
+  meta->x_vals = (double *)arena_alloc(n * sizeof(double));
+  meta->w_tape_idx = NULL;
+  meta->x_tape_idx = (int *)arena_alloc(n * sizeof(int));
+  meta->out_tape_start = 0;
+  meta->w_tape_start = w_tape_start;
   return meta;
 }
 
@@ -276,20 +295,37 @@ void tensor_matvec_backward(double *grad_array, MatVecMeta *meta) {
   int n = meta->n;
   int out_start = meta->out_tape_start + 1; /* skip the MatVecOp entry */
 
-  for (int i = 0; i < m; i++) {
-    double dy = grad_array[out_start + i];
-    if (dy == 0.0) continue;
+  if (meta->w_tape_idx != NULL) {
+    /* Original path: per-element tape indices */
+    for (int i = 0; i < m; i++) {
+      double dy = grad_array[out_start + i];
+      if (dy == 0.0) continue;
 
-    /* dW[i][j] += dy * x[j] */
-    for (int j = 0; j < n; j++) {
-      int w_idx = meta->w_tape_idx[i * n + j];
-      grad_array[w_idx] += dy * meta->x_vals[j];
+      for (int j = 0; j < n; j++) {
+        int w_idx = meta->w_tape_idx[i * n + j];
+        grad_array[w_idx] += dy * meta->x_vals[j];
+      }
+
+      for (int j = 0; j < n; j++) {
+        int x_idx = meta->x_tape_idx[j];
+        grad_array[x_idx] += dy * meta->w_vals[i * n + j];
+      }
     }
+  } else {
+    /* Bulk path: consecutive indices from w_tape_start */
+    int ws = meta->w_tape_start;
+    for (int i = 0; i < m; i++) {
+      double dy = grad_array[out_start + i];
+      if (dy == 0.0) continue;
 
-    /* dx[j] += dy * W[i][j] */
-    for (int j = 0; j < n; j++) {
-      int x_idx = meta->x_tape_idx[j];
-      grad_array[x_idx] += dy * meta->w_vals[i * n + j];
+      for (int j = 0; j < n; j++) {
+        grad_array[ws + i * n + j] += dy * meta->x_vals[j];
+      }
+
+      for (int j = 0; j < n; j++) {
+        int x_idx = meta->x_tape_idx[j];
+        grad_array[x_idx] += dy * meta->w_vals[i * n + j];
+      }
     }
   }
 }
