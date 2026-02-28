@@ -154,7 +154,7 @@ topoSort root = snd $ go empty root []
 export
 collectGrads : Double -> Variable -> SortedMap String Double
 collectGrads initGrad root =
-  let sorted = reverse $ topoSort root
+  let sorted = topoSort root
       nodeGrads = singleton root.nodeId initGrad
   in snd $ foldl propagateOne (nodeGrads, empty) sorted
   where
