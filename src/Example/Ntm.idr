@@ -1,7 +1,9 @@
 module Example.Ntm
 
 import Data.List
+import Data.String
 import Data.Vect
+import System
 import System.Random
 
 import Backprop
@@ -32,7 +34,7 @@ H = 20
 
 ||| Number of training examples
 E : Nat
-E = 3
+E = 5
 
 
 ----------------------------------------------------------------------
@@ -44,8 +46,10 @@ E = 3
 sequences : Vect E (List (Fin W))
 sequences =
   [ [1, 2, 1, 2]
-  , [2, 1, 1, 2, 2, 1]
   , [1, 1, 2, 2, 1]
+  , [2, 1, 1, 2, 2, 1]
+  , [2, 1, 2, 1, 2, 1, 2]
+  , [1, 2, 1, 1, 2, 2, 1, 2]
   ]
 
 ||| Held-out test sequence to check generalization
@@ -88,6 +92,69 @@ decodeOutput = map (map argmax)
 showSequences : Vect n (List (Fin W)) -> String
 showSequences seqs = show $ map (map finToNat) seqs
 
+matchCount : List (Fin W) -> List (Fin W) -> Nat
+matchCount [] [] = 0
+matchCount (x :: xs) (y :: ys) = (if x == y then 1 else 0) + matchCount xs ys
+matchCount _ _ = 0
+
+totalLen : Vect n (List a) -> Nat
+totalLen [] = 0
+totalLen (x :: xs) = length x + totalLen xs
+
+accuracy : Vect n (List (Fin W)) -> Vect n (List (Fin W)) -> Double
+accuracy preds targets =
+  let len = totalLen targets
+      correct = sum $ zipWith matchCount (toList preds) (toList targets)
+  in if len == 0 then 0.0 else cast correct / cast len
+
+
+----------------------------------------------------------------------
+-- Training with progress reporting
+----------------------------------------------------------------------
+
+trainReport :
+  Optimizer ->
+  Network W [W] W Variable ->
+  Vect E (RecurrentDataPoint W W Variable) ->
+  Nat -> Nat -> OptimizerState ->
+  IO (Network W [W] W Variable, OptimizerState)
+trainReport _ model _ Z _ st = pure (model, st)
+trainReport opt model dps (S chunks) done st = do
+  let (model', st') = trainRecurrentFrom opt model dps nllLoss 100 st
+  let loss = calculateLossRecurrent nllLoss model' dps
+  putStrLn $ "  " ++ show (done + 100) ++ ":\t" ++ show (value loss)
+  trainReport opt model' dps chunks (done + 100) st'
+
+
+----------------------------------------------------------------------
+-- CLI Argument Parsing
+----------------------------------------------------------------------
+
+record Config where
+  constructor MkConfig
+  lr1 : Double
+  lr2 : Double
+  maxNorm : Double
+  epochs1 : Nat
+  epochs2 : Nat
+  seed : Bits64
+
+defaultConfig : Config
+defaultConfig = MkConfig 0.001 0.0003 5.0 3000 3000 123456
+
+parseConfig : List String -> Config
+parseConfig args = go args defaultConfig
+  where
+    go : List String -> Config -> Config
+    go [] c = c
+    go ("--lr1" :: v :: rest) c = go rest ({ lr1 := cast v } c)
+    go ("--lr2" :: v :: rest) c = go rest ({ lr2 := cast v } c)
+    go ("--max-norm" :: v :: rest) c = go rest ({ maxNorm := cast v } c)
+    go ("--epochs1" :: v :: rest) c = go rest ({ epochs1 := cast (cast {to=Integer} v) } c)
+    go ("--epochs2" :: v :: rest) c = go rest ({ epochs2 := cast (cast {to=Integer} v) } c)
+    go ("--seed" :: v :: rest) c = go rest ({ seed := cast (cast {to=Integer} v) } c)
+    go (_ :: rest) c = go rest c
+
 
 ----------------------------------------------------------------------
 -- Main
@@ -95,9 +162,18 @@ showSequences seqs = show $ map (map finToNat) seqs
 
 main : IO ()
 main = do
-  srand 123456
+  args <- getArgs
+  let cfg = parseConfig (drop 1 args)
+
+  srand cfg.seed
 
   putStrLn "=== NTM Copy Task ==="
+  putStrLn $ "Config: lr1=" ++ show cfg.lr1
+           ++ " lr2=" ++ show cfg.lr2
+           ++ " maxNorm=" ++ show cfg.maxNorm
+           ++ " epochs=" ++ show cfg.epochs1 ++ "+" ++ show cfg.epochs2
+           ++ " seed=" ++ show cfg.seed
+           ++ " H=" ++ show H
   putStrLn ""
 
   -- Build NTM with logSoftmax output
@@ -114,43 +190,70 @@ main = do
   -- Prepare data
   let dataPoints = map (map fromDouble) rawData
   let testPoints = map (map fromDouble) rawTestData
+  let targets = map (map argmax . ys) dataPoints
+  let testTargets = map (map argmax . ys) testPoints
   putStr "Targets:\t"
-  putStrLn $ showSequences $ map (map argmax . ys) dataPoints
+  putStrLn $ showSequences targets
   putStr "Test targets:\t"
-  putStrLn $ showSequences $ map (map argmax . ys) testPoints
-
-  let lossFn = nllLoss
-  let opt = adam 0.001 0.9 0.999 (pow 10 (-8)) 1.0
+  putStrLn $ showSequences testTargets
 
   -- Pre-training evaluation
-  let loss = calculateLossRecurrent lossFn model dataPoints
+  let loss = calculateLossRecurrent nllLoss model dataPoints
   putStr "Pre loss:\t"
   printLn $ value loss
   putStr "Predictions:\t"
   putStrLn $ showSequences $ decodeOutput $ evaluateRecurrent model dataPoints
   putStrLn ""
 
-  -- Train in stages to show progress
-  putStrLn "Training..."
-  let (t1, s1) = trainRecurrentFrom opt model dataPoints lossFn 1000 initState
-  let l1 = calculateLossRecurrent lossFn t1 dataPoints
-  putStrLn $ "  1000 epochs:\t" ++ show (value l1)
+  -- Phase 1
+  let opt1 = adamGlobalClip cfg.lr1 0.9 0.999 (pow 10 (-8)) cfg.maxNorm
+  let chunks1 = cfg.epochs1 `div` 100
+  putStrLn $ "Training (lr=" ++ show cfg.lr1 ++ ")..."
+  (t1, s1) <- trainReport opt1 model dataPoints chunks1 0 initState
 
-  let (t2, s2) = trainRecurrentFrom opt t1 dataPoints lossFn 1000 s1
-  let l2 = calculateLossRecurrent lossFn t2 dataPoints
-  putStrLn $ "  2000 epochs:\t" ++ show (value l2)
+  putStrLn ""
+  putStrLn "Midpoint predictions (train):"
+  putStr "  Predictions:\t"
+  putStrLn $ showSequences $ decodeOutput $ evaluateRecurrent t1 dataPoints
+  putStrLn "Midpoint predictions (test):"
+  putStr "  Predictions:\t"
+  putStrLn $ showSequences $ decodeOutput $ evaluateRecurrent t1 testPoints
+  putStrLn ""
 
-  let (t3, s3) = trainRecurrentFrom opt t2 dataPoints lossFn 1000 s2
-  let l3 = calculateLossRecurrent lossFn t3 dataPoints
-  putStrLn $ "  3000 epochs:\t" ++ show (value l3)
+  -- Phase 2 (carry Adam state)
+  let opt2 = adamGlobalClip cfg.lr2 0.9 0.999 (pow 10 (-8)) cfg.maxNorm
+  let chunks2 = cfg.epochs2 `div` 100
+  putStrLn $ "Training (lr=" ++ show cfg.lr2 ++ ")..."
+  (t2, _) <- trainReport opt2 t1 dataPoints chunks2 cfg.epochs1 s1
 
   putStrLn ""
 
-  -- Post-training evaluation
+  -- Final evaluation
+  let trainPreds = decodeOutput $ evaluateRecurrent t2 dataPoints
+  let testPreds = decodeOutput $ evaluateRecurrent t2 testPoints
+  let trainAcc = accuracy trainPreds targets
+  let testAcc = accuracy testPreds testTargets
+
   putStrLn "Train predictions:"
   putStr "  Predictions:\t"
-  putStrLn $ showSequences $ decodeOutput $ evaluateRecurrent t3 dataPoints
+  putStrLn $ showSequences trainPreds
+  putStr "  Accuracy:\t"
+  putStrLn $ show trainAcc
 
   putStrLn "Test eval ([1,2,2,1,1,2,1,2]):"
   putStr "  Predictions:\t"
-  putStrLn $ showSequences $ decodeOutput $ evaluateRecurrent t3 testPoints
+  putStrLn $ showSequences testPreds
+  putStr "  Accuracy:\t"
+  putStrLn $ show testAcc
+
+  -- Machine-readable result line for sweep script
+  putStrLn $ "RESULT\t"
+           ++ show cfg.lr1 ++ "\t"
+           ++ show cfg.lr2 ++ "\t"
+           ++ show cfg.maxNorm ++ "\t"
+           ++ show cfg.epochs1 ++ "\t"
+           ++ show cfg.epochs2 ++ "\t"
+           ++ show cfg.seed ++ "\t"
+           ++ show H ++ "\t"
+           ++ show trainAcc ++ "\t"
+           ++ show testAcc
