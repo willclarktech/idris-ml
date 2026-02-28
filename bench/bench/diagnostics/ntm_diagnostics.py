@@ -88,7 +88,7 @@ def _extract_read_params(raw: Tensor, w: int) -> tuple[Tensor, float, float, flo
     shift_vec = main[w : w + shift_kernel_size]
     beta = torch.log(1 + torch.exp(params[0])).item()
     g = torch.sigmoid(params[1]).item()
-    gamma = (1 + 4 * torch.sigmoid(params[2])).item()
+    gamma = (1 + torch.log(1 + torch.exp(params[2]))).item()
     return key, beta, g, gamma, shift_vec
 
 
@@ -102,7 +102,7 @@ def _extract_write_params(
     raw_erase = raw[rh_width : rh_width + w]
     raw_add = raw[rh_width + w : rh_width + 2 * w]
     erase = torch.sigmoid(raw_erase)
-    add = 2 * torch.sigmoid(2 * raw_add) - 1
+    add = raw_add
     return key, beta, g, gamma, shift_vec, erase, add
 
 
