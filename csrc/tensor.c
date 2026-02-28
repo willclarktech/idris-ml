@@ -141,6 +141,42 @@ typedef struct {
   int out_tape_start;    /* tape index of the SoftmaxOp/LogSoftmaxOp entry */
 } SoftmaxMeta;
 
+typedef struct {
+  int n, w;
+  double *mem_vals;      /* n*w memory values (arena) */
+  double *key_vals;      /* w key values (arena) */
+  double beta_val;       /* scalar beta value */
+  double key_norm;       /* |key|, saved for backward */
+  double *row_norms;     /* n row norms, saved for backward (arena) */
+  double *dots;          /* n dot products, saved for backward (arena) */
+  int *mem_tape_idx;     /* n*w tape indices (arena) */
+  int *key_tape_idx;     /* w tape indices (arena) */
+  int beta_tape_idx;     /* tape index for beta */
+  int out_tape_start;    /* set by tape append */
+} BatchCosSimMeta;
+
+typedef struct {
+  int n, w;
+  double *mem_vals;       /* n*w memory values (arena) */
+  double *weight_vals;    /* n weight values (arena) */
+  int *mem_tape_idx;      /* n*w tape indices (arena) */
+  int *weight_tape_idx;   /* n tape indices (arena) */
+  int out_tape_start;     /* set by tape append */
+} ReadOpMeta;
+
+typedef struct {
+  int n, w;
+  double *mem_vals;       /* n*w input memory values (arena) */
+  double *weight_vals;    /* n weight values (arena) */
+  double *erase_vals;     /* w erase values (arena) */
+  double *add_vals;       /* w add values (arena) */
+  int *mem_tape_idx;      /* n*w tape indices (arena) */
+  int *weight_tape_idx;   /* n tape indices (arena) */
+  int *erase_tape_idx;    /* w tape indices (arena) */
+  int *add_tape_idx;      /* w tape indices (arena) */
+  int out_tape_start;     /* set by tape append */
+} WriteOpMeta;
+
 
 /* -------------------------------------------------------------------
    Metadata allocation (arena-backed)
@@ -196,6 +232,45 @@ SoftmaxMeta *softmax_meta_alloc(int n) {
   meta->x_tape_idx = (int *)arena_alloc(n * sizeof(int));
   meta->out_tape_start = 0;
   return meta;
+}
+
+BatchCosSimMeta *batch_cossim_meta_alloc(int n, int w) {
+  BatchCosSimMeta *m = (BatchCosSimMeta *)arena_alloc(sizeof(BatchCosSimMeta));
+  m->n = n; m->w = w;
+  m->mem_vals = (double *)arena_alloc(n * w * sizeof(double));
+  m->key_vals = (double *)arena_alloc(w * sizeof(double));
+  m->row_norms = (double *)arena_alloc(n * sizeof(double));
+  m->dots = (double *)arena_alloc(n * sizeof(double));
+  m->mem_tape_idx = (int *)arena_alloc(n * w * sizeof(int));
+  m->key_tape_idx = (int *)arena_alloc(w * sizeof(int));
+  m->beta_val = 0; m->key_norm = 0; m->beta_tape_idx = 0; m->out_tape_start = 0;
+  return m;
+}
+
+ReadOpMeta *readop_meta_alloc(int n, int w) {
+  ReadOpMeta *m = (ReadOpMeta *)arena_alloc(sizeof(ReadOpMeta));
+  m->n = n; m->w = w;
+  m->mem_vals = (double *)arena_alloc(n * w * sizeof(double));
+  m->weight_vals = (double *)arena_alloc(n * sizeof(double));
+  m->mem_tape_idx = (int *)arena_alloc(n * w * sizeof(int));
+  m->weight_tape_idx = (int *)arena_alloc(n * sizeof(int));
+  m->out_tape_start = 0;
+  return m;
+}
+
+WriteOpMeta *writeop_meta_alloc(int n, int w) {
+  WriteOpMeta *m = (WriteOpMeta *)arena_alloc(sizeof(WriteOpMeta));
+  m->n = n; m->w = w;
+  m->mem_vals = (double *)arena_alloc(n * w * sizeof(double));
+  m->weight_vals = (double *)arena_alloc(n * sizeof(double));
+  m->erase_vals = (double *)arena_alloc(w * sizeof(double));
+  m->add_vals = (double *)arena_alloc(w * sizeof(double));
+  m->mem_tape_idx = (int *)arena_alloc(n * w * sizeof(int));
+  m->weight_tape_idx = (int *)arena_alloc(n * sizeof(int));
+  m->erase_tape_idx = (int *)arena_alloc(w * sizeof(int));
+  m->add_tape_idx = (int *)arena_alloc(w * sizeof(int));
+  m->out_tape_start = 0;
+  return m;
 }
 
 
@@ -302,6 +377,50 @@ void *softmax_meta_set_out(void *meta_ptr, int start) {
   return meta_ptr;
 }
 
+/* --- BatchCosSim meta accessors --- */
+double *batch_cossim_meta_mem_vals(void *p) { return ((BatchCosSimMeta *)p)->mem_vals; }
+int *batch_cossim_meta_mem_tape(void *p)    { return ((BatchCosSimMeta *)p)->mem_tape_idx; }
+double *batch_cossim_meta_key_vals(void *p) { return ((BatchCosSimMeta *)p)->key_vals; }
+int *batch_cossim_meta_key_tape(void *p)    { return ((BatchCosSimMeta *)p)->key_tape_idx; }
+
+void *batch_cossim_meta_set_beta(void *p, double val, int tape_idx) {
+  BatchCosSimMeta *m = (BatchCosSimMeta *)p;
+  m->beta_val = val;
+  m->beta_tape_idx = tape_idx;
+  return p;
+}
+
+void *batch_cossim_meta_set_out(void *p, int start) {
+  ((BatchCosSimMeta *)p)->out_tape_start = start;
+  return p;
+}
+
+/* --- ReadOp meta accessors --- */
+double *readop_meta_mem_vals(void *p)     { return ((ReadOpMeta *)p)->mem_vals; }
+int *readop_meta_mem_tape(void *p)        { return ((ReadOpMeta *)p)->mem_tape_idx; }
+double *readop_meta_weight_vals(void *p)  { return ((ReadOpMeta *)p)->weight_vals; }
+int *readop_meta_weight_tape(void *p)     { return ((ReadOpMeta *)p)->weight_tape_idx; }
+
+void *readop_meta_set_out(void *p, int start) {
+  ((ReadOpMeta *)p)->out_tape_start = start;
+  return p;
+}
+
+/* --- WriteOp meta accessors --- */
+double *writeop_meta_mem_vals(void *p)     { return ((WriteOpMeta *)p)->mem_vals; }
+int *writeop_meta_mem_tape(void *p)        { return ((WriteOpMeta *)p)->mem_tape_idx; }
+double *writeop_meta_weight_vals(void *p)  { return ((WriteOpMeta *)p)->weight_vals; }
+int *writeop_meta_weight_tape(void *p)     { return ((WriteOpMeta *)p)->weight_tape_idx; }
+double *writeop_meta_erase_vals(void *p)   { return ((WriteOpMeta *)p)->erase_vals; }
+int *writeop_meta_erase_tape(void *p)      { return ((WriteOpMeta *)p)->erase_tape_idx; }
+double *writeop_meta_add_vals(void *p)     { return ((WriteOpMeta *)p)->add_vals; }
+int *writeop_meta_add_tape(void *p)        { return ((WriteOpMeta *)p)->add_tape_idx; }
+
+void *writeop_meta_set_out(void *p, int start) {
+  ((WriteOpMeta *)p)->out_tape_start = start;
+  return p;
+}
+
 /* Softmax forward: out[i] = exp(x[i] - max) / sum(exp(x - max))
  * Saves output to meta->out_vals for backward. Writes to out buffer. */
 void *softmax_meta_compute(void *meta_ptr, double *out) {
@@ -337,6 +456,61 @@ void *logsoftmax_meta_compute(void *meta_ptr, double *out) {
   for (int i = 0; i < n; i++) {
     m->out_vals[i] = m->x_vals[i] - logSumExp;
     out[i] = m->out_vals[i];
+  }
+  return out;
+}
+
+/* Batch cosine similarity: out[i] = beta * cos_sim(key, mem[i])
+ * Saves intermediate values (norms, dots) for backward. */
+void *batch_cossim_compute(void *meta_ptr, double *out) {
+  BatchCosSimMeta *m = (BatchCosSimMeta *)meta_ptr;
+  int n = m->n, w = m->w;
+
+  double kn_sq = 0.0;
+  for (int j = 0; j < w; j++) kn_sq += m->key_vals[j] * m->key_vals[j];
+  m->key_norm = sqrt(kn_sq);
+
+  for (int i = 0; i < n; i++) {
+    double dot = 0.0, rn_sq = 0.0;
+    for (int j = 0; j < w; j++) {
+      dot += m->mem_vals[i * w + j] * m->key_vals[j];
+      rn_sq += m->mem_vals[i * w + j] * m->mem_vals[i * w + j];
+    }
+    m->dots[i] = dot;
+    m->row_norms[i] = sqrt(rn_sq);
+
+    double denom = m->key_norm * m->row_norms[i];
+    double sim = (denom > 1e-12) ? dot / denom : 0.0;
+    out[i] = m->beta_val * sim;
+  }
+  return out;
+}
+
+/* Read operation: out[j] = sum_i weight[i] * mem[i*w + j] */
+void *readop_compute(void *meta_ptr, double *out) {
+  ReadOpMeta *m = (ReadOpMeta *)meta_ptr;
+  int n = m->n, w = m->w;
+
+  for (int j = 0; j < w; j++) out[j] = 0.0;
+  for (int i = 0; i < n; i++) {
+    for (int j = 0; j < w; j++) {
+      out[j] += m->weight_vals[i] * m->mem_vals[i * w + j];
+    }
+  }
+  return out;
+}
+
+/* Write operation: out[i*w+j] = mem[i*w+j]*(1 - w[i]*e[j]) + w[i]*a[j] */
+void *writeop_compute(void *meta_ptr, double *out) {
+  WriteOpMeta *m = (WriteOpMeta *)meta_ptr;
+  int n = m->n, w = m->w;
+
+  for (int i = 0; i < n; i++) {
+    for (int j = 0; j < w; j++) {
+      double we = m->weight_vals[i] * m->erase_vals[j];
+      out[i * w + j] = m->mem_vals[i * w + j] * (1.0 - we)
+                      + m->weight_vals[i] * m->add_vals[j];
+    }
   }
   return out;
 }
@@ -447,5 +621,96 @@ void tensor_logsoftmax_backward(double *grad_array, SoftmaxMeta *meta) {
   for (int i = 0; i < n; i++) {
     double dy = grad_array[out_start + i];
     grad_array[meta->x_tape_idx[i]] += dy - exp(meta->out_vals[i]) * sum_dy;
+  }
+}
+
+/*
+ * BatchCosSim backward: given dy[i] for i in [0, n),
+ * where out[i] = beta * cos_sim(key, mem[i]):
+ *   d_beta     = sum_i dy[i] * sim[i]
+ *   d_key[j]  += sum_i dy[i] * beta * (mem[i][j] - dot_i/|key|^2 * key[j]) / (|key|*|mem_i|)
+ *   d_mem[i][j] = dy[i] * beta * (key[j] - dot_i/|mem_i|^2 * mem[i][j]) / (|key|*|mem_i|)
+ */
+void tensor_batch_cossim_backward(double *grad_array, BatchCosSimMeta *m) {
+  int n = m->n, w = m->w;
+  int out_start = m->out_tape_start + 1;
+  double kn = m->key_norm;
+  double kn_sq = kn * kn;
+  double d_beta = 0.0;
+
+  for (int i = 0; i < n; i++) {
+    double dy = grad_array[out_start + i];
+    if (dy == 0.0) continue;
+
+    double rn = m->row_norms[i];
+    double denom = kn * rn;
+    if (denom <= 1e-12) continue;
+
+    double sim = m->dots[i] / denom;
+    d_beta += dy * sim;
+
+    double rn_sq = rn * rn;
+    double coeff = dy * m->beta_val / denom;
+    double dot_over_kn2 = m->dots[i] / kn_sq;
+    double dot_over_rn2 = m->dots[i] / rn_sq;
+
+    for (int j = 0; j < w; j++) {
+      grad_array[m->mem_tape_idx[i * w + j]] +=
+        coeff * (m->key_vals[j] - dot_over_rn2 * m->mem_vals[i * w + j]);
+      grad_array[m->key_tape_idx[j]] +=
+        coeff * (m->mem_vals[i * w + j] - dot_over_kn2 * m->key_vals[j]);
+    }
+  }
+
+  grad_array[m->beta_tape_idx] += d_beta;
+}
+
+/*
+ * ReadOp backward: given dy[j] for j in [0, w),
+ * where out[j] = sum_i weight[i] * mem[i*w+j]:
+ *   d_weight[i] = sum_j dy[j] * mem[i*w+j]
+ *   d_mem[i][j] = dy[j] * weight[i]
+ */
+void tensor_readop_backward(double *grad_array, ReadOpMeta *m) {
+  int n = m->n, w = m->w;
+  int out_start = m->out_tape_start + 1;
+
+  for (int i = 0; i < n; i++) {
+    double d_weight = 0.0;
+    for (int j = 0; j < w; j++) {
+      double dy = grad_array[out_start + j];
+      grad_array[m->mem_tape_idx[i * w + j]] += dy * m->weight_vals[i];
+      d_weight += dy * m->mem_vals[i * w + j];
+    }
+    grad_array[m->weight_tape_idx[i]] += d_weight;
+  }
+}
+
+/*
+ * WriteOp backward: given dy[i*w+j] for output matrix,
+ * where out[i][j] = mem[i][j]*(1-w[i]*e[j]) + w[i]*a[j]:
+ *   d_mem[i][j] = dy[i][j] * (1 - w[i]*e[j])
+ *   d_weight[i] = sum_j dy[i][j] * (-mem[i][j]*e[j] + a[j])
+ *   d_erase[j] += sum_i dy[i][j] * (-mem[i][j]*w[i])
+ *   d_add[j]   += sum_i dy[i][j] * w[i]
+ */
+void tensor_writeop_backward(double *grad_array, WriteOpMeta *m) {
+  int n = m->n, w = m->w;
+  int out_start = m->out_tape_start + 1;
+
+  for (int i = 0; i < n; i++) {
+    double d_weight = 0.0;
+    for (int j = 0; j < w; j++) {
+      double dy = grad_array[out_start + i * w + j];
+      double we = m->weight_vals[i] * m->erase_vals[j];
+
+      grad_array[m->mem_tape_idx[i * w + j]] += dy * (1.0 - we);
+      d_weight += dy * (-m->mem_vals[i * w + j] * m->erase_vals[j]
+                        + m->add_vals[j]);
+      grad_array[m->erase_tape_idx[j]] +=
+        dy * (-m->mem_vals[i * w + j] * m->weight_vals[i]);
+      grad_array[m->add_tape_idx[j]] += dy * m->weight_vals[i];
+    }
+    grad_array[m->weight_tape_idx[i]] += d_weight;
   }
 }

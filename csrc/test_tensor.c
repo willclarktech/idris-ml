@@ -306,6 +306,339 @@ static void test_logsoftmax_backward(void) {
 
 
 /* -------------------------------------------------------------------
+   BatchCosSim tests
+   ------------------------------------------------------------------- */
+
+static void test_batch_cossim_forward(void) {
+  /* mem = [[1, 0], [0, 1], [1, 1]], key = [1, 0], beta = 10
+   * cos(key, row0) = 1*1 / (1*1) = 1.0
+   * cos(key, row1) = 0 / (1*1) = 0.0
+   * cos(key, row2) = 1 / (1*sqrt(2)) = 1/sqrt(2)
+   * out = [10, 0, 10/sqrt(2)] */
+  arena_reset();
+  BatchCosSimMeta *m = batch_cossim_meta_alloc(3, 2);
+  double mem[] = {1, 0, 0, 1, 1, 1};
+  double key[] = {1, 0};
+  memcpy(m->mem_vals, mem, 6 * sizeof(double));
+  memcpy(m->key_vals, key, 2 * sizeof(double));
+  m->beta_val = 10.0;
+
+  double out[3] = {0};
+  batch_cossim_compute(m, out);
+
+  check_close("batch_cossim[0]", out[0], 10.0, 1e-10);
+  check_close("batch_cossim[1]", out[1], 0.0, 1e-10);
+  check_close("batch_cossim[2]", out[2], 10.0 / sqrt(2.0), 1e-10);
+}
+
+static void test_batch_cossim_backward(void) {
+  /* Numerical gradient check for batch cosine similarity.
+   * mem = [[3, 1], [1, 2]], key = [2, 1], beta = 5 */
+  arena_reset();
+  double eps = 1e-5;
+
+  double mem[] = {3, 1, 1, 2};
+  double key[] = {2, 1};
+  double beta = 5.0;
+  int n = 2, w = 2;
+
+  /* Compute forward */
+  BatchCosSimMeta *m = batch_cossim_meta_alloc(n, w);
+  memcpy(m->mem_vals, mem, 4 * sizeof(double));
+  memcpy(m->key_vals, key, 2 * sizeof(double));
+  m->beta_val = beta;
+  double out[2];
+  batch_cossim_compute(m, out);
+
+  /* Tape layout: 0-3 = mem, 4-5 = key, 6 = beta, 7 = op, 8-9 = output */
+  int mem_idx[] = {0, 1, 2, 3};
+  int key_idx[] = {4, 5};
+  memcpy(m->mem_tape_idx, mem_idx, 4 * sizeof(int));
+  memcpy(m->key_tape_idx, key_idx, 2 * sizeof(int));
+  m->beta_tape_idx = 6;
+  m->out_tape_start = 7;
+
+  /* dy = [1, 1] */
+  double grad[10] = {0};
+  grad[8] = 1.0;
+  grad[9] = 1.0;
+  tensor_batch_cossim_backward(grad, m);
+
+  /* Check d_beta numerically */
+  {
+    arena_reset();
+    BatchCosSimMeta *mp = batch_cossim_meta_alloc(n, w);
+    memcpy(mp->mem_vals, mem, 4 * sizeof(double));
+    memcpy(mp->key_vals, key, 2 * sizeof(double));
+    double out_p[2], out_m[2];
+    mp->beta_val = beta + eps;
+    batch_cossim_compute(mp, out_p);
+    mp->beta_val = beta - eps;
+    batch_cossim_compute(mp, out_m);
+    double num = ((out_p[0] - out_m[0]) + (out_p[1] - out_m[1])) / (2 * eps);
+    check_close("batch_cossim_bwd d_beta", grad[6], num, 1e-5);
+  }
+
+  /* Check d_key numerically */
+  for (int j = 0; j < w; j++) {
+    arena_reset();
+    BatchCosSimMeta *mp = batch_cossim_meta_alloc(n, w);
+    memcpy(mp->mem_vals, mem, 4 * sizeof(double));
+    mp->beta_val = beta;
+    double out_p[2], out_m[2];
+    double key_p[2], key_m[2];
+    memcpy(key_p, key, 2 * sizeof(double));
+    memcpy(key_m, key, 2 * sizeof(double));
+    key_p[j] += eps; key_m[j] -= eps;
+    memcpy(mp->key_vals, key_p, 2 * sizeof(double));
+    batch_cossim_compute(mp, out_p);
+    memcpy(mp->key_vals, key_m, 2 * sizeof(double));
+    batch_cossim_compute(mp, out_m);
+    double num = ((out_p[0] - out_m[0]) + (out_p[1] - out_m[1])) / (2 * eps);
+    char name[64];
+    snprintf(name, sizeof(name), "batch_cossim_bwd d_key[%d]", j);
+    check_close(name, grad[4 + j], num, 1e-5);
+  }
+
+  /* Check d_mem numerically */
+  for (int i = 0; i < n * w; i++) {
+    arena_reset();
+    BatchCosSimMeta *mp = batch_cossim_meta_alloc(n, w);
+    memcpy(mp->key_vals, key, 2 * sizeof(double));
+    mp->beta_val = beta;
+    double out_p[2], out_m[2];
+    double mem_p[4], mem_m[4];
+    memcpy(mem_p, mem, 4 * sizeof(double));
+    memcpy(mem_m, mem, 4 * sizeof(double));
+    mem_p[i] += eps; mem_m[i] -= eps;
+    memcpy(mp->mem_vals, mem_p, 4 * sizeof(double));
+    batch_cossim_compute(mp, out_p);
+    memcpy(mp->mem_vals, mem_m, 4 * sizeof(double));
+    batch_cossim_compute(mp, out_m);
+    double num = ((out_p[0] - out_m[0]) + (out_p[1] - out_m[1])) / (2 * eps);
+    char name[64];
+    snprintf(name, sizeof(name), "batch_cossim_bwd d_mem[%d]", i);
+    check_close(name, grad[i], num, 1e-5);
+  }
+}
+
+
+/* -------------------------------------------------------------------
+   ReadOp tests
+   ------------------------------------------------------------------- */
+
+static void test_readop_forward(void) {
+  /* mem = [[1, 2], [3, 4], [5, 6]], weights = [0.5, 0.3, 0.2]
+   * out[0] = 0.5*1 + 0.3*3 + 0.2*5 = 2.4
+   * out[1] = 0.5*2 + 0.3*4 + 0.2*6 = 3.4 */
+  arena_reset();
+  ReadOpMeta *m = readop_meta_alloc(3, 2);
+  double mem[] = {1, 2, 3, 4, 5, 6};
+  double w[] = {0.5, 0.3, 0.2};
+  memcpy(m->mem_vals, mem, 6 * sizeof(double));
+  memcpy(m->weight_vals, w, 3 * sizeof(double));
+
+  double out[2] = {0};
+  readop_compute(m, out);
+
+  check_close("readop[0]", out[0], 2.4, 1e-10);
+  check_close("readop[1]", out[1], 3.4, 1e-10);
+}
+
+static void test_readop_backward(void) {
+  /* mem = [[1, 2], [3, 4]], weights = [0.6, 0.4]
+   * out[0] = 0.6*1 + 0.4*3 = 1.8, out[1] = 0.6*2 + 0.4*4 = 2.8
+   * dy = [1, 1]
+   * d_weight[0] = 1*1 + 1*2 = 3, d_weight[1] = 1*3 + 1*4 = 7
+   * d_mem[0][0] = 1*0.6 = 0.6, d_mem[0][1] = 1*0.6 = 0.6
+   * d_mem[1][0] = 1*0.4 = 0.4, d_mem[1][1] = 1*0.4 = 0.4 */
+  arena_reset();
+  ReadOpMeta *m = readop_meta_alloc(2, 2);
+  double mem[] = {1, 2, 3, 4};
+  double w[] = {0.6, 0.4};
+  memcpy(m->mem_vals, mem, 4 * sizeof(double));
+  memcpy(m->weight_vals, w, 2 * sizeof(double));
+
+  int mem_idx[] = {0, 1, 2, 3};
+  int w_idx[] = {4, 5};
+  memcpy(m->mem_tape_idx, mem_idx, 4 * sizeof(int));
+  memcpy(m->weight_tape_idx, w_idx, 2 * sizeof(int));
+  m->out_tape_start = 6;
+
+  /* layout: 0-3=mem, 4-5=weights, 6=op, 7-8=output */
+  double grad[9] = {0};
+  grad[7] = 1.0;
+  grad[8] = 1.0;
+
+  tensor_readop_backward(grad, m);
+
+  check_close("readop_bwd d_mem[0][0]", grad[0], 0.6, 1e-10);
+  check_close("readop_bwd d_mem[0][1]", grad[1], 0.6, 1e-10);
+  check_close("readop_bwd d_mem[1][0]", grad[2], 0.4, 1e-10);
+  check_close("readop_bwd d_mem[1][1]", grad[3], 0.4, 1e-10);
+  check_close("readop_bwd d_weight[0]", grad[4], 3.0, 1e-10);
+  check_close("readop_bwd d_weight[1]", grad[5], 7.0, 1e-10);
+}
+
+
+/* -------------------------------------------------------------------
+   WriteOp tests
+   ------------------------------------------------------------------- */
+
+static void test_writeop_forward(void) {
+  /* mem = [[1, 1], [1, 1]], weights = [1, 0], erase = [1, 1], add = [0.5, 0.5]
+   * out[0][0] = 1*(1-1*1) + 1*0.5 = 0.5
+   * out[0][1] = 1*(1-1*1) + 1*0.5 = 0.5
+   * out[1][0] = 1*(1-0*1) + 0*0.5 = 1.0
+   * out[1][1] = 1*(1-0*1) + 0*0.5 = 1.0 */
+  arena_reset();
+  WriteOpMeta *m = writeop_meta_alloc(2, 2);
+  double mem[] = {1, 1, 1, 1};
+  double w[] = {1, 0};
+  double e[] = {1, 1};
+  double a[] = {0.5, 0.5};
+  memcpy(m->mem_vals, mem, 4 * sizeof(double));
+  memcpy(m->weight_vals, w, 2 * sizeof(double));
+  memcpy(m->erase_vals, e, 2 * sizeof(double));
+  memcpy(m->add_vals, a, 2 * sizeof(double));
+
+  double out[4] = {0};
+  writeop_compute(m, out);
+
+  check_close("writeop[0][0]", out[0], 0.5, 1e-10);
+  check_close("writeop[0][1]", out[1], 0.5, 1e-10);
+  check_close("writeop[1][0]", out[2], 1.0, 1e-10);
+  check_close("writeop[1][1]", out[3], 1.0, 1e-10);
+}
+
+static void test_writeop_backward(void) {
+  /* Numerical gradient check for write operation.
+   * mem = [[2, 3], [1, 4]], w = [0.7, 0.3], e = [0.5, 0.8], a = [1, -1] */
+  arena_reset();
+  double eps = 1e-5;
+  int n = 2, w = 2;
+
+  double mem[] = {2, 3, 1, 4};
+  double wt[] = {0.7, 0.3};
+  double er[] = {0.5, 0.8};
+  double ad[] = {1, -1};
+
+  /* Compute forward for analytical gradients */
+  WriteOpMeta *m = writeop_meta_alloc(n, w);
+  memcpy(m->mem_vals, mem, 4 * sizeof(double));
+  memcpy(m->weight_vals, wt, 2 * sizeof(double));
+  memcpy(m->erase_vals, er, 2 * sizeof(double));
+  memcpy(m->add_vals, ad, 2 * sizeof(double));
+
+  /* Tape: 0-3=mem, 4-5=weight, 6-7=erase, 8-9=add, 10=op, 11-14=output */
+  int mem_idx[] = {0, 1, 2, 3};
+  int wt_idx[] = {4, 5};
+  int er_idx[] = {6, 7};
+  int ad_idx[] = {8, 9};
+  memcpy(m->mem_tape_idx, mem_idx, 4 * sizeof(int));
+  memcpy(m->weight_tape_idx, wt_idx, 2 * sizeof(int));
+  memcpy(m->erase_tape_idx, er_idx, 2 * sizeof(int));
+  memcpy(m->add_tape_idx, ad_idx, 2 * sizeof(int));
+  m->out_tape_start = 10;
+
+  /* dy = [1, 1, 1, 1] */
+  double grad[15] = {0};
+  grad[11] = 1.0; grad[12] = 1.0; grad[13] = 1.0; grad[14] = 1.0;
+
+  tensor_writeop_backward(grad, m);
+
+  /* Numerical check for each input element. loss = sum(out) */
+  /* Check d_mem */
+  for (int i = 0; i < n * w; i++) {
+    arena_reset();
+    WriteOpMeta *mp = writeop_meta_alloc(n, w);
+    memcpy(mp->weight_vals, wt, 2 * sizeof(double));
+    memcpy(mp->erase_vals, er, 2 * sizeof(double));
+    memcpy(mp->add_vals, ad, 2 * sizeof(double));
+    double out_p[4], out_m[4], mem_p[4], mem_m[4];
+    memcpy(mem_p, mem, 4 * sizeof(double));
+    memcpy(mem_m, mem, 4 * sizeof(double));
+    mem_p[i] += eps; mem_m[i] -= eps;
+    memcpy(mp->mem_vals, mem_p, 4 * sizeof(double));
+    writeop_compute(mp, out_p);
+    memcpy(mp->mem_vals, mem_m, 4 * sizeof(double));
+    writeop_compute(mp, out_m);
+    double num = 0;
+    for (int k = 0; k < n * w; k++) num += (out_p[k] - out_m[k]) / (2 * eps);
+    char name[64];
+    snprintf(name, sizeof(name), "writeop_bwd d_mem[%d]", i);
+    check_close(name, grad[i], num, 1e-5);
+  }
+
+  /* Check d_weight */
+  for (int i = 0; i < n; i++) {
+    arena_reset();
+    WriteOpMeta *mp = writeop_meta_alloc(n, w);
+    memcpy(mp->mem_vals, mem, 4 * sizeof(double));
+    memcpy(mp->erase_vals, er, 2 * sizeof(double));
+    memcpy(mp->add_vals, ad, 2 * sizeof(double));
+    double out_p[4], out_m[4], wt_p[2], wt_m[2];
+    memcpy(wt_p, wt, 2 * sizeof(double));
+    memcpy(wt_m, wt, 2 * sizeof(double));
+    wt_p[i] += eps; wt_m[i] -= eps;
+    memcpy(mp->weight_vals, wt_p, 2 * sizeof(double));
+    writeop_compute(mp, out_p);
+    memcpy(mp->weight_vals, wt_m, 2 * sizeof(double));
+    writeop_compute(mp, out_m);
+    double num = 0;
+    for (int k = 0; k < n * w; k++) num += (out_p[k] - out_m[k]) / (2 * eps);
+    char name[64];
+    snprintf(name, sizeof(name), "writeop_bwd d_weight[%d]", i);
+    check_close(name, grad[4 + i], num, 1e-5);
+  }
+
+  /* Check d_erase */
+  for (int j = 0; j < w; j++) {
+    arena_reset();
+    WriteOpMeta *mp = writeop_meta_alloc(n, w);
+    memcpy(mp->mem_vals, mem, 4 * sizeof(double));
+    memcpy(mp->weight_vals, wt, 2 * sizeof(double));
+    memcpy(mp->add_vals, ad, 2 * sizeof(double));
+    double out_p[4], out_m[4], er_p[2], er_m[2];
+    memcpy(er_p, er, 2 * sizeof(double));
+    memcpy(er_m, er, 2 * sizeof(double));
+    er_p[j] += eps; er_m[j] -= eps;
+    memcpy(mp->erase_vals, er_p, 2 * sizeof(double));
+    writeop_compute(mp, out_p);
+    memcpy(mp->erase_vals, er_m, 2 * sizeof(double));
+    writeop_compute(mp, out_m);
+    double num = 0;
+    for (int k = 0; k < n * w; k++) num += (out_p[k] - out_m[k]) / (2 * eps);
+    char name[64];
+    snprintf(name, sizeof(name), "writeop_bwd d_erase[%d]", j);
+    check_close(name, grad[6 + j], num, 1e-5);
+  }
+
+  /* Check d_add */
+  for (int j = 0; j < w; j++) {
+    arena_reset();
+    WriteOpMeta *mp = writeop_meta_alloc(n, w);
+    memcpy(mp->mem_vals, mem, 4 * sizeof(double));
+    memcpy(mp->weight_vals, wt, 2 * sizeof(double));
+    memcpy(mp->erase_vals, er, 2 * sizeof(double));
+    double out_p[4], out_m[4], ad_p[2], ad_m[2];
+    memcpy(ad_p, ad, 2 * sizeof(double));
+    memcpy(ad_m, ad, 2 * sizeof(double));
+    ad_p[j] += eps; ad_m[j] -= eps;
+    memcpy(mp->add_vals, ad_p, 2 * sizeof(double));
+    writeop_compute(mp, out_p);
+    memcpy(mp->add_vals, ad_m, 2 * sizeof(double));
+    writeop_compute(mp, out_m);
+    double num = 0;
+    for (int k = 0; k < n * w; k++) num += (out_p[k] - out_m[k]) / (2 * eps);
+    char name[64];
+    snprintf(name, sizeof(name), "writeop_bwd d_add[%d]", j);
+    check_close(name, grad[8 + j], num, 1e-5);
+  }
+}
+
+
+/* -------------------------------------------------------------------
    Arena tests
    ------------------------------------------------------------------- */
 
@@ -342,6 +675,12 @@ int main(void) {
   test_logsoftmax_forward();
   test_softmax_backward();
   test_logsoftmax_backward();
+  test_batch_cossim_forward();
+  test_batch_cossim_backward();
+  test_readop_forward();
+  test_readop_backward();
+  test_writeop_forward();
+  test_writeop_backward();
 
   printf("\n%d passed, %d failed\n", tests_passed, tests_failed);
   return tests_failed > 0 ? 1 : 0;
