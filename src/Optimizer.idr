@@ -46,9 +46,8 @@ export
 applyDeltas : SortedMap String Double -> Variable -> Variable
 applyDeltas deltas v = case v.paramId of
   Just pid => case lookup pid deltas of
-    Just d  => let val = v.value - d
-               in Var (nextNodeId val) (Just pid) val 0 (const []) []
-    Nothing => Var (nextNodeId v.value) v.paramId v.value 0 (const []) []
+    Just d  => { value := v.value - d } v
+    Nothing => v
   Nothing  => v
 
 ----------------------------------------------------------------------
