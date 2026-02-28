@@ -83,10 +83,15 @@ prim__tapeAppendUnary : Int -> Int -> Double -> Int
 %foreign "scheme:(lambda (tag a1 a2 val) (let ((idx (top-level-value 'tape-size))) ((top-level-value 'tape-ensure-cap!) idx) (vector-set! (top-level-value 'tape-tags) idx tag) (vector-set! (top-level-value 'tape-arg1) idx a1) (vector-set! (top-level-value 'tape-arg2) idx a2) (vector-set! (top-level-value 'tape-vals) idx val) (vector-set! (top-level-value 'tape-pids) idx \"\") (set-top-level-value! 'tape-size (+ idx 1)) idx))"
 prim__tapeAppendBinary : Int -> Int -> Int -> Double -> Int
 
--- Append a tensor op entry with metadata pointer. Stores tag, output count
--- in arg2, and meta pointer in tape-meta. Returns tape index.
-%foreign "scheme:(lambda (tag count meta-ptr) (let ((idx (top-level-value 'tape-size))) ((top-level-value 'tape-ensure-cap!) idx) (vector-set! (top-level-value 'tape-tags) idx tag) (vector-set! (top-level-value 'tape-arg2) idx count) (vector-set! (top-level-value 'tape-meta) idx meta-ptr) (vector-set! (top-level-value 'tape-pids) idx \"\") (set-top-level-value! 'tape-size (+ idx 1)) idx))"
-prim__tapeAppendTensorOp : Int -> Int -> AnyPtr -> Int
+-- Append MatVecOp: appends tape entry, sets meta->out_tape_start, returns outBuf for threading.
+-- Bundling side effects ensures nothing is dropped by dead-code elimination.
+%foreign "scheme:(lambda (count meta-ptr out-buf) (let ((idx (top-level-value 'tape-size))) ((top-level-value 'tape-ensure-cap!) idx) (vector-set! (top-level-value 'tape-tags) idx 11) (vector-set! (top-level-value 'tape-arg2) idx count) (vector-set! (top-level-value 'tape-meta) idx meta-ptr) (vector-set! (top-level-value 'tape-pids) idx \"\") ((foreign-procedure \"matvec_meta_set_out\" (void* int) void*) meta-ptr idx) (set-top-level-value! 'tape-size (+ idx 1)) out-buf))"
+prim__tapeAppendMatVecOp : Int -> AnyPtr -> AnyPtr -> AnyPtr
+
+-- Append DotOp + output ConstOp: appends DotOp entry, appends ConstOp for
+-- the output scalar, sets meta->out_tape_idx, returns the ConstOp tape index.
+%foreign "scheme:(lambda (meta-ptr val) (let ((idx (top-level-value 'tape-size))) ((top-level-value 'tape-ensure-cap!) (+ idx 1)) (vector-set! (top-level-value 'tape-tags) idx 12) (vector-set! (top-level-value 'tape-arg2) idx 0) (vector-set! (top-level-value 'tape-meta) idx meta-ptr) (vector-set! (top-level-value 'tape-pids) idx \"\") (let ((out-idx (+ idx 1))) (vector-set! (top-level-value 'tape-tags) out-idx 0) (vector-set! (top-level-value 'tape-vals) out-idx val) (vector-set! (top-level-value 'tape-pids) out-idx \"\") ((foreign-procedure \"dot_meta_set_out\" (void* int) void*) meta-ptr out-idx) (set-top-level-value! 'tape-size (+ out-idx 1)) out-idx)))"
+prim__tapeAppendDotOp : AnyPtr -> Double -> Int
 
 -- Update tape entry's paramId. Returns idx so result is used in Variable construction.
 %foreign "scheme:(lambda (idx pid) (begin (vector-set! (top-level-value 'tape-pids) idx pid) idx))"
@@ -112,15 +117,17 @@ prim__tapeGetParamId : Int -> String
 %foreign "scheme:(lambda (idx) (vector-ref (top-level-value 'tape-meta) idx))"
 prim__tapeGetMeta : Int -> AnyPtr
 
--- Mutable gradient array (C-backed for tensor backward compatibility)
+-- Mutable gradient array (C-allocated, Scheme-accessed via foreign-ref/set!
+-- for fast per-element reads/writes without C FFI crossing)
 %foreign "scheme:(lambda (size) (let ((ptr ((foreign-procedure \"grad_alloc\" (int) void*) size))) (when (top-level-bound? 'last-grad-ptr) ((foreign-procedure \"grad_free\" (void*) void) (top-level-value 'last-grad-ptr))) (set-top-level-value! 'last-grad-ptr ptr) ptr))"
 prim__gradAlloc : Int -> AnyPtr
 
--- gradAdd returns the handle (same pointer) to enable threading
-%foreign "scheme:(lambda (handle idx val) ((foreign-procedure \"grad_add\" (void* int double) void*) handle idx val))"
+-- gradAdd: Scheme-native read-modify-write on C array (no C FFI crossing)
+%foreign "scheme:(lambda (handle idx val) (let ((off (* idx 8))) (foreign-set! 'double handle off (+ (foreign-ref 'double handle off) val)) handle))"
 prim__gradAdd : AnyPtr -> Int -> Double -> AnyPtr
 
-%foreign "scheme:(lambda (handle idx) ((foreign-procedure \"grad_get\" (void* int) double) handle idx))"
+-- gradGet: Scheme-native read from C array (no C FFI crossing)
+%foreign "scheme:(lambda (handle idx) (foreign-ref 'double handle (* idx 8)))"
 prim__gradGet : AnyPtr -> Int -> Double
 
 -- Reset tape (size=0, gen++), reset arena, and return the given handle.
@@ -145,18 +152,33 @@ prim__tensorFree : AnyPtr -> Int
 %foreign "scheme:(lambda (ptr idx) ((foreign-procedure \"tensor_read\" (void* int) double) ptr idx))"
 prim__tensorRead : AnyPtr -> Int -> Double
 
--- MatVec meta: alloc, pack, compute, backward
+-- Force evaluation of first arg, return second. Chez Scheme evaluates all
+-- function arguments strictly, so this creates an ordering dependency.
+%foreign "scheme:(lambda (a b) b)"
+prim__seq : AnyPtr -> AnyPtr -> AnyPtr
+
+-- Scheme-native memory writes (no C FFI crossing per element)
+-- foreign-set! 'double writes 8 bytes; 'integer-32 writes 4 bytes.
+-- Returns the pointer for threading.
+%foreign "scheme:(lambda (ptr idx val) (begin (foreign-set! 'double ptr (* idx 8) val) ptr))"
+prim__setDouble : AnyPtr -> Int -> Double -> AnyPtr
+
+%foreign "scheme:(lambda (ptr idx val) (begin (foreign-set! 'integer-32 ptr (* idx 4) val) ptr))"
+prim__setInt32 : AnyPtr -> Int -> Int -> AnyPtr
+
+-- MatVec meta: alloc, get internal pointers, compute, backward
 %foreign "scheme:(lambda (m n) ((foreign-procedure \"matvec_meta_alloc\" (int int) void*) m n))"
 prim__matvecMetaAlloc : Int -> Int -> AnyPtr
 
-%foreign "scheme:(lambda (meta idx val tidx) ((foreign-procedure \"matvec_meta_pack_w\" (void* int double int) void*) meta idx val tidx))"
-prim__matvecPackW : AnyPtr -> Int -> Double -> Int -> AnyPtr
-
-%foreign "scheme:(lambda (meta idx val tidx) ((foreign-procedure \"matvec_meta_pack_x\" (void* int double int) void*) meta idx val tidx))"
-prim__matvecPackX : AnyPtr -> Int -> Double -> Int -> AnyPtr
-
-%foreign "scheme:(lambda (meta start) ((foreign-procedure \"matvec_meta_set_out\" (void* int) void*) meta start))"
-prim__matvecSetOut : AnyPtr -> Int -> AnyPtr
+-- Raw array accessors (one C call each, cached for bulk writes)
+%foreign "scheme:(lambda (meta) ((foreign-procedure \"matvec_meta_w_vals\" (void*) void*) meta))"
+prim__matvecWVals : AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (meta) ((foreign-procedure \"matvec_meta_w_tape\" (void*) void*) meta))"
+prim__matvecWTape : AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (meta) ((foreign-procedure \"matvec_meta_x_vals\" (void*) void*) meta))"
+prim__matvecXVals : AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (meta) ((foreign-procedure \"matvec_meta_x_tape\" (void*) void*) meta))"
+prim__matvecXTape : AnyPtr -> AnyPtr
 
 %foreign "scheme:(lambda (meta out) ((foreign-procedure \"matvec_meta_compute\" (void* void*) void*) meta out))"
 prim__matvecCompute : AnyPtr -> AnyPtr -> AnyPtr
@@ -164,18 +186,18 @@ prim__matvecCompute : AnyPtr -> AnyPtr -> AnyPtr
 %foreign "scheme:(lambda (g meta) (begin ((foreign-procedure \"tensor_matvec_backward\" (void* void*) void) g meta) g))"
 prim__matvecBackward : AnyPtr -> AnyPtr -> AnyPtr
 
--- Dot meta: alloc, pack, compute, backward
+-- Dot meta: alloc, get internal pointers, compute, backward
 %foreign "scheme:(lambda (n) ((foreign-procedure \"dot_meta_alloc\" (int) void*) n))"
 prim__dotMetaAlloc : Int -> AnyPtr
 
-%foreign "scheme:(lambda (meta idx val tidx) ((foreign-procedure \"dot_meta_pack_a\" (void* int double int) void*) meta idx val tidx))"
-prim__dotPackA : AnyPtr -> Int -> Double -> Int -> AnyPtr
-
-%foreign "scheme:(lambda (meta idx val tidx) ((foreign-procedure \"dot_meta_pack_b\" (void* int double int) void*) meta idx val tidx))"
-prim__dotPackB : AnyPtr -> Int -> Double -> Int -> AnyPtr
-
-%foreign "scheme:(lambda (meta out) ((foreign-procedure \"dot_meta_set_out\" (void* int) void*) meta out))"
-prim__dotSetOut : AnyPtr -> Int -> AnyPtr
+%foreign "scheme:(lambda (meta) ((foreign-procedure \"dot_meta_a_vals\" (void*) void*) meta))"
+prim__dotAVals : AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (meta) ((foreign-procedure \"dot_meta_a_tape\" (void*) void*) meta))"
+prim__dotATape : AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (meta) ((foreign-procedure \"dot_meta_b_vals\" (void*) void*) meta))"
+prim__dotBVals : AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (meta) ((foreign-procedure \"dot_meta_b_tape\" (void*) void*) meta))"
+prim__dotBTape : AnyPtr -> AnyPtr
 
 %foreign "scheme:(lambda (meta) ((foreign-procedure \"dot_meta_compute\" (void*) double) meta))"
 prim__dotCompute : AnyPtr -> Double
@@ -206,9 +228,15 @@ tapeAppendUnary op a1 val = cast (prim__tapeAppendUnary (toTag op) (cast a1) val
 tapeAppendBinary : TapeOp -> Nat -> Nat -> Double -> Nat
 tapeAppendBinary op a1 a2 val = cast (prim__tapeAppendBinary (toTag op) (cast a1) (cast a2) val)
 
+-- Append MatVecOp entry + set meta->out_tape_start. Returns outBuf for threading.
 %noinline
-tapeAppendTensorOp : TapeOp -> Int -> AnyPtr -> Nat
-tapeAppendTensorOp op count meta = cast (prim__tapeAppendTensorOp (toTag op) count meta)
+tapeAppendMatVecOp : Int -> AnyPtr -> AnyPtr -> AnyPtr
+tapeAppendMatVecOp count meta outBuf = prim__tapeAppendMatVecOp count meta outBuf
+
+-- Append DotOp + output ConstOp + set meta->out_tape_idx. Returns ConstOp tape index.
+%noinline
+tapeAppendDotOp : AnyPtr -> Double -> Nat
+tapeAppendDotOp meta val = cast (prim__tapeAppendDotOp meta val)
 
 
 ----------------------------------------------------------------------
@@ -385,22 +413,33 @@ nameParam prefx i p = setParamId (prefx ++ show i) p
 -- Tensor-level Operations (C-backed forward + tape recording)
 ----------------------------------------------------------------------
 
--- Pack a list of Variables into matvec meta weight slots, threading the
--- meta pointer to ensure evaluation ordering.
-packWeights : AnyPtr -> Int -> List Variable -> AnyPtr
-packWeights meta _ [] = meta
-packWeights meta off (v :: vs) =
+-- Pack a row of scalar Variables into value/tape-index arrays.
+-- Uses Scheme-native foreign-set! (no C FFI crossing per element).
+-- Returns the value pointer for threading (prevents dead-code elimination).
+packRow : AnyPtr -> AnyPtr -> Int -> Vect k (Scalar Variable) -> AnyPtr
+packRow vp tp _ [] = vp
+packRow vp tp off (STensor v :: rest) =
   let tIdx = ensureOnTape v
-      meta' = prim__matvecPackW meta off v.value (cast tIdx)
-  in packWeights meta' (off + 1) vs
+      vp' = prim__setDouble vp off v.value
+      tp' = prim__setInt32 tp off (cast tIdx)
+  in packRow vp' tp' (off + 1) rest
 
--- Pack a list of Variables into matvec meta input slots.
-packInputs : AnyPtr -> Int -> List Variable -> AnyPtr
-packInputs meta _ [] = meta
-packInputs meta off (v :: vs) =
+-- Pack all rows of a matrix into value/tape-index arrays (row-major).
+-- Threads the value pointer through each row to force evaluation.
+packMatrix : AnyPtr -> AnyPtr -> Int -> {n : Nat} -> Vect m (Vector n Variable) -> AnyPtr
+packMatrix vp tp _ {m=Z} [] = vp
+packMatrix vp tp off {m=S k} {n} (VTensor row :: rows) =
+  let vp' = packRow vp tp off row
+  in packMatrix vp' tp (off + cast {to=Int} n) rows
+
+-- Pack a vector of scalar Variables into value/tape-index arrays.
+packVec : AnyPtr -> AnyPtr -> Int -> Vect k (Scalar Variable) -> AnyPtr
+packVec vp tp _ [] = vp
+packVec vp tp off (STensor v :: rest) =
   let tIdx = ensureOnTape v
-      meta' = prim__matvecPackX meta off v.value (cast tIdx)
-  in packInputs meta' (off + 1) vs
+      vp' = prim__setDouble vp off v.value
+      tp' = prim__setInt32 tp off (cast tIdx)
+  in packVec vp' tp' (off + 1) rest
 
 -- Build k output Scalars by reading values from a C buffer and appending
 -- ConstOp entries. off is the current index into the buffer.
@@ -416,65 +455,49 @@ buildOutputScalars outBuf off (S k) =
 ||| tape entry instead of m*n scalar entries.
 export
 matrixVectorMultiplyVar : {m, n : Nat} -> Matrix m n Variable -> Vector n Variable -> Vector m Variable
-matrixVectorMultiplyVar {m} {n} weights input =
+matrixVectorMultiplyVar {m} {n} (VTensor rows) (VTensor xs) =
   let mI = cast {to=Int} m
       nI = cast {to=Int} n
-      -- Flatten to lists for packing
-      wList = toList (flatten weights)
-      xList = toList (flatten input)
       -- Allocate meta (arena) and output buffer (heap)
-      meta0 = prim__matvecMetaAlloc mI nI
+      meta = prim__matvecMetaAlloc mI nI
       outBuf = prim__tensorAlloc mI
-      -- Pack weight values and tape indices into meta
-      meta1 = packWeights meta0 0 wList
-      -- Pack input values and tape indices into meta
-      meta2 = packInputs meta1 0 xList
-      -- Compute forward: writes results into outBuf
-      outBuf' = prim__matvecCompute meta2 outBuf
-      -- Append MatVecOp entry to tape (count = m outputs)
-      opIdx = tapeAppendTensorOp MatVecOp mI meta2
-      -- Set meta's out_tape_start to the MatVecOp tape index
-      meta3 = prim__matvecSetOut meta2 (cast opIdx)
-      -- Append m ConstOp entries for outputs and build Variables
-  in VTensor $ buildOutputScalars outBuf' 0 m
+      -- Get raw array pointers (4 C calls, then Scheme-native writes)
+      wvPtr = prim__matvecWVals meta
+      wtPtr = prim__matvecWTape meta
+      xvPtr = prim__matvecXVals meta
+      xtPtr = prim__matvecXTape meta
+      -- Pack weight values and tape indices (row-major, Scheme foreign-set!)
+      wvPtr' = packMatrix wvPtr wtPtr 0 rows
+      -- Pack input values and tape indices (xvPtr depends on wvPtr' via seq)
+      xvPtr' = packVec (prim__seq wvPtr' xvPtr) xtPtr 0 xs
+      -- Compute forward: writes results into outBuf.
+      -- prim__seq forces packing to complete before compute reads the arrays.
+      outBuf' = prim__matvecCompute meta (prim__seq xvPtr' outBuf)
+      -- Append MatVecOp entry + set meta->out_tape_start.
+      outBuf'' = tapeAppendMatVecOp mI meta outBuf'
+  in VTensor $ buildOutputScalars outBuf'' 0 m
 
--- Pack variables into dot meta vector a slots.
-packDotA : AnyPtr -> Int -> List Variable -> AnyPtr
-packDotA meta _ [] = meta
-packDotA meta off (v :: vs) =
-  let tIdx = ensureOnTape v
-      meta' = prim__dotPackA meta off v.value (cast tIdx)
-  in packDotA meta' (off + 1) vs
-
--- Pack variables into dot meta vector b slots.
-packDotB : AnyPtr -> Int -> List Variable -> AnyPtr
-packDotB meta _ [] = meta
-packDotB meta off (v :: vs) =
-  let tIdx = ensureOnTape v
-      meta' = prim__dotPackB meta off v.value (cast tIdx)
-  in packDotB meta' (off + 1) vs
 
 ||| Dot product using C BLAS, recording a single DotOp tape entry.
 export
 dotProductVar : {n : Nat} -> Vector n Variable -> Vector n Variable -> Variable
-dotProductVar {n} v1 v2 =
+dotProductVar {n} (VTensor as) (VTensor bs) =
   let nI = cast {to=Int} n
-      aList = toList (flatten v1)
-      bList = toList (flatten v2)
       -- Allocate meta (arena)
-      meta0 = prim__dotMetaAlloc nI
-      -- Pack both vectors
-      meta1 = packDotA meta0 0 aList
-      meta2 = packDotB meta1 0 bList
-      -- Compute forward
-      val = prim__dotCompute meta2
-      -- Append DotOp entry to tape (count = 0, scalar output)
-      opIdx = tapeAppendTensorOp DotOp 0 meta2
-      -- Append ConstOp for the output scalar
-      outIdx = tapeAppendConst val ""
+      meta = prim__dotMetaAlloc nI
+      -- Get raw array pointers (4 C calls)
+      avPtr = prim__dotAVals meta
+      atPtr = prim__dotATape meta
+      bvPtr = prim__dotBVals meta
+      btPtr = prim__dotBTape meta
+      -- Pack both vectors (Scheme-native foreign-set!)
+      avPtr' = packVec avPtr atPtr 0 as
+      bvPtr' = packVec (prim__seq avPtr' bvPtr) btPtr 0 bs
+      -- Compute forward (prim__seq forces packing before compute)
+      val = prim__dotCompute (prim__seq bvPtr' meta)
+      -- Append DotOp + ConstOp entries + set meta->out_tape_idx.
+      outIdx = tapeAppendDotOp meta val
       gen = tapeGeneration outIdx
-      -- Set meta's out_tape_idx
-      meta3 = prim__dotSetOut meta2 (cast outIdx)
   in Var outIdx gen Nothing val
 
 

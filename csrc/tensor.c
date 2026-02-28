@@ -205,6 +205,16 @@ void *matvec_meta_pack_x(void *meta_ptr, int idx, double val, int tape_idx) {
   return meta_ptr;
 }
 
+/* --- Raw array accessors (for Scheme-side foreign-set! packing) --- */
+double *matvec_meta_w_vals(void *p) { return ((MatVecMeta *)p)->w_vals; }
+double *matvec_meta_x_vals(void *p) { return ((MatVecMeta *)p)->x_vals; }
+int *matvec_meta_w_tape(void *p)    { return ((MatVecMeta *)p)->w_tape_idx; }
+int *matvec_meta_x_tape(void *p)    { return ((MatVecMeta *)p)->x_tape_idx; }
+double *dot_meta_a_vals(void *p)    { return ((DotMeta *)p)->a_vals; }
+double *dot_meta_b_vals(void *p)    { return ((DotMeta *)p)->b_vals; }
+int *dot_meta_a_tape(void *p)       { return ((DotMeta *)p)->a_tape_idx; }
+int *dot_meta_b_tape(void *p)       { return ((DotMeta *)p)->b_tape_idx; }
+
 /* Set the tape index where this op's output ConstOps start. */
 void *matvec_meta_set_out(void *meta_ptr, int start) {
   ((MatVecMeta *)meta_ptr)->out_tape_start = start;

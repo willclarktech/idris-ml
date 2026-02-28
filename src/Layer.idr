@@ -152,12 +152,16 @@ mutual
   export
   applyLayerVar : {i, o : Nat} -> Layer i o Variable -> Vector i Variable -> (Layer i o Variable, Vector o Variable)
   applyLayerVar layer@(LinearLayer weights bias) xs =
-    (layer, matrixVectorMultiplyVar {m=o, n=i} weights xs + bias)
+    if i * o <= 4
+      then applyLayer layer xs
+      else (layer, matrixVectorMultiplyVar {m=o, n=i} weights xs + bias)
   applyLayerVar (RnnLayer inputWeights recurrentWeights bias previousOutput) xs =
-    let
-      output = matrixVectorMultiplyVar inputWeights xs + matrixVectorMultiplyVar recurrentWeights previousOutput + bias
-      updatedLayer = RnnLayer inputWeights recurrentWeights bias output
-    in (updatedLayer, output)
+    if i * o <= 4
+      then applyLayer (RnnLayer inputWeights recurrentWeights bias previousOutput) xs
+      else let
+        output = matrixVectorMultiplyVar inputWeights xs + matrixVectorMultiplyVar recurrentWeights previousOutput + bias
+        updatedLayer = RnnLayer inputWeights recurrentWeights bias output
+      in (updatedLayer, output)
   applyLayerVar layer@(ActivationLayer _ f) xs = (layer, map f xs)
   applyLayerVar layer@(NormalizationLayer _ f) xs = (layer, f xs)
   applyLayerVar {i} (NtmLayer {n} {hs} controller memory readHead writeHead readHeadOutput) inp =
