@@ -2,3 +2,8 @@
 
 build/
 .claude/
+
+bench/.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
