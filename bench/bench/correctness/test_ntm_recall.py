@@ -5,12 +5,34 @@ import random
 import pytest
 import torch
 
-from bench.data.recall_task import generate_recall_batch
+from bench.data.recall_task import associative_recall_point, generate_recall_batch
 from bench.models.ntm_recall import NtmRecallConfig, NtmRecallModel, train_ntm_recall_step
 from bench.training.losses import weighted_nll_loss
 
 
 class TestNtmRecallQuick:
+    def test_encoding_length(self) -> None:
+        """Sequence length should be 3K+1 (immediate output, no blank query steps)."""
+        w = 8
+        for k in [1, 2, 3]:
+            pairs = [(i + 1, i + 2) for i in range(k)]
+            query_order = [p[0] for p in pairs]
+            xs, ys = associative_recall_point(pairs, query_order, w)
+            assert len(xs) == 3 * k + 1, f"K={k}: expected {3 * k + 1}, got {len(xs)}"
+            assert len(ys) == 3 * k + 1
+
+    def test_query_targets_immediate(self) -> None:
+        """Query targets should appear at same timestep as query key (not delayed)."""
+        w = 8
+        pairs = [(1, 3), (2, 4)]
+        query_order = [2, 1]
+        xs, ys = associative_recall_point(pairs, query_order, w)
+        # Store: k1 v1 k2 v2 (4 steps) + delim (1 step) = 5 steps
+        # Query: q1=2 q2=1 (2 steps), targets: v2=4 v1=3
+        assert len(xs) == 7  # 3*2+1
+        assert int(ys[5].argmax()) == 4  # t5: query=2, answer=4
+        assert int(ys[6].argmax()) == 3  # t6: query=1, answer=3
+
     def test_loss_decreases(self) -> None:
         """Loss should decrease over 200 epochs with fixed K=1 data (RNN)."""
         torch.manual_seed(42)

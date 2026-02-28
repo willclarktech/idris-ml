@@ -1,12 +1,12 @@
 """Associative recall data generation matching idris-ml's Generate.idr.
 
-Sequence structure for K pairs (4K+1 timesteps):
+Sequence structure for K pairs (3K+1 timesteps):
   Store:  k1 v1 k2 v2 ... kK vK   (2K steps)
   Delim:  blank                     (1 step)
-  Query:  q1 blank q2 blank ... qK blank  (2K steps)
+  Query:  q1 q2 ... qK              (K steps, immediate output)
 
-Output is blank everywhere except on blank-input timesteps during
-the query phase, where the correct value appears.
+Output is blank everywhere except query timesteps, where the
+correct value appears at the same timestep as the query key.
 """
 
 import random
@@ -46,12 +46,12 @@ def associative_recall_point(
     delim_in = [blank]
     delim_out = [blank]
 
-    # Query phase: q1 blank q2 blank ... qK blank
+    # Query phase: q1 q2 ... qK (immediate output, no blanks)
     query_in = []
     query_out = []
     for q in query_order:
-        query_in.extend([q, blank])
-        query_out.extend([blank, lookup.get(q, blank)])
+        query_in.append(q)
+        query_out.append(lookup.get(q, blank))
 
     inp_indices = store_in + delim_in + query_in
     out_indices = store_out + delim_out + query_out

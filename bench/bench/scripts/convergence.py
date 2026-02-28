@@ -369,24 +369,17 @@ def run_recall(args: argparse.Namespace) -> None:
             # Store write slots: argmax at key timesteps (t=0,2,4,...)
             key_steps = range(0, 2 * test_k, 2)
             store_write_slots = [int(ts[t].write_addr.argmax().item()) for t in key_steps]
-            # Query response timesteps: after delimiter, every other step (blank input = response)
-            # Query phase starts at 2K+1, responses at 2K+2, 2K+4, ...
-            query_response_indices = list(range(2 * test_k + 2, len(ts), 2))
+            # Query response timesteps: immediate output, every step after delimiter
+            # Query phase starts at 2K+1, each step is both query and response
+            query_response_indices = list(range(2 * test_k + 1, len(ts)))
 
-            # Map query to store: we need to figure out which key was queried
-            # Query keys are at positions 2K+1, 2K+3, ... in the input
-            query_key_indices = list(range(2 * test_k + 1, len(ts), 2))
-            # The store keys are at positions 0, 2, 4, ... with symbols
+            # Map query to store: each query timestep IS the query key
             store_keys = [int(xs[t].argmax().item()) for t in range(0, 2 * test_k, 2)]
             query_to_store: list[int] = []
-            for qi in query_key_indices:
+            for qi in query_response_indices:
                 q_sym = int(xs[qi].argmax().item())
-                # Find which store index has this key
                 store_idx = store_keys.index(q_sym) if q_sym in store_keys else 0
                 query_to_store.append(store_idx)
-
-            # Trim to match response indices length
-            query_to_store = query_to_store[: len(query_response_indices)]
             if query_response_indices and store_write_slots:
                 s.content_match_rate = compute_content_match(
                     ts, store_write_slots, query_response_indices, query_to_store
