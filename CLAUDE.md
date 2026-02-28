@@ -39,7 +39,8 @@ idris2 --source-dir src -p contrib -o ntm src/Example/Ntm.idr && ./build/exec/nt
 7. **DataPoint** - `DataPoint` and `RecurrentDataPoint` records
 8. **Endofunctor** - `emap : (ty -> ty) -> e ty -> e ty` for type-preserving maps
 9. **Layer** - Layer/Network types (mutually recursive), forward pass, constructors
-10. **Backprop** - Training loop: `zeroGrad`, `backward`, `step`, `epoch`, `train`
+10. **Optimizer** - SGD and Adam optimizers with per-parameter gradient clipping
+11. **Backprop** - Training loop: `epoch`, `train`, `trainFrom`, `epochRecurrent`, `trainRecurrent`, `trainRecurrentFrom`
 
 ### Core type signatures
 
@@ -93,7 +94,7 @@ controllerHidden <- linearLayer {i = NtmInputWidth W, o = H}
 controllerOut <- linearLayer {i = H, o = NtmOutputWidth N W}
 let controller = controllerHidden ~> sigmoidLayer ~> OutputLayer controllerOut
 ntm <- ntmLayer {n = N, w = W} controller
-let model = nameNetworkParams "ntm" $ ntm ~> OutputLayer softmaxLayer
+let model = nameNetworkParams "ntm" $ ntm ~> OutputLayer logSoftmaxLayer
 ```
 
 ### Forward pass returns updated network (state threading)
@@ -110,11 +111,12 @@ let (updatedModel, output) = forward model input
 ### Training cycle
 
 ```idris
--- Backprop.idr: forward (via calculateLoss) -> collectGrads -> applyGrads
-epoch lr maxGrad dataPoints lossFn model =
+-- Backprop.idr: forward (via calculateLoss) -> collectGrads -> optimizer step -> apply deltas
+epoch opt dataPoints lossFn model st =
   let loss = calculateLoss lossFn model dataPoints   -- 1. Forward pass + loss
       grads = collectGrads 1.0 loss                  -- 2. Backprop gradients
-  in emap (applyGrads lr maxGrad grads) model        -- 3. Clip & apply updates
+      (deltas, st') = opt.step grads st              -- 3. Optimizer computes deltas
+  in (emap (applyDeltas deltas) model, st')          -- 4. Apply parameter updates
 ```
 
 ### Parameter naming (required for gradient flow)
@@ -124,18 +126,16 @@ Every learnable layer must be named before training:
 ```idris
 ll <- nameParams "ll" <$> linearLayer           -- names: ll_weight0, ll_bias0, ...
 rnn <- nameParams "rnn" <$> rnnLayer            -- names: rnn_inputWeight0, rnn_bias0, ...
-nameNetworkParams "ntm" $ ntm ~> OutputLayer softmaxLayer  -- recursive naming
+nameNetworkParams "ntm" $ ntm ~> OutputLayer logSoftmaxLayer  -- recursive naming
 ```
 
 ### Endofunctor for type-preserving transforms
 
-`emap` maps `(ty -> ty)` over Layer/Network without changing shape types. Used by `zeroGrad`, `step`, `backward`:
+`emap` maps `(ty -> ty)` over Layer/Network without changing shape types. Used by `applyDeltas` in training:
 
 ```idris
-zeroGrad : Network i hs o Variable -> Network i hs o Variable
-zeroGrad = emap {grad := 0}
-
-step lr = emap (updateParam lr)
+-- Apply optimizer deltas to all parameters
+emap (applyDeltas deltas) model
 ```
 
 ### Data preparation (Double -> Variable)
@@ -152,9 +152,9 @@ let prepared = map (map fromDouble) dataPoints  -- DataPoint i o Double -> DataP
 |--------|-----------|-----------|
 | Data type | `DataPoint i o ty` (x, y vectors) | `RecurrentDataPoint i o ty` (xs, ys lists) |
 | Forward | `forward` / `forwardMany` | `forwardRecurrent` (folds over list) |
-| Train | `train` / `epoch` | `trainRecurrent` / `epochRecurrent` |
+| Train | `train` / `trainFrom` | `trainRecurrent` / `trainRecurrentFrom` |
 | State | Not carried between examples | Accumulated within a sequence, reset between sequences |
-| Loss fn | `crossEntropy`, `meanSquaredError` | `binaryCrossEntropyWithLogits`, `crossEntropy` |
+| Loss fn | `crossEntropy`, `meanSquaredError` | `nllLoss`, `binaryCrossEntropyWithLogits`, `crossEntropy` |
 
 ## Conventions
 
@@ -174,3 +174,8 @@ let prepared = map (map fromDouble) dataPoints  -- DataPoint i o Double -> DataP
 - **Mutual recursion in Layer.idr**: `Layer` and `Network` are mutually recursive (NtmLayer contains a Network). `applyLayer`, `forward`, `nameParams`, `nameNetworkParams`, and `Endofunctor` instances all live in `mutual` blocks
 - **NTM dimension calculations**: The controller output width is `NtmOutputWidth n w = ReadHeadInputWidth n w + WriteHeadInputWidth n w + w`. Getting these wrong causes type errors at network composition
 - **NTM state flow**: `readHeadOutput` from the previous timestep concatenates with current input to form controller input (`NtmInputWidth w = w + w`). Memory, read head, and write head all update each step
+- **`logSoftmax` + `nllLoss` for NTM**: Separate softmax + cross-entropy creates autograd intermediate gradients of 1/pp (up to 1e6) that destabilize recurrent/NTM training. Use `logSoftmaxLayer` + `nllLoss` instead — log-softmax avoids tiny probabilities, and NLL has no log so no 1/pp gradient
+- **`pow` zero-base NaN**: `pow(0, k)` backward for the exponent computes `0^k * log(0) = 0 * -Inf = NaN`. Fixed by returning 0 when base is 0
+- **Detached max in `logSoftmax`**: The max subtraction for numerical stability uses a detached constant (`fromDouble . cast`), not a reference to the max Variable. Otherwise the max element receives incorrect gradients
+- **Memoized DAG traversal**: `collectGrads` uses `topoSort` which memoizes visited nodes via `SortedSet Nat` of `nodeId`s. Each `Variable` gets a unique `nodeId` from an FFI counter. Without memoization, the DAG would be traversed exponentially
+- **Gradient clipping is per-parameter**: The optimizer's `clipGrad` clips each parameter's gradient independently. This prevents individual parameter explosions but doesn't control the total update norm
