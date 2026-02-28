@@ -65,7 +65,8 @@ bench-setup:
 bench-py:
 	cd bench && uv run python -m bench.benchmark
 
-bench-compare: bench bench-py
+bench-compare: $(CLIB)
+	idris2 --source-dir src -p contrib -o bench src/Example/Bench.idr
 	cd bench && uv run python -m bench.compare
 
 bench-test:

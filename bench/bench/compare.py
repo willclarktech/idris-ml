@@ -7,8 +7,12 @@ parses output, and prints a comparison table with ratios.
 import re
 import subprocess
 import sys
+from pathlib import Path
 
 from bench.benchmark import bench_ntm, bench_rnn, bench_supervised
+
+# Repo root is bench/../
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
 def parse_idris_output(output: str) -> dict[str, tuple[float, float]]:
@@ -35,12 +39,14 @@ def parse_idris_output(output: str) -> dict[str, tuple[float, float]]:
 
 def run_idris_bench() -> dict[str, tuple[float, float]] | None:
     """Run idris-ml bench and parse output."""
+    bench_bin = _REPO_ROOT / "build" / "exec" / "bench"
     try:
         result = subprocess.run(
-            ["./build/exec/bench"],
+            [str(bench_bin)],
             capture_output=True,
             text=True,
             timeout=300,
+            cwd=_REPO_ROOT,
         )
         if result.returncode != 0:
             print(f"Idris bench failed: {result.stderr}", file=sys.stderr)
