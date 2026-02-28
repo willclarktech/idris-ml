@@ -235,7 +235,7 @@ The NTM copy task achieves high training accuracy but generalizes poorly to held
 
 ## 3-element shift kernel
 
-The original NTM implementation used an n-element shift vector (one per memory slot), requiring the model to learn "shift by exactly 1" as one of n equally likely options with diluted gradient signal. The original paper (Graves et al. 2014) specifies a small shift kernel (typically 3 for {-1, 0, +1}).
+The original NTM implementation used an n-element shift vector (one per memory slot), requiring the model to learn "shift by exactly 1" as one of n equally likely options with diluted gradient signal. The original paper ([Graves et al. 2014](https://arxiv.org/abs/1410.5401)) specifies a small shift kernel (typically 3 for {-1, 0, +1}).
 
 `ShiftKernelSize = 3` decouples the shift mechanism from the number of memory slots. The shift is implemented as a 3-element circular convolution: `w'[i] = sl * aw[i+1] + ss * aw[i] + sr * aw[i-1]`, where `(sl, ss, sr) = softmax(kernel)`. This means:
 - `sr` high → addressing shifts right (slot 0→1→2), correct for sequential write
@@ -248,6 +248,19 @@ Impact on dimensions:
 - `ReadHeadInputWidth n w` changes from `(w + n) + 3` to `(w + ShiftKernelSize) + 3` — now independent of `n`
 - Controller output size decreases (e.g., n=10, w=3: from 41 to 27), reducing total parameters
 
+**Result**: The shift kernel change alone did not fix generalization. Across four runs (lr=0.001/0.003/0.005, seeds 123456/42), the optimizer consistently converges to content-based addressing (write g ~0.9 during output) rather than learning sequential location-based shifting. The 3-element kernel is architecturally correct (matches the paper) but insufficient — the content addressing path is a stronger local attractor than the shift path.
+
 ## Hot-start addressing on slot 0
 
 Read and write head addressing weights are initialized to focus on slot 0 (`[1, 0, 0, ...]`) instead of the previous uniform distribution (`[1/n, 1/n, ...]`). With a clear starting position, the model only needs to learn "shift right by 1 each step" for sequential access — a clean gradient signal compared to discovering both the starting position and the shift direction simultaneously.
+
+## NTM stability (not yet implemented)
+
+[Collier & Beel 2018](https://isg.beel.org/blog/2018/08/01/a-stable-neural-turing-machine-ntm-implementation-source-code-and-pre-print/) ("Implementing Neural Turing Machines") found several stability factors for NTM training:
+
+1. **Constant memory initialization (1e-6)** instead of random — converges 3.5x faster on the copy task. Our current implementation uses `randomRIO (-0.1, 0.1)`.
+2. **tanh bounding on memory contents** — keeping values in [-1, 1] prevents unbounded memory growth.
+3. **Gradient clip norm of 50** — much higher than our current 5.0.
+4. **Learned initialization** — backpropagate through initial addressing weights and read vectors instead of fixed values.
+
+These findings are from a systematic study and should be prioritized over ad-hoc hyperparameter tuning.
