@@ -318,9 +318,9 @@ The NTM has two addressing mechanisms: location-based (circular shift) and conte
 
 **NtmAssociativeRecall** (content-based): K key-value pairs are stored, then queried in shuffled order. The model must look up each query key by content similarity to retrieve the associated value. Sequential shifting cannot solve this because queries arrive in random order.
 
-### Task encoding (W=4)
+### Task encoding (W=8)
 
-With W=4, there are 3 non-blank symbols (1, 2, 3), supporting up to K=3 key-value pairs. The encoding uses one-hot vectors of width W:
+With W=8, there are 7 non-blank symbols (1-7), supporting up to K=7 key-value pairs. The encoding uses one-hot vectors of width W:
 
 - **Store phase** (2K steps): `k1 v1 k2 v2 ... kK vK` — keys are distinct non-blank symbols, values are random non-blank symbols
 - **Delimiter** (1 step): blank
@@ -330,4 +330,28 @@ Output is blank everywhere except on blank-input timesteps in the query phase, w
 
 ### Curriculum
 
-Two stages: K=2 pairs (threshold 0.15) then K=3 pairs (threshold 0.0). Only two stages because K=3 is the maximum for W=4, and K=1 is trivial (single key-value lookup with no disambiguation needed).
+Four stages: K=2 (threshold 0.12), K=3 (0.10), K=3-4 (0.08), K=4-5 (0.0). The wider W=8 alphabet enables K=5+ pairs, forcing genuine multi-slot content-based addressing — see "Breaking the degenerate one-slot minimum" below.
+
+## Breaking the degenerate one-slot minimum (W=4 → W=8)
+
+A systematic sweep (36 configs) found a hard ceiling at ~91.5% test accuracy on the K=3 associative recall task with W=4. Diagnostics revealed degenerate addressing: all writes collapsed to memory slot 0, reads used fixed slots 9/8. The model never learned genuine content-based addressing.
+
+**Why 91% is the ceiling with W=4:** With K=3 pairs and 13 timesteps, 10 are blanks (always correct = 76.9% floor). The model gets ~2/3 value predictions right by memorizing the last-written pair from slot 0. Only 972 unique sequences exist at K=3 — small enough to partially memorize.
+
+**Why increasing K breaks the one-slot strategy:** With K=5 pairs, slot 0 can only retain ~1 pair after 5 sequential overwrites, forcing the model to actually use multiple memory slots and genuine content-based retrieval to achieve high accuracy.
+
+**Changes:**
+- **W=8** (was 4): 7 non-blank symbols, K up to 7 pairs
+- **N=16** (was 10): more memory slots for higher K
+- **H=40** (was 20): controller output grows from 32 to 52; needs more hidden capacity
+- **4 curriculum stages** (was 2): K=2 → K=3 → K=3-4 → K=4-5, gradual progression
+- **lr=0.001** (was 0.003): larger model benefits from lower base LR; one-cycle peaks at 0.025
+- **maxNorm=10.0** (was 5.0): more gradient headroom for larger model
+- **epochs=10000** (was 6000): 4 stages need more budget
+- **patience=800** (was 500): harder task needs more patience
+
+Dimension impact (computed from Layer.idr type functions):
+- NtmInputWidth: 8→16, NtmOutputWidth: 32→52
+- Controller: 16→40→52 (was 8→20→32)
+
+No core library changes needed — the type system handles dimension changes automatically via `NtmInputWidth`, `NtmOutputWidth`, and dependent types in `Layer`/`Network`.

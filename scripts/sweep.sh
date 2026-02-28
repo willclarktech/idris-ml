@@ -63,7 +63,11 @@ SEED_VALUES="1 2 3 42"
 BETA1_VALUES="0.9"
 
 RESULTS_FILE="results/sweep-${TASK}.csv"
-echo "lr,maxNorm,beta1,beta2,epochs,patience,epochsDone,seed,H,trainAcc,testAcc" > "$RESULTS_FILE"
+if [[ "$TASK" == "recall" ]]; then
+  echo "lr,maxNorm,beta1,beta2,epochs,patience,epochsDone,seed,H,k2Acc,k3Acc,k5Acc" > "$RESULTS_FILE"
+else
+  echo "lr,maxNorm,beta1,beta2,epochs,patience,epochsDone,seed,H,trainAcc,testAcc" > "$RESULTS_FILE"
+fi
 
 # Generate all configs
 CONFIGS=""
@@ -97,14 +101,18 @@ run_one() {
   local result
   result=$(grep "^RESULT" "$outfile" || echo "")
   if [[ -n "$result" ]]; then
-    # RESULT\tlr\tmaxNorm\tbeta1\tbeta2\tepochs\tpatience\tepochsDone\tseed\tH\ttrainAcc\ttestAcc
-    echo "$result" | awk -F'\t' '{print $2","$3","$4","$5","$6","$7","$8","$9","$10","$11","$12}'
+    # Extract all fields after RESULT as CSV
+    echo "$result" | awk -F'\t' '{s=$2; for(i=3;i<=NF;i++) s=s","$i; print s}'
   else
-    echo "$lr,$maxNorm,$beta1,0.999,$EPOCHS,$PATIENCE,0,$seed,?,-1,-1"
+    if [[ "$TASK" == "recall" ]]; then
+      echo "$lr,$maxNorm,$beta1,0.999,$EPOCHS,$PATIENCE,0,$seed,?,-1,-1,-1"
+    else
+      echo "$lr,$maxNorm,$beta1,0.999,$EPOCHS,$PATIENCE,0,$seed,?,-1,-1"
+    fi
   fi
 }
 export -f run_one
-export EXEC TMPDIR_SWEEP EPOCHS PATIENCE
+export EXEC TMPDIR_SWEEP EPOCHS PATIENCE TASK
 
 echo -e "$CONFIGS" | grep '[^ ]' | \
   xargs -P "$PARALLEL" -L 1 bash -c 'run_one $@' _ | \
@@ -113,6 +121,11 @@ echo -e "$CONFIGS" | grep '[^ ]' | \
 echo ""
 echo "=== Results sorted by test accuracy ==="
 echo ""
-(head -1 "$RESULTS_FILE"; tail -n +2 "$RESULTS_FILE" | sort -t, -k11 -rn) | column -t -s,
+if [[ "$TASK" == "recall" ]]; then
+  SORT_COL=12
+else
+  SORT_COL=11
+fi
+(head -1 "$RESULTS_FILE"; tail -n +2 "$RESULTS_FILE" | sort -t, -k${SORT_COL} -rn) | column -t -s,
 echo ""
 echo "Full results: $RESULTS_FILE"

@@ -34,17 +34,17 @@ import Variable
 -- Configuration
 ----------------------------------------------------------------------
 
-||| Input/output size = number of symbols (0 = <BLANK>, 1-3 = data)
+||| Input/output size = number of symbols (0 = <BLANK>, 1-7 = data)
 W : Nat
-W = 4
+W = 8
 
 ||| Number of memory slots
 N : Nat
-N = 10
+N = 16
 
 ||| Controller hidden layer size
 H : Nat
-H = 20
+H = 40
 
 ||| Training batch size (data points per chunk)
 BatchSize : Nat
@@ -90,8 +90,10 @@ genData mnK mxK = map (map (map fromDouble)) (randomBatchVect (associativeRecall
 
 stages : List (Stage W W BatchSize)
 stages =
-  [ MkStage "Stage 1 (K=2 pairs)" 0.15 (genData 2 2)
-  , MkStage "Stage 2 (K=3 pairs)" 0.0  (genData 3 3)
+  [ MkStage "Stage 1 (K=2 pairs)" 0.12 (genData 2 2)
+  , MkStage "Stage 2 (K=3 pairs)" 0.10 (genData 3 3)
+  , MkStage "Stage 3 (K=3-4 pairs)" 0.08 (genData 3 4)
+  , MkStage "Stage 4 (K=4-5 pairs)" 0.0  (genData 4 5)
   ]
 
 
@@ -114,7 +116,7 @@ record Config where
   diagnoseVerbose : Bool
 
 defaultConfig : Config
-defaultConfig = MkConfig 0.003 5.0 0.9 0.999 (pow 10 (-8)) 10.0 6000 500 123456 False False
+defaultConfig = MkConfig 0.001 10.0 0.9 0.999 (pow 10 (-8)) 10.0 10000 800 123456 False False
 
 parseConfig : List String -> Config
 parseConfig args = go args defaultConfig
@@ -178,22 +180,29 @@ main = do
   putStrLn ""
 
   -- Final evaluation on fresh random data
-  shortBatch <- randomBatchVect (associativeRecallTask {w=W}) TestSize 2 2
-  fullBatch <- randomBatchVect (associativeRecallTask {w=W}) TestSize 3 3
-  let shortPts = map (map fromDouble) shortBatch
-  let fullPts = map (map fromDouble) fullBatch
-  let shortTargets = map (\dp => map argmax (ys dp)) shortPts
-  let fullTargets = map (\dp => map argmax (ys dp)) fullPts
-  let shortPreds = decodeOutput $ evaluateRecurrent trained shortPts
-  let fullPreds = decodeOutput $ evaluateRecurrent trained fullPts
-  let shortAcc = accuracy shortPreds shortTargets
-  let fullAcc = accuracy fullPreds fullTargets
+  k2Batch <- randomBatchVect (associativeRecallTask {w=W}) TestSize 2 2
+  k3Batch <- randomBatchVect (associativeRecallTask {w=W}) TestSize 3 3
+  k5Batch <- randomBatchVect (associativeRecallTask {w=W}) TestSize 5 5
+  let k2Pts = map (map fromDouble) k2Batch
+  let k3Pts = map (map fromDouble) k3Batch
+  let k5Pts = map (map fromDouble) k5Batch
+  let k2Targets = map (\dp => map argmax (ys dp)) k2Pts
+  let k3Targets = map (\dp => map argmax (ys dp)) k3Pts
+  let k5Targets = map (\dp => map argmax (ys dp)) k5Pts
+  let k2Preds = decodeOutput $ evaluateRecurrent trained k2Pts
+  let k3Preds = decodeOutput $ evaluateRecurrent trained k3Pts
+  let k5Preds = decodeOutput $ evaluateRecurrent trained k5Pts
+  let k2Acc = accuracy k2Preds k2Targets
+  let k3Acc = accuracy k3Preds k3Targets
+  let k5Acc = accuracy k5Preds k5Targets
 
   putStrLn "Eval (random sequences):"
   putStr "  K=2 pairs:\t"
-  putStrLn $ show shortAcc
+  putStrLn $ show k2Acc
   putStr "  K=3 pairs:\t"
-  putStrLn $ show fullAcc
+  putStrLn $ show k3Acc
+  putStr "  K=5 pairs:\t"
+  putStrLn $ show k5Acc
 
   -- Diagnostics
   when cfg.diagnose $ do
@@ -233,6 +242,15 @@ main = do
     t1 <- diagnoseOne d3b "Diag (K=3, b)"
     t2 <- diagnoseOne d3c "Diag (K=3, c)"
 
+    -- K=5 pairs
+    putStrLn "--- K=5 Pairs ---"
+    d5a <- (associativeRecallTask {w=W}).generatePoint 5
+    d5b <- (associativeRecallTask {w=W}).generatePoint 5
+    d5c <- (associativeRecallTask {w=W}).generatePoint 5
+    u0 <- diagnoseOne d5a "Diag (K=5, a)"
+    u1 <- diagnoseOne d5b "Diag (K=5, b)"
+    u2 <- diagnoseOne d5c "Diag (K=5, c)"
+
     -- Verbose raw dumps
     when cfg.diagnoseVerbose $ do
       putStrLn "--- Verbose: K=2 ---"
@@ -242,10 +260,14 @@ main = do
       putStrLn "--- Verbose: K=3 ---"
       let (_, _, snapsL) = debugForwardRecurrent dblModel (xs d3a)
       printDiagnostics "K=3" snapsL
+      putStrLn ""
+      putStrLn "--- Verbose: K=5 ---"
+      let (_, _, snaps5) = debugForwardRecurrent dblModel (xs d5a)
+      printDiagnostics "K=5" snaps5
 
     -- Aggregate comparison
     let shortSums = mapMaybe id [s0, s1]
-    let longSums = mapMaybe id [t0, t1, t2]
+    let longSums = mapMaybe id [u0, u1, u2]
     case (avgSummaries shortSums, avgSummaries longSums) of
       (Just avgShort, Just avgLong) => do
         putStrLn ""
@@ -263,5 +285,6 @@ main = do
            ++ show epochsDone ++ "\t"
            ++ show cfg.seed ++ "\t"
            ++ show H ++ "\t"
-           ++ show shortAcc ++ "\t"
-           ++ show fullAcc
+           ++ show k2Acc ++ "\t"
+           ++ show k3Acc ++ "\t"
+           ++ show k5Acc

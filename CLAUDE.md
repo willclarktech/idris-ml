@@ -46,7 +46,7 @@ idris2 --source-dir src -p contrib -o ntm-associative-recall src/Example/NtmAsso
 # NTM copy with verbose diagnostics (summary + raw per-timestep dumps)
 ./build/exec/ntm-copy --diagnose-verbose
 # NTM associative recall with custom hyperparameters
-./build/exec/ntm-associative-recall --lr 0.001 --epochs 6000 --patience 200 --seed 42
+./build/exec/ntm-associative-recall --lr 0.001 --epochs 10000 --patience 800 --seed 42
 # Hyperparameter sweep (builds once, runs grid in parallel)
 bash scripts/sweep.sh --parallel 4
 # Quick sweep (2000 epochs for fast screening)
