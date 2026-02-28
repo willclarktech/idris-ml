@@ -63,8 +63,14 @@ sequences =
 
 ||| Held-out test sequence to check generalization
 ||| Longer than any training example — tests NTM memory capacity
-testSequences : Vect 1 (List (Fin W))
-testSequences = [ [1, 2, 2, 1, 1, 2, 1, 2] ]
+testSequences : Vect 5 (List (Fin W))
+testSequences =
+  [ [1, 2, 2, 1, 1, 2, 1, 2]
+  , [2, 1, 1, 2, 2, 1, 2, 1]
+  , [1, 1, 2, 2, 1, 1]
+  , [2, 2, 1, 1, 2, 2, 1]
+  , [2, 1, 2, 1, 1, 2, 2, 1]
+  ]
 
 ||| Convert a sequence to a RecurrentDataPoint for copy task
 ||| Input: sequence ++ blanks (write phase)
@@ -87,7 +93,7 @@ prep sequence =
 rawData : Vect E (RecurrentDataPoint W W Double)
 rawData = map prep sequences
 
-rawTestData : Vect 1 (RecurrentDataPoint W W Double)
+rawTestData : Vect 5 (RecurrentDataPoint W W Double)
 rawTestData = map prep testSequences
 
 
@@ -175,12 +181,13 @@ record Config where
   beta1 : Double
   beta2 : Double
   eps : Double
+  divFinal : Double
   epochs : Nat
   patience : Nat
   seed : Bits64
 
 defaultConfig : Config
-defaultConfig = MkConfig 0.001 5.0 0.9 0.999 (pow 10 (-8)) 6000 200 123456
+defaultConfig = MkConfig 0.001 5.0 0.9 0.999 (pow 10 (-8)) 10.0 6000 200 123456
 
 parseConfig : List String -> Config
 parseConfig args = go args defaultConfig
@@ -192,6 +199,7 @@ parseConfig args = go args defaultConfig
     go ("--beta1" :: v :: rest) c = go rest ({ beta1 := cast v } c)
     go ("--beta2" :: v :: rest) c = go rest ({ beta2 := cast v } c)
     go ("--eps" :: v :: rest) c = go rest ({ eps := cast v } c)
+    go ("--div-final" :: v :: rest) c = go rest ({ divFinal := cast v } c)
     go ("--epochs" :: v :: rest) c = go rest ({ epochs := cast (cast {to=Integer} v) } c)
     go ("--patience" :: v :: rest) c = go rest ({ patience := cast (cast {to=Integer} v) } c)
     go ("--seed" :: v :: rest) c = go rest ({ seed := cast (cast {to=Integer} v) } c)
@@ -251,7 +259,7 @@ main = do
 
   -- One-cycle training
   let makeOpt = \lr => adamGlobalClip lr cfg.beta1 cfg.beta2 cfg.eps cfg.maxNorm
-  let schedule = oneCycle cfg.lr 25.0 (pow 10 5) 0.25 cfg.epochs
+  let schedule = oneCycle cfg.lr 25.0 cfg.divFinal 0.25 cfg.epochs
   let chunks = cfg.epochs `div` 100
   putStrLn $ "Training (one-cycle, lrMax=" ++ show cfg.lr ++ ")..."
   (trained, finalSt, epochsDone) <- trainReport makeOpt schedule model dataPoints chunks cfg.patience 0 initState (1.0/0.0) 0
@@ -270,7 +278,7 @@ main = do
   putStr "  Accuracy:\t"
   putStrLn $ show trainAcc
 
-  putStrLn "Test eval ([1,2,2,1,1,2,1,2]):"
+  putStrLn "Test eval:"
   putStr "  Predictions:\t"
   putStrLn $ showSequences testPreds
   putStr "  Accuracy:\t"
