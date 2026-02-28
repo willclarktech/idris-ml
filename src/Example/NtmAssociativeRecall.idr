@@ -38,13 +38,13 @@ import Variable
 W : Nat
 W = 8
 
-||| Number of memory slots
+||| Number of memory slots (Collier & Beel 2018: 128)
 N : Nat
-N = 16
+N = 128
 
-||| Controller hidden layer size
+||| Controller hidden layer size (Collier & Beel 2018: 100)
 H : Nat
-H = 40
+H = 100
 
 ||| Training batch size (data points per chunk)
 BatchSize : Nat
@@ -138,7 +138,7 @@ record Config where
   diagnoseVerbose : Bool
 
 defaultConfig : Config
-defaultConfig = MkConfig 0.001 10.0 0.9 0.999 (pow 10 (-8)) 10.0 10000 800 123456 25 3.0 False False
+defaultConfig = MkConfig 0.0001 50.0 0.9 0.999 (pow 10 (-8)) 10.0 30000 2000 123456 25 3.0 False False
 
 parseConfig : List String -> Config
 parseConfig args = go args defaultConfig
@@ -186,7 +186,7 @@ main = do
   putStrLn ""
 
   -- Build NTM with logSoftmax output
-  controllerHidden <- linearLayer {i = NtmInputWidth W, o = H}
+  controllerHidden <- rnnLayer {i = NtmInputWidth W, o = H}
   controllerOut <- linearLayer {i = H, o = NtmOutputWidth N W}
   let controller = controllerHidden ~> tanhLayer ~> OutputLayer controllerOut
   ntm <- ntmLayer {n = N, w = W} controller
