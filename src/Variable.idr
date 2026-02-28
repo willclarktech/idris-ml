@@ -117,7 +117,7 @@ implementation Floating Variable where
   log v  = unaryOp (log v.value) (/ v.value) v
   pow v1 v2 = binaryOp (pow v1.value v2.value)
     (* v2.value * pow v1.value (v2.value - 1))
-    (\g => g * pow v1.value v2.value * log v1.value) v1 v2
+    (\g => if v1.value == 0 then 0 else g * pow v1.value v2.value * log v1.value) v1 v2
   sqrt v = unaryOp (sqrt v.value) (/ (2 * sqrt v.value)) v
 
 ----------------------------------------------------------------------
