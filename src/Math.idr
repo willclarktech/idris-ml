@@ -77,7 +77,7 @@ crossEntropy = reduceLoss clampedLoss
   where
     clampedLoss : ty -> ty -> ty
     clampedLoss p y =
-      let ep = pow 10 (-7)
+      let ep = pow 10 (-6)
           pp = max ep (min p (1 - ep))
       in -(y * log pp) + -(1 - y) * log (1 - pp)
 
