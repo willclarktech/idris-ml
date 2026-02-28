@@ -5,11 +5,12 @@ Loss: BCELoss. Optimizer: RMSprop lr=1e-4. Value clip [-10,10].
 """
 
 from dataclasses import dataclass
+from typing import Literal
 
 import torch
 import torch.nn as nn
 from torch import Tensor
-from torch.nn.utils import clip_grad_value_
+from torch.nn.utils import clip_grad_norm_, clip_grad_value_
 
 from bench.ntm.ntm_layer import NTMLayer
 
@@ -36,6 +37,27 @@ class LSTMController(nn.Module):
         h, c = self.lstm(x.unsqueeze(0), (self._h.unsqueeze(0), self._c.unsqueeze(0)))
         self._h = h.squeeze(0)
         self._c = c.squeeze(0)
+        return self._h
+
+
+class RNNController(nn.Module):
+    """Simple RNN controller for NTM (vanilla RNNCell + tanh)."""
+
+    def __init__(self, input_size: int, hidden_size: int) -> None:
+        super().__init__()
+        self.hidden_size = hidden_size
+        self.rnn = nn.RNNCell(input_size, hidden_size, nonlinearity="tanh")
+        self.h0 = nn.Parameter(torch.zeros(hidden_size))
+
+    def reset_state(self) -> None:
+        self._h = self.h0.clone()
+
+    @property
+    def last_hidden(self) -> Tensor:
+        return self._h
+
+    def forward(self, x: Tensor) -> Tensor:
+        self._h = self.rnn(x.unsqueeze(0), self._h.unsqueeze(0)).squeeze(0)
         return self._h
 
 
@@ -95,6 +117,7 @@ def train_ntm_copy_step(
     input_seq: Tensor,
     target_seq: Tensor,
     optimizer: torch.optim.Optimizer,
+    clip_mode: Literal["value", "norm"] = "value",
 ) -> float:
     """Train one sequence (batch_size=1).
 
@@ -122,7 +145,10 @@ def train_ntm_copy_step(
     loss = nn.functional.binary_cross_entropy(pred, target_seq)
 
     loss.backward()
-    clip_grad_value_(model.parameters(), model.cfg.clip_value)
+    if clip_mode == "norm":
+        clip_grad_norm_(model.parameters(), model.cfg.clip_value)
+    else:
+        clip_grad_value_(model.parameters(), model.cfg.clip_value)
     optimizer.step()
     model.project_addressing()
 

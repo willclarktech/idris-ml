@@ -97,7 +97,7 @@ bench-convergence-recall-rnn-small:
 	cd bench && uv run python -u -m bench.scripts.convergence --task recall --recall-controller rnn --recall-n 16
 
 bench-convergence-recall-ref:
-	cd bench && uv run python -u -m bench.scripts.convergence --task recall --recall-controller lstm --recall-n 128 --recall-optimizer rmsprop --recall-clip value --recall-batch-size 1 --recall-output read --recall-epochs 50000
+	cd bench && uv run python -u -m bench.scripts.convergence --task recall --recall-controller lstm --recall-n 128 --recall-optimizer rmsprop --recall-clip value --recall-batch-size 1 --recall-output read --recall-iters 50000
 
 clean:
 	rm -f $(CLIB) $(BUILD)/test_tensor

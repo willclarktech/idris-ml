@@ -6,13 +6,14 @@ Loss: BCELoss. Optimizer: RMSprop lr=1e-4, alpha=0.95, momentum=0.9.
 """
 
 from dataclasses import dataclass
+from typing import Literal
 
 import torch
 import torch.nn as nn
 from torch import Tensor
-from torch.nn.utils import clip_grad_value_
+from torch.nn.utils import clip_grad_norm_, clip_grad_value_
 
-from bench.models.ntm_copy import LSTMController
+from bench.models.ntm_copy import LSTMController, RNNController
 from bench.ntm.ntm_layer import NTMLayer
 
 
@@ -25,6 +26,7 @@ class NtmRecallConfig:
     n: int = 128  # memory slots
     m: int = 20  # memory width
     controller_size: int = 100  # LSTM hidden size
+    controller_type: str = "lstm"  # "lstm" or "rnn"
     lr: float = 1e-4
     iterations: int = 100000
     clip_value: float = 10.0
@@ -44,7 +46,10 @@ class NtmRecallModel(nn.Module):
         num_outputs = cfg.seq_width  # output is seq_width bits
         controller_input_size = num_inputs + cfg.m  # input + prev read vector
 
-        controller = LSTMController(controller_input_size, cfg.controller_size)
+        if cfg.controller_type == "rnn":
+            controller: nn.Module = RNNController(controller_input_size, cfg.controller_size)
+        else:
+            controller = LSTMController(controller_input_size, cfg.controller_size)
 
         self.ntm = NTMLayer(
             controller=controller,
@@ -73,6 +78,7 @@ def train_ntm_recall_step(
     input_seq: Tensor,
     target_seq: Tensor,
     optimizer: torch.optim.Optimizer,
+    clip_mode: Literal["value", "norm"] = "value",
 ) -> float:
     """Train one sequence (batch_size=1).
 
@@ -100,7 +106,10 @@ def train_ntm_recall_step(
     loss = nn.functional.binary_cross_entropy(pred, target_seq)
 
     loss.backward()
-    clip_grad_value_(model.parameters(), model.cfg.clip_value)
+    if clip_mode == "norm":
+        clip_grad_norm_(model.parameters(), model.cfg.clip_value)
+    else:
+        clip_grad_value_(model.parameters(), model.cfg.clip_value)
     optimizer.step()
     model.project_addressing()
 
