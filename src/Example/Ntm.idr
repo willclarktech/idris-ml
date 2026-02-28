@@ -28,7 +28,7 @@ N = 10
 
 ||| Controller hidden layer size
 H : Nat
-H = 8
+H = 20
 
 ||| Number of training examples
 E : Nat
@@ -120,7 +120,7 @@ main = do
   putStrLn $ showSequences $ map (map argmax . ys) testPoints
 
   let lossFn = nllLoss
-  let opt = adam 0.0001 0.9 0.999 (pow 10 (-8)) 1.0
+  let opt = adam 0.001 0.9 0.999 (pow 10 (-8)) 1.0
 
   -- Pre-training evaluation
   let loss = calculateLossRecurrent lossFn model dataPoints
@@ -132,17 +132,17 @@ main = do
 
   -- Train in stages to show progress
   putStrLn "Training..."
-  let (t1, s1) = trainRecurrentFrom opt model dataPoints lossFn 3000 initState
+  let (t1, s1) = trainRecurrentFrom opt model dataPoints lossFn 1000 initState
   let l1 = calculateLossRecurrent lossFn t1 dataPoints
-  putStrLn $ "  3000 epochs:\t" ++ show (value l1)
+  putStrLn $ "  1000 epochs:\t" ++ show (value l1)
 
-  let (t2, s2) = trainRecurrentFrom opt t1 dataPoints lossFn 3000 s1
+  let (t2, s2) = trainRecurrentFrom opt t1 dataPoints lossFn 1000 s1
   let l2 = calculateLossRecurrent lossFn t2 dataPoints
-  putStrLn $ "  6000 epochs:\t" ++ show (value l2)
+  putStrLn $ "  2000 epochs:\t" ++ show (value l2)
 
-  let (t3, s3) = trainRecurrentFrom opt t2 dataPoints lossFn 3000 s2
+  let (t3, s3) = trainRecurrentFrom opt t2 dataPoints lossFn 1000 s2
   let l3 = calculateLossRecurrent lossFn t3 dataPoints
-  putStrLn $ "  9000 epochs:\t" ++ show (value l3)
+  putStrLn $ "  3000 epochs:\t" ++ show (value l3)
 
   putStrLn ""
 
