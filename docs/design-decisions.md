@@ -8,6 +8,13 @@ The backward pass is a single reverse scan of the tape with O(1) gradient accumu
 
 This replaced the earlier closure-based graph where each Variable carried `back : Double -> List Double` closures and `children : List Variable`. The tape approach eliminates ~2,200 heap-allocated closures per NTM forward pass, avoids pointer-chasing in topological sort, and reduces per-node size from ~120 bytes to ~40 bytes.
 
+Benchmark (100 NTM training epochs, `src/Example/Bench.idr`):
+
+| Version | Time | Speedup |
+|---------|------|---------|
+| Closure-based | 37,318 ms | — |
+| Tape-based | 14,466 ms | 2.6x |
+
 ## Tape generation and staleness
 
 After `collectGrads`, the tape is reset (size=0, gen++). Variables from the previous epoch have stale `tapeGen`. The `ensureOnTape` function detects staleness via generation mismatch and re-registers the variable as a fresh Const entry with its current `.value`. This is transparent to consumers — all code uses Variables through typeclass instances.
