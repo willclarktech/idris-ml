@@ -4,6 +4,7 @@
 
 | Item | Difficulty | Notes |
 |------|-----------|-------|
+| PyTorch NTM recall curriculum training | M | Both Adam and RMSprop plateau at ~0.37 loss for items=[2,6]; curriculum (2→3→4-6) needed for full convergence |
 | More Tensor functions (eg concatenation) | M | |
 | Reshaping layers | M | |
 
@@ -53,3 +54,6 @@
 - Gaussian/normal distribution sampling (Sampler.idr, composable with init strategies)
 - Automatic parameter naming (`autoName` in Layer.idr, type-based prefixes with collision-free scoping)
 - PyTorch benchmarks (`bench/` directory — correctness tests, timing benchmarks, side-by-side comparison)
+- NTM recall convergence verification (3 experiments: RMSprop baseline, Adam, Adam+2items — see `docs/ntm-convergence-results.md`)
+- Convergence script CLI args (`--recall-controller`, `--recall-optimizer`, `--recall-clip`, etc.)
+- NTM documentation extraction (`docs/ntm.md` — architecture, convergence, failure modes)
