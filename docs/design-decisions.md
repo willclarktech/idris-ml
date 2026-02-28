@@ -1,16 +1,22 @@
 # Design Decisions
 
-## Autograd via Variable records
+## Tape-based autograd (Wengert list)
 
-Variables carry their own backward function (`back : Double -> List Double`) and `children` list rather than using a global tape. Each operation constructs a new Variable with closures that capture the local partial derivatives. This makes the graph GC-friendly: once training completes and the loss Variable is dropped, the entire computation graph is freed.
+The autograd uses a flat tape (Wengert list) stored as five parallel Chez Scheme vectors (tags, arg1, arg2, values, paramIds) via `top-level-value`. Variables are indices into this tape. Each arithmetic operation appends an entry recording the op tag, input indices, and forward value.
 
-## Node ID counter via FFI
+The backward pass is a single reverse scan of the tape with O(1) gradient accumulation via a mutable FFI array, replacing the previous O(n log n) `SortedMap`-based approach. Only parameter entries (non-empty paramId) are collected into the output `SortedMap String Double`.
 
-`nextNodeId` uses a Chez Scheme top-level value instead of `IORef` or `State`. Idris 2's CSE can merge `unsafePerformIO` calls, causing multiple Variables to share the same node ID. The FFI counter uses Chez's `top-level-value` mechanism which is re-evaluated on every call, guaranteeing unique IDs. See `src/Variable.idr` for the implementation.
+This replaced the earlier closure-based graph where each Variable carried `back : Double -> List Double` closures and `children : List Variable`. The tape approach eliminates ~2,200 heap-allocated closures per NTM forward pass, avoids pointer-chasing in topological sort, and reduces per-node size from ~120 bytes to ~40 bytes.
 
-## Single-pass backward with SortedMap
+## Tape generation and staleness
 
-`collectGrads` does one topological sort followed by one accumulation pass, collecting per-parameter gradients in a `SortedMap String Double`. The topological sort uses `SortedSet Nat` of node IDs to memoize visited nodes, preventing exponential traversal of the DAG (shared nodes are visited once, not once per path).
+After `collectGrads`, the tape is reset (size=0, gen++). Variables from the previous epoch have stale `tapeGen`. The `ensureOnTape` function detects staleness via generation mismatch and re-registers the variable as a fresh Const entry with its current `.value`. This is transparent to consumers — all code uses Variables through typeclass instances.
+
+A stale parameter used N times in one forward pass creates N independent Const entries. Gradients accumulate correctly via `mergeWith (+)` on paramId during collection.
+
+## FFI CSE prevention
+
+Idris 2 compiles zero-argument `%noinline` definitions as constants evaluated once at module load time. The `tapeGeneration` wrapper must take a varying argument (the tape index) passed through to the FFI call so the compiler treats each call as distinct. Without this, `tapeGeneration` returns a stale value and `ensureOnTape` never re-registers parameters, breaking gradient computation across epochs.
 
 ## Optimizer state threading
 
@@ -41,9 +47,9 @@ The optimizer provides two clipping strategies:
 
 For the NTM, global norm clipping replaced per-parameter clipping to fix periodic loss spikes caused by gradient direction distortion.
 
-## updateParam / applyDeltas creates fresh Variables
+## applyDeltas uses record update
 
-After each optimizer step, parameters get new `Var` nodes with empty `back` and `children`. This breaks the reference to the old computation graph, allowing GC to free it. Without this, memory would grow linearly with training epochs as old graphs remain referenced.
+`applyDeltas` updates only the `.value` field via record update syntax `{ value := v.value - d } v`, preserving the existing `tapeIdx`, `tapeGen`, and `paramId`. The stale `tapeIdx` is harmless — `ensureOnTape` will re-register the parameter with the updated value when the next epoch's forward pass runs.
 
 ## Detached max in logSoftmax
 
@@ -55,9 +61,9 @@ The NTM focus sharpening parameter γ (gamma) must be bounded. The original form
 
 The fix uses `1 + 4 * sigmoid(x)` to bound γ ∈ [1, 5]. At the upper bound, `0.1^5 = 1e-5` — small but with survivable gradients. This lets the NTM learn to sharpen attention without permanently losing gradient signal for secondary memory positions.
 
-## Accumulator-based topological sort
+## FFI side-effect threading
 
-The original `topoSort` used `acc ++ nodes` (O(n) per append → O(n²) total). For NTM computation graphs with thousands of nodes, this dominated backward pass time. The fix uses an accumulator parameter with cons (`v :: acc'`) for O(1) per node → O(n) total. The `reverse` call in `collectGrads` still works correctly since cons naturally produces leaves-last order.
+`let _ = ffiCall` in Idris 2 is dropped by the compiler since the result is unused. FFI functions with side effects must return a value consumed by subsequent computation. In the backward pass, `prim__gradAdd` returns its `AnyPtr` handle, enabling handle threading: `g' = prim__gradAdd g idx val`, where `g'` is passed to the next call. This guarantees evaluation order without `IO`.
 
 ## Hyperparameter tuning protocol
 

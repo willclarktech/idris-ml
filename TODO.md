@@ -4,7 +4,6 @@
 
 | Item | Difficulty | Notes |
 |------|-----------|-------|
-| Tape-based autograd | L | Wengert list, standard ML approach |
 | Buffer-backed tensors + C FFI | L | Contiguous memory for tensor data, 10-50x speedup |
 
 ## Medium Priority
@@ -39,3 +38,4 @@
 - Global gradient norm clipping (`adamGlobalClip`)
 - O(n) topoSort (accumulator-based)
 - Hyperparameter sweep script (`scripts/sweep.sh`)
+- Tape-based autograd (Wengert list) with Chez FFI storage

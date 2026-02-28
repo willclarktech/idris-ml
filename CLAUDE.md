@@ -39,7 +39,7 @@ bash scripts/sweep.sh --parallel 4
 3. **Tensor** - Shape-indexed tensor: `Tensor : Vect rank Nat -> Type -> Type`
 4. **Math** - Loss functions, activations, linear algebra
 5. **Memory** - NTM read/write head operations
-6. **Variable** - Autograd node with computational graph
+6. **Variable** - Tape-based autograd (Wengert list) with Chez Scheme FFI storage
 7. **DataPoint** - `DataPoint` and `RecurrentDataPoint` records
 8. **Endofunctor** - `emap : (ty -> ty) -> e ty -> e ty` for type-preserving maps
 9. **Layer** - Layer/Network types (mutually recursive), forward pass, constructors
@@ -58,14 +58,13 @@ Scalar = Tensor []
 Vector elems = Tensor [elems]
 Matrix rows columns = Tensor [rows, columns]
 
--- Variable.idr
+-- Variable.idr (tape-based autograd)
 record Variable where
   constructor Var
-  paramId : Maybe String
-  value : Double
-  grad : Double
-  back : Double -> List Double
-  children : List Variable
+  tapeIdx : Nat           -- index into global tape (Wengert list)
+  tapeGen : Nat           -- tape generation (staleness detection)
+  paramId : Maybe String  -- parameter name (Nothing = intermediate)
+  value : Double          -- cached forward result
 
 -- Layer.idr (mutual block)
 data Layer : (inputSize : Nat) -> (outputSize : Nat) -> Type -> Type where
@@ -115,12 +114,12 @@ let (updatedModel, output) = forward model input
 ### Training cycle
 
 ```idris
--- Backprop.idr: forward (via calculateLoss) -> collectGrads -> optimizer step -> apply deltas
+-- Backprop.idr: forward -> backward (resets tape) -> optimizer step -> apply deltas
 epoch opt dataPoints lossFn model st =
-  let loss = calculateLoss lossFn model dataPoints   -- 1. Forward pass + loss
-      grads = collectGrads 1.0 loss                  -- 2. Backprop gradients
+  let loss = calculateLoss lossFn model dataPoints   -- 1. Forward pass (appends to tape)
+      grads = collectGrads 1.0 loss                  -- 2. Backward + tape reset (gen++)
       (deltas, st') = opt.step grads st              -- 3. Optimizer computes deltas
-  in (emap (applyDeltas deltas) model, st')          -- 4. Apply parameter updates
+  in (emap (applyDeltas deltas) model, st')          -- 4. Update .value (stale until next forward)
 ```
 
 ### Parameter naming (required for gradient flow)
@@ -172,9 +171,9 @@ let prepared = map (map fromDouble) dataPoints  -- DataPoint i o Double -> DataP
 
 - **Build flags**: Forgetting `--source-dir src` or `-p contrib` produces confusing import errors
 - **Elementwise `(*)`**: `Tensor`'s `Num` instance uses elementwise multiply. For matrix-vector products, use `matrixVectorMultiply` or `vectorMatrixMultiply` from Math.idr
-- **`paramId` requirement**: Variables without a `paramId` (i.e., `Nothing`) are invisible to `gradMap` and won't receive gradient updates. Always call `nameParams`/`nameNetworkParams` before training
-- **No test framework**: No test suite exists. Verify changes by type-checking (`--check`) and running examples
-- **`updateParam` creates fresh Variables**: `updateParam` in Backprop.idr constructs a new `Var` with empty `back`/`children` to allow GC of the computation graph. This is intentional, not a bug
+- **`paramId` requirement**: Variables without a `paramId` (i.e., `Nothing`) are invisible to gradient collection and won't receive updates. Always call `nameParams`/`nameNetworkParams` before training. `setParamId` writes to both the Variable record and the tape's pid vector
+- **No test framework**: No test suite exists. Verify changes by type-checking (`--check`) and running examples (TapeTest.idr for gradient smoke tests)
+- **Tape generation staleness**: After `collectGrads` resets the tape (gen++), Variables from the previous epoch are stale. `ensureOnTape` detects this via generation mismatch and re-registers with current `.value`. Same stale Variable used N times creates N Const entries — gradients accumulate correctly via `mergeWith (+)` on paramId
 - **Mutual recursion in Layer.idr**: `Layer` and `Network` are mutually recursive (NtmLayer contains a Network). `applyLayer`, `forward`, `nameParams`, `nameNetworkParams`, and `Endofunctor` instances all live in `mutual` blocks
 - **NTM dimension calculations**: `ReadHeadInputWidth n w = (w + n) + 3` (key + shift + 3 dynamic params: β, g, γ). The controller output width is `NtmOutputWidth n w = ReadHeadInputWidth n w + WriteHeadInputWidth n w + w`. Getting these wrong causes type errors at network composition
 - **NTM head parameters**: β (key strength), g (interpolation gate), γ (sharpening) are dynamic — extracted from controller output. β uses softplus, g uses sigmoid, γ uses `1 + 4*sigmoid(x)` to bound to [1,5]. Unbounded γ via softplus causes vanishing gradients for non-dominant memory positions. Erase vectors use sigmoid, add vectors use tanh (via `2*sig(2x)-1`). See `forwardReadHead`/`forwardWriteHead` in Memory.idr
@@ -182,7 +181,9 @@ let prepared = map (map fromDouble) dataPoints  -- DataPoint i o Double -> DataP
 - **`logSoftmax` + `nllLoss` for NTM**: Separate softmax + cross-entropy creates autograd intermediate gradients of 1/pp (up to 1e6) that destabilize recurrent/NTM training. Use `logSoftmaxLayer` + `nllLoss` instead — log-softmax avoids tiny probabilities, and NLL has no log so no 1/pp gradient
 - **`pow` zero-base NaN**: `pow(0, k)` backward for the exponent computes `0^k * log(0) = 0 * -Inf = NaN`. Fixed by returning 0 when base is 0
 - **Detached max in `logSoftmax`**: The max subtraction for numerical stability uses a detached constant (`fromDouble . cast`), not a reference to the max Variable. Otherwise the max element receives incorrect gradients
-- **Memoized DAG traversal**: `collectGrads` uses `topoSort` which memoizes visited nodes via `SortedSet Nat` of `nodeId`s. Each `Variable` gets a unique `nodeId` from an FFI counter. Without memoization, the DAG would be traversed exponentially
+- **Tape-based backward pass**: `collectGrads` allocates a mutable gradient array via FFI, seeds it with the initial gradient, then scans the tape in reverse. Each entry propagates gradients to its inputs via `prim__gradAdd` (O(1) accumulation). Only parameter entries (non-empty `paramId`) are collected into the output `SortedMap`. The tape is reset at the end of `collectGrads` (gen++)
+- **Zero-arg FFI CSE trap**: Idris 2 compiles zero-argument `%noinline` definitions as constants evaluated once at load time. `tapeGeneration` must take a dummy argument (the tape index) passed through to `prim__tapeGen` to prevent the Chez backend from caching the result. This also applies to any other FFI wrapper reading mutable state
+- **FFI side-effect threading**: `let _ = ffiCall` is dropped by the compiler. FFI functions with side effects must return a value that is used in subsequent computation. `prim__gradAdd` returns the handle (`AnyPtr`), enabling handle threading through the backward pass
 - **Gradient clipping**: `adam` clips per-parameter; `adamGlobalClip` clips by global L2 norm (preserves gradient direction). Use `adamGlobalClip` for attention/recurrent models where parameters must coordinate — per-parameter clipping distorts direction and causes periodic loss spikes
 - **Hyperparameter tuning**: Fix algorithmic issues first (bounded activations, correct clipping, efficient backward pass), then use `scripts/sweep.sh` for systematic grid search. Never manually loop over hyperparameters — see `docs/design-decisions.md` for rationale
 - **Chez Scheme output buffering**: Stdout is fully buffered when redirected to file/pipe (e.g. background tasks). Use `stdbuf -oL ./build/exec/<name>` to force line-buffering for long-running training
