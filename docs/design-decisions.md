@@ -161,6 +161,30 @@ Training for a fixed number of epochs wastes compute when the model has already 
 
 The implementation uses a tail-recursive loop with `bestLoss` and `staleCount` accumulators rather than `foldl`, since `foldl` cannot short-circuit.
 
+## Xavier weight initialization
+
+Layer constructors (`linearLayer`, `rnnLayer`) default to Xavier/Glorot uniform initialization: `U(-limit, limit)` where `limit = sqrt(6 / (fanIn + fanOut))`. The previous default `U(-1, 1)` was 2-3x too large for typical NTM controller dimensions (e.g., 6→20 gives Xavier limit ≈ 0.48 vs 1.0), causing sigmoid saturation and slow learning.
+
+Biases are always initialized to zero (standard practice — non-zero bias init introduces asymmetry that rarely helps and often hurts).
+
+The `Init.idr` module provides pluggable strategies (`InitStrategy = Nat -> Nat -> Double`):
+- **Xavier/Glorot** (`xavierInit`): `sqrt(6 / (fanIn + fanOut))` — default, good for sigmoid/tanh
+- **He/Kaiming** (`heInit`): `sqrt(6 / fanIn)` — designed for ReLU
+- **LeCun** (`lecunInit`): `sqrt(3 / fanIn)` — designed for SELU/lecun_normal
+- **Uniform** (`uniformInit bound`): fixed range — reproduces old behavior with `uniformInit 1.0`
+
+NTM memory initialization stays at `U(-0.1, 0.1)` since it's not a weight matrix — small random values prevent initial memory positions from dominating content-based addressing.
+
+## C-backed softmax and logSoftmax
+
+NTM head operations create ~116 scalar tape entries per timestep for softmax alone (4 calls × ~29 entries each for content addressing and shift distributions). C-backed `softmaxVar`/`logSoftmaxVar` reduce each softmax call to a single SoftmaxOp/LogSoftmaxOp tape entry plus n ConstOp entries for outputs, cutting tape growth significantly.
+
+The architecture follows the MatVecOp pattern: `SoftmaxMeta` struct (arena-backed) stores input values, output values (saved for backward), and input tape indices. Forward computes max-subtracted softmax in C. Backward uses the Jacobian-vector product:
+- **Softmax**: `dx[j] = s[j] * (dy[j] - dot(dy, s))` where `s = softmax output`
+- **LogSoftmax**: `dx[j] = dy[j] - exp(logS[j]) * sum(dy)` where `logS = logsoftmax output`
+
+The `applyLayerVar` function dispatches NormalizationLayer "softmax"/"logSoftmax" to these C kernels automatically. NTM heads use specialized `forwardReadHeadVar`/`forwardWriteHeadVar` functions that call `softmaxVar` instead of the generic `softmax` for content addressing and shift computations.
+
 ## Hyperparameter tuning protocol
 
 Manual hyperparameter tuning is an anti-pattern that wastes hours on random adjustments. The correct order is:

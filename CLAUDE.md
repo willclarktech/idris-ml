@@ -47,16 +47,17 @@ bash scripts/sweep.sh --parallel 4 --quick
 
 1. **Floating** - Extended `Floating` interface adding `sqrt`
 2. **Util** - Helpers: `enumerate`, `permute`, `chunks`
-3. **Tensor** - Shape-indexed tensor: `Tensor : Vect rank Nat -> Type -> Type`
-4. **Math** - Loss functions, activations, linear algebra
-5. **Memory** - NTM read/write head operations
-6. **Variable** - Tape-based autograd (Wengert list) with Chez Scheme FFI storage
-7. **DataPoint** - `DataPoint` and `RecurrentDataPoint` records
-8. **Endofunctor** - `emap : (ty -> ty) -> e ty -> e ty` for type-preserving maps
-9. **Layer** - Layer/Network types (mutually recursive), forward pass, constructors
-10. **Optimizer** - SGD and Adam optimizers with per-parameter or global norm gradient clipping
-11. **Schedule** - Learning rate schedules: `constant`, `cosineAnnealing`, `oneCycle`
-12. **Backprop** - Training loop: `epoch`, `train`, `trainFrom`, `epochRecurrent`, `trainRecurrent`, `trainRecurrentFrom`, `trainScheduledFrom`, `trainRecurrentScheduledFrom`
+3. **Init** - Weight initialization strategies: `xavierInit`, `heInit`, `lecunInit`, `uniformInit`
+4. **Tensor** - Shape-indexed tensor: `Tensor : Vect rank Nat -> Type -> Type`
+5. **Math** - Loss functions, activations, linear algebra
+6. **Memory** - NTM read/write head operations
+7. **Variable** - Tape-based autograd (Wengert list) with Chez Scheme FFI storage
+8. **DataPoint** - `DataPoint` and `RecurrentDataPoint` records
+9. **Endofunctor** - `emap : (ty -> ty) -> e ty -> e ty` for type-preserving maps
+10. **Layer** - Layer/Network types (mutually recursive), forward pass, constructors
+11. **Optimizer** - SGD and Adam optimizers with per-parameter or global norm gradient clipping
+12. **Schedule** - Learning rate schedules: `constant`, `cosineAnnealing`, `oneCycle`
+13. **Backprop** - Training loop: `epoch`, `train`, `trainFrom`, `epochRecurrent`, `trainRecurrent`, `trainRecurrentFrom`, `trainScheduledFrom`, `trainRecurrentScheduledFrom`
 
 ### Core type signatures
 
@@ -207,4 +208,6 @@ let prepared = map (map fromDouble) dataPoints  -- DataPoint i o Double -> DataP
 - **Scheme-native C memory access**: Use Chez Scheme's `foreign-ref`/`foreign-set!` for reading/writing C-allocated arrays instead of calling C functions per element. This avoids the Scheme→C boundary crossing overhead. See `prim__gradAdd`/`prim__gradGet` and `prim__setDouble`/`prim__setInt32` in Variable.idr
 - **`prim__seq` for evaluation ordering**: When two FFI side-effect chains must execute in order but have no data dependency, use `prim__seq a b` (Scheme `(lambda (a b) b)`) to force `a` to evaluate before `b` is used. Chez Scheme evaluates function arguments strictly
 - **Tensor Foldable reversal**: The `foldr` instance for `Tensor` processes elements in reversed order (head into accumulator first). `toList` produces elements backwards. Use direct `Vect` traversal instead when element order matters (e.g., packing into C buffers)
+- **Weight initialization**: `linearLayer`/`rnnLayer` default to Xavier uniform (was `U(-1,1)`). Biases are always zero. Use `linearLayerWith (uniformInit 1.0)` for the old behavior. NTM memory stays at `U(-0.1, 0.1)`. Custom strategies via `linearLayerWith`/`rnnLayerWith` accepting `InitStrategy` from `Init.idr`
+- **C-backed softmax/logSoftmax**: `softmaxVar`/`logSoftmaxVar` in Variable.idr use C kernels and record a single SoftmaxOp/LogSoftmaxOp tape entry per vector instead of ~29 scalar entries. `applyLayerVar` dispatches NormalizationLayer "softmax"/"logSoftmax" to these. NTM heads use `forwardReadHeadVar`/`forwardWriteHeadVar` in Layer.idr which call `softmaxVar` for content addressing and shift
 - **Chez Scheme output buffering**: Stdout is fully buffered when redirected to file/pipe (e.g. background tasks). Use `stdbuf -oL ./build/exec/<name>` to force line-buffering for long-running training

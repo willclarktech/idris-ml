@@ -4,7 +4,7 @@
 
 | Item | Difficulty | Notes |
 |------|-----------|-------|
-| C-backed softmax/logSoftmax/memory ops | M | Phase 2 of buffer-backed tensors |
+| PyTorch benchmarks | M | Compare training speed/accuracy against PyTorch baseline |
 
 ## Medium Priority
 
@@ -44,3 +44,5 @@
 - Early stopping (patience-based + NaN detection in Backprop)
 - Hyperparameters type (Config record in Ntm.idr)
 - Learning rate schedules (one-cycle, cosine annealing in Schedule.idr)
+- C-backed softmax/logSoftmax (Phase 2 of buffer-backed tensors)
+- Xavier/He/LeCun weight initialization (Init.idr)
