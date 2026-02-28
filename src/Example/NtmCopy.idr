@@ -163,7 +163,7 @@ main = do
   controllerOut <- linearLayer {i = H, o = NtmOutputWidth N W}
   let controller = controllerHidden ~> tanhLayer ~> OutputLayer controllerOut
   ntm <- ntmLayer {n = N, w = W} controller
-  let model = nameNetworkParams "ntm" $ ntm ~> OutputLayer logSoftmaxLayer
+  let model = autoName $ ntm ~> OutputLayer logSoftmaxLayer
 
   putStr "Model:\t\t"
   printLn model

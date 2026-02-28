@@ -45,8 +45,8 @@ supervisedData =
 
 benchSupervised : IO ()
 benchSupervised = do
-  ll <- nameParams "ll" <$> linearLayer
-  let model = ll ~> OutputLayer softmaxLayer
+  ll <- linearLayer
+  let model = autoName $ ll ~> OutputLayer softmaxLayer
   let prepared = map (map fromDouble) supervisedData
   let opt = sgd 0.03 (1.0/0.0)
 
@@ -83,8 +83,8 @@ rnnRawData n = map (\(is, os) => MkRecurrentDataPoint (prep is) (prep os)) $ gen
 
 benchRnn : IO ()
 benchRnn = do
-  rnn <- nameParams "rnn" <$> rnnLayer
-  let model = OutputLayer rnn
+  rnn <- rnnLayer
+  let model = autoName $ OutputLayer rnn
   let dataPoints = map (map fromDouble) (rnnRawData 8)
   let opt = sgd 0.03 (1.0/0.0)
 
@@ -135,7 +135,7 @@ benchNtm = do
   controllerOut <- linearLayer {i = H, o = NtmOutputWidth N W}
   let controller = controllerHidden ~> sigmoidLayer ~> OutputLayer controllerOut
   ntm <- ntmLayer {n = N, w = W} controller
-  let model = nameNetworkParams "ntm" $ ntm ~> OutputLayer logSoftmaxLayer
+  let model = autoName $ ntm ~> OutputLayer logSoftmaxLayer
 
   let dataPoints = map (map fromDouble) ntmRawData
   let opt = adamGlobalClip 0.001 0.9 0.999 (pow 10 (-8)) 5.0

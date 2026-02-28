@@ -158,7 +158,7 @@ main = do
   controllerOut <- linearLayer {i = H, o = NtmOutputWidth N W}
   let controller = controllerHidden ~> sigmoidLayer ~> OutputLayer controllerOut
   ntm <- ntmLayer {n = N, w = W} controller
-  let model = nameNetworkParams "ntm" (ntm ~> OutputLayer logSoftmaxLayer)
+  let model = autoName (ntm ~> OutputLayer logSoftmaxLayer)
 
   let dataPoints = map (map fromDouble) ntmRawData
   let opt = adamGlobalClip 0.001 0.9 0.999 (pow 10 (-8)) 5.0

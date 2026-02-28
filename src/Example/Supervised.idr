@@ -31,8 +31,8 @@ main = do
   let lr = 0.03
   let lossFn = crossEntropy
 
-  ll <- nameParams "ll" <$> linearLayer
-  let model = ll ~> OutputLayer softmaxLayer
+  ll <- linearLayer
+  let model = autoName $ ll ~> OutputLayer softmaxLayer
   putStr "Model: "
   printLn model
   let prepared = map (map fromDouble) dataPoints

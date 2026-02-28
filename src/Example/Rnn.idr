@@ -44,8 +44,8 @@ main = do
   let lr = 0.03
   let lossFn = binaryCrossEntropyWithLogits
 
-  rnn <- nameParams "rnn" <$> rnnLayer
-  let model = OutputLayer rnn
+  rnn <- rnnLayer
+  let model = autoName $ OutputLayer rnn
   putStr "Model: "
   printLn model
   let dataPoints = map (map fromDouble) (rawData 8)
