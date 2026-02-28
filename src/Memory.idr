@@ -40,6 +40,7 @@ interpolate : (Neg ty, Num ty) => ty -> Vector n ty -> Vector n ty -> Vector n t
 interpolate g = zipWith (\c, l => (c * g) + (l * (1 - g)))
 
 -- TODO: Make a simpler version of this
+export
 cycleForward : {n : Nat} -> (i : Fin n) -> Vect n ty -> Vect n ty
 cycleForward {n = Z} _ _ = []
 cycleForward {n = (S k)} i xs =

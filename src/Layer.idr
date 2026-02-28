@@ -146,6 +146,84 @@ mutual
 
 
 ----------------------------------------------------------------------
+-- Variable-specialized NTM Head Operations (C-backed softmax)
+----------------------------------------------------------------------
+
+getContentAddressVar : {n, w : Nat} -> Variable -> Matrix n w Variable -> Vector w Variable -> Vector n Variable
+getContentAddressVar beta (VTensor memory) keyVector = softmaxVar $ map (* beta) $ VTensor $ map (STensor . (cosineSimilarity keyVector)) memory
+
+shiftVar : {n : Nat} -> Vector n Variable -> Vector n Variable -> Vector n Variable
+shiftVar addressingWeights shiftVector =
+  let
+    (VTensor probabilities) = softmaxVar shiftVector
+    shifted = map (\i => cycleForward i probabilities) (Data.Vect.allFins n)
+  in VTensor $ map (STensor . (dotProduct addressingWeights)) (map VTensor shifted)
+
+forwardReadHeadVar : {n, w : Nat} -> Matrix n w Variable -> ReadHead n Variable -> Vector ((w + n) + 3) Variable -> (ReadHead n Variable, Vector w Variable)
+forwardReadHeadVar memory rh inp =
+  let
+    (mainInput, params) = splitAt (w + n) inp
+    (keyVector, shiftVector) = splitAt w mainInput
+    (betaVec, params') = splitAt 1 params
+    (gVec, gammaVec) = splitAt 1 params'
+    beta = softplus (sum betaVec)
+    g = sig (sum gVec)
+    gamma = 1 + 4 * sig (sum gammaVec)
+    contentWeights = getContentAddressVar beta memory keyVector
+    interpolated = interpolate g rh.addressingWeights contentWeights
+    shifted = shiftVar interpolated shiftVector
+    focused = focus gamma shifted
+    newReadHead = { addressingWeights := focused } rh
+    output = readOp newReadHead memory
+  in (newReadHead, output)
+  where
+    sig : Variable -> Variable
+    sig x = 1 / (1 + exp (-x))
+    softplus : Variable -> Variable
+    softplus x = log (1 + exp x)
+    interpolate : Variable -> Vector n Variable -> Vector n Variable -> Vector n Variable
+    interpolate g' = zipWith (\c, l => (c * g') + (l * (1 - g')))
+    focus : Variable -> Vector n Variable -> Vector n Variable
+    focus gamma' aw =
+      let raised = map (^ gamma') aw
+          sigma = sum raised
+      in map (/ sigma) raised
+    readOp : ReadHead n Variable -> Matrix n w Variable -> Vector w Variable
+    readOp rh' (VTensor memoryRows) =
+      let (VTensor aw) = rh'.addressingWeights
+          weightedRows = zipWith (\(STensor weight), row => map (*weight) row) aw memoryRows
+      in sum weightedRows
+
+forwardWriteHeadVar : {n, w : Nat} -> Matrix n w Variable -> WriteHead n Variable -> Vector ((w + n) + 3 + w + w) Variable -> (WriteHead n Variable, Matrix n w Variable)
+forwardWriteHeadVar memory (MkWriteHead readHead) inp =
+  let
+    inp' = rewrite plusAssociative ((w + n) + 3) w w in inp
+    (readHeadInput, remainingInput) = Tensor.splitAt ((w + n) + 3) inp'
+    (rawErase, rawAdd) = splitAt w remainingInput
+    eraseVector = map sig rawErase
+    addVector = map (\x => 2 * sig (2 * x) - 1) rawAdd
+    (newReadHead, _) = forwardReadHeadVar memory readHead readHeadInput
+    newWriteHead = MkWriteHead newReadHead
+    newMemoryMatrix = writeOp newWriteHead memory eraseVector addVector
+  in (newWriteHead, newMemoryMatrix)
+  where
+    sig : Variable -> Variable
+    sig x = 1 / (1 + exp (-x))
+    eraseMemory : Matrix n w Variable -> Vector n Variable -> Vector w Variable -> Matrix n w Variable
+    eraseMemory mem (VTensor addressVector) eraseVec =
+      let complements = complement $ VTensor $ map (\(STensor weight) => map (* weight) eraseVec) addressVector
+      in mem * complements
+    addMemory : Matrix n w Variable -> Vector n Variable -> Vector w Variable -> Matrix n w Variable
+    addMemory mem (VTensor addressVector) addVec =
+      let weightedAddVectors = VTensor $ map (\(STensor weight) => map (* weight) addVec) addressVector
+      in mem + weightedAddVectors
+    writeOp : WriteHead n Variable -> Matrix n w Variable -> Vector w Variable -> Vector w Variable -> Matrix n w Variable
+    writeOp (MkWriteHead rh) mem eraseVec addVec =
+      let erased = eraseMemory mem rh.addressingWeights eraseVec
+      in addMemory erased rh.addressingWeights addVec
+
+
+----------------------------------------------------------------------
 -- Variable-specialized Forward Pass (C-backed matvec/dot)
 ----------------------------------------------------------------------
 
@@ -172,14 +250,16 @@ mutual
         updatedLayer = RnnLayer inputWeights recurrentWeights bias output iwBuf rwBuf
       in (updatedLayer, output)
   applyLayerVar layer@(ActivationLayer _ f) xs = (layer, map f xs)
+  applyLayerVar layer@(NormalizationLayer "softmax" _) xs = (layer, softmaxVar xs)
+  applyLayerVar layer@(NormalizationLayer "logSoftmax" _) xs = (layer, logSoftmaxVar xs)
   applyLayerVar layer@(NormalizationLayer _ f) xs = (layer, f xs)
   applyLayerVar {i} (NtmLayer {n} {hs} controller memory readHead writeHead readHeadOutput) inp =
     let
       (newController, controllerOutput) = forwardVar controller (readHeadOutput ++ inp)
       (readHeadInput, controllerOutput') = Tensor.splitAt (ReadHeadInputWidth n i) controllerOutput
       (writeHeadInput, networkOutput) = Tensor.splitAt (WriteHeadInputWidth n i) controllerOutput'
-      (newReadHead, newReadHeadOutput) = forwardReadHead memory readHead readHeadInput
-      (newWriteHead, newMemory) = forwardWriteHead memory writeHead writeHeadInput
+      (newReadHead, newReadHeadOutput) = forwardReadHeadVar memory readHead readHeadInput
+      (newWriteHead, newMemory) = forwardWriteHeadVar memory writeHead writeHeadInput
       newLayer = NtmLayer newController newMemory newReadHead newWriteHead newReadHeadOutput
     in (newLayer, networkOutput)
 
