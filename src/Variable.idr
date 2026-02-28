@@ -249,6 +249,16 @@ prim__dotBackward : AnyPtr -> AnyPtr -> AnyPtr
 tapeGeneration : Nat -> Nat
 tapeGeneration dummy = cast (prim__tapeGen (cast dummy))
 
+-- Read current tape size (number of entries). Must pass a varying dummy
+-- argument to prevent CSE, same as tapeGeneration.
+%foreign "scheme:(lambda (dummy) (top-level-value 'tape-size))"
+prim__tapeSize : Int -> Int
+
+export
+%noinline
+tapeSize : Nat -> Nat
+tapeSize dummy = cast (prim__tapeSize (cast dummy))
+
 %noinline
 tapeAppendConst : Double -> String -> Nat
 tapeAppendConst val pid = cast (prim__tapeAppendConst val pid)
