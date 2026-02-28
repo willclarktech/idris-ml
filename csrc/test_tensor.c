@@ -12,9 +12,10 @@ static int tests_failed = 0;
 static void check(const char *name, int ok) {
   if (ok) {
     tests_passed++;
+    printf("  PASS: %s\n", name);
   } else {
     tests_failed++;
-    printf("FAIL: %s\n", name);
+    printf("  FAIL: %s\n", name);
   }
 }
 
@@ -22,10 +23,11 @@ static void check_close(const char *name, double got, double expected,
                          double tol) {
   int ok = fabs(got - expected) < tol;
   if (!ok) {
-    printf("FAIL: %s: got %.10f, expected %.10f\n", name, got, expected);
+    printf("  FAIL: %s: got %.10f, expected %.10f\n", name, got, expected);
     tests_failed++;
   } else {
     tests_passed++;
+    printf("  PASS: %s\n", name);
   }
 }
 
