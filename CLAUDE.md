@@ -24,6 +24,10 @@ Concrete examples:
 idris2 --source-dir src -p contrib -o supervised src/Example/Supervised.idr && ./build/exec/supervised
 idris2 --source-dir src -p contrib -o rnn src/Example/Rnn.idr && ./build/exec/rnn
 idris2 --source-dir src -p contrib -o ntm src/Example/Ntm.idr && ./build/exec/ntm
+# NTM with custom hyperparameters
+./build/exec/ntm --lr1 0.001 --lr2 0.0003 --max-norm 5.0 --epochs1 3000 --epochs2 3000 --seed 42
+# Hyperparameter sweep (builds once, runs grid in parallel)
+bash scripts/sweep.sh --parallel 4
 ```
 
 ## Architecture
@@ -39,7 +43,7 @@ idris2 --source-dir src -p contrib -o ntm src/Example/Ntm.idr && ./build/exec/nt
 7. **DataPoint** - `DataPoint` and `RecurrentDataPoint` records
 8. **Endofunctor** - `emap : (ty -> ty) -> e ty -> e ty` for type-preserving maps
 9. **Layer** - Layer/Network types (mutually recursive), forward pass, constructors
-10. **Optimizer** - SGD and Adam optimizers with per-parameter gradient clipping
+10. **Optimizer** - SGD and Adam optimizers with per-parameter or global norm gradient clipping
 11. **Backprop** - Training loop: `epoch`, `train`, `trainFrom`, `epochRecurrent`, `trainRecurrent`, `trainRecurrentFrom`
 
 ### Core type signatures
@@ -173,10 +177,11 @@ let prepared = map (map fromDouble) dataPoints  -- DataPoint i o Double -> DataP
 - **`updateParam` creates fresh Variables**: `updateParam` in Backprop.idr constructs a new `Var` with empty `back`/`children` to allow GC of the computation graph. This is intentional, not a bug
 - **Mutual recursion in Layer.idr**: `Layer` and `Network` are mutually recursive (NtmLayer contains a Network). `applyLayer`, `forward`, `nameParams`, `nameNetworkParams`, and `Endofunctor` instances all live in `mutual` blocks
 - **NTM dimension calculations**: `ReadHeadInputWidth n w = (w + n) + 3` (key + shift + 3 dynamic params: β, g, γ). The controller output width is `NtmOutputWidth n w = ReadHeadInputWidth n w + WriteHeadInputWidth n w + w`. Getting these wrong causes type errors at network composition
-- **NTM head parameters**: β (key strength), g (interpolation gate), γ (sharpening) are dynamic — extracted from controller output and activated via softplus/sigmoid. Erase vectors use sigmoid, add vectors use tanh (via `2*sig(2x)-1`). See `forwardReadHead`/`forwardWriteHead` in Memory.idr
+- **NTM head parameters**: β (key strength), g (interpolation gate), γ (sharpening) are dynamic — extracted from controller output. β uses softplus, g uses sigmoid, γ uses `1 + 4*sigmoid(x)` to bound to [1,5]. Unbounded γ via softplus causes vanishing gradients for non-dominant memory positions. Erase vectors use sigmoid, add vectors use tanh (via `2*sig(2x)-1`). See `forwardReadHead`/`forwardWriteHead` in Memory.idr
 - **NTM state flow**: `readHeadOutput` from the previous timestep concatenates with current input to form controller input (`NtmInputWidth w = w + w`). Memory, read head, and write head all update each step
 - **`logSoftmax` + `nllLoss` for NTM**: Separate softmax + cross-entropy creates autograd intermediate gradients of 1/pp (up to 1e6) that destabilize recurrent/NTM training. Use `logSoftmaxLayer` + `nllLoss` instead — log-softmax avoids tiny probabilities, and NLL has no log so no 1/pp gradient
 - **`pow` zero-base NaN**: `pow(0, k)` backward for the exponent computes `0^k * log(0) = 0 * -Inf = NaN`. Fixed by returning 0 when base is 0
 - **Detached max in `logSoftmax`**: The max subtraction for numerical stability uses a detached constant (`fromDouble . cast`), not a reference to the max Variable. Otherwise the max element receives incorrect gradients
 - **Memoized DAG traversal**: `collectGrads` uses `topoSort` which memoizes visited nodes via `SortedSet Nat` of `nodeId`s. Each `Variable` gets a unique `nodeId` from an FFI counter. Without memoization, the DAG would be traversed exponentially
-- **Gradient clipping is per-parameter**: The optimizer's `clipGrad` clips each parameter's gradient independently. This prevents individual parameter explosions but doesn't control the total update norm
+- **Gradient clipping**: `adam` clips per-parameter; `adamGlobalClip` clips by global L2 norm (preserves gradient direction). Use `adamGlobalClip` for attention/recurrent models where parameters must coordinate — per-parameter clipping distorts direction and causes periodic loss spikes
+- **Hyperparameter tuning**: Fix algorithmic issues first (bounded activations, correct clipping, efficient backward pass), then use `scripts/sweep.sh` for systematic grid search. Never manually loop over hyperparameters — see `docs/design-decisions.md` for rationale

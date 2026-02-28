@@ -31,9 +31,15 @@ The log-softmax formulation computes `x - log(sum(exp(x)))` directly, avoiding t
 
 The epsilon in `crossEntropy` prevents `log(0)` in the forward pass. Chosen at 1e-6 as a balance: small enough not to distort probabilities, large enough to keep gradients bounded (1/1e-6 = 1e6 vs 1/1e-7 = 1e7 with the old value).
 
-## Gradient clipping (per-parameter)
+## Gradient clipping: per-parameter vs global norm
 
-The optimizer's `clipGrad` function bounds each parameter's gradient to `[-maxGrad, maxGrad]` independently. Per-parameter clipping is simple and sufficient for feedforward/RNN models. For the NTM's deeper computation graph, the logSoftmax fix was necessary rather than just tighter clipping, because clipping at the parameter level doesn't prevent intermediate gradient explosions within the forward pass.
+The optimizer provides two clipping strategies:
+
+**Per-parameter clipping** (`adam`): bounds each gradient to `[-maxGrad, maxGrad]` independently. Simple and sufficient for feedforward/RNN models.
+
+**Global norm clipping** (`adamGlobalClip`): scales all gradients uniformly so the L2 norm doesn't exceed `maxNorm`. This preserves gradient *direction*, which matters for attention/recurrent models where parameters must coordinate (e.g., NTM key vectors and shift distributions). Per-parameter clipping distorts direction — it can clip the key gradient but not the shift gradient, causing the model to shift to the wrong location.
+
+For the NTM, global norm clipping replaced per-parameter clipping to fix periodic loss spikes caused by gradient direction distortion.
 
 ## updateParam / applyDeltas creates fresh Variables
 
@@ -42,3 +48,21 @@ After each optimizer step, parameters get new `Var` nodes with empty `back` and 
 ## Detached max in logSoftmax
 
 The max subtraction `x - max(x)` for numerical stability must use a detached constant (created via `fromDouble . cast`, which extracts the Double value and creates a fresh leaf Variable). If the max Variable retained its backward links, every `x - maxVal` subtraction would send a `-1` gradient back through the max, corrupting the gradient of the max element.
+
+## Bounded NTM head parameters
+
+The NTM focus sharpening parameter γ (gamma) must be bounded. The original formulation `softplus(x) + 1` gives γ ∈ [1, ∞), which causes vanishing gradients for non-dominant memory positions: if a weight is 0.1, then `0.1^γ` for large γ becomes negligible (0.1^20 = 1e-20), and the gradient through `w^γ` includes a factor of `γ * w^(γ-1)` which vanishes.
+
+The fix uses `1 + 4 * sigmoid(x)` to bound γ ∈ [1, 5]. At the upper bound, `0.1^5 = 1e-5` — small but with survivable gradients. This lets the NTM learn to sharpen attention without permanently losing gradient signal for secondary memory positions.
+
+## Accumulator-based topological sort
+
+The original `topoSort` used `acc ++ nodes` (O(n) per append → O(n²) total). For NTM computation graphs with thousands of nodes, this dominated backward pass time. The fix uses an accumulator parameter with cons (`v :: acc'`) for O(1) per node → O(n) total. The `reverse` call in `collectGrads` still works correctly since cons naturally produces leaves-last order.
+
+## Hyperparameter tuning protocol
+
+Manual hyperparameter tuning is an anti-pattern that wastes hours on random adjustments. The correct order is:
+
+1. **Fix algorithmic issues first** — bounded gamma, global gradient clipping, efficient topoSort
+2. **Use systematic search** — `scripts/sweep.sh` grid search with parallel execution
+3. **Never manually loop** — if a training run fails, check the algorithmic level before adjusting hyperparameters
