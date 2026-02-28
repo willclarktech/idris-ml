@@ -35,8 +35,10 @@ idris2 --source-dir src -p contrib -o rnn src/Example/Rnn.idr && ./build/exec/rn
 idris2 --source-dir src -p contrib -o ntm src/Example/Ntm.idr && ./build/exec/ntm
 # NTM with custom hyperparameters
 ./build/exec/ntm --lr 0.001 --max-norm 5.0 --epochs 6000 --patience 10 --seed 42
-# NTM with diagnostics (dumps per-timestep addressing/memory/head params)
+# NTM with diagnostics (summary metrics + train/test comparison)
 ./build/exec/ntm --diagnose
+# NTM with verbose diagnostics (summary + raw per-timestep dumps)
+./build/exec/ntm --diagnose-verbose
 # Hyperparameter sweep (builds once, runs grid in parallel)
 bash scripts/sweep.sh --parallel 4
 # Quick sweep (2000 epochs for fast screening)

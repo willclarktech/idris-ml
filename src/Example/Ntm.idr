@@ -187,9 +187,10 @@ record Config where
   patience : Nat
   seed : Bits64
   diagnose : Bool
+  diagnoseVerbose : Bool
 
 defaultConfig : Config
-defaultConfig = MkConfig 0.001 5.0 0.9 0.999 (pow 10 (-8)) 10.0 6000 200 123456 False
+defaultConfig = MkConfig 0.001 5.0 0.9 0.999 (pow 10 (-8)) 10.0 6000 200 123456 False False
 
 parseConfig : List String -> Config
 parseConfig args = go args defaultConfig
@@ -206,6 +207,7 @@ parseConfig args = go args defaultConfig
     go ("--patience" :: v :: rest) c = go rest ({ patience := cast (cast {to=Integer} v) } c)
     go ("--seed" :: v :: rest) c = go rest ({ seed := cast (cast {to=Integer} v) } c)
     go ("--diagnose" :: rest) c = go rest ({ diagnose := True } c)
+    go ("--diagnose-verbose" :: rest) c = go rest ({ diagnose := True, diagnoseVerbose := True } c)
     go (_ :: rest) c = go rest c
 
 
@@ -290,9 +292,55 @@ main = do
   -- Diagnostics
   when cfg.diagnose $ do
     let dblModel = toDoubleNetwork trained
-    let (_, _, snapshots) = debugForwardRecurrent dblModel (xs (index 0 rawTestData))
     putStrLn ""
-    printDiagnostics "Test[0]" snapshots
+    putStrLn "=== NTM Diagnostic Analysis ==="
+
+    let diagnoseOne : List (Vector W Double) -> String -> IO (Maybe NtmSummary)
+        diagnoseOne inputs label = do
+          let sl = length inputs `div` 2
+          let (_, _, snaps) = debugForwardRecurrent dblModel inputs
+          case computeSummary sl snaps of
+            Nothing => do
+              putStrLn $ label ++ ": no NTM entry found"
+              pure Nothing
+            Just s => do
+              printSummary label s
+              printAddrGrid s
+              putStrLn ""
+              pure (Just s)
+
+    -- Training sequences (short/medium/long)
+    putStrLn "--- Training Sequences ---"
+    s0 <- diagnoseOne (xs (index 0 rawData)) "Train[0] (len=3)"
+    s5 <- diagnoseOne (xs (index 5 rawData)) "Train[5] (len=6)"
+    s12 <- diagnoseOne (xs (index 12 rawData)) "Train[12] (len=8)"
+
+    -- Test sequences (all 5)
+    putStrLn "--- Test Sequences ---"
+    t0 <- diagnoseOne (xs (index 0 rawTestData)) "Test[0] (len=8)"
+    t1 <- diagnoseOne (xs (index 1 rawTestData)) "Test[1] (len=8)"
+    t2 <- diagnoseOne (xs (index 2 rawTestData)) "Test[2] (len=6)"
+    t3 <- diagnoseOne (xs (index 3 rawTestData)) "Test[3] (len=7)"
+    t4 <- diagnoseOne (xs (index 4 rawTestData)) "Test[4] (len=8)"
+
+    -- Verbose raw dumps (first train + first test)
+    when cfg.diagnoseVerbose $ do
+      putStrLn "--- Verbose: Train[0] ---"
+      let (_, _, snaps0) = debugForwardRecurrent dblModel (xs (index 0 rawData))
+      printDiagnostics "Train[0]" snaps0
+      putStrLn ""
+      putStrLn "--- Verbose: Test[0] ---"
+      let (_, _, snapsT0) = debugForwardRecurrent dblModel (xs (index 0 rawTestData))
+      printDiagnostics "Test[0]" snapsT0
+
+    -- Aggregate comparison
+    let trainSums = mapMaybe id [s0, s5, s12]
+    let testSums = mapMaybe id [t0, t1, t2, t3, t4]
+    case (avgSummaries trainSums, avgSummaries testSums) of
+      (Just avgTrain, Just avgTest) => do
+        putStrLn ""
+        printComparison avgTrain avgTest
+      _ => putStrLn "\n  Insufficient data for comparison"
 
   -- Machine-readable result line for sweep script
   putStrLn $ "RESULT\t"

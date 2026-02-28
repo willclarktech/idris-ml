@@ -207,3 +207,28 @@ Manual hyperparameter tuning is an anti-pattern that wastes hours on random adju
 **`splitWriteInput` helper**: Idris 2's `rewrite` requires a known goal type, which isn't available inside `let` blocks with inferred types. The write head input splitting uses a dedicated function with an explicit type signature so `rewrite plusAssociative` can resolve.
 
 **Per-layer debug entries with key-value pairs**: `DebugEntry` uses `List (String, String)` fields rather than a structured type per layer kind. This is extensible — adding fields to any layer's debug output doesn't change the `DebugEntry` type or break existing printing code
+
+## NTM diagnostic analysis
+
+The NTM copy task achieves high training accuracy but generalizes poorly to held-out test sequences. The diagnostic analysis module (`Debug.idr`) provides quantitative summary metrics and train/test comparison to identify failure modes.
+
+**String-based parsing roundtrip**: debug entries store field values as formatted strings (via `showVec`, `showF`, `showMat`). The analysis functions parse these back to `List Double` via `parseVec`/`parseScalar`/`parseMat`. This avoids changing the `DebugEntry` type or carrying structured data through the debug forward pass. The parsing is lossy (4 decimal places from `showF`) but sufficient for diagnostic purposes.
+
+**Phase-split metrics**: NTM sequences have two phases — input (write) and output (read). The `computeSummary` function splits all per-timestep metrics at `seqLen` to report separate averages for each phase. This is critical because the model should behave differently in each phase (e.g., write during input, read during output).
+
+**Key diagnostic metrics**:
+- **Gate g** (0=location, 1=content): the interpolation gate between content-based and location-based addressing. If g is low during training but high during testing, the model is falling back to content addressing on novel patterns (memorization).
+- **Entropy/peak mass**: addressing weight distribution focus. Low entropy and high peak mass indicate sharp, focused addressing. Diffuse addressing (high entropy) suggests the model hasn't learned to target specific slots.
+- **Monotonicity**: whether the argmax of addressing weights advances sequentially through memory slots during the relevant phase (write during input, read during output). Sequential slot access is the expected behavior for a copy task.
+- **Slots used**: number of memory rows with norm > 0.01 at the end of the input phase. If slots used is much less than sequence length, the model is collapsing memory.
+
+**Addressing lag**: the debug entry at timestep t captures addressing weights from *before* the current step (the previous head state) but g/β/γ parameters *for* the current step (computed from the controller output). The addressing weights at timestep t thus show the result of timestep t-1's computation. The final addressing weights (after the last step) are in the returned model state, not in any debug snapshot.
+
+**Interpretation guide**:
+
+| Observation | Diagnosis | Next step |
+|---|---|---|
+| Train g low, test g high | Memorization — content fallback on novel data | Add curriculum learning or location bias |
+| Both g high | Never learned location addressing | Architectural change needed |
+| g low, monotonic=NO | Shift broken — wrong direction | Check shift distribution learning |
+| Slots used << seq length | Memory collapse | Investigate initialization / capacity |
