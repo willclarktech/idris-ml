@@ -124,22 +124,19 @@ def run_recall(args: argparse.Namespace) -> None:
             with torch.no_grad():
                 model.reset_state()
                 seq_len = target_seq.shape[0]
-                total_ts = input_seq.shape[0]
-                encode_len = total_ts - seq_len
 
-                for t in range(encode_len):
+                # Feed entire input
+                for t in range(input_seq.shape[0]):
                     model(input_seq[t])
 
+                # Output phase: feed zeros
+                zero_input = torch.zeros(input_seq.shape[1])
                 outputs = []
-                for t in range(encode_len, total_ts):
-                    out = model(input_seq[t])
+                for _ in range(seq_len):
+                    out = model(zero_input)
                     outputs.append(out)
 
-                while len(outputs) < seq_len:
-                    out = model(torch.zeros(input_seq.shape[1]))
-                    outputs.append(out)
-
-                pred = torch.stack(outputs[:seq_len])
+                pred = torch.stack(outputs)
                 pred_bits = (pred > 0.5).float()
                 correct_bits += (pred_bits == target_seq).sum().item()
                 total_bits += target_seq.numel()

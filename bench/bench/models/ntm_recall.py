@@ -83,26 +83,20 @@ def train_ntm_recall_step(
     model.reset_state()
 
     seq_len = target_seq.shape[0]
-    total_timesteps = input_seq.shape[0]
     num_inputs = input_seq.shape[1]
 
-    # Encoding phase: all timesteps except last seq_len
-    encode_len = total_timesteps - seq_len
-    for t in range(encode_len):
+    # Encoding phase: feed entire input sequence, discard outputs
+    for t in range(input_seq.shape[0]):
         model(input_seq[t])
 
-    # Output phase: last seq_len timesteps, collect outputs
+    # Output phase: feed zeros, collect seq_len outputs
+    zero_input = torch.zeros(num_inputs)
     outputs = []
-    for t in range(encode_len, total_timesteps):
-        out = model(input_seq[t])
+    for _ in range(seq_len):
+        out = model(zero_input)
         outputs.append(out)
 
-    # If not enough output timesteps (only query_delim left), feed zeros
-    while len(outputs) < seq_len:
-        out = model(torch.zeros(num_inputs))
-        outputs.append(out)
-
-    pred = torch.stack(outputs[:seq_len])  # (seq_len, seq_width)
+    pred = torch.stack(outputs)  # (seq_len, seq_width)
     loss = nn.functional.binary_cross_entropy(pred, target_seq)
 
     loss.backward()

@@ -22,7 +22,7 @@ class TestNtmRecallQuick:
         assert (output >= 0).all() and (output <= 1).all()
 
     def test_loss_decreases(self) -> None:
-        """Loss should decrease over 200 training steps."""
+        """Loss should decrease over 500 training steps."""
         torch.manual_seed(42)
         random.seed(42)
 
@@ -32,12 +32,12 @@ class TestNtmRecallQuick:
 
         losses: list[float] = []
         final_loss = 0.0
-        for i in range(200):
+        for i in range(500):
             input_seq, target_seq = generate_recall_sequence(
                 num_items=2, seq_len=cfg.seq_len, seq_width=cfg.seq_width
             )
             final_loss = train_ntm_recall_step(model, input_seq, target_seq, optimizer)
-            if i < 10:
+            if i < 20:
                 losses.append(final_loss)
 
         early_avg = sum(losses) / len(losses)
