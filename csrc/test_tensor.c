@@ -195,6 +195,117 @@ static void test_dot_backward(void) {
 
 
 /* -------------------------------------------------------------------
+   Softmax/LogSoftmax tests
+   ------------------------------------------------------------------- */
+
+static void test_softmax_forward(void) {
+  /* x = [1, 2, 3]
+   * softmax = [e^1, e^2, e^3] / (e^1 + e^2 + e^3)
+   * sum should be 1.0 */
+  arena_reset();
+  SoftmaxMeta *meta = softmax_meta_alloc(3);
+  meta->x_vals[0] = 1.0;
+  meta->x_vals[1] = 2.0;
+  meta->x_vals[2] = 3.0;
+
+  double out[3] = {0};
+  softmax_meta_compute(meta, out);
+
+  double total = exp(1.0) + exp(2.0) + exp(3.0);
+  check_close("softmax[0]", out[0], exp(1.0) / total, 1e-10);
+  check_close("softmax[1]", out[1], exp(2.0) / total, 1e-10);
+  check_close("softmax[2]", out[2], exp(3.0) / total, 1e-10);
+  check_close("softmax_sum", out[0] + out[1] + out[2], 1.0, 1e-10);
+}
+
+static void test_logsoftmax_forward(void) {
+  /* x = [1, 2, 3]
+   * logsoftmax[i] = x[i] - log(sum(exp(x)))
+   * exp(logsoftmax) should sum to 1.0 */
+  arena_reset();
+  SoftmaxMeta *meta = softmax_meta_alloc(3);
+  meta->x_vals[0] = 1.0;
+  meta->x_vals[1] = 2.0;
+  meta->x_vals[2] = 3.0;
+
+  double out[3] = {0};
+  logsoftmax_meta_compute(meta, out);
+
+  double logZ = log(exp(1.0) + exp(2.0) + exp(3.0));
+  check_close("logsoftmax[0]", out[0], 1.0 - logZ, 1e-10);
+  check_close("logsoftmax[1]", out[1], 2.0 - logZ, 1e-10);
+  check_close("logsoftmax[2]", out[2], 3.0 - logZ, 1e-10);
+  check_close("exp_logsoftmax_sum",
+              exp(out[0]) + exp(out[1]) + exp(out[2]), 1.0, 1e-10);
+}
+
+static void test_softmax_backward(void) {
+  /* x = [1, 2, 3], dy = [1, 0, 0]
+   * s = softmax(x)
+   * dot(dy, s) = s[0]
+   * dx[j] = s[j] * (dy[j] - s[0])
+   *   dx[0] = s[0] * (1 - s[0])
+   *   dx[1] = s[1] * (0 - s[0]) = -s[1]*s[0]
+   *   dx[2] = s[2] * (0 - s[0]) = -s[2]*s[0]
+   */
+  arena_reset();
+  SoftmaxMeta *meta = softmax_meta_alloc(3);
+  meta->x_vals[0] = 1.0;
+  meta->x_vals[1] = 2.0;
+  meta->x_vals[2] = 3.0;
+
+  double out[3] = {0};
+  softmax_meta_compute(meta, out);
+
+  int x_idx[] = {0, 1, 2};
+  memcpy(meta->x_tape_idx, x_idx, 3 * sizeof(int));
+  meta->out_tape_start = 3;
+  /* grad layout: [dx0, dx1, dx2, <op>, dy0, dy1, dy2] */
+  double grad[7] = {0};
+  grad[4] = 1.0; /* dy[0] */
+
+  tensor_softmax_backward(grad, meta);
+
+  double s0 = out[0], s1 = out[1], s2 = out[2];
+  check_close("softmax_bwd dx[0]", grad[0], s0 * (1.0 - s0), 1e-10);
+  check_close("softmax_bwd dx[1]", grad[1], -s1 * s0, 1e-10);
+  check_close("softmax_bwd dx[2]", grad[2], -s2 * s0, 1e-10);
+}
+
+static void test_logsoftmax_backward(void) {
+  /* x = [1, 2, 3], dy = [1, 0, 0]
+   * logS = logsoftmax(x), s = exp(logS)
+   * sum_dy = 1
+   * dx[j] = dy[j] - s[j] * sum_dy
+   *   dx[0] = 1 - s[0]
+   *   dx[1] = 0 - s[1]
+   *   dx[2] = 0 - s[2]
+   */
+  arena_reset();
+  SoftmaxMeta *meta = softmax_meta_alloc(3);
+  meta->x_vals[0] = 1.0;
+  meta->x_vals[1] = 2.0;
+  meta->x_vals[2] = 3.0;
+
+  double out[3] = {0};
+  logsoftmax_meta_compute(meta, out);
+
+  int x_idx[] = {0, 1, 2};
+  memcpy(meta->x_tape_idx, x_idx, 3 * sizeof(int));
+  meta->out_tape_start = 3;
+  double grad[7] = {0};
+  grad[4] = 1.0; /* dy[0] */
+
+  tensor_logsoftmax_backward(grad, meta);
+
+  double s0 = exp(out[0]), s1 = exp(out[1]), s2 = exp(out[2]);
+  check_close("logsoftmax_bwd dx[0]", grad[0], 1.0 - s0, 1e-10);
+  check_close("logsoftmax_bwd dx[1]", grad[1], -s1, 1e-10);
+  check_close("logsoftmax_bwd dx[2]", grad[2], -s2, 1e-10);
+}
+
+
+/* -------------------------------------------------------------------
    Arena tests
    ------------------------------------------------------------------- */
 
@@ -227,6 +338,10 @@ int main(void) {
   test_matvec_backward();
   test_matvec_backward_scaled();
   test_dot_backward();
+  test_softmax_forward();
+  test_logsoftmax_forward();
+  test_softmax_backward();
+  test_logsoftmax_backward();
 
   printf("\n%d passed, %d failed\n", tests_passed, tests_failed);
   return tests_failed > 0 ? 1 : 0;

@@ -133,6 +133,14 @@ typedef struct {
   int out_tape_idx;   /* tape index of output scalar */
 } DotMeta;
 
+typedef struct {
+  int n;
+  double *x_vals;        /* n input values (arena) */
+  double *out_vals;      /* n output values, saved for backward (arena) */
+  int *x_tape_idx;       /* n input tape indices (arena) */
+  int out_tape_start;    /* tape index of the SoftmaxOp/LogSoftmaxOp entry */
+} SoftmaxMeta;
+
 
 /* -------------------------------------------------------------------
    Metadata allocation (arena-backed)
@@ -177,6 +185,16 @@ DotMeta *dot_meta_alloc(int n) {
   meta->a_tape_idx = (int *)arena_alloc(n * sizeof(int));
   meta->b_tape_idx = (int *)arena_alloc(n * sizeof(int));
   meta->out_tape_idx = 0;
+  return meta;
+}
+
+SoftmaxMeta *softmax_meta_alloc(int n) {
+  SoftmaxMeta *meta = (SoftmaxMeta *)arena_alloc(sizeof(SoftmaxMeta));
+  meta->n = n;
+  meta->x_vals = (double *)arena_alloc(n * sizeof(double));
+  meta->out_vals = (double *)arena_alloc(n * sizeof(double));
+  meta->x_tape_idx = (int *)arena_alloc(n * sizeof(int));
+  meta->out_tape_start = 0;
   return meta;
 }
 
@@ -275,6 +293,54 @@ double dot_meta_compute(void *meta_ptr) {
   return tensor_dot(m->a_vals, m->b_vals, m->n);
 }
 
+/* --- Softmax meta accessors --- */
+double *softmax_meta_x_vals(void *p) { return ((SoftmaxMeta *)p)->x_vals; }
+int *softmax_meta_x_tape(void *p)    { return ((SoftmaxMeta *)p)->x_tape_idx; }
+
+void *softmax_meta_set_out(void *meta_ptr, int start) {
+  ((SoftmaxMeta *)meta_ptr)->out_tape_start = start;
+  return meta_ptr;
+}
+
+/* Softmax forward: out[i] = exp(x[i] - max) / sum(exp(x - max))
+ * Saves output to meta->out_vals for backward. Writes to out buffer. */
+void *softmax_meta_compute(void *meta_ptr, double *out) {
+  SoftmaxMeta *m = (SoftmaxMeta *)meta_ptr;
+  int n = m->n;
+  double mx = m->x_vals[0];
+  for (int i = 1; i < n; i++)
+    if (m->x_vals[i] > mx) mx = m->x_vals[i];
+  double sum = 0.0;
+  for (int i = 0; i < n; i++) {
+    m->out_vals[i] = exp(m->x_vals[i] - mx);
+    sum += m->out_vals[i];
+  }
+  for (int i = 0; i < n; i++) {
+    m->out_vals[i] /= sum;
+    out[i] = m->out_vals[i];
+  }
+  return out;
+}
+
+/* LogSoftmax forward: out[i] = x[i] - max - log(sum(exp(x - max)))
+ * Saves output to meta->out_vals for backward. Writes to out buffer. */
+void *logsoftmax_meta_compute(void *meta_ptr, double *out) {
+  SoftmaxMeta *m = (SoftmaxMeta *)meta_ptr;
+  int n = m->n;
+  double mx = m->x_vals[0];
+  for (int i = 1; i < n; i++)
+    if (m->x_vals[i] > mx) mx = m->x_vals[i];
+  double sum = 0.0;
+  for (int i = 0; i < n; i++)
+    sum += exp(m->x_vals[i] - mx);
+  double logSumExp = mx + log(sum);
+  for (int i = 0; i < n; i++) {
+    m->out_vals[i] = m->x_vals[i] - logSumExp;
+    out[i] = m->out_vals[i];
+  }
+  return out;
+}
+
 
 /* -------------------------------------------------------------------
    Backward operations
@@ -343,5 +409,43 @@ void tensor_dot_backward(double *grad_array, DotMeta *meta) {
   for (int i = 0; i < n; i++) {
     grad_array[meta->a_tape_idx[i]] += dy * meta->b_vals[i];
     grad_array[meta->b_tape_idx[i]] += dy * meta->a_vals[i];
+  }
+}
+
+/*
+ * Softmax backward: given dy[i] for i in [0, n),
+ *   dx[j] = s[j] * (dy[j] - dot(dy, s))
+ * where s = softmax output (stored in meta->out_vals).
+ */
+void tensor_softmax_backward(double *grad_array, SoftmaxMeta *meta) {
+  int n = meta->n;
+  int out_start = meta->out_tape_start + 1; /* skip the op entry */
+
+  double dot = 0.0;
+  for (int i = 0; i < n; i++)
+    dot += grad_array[out_start + i] * meta->out_vals[i];
+
+  for (int i = 0; i < n; i++) {
+    double dy = grad_array[out_start + i];
+    grad_array[meta->x_tape_idx[i]] += meta->out_vals[i] * (dy - dot);
+  }
+}
+
+/*
+ * LogSoftmax backward: given dy[i] for i in [0, n),
+ *   dx[j] = dy[j] - exp(logS[j]) * sum(dy)
+ * where logS = logsoftmax output (stored in meta->out_vals).
+ */
+void tensor_logsoftmax_backward(double *grad_array, SoftmaxMeta *meta) {
+  int n = meta->n;
+  int out_start = meta->out_tape_start + 1; /* skip the op entry */
+
+  double sum_dy = 0.0;
+  for (int i = 0; i < n; i++)
+    sum_dy += grad_array[out_start + i];
+
+  for (int i = 0; i < n; i++) {
+    double dy = grad_array[out_start + i];
+    grad_array[meta->x_tape_idx[i]] += dy - exp(meta->out_vals[i]) * sum_dy;
   }
 }
