@@ -11,13 +11,14 @@ set -euo pipefail
 PARALLEL=4
 SKIP_BUILD=false
 EPOCHS=6000
-PATIENCE=10
+PATIENCE=500
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --parallel) PARALLEL="$2"; shift 2 ;;
     --skip-build) SKIP_BUILD=true; shift ;;
     --quick) EPOCHS=2000; shift ;;
+    --patience) PATIENCE="$2"; shift 2 ;;
     *) echo "Unknown arg: $1"; exit 1 ;;
   esac
 done
@@ -39,10 +40,10 @@ fi
 mkdir -p results
 
 # Grid values
-LR_VALUES="0.003 0.001 0.0003 0.0001"
-MAX_NORM_VALUES="1.0 3.0 10.0"
-SEED_VALUES="1 2 3"
-BETA1_VALUES="0.9 0.95"
+LR_VALUES="0.003 0.001 0.0003"
+MAX_NORM_VALUES="3.0 5.0 10.0"
+SEED_VALUES="1 2 3 42"
+BETA1_VALUES="0.9"
 
 RESULTS_FILE="results/sweep.csv"
 echo "lr,maxNorm,beta1,beta2,epochs,patience,epochsDone,seed,H,trainAcc,testAcc" > "$RESULTS_FILE"
