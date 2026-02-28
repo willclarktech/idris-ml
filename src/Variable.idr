@@ -21,6 +21,7 @@ data TapeOp = ConstOp
             | AddOp | SubOp | MulOp | DivOp | PowOp
             | MatVecOp | DotOp
             | SoftmaxOp | LogSoftmaxOp
+            | BatchCosSimOp | ReadOpOp | WriteOpOp
 
 toTag : TapeOp -> Int
 toTag ConstOp      = 0
@@ -38,6 +39,9 @@ toTag MatVecOp     = 11
 toTag DotOp        = 12
 toTag SoftmaxOp    = 13
 toTag LogSoftmaxOp = 14
+toTag BatchCosSimOp = 15
+toTag ReadOpOp      = 16
+toTag WriteOpOp     = 17
 
 fromTag : Int -> TapeOp
 fromTag 1  = NegOp
@@ -54,6 +58,9 @@ fromTag 11 = MatVecOp
 fromTag 12 = DotOp
 fromTag 13 = SoftmaxOp
 fromTag 14 = LogSoftmaxOp
+fromTag 15 = BatchCosSimOp
+fromTag 16 = ReadOpOp
+fromTag 17 = WriteOpOp
 fromTag _  = ConstOp
 
 
@@ -265,6 +272,74 @@ prim__softmaxBackward : AnyPtr -> AnyPtr -> AnyPtr
 %foreign "scheme:(lambda (g meta) (begin ((foreign-procedure \"tensor_logsoftmax_backward\" (void* void*) void) g meta) g))"
 prim__logsoftmaxBackward : AnyPtr -> AnyPtr -> AnyPtr
 
+-- BatchCosSim meta: alloc, get internal pointers, set beta, compute, backward
+%foreign "scheme:(lambda (n w) ((foreign-procedure \"batch_cossim_meta_alloc\" (int int) void*) n w))"
+prim__batchCosSimMetaAlloc : Int -> Int -> AnyPtr
+
+%foreign "scheme:(lambda (meta) ((foreign-procedure \"batch_cossim_meta_mem_vals\" (void*) void*) meta))"
+prim__batchCosSimMemVals : AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (meta) ((foreign-procedure \"batch_cossim_meta_mem_tape\" (void*) void*) meta))"
+prim__batchCosSimMemTape : AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (meta) ((foreign-procedure \"batch_cossim_meta_key_vals\" (void*) void*) meta))"
+prim__batchCosSimKeyVals : AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (meta) ((foreign-procedure \"batch_cossim_meta_key_tape\" (void*) void*) meta))"
+prim__batchCosSimKeyTape : AnyPtr -> AnyPtr
+
+%foreign "scheme:(lambda (meta val tidx) ((foreign-procedure \"batch_cossim_meta_set_beta\" (void* double int) void*) meta val tidx))"
+prim__batchCosSimSetBeta : AnyPtr -> Double -> Int -> AnyPtr
+
+%foreign "scheme:(lambda (meta out) ((foreign-procedure \"batch_cossim_compute\" (void* void*) void*) meta out))"
+prim__batchCosSimCompute : AnyPtr -> AnyPtr -> AnyPtr
+
+%foreign "scheme:(lambda (g meta) (begin ((foreign-procedure \"tensor_batch_cossim_backward\" (void* void*) void) g meta) g))"
+prim__batchCosSimBackward : AnyPtr -> AnyPtr -> AnyPtr
+
+-- ReadOp meta: alloc, get internal pointers, compute, backward
+%foreign "scheme:(lambda (n w) ((foreign-procedure \"readop_meta_alloc\" (int int) void*) n w))"
+prim__readOpMetaAlloc : Int -> Int -> AnyPtr
+
+%foreign "scheme:(lambda (meta) ((foreign-procedure \"readop_meta_mem_vals\" (void*) void*) meta))"
+prim__readOpMemVals : AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (meta) ((foreign-procedure \"readop_meta_mem_tape\" (void*) void*) meta))"
+prim__readOpMemTape : AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (meta) ((foreign-procedure \"readop_meta_weight_vals\" (void*) void*) meta))"
+prim__readOpWeightVals : AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (meta) ((foreign-procedure \"readop_meta_weight_tape\" (void*) void*) meta))"
+prim__readOpWeightTape : AnyPtr -> AnyPtr
+
+%foreign "scheme:(lambda (meta out) ((foreign-procedure \"readop_compute\" (void* void*) void*) meta out))"
+prim__readOpCompute : AnyPtr -> AnyPtr -> AnyPtr
+
+%foreign "scheme:(lambda (g meta) (begin ((foreign-procedure \"tensor_readop_backward\" (void* void*) void) g meta) g))"
+prim__readOpBackward : AnyPtr -> AnyPtr -> AnyPtr
+
+-- WriteOp meta: alloc, get internal pointers, compute, backward
+%foreign "scheme:(lambda (n w) ((foreign-procedure \"writeop_meta_alloc\" (int int) void*) n w))"
+prim__writeOpMetaAlloc : Int -> Int -> AnyPtr
+
+%foreign "scheme:(lambda (meta) ((foreign-procedure \"writeop_meta_mem_vals\" (void*) void*) meta))"
+prim__writeOpMemVals : AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (meta) ((foreign-procedure \"writeop_meta_mem_tape\" (void*) void*) meta))"
+prim__writeOpMemTape : AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (meta) ((foreign-procedure \"writeop_meta_weight_vals\" (void*) void*) meta))"
+prim__writeOpWeightVals : AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (meta) ((foreign-procedure \"writeop_meta_weight_tape\" (void*) void*) meta))"
+prim__writeOpWeightTape : AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (meta) ((foreign-procedure \"writeop_meta_erase_vals\" (void*) void*) meta))"
+prim__writeOpEraseVals : AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (meta) ((foreign-procedure \"writeop_meta_erase_tape\" (void*) void*) meta))"
+prim__writeOpEraseTape : AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (meta) ((foreign-procedure \"writeop_meta_add_vals\" (void*) void*) meta))"
+prim__writeOpAddVals : AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (meta) ((foreign-procedure \"writeop_meta_add_tape\" (void*) void*) meta))"
+prim__writeOpAddTape : AnyPtr -> AnyPtr
+
+%foreign "scheme:(lambda (meta out) ((foreign-procedure \"writeop_compute\" (void* void*) void*) meta out))"
+prim__writeOpCompute : AnyPtr -> AnyPtr -> AnyPtr
+
+%foreign "scheme:(lambda (g meta) (begin ((foreign-procedure \"tensor_writeop_backward\" (void* void*) void) g meta) g))"
+prim__writeOpBackward : AnyPtr -> AnyPtr -> AnyPtr
+
 
 ----------------------------------------------------------------------
 -- Idris Tape Wrappers
@@ -320,6 +395,30 @@ prim__tapeAppendSoftmaxOp : Int -> Int -> AnyPtr -> AnyPtr -> AnyPtr
 %noinline
 tapeAppendSoftmaxOp : Int -> Int -> AnyPtr -> AnyPtr -> AnyPtr
 tapeAppendSoftmaxOp tag count meta outBuf = prim__tapeAppendSoftmaxOp tag count meta outBuf
+
+-- Append BatchCosSimOp entry + set meta->out_tape_start. Returns outBuf for threading.
+%foreign "scheme:(lambda (count meta-ptr out-buf) (let ((idx (top-level-value 'tape-size))) ((top-level-value 'tape-ensure-cap!) idx) (vector-set! (top-level-value 'tape-tags) idx 15) (vector-set! (top-level-value 'tape-arg2) idx count) (vector-set! (top-level-value 'tape-meta) idx meta-ptr) (vector-set! (top-level-value 'tape-pids) idx \"\") ((foreign-procedure \"batch_cossim_meta_set_out\" (void* int) void*) meta-ptr idx) (set-top-level-value! 'tape-size (+ idx 1)) out-buf))"
+prim__tapeAppendBatchCosSimOp : Int -> AnyPtr -> AnyPtr -> AnyPtr
+
+%noinline
+tapeAppendBatchCosSimOp : Int -> AnyPtr -> AnyPtr -> AnyPtr
+tapeAppendBatchCosSimOp count meta outBuf = prim__tapeAppendBatchCosSimOp count meta outBuf
+
+-- Append ReadOpOp entry + set meta->out_tape_start. Returns outBuf for threading.
+%foreign "scheme:(lambda (count meta-ptr out-buf) (let ((idx (top-level-value 'tape-size))) ((top-level-value 'tape-ensure-cap!) idx) (vector-set! (top-level-value 'tape-tags) idx 16) (vector-set! (top-level-value 'tape-arg2) idx count) (vector-set! (top-level-value 'tape-meta) idx meta-ptr) (vector-set! (top-level-value 'tape-pids) idx \"\") ((foreign-procedure \"readop_meta_set_out\" (void* int) void*) meta-ptr idx) (set-top-level-value! 'tape-size (+ idx 1)) out-buf))"
+prim__tapeAppendReadOpOp : Int -> AnyPtr -> AnyPtr -> AnyPtr
+
+%noinline
+tapeAppendReadOpOp : Int -> AnyPtr -> AnyPtr -> AnyPtr
+tapeAppendReadOpOp count meta outBuf = prim__tapeAppendReadOpOp count meta outBuf
+
+-- Append WriteOpOp entry + set meta->out_tape_start. Returns outBuf for threading.
+%foreign "scheme:(lambda (count meta-ptr out-buf) (let ((idx (top-level-value 'tape-size))) ((top-level-value 'tape-ensure-cap!) idx) (vector-set! (top-level-value 'tape-tags) idx 17) (vector-set! (top-level-value 'tape-arg2) idx count) (vector-set! (top-level-value 'tape-meta) idx meta-ptr) (vector-set! (top-level-value 'tape-pids) idx \"\") ((foreign-procedure \"writeop_meta_set_out\" (void* int) void*) meta-ptr idx) (set-top-level-value! 'tape-size (+ idx 1)) out-buf))"
+prim__tapeAppendWriteOpOp : Int -> AnyPtr -> AnyPtr -> AnyPtr
+
+%noinline
+tapeAppendWriteOpOp : Int -> AnyPtr -> AnyPtr -> AnyPtr
+tapeAppendWriteOpOp count meta outBuf = prim__tapeAppendWriteOpOp count meta outBuf
 
 
 ----------------------------------------------------------------------
@@ -692,6 +791,83 @@ logSoftmaxVar {n} (VTensor xs) =
 
 
 ----------------------------------------------------------------------
+-- NTM Memory Operations (C-backed)
+----------------------------------------------------------------------
+
+-- Build matrix output: N rows of W output Variables from a flat C buffer.
+buildOutputMatrix : AnyPtr -> Int -> (rows : Nat) -> (cols : Nat) -> Vect rows (Vector cols Variable)
+buildOutputMatrix outBuf off Z cols = []
+buildOutputMatrix outBuf off (S k) cols =
+  let row = VTensor (buildOutputScalars outBuf off cols)
+  in row :: buildOutputMatrix outBuf (off + cast {to=Int} cols) k cols
+
+||| Batch cosine similarity: out[i] = beta * cos_sim(key, mem[i])
+||| Records a single BatchCosSimOp tape entry instead of ~4NW scalar entries.
+export
+batchCosineSimilarityVar : {n, w : Nat} -> Variable -> Matrix n w Variable -> Vector w Variable -> Vector n Variable
+batchCosineSimilarityVar {n} {w} beta (VTensor memRows) (VTensor keyElems) =
+  let nI = cast {to=Int} n
+      wI = cast {to=Int} w
+      meta = prim__batchCosSimMetaAlloc nI wI
+      outBuf = prim__tensorAlloc nI
+      mvPtr = prim__batchCosSimMemVals meta
+      mtPtr = prim__batchCosSimMemTape meta
+      kvPtr = prim__batchCosSimKeyVals meta
+      ktPtr = prim__batchCosSimKeyTape meta
+      mvPtr' = packMatrix mvPtr mtPtr 0 memRows
+      kvPtr' = packVec (prim__seq mvPtr' kvPtr) ktPtr 0 keyElems
+      betaIdx = ensureOnTape beta
+      meta' = prim__batchCosSimSetBeta (prim__seq kvPtr' meta) beta.value (cast betaIdx)
+      outBuf' = prim__batchCosSimCompute meta' outBuf
+      outBuf'' = tapeAppendBatchCosSimOp nI meta' outBuf'
+  in VTensor $ buildOutputScalars outBuf'' 0 n
+
+||| C-backed read operation: out[j] = sum_i weight[i] * mem[i*w+j]
+||| Records a single ReadOpOp tape entry instead of ~2NW scalar entries.
+export
+readOpVar : {n, w : Nat} -> Vector n Variable -> Matrix n w Variable -> Vector w Variable
+readOpVar {n} {w} (VTensor weightElems) (VTensor memRows) =
+  let nI = cast {to=Int} n
+      wI = cast {to=Int} w
+      meta = prim__readOpMetaAlloc nI wI
+      outBuf = prim__tensorAlloc wI
+      mvPtr = prim__readOpMemVals meta
+      mtPtr = prim__readOpMemTape meta
+      wvPtr = prim__readOpWeightVals meta
+      wtPtr = prim__readOpWeightTape meta
+      mvPtr' = packMatrix mvPtr mtPtr 0 memRows
+      wvPtr' = packVec (prim__seq mvPtr' wvPtr) wtPtr 0 weightElems
+      outBuf' = prim__readOpCompute meta (prim__seq wvPtr' outBuf)
+      outBuf'' = tapeAppendReadOpOp wI meta outBuf'
+  in VTensor $ buildOutputScalars outBuf'' 0 w
+
+||| C-backed write operation: out[i][j] = mem[i][j]*(1-w[i]*e[j]) + w[i]*a[j]
+||| Records a single WriteOpOp tape entry instead of ~4NW scalar entries.
+export
+writeOpVar : {n, w : Nat} -> Vector n Variable -> Matrix n w Variable -> Vector w Variable -> Vector w Variable -> Matrix n w Variable
+writeOpVar {n} {w} (VTensor weightElems) (VTensor memRows) (VTensor eraseElems) (VTensor addElems) =
+  let nI = cast {to=Int} n
+      wI = cast {to=Int} w
+      meta = prim__writeOpMetaAlloc nI wI
+      outBuf = prim__tensorAlloc (nI * wI)
+      mvPtr = prim__writeOpMemVals meta
+      mtPtr = prim__writeOpMemTape meta
+      wvPtr = prim__writeOpWeightVals meta
+      wtPtr = prim__writeOpWeightTape meta
+      evPtr = prim__writeOpEraseVals meta
+      etPtr = prim__writeOpEraseTape meta
+      avPtr = prim__writeOpAddVals meta
+      atPtr = prim__writeOpAddTape meta
+      mvPtr' = packMatrix mvPtr mtPtr 0 memRows
+      wvPtr' = packVec (prim__seq mvPtr' wvPtr) wtPtr 0 weightElems
+      evPtr' = packVec (prim__seq wvPtr' evPtr) etPtr 0 eraseElems
+      avPtr' = packVec (prim__seq evPtr' avPtr) atPtr 0 addElems
+      outBuf' = prim__writeOpCompute meta (prim__seq avPtr' outBuf)
+      outBuf'' = tapeAppendWriteOpOp (nI * wI) meta outBuf'
+  in VTensor $ buildOutputMatrix outBuf'' 0 n w
+
+
+----------------------------------------------------------------------
 -- Backpropagation (tape-based)
 ----------------------------------------------------------------------
 
@@ -716,10 +892,13 @@ propagateEntry g idx =
        PowOp   => let vx = prim__tapeGetValue a1
                       vy = prim__tapeGetValue a2
                   in prim__gradAdd (prim__gradAdd g a1 (grad * vy * pow vx (vy - 1))) a2 (if vx == 0 then 0 else grad * prim__tapeGetValue idx * log vx)
-       MatVecOp     => prim__matvecBackward g (prim__tapeGetMeta idx)
-       DotOp        => prim__dotBackward g (prim__tapeGetMeta idx)
-       SoftmaxOp    => prim__softmaxBackward g (prim__tapeGetMeta idx)
-       LogSoftmaxOp => prim__logsoftmaxBackward g (prim__tapeGetMeta idx)
+       MatVecOp      => prim__matvecBackward g (prim__tapeGetMeta idx)
+       DotOp         => prim__dotBackward g (prim__tapeGetMeta idx)
+       SoftmaxOp     => prim__softmaxBackward g (prim__tapeGetMeta idx)
+       LogSoftmaxOp  => prim__logsoftmaxBackward g (prim__tapeGetMeta idx)
+       BatchCosSimOp => prim__batchCosSimBackward g (prim__tapeGetMeta idx)
+       ReadOpOp      => prim__readOpBackward g (prim__tapeGetMeta idx)
+       WriteOpOp     => prim__writeOpBackward g (prim__tapeGetMeta idx)
 
 -- Walk backward through tape with tag-based fast path:
 -- ConstOp (tag 0): only check pid for gradient collection, skip propagation
