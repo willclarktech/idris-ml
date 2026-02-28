@@ -107,6 +107,15 @@ class NTMLayer(nn.Module):
         self._current_write_addr = new_write_addr
         self._current_read_output = read_output
 
+        # Stash diagnostics (detached, no gradient impact)
+        self._diag = {
+            "read_addr": new_read_addr.detach().clone(),
+            "write_addr": new_write_addr.detach().clone(),
+            "memory": new_memory.detach().clone(),
+            "read_output": read_output.detach().clone(),
+            "controller_output": raw_output.detach().clone(),
+        }
+
         return new_data
 
     def project_addressing(self, eps: float = 1e-6) -> None:
