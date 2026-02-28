@@ -32,14 +32,32 @@ def ntm_output_width(n: int, w: int) -> int:
     return _read_head_input_width(w) + _write_head_input_width(w) + w
 
 
-class NTMLayer(nn.Module):
-    """Neural Turing Machine layer matching idris-ml's NtmLayer."""
+def ntm_head_params_width(w: int) -> int:
+    """ReadHeadInputWidth + WriteHeadInputWidth (no output slice)."""
+    return _read_head_input_width(w) + _write_head_input_width(w)
 
-    def __init__(self, controller: nn.Module, n: int, w: int) -> None:
+
+class NTMLayer(nn.Module):
+    """Neural Turing Machine layer matching idris-ml's NtmLayer.
+
+    output_mode controls how the layer produces output:
+      "controller" (default): output is a slice of the controller output (matches idris-ml)
+      "read": output = Linear(cat(controller_hidden, read_output)) (matches reference impls)
+    """
+
+    def __init__(
+        self,
+        controller: nn.Module,
+        n: int,
+        w: int,
+        output_mode: str = "controller",
+        controller_hidden_size: int = 0,
+    ) -> None:
         super().__init__()
         self.controller = controller
         self.n = n
         self.w = w
+        self.output_mode = output_mode
 
         # Memory initialized to constant 1e-6 (Collier & Beel)
         self.register_buffer("_init_memory", torch.full((n, w), 1e-6))
@@ -57,6 +75,12 @@ class NTMLayer(nn.Module):
         # Dimension calculations
         self.read_head_width = _read_head_input_width(w)
         self.write_head_width = _write_head_input_width(w)
+
+        # Output FC for "read" mode: maps controller hidden + read output → w
+        if output_mode == "read":
+            self.output_fc = nn.Linear(controller_hidden_size + w, w)
+            nn.init.xavier_uniform_(self.output_fc.weight)
+            nn.init.zeros_(self.output_fc.bias)
 
     def reset_state(self) -> None:
         """Reset memory and head state between sequences."""
@@ -82,11 +106,15 @@ class NTMLayer(nn.Module):
         # NOTE: Clamp controller output to [-20, 20] matching applyLayerVar
         raw_output = raw_output.clamp(-20, 20)
 
-        # Split controller output into head inputs + new data
-        read_input = raw_output[: self.read_head_width]
-        write_end = self.read_head_width + self.write_head_width
-        write_input = raw_output[self.read_head_width : write_end]
-        new_data = raw_output[self.read_head_width + self.write_head_width :]
+        if self.output_mode == "read":
+            # "read" mode: entire controller output is head params (no output slice)
+            read_input = raw_output[: self.read_head_width]
+            write_input = raw_output[self.read_head_width :]
+        else:
+            # "controller" mode: split into head inputs + new data slice
+            read_input = raw_output[: self.read_head_width]
+            write_end = self.read_head_width + self.write_head_width
+            write_input = raw_output[self.read_head_width : write_end]
 
         # Read head
         new_read_addr, read_output, _ = forward_read_head(
@@ -116,7 +144,14 @@ class NTMLayer(nn.Module):
             "controller_output": raw_output.detach().clone(),
         }
 
-        return new_data
+        if self.output_mode == "read":
+            # Output from read vector + controller hidden state
+            # pyright doesn't see last_hidden through nn.Module-typed controller
+            controller_hidden: Tensor = self.controller.last_hidden  # type: ignore[union-attr]
+            return self.output_fc(torch.cat([controller_hidden, read_output]))
+        else:
+            new_data = raw_output[self.read_head_width + self.write_head_width :]
+            return new_data
 
     def project_addressing(self, eps: float = 1e-6) -> None:
         """Project addressing weights onto probability simplex.

@@ -239,11 +239,13 @@ def run_recall(args: argparse.Namespace) -> None:
     batch_size = getattr(args, "recall_batch_size", 1)
     use_curriculum = getattr(args, "recall_curriculum", False)
     recall_k = getattr(args, "recall_k", 2)
+    output_mode = getattr(args, "recall_output", "read")
 
     print("=" * 60)
     print("NTM Associative Recall Convergence")
     print(f"  controller={controller}  N={n}  optimizer={optimizer_type}")
     print(f"  clip={clip_mode}  batch_size={batch_size}  curriculum={use_curriculum}")
+    print(f"  output_mode={output_mode}")
     print("=" * 60)
 
     cfg = NtmRecallConfig(
@@ -255,6 +257,7 @@ def run_recall(args: argparse.Namespace) -> None:
         clip_mode=clip_mode,
         clip_value=clip_value,
         batch_size=batch_size,
+        output_mode=output_mode,
     )
     model = NtmRecallModel(cfg)
     w = cfg.w
@@ -513,6 +516,12 @@ def main() -> None:
     )
     parser.add_argument(
         "--recall-k", type=int, default=2, help="K for direct training (default: 2)"
+    )
+    parser.add_argument(
+        "--recall-output",
+        choices=["controller", "read"],
+        default="read",
+        help="NTM output mode (default: read)",
     )
     args = parser.parse_args()
 

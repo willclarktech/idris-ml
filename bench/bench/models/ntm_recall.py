@@ -15,7 +15,7 @@ from torch import Tensor
 from torch.nn.utils import clip_grad_norm_, clip_grad_value_
 
 from bench.models.rnn import LinearRNNCell
-from bench.ntm.ntm_layer import NTMLayer, ntm_input_width, ntm_output_width
+from bench.ntm.ntm_layer import NTMLayer, ntm_head_params_width, ntm_input_width, ntm_output_width
 from bench.training.losses import weighted_nll_loss
 
 
@@ -34,6 +34,7 @@ class NtmRecallConfig:
     clip_mode: str = "value"  # "norm" (global L2) or "value" (per-param clamp)
     clip_value: float = 10.0  # used when clip_mode="value"
     optimizer: str = "rmsprop"  # "adam" or "rmsprop"
+    output_mode: str = "read"  # "controller" (idris-ml) or "read" (reference impls)
     div_final: float = 10.0
     epochs: int = 100000
     patience: int = 2000
@@ -55,9 +56,15 @@ class RNNController(nn.Module):
     def reset_state(self) -> None:
         self.rnn.reset_state()
 
+    @property
+    def last_hidden(self) -> Tensor:
+        """Return the most recent hidden state (after tanh)."""
+        return self._last_h
+
     def forward(self, x: Tensor) -> Tensor:
         h = self.rnn(x)
         h = torch.tanh(h)
+        self._last_h = h
         return self.output(h)
 
 
@@ -85,6 +92,11 @@ class LSTMController(nn.Module):
         self._h = self.h0.clone()
         self._c = self.c0.clone()
 
+    @property
+    def last_hidden(self) -> Tensor:
+        """Return the most recent LSTM hidden state."""
+        return self._h
+
     def forward(self, x: Tensor) -> Tensor:
         # LSTMCell expects (batch, features) — unsqueeze/squeeze for unbatched
         h, c = self.lstm(x.unsqueeze(0), (self._h.unsqueeze(0), self._c.unsqueeze(0)))
@@ -103,13 +115,23 @@ class NtmRecallModel(nn.Module):
         self.cfg = cfg
 
         input_w = ntm_input_width(cfg.w)
-        output_w = ntm_output_width(cfg.n, cfg.w)
+        # In "read" mode, controller only outputs head params (no output slice)
+        if cfg.output_mode == "read":
+            output_w = ntm_head_params_width(cfg.w)
+        else:
+            output_w = ntm_output_width(cfg.n, cfg.w)
 
         if cfg.controller == "lstm":
             controller: nn.Module = LSTMController(input_w, cfg.h, output_w)
         else:
             controller = RNNController(input_w, cfg.h, output_w)
-        self.ntm = NTMLayer(controller, cfg.n, cfg.w)
+        self.ntm = NTMLayer(
+            controller,
+            cfg.n,
+            cfg.w,
+            output_mode=cfg.output_mode,
+            controller_hidden_size=cfg.h,
+        )
 
     def reset_state(self) -> None:
         self.ntm.reset_state()
