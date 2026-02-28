@@ -232,3 +232,22 @@ The NTM copy task achieves high training accuracy but generalizes poorly to held
 | Both g high | Never learned location addressing | Architectural change needed |
 | g low, monotonic=NO | Shift broken — wrong direction | Check shift distribution learning |
 | Slots used << seq length | Memory collapse | Investigate initialization / capacity |
+
+## 3-element shift kernel
+
+The original NTM implementation used an n-element shift vector (one per memory slot), requiring the model to learn "shift by exactly 1" as one of n equally likely options with diluted gradient signal. The original paper (Graves et al. 2014) specifies a small shift kernel (typically 3 for {-1, 0, +1}).
+
+`ShiftKernelSize = 3` decouples the shift mechanism from the number of memory slots. The shift is implemented as a 3-element circular convolution: `w'[i] = sl * aw[i+1] + ss * aw[i] + sr * aw[i-1]`, where `(sl, ss, sr) = softmax(kernel)`. This means:
+- `sr` high → addressing shifts right (slot 0→1→2), correct for sequential write
+- `sl` high → addressing shifts left
+- `ss` high → stay on current slot
+
+This reduces the learning problem from "pick 1 of n directions" to "pick 1 of 3 directions" — a much simpler optimization with 3x stronger gradient signal per shift option.
+
+Impact on dimensions:
+- `ReadHeadInputWidth n w` changes from `(w + n) + 3` to `(w + ShiftKernelSize) + 3` — now independent of `n`
+- Controller output size decreases (e.g., n=10, w=3: from 41 to 27), reducing total parameters
+
+## Hot-start addressing on slot 0
+
+Read and write head addressing weights are initialized to focus on slot 0 (`[1, 0, 0, ...]`) instead of the previous uniform distribution (`[1/n, 1/n, ...]`). With a clear starting position, the model only needs to learn "shift right by 1 each step" for sequential access — a clean gradient signal compared to discovering both the starting position and the shift direction simultaneously.
