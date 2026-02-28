@@ -58,7 +58,26 @@ sweep: $(CLIB)
 sweep-quick: $(CLIB)
 	bash scripts/sweep.sh --parallel 4 --quick
 
+# PyTorch benchmarks (uv manages Python)
+bench-setup:
+	cd bench && uv sync --dev
+
+bench-py:
+	cd bench && uv run python -m bench.benchmark
+
+bench-compare: bench bench-py
+	cd bench && uv run python -m bench.compare
+
+bench-test:
+	cd bench && uv run pytest bench/correctness/ -v
+
+bench-lint:
+	cd bench && uv run ruff check bench/ && uv run ruff format --check bench/
+
+bench-typecheck:
+	cd bench && uv run pyright bench/
+
 clean:
 	rm -f $(CLIB) $(BUILD)/test_tensor
 
-.PHONY: test test-c check supervised rnn ntm-copy ntm-associative-recall bench sweep sweep-quick clean
+.PHONY: test test-c check supervised rnn ntm-copy ntm-associative-recall bench sweep sweep-quick clean bench-setup bench-py bench-compare bench-test bench-lint bench-typecheck

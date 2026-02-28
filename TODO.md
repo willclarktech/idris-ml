@@ -1,11 +1,5 @@
 # Backlog
 
-## High Priority
-
-| Item | Difficulty | Notes |
-|------|-----------|-------|
-| PyTorch benchmarks | M | Compare training speed/accuracy against PyTorch baseline |
-
 ## Medium Priority
 
 | Item | Difficulty | Notes |
@@ -57,3 +51,4 @@
 - C-backed NTM memory ops (batchCosineSimilarityVar, readOpVar, writeOpVar — ~1.8x NTM speedup)
 - Gaussian/normal distribution sampling (Sampler.idr, composable with init strategies)
 - Automatic parameter naming (`autoName` in Layer.idr, type-based prefixes with collision-free scoping)
+- PyTorch benchmarks (`bench/` directory — correctness tests, timing benchmarks, side-by-side comparison)

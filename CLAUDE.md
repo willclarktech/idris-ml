@@ -33,6 +33,14 @@ make test-c
 
 # Run benchmark (Supervised + RNN + NTM)
 make bench
+
+# PyTorch benchmarks (requires uv)
+make bench-setup        # One-time: install Python deps
+make bench-test         # Run PyTorch correctness tests
+make bench-py           # Run PyTorch timing benchmark
+make bench-compare      # Side-by-side Idris vs PyTorch comparison
+make bench-lint         # Lint Python code (ruff)
+make bench-typecheck    # Type-check Python code (pyright)
 ```
 
 Concrete examples:
