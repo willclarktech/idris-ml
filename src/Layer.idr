@@ -176,7 +176,7 @@ forwardReadHeadVar memory rh inp =
     gamma = 1 + 4 * sig (sum gammaVec)
     scores = batchCosineSimilarityVar beta memory keyVector
     contentWeights = softmaxVar scores
-    interpolated = interpolate g rh.addressingWeights contentWeights
+    interpolated = interpolate g contentWeights rh.addressingWeights
     shifted = shift softmaxVar interpolated shiftVector
     focused = focus gamma shifted
     newReadHead = { addressingWeights := focused } rh

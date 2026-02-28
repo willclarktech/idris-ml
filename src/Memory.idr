@@ -104,7 +104,7 @@ forwardReadHead smFn memory rh inp =
     g = sig (sum gVec)
     gamma = 1 + 4 * sig (sum gammaVec)
     contentWeights = getContentAddress smFn beta memory keyVector
-    interpolated = interpolate g rh.addressingWeights contentWeights
+    interpolated = interpolate g contentWeights rh.addressingWeights
     shifted = shift smFn interpolated shiftVector
     focused = focus gamma shifted
     newReadHead = { addressingWeights := focused } rh
