@@ -2,6 +2,11 @@
 
 Deep learning library in Idris 2 with compile-time tensor shape checking and automatic differentiation.
 
+## References
+
+- [Neural Turing Machines (Graves, Wayne, Danihelka 2014)](https://arxiv.org/abs/1410.5401) — original NTM paper
+- [Implementing Neural Turing Machines (Collier & Beel 2018)](https://isg.beel.org/blog/2018/08/01/a-stable-neural-turing-machine-ntm-implementation-source-code-and-pre-print/) — stability findings: constant memory init (1e-6) converges 3.5x faster, tanh memory bounding, grad clip norm 50
+
 ## Build Commands
 
 ```bash
