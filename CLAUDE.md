@@ -41,6 +41,9 @@ make bench-py           # Run PyTorch timing benchmark
 make bench-compare      # Side-by-side Idris vs PyTorch comparison
 make bench-lint         # Lint Python code (ruff)
 make bench-typecheck    # Type-check Python code (pyright)
+make bench-convergence  # NTM convergence verification (copy + recall)
+make bench-convergence-copy    # Copy task only
+make bench-convergence-recall  # Recall task only
 ```
 
 Concrete examples:

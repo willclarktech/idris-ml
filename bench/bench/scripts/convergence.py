@@ -234,36 +234,26 @@ def run_recall(args: argparse.Namespace) -> None:
     print("NTM Associative Recall Convergence")
     print("=" * 60)
 
-    cfg = NtmRecallConfig(epochs=args.recall_epochs)
+    cfg = NtmRecallConfig(epochs=args.recall_epochs, patience=1000)
     model = NtmRecallModel(cfg)
     w = cfg.w
 
-    # 5-stage curriculum
+    # 3-stage curriculum (fixed K per stage, capped at K=3)
     stages = [
         Stage(
             "Stage 1 (K=1)",
-            0.20,
+            0.15,
             partial(generate_recall_batch, cfg.batch_size, 1, 1, w),
         ),
         Stage(
-            "Stage 2 (K=1-2)",
-            0.15,
-            partial(generate_recall_batch, cfg.batch_size, 1, 2, w),
+            "Stage 2 (K=2)",
+            0.12,
+            partial(generate_recall_batch, cfg.batch_size, 2, 2, w),
         ),
         Stage(
-            "Stage 3 (K=2-3)",
-            0.10,
-            partial(generate_recall_batch, cfg.batch_size, 2, 3, w),
-        ),
-        Stage(
-            "Stage 4 (K=3-4)",
-            0.08,
-            partial(generate_recall_batch, cfg.batch_size, 3, 4, w),
-        ),
-        Stage(
-            "Stage 5 (K=4-5)",
+            "Stage 3 (K=3)",
             0.0,
-            partial(generate_recall_batch, cfg.batch_size, 4, 5, w),
+            partial(generate_recall_batch, cfg.batch_size, 3, 3, w),
         ),
     ]
 
@@ -324,7 +314,7 @@ def run_recall(args: argparse.Namespace) -> None:
     # Evaluate accuracy
     print("\n--- Accuracy ---")
     model.eval()
-    for test_k in [1, 2, 3, 5]:
+    for test_k in [1, 2, 3]:
         test_data = generate_recall_batch(10, test_k, test_k, w)
         accs = []
         for xs, ys in test_data:
@@ -338,7 +328,7 @@ def run_recall(args: argparse.Namespace) -> None:
     train_summaries: list[NtmSummary] = []
     test_summaries: list[NtmSummary] = []
 
-    for test_k in [2, 3, 5]:
+    for test_k in [2, 3]:
         test_data = generate_recall_batch(2, test_k, test_k, w)
         for seq_idx, (xs, ys) in enumerate(test_data):
             ts = instrumented_forward(model, xs, ys)
@@ -464,7 +454,7 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     parser.add_argument("--copy-epochs", type=int, default=6000, help="Max epochs for copy task")
     parser.add_argument(
-        "--recall-epochs", type=int, default=30000, help="Max epochs for recall task"
+        "--recall-epochs", type=int, default=15000, help="Max epochs for recall task"
     )
     parser.add_argument("--verbose", action="store_true", help="Print per-timestep raw state")
     args = parser.parse_args()
