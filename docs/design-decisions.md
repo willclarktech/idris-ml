@@ -161,19 +161,30 @@ Training for a fixed number of epochs wastes compute when the model has already 
 
 The implementation uses a tail-recursive loop with `bestLoss` and `staleCount` accumulators rather than `foldl`, since `foldl` cannot short-circuit.
 
-## Xavier weight initialization
+## Composable weight initialization (Sampler + InitStrategy)
 
-Layer constructors (`linearLayer`, `rnnLayer`) default to Xavier/Glorot uniform initialization: `U(-limit, limit)` where `limit = sqrt(6 / (fanIn + fanOut))`. The previous default `U(-1, 1)` was 2-3x too large for typical NTM controller dimensions (e.g., 6→20 gives Xavier limit ≈ 0.48 vs 1.0), causing sigmoid saturation and slow learning.
+Init methods define a target **variance** and the distribution shape is orthogonal. Previously these were conflated — `xavierInit` returned a uniform range limit, baking in both "Xavier variance formula" and "uniform distribution." The refactored design separates them into two composable pieces:
 
-Biases are always initialized to zero (standard practice — non-zero bias init introduces asymmetry that rarely helps and often hurts).
+**`Sampler.idr`** — distribution shapes (`Sampler = Double -> IO Double`):
+- `uniform var`: draws from `U(-sqrt(3v), sqrt(3v))`, which has variance `v`
+- `normal var`: draws from `N(0, sqrt(v))` via Box-Muller transform, which has variance `v`
+- `normalSample`: standard `N(0,1)` sample (Box-Muller)
 
-The `Init.idr` module provides pluggable strategies (`InitStrategy = Nat -> Nat -> Double`):
-- **Xavier/Glorot** (`xavierInit`): `sqrt(6 / (fanIn + fanOut))` — default, good for sigmoid/tanh
-- **He/Kaiming** (`heInit`): `sqrt(6 / fanIn)` — designed for ReLU
-- **LeCun** (`lecunInit`): `sqrt(3 / fanIn)` — designed for SELU/lecun_normal
-- **Uniform** (`uniformInit bound`): fixed range — reproduces old behavior with `uniformInit 1.0`
+**`Init.idr`** — variance methods (`InitStrategy = Nat -> Nat -> IO Double`):
+- `xavier sampler`: variance = `2 / (fanIn + fanOut)` — default, good for sigmoid/tanh
+- `he sampler`: variance = `2 / fanIn` — designed for ReLU
+- `lecun sampler`: variance = `1 / fanIn` — designed for SELU/lecun_normal
+- `fixedRange bound`: `U(-bound, bound)` ignoring dimensions — reproduces old behavior with `fixedRange 1.0`
 
-NTM memory initialization stays at `U(-0.1, 0.1)` since it's not a weight matrix — small random values prevent initial memory positions from dominating content-based addressing.
+Usage: `linearLayerWith (xavier normal)`, `linearLayerWith (he uniform)`. Default `linearLayer` = `xavier uniform` (unchanged behavior).
+
+The variance math is verified: for Xavier with fanIn=fanOut=10, target variance = 2/20 = 0.1. The uniform sampler computes limit = `sqrt(3 * 0.1) = sqrt(0.3) ≈ 0.5477`, which equals the old `sqrt(6/20)`. So `xavier uniform` produces identical distributions to the old `xavierInit`.
+
+Biases are always initialized to zero (standard practice).
+
+`Init.idr` uses `import public Sampler` so callers that `import Init` get `Sampler`, `uniform`, `normal`, and `normalSample` re-exported automatically.
+
+Layer constructors (`linearLayerWith`, `rnnLayerWith`) use `traverse` to sample each weight independently in IO, simplifying constraints from `(Random ty, FromDouble ty, Neg ty)` to `(Num ty, FromDouble ty)` since all randomness happens in `Double` space via the `InitStrategy`.
 
 ## C-backed softmax and logSoftmax
 
