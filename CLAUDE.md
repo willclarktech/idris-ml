@@ -68,7 +68,8 @@ bash scripts/sweep.sh --parallel 4 --quick
 11. **Optimizer** - SGD and Adam optimizers with per-parameter or global norm gradient clipping
 12. **Schedule** - Learning rate schedules: `constant`, `cosineAnnealing`, `oneCycle`
 13. **Backprop** - Training loop: `epoch`, `train`, `trainFrom`, `epochRecurrent`, `trainRecurrent`, `trainRecurrentFrom`, `trainScheduledFrom`, `trainRecurrentScheduledFrom`
-14. **Debug** - Generic forward-pass diagnostics: `debugForward`, `debugForwardRecurrent`, per-layer state extraction, `toDoubleNetwork`
+14. **Curriculum** - Multi-stage curriculum training: `Stage` record, `runCurriculum` with periodic data regeneration and two-level early stopping
+15. **Debug** - Generic forward-pass diagnostics: `debugForward`, `debugForwardRecurrent`, per-layer state extraction, `toDoubleNetwork`
 
 ### Core type signatures
 
@@ -177,6 +178,26 @@ Raw data is `Double`; training requires `Variable`. Convert with `map fromDouble
 ```idris
 let prepared = map (map fromDouble) dataPoints  -- DataPoint i o Double -> DataPoint i o Variable
 ```
+
+### Curriculum training
+
+Multi-stage training with periodic data regeneration. Each `Stage` encapsulates a label, advancement threshold, and an `IO` data generator:
+
+```idris
+import Curriculum
+
+stages : List (Stage W W BatchSize)
+stages =
+  [ MkStage "Stage 1 (len 1-3)" 0.15 (genData 1 3)
+  , MkStage "Stage 2 (len 1-5)" 0.10 (genData 1 5)
+  , MkStage "Stage 3 (len 1-8)" 0.0  (genData 1 8)
+  ]
+
+(trained, st', epochsDone) <- runCurriculum makeOpt schedule model
+  nllLoss stages totalEpochs patience chunkSize initState
+```
+
+The module is generic over network architecture and data generation — it doesn't know about copy tasks or NTM-specific types.
 
 ### Debug / diagnostics
 

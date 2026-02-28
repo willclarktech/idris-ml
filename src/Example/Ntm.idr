@@ -7,6 +7,7 @@ import System
 import System.Random
 
 import Backprop
+import Curriculum
 import DataPoint
 import Debug
 import Floating
@@ -71,92 +72,18 @@ accuracy preds targets =
 
 
 ----------------------------------------------------------------------
--- Curriculum Training
+-- Curriculum Stages
 ----------------------------------------------------------------------
 
-record CurrStage where
-  constructor MkCurrStage
-  label : String
-  minLen : Nat
-  maxLen : Nat
-  threshold : Double
+genData : Nat -> Nat -> IO (Vect BatchSize (RecurrentDataPoint W W Variable))
+genData mnL mxL = map (map (map fromDouble)) (randomBatchVect (copyTask {w=W}) BatchSize mnL mxL)
 
-curriculumStages : List CurrStage
-curriculumStages =
-  [ MkCurrStage "Stage 1 (len 1-3)" 1 3 0.15
-  , MkCurrStage "Stage 2 (len 1-5)" 1 5 0.10
-  , MkCurrStage "Stage 3 (len 1-8)" 1 8 0.0
+stages : List (Stage W W BatchSize)
+stages =
+  [ MkStage "Stage 1 (len 1-3)" 0.15 (genData 1 3)
+  , MkStage "Stage 2 (len 1-5)" 0.10 (genData 1 5)
+  , MkStage "Stage 3 (len 1-8)" 0.0  (genData 1 8)
   ]
-
-minDelta : Double
-minDelta = 0.0001
-
-||| Run a chunk of training epochs with fixed data (pure)
-runChunk : (Double -> Optimizer) -> Schedule ->
-           Network W [W] W Variable ->
-           Vect BatchSize (RecurrentDataPoint W W Variable) ->
-           Nat -> Nat -> OptimizerState -> Double -> Nat ->
-           (Network W [W] W Variable, OptimizerState, Double, Nat)
-runChunk _ _ m _ Z _ s lastLoss sc = (m, s, lastLoss, sc)
-runChunk mk sched m ds (S k) ep s bl sc =
-  let lr = sched ep
-      opt = mk lr
-      (m', s', loss) = epochRecurrent opt ds nllLoss m s
-      improved = loss < bl - minDelta
-      bl' = if improved then loss else bl
-      sc' : Nat
-      sc' = if improved then 0 else sc + 1
-  in runChunk mk sched m' ds k (ep + 1) s' bl' sc'
-
-||| Train one curriculum stage with periodic data regeneration
-trainStage : (Double -> Optimizer) -> Schedule ->
-             Network W [W] W Variable ->
-             Nat -> Nat -> Double ->
-             Nat -> Nat -> Nat ->
-             OptimizerState -> Double -> Nat ->
-             IO (Network W [W] W Variable, OptimizerState, Nat, Bool)
-trainStage _ _ model _ _ _ Z _ done st _ _ = pure (model, st, done, False)
-trainStage makeOpt schedule model mnLen mxLen thresh budget patience done st bestLoss staleCount = do
-  -- Generate fresh training data
-  batch <- randomBatchVect (copyTask {w=W}) BatchSize mnLen mxLen
-  let dps = map (map fromDouble) batch
-  let chunkSize = min 100 budget
-  -- Train the chunk
-  let (model', st', loss, staleCount') = runChunk makeOpt schedule model dps chunkSize done st bestLoss staleCount
-  putStrLn $ "  " ++ show (done + chunkSize) ++ ":\t" ++ show loss
-  let bestLoss' = min bestLoss loss
-  -- Check stage advancement
-  if thresh > 0.0 && loss < thresh
-    then do
-      putStrLn $ "  -> Advancing (loss " ++ show loss ++ " < " ++ show thresh ++ ")"
-      pure (model', st', done + chunkSize, True)
-    else if patience > 0 && staleCount' >= patience
-    then do
-      putStrLn $ "  Early stop at epoch " ++ show (done + chunkSize) ++ " (patience=" ++ show patience ++ ")"
-      pure (model', st', done + chunkSize, False)
-    else if loss /= loss
-    then do
-      putStrLn $ "  Diverged (NaN) at epoch " ++ show (done + chunkSize)
-      pure (model', st', done + chunkSize, False)
-    else trainStage makeOpt schedule model' mnLen mxLen thresh (minus budget chunkSize) patience (done + chunkSize) st' bestLoss' staleCount'
-
-||| Run all curriculum stages sequentially
-runCurriculum : (Double -> Optimizer) -> Schedule ->
-                Network W [W] W Variable ->
-                List CurrStage ->
-                Nat -> Nat -> Nat ->
-                OptimizerState ->
-                IO (Network W [W] W Variable, OptimizerState, Nat)
-runCurriculum _ _ model [] _ _ done st = pure (model, st, done)
-runCurriculum makeOpt schedule model (stage :: stages) budget patience done st = do
-  putStrLn $ "\n" ++ stage.label
-  (model', st', done', advanced) <- trainStage makeOpt schedule model
-    stage.minLen stage.maxLen stage.threshold
-    budget patience done st (1.0/0.0) 0
-  let remaining = minus budget (minus done' done)
-  if advanced && remaining > 0
-    then runCurriculum makeOpt schedule model' stages remaining patience done' st'
-    else pure (model', st', done')
 
 
 ----------------------------------------------------------------------
@@ -237,7 +164,7 @@ main = do
   let schedule = oneCycle cfg.lr 25.0 cfg.divFinal 0.25 cfg.epochs
   putStrLn "Training (curriculum + one-cycle)..."
   (trained, finalSt, epochsDone) <- runCurriculum makeOpt schedule model
-    curriculumStages cfg.epochs cfg.patience 0 initState
+    nllLoss stages cfg.epochs cfg.patience 100 initState
 
   putStrLn ""
 
