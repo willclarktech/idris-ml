@@ -37,13 +37,16 @@ Concrete examples:
 ```bash
 idris2 --source-dir src -p contrib -o supervised src/Example/Supervised.idr && ./build/exec/supervised
 idris2 --source-dir src -p contrib -o rnn src/Example/Rnn.idr && ./build/exec/rnn
-idris2 --source-dir src -p contrib -o ntm src/Example/Ntm.idr && ./build/exec/ntm
-# NTM with custom hyperparameters
-./build/exec/ntm --lr 0.001 --max-norm 50.0 --epochs 6000 --patience 10 --seed 42
-# NTM with diagnostics (summary metrics + train/test comparison)
-./build/exec/ntm --diagnose
-# NTM with verbose diagnostics (summary + raw per-timestep dumps)
-./build/exec/ntm --diagnose-verbose
+idris2 --source-dir src -p contrib -o ntm-copy src/Example/NtmCopy.idr && ./build/exec/ntm-copy
+idris2 --source-dir src -p contrib -o ntm-associative-recall src/Example/NtmAssociativeRecall.idr && ./build/exec/ntm-associative-recall
+# NTM copy with custom hyperparameters
+./build/exec/ntm-copy --lr 0.001 --max-norm 50.0 --epochs 6000 --patience 10 --seed 42
+# NTM copy with diagnostics (summary metrics + train/test comparison)
+./build/exec/ntm-copy --diagnose
+# NTM copy with verbose diagnostics (summary + raw per-timestep dumps)
+./build/exec/ntm-copy --diagnose-verbose
+# NTM associative recall with custom hyperparameters
+./build/exec/ntm-associative-recall --lr 0.001 --epochs 6000 --patience 200 --seed 42
 # Hyperparameter sweep (builds once, runs grid in parallel)
 bash scripts/sweep.sh --parallel 4
 # Quick sweep (2000 epochs for fast screening)
@@ -62,7 +65,7 @@ bash scripts/sweep.sh --parallel 4 --quick
 6. **Memory** - NTM read/write head operations
 7. **Variable** - Tape-based autograd (Wengert list) with Chez Scheme FFI storage
 8. **DataPoint** - `DataPoint` and `RecurrentDataPoint` records
-8b. **Generate** - Random data generation: `SequenceTask` port, `copyTask` adapter, `randomBatchVect`
+8b. **Generate** - Random data generation: `SequenceTask` port, `copyTask`/`associativeRecallTask` adapters, `randomBatchVect`
 9. **Endofunctor** - `emap : (ty -> ty) -> e ty -> e ty` for type-preserving maps
 10. **Layer** - Layer/Network types (mutually recursive), forward pass, constructors
 11. **Optimizer** - SGD and Adam optimizers with per-parameter or global norm gradient clipping

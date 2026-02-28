@@ -302,10 +302,32 @@ Total: 23 new learnable parameters, bringing the total from ~891 to ~914.
 
 ## Curriculum module extraction
 
-Curriculum training (multi-stage training with data regeneration, stage advancement thresholds, and two-level early stopping) was extracted from `Example/Ntm.idr` into a reusable `Curriculum` module.
+Curriculum training (multi-stage training with data regeneration, stage advancement thresholds, and two-level early stopping) was extracted from `Example/NtmCopy.idr` into a reusable `Curriculum` module.
 
 **Motivation**: curriculum learning is a standard ML technique not specific to NTMs. The inline implementation was hardcoded to `Network W [W] W Variable` and `nllLoss`, making it unusable for other architectures.
 
 **Parameterization**: the `Stage` record replaces the previous `CurrStage` by dropping task-specific fields (`minLen`, `maxLen`) in favor of an `IO`-based `generate` function. This lets each stage encapsulate its own data generation strategy — the module doesn't know about copy tasks, sequence lengths, or task-specific parameters. The loss function and chunk size (data refresh interval) are also parameters.
 
 **API**: `runCurriculum` takes a list of stages, an optimizer factory, a schedule, and training hyperparameters, returning the trained model, optimizer state, and total epochs completed. This is the same interface as the inline version but generic over `Network i hs o Variable`.
+
+## Two NTM examples: copy and associative recall
+
+The NTM has two addressing mechanisms: location-based (circular shift) and content-based (cosine similarity). A single example cannot validate both.
+
+**NtmCopy** (location-based): the copy task writes symbols sequentially then reads them back in the same order. The model learns shift-right-by-one each timestep — pure location addressing. Content addressing is a stronger local attractor but not required.
+
+**NtmAssociativeRecall** (content-based): K key-value pairs are stored, then queried in shuffled order. The model must look up each query key by content similarity to retrieve the associated value. Sequential shifting cannot solve this because queries arrive in random order.
+
+### Task encoding (W=4)
+
+With W=4, there are 3 non-blank symbols (1, 2, 3), supporting up to K=3 key-value pairs. The encoding uses one-hot vectors of width W:
+
+- **Store phase** (2K steps): `k1 v1 k2 v2 ... kK vK` — keys are distinct non-blank symbols, values are random non-blank symbols
+- **Delimiter** (1 step): blank
+- **Query phase** (2K steps): `q1 blank q2 blank ... qK blank` — queries are keys in shuffled order
+
+Output is blank everywhere except on blank-input timesteps in the query phase, where the correct value appears. This "answer on blank" pattern matches the copy task convention.
+
+### Curriculum
+
+Two stages: K=2 pairs (threshold 0.15) then K=3 pairs (threshold 0.0). Only two stages because K=3 is the maximum for W=4, and K=1 is trivial (single key-value lookup with no disambiguation needed).

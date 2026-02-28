@@ -10,7 +10,6 @@
 
 | Item | Difficulty | Notes |
 |------|-----------|-------|
-| NTM associative recall example | M | Key-value lookup task; exercises content addressing (copy task only needs location) |
 | Unit tests | M | No test framework yet; verify via `--check` + examples |
 | Automatically name parameters | S | |
 | More Tensor functions (eg concatenation) | M | |
@@ -42,7 +41,7 @@
 - Buffer-backed tensor ops + C FFI (Phase 1: matmul/dot, 1.3-1.9x speedup)
 - Persistent weight buffers + bulk tape registration (Phase 3: ~1.14x NTM speedup)
 - Early stopping (patience-based + NaN detection in Backprop)
-- Hyperparameters type (Config record in Ntm.idr)
+- Hyperparameters type (Config record in NtmCopy.idr)
 - Learning rate schedules (one-cycle, cosine annealing in Schedule.idr)
 - C-backed softmax/logSoftmax (Phase 2 of buffer-backed tensors)
 - Xavier/He/LeCun weight initialization (Init.idr)
@@ -55,3 +54,4 @@
 - 3-element shift kernel + hot-start addressing
 - NTM tanh memory bounding (Collier & Beel stability)
 - NTM learned initial addressing (backprop through head weights + readHeadOutput)
+- NTM associative recall example (content-based addressing)
