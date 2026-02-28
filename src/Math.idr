@@ -32,6 +32,17 @@ softmax xs =
   let exps = map exp xs
   in map (/(sum exps)) exps
 
+export
+logSoftmax : (FromDouble ty, Cast ty Double, Neg ty, Floating ty, Fractional ty) => NormalizationFunction ty
+logSoftmax xs =
+  let shifted = map (\x => x - maxVal) xs
+      logSumExp = log (sum (map exp shifted))
+  in map (\x => x - maxVal - logSumExp) xs
+  where
+    -- Detach max from graph so gradient only flows through x - logSumExp
+    maxVal : ty
+    maxVal = fromDouble $ foldr max (-1.0e308) (map cast xs)
+
 ----------------------------------------------------------------------
 -- Aggregate Functions
 ----------------------------------------------------------------------
@@ -81,6 +92,12 @@ crossEntropy = reduceLoss clampedLoss
           pp = max ep (min p (1 - ep))
       in -(y * log pp) + -(1 - y) * log (1 - pp)
 
+||| Negative log-likelihood loss for use with logSoftmax outputs.
+||| No log in the loss = no 1/pp gradient explosion.
+export
+nllLoss : (Neg ty, Fractional ty) => LossFunction ty
+nllLoss = reduceLoss (\p, y => -(y * p))
+
 ----------------------------------------------------------------------
 -- Encoding
 ----------------------------------------------------------------------
@@ -125,7 +142,7 @@ l2Norm v =
   let
     norm = sqrt $ sum $ map (^ 2) v
     -- NOTE: Necessary to avoid division by 0
-    epsilon = pow 10 (-7)
+    epsilon = pow 10 (-6)
   in max norm epsilon
 
 export

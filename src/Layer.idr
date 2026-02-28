@@ -245,6 +245,10 @@ export
 softmaxLayer : (Fractional ty, Floating ty) => Layer n n ty
 softmaxLayer = NormalizationLayer "softmax" softmax
 
+export
+logSoftmaxLayer : (FromDouble ty, Cast ty Double, Neg ty, Floating ty, Fractional ty) => Layer n n ty
+logSoftmaxLayer = NormalizationLayer "logSoftmax" logSoftmax
+
 
 ----------------------------------------------------------------------
 -- Parameter Naming
