@@ -160,6 +160,43 @@ mutual
 
 
 ----------------------------------------------------------------------
+-- Variable-specialized NTM Head Operations (C-backed memory ops)
+----------------------------------------------------------------------
+
+forwardReadHeadVar : {n, w : Nat} -> Matrix n w Variable -> ReadHead n Variable -> Vector ((w + ShiftKernelSize) + 3) Variable -> (ReadHead n Variable, Vector w Variable)
+forwardReadHeadVar memory rh inp =
+  let
+    (mainInput, params) = splitAt (w + ShiftKernelSize) inp
+    (keyVector, shiftVector) = splitAt w mainInput
+    (betaVec, params') = splitAt 1 params
+    (gVec, gammaVec) = splitAt 1 params'
+    beta = softplus (sum betaVec)
+    g = sig (sum gVec)
+    gamma = 1 + 4 * sig (sum gammaVec)
+    scores = batchCosineSimilarityVar beta memory keyVector
+    contentWeights = softmaxVar scores
+    interpolated = interpolate g rh.addressingWeights contentWeights
+    shifted = shift softmaxVar interpolated shiftVector
+    focused = focus gamma shifted
+    newReadHead = { addressingWeights := focused } rh
+    output = readOpVar newReadHead.addressingWeights memory
+  in (newReadHead, output)
+
+forwardWriteHeadVar : {n, w : Nat} -> Matrix n w Variable -> WriteHead n Variable -> Vector ((w + ShiftKernelSize) + 3 + w + w) Variable -> (WriteHead n Variable, Matrix n w Variable)
+forwardWriteHeadVar memory (MkWriteHead readHead) inp =
+  let
+    inp' = rewrite plusAssociative ((w + ShiftKernelSize) + 3) w w in inp
+    (readHeadInput, remainingInput) = Tensor.splitAt ((w + ShiftKernelSize) + 3) inp'
+    (rawErase, rawAdd) = splitAt w remainingInput
+    eraseVector = map sig rawErase
+    addVector = map (\x => 2 * sig (2 * x) - 1) rawAdd
+    (newReadHead, _) = forwardReadHeadVar memory readHead readHeadInput
+    newWriteHead = MkWriteHead newReadHead
+    newMemoryMatrix = writeOpVar newWriteHead.readHead.addressingWeights memory eraseVector addVector
+  in (newWriteHead, newMemoryMatrix)
+
+
+----------------------------------------------------------------------
 -- Variable-specialized Forward Pass (C-backed matvec/dot)
 ----------------------------------------------------------------------
 
@@ -195,8 +232,8 @@ mutual
       controllerOutput = map (clampVar (-20.0) 20.0) rawControllerOutput
       (readHeadInput, controllerOutput') = Tensor.splitAt (ReadHeadInputWidth n i) controllerOutput
       (writeHeadInput, networkOutput) = Tensor.splitAt (WriteHeadInputWidth n i) controllerOutput'
-      (newReadHead, newReadHeadOutput) = forwardReadHead softmaxVar memory readHead readHeadInput
-      (newWriteHead, rawMemory) = forwardWriteHead softmaxVar memory writeHead writeHeadInput
+      (newReadHead, newReadHeadOutput) = forwardReadHeadVar memory readHead readHeadInput
+      (newWriteHead, rawMemory) = forwardWriteHeadVar memory writeHead writeHeadInput
       newMemory = map tanhBound rawMemory
       newLayer = NtmLayer newController newMemory newReadHead newWriteHead newReadHeadOutput
     in (newLayer, networkOutput)
