@@ -275,7 +275,9 @@ mutual
           namedBias = zipWith (np "bias") enumerate bias
         in RnnLayer namedInputWeights namedRecurrentWeights namedBias previousOutput
       (NtmLayer controller memory readHead writeHead readHeadOutput) =>
-        NtmLayer (nameNetworkParams (prefx ++ "_ctrl") controller) memory readHead writeHead readHeadOutput
+        let namedMemory = zipWith (np "mem") enumerate memory
+        in NtmLayer (nameNetworkParams (prefx ++ "_ctrl") controller)
+                    namedMemory readHead writeHead readHeadOutput
       _ => layer
 
   export
