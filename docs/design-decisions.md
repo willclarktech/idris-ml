@@ -72,6 +72,26 @@ The fix uses `1 + 4 * sigmoid(x)` to bound γ ∈ [1, 5]. At the upper bound, `0
 
 `let _ = ffiCall` in Idris 2 is dropped by the compiler since the result is unused. FFI functions with side effects must return a value consumed by subsequent computation. In the backward pass, `prim__gradAdd` returns its `AnyPtr` handle, enabling handle threading: `g' = prim__gradAdd g idx val`, where `g'` is passed to the next call. This guarantees evaluation order without `IO`.
 
+## Buffer-backed tensor operations (C FFI)
+
+For linear algebra operations (matrix-vector multiply, dot product), a C shared library (`csrc/tensor.c`) provides BLAS-accelerated forward and backward kernels. On macOS, it links against Apple Accelerate (cblas_dgemv, cblas_ddot); on Linux, it falls back to plain C loops.
+
+**Architecture**: Chez Scheme (Idris 2 backend) loads `build/libidrisml.dylib` at runtime via `load-shared-object`. An arena allocator manages per-forward metadata (weight values, tape indices for backward). The tape records a single MatVecOp or DotOp entry per operation instead of O(m*n) scalar entries.
+
+**Key optimization**: The gradient array and metadata packing use Chez Scheme's native `foreign-ref`/`foreign-set!` for direct reads/writes to C-allocated memory, avoiding the per-element Scheme→C FFI crossing overhead. This optimization alone provided the bulk of the speedup, since `prim__gradAdd`/`prim__gradGet` are called on every tape entry during backward.
+
+**Small-matrix fallback**: For matrices where `i * o <= 4`, the forward pass falls back to scalar operations (standard dotProduct decomposition), avoiding C path overhead for trivially small matrices (e.g., 1×1 RNN weights).
+
+**Tensor Foldable caveat**: The `foldr` instance for `Tensor` processes elements in reversed order (head-first into accumulator). Direct Vect traversal is used instead of `toList` to pack elements in correct row-major order.
+
+Benchmark (`src/Example/Bench.idr`, seed 123456):
+
+| Version | Supervised (1000 ep) | RNN (1000 ep) | NTM (100 ep) |
+|---------|---------------------|---------------|--------------|
+| Scalar-only tape | 263 ms | 609 ms | 14,858 ms |
+| C buffer + Scheme-native grad | 137 ms | 482 ms | 9,259 ms |
+| Speedup | 1.9x | 1.3x | 1.6x |
+
 ## Hyperparameter tuning protocol
 
 Manual hyperparameter tuning is an anti-pattern that wastes hours on random adjustments. The correct order is:

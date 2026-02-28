@@ -4,7 +4,7 @@
 
 | Item | Difficulty | Notes |
 |------|-----------|-------|
-| Buffer-backed tensors + C FFI | L | Contiguous memory for tensor data, 10-50x speedup |
+| C-backed softmax/logSoftmax/memory ops | M | Phase 2 of buffer-backed tensors |
 
 ## Medium Priority
 
@@ -39,3 +39,4 @@
 - O(n) topoSort (accumulator-based)
 - Hyperparameter sweep script (`scripts/sweep.sh`)
 - Tape-based autograd (Wengert list) with Chez FFI storage
+- Buffer-backed tensor ops + C FFI (Phase 1: matmul/dot, 1.3-1.9x speedup)

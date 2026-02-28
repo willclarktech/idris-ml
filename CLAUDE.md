@@ -5,6 +5,9 @@ Deep learning library in Idris 2 with compile-time tensor shape checking and aut
 ## Build Commands
 
 ```bash
+# Build C shared library (required before running examples)
+make build/libidrisml.dylib
+
 # Type-check all library modules
 idris2 --build idris-ml.ipkg
 
@@ -16,6 +19,12 @@ idris2 --source-dir src -p contrib -o <name> src/Example/<Name>.idr
 
 # Run a built example
 ./build/exec/<name>
+
+# Run C library tests
+make test-c
+
+# Run benchmark (Supervised + RNN + NTM)
+make bench
 ```
 
 Concrete examples:
@@ -186,4 +195,8 @@ let prepared = map (map fromDouble) dataPoints  -- DataPoint i o Double -> DataP
 - **FFI side-effect threading**: `let _ = ffiCall` is dropped by the compiler. FFI functions with side effects must return a value that is used in subsequent computation. `prim__gradAdd` returns the handle (`AnyPtr`), enabling handle threading through the backward pass
 - **Gradient clipping**: `adam` clips per-parameter; `adamGlobalClip` clips by global L2 norm (preserves gradient direction). Use `adamGlobalClip` for attention/recurrent models where parameters must coordinate — per-parameter clipping distorts direction and causes periodic loss spikes
 - **Hyperparameter tuning**: Fix algorithmic issues first (bounded activations, correct clipping, efficient backward pass), then use `scripts/sweep.sh` for systematic grid search. Never manually loop over hyperparameters — see `docs/design-decisions.md` for rationale
+- **C shared library required**: `build/libidrisml.dylib` must exist before running any example. Build with `make build/libidrisml.dylib`. The library is loaded by the tape init guard in Variable.idr
+- **Scheme-native C memory access**: Use Chez Scheme's `foreign-ref`/`foreign-set!` for reading/writing C-allocated arrays instead of calling C functions per element. This avoids the Scheme→C boundary crossing overhead. See `prim__gradAdd`/`prim__gradGet` and `prim__setDouble`/`prim__setInt32` in Variable.idr
+- **`prim__seq` for evaluation ordering**: When two FFI side-effect chains must execute in order but have no data dependency, use `prim__seq a b` (Scheme `(lambda (a b) b)`) to force `a` to evaluate before `b` is used. Chez Scheme evaluates function arguments strictly
+- **Tensor Foldable reversal**: The `foldr` instance for `Tensor` processes elements in reversed order (head into accumulator first). `toList` produces elements backwards. Use direct `Vect` traversal instead when element order matters (e.g., packing into C buffers)
 - **Chez Scheme output buffering**: Stdout is fully buffered when redirected to file/pipe (e.g. background tasks). Use `stdbuf -oL ./build/exec/<name>` to force line-buffering for long-running training
