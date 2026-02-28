@@ -8,6 +8,13 @@ interface Floating ty where
   pow : ty -> ty -> ty
   sqrt : ty -> ty
 
+public export
+implementation Floating Double where
+  exp = prim__doubleExp
+  log = prim__doubleLog
+  pow = prim__doublePow
+  sqrt = prim__doubleSqrt
+
 export infixr 9 ^
 export
 (^) : Floating ty => ty -> ty -> ty

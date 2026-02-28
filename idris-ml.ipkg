@@ -6,6 +6,7 @@ depends = contrib
 
 modules = Backprop
         , DataPoint
+        , Debug
         , Endofunctor
         , Floating
         , Init

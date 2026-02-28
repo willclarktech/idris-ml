@@ -8,6 +8,7 @@ import System.Random
 
 import Backprop
 import DataPoint
+import Debug
 import Floating
 import Layer
 import Math
@@ -185,9 +186,10 @@ record Config where
   epochs : Nat
   patience : Nat
   seed : Bits64
+  diagnose : Bool
 
 defaultConfig : Config
-defaultConfig = MkConfig 0.001 5.0 0.9 0.999 (pow 10 (-8)) 10.0 6000 200 123456
+defaultConfig = MkConfig 0.001 5.0 0.9 0.999 (pow 10 (-8)) 10.0 6000 200 123456 False
 
 parseConfig : List String -> Config
 parseConfig args = go args defaultConfig
@@ -203,6 +205,7 @@ parseConfig args = go args defaultConfig
     go ("--epochs" :: v :: rest) c = go rest ({ epochs := cast (cast {to=Integer} v) } c)
     go ("--patience" :: v :: rest) c = go rest ({ patience := cast (cast {to=Integer} v) } c)
     go ("--seed" :: v :: rest) c = go rest ({ seed := cast (cast {to=Integer} v) } c)
+    go ("--diagnose" :: rest) c = go rest ({ diagnose := True } c)
     go (_ :: rest) c = go rest c
 
 
@@ -283,6 +286,13 @@ main = do
   putStrLn $ showSequences testPreds
   putStr "  Accuracy:\t"
   putStrLn $ show testAcc
+
+  -- Diagnostics
+  when cfg.diagnose $ do
+    let dblModel = toDoubleNetwork trained
+    let (_, _, snapshots) = debugForwardRecurrent dblModel (xs (index 0 rawTestData))
+    putStrLn ""
+    printDiagnostics "Test[0]" snapshots
 
   -- Machine-readable result line for sweep script
   putStrLn $ "RESULT\t"
