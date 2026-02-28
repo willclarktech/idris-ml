@@ -48,7 +48,7 @@ H = 40
 
 ||| Training batch size (data points per chunk)
 BatchSize : Nat
-BatchSize = 16
+BatchSize = 48
 
 ||| Evaluation batch size
 TestSize : Nat
@@ -112,11 +112,12 @@ record Config where
   epochs : Nat
   patience : Nat
   seed : Bits64
+  chunkSize : Nat
   diagnose : Bool
   diagnoseVerbose : Bool
 
 defaultConfig : Config
-defaultConfig = MkConfig 0.001 10.0 0.9 0.999 (pow 10 (-8)) 10.0 10000 800 123456 False False
+defaultConfig = MkConfig 0.001 10.0 0.9 0.999 (pow 10 (-8)) 10.0 10000 800 123456 25 False False
 
 parseConfig : List String -> Config
 parseConfig args = go args defaultConfig
@@ -132,6 +133,7 @@ parseConfig args = go args defaultConfig
     go ("--epochs" :: v :: rest) c = go rest ({ epochs := cast (cast {to=Integer} v) } c)
     go ("--patience" :: v :: rest) c = go rest ({ patience := cast (cast {to=Integer} v) } c)
     go ("--seed" :: v :: rest) c = go rest ({ seed := cast (cast {to=Integer} v) } c)
+    go ("--chunk-size" :: v :: rest) c = go rest ({ chunkSize := cast (cast {to=Integer} v) } c)
     go ("--diagnose" :: rest) c = go rest ({ diagnose := True } c)
     go ("--diagnose-verbose" :: rest) c = go rest ({ diagnose := True, diagnoseVerbose := True } c)
     go (_ :: rest) c = go rest c
@@ -155,6 +157,7 @@ main = do
            ++ " beta2=" ++ show cfg.beta2
            ++ " epochs=" ++ show cfg.epochs
            ++ " patience=" ++ show cfg.patience
+           ++ " chunkSize=" ++ show cfg.chunkSize
            ++ " seed=" ++ show cfg.seed
            ++ " H=" ++ show H
   putStrLn ""
@@ -175,7 +178,7 @@ main = do
   let schedule = oneCycle cfg.lr 25.0 cfg.divFinal 0.25 cfg.epochs
   putStrLn "Training (curriculum + one-cycle)..."
   (trained, finalSt, epochsDone) <- runCurriculum makeOpt schedule model
-    nllLoss stages cfg.epochs cfg.patience 100 initState
+    nllLoss stages cfg.epochs cfg.patience cfg.chunkSize initState
 
   putStrLn ""
 
