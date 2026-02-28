@@ -177,7 +177,7 @@ record Config where
   seed : Bits64
 
 defaultConfig : Config
-defaultConfig = MkConfig 0.001 5.0 0.9 0.999 (pow 10 (-8)) 6000 0 123456
+defaultConfig = MkConfig 0.001 5.0 0.9 0.999 (pow 10 (-8)) 6000 200 123456
 
 parseConfig : List String -> Config
 parseConfig args = go args defaultConfig
