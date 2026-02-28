@@ -355,3 +355,39 @@ Dimension impact (computed from Layer.idr type functions):
 - Controller: 16→40→52 (was 8→20→32)
 
 No core library changes needed — the type system handles dimension changes automatically via `NtmInputWidth`, `NtmOutputWidth`, and dependent types in `Layer`/`Network`.
+
+## Unified NTM head operations via NormalizationFunction parameter
+
+`forwardReadHead`/`forwardWriteHead` in Memory.idr were duplicated as `forwardReadHeadVar`/`forwardWriteHeadVar` in Layer.idr, differing only in which softmax function was called (`softmax` vs `softmaxVar`). The Variable versions also redefined local copies of `sig`, `softplus`, `interpolate`, `focus`, `readOp`, `eraseMemory`, `addMemory`, `writeOp` — ~80 lines of pure duplication.
+
+The fix parameterizes on a `NormalizationFunction ty` (= `{n : Nat} -> Vector n ty -> Vector n ty`), passed to `forwardReadHead`/`forwardWriteHead` for content addressing softmax and shift softmax. The generic `applyLayer` path passes `softmax`, while the Variable path passes `softmaxVar`. Helper functions (`sig`, `softplus`, `interpolate`, `focus`, etc.) are exported from Memory.idr rather than duplicated.
+
+After the C-backed NTM memory ops were added (see below), the Variable path was split again into dedicated `forwardReadHeadVar`/`forwardWriteHeadVar` functions in Layer.idr that call the C kernels directly. The generic Double path still uses the unified parameterized functions from Memory.idr.
+
+## C-backed NTM memory operations
+
+With N=128 memory slots and W=8 width, each NTM timestep created ~12,500 scalar tape entries for content addressing, read, and memory write. These head computations dominated both forward (~45%) and backward (~53%) pass time.
+
+Three new C kernels batch these into single tape entries:
+
+**Batch cosine similarity** (`batchCosineSimilarityVar`): computes `scores[i] = beta * cosine_similarity(key, memory[i])` for all N rows in one C call. The `BatchCosSimMeta` struct saves dot products, row norms, and key norm for backward. Backward propagates gradients to memory rows, key vector, and beta scalar using the analytic Jacobian: `d cos(a,b)/d a_k = (b_k - (a·b/|a|²) * a_k) / (|a| * |b|)`.
+
+**Read operation** (`readOpVar`): computes `output[j] = sum_i(weights[i] * memory[i][j])` — a transpose-matvec. Backward: `d_weights[i] = sum_j(dy[j] * mem[i][j])`, `d_mem[i][j] = weights[i] * dy[j]`.
+
+**Write operation** (`writeOpVar`): fused erase+add in one pass: `out[i][j] = mem[i][j] * (1 - w[i] * e[j]) + w[i] * a[j]`. Backward propagates to memory, weights, erase, and add vectors with analytic gradients.
+
+| Operation | Tape entries before (N=128, W=8) | After |
+|-----------|----------------------------------|-------|
+| Content addressing (cosine sim + beta) | ~6,400 | 1 |
+| readOp (weighted row sum) | ~2,048 | 1 |
+| eraseMemory + addMemory | ~4,096 | 2 |
+| **Total per read+write head** | **~12,500** | **4** |
+
+Benchmark (`src/Example/Bench.idr`, seed 123456, N=10 W=3):
+
+| Version | NTM (100 ep) | Speedup |
+|---------|-------------|---------|
+| Scalar head ops | 4,751 ms | — |
+| C-backed head ops | 2,700 ms | 1.76x |
+
+The speedup is less than the tape reduction ratio because (a) the benchmark uses small N=10 where per-entry overhead is lower, (b) the scalar ops for interpolation, shift, and focus remain unchanged, and (c) forward packing and backward unpacking have their own costs. Larger N (e.g., N=128 for associative recall) should see proportionally greater benefit.
