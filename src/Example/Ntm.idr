@@ -10,6 +10,7 @@ import Backprop
 import DataPoint
 import Debug
 import Floating
+import Generate
 import Layer
 import Math
 import Optimizer
@@ -34,68 +35,13 @@ N = 10
 H : Nat
 H = 20
 
-||| Number of training examples
-E : Nat
-E = 13
+||| Training batch size (data points per chunk)
+BatchSize : Nat
+BatchSize = 16
 
-
-----------------------------------------------------------------------
--- Copy Task Data
-----------------------------------------------------------------------
-
-||| Training sequences (symbols 1-2, 0 is reserved for <BLANK>)
-||| Task: input [s, 0] -> output [0, s]
-sequences : Vect E (List (Fin W))
-sequences =
-  [ [2, 1, 2]
-  , [1, 2, 1, 2]
-  , [1, 2, 2, 1]
-  , [1, 1, 2, 2, 1]
-  , [2, 2, 1, 1, 2]
-  , [2, 1, 1, 2, 2, 1]
-  , [1, 2, 2, 1, 2, 1]
-  , [2, 1, 2, 1, 2, 1, 2]
-  , [1, 1, 1, 2, 2, 2, 1]
-  , [1, 2, 1, 1, 2, 2, 1, 2]
-  , [2, 1, 1, 2, 1, 2, 2]
-  , [2, 2, 1, 2, 1, 1, 2, 1]
-  , [1, 1, 2, 1, 2, 2, 1, 2]
-  ]
-
-||| Held-out test sequence to check generalization
-||| Longer than any training example — tests NTM memory capacity
-testSequences : Vect 5 (List (Fin W))
-testSequences =
-  [ [1, 2, 2, 1, 1, 2, 1, 2]
-  , [2, 1, 1, 2, 2, 1, 2, 1]
-  , [1, 1, 2, 2, 1, 1]
-  , [2, 2, 1, 1, 2, 2, 1]
-  , [2, 1, 2, 1, 1, 2, 2, 1]
-  ]
-
-||| Convert a sequence to a RecurrentDataPoint for copy task
-||| Input: sequence ++ blanks (write phase)
-||| Output: blanks ++ sequence (read phase)
-prep : List (Fin W) -> RecurrentDataPoint W W Double
-prep sequence =
-  let
-    len = length sequence
-    blank : Fin W
-    blank = 0
-    pad = Data.List.replicate len blank
-    inp = sequence ++ pad
-    outp = pad ++ sequence
-    xs = map (oneHotEncode {n=W}) inp
-    ys = map (oneHotEncode {n=W}) outp
-    toDouble : Vector W Nat -> Vector W Double
-    toDouble = map (fromInteger . natToInteger)
-  in MkRecurrentDataPoint (map toDouble xs) (map toDouble ys)
-
-rawData : Vect E (RecurrentDataPoint W W Double)
-rawData = map prep sequences
-
-rawTestData : Vect 5 (RecurrentDataPoint W W Double)
-rawTestData = map prep testSequences
+||| Evaluation batch size
+TestSize : Nat
+TestSize = 20
 
 
 ----------------------------------------------------------------------
@@ -125,50 +71,92 @@ accuracy preds targets =
 
 
 ----------------------------------------------------------------------
--- Training with progress reporting
+-- Curriculum Training
 ----------------------------------------------------------------------
 
-trainReport :
-  (Double -> Optimizer) ->
-  Schedule ->
-  Network W [W] W Variable ->
-  Vect E (RecurrentDataPoint W W Variable) ->
-  Nat -> Nat -> Nat -> OptimizerState -> Double -> Nat ->
-  IO (Network W [W] W Variable, OptimizerState, Nat)
-trainReport _ _ model _ Z _ done st _ staleCount = pure (model, st, done)
-trainReport makeOpt schedule model dps (S chunks) patience done st bestLoss staleCount = do
-  -- Run 100 epochs with schedule
-  let (model', st', loss, staleCount') = runChunk makeOpt schedule model dps 100 done st bestLoss staleCount
-  putStrLn $ "  " ++ show (done + 100) ++ ":\t" ++ show loss
-  let bestLoss' = if loss < bestLoss then loss else bestLoss
-  -- Check early stopping
-  if patience > 0 && staleCount' >= patience
+record CurrStage where
+  constructor MkCurrStage
+  label : String
+  minLen : Nat
+  maxLen : Nat
+  threshold : Double
+
+curriculumStages : List CurrStage
+curriculumStages =
+  [ MkCurrStage "Stage 1 (len 1-3)" 1 3 0.15
+  , MkCurrStage "Stage 2 (len 1-5)" 1 5 0.10
+  , MkCurrStage "Stage 3 (len 1-8)" 1 8 0.0
+  ]
+
+minDelta : Double
+minDelta = 0.0001
+
+||| Run a chunk of training epochs with fixed data (pure)
+runChunk : (Double -> Optimizer) -> Schedule ->
+           Network W [W] W Variable ->
+           Vect BatchSize (RecurrentDataPoint W W Variable) ->
+           Nat -> Nat -> OptimizerState -> Double -> Nat ->
+           (Network W [W] W Variable, OptimizerState, Double, Nat)
+runChunk _ _ m _ Z _ s lastLoss sc = (m, s, lastLoss, sc)
+runChunk mk sched m ds (S k) ep s bl sc =
+  let lr = sched ep
+      opt = mk lr
+      (m', s', loss) = epochRecurrent opt ds nllLoss m s
+      improved = loss < bl - minDelta
+      bl' = if improved then loss else bl
+      sc' : Nat
+      sc' = if improved then 0 else sc + 1
+  in runChunk mk sched m' ds k (ep + 1) s' bl' sc'
+
+||| Train one curriculum stage with periodic data regeneration
+trainStage : (Double -> Optimizer) -> Schedule ->
+             Network W [W] W Variable ->
+             Nat -> Nat -> Double ->
+             Nat -> Nat -> Nat ->
+             OptimizerState -> Double -> Nat ->
+             IO (Network W [W] W Variable, OptimizerState, Nat, Bool)
+trainStage _ _ model _ _ _ Z _ done st _ _ = pure (model, st, done, False)
+trainStage makeOpt schedule model mnLen mxLen thresh budget patience done st bestLoss staleCount = do
+  -- Generate fresh training data
+  batch <- randomBatchVect (copyTask {w=W}) BatchSize mnLen mxLen
+  let dps = map (map fromDouble) batch
+  let chunkSize = min 100 budget
+  -- Train the chunk
+  let (model', st', loss, staleCount') = runChunk makeOpt schedule model dps chunkSize done st bestLoss staleCount
+  putStrLn $ "  " ++ show (done + chunkSize) ++ ":\t" ++ show loss
+  let bestLoss' = min bestLoss loss
+  -- Check stage advancement
+  if thresh > 0.0 && loss < thresh
     then do
-      putStrLn $ "  Early stop at epoch " ++ show (done + 100) ++ " (patience=" ++ show patience ++ ")"
-      pure (model', st', done + 100)
-    else if loss /= loss  -- NaN check
+      putStrLn $ "  -> Advancing (loss " ++ show loss ++ " < " ++ show thresh ++ ")"
+      pure (model', st', done + chunkSize, True)
+    else if patience > 0 && staleCount' >= patience
     then do
-      putStrLn $ "  Diverged (NaN) at epoch " ++ show (done + 100)
-      pure (model', st', done + 100)
-    else trainReport makeOpt schedule model' dps chunks patience (done + 100) st' bestLoss' staleCount'
-  where
-    minDelta : Double
-    minDelta = 0.0001
-    runChunk : (Double -> Optimizer) -> Schedule ->
-               Network W [W] W Variable ->
-               Vect E (RecurrentDataPoint W W Variable) ->
-               Nat -> Nat -> OptimizerState -> Double -> Nat ->
-               (Network W [W] W Variable, OptimizerState, Double, Nat)
-    runChunk _ _ m _ Z _ s lastLoss sc = (m, s, lastLoss, sc)
-    runChunk mk sched m ds (S k) ep s bl sc =
-      let lr = sched ep
-          opt = mk lr
-          (m', s', loss) = epochRecurrent opt ds nllLoss m s
-          improved = loss < bl - minDelta
-          bl' = if improved then loss else bl
-          sc' : Nat
-          sc' = if improved then 0 else sc + 1
-      in runChunk mk sched m' ds k (ep + 1) s' bl' sc'
+      putStrLn $ "  Early stop at epoch " ++ show (done + chunkSize) ++ " (patience=" ++ show patience ++ ")"
+      pure (model', st', done + chunkSize, False)
+    else if loss /= loss
+    then do
+      putStrLn $ "  Diverged (NaN) at epoch " ++ show (done + chunkSize)
+      pure (model', st', done + chunkSize, False)
+    else trainStage makeOpt schedule model' mnLen mxLen thresh (minus budget chunkSize) patience (done + chunkSize) st' bestLoss' staleCount'
+
+||| Run all curriculum stages sequentially
+runCurriculum : (Double -> Optimizer) -> Schedule ->
+                Network W [W] W Variable ->
+                List CurrStage ->
+                Nat -> Nat -> Nat ->
+                OptimizerState ->
+                IO (Network W [W] W Variable, OptimizerState, Nat)
+runCurriculum _ _ model [] _ _ done st = pure (model, st, done)
+runCurriculum makeOpt schedule model (stage :: stages) budget patience done st = do
+  putStrLn $ "\n" ++ stage.label
+  (model', st', done', advanced) <- trainStage makeOpt schedule model
+    stage.minLen stage.maxLen stage.threshold
+    budget patience done st (1.0/0.0) 0
+  let remaining = minus budget (minus done' done)
+  if advanced && remaining > 0
+    then runCurriculum makeOpt schedule model' stages remaining patience done' st'
+    else pure (model', st', done')
 
 
 ----------------------------------------------------------------------
@@ -190,7 +178,7 @@ record Config where
   diagnoseVerbose : Bool
 
 defaultConfig : Config
-defaultConfig = MkConfig 0.001 5.0 0.9 0.999 (pow 10 (-8)) 10.0 6000 200 123456 False False
+defaultConfig = MkConfig 0.001 50.0 0.9 0.999 (pow 10 (-8)) 10.0 6000 200 123456 False False
 
 parseConfig : List String -> Config
 parseConfig args = go args defaultConfig
@@ -222,7 +210,7 @@ main = do
 
   srand cfg.seed
 
-  putStrLn "=== NTM Copy Task ==="
+  putStrLn "=== NTM Copy Task (Curriculum) ==="
   putStrLn $ "Config: lr=" ++ show cfg.lr
            ++ " maxNorm=" ++ show cfg.maxNorm
            ++ " beta1=" ++ show cfg.beta1
@@ -244,50 +232,32 @@ main = do
   printLn model
   putStrLn ""
 
-  -- Prepare data
-  let dataPoints = map (map fromDouble) rawData
-  let testPoints = map (map fromDouble) rawTestData
-  let targets = map (map argmax . ys) dataPoints
-  let testTargets = map (map argmax . ys) testPoints
-  putStr "Targets:\t"
-  putStrLn $ showSequences targets
-  putStr "Test targets:\t"
-  putStrLn $ showSequences testTargets
-
-  -- Pre-training evaluation
-  let loss = calculateLossRecurrent nllLoss model dataPoints
-  putStr "Pre loss:\t"
-  printLn $ value loss
-  putStr "Predictions:\t"
-  putStrLn $ showSequences $ decodeOutput $ evaluateRecurrent model dataPoints
-  putStrLn ""
-
-  -- One-cycle training
+  -- Curriculum training
   let makeOpt = \lr => adamGlobalClip lr cfg.beta1 cfg.beta2 cfg.eps cfg.maxNorm
   let schedule = oneCycle cfg.lr 25.0 cfg.divFinal 0.25 cfg.epochs
-  let chunks = cfg.epochs `div` 100
-  putStrLn $ "Training (one-cycle, lrMax=" ++ show cfg.lr ++ ")..."
-  (trained, finalSt, epochsDone) <- trainReport makeOpt schedule model dataPoints chunks cfg.patience 0 initState (1.0/0.0) 0
+  putStrLn "Training (curriculum + one-cycle)..."
+  (trained, finalSt, epochsDone) <- runCurriculum makeOpt schedule model
+    curriculumStages cfg.epochs cfg.patience 0 initState
 
   putStrLn ""
 
-  -- Final evaluation
-  let trainPreds = decodeOutput $ evaluateRecurrent trained dataPoints
-  let testPreds = decodeOutput $ evaluateRecurrent trained testPoints
-  let trainAcc = accuracy trainPreds targets
-  let testAcc = accuracy testPreds testTargets
+  -- Final evaluation on fresh random data
+  shortBatch <- randomBatchVect (copyTask {w=W}) TestSize 1 3
+  fullBatch <- randomBatchVect (copyTask {w=W}) TestSize 1 8
+  let shortPts = map (map fromDouble) shortBatch
+  let fullPts = map (map fromDouble) fullBatch
+  let shortTargets = map (\dp => map argmax (ys dp)) shortPts
+  let fullTargets = map (\dp => map argmax (ys dp)) fullPts
+  let shortPreds = decodeOutput $ evaluateRecurrent trained shortPts
+  let fullPreds = decodeOutput $ evaluateRecurrent trained fullPts
+  let shortAcc = accuracy shortPreds shortTargets
+  let fullAcc = accuracy fullPreds fullTargets
 
-  putStrLn "Train predictions:"
-  putStr "  Predictions:\t"
-  putStrLn $ showSequences trainPreds
-  putStr "  Accuracy:\t"
-  putStrLn $ show trainAcc
-
-  putStrLn "Test eval:"
-  putStr "  Predictions:\t"
-  putStrLn $ showSequences testPreds
-  putStr "  Accuracy:\t"
-  putStrLn $ show testAcc
+  putStrLn "Eval (random sequences):"
+  putStr "  Short (len 1-3):\t"
+  putStrLn $ show shortAcc
+  putStr "  Full (len 1-8):\t"
+  putStrLn $ show fullAcc
 
   -- Diagnostics
   when cfg.diagnose $ do
@@ -295,8 +265,9 @@ main = do
     putStrLn ""
     putStrLn "=== NTM Diagnostic Analysis ==="
 
-    let diagnoseOne : List (Vector W Double) -> String -> IO (Maybe NtmSummary)
-        diagnoseOne inputs label = do
+    let diagnoseOne : RecurrentDataPoint W W Double -> String -> IO (Maybe NtmSummary)
+        diagnoseOne dp label = do
+          let inputs = xs dp
           let sl = length inputs `div` 2
           let (_, _, snaps) = debugForwardRecurrent dblModel inputs
           case computeSummary sl snaps of
@@ -309,37 +280,39 @@ main = do
               putStrLn ""
               pure (Just s)
 
-    -- Training sequences (short/medium/long)
-    putStrLn "--- Training Sequences ---"
-    s0 <- diagnoseOne (xs (index 0 rawData)) "Train[0] (len=3)"
-    s5 <- diagnoseOne (xs (index 5 rawData)) "Train[5] (len=6)"
-    s12 <- diagnoseOne (xs (index 12 rawData)) "Train[12] (len=8)"
+    -- Short sequences
+    putStrLn "--- Short Sequences ---"
+    d3 <- (copyTask {w=W}).generatePoint 3
+    d5 <- (copyTask {w=W}).generatePoint 5
+    s0 <- diagnoseOne d3 "Diag (len=3)"
+    s1 <- diagnoseOne d5 "Diag (len=5)"
 
-    -- Test sequences (all 5)
-    putStrLn "--- Test Sequences ---"
-    t0 <- diagnoseOne (xs (index 0 rawTestData)) "Test[0] (len=8)"
-    t1 <- diagnoseOne (xs (index 1 rawTestData)) "Test[1] (len=8)"
-    t2 <- diagnoseOne (xs (index 2 rawTestData)) "Test[2] (len=6)"
-    t3 <- diagnoseOne (xs (index 3 rawTestData)) "Test[3] (len=7)"
-    t4 <- diagnoseOne (xs (index 4 rawTestData)) "Test[4] (len=8)"
+    -- Long sequences
+    putStrLn "--- Long Sequences ---"
+    d8a <- (copyTask {w=W}).generatePoint 8
+    d8b <- (copyTask {w=W}).generatePoint 8
+    d8c <- (copyTask {w=W}).generatePoint 8
+    t0 <- diagnoseOne d8a "Diag (len=8, a)"
+    t1 <- diagnoseOne d8b "Diag (len=8, b)"
+    t2 <- diagnoseOne d8c "Diag (len=8, c)"
 
-    -- Verbose raw dumps (first train + first test)
+    -- Verbose raw dumps
     when cfg.diagnoseVerbose $ do
-      putStrLn "--- Verbose: Train[0] ---"
-      let (_, _, snaps0) = debugForwardRecurrent dblModel (xs (index 0 rawData))
-      printDiagnostics "Train[0]" snaps0
+      putStrLn "--- Verbose: Short ---"
+      let (_, _, snaps0) = debugForwardRecurrent dblModel (xs d3)
+      printDiagnostics "Short" snaps0
       putStrLn ""
-      putStrLn "--- Verbose: Test[0] ---"
-      let (_, _, snapsT0) = debugForwardRecurrent dblModel (xs (index 0 rawTestData))
-      printDiagnostics "Test[0]" snapsT0
+      putStrLn "--- Verbose: Long ---"
+      let (_, _, snapsL) = debugForwardRecurrent dblModel (xs d8a)
+      printDiagnostics "Long" snapsL
 
     -- Aggregate comparison
-    let trainSums = mapMaybe id [s0, s5, s12]
-    let testSums = mapMaybe id [t0, t1, t2, t3, t4]
-    case (avgSummaries trainSums, avgSummaries testSums) of
-      (Just avgTrain, Just avgTest) => do
+    let shortSums = mapMaybe id [s0, s1]
+    let longSums = mapMaybe id [t0, t1, t2]
+    case (avgSummaries shortSums, avgSummaries longSums) of
+      (Just avgShort, Just avgLong) => do
         putStrLn ""
-        printComparison avgTrain avgTest
+        printComparison avgShort avgLong
       _ => putStrLn "\n  Insufficient data for comparison"
 
   -- Machine-readable result line for sweep script
@@ -353,5 +326,5 @@ main = do
            ++ show epochsDone ++ "\t"
            ++ show cfg.seed ++ "\t"
            ++ show H ++ "\t"
-           ++ show trainAcc ++ "\t"
-           ++ show testAcc
+           ++ show shortAcc ++ "\t"
+           ++ show fullAcc
