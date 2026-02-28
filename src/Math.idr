@@ -18,6 +18,10 @@ export
 sigmoid : (FromDouble ty, Neg ty, Fractional ty, Floating ty) => ActivationFunction ty
 sigmoid x = 1.0 / (1.0 + exp (-x))
 
+export
+tanh : (FromDouble ty, Neg ty, Fractional ty, Floating ty) => ActivationFunction ty
+tanh x = 2.0 * sigmoid (2.0 * x) - 1.0
+
 ----------------------------------------------------------------------
 -- Normalization Functions
 ----------------------------------------------------------------------

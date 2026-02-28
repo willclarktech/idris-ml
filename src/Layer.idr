@@ -418,6 +418,10 @@ sigmoidLayer : (FromDouble ty, Neg ty, Fractional ty, Floating ty) => Layer n n 
 sigmoidLayer = ActivationLayer "sigmoid" sigmoid
 
 export
+tanhLayer : (FromDouble ty, Neg ty, Fractional ty, Floating ty) => Layer n n ty
+tanhLayer = ActivationLayer "tanh" Math.tanh
+
+export
 softmaxLayer : (Fractional ty, Floating ty) => Layer n n ty
 softmaxLayer = NormalizationLayer "softmax" softmax
 
