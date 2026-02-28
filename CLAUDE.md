@@ -247,6 +247,16 @@ printDiagnostics "label" snapshots
 | State | Not carried between examples | Accumulated within a sequence, reset between sequences |
 | Loss fn | `crossEntropy`, `meanSquaredError` | `nllLoss`, `binaryCrossEntropyWithLogits`, `crossEntropy` |
 
+## Adding New Examples
+
+When adding a new model/example to the project, follow this workflow in order:
+
+1. **Source reference implementation** — find a paper or established implementation to use as ground truth for architecture, hyperparameters, and expected convergence behavior. Add to the References section above
+2. **Write PyTorch implementation** — port the reference into `bench/bench/models/`, add correctness tests in `bench/bench/correctness/`, add a benchmark function in `bench/bench/benchmark.py`, and wire it into `bench/bench/compare.py`. Verify with `make bench-test && make bench-lint && make bench-typecheck`
+3. **Write idris-ml implementation** — implement in `src/Example/`, add to `src/Example/Bench.idr`, and add a Makefile target. Verify with `make test && make bench-compare`
+
+Commit at each step. The PyTorch implementation serves as the correctness oracle for the Idris version.
+
 ## Conventions
 
 - **Indentation**: 2 spaces for `.idr` files (see `.editorconfig`)
