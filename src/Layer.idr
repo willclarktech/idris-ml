@@ -259,7 +259,8 @@ mutual
   applyLayerVar layer@(NormalizationLayer _ f) xs = (layer, f xs)
   applyLayerVar {i} (NtmLayer {n} {hs} controller memory readHead writeHead readHeadOutput) inp =
     let
-      (newController, controllerOutput) = forwardVar controller (readHeadOutput ++ inp)
+      (newController, rawControllerOutput) = forwardVar controller (readHeadOutput ++ inp)
+      controllerOutput = map (clampVar (-20.0) 20.0) rawControllerOutput
       (readHeadInput, controllerOutput') = Tensor.splitAt (ReadHeadInputWidth n i) controllerOutput
       (writeHeadInput, networkOutput) = Tensor.splitAt (WriteHeadInputWidth n i) controllerOutput'
       (newReadHead, newReadHeadOutput) = forwardReadHeadVar memory readHead readHeadInput
@@ -408,10 +409,10 @@ rnnLayer : {i, o : Nat} -> (Random ty, FromDouble ty, Neg ty) => IO (Layer i o t
 rnnLayer = rnnLayerWith xavierInit
 
 export
-ntmLayer : {n, w : Nat} -> {hs : List Nat} -> (Random ty, FromDouble ty, Neg ty, Num ty) =>
+ntmLayer : {n, w : Nat} -> {hs : List Nat} -> (FromDouble ty, Num ty) =>
            Network (NtmInputWidth w) hs (NtmOutputWidth n w) ty -> IO (Layer w w ty)
 ntmLayer controller = do
-  memory <- the (IO (Matrix n w ty)) $ randomRIO (-0.1, 0.1)
+  let memory = the (Matrix n w ty) (pure (fromDouble 1.0e-6))
   let readHead = the (ReadHead n ty) initReadHead
   let writeHead = the (WriteHead n ty) initWriteHead
   let readHeadOutput = zeros
