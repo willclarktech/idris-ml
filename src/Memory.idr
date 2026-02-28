@@ -3,11 +3,23 @@
 ||| w is the width of each entry
 module Memory
 
+import Data.Fin
 import Data.Vect
 
 import Floating
 import Math
 import Tensor
+
+
+----------------------------------------------------------------------
+-- Shift Kernel Size
+----------------------------------------------------------------------
+
+||| Decouples shift kernel size from number of memory slots.
+||| 3 elements: {shift_left, stay, shift_right}
+public export
+ShiftKernelSize : Nat
+ShiftKernelSize = 3
 
 
 ----------------------------------------------------------------------
@@ -20,8 +32,9 @@ record ReadHead n ty where
   addressingWeights : Vector n ty
 
 export
-initReadHead : (Num ty) => {n: Nat} -> ReadHead n ty
-initReadHead = MkReadHead zeros
+initReadHead : (Num ty) => {n : Nat} -> ReadHead n ty
+initReadHead {n = Z} = MkReadHead (VTensor [])
+initReadHead {n = S k} = MkReadHead $ VTensor $ replaceAt FZ (STensor 1) (replicate (S k) (STensor 0))
 
 public export
 Functor (ReadHead n) where
@@ -47,12 +60,15 @@ cycleForward {n = (S k)} i xs =
   let indices = map (i+) (Data.Vect.allFins (S k))
   in Data.Vect.permute xs indices
 
-shift : (Floating ty, Fractional ty) => {n : Nat} -> Vector n ty -> Vector n ty -> Vector n ty
-shift addressingWeights shiftVector =
-  let
-      (VTensor probabilities) = softmax shiftVector
-      shifted = map (\i => cycleForward i probabilities) (Data.Vect.allFins n)
-   in VTensor $ map (STensor . (dotProduct addressingWeights)) (map VTensor shifted)
+shift : (Floating ty, Fractional ty) => {n : Nat} -> Vector n ty -> Vector ShiftKernelSize ty -> Vector n ty
+shift {n = Z} aw _ = aw
+shift {n = S Z} aw _ = aw
+shift {n = S (S k)} aw kernel =
+  let (VTensor [STensor sl, STensor ss, STensor sr]) = softmax kernel
+      (VTensor ws) = aw
+      fwdV = VTensor (cycleForward 1 ws)
+      bwdV = VTensor (cycleForward Fin.last ws)
+  in map (sl *) fwdV + map (ss *) aw + map (sr *) bwdV
 
 focus : (Floating ty, Fractional ty, Num ty) => {n : Nat} -> ty -> Vector n ty -> Vector n ty
 focus gamma addressingWeights =
@@ -68,12 +84,12 @@ readOp rh (VTensor memoryRows) =
     weightedRows = zipWith (\(STensor weight), row => map (*weight) row) addressingWeights memoryRows
   in sum weightedRows
 
-||| Input is key vector (w) + shift vector (n) + params (3: beta, g, gamma)
+||| Input is key vector (w) + shift vector (ShiftKernelSize) + params (3: beta, g, gamma)
 export
-forwardReadHead : (Floating ty, Fractional ty, Neg ty, Ord ty) => {n, w : Nat} -> Matrix n w ty -> ReadHead n ty -> Vector ((w + n) + 3) ty -> (ReadHead n ty, Vector w ty)
+forwardReadHead : (Floating ty, Fractional ty, Neg ty, Ord ty) => {n, w : Nat} -> Matrix n w ty -> ReadHead n ty -> Vector ((w + ShiftKernelSize) + 3) ty -> (ReadHead n ty, Vector w ty)
 forwardReadHead memory rh inp =
   let
-    (mainInput, params) = splitAt (w + n) inp
+    (mainInput, params) = splitAt (w + ShiftKernelSize) inp
     (keyVector, shiftVector) = splitAt w mainInput
     (betaVec, params') = splitAt 1 params
     (gVec, gammaVec) = splitAt 1 params'
@@ -122,13 +138,13 @@ writeOp (MkWriteHead rh) memory eraseVector addVector =
     newMemory = addMemory erased rh.addressingWeights addVector
   in newMemory
 
-||| Input is Read head input ((w + n) + 3) + erase vector (w) + add vector (w)
+||| Input is Read head input ((w + ShiftKernelSize) + 3) + erase vector (w) + add vector (w)
 export
-forwardWriteHead : (Floating ty, Fractional ty, Neg ty, Ord ty) => {n, w : Nat} -> Matrix n w ty -> WriteHead n ty -> Vector ((w + n) + 3 + w + w) ty -> (WriteHead n ty, Matrix n w ty)
+forwardWriteHead : (Floating ty, Fractional ty, Neg ty, Ord ty) => {n, w : Nat} -> Matrix n w ty -> WriteHead n ty -> Vector ((w + ShiftKernelSize) + 3 + w + w) ty -> (WriteHead n ty, Matrix n w ty)
 forwardWriteHead memory (MkWriteHead readHead) inp =
   let
-    inp' = rewrite plusAssociative ((w + n) + 3) w w in inp
-    (readHeadInput, remainingInput) = Tensor.splitAt ((w + n) + 3) inp'
+    inp' = rewrite plusAssociative ((w + ShiftKernelSize) + 3) w w in inp
+    (readHeadInput, remainingInput) = Tensor.splitAt ((w + ShiftKernelSize) + 3) inp'
     (rawErase, rawAdd) = splitAt w remainingInput
     eraseVector = map sig rawErase
     addVector = map (\x => 2 * sig (2 * x) - 1) rawAdd

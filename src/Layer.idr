@@ -1,5 +1,6 @@
 module Layer
 
+import Data.Fin
 import Data.List
 import Data.Vect
 import Data.Zippable
@@ -25,10 +26,10 @@ public export
 NtmInputWidth : Nat -> Nat
 NtmInputWidth w = w + w
 
-||| Key vector + shift vector + params (beta, g, gamma)
+||| Key vector + shift vector (ShiftKernelSize) + params (beta, g, gamma)
 public export
 ReadHeadInputWidth : Nat -> Nat -> Nat
-ReadHeadInputWidth n w = (w + n) + 3
+ReadHeadInputWidth _ w = (w + ShiftKernelSize) + 3
 
 ||| Read head input + erase vector + add vector
 public export
@@ -152,17 +153,20 @@ mutual
 getContentAddressVar : {n, w : Nat} -> Variable -> Matrix n w Variable -> Vector w Variable -> Vector n Variable
 getContentAddressVar beta (VTensor memory) keyVector = softmaxVar $ map (* beta) $ VTensor $ map (STensor . (cosineSimilarity keyVector)) memory
 
-shiftVar : {n : Nat} -> Vector n Variable -> Vector n Variable -> Vector n Variable
-shiftVar addressingWeights shiftVector =
-  let
-    (VTensor probabilities) = softmaxVar shiftVector
-    shifted = map (\i => cycleForward i probabilities) (Data.Vect.allFins n)
-  in VTensor $ map (STensor . (dotProduct addressingWeights)) (map VTensor shifted)
+shiftVar : {n : Nat} -> Vector n Variable -> Vector ShiftKernelSize Variable -> Vector n Variable
+shiftVar {n = Z} aw _ = aw
+shiftVar {n = S Z} aw _ = aw
+shiftVar {n = S (S k)} aw kernel =
+  let (VTensor [STensor sl, STensor ss, STensor sr]) = softmaxVar kernel
+      (VTensor ws) = aw
+      fwdV = VTensor (cycleForward 1 ws)
+      bwdV = VTensor (cycleForward Fin.last ws)
+  in map (sl *) fwdV + map (ss *) aw + map (sr *) bwdV
 
-forwardReadHeadVar : {n, w : Nat} -> Matrix n w Variable -> ReadHead n Variable -> Vector ((w + n) + 3) Variable -> (ReadHead n Variable, Vector w Variable)
+forwardReadHeadVar : {n, w : Nat} -> Matrix n w Variable -> ReadHead n Variable -> Vector ((w + ShiftKernelSize) + 3) Variable -> (ReadHead n Variable, Vector w Variable)
 forwardReadHeadVar memory rh inp =
   let
-    (mainInput, params) = splitAt (w + n) inp
+    (mainInput, params) = splitAt (w + ShiftKernelSize) inp
     (keyVector, shiftVector) = splitAt w mainInput
     (betaVec, params') = splitAt 1 params
     (gVec, gammaVec) = splitAt 1 params'
@@ -194,11 +198,11 @@ forwardReadHeadVar memory rh inp =
           weightedRows = zipWith (\(STensor weight), row => map (*weight) row) aw memoryRows
       in sum weightedRows
 
-forwardWriteHeadVar : {n, w : Nat} -> Matrix n w Variable -> WriteHead n Variable -> Vector ((w + n) + 3 + w + w) Variable -> (WriteHead n Variable, Matrix n w Variable)
+forwardWriteHeadVar : {n, w : Nat} -> Matrix n w Variable -> WriteHead n Variable -> Vector ((w + ShiftKernelSize) + 3 + w + w) Variable -> (WriteHead n Variable, Matrix n w Variable)
 forwardWriteHeadVar memory (MkWriteHead readHead) inp =
   let
-    inp' = rewrite plusAssociative ((w + n) + 3) w w in inp
-    (readHeadInput, remainingInput) = Tensor.splitAt ((w + n) + 3) inp'
+    inp' = rewrite plusAssociative ((w + ShiftKernelSize) + 3) w w in inp
+    (readHeadInput, remainingInput) = Tensor.splitAt ((w + ShiftKernelSize) + 3) inp'
     (rawErase, rawAdd) = splitAt w remainingInput
     eraseVector = map sig rawErase
     addVector = map (\x => 2 * sig (2 * x) - 1) rawAdd
@@ -407,9 +411,9 @@ export
 ntmLayer : {n, w : Nat} -> {hs : List Nat} -> (Random ty, FromDouble ty, Neg ty, Num ty) =>
            Network (NtmInputWidth w) hs (NtmOutputWidth n w) ty -> IO (Layer w w ty)
 ntmLayer controller = do
-  memory <- randomRIO (-0.1, 0.1)
-  let readHead = initReadHead
-  let writeHead = initWriteHead
+  memory <- the (IO (Matrix n w ty)) $ randomRIO (-0.1, 0.1)
+  let readHead = the (ReadHead n ty) initReadHead
+  let writeHead = the (WriteHead n ty) initWriteHead
   let readHeadOutput = zeros
   pure $ NtmLayer controller memory readHead writeHead readHeadOutput
 

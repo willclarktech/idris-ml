@@ -92,16 +92,16 @@ softplusD x = log (1.0 + exp x)
 
 ||| Split write head input into its component parameters.
 ||| Needs an explicit type signature so the plusAssociative rewrite works.
-splitWriteInput : {n, w : Nat}
-               -> Vector (((w + n) + 3) + w + w) Double
-               -> ( Vector w Double, Vector n Double
+splitWriteInput : {w : Nat}
+               -> Vector (((w + ShiftKernelSize) + 3) + w + w) Double
+               -> ( Vector w Double, Vector ShiftKernelSize Double
                   , Vector 1 Double, Vector 1 Double, Vector 1 Double
                   , Vector w Double, Vector w Double )
-splitWriteInput {n} {w} inp =
-  let inp' = rewrite plusAssociative ((w + n) + 3) w w in inp
-      (rhInput, remaining) = Tensor.splitAt ((w + n) + 3) inp'
+splitWriteInput {w} inp =
+  let inp' = rewrite plusAssociative ((w + ShiftKernelSize) + 3) w w in inp
+      (rhInput, remaining) = Tensor.splitAt ((w + ShiftKernelSize) + 3) inp'
       (rawErase, rawAdd) = splitAt w remaining
-      (mainInput, prms) = splitAt (w + n) rhInput
+      (mainInput, prms) = splitAt (w + ShiftKernelSize) rhInput
       (key, shft) = splitAt w mainInput
       (betaRaw, prms') = splitAt 1 prms
       (gRaw, gammaRaw) = splitAt 1 prms'
@@ -173,7 +173,7 @@ debugApplyLayer {i} (NtmLayer {n} {hs} controller memory readHead writeHead read
     (writeHeadInput, networkOutput) = Tensor.splitAt (WriteHeadInputWidth n i) controllerOutput'
 
     -- Extract read head parameters
-    (rMainInput, rPrms) = splitAt (i + n) readHeadInput
+    (rMainInput, rPrms) = splitAt (i + ShiftKernelSize) readHeadInput
     (rKey, rShift) = splitAt i rMainInput
     (rBetaRaw, rPrms2) = splitAt 1 rPrms
     (rGRaw, rGammaRaw) = splitAt 1 rPrms2
