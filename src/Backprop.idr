@@ -28,7 +28,7 @@ epoch :
   OptimizerState ->
   (Network i hs o Variable, OptimizerState)
 epoch opt dataPoints lossFn model st =
-  let loss = calculateLoss lossFn model dataPoints
+  let loss = calculateLossVar lossFn model dataPoints
       grads = collectGrads 1.0 loss
       (deltas, st') = opt.step grads st
   in (emap (applyDeltas deltas) model, st')
@@ -75,7 +75,7 @@ epochRecurrent :
   OptimizerState ->
   (Network i hs o Variable, OptimizerState)
 epochRecurrent opt dataPoints lossFn model st =
-  let loss = calculateLossRecurrent lossFn model dataPoints
+  let loss = calculateLossRecurrentVar lossFn model dataPoints
       grads = collectGrads 1.0 loss
       (deltas, st') = opt.step grads st
   in (emap (applyDeltas deltas) model, st')

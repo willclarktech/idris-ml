@@ -145,6 +145,82 @@ mutual
 
 
 ----------------------------------------------------------------------
+-- Variable-specialized Forward Pass (C-backed matvec/dot)
+----------------------------------------------------------------------
+
+mutual
+  export
+  applyLayerVar : {i, o : Nat} -> Layer i o Variable -> Vector i Variable -> (Layer i o Variable, Vector o Variable)
+  applyLayerVar layer@(LinearLayer weights bias) xs =
+    (layer, matrixVectorMultiplyVar {m=o, n=i} weights xs + bias)
+  applyLayerVar (RnnLayer inputWeights recurrentWeights bias previousOutput) xs =
+    let
+      output = matrixVectorMultiplyVar inputWeights xs + matrixVectorMultiplyVar recurrentWeights previousOutput + bias
+      updatedLayer = RnnLayer inputWeights recurrentWeights bias output
+    in (updatedLayer, output)
+  applyLayerVar layer@(ActivationLayer _ f) xs = (layer, map f xs)
+  applyLayerVar layer@(NormalizationLayer _ f) xs = (layer, f xs)
+  applyLayerVar {i} (NtmLayer {n} {hs} controller memory readHead writeHead readHeadOutput) inp =
+    let
+      (newController, controllerOutput) = forwardVar controller (readHeadOutput ++ inp)
+      (readHeadInput, controllerOutput') = Tensor.splitAt (ReadHeadInputWidth n i) controllerOutput
+      (writeHeadInput, networkOutput) = Tensor.splitAt (WriteHeadInputWidth n i) controllerOutput'
+      (newReadHead, newReadHeadOutput) = forwardReadHead memory readHead readHeadInput
+      (newWriteHead, newMemory) = forwardWriteHead memory writeHead writeHeadInput
+      newLayer = NtmLayer newController newMemory newReadHead newWriteHead newReadHeadOutput
+    in (newLayer, networkOutput)
+
+  export
+  forwardVar : {i, o : Nat} -> {hs : List Nat} -> Network i hs o Variable -> Vector i Variable -> (Network i hs o Variable, Vector o Variable)
+  forwardVar (OutputLayer layer) x =
+    let (updatedLayer, output) = applyLayerVar layer x
+    in (OutputLayer updatedLayer, output)
+  forwardVar {hs = h :: _} (layer ~> layers) x =
+    let
+      (updatedLayer, layerOutput) = applyLayerVar layer x
+      (updatedNetwork, networkOutput) = forwardVar layers layerOutput
+    in (updatedLayer ~> updatedNetwork, networkOutput)
+
+forwardNextVar : {i, o : Nat} -> {hs : List Nat} -> (Network i hs o Variable, Vect n (Vector o Variable)) -> Vector i Variable -> (Network i hs o Variable, Vect (S n) (Vector o Variable))
+forwardNextVar (nn, outputs) inp =
+  let (updatedModel, newOutput) = forwardVar nn inp
+  in (updatedModel, snoc outputs newOutput)
+
+forwardManyVar : {i, o : Nat} -> {hs : List Nat} -> Network i hs o Variable -> Vect n (Vector i Variable) -> (Network i hs o Variable, Vect n (Vector o Variable))
+forwardManyVar network xs = foldlD (\k => (Network i hs o Variable, Vect k (Vector o Variable))) forwardNextVar (network, []) xs
+
+export
+calculateLossVar : {i, o, n : Nat} -> {hs : List Nat} -> LossFunction Variable -> Network i hs o Variable -> Vect n (DataPoint i o Variable) -> Variable
+calculateLossVar lossFn model dataPoints =
+  let
+    xs = map x dataPoints
+    ys = map y dataPoints
+    (updatedNetwork, predictions) = forwardManyVar model xs
+    losses = zipWith lossFn predictions ys
+  in mean $ VTensor $ map STensor losses
+
+recurVar : {i, o : Nat} -> {hs : List Nat} -> (Network i hs o Variable, List (Vector o Variable)) -> Vector i Variable -> (Network i hs o Variable, List (Vector o Variable))
+recurVar (m, os) inp =
+  let (updatedModel, output) = forwardVar m inp
+  in (updatedModel, snoc os output)
+
+export
+forwardRecurrentVar : {i, o : Nat} -> {hs : List Nat} -> Network i hs o Variable -> List (Vector i Variable) -> (Network i hs o Variable, List (Vector o Variable))
+forwardRecurrentVar model = foldl recurVar (model, [])
+
+export
+calculateLossRecurrentVar : {i, o, n : Nat} -> {hs : List Nat} -> LossFunction Variable -> Network i hs o Variable -> Vect n (RecurrentDataPoint i o Variable) -> Variable
+calculateLossRecurrentVar lossFn model dataPoints =
+  let
+    perSequence : RecurrentDataPoint i o Variable -> List Variable
+    perSequence dp =
+      let (_, preds) = forwardRecurrentVar model (xs dp)
+      in zipWith lossFn preds (ys dp)
+    losses = map perSequence dataPoints
+  in mean . VTensor $ map (STensor . mean) losses
+
+
+----------------------------------------------------------------------
 -- Evaluation Functions
 ----------------------------------------------------------------------
 

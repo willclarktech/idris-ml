@@ -163,6 +163,91 @@ DotMeta *dot_meta_alloc(int n) {
 
 
 /* -------------------------------------------------------------------
+   Gradient array (C-backed for use with tensor backward)
+   ------------------------------------------------------------------- */
+
+double *grad_alloc(int n) {
+  return (double *)calloc(n, sizeof(double));
+}
+
+void grad_free(double *p) {
+  free(p);
+}
+
+double grad_get(double *p, int i) {
+  return p[i];
+}
+
+/* Returns p for handle threading in Idris FFI */
+double *grad_add(double *p, int i, double v) {
+  p[i] += v;
+  return p;
+}
+
+
+/* -------------------------------------------------------------------
+   Metadata packing (called from Idris during forward pass)
+   ------------------------------------------------------------------- */
+
+/* Pack one weight element into meta. Returns meta for threading. */
+void *matvec_meta_pack_w(void *meta_ptr, int idx, double val, int tape_idx) {
+  MatVecMeta *m = (MatVecMeta *)meta_ptr;
+  m->w_vals[idx] = val;
+  m->w_tape_idx[idx] = tape_idx;
+  return meta_ptr;
+}
+
+/* Pack one input element into meta. Returns meta for threading. */
+void *matvec_meta_pack_x(void *meta_ptr, int idx, double val, int tape_idx) {
+  MatVecMeta *m = (MatVecMeta *)meta_ptr;
+  m->x_vals[idx] = val;
+  m->x_tape_idx[idx] = tape_idx;
+  return meta_ptr;
+}
+
+/* Set the tape index where this op's output ConstOps start. */
+void *matvec_meta_set_out(void *meta_ptr, int start) {
+  ((MatVecMeta *)meta_ptr)->out_tape_start = start;
+  return meta_ptr;
+}
+
+/* Run forward matmul using values packed in meta. */
+void *matvec_meta_compute(void *meta_ptr, double *out) {
+  MatVecMeta *m = (MatVecMeta *)meta_ptr;
+  tensor_matvec(m->w_vals, m->x_vals, out, m->m, m->n);
+  return out;
+}
+
+/* Pack one element of vector a into dot meta. */
+void *dot_meta_pack_a(void *meta_ptr, int idx, double val, int tape_idx) {
+  DotMeta *m = (DotMeta *)meta_ptr;
+  m->a_vals[idx] = val;
+  m->a_tape_idx[idx] = tape_idx;
+  return meta_ptr;
+}
+
+/* Pack one element of vector b into dot meta. */
+void *dot_meta_pack_b(void *meta_ptr, int idx, double val, int tape_idx) {
+  DotMeta *m = (DotMeta *)meta_ptr;
+  m->b_vals[idx] = val;
+  m->b_tape_idx[idx] = tape_idx;
+  return meta_ptr;
+}
+
+/* Set the output tape index for dot product. */
+void *dot_meta_set_out(void *meta_ptr, int out_idx) {
+  ((DotMeta *)meta_ptr)->out_tape_idx = out_idx;
+  return meta_ptr;
+}
+
+/* Run forward dot product using values packed in meta. */
+double dot_meta_compute(void *meta_ptr) {
+  DotMeta *m = (DotMeta *)meta_ptr;
+  return tensor_dot(m->a_vals, m->b_vals, m->n);
+}
+
+
+/* -------------------------------------------------------------------
    Backward operations
    ------------------------------------------------------------------- */
 
