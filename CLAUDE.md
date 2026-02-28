@@ -25,7 +25,7 @@ idris2 --source-dir src -p contrib -o <name> src/Example/<Name>.idr
 # Run a built example
 ./build/exec/<name>
 
-# Run Idris unit tests (86 tests)
+# Run Idris unit tests (91 tests)
 make test
 
 # Run C library tests (76 tests)
@@ -74,7 +74,7 @@ bash scripts/sweep.sh --task recall --parallel 4 --quick
 8. **DataPoint** - `DataPoint` and `RecurrentDataPoint` records
 8b. **Generate** - Random data generation: `SequenceTask` port, `copyTask`/`associativeRecallTask` adapters, `randomBatchVect`
 9. **Endofunctor** - `emap : (ty -> ty) -> e ty -> e ty` for type-preserving maps
-10. **Layer** - Layer/Network types (mutually recursive), forward pass, constructors
+10. **Layer** - Layer/Network types (mutually recursive), forward pass, constructors, `autoName`
 11. **Optimizer** - SGD and Adam optimizers with per-parameter or global norm gradient clipping
 12. **Schedule** - Learning rate schedules: `constant`, `cosineAnnealing`, `oneCycle`
 13. **Backprop** - Training loop: `epoch`, `train`, `trainFrom`, `epochRecurrent`, `trainRecurrent`, `trainRecurrentFrom`, `trainScheduledFrom`, `trainRecurrentScheduledFrom`
@@ -164,11 +164,20 @@ let schedule = oneCycle 0.001 25.0 1e5 0.25 6000
 
 ### Parameter naming (required for gradient flow)
 
-Every learnable layer must be named before training:
+Every learnable layer must be named before training. Use `autoName` (preferred):
+
+```idris
+ll <- linearLayer
+let model = autoName $ ll ~> OutputLayer softmaxLayer  -- ll0_weight0, ll0_bias0, ...
+
+-- NTM: ntm0_ll0_weight0 (ctrl hidden), ntm0_ll1_weight0 (ctrl output), ntm0_mem0, ...
+let model = autoName $ ntm ~> OutputLayer logSoftmaxLayer
+```
+
+Manual naming is also available for custom prefixes:
 
 ```idris
 ll <- nameParams "ll" <$> linearLayer           -- names: ll_weight0, ll_bias0, ...
-rnn <- nameParams "rnn" <$> rnnLayer            -- names: rnn_inputWeight0, rnn_bias0, ...
 nameNetworkParams "ntm" $ ntm ~> OutputLayer logSoftmaxLayer  -- recursive naming
 ```
 
@@ -243,8 +252,8 @@ printDiagnostics "label" snapshots
 
 - **Build flags**: Forgetting `--source-dir src` or `-p contrib` produces confusing import errors
 - **Elementwise `(*)`**: `Tensor`'s `Num` instance uses elementwise multiply. For matrix-vector products, use `matrixVectorMultiply` or `vectorMatrixMultiply` from Math.idr
-- **`paramId` requirement**: Variables without a `paramId` (i.e., `Nothing`) are invisible to gradient collection and won't receive updates. Always call `nameParams`/`nameNetworkParams` before training. `setParamId` writes to both the Variable record and the tape's pid vector
-- **Test suite**: Run `make test` for 86 Idris unit tests, `make test-c` for 76 C tests. Tests live in `test/src/Test/*.idr` with `Harness.idr` providing assertion helpers
+- **`paramId` requirement**: Variables without a `paramId` (i.e., `Nothing`) are invisible to gradient collection and won't receive updates. Use `autoName` (preferred) or `nameParams`/`nameNetworkParams` before training. `autoName` assigns type-based prefixes with per-type counters (`ll0`, `ll1`, `rnn0`, `ntm0`, ...) and scopes NTM controller names under their parent (`ntm0_ll0_`, `ntm0_ll1_`), preventing the collision bug in `nameNetworkParams`. `setParamId` writes to both the Variable record and the tape's pid vector
+- **Test suite**: Run `make test` for 91 Idris unit tests, `make test-c` for 76 C tests. Tests live in `test/src/Test/*.idr` with `Harness.idr` providing assertion helpers
 - **Tape generation staleness**: After `collectGrads` resets the tape (gen++), Variables from the previous epoch are stale. `ensureOnTape` detects this via generation mismatch and re-registers with current `.value`. Same stale Variable used N times creates N Const entries — gradients accumulate correctly via `mergeWith (+)` on paramId
 - **Mutual recursion in Layer.idr**: `Layer` and `Network` are mutually recursive (NtmLayer contains a Network). `applyLayer`, `forward`, `nameParams`, `nameNetworkParams`, and `Endofunctor` instances all live in `mutual` blocks
 - **NTM dimension calculations**: `ReadHeadInputWidth _ w = (w + ShiftKernelSize) + 3` (key + 3-element shift kernel + 3 dynamic params: β, g, γ). The shift vector is `ShiftKernelSize` (3) elements, not `n` — decoupled from memory slot count. The controller output width is `NtmOutputWidth n w = ReadHeadInputWidth n w + WriteHeadInputWidth n w + w`. Since `ReadHeadInputWidth` no longer depends on `n`, type annotations are needed in `ntmLayer` for `memory`/`readHead`/`writeHead`

@@ -10,7 +10,6 @@
 
 | Item | Difficulty | Notes |
 |------|-----------|-------|
-| Automatically name parameters | S | |
 | More Tensor functions (eg concatenation) | M | |
 | Reshaping layers | M | |
 
@@ -53,7 +52,8 @@
 - NTM tanh memory bounding (Collier & Beel stability)
 - NTM learned initial addressing (backprop through head weights + readHeadOutput)
 - NTM associative recall example (content-based addressing)
-- Unit test suite (86 Idris tests + 76 C tests, `make test` / `make test-c`)
+- Unit test suite (`make test` / `make test-c`)
 - Unified NTM head ops via NormalizationFunction parameter (Memory.idr)
 - C-backed NTM memory ops (batchCosineSimilarityVar, readOpVar, writeOpVar — ~1.8x NTM speedup)
 - Gaussian/normal distribution sampling (Sampler.idr, composable with init strategies)
+- Automatic parameter naming (`autoName` in Layer.idr, type-based prefixes with collision-free scoping)

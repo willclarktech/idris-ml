@@ -402,3 +402,22 @@ Benchmark (`src/Example/Bench.idr`, seed 123456, N=10 W=3):
 | C-backed head ops | 2,700 ms | 1.76x |
 
 The speedup is less than the tape reduction ratio because (a) the benchmark uses small N=10 where per-entry overhead is lower, (b) the scalar ops for interpolation, shift, and focus remain unchanged, and (c) forward packing and backward unpacking have their own costs. Larger N (e.g., N=128 for associative recall) should see proportionally greater benefit.
+
+## Automatic parameter naming (`autoName`)
+
+Every learnable layer must have `nameParams`/`nameNetworkParams` called before training, otherwise gradients are silently discarded (`collectGrads` drops entries with empty `paramId`). This was the #1 gotcha — no error, no warning, just weights that never update.
+
+Additionally, `nameNetworkParams` has a latent collision bug: it applies the same prefix to every layer in a network. For multi-learnable-layer networks, weight indices overlap (both layers produce `pfx_weight0`, `pfx_weight1`, etc.), causing gradient cross-contamination via `mergeWith (+)` in `collectGrads`.
+
+`autoName` fixes both problems by walking the network and assigning type-based prefixes with per-type counters:
+
+- `LinearLayer` → `ll0`, `ll1`, ...
+- `RnnLayer` → `rnn0`, `rnn1`, ...
+- `NtmLayer` → `ntm0`, `ntm1`, ...
+- Activation/Normalization layers → skipped (no learnable params)
+
+**Scope threading for NTM**: the NTM's own params (memory, heads) use its prefix directly (`ntm0_mem0`, `ntm0_rAddr0`). Its controller is recursively auto-named with a fresh counter under the NTM's scope (`ntm0_ll0_weight0`, `ntm0_ll1_weight0`). This eliminates the collision between controller layers that occurred with `nameNetworkParams`.
+
+**Counter state threading**: a `SortedMap String Nat` tracks per-prefix counters. `autoNameLayer` increments the counter for the matched prefix and passes the updated map to `autoNameNetwork`, which threads it through sibling layers. NTM controllers get a fresh empty map (independent scope) so their internal `ll0`/`ll1` don't interfere with outer-level linear layers.
+
+`nameParams`/`nameNetworkParams` remain available for users who want custom semantic names.
