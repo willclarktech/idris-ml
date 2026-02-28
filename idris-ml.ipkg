@@ -8,6 +8,7 @@ modules = Backprop
         , DataPoint
         , Endofunctor
         , Floating
+        , Init
         , Layer
         , Math
         , Memory

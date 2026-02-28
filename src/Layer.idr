@@ -8,6 +8,7 @@ import System.Random
 import DataPoint
 import Endofunctor
 import Floating
+import Init
 import Math
 import Memory
 import Tensor
@@ -299,19 +300,28 @@ calculateLossRecurrent lossFn model dataPoints =
 ----------------------------------------------------------------------
 
 export
+linearLayerWith : {i, o : Nat} -> (Random ty, FromDouble ty, Neg ty) => InitStrategy -> IO (Layer i o ty)
+linearLayerWith initFn = do
+  let limit = fromDouble $ initFn i o
+  weights <- randomRIO (negate limit, limit)
+  pure $ LinearLayer weights zeros Nothing
+
+export
 linearLayer : {i, o : Nat} -> (Random ty, FromDouble ty, Neg ty) => IO (Layer i o ty)
-linearLayer = do
-  weights <- randomRIO (-1.0, 1.0)
-  bias <- randomRIO (-1.0, 1.0)
-  pure $ LinearLayer weights bias Nothing
+linearLayer = linearLayerWith xavierInit
+
+export
+rnnLayerWith : {i, o : Nat} -> (Random ty, FromDouble ty, Neg ty) => InitStrategy -> IO (Layer i o ty)
+rnnLayerWith initFn = do
+  let limitI = fromDouble $ initFn i o
+  let limitR = fromDouble $ initFn o o
+  inputWeights <- randomRIO (negate limitI, limitI)
+  recurrentWeights <- randomRIO (negate limitR, limitR)
+  pure $ RnnLayer inputWeights recurrentWeights zeros zeros Nothing Nothing
 
 export
 rnnLayer : {i, o : Nat} -> (Random ty, FromDouble ty, Neg ty) => IO (Layer i o ty)
-rnnLayer = do
-  inputWeights <- randomRIO (-1.0, 1.0)
-  recurrentWeights <- randomRIO (-1.0, 1.0)
-  bias <- randomRIO (-1.0, 1.0)
-  pure $ RnnLayer inputWeights recurrentWeights bias zeros Nothing Nothing
+rnnLayer = rnnLayerWith xavierInit
 
 export
 ntmLayer : {n, w : Nat} -> {hs : List Nat} -> (Random ty, FromDouble ty, Neg ty, Num ty) =>
