@@ -8,6 +8,7 @@ import Test.Memory
 import Test.Optimizer
 import Test.Schedule
 import Test.Init
+import Test.Sampler
 
 main : IO ()
 main = runAll
@@ -18,4 +19,5 @@ main = runAll
   , ("Optimizer", Test.Optimizer.tests)
   , ("Schedule",  Test.Schedule.tests)
   , ("Init",      Test.Init.tests)
+  , ("Sampler",   Test.Sampler.tests)
   ]

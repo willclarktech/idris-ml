@@ -16,6 +16,7 @@ modules = Backprop
         , Math
         , Memory
         , Optimizer
+        , Sampler
         , Schedule
         , Tensor
         , Util

@@ -1,32 +1,34 @@
 module Init
 
+import public Sampler
+import System.Random
+
 
 ----------------------------------------------------------------------
--- Weight Initialization Strategies
+-- Init Strategies (method + distribution -> one weight sample)
 ----------------------------------------------------------------------
 
-||| Given (fanIn, fanOut), produce the uniform range limit.
-||| Layers sample weights from U(-limit, limit).
+||| Given (fanIn, fanOut), produce one random weight sample in IO.
 public export
 InitStrategy : Type
-InitStrategy = (fanIn : Nat) -> (fanOut : Nat) -> Double
+InitStrategy = (fanIn : Nat) -> (fanOut : Nat) -> IO Double
 
-||| Xavier/Glorot uniform: limit = sqrt(6 / (fanIn + fanOut))
+||| Xavier/Glorot: variance = 2 / (fanIn + fanOut)
 export
-xavierInit : InitStrategy
-xavierInit fanIn fanOut = Prelude.sqrt (6.0 / cast (fanIn + fanOut))
+xavier : Sampler -> InitStrategy
+xavier sampler fanIn fanOut = sampler (2.0 / cast (fanIn + fanOut))
 
-||| He/Kaiming uniform: limit = sqrt(6 / fanIn)
+||| He/Kaiming: variance = 2 / fanIn
 export
-heInit : InitStrategy
-heInit fanIn _ = Prelude.sqrt (6.0 / cast fanIn)
+he : Sampler -> InitStrategy
+he sampler fanIn _ = sampler (2.0 / cast fanIn)
 
-||| LeCun uniform: limit = sqrt(3 / fanIn)
+||| LeCun: variance = 1 / fanIn
 export
-lecunInit : InitStrategy
-lecunInit fanIn _ = Prelude.sqrt (3.0 / cast fanIn)
+lecun : Sampler -> InitStrategy
+lecun sampler fanIn _ = sampler (1.0 / cast fanIn)
 
-||| Fixed range uniform (the old default): limit = bound
+||| Fixed range U(-bound, bound), ignoring dimensions.
 export
-uniformInit : Double -> InitStrategy
-uniformInit bound _ _ = bound
+fixedRange : Double -> InitStrategy
+fixedRange bound _ _ = randomRIO (-bound, bound)

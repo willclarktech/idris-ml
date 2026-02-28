@@ -355,28 +355,25 @@ calculateLossRecurrent lossFn model dataPoints =
 ----------------------------------------------------------------------
 
 export
-linearLayerWith : {i, o : Nat} -> (Random ty, FromDouble ty, Neg ty) => InitStrategy -> IO (Layer i o ty)
+linearLayerWith : {i, o : Nat} -> (Num ty, FromDouble ty) => InitStrategy -> IO (Layer i o ty)
 linearLayerWith initFn = do
-  let limit = fromDouble $ initFn i o
-  weights <- randomRIO (negate limit, limit)
+  weights <- traverse (\_ => map fromDouble (initFn i o)) (the (Matrix o i ty) zeros)
   pure $ LinearLayer weights zeros Nothing
 
 export
-linearLayer : {i, o : Nat} -> (Random ty, FromDouble ty, Neg ty) => IO (Layer i o ty)
-linearLayer = linearLayerWith xavierInit
+linearLayer : {i, o : Nat} -> (Num ty, FromDouble ty) => IO (Layer i o ty)
+linearLayer = linearLayerWith (xavier uniform)
 
 export
-rnnLayerWith : {i, o : Nat} -> (Random ty, FromDouble ty, Neg ty) => InitStrategy -> IO (Layer i o ty)
+rnnLayerWith : {i, o : Nat} -> (Num ty, FromDouble ty) => InitStrategy -> IO (Layer i o ty)
 rnnLayerWith initFn = do
-  let limitI = fromDouble $ initFn i o
-  let limitR = fromDouble $ initFn o o
-  inputWeights <- randomRIO (negate limitI, limitI)
-  recurrentWeights <- randomRIO (negate limitR, limitR)
+  inputWeights <- traverse (\_ => map fromDouble (initFn i o)) (the (Matrix o i ty) zeros)
+  recurrentWeights <- traverse (\_ => map fromDouble (initFn o o)) (the (Matrix o o ty) zeros)
   pure $ RnnLayer inputWeights recurrentWeights zeros zeros Nothing Nothing
 
 export
-rnnLayer : {i, o : Nat} -> (Random ty, FromDouble ty, Neg ty) => IO (Layer i o ty)
-rnnLayer = rnnLayerWith xavierInit
+rnnLayer : {i, o : Nat} -> (Num ty, FromDouble ty) => IO (Layer i o ty)
+rnnLayer = rnnLayerWith (xavier uniform)
 
 export
 ntmLayer : {n, w : Nat} -> {hs : List Nat} -> (FromDouble ty, Num ty) =>
