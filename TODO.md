@@ -40,3 +40,4 @@
 - Hyperparameter sweep script (`scripts/sweep.sh`)
 - Tape-based autograd (Wengert list) with Chez FFI storage
 - Buffer-backed tensor ops + C FFI (Phase 1: matmul/dot, 1.3-1.9x speedup)
+- Persistent weight buffers + bulk tape registration (Phase 3: ~1.14x NTM speedup)

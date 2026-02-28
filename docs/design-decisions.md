@@ -92,6 +92,24 @@ Benchmark (`src/Example/Bench.idr`, seed 123456):
 | C buffer + Scheme-native grad | 137 ms | 482 ms | 9,259 ms |
 | Speedup | 1.9x | 1.3x | 1.6x |
 
+## Persistent weight buffers
+
+Weight values for LinearLayer and RnnLayer are stored in persistent C buffers (`double*` allocated once by `nameParams`, synced after `applyDeltas`). A paired Scheme vector holds paramId strings. On each forward pass, `tapeAppendBulkConst` registers all weight tape entries in a single Scheme-level loop (reading values via `foreign-ref 'double` from the C buffer and pids via `vector-ref` from the pid vector), replacing per-element `ensureOnTape` + `foreign-set!` packing.
+
+The backward pass uses `w_tape_start` (a single int) instead of a per-element `w_tape_idx` array, computing weight indices as `w_tape_start + i*n + j` for sequential memory access.
+
+Buffers are skipped for tiny layers (`i * o <= 4`) that already use the scalar fallback path. After `emap (applyDeltas deltas)`, `syncNetworkBuffers` traverses the network writing updated Variable values back to each layer's C buffer.
+
+Benchmark (`src/Example/Bench.idr`, seed 123456):
+
+| Version | Supervised (1000 ep) | RNN (1000 ep) | NTM (100 ep) |
+|---------|---------------------|---------------|--------------|
+| C buffer + Scheme-native grad | 137 ms | 482 ms | 9,259 ms |
+| Persistent weight buffers | 130 ms | 480 ms | 8,100 ms |
+| Speedup | 1.05x | 1.0x | 1.14x |
+
+The modest improvement reflects that weight packing was one of many costs per forward pass; other operations (input packing, tape appends, backward traversal, NTM head computations) dominate.
+
 ## Hyperparameter tuning protocol
 
 Manual hyperparameter tuning is an anti-pattern that wastes hours on random adjustments. The correct order is:
