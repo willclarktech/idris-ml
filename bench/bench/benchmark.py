@@ -4,21 +4,19 @@
 - RNN: 100 warmup + 1000 timed epochs, SGD lr=0.03
 - NTM: 10 warmup + 100 timed epochs, Adam lr=0.001 maxNorm=5.0
 
-NOTE: The NTM benchmark uses sigmoid activation (not tanh), matching Bench.idr
-which differs from NtmCopy.idr. Bench.idr also uses maxNorm=5.0, not 50.0.
+NOTE: The NTM benchmark uses a simple copy-like task for timing comparison
+with idris-ml's Bench.idr. It is NOT the reference copy task architecture.
 """
 
 import time
 
 import torch
-import torch.nn as nn
 from torch.nn.utils import clip_grad_norm_
 
-from bench.data.copy_task import copy_task_point
+from bench.models.ntm_copy import LSTMController
 from bench.models.rnn import LinearRNNCell, generate_rnn_dataset, train_rnn_epoch
 from bench.models.supervised import SUPERVISED_DATA, SupervisedModel, train_supervised_epoch
-from bench.ntm.ntm_layer import NTMLayer, ntm_input_width, ntm_output_width
-from bench.training.losses import nll_loss
+from bench.ntm.ntm_layer import NTMLayer
 
 
 def bench_supervised() -> tuple[float, float]:
@@ -69,7 +67,7 @@ def bench_rnn() -> tuple[float, float]:
     return elapsed, loss_val
 
 
-# Same 5 NTM sequences as Bench.idr
+# Simple copy-like sequences for NTM timing benchmark
 _NTM_SEQUENCES: list[list[int]] = [
     [1, 2, 1, 2],
     [1, 1, 2, 2, 1],
@@ -79,34 +77,55 @@ _NTM_SEQUENCES: list[list[int]] = [
 ]
 
 
+def _make_bench_data(
+    sequences: list[list[int]], w: int
+) -> list[tuple[list[torch.Tensor], list[torch.Tensor]]]:
+    """Convert symbol sequences to one-hot input/target pairs for timing."""
+    data = []
+    for symbols in sequences:
+        seq_len = len(symbols)
+        blanks = [0] * seq_len
+
+        def one_hot(idx: int) -> torch.Tensor:
+            v = torch.zeros(w)
+            v[idx] = 1.0
+            return v
+
+        inputs = [one_hot(s) for s in symbols + blanks]
+        targets = [one_hot(s) for s in blanks + symbols]
+        data.append((inputs, targets))
+    return data
+
+
 def bench_ntm() -> tuple[float, float]:
     """Benchmark NTM model. Returns (elapsed_ms, final_loss).
 
-    NOTE: Uses sigmoid activation (not tanh) and maxNorm=5.0, matching Bench.idr.
+    Uses a small NTM (w=3, n=10) with LSTM controller for timing comparison
+    with idris-ml's Bench.idr.
     """
     torch.manual_seed(123456)
 
     w, n, h = 3, 10, 20
-    input_w = ntm_input_width(w)
-    output_w = ntm_output_width(n, w)
+    m = w  # memory width = input width for this simple benchmark
 
-    # Controller: Linear → Sigmoid → Linear (Bench.idr uses sigmoidLayer)
-    controller = nn.Sequential(
-        nn.Linear(input_w, h),
-        nn.Sigmoid(),
-        nn.Linear(h, output_w),
+    controller = LSTMController(w + m, h)  # input + prev read vector
+
+    ntm = NTMLayer(
+        controller=controller,
+        n=n,
+        m=m,
+        num_inputs=w,
+        num_outputs=w,
+        controller_hidden_size=h,
     )
-    for m in controller.modules():
-        if isinstance(m, nn.Linear):
-            nn.init.xavier_uniform_(m.weight)
-            nn.init.zeros_(m.bias)
-
-    ntm = NTMLayer(controller, n, w)
 
     # Prepare data
-    data = [copy_task_point(seq, w) for seq in _NTM_SEQUENCES]
+    data = _make_bench_data(_NTM_SEQUENCES, w)
 
     max_norm = 5.0
+
+    def nll_loss(log_probs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        return -(targets * log_probs).mean()
 
     def train_one_epoch() -> float:
         optimizer = torch.optim.Adam(ntm.parameters(), lr=0.001)
@@ -114,6 +133,7 @@ def bench_ntm() -> tuple[float, float]:
         total_loss = torch.tensor(0.0)
         for xs, ys in data:
             ntm.reset_state()
+            controller.reset_state()
             seq_loss = torch.tensor(0.0)
             for x, y in zip(xs, ys, strict=True):
                 raw = ntm(x)

@@ -1,12 +1,18 @@
-"""Associative recall data generation matching idris-ml's Generate.idr.
+"""Associative recall data generation matching Graves 2014 / vlgiitr reference.
 
-Sequence structure for K pairs (3K+1 timesteps):
-  Store:  k1 v1 k2 v2 ... kK vK   (2K steps)
-  Delim:  blank                     (1 step)
-  Query:  q1 q2 ... qK              (K steps, immediate output)
+Each item is a sequence of `seq_len` binary vectors of `seq_width` bits.
+Items are separated by item delimiters. The query phase presents a random
+non-last item bracketed by query delimiters. The target is the item that
+follows the queried item in the original list.
 
-Output is blank everywhere except query timesteps, where the
-correct value appears at the same timestep as the query key.
+Input width: seq_width + 2 (data channels + item_delim + query_delim)
+
+Sequence structure for num_items items, each of seq_len vectors:
+  [item_delim item₁] [item_delim item₂] ... [item_delim itemₙ]
+  [query_delim query_item query_delim]
+
+Target: the item following the query item (seq_len vectors of seq_width bits).
+Output is produced during the query_item timesteps (seq_len outputs).
 """
 
 import random
@@ -15,73 +21,76 @@ import torch
 from torch import Tensor
 
 
-def associative_recall_point(
-    pairs: list[tuple[int, int]],
-    query_order: list[int],
-    w: int,
-) -> tuple[list[Tensor], list[Tensor]]:
-    """Generate a single associative recall data point.
+def generate_recall_sequence(
+    num_items: int,
+    seq_len: int = 3,
+    seq_width: int = 6,
+) -> tuple[Tensor, Tensor]:
+    """Generate a single associative recall sequence.
 
-    Matches Generate.idr associativeRecallPoint.
-    pairs: list of (key, value) symbol indices
-    query_order: keys in shuffled query order
-    w: alphabet size (including blank=0)
+    Args:
+        num_items: Number of items to present (must be >= 2).
+        seq_len: Vectors per item.
+        seq_width: Bits per vector.
+
+    Returns:
+        input_seq: (total_timesteps, seq_width+2)
+        target_seq: (seq_len, seq_width) — the item following the query
     """
-    blank = 0
-    lookup = dict(pairs)
+    input_width = seq_width + 2
+    item_delim_ch = seq_width  # channel index for item delimiter
+    query_delim_ch = seq_width + 1  # channel index for query delimiter
 
-    def one_hot(idx: int) -> Tensor:
-        v = torch.zeros(w)
-        v[idx] = 1.0
-        return v
+    # Generate random binary items
+    items = [torch.bernoulli(torch.full((seq_len, seq_width), 0.5)) for _ in range(num_items)]
 
-    # Store phase: k1 v1 k2 v2 ...
-    store_in = []
-    store_out = []
-    for key, val in pairs:
-        store_in.extend([key, val])
-        store_out.extend([blank, blank])
+    # Build input sequence: [item_delim item₁] [item_delim item₂] ...
+    input_rows: list[Tensor] = []
+    for item in items:
+        # Item delimiter row
+        delim = torch.zeros(1, input_width)
+        delim[0, item_delim_ch] = 1.0
+        input_rows.append(delim)
 
-    # Delimiter
-    delim_in = [blank]
-    delim_out = [blank]
+        # Item data rows (data in first seq_width channels)
+        item_rows = torch.zeros(seq_len, input_width)
+        item_rows[:, :seq_width] = item
+        input_rows.append(item_rows)
 
-    # Query phase: q1 q2 ... qK (immediate output, no blanks)
-    query_in = []
-    query_out = []
-    for q in query_order:
-        query_in.append(q)
-        query_out.append(lookup.get(q, blank))
+    # Choose query: random item that is NOT the last one
+    query_idx = random.randint(0, num_items - 2)
+    query_item = items[query_idx]
+    target_item = items[query_idx + 1]  # the item after the query
 
-    inp_indices = store_in + delim_in + query_in
-    out_indices = store_out + delim_out + query_out
+    # Query phase: [query_delim] [query_item] [query_delim]
+    qd1 = torch.zeros(1, input_width)
+    qd1[0, query_delim_ch] = 1.0
+    input_rows.append(qd1)
 
-    inputs = [one_hot(i) for i in inp_indices]
-    targets = [one_hot(i) for i in out_indices]
-    return inputs, targets
+    query_rows = torch.zeros(seq_len, input_width)
+    query_rows[:, :seq_width] = query_item
+    input_rows.append(query_rows)
+
+    qd2 = torch.zeros(1, input_width)
+    qd2[0, query_delim_ch] = 1.0
+    input_rows.append(qd2)
+
+    input_seq = torch.cat(input_rows, dim=0)
+    target_seq = target_item  # (seq_len, seq_width)
+
+    return input_seq, target_seq
 
 
 def generate_recall_batch(
     batch_size: int,
-    min_k: int,
-    max_k: int,
-    w: int,
-) -> list[tuple[list[Tensor], list[Tensor]]]:
-    """Generate a batch of random associative recall data points.
-
-    Matches Generate.randomBatchVect with associativeRecallTask.
-    """
-    non_blank_symbols = list(range(1, w))
+    min_items: int,
+    max_items: int,
+    seq_len: int = 3,
+    seq_width: int = 6,
+) -> list[tuple[Tensor, Tensor]]:
+    """Generate a batch of associative recall sequences."""
     batch = []
     for _ in range(batch_size):
-        k = random.randint(min_k, max_k)
-        k = min(k, len(non_blank_symbols))
-        shuffled = non_blank_symbols.copy()
-        random.shuffle(shuffled)
-        keys = shuffled[:k]
-        values = [random.randint(1, w - 1) for _ in range(k)]
-        pairs = list(zip(keys, values, strict=True))
-        query_keys = keys.copy()
-        random.shuffle(query_keys)
-        batch.append(associative_recall_point(pairs, query_keys, w))
+        num_items = random.randint(min_items, max_items)
+        batch.append(generate_recall_sequence(num_items, seq_len, seq_width))
     return batch

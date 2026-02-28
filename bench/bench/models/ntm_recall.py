@@ -1,10 +1,8 @@
-"""NTM associative recall model matching idris-ml's NtmAssociativeRecall.idr.
+"""NTM associative recall model matching Graves 2014 / vlgiitr reference.
 
-Supports two controller types:
-  LSTM (default, matches Graves et al. 2014):
-    LSTMCell(NtmInputWidth→H) → Linear(H→NtmOutputWidth) → [NTM] → LogSoftmax
-  RNN (vanilla baseline):
-    LinearRNNCell(NtmInputWidth→H) → Tanh → Linear(H→NtmOutputWidth) → [NTM] → LogSoftmax
+Same NTM architecture as copy task (LSTM controller, N=128, M=20),
+just different input/output widths and data format.
+Loss: BCELoss. Optimizer: RMSprop lr=1e-4, alpha=0.95, momentum=0.9.
 """
 
 from dataclasses import dataclass
@@ -12,97 +10,24 @@ from dataclasses import dataclass
 import torch
 import torch.nn as nn
 from torch import Tensor
-from torch.nn.utils import clip_grad_norm_, clip_grad_value_
+from torch.nn.utils import clip_grad_value_
 
-from bench.models.rnn import LinearRNNCell
-from bench.ntm.ntm_layer import NTMLayer, ntm_head_params_width, ntm_input_width, ntm_output_width
-from bench.training.losses import weighted_nll_loss
+from bench.models.ntm_copy import LSTMController
+from bench.ntm.ntm_layer import NTMLayer
 
 
 @dataclass
 class NtmRecallConfig:
-    w: int = 8
-    n: int = 128
-    h: int = 100
-    controller: str = "lstm"  # "lstm" (Graves et al. 2014) or "rnn"
-    batch_size: int = 16
-    lr: float = 0.0001
-    beta1: float = 0.9
-    beta2: float = 0.999
-    eps: float = 1e-8
-    max_norm: float = 50.0
-    clip_mode: str = "value"  # "norm" (global L2) or "value" (per-param clamp)
-    clip_value: float = 10.0  # used when clip_mode="value"
-    optimizer: str = "rmsprop"  # "adam" or "rmsprop"
-    output_mode: str = "read"  # "controller" (idris-ml) or "read" (reference impls)
-    div_final: float = 10.0
-    epochs: int = 100000
-    patience: int = 2000
-    chunk_size: int = 25
-    recall_weight: float = 3.0
-
-
-class RNNController(nn.Module):
-    """RNN controller: LinearRNNCell → Tanh → Linear."""
-
-    def __init__(self, input_size: int, hidden_size: int, output_size: int) -> None:
-        super().__init__()
-        self.rnn = LinearRNNCell(input_size, hidden_size)
-        self.output = nn.Linear(hidden_size, output_size)
-
-        nn.init.xavier_uniform_(self.output.weight)
-        nn.init.zeros_(self.output.bias)
-
-    def reset_state(self) -> None:
-        self.rnn.reset_state()
-
-    @property
-    def last_hidden(self) -> Tensor:
-        """Return the most recent hidden state (after tanh)."""
-        return self._last_h
-
-    def forward(self, x: Tensor) -> Tensor:
-        h = self.rnn(x)
-        h = torch.tanh(h)
-        self._last_h = h
-        return self.output(h)
-
-
-class LSTMController(nn.Module):
-    """LSTM controller matching Graves et al. 2014.
-
-    LSTMCell already has tanh in its output gate, so no extra activation
-    is needed (unlike RNNController which adds explicit tanh).
-    """
-
-    def __init__(self, input_size: int, hidden_size: int, output_size: int) -> None:
-        super().__init__()
-        self.hidden_size = hidden_size
-        self.lstm = nn.LSTMCell(input_size, hidden_size)
-        self.output = nn.Linear(hidden_size, output_size)
-
-        # Learnable initial states (matching RNNController's h0 pattern)
-        self.h0 = nn.Parameter(torch.zeros(hidden_size))
-        self.c0 = nn.Parameter(torch.zeros(hidden_size))
-
-        nn.init.xavier_uniform_(self.output.weight)
-        nn.init.zeros_(self.output.bias)
-
-    def reset_state(self) -> None:
-        self._h = self.h0.clone()
-        self._c = self.c0.clone()
-
-    @property
-    def last_hidden(self) -> Tensor:
-        """Return the most recent LSTM hidden state."""
-        return self._h
-
-    def forward(self, x: Tensor) -> Tensor:
-        # LSTMCell expects (batch, features) — unsqueeze/squeeze for unbatched
-        h, c = self.lstm(x.unsqueeze(0), (self._h.unsqueeze(0), self._c.unsqueeze(0)))
-        self._h = h.squeeze(0)
-        self._c = c.squeeze(0)
-        return self.output(self._h)
+    seq_width: int = 6  # bits per vector within item
+    seq_len: int = 3  # vectors per item
+    min_items: int = 2
+    max_items: int = 6
+    n: int = 128  # memory slots
+    m: int = 20  # memory width
+    controller_size: int = 100  # LSTM hidden size
+    lr: float = 1e-4
+    iterations: int = 100000
+    clip_value: float = 10.0
 
 
 class NtmRecallModel(nn.Module):
@@ -114,34 +39,30 @@ class NtmRecallModel(nn.Module):
             cfg = NtmRecallConfig()
         self.cfg = cfg
 
-        input_w = ntm_input_width(cfg.w)
-        # In "read" mode, controller only outputs head params (no output slice)
-        if cfg.output_mode == "read":
-            output_w = ntm_head_params_width(cfg.w)
-        else:
-            output_w = ntm_output_width(cfg.n, cfg.w)
+        # Input width: seq_width + 2 (item_delim + query_delim)
+        num_inputs = cfg.seq_width + 2
+        num_outputs = cfg.seq_width  # output is seq_width bits
+        controller_input_size = num_inputs + cfg.m  # input + prev read vector
 
-        if cfg.controller == "lstm":
-            controller: nn.Module = LSTMController(input_w, cfg.h, output_w)
-        else:
-            controller = RNNController(input_w, cfg.h, output_w)
+        controller = LSTMController(controller_input_size, cfg.controller_size)
+
         self.ntm = NTMLayer(
-            controller,
-            cfg.n,
-            cfg.w,
-            output_mode=cfg.output_mode,
-            controller_hidden_size=cfg.h,
+            controller=controller,
+            n=cfg.n,
+            m=cfg.m,
+            num_inputs=num_inputs,
+            num_outputs=num_outputs,
+            controller_hidden_size=cfg.controller_size,
         )
 
     def reset_state(self) -> None:
         self.ntm.reset_state()
-        # pyright doesn't see reset_state() through nn.Module-typed controller field
         self.ntm.controller.reset_state()  # type: ignore[operator]
 
     def forward(self, x: Tensor) -> Tensor:
-        """Forward one timestep, returns log-softmax output."""
+        """Forward one timestep, returns sigmoid output."""
         raw = self.ntm(x)
-        return torch.log_softmax(raw, dim=-1)
+        return torch.sigmoid(raw)
 
     def project_addressing(self) -> None:
         self.ntm.project_addressing()
@@ -149,26 +70,44 @@ class NtmRecallModel(nn.Module):
 
 def train_ntm_recall_step(
     model: NtmRecallModel,
-    data: list[tuple[list[Tensor], list[Tensor]]],
-    loss_fn: object,
+    input_seq: Tensor,
+    target_seq: Tensor,
     optimizer: torch.optim.Optimizer,
 ) -> float:
-    """Train one epoch on NTM recall data."""
+    """Train one sequence (batch_size=1).
+
+    input_seq: (total_timesteps, input_width)
+    target_seq: (seq_len, seq_width)
+    """
     optimizer.zero_grad()
-    total_loss = torch.tensor(0.0)
-    for xs, ys in data:
-        model.reset_state()
-        seq_loss = torch.tensor(0.0)
-        for x, y in zip(xs, ys, strict=True):
-            pred = model(x)
-            seq_loss = seq_loss + weighted_nll_loss(pred, y, weight=model.cfg.recall_weight)
-        total_loss = total_loss + seq_loss / len(xs)
-    loss = total_loss / len(data)
+    model.reset_state()
+
+    seq_len = target_seq.shape[0]
+    total_timesteps = input_seq.shape[0]
+    num_inputs = input_seq.shape[1]
+
+    # Encoding phase: all timesteps except last seq_len
+    encode_len = total_timesteps - seq_len
+    for t in range(encode_len):
+        model(input_seq[t])
+
+    # Output phase: last seq_len timesteps, collect outputs
+    outputs = []
+    for t in range(encode_len, total_timesteps):
+        out = model(input_seq[t])
+        outputs.append(out)
+
+    # If not enough output timesteps (only query_delim left), feed zeros
+    while len(outputs) < seq_len:
+        out = model(torch.zeros(num_inputs))
+        outputs.append(out)
+
+    pred = torch.stack(outputs[:seq_len])  # (seq_len, seq_width)
+    loss = nn.functional.binary_cross_entropy(pred, target_seq)
+
     loss.backward()
-    if model.cfg.clip_mode == "value":
-        clip_grad_value_(model.parameters(), model.cfg.clip_value)
-    else:
-        clip_grad_norm_(model.parameters(), model.cfg.max_norm)
+    clip_grad_value_(model.parameters(), model.cfg.clip_value)
     optimizer.step()
     model.project_addressing()
+
     return loss.item()

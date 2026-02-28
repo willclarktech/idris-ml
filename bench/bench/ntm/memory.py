@@ -46,7 +46,7 @@ def forward_read_head(
 
     beta = softplus(params[0])
     g = sig(params[1])
-    gamma = 1 + 4 * sig(params[2])
+    gamma = 1 + softplus(params[2])
 
     content_weights = content_address(beta, memory, key_vector)
     interpolated = interpolate(g, content_weights, addressing_weights)

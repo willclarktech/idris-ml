@@ -1,7 +1,7 @@
-"""NTM copy task model matching idris-ml's Example/NtmCopy.idr.
+"""NTM copy task model matching loudinthecloud/pytorch-ntm reference.
 
-Linear controller + tanh activation:
-  Linear(NtmInputWidth→H) → Tanh → Linear(H→NtmOutputWidth) → [NTM] → LogSoftmax
+LSTM controller (hidden=100) → separate head FCs → NTMLayer → sigmoid output.
+Loss: BCELoss. Optimizer: RMSprop lr=1e-4. Value clip [-10,10].
 """
 
 from dataclasses import dataclass
@@ -9,31 +9,51 @@ from dataclasses import dataclass
 import torch
 import torch.nn as nn
 from torch import Tensor
-from torch.nn.utils import clip_grad_norm_
+from torch.nn.utils import clip_grad_value_
 
-from bench.ntm.ntm_layer import NTMLayer, ntm_input_width, ntm_output_width
-from bench.training.losses import nll_loss
+from bench.ntm.ntm_layer import NTMLayer
+
+
+class LSTMController(nn.Module):
+    """LSTM controller for NTM."""
+
+    def __init__(self, input_size: int, hidden_size: int) -> None:
+        super().__init__()
+        self.hidden_size = hidden_size
+        self.lstm = nn.LSTMCell(input_size, hidden_size)
+        self.h0 = nn.Parameter(torch.zeros(hidden_size))
+        self.c0 = nn.Parameter(torch.zeros(hidden_size))
+
+    def reset_state(self) -> None:
+        self._h = self.h0.clone()
+        self._c = self.c0.clone()
+
+    @property
+    def last_hidden(self) -> Tensor:
+        return self._h
+
+    def forward(self, x: Tensor) -> Tensor:
+        h, c = self.lstm(x.unsqueeze(0), (self._h.unsqueeze(0), self._c.unsqueeze(0)))
+        self._h = h.squeeze(0)
+        self._c = c.squeeze(0)
+        return self._h
 
 
 @dataclass
 class NtmCopyConfig:
-    w: int = 3
-    n: int = 10
-    h: int = 20
-    batch_size: int = 16
-    lr: float = 0.001
-    beta1: float = 0.9
-    beta2: float = 0.999
-    eps: float = 1e-8
-    max_norm: float = 50.0
-    div_final: float = 10.0
-    epochs: int = 6000
-    patience: int = 200
-    chunk_size: int = 100
+    seq_width: int = 8  # bits per vector
+    seq_min: int = 1  # min sequence length
+    seq_max: int = 20  # max sequence length
+    n: int = 128  # memory slots
+    m: int = 20  # memory width
+    controller_size: int = 100  # LSTM hidden size
+    lr: float = 1e-4
+    iterations: int = 50000
+    clip_value: float = 10.0
 
 
 class NtmCopyModel(nn.Module):
-    """NTM model for copy task with linear controller + tanh."""
+    """NTM model for copy task matching loudinthecloud reference."""
 
     def __init__(self, cfg: NtmCopyConfig | None = None) -> None:
         super().__init__()
@@ -41,30 +61,30 @@ class NtmCopyModel(nn.Module):
             cfg = NtmCopyConfig()
         self.cfg = cfg
 
-        input_w = ntm_input_width(cfg.w)
-        output_w = ntm_output_width(cfg.n, cfg.w)
+        # Input width: seq_width + 1 (delimiter channel) + m (prev read)
+        num_inputs = cfg.seq_width + 1
+        num_outputs = cfg.seq_width  # output is seq_width bits
+        controller_input_size = num_inputs + cfg.m  # input + prev read vector
 
-        # Controller: Linear → Tanh → Linear
-        controller = nn.Sequential(
-            nn.Linear(input_w, cfg.h),
-            nn.Tanh(),
-            nn.Linear(cfg.h, output_w),
+        controller = LSTMController(controller_input_size, cfg.controller_size)
+
+        self.ntm = NTMLayer(
+            controller=controller,
+            n=cfg.n,
+            m=cfg.m,
+            num_inputs=num_inputs,
+            num_outputs=num_outputs,
+            controller_hidden_size=cfg.controller_size,
         )
-        # Xavier uniform init, zero bias
-        for m in controller.modules():
-            if isinstance(m, nn.Linear):
-                nn.init.xavier_uniform_(m.weight)
-                nn.init.zeros_(m.bias)
-
-        self.ntm = NTMLayer(controller, cfg.n, cfg.w)
 
     def reset_state(self) -> None:
         self.ntm.reset_state()
+        self.ntm.controller.reset_state()  # type: ignore[operator]
 
     def forward(self, x: Tensor) -> Tensor:
-        """Forward one timestep, returns log-softmax output."""
+        """Forward one timestep, returns sigmoid output."""
         raw = self.ntm(x)
-        return torch.log_softmax(raw, dim=-1)
+        return torch.sigmoid(raw)
 
     def project_addressing(self) -> None:
         self.ntm.project_addressing()
@@ -72,26 +92,38 @@ class NtmCopyModel(nn.Module):
 
 def train_ntm_copy_step(
     model: NtmCopyModel,
-    data: list[tuple[list[Tensor], list[Tensor]]],
-    loss_fn: object,
+    input_seq: Tensor,
+    target_seq: Tensor,
     optimizer: torch.optim.Optimizer,
 ) -> float:
-    """Train one epoch on NTM copy data.
+    """Train one sequence (batch_size=1).
 
-    Matches Backprop.idr epochRecurrent.
+    input_seq: (seq_len+1, seq_width+1)
+    target_seq: (seq_len, seq_width)
     """
     optimizer.zero_grad()
-    total_loss = torch.tensor(0.0)
-    for xs, ys in data:
-        model.reset_state()
-        seq_loss = torch.tensor(0.0)
-        for x, y in zip(xs, ys, strict=True):
-            pred = model(x)
-            seq_loss = seq_loss + nll_loss(pred, y)
-        total_loss = total_loss + seq_loss / len(xs)
-    loss = total_loss / len(data)
+    model.reset_state()
+
+    seq_len = target_seq.shape[0]
+
+    # Input phase: feed all input rows (data + delimiter)
+    for t in range(input_seq.shape[0]):
+        model(input_seq[t])
+
+    # Output phase: feed zeros, collect outputs
+    num_inputs = input_seq.shape[1]
+    outputs = []
+    for _ in range(seq_len):
+        out = model(torch.zeros(num_inputs))
+        outputs.append(out)
+
+    # Stack outputs and compute BCE loss
+    pred = torch.stack(outputs)  # (seq_len, seq_width)
+    loss = nn.functional.binary_cross_entropy(pred, target_seq)
+
     loss.backward()
-    clip_grad_norm_(model.parameters(), model.cfg.max_norm)
+    clip_grad_value_(model.parameters(), model.cfg.clip_value)
     optimizer.step()
     model.project_addressing()
+
     return loss.item()

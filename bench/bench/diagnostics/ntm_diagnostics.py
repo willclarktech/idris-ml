@@ -88,7 +88,7 @@ def _extract_read_params(raw: Tensor, w: int) -> tuple[Tensor, float, float, flo
     shift_vec = main[w : w + shift_kernel_size]
     beta = torch.log(1 + torch.exp(params[0])).item()
     g = torch.sigmoid(params[1]).item()
-    gamma = (1 + 4 * torch.sigmoid(params[2])).item()
+    gamma = (1 + torch.log(1 + torch.exp(params[2]))).item()
     return key, beta, g, gamma, shift_vec
 
 
@@ -122,9 +122,7 @@ def instrumented_forward(
     Calls model.reset_state() first.
     """
     model.reset_state()  # type: ignore[attr-defined]
-    w: int = model.ntm.w  # type: ignore[attr-defined]
-    rh_width = _read_head_input_width(w)
-    wh_width = _write_head_input_width(w)
+    w: int = model.ntm.m  # type: ignore[attr-defined]
     timesteps: list[NtmTimestep] = []
 
     with torch.no_grad():
@@ -132,11 +130,10 @@ def instrumented_forward(
             _ = model(x)  # type: ignore[operator]
             # pyright can't infer dict type through dynamic attr
             diag: dict[str, Tensor] = model.ntm._diag  # type: ignore[attr-defined]
-            ctrl_out = diag["controller_output"]
 
-            # Split controller output same as NTMLayer.forward
-            read_raw = ctrl_out[:rh_width]
-            write_raw = ctrl_out[rh_width : rh_width + wh_width]
+            # Head params are stashed directly from separate FCs
+            read_raw = diag["read_params"]
+            write_raw = diag["write_params"]
 
             # Extract head parameters
             r_key, r_beta, r_g, r_gamma, r_shift = _extract_read_params(read_raw, w)

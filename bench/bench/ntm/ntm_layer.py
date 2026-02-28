@@ -1,8 +1,8 @@
-"""NTM layer module matching idris-ml's Layer.idr NtmLayer.
+"""NTM layer matching loudinthecloud/pytorch-ntm reference architecture.
 
-NOTE: Controller output is clamped to [-20, 20] matching applyLayerVar's
-clampVar. Addressing weights are projected onto the probability simplex
-after optimizer steps, matching syncLayerBuffers/projectWeights.
+The controller (LSTM or other) outputs a hidden state. Separate linear layers
+map this hidden state to read head params, write head params, and output.
+This decouples memory width (m) from input/output width.
 """
 
 import torch
@@ -12,79 +12,79 @@ from torch import Tensor
 from bench.ntm.memory import forward_read_head, forward_write_head, tanh_bound
 
 
-def _read_head_input_width(w: int) -> int:
-    """w + ShiftKernelSize + 3"""
-    return w + 3 + 3
+def _read_head_params_width(m: int) -> int:
+    """key(m) + shift(3) + beta(1) + g(1) + gamma(1) = m + 6"""
+    return m + 6
 
 
-def _write_head_input_width(w: int) -> int:
-    """ReadHeadInputWidth + 2*w (erase + add)"""
-    return _read_head_input_width(w) + 2 * w
-
-
-def ntm_input_width(w: int) -> int:
-    """NtmInputWidth = w + w (input + previous read output)"""
-    return 2 * w
-
-
-def ntm_output_width(n: int, w: int) -> int:
-    """NtmOutputWidth = ReadHeadInputWidth + WriteHeadInputWidth + w"""
-    return _read_head_input_width(w) + _write_head_input_width(w) + w
-
-
-def ntm_head_params_width(w: int) -> int:
-    """ReadHeadInputWidth + WriteHeadInputWidth (no output slice)."""
-    return _read_head_input_width(w) + _write_head_input_width(w)
+def _write_head_params_width(m: int) -> int:
+    """key(m) + shift(3) + beta(1) + g(1) + gamma(1) + erase(m) + add(m) = 3m + 6"""
+    return 3 * m + 6
 
 
 class NTMLayer(nn.Module):
-    """Neural Turing Machine layer matching idris-ml's NtmLayer.
+    """Neural Turing Machine layer matching loudinthecloud/pytorch-ntm.
 
-    output_mode controls how the layer produces output:
-      "controller" (default): output is a slice of the controller output (matches idris-ml)
-      "read": output = Linear(cat(controller_hidden, read_output)) (matches reference impls)
+    Head parameters are produced by separate linear layers from the controller
+    hidden state, rather than slicing a monolithic controller output vector.
+
+    Args:
+        controller: Recurrent controller (e.g. LSTM). Must expose .last_hidden
+                    property and .reset_state() method.
+        n: Number of memory rows (slots).
+        m: Memory width per row.
+        num_inputs: External input width (task-specific).
+        num_outputs: Output width (task-specific).
+        controller_hidden_size: Hidden dimension of the controller.
     """
 
     def __init__(
         self,
         controller: nn.Module,
         n: int,
-        w: int,
-        output_mode: str = "controller",
-        controller_hidden_size: int = 0,
+        m: int,
+        num_inputs: int,
+        num_outputs: int,
+        controller_hidden_size: int,
     ) -> None:
         super().__init__()
         self.controller = controller
         self.n = n
-        self.w = w
-        self.output_mode = output_mode
+        self.m = m
+        self.num_inputs = num_inputs
+        self.num_outputs = num_outputs
+        self.controller_hidden_size = controller_hidden_size
+
+        # Head FC layers (from controller hidden → head params)
+        read_params_w = _read_head_params_width(m)
+        write_params_w = _write_head_params_width(m)
+
+        self.read_fc = nn.Linear(controller_hidden_size, read_params_w)
+        self.write_fc = nn.Linear(controller_hidden_size, write_params_w)
+
+        # Output FC: controller hidden + read vector → output
+        self.output_fc = nn.Linear(controller_hidden_size + m, num_outputs)
+
+        # Initialize all FCs
+        for fc in [self.read_fc, self.write_fc, self.output_fc]:
+            nn.init.xavier_uniform_(fc.weight)
+            nn.init.zeros_(fc.bias)
 
         # Memory initialized to constant 1e-6 (Collier & Beel)
-        self.register_buffer("_init_memory", torch.full((n, w), 1e-6))
-        self.memory: Tensor = torch.full((n, w), 1e-6)
+        self.register_buffer("_init_memory", torch.full((n, m), 1e-6))
+        self.memory: Tensor = torch.full((n, m), 1e-6)
 
-        # Hot-start addressing: [1, 0, ..., 0]
+        # Initial addressing: uniform
         init_addr = torch.zeros(n)
         init_addr[0] = 1.0
         self.read_addressing = nn.Parameter(init_addr.clone())
         self.write_addressing = nn.Parameter(init_addr.clone())
 
         # Initial read head output (zeros)
-        self.read_head_output = nn.Parameter(torch.zeros(w))
-
-        # Dimension calculations
-        self.read_head_width = _read_head_input_width(w)
-        self.write_head_width = _write_head_input_width(w)
-
-        # Output FC for "read" mode: maps controller hidden + read output → w
-        if output_mode == "read":
-            self.output_fc = nn.Linear(controller_hidden_size + w, w)
-            nn.init.xavier_uniform_(self.output_fc.weight)
-            nn.init.zeros_(self.output_fc.bias)
+        self.read_head_output = nn.Parameter(torch.zeros(m))
 
     def reset_state(self) -> None:
         """Reset memory and head state between sequences."""
-        # pyright's torch stubs don't recognize .clone() on register_buffer tensors
         self.memory = self._init_memory.clone()  # type: ignore[reportCallIssue]
         self._current_read_addr = self.read_addressing.clone()
         self._current_write_addr = self.write_addressing.clone()
@@ -93,37 +93,28 @@ class NTMLayer(nn.Module):
     def forward(self, x: Tensor) -> Tensor:
         """Forward pass for one timestep.
 
-        x: (w,) input vector
-        Returns: (w,) output vector (new data, before logSoftmax)
+        x: (num_inputs,) input vector
+        Returns: (num_outputs,) output vector
         """
         # Concatenate previous read output with input
         controller_input = torch.cat([self._current_read_output, x])
 
         # Controller forward pass
-        # pyright doesn't see __call__ on nn.Module-typed fields
-        raw_output: Tensor = self.controller(controller_input)  # type: ignore[operator]
+        _: Tensor = self.controller(controller_input)  # type: ignore[operator]
+        controller_hidden: Tensor = self.controller.last_hidden  # type: ignore[union-attr]
 
-        # NOTE: Clamp controller output to [-20, 20] matching applyLayerVar
-        raw_output = raw_output.clamp(-20, 20)
-
-        if self.output_mode == "read":
-            # "read" mode: entire controller output is head params (no output slice)
-            read_input = raw_output[: self.read_head_width]
-            write_input = raw_output[self.read_head_width :]
-        else:
-            # "controller" mode: split into head inputs + new data slice
-            read_input = raw_output[: self.read_head_width]
-            write_end = self.read_head_width + self.write_head_width
-            write_input = raw_output[self.read_head_width : write_end]
+        # Head params from separate FCs
+        read_params: Tensor = self.read_fc(controller_hidden)
+        write_params: Tensor = self.write_fc(controller_hidden)
 
         # Read head
         new_read_addr, read_output, _ = forward_read_head(
-            self.memory, self._current_read_addr, read_input, self.w
+            self.memory, self._current_read_addr, read_params, self.m
         )
 
         # Write head
         new_write_addr, new_memory = forward_write_head(
-            self.memory, self._current_write_addr, write_input, self.w
+            self.memory, self._current_write_addr, write_params, self.m
         )
 
         # Tanh memory bounding (Collier & Beel)
@@ -141,24 +132,16 @@ class NTMLayer(nn.Module):
             "write_addr": new_write_addr.detach().clone(),
             "memory": new_memory.detach().clone(),
             "read_output": read_output.detach().clone(),
-            "controller_output": raw_output.detach().clone(),
+            "read_params": read_params.detach().clone(),
+            "write_params": write_params.detach().clone(),
         }
 
-        if self.output_mode == "read":
-            # Output from read vector + controller hidden state
-            # pyright doesn't see last_hidden through nn.Module-typed controller
-            controller_hidden: Tensor = self.controller.last_hidden  # type: ignore[union-attr]
-            return self.output_fc(torch.cat([controller_hidden, read_output]))
-        else:
-            new_data = raw_output[self.read_head_width + self.write_head_width :]
-            return new_data
+        # Output from controller hidden + read vector
+        output = self.output_fc(torch.cat([controller_hidden, read_output]))
+        return output
 
     def project_addressing(self, eps: float = 1e-6) -> None:
-        """Project addressing weights onto probability simplex.
-
-        Matches Layer.idr syncLayerBuffers/projectWeights: clamp to [eps, inf),
-        then renormalize. Called after optimizer step.
-        """
+        """Project addressing weights onto probability simplex."""
         with torch.no_grad():
             for param in [self.read_addressing, self.write_addressing]:
                 param.clamp_(min=eps)
