@@ -42,7 +42,7 @@ class TestNtmRecallQuick:
         model = NtmRecallModel(cfg)
 
         model.reset_state()
-        model.ntm.controller.reset_state()
+        model.ntm.controller.reset_state()  # type: ignore[operator]
         x = torch.zeros(cfg.w)
         x[1] = 1.0
         output = model(x)
@@ -62,6 +62,7 @@ class TestNtmRecallSlow:
         model = NtmRecallModel(cfg)
 
         losses = []
+        data = generate_recall_batch(cfg.batch_size, 1, 1, cfg.w)
         for epoch in range(cfg.epochs):
             if epoch % cfg.chunk_size == 0:
                 data = generate_recall_batch(cfg.batch_size, 1, 1, cfg.w)

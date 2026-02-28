@@ -1,7 +1,6 @@
 """NTM read/write head operations matching idris-ml's Memory.idr and Layer.idr."""
 
 import torch
-import torch.nn.functional as F
 from torch import Tensor
 
 from bench.ntm.addressing import content_address, focus, interpolate, shift

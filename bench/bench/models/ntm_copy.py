@@ -85,7 +85,7 @@ def train_ntm_copy_step(
     for xs, ys in data:
         model.reset_state()
         seq_loss = torch.tensor(0.0)
-        for x, y in zip(xs, ys):
+        for x, y in zip(xs, ys, strict=True):
             pred = model(x)
             seq_loss = seq_loss + nll_loss(pred, y)
         total_loss = total_loss + seq_loss / len(xs)

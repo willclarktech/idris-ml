@@ -53,7 +53,9 @@ def bce_with_logits(logits: Tensor, targets: Tensor) -> Tensor:
     """Binary cross-entropy with logits.
 
     Matches Math.idr binaryCrossEntropyWithLogits: applies sigmoid then BCE.
+    Clamps sigmoid output to avoid log(0).
     """
-    sigp = torch.sigmoid(logits)
+    eps = 1e-6
+    sigp = torch.sigmoid(logits).clamp(eps, 1 - eps)
     pointwise = -(targets * torch.log(sigp) + (1 - targets) * torch.log(1 - sigp))
     return pointwise.mean()

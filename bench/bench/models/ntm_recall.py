@@ -71,7 +71,7 @@ class NtmRecallModel(nn.Module):
 
     def reset_state(self) -> None:
         self.ntm.reset_state()
-        self.ntm.controller.reset_state()
+        self.ntm.controller.reset_state()  # type: ignore[operator]
 
     def forward(self, x: Tensor) -> Tensor:
         """Forward one timestep, returns log-softmax output."""
@@ -94,7 +94,7 @@ def train_ntm_recall_step(
     for xs, ys in data:
         model.reset_state()
         seq_loss = torch.tensor(0.0)
-        for x, y in zip(xs, ys):
+        for x, y in zip(xs, ys, strict=True):
             pred = model(x)
             seq_loss = seq_loss + weighted_nll_loss(pred, y, weight=model.cfg.recall_weight)
         total_loss = total_loss + seq_loss / len(xs)

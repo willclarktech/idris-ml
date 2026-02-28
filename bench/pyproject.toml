@@ -7,7 +7,7 @@ dependencies = [
     "numpy>=1.24",
 ]
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = [
     "pytest>=8.0",
     "ruff>=0.9",
@@ -20,6 +20,7 @@ line-length = 100
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "UP", "B", "SIM", "TCH"]
+ignore = ["N812"]  # Allow import torch.nn.functional as F (PyTorch convention)
 
 [tool.ruff.format]
 quote-style = "double"

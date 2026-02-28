@@ -60,7 +60,7 @@ class NTMLayer(nn.Module):
 
     def reset_state(self) -> None:
         """Reset memory and head state between sequences."""
-        self.memory = self._init_memory.clone()
+        self.memory = self._init_memory.clone()  # type: ignore[reportCallIssue]
         self._current_read_addr = self.read_addressing.clone()
         self._current_write_addr = self.write_addressing.clone()
         self._current_read_output = self.read_head_output.clone()
@@ -75,14 +75,15 @@ class NTMLayer(nn.Module):
         controller_input = torch.cat([self._current_read_output, x])
 
         # Controller forward pass
-        raw_output = self.controller(controller_input)
+        raw_output: Tensor = self.controller(controller_input)  # type: ignore[operator]
 
         # NOTE: Clamp controller output to [-20, 20] matching applyLayerVar
         raw_output = raw_output.clamp(-20, 20)
 
         # Split controller output into head inputs + new data
         read_input = raw_output[: self.read_head_width]
-        write_input = raw_output[self.read_head_width : self.read_head_width + self.write_head_width]
+        write_end = self.read_head_width + self.write_head_width
+        write_input = raw_output[self.read_head_width : write_end]
         new_data = raw_output[self.read_head_width + self.write_head_width :]
 
         # Read head

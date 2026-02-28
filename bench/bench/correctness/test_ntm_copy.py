@@ -6,7 +6,7 @@ import random
 import pytest
 import torch
 
-from bench.data.copy_task import copy_task_point, generate_copy_batch
+from bench.data.copy_task import generate_copy_batch
 from bench.models.ntm_copy import NtmCopyConfig, NtmCopyModel, train_ntm_copy_step
 from bench.training.curriculum import Stage, run_curriculum
 from bench.training.losses import nll_loss
@@ -24,7 +24,8 @@ class TestNtmCopyQuick:
         # Fixed short sequences
         data = generate_copy_batch(8, 1, 3, cfg.w)
 
-        losses = []
+        losses: list[float] = []
+        loss_val = 0.0
         for i in range(500):
             optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr)
             loss_val = train_ntm_copy_step(model, data, nll_loss, optimizer)
@@ -58,10 +59,11 @@ class TestNtmCopySlow:
         cfg = NtmCopyConfig(epochs=3000, patience=150, chunk_size=50)
         model = NtmCopyModel(cfg)
 
+        bs, w = cfg.batch_size, cfg.w
         stages = [
-            Stage("Stage 1 (len 1-3)", 0.15, lambda: generate_copy_batch(cfg.batch_size, 1, 3, cfg.w)),
-            Stage("Stage 2 (len 1-5)", 0.10, lambda: generate_copy_batch(cfg.batch_size, 1, 5, cfg.w)),
-            Stage("Stage 3 (len 1-8)", 0.0, lambda: generate_copy_batch(cfg.batch_size, 1, 8, cfg.w)),
+            Stage("Stage 1 (len 1-3)", 0.15, lambda: generate_copy_batch(bs, 1, 3, w)),
+            Stage("Stage 2 (len 1-5)", 0.10, lambda: generate_copy_batch(bs, 1, 5, w)),
+            Stage("Stage 3 (len 1-8)", 0.0, lambda: generate_copy_batch(bs, 1, 8, w)),
         ]
 
         def schedule_fn(epoch: int) -> float:
@@ -74,7 +76,9 @@ class TestNtmCopySlow:
             return lr_end + (cfg.lr - lr_end) * 0.5 * (1 + math.cos(math.pi * progress))
 
         def optimizer_factory(m: NtmCopyModel, lr: float) -> torch.optim.Optimizer:
-            return torch.optim.Adam(m.parameters(), lr=lr, betas=(cfg.beta1, cfg.beta2), eps=cfg.eps)
+            return torch.optim.Adam(
+                m.parameters(), lr=lr, betas=(cfg.beta1, cfg.beta2), eps=cfg.eps
+            )
 
         done, _ = run_curriculum(
             model=model,
@@ -96,7 +100,7 @@ class TestNtmCopySlow:
         with torch.no_grad():
             for xs, ys in test_data:
                 model.reset_state()
-                for x, y in zip(xs, ys):
+                for x, y in zip(xs, ys, strict=True):
                     pred = model(x)
                     if pred.argmax() == y.argmax():
                         correct += 1

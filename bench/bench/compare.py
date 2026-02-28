@@ -73,31 +73,24 @@ def main() -> None:
     print("Benchmark Comparison: idris-ml vs PyTorch")
     print("=" * 70)
 
-    header = f"{'Model':<15} {'Idris (ms)':>12} {'PyTorch (ms)':>14} {'Ratio':>8} {'Idris Loss':>12} {'PyTorch Loss':>14}"
+    cols = ["Model", "Idris (ms)", "PyTorch (ms)", "Ratio", "Idris Loss", "PyTorch Loss"]
+    header = f"{cols[0]:<15} {cols[1]:>12} {cols[2]:>14} {cols[3]:>8} {cols[4]:>12} {cols[5]:>14}"
     print(header)
     print("-" * len(header))
-
-    idris_map = {
-        "Supervised": "Supervised",
-        "RNN": "RNN",
-        "NTM": "NTM",
-    }
 
     for name in ["Supervised", "RNN", "NTM"]:
         py_ms, py_loss = py_results[name]
 
-        if idris_results:
-            idris_key = idris_map[name]
-            if idris_key in idris_results:
-                idris_ms, idris_loss = idris_results[idris_key]
-                ratio = idris_ms / py_ms if py_ms > 0 else 0
-                print(
-                    f"{name:<15} {idris_ms:>12.1f} {py_ms:>14.1f} {ratio:>7.2f}x {idris_loss:>12.6f} {py_loss:>14.6f}"
-                )
-            else:
-                print(f"{name:<15} {'N/A':>12} {py_ms:>14.1f} {'N/A':>8} {'N/A':>12} {py_loss:>14.6f}")
+        if idris_results and name in idris_results:
+            idris_ms, idris_loss = idris_results[name]
+            ratio = idris_ms / py_ms if py_ms > 0 else 0
+            print(
+                f"{name:<15} {idris_ms:>12.1f} {py_ms:>14.1f}"
+                f" {ratio:>7.2f}x {idris_loss:>12.6f} {py_loss:>14.6f}"
+            )
         else:
-            print(f"{name:<15} {'N/A':>12} {py_ms:>14.1f} {'N/A':>8} {'N/A':>12} {py_loss:>14.6f}")
+            na = "N/A"
+            print(f"{name:<15} {na:>12} {py_ms:>14.1f} {na:>8} {na:>12} {py_loss:>14.6f}")
 
 
 if __name__ == "__main__":

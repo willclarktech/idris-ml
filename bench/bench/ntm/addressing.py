@@ -4,7 +4,6 @@ NOTE: Add vectors use 2*sigmoid(2*x)-1 instead of plain tanh, matching
 idris-ml's Math.tanh definition: tanh x = 2 * sigmoid(2*x) - 1.
 """
 
-import torch
 import torch.nn.functional as F
 from torch import Tensor
 

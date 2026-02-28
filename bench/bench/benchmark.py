@@ -16,9 +16,9 @@ from torch.nn.utils import clip_grad_norm_
 
 from bench.data.copy_task import copy_task_point
 from bench.models.rnn import LinearRNNCell, generate_rnn_dataset, train_rnn_epoch
-from bench.models.supervised import SupervisedModel, SUPERVISED_DATA, train_supervised_epoch
+from bench.models.supervised import SUPERVISED_DATA, SupervisedModel, train_supervised_epoch
 from bench.ntm.ntm_layer import NTMLayer, ntm_input_width, ntm_output_width
-from bench.training.losses import cross_entropy, nll_loss
+from bench.training.losses import nll_loss
 
 
 def bench_supervised() -> tuple[float, float]:
@@ -34,6 +34,7 @@ def bench_supervised() -> tuple[float, float]:
         train_supervised_epoch(model, data, optimizer)
 
     # Benchmark: 1000 epochs
+    loss_val = 0.0
     t0 = time.monotonic()
     for _ in range(1000):
         optimizer = torch.optim.SGD(model.parameters(), lr=lr)
@@ -57,6 +58,7 @@ def bench_rnn() -> tuple[float, float]:
         train_rnn_epoch(model, data, optimizer)
 
     # Benchmark: 1000 epochs
+    loss_val = 0.0
     t0 = time.monotonic()
     for _ in range(1000):
         optimizer = torch.optim.SGD(model.parameters(), lr=lr)
@@ -113,7 +115,7 @@ def bench_ntm() -> tuple[float, float]:
         for xs, ys in data:
             ntm.reset_state()
             seq_loss = torch.tensor(0.0)
-            for x, y in zip(xs, ys):
+            for x, y in zip(xs, ys, strict=True):
                 raw = ntm(x)
                 pred = torch.log_softmax(raw, dim=-1)
                 seq_loss = seq_loss + nll_loss(pred, y)
@@ -130,6 +132,7 @@ def bench_ntm() -> tuple[float, float]:
         train_one_epoch()
 
     # Benchmark: 100 epochs
+    loss_val = 0.0
     t0 = time.monotonic()
     for _ in range(100):
         loss_val = train_one_epoch()

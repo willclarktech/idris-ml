@@ -82,7 +82,7 @@ def train_rnn_epoch(
     for xs, ys in data:
         model.reset_state()
         seq_loss = torch.tensor(0.0)
-        for x, y in zip(xs, ys):
+        for x, y in zip(xs, ys, strict=True):
             pred = model(x)
             seq_loss = seq_loss + bce_with_logits(pred, y)
         total_loss = total_loss + seq_loss / len(xs)

@@ -80,7 +80,7 @@ def generate_recall_batch(
         random.shuffle(shuffled)
         keys = shuffled[:k]
         values = [random.randint(1, w - 1) for _ in range(k)]
-        pairs = list(zip(keys, values))
+        pairs = list(zip(keys, values, strict=True))
         query_keys = keys.copy()
         random.shuffle(query_keys)
         batch.append(associative_recall_point(pairs, query_keys, w))
