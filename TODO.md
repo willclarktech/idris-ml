@@ -11,6 +11,7 @@
 
 | Item | Difficulty | Notes |
 |------|-----------|-------|
+| DNC (Differentiable Neural Computer) | XL | Graves et al. 2016 successor to NTM — temporal link matrix, dynamic memory allocation, multiple read heads |
 | Convolutional layers | L | |
 | Transformer | XL | |
 | Regularisation/normalisation layers | M | |

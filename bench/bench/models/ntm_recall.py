@@ -1,7 +1,10 @@
 """NTM associative recall model matching idris-ml's NtmAssociativeRecall.idr.
 
-RNN controller + tanh activation:
-  LinearRNNCell(NtmInputWidth→H) → Tanh → Linear(H→NtmOutputWidth) → [NTM] → LogSoftmax
+Supports two controller types:
+  LSTM (default, matches Graves et al. 2014):
+    LSTMCell(NtmInputWidth→H) → Linear(H→NtmOutputWidth) → [NTM] → LogSoftmax
+  RNN (vanilla baseline):
+    LinearRNNCell(NtmInputWidth→H) → Tanh → Linear(H→NtmOutputWidth) → [NTM] → LogSoftmax
 """
 
 from dataclasses import dataclass
@@ -21,6 +24,7 @@ class NtmRecallConfig:
     w: int = 8
     n: int = 128
     h: int = 100
+    controller: str = "lstm"  # "lstm" (Graves et al. 2014) or "rnn"
     batch_size: int = 48
     lr: float = 0.0001
     beta1: float = 0.9
@@ -54,8 +58,40 @@ class RNNController(nn.Module):
         return self.output(h)
 
 
+class LSTMController(nn.Module):
+    """LSTM controller matching Graves et al. 2014.
+
+    LSTMCell already has tanh in its output gate, so no extra activation
+    is needed (unlike RNNController which adds explicit tanh).
+    """
+
+    def __init__(self, input_size: int, hidden_size: int, output_size: int) -> None:
+        super().__init__()
+        self.hidden_size = hidden_size
+        self.lstm = nn.LSTMCell(input_size, hidden_size)
+        self.output = nn.Linear(hidden_size, output_size)
+
+        # Learnable initial states (matching RNNController's h0 pattern)
+        self.h0 = nn.Parameter(torch.zeros(hidden_size))
+        self.c0 = nn.Parameter(torch.zeros(hidden_size))
+
+        nn.init.xavier_uniform_(self.output.weight)
+        nn.init.zeros_(self.output.bias)
+
+    def reset_state(self) -> None:
+        self._h = self.h0.clone()
+        self._c = self.c0.clone()
+
+    def forward(self, x: Tensor) -> Tensor:
+        # LSTMCell expects (batch, features) — unsqueeze/squeeze for unbatched
+        h, c = self.lstm(x.unsqueeze(0), (self._h.unsqueeze(0), self._c.unsqueeze(0)))
+        self._h = h.squeeze(0)
+        self._c = c.squeeze(0)
+        return self.output(self._h)
+
+
 class NtmRecallModel(nn.Module):
-    """NTM model for associative recall with RNN controller."""
+    """NTM model for associative recall."""
 
     def __init__(self, cfg: NtmRecallConfig | None = None) -> None:
         super().__init__()
@@ -66,7 +102,10 @@ class NtmRecallModel(nn.Module):
         input_w = ntm_input_width(cfg.w)
         output_w = ntm_output_width(cfg.n, cfg.w)
 
-        controller = RNNController(input_w, cfg.h, output_w)
+        if cfg.controller == "lstm":
+            controller: nn.Module = LSTMController(input_w, cfg.h, output_w)
+        else:
+            controller = RNNController(input_w, cfg.h, output_w)
         self.ntm = NTMLayer(controller, cfg.n, cfg.w)
 
     def reset_state(self) -> None:

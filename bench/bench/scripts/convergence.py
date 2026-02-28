@@ -6,6 +6,7 @@ then runs diagnostics to verify addressing behavior.
 Usage:
     uv run python -m bench.scripts.convergence [--task {copy,recall,both}] [--seed N]
         [--copy-epochs N] [--recall-epochs N] [--verbose]
+        [--recall-controller {rnn,lstm}] [--recall-n N]
 """
 
 import argparse
@@ -230,11 +231,15 @@ def run_copy(args: argparse.Namespace) -> None:
 
 def run_recall(args: argparse.Namespace) -> None:
     """Train and diagnose NTM associative recall task."""
+    controller = getattr(args, "recall_controller", "lstm")
+    n = getattr(args, "recall_n", 128)
+
     print("=" * 60)
     print("NTM Associative Recall Convergence")
+    print(f"  controller={controller}  N={n}")
     print("=" * 60)
 
-    cfg = NtmRecallConfig(epochs=args.recall_epochs, patience=1000)
+    cfg = NtmRecallConfig(epochs=args.recall_epochs, patience=1000, controller=controller, n=n)
     model = NtmRecallModel(cfg)
     w = cfg.w
 
@@ -457,6 +462,15 @@ def main() -> None:
         "--recall-epochs", type=int, default=15000, help="Max epochs for recall task"
     )
     parser.add_argument("--verbose", action="store_true", help="Print per-timestep raw state")
+    parser.add_argument(
+        "--recall-controller",
+        choices=["rnn", "lstm"],
+        default="lstm",
+        help="Recall controller type (default: lstm)",
+    )
+    parser.add_argument(
+        "--recall-n", type=int, default=128, help="Recall memory slots (default: 128)"
+    )
     args = parser.parse_args()
 
     torch.manual_seed(args.seed)

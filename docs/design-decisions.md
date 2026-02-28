@@ -422,6 +422,20 @@ Additionally, `nameNetworkParams` has a latent collision bug: it applies the sam
 
 `nameParams`/`nameNetworkParams` remain available for users who want custom semantic names.
 
+## LSTM controller for associative recall
+
+The vanilla RNN controller (LinearRNNCell → tanh → Linear) completely fails to learn associative recall: 0% K=1 accuracy, all reads/writes stuck on slot 0, content_match_rate=0. The model falls into a degenerate one-slot attractor and never escapes.
+
+**Why vanilla RNN fails**: associative recall requires remembering what was stored 4+ timesteps ago and generating matching content-addressing keys during the query phase. The RNN's single hidden state provides weak temporal credit assignment — gradients for the store phase must backpropagate through every intervening timestep's tanh squashing, decaying exponentially.
+
+**Why LSTM fixes it**: the cell state provides a direct gradient highway through the forget gate. Information stored during the store phase can persist through the delimiter and into the query phase with minimal gradient degradation. The input/output gates learn when to write (store phase) and when to read (query phase) — a natural fit for the store→query phase transition.
+
+**Softmax gradient scaling**: with N memory slots, the softmax gradient for a non-dominant position is O(1/N²). At N=128 this gives ~6e-5 per gradient step, vs ~4e-3 at N=16 (60x stronger). The LSTM's stronger temporal gradients are essential to compensate for this dilution at large N.
+
+**Reference alignment**: Graves et al. 2014 uses LSTM for all tasks (copy, repeat copy, associative recall, priority sort). No reference NTM implementation uses vanilla RNN for associative recall. The copy task works with a feedforward controller because it only needs sequential shift (location-based addressing), not content-based retrieval across time.
+
+**Implementation**: `LSTMController` wraps `nn.LSTMCell` + `nn.Linear`. LSTM's output gate already applies tanh, so no extra activation is needed (unlike RNNController which adds explicit tanh after the linear recurrence). Learnable initial states `h0`, `c0` as `nn.Parameter(torch.zeros(...))` match the RNNController pattern. The `NtmRecallConfig.controller` field selects between "lstm" (default) and "rnn".
+
 ## PyTorch benchmark suite
 
 The `bench/` directory contains a faithful PyTorch reimplementation of all idris-ml examples for correctness validation and performance comparison. Key design choices:

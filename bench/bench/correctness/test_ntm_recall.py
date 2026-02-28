@@ -12,11 +12,11 @@ from bench.training.losses import weighted_nll_loss
 
 class TestNtmRecallQuick:
     def test_loss_decreases(self) -> None:
-        """Loss should decrease over 200 epochs with fixed K=1 data."""
+        """Loss should decrease over 200 epochs with fixed K=1 data (RNN)."""
         torch.manual_seed(42)
         random.seed(42)
 
-        cfg = NtmRecallConfig()
+        cfg = NtmRecallConfig(controller="rnn")
         model = NtmRecallModel(cfg)
 
         # Fixed simple data (K=1 pair)
@@ -37,8 +37,8 @@ class TestNtmRecallQuick:
         )
 
     def test_forward_shape(self) -> None:
-        """Verify output dimensions."""
-        cfg = NtmRecallConfig()
+        """Verify output dimensions (RNN)."""
+        cfg = NtmRecallConfig(controller="rnn")
         model = NtmRecallModel(cfg)
 
         model.reset_state()
@@ -50,6 +50,42 @@ class TestNtmRecallQuick:
         assert output.shape == (cfg.w,)
         # LogSoftmax output should be <= 0
         assert (output <= 0).all()
+
+    def test_forward_shape_lstm(self) -> None:
+        """Verify output dimensions with LSTM controller."""
+        cfg = NtmRecallConfig(controller="lstm")
+        model = NtmRecallModel(cfg)
+
+        model.reset_state()
+        x = torch.zeros(cfg.w)
+        x[1] = 1.0
+        output = model(x)
+        assert output.shape == (cfg.w,)
+        assert (output <= 0).all()
+
+    def test_loss_decreases_lstm(self) -> None:
+        """Loss should decrease over 200 epochs with LSTM + K=1 data."""
+        torch.manual_seed(42)
+        random.seed(42)
+
+        cfg = NtmRecallConfig(controller="lstm")
+        model = NtmRecallModel(cfg)
+
+        data = generate_recall_batch(8, 1, 1, cfg.w)
+
+        initial_loss = None
+        final_loss = None
+        for i in range(200):
+            optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr)
+            loss_val = train_ntm_recall_step(model, data, weighted_nll_loss, optimizer)
+            if i == 0:
+                initial_loss = loss_val
+            final_loss = loss_val
+
+        assert final_loss is not None and initial_loss is not None
+        assert final_loss < initial_loss, (
+            f"Loss did not decrease: {initial_loss:.4f} → {final_loss:.4f}"
+        )
 
 
 @pytest.mark.slow
