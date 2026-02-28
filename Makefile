@@ -96,7 +96,10 @@ bench-convergence-recall-lstm-small:
 bench-convergence-recall-rnn-small:
 	cd bench && uv run python -u -m bench.scripts.convergence --task recall --recall-controller rnn --recall-n 16
 
+bench-convergence-recall-ref:
+	cd bench && uv run python -u -m bench.scripts.convergence --task recall --recall-controller lstm --recall-n 128 --recall-optimizer rmsprop --recall-clip value --recall-batch-size 1 --recall-output read --recall-epochs 50000
+
 clean:
 	rm -f $(CLIB) $(BUILD)/test_tensor
 
-.PHONY: test test-c check supervised rnn ntm-copy ntm-associative-recall bench sweep sweep-quick clean bench-setup bench-py bench-compare bench-test bench-lint bench-typecheck bench-convergence bench-convergence-copy bench-convergence-recall bench-convergence-recall-lstm bench-convergence-recall-lstm-small bench-convergence-recall-rnn-small
+.PHONY: test test-c check supervised rnn ntm-copy ntm-associative-recall bench sweep sweep-quick clean bench-setup bench-py bench-compare bench-test bench-lint bench-typecheck bench-convergence bench-convergence-copy bench-convergence-recall bench-convergence-recall-lstm bench-convergence-recall-lstm-small bench-convergence-recall-rnn-small bench-convergence-recall-ref

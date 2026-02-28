@@ -37,13 +37,11 @@ class TestNtmRecallQuick:
         )
 
     def test_forward_shape(self) -> None:
-        """Verify output dimensions (RNN)."""
+        """Verify output dimensions (RNN, read output mode)."""
         cfg = NtmRecallConfig(controller="rnn")
         model = NtmRecallModel(cfg)
 
         model.reset_state()
-        # pyright doesn't see reset_state() through nn.Module-typed controller field
-        model.ntm.controller.reset_state()  # type: ignore[operator]
         x = torch.zeros(cfg.w)
         x[1] = 1.0
         output = model(x)
@@ -52,7 +50,7 @@ class TestNtmRecallQuick:
         assert (output <= 0).all()
 
     def test_forward_shape_lstm(self) -> None:
-        """Verify output dimensions with LSTM controller."""
+        """Verify output dimensions with LSTM controller (read output mode)."""
         cfg = NtmRecallConfig(controller="lstm")
         model = NtmRecallModel(cfg)
 
@@ -86,6 +84,61 @@ class TestNtmRecallQuick:
         assert final_loss < initial_loss, (
             f"Loss did not decrease: {initial_loss:.4f} → {final_loss:.4f}"
         )
+
+    def test_read_output_mode(self) -> None:
+        """Verify read output mode: output uses read vector + controller hidden."""
+        cfg = NtmRecallConfig(controller="lstm", output_mode="read")
+        model = NtmRecallModel(cfg)
+
+        model.reset_state()
+        x = torch.zeros(cfg.w)
+        x[1] = 1.0
+        output = model(x)
+        assert output.shape == (cfg.w,)
+        assert (output <= 0).all()
+
+        # NTMLayer should have output_fc in read mode
+        assert hasattr(model.ntm, "output_fc")
+        assert model.ntm.output_mode == "read"
+
+    def test_controller_output_mode(self) -> None:
+        """Verify controller output mode (idris-ml compatible)."""
+        cfg = NtmRecallConfig(controller="lstm", output_mode="controller")
+        model = NtmRecallModel(cfg)
+
+        model.reset_state()
+        x = torch.zeros(cfg.w)
+        x[1] = 1.0
+        output = model(x)
+        assert output.shape == (cfg.w,)
+        assert (output <= 0).all()
+        assert model.ntm.output_mode == "controller"
+
+    def test_value_clipping(self) -> None:
+        """Verify value clipping mode works without errors."""
+        torch.manual_seed(42)
+        random.seed(42)
+
+        cfg = NtmRecallConfig(controller="lstm", clip_mode="value", clip_value=10.0)
+        model = NtmRecallModel(cfg)
+        data = generate_recall_batch(4, 1, 1, cfg.w)
+
+        optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr)
+        loss = train_ntm_recall_step(model, data, weighted_nll_loss, optimizer)
+        assert loss > 0
+
+    def test_rmsprop_optimizer(self) -> None:
+        """Verify RMSprop optimizer trains without errors."""
+        torch.manual_seed(42)
+        random.seed(42)
+
+        cfg = NtmRecallConfig(controller="lstm", optimizer="rmsprop")
+        model = NtmRecallModel(cfg)
+        data = generate_recall_batch(4, 1, 1, cfg.w)
+
+        optimizer = torch.optim.RMSprop(model.parameters(), lr=cfg.lr, alpha=0.95, momentum=0.9)
+        loss = train_ntm_recall_step(model, data, weighted_nll_loss, optimizer)
+        assert loss > 0
 
 
 @pytest.mark.slow

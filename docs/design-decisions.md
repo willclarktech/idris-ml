@@ -436,6 +436,31 @@ The vanilla RNN controller (LinearRNNCell → tanh → Linear) completely fails 
 
 **Implementation**: `LSTMController` wraps `nn.LSTMCell` + `nn.Linear`. LSTM's output gate already applies tanh, so no extra activation is needed (unlike RNNController which adds explicit tanh after the linear recurrence). Learnable initial states `h0`, `c0` as `nn.Parameter(torch.zeros(...))` match the RNNController pattern. The `NtmRecallConfig.controller` field selects between "lstm" (default) and "rnn".
 
+### Reference-aligned PyTorch NTM recall
+
+Comparison with two working reference implementations — [loudinthecloud/pytorch-ntm](https://github.com/loudinthecloud/pytorch-ntm) and [vlgiitr/ntm-pytorch](https://github.com/vlgiitr/ntm-pytorch) — revealed critical architectural and training differences. Both references solve associative recall and generalize to 20+ items.
+
+**Key differences and fixes applied**:
+
+| Change | Before (idris-ml aligned) | After (reference aligned) | Impact |
+|--------|--------------------------|--------------------------|--------|
+| Output computation | `logSoftmax(controller_output_slice)` | `logSoftmax(Linear(cat(controller_hidden, read_vector)))` | **CRITICAL** — output now has access to read result at current timestep |
+| γ activation | `1 + 4*sigmoid → [1,5]` bounded | `1 + softplus → [1,∞)` unbounded | Allows sharper focusing when needed |
+| Add vector | `2*sig(2x)-1` bounded [-1,1] | Raw linear (no activation) | Matches reference impls |
+| Optimizer | Adam | RMSprop (lr=1e-4, momentum=0.9, alpha=0.95) | Reference default |
+| Grad clipping | Global L2 norm 50 | Value clipping ±10 | Reference default |
+| Batch size | 48 | 1 | Reference default |
+| LR schedule | One-cycle (warmup + cosine) | Constant 1e-4 | Simpler, reference default |
+| Curriculum | 3 stages (K=1,2,3) | None — direct K=2 training | Reference impls use no curriculum |
+
+**Output architecture** (most critical): Both reference implementations compute the final output from the read vector at the current timestep: `output = sigmoid(Linear(cat(controller_output, read_vector)))`. Our original implementation returned a slice of the controller output, so the read vector only fed back as input at t+1. This forced an "answer on blank" delay and meant the output had no direct access to retrieved memory content.
+
+The `NTMLayer` now supports `output_mode="read"` which adds an `output_fc` layer and computes `output_fc(cat(controller_hidden, read_output))`. The controller output size is reduced to just head parameters (no output slice), computed via `ntm_head_params_width(w)`.
+
+**Configuration**: `NtmRecallConfig` defaults are now reference-aligned: `output_mode="read"`, `optimizer="rmsprop"`, `clip_mode="value"`, `batch_size=1`. The old idris-ml-aligned config is available via `output_mode="controller"`, `optimizer="adam"`, `clip_mode="norm"`.
+
+Run with `make bench-convergence-recall-ref` for the full reference-aligned configuration.
+
 ## PyTorch benchmark suite
 
 The `bench/` directory contains a faithful PyTorch reimplementation of all idris-ml examples for correctness validation and performance comparison. Key design choices:
