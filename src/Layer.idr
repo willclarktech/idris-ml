@@ -2,6 +2,7 @@ module Layer
 
 import Data.Fin
 import Data.List
+import Data.SortedMap
 import Data.Vect
 import Data.Zippable
 import System.Random
@@ -449,6 +450,58 @@ mutual
   nameNetworkParams : {i, o : Nat} -> {hs : List Nat} -> String -> Network i hs o Variable -> Network i hs o Variable
   nameNetworkParams prefx (OutputLayer layer) = OutputLayer (nameParams prefx layer)
   nameNetworkParams prefx (layer ~> rest) = nameParams prefx layer ~> nameNetworkParams prefx rest
+
+
+----------------------------------------------------------------------
+-- Automatic Parameter Naming
+----------------------------------------------------------------------
+
+layerPrefix : Layer i o ty -> String
+layerPrefix (LinearLayer _ _ _) = "ll"
+layerPrefix (RnnLayer _ _ _ _ _ _) = "rnn"
+layerPrefix (NtmLayer _ _ _ _ _) = "ntm"
+layerPrefix _ = ""
+
+mutual
+  autoNameLayer : String -> SortedMap String Nat -> {i, o : Nat}
+              -> Layer i o Variable
+              -> (SortedMap String Nat, Layer i o Variable)
+  autoNameLayer scope counts layer =
+    let pfx = layerPrefix layer
+    in if pfx == "" then (counts, layer)
+       else let n = fromMaybe 0 (lookup pfx counts)
+                counts' = insert pfx (n + 1) counts
+                fullName = scope ++ pfx ++ show n
+            in case layer of
+              (NtmLayer controller memory readHead writeHead readHeadOutput) =>
+                let np = nameParam . (fullName ++ "_" ++)
+                    namedMemory = zipWith (np "mem") enumerate memory
+                    namedReadHead = { addressingWeights $= zipWith (np "rAddr") enumerate } readHead
+                    namedWriteHead = { readHead.addressingWeights $= zipWith (np "wAddr") enumerate } writeHead
+                    namedReadOut = zipWith (np "rOut") enumerate readHeadOutput
+                    (_, controller') = autoNameNetwork (fullName ++ "_") empty controller
+                in (counts', NtmLayer controller' namedMemory namedReadHead namedWriteHead namedReadOut)
+              _ => (counts', nameParams fullName layer)
+
+  autoNameNetwork : String -> SortedMap String Nat
+                 -> {i, o : Nat} -> {hs : List Nat}
+                 -> Network i hs o Variable
+                 -> (SortedMap String Nat, Network i hs o Variable)
+  autoNameNetwork scope counts (OutputLayer layer) =
+    let (counts', layer') = autoNameLayer scope counts layer
+    in (counts', OutputLayer layer')
+  autoNameNetwork scope counts (layer ~> rest) =
+    let (counts', layer') = autoNameLayer scope counts layer
+        (counts'', rest') = autoNameNetwork scope counts' rest
+    in (counts'', layer' ~> rest')
+
+||| Automatically name all parameters using type-based prefixes.
+||| LinearLayer -> ll0, ll1, ...; RnnLayer -> rnn0, rnn1, ...; NtmLayer -> ntm0, ...
+||| Each layer gets unique names, preventing gradient cross-contamination.
+export
+autoName : {i, o : Nat} -> {hs : List Nat}
+        -> Network i hs o Variable -> Network i hs o Variable
+autoName net = snd (autoNameNetwork "" empty net)
 
 
 ----------------------------------------------------------------------
