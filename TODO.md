@@ -10,6 +10,7 @@
 
 | Item | Difficulty | Notes |
 |------|-----------|-------|
+| NTM associative recall example | M | Key-value lookup task; exercises content addressing (copy task only needs location) |
 | Unit tests | M | No test framework yet; verify via `--check` + examples |
 | Automatically name parameters | S | |
 | More Tensor functions (eg concatenation) | M | |
