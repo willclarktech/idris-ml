@@ -35,7 +35,7 @@ H = 20
 
 ||| Number of training examples
 E : Nat
-E = 10
+E = 13
 
 
 ----------------------------------------------------------------------
@@ -56,6 +56,9 @@ sequences =
   , [2, 1, 2, 1, 2, 1, 2]
   , [1, 1, 1, 2, 2, 2, 1]
   , [1, 2, 1, 1, 2, 2, 1, 2]
+  , [2, 1, 1, 2, 1, 2, 2]
+  , [2, 2, 1, 2, 1, 1, 2, 1]
+  , [1, 1, 2, 1, 2, 2, 1, 2]
   ]
 
 ||| Held-out test sequence to check generalization
@@ -143,7 +146,7 @@ trainReport makeOpt schedule model dps (S chunks) patience done st bestLoss stal
     else trainReport makeOpt schedule model' dps chunks patience (done + 100) st' bestLoss' staleCount'
   where
     minDelta : Double
-    minDelta = 0.001
+    minDelta = 0.0001
     runChunk : (Double -> Optimizer) -> Schedule ->
                Network W [W] W Variable ->
                Vect E (RecurrentDataPoint W W Variable) ->
@@ -220,7 +223,7 @@ main = do
   -- Build NTM with logSoftmax output
   controllerHidden <- linearLayer {i = NtmInputWidth W, o = H}
   controllerOut <- linearLayer {i = H, o = NtmOutputWidth N W}
-  let controller = controllerHidden ~> sigmoidLayer ~> OutputLayer controllerOut
+  let controller = controllerHidden ~> tanhLayer ~> OutputLayer controllerOut
   ntm <- ntmLayer {n = N, w = W} controller
   let model = nameNetworkParams "ntm" $ ntm ~> OutputLayer logSoftmaxLayer
 
