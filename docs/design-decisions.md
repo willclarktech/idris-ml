@@ -279,4 +279,23 @@ Aligned with reference implementations to address generalization failures:
 
 **Random data generation**: The `Generate` module provides a port/adapter pattern — `SequenceTask` (port) defines the interface, `copyTask` (adapter) implements copy-task-specific generation. `randomBatchVect` generates typed `Vect n` batches. `randomSymbols` generates non-blank symbols (values 1..w-1). Data is regenerated every 100 training epochs to prevent overfitting.
 
-**Not yet implemented**: tanh memory bounding, learned initial addressing weights.
+## Tanh memory bounding
+
+After each memory write, all memory values are clamped to [-1, 1] via `tanhBound` (Collier & Beel recommendation). Without bounding, memory values can drift unboundedly over long sequences — the write head's add vector (tanh-bounded to [-1, 1]) accumulates across timesteps while the erase vector (sigmoid, [0, 1]) only partially clears previous values. Unbounded memory causes:
+- Content addressing instability: cosine similarity becomes unreliable when magnitudes vary wildly
+- Gradient scale mismatch between large and small memory values
+
+The `tanhBound` helper uses `2 * sigmoid(2x) - 1` (mathematically equivalent to tanh) expressed with `Neg`, `Fractional`, and `Floating` constraints, avoiding a `FromDouble` dependency. Applied via `map tanhBound` on the full memory matrix after `forwardWriteHead` in all three forward paths (generic, Variable, debug).
+
+## Learned initial addressing
+
+Read head addressing weights, write head addressing weights, and the initial read head output vector are named as learnable parameters (via `nameParams`). Previously these were fixed at `[1, 0, 0, ...]` (addressing) and `[0, 0, 0]` (read output) — the model had to learn sequential access starting from a hardcoded position.
+
+With learned initial addressing, the model can discover optimal starting positions through backpropagation. The existing `Functor` instances on `ReadHead`/`WriteHead` already propagate `applyDeltas` through these fields — naming is all that was needed to make them visible to gradient collection.
+
+New named parameters (for n=10 memory slots, w=3 width):
+- `rAddr0..rAddr9`: read head initial addressing weights (10 params)
+- `wAddr0..wAddr9`: write head initial addressing weights (10 params)
+- `rOut0..rOut2`: initial read head output vector (3 params)
+
+Total: 23 new learnable parameters, bringing the total from ~891 to ~914.

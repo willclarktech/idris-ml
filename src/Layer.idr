@@ -110,6 +110,17 @@ mutual
 
 
 ----------------------------------------------------------------------
+-- Tanh Memory Bounding
+----------------------------------------------------------------------
+
+||| Bounds values to [-1, 1] via tanh. Uses integer literals to avoid
+||| requiring a FromDouble constraint.
+export
+tanhBound : (Neg ty, Fractional ty, Floating ty) => ty -> ty
+tanhBound x = 2 * (1 / (1 + exp (negate (2 * x)))) - 1
+
+
+----------------------------------------------------------------------
 -- Forward Pass
 ----------------------------------------------------------------------
 
@@ -130,7 +141,8 @@ mutual
       (readHeadInput, controllerOutput') = Tensor.splitAt (ReadHeadInputWidth n i) controllerOutput
       (writeHeadInput, networkOutput) = Tensor.splitAt (WriteHeadInputWidth n i) controllerOutput'
       (newReadHead, newReadHeadOutput) = forwardReadHead memory readHead readHeadInput
-      (newWriteHead, newMemory) = forwardWriteHead memory writeHead writeHeadInput
+      (newWriteHead, rawMemory) = forwardWriteHead memory writeHead writeHeadInput
+      newMemory = map tanhBound rawMemory
       newLayer = NtmLayer newController newMemory newReadHead newWriteHead newReadHeadOutput
     in (newLayer, networkOutput)
 
@@ -264,7 +276,8 @@ mutual
       (readHeadInput, controllerOutput') = Tensor.splitAt (ReadHeadInputWidth n i) controllerOutput
       (writeHeadInput, networkOutput) = Tensor.splitAt (WriteHeadInputWidth n i) controllerOutput'
       (newReadHead, newReadHeadOutput) = forwardReadHeadVar memory readHead readHeadInput
-      (newWriteHead, newMemory) = forwardWriteHeadVar memory writeHead writeHeadInput
+      (newWriteHead, rawMemory) = forwardWriteHeadVar memory writeHead writeHeadInput
+      newMemory = map tanhBound rawMemory
       newLayer = NtmLayer newController newMemory newReadHead newWriteHead newReadHeadOutput
     in (newLayer, networkOutput)
 
@@ -471,8 +484,11 @@ mutual
                in RnnLayer namedInputWeights namedRecurrentWeights namedBias previousOutput (Just iwBuf') (Just rwBuf')
       (NtmLayer controller memory readHead writeHead readHeadOutput) =>
         let namedMemory = zipWith (np "mem") enumerate memory
+            namedReadHead = { addressingWeights $= zipWith (np "rAddr") enumerate } readHead
+            namedWriteHead = { readHead.addressingWeights $= zipWith (np "wAddr") enumerate } writeHead
+            namedReadOut = zipWith (np "rOut") enumerate readHeadOutput
         in NtmLayer (nameNetworkParams (prefx ++ "_ctrl") controller)
-                    namedMemory readHead writeHead readHeadOutput
+                    namedMemory namedReadHead namedWriteHead namedReadOut
       _ => layer
 
   export
@@ -485,6 +501,20 @@ mutual
 -- Weight Buffer Sync (after applyDeltas)
 ----------------------------------------------------------------------
 
+||| Project addressing weights onto the probability simplex after
+||| gradient updates. Clamps to [epsilon, inf) and renormalizes to
+||| sum to 1, preventing NaN from pow(negative, non-integer) in focus.
+projectWeights : {n : Nat} -> Vector n Variable -> Vector n Variable
+projectWeights (VTensor vs) =
+  let clamp : Tensor [] Variable -> Tensor [] Variable
+      clamp (STensor v) = STensor ({ value $= max 0.00000001 } v)
+      clamped = map clamp vs
+      s : Double
+      s = foldl (\acc, (STensor v) => acc + v.value) 0.0 clamped
+      normalize : Tensor [] Variable -> Tensor [] Variable
+      normalize (STensor v) = STensor ({ value $= (/ s) } v)
+  in VTensor (map normalize clamped)
+
 mutual
   export
   syncLayerBuffers : {i, o : Nat} -> Layer i o Variable -> Layer i o Variable
@@ -496,7 +526,9 @@ mutual
         rwb' = syncWeightBuf rwb 0 rwRows
     in RnnLayer (VTensor iwRows) (VTensor rwRows) bias po (Just iwb') (Just rwb')
   syncLayerBuffers (NtmLayer controller mem rh wh ro) =
-    NtmLayer (syncNetworkBuffers controller) mem rh wh ro
+    let rh' = { addressingWeights $= projectWeights } rh
+        wh' = { readHead.addressingWeights $= projectWeights } wh
+    in NtmLayer (syncNetworkBuffers controller) mem rh' wh' ro
   syncLayerBuffers l = l
 
   export

@@ -10,8 +10,6 @@
 
 | Item | Difficulty | Notes |
 |------|-----------|-------|
-| NTM tanh memory bounding | S | Collier & Beel: keeps memory in [-1, 1] |
-| NTM learned initial addressing | M | Backprop through initial head weights |
 | Unit tests | M | No test framework yet; verify via `--check` + examples |
 | Automatically name parameters | S | |
 | More Tensor functions (eg concatenation) | M | |
@@ -54,3 +52,5 @@
 - Curriculum training (3 stages: len 1-3, 1-5, 1-8)
 - Gradient clip norm 5.0 → 50.0 (Collier & Beel default)
 - 3-element shift kernel + hot-start addressing
+- NTM tanh memory bounding (Collier & Beel stability)
+- NTM learned initial addressing (backprop through head weights + readHeadOutput)

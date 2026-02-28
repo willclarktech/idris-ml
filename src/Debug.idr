@@ -37,7 +37,8 @@ DebugSnapshot = List DebugEntry
 ||| Format a Double to 4 decimal places
 export
 showF : Double -> String
-showF x = sign ++ show w ++ "." ++ fracStr
+showF x = if x /= x then "NaN"  -- NaN check
+  else sign ++ show w ++ "." ++ fracStr
   where
     neg : Bool
     neg = x < 0.0
@@ -191,7 +192,8 @@ debugApplyLayer {i} (NtmLayer {n} {hs} controller memory readHead writeHead read
 
     -- Run actual forward step
     (newReadHead, newReadHeadOutput) = forwardReadHead memory readHead readHeadInput
-    (newWriteHead, newMemory) = forwardWriteHead memory writeHead writeHeadInput
+    (newWriteHead, rawMemory) = forwardWriteHead memory writeHead writeHeadInput
+    newMemory = map tanhBound rawMemory
     newLayer = NtmLayer newController newMemory newReadHead newWriteHead newReadHeadOutput
 
     -- Build debug entry
