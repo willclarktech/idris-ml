@@ -43,7 +43,7 @@ main = do
   putStr "Predictions: "
   printLn $ map (map value) predictions
 
-  let trained = train lr model prepared lossFn epochs
+  let trained = train lr (1.0/0.0) model prepared lossFn epochs
   let predictions' = evaluate trained prepared
   let loss' = calculateLoss lossFn trained prepared
 
