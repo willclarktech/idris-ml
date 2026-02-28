@@ -135,4 +135,87 @@ tests =
         y2 = w * (fromDouble 3.0)
         g2 = collectGrads 1.0 y2
     in checkClose "stale re-registration" 3.0 (lookupGrad "t15w" g2) tol
+
+  -- C-backed batchCosineSimilarityVar: forward check
+  , let k0 = param "t16k0" 1.0
+        k1 = param "t16k1" 0.0
+        m00 = param "t16m00" 1.0
+        m01 = param "t16m01" 0.0
+        m10 = param "t16m10" 0.0
+        m11 = param "t16m11" 1.0
+        beta = param "t16beta" 10.0
+        key = the (Vector 2 Variable) (VTensor [STensor k0, STensor k1])
+        mem = the (Matrix 2 2 Variable) (VTensor [VTensor [STensor m00, STensor m01], VTensor [STensor m10, STensor m11]])
+        scores = batchCosineSimilarityVar beta mem key
+        (VTensor [STensor s0, STensor s1]) = scores
+    in check "batchCosineSimilarityVar forward"
+       (abs (s0.value - 10.0) < tol && abs (s1.value - 0.0) < tol)
+
+  -- C-backed batchCosineSimilarityVar: gradient to beta
+  , let k0 = param "t17k0" 2.0
+        k1 = param "t17k1" 1.0
+        m00 = param "t17m00" 3.0
+        m01 = param "t17m01" 1.0
+        beta = param "t17beta" 5.0
+        key = the (Vector 2 Variable) (VTensor [STensor k0, STensor k1])
+        mem = the (Matrix 1 2 Variable) (VTensor [VTensor [STensor m00, STensor m01]])
+        scores = batchCosineSimilarityVar beta mem key
+        y = sum scores
+        g = collectGrads 1.0 y
+        -- d_beta = cos_sim(key, row0) = (6+1)/(sqrt(5)*sqrt(10))
+        expected = 7.0 / (Prelude.sqrt 5.0 * Prelude.sqrt 10.0)
+    in checkClose "batchCosineSimilarityVar d_beta" expected (lookupGrad "t17beta" g) 1.0e-4
+
+  -- C-backed readOpVar: forward check
+  , let w0 = param "t18w0" 0.6
+        w1 = param "t18w1" 0.4
+        m00 = param "t18m00" 1.0
+        m01 = param "t18m01" 2.0
+        m10 = param "t18m10" 3.0
+        m11 = param "t18m11" 4.0
+        weights = the (Vector 2 Variable) (VTensor [STensor w0, STensor w1])
+        mem = the (Matrix 2 2 Variable) (VTensor [VTensor [STensor m00, STensor m01], VTensor [STensor m10, STensor m11]])
+        result = readOpVar weights mem
+        (VTensor [STensor r0, STensor r1]) = result
+    in check "readOpVar forward"
+       (abs (r0.value - 1.8) < tol && abs (r1.value - 2.8) < tol)
+
+  -- C-backed readOpVar: gradient check
+  , let w0 = param "t19w0" 0.6
+        w1 = param "t19w1" 0.4
+        m00 = param "t19m00" 1.0
+        m01 = param "t19m01" 2.0
+        m10 = param "t19m10" 3.0
+        m11 = param "t19m11" 4.0
+        weights = the (Vector 2 Variable) (VTensor [STensor w0, STensor w1])
+        mem = the (Matrix 2 2 Variable) (VTensor [VTensor [STensor m00, STensor m01], VTensor [STensor m10, STensor m11]])
+        result = readOpVar weights mem
+        y = sum result
+        g = collectGrads 1.0 y
+        -- d_w0 = sum_j mem[0][j] = 1+2 = 3
+        -- d_w1 = sum_j mem[1][j] = 3+4 = 7
+    in check "readOpVar gradients"
+       (abs (lookupGrad "t19w0" g - 3.0) < tol && abs (lookupGrad "t19w1" g - 7.0) < tol
+        && abs (lookupGrad "t19m00" g - 0.6) < tol && abs (lookupGrad "t19m10" g - 0.4) < tol)
+
+  -- C-backed writeOpVar: forward check
+  , let w0 = param "t20w0" 1.0
+        w1 = param "t20w1" 0.0
+        m00 = param "t20m00" 1.0
+        m01 = param "t20m01" 1.0
+        m10 = param "t20m10" 1.0
+        m11 = param "t20m11" 1.0
+        e0 = param "t20e0" 1.0
+        e1 = param "t20e1" 1.0
+        a0 = param "t20a0" 0.5
+        a1 = param "t20a1" 0.5
+        weights = the (Vector 2 Variable) (VTensor [STensor w0, STensor w1])
+        mem = the (Matrix 2 2 Variable) (VTensor [VTensor [STensor m00, STensor m01], VTensor [STensor m10, STensor m11]])
+        erase = the (Vector 2 Variable) (VTensor [STensor e0, STensor e1])
+        add = the (Vector 2 Variable) (VTensor [STensor a0, STensor a1])
+        result = writeOpVar weights mem erase add
+        (VTensor [VTensor [STensor r00, STensor r01], VTensor [STensor r10, STensor r11]]) = result
+    in check "writeOpVar forward"
+       (abs (r00.value - 0.5) < tol && abs (r01.value - 0.5) < tol
+        && abs (r10.value - 1.0) < tol && abs (r11.value - 1.0) < tol)
   ]
