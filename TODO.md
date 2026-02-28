@@ -4,7 +4,6 @@
 
 | Item | Difficulty | Notes |
 |------|-----------|-------|
-| Try RefC backend | S | Blocked: `srand` FFI missing in RefC codegen |
 | Tape-based autograd | L | Wengert list, standard ML approach |
 | Buffer-backed tensors + C FFI | L | Contiguous memory for tensor data, 10-50x speedup |
 
