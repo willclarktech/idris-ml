@@ -100,12 +100,12 @@ main = do
   putStrLn "=== NTM Copy Task ==="
   putStrLn ""
 
-  -- Build NTM with softmax output
+  -- Build NTM with logSoftmax output
   controllerHidden <- linearLayer {i = NtmInputWidth W, o = H}
   controllerOut <- linearLayer {i = H, o = NtmOutputWidth N W}
   let controller = controllerHidden ~> sigmoidLayer ~> OutputLayer controllerOut
   ntm <- ntmLayer {n = N, w = W} controller
-  let model = nameNetworkParams "ntm" $ ntm ~> OutputLayer softmaxLayer
+  let model = nameNetworkParams "ntm" $ ntm ~> OutputLayer logSoftmaxLayer
 
   putStr "Model:\t\t"
   printLn model
@@ -119,7 +119,7 @@ main = do
   putStr "Test targets:\t"
   putStrLn $ showSequences $ map (map argmax . ys) testPoints
 
-  let lossFn = crossEntropy
+  let lossFn = nllLoss
   let opt = adam 0.0001 0.9 0.999 (pow 10 (-8)) 1.0
 
   -- Pre-training evaluation
