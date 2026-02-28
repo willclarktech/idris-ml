@@ -79,13 +79,13 @@ bench-typecheck:
 	cd bench && uv run pyright bench/
 
 bench-convergence:
-	cd bench && uv run python -m bench.scripts.convergence --task both
+	cd bench && uv run python -u -m bench.scripts.convergence --task both
 
 bench-convergence-copy:
-	cd bench && uv run python -m bench.scripts.convergence --task copy
+	cd bench && uv run python -u -m bench.scripts.convergence --task copy
 
 bench-convergence-recall:
-	cd bench && uv run python -m bench.scripts.convergence --task recall
+	cd bench && uv run python -u -m bench.scripts.convergence --task recall
 
 clean:
 	rm -f $(CLIB) $(BUILD)/test_tensor
