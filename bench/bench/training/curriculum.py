@@ -68,6 +68,10 @@ def run_curriculum(
     best_loss = float("inf")
     stale_count = 0
 
+    # Create optimizer once — preserve internal state (RMSprop running averages, Adam moments)
+    initial_lr = schedule_fn(0)
+    optimizer = optimizer_factory(model, initial_lr)
+
     for stage_idx, stage in enumerate(stages):
         print(f"\n{stage.label}")
         advanced = False
@@ -81,7 +85,8 @@ def run_curriculum(
             loss_val = best_loss
             for _ in range(chunk):
                 lr = schedule_fn(done)
-                optimizer = optimizer_factory(model, lr)
+                for pg in optimizer.param_groups:
+                    pg["lr"] = lr
 
                 if train_step_fn is not None:
                     loss_val = train_step_fn(model, data, loss_fn, optimizer)
