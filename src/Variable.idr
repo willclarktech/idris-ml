@@ -142,10 +142,11 @@ prim__resetTapeReturn : AnyPtr -> Int -> AnyPtr
 -- Weight Buffer FFI
 ----------------------------------------------------------------------
 
--- Allocate a weight buffer: Scheme vector #(c-double-ptr, pid-scheme-vector).
--- Slot 0 = C double* from tensor_alloc, slot 1 = Scheme vector of pid strings.
+-- Allocate a weight buffer: Scheme vector #(c-double-ptr, pid-vector, cached-start, cached-gen).
+-- Slot 0 = C double* from tensor_alloc, slot 1 = Scheme vector of pid strings,
+-- slot 2 = cached tape start index, slot 3 = cached tape generation (-1 = uncached).
 export
-%foreign "scheme:(lambda (count) (let ((cbuf ((foreign-procedure \"tensor_alloc\" (int) void*) count)) (pids (make-vector count \"\"))) (vector cbuf pids)))"
+%foreign "scheme:(lambda (count) (let ((cbuf ((foreign-procedure \"tensor_alloc\" (int) void*) count)) (pids (make-vector count \"\"))) (vector cbuf pids -1 -1)))"
 prim__weightBufAlloc : Int -> AnyPtr
 
 -- Get the C double* from a weight buffer.
@@ -160,11 +161,11 @@ prim__weightBufSetVal : AnyPtr -> Int -> Double -> AnyPtr
 %foreign "scheme:(lambda (wbuf idx pid) (let ((pids (vector-ref wbuf 1))) (vector-set! pids idx pid) wbuf))"
 prim__weightBufSetPid : AnyPtr -> Int -> String -> AnyPtr
 
--- Bulk append count ConstOp entries from weight buffer to tape.
--- Reads values from C buffer (foreign-ref 'double), pids from pid vector.
--- Returns the starting tape index of the block.
-%foreign "scheme:(lambda (wbuf count) (let* ((cbuf (vector-ref wbuf 0)) (pids (vector-ref wbuf 1)) (start (top-level-value 'tape-size)) (end (+ start count)) (ensure (top-level-value 'tape-ensure-cap!))) (ensure (- end 1)) (let ((tags (top-level-value 'tape-tags)) (vals (top-level-value 'tape-vals)) (pidv (top-level-value 'tape-pids))) (do ((k 0 (+ k 1))) ((= k count)) (let ((idx (+ start k))) (vector-set! tags idx 0) (vector-set! vals idx (foreign-ref 'double cbuf (* k 8))) (vector-set! pidv idx (vector-ref pids k))))) (set-top-level-value! 'tape-size end) start))"
-prim__tapeAppendBulkConst : AnyPtr -> Int -> Int
+-- Ensure weight buffer entries are on tape (epoch-cached).
+-- If cached-gen matches tape-gen, returns cached-start (no tape mutation).
+-- Otherwise runs bulk-append and updates cache slots 2 (start) and 3 (gen).
+%foreign "scheme:(lambda (wbuf count) (if (= (vector-ref wbuf 3) (top-level-value 'tape-gen)) (vector-ref wbuf 2) (let* ((cbuf (vector-ref wbuf 0)) (pids (vector-ref wbuf 1)) (start (top-level-value 'tape-size)) (end (+ start count))) ((top-level-value 'tape-ensure-cap!) (- end 1)) (let ((tags (top-level-value 'tape-tags)) (vals (top-level-value 'tape-vals)) (pidv (top-level-value 'tape-pids))) (do ((k 0 (+ k 1))) ((= k count)) (let ((idx (+ start k))) (vector-set! tags idx 0) (vector-set! vals idx (foreign-ref 'double cbuf (* k 8))) (vector-set! pidv idx (vector-ref pids k))))) (set-top-level-value! 'tape-size end) (vector-set! wbuf 2 start) (vector-set! wbuf 3 (top-level-value 'tape-gen)) start)))"
+prim__tapeEnsureBulkConst : AnyPtr -> Int -> Int
 
 
 ----------------------------------------------------------------------
@@ -276,10 +277,10 @@ tapeAppendBinary op a1 a2 val = cast (prim__tapeAppendBinary (toTag op) (cast a1
 tapeAppendMatVecOp : Int -> AnyPtr -> AnyPtr -> AnyPtr
 tapeAppendMatVecOp count meta outBuf = prim__tapeAppendMatVecOp count meta outBuf
 
--- Bulk register weight entries from buffer. Returns start index.
+-- Ensure weight entries are on tape (cached within same epoch). Returns start index.
 %noinline
-tapeAppendBulkConst : AnyPtr -> Int -> Int
-tapeAppendBulkConst wBuf count = prim__tapeAppendBulkConst wBuf count
+tapeEnsureBulkConst : AnyPtr -> Int -> Int
+tapeEnsureBulkConst wBuf count = prim__tapeEnsureBulkConst wBuf count
 
 -- Append DotOp + output ConstOp + set meta->out_tape_idx. Returns ConstOp tape index.
 %noinline
@@ -533,8 +534,8 @@ matrixVectorMultiplyVarBuf : {m, n : Nat} -> AnyPtr -> Vector n Variable -> Vect
 matrixVectorMultiplyVarBuf {m} {n} wBuf (VTensor xs) =
   let mI = cast {to=Int} m
       nI = cast {to=Int} n
-      -- Bulk register weights: 1 FFI call for m*n entries
-      wTapeStart = tapeAppendBulkConst wBuf (mI * nI)
+      -- Ensure weights on tape (cached within epoch): 0-1 FFI calls
+      wTapeStart = tapeEnsureBulkConst wBuf (mI * nI)
       -- Allocate meta using persistent buffer path
       wValsPtr = prim__weightBufVals wBuf
       meta = prim__matvecMetaAllocBuf mI nI wValsPtr wTapeStart
@@ -636,21 +637,22 @@ propagateEntry g idx =
        MatVecOp => prim__matvecBackward g (prim__tapeGetMeta idx)
        DotOp    => prim__dotBackward g (prim__tapeGetMeta idx)
 
--- Collect param gradients. Handle g ensures correct eval ordering.
-collectParamGrad : AnyPtr -> Int -> SortedMap String Double -> SortedMap String Double
-collectParamGrad g idx acc =
-  let pid = prim__tapeGetParamId idx
-  in if pid == ""
-       then acc
-       else mergeWith (+) acc (singleton pid (prim__gradGet g idx))
-
+-- Walk backward through tape with tag-based fast path:
+-- ConstOp (tag 0): only check pid for gradient collection, skip propagation
+-- Non-ConstOp: propagate gradient, skip pid check (non-const pids are always "")
 walkBackward : AnyPtr -> Int -> SortedMap String Double -> SortedMap String Double
 walkBackward g idx acc =
   if idx < 0 then acc
-  else
-    let g' = propagateEntry g idx
-        acc' = collectParamGrad g' idx acc
-    in walkBackward g' (idx - 1) acc'
+  else if prim__tapeGetTag idx == 0
+    then -- ConstOp: only check pid for gradient collection
+      let pid = prim__tapeGetParamId idx
+          acc' = if pid == ""
+                   then acc
+                   else mergeWith (+) acc (singleton pid (prim__gradGet g idx))
+      in walkBackward g (idx - 1) acc'
+    else -- Non-ConstOp: propagate gradient, no pid to collect
+      let g' = propagateEntry g idx
+      in walkBackward g' (idx - 1) acc
 
 export
 collectGrads : Double -> Variable -> SortedMap String Double
