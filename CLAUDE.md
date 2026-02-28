@@ -51,6 +51,9 @@ idris2 --source-dir src -p contrib -o ntm-associative-recall src/Example/NtmAsso
 bash scripts/sweep.sh --parallel 4
 # Quick sweep (2000 epochs for fast screening)
 bash scripts/sweep.sh --parallel 4 --quick
+# Sweep for associative recall task
+bash scripts/sweep.sh --task recall --parallel 4
+bash scripts/sweep.sh --task recall --parallel 4 --quick
 ```
 
 ## Architecture

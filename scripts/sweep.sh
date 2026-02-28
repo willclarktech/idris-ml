@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 #
 # Grid search over NTM hyperparameters.
-# Usage: bash scripts/sweep.sh [--parallel N] [--skip-build] [--quick]
+# Usage: bash scripts/sweep.sh [--task copy|recall] [--parallel N] [--skip-build] [--quick]
 #
 # Compiles once, then runs configs in parallel via xargs.
-# Results are collected into results/sweep.csv sorted by test accuracy.
+# Results are collected into results/sweep-{task}.csv sorted by test accuracy.
 #
 set -euo pipefail
 
@@ -12,6 +12,7 @@ PARALLEL=4
 SKIP_BUILD=false
 EPOCHS=6000
 PATIENCE=500
+TASK=copy
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -19,19 +20,35 @@ while [[ $# -gt 0 ]]; do
     --skip-build) SKIP_BUILD=true; shift ;;
     --quick) EPOCHS=2000; shift ;;
     --patience) PATIENCE="$2"; shift 2 ;;
+    --task) TASK="$2"; shift 2 ;;
     *) echo "Unknown arg: $1"; exit 1 ;;
   esac
 done
+
+case "$TASK" in
+  copy)
+    SRC_FILE=src/Example/NtmCopy.idr
+    EXEC_NAME=ntm-copy
+    ;;
+  recall)
+    SRC_FILE=src/Example/NtmAssociativeRecall.idr
+    EXEC_NAME=ntm-associative-recall
+    ;;
+  *)
+    echo "Unknown task: $TASK (expected copy or recall)" >&2
+    exit 1
+    ;;
+esac
 
 cd "$(dirname "$0")/.."
 
 # Build once
 if [[ "$SKIP_BUILD" == false ]]; then
-  echo "Building NTM Copy..."
-  idris2 --source-dir src -p contrib -o ntm-copy src/Example/NtmCopy.idr
+  echo "Building $EXEC_NAME..."
+  idris2 --source-dir src -p contrib -o "$EXEC_NAME" "$SRC_FILE"
 fi
 
-EXEC=./build/exec/ntm-copy
+EXEC="./build/exec/$EXEC_NAME"
 if [[ ! -x "$EXEC" ]]; then
   echo "Error: $EXEC not found. Run without --skip-build." >&2
   exit 1
@@ -45,7 +62,7 @@ MAX_NORM_VALUES="3.0 5.0 10.0"
 SEED_VALUES="1 2 3 42"
 BETA1_VALUES="0.9"
 
-RESULTS_FILE="results/sweep.csv"
+RESULTS_FILE="results/sweep-${TASK}.csv"
 echo "lr,maxNorm,beta1,beta2,epochs,patience,epochsDone,seed,H,trainAcc,testAcc" > "$RESULTS_FILE"
 
 # Generate all configs
