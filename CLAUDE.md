@@ -34,9 +34,11 @@ idris2 --source-dir src -p contrib -o supervised src/Example/Supervised.idr && .
 idris2 --source-dir src -p contrib -o rnn src/Example/Rnn.idr && ./build/exec/rnn
 idris2 --source-dir src -p contrib -o ntm src/Example/Ntm.idr && ./build/exec/ntm
 # NTM with custom hyperparameters
-./build/exec/ntm --lr1 0.001 --lr2 0.0003 --max-norm 5.0 --epochs1 3000 --epochs2 3000 --seed 42
+./build/exec/ntm --lr 0.001 --max-norm 5.0 --epochs 6000 --patience 10 --seed 42
 # Hyperparameter sweep (builds once, runs grid in parallel)
 bash scripts/sweep.sh --parallel 4
+# Quick sweep (2000 epochs for fast screening)
+bash scripts/sweep.sh --parallel 4 --quick
 ```
 
 ## Architecture
@@ -53,7 +55,8 @@ bash scripts/sweep.sh --parallel 4
 8. **Endofunctor** - `emap : (ty -> ty) -> e ty -> e ty` for type-preserving maps
 9. **Layer** - Layer/Network types (mutually recursive), forward pass, constructors
 10. **Optimizer** - SGD and Adam optimizers with per-parameter or global norm gradient clipping
-11. **Backprop** - Training loop: `epoch`, `train`, `trainFrom`, `epochRecurrent`, `trainRecurrent`, `trainRecurrentFrom`
+11. **Schedule** - Learning rate schedules: `constant`, `cosineAnnealing`, `oneCycle`
+12. **Backprop** - Training loop: `epoch`, `train`, `trainFrom`, `epochRecurrent`, `trainRecurrent`, `trainRecurrentFrom`, `trainScheduledFrom`, `trainRecurrentScheduledFrom`
 
 ### Core type signatures
 
@@ -128,7 +131,12 @@ epoch opt dataPoints lossFn model st =
   let loss = calculateLoss lossFn model dataPoints   -- 1. Forward pass (appends to tape)
       grads = collectGrads 1.0 loss                  -- 2. Backward + tape reset (gen++)
       (deltas, st') = opt.step grads st              -- 3. Optimizer computes deltas
-  in (emap (applyDeltas deltas) model, st')          -- 4. Update .value (stale until next forward)
+  in (emap (applyDeltas deltas) model, st', loss)    -- 4. Update .value + return loss
+
+-- Scheduled training with early stopping:
+let makeOpt = \lr => adamGlobalClip lr 0.9 0.999 1e-8 5.0
+let schedule = oneCycle 0.001 25.0 1e5 0.25 6000
+(model', st', epochsDone) = trainRecurrentScheduledFrom makeOpt schedule model dps lossFn 6000 10 initState
 ```
 
 ### Parameter naming (required for gradient flow)

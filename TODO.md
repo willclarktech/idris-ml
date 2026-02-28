@@ -10,6 +10,8 @@
 
 | Item | Difficulty | Notes |
 |------|-----------|-------|
+| Minibatch sampling | S | Currently trains on full dataset every epoch |
+| Unit tests | M | No test framework yet; verify via `--check` + examples |
 | Automatically name parameters | S | |
 | More Tensor functions (eg concatenation) | M | |
 | Reshaping layers | M | |
@@ -21,8 +23,6 @@
 |------|-----------|-------|
 | Convolutional layers | L | |
 | Transformer | XL | |
-| Early stopping | S | |
-| Hyperparameters type | S | |
 | Regularisation/normalisation layers | M | |
 | Heterogeneous context (CPU/GPU) | XL | |
 | Write README.md | S | |
@@ -33,7 +33,7 @@
 - Optimize backward pass (SortedMap, single-pass)
 - Node IDs + memoized graph traversal
 - Momentum/Adam optimizer
-- Minibatches/SGD
+- SGD optimizer
 - Bounded NTM gamma (focus sharpening)
 - Global gradient norm clipping (`adamGlobalClip`)
 - O(n) topoSort (accumulator-based)
@@ -41,3 +41,6 @@
 - Tape-based autograd (Wengert list) with Chez FFI storage
 - Buffer-backed tensor ops + C FFI (Phase 1: matmul/dot, 1.3-1.9x speedup)
 - Persistent weight buffers + bulk tape registration (Phase 3: ~1.14x NTM speedup)
+- Early stopping (patience-based + NaN detection in Backprop)
+- Hyperparameters type (Config record in Ntm.idr)
+- Learning rate schedules (one-cycle, cosine annealing in Schedule.idr)

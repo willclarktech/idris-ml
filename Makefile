@@ -43,7 +43,13 @@ bench: $(CLIB)
 $(BUILD):
 	mkdir -p $(BUILD)
 
+sweep: $(CLIB)
+	bash scripts/sweep.sh --parallel 4
+
+sweep-quick: $(CLIB)
+	bash scripts/sweep.sh --parallel 4 --quick
+
 clean:
 	rm -f $(CLIB) $(BUILD)/test_tensor
 
-.PHONY: test-c check supervised rnn ntm bench clean
+.PHONY: test-c check supervised rnn ntm bench sweep sweep-quick clean

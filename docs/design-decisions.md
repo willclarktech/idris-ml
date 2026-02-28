@@ -140,6 +140,27 @@ The weight buffer was extended from `#(cbuf, pids)` to `#(cbuf, pids, cached-sta
 
 A complementary optimization refactors `walkBackward` to branch on tag: ConstOp entries (tag 0) skip `propagateEntry` entirely and only check pid for gradient collection, while non-ConstOp entries skip the pid read (non-const pids are always empty). This avoids 3 wasted reads per ConstOp entry and 1 wasted string read per non-ConstOp entry.
 
+## Learning rate schedules
+
+Fixed learning rates require manual two-phase tuning (high lr then low lr), which is fragile and task-specific. The one-cycle policy (Smith, 2018; adopted by fastai) automates this:
+
+1. **Warmup phase** (25% of training): linear ramp from `lrMax/25` to `lrMax`. Gradually increases step size to escape initial random parameter space without diverging.
+2. **Annealing phase** (75% of training): cosine decay from `lrMax` to `lrMax/1e5`. Smoothly reduces step size for fine convergence. Cosine is preferred over linear because it spends more time at moderate learning rates.
+
+The `(Double -> Optimizer)` factory pattern lets the schedule change lr each epoch while preserving Adam's momentum state — creating a new `Optimizer` record just changes the lr used in `adamStep`, while `OptimizerState` (m, v, t) threads through unchanged.
+
+This replaced the previous manual two-phase approach (`lr1` for phase 1, `lr2 = 0.3*lr1` for phase 2) which required tuning two learning rates and the split point.
+
+## Early stopping
+
+Training for a fixed number of epochs wastes compute when the model has already converged and risks overfitting. Early stopping monitors the training loss and halts when improvement stalls:
+
+- **Plateau detection**: if loss doesn't improve by at least `minDelta` (0.001) for `patience` consecutive epochs, training stops. This avoids wasting time on flat loss landscapes.
+- **NaN detection**: if loss becomes NaN (diverged), training stops immediately. This catches learning rate explosions early.
+- **Patience=0 disables**: for benchmarks or fixed-duration experiments, setting patience to 0 runs all epochs without early stopping.
+
+The implementation uses a tail-recursive loop with `bestLoss` and `staleCount` accumulators rather than `foldl`, since `foldl` cannot short-circuit.
+
 ## Hyperparameter tuning protocol
 
 Manual hyperparameter tuning is an anti-pattern that wastes hours on random adjustments. The correct order is:
@@ -147,3 +168,4 @@ Manual hyperparameter tuning is an anti-pattern that wastes hours on random adju
 1. **Fix algorithmic issues first** — bounded gamma, global gradient clipping, efficient topoSort
 2. **Use systematic search** — `scripts/sweep.sh` grid search with parallel execution
 3. **Never manually loop** — if a training run fails, check the algorithmic level before adjusting hyperparameters
+4. **Use schedules over manual phases** — one-cycle policy handles warmup + annealing automatically

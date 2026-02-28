@@ -12,6 +12,7 @@ modules = Backprop
         , Math
         , Memory
         , Optimizer
+        , Schedule
         , Tensor
         , Util
         , Variable
