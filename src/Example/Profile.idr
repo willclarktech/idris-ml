@@ -11,6 +11,7 @@ import Backprop
 import DataPoint
 import Endofunctor
 import Floating
+import Generate
 import Layer
 import Math
 import Optimizer
@@ -68,22 +69,8 @@ ntmSequences =
   , [1, 2, 1, 1, 2, 2, 1, 2]
   ]
 
-prepNtm : List (Fin W) -> RecurrentDataPoint W W Double
-prepNtm sequence =
-  let len = length sequence
-      blank : Fin W
-      blank = 0
-      pad = Data.List.replicate len blank
-      inp = sequence ++ pad
-      outp = pad ++ sequence
-      xs = map (oneHotEncode {n=W}) inp
-      ys = map (oneHotEncode {n=W}) outp
-      toDouble : Vector W Nat -> Vector W Double
-      toDouble = map (fromInteger . natToInteger)
-  in MkRecurrentDataPoint (map toDouble xs) (map toDouble ys)
-
 ntmRawData : Vect E (RecurrentDataPoint W W Double)
-ntmRawData = map prepNtm ntmSequences
+ntmRawData = map (copyTaskPoint {w=W}) ntmSequences
 
 
 ----------------------------------------------------------------------
