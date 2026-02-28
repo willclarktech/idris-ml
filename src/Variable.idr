@@ -20,21 +20,24 @@ data TapeOp = ConstOp
             | NegOp | AbsOp | ExpOp | LogOp | SqrtOp
             | AddOp | SubOp | MulOp | DivOp | PowOp
             | MatVecOp | DotOp
+            | SoftmaxOp | LogSoftmaxOp
 
 toTag : TapeOp -> Int
-toTag ConstOp  = 0
-toTag NegOp    = 1
-toTag AbsOp    = 2
-toTag ExpOp    = 3
-toTag LogOp    = 4
-toTag SqrtOp   = 5
-toTag AddOp    = 6
-toTag SubOp    = 7
-toTag MulOp    = 8
-toTag DivOp    = 9
-toTag PowOp    = 10
-toTag MatVecOp = 11
-toTag DotOp    = 12
+toTag ConstOp      = 0
+toTag NegOp        = 1
+toTag AbsOp        = 2
+toTag ExpOp        = 3
+toTag LogOp        = 4
+toTag SqrtOp       = 5
+toTag AddOp        = 6
+toTag SubOp        = 7
+toTag MulOp        = 8
+toTag DivOp        = 9
+toTag PowOp        = 10
+toTag MatVecOp     = 11
+toTag DotOp        = 12
+toTag SoftmaxOp    = 13
+toTag LogSoftmaxOp = 14
 
 fromTag : Int -> TapeOp
 fromTag 1  = NegOp
@@ -49,6 +52,8 @@ fromTag 9  = DivOp
 fromTag 10 = PowOp
 fromTag 11 = MatVecOp
 fromTag 12 = DotOp
+fromTag 13 = SoftmaxOp
+fromTag 14 = LogSoftmaxOp
 fromTag _  = ConstOp
 
 
@@ -239,6 +244,27 @@ prim__dotCompute : AnyPtr -> Double
 %foreign "scheme:(lambda (g meta) (begin ((foreign-procedure \"tensor_dot_backward\" (void* void*) void) g meta) g))"
 prim__dotBackward : AnyPtr -> AnyPtr -> AnyPtr
 
+-- Softmax/LogSoftmax meta: alloc, get internal pointers, compute, backward
+%foreign "scheme:(lambda (n) ((foreign-procedure \"softmax_meta_alloc\" (int) void*) n))"
+prim__softmaxMetaAlloc : Int -> AnyPtr
+
+%foreign "scheme:(lambda (meta) ((foreign-procedure \"softmax_meta_x_vals\" (void*) void*) meta))"
+prim__softmaxXVals : AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (meta) ((foreign-procedure \"softmax_meta_x_tape\" (void*) void*) meta))"
+prim__softmaxXTape : AnyPtr -> AnyPtr
+
+%foreign "scheme:(lambda (meta out) ((foreign-procedure \"softmax_meta_compute\" (void* void*) void*) meta out))"
+prim__softmaxCompute : AnyPtr -> AnyPtr -> AnyPtr
+
+%foreign "scheme:(lambda (meta out) ((foreign-procedure \"logsoftmax_meta_compute\" (void* void*) void*) meta out))"
+prim__logsoftmaxCompute : AnyPtr -> AnyPtr -> AnyPtr
+
+%foreign "scheme:(lambda (g meta) (begin ((foreign-procedure \"tensor_softmax_backward\" (void* void*) void) g meta) g))"
+prim__softmaxBackward : AnyPtr -> AnyPtr -> AnyPtr
+
+%foreign "scheme:(lambda (g meta) (begin ((foreign-procedure \"tensor_logsoftmax_backward\" (void* void*) void) g meta) g))"
+prim__logsoftmaxBackward : AnyPtr -> AnyPtr -> AnyPtr
+
 
 ----------------------------------------------------------------------
 -- Idris Tape Wrappers
@@ -286,6 +312,14 @@ tapeEnsureBulkConst wBuf count = prim__tapeEnsureBulkConst wBuf count
 %noinline
 tapeAppendDotOp : AnyPtr -> Double -> Nat
 tapeAppendDotOp meta val = cast (prim__tapeAppendDotOp meta val)
+
+-- Append SoftmaxOp/LogSoftmaxOp entry + set meta->out_tape_start. Returns outBuf for threading.
+%foreign "scheme:(lambda (tag count meta-ptr out-buf) (let ((idx (top-level-value 'tape-size))) ((top-level-value 'tape-ensure-cap!) idx) (vector-set! (top-level-value 'tape-tags) idx tag) (vector-set! (top-level-value 'tape-arg2) idx count) (vector-set! (top-level-value 'tape-meta) idx meta-ptr) (vector-set! (top-level-value 'tape-pids) idx \"\") ((foreign-procedure \"softmax_meta_set_out\" (void* int) void*) meta-ptr idx) (set-top-level-value! 'tape-size (+ idx 1)) out-buf))"
+prim__tapeAppendSoftmaxOp : Int -> Int -> AnyPtr -> AnyPtr -> AnyPtr
+
+%noinline
+tapeAppendSoftmaxOp : Int -> Int -> AnyPtr -> AnyPtr -> AnyPtr
+tapeAppendSoftmaxOp tag count meta outBuf = prim__tapeAppendSoftmaxOp tag count meta outBuf
 
 
 ----------------------------------------------------------------------
@@ -610,6 +644,39 @@ dotProductVar {n} (VTensor as) (VTensor bs) =
 
 
 ----------------------------------------------------------------------
+-- Softmax / LogSoftmax (C-backed)
+----------------------------------------------------------------------
+
+||| Softmax using C kernel, recording a single SoftmaxOp tape entry.
+export
+softmaxVar : {n : Nat} -> Vector n Variable -> Vector n Variable
+softmaxVar {n} (VTensor xs) =
+  let nI = cast {to=Int} n
+      meta = prim__softmaxMetaAlloc nI
+      outBuf = prim__tensorAlloc nI
+      xvPtr = prim__softmaxXVals meta
+      xtPtr = prim__softmaxXTape meta
+      xvPtr' = packVec xvPtr xtPtr 0 xs
+      outBuf' = prim__softmaxCompute meta (prim__seq xvPtr' outBuf)
+      outBuf'' = tapeAppendSoftmaxOp (toTag SoftmaxOp) nI meta outBuf'
+  in VTensor $ buildOutputScalars outBuf'' 0 n
+
+||| LogSoftmax using C kernel, recording a single LogSoftmaxOp tape entry.
+export
+logSoftmaxVar : {n : Nat} -> Vector n Variable -> Vector n Variable
+logSoftmaxVar {n} (VTensor xs) =
+  let nI = cast {to=Int} n
+      meta = prim__softmaxMetaAlloc nI
+      outBuf = prim__tensorAlloc nI
+      xvPtr = prim__softmaxXVals meta
+      xtPtr = prim__softmaxXTape meta
+      xvPtr' = packVec xvPtr xtPtr 0 xs
+      outBuf' = prim__logsoftmaxCompute meta (prim__seq xvPtr' outBuf)
+      outBuf'' = tapeAppendSoftmaxOp (toTag LogSoftmaxOp) nI meta outBuf'
+  in VTensor $ buildOutputScalars outBuf'' 0 n
+
+
+----------------------------------------------------------------------
 -- Backpropagation (tape-based)
 ----------------------------------------------------------------------
 
@@ -634,8 +701,10 @@ propagateEntry g idx =
        PowOp   => let vx = prim__tapeGetValue a1
                       vy = prim__tapeGetValue a2
                   in prim__gradAdd (prim__gradAdd g a1 (grad * vy * pow vx (vy - 1))) a2 (if vx == 0 then 0 else grad * prim__tapeGetValue idx * log vx)
-       MatVecOp => prim__matvecBackward g (prim__tapeGetMeta idx)
-       DotOp    => prim__dotBackward g (prim__tapeGetMeta idx)
+       MatVecOp     => prim__matvecBackward g (prim__tapeGetMeta idx)
+       DotOp        => prim__dotBackward g (prim__tapeGetMeta idx)
+       SoftmaxOp    => prim__softmaxBackward g (prim__tapeGetMeta idx)
+       LogSoftmaxOp => prim__logsoftmaxBackward g (prim__tapeGetMeta idx)
 
 -- Walk backward through tape with tag-based fast path:
 -- ConstOp (tag 0): only check pid for gradient collection, skip propagation
