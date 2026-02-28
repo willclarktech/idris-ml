@@ -60,6 +60,7 @@ class NTMLayer(nn.Module):
 
     def reset_state(self) -> None:
         """Reset memory and head state between sequences."""
+        # pyright's torch stubs don't recognize .clone() on register_buffer tensors
         self.memory = self._init_memory.clone()  # type: ignore[reportCallIssue]
         self._current_read_addr = self.read_addressing.clone()
         self._current_write_addr = self.write_addressing.clone()
@@ -75,6 +76,7 @@ class NTMLayer(nn.Module):
         controller_input = torch.cat([self._current_read_output, x])
 
         # Controller forward pass
+        # pyright doesn't see __call__ on nn.Module-typed fields
         raw_output: Tensor = self.controller(controller_input)  # type: ignore[operator]
 
         # NOTE: Clamp controller output to [-20, 20] matching applyLayerVar

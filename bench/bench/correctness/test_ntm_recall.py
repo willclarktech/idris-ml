@@ -42,6 +42,7 @@ class TestNtmRecallQuick:
         model = NtmRecallModel(cfg)
 
         model.reset_state()
+        # pyright doesn't see reset_state() through nn.Module-typed controller field
         model.ntm.controller.reset_state()  # type: ignore[operator]
         x = torch.zeros(cfg.w)
         x[1] = 1.0

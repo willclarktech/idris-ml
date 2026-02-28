@@ -71,6 +71,7 @@ class NtmRecallModel(nn.Module):
 
     def reset_state(self) -> None:
         self.ntm.reset_state()
+        # pyright doesn't see reset_state() through nn.Module-typed controller field
         self.ntm.controller.reset_state()  # type: ignore[operator]
 
     def forward(self, x: Tensor) -> Tensor:
