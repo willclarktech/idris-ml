@@ -32,9 +32,13 @@ rnn: $(CLIB)
 	idris2 --source-dir src -p contrib -o rnn src/Example/Rnn.idr
 	./build/exec/rnn
 
-ntm: $(CLIB)
-	idris2 --source-dir src -p contrib -o ntm src/Example/Ntm.idr
-	./build/exec/ntm
+ntm-copy: $(CLIB)
+	idris2 --source-dir src -p contrib -o ntm-copy src/Example/NtmCopy.idr
+	./build/exec/ntm-copy
+
+ntm-associative-recall: $(CLIB)
+	idris2 --source-dir src -p contrib -o ntm-associative-recall src/Example/NtmAssociativeRecall.idr
+	./build/exec/ntm-associative-recall
 
 bench: $(CLIB)
 	idris2 --source-dir src -p contrib -o bench src/Example/Bench.idr
@@ -52,4 +56,4 @@ sweep-quick: $(CLIB)
 clean:
 	rm -f $(CLIB) $(BUILD)/test_tensor
 
-.PHONY: test-c check supervised rnn ntm bench sweep sweep-quick clean
+.PHONY: test-c check supervised rnn ntm-copy ntm-associative-recall bench sweep sweep-quick clean

@@ -1,4 +1,14 @@
-module Example.Ntm
+-- | NTM Copy Task
+-- |
+-- | Exercises LOCATION-BASED addressing: the model writes symbols
+-- | sequentially into memory (shift right), then reads them back in
+-- | the same order (shift right again). Content addressing is not
+-- | required — sequential shifting through memory slots suffices.
+-- |
+-- | See NtmAssociativeRecall.idr for the content-based addressing
+-- | counterpart.
+
+module Example.NtmCopy
 
 import Data.List
 import Data.String

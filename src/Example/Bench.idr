@@ -102,7 +102,7 @@ benchRnn = do
 
 
 ----------------------------------------------------------------------
--- NTM Copy Task (same config as Ntm.idr)
+-- NTM Copy Task (same config as NtmCopy.idr)
 ----------------------------------------------------------------------
 
 W : Nat

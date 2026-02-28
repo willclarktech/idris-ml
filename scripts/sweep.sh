@@ -27,11 +27,11 @@ cd "$(dirname "$0")/.."
 
 # Build once
 if [[ "$SKIP_BUILD" == false ]]; then
-  echo "Building NTM..."
-  idris2 --source-dir src -p contrib -o ntm src/Example/Ntm.idr
+  echo "Building NTM Copy..."
+  idris2 --source-dir src -p contrib -o ntm-copy src/Example/NtmCopy.idr
 fi
 
-EXEC=./build/exec/ntm
+EXEC=./build/exec/ntm-copy
 if [[ ! -x "$EXEC" ]]; then
   echo "Error: $EXEC not found. Run without --skip-build." >&2
   exit 1
