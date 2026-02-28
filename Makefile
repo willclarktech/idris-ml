@@ -78,7 +78,16 @@ bench-lint:
 bench-typecheck:
 	cd bench && uv run pyright bench/
 
+bench-convergence:
+	cd bench && uv run python -m bench.scripts.convergence --task both
+
+bench-convergence-copy:
+	cd bench && uv run python -m bench.scripts.convergence --task copy
+
+bench-convergence-recall:
+	cd bench && uv run python -m bench.scripts.convergence --task recall
+
 clean:
 	rm -f $(CLIB) $(BUILD)/test_tensor
 
-.PHONY: test test-c check supervised rnn ntm-copy ntm-associative-recall bench sweep sweep-quick clean bench-setup bench-py bench-compare bench-test bench-lint bench-typecheck
+.PHONY: test test-c check supervised rnn ntm-copy ntm-associative-recall bench sweep sweep-quick clean bench-setup bench-py bench-compare bench-test bench-lint bench-typecheck bench-convergence bench-convergence-copy bench-convergence-recall
