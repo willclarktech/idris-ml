@@ -9,6 +9,7 @@ import Test.Optimizer
 import Test.Schedule
 import Test.Init
 import Test.Sampler
+import Test.Layer
 
 main : IO ()
 main = runAll
@@ -20,4 +21,5 @@ main = runAll
   , ("Schedule",  Test.Schedule.tests)
   , ("Init",      Test.Init.tests)
   , ("Sampler",   Test.Sampler.tests)
+  , ("Layer",     Test.Layer.tests)
   ]
