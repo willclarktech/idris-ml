@@ -30,6 +30,9 @@ class NtmRecallConfig:
     lr: float = 1e-4
     iterations: int = 100000
     clip_value: float = 10.0
+    write_mode: str = "erase_add"  # "erase_add" or "interpolation"
+    head_input: str = "hidden"  # "hidden" or "cell"
+    tanh_bound: bool = True  # apply tanh bounding to memory
 
 
 class NtmRecallModel(nn.Module):
@@ -58,6 +61,9 @@ class NtmRecallModel(nn.Module):
             num_inputs=num_inputs,
             num_outputs=num_outputs,
             controller_hidden_size=cfg.controller_size,
+            write_mode=cfg.write_mode,
+            head_input=cfg.head_input,
+            tanh_bound_memory=cfg.tanh_bound,
         )
 
     def reset_state(self) -> None:

@@ -9,7 +9,12 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
-from bench.ntm.memory import forward_read_head, forward_write_head, tanh_bound
+from bench.ntm.memory import (
+    forward_read_head,
+    forward_write_head,
+    forward_write_head_interpolation,
+    tanh_bound,
+)
 
 
 def _read_head_params_width(m: int) -> int:
@@ -17,8 +22,14 @@ def _read_head_params_width(m: int) -> int:
     return m + 6
 
 
-def _write_head_params_width(m: int) -> int:
-    """key(m) + shift(3) + beta(1) + g(1) + gamma(1) + erase(m) + add(m) = 3m + 6"""
+def _write_head_params_width(m: int, write_mode: str = "erase_add") -> int:
+    """Width of write head parameter vector.
+
+    erase_add: key(m) + shift(3) + beta(1) + g(1) + gamma(1) + erase(m) + add(m) = 3m + 6
+    interpolation: key(m) + shift(3) + beta(1) + g(1) + gamma(1) + add(m) = 2m + 6 (no erase)
+    """
+    if write_mode == "interpolation":
+        return 2 * m + 6
     return 3 * m + 6
 
 
@@ -36,6 +47,9 @@ class NTMLayer(nn.Module):
         num_inputs: External input width (task-specific).
         num_outputs: Output width (task-specific).
         controller_hidden_size: Hidden dimension of the controller.
+        write_mode: "erase_add" (default) or "interpolation" (vlgiitr).
+        head_input: "hidden" (default, use h_state) or "cell" (use c_state).
+        tanh_bound_memory: Whether to apply tanh bounding to memory (default True).
     """
 
     def __init__(
@@ -46,6 +60,9 @@ class NTMLayer(nn.Module):
         num_inputs: int,
         num_outputs: int,
         controller_hidden_size: int,
+        write_mode: str = "erase_add",
+        head_input: str = "hidden",
+        tanh_bound_memory: bool = True,
     ) -> None:
         super().__init__()
         self.controller = controller
@@ -54,10 +71,13 @@ class NTMLayer(nn.Module):
         self.num_inputs = num_inputs
         self.num_outputs = num_outputs
         self.controller_hidden_size = controller_hidden_size
+        self.write_mode = write_mode
+        self.head_input = head_input
+        self.tanh_bound_memory = tanh_bound_memory
 
         # Head FC layers (from controller hidden → head params)
         read_params_w = _read_head_params_width(m)
-        write_params_w = _write_head_params_width(m)
+        write_params_w = _write_head_params_width(m, write_mode)
 
         self.read_fc = nn.Linear(controller_hidden_size, read_params_w)
         self.write_fc = nn.Linear(controller_hidden_size, write_params_w)
@@ -102,9 +122,15 @@ class NTMLayer(nn.Module):
         _: Tensor = self.controller(controller_input)  # type: ignore[operator]
         controller_hidden: Tensor = self.controller.last_hidden  # type: ignore[union-attr]
 
+        # Select head input: hidden state (default) or cell state (vlgiitr)
+        if self.head_input == "cell":
+            head_fc_input: Tensor = self.controller.last_cell  # type: ignore[union-attr]
+        else:
+            head_fc_input = controller_hidden
+
         # Head params from separate FCs
-        read_params: Tensor = self.read_fc(controller_hidden)
-        write_params: Tensor = self.write_fc(controller_hidden)
+        read_params: Tensor = self.read_fc(head_fc_input)
+        write_params: Tensor = self.write_fc(head_fc_input)
 
         # Read head
         new_read_addr, read_output, _ = forward_read_head(
@@ -112,12 +138,18 @@ class NTMLayer(nn.Module):
         )
 
         # Write head
-        new_write_addr, new_memory = forward_write_head(
-            self.memory, self._current_write_addr, write_params, self.m
-        )
+        if self.write_mode == "interpolation":
+            new_write_addr, new_memory = forward_write_head_interpolation(
+                self.memory, self._current_write_addr, write_params, self.m
+            )
+        else:
+            new_write_addr, new_memory = forward_write_head(
+                self.memory, self._current_write_addr, write_params, self.m
+            )
 
-        # Tanh memory bounding (Collier & Beel)
-        new_memory = tanh_bound(new_memory)
+        # Tanh memory bounding (Collier & Beel) — optional
+        if self.tanh_bound_memory:
+            new_memory = tanh_bound(new_memory)
 
         # Update state
         self.memory = new_memory

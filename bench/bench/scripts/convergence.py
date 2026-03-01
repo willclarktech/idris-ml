@@ -120,6 +120,10 @@ def run_recall(args: argparse.Namespace) -> None:
     optimizer_name: str = getattr(args, "recall_optimizer", "rmsprop")
     lr: float = getattr(args, "recall_lr", 1e-4)
 
+    write_mode: str = getattr(args, "recall_write_mode", "erase_add")
+    head_input_mode: str = getattr(args, "recall_head_input", "hidden")
+    no_tanh: bool = getattr(args, "recall_no_tanh_bound", False)
+
     cfg = NtmRecallConfig(
         iterations=getattr(args, "recall_iters", 100000),
         n=getattr(args, "recall_n", 128),
@@ -128,6 +132,9 @@ def run_recall(args: argparse.Namespace) -> None:
         min_items=getattr(args, "recall_min_items", 2),
         max_items=getattr(args, "recall_max_items", 6),
         lr=lr,
+        write_mode=write_mode,
+        head_input=head_input_mode,
+        tanh_bound=not no_tanh,
     )
     model = NtmRecallModel(cfg)
 
@@ -140,6 +147,7 @@ def run_recall(args: argparse.Namespace) -> None:
     print(f"  items=[{cfg.min_items},{cfg.max_items}]")
     print(f"  N={cfg.n}  M={cfg.m}  controller={cfg.controller_type}({cfg.controller_size})")
     print(f"  optimizer={optimizer_name}  lr={cfg.lr}  clip={clip_mode}({cfg.clip_value})")
+    print(f"  write={cfg.write_mode}  head_input={cfg.head_input}  tanh_bound={cfg.tanh_bound}")
     print(f"  iterations={cfg.iterations}")
 
     # Training loop: 1 sequence per iteration
@@ -257,6 +265,24 @@ def main() -> None:
     parser.add_argument("--recall-lr", type=float, default=1e-4, help="Recall learning rate")
     parser.add_argument("--recall-min-items", type=int, default=2, help="Recall min items")
     parser.add_argument("--recall-max-items", type=int, default=6, help="Recall max items")
+    parser.add_argument(
+        "--recall-write-mode",
+        choices=["erase_add", "interpolation"],
+        default="erase_add",
+        help="Recall write mechanism (default: erase_add)",
+    )
+    parser.add_argument(
+        "--recall-head-input",
+        choices=["hidden", "cell"],
+        default="hidden",
+        help="Recall head FC input source (default: hidden)",
+    )
+    parser.add_argument(
+        "--recall-no-tanh-bound",
+        action="store_true",
+        default=False,
+        help="Disable tanh memory bounding for recall",
+    )
     args = parser.parse_args()
 
     torch.manual_seed(args.seed)

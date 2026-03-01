@@ -33,6 +33,10 @@ class LSTMController(nn.Module):
     def last_hidden(self) -> Tensor:
         return self._h
 
+    @property
+    def last_cell(self) -> Tensor:
+        return self._c
+
     def forward(self, x: Tensor) -> Tensor:
         h, c = self.lstm(x.unsqueeze(0), (self._h.unsqueeze(0), self._c.unsqueeze(0)))
         self._h = h.squeeze(0)

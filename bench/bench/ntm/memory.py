@@ -80,7 +80,7 @@ def forward_write_head(
     head_input: Tensor,
     w: int,
 ) -> tuple[Tensor, Tensor]:
-    """Forward pass for write head.
+    """Forward pass for write head (erase+add mechanism).
 
     Matches Memory.idr forwardWriteHead.
     head_input: (w + 3 + 3 + w + w) = read_head_input + erase(w) + add(w)
@@ -103,6 +103,41 @@ def forward_write_head(
     # Write to memory
     erased = erase_memory(memory, new_weights, erase_vector)
     new_memory = add_memory(erased, new_weights, add_vector)
+
+    return new_weights, new_memory
+
+
+def interpolation_write(memory: Tensor, weights: Tensor, add_vector: Tensor) -> Tensor:
+    """Interpolation write: w*data + (1-w)*mem (vlgiitr reference).
+
+    No separate erase vector — the write weight itself controls how much of
+    the old memory to keep vs replace with the new data.
+    """
+    return weights.unsqueeze(-1) * add_vector.unsqueeze(0) + (1 - weights.unsqueeze(-1)) * memory
+
+
+def forward_write_head_interpolation(
+    memory: Tensor,
+    addressing_weights: Tensor,
+    head_input: Tensor,
+    w: int,
+) -> tuple[Tensor, Tensor]:
+    """Forward pass for write head (interpolation mechanism, vlgiitr).
+
+    head_input: (w + 3 + 3 + w) = read_head_input + add(w). No erase vector.
+    Returns: (new_addressing_weights, new_memory)
+    """
+    shift_kernel_size = 3
+    read_head_size = w + shift_kernel_size + 3
+    read_head_input = head_input[:read_head_size]
+    raw_add = head_input[read_head_size : read_head_size + w]
+    add_vector = raw_add
+
+    # Compute new addressing weights (reuse read head logic)
+    new_weights, _, _ = forward_read_head(memory, addressing_weights, read_head_input, w)
+
+    # Write to memory via interpolation
+    new_memory = interpolation_write(memory, new_weights, add_vector)
 
     return new_weights, new_memory
 
