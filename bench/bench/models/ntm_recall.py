@@ -91,11 +91,12 @@ def train_ntm_recall_step(
     target_seq: Tensor,
     optimizer: torch.optim.Optimizer,
     clip_mode: Literal["value", "norm"] = "value",
-) -> float:
+) -> tuple[float, float]:
     """Train one sequence (batch_size=1).
 
     input_seq: (total_timesteps, input_width)
     target_seq: (seq_len, seq_width)
+    Returns: (loss, bit_error_count)
     """
     optimizer.zero_grad()
     model.reset_state()
@@ -124,4 +125,9 @@ def train_ntm_recall_step(
         clip_grad_value_(model.parameters(), model.cfg.clip_value)
     optimizer.step()
 
-    return loss.item()
+    # Bit error: number of incorrect bits
+    with torch.no_grad():
+        pred_bits = (pred >= 0.5).float()
+        bit_error = torch.sum(torch.abs(pred_bits - target_seq)).item()
+
+    return loss.item(), bit_error

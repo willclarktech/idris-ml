@@ -159,6 +159,7 @@ def run_recall(args: argparse.Namespace) -> None:
 
     # Training loop: 1 sequence per iteration
     losses: list[float] = []
+    bit_errors: list[float] = []
     for i in range(1, cfg.iterations + 1):
         num_items = random.randint(cfg.min_items, cfg.max_items)
         input_seq, target_seq = generate_recall_sequence(
@@ -166,12 +167,16 @@ def run_recall(args: argparse.Namespace) -> None:
             seq_len=cfg.seq_len,
             seq_width=cfg.seq_width,
         )
-        loss = train_ntm_recall_step(model, input_seq, target_seq, optimizer, clip_mode=clip_mode)
+        loss, bit_err = train_ntm_recall_step(
+            model, input_seq, target_seq, optimizer, clip_mode=clip_mode
+        )
         losses.append(loss)
+        bit_errors.append(bit_err)
 
         if i % 500 == 0:
             avg_loss = sum(losses[-500:]) / len(losses[-500:])
-            print(f"  iter {i:6d}: loss={avg_loss:.6f}")
+            avg_bits = sum(bit_errors[-500:]) / len(bit_errors[-500:])
+            print(f"  iter {i:6d}: loss={avg_loss:.6f}  bit_err={avg_bits:.2f}")
 
     # Evaluate
     print("\n--- Evaluation ---")
@@ -179,7 +184,9 @@ def run_recall(args: argparse.Namespace) -> None:
     for test_items in [2, 3, 4, 5, 6]:
         correct_bits = 0
         total_bits = 0
-        for _ in range(10):
+        total_bit_errors = 0.0
+        num_trials = 10
+        for _ in range(num_trials):
             input_seq, target_seq = generate_recall_sequence(test_items, cfg.seq_len, cfg.seq_width)
             with torch.no_grad():
                 model.reset_state()
@@ -197,12 +204,18 @@ def run_recall(args: argparse.Namespace) -> None:
                     outputs.append(out)
 
                 pred = torch.stack(outputs)
-                pred_bits = (pred > 0.5).float()
+                pred_bits = (pred >= 0.5).float()
                 correct_bits += (pred_bits == target_seq).sum().item()
                 total_bits += target_seq.numel()
+                total_bit_errors += torch.sum(torch.abs(pred_bits - target_seq)).item()
 
         accuracy = correct_bits / total_bits if total_bits > 0 else 0
-        print(f"  {test_items} items: bit accuracy = {accuracy:.1%}")
+        avg_bit_err = total_bit_errors / num_trials
+        bits_per_seq = total_bits / num_trials
+        print(
+            f"  {test_items} items: {accuracy:.1%} "
+            f"({avg_bit_err:.1f}/{bits_per_seq:.0f} bit errors/seq)"
+        )
 
     # Diagnostics: run instrumented forward on a 4-item sequence
     print("\n--- Diagnostics (4-item sequence) ---")

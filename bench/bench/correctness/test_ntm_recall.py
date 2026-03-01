@@ -41,7 +41,7 @@ class TestNtmRecallQuick:
             input_seq, target_seq = generate_recall_sequence(
                 num_items=2, seq_len=cfg.seq_len, seq_width=cfg.seq_width
             )
-            final_loss = train_ntm_recall_step(model, input_seq, target_seq, optimizer)
+            final_loss, _ = train_ntm_recall_step(model, input_seq, target_seq, optimizer)
             if i < 20:
                 losses.append(final_loss)
 
@@ -102,7 +102,7 @@ def _train_small_recall(steps: int, seed: int = 42) -> tuple[NtmRecallModel, lis
         input_seq, target_seq = generate_recall_sequence(
             num_items=2, seq_len=cfg.seq_len, seq_width=cfg.seq_width
         )
-        loss = train_ntm_recall_step(model, input_seq, target_seq, optimizer)
+        loss, _ = train_ntm_recall_step(model, input_seq, target_seq, optimizer)
         losses.append(loss)
 
     return model, losses
