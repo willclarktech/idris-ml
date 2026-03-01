@@ -11,10 +11,9 @@ Architecture: LSTM controller (hidden=100), N=128 memory slots, M=20 memory widt
 | A (baseline) | RMSprop lr=1e-4 | [2,6] | 0.389 | 100% | 92.8% | 68.9% |
 | B (Adam) | Adam lr=1e-3 | [2,6] | 0.367 | 100% | 97.2% | 64.4% |
 | C (Adam+2items) | Adam lr=1e-3 | [2,2] | 0.000 | 100% | 55.6% | 57.2% |
+| **vlgiitr ref** | RMSprop lr=1e-4 | [2,6] | **0.000** | **100%** | **100%** | **100%** |
 
-**Key finding**: Both A and B learn 2-3 item recall well (92-100%) within 100K iterations, but plateau for 4-6 items. Experiment C converges fully on 2-item sequences but doesn't generalize to more items. This confirms **curriculum training is needed** for the full range.
-
-Adam (B) converges slightly faster than RMSprop (A) and achieves better 3-item accuracy (97% vs 93%), but neither solves 4+ items without curriculum.
+**Key finding**: The vlgiitr reference implementation converges fully (100% accuracy, 2-6 items) with the same optimizer and hyperparameters as our Experiment A. Our model (A-C) plateaus at 65-93% on 3-6 items. The difference is architectural, not optimizer/curriculum related. See [Experiment F (vlgiitr reference)](#experiment-f-vlgiitr-reference) for details.
 
 ## Experiment A: Baseline (RMSprop, 100K iterations)
 
@@ -109,13 +108,13 @@ Perfect on trained 2-item sequences. No generalization to 3+ items — the model
 
 ## Conclusions
 
-1. **The architecture works**: the model can fully solve 2-item recall (100% accuracy). This confirms the LSTM controller + separate head FCs + output_fc(cat(hidden, read)) architecture is correct.
+1. **The vlgiitr reference converges fully**: 100% accuracy on 2-6 items with RMSprop, no curriculum needed. This proves the task is solvable with the right architecture.
 
-2. **Adam slightly better than RMSprop**: 3% lower final loss, 4 percentage points better on 3-item accuracy. But neither optimizer alone solves 4+ items.
+2. **Our model has an architectural problem, not an optimizer/curriculum problem**: Experiments A-B plateau at 65-93% with the same optimizer that gives 100% in the vlgiitr reference. Curriculum (Exp C) doesn't help either.
 
-3. **Curriculum is essential**: training on items=[2,6] directly plateaus. The model learns 2-3 item patterns but struggles to generalize to higher counts. A staged curriculum (start with 2 items, advance to 3, then 4-6) should enable full convergence, as demonstrated by the idris-ml NTM copy task.
+3. **Three architectural differences are the prime suspects**: separate head FCs (vs monolithic), cell state input (vs hidden state), and interpolation write (vs erase+add). These should be investigated in order of priority.
 
-4. **More iterations may help**: both A and B loss curves are still declining at 100K. Running to 200-500K might reach better accuracy, but curriculum is the more principled approach.
+4. **RMSprop is unstable but self-correcting**: the vlgiitr reference experienced two catastrophic crashes (loss spiking to 0.86) during training but recovered each time within ~5K iterations. This suggests RMSprop with value clipping ±10 is adequate but brittle.
 
 ## Architecture change: non-learnable addressing (post-experiments A-C)
 
@@ -143,9 +142,60 @@ Experiments D and E below use the fixed architecture matching vlgiitr.
 
 *(pending — run with `cd bench && uv run python -u -m bench.scripts.convergence --task recall --recall-optimizer adam --recall-lr 1e-3`)*
 
+## Experiment F: vlgiitr reference (ground truth)
+
+**Config**: vlgiitr/ntm-pytorch reference run directly with their code. LSTM controller (hidden=100), N=128, M=20, 1 head, RMSprop lr=1e-4 alpha=0.95 momentum=0.9, value clip ±10, items=[2,6), seed=42. Script: `bench/reference/vlgiitr/run_recall.py`. Log: `logs/vlgiitr-recall.log`.
+
+**Loss curve** (every 10K iterations):
+```
+iter  10000: loss=0.0691
+iter  20000: loss=0.0212
+iter  30000: loss=0.0200
+iter  40000: loss=0.0264
+iter  50000: loss=0.0001
+iter  60000: loss=0.0000
+iter  70000: loss=0.0032
+iter  80000: loss=0.0174
+iter  90000: loss=0.0000
+iter 100000: loss=0.0000
+```
+
+Convergence is rapid: loss drops from 0.69 to 0.07 by iter 10K. Two catastrophic crashes occurred (iter ~12.5K to 0.52, iter ~34.5K to 0.86) where training temporarily reset to random-level loss, but RMSprop recovered both times within ~5K iterations. After 60K, loss is essentially zero with rare small spikes.
+
+Training completed in 27.1 min (61.5 it/s).
+
+**Evaluation accuracy (10 trials each)**:
+```
+2 items: 100.0%
+3 items: 100.0%
+4 items: 100.0%
+5 items: 100.0%
+6 items: 100.0%
+```
+
+**Comparison with our model**: The vlgiitr reference achieves 100% on all item counts with the same optimizer and hyperparameters that give our model only 69-93% on 3-6 items. The difference must be architectural.
+
+### Key architectural differences (investigation targets)
+
+| Aspect | vlgiitr reference | Our model (Exp A-C) | Priority |
+|--------|-------------------|---------------------|----------|
+| Head param FCs | 6 separate FCs per head | 2 monolithic FCs (one per head) | **HIGH** |
+| Head input | LSTM **cell state** (c) | LSTM **hidden state** (h) | **HIGH** |
+| Write mechanism | `w*data + (1-w)*mem` (interpolation) | `mem*(1-w*e) + w*a` (erase+add) | **HIGH** |
+| Memory init | Learned FC + sigmoid | Constant 1e-6 | Medium |
+| Tanh bounding | None | Applied after every write | Medium |
+| Controller state init | Learned FC(dummy) | Learned nn.Parameter | Low |
+| FC init | xavier gain=1.4, bias N(0,0.01) | xavier gain=1.0, bias zeros | Low |
+| Output FC init | kaiming_uniform_ | xavier_uniform_ | Low |
+| γ (sharpening) | 1 + softplus(x) → [1,∞) | 1 + 4*sigmoid(x) → [1,5] | Low |
+
+The top three differences are likely the root cause:
+1. **Separate head FCs** allow each head parameter (key, β, g, s, γ, erase, add) to have its own input-to-output mapping, giving more capacity
+2. **Cell state input** gives heads access to the full LSTM internal state rather than the gated hidden state
+3. **Interpolation write** is simpler (no separate erase vector) and may be easier to learn
+
 ## Next steps
 
-- Run experiments D and E with fixed architecture
-- Clone vlgiitr/ntm-pytorch reference and run their recall task as ground truth
-- If D/E still plateau, investigate curriculum on top of fixed architecture
-- Compare with reference implementation results (vlgiitr claims to generalize to 20+ items at 100K iterations)
+- Investigate the top-3 architectural differences systematically (separate head FCs, cell state, write mechanism)
+- Run experiments D and E with fixed addressing if still needed
+- Port vlgiitr write mechanism (interpolation) to our model as experiment
