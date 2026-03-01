@@ -7,6 +7,7 @@ This decouples memory width (m) from input/output width.
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch import Tensor
 
 from bench.ntm.memory import (
@@ -38,6 +39,7 @@ class NTMLayer(nn.Module):
 
     Head parameters are produced by separate linear layers from the controller
     hidden state, rather than slicing a monolithic controller output vector.
+    This decouples memory width (m) from input/output width.
 
     Args:
         controller: Recurrent controller (e.g. LSTM). Must expose .last_hidden
@@ -50,6 +52,9 @@ class NTMLayer(nn.Module):
         write_mode: "erase_add" (default) or "interpolation" (vlgiitr).
         head_input: "hidden" (default, use h_state) or "cell" (use c_state).
         tanh_bound_memory: Whether to apply tanh bounding to memory (default True).
+        memory_init: "constant" (1e-6, default) or "learned" (FC+sigmoid, vlgiitr).
+        fc_init: "ours" (xavier gain=1.0, bias=0) or "vlgiitr" (xavier gain=1.4,
+                 bias N(0,0.01) for head FCs; kaiming for output FC).
     """
 
     def __init__(
@@ -63,6 +68,8 @@ class NTMLayer(nn.Module):
         write_mode: str = "erase_add",
         head_input: str = "hidden",
         tanh_bound_memory: bool = True,
+        memory_init: str = "constant",
+        fc_init: str = "ours",
     ) -> None:
         super().__init__()
         self.controller = controller
@@ -74,6 +81,7 @@ class NTMLayer(nn.Module):
         self.write_mode = write_mode
         self.head_input = head_input
         self.tanh_bound_memory = tanh_bound_memory
+        self.memory_init = memory_init
 
         # Head FC layers (from controller hidden → head params)
         read_params_w = _read_head_params_width(m)
@@ -85,13 +93,27 @@ class NTMLayer(nn.Module):
         # Output FC: controller hidden + read vector → output
         self.output_fc = nn.Linear(controller_hidden_size + m, num_outputs)
 
-        # Initialize all FCs
-        for fc in [self.read_fc, self.write_fc, self.output_fc]:
-            nn.init.xavier_uniform_(fc.weight)
-            nn.init.zeros_(fc.bias)
+        # Initialize FCs
+        if fc_init == "vlgiitr":
+            # Head FCs: xavier gain=1.4, normal bias (vlgiitr reference)
+            for fc in [self.read_fc, self.write_fc]:
+                nn.init.xavier_uniform_(fc.weight, gain=1.4)
+                nn.init.normal_(fc.bias, std=0.01)
+            # Output FC: kaiming (vlgiitr reference)
+            nn.init.kaiming_uniform_(self.output_fc.weight)
+            nn.init.normal_(self.output_fc.bias, std=0.01)
+        else:
+            for fc in [self.read_fc, self.write_fc, self.output_fc]:
+                nn.init.xavier_uniform_(fc.weight)
+                nn.init.zeros_(fc.bias)
 
-        # Memory initialized to constant 1e-6 (Collier & Beel)
-        self.register_buffer("_init_memory", torch.full((n, m), 1e-6))
+        # Memory initialization
+        if memory_init == "learned":
+            # Learned FC + sigmoid (vlgiitr): gives structured [0,1] values
+            self.memory_bias_fc = nn.Linear(1, n * m)
+        else:
+            # Constant 1e-6 (Collier & Beel)
+            self.register_buffer("_init_memory", torch.full((n, m), 1e-6))
         self.memory: Tensor = torch.full((n, m), 1e-6)
 
     def reset_state(self) -> None:
@@ -101,7 +123,12 @@ class NTMLayer(nn.Module):
         reference. The controller must learn to address correctly through its
         own outputs rather than relying on a learned addressing prior.
         """
-        self.memory = self._init_memory.clone()  # type: ignore[reportCallIssue]
+        if self.memory_init == "learned":
+            dummy = torch.tensor([[0.0]])
+            memory_bias = F.sigmoid(self.memory_bias_fc(dummy))
+            self.memory = memory_bias.view(self.n, self.m)
+        else:
+            self.memory = self._init_memory.clone()  # type: ignore[reportCallIssue]
         self._current_read_addr = torch.zeros(self.n)
         self._current_write_addr = torch.zeros(self.n)
         # Read head output: kaiming init (matching vlgiitr reference)

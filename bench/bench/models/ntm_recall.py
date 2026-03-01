@@ -33,6 +33,9 @@ class NtmRecallConfig:
     write_mode: str = "erase_add"  # "erase_add" or "interpolation"
     head_input: str = "hidden"  # "hidden" or "cell"
     tanh_bound: bool = True  # apply tanh bounding to memory
+    memory_init: str = "constant"  # "constant" or "learned"
+    controller_init: str = "parameter"  # "parameter" or "learned_fc"
+    fc_init: str = "ours"  # "ours" or "vlgiitr"
 
 
 class NtmRecallModel(nn.Module):
@@ -52,7 +55,11 @@ class NtmRecallModel(nn.Module):
         if cfg.controller_type == "rnn":
             controller: nn.Module = RNNController(controller_input_size, cfg.controller_size)
         else:
-            controller = LSTMController(controller_input_size, cfg.controller_size)
+            controller = LSTMController(
+                controller_input_size,
+                cfg.controller_size,
+                init_mode=cfg.controller_init,
+            )
 
         self.ntm = NTMLayer(
             controller=controller,
@@ -64,6 +71,8 @@ class NtmRecallModel(nn.Module):
             write_mode=cfg.write_mode,
             head_input=cfg.head_input,
             tanh_bound_memory=cfg.tanh_bound,
+            memory_init=cfg.memory_init,
+            fc_init=cfg.fc_init,
         )
 
     def reset_state(self) -> None:

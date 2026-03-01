@@ -18,16 +18,33 @@ from bench.ntm.ntm_layer import NTMLayer
 class LSTMController(nn.Module):
     """LSTM controller for NTM."""
 
-    def __init__(self, input_size: int, hidden_size: int) -> None:
+    def __init__(
+        self,
+        input_size: int,
+        hidden_size: int,
+        init_mode: str = "parameter",
+    ) -> None:
         super().__init__()
         self.hidden_size = hidden_size
+        self.init_mode = init_mode
         self.lstm = nn.LSTMCell(input_size, hidden_size)
-        self.h0 = nn.Parameter(torch.zeros(hidden_size))
-        self.c0 = nn.Parameter(torch.zeros(hidden_size))
+
+        if init_mode == "learned_fc":
+            # vlgiitr: FC from dummy input → non-zero initial state
+            self.h_bias_fc = nn.Linear(1, hidden_size)
+            self.c_bias_fc = nn.Linear(1, hidden_size)
+        else:
+            self.h0 = nn.Parameter(torch.zeros(hidden_size))
+            self.c0 = nn.Parameter(torch.zeros(hidden_size))
 
     def reset_state(self) -> None:
-        self._h = self.h0.clone()
-        self._c = self.c0.clone()
+        if self.init_mode == "learned_fc":
+            dummy = torch.tensor([[0.0]])
+            self._h = self.h_bias_fc(dummy).squeeze(0)
+            self._c = self.c_bias_fc(dummy).squeeze(0)
+        else:
+            self._h = self.h0.clone()
+            self._c = self.c0.clone()
 
     @property
     def last_hidden(self) -> Tensor:

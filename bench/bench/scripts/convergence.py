@@ -123,6 +123,9 @@ def run_recall(args: argparse.Namespace) -> None:
     write_mode: str = getattr(args, "recall_write_mode", "erase_add")
     head_input_mode: str = getattr(args, "recall_head_input", "hidden")
     no_tanh: bool = getattr(args, "recall_no_tanh_bound", False)
+    memory_init: str = getattr(args, "recall_memory_init", "constant")
+    controller_init: str = getattr(args, "recall_controller_init", "parameter")
+    fc_init: str = getattr(args, "recall_fc_init", "ours")
 
     cfg = NtmRecallConfig(
         iterations=getattr(args, "recall_iters", 100000),
@@ -135,6 +138,9 @@ def run_recall(args: argparse.Namespace) -> None:
         write_mode=write_mode,
         head_input=head_input_mode,
         tanh_bound=not no_tanh,
+        memory_init=memory_init,
+        controller_init=controller_init,
+        fc_init=fc_init,
     )
     model = NtmRecallModel(cfg)
 
@@ -148,6 +154,7 @@ def run_recall(args: argparse.Namespace) -> None:
     print(f"  N={cfg.n}  M={cfg.m}  controller={cfg.controller_type}({cfg.controller_size})")
     print(f"  optimizer={optimizer_name}  lr={cfg.lr}  clip={clip_mode}({cfg.clip_value})")
     print(f"  write={cfg.write_mode}  head_input={cfg.head_input}  tanh_bound={cfg.tanh_bound}")
+    print(f"  mem_init={cfg.memory_init}  ctrl_init={cfg.controller_init}  fc={cfg.fc_init}")
     print(f"  iterations={cfg.iterations}")
 
     # Training loop: 1 sequence per iteration
@@ -282,6 +289,24 @@ def main() -> None:
         action="store_true",
         default=False,
         help="Disable tanh memory bounding for recall",
+    )
+    parser.add_argument(
+        "--recall-memory-init",
+        choices=["constant", "learned"],
+        default="constant",
+        help="Recall memory init (default: constant 1e-6)",
+    )
+    parser.add_argument(
+        "--recall-controller-init",
+        choices=["parameter", "learned_fc"],
+        default="parameter",
+        help="Recall controller init (default: nn.Parameter zeros)",
+    )
+    parser.add_argument(
+        "--recall-fc-init",
+        choices=["ours", "vlgiitr"],
+        default="ours",
+        help="Recall FC init style (default: ours)",
     )
     args = parser.parse_args()
 
