@@ -23,6 +23,11 @@ import torch
 
 from bench.data.copy_task import generate_copy_sequence
 from bench.data.recall_task import generate_recall_sequence
+from bench.diagnostics.ntm_diagnostics import (
+    compute_summary,
+    instrumented_forward_recall,
+    print_summary,
+)
 from bench.models.ntm_copy import NtmCopyConfig, NtmCopyModel, train_ntm_copy_step
 from bench.models.ntm_recall import NtmRecallConfig, NtmRecallModel, train_ntm_recall_step
 
@@ -183,6 +188,17 @@ def run_recall(args: argparse.Namespace) -> None:
 
         accuracy = correct_bits / total_bits if total_bits > 0 else 0
         print(f"  {test_items} items: bit accuracy = {accuracy:.1%}")
+
+    # Diagnostics: run instrumented forward on a 4-item sequence
+    print("\n--- Diagnostics (4-item sequence) ---")
+    diag_input, diag_target = generate_recall_sequence(4, cfg.seq_len, cfg.seq_width)
+    timesteps = instrumented_forward_recall(model, diag_input, diag_target)
+    encode_len = diag_input.shape[0]
+    summary = compute_summary(timesteps, seq_len=encode_len)
+    print_summary("post-training", summary)
+    write_argmaxes_encode = summary.write_argmaxes[:encode_len]
+    distinct_write = len(set(write_argmaxes_encode))
+    print(f"  Distinct write slots (encoding): {distinct_write}")
 
 
 # ---------------------------------------------------------------------------

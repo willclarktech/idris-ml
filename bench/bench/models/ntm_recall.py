@@ -69,9 +69,6 @@ class NtmRecallModel(nn.Module):
         raw = self.ntm(x)
         return torch.sigmoid(raw)
 
-    def project_addressing(self) -> None:
-        self.ntm.project_addressing()
-
 
 def train_ntm_recall_step(
     model: NtmRecallModel,
@@ -111,6 +108,5 @@ def train_ntm_recall_step(
     else:
         clip_grad_value_(model.parameters(), model.cfg.clip_value)
     optimizer.step()
-    model.project_addressing()
 
     return loss.item()

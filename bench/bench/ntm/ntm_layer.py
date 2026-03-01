@@ -74,21 +74,20 @@ class NTMLayer(nn.Module):
         self.register_buffer("_init_memory", torch.full((n, m), 1e-6))
         self.memory: Tensor = torch.full((n, m), 1e-6)
 
-        # Initial addressing: uniform
-        init_addr = torch.zeros(n)
-        init_addr[0] = 1.0
-        self.read_addressing = nn.Parameter(init_addr.clone())
-        self.write_addressing = nn.Parameter(init_addr.clone())
-
-        # Initial read head output (zeros)
-        self.read_head_output = nn.Parameter(torch.zeros(m))
-
     def reset_state(self) -> None:
-        """Reset memory and head state between sequences."""
+        """Reset memory and head state between sequences.
+
+        Addressing weights start as zeros (not learnable) — matching vlgiitr
+        reference. The controller must learn to address correctly through its
+        own outputs rather than relying on a learned addressing prior.
+        """
         self.memory = self._init_memory.clone()  # type: ignore[reportCallIssue]
-        self._current_read_addr = self.read_addressing.clone()
-        self._current_write_addr = self.write_addressing.clone()
-        self._current_read_output = self.read_head_output.clone()
+        self._current_read_addr = torch.zeros(self.n)
+        self._current_write_addr = torch.zeros(self.n)
+        # Read head output: kaiming init (matching vlgiitr reference)
+        read_out = torch.empty(1, self.m)
+        nn.init.kaiming_uniform_(read_out)
+        self._current_read_output = read_out.squeeze(0)
 
     def forward(self, x: Tensor) -> Tensor:
         """Forward pass for one timestep.
@@ -139,10 +138,3 @@ class NTMLayer(nn.Module):
         # Output from controller hidden + read vector
         output = self.output_fc(torch.cat([controller_hidden, read_output]))
         return output
-
-    def project_addressing(self, eps: float = 1e-6) -> None:
-        """Project addressing weights onto probability simplex."""
-        with torch.no_grad():
-            for param in [self.read_addressing, self.write_addressing]:
-                param.clamp_(min=eps)
-                param.div_(param.sum())

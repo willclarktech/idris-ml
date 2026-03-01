@@ -117,8 +117,35 @@ Perfect on trained 2-item sequences. No generalization to 3+ items — the model
 
 4. **More iterations may help**: both A and B loss curves are still declining at 100K. Running to 200-500K might reach better accuracy, but curriculum is the more principled approach.
 
+## Architecture change: non-learnable addressing (post-experiments A-C)
+
+Experiments A-C used `nn.Parameter` for initial addressing weights (learnable, hot-start on slot 0) with `project_addressing()` clamping after each optimizer step. Investigation of the vlgiitr/ntm-pytorch reference revealed three differences:
+
+| Aspect | Experiments A-C | vlgiitr reference |
+|--------|----------------|-------------------|
+| Addressing init | `nn.Parameter` (learnable) | `torch.zeros(N)` (plain tensor) |
+| Read head output init | `nn.Parameter(torch.zeros(m))` | `kaiming_uniform_` tensor |
+| `project_addressing()` | Clamp + renormalize after every step | Not needed |
+
+The learnable addressing likely contributed to the 4-6 item plateau: gradients flow back through cloned addressing parameters, and the optimizer pushes them toward degenerate solutions. The `project_addressing()` post-step is a band-aid that also interferes with gradient flow (uses `torch.no_grad()`). In vlgiitr, addressing starts from zeros every sequence and is entirely determined by the controller.
+
+Experiments D and E below use the fixed architecture matching vlgiitr.
+
+## Experiment D: Fixed architecture, RMSprop (vlgiitr match)
+
+**Config**: Non-learnable addressing (zeros), kaiming read output init, LSTM controller, N=128, M=20, RMSprop lr=1e-4 alpha=0.95 momentum=0.9, value clip ±10, items=[2,6], seed=42
+
+*(pending — run with `make bench-convergence-recall`)*
+
+## Experiment E: Fixed architecture, Adam
+
+**Config**: Non-learnable addressing (zeros), kaiming read output init, LSTM controller, N=128, M=20, Adam lr=1e-3, value clip ±10, items=[2,6], seed=42
+
+*(pending — run with `cd bench && uv run python -u -m bench.scripts.convergence --task recall --recall-optimizer adam --recall-lr 1e-3`)*
+
 ## Next steps
 
-- Implement curriculum in convergence script: 2 items → 3 items → 4-6 items with loss threshold advancement
-- Run 200K+ iterations with curriculum to verify full convergence
-- Compare with reference implementation results (loudinthecloud generalizes to 20+ items with curriculum)
+- Run experiments D and E with fixed architecture
+- Clone vlgiitr/ntm-pytorch reference and run their recall task as ground truth
+- If D/E still plateau, investigate curriculum on top of fixed architecture
+- Compare with reference implementation results (vlgiitr claims to generalize to 20+ items at 100K iterations)

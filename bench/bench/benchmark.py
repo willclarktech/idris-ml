@@ -144,7 +144,6 @@ def bench_ntm() -> tuple[float, float]:
         loss.backward()
         clip_grad_norm_(ntm.parameters(), max_norm)
         optimizer.step()
-        ntm.project_addressing()
         return loss.item()
 
     # Warmup: 10 epochs
