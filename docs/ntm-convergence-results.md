@@ -11,6 +11,9 @@ Architecture: LSTM controller (hidden=100), N=128 memory slots, M=20 memory widt
 | A (baseline) | RMSprop lr=1e-4 | [2,6] | 0.389 | 100% | 92.8% | 68.9% |
 | B (Adam) | Adam lr=1e-3 | [2,6] | 0.367 | 100% | 97.2% | 64.4% |
 | C (Adam+2items) | Adam lr=1e-3 | [2,2] | 0.000 | 100% | 55.6% | 57.2% |
+| G (interp write) | RMSprop lr=1e-4 | [2,6] | 0.408 | 100% | 91.1% | 65.6% |
+| H (G + cell) | RMSprop lr=1e-4 | [2,6] | 0.414 | 100% | 91.7% | 65.0% |
+| I (H + no tanh) | RMSprop lr=1e-4 | [2,6] | 0.426 | 100% | 87.2% | 66.1% |
 | **vlgiitr ref** | RMSprop lr=1e-4 | [2,6] | **0.000** | **100%** | **100%** | **100%** |
 
 **Key finding**: The vlgiitr reference implementation converges fully (100% accuracy, 2-6 items) with the same optimizer and hyperparameters as our Experiment A. Our model (A-C) plateaus at 65-93% on 3-6 items. The difference is architectural, not optimizer/curriculum related. See [Experiment F (vlgiitr reference)](#experiment-f-vlgiitr-reference) for details.
@@ -194,8 +197,64 @@ The top three differences are likely the root cause:
 2. **Cell state input** gives heads access to the full LSTM internal state rather than the gated hidden state
 3. **Interpolation write** is simpler (no separate erase vector) and may be easier to learn
 
+## Experiment G: Interpolation write (cumulative ablation step 1)
+
+**Config**: Same as Exp A but with vlgiitr interpolation write (`w*data + (1-w)*mem`) instead of erase+add. Other: hidden state input, tanh bound on.
+
+**Loss**: 0.408 @ 100K (vs baseline A: 0.389). Nearly identical trajectory.
+
+**Evaluation**:
+```
+2 items: 100.0%
+3 items:  91.1%
+4 items:  77.8%
+5 items:  63.9%
+6 items:  65.6%
+```
+
+No meaningful difference from baseline.
+
+## Experiment H: Interpolation write + cell state input
+
+**Config**: Exp G + head FCs use LSTM cell state (c) instead of hidden state (h), matching vlgiitr.
+
+**Loss**: 0.414 @ 100K. Nearly identical to G.
+
+**Evaluation**:
+```
+2 items: 100.0%
+3 items:  91.7%
+4 items:  76.7%
+5 items:  64.4%
+6 items:  65.0%
+```
+
+Cell state input makes no difference.
+
+## Experiment I: Interpolation + cell state + no tanh bound
+
+**Config**: Exp H + tanh memory bounding disabled (vlgiitr has no tanh bounding).
+
+**Loss**: 0.426 @ 100K. Within noise of G and H.
+
+**Evaluation**:
+```
+2 items: 100.0%
+3 items:  87.2%
+4 items:  73.9%
+5 items:  61.7%
+6 items:  66.1%
+```
+
+Tanh bounding makes no difference either.
+
+### Key finding: G-H-I null result
+
+All three "HIGH priority" architectural differences (write mechanism, head input, tanh bounding) have **zero effect** on convergence. The model shows the same pathological pattern across all experiments: near-uniform addressing (entropy=4.85, peak=0.0078), only 1 distinct write slot, loss plateaus ~0.39-0.43.
+
+The massive convergence gap (vlgiitr: 0.07 @ 10K; ours: 0.62 @ 10K) must originate from a different source — likely initialization (learned memory/controller via FC, head FC gain/bias) or another architectural detail not yet identified.
+
 ## Next steps
 
-- Investigate the top-3 architectural differences systematically (separate head FCs, cell state, write mechanism)
-- Run experiments D and E with fixed addressing if still needed
-- Port vlgiitr write mechanism (interpolation) to our model as experiment
+- Implement Steps 4-6: learned memory init (FC+sigmoid), learned controller init, FC init changes (xavier gain=1.4, bias N(0,0.01))
+- These affect initial conditions and early gradient flow, which is where the massive gap appears
