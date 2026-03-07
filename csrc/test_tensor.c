@@ -1553,6 +1553,93 @@ static void test_lstm_cell_bias_buf_backward(void) {
 }
 
 /* -------------------------------------------------------------------
+   Dense optimizer tests
+   ------------------------------------------------------------------- */
+
+static void test_dense_alloc(void) {
+  double *p = dense_alloc(10);
+  int all_zero = 1;
+  for (int i = 0; i < 10; i++) {
+    if (p[i] != 0.0) all_zero = 0;
+  }
+  check("dense_alloc zeros", all_zero);
+
+  /* dense_zero */
+  p[0] = 1.0; p[5] = 2.0;
+  dense_zero(p, 10);
+  all_zero = 1;
+  for (int i = 0; i < 10; i++) {
+    if (p[i] != 0.0) all_zero = 0;
+  }
+  check("dense_zero", all_zero);
+  free(p);
+}
+
+static void test_rmsprop_vc_step(void) {
+  /* 3 params, lr=0.01, alpha=0.9, eps=1e-8, max_val=5.0 */
+  double grads[] = {1.0, -2.0, 10.0};  /* 10.0 should be clipped to 5.0 */
+  double v[] = {0.0, 0.0, 0.0};
+  rmsprop_vc_step(grads, v, 3, 0.01, 0.9, 1e-8, 5.0);
+
+  /* v[0] = 0.9*0 + 0.1*1^2 = 0.1; delta = 0.01*1/sqrt(0.1) */
+  check_close("rmsprop_vc v[0]", v[0], 0.1, 1e-12);
+  check_close("rmsprop_vc delta[0]", grads[0], 0.01 * 1.0 / (sqrt(0.1) + 1e-8), 1e-10);
+
+  /* v[1] = 0.1*(-2)^2 = 0.4; delta = 0.01*(-2)/sqrt(0.4) */
+  check_close("rmsprop_vc v[1]", v[1], 0.4, 1e-12);
+  check_close("rmsprop_vc delta[1]", grads[1], 0.01 * (-2.0) / (sqrt(0.4) + 1e-8), 1e-10);
+
+  /* g=10 clipped to 5; v[2] = 0.1*25 = 2.5; delta = 0.01*5/sqrt(2.5) */
+  check_close("rmsprop_vc v[2]", v[2], 2.5, 1e-12);
+  check_close("rmsprop_vc delta[2]", grads[2], 0.01 * 5.0 / (sqrt(2.5) + 1e-8), 1e-10);
+
+  /* Step 2: same grads again */
+  double grads2[] = {1.0, -2.0, 5.0};
+  rmsprop_vc_step(grads2, v, 3, 0.01, 0.9, 1e-8, 5.0);
+  /* v[0] = 0.9*0.1 + 0.1*1 = 0.19 */
+  check_close("rmsprop_vc_s2 v[0]", v[0], 0.19, 1e-12);
+}
+
+static void test_sgd_step(void) {
+  double grads[] = {3.0, -1.0, 100.0};
+  sgd_step(grads, 3, 0.1, 5.0);
+  check_close("sgd delta[0]", grads[0], 0.3, 1e-12);
+  check_close("sgd delta[1]", grads[1], -0.1, 1e-12);
+  check_close("sgd delta[2]", grads[2], 0.5, 1e-12); /* 100 clipped to 5, then 0.1*5 */
+}
+
+static void test_adam_gc_step(void) {
+  /* 2 params, lr=0.001, beta1=0.9, beta2=0.999, eps=1e-8, max_norm=10, t=0 */
+  double grads[] = {1.0, 2.0};
+  double m[] = {0.0, 0.0};
+  double v[] = {0.0, 0.0};
+  adam_gc_step(grads, m, v, 2, 0.001, 0.9, 0.999, 1e-8, 10.0, 0);
+
+  /* norm = sqrt(1+4) = sqrt(5) < 10, so scale = 1.0 */
+  /* m[0] = 0.1*1 = 0.1; v[0] = 0.001*1 = 0.001 */
+  /* bc1 = 1-0.9 = 0.1; bc2 = 1-0.999 = 0.001 */
+  /* m_hat = 0.1/0.1 = 1.0; v_hat = 0.001/0.001 = 1.0 */
+  /* delta = 0.001 * 1.0 / (1.0 + 1e-8) */
+  check_close("adam_gc m[0]", m[0], 0.1, 1e-12);
+  check_close("adam_gc v[0]", v[0], 0.001, 1e-12);
+  check_close("adam_gc delta[0]", grads[0], 0.001 * 1.0 / (1.0 + 1e-8), 1e-10);
+
+  /* m[1] = 0.1*2 = 0.2; v[1] = 0.001*4 = 0.004 */
+  /* m_hat = 0.2/0.1 = 2.0; v_hat = 0.004/0.001 = 4.0 */
+  /* delta = 0.001 * 2.0 / (sqrt(4.0) + 1e-8) = 0.001 * 2.0 / 2.0 = 0.001 */
+  check_close("adam_gc delta[1]", grads[1], 0.001 * 2.0 / (sqrt(4.0) + 1e-8), 1e-10);
+
+  /* Test global norm clipping: grads with large norm */
+  double grads2[] = {100.0, 0.0};
+  double m2[] = {0.0, 0.0};
+  double v2[] = {0.0, 0.0};
+  adam_gc_step(grads2, m2, v2, 2, 0.001, 0.9, 0.999, 1e-8, 10.0, 0);
+  /* norm = 100 > 10, scale = 10/100 = 0.1; g_scaled = 10.0 */
+  check_close("adam_gc_clip m[0]", m2[0], 0.1 * 10.0, 1e-12);
+}
+
+
+/* -------------------------------------------------------------------
    Main
    ------------------------------------------------------------------- */
 
@@ -1602,6 +1689,10 @@ int main(void) {
   test_matvec_bias_backward();
   test_lstm_cell_bias_buf_forward();
   test_lstm_cell_bias_buf_backward();
+  test_dense_alloc();
+  test_rmsprop_vc_step();
+  test_sgd_step();
+  test_adam_gc_step();
 
   printf("\n%d passed, %d failed\n", tests_passed, tests_failed);
   return tests_failed > 0 ? 1 : 0;

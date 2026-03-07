@@ -1996,3 +1996,149 @@ void *interp_write_pack_mem_buf(void *meta_ptr, NtmMemBuf *mb) {
   memcpy(m->mem_tape_idx, mb->tape_idx, total * sizeof(int));
   return meta_ptr;
 }
+
+
+/* -------------------------------------------------------------------
+   Dense optimizer — C arrays replace SortedMap
+   ------------------------------------------------------------------- */
+
+/* Allocate zero-initialized double array of n elements */
+double *dense_alloc(int n) {
+  return (double *)calloc(n, sizeof(double));
+}
+
+/* Zero out a dense array. Returns p for FFI handle threading. */
+double *dense_zero(double *p, int n) {
+  memset(p, 0, n * sizeof(double));
+  return p;
+}
+
+/* Like walk_backward_ext but accumulates into dense array by pid_id.
+ * out_dense[pid_id] += gradient for each named ConstOp.
+ * out_dense must be pre-zeroed, size = num_pids.
+ * Frees grad array. Does NOT reset arena/ext_meta (caller does that). */
+void walk_backward_ext_dense(double *grad, int tape_sz,
+                             int *tags, int *arg1, int *arg2,
+                             double *vals, double *out_dense) {
+  void **meta = ext_meta;
+
+  for (int idx = tape_sz - 1; idx >= 0; idx--) {
+    int tag = tags[idx];
+    double g = grad[idx];
+
+    if (tag == 25) continue;  /* ShadowConst: gradient slot only */
+
+    if (tag == 0) {
+      /* ConstOp: accumulate into dense array by pid_id */
+      if (g != 0.0 && tape_pid_ids && idx < tape_pid_ids_cap
+          && tape_pid_ids[idx] >= 0) {
+        out_dense[tape_pid_ids[idx]] += g;
+      }
+      continue;
+    }
+
+    /* Skip zero-gradient scalar ops */
+    if (g == 0.0 && (tag <= 10 || (tag >= 19 && tag <= 20))) continue;
+
+    int a1 = arg1[idx];
+    int a2 = arg2[idx];
+
+    switch (tag) {
+      case 1:  grad[a1] += -g; break;
+      case 2:  grad[a1] += g * (vals[a1] > 0 ? 1.0 : (vals[a1] < 0 ? -1.0 : 0.0)); break;
+      case 3:  grad[a1] += g * vals[idx]; break;
+      case 4:  grad[a1] += g / vals[a1]; break;
+      case 5:  grad[a1] += g / (2.0 * vals[idx]); break;
+      case 6:  grad[a1] += g; grad[a2] += g; break;
+      case 7:  grad[a1] += g; grad[a2] += -g; break;
+      case 8:  grad[a1] += g * vals[a2]; grad[a2] += g * vals[a1]; break;
+      case 9:  grad[a1] += g / vals[a2]; grad[a2] += -g * vals[a1] / (vals[a2] * vals[a2]); break;
+      case 10: {
+        double vx = vals[a1], vy = vals[a2];
+        grad[a1] += g * vy * pow(vx, vy - 1.0);
+        if (vx != 0.0) grad[a2] += g * vals[idx] * log(vx);
+        break;
+      }
+      case 11: tensor_matvec_backward(grad, (MatVecMeta *)meta[idx]); break;
+      case 12: tensor_dot_backward(grad, (DotMeta *)meta[idx]); break;
+      case 13: tensor_softmax_backward(grad, (SoftmaxMeta *)meta[idx]); break;
+      case 14: tensor_logsoftmax_backward(grad, (SoftmaxMeta *)meta[idx]); break;
+      case 15: tensor_batch_cossim_backward(grad, (BatchCosSimMeta *)meta[idx]); break;
+      case 16: tensor_readop_backward(grad, (ReadOpMeta *)meta[idx]); break;
+      case 17: tensor_writeop_backward(grad, (WriteOpMeta *)meta[idx]); break;
+      case 18: tensor_interp_write_backward(grad, (InterpWriteMeta *)meta[idx]); break;
+      case 19: { double val = vals[idx]; grad[a1] += g * val * (1.0 - val); break; }
+      case 20: { double val = vals[idx]; grad[a1] += g * (1.0 - val * val); break; }
+      case 21: tensor_interpolate_backward(grad, (InterpolateMeta *)meta[idx]); break;
+      case 22: tensor_shift_backward(grad, (ShiftMeta *)meta[idx]); break;
+      case 23: tensor_focus_backward(grad, (FocusMeta *)meta[idx]); break;
+      case 24: tensor_lstm_cell_backward(grad, (LstmCellMeta *)meta[idx]); break;
+      default: break;
+    }
+  }
+
+  free(grad);
+}
+
+/* RMSprop with value clipping (in-place: grads[] overwritten with deltas[]).
+ * v[i] = alpha * v[i] + (1-alpha) * clipped_g^2
+ * grads[i] = lr * clipped_g / (sqrt(v[i]) + eps)
+ * Returns grads for FFI handle threading. */
+double *rmsprop_vc_step(double *grads, double *v, int n,
+                        double lr, double alpha, double eps, double max_val) {
+  for (int i = 0; i < n; i++) {
+    double g = grads[i];
+    /* Value clipping */
+    if (g > max_val) g = max_val;
+    else if (g < -max_val) g = -max_val;
+    /* Update running average of squared gradients */
+    v[i] = alpha * v[i] + (1.0 - alpha) * g * g;
+    /* Compute delta */
+    grads[i] = lr * g / (sqrt(v[i]) + eps);
+  }
+  return grads;
+}
+
+/* SGD with per-param clipping (in-place: grads[] -> deltas[]).
+ * Returns grads for FFI handle threading. */
+double *sgd_step(double *grads, int n, double lr, double max_grad) {
+  for (int i = 0; i < n; i++) {
+    double g = grads[i];
+    if (g > max_grad) g = max_grad;
+    else if (g < -max_grad) g = -max_grad;
+    grads[i] = lr * g;
+  }
+  return grads;
+}
+
+/* Adam with global norm clipping (in-place: grads[] -> deltas[]).
+ * Clips grads by global L2 norm, then runs Adam update.
+ * Returns grads for FFI handle threading. */
+double *adam_gc_step(double *grads, double *m, double *v, int n,
+                    double lr, double beta1, double beta2, double eps,
+                    double max_norm, int t) {
+  /* Compute global gradient norm */
+  double norm_sq = 0.0;
+  for (int i = 0; i < n; i++) norm_sq += grads[i] * grads[i];
+  double norm = sqrt(norm_sq);
+  double scale = (norm > max_norm) ? max_norm / norm : 1.0;
+
+  /* Adam with bias correction */
+  double t_d = (double)(t + 1);
+  double bc1 = 1.0 - pow(beta1, t_d);
+  double bc2 = 1.0 - pow(beta2, t_d);
+
+  for (int i = 0; i < n; i++) {
+    double g = grads[i] * scale;
+    m[i] = beta1 * m[i] + (1.0 - beta1) * g;
+    v[i] = beta2 * v[i] + (1.0 - beta2) * g * g;
+    double m_hat = m[i] / bc1;
+    double v_hat = v[i] / bc2;
+    grads[i] = lr * m_hat / (sqrt(v_hat) + eps);
+  }
+  return grads;
+}
+
+/* Look up pid_id from Scheme pid-to-id hash table.
+ * Returns -1 if not found. Called from C via function pointer set up by Scheme. */
+/* Note: dense_lookup is done in Scheme (hash table access), not in C. */
