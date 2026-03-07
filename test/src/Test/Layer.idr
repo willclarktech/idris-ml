@@ -25,7 +25,7 @@ mutual
   layerIds : {i, o : Nat} -> Layer i o Variable -> List String
   layerIds (LinearLayer w b _ _) = tensorIds w ++ tensorIds b
   layerIds (RnnLayer iw rw b _ _ _) = tensorIds iw ++ tensorIds rw ++ tensorIds b
-  layerIds (LstmLayer iw rw b _ _ _ _ _) = tensorIds iw ++ tensorIds rw ++ tensorIds b
+  layerIds (LstmLayer iw rw b hs cs _ _ _ _ _) = tensorIds iw ++ tensorIds rw ++ tensorIds b ++ tensorIds hs ++ tensorIds cs
   layerIds (NtmLayer lstm rfc wfc ofc mem ra wa ro _) =
     layerIds lstm ++ layerIds rfc ++ layerIds wfc ++ layerIds ofc
       ++ tensorIds mem ++ tensorIds ra ++ tensorIds wa ++ tensorIds ro
