@@ -10,12 +10,12 @@ loss function, data format, and batch size on both sides.
 | Supervised (1000 ep) | 77 | 230 | 0.33x | Idris 3x faster |
 | RNN (1000 ep) | 355 | 2076 | 0.17x | Idris 6x faster |
 | NTM-small (100 ep) | 538 | 1242 | 0.43x | Idris 2.3x faster (w=3, n=10, m=5, h=20, batch=5) |
-| NTM-copy (100 ep) | 24737 | 12149 | 2.04x | **PyTorch 2x faster** (w=8, n=128, m=20, h=100, batch=16) |
+| NTM-copy (100 ep) | 25030 | 14044 | 1.78x | **PyTorch 1.8x faster** (w=8, n=128, m=20, h=100, batch=16) |
 
 The small NTM hides the scalar-vs-tensor autograd gap. At production scale (NTM-copy),
-PyTorch's tensor-level autograd gives it a ~2x advantage.
+PyTorch's tensor-level autograd gives it a ~1.8x advantage.
 
-NTM-copy per-epoch: Idris **~247ms** vs PyTorch **~121ms**.
+NTM-copy per-epoch: Idris **~234ms** vs PyTorch **~140ms**.
 
 Optimizations applied (from 1.38s/epoch baseline):
 - Buffer-passing for addressing chain ops (1.38s -> 1.0s)
@@ -23,13 +23,14 @@ Optimizations applied (from 1.38s/epoch baseline):
 - C-side pid filtering in walk_backward_ext (1.0s -> 0.66s)
 - Bulk C shadow tag setting
 - Dense optimizer: C arrays replace SortedMap (0.66s -> 0.46s)
+- C-bulk ConstOp creation: memset+memcpy replaces per-element Scheme loops (0.247s -> 0.234s)
 
 Per-epoch breakdown (n=128, m=20, h=100, variable timesteps):
 
 | Phase | Time | Notes |
 |-------|------|-------|
-| Forward pass | ~195ms | Variable materialization + C tensor compute + loss |
-| Backward: walk_backward_ext_dense | ~32ms | Dense accumulation into C array by pid_id |
+| Forward pass | ~176ms | Variable materialization + C tensor compute + loss |
+| Backward: walk_backward_ext_dense | ~37ms | Dense accumulation into C array by pid_id |
 | Optimizer: C in-place step | ~0ms | rmsprop_vc_step on dense array (negligible) |
 | Apply deltas + sync buffers | ~16ms | O(1) hash lookup per param + WeightBuf sync |
 
@@ -79,6 +80,7 @@ This is the only path to close the remaining ~2x gap.
 | A: Buffer-passing + shadow ConstOps | ~1.0s | 1.4x | ~8x |
 | B: + C-side pid filtering | ~0.66s | 2.1x | ~5x |
 | D: + Dense optimizer (C arrays) | ~0.247s | 5.6x | ~2.0x |
+| E: + C-bulk ConstOps (memset+memcpy) | ~0.234s | 5.9x | ~1.8x |
 | C: Tensor-level Variable (estimated) | ~0.15s | -- | ~1.2x |
 
 ### Path D: Dense Optimizer (DONE)
@@ -153,3 +155,32 @@ NTM-copy             27596.1        14223.9    1.94x
 Root cause: `prim__appendOutputConst`/`prim__appendOutputConstOff` use per-element
 Scheme `foreign-set!` loops (3 writes/element × 1.29M elements = ~3.87M FFI calls).
 `prim__appendShadowConst` already uses efficient C bulk `tape_set_shadow_tags`.
+
+### After C-bulk ConstOps (2026-03-04, commit 6efc2ae)
+
+Replaced per-element Scheme loops with C `tape_bulk_set_const`/`tape_bulk_set_const_off`
+(memset tags + memcpy values). Pid writes skipped (default "" from make-vector init).
+
+```
+Epoch   Enc(ms)   Out(ms)  Loss(ms)   Bwd(ms)   Opt(ms)  Sync(ms)  TapeSize    Loss
+    1      95.8      80.2       4.8      36.2       0.0      15.8   3561699
+   avg     ~97       ~79        ~5       ~37        ~0       ~16    3561699
+```
+
+Forward (Enc+Out) = **~176ms** (76% of ~234ms epoch). Saved **~9ms** forward.
+
+Bench-compare:
+```
+Model             Idris (ms)   PyTorch (ms)    Ratio
+Supervised              83.2          240.1    0.35x
+RNN                    387.6         2332.7    0.17x
+NTM-small              600.6         1390.2    0.43x
+NTM-copy             25029.9        14044.1    1.78x
+```
+
+NTM-copy: 27596ms -> 25030ms (**1.94x -> 1.78x** vs PyTorch). ~10% improvement.
+
+Note: Chez Scheme `foreign-set!` is a native operation (not a C FFI crossing), so
+the per-element cost was lower than estimated. The remaining forward pass time is
+dominated by Scheme Variable record allocation and `ensureOnTape`/`packVec` loops,
+not by ConstOp tape writes.
