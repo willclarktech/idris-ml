@@ -13,6 +13,13 @@ modules = Backprop
         , Generate
         , Init
         , Layer
+        , Layer.Core
+        , Layer.Linear
+        , Layer.Activation
+        , Layer.Normalization
+        , Layer.Rnn
+        , Layer.Lstm
+        , Layer.Ntm
         , Math
         , Memory
         , Optimizer

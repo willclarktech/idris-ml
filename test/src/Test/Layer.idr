@@ -17,24 +17,6 @@ import Variable
 -- Helpers
 ----------------------------------------------------------------------
 
--- Collect all paramIds from a Tensor of Variables
-tensorIds : {dims : Vect rank Nat} -> Tensor dims Variable -> List String
-tensorIds = mapMaybe paramId . toList
-
-mutual
-  layerIds : {i, o : Nat} -> Layer i o Variable -> List String
-  layerIds (LinearLayer w b _ _) = tensorIds w ++ tensorIds b
-  layerIds (RnnLayer iw rw b _ _ _) = tensorIds iw ++ tensorIds rw ++ tensorIds b
-  layerIds (LstmLayer iw rw b hs cs _ _ _ _ _) = tensorIds iw ++ tensorIds rw ++ tensorIds b ++ tensorIds hs ++ tensorIds cs
-  layerIds (NtmLayer lstm rfc wfc ofc mem ra wa ro _) =
-    layerIds lstm ++ layerIds rfc ++ layerIds wfc ++ layerIds ofc
-      ++ tensorIds mem ++ tensorIds ra ++ tensorIds wa ++ tensorIds ro
-  layerIds _ = []
-
-  networkIds : {i, o : Nat} -> {hs : List Nat} -> Network i hs o Variable -> List String
-  networkIds (OutputLayer l) = layerIds l
-  networkIds (l ~> r) = layerIds l ++ networkIds r
-
 hasPrefix : String -> List String -> Bool
 hasPrefix pfx = any (isPrefixOf pfx)
 
@@ -54,7 +36,7 @@ tests =
     do srand 42
        ll <- linearLayer {i=2, o=3}
        let named = autoName $ OutputLayer ll
-       let ids = networkIds named
+       let ids = networkParamIds named
        r1 <- check "autoName linear: has ll0_weight" (hasPrefix "ll0_weight" ids)
        r2 <- check "autoName linear: has ll0_bias" (hasPrefix "ll0_bias" ids)
        r3 <- check "autoName linear: 9 params" (length ids == 9)
@@ -65,7 +47,7 @@ tests =
        l1 <- linearLayer {i=2, o=3}
        l2 <- linearLayer {i=3, o=2}
        let named = autoName $ l1 ~> OutputLayer l2
-       let ids = networkIds named
+       let ids = networkParamIds named
        r1 <- check "autoName two linear: has ll0_weight" (hasPrefix "ll0_weight" ids)
        r2 <- check "autoName two linear: has ll1_weight" (hasPrefix "ll1_weight" ids)
        r3 <- check "autoName two linear: no duplicates" (noDuplicates ids)
@@ -76,7 +58,7 @@ tests =
   , do srand 42
        rnn <- rnnLayer {i=2, o=3}
        let named = autoName $ OutputLayer rnn
-       let ids = networkIds named
+       let ids = networkParamIds named
        r1 <- check "autoName rnn: has rnn0_inputWeight" (hasPrefix "rnn0_inputWeight" ids)
        r2 <- check "autoName rnn: has rnn0_recurrentWeight" (hasPrefix "rnn0_recurrentWeight" ids)
        r3 <- check "autoName rnn: has rnn0_bias" (hasPrefix "rnn0_bias" ids)
@@ -87,7 +69,7 @@ tests =
        ll <- linearLayer {i=2, o=3}
        rnn <- rnnLayer {i=3, o=2}
        let named = autoName $ ll ~> sigmoidLayer ~> OutputLayer rnn
-       let ids = networkIds named
+       let ids = networkParamIds named
        r1 <- check "autoName mixed: has ll0_weight" (hasPrefix "ll0_weight" ids)
        r2 <- check "autoName mixed: has rnn0_inputWeight" (hasPrefix "rnn0_inputWeight" ids)
        r3 <- check "autoName mixed: no ll1" (not (hasPrefix "ll1_" ids))
@@ -98,7 +80,7 @@ tests =
   , do srand 42
        lstm <- lstmLayer {i=2, o=3}
        let named = autoName $ OutputLayer lstm
-       let ids = networkIds named
+       let ids = networkParamIds named
        r1 <- check "autoName lstm: has lstm0_inputWeight" (hasPrefix "lstm0_inputWeight" ids)
        r2 <- check "autoName lstm: has lstm0_recurrentWeight" (hasPrefix "lstm0_recurrentWeight" ids)
        r3 <- check "autoName lstm: has lstm0_bias" (hasPrefix "lstm0_bias" ids)
@@ -110,7 +92,7 @@ tests =
        lstm <- lstmLayer {i=2, o=3}
        ll <- linearLayer {i=3, o=2}
        let named = autoName $ lstm ~> OutputLayer ll
-       let ids = networkIds named
+       let ids = networkParamIds named
        r1 <- check "autoName lstm+linear: has lstm0_" (hasPrefix "lstm0_" ids)
        r2 <- check "autoName lstm+linear: has ll0_" (hasPrefix "ll0_" ids)
        r3 <- check "autoName lstm+linear: no duplicates" (noDuplicates ids)
@@ -120,7 +102,7 @@ tests =
   , do srand 42
        ntm <- ntmLayer {inputSize=9, outputSize=8, n=10, m=5, h=4}
        let named = autoName $ OutputLayer ntm
-       let ids = networkIds named
+       let ids = networkParamIds named
        r1 <- check "autoName ntm: has ntm0_mem" (hasPrefix "ntm0_mem" ids)
        r2 <- check "autoName ntm: has ntm0_rAddr" (hasPrefix "ntm0_rAddr" ids)
        r3 <- check "autoName ntm: has ntm0_wAddr" (hasPrefix "ntm0_wAddr" ids)

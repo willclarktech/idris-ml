@@ -14,23 +14,6 @@ import Variable
 
 
 ----------------------------------------------------------------------
--- Types
-----------------------------------------------------------------------
-
-||| A debug snapshot for one layer at one timestep
-public export
-record DebugEntry where
-  constructor MkDebugEntry
-  layerName : String
-  fields : List (String, String)
-
-||| Per-timestep snapshot of the entire network
-public export
-DebugSnapshot : Type
-DebugSnapshot = List DebugEntry
-
-
-----------------------------------------------------------------------
 -- Formatting Helpers
 ----------------------------------------------------------------------
 
@@ -92,7 +75,6 @@ softplusD x = if x > 20.0 then x else log (1.0 + exp x)
 ----------------------------------------------------------------------
 
 ||| Split write head input into its component parameters.
-||| Needs an explicit type signature so the plusAssociative rewrite works.
 splitWriteInput : {w : Nat}
                -> Vector (((w + ShiftKernelSize) + 3) + w + w) Double
                -> ( Vector w Double, Vector ShiftKernelSize Double
@@ -107,113 +89,6 @@ splitWriteInput {w} inp =
       (betaRaw, prms') = splitAt 1 prms
       (gRaw, gammaRaw) = splitAt 1 prms'
   in (key, shft, betaRaw, gRaw, gammaRaw, rawErase, rawAdd)
-
-
-----------------------------------------------------------------------
--- Variable -> Double Network Conversion
-----------------------------------------------------------------------
-
-mutual
-  ||| Convert a Variable-typed layer to Double by extracting values.
-  ||| Activation/normalization functions are reconstructed by name.
-  export
-  toDoubleLayer : {i, o : Nat} -> Layer i o Variable -> Layer i o Double
-  toDoubleLayer (LinearLayer w b _ _) =
-    LinearLayer (map value w) (map value b) Nothing Nothing
-  toDoubleLayer (RnnLayer iw rw b po _ _) =
-    RnnLayer (map value iw) (map value rw) (map value b) (map value po) Nothing Nothing
-  toDoubleLayer (LstmLayer iw rw b hs cs _ _ _ _ _) =
-    LstmLayer (map value iw) (map value rw) (map value b) (map value hs) (map value cs) Nothing Nothing Nothing Nothing Nothing
-  toDoubleLayer (ActivationLayer "sigmoid" _) = sigmoidLayer
-  toDoubleLayer (ActivationLayer "tanh" _) = tanhLayer
-  toDoubleLayer (ActivationLayer name _) = ActivationLayer name id
-  toDoubleLayer (NormalizationLayer "softmax" _) = softmaxLayer
-  toDoubleLayer (NormalizationLayer "logSoftmax" _) = logSoftmaxLayer
-  toDoubleLayer (NormalizationLayer name _) = NormalizationLayer name id
-  toDoubleLayer (NtmLayer lstm rfc wfc ofc mem ra wa ro _) =
-    NtmLayer (toDoubleLayer lstm) (toDoubleLayer rfc) (toDoubleLayer wfc) (toDoubleLayer ofc)
-             (map value mem) (map value ra) (map value wa) (map value ro) Nothing
-
-  ||| Convert a Variable-typed network to Double
-  export
-  toDoubleNetwork : {i, o : Nat} -> {hs : List Nat} -> Network i hs o Variable -> Network i hs o Double
-  toDoubleNetwork (OutputLayer layer) = OutputLayer (toDoubleLayer layer)
-  toDoubleNetwork (layer ~> rest) = toDoubleLayer layer ~> toDoubleNetwork rest
-
-
-----------------------------------------------------------------------
--- Debug Layer Forward
-----------------------------------------------------------------------
-
-||| Forward + debug: runs the layer and captures internal state
-export
-debugApplyLayer : {i, o : Nat} -> Layer i o Double -> Vector i Double
-               -> (Layer i o Double, Vector o Double, DebugEntry)
-debugApplyLayer {i} {o} layer@(LinearLayer _ _ _ _) inp =
-  let (updated, out) = applyLayer layer inp
-  in (updated, out, MkDebugEntry ("Linear<" ++ show i ++ ":" ++ show o ++ ">") [])
-
-debugApplyLayer {i} {o} (RnnLayer iw rw b previousOutput iwb rwb) inp =
-  let (updated, out) = applyLayer (RnnLayer iw rw b previousOutput iwb rwb) inp
-  in (updated, out, MkDebugEntry ("Rnn<" ++ show i ++ ":" ++ show o ++ ">")
-       [("hidden", showVec previousOutput)])
-
-debugApplyLayer {i} {o} (LstmLayer iw rw b hiddenState cellState iwb rwb bb h0b c0b) inp =
-  let (updated, out) = applyLayer (LstmLayer iw rw b hiddenState cellState iwb rwb bb h0b c0b) inp
-  in (updated, out, MkDebugEntry ("Lstm<" ++ show i ++ ":" ++ show o ++ ">")
-       [("hidden", showVec hiddenState), ("cell", showVec cellState)])
-
-debugApplyLayer layer@(ActivationLayer name _) inp =
-  let (updated, out) = applyLayer layer inp
-  in (updated, out, MkDebugEntry ("Activation<" ++ name ++ ">") [])
-
-debugApplyLayer layer@(NormalizationLayer name _) inp =
-  let (updated, out) = applyLayer layer inp
-  in (updated, out, MkDebugEntry ("Normalization<" ++ name ++ ">") [])
-
-debugApplyLayer {i} {o} (NtmLayer {n} {m} {h} lstm readFc writeFc outputFc memory readAddr writeAddr readOutput mb) inp =
-  let
-    -- Run forward pass via applyLayer (handles full pipeline)
-    layer = NtmLayer lstm readFc writeFc outputFc memory readAddr writeAddr readOutput mb
-    (updatedLayer, output) = applyLayer layer inp
-
-    -- Build debug entry with pre-step state
-    entry = MkDebugEntry ("Ntm<" ++ show i ++ ":" ++ show o ++ ", mem=" ++ show n ++ "x" ++ show m ++ ">")
-      [ ("readAddr",   showVec readAddr)
-      , ("writeAddr",  showVec writeAddr)
-      , ("readOutput", showVec readOutput)
-      , ("memory",     showMat memory)
-      ]
-  in (updatedLayer, output, entry)
-
-
-----------------------------------------------------------------------
--- Debug Network Forward
-----------------------------------------------------------------------
-
-||| Walk the network, collecting debug entries from each layer
-export
-debugForward : {i, o : Nat} -> {hs : List Nat} -> Network i hs o Double -> Vector i Double
-            -> (Network i hs o Double, Vector o Double, DebugSnapshot)
-debugForward (OutputLayer layer) x =
-  let (updatedLayer, output, entry) = debugApplyLayer layer x
-  in (OutputLayer updatedLayer, output, [entry])
-debugForward {hs = h :: _} (layer ~> layers) x =
-  let (updatedLayer, layerOutput, entry) = debugApplyLayer layer x
-      (updatedNetwork, networkOutput, entries) = debugForward layers layerOutput
-  in (updatedLayer ~> updatedNetwork, networkOutput, entry :: entries)
-
-||| Recurrent: fold over timesteps, collecting per-timestep snapshots
-export
-debugForwardRecurrent : {i, o : Nat} -> {hs : List Nat} -> Network i hs o Double -> List (Vector i Double)
-                     -> (Network i hs o Double, List (Vector o Double), List DebugSnapshot)
-debugForwardRecurrent model inputs = foldl step (model, [], []) inputs
-  where
-    step : (Network i hs o Double, List (Vector o Double), List DebugSnapshot) -> Vector i Double
-        -> (Network i hs o Double, List (Vector o Double), List DebugSnapshot)
-    step (m, outs, snaps) inp =
-      let (m', out, snap) = debugForward m inp
-      in (m', outs ++ [out], snaps ++ [snap])
 
 
 ----------------------------------------------------------------------
@@ -349,7 +224,6 @@ isStrictlyIncreasing (x :: y :: rest) = x < y && isStrictlyIncreasing (y :: rest
 ----------------------------------------------------------------------
 
 ||| Compute summary metrics from debug snapshots of a single sequence.
-||| seqLen = number of input-phase timesteps (half total).
 export
 computeSummary : Nat -> List DebugSnapshot -> Maybe NtmSummary
 computeSummary sl snapshots = do
