@@ -1,10 +1,16 @@
 # Backlog
 
+## High Priority
+
+| Item | Difficulty | Notes |
+|------|-----------|-------|
+| Cleaner port/adapter model for layers | L | Currently Layer.idr contains every layer type and all dispatch logic in one mutual block; consider typeclass-based extensibility |
+| RMSprop momentum | S | PyTorch reference uses momentum=0.9 with RMSprop; current impl has no momentum term |
+
 ## Medium Priority
 
 | Item | Difficulty | Notes |
 |------|-----------|-------|
-| PyTorch NTM recall curriculum training | M | Both Adam and RMSprop plateau at ~0.37 loss for items=[2,6]; curriculum (2→3→4-6) needed for full convergence |
 | More Tensor functions (eg concatenation) | M | |
 | Reshaping layers | M | |
 
@@ -57,3 +63,9 @@
 - NTM recall convergence verification (3 experiments: RMSprop baseline, Adam, Adam+2items — see `docs/ntm-convergence-results.md`)
 - Convergence script CLI args (`--recall-controller`, `--recall-optimizer`, `--recall-clip`, etc.)
 - NTM documentation extraction (`docs/ntm.md` — architecture, convergence, failure modes)
+- LSTM layer (`LstmLayer` constructor in Layer.idr — gate computation, forget bias init, cell state extraction)
+- Interpolation write (`interpolationWrite` in Memory.idr, `interpolationWriteVar` C-backed in Variable.idr)
+- Softplus gamma (`forwardReadHeadUnbounded` in Memory.idr — `gamma = 1 + softplus(x)`, unbounded)
+- RMSprop optimizer with value clipping (`rmsprop`, `rmspropValueClip` in Optimizer.idr)
+- Binary vector data format + two-phase training (`TwoPhaseDataPoint`, `epochTwoPhase`, `copyTaskBinary`, `recallTaskBinary`)
+- PyTorch-aligned NTM architecture (LSTM controller, separate head FCs from cell state, output FC from hidden++read, interpolation write)

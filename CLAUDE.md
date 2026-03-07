@@ -25,10 +25,10 @@ idris2 --source-dir src -p contrib -o <name> src/Example/<Name>.idr
 # Run a built example
 ./build/exec/<name>
 
-# Run Idris unit tests (91 tests)
+# Run Idris unit tests (108 tests)
 make test
 
-# Run C library tests (76 tests)
+# Run C library tests (88 tests)
 make test-c
 
 # Run benchmark (Supervised + RNN + NTM)
@@ -56,13 +56,9 @@ idris2 --source-dir src -p contrib -o rnn src/Example/Rnn.idr && ./build/exec/rn
 idris2 --source-dir src -p contrib -o ntm-copy src/Example/NtmCopy.idr && ./build/exec/ntm-copy
 idris2 --source-dir src -p contrib -o ntm-associative-recall src/Example/NtmAssociativeRecall.idr && ./build/exec/ntm-associative-recall
 # NTM copy with custom hyperparameters
-./build/exec/ntm-copy --lr 0.001 --max-norm 50.0 --epochs 6000 --patience 10 --seed 42
-# NTM copy with diagnostics (summary metrics + train/test comparison)
-./build/exec/ntm-copy --diagnose
-# NTM copy with verbose diagnostics (summary + raw per-timestep dumps)
-./build/exec/ntm-copy --diagnose-verbose
+./build/exec/ntm-copy --lr 0.0001 --clip 10.0 --alpha 0.95 --epochs 50000 --patience 5000 --seed 42
 # NTM associative recall with custom hyperparameters
-./build/exec/ntm-associative-recall --lr 0.001 --epochs 10000 --patience 800 --seed 42
+./build/exec/ntm-associative-recall --lr 0.0001 --epochs 100000 --patience 5000 --seed 42 --min-items 2 --max-items 6
 # Hyperparameter sweep (builds once, runs grid in parallel)
 bash scripts/sweep.sh --parallel 4
 # Quick sweep (2000 epochs for fast screening)
@@ -84,13 +80,13 @@ bash scripts/sweep.sh --task recall --parallel 4 --quick
 5. **Math** - Loss functions, activations, linear algebra
 6. **Memory** - NTM read/write head operations
 7. **Variable** - Tape-based autograd (Wengert list) with Chez Scheme FFI storage
-8. **DataPoint** - `DataPoint` and `RecurrentDataPoint` records
-8b. **Generate** - Random data generation: `SequenceTask` port, `copyTask`/`associativeRecallTask` adapters, `randomBatchVect`
+8. **DataPoint** - `DataPoint`, `RecurrentDataPoint`, and `TwoPhaseDataPoint` records
+8b. **Generate** - Random data generation: `SequenceTask` port, `copyTask`/`associativeRecallTask` adapters, `copyTaskBinary`/`recallTaskBinary` (binary vector format), `randomBatchVect`
 9. **Endofunctor** - `emap : (ty -> ty) -> e ty -> e ty` for type-preserving maps
 10. **Layer** - Layer/Network types (mutually recursive), forward pass, constructors, `autoName`
-11. **Optimizer** - SGD and Adam optimizers with per-parameter or global norm gradient clipping
+11. **Optimizer** - SGD, Adam, and RMSprop optimizers with per-parameter, global norm, or value gradient clipping
 12. **Schedule** - Learning rate schedules: `constant`, `cosineAnnealing`, `oneCycle`
-13. **Backprop** - Training loop: `epoch`, `train`, `trainFrom`, `epochRecurrent`, `trainRecurrent`, `trainRecurrentFrom`, `trainScheduledFrom`, `trainRecurrentScheduledFrom`
+13. **Backprop** - Training loop: `epoch`, `train`, `trainFrom`, `epochRecurrent`, `trainRecurrent`, `trainRecurrentFrom`, `trainScheduledFrom`, `trainRecurrentScheduledFrom`, `epochTwoPhase`, `trainTwoPhaseScheduledFrom`
 14. **Curriculum** - Multi-stage curriculum training: `Stage` record, `runCurriculum` with periodic data regeneration and two-level early stopping
 15. **Debug** - Generic forward-pass diagnostics: `debugForward`, `debugForwardRecurrent`, per-layer state extraction, `toDoubleNetwork`
 
@@ -118,9 +114,10 @@ record Variable where
 data Layer : (inputSize : Nat) -> (outputSize : Nat) -> Type -> Type where
   LinearLayer : Matrix outputSize inputSize ty -> Vector outputSize ty -> Layer inputSize outputSize ty
   RnnLayer : Matrix outputSize inputSize ty -> Matrix outputSize outputSize ty -> Vector outputSize ty -> Vector outputSize ty -> Layer inputSize outputSize ty
+  LstmLayer : Matrix (4 * outputSize) inputSize ty -> Matrix (4 * outputSize) outputSize ty -> Vector (4 * outputSize) ty -> Vector outputSize ty -> Vector outputSize ty -> Maybe WeightBuffer -> Maybe WeightBuffer -> Layer inputSize outputSize ty
   ActivationLayer : String -> ActivationFunction ty -> Layer n n ty
   NormalizationLayer : String -> NormalizationFunction ty -> Layer n n ty
-  NtmLayer : Network (NtmInputWidth w) hs (NtmOutputWidth n w) ty -> Matrix n w ty -> ReadHead n ty -> WriteHead n ty -> Vector w ty -> Layer w w ty
+  NtmLayer : {n, m, h : Nat} -> Layer (m + inputSize) h ty -> Layer h (ReadParamWidth m) ty -> Layer h (WriteParamWidth m) ty -> Layer (h + m) outputSize ty -> Matrix n m ty -> Vector n ty -> Vector n ty -> Vector m ty -> Layer inputSize outputSize ty
 
 data Network : (inputDims : Nat) -> (hiddenDims : List Nat) -> (outputDims : Nat) -> Type -> Type where
   OutputLayer : Layer i o ty -> Network i [] o ty
@@ -140,12 +137,9 @@ interface Endofunctor e where
 ll <- nameParams "ll" <$> linearLayer
 let model = ll ~> OutputLayer softmaxLayer
 
--- NTM: controller network nested inside NtmLayer
-controllerHidden <- linearLayer {i = NtmInputWidth W, o = H}
-controllerOut <- linearLayer {i = H, o = NtmOutputWidth N W}
-let controller = controllerHidden ~> sigmoidLayer ~> OutputLayer controllerOut
-ntm <- ntmLayer {n = N, w = W} controller
-let model = nameNetworkParams "ntm" $ ntm ~> OutputLayer logSoftmaxLayer
+-- NTM: LSTM controller with separate head FCs and output FC
+ntm <- ntmLayer {inputSize = InputW, outputSize = OutputW, n = N, m = M, h = H}
+let model = autoName $ OutputLayer ntm
 ```
 
 ### Forward pass returns updated network (state threading)
@@ -173,7 +167,23 @@ epoch opt dataPoints lossFn model st =
 let makeOpt = \lr => adamGlobalClip lr 0.9 0.999 1e-8 5.0
 let schedule = oneCycle 0.001 25.0 1e5 0.25 6000
 (model', st', epochsDone) = trainRecurrentScheduledFrom makeOpt schedule model dps lossFn 6000 10 initState
+
+-- Two-phase training (NTM copy/recall with binary vectors):
+let opt = rmspropValueClip 0.0001 0.95 1.0e-8 10.0
+let (m', s', loss) = epochTwoPhase opt dataPoints binaryCrossEntropyWithLogits model st
 ```
+
+### Supervised vs Recurrent vs TwoPhase API
+
+The library provides three training modes:
+
+| Aspect | Supervised | Recurrent | TwoPhase |
+|--------|-----------|-----------|----------|
+| Data type | `DataPoint i o ty` | `RecurrentDataPoint i o ty` | `TwoPhaseDataPoint i o ty` |
+| Forward | `forward` | `forwardRecurrent` | `forwardTwoPhase` |
+| Train | `epoch` / `train` | `epochRecurrent` / `trainRecurrent` | `epochTwoPhase` / `trainTwoPhaseScheduledFrom` |
+| Loss phase | All outputs | All outputs | Output phase only |
+| Use case | Feedforward nets | RNN/LSTM sequences | NTM copy/recall |
 
 ### Parameter naming (required for gradient flow)
 
@@ -183,8 +193,8 @@ Every learnable layer must be named before training. Use `autoName` (preferred):
 ll <- linearLayer
 let model = autoName $ ll ~> OutputLayer softmaxLayer  -- ll0_weight0, ll0_bias0, ...
 
--- NTM: ntm0_ll0_weight0 (ctrl hidden), ntm0_ll1_weight0 (ctrl output), ntm0_mem0, ...
-let model = autoName $ ntm ~> OutputLayer logSoftmaxLayer
+-- NTM: ntm0_lstm0_weight0 (controller), ntm0_readFc_ll0_weight0, ntm0_mem0, ...
+let model = autoName $ OutputLayer ntm
 ```
 
 Manual naming is also available for custom prefixes:
@@ -242,16 +252,6 @@ let (_, _, snapshots) = debugForwardRecurrent dblModel inputs
 printDiagnostics "label" snapshots
 ```
 
-### Supervised vs Recurrent API
-
-| Aspect | Supervised | Recurrent |
-|--------|-----------|-----------|
-| Data type | `DataPoint i o ty` (x, y vectors) | `RecurrentDataPoint i o ty` (xs, ys lists) |
-| Forward | `forward` / `forwardMany` | `forwardRecurrent` (folds over list) |
-| Train | `train` / `trainFrom` | `trainRecurrent` / `trainRecurrentFrom` |
-| State | Not carried between examples | Accumulated within a sequence, reset between sequences |
-| Loss fn | `crossEntropy`, `meanSquaredError` | `nllLoss`, `binaryCrossEntropyWithLogits`, `crossEntropy` |
-
 ## Adding New Examples
 
 When adding a new model/example to the project, follow this workflow in order:
@@ -275,14 +275,15 @@ Commit at each step. The PyTorch implementation serves as the correctness oracle
 
 - **Build flags**: Forgetting `--source-dir src` or `-p contrib` produces confusing import errors
 - **Elementwise `(*)`**: `Tensor`'s `Num` instance uses elementwise multiply. For matrix-vector products, use `matrixVectorMultiply` or `vectorMatrixMultiply` from Math.idr
-- **`paramId` requirement**: Variables without a `paramId` (i.e., `Nothing`) are invisible to gradient collection and won't receive updates. Use `autoName` (preferred) or `nameParams`/`nameNetworkParams` before training. `autoName` assigns type-based prefixes with per-type counters (`ll0`, `ll1`, `rnn0`, `ntm0`, ...) and scopes NTM controller names under their parent (`ntm0_ll0_`, `ntm0_ll1_`), preventing the collision bug in `nameNetworkParams`. `setParamId` writes to both the Variable record and the tape's pid vector
-- **Test suite**: Run `make test` for 91 Idris unit tests, `make test-c` for 76 C tests. Tests live in `test/src/Test/*.idr` with `Harness.idr` providing assertion helpers
+- **`paramId` requirement**: Variables without a `paramId` (i.e., `Nothing`) are invisible to gradient collection and won't receive updates. Use `autoName` (preferred) or `nameParams`/`nameNetworkParams` before training. `autoName` assigns type-based prefixes with per-type counters (`ll0`, `ll1`, `rnn0`, `lstm0`, `ntm0`, ...) and scopes NTM sub-layer names under their parent (`ntm0_lstm0_`, `ntm0_readFc_ll0_`), preventing the collision bug in `nameNetworkParams`. `setParamId` writes to both the Variable record and the tape's pid vector
+- **Test suite**: Run `make test` for 108 Idris unit tests, `make test-c` for 88 C tests. Tests live in `test/src/Test/*.idr` with `Harness.idr` providing assertion helpers
 - **Tape generation staleness**: After `collectGrads` resets the tape (gen++), Variables from the previous epoch are stale. `ensureOnTape` detects this via generation mismatch and re-registers with current `.value`. Same stale Variable used N times creates N Const entries — gradients accumulate correctly via `mergeWith (+)` on paramId
-- **Mutual recursion in Layer.idr**: `Layer` and `Network` are mutually recursive (NtmLayer contains a Network). `applyLayer`, `forward`, `nameParams`, `nameNetworkParams`, and `Endofunctor` instances all live in `mutual` blocks
-- **NTM dimension calculations**: `ReadHeadInputWidth _ w = (w + ShiftKernelSize) + 3` (key + 3-element shift kernel + 3 dynamic params: β, g, γ). The shift vector is `ShiftKernelSize` (3) elements, not `n` — decoupled from memory slot count. The controller output width is `NtmOutputWidth n w = ReadHeadInputWidth n w + WriteHeadInputWidth n w + w`. Since `ReadHeadInputWidth` no longer depends on `n`, type annotations are needed in `ntmLayer` for `memory`/`readHead`/`writeHead`
-- **NTM head parameters**: β (key strength), g (interpolation gate), γ (sharpening) are dynamic — extracted from controller output. β uses softplus, g uses sigmoid, γ uses `1 + 4*sigmoid(x)` to bound to [1,5]. Unbounded γ via softplus causes vanishing gradients for non-dominant memory positions. Erase vectors use sigmoid, add vectors use tanh (via `2*sig(2x)-1`). See `forwardReadHead`/`forwardWriteHead` in Memory.idr
-- **NTM state flow**: `readHeadOutput` from the previous timestep concatenates with current input to form controller input (`NtmInputWidth w = w + w`). Memory, read head, and write head all update each step
-- **`logSoftmax` + `nllLoss` for NTM**: Separate softmax + cross-entropy creates autograd intermediate gradients of 1/pp (up to 1e6) that destabilize recurrent/NTM training. Use `logSoftmaxLayer` + `nllLoss` instead — log-softmax avoids tiny probabilities, and NLL has no log so no 1/pp gradient
+- **Mutual recursion in Layer.idr**: `Layer` and `Network` are mutually recursive (NtmLayer contains sub-Layers). `applyLayer`, `forward`, `nameParams`, `nameNetworkParams`, and `Endofunctor` instances all live in `mutual` blocks
+- **NTM dimension calculations**: `ReadParamWidth m = (m + ShiftKernelSize) + 3` (key of width m + 3-element shift kernel + 3 dynamic params: β, g, γ). `WriteParamWidth m = ReadParamWidth m + m` (addressing params + add vector of width m). The LSTM controller input is `m + inputSize` (read output + input). The output FC input is `h + m` (hidden + read output). The `ntmLayer` constructor takes `{inputSize, outputSize, n, m, h}` as implicit args
+- **NTM head parameters**: β (key strength), g (interpolation gate), γ (sharpening) are dynamic — extracted from head FC outputs (fed by LSTM cell state). β uses softplus, g uses sigmoid, γ uses `1 + softplus(x)` (unbounded, [1, ∞)). Add vectors are raw linear (no activation). See `forwardReadHeadUnbounded`/`forwardWriteHeadInterp` in Memory.idr
+- **NTM state flow**: `readHeadOutput` from the previous timestep concatenates with current input to form LSTM input (width `m + inputSize`). LSTM cell state feeds head FCs, hidden state + read output feeds output FC. Memory, addressing weights, and read output all update each step
+- **NTM two-phase training**: copy/recall use `epochTwoPhase` — encoding inputs fed with outputs discarded, then zero inputs fed during output phase with loss on targets. Use `binaryCrossEntropyWithLogits` (sigmoid applied inside loss) with no output activation layer
+- **`logSoftmax` + `nllLoss`**: Separate softmax + cross-entropy creates autograd intermediate gradients of 1/pp (up to 1e6) that destabilize recurrent training. Use `logSoftmaxLayer` + `nllLoss` instead. Note: the aligned NTM uses sigmoid + BCE instead, which doesn't have this issue
 - **`pow` zero-base NaN**: `pow(0, k)` backward for the exponent computes `0^k * log(0) = 0 * -Inf = NaN`. Fixed by returning 0 when base is 0
 - **Detached max in `logSoftmax`**: The max subtraction for numerical stability uses a detached constant (`fromDouble . cast`), not a reference to the max Variable. Otherwise the max element receives incorrect gradients
 - **Tape-based backward pass**: `collectGrads` allocates a mutable gradient array via FFI, seeds it with the initial gradient, then scans the tape in reverse. Each entry propagates gradients to its inputs via `prim__gradAdd` (O(1) accumulation). Only parameter entries (non-empty `paramId`) are collected into the output `SortedMap`. The tape is reset at the end of `collectGrads` (gen++)
@@ -290,9 +291,9 @@ Commit at each step. The PyTorch implementation serves as the correctness oracle
 - **FFI side-effect threading**: `let _ = ffiCall` is dropped by the compiler. FFI functions with side effects must return a value that is used in subsequent computation. `prim__gradAdd` returns the handle (`AnyPtr`), enabling handle threading through the backward pass
 - **Gradient clipping**: `adam` clips per-parameter; `adamGlobalClip` clips by global L2 norm (preserves gradient direction). Use `adamGlobalClip` for attention/recurrent models where parameters must coordinate — per-parameter clipping distorts direction and causes periodic loss spikes. Default maxNorm is 50.0 (Collier & Beel); 5.0 was too aggressive
 - **Controller output clipping**: `applyLayerVar` clamps raw NTM controller output to [-20, 20] via `clampVar` (straight-through gradient). Prevents extreme head parameters from destabilizing training
-- **Curriculum learning**: NTM copy task trains in 3 stages (len 1-3, 1-5, 1-8) with loss thresholds. Fresh random data generated every 100 epochs via `Generate.randomBatchVect`. Required for feedforward controllers (ajithcodesit finding)
+- **Curriculum learning**: Available via the Curriculum module for staged training. The PyTorch-aligned NTM (LSTM controller + RMSprop) does not require curriculum — it converges directly with two-phase training. Curriculum was previously required for feedforward controllers (ajithcodesit finding)
 - **Tanh memory bounding**: `tanhBound` (exported from Layer.idr) is applied to memory after each write via `map tanhBound`. Keeps memory values in [-1, 1], preventing drift over long sequences (Collier & Beel recommendation). Applied in all three forward paths (generic, Variable, debug)
-- **Learned initial addressing**: Read/write head addressing weights and readHeadOutput are named parameters (`rAddr`, `wAddr`, `rOut` prefixes in `nameParams`). After `applyDeltas`, `syncLayerBuffers` projects addressing weights onto the probability simplex via `projectWeights` (clamp to [0, epsilon], renormalize) to prevent NaN from `pow(negative, non-integer)` in `focus`
+- **NTM initial addressing**: Read/write addressing weights are initialized to zeros and read output to Kaiming uniform (non-learnable, matching PyTorch reference). `syncLayerBuffers` projects addressing weights onto the probability simplex via `projectWeights` (clamp to [0, epsilon], renormalize) to prevent NaN from `pow(negative, non-integer)` in `focus`
 - **Hyperparameter tuning**: Fix algorithmic issues first (bounded activations, correct clipping, efficient backward pass), then use `scripts/sweep.sh` for systematic grid search. Never manually loop over hyperparameters — see `docs/design-decisions.md` for rationale
 - **C shared library required**: `build/libidrisml.dylib` must exist before running any example. Build with `make build/libidrisml.dylib`. The library is loaded by the tape init guard in Variable.idr
 - **Scheme-native C memory access**: Use Chez Scheme's `foreign-ref`/`foreign-set!` for reading/writing C-allocated arrays instead of calling C functions per element. This avoids the Scheme→C boundary crossing overhead. See `prim__gradAdd`/`prim__gradGet` and `prim__setDouble`/`prim__setInt32` in Variable.idr
@@ -300,5 +301,5 @@ Commit at each step. The PyTorch implementation serves as the correctness oracle
 - **Tensor Foldable reversal**: The `foldr` instance for `Tensor` processes elements in reversed order (head into accumulator first). `toList` produces elements backwards. Use direct `Vect` traversal instead when element order matters (e.g., packing into C buffers)
 - **Weight initialization**: `linearLayer`/`rnnLayer` default to Xavier uniform. Biases are always zero. Init strategies compose a variance method with a distribution sampler: `xavier uniform` (default), `xavier normal`, `he normal`, etc. Use `linearLayerWith (fixedRange 1.0)` for the old `U(-1,1)` behavior. NTM memory initialized to constant `1e-6` (Collier & Beel: 3.5x faster convergence vs random). `Sampler.idr` provides `uniform` and `normal` (Box-Muller); `Init.idr` provides `xavier`, `he`, `lecun`, `fixedRange`
 - **C-backed softmax/logSoftmax**: `softmaxVar`/`logSoftmaxVar` in Variable.idr use C kernels and record a single SoftmaxOp/LogSoftmaxOp tape entry per vector instead of ~29 scalar entries. `applyLayerVar` dispatches NormalizationLayer "softmax"/"logSoftmax" to these
-- **C-backed NTM memory ops**: `batchCosineSimilarityVar`, `readOpVar`, `writeOpVar` in Variable.idr use C kernels (BatchCosSimOp/ReadOpOp/WriteOpOp, tags 15-17) to reduce ~12,500 tape entries per NTM timestep to ~4 C-backed entries. `forwardReadHeadVar`/`forwardWriteHeadVar` in Layer.idr wire these into the Variable-specialized NTM forward pass. Generic `forwardReadHead`/`forwardWriteHead` in Memory.idr remain parameterized on `NormalizationFunction ty` for the Double path
+- **C-backed NTM memory ops**: `batchCosineSimilarityVar`, `readOpVar`, `writeOpVar`, `interpolationWriteVar` in Variable.idr use C kernels (BatchCosSimOp/ReadOpOp/WriteOpOp/InterpolationWriteOp, tags 15-18) to reduce tape entries per NTM timestep. `forwardReadHeadUnboundedVar`/`forwardWriteHeadInterpVar` in Layer.idr wire these into the Variable-specialized NTM forward pass. Generic `forwardReadHeadUnbounded`/`forwardWriteHeadInterp` in Memory.idr remain parameterized on `NormalizationFunction ty` for the Double path
 - **Chez Scheme output buffering**: Stdout is fully buffered when redirected to file/pipe (e.g. background tasks). Use `stdbuf -oL ./build/exec/<name>` to force line-buffering for long-running training

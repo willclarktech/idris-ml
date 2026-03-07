@@ -235,3 +235,100 @@ The `bench/` directory contains a faithful PyTorch reimplementation of all idris
 **Benchmark matches Bench.idr exactly**: Same data points, same epoch counts, same warmup. The NTM benchmark uses sigmoid (not tanh) and maxNorm=5.0, matching Bench.idr which differs from NtmCopy.idr.
 
 **Correctness tests with --slow separation**: Quick tests (loss decreases, output shapes) run in ~25s. Full curriculum convergence tests (`@pytest.mark.slow`) are gated behind `--slow` to avoid blocking CI.
+
+## LSTM layer
+
+The `LstmLayer` constructor implements a standard LSTM cell (Hochreiter & Schmidhuber 1997) with learned hidden and cell states:
+
+```
+combined = W_ih * x + W_hh * h + bias      -- (4*hidden,)
+(i_gate, f_gate, g_gate, o_gate) = split4 combined
+i = sigmoid(i_gate), f = sigmoid(f_gate), g = tanh(g_gate), o = sigmoid(o_gate)
+c' = f * c + i * g
+h' = o * tanh(c')
+```
+
+**Forget gate bias**: biases are initialized to zero except the forget gate bias, which is set to 1.0 (Jozefowicz et al. 2015). This ensures the forget gate starts nearly open, preventing early vanishing of cell state. The bias vector is structured as `[i_bias, f_bias, g_bias, o_bias]` with f_bias = 1.0.
+
+**Cell state extraction**: `extractCellState` pattern-matches on `LstmLayer` to return the cell state directly. This is used by `NtmLayer` to feed cell state into the read/write head FCs (matching the PyTorch reference architecture where head parameters come from the LSTM cell state, not the hidden state).
+
+**Weight buffers**: follows the same persistent buffer pattern as `LinearLayer` — two `Maybe WeightBuffer` fields for input-to-hidden and hidden-to-hidden weight matrices. The Variable-specialized path (`applyLayerVar`) falls back to the generic path for tiny layers (`i * o <= 4`).
+
+## Interpolation write
+
+The PyTorch NTM reference uses interpolation write instead of the classic erase+add mechanism from the original NTM paper:
+
+```
+mem'[i][j] = w[i] * add[j] + (1 - w[i]) * mem[i][j]
+```
+
+Where `w` is the addressing weight vector and `add` is the data to write. This replaces the two-step erase+add:
+```
+mem'[i][j] = mem[i][j] * (1 - w[i] * e[j]) + w[i] * a[j]
+```
+
+**Trade-offs**: interpolation write has fewer parameters (no erase vector) and simpler gradients. The erase+add mechanism allows selective per-element erasing, while interpolation write replaces entire rows proportional to the addressing weight. For tasks where the model writes complete vectors (copy, recall), both work; interpolation is simpler to optimize.
+
+**C kernel**: `interpolationWriteVar` in Variable.idr uses a C-backed implementation (InterpolationWriteOp, tag 18) with forward: `out[i*w+j] = weights[i] * add[j] + (1 - weights[i]) * mem[i*w+j]` and analytic backward gradients to weights, add vector, and memory.
+
+## Softplus gamma (unbounded sharpening)
+
+The PyTorch reference uses `gamma = 1 + softplus(x)` (unbounded, range [1, ∞)) instead of the previous `gamma = 1 + 4*sigmoid(x)` (bounded, range [1, 5]).
+
+**Why the change**: the bounded version was a stability measure to prevent vanishing gradients for non-dominant memory positions (`w^gamma` for large gamma). However, the reference implementations (loudinthecloud, vlgiitr) all use unbounded softplus and converge fine. The LSTM controller + interpolation write + value clipping provide sufficient stability without artificially bounding gamma.
+
+The old bounded version remains available as `forwardReadHead`/`forwardWriteHead` in Memory.idr. The unbounded versions are `forwardReadHeadUnbounded`/`forwardWriteHeadInterp`.
+
+## RMSprop optimizer and value clipping
+
+The PyTorch NTM reference uses RMSprop with value clipping instead of Adam with global norm clipping:
+
+```
+v_t = alpha * v_{t-1} + (1 - alpha) * g^2
+delta = lr * g / (sqrt(v_t) + eps)
+```
+
+**Value clipping** (`clipGradValue`): clips each gradient element independently to `[-maxVal, maxVal]` before the optimizer step. This differs from global norm clipping, which scales all gradients uniformly to preserve direction.
+
+**Why value clipping works here**: the NTM reference implementations use value clip ±10.0 with RMSprop. Unlike global norm clipping (which is better when parameters must coordinate), value clipping is simpler and pairs well with RMSprop's per-parameter adaptive learning rates.
+
+**Implementation**: `rmspropValueClip` composes `clipGradValue` with `rmspropStep`, reusing the existing `OptimizerState` infrastructure (the `v` map stores running squared gradient averages).
+
+## Two-phase training and binary vector data
+
+The PyTorch-aligned NTM uses a two-phase training protocol with binary vector data, replacing the one-hot symbol format with per-timestep loss.
+
+**Binary vector format**: data consists of binary vectors (0/1) with delimiter channels. For copy: `seq_width+1` input channels (data + delimiter). For recall: `seq_width+2` channels (data + item delimiter + query delimiter). Output width is `seq_width` (data only).
+
+**Two-phase protocol**: each sequence has an encoding phase and an output phase:
+1. **Encoding**: feed input vectors to the network, discard outputs
+2. **Output**: feed zero vectors, collect outputs, compute loss against targets
+
+Loss is computed only during the output phase, matching the PyTorch reference. This is implemented by `epochTwoPhase` in Backprop.idr, which calls `forwardTwoPhase` (defined in Layer.idr) to handle the phase split.
+
+**`TwoPhaseDataPoint`**: new record in DataPoint.idr with `encodingInputs : List (Vector i ty)` and `targets : List (Vector o ty)`. The `Functor` instance enables the standard `map fromDouble` conversion from `Double` to `Variable`.
+
+**Sigmoid + BCE**: the network produces raw logits (no output activation layer). `binaryCrossEntropyWithLogits` applies sigmoid internally for numerical stability, matching PyTorch's `BCEWithLogitsLoss`.
+
+## Alignment with PyTorch reference
+
+The NTM architecture was refactored to match the PyTorch reference in `pytorch/torch_ref/`. Key structural changes:
+
+| Aspect | Old architecture | New (PyTorch-aligned) |
+|--------|-----------------|----------------------|
+| Controller | Linear+tanh+Linear (copy) / RNN (recall) | LSTM with learned h0/c0 |
+| Head param source | Controller output (split) | Separate FCs from LSTM cell state |
+| Output computation | Remainder after splitting head params | `output_fc(hidden ++ read_output)` |
+| Write mechanism | Erase + Add | Interpolation write |
+| Data format | One-hot symbols (`Fin w`) | Binary vectors with delimiter channels |
+| Loss contribution | Every timestep | Output phase only |
+| Output activation | logSoftmax + NLL | sigmoid + BCE (via BCEWithLogits) |
+| Gamma (sharpening) | `1 + 4*sigmoid(x)` bounded [1,5] | `1 + softplus(x)` unbounded |
+| Optimizer | Adam, global norm clip | RMSprop, value clip |
+
+The new `NtmLayer` constructor takes 4 explicit sub-layers instead of a nested controller `Network`:
+```
+NtmLayer : LSTM controller, read FC, write FC, output FC, memory, read addr, write addr, read output
+```
+
+This makes the architecture explicit — each component has its own layer with independent weights. The LSTM cell state feeds the head FCs, while the hidden state + read output feed the output FC. This matches the reference's `output = output_fc(cat(hidden, read_output))`.
