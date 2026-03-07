@@ -1,24 +1,30 @@
-"""Correctness tests for NTM copy model (reference architecture)."""
+"""Correctness tests for NTM copy task."""
 
 import random
 
 import torch
 
 from bench.data.copy_task import generate_copy_sequence
-from bench.models.ntm_copy import NtmCopyConfig, NtmCopyModel, train_ntm_copy_step
+from bench.models.ntm import NtmConfig, NtmModel, train_ntm_step
+
+
+def _copy_config(**kwargs: object) -> NtmConfig:
+    """Create NtmConfig for copy task (input_width=seq_width+1)."""
+    seq_width = kwargs.pop("seq_width", 8) if "seq_width" in kwargs else 8  # type: ignore[arg-type]
+    return NtmConfig(input_width=seq_width + 1, output_width=seq_width, **kwargs)  # type: ignore[arg-type]
 
 
 class TestNtmCopyQuick:
     def test_forward_shape(self) -> None:
         """Output should be (seq_width,) sigmoid values in [0,1]."""
-        cfg = NtmCopyConfig()
-        model = NtmCopyModel(cfg)
+        cfg = _copy_config()
+        model = NtmModel(cfg)
         model.reset_state()
 
-        x = torch.zeros(cfg.seq_width + 1)  # input width includes delimiter channel
+        x = torch.zeros(cfg.input_width)
         x[0] = 1.0
         output = model(x)
-        assert output.shape == (cfg.seq_width,)
+        assert output.shape == (cfg.output_width,)
         assert (output >= 0).all() and (output <= 1).all()
 
     def test_loss_decreases(self) -> None:
@@ -26,16 +32,16 @@ class TestNtmCopyQuick:
         torch.manual_seed(42)
         random.seed(42)
 
-        cfg = NtmCopyConfig()
-        model = NtmCopyModel(cfg)
+        cfg = _copy_config()
+        model = NtmModel(cfg)
         optimizer = torch.optim.RMSprop(model.parameters(), lr=cfg.lr, alpha=0.95, momentum=0.9)
 
         losses: list[float] = []
         final_loss = 0.0
         for i in range(200):
             seq_len = random.randint(1, 5)
-            input_seq, target_seq = generate_copy_sequence(seq_len, cfg.seq_width)
-            final_loss = train_ntm_copy_step(model, input_seq, target_seq, optimizer)
+            input_seq, target_seq = generate_copy_sequence(seq_len, cfg.output_width)
+            final_loss, _ = train_ntm_step(model, input_seq, target_seq, optimizer)
             if i < 10:
                 losses.append(final_loss)
 
@@ -50,22 +56,22 @@ class TestNtmCopyQuick:
 
 
 class TestNtmCopyConvergence:
-    """Test 5: Small copy task converges fast as sanity baseline."""
+    """Small copy task converges fast as sanity baseline."""
 
     def test_small_copy_converges(self) -> None:
         """Copy with short sequences should reach low loss in 1500 steps."""
         torch.manual_seed(42)
         random.seed(42)
 
-        cfg = NtmCopyConfig(seq_width=4, seq_min=1, seq_max=3, lr=1e-3)
-        model = NtmCopyModel(cfg)
+        cfg = _copy_config(seq_width=4, lr=1e-3)
+        model = NtmModel(cfg)
         optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr)
 
         losses: list[float] = []
         for _ in range(1500):
-            seq_len = random.randint(cfg.seq_min, cfg.seq_max)
-            input_seq, target_seq = generate_copy_sequence(seq_len, cfg.seq_width)
-            loss = train_ntm_copy_step(model, input_seq, target_seq, optimizer)
+            seq_len = random.randint(1, 3)
+            input_seq, target_seq = generate_copy_sequence(seq_len, cfg.output_width)
+            loss, _ = train_ntm_step(model, input_seq, target_seq, optimizer)
             losses.append(loss)
 
         # Use average of last 50 steps to smooth single-sequence noise

@@ -1,4 +1,4 @@
-"""Correctness tests for NTM associative recall model (reference architecture)."""
+"""Correctness tests for NTM associative recall task."""
 
 import math
 import random
@@ -10,20 +10,28 @@ from bench.diagnostics.ntm_diagnostics import (
     compute_summary,
     instrumented_forward_recall,
 )
-from bench.models.ntm_recall import NtmRecallConfig, NtmRecallModel, train_ntm_recall_step
+from bench.models.ntm import NtmConfig, NtmModel, train_ntm_step
+
+SEQ_WIDTH = 6
+SEQ_LEN = 3
+
+
+def _recall_config(**kwargs: object) -> NtmConfig:
+    """Create NtmConfig for recall task (input_width=seq_width+2)."""
+    return NtmConfig(input_width=SEQ_WIDTH + 2, output_width=SEQ_WIDTH, **kwargs)  # type: ignore[arg-type]
 
 
 class TestNtmRecallQuick:
     def test_forward_shape(self) -> None:
         """Output should be (seq_width,) sigmoid values in [0,1]."""
-        cfg = NtmRecallConfig()
-        model = NtmRecallModel(cfg)
+        cfg = _recall_config()
+        model = NtmModel(cfg)
         model.reset_state()
 
-        x = torch.zeros(cfg.seq_width + 2)  # input width includes 2 delim channels
+        x = torch.zeros(cfg.input_width)
         x[0] = 1.0
         output = model(x)
-        assert output.shape == (cfg.seq_width,)
+        assert output.shape == (cfg.output_width,)
         assert (output >= 0).all() and (output <= 1).all()
 
     def test_loss_decreases(self) -> None:
@@ -31,17 +39,17 @@ class TestNtmRecallQuick:
         torch.manual_seed(42)
         random.seed(42)
 
-        cfg = NtmRecallConfig()
-        model = NtmRecallModel(cfg)
+        cfg = _recall_config()
+        model = NtmModel(cfg)
         optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
 
         losses: list[float] = []
         final_loss = 0.0
         for i in range(1000):
             input_seq, target_seq = generate_recall_sequence(
-                num_items=2, seq_len=cfg.seq_len, seq_width=cfg.seq_width
+                num_items=2, seq_len=SEQ_LEN, seq_width=SEQ_WIDTH
             )
-            final_loss, _ = train_ntm_recall_step(model, input_seq, target_seq, optimizer)
+            final_loss, _ = train_ntm_step(model, input_seq, target_seq, optimizer)
             if i < 20:
                 losses.append(final_loss)
 
@@ -74,41 +82,31 @@ class TestNtmRecallQuick:
 
 
 # ---------------------------------------------------------------------------
-# Validation tests: fast checks that core NTM recall machinery works
+# Validation tests
 # ---------------------------------------------------------------------------
 
 
-def _small_recall_config() -> NtmRecallConfig:
-    """Default-sized config restricted to 2-item sequences for fast tests."""
-    return NtmRecallConfig(
-        seq_width=6,
-        seq_len=3,
-        min_items=2,
-        max_items=2,
-    )
-
-
-def _train_small_recall(steps: int, seed: int = 42) -> tuple[NtmRecallModel, list[float]]:
+def _train_small_recall(steps: int, seed: int = 42) -> tuple[NtmModel, list[float]]:
     """Train a small recall model, returning model and loss history."""
     torch.manual_seed(seed)
     random.seed(seed)
 
-    cfg = _small_recall_config()
-    model = NtmRecallModel(cfg)
+    cfg = _recall_config()
+    model = NtmModel(cfg)
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
 
     losses: list[float] = []
     for _ in range(steps):
         input_seq, target_seq = generate_recall_sequence(
-            num_items=2, seq_len=cfg.seq_len, seq_width=cfg.seq_width
+            num_items=2, seq_len=SEQ_LEN, seq_width=SEQ_WIDTH
         )
-        loss, _ = train_ntm_recall_step(model, input_seq, target_seq, optimizer)
+        loss, _ = train_ntm_step(model, input_seq, target_seq, optimizer)
         losses.append(loss)
 
     return model, losses
 
 
-def _bit_accuracy(model: NtmRecallModel, n_seqs: int = 10) -> float:
+def _bit_accuracy(model: NtmModel, n_seqs: int = 10) -> float:
     """Compute bit accuracy on random 2-item sequences."""
     cfg = model.cfg
     correct = 0
@@ -116,12 +114,12 @@ def _bit_accuracy(model: NtmRecallModel, n_seqs: int = 10) -> float:
     with torch.no_grad():
         for _ in range(n_seqs):
             input_seq, target_seq = generate_recall_sequence(
-                num_items=2, seq_len=cfg.seq_len, seq_width=cfg.seq_width
+                num_items=2, seq_len=SEQ_LEN, seq_width=SEQ_WIDTH
             )
             model.reset_state()
             for t in range(input_seq.shape[0]):
                 model(input_seq[t])
-            zero_input = torch.zeros(cfg.seq_width + 2)
+            zero_input = torch.zeros(cfg.input_width)
             for t in range(target_seq.shape[0]):
                 out = model(zero_input)
                 pred_bits = (out > 0.5).float()
@@ -131,11 +129,7 @@ def _bit_accuracy(model: NtmRecallModel, n_seqs: int = 10) -> float:
 
 
 class TestNtmRecallConvergence:
-    """Test 1: Tiny 2-item recall converges in ~3000 steps.
-
-    With non-learnable addressing (zeros init), the model needs more steps
-    to warm up compared to the learnable-addressing version.
-    """
+    """Tiny 2-item recall converges in ~3000 steps."""
 
     def test_tiny_recall_converges(self) -> None:
         model, losses = _train_small_recall(3000)
@@ -150,20 +144,20 @@ class TestNtmRecallConvergence:
 
 
 class TestNtmRecallGradientFlow:
-    """Test 2: Gradients flow through all parameter groups."""
+    """Gradients flow through all parameter groups."""
 
     def test_all_params_have_gradients(self) -> None:
         torch.manual_seed(42)
         random.seed(42)
 
-        cfg = _small_recall_config()
-        model = NtmRecallModel(cfg)
+        cfg = _recall_config()
+        model = NtmModel(cfg)
         optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
 
         input_seq, target_seq = generate_recall_sequence(
-            num_items=2, seq_len=cfg.seq_len, seq_width=cfg.seq_width
+            num_items=2, seq_len=SEQ_LEN, seq_width=SEQ_WIDTH
         )
-        train_ntm_recall_step(model, input_seq, target_seq, optimizer)
+        train_ntm_step(model, input_seq, target_seq, optimizer)
 
         zero_grad_names: list[str] = []
         for name, param in model.named_parameters():
@@ -180,19 +174,17 @@ class TestNtmRecallGradientFlow:
 
 
 class TestNtmRecallMemoryState:
-    """Test 3: Memory state is non-trivial after encoding."""
+    """Memory state is non-trivial after encoding."""
 
     def test_memory_modified_after_encoding(self) -> None:
         torch.manual_seed(42)
         random.seed(42)
 
-        cfg = _small_recall_config()
-        model = NtmRecallModel(cfg)
+        cfg = _recall_config()
+        model = NtmModel(cfg)
         model.reset_state()
 
-        input_seq, _ = generate_recall_sequence(
-            num_items=2, seq_len=cfg.seq_len, seq_width=cfg.seq_width
-        )
+        input_seq, _ = generate_recall_sequence(num_items=2, seq_len=SEQ_LEN, seq_width=SEQ_WIDTH)
 
         with torch.no_grad():
             for t in range(input_seq.shape[0]):
@@ -201,18 +193,16 @@ class TestNtmRecallMemoryState:
         memory = model.ntm.memory.detach()
 
         mem_std = memory.std().item()
-        # With zero initial addressing, writes are distributed uniformly
-        # across all N=128 slots, so per-slot magnitude is small but nonzero
         assert mem_std > 0.001, f"Memory std {mem_std:.6f} too low (still near init?)"
 
-        # Check memory differs from init (all 1e-6)
+        # Check memory differs from init
         init_memory = torch.full_like(memory, 1e-6)
         diff = (memory - init_memory).abs().max().item()
         assert diff > 1e-4, f"Memory unchanged from init: max diff {diff:.6f}"
 
 
 class TestNtmRecallDiagnostics:
-    """Test 4: After training, diagnostics show no degenerate strategies."""
+    """After training, diagnostics show no degenerate strategies."""
 
     def test_no_degenerate_strategies(self) -> None:
         model, _ = _train_small_recall(3000)
@@ -220,23 +210,16 @@ class TestNtmRecallDiagnostics:
         torch.manual_seed(99)
         random.seed(99)
 
-        cfg = model.cfg
         input_seq, target_seq = generate_recall_sequence(
-            num_items=2, seq_len=cfg.seq_len, seq_width=cfg.seq_width
+            num_items=2, seq_len=SEQ_LEN, seq_width=SEQ_WIDTH
         )
 
         timesteps = instrumented_forward_recall(model, input_seq, target_seq)
 
-        # Encoding length: 2 items * (1 delim + 3 data) = 8, plus query phase
-        # delims + data before output
         encode_len = input_seq.shape[0]
         summary = compute_summary(timesteps, seq_len=encode_len)
 
-        # With zero-init addressing and N=128, after 3000 steps the model
-        # may still have near-uniform addressing. We check for basic sanity
-        # (no NaN, memory modified) rather than sharp addressing focus.
-
-        # Memory slots modified (with uniform addressing, all slots get writes)
+        # Memory slots modified
         assert summary.slots_used >= 1, f"No memory slots used ({summary.slots_used})"
 
         # No NaN in head params

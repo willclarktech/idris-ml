@@ -20,12 +20,13 @@ from bench.diagnostics.ntm_diagnostics import (
     instrumented_forward_recall,
     print_summary,
 )
-from bench.models.ntm_copy import NtmCopyConfig, NtmCopyModel, train_ntm_copy_step
-from bench.models.ntm_recall import NtmRecallConfig, NtmRecallModel, train_ntm_recall_step
+from bench.models.ntm import NtmConfig, NtmModel, train_ntm_step
 
 # ---------------------------------------------------------------------------
 # Copy task
 # ---------------------------------------------------------------------------
+
+COPY_SEQ_WIDTH = 8
 
 
 def run_copy(args: argparse.Namespace) -> None:
@@ -37,33 +38,37 @@ def run_copy(args: argparse.Namespace) -> None:
     clip_mode: Literal["value", "norm"] = getattr(args, "copy_clip", "value")
     optimizer_name: str = getattr(args, "copy_optimizer", "rmsprop")
     lr: float = getattr(args, "copy_lr", 1e-4)
+    iterations: int = getattr(args, "copy_iters", 50000)
+    n: int = getattr(args, "copy_n", 128)
+    m: int = getattr(args, "copy_m", 20)
 
-    cfg = NtmCopyConfig(
-        iterations=getattr(args, "copy_iters", 50000),
-        n=getattr(args, "copy_n", 128),
-        m=getattr(args, "copy_m", 20),
+    cfg = NtmConfig(
+        input_width=COPY_SEQ_WIDTH + 1,
+        output_width=COPY_SEQ_WIDTH,
+        n=n,
+        m=m,
         lr=lr,
     )
-    model = NtmCopyModel(cfg)
+    model = NtmModel(cfg)
 
     if optimizer_name == "adam":
         optimizer: torch.optim.Optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr)
     else:
         optimizer = torch.optim.RMSprop(model.parameters(), lr=cfg.lr, alpha=0.95, momentum=0.9)
 
-    print(f"  seq_width={cfg.seq_width}  seq_range=[{cfg.seq_min},{cfg.seq_max}]")
+    print(f"  seq_width={COPY_SEQ_WIDTH}  seq_range=[1,20]")
     print(f"  N={cfg.n}  M={cfg.m}  controller={cfg.controller_size}")
     print(f"  optimizer={optimizer_name}  lr={cfg.lr}  clip={clip_mode}({cfg.clip_value})")
-    print(f"  iterations={cfg.iterations}")
+    print(f"  iterations={iterations}")
 
     # Training loop: 1 sequence per iteration
     losses: list[float] = []
-    for i in range(1, cfg.iterations + 1):
+    for i in range(1, iterations + 1):
         input_seq, target_seq = generate_copy_sequence(
-            seq_len=random.randint(cfg.seq_min, cfg.seq_max),
-            seq_width=cfg.seq_width,
+            seq_len=random.randint(1, 20),
+            seq_width=COPY_SEQ_WIDTH,
         )
-        loss = train_ntm_copy_step(model, input_seq, target_seq, optimizer, clip_mode=clip_mode)
+        loss, _ = train_ntm_step(model, input_seq, target_seq, optimizer, clip_mode=clip_mode)
         losses.append(loss)
 
         if i % 500 == 0:
@@ -77,13 +82,11 @@ def run_copy(args: argparse.Namespace) -> None:
         correct_bits = 0
         total_bits = 0
         for _ in range(10):
-            input_seq, target_seq = generate_copy_sequence(test_len, cfg.seq_width)
+            input_seq, target_seq = generate_copy_sequence(test_len, COPY_SEQ_WIDTH)
             with torch.no_grad():
                 model.reset_state()
-                # Input phase
                 for t in range(input_seq.shape[0]):
                     model(input_seq[t])
-                # Output phase
                 outputs = []
                 for _ in range(test_len):
                     out = model(torch.zeros(input_seq.shape[1]))
@@ -101,6 +104,9 @@ def run_copy(args: argparse.Namespace) -> None:
 # Recall task
 # ---------------------------------------------------------------------------
 
+RECALL_SEQ_WIDTH = 6
+RECALL_SEQ_LEN = 3
+
 
 def run_recall(args: argparse.Namespace) -> None:
     """Train NTM on associative recall task."""
@@ -111,41 +117,43 @@ def run_recall(args: argparse.Namespace) -> None:
     clip_mode: Literal["value", "norm"] = getattr(args, "recall_clip", "value")
     optimizer_name: str = getattr(args, "recall_optimizer", "rmsprop")
     lr: float = getattr(args, "recall_lr", 1e-4)
+    iterations: int = getattr(args, "recall_iters", 100000)
+    n: int = getattr(args, "recall_n", 128)
+    m: int = getattr(args, "recall_m", 20)
+    min_items: int = getattr(args, "recall_min_items", 2)
+    max_items: int = getattr(args, "recall_max_items", 6)
 
-    cfg = NtmRecallConfig(
-        iterations=getattr(args, "recall_iters", 100000),
-        n=getattr(args, "recall_n", 128),
-        m=getattr(args, "recall_m", 20),
-        min_items=getattr(args, "recall_min_items", 2),
-        max_items=getattr(args, "recall_max_items", 6),
+    cfg = NtmConfig(
+        input_width=RECALL_SEQ_WIDTH + 2,
+        output_width=RECALL_SEQ_WIDTH,
+        n=n,
+        m=m,
         lr=lr,
     )
-    model = NtmRecallModel(cfg)
+    model = NtmModel(cfg)
 
     if optimizer_name == "adam":
         optimizer: torch.optim.Optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr)
     else:
         optimizer = torch.optim.RMSprop(model.parameters(), lr=cfg.lr, alpha=0.95, momentum=0.9)
 
-    print(f"  seq_width={cfg.seq_width}  seq_len={cfg.seq_len}")
-    print(f"  items=[{cfg.min_items},{cfg.max_items}]")
+    print(f"  seq_width={RECALL_SEQ_WIDTH}  seq_len={RECALL_SEQ_LEN}")
+    print(f"  items=[{min_items},{max_items}]")
     print(f"  N={cfg.n}  M={cfg.m}  controller={cfg.controller_size}")
     print(f"  optimizer={optimizer_name}  lr={cfg.lr}  clip={clip_mode}({cfg.clip_value})")
-    print(f"  iterations={cfg.iterations}")
+    print(f"  iterations={iterations}")
 
     # Training loop: 1 sequence per iteration
     losses: list[float] = []
     bit_errors: list[float] = []
-    for i in range(1, cfg.iterations + 1):
-        num_items = random.randint(cfg.min_items, cfg.max_items)
+    for i in range(1, iterations + 1):
+        num_items = random.randint(min_items, max_items)
         input_seq, target_seq = generate_recall_sequence(
             num_items=num_items,
-            seq_len=cfg.seq_len,
-            seq_width=cfg.seq_width,
+            seq_len=RECALL_SEQ_LEN,
+            seq_width=RECALL_SEQ_WIDTH,
         )
-        loss, bit_err = train_ntm_recall_step(
-            model, input_seq, target_seq, optimizer, clip_mode=clip_mode
-        )
+        loss, bit_err = train_ntm_step(model, input_seq, target_seq, optimizer, clip_mode=clip_mode)
         losses.append(loss)
         bit_errors.append(bit_err)
 
@@ -163,16 +171,16 @@ def run_recall(args: argparse.Namespace) -> None:
         total_bit_errors = 0.0
         num_trials = 10
         for _ in range(num_trials):
-            input_seq, target_seq = generate_recall_sequence(test_items, cfg.seq_len, cfg.seq_width)
+            input_seq, target_seq = generate_recall_sequence(
+                test_items, RECALL_SEQ_LEN, RECALL_SEQ_WIDTH
+            )
             with torch.no_grad():
                 model.reset_state()
                 seq_len = target_seq.shape[0]
 
-                # Feed entire input
                 for t in range(input_seq.shape[0]):
                     model(input_seq[t])
 
-                # Output phase: feed zeros
                 zero_input = torch.zeros(input_seq.shape[1])
                 outputs = []
                 for _ in range(seq_len):
@@ -195,7 +203,7 @@ def run_recall(args: argparse.Namespace) -> None:
 
     # Diagnostics: run instrumented forward on a 4-item sequence
     print("\n--- Diagnostics (4-item sequence) ---")
-    diag_input, diag_target = generate_recall_sequence(4, cfg.seq_len, cfg.seq_width)
+    diag_input, diag_target = generate_recall_sequence(4, RECALL_SEQ_LEN, RECALL_SEQ_WIDTH)
     timesteps = instrumented_forward_recall(model, diag_input, diag_target)
     encode_len = diag_input.shape[0]
     summary = compute_summary(timesteps, seq_len=encode_len)

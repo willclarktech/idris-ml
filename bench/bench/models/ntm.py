@@ -1,4 +1,4 @@
-"""NTM copy task model.
+"""Unified NTM model for copy and associative recall tasks.
 
 LSTM controller (hidden=100) → separate head FCs → NTMLayer → sigmoid output.
 Loss: BCELoss. Optimizer: RMSprop lr=1e-4. Value clip [-10,10].
@@ -17,30 +17,24 @@ from bench.ntm.layer import NTMLayer
 
 
 @dataclass
-class NtmCopyConfig:
-    seq_width: int = 8  # bits per vector
-    seq_min: int = 1  # min sequence length
-    seq_max: int = 20  # max sequence length
+class NtmConfig:
+    input_width: int  # seq_width+1 for copy, seq_width+2 for recall
+    output_width: int  # seq_width for both
     n: int = 128  # memory slots
     m: int = 20  # memory width
     controller_size: int = 100  # LSTM hidden size
     lr: float = 1e-4
-    iterations: int = 50000
     clip_value: float = 10.0
 
 
-class NtmCopyModel(nn.Module):
-    """NTM model for copy task."""
+class NtmModel(nn.Module):
+    """NTM model for sequence-to-sequence tasks."""
 
-    def __init__(self, cfg: NtmCopyConfig | None = None) -> None:
+    def __init__(self, cfg: NtmConfig) -> None:
         super().__init__()
-        if cfg is None:
-            cfg = NtmCopyConfig()
         self.cfg = cfg
 
-        num_inputs = cfg.seq_width + 1
-        num_outputs = cfg.seq_width
-        controller_input_size = num_inputs + cfg.m
+        controller_input_size = cfg.input_width + cfg.m
 
         controller = LSTMController(controller_input_size, cfg.controller_size)
 
@@ -48,8 +42,8 @@ class NtmCopyModel(nn.Module):
             controller=controller,
             n=cfg.n,
             m=cfg.m,
-            num_inputs=num_inputs,
-            num_outputs=num_outputs,
+            num_inputs=cfg.input_width,
+            num_outputs=cfg.output_width,
             controller_hidden_size=cfg.controller_size,
         )
 
@@ -63,36 +57,37 @@ class NtmCopyModel(nn.Module):
         return torch.sigmoid(raw)
 
 
-def train_ntm_copy_step(
-    model: NtmCopyModel,
+def train_ntm_step(
+    model: NtmModel,
     input_seq: Tensor,
     target_seq: Tensor,
     optimizer: torch.optim.Optimizer,
     clip_mode: Literal["value", "norm"] = "value",
-) -> float:
+) -> tuple[float, float]:
     """Train one sequence (batch_size=1).
 
-    input_seq: (seq_len+1, seq_width+1)
-    target_seq: (seq_len, seq_width)
+    input_seq: (total_timesteps, input_width)
+    target_seq: (output_len, output_width)
+    Returns: (loss, bit_error_count)
     """
     optimizer.zero_grad()
     model.reset_state()
 
     seq_len = target_seq.shape[0]
+    num_inputs = input_seq.shape[1]
 
-    # Input phase: feed all input rows (data + delimiter)
+    # Encoding phase: feed entire input sequence, discard outputs
     for t in range(input_seq.shape[0]):
         model(input_seq[t])
 
-    # Output phase: feed zeros, collect outputs
-    num_inputs = input_seq.shape[1]
+    # Output phase: feed zeros, collect seq_len outputs
+    zero_input = torch.zeros(num_inputs)
     outputs = []
     for _ in range(seq_len):
-        out = model(torch.zeros(num_inputs))
+        out = model(zero_input)
         outputs.append(out)
 
-    # Stack outputs and compute BCE loss
-    pred = torch.stack(outputs)  # (seq_len, seq_width)
+    pred = torch.stack(outputs)  # (seq_len, output_width)
     loss = nn.functional.binary_cross_entropy(pred, target_seq)
 
     loss.backward()
@@ -102,4 +97,9 @@ def train_ntm_copy_step(
         clip_grad_value_(model.parameters(), model.cfg.clip_value)
     optimizer.step()
 
-    return loss.item()
+    # Bit error: number of incorrect bits
+    with torch.no_grad():
+        pred_bits = (pred >= 0.5).float()
+        bit_error = torch.sum(torch.abs(pred_bits - target_seq)).item()
+
+    return loss.item(), bit_error
