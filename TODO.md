@@ -86,3 +86,4 @@
 - NTM recall benchmark in bench-compare (`benchNtmRecall` / `bench_ntm_recall`)
 - Periodic bit accuracy logging in NTM recall training loop
 - NTM recall convergence (batch=1 converges; batch=16 plateaus due to gradient dilution across variable-structure sequences)
+- PyTorch focus() NaN fix (clamp raised weights to prevent underflow when near-uniform weights + large gamma → 0/0)
