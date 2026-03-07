@@ -1016,6 +1016,38 @@ softmaxVar {n} (VTensor xs) =
       outBuf'' = tapeAppendSoftmaxOp (toTag SoftmaxOp) nI meta outBuf'
   in VTensor $ buildOutputScalars outBuf'' 0 n
 
+||| Softmax returning raw buffer + tape start instead of Variables.
+||| Used for buffer-passing chains (e.g., addressing pipeline).
+export
+softmaxVarBufOut : {n : Nat} -> Vector n Variable -> (AnyPtr, Int)
+softmaxVarBufOut {n} (VTensor xs) =
+  let nI = cast {to=Int} n
+      meta = prim__softmaxMetaAlloc nI
+      outBuf = prim__tensorAlloc nI
+      xvPtr = prim__softmaxXVals meta
+      xtPtr = prim__softmaxXTape meta
+      xvPtr' = packVec xvPtr xtPtr 0 xs
+      outBuf' = prim__softmaxCompute meta (prim__seq xvPtr' outBuf)
+      outBuf'' = tapeAppendSoftmaxOp (toTag SoftmaxOp) nI meta outBuf'
+      constStart = prim__appendOutputConst outBuf'' nI
+  in (outBuf'', constStart)
+
+||| Softmax with buffer input and buffer output (full buffer-passing).
+||| Input comes from a preceding buffer-passing op via (outBuf, constStart).
+export
+softmaxVarBufIO : {n : Nat} -> (AnyPtr, Int) -> (AnyPtr, Int)
+softmaxVarBufIO {n} (srcBuf, srcStart) =
+  let nI = cast {to=Int} n
+      meta = prim__softmaxMetaAlloc nI
+      outBuf = prim__tensorAlloc nI
+      xvPtr = prim__softmaxXVals meta
+      xtPtr = prim__softmaxXTape meta
+      xvPtr' = prim__bufToMeta xvPtr xtPtr srcBuf srcStart nI
+      outBuf' = prim__softmaxCompute meta (prim__seq xvPtr' outBuf)
+      outBuf'' = tapeAppendSoftmaxOp (toTag SoftmaxOp) nI meta outBuf'
+      constStart = prim__appendOutputConst outBuf'' nI
+  in (outBuf'', constStart)
+
 ||| LogSoftmax using C kernel, recording a single LogSoftmaxOp tape entry.
 export
 logSoftmaxVar : {n : Nat} -> Vector n Variable -> Vector n Variable
@@ -1160,6 +1192,27 @@ batchCosineSimilarityVarBuf {n} {w} beta memBuf (VTensor keyElems) =
       outBuf'' = tapeAppendBatchCosSimOp nI meta'' outBuf'
   in VTensor $ buildOutputScalars outBuf'' 0 n
 
+||| Batch cosine similarity using persistent memory buffer, returning raw buffer.
+||| Used for buffer-passing chains (addressing pipeline).
+export
+batchCosineSimilarityVarBufBufOut : {n, w : Nat} -> Variable -> AnyPtr -> Vector w Variable -> (AnyPtr, Int)
+batchCosineSimilarityVarBufBufOut {n} {w} beta memBuf (VTensor keyElems) =
+  let nI = cast {to=Int} n
+      wI = cast {to=Int} w
+      mb' = prim__ntmMemBufEnsure memBuf (nI * wI)
+      meta = prim__batchCosSimMetaAlloc nI wI
+      outBuf = prim__tensorAlloc nI
+      meta' = prim__batchCosSimPackMemBuf meta mb'
+      kvPtr = prim__batchCosSimKeyVals meta'
+      ktPtr = prim__batchCosSimKeyTape meta'
+      kvPtr' = packVec kvPtr ktPtr 0 keyElems
+      betaIdx = ensureOnTape beta
+      meta'' = prim__batchCosSimSetBeta (prim__seq kvPtr' meta') beta.value (cast betaIdx)
+      outBuf' = prim__batchCosSimCompute meta'' outBuf
+      outBuf'' = tapeAppendBatchCosSimOp nI meta'' outBuf'
+      constStart = prim__appendOutputConst outBuf'' nI
+  in (outBuf'', constStart)
+
 ||| Read operation using persistent memory buffer.
 export
 readOpVarBuf : {n, w : Nat} -> Vector n Variable -> AnyPtr -> Vector w Variable
@@ -1242,6 +1295,31 @@ interpolateVar {n} g (VTensor contentElems) (VTensor prevElems) =
       outBuf'' = tapeAppendInterpolateOp nI meta' outBuf'
   in VTensor $ buildOutputScalars outBuf'' 0 n
 
+||| Interpolation with buffer content input and buffer output.
+||| Content from buffer-passing chain, prev from Variables (previous state).
+export
+interpolateVarBufIO : {n : Nat} -> Variable -> (AnyPtr, Int) -> Vector n Variable -> (AnyPtr, Int)
+interpolateVarBufIO {n} g (contentBuf, contentStart) (VTensor prevElems) =
+  let nI = cast {to=Int} n
+      meta = prim__interpolateMetaAlloc nI
+      outBuf = prim__tensorAlloc nI
+      -- Pack content from buffer (1 C call)
+      cvPtr = prim__interpolateContentVals meta
+      ctPtr = prim__interpolateContentTape meta
+      cvPtr' = prim__bufToMeta cvPtr ctPtr contentBuf contentStart nI
+      -- Pack prev from Variables
+      pvPtr = prim__interpolatePrevVals (prim__seq cvPtr' meta)
+      ptPtr = prim__interpolatePrevTape meta
+      pvPtr' = packVec pvPtr ptPtr 0 prevElems
+      -- Set scalar g
+      gIdx = ensureOnTape g
+      meta' = prim__interpolateSetG (prim__seq pvPtr' meta) g.value (cast gIdx)
+      -- Compute
+      outBuf' = prim__interpolateCompute meta' outBuf
+      outBuf'' = tapeAppendInterpolateOp nI meta' outBuf'
+      constStart = prim__appendOutputConst outBuf'' nI
+  in (outBuf'', constStart)
+
 ||| C-backed circular shift: out[i] = k[0]*in[(i+1)%n] + k[1]*in[i] + k[2]*in[(i-1)%n]
 ||| Kernel must already be softmax'd. Records a single ShiftOp tape entry (tag 22).
 export
@@ -1263,6 +1341,28 @@ shiftVar {n} (VTensor inputElems) (VTensor kernelElems) =
       outBuf'' = tapeAppendShiftOp nI meta outBuf'
   in VTensor $ buildOutputScalars outBuf'' 0 n
 
+||| Circular shift with buffer inputs and buffer output (full buffer-passing).
+||| Both input and kernel come from preceding buffer-passing ops.
+export
+shiftVarBufIO : {n : Nat} -> (AnyPtr, Int) -> (AnyPtr, Int) -> (AnyPtr, Int)
+shiftVarBufIO {n} (inputBuf, inputStart) (kernelBuf, kernelStart) =
+  let nI = cast {to=Int} n
+      meta = prim__shiftMetaAlloc nI
+      outBuf = prim__tensorAlloc nI
+      -- Pack input from buffer
+      ivPtr = prim__shiftInputVals meta
+      itPtr = prim__shiftInputTape meta
+      ivPtr' = prim__bufToMeta ivPtr itPtr inputBuf inputStart nI
+      -- Pack kernel from buffer (3 elements)
+      kvPtr = prim__shiftKernelVals (prim__seq ivPtr' meta)
+      ktPtr = prim__shiftKernelTape meta
+      kvPtr' = prim__bufToMeta kvPtr ktPtr kernelBuf kernelStart 3
+      -- Compute
+      outBuf' = prim__shiftCompute (prim__seq kvPtr' meta) outBuf
+      outBuf'' = tapeAppendShiftOp nI meta outBuf'
+      constStart = prim__appendOutputConst outBuf'' nI
+  in (outBuf'', constStart)
+
 ||| C-backed focus/sharpening: out[i] = in[i]^gamma / sum(in[k]^gamma)
 ||| Records a single FocusOp tape entry (tag 23).
 export
@@ -1275,6 +1375,26 @@ focusVar {n} gamma (VTensor inputElems) =
       ivPtr = prim__focusInputVals meta
       itPtr = prim__focusInputTape meta
       ivPtr' = packVec ivPtr itPtr 0 inputElems
+      -- Set scalar gamma
+      gammaIdx = ensureOnTape gamma
+      meta' = prim__focusSetGamma (prim__seq ivPtr' meta) gamma.value (cast gammaIdx)
+      -- Compute
+      outBuf' = prim__focusCompute meta' outBuf
+      outBuf'' = tapeAppendFocusOp nI meta' outBuf'
+  in VTensor $ buildOutputScalars outBuf'' 0 n
+
+||| Focus/sharpening with buffer input, materializing output as Variables.
+||| Used at the end of addressing chain where result is stored as state.
+export
+focusVarFromBuf : {n : Nat} -> Variable -> (AnyPtr, Int) -> Vector n Variable
+focusVarFromBuf {n} gamma (inputBuf, inputStart) =
+  let nI = cast {to=Int} n
+      meta = prim__focusMetaAlloc nI
+      outBuf = prim__tensorAlloc nI
+      -- Pack input from buffer (1 C call)
+      ivPtr = prim__focusInputVals meta
+      itPtr = prim__focusInputTape meta
+      ivPtr' = prim__bufToMeta ivPtr itPtr inputBuf inputStart nI
       -- Set scalar gamma
       gammaIdx = ensureOnTape gamma
       meta' = prim__focusSetGamma (prim__seq ivPtr' meta) gamma.value (cast gammaIdx)

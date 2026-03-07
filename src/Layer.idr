@@ -319,6 +319,7 @@ forwardWriteHeadInterpVar memory (MkWriteHead readHead) inp =
 
 
 ||| Buffer-aware read head: uses NtmMemBuf for memory (C memcpy pack).
+||| Buffer-passing chain: intermediates stay in C buffers, only endpoints materialized.
 forwardReadHeadUnboundedVarBuf : {n, w : Nat} -> AnyPtr -> ReadHead n Variable -> Vector ((w + ShiftKernelSize) + 3) Variable -> (ReadHead n Variable, Vector w Variable)
 forwardReadHeadUnboundedVarBuf memBuf rh inp =
   let
@@ -329,12 +330,14 @@ forwardReadHeadUnboundedVarBuf memBuf rh inp =
     beta = softplus (sum betaVec)
     g = sigmoidVar (sum gVec)
     gamma = 1 + softplus (sum gammaVec)
-    scores = batchCosineSimilarityVarBuf beta memBuf keyVector
-    contentWeights = softmaxVar scores
-    interpolated = interpolateVar g contentWeights rh.addressingWeights
-    shiftKernel = softmaxVar shiftVector
-    shifted = shiftVar interpolated shiftKernel
-    focused = focusVar gamma shifted
+    -- Buffer-passing chain: no Variable materialization for intermediates
+    scoresBuf = batchCosineSimilarityVarBufBufOut {n} beta memBuf keyVector
+    contentBuf = softmaxVarBufIO {n} scoresBuf
+    interpBuf = interpolateVarBufIO {n} g contentBuf rh.addressingWeights
+    shiftKBuf = softmaxVarBufOut shiftVector
+    shiftedBuf = shiftVarBufIO {n} interpBuf shiftKBuf
+    -- Materialize at endpoints: addressing weights stored as state
+    focused = focusVarFromBuf {n} gamma shiftedBuf
     newReadHead = { addressingWeights := focused } rh
     output = readOpVarBuf newReadHead.addressingWeights memBuf
   in (newReadHead, output)
