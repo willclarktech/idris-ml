@@ -46,6 +46,205 @@ void arena_reset(void) {
 }
 
 
+/* Forward declarations (defined after meta types) */
+void *dot_meta_set_out(void *meta_ptr, int out_idx);
+void *matvec_meta_set_out(void *meta_ptr, int start);
+void *softmax_meta_set_out(void *meta_ptr, int start);
+void *batch_cossim_meta_set_out(void *p, int start);
+void *readop_meta_set_out(void *p, int start);
+void *writeop_meta_set_out(void *p, int start);
+void *interp_write_meta_set_out(void *p, int start);
+
+/* -------------------------------------------------------------------
+   String interning (for parameter IDs)
+   ------------------------------------------------------------------- */
+
+#define MAX_INTERN 4096
+static char *intern_table[MAX_INTERN];
+static int intern_count = 0;
+
+/* Intern a C string: returns a persistent pointer valid for the process
+ * lifetime. Returns NULL for NULL or empty strings. */
+static char *intern_str(const char *s) {
+  if (!s || !s[0]) return NULL;
+  for (int i = 0; i < intern_count; i++) {
+    if (strcmp(intern_table[i], s) == 0) return intern_table[i];
+  }
+  if (intern_count >= MAX_INTERN) {
+    /* Fallback: strdup without interning (should not happen) */
+    return strdup(s);
+  }
+  intern_table[intern_count] = strdup(s);
+  return intern_table[intern_count++];
+}
+
+
+/* -------------------------------------------------------------------
+   Tape storage (C-backed autograd tape)
+   ------------------------------------------------------------------- */
+
+static int *tape_tags  = NULL;
+static int *tape_arg1  = NULL;
+static int *tape_arg2  = NULL;
+static double *tape_vals = NULL;
+static void **tape_meta  = NULL;
+static char **tape_pids  = NULL;
+static int tape_size = 0;
+static int tape_cap  = 0;
+static int tape_gen  = 0;
+
+/* Result buffer for walk_backward: collected (pid, grad) pairs */
+static char **result_pids = NULL;
+static double *result_vals = NULL;
+static int result_cap = 0;
+
+void tape_init(void) {
+  if (tape_tags) return;
+  tape_cap = 4096;
+  tape_tags = (int *)calloc(tape_cap, sizeof(int));
+  tape_arg1 = (int *)calloc(tape_cap, sizeof(int));
+  tape_arg2 = (int *)calloc(tape_cap, sizeof(int));
+  tape_vals = (double *)calloc(tape_cap, sizeof(double));
+  tape_meta = (void **)calloc(tape_cap, sizeof(void *));
+  tape_pids = (char **)calloc(tape_cap, sizeof(char *));
+  tape_size = 0;
+  tape_gen = 0;
+  result_cap = 256;
+  result_pids = (char **)malloc(result_cap * sizeof(char *));
+  result_vals = (double *)malloc(result_cap * sizeof(double));
+}
+
+static void tape_ensure_cap(int needed) {
+  if (needed < tape_cap) return;
+  int new_cap = tape_cap * 2;
+  while (needed >= new_cap) new_cap *= 2;
+  tape_tags = (int *)realloc(tape_tags, new_cap * sizeof(int));
+  tape_arg1 = (int *)realloc(tape_arg1, new_cap * sizeof(int));
+  tape_arg2 = (int *)realloc(tape_arg2, new_cap * sizeof(int));
+  tape_vals = (double *)realloc(tape_vals, new_cap * sizeof(double));
+  tape_meta = (void **)realloc(tape_meta, new_cap * sizeof(void *));
+  tape_pids = (char **)realloc(tape_pids, new_cap * sizeof(char *));
+  /* Zero new slots */
+  memset(tape_tags + tape_cap, 0, (new_cap - tape_cap) * sizeof(int));
+  memset(tape_arg1 + tape_cap, 0, (new_cap - tape_cap) * sizeof(int));
+  memset(tape_arg2 + tape_cap, 0, (new_cap - tape_cap) * sizeof(int));
+  memset(tape_vals + tape_cap, 0, (new_cap - tape_cap) * sizeof(double));
+  memset(tape_meta + tape_cap, 0, (new_cap - tape_cap) * sizeof(void *));
+  memset(tape_pids + tape_cap, 0, (new_cap - tape_cap) * sizeof(char *));
+  tape_cap = new_cap;
+}
+
+int tape_get_gen(int dummy) { tape_init(); return tape_gen; }
+int tape_get_size(int dummy) { return tape_size; }
+
+int tape_append_const(double val, char *pid) {
+  tape_init();
+  int idx = tape_size;
+  tape_ensure_cap(idx);
+  tape_tags[idx] = 0;
+  tape_vals[idx] = val;
+  tape_pids[idx] = intern_str(pid);
+  tape_size = idx + 1;
+  return idx;
+}
+
+int tape_append_unary(int tag, int a1, double val) {
+  int idx = tape_size;
+  tape_ensure_cap(idx);
+  tape_tags[idx] = tag;
+  tape_arg1[idx] = a1;
+  tape_vals[idx] = val;
+  tape_pids[idx] = NULL;
+  tape_size = idx + 1;
+  return idx;
+}
+
+int tape_append_binary(int tag, int a1, int a2, double val) {
+  int idx = tape_size;
+  tape_ensure_cap(idx);
+  tape_tags[idx] = tag;
+  tape_arg1[idx] = a1;
+  tape_arg2[idx] = a2;
+  tape_vals[idx] = val;
+  tape_pids[idx] = NULL;
+  tape_size = idx + 1;
+  return idx;
+}
+
+/* Last tape index written by tape_append_tensor_op (for set_out calls) */
+static int tape_last_op_idx = 0;
+
+/* Append tensor op (MatVec, Softmax, BatchCosSim, etc.)
+ * tag: op tag, count: number of outputs, meta: op-specific metadata
+ * Also calls the appropriate meta_set_out to record the tape index. */
+void *tape_append_tensor_op(int tag, int count, void *meta, void *out_buf) {
+  int idx = tape_size;
+  tape_ensure_cap(idx);
+  tape_tags[idx] = tag;
+  tape_arg2[idx] = count;
+  tape_meta[idx] = meta;
+  tape_pids[idx] = NULL;
+  tape_size = idx + 1;
+  /* Call the appropriate meta_set_out based on tag */
+  switch (tag) {
+    case 11: matvec_meta_set_out(meta, idx); break;
+    case 13: /* fall through */
+    case 14: softmax_meta_set_out(meta, idx); break;
+    case 15: batch_cossim_meta_set_out(meta, idx); break;
+    case 16: readop_meta_set_out(meta, idx); break;
+    case 17: writeop_meta_set_out(meta, idx); break;
+    case 18: interp_write_meta_set_out(meta, idx); break;
+  }
+  return out_buf;
+}
+
+/* Append DotOp + output ConstOp, set meta->out_tape_idx */
+int tape_append_dot_op(void *meta, double val) {
+  int idx = tape_size;
+  tape_ensure_cap(idx + 1);
+  tape_tags[idx] = 12; /* DotOp */
+  tape_arg2[idx] = 0;
+  tape_meta[idx] = meta;
+  tape_pids[idx] = NULL;
+  int out_idx = idx + 1;
+  tape_tags[out_idx] = 0; /* ConstOp */
+  tape_vals[out_idx] = val;
+  tape_pids[out_idx] = NULL;
+  dot_meta_set_out(meta, out_idx);
+  tape_size = out_idx + 1;
+  return out_idx;
+}
+
+/* Set paramId on existing tape entry. Interns the string. */
+int tape_set_pid(int idx, char *pid) {
+  tape_pids[idx] = intern_str(pid);
+  return idx;
+}
+
+/* Reset tape: size=0, gen++, arena reset */
+void tape_reset(void) {
+  tape_size = 0;
+  tape_gen++;
+  arena_reset();
+}
+
+/* Bulk-append const entries from a weight buffer.
+ * Returns start index. */
+int tape_bulk_const(double *vals, char **pids, int count) {
+  int start = tape_size;
+  int end = start + count;
+  tape_ensure_cap(end - 1);
+  for (int k = 0; k < count; k++) {
+    int idx = start + k;
+    tape_tags[idx] = 0;
+    tape_vals[idx] = vals[k];
+    tape_pids[idx] = pids[k]; /* already interned by weight_buf_set_pid */
+  }
+  tape_size = end;
+  return start;
+}
+
+
 /* -------------------------------------------------------------------
    Buffer management
    ------------------------------------------------------------------- */
@@ -800,4 +999,182 @@ void tensor_interp_write_backward(double *grad_array, InterpWriteMeta *m) {
     }
     grad_array[m->weight_tape_idx[i]] += d_weight;
   }
+}
+
+
+/* -------------------------------------------------------------------
+   C-backed backward pass
+   ------------------------------------------------------------------- */
+
+int walk_backward(double *grad, int tape_sz) {
+  int n_collected = 0;
+
+  for (int idx = tape_sz - 1; idx >= 0; idx--) {
+    int tag = tape_tags[idx];
+    double g = grad[idx];
+
+    if (tag == 0) {
+      /* ConstOp: collect gradient if named parameter */
+      if (tape_pids[idx] && g != 0.0) {
+        if (n_collected >= result_cap) {
+          result_cap *= 2;
+          result_pids = (char **)realloc(result_pids, result_cap * sizeof(char *));
+          result_vals = (double *)realloc(result_vals, result_cap * sizeof(double));
+        }
+        result_pids[n_collected] = tape_pids[idx];
+        result_vals[n_collected] = g;
+        n_collected++;
+      }
+      continue;
+    }
+
+    /* Scalar ops (1-10, 19-20) store gradient at grad[idx]; safe to skip.
+     * Tensor ops (11-18) store gradient at output ConstOps; never skip. */
+    if (g == 0.0 && (tag <= 10 || tag >= 19)) continue;
+
+    int a1 = tape_arg1[idx];
+    int a2 = tape_arg2[idx];
+
+    switch (tag) {
+      case 1:  /* NegOp */
+        grad[a1] += -g;
+        break;
+      case 2:  /* AbsOp */
+        grad[a1] += g * (tape_vals[a1] > 0 ? 1.0 : (tape_vals[a1] < 0 ? -1.0 : 0.0));
+        break;
+      case 3:  /* ExpOp */
+        grad[a1] += g * tape_vals[idx];
+        break;
+      case 4:  /* LogOp */
+        grad[a1] += g / tape_vals[a1];
+        break;
+      case 5:  /* SqrtOp */
+        grad[a1] += g / (2.0 * tape_vals[idx]);
+        break;
+      case 6:  /* AddOp */
+        grad[a1] += g;
+        grad[a2] += g;
+        break;
+      case 7:  /* SubOp */
+        grad[a1] += g;
+        grad[a2] += -g;
+        break;
+      case 8:  /* MulOp */
+        grad[a1] += g * tape_vals[a2];
+        grad[a2] += g * tape_vals[a1];
+        break;
+      case 9:  /* DivOp */
+        grad[a1] += g / tape_vals[a2];
+        grad[a2] += -g * tape_vals[a1] / (tape_vals[a2] * tape_vals[a2]);
+        break;
+      case 10: { /* PowOp */
+        double vx = tape_vals[a1];
+        double vy = tape_vals[a2];
+        grad[a1] += g * vy * pow(vx, vy - 1.0);
+        if (vx != 0.0)
+          grad[a2] += g * tape_vals[idx] * log(vx);
+        break;
+      }
+      case 11: /* MatVecOp */
+        tensor_matvec_backward(grad, (MatVecMeta *)tape_meta[idx]);
+        break;
+      case 12: /* DotOp */
+        tensor_dot_backward(grad, (DotMeta *)tape_meta[idx]);
+        break;
+      case 13: /* SoftmaxOp */
+        tensor_softmax_backward(grad, (SoftmaxMeta *)tape_meta[idx]);
+        break;
+      case 14: /* LogSoftmaxOp */
+        tensor_logsoftmax_backward(grad, (SoftmaxMeta *)tape_meta[idx]);
+        break;
+      case 15: /* BatchCosSimOp */
+        tensor_batch_cossim_backward(grad, (BatchCosSimMeta *)tape_meta[idx]);
+        break;
+      case 16: /* ReadOpOp */
+        tensor_readop_backward(grad, (ReadOpMeta *)tape_meta[idx]);
+        break;
+      case 17: /* WriteOpOp */
+        tensor_writeop_backward(grad, (WriteOpMeta *)tape_meta[idx]);
+        break;
+      case 18: /* InterpWriteOp */
+        tensor_interp_write_backward(grad, (InterpWriteMeta *)tape_meta[idx]);
+        break;
+      case 19: { /* SigmoidOp */
+        double val = tape_vals[idx];
+        grad[a1] += g * val * (1.0 - val);
+        break;
+      }
+      case 20: { /* TanhOp */
+        double val = tape_vals[idx];
+        grad[a1] += g * (1.0 - val * val);
+        break;
+      }
+      default:
+        break;
+    }
+  }
+
+  return n_collected;
+}
+
+/* Walk backward, collect results, reset tape, free grad array.
+ * Combined operation ensures proper ordering: backward completes before
+ * arena reset invalidates metadata, and result strings are interned
+ * (valid forever). */
+int walk_backward_and_reset(double *grad, int tape_sz) {
+  int n = walk_backward(grad, tape_sz);
+  tape_size = 0;
+  tape_gen++;
+  arena_reset();
+  free(grad);
+  return n;
+}
+
+/* Access collected results */
+char *result_get_pid(int i) { return result_pids[i]; }
+double result_get_val(int i) { return result_vals[i]; }
+
+
+/* -------------------------------------------------------------------
+   Weight buffer (C-backed)
+   ------------------------------------------------------------------- */
+
+typedef struct {
+  double *vals;     /* C double array */
+  char **pids;      /* pid string pointers */
+  int count;
+  int cached_start; /* tape start index */
+  int cached_gen;   /* tape generation (-1 = uncached) */
+} WeightBuf;
+
+WeightBuf *weight_buf_alloc(int count) {
+  WeightBuf *wb = (WeightBuf *)malloc(sizeof(WeightBuf));
+  wb->vals = (double *)calloc(count, sizeof(double));
+  wb->pids = (char **)calloc(count, sizeof(char *));
+  wb->count = count;
+  wb->cached_start = -1;
+  wb->cached_gen = -1;
+  return wb;
+}
+
+WeightBuf *weight_buf_set_val(WeightBuf *wb, int idx, double val) {
+  wb->vals[idx] = val;
+  return wb;
+}
+
+WeightBuf *weight_buf_set_pid(WeightBuf *wb, int idx, char *pid) {
+  wb->pids[idx] = intern_str(pid);
+  return wb;
+}
+
+double *weight_buf_vals(WeightBuf *wb) { return wb->vals; }
+
+/* Ensure weight buffer entries are on tape (epoch-cached).
+ * Returns tape start index. */
+int weight_buf_ensure(WeightBuf *wb) {
+  if (wb->cached_gen == tape_gen) return wb->cached_start;
+  int start = tape_bulk_const(wb->vals, wb->pids, wb->count);
+  wb->cached_start = start;
+  wb->cached_gen = tape_gen;
+  return start;
 }

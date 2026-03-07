@@ -73,123 +73,81 @@ fromTag _  = ConstOp
 
 
 ----------------------------------------------------------------------
--- Tape FFI
+-- Tape FFI (C-backed storage, Scheme FFI wrappers)
 ----------------------------------------------------------------------
 
--- Each entry-point FFI function includes an init guard:
---   (when (not (top-level-bound? 'tape-gen)) ...)
--- The init also loads the C shared library and registers tape-ensure-cap!.
+-- All tape storage and backward pass live in C (csrc/tensor.c).
+-- The init guard loads the shared library on first call.
+-- Subsequent foreign-procedure calls find symbols in the loaded library.
 
--- Init block (shared between prim__tapeGen and prim__tapeAppendConst).
--- Adds a tape-meta vector alongside the existing 5 tape vectors.
--- Loads build/libidrisml.dylib for C tensor ops.
---
--- tape-meta stores AnyPtr (C metadata pointers) for tensor op entries.
--- For scalar ops the slot is unused (#f).
+-- Init guard: loads build/libidrisml.dylib once.
+-- Embedded in prim__tapeGen and prim__tapeAppendConst (the two entry points).
+-- Other functions rely on the library being loaded by one of these.
 
--- Get current generation. Self-initializing.
-%foreign "scheme:(lambda (dummy) (when (not (top-level-bound? 'tape-gen)) (begin (load-shared-object \"build/libidrisml.dylib\") (set-top-level-value! 'tape-tags (make-vector 4096 0)) (set-top-level-value! 'tape-arg1 (make-vector 4096 0)) (set-top-level-value! 'tape-arg2 (make-vector 4096 0)) (set-top-level-value! 'tape-vals (make-vector 4096 0.0)) (set-top-level-value! 'tape-pids (make-vector 4096 \"\")) (set-top-level-value! 'tape-meta (make-vector 4096 #f)) (set-top-level-value! 'tape-size 0) (set-top-level-value! 'tape-cap 4096) (set-top-level-value! 'tape-gen 0) (set-top-level-value! 'tape-ensure-cap! (lambda (idx) (when (>= idx (top-level-value 'tape-cap)) (let* ((old-cap (top-level-value 'tape-cap)) (new-cap (* 2 old-cap)) (ot (top-level-value 'tape-tags)) (oa (top-level-value 'tape-arg1)) (ob (top-level-value 'tape-arg2)) (ov (top-level-value 'tape-vals)) (op (top-level-value 'tape-pids)) (om (top-level-value 'tape-meta)) (nt (make-vector new-cap 0)) (na (make-vector new-cap 0)) (nb (make-vector new-cap 0)) (nv (make-vector new-cap 0.0)) (np (make-vector new-cap \"\")) (nm (make-vector new-cap #f))) (vector-copy! nt 0 ot 0 old-cap) (vector-copy! na 0 oa 0 old-cap) (vector-copy! nb 0 ob 0 old-cap) (vector-copy! nv 0 ov 0 old-cap) (vector-copy! np 0 op 0 old-cap) (vector-copy! nm 0 om 0 old-cap) (set-top-level-value! 'tape-tags nt) (set-top-level-value! 'tape-arg1 na) (set-top-level-value! 'tape-arg2 nb) (set-top-level-value! 'tape-vals nv) (set-top-level-value! 'tape-pids np) (set-top-level-value! 'tape-meta nm) (set-top-level-value! 'tape-cap new-cap))))))) (top-level-value 'tape-gen))"
+%foreign "scheme:(lambda (dummy) (when (not (top-level-bound? 'idrisml-loaded)) (begin (load-shared-object \"build/libidrisml.dylib\") (set-top-level-value! 'idrisml-loaded #t))) ((foreign-procedure \"tape_get_gen\" (int) int) dummy))"
 prim__tapeGen : Int -> Int
 
--- Append a const entry. Self-initializing. Flat 2-arg lambda.
-%foreign "scheme:(lambda (val pid) (when (not (top-level-bound? 'tape-gen)) (begin (load-shared-object \"build/libidrisml.dylib\") (set-top-level-value! 'tape-tags (make-vector 4096 0)) (set-top-level-value! 'tape-arg1 (make-vector 4096 0)) (set-top-level-value! 'tape-arg2 (make-vector 4096 0)) (set-top-level-value! 'tape-vals (make-vector 4096 0.0)) (set-top-level-value! 'tape-pids (make-vector 4096 \"\")) (set-top-level-value! 'tape-meta (make-vector 4096 #f)) (set-top-level-value! 'tape-size 0) (set-top-level-value! 'tape-cap 4096) (set-top-level-value! 'tape-gen 0) (set-top-level-value! 'tape-ensure-cap! (lambda (idx) (when (>= idx (top-level-value 'tape-cap)) (let* ((old-cap (top-level-value 'tape-cap)) (new-cap (* 2 old-cap)) (ot (top-level-value 'tape-tags)) (oa (top-level-value 'tape-arg1)) (ob (top-level-value 'tape-arg2)) (ov (top-level-value 'tape-vals)) (op (top-level-value 'tape-pids)) (om (top-level-value 'tape-meta)) (nt (make-vector new-cap 0)) (na (make-vector new-cap 0)) (nb (make-vector new-cap 0)) (nv (make-vector new-cap 0.0)) (np (make-vector new-cap \"\")) (nm (make-vector new-cap #f))) (vector-copy! nt 0 ot 0 old-cap) (vector-copy! na 0 oa 0 old-cap) (vector-copy! nb 0 ob 0 old-cap) (vector-copy! nv 0 ov 0 old-cap) (vector-copy! np 0 op 0 old-cap) (vector-copy! nm 0 om 0 old-cap) (set-top-level-value! 'tape-tags nt) (set-top-level-value! 'tape-arg1 na) (set-top-level-value! 'tape-arg2 nb) (set-top-level-value! 'tape-vals nv) (set-top-level-value! 'tape-pids np) (set-top-level-value! 'tape-meta nm) (set-top-level-value! 'tape-cap new-cap))))))) (let ((idx (top-level-value 'tape-size))) ((top-level-value 'tape-ensure-cap!) idx) (vector-set! (top-level-value 'tape-tags) idx 0) (vector-set! (top-level-value 'tape-vals) idx val) (vector-set! (top-level-value 'tape-pids) idx pid) (set-top-level-value! 'tape-size (+ idx 1)) idx))"
+%foreign "scheme:(lambda (val pid) (when (not (top-level-bound? 'idrisml-loaded)) (begin (load-shared-object \"build/libidrisml.dylib\") (set-top-level-value! 'idrisml-loaded #t))) ((foreign-procedure \"tape_append_const\" (double string) int) val pid))"
 prim__tapeAppendConst : Double -> String -> Int
 
--- Append a unary op. Flat 3-arg lambda. Assumes tape is initialized.
-%foreign "scheme:(lambda (tag a1 val) (let ((idx (top-level-value 'tape-size))) ((top-level-value 'tape-ensure-cap!) idx) (vector-set! (top-level-value 'tape-tags) idx tag) (vector-set! (top-level-value 'tape-arg1) idx a1) (vector-set! (top-level-value 'tape-vals) idx val) (vector-set! (top-level-value 'tape-pids) idx \"\") (set-top-level-value! 'tape-size (+ idx 1)) idx))"
+%foreign "scheme:(lambda (tag a1 val) ((foreign-procedure \"tape_append_unary\" (int int double) int) tag a1 val))"
 prim__tapeAppendUnary : Int -> Int -> Double -> Int
 
--- Append a binary op. Flat 4-arg lambda. Assumes tape is initialized.
-%foreign "scheme:(lambda (tag a1 a2 val) (let ((idx (top-level-value 'tape-size))) ((top-level-value 'tape-ensure-cap!) idx) (vector-set! (top-level-value 'tape-tags) idx tag) (vector-set! (top-level-value 'tape-arg1) idx a1) (vector-set! (top-level-value 'tape-arg2) idx a2) (vector-set! (top-level-value 'tape-vals) idx val) (vector-set! (top-level-value 'tape-pids) idx \"\") (set-top-level-value! 'tape-size (+ idx 1)) idx))"
+%foreign "scheme:(lambda (tag a1 a2 val) ((foreign-procedure \"tape_append_binary\" (int int int double) int) tag a1 a2 val))"
 prim__tapeAppendBinary : Int -> Int -> Int -> Double -> Int
 
--- Append MatVecOp: appends tape entry, sets meta->out_tape_start, returns outBuf for threading.
--- Bundling side effects ensures nothing is dropped by dead-code elimination.
-%foreign "scheme:(lambda (count meta-ptr out-buf) (let ((idx (top-level-value 'tape-size))) ((top-level-value 'tape-ensure-cap!) idx) (vector-set! (top-level-value 'tape-tags) idx 11) (vector-set! (top-level-value 'tape-arg2) idx count) (vector-set! (top-level-value 'tape-meta) idx meta-ptr) (vector-set! (top-level-value 'tape-pids) idx \"\") ((foreign-procedure \"matvec_meta_set_out\" (void* int) void*) meta-ptr idx) (set-top-level-value! 'tape-size (+ idx 1)) out-buf))"
-prim__tapeAppendMatVecOp : Int -> AnyPtr -> AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (tag count meta out) ((foreign-procedure \"tape_append_tensor_op\" (int int void* void*) void*) tag count meta out))"
+prim__tapeAppendTensorOp : Int -> Int -> AnyPtr -> AnyPtr -> AnyPtr
 
--- Append DotOp + output ConstOp: appends DotOp entry, appends ConstOp for
--- the output scalar, sets meta->out_tape_idx, returns the ConstOp tape index.
-%foreign "scheme:(lambda (meta-ptr val) (let ((idx (top-level-value 'tape-size))) ((top-level-value 'tape-ensure-cap!) (+ idx 1)) (vector-set! (top-level-value 'tape-tags) idx 12) (vector-set! (top-level-value 'tape-arg2) idx 0) (vector-set! (top-level-value 'tape-meta) idx meta-ptr) (vector-set! (top-level-value 'tape-pids) idx \"\") (let ((out-idx (+ idx 1))) (vector-set! (top-level-value 'tape-tags) out-idx 0) (vector-set! (top-level-value 'tape-vals) out-idx val) (vector-set! (top-level-value 'tape-pids) out-idx \"\") ((foreign-procedure \"dot_meta_set_out\" (void* int) void*) meta-ptr out-idx) (set-top-level-value! 'tape-size (+ out-idx 1)) out-idx)))"
+%foreign "scheme:(lambda (meta val) ((foreign-procedure \"tape_append_dot_op\" (void* double) int) meta val))"
 prim__tapeAppendDotOp : AnyPtr -> Double -> Int
 
--- Update tape entry's paramId. Returns idx so result is used in Variable construction.
-%foreign "scheme:(lambda (idx pid) (begin (vector-set! (top-level-value 'tape-pids) idx pid) idx))"
+%foreign "scheme:(lambda (idx pid) ((foreign-procedure \"tape_set_pid\" (int string) int) idx pid))"
 prim__tapeSetParamId : Int -> String -> Int
 
--- Read tape fields (only called during backward, after tape is initialized)
-%foreign "scheme:(lambda (idx) (vector-ref (top-level-value 'tape-tags) idx))"
-prim__tapeGetTag : Int -> Int
-
-%foreign "scheme:(lambda (idx) (vector-ref (top-level-value 'tape-arg1) idx))"
-prim__tapeGetArg1 : Int -> Int
-
-%foreign "scheme:(lambda (idx) (vector-ref (top-level-value 'tape-arg2) idx))"
-prim__tapeGetArg2 : Int -> Int
-
-%foreign "scheme:(lambda (idx) (vector-ref (top-level-value 'tape-vals) idx))"
-prim__tapeGetValue : Int -> Double
-
-%foreign "scheme:(lambda (idx) (vector-ref (top-level-value 'tape-pids) idx))"
-prim__tapeGetParamId : Int -> String
-
--- Read meta pointer for tensor op entries
-%foreign "scheme:(lambda (idx) (vector-ref (top-level-value 'tape-meta) idx))"
-prim__tapeGetMeta : Int -> AnyPtr
-
--- Mutable gradient array (C-allocated, Scheme-accessed via foreign-ref/set!
--- for fast per-element reads/writes without C FFI crossing)
-%foreign "scheme:(lambda (size) (let ((ptr ((foreign-procedure \"grad_alloc\" (int) void*) size))) (when (top-level-bound? 'last-grad-ptr) ((foreign-procedure \"grad_free\" (void*) void) (top-level-value 'last-grad-ptr))) (set-top-level-value! 'last-grad-ptr ptr) ptr))"
+-- Gradient array allocation (C-allocated)
+%foreign "scheme:(lambda (n) ((foreign-procedure \"grad_alloc\" (int) void*) n))"
 prim__gradAlloc : Int -> AnyPtr
 
--- gradAdd: Scheme-native read-modify-write on C array (no C FFI crossing)
-%foreign "scheme:(lambda (handle idx val) (let ((off (* idx 8))) (foreign-set! 'double handle off (+ (foreign-ref 'double handle off) val)) handle))"
+-- gradAdd: accumulate gradient at index. Returns handle for threading.
+%foreign "scheme:(lambda (g idx val) ((foreign-procedure \"grad_add\" (void* int double) void*) g idx val))"
 prim__gradAdd : AnyPtr -> Int -> Double -> AnyPtr
 
--- gradGet: Scheme-native read from C array (no C FFI crossing)
-%foreign "scheme:(lambda (handle idx) (foreign-ref 'double handle (* idx 8)))"
-prim__gradGet : AnyPtr -> Int -> Double
+-- C-backed backward pass: walks tape in C, returns number of collected params
+%foreign "scheme:(lambda (g sz) ((foreign-procedure \"walk_backward_and_reset\" (void* int) int) g sz))"
+prim__walkBackwardAndReset : AnyPtr -> Int -> Int
 
--- Reset tape (size=0, gen++), reset arena, and return the given handle.
--- Arena reset is safe here: backward pass reads arena metadata AFTER this call,
--- but arena_reset only sets used=0 without freeing the buffer. Since backward
--- doesn't allocate from the arena, the metadata memory remains valid.
-%foreign "scheme:(lambda (handle dummy) (begin (set-top-level-value! 'tape-size 0) (set-top-level-value! 'tape-gen (+ (top-level-value 'tape-gen) 1)) ((foreign-procedure \"arena_reset\" () void)) handle))"
-prim__resetTapeReturn : AnyPtr -> Int -> AnyPtr
+-- Access collected (pid, grad) results from walk_backward
+%foreign "scheme:(lambda (i) ((foreign-procedure \"result_get_pid\" (int) string) i))"
+prim__resultGetPid : Int -> String
+
+%foreign "scheme:(lambda (i) ((foreign-procedure \"result_get_val\" (int) double) i))"
+prim__resultGetVal : Int -> Double
 
 
 ----------------------------------------------------------------------
--- Weight Buffer FFI
+-- Weight Buffer FFI (C-backed)
 ----------------------------------------------------------------------
 
--- Allocate a weight buffer: Scheme vector #(c-double-ptr, pid-vector, cached-start, cached-gen).
--- Slot 0 = C double* from tensor_alloc, slot 1 = Scheme vector of pid strings,
--- slot 2 = cached tape start index, slot 3 = cached tape generation (-1 = uncached).
 export
-%foreign "scheme:(lambda (count) (let ((cbuf ((foreign-procedure \"tensor_alloc\" (int) void*) count)) (pids (make-vector count \"\"))) (vector cbuf pids -1 -1)))"
+%foreign "scheme:(lambda (n) ((foreign-procedure \"weight_buf_alloc\" (int) void*) n))"
 prim__weightBufAlloc : Int -> AnyPtr
 
--- Get the C double* from a weight buffer.
-%foreign "scheme:(lambda (wbuf) (vector-ref wbuf 0))"
+%foreign "scheme:(lambda (wb) ((foreign-procedure \"weight_buf_vals\" (void*) void*) wb))"
 prim__weightBufVals : AnyPtr -> AnyPtr
 
--- Write a double value to the C buffer at index.
-%foreign "scheme:(lambda (wbuf idx val) (let ((ptr (vector-ref wbuf 0))) (foreign-set! 'double ptr (* idx 8) val) wbuf))"
+%foreign "scheme:(lambda (wb idx val) ((foreign-procedure \"weight_buf_set_val\" (void* int double) void*) wb idx val))"
 prim__weightBufSetVal : AnyPtr -> Int -> Double -> AnyPtr
 
--- Write a pid string to the pid vector at index.
-%foreign "scheme:(lambda (wbuf idx pid) (let ((pids (vector-ref wbuf 1))) (vector-set! pids idx pid) wbuf))"
+%foreign "scheme:(lambda (wb idx pid) ((foreign-procedure \"weight_buf_set_pid\" (void* int string) void*) wb idx pid))"
 prim__weightBufSetPid : AnyPtr -> Int -> String -> AnyPtr
 
--- Ensure weight buffer entries are on tape (epoch-cached).
--- If cached-gen matches tape-gen, returns cached-start (no tape mutation).
--- Otherwise runs bulk-append and updates cache slots 2 (start) and 3 (gen).
-%foreign "scheme:(lambda (wbuf count) (if (= (vector-ref wbuf 3) (top-level-value 'tape-gen)) (vector-ref wbuf 2) (let* ((cbuf (vector-ref wbuf 0)) (pids (vector-ref wbuf 1)) (start (top-level-value 'tape-size)) (end (+ start count))) ((top-level-value 'tape-ensure-cap!) (- end 1)) (let ((tags (top-level-value 'tape-tags)) (vals (top-level-value 'tape-vals)) (pidv (top-level-value 'tape-pids))) (do ((k 0 (+ k 1))) ((= k count)) (let ((idx (+ start k))) (vector-set! tags idx 0) (vector-set! vals idx (foreign-ref 'double cbuf (* k 8))) (vector-set! pidv idx (vector-ref pids k))))) (set-top-level-value! 'tape-size end) (vector-set! wbuf 2 start) (vector-set! wbuf 3 (top-level-value 'tape-gen)) start)))"
-prim__tapeEnsureBulkConst : AnyPtr -> Int -> Int
+%foreign "scheme:(lambda (wb) ((foreign-procedure \"weight_buf_ensure\" (void*) int) wb))"
+prim__tapeEnsureBulkConst : AnyPtr -> Int
 
 
 ----------------------------------------------------------------------
--- Tensor C FFI
+-- Tensor FFI
 ----------------------------------------------------------------------
 
 -- Buffer allocation (calloc'd, must be freed)
@@ -237,10 +195,7 @@ prim__matvecXTape : AnyPtr -> AnyPtr
 %foreign "scheme:(lambda (meta out) ((foreign-procedure \"matvec_meta_compute\" (void* void*) void*) meta out))"
 prim__matvecCompute : AnyPtr -> AnyPtr -> AnyPtr
 
-%foreign "scheme:(lambda (g meta) (begin ((foreign-procedure \"tensor_matvec_backward\" (void* void*) void) g meta) g))"
-prim__matvecBackward : AnyPtr -> AnyPtr -> AnyPtr
-
--- Dot meta: alloc, get internal pointers, compute, backward
+-- Dot meta: alloc, get internal pointers, compute
 %foreign "scheme:(lambda (n) ((foreign-procedure \"dot_meta_alloc\" (int) void*) n))"
 prim__dotMetaAlloc : Int -> AnyPtr
 
@@ -256,10 +211,7 @@ prim__dotBTape : AnyPtr -> AnyPtr
 %foreign "scheme:(lambda (meta) ((foreign-procedure \"dot_meta_compute\" (void*) double) meta))"
 prim__dotCompute : AnyPtr -> Double
 
-%foreign "scheme:(lambda (g meta) (begin ((foreign-procedure \"tensor_dot_backward\" (void* void*) void) g meta) g))"
-prim__dotBackward : AnyPtr -> AnyPtr -> AnyPtr
-
--- Softmax/LogSoftmax meta: alloc, get internal pointers, compute, backward
+-- Softmax/LogSoftmax meta: alloc, get internal pointers, compute
 %foreign "scheme:(lambda (n) ((foreign-procedure \"softmax_meta_alloc\" (int) void*) n))"
 prim__softmaxMetaAlloc : Int -> AnyPtr
 
@@ -274,13 +226,7 @@ prim__softmaxCompute : AnyPtr -> AnyPtr -> AnyPtr
 %foreign "scheme:(lambda (meta out) ((foreign-procedure \"logsoftmax_meta_compute\" (void* void*) void*) meta out))"
 prim__logsoftmaxCompute : AnyPtr -> AnyPtr -> AnyPtr
 
-%foreign "scheme:(lambda (g meta) (begin ((foreign-procedure \"tensor_softmax_backward\" (void* void*) void) g meta) g))"
-prim__softmaxBackward : AnyPtr -> AnyPtr -> AnyPtr
-
-%foreign "scheme:(lambda (g meta) (begin ((foreign-procedure \"tensor_logsoftmax_backward\" (void* void*) void) g meta) g))"
-prim__logsoftmaxBackward : AnyPtr -> AnyPtr -> AnyPtr
-
--- BatchCosSim meta: alloc, get internal pointers, set beta, compute, backward
+-- BatchCosSim meta: alloc, get internal pointers, set beta, compute
 %foreign "scheme:(lambda (n w) ((foreign-procedure \"batch_cossim_meta_alloc\" (int int) void*) n w))"
 prim__batchCosSimMetaAlloc : Int -> Int -> AnyPtr
 
@@ -299,10 +245,7 @@ prim__batchCosSimSetBeta : AnyPtr -> Double -> Int -> AnyPtr
 %foreign "scheme:(lambda (meta out) ((foreign-procedure \"batch_cossim_compute\" (void* void*) void*) meta out))"
 prim__batchCosSimCompute : AnyPtr -> AnyPtr -> AnyPtr
 
-%foreign "scheme:(lambda (g meta) (begin ((foreign-procedure \"tensor_batch_cossim_backward\" (void* void*) void) g meta) g))"
-prim__batchCosSimBackward : AnyPtr -> AnyPtr -> AnyPtr
-
--- ReadOp meta: alloc, get internal pointers, compute, backward
+-- ReadOp meta: alloc, get internal pointers, compute
 %foreign "scheme:(lambda (n w) ((foreign-procedure \"readop_meta_alloc\" (int int) void*) n w))"
 prim__readOpMetaAlloc : Int -> Int -> AnyPtr
 
@@ -318,10 +261,7 @@ prim__readOpWeightTape : AnyPtr -> AnyPtr
 %foreign "scheme:(lambda (meta out) ((foreign-procedure \"readop_compute\" (void* void*) void*) meta out))"
 prim__readOpCompute : AnyPtr -> AnyPtr -> AnyPtr
 
-%foreign "scheme:(lambda (g meta) (begin ((foreign-procedure \"tensor_readop_backward\" (void* void*) void) g meta) g))"
-prim__readOpBackward : AnyPtr -> AnyPtr -> AnyPtr
-
--- WriteOp meta: alloc, get internal pointers, compute, backward
+-- WriteOp meta: alloc, get internal pointers, compute
 %foreign "scheme:(lambda (n w) ((foreign-procedure \"writeop_meta_alloc\" (int int) void*) n w))"
 prim__writeOpMetaAlloc : Int -> Int -> AnyPtr
 
@@ -345,11 +285,8 @@ prim__writeOpAddTape : AnyPtr -> AnyPtr
 %foreign "scheme:(lambda (meta out) ((foreign-procedure \"writeop_compute\" (void* void*) void*) meta out))"
 prim__writeOpCompute : AnyPtr -> AnyPtr -> AnyPtr
 
-%foreign "scheme:(lambda (g meta) (begin ((foreign-procedure \"tensor_writeop_backward\" (void* void*) void) g meta) g))"
-prim__writeOpBackward : AnyPtr -> AnyPtr -> AnyPtr
 
-
--- InterpWrite meta: alloc, get internal pointers, compute, backward
+-- InterpWrite meta: alloc, get internal pointers, compute
 %foreign "scheme:(lambda (n w) ((foreign-procedure \"interp_write_meta_alloc\" (int int) void*) n w))"
 prim__interpWriteMetaAlloc : Int -> Int -> AnyPtr
 
@@ -369,9 +306,6 @@ prim__interpWriteAddTape : AnyPtr -> AnyPtr
 %foreign "scheme:(lambda (meta out) ((foreign-procedure \"interp_write_compute\" (void* void*) void*) meta out))"
 prim__interpWriteCompute : AnyPtr -> AnyPtr -> AnyPtr
 
-%foreign "scheme:(lambda (g meta) (begin ((foreign-procedure \"tensor_interp_write_backward\" (void* void*) void) g meta) g))"
-prim__interpWriteBackward : AnyPtr -> AnyPtr -> AnyPtr
-
 
 ----------------------------------------------------------------------
 -- Idris Tape Wrappers
@@ -385,7 +319,7 @@ tapeGeneration dummy = cast (prim__tapeGen (cast dummy))
 
 -- Read current tape size (number of entries). Must pass a varying dummy
 -- argument to prevent CSE, same as tapeGeneration.
-%foreign "scheme:(lambda (dummy) (top-level-value 'tape-size))"
+%foreign "scheme:(lambda (dummy) ((foreign-procedure \"tape_get_size\" (int) int) dummy))"
 prim__tapeSize : Int -> Int
 
 export
@@ -405,60 +339,41 @@ tapeAppendUnary op a1 val = cast (prim__tapeAppendUnary (toTag op) (cast a1) val
 tapeAppendBinary : TapeOp -> Nat -> Nat -> Double -> Nat
 tapeAppendBinary op a1 a2 val = cast (prim__tapeAppendBinary (toTag op) (cast a1) (cast a2) val)
 
--- Append MatVecOp entry + set meta->out_tape_start. Returns outBuf for threading.
+-- Append tensor op entry (MatVec, Softmax, etc.) + set meta->out.
+-- tape_append_tensor_op handles set_out internally based on tag.
 %noinline
 tapeAppendMatVecOp : Int -> AnyPtr -> AnyPtr -> AnyPtr
-tapeAppendMatVecOp count meta outBuf = prim__tapeAppendMatVecOp count meta outBuf
+tapeAppendMatVecOp count meta outBuf = prim__tapeAppendTensorOp 11 count meta outBuf
 
 -- Ensure weight entries are on tape (cached within same epoch). Returns start index.
 %noinline
 tapeEnsureBulkConst : AnyPtr -> Int -> Int
-tapeEnsureBulkConst wBuf count = prim__tapeEnsureBulkConst wBuf count
+tapeEnsureBulkConst wBuf _ = prim__tapeEnsureBulkConst wBuf
 
 -- Append DotOp + output ConstOp + set meta->out_tape_idx. Returns ConstOp tape index.
 %noinline
 tapeAppendDotOp : AnyPtr -> Double -> Nat
 tapeAppendDotOp meta val = cast (prim__tapeAppendDotOp meta val)
 
--- Append SoftmaxOp/LogSoftmaxOp entry + set meta->out_tape_start. Returns outBuf for threading.
-%foreign "scheme:(lambda (tag count meta-ptr out-buf) (let ((idx (top-level-value 'tape-size))) ((top-level-value 'tape-ensure-cap!) idx) (vector-set! (top-level-value 'tape-tags) idx tag) (vector-set! (top-level-value 'tape-arg2) idx count) (vector-set! (top-level-value 'tape-meta) idx meta-ptr) (vector-set! (top-level-value 'tape-pids) idx \"\") ((foreign-procedure \"softmax_meta_set_out\" (void* int) void*) meta-ptr idx) (set-top-level-value! 'tape-size (+ idx 1)) out-buf))"
-prim__tapeAppendSoftmaxOp : Int -> Int -> AnyPtr -> AnyPtr -> AnyPtr
-
 %noinline
 tapeAppendSoftmaxOp : Int -> Int -> AnyPtr -> AnyPtr -> AnyPtr
-tapeAppendSoftmaxOp tag count meta outBuf = prim__tapeAppendSoftmaxOp tag count meta outBuf
-
--- Append BatchCosSimOp entry + set meta->out_tape_start. Returns outBuf for threading.
-%foreign "scheme:(lambda (count meta-ptr out-buf) (let ((idx (top-level-value 'tape-size))) ((top-level-value 'tape-ensure-cap!) idx) (vector-set! (top-level-value 'tape-tags) idx 15) (vector-set! (top-level-value 'tape-arg2) idx count) (vector-set! (top-level-value 'tape-meta) idx meta-ptr) (vector-set! (top-level-value 'tape-pids) idx \"\") ((foreign-procedure \"batch_cossim_meta_set_out\" (void* int) void*) meta-ptr idx) (set-top-level-value! 'tape-size (+ idx 1)) out-buf))"
-prim__tapeAppendBatchCosSimOp : Int -> AnyPtr -> AnyPtr -> AnyPtr
+tapeAppendSoftmaxOp tag count meta outBuf = prim__tapeAppendTensorOp tag count meta outBuf
 
 %noinline
 tapeAppendBatchCosSimOp : Int -> AnyPtr -> AnyPtr -> AnyPtr
-tapeAppendBatchCosSimOp count meta outBuf = prim__tapeAppendBatchCosSimOp count meta outBuf
-
--- Append ReadOpOp entry + set meta->out_tape_start. Returns outBuf for threading.
-%foreign "scheme:(lambda (count meta-ptr out-buf) (let ((idx (top-level-value 'tape-size))) ((top-level-value 'tape-ensure-cap!) idx) (vector-set! (top-level-value 'tape-tags) idx 16) (vector-set! (top-level-value 'tape-arg2) idx count) (vector-set! (top-level-value 'tape-meta) idx meta-ptr) (vector-set! (top-level-value 'tape-pids) idx \"\") ((foreign-procedure \"readop_meta_set_out\" (void* int) void*) meta-ptr idx) (set-top-level-value! 'tape-size (+ idx 1)) out-buf))"
-prim__tapeAppendReadOpOp : Int -> AnyPtr -> AnyPtr -> AnyPtr
+tapeAppendBatchCosSimOp count meta outBuf = prim__tapeAppendTensorOp 15 count meta outBuf
 
 %noinline
 tapeAppendReadOpOp : Int -> AnyPtr -> AnyPtr -> AnyPtr
-tapeAppendReadOpOp count meta outBuf = prim__tapeAppendReadOpOp count meta outBuf
-
--- Append WriteOpOp entry + set meta->out_tape_start. Returns outBuf for threading.
-%foreign "scheme:(lambda (count meta-ptr out-buf) (let ((idx (top-level-value 'tape-size))) ((top-level-value 'tape-ensure-cap!) idx) (vector-set! (top-level-value 'tape-tags) idx 17) (vector-set! (top-level-value 'tape-arg2) idx count) (vector-set! (top-level-value 'tape-meta) idx meta-ptr) (vector-set! (top-level-value 'tape-pids) idx \"\") ((foreign-procedure \"writeop_meta_set_out\" (void* int) void*) meta-ptr idx) (set-top-level-value! 'tape-size (+ idx 1)) out-buf))"
-prim__tapeAppendWriteOpOp : Int -> AnyPtr -> AnyPtr -> AnyPtr
+tapeAppendReadOpOp count meta outBuf = prim__tapeAppendTensorOp 16 count meta outBuf
 
 %noinline
 tapeAppendWriteOpOp : Int -> AnyPtr -> AnyPtr -> AnyPtr
-tapeAppendWriteOpOp count meta outBuf = prim__tapeAppendWriteOpOp count meta outBuf
-
--- Append InterpWriteOp entry + set meta->out_tape_start. Returns outBuf for threading.
-%foreign "scheme:(lambda (count meta-ptr out-buf) (let ((idx (top-level-value 'tape-size))) ((top-level-value 'tape-ensure-cap!) idx) (vector-set! (top-level-value 'tape-tags) idx 18) (vector-set! (top-level-value 'tape-arg2) idx count) (vector-set! (top-level-value 'tape-meta) idx meta-ptr) (vector-set! (top-level-value 'tape-pids) idx \"\") ((foreign-procedure \"interp_write_meta_set_out\" (void* int) void*) meta-ptr idx) (set-top-level-value! 'tape-size (+ idx 1)) out-buf))"
-prim__tapeAppendInterpWriteOp : Int -> AnyPtr -> AnyPtr -> AnyPtr
+tapeAppendWriteOpOp count meta outBuf = prim__tapeAppendTensorOp 17 count meta outBuf
 
 %noinline
 tapeAppendInterpWriteOp : Int -> AnyPtr -> AnyPtr -> AnyPtr
-tapeAppendInterpWriteOp count meta outBuf = prim__tapeAppendInterpWriteOp count meta outBuf
+tapeAppendInterpWriteOp count meta outBuf = prim__tapeAppendTensorOp 18 count meta outBuf
 
 
 ----------------------------------------------------------------------
@@ -958,59 +873,18 @@ interpolationWriteVar {n} {w} (VTensor weightElems) (VTensor memRows) (VTensor a
 
 
 ----------------------------------------------------------------------
--- Backpropagation (tape-based)
+-- Backpropagation (C-backed)
 ----------------------------------------------------------------------
 
--- Propagate gradient for a single tape entry. Returns updated handle.
-propagateEntry : AnyPtr -> Int -> AnyPtr
-propagateEntry g idx =
-  let grad = prim__gradGet g idx
-      tag = prim__tapeGetTag idx
-      a1 = prim__tapeGetArg1 idx
-      a2 = prim__tapeGetArg2 idx
-  in case fromTag tag of
-       ConstOp => g
-       NegOp   => prim__gradAdd g a1 (negate grad)
-       AbsOp   => prim__gradAdd g a1 (grad * signum (prim__tapeGetValue a1))
-       ExpOp   => prim__gradAdd g a1 (grad * prim__tapeGetValue idx)
-       LogOp   => prim__gradAdd g a1 (grad / prim__tapeGetValue a1)
-       SqrtOp  => prim__gradAdd g a1 (grad / (2 * prim__tapeGetValue idx))
-       AddOp   => prim__gradAdd (prim__gradAdd g a1 grad) a2 grad
-       SubOp   => prim__gradAdd (prim__gradAdd g a1 grad) a2 (negate grad)
-       MulOp   => prim__gradAdd (prim__gradAdd g a1 (grad * prim__tapeGetValue a2)) a2 (grad * prim__tapeGetValue a1)
-       DivOp   => prim__gradAdd (prim__gradAdd g a1 (grad / prim__tapeGetValue a2)) a2 (negate grad * prim__tapeGetValue a1 / pow (prim__tapeGetValue a2) 2)
-       PowOp   => let vx = prim__tapeGetValue a1
-                      vy = prim__tapeGetValue a2
-                  in prim__gradAdd (prim__gradAdd g a1 (grad * vy * pow vx (vy - 1))) a2 (if vx == 0 then 0 else grad * prim__tapeGetValue idx * log vx)
-       MatVecOp      => prim__matvecBackward g (prim__tapeGetMeta idx)
-       DotOp         => prim__dotBackward g (prim__tapeGetMeta idx)
-       SoftmaxOp     => prim__softmaxBackward g (prim__tapeGetMeta idx)
-       LogSoftmaxOp  => prim__logsoftmaxBackward g (prim__tapeGetMeta idx)
-       BatchCosSimOp => prim__batchCosSimBackward g (prim__tapeGetMeta idx)
-       ReadOpOp      => prim__readOpBackward g (prim__tapeGetMeta idx)
-       WriteOpOp     => prim__writeOpBackward g (prim__tapeGetMeta idx)
-       InterpWriteOp => prim__interpWriteBackward g (prim__tapeGetMeta idx)
-       SigmoidOp => let val = prim__tapeGetValue idx
-                    in prim__gradAdd g a1 (grad * val * (1 - val))
-       TanhOp    => let val = prim__tapeGetValue idx
-                    in prim__gradAdd g a1 (grad * (1 - val * val))
-
--- Walk backward through tape with tag-based fast path:
--- ConstOp (tag 0): only check pid for gradient collection, skip propagation
--- Non-ConstOp: propagate gradient, skip pid check (non-const pids are always "")
-walkBackward : AnyPtr -> Int -> SortedMap String Double -> SortedMap String Double
-walkBackward g idx acc =
-  if idx < 0 then acc
-  else if prim__tapeGetTag idx == 0
-    then -- ConstOp: only check pid for gradient collection
-      let pid = prim__tapeGetParamId idx
-          acc' = if pid == ""
-                   then acc
-                   else mergeWith (+) acc (singleton pid (prim__gradGet g idx))
-      in walkBackward g (idx - 1) acc'
-    else -- Non-ConstOp: propagate gradient, no pid to collect
-      let g' = propagateEntry g idx
-      in walkBackward g' (idx - 1) acc
+-- Build SortedMap from C result buffer (populated by walk_backward).
+-- walk_backward collects (pid, grad) pairs into result_pids/result_vals.
+-- Duplicate pids (same param re-registered after stale detection) are
+-- accumulated with (+) via mergeWith.
+buildGradMap : Int -> Int -> SortedMap String Double -> SortedMap String Double
+buildGradMap n i acc = if i >= n then acc
+  else let pid = prim__resultGetPid i
+           val = prim__resultGetVal i
+       in buildGradMap n (i + 1) (mergeWith (+) acc (singleton pid val))
 
 export
 collectGrads : Double -> Variable -> SortedMap String Double
@@ -1018,5 +892,5 @@ collectGrads initGrad root =
   let size = cast {to=Int} root.tapeIdx + 1
       g = prim__gradAlloc size
       g' = prim__gradAdd g (cast root.tapeIdx) initGrad
-      g'' = prim__resetTapeReturn g' size
-  in walkBackward g'' (size - 1) empty
+      nParams = prim__walkBackwardAndReset g' size
+  in buildGradMap nParams 0 empty
