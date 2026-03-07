@@ -14,7 +14,8 @@ Usage:
 import argparse
 import random
 import time
-from typing import Literal
+from collections.abc import Callable
+from dataclasses import dataclass, field
 
 import torch
 
@@ -35,71 +36,79 @@ def _fmt_elapsed(t0: float) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Copy task
+# Task configuration
 # ---------------------------------------------------------------------------
 
-COPY_SEQ_WIDTH = 8
 
+@dataclass
+class TaskConfig:
+    """Configuration for an NTM convergence task."""
 
-def run_copy(args: argparse.Namespace) -> None:
-    """Train NTM on copy task."""
-    print("=" * 60)
-    print("NTM Copy Task Convergence")
-    print("=" * 60)
-
-    clip_mode: Literal["value", "norm"] = getattr(args, "copy_clip", "value")
-    optimizer_name: str = getattr(args, "copy_optimizer", "rmsprop")
-    lr: float = getattr(args, "copy_lr", 1e-4)
-    iterations: int = getattr(args, "copy_iters", 50000)
-    n: int = getattr(args, "copy_n", 128)
-    m: int = getattr(args, "copy_m", 20)
-    batch_size: int = getattr(args, "copy_batch_size", 16)
-
-    cfg = NtmConfig(
-        input_width=COPY_SEQ_WIDTH + 1,
-        output_width=COPY_SEQ_WIDTH,
-        n=n,
-        m=m,
-        lr=lr,
+    name: str
+    ntm_cfg: NtmConfig
+    batch_size: int
+    iterations: int
+    es_window: int = 1000
+    es_patience: int = 3
+    es_threshold: float = 0.01
+    optimizer_name: str = "rmsprop"
+    generate_batch: Callable[[], list[tuple[torch.Tensor, torch.Tensor]]] = field(
+        default_factory=lambda: lambda: []
     )
-    model = NtmModel(cfg)
+    extra_info: list[str] = field(default_factory=list)
 
-    if optimizer_name == "adam":
-        optimizer: torch.optim.Optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr)
+
+# ---------------------------------------------------------------------------
+# Shared training loop
+# ---------------------------------------------------------------------------
+
+
+def _train_loop(
+    task: TaskConfig,
+    early_stop: bool,
+) -> NtmModel:
+    """Run training loop with optional early stopping. Returns trained model."""
+    model = NtmModel(task.ntm_cfg)
+
+    if task.optimizer_name == "adam":
+        optimizer: torch.optim.Optimizer = torch.optim.Adam(model.parameters(), lr=task.ntm_cfg.lr)
     else:
-        optimizer = torch.optim.RMSprop(model.parameters(), lr=cfg.lr, alpha=0.95, momentum=0.9)
+        optimizer = torch.optim.RMSprop(
+            model.parameters(), lr=task.ntm_cfg.lr, alpha=0.95, momentum=0.9
+        )
 
-    print(f"  seq_width={COPY_SEQ_WIDTH}  seq_range=[1,20]  batch_size={batch_size}")
-    print(f"  N={cfg.n}  M={cfg.m}  controller={cfg.controller_size}")
-    print(f"  optimizer={optimizer_name}  lr={cfg.lr}  clip={clip_mode}({cfg.clip_value})")
-    early_stop = not getattr(args, "no_early_stop", False)
-    es_window = 1000
-    es_patience = 3  # consecutive checkpoints (500 iters each)
-    es_threshold = 0.01  # average loss over window
+    print(f"  N={task.ntm_cfg.n}  M={task.ntm_cfg.m}  controller={task.ntm_cfg.controller_size}")
+    print(
+        f"  optimizer={task.optimizer_name}  lr={task.ntm_cfg.lr}"
+        f"  clip=value({task.ntm_cfg.clip_value})"
+    )
+    for line in task.extra_info:
+        print(f"  {line}")
 
-    print(f"  iterations={iterations}")
+    print(f"  iterations={task.iterations}")
     if early_stop:
-        print(f"  early_stop: loss<{es_threshold} over {es_window} iters, patience={es_patience}")
+        print(
+            f"  early_stop: loss<{task.es_threshold} over {task.es_window} iters,"
+            f" patience={task.es_patience}"
+        )
 
-    # Training loop
     losses: list[float] = []
     patience_count = 0
     t0 = time.monotonic()
-    for i in range(1, iterations + 1):
-        batch = generate_copy_batch(batch_size, seq_min=1, seq_max=20, seq_width=COPY_SEQ_WIDTH)
-        loss = _train_ntm_epoch(model, batch, optimizer, clip_value=cfg.clip_value)
+    for i in range(1, task.iterations + 1):
+        batch = task.generate_batch()
+        loss = _train_ntm_epoch(model, batch, optimizer, clip_value=task.ntm_cfg.clip_value)
         losses.append(loss)
 
         if i % 500 == 0:
             avg_loss = sum(losses[-500:]) / len(losses[-500:])
             print(f"  {_fmt_elapsed(t0)} iter {i:6d}: loss={avg_loss:.6f}")
 
-            # Early stopping
-            if early_stop and i >= es_window:
-                window_avg = sum(losses[-es_window:]) / es_window
-                if window_avg < es_threshold:
+            if early_stop and i >= task.es_window:
+                window_avg = sum(losses[-task.es_window :]) / task.es_window
+                if window_avg < task.es_threshold:
                     patience_count += 1
-                    if patience_count >= es_patience:
+                    if patience_count >= task.es_patience:
                         print(
                             f"  {_fmt_elapsed(t0)} ** early stop at iter {i}"
                             f" (avg loss={window_avg:.6f})"
@@ -108,7 +117,18 @@ def run_copy(args: argparse.Namespace) -> None:
                 else:
                     patience_count = 0
 
-    # Evaluate
+    return model
+
+
+# ---------------------------------------------------------------------------
+# Copy task
+# ---------------------------------------------------------------------------
+
+COPY_SEQ_WIDTH = 8
+
+
+def _eval_copy(model: NtmModel) -> None:
+    """Evaluate copy task on test lengths."""
     print("\n--- Evaluation ---")
     model.eval()
     for test_len in [5, 10, 20]:
@@ -133,6 +153,39 @@ def run_copy(args: argparse.Namespace) -> None:
         print(f"  Length {test_len:2d}: bit accuracy = {accuracy:.1%}")
 
 
+def run_copy(args: argparse.Namespace) -> None:
+    """Train NTM on copy task."""
+    print("=" * 60)
+    print("NTM Copy Task Convergence")
+    print("=" * 60)
+
+    lr: float = getattr(args, "copy_lr", 1e-4)
+    iterations: int = getattr(args, "copy_iters", 50000)
+    n: int = getattr(args, "copy_n", 128)
+    m: int = getattr(args, "copy_m", 20)
+    batch_size: int = getattr(args, "copy_batch_size", 16)
+
+    cfg = NtmConfig(input_width=COPY_SEQ_WIDTH + 1, output_width=COPY_SEQ_WIDTH, n=n, m=m, lr=lr)
+
+    task = TaskConfig(
+        name="copy",
+        ntm_cfg=cfg,
+        batch_size=batch_size,
+        iterations=iterations,
+        optimizer_name=getattr(args, "copy_optimizer", "rmsprop"),
+        generate_batch=lambda: generate_copy_batch(
+            batch_size, seq_min=1, seq_max=20, seq_width=COPY_SEQ_WIDTH
+        ),
+        extra_info=[
+            f"seq_width={COPY_SEQ_WIDTH}  seq_range=[1,20]  batch_size={batch_size}",
+        ],
+    )
+
+    early_stop = not getattr(args, "no_early_stop", False)
+    model = _train_loop(task, early_stop)
+    _eval_copy(model)
+
+
 # ---------------------------------------------------------------------------
 # Recall task
 # ---------------------------------------------------------------------------
@@ -141,79 +194,8 @@ RECALL_SEQ_WIDTH = 6
 RECALL_SEQ_LEN = 3
 
 
-def run_recall(args: argparse.Namespace) -> None:
-    """Train NTM on associative recall task."""
-    print("=" * 60)
-    print("NTM Associative Recall Convergence")
-    print("=" * 60)
-
-    clip_mode: Literal["value", "norm"] = getattr(args, "recall_clip", "value")
-    optimizer_name: str = getattr(args, "recall_optimizer", "rmsprop")
-    lr: float = getattr(args, "recall_lr", 1e-4)
-    iterations: int = getattr(args, "recall_iters", 100000)
-    n: int = getattr(args, "recall_n", 128)
-    m: int = getattr(args, "recall_m", 20)
-    min_items: int = getattr(args, "recall_min_items", 2)
-    max_items: int = getattr(args, "recall_max_items", 6)
-    batch_size: int = getattr(args, "recall_batch_size", 1)
-
-    cfg = NtmConfig(
-        input_width=RECALL_SEQ_WIDTH + 2,
-        output_width=RECALL_SEQ_WIDTH,
-        n=n,
-        m=m,
-        lr=lr,
-    )
-    model = NtmModel(cfg)
-
-    if optimizer_name == "adam":
-        optimizer: torch.optim.Optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr)
-    else:
-        optimizer = torch.optim.RMSprop(model.parameters(), lr=cfg.lr, alpha=0.95, momentum=0.9)
-
-    print(f"  seq_width={RECALL_SEQ_WIDTH}  seq_len={RECALL_SEQ_LEN}  batch_size={batch_size}")
-    print(f"  items=[{min_items},{max_items}]")
-    print(f"  N={cfg.n}  M={cfg.m}  controller={cfg.controller_size}")
-    print(f"  optimizer={optimizer_name}  lr={cfg.lr}  clip={clip_mode}({cfg.clip_value})")
-    early_stop = not getattr(args, "no_early_stop", False)
-    es_window = 1000
-    es_patience = 3  # consecutive checkpoints (500 iters each)
-    es_threshold = 0.01
-
-    print(f"  iterations={iterations}")
-    if early_stop:
-        print(f"  early_stop: loss<{es_threshold} over {es_window} iters, patience={es_patience}")
-
-    # Training loop
-    losses: list[float] = []
-    patience_count = 0
-    t0 = time.monotonic()
-    for i in range(1, iterations + 1):
-        batch = generate_recall_batch(
-            batch_size, min_items, max_items, RECALL_SEQ_LEN, RECALL_SEQ_WIDTH
-        )
-        loss = _train_ntm_epoch(model, batch, optimizer, clip_value=cfg.clip_value)
-        losses.append(loss)
-
-        if i % 500 == 0:
-            avg_loss = sum(losses[-500:]) / len(losses[-500:])
-            print(f"  {_fmt_elapsed(t0)} iter {i:6d}: loss={avg_loss:.6f}")
-
-            # Early stopping
-            if early_stop and i >= es_window:
-                window_avg = sum(losses[-es_window:]) / es_window
-                if window_avg < es_threshold:
-                    patience_count += 1
-                    if patience_count >= es_patience:
-                        print(
-                            f"  {_fmt_elapsed(t0)} ** early stop at iter {i}"
-                            f" (avg loss={window_avg:.4f})"
-                        )
-                        break
-                else:
-                    patience_count = 0
-
-    # Evaluate
+def _eval_recall(model: NtmModel) -> None:
+    """Evaluate recall task on different item counts."""
     print("\n--- Evaluation ---")
     model.eval()
     for test_items in [2, 3, 4, 5, 6]:
@@ -262,6 +244,44 @@ def run_recall(args: argparse.Namespace) -> None:
     write_argmaxes_encode = summary.write_argmaxes[:encode_len]
     distinct_write = len(set(write_argmaxes_encode))
     print(f"  Distinct write slots (encoding): {distinct_write}")
+
+
+def run_recall(args: argparse.Namespace) -> None:
+    """Train NTM on associative recall task."""
+    print("=" * 60)
+    print("NTM Associative Recall Convergence")
+    print("=" * 60)
+
+    lr: float = getattr(args, "recall_lr", 1e-4)
+    iterations: int = getattr(args, "recall_iters", 100000)
+    n: int = getattr(args, "recall_n", 128)
+    m: int = getattr(args, "recall_m", 20)
+    min_items: int = getattr(args, "recall_min_items", 2)
+    max_items: int = getattr(args, "recall_max_items", 6)
+    batch_size: int = getattr(args, "recall_batch_size", 1)
+
+    cfg = NtmConfig(
+        input_width=RECALL_SEQ_WIDTH + 2, output_width=RECALL_SEQ_WIDTH, n=n, m=m, lr=lr
+    )
+
+    task = TaskConfig(
+        name="recall",
+        ntm_cfg=cfg,
+        batch_size=batch_size,
+        iterations=iterations,
+        optimizer_name=getattr(args, "recall_optimizer", "rmsprop"),
+        generate_batch=lambda: generate_recall_batch(
+            batch_size, min_items, max_items, RECALL_SEQ_LEN, RECALL_SEQ_WIDTH
+        ),
+        extra_info=[
+            f"seq_width={RECALL_SEQ_WIDTH}  seq_len={RECALL_SEQ_LEN}  batch_size={batch_size}",
+            f"items=[{min_items},{max_items}]",
+        ],
+    )
+
+    early_stop = not getattr(args, "no_early_stop", False)
+    model = _train_loop(task, early_stop)
+    _eval_recall(model)
 
 
 # ---------------------------------------------------------------------------

@@ -12,6 +12,7 @@ import platform
 import random
 import resource
 import time
+from collections.abc import Callable
 
 import torch
 import torch.nn.functional as F
@@ -32,52 +33,31 @@ def _peak_rss_mb() -> float:
     return rss / 1024
 
 
-def bench_supervised() -> tuple[float, float, float]:
-    """Benchmark supervised model. Returns (elapsed_ms, final_loss, peak_rss_mb)."""
-    torch.manual_seed(123456)
-    model = SupervisedModel()
-    data = SUPERVISED_DATA
-    lr = 0.03
+def _run_benchmark(
+    run_epoch: Callable[[], float],
+    warmup: int,
+    epochs: int,
+) -> tuple[float, float, float]:
+    """Generic benchmark runner: warmup + timed loop + RSS.
 
-    # Warmup: 100 epochs
-    for _ in range(100):
-        optimizer = torch.optim.SGD(model.parameters(), lr=lr)
-        train_supervised_epoch(model, data, optimizer)
+    Args:
+        run_epoch: Callable that runs one epoch and returns loss.
+        warmup: Number of warmup epochs.
+        epochs: Number of timed epochs.
 
-    # Benchmark: 1000 epochs
+    Returns:
+        (elapsed_ms, final_loss, peak_rss_mb)
+    """
+    for _ in range(warmup):
+        run_epoch()
+
     loss_val = 0.0
     t0 = time.monotonic()
-    for _ in range(1000):
-        optimizer = torch.optim.SGD(model.parameters(), lr=lr)
-        loss_val = train_supervised_epoch(model, data, optimizer)
+    for _ in range(epochs):
+        loss_val = run_epoch()
     t1 = time.monotonic()
 
-    elapsed = (t1 - t0) * 1000
-    return elapsed, loss_val, _peak_rss_mb()
-
-
-def bench_rnn() -> tuple[float, float, float]:
-    """Benchmark RNN model. Returns (elapsed_ms, final_loss, peak_rss_mb)."""
-    torch.manual_seed(123456)
-    model = LinearRNNCell(1, 1)
-    data = generate_rnn_dataset(8)
-    lr = 0.03
-
-    # Warmup: 100 epochs
-    for _ in range(100):
-        optimizer = torch.optim.SGD(model.parameters(), lr=lr)
-        train_rnn_epoch(model, data, optimizer)
-
-    # Benchmark: 1000 epochs
-    loss_val = 0.0
-    t0 = time.monotonic()
-    for _ in range(1000):
-        optimizer = torch.optim.SGD(model.parameters(), lr=lr)
-        loss_val = train_rnn_epoch(model, data, optimizer)
-    t1 = time.monotonic()
-
-    elapsed = (t1 - t0) * 1000
-    return elapsed, loss_val, _peak_rss_mb()
+    return (t1 - t0) * 1000, loss_val, _peak_rss_mb()
 
 
 def _train_ntm_epoch(
@@ -121,6 +101,34 @@ def _train_ntm_epoch(
     return avg_loss.item()
 
 
+def bench_supervised() -> tuple[float, float, float]:
+    """Benchmark supervised model. Returns (elapsed_ms, final_loss, peak_rss_mb)."""
+    torch.manual_seed(123456)
+    model = SupervisedModel()
+    data = SUPERVISED_DATA
+    lr = 0.03
+
+    def run_epoch() -> float:
+        optimizer = torch.optim.SGD(model.parameters(), lr=lr)
+        return train_supervised_epoch(model, data, optimizer)
+
+    return _run_benchmark(run_epoch, warmup=100, epochs=1000)
+
+
+def bench_rnn() -> tuple[float, float, float]:
+    """Benchmark RNN model. Returns (elapsed_ms, final_loss, peak_rss_mb)."""
+    torch.manual_seed(123456)
+    model = LinearRNNCell(1, 1)
+    data = generate_rnn_dataset(8)
+    lr = 0.03
+
+    def run_epoch() -> float:
+        optimizer = torch.optim.SGD(model.parameters(), lr=lr)
+        return train_rnn_epoch(model, data, optimizer)
+
+    return _run_benchmark(run_epoch, warmup=100, epochs=1000)
+
+
 def bench_ntm() -> tuple[float, float, float]:
     """Benchmark small NTM. Returns (elapsed_ms, final_loss, peak_rss_mb).
 
@@ -130,38 +138,19 @@ def bench_ntm() -> tuple[float, float, float]:
     torch.manual_seed(123456)
 
     w, n, m, h = 3, 10, 5, 20
-    batch_size = 5
     lr, alpha, clip_value = 0.0001, 0.95, 10.0
 
     cfg = NtmConfig(
-        input_width=w + 1,
-        output_width=w,
-        n=n,
-        m=m,
-        controller_size=h,
-        lr=lr,
-        clip_value=clip_value,
+        input_width=w + 1, output_width=w, n=n, m=m, controller_size=h, lr=lr, clip_value=clip_value
     )
     model = NtmModel(cfg)
-
-    # Generate fixed batch
-    batch = generate_copy_batch(batch_size, seq_min=2, seq_max=4, seq_width=w)
-
+    batch = generate_copy_batch(5, seq_min=2, seq_max=4, seq_width=w)
     optimizer = torch.optim.RMSprop(model.parameters(), lr=lr, alpha=alpha, momentum=0.9)
 
-    # Warmup: 10 epochs
-    for _ in range(10):
-        _train_ntm_epoch(model, batch, optimizer, clip_value)
+    def run_epoch() -> float:
+        return _train_ntm_epoch(model, batch, optimizer, clip_value)
 
-    # Benchmark: 100 epochs
-    loss_val = 0.0
-    t0 = time.monotonic()
-    for _ in range(100):
-        loss_val = _train_ntm_epoch(model, batch, optimizer, clip_value)
-    t1 = time.monotonic()
-
-    elapsed = (t1 - t0) * 1000
-    return elapsed, loss_val, _peak_rss_mb()
+    return _run_benchmark(run_epoch, warmup=10, epochs=100)
 
 
 def bench_ntm_copy() -> tuple[float, float, float]:
@@ -173,38 +162,19 @@ def bench_ntm_copy() -> tuple[float, float, float]:
     torch.manual_seed(123456)
 
     w, n, m, h = 8, 128, 20, 100
-    batch_size = 16
     lr, alpha, clip_value = 0.0001, 0.95, 10.0
 
     cfg = NtmConfig(
-        input_width=w + 1,
-        output_width=w,
-        n=n,
-        m=m,
-        controller_size=h,
-        lr=lr,
-        clip_value=clip_value,
+        input_width=w + 1, output_width=w, n=n, m=m, controller_size=h, lr=lr, clip_value=clip_value
     )
     model = NtmModel(cfg)
-
-    # Generate fixed batch
-    batch = generate_copy_batch(batch_size, seq_min=1, seq_max=20, seq_width=w)
-
+    batch = generate_copy_batch(16, seq_min=1, seq_max=20, seq_width=w)
     optimizer = torch.optim.RMSprop(model.parameters(), lr=lr, alpha=alpha, momentum=0.9)
 
-    # Warmup: 10 epochs
-    for _ in range(10):
-        _train_ntm_epoch(model, batch, optimizer, clip_value)
+    def run_epoch() -> float:
+        return _train_ntm_epoch(model, batch, optimizer, clip_value)
 
-    # Benchmark: 100 epochs
-    loss_val = 0.0
-    t0 = time.monotonic()
-    for _ in range(100):
-        loss_val = _train_ntm_epoch(model, batch, optimizer, clip_value)
-    t1 = time.monotonic()
-
-    elapsed = (t1 - t0) * 1000
-    return elapsed, loss_val, _peak_rss_mb()
+    return _run_benchmark(run_epoch, warmup=10, epochs=100)
 
 
 def bench_ntm_copy_1k() -> tuple[float, float, float]:
@@ -216,36 +186,19 @@ def bench_ntm_copy_1k() -> tuple[float, float, float]:
     torch.manual_seed(123456)
 
     w, n, m, h = 8, 128, 20, 100
-    batch_size = 16
     lr, alpha, clip_value = 0.0001, 0.95, 10.0
 
     cfg = NtmConfig(
-        input_width=w + 1,
-        output_width=w,
-        n=n,
-        m=m,
-        controller_size=h,
-        lr=lr,
-        clip_value=clip_value,
+        input_width=w + 1, output_width=w, n=n, m=m, controller_size=h, lr=lr, clip_value=clip_value
     )
     model = NtmModel(cfg)
     optimizer = torch.optim.RMSprop(model.parameters(), lr=lr, alpha=alpha, momentum=0.9)
 
-    # Warmup: 10 epochs (fresh data)
-    for _ in range(10):
-        batch = generate_copy_batch(batch_size, seq_min=1, seq_max=20, seq_width=w)
-        _train_ntm_epoch(model, batch, optimizer, clip_value)
+    def run_epoch() -> float:
+        batch = generate_copy_batch(16, seq_min=1, seq_max=20, seq_width=w)
+        return _train_ntm_epoch(model, batch, optimizer, clip_value)
 
-    # Benchmark: 1000 epochs (fresh data)
-    loss_val = 0.0
-    t0 = time.monotonic()
-    for _ in range(1000):
-        batch = generate_copy_batch(batch_size, seq_min=1, seq_max=20, seq_width=w)
-        loss_val = _train_ntm_epoch(model, batch, optimizer, clip_value)
-    t1 = time.monotonic()
-
-    elapsed = (t1 - t0) * 1000
-    return elapsed, loss_val, _peak_rss_mb()
+    return _run_benchmark(run_epoch, warmup=10, epochs=1000)
 
 
 def bench_ntm_recall() -> tuple[float, float, float]:
@@ -257,39 +210,19 @@ def bench_ntm_recall() -> tuple[float, float, float]:
     torch.manual_seed(123456)
 
     w, n, m, h = 6, 128, 20, 100
-    batch_size = 16
     lr, alpha, clip_value = 0.0001, 0.95, 10.0
-    min_items, max_items, seq_len = 2, 6, 3
 
     cfg = NtmConfig(
-        input_width=w + 2,
-        output_width=w,
-        n=n,
-        m=m,
-        controller_size=h,
-        lr=lr,
-        clip_value=clip_value,
+        input_width=w + 2, output_width=w, n=n, m=m, controller_size=h, lr=lr, clip_value=clip_value
     )
     model = NtmModel(cfg)
-
-    # Generate fixed batch
-    batch = generate_recall_batch(batch_size, min_items, max_items, seq_len, w)
-
+    batch = generate_recall_batch(16, 2, 6, 3, w)
     optimizer = torch.optim.RMSprop(model.parameters(), lr=lr, alpha=alpha, momentum=0.9)
 
-    # Warmup: 10 epochs
-    for _ in range(10):
-        _train_ntm_epoch(model, batch, optimizer, clip_value)
+    def run_epoch() -> float:
+        return _train_ntm_epoch(model, batch, optimizer, clip_value)
 
-    # Benchmark: 100 epochs
-    loss_val = 0.0
-    t0 = time.monotonic()
-    for _ in range(100):
-        loss_val = _train_ntm_epoch(model, batch, optimizer, clip_value)
-    t1 = time.monotonic()
-
-    elapsed = (t1 - t0) * 1000
-    return elapsed, loss_val, _peak_rss_mb()
+    return _run_benchmark(run_epoch, warmup=10, epochs=100)
 
 
 def main() -> None:
