@@ -52,7 +52,12 @@ def shift(weights: Tensor, kernel: Tensor) -> Tensor:
     return sl * weights.roll(-1) + ss * weights + sr * weights.roll(1)
 
 
-def focus(gamma: Tensor, weights: Tensor) -> Tensor:
-    """Sharpen addressing weights: w^gamma / sum(w^gamma)."""
-    raised = weights.pow(gamma)
+def focus(gamma: Tensor, weights: Tensor, eps: float = 1e-16) -> Tensor:
+    """Sharpen addressing weights: w^gamma / sum(w^gamma).
+
+    Clamps raised weights to prevent underflow: when all w^gamma = 0
+    (near-uniform weights with large gamma), the sum is zero and
+    the division produces NaN.
+    """
+    raised = weights.pow(gamma).clamp(min=eps)
     return raised / raised.sum(dim=-1, keepdim=True)
