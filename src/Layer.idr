@@ -381,21 +381,36 @@ mutual
   applyLayerVar {i} {o} (LstmLayer inputWeights recurrentWeights bias hiddenState cellState iwBuf rwBuf bBuf) xs =
     if i * o <= 4
       then applyLayer (LstmLayer inputWeights recurrentWeights bias hiddenState cellState iwBuf rwBuf bBuf) xs
-      else
-        let gateSize : Nat
-            gateSize = 4 * o
-            mulIW : Vector gateSize Variable
-            mulIW = maybe (matrixVectorMultiplyVar {m=gateSize, n=i} inputWeights xs)
-                          (\wb => matrixVectorMultiplyVarBuf {m=gateSize, n=i} wb xs) iwBuf
-            mulRW : Vector gateSize Variable
-            mulRW = maybe (matrixVectorMultiplyVar {m=gateSize, n=o} recurrentWeights hiddenState)
-                          (\wb => matrixVectorMultiplyVarBuf {m=gateSize, n=o} wb hiddenState) rwBuf
-            cellResult = maybe (lstmCellVar mulIW mulRW bias cellState)
-                               (\bb => lstmCellVarBuf mulIW mulRW bb cellState) bBuf
-            newCell = fst cellResult
-            newHidden = snd cellResult
-            updatedLayer = LstmLayer inputWeights recurrentWeights bias newHidden newCell iwBuf rwBuf bBuf
-        in (updatedLayer, newHidden)
+      else case (iwBuf, rwBuf, bBuf) of
+        -- Full buffer-passing: MatVec outputs feed directly into LstmCell (no Variables)
+        (Just iwb, Just rwb, Just bb) =>
+          let gateSize : Nat
+              gateSize = 4 * o
+              mulIWResult = matrixVectorMultiplyVarBufOut {m=gateSize, n=i} iwb xs
+              mulRWResult = matrixVectorMultiplyVarBufOut {m=gateSize, n=o} rwb hiddenState
+              cellResult = lstmCellVarFromBufs
+                             (fst mulIWResult) (snd mulIWResult)
+                             (fst mulRWResult) (snd mulRWResult) bb cellState
+              newCell = fst cellResult
+              newHidden = snd cellResult
+              updatedLayer = LstmLayer inputWeights recurrentWeights bias newHidden newCell iwBuf rwBuf bBuf
+          in (updatedLayer, newHidden)
+        -- Fallback: materialize Variables
+        _ =>
+          let gateSize : Nat
+              gateSize = 4 * o
+              mulIW : Vector gateSize Variable
+              mulIW = maybe (matrixVectorMultiplyVar {m=gateSize, n=i} inputWeights xs)
+                            (\wb => matrixVectorMultiplyVarBuf {m=gateSize, n=i} wb xs) iwBuf
+              mulRW : Vector gateSize Variable
+              mulRW = maybe (matrixVectorMultiplyVar {m=gateSize, n=o} recurrentWeights hiddenState)
+                            (\wb => matrixVectorMultiplyVarBuf {m=gateSize, n=o} wb hiddenState) rwBuf
+              cellResult = maybe (lstmCellVar mulIW mulRW bias cellState)
+                                 (\bb => lstmCellVarBuf mulIW mulRW bb cellState) bBuf
+              newCell = fst cellResult
+              newHidden = snd cellResult
+              updatedLayer = LstmLayer inputWeights recurrentWeights bias newHidden newCell iwBuf rwBuf bBuf
+          in (updatedLayer, newHidden)
   applyLayerVar layer@(ActivationLayer _ f) xs = (layer, map f xs)
   applyLayerVar layer@(NormalizationLayer "softmax" _) xs = (layer, softmaxVar xs)
   applyLayerVar layer@(NormalizationLayer "logSoftmax" _) xs = (layer, logSoftmaxVar xs)

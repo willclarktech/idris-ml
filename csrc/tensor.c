@@ -315,6 +315,17 @@ double tensor_read(double *ptr, int idx) {
 }
 
 
+/* Copy values from source buffer into destination arrays and set contiguous
+ * tape indices. Used for buffer-passing between chained tensor ops
+ * (eliminates buildOutputScalars + packVec roundtrip). Returns dst_vals. */
+void *buf_to_meta(double *dst_vals, int *dst_tape,
+                  double *src_buf, int tape_start, int count) {
+  memcpy(dst_vals, src_buf, count * sizeof(double));
+  for (int i = 0; i < count; i++) dst_tape[i] = tape_start + i;
+  return dst_vals;
+}
+
+
 /* -------------------------------------------------------------------
    Forward operations
    ------------------------------------------------------------------- */

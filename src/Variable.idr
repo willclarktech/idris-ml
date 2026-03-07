@@ -258,6 +258,10 @@ prim__matvecMetaAllocBuf : Int -> Int -> AnyPtr -> Int -> AnyPtr
 %foreign "scheme:(lambda (m n wptr wstart bptr bstart) ((foreign-procedure \"matvec_meta_alloc_buf_bias\" (int int void* int void* int) void*) m n wptr wstart bptr bstart))"
 prim__matvecMetaAllocBufBias : Int -> Int -> AnyPtr -> Int -> AnyPtr -> Int -> AnyPtr
 
+-- Buffer-passing helper: copy values + set contiguous tape indices (one C call)
+%foreign "scheme:(lambda (dv dt sb ts n) ((foreign-procedure \"buf_to_meta\" (void* void* void* int int) void*) dv dt sb ts n))"
+prim__bufToMeta : AnyPtr -> AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
+
 -- Raw array accessors (one C call each, cached for bulk writes)
 %foreign "scheme:(lambda (meta) ((foreign-procedure \"matvec_meta_w_vals\" (void*) void*) meta))"
 prim__matvecWVals : AnyPtr -> AnyPtr
@@ -866,6 +870,27 @@ matrixVectorMultiplyVarBufBias {m} {n} wBuf bBuf (VTensor xs) =
   in VTensor $ buildOutputScalars outBuf'' 0 m
 
 
+||| Matrix-vector multiply returning raw buffer + tape start instead of Variables.
+||| Used for buffer-passing to the next chained tensor op (e.g., LstmCell).
+||| Returns (outBuf, constStart) where constStart is the first output ConstOp index.
+export
+matrixVectorMultiplyVarBufOut : {m, n : Nat} -> AnyPtr -> Vector n Variable -> (AnyPtr, Int)
+matrixVectorMultiplyVarBufOut {m} {n} wBuf (VTensor xs) =
+  let mI = cast {to=Int} m
+      nI = cast {to=Int} n
+      wTapeStart = tapeEnsureBulkConst wBuf (mI * nI)
+      wValsPtr = prim__weightBufVals wBuf
+      meta = prim__matvecMetaAllocBuf mI nI wValsPtr wTapeStart
+      outBuf = prim__tensorAlloc mI
+      xvPtr = prim__matvecXVals meta
+      xtPtr = prim__matvecXTape meta
+      xvPtr' = packVec xvPtr xtPtr 0 xs
+      outBuf' = prim__matvecCompute meta (prim__seq xvPtr' outBuf)
+      outBuf'' = tapeAppendMatVecOp mI meta outBuf'
+      constStart = prim__appendOutputConst outBuf'' mI
+  in (outBuf'', constStart)
+
+
 ----------------------------------------------------------------------
 -- Weight Buffer Helpers
 ----------------------------------------------------------------------
@@ -1315,6 +1340,48 @@ lstmCellVarBuf {o} (VTensor mulIWElems) (VTensor mulRWElems) bBuf (VTensor prevC
       rwtPtr = prim__lstmCellMulRWTape meta
       rwvPtr' = packVec rwvPtr rwtPtr 0 mulRWElems
       -- Pack prevCell (no bias packing needed!)
+      pcvPtr = prim__lstmCellPrevCellVals (prim__seq rwvPtr' meta)
+      pctPtr = prim__lstmCellPrevCellTape meta
+      pcvPtr' = packVec pcvPtr pctPtr 0 prevCellElems
+      -- Compute
+      outBuf' = prim__lstmCellCompute meta (prim__seq pcvPtr' outBuf)
+      -- Append LstmCellOp tape entry (2*o outputs: cell + hidden)
+      outBuf'' = tapeAppendLstmCellOp twoO meta outBuf'
+      -- Build output Variables: first o = newCell, next o = newHidden
+      cellScalars = buildOutputScalars outBuf'' 0 o
+      hiddenScalars = buildOutputScalars outBuf'' oI o
+  in (VTensor cellScalars, VTensor hiddenScalars)
+
+
+||| Fused LSTM cell with buffer-passing for mulIW, mulRW, and bias.
+||| mulIW and mulRW come from matrixVectorMultiplyVarBufOut (C buffers + tape starts).
+||| Eliminates all packVec overhead for the 3 largest inputs.
+export
+lstmCellVarFromBufs : {o : Nat}
+                   -> AnyPtr -> Int    -- mulIW output buffer + const start
+                   -> AnyPtr -> Int    -- mulRW output buffer + const start
+                   -> AnyPtr           -- bias WeightBuf
+                   -> Vector o Variable  -- prev cell state
+                   -> (Vector o Variable, Vector o Variable)
+lstmCellVarFromBufs {o} mulIWBuf mulIWStart mulRWBuf mulRWStart bBuf (VTensor prevCellElems) =
+  let oI = cast {to=Int} o
+      fo = 4 * oI
+      twoO = 2 * oI
+      -- Ensure bias on tape (cached within epoch)
+      bTapeStart = tapeEnsureBulkConst bBuf fo
+      bValsPtr = prim__weightBufVals bBuf
+      -- Allocate meta with bias buffer path
+      meta = prim__lstmCellMetaAllocBuf oI bValsPtr bTapeStart
+      outBuf = prim__tensorAlloc twoO
+      -- Bulk-copy mulIW from output buffer into meta (1 C call instead of 400 packVec iterations)
+      iwvPtr = prim__lstmCellMulIWVals meta
+      iwtPtr = prim__lstmCellMulIWTape meta
+      iwvPtr' = prim__bufToMeta iwvPtr iwtPtr mulIWBuf mulIWStart fo
+      -- Bulk-copy mulRW from output buffer into meta
+      rwvPtr = prim__lstmCellMulRWVals (prim__seq iwvPtr' meta)
+      rwtPtr = prim__lstmCellMulRWTape meta
+      rwvPtr' = prim__bufToMeta rwvPtr rwtPtr mulRWBuf mulRWStart fo
+      -- Pack prevCell (small: o elements, still worth packing individually)
       pcvPtr = prim__lstmCellPrevCellVals (prim__seq rwvPtr' meta)
       pctPtr = prim__lstmCellPrevCellTape meta
       pcvPtr' = packVec pcvPtr pctPtr 0 prevCellElems
