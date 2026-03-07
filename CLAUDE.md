@@ -25,10 +25,10 @@ idris2 --source-dir src -p contrib -o <name> src/Example/<Name>.idr
 # Run a built example
 ./build/exec/<name>
 
-# Run Idris unit tests (108 tests)
+# Run Idris unit tests
 make test
 
-# Run C library tests (187 tests)
+# Run C library tests
 make test-c
 
 # Run benchmark (Supervised + RNN + NTM)
@@ -283,7 +283,7 @@ Commit at each step. The PyTorch implementation serves as the correctness oracle
 - **Build flags**: Forgetting `--source-dir src` or `-p contrib` produces confusing import errors
 - **Elementwise `(*)`**: `Tensor`'s `Num` instance uses elementwise multiply. For matrix-vector products, use `matrixVectorMultiply` or `vectorMatrixMultiply` from Math.idr
 - **`paramId` requirement**: Variables without a `paramId` (i.e., `Nothing`) are invisible to gradient collection and won't receive updates. Use `autoName` (preferred) or `nameParams`/`nameNetworkParams` before training. `autoName` assigns type-based prefixes with per-type counters (`ll0`, `ll1`, `rnn0`, `lstm0`, `ntm0`, ...) and scopes NTM sub-layer names under their parent (`ntm0_lstm0_`, `ntm0_readFc_ll0_`), preventing the collision bug in `nameNetworkParams`. `setParamId` writes to both the Variable record and the tape's pid vector
-- **Test suite**: Run `make test` for 108 Idris unit tests, `make test-c` for 187 C tests. Tests live in `test/src/Test/*.idr` with `Harness.idr` providing assertion helpers
+- **Test suite**: Run `make test` for Idris unit tests, `make test-c` for C tests. Tests live in `test/src/Test/*.idr` with `Harness.idr` providing assertion helpers
 - **Tape generation staleness**: After `collectGrads` resets the tape (gen++), Variables from the previous epoch are stale. `ensureOnTape` detects this via generation mismatch and re-registers with current `.value`. Same stale Variable used N times creates N Const entries — gradients accumulate correctly via `mergeWith (+)` on paramId
 - **Mutual recursion in Layer.idr**: `Layer` and `Network` are mutually recursive (NtmLayer contains sub-Layers). `applyLayer`, `forward`, `nameParams`, `nameNetworkParams`, and `Endofunctor` instances all live in `mutual` blocks
 - **NTM dimension calculations**: `ReadParamWidth m = (m + ShiftKernelSize) + 3` (key of width m + 3-element shift kernel + 3 dynamic params: β, g, γ). `WriteParamWidth m = ReadParamWidth m + m` (addressing params + add vector of width m). The LSTM controller input is `m + inputSize` (read output + input). The output FC input is `h + m` (hidden + read output). The `ntmLayer` constructor takes `{inputSize, outputSize, n, m, h}` as implicit args
