@@ -5,6 +5,7 @@ import Data.Stream
 import Data.String
 import Data.Vect
 import System
+import System.Clock
 import System.Random
 
 import Backprop
@@ -52,8 +53,9 @@ trainLoop :
   LossFunction Variable ->
   (totalEpochs : Nat) -> (patience : Nat) ->
   OptimizerState ->
+  Clock Monotonic ->
   IO (Network 1 [1] 1 Variable, Nat, Double)
-trainLoop opt model dataPoints lossFn totalEpochs patience st =
+trainLoop opt model dataPoints lossFn totalEpochs patience st t0 =
   go 0 model st (1.0/0.0) 0
   where
     go : Nat -> Network 1 [1] 1 Variable -> OptimizerState ->
@@ -65,12 +67,14 @@ trainLoop opt model dataPoints lossFn totalEpochs patience st =
         pure (m, ep, loss)
       else do
         let (m', s', loss) = epochRecurrent opt dataPoints lossFn m s
-        when (modNatNZ ep 100 ItIsSucc == 0) $
-          putStrLn $ "  " ++ show ep ++ ":\tloss=" ++ show loss
+        when (modNatNZ ep 100 ItIsSucc == 0) $ do
+          now <- clockTime Monotonic
+          putStrLn $ "  " ++ formatElapsed t0 now ++ " " ++ show ep ++ ":\tloss=" ++ show loss
                    ++ "\trss=" ++ show (getRssMB ep) ++ "MB"
         if loss /= loss
           then do
-            putStrLn $ "  Diverged (NaN) at epoch " ++ show ep
+            now <- clockTime Monotonic
+            putStrLn $ "  " ++ formatElapsed t0 now ++ " Diverged (NaN) at epoch " ++ show ep
             pure (m', ep, loss)
           else do
             let improved = loss < bestLoss - 0.001
@@ -79,7 +83,8 @@ trainLoop opt model dataPoints lossFn totalEpochs patience st =
                 sc = if improved then 0 else staleCount + 1
             if patience > 0 && sc >= patience
               then do
-                putStrLn $ "  Early stop at epoch " ++ show (ep + 1)
+                now <- clockTime Monotonic
+                putStrLn $ "  " ++ formatElapsed t0 now ++ " Early stop at epoch " ++ show (ep + 1)
                          ++ " (patience=" ++ show patience ++ ")"
                 pure (m', ep + 1, loss)
               else go (ep + 1) m' s' bestLoss' sc
@@ -151,8 +156,9 @@ main = do
   putStrLn ""
   putStrLn "Training..."
   let opt = sgd cfg.lr (1.0/0.0)
+  t0 <- clockTime Monotonic
   (trained, epochsDone, finalLoss) <- trainLoop opt model dataPoints lossFn
-    cfg.epochs cfg.patience initState
+    cfg.epochs cfg.patience initState t0
 
   let predictions' = decodeOutput $ evaluateRecurrent trained dataPoints
   let loss' = calculateLossRecurrent lossFn trained dataPoints

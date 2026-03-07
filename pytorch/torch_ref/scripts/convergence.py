@@ -12,6 +12,7 @@ Usage:
 
 import argparse
 import random
+import time
 from typing import Literal
 
 import torch
@@ -25,6 +26,12 @@ from torch_ref.diagnostics.ntm_diagnostics import (
     print_summary,
 )
 from torch_ref.models.ntm import NtmConfig, NtmModel, train_ntm_step
+
+
+def _fmt_elapsed(t0: float) -> str:
+    s = int(time.monotonic() - t0)
+    return f"[{s // 3600:02d}:{s % 3600 // 60:02d}:{s % 60:02d}]"
+
 
 # ---------------------------------------------------------------------------
 # Copy task
@@ -76,6 +83,7 @@ def run_copy(args: argparse.Namespace) -> None:
     # Training loop
     losses: list[float] = []
     patience_count = 0
+    t0 = time.monotonic()
     for i in range(1, iterations + 1):
         if batch_size == 1:
             input_seq, target_seq = generate_copy_sequence(
@@ -90,7 +98,7 @@ def run_copy(args: argparse.Namespace) -> None:
 
         if i % 500 == 0:
             avg_loss = sum(losses[-500:]) / len(losses[-500:])
-            print(f"  iter {i:6d}: loss={avg_loss:.6f}")
+            print(f"  {_fmt_elapsed(t0)} iter {i:6d}: loss={avg_loss:.6f}")
 
             # Early stopping
             if early_stop and i >= es_window:
@@ -98,7 +106,10 @@ def run_copy(args: argparse.Namespace) -> None:
                 if window_avg < es_threshold:
                     patience_count += 1
                     if patience_count >= es_patience:
-                        print(f"  ** early stop at iter {i} (avg loss={window_avg:.6f})")
+                        print(
+                            f"  {_fmt_elapsed(t0)} ** early stop at iter {i}"
+                            f" (avg loss={window_avg:.6f})"
+                        )
                         break
                 else:
                     patience_count = 0
@@ -184,6 +195,7 @@ def run_recall(args: argparse.Namespace) -> None:
     losses: list[float] = []
     bit_errors: list[float] = []
     patience_count = 0
+    t0 = time.monotonic()
     for i in range(1, iterations + 1):
         num_items = random.randint(min_items, max_items)
         input_seq, target_seq = generate_recall_sequence(
@@ -198,7 +210,7 @@ def run_recall(args: argparse.Namespace) -> None:
         if i % 500 == 0:
             avg_loss = sum(losses[-500:]) / len(losses[-500:])
             avg_bits = sum(bit_errors[-500:]) / len(bit_errors[-500:])
-            print(f"  iter {i:6d}: loss={avg_loss:.6f}  bit_err={avg_bits:.2f}")
+            print(f"  {_fmt_elapsed(t0)} iter {i:6d}: loss={avg_loss:.6f}  bit_err={avg_bits:.2f}")
 
             # Early stopping
             if early_stop and i >= es_window:
@@ -206,7 +218,10 @@ def run_recall(args: argparse.Namespace) -> None:
                 if window_avg < es_threshold:
                     patience_count += 1
                     if patience_count >= es_patience:
-                        print(f"  ** early stop at iter {i} (avg bit_err={window_avg:.4f})")
+                        print(
+                            f"  {_fmt_elapsed(t0)} ** early stop at iter {i}"
+                            f" (avg bit_err={window_avg:.4f})"
+                        )
                         break
                 else:
                     patience_count = 0

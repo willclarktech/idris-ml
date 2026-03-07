@@ -14,6 +14,7 @@ import Data.List
 import Data.String
 import Data.Vect
 import System
+import System.Clock
 import System.Random
 
 import Backprop
@@ -26,6 +27,7 @@ import Math
 import Optimizer
 import Schedule
 import Tensor
+import Util
 import Variable
 
 
@@ -108,8 +110,9 @@ trainLoop :
   (totalEpochs : Nat) -> (patience : Nat) -> (chunkSize : Nat) ->
   (minLen, maxLen : Nat) ->
   DenseOptimizerState ->
+  Clock Monotonic ->
   IO (Network InputW [] OutputW Variable, DenseOptimizerState, Nat)
-trainLoop makeOpt schedule model totalEpochs patience chunkSize minLen maxLen st =
+trainLoop makeOpt schedule model totalEpochs patience chunkSize minLen maxLen st t0 =
   go 0 model st (1.0/0.0) 0
   where
     go : Nat -> Network InputW [] OutputW Variable -> DenseOptimizerState ->
@@ -124,13 +127,15 @@ trainLoop makeOpt schedule model totalEpochs patience chunkSize minLen maxLen st
             opt = makeOpt lr
             (m', s', loss) = epochTwoPhaseDense opt dps binaryCrossEntropyWithLogits m s
         when (modNatNZ ep 10 ItIsSucc == 0) forceGC
-        when (modNatNZ ep 100 ItIsSucc == 0) $
-          putStrLn $ "  " ++ show ep ++ ":\tloss=" ++ show loss
+        when (modNatNZ ep 100 ItIsSucc == 0) $ do
+          now <- clockTime Monotonic
+          putStrLn $ "  " ++ formatElapsed t0 now ++ " " ++ show ep ++ ":\tloss=" ++ show loss
                    ++ "\tpeak=" ++ show (getRssMB ep) ++ "MB"
                    ++ "\tcur=" ++ show (getCurrentRssMB ep) ++ "MB"
         if loss /= loss
           then do
-            putStrLn $ "  Diverged (NaN) at epoch " ++ show ep
+            now <- clockTime Monotonic
+            putStrLn $ "  " ++ formatElapsed t0 now ++ " Diverged (NaN) at epoch " ++ show ep
             pure (m', s', ep)
           else do
             let improved = loss < bestLoss - 0.001
@@ -139,7 +144,8 @@ trainLoop makeOpt schedule model totalEpochs patience chunkSize minLen maxLen st
                 sc = if improved then 0 else staleCount + 1
             if patience > 0 && sc >= patience
               then do
-                putStrLn $ "  Early stop at epoch " ++ show (ep + 1)
+                now <- clockTime Monotonic
+                putStrLn $ "  " ++ formatElapsed t0 now ++ " Early stop at epoch " ++ show (ep + 1)
                          ++ " (patience=" ++ show patience ++ ")"
                 pure (m', s', ep + 1)
               else go (ep + 1) m' s' bestLoss' sc
@@ -153,8 +159,9 @@ trainLoop1 :
   (totalEpochs : Nat) -> (patience : Nat) ->
   (minLen, maxLen : Nat) ->
   DenseOptimizerState ->
+  Clock Monotonic ->
   IO (Network InputW [] OutputW Variable, DenseOptimizerState, Nat)
-trainLoop1 makeOpt schedule model totalEpochs patience minLen maxLen st =
+trainLoop1 makeOpt schedule model totalEpochs patience minLen maxLen st t0 =
   go 0 model st (1.0/0.0) 0
   where
     go : Nat -> Network InputW [] OutputW Variable -> DenseOptimizerState ->
@@ -169,13 +176,15 @@ trainLoop1 makeOpt schedule model totalEpochs patience minLen maxLen st =
             opt = makeOpt lr
             (m', s', loss) = epochTwoPhaseDense opt dps binaryCrossEntropyWithLogits m s
         when (modNatNZ ep 10 ItIsSucc == 0) forceGC
-        when (modNatNZ ep 500 ItIsSucc == 0) $
-          putStrLn $ "  " ++ show ep ++ ":\tloss=" ++ show loss
+        when (modNatNZ ep 500 ItIsSucc == 0) $ do
+          now <- clockTime Monotonic
+          putStrLn $ "  " ++ formatElapsed t0 now ++ " " ++ show ep ++ ":\tloss=" ++ show loss
                    ++ "\tpeak=" ++ show (getRssMB ep) ++ "MB"
                    ++ "\tcur=" ++ show (getCurrentRssMB ep) ++ "MB"
         if loss /= loss
           then do
-            putStrLn $ "  Diverged (NaN) at epoch " ++ show ep
+            now <- clockTime Monotonic
+            putStrLn $ "  " ++ formatElapsed t0 now ++ " Diverged (NaN) at epoch " ++ show ep
             pure (m', s', ep)
           else do
             let improved = loss < bestLoss - 0.001
@@ -184,7 +193,8 @@ trainLoop1 makeOpt schedule model totalEpochs patience minLen maxLen st =
                 sc = if improved then 0 else staleCount + 1
             if patience > 0 && sc >= patience
               then do
-                putStrLn $ "  Early stop at epoch " ++ show (ep + 1)
+                now <- clockTime Monotonic
+                putStrLn $ "  " ++ formatElapsed t0 now ++ " Early stop at epoch " ++ show (ep + 1)
                          ++ " (patience=" ++ show patience ++ ")"
                 pure (m', s', ep + 1)
               else go (ep + 1) m' s' bestLoss' sc
@@ -268,12 +278,13 @@ main = do
   let schedule = constant cfg.lr
   let st0 = initDenseState numPids
   putStrLn $ "Training (batch=" ++ show cfg.batch ++ ")..."
+  t0 <- clockTime Monotonic
   (trained, finalSt, epochsDone) <-
     if cfg.batch == 1
       then trainLoop1 makeOpt schedule model
-             cfg.epochs cfg.patience cfg.minLen cfg.maxLen st0
+             cfg.epochs cfg.patience cfg.minLen cfg.maxLen st0 t0
       else trainLoop makeOpt schedule model
-             cfg.epochs cfg.patience 1 cfg.minLen cfg.maxLen st0
+             cfg.epochs cfg.patience 1 cfg.minLen cfg.maxLen st0 t0
 
   putStrLn $ "Training complete: " ++ show epochsDone ++ " epochs"
   putStrLn ""

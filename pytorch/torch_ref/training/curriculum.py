@@ -6,6 +6,7 @@ Periodic data regeneration with two-level early stopping:
 """
 
 import math
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -14,6 +15,11 @@ import torch
 from torch import Tensor
 
 MIN_DELTA = 0.001
+
+
+def _fmt_elapsed(t0: float) -> str:
+    s = int(time.monotonic() - t0)
+    return f"[{s // 3600:02d}:{s % 3600 // 60:02d}:{s % 60:02d}]"
 
 
 @dataclass
@@ -66,6 +72,7 @@ def run_curriculum(
     budget = total_epochs
     best_loss = float("inf")
     stale_count = 0
+    t0 = time.monotonic()
 
     # Create optimizer once — preserve internal state (RMSprop running averages, Adam moments)
     initial_lr = schedule_fn(0)
@@ -105,20 +112,22 @@ def run_curriculum(
                 else:
                     stale_count += 1
 
-            print(f"  {done}:\t{loss_val:.6f}")
+            print(f"  {_fmt_elapsed(t0)} {done}:\t{loss_val:.6f}")
 
             # Check stage advancement
             if stage.threshold > 0.0 and loss_val < stage.threshold:
-                print(f"  -> Advancing (loss {loss_val:.6f} < {stage.threshold})")
+                print(
+                    f"  {_fmt_elapsed(t0)} -> Advancing (loss {loss_val:.6f} < {stage.threshold})"
+                )
                 advanced = True
                 break
 
             if patience > 0 and stale_count >= patience:
-                print(f"  Early stop at epoch {done} (patience={patience})")
+                print(f"  {_fmt_elapsed(t0)} Early stop at epoch {done} (patience={patience})")
                 break
 
             if loss_val != loss_val:  # NaN check
-                print(f"  Diverged (NaN) at epoch {done}")
+                print(f"  {_fmt_elapsed(t0)} Diverged (NaN) at epoch {done}")
                 return done, loss_val
 
         if not advanced and stage_idx < len(stages) - 1:
