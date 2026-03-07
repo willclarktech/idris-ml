@@ -344,7 +344,7 @@ def main() -> None:
     parser.add_argument("--recall-lr", type=float, default=1e-4, help="Recall learning rate")
     parser.add_argument("--recall-min-items", type=int, default=2, help="Recall min items")
     parser.add_argument("--recall-max-items", type=int, default=6, help="Recall max items")
-    parser.add_argument("--recall-batch-size", type=int, default=1, help="Recall batch size")
+    parser.add_argument("--recall-batch-size", type=int, default=1, help="Recall batch size (default: 1, matching reference implementations)")
     args = parser.parse_args()
 
     torch.manual_seed(args.seed)
