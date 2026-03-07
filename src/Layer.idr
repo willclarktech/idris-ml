@@ -369,6 +369,7 @@ mutual
   -- or (updatedLayer, hidden, Nothing) on fallback.
   applyLstmGetBuf : {i, o : Nat} -> Layer i o Variable -> Vector i Variable
     -> (Layer i o Variable, Vector o Variable, Maybe (AnyPtr, Int))
+  -- DIAGNOSTIC: use lstmCellVarFromBufs (non-Ext) directly
   applyLstmGetBuf {i} {o} (LstmLayer inputWeights recurrentWeights bias hiddenState cellState iwBuf rwBuf bBuf) xs =
     if i * o <= 4
       then let r = applyLayer (LstmLayer inputWeights recurrentWeights bias hiddenState cellState iwBuf rwBuf bBuf) xs
@@ -379,15 +380,12 @@ mutual
               gateSize = 4 * o
               mulIWResult = matrixVectorMultiplyVarBufOut {m=gateSize, n=i} iwb xs
               mulRWResult = matrixVectorMultiplyVarBufOut {m=gateSize, n=o} rwb hiddenState
-              cellResult = lstmCellVarFromBufsExt
-                             (fst mulIWResult) (snd mulIWResult)
-                             (fst mulRWResult) (snd mulRWResult) bb cellState
-              newCell = fst cellResult
-              newHidden = fst (snd cellResult)
-              outBuf = fst (snd (snd cellResult))
-              cellConstStart = snd (snd (snd cellResult))
-              updatedLayer = LstmLayer inputWeights recurrentWeights bias newHidden newCell iwBuf rwBuf bBuf
-          in (updatedLayer, newHidden, Just (outBuf, cellConstStart))
+          in case lstmCellVarFromBufsExt
+                    (fst mulIWResult) (snd mulIWResult)
+                    (fst mulRWResult) (snd mulRWResult) bb cellState of
+            (newCell, newHidden, outBuf, cellConstStart) =>
+              let updatedLayer = LstmLayer inputWeights recurrentWeights bias newHidden newCell iwBuf rwBuf bBuf
+              in (updatedLayer, newHidden, Just (outBuf, cellConstStart))
         _ =>
           let gateSize : Nat
               gateSize = 4 * o
@@ -467,66 +465,66 @@ mutual
   applyLayerVar layer@(NormalizationLayer "logSoftmax" _) xs = (layer, logSoftmaxVar xs)
   applyLayerVar layer@(NormalizationLayer _ f) xs = (layer, f xs)
   -- Buffer-aware NTM forward pass (persistent memory buffer)
+  -- Uses case destructuring at each level to prevent Idris 2 re-evaluation of FFI side effects.
   applyLayerVar (NtmLayer {n} {m} {h} lstm readFc writeFc outputFc memory readAddr writeAddr readOutput (Just memBuf)) inp =
-    let
-      lstmResult = applyLstmGetBuf lstm (readOutput ++ inp)
-      updatedLstm = fst lstmResult
-      hidden = fst (snd lstmResult)
-      lstmBufInfo = snd (snd lstmResult)
-      -- Read FC: prefer buffer-passing from LSTM cell output
-      rawReadParams = case (lstmBufInfo, getLinearBufs readFc) of
-        (Just (buf, ccs), (Just wb, Just bb)) =>
-          matrixVectorMultiplyVarBufBiasFromBuf {m=ReadParamWidth m, n=h} wb bb buf 0 ccs
-        _ => snd (applyLayerVar readFc (extractCellState updatedLstm))
-      readParams = map (clampVar (-20.0) 20.0) rawReadParams
-      -- Write FC: prefer buffer-passing from LSTM cell output
-      rawWriteParams = case (lstmBufInfo, getLinearBufs writeFc) of
-        (Just (buf, ccs), (Just wb, Just bb)) =>
-          matrixVectorMultiplyVarBufBiasFromBuf {m=WriteParamWidth m, n=h} wb bb buf 0 ccs
-        _ => snd (applyLayerVar writeFc (extractCellState updatedLstm))
-      writeParams = map (clampVar (-20.0) 20.0) rawWriteParams
-      -- Read head (buffer-aware: C memcpy pack)
-      rh = MkReadHead readAddr
-      readResult = forwardReadHeadUnboundedVarBuf memBuf rh readParams
-      newReadAddr' = (fst readResult).addressingWeights
-      newReadOutput = snd readResult
-      -- Write head (buffer-aware: mutates memBuf in-place)
-      wh = MkWriteHead (MkReadHead writeAddr)
-      writeResult = forwardWriteHeadInterpVarBuf memBuf wh writeParams
-      newWriteAddr' = (fst writeResult).readHead.addressingWeights
-      mb' = snd writeResult
-      -- Output FC: prefer hybrid buffer+vec from LSTM hidden + readOutput
-      output = case (lstmBufInfo, getLinearBufs outputFc) of
-        (Just (buf, ccs), (Just wb, Just bb)) =>
-          matrixVectorMultiplyVarBufBiasFromBufAndVec {m=o, n1=h, n2=m}
-            wb bb buf (cast h) (ccs + cast h) newReadOutput
-        _ => snd (applyLayerVar outputFc (hidden ++ newReadOutput))
-      -- memory unchanged (for applyDeltas); buffer mutated via mb'
-      newLayer = NtmLayer updatedLstm readFc writeFc outputFc
-                          memory newReadAddr' newWriteAddr' newReadOutput (Just mb')
-    in (newLayer, output)
+    case applyLstmGetBuf lstm (readOutput ++ inp) of
+      (updatedLstm, hidden, lstmBufInfo) =>
+        let cell = extractCellState updatedLstm
+            -- Read FC: prefer buffer-passing from LSTM cell output
+            rawReadParams = case (lstmBufInfo, getLinearBufs readFc) of
+              (Just (buf, ccs), (Just wb, Just bb)) =>
+                matrixVectorMultiplyVarBufBiasFromBuf {m=ReadParamWidth m, n=h} wb bb buf 0 ccs
+              _ => snd (applyLayerVar readFc cell)
+            readParams = map (clampVar (-20.0) 20.0) rawReadParams
+            -- Write FC: prefer buffer-passing from LSTM cell output
+            rawWriteParams = case (lstmBufInfo, getLinearBufs writeFc) of
+              (Just (buf, ccs), (Just wb, Just bb)) =>
+                matrixVectorMultiplyVarBufBiasFromBuf {m=WriteParamWidth m, n=h} wb bb buf 0 ccs
+              _ => snd (applyLayerVar writeFc cell)
+            writeParams = map (clampVar (-20.0) 20.0) rawWriteParams
+            -- Read head (buffer-aware: C memcpy pack)
+            rh = MkReadHead readAddr
+        in case forwardReadHeadUnboundedVarBuf memBuf rh readParams of
+          (readHead, newReadOutput) =>
+            let newReadAddr' = readHead.addressingWeights
+                -- Write head (buffer-aware: mutates memBuf in-place)
+                wh = MkWriteHead (MkReadHead writeAddr)
+            in case forwardWriteHeadInterpVarBuf memBuf wh writeParams of
+              (writeHead, mb') =>
+                let newWriteAddr' = writeHead.readHead.addressingWeights
+                    -- Output FC: prefer hybrid buffer+vec from LSTM hidden + readOutput
+                    output = case (lstmBufInfo, getLinearBufs outputFc) of
+                      (Just (buf, ccs), (Just wb, Just bb)) =>
+                        matrixVectorMultiplyVarBufBiasFromBufAndVec {m=o, n1=h, n2=m}
+                          wb bb buf (cast h) (ccs + cast h) newReadOutput
+                      _ => snd (applyLayerVar outputFc (hidden ++ newReadOutput))
+                    -- memory unchanged (for applyDeltas); buffer mutated via mb'
+                    newLayer = NtmLayer updatedLstm readFc writeFc outputFc
+                                        memory newReadAddr' newWriteAddr' newReadOutput (Just mb')
+                in (newLayer, output)
   -- Variable-based NTM forward pass (no buffer)
   applyLayerVar (NtmLayer {n} {m} {h} lstm readFc writeFc outputFc memory readAddr writeAddr readOutput Nothing) inp =
-    let
-      lstmResult = applyLayerVar lstm (readOutput ++ inp)
-      hidden = snd lstmResult
-      cell = extractCellState (fst lstmResult)
-      rawReadParams = snd (applyLayerVar readFc cell)
-      readParams = map (clampVar (-20.0) 20.0) rawReadParams
-      rawWriteParams = snd (applyLayerVar writeFc cell)
-      writeParams = map (clampVar (-20.0) 20.0) rawWriteParams
-      rh = MkReadHead readAddr
-      readResult = forwardReadHeadUnboundedVar memory rh readParams
-      newReadAddr' = (fst readResult).addressingWeights
-      newReadOutput = snd readResult
-      wh = MkWriteHead (MkReadHead writeAddr)
-      writeResult = forwardWriteHeadInterpVar memory wh writeParams
-      newWriteAddr' = (fst writeResult).readHead.addressingWeights
-      newMemory = snd writeResult
-      output = snd (applyLayerVar outputFc (hidden ++ newReadOutput))
-      newLayer = NtmLayer (fst lstmResult) readFc writeFc outputFc
-                          newMemory newReadAddr' newWriteAddr' newReadOutput Nothing
-    in (newLayer, output)
+    case applyLayerVar lstm (readOutput ++ inp) of
+      (updatedLstm, hidden) =>
+        let cell = extractCellState updatedLstm
+        in case applyLayerVar readFc cell of
+          (_, rawReadParams) =>
+            let readParams = map (clampVar (-20.0) 20.0) rawReadParams
+            in case applyLayerVar writeFc cell of
+              (_, rawWriteParams) =>
+                let writeParams = map (clampVar (-20.0) 20.0) rawWriteParams
+                    rh = MkReadHead readAddr
+                in case forwardReadHeadUnboundedVar memory rh readParams of
+                  (readHead, newReadOutput) =>
+                    let wh = MkWriteHead (MkReadHead writeAddr)
+                    in case forwardWriteHeadInterpVar memory wh writeParams of
+                      (writeHead, newMemory) =>
+                        let newReadAddr' = readHead.addressingWeights
+                            newWriteAddr' = writeHead.readHead.addressingWeights
+                            output = snd (applyLayerVar outputFc (hidden ++ newReadOutput))
+                            newLayer = NtmLayer updatedLstm readFc writeFc outputFc
+                                                newMemory newReadAddr' newWriteAddr' newReadOutput Nothing
+                        in (newLayer, output)
 
   export
   forwardVar : {i, o : Nat} -> {hs : List Nat} -> Network i hs o Variable -> Vector i Variable -> (Network i hs o Variable, Vector o Variable)
