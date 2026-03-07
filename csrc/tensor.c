@@ -9,40 +9,57 @@
 
 
 /* -------------------------------------------------------------------
-   Arena allocator
+   Arena allocator (chunked: never moves previous allocations)
    ------------------------------------------------------------------- */
 
-typedef struct {
+typedef struct ArenaChunk {
   char *buf;
   size_t used, cap;
-} Arena;
+  struct ArenaChunk *next; /* older chunks */
+} ArenaChunk;
 
-static Arena arena = {NULL, 0, 0};
+static ArenaChunk *arena_head = NULL;
+
+static ArenaChunk *arena_new_chunk(size_t cap) {
+  ArenaChunk *c = (ArenaChunk *)malloc(sizeof(ArenaChunk));
+  c->buf = (char *)malloc(cap);
+  c->used = 0;
+  c->cap = cap;
+  c->next = NULL;
+  return c;
+}
 
 void arena_init(size_t cap) {
-  if (arena.buf) return;
-  arena.buf = (char *)malloc(cap);
-  arena.used = 0;
-  arena.cap = cap;
+  if (arena_head) return;
+  arena_head = arena_new_chunk(cap);
 }
 
 void *arena_alloc(size_t size) {
   /* align to 8 bytes */
   size = (size + 7) & ~(size_t)7;
-  if (!arena.buf) arena_init(1 << 20); /* 1 MB default */
-  if (arena.used + size > arena.cap) {
-    size_t new_cap = arena.cap * 2;
-    while (arena.used + size > new_cap) new_cap *= 2;
-    arena.buf = (char *)realloc(arena.buf, new_cap);
-    arena.cap = new_cap;
+  if (!arena_head) arena_init(1 << 20); /* 1 MB default */
+  if (arena_head->used + size > arena_head->cap) {
+    /* Allocate a new chunk at least 2x the current and big enough for this alloc */
+    size_t new_cap = arena_head->cap * 2;
+    while (size > new_cap) new_cap *= 2;
+    ArenaChunk *c = arena_new_chunk(new_cap);
+    c->next = arena_head;
+    arena_head = c;
   }
-  void *p = arena.buf + arena.used;
-  arena.used += size;
+  void *p = arena_head->buf + arena_head->used;
+  arena_head->used += size;
   return p;
 }
 
 void arena_reset(void) {
-  arena.used = 0;
+  /* Free all chunks except the largest (head), reset its usage */
+  while (arena_head && arena_head->next) {
+    ArenaChunk *old = arena_head->next;
+    arena_head->next = old->next;
+    free(old->buf);
+    free(old);
+  }
+  if (arena_head) arena_head->used = 0;
 }
 
 
@@ -93,8 +110,10 @@ static int tape_size = 0;
 static int tape_cap  = 0;
 static int tape_gen  = 0;
 
-/* Result buffer for walk_backward: collected (pid, grad) pairs */
+/* Result buffer for walk_backward: collected parameter results.
+ * walk_backward uses (pid, grad), walk_backward_ext uses (index, grad). */
 static char **result_pids = NULL;
+static int   *result_idxs = NULL;
 static double *result_vals = NULL;
 static int result_cap = 0;
 
@@ -111,6 +130,7 @@ void tape_init(void) {
   tape_gen = 0;
   result_cap = 256;
   result_pids = (char **)malloc(result_cap * sizeof(char *));
+  result_idxs = (int *)malloc(result_cap * sizeof(int));
   result_vals = (double *)malloc(result_cap * sizeof(double));
 }
 
@@ -498,6 +518,34 @@ InterpWriteMeta *interp_write_meta_alloc(int n, int w) {
   return m;
 }
 
+
+/* -------------------------------------------------------------------
+   External meta array (for hybrid Scheme/C tape)
+   Stores meta pointers written from Scheme via C function call,
+   avoiding both foreign-set! 'void* corruption and Scheme vector GC issues.
+   ------------------------------------------------------------------- */
+
+static void **ext_meta = NULL;
+static int ext_meta_cap = 0;
+
+void ext_meta_set(int idx, void *ptr) {
+  if (idx >= ext_meta_cap) {
+    int new_cap = ext_meta_cap == 0 ? 4096 : ext_meta_cap * 2;
+    while (idx >= new_cap) new_cap *= 2;
+    ext_meta = (void **)realloc(ext_meta, new_cap * sizeof(void *));
+    memset(ext_meta + ext_meta_cap, 0, (new_cap - ext_meta_cap) * sizeof(void *));
+    ext_meta_cap = new_cap;
+  }
+  ext_meta[idx] = ptr;
+}
+
+void *ext_meta_get_arr(void) {
+  return ext_meta;
+}
+
+void ext_meta_reset(void) {
+  if (ext_meta) memset(ext_meta, 0, ext_meta_cap * sizeof(void *));
+}
 
 /* -------------------------------------------------------------------
    Gradient array (C-backed for use with tensor backward)
@@ -1132,7 +1180,101 @@ int walk_backward_and_reset(double *grad, int tape_sz) {
 
 /* Access collected results */
 char *result_get_pid(int i) { return result_pids[i]; }
+int result_get_idx(int i) { return result_idxs[i]; }
 double result_get_val(int i) { return result_vals[i]; }
+
+/* Walk backward with external arrays (Scheme-allocated foreign memory).
+ * Same logic as walk_backward but reads from passed-in arrays instead
+ * of the global C tape. Collects (index, grad) pairs instead of
+ * (pid, grad) pairs — caller looks up pid from Scheme vector.
+ * Also frees the grad array after use. */
+int walk_backward_ext(double *grad, int tape_sz,
+                      int *tags, int *arg1, int *arg2,
+                      double *vals) {
+  void **meta = ext_meta;
+  /* Ensure result arrays are allocated (tape_init may not have been called) */
+  if (!result_idxs) {
+    result_cap = 256;
+    result_idxs = (int *)malloc(result_cap * sizeof(int));
+    result_vals = (double *)malloc(result_cap * sizeof(double));
+  }
+  int n_collected = 0;
+
+  for (int idx = tape_sz - 1; idx >= 0; idx--) {
+    int tag = tags[idx];
+    double g = grad[idx];
+
+    if (tag == 0) {
+      /* ConstOp: always collect — caller filters by pid in Scheme.
+       * We can't check pid here since pids are in Scheme vector. */
+      if (g != 0.0) {
+        if (n_collected >= result_cap) {
+          result_cap *= 2;
+          result_idxs = (int *)realloc(result_idxs, result_cap * sizeof(int));
+          result_vals = (double *)realloc(result_vals, result_cap * sizeof(double));
+        }
+        result_idxs[n_collected] = idx;
+        result_vals[n_collected] = g;
+        n_collected++;
+      }
+      continue;
+    }
+
+    /* Scalar ops (1-10, 19-20) store gradient at grad[idx]; safe to skip.
+     * Tensor ops (11-18) store gradient at output ConstOps; never skip. */
+    if (g == 0.0 && (tag <= 10 || tag >= 19)) continue;
+
+    int a1 = arg1[idx];
+    int a2 = arg2[idx];
+
+    switch (tag) {
+      case 1:  grad[a1] += -g; break;
+      case 2:  grad[a1] += g * (vals[a1] > 0 ? 1.0 : (vals[a1] < 0 ? -1.0 : 0.0)); break;
+      case 3:  grad[a1] += g * vals[idx]; break;
+      case 4:  grad[a1] += g / vals[a1]; break;
+      case 5:  grad[a1] += g / (2.0 * vals[idx]); break;
+      case 6:  grad[a1] += g; grad[a2] += g; break;
+      case 7:  grad[a1] += g; grad[a2] += -g; break;
+      case 8:  grad[a1] += g * vals[a2]; grad[a2] += g * vals[a1]; break;
+      case 9:  grad[a1] += g / vals[a2]; grad[a2] += -g * vals[a1] / (vals[a2] * vals[a2]); break;
+      case 10: {
+        double vx = vals[a1], vy = vals[a2];
+        grad[a1] += g * vy * pow(vx, vy - 1.0);
+        if (vx != 0.0) grad[a2] += g * vals[idx] * log(vx);
+        break;
+      }
+      case 11: tensor_matvec_backward(grad, (MatVecMeta *)meta[idx]); break;
+      case 12: tensor_dot_backward(grad, (DotMeta *)meta[idx]); break;
+      case 13: tensor_softmax_backward(grad, (SoftmaxMeta *)meta[idx]); break;
+      case 14: tensor_logsoftmax_backward(grad, (SoftmaxMeta *)meta[idx]); break;
+      case 15: tensor_batch_cossim_backward(grad, (BatchCosSimMeta *)meta[idx]); break;
+      case 16: tensor_readop_backward(grad, (ReadOpMeta *)meta[idx]); break;
+      case 17: tensor_writeop_backward(grad, (WriteOpMeta *)meta[idx]); break;
+      case 18: tensor_interp_write_backward(grad, (InterpWriteMeta *)meta[idx]); break;
+      case 19: { double val = vals[idx]; grad[a1] += g * val * (1.0 - val); break; }
+      case 20: { double val = vals[idx]; grad[a1] += g * (1.0 - val * val); break; }
+      default: break;
+    }
+  }
+
+  free(grad);
+  /* arena_reset and ext_meta_reset called by Scheme after this returns */
+  return n_collected;
+}
+
+/* Route tensor op set_out based on tag. Called from Scheme after
+ * writing tape entry with foreign-set!. */
+void *tensor_op_set_out(int tag, void *meta, int idx) {
+  switch (tag) {
+    case 11: return matvec_meta_set_out(meta, idx);
+    case 13: case 14: return softmax_meta_set_out(meta, idx);
+    case 15: return batch_cossim_meta_set_out(meta, idx);
+    case 16: return readop_meta_set_out(meta, idx);
+    case 17: return writeop_meta_set_out(meta, idx);
+    case 18: return interp_write_meta_set_out(meta, idx);
+    default: return meta;
+  }
+}
 
 
 /* -------------------------------------------------------------------
