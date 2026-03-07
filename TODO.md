@@ -1,11 +1,5 @@
 # Backlog
 
-## High Priority
-
-| Item | Difficulty | Notes |
-|------|-----------|-------|
-| Cleaner port/adapter model for layers | L | Currently Layer.idr contains every layer type and all dispatch logic in one mutual block; consider typeclass-based extensibility |
-
 ## Medium Priority
 
 | Item | Difficulty | Notes |
@@ -87,3 +81,4 @@
 - Periodic bit accuracy logging in NTM recall training loop
 - NTM recall convergence (batch=1 converges; batch=16 plateaus due to gradient dilution across variable-structure sequences)
 - PyTorch focus() NaN fix (clamp raised weights to prevent underflow when near-uniform weights + large gamma → 0/0)
+- Interface-based layer system (`LayerLike` interface + `AnyLayer` existential + per-layer modules, eliminates all mutual recursion)

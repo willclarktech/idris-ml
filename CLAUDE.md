@@ -91,7 +91,14 @@ bash scripts/sweep.sh --task lstm --parallel 4 --quick
 8. **DataPoint** - `DataPoint`, `RecurrentDataPoint`, and `TwoPhaseDataPoint` records
 8b. **Generate** - Random data generation: `SequenceTask` port, `copyTask`/`associativeRecallTask` adapters, `copyTaskBinary`/`recallTaskBinary` (binary vector format), `randomBatchVect`
 9. **Endofunctor** - `emap : (ty -> ty) -> e ty -> e ty` for type-preserving maps
-10. **Layer** - Layer/Network types (mutually recursive), forward pass, constructors, `autoName`
+10. **Layer** - Re-export hub for the interface-based layer system:
+    - **Layer.Core** - `LayerLike` interface, `AnyLayer` existential wrapper, `Network` type, all network-level operations (forward, loss, autoName, sync, debug)
+    - **Layer.Linear** - `LinearState` + `LayerLike` instance + constructors
+    - **Layer.Rnn** - `RnnState` + `LayerLike` instance + constructors
+    - **Layer.Lstm** - `LstmState` + `LayerLike` instance + constructors + buffer-passing helpers
+    - **Layer.Activation** - `ActivationState` + `LayerLike` instance + constructors
+    - **Layer.Normalization** - `NormalizationState` + `LayerLike` instance + constructors
+    - **Layer.Ntm** - `NtmState` + `LayerLike` instance + NTM head ops + constructor (imports Lstm and Linear for concrete sub-layer types)
 11. **Optimizer** - SGD, Adam, and RMSprop optimizers with per-parameter, global norm, or value gradient clipping
 12. **Schedule** - Learning rate schedules: `constant`, `cosineAnnealing`, `oneCycle`
 13. **Backprop** - Training loop: `epoch`, `train`, `trainFrom`, `epochRecurrent`, `trainRecurrent`, `trainRecurrentFrom`, `trainScheduledFrom`, `trainRecurrentScheduledFrom`, `epochTwoPhase`, `trainTwoPhaseScheduledFrom`, `epochTwoPhaseDenseBce`
@@ -118,18 +125,23 @@ record Variable where
   paramId : Maybe String  -- parameter name (Nothing = intermediate)
   value : Double          -- cached forward result
 
--- Layer.idr (mutual block)
-data Layer : (inputSize : Nat) -> (outputSize : Nat) -> Type -> Type where
-  LinearLayer : Matrix outputSize inputSize ty -> Vector outputSize ty -> Maybe AnyPtr -> Maybe AnyPtr -> Layer inputSize outputSize ty
-  RnnLayer : Matrix outputSize inputSize ty -> Matrix outputSize outputSize ty -> Vector outputSize ty -> Vector outputSize ty -> Layer inputSize outputSize ty
-  LstmLayer : Matrix (4 * outputSize) inputSize ty -> Matrix (4 * outputSize) outputSize ty -> Vector (4 * outputSize) ty -> Vector outputSize ty -> Vector outputSize ty -> Maybe AnyPtr -> Maybe AnyPtr -> Maybe AnyPtr -> Maybe AnyPtr -> Maybe AnyPtr -> Layer inputSize outputSize ty
-  ActivationLayer : String -> ActivationFunction ty -> Layer n n ty
-  NormalizationLayer : String -> NormalizationFunction ty -> Layer n n ty
-  NtmLayer : {n, m, h : Nat} -> Layer (m + inputSize) h ty -> Layer h (ReadParamWidth m) ty -> Layer h (WriteParamWidth m) ty -> Layer (h + m) outputSize ty -> Matrix n m ty -> Vector n ty -> Vector n ty -> Vector m ty -> Layer inputSize outputSize ty
+-- Layer/Core.idr (interface-based layer system)
+interface LayerLike (l : Nat -> Nat -> Type -> Type) where
+  applyGeneric : ... => {i, o : Nat} -> l i o ty -> Vector i ty -> (l i o ty, Vector o ty)
+  applyVar : {i, o : Nat} -> l i o Variable -> Vector i Variable -> (l i o Variable, Vector o Variable)
+  emapLayer : {i, o : Nat} -> (ty -> ty) -> l i o ty -> l i o ty
+  nameLayer : {i, o : Nat} -> String -> l i o Variable -> l i o Variable
+  -- ... plus showLayer, layerPrefix, toDoubleLayer, debugApply, syncBuffers,
+  --     applyDeltasAndSync, readFromBuffers, resetState, getParamIds
 
+-- Existential wrapper: hides concrete layer type behind the interface
+data AnyLayer : Nat -> Nat -> Type -> Type where
+  MkAnyLayer : (l : Nat -> Nat -> Type -> Type) -> LayerLike l => l i o ty -> AnyLayer i o ty
+
+-- Network chains AnyLayers (no mutual recursion with any layer type)
 data Network : (inputDims : Nat) -> (hiddenDims : List Nat) -> (outputDims : Nat) -> Type -> Type where
-  OutputLayer : Layer i o ty -> Network i [] o ty
-  (~>) : Layer i h ty -> Network h hs o ty -> Network i (h :: hs) o ty
+  OutputLayer : AnyLayer i o ty -> Network i [] o ty
+  (~>) : AnyLayer i h ty -> Network h hs o ty -> Network i (h :: hs) o ty
 
 -- Endofunctor.idr
 interface Endofunctor e where
@@ -153,8 +165,7 @@ let model = autoName $ OutputLayer ntm
 ### Forward pass returns updated network (state threading)
 
 ```idris
--- applyLayer and forward both return (updated, output) pairs
-applyLayer : Layer i o ty -> Vector i ty -> (Layer i o ty, Vector o ty)
+-- forward dispatches through AnyLayer, returning (updated, output) pairs
 forward : Network i hs o ty -> Vector i ty -> (Network i hs o ty, Vector o ty)
 
 -- RNN/NTM layers carry state; linear/activation layers return unchanged
@@ -382,7 +393,7 @@ Optimizations applied to NTM-copy (from 1.38s/epoch to 0.145s/epoch, ~10x):
 - **`paramId` requirement**: Variables without a `paramId` (i.e., `Nothing`) are invisible to gradient collection and won't receive updates. Use `autoName` (preferred) or `nameParams`/`nameNetworkParams` before training. `autoName` assigns type-based prefixes with per-type counters (`ll0`, `ll1`, `rnn0`, `lstm0`, `ntm0`, ...) and scopes NTM sub-layer names under their parent (`ntm0_lstm0_`, `ntm0_readFc_ll0_`), preventing the collision bug in `nameNetworkParams`. `setParamId` writes to both the Variable record and the tape's pid vector
 - **Test suite**: Run `make test` for Idris unit tests, `make test-c` for C tests. Tests live in `test/src/Test/*.idr` with `Harness.idr` providing assertion helpers
 - **Tape generation staleness**: After `collectGrads` resets the tape (gen++), Variables from the previous epoch are stale. `ensureOnTape` detects this via generation mismatch and re-registers with current `.value`. Same stale Variable used N times creates N Const entries — gradients accumulate correctly via `mergeWith (+)` on paramId
-- **Mutual recursion in Layer.idr**: `Layer` and `Network` are mutually recursive (NtmLayer contains sub-Layers). `applyLayer`, `forward`, `nameParams`, `nameNetworkParams`, and `Endofunctor` instances all live in `mutual` blocks
+- **Interface-based layer system**: The `LayerLike` interface + `AnyLayer` existential wrapper eliminates all mutual recursion. Each layer type lives in its own module. `AnyLayer` stores the type constructor as a non-erased parameter (`(l : Nat -> Nat -> Type -> Type)`) for interface dispatch after pattern matching. All interface methods need explicit `{i, o : Nat}` because Idris 2 QTT erases Nat type parameters by default. Instance heads for types with extra parameters (e.g., `NtmState n m h`) use `{n, m, h : Nat} -> LayerLike (NtmState n m h)` to make those Nats accessible. Adding a new layer type = one file implementing `LayerLike`, zero edits elsewhere
 - **NTM dimension calculations**: `ReadParamWidth m = (m + ShiftKernelSize) + 3` (key of width m + 3-element shift kernel + 3 dynamic params: β, g, γ). `WriteParamWidth m = ReadParamWidth m + m` (addressing params + add vector of width m). The LSTM controller input is `m + inputSize` (read output + input). The output FC input is `h + m` (hidden + read output). The `ntmLayer` constructor takes `{inputSize, outputSize, n, m, h}` as implicit args
 - **NTM head parameters**: β (key strength), g (interpolation gate), γ (sharpening) are dynamic — extracted from head FC outputs (fed by LSTM cell state). β uses softplus, g uses sigmoid, γ uses `1 + softplus(x)` (unbounded, [1, ∞)). Add vectors are raw linear (no activation). See `forwardReadHeadUnbounded`/`forwardWriteHeadInterp` in Memory.idr
 - **NTM state flow**: `readHeadOutput` from the previous timestep concatenates with current input to form LSTM input (width `m + inputSize`). LSTM cell state feeds head FCs, hidden state + read output feeds output FC. Memory, addressing weights, and read output all update each step

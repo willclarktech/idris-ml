@@ -381,3 +381,25 @@ Running NTM training for 50K+ epochs causes OOM kills (SIGKILL/exit 137) at ~300
 Fix: call Chez Scheme's `(collect)` (full GC) every 10 epochs via the `forceGC` FFI wrapper in Variable.idr. Cost: `(collect)` on a ~50MB live set takes ~10-50ms; every 10 epochs at ~247ms/epoch adds <2% overhead.
 
 FFI note: `%World` is erased in Chez Scheme's PrimIO calling convention, so the foreign lambda must take 0 arguments: `(lambda () (collect) 0)`, not `(lambda (w) (collect) ...)`. Using a 1-arg lambda causes "incorrect argument count" at runtime.
+
+## Interface-based layer system (LayerLike + AnyLayer)
+
+Previously, `Layer.idr` was a 1104-line file containing every layer type in a single GADT with 9 `mutual` blocks. Adding a new layer type required editing ~10 places. The `Layer` and `Network` types were mutually recursive because `NtmLayer` contained sub-`Layer`s (controller, head FCs, output FC).
+
+The refactored system uses:
+- **`LayerLike` interface** (`Layer/Core.idr`): defines methods for forward pass, naming, display, buffer sync, etc.
+- **`AnyLayer` existential wrapper** (`Layer/Core.idr`): hides the concrete layer type behind the interface
+- **Per-layer modules** (`Layer/Linear.idr`, etc.): each defines a record type and implements `LayerLike`
+- **`Network` type** (`Layer/Core.idr`): chains `AnyLayer`s with zero knowledge of concrete layers
+
+**Why interface + existential over GADT splitting**: The GADT approach (splitting operations into separate files) still requires pattern matching on every constructor in every operation file, and mutual recursion for NTM sub-layers. The interface approach puts all per-layer logic in one place per layer type. Network operations become simple recursive walks. Adding a layer = one file, zero edits elsewhere.
+
+**Why NTM uses concrete sub-layer types**: `NtmState` knows its controller is `LstmState` and its FCs are `LinearState`. It calls LSTM-specific functions (`applyLstmGetBuf`, `extractCellState`) for buffer-passing. This is static composition, not dynamic dispatch.
+
+**Idris 2 QTT challenges**:
+1. Existential type parameters are erased by default. Fix: store the type constructor as a non-erased explicit parameter: `MkAnyLayer : (l : Nat -> Nat -> Type -> Type) -> LayerLike l => ...`
+2. Interface method `Nat` parameters are erased. Fix: add explicit `{i, o : Nat}` to all method signatures, dispatch helpers, and instance implementations.
+3. Extra type params on instances (e.g., `NtmState n m h`) are also erased. Fix: `{n, m, h : Nat} -> LayerLike (NtmState n m h)` makes them available at runtime.
+4. `Endofunctor (Network i hs o)` needs `{i, o : Nat}` and `{hs : List Nat}` in the instance head.
+
+**Performance**: Dynamic dispatch through the existential adds one dictionary lookup per layer per call. For training, the actual compute (C-backed matmul, LSTM cell, memory ops) dominates.
