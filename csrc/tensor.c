@@ -309,6 +309,10 @@ void tensor_free(double *ptr) {
   free(ptr);
 }
 
+double *tensor_alloc_arena(int n) {
+  return (double *)arena_alloc(n * sizeof(double));
+}
+
 void tensor_pack(double *ptr, int idx, double val) {
   ptr[idx] = val;
 }
@@ -726,8 +730,22 @@ double *grad_alloc(int n) {
   return (double *)calloc(n, sizeof(double));
 }
 
+static double *persistent_grad = NULL;
+static int persistent_grad_cap = 0;
+
+double *grad_alloc_reuse(int n) {
+  if (n > persistent_grad_cap) {
+    free(persistent_grad);
+    persistent_grad = (double *)calloc(n, sizeof(double));
+    persistent_grad_cap = n;
+  } else {
+    memset(persistent_grad, 0, n * sizeof(double));
+  }
+  return persistent_grad;
+}
+
 void grad_free(double *p) {
-  free(p);
+  if (p != persistent_grad) free(p);
 }
 
 double grad_get(double *p, int i) {
@@ -2078,7 +2096,7 @@ void walk_backward_ext_dense(double *grad, int tape_sz,
     }
   }
 
-  free(grad);
+  grad_free(grad);
 }
 
 /* RMSprop with value clipping (in-place: grads[] overwritten with deltas[]).
@@ -2157,5 +2175,22 @@ int get_rss_mb(int dummy) {
   return (int)(ru.ru_maxrss / (1024L * 1024L));  /* macOS: bytes -> MB */
 #else
   return (int)(ru.ru_maxrss / 1024L);             /* Linux: KB -> MB */
+#endif
+}
+
+#ifdef __APPLE__
+#include <mach/mach.h>
+#endif
+
+int get_current_rss_mb(int dummy) {
+  (void)dummy;
+#ifdef __APPLE__
+  struct mach_task_basic_info info;
+  mach_msg_type_number_t count = MACH_TASK_BASIC_INFO_COUNT;
+  if (task_info(mach_task_self(), MACH_TASK_BASIC_INFO,
+                (task_info_t)&info, &count) != KERN_SUCCESS) return -1;
+  return (int)(info.resident_size / (1024L * 1024L));
+#else
+  return -1;
 #endif
 }

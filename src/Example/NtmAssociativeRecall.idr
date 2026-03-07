@@ -130,7 +130,8 @@ trainLoop makeOpt schedule model totalEpochs patience minItems maxItems st =
         when (modNatNZ ep 10 ItIsSucc == 0) forceGC
         when (modNatNZ ep 100 ItIsSucc == 0) $
           putStrLn $ "  " ++ show ep ++ ":\tloss=" ++ show loss
-                   ++ "\trss=" ++ show (getRssMB ep) ++ "MB"
+                   ++ "\tpeak=" ++ show (getRssMB ep) ++ "MB"
+                   ++ "\tcur=" ++ show (getCurrentRssMB ep) ++ "MB"
         if loss /= loss
           then do
             putStrLn $ "  Diverged (NaN) at epoch " ++ show ep

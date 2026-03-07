@@ -17,6 +17,7 @@ $(CLIB): $(CSRC) | $(BUILD)
 # Idris tests (check builds library .ttc files first)
 test: check
 	idris2 --source-dir src --source-dir test/src -p contrib -o test test/src/Main.idr
+	cp $(CLIB) build/exec/test_app/
 	./build/exec/test
 
 # C tests
@@ -31,26 +32,32 @@ check: $(CLIB)
 # Build and run examples
 supervised: $(CLIB)
 	idris2 --source-dir src -p contrib -o supervised src/Example/Supervised.idr
+	cp $(CLIB) build/exec/supervised_app/
 	./build/exec/supervised
 
 rnn: $(CLIB)
 	idris2 --source-dir src -p contrib -o rnn src/Example/Rnn.idr
+	cp $(CLIB) build/exec/rnn_app/
 	./build/exec/rnn
 
 lstm: $(CLIB)
 	idris2 --source-dir src -p contrib -o lstm src/Example/Lstm.idr
+	cp $(CLIB) build/exec/lstm_app/
 	./build/exec/lstm
 
 ntm-copy: $(CLIB)
 	idris2 --source-dir src -p contrib -o ntm-copy src/Example/NtmCopy.idr
+	cp $(CLIB) build/exec/ntm-copy_app/
 	./build/exec/ntm-copy
 
 ntm-associative-recall: $(CLIB)
 	idris2 --source-dir src -p contrib -o ntm-associative-recall src/Example/NtmAssociativeRecall.idr
+	cp $(CLIB) build/exec/ntm-associative-recall_app/
 	./build/exec/ntm-associative-recall
 
 bench: $(CLIB)
 	idris2 --source-dir src -p contrib -o bench src/Example/Bench.idr
+	cp $(CLIB) build/exec/bench_app/
 	./build/exec/bench
 
 $(BUILD):
@@ -71,6 +78,7 @@ bench-py:
 
 bench-compare: $(CLIB)
 	idris2 --source-dir src -p contrib -o bench src/Example/Bench.idr
+	cp $(CLIB) build/exec/bench_app/
 	cd pytorch && uv run python -m torch_ref.compare
 
 ref-test:

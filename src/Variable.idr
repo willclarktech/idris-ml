@@ -119,6 +119,10 @@ prim__tapeSetParamId : Int -> String -> Int
 %foreign "scheme:(lambda (n) ((foreign-procedure \"grad_alloc\" (int) void*) n))"
 prim__gradAlloc : Int -> AnyPtr
 
+-- Reusable gradient array (persistent across epochs, zeroed on each call)
+%foreign "scheme:(lambda (n) ((foreign-procedure \"grad_alloc_reuse\" (int) void*) n))"
+prim__gradAllocReuse : Int -> AnyPtr
+
 -- gradAdd: Scheme-native read-modify-write on C array (no FFI crossing)
 %foreign "scheme:(lambda (handle idx val) (let ((off (* idx 8))) (foreign-set! 'double handle off (+ (foreign-ref 'double handle off) val)) handle))"
 prim__gradAdd : AnyPtr -> Int -> Double -> AnyPtr
@@ -236,12 +240,13 @@ prim__ntmMemBufResetCache : AnyPtr -> AnyPtr
 -- Tensor FFI
 ----------------------------------------------------------------------
 
--- Buffer allocation (calloc'd, must be freed)
+-- Buffer allocation (calloc'd, for persistent buffers)
 %foreign "scheme:(lambda (n) ((foreign-procedure \"tensor_alloc\" (int) void*) n))"
 prim__tensorAlloc : Int -> AnyPtr
 
-%foreign "scheme:(lambda (ptr) (begin ((foreign-procedure \"tensor_free\" (void*) void) ptr) 0))"
-prim__tensorFree : AnyPtr -> Int
+-- Arena-backed allocation (freed automatically on arena_reset after backward)
+%foreign "scheme:(lambda (n) ((foreign-procedure \"tensor_alloc_arena\" (int) void*) n))"
+prim__tensorAllocArena : Int -> AnyPtr
 
 %foreign "scheme:(lambda (ptr idx) ((foreign-procedure \"tensor_read\" (void* int) double) ptr idx))"
 prim__tensorRead : AnyPtr -> Int -> Double
@@ -472,7 +477,7 @@ prim__lstmCellCompute : AnyPtr -> AnyPtr -> AnyPtr
 -- GC
 ----------------------------------------------------------------------
 
-%foreign "scheme:(lambda () (collect) 0)"
+%foreign "scheme:(lambda () (heap-reserve-ratio 1.0) (collect (collect-maximum-generation)) 0)"
 prim__forceGC : PrimIO Int
 
 export
@@ -492,6 +497,14 @@ export
 %noinline
 getRssMB : Nat -> Int
 getRssMB dummy = prim__getRssMB (cast dummy)
+
+%foreign "C:get_current_rss_mb, libidrisml"
+prim__getCurrentRssMB : Int -> Int
+
+export
+%noinline
+getCurrentRssMB : Nat -> Int
+getCurrentRssMB dummy = prim__getCurrentRssMB (cast dummy)
 
 ----------------------------------------------------------------------
 -- Idris Tape Wrappers
@@ -861,7 +874,7 @@ matrixVectorMultiplyVar {m} {n} (VTensor rows) (VTensor xs) =
       nI = cast {to=Int} n
       -- Allocate meta (arena) and output buffer (heap)
       meta = prim__matvecMetaAlloc mI nI
-      outBuf = prim__tensorAlloc mI
+      outBuf = prim__tensorAllocArena mI
       -- Get raw array pointers (4 C calls, then Scheme-native writes)
       wvPtr = prim__matvecWVals meta
       wtPtr = prim__matvecWTape meta
@@ -891,7 +904,7 @@ matrixVectorMultiplyVarBuf {m} {n} wBuf (VTensor xs) =
       -- Allocate meta using persistent buffer path
       wValsPtr = prim__weightBufVals wBuf
       meta = prim__matvecMetaAllocBuf mI nI wValsPtr wTapeStart
-      outBuf = prim__tensorAlloc mI
+      outBuf = prim__tensorAllocArena mI
       -- Pack input values and tape indices (unchanged)
       xvPtr = prim__matvecXVals meta
       xtPtr = prim__matvecXTape meta
@@ -917,7 +930,7 @@ matrixVectorMultiplyVarBufBias {m} {n} wBuf bBuf (VTensor xs) =
       wValsPtr = prim__weightBufVals wBuf
       bValsPtr = prim__weightBufVals bBuf
       meta = prim__matvecMetaAllocBufBias mI nI wValsPtr wTapeStart bValsPtr bTapeStart
-      outBuf = prim__tensorAlloc mI
+      outBuf = prim__tensorAllocArena mI
       -- Pack input values and tape indices
       xvPtr = prim__matvecXVals meta
       xtPtr = prim__matvecXTape meta
@@ -940,7 +953,7 @@ matrixVectorMultiplyVarBufOut {m} {n} wBuf (VTensor xs) =
       wTapeStart = tapeEnsureBulkConst wBuf (mI * nI)
       wValsPtr = prim__weightBufVals wBuf
       meta = prim__matvecMetaAllocBuf mI nI wValsPtr wTapeStart
-      outBuf = prim__tensorAlloc mI
+      outBuf = prim__tensorAllocArena mI
       xvPtr = prim__matvecXVals meta
       xtPtr = prim__matvecXTape meta
       xvPtr' = packVec xvPtr xtPtr 0 xs
@@ -1054,7 +1067,7 @@ softmaxVar : {n : Nat} -> Vector n Variable -> Vector n Variable
 softmaxVar {n} (VTensor xs) =
   let nI = cast {to=Int} n
       meta = prim__softmaxMetaAlloc nI
-      outBuf = prim__tensorAlloc nI
+      outBuf = prim__tensorAllocArena nI
       xvPtr = prim__softmaxXVals meta
       xtPtr = prim__softmaxXTape meta
       xvPtr' = packVec xvPtr xtPtr 0 xs
@@ -1069,7 +1082,7 @@ softmaxVarBufOut : {n : Nat} -> Vector n Variable -> (AnyPtr, Int)
 softmaxVarBufOut {n} (VTensor xs) =
   let nI = cast {to=Int} n
       meta = prim__softmaxMetaAlloc nI
-      outBuf = prim__tensorAlloc nI
+      outBuf = prim__tensorAllocArena nI
       xvPtr = prim__softmaxXVals meta
       xtPtr = prim__softmaxXTape meta
       xvPtr' = packVec xvPtr xtPtr 0 xs
@@ -1085,7 +1098,7 @@ softmaxVarBufIO : {n : Nat} -> (AnyPtr, Int) -> (AnyPtr, Int)
 softmaxVarBufIO {n} (srcBuf, srcStart) =
   let nI = cast {to=Int} n
       meta = prim__softmaxMetaAlloc nI
-      outBuf = prim__tensorAlloc nI
+      outBuf = prim__tensorAllocArena nI
       xvPtr = prim__softmaxXVals meta
       xtPtr = prim__softmaxXTape meta
       xvPtr' = prim__bufToMeta xvPtr xtPtr srcBuf srcStart nI
@@ -1100,7 +1113,7 @@ logSoftmaxVar : {n : Nat} -> Vector n Variable -> Vector n Variable
 logSoftmaxVar {n} (VTensor xs) =
   let nI = cast {to=Int} n
       meta = prim__softmaxMetaAlloc nI
-      outBuf = prim__tensorAlloc nI
+      outBuf = prim__tensorAllocArena nI
       xvPtr = prim__softmaxXVals meta
       xtPtr = prim__softmaxXTape meta
       xvPtr' = packVec xvPtr xtPtr 0 xs
@@ -1128,7 +1141,7 @@ batchCosineSimilarityVar {n} {w} beta (VTensor memRows) (VTensor keyElems) =
   let nI = cast {to=Int} n
       wI = cast {to=Int} w
       meta = prim__batchCosSimMetaAlloc nI wI
-      outBuf = prim__tensorAlloc nI
+      outBuf = prim__tensorAllocArena nI
       mvPtr = prim__batchCosSimMemVals meta
       mtPtr = prim__batchCosSimMemTape meta
       kvPtr = prim__batchCosSimKeyVals meta
@@ -1149,7 +1162,7 @@ readOpVar {n} {w} (VTensor weightElems) (VTensor memRows) =
   let nI = cast {to=Int} n
       wI = cast {to=Int} w
       meta = prim__readOpMetaAlloc nI wI
-      outBuf = prim__tensorAlloc wI
+      outBuf = prim__tensorAllocArena wI
       mvPtr = prim__readOpMemVals meta
       mtPtr = prim__readOpMemTape meta
       wvPtr = prim__readOpWeightVals meta
@@ -1168,7 +1181,7 @@ writeOpVar {n} {w} (VTensor weightElems) (VTensor memRows) (VTensor eraseElems) 
   let nI = cast {to=Int} n
       wI = cast {to=Int} w
       meta = prim__writeOpMetaAlloc nI wI
-      outBuf = prim__tensorAlloc (nI * wI)
+      outBuf = prim__tensorAllocArena (nI * wI)
       mvPtr = prim__writeOpMemVals meta
       mtPtr = prim__writeOpMemTape meta
       wvPtr = prim__writeOpWeightVals meta
@@ -1194,7 +1207,7 @@ interpolationWriteVar {n} {w} (VTensor weightElems) (VTensor memRows) (VTensor a
   let nI = cast {to=Int} n
       wI = cast {to=Int} w
       meta = prim__interpWriteMetaAlloc nI wI
-      outBuf = prim__tensorAlloc (nI * wI)
+      outBuf = prim__tensorAllocArena (nI * wI)
       mvPtr = prim__interpWriteMemVals meta
       mtPtr = prim__interpWriteMemTape meta
       wvPtr = prim__interpWriteWeightVals meta
@@ -1223,7 +1236,7 @@ batchCosineSimilarityVarBuf {n} {w} beta memBuf (VTensor keyElems) =
       -- Ensure memory on tape (epoch-cached, returns wrapper for threading)
       mb' = prim__ntmMemBufEnsure memBuf (nI * wI)
       meta = prim__batchCosSimMetaAlloc nI wI
-      outBuf = prim__tensorAlloc nI
+      outBuf = prim__tensorAllocArena nI
       -- Pack memory from buffer (C memcpy, dependency on mb')
       meta' = prim__batchCosSimPackMemBuf meta mb'
       -- Pack key (Scheme-native)
@@ -1247,7 +1260,7 @@ batchCosineSimilarityVarBufBufOut {n} {w} beta memBuf (VTensor keyElems) =
       wI = cast {to=Int} w
       mb' = prim__ntmMemBufEnsure memBuf (nI * wI)
       meta = prim__batchCosSimMetaAlloc nI wI
-      outBuf = prim__tensorAlloc nI
+      outBuf = prim__tensorAllocArena nI
       meta' = prim__batchCosSimPackMemBuf meta mb'
       kvPtr = prim__batchCosSimKeyVals meta'
       ktPtr = prim__batchCosSimKeyTape meta'
@@ -1268,7 +1281,7 @@ readOpVarBuf {n} {w} (VTensor weightElems) memBuf =
       -- Ensure memory on tape
       mb' = prim__ntmMemBufEnsure memBuf (nI * wI)
       meta = prim__readOpMetaAlloc nI wI
-      outBuf = prim__tensorAlloc wI
+      outBuf = prim__tensorAllocArena wI
       -- Pack memory from buffer (C memcpy)
       meta' = prim__readOpPackMemBuf meta mb'
       -- Pack weights (Scheme-native)
@@ -1292,7 +1305,7 @@ interpolationWriteVarBuf {n} {w} (VTensor weightElems) memBuf (VTensor addElems)
       -- Ensure memory on tape
       mb' = prim__ntmMemBufEnsure memBuf nw
       meta = prim__interpWriteMetaAlloc nI wI
-      outBuf = prim__tensorAlloc nw
+      outBuf = prim__tensorAllocArena nw
       -- Pack memory from buffer (C memcpy)
       meta' = prim__interpWritePackMemBuf meta mb'
       -- Pack weight and add vectors (Scheme-native)
@@ -1324,7 +1337,7 @@ interpolateVar : {n : Nat} -> Variable -> Vector n Variable -> Vector n Variable
 interpolateVar {n} g (VTensor contentElems) (VTensor prevElems) =
   let nI = cast {to=Int} n
       meta = prim__interpolateMetaAlloc nI
-      outBuf = prim__tensorAlloc nI
+      outBuf = prim__tensorAllocArena nI
       -- Pack content vector
       cvPtr = prim__interpolateContentVals meta
       ctPtr = prim__interpolateContentTape meta
@@ -1348,7 +1361,7 @@ interpolateVarBufIO : {n : Nat} -> Variable -> (AnyPtr, Int) -> Vector n Variabl
 interpolateVarBufIO {n} g (contentBuf, contentStart) (VTensor prevElems) =
   let nI = cast {to=Int} n
       meta = prim__interpolateMetaAlloc nI
-      outBuf = prim__tensorAlloc nI
+      outBuf = prim__tensorAllocArena nI
       -- Pack content from buffer (1 C call)
       cvPtr = prim__interpolateContentVals meta
       ctPtr = prim__interpolateContentTape meta
@@ -1373,7 +1386,7 @@ shiftVar : {n : Nat} -> Vector n Variable -> Vector 3 Variable -> Vector n Varia
 shiftVar {n} (VTensor inputElems) (VTensor kernelElems) =
   let nI = cast {to=Int} n
       meta = prim__shiftMetaAlloc nI
-      outBuf = prim__tensorAlloc nI
+      outBuf = prim__tensorAllocArena nI
       -- Pack input vector
       ivPtr = prim__shiftInputVals meta
       itPtr = prim__shiftInputTape meta
@@ -1394,7 +1407,7 @@ shiftVarBufIO : {n : Nat} -> (AnyPtr, Int) -> (AnyPtr, Int) -> (AnyPtr, Int)
 shiftVarBufIO {n} (inputBuf, inputStart) (kernelBuf, kernelStart) =
   let nI = cast {to=Int} n
       meta = prim__shiftMetaAlloc nI
-      outBuf = prim__tensorAlloc nI
+      outBuf = prim__tensorAllocArena nI
       -- Pack input from buffer
       ivPtr = prim__shiftInputVals meta
       itPtr = prim__shiftInputTape meta
@@ -1416,7 +1429,7 @@ focusVar : {n : Nat} -> Variable -> Vector n Variable -> Vector n Variable
 focusVar {n} gamma (VTensor inputElems) =
   let nI = cast {to=Int} n
       meta = prim__focusMetaAlloc nI
-      outBuf = prim__tensorAlloc nI
+      outBuf = prim__tensorAllocArena nI
       -- Pack input vector
       ivPtr = prim__focusInputVals meta
       itPtr = prim__focusInputTape meta
@@ -1436,7 +1449,7 @@ focusVarFromBuf : {n : Nat} -> Variable -> (AnyPtr, Int) -> Vector n Variable
 focusVarFromBuf {n} gamma (inputBuf, inputStart) =
   let nI = cast {to=Int} n
       meta = prim__focusMetaAlloc nI
-      outBuf = prim__tensorAlloc nI
+      outBuf = prim__tensorAllocArena nI
       -- Pack input from buffer (1 C call)
       ivPtr = prim__focusInputVals meta
       itPtr = prim__focusInputTape meta
@@ -1467,7 +1480,7 @@ lstmCellVar {o} (VTensor mulIWElems) (VTensor mulRWElems) (VTensor biasElems) (V
       fo = 4 * oI
       twoO = 2 * oI
       meta = prim__lstmCellMetaAlloc oI
-      outBuf = prim__tensorAlloc twoO
+      outBuf = prim__tensorAllocArena twoO
       -- Pack mulIW
       iwvPtr = prim__lstmCellMulIWVals meta
       iwtPtr = prim__lstmCellMulIWTape meta
@@ -1509,7 +1522,7 @@ lstmCellVarBuf {o} (VTensor mulIWElems) (VTensor mulRWElems) bBuf (VTensor prevC
       bValsPtr = prim__weightBufVals bBuf
       -- Allocate meta with bias buffer path (skips bias_vals/bias_tape_idx alloc)
       meta = prim__lstmCellMetaAllocBuf oI bValsPtr bTapeStart
-      outBuf = prim__tensorAlloc twoO
+      outBuf = prim__tensorAllocArena twoO
       -- Pack mulIW
       iwvPtr = prim__lstmCellMulIWVals meta
       iwtPtr = prim__lstmCellMulIWTape meta
@@ -1551,7 +1564,7 @@ lstmCellVarFromBufs {o} mulIWBuf mulIWStart mulRWBuf mulRWStart bBuf (VTensor pr
       bValsPtr = prim__weightBufVals bBuf
       -- Allocate meta with bias buffer path
       meta = prim__lstmCellMetaAllocBuf oI bValsPtr bTapeStart
-      outBuf = prim__tensorAlloc twoO
+      outBuf = prim__tensorAllocArena twoO
       -- Bulk-copy mulIW from output buffer into meta (1 C call instead of 400 packVec iterations)
       iwvPtr = prim__lstmCellMulIWVals meta
       iwtPtr = prim__lstmCellMulIWTape meta
@@ -1657,7 +1670,7 @@ export
 collectGradsDense : Double -> Variable -> AnyPtr -> AnyPtr
 collectGradsDense initGrad root denseBuf =
   let size = cast {to=Int} root.tapeIdx + 1
-      g = prim__gradAlloc size
+      g = prim__gradAllocReuse size
       g' = prim__gradAdd g (cast root.tapeIdx) initGrad
       numPids = prim__getNumPids size  -- pass varying arg to avoid CSE
       denseBuf' = prim__denseZero denseBuf numPids
