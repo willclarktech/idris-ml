@@ -77,8 +77,64 @@ BatchSize = 16
 
 
 ----------------------------------------------------------------------
--- Profiled Epoch (inlined epochTwoPhase with timing)
+-- Tape Histogram
 ----------------------------------------------------------------------
+
+showHist : Nat -> String
+showHist dummy =
+  let constOps  = tapeCountTag 0 dummy
+      shadowOps = tapeCountTag 25 dummy
+  in let scalarOps = tapeCountRange 1 10 dummy + tapeCountRange 19 20 dummy
+         tensorOps = tapeCountRange 11 18 dummy + tapeCountRange 21 24 dummy
+  in let totalOps = tapeSize dummy
+  in "  Tape histogram:\n"
+  ++ "    ConstOps:  " ++ padL 8 (show constOps) ++ "\n"
+  ++ "    ScalarOps: " ++ padL 8 (show scalarOps) ++ "\n"
+  ++ "    TensorOps: " ++ padL 8 (show tensorOps) ++ "\n"
+  ++ "    ShadowOps: " ++ padL 8 (show shadowOps) ++ "\n"
+  ++ "    Total:     " ++ padL 8 (show totalOps) ++ "\n"
+  ++ "    Tensor detail: MatVec=" ++ show (tapeCountTag 11 dummy)
+  ++ " Dot=" ++ show (tapeCountTag 12 dummy)
+  ++ " Softmax=" ++ show (tapeCountTag 13 dummy)
+  ++ " LogSoftmax=" ++ show (tapeCountTag 14 dummy)
+  ++ " BatchCosSim=" ++ show (tapeCountTag 15 dummy) ++ "\n"
+  ++ "                   ReadOp=" ++ show (tapeCountTag 16 dummy)
+  ++ " WriteOp=" ++ show (tapeCountTag 17 dummy)
+  ++ " InterpWrite=" ++ show (tapeCountTag 18 dummy)
+  ++ " Interpolate=" ++ show (tapeCountTag 21 dummy) ++ "\n"
+  ++ "                   Shift=" ++ show (tapeCountTag 22 dummy)
+  ++ " Focus=" ++ show (tapeCountTag 23 dummy)
+  ++ " LstmCell=" ++ show (tapeCountTag 24 dummy)
+
+
+----------------------------------------------------------------------
+-- Profiled Epoch (inlined two-phase forward with sub-phase timing)
+----------------------------------------------------------------------
+
+-- Process a single data point's encoding phase: feed encoding inputs,
+-- return updated model. Discard outputs (encoding phase).
+encodeOne : Network InputW [] OutputW Variable ->
+            TwoPhaseDataPoint InputW OutputW Variable ->
+            Network InputW [] OutputW Variable
+encodeOne m dp = fst (forwardRecurrentVar m (encodingInputs dp))
+
+-- Process a single data point's output phase: feed zero inputs,
+-- return updated model and predictions.
+outputOne : Network InputW [] OutputW Variable ->
+            TwoPhaseDataPoint InputW OutputW Variable ->
+            (Network InputW [] OutputW Variable, List (Vector OutputW Variable))
+outputOne m dp =
+  let zeroInput : Vector InputW Variable
+      zeroInput = map (const (fromDouble 0.0)) zeros
+      outputInputs = Data.List.replicate (length (targets dp)) zeroInput
+  in forwardRecurrentVar m outputInputs
+
+-- Compute per-sequence loss from predictions and targets.
+lossOne : LossFunction Variable ->
+          TwoPhaseDataPoint InputW OutputW Variable ->
+          List (Vector OutputW Variable) -> Variable
+lossOne lossFn dp preds =
+  Util.mean (zipWith lossFn preds (targets dp))
 
 profileEpoch :
   DenseOptimizer ->
@@ -89,37 +145,62 @@ profileEpoch :
   Nat ->
   IO (Network InputW [] OutputW Variable, DenseOptimizerState)
 profileEpoch opt dataPoints lossFn model st epochNum = do
-  -- Phase 1: Forward pass + loss
+  let dpList = toList dataPoints
+
+  -- Sub-phase 1: Encoding forward (feed encoding inputs, discard outputs)
   t0 <- clockTime Monotonic
-  let loss = calculateLossTwoPhaseVar lossFn model dataPoints
-  let lossVal = loss.value
+  let encodedModels = foldl (\m, dp => encodeOne m dp) model dpList
+  let ts1 = tapeSize 0  -- forces evaluation of encoding
   t1 <- clockTime Monotonic
 
-  -- Read tape size between forward and backward
-  let ts = tapeSize loss.tapeIdx
-
-  -- Phase 2: Backward pass (dense: accumulates into C array)
-  let denseBuf = collectGradsDense 1.0 loss st.buf
+  -- Sub-phase 2: Output forward (feed zero inputs, collect predictions)
+  let (outModel, allPreds) = foldl
+        (\(m, ps), dp =>
+          let (m', preds) = outputOne m dp
+          in (m', ps ++ [preds]))
+        (encodedModels, the (List (List (Vector OutputW Variable))) [])
+        dpList
+  let ts2 = tapeSize 1  -- forces evaluation of output forward
   t2 <- clockTime Monotonic
 
-  -- Phase 3: Optimizer step (in-place on dense array)
-  let st' = opt.step denseBuf st
+  -- Sub-phase 3: Loss computation (BCE on predictions vs targets)
+  let perSeqLosses = zipWith (lossOne lossFn) dpList allPreds
+      loss = Util.mean perSeqLosses
+  let lossVal = loss.value  -- forces evaluation
+  let ts3 = tapeSize 2
   t3 <- clockTime Monotonic
+
+  -- Capture tape histogram before backward resets it
+  let hist = showHist 3
+
+  -- Phase 2: Backward pass
+  let denseBuf = collectGradsDense 1.0 loss st.buf
+  t4 <- clockTime Monotonic
+
+  -- Phase 3: Optimizer step
+  let st' = opt.step denseBuf st
+  t5 <- clockTime Monotonic
 
   -- Phase 4: Apply deltas + sync buffers
   let model' = syncNetworkBuffers (emap (applyDeltasDense denseBuf) model)
-  t4 <- clockTime Monotonic
+  t6 <- clockTime Monotonic
 
   let line = padL 5 (show epochNum)
           ++ fmtMs (elapsedMs t0 t1)
           ++ fmtMs (elapsedMs t1 t2)
           ++ fmtMs (elapsedMs t2 t3)
           ++ fmtMs (elapsedMs t3 t4)
-          ++ padL 10 (show ts)
-          ++ padL 8 (show st.n)
-          ++ padL 10 (show (getRssMB epochNum))
+          ++ fmtMs (elapsedMs t4 t5)
+          ++ fmtMs (elapsedMs t5 t6)
+          ++ padL 10 (show ts3)
           ++ "    " ++ show lossVal
   putStrLn line
+
+  -- Print histogram on first epoch only
+  when (epochNum == 1) $ do
+    putStrLn ""
+    putStrLn hist
+    putStrLn ""
 
   pure (model', st')
 
@@ -152,7 +233,7 @@ main : IO ()
 main = do
   srand 123456
 
-  putStrLn "=== NTM Copy Profile ==="
+  putStrLn "=== NTM Copy Forward-Pass Profile ==="
   putStrLn $ "Architecture: N=" ++ show N ++ " M=" ++ show M ++ " H=" ++ show H
   putStrLn $ "Batch=" ++ show BatchSize ++ " seqLen=1-20"
   putStrLn ""
@@ -166,8 +247,12 @@ main = do
   let st0 = initDenseState numPids
 
   -- Generate a fixed batch for consistent profiling
+  tGen0 <- clockTime Monotonic
   batch <- copyTaskBinaryBatchVect {w = W} BatchSize 1 20
   let dataPoints = map (map fromDouble) batch
+  tGen1 <- clockTime Monotonic
+  putStrLn $ "Data generation: " ++ showMs (elapsedMs tGen0 tGen1) ++ " ms"
+  putStrLn ""
 
   -- Warmup: 5 epochs (untimed)
   putStrLn "Warmup (5 epochs)..."
@@ -175,17 +260,17 @@ main = do
   putStrLn ""
 
   let header = padL 5 "Epoch"
-            ++ padL 10 "Fwd(ms)"
+            ++ padL 10 "Enc(ms)"
+            ++ padL 10 "Out(ms)"
+            ++ padL 10 "Loss(ms)"
             ++ padL 10 "Bwd(ms)"
             ++ padL 10 "Opt(ms)"
             ++ padL 10 "Sync(ms)"
             ++ padL 10 "TapeSize"
-            ++ padL 8 "Params"
-            ++ padL 10 "RSS(MB)"
             ++ "    Loss"
   putStrLn header
 
-  -- Profile: 10 epochs with per-phase timing
+  -- Profile: 10 epochs with sub-phase timing
   (finalModel, _) <- profileLoop opt dataPoints binaryCrossEntropyWithLogits warmModel warmSt 0 10
 
   putStrLn "\nDone."

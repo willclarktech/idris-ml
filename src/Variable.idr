@@ -526,6 +526,24 @@ export
 tapeSize : Nat -> Nat
 tapeSize dummy = cast (prim__tapeSize (cast dummy))
 
+-- Tape histogram: count entries by tag (for profiling).
+-- Passes the Scheme tape-tags-fp buffer and tape-size to C.
+%foreign "scheme:(lambda (target_tag dummy) ((foreign-procedure \"tape_count_tag\" (void* int int) int) (top-level-value 'tape-tags-fp) (top-level-value 'tape-size) target_tag))"
+prim__tapeCountTag : Int -> Int -> Int
+
+%foreign "scheme:(lambda (lo hi dummy) ((foreign-procedure \"tape_count_range\" (void* int int int) int) (top-level-value 'tape-tags-fp) (top-level-value 'tape-size) lo hi))"
+prim__tapeCountRange : Int -> Int -> Int -> Int
+
+export
+%noinline
+tapeCountTag : Int -> Nat -> Int
+tapeCountTag tag dummy = prim__tapeCountTag tag (cast dummy)
+
+export
+%noinline
+tapeCountRange : Int -> Int -> Nat -> Int
+tapeCountRange lo hi dummy = prim__tapeCountRange lo hi (cast dummy)
+
 %noinline
 tapeAppendConst : Double -> String -> Nat
 tapeAppendConst val pid = cast (prim__tapeAppendConst val pid)

@@ -2182,6 +2182,24 @@ int get_rss_mb(int dummy) {
 #include <mach/mach.h>
 #endif
 
+/* -------------------------------------------------------------------
+   Tape histogram (profile support)
+   ------------------------------------------------------------------- */
+
+int tape_count_tag(int *tags, int sz, int target_tag) {
+  int count = 0;
+  for (int i = 0; i < sz; i++)
+    if (tags[i] == target_tag) count++;
+  return count;
+}
+
+int tape_count_range(int *tags, int sz, int lo, int hi) {
+  int count = 0;
+  for (int i = 0; i < sz; i++)
+    if (tags[i] >= lo && tags[i] <= hi) count++;
+  return count;
+}
+
 int get_current_rss_mb(int dummy) {
   (void)dummy;
 #ifdef __APPLE__
