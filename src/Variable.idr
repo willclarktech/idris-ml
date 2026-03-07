@@ -22,6 +22,7 @@ data TapeOp = ConstOp
             | MatVecOp | DotOp
             | SoftmaxOp | LogSoftmaxOp
             | BatchCosSimOp | ReadOpOp | WriteOpOp
+            | InterpWriteOp
 
 toTag : TapeOp -> Int
 toTag ConstOp      = 0
@@ -42,6 +43,7 @@ toTag LogSoftmaxOp = 14
 toTag BatchCosSimOp = 15
 toTag ReadOpOp      = 16
 toTag WriteOpOp     = 17
+toTag InterpWriteOp = 18
 
 fromTag : Int -> TapeOp
 fromTag 1  = NegOp
@@ -61,6 +63,7 @@ fromTag 14 = LogSoftmaxOp
 fromTag 15 = BatchCosSimOp
 fromTag 16 = ReadOpOp
 fromTag 17 = WriteOpOp
+fromTag 18 = InterpWriteOp
 fromTag _  = ConstOp
 
 
@@ -341,6 +344,30 @@ prim__writeOpCompute : AnyPtr -> AnyPtr -> AnyPtr
 prim__writeOpBackward : AnyPtr -> AnyPtr -> AnyPtr
 
 
+-- InterpWrite meta: alloc, get internal pointers, compute, backward
+%foreign "scheme:(lambda (n w) ((foreign-procedure \"interp_write_meta_alloc\" (int int) void*) n w))"
+prim__interpWriteMetaAlloc : Int -> Int -> AnyPtr
+
+%foreign "scheme:(lambda (meta) ((foreign-procedure \"interp_write_meta_mem_vals\" (void*) void*) meta))"
+prim__interpWriteMemVals : AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (meta) ((foreign-procedure \"interp_write_meta_mem_tape\" (void*) void*) meta))"
+prim__interpWriteMemTape : AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (meta) ((foreign-procedure \"interp_write_meta_weight_vals\" (void*) void*) meta))"
+prim__interpWriteWeightVals : AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (meta) ((foreign-procedure \"interp_write_meta_weight_tape\" (void*) void*) meta))"
+prim__interpWriteWeightTape : AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (meta) ((foreign-procedure \"interp_write_meta_add_vals\" (void*) void*) meta))"
+prim__interpWriteAddVals : AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (meta) ((foreign-procedure \"interp_write_meta_add_tape\" (void*) void*) meta))"
+prim__interpWriteAddTape : AnyPtr -> AnyPtr
+
+%foreign "scheme:(lambda (meta out) ((foreign-procedure \"interp_write_compute\" (void* void*) void*) meta out))"
+prim__interpWriteCompute : AnyPtr -> AnyPtr -> AnyPtr
+
+%foreign "scheme:(lambda (g meta) (begin ((foreign-procedure \"tensor_interp_write_backward\" (void* void*) void) g meta) g))"
+prim__interpWriteBackward : AnyPtr -> AnyPtr -> AnyPtr
+
+
 ----------------------------------------------------------------------
 -- Idris Tape Wrappers
 ----------------------------------------------------------------------
@@ -419,6 +446,14 @@ prim__tapeAppendWriteOpOp : Int -> AnyPtr -> AnyPtr -> AnyPtr
 %noinline
 tapeAppendWriteOpOp : Int -> AnyPtr -> AnyPtr -> AnyPtr
 tapeAppendWriteOpOp count meta outBuf = prim__tapeAppendWriteOpOp count meta outBuf
+
+-- Append InterpWriteOp entry + set meta->out_tape_start. Returns outBuf for threading.
+%foreign "scheme:(lambda (count meta-ptr out-buf) (let ((idx (top-level-value 'tape-size))) ((top-level-value 'tape-ensure-cap!) idx) (vector-set! (top-level-value 'tape-tags) idx 18) (vector-set! (top-level-value 'tape-arg2) idx count) (vector-set! (top-level-value 'tape-meta) idx meta-ptr) (vector-set! (top-level-value 'tape-pids) idx \"\") ((foreign-procedure \"interp_write_meta_set_out\" (void* int) void*) meta-ptr idx) (set-top-level-value! 'tape-size (+ idx 1)) out-buf))"
+prim__tapeAppendInterpWriteOp : Int -> AnyPtr -> AnyPtr -> AnyPtr
+
+%noinline
+tapeAppendInterpWriteOp : Int -> AnyPtr -> AnyPtr -> AnyPtr
+tapeAppendInterpWriteOp count meta outBuf = prim__tapeAppendInterpWriteOp count meta outBuf
 
 
 ----------------------------------------------------------------------
@@ -867,6 +902,29 @@ writeOpVar {n} {w} (VTensor weightElems) (VTensor memRows) (VTensor eraseElems) 
   in VTensor $ buildOutputMatrix outBuf'' 0 n w
 
 
+||| C-backed interpolation write: out[i][j] = (1-w[i])*mem[i][j] + w[i]*add[j]
+||| Records a single InterpWriteOp tape entry.
+export
+interpolationWriteVar : {n, w : Nat} -> Vector n Variable -> Matrix n w Variable -> Vector w Variable -> Matrix n w Variable
+interpolationWriteVar {n} {w} (VTensor weightElems) (VTensor memRows) (VTensor addElems) =
+  let nI = cast {to=Int} n
+      wI = cast {to=Int} w
+      meta = prim__interpWriteMetaAlloc nI wI
+      outBuf = prim__tensorAlloc (nI * wI)
+      mvPtr = prim__interpWriteMemVals meta
+      mtPtr = prim__interpWriteMemTape meta
+      wvPtr = prim__interpWriteWeightVals meta
+      wtPtr = prim__interpWriteWeightTape meta
+      avPtr = prim__interpWriteAddVals meta
+      atPtr = prim__interpWriteAddTape meta
+      mvPtr' = packMatrix mvPtr mtPtr 0 memRows
+      wvPtr' = packVec (prim__seq mvPtr' wvPtr) wtPtr 0 weightElems
+      avPtr' = packVec (prim__seq wvPtr' avPtr) atPtr 0 addElems
+      outBuf' = prim__interpWriteCompute meta (prim__seq avPtr' outBuf)
+      outBuf'' = tapeAppendInterpWriteOp (nI * wI) meta outBuf'
+  in VTensor $ buildOutputMatrix outBuf'' 0 n w
+
+
 ----------------------------------------------------------------------
 -- Backpropagation (tape-based)
 ----------------------------------------------------------------------
@@ -899,6 +957,7 @@ propagateEntry g idx =
        BatchCosSimOp => prim__batchCosSimBackward g (prim__tapeGetMeta idx)
        ReadOpOp      => prim__readOpBackward g (prim__tapeGetMeta idx)
        WriteOpOp     => prim__writeOpBackward g (prim__tapeGetMeta idx)
+       InterpWriteOp => prim__interpWriteBackward g (prim__tapeGetMeta idx)
 
 -- Walk backward through tape with tag-based fast path:
 -- ConstOp (tag 0): only check pid for gradient collection, skip propagation

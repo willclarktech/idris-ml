@@ -90,4 +90,33 @@ tests =
         (VTensor [_, _, STensor peak1]) = f1
         (VTensor [_, _, STensor peak2]) = f2
     in check "focus gamma>1 sharpens" (peak2 > peak1)
+
+  -- interpolationWrite: w=1 fully replaces, w=0 keeps original
+  , let mem = the (Matrix 2 2 Double) (VTensor
+          [ VTensor [STensor 1.0, STensor 2.0]
+          , VTensor [STensor 3.0, STensor 4.0]
+          ])
+        weights = the (Vector 2 Double) (VTensor [STensor 1.0, STensor 0.0])
+        addVec = the (Vector 2 Double) (VTensor [STensor 5.0, STensor 6.0])
+        result = interpolationWrite mem weights addVec
+        -- Row 0: w=1 => fully replaced by add, row 1: w=0 => unchanged
+        (VTensor [VTensor [STensor r00, STensor r01], VTensor [STensor r10, STensor r11]]) = result
+    in check "interpolationWrite"
+       (abs (r00 - 5.0) < tol && abs (r01 - 6.0) < tol
+        && abs (r10 - 3.0) < tol && abs (r11 - 4.0) < tol)
+
+  -- interpolationWrite with partial weight
+  , let mem = the (Matrix 1 2 Double) (VTensor
+          [ VTensor [STensor 10.0, STensor 0.0] ])
+        weights = the (Vector 1 Double) (VTensor [STensor 0.5])
+        addVec = the (Vector 2 Double) (VTensor [STensor 0.0, STensor 20.0])
+        result = interpolationWrite mem weights addVec
+        -- 0.5*10 + 0.5*0 = 5.0, 0.5*0 + 0.5*20 = 10.0
+        (VTensor [VTensor [STensor r0, STensor r1]]) = result
+    in check "interpolationWrite partial"
+       (abs (r0 - 5.0) < tol && abs (r1 - 10.0) < tol)
+
+  -- softplus gamma: gamma = 1 + softplus(0) = 1 + ln(2) ≈ 1.693
+  , let gammaVal = 1.0 + softplus 0.0
+    in checkClose "softplus gamma at 0" 1.6931471805599454 gammaVal tol
   ]

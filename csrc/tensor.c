@@ -177,6 +177,17 @@ typedef struct {
   int out_tape_start;     /* set by tape append */
 } WriteOpMeta;
 
+typedef struct {
+  int n, w;
+  double *mem_vals;       /* n*w input memory values (arena) */
+  double *weight_vals;    /* n weight values (arena) */
+  double *add_vals;       /* w add values (arena) */
+  int *mem_tape_idx;      /* n*w tape indices (arena) */
+  int *weight_tape_idx;   /* n tape indices (arena) */
+  int *add_tape_idx;      /* w tape indices (arena) */
+  int out_tape_start;     /* set by tape append */
+} InterpWriteMeta;
+
 
 /* -------------------------------------------------------------------
    Metadata allocation (arena-backed)
@@ -268,6 +279,19 @@ WriteOpMeta *writeop_meta_alloc(int n, int w) {
   m->mem_tape_idx = (int *)arena_alloc(n * w * sizeof(int));
   m->weight_tape_idx = (int *)arena_alloc(n * sizeof(int));
   m->erase_tape_idx = (int *)arena_alloc(w * sizeof(int));
+  m->add_tape_idx = (int *)arena_alloc(w * sizeof(int));
+  m->out_tape_start = 0;
+  return m;
+}
+
+InterpWriteMeta *interp_write_meta_alloc(int n, int w) {
+  InterpWriteMeta *m = (InterpWriteMeta *)arena_alloc(sizeof(InterpWriteMeta));
+  m->n = n; m->w = w;
+  m->mem_vals = (double *)arena_alloc(n * w * sizeof(double));
+  m->weight_vals = (double *)arena_alloc(n * sizeof(double));
+  m->add_vals = (double *)arena_alloc(w * sizeof(double));
+  m->mem_tape_idx = (int *)arena_alloc(n * w * sizeof(int));
+  m->weight_tape_idx = (int *)arena_alloc(n * sizeof(int));
   m->add_tape_idx = (int *)arena_alloc(w * sizeof(int));
   m->out_tape_start = 0;
   return m;
@@ -416,6 +440,18 @@ int *writeop_meta_erase_tape(void *p)      { return ((WriteOpMeta *)p)->erase_ta
 double *writeop_meta_add_vals(void *p)     { return ((WriteOpMeta *)p)->add_vals; }
 int *writeop_meta_add_tape(void *p)        { return ((WriteOpMeta *)p)->add_tape_idx; }
 
+double *interp_write_meta_mem_vals(void *p)     { return ((InterpWriteMeta *)p)->mem_vals; }
+int *interp_write_meta_mem_tape(void *p)        { return ((InterpWriteMeta *)p)->mem_tape_idx; }
+double *interp_write_meta_weight_vals(void *p)  { return ((InterpWriteMeta *)p)->weight_vals; }
+int *interp_write_meta_weight_tape(void *p)     { return ((InterpWriteMeta *)p)->weight_tape_idx; }
+double *interp_write_meta_add_vals(void *p)     { return ((InterpWriteMeta *)p)->add_vals; }
+int *interp_write_meta_add_tape(void *p)        { return ((InterpWriteMeta *)p)->add_tape_idx; }
+
+void *interp_write_meta_set_out(void *p, int start) {
+  ((InterpWriteMeta *)p)->out_tape_start = start;
+  return p;
+}
+
 void *writeop_meta_set_out(void *p, int start) {
   ((WriteOpMeta *)p)->out_tape_start = start;
   return p;
@@ -495,6 +531,20 @@ void *readop_compute(void *meta_ptr, double *out) {
   for (int i = 0; i < n; i++) {
     for (int j = 0; j < w; j++) {
       out[j] += m->weight_vals[i] * m->mem_vals[i * w + j];
+    }
+  }
+  return out;
+}
+
+/* Interpolation write: out[i*w+j] = (1 - w[i]) * mem[i*w+j] + w[i] * add[j] */
+void *interp_write_compute(void *meta_ptr, double *out) {
+  InterpWriteMeta *m = (InterpWriteMeta *)meta_ptr;
+  int n = m->n, w = m->w;
+
+  for (int i = 0; i < n; i++) {
+    double wi = m->weight_vals[i];
+    for (int j = 0; j < w; j++) {
+      out[i * w + j] = (1.0 - wi) * m->mem_vals[i * w + j] + wi * m->add_vals[j];
     }
   }
   return out;
@@ -710,6 +760,31 @@ void tensor_writeop_backward(double *grad_array, WriteOpMeta *m) {
       grad_array[m->erase_tape_idx[j]] +=
         dy * (-m->mem_vals[i * w + j] * m->weight_vals[i]);
       grad_array[m->add_tape_idx[j]] += dy * m->weight_vals[i];
+    }
+    grad_array[m->weight_tape_idx[i]] += d_weight;
+  }
+}
+
+/*
+ * Interpolation write backward:
+ *   out[i][j] = (1 - w[i]) * mem[i][j] + w[i] * add[j]
+ *
+ *   d_mem[i][j] += dy[i][j] * (1 - w[i])
+ *   d_weight[i] += sum_j dy[i][j] * (add[j] - mem[i][j])
+ *   d_add[j]    += sum_i dy[i][j] * w[i]
+ */
+void tensor_interp_write_backward(double *grad_array, InterpWriteMeta *m) {
+  int n = m->n, w = m->w;
+  int out_start = m->out_tape_start + 1;
+
+  for (int i = 0; i < n; i++) {
+    double d_weight = 0.0;
+    double wi = m->weight_vals[i];
+    for (int j = 0; j < w; j++) {
+      double dy = grad_array[out_start + i * w + j];
+      grad_array[m->mem_tape_idx[i * w + j]] += dy * (1.0 - wi);
+      d_weight += dy * (m->add_vals[j] - m->mem_vals[i * w + j]);
+      grad_array[m->add_tape_idx[j]] += dy * wi;
     }
     grad_array[m->weight_tape_idx[i]] += d_weight;
   }

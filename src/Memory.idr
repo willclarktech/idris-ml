@@ -162,3 +162,60 @@ forwardWriteHead smFn memory (MkWriteHead readHead) inp =
     newWriteHead = MkWriteHead newReadHead
     newMemoryMatrix = writeOp newWriteHead memory eraseVector addVector
   in (newWriteHead, newMemoryMatrix)
+
+
+----------------------------------------------------------------------
+-- Interpolation Write
+----------------------------------------------------------------------
+
+||| Interpolation write: mem'[i][j] = w[i] * add[j] + (1 - w[i]) * mem[i][j]
+||| Simpler than erase+add — single vector replaces content at addressed slots.
+export
+interpolationWrite : (Num ty, Neg ty) =>
+    {n, w : Nat} -> Matrix n w ty -> Vector n ty -> Vector w ty -> Matrix n w ty
+interpolationWrite (VTensor memRows) (VTensor weights) addVec =
+  VTensor $ zipWith (\(STensor wt), row => zipWith (\m, a => (1 - wt) * m + wt * a) row addVec) weights memRows
+
+
+----------------------------------------------------------------------
+-- Unbounded Gamma (softplus) Variants
+----------------------------------------------------------------------
+
+||| Read head forward pass with unbounded gamma: gamma = 1 + softplus(x).
+||| Matches PyTorch reference. The bounded variant uses gamma = 1 + 4*sigmoid(x).
+export
+forwardReadHeadUnbounded : (Floating ty, Fractional ty, Neg ty, Ord ty) =>
+    {n, w : Nat} -> NormalizationFunction ty -> Matrix n w ty -> ReadHead n ty ->
+    Vector ((w + ShiftKernelSize) + 3) ty -> (ReadHead n ty, Vector w ty)
+forwardReadHeadUnbounded smFn memory rh inp =
+  let
+    (mainInput, params) = splitAt (w + ShiftKernelSize) inp
+    (keyVector, shiftVector) = splitAt w mainInput
+    (betaVec, params') = splitAt 1 params
+    (gVec, gammaVec) = splitAt 1 params'
+    beta = softplus (sum betaVec)
+    g = sig (sum gVec)
+    gamma = 1 + softplus (sum gammaVec)
+    contentWeights = getContentAddress smFn beta memory keyVector
+    interpolated = interpolate g contentWeights rh.addressingWeights
+    shifted = shift smFn interpolated shiftVector
+    focused = focus gamma shifted
+    newReadHead = { addressingWeights := focused } rh
+    output = readOp newReadHead memory
+  in (newReadHead, output)
+
+||| Write head forward pass using interpolation write (no erase vector)
+||| and unbounded gamma.
+||| Input width: (w + ShiftKernelSize) + 3 + w (addressing params + add vector)
+export
+forwardWriteHeadInterp : (Floating ty, Fractional ty, Neg ty, Ord ty) =>
+    {n, w : Nat} -> NormalizationFunction ty -> Matrix n w ty -> WriteHead n ty ->
+    Vector (((w + ShiftKernelSize) + 3) + w) ty -> (WriteHead n ty, Matrix n w ty)
+forwardWriteHeadInterp smFn memory (MkWriteHead readHead) inp =
+  let
+    (readHeadInput, rawAdd) = Tensor.splitAt ((w + ShiftKernelSize) + 3) inp
+    addVector = map sig rawAdd
+    (newReadHead, _) = forwardReadHeadUnbounded smFn memory readHead readHeadInput
+    newWriteHead = MkWriteHead newReadHead
+    newMemoryMatrix = interpolationWrite memory newWriteHead.readHead.addressingWeights addVector
+  in (newWriteHead, newMemoryMatrix)

@@ -641,6 +641,131 @@ static void test_writeop_backward(void) {
 
 
 /* -------------------------------------------------------------------
+   Interpolation write tests
+   ------------------------------------------------------------------- */
+
+static void test_interp_write_forward(void) {
+  /* mem = [[1, 2], [3, 4]], weights = [0.8, 0.0], add = [5, 6]
+   * out[0][0] = (1-0.8)*1 + 0.8*5 = 0.2 + 4.0 = 4.2
+   * out[0][1] = (1-0.8)*2 + 0.8*6 = 0.4 + 4.8 = 5.2
+   * out[1][0] = (1-0.0)*3 + 0.0*5 = 3.0
+   * out[1][1] = (1-0.0)*4 + 0.0*6 = 4.0 */
+  arena_reset();
+  InterpWriteMeta *m = interp_write_meta_alloc(2, 2);
+  double mem[] = {1, 2, 3, 4};
+  double w[] = {0.8, 0.0};
+  double a[] = {5, 6};
+  memcpy(m->mem_vals, mem, 4 * sizeof(double));
+  memcpy(m->weight_vals, w, 2 * sizeof(double));
+  memcpy(m->add_vals, a, 2 * sizeof(double));
+
+  double out[4] = {0};
+  interp_write_compute(m, out);
+
+  check_close("interp_write[0][0]", out[0], 4.2, 1e-10);
+  check_close("interp_write[0][1]", out[1], 5.2, 1e-10);
+  check_close("interp_write[1][0]", out[2], 3.0, 1e-10);
+  check_close("interp_write[1][1]", out[3], 4.0, 1e-10);
+}
+
+static void test_interp_write_backward(void) {
+  /* Numerical gradient check for interpolation write.
+   * mem = [[2, 3], [1, 4]], w = [0.7, 0.3], a = [1, -1] */
+  arena_reset();
+  double eps = 1e-5;
+  int n = 2, w = 2;
+
+  double mem[] = {2, 3, 1, 4};
+  double wt[] = {0.7, 0.3};
+  double ad[] = {1, -1};
+
+  /* Compute forward for analytical gradients */
+  InterpWriteMeta *m = interp_write_meta_alloc(n, w);
+  memcpy(m->mem_vals, mem, 4 * sizeof(double));
+  memcpy(m->weight_vals, wt, 2 * sizeof(double));
+  memcpy(m->add_vals, ad, 2 * sizeof(double));
+
+  /* Tape: 0-3=mem, 4-5=weight, 6-7=add, 8=op, 9-12=output */
+  int mem_idx[] = {0, 1, 2, 3};
+  int wt_idx[] = {4, 5};
+  int ad_idx[] = {6, 7};
+  memcpy(m->mem_tape_idx, mem_idx, 4 * sizeof(int));
+  memcpy(m->weight_tape_idx, wt_idx, 2 * sizeof(int));
+  memcpy(m->add_tape_idx, ad_idx, 2 * sizeof(int));
+  m->out_tape_start = 8;
+
+  /* dy = [1, 1, 1, 1] */
+  double grad[13] = {0};
+  grad[9] = 1.0; grad[10] = 1.0; grad[11] = 1.0; grad[12] = 1.0;
+
+  tensor_interp_write_backward(grad, m);
+
+  /* Numerical check for d_mem */
+  for (int i = 0; i < n * w; i++) {
+    arena_reset();
+    InterpWriteMeta *mp = interp_write_meta_alloc(n, w);
+    memcpy(mp->weight_vals, wt, 2 * sizeof(double));
+    memcpy(mp->add_vals, ad, 2 * sizeof(double));
+    double out_p[4], out_m[4], mem_p[4], mem_m[4];
+    memcpy(mem_p, mem, 4 * sizeof(double));
+    memcpy(mem_m, mem, 4 * sizeof(double));
+    mem_p[i] += eps; mem_m[i] -= eps;
+    memcpy(mp->mem_vals, mem_p, 4 * sizeof(double));
+    interp_write_compute(mp, out_p);
+    memcpy(mp->mem_vals, mem_m, 4 * sizeof(double));
+    interp_write_compute(mp, out_m);
+    double num = 0;
+    for (int k = 0; k < n * w; k++) num += (out_p[k] - out_m[k]) / (2 * eps);
+    char name[64];
+    snprintf(name, sizeof(name), "interp_write_bwd d_mem[%d]", i);
+    check_close(name, grad[i], num, 1e-5);
+  }
+
+  /* Check d_weight */
+  for (int i = 0; i < n; i++) {
+    arena_reset();
+    InterpWriteMeta *mp = interp_write_meta_alloc(n, w);
+    memcpy(mp->mem_vals, mem, 4 * sizeof(double));
+    memcpy(mp->add_vals, ad, 2 * sizeof(double));
+    double out_p[4], out_m[4], wt_p[2], wt_m[2];
+    memcpy(wt_p, wt, 2 * sizeof(double));
+    memcpy(wt_m, wt, 2 * sizeof(double));
+    wt_p[i] += eps; wt_m[i] -= eps;
+    memcpy(mp->weight_vals, wt_p, 2 * sizeof(double));
+    interp_write_compute(mp, out_p);
+    memcpy(mp->weight_vals, wt_m, 2 * sizeof(double));
+    interp_write_compute(mp, out_m);
+    double num = 0;
+    for (int k = 0; k < n * w; k++) num += (out_p[k] - out_m[k]) / (2 * eps);
+    char name[64];
+    snprintf(name, sizeof(name), "interp_write_bwd d_weight[%d]", i);
+    check_close(name, grad[4 + i], num, 1e-5);
+  }
+
+  /* Check d_add */
+  for (int j = 0; j < w; j++) {
+    arena_reset();
+    InterpWriteMeta *mp = interp_write_meta_alloc(n, w);
+    memcpy(mp->mem_vals, mem, 4 * sizeof(double));
+    memcpy(mp->weight_vals, wt, 2 * sizeof(double));
+    double out_p[4], out_m[4], ad_p[2], ad_m[2];
+    memcpy(ad_p, ad, 2 * sizeof(double));
+    memcpy(ad_m, ad, 2 * sizeof(double));
+    ad_p[j] += eps; ad_m[j] -= eps;
+    memcpy(mp->add_vals, ad_p, 2 * sizeof(double));
+    interp_write_compute(mp, out_p);
+    memcpy(mp->add_vals, ad_m, 2 * sizeof(double));
+    interp_write_compute(mp, out_m);
+    double num = 0;
+    for (int k = 0; k < n * w; k++) num += (out_p[k] - out_m[k]) / (2 * eps);
+    char name[64];
+    snprintf(name, sizeof(name), "interp_write_bwd d_add[%d]", j);
+    check_close(name, grad[6 + j], num, 1e-5);
+  }
+}
+
+
+/* -------------------------------------------------------------------
    Arena tests
    ------------------------------------------------------------------- */
 
@@ -683,6 +808,8 @@ int main(void) {
   test_readop_backward();
   test_writeop_forward();
   test_writeop_backward();
+  test_interp_write_forward();
+  test_interp_write_backward();
 
   printf("\n%d passed, %d failed\n", tests_passed, tests_failed);
   return tests_failed > 0 ? 1 : 0;
