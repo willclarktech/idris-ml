@@ -755,7 +755,7 @@ lstmLayerWith : {i, o : Nat} -> (Num ty, FromDouble ty) => InitStrategy -> IO (L
 lstmLayerWith {i} {o} initFn = do
   inputWeights <- traverse (\_ => map fromDouble (initFn i (4 * o))) (the (Matrix (4 * o) i ty) zeros)
   recurrentWeights <- traverse (\_ => map fromDouble (initFn o (4 * o))) (the (Matrix (4 * o) o ty) zeros)
-  let bias = setForgetBias {o} (the (Vector (4 * o) ty) zeros)
+  let bias = the (Vector (4 * o) ty) zeros
   pure $ LstmLayer inputWeights recurrentWeights bias zeros zeros Nothing Nothing Nothing
 
 export
