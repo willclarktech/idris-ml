@@ -5,6 +5,7 @@
 | Item | Difficulty | Notes |
 |------|-----------|-------|
 | Cleaner port/adapter model for layers | L | Currently Layer.idr contains every layer type and all dispatch logic in one mutual block; consider typeclass-based extensibility |
+| NTM recall convergence investigation | M | Batch=1 matches reference setup; need full 100K run to verify convergence. If Idris batch=1 doesn't converge, compare forward pass numerics with PyTorch |
 
 ## Medium Priority
 
@@ -32,7 +33,7 @@
 - Node IDs + memoized graph traversal
 - Momentum/Adam optimizer
 - SGD optimizer
-- Bounded NTM gamma (focus sharpening)
+- Bounded NTM gamma (focus sharpening) — later replaced by unbounded softplus gamma
 - Global gradient norm clipping (`adamGlobalClip`)
 - O(n) topoSort (accumulator-based)
 - Hyperparameter sweep script (`scripts/sweep.sh`)
@@ -46,12 +47,10 @@
 - Xavier/He/LeCun weight initialization (Init.idr)
 - NTM debug/diagnostics module (Debug.idr, `--diagnose` flag)
 - Random data generation module (Generate.idr, `SequenceTask` port/adapter)
-- NTM constant memory init 1e-6 (Collier & Beel stability)
-- Controller output clipping [-20, 20] (`clampVar` in Variable.idr)
-- Curriculum training (3 stages: len 1-3, 1-5, 1-8)
-- Gradient clip norm 5.0 → 50.0 (Collier & Beel default)
+- NTM memory init: sigmoid(xavier_random) matching PyTorch's sigmoid(FC_bias)
+- Curriculum training (3 stages: len 1-3, 1-5, 1-8) — no longer required for PyTorch-aligned NTM
+- Gradient clip norm 50.0 (Collier & Beel default)
 - 3-element shift kernel + hot-start addressing
-- NTM tanh memory bounding (Collier & Beel stability)
 - NTM learned initial addressing (backprop through head weights + readHeadOutput)
 - NTM associative recall example (content-based addressing)
 - Unit test suite (`make test` / `make test-c`)
@@ -59,11 +58,11 @@
 - C-backed NTM memory ops (batchCosineSimilarityVar, readOpVar, writeOpVar — ~1.8x NTM speedup)
 - Gaussian/normal distribution sampling (Sampler.idr, composable with init strategies)
 - Automatic parameter naming (`autoName` in Layer.idr, type-based prefixes with collision-free scoping)
-- PyTorch benchmarks (`bench/` directory — correctness tests, timing benchmarks, side-by-side comparison)
+- PyTorch benchmarks (`pytorch/` directory — correctness tests, timing benchmarks, side-by-side comparison)
 - NTM recall convergence verification (3 experiments: RMSprop baseline, Adam, Adam+2items — see `docs/ntm-convergence-results.md`)
 - Convergence script CLI args (`--recall-controller`, `--recall-optimizer`, `--recall-clip`, etc.)
 - NTM documentation extraction (`docs/ntm.md` — architecture, convergence, failure modes)
-- LSTM layer (`LstmLayer` constructor in Layer.idr — gate computation, forget bias init, cell state extraction)
+- LSTM layer (`LstmLayer` constructor in Layer.idr — gate computation, zero forget bias, cell state extraction)
 - Interpolation write (`interpolationWrite` in Memory.idr, `interpolationWriteVar` C-backed in Variable.idr)
 - Softplus gamma (`forwardReadHeadUnbounded` in Memory.idr — `gamma = 1 + softplus(x)`, unbounded)
 - RMSprop optimizer with value clipping (`rmsprop`, `rmspropValueClip` in Optimizer.idr)
@@ -72,3 +71,18 @@
 - Current RSS tracking via `mach_task_info` (`getCurrentRssMB` in Variable.idr)
 - RMSprop momentum (`rmspropValueClipMomentumDense` in Optimizer.idr, `rmsprop_vc_momentum_step` in C)
 - Realistic 1K NTM-copy benchmark (fresh data + GC, `benchNtmCopy1k` / `bench_ntm_copy_1k`)
+- C-backed BCE with logits (`bceWithLogitsVar`, tag 26 — fused sigmoid + BCE, single tape entry per output vector)
+- C-backed LSTM cell op (`lstmCellVar`, tag 24 — fused bias+gates+cell/hidden update, single tape entry)
+- C-backed addressing ops (`interpolateVar`/`shiftVar`/`focusVar`, tags 21-23 — replace ~1400 scalar entries per head)
+- Buffer-passing MatVec→LstmCell (`matrixVectorMultiplyVarBufOut` + `lstmCellVarFromBufs` — bypass Variable materialization)
+- Shadow ConstOps (tag 25 — gradient slots without values/pids, set via C bulk `tape_set_shadow_tags`)
+- Dense optimizer (`DenseOptimizer`/`DenseOptimizerState` — C arrays indexed by pid_id, ~47% faster for NTM)
+- C-bulk delta application (`applyDeltasAndSyncLayer`/`applyDeltasAndSyncNetwork` — bypass emap+sync)
+- Persistent NtmMemBuf (C struct across timesteps, per-sequence reset, epoch-cached tape registration)
+- Bias WeightBuf (LinearLayer/LstmLayer bias buffers, fused MatVec+Bias kernel)
+- Learned LSTM h0/c0 (Xavier uniform init, named as WeightBufs, matching PyTorch nn.Parameter)
+- Windowed convergence early stopping (`esThreshold`/`esWindow`/`esPatience` — replaces patience-based for NTM)
+- Periodic forced GC for long NTM training (`forceGC` every 10 epochs)
+- NTM recall batch=1 default (matching reference implementations; batch=16 for copy)
+- NTM recall benchmark in bench-compare (`benchNtmRecall` / `bench_ntm_recall`)
+- Periodic bit accuracy logging in NTM recall training loop
