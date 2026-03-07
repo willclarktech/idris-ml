@@ -420,6 +420,28 @@ prim__focusSetGamma : AnyPtr -> Double -> Int -> AnyPtr
 %foreign "scheme:(lambda (meta out) ((foreign-procedure \"focus_compute\" (void* void*) void*) meta out))"
 prim__focusCompute : AnyPtr -> AnyPtr -> AnyPtr
 
+-- LstmCellOp meta (tag 24): alloc, get internal pointers, compute
+%foreign "scheme:(lambda (o) ((foreign-procedure \"lstm_cell_meta_alloc\" (int) void*) o))"
+prim__lstmCellMetaAlloc : Int -> AnyPtr
+%foreign "scheme:(lambda (meta) ((foreign-procedure \"lstm_cell_meta_muliw_vals\" (void*) void*) meta))"
+prim__lstmCellMulIWVals : AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (meta) ((foreign-procedure \"lstm_cell_meta_muliw_tape\" (void*) void*) meta))"
+prim__lstmCellMulIWTape : AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (meta) ((foreign-procedure \"lstm_cell_meta_mulrw_vals\" (void*) void*) meta))"
+prim__lstmCellMulRWVals : AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (meta) ((foreign-procedure \"lstm_cell_meta_mulrw_tape\" (void*) void*) meta))"
+prim__lstmCellMulRWTape : AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (meta) ((foreign-procedure \"lstm_cell_meta_bias_vals\" (void*) void*) meta))"
+prim__lstmCellBiasVals : AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (meta) ((foreign-procedure \"lstm_cell_meta_bias_tape\" (void*) void*) meta))"
+prim__lstmCellBiasTape : AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (meta) ((foreign-procedure \"lstm_cell_meta_prevcell_vals\" (void*) void*) meta))"
+prim__lstmCellPrevCellVals : AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (meta) ((foreign-procedure \"lstm_cell_meta_prevcell_tape\" (void*) void*) meta))"
+prim__lstmCellPrevCellTape : AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (meta out) ((foreign-procedure \"lstm_cell_compute\" (void* void*) void*) meta out))"
+prim__lstmCellCompute : AnyPtr -> AnyPtr -> AnyPtr
+
 
 ----------------------------------------------------------------------
 -- Idris Tape Wrappers
@@ -500,6 +522,10 @@ tapeAppendShiftOp count meta outBuf = prim__tapeAppendTensorOp 22 count meta out
 %noinline
 tapeAppendFocusOp : Int -> AnyPtr -> AnyPtr -> AnyPtr
 tapeAppendFocusOp count meta outBuf = prim__tapeAppendTensorOp 23 count meta outBuf
+
+%noinline
+tapeAppendLstmCellOp : Int -> AnyPtr -> AnyPtr -> AnyPtr
+tapeAppendLstmCellOp count meta outBuf = prim__tapeAppendTensorOp 24 count meta outBuf
 
 
 ----------------------------------------------------------------------
@@ -1183,6 +1209,50 @@ focusVar {n} gamma (VTensor inputElems) =
       outBuf' = prim__focusCompute meta' outBuf
       outBuf'' = tapeAppendFocusOp nI meta' outBuf'
   in VTensor $ buildOutputScalars outBuf'' 0 n
+
+
+----------------------------------------------------------------------
+-- C-backed LSTM cell operation
+----------------------------------------------------------------------
+
+||| Fused LSTM cell: combines bias add, gate activations, and cell/hidden
+||| update into a single LstmCellOp tape entry (tag 24).
+||| Inputs: mulIW (iW×x result), mulRW (rW×h result), bias, prevCell
+||| Outputs: (newCell, newHidden) as separate vectors
+export
+lstmCellVar : {o : Nat} -> Vector (4 * o) Variable -> Vector (4 * o) Variable
+           -> Vector (4 * o) Variable -> Vector o Variable
+           -> (Vector o Variable, Vector o Variable)
+lstmCellVar {o} (VTensor mulIWElems) (VTensor mulRWElems) (VTensor biasElems) (VTensor prevCellElems) =
+  let oI = cast {to=Int} o
+      fo = 4 * oI
+      twoO = 2 * oI
+      meta = prim__lstmCellMetaAlloc oI
+      outBuf = prim__tensorAlloc twoO
+      -- Pack mulIW
+      iwvPtr = prim__lstmCellMulIWVals meta
+      iwtPtr = prim__lstmCellMulIWTape meta
+      iwvPtr' = packVec iwvPtr iwtPtr 0 mulIWElems
+      -- Pack mulRW
+      rwvPtr = prim__lstmCellMulRWVals (prim__seq iwvPtr' meta)
+      rwtPtr = prim__lstmCellMulRWTape meta
+      rwvPtr' = packVec rwvPtr rwtPtr 0 mulRWElems
+      -- Pack bias
+      bvPtr = prim__lstmCellBiasVals (prim__seq rwvPtr' meta)
+      btPtr = prim__lstmCellBiasTape meta
+      bvPtr' = packVec bvPtr btPtr 0 biasElems
+      -- Pack prevCell
+      pcvPtr = prim__lstmCellPrevCellVals (prim__seq bvPtr' meta)
+      pctPtr = prim__lstmCellPrevCellTape meta
+      pcvPtr' = packVec pcvPtr pctPtr 0 prevCellElems
+      -- Compute
+      outBuf' = prim__lstmCellCompute meta (prim__seq pcvPtr' outBuf)
+      -- Append LstmCellOp tape entry (2*o outputs: cell + hidden)
+      outBuf'' = tapeAppendLstmCellOp twoO meta outBuf'
+      -- Build output Variables: first o = newCell, next o = newHidden
+      cellScalars = buildOutputScalars outBuf'' 0 o
+      hiddenScalars = buildOutputScalars outBuf'' oI o
+  in (VTensor cellScalars, VTensor hiddenScalars)
 
 
 ----------------------------------------------------------------------

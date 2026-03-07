@@ -388,14 +388,9 @@ mutual
             mulRW : Vector gateSize Variable
             mulRW = maybe (matrixVectorMultiplyVar {m=gateSize, n=o} recurrentWeights hiddenState)
                           (\wb => matrixVectorMultiplyVarBuf {m=gateSize, n=o} wb hiddenState) rwBuf
-            combined = mulIW + mulRW + bias
-            gates = lstmSplitGates {o} combined
-            iGate = fst gates
-            fGate = fst (snd gates)
-            gGate = fst (snd (snd gates))
-            oGate = snd (snd (snd gates))
-            newCell = map sigmoidVar fGate * cellState + map sigmoidVar iGate * map tanhVar gGate
-            newHidden = map sigmoidVar oGate * map tanhVar newCell
+            cellResult = lstmCellVar mulIW mulRW bias cellState
+            newCell = fst cellResult
+            newHidden = snd cellResult
             updatedLayer = LstmLayer inputWeights recurrentWeights bias newHidden newCell iwBuf rwBuf
         in (updatedLayer, newHidden)
   applyLayerVar layer@(ActivationLayer _ f) xs = (layer, map f xs)
