@@ -118,12 +118,12 @@ mutual
   ||| Activation/normalization functions are reconstructed by name.
   export
   toDoubleLayer : {i, o : Nat} -> Layer i o Variable -> Layer i o Double
-  toDoubleLayer (LinearLayer w b _) =
-    LinearLayer (map value w) (map value b) Nothing
+  toDoubleLayer (LinearLayer w b _ _) =
+    LinearLayer (map value w) (map value b) Nothing Nothing
   toDoubleLayer (RnnLayer iw rw b po _ _) =
     RnnLayer (map value iw) (map value rw) (map value b) (map value po) Nothing Nothing
-  toDoubleLayer (LstmLayer iw rw b hs cs _ _) =
-    LstmLayer (map value iw) (map value rw) (map value b) (map value hs) (map value cs) Nothing Nothing
+  toDoubleLayer (LstmLayer iw rw b hs cs _ _ _) =
+    LstmLayer (map value iw) (map value rw) (map value b) (map value hs) (map value cs) Nothing Nothing Nothing
   toDoubleLayer (ActivationLayer "sigmoid" _) = sigmoidLayer
   toDoubleLayer (ActivationLayer "tanh" _) = tanhLayer
   toDoubleLayer (ActivationLayer name _) = ActivationLayer name id
@@ -149,7 +149,7 @@ mutual
 export
 debugApplyLayer : {i, o : Nat} -> Layer i o Double -> Vector i Double
                -> (Layer i o Double, Vector o Double, DebugEntry)
-debugApplyLayer {i} {o} layer@(LinearLayer _ _ _) inp =
+debugApplyLayer {i} {o} layer@(LinearLayer _ _ _ _) inp =
   let (updated, out) = applyLayer layer inp
   in (updated, out, MkDebugEntry ("Linear<" ++ show i ++ ":" ++ show o ++ ">") [])
 
@@ -158,8 +158,8 @@ debugApplyLayer {i} {o} (RnnLayer iw rw b previousOutput iwb rwb) inp =
   in (updated, out, MkDebugEntry ("Rnn<" ++ show i ++ ":" ++ show o ++ ">")
        [("hidden", showVec previousOutput)])
 
-debugApplyLayer {i} {o} (LstmLayer iw rw b hiddenState cellState iwb rwb) inp =
-  let (updated, out) = applyLayer (LstmLayer iw rw b hiddenState cellState iwb rwb) inp
+debugApplyLayer {i} {o} (LstmLayer iw rw b hiddenState cellState iwb rwb bb) inp =
+  let (updated, out) = applyLayer (LstmLayer iw rw b hiddenState cellState iwb rwb bb) inp
   in (updated, out, MkDebugEntry ("Lstm<" ++ show i ++ ":" ++ show o ++ ">")
        [("hidden", showVec hiddenState), ("cell", showVec cellState)])
 

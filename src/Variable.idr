@@ -254,6 +254,10 @@ prim__matvecMetaAlloc : Int -> Int -> AnyPtr
 %foreign "scheme:(lambda (m n wptr wstart) ((foreign-procedure \"matvec_meta_alloc_buf\" (int int void* int) void*) m n wptr wstart))"
 prim__matvecMetaAllocBuf : Int -> Int -> AnyPtr -> Int -> AnyPtr
 
+-- Allocate meta for persistent weight + bias buffer path (fused matvec+bias)
+%foreign "scheme:(lambda (m n wptr wstart bptr bstart) ((foreign-procedure \"matvec_meta_alloc_buf_bias\" (int int void* int void* int) void*) m n wptr wstart bptr bstart))"
+prim__matvecMetaAllocBufBias : Int -> Int -> AnyPtr -> Int -> AnyPtr -> Int -> AnyPtr
+
 -- Raw array accessors (one C call each, cached for bulk writes)
 %foreign "scheme:(lambda (meta) ((foreign-procedure \"matvec_meta_w_vals\" (void*) void*) meta))"
 prim__matvecWVals : AnyPtr -> AnyPtr
@@ -423,6 +427,9 @@ prim__focusCompute : AnyPtr -> AnyPtr -> AnyPtr
 -- LstmCellOp meta (tag 24): alloc, get internal pointers, compute
 %foreign "scheme:(lambda (o) ((foreign-procedure \"lstm_cell_meta_alloc\" (int) void*) o))"
 prim__lstmCellMetaAlloc : Int -> AnyPtr
+-- Allocate meta for bias WeightBuf path (no bias packing needed)
+%foreign "scheme:(lambda (o bptr bstart) ((foreign-procedure \"lstm_cell_meta_alloc_buf\" (int void* int) void*) o bptr bstart))"
+prim__lstmCellMetaAllocBuf : Int -> AnyPtr -> Int -> AnyPtr
 %foreign "scheme:(lambda (meta) ((foreign-procedure \"lstm_cell_meta_muliw_vals\" (void*) void*) meta))"
 prim__lstmCellMulIWVals : AnyPtr -> AnyPtr
 %foreign "scheme:(lambda (meta) ((foreign-procedure \"lstm_cell_meta_muliw_tape\" (void*) void*) meta))"
@@ -833,12 +840,39 @@ matrixVectorMultiplyVarBuf {m} {n} wBuf (VTensor xs) =
   in VTensor $ buildOutputScalars outBuf'' 0 m
 
 
+||| Matrix-vector multiply with fused bias using persistent weight + bias buffers.
+||| Eliminates per-element bias AddOp entries by fusing bias into the C matmul kernel.
+export
+matrixVectorMultiplyVarBufBias : {m, n : Nat} -> AnyPtr -> AnyPtr -> Vector n Variable -> Vector m Variable
+matrixVectorMultiplyVarBufBias {m} {n} wBuf bBuf (VTensor xs) =
+  let mI = cast {to=Int} m
+      nI = cast {to=Int} n
+      -- Ensure weights and bias on tape (cached within epoch)
+      wTapeStart = tapeEnsureBulkConst wBuf (mI * nI)
+      bTapeStart = tapeEnsureBulkConst bBuf mI
+      -- Allocate meta with fused bias
+      wValsPtr = prim__weightBufVals wBuf
+      bValsPtr = prim__weightBufVals bBuf
+      meta = prim__matvecMetaAllocBufBias mI nI wValsPtr wTapeStart bValsPtr bTapeStart
+      outBuf = prim__tensorAlloc mI
+      -- Pack input values and tape indices
+      xvPtr = prim__matvecXVals meta
+      xtPtr = prim__matvecXTape meta
+      xvPtr' = packVec xvPtr xtPtr 0 xs
+      -- Compute forward (matmul + bias addition)
+      outBuf' = prim__matvecCompute meta (prim__seq xvPtr' outBuf)
+      -- Append MatVecOp entry
+      outBuf'' = tapeAppendMatVecOp mI meta outBuf'
+  in VTensor $ buildOutputScalars outBuf'' 0 m
+
+
 ----------------------------------------------------------------------
 -- Weight Buffer Helpers
 ----------------------------------------------------------------------
 
 -- Write initial values and pids from a matrix of Variables into a weight buffer.
 -- Returns the buffer pointer for threading.
+export
 initWeightBufRow : AnyPtr -> Int -> Vect k (Scalar Variable) -> AnyPtr
 initWeightBufRow wBuf _ [] = wBuf
 initWeightBufRow wBuf off (STensor v :: rest) =
@@ -854,6 +888,7 @@ initWeightBuf wBuf off {m=S k} {n} (VTensor row :: rows) =
   in initWeightBuf wBuf' (off + cast {to=Int} n) rows
 
 -- Sync updated values from Variables into the C buffer after applyDeltas.
+export
 syncWeightBufRow : AnyPtr -> Int -> Vect k (Scalar Variable) -> AnyPtr
 syncWeightBufRow wBuf _ [] = wBuf
 syncWeightBufRow wBuf off (STensor v :: rest) =
@@ -1243,6 +1278,44 @@ lstmCellVar {o} (VTensor mulIWElems) (VTensor mulRWElems) (VTensor biasElems) (V
       bvPtr' = packVec bvPtr btPtr 0 biasElems
       -- Pack prevCell
       pcvPtr = prim__lstmCellPrevCellVals (prim__seq bvPtr' meta)
+      pctPtr = prim__lstmCellPrevCellTape meta
+      pcvPtr' = packVec pcvPtr pctPtr 0 prevCellElems
+      -- Compute
+      outBuf' = prim__lstmCellCompute meta (prim__seq pcvPtr' outBuf)
+      -- Append LstmCellOp tape entry (2*o outputs: cell + hidden)
+      outBuf'' = tapeAppendLstmCellOp twoO meta outBuf'
+      -- Build output Variables: first o = newCell, next o = newHidden
+      cellScalars = buildOutputScalars outBuf'' 0 o
+      hiddenScalars = buildOutputScalars outBuf'' oI o
+  in (VTensor cellScalars, VTensor hiddenScalars)
+
+
+||| Fused LSTM cell with bias from WeightBuf (no bias packing).
+||| Same as lstmCellVar but bias values/indices come from persistent buffer.
+export
+lstmCellVarBuf : {o : Nat} -> Vector (4 * o) Variable -> Vector (4 * o) Variable
+              -> AnyPtr -> Vector o Variable
+              -> (Vector o Variable, Vector o Variable)
+lstmCellVarBuf {o} (VTensor mulIWElems) (VTensor mulRWElems) bBuf (VTensor prevCellElems) =
+  let oI = cast {to=Int} o
+      fo = 4 * oI
+      twoO = 2 * oI
+      -- Ensure bias on tape (cached within epoch)
+      bTapeStart = tapeEnsureBulkConst bBuf fo
+      bValsPtr = prim__weightBufVals bBuf
+      -- Allocate meta with bias buffer path (skips bias_vals/bias_tape_idx alloc)
+      meta = prim__lstmCellMetaAllocBuf oI bValsPtr bTapeStart
+      outBuf = prim__tensorAlloc twoO
+      -- Pack mulIW
+      iwvPtr = prim__lstmCellMulIWVals meta
+      iwtPtr = prim__lstmCellMulIWTape meta
+      iwvPtr' = packVec iwvPtr iwtPtr 0 mulIWElems
+      -- Pack mulRW
+      rwvPtr = prim__lstmCellMulRWVals (prim__seq iwvPtr' meta)
+      rwtPtr = prim__lstmCellMulRWTape meta
+      rwvPtr' = packVec rwvPtr rwtPtr 0 mulRWElems
+      -- Pack prevCell (no bias packing needed!)
+      pcvPtr = prim__lstmCellPrevCellVals (prim__seq rwvPtr' meta)
       pctPtr = prim__lstmCellPrevCellTape meta
       pcvPtr' = packVec pcvPtr pctPtr 0 prevCellElems
       -- Compute

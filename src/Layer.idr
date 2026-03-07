@@ -60,7 +60,7 @@ WriteParamWidth m = ReadParamWidth m + m
 mutual
   public export
   data Layer : (inputSize : Nat) -> (outputSize : Nat) -> Type -> Type where
-    LinearLayer : (weights : Matrix outputSize inputSize ty) -> (bias : Vector outputSize ty) -> (wBuf : Maybe AnyPtr) -> Layer inputSize outputSize ty
+    LinearLayer : (weights : Matrix outputSize inputSize ty) -> (bias : Vector outputSize ty) -> (wBuf : Maybe AnyPtr) -> (bBuf : Maybe AnyPtr) -> Layer inputSize outputSize ty
     RnnLayer : (inputWeights : Matrix outputSize inputSize ty) -> (recurrentWeights : Matrix outputSize outputSize ty) -> (bias : Vector outputSize ty) -> (previousOutput : Vector outputSize ty) -> (iwBuf : Maybe AnyPtr) -> (rwBuf : Maybe AnyPtr) -> Layer inputSize outputSize ty
     ActivationLayer : (name : String) -> (f : ActivationFunction ty) -> Layer n n ty
     NormalizationLayer : (name : String) -> (f : NormalizationFunction ty) -> Layer n n ty
@@ -70,6 +70,7 @@ mutual
                 (hiddenState : Vector outputSize ty) ->
                 (cellState : Vector outputSize ty) ->
                 (iwBuf : Maybe AnyPtr) -> (rwBuf : Maybe AnyPtr) ->
+                (bBuf : Maybe AnyPtr) ->
                 Layer inputSize outputSize ty
     ||| PyTorch-aligned NTM layer. LSTM controller with separate head FCs.
     ||| n = memory slots, m = memory width, h = controller hidden size.
@@ -99,9 +100,9 @@ export infixr 5 ~>
 
 public export
 implementation {inputSize : Nat} -> {outputSize : Nat} -> Show a => Show (Layer inputSize outputSize a) where
-  show {inputSize} {outputSize} (LinearLayer _ _ _) = "Linear<" ++ show inputSize ++ ":" ++ show outputSize ++ ">"
+  show {inputSize} {outputSize} (LinearLayer _ _ _ _) = "Linear<" ++ show inputSize ++ ":" ++ show outputSize ++ ">"
   show {inputSize} {outputSize} (RnnLayer _ _ _ _ _ _) = "Rnn<" ++ show inputSize ++ ":" ++ show outputSize ++ ">"
-  show {inputSize} {outputSize} (LstmLayer _ _ _ _ _ _ _) = "Lstm<" ++ show inputSize ++ ":" ++ show outputSize ++ ">"
+  show {inputSize} {outputSize} (LstmLayer _ _ _ _ _ _ _ _) = "Lstm<" ++ show inputSize ++ ":" ++ show outputSize ++ ">"
   show (ActivationLayer name _) = "Activation<" ++ name ++ ">"
   show (NormalizationLayer name _) = "Normalization<" ++ name ++ ">"
   show {inputSize} {outputSize} (NtmLayer {n} {m} {h} _ _ _ _ _ _ _ _ _) = "Ntm<" ++ show inputSize ++ ":" ++ show outputSize ++ ", mem=" ++ show n ++ "x" ++ show m ++ ", h=" ++ show h ++ ">"
@@ -122,9 +123,9 @@ implementation {i, h : Nat} -> (Show ty, Show (Network h hs o ty)) => Show (Netw
 mutual
   public export
   implementation Endofunctor (Layer i o) where
-    emap f (LinearLayer w b wb) = LinearLayer (map f w) (map f b) wb
+    emap f (LinearLayer w b wb bb) = LinearLayer (map f w) (map f b) wb bb
     emap f (RnnLayer iw rw b po iwb rwb) = RnnLayer (map f iw) (map f rw) (map f b) (map f po) iwb rwb
-    emap f (LstmLayer iw rw b hs cs iwb rwb) = LstmLayer (map f iw) (map f rw) (map f b) (map f hs) (map f cs) iwb rwb
+    emap f (LstmLayer iw rw b hs cs iwb rwb bb) = LstmLayer (map f iw) (map f rw) (map f b) (map f hs) (map f cs) iwb rwb bb
     emap f (NtmLayer lstm rfc wfc ofc mem ra wa ro mb) =
       NtmLayer (emap f lstm) (emap f rfc) (emap f wfc) (emap f ofc)
                (map f mem) (map f ra) (map f wa) (map f ro) mb
@@ -176,7 +177,7 @@ lstmSplitGates {o} combined =
 ||| Returns zeros if the layer is not an LSTM.
 export
 extractCellState : (Num ty) => {o : Nat} -> Layer i o ty -> Vector o ty
-extractCellState (LstmLayer _ _ _ _ cell _ _) = cell
+extractCellState (LstmLayer _ _ _ _ cell _ _ _) = cell
 extractCellState _ = zeros
 
 
@@ -187,7 +188,7 @@ extractCellState _ = zeros
 mutual
   export
   applyLayer : (Floating ty, Fractional ty, Neg ty, Num ty, Ord ty) => {i, o : Nat} -> Layer i o ty -> Vector i ty -> (Layer i o ty, Vector o ty)
-  applyLayer layer@(LinearLayer weights bias _) xs = (layer, matrixVectorMultiply {m=o, n=i} weights xs + bias)
+  applyLayer layer@(LinearLayer weights bias _ _) xs = (layer, matrixVectorMultiply {m=o, n=i} weights xs + bias)
   applyLayer (RnnLayer inputWeights recurrentWeights bias previousOutput iwb rwb) xs =
     let
       output = matrixVectorMultiply inputWeights xs + matrixVectorMultiply recurrentWeights previousOutput + bias
@@ -195,7 +196,7 @@ mutual
     in (updatedLayer, output)
   applyLayer layer@(ActivationLayer _ f) xs = (layer, map f xs)
   applyLayer layer@(NormalizationLayer _ f) xs = (layer, f xs)
-  applyLayer {i} {o} (LstmLayer inputWeights recurrentWeights bias hiddenState cellState iwb rwb) xs =
+  applyLayer {i} {o} (LstmLayer inputWeights recurrentWeights bias hiddenState cellState iwb rwb _) xs =
     let
       combined = matrixVectorMultiply inputWeights xs + matrixVectorMultiply recurrentWeights hiddenState + bias
       gates = lstmSplitGates {o} combined
@@ -205,7 +206,7 @@ mutual
       oGate = snd (snd (snd gates))
       newCell = map sig fGate * cellState + map sig iGate * map tanhBound gGate
       newHidden = map sig oGate * map tanhBound newCell
-      updatedLayer = LstmLayer inputWeights recurrentWeights bias newHidden newCell iwb rwb
+      updatedLayer = LstmLayer inputWeights recurrentWeights bias newHidden newCell iwb rwb Nothing
     in (updatedLayer, newHidden)
   applyLayer (NtmLayer {n} {m} {h} lstm readFc writeFc outputFc memory readAddr writeAddr readOutput mb) inp =
     let
@@ -357,12 +358,13 @@ forwardWriteHeadInterpVarBuf memBuf (MkWriteHead readHead) inp =
 mutual
   export
   applyLayerVar : {i, o : Nat} -> Layer i o Variable -> Vector i Variable -> (Layer i o Variable, Vector o Variable)
-  applyLayerVar layer@(LinearLayer weights bias wBuf) xs =
+  applyLayerVar layer@(LinearLayer weights bias wBuf bBuf) xs =
     if i * o <= 4
       then applyLayer layer xs
-      else case wBuf of
-        Just wb => (layer, matrixVectorMultiplyVarBuf {m=o, n=i} wb xs + bias)
-        Nothing => (layer, matrixVectorMultiplyVar {m=o, n=i} weights xs + bias)
+      else case (wBuf, bBuf) of
+        (Just wb, Just bb) => (layer, matrixVectorMultiplyVarBufBias {m=o, n=i} wb bb xs)
+        (Just wb, Nothing) => (layer, matrixVectorMultiplyVarBuf {m=o, n=i} wb xs + bias)
+        _ => (layer, matrixVectorMultiplyVar {m=o, n=i} weights xs + bias)
   applyLayerVar (RnnLayer inputWeights recurrentWeights bias previousOutput iwBuf rwBuf) xs =
     if i * o <= 4
       then applyLayer (RnnLayer inputWeights recurrentWeights bias previousOutput iwBuf rwBuf) xs
@@ -376,9 +378,9 @@ mutual
         output = mulIW + mulRW + bias
         updatedLayer = RnnLayer inputWeights recurrentWeights bias output iwBuf rwBuf
       in (updatedLayer, output)
-  applyLayerVar {i} {o} (LstmLayer inputWeights recurrentWeights bias hiddenState cellState iwBuf rwBuf) xs =
+  applyLayerVar {i} {o} (LstmLayer inputWeights recurrentWeights bias hiddenState cellState iwBuf rwBuf bBuf) xs =
     if i * o <= 4
-      then applyLayer (LstmLayer inputWeights recurrentWeights bias hiddenState cellState iwBuf rwBuf) xs
+      then applyLayer (LstmLayer inputWeights recurrentWeights bias hiddenState cellState iwBuf rwBuf bBuf) xs
       else
         let gateSize : Nat
             gateSize = 4 * o
@@ -388,10 +390,11 @@ mutual
             mulRW : Vector gateSize Variable
             mulRW = maybe (matrixVectorMultiplyVar {m=gateSize, n=o} recurrentWeights hiddenState)
                           (\wb => matrixVectorMultiplyVarBuf {m=gateSize, n=o} wb hiddenState) rwBuf
-            cellResult = lstmCellVar mulIW mulRW bias cellState
+            cellResult = maybe (lstmCellVar mulIW mulRW bias cellState)
+                               (\bb => lstmCellVarBuf mulIW mulRW bb cellState) bBuf
             newCell = fst cellResult
             newHidden = snd cellResult
-            updatedLayer = LstmLayer inputWeights recurrentWeights bias newHidden newCell iwBuf rwBuf
+            updatedLayer = LstmLayer inputWeights recurrentWeights bias newHidden newCell iwBuf rwBuf bBuf
         in (updatedLayer, newHidden)
   applyLayerVar layer@(ActivationLayer _ f) xs = (layer, map f xs)
   applyLayerVar layer@(NormalizationLayer "softmax" _) xs = (layer, softmaxVar xs)
@@ -609,7 +612,7 @@ export
 linearLayerWith : {i, o : Nat} -> (Num ty, FromDouble ty) => InitStrategy -> IO (Layer i o ty)
 linearLayerWith initFn = do
   weights <- traverse (\_ => map fromDouble (initFn i o)) (the (Matrix o i ty) zeros)
-  pure $ LinearLayer weights zeros Nothing
+  pure $ LinearLayer weights zeros Nothing Nothing
 
 export
 linearLayer : {i, o : Nat} -> (Num ty, FromDouble ty) => IO (Layer i o ty)
@@ -645,7 +648,7 @@ lstmLayerWith {i} {o} initFn = do
   inputWeights <- traverse (\_ => map fromDouble (initFn i (4 * o))) (the (Matrix (4 * o) i ty) zeros)
   recurrentWeights <- traverse (\_ => map fromDouble (initFn o (4 * o))) (the (Matrix (4 * o) o ty) zeros)
   let bias = setForgetBias {o} (the (Vector (4 * o) ty) zeros)
-  pure $ LstmLayer inputWeights recurrentWeights bias zeros zeros Nothing Nothing
+  pure $ LstmLayer inputWeights recurrentWeights bias zeros zeros Nothing Nothing Nothing
 
 export
 lstmLayer : {i, o : Nat} -> (Num ty, FromDouble ty) => IO (Layer i o ty)
@@ -694,16 +697,19 @@ mutual
   nameParams {i} {o} prefx layer =
     let np = nameParam . (prefx ++ "_" ++)
     in case layer of
-      (LinearLayer weights bias _) =>
+      (LinearLayer weights bias _ _) =>
         let
           namedWeights = zipWith (np "weight") enumerate weights
           namedBias = zipWith (np "bias") enumerate bias
         in if i * o <= 4
-          then LinearLayer namedWeights namedBias Nothing
+          then LinearLayer namedWeights namedBias Nothing Nothing
           else let (VTensor namedRows) = namedWeights
+                   (VTensor biasElems) = namedBias
                    wBuf = prim__weightBufAlloc (cast (o * i))
                    wBuf' = initWeightBuf wBuf 0 namedRows
-               in LinearLayer namedWeights namedBias (Just wBuf')
+                   bBuf = prim__weightBufAlloc (cast o)
+                   bBuf' = initWeightBufRow bBuf 0 biasElems
+               in LinearLayer namedWeights namedBias (Just wBuf') (Just bBuf')
       (RnnLayer inputWeights recurrentWeights bias previousOutput _ _) =>
         let
           namedInputWeights = zipWith (np "inputWeight") enumerate inputWeights
@@ -718,7 +724,7 @@ mutual
                    rwBuf = prim__weightBufAlloc (cast (o * o))
                    rwBuf' = initWeightBuf rwBuf 0 rwRows
                in RnnLayer namedInputWeights namedRecurrentWeights namedBias previousOutput (Just iwBuf') (Just rwBuf')
-      (LstmLayer inputWeights recurrentWeights bias hiddenState cellState _ _) =>
+      (LstmLayer inputWeights recurrentWeights bias hiddenState cellState _ _ _) =>
         let
           gateSize : Nat
           gateSize = 4 * o
@@ -726,14 +732,17 @@ mutual
           namedRecurrentWeights = zipWith (np "recurrentWeight") enumerate recurrentWeights
           namedBias = zipWith (np "bias") enumerate bias
         in if i * o <= 4
-          then LstmLayer namedInputWeights namedRecurrentWeights namedBias hiddenState cellState Nothing Nothing
+          then LstmLayer namedInputWeights namedRecurrentWeights namedBias hiddenState cellState Nothing Nothing Nothing
           else let (VTensor iwRows) = namedInputWeights
                    (VTensor rwRows) = namedRecurrentWeights
+                   (VTensor biasElems) = namedBias
                    iwBuf = prim__weightBufAlloc (cast (gateSize * i))
                    iwBuf' = initWeightBuf iwBuf 0 iwRows
                    rwBuf = prim__weightBufAlloc (cast (gateSize * o))
                    rwBuf' = initWeightBuf rwBuf 0 rwRows
-               in LstmLayer namedInputWeights namedRecurrentWeights namedBias hiddenState cellState (Just iwBuf') (Just rwBuf')
+                   bBuf = prim__weightBufAlloc (cast gateSize)
+                   bBuf' = initWeightBufRow bBuf 0 biasElems
+               in LstmLayer namedInputWeights namedRecurrentWeights namedBias hiddenState cellState (Just iwBuf') (Just rwBuf') (Just bBuf')
       (NtmLayer {n} {m} lstm readFc writeFc outputFc memory readAddr writeAddr readOutput _) =>
         let namedMemory = zipWith (np "mem") enumerate memory
             namedReadAddr = zipWith (np "rAddr") enumerate readAddr
@@ -761,9 +770,9 @@ mutual
 ----------------------------------------------------------------------
 
 layerPrefix : Layer i o ty -> String
-layerPrefix (LinearLayer _ _ _) = "ll"
+layerPrefix (LinearLayer _ _ _ _) = "ll"
 layerPrefix (RnnLayer _ _ _ _ _ _) = "rnn"
-layerPrefix (LstmLayer _ _ _ _ _ _ _) = "lstm"
+layerPrefix (LstmLayer _ _ _ _ _ _ _ _) = "lstm"
 layerPrefix (NtmLayer _ _ _ _ _ _ _ _ _) = "ntm"
 layerPrefix _ = ""
 
@@ -837,17 +846,26 @@ projectWeights (VTensor vs) =
 mutual
   export
   syncLayerBuffers : {i, o : Nat} -> Layer i o Variable -> Layer i o Variable
-  syncLayerBuffers (LinearLayer (VTensor wRows) bias (Just wb)) =
+  syncLayerBuffers (LinearLayer (VTensor wRows) (VTensor biasElems) (Just wb) (Just bb)) =
     let wb' = syncWeightBuf wb 0 wRows
-    in LinearLayer (VTensor wRows) bias (Just wb')
+        bb' = syncWeightBufRow bb 0 biasElems
+    in LinearLayer (VTensor wRows) (VTensor biasElems) (Just wb') (Just bb')
+  syncLayerBuffers (LinearLayer (VTensor wRows) bias (Just wb) Nothing) =
+    let wb' = syncWeightBuf wb 0 wRows
+    in LinearLayer (VTensor wRows) bias (Just wb') Nothing
   syncLayerBuffers (RnnLayer (VTensor iwRows) (VTensor rwRows) bias po (Just iwb) (Just rwb)) =
     let iwb' = syncWeightBuf iwb 0 iwRows
         rwb' = syncWeightBuf rwb 0 rwRows
     in RnnLayer (VTensor iwRows) (VTensor rwRows) bias po (Just iwb') (Just rwb')
-  syncLayerBuffers (LstmLayer (VTensor iwRows) (VTensor rwRows) bias hs cs (Just iwb) (Just rwb)) =
+  syncLayerBuffers (LstmLayer (VTensor iwRows) (VTensor rwRows) (VTensor biasElems) hs cs (Just iwb) (Just rwb) (Just bb)) =
     let iwb' = syncWeightBuf iwb 0 iwRows
         rwb' = syncWeightBuf rwb 0 rwRows
-    in LstmLayer (VTensor iwRows) (VTensor rwRows) bias hs cs (Just iwb') (Just rwb')
+        bb' = syncWeightBufRow bb 0 biasElems
+    in LstmLayer (VTensor iwRows) (VTensor rwRows) (VTensor biasElems) hs cs (Just iwb') (Just rwb') (Just bb')
+  syncLayerBuffers (LstmLayer (VTensor iwRows) (VTensor rwRows) bias hs cs (Just iwb) (Just rwb) Nothing) =
+    let iwb' = syncWeightBuf iwb 0 iwRows
+        rwb' = syncWeightBuf rwb 0 rwRows
+    in LstmLayer (VTensor iwRows) (VTensor rwRows) bias hs cs (Just iwb') (Just rwb') Nothing
   syncLayerBuffers (NtmLayer lstm readFc writeFc outputFc (VTensor memRows) ra wa ro (Just memBuf)) =
     let mb' = prim__ntmMemBufResetCache (syncNtmMemBuf memBuf 0 memRows)
     in NtmLayer (syncLayerBuffers lstm) (syncLayerBuffers readFc)
