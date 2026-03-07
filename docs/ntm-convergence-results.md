@@ -351,7 +351,11 @@ After the Idris implementation was fully aligned, an audit identified suboptimal
 3. **F.softplus**: Replaced manual `torch.log(1 + torch.exp(x))` with `F.softplus(x)` in memory.py. Uses threshold=20 to avoid overflow for large x
 4. **Direct nn.Parameter for init**: Replaced FC(dummy) wrappers for h0/c0/memory_init with direct `nn.Parameter`. Eliminates 2760 dead weight parameters and 48 FC forward/backward ops per epoch. Functionally equivalent (FC with zero input only uses bias)
 
+## Idris recall optimizer fix (2026-03-06)
+
+The Idris NTM recall task was using `rmspropValueClipDense` (no momentum) while the copy task and PyTorch reference both use momentum=0.9. The `--momentum` CLI flag existed in `scripts/sweep.sh` but was silently dropped by `parseConfig` (catch-all `go (_ :: rest) c = go rest c`). Fixed by adding `momentum` field to Config and switching to `rmspropValueClipMomentumDense`.
+
 ## Next steps
 
-- Consider porting all vlgiitr changes to Idris implementation
-- The six necessary changes: interpolation write, cell state input, no tanh bound, learned memory init, learned controller init, FC init scale
+- Verify Idris recall convergence with momentum=0.9
+- The six necessary changes are already ported: interpolation write, cell state input, no tanh bound, learned memory init, learned controller init, FC init scale
