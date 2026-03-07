@@ -212,6 +212,52 @@ NTM-copy             23099.1        14399.0    1.60x
 
 NTM-copy: 25030ms -> 23099ms (**1.78x -> 1.60x** vs PyTorch). ~8% improvement.
 
+### After LSTM→FC buffer-passing + case destructuring (2026-03-04)
+
+Two optimizations combined:
+
+1. **Case destructuring fix**: Idris 2 compiled to Chez Scheme re-evaluates let-bound
+   FFI calls when accessed via `fst`/`snd` projections. The baseline NTM forward accessed
+   `lstmResult` via 3 separate `fst`/`snd` projections, causing 3× LSTM re-evaluation per
+   timestep. Using `case` destructuring forces single evaluation.
+
+2. **LSTM→FC buffer-passing**: LSTM output buffer `[cell|hidden]` passed directly to FC
+   layers via `buf_to_meta_off`, eliminating ~900 `packVec` calls/timestep. New functions:
+   `lstmCellVarFromBufsExt`, `matrixVectorMultiplyVarBufBiasFromBuf`,
+   `matrixVectorMultiplyVarBufBiasFromBufAndVec`.
+
+```
+Epoch   Enc(ms)   Out(ms)  Loss(ms)   Bwd(ms)   Opt(ms)  Sync(ms)  TapeSize    Loss
+    1      60.2      48.7       4.7      22.3       0.0       0.3   2232883
+   avg     ~59       ~48        ~5       ~22        ~0      ~0.3    2232883
+```
+
+Forward (Enc+Out) = **~176ms -> ~107ms** (-39%). Backward **~37ms -> ~22ms** (-40%).
+Tape **3.56M -> 2.23M** (-37%). LstmCell ops: 1098 -> 366 (3x→1x per timestep).
+
+Tape histogram:
+```
+  ConstOps:   1,134,234  (51%)
+  ScalarOps:     33,955  (<2%)
+  TensorOps:      8,418  (<1%)
+  ShadowOps:  1,056,276  (47%)
+  Total:      2,232,883
+```
+
+Tensor detail: MatVec=2562 Softmax=1464 BatchCosSim=732 ReadOp=732 InterpWrite=366
+               Interpolate=732 Shift=732 Focus=732 LstmCell=366
+
+Bench-compare:
+```
+Model             Idris (ms)   PyTorch (ms)    Ratio
+Supervised              96.1          256.1    0.38x
+RNN                    464.4         2394.2    0.19x
+NTM-small              336.8         1486.4    0.23x
+NTM-copy             14523.3        14276.8    1.02x
+```
+
+NTM-copy: 23099ms -> 14523ms (**1.60x -> 1.02x** vs PyTorch). Near parity!
+
 ### Gradient Region Reservation (NOT IMPLEMENTED)
 
 Planned to eliminate 2.23M ShadowOps (63% of tape) by reserving gradient indices
