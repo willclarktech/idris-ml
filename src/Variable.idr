@@ -218,7 +218,8 @@ prim__appendOutputConstOff : AnyPtr -> Int -> Int -> Int
 -- Bulk append shadow ConstOps (tag=25): gradient slots only, no values/pids.
 -- Skipped during backward walk collection. Returns start tape index.
 -- Takes a dummy AnyPtr first arg for evaluation sequencing (forces prior side effects).
-%foreign "scheme:(lambda (dummy count) (let* ((start (top-level-value 'tape-size)) (end (+ start count))) ((top-level-value 'tape-ensure-cap!) (- end 1)) (let ((tags-fp (top-level-value 'tape-tags-fp))) (do ((k 0 (+ k 1))) ((= k count)) (foreign-set! 'integer-32 tags-fp (* (+ start k) 4) 25))) (set-top-level-value! 'tape-size end) start))"
+-- Uses C bulk tag setting (tape_set_shadow_tags) instead of per-element Scheme loop.
+%foreign "scheme:(lambda (dummy count) (let* ((start (top-level-value 'tape-size)) (end (+ start count))) ((top-level-value 'tape-ensure-cap!) (- end 1)) ((foreign-procedure \"tape_set_shadow_tags\" (void* int int) void) (top-level-value 'tape-tags-fp) start count) (set-top-level-value! 'tape-size end) start))"
 prim__appendShadowConst : AnyPtr -> Int -> Int
 
 -- After InterpWrite: update buffer vals + tape_idx from output. Returns wrapper.

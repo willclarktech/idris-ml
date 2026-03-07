@@ -710,6 +710,14 @@ void tape_pid_ids_reset(int count) {
 }
 
 /* -------------------------------------------------------------------
+   Bulk shadow tag setting (avoids per-element Scheme FFI calls)
+   ------------------------------------------------------------------- */
+
+void tape_set_shadow_tags(int *tags, int start, int count) {
+  for (int i = 0; i < count; i++) tags[start + i] = 25;
+}
+
+/* -------------------------------------------------------------------
    Gradient array (C-backed for use with tensor backward)
    ------------------------------------------------------------------- */
 
