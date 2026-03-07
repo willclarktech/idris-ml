@@ -16,7 +16,7 @@ from torch.nn.utils import clip_grad_norm_
 from bench.models.ntm_copy import LSTMController
 from bench.models.rnn import LinearRNNCell, generate_rnn_dataset, train_rnn_epoch
 from bench.models.supervised import SUPERVISED_DATA, SupervisedModel, train_supervised_epoch
-from bench.ntm.ntm_layer import NTMLayer
+from bench.ntm.layer import NTMLayer
 
 
 def bench_supervised() -> tuple[float, float]:

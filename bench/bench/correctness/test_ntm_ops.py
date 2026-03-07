@@ -4,12 +4,10 @@ import torch
 
 from bench.ntm.addressing import content_address, cosine_similarity, focus, interpolate, shift
 from bench.ntm.memory import (
-    add_memory,
-    erase_memory,
     forward_read_head,
     forward_write_head,
     read_op,
-    tanh_bound,
+    write_memory,
 )
 
 
@@ -104,29 +102,16 @@ class TestMemoryOps:
         expected = torch.tensor([1.0, 2.0])
         assert torch.allclose(result, expected)
 
-    def test_erase_memory(self) -> None:
+    def test_write_memory(self) -> None:
+        """Interpolation write: w*data + (1-w)*mem."""
         memory = torch.ones(3, 2)
         weights = torch.tensor([1.0, 0.0, 0.0])
-        erase = torch.tensor([1.0, 1.0])
-        result = erase_memory(memory, weights, erase)
-        # First row should be erased to 0
-        assert torch.allclose(result[0], torch.tensor([0.0, 0.0]))
-        # Other rows unchanged
-        assert torch.allclose(result[1], torch.tensor([1.0, 1.0]))
-
-    def test_add_memory(self) -> None:
-        memory = torch.zeros(3, 2)
-        weights = torch.tensor([1.0, 0.0, 0.0])
         add = torch.tensor([5.0, 6.0])
-        result = add_memory(memory, weights, add)
+        result = write_memory(memory, weights, add)
+        # First row: 1.0 * [5, 6] + 0.0 * [1, 1] = [5, 6]
         assert torch.allclose(result[0], torch.tensor([5.0, 6.0]))
-        assert torch.allclose(result[1], torch.tensor([0.0, 0.0]))
-
-    def test_tanh_bound(self) -> None:
-        memory = torch.tensor([[5.0, -5.0], [0.5, -0.5]])
-        result = tanh_bound(memory)
-        assert (result >= -1.0).all()
-        assert (result <= 1.0).all()
+        # Other rows: 0.0 * [5, 6] + 1.0 * [1, 1] = [1, 1]
+        assert torch.allclose(result[1], torch.tensor([1.0, 1.0]))
 
 
 class TestForwardHeads:
@@ -147,8 +132,8 @@ class TestForwardHeads:
         memory = torch.full((n, w), 1e-6)
         addr = torch.zeros(n)
         addr[0] = 1.0
-        # head_input size: (w + 3 + 3) + w + w = 15
-        head_input = torch.randn(w + 6 + 2 * w)
+        # head_input size: (w + 3 + 3) + w = 12 (no erase vector)
+        head_input = torch.randn(w + 6 + w)
         new_addr, new_memory = forward_write_head(memory, addr, head_input, w)
         assert new_addr.shape == (n,)
         assert new_memory.shape == (n, w)

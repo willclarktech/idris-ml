@@ -1,7 +1,7 @@
 """NTM diagnostic extraction and summary metrics.
 
-Matches idris-ml's Debug.idr: per-timestep state extraction, NtmSummary
-computation, and formatted output for train/test comparison.
+Per-timestep state extraction, NtmSummary computation, and formatted output
+for train/test comparison.
 """
 
 import math
@@ -10,7 +10,11 @@ from dataclasses import dataclass, field
 import torch
 from torch import Tensor
 
-from bench.ntm.addressing import content_address
+from bench.ntm.addressing import (
+    SHIFT_KERNEL_SIZE,
+    addressing_params_width,
+    content_address,
+)
 
 
 @dataclass
@@ -32,7 +36,6 @@ class NtmTimestep:
     write_g: float
     write_gamma: float
     write_shift: Tensor  # (3,)
-    write_erase: Tensor  # (w,)
     write_add: Tensor  # (w,)
     memory: Tensor  # (n, w)
     read_output: Tensor  # (w,)
@@ -42,7 +45,7 @@ class NtmTimestep:
 
 @dataclass
 class NtmSummary:
-    """Aggregated NTM metrics matching Debug.idr NtmSummary."""
+    """Aggregated NTM metrics."""
 
     write_g_input: float
     write_g_output: float
@@ -72,20 +75,19 @@ class NtmSummary:
 
 
 def _read_head_input_width(w: int) -> int:
-    return w + 3 + 3  # key + shift_kernel + (beta, g, gamma)
+    return addressing_params_width(w)
 
 
 def _write_head_input_width(w: int) -> int:
-    return _read_head_input_width(w) + 2 * w  # + erase + add
+    return addressing_params_width(w) + w  # addressing + add vector
 
 
 def _extract_read_params(raw: Tensor, w: int) -> tuple[Tensor, float, float, float, Tensor]:
     """Extract (key, beta, g, gamma, shift) from read head input."""
-    shift_kernel_size = 3
-    main = raw[: w + shift_kernel_size]
-    params = raw[w + shift_kernel_size :]
+    main = raw[: w + SHIFT_KERNEL_SIZE]
+    params = raw[w + SHIFT_KERNEL_SIZE :]
     key = main[:w]
-    shift_vec = main[w : w + shift_kernel_size]
+    shift_vec = main[w : w + SHIFT_KERNEL_SIZE]
     beta = torch.log(1 + torch.exp(params[0])).item()
     g = torch.sigmoid(params[1]).item()
     gamma = (1 + torch.log(1 + torch.exp(params[2]))).item()
@@ -94,16 +96,14 @@ def _extract_read_params(raw: Tensor, w: int) -> tuple[Tensor, float, float, flo
 
 def _extract_write_params(
     raw: Tensor, w: int
-) -> tuple[Tensor, float, float, float, Tensor, Tensor, Tensor]:
-    """Extract (key, beta, g, gamma, shift, erase, add) from write head input."""
+) -> tuple[Tensor, float, float, float, Tensor, Tensor]:
+    """Extract (key, beta, g, gamma, shift, add) from write head input."""
     rh_width = _read_head_input_width(w)
     rh_input = raw[:rh_width]
     key, beta, g, gamma, shift_vec = _extract_read_params(rh_input, w)
-    raw_erase = raw[rh_width : rh_width + w]
-    raw_add = raw[rh_width + w : rh_width + 2 * w]
-    erase = torch.sigmoid(raw_erase)
+    raw_add = raw[rh_width : rh_width + w]
     add = raw_add
-    return key, beta, g, gamma, shift_vec, erase, add
+    return key, beta, g, gamma, shift_vec, add
 
 
 # ---------------------------------------------------------------------------
@@ -120,7 +120,7 @@ def _extract_timestep(model: torch.nn.Module, t: int, x: Tensor, y: Tensor, w: i
     write_raw = diag["write_params"]
 
     r_key, r_beta, r_g, r_gamma, r_shift = _extract_read_params(read_raw, w)
-    w_key, w_beta, w_g, w_gamma, w_shift, w_erase, w_add = _extract_write_params(write_raw, w)
+    w_key, w_beta, w_g, w_gamma, w_shift, w_add = _extract_write_params(write_raw, w)
 
     memory = diag["memory"]
     content_read_w = content_address(torch.tensor(r_beta), memory, r_key)
@@ -142,7 +142,6 @@ def _extract_timestep(model: torch.nn.Module, t: int, x: Tensor, y: Tensor, w: i
         write_g=w_g,
         write_gamma=w_gamma,
         write_shift=w_shift,
-        write_erase=w_erase,
         write_add=w_add,
         memory=memory,
         read_output=diag["read_output"],
@@ -183,7 +182,7 @@ def instrumented_forward_recall(
     target_seq covers only the output phase (fed with zero inputs).
 
     Args:
-        model: NtmRecallModel (must have .ntm with ._diag and .num_inputs).
+        model: NTM model (must have .ntm with ._diag and .num_inputs).
         input_seq: (total_input_timesteps, input_width) — full encoding sequence.
         target_seq: (output_len, seq_width) — target vectors for output phase.
 
@@ -244,7 +243,6 @@ def compute_summary(timesteps: list[NtmTimestep], seq_len: int) -> NtmSummary:
     """Aggregate per-timestep data into NtmSummary.
 
     seq_len: number of input-phase timesteps (first half).
-    Matches Debug.idr computeSummary.
     """
     n_total = len(timesteps)
 
@@ -331,12 +329,12 @@ def compute_content_match(
 
 
 # ---------------------------------------------------------------------------
-# Formatting (matches Debug.idr output)
+# Formatting
 # ---------------------------------------------------------------------------
 
 
 def _show_f(x: float) -> str:
-    """Format to 4 decimal places matching Debug.idr showF."""
+    """Format to 4 decimal places."""
     if math.isnan(x):
         return "NaN"
     sign = "-" if x < 0 else ""
@@ -372,7 +370,7 @@ def _show_argmax_list(xs: list[int]) -> str:
 
 
 def print_summary(label: str, s: NtmSummary) -> None:
-    """Print compact NTM summary matching Debug.idr printSummary."""
+    """Print compact NTM summary."""
     print(f"=== NTM Summary: {label} ===")
     print("  Gate (g: 1=content, 0=location):")
     print(f"    Write:  input={_show_f(s.write_g_input)}  output={_show_f(s.write_g_output)}")
@@ -398,7 +396,7 @@ def print_summary(label: str, s: NtmSummary) -> None:
 
 
 def print_addr_grid(s: NtmSummary) -> None:
-    """Print addressing grid matching Debug.idr printAddrGrid."""
+    """Print addressing grid."""
     ns = s.num_slots
     sl = s.seq_len
     w_in = s.write_argmaxes[:sl]
@@ -413,7 +411,7 @@ def print_addr_grid(s: NtmSummary) -> None:
 
 
 def print_comparison(train: NtmSummary, test: NtmSummary) -> None:
-    """Print train vs test comparison matching Debug.idr printComparison."""
+    """Print train vs test comparison."""
     print("=== Train vs Test Comparison (averaged) ===")
     print("                          Train    Test     Delta")
 

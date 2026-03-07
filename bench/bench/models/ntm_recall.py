@@ -13,8 +13,8 @@ import torch.nn as nn
 from torch import Tensor
 from torch.nn.utils import clip_grad_norm_, clip_grad_value_
 
-from bench.models.ntm_copy import LSTMController, RNNController
-from bench.ntm.ntm_layer import NTMLayer
+from bench.models.ntm_copy import LSTMController
+from bench.ntm.layer import NTMLayer
 
 
 @dataclass
@@ -52,14 +52,9 @@ class NtmRecallModel(nn.Module):
         num_outputs = cfg.seq_width  # output is seq_width bits
         controller_input_size = num_inputs + cfg.m  # input + prev read vector
 
-        if cfg.controller_type == "rnn":
-            controller: nn.Module = RNNController(controller_input_size, cfg.controller_size)
-        else:
-            controller = LSTMController(
-                controller_input_size,
-                cfg.controller_size,
-                init_mode=cfg.controller_init,
-            )
+        controller = LSTMController(
+            controller_input_size, cfg.controller_size, init_mode="learned_fc"
+        )
 
         self.ntm = NTMLayer(
             controller=controller,
@@ -68,11 +63,6 @@ class NtmRecallModel(nn.Module):
             num_inputs=num_inputs,
             num_outputs=num_outputs,
             controller_hidden_size=cfg.controller_size,
-            write_mode=cfg.write_mode,
-            head_input=cfg.head_input,
-            tanh_bound_memory=cfg.tanh_bound,
-            memory_init=cfg.memory_init,
-            fc_init=cfg.fc_init,
         )
 
     def reset_state(self) -> None:

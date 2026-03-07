@@ -12,7 +12,7 @@ import torch.nn as nn
 from torch import Tensor
 from torch.nn.utils import clip_grad_norm_, clip_grad_value_
 
-from bench.ntm.ntm_layer import NTMLayer
+from bench.ntm.layer import NTMLayer
 
 
 class LSTMController(nn.Module):
@@ -109,7 +109,9 @@ class NtmCopyModel(nn.Module):
         num_outputs = cfg.seq_width  # output is seq_width bits
         controller_input_size = num_inputs + cfg.m  # input + prev read vector
 
-        controller = LSTMController(controller_input_size, cfg.controller_size)
+        controller = LSTMController(
+            controller_input_size, cfg.controller_size, init_mode="learned_fc"
+        )
 
         self.ntm = NTMLayer(
             controller=controller,

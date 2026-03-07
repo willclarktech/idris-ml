@@ -1,18 +1,19 @@
-"""NTM addressing operations matching idris-ml's Memory.idr.
-
-NOTE: Add vectors use 2*sigmoid(2*x)-1 instead of plain tanh, matching
-idris-ml's Math.tanh definition: tanh x = 2 * sigmoid(2*x) - 1.
-"""
+"""NTM addressing operations: content addressing, interpolation, shift, focus."""
 
 import torch.nn.functional as F
 from torch import Tensor
 
+SHIFT_KERNEL_SIZE = 3  # circular convolution kernel: [left, stay, right]
+NUM_ADDRESSING_SCALARS = 3  # beta (key strength), g (interpolation gate), gamma (sharpening)
+
+
+def addressing_params_width(key_size: int) -> int:
+    """Width of addressing parameter vector: key + shift kernel + scalars."""
+    return key_size + SHIFT_KERNEL_SIZE + NUM_ADDRESSING_SCALARS
+
 
 def cosine_similarity(key: Tensor, row: Tensor, eps: float = 1e-6) -> Tensor:
-    """Cosine similarity between key and row vectors.
-
-    Matches Math.idr cosineSimilarity with l2Norm eps=1e-6.
-    """
+    """Cosine similarity between key and row vectors."""
     dot = (key * row).sum(dim=-1)
     norm_key = key.norm(dim=-1).clamp(min=eps)
     norm_row = row.norm(dim=-1).clamp(min=eps)
@@ -20,9 +21,8 @@ def cosine_similarity(key: Tensor, row: Tensor, eps: float = 1e-6) -> Tensor:
 
 
 def content_address(beta: Tensor, memory: Tensor, key: Tensor) -> Tensor:
-    """Content-based addressing.
+    """Content-based addressing: beta * cosine_sim then softmax.
 
-    Matches Memory.idr getContentAddress: beta * cosine_sim then softmax.
     memory: (n, w)
     key: (w,)
     beta: scalar
@@ -33,24 +33,16 @@ def content_address(beta: Tensor, memory: Tensor, key: Tensor) -> Tensor:
 
 
 def interpolate(g: Tensor, content_w: Tensor, location_w: Tensor) -> Tensor:
-    """Interpolate between content and location addressing.
-
-    Matches Memory.idr interpolate: c*g + l*(1-g).
-    """
+    """Interpolate between content and location addressing: c*g + l*(1-g)."""
     return content_w * g + location_w * (1 - g)
 
 
 def shift(weights: Tensor, kernel: Tensor) -> Tensor:
-    """Circular convolution with 3-element shift kernel.
+    """Circular convolution with shift kernel.
 
-    Matches Memory.idr shift: kernel[0]*roll(w,+1) + kernel[1]*w + kernel[2]*roll(w,-1).
-
-    Memory.idr's cycleForward semantics:
-    - kernel[0] (sl) multiplies cycleForward(1, ws) which shifts indices forward by 1
-      (element at position i comes from position i+1), equivalent to roll(w, -1)
-    - kernel[1] (ss) multiplies ws (stay)
-    - kernel[2] (sr) multiplies cycleForward(last, ws) which shifts indices forward by n-1
-      (element at position i comes from position i-1), equivalent to roll(w, +1)
+    kernel[0] (sl): roll(w, -1) — shift left
+    kernel[1] (ss): w — stay
+    kernel[2] (sr): roll(w, +1) — shift right
     """
     n = weights.shape[-1]
     if n <= 1:
@@ -61,9 +53,6 @@ def shift(weights: Tensor, kernel: Tensor) -> Tensor:
 
 
 def focus(gamma: Tensor, weights: Tensor) -> Tensor:
-    """Sharpen addressing weights.
-
-    Matches Memory.idr focus: w^gamma / sum(w^gamma).
-    """
+    """Sharpen addressing weights: w^gamma / sum(w^gamma)."""
     raised = weights.pow(gamma)
     return raised / raised.sum(dim=-1, keepdim=True)
