@@ -2,43 +2,34 @@
 
 ## 1. Current Performance Profile
 
-NTM copy task: **~1.38s/epoch** vs PyTorch **~0.2s/epoch** = ~7x gap.
+NTM copy task: **~0.66s/epoch** vs PyTorch **~0.2s/epoch** = ~3.3x gap.
 
-Per-epoch breakdown (n=128, m=20, h=100, 352 timesteps):
+Optimizations applied (from 1.38s baseline):
+- Buffer-passing for addressing chain ops (1.38s -> 1.0s)
+- Shadow ConstOps for intermediate outputs (tape compaction)
+- C-side pid filtering in walk_backward_ext (1.0s -> 0.66s)
+- Bulk C shadow tag setting
 
-| Phase | Time | Dominant cost |
-|-------|------|---------------|
-| Forward: Variable materialization | ~350ms | 1.46M Variables x 3 Scheme heap allocs each = 4.4M allocs |
-| Forward: packVec | ~250ms | ~830K element iterations (ensureOnTape + setDouble + setInt32) |
-| Forward: C tensor compute | ~50ms | Actual math |
-| Forward: scalar ops + overhead | ~80ms | fromDouble literals, tape appends |
-| Backward: walk_backward_ext | ~100ms | Scanning 1.56M tape entries |
-| Backward: result collection | ~100ms | Collecting ~200K+ non-zero-gradient ConstOps |
-| Backward: buildGradMap | ~150ms | Iterating results in Scheme (pid lookup + string compare) |
-| Optimizer + applyDeltas | ~150ms | SortedMap with ~62K entries, O(n log n) |
-| syncBuffers | ~50ms | Writing values back to C WeightBufs |
+Per-epoch breakdown (n=128, m=20, h=100, variable timesteps):
+
+| Phase | Time | Notes |
+|-------|------|-------|
+| Forward: variable materialization + packVec | ~350ms | Endpoints still materialize Variables |
+| Forward: C tensor compute | ~50ms | Actual math (Accelerate BLAS) |
+| Forward: scalar ops + shadow ConstOps | ~60ms | Loss computation, sigmoid(rawAdd), tape appends |
+| Backward: walk_backward_ext | ~35ms | Scanning ~3.5M tape entries (measured) |
+| Backward: buildGradMap | ~50ms | ~67K results, SortedMap O(n log n) |
+| Optimizer + applyDeltas | ~80ms | SortedMap with ~62K entries |
+| syncBuffers | ~30ms | Writing values back to C WeightBufs |
 
 ## 2. Root Cause: Scalar vs Tensor Autograd
 
 **PyTorch**: 1 autograd node per tensor op. ~7K nodes/epoch.
-**Idris**: 1 tensor op + k output ConstOps per tensor op. ~1.56M entries/epoch.
+**Idris**: 1 tensor op + k output ConstOps/shadow ConstOps per tensor op. ~3.5M entries/epoch.
 
-Per-timestep tape entry accounting:
-
-| Component | Tensor ops | Output ConstOps |
-|-----------|-----------|-----------------|
-| LSTM (buffer-passing) | 3 | 200 |
-| Head FCs (3 MatVec+Bias) | 3 | 80 |
-| Read head addressing (6 ops) | 6 | 643 |
-| Read head readOp | 1 | 20 |
-| Write head addressing (6 ops) | 6 | 643 |
-| Write head interpWrite | 1 | 2560 |
-| Write head sigmoid(rawAdd) | 0 (20 scalar) | 0 |
-| **Per timestep** | **~20** | **~4,146** |
-
-The 4,146 output ConstOps per timestep x 352 = 1.46M ConstOps dominate the tape. Each
-creates a Scheme Variable record that is either immediately consumed by the next op (waste)
-or stored as network state.
+Buffer-passing eliminated Variable materialization for intermediate addressing outputs
+(~3,840 Variables/timestep), but shadow ConstOps (tag=25) still occupy tape slots for
+gradient routing. The backward pass skips them (`continue`), but they inflate tape_sz.
 
 ## 3. What PyTorch Does Differently
 
@@ -51,34 +42,40 @@ or stored as network state.
 
 ## 4. Optimization Paths
 
-### Path A: Complete Buffer-Passing
+### Path A: Complete Buffer-Passing (DONE)
 
-Eliminate Variable materialization for intermediate addressing chain results.
+Eliminated Variable materialization for intermediate addressing chain results.
 Chain ops pass `(AnyPtr, Int)` buffers instead of `Vector n Variable`.
+Shadow ConstOps provide gradient slots without Variable allocation.
 
-**Savings per timestep**: ~3,840 Variables eliminated (read head: 640, write head: 640 addressing + 2560 interpWrite).
-**Total per epoch**: 3,840 x 352 = ~1.35M fewer Variables.
+### Path B: C-side Pid Filtering (DONE)
 
-### Path B: Tape Compaction + C-side Gradients
-
-Eliminate intermediate ConstOps entirely. Buffer-chained ops reserve gradient regions
-without creating tape entries. Reduce tape from ~1.56M to ~262K entries.
-
-Add C-side pid filtering: `walk_backward_ext` filters by integer pid_id instead of
-returning all ConstOps. Reduces Scheme-side iteration from ~200K to ~62K entries.
+C-side `tape_pid_ids` integer array parallel to tape. `walk_backward_ext` only
+collects ConstOps with `pid_id >= 0`. Eliminates ~200K+ unnecessary result iterations
+in Scheme. Reduces to ~67K named parameter results.
 
 ### Path C: Tensor-level Variable Type
 
 Replace `Vector n Variable` with a tensor-level Variable that holds an entire vector
 in C memory. Would eliminate per-element Variable materialization entirely.
+This is the only path to close the remaining ~3.3x gap.
 
-### Expected Results
+### Actual Results
 
 | Path | Epoch time | Speedup | vs PyTorch |
 |------|-----------|---------|------------|
-| Current | 1.38s | -- | ~7x |
-| A: Buffer-passing | ~1.0s | 1.4x | ~5x |
-| B: + Tape compaction + C-side grads | ~0.45s | 3.1x | ~2.3x |
-| C: Tensor-level Variable | ~0.3s | 1.5x gap | ~1.5x |
+| Baseline (pre-optimization) | 1.38s | -- | ~7x |
+| A: Buffer-passing + shadow ConstOps | ~1.0s | 1.4x | ~5x |
+| B: + C-side pid filtering | ~0.66s | 2.1x | ~3.3x |
+| C: Tensor-level Variable (estimated) | ~0.3s | -- | ~1.5x |
 
-Irreducible gap (~1.5x) from: Scheme orchestration, non-SIMD C, state Variable materialization.
+### Remaining bottleneck analysis
+
+The forward pass dominates (~460ms of 660ms). The C backward pass is only ~35ms.
+Key forward costs:
+- Endpoint Variable materialization: `buildOutputScalars` for network state (addressing
+  weights, hidden state, cell state, read output) still creates Scheme Variable records
+- `packVec` for tensor op inputs from Variables: per-element `ensureOnTape` + `setDouble` + `setInt32`
+- Loss computation: scalar ops for binary cross-entropy with logits
+
+Irreducible gap (~1.5x) from: Scheme orchestration overhead, non-SIMD C kernels.
