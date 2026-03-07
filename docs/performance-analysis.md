@@ -111,3 +111,45 @@ Key forward costs:
 - Loss computation: scalar ops for binary cross-entropy with logits
 
 Irreducible gap (~1.2x) from: Scheme orchestration overhead, non-SIMD C kernels.
+
+## 5. Forward-Pass Sub-Phase Profile
+
+### Baseline (2026-03-04, commit 937b4d2)
+
+Profiler: `src/Example/Profile.idr` (N=128 M=20 H=100, Batch=16, seqLen=1-20)
+
+```
+Epoch   Enc(ms)   Out(ms)  Loss(ms)   Bwd(ms)   Opt(ms)  Sync(ms)  TapeSize    Loss
+    1      97.8      82.3       4.7      35.8       0.0      18.6   3561699
+    2      97.8      85.0       4.9      39.3       0.0      17.0   3561699
+    3     103.9      82.3       5.5      38.0       0.0      15.6   3561699
+   avg    ~101       ~84        ~5       ~38        ~0       ~18    3561699
+```
+
+Forward (Enc+Out) = **~185ms** (75% of ~246ms epoch).
+
+Tape histogram:
+```
+  ConstOps:   1,288,190  (36%)
+  ScalarOps:     33,955  (<1%)
+  TensorOps:     12,078  (<1%)
+  ShadowOps:  2,227,476  (63%)
+  Total:      3,561,699
+```
+
+Tensor detail: MatVec=5490 Dot=0 Softmax=1464 LogSoftmax=0 BatchCosSim=732
+               ReadOp=732 WriteOp=0 InterpWrite=366 Interpolate=732
+               Shift=732 Focus=732 LstmCell=1098
+
+Bench-compare:
+```
+Model             Idris (ms)   PyTorch (ms)    Ratio
+Supervised              86.9          262.2    0.33x
+RNN                    397.2         2372.2    0.17x
+NTM-small              586.0         1449.9    0.40x
+NTM-copy             27596.1        14223.9    1.94x
+```
+
+Root cause: `prim__appendOutputConst`/`prim__appendOutputConstOff` use per-element
+Scheme `foreign-set!` loops (3 writes/element × 1.29M elements = ~3.87M FFI calls).
+`prim__appendShadowConst` already uses efficient C bulk `tape_set_shadow_tags`.
