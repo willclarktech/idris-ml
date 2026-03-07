@@ -1428,23 +1428,26 @@ void ntm_mem_set_cached(NtmMemBuf *mb, int gen, int start) {
  * These replace the Scheme-side packMatrix iteration for memory.
  * Each copies n*w doubles (vals) and n*w ints (tape_idx). */
 
-void batch_cossim_pack_mem_buf(void *meta_ptr, NtmMemBuf *mb) {
+void *batch_cossim_pack_mem_buf(void *meta_ptr, NtmMemBuf *mb) {
   BatchCosSimMeta *m = (BatchCosSimMeta *)meta_ptr;
   int total = mb->n * mb->w;
   memcpy(m->mem_vals, mb->vals, total * sizeof(double));
   memcpy(m->mem_tape_idx, mb->tape_idx, total * sizeof(int));
+  return meta_ptr;
 }
 
-void readop_pack_mem_buf(void *meta_ptr, NtmMemBuf *mb) {
+void *readop_pack_mem_buf(void *meta_ptr, NtmMemBuf *mb) {
   ReadOpMeta *m = (ReadOpMeta *)meta_ptr;
   int total = mb->n * mb->w;
   memcpy(m->mem_vals, mb->vals, total * sizeof(double));
   memcpy(m->mem_tape_idx, mb->tape_idx, total * sizeof(int));
+  return meta_ptr;
 }
 
-void interp_write_pack_mem_buf(void *meta_ptr, NtmMemBuf *mb) {
+void *interp_write_pack_mem_buf(void *meta_ptr, NtmMemBuf *mb) {
   InterpWriteMeta *m = (InterpWriteMeta *)meta_ptr;
   int total = mb->n * mb->w;
   memcpy(m->mem_vals, mb->vals, total * sizeof(double));
   memcpy(m->mem_tape_idx, mb->tape_idx, total * sizeof(int));
+  return meta_ptr;
 }

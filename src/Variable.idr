@@ -168,6 +168,57 @@ prim__tapeEnsureBulkConst : AnyPtr -> Int -> Int
 
 
 ----------------------------------------------------------------------
+-- NTM Memory Buffer FFI (persistent C buffer for NTM memory matrix)
+----------------------------------------------------------------------
+
+-- NtmMemBuf wrapper: 6-vector [NtmMemBuf*, vals_ptr, pid_vector, count, cached_start, cached_gen]
+-- vals_ptr is cached from ntm_mem_vals_ptr for direct Scheme-native reads/writes.
+
+-- Allocate NtmMemBuf: C struct + Scheme pid vector + cached metadata.
+export
+%foreign "scheme:(lambda (n w) (let* ((count (* n w)) (cptr ((foreign-procedure \"ntm_mem_alloc\" (int int) void*) n w)) (vptr ((foreign-procedure \"ntm_mem_vals_ptr\" (void*) void*) cptr)) (pids (make-vector count \"\"))) (vector cptr vptr pids count -1 -1)))"
+prim__ntmMemBufAlloc : Int -> Int -> AnyPtr
+
+-- Set value at index (Scheme-native foreign-set! on cached vals_ptr, no FFI crossing).
+%foreign "scheme:(lambda (mb idx val) (foreign-set! 'double (vector-ref mb 1) (* idx 8) val) mb)"
+prim__ntmMemBufSetVal : AnyPtr -> Int -> Double -> AnyPtr
+
+-- Set pid at index in Scheme pid vector.
+%foreign "scheme:(lambda (mb idx pid) (vector-set! (vector-ref mb 2) idx pid) mb)"
+prim__ntmMemBufSetPid : AnyPtr -> Int -> String -> AnyPtr
+
+-- Ensure memory entries are on tape (epoch-cached). Creates ConstOps with pids,
+-- updates C tape_idx. Returns the wrapper for threading (forces evaluation).
+%foreign "scheme:(lambda (mb count) (if (= (vector-ref mb 5) (top-level-value 'tape-gen)) mb (let* ((cptr (vector-ref mb 0)) (vals-ptr (vector-ref mb 1)) (pids (vector-ref mb 2)) (start (top-level-value 'tape-size)) (end (+ start count))) ((top-level-value 'tape-ensure-cap!) (- end 1)) (let ((tags-fp (top-level-value 'tape-tags-fp)) (vals-fp (top-level-value 'tape-vals-fp)) (pidv (top-level-value 'tape-pids))) (do ((k 0 (+ k 1))) ((= k count)) (let ((idx (+ start k))) (foreign-set! 'integer-32 tags-fp (* idx 4) 0) (foreign-set! 'double vals-fp (* idx 8) (foreign-ref 'double vals-ptr (* k 8))) (vector-set! pidv idx (vector-ref pids k))))) (set-top-level-value! 'tape-size end) (vector-set! mb 4 start) (vector-set! mb 5 (top-level-value 'tape-gen)) ((foreign-procedure \"ntm_mem_update_tape_idx\" (void* int) void) cptr start) mb)))"
+prim__ntmMemBufEnsure : AnyPtr -> Int -> AnyPtr
+
+-- Pack memory from NtmMemBuf into BatchCosSim meta (C memcpy). Takes meta and wrapper.
+%foreign "scheme:(lambda (meta mb) ((foreign-procedure \"batch_cossim_pack_mem_buf\" (void* void*) void*) meta (vector-ref mb 0)))"
+prim__batchCosSimPackMemBuf : AnyPtr -> AnyPtr -> AnyPtr
+
+-- Pack memory from NtmMemBuf into ReadOp meta (C memcpy).
+%foreign "scheme:(lambda (meta mb) ((foreign-procedure \"readop_pack_mem_buf\" (void* void*) void*) meta (vector-ref mb 0)))"
+prim__readOpPackMemBuf : AnyPtr -> AnyPtr -> AnyPtr
+
+-- Pack memory from NtmMemBuf into InterpWrite meta (C memcpy).
+%foreign "scheme:(lambda (meta mb) ((foreign-procedure \"interp_write_pack_mem_buf\" (void* void*) void*) meta (vector-ref mb 0)))"
+prim__interpWritePackMemBuf : AnyPtr -> AnyPtr -> AnyPtr
+
+-- Bulk append ConstOps from C output buffer (no pids). Returns start tape index.
+%foreign "scheme:(lambda (outBuf count) (let* ((start (top-level-value 'tape-size)) (end (+ start count))) ((top-level-value 'tape-ensure-cap!) (- end 1)) (let ((tags-fp (top-level-value 'tape-tags-fp)) (vals-fp (top-level-value 'tape-vals-fp)) (pidv (top-level-value 'tape-pids))) (do ((k 0 (+ k 1))) ((= k count)) (let ((idx (+ start k))) (foreign-set! 'integer-32 tags-fp (* idx 4) 0) (foreign-set! 'double vals-fp (* idx 8) (foreign-ref 'double outBuf (* k 8))) (vector-set! pidv idx \"\")))) (set-top-level-value! 'tape-size end) start))"
+prim__appendOutputConst : AnyPtr -> Int -> Int
+
+-- After InterpWrite: update buffer vals + tape_idx from output. Returns wrapper.
+%foreign "scheme:(lambda (mb outBuf start) (let ((cptr (vector-ref mb 0))) ((foreign-procedure \"ntm_mem_update_vals\" (void* void*) void) cptr outBuf) ((foreign-procedure \"ntm_mem_update_tape_idx\" (void* int) void) cptr start) mb))"
+prim__ntmMemBufUpdateAfterWrite : AnyPtr -> AnyPtr -> Int -> AnyPtr
+
+-- Reset cache after applyDeltas + sync. Forces re-registration next epoch.
+export
+%foreign "scheme:(lambda (mb) (vector-set! mb 4 -1) (vector-set! mb 5 -1) mb)"
+prim__ntmMemBufResetCache : AnyPtr -> AnyPtr
+
+
+----------------------------------------------------------------------
 -- Tensor FFI
 ----------------------------------------------------------------------
 
@@ -737,6 +788,40 @@ syncWeightBuf wBuf off {m=S k} {n} (VTensor row :: rows) =
   in syncWeightBuf wBuf' (off + cast {to=Int} n) rows
 
 
+----------------------------------------------------------------------
+-- NTM Memory Buffer Helpers
+----------------------------------------------------------------------
+
+-- Write initial values and pids from named memory Variables into NtmMemBuf.
+initNtmMemBufRow : AnyPtr -> Int -> Vect k (Scalar Variable) -> AnyPtr
+initNtmMemBufRow mb _ [] = mb
+initNtmMemBufRow mb off (STensor v :: rest) =
+  let mb' = prim__ntmMemBufSetVal mb off v.value
+      mb'' = prim__ntmMemBufSetPid mb' off (fromMaybe "" v.paramId)
+  in initNtmMemBufRow mb'' (off + 1) rest
+
+export
+initNtmMemBuf : AnyPtr -> Int -> {w : Nat} -> Vect n (Vector w Variable) -> AnyPtr
+initNtmMemBuf mb _ {n=Z} [] = mb
+initNtmMemBuf mb off {n=S k} {w} (VTensor row :: rows) =
+  let mb' = initNtmMemBufRow mb off row
+  in initNtmMemBuf mb' (off + cast {to=Int} w) rows
+
+-- Sync updated Variable values into NtmMemBuf after applyDeltas.
+syncNtmMemBufRow : AnyPtr -> Int -> Vect k (Scalar Variable) -> AnyPtr
+syncNtmMemBufRow mb _ [] = mb
+syncNtmMemBufRow mb off (STensor v :: rest) =
+  let mb' = prim__ntmMemBufSetVal mb off v.value
+  in syncNtmMemBufRow mb' (off + 1) rest
+
+export
+syncNtmMemBuf : AnyPtr -> Int -> {w : Nat} -> Vect n (Vector w Variable) -> AnyPtr
+syncNtmMemBuf mb _ {n=Z} [] = mb
+syncNtmMemBuf mb off {n=S k} {w} (VTensor row :: rows) =
+  let mb' = syncNtmMemBufRow mb off row
+  in syncNtmMemBuf mb' (off + cast {to=Int} w) rows
+
+
 ||| Dot product using C BLAS, recording a single DotOp tape entry.
 export
 dotProductVar : {n : Nat} -> Vector n Variable -> Vector n Variable -> Variable
@@ -891,6 +976,89 @@ interpolationWriteVar {n} {w} (VTensor weightElems) (VTensor memRows) (VTensor a
       outBuf' = prim__interpWriteCompute meta (prim__seq avPtr' outBuf)
       outBuf'' = tapeAppendInterpWriteOp (nI * wI) meta outBuf'
   in VTensor $ buildOutputMatrix outBuf'' 0 n w
+
+
+----------------------------------------------------------------------
+-- NTM Memory Operations (buffer-aware, using persistent NtmMemBuf)
+----------------------------------------------------------------------
+
+||| Batch cosine similarity using persistent memory buffer.
+||| Memory is packed via C memcpy instead of iterating n*w Variables.
+export
+batchCosineSimilarityVarBuf : {n, w : Nat} -> Variable -> AnyPtr -> Vector w Variable -> Vector n Variable
+batchCosineSimilarityVarBuf {n} {w} beta memBuf (VTensor keyElems) =
+  let nI = cast {to=Int} n
+      wI = cast {to=Int} w
+      -- Ensure memory on tape (epoch-cached, returns wrapper for threading)
+      mb' = prim__ntmMemBufEnsure memBuf (nI * wI)
+      meta = prim__batchCosSimMetaAlloc nI wI
+      outBuf = prim__tensorAlloc nI
+      -- Pack memory from buffer (C memcpy, dependency on mb')
+      meta' = prim__batchCosSimPackMemBuf meta mb'
+      -- Pack key (Scheme-native)
+      kvPtr = prim__batchCosSimKeyVals meta'
+      ktPtr = prim__batchCosSimKeyTape meta'
+      kvPtr' = packVec kvPtr ktPtr 0 keyElems
+      -- Set beta
+      betaIdx = ensureOnTape beta
+      meta'' = prim__batchCosSimSetBeta (prim__seq kvPtr' meta') beta.value (cast betaIdx)
+      -- Compute
+      outBuf' = prim__batchCosSimCompute meta'' outBuf
+      outBuf'' = tapeAppendBatchCosSimOp nI meta'' outBuf'
+  in VTensor $ buildOutputScalars outBuf'' 0 n
+
+||| Read operation using persistent memory buffer.
+export
+readOpVarBuf : {n, w : Nat} -> Vector n Variable -> AnyPtr -> Vector w Variable
+readOpVarBuf {n} {w} (VTensor weightElems) memBuf =
+  let nI = cast {to=Int} n
+      wI = cast {to=Int} w
+      -- Ensure memory on tape
+      mb' = prim__ntmMemBufEnsure memBuf (nI * wI)
+      meta = prim__readOpMetaAlloc nI wI
+      outBuf = prim__tensorAlloc wI
+      -- Pack memory from buffer (C memcpy)
+      meta' = prim__readOpPackMemBuf meta mb'
+      -- Pack weights (Scheme-native)
+      wvPtr = prim__readOpWeightVals meta'
+      wtPtr = prim__readOpWeightTape meta'
+      wvPtr' = packVec wvPtr wtPtr 0 weightElems
+      -- Compute
+      outBuf' = prim__readOpCompute meta' (prim__seq wvPtr' outBuf)
+      outBuf'' = tapeAppendReadOpOp wI meta' outBuf'
+  in VTensor $ buildOutputScalars outBuf'' 0 w
+
+||| Interpolation write using persistent memory buffer.
+||| Mutates the buffer in-place (updates vals and tape_idx).
+||| Returns the buffer wrapper for threading.
+export
+interpolationWriteVarBuf : {n, w : Nat} -> Vector n Variable -> AnyPtr -> Vector w Variable -> AnyPtr
+interpolationWriteVarBuf {n} {w} (VTensor weightElems) memBuf (VTensor addElems) =
+  let nI = cast {to=Int} n
+      wI = cast {to=Int} w
+      nw = nI * wI
+      -- Ensure memory on tape
+      mb' = prim__ntmMemBufEnsure memBuf nw
+      meta = prim__interpWriteMetaAlloc nI wI
+      outBuf = prim__tensorAlloc nw
+      -- Pack memory from buffer (C memcpy)
+      meta' = prim__interpWritePackMemBuf meta mb'
+      -- Pack weight and add vectors (Scheme-native)
+      wvPtr = prim__interpWriteWeightVals meta'
+      wtPtr = prim__interpWriteWeightTape meta'
+      avPtr = prim__interpWriteAddVals meta'
+      atPtr = prim__interpWriteAddTape meta'
+      wvPtr' = packVec wvPtr wtPtr 0 weightElems
+      avPtr' = packVec (prim__seq wvPtr' avPtr) atPtr 0 addElems
+      -- Compute
+      outBuf' = prim__interpWriteCompute meta' (prim__seq avPtr' outBuf)
+      -- Append InterpWriteOp tape entry
+      outBuf'' = tapeAppendInterpWriteOp nw meta' outBuf'
+      -- Append output ConstOps (bulk, no pids)
+      outputStart = prim__appendOutputConst outBuf'' nw
+      -- Update buffer vals and tape_idx
+      mb'' = prim__ntmMemBufUpdateAfterWrite memBuf outBuf'' outputStart
+  in mb''
 
 
 ----------------------------------------------------------------------

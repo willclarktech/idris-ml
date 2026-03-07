@@ -316,6 +316,38 @@ forwardWriteHeadInterpVar memory (MkWriteHead readHead) inp =
   in (newWriteHead, newMemoryMatrix)
 
 
+||| Buffer-aware read head: uses NtmMemBuf for memory (C memcpy pack).
+forwardReadHeadUnboundedVarBuf : {n, w : Nat} -> AnyPtr -> ReadHead n Variable -> Vector ((w + ShiftKernelSize) + 3) Variable -> (ReadHead n Variable, Vector w Variable)
+forwardReadHeadUnboundedVarBuf memBuf rh inp =
+  let
+    (mainInput, params) = splitAt (w + ShiftKernelSize) inp
+    (keyVector, shiftVector) = splitAt w mainInput
+    (betaVec, params') = splitAt 1 params
+    (gVec, gammaVec) = splitAt 1 params'
+    beta = softplus (sum betaVec)
+    g = sigmoidVar (sum gVec)
+    gamma = 1 + softplus (sum gammaVec)
+    scores = batchCosineSimilarityVarBuf beta memBuf keyVector
+    contentWeights = softmaxVar scores
+    interpolated = interpolate g contentWeights rh.addressingWeights
+    shifted = shift softmaxVar interpolated shiftVector
+    focused = focus gamma shifted
+    newReadHead = { addressingWeights := focused } rh
+    output = readOpVarBuf newReadHead.addressingWeights memBuf
+  in (newReadHead, output)
+
+||| Buffer-aware write head: uses NtmMemBuf, returns (head, updated buffer wrapper).
+forwardWriteHeadInterpVarBuf : {n, w : Nat} -> AnyPtr -> WriteHead n Variable -> Vector (((w + ShiftKernelSize) + 3) + w) Variable -> (WriteHead n Variable, AnyPtr)
+forwardWriteHeadInterpVarBuf memBuf (MkWriteHead readHead) inp =
+  let
+    (readHeadInput, rawAdd) = Tensor.splitAt ((w + ShiftKernelSize) + 3) inp
+    addVector = map sigmoidVar rawAdd
+    (newReadHead, _) = forwardReadHeadUnboundedVarBuf memBuf readHead readHeadInput
+    newWriteHead = MkWriteHead newReadHead
+    mb' = interpolationWriteVarBuf newWriteHead.readHead.addressingWeights memBuf addVector
+  in (newWriteHead, mb')
+
+
 ----------------------------------------------------------------------
 -- Variable-specialized Forward Pass (C-backed matvec/dot)
 ----------------------------------------------------------------------
@@ -368,32 +400,53 @@ mutual
   applyLayerVar layer@(NormalizationLayer "softmax" _) xs = (layer, softmaxVar xs)
   applyLayerVar layer@(NormalizationLayer "logSoftmax" _) xs = (layer, logSoftmaxVar xs)
   applyLayerVar layer@(NormalizationLayer _ f) xs = (layer, f xs)
-  applyLayerVar (NtmLayer {n} {m} {h} lstm readFc writeFc outputFc memory readAddr writeAddr readOutput mb) inp =
+  -- Buffer-aware NTM forward pass (persistent memory buffer)
+  applyLayerVar (NtmLayer {n} {m} {h} lstm readFc writeFc outputFc memory readAddr writeAddr readOutput (Just memBuf)) inp =
     let
-      -- 1. Controller: LSTM(readOutput ++ input)
       lstmResult = applyLayerVar lstm (readOutput ++ inp)
       hidden = snd lstmResult
-      -- 2. Cell state for head FCs
       cell = extractCellState (fst lstmResult)
-      -- 3. Head params from cell state (clamped)
       rawReadParams = snd (applyLayerVar readFc cell)
       readParams = map (clampVar (-20.0) 20.0) rawReadParams
       rawWriteParams = snd (applyLayerVar writeFc cell)
       writeParams = map (clampVar (-20.0) 20.0) rawWriteParams
-      -- 4. Read head (unbounded gamma, C-backed)
+      -- Read head (buffer-aware: C memcpy pack)
+      rh = MkReadHead readAddr
+      readResult = forwardReadHeadUnboundedVarBuf memBuf rh readParams
+      newReadAddr' = (fst readResult).addressingWeights
+      newReadOutput = snd readResult
+      -- Write head (buffer-aware: mutates memBuf in-place)
+      wh = MkWriteHead (MkReadHead writeAddr)
+      writeResult = forwardWriteHeadInterpVarBuf memBuf wh writeParams
+      newWriteAddr' = (fst writeResult).readHead.addressingWeights
+      mb' = snd writeResult
+      -- Output FC
+      output = snd (applyLayerVar outputFc (hidden ++ newReadOutput))
+      -- memory unchanged (for applyDeltas); buffer mutated via mb'
+      newLayer = NtmLayer (fst lstmResult) readFc writeFc outputFc
+                          memory newReadAddr' newWriteAddr' newReadOutput (Just mb')
+    in (newLayer, output)
+  -- Variable-based NTM forward pass (no buffer)
+  applyLayerVar (NtmLayer {n} {m} {h} lstm readFc writeFc outputFc memory readAddr writeAddr readOutput Nothing) inp =
+    let
+      lstmResult = applyLayerVar lstm (readOutput ++ inp)
+      hidden = snd lstmResult
+      cell = extractCellState (fst lstmResult)
+      rawReadParams = snd (applyLayerVar readFc cell)
+      readParams = map (clampVar (-20.0) 20.0) rawReadParams
+      rawWriteParams = snd (applyLayerVar writeFc cell)
+      writeParams = map (clampVar (-20.0) 20.0) rawWriteParams
       rh = MkReadHead readAddr
       readResult = forwardReadHeadUnboundedVar memory rh readParams
       newReadAddr' = (fst readResult).addressingWeights
       newReadOutput = snd readResult
-      -- 5. Write head (interpolation, no erase, C-backed)
       wh = MkWriteHead (MkReadHead writeAddr)
       writeResult = forwardWriteHeadInterpVar memory wh writeParams
       newWriteAddr' = (fst writeResult).readHead.addressingWeights
       newMemory = snd writeResult
-      -- 6. Output FC(hidden ++ readOutput)
       output = snd (applyLayerVar outputFc (hidden ++ newReadOutput))
       newLayer = NtmLayer (fst lstmResult) readFc writeFc outputFc
-                          newMemory newReadAddr' newWriteAddr' newReadOutput mb
+                          newMemory newReadAddr' newWriteAddr' newReadOutput Nothing
     in (newLayer, output)
 
   export
@@ -684,7 +737,7 @@ mutual
                    rwBuf = prim__weightBufAlloc (cast (gateSize * o))
                    rwBuf' = initWeightBuf rwBuf 0 rwRows
                in LstmLayer namedInputWeights namedRecurrentWeights namedBias hiddenState cellState (Just iwBuf') (Just rwBuf')
-      (NtmLayer lstm readFc writeFc outputFc memory readAddr writeAddr readOutput _) =>
+      (NtmLayer {n} {m} lstm readFc writeFc outputFc memory readAddr writeAddr readOutput _) =>
         let namedMemory = zipWith (np "mem") enumerate memory
             namedReadAddr = zipWith (np "rAddr") enumerate readAddr
             namedWriteAddr = zipWith (np "wAddr") enumerate writeAddr
@@ -693,8 +746,11 @@ mutual
             namedReadFc = nameParams (prefx ++ "_readFc") readFc
             namedWriteFc = nameParams (prefx ++ "_writeFc") writeFc
             namedOutputFc = nameParams (prefx ++ "_outputFc") outputFc
+            (VTensor memRows) = namedMemory
+            memBuf = prim__ntmMemBufAlloc (cast n) (cast m)
+            memBuf' = initNtmMemBuf memBuf 0 memRows
         in NtmLayer namedLstm namedReadFc namedWriteFc namedOutputFc
-                    namedMemory namedReadAddr namedWriteAddr namedReadOut Nothing
+                    namedMemory namedReadAddr namedWriteAddr namedReadOut (Just memBuf')
       _ => layer
 
   export
@@ -725,7 +781,7 @@ mutual
                 counts' = insert pfx (n + 1) counts
                 fullName = scope ++ pfx ++ show n
             in case layer of
-              (NtmLayer lstm readFc writeFc outputFc memory readAddr writeAddr readOutput _) =>
+              (NtmLayer {n=nn} {m=mm} lstm readFc writeFc outputFc memory readAddr writeAddr readOutput _) =>
                 let np = nameParam . (fullName ++ "_" ++)
                     namedMemory = zipWith (np "mem") enumerate memory
                     namedReadAddr = zipWith (np "rAddr") enumerate readAddr
@@ -735,8 +791,11 @@ mutual
                     (_, readFc') = autoNameLayer (fullName ++ "_readFc_") empty readFc
                     (_, writeFc') = autoNameLayer (fullName ++ "_writeFc_") empty writeFc
                     (_, outputFc') = autoNameLayer (fullName ++ "_outputFc_") empty outputFc
+                    (VTensor memRows) = namedMemory
+                    memBuf = prim__ntmMemBufAlloc (cast nn) (cast mm)
+                    memBuf' = initNtmMemBuf memBuf 0 memRows
                 in (counts', NtmLayer lstm' readFc' writeFc' outputFc'
-                             namedMemory namedReadAddr namedWriteAddr namedReadOut Nothing)
+                             namedMemory namedReadAddr namedWriteAddr namedReadOut (Just memBuf'))
               _ => (counts', nameParams fullName layer)
 
   autoNameNetwork : String -> SortedMap String Nat
@@ -792,10 +851,15 @@ mutual
     let iwb' = syncWeightBuf iwb 0 iwRows
         rwb' = syncWeightBuf rwb 0 rwRows
     in LstmLayer (VTensor iwRows) (VTensor rwRows) bias hs cs (Just iwb') (Just rwb')
-  syncLayerBuffers (NtmLayer lstm readFc writeFc outputFc mem ra wa ro mb) =
+  syncLayerBuffers (NtmLayer lstm readFc writeFc outputFc (VTensor memRows) ra wa ro (Just memBuf)) =
+    let mb' = prim__ntmMemBufResetCache (syncNtmMemBuf memBuf 0 memRows)
+    in NtmLayer (syncLayerBuffers lstm) (syncLayerBuffers readFc)
+                (syncLayerBuffers writeFc) (syncLayerBuffers outputFc)
+                (VTensor memRows) (projectWeights ra) (projectWeights wa) ro (Just mb')
+  syncLayerBuffers (NtmLayer lstm readFc writeFc outputFc mem ra wa ro Nothing) =
     NtmLayer (syncLayerBuffers lstm) (syncLayerBuffers readFc)
              (syncLayerBuffers writeFc) (syncLayerBuffers outputFc)
-             mem (projectWeights ra) (projectWeights wa) ro mb
+             mem (projectWeights ra) (projectWeights wa) ro Nothing
   syncLayerBuffers l = l
 
   export
