@@ -157,6 +157,61 @@ benchNtm = do
 
 
 ----------------------------------------------------------------------
+-- NTM Copy Production Scale (matching NtmCopy.idr architecture)
+----------------------------------------------------------------------
+
+CopyW : Nat
+CopyW = 8
+
+CopyInputW : Nat
+CopyInputW = S CopyW
+
+CopyOutputW : Nat
+CopyOutputW = CopyW
+
+CopyN : Nat
+CopyN = 128
+
+CopyM : Nat
+CopyM = 20
+
+CopyH : Nat
+CopyH = 100
+
+CopyBatch : Nat
+CopyBatch = 16
+
+benchNtmCopy : IO ()
+benchNtmCopy = do
+  ntm <- ntmLayer {inputSize = CopyInputW, outputSize = CopyOutputW, n = CopyN, m = CopyM, h = CopyH}
+  let model = autoName $ OutputLayer ntm
+
+  -- Generate fixed training data
+  batch <- copyTaskBinaryBatchVect {w = CopyW} CopyBatch 1 20
+  let dataPoints = map (map fromDouble) batch
+  let numPids = getNumPids 0
+  let opt = rmspropValueClipDense 0.0001 0.95 1.0e-8 10.0
+  let st0 = initDenseState numPids
+
+  -- Warmup: 10 epochs
+  let (warmModel, warmSt, _) = foldl
+        (\(m, s, _), _ =>
+          epochTwoPhaseDense opt dataPoints binaryCrossEntropyWithLogits m s)
+        (model, st0, 0.0) [1..10]
+
+  -- Benchmark: 100 epochs
+  t0 <- clockTime Monotonic
+  let (benchModel, _, benchLoss) = foldl
+        (\(m, s, _), _ =>
+          epochTwoPhaseDense opt dataPoints binaryCrossEntropyWithLogits m s)
+        (warmModel, warmSt, 0.0) [1..100]
+  t1 <- clockTime Monotonic
+
+  putStrLn $ "NTM-copy (100 epochs):    " ++ show (elapsedMs t0 t1) ++ " ms"
+  putStrLn $ "  Final loss: " ++ show benchLoss
+
+
+----------------------------------------------------------------------
 -- Main
 ----------------------------------------------------------------------
 
@@ -167,3 +222,4 @@ main = do
   benchSupervised
   benchRnn
   benchNtm
+  benchNtmCopy

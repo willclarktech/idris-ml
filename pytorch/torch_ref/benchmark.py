@@ -2,22 +2,21 @@
 
 - Supervised: 100 warmup + 1000 timed epochs, SGD lr=0.03
 - RNN: 100 warmup + 1000 timed epochs, SGD lr=0.03
-- NTM: 10 warmup + 100 timed epochs, Adam lr=0.001 maxNorm=5.0
-
-NOTE: The NTM benchmark uses a simple copy-like task for timing comparison.
-It is NOT the reference copy task architecture.
+- NTM: 10 warmup + 100 timed epochs, RMSprop lr=1e-4 alpha=0.95 value clip 10.0
+- NTM-copy: 10 warmup + 100 timed epochs, same optimizer, production scale
 """
 
+import random
 import time
 
 import torch
-from torch.nn.utils import clip_grad_norm_
+import torch.nn.functional as F
+from torch.nn.utils import clip_grad_value_
 
+from torch_ref.data.copy_task import generate_copy_batch
+from torch_ref.models.ntm import NtmConfig, NtmModel
 from torch_ref.models.rnn import LinearRNNCell, generate_rnn_dataset, train_rnn_epoch
 from torch_ref.models.supervised import SUPERVISED_DATA, SupervisedModel, train_supervised_epoch
-from torch_ref.ntm.controller import LSTMController
-from torch_ref.ntm.layer import NTMLayer
-from torch_ref.training.losses import nll_loss
 
 
 def bench_supervised() -> tuple[float, float]:
@@ -68,89 +67,127 @@ def bench_rnn() -> tuple[float, float]:
     return elapsed, loss_val
 
 
-# Simple copy-like sequences for NTM timing benchmark
-_NTM_SEQUENCES: list[list[int]] = [
-    [1, 2, 1, 2],
-    [1, 1, 2, 2, 1],
-    [2, 1, 1, 2, 2, 1],
-    [2, 1, 2, 1, 2, 1, 2],
-    [1, 2, 1, 1, 2, 2, 1, 2],
-]
+def _train_ntm_epoch(
+    model: NtmModel,
+    batch: list[tuple[torch.Tensor, torch.Tensor]],
+    optimizer: torch.optim.Optimizer,
+    clip_value: float,
+) -> float:
+    """Train one NTM epoch: forward all sequences in batch, single backward.
 
+    Matches Idris epochTwoPhaseDense: accumulate loss over batch, one backward pass.
+    Two-phase: encoding (feed inputs, discard outputs) then output (feed zeros, compute loss).
+    """
+    optimizer.zero_grad()
+    total_loss = torch.tensor(0.0)
 
-def _make_bench_data(
-    sequences: list[list[int]], w: int
-) -> list[tuple[list[torch.Tensor], list[torch.Tensor]]]:
-    """Convert symbol sequences to one-hot input/target pairs for timing."""
-    data = []
-    for symbols in sequences:
-        seq_len = len(symbols)
-        blanks = [0] * seq_len
+    for input_seq, target_seq in batch:
+        model.reset_state()
+        seq_len = target_seq.shape[0]
+        input_width = input_seq.shape[1]
 
-        def one_hot(idx: int) -> torch.Tensor:
-            v = torch.zeros(w)
-            v[idx] = 1.0
-            return v
+        # Encoding phase: feed input sequence, discard outputs
+        for t in range(input_seq.shape[0]):
+            model(input_seq[t])
 
-        inputs = [one_hot(s) for s in symbols + blanks]
-        targets = [one_hot(s) for s in blanks + symbols]
-        data.append((inputs, targets))
-    return data
+        # Output phase: feed zeros, compute loss on targets
+        zero_input = torch.zeros(input_width)
+        outputs = []
+        for _ in range(seq_len):
+            out = model(zero_input)
+            outputs.append(out)
+
+        pred = torch.stack(outputs)  # (seq_len, output_width)
+        loss = F.binary_cross_entropy(pred, target_seq)
+        total_loss = total_loss + loss
+
+    avg_loss = total_loss / len(batch)
+    avg_loss.backward()
+    clip_grad_value_(model.parameters(), clip_value)
+    optimizer.step()
+    return avg_loss.item()
 
 
 def bench_ntm() -> tuple[float, float]:
-    """Benchmark NTM model. Returns (elapsed_ms, final_loss).
+    """Benchmark small NTM. Returns (elapsed_ms, final_loss).
 
-    Uses a small NTM (w=3, n=10) with LSTM controller for timing.
+    Small NTM (w=3, n=10, m=5, h=20, batch=5) matching Idris benchNtm.
     """
+    random.seed(123456)
     torch.manual_seed(123456)
 
-    w, n, h = 3, 10, 20
-    m = w  # memory width = input width for this simple benchmark
+    w, n, m, h = 3, 10, 5, 20
+    batch_size = 5
+    lr, alpha, clip_value = 0.0001, 0.95, 10.0
 
-    controller = LSTMController(w + m, h)  # input + prev read vector
-
-    ntm = NTMLayer(
-        controller=controller,
+    cfg = NtmConfig(
+        input_width=w + 1,
+        output_width=w,
         n=n,
         m=m,
-        num_inputs=w,
-        num_outputs=w,
-        controller_hidden_size=h,
+        controller_size=h,
+        lr=lr,
+        clip_value=clip_value,
     )
+    model = NtmModel(cfg)
 
-    # Prepare data
-    data = _make_bench_data(_NTM_SEQUENCES, w)
+    # Generate fixed batch
+    batch = generate_copy_batch(batch_size, seq_min=2, seq_max=4, seq_width=w)
 
-    max_norm = 5.0
-
-    def train_one_epoch() -> float:
-        optimizer = torch.optim.Adam(ntm.parameters(), lr=0.001)
-        optimizer.zero_grad()
-        total_loss = torch.tensor(0.0)
-        for xs, ys in data:
-            ntm.reset_state()
-            seq_loss = torch.tensor(0.0)
-            for x, y in zip(xs, ys, strict=True):
-                raw = ntm(x)
-                pred = torch.log_softmax(raw, dim=-1)
-                seq_loss = seq_loss + nll_loss(pred, y)
-            total_loss = total_loss + seq_loss / len(xs)
-        loss = total_loss / len(data)
-        loss.backward()
-        clip_grad_norm_(ntm.parameters(), max_norm)
-        optimizer.step()
-        return loss.item()
+    optimizer = torch.optim.RMSprop(model.parameters(), lr=lr, alpha=alpha)
 
     # Warmup: 10 epochs
     for _ in range(10):
-        train_one_epoch()
+        _train_ntm_epoch(model, batch, optimizer, clip_value)
 
     # Benchmark: 100 epochs
     loss_val = 0.0
     t0 = time.monotonic()
     for _ in range(100):
-        loss_val = train_one_epoch()
+        loss_val = _train_ntm_epoch(model, batch, optimizer, clip_value)
+    t1 = time.monotonic()
+
+    elapsed = (t1 - t0) * 1000
+    return elapsed, loss_val
+
+
+def bench_ntm_copy() -> tuple[float, float]:
+    """Benchmark production-scale NTM copy. Returns (elapsed_ms, final_loss).
+
+    Production NTM (w=8, n=128, m=20, h=100, batch=16) matching Idris NtmCopy.
+    """
+    random.seed(123456)
+    torch.manual_seed(123456)
+
+    w, n, m, h = 8, 128, 20, 100
+    batch_size = 16
+    lr, alpha, clip_value = 0.0001, 0.95, 10.0
+
+    cfg = NtmConfig(
+        input_width=w + 1,
+        output_width=w,
+        n=n,
+        m=m,
+        controller_size=h,
+        lr=lr,
+        clip_value=clip_value,
+    )
+    model = NtmModel(cfg)
+
+    # Generate fixed batch
+    batch = generate_copy_batch(batch_size, seq_min=1, seq_max=20, seq_width=w)
+
+    optimizer = torch.optim.RMSprop(model.parameters(), lr=lr, alpha=alpha)
+
+    # Warmup: 10 epochs
+    for _ in range(10):
+        _train_ntm_epoch(model, batch, optimizer, clip_value)
+
+    # Benchmark: 100 epochs
+    loss_val = 0.0
+    t0 = time.monotonic()
+    for _ in range(100):
+        loss_val = _train_ntm_epoch(model, batch, optimizer, clip_value)
     t1 = time.monotonic()
 
     elapsed = (t1 - t0) * 1000
@@ -171,6 +208,10 @@ def main() -> None:
 
     elapsed, loss = bench_ntm()
     print(f"NTM (100 epochs):         {elapsed:.1f} ms")
+    print(f"  Final loss: {loss:.6f}")
+
+    elapsed, loss = bench_ntm_copy()
+    print(f"NTM-copy (100 epochs):    {elapsed:.1f} ms")
     print(f"  Final loss: {loss:.6f}")
 
 

@@ -2,9 +2,22 @@
 
 ## 1. Current Performance Profile
 
-NTM copy task: **~0.46s/epoch** vs PyTorch **~0.2s/epoch** = ~2.3x gap.
+Apples-to-apples benchmark (`make bench-compare`): identical architecture, optimizer,
+loss function, data format, and batch size on both sides.
 
-Optimizations applied (from 1.38s baseline):
+| Model | Idris (ms) | PyTorch (ms) | Ratio | Notes |
+|-------|-----------|-------------|-------|-------|
+| Supervised (1000 ep) | 77 | 230 | 0.33x | Idris 3x faster |
+| RNN (1000 ep) | 355 | 2076 | 0.17x | Idris 6x faster |
+| NTM-small (100 ep) | 538 | 1242 | 0.43x | Idris 2.3x faster (w=3, n=10, m=5, h=20, batch=5) |
+| NTM-copy (100 ep) | 24737 | 12149 | 2.04x | **PyTorch 2x faster** (w=8, n=128, m=20, h=100, batch=16) |
+
+The small NTM hides the scalar-vs-tensor autograd gap. At production scale (NTM-copy),
+PyTorch's tensor-level autograd gives it a ~2x advantage.
+
+NTM-copy per-epoch: Idris **~247ms** vs PyTorch **~121ms**.
+
+Optimizations applied (from 1.38s/epoch baseline):
 - Buffer-passing for addressing chain ops (1.38s -> 1.0s)
 - Shadow ConstOps for intermediate outputs (tape compaction)
 - C-side pid filtering in walk_backward_ext (1.0s -> 0.66s)
@@ -56,17 +69,17 @@ in Scheme. Reduces to ~67K named parameter results.
 
 Replace `Vector n Variable` with a tensor-level Variable that holds an entire vector
 in C memory. Would eliminate per-element Variable materialization entirely.
-This is the only path to close the remaining ~3.3x gap.
+This is the only path to close the remaining ~2x gap.
 
 ### Actual Results
 
 | Path | Epoch time | Speedup | vs PyTorch |
 |------|-----------|---------|------------|
-| Baseline (pre-optimization) | 1.38s | -- | ~7x |
-| A: Buffer-passing + shadow ConstOps | ~1.0s | 1.4x | ~5x |
-| B: + C-side pid filtering | ~0.66s | 2.1x | ~3.3x |
-| D: + Dense optimizer (C arrays) | ~0.46s | 3.0x | ~2.3x |
-| C: Tensor-level Variable (estimated) | ~0.25s | -- | ~1.3x |
+| Baseline (pre-optimization) | 1.38s | -- | ~11x |
+| A: Buffer-passing + shadow ConstOps | ~1.0s | 1.4x | ~8x |
+| B: + C-side pid filtering | ~0.66s | 2.1x | ~5x |
+| D: + Dense optimizer (C arrays) | ~0.247s | 5.6x | ~2.0x |
+| C: Tensor-level Variable (estimated) | ~0.15s | -- | ~1.2x |
 
 ### Path D: Dense Optimizer (DONE)
 
@@ -97,4 +110,4 @@ Key forward costs:
 - `packVec` for tensor op inputs from Variables: per-element `ensureOnTape` + `setDouble` + `setInt32`
 - Loss computation: scalar ops for binary cross-entropy with logits
 
-Irreducible gap (~1.3x) from: Scheme orchestration overhead, non-SIMD C kernels.
+Irreducible gap (~1.2x) from: Scheme orchestration overhead, non-SIMD C kernels.
