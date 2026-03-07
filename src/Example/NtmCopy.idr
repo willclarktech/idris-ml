@@ -107,12 +107,12 @@ bitAccuracy preds targets =
 trainLoop :
   (Double -> DenseOptimizer) -> Schedule ->
   Network InputW [] OutputW Variable ->
-  (totalEpochs : Nat) -> (patience : Nat) -> (chunkSize : Nat) ->
+  (totalEpochs : Nat) -> (patience : Nat) -> (batchSize : Nat) ->
   (minLen, maxLen : Nat) ->
   DenseOptimizerState ->
   Clock Monotonic ->
   IO (Network InputW [] OutputW Variable, DenseOptimizerState, Nat)
-trainLoop makeOpt schedule model totalEpochs patience chunkSize minLen maxLen st t0 =
+trainLoop makeOpt schedule model totalEpochs patience batchSize minLen maxLen st t0 =
   go 0 model st (1.0/0.0) 0
   where
     go : Nat -> Network InputW [] OutputW Variable -> DenseOptimizerState ->
@@ -121,7 +121,7 @@ trainLoop makeOpt schedule model totalEpochs patience chunkSize minLen maxLen st
     go ep m s bestLoss staleCount =
       if ep >= totalEpochs then pure (m, s, ep)
       else do
-        batch <- copyTaskBinaryBatchVect {w = W} BatchSize minLen maxLen
+        batch <- copyTaskBinaryBatchVect {w = W} batchSize minLen maxLen
         let dps = map (map fromDouble) batch
             lr = schedule ep
             opt = makeOpt lr
@@ -284,7 +284,7 @@ main = do
       then trainLoop1 makeOpt schedule model
              cfg.epochs cfg.patience cfg.minLen cfg.maxLen st0 t0
       else trainLoop makeOpt schedule model
-             cfg.epochs cfg.patience 1 cfg.minLen cfg.maxLen st0 t0
+             cfg.epochs cfg.patience cfg.batch cfg.minLen cfg.maxLen st0 t0
 
   putStrLn $ "Training complete: " ++ show epochsDone ++ " epochs"
   putStrLn ""
