@@ -34,16 +34,18 @@ make test-c
 # Run benchmark (Supervised + RNN + NTM)
 make bench
 
-# PyTorch benchmarks (requires uv)
-make bench-setup        # One-time: install Python deps
-make bench-test         # Run PyTorch correctness tests
+# PyTorch reference implementation (requires uv)
+make ref-setup          # One-time: install Python deps
+make ref-test           # Run PyTorch correctness tests
+make ref-lint           # Lint Python code (ruff)
+make ref-typecheck      # Type-check Python code (pyright)
+make ref-convergence    # NTM convergence verification (copy + recall)
+make ref-convergence-copy      # Copy task only
+make ref-convergence-recall    # Recall task only
+
+# Benchmarks (Idris vs PyTorch timing)
 make bench-py           # Run PyTorch timing benchmark
 make bench-compare      # Side-by-side Idris vs PyTorch comparison
-make bench-lint         # Lint Python code (ruff)
-make bench-typecheck    # Type-check Python code (pyright)
-make bench-convergence  # NTM convergence verification (copy + recall)
-make bench-convergence-copy    # Copy task only
-make bench-convergence-recall  # Recall task only
 ```
 
 Concrete examples:
@@ -255,7 +257,7 @@ printDiagnostics "label" snapshots
 When adding a new model/example to the project, follow this workflow in order:
 
 1. **Source reference implementation** — find a paper or established implementation to use as ground truth for architecture, hyperparameters, and expected convergence behavior. Add to the References section above
-2. **Write PyTorch implementation** — port the reference into `bench/bench/models/`, add correctness tests in `bench/bench/correctness/`, add a benchmark function in `bench/bench/benchmark.py`, and wire it into `bench/bench/compare.py`. Verify with `make bench-test && make bench-lint && make bench-typecheck`
+2. **Write PyTorch implementation** — port the reference into `pytorch/torch_ref/models/`, add correctness tests in `pytorch/torch_ref/correctness/`, add a benchmark function in `pytorch/torch_ref/benchmark.py`, and wire it into `pytorch/torch_ref/compare.py`. Verify with `make ref-test && make ref-lint && make ref-typecheck`
 3. **Write idris-ml implementation** — implement in `src/Example/`, add to `src/Example/Bench.idr`, and add a Makefile target. Verify with `make test && make bench-compare`
 
 Commit at each step. The PyTorch implementation serves as the correctness oracle for the Idris version.
