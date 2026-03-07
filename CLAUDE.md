@@ -340,12 +340,13 @@ Update `docs/performance-analysis.md` with:
 - Convergence comparison results
 - What changed and why
 
-### Current performance baseline (2026-03-04)
+### Current performance baseline (2026-03-05)
 
 Per-epoch at batch=16 (NTM-copy, N=128 M=20 H=100):
-- Forward (Enc+Out): ~107ms | Backward: ~22ms | Tape: 2.23M entries
-- Idris/PyTorch ratio: **1.02x** (near parity)
-- Remaining gap is scalar-vs-tensor autograd (see Path C in performance-analysis.md)
+- Forward (Enc+Out): ~74ms | Backward: ~15ms | Tape: 1.48M entries
+- Idris/PyTorch ratio: **0.87x** (Idris faster)
+- Best convergence config: lr=3e-4, batch=16 (100% short, 92% full in 10K epochs)
+- Remaining gap vs PyTorch full convergence: scalar autograd oscillation (see performance-analysis.md)
 
 ### Performance optimization history
 

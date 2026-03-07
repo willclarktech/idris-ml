@@ -327,6 +327,62 @@ NTM-copy-1k         146473.8       224601.1    0.65x
 NTM-copy now **faster than PyTorch** at both 100 and 1000 epochs. The LSTM→FC
 buffer-passing optimization closed the remaining gap and pushed Idris ahead.
 
+### Critical bugs fixed (2026-03-05)
+
+Three bugs found and fixed during the sweep investigation:
+
+1. **Dense optimizer FFI calls dropped** (`let _ = prim__ffiCall`): Idris 2 drops unused
+   let bindings, silently eliminating the optimizer step. lr/clip/momentum had zero effect.
+   Fix: thread FFI return through `prim__seq` into state record.
+
+2. **trainLoop ignoring --batch flag**: `trainLoop` used the compile-time constant
+   `BatchSize = 16` instead of the runtime `cfg.batch` parameter. The `--batch` CLI flag
+   was parsed but never used. Fix: pass `cfg.batch` as `batchSize` parameter.
+
+3. **Eval reading stale initial weights**: The dense optimizer path
+   (`applyDeltasAndSyncNetwork`) updates C WeightBuf/NtmMemBuf buffers but never updates
+   `Variable.value` fields. `toDoubleNetwork` reads `.value`, so evaluation always used
+   initial (untrained) weights. Fix: add `readFromBuffersNetwork` to sync C buffer values
+   back into Variable records before `toDoubleNetwork`.
+
+### Hyperparameter sweep results (2026-03-05)
+
+With all bugs fixed, sweep over lr × clip × batch × seed (48 configs, 2000 epochs):
+
+**Top configs sorted by test accuracy:**
+
+| lr | batch | seed | trainAcc | testAcc | Notes |
+|----|-------|------|----------|---------|-------|
+| 0.001 | 16 | 42 | 0.999 | 0.831 | Highest but unstable |
+| 0.001 | 16 | 2 | 0.999 | 0.831 | |
+| 0.003 | 16 | 42 | 0.995 | 0.827 | Only seed=42 converges |
+| **3e-4** | **16** | **42** | **0.993** | **0.811** | **Most consistent** |
+| 3e-4 | 16 | 2 | 0.991 | 0.810 | |
+| 3e-4 | 16 | 1 | 0.980 | 0.805 | |
+| 3e-4 | 4 | 2 | 0.903 | 0.780 | |
+
+Key findings:
+- **batch=16 >> batch=4** for all lr values
+- **lr=3e-4 batch=16** is most consistent across seeds (0.805-0.811 test acc)
+- **lr=0.001** gets higher peak accuracy but is unstable (some seeds diverge)
+- **lr=0.003** mostly diverges (only seed=42 converges)
+- **clip=5 vs clip=10** makes no difference (gradients never exceed 5.0)
+- Default lr updated from 1e-4 to 3e-4
+
+### Convergence comparison (2026-03-05)
+
+| Metric | Idris (lr=3e-4, 10K ep) | PyTorch (lr=1e-4) |
+|--------|------------------------|-------------------|
+| Short seq (1-5) | **100%** | **100%** |
+| Full seq (1-20) | **91.9%** | **100%** |
+| Converge epoch | Plateaus ~0.15 loss | ~3000 iter (loss<0.01) |
+| Wall time | ~22 min | ~11 min |
+
+Idris learns the copy task well (100% short, 92% full) but doesn't reach
+PyTorch's full convergence. Loss oscillates ~0.15-0.20 instead of dropping
+to near-zero. Remaining gap likely due to numerical differences in scalar
+autograd vs tensor autograd gradient accumulation.
+
 ### Gradient Region Reservation (NOT IMPLEMENTED)
 
 Planned to eliminate 2.23M ShadowOps (63% of tape) by reserving gradient indices
