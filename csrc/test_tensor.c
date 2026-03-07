@@ -652,6 +652,7 @@ static void test_interp_write_forward(void) {
    * raw[1][1] = (1-0.0)*4 + 0.0*6 = 4.0,  out = tanh(4.0) */
   arena_reset();
   InterpWriteMeta *m = interp_write_meta_alloc(2, 2);
+  m->raw_mode = 0;  /* explicit tanh mode */
   double mem[] = {1, 2, 3, 4};
   double w[] = {0.8, 0.0};
   double a[] = {5, 6};
@@ -668,6 +669,27 @@ static void test_interp_write_forward(void) {
   check_close("interp_write[1][1]", out[3], tanh(4.0), 1e-10);
 }
 
+static void test_interp_write_forward_raw(void) {
+  /* Same setup but raw_mode=1: output = raw interpolation, no tanh */
+  arena_reset();
+  InterpWriteMeta *m = interp_write_meta_alloc(2, 2);
+  interp_write_set_raw_mode(m, 1);
+  double mem[] = {1, 2, 3, 4};
+  double w[] = {0.8, 0.0};
+  double a[] = {5, 6};
+  memcpy(m->mem_vals, mem, 4 * sizeof(double));
+  memcpy(m->weight_vals, w, 2 * sizeof(double));
+  memcpy(m->add_vals, a, 2 * sizeof(double));
+
+  double out[4] = {0};
+  interp_write_compute(m, out);
+
+  check_close("interp_write_raw[0][0]", out[0], 4.2, 1e-10);
+  check_close("interp_write_raw[0][1]", out[1], 5.2, 1e-10);
+  check_close("interp_write_raw[1][0]", out[2], 3.0, 1e-10);
+  check_close("interp_write_raw[1][1]", out[3], 4.0, 1e-10);
+}
+
 static void test_interp_write_backward(void) {
   /* Numerical gradient check for interpolation write.
    * mem = [[2, 3], [1, 4]], w = [0.7, 0.3], a = [1, -1] */
@@ -681,6 +703,7 @@ static void test_interp_write_backward(void) {
 
   /* Compute forward for analytical gradients */
   InterpWriteMeta *m = interp_write_meta_alloc(n, w);
+  m->raw_mode = 0;  /* explicit tanh mode */
   memcpy(m->mem_vals, mem, 4 * sizeof(double));
   memcpy(m->weight_vals, wt, 2 * sizeof(double));
   memcpy(m->add_vals, ad, 2 * sizeof(double));
@@ -764,6 +787,105 @@ static void test_interp_write_backward(void) {
     for (int k = 0; k < n * w; k++) num += (out_p[k] - out_m[k]) / (2 * eps);
     char name[64];
     snprintf(name, sizeof(name), "interp_write_bwd d_add[%d]", j);
+    check_close(name, grad[6 + j], num, 1e-5);
+  }
+}
+
+static void test_interp_write_backward_raw(void) {
+  /* Numerical gradient check for raw interpolation write (no tanh). */
+  arena_reset();
+  double eps = 1e-5;
+  int n = 2, w = 2;
+
+  double mem[] = {2, 3, 1, 4};
+  double wt[] = {0.7, 0.3};
+  double ad[] = {1, -1};
+
+  InterpWriteMeta *m = interp_write_meta_alloc(n, w);
+  interp_write_set_raw_mode(m, 1);
+  memcpy(m->mem_vals, mem, 4 * sizeof(double));
+  memcpy(m->weight_vals, wt, 2 * sizeof(double));
+  memcpy(m->add_vals, ad, 2 * sizeof(double));
+
+  int mem_idx[] = {0, 1, 2, 3};
+  int wt_idx[] = {4, 5};
+  int ad_idx[] = {6, 7};
+  memcpy(m->mem_tape_idx, mem_idx, 4 * sizeof(int));
+  memcpy(m->weight_tape_idx, wt_idx, 2 * sizeof(int));
+  memcpy(m->add_tape_idx, ad_idx, 2 * sizeof(int));
+  m->out_tape_start = 9;
+
+  double fwd_out[4];
+  interp_write_compute(m, fwd_out);
+
+  double grad[13] = {0};
+  grad[9] = 1.0; grad[10] = 1.0; grad[11] = 1.0; grad[12] = 1.0;
+
+  tensor_interp_write_backward(grad, m);
+
+  /* Numerical check for d_mem */
+  for (int i = 0; i < n * w; i++) {
+    arena_reset();
+    InterpWriteMeta *mp = interp_write_meta_alloc(n, w);
+    interp_write_set_raw_mode(mp, 1);
+    memcpy(mp->weight_vals, wt, 2 * sizeof(double));
+    memcpy(mp->add_vals, ad, 2 * sizeof(double));
+    double out_p[4], out_m[4], mem_p[4], mem_m[4];
+    memcpy(mem_p, mem, 4 * sizeof(double));
+    memcpy(mem_m, mem, 4 * sizeof(double));
+    mem_p[i] += eps; mem_m[i] -= eps;
+    memcpy(mp->mem_vals, mem_p, 4 * sizeof(double));
+    interp_write_compute(mp, out_p);
+    memcpy(mp->mem_vals, mem_m, 4 * sizeof(double));
+    interp_write_compute(mp, out_m);
+    double num = 0;
+    for (int k = 0; k < n * w; k++) num += (out_p[k] - out_m[k]) / (2 * eps);
+    char name[64];
+    snprintf(name, sizeof(name), "interp_write_bwd_raw d_mem[%d]", i);
+    check_close(name, grad[i], num, 1e-5);
+  }
+
+  /* Check d_weight */
+  for (int i = 0; i < n; i++) {
+    arena_reset();
+    InterpWriteMeta *mp = interp_write_meta_alloc(n, w);
+    interp_write_set_raw_mode(mp, 1);
+    memcpy(mp->mem_vals, mem, 4 * sizeof(double));
+    memcpy(mp->add_vals, ad, 2 * sizeof(double));
+    double out_p[4], out_m[4], wt_p[2], wt_m[2];
+    memcpy(wt_p, wt, 2 * sizeof(double));
+    memcpy(wt_m, wt, 2 * sizeof(double));
+    wt_p[i] += eps; wt_m[i] -= eps;
+    memcpy(mp->weight_vals, wt_p, 2 * sizeof(double));
+    interp_write_compute(mp, out_p);
+    memcpy(mp->weight_vals, wt_m, 2 * sizeof(double));
+    interp_write_compute(mp, out_m);
+    double num = 0;
+    for (int k = 0; k < n * w; k++) num += (out_p[k] - out_m[k]) / (2 * eps);
+    char name[64];
+    snprintf(name, sizeof(name), "interp_write_bwd_raw d_weight[%d]", i);
+    check_close(name, grad[4 + i], num, 1e-5);
+  }
+
+  /* Check d_add */
+  for (int j = 0; j < w; j++) {
+    arena_reset();
+    InterpWriteMeta *mp = interp_write_meta_alloc(n, w);
+    interp_write_set_raw_mode(mp, 1);
+    memcpy(mp->mem_vals, mem, 4 * sizeof(double));
+    memcpy(mp->weight_vals, wt, 2 * sizeof(double));
+    double out_p[4], out_m[4], ad_p[2], ad_m[2];
+    memcpy(ad_p, ad, 2 * sizeof(double));
+    memcpy(ad_m, ad, 2 * sizeof(double));
+    ad_p[j] += eps; ad_m[j] -= eps;
+    memcpy(mp->add_vals, ad_p, 2 * sizeof(double));
+    interp_write_compute(mp, out_p);
+    memcpy(mp->add_vals, ad_m, 2 * sizeof(double));
+    interp_write_compute(mp, out_m);
+    double num = 0;
+    for (int k = 0; k < n * w; k++) num += (out_p[k] - out_m[k]) / (2 * eps);
+    char name[64];
+    snprintf(name, sizeof(name), "interp_write_bwd_raw d_add[%d]", j);
     check_close(name, grad[6 + j], num, 1e-5);
   }
 }
@@ -1799,7 +1921,9 @@ int main(void) {
   test_writeop_forward();
   test_writeop_backward();
   test_interp_write_forward();
+  test_interp_write_forward_raw();
   test_interp_write_backward();
+  test_interp_write_backward_raw();
   test_ntm_mem_alloc();
   test_ntm_mem_set_val();
   test_ntm_mem_set_pid();

@@ -435,6 +435,9 @@ prim__interpWriteAddTape : AnyPtr -> AnyPtr
 %foreign "scheme:(lambda (meta out) ((foreign-procedure \"interp_write_compute\" (void* void*) void*) meta out))"
 prim__interpWriteCompute : AnyPtr -> AnyPtr -> AnyPtr
 
+%foreign "scheme:(lambda (meta mode) ((foreign-procedure \"interp_write_set_raw_mode\" (void* int) void) meta mode) meta)"
+prim__interpWriteSetRawMode : AnyPtr -> Int -> AnyPtr
+
 -- InterpolateOp meta (tag 21): alloc, get internal pointers, set g, compute
 %foreign "scheme:(lambda (n) ((foreign-procedure \"interpolate_meta_alloc\" (int) void*) n))"
 prim__interpolateMetaAlloc : Int -> AnyPtr
@@ -1317,7 +1320,8 @@ interpolationWriteVar : {n, w : Nat} -> Vector n Variable -> Matrix n w Variable
 interpolationWriteVar {n} {w} (VTensor weightElems) (VTensor memRows) (VTensor addElems) =
   let nI = cast {to=Int} n
       wI = cast {to=Int} w
-      meta = prim__interpWriteMetaAlloc nI wI
+      meta0 = prim__interpWriteMetaAlloc nI wI
+      meta = prim__interpWriteSetRawMode meta0 1
       outBuf = prim__tensorAllocArena (nI * wI)
       mvPtr = prim__interpWriteMemVals meta
       mtPtr = prim__interpWriteMemTape meta
@@ -1415,7 +1419,8 @@ interpolationWriteVarBuf {n} {w} (VTensor weightElems) memBuf (VTensor addElems)
       nw = nI * wI
       -- Ensure memory on tape
       mb' = prim__ntmMemBufEnsure memBuf nw
-      meta = prim__interpWriteMetaAlloc nI wI
+      meta0 = prim__interpWriteMetaAlloc nI wI
+      meta = prim__interpWriteSetRawMode meta0 1
       outBuf = prim__tensorAllocArena nw
       -- Pack memory from buffer (C memcpy)
       meta' = prim__interpWritePackMemBuf meta mb'

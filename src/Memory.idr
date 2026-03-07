@@ -168,17 +168,15 @@ forwardWriteHead smFn memory (MkWriteHead readHead) inp =
 -- Interpolation Write
 ----------------------------------------------------------------------
 
-||| Interpolation write with fused tanh bounding:
-||| mem'[i][j] = tanh(w[i] * add[j] + (1 - w[i]) * mem[i][j])
+||| Interpolation write (raw, no tanh bounding):
+||| mem'[i][j] = w[i] * add[j] + (1 - w[i]) * mem[i][j]
 ||| Simpler than erase+add — single vector replaces content at addressed slots.
-||| Uses `tanhFn` (sigmoid-based tanh) to avoid FromDouble constraint.
 export
 interpolationWrite : (Num ty, Neg ty, Fractional ty, Floating ty) =>
     {n, w : Nat} -> Matrix n w ty -> Vector n ty -> Vector w ty -> Matrix n w ty
 interpolationWrite (VTensor memRows) (VTensor weights) addVec =
-  let tanhFn : ty -> ty
-      tanhFn x = 2 * sig (2 * x) - 1
-  in VTensor $ zipWith (\(STensor wt), row => map tanhFn $ zipWith (\m, a => (1 - wt) * m + wt * a) row addVec) weights memRows
+  VTensor $ zipWith (\(STensor wt), row =>
+    zipWith (\m, a => (1 - wt) * m + wt * a) row addVec) weights memRows
 
 
 ----------------------------------------------------------------------
@@ -218,7 +216,7 @@ forwardWriteHeadInterp : (Floating ty, Fractional ty, Neg ty, Ord ty) =>
 forwardWriteHeadInterp smFn memory (MkWriteHead readHead) inp =
   let
     (readHeadInput, rawAdd) = Tensor.splitAt ((w + ShiftKernelSize) + 3) inp
-    addVector = map sig rawAdd
+    addVector = rawAdd
     (newReadHead, _) = forwardReadHeadUnbounded smFn memory readHead readHeadInput
     newWriteHead = MkWriteHead newReadHead
     newMemoryMatrix = interpolationWrite memory newWriteHead.readHead.addressingWeights addVector

@@ -311,7 +311,7 @@ forwardWriteHeadInterpVar : {n, w : Nat} -> Matrix n w Variable -> WriteHead n V
 forwardWriteHeadInterpVar memory (MkWriteHead readHead) inp =
   let
     (readHeadInput, rawAdd) = Tensor.splitAt ((w + ShiftKernelSize) + 3) inp
-    addVector = map sigmoidVar rawAdd
+    addVector = rawAdd
     (newReadHead, _) = forwardReadHeadUnboundedVar memory readHead readHeadInput
     newWriteHead = MkWriteHead newReadHead
     newMemoryMatrix = interpolationWriteVar newWriteHead.readHead.addressingWeights memory addVector
@@ -347,7 +347,7 @@ forwardWriteHeadInterpVarBuf : {n, w : Nat} -> AnyPtr -> WriteHead n Variable ->
 forwardWriteHeadInterpVarBuf memBuf (MkWriteHead readHead) inp =
   let
     (readHeadInput, rawAdd) = Tensor.splitAt ((w + ShiftKernelSize) + 3) inp
-    addVector = map sigmoidVar rawAdd
+    addVector = rawAdd
     (newReadHead, _) = forwardReadHeadUnboundedVarBuf memBuf readHead readHeadInput
     newWriteHead = MkWriteHead newReadHead
     mb' = interpolationWriteVarBuf newWriteHead.readHead.addressingWeights memBuf addVector

@@ -41,7 +41,7 @@ The aligned NTM retains several stability measures from Collier & Beel and refer
 |---------|-------|--------|
 | Memory init | constant 1e-6 | Collier & Beel: 3.5x faster convergence |
 | Controller output clipping | [-20, 20] via `clampVar` | Collier & Beel: prevents extreme head params |
-| Tanh memory bounding | `tanhBound` after each write | Collier & Beel: prevents memory drift |
+| No tanh memory bounding | Raw interpolation write | Matches PyTorch reference; tanh was for erase+add |
 | Value clipping | ±10.0 on gradients | PyTorch reference (loudinthecloud, vlgiitr) |
 
 **Constant memory init**: `ntmLayer` initializes memory to `1e-6` via `pure (fromDouble 1.0e-6)`. Collier & Beel's controlled experiment showed this converges 3.5x faster than random init.
@@ -50,13 +50,9 @@ The aligned NTM retains several stability measures from Collier & Beel and refer
 
 **Random data generation**: The `Generate` module provides `copyTaskBinary` and `recallTaskBinary` for binary vector data, plus `copyTask`/`associativeRecallTask` for one-hot data (legacy). Each training epoch generates fresh random data to prevent overfitting.
 
-## Tanh memory bounding
+## No tanh memory bounding (interpolation write)
 
-After each memory write, all memory values are clamped to [-1, 1] via `tanhBound` (Collier & Beel recommendation). Without bounding, memory values can drift unboundedly over long sequences — the write head's add vector accumulates across timesteps while the interpolation write only partially replaces previous values. Unbounded memory causes:
-- Content addressing instability: cosine similarity becomes unreliable when magnitudes vary wildly
-- Gradient scale mismatch between large and small memory values
-
-The `tanhBound` helper uses `2 * sigmoid(2x) - 1` (mathematically equivalent to tanh) expressed with `Neg`, `Fractional`, and `Floating` constraints, avoiding a `FromDouble` dependency. Applied via `map tanhBound` on the full memory matrix after `forwardWriteHead` in all three forward paths (generic, Variable, debug).
+The interpolation write uses raw interpolation without tanh bounding, matching the PyTorch reference. The Collier & Beel tanh recommendation was for the original erase+add write mechanism, not interpolation write. With interpolation write, tanh causes cumulative memory degradation during the output phase — near-zero write weights still apply `tanh(mem)` every timestep, so over 20 output steps a value of 0.5 degrades to ~0.24. The C kernel `interp_write_compute` supports both modes via `raw_mode` flag for testing; Idris always sets `raw_mode=1` (raw).
 
 ## Initial addressing
 
@@ -274,7 +270,7 @@ The associative recall task is fundamentally more difficult than copy for severa
 | Mode collapse | All outputs identical regardless of query | Controller ignores input, produces fixed output | Check controller gradients, verify input reaches controller |
 | Content-only fallback | High g during test, low during train | Model memorizes training data, falls back to content matching on novel data | Curriculum, more training data diversity |
 | Gradient explosion | NaN loss after N iterations | Unbounded head parameters, especially γ | Bound γ to [1,5], clamp controller output [-20,20] |
-| Memory drift | Loss increases over long sequences | Memory values grow unboundedly | Apply tanh memory bounding after each write |
+| Memory drift | Loss increases over long sequences | Memory values grow unboundedly | Use interpolation write (bounded by design when weights sum to ~1) |
 
 ## Recall convergence results
 
