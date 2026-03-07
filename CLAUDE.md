@@ -59,9 +59,11 @@ idris2 --source-dir src -p contrib -o ntm-associative-recall src/Example/NtmAsso
 # LSTM with custom hyperparameters
 ./build/exec/lstm --lr 0.1 --epochs 2000 --patience 500 --seed 42
 # NTM copy with custom hyperparameters
-./build/exec/ntm-copy --lr 0.0001 --clip 10.0 --alpha 0.95 --epochs 50000 --patience 5000 --seed 42
+./build/exec/ntm-copy --lr 0.0001 --clip 10.0 --alpha 0.95 --epochs 50000 --seed 42
+# NTM copy with custom early stopping
+./build/exec/ntm-copy --es-threshold 0.001 --es-window 2000 --es-patience 5
 # NTM associative recall with custom hyperparameters
-./build/exec/ntm-associative-recall --lr 0.0001 --epochs 100000 --patience 5000 --seed 42 --min-items 2 --max-items 6
+./build/exec/ntm-associative-recall --lr 0.0001 --epochs 100000 --seed 42 --min-items 2 --max-items 6
 # Hyperparameter sweep (builds once, runs grid in parallel)
 bash scripts/sweep.sh --parallel 4
 # Quick sweep (2000 epochs for fast screening)
@@ -394,6 +396,7 @@ Optimizations applied to NTM-copy (from 1.38s/epoch to 0.145s/epoch, ~10x):
 - **`fst`/`snd` re-evaluation trap**: When a function with FFI side effects returns a tuple and the caller accesses fields via separate `fst`/`snd` projections (e.g., `fst result`, `snd result`, `fst result` again), Idris 2 compiled to Chez Scheme may re-evaluate the function call for each projection instead of sharing the result. This causes FFI side effects (tape appends, buffer allocations) to execute multiple times. Fix: use `case f args of (a, b, c) => ...` to destructure in a single pattern match. This was a 3× re-evaluation bug in the NTM forward pass — the LSTM controller was called 3 times per timestep instead of once
 - **Gradient clipping**: `adam` clips per-parameter; `adamGlobalClip` clips by global L2 norm (preserves gradient direction). Use `adamGlobalClip` for attention/recurrent models where parameters must coordinate — per-parameter clipping distorts direction and causes periodic loss spikes. Default maxNorm is 50.0 (Collier & Beel); 5.0 was too aggressive
 - **Controller output clipping (removed)**: Previously `applyLayerVar` clamped raw NTM controller output to [-20, 20] via `clampVar`. Removed to match PyTorch reference which has no output clamping. The LSTM controller + RMSprop + value clip ±10 provide sufficient stability without artificial clamping
+- **NTM early stopping**: NTM examples (copy/recall) use windowed-average convergence checking instead of best-loss patience. Parameters: `esThreshold` (default 0.01), `esWindow` (default 1000 epochs), `esPatience` (default 3 consecutive checks). Every 100 accumulated epochs, computes interval average loss, then averages the last `esWindow/100` intervals. Stops when this window average < threshold for `esPatience` consecutive checks. CLI flags: `--es-threshold`, `--es-window`, `--es-patience`. The LSTM example still uses the old best-loss patience mechanism
 - **Curriculum learning**: Available via the Curriculum module for staged training. The PyTorch-aligned NTM (LSTM controller + RMSprop) does not require curriculum — it converges directly with two-phase training. Curriculum was previously required for feedforward controllers (ajithcodesit finding)
 - **No tanh memory bounding**: Interpolation write uses raw interpolation (no tanh) to match the PyTorch reference. The Collier & Beel tanh recommendation was for the original erase+add write mechanism, not interpolation write. Tanh caused cumulative degradation during output phase (near-zero write weights still applied tanh every timestep). `tanhBound` in Layer.idr is only used for LSTM gates, not NTM memory. The C kernel `interp_write_compute` supports both modes via `raw_mode` flag (1=raw, 0=tanh); Idris always sets raw_mode=1
 - **NTM initial addressing**: Read/write addressing weights are initialized to zeros and read output to Kaiming uniform (non-learnable, matching PyTorch reference). `syncLayerBuffers` projects addressing weights onto the probability simplex via `projectWeights` (clamp to [0, epsilon], renormalize) to prevent NaN from `pow(negative, non-integer)` in `focus`
