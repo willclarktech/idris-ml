@@ -296,9 +296,10 @@ forwardReadHeadUnboundedVar memory rh inp =
     gamma = 1 + softplus (sum gammaVec)
     scores = batchCosineSimilarityVar beta memory keyVector
     contentWeights = softmaxVar scores
-    interpolated = interpolate g contentWeights rh.addressingWeights
-    shifted = shift softmaxVar interpolated shiftVector
-    focused = focus gamma shifted
+    interpolated = interpolateVar g contentWeights rh.addressingWeights
+    shiftKernel = softmaxVar shiftVector
+    shifted = shiftVar interpolated shiftKernel
+    focused = focusVar gamma shifted
     newReadHead = { addressingWeights := focused } rh
     output = readOpVar newReadHead.addressingWeights memory
   in (newReadHead, output)
@@ -329,9 +330,10 @@ forwardReadHeadUnboundedVarBuf memBuf rh inp =
     gamma = 1 + softplus (sum gammaVec)
     scores = batchCosineSimilarityVarBuf beta memBuf keyVector
     contentWeights = softmaxVar scores
-    interpolated = interpolate g contentWeights rh.addressingWeights
-    shifted = shift softmaxVar interpolated shiftVector
-    focused = focus gamma shifted
+    interpolated = interpolateVar g contentWeights rh.addressingWeights
+    shiftKernel = softmaxVar shiftVector
+    shifted = shiftVar interpolated shiftKernel
+    focused = focusVar gamma shifted
     newReadHead = { addressingWeights := focused } rh
     output = readOpVarBuf newReadHead.addressingWeights memBuf
   in (newReadHead, output)

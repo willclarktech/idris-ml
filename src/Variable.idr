@@ -378,6 +378,48 @@ prim__interpWriteAddTape : AnyPtr -> AnyPtr
 %foreign "scheme:(lambda (meta out) ((foreign-procedure \"interp_write_compute\" (void* void*) void*) meta out))"
 prim__interpWriteCompute : AnyPtr -> AnyPtr -> AnyPtr
 
+-- InterpolateOp meta (tag 21): alloc, get internal pointers, set g, compute
+%foreign "scheme:(lambda (n) ((foreign-procedure \"interpolate_meta_alloc\" (int) void*) n))"
+prim__interpolateMetaAlloc : Int -> AnyPtr
+%foreign "scheme:(lambda (meta) ((foreign-procedure \"interpolate_meta_content_vals\" (void*) void*) meta))"
+prim__interpolateContentVals : AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (meta) ((foreign-procedure \"interpolate_meta_content_tape\" (void*) void*) meta))"
+prim__interpolateContentTape : AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (meta) ((foreign-procedure \"interpolate_meta_prev_vals\" (void*) void*) meta))"
+prim__interpolatePrevVals : AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (meta) ((foreign-procedure \"interpolate_meta_prev_tape\" (void*) void*) meta))"
+prim__interpolatePrevTape : AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (meta val tidx) ((foreign-procedure \"interpolate_meta_set_g\" (void* double int) void*) meta val tidx))"
+prim__interpolateSetG : AnyPtr -> Double -> Int -> AnyPtr
+%foreign "scheme:(lambda (meta out) ((foreign-procedure \"interpolate_compute\" (void* void*) void*) meta out))"
+prim__interpolateCompute : AnyPtr -> AnyPtr -> AnyPtr
+
+-- ShiftOp meta (tag 22): alloc, get internal pointers, compute
+%foreign "scheme:(lambda (n) ((foreign-procedure \"shift_meta_alloc\" (int) void*) n))"
+prim__shiftMetaAlloc : Int -> AnyPtr
+%foreign "scheme:(lambda (meta) ((foreign-procedure \"shift_meta_input_vals\" (void*) void*) meta))"
+prim__shiftInputVals : AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (meta) ((foreign-procedure \"shift_meta_input_tape\" (void*) void*) meta))"
+prim__shiftInputTape : AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (meta) ((foreign-procedure \"shift_meta_kernel_vals\" (void*) void*) meta))"
+prim__shiftKernelVals : AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (meta) ((foreign-procedure \"shift_meta_kernel_tape\" (void*) void*) meta))"
+prim__shiftKernelTape : AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (meta out) ((foreign-procedure \"shift_compute\" (void* void*) void*) meta out))"
+prim__shiftCompute : AnyPtr -> AnyPtr -> AnyPtr
+
+-- FocusOp meta (tag 23): alloc, get internal pointers, set gamma, compute
+%foreign "scheme:(lambda (n) ((foreign-procedure \"focus_meta_alloc\" (int) void*) n))"
+prim__focusMetaAlloc : Int -> AnyPtr
+%foreign "scheme:(lambda (meta) ((foreign-procedure \"focus_meta_input_vals\" (void*) void*) meta))"
+prim__focusInputVals : AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (meta) ((foreign-procedure \"focus_meta_input_tape\" (void*) void*) meta))"
+prim__focusInputTape : AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (meta val tidx) ((foreign-procedure \"focus_meta_set_gamma\" (void* double int) void*) meta val tidx))"
+prim__focusSetGamma : AnyPtr -> Double -> Int -> AnyPtr
+%foreign "scheme:(lambda (meta out) ((foreign-procedure \"focus_compute\" (void* void*) void*) meta out))"
+prim__focusCompute : AnyPtr -> AnyPtr -> AnyPtr
+
 
 ----------------------------------------------------------------------
 -- Idris Tape Wrappers
@@ -446,6 +488,18 @@ tapeAppendWriteOpOp count meta outBuf = prim__tapeAppendTensorOp 17 count meta o
 %noinline
 tapeAppendInterpWriteOp : Int -> AnyPtr -> AnyPtr -> AnyPtr
 tapeAppendInterpWriteOp count meta outBuf = prim__tapeAppendTensorOp 18 count meta outBuf
+
+%noinline
+tapeAppendInterpolateOp : Int -> AnyPtr -> AnyPtr -> AnyPtr
+tapeAppendInterpolateOp count meta outBuf = prim__tapeAppendTensorOp 21 count meta outBuf
+
+%noinline
+tapeAppendShiftOp : Int -> AnyPtr -> AnyPtr -> AnyPtr
+tapeAppendShiftOp count meta outBuf = prim__tapeAppendTensorOp 22 count meta outBuf
+
+%noinline
+tapeAppendFocusOp : Int -> AnyPtr -> AnyPtr -> AnyPtr
+tapeAppendFocusOp count meta outBuf = prim__tapeAppendTensorOp 23 count meta outBuf
 
 
 ----------------------------------------------------------------------
@@ -1059,6 +1113,76 @@ interpolationWriteVarBuf {n} {w} (VTensor weightElems) memBuf (VTensor addElems)
       -- Update buffer vals and tape_idx
       mb'' = prim__ntmMemBufUpdateAfterWrite memBuf outBuf'' outputStart
   in mb''
+
+
+----------------------------------------------------------------------
+-- C-backed addressing operations
+----------------------------------------------------------------------
+
+||| C-backed interpolation: out[i] = g * content[i] + (1-g) * prev[i]
+||| Records a single InterpolateOp tape entry (tag 21).
+export
+interpolateVar : {n : Nat} -> Variable -> Vector n Variable -> Vector n Variable -> Vector n Variable
+interpolateVar {n} g (VTensor contentElems) (VTensor prevElems) =
+  let nI = cast {to=Int} n
+      meta = prim__interpolateMetaAlloc nI
+      outBuf = prim__tensorAlloc nI
+      -- Pack content vector
+      cvPtr = prim__interpolateContentVals meta
+      ctPtr = prim__interpolateContentTape meta
+      cvPtr' = packVec cvPtr ctPtr 0 contentElems
+      -- Pack prev vector
+      pvPtr = prim__interpolatePrevVals (prim__seq cvPtr' meta)
+      ptPtr = prim__interpolatePrevTape meta
+      pvPtr' = packVec pvPtr ptPtr 0 prevElems
+      -- Set scalar g
+      gIdx = ensureOnTape g
+      meta' = prim__interpolateSetG (prim__seq pvPtr' meta) g.value (cast gIdx)
+      -- Compute
+      outBuf' = prim__interpolateCompute meta' outBuf
+      outBuf'' = tapeAppendInterpolateOp nI meta' outBuf'
+  in VTensor $ buildOutputScalars outBuf'' 0 n
+
+||| C-backed circular shift: out[i] = k[0]*in[(i+1)%n] + k[1]*in[i] + k[2]*in[(i-1)%n]
+||| Kernel must already be softmax'd. Records a single ShiftOp tape entry (tag 22).
+export
+shiftVar : {n : Nat} -> Vector n Variable -> Vector 3 Variable -> Vector n Variable
+shiftVar {n} (VTensor inputElems) (VTensor kernelElems) =
+  let nI = cast {to=Int} n
+      meta = prim__shiftMetaAlloc nI
+      outBuf = prim__tensorAlloc nI
+      -- Pack input vector
+      ivPtr = prim__shiftInputVals meta
+      itPtr = prim__shiftInputTape meta
+      ivPtr' = packVec ivPtr itPtr 0 inputElems
+      -- Pack kernel (3 elements)
+      kvPtr = prim__shiftKernelVals (prim__seq ivPtr' meta)
+      ktPtr = prim__shiftKernelTape meta
+      kvPtr' = packVec kvPtr ktPtr 0 kernelElems
+      -- Compute
+      outBuf' = prim__shiftCompute (prim__seq kvPtr' meta) outBuf
+      outBuf'' = tapeAppendShiftOp nI meta outBuf'
+  in VTensor $ buildOutputScalars outBuf'' 0 n
+
+||| C-backed focus/sharpening: out[i] = in[i]^gamma / sum(in[k]^gamma)
+||| Records a single FocusOp tape entry (tag 23).
+export
+focusVar : {n : Nat} -> Variable -> Vector n Variable -> Vector n Variable
+focusVar {n} gamma (VTensor inputElems) =
+  let nI = cast {to=Int} n
+      meta = prim__focusMetaAlloc nI
+      outBuf = prim__tensorAlloc nI
+      -- Pack input vector
+      ivPtr = prim__focusInputVals meta
+      itPtr = prim__focusInputTape meta
+      ivPtr' = packVec ivPtr itPtr 0 inputElems
+      -- Set scalar gamma
+      gammaIdx = ensureOnTape gamma
+      meta' = prim__focusSetGamma (prim__seq ivPtr' meta) gamma.value (cast gammaIdx)
+      -- Compute
+      outBuf' = prim__focusCompute meta' outBuf
+      outBuf'' = tapeAppendFocusOp nI meta' outBuf'
+  in VTensor $ buildOutputScalars outBuf'' 0 n
 
 
 ----------------------------------------------------------------------

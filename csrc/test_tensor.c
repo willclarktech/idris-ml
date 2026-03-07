@@ -987,6 +987,167 @@ static void test_arena(void) {
 
 
 /* -------------------------------------------------------------------
+   InterpolateOp tests
+   ------------------------------------------------------------------- */
+
+static void test_interpolate_forward(void) {
+  arena_reset();
+  /* n=3, g=0.4, content=[1,2,3], prev=[4,5,6] */
+  InterpolateMeta *m = interpolate_meta_alloc(3);
+  interpolate_meta_set_g(m, 0.4, 0);
+  m->content_vals[0] = 1.0; m->content_vals[1] = 2.0; m->content_vals[2] = 3.0;
+  m->prev_vals[0] = 4.0; m->prev_vals[1] = 5.0; m->prev_vals[2] = 6.0;
+  double out[3];
+  interpolate_compute(m, out);
+  /* out[i] = 0.4*content[i] + 0.6*prev[i] */
+  check_close("interpolate[0]", out[0], 0.4*1.0 + 0.6*4.0, 1e-10);
+  check_close("interpolate[1]", out[1], 0.4*2.0 + 0.6*5.0, 1e-10);
+  check_close("interpolate[2]", out[2], 0.4*3.0 + 0.6*6.0, 1e-10);
+}
+
+static void test_interpolate_backward(void) {
+  arena_reset();
+  tape_init();
+  tape_gen = 1;
+  tape_size = 0;
+  /* 7 tape entries: g=idx0, content=[idx1,2,3], prev=[idx4,5,6], out=[idx7,8,9] */
+  int n = 3;
+  InterpolateMeta *m = interpolate_meta_alloc(n);
+  double g = 0.4;
+  interpolate_meta_set_g(m, g, 0);
+  m->content_vals[0] = 1.0; m->content_vals[1] = 2.0; m->content_vals[2] = 3.0;
+  m->content_tape_idx[0] = 1; m->content_tape_idx[1] = 2; m->content_tape_idx[2] = 3;
+  m->prev_vals[0] = 4.0; m->prev_vals[1] = 5.0; m->prev_vals[2] = 6.0;
+  m->prev_tape_idx[0] = 4; m->prev_tape_idx[1] = 5; m->prev_tape_idx[2] = 6;
+  m->out_tape_start = 7;
+  double grad[10] = {0};
+  grad[7] = 1.0; grad[8] = 0.5; grad[9] = 0.25;
+  tensor_interpolate_backward(grad, m);
+  /* d_g = sum(dy[i] * (content[i] - prev[i])) */
+  double expected_dg = 1.0*(1-4) + 0.5*(2-5) + 0.25*(3-6);
+  check_close("interpolate_bwd d_g", grad[0], expected_dg, 1e-10);
+  /* d_content[i] = dy[i] * g */
+  check_close("interpolate_bwd d_content[0]", grad[1], 1.0*0.4, 1e-10);
+  check_close("interpolate_bwd d_content[1]", grad[2], 0.5*0.4, 1e-10);
+  check_close("interpolate_bwd d_content[2]", grad[3], 0.25*0.4, 1e-10);
+  /* d_prev[i] = dy[i] * (1-g) */
+  check_close("interpolate_bwd d_prev[0]", grad[4], 1.0*0.6, 1e-10);
+  check_close("interpolate_bwd d_prev[1]", grad[5], 0.5*0.6, 1e-10);
+  check_close("interpolate_bwd d_prev[2]", grad[6], 0.25*0.6, 1e-10);
+}
+
+
+/* -------------------------------------------------------------------
+   ShiftOp tests
+   ------------------------------------------------------------------- */
+
+static void test_shift_forward(void) {
+  arena_reset();
+  /* n=4, kernel=[0.1, 0.7, 0.2] (sl, ss, sr), input=[1,2,3,4] */
+  ShiftMeta *m = shift_meta_alloc(4);
+  m->kernel_vals[0] = 0.1; m->kernel_vals[1] = 0.7; m->kernel_vals[2] = 0.2;
+  m->input_vals[0] = 1.0; m->input_vals[1] = 2.0; m->input_vals[2] = 3.0; m->input_vals[3] = 4.0;
+  double out[4];
+  shift_compute(m, out);
+  /* out[i] = sl*input[(i+1)%n] + ss*input[i] + sr*input[(i+n-1)%n] */
+  check_close("shift[0]", out[0], 0.1*2.0 + 0.7*1.0 + 0.2*4.0, 1e-10);
+  check_close("shift[1]", out[1], 0.1*3.0 + 0.7*2.0 + 0.2*1.0, 1e-10);
+  check_close("shift[2]", out[2], 0.1*4.0 + 0.7*3.0 + 0.2*2.0, 1e-10);
+  check_close("shift[3]", out[3], 0.1*1.0 + 0.7*4.0 + 0.2*3.0, 1e-10);
+}
+
+static void test_shift_backward(void) {
+  arena_reset();
+  int n = 4;
+  ShiftMeta *m = shift_meta_alloc(n);
+  m->kernel_vals[0] = 0.1; m->kernel_vals[1] = 0.7; m->kernel_vals[2] = 0.2;
+  m->kernel_tape_idx[0] = 0; m->kernel_tape_idx[1] = 1; m->kernel_tape_idx[2] = 2;
+  m->input_vals[0] = 1.0; m->input_vals[1] = 2.0; m->input_vals[2] = 3.0; m->input_vals[3] = 4.0;
+  m->input_tape_idx[0] = 3; m->input_tape_idx[1] = 4; m->input_tape_idx[2] = 5; m->input_tape_idx[3] = 6;
+  m->out_tape_start = 7;
+  double grad[11] = {0};
+  grad[7] = 1.0; grad[8] = 1.0; grad[9] = 1.0; grad[10] = 1.0;
+  tensor_shift_backward(grad, m);
+  /* dk0 = sum(dy[i] * input[(i+1)%n]) = 1*(2)+1*(3)+1*(4)+1*(1) = 10 */
+  check_close("shift_bwd dk0", grad[0], 10.0, 1e-10);
+  /* dk1 = sum(dy[i] * input[i]) = 1+2+3+4 = 10 */
+  check_close("shift_bwd dk1", grad[1], 10.0, 1e-10);
+  /* dk2 = sum(dy[i] * input[(i+n-1)%n]) = 1*(4)+1*(1)+1*(2)+1*(3) = 10 */
+  check_close("shift_bwd dk2", grad[2], 10.0, 1e-10);
+  /* d_input[j]: accumulated from all outputs that reference it
+     input[0] used by: out[3] as fwd (sl=0.1), out[0] as ss (0.7), out[1] as bwd (0.2)
+     = 1*0.1 + 1*0.7 + 1*0.2 = 1.0 */
+  check_close("shift_bwd d_input[0]", grad[3], 1.0, 1e-10);
+  check_close("shift_bwd d_input[1]", grad[4], 1.0, 1e-10);
+  check_close("shift_bwd d_input[2]", grad[5], 1.0, 1e-10);
+  check_close("shift_bwd d_input[3]", grad[6], 1.0, 1e-10);
+}
+
+
+/* -------------------------------------------------------------------
+   FocusOp tests
+   ------------------------------------------------------------------- */
+
+static void test_focus_forward(void) {
+  arena_reset();
+  /* n=3, gamma=2.0, input=[1,2,3] */
+  FocusMeta *m = focus_meta_alloc(3);
+  focus_meta_set_gamma(m, 2.0, 0);
+  m->input_vals[0] = 1.0; m->input_vals[1] = 2.0; m->input_vals[2] = 3.0;
+  double out[3];
+  focus_compute(m, out);
+  /* raised = [1^2, 2^2, 3^2] = [1,4,9], sum=14 */
+  check_close("focus[0]", out[0], 1.0/14.0, 1e-10);
+  check_close("focus[1]", out[1], 4.0/14.0, 1e-10);
+  check_close("focus[2]", out[2], 9.0/14.0, 1e-10);
+}
+
+static void test_focus_backward(void) {
+  arena_reset();
+  int n = 3;
+  FocusMeta *m = focus_meta_alloc(n);
+  double gamma = 2.0;
+  focus_meta_set_gamma(m, gamma, 0);
+  m->input_vals[0] = 1.0; m->input_vals[1] = 2.0; m->input_vals[2] = 3.0;
+  m->input_tape_idx[0] = 1; m->input_tape_idx[1] = 2; m->input_tape_idx[2] = 3;
+  m->out_tape_start = 4;
+  /* Run forward first to populate raised_vals, sum_raised */
+  double fwd_out[3];
+  focus_compute(m, fwd_out);
+
+  double grad[7] = {0};
+  /* dy = [1, 0, 0] to test gradient for just the first output */
+  grad[4] = 1.0;
+  tensor_focus_backward(grad, m);
+  /* Numerical gradient check: perturb input[0] by eps */
+  double eps = 1e-6;
+  m->input_vals[0] = 1.0 + eps;
+  double out_plus[3];
+  focus_compute(m, out_plus);
+  m->input_vals[0] = 1.0 - eps;
+  double out_minus[3];
+  focus_compute(m, out_minus);
+  m->input_vals[0] = 1.0;
+  double num_grad = (out_plus[0] - out_minus[0]) / (2.0 * eps);
+  check_close("focus_bwd d_input[0]", grad[1], num_grad, 1e-5);
+
+  /* Also verify d_gamma with numerical gradient */
+  double grad2[7] = {0};
+  grad2[4] = 1.0;
+  focus_meta_set_gamma(m, gamma, 0);
+  focus_compute(m, fwd_out);
+  tensor_focus_backward(grad2, m);
+
+  focus_meta_set_gamma(m, gamma + eps, 0);
+  focus_compute(m, out_plus);
+  focus_meta_set_gamma(m, gamma - eps, 0);
+  focus_compute(m, out_minus);
+  double num_dgamma = (out_plus[0] - out_minus[0]) / (2.0 * eps);
+  check_close("focus_bwd d_gamma", grad2[0], num_dgamma, 1e-5);
+}
+
+
+/* -------------------------------------------------------------------
    Main
    ------------------------------------------------------------------- */
 
@@ -1024,6 +1185,12 @@ int main(void) {
   test_ntm_mem_pack_readop();
   test_ntm_mem_pack_interp_write();
   test_ntm_mem_full_lifecycle();
+  test_interpolate_forward();
+  test_interpolate_backward();
+  test_shift_forward();
+  test_shift_backward();
+  test_focus_forward();
+  test_focus_backward();
 
   printf("\n%d passed, %d failed\n", tests_passed, tests_failed);
   return tests_failed > 0 ? 1 : 0;

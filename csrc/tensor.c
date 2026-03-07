@@ -1078,6 +1078,103 @@ void tensor_interp_write_backward(double *grad_array, InterpWriteMeta *m) {
 
 
 /* -------------------------------------------------------------------
+   Addressing op meta types (forward declared for backward pass)
+   ------------------------------------------------------------------- */
+
+typedef struct {
+  int n;
+  double g_val;
+  double *content_vals;
+  double *prev_vals;
+  int g_tape_idx;
+  int *content_tape_idx;
+  int *prev_tape_idx;
+  int out_tape_start;
+} InterpolateMeta;
+
+typedef struct {
+  int n;
+  double kernel_vals[3];
+  double *input_vals;
+  int kernel_tape_idx[3];
+  int *input_tape_idx;
+  int out_tape_start;
+} ShiftMeta;
+
+typedef struct {
+  int n;
+  double gamma_val;
+  double *input_vals;
+  double *raised_vals;
+  double sum_raised;
+  int gamma_tape_idx;
+  int *input_tape_idx;
+  int out_tape_start;
+} FocusMeta;
+
+static void tensor_interpolate_backward(double *grad, InterpolateMeta *m) {
+  int n = m->n;
+  int out_start = m->out_tape_start;
+  double g = m->g_val;
+  double dg = 0.0;
+  for (int i = 0; i < n; i++) {
+    double dy = grad[out_start + i];
+    dg += dy * (m->content_vals[i] - m->prev_vals[i]);
+    grad[m->content_tape_idx[i]] += dy * g;
+    grad[m->prev_tape_idx[i]] += dy * (1.0 - g);
+  }
+  grad[m->g_tape_idx] += dg;
+}
+
+static void tensor_shift_backward(double *grad, ShiftMeta *m) {
+  int n = m->n;
+  int out_start = m->out_tape_start;
+  double sl = m->kernel_vals[0];
+  double ss = m->kernel_vals[1];
+  double sr = m->kernel_vals[2];
+  double dk0 = 0.0, dk1 = 0.0, dk2 = 0.0;
+  for (int i = 0; i < n; i++) {
+    double dy = grad[out_start + i];
+    int fwd = (i + 1) % n;
+    int bwd = (i + n - 1) % n;
+    dk0 += dy * m->input_vals[fwd];
+    dk1 += dy * m->input_vals[i];
+    dk2 += dy * m->input_vals[bwd];
+    grad[m->input_tape_idx[fwd]] += dy * sl;
+    grad[m->input_tape_idx[i]] += dy * ss;
+    grad[m->input_tape_idx[bwd]] += dy * sr;
+  }
+  grad[m->kernel_tape_idx[0]] += dk0;
+  grad[m->kernel_tape_idx[1]] += dk1;
+  grad[m->kernel_tape_idx[2]] += dk2;
+}
+
+static void tensor_focus_backward(double *grad, FocusMeta *m) {
+  int n = m->n;
+  int out_start = m->out_tape_start;
+  double gamma = m->gamma_val;
+  double s = m->sum_raised;
+  double inv_s = (s > 0.0) ? 1.0 / s : 0.0;
+  double inv_s2 = inv_s * inv_s;
+  double dy_dot_raised = 0.0;
+  for (int i = 0; i < n; i++) {
+    dy_dot_raised += grad[out_start + i] * m->raised_vals[i];
+  }
+  double d_gamma = 0.0;
+  for (int i = 0; i < n; i++) {
+    double dy = grad[out_start + i];
+    double ri = m->raised_vals[i];
+    double xi = m->input_vals[i];
+    double dri_dxi = (xi != 0.0) ? gamma * ri / xi : 0.0;
+    double d_out_d_ri = (dy * s - dy_dot_raised) * inv_s2;
+    grad[m->input_tape_idx[i]] += d_out_d_ri * dri_dxi;
+    double dri_dgamma = (xi > 0.0) ? ri * log(xi) : 0.0;
+    d_gamma += d_out_d_ri * dri_dgamma;
+  }
+  grad[m->gamma_tape_idx] += d_gamma;
+}
+
+/* -------------------------------------------------------------------
    C-backed backward pass
    ------------------------------------------------------------------- */
 
@@ -1184,6 +1281,15 @@ int walk_backward(double *grad, int tape_sz) {
         grad[a1] += g * (1.0 - val * val);
         break;
       }
+      case 21: /* InterpolateOp */
+        tensor_interpolate_backward(grad, (InterpolateMeta *)tape_meta[idx]);
+        break;
+      case 22: /* ShiftOp */
+        tensor_shift_backward(grad, (ShiftMeta *)tape_meta[idx]);
+        break;
+      case 23: /* FocusOp */
+        tensor_focus_backward(grad, (FocusMeta *)tape_meta[idx]);
+        break;
       default:
         break;
     }
@@ -1280,6 +1386,9 @@ int walk_backward_ext(double *grad, int tape_sz,
       case 18: tensor_interp_write_backward(grad, (InterpWriteMeta *)meta[idx]); break;
       case 19: { double val = vals[idx]; grad[a1] += g * val * (1.0 - val); break; }
       case 20: { double val = vals[idx]; grad[a1] += g * (1.0 - val * val); break; }
+      case 21: tensor_interpolate_backward(grad, (InterpolateMeta *)meta[idx]); break;
+      case 22: tensor_shift_backward(grad, (ShiftMeta *)meta[idx]); break;
+      case 23: tensor_focus_backward(grad, (FocusMeta *)meta[idx]); break;
       default: break;
     }
   }
@@ -1288,6 +1397,11 @@ int walk_backward_ext(double *grad, int tape_sz,
   /* arena_reset and ext_meta_reset called by Scheme after this returns */
   return n_collected;
 }
+
+/* Forward declarations for addressing op set_out functions */
+void *interpolate_meta_set_out(void *meta, int idx);
+void *shift_meta_set_out(void *meta, int idx);
+void *focus_meta_set_out(void *meta, int idx);
 
 /* Route tensor op set_out based on tag. Called from Scheme after
  * writing tape entry with foreign-set!. */
@@ -1299,6 +1413,9 @@ void *tensor_op_set_out(int tag, void *meta, int idx) {
     case 16: return readop_meta_set_out(meta, idx);
     case 17: return writeop_meta_set_out(meta, idx);
     case 18: return interp_write_meta_set_out(meta, idx);
+    case 21: return interpolate_meta_set_out(meta, idx);
+    case 22: return shift_meta_set_out(meta, idx);
+    case 23: return focus_meta_set_out(meta, idx);
     default: return meta;
   }
 }
@@ -1346,6 +1463,127 @@ int weight_buf_ensure(WeightBuf *wb) {
   wb->cached_start = start;
   wb->cached_gen = tape_gen;
   return start;
+}
+
+
+/* -------------------------------------------------------------------
+   InterpolateOp (tag 21) — alloc/accessors/compute
+   ------------------------------------------------------------------- */
+
+InterpolateMeta *interpolate_meta_alloc(int n) {
+  InterpolateMeta *m = (InterpolateMeta *)arena_alloc(sizeof(InterpolateMeta));
+  m->n = n;
+  m->content_vals = (double *)arena_alloc(n * sizeof(double));
+  m->prev_vals = (double *)arena_alloc(n * sizeof(double));
+  m->content_tape_idx = (int *)arena_alloc(n * sizeof(int));
+  m->prev_tape_idx = (int *)arena_alloc(n * sizeof(int));
+  return m;
+}
+
+double *interpolate_meta_content_vals(InterpolateMeta *m) { return m->content_vals; }
+int *interpolate_meta_content_tape(InterpolateMeta *m) { return m->content_tape_idx; }
+double *interpolate_meta_prev_vals(InterpolateMeta *m) { return m->prev_vals; }
+int *interpolate_meta_prev_tape(InterpolateMeta *m) { return m->prev_tape_idx; }
+
+void *interpolate_meta_set_g(InterpolateMeta *m, double val, int tidx) {
+  m->g_val = val;
+  m->g_tape_idx = tidx;
+  return m;
+}
+
+void *interpolate_meta_set_out(void *meta, int idx) {
+  ((InterpolateMeta *)meta)->out_tape_start = idx;
+  return meta;
+}
+
+void *interpolate_compute(InterpolateMeta *m, double *out) {
+  double g = m->g_val;
+  double one_minus_g = 1.0 - g;
+  for (int i = 0; i < m->n; i++) {
+    out[i] = g * m->content_vals[i] + one_minus_g * m->prev_vals[i];
+  }
+  return out;
+}
+
+
+/* -------------------------------------------------------------------
+   ShiftOp (tag 22) — alloc/accessors/compute
+   ------------------------------------------------------------------- */
+
+ShiftMeta *shift_meta_alloc(int n) {
+  ShiftMeta *m = (ShiftMeta *)arena_alloc(sizeof(ShiftMeta));
+  m->n = n;
+  m->input_vals = (double *)arena_alloc(n * sizeof(double));
+  m->input_tape_idx = (int *)arena_alloc(n * sizeof(int));
+  return m;
+}
+
+double *shift_meta_input_vals(ShiftMeta *m) { return m->input_vals; }
+int *shift_meta_input_tape(ShiftMeta *m) { return m->input_tape_idx; }
+double *shift_meta_kernel_vals(ShiftMeta *m) { return m->kernel_vals; }
+int *shift_meta_kernel_tape(ShiftMeta *m) { return m->kernel_tape_idx; }
+
+void *shift_meta_set_out(void *meta, int idx) {
+  ((ShiftMeta *)meta)->out_tape_start = idx;
+  return meta;
+}
+
+void *shift_compute(ShiftMeta *m, double *out) {
+  int n = m->n;
+  double sl = m->kernel_vals[0];
+  double ss = m->kernel_vals[1];
+  double sr = m->kernel_vals[2];
+  for (int i = 0; i < n; i++) {
+    int fwd = (i + 1) % n;
+    int bwd = (i + n - 1) % n;
+    out[i] = sl * m->input_vals[fwd] + ss * m->input_vals[i] + sr * m->input_vals[bwd];
+  }
+  return out;
+}
+
+
+/* -------------------------------------------------------------------
+   FocusOp (tag 23) — alloc/accessors/compute
+   ------------------------------------------------------------------- */
+
+FocusMeta *focus_meta_alloc(int n) {
+  FocusMeta *m = (FocusMeta *)arena_alloc(sizeof(FocusMeta));
+  m->n = n;
+  m->input_vals = (double *)arena_alloc(n * sizeof(double));
+  m->raised_vals = (double *)arena_alloc(n * sizeof(double));
+  m->input_tape_idx = (int *)arena_alloc(n * sizeof(int));
+  return m;
+}
+
+double *focus_meta_input_vals(FocusMeta *m) { return m->input_vals; }
+int *focus_meta_input_tape(FocusMeta *m) { return m->input_tape_idx; }
+
+void *focus_meta_set_gamma(FocusMeta *m, double val, int tidx) {
+  m->gamma_val = val;
+  m->gamma_tape_idx = tidx;
+  return m;
+}
+
+void *focus_meta_set_out(void *meta, int idx) {
+  ((FocusMeta *)meta)->out_tape_start = idx;
+  return meta;
+}
+
+void *focus_compute(FocusMeta *m, double *out) {
+  int n = m->n;
+  double gamma = m->gamma_val;
+  double s = 0.0;
+  for (int i = 0; i < n; i++) {
+    double r = pow(m->input_vals[i], gamma);
+    m->raised_vals[i] = r;
+    s += r;
+  }
+  m->sum_raised = s;
+  double inv_s = (s > 0.0) ? 1.0 / s : 0.0;
+  for (int i = 0; i < n; i++) {
+    out[i] = m->raised_vals[i] * inv_s;
+  }
+  return out;
 }
 
 
