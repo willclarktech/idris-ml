@@ -137,7 +137,13 @@ trainLoop makeOpt schedule model totalEpochs esThreshold esWindow esPatience min
         when (modNatNZ ep 10 ItIsSucc == 0) forceGC
         when (modNatNZ ep 100 ItIsSucc == 0) $ do
           now <- clockTime Monotonic
+          let dblModel = toDoubleNetwork (readFromBuffersNetwork m')
+          evalBatch <- recallTaskBinaryBatchVect {w = W} 10 minItems maxItems SeqLen
+          let accs = map (\dp => let (_, preds) = forwardTwoPhase dblModel dp
+                                 in bitAccuracy preds (targets dp)) evalBatch
+          let avgAcc = foldl (+) 0.0 (toList accs) / 10.0
           putStrLn $ "  " ++ formatElapsed t0 now ++ " " ++ show ep ++ ":\tloss=" ++ show loss
+                   ++ "\tbit_acc=" ++ show avgAcc
                    ++ "\tpeak=" ++ show (getRssMB ep) ++ "MB"
                    ++ "\tcur=" ++ show (getCurrentRssMB ep) ++ "MB"
         if loss /= loss
@@ -208,7 +214,14 @@ trainLoop1 makeOpt schedule model totalEpochs esThreshold esWindow esPatience mi
         when (modNatNZ ep 10 ItIsSucc == 0) forceGC
         when (modNatNZ ep 500 ItIsSucc == 0) $ do
           now <- clockTime Monotonic
+          -- Quick eval for bit accuracy
+          let dblModel = toDoubleNetwork (readFromBuffersNetwork m')
+          evalBatch <- recallTaskBinaryBatchVect {w = W} 10 minItems maxItems SeqLen
+          let accs = map (\dp => let (_, preds) = forwardTwoPhase dblModel dp
+                                 in bitAccuracy preds (targets dp)) evalBatch
+          let avgAcc = foldl (+) 0.0 (toList accs) / 10.0
           putStrLn $ "  " ++ formatElapsed t0 now ++ " " ++ show ep ++ ":\tloss=" ++ show loss
+                   ++ "\tbit_acc=" ++ show avgAcc
                    ++ "\tpeak=" ++ show (getRssMB ep) ++ "MB"
                    ++ "\tcur=" ++ show (getCurrentRssMB ep) ++ "MB"
         if loss /= loss
