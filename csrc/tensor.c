@@ -2116,6 +2116,7 @@ NtmMemBuf *ntm_mem_set_pid_id(NtmMemBuf *mb, int idx, int pid_id) {
  * vals[i] -= deltas[pid_ids[i]] for named elements.
  * Resets cached_gen to force re-registration next epoch. */
 void ntm_mem_apply_deltas(NtmMemBuf *mb, double *deltas) {
+  memcpy(mb->vals, mb->initial_vals, mb->n * mb->w * sizeof(double));
   buf_apply_deltas(mb->vals, mb->pid_ids, mb->n * mb->w, deltas);
   memcpy(mb->initial_vals, mb->vals, mb->n * mb->w * sizeof(double));
   mb->cached_gen = -1;

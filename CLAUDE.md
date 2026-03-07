@@ -346,8 +346,8 @@ Update `docs/performance-analysis.md` with:
 Per-epoch at batch=16 (NTM-copy, N=128 M=20 H=100):
 - Forward (Enc+Out): ~74ms | Backward: ~15ms | Tape: 1.48M entries
 - Idris/PyTorch ratio: **0.87x** (Idris faster)
-- Convergence: loss ~1e-6 by 5000 epochs (88% short, 77% full accuracy)
-- PyTorch alignment changes applied: C-backed BCE, zero forget bias, no output clamping, learned h0/c0, lr=1e-4, per-sequence NtmMemBuf reset
+- Convergence (seed=123): loss ~2e-7 by 7600 epochs (99% short, 84% full accuracy)
+- PyTorch alignment changes applied: C-backed BCE, zero forget bias, no output clamping, learned h0/c0, lr=1e-4, per-sequence NtmMemBuf reset, NtmMemBuf delta application fix
 
 ### Performance optimization history
 

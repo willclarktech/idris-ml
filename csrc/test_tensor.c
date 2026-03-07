@@ -1866,8 +1866,10 @@ static void test_ntm_mem_pid_ids(void) {
   check("ntm_mem pid_ids init", mb->pid_ids[0] == -1);
   check("ntm_mem pid_ids init[5]", mb->pid_ids[5] == -1);
 
-  /* Set values and pid_ids */
-  for (int i = 0; i < 6; i++) mb->vals[i] = (double)(i + 1);
+  /* Set initial_vals (the learned parameters) and pid_ids */
+  for (int i = 0; i < 6; i++) mb->initial_vals[i] = (double)(i + 1);
+  /* Simulate forward pass corruption: vals differ from initial_vals */
+  for (int i = 0; i < 6; i++) mb->vals[i] = 99.0;
   ntm_mem_set_pid_id(mb, 0, 0);
   ntm_mem_set_pid_id(mb, 1, 1);
   ntm_mem_set_pid_id(mb, 2, 0);
@@ -1876,6 +1878,7 @@ static void test_ntm_mem_pid_ids(void) {
   double deltas[] = {0.5, 1.0};
   ntm_mem_apply_deltas(mb, deltas);
 
+  /* vals restored from initial_vals, then deltas subtracted for named params */
   check_close("ntm_mem_apply pid=0", mb->vals[0], 0.5, 1e-12);
   check_close("ntm_mem_apply pid=1", mb->vals[1], 1.0, 1e-12);
   check_close("ntm_mem_apply pid=0", mb->vals[2], 2.5, 1e-12);
