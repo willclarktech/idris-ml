@@ -1574,3 +1574,70 @@ collectGrads initGrad root =
       g' = prim__gradAdd g (cast root.tapeIdx) initGrad
       nParams = prim__walkBackwardExtAndReset g' size
   in buildGradMap nParams 0 empty
+
+
+----------------------------------------------------------------------
+-- Dense optimizer FFI (C arrays replace SortedMap)
+----------------------------------------------------------------------
+
+-- Get number of registered parameter IDs (dense pid_id count).
+-- Returns 0 if pid-to-id hash table not yet initialized.
+%foreign "scheme:(lambda (dummy) (if (top-level-bound? 'next-pid-id) (top-level-value 'next-pid-id) 0))"
+prim__getNumPids : Int -> Int
+
+export
+%noinline
+getNumPids : Int -> Int
+getNumPids = prim__getNumPids
+
+-- Look up delta value from dense array by paramId string.
+-- Uses Scheme pid-to-id hash table for O(1) lookup, then reads from C array.
+-- Returns 0.0 if pid not found.
+%foreign "scheme:(lambda (buf pid) (if (top-level-bound? 'pid-to-id) (let ((id (hashtable-ref (top-level-value 'pid-to-id) pid -1))) (if (>= id 0) (foreign-ref 'double buf (* id 8)) 0.0)) 0.0))"
+prim__denseLookup : AnyPtr -> String -> Double
+
+-- Allocate zero-initialized dense C array of n doubles.
+%foreign "scheme:(lambda (n) ((foreign-procedure \"dense_alloc\" (int) void*) n))"
+prim__denseAlloc : Int -> AnyPtr
+
+-- Zero out a dense C array. Returns handle for threading.
+%foreign "scheme:(lambda (p n) ((foreign-procedure \"dense_zero\" (void* int) void*) p n))"
+prim__denseZero : AnyPtr -> Int -> AnyPtr
+
+-- Dense backward pass: accumulates gradients into dense array by pid_id.
+-- Frees gradient array internally. Resets ext_meta, arena, pid_ids, tape.
+%foreign "scheme:(lambda (g sz buf) ((foreign-procedure \"walk_backward_ext_dense\" (void* int void* void* void* void* void*) void) g sz (top-level-value 'tape-tags-fp) (top-level-value 'tape-arg1-fp) (top-level-value 'tape-arg2-fp) (top-level-value 'tape-vals-fp) buf) ((foreign-procedure \"ext_meta_reset\" () void)) ((foreign-procedure \"arena_reset\" () void)) ((foreign-procedure \"tape_pid_ids_reset\" (int) void) sz) (set-top-level-value! 'tape-size 0) (set-top-level-value! 'tape-gen (+ (top-level-value 'tape-gen) 1)) buf)"
+prim__walkBackwardExtDenseAndReset : AnyPtr -> Int -> AnyPtr -> AnyPtr
+
+-- RMSprop with value clipping (in-place: grads[] -> deltas[]).
+%foreign "scheme:(lambda (grads v n lr alpha eps maxVal) ((foreign-procedure \"rmsprop_vc_step\" (void* void* int double double double double) void*) grads v n lr alpha eps maxVal))"
+prim__rmspropVcStep : AnyPtr -> AnyPtr -> Int -> Double -> Double -> Double -> Double -> AnyPtr
+
+-- SGD with per-param clipping (in-place: grads[] -> deltas[]).
+%foreign "scheme:(lambda (grads n lr maxGrad) ((foreign-procedure \"sgd_step\" (void* int double double) void*) grads n lr maxGrad))"
+prim__sgdStep : AnyPtr -> Int -> Double -> Double -> AnyPtr
+
+-- Adam with global norm clipping (in-place: grads[] -> deltas[]).
+%foreign "scheme:(lambda (grads m v n lr b1 b2 eps maxNorm t) ((foreign-procedure \"adam_gc_step\" (void* void* void* int double double double double double int) void*) grads m v n lr b1 b2 eps maxNorm t))"
+prim__adamGcStep : AnyPtr -> AnyPtr -> AnyPtr -> Int -> Double -> Double -> Double -> Double -> Double -> Int -> AnyPtr
+
+-- Collect gradients into a dense C array (no SortedMap).
+-- Takes a reusable dense buffer, zeros it, runs backward, returns it.
+export
+collectGradsDense : Double -> Variable -> AnyPtr -> AnyPtr
+collectGradsDense initGrad root denseBuf =
+  let size = cast {to=Int} root.tapeIdx + 1
+      g = prim__gradAlloc size
+      g' = prim__gradAdd g (cast root.tapeIdx) initGrad
+      numPids = prim__getNumPids size  -- pass varying arg to avoid CSE
+      denseBuf' = prim__denseZero denseBuf numPids
+  in prim__walkBackwardExtDenseAndReset g' size denseBuf'
+
+-- Apply deltas from a dense C array to a Variable.
+-- Uses O(1) hash table lookup instead of O(log n) SortedMap.
+export
+applyDeltasDense : AnyPtr -> Variable -> Variable
+applyDeltasDense deltas v = case v.paramId of
+  Just pid => let d = prim__denseLookup deltas pid
+              in { value := v.value - d } v
+  Nothing  => v
