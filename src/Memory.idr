@@ -45,8 +45,8 @@ sig : (Num ty, Neg ty, Fractional ty, Floating ty) => ty -> ty
 sig x = 1 / (1 + exp (-x))
 
 export
-softplus : (Num ty, Floating ty) => ty -> ty
-softplus x = log (1 + exp x)
+softplus : (FromDouble ty, Num ty, Floating ty, Ord ty) => ty -> ty
+softplus x = if x > fromDouble 20.0 then x else log (1 + exp x)
 
 export
 getContentAddress : (Floating ty, Fractional ty, Ord ty) => {n, w : Nat} -> NormalizationFunction ty -> ty -> Matrix n w ty -> Vector w ty -> Vector n ty
@@ -93,7 +93,7 @@ readOp rh (VTensor memoryRows) =
 
 ||| Input is key vector (w) + shift vector (ShiftKernelSize) + params (3: beta, g, gamma)
 export
-forwardReadHead : (Floating ty, Fractional ty, Neg ty, Ord ty) => {n, w : Nat} -> NormalizationFunction ty -> Matrix n w ty -> ReadHead n ty -> Vector ((w + ShiftKernelSize) + 3) ty -> (ReadHead n ty, Vector w ty)
+forwardReadHead : (FromDouble ty, Floating ty, Fractional ty, Neg ty, Ord ty) => {n, w : Nat} -> NormalizationFunction ty -> Matrix n w ty -> ReadHead n ty -> Vector ((w + ShiftKernelSize) + 3) ty -> (ReadHead n ty, Vector w ty)
 forwardReadHead smFn memory rh inp =
   let
     (mainInput, params) = splitAt (w + ShiftKernelSize) inp
@@ -150,7 +150,7 @@ writeOp (MkWriteHead rh) memory eraseVector addVector =
 
 ||| Input is Read head input ((w + ShiftKernelSize) + 3) + erase vector (w) + add vector (w)
 export
-forwardWriteHead : (Floating ty, Fractional ty, Neg ty, Ord ty) => {n, w : Nat} -> NormalizationFunction ty -> Matrix n w ty -> WriteHead n ty -> Vector ((w + ShiftKernelSize) + 3 + w + w) ty -> (WriteHead n ty, Matrix n w ty)
+forwardWriteHead : (FromDouble ty, Floating ty, Fractional ty, Neg ty, Ord ty) => {n, w : Nat} -> NormalizationFunction ty -> Matrix n w ty -> WriteHead n ty -> Vector ((w + ShiftKernelSize) + 3 + w + w) ty -> (WriteHead n ty, Matrix n w ty)
 forwardWriteHead smFn memory (MkWriteHead readHead) inp =
   let
     inp' = rewrite plusAssociative ((w + ShiftKernelSize) + 3) w w in inp
@@ -186,7 +186,7 @@ interpolationWrite (VTensor memRows) (VTensor weights) addVec =
 ||| Read head forward pass with unbounded gamma: gamma = 1 + softplus(x).
 ||| Matches PyTorch reference. The bounded variant uses gamma = 1 + 4*sigmoid(x).
 export
-forwardReadHeadUnbounded : (Floating ty, Fractional ty, Neg ty, Ord ty) =>
+forwardReadHeadUnbounded : (FromDouble ty, Floating ty, Fractional ty, Neg ty, Ord ty) =>
     {n, w : Nat} -> NormalizationFunction ty -> Matrix n w ty -> ReadHead n ty ->
     Vector ((w + ShiftKernelSize) + 3) ty -> (ReadHead n ty, Vector w ty)
 forwardReadHeadUnbounded smFn memory rh inp =
@@ -210,7 +210,7 @@ forwardReadHeadUnbounded smFn memory rh inp =
 ||| and unbounded gamma.
 ||| Input width: (w + ShiftKernelSize) + 3 + w (addressing params + add vector)
 export
-forwardWriteHeadInterp : (Floating ty, Fractional ty, Neg ty, Ord ty) =>
+forwardWriteHeadInterp : (FromDouble ty, Floating ty, Fractional ty, Neg ty, Ord ty) =>
     {n, w : Nat} -> NormalizationFunction ty -> Matrix n w ty -> WriteHead n ty ->
     Vector (((w + ShiftKernelSize) + 3) + w) ty -> (WriteHead n ty, Matrix n w ty)
 forwardWriteHeadInterp smFn memory (MkWriteHead readHead) inp =

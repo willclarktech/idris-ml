@@ -84,7 +84,7 @@ sigD : Double -> Double
 sigD x = 1.0 / (1.0 + exp (-x))
 
 softplusD : Double -> Double
-softplusD x = log (1.0 + exp x)
+softplusD x = if x > 20.0 then x else log (1.0 + exp x)
 
 
 ----------------------------------------------------------------------

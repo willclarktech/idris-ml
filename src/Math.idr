@@ -80,11 +80,13 @@ export
 binaryCrossEntropy : (Neg ty, Fractional ty, Floating ty) => LossFunction ty
 binaryCrossEntropy = reduceLoss (\p, y => -(y * log p + (1 - y) * log (1 - p)))
 
-||| Equivalent to but more numerically stable than (BCE . sigmoid)
+||| Numerically stable BCE: max(p,0) - p*y + log(1 + exp(-|p|))
 export
-binaryCrossEntropyWithLogits : (FromDouble ty, Neg ty, Fractional ty, Floating ty) => LossFunction ty
+binaryCrossEntropyWithLogits : (FromDouble ty, Neg ty, Fractional ty, Floating ty, Ord ty) => LossFunction ty
 binaryCrossEntropyWithLogits = reduceLoss (\p, y =>
-  let sigp = sigmoid p in -(y * log sigp + (1 - y) * log (1 - sigp)))
+  let relu_p = max p (fromDouble 0.0)
+      abs_p = if p >= fromDouble 0.0 then p else negate p
+  in relu_p - p * y + log (1 + exp (negate abs_p)))
 
 export
 crossEntropy : (Num ty, Neg ty, Floating ty, Fractional ty, Ord ty) => LossFunction ty

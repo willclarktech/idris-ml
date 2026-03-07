@@ -187,7 +187,7 @@ extractCellState _ = zeros
 
 mutual
   export
-  applyLayer : (Floating ty, Fractional ty, Neg ty, Num ty, Ord ty) => {i, o : Nat} -> Layer i o ty -> Vector i ty -> (Layer i o ty, Vector o ty)
+  applyLayer : (FromDouble ty, Floating ty, Fractional ty, Neg ty, Num ty, Ord ty) => {i, o : Nat} -> Layer i o ty -> Vector i ty -> (Layer i o ty, Vector o ty)
   applyLayer layer@(LinearLayer weights bias _ _) xs = (layer, matrixVectorMultiply {m=o, n=i} weights xs + bias)
   applyLayer (RnnLayer inputWeights recurrentWeights bias previousOutput iwb rwb) xs =
     let
@@ -235,7 +235,7 @@ mutual
     in (newLayer, output)
 
   export
-  forward : (Floating ty, Fractional ty, Neg ty, Num ty, Ord ty) => {i, o : Nat} -> {hs : List Nat} -> Network i hs o ty -> Vector i ty -> (Network i hs o ty, Vector o ty)
+  forward : (FromDouble ty, Floating ty, Fractional ty, Neg ty, Num ty, Ord ty) => {i, o : Nat} -> {hs : List Nat} -> Network i hs o ty -> Vector i ty -> (Network i hs o ty, Vector o ty)
   forward (OutputLayer layer) x =
     let (updatedLayer, output) = applyLayer layer x
     in (OutputLayer updatedLayer, output)
@@ -605,23 +605,23 @@ calculateLossTwoPhaseVar lossFn model dataPoints =
 -- Evaluation Functions
 ----------------------------------------------------------------------
 
-evaluateSingleDataPoint : (Floating ty, Fractional ty, Neg ty, Num ty, Ord ty) => {i, o : Nat} -> {hs : List Nat} -> Network i hs o ty -> DataPoint i o ty -> Vector o ty
+evaluateSingleDataPoint : (FromDouble ty, Floating ty, Fractional ty, Neg ty, Num ty, Ord ty) => {i, o : Nat} -> {hs : List Nat} -> Network i hs o ty -> DataPoint i o ty -> Vector o ty
 evaluateSingleDataPoint model = snd . (forward model) . x
 
 export
-evaluate : (Floating ty, Fractional ty, Neg ty, Num ty, Ord ty) => {i, o : Nat} -> {hs : List Nat} -> Network i hs o ty -> Vect n (DataPoint i o ty) -> Vect n (Vector o ty)
+evaluate : (FromDouble ty, Floating ty, Fractional ty, Neg ty, Num ty, Ord ty) => {i, o : Nat} -> {hs : List Nat} -> Network i hs o ty -> Vect n (DataPoint i o ty) -> Vect n (Vector o ty)
 evaluate model = map (evaluateSingleDataPoint model)
 
-forwardNext : (Floating ty, Fractional ty, Neg ty, Num ty, Ord ty) => {i, o : Nat} -> {hs : List Nat} -> (Network i hs o ty, Vect n (Vector o ty)) -> Vector i ty -> (Network i hs o ty, Vect (S n) (Vector o ty))
+forwardNext : (FromDouble ty, Floating ty, Fractional ty, Neg ty, Num ty, Ord ty) => {i, o : Nat} -> {hs : List Nat} -> (Network i hs o ty, Vect n (Vector o ty)) -> Vector i ty -> (Network i hs o ty, Vect (S n) (Vector o ty))
 forwardNext (nn, outputs) inp =
   let (updatedModel, newOutput) = forward nn inp
   in (updatedModel, snoc outputs newOutput)
 
-forwardMany : (Floating ty, Fractional ty, Neg ty, Num ty, Ord ty) => {i, o : Nat} -> {hs : List Nat} -> Network i hs o ty -> Vect n (Vector i ty) -> (Network i hs o ty, Vect n (Vector o ty))
+forwardMany : (FromDouble ty, Floating ty, Fractional ty, Neg ty, Num ty, Ord ty) => {i, o : Nat} -> {hs : List Nat} -> Network i hs o ty -> Vect n (Vector i ty) -> (Network i hs o ty, Vect n (Vector o ty))
 forwardMany network xs = foldlD (\k => (Network i hs o ty, Vect k (Vector o ty))) forwardNext (network, []) xs
 
 export
-calculateLoss : (Floating ty, Fractional ty, Neg ty, Num ty, Ord ty) => {i, o, n : Nat} -> {hs : List Nat} -> LossFunction ty -> Network i hs o ty -> Vect n (DataPoint i o ty) -> ty
+calculateLoss : (FromDouble ty, Floating ty, Fractional ty, Neg ty, Num ty, Ord ty) => {i, o, n : Nat} -> {hs : List Nat} -> LossFunction ty -> Network i hs o ty -> Vect n (DataPoint i o ty) -> ty
 calculateLoss lossFn model dataPoints =
   let
     xs = map x dataPoints
@@ -635,24 +635,24 @@ calculateLoss lossFn model dataPoints =
 -- Recurrent Evaluation Functions
 ----------------------------------------------------------------------
 
-recur : (Floating ty, Fractional ty, Neg ty, Num ty, Ord ty) => {i, o : Nat} -> {hs : List Nat} -> (Network i hs o ty, List (Vector o ty)) -> Vector i ty -> (Network i hs o ty, List (Vector o ty))
+recur : (FromDouble ty, Floating ty, Fractional ty, Neg ty, Num ty, Ord ty) => {i, o : Nat} -> {hs : List Nat} -> (Network i hs o ty, List (Vector o ty)) -> Vector i ty -> (Network i hs o ty, List (Vector o ty))
 recur (m, os) i =
   let (updatedModel, output) = forward m i
   in (updatedModel, snoc os output)
 
 export
-forwardRecurrent : (Floating ty, Fractional ty, Neg ty, Num ty, Ord ty) => {i, o : Nat} -> {hs : List Nat} -> Network i hs o ty -> List (Vector i ty) -> (Network i hs o ty, List (Vector o ty))
+forwardRecurrent : (FromDouble ty, Floating ty, Fractional ty, Neg ty, Num ty, Ord ty) => {i, o : Nat} -> {hs : List Nat} -> Network i hs o ty -> List (Vector i ty) -> (Network i hs o ty, List (Vector o ty))
 forwardRecurrent model = foldl recur (model, [])
 
-evaluateSingleRecurrentDataPoint : (Floating ty, Fractional ty, Neg ty, Num ty, Ord ty) => {i, o : Nat} -> {hs : List Nat} -> Network i hs o ty -> RecurrentDataPoint i o ty -> List (Vector o ty)
+evaluateSingleRecurrentDataPoint : (FromDouble ty, Floating ty, Fractional ty, Neg ty, Num ty, Ord ty) => {i, o : Nat} -> {hs : List Nat} -> Network i hs o ty -> RecurrentDataPoint i o ty -> List (Vector o ty)
 evaluateSingleRecurrentDataPoint model dataPoints = snd $ (forwardRecurrent model) dataPoints.xs
 
 export
-evaluateRecurrent : (Floating ty, Fractional ty, Neg ty, Num ty, Ord ty) => {i, o : Nat} -> {hs : List Nat} -> Network i hs o ty -> Vect n (RecurrentDataPoint i o ty) -> Vect n (List (Vector o ty))
+evaluateRecurrent : (FromDouble ty, Floating ty, Fractional ty, Neg ty, Num ty, Ord ty) => {i, o : Nat} -> {hs : List Nat} -> Network i hs o ty -> Vect n (RecurrentDataPoint i o ty) -> Vect n (List (Vector o ty))
 evaluateRecurrent model dataPoints = map (evaluateSingleRecurrentDataPoint model) dataPoints
 
 export
-calculateLossRecurrent : (Floating ty, Fractional ty, Neg ty, Num ty, Ord ty) => {i, o, n : Nat} -> {hs : List Nat} -> LossFunction ty -> Network i hs o ty -> Vect n (RecurrentDataPoint i o ty) -> ty
+calculateLossRecurrent : (FromDouble ty, Floating ty, Fractional ty, Neg ty, Num ty, Ord ty) => {i, o, n : Nat} -> {hs : List Nat} -> LossFunction ty -> Network i hs o ty -> Vect n (RecurrentDataPoint i o ty) -> ty
 calculateLossRecurrent lossFn model dataPoints =
   let
     perSequence : RecurrentDataPoint i o ty -> List ty
@@ -669,7 +669,7 @@ calculateLossRecurrent lossFn model dataPoints =
 
 ||| Two-phase forward: encoding phase then output phase with zeros.
 export
-forwardTwoPhase : (Floating ty, Fractional ty, Neg ty, Num ty, Ord ty) =>
+forwardTwoPhase : (FromDouble ty, Floating ty, Fractional ty, Neg ty, Num ty, Ord ty) =>
     {i, o : Nat} -> {hs : List Nat} ->
     Network i hs o ty -> TwoPhaseDataPoint i o ty ->
     (Network i hs o ty, List (Vector o ty))
