@@ -271,6 +271,18 @@ export
 %foreign "scheme:(lambda (mb) (vector-set! mb 4 -1) (vector-set! mb 5 -1) mb)"
 prim__ntmMemBufResetCache : AnyPtr -> AnyPtr
 
+-- Reset memory to initial state between sequences in a batch.
+-- Restores C vals from initial_vals, resets Scheme-side cache to force
+-- re-registration on tape with initial values.
+export
+%foreign "scheme:(lambda (mb) ((foreign-procedure \"ntm_mem_buf_reset\" (void*) void) (vector-ref mb 0)) (vector-set! mb 4 -1) (vector-set! mb 5 -1) mb)"
+prim__ntmMemBufReset : AnyPtr -> AnyPtr
+
+-- Snapshot current vals into initial_vals after Scheme-side element-by-element init.
+export
+%foreign "scheme:(lambda (mb) ((foreign-procedure \"ntm_mem_snapshot_initial\" (void*) void) (vector-ref mb 0)) mb)"
+prim__ntmMemBufSnapshotInitial : AnyPtr -> AnyPtr
+
 
 ----------------------------------------------------------------------
 -- Tensor FFI

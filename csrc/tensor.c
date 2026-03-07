@@ -2068,12 +2068,13 @@ void *focus_compute(FocusMeta *m, double *out) {
 
 typedef struct {
   int n, w;
-  double *vals;       /* n*w memory values (persistent, updated each timestep) */
-  int *tape_idx;      /* n*w tape indices (updated each timestep) */
-  char **pids;        /* n*w interned pid strings (set once in nameParams) */
-  int *pid_ids;       /* n*w dense pid_ids (-1 = unnamed, set once in nameParams) */
-  int cached_gen;     /* epoch cache: tape generation (-1 = uncached) */
-  int cached_start;   /* epoch cache: first tape index */
+  double *vals;           /* n*w memory values (persistent, updated each timestep) */
+  double *initial_vals;   /* n*w saved initial state for per-sequence reset */
+  int *tape_idx;          /* n*w tape indices (updated each timestep) */
+  char **pids;            /* n*w interned pid strings (set once in nameParams) */
+  int *pid_ids;           /* n*w dense pid_ids (-1 = unnamed, set once in nameParams) */
+  int cached_gen;         /* epoch cache: tape generation (-1 = uncached) */
+  int cached_start;       /* epoch cache: first tape index */
 } NtmMemBuf;
 
 NtmMemBuf *ntm_mem_alloc(int n, int w) {
@@ -2082,6 +2083,7 @@ NtmMemBuf *ntm_mem_alloc(int n, int w) {
   mb->w = w;
   int total = n * w;
   mb->vals = (double *)calloc(total, sizeof(double));
+  mb->initial_vals = (double *)calloc(total, sizeof(double));
   mb->tape_idx = (int *)calloc(total, sizeof(int));
   mb->pids = (char **)calloc(total, sizeof(char *));
   mb->pid_ids = pid_ids_alloc(total);
@@ -2090,9 +2092,11 @@ NtmMemBuf *ntm_mem_alloc(int n, int w) {
   return mb;
 }
 
-/* Set a single value (used during init from named Variables) */
+/* Set a single value (used during init from named Variables).
+ * Also sets initial_vals so reset restores to this state. */
 NtmMemBuf *ntm_mem_set_val(NtmMemBuf *mb, int idx, double val) {
   mb->vals[idx] = val;
+  mb->initial_vals[idx] = val;
   return mb;
 }
 
@@ -2113,6 +2117,7 @@ NtmMemBuf *ntm_mem_set_pid_id(NtmMemBuf *mb, int idx, int pid_id) {
  * Resets cached_gen to force re-registration next epoch. */
 void ntm_mem_apply_deltas(NtmMemBuf *mb, double *deltas) {
   buf_apply_deltas(mb->vals, mb->pid_ids, mb->n * mb->w, deltas);
+  memcpy(mb->initial_vals, mb->vals, mb->n * mb->w * sizeof(double));
   mb->cached_gen = -1;
 }
 
@@ -2133,7 +2138,22 @@ void ntm_mem_update_tape_idx(NtmMemBuf *mb, int start) {
  * Resets cached_gen to force re-registration on next epoch. */
 void ntm_mem_sync_vals(NtmMemBuf *mb, double *vals_array, int count) {
   memcpy(mb->vals, vals_array, count * sizeof(double));
+  memcpy(mb->initial_vals, vals_array, count * sizeof(double));
   mb->cached_gen = -1;
+}
+
+/* Reset memory to initial state (called between sequences in a batch).
+ * Restores vals from initial_vals and invalidates cache to force
+ * re-registration on tape. */
+void ntm_mem_buf_reset(NtmMemBuf *mb) {
+  memcpy(mb->vals, mb->initial_vals, mb->n * mb->w * sizeof(double));
+  mb->cached_gen = -1;
+}
+
+/* Snapshot current vals into initial_vals (called after Scheme-side init).
+ * Used when vals are set element-by-element from Scheme rather than via C. */
+void ntm_mem_snapshot_initial(NtmMemBuf *mb) {
+  memcpy(mb->initial_vals, mb->vals, mb->n * mb->w * sizeof(double));
 }
 
 /* Raw array accessors (for Scheme-side ensure_on_tape and debugging) */

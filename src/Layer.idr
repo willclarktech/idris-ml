@@ -577,6 +577,17 @@ calculateLossRecurrentVar lossFn model dataPoints =
 -- Two-Phase Loss Computation (Variable)
 ----------------------------------------------------------------------
 
+||| Reset NtmMemBuf state between sequences in a batch.
+||| Returns the network with the reset buffer, forcing the C-side reset
+||| via constructor strictness.
+resetNtmMemBufs : Network i hs o Variable -> Network i hs o Variable
+resetNtmMemBufs (OutputLayer (NtmLayer lstm rfc wfc ofc mem ra wa ro (Just mb))) =
+  OutputLayer (NtmLayer lstm rfc wfc ofc mem ra wa ro (Just (prim__ntmMemBufReset mb)))
+resetNtmMemBufs ((NtmLayer lstm rfc wfc ofc mem ra wa ro (Just mb)) ~> rest) =
+  NtmLayer lstm rfc wfc ofc mem ra wa ro (Just (prim__ntmMemBufReset mb)) ~> resetNtmMemBufs rest
+resetNtmMemBufs (l ~> rest) = l ~> resetNtmMemBufs rest
+resetNtmMemBufs net = net
+
 ||| Two-phase loss: encoding phase (discard outputs), then output phase
 ||| (feed zeros, compute loss on collected outputs vs targets).
 export
@@ -591,7 +602,8 @@ calculateLossTwoPhaseVar lossFn model dataPoints =
       let zeroInput : Vector i Variable
           zeroInput = map (const (fromDouble 0.0)) zeros
           outputInputs = Data.List.replicate (length (targets dp)) zeroInput
-          encResult = forwardRecurrentVar model (encodingInputs dp)
+          model' = resetNtmMemBufs model
+          encResult = forwardRecurrentVar model' (encodingInputs dp)
           outResult = forwardRecurrentVar (fst encResult) outputInputs
       in zipWith lossFn (snd outResult) (targets dp)
     losses = map perSequence dataPoints
@@ -612,7 +624,8 @@ calculateLossTwoPhaseVarBce model dataPoints =
       let zeroInput : Vector i Variable
           zeroInput = map (const (fromDouble 0.0)) zeros
           outputInputs = Data.List.replicate (length (targets dp)) zeroInput
-          encResult = forwardRecurrentVar model (encodingInputs dp)
+          model' = resetNtmMemBufs model
+          encResult = forwardRecurrentVar model' (encodingInputs dp)
           outResult = forwardRecurrentVar (fst encResult) outputInputs
       in zipWith bceWithLogitsVar (snd outResult) (targets dp)
     losses = map perSequence dataPoints
@@ -876,7 +889,7 @@ mutual
             namedOutputFc = nameParams (prefx ++ "_outputFc") outputFc
             (VTensor memRows) = namedMemory
             memBuf = prim__ntmMemBufAlloc (cast n) (cast m)
-            memBuf' = initNtmMemBuf memBuf 0 memRows
+            memBuf' = prim__ntmMemBufSnapshotInitial (initNtmMemBuf memBuf 0 memRows)
         in NtmLayer namedLstm namedReadFc namedWriteFc namedOutputFc
                     namedMemory namedReadAddr namedWriteAddr namedReadOut (Just memBuf')
       _ => layer
@@ -921,7 +934,7 @@ mutual
                     (_, outputFc') = autoNameLayer (fullName ++ "_outputFc_") empty outputFc
                     (VTensor memRows) = namedMemory
                     memBuf = prim__ntmMemBufAlloc (cast nn) (cast mm)
-                    memBuf' = initNtmMemBuf memBuf 0 memRows
+                    memBuf' = prim__ntmMemBufSnapshotInitial (initNtmMemBuf memBuf 0 memRows)
                 in (counts', NtmLayer lstm' readFc' writeFc' outputFc'
                              namedMemory namedReadAddr namedWriteAddr namedReadOut (Just memBuf'))
               _ => (counts', nameParams fullName layer)
