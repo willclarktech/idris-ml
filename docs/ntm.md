@@ -40,13 +40,14 @@ The aligned NTM retains several stability measures from Collier & Beel and refer
 | Measure | Value | Source |
 |---------|-------|--------|
 | Memory init | sigmoid(xavier_random) ≈ [0,1] | Matches PyTorch's sigmoid(FC_bias) |
-| Controller output clipping | [-20, 20] via `clampVar` | Collier & Beel: prevents extreme head params |
 | No tanh memory bounding | Raw interpolation write | Matches PyTorch reference; tanh was for erase+add |
 | Value clipping | ±10.0 on gradients | PyTorch reference (loudinthecloud, vlgiitr) |
+| Forget gate bias | 0.0 (all zeros) | Matches PyTorch nn.LSTMCell default |
+| Learned h0/c0 | Xavier uniform init | Matches PyTorch nn.Parameter learnable states |
 
 **Memory init**: `ntmLayer` initializes memory to `sigmoid(xavier_random)` — values in [0,1], matching PyTorch's `sigmoid(FC_bias)`. Head FCs use `xavierGain 1.4 uniform` weights + `normal(0.01)` bias. Output FC uses `he uniform` weights + `normal(0.01)` bias. Read output uses kaiming uniform.
 
-**Controller output clipping**: `applyLayerVar` clamps the raw head FC outputs to [-20, 20] using `clampVar` (straight-through gradient). This prevents extreme head parameters (β, g, γ, add vectors) from destabilizing training.
+**Controller output clipping (removed)**: previously clamped head FC outputs to [-20, 20]. Removed to match PyTorch reference which has no output clamping. The LSTM controller + RMSprop + value clip ±10 provide sufficient stability.
 
 **Random data generation**: The `Generate` module provides `copyTaskBinary` and `recallTaskBinary` for binary vector data, plus `copyTask`/`associativeRecallTask` for one-hot data (legacy). Each training epoch generates fresh random data to prevent overfitting.
 
@@ -206,8 +207,10 @@ Both the idris-ml and PyTorch implementations now match the reference architectu
 | Optimizer | RMSprop lr=1e-4, alpha=0.95 |
 | Grad clipping | Value clip ±10 |
 | Data format | Binary vectors with delimiter channels |
-| Loss | sigmoid + BCE (BCEWithLogits) |
+| Loss | C-backed BCE with logits (BceWithLogitsOp, tag 26) |
 | Loss phase | Output phase only (two-phase training) |
+| LSTM init states | Learnable h0/c0 (Xavier uniform) |
+| Forget gate bias | 0.0 (all zeros, PyTorch default) |
 
 The most critical change was the output architecture: the output FC takes `cat(hidden, read_output)`, giving the network direct access to retrieved memory content at the current timestep. The old architecture returned a slice of the controller output, so the read vector only fed back as input at t+1.
 
@@ -273,7 +276,7 @@ The associative recall task is fundamentally more difficult than copy for severa
 | Frozen addressing | Read/write weights never change | Gradients too weak to move addressing | Check gradient flow, reduce N, increase lr |
 | Mode collapse | All outputs identical regardless of query | Controller ignores input, produces fixed output | Check controller gradients, verify input reaches controller |
 | Content-only fallback | High g during test, low during train | Model memorizes training data, falls back to content matching on novel data | Curriculum, more training data diversity |
-| Gradient explosion | NaN loss after N iterations | Unbounded head parameters, especially γ | Bound γ to [1,5], clamp controller output [-20,20] |
+| Gradient explosion | NaN loss after N iterations | Unbounded head parameters, especially γ | Value clip ±10 on gradients, numerically stable BCE/softplus |
 | Memory drift | Loss increases over long sequences | Memory values grow unboundedly | Use interpolation write (bounded by design when weights sum to ~1) |
 
 ## Recall convergence results

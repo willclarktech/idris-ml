@@ -383,6 +383,29 @@ PyTorch's full convergence. Loss oscillates ~0.15-0.20 instead of dropping
 to near-zero. Remaining gap likely due to numerical differences in scalar
 autograd vs tensor autograd gradient accumulation.
 
+### After PyTorch alignment (2026-03-06)
+
+Applied 5 changes to match PyTorch reference:
+1. C-backed BCE with logits (tag 26) — single tape entry per output vector
+2. Zero forget gate bias (was 1.0)
+3. Removed controller output clamping [-20, 20]
+4. Learned initial LSTM h0/c0 (Xavier uniform init)
+5. lr=1e-4 (was 3e-4)
+
+| Metric | Baseline (lr=3e-4, 2K ep) | Aligned (lr=1e-4, 2K ep) | PyTorch (lr=1e-4) |
+|--------|--------------------------|--------------------------|-------------------|
+| Short seq (1-5) | 62% | **78%** | **100%** |
+| Full seq (1-20) | 53% | **58%** | **100%** |
+| Loss stability | Oscillates 0.44-0.81 | More stable | Near-zero |
+| Wall time (2K ep) | ~5:11 | **~4:00** | — |
+| Per-epoch | ~155ms | **~120ms** | ~132ms |
+
+The C-backed BCE reduced tape entries and improved per-epoch speed by ~23%.
+Accuracy improved significantly for short sequences (+16pp) and moderately
+for full sequences (+5pp). The convergence gap vs PyTorch remains — likely
+requires longer training (10K+ epochs) or further investigation of scalar
+autograd gradient accumulation differences.
+
 ### Gradient Region Reservation (NOT IMPLEMENTED)
 
 Planned to eliminate 2.23M ShadowOps (63% of tape) by reserving gradient indices

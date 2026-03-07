@@ -238,7 +238,7 @@ The `bench/` directory contains a faithful PyTorch reimplementation of all idris
 
 ## LSTM layer
 
-The `LstmLayer` constructor implements a standard LSTM cell (Hochreiter & Schmidhuber 1997) with learned hidden and cell states:
+The `LstmLayer` constructor implements a standard LSTM cell (Hochreiter & Schmidhuber 1997) with learnable initial hidden and cell states (h0, c0):
 
 ```
 combined = W_ih * x + W_hh * h + bias      -- (4*hidden,)
@@ -248,11 +248,13 @@ c' = f * c + i * g
 h' = o * tanh(c')
 ```
 
-**Forget gate bias**: biases are initialized to zero except the forget gate bias, which is set to 1.0 (Jozefowicz et al. 2015). This ensures the forget gate starts nearly open, preventing early vanishing of cell state. The bias vector is structured as `[i_bias, f_bias, g_bias, o_bias]` with f_bias = 1.0.
+**Forget gate bias**: all biases are initialized to zero, matching PyTorch's `nn.LSTMCell` default. Previously set to 1.0 (Jozefowicz et al. 2015) but changed to match the PyTorch reference implementation. The bias vector is structured as `[i_bias, f_bias, g_bias, o_bias]`.
 
 **Cell state extraction**: `extractCellState` pattern-matches on `LstmLayer` to return the cell state directly. This is used by `NtmLayer` to feed cell state into the read/write head FCs (matching the PyTorch reference architecture where head parameters come from the LSTM cell state, not the hidden state).
 
 **Weight initialization fan dimensions**: `lstmLayerWith` passes `(fanIn, fanOut)` to the init strategy where `fanOut = 4 * hiddenSize` (not `hiddenSize`), because the actual weight matrices are `(4*hidden, input)` and `(4*hidden, hidden)`. Using `hiddenSize` as fan-out produces Xavier variance `2/(i+o)` instead of the correct `2/(i+4*o)`, making weights ~2.5x too large and causing exploding gates that prevent convergence.
+
+**Learned initial states (h0, c0)**: LstmLayer has `h0Buf` and `c0Buf` fields (`Maybe AnyPtr`) for learnable initial hidden and cell states, matching PyTorch's `nn.Parameter` h0/c0. Initialized with Xavier uniform in `lstmLayerWith`. Named as `prefix_h0`/`prefix_c0` in `nameParams`, stored as WeightBufs with pid_ids for the dense optimizer path. The initial states are applied at the start of each sequence and receive gradients through the normal backward pass.
 
 **Weight buffers**: follows the same persistent buffer pattern as `LinearLayer` — two `Maybe WeightBuffer` fields for input-to-hidden and hidden-to-hidden weight matrices. The Variable-specialized path (`applyLayerVar`) falls back to the generic path for tiny layers (`i * o <= 4`).
 
@@ -344,6 +346,18 @@ NtmLayer : LSTM controller, read FC, write FC, output FC, memory, read addr, wri
 ```
 
 This makes the architecture explicit — each component has its own layer with independent weights. The LSTM cell state feeds the head FCs, while the hidden state + read output feed the output FC. This matches the reference's `output = output_fc(cat(hidden, read_output))`.
+
+## C-backed BCE with logits
+
+The NTM training loss (`binaryCrossEntropyWithLogits`) was previously computed via ~7 scalar autograd ops per output element: sigmoid, log, multiply, subtract, etc. With 8 output channels and ~10 output timesteps per sequence, this added ~560 scalar tape entries per data point.
+
+`bceWithLogitsVar` (BceWithLogitsOp, tag 26) fuses the entire loss computation into a single C kernel:
+- **Forward**: `(1/n) * sum_i [max(p_i,0) - p_i*y_i + log(1+exp(-|p_i|))]` — numerically stable formulation avoiding direct sigmoid + log
+- **Backward**: `d_p_i = (1/n) * (sigmoid(p_i) - y_i) * d_loss` — gradients to predictions only (targets are constant)
+
+The meta struct is arena-allocated and stores prediction/target values and tape indices. Output is a single scalar (the mean loss). The tape entry uses `ext_meta_set` (Scheme-side) to store the meta pointer, matching the pattern used by DotOp and other tensor ops — NOT `tape_meta` (C-side), which is a separate array not read by `walk_backward_ext`.
+
+`epochTwoPhaseDenseBce` in Backprop.idr uses `calculateLossTwoPhaseVarBce` which calls `bceWithLogitsVar` directly, bypassing the generic `calculateLoss` + `binaryCrossEntropyWithLogits` scalar path.
 
 ## Periodic forced GC for long NTM training
 
