@@ -81,7 +81,7 @@ bash scripts/sweep.sh --task lstm --parallel 4 --quick
 1. **Floating** - Extended `Floating` interface adding `sqrt`
 2. **Util** - Helpers: `enumerate`, `permute`, `chunks`
 3. **Sampler** - Distribution samplers: `uniform`, `normal` (Box-Muller), `normalSample`
-3b. **Init** - Weight initialization strategies composable with samplers: `xavier`, `he`, `lecun`, `fixedRange`
+3b. **Init** - Weight initialization strategies composable with samplers: `xavier`, `xavierGain`, `he`, `lecun`, `fixedRange`
 4. **Tensor** - Shape-indexed tensor: `Tensor : Vect rank Nat -> Type -> Type`
 5. **Math** - Loss functions, activations, linear algebra
 6. **Memory** - NTM read/write head operations
@@ -277,6 +277,87 @@ When adding a new model/example to the project, follow this workflow in order:
 
 Commit at each step. The PyTorch implementation serves as the correctness oracle for the Idris version.
 
+## Performance Optimization
+
+When investigating or improving performance, follow this workflow:
+
+### 1. Profile first
+
+Always profile before optimizing. Use the sub-phase profiler to identify where time is actually spent:
+
+```bash
+make profile    # Per-sub-phase timing: Enc/Out/Loss/Bwd/Opt/Sync + tape histogram
+```
+
+Key files:
+- `src/Example/Profile.idr` — sub-phase profiler (must match current training config)
+- `docs/performance-analysis.md` — historical profile data and optimization log
+
+Profile.idr must stay in sync with production training config (optimizer, batch size, etc.). When changing training hyperparameters, update Profile.idr to match.
+
+### 2. Benchmark at matched settings
+
+Compare Idris vs PyTorch at identical batch size, architecture, optimizer:
+
+```bash
+make bench-compare    # Side-by-side timing for all models at production batch size
+```
+
+Key files:
+- `src/Example/Bench.idr` — Idris benchmark scenarios
+- `pytorch/torch_ref/benchmark.py` — PyTorch benchmark scenarios (must mirror Idris)
+- `pytorch/torch_ref/compare.py` — runs both and prints comparison table
+
+**Important**: Always compare at the same batch size. Current production batch size is 16. The ratio from bench-compare is the ground truth for per-epoch speed — convergence comparisons can be misleading if batch sizes differ.
+
+### 3. Tune hyperparameters with sweep
+
+Use the sweep script for systematic grid search — never manually loop:
+
+```bash
+bash scripts/sweep.sh --task copy --parallel 4 --quick  # 2000 epochs for screening
+bash scripts/sweep.sh --task copy --parallel 4           # full convergence
+```
+
+Key file: `scripts/sweep.sh` — must stay in sync with current CLI flags for each task.
+
+### 4. Run convergence comparison
+
+After tuning, compare end-to-end convergence at matched settings:
+
+```bash
+make ref-convergence-copy    # PyTorch convergence (batch=16 default)
+./build/exec/ntm-copy        # Idris convergence (uses defaultConfig)
+```
+
+Key file: `pytorch/torch_ref/scripts/convergence.py` — PyTorch convergence defaults must match Idris defaults (batch size, lr, etc.).
+
+### 5. Document results
+
+Update `docs/performance-analysis.md` with:
+- Fresh profile data (sub-phase breakdown + tape histogram)
+- bench-compare numbers (Idris vs PyTorch ratio)
+- Convergence comparison results
+- What changed and why
+
+### Current performance baseline (2026-03-04)
+
+Per-epoch at batch=16 (NTM-copy, N=128 M=20 H=100):
+- Forward (Enc+Out): ~107ms | Backward: ~22ms | Tape: 2.23M entries
+- Idris/PyTorch ratio: **1.02x** (near parity)
+- Remaining gap is scalar-vs-tensor autograd (see Path C in performance-analysis.md)
+
+### Performance optimization history
+
+Optimizations applied to NTM-copy (from 1.38s/epoch to 0.145s/epoch, ~10x):
+1. Buffer-passing for addressing chain ops (eliminate Variable materialization)
+2. Shadow ConstOps (tape compaction for intermediate outputs)
+3. C-side pid filtering in backward pass
+4. Dense optimizer (C arrays replace SortedMap)
+5. C-bulk ConstOp creation (memset+memcpy)
+6. C-bulk delta application (bypass emap+sync)
+7. LSTM→FC buffer-passing + case destructuring fix (eliminate 3x re-eval)
+
 ## Conventions
 
 - **Indentation**: 2 spaces for `.idr` files (see `.editorconfig`)
@@ -319,7 +400,7 @@ Commit at each step. The PyTorch implementation serves as the correctness oracle
 - **Scheme-native C memory access**: Use Chez Scheme's `foreign-ref`/`foreign-set!` for reading/writing C-allocated arrays instead of calling C functions per element. This avoids the Scheme→C boundary crossing overhead. See `prim__gradAdd`/`prim__gradGet` and `prim__setDouble`/`prim__setInt32` in Variable.idr
 - **`prim__seq` for evaluation ordering**: When two FFI side-effect chains must execute in order but have no data dependency, use `prim__seq a b` (Scheme `(lambda (a b) b)`) to force `a` to evaluate before `b` is used. Chez Scheme evaluates function arguments strictly
 - **Tensor Foldable reversal**: The `foldr` instance for `Tensor` processes elements in reversed order (head into accumulator first). `toList` produces elements backwards. Use direct `Vect` traversal instead when element order matters (e.g., packing into C buffers)
-- **Weight initialization**: `linearLayer`/`rnnLayer` default to Xavier uniform. Biases are always zero. Init strategies compose a variance method with a distribution sampler: `xavier uniform` (default), `xavier normal`, `he normal`, etc. Use `linearLayerWith (fixedRange 1.0)` for the old `U(-1,1)` behavior. NTM memory initialized to constant `1e-6` (Collier & Beel: 3.5x faster convergence vs random). `Sampler.idr` provides `uniform` and `normal` (Box-Muller); `Init.idr` provides `xavier`, `he`, `lecun`, `fixedRange`
+- **Weight initialization**: `linearLayer`/`rnnLayer` default to Xavier uniform. Biases are always zero. Init strategies compose a variance method with a distribution sampler: `xavier uniform` (default), `xavier normal`, `he normal`, `xavierGain 1.4 uniform`, etc. Use `linearLayerWith (fixedRange 1.0)` for the old `U(-1,1)` behavior. Use `linearLayerWithBias initFn biasStd` for custom bias init (normal with given std). NTM head FCs use `xavierGain 1.4 uniform` + `normal(0.01)` bias, output FC uses `he uniform` + `normal(0.01)` bias (matching PyTorch reference). NTM memory initialized to `sigmoid(xavier_random)` ≈ values in [0,1] (matching PyTorch's `sigmoid(FC_bias)`). Read output uses kaiming uniform. `Sampler.idr` provides `uniform` and `normal` (Box-Muller); `Init.idr` provides `xavier`, `xavierGain`, `he`, `lecun`, `fixedRange`
 - **C-backed softmax/logSoftmax**: `softmaxVar`/`logSoftmaxVar` in Variable.idr use C kernels and record a single SoftmaxOp/LogSoftmaxOp tape entry per vector instead of ~29 scalar entries. `applyLayerVar` dispatches NormalizationLayer "softmax"/"logSoftmax" to these
 - **C-backed NTM memory ops**: `batchCosineSimilarityVar`, `readOpVar`, `writeOpVar`, `interpolationWriteVar` in Variable.idr use C kernels (BatchCosSimOp/ReadOpOp/WriteOpOp/InterpolationWriteOp, tags 15-18) to reduce tape entries per NTM timestep. `forwardReadHeadUnboundedVar`/`forwardWriteHeadInterpVar` in Layer.idr wire these into the Variable-specialized NTM forward pass. Generic `forwardReadHeadUnbounded`/`forwardWriteHeadInterp` in Memory.idr remain parameterized on `NormalizationFunction ty` for the Double path
 - **C-backed addressing ops**: `interpolateVar`, `shiftVar`, `focusVar` in Variable.idr use C kernels (InterpolateOp/ShiftOp/FocusOp, tags 21-23) replacing ~1400 scalar tape entries per head with 3 tensor ops. `shiftVar` takes a pre-softmax'd kernel (apply `softmaxVar` first). Used in both `forwardReadHeadUnboundedVar` and `forwardReadHeadUnboundedVarBuf` in Layer.idr

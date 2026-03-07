@@ -52,7 +52,7 @@ def run_copy(args: argparse.Namespace) -> None:
     iterations: int = getattr(args, "copy_iters", 50000)
     n: int = getattr(args, "copy_n", 128)
     m: int = getattr(args, "copy_m", 20)
-    batch_size: int = getattr(args, "copy_batch_size", 1)
+    batch_size: int = getattr(args, "copy_batch_size", 16)
 
     cfg = NtmConfig(
         input_width=COPY_SEQ_WIDTH + 1,
@@ -304,7 +304,7 @@ def main() -> None:
         "--copy-clip", choices=["value", "norm"], default="value", help="Copy clip mode"
     )
     parser.add_argument("--copy-lr", type=float, default=1e-4, help="Copy learning rate")
-    parser.add_argument("--copy-batch-size", type=int, default=1, help="Copy batch size (1=online)")
+    parser.add_argument("--copy-batch-size", type=int, default=16, help="Copy batch size")
 
     # Recall task flags
     parser.add_argument("--recall-iters", type=int, default=100000, help="Recall iterations")

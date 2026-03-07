@@ -243,7 +243,7 @@ main = do
   let model = autoName $ OutputLayer ntm
 
   let numPids = getNumPids 0
-  let opt = rmspropValueClipDense 0.0001 0.95 1.0e-8 10.0
+  let opt = rmspropValueClipMomentumDense 0.0001 0.95 1.0e-8 10.0 0.9
   let st0 = initDenseState numPids
 
   -- Generate a fixed batch for consistent profiling
@@ -284,7 +284,7 @@ main = do
     go k m s = do
       batch <- copyTaskBinaryBatchVect {w = W} BatchSize 1 20
       let dps = map (map fromDouble) batch
-          opt = rmspropValueClipDense 0.0001 0.95 1.0e-8 10.0
+          opt = rmspropValueClipMomentumDense 0.0001 0.95 1.0e-8 10.0 0.9
           (m', s', loss) = epochTwoPhaseDense opt dps binaryCrossEntropyWithLogits m s
       putStrLn $ "  warmup " ++ show (k + 1) ++ ": loss=" ++ show loss
       go (k + 1) m' s'

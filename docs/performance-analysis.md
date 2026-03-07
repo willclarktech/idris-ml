@@ -7,15 +7,15 @@ loss function, data format, and batch size on both sides.
 
 | Model | Idris (ms) | PyTorch (ms) | Ratio | Notes |
 |-------|-----------|-------------|-------|-------|
-| Supervised (1000 ep) | 77 | 230 | 0.33x | Idris 3x faster |
-| RNN (1000 ep) | 355 | 2076 | 0.17x | Idris 6x faster |
-| NTM-small (100 ep) | 538 | 1242 | 0.43x | Idris 2.3x faster (w=3, n=10, m=5, h=20, batch=5) |
-| NTM-copy (100 ep) | 23099 | 14399 | 1.60x | **PyTorch 1.6x faster** (w=8, n=128, m=20, h=100, batch=16) |
+| Supervised (1000 ep) | 91 | 238 | 0.38x | Idris 2.6x faster |
+| RNN (1000 ep) | 399 | 2308 | 0.17x | Idris 6x faster |
+| NTM-small (100 ep) | 437 | 1372 | 0.32x | Idris 3.1x faster (w=3, n=10, m=5, h=20, batch=5) |
+| NTM-copy (100 ep) | 11767 | 13505 | 0.87x | **Idris 1.15x faster** (w=8, n=128, m=20, h=100, batch=16) |
+| NTM-copy-1k (1000 ep) | 146474 | 224601 | 0.65x | **Idris 1.53x faster** |
 
-The small NTM hides the scalar-vs-tensor autograd gap. At production scale (NTM-copy),
-PyTorch's tensor-level autograd gives it a ~1.8x advantage.
+Idris is now faster than PyTorch across all benchmarks, including production-scale NTM-copy.
 
-NTM-copy per-epoch: Idris **~218ms** vs PyTorch **~140ms**.
+NTM-copy per-epoch: Idris **~118ms** vs PyTorch **~135ms** (100 ep), **~146ms** vs **~225ms** (1000 ep).
 
 Optimizations applied (from 1.38s/epoch baseline):
 - Buffer-passing for addressing chain ops (1.38s -> 1.0s)
@@ -83,7 +83,8 @@ This is the only path to close the remaining ~2x gap.
 | D: + Dense optimizer (C arrays) | ~0.247s | 5.6x | ~2.0x |
 | E: + C-bulk ConstOps (memset+memcpy) | ~0.234s | 5.9x | ~1.8x |
 | F: + C-bulk delta application | ~0.218s | 6.3x | ~1.6x |
-| C: Tensor-level Variable (estimated) | ~0.15s | -- | ~1.2x |
+| G: + LSTM→FC buffer-passing + case fix | ~0.145s | 9.5x | **0.87x** (faster) |
+| C: Tensor-level Variable (estimated) | ~0.08s | -- | ~0.4x |
 
 ### Path D: Dense Optimizer (DONE)
 
@@ -106,15 +107,18 @@ Total epoch from ~660ms to ~460ms.
 
 ### Remaining bottleneck analysis
 
-The forward pass dominates (~176ms of ~218ms epoch). The backward pass
-(~37ms) and apply-deltas (~0.3ms) are now well-optimized.
+The forward pass dominates (~74ms of ~92ms epoch). The backward pass
+(~15ms) and apply-deltas (~0.3ms) are well-optimized.
 Key forward costs:
 - Endpoint Variable materialization: `buildOutputScalars` for network state (addressing
   weights, hidden state, cell state, read output) still creates Scheme Variable records
 - `packVec` for tensor op inputs from Variables: per-element `ensureOnTape` + `setDouble` + `setInt32`
 - Loss computation: scalar ops for binary cross-entropy with logits
 
-Irreducible gap (~1.2x) from: Scheme orchestration overhead, non-SIMD C kernels.
+Idris is now faster than PyTorch overall due to lower Python orchestration overhead
+at the batch level. The scalar autograd cost is offset by efficient C tensor kernels
+and buffer-passing optimizations. Further gains possible via Path C (tensor-level Variables)
+which would reduce tape from 1.5M to ~15K entries.
 
 ## 5. Forward-Pass Sub-Phase Profile
 
@@ -257,6 +261,45 @@ NTM-copy             14523.3        14276.8    1.02x
 ```
 
 NTM-copy: 23099ms -> 14523ms (**1.60x -> 1.02x** vs PyTorch). Near parity!
+
+### After momentum optimizer + re-profile (2026-03-05)
+
+Updated Profile.idr to use `rmspropValueClipMomentumDense` (momentum=0.9), matching
+production NtmCopy.idr config.
+
+```
+Epoch   Enc(ms)   Out(ms)  Loss(ms)   Bwd(ms)   Opt(ms)  Sync(ms)  TapeSize    Loss
+    1      44.6      29.7       3.6      14.3       0.0       0.3   1480903
+   avg     ~44       ~30        ~3       ~15        ~0      ~0.3    1480903
+```
+
+Forward (Enc+Out) = **~74ms** (78% of ~92ms epoch). Backward **~15ms**.
+Tape **1.48M** entries (varies by random sequence lengths in batch).
+
+Tape histogram:
+```
+  ConstOps:    765,558  (52%)
+  ScalarOps:    17,185  (<2%)
+  TensorOps:     5,520  (<1%)
+  ShadowOps:   692,640  (47%)
+  Total:      1,480,903
+```
+
+Tensor detail: MatVec=1680 Softmax=960 BatchCosSim=480 ReadOp=480 InterpWrite=240
+               Interpolate=480 Shift=480 Focus=480 LstmCell=240
+
+Bench-compare:
+```
+Model             Idris (ms)   PyTorch (ms)    Ratio
+Supervised              91.1          237.6    0.38x
+RNN                    399.1         2308.2    0.17x
+NTM-small              437.1         1371.7    0.32x
+NTM-copy             11766.5        13505.2    0.87x
+NTM-copy-1k         146473.8       224601.1    0.65x
+```
+
+NTM-copy now **faster than PyTorch** at both 100 and 1000 epochs. The LSTM→FC
+buffer-passing optimization closed the remaining gap and pushed Idris ahead.
 
 ### Gradient Region Reservation (NOT IMPLEMENTED)
 

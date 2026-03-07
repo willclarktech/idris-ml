@@ -75,25 +75,37 @@ if [[ "$TASK" == "lstm" ]]; then
       CONFIGS="${CONFIGS}${lr} ${seed}\n"
     done
   done
-else
-  LR_VALUES="0.003 0.001 0.0003"
-  MAX_NORM_VALUES="3.0 5.0 10.0"
-  SEED_VALUES="1 2 3 42"
-  BETA1_VALUES="0.9"
+elif [[ "$TASK" == "copy" ]]; then
+  LR_VALUES="0.0001 0.0003 0.001 0.003"
+  CLIP_VALUES="5.0 10.0"
+  BATCH_VALUES="4 16"
+  SEED_VALUES="1 2 42"
 
-  if [[ "$TASK" == "recall" ]]; then
-    echo "lr,maxNorm,beta1,beta2,epochs,patience,epochsDone,seed,H,k2Acc,k3Acc,k5Acc" > "$RESULTS_FILE"
-  else
-    echo "lr,maxNorm,beta1,beta2,epochs,patience,epochsDone,seed,H,trainAcc,testAcc" > "$RESULTS_FILE"
-  fi
+  echo "lr,clip,batch,epochs,patience,epochsDone,seed,trainAcc,testAcc" > "$RESULTS_FILE"
 
   CONFIGS=""
   for lr in $LR_VALUES; do
-    for maxNorm in $MAX_NORM_VALUES; do
-      for beta1 in $BETA1_VALUES; do
+    for clip in $CLIP_VALUES; do
+      for batch in $BATCH_VALUES; do
         for seed in $SEED_VALUES; do
-          CONFIGS="${CONFIGS}${lr} ${maxNorm} ${beta1} ${seed}\n"
+          CONFIGS="${CONFIGS}${lr} ${clip} ${batch} ${seed}\n"
         done
+      done
+    done
+  done
+else
+  # recall task
+  LR_VALUES="0.0001 0.0003 0.001"
+  CLIP_VALUES="5.0 10.0"
+  SEED_VALUES="1 2 42"
+
+  echo "lr,clip,epochs,patience,epochsDone,seed,k2Acc,k4Acc,k6Acc" > "$RESULTS_FILE"
+
+  CONFIGS=""
+  for lr in $LR_VALUES; do
+    for clip in $CLIP_VALUES; do
+      for seed in $SEED_VALUES; do
+        CONFIGS="${CONFIGS}${lr} ${clip} ${seed}\n"
       done
     done
   done
@@ -123,25 +135,40 @@ run_one() {
     else
       echo "$lr,$EPOCHS,$PATIENCE,0,$seed,999"
     fi
-  else
-    local lr=$1 maxNorm=$2 beta1=$3 seed=$4
-    local tag="lr=${lr}_norm=${maxNorm}_b1=${beta1}_seed=${seed}"
+  elif [[ "$TASK" == "copy" ]]; then
+    local lr=$1 clip=$2 batch=$3 seed=$4
+    local tag="lr=${lr}_clip=${clip}_batch=${batch}_seed=${seed}"
     local outfile="${TMPDIR_SWEEP}/${tag}.out"
 
-    "$EXEC" --lr "$lr" --max-norm "$maxNorm" --beta1 "$beta1" \
+    "$EXEC" --lr "$lr" --clip "$clip" --alpha 0.95 --momentum 0.9 \
+      --batch "$batch" --epochs "$EPOCHS" --patience "$PATIENCE" --seed "$seed" \
+      > "$outfile" 2>&1
+
+    local result
+    result=$(grep "^RESULT" "$outfile" || echo "")
+    if [[ -n "$result" ]]; then
+      # RESULT: $1=RESULT $2=lr $3=clip $4=alpha $5=epochs $6=patience $7=epochsDone $8=seed $9=trainAcc $10=testAcc
+      echo "$result" | awk -F'\t' -v b="$batch" '{print $2","$3","b","$5","$6","$7","$8","$9","$10}'
+    else
+      echo "$lr,$clip,$batch,$EPOCHS,$PATIENCE,0,$seed,-1,-1"
+    fi
+  else
+    # recall task
+    local lr=$1 clip=$2 seed=$3
+    local tag="lr=${lr}_clip=${clip}_seed=${seed}"
+    local outfile="${TMPDIR_SWEEP}/${tag}.out"
+
+    "$EXEC" --lr "$lr" --clip "$clip" --alpha 0.95 --momentum 0.9 \
       --epochs "$EPOCHS" --patience "$PATIENCE" --seed "$seed" \
       > "$outfile" 2>&1
 
     local result
     result=$(grep "^RESULT" "$outfile" || echo "")
     if [[ -n "$result" ]]; then
-      echo "$result" | awk -F'\t' '{s=$2; for(i=3;i<=NF;i++) s=s","$i; print s}'
+      # RESULT: $1=RESULT $2=lr $3=clip $4=alpha $5=epochs $6=patience $7=epochsDone $8=seed $9=k2Acc $10=k4Acc $11=k6Acc
+      echo "$result" | awk -F'\t' '{print $2","$3","$5","$6","$7","$8","$9","$10","$11}'
     else
-      if [[ "$TASK" == "recall" ]]; then
-        echo "$lr,$maxNorm,$beta1,0.999,$EPOCHS,$PATIENCE,0,$seed,?,-1,-1,-1"
-      else
-        echo "$lr,$maxNorm,$beta1,0.999,$EPOCHS,$PATIENCE,0,$seed,?,-1,-1"
-      fi
+      echo "$lr,$clip,$EPOCHS,$PATIENCE,0,$seed,-1,-1,-1"
     fi
   fi
 }
@@ -158,14 +185,15 @@ if [[ "$TASK" == "lstm" ]]; then
   echo ""
   SORT_COL=6
   SORT_ORDER="n"
+elif [[ "$TASK" == "copy" ]]; then
+  echo "=== Results sorted by test accuracy ==="
+  echo ""
+  SORT_COL=9   # testAcc is column 9 in: lr,clip,batch,epochs,patience,epochsDone,seed,trainAcc,testAcc
+  SORT_ORDER="rn"
 else
   echo "=== Results sorted by test accuracy ==="
   echo ""
-  if [[ "$TASK" == "recall" ]]; then
-    SORT_COL=12
-  else
-    SORT_COL=11
-  fi
+  SORT_COL=9   # k5Acc is column 9 in: lr,clip,epochs,patience,epochsDone,seed,k2Acc,k3Acc,k5Acc
   SORT_ORDER="rn"
 fi
 (head -1 "$RESULTS_FILE"; tail -n +2 "$RESULTS_FILE" | sort -t, -k${SORT_COL} -${SORT_ORDER}) | column -t -s,

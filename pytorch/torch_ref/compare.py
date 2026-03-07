@@ -36,9 +36,12 @@ def parse_idris_output(output: str) -> dict[str, tuple[float, float, float]]:
             rss = 0.0
             # Scan following lines for loss and RSS
             for j in range(i + 1, min(i + 3, len(lines))):
-                lm = re.search(r"Final loss:\s+([\d.e+-]+)", lines[j])
+                lm = re.search(r"Final loss:\s+(\S+)", lines[j])
                 if lm:
-                    loss = float(lm.group(1))
+                    try:
+                        loss = float(lm.group(1))
+                    except ValueError:
+                        loss = float("nan")
                 rm = re.search(r"Peak RSS:\s+(\d+)\s+MB", lines[j])
                 if rm:
                     rss = float(rm.group(1))

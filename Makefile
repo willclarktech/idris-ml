@@ -63,6 +63,11 @@ bench: $(CLIB)
 $(BUILD):
 	mkdir -p $(BUILD)
 
+profile: $(CLIB)
+	idris2 --source-dir src -p contrib -o profile src/Example/Profile.idr
+	cp $(CLIB) build/exec/profile_app/
+	./build/exec/profile
+
 sweep: $(CLIB)
 	bash scripts/sweep.sh --parallel 4
 
@@ -102,4 +107,4 @@ ref-convergence-recall:
 clean:
 	rm -f $(CLIB) $(BUILD)/test_tensor
 
-.PHONY: test test-c check supervised rnn lstm ntm-copy ntm-associative-recall bench sweep sweep-quick clean ref-setup bench-py bench-compare ref-test ref-lint ref-typecheck ref-convergence ref-convergence-copy ref-convergence-recall
+.PHONY: test test-c check supervised rnn lstm ntm-copy ntm-associative-recall bench profile sweep sweep-quick clean ref-setup bench-py bench-compare ref-test ref-lint ref-typecheck ref-convergence ref-convergence-copy ref-convergence-recall
