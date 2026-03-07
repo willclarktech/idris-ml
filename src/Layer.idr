@@ -753,8 +753,8 @@ lstmLayerWith {i} {o} initFn = do
   inputWeights <- traverse (\_ => map fromDouble (initFn i (4 * o))) (the (Matrix (4 * o) i ty) zeros)
   recurrentWeights <- traverse (\_ => map fromDouble (initFn o (4 * o))) (the (Matrix (4 * o) o ty) zeros)
   let bias = the (Vector (4 * o) ty) zeros
-  let h0 = the (Vector o ty) zeros
-  let c0 = the (Vector o ty) zeros
+  h0 <- traverse (\_ => map fromDouble (xavier uniform o 1)) (the (Vector o ty) zeros)
+  c0 <- traverse (\_ => map fromDouble (xavier uniform o 1)) (the (Vector o ty) zeros)
   pure $ LstmLayer inputWeights recurrentWeights bias h0 c0 Nothing Nothing Nothing Nothing Nothing
 
 export
