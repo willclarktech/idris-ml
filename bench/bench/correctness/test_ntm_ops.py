@@ -122,7 +122,7 @@ class TestForwardHeads:
         addr[0] = 1.0
         # head_input size: w + 3 + 3 = 9
         head_input = torch.randn(w + 6)
-        new_addr, output, _ = forward_read_head(memory, addr, head_input, w)
+        new_addr, output = forward_read_head(memory, addr, head_input, w)
         assert new_addr.shape == (n,)
         assert output.shape == (w,)
         assert abs(new_addr.sum().item() - 1.0) < 1e-4

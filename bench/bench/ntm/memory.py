@@ -31,11 +31,11 @@ def forward_read_head(
     addressing_weights: Tensor,
     head_input: Tensor,
     w: int,
-) -> tuple[Tensor, Tensor, Tensor]:
+) -> tuple[Tensor, Tensor]:
     """Forward pass for read head.
 
     head_input: (w + 3 + 3) = key(w) + shift(3) + params(3: beta, g, gamma)
-    Returns: (new_addressing_weights, read_output, new_addressing_weights)
+    Returns: (new_addressing_weights, read_output)
     """
     main_input = head_input[: w + SHIFT_KERNEL_SIZE]
     params = head_input[w + SHIFT_KERNEL_SIZE :]
@@ -52,7 +52,7 @@ def forward_read_head(
     focused = focus(gamma, shifted)
 
     output = read_op(focused, memory)
-    return focused, output, focused
+    return focused, output
 
 
 def write_memory(memory: Tensor, weights: Tensor, add_vector: Tensor) -> Tensor:
@@ -77,11 +77,10 @@ def forward_write_head(
     """
     read_head_size = w + SHIFT_KERNEL_SIZE + 3
     read_head_input = head_input[:read_head_size]
-    raw_add = head_input[read_head_size : read_head_size + w]
-    add_vector = raw_add
+    add_vector = head_input[read_head_size : read_head_size + w]
 
     # Compute new addressing weights (reuse read head logic)
-    new_weights, _, _ = forward_read_head(memory, addressing_weights, read_head_input, w)
+    new_weights, _ = forward_read_head(memory, addressing_weights, read_head_input, w)
 
     # Write to memory via interpolation
     new_memory = write_memory(memory, new_weights, add_vector)

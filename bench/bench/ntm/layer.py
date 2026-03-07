@@ -5,6 +5,8 @@ cell state. Memory uses interpolation write (no erase vector). Memory and
 controller state are learned via FC+sigmoid from a dummy input.
 """
 
+from typing import Protocol
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -12,6 +14,18 @@ from torch import Tensor
 
 from bench.ntm.addressing import addressing_params_width
 from bench.ntm.memory import forward_read_head, forward_write_head
+
+
+class Controller(Protocol):
+    """Required interface for NTM controllers."""
+
+    @property
+    def last_hidden(self) -> Tensor: ...
+    @property
+    def last_cell(self) -> Tensor: ...
+
+    def reset_state(self) -> None: ...
+    def __call__(self, x: Tensor) -> Tensor: ...
 
 
 class NTMLayer(nn.Module):
@@ -29,7 +43,7 @@ class NTMLayer(nn.Module):
 
     def __init__(
         self,
-        controller: nn.Module,
+        controller: Controller,
         n: int,
         m: int,
         num_inputs: int,
@@ -66,8 +80,13 @@ class NTMLayer(nn.Module):
         self.memory_bias_fc = nn.Linear(1, n * m)
         self.memory: Tensor = torch.full((n, m), 1e-6)
 
+        self._diag: dict[str, Tensor] = {}
+        self.stash_diagnostics: bool = False
+
     def reset_state(self) -> None:
-        """Reset memory and head state between sequences."""
+        """Reset memory, head state, and controller between sequences."""
+        self.controller.reset_state()
+
         # Learned memory init
         dummy = torch.tensor([[0.0]])
         memory_bias = F.sigmoid(self.memory_bias_fc(dummy))
@@ -91,16 +110,16 @@ class NTMLayer(nn.Module):
         controller_input = torch.cat([self._current_read_output, x])
 
         # Controller forward pass
-        _: Tensor = self.controller(controller_input)  # type: ignore[operator]
-        controller_hidden: Tensor = self.controller.last_hidden  # type: ignore[union-attr]
+        _: Tensor = self.controller(controller_input)
+        controller_hidden: Tensor = self.controller.last_hidden
 
         # Head params from cell state
-        head_fc_input: Tensor = self.controller.last_cell  # type: ignore[union-attr]
+        head_fc_input: Tensor = self.controller.last_cell
         read_params: Tensor = self.read_fc(head_fc_input)
         write_params: Tensor = self.write_fc(head_fc_input)
 
         # Read head
-        new_read_addr, read_output, _ = forward_read_head(
+        new_read_addr, read_output = forward_read_head(
             self.memory, self._current_read_addr, read_params, self.m
         )
 
@@ -116,14 +135,15 @@ class NTMLayer(nn.Module):
         self._current_read_output = read_output
 
         # Stash diagnostics (detached, no gradient impact)
-        self._diag = {
-            "read_addr": new_read_addr.detach().clone(),
-            "write_addr": new_write_addr.detach().clone(),
-            "memory": new_memory.detach().clone(),
-            "read_output": read_output.detach().clone(),
-            "read_params": read_params.detach().clone(),
-            "write_params": write_params.detach().clone(),
-        }
+        if self.stash_diagnostics:
+            self._diag = {
+                "read_addr": new_read_addr.detach().clone(),
+                "write_addr": new_write_addr.detach().clone(),
+                "memory": new_memory.detach().clone(),
+                "read_output": read_output.detach().clone(),
+                "read_params": read_params.detach().clone(),
+                "write_params": write_params.detach().clone(),
+            }
 
         # Output from controller hidden + read vector
         output = self.output_fc(torch.cat([controller_hidden, read_output]))

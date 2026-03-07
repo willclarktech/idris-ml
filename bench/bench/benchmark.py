@@ -17,6 +17,7 @@ from bench.models.rnn import LinearRNNCell, generate_rnn_dataset, train_rnn_epoc
 from bench.models.supervised import SUPERVISED_DATA, SupervisedModel, train_supervised_epoch
 from bench.ntm.controller import LSTMController
 from bench.ntm.layer import NTMLayer
+from bench.training.losses import nll_loss
 
 
 def bench_supervised() -> tuple[float, float]:
@@ -123,16 +124,12 @@ def bench_ntm() -> tuple[float, float]:
 
     max_norm = 5.0
 
-    def nll_loss(log_probs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
-        return -(targets * log_probs).mean()
-
     def train_one_epoch() -> float:
         optimizer = torch.optim.Adam(ntm.parameters(), lr=0.001)
         optimizer.zero_grad()
         total_loss = torch.tensor(0.0)
         for xs, ys in data:
             ntm.reset_state()
-            controller.reset_state()
             seq_loss = torch.tensor(0.0)
             for x, y in zip(xs, ys, strict=True):
                 raw = ntm(x)

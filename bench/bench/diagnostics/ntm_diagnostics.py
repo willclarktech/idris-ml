@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 import torch
 from torch import Tensor
 
+from bench.models.ntm import NtmModel
 from bench.ntm.addressing import (
     SHIFT_KERNEL_SIZE,
     addressing_params_width,
@@ -101,8 +102,7 @@ def _extract_write_params(
     rh_width = _read_head_input_width(w)
     rh_input = raw[:rh_width]
     key, beta, g, gamma, shift_vec = _extract_read_params(rh_input, w)
-    raw_add = raw[rh_width : rh_width + w]
-    add = raw_add
+    add = raw[rh_width : rh_width + w]
     return key, beta, g, gamma, shift_vec, add
 
 
@@ -111,10 +111,10 @@ def _extract_write_params(
 # ---------------------------------------------------------------------------
 
 
-def _extract_timestep(model: torch.nn.Module, t: int, x: Tensor, y: Tensor, w: int) -> NtmTimestep:
+def _extract_timestep(model: NtmModel, t: int, x: Tensor, y: Tensor, w: int) -> NtmTimestep:
     """Run one timestep and extract diagnostics."""
-    _ = model(x)  # type: ignore[operator]
-    diag: dict[str, Tensor] = model.ntm._diag  # type: ignore[attr-defined]
+    _ = model(x)
+    diag: dict[str, Tensor] = model.ntm._diag
 
     read_raw = diag["read_params"]
     write_raw = diag["write_params"]
@@ -151,28 +151,29 @@ def _extract_timestep(model: torch.nn.Module, t: int, x: Tensor, y: Tensor, w: i
 
 
 def instrumented_forward(
-    model: torch.nn.Module,
+    model: NtmModel,
     inputs: list[Tensor],
     targets: list[Tensor],
 ) -> list[NtmTimestep]:
     """Run model timestep-by-timestep, extracting NTM diagnostics.
 
-    The model must have a .ntm attribute (NTMLayer with _diag dict).
     Calls model.reset_state() first.
     """
-    model.reset_state()  # type: ignore[attr-defined]
-    w: int = model.ntm.m  # type: ignore[attr-defined]
+    model.ntm.stash_diagnostics = True
+    model.reset_state()
+    w: int = model.ntm.m
     timesteps: list[NtmTimestep] = []
 
     with torch.no_grad():
         for t, (x, y) in enumerate(zip(inputs, targets, strict=True)):
             timesteps.append(_extract_timestep(model, t, x, y, w))
 
+    model.ntm.stash_diagnostics = False
     return timesteps
 
 
 def instrumented_forward_recall(
-    model: torch.nn.Module,
+    model: NtmModel,
     input_seq: Tensor,
     target_seq: Tensor,
 ) -> list[NtmTimestep]:
@@ -182,7 +183,7 @@ def instrumented_forward_recall(
     target_seq covers only the output phase (fed with zero inputs).
 
     Args:
-        model: NTM model (must have .ntm with ._diag and .num_inputs).
+        model: NTM model.
         input_seq: (total_input_timesteps, input_width) — full encoding sequence.
         target_seq: (output_len, seq_width) — target vectors for output phase.
 
@@ -190,9 +191,10 @@ def instrumented_forward_recall(
         List of NtmTimestep for all timesteps (encoding + output).
         Encoding timesteps use a zero dummy target.
     """
-    model.reset_state()  # type: ignore[attr-defined]
-    w: int = model.ntm.m  # type: ignore[attr-defined]
-    num_inputs: int = model.ntm.num_inputs  # type: ignore[attr-defined]
+    model.ntm.stash_diagnostics = True
+    model.reset_state()
+    w: int = model.ntm.m
+    num_inputs: int = model.ntm.num_inputs
     seq_width = target_seq.shape[1]
     timesteps: list[NtmTimestep] = []
 
@@ -211,6 +213,7 @@ def instrumented_forward_recall(
             ts = _extract_timestep(model, t, zero_input, target_seq[i], w)
             timesteps.append(ts)
 
+    model.ntm.stash_diagnostics = False
     return timesteps
 
 

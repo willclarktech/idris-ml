@@ -49,7 +49,6 @@ class NtmModel(nn.Module):
 
     def reset_state(self) -> None:
         self.ntm.reset_state()
-        self.ntm.controller.reset_state()  # type: ignore[operator]
 
     def forward(self, x: Tensor) -> Tensor:
         """Forward one timestep, returns sigmoid output."""
