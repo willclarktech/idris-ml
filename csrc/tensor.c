@@ -71,6 +71,7 @@ void *batch_cossim_meta_set_out(void *p, int start);
 void *readop_meta_set_out(void *p, int start);
 void *writeop_meta_set_out(void *p, int start);
 void *interp_write_meta_set_out(void *p, int start);
+void *lstm_cell_meta_set_out(void *p, int start);
 
 /* -------------------------------------------------------------------
    String interning (for parameter IDs)
@@ -241,6 +242,7 @@ void *tape_append_tensor_op(int tag, int count, void *meta, void *out_buf) {
     case 16: readop_meta_set_out(meta, idx); break;
     case 17: writeop_meta_set_out(meta, idx); break;
     case 18: interp_write_meta_set_out(meta, idx); break;
+    case 24: lstm_cell_meta_set_out(meta, idx); break;
   }
   return out_buf;
 }
@@ -435,6 +437,22 @@ typedef struct {
   int out_tape_start;     /* set by tape append */
 } InterpWriteMeta;
 
+typedef struct {
+  int o;                    /* hidden size */
+  double *muliw_vals;       /* 4*o (matmul output: iW×x) */
+  double *mulrw_vals;       /* 4*o (matmul output: rW×h) */
+  double *bias_vals;        /* 4*o */
+  double *prev_cell_vals;   /* o */
+  int *muliw_tape_idx;      /* 4*o tape indices */
+  int *mulrw_tape_idx;      /* 4*o tape indices */
+  int *bias_tape_idx;       /* 4*o tape indices */
+  int *prev_cell_tape_idx;  /* o tape indices */
+  /* Cached for backward: */
+  double *gate_vals;        /* 4*o (activated gates: iGate, fGate, gGate, oGate) */
+  double *new_cell_vals;    /* o */
+  int out_tape_start;       /* first output index (2*o outputs: cell + hidden) */
+} LstmCellMeta;
+
 
 /* -------------------------------------------------------------------
    Metadata allocation (arena-backed)
@@ -541,6 +559,24 @@ InterpWriteMeta *interp_write_meta_alloc(int n, int w) {
   m->weight_tape_idx = (int *)arena_alloc(n * sizeof(int));
   m->add_tape_idx = (int *)arena_alloc(w * sizeof(int));
   m->out_vals = (double *)arena_alloc(n * w * sizeof(double));
+  m->out_tape_start = 0;
+  return m;
+}
+
+LstmCellMeta *lstm_cell_meta_alloc(int o) {
+  int fo = 4 * o;
+  LstmCellMeta *m = (LstmCellMeta *)arena_alloc(sizeof(LstmCellMeta));
+  m->o = o;
+  m->muliw_vals = (double *)arena_alloc(fo * sizeof(double));
+  m->mulrw_vals = (double *)arena_alloc(fo * sizeof(double));
+  m->bias_vals = (double *)arena_alloc(fo * sizeof(double));
+  m->prev_cell_vals = (double *)arena_alloc(o * sizeof(double));
+  m->muliw_tape_idx = (int *)arena_alloc(fo * sizeof(int));
+  m->mulrw_tape_idx = (int *)arena_alloc(fo * sizeof(int));
+  m->bias_tape_idx = (int *)arena_alloc(fo * sizeof(int));
+  m->prev_cell_tape_idx = (int *)arena_alloc(o * sizeof(int));
+  m->gate_vals = (double *)arena_alloc(fo * sizeof(double));
+  m->new_cell_vals = (double *)arena_alloc(o * sizeof(double));
   m->out_tape_start = 0;
   return m;
 }
@@ -731,6 +767,59 @@ void *interp_write_meta_set_out(void *p, int start) {
 void *writeop_meta_set_out(void *p, int start) {
   ((WriteOpMeta *)p)->out_tape_start = start;
   return p;
+}
+
+/* --- LstmCell meta accessors --- */
+double *lstm_cell_meta_muliw_vals(void *p)    { return ((LstmCellMeta *)p)->muliw_vals; }
+int *lstm_cell_meta_muliw_tape(void *p)       { return ((LstmCellMeta *)p)->muliw_tape_idx; }
+double *lstm_cell_meta_mulrw_vals(void *p)    { return ((LstmCellMeta *)p)->mulrw_vals; }
+int *lstm_cell_meta_mulrw_tape(void *p)       { return ((LstmCellMeta *)p)->mulrw_tape_idx; }
+double *lstm_cell_meta_bias_vals(void *p)     { return ((LstmCellMeta *)p)->bias_vals; }
+int *lstm_cell_meta_bias_tape(void *p)        { return ((LstmCellMeta *)p)->bias_tape_idx; }
+double *lstm_cell_meta_prevcell_vals(void *p) { return ((LstmCellMeta *)p)->prev_cell_vals; }
+int *lstm_cell_meta_prevcell_tape(void *p)    { return ((LstmCellMeta *)p)->prev_cell_tape_idx; }
+
+void *lstm_cell_meta_set_out(void *p, int start) {
+  ((LstmCellMeta *)p)->out_tape_start = start;
+  return p;
+}
+
+/* LSTM cell forward:
+ * combined[k] = mulIW[k] + mulRW[k] + bias[k]   for k in [0, 4*o)
+ * iGate = sigmoid(combined[0..o))
+ * fGate = sigmoid(combined[o..2o))
+ * gGate = tanh(combined[2o..3o))
+ * oGate = sigmoid(combined[3o..4o))
+ * newCell[j] = fGate[j] * prevCell[j] + iGate[j] * gGate[j]
+ * newHidden[j] = oGate[j] * tanh(newCell[j])
+ *
+ * Saves activated gate values and newCell for backward.
+ * Output buffer: [newCell[0..o), newHidden[0..o)] (2*o elements) */
+void *lstm_cell_compute(void *meta_ptr, double *out) {
+  LstmCellMeta *m = (LstmCellMeta *)meta_ptr;
+  int o = m->o;
+
+  /* Compute combined = mulIW + mulRW + bias, apply activations */
+  for (int j = 0; j < o; j++) {
+    m->gate_vals[j] = 1.0 / (1.0 + exp(-(m->muliw_vals[j] + m->mulrw_vals[j] + m->bias_vals[j])));               /* iGate = sigmoid */
+    m->gate_vals[o + j] = 1.0 / (1.0 + exp(-(m->muliw_vals[o + j] + m->mulrw_vals[o + j] + m->bias_vals[o + j]))); /* fGate = sigmoid */
+    double comb_g = m->muliw_vals[2*o + j] + m->mulrw_vals[2*o + j] + m->bias_vals[2*o + j];
+    m->gate_vals[2*o + j] = tanh(comb_g);                                                                            /* gGate = tanh */
+    m->gate_vals[3*o + j] = 1.0 / (1.0 + exp(-(m->muliw_vals[3*o + j] + m->mulrw_vals[3*o + j] + m->bias_vals[3*o + j]))); /* oGate = sigmoid */
+  }
+
+  /* Cell and hidden update */
+  for (int j = 0; j < o; j++) {
+    double iG = m->gate_vals[j];
+    double fG = m->gate_vals[o + j];
+    double gG = m->gate_vals[2*o + j];
+    double oG = m->gate_vals[3*o + j];
+    double nc = fG * m->prev_cell_vals[j] + iG * gG;
+    m->new_cell_vals[j] = nc;
+    out[j] = nc;                  /* newCell */
+    out[o + j] = oG * tanh(nc);   /* newHidden */
+  }
+  return out;
 }
 
 /* Softmax forward: out[i] = exp(x[i] - max) / sum(exp(x - max))
@@ -1076,6 +1165,88 @@ void tensor_interp_write_backward(double *grad_array, InterpWriteMeta *m) {
   }
 }
 
+/*
+ * LstmCell backward: given d_newCell[o] and d_newHidden[o],
+ * where outputs at [out_start+1 .. out_start+2*o]:
+ *   out[0..o)   = newCell
+ *   out[o..2*o) = newHidden
+ *
+ * newHidden[j] = oGate[j] * tanh(newCell[j])
+ * newCell[j] = fGate[j] * prevCell[j] + iGate[j] * gGate[j]
+ *
+ * Backward:
+ *   tanhC = tanh(newCell)
+ *   d_oGate = d_newHidden * tanhC
+ *   d_tanhC = d_newHidden * oGate
+ *   d_newCell += d_tanhC * (1 - tanhC²)
+ *
+ *   d_fGate = d_newCell * prevCell
+ *   d_prevCell = d_newCell * fGate
+ *   d_iGate = d_newCell * gGate
+ *   d_gGate = d_newCell * iGate
+ *
+ *   d_combined[0..o)  = d_iGate * iGate * (1 - iGate)    (sigmoid derivative)
+ *   d_combined[o..2o) = d_fGate * fGate * (1 - fGate)
+ *   d_combined[2o..3o) = d_gGate * (1 - gGate²)          (tanh derivative)
+ *   d_combined[3o..4o) = d_oGate * oGate * (1 - oGate)
+ *
+ *   grad[mulIW[k]] += d_combined[k]
+ *   grad[mulRW[k]] += d_combined[k]
+ *   grad[bias[k]]  += d_combined[k]
+ *   grad[prevCell[j]] += d_prevCell[j]
+ */
+void tensor_lstm_cell_backward(double *grad_array, LstmCellMeta *m) {
+  int o = m->o;
+  int out_start = m->out_tape_start + 1; /* skip the op entry */
+
+  for (int j = 0; j < o; j++) {
+    double d_nc = grad_array[out_start + j];         /* d_newCell */
+    double d_nh = grad_array[out_start + o + j];     /* d_newHidden */
+
+    double iG = m->gate_vals[j];
+    double fG = m->gate_vals[o + j];
+    double gG = m->gate_vals[2*o + j];
+    double oG = m->gate_vals[3*o + j];
+
+    double tanhC = tanh(m->new_cell_vals[j]);
+
+    /* Hidden output backward */
+    double d_oGate = d_nh * tanhC;
+    double d_tanhC = d_nh * oG;
+    d_nc += d_tanhC * (1.0 - tanhC * tanhC);
+
+    /* Cell update backward */
+    double d_fGate = d_nc * m->prev_cell_vals[j];
+    double d_prevCell = d_nc * fG;
+    double d_iGate = d_nc * gG;
+    double d_gGate = d_nc * iG;
+
+    /* Gate activation backward -> d_combined */
+    double dc_i = d_iGate * iG * (1.0 - iG);     /* sigmoid derivative */
+    double dc_f = d_fGate * fG * (1.0 - fG);
+    double dc_g = d_gGate * (1.0 - gG * gG);      /* tanh derivative */
+    double dc_o = d_oGate * oG * (1.0 - oG);
+
+    /* Propagate to mulIW, mulRW, bias */
+    grad_array[m->muliw_tape_idx[j]]       += dc_i;
+    grad_array[m->muliw_tape_idx[o + j]]   += dc_f;
+    grad_array[m->muliw_tape_idx[2*o + j]] += dc_g;
+    grad_array[m->muliw_tape_idx[3*o + j]] += dc_o;
+
+    grad_array[m->mulrw_tape_idx[j]]       += dc_i;
+    grad_array[m->mulrw_tape_idx[o + j]]   += dc_f;
+    grad_array[m->mulrw_tape_idx[2*o + j]] += dc_g;
+    grad_array[m->mulrw_tape_idx[3*o + j]] += dc_o;
+
+    grad_array[m->bias_tape_idx[j]]       += dc_i;
+    grad_array[m->bias_tape_idx[o + j]]   += dc_f;
+    grad_array[m->bias_tape_idx[2*o + j]] += dc_g;
+    grad_array[m->bias_tape_idx[3*o + j]] += dc_o;
+
+    grad_array[m->prev_cell_tape_idx[j]] += d_prevCell;
+  }
+}
+
 
 /* -------------------------------------------------------------------
    Addressing op meta types (forward declared for backward pass)
@@ -1201,8 +1372,8 @@ int walk_backward(double *grad, int tape_sz) {
     }
 
     /* Scalar ops (1-10, 19-20) store gradient at grad[idx]; safe to skip.
-     * Tensor ops (11-18) store gradient at output ConstOps; never skip. */
-    if (g == 0.0 && (tag <= 10 || tag >= 19)) continue;
+     * Tensor ops (11-18, 21-24) store gradient at output ConstOps; never skip. */
+    if (g == 0.0 && (tag <= 10 || (tag >= 19 && tag <= 20))) continue;
 
     int a1 = tape_arg1[idx];
     int a2 = tape_arg2[idx];
@@ -1290,6 +1461,9 @@ int walk_backward(double *grad, int tape_sz) {
       case 23: /* FocusOp */
         tensor_focus_backward(grad, (FocusMeta *)tape_meta[idx]);
         break;
+      case 24: /* LstmCellOp */
+        tensor_lstm_cell_backward(grad, (LstmCellMeta *)tape_meta[idx]);
+        break;
       default:
         break;
     }
@@ -1354,8 +1528,8 @@ int walk_backward_ext(double *grad, int tape_sz,
     }
 
     /* Scalar ops (1-10, 19-20) store gradient at grad[idx]; safe to skip.
-     * Tensor ops (11-18) store gradient at output ConstOps; never skip. */
-    if (g == 0.0 && (tag <= 10 || tag >= 19)) continue;
+     * Tensor ops (11-18, 21-24) store gradient at output ConstOps; never skip. */
+    if (g == 0.0 && (tag <= 10 || (tag >= 19 && tag <= 20))) continue;
 
     int a1 = arg1[idx];
     int a2 = arg2[idx];
@@ -1389,6 +1563,7 @@ int walk_backward_ext(double *grad, int tape_sz,
       case 21: tensor_interpolate_backward(grad, (InterpolateMeta *)meta[idx]); break;
       case 22: tensor_shift_backward(grad, (ShiftMeta *)meta[idx]); break;
       case 23: tensor_focus_backward(grad, (FocusMeta *)meta[idx]); break;
+      case 24: tensor_lstm_cell_backward(grad, (LstmCellMeta *)meta[idx]); break;
       default: break;
     }
   }
@@ -1416,6 +1591,7 @@ void *tensor_op_set_out(int tag, void *meta, int idx) {
     case 21: return interpolate_meta_set_out(meta, idx);
     case 22: return shift_meta_set_out(meta, idx);
     case 23: return focus_meta_set_out(meta, idx);
+    case 24: return lstm_cell_meta_set_out(meta, idx);
     default: return meta;
   }
 }

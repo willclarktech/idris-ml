@@ -1148,6 +1148,212 @@ static void test_focus_backward(void) {
 
 
 /* -------------------------------------------------------------------
+   LstmCellOp tests
+   ------------------------------------------------------------------- */
+
+static void test_lstm_cell_forward(void) {
+  arena_reset();
+  /* o=2: 4*o=8 combined, prev_cell[2], output: newCell[2]+newHidden[2] */
+  int o = 2;
+  LstmCellMeta *m = lstm_cell_meta_alloc(o);
+
+  /* mulIW = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8] */
+  /* mulRW = [0.05, 0.15, 0.25, 0.35, 0.45, 0.55, 0.65, 0.75] */
+  /* bias  = [0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08] */
+  for (int k = 0; k < 8; k++) {
+    m->muliw_vals[k] = 0.1 * (k + 1);
+    m->mulrw_vals[k] = 0.05 + 0.1 * k;
+    m->bias_vals[k] = 0.01 * (k + 1);
+  }
+  m->prev_cell_vals[0] = 0.5;
+  m->prev_cell_vals[1] = -0.3;
+
+  double out[4];
+  lstm_cell_compute(m, out);
+
+  /* Verify manually:
+   * combined[k] = mulIW[k] + mulRW[k] + bias[k]
+   * combined = [0.16, 0.37, 0.58, 0.79, 1.0, 1.21, 1.42, 1.63] */
+  double comb[8];
+  for (int k = 0; k < 8; k++)
+    comb[k] = m->muliw_vals[k] + m->mulrw_vals[k] + m->bias_vals[k];
+
+  /* iGate = sigmoid(combined[0..2)) */
+  double iG0 = 1.0 / (1.0 + exp(-comb[0]));
+  double iG1 = 1.0 / (1.0 + exp(-comb[1]));
+  /* fGate = sigmoid(combined[2..4)) */
+  double fG0 = 1.0 / (1.0 + exp(-comb[2]));
+  double fG1 = 1.0 / (1.0 + exp(-comb[3]));
+  /* gGate = tanh(combined[4..6)) */
+  double gG0 = tanh(comb[4]);
+  double gG1 = tanh(comb[5]);
+  /* oGate = sigmoid(combined[6..8)) */
+  double oG0 = 1.0 / (1.0 + exp(-comb[6]));
+  double oG1 = 1.0 / (1.0 + exp(-comb[7]));
+
+  double nc0 = fG0 * 0.5 + iG0 * gG0;
+  double nc1 = fG1 * (-0.3) + iG1 * gG1;
+  double nh0 = oG0 * tanh(nc0);
+  double nh1 = oG1 * tanh(nc1);
+
+  check_close("lstm_cell newCell[0]", out[0], nc0, 1e-12);
+  check_close("lstm_cell newCell[1]", out[1], nc1, 1e-12);
+  check_close("lstm_cell newHidden[0]", out[2], nh0, 1e-12);
+  check_close("lstm_cell newHidden[1]", out[3], nh1, 1e-12);
+}
+
+static void test_lstm_cell_backward(void) {
+  /* Numerical gradient check for LstmCellOp.
+   * Use o=2 for simplicity. Check gradients for all inputs:
+   * mulIW[8], mulRW[8], bias[8], prevCell[2]
+   * Outputs: newCell[2] + newHidden[2] at tape indices offset by +1 */
+  arena_reset();
+  int o = 2;
+  int fo = 8; /* 4*o */
+
+  /* Base values */
+  double muliw[8] = {0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8};
+  double mulrw[8] = {0.05, 0.15, 0.25, 0.35, 0.45, 0.55, 0.65, 0.75};
+  double bias[8]  = {0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08};
+  double pcell[2] = {0.5, -0.3};
+
+  /* Tape layout: muliw[0..7] = idx 0..7, mulrw[8..15] = idx 8..15,
+   * bias[16..23] = idx 16..23, prevCell[24..25] = idx 24..25,
+   * op entry = idx 26, outputs = idx 27..30 */
+  int n_inputs = 26; /* 8+8+8+2 */
+
+  /* Analytical backward */
+  LstmCellMeta *m = lstm_cell_meta_alloc(o);
+  for (int k = 0; k < fo; k++) {
+    m->muliw_vals[k] = muliw[k];
+    m->mulrw_vals[k] = mulrw[k];
+    m->bias_vals[k] = bias[k];
+    m->muliw_tape_idx[k] = k;
+    m->mulrw_tape_idx[k] = fo + k;
+    m->bias_tape_idx[k] = 2 * fo + k;
+  }
+  for (int j = 0; j < o; j++) {
+    m->prev_cell_vals[j] = pcell[j];
+    m->prev_cell_tape_idx[j] = 3 * fo + j;
+  }
+  m->out_tape_start = n_inputs; /* op entry at idx 26, outputs at 27..30 */
+
+  double out[4];
+  lstm_cell_compute(m, out);
+
+  /* Seed gradient: 1.0 for all outputs (at indices 27,28,29,30) */
+  int total = n_inputs + 1 + 2 * o; /* 26 inputs + 1 op entry + 4 outputs */
+  double *grad = (double *)calloc(total, sizeof(double));
+  for (int k = 0; k < 2 * o; k++)
+    grad[n_inputs + 1 + k] = 1.0; /* outputs start at op+1 */
+
+  tensor_lstm_cell_backward(grad, m);
+
+  /* Numerical gradient check */
+  double eps = 1e-5;
+  double out_plus[4], out_minus[4];
+
+  /* Check mulIW gradients */
+  for (int k = 0; k < fo; k++) {
+    LstmCellMeta *m2 = lstm_cell_meta_alloc(o);
+    for (int j = 0; j < fo; j++) {
+      m2->muliw_vals[j] = muliw[j];
+      m2->mulrw_vals[j] = mulrw[j];
+      m2->bias_vals[j] = bias[j];
+    }
+    for (int j = 0; j < o; j++) m2->prev_cell_vals[j] = pcell[j];
+
+    m2->muliw_vals[k] = muliw[k] + eps;
+    lstm_cell_compute(m2, out_plus);
+    m2->muliw_vals[k] = muliw[k] - eps;
+    lstm_cell_compute(m2, out_minus);
+
+    double num = 0.0;
+    for (int j = 0; j < 2 * o; j++)
+      num += (out_plus[j] - out_minus[j]) / (2.0 * eps);
+
+    char name[64];
+    snprintf(name, sizeof(name), "lstm_cell_bwd d_muliw[%d]", k);
+    check_close(name, grad[k], num, 1e-5);
+  }
+
+  /* Check mulRW gradients */
+  for (int k = 0; k < fo; k++) {
+    LstmCellMeta *m2 = lstm_cell_meta_alloc(o);
+    for (int j = 0; j < fo; j++) {
+      m2->muliw_vals[j] = muliw[j];
+      m2->mulrw_vals[j] = mulrw[j];
+      m2->bias_vals[j] = bias[j];
+    }
+    for (int j = 0; j < o; j++) m2->prev_cell_vals[j] = pcell[j];
+
+    m2->mulrw_vals[k] = mulrw[k] + eps;
+    lstm_cell_compute(m2, out_plus);
+    m2->mulrw_vals[k] = mulrw[k] - eps;
+    lstm_cell_compute(m2, out_minus);
+
+    double num = 0.0;
+    for (int j = 0; j < 2 * o; j++)
+      num += (out_plus[j] - out_minus[j]) / (2.0 * eps);
+
+    char name[64];
+    snprintf(name, sizeof(name), "lstm_cell_bwd d_mulrw[%d]", k);
+    check_close(name, grad[fo + k], num, 1e-5);
+  }
+
+  /* Check bias gradients */
+  for (int k = 0; k < fo; k++) {
+    LstmCellMeta *m2 = lstm_cell_meta_alloc(o);
+    for (int j = 0; j < fo; j++) {
+      m2->muliw_vals[j] = muliw[j];
+      m2->mulrw_vals[j] = mulrw[j];
+      m2->bias_vals[j] = bias[j];
+    }
+    for (int j = 0; j < o; j++) m2->prev_cell_vals[j] = pcell[j];
+
+    m2->bias_vals[k] = bias[k] + eps;
+    lstm_cell_compute(m2, out_plus);
+    m2->bias_vals[k] = bias[k] - eps;
+    lstm_cell_compute(m2, out_minus);
+
+    double num = 0.0;
+    for (int j = 0; j < 2 * o; j++)
+      num += (out_plus[j] - out_minus[j]) / (2.0 * eps);
+
+    char name[64];
+    snprintf(name, sizeof(name), "lstm_cell_bwd d_bias[%d]", k);
+    check_close(name, grad[2 * fo + k], num, 1e-5);
+  }
+
+  /* Check prevCell gradients */
+  for (int k = 0; k < o; k++) {
+    LstmCellMeta *m2 = lstm_cell_meta_alloc(o);
+    for (int j = 0; j < fo; j++) {
+      m2->muliw_vals[j] = muliw[j];
+      m2->mulrw_vals[j] = mulrw[j];
+      m2->bias_vals[j] = bias[j];
+    }
+    for (int j = 0; j < o; j++) m2->prev_cell_vals[j] = pcell[j];
+
+    m2->prev_cell_vals[k] = pcell[k] + eps;
+    lstm_cell_compute(m2, out_plus);
+    m2->prev_cell_vals[k] = pcell[k] - eps;
+    lstm_cell_compute(m2, out_minus);
+
+    double num = 0.0;
+    for (int j = 0; j < 2 * o; j++)
+      num += (out_plus[j] - out_minus[j]) / (2.0 * eps);
+
+    char name[64];
+    snprintf(name, sizeof(name), "lstm_cell_bwd d_prevcell[%d]", k);
+    check_close(name, grad[3 * fo + k], num, 1e-5);
+  }
+
+  free(grad);
+}
+
+
+/* -------------------------------------------------------------------
    Main
    ------------------------------------------------------------------- */
 
@@ -1191,6 +1397,8 @@ int main(void) {
   test_shift_backward();
   test_focus_forward();
   test_focus_backward();
+  test_lstm_cell_forward();
+  test_lstm_cell_backward();
 
   printf("\n%d passed, %d failed\n", tests_passed, tests_failed);
   return tests_failed > 0 ? 1 : 0;
