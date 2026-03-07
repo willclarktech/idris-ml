@@ -1,8 +1,10 @@
 # NTM Recall Convergence Results
 
+> **Note**: As of the simplification refactor, all ablation flags have been removed from the PyTorch NTM implementation. Experiment J's configuration (all vlgiitr differences combined) is now the only architecture, hardcoded in `bench/bench/ntm/layer.py`. The experiments below are historical records of the investigation that led to this decision.
+
 Experiments run with `bench/bench/scripts/convergence.py` to verify PyTorch NTM recall convergence under different optimizer and curriculum configurations.
 
-Architecture: LSTM controller (hidden=100), N=128 memory slots, M=20 memory width, separate head FCs, output = FC(controller_hidden + read_vector). BCELoss. Value clip ±10.
+Architecture (current): LSTM controller (hidden=100), N=128 memory slots, M=20 memory width, separate head FCs with cell state input, interpolation write (no erase), learned memory init (FC+sigmoid), learned controller init (FC from dummy), xavier gain=1.4 for head FCs, kaiming for output FC. BCELoss. Value clip ±10.
 
 ## Summary
 
