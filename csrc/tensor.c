@@ -722,6 +722,21 @@ void tape_set_shadow_tags(int *tags, int start, int count) {
   for (int i = 0; i < count; i++) tags[start + i] = 25;
 }
 
+/* Bulk-append output ConstOps into external (Scheme-managed) tape arrays.
+ * Sets tags to 0 via memset, copies values via memcpy. Pids left as default
+ * (empty string from make-vector init). Returns nothing — caller manages
+ * tape-size and tape-ensure-cap in Scheme. */
+void tape_bulk_set_const(int *tags, double *vals, int start, double *src, int count) {
+  memset(tags + start, 0, count * sizeof(int));
+  memcpy(vals + start, src, count * sizeof(double));
+}
+
+/* Same as tape_bulk_set_const but reads from src+off. */
+void tape_bulk_set_const_off(int *tags, double *vals, int start, double *src, int off, int count) {
+  memset(tags + start, 0, count * sizeof(int));
+  memcpy(vals + start, src + off, count * sizeof(double));
+}
+
 /* -------------------------------------------------------------------
    Gradient array (C-backed for use with tensor backward)
    ------------------------------------------------------------------- */

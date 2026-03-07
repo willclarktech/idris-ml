@@ -212,11 +212,14 @@ prim__readOpPackMemBuf : AnyPtr -> AnyPtr -> AnyPtr
 prim__interpWritePackMemBuf : AnyPtr -> AnyPtr -> AnyPtr
 
 -- Bulk append ConstOps from C output buffer (no pids). Returns start tape index.
-%foreign "scheme:(lambda (outBuf count) (let* ((start (top-level-value 'tape-size)) (end (+ start count))) ((top-level-value 'tape-ensure-cap!) (- end 1)) (let ((tags-fp (top-level-value 'tape-tags-fp)) (vals-fp (top-level-value 'tape-vals-fp)) (pidv (top-level-value 'tape-pids))) (do ((k 0 (+ k 1))) ((= k count)) (let ((idx (+ start k))) (foreign-set! 'integer-32 tags-fp (* idx 4) 0) (foreign-set! 'double vals-fp (* idx 8) (foreign-ref 'double outBuf (* k 8))) (vector-set! pidv idx \"\")))) (set-top-level-value! 'tape-size end) start))"
+-- Uses C memset+memcpy instead of per-element Scheme foreign-set! loop.
+-- Pids default to "" from make-vector init / tape-ensure-cap! growth.
+%foreign "scheme:(lambda (outBuf count) (let* ((start (top-level-value 'tape-size)) (end (+ start count))) ((top-level-value 'tape-ensure-cap!) (- end 1)) ((foreign-procedure \"tape_bulk_set_const\" (void* void* int void* int) void) (top-level-value 'tape-tags-fp) (top-level-value 'tape-vals-fp) start outBuf count) (set-top-level-value! 'tape-size end) start))"
 prim__appendOutputConst : AnyPtr -> Int -> Int
 
 -- Bulk append ConstOps from C output buffer with offset. Returns start tape index.
-%foreign "scheme:(lambda (outBuf off count) (let* ((start (top-level-value 'tape-size)) (end (+ start count))) ((top-level-value 'tape-ensure-cap!) (- end 1)) (let ((tags-fp (top-level-value 'tape-tags-fp)) (vals-fp (top-level-value 'tape-vals-fp)) (pidv (top-level-value 'tape-pids))) (do ((k 0 (+ k 1))) ((= k count)) (let ((idx (+ start k))) (foreign-set! 'integer-32 tags-fp (* idx 4) 0) (foreign-set! 'double vals-fp (* idx 8) (foreign-ref 'double outBuf (* (+ off k) 8))) (vector-set! pidv idx \"\")))) (set-top-level-value! 'tape-size end) start))"
+-- Uses C memset+memcpy instead of per-element Scheme foreign-set! loop.
+%foreign "scheme:(lambda (outBuf off count) (let* ((start (top-level-value 'tape-size)) (end (+ start count))) ((top-level-value 'tape-ensure-cap!) (- end 1)) ((foreign-procedure \"tape_bulk_set_const_off\" (void* void* int void* int int) void) (top-level-value 'tape-tags-fp) (top-level-value 'tape-vals-fp) start outBuf off count) (set-top-level-value! 'tape-size end) start))"
 prim__appendOutputConstOff : AnyPtr -> Int -> Int -> Int
 
 -- Bulk append shadow ConstOps (tag=25): gradient slots only, no values/pids.
