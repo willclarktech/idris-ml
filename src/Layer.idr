@@ -471,17 +471,15 @@ mutual
       (updatedLstm, hidden, lstmBufInfo) =>
         let cell = extractCellState updatedLstm
             -- Read FC: prefer buffer-passing from LSTM cell output
-            rawReadParams = case (lstmBufInfo, getLinearBufs readFc) of
+            readParams = case (lstmBufInfo, getLinearBufs readFc) of
               (Just (buf, ccs), (Just wb, Just bb)) =>
                 matrixVectorMultiplyVarBufBiasFromBuf {m=ReadParamWidth m, n=h} wb bb buf 0 ccs
               _ => snd (applyLayerVar readFc cell)
-            readParams = map (clampVar (-20.0) 20.0) rawReadParams
             -- Write FC: prefer buffer-passing from LSTM cell output
-            rawWriteParams = case (lstmBufInfo, getLinearBufs writeFc) of
+            writeParams = case (lstmBufInfo, getLinearBufs writeFc) of
               (Just (buf, ccs), (Just wb, Just bb)) =>
                 matrixVectorMultiplyVarBufBiasFromBuf {m=WriteParamWidth m, n=h} wb bb buf 0 ccs
               _ => snd (applyLayerVar writeFc cell)
-            writeParams = map (clampVar (-20.0) 20.0) rawWriteParams
             -- Read head (buffer-aware: C memcpy pack)
             rh = MkReadHead readAddr
         in case forwardReadHeadUnboundedVarBuf memBuf rh readParams of
@@ -508,12 +506,10 @@ mutual
       (updatedLstm, hidden) =>
         let cell = extractCellState updatedLstm
         in case applyLayerVar readFc cell of
-          (_, rawReadParams) =>
-            let readParams = map (clampVar (-20.0) 20.0) rawReadParams
-            in case applyLayerVar writeFc cell of
-              (_, rawWriteParams) =>
-                let writeParams = map (clampVar (-20.0) 20.0) rawWriteParams
-                    rh = MkReadHead readAddr
+          (_, readParams) =>
+            case applyLayerVar writeFc cell of
+              (_, writeParams) =>
+                let rh = MkReadHead readAddr
                 in case forwardReadHeadUnboundedVar memory rh readParams of
                   (readHead, newReadOutput) =>
                     let wh = MkWriteHead (MkReadHead writeAddr)
