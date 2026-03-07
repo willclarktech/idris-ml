@@ -351,6 +351,25 @@ prim__dotBTape : AnyPtr -> AnyPtr
 %foreign "scheme:(lambda (meta) ((foreign-procedure \"dot_meta_compute\" (void*) double) meta))"
 prim__dotCompute : AnyPtr -> Double
 
+-- BCE meta: alloc, get internal pointers, compute, tape append
+%foreign "scheme:(lambda (n) ((foreign-procedure \"bce_meta_alloc\" (int) void*) n))"
+prim__bceMetaAlloc : Int -> AnyPtr
+
+%foreign "scheme:(lambda (meta) ((foreign-procedure \"bce_meta_pred_vals\" (void*) void*) meta))"
+prim__bcePredVals : AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (meta) ((foreign-procedure \"bce_meta_pred_tape\" (void*) void*) meta))"
+prim__bcePredTape : AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (meta) ((foreign-procedure \"bce_meta_target_vals\" (void*) void*) meta))"
+prim__bceTargetVals : AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (meta) ((foreign-procedure \"bce_meta_target_tape\" (void*) void*) meta))"
+prim__bceTargetTape : AnyPtr -> AnyPtr
+
+%foreign "scheme:(lambda (meta) ((foreign-procedure \"bce_meta_compute\" (void*) double) meta))"
+prim__bceCompute : AnyPtr -> Double
+
+%foreign "scheme:(lambda (meta val) ((foreign-procedure \"tape_append_bce_op\" (void* double) int) meta val))"
+prim__tapeAppendBceOp : AnyPtr -> Double -> Int
+
 -- Softmax/LogSoftmax meta: alloc, get internal pointers, compute
 %foreign "scheme:(lambda (n) ((foreign-procedure \"softmax_meta_alloc\" (int) void*) n))"
 prim__softmaxMetaAlloc : Int -> AnyPtr
@@ -615,6 +634,11 @@ tapeEnsureBulkConst wBuf count = prim__tapeEnsureBulkConst wBuf count
 %noinline
 tapeAppendDotOp : AnyPtr -> Double -> Nat
 tapeAppendDotOp meta val = cast (prim__tapeAppendDotOp meta val)
+
+-- Append BceOp + output ConstOp + set meta->out_tape_idx. Returns ConstOp tape index.
+%noinline
+tapeAppendBceOp : AnyPtr -> Double -> Nat
+tapeAppendBceOp meta val = cast (prim__tapeAppendBceOp meta val)
 
 %noinline
 tapeAppendSoftmaxOp : Int -> Int -> AnyPtr -> AnyPtr -> AnyPtr
@@ -1206,6 +1230,31 @@ dotProductVar {n} (VTensor as) (VTensor bs) =
       val = prim__dotCompute (prim__seq bvPtr' meta)
       -- Append DotOp + ConstOp entries + set meta->out_tape_idx.
       outIdx = tapeAppendDotOp meta val
+      gen = tapeGeneration outIdx
+  in Var outIdx gen Nothing val
+
+
+----------------------------------------------------------------------
+-- BCE with Logits (C-backed)
+----------------------------------------------------------------------
+
+||| Fused binary cross-entropy with logits loss using C kernel.
+||| Records a single BceWithLogitsOp tape entry (tag 26) instead of
+||| ~7 scalar ops per element.
+||| loss = (1/n) * sum_i [max(p_i,0) - p_i*y_i + log(1+exp(-|p_i|))]
+export
+bceWithLogitsVar : {n : Nat} -> Vector n Variable -> Vector n Variable -> Variable
+bceWithLogitsVar {n} (VTensor preds) (VTensor targets) =
+  let nI = cast {to=Int} n
+      meta = prim__bceMetaAlloc nI
+      pvPtr = prim__bcePredVals meta
+      ptPtr = prim__bcePredTape meta
+      tvPtr = prim__bceTargetVals meta
+      ttPtr = prim__bceTargetTape meta
+      pvPtr' = packVec pvPtr ptPtr 0 preds
+      tvPtr' = packVec (prim__seq pvPtr' tvPtr) ttPtr 0 targets
+      val = prim__bceCompute (prim__seq tvPtr' meta)
+      outIdx = tapeAppendBceOp meta val
       gen = tapeGeneration outIdx
   in Var outIdx gen Nothing val
 

@@ -73,6 +73,7 @@ void *readop_meta_set_out(void *p, int start);
 void *writeop_meta_set_out(void *p, int start);
 void *interp_write_meta_set_out(void *p, int start);
 void *lstm_cell_meta_set_out(void *p, int start);
+void *bce_meta_set_out(void *meta_ptr, int out_idx);
 
 /* -------------------------------------------------------------------
    String interning (for parameter IDs)
@@ -263,6 +264,24 @@ int tape_append_dot_op(void *meta, double val) {
   tape_vals[out_idx] = val;
   tape_pids[out_idx] = NULL;
   dot_meta_set_out(meta, out_idx);
+  tape_size = out_idx + 1;
+  return out_idx;
+}
+
+/* Append BceOp (tag 26) + output ConstOp, set meta->out_tape_idx.
+ * Returns ConstOp tape index (like tape_append_dot_op). */
+int tape_append_bce_op(void *meta, double val) {
+  int idx = tape_size;
+  tape_ensure_cap(idx + 1);
+  tape_tags[idx] = 26; /* BceWithLogitsOp */
+  tape_arg2[idx] = 0;
+  tape_meta[idx] = meta;
+  tape_pids[idx] = NULL;
+  int out_idx = idx + 1;
+  tape_tags[out_idx] = 0; /* ConstOp */
+  tape_vals[out_idx] = val;
+  tape_pids[out_idx] = NULL;
+  bce_meta_set_out(meta, out_idx);
   tape_size = out_idx + 1;
   return out_idx;
 }
@@ -488,6 +507,15 @@ typedef struct {
   int bias_buf_tape_start;  /* tape start for bias WeightBuf (valid if use_bias_buf) */
 } LstmCellMeta;
 
+typedef struct {
+  int n;                    /* number of elements */
+  double *pred_vals;        /* n prediction (logit) values (arena) */
+  double *target_vals;      /* n target values (arena) */
+  int *pred_tape_idx;       /* n tape indices for predictions (arena) */
+  int *target_tape_idx;     /* n tape indices for targets (arena) */
+  int out_tape_idx;         /* tape index of output scalar (set by tape append) */
+} BceMeta;
+
 
 /* -------------------------------------------------------------------
    Metadata allocation (arena-backed)
@@ -558,6 +586,17 @@ DotMeta *dot_meta_alloc(int n) {
   meta->b_vals = (double *)arena_alloc(n * sizeof(double));
   meta->a_tape_idx = (int *)arena_alloc(n * sizeof(int));
   meta->b_tape_idx = (int *)arena_alloc(n * sizeof(int));
+  meta->out_tape_idx = 0;
+  return meta;
+}
+
+BceMeta *bce_meta_alloc(int n) {
+  BceMeta *meta = (BceMeta *)arena_alloc(sizeof(BceMeta));
+  meta->n = n;
+  meta->pred_vals = (double *)arena_alloc(n * sizeof(double));
+  meta->target_vals = (double *)arena_alloc(n * sizeof(double));
+  meta->pred_tape_idx = (int *)arena_alloc(n * sizeof(int));
+  meta->target_tape_idx = (int *)arena_alloc(n * sizeof(int));
   meta->out_tape_idx = 0;
   return meta;
 }
@@ -864,6 +903,34 @@ void *dot_meta_set_out(void *meta_ptr, int out_idx) {
 double dot_meta_compute(void *meta_ptr) {
   DotMeta *m = (DotMeta *)meta_ptr;
   return tensor_dot(m->a_vals, m->b_vals, m->n);
+}
+
+/* --- BCE meta accessors --- */
+double *bce_meta_pred_vals(void *p)    { return ((BceMeta *)p)->pred_vals; }
+double *bce_meta_target_vals(void *p)  { return ((BceMeta *)p)->target_vals; }
+int *bce_meta_pred_tape(void *p)       { return ((BceMeta *)p)->pred_tape_idx; }
+int *bce_meta_target_tape(void *p)     { return ((BceMeta *)p)->target_tape_idx; }
+
+void *bce_meta_set_out(void *meta_ptr, int out_idx) {
+  ((BceMeta *)meta_ptr)->out_tape_idx = out_idx;
+  return meta_ptr;
+}
+
+/* BCE with logits forward: numerically stable binary cross-entropy.
+ * loss = (1/n) * sum_i [max(p_i,0) - p_i*y_i + log(1+exp(-|p_i|))]
+ * Returns scalar loss value. */
+double bce_meta_compute(void *meta_ptr) {
+  BceMeta *m = (BceMeta *)meta_ptr;
+  int n = m->n;
+  double sum = 0.0;
+  for (int i = 0; i < n; i++) {
+    double p = m->pred_vals[i];
+    double y = m->target_vals[i];
+    double relu_p = p > 0.0 ? p : 0.0;
+    double abs_p = p >= 0.0 ? p : -p;
+    sum += relu_p - p * y + log(1.0 + exp(-abs_p));
+  }
+  return sum / n;
 }
 
 /* --- Softmax meta accessors --- */
@@ -1180,6 +1247,26 @@ void tensor_dot_backward(double *grad_array, DotMeta *meta) {
   for (int i = 0; i < n; i++) {
     grad_array[meta->a_tape_idx[i]] += dy * meta->b_vals[i];
     grad_array[meta->b_tape_idx[i]] += dy * meta->a_vals[i];
+  }
+}
+
+/*
+ * BCE with logits backward: given d_loss (scalar at out_tape_idx),
+ *   d_pred[i] = (1/n) * (sigmoid(pred[i]) - target[i]) * d_loss
+ * Targets don't typically need gradients (they're data), but we
+ * propagate anyway for correctness:
+ *   d_target[i] = (1/n) * (-pred[i]) * d_loss  (not needed but harmless)
+ */
+void tensor_bce_backward(double *grad_array, BceMeta *m) {
+  double dy = grad_array[m->out_tape_idx];
+  if (dy == 0.0) return;
+  int n = m->n;
+  double inv_n = 1.0 / n;
+
+  for (int i = 0; i < n; i++) {
+    double p = m->pred_vals[i];
+    double sig_p = 1.0 / (1.0 + exp(-p));
+    grad_array[m->pred_tape_idx[i]] += inv_n * (sig_p - m->target_vals[i]) * dy;
   }
 }
 
@@ -1648,6 +1735,9 @@ int walk_backward(double *grad, int tape_sz) {
       case 24: /* LstmCellOp */
         tensor_lstm_cell_backward(grad, (LstmCellMeta *)tape_meta[idx]);
         break;
+      case 26: /* BceWithLogitsOp */
+        tensor_bce_backward(grad, (BceMeta *)tape_meta[idx]);
+        break;
       default:
         break;
     }
@@ -1751,6 +1841,7 @@ int walk_backward_ext(double *grad, int tape_sz,
       case 22: tensor_shift_backward(grad, (ShiftMeta *)meta[idx]); break;
       case 23: tensor_focus_backward(grad, (FocusMeta *)meta[idx]); break;
       case 24: tensor_lstm_cell_backward(grad, (LstmCellMeta *)meta[idx]); break;
+      case 26: tensor_bce_backward(grad, (BceMeta *)meta[idx]); break;
       default: break;
     }
   }
@@ -2162,6 +2253,7 @@ void walk_backward_ext_dense(double *grad, int tape_sz,
       case 22: tensor_shift_backward(grad, (ShiftMeta *)meta[idx]); break;
       case 23: tensor_focus_backward(grad, (FocusMeta *)meta[idx]); break;
       case 24: tensor_lstm_cell_backward(grad, (LstmCellMeta *)meta[idx]); break;
+      case 26: tensor_bce_backward(grad, (BceMeta *)meta[idx]); break;
       default: break;
     }
   }

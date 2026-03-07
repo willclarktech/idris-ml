@@ -279,6 +279,23 @@ epochTwoPhaseDense opt dataPoints lossFn model st =
       model' = applyDeltasAndSyncNetwork denseBuf model
   in (model', st', loss.value)
 
+||| Dense two-phase epoch with C-backed BCE loss.
+export
+epochTwoPhaseDenseBce :
+  {i, o, n : Nat} ->
+  {hs : List Nat} ->
+  DenseOptimizer ->
+  Vect n (TwoPhaseDataPoint i o Variable) ->
+  Network i hs o Variable ->
+  DenseOptimizerState ->
+  (Network i hs o Variable, DenseOptimizerState, Double)
+epochTwoPhaseDenseBce opt dataPoints model st =
+  let loss = calculateLossTwoPhaseVarBce model dataPoints
+      denseBuf = collectGradsDense 1.0 loss st.buf
+      st' = opt.step denseBuf st
+      model' = applyDeltasAndSyncNetwork denseBuf model
+  in (model', st', loss.value)
+
 ||| Dense two-phase training with schedule and early stopping.
 export
 trainTwoPhaseScheduledFromDense :

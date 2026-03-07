@@ -125,7 +125,7 @@ trainLoop makeOpt schedule model totalEpochs patience batchSize minLen maxLen st
         let dps = map (map fromDouble) batch
             lr = schedule ep
             opt = makeOpt lr
-            (m', s', loss) = epochTwoPhaseDense opt dps binaryCrossEntropyWithLogits m s
+            (m', s', loss) = epochTwoPhaseDenseBce opt dps m s
         when (modNatNZ ep 10 ItIsSucc == 0) forceGC
         when (modNatNZ ep 100 ItIsSucc == 0) $ do
           now <- clockTime Monotonic
@@ -174,7 +174,7 @@ trainLoop1 makeOpt schedule model totalEpochs patience minLen maxLen st t0 =
         let dps = map (map fromDouble) batch
             lr = schedule ep
             opt = makeOpt lr
-            (m', s', loss) = epochTwoPhaseDense opt dps binaryCrossEntropyWithLogits m s
+            (m', s', loss) = epochTwoPhaseDenseBce opt dps m s
         when (modNatNZ ep 10 ItIsSucc == 0) forceGC
         when (modNatNZ ep 500 ItIsSucc == 0) $ do
           now <- clockTime Monotonic

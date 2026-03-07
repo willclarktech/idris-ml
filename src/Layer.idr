@@ -600,6 +600,27 @@ calculateLossTwoPhaseVar lossFn model dataPoints =
     losses = map perSequence dataPoints
   in mean . VTensor $ map (STensor . mean) losses
 
+||| Two-phase loss with C-backed BCE: encoding phase (discard outputs),
+||| then output phase (feed zeros, compute fused BCE loss).
+||| Uses bceWithLogitsVar for a single tape entry per output vector.
+export
+calculateLossTwoPhaseVarBce : {i, o, n : Nat} -> {hs : List Nat} ->
+    Network i hs o Variable ->
+    Vect n (TwoPhaseDataPoint i o Variable) ->
+    Variable
+calculateLossTwoPhaseVarBce model dataPoints =
+  let
+    perSequence : TwoPhaseDataPoint i o Variable -> List Variable
+    perSequence dp =
+      let zeroInput : Vector i Variable
+          zeroInput = map (const (fromDouble 0.0)) zeros
+          outputInputs = Data.List.replicate (length (targets dp)) zeroInput
+          encResult = forwardRecurrentVar model (encodingInputs dp)
+          outResult = forwardRecurrentVar (fst encResult) outputInputs
+      in zipWith bceWithLogitsVar (snd outResult) (targets dp)
+    losses = map perSequence dataPoints
+  in mean . VTensor $ map (STensor . mean) losses
+
 
 ----------------------------------------------------------------------
 -- Evaluation Functions
