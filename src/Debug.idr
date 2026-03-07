@@ -130,9 +130,9 @@ mutual
   toDoubleLayer (NormalizationLayer "softmax" _) = softmaxLayer
   toDoubleLayer (NormalizationLayer "logSoftmax" _) = logSoftmaxLayer
   toDoubleLayer (NormalizationLayer name _) = NormalizationLayer name id
-  toDoubleLayer (NtmLayer lstm rfc wfc ofc mem ra wa ro) =
+  toDoubleLayer (NtmLayer lstm rfc wfc ofc mem ra wa ro _) =
     NtmLayer (toDoubleLayer lstm) (toDoubleLayer rfc) (toDoubleLayer wfc) (toDoubleLayer ofc)
-             (map value mem) (map value ra) (map value wa) (map value ro)
+             (map value mem) (map value ra) (map value wa) (map value ro) Nothing
 
   ||| Convert a Variable-typed network to Double
   export
@@ -171,10 +171,10 @@ debugApplyLayer layer@(NormalizationLayer name _) inp =
   let (updated, out) = applyLayer layer inp
   in (updated, out, MkDebugEntry ("Normalization<" ++ name ++ ">") [])
 
-debugApplyLayer {i} {o} (NtmLayer {n} {m} {h} lstm readFc writeFc outputFc memory readAddr writeAddr readOutput) inp =
+debugApplyLayer {i} {o} (NtmLayer {n} {m} {h} lstm readFc writeFc outputFc memory readAddr writeAddr readOutput mb) inp =
   let
     -- Run forward pass via applyLayer (handles full pipeline)
-    layer = NtmLayer lstm readFc writeFc outputFc memory readAddr writeAddr readOutput
+    layer = NtmLayer lstm readFc writeFc outputFc memory readAddr writeAddr readOutput mb
     (updatedLayer, output) = applyLayer layer inp
 
     -- Build debug entry with pre-step state

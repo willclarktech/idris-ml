@@ -82,6 +82,7 @@ mutual
                (readAddr : Vector n ty) ->
                (writeAddr : Vector n ty) ->
                (readOutput : Vector m ty) ->
+               (memBuf : Maybe AnyPtr) ->
                Layer inputSize outputSize ty
 
   public export
@@ -103,7 +104,7 @@ implementation {inputSize : Nat} -> {outputSize : Nat} -> Show a => Show (Layer 
   show {inputSize} {outputSize} (LstmLayer _ _ _ _ _ _ _) = "Lstm<" ++ show inputSize ++ ":" ++ show outputSize ++ ">"
   show (ActivationLayer name _) = "Activation<" ++ name ++ ">"
   show (NormalizationLayer name _) = "Normalization<" ++ name ++ ">"
-  show {inputSize} {outputSize} (NtmLayer {n} {m} {h} _ _ _ _ _ _ _ _) = "Ntm<" ++ show inputSize ++ ":" ++ show outputSize ++ ", mem=" ++ show n ++ "x" ++ show m ++ ", h=" ++ show h ++ ">"
+  show {inputSize} {outputSize} (NtmLayer {n} {m} {h} _ _ _ _ _ _ _ _ _) = "Ntm<" ++ show inputSize ++ ":" ++ show outputSize ++ ", mem=" ++ show n ++ "x" ++ show m ++ ", h=" ++ show h ++ ">"
 
 public export
 implementation {i, o : Nat} -> Show ty => Show (Network i [] o ty) where
@@ -124,9 +125,9 @@ mutual
     emap f (LinearLayer w b wb) = LinearLayer (map f w) (map f b) wb
     emap f (RnnLayer iw rw b po iwb rwb) = RnnLayer (map f iw) (map f rw) (map f b) (map f po) iwb rwb
     emap f (LstmLayer iw rw b hs cs iwb rwb) = LstmLayer (map f iw) (map f rw) (map f b) (map f hs) (map f cs) iwb rwb
-    emap f (NtmLayer lstm rfc wfc ofc mem ra wa ro) =
+    emap f (NtmLayer lstm rfc wfc ofc mem ra wa ro mb) =
       NtmLayer (emap f lstm) (emap f rfc) (emap f wfc) (emap f ofc)
-               (map f mem) (map f ra) (map f wa) (map f ro)
+               (map f mem) (map f ra) (map f wa) (map f ro) mb
     emap _ l = l
 
   public export
@@ -206,7 +207,7 @@ mutual
       newHidden = map sig oGate * map tanhBound newCell
       updatedLayer = LstmLayer inputWeights recurrentWeights bias newHidden newCell iwb rwb
     in (updatedLayer, newHidden)
-  applyLayer (NtmLayer {n} {m} {h} lstm readFc writeFc outputFc memory readAddr writeAddr readOutput) inp =
+  applyLayer (NtmLayer {n} {m} {h} lstm readFc writeFc outputFc memory readAddr writeAddr readOutput mb) inp =
     let
       -- 1. Controller: LSTM(readOutput ++ input)
       lstmResult = applyLayer lstm (readOutput ++ inp)
@@ -229,7 +230,7 @@ mutual
       -- 6. Output FC(hidden ++ readOutput)
       output = snd (applyLayer outputFc (hidden ++ newReadOutput))
       newLayer = NtmLayer (fst lstmResult) readFc writeFc outputFc
-                          newMemory newReadAddr' newWriteAddr' newReadOutput
+                          newMemory newReadAddr' newWriteAddr' newReadOutput mb
     in (newLayer, output)
 
   export
@@ -367,7 +368,7 @@ mutual
   applyLayerVar layer@(NormalizationLayer "softmax" _) xs = (layer, softmaxVar xs)
   applyLayerVar layer@(NormalizationLayer "logSoftmax" _) xs = (layer, logSoftmaxVar xs)
   applyLayerVar layer@(NormalizationLayer _ f) xs = (layer, f xs)
-  applyLayerVar (NtmLayer {n} {m} {h} lstm readFc writeFc outputFc memory readAddr writeAddr readOutput) inp =
+  applyLayerVar (NtmLayer {n} {m} {h} lstm readFc writeFc outputFc memory readAddr writeAddr readOutput mb) inp =
     let
       -- 1. Controller: LSTM(readOutput ++ input)
       lstmResult = applyLayerVar lstm (readOutput ++ inp)
@@ -392,7 +393,7 @@ mutual
       -- 6. Output FC(hidden ++ readOutput)
       output = snd (applyLayerVar outputFc (hidden ++ newReadOutput))
       newLayer = NtmLayer (fst lstmResult) readFc writeFc outputFc
-                          newMemory newReadAddr' newWriteAddr' newReadOutput
+                          newMemory newReadAddr' newWriteAddr' newReadOutput mb
     in (newLayer, output)
 
   export
@@ -614,7 +615,7 @@ ntmLayer = do
   let readAddr = the (Vector n ty) zeros
   let writeAddr = the (Vector n ty) zeros
   let readOutput = the (Vector m ty) zeros
-  pure $ NtmLayer lstm readFc writeFc outputFc memory readAddr writeAddr readOutput
+  pure $ NtmLayer lstm readFc writeFc outputFc memory readAddr writeAddr readOutput Nothing
 
 export
 sigmoidLayer : (FromDouble ty, Neg ty, Fractional ty, Floating ty) => Layer n n ty
@@ -683,7 +684,7 @@ mutual
                    rwBuf = prim__weightBufAlloc (cast (gateSize * o))
                    rwBuf' = initWeightBuf rwBuf 0 rwRows
                in LstmLayer namedInputWeights namedRecurrentWeights namedBias hiddenState cellState (Just iwBuf') (Just rwBuf')
-      (NtmLayer lstm readFc writeFc outputFc memory readAddr writeAddr readOutput) =>
+      (NtmLayer lstm readFc writeFc outputFc memory readAddr writeAddr readOutput _) =>
         let namedMemory = zipWith (np "mem") enumerate memory
             namedReadAddr = zipWith (np "rAddr") enumerate readAddr
             namedWriteAddr = zipWith (np "wAddr") enumerate writeAddr
@@ -693,7 +694,7 @@ mutual
             namedWriteFc = nameParams (prefx ++ "_writeFc") writeFc
             namedOutputFc = nameParams (prefx ++ "_outputFc") outputFc
         in NtmLayer namedLstm namedReadFc namedWriteFc namedOutputFc
-                    namedMemory namedReadAddr namedWriteAddr namedReadOut
+                    namedMemory namedReadAddr namedWriteAddr namedReadOut Nothing
       _ => layer
 
   export
@@ -710,7 +711,7 @@ layerPrefix : Layer i o ty -> String
 layerPrefix (LinearLayer _ _ _) = "ll"
 layerPrefix (RnnLayer _ _ _ _ _ _) = "rnn"
 layerPrefix (LstmLayer _ _ _ _ _ _ _) = "lstm"
-layerPrefix (NtmLayer _ _ _ _ _ _ _ _) = "ntm"
+layerPrefix (NtmLayer _ _ _ _ _ _ _ _ _) = "ntm"
 layerPrefix _ = ""
 
 mutual
@@ -724,7 +725,7 @@ mutual
                 counts' = insert pfx (n + 1) counts
                 fullName = scope ++ pfx ++ show n
             in case layer of
-              (NtmLayer lstm readFc writeFc outputFc memory readAddr writeAddr readOutput) =>
+              (NtmLayer lstm readFc writeFc outputFc memory readAddr writeAddr readOutput _) =>
                 let np = nameParam . (fullName ++ "_" ++)
                     namedMemory = zipWith (np "mem") enumerate memory
                     namedReadAddr = zipWith (np "rAddr") enumerate readAddr
@@ -735,7 +736,7 @@ mutual
                     (_, writeFc') = autoNameLayer (fullName ++ "_writeFc_") empty writeFc
                     (_, outputFc') = autoNameLayer (fullName ++ "_outputFc_") empty outputFc
                 in (counts', NtmLayer lstm' readFc' writeFc' outputFc'
-                             namedMemory namedReadAddr namedWriteAddr namedReadOut)
+                             namedMemory namedReadAddr namedWriteAddr namedReadOut Nothing)
               _ => (counts', nameParams fullName layer)
 
   autoNameNetwork : String -> SortedMap String Nat
@@ -791,10 +792,10 @@ mutual
     let iwb' = syncWeightBuf iwb 0 iwRows
         rwb' = syncWeightBuf rwb 0 rwRows
     in LstmLayer (VTensor iwRows) (VTensor rwRows) bias hs cs (Just iwb') (Just rwb')
-  syncLayerBuffers (NtmLayer lstm readFc writeFc outputFc mem ra wa ro) =
+  syncLayerBuffers (NtmLayer lstm readFc writeFc outputFc mem ra wa ro mb) =
     NtmLayer (syncLayerBuffers lstm) (syncLayerBuffers readFc)
              (syncLayerBuffers writeFc) (syncLayerBuffers outputFc)
-             mem (projectWeights ra) (projectWeights wa) ro
+             mem (projectWeights ra) (projectWeights wa) ro mb
   syncLayerBuffers l = l
 
   export

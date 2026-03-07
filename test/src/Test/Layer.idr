@@ -26,7 +26,7 @@ mutual
   layerIds (LinearLayer w b _) = tensorIds w ++ tensorIds b
   layerIds (RnnLayer iw rw b _ _ _) = tensorIds iw ++ tensorIds rw ++ tensorIds b
   layerIds (LstmLayer iw rw b _ _ _ _) = tensorIds iw ++ tensorIds rw ++ tensorIds b
-  layerIds (NtmLayer lstm rfc wfc ofc mem ra wa ro) =
+  layerIds (NtmLayer lstm rfc wfc ofc mem ra wa ro _) =
     layerIds lstm ++ layerIds rfc ++ layerIds wfc ++ layerIds ofc
       ++ tensorIds mem ++ tensorIds ra ++ tensorIds wa ++ tensorIds ro
   layerIds _ = []
