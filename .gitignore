@@ -8,4 +8,5 @@ __pycache__/
 *.pyc
 .pytest_cache/
 logs/
+results/
 pytorch/reference/
