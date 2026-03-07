@@ -216,6 +216,54 @@ benchNtmCopy = do
 
 
 ----------------------------------------------------------------------
+-- NTM Copy 1K (realistic: fresh data + GC, matching real training)
+----------------------------------------------------------------------
+
+copy1kEpoch : DenseOptimizer ->
+              Network CopyInputW [] CopyOutputW Variable ->
+              DenseOptimizerState ->
+              IO (Network CopyInputW [] CopyOutputW Variable, DenseOptimizerState, Double)
+copy1kEpoch opt m s = do
+  batch <- copyTaskBinaryBatchVect {w = CopyW} CopyBatch 1 20
+  let dps = map (map fromDouble) batch
+  let res = epochTwoPhaseDense opt dps binaryCrossEntropyWithLogits m s
+  pure res
+
+copy1kLoop : DenseOptimizer -> Nat -> Nat ->
+             Network CopyInputW [] CopyOutputW Variable ->
+             DenseOptimizerState -> Double ->
+             IO (Network CopyInputW [] CopyOutputW Variable, DenseOptimizerState, Double)
+copy1kLoop opt numEpochs remaining m s loss =
+  if remaining == 0 then pure (m, s, loss)
+  else do
+    (m', s', loss') <- copy1kEpoch opt m s
+    let i = minus numEpochs remaining
+    when (modNatNZ i 10 ItIsSucc == 0) forceGC
+    copy1kLoop opt numEpochs (minus remaining 1) m' s' loss'
+
+benchNtmCopy1k : IO ()
+benchNtmCopy1k = do
+  ntm <- ntmLayer {inputSize = CopyInputW, outputSize = CopyOutputW, n = CopyN, m = CopyM, h = CopyH}
+  let model = autoName $ OutputLayer ntm
+  let numPids = getNumPids 0
+  let opt = rmspropValueClipMomentumDense 0.0001 0.95 1.0e-8 10.0 0.9
+  let st0 = initDenseState numPids
+
+  -- Warmup: 10 epochs (fresh data + GC)
+  (warmModel, warmSt, _) <- copy1kLoop opt 10 10 model st0 0.0
+  forceGC
+
+  -- Benchmark: 1000 epochs (fresh data + GC every 10)
+  t0 <- clockTime Monotonic
+  (_, _, finalLoss) <- copy1kLoop opt 1000 1000 warmModel warmSt 0.0
+  t1 <- clockTime Monotonic
+
+  putStrLn $ "NTM-copy-1k (1000 epochs): " ++ show (elapsedMs t0 t1) ++ " ms"
+  putStrLn $ "  Final loss: " ++ show finalLoss
+  putStrLn $ "  Peak RSS: " ++ show (getRssMB 4) ++ " MB"
+
+
+----------------------------------------------------------------------
 -- Main
 ----------------------------------------------------------------------
 
@@ -227,3 +275,4 @@ main = do
   benchRnn
   benchNtm
   benchNtmCopy
+  benchNtmCopy1k

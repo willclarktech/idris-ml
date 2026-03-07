@@ -9,7 +9,13 @@ import subprocess
 import sys
 from pathlib import Path
 
-from torch_ref.benchmark import bench_ntm, bench_ntm_copy, bench_rnn, bench_supervised
+from torch_ref.benchmark import (
+    bench_ntm,
+    bench_ntm_copy,
+    bench_ntm_copy_1k,
+    bench_rnn,
+    bench_supervised,
+)
 
 # Repo root is pytorch/../
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -70,12 +76,14 @@ def main() -> None:
     py_rnn = bench_rnn()
     py_ntm = bench_ntm()
     py_ntm_copy = bench_ntm_copy()
+    py_ntm_copy_1k = bench_ntm_copy_1k()
 
     py_results = {
         "Supervised": py_supervised,
         "RNN": py_rnn,
         "NTM": py_ntm,
         "NTM-copy": py_ntm_copy,
+        "NTM-copy-1k": py_ntm_copy_1k,
     }
 
     print("\nRunning Idris benchmarks...")
@@ -102,7 +110,7 @@ def main() -> None:
     print(header)
     print("-" * len(header))
 
-    for name in ["Supervised", "RNN", "NTM", "NTM-copy"]:
+    for name in ["Supervised", "RNN", "NTM", "NTM-copy", "NTM-copy-1k"]:
         py_ms, py_loss, py_rss = py_results[name]
 
         if idris_results and name in idris_results:
