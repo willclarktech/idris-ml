@@ -218,6 +218,18 @@ rmspropValueClipDense lr alpha eps maxVal = MkDenseOptimizer step
       let _ = prim__rmspropVcStep grads st.v st.n lr alpha eps maxVal
       in st  -- v updated in-place, grads now contains deltas
 
+||| RMSprop with value clipping + momentum (dense C arrays).
+||| Matches PyTorch's RMSprop(momentum=momentum).
+export
+rmspropValueClipMomentumDense : (lr : Double) -> (alpha : Double) -> (eps : Double) ->
+                                 (maxVal : Double) -> (momentum : Double) -> DenseOptimizer
+rmspropValueClipMomentumDense lr alpha eps maxVal momentum = MkDenseOptimizer step
+  where
+    step : AnyPtr -> DenseOptimizerState -> DenseOptimizerState
+    step grads st =
+      let _ = prim__rmspropVcMomentumStep grads st.v st.m st.n lr alpha eps maxVal momentum
+      in st  -- v, m updated in-place, grads now contains deltas
+
 ||| SGD with per-param clipping (dense C arrays).
 export
 sgdDense : (lr : Double) -> (maxGrad : Double) -> DenseOptimizer

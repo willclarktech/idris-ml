@@ -2177,6 +2177,26 @@ double *rmsprop_vc_step(double *grads, double *v, int n,
   return grads;
 }
 
+/* RMSprop with value clipping + momentum (in-place: grads[] -> deltas[]).
+ * v[i] = alpha * v[i] + (1-alpha) * clipped_g^2
+ * m[i] = momentum * m[i] + clipped_g / (sqrt(v[i]) + eps)
+ * grads[i] = lr * m[i]
+ * Returns grads for FFI handle threading. */
+double *rmsprop_vc_momentum_step(double *grads, double *v, double *m, int n,
+                                  double lr, double alpha, double eps,
+                                  double max_val, double momentum) {
+  for (int i = 0; i < n; i++) {
+    double g = grads[i];
+    if (g > max_val) g = max_val;
+    else if (g < -max_val) g = -max_val;
+    v[i] = alpha * v[i] + (1.0 - alpha) * g * g;
+    double avg = sqrt(v[i]) + eps;
+    m[i] = momentum * m[i] + g / avg;
+    grads[i] = lr * m[i];
+  }
+  return grads;
+}
+
 /* SGD with per-param clipping (in-place: grads[] -> deltas[]).
  * Returns grads for FFI handle threading. */
 double *sgd_step(double *grads, int n, double lr, double max_grad) {

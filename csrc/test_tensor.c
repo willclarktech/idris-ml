@@ -1600,6 +1600,55 @@ static void test_rmsprop_vc_step(void) {
   check_close("rmsprop_vc_s2 v[0]", v[0], 0.19, 1e-12);
 }
 
+static void test_rmsprop_vc_momentum_step(void) {
+  /* 3 params, lr=0.01, alpha=0.9, eps=1e-8, max_val=5.0, momentum=0.9 */
+  double grads[] = {1.0, -2.0, 10.0};  /* 10.0 should be clipped to 5.0 */
+  double v[] = {0.0, 0.0, 0.0};
+  double m[] = {0.0, 0.0, 0.0};
+  rmsprop_vc_momentum_step(grads, v, m, 3, 0.01, 0.9, 1e-8, 5.0, 0.9);
+
+  /* v[0] = 0.9*0 + 0.1*1^2 = 0.1; avg = sqrt(0.1)+1e-8 */
+  /* m[0] = 0.9*0 + 1/avg; delta = 0.01 * m[0] */
+  double avg0 = sqrt(0.1) + 1e-8;
+  double m0 = 1.0 / avg0;
+  check_close("rmsprop_vcm v[0]", v[0], 0.1, 1e-12);
+  check_close("rmsprop_vcm m[0]", m[0], m0, 1e-10);
+  check_close("rmsprop_vcm delta[0]", grads[0], 0.01 * m0, 1e-10);
+
+  /* v[1] = 0.1*4 = 0.4; m[1] = -2/avg1; delta = 0.01 * m[1] */
+  double avg1 = sqrt(0.4) + 1e-8;
+  double m1 = (-2.0) / avg1;
+  check_close("rmsprop_vcm v[1]", v[1], 0.4, 1e-12);
+  check_close("rmsprop_vcm delta[1]", grads[1], 0.01 * m1, 1e-10);
+
+  /* g=10 clipped to 5; v[2] = 0.1*25 = 2.5; m[2] = 5/avg2 */
+  double avg2 = sqrt(2.5) + 1e-8;
+  double m2 = 5.0 / avg2;
+  check_close("rmsprop_vcm v[2]", v[2], 2.5, 1e-12);
+  check_close("rmsprop_vcm delta[2]", grads[2], 0.01 * m2, 1e-10);
+
+  /* Step 2: momentum should accumulate */
+  double grads2[] = {1.0, -2.0, 5.0};
+  rmsprop_vc_momentum_step(grads2, v, m, 3, 0.01, 0.9, 1e-8, 5.0, 0.9);
+  /* v[0] = 0.9*0.1 + 0.1*1 = 0.19 */
+  double avg0_2 = sqrt(0.19) + 1e-8;
+  double m0_2 = 0.9 * m0 + 1.0 / avg0_2;
+  check_close("rmsprop_vcm_s2 v[0]", v[0], 0.19, 1e-12);
+  check_close("rmsprop_vcm_s2 m[0]", m[0], m0_2, 1e-10);
+  check_close("rmsprop_vcm_s2 delta[0]", grads2[0], 0.01 * m0_2, 1e-10);
+
+  /* With momentum=0, should match rmsprop_vc_step */
+  double grads3[] = {1.0, -2.0};
+  double v3[] = {0.0, 0.0};
+  double m3[] = {0.0, 0.0};
+  rmsprop_vc_momentum_step(grads3, v3, m3, 2, 0.01, 0.9, 1e-8, 5.0, 0.0);
+  /* m[i] = 0*0 + g/avg = g/avg (same as no momentum) */
+  check_close("rmsprop_vcm_0 delta[0]", grads3[0],
+              0.01 * 1.0 / (sqrt(0.1) + 1e-8), 1e-10);
+  check_close("rmsprop_vcm_0 delta[1]", grads3[1],
+              0.01 * (-2.0) / (sqrt(0.4) + 1e-8), 1e-10);
+}
+
 static void test_sgd_step(void) {
   double grads[] = {3.0, -1.0, 100.0};
   sgd_step(grads, 3, 0.1, 5.0);
@@ -1775,6 +1824,7 @@ int main(void) {
   test_lstm_cell_bias_buf_backward();
   test_dense_alloc();
   test_rmsprop_vc_step();
+  test_rmsprop_vc_momentum_step();
   test_sgd_step();
   test_adam_gc_step();
   test_buf_to_meta_off();

@@ -5,7 +5,6 @@
 | Item | Difficulty | Notes |
 |------|-----------|-------|
 | Cleaner port/adapter model for layers | L | Currently Layer.idr contains every layer type and all dispatch logic in one mutual block; consider typeclass-based extensibility |
-| RMSprop momentum | S | PyTorch reference uses momentum=0.9 with RMSprop; current impl has no momentum term |
 
 ## Medium Priority
 
@@ -71,3 +70,5 @@
 - Binary vector data format + two-phase training (`TwoPhaseDataPoint`, `epochTwoPhase`, `copyTaskBinary`, `recallTaskBinary`)
 - PyTorch-aligned NTM architecture (LSTM controller, separate head FCs from cell state, output FC from hidden++read, interpolation write)
 - Current RSS tracking via `mach_task_info` (`getCurrentRssMB` in Variable.idr)
+- RMSprop momentum (`rmspropValueClipMomentumDense` in Optimizer.idr, `rmsprop_vc_momentum_step` in C)
+- Realistic 1K NTM-copy benchmark (fresh data + GC, `benchNtmCopy1k` / `bench_ntm_copy_1k`)

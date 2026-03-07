@@ -1808,6 +1808,11 @@ export
 %foreign "scheme:(lambda (grads v n lr alpha eps maxVal) ((foreign-procedure \"rmsprop_vc_step\" (void* void* int double double double double) void*) grads v n lr alpha eps maxVal))"
 prim__rmspropVcStep : AnyPtr -> AnyPtr -> Int -> Double -> Double -> Double -> Double -> AnyPtr
 
+-- RMSprop with value clipping + momentum (in-place: grads[] -> deltas[]).
+export
+%foreign "scheme:(lambda (grads v m n lr alpha eps maxVal momentum) ((foreign-procedure \"rmsprop_vc_momentum_step\" (void* void* void* int double double double double double) void*) grads v m n lr alpha eps maxVal momentum))"
+prim__rmspropVcMomentumStep : AnyPtr -> AnyPtr -> AnyPtr -> Int -> Double -> Double -> Double -> Double -> Double -> AnyPtr
+
 -- SGD with per-param clipping (in-place: grads[] -> deltas[]).
 export
 %foreign "scheme:(lambda (grads n lr maxGrad) ((foreign-procedure \"sgd_step\" (void* int double double) void*) grads n lr maxGrad))"

@@ -296,6 +296,16 @@ delta = lr * g / (sqrt(v_t) + eps)
 
 **Implementation**: `rmspropValueClip` composes `clipGradValue` with `rmspropStep`, reusing the existing `OptimizerState` infrastructure (the `v` map stores running squared gradient averages).
 
+**Momentum**: The PyTorch reference also uses `momentum=0.9` with RMSprop. `rmspropValueClipMomentumDense` adds a momentum buffer:
+
+```
+v_t = alpha * v_{t-1} + (1 - alpha) * g^2
+m_t = momentum * m_{t-1} + g / (sqrt(v_t) + eps)
+delta = lr * m_t
+```
+
+The `DenseOptimizerState.m` array (already allocated for Adam) is reused as the momentum buffer. With `momentum=0.0` the formula reduces to the standard RMSprop (no momentum). NtmCopy.idr defaults to `momentum=0.9`, configurable via `--momentum`.
+
 ## Two-phase training and binary vector data
 
 The PyTorch-aligned NTM uses a two-phase training protocol with binary vector data, replacing the one-hot symbol format with per-timestep loss.

@@ -155,6 +155,7 @@ record Config where
   clipVal : Double
   alpha : Double
   eps : Double
+  momentum : Double
   epochs : Nat
   patience : Nat
   seed : Bits64
@@ -162,7 +163,7 @@ record Config where
   maxLen : Nat
 
 defaultConfig : Config
-defaultConfig = MkConfig 0.0001 10.0 0.95 1.0e-8 50000 5000 123456 1 20
+defaultConfig = MkConfig 0.0001 10.0 0.95 1.0e-8 0.9 50000 5000 123456 1 20
 
 parseConfig : List String -> Config
 parseConfig args = go args defaultConfig
@@ -173,6 +174,7 @@ parseConfig args = go args defaultConfig
     go ("--clip" :: v :: rest) c = go rest ({ clipVal := cast v } c)
     go ("--alpha" :: v :: rest) c = go rest ({ alpha := cast v } c)
     go ("--eps" :: v :: rest) c = go rest ({ eps := cast v } c)
+    go ("--momentum" :: v :: rest) c = go rest ({ momentum := cast v } c)
     go ("--epochs" :: v :: rest) c = go rest ({ epochs := cast (cast {to=Integer} v) } c)
     go ("--patience" :: v :: rest) c = go rest ({ patience := cast (cast {to=Integer} v) } c)
     go ("--seed" :: v :: rest) c = go rest ({ seed := cast (cast {to=Integer} v) } c)
@@ -196,6 +198,7 @@ main = do
   putStrLn $ "Config: lr=" ++ show cfg.lr
            ++ " clip=" ++ show cfg.clipVal
            ++ " alpha=" ++ show cfg.alpha
+           ++ " momentum=" ++ show cfg.momentum
            ++ " epochs=" ++ show cfg.epochs
            ++ " patience=" ++ show cfg.patience
            ++ " seed=" ++ show cfg.seed
@@ -213,7 +216,7 @@ main = do
 
   -- Training
   let numPids = getNumPids 0
-  let makeOpt = \lr => rmspropValueClipDense lr cfg.alpha cfg.eps cfg.clipVal
+  let makeOpt = \lr => rmspropValueClipMomentumDense lr cfg.alpha cfg.eps cfg.clipVal cfg.momentum
   let schedule = constant cfg.lr
   let st0 = initDenseState numPids
   putStrLn "Training..."
