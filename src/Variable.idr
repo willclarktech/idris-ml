@@ -367,7 +367,7 @@ prim__bceTargetTape : AnyPtr -> AnyPtr
 %foreign "scheme:(lambda (meta) ((foreign-procedure \"bce_meta_compute\" (void*) double) meta))"
 prim__bceCompute : AnyPtr -> Double
 
-%foreign "scheme:(lambda (meta val) ((foreign-procedure \"tape_append_bce_op\" (void* double) int) meta val))"
+%foreign "scheme:(lambda (meta val) (let ((idx (top-level-value 'tape-size))) ((top-level-value 'tape-ensure-cap!) (+ idx 1)) (foreign-set! 'integer-32 (top-level-value 'tape-tags-fp) (* idx 4) 26) (foreign-set! 'integer-32 (top-level-value 'tape-arg2-fp) (* idx 4) 0) ((foreign-procedure \"ext_meta_set\" (int void*) void) idx meta) (vector-set! (top-level-value 'tape-pids) idx \"\") (let ((out-idx (+ idx 1))) (foreign-set! 'integer-32 (top-level-value 'tape-tags-fp) (* out-idx 4) 0) (foreign-set! 'double (top-level-value 'tape-vals-fp) (* out-idx 8) val) (vector-set! (top-level-value 'tape-pids) out-idx \"\") ((foreign-procedure \"bce_meta_set_out\" (void* int) void*) meta out-idx) (set-top-level-value! 'tape-size (+ out-idx 1)) out-idx)))"
 prim__tapeAppendBceOp : AnyPtr -> Double -> Int
 
 -- Softmax/LogSoftmax meta: alloc, get internal pointers, compute
