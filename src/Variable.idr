@@ -208,6 +208,10 @@ prim__interpWritePackMemBuf : AnyPtr -> AnyPtr -> AnyPtr
 %foreign "scheme:(lambda (outBuf count) (let* ((start (top-level-value 'tape-size)) (end (+ start count))) ((top-level-value 'tape-ensure-cap!) (- end 1)) (let ((tags-fp (top-level-value 'tape-tags-fp)) (vals-fp (top-level-value 'tape-vals-fp)) (pidv (top-level-value 'tape-pids))) (do ((k 0 (+ k 1))) ((= k count)) (let ((idx (+ start k))) (foreign-set! 'integer-32 tags-fp (* idx 4) 0) (foreign-set! 'double vals-fp (* idx 8) (foreign-ref 'double outBuf (* k 8))) (vector-set! pidv idx \"\")))) (set-top-level-value! 'tape-size end) start))"
 prim__appendOutputConst : AnyPtr -> Int -> Int
 
+-- Bulk append ConstOps from C output buffer with offset. Returns start tape index.
+%foreign "scheme:(lambda (outBuf off count) (let* ((start (top-level-value 'tape-size)) (end (+ start count))) ((top-level-value 'tape-ensure-cap!) (- end 1)) (let ((tags-fp (top-level-value 'tape-tags-fp)) (vals-fp (top-level-value 'tape-vals-fp)) (pidv (top-level-value 'tape-pids))) (do ((k 0 (+ k 1))) ((= k count)) (let ((idx (+ start k))) (foreign-set! 'integer-32 tags-fp (* idx 4) 0) (foreign-set! 'double vals-fp (* idx 8) (foreign-ref 'double outBuf (* (+ off k) 8))) (vector-set! pidv idx \"\")))) (set-top-level-value! 'tape-size end) start))"
+prim__appendOutputConstOff : AnyPtr -> Int -> Int -> Int
+
 -- After InterpWrite: update buffer vals + tape_idx from output. Returns wrapper.
 %foreign "scheme:(lambda (mb outBuf start) (let ((cptr (vector-ref mb 0))) ((foreign-procedure \"ntm_mem_update_vals\" (void* void*) void) cptr outBuf) ((foreign-procedure \"ntm_mem_update_tape_idx\" (void* int) void) cptr start) mb))"
 prim__ntmMemBufUpdateAfterWrite : AnyPtr -> AnyPtr -> Int -> AnyPtr
@@ -783,15 +787,24 @@ packVec vp tp off (STensor v :: rest) =
       tp' = prim__setInt32 tp off (cast tIdx)
   in packVec vp' tp' (off + 1) rest
 
--- Build k output Scalars by reading values from a C buffer and appending
--- ConstOp entries. off is the current index into the buffer.
+-- Build k Variables from sequential tape indices and a C buffer.
+-- constStart is the first tape index, off is the buffer offset.
+buildVarsFromBuf : AnyPtr -> Int -> Nat -> Nat -> (k : Nat) -> Vect k (Scalar Variable)
+buildVarsFromBuf outBuf off constStart gen Z = []
+buildVarsFromBuf outBuf off constStart gen (S k) =
+  let val = prim__tensorRead outBuf off
+  in STensor (Var constStart gen Nothing val)
+     :: buildVarsFromBuf outBuf (off + 1) (S constStart) gen k
+
+-- Build k output Scalars by bulk-appending ConstOp entries in one FFI call,
+-- then reading values from the C buffer. Much faster than per-element tapeAppendConst.
 buildOutputScalars : AnyPtr -> Int -> (k : Nat) -> Vect k (Scalar Variable)
 buildOutputScalars outBuf off Z = []
 buildOutputScalars outBuf off (S k) =
-  let val = prim__tensorRead outBuf off
-      idx = tapeAppendConst val ""
-      gen = tapeGeneration idx
-  in STensor (Var idx gen Nothing val) :: buildOutputScalars outBuf (off + 1) k
+  let count = cast {to=Int} (S k)
+      constStart = prim__appendOutputConstOff outBuf off count
+      gen = tapeGeneration (cast constStart)
+  in buildVarsFromBuf outBuf off (cast constStart) (cast gen) (S k)
 
 ||| Matrix-vector multiply using C BLAS, recording a single MatVecOp
 ||| tape entry instead of m*n scalar entries.
