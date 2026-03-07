@@ -1,12 +1,12 @@
--- | NTM Copy Task
+-- | NTM Copy Task (PyTorch-aligned)
 -- |
--- | Exercises LOCATION-BASED addressing: the model writes symbols
--- | sequentially into memory (shift right), then reads them back in
--- | the same order (shift right again). Content addressing is not
--- | required — sequential shifting through memory slots suffices.
+-- | Binary vector copy task with LSTM controller, interpolation write,
+-- | sigmoid output + BCE loss, and RMSprop optimizer. Matches the
+-- | PyTorch reference in pytorch/torch_ref/.
 -- |
--- | See NtmAssociativeRecall.idr for the content-based addressing
--- | counterpart.
+-- | Architecture: NtmLayer (LSTM controller, separate head FCs from
+-- | cell state, output FC from hidden ++ read_output) -> sigmoid.
+-- | Data: binary vectors with delimiter channel (two-phase training).
 
 module Example.NtmCopy
 
@@ -17,7 +17,6 @@ import System
 import System.Random
 
 import Backprop
-import Curriculum
 import DataPoint
 import Debug
 import Floating
@@ -34,17 +33,29 @@ import Variable
 -- Configuration
 ----------------------------------------------------------------------
 
-||| Input/output size = number of symbols (0 = <BLANK>)
+||| Binary vector width (data channels)
 W : Nat
-W = 3
+W = 8
+
+||| Input width = data + delimiter channel
+InputW : Nat
+InputW = S W
+
+||| Output width = data channels only
+OutputW : Nat
+OutputW = W
 
 ||| Number of memory slots
 N : Nat
-N = 10
+N = 128
 
-||| Controller hidden layer size
+||| Memory width
+M : Nat
+M = 20
+
+||| Controller hidden size
 H : Nat
-H = 20
+H = 100
 
 ||| Training batch size (data points per chunk)
 BatchSize : Nat
@@ -56,44 +67,79 @@ TestSize = 20
 
 
 ----------------------------------------------------------------------
--- Decode/Display Helpers
+-- Evaluation Helpers
 ----------------------------------------------------------------------
 
-decodeOutput : Vect n (List (Vector W Variable)) -> Vect n (List (Fin W))
-decodeOutput = map (map argmax)
+||| Apply sigmoid to a Double value.
+sigD : Double -> Double
+sigD x = 1.0 / (1.0 + exp (-x))
 
-showSequences : Vect n (List (Fin W)) -> String
-showSequences seqs = show $ map (map finToNat) seqs
+||| Count (correct, total) bits in one prediction-target pair.
+countBits : {w : Nat} -> Vector w Double -> Vector w Double -> (Nat, Nat)
+countBits (VTensor ps) (VTensor ts) = go ps ts 0 0
+  where
+    go : Vect k (Tensor [] Double) -> Vect k (Tensor [] Double) -> Nat -> Nat -> (Nat, Nat)
+    go [] [] c t = (c, t)
+    go (STensor p :: ps') (STensor tgt :: ts') c t =
+      let predBit = if sigD p >= 0.5 then 1.0 else 0.0
+          match : Nat
+          match = if predBit == tgt then 1 else 0
+      in go ps' ts' (c + match) (t + 1)
 
-matchCount : List (Fin W) -> List (Fin W) -> Nat
-matchCount [] [] = 0
-matchCount (x :: xs) (y :: ys) = (if x == y then 1 else 0) + matchCount xs ys
-matchCount _ _ = 0
-
-totalLen : Vect n (List a) -> Nat
-totalLen [] = 0
-totalLen (x :: xs) = length x + totalLen xs
-
-accuracy : Vect n (List (Fin W)) -> Vect n (List (Fin W)) -> Double
-accuracy preds targets =
-  let len = totalLen targets
-      correct = sum $ zipWith matchCount (toList preds) (toList targets)
-  in if len == 0 then 0.0 else cast correct / cast len
+||| Compute bit accuracy: fraction of correctly predicted bits.
+||| Predictions are thresholded at 0.5 after sigmoid.
+bitAccuracy : {w : Nat} -> List (Vector w Double) -> List (Vector w Double) -> Double
+bitAccuracy preds targets =
+  let results = zipWith countBits preds targets
+      totalCorrect = foldl (\acc, (c, _) => acc + c) (the Nat 0) results
+      totalBits = foldl (\acc, (_, t) => acc + t) (the Nat 0) results
+  in if totalBits == 0 then 0.0 else cast totalCorrect / cast totalBits
 
 
 ----------------------------------------------------------------------
--- Curriculum Stages
+-- Training Loop
 ----------------------------------------------------------------------
 
-genData : Nat -> Nat -> IO (Vect BatchSize (RecurrentDataPoint W W Variable))
-genData mnL mxL = map (map (map fromDouble)) (randomBatchVect (copyTask {w=W}) BatchSize mnL mxL)
-
-stages : List (Stage W W BatchSize)
-stages =
-  [ MkStage "Stage 1 (len 1-3)" 0.15 (genData 1 3)
-  , MkStage "Stage 2 (len 1-5)" 0.10 (genData 1 5)
-  , MkStage "Stage 3 (len 1-8)" 0.0  (genData 1 8)
-  ]
+||| Simple training loop with periodic data regeneration.
+||| Returns (model, optimizer state, epochs completed).
+trainLoop :
+  (Double -> Optimizer) -> Schedule ->
+  Network InputW [] OutputW Variable ->
+  (totalEpochs : Nat) -> (patience : Nat) -> (chunkSize : Nat) ->
+  (minLen, maxLen : Nat) ->
+  OptimizerState ->
+  IO (Network InputW [] OutputW Variable, OptimizerState, Nat)
+trainLoop makeOpt schedule model totalEpochs patience chunkSize minLen maxLen st =
+  go 0 model st (1.0/0.0) 0
+  where
+    go : Nat -> Network InputW [] OutputW Variable -> OptimizerState ->
+         Double -> Nat ->
+         IO (Network InputW [] OutputW Variable, OptimizerState, Nat)
+    go ep m s bestLoss staleCount =
+      if ep >= totalEpochs then pure (m, s, ep)
+      else do
+        batch <- copyTaskBinaryBatchVect {w = W} BatchSize minLen maxLen
+        let dps = map (map fromDouble) batch
+            lr = schedule ep
+            opt = makeOpt lr
+            (m', s', loss) = epochTwoPhase opt dps binaryCrossEntropyWithLogits m s
+        when (modNatNZ ep 100 ItIsSucc == 0) $
+          putStrLn $ "  " ++ show ep ++ ":\tloss=" ++ show loss
+        if loss /= loss
+          then do
+            putStrLn $ "  Diverged (NaN) at epoch " ++ show ep
+            pure (m', s', ep)
+          else do
+            let improved = loss < bestLoss - 0.001
+                bestLoss' = if improved then loss else bestLoss
+                sc : Nat
+                sc = if improved then 0 else staleCount + 1
+            if patience > 0 && sc >= patience
+              then do
+                putStrLn $ "  Early stop at epoch " ++ show (ep + 1)
+                         ++ " (patience=" ++ show patience ++ ")"
+                pure (m', s', ep + 1)
+              else go (ep + 1) m' s' bestLoss' sc
 
 
 ----------------------------------------------------------------------
@@ -103,19 +149,17 @@ stages =
 record Config where
   constructor MkConfig
   lr : Double
-  maxNorm : Double
-  beta1 : Double
-  beta2 : Double
+  clipVal : Double
+  alpha : Double
   eps : Double
-  divFinal : Double
   epochs : Nat
   patience : Nat
   seed : Bits64
-  diagnose : Bool
-  diagnoseVerbose : Bool
+  minLen : Nat
+  maxLen : Nat
 
 defaultConfig : Config
-defaultConfig = MkConfig 0.001 50.0 0.9 0.999 (pow 10 (-8)) 10.0 6000 200 123456 False False
+defaultConfig = MkConfig 0.0001 10.0 0.95 1.0e-8 50000 5000 123456 1 20
 
 parseConfig : List String -> Config
 parseConfig args = go args defaultConfig
@@ -123,16 +167,14 @@ parseConfig args = go args defaultConfig
     go : List String -> Config -> Config
     go [] c = c
     go ("--lr" :: v :: rest) c = go rest ({ lr := cast v } c)
-    go ("--max-norm" :: v :: rest) c = go rest ({ maxNorm := cast v } c)
-    go ("--beta1" :: v :: rest) c = go rest ({ beta1 := cast v } c)
-    go ("--beta2" :: v :: rest) c = go rest ({ beta2 := cast v } c)
+    go ("--clip" :: v :: rest) c = go rest ({ clipVal := cast v } c)
+    go ("--alpha" :: v :: rest) c = go rest ({ alpha := cast v } c)
     go ("--eps" :: v :: rest) c = go rest ({ eps := cast v } c)
-    go ("--div-final" :: v :: rest) c = go rest ({ divFinal := cast v } c)
     go ("--epochs" :: v :: rest) c = go rest ({ epochs := cast (cast {to=Integer} v) } c)
     go ("--patience" :: v :: rest) c = go rest ({ patience := cast (cast {to=Integer} v) } c)
     go ("--seed" :: v :: rest) c = go rest ({ seed := cast (cast {to=Integer} v) } c)
-    go ("--diagnose" :: rest) c = go rest ({ diagnose := True } c)
-    go ("--diagnose-verbose" :: rest) c = go rest ({ diagnose := True, diagnoseVerbose := True } c)
+    go ("--min-len" :: v :: rest) c = go rest ({ minLen := cast (cast {to=Integer} v) } c)
+    go ("--max-len" :: v :: rest) c = go rest ({ maxLen := cast (cast {to=Integer} v) } c)
     go (_ :: rest) c = go rest c
 
 
@@ -147,121 +189,64 @@ main = do
 
   srand cfg.seed
 
-  putStrLn "=== NTM Copy Task (Curriculum) ==="
+  putStrLn "=== NTM Copy Task (PyTorch-aligned) ==="
   putStrLn $ "Config: lr=" ++ show cfg.lr
-           ++ " maxNorm=" ++ show cfg.maxNorm
-           ++ " beta1=" ++ show cfg.beta1
-           ++ " beta2=" ++ show cfg.beta2
+           ++ " clip=" ++ show cfg.clipVal
+           ++ " alpha=" ++ show cfg.alpha
            ++ " epochs=" ++ show cfg.epochs
            ++ " patience=" ++ show cfg.patience
            ++ " seed=" ++ show cfg.seed
-           ++ " H=" ++ show H
+           ++ " seqLen=" ++ show cfg.minLen ++ "-" ++ show cfg.maxLen
+  putStrLn $ "Architecture: N=" ++ show N ++ " M=" ++ show M ++ " H=" ++ show H
   putStrLn ""
 
-  -- Build NTM with logSoftmax output
-  controllerHidden <- linearLayer {i = NtmInputWidth W, o = H}
-  controllerOut <- linearLayer {i = H, o = NtmOutputWidth N W}
-  let controller = controllerHidden ~> tanhLayer ~> OutputLayer controllerOut
-  ntm <- ntmLayer {n = N, w = W} controller
-  let model = autoName $ ntm ~> OutputLayer logSoftmaxLayer
+  -- Build NTM (no output activation; loss is BCEWithLogits)
+  ntm <- ntmLayer {inputSize = InputW, outputSize = OutputW, n = N, m = M, h = H}
+  let model = autoName $ OutputLayer ntm
 
   putStr "Model:\t\t"
   printLn model
   putStrLn ""
 
-  -- Curriculum training
-  let makeOpt = \lr => adamGlobalClip lr cfg.beta1 cfg.beta2 cfg.eps cfg.maxNorm
-  let schedule = oneCycle cfg.lr 25.0 cfg.divFinal 0.25 cfg.epochs
-  putStrLn "Training (curriculum + one-cycle)..."
-  (trained, finalSt, epochsDone) <- runCurriculum makeOpt schedule model
-    nllLoss stages cfg.epochs cfg.patience 100 initState
+  -- Training
+  let makeOpt = \lr => rmspropValueClip lr cfg.alpha cfg.eps cfg.clipVal
+  let schedule = constant cfg.lr
+  putStrLn "Training..."
+  (trained, finalSt, epochsDone) <- trainLoop makeOpt schedule model
+    cfg.epochs cfg.patience 1 cfg.minLen cfg.maxLen initState
 
+  putStrLn $ "Training complete: " ++ show epochsDone ++ " epochs"
   putStrLn ""
 
-  -- Final evaluation on fresh random data
-  shortBatch <- randomBatchVect (copyTask {w=W}) TestSize 1 3
-  fullBatch <- randomBatchVect (copyTask {w=W}) TestSize 1 8
-  let shortPts = map (map fromDouble) shortBatch
-  let fullPts = map (map fromDouble) fullBatch
-  let shortTargets = map (\dp => map argmax (ys dp)) shortPts
-  let fullTargets = map (\dp => map argmax (ys dp)) fullPts
-  let shortPreds = decodeOutput $ evaluateRecurrent trained shortPts
-  let fullPreds = decodeOutput $ evaluateRecurrent trained fullPts
-  let shortAcc = accuracy shortPreds shortTargets
-  let fullAcc = accuracy fullPreds fullTargets
+  -- Evaluation
+  let dblModel = toDoubleNetwork trained
 
-  putStrLn "Eval (random sequences):"
-  putStr "  Short (len 1-3):\t"
+  let evalOne : TwoPhaseDataPoint InputW OutputW Double -> Double
+      evalOne dp =
+        let (_, preds) = forwardTwoPhase dblModel dp
+        in bitAccuracy preds (targets dp)
+
+  shortBatch <- copyTaskBinaryBatchVect {w = W} TestSize 1 5
+  fullBatch <- copyTaskBinaryBatchVect {w = W} TestSize 1 20
+  let shortAccs = map evalOne shortBatch
+  let fullAccs = map evalOne fullBatch
+  let shortAcc = foldl (+) 0.0 (toList shortAccs) / cast TestSize
+  let fullAcc = foldl (+) 0.0 (toList fullAccs) / cast TestSize
+
+  putStrLn "Eval (random binary sequences):"
+  putStr "  Short (len 1-5):\t"
   putStrLn $ show shortAcc
-  putStr "  Full (len 1-8):\t"
+  putStr "  Full (len 1-20):\t"
   putStrLn $ show fullAcc
 
-  -- Diagnostics
-  when cfg.diagnose $ do
-    let dblModel = toDoubleNetwork trained
-    putStrLn ""
-    putStrLn "=== NTM Diagnostic Analysis ==="
-
-    let diagnoseOne : RecurrentDataPoint W W Double -> String -> IO (Maybe NtmSummary)
-        diagnoseOne dp label = do
-          let inputs = xs dp
-          let sl = length inputs `div` 2
-          let (_, _, snaps) = debugForwardRecurrent dblModel inputs
-          case computeSummary sl snaps of
-            Nothing => do
-              putStrLn $ label ++ ": no NTM entry found"
-              pure Nothing
-            Just s => do
-              printSummary label s
-              printAddrGrid s
-              putStrLn ""
-              pure (Just s)
-
-    -- Short sequences
-    putStrLn "--- Short Sequences ---"
-    d3 <- (copyTask {w=W}).generatePoint 3
-    d5 <- (copyTask {w=W}).generatePoint 5
-    s0 <- diagnoseOne d3 "Diag (len=3)"
-    s1 <- diagnoseOne d5 "Diag (len=5)"
-
-    -- Long sequences
-    putStrLn "--- Long Sequences ---"
-    d8a <- (copyTask {w=W}).generatePoint 8
-    d8b <- (copyTask {w=W}).generatePoint 8
-    d8c <- (copyTask {w=W}).generatePoint 8
-    t0 <- diagnoseOne d8a "Diag (len=8, a)"
-    t1 <- diagnoseOne d8b "Diag (len=8, b)"
-    t2 <- diagnoseOne d8c "Diag (len=8, c)"
-
-    -- Verbose raw dumps
-    when cfg.diagnoseVerbose $ do
-      putStrLn "--- Verbose: Short ---"
-      let (_, _, snaps0) = debugForwardRecurrent dblModel (xs d3)
-      printDiagnostics "Short" snaps0
-      putStrLn ""
-      putStrLn "--- Verbose: Long ---"
-      let (_, _, snapsL) = debugForwardRecurrent dblModel (xs d8a)
-      printDiagnostics "Long" snapsL
-
-    -- Aggregate comparison
-    let shortSums = mapMaybe id [s0, s1]
-    let longSums = mapMaybe id [t0, t1, t2]
-    case (avgSummaries shortSums, avgSummaries longSums) of
-      (Just avgShort, Just avgLong) => do
-        putStrLn ""
-        printComparison avgShort avgLong
-      _ => putStrLn "\n  Insufficient data for comparison"
-
-  -- Machine-readable result line for sweep script
+  -- Machine-readable result line
   putStrLn $ "RESULT\t"
            ++ show cfg.lr ++ "\t"
-           ++ show cfg.maxNorm ++ "\t"
-           ++ show cfg.beta1 ++ "\t"
-           ++ show cfg.beta2 ++ "\t"
+           ++ show cfg.clipVal ++ "\t"
+           ++ show cfg.alpha ++ "\t"
            ++ show cfg.epochs ++ "\t"
            ++ show cfg.patience ++ "\t"
            ++ show epochsDone ++ "\t"
            ++ show cfg.seed ++ "\t"
-           ++ show H ++ "\t"
            ++ show shortAcc ++ "\t"
            ++ show fullAcc

@@ -102,55 +102,56 @@ benchRnn = do
 
 
 ----------------------------------------------------------------------
--- NTM Copy Task (same config as NtmCopy.idr)
+-- NTM Copy Task (binary, two-phase, matching PyTorch benchmark)
 ----------------------------------------------------------------------
 
-W : Nat
-W = 3
+BenchW : Nat
+BenchW = 3
 
-N : Nat
-N = 10
+BenchInputW : Nat
+BenchInputW = S BenchW
 
-H : Nat
-H = 20
+BenchOutputW : Nat
+BenchOutputW = BenchW
 
-E : Nat
-E = 5
+BenchN : Nat
+BenchN = 10
 
-ntmSequences : Vect E (List (Fin W))
-ntmSequences =
-  [ [1, 2, 1, 2]
-  , [1, 1, 2, 2, 1]
-  , [2, 1, 1, 2, 2, 1]
-  , [2, 1, 2, 1, 2, 1, 2]
-  , [1, 2, 1, 1, 2, 2, 1, 2]
-  ]
+BenchM : Nat
+BenchM = 5
 
-ntmRawData : Vect E (RecurrentDataPoint W W Double)
-ntmRawData = map (copyTaskPoint {w=W}) ntmSequences
+BenchH : Nat
+BenchH = 20
+
+BenchBatch : Nat
+BenchBatch = 5
 
 benchNtm : IO ()
 benchNtm = do
-  controllerHidden <- linearLayer {i = NtmInputWidth W, o = H}
-  controllerOut <- linearLayer {i = H, o = NtmOutputWidth N W}
-  let controller = controllerHidden ~> sigmoidLayer ~> OutputLayer controllerOut
-  ntm <- ntmLayer {n = N, w = W} controller
-  let model = autoName $ ntm ~> OutputLayer logSoftmaxLayer
+  ntm <- ntmLayer {inputSize = BenchInputW, outputSize = BenchOutputW, n = BenchN, m = BenchM, h = BenchH}
+  let model = autoName $ OutputLayer ntm
 
-  let dataPoints = map (map fromDouble) ntmRawData
-  let opt = adamGlobalClip 0.001 0.9 0.999 (pow 10 (-8)) 5.0
+  -- Generate fixed training data
+  batch <- copyTaskBinaryBatchVect {w = BenchW} BenchBatch 2 4
+  let dataPoints = map (map fromDouble) batch
+  let opt = rmspropValueClip 0.0001 0.95 1.0e-8 10.0
 
   -- Warmup: 10 epochs
-  let (warmModel, warmSt) = trainRecurrentFrom opt model dataPoints nllLoss 10 initState
+  let (warmModel, warmSt, _) = foldl
+        (\(m, s, _), _ =>
+          epochTwoPhase opt dataPoints binaryCrossEntropyWithLogits m s)
+        (model, initState, 0.0) [1..10]
 
   -- Benchmark: 100 epochs
   t0 <- clockTime Monotonic
-  let (benchModel, _) = trainRecurrentFrom opt warmModel dataPoints nllLoss 100 warmSt
-  let loss = calculateLossRecurrent nllLoss benchModel dataPoints
+  let (benchModel, _, benchLoss) = foldl
+        (\(m, s, _), _ =>
+          epochTwoPhase opt dataPoints binaryCrossEntropyWithLogits m s)
+        (warmModel, warmSt, 0.0) [1..100]
   t1 <- clockTime Monotonic
 
   putStrLn $ "NTM (100 epochs):         " ++ show (elapsedMs t0 t1) ++ " ms"
-  putStrLn $ "  Final loss: " ++ show (value loss)
+  putStrLn $ "  Final loss: " ++ show benchLoss
 
 
 ----------------------------------------------------------------------
