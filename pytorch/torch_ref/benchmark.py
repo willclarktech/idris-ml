@@ -108,7 +108,7 @@ def _train_ntm_epoch(
             out = model(zero_input)
             outputs.append(out)
 
-        pred = torch.stack(outputs)  # (seq_len, output_width)
+        pred = torch.stack(outputs).clamp(1e-7, 1 - 1e-7)  # (seq_len, output_width)
         loss = F.binary_cross_entropy(pred, target_seq)
         total_loss = total_loss + loss
 

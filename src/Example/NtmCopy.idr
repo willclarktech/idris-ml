@@ -145,6 +145,51 @@ trainLoop makeOpt schedule model totalEpochs patience chunkSize minLen maxLen st
               else go (ep + 1) m' s' bestLoss' sc
 
 
+||| Training loop with batch_size=1 (online learning).
+||| Generates 1 sequence per epoch for higher gradient noise.
+trainLoop1 :
+  (Double -> DenseOptimizer) -> Schedule ->
+  Network InputW [] OutputW Variable ->
+  (totalEpochs : Nat) -> (patience : Nat) ->
+  (minLen, maxLen : Nat) ->
+  DenseOptimizerState ->
+  IO (Network InputW [] OutputW Variable, DenseOptimizerState, Nat)
+trainLoop1 makeOpt schedule model totalEpochs patience minLen maxLen st =
+  go 0 model st (1.0/0.0) 0
+  where
+    go : Nat -> Network InputW [] OutputW Variable -> DenseOptimizerState ->
+         Double -> Nat ->
+         IO (Network InputW [] OutputW Variable, DenseOptimizerState, Nat)
+    go ep m s bestLoss staleCount =
+      if ep >= totalEpochs then pure (m, s, ep)
+      else do
+        batch <- copyTaskBinaryBatchVect {w = W} 1 minLen maxLen
+        let dps = map (map fromDouble) batch
+            lr = schedule ep
+            opt = makeOpt lr
+            (m', s', loss) = epochTwoPhaseDense opt dps binaryCrossEntropyWithLogits m s
+        when (modNatNZ ep 10 ItIsSucc == 0) forceGC
+        when (modNatNZ ep 500 ItIsSucc == 0) $
+          putStrLn $ "  " ++ show ep ++ ":\tloss=" ++ show loss
+                   ++ "\tpeak=" ++ show (getRssMB ep) ++ "MB"
+                   ++ "\tcur=" ++ show (getCurrentRssMB ep) ++ "MB"
+        if loss /= loss
+          then do
+            putStrLn $ "  Diverged (NaN) at epoch " ++ show ep
+            pure (m', s', ep)
+          else do
+            let improved = loss < bestLoss - 0.001
+                bestLoss' = if improved then loss else bestLoss
+                sc : Nat
+                sc = if improved then 0 else staleCount + 1
+            if patience > 0 && sc >= patience
+              then do
+                putStrLn $ "  Early stop at epoch " ++ show (ep + 1)
+                         ++ " (patience=" ++ show patience ++ ")"
+                pure (m', s', ep + 1)
+              else go (ep + 1) m' s' bestLoss' sc
+
+
 ----------------------------------------------------------------------
 -- CLI Argument Parsing
 ----------------------------------------------------------------------
@@ -161,9 +206,10 @@ record Config where
   seed : Bits64
   minLen : Nat
   maxLen : Nat
+  batch : Nat
 
 defaultConfig : Config
-defaultConfig = MkConfig 0.0001 10.0 0.95 1.0e-8 0.9 50000 5000 123456 1 20
+defaultConfig = MkConfig 0.0001 10.0 0.95 1.0e-8 0.9 50000 5000 123456 1 20 16
 
 parseConfig : List String -> Config
 parseConfig args = go args defaultConfig
@@ -180,6 +226,7 @@ parseConfig args = go args defaultConfig
     go ("--seed" :: v :: rest) c = go rest ({ seed := cast (cast {to=Integer} v) } c)
     go ("--min-len" :: v :: rest) c = go rest ({ minLen := cast (cast {to=Integer} v) } c)
     go ("--max-len" :: v :: rest) c = go rest ({ maxLen := cast (cast {to=Integer} v) } c)
+    go ("--batch" :: v :: rest) c = go rest ({ batch := cast (cast {to=Integer} v) } c)
     go (_ :: rest) c = go rest c
 
 
@@ -202,6 +249,7 @@ main = do
            ++ " epochs=" ++ show cfg.epochs
            ++ " patience=" ++ show cfg.patience
            ++ " seed=" ++ show cfg.seed
+           ++ " batch=" ++ show cfg.batch
            ++ " seqLen=" ++ show cfg.minLen ++ "-" ++ show cfg.maxLen
   putStrLn $ "Architecture: N=" ++ show N ++ " M=" ++ show M ++ " H=" ++ show H
   putStrLn ""
@@ -219,9 +267,13 @@ main = do
   let makeOpt = \lr => rmspropValueClipMomentumDense lr cfg.alpha cfg.eps cfg.clipVal cfg.momentum
   let schedule = constant cfg.lr
   let st0 = initDenseState numPids
-  putStrLn "Training..."
-  (trained, finalSt, epochsDone) <- trainLoop makeOpt schedule model
-    cfg.epochs cfg.patience 1 cfg.minLen cfg.maxLen st0
+  putStrLn $ "Training (batch=" ++ show cfg.batch ++ ")..."
+  (trained, finalSt, epochsDone) <-
+    if cfg.batch == 1
+      then trainLoop1 makeOpt schedule model
+             cfg.epochs cfg.patience cfg.minLen cfg.maxLen st0
+      else trainLoop makeOpt schedule model
+             cfg.epochs cfg.patience 1 cfg.minLen cfg.maxLen st0
 
   putStrLn $ "Training complete: " ++ show epochsDone ++ " epochs"
   putStrLn ""

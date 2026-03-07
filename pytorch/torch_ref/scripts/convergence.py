@@ -16,7 +16,8 @@ from typing import Literal
 
 import torch
 
-from torch_ref.data.copy_task import generate_copy_sequence
+from torch_ref.benchmark import _train_ntm_epoch
+from torch_ref.data.copy_task import generate_copy_batch, generate_copy_sequence
 from torch_ref.data.recall_task import generate_recall_sequence
 from torch_ref.diagnostics.ntm_diagnostics import (
     compute_summary,
@@ -44,6 +45,7 @@ def run_copy(args: argparse.Namespace) -> None:
     iterations: int = getattr(args, "copy_iters", 50000)
     n: int = getattr(args, "copy_n", 128)
     m: int = getattr(args, "copy_m", 20)
+    batch_size: int = getattr(args, "copy_batch_size", 1)
 
     cfg = NtmConfig(
         input_width=COPY_SEQ_WIDTH + 1,
@@ -59,7 +61,7 @@ def run_copy(args: argparse.Namespace) -> None:
     else:
         optimizer = torch.optim.RMSprop(model.parameters(), lr=cfg.lr, alpha=0.95, momentum=0.9)
 
-    print(f"  seq_width={COPY_SEQ_WIDTH}  seq_range=[1,20]")
+    print(f"  seq_width={COPY_SEQ_WIDTH}  seq_range=[1,20]  batch_size={batch_size}")
     print(f"  N={cfg.n}  M={cfg.m}  controller={cfg.controller_size}")
     print(f"  optimizer={optimizer_name}  lr={cfg.lr}  clip={clip_mode}({cfg.clip_value})")
     early_stop = not getattr(args, "no_early_stop", False)
@@ -71,15 +73,19 @@ def run_copy(args: argparse.Namespace) -> None:
     if early_stop:
         print(f"  early_stop: loss<{es_threshold} over {es_window} iters, patience={es_patience}")
 
-    # Training loop: 1 sequence per iteration
+    # Training loop
     losses: list[float] = []
     patience_count = 0
     for i in range(1, iterations + 1):
-        input_seq, target_seq = generate_copy_sequence(
-            seq_len=random.randint(1, 20),
-            seq_width=COPY_SEQ_WIDTH,
-        )
-        loss, _ = train_ntm_step(model, input_seq, target_seq, optimizer, clip_mode=clip_mode)
+        if batch_size == 1:
+            input_seq, target_seq = generate_copy_sequence(
+                seq_len=random.randint(1, 20),
+                seq_width=COPY_SEQ_WIDTH,
+            )
+            loss, _ = train_ntm_step(model, input_seq, target_seq, optimizer, clip_mode=clip_mode)
+        else:
+            batch = generate_copy_batch(batch_size, seq_min=1, seq_max=20, seq_width=COPY_SEQ_WIDTH)
+            loss = _train_ntm_epoch(model, batch, optimizer, clip_value=cfg.clip_value)
         losses.append(loss)
 
         if i % 500 == 0:
@@ -283,6 +289,7 @@ def main() -> None:
         "--copy-clip", choices=["value", "norm"], default="value", help="Copy clip mode"
     )
     parser.add_argument("--copy-lr", type=float, default=1e-4, help="Copy learning rate")
+    parser.add_argument("--copy-batch-size", type=int, default=1, help="Copy batch size (1=online)")
 
     # Recall task flags
     parser.add_argument("--recall-iters", type=int, default=100000, help="Recall iterations")
