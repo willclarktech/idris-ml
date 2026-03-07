@@ -25,6 +25,7 @@ mutual
   layerIds : {i, o : Nat} -> Layer i o Variable -> List String
   layerIds (LinearLayer w b _) = tensorIds w ++ tensorIds b
   layerIds (RnnLayer iw rw b _ _ _) = tensorIds iw ++ tensorIds rw ++ tensorIds b
+  layerIds (LstmLayer iw rw b _ _ _ _) = tensorIds iw ++ tensorIds rw ++ tensorIds b
   layerIds (NtmLayer ctrl mem rh wh ro) =
     networkIds ctrl ++ tensorIds mem
       ++ tensorIds rh.addressingWeights
@@ -94,6 +95,28 @@ tests =
        r3 <- check "autoName mixed: no ll1" (not (hasPrefix "ll1_" ids))
        r4 <- check "autoName mixed: no duplicates" (noDuplicates ids)
        pure (r1 && r2 && r3 && r4)
+
+  -- LSTM layer: lstm0_inputWeight*, lstm0_bias*
+  , do srand 42
+       lstm <- lstmLayer {i=2, o=3}
+       let named = autoName $ OutputLayer lstm
+       let ids = networkIds named
+       r1 <- check "autoName lstm: has lstm0_inputWeight" (hasPrefix "lstm0_inputWeight" ids)
+       r2 <- check "autoName lstm: has lstm0_recurrentWeight" (hasPrefix "lstm0_recurrentWeight" ids)
+       r3 <- check "autoName lstm: has lstm0_bias" (hasPrefix "lstm0_bias" ids)
+       r4 <- check "autoName lstm: no duplicates" (noDuplicates ids)
+       pure (r1 && r2 && r3 && r4)
+
+  -- LSTM + linear: no collisions
+  , do srand 42
+       lstm <- lstmLayer {i=2, o=3}
+       ll <- linearLayer {i=3, o=2}
+       let named = autoName $ lstm ~> OutputLayer ll
+       let ids = networkIds named
+       r1 <- check "autoName lstm+linear: has lstm0_" (hasPrefix "lstm0_" ids)
+       r2 <- check "autoName lstm+linear: has ll0_" (hasPrefix "ll0_" ids)
+       r3 <- check "autoName lstm+linear: no duplicates" (noDuplicates ids)
+       pure (r1 && r2 && r3)
 
   -- NTM: controller layers get scoped names
   , do srand 42

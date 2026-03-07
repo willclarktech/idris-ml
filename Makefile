@@ -37,6 +37,10 @@ rnn: $(CLIB)
 	idris2 --source-dir src -p contrib -o rnn src/Example/Rnn.idr
 	./build/exec/rnn
 
+lstm: $(CLIB)
+	idris2 --source-dir src -p contrib -o lstm src/Example/Lstm.idr
+	./build/exec/lstm
+
 ntm-copy: $(CLIB)
 	idris2 --source-dir src -p contrib -o ntm-copy src/Example/NtmCopy.idr
 	./build/exec/ntm-copy
@@ -90,4 +94,4 @@ ref-convergence-recall:
 clean:
 	rm -f $(CLIB) $(BUILD)/test_tensor
 
-.PHONY: test test-c check supervised rnn ntm-copy ntm-associative-recall bench sweep sweep-quick clean ref-setup bench-py bench-compare ref-test ref-lint ref-typecheck ref-convergence ref-convergence-copy ref-convergence-recall
+.PHONY: test test-c check supervised rnn lstm ntm-copy ntm-associative-recall bench sweep sweep-quick clean ref-setup bench-py bench-compare ref-test ref-lint ref-typecheck ref-convergence ref-convergence-copy ref-convergence-recall

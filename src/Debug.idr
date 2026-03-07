@@ -122,6 +122,8 @@ mutual
     LinearLayer (map value w) (map value b) Nothing
   toDoubleLayer (RnnLayer iw rw b po _ _) =
     RnnLayer (map value iw) (map value rw) (map value b) (map value po) Nothing Nothing
+  toDoubleLayer (LstmLayer iw rw b hs cs _ _) =
+    LstmLayer (map value iw) (map value rw) (map value b) (map value hs) (map value cs) Nothing Nothing
   toDoubleLayer (ActivationLayer "sigmoid" _) = sigmoidLayer
   toDoubleLayer (ActivationLayer "tanh" _) = tanhLayer
   toDoubleLayer (ActivationLayer name _) = ActivationLayer name id
@@ -155,6 +157,11 @@ debugApplyLayer {i} {o} (RnnLayer iw rw b previousOutput iwb rwb) inp =
   let (updated, out) = applyLayer (RnnLayer iw rw b previousOutput iwb rwb) inp
   in (updated, out, MkDebugEntry ("Rnn<" ++ show i ++ ":" ++ show o ++ ">")
        [("hidden", showVec previousOutput)])
+
+debugApplyLayer {i} {o} (LstmLayer iw rw b hiddenState cellState iwb rwb) inp =
+  let (updated, out) = applyLayer (LstmLayer iw rw b hiddenState cellState iwb rwb) inp
+  in (updated, out, MkDebugEntry ("Lstm<" ++ show i ++ ":" ++ show o ++ ">")
+       [("hidden", showVec hiddenState), ("cell", showVec cellState)])
 
 debugApplyLayer layer@(ActivationLayer name _) inp =
   let (updated, out) = applyLayer layer inp
