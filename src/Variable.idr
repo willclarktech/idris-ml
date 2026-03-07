@@ -1597,10 +1597,12 @@ getNumPids = prim__getNumPids
 prim__denseLookup : AnyPtr -> String -> Double
 
 -- Allocate zero-initialized dense C array of n doubles.
+export
 %foreign "scheme:(lambda (n) ((foreign-procedure \"dense_alloc\" (int) void*) n))"
 prim__denseAlloc : Int -> AnyPtr
 
 -- Zero out a dense C array. Returns handle for threading.
+export
 %foreign "scheme:(lambda (p n) ((foreign-procedure \"dense_zero\" (void* int) void*) p n))"
 prim__denseZero : AnyPtr -> Int -> AnyPtr
 
@@ -1610,14 +1612,17 @@ prim__denseZero : AnyPtr -> Int -> AnyPtr
 prim__walkBackwardExtDenseAndReset : AnyPtr -> Int -> AnyPtr -> AnyPtr
 
 -- RMSprop with value clipping (in-place: grads[] -> deltas[]).
+export
 %foreign "scheme:(lambda (grads v n lr alpha eps maxVal) ((foreign-procedure \"rmsprop_vc_step\" (void* void* int double double double double) void*) grads v n lr alpha eps maxVal))"
 prim__rmspropVcStep : AnyPtr -> AnyPtr -> Int -> Double -> Double -> Double -> Double -> AnyPtr
 
 -- SGD with per-param clipping (in-place: grads[] -> deltas[]).
+export
 %foreign "scheme:(lambda (grads n lr maxGrad) ((foreign-procedure \"sgd_step\" (void* int double double) void*) grads n lr maxGrad))"
 prim__sgdStep : AnyPtr -> Int -> Double -> Double -> AnyPtr
 
 -- Adam with global norm clipping (in-place: grads[] -> deltas[]).
+export
 %foreign "scheme:(lambda (grads m v n lr b1 b2 eps maxNorm t) ((foreign-procedure \"adam_gc_step\" (void* void* void* int double double double double double int) void*) grads m v n lr b1 b2 eps maxNorm t))"
 prim__adamGcStep : AnyPtr -> AnyPtr -> AnyPtr -> Int -> Double -> Double -> Double -> Double -> Double -> Int -> AnyPtr
 
