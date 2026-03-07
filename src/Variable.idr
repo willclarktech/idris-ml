@@ -279,6 +279,7 @@ prim__tensorRead : AnyPtr -> Int -> Double
 
 -- Force evaluation of first arg, return second. Chez Scheme evaluates all
 -- function arguments strictly, so this creates an ordering dependency.
+export
 %foreign "scheme:(lambda (a b) b)"
 prim__seq : AnyPtr -> AnyPtr -> AnyPtr
 

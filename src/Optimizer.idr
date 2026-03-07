@@ -215,8 +215,8 @@ rmspropValueClipDense lr alpha eps maxVal = MkDenseOptimizer step
   where
     step : AnyPtr -> DenseOptimizerState -> DenseOptimizerState
     step grads st =
-      let _ = prim__rmspropVcStep grads st.v st.n lr alpha eps maxVal
-      in st  -- v updated in-place, grads now contains deltas
+      let result = prim__rmspropVcStep grads st.v st.n lr alpha eps maxVal
+      in { v := prim__seq result st.v } st
 
 ||| RMSprop with value clipping + momentum (dense C arrays).
 ||| Matches PyTorch's RMSprop(momentum=momentum).
@@ -227,8 +227,8 @@ rmspropValueClipMomentumDense lr alpha eps maxVal momentum = MkDenseOptimizer st
   where
     step : AnyPtr -> DenseOptimizerState -> DenseOptimizerState
     step grads st =
-      let _ = prim__rmspropVcMomentumStep grads st.v st.m st.n lr alpha eps maxVal momentum
-      in st  -- v, m updated in-place, grads now contains deltas
+      let result = prim__rmspropVcMomentumStep grads st.v st.m st.n lr alpha eps maxVal momentum
+      in { v := prim__seq result st.v } st
 
 ||| SGD with per-param clipping (dense C arrays).
 export
@@ -237,8 +237,8 @@ sgdDense lr maxGrad = MkDenseOptimizer step
   where
     step : AnyPtr -> DenseOptimizerState -> DenseOptimizerState
     step grads st =
-      let _ = prim__sgdStep grads st.n lr maxGrad
-      in st
+      let result = prim__sgdStep grads st.n lr maxGrad
+      in { v := prim__seq result st.v } st
 
 ||| Adam with global gradient norm clipping (dense C arrays).
 export
@@ -248,5 +248,5 @@ adamGlobalClipDense lr beta1 beta2 eps maxNorm = MkDenseOptimizer step
   where
     step : AnyPtr -> DenseOptimizerState -> DenseOptimizerState
     step grads st =
-      let _ = prim__adamGcStep grads st.m st.v st.n lr beta1 beta2 eps maxNorm st.t
-      in { t := st.t + 1 } st
+      let result = prim__adamGcStep grads st.m st.v st.n lr beta1 beta2 eps maxNorm st.t
+      in { v := prim__seq result st.v, t := st.t + 1 } st
