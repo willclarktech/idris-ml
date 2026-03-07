@@ -72,8 +72,8 @@ def run_copy(args: argparse.Namespace) -> None:
     print(f"  N={cfg.n}  M={cfg.m}  controller={cfg.controller_size}")
     print(f"  optimizer={optimizer_name}  lr={cfg.lr}  clip={clip_mode}({cfg.clip_value})")
     early_stop = not getattr(args, "no_early_stop", False)
-    es_window = 5000
-    es_patience = 10  # consecutive checkpoints (500 iters each)
+    es_window = 1000
+    es_patience = 3  # consecutive checkpoints (500 iters each)
     es_threshold = 0.01  # average loss over window
 
     print(f"  iterations={iterations}")
@@ -181,8 +181,8 @@ def run_recall(args: argparse.Namespace) -> None:
     print(f"  N={cfg.n}  M={cfg.m}  controller={cfg.controller_size}")
     print(f"  optimizer={optimizer_name}  lr={cfg.lr}  clip={clip_mode}({cfg.clip_value})")
     early_stop = not getattr(args, "no_early_stop", False)
-    es_window = 5000
-    es_patience = 10  # consecutive checkpoints (500 iters each)
+    es_window = 1000
+    es_patience = 3  # consecutive checkpoints (500 iters each)
     es_threshold = 0.3  # average bit error over window
 
     print(f"  iterations={iterations}")
