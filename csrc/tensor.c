@@ -168,6 +168,33 @@ int tape_append_const(double val, char *pid) {
   return idx;
 }
 
+/* Fast path for intermediates (no pid string conversion) */
+int tape_append_const_nopid(double val) {
+  tape_init();
+  int idx = tape_size;
+  tape_ensure_cap(idx);
+  tape_tags[idx] = 0;
+  tape_vals[idx] = val;
+  tape_pids[idx] = NULL;
+  tape_size = idx + 1;
+  return idx;
+}
+
+/* Bulk-append output ConstOps from a C buffer. Returns start index. */
+int tape_bulk_output_const(double *out_vals, int count) {
+  int start = tape_size;
+  int end = start + count;
+  tape_ensure_cap(end - 1);
+  for (int k = 0; k < count; k++) {
+    int idx = start + k;
+    tape_tags[idx] = 0;
+    tape_vals[idx] = out_vals[k];
+    tape_pids[idx] = NULL;
+  }
+  tape_size = end;
+  return start;
+}
+
 int tape_append_unary(int tag, int a1, double val) {
   int idx = tape_size;
   tape_ensure_cap(idx);
@@ -1319,4 +1346,105 @@ int weight_buf_ensure(WeightBuf *wb) {
   wb->cached_start = start;
   wb->cached_gen = tape_gen;
   return start;
+}
+
+
+/* -------------------------------------------------------------------
+   NTM memory buffer (persistent C-backed)
+   Keeps the n×w memory matrix in C. Values and tape indices are
+   updated in-place each timestep by InterpWrite, eliminating the
+   need to pack 2560 Idris Variable records into C buffers 4 times
+   per timestep.
+   ------------------------------------------------------------------- */
+
+typedef struct {
+  int n, w;
+  double *vals;       /* n*w memory values (persistent, updated each timestep) */
+  int *tape_idx;      /* n*w tape indices (updated each timestep) */
+  char **pids;        /* n*w interned pid strings (set once in nameParams) */
+  int cached_gen;     /* epoch cache: tape generation (-1 = uncached) */
+  int cached_start;   /* epoch cache: first tape index */
+} NtmMemBuf;
+
+NtmMemBuf *ntm_mem_alloc(int n, int w) {
+  NtmMemBuf *mb = (NtmMemBuf *)malloc(sizeof(NtmMemBuf));
+  mb->n = n;
+  mb->w = w;
+  int total = n * w;
+  mb->vals = (double *)calloc(total, sizeof(double));
+  mb->tape_idx = (int *)calloc(total, sizeof(int));
+  mb->pids = (char **)calloc(total, sizeof(char *));
+  mb->cached_gen = -1;
+  mb->cached_start = -1;
+  return mb;
+}
+
+/* Set a single value (used during init from named Variables) */
+NtmMemBuf *ntm_mem_set_val(NtmMemBuf *mb, int idx, double val) {
+  mb->vals[idx] = val;
+  return mb;
+}
+
+/* Set a pid string for one element (interns it). Used during nameParams. */
+NtmMemBuf *ntm_mem_set_pid(NtmMemBuf *mb, int idx, char *pid) {
+  mb->pids[idx] = intern_str(pid);
+  return mb;
+}
+
+/* After InterpWrite: copy output values into buffer. */
+void ntm_mem_update_vals(NtmMemBuf *mb, double *out_vals) {
+  memcpy(mb->vals, out_vals, mb->n * mb->w * sizeof(double));
+}
+
+/* After InterpWrite output ConstOps: set tape_idx[k] = start + k */
+void ntm_mem_update_tape_idx(NtmMemBuf *mb, int start) {
+  int total = mb->n * mb->w;
+  for (int k = 0; k < total; k++) {
+    mb->tape_idx[k] = start + k;
+  }
+}
+
+/* Sync values from an external array (after applyDeltas).
+ * Resets cached_gen to force re-registration on next epoch. */
+void ntm_mem_sync_vals(NtmMemBuf *mb, double *vals_array, int count) {
+  memcpy(mb->vals, vals_array, count * sizeof(double));
+  mb->cached_gen = -1;
+}
+
+/* Raw array accessors (for Scheme-side ensure_on_tape and debugging) */
+double *ntm_mem_vals_ptr(NtmMemBuf *mb)  { return mb->vals; }
+int *ntm_mem_tape_idx_ptr(NtmMemBuf *mb) { return mb->tape_idx; }
+char **ntm_mem_pids_ptr(NtmMemBuf *mb)   { return mb->pids; }
+int ntm_mem_get_n(NtmMemBuf *mb)         { return mb->n; }
+int ntm_mem_get_w(NtmMemBuf *mb)         { return mb->w; }
+int ntm_mem_cached_gen(NtmMemBuf *mb)    { return mb->cached_gen; }
+
+void ntm_mem_set_cached(NtmMemBuf *mb, int gen, int start) {
+  mb->cached_gen = gen;
+  mb->cached_start = start;
+}
+
+/* --- Pack helpers: memcpy from buffer directly into meta structs ---
+ * These replace the Scheme-side packMatrix iteration for memory.
+ * Each copies n*w doubles (vals) and n*w ints (tape_idx). */
+
+void batch_cossim_pack_mem_buf(void *meta_ptr, NtmMemBuf *mb) {
+  BatchCosSimMeta *m = (BatchCosSimMeta *)meta_ptr;
+  int total = mb->n * mb->w;
+  memcpy(m->mem_vals, mb->vals, total * sizeof(double));
+  memcpy(m->mem_tape_idx, mb->tape_idx, total * sizeof(int));
+}
+
+void readop_pack_mem_buf(void *meta_ptr, NtmMemBuf *mb) {
+  ReadOpMeta *m = (ReadOpMeta *)meta_ptr;
+  int total = mb->n * mb->w;
+  memcpy(m->mem_vals, mb->vals, total * sizeof(double));
+  memcpy(m->mem_tape_idx, mb->tape_idx, total * sizeof(int));
+}
+
+void interp_write_pack_mem_buf(void *meta_ptr, NtmMemBuf *mb) {
+  InterpWriteMeta *m = (InterpWriteMeta *)meta_ptr;
+  int total = mb->n * mb->w;
+  memcpy(m->mem_vals, mb->vals, total * sizeof(double));
+  memcpy(m->mem_tape_idx, mb->tape_idx, total * sizeof(int));
 }

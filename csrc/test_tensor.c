@@ -770,6 +770,206 @@ static void test_interp_write_backward(void) {
 
 
 /* -------------------------------------------------------------------
+   NtmMemBuf tests
+   ------------------------------------------------------------------- */
+
+static void test_ntm_mem_alloc(void) {
+  NtmMemBuf *mb = ntm_mem_alloc(3, 2);
+  check("ntm_mem_alloc_non_null", mb != NULL);
+  check("ntm_mem_n", ntm_mem_get_n(mb) == 3);
+  check("ntm_mem_w", ntm_mem_get_w(mb) == 2);
+  check("ntm_mem_cached_gen_init", ntm_mem_cached_gen(mb) == -1);
+
+  /* Values should be zero-initialized */
+  double *vals = ntm_mem_vals_ptr(mb);
+  check_close("ntm_mem_val_init_0", vals[0], 0.0, 1e-12);
+  check_close("ntm_mem_val_init_5", vals[5], 0.0, 1e-12);
+
+  free(mb->vals); free(mb->tape_idx); free(mb->pids); free(mb);
+}
+
+static void test_ntm_mem_set_val(void) {
+  NtmMemBuf *mb = ntm_mem_alloc(2, 3);
+  ntm_mem_set_val(mb, 0, 1.5);
+  ntm_mem_set_val(mb, 3, 2.7);
+  ntm_mem_set_val(mb, 5, -0.3);
+
+  double *vals = ntm_mem_vals_ptr(mb);
+  check_close("ntm_mem_set_val[0]", vals[0], 1.5, 1e-12);
+  check_close("ntm_mem_set_val[3]", vals[3], 2.7, 1e-12);
+  check_close("ntm_mem_set_val[5]", vals[5], -0.3, 1e-12);
+  /* Unchanged elements stay zero */
+  check_close("ntm_mem_set_val[1]", vals[1], 0.0, 1e-12);
+
+  free(mb->vals); free(mb->tape_idx); free(mb->pids); free(mb);
+}
+
+static void test_ntm_mem_set_pid(void) {
+  NtmMemBuf *mb = ntm_mem_alloc(2, 2);
+  ntm_mem_set_pid(mb, 0, "mem0");
+  ntm_mem_set_pid(mb, 1, "mem1");
+  ntm_mem_set_pid(mb, 2, "mem2");
+  ntm_mem_set_pid(mb, 3, "mem3");
+
+  char **pids = ntm_mem_pids_ptr(mb);
+  check("ntm_mem_pid_0", strcmp(pids[0], "mem0") == 0);
+  check("ntm_mem_pid_3", strcmp(pids[3], "mem3") == 0);
+  /* Same string should be interned (same pointer) */
+  ntm_mem_set_pid(mb, 0, "mem0");
+  check("ntm_mem_pid_intern", pids[0] == ntm_mem_pids_ptr(mb)[0]);
+
+  free(mb->vals); free(mb->tape_idx); free(mb->pids); free(mb);
+}
+
+static void test_ntm_mem_update_vals(void) {
+  NtmMemBuf *mb = ntm_mem_alloc(2, 3);
+  double new_vals[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
+  ntm_mem_update_vals(mb, new_vals);
+
+  double *vals = ntm_mem_vals_ptr(mb);
+  check_close("ntm_mem_update_vals[0]", vals[0], 1.0, 1e-12);
+  check_close("ntm_mem_update_vals[2]", vals[2], 3.0, 1e-12);
+  check_close("ntm_mem_update_vals[5]", vals[5], 6.0, 1e-12);
+
+  free(mb->vals); free(mb->tape_idx); free(mb->pids); free(mb);
+}
+
+static void test_ntm_mem_update_tape_idx(void) {
+  NtmMemBuf *mb = ntm_mem_alloc(2, 3);
+  ntm_mem_update_tape_idx(mb, 100);
+
+  int *idx = ntm_mem_tape_idx_ptr(mb);
+  check("ntm_mem_tape_idx[0]", idx[0] == 100);
+  check("ntm_mem_tape_idx[3]", idx[3] == 103);
+  check("ntm_mem_tape_idx[5]", idx[5] == 105);
+
+  free(mb->vals); free(mb->tape_idx); free(mb->pids); free(mb);
+}
+
+static void test_ntm_mem_sync_vals(void) {
+  NtmMemBuf *mb = ntm_mem_alloc(2, 2);
+  ntm_mem_set_cached(mb, 5, 42);
+  check("ntm_mem_cached_before_sync", ntm_mem_cached_gen(mb) == 5);
+
+  double new_vals[] = {1.1, 2.2, 3.3, 4.4};
+  ntm_mem_sync_vals(mb, new_vals, 4);
+
+  double *vals = ntm_mem_vals_ptr(mb);
+  check_close("ntm_mem_sync[0]", vals[0], 1.1, 1e-12);
+  check_close("ntm_mem_sync[3]", vals[3], 4.4, 1e-12);
+  /* Sync should invalidate cache */
+  check("ntm_mem_cached_after_sync", ntm_mem_cached_gen(mb) == -1);
+
+  free(mb->vals); free(mb->tape_idx); free(mb->pids); free(mb);
+}
+
+static void test_ntm_mem_pack_batch_cossim(void) {
+  /* Set up NtmMemBuf with known values and tape indices */
+  NtmMemBuf *mb = ntm_mem_alloc(2, 3);
+  double mem_vals[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
+  ntm_mem_update_vals(mb, mem_vals);
+  ntm_mem_update_tape_idx(mb, 10);
+
+  /* Allocate meta and pack from buffer */
+  arena_reset();
+  BatchCosSimMeta *meta = batch_cossim_meta_alloc(2, 3);
+  batch_cossim_pack_mem_buf(meta, mb);
+
+  /* Verify values were copied */
+  check_close("pack_bcs_val[0]", meta->mem_vals[0], 1.0, 1e-12);
+  check_close("pack_bcs_val[5]", meta->mem_vals[5], 6.0, 1e-12);
+  check("pack_bcs_idx[0]", meta->mem_tape_idx[0] == 10);
+  check("pack_bcs_idx[5]", meta->mem_tape_idx[5] == 15);
+
+  free(mb->vals); free(mb->tape_idx); free(mb->pids); free(mb);
+}
+
+static void test_ntm_mem_pack_readop(void) {
+  NtmMemBuf *mb = ntm_mem_alloc(3, 2);
+  double mem_vals[] = {0.1, 0.2, 0.3, 0.4, 0.5, 0.6};
+  ntm_mem_update_vals(mb, mem_vals);
+  ntm_mem_update_tape_idx(mb, 20);
+
+  arena_reset();
+  ReadOpMeta *meta = readop_meta_alloc(3, 2);
+  readop_pack_mem_buf(meta, mb);
+
+  check_close("pack_ro_val[0]", meta->mem_vals[0], 0.1, 1e-12);
+  check_close("pack_ro_val[5]", meta->mem_vals[5], 0.6, 1e-12);
+  check("pack_ro_idx[0]", meta->mem_tape_idx[0] == 20);
+  check("pack_ro_idx[5]", meta->mem_tape_idx[5] == 25);
+
+  free(mb->vals); free(mb->tape_idx); free(mb->pids); free(mb);
+}
+
+static void test_ntm_mem_pack_interp_write(void) {
+  NtmMemBuf *mb = ntm_mem_alloc(2, 2);
+  double mem_vals[] = {10.0, 20.0, 30.0, 40.0};
+  ntm_mem_update_vals(mb, mem_vals);
+  ntm_mem_update_tape_idx(mb, 50);
+
+  arena_reset();
+  InterpWriteMeta *meta = interp_write_meta_alloc(2, 2);
+  interp_write_pack_mem_buf(meta, mb);
+
+  check_close("pack_iw_val[0]", meta->mem_vals[0], 10.0, 1e-12);
+  check_close("pack_iw_val[3]", meta->mem_vals[3], 40.0, 1e-12);
+  check("pack_iw_idx[0]", meta->mem_tape_idx[0] == 50);
+  check("pack_iw_idx[3]", meta->mem_tape_idx[3] == 53);
+
+  free(mb->vals); free(mb->tape_idx); free(mb->pids); free(mb);
+}
+
+static void test_ntm_mem_full_lifecycle(void) {
+  /* Simulate: alloc -> init -> ensure (fake) -> pack -> interp_write update -> pack again */
+  NtmMemBuf *mb = ntm_mem_alloc(2, 2);
+
+  /* 1. Init with values (like nameParams) */
+  ntm_mem_set_val(mb, 0, 1e-6);
+  ntm_mem_set_val(mb, 1, 1e-6);
+  ntm_mem_set_val(mb, 2, 1e-6);
+  ntm_mem_set_val(mb, 3, 1e-6);
+  ntm_mem_set_pid(mb, 0, "ntm0_mem0");
+  ntm_mem_set_pid(mb, 1, "ntm0_mem1");
+  ntm_mem_set_pid(mb, 2, "ntm0_mem2");
+  ntm_mem_set_pid(mb, 3, "ntm0_mem3");
+
+  /* 2. Simulate ensure_on_tape: tape indices 0-3 */
+  ntm_mem_update_tape_idx(mb, 0);
+  ntm_mem_set_cached(mb, 0, 0);
+
+  /* 3. Pack into BatchCosSim meta */
+  arena_reset();
+  BatchCosSimMeta *bcs = batch_cossim_meta_alloc(2, 2);
+  batch_cossim_pack_mem_buf(bcs, mb);
+  check_close("lifecycle_bcs_val", bcs->mem_vals[0], 1e-6, 1e-12);
+  check("lifecycle_bcs_idx", bcs->mem_tape_idx[0] == 0);
+
+  /* 4. Simulate InterpWrite output: new memory values */
+  double new_vals[] = {0.5, -0.3, 0.8, 0.1};
+  ntm_mem_update_vals(mb, new_vals);
+  ntm_mem_update_tape_idx(mb, 200); /* new ConstOps at positions 200-203 */
+
+  /* 5. Pack into ReadOp meta (should see updated values) */
+  arena_reset();
+  ReadOpMeta *ro = readop_meta_alloc(2, 2);
+  readop_pack_mem_buf(ro, mb);
+  check_close("lifecycle_ro_val[0]", ro->mem_vals[0], 0.5, 1e-12);
+  check_close("lifecycle_ro_val[1]", ro->mem_vals[1], -0.3, 1e-12);
+  check("lifecycle_ro_idx[0]", ro->mem_tape_idx[0] == 200);
+  check("lifecycle_ro_idx[3]", ro->mem_tape_idx[3] == 203);
+
+  /* 6. Sync after applyDeltas (new epoch) */
+  double updated[] = {0.51, -0.29, 0.79, 0.11};
+  ntm_mem_sync_vals(mb, updated, 4);
+  check_close("lifecycle_sync_val", ntm_mem_vals_ptr(mb)[0], 0.51, 1e-12);
+  check("lifecycle_sync_invalidated", ntm_mem_cached_gen(mb) == -1);
+
+  free(mb->vals); free(mb->tape_idx); free(mb->pids); free(mb);
+}
+
+
+/* -------------------------------------------------------------------
    Arena tests
    ------------------------------------------------------------------- */
 
@@ -814,6 +1014,16 @@ int main(void) {
   test_writeop_backward();
   test_interp_write_forward();
   test_interp_write_backward();
+  test_ntm_mem_alloc();
+  test_ntm_mem_set_val();
+  test_ntm_mem_set_pid();
+  test_ntm_mem_update_vals();
+  test_ntm_mem_update_tape_idx();
+  test_ntm_mem_sync_vals();
+  test_ntm_mem_pack_batch_cossim();
+  test_ntm_mem_pack_readop();
+  test_ntm_mem_pack_interp_write();
+  test_ntm_mem_full_lifecycle();
 
   printf("\n%d passed, %d failed\n", tests_passed, tests_failed);
   return tests_failed > 0 ? 1 : 0;
