@@ -264,6 +264,62 @@ benchNtmCopy1k = do
 
 
 ----------------------------------------------------------------------
+-- NTM Recall (matching NtmAssociativeRecall.idr architecture)
+----------------------------------------------------------------------
+
+RecallW : Nat
+RecallW = 6
+
+RecallInputW : Nat
+RecallInputW = S (S RecallW)
+
+RecallOutputW : Nat
+RecallOutputW = RecallW
+
+RecallN : Nat
+RecallN = 128
+
+RecallM : Nat
+RecallM = 20
+
+RecallH : Nat
+RecallH = 100
+
+RecallBatch : Nat
+RecallBatch = 16
+
+benchNtmRecall : IO ()
+benchNtmRecall = do
+  ntm <- ntmLayer {inputSize = RecallInputW, outputSize = RecallOutputW, n = RecallN, m = RecallM, h = RecallH}
+  let model = autoName $ OutputLayer ntm
+
+  -- Generate fixed training data
+  batch <- recallTaskBinaryBatchVect {w = RecallW} RecallBatch 2 6 3
+  let dataPoints = map (map fromDouble) batch
+  let numPids = getNumPids 0
+  let opt = rmspropValueClipMomentumDense 0.0001 0.95 1.0e-8 10.0 0.9
+  let st0 = initDenseState numPids
+
+  -- Warmup: 10 epochs
+  let (warmModel, warmSt, _) = foldl
+        (\(m, s, _), _ =>
+          epochTwoPhaseDenseBce opt dataPoints m s)
+        (model, st0, 0.0) [1..10]
+
+  -- Benchmark: 100 epochs
+  t0 <- clockTime Monotonic
+  let (benchModel, _, benchLoss) = foldl
+        (\(m, s, _), _ =>
+          epochTwoPhaseDenseBce opt dataPoints m s)
+        (warmModel, warmSt, 0.0) [1..100]
+  t1 <- clockTime Monotonic
+
+  putStrLn $ "NTM-recall (100 epochs):  " ++ show (elapsedMs t0 t1) ++ " ms"
+  putStrLn $ "  Final loss: " ++ show benchLoss
+  putStrLn $ "  Peak RSS: " ++ show (getRssMB 5) ++ " MB"
+
+
+----------------------------------------------------------------------
 -- Main
 ----------------------------------------------------------------------
 
@@ -276,3 +332,4 @@ main = do
   benchNtm
   benchNtmCopy
   benchNtmCopy1k
+  benchNtmRecall

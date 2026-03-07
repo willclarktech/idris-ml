@@ -13,6 +13,7 @@ from torch_ref.benchmark import (
     bench_ntm,
     bench_ntm_copy,
     bench_ntm_copy_1k,
+    bench_ntm_recall,
     bench_rnn,
     bench_supervised,
 )
@@ -80,6 +81,7 @@ def main() -> None:
     py_ntm = bench_ntm()
     py_ntm_copy = bench_ntm_copy()
     py_ntm_copy_1k = bench_ntm_copy_1k()
+    py_ntm_recall = bench_ntm_recall()
 
     py_results = {
         "Supervised": py_supervised,
@@ -87,6 +89,7 @@ def main() -> None:
         "NTM": py_ntm,
         "NTM-copy": py_ntm_copy,
         "NTM-copy-1k": py_ntm_copy_1k,
+        "NTM-recall": py_ntm_recall,
     }
 
     print("\nRunning Idris benchmarks...")
@@ -113,7 +116,7 @@ def main() -> None:
     print(header)
     print("-" * len(header))
 
-    for name in ["Supervised", "RNN", "NTM", "NTM-copy", "NTM-copy-1k"]:
+    for name in ["Supervised", "RNN", "NTM", "NTM-copy", "NTM-copy-1k", "NTM-recall"]:
         py_ms, py_loss, py_rss = py_results[name]
 
         if idris_results and name in idris_results:

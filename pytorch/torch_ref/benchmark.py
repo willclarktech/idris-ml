@@ -5,6 +5,7 @@
 - NTM: 10 warmup + 100 timed epochs, RMSprop lr=1e-4 alpha=0.95 value clip 10.0
 - NTM-copy: 10 warmup + 100 timed epochs, same optimizer, production scale
 - NTM-copy-1k: 10 warmup + 1000 timed epochs, fresh data each epoch, momentum=0.9
+- NTM-recall: 10 warmup + 100 timed epochs, recall task, batch=16, momentum=0.9
 """
 
 import platform
@@ -17,6 +18,7 @@ import torch.nn.functional as F
 from torch.nn.utils import clip_grad_value_
 
 from torch_ref.data.copy_task import generate_copy_batch
+from torch_ref.data.recall_task import generate_recall_batch
 from torch_ref.models.ntm import NtmConfig, NtmModel
 from torch_ref.models.rnn import LinearRNNCell, generate_rnn_dataset, train_rnn_epoch
 from torch_ref.models.supervised import SUPERVISED_DATA, SupervisedModel, train_supervised_epoch
@@ -246,6 +248,50 @@ def bench_ntm_copy_1k() -> tuple[float, float, float]:
     return elapsed, loss_val, _peak_rss_mb()
 
 
+def bench_ntm_recall() -> tuple[float, float, float]:
+    """Benchmark production-scale NTM recall. Returns (elapsed_ms, final_loss, peak_rss_mb).
+
+    Production NTM recall (w=6, n=128, m=20, h=100, batch=16) matching Idris NtmAssociativeRecall.
+    """
+    random.seed(123456)
+    torch.manual_seed(123456)
+
+    w, n, m, h = 6, 128, 20, 100
+    batch_size = 16
+    lr, alpha, clip_value = 0.0001, 0.95, 10.0
+    min_items, max_items, seq_len = 2, 6, 3
+
+    cfg = NtmConfig(
+        input_width=w + 2,
+        output_width=w,
+        n=n,
+        m=m,
+        controller_size=h,
+        lr=lr,
+        clip_value=clip_value,
+    )
+    model = NtmModel(cfg)
+
+    # Generate fixed batch
+    batch = generate_recall_batch(batch_size, min_items, max_items, seq_len, w)
+
+    optimizer = torch.optim.RMSprop(model.parameters(), lr=lr, alpha=alpha, momentum=0.9)
+
+    # Warmup: 10 epochs
+    for _ in range(10):
+        _train_ntm_epoch(model, batch, optimizer, clip_value)
+
+    # Benchmark: 100 epochs
+    loss_val = 0.0
+    t0 = time.monotonic()
+    for _ in range(100):
+        loss_val = _train_ntm_epoch(model, batch, optimizer, clip_value)
+    t1 = time.monotonic()
+
+    elapsed = (t1 - t0) * 1000
+    return elapsed, loss_val, _peak_rss_mb()
+
+
 def main() -> None:
     print("PyTorch Benchmark")
     print("=" * 50)
@@ -272,6 +318,11 @@ def main() -> None:
 
     elapsed, loss, rss = bench_ntm_copy_1k()
     print(f"NTM-copy-1k (1000 epochs): {elapsed:.1f} ms")
+    print(f"  Final loss: {loss:.6f}")
+    print(f"  Peak RSS: {rss:.0f} MB")
+
+    elapsed, loss, rss = bench_ntm_recall()
+    print(f"NTM-recall (100 epochs):  {elapsed:.1f} ms")
     print(f"  Final loss: {loss:.6f}")
     print(f"  Peak RSS: {rss:.0f} MB")
 
