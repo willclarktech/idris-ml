@@ -256,3 +256,119 @@ trainTwoPhaseScheduledFrom makeOpt schedule model dataPoints lossFn totalEpochs 
                 in if patience > 0 && staleCount' >= patience
                    then (m', s', ep + 1)
                    else go (ep + 1) m' s' bestLoss' staleCount'
+
+
+----------------------------------------------------------------------
+-- Dense Two-Phase Training (C arrays, no SortedMap)
+----------------------------------------------------------------------
+
+export
+epochTwoPhaseDense :
+  {i, o, n : Nat} ->
+  {hs : List Nat} ->
+  DenseOptimizer ->
+  Vect n (TwoPhaseDataPoint i o Variable) ->
+  LossFunction Variable ->
+  Network i hs o Variable ->
+  DenseOptimizerState ->
+  (Network i hs o Variable, DenseOptimizerState, Double)
+epochTwoPhaseDense opt dataPoints lossFn model st =
+  let loss = calculateLossTwoPhaseVar lossFn model dataPoints
+      denseBuf = collectGradsDense 1.0 loss st.buf
+      st' = opt.step denseBuf st
+      model' = syncNetworkBuffers (emap (applyDeltasDense denseBuf) model)
+  in (model', st', loss.value)
+
+||| Dense two-phase training with schedule and early stopping.
+export
+trainTwoPhaseScheduledFromDense :
+  {i, o, n : Nat} ->
+  {hs : List Nat} ->
+  (Double -> DenseOptimizer) ->
+  Schedule ->
+  Network i hs o Variable ->
+  Vect n (TwoPhaseDataPoint i o Variable) ->
+  LossFunction Variable ->
+  (totalEpochs : Nat) ->
+  (patience : Nat) ->
+  DenseOptimizerState ->
+  (Network i hs o Variable, DenseOptimizerState, Nat)
+trainTwoPhaseScheduledFromDense makeOpt schedule model dataPoints lossFn totalEpochs patience st =
+  go 0 model st (1.0/0.0) 0
+  where
+    minDelta : Double
+    minDelta = 0.001
+    go : Nat -> Network i hs o Variable -> DenseOptimizerState -> Double -> Nat ->
+         (Network i hs o Variable, DenseOptimizerState, Nat)
+    go ep m s bestLoss staleCount =
+      if ep >= totalEpochs then (m, s, ep)
+      else
+        let lr = schedule ep
+            opt = makeOpt lr
+            (m', s', loss) = epochTwoPhaseDense opt dataPoints lossFn m s
+        in if loss /= loss then (m', s', ep + 1)
+           else let improved = loss < bestLoss - minDelta
+                    bestLoss' = if improved then loss else bestLoss
+                    staleCount' : Nat
+                    staleCount' = if improved then 0 else staleCount + 1
+                in if patience > 0 && staleCount' >= patience
+                   then (m', s', ep + 1)
+                   else go (ep + 1) m' s' bestLoss' staleCount'
+
+
+----------------------------------------------------------------------
+-- Dense Recurrent Training (C arrays, no SortedMap)
+----------------------------------------------------------------------
+
+export
+epochRecurrentDense :
+  {i, o, n : Nat} ->
+  {hs : List Nat} ->
+  DenseOptimizer ->
+  Vect n (RecurrentDataPoint i o Variable) ->
+  LossFunction Variable ->
+  Network i hs o Variable ->
+  DenseOptimizerState ->
+  (Network i hs o Variable, DenseOptimizerState, Double)
+epochRecurrentDense opt dataPoints lossFn model st =
+  let loss = calculateLossRecurrentVar lossFn model dataPoints
+      denseBuf = collectGradsDense 1.0 loss st.buf
+      st' = opt.step denseBuf st
+      model' = syncNetworkBuffers (emap (applyDeltasDense denseBuf) model)
+  in (model', st', loss.value)
+
+||| Dense recurrent training with schedule and early stopping.
+export
+trainRecurrentScheduledFromDense :
+  {i, o, n : Nat} ->
+  {hs : List Nat} ->
+  (Double -> DenseOptimizer) ->
+  Schedule ->
+  Network i hs o Variable ->
+  Vect n (RecurrentDataPoint i o Variable) ->
+  LossFunction Variable ->
+  (totalEpochs : Nat) ->
+  (patience : Nat) ->
+  DenseOptimizerState ->
+  (Network i hs o Variable, DenseOptimizerState, Nat)
+trainRecurrentScheduledFromDense makeOpt schedule model dataPoints lossFn totalEpochs patience st =
+  go 0 model st (1.0/0.0) 0
+  where
+    minDelta : Double
+    minDelta = 0.001
+    go : Nat -> Network i hs o Variable -> DenseOptimizerState -> Double -> Nat ->
+         (Network i hs o Variable, DenseOptimizerState, Nat)
+    go ep m s bestLoss staleCount =
+      if ep >= totalEpochs then (m, s, ep)
+      else
+        let lr = schedule ep
+            opt = makeOpt lr
+            (m', s', loss) = epochRecurrentDense opt dataPoints lossFn m s
+        in if loss /= loss then (m', s', ep + 1)
+           else let improved = loss < bestLoss - minDelta
+                    bestLoss' = if improved then loss else bestLoss
+                    staleCount' : Nat
+                    staleCount' = if improved then 0 else staleCount + 1
+                in if patience > 0 && staleCount' >= patience
+                   then (m', s', ep + 1)
+                   else go (ep + 1) m' s' bestLoss' staleCount'
