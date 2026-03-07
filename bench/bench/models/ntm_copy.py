@@ -1,4 +1,4 @@
-"""NTM copy task model matching loudinthecloud/pytorch-ntm reference.
+"""NTM copy task model.
 
 LSTM controller (hidden=100) → separate head FCs → NTMLayer → sigmoid output.
 Loss: BCELoss. Optimizer: RMSprop lr=1e-4. Value clip [-10,10].
@@ -12,74 +12,8 @@ import torch.nn as nn
 from torch import Tensor
 from torch.nn.utils import clip_grad_norm_, clip_grad_value_
 
+from bench.ntm.controller import LSTMController
 from bench.ntm.layer import NTMLayer
-
-
-class LSTMController(nn.Module):
-    """LSTM controller for NTM."""
-
-    def __init__(
-        self,
-        input_size: int,
-        hidden_size: int,
-        init_mode: str = "parameter",
-    ) -> None:
-        super().__init__()
-        self.hidden_size = hidden_size
-        self.init_mode = init_mode
-        self.lstm = nn.LSTMCell(input_size, hidden_size)
-
-        if init_mode == "learned_fc":
-            # vlgiitr: FC from dummy input → non-zero initial state
-            self.h_bias_fc = nn.Linear(1, hidden_size)
-            self.c_bias_fc = nn.Linear(1, hidden_size)
-        else:
-            self.h0 = nn.Parameter(torch.zeros(hidden_size))
-            self.c0 = nn.Parameter(torch.zeros(hidden_size))
-
-    def reset_state(self) -> None:
-        if self.init_mode == "learned_fc":
-            dummy = torch.tensor([[0.0]])
-            self._h = self.h_bias_fc(dummy).squeeze(0)
-            self._c = self.c_bias_fc(dummy).squeeze(0)
-        else:
-            self._h = self.h0.clone()
-            self._c = self.c0.clone()
-
-    @property
-    def last_hidden(self) -> Tensor:
-        return self._h
-
-    @property
-    def last_cell(self) -> Tensor:
-        return self._c
-
-    def forward(self, x: Tensor) -> Tensor:
-        h, c = self.lstm(x.unsqueeze(0), (self._h.unsqueeze(0), self._c.unsqueeze(0)))
-        self._h = h.squeeze(0)
-        self._c = c.squeeze(0)
-        return self._h
-
-
-class RNNController(nn.Module):
-    """Simple RNN controller for NTM (vanilla RNNCell + tanh)."""
-
-    def __init__(self, input_size: int, hidden_size: int) -> None:
-        super().__init__()
-        self.hidden_size = hidden_size
-        self.rnn = nn.RNNCell(input_size, hidden_size, nonlinearity="tanh")
-        self.h0 = nn.Parameter(torch.zeros(hidden_size))
-
-    def reset_state(self) -> None:
-        self._h = self.h0.clone()
-
-    @property
-    def last_hidden(self) -> Tensor:
-        return self._h
-
-    def forward(self, x: Tensor) -> Tensor:
-        self._h = self.rnn(x.unsqueeze(0), self._h.unsqueeze(0)).squeeze(0)
-        return self._h
 
 
 @dataclass
@@ -96,7 +30,7 @@ class NtmCopyConfig:
 
 
 class NtmCopyModel(nn.Module):
-    """NTM model for copy task matching loudinthecloud reference."""
+    """NTM model for copy task."""
 
     def __init__(self, cfg: NtmCopyConfig | None = None) -> None:
         super().__init__()
@@ -104,14 +38,11 @@ class NtmCopyModel(nn.Module):
             cfg = NtmCopyConfig()
         self.cfg = cfg
 
-        # Input width: seq_width + 1 (delimiter channel) + m (prev read)
         num_inputs = cfg.seq_width + 1
-        num_outputs = cfg.seq_width  # output is seq_width bits
-        controller_input_size = num_inputs + cfg.m  # input + prev read vector
+        num_outputs = cfg.seq_width
+        controller_input_size = num_inputs + cfg.m
 
-        controller = LSTMController(
-            controller_input_size, cfg.controller_size, init_mode="learned_fc"
-        )
+        controller = LSTMController(controller_input_size, cfg.controller_size)
 
         self.ntm = NTMLayer(
             controller=controller,

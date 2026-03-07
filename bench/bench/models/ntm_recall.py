@@ -1,4 +1,4 @@
-"""NTM associative recall model matching Graves 2014 / vlgiitr reference.
+"""NTM associative recall model.
 
 Same NTM architecture as copy task (LSTM controller, N=128, M=20),
 just different input/output widths and data format.
@@ -13,7 +13,7 @@ import torch.nn as nn
 from torch import Tensor
 from torch.nn.utils import clip_grad_norm_, clip_grad_value_
 
-from bench.models.ntm_copy import LSTMController
+from bench.ntm.controller import LSTMController
 from bench.ntm.layer import NTMLayer
 
 
@@ -26,16 +26,9 @@ class NtmRecallConfig:
     n: int = 128  # memory slots
     m: int = 20  # memory width
     controller_size: int = 100  # LSTM hidden size
-    controller_type: str = "lstm"  # "lstm" or "rnn"
     lr: float = 1e-4
     iterations: int = 100000
     clip_value: float = 10.0
-    write_mode: str = "erase_add"  # "erase_add" or "interpolation"
-    head_input: str = "hidden"  # "hidden" or "cell"
-    tanh_bound: bool = True  # apply tanh bounding to memory
-    memory_init: str = "constant"  # "constant" or "learned"
-    controller_init: str = "parameter"  # "parameter" or "learned_fc"
-    fc_init: str = "ours"  # "ours" or "vlgiitr"
 
 
 class NtmRecallModel(nn.Module):
@@ -47,14 +40,11 @@ class NtmRecallModel(nn.Module):
             cfg = NtmRecallConfig()
         self.cfg = cfg
 
-        # Input width: seq_width + 2 (item_delim + query_delim)
         num_inputs = cfg.seq_width + 2
-        num_outputs = cfg.seq_width  # output is seq_width bits
-        controller_input_size = num_inputs + cfg.m  # input + prev read vector
+        num_outputs = cfg.seq_width
+        controller_input_size = num_inputs + cfg.m
 
-        controller = LSTMController(
-            controller_input_size, cfg.controller_size, init_mode="learned_fc"
-        )
+        controller = LSTMController(controller_input_size, cfg.controller_size)
 
         self.ntm = NTMLayer(
             controller=controller,

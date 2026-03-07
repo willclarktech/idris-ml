@@ -1,18 +1,10 @@
-"""NTM convergence verification matching reference implementations.
+"""NTM convergence verification.
 
-Copy task: loudinthecloud/pytorch-ntm (50K iterations, RMSprop, BCELoss)
-Recall task: vlgiitr/Graves 2014 (100K iterations, RMSprop, BCELoss)
+Copy task: 50K iterations, RMSprop, BCELoss
+Recall task: 100K iterations, RMSprop, BCELoss
 
 Usage:
     uv run python -m bench.scripts.convergence [--task {copy,recall,both}] [--seed N]
-
-    # Recall with Adam optimizer:
-    uv run python -m bench.scripts.convergence --task recall \
-        --recall-optimizer adam --recall-lr 1e-3
-
-    # Recall with small memory and RNN controller:
-    uv run python -m bench.scripts.convergence --task recall \
-        --recall-controller rnn --recall-n 16
 """
 
 import argparse
@@ -37,7 +29,7 @@ from bench.models.ntm_recall import NtmRecallConfig, NtmRecallModel, train_ntm_r
 
 
 def run_copy(args: argparse.Namespace) -> None:
-    """Train NTM on copy task (loudinthecloud reference)."""
+    """Train NTM on copy task."""
     print("=" * 60)
     print("NTM Copy Task Convergence")
     print("=" * 60)
@@ -111,7 +103,7 @@ def run_copy(args: argparse.Namespace) -> None:
 
 
 def run_recall(args: argparse.Namespace) -> None:
-    """Train NTM on associative recall task (Graves 2014 / vlgiitr)."""
+    """Train NTM on associative recall task."""
     print("=" * 60)
     print("NTM Associative Recall Convergence")
     print("=" * 60)
@@ -120,27 +112,13 @@ def run_recall(args: argparse.Namespace) -> None:
     optimizer_name: str = getattr(args, "recall_optimizer", "rmsprop")
     lr: float = getattr(args, "recall_lr", 1e-4)
 
-    write_mode: str = getattr(args, "recall_write_mode", "erase_add")
-    head_input_mode: str = getattr(args, "recall_head_input", "hidden")
-    no_tanh: bool = getattr(args, "recall_no_tanh_bound", False)
-    memory_init: str = getattr(args, "recall_memory_init", "constant")
-    controller_init: str = getattr(args, "recall_controller_init", "parameter")
-    fc_init: str = getattr(args, "recall_fc_init", "ours")
-
     cfg = NtmRecallConfig(
         iterations=getattr(args, "recall_iters", 100000),
         n=getattr(args, "recall_n", 128),
         m=getattr(args, "recall_m", 20),
-        controller_type=getattr(args, "recall_controller", "lstm"),
         min_items=getattr(args, "recall_min_items", 2),
         max_items=getattr(args, "recall_max_items", 6),
         lr=lr,
-        write_mode=write_mode,
-        head_input=head_input_mode,
-        tanh_bound=not no_tanh,
-        memory_init=memory_init,
-        controller_init=controller_init,
-        fc_init=fc_init,
     )
     model = NtmRecallModel(cfg)
 
@@ -151,10 +129,8 @@ def run_recall(args: argparse.Namespace) -> None:
 
     print(f"  seq_width={cfg.seq_width}  seq_len={cfg.seq_len}")
     print(f"  items=[{cfg.min_items},{cfg.max_items}]")
-    print(f"  N={cfg.n}  M={cfg.m}  controller={cfg.controller_type}({cfg.controller_size})")
+    print(f"  N={cfg.n}  M={cfg.m}  controller={cfg.controller_size}")
     print(f"  optimizer={optimizer_name}  lr={cfg.lr}  clip={clip_mode}({cfg.clip_value})")
-    print(f"  write={cfg.write_mode}  head_input={cfg.head_input}  tanh_bound={cfg.tanh_bound}")
-    print(f"  mem_init={cfg.memory_init}  ctrl_init={cfg.controller_init}  fc={cfg.fc_init}")
     print(f"  iterations={cfg.iterations}")
 
     # Training loop: 1 sequence per iteration
@@ -258,12 +234,6 @@ def main() -> None:
 
     # Recall task flags
     parser.add_argument("--recall-iters", type=int, default=100000, help="Recall iterations")
-    parser.add_argument(
-        "--recall-controller",
-        choices=["lstm", "rnn"],
-        default="lstm",
-        help="Recall controller type",
-    )
     parser.add_argument("--recall-n", type=int, default=128, help="Recall memory slots")
     parser.add_argument("--recall-m", type=int, default=20, help="Recall memory width")
     parser.add_argument(
@@ -275,52 +245,9 @@ def main() -> None:
     parser.add_argument(
         "--recall-clip", choices=["value", "norm"], default="value", help="Recall clip mode"
     )
-    parser.add_argument("--recall-batch-size", type=int, default=1, help="Recall batch size")
-    parser.add_argument(
-        "--recall-output",
-        choices=["read", "controller"],
-        default="read",
-        help="Recall output mode",
-    )
     parser.add_argument("--recall-lr", type=float, default=1e-4, help="Recall learning rate")
     parser.add_argument("--recall-min-items", type=int, default=2, help="Recall min items")
     parser.add_argument("--recall-max-items", type=int, default=6, help="Recall max items")
-    parser.add_argument(
-        "--recall-write-mode",
-        choices=["erase_add", "interpolation"],
-        default="erase_add",
-        help="Recall write mechanism (default: erase_add)",
-    )
-    parser.add_argument(
-        "--recall-head-input",
-        choices=["hidden", "cell"],
-        default="hidden",
-        help="Recall head FC input source (default: hidden)",
-    )
-    parser.add_argument(
-        "--recall-no-tanh-bound",
-        action="store_true",
-        default=False,
-        help="Disable tanh memory bounding for recall",
-    )
-    parser.add_argument(
-        "--recall-memory-init",
-        choices=["constant", "learned"],
-        default="constant",
-        help="Recall memory init (default: constant 1e-6)",
-    )
-    parser.add_argument(
-        "--recall-controller-init",
-        choices=["parameter", "learned_fc"],
-        default="parameter",
-        help="Recall controller init (default: nn.Parameter zeros)",
-    )
-    parser.add_argument(
-        "--recall-fc-init",
-        choices=["ours", "vlgiitr"],
-        default="ours",
-        help="Recall FC init style (default: ours)",
-    )
     args = parser.parse_args()
 
     torch.manual_seed(args.seed)
