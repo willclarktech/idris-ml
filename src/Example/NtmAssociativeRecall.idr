@@ -172,7 +172,7 @@ record Config where
   maxItems : Nat
 
 defaultConfig : Config
-defaultConfig = MkConfig 0.0001 10.0 0.95 1.0e-8 100000 5000 42 2 6
+defaultConfig = MkConfig 0.0001 10.0 0.95 1.0e-8 100000 1000 42 2 6
 
 parseConfig : List String -> Config
 parseConfig args = go args defaultConfig
