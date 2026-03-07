@@ -14,10 +14,12 @@ Architecture: LSTM controller (hidden=100), N=128 memory slots, M=20 memory widt
 | G (interp write) | RMSprop lr=1e-4 | [2,6] | 0.408 | 100% | 91.1% | 65.6% |
 | H (G + cell) | RMSprop lr=1e-4 | [2,6] | 0.414 | 100% | 91.7% | 65.0% |
 | I (H + no tanh) | RMSprop lr=1e-4 | [2,6] | 0.426 | 100% | 87.2% | 66.1% |
+| K (learned mem) | RMSprop lr=1e-4 | [2,6] | 0.392 | 100% | 84.4% | 71.1% |
+| L (all inits) | RMSprop lr=1e-4 | [2,6] | 0.383 | 100% | 93.9% | 60.6% |
 | **J (all vlgiitr)** | **RMSprop lr=1e-4** | **[2,6]** | **0.076** | **100%** | **100%** | **98.3%** |
 | **vlgiitr ref** | RMSprop lr=1e-4 | [2,6] | **0.000** | **100%** | **100%** | **100%** |
 
-**Key finding**: The vlgiitr reference implementation converges fully (100% accuracy, 2-6 items) with the same optimizer and hyperparameters as our Experiment A. Our model (A-C) plateaus at 65-93% on 3-6 items. The difference is architectural, not optimizer/curriculum related. See [Experiment F (vlgiitr reference)](#experiment-f-vlgiitr-reference) for details.
+**Key finding**: Experiment J matches the vlgiitr reference by combining all six differences: interpolation write, cell state head input, no tanh bound, learned memory (FC+sigmoid), learned controller (FC from dummy), vlgiitr FC init (xavier gain=1.4, normal bias). Neither init changes alone (Exp K, L) nor architecture changes alone (Exp G-I) are sufficient — they are synergistic.
 
 ## Experiment A: Baseline (RMSprop, 100K iterations)
 
@@ -290,20 +292,55 @@ Convergence pattern matches vlgiitr reference: rapid drop at ~15K, near-zero by 
 
 ### Root cause: initialization, not architecture
 
-The critical differences are **initialization**, not the write mechanism, head input, or tanh bounding:
+### Root cause update: init + architecture are synergistic
 
-| Change | Impact |
-|--------|--------|
-| Interpolation write (G) | None — 0.408 loss, same as baseline |
-| + Cell state input (H) | None — 0.414 loss |
-| + No tanh bound (I) | None — 0.426 loss |
-| + Learned memory init (J) | **Convergence** — 0.003 loss, 98-100% accuracy |
-| + Learned controller init (J) | Part of the init combo |
-| + vlgiitr FC init (J) | Part of the init combo |
+Isolation experiments K and L show that neither init nor architecture changes alone are sufficient:
 
-The learned memory init (FC+sigmoid) gives structured, differentiated memory rows from the start, breaking the chicken-and-egg problem: with constant 1e-6, all rows are identical → content addressing is flat → writes go everywhere uniformly → rows stay identical. Learned init provides the initial asymmetry needed for content addressing to engage.
+| Experiment | Architecture | Init | Loss | Result |
+|-----------|-------------|------|------|--------|
+| A (baseline) | ours | ours | 0.389 | Plateau |
+| G-I (arch only) | vlgiitr | ours | 0.41-0.43 | Plateau |
+| K (mem init only) | ours | learned mem | 0.392 | Plateau |
+| L (all inits only) | ours | all vlgiitr | 0.383 | Plateau |
+| **J (all changes)** | **vlgiitr** | **all vlgiitr** | **0.076** | **Converged** |
+
+The init changes provide initial symmetry breaking (learned memory gives differentiated rows, learned controller gives non-zero initial head inputs, larger FC init amplifies signals). The architecture changes (interpolation write, cell state, no tanh) create the optimization landscape where this symmetry breaking can cascade into full convergence.
+
+## Experiment K: Learned memory only
+
+**Config**: Baseline architecture (erase+add, hidden state, tanh bound) + learned memory init only.
+
+**Loss**: 0.392 @ 100K. Same plateau as baseline.
+
+**Evaluation**:
+```
+2 items: 100.0% (0.0/18 bit errors/seq)
+3 items:  84.4% (2.8/18 bit errors/seq)
+4 items:  74.4% (4.6/18 bit errors/seq)
+5 items:  69.4% (5.5/18 bit errors/seq)
+6 items:  71.1% (5.2/18 bit errors/seq)
+```
+
+Diagnostics show improved addressing vs baseline (9 distinct write slots, entropy=1.61 vs 4.85) but not enough to converge.
+
+## Experiment L: All inits, baseline architecture
+
+**Config**: Baseline architecture + all vlgiitr inits (learned memory, learned controller FC, vlgiitr FC init).
+
+**Loss**: 0.383 @ 100K. Same plateau.
+
+**Evaluation**:
+```
+2 items: 100.0% (0.0/18 bit errors/seq)
+3 items:  93.9% (1.1/18 bit errors/seq)
+4 items:  66.1% (6.1/18 bit errors/seq)
+5 items:  68.3% (5.7/18 bit errors/seq)
+6 items:  60.6% (7.1/18 bit errors/seq)
+```
+
+All three init changes together still can't overcome the baseline architecture limitations.
 
 ## Next steps
 
-- Isolate which init factor matters most (learned memory vs controller vs FC init)
-- Consider whether to adopt learned inits for the Idris implementation
+- Consider porting all vlgiitr changes to Idris implementation
+- The six necessary changes: interpolation write, cell state input, no tanh bound, learned memory init, learned controller init, FC init scale
