@@ -117,6 +117,7 @@ profileEpoch opt dataPoints lossFn model st epochNum = do
           ++ fmtMs (elapsedMs t3 t4)
           ++ padL 10 (show ts)
           ++ padL 8 (show st.n)
+          ++ padL 10 (show (getRssMB epochNum))
           ++ "    " ++ show lossVal
   putStrLn line
 
@@ -180,6 +181,7 @@ main = do
             ++ padL 10 "Sync(ms)"
             ++ padL 10 "TapeSize"
             ++ padL 8 "Params"
+            ++ padL 10 "RSS(MB)"
             ++ "    Loss"
   putStrLn header
 

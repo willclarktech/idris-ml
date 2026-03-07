@@ -482,6 +482,18 @@ forceGC = do
   pure ()
 
 ----------------------------------------------------------------------
+-- RSS (Resident Set Size)
+----------------------------------------------------------------------
+
+%foreign "C:get_rss_mb, libidrisml"
+prim__getRssMB : Int -> Int
+
+export
+%noinline
+getRssMB : Nat -> Int
+getRssMB dummy = prim__getRssMB (cast dummy)
+
+----------------------------------------------------------------------
 -- Idris Tape Wrappers
 ----------------------------------------------------------------------
 

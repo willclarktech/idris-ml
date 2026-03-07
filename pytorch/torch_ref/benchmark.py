@@ -6,7 +6,9 @@
 - NTM-copy: 10 warmup + 100 timed epochs, same optimizer, production scale
 """
 
+import platform
 import random
+import resource
 import time
 
 import torch
@@ -19,8 +21,16 @@ from torch_ref.models.rnn import LinearRNNCell, generate_rnn_dataset, train_rnn_
 from torch_ref.models.supervised import SUPERVISED_DATA, SupervisedModel, train_supervised_epoch
 
 
-def bench_supervised() -> tuple[float, float]:
-    """Benchmark supervised model. Returns (elapsed_ms, final_loss)."""
+def _peak_rss_mb() -> float:
+    """Return peak RSS in MB (ru_maxrss from getrusage)."""
+    rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    if platform.system() == "Darwin":
+        return rss / (1024 * 1024)
+    return rss / 1024
+
+
+def bench_supervised() -> tuple[float, float, float]:
+    """Benchmark supervised model. Returns (elapsed_ms, final_loss, peak_rss_mb)."""
     torch.manual_seed(123456)
     model = SupervisedModel()
     data = SUPERVISED_DATA
@@ -40,11 +50,11 @@ def bench_supervised() -> tuple[float, float]:
     t1 = time.monotonic()
 
     elapsed = (t1 - t0) * 1000
-    return elapsed, loss_val
+    return elapsed, loss_val, _peak_rss_mb()
 
 
-def bench_rnn() -> tuple[float, float]:
-    """Benchmark RNN model. Returns (elapsed_ms, final_loss)."""
+def bench_rnn() -> tuple[float, float, float]:
+    """Benchmark RNN model. Returns (elapsed_ms, final_loss, peak_rss_mb)."""
     torch.manual_seed(123456)
     model = LinearRNNCell(1, 1)
     data = generate_rnn_dataset(8)
@@ -64,7 +74,7 @@ def bench_rnn() -> tuple[float, float]:
     t1 = time.monotonic()
 
     elapsed = (t1 - t0) * 1000
-    return elapsed, loss_val
+    return elapsed, loss_val, _peak_rss_mb()
 
 
 def _train_ntm_epoch(
@@ -108,8 +118,8 @@ def _train_ntm_epoch(
     return avg_loss.item()
 
 
-def bench_ntm() -> tuple[float, float]:
-    """Benchmark small NTM. Returns (elapsed_ms, final_loss).
+def bench_ntm() -> tuple[float, float, float]:
+    """Benchmark small NTM. Returns (elapsed_ms, final_loss, peak_rss_mb).
 
     Small NTM (w=3, n=10, m=5, h=20, batch=5) matching Idris benchNtm.
     """
@@ -148,11 +158,11 @@ def bench_ntm() -> tuple[float, float]:
     t1 = time.monotonic()
 
     elapsed = (t1 - t0) * 1000
-    return elapsed, loss_val
+    return elapsed, loss_val, _peak_rss_mb()
 
 
-def bench_ntm_copy() -> tuple[float, float]:
-    """Benchmark production-scale NTM copy. Returns (elapsed_ms, final_loss).
+def bench_ntm_copy() -> tuple[float, float, float]:
+    """Benchmark production-scale NTM copy. Returns (elapsed_ms, final_loss, peak_rss_mb).
 
     Production NTM (w=8, n=128, m=20, h=100, batch=16) matching Idris NtmCopy.
     """
@@ -191,28 +201,32 @@ def bench_ntm_copy() -> tuple[float, float]:
     t1 = time.monotonic()
 
     elapsed = (t1 - t0) * 1000
-    return elapsed, loss_val
+    return elapsed, loss_val, _peak_rss_mb()
 
 
 def main() -> None:
     print("PyTorch Benchmark")
     print("=" * 50)
 
-    elapsed, loss = bench_supervised()
+    elapsed, loss, rss = bench_supervised()
     print(f"Supervised (1000 epochs): {elapsed:.1f} ms")
     print(f"  Final loss: {loss:.6f}")
+    print(f"  Peak RSS: {rss:.0f} MB")
 
-    elapsed, loss = bench_rnn()
+    elapsed, loss, rss = bench_rnn()
     print(f"RNN (1000 epochs):        {elapsed:.1f} ms")
     print(f"  Final loss: {loss:.6f}")
+    print(f"  Peak RSS: {rss:.0f} MB")
 
-    elapsed, loss = bench_ntm()
+    elapsed, loss, rss = bench_ntm()
     print(f"NTM (100 epochs):         {elapsed:.1f} ms")
     print(f"  Final loss: {loss:.6f}")
+    print(f"  Peak RSS: {rss:.0f} MB")
 
-    elapsed, loss = bench_ntm_copy()
+    elapsed, loss, rss = bench_ntm_copy()
     print(f"NTM-copy (100 epochs):    {elapsed:.1f} ms")
     print(f"  Final loss: {loss:.6f}")
+    print(f"  Peak RSS: {rss:.0f} MB")
 
 
 if __name__ == "__main__":

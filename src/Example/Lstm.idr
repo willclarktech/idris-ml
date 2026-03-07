@@ -67,6 +67,7 @@ trainLoop opt model dataPoints lossFn totalEpochs patience st =
         let (m', s', loss) = epochRecurrent opt dataPoints lossFn m s
         when (modNatNZ ep 100 ItIsSucc == 0) $
           putStrLn $ "  " ++ show ep ++ ":\tloss=" ++ show loss
+                   ++ "\trss=" ++ show (getRssMB ep) ++ "MB"
         if loss /= loss
           then do
             putStrLn $ "  Diverged (NaN) at epoch " ++ show ep

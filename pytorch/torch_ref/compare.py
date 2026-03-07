@@ -15,9 +15,9 @@ from torch_ref.benchmark import bench_ntm, bench_ntm_copy, bench_rnn, bench_supe
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
-def parse_idris_output(output: str) -> dict[str, tuple[float, float]]:
-    """Parse Idris bench output into {model: (ms, loss)} dict."""
-    results: dict[str, tuple[float, float]] = {}
+def parse_idris_output(output: str) -> dict[str, tuple[float, float, float]]:
+    """Parse Idris bench output into {model: (ms, loss, rss_mb)} dict."""
+    results: dict[str, tuple[float, float, float]] = {}
     lines = output.strip().split("\n")
     i = 0
     while i < len(lines):
@@ -26,18 +26,22 @@ def parse_idris_output(output: str) -> dict[str, tuple[float, float]]:
         if m:
             name = m.group(1).strip()
             ms = float(m.group(2))
-            # Next line should have final loss
-            if i + 1 < len(lines):
-                lm = re.search(r"Final loss:\s+([\d.e+-]+)", lines[i + 1])
-                loss = float(lm.group(1)) if lm else 0.0
-            else:
-                loss = 0.0
-            results[name] = (ms, loss)
+            loss = 0.0
+            rss = 0.0
+            # Scan following lines for loss and RSS
+            for j in range(i + 1, min(i + 3, len(lines))):
+                lm = re.search(r"Final loss:\s+([\d.e+-]+)", lines[j])
+                if lm:
+                    loss = float(lm.group(1))
+                rm = re.search(r"Peak RSS:\s+(\d+)\s+MB", lines[j])
+                if rm:
+                    rss = float(rm.group(1))
+            results[name] = (ms, loss, rss)
         i += 1
     return results
 
 
-def run_idris_bench() -> dict[str, tuple[float, float]] | None:
+def run_idris_bench() -> dict[str, tuple[float, float, float]] | None:
     """Run Idris bench and parse output."""
     bench_bin = _REPO_ROOT / "build" / "exec" / "bench"
     try:
@@ -81,24 +85,40 @@ def main() -> None:
     print("Benchmark Comparison: Idris vs PyTorch")
     print("=" * 80)
 
-    cols = ["Model", "Idris (ms)", "PyTorch (ms)", "Ratio", "Idris Loss", "PyTorch Loss"]
-    header = f"{cols[0]:<15} {cols[1]:>12} {cols[2]:>14} {cols[3]:>8} {cols[4]:>12} {cols[5]:>14}"
+    cols = [
+        "Model",
+        "Idris (ms)",
+        "PyTorch (ms)",
+        "Ratio",
+        "Idris Loss",
+        "PyTorch Loss",
+        "Idris RSS",
+        "PyTorch RSS",
+    ]
+    header = (
+        f"{cols[0]:<15} {cols[1]:>12} {cols[2]:>14} {cols[3]:>8}"
+        f" {cols[4]:>12} {cols[5]:>14} {cols[6]:>10} {cols[7]:>12}"
+    )
     print(header)
     print("-" * len(header))
 
     for name in ["Supervised", "RNN", "NTM", "NTM-copy"]:
-        py_ms, py_loss = py_results[name]
+        py_ms, py_loss, py_rss = py_results[name]
 
         if idris_results and name in idris_results:
-            idris_ms, idris_loss = idris_results[name]
+            idris_ms, idris_loss, idris_rss = idris_results[name]
             ratio = idris_ms / py_ms if py_ms > 0 else 0
             print(
                 f"{name:<15} {idris_ms:>12.1f} {py_ms:>14.1f}"
                 f" {ratio:>7.2f}x {idris_loss:>12.6f} {py_loss:>14.6f}"
+                f" {idris_rss:>9.0f}MB {py_rss:>11.0f}MB"
             )
         else:
             na = "N/A"
-            print(f"{name:<15} {na:>12} {py_ms:>14.1f} {na:>8} {na:>12} {py_loss:>14.6f}")
+            print(
+                f"{name:<15} {na:>12} {py_ms:>14.1f} {na:>8}"
+                f" {na:>12} {py_loss:>14.6f} {na:>10} {py_rss:>11.0f}MB"
+            )
 
 
 if __name__ == "__main__":

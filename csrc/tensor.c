@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <sys/resource.h>
 
 #ifdef __APPLE__
 #define ACCELERATE_NEW_LAPACK
@@ -2142,3 +2143,19 @@ double *adam_gc_step(double *grads, double *m, double *v, int n,
 /* Look up pid_id from Scheme pid-to-id hash table.
  * Returns -1 if not found. Called from C via function pointer set up by Scheme. */
 /* Note: dense_lookup is done in Scheme (hash table access), not in C. */
+
+
+/* -------------------------------------------------------------------
+   RSS (Resident Set Size) query
+   ------------------------------------------------------------------- */
+
+int get_rss_mb(int dummy) {
+  (void)dummy;
+  struct rusage ru;
+  if (getrusage(RUSAGE_SELF, &ru) != 0) return -1;
+#ifdef __APPLE__
+  return (int)(ru.ru_maxrss / (1024L * 1024L));  /* macOS: bytes -> MB */
+#else
+  return (int)(ru.ru_maxrss / 1024L);             /* Linux: KB -> MB */
+#endif
+}

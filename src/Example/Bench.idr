@@ -61,6 +61,7 @@ benchSupervised = do
 
   putStrLn $ "Supervised (1000 epochs): " ++ show (elapsedMs t0 t1) ++ " ms"
   putStrLn $ "  Final loss: " ++ show (value loss)
+  putStrLn $ "  Peak RSS: " ++ show (getRssMB 0) ++ " MB"
 
 
 ----------------------------------------------------------------------
@@ -99,6 +100,7 @@ benchRnn = do
 
   putStrLn $ "RNN (1000 epochs):        " ++ show (elapsedMs t0 t1) ++ " ms"
   putStrLn $ "  Final loss: " ++ show (value loss)
+  putStrLn $ "  Peak RSS: " ++ show (getRssMB 1) ++ " MB"
 
 
 ----------------------------------------------------------------------
@@ -154,6 +156,7 @@ benchNtm = do
 
   putStrLn $ "NTM (100 epochs):         " ++ show (elapsedMs t0 t1) ++ " ms"
   putStrLn $ "  Final loss: " ++ show benchLoss
+  putStrLn $ "  Peak RSS: " ++ show (getRssMB 2) ++ " MB"
 
 
 ----------------------------------------------------------------------
@@ -209,6 +212,7 @@ benchNtmCopy = do
 
   putStrLn $ "NTM-copy (100 epochs):    " ++ show (elapsedMs t0 t1) ++ " ms"
   putStrLn $ "  Final loss: " ++ show benchLoss
+  putStrLn $ "  Peak RSS: " ++ show (getRssMB 3) ++ " MB"
 
 
 ----------------------------------------------------------------------
