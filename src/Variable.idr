@@ -23,6 +23,7 @@ data TapeOp = ConstOp
             | SoftmaxOp | LogSoftmaxOp
             | BatchCosSimOp | ReadOpOp | WriteOpOp
             | InterpWriteOp
+            | SigmoidOp | TanhOp
 
 toTag : TapeOp -> Int
 toTag ConstOp      = 0
@@ -44,6 +45,8 @@ toTag BatchCosSimOp = 15
 toTag ReadOpOp      = 16
 toTag WriteOpOp     = 17
 toTag InterpWriteOp = 18
+toTag SigmoidOp    = 19
+toTag TanhOp       = 20
 
 fromTag : Int -> TapeOp
 fromTag 1  = NegOp
@@ -64,6 +67,8 @@ fromTag 15 = BatchCosSimOp
 fromTag 16 = ReadOpOp
 fromTag 17 = WriteOpOp
 fromTag 18 = InterpWriteOp
+fromTag 19 = SigmoidOp
+fromTag 20 = TanhOp
 fromTag _  = ConstOp
 
 
@@ -623,6 +628,33 @@ clampVar lo hi v =
 
 
 ----------------------------------------------------------------------
+-- Native Activation Ops
+----------------------------------------------------------------------
+
+||| Sigmoid with a single tape entry (SigmoidOp).
+||| Forward: σ(x) = 1/(1+exp(-x))
+||| Backward: grad * σ(x) * (1 - σ(x))
+export
+sigmoidVar : Variable -> Variable
+sigmoidVar v =
+  let idx0 = ensureOnTape v
+      val = 1.0 / (1.0 + exp (negate v.value))
+      idx = tapeAppendUnary SigmoidOp idx0 val
+  in Var idx (tapeGeneration idx) Nothing val
+
+||| Tanh with a single tape entry (TanhOp).
+||| Forward: tanh(x)
+||| Backward: grad * (1 - tanh(x)^2)
+export
+tanhVar : Variable -> Variable
+tanhVar v =
+  let idx0 = ensureOnTape v
+      val = 2.0 / (1.0 + exp (negate (2.0 * v.value))) - 1.0
+      idx = tapeAppendUnary TanhOp idx0 val
+  in Var idx (tapeGeneration idx) Nothing val
+
+
+----------------------------------------------------------------------
 -- Parameter Naming
 ----------------------------------------------------------------------
 
@@ -958,6 +990,10 @@ propagateEntry g idx =
        ReadOpOp      => prim__readOpBackward g (prim__tapeGetMeta idx)
        WriteOpOp     => prim__writeOpBackward g (prim__tapeGetMeta idx)
        InterpWriteOp => prim__interpWriteBackward g (prim__tapeGetMeta idx)
+       SigmoidOp => let val = prim__tapeGetValue idx
+                    in prim__gradAdd g a1 (grad * val * (1 - val))
+       TanhOp    => let val = prim__tapeGetValue idx
+                    in prim__gradAdd g a1 (grad * (1 - val * val))
 
 -- Walk backward through tape with tag-based fast path:
 -- ConstOp (tag 0): only check pid for gradient collection, skip propagation

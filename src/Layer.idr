@@ -258,8 +258,8 @@ forwardReadHeadVar memory rh inp =
     (betaVec, params') = splitAt 1 params
     (gVec, gammaVec) = splitAt 1 params'
     beta = softplus (sum betaVec)
-    g = sig (sum gVec)
-    gamma = 1 + 4 * sig (sum gammaVec)
+    g = sigmoidVar (sum gVec)
+    gamma = 1 + 4 * sigmoidVar (sum gammaVec)
     scores = batchCosineSimilarityVar beta memory keyVector
     contentWeights = softmaxVar scores
     interpolated = interpolate g contentWeights rh.addressingWeights
@@ -275,8 +275,8 @@ forwardWriteHeadVar memory (MkWriteHead readHead) inp =
     inp' = rewrite plusAssociative ((w + ShiftKernelSize) + 3) w w in inp
     (readHeadInput, remainingInput) = Tensor.splitAt ((w + ShiftKernelSize) + 3) inp'
     (rawErase, rawAdd) = splitAt w remainingInput
-    eraseVector = map sig rawErase
-    addVector = map (\x => 2 * sig (2 * x) - 1) rawAdd
+    eraseVector = map sigmoidVar rawErase
+    addVector = map (\x => 2 * sigmoidVar (2 * x) - 1) rawAdd
     (newReadHead, _) = forwardReadHeadVar memory readHead readHeadInput
     newWriteHead = MkWriteHead newReadHead
     newMemoryMatrix = writeOpVar newWriteHead.readHead.addressingWeights memory eraseVector addVector
@@ -292,7 +292,7 @@ forwardReadHeadUnboundedVar memory rh inp =
     (betaVec, params') = splitAt 1 params
     (gVec, gammaVec) = splitAt 1 params'
     beta = softplus (sum betaVec)
-    g = sig (sum gVec)
+    g = sigmoidVar (sum gVec)
     gamma = 1 + softplus (sum gammaVec)
     scores = batchCosineSimilarityVar beta memory keyVector
     contentWeights = softmaxVar scores
@@ -309,7 +309,7 @@ forwardWriteHeadInterpVar : {n, w : Nat} -> Matrix n w Variable -> WriteHead n V
 forwardWriteHeadInterpVar memory (MkWriteHead readHead) inp =
   let
     (readHeadInput, rawAdd) = Tensor.splitAt ((w + ShiftKernelSize) + 3) inp
-    addVector = map sig rawAdd
+    addVector = map sigmoidVar rawAdd
     (newReadHead, _) = forwardReadHeadUnboundedVar memory readHead readHeadInput
     newWriteHead = MkWriteHead newReadHead
     newMemoryMatrix = interpolationWriteVar newWriteHead.readHead.addressingWeights memory addVector
@@ -360,8 +360,8 @@ mutual
             fGate = fst (snd gates)
             gGate = fst (snd (snd gates))
             oGate = snd (snd (snd gates))
-            newCell = map sig fGate * cellState + map sig iGate * map tanhBound gGate
-            newHidden = map sig oGate * map tanhBound newCell
+            newCell = map sigmoidVar fGate * cellState + map sigmoidVar iGate * map tanhVar gGate
+            newHidden = map sigmoidVar oGate * map tanhVar newCell
             updatedLayer = LstmLayer inputWeights recurrentWeights bias newHidden newCell iwBuf rwBuf
         in (updatedLayer, newHidden)
   applyLayerVar layer@(ActivationLayer _ f) xs = (layer, map f xs)
@@ -390,7 +390,7 @@ mutual
       writeResult = forwardWriteHeadInterpVar memory wh writeParams
       newWriteAddr' = (fst writeResult).readHead.addressingWeights
       rawMemory = snd writeResult
-      newMemory = map tanhBound rawMemory
+      newMemory = map tanhVar rawMemory
       -- 6. Output FC(hidden ++ readOutput)
       output = snd (applyLayerVar outputFc (hidden ++ newReadOutput))
       newLayer = NtmLayer (fst lstmResult) readFc writeFc outputFc
