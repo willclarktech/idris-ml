@@ -1,7 +1,10 @@
 """NTM convergence verification.
 
-Copy task: 50K iterations, RMSprop, BCELoss
-Recall task: 100K iterations, RMSprop, BCELoss
+Copy task: up to 50K iterations, RMSprop, BCELoss
+Recall task: up to 100K iterations, RMSprop, BCELoss
+
+Early stopping: training halts when the average metric over the last 5000
+iterations stays below a threshold for 10 consecutive checkpoints (5000 iters).
 
 Usage:
     uv run python -m bench.scripts.convergence [--task {copy,recall,both}] [--seed N]
@@ -59,10 +62,18 @@ def run_copy(args: argparse.Namespace) -> None:
     print(f"  seq_width={COPY_SEQ_WIDTH}  seq_range=[1,20]")
     print(f"  N={cfg.n}  M={cfg.m}  controller={cfg.controller_size}")
     print(f"  optimizer={optimizer_name}  lr={cfg.lr}  clip={clip_mode}({cfg.clip_value})")
+    early_stop = not getattr(args, "no_early_stop", False)
+    es_window = 5000
+    es_patience = 10  # consecutive checkpoints (500 iters each)
+    es_threshold = 0.01  # average loss over window
+
     print(f"  iterations={iterations}")
+    if early_stop:
+        print(f"  early_stop: loss<{es_threshold} over {es_window} iters, patience={es_patience}")
 
     # Training loop: 1 sequence per iteration
     losses: list[float] = []
+    patience_count = 0
     for i in range(1, iterations + 1):
         input_seq, target_seq = generate_copy_sequence(
             seq_len=random.randint(1, 20),
@@ -74,6 +85,17 @@ def run_copy(args: argparse.Namespace) -> None:
         if i % 500 == 0:
             avg_loss = sum(losses[-500:]) / len(losses[-500:])
             print(f"  iter {i:6d}: loss={avg_loss:.6f}")
+
+            # Early stopping
+            if early_stop and i >= es_window:
+                window_avg = sum(losses[-es_window:]) / es_window
+                if window_avg < es_threshold:
+                    patience_count += 1
+                    if patience_count >= es_patience:
+                        print(f"  ** early stop at iter {i} (avg loss={window_avg:.6f})")
+                        break
+                else:
+                    patience_count = 0
 
     # Evaluate
     print("\n--- Evaluation ---")
@@ -141,11 +163,21 @@ def run_recall(args: argparse.Namespace) -> None:
     print(f"  items=[{min_items},{max_items}]")
     print(f"  N={cfg.n}  M={cfg.m}  controller={cfg.controller_size}")
     print(f"  optimizer={optimizer_name}  lr={cfg.lr}  clip={clip_mode}({cfg.clip_value})")
+    early_stop = not getattr(args, "no_early_stop", False)
+    es_window = 5000
+    es_patience = 10  # consecutive checkpoints (500 iters each)
+    es_threshold = 0.3  # average bit error over window
+
     print(f"  iterations={iterations}")
+    if early_stop:
+        print(
+            f"  early_stop: bit_err<{es_threshold} over {es_window} iters, patience={es_patience}"
+        )
 
     # Training loop: 1 sequence per iteration
     losses: list[float] = []
     bit_errors: list[float] = []
+    patience_count = 0
     for i in range(1, iterations + 1):
         num_items = random.randint(min_items, max_items)
         input_seq, target_seq = generate_recall_sequence(
@@ -161,6 +193,17 @@ def run_recall(args: argparse.Namespace) -> None:
             avg_loss = sum(losses[-500:]) / len(losses[-500:])
             avg_bits = sum(bit_errors[-500:]) / len(bit_errors[-500:])
             print(f"  iter {i:6d}: loss={avg_loss:.6f}  bit_err={avg_bits:.2f}")
+
+            # Early stopping
+            if early_stop and i >= es_window:
+                window_avg = sum(bit_errors[-es_window:]) / es_window
+                if window_avg < es_threshold:
+                    patience_count += 1
+                    if patience_count >= es_patience:
+                        print(f"  ** early stop at iter {i} (avg bit_err={window_avg:.4f})")
+                        break
+                else:
+                    patience_count = 0
 
     # Evaluate
     print("\n--- Evaluation ---")
@@ -227,6 +270,7 @@ def main() -> None:
         help="Which task to run (default: both)",
     )
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
+    parser.add_argument("--no-early-stop", action="store_true", help="Disable early stopping")
 
     # Copy task flags
     parser.add_argument("--copy-iters", type=int, default=50000, help="Copy iterations")
