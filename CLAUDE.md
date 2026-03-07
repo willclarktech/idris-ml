@@ -53,8 +53,11 @@ Concrete examples:
 ```bash
 idris2 --source-dir src -p contrib -o supervised src/Example/Supervised.idr && ./build/exec/supervised
 idris2 --source-dir src -p contrib -o rnn src/Example/Rnn.idr && ./build/exec/rnn
+idris2 --source-dir src -p contrib -o lstm src/Example/Lstm.idr && ./build/exec/lstm
 idris2 --source-dir src -p contrib -o ntm-copy src/Example/NtmCopy.idr && ./build/exec/ntm-copy
 idris2 --source-dir src -p contrib -o ntm-associative-recall src/Example/NtmAssociativeRecall.idr && ./build/exec/ntm-associative-recall
+# LSTM with custom hyperparameters
+./build/exec/lstm --lr 0.1 --epochs 2000 --patience 500 --seed 42
 # NTM copy with custom hyperparameters
 ./build/exec/ntm-copy --lr 0.0001 --clip 10.0 --alpha 0.95 --epochs 50000 --patience 5000 --seed 42
 # NTM associative recall with custom hyperparameters
@@ -66,6 +69,9 @@ bash scripts/sweep.sh --parallel 4 --quick
 # Sweep for associative recall task
 bash scripts/sweep.sh --task recall --parallel 4
 bash scripts/sweep.sh --task recall --parallel 4 --quick
+# Sweep for LSTM task
+bash scripts/sweep.sh --task lstm --parallel 4
+bash scripts/sweep.sh --task lstm --parallel 4 --quick
 ```
 
 ## Architecture

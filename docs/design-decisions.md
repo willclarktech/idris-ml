@@ -252,6 +252,8 @@ h' = o * tanh(c')
 
 **Cell state extraction**: `extractCellState` pattern-matches on `LstmLayer` to return the cell state directly. This is used by `NtmLayer` to feed cell state into the read/write head FCs (matching the PyTorch reference architecture where head parameters come from the LSTM cell state, not the hidden state).
 
+**Weight initialization fan dimensions**: `lstmLayerWith` passes `(fanIn, fanOut)` to the init strategy where `fanOut = 4 * hiddenSize` (not `hiddenSize`), because the actual weight matrices are `(4*hidden, input)` and `(4*hidden, hidden)`. Using `hiddenSize` as fan-out produces Xavier variance `2/(i+o)` instead of the correct `2/(i+4*o)`, making weights ~2.5x too large and causing exploding gates that prevent convergence.
+
 **Weight buffers**: follows the same persistent buffer pattern as `LinearLayer` — two `Maybe WeightBuffer` fields for input-to-hidden and hidden-to-hidden weight matrices. The Variable-specialized path (`applyLayerVar`) falls back to the generic path for tiny layers (`i * o <= 4`).
 
 ## Interpolation write
