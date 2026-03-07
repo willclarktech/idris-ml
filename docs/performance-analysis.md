@@ -7,15 +7,16 @@ loss function, data format, and batch size on both sides.
 
 | Model | Idris (ms) | PyTorch (ms) | Ratio | Notes |
 |-------|-----------|-------------|-------|-------|
-| Supervised (1000 ep) | 91 | 238 | 0.38x | Idris 2.6x faster |
-| RNN (1000 ep) | 399 | 2308 | 0.17x | Idris 6x faster |
-| NTM-small (100 ep) | 437 | 1372 | 0.32x | Idris 3.1x faster (w=3, n=10, m=5, h=20, batch=5) |
-| NTM-copy (100 ep) | 11767 | 13505 | 0.87x | **Idris 1.15x faster** (w=8, n=128, m=20, h=100, batch=16) |
-| NTM-copy-1k (1000 ep) | 146474 | 224601 | 0.65x | **Idris 1.53x faster** |
+| Supervised (1000 ep) | 90 | 242 | 0.37x | Idris 2.7x faster |
+| RNN (1000 ep) | 400 | 2212 | 0.18x | Idris 5.5x faster |
+| NTM-small (100 ep) | 438 | 1333 | 0.33x | Idris 3.0x faster (w=3, n=10, m=5, h=20, batch=5) |
+| NTM-copy (100 ep) | 14660 | 13186 | 1.11x | PyTorch 1.1x faster (w=8, n=128, m=20, h=100, batch=16) |
+| NTM-copy-1k (1000 ep) | 131236 | 214613 | 0.61x | **Idris 1.6x faster** |
 
-Idris is now faster than PyTorch across all benchmarks, including production-scale NTM-copy.
+At 100 epochs, the NTM-copy overhead comes from the optimizer step being non-trivial. At 1000 epochs,
+the per-epoch cost amortizes and Idris is 1.6x faster than PyTorch.
 
-NTM-copy per-epoch: Idris **~118ms** vs PyTorch **~135ms** (100 ep), **~146ms** vs **~225ms** (1000 ep).
+NTM-copy per-epoch: Idris **~147ms** vs PyTorch **~132ms** (100 ep), **~131ms** vs **~215ms** (1000 ep).
 
 Optimizations applied (from 1.38s/epoch baseline):
 - Buffer-passing for addressing chain ops (1.38s -> 1.0s)
@@ -261,6 +262,31 @@ NTM-copy             14523.3        14276.8    1.02x
 ```
 
 NTM-copy: 23099ms -> 14523ms (**1.60x -> 1.02x** vs PyTorch). Near parity!
+
+### After dense optimizer fix (2026-03-05)
+
+**Critical bug found**: All 4 dense optimizer step functions used `let _ = prim__ffiCall`
+which the Idris 2 compiler drops (dead code elimination). The optimizer NEVER ran —
+raw gradients were applied directly as deltas. lr/clip/momentum had zero effect.
+
+Fix: thread FFI return value through `prim__seq` into the state record.
+
+Bench-compare (with fix):
+```
+Model             Idris (ms)   PyTorch (ms)    Ratio
+Supervised              89.6          242.3    0.37x
+RNN                    400.3         2211.9    0.18x
+NTM-small              438.2         1332.8    0.33x
+NTM-copy             14659.7        13186.0    1.11x
+NTM-copy-1k         131236.1       214613.3    0.61x
+```
+
+NTM-copy-1k: Idris **0.61x** (1.6x faster than PyTorch). Idris loss 0.557 vs PyTorch 0.593.
+NTM-copy 100 epochs: 1.11x (slight overhead from optimizer now actually running).
+
+PyTorch convergence at batch=16 (lr=0.0001): early stop at iter 12000, 100% accuracy.
+Idris convergence at batch=16 (lr=0.0001, 5000 epochs): loss ~0.48, accuracy ~52-59%.
+Idris learning curve tracks PyTorch but oscillates more — needs investigation.
 
 ### After momentum optimizer + re-profile (2026-03-05)
 
