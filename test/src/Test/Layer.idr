@@ -26,11 +26,9 @@ mutual
   layerIds (LinearLayer w b _) = tensorIds w ++ tensorIds b
   layerIds (RnnLayer iw rw b _ _ _) = tensorIds iw ++ tensorIds rw ++ tensorIds b
   layerIds (LstmLayer iw rw b _ _ _ _) = tensorIds iw ++ tensorIds rw ++ tensorIds b
-  layerIds (NtmLayer ctrl mem rh wh ro) =
-    networkIds ctrl ++ tensorIds mem
-      ++ tensorIds rh.addressingWeights
-      ++ tensorIds wh.readHead.addressingWeights
-      ++ tensorIds ro
+  layerIds (NtmLayer lstm rfc wfc ofc mem ra wa ro) =
+    layerIds lstm ++ layerIds rfc ++ layerIds wfc ++ layerIds ofc
+      ++ tensorIds mem ++ tensorIds ra ++ tensorIds wa ++ tensorIds ro
   layerIds _ = []
 
   networkIds : {i, o : Nat} -> {hs : List Nat} -> Network i hs o Variable -> List String
@@ -118,20 +116,17 @@ tests =
        r3 <- check "autoName lstm+linear: no duplicates" (noDuplicates ids)
        pure (r1 && r2 && r3)
 
-  -- NTM: controller layers get scoped names
+  -- NTM: LSTM + head FCs + output FC + state params
   , do srand 42
-       ctrlH <- linearLayer {i=6, o=4}
-       ctrlO <- linearLayer {i=4, o=27}
-       let ctrl = ctrlH ~> sigmoidLayer ~> OutputLayer ctrlO
-       ntm <- ntmLayer {n=10, w=3} ctrl
-       let named = autoName $ ntm ~> OutputLayer logSoftmaxLayer
+       ntm <- ntmLayer {inputSize=9, outputSize=8, n=10, m=5, h=4}
+       let named = autoName $ OutputLayer ntm
        let ids = networkIds named
        r1 <- check "autoName ntm: has ntm0_mem" (hasPrefix "ntm0_mem" ids)
        r2 <- check "autoName ntm: has ntm0_rAddr" (hasPrefix "ntm0_rAddr" ids)
        r3 <- check "autoName ntm: has ntm0_wAddr" (hasPrefix "ntm0_wAddr" ids)
        r4 <- check "autoName ntm: has ntm0_rOut" (hasPrefix "ntm0_rOut" ids)
-       r5 <- check "autoName ntm: has ntm0_ll0_weight (ctrl hidden)" (hasPrefix "ntm0_ll0_weight" ids)
-       r6 <- check "autoName ntm: has ntm0_ll1_weight (ctrl output)" (hasPrefix "ntm0_ll1_weight" ids)
+       r5 <- check "autoName ntm: has ntm0_lstm0_ (controller)" (hasPrefix "ntm0_lstm0_" ids)
+       r6 <- check "autoName ntm: has ntm0_readFc_ (read FC)" (hasPrefix "ntm0_readFc_" ids)
        r7 <- check "autoName ntm: no duplicates" (noDuplicates ids)
        pure (r1 && r2 && r3 && r4 && r5 && r6 && r7)
   ]

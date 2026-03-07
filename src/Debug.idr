@@ -130,9 +130,9 @@ mutual
   toDoubleLayer (NormalizationLayer "softmax" _) = softmaxLayer
   toDoubleLayer (NormalizationLayer "logSoftmax" _) = logSoftmaxLayer
   toDoubleLayer (NormalizationLayer name _) = NormalizationLayer name id
-  toDoubleLayer (NtmLayer controller mem rh wh ro) =
-    NtmLayer (toDoubleNetwork controller)
-             (map value mem) (map value rh) (map value wh) (map value ro)
+  toDoubleLayer (NtmLayer lstm rfc wfc ofc mem ra wa ro) =
+    NtmLayer (toDoubleLayer lstm) (toDoubleLayer rfc) (toDoubleLayer wfc) (toDoubleLayer ofc)
+             (map value mem) (map value ra) (map value wa) (map value ro)
 
   ||| Convert a Variable-typed network to Double
   export
@@ -171,58 +171,20 @@ debugApplyLayer layer@(NormalizationLayer name _) inp =
   let (updated, out) = applyLayer layer inp
   in (updated, out, MkDebugEntry ("Normalization<" ++ name ++ ">") [])
 
-debugApplyLayer {i} (NtmLayer {n} {hs} controller memory readHead writeHead readHeadOutput) inp =
+debugApplyLayer {i} {o} (NtmLayer {n} {m} {h} lstm readFc writeFc outputFc memory readAddr writeAddr readOutput) inp =
   let
-    -- Run controller
-    (newController, controllerOutput) = forward controller (readHeadOutput ++ inp)
+    -- Run forward pass via applyLayer (handles full pipeline)
+    layer = NtmLayer lstm readFc writeFc outputFc memory readAddr writeAddr readOutput
+    (updatedLayer, output) = applyLayer layer inp
 
-    -- Split controller output
-    (readHeadInput, controllerOutput') = Tensor.splitAt (ReadHeadInputWidth n i) controllerOutput
-    (writeHeadInput, networkOutput) = Tensor.splitAt (WriteHeadInputWidth n i) controllerOutput'
-
-    -- Extract read head parameters
-    (rMainInput, rPrms) = splitAt (i + ShiftKernelSize) readHeadInput
-    (rKey, rShift) = splitAt i rMainInput
-    (rBetaRaw, rPrms2) = splitAt 1 rPrms
-    (rGRaw, rGammaRaw) = splitAt 1 rPrms2
-    rBeta = softplusD (sum rBetaRaw)
-    rG = sigD (sum rGRaw)
-    rGamma = 1.0 + 4.0 * sigD (sum rGammaRaw)
-
-    -- Extract write head parameters via helper
-    (wKey, wShift, wBetaRaw, wGRaw, wGammaRaw, wRawErase, wRawAdd) = splitWriteInput writeHeadInput
-    wEraseVec = map sigD wRawErase
-    wAddVec = map (\x => 2.0 * sigD (2.0 * x) - 1.0) wRawAdd
-    wBeta = softplusD (sum wBetaRaw)
-    wG = sigD (sum wGRaw)
-    wGamma = 1.0 + 4.0 * sigD (sum wGammaRaw)
-
-    -- Run actual forward step
-    (newReadHead, newReadHeadOutput) = forwardReadHead softmax memory readHead readHeadInput
-    (newWriteHead, rawMemory) = forwardWriteHead softmax memory writeHead writeHeadInput
-    newMemory = map tanhBound rawMemory
-    newLayer = NtmLayer newController newMemory newReadHead newWriteHead newReadHeadOutput
-
-    -- Build debug entry
-    entry = MkDebugEntry ("Ntm<" ++ show i ++ ", mem=" ++ show n ++ ">")
-      [ ("readAddr",   showVec readHead.addressingWeights)
-      , ("writeAddr",  showVec writeHead.readHead.addressingWeights)
-      , ("readOutput", showVec readHeadOutput)
+    -- Build debug entry with pre-step state
+    entry = MkDebugEntry ("Ntm<" ++ show i ++ ":" ++ show o ++ ", mem=" ++ show n ++ "x" ++ show m ++ ">")
+      [ ("readAddr",   showVec readAddr)
+      , ("writeAddr",  showVec writeAddr)
+      , ("readOutput", showVec readOutput)
       , ("memory",     showMat memory)
-      , ("readKey",    showVec rKey)
-      , ("readShift",  showVec rShift)
-      , ("readBeta",   showF rBeta)
-      , ("readG",      showF rG)
-      , ("readGamma",  showF rGamma)
-      , ("writeKey",   showVec wKey)
-      , ("writeShift", showVec wShift)
-      , ("writeBeta",  showF wBeta)
-      , ("writeG",     showF wG)
-      , ("writeGamma", showF wGamma)
-      , ("eraseVec",   showVec wEraseVec)
-      , ("addVec",     showVec wAddVec)
       ]
-  in (newLayer, networkOutput, entry)
+  in (updatedLayer, output, entry)
 
 
 ----------------------------------------------------------------------

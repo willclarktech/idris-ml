@@ -22,7 +22,7 @@ import Variable
 -- NTM Width Calculations
 ----------------------------------------------------------------------
 
-||| Read head output + input
+||| Read head output + input (legacy, used by old-style NTM controller input)
 public export
 NtmInputWidth : Nat -> Nat
 NtmInputWidth w = w + w
@@ -32,15 +32,25 @@ public export
 ReadHeadInputWidth : Nat -> Nat -> Nat
 ReadHeadInputWidth _ w = (w + ShiftKernelSize) + 3
 
-||| Read head input + erase vector + add vector
+||| Read head input + erase vector + add vector (legacy erase+add write)
 public export
 WriteHeadInputWidth : Nat -> Nat -> Nat
 WriteHeadInputWidth n w = ReadHeadInputWidth n w + w + w
 
-||| Read head input + Write head input + output
+||| Read head input + Write head input + output (legacy)
 public export
 NtmOutputWidth : Nat -> Nat -> Nat
 NtmOutputWidth n w = ReadHeadInputWidth n w + (WriteHeadInputWidth n w + w)
+
+||| Read addressing params width: key(m) + shift(3) + beta + g + gamma
+public export
+ReadParamWidth : Nat -> Nat
+ReadParamWidth m = (m + ShiftKernelSize) + 3
+
+||| Write addressing params width: read params + add vector (no erase)
+public export
+WriteParamWidth : Nat -> Nat
+WriteParamWidth m = ReadParamWidth m + m
 
 
 ----------------------------------------------------------------------
@@ -61,13 +71,18 @@ mutual
                 (cellState : Vector outputSize ty) ->
                 (iwBuf : Maybe AnyPtr) -> (rwBuf : Maybe AnyPtr) ->
                 Layer inputSize outputSize ty
-    NtmLayer : {n : Nat} -> {hs : List Nat} ->
-               (controller : Network (NtmInputWidth w) hs (NtmOutputWidth n w) ty) ->
-               (memory : Matrix n w ty) ->
-               (readHead : ReadHead n ty) ->
-               (writeHead : WriteHead n ty) ->
-               (readHeadOutput : Vector w ty) ->
-               Layer w w ty
+    ||| PyTorch-aligned NTM layer. LSTM controller with separate head FCs.
+    ||| n = memory slots, m = memory width, h = controller hidden size.
+    NtmLayer : {n, m, h : Nat} ->
+               (lstm : Layer (m + inputSize) h ty) ->
+               (readFc : Layer h (ReadParamWidth m) ty) ->
+               (writeFc : Layer h (WriteParamWidth m) ty) ->
+               (outputFc : Layer (h + m) outputSize ty) ->
+               (memory : Matrix n m ty) ->
+               (readAddr : Vector n ty) ->
+               (writeAddr : Vector n ty) ->
+               (readOutput : Vector m ty) ->
+               Layer inputSize outputSize ty
 
   public export
   data Network : (inputDims : Nat) -> (hiddenDims : List Nat) -> (outputDims : Nat) -> Type -> Type where
@@ -88,7 +103,7 @@ implementation {inputSize : Nat} -> {outputSize : Nat} -> Show a => Show (Layer 
   show {inputSize} {outputSize} (LstmLayer _ _ _ _ _ _ _) = "Lstm<" ++ show inputSize ++ ":" ++ show outputSize ++ ">"
   show (ActivationLayer name _) = "Activation<" ++ name ++ ">"
   show (NormalizationLayer name _) = "Normalization<" ++ name ++ ">"
-  show {inputSize} (NtmLayer {n} _ _ _ _ _) = "Ntm<" ++ show inputSize ++ ", mem=" ++ show n ++ ">"
+  show {inputSize} {outputSize} (NtmLayer {n} {m} {h} _ _ _ _ _ _ _ _) = "Ntm<" ++ show inputSize ++ ":" ++ show outputSize ++ ", mem=" ++ show n ++ "x" ++ show m ++ ", h=" ++ show h ++ ">"
 
 public export
 implementation {i, o : Nat} -> Show ty => Show (Network i [] o ty) where
@@ -109,8 +124,9 @@ mutual
     emap f (LinearLayer w b wb) = LinearLayer (map f w) (map f b) wb
     emap f (RnnLayer iw rw b po iwb rwb) = RnnLayer (map f iw) (map f rw) (map f b) (map f po) iwb rwb
     emap f (LstmLayer iw rw b hs cs iwb rwb) = LstmLayer (map f iw) (map f rw) (map f b) (map f hs) (map f cs) iwb rwb
-    emap f (NtmLayer controller mem rh wh ro) =
-      NtmLayer (emap f controller) (map f mem) (map f rh) (map f wh) (map f ro)
+    emap f (NtmLayer lstm rfc wfc ofc mem ra wa ro) =
+      NtmLayer (emap f lstm) (emap f rfc) (emap f wfc) (emap f ofc)
+               (map f mem) (map f ra) (map f wa) (map f ro)
     emap _ l = l
 
   public export
@@ -152,6 +168,18 @@ lstmSplitGates {o} combined =
 
 
 ----------------------------------------------------------------------
+-- Cell State Extraction
+----------------------------------------------------------------------
+
+||| Extract the cell state from an LSTM layer (for NTM head FC input).
+||| Returns zeros if the layer is not an LSTM.
+export
+extractCellState : (Num ty) => {o : Nat} -> Layer i o ty -> Vector o ty
+extractCellState (LstmLayer _ _ _ _ cell _ _) = cell
+extractCellState _ = zeros
+
+
+----------------------------------------------------------------------
 -- Forward Pass
 ----------------------------------------------------------------------
 
@@ -178,16 +206,32 @@ mutual
       newHidden = map sig oGate * map tanhBound newCell
       updatedLayer = LstmLayer inputWeights recurrentWeights bias newHidden newCell iwb rwb
     in (updatedLayer, newHidden)
-  applyLayer {i} (NtmLayer {n} {hs} controller memory readHead writeHead readHeadOutput) inp =
+  applyLayer (NtmLayer {n} {m} {h} lstm readFc writeFc outputFc memory readAddr writeAddr readOutput) inp =
     let
-      (newController, controllerOutput) = forward controller (readHeadOutput ++ inp)
-      (readHeadInput, controllerOutput') = Tensor.splitAt (ReadHeadInputWidth n i) controllerOutput
-      (writeHeadInput, networkOutput) = Tensor.splitAt (WriteHeadInputWidth n i) controllerOutput'
-      (newReadHead, newReadHeadOutput) = forwardReadHead softmax memory readHead readHeadInput
-      (newWriteHead, rawMemory) = forwardWriteHead softmax memory writeHead writeHeadInput
+      -- 1. Controller: LSTM(readOutput ++ input)
+      lstmResult = applyLayer lstm (readOutput ++ inp)
+      hidden = snd lstmResult
+      -- 2. Cell state for head FCs
+      cell = extractCellState (fst lstmResult)
+      -- 3. Head params from cell state
+      readParams = snd (applyLayer readFc cell)
+      writeParams = snd (applyLayer writeFc cell)
+      -- 4. Read head (unbounded gamma)
+      rh = MkReadHead readAddr
+      readResult = forwardReadHeadUnbounded softmax memory rh readParams
+      newReadAddr' = (fst readResult).addressingWeights
+      newReadOutput = snd readResult
+      -- 5. Write head (interpolation, no erase)
+      wh = MkWriteHead (MkReadHead writeAddr)
+      writeResult = forwardWriteHeadInterp softmax memory wh writeParams
+      newWriteAddr' = (fst writeResult).readHead.addressingWeights
+      rawMemory = snd writeResult
       newMemory = map tanhBound rawMemory
-      newLayer = NtmLayer newController newMemory newReadHead newWriteHead newReadHeadOutput
-    in (newLayer, networkOutput)
+      -- 6. Output FC(hidden ++ readOutput)
+      output = snd (applyLayer outputFc (hidden ++ newReadOutput))
+      newLayer = NtmLayer (fst lstmResult) readFc writeFc outputFc
+                          newMemory newReadAddr' newWriteAddr' newReadOutput
+    in (newLayer, output)
 
   export
   forward : (Floating ty, Fractional ty, Neg ty, Num ty, Ord ty) => {i, o : Nat} -> {hs : List Nat} -> Network i hs o ty -> Vector i ty -> (Network i hs o ty, Vector o ty)
@@ -236,6 +280,39 @@ forwardWriteHeadVar memory (MkWriteHead readHead) inp =
     (newReadHead, _) = forwardReadHeadVar memory readHead readHeadInput
     newWriteHead = MkWriteHead newReadHead
     newMemoryMatrix = writeOpVar newWriteHead.readHead.addressingWeights memory eraseVector addVector
+  in (newWriteHead, newMemoryMatrix)
+
+
+||| Variable-specialized read head with unbounded gamma (softplus).
+forwardReadHeadUnboundedVar : {n, w : Nat} -> Matrix n w Variable -> ReadHead n Variable -> Vector ((w + ShiftKernelSize) + 3) Variable -> (ReadHead n Variable, Vector w Variable)
+forwardReadHeadUnboundedVar memory rh inp =
+  let
+    (mainInput, params) = splitAt (w + ShiftKernelSize) inp
+    (keyVector, shiftVector) = splitAt w mainInput
+    (betaVec, params') = splitAt 1 params
+    (gVec, gammaVec) = splitAt 1 params'
+    beta = softplus (sum betaVec)
+    g = sig (sum gVec)
+    gamma = 1 + softplus (sum gammaVec)
+    scores = batchCosineSimilarityVar beta memory keyVector
+    contentWeights = softmaxVar scores
+    interpolated = interpolate g contentWeights rh.addressingWeights
+    shifted = shift softmaxVar interpolated shiftVector
+    focused = focus gamma shifted
+    newReadHead = { addressingWeights := focused } rh
+    output = readOpVar newReadHead.addressingWeights memory
+  in (newReadHead, output)
+
+||| Variable-specialized write head with interpolation write (no erase) and unbounded gamma.
+||| Input: addressing params ((w + ShiftKernelSize) + 3) + add vector (w)
+forwardWriteHeadInterpVar : {n, w : Nat} -> Matrix n w Variable -> WriteHead n Variable -> Vector (((w + ShiftKernelSize) + 3) + w) Variable -> (WriteHead n Variable, Matrix n w Variable)
+forwardWriteHeadInterpVar memory (MkWriteHead readHead) inp =
+  let
+    (readHeadInput, rawAdd) = Tensor.splitAt ((w + ShiftKernelSize) + 3) inp
+    addVector = map sig rawAdd
+    (newReadHead, _) = forwardReadHeadUnboundedVar memory readHead readHeadInput
+    newWriteHead = MkWriteHead newReadHead
+    newMemoryMatrix = interpolationWriteVar newWriteHead.readHead.addressingWeights memory addVector
   in (newWriteHead, newMemoryMatrix)
 
 
@@ -291,17 +368,34 @@ mutual
   applyLayerVar layer@(NormalizationLayer "softmax" _) xs = (layer, softmaxVar xs)
   applyLayerVar layer@(NormalizationLayer "logSoftmax" _) xs = (layer, logSoftmaxVar xs)
   applyLayerVar layer@(NormalizationLayer _ f) xs = (layer, f xs)
-  applyLayerVar {i} (NtmLayer {n} {hs} controller memory readHead writeHead readHeadOutput) inp =
+  applyLayerVar (NtmLayer {n} {m} {h} lstm readFc writeFc outputFc memory readAddr writeAddr readOutput) inp =
     let
-      (newController, rawControllerOutput) = forwardVar controller (readHeadOutput ++ inp)
-      controllerOutput = map (clampVar (-20.0) 20.0) rawControllerOutput
-      (readHeadInput, controllerOutput') = Tensor.splitAt (ReadHeadInputWidth n i) controllerOutput
-      (writeHeadInput, networkOutput) = Tensor.splitAt (WriteHeadInputWidth n i) controllerOutput'
-      (newReadHead, newReadHeadOutput) = forwardReadHeadVar memory readHead readHeadInput
-      (newWriteHead, rawMemory) = forwardWriteHeadVar memory writeHead writeHeadInput
+      -- 1. Controller: LSTM(readOutput ++ input)
+      lstmResult = applyLayerVar lstm (readOutput ++ inp)
+      hidden = snd lstmResult
+      -- 2. Cell state for head FCs
+      cell = extractCellState (fst lstmResult)
+      -- 3. Head params from cell state (clamped)
+      rawReadParams = snd (applyLayerVar readFc cell)
+      readParams = map (clampVar (-20.0) 20.0) rawReadParams
+      rawWriteParams = snd (applyLayerVar writeFc cell)
+      writeParams = map (clampVar (-20.0) 20.0) rawWriteParams
+      -- 4. Read head (unbounded gamma, C-backed)
+      rh = MkReadHead readAddr
+      readResult = forwardReadHeadUnboundedVar memory rh readParams
+      newReadAddr' = (fst readResult).addressingWeights
+      newReadOutput = snd readResult
+      -- 5. Write head (interpolation, no erase, C-backed)
+      wh = MkWriteHead (MkReadHead writeAddr)
+      writeResult = forwardWriteHeadInterpVar memory wh writeParams
+      newWriteAddr' = (fst writeResult).readHead.addressingWeights
+      rawMemory = snd writeResult
       newMemory = map tanhBound rawMemory
-      newLayer = NtmLayer newController newMemory newReadHead newWriteHead newReadHeadOutput
-    in (newLayer, networkOutput)
+      -- 6. Output FC(hidden ++ readOutput)
+      output = snd (applyLayerVar outputFc (hidden ++ newReadOutput))
+      newLayer = NtmLayer (fst lstmResult) readFc writeFc outputFc
+                          newMemory newReadAddr' newWriteAddr' newReadOutput
+    in (newLayer, output)
 
   export
   forwardVar : {i, o : Nat} -> {hs : List Nat} -> Network i hs o Variable -> Vector i Variable -> (Network i hs o Variable, Vector o Variable)
@@ -508,21 +602,21 @@ export
 lstmLayer : {i, o : Nat} -> (Num ty, FromDouble ty) => IO (Layer i o ty)
 lstmLayer = lstmLayerWith (xavier uniform)
 
+||| Create a PyTorch-aligned NTM layer.
+||| n = memory slots, m = memory width, h = controller hidden size.
 export
-ntmLayer : {n, w : Nat} -> {hs : List Nat} -> (FromDouble ty, Num ty) =>
-           Network (NtmInputWidth w) hs (NtmOutputWidth n w) ty -> IO (Layer w w ty)
-ntmLayer controller = do
-  let memory = the (Matrix n w ty) (pure (fromDouble 1.0e-6))
-  let readHead = the (ReadHead n ty) initReadHead
-  let writeHead = the (WriteHead n ty) initWriteHead
-  let readHeadOutput = zeros
-  pure $ NtmLayer controller memory readHead writeHead readHeadOutput
-
-||| Extract the cell state from an LSTM layer (for NTM head FC input).
-export
-extractCellState : Layer i o ty -> Maybe (Vector o ty)
-extractCellState (LstmLayer _ _ _ _ cell _ _) = Just cell
-extractCellState _ = Nothing
+ntmLayer : {inputSize, outputSize, n, m, h : Nat} ->
+           (Num ty, FromDouble ty) => IO (Layer inputSize outputSize ty)
+ntmLayer = do
+  lstm <- lstmLayer {i = m + inputSize, o = h}
+  readFc <- linearLayer {i = h, o = ReadParamWidth m}
+  writeFc <- linearLayer {i = h, o = WriteParamWidth m}
+  outputFc <- linearLayer {i = h + m, o = outputSize}
+  let memory = the (Matrix n m ty) (pure (fromDouble 1.0e-6))
+  let readAddr = the (Vector n ty) zeros
+  let writeAddr = the (Vector n ty) zeros
+  let readOutput = the (Vector m ty) zeros
+  pure $ NtmLayer lstm readFc writeFc outputFc memory readAddr writeAddr readOutput
 
 export
 sigmoidLayer : (FromDouble ty, Neg ty, Fractional ty, Floating ty) => Layer n n ty
@@ -591,13 +685,17 @@ mutual
                    rwBuf = prim__weightBufAlloc (cast (gateSize * o))
                    rwBuf' = initWeightBuf rwBuf 0 rwRows
                in LstmLayer namedInputWeights namedRecurrentWeights namedBias hiddenState cellState (Just iwBuf') (Just rwBuf')
-      (NtmLayer controller memory readHead writeHead readHeadOutput) =>
+      (NtmLayer lstm readFc writeFc outputFc memory readAddr writeAddr readOutput) =>
         let namedMemory = zipWith (np "mem") enumerate memory
-            namedReadHead = { addressingWeights $= zipWith (np "rAddr") enumerate } readHead
-            namedWriteHead = { readHead.addressingWeights $= zipWith (np "wAddr") enumerate } writeHead
-            namedReadOut = zipWith (np "rOut") enumerate readHeadOutput
-        in NtmLayer (nameNetworkParams (prefx ++ "_ctrl") controller)
-                    namedMemory namedReadHead namedWriteHead namedReadOut
+            namedReadAddr = zipWith (np "rAddr") enumerate readAddr
+            namedWriteAddr = zipWith (np "wAddr") enumerate writeAddr
+            namedReadOut = zipWith (np "rOut") enumerate readOutput
+            namedLstm = nameParams (prefx ++ "_lstm") lstm
+            namedReadFc = nameParams (prefx ++ "_readFc") readFc
+            namedWriteFc = nameParams (prefx ++ "_writeFc") writeFc
+            namedOutputFc = nameParams (prefx ++ "_outputFc") outputFc
+        in NtmLayer namedLstm namedReadFc namedWriteFc namedOutputFc
+                    namedMemory namedReadAddr namedWriteAddr namedReadOut
       _ => layer
 
   export
@@ -614,7 +712,7 @@ layerPrefix : Layer i o ty -> String
 layerPrefix (LinearLayer _ _ _) = "ll"
 layerPrefix (RnnLayer _ _ _ _ _ _) = "rnn"
 layerPrefix (LstmLayer _ _ _ _ _ _ _) = "lstm"
-layerPrefix (NtmLayer _ _ _ _ _) = "ntm"
+layerPrefix (NtmLayer _ _ _ _ _ _ _ _) = "ntm"
 layerPrefix _ = ""
 
 mutual
@@ -628,14 +726,18 @@ mutual
                 counts' = insert pfx (n + 1) counts
                 fullName = scope ++ pfx ++ show n
             in case layer of
-              (NtmLayer controller memory readHead writeHead readHeadOutput) =>
+              (NtmLayer lstm readFc writeFc outputFc memory readAddr writeAddr readOutput) =>
                 let np = nameParam . (fullName ++ "_" ++)
                     namedMemory = zipWith (np "mem") enumerate memory
-                    namedReadHead = { addressingWeights $= zipWith (np "rAddr") enumerate } readHead
-                    namedWriteHead = { readHead.addressingWeights $= zipWith (np "wAddr") enumerate } writeHead
-                    namedReadOut = zipWith (np "rOut") enumerate readHeadOutput
-                    (_, controller') = autoNameNetwork (fullName ++ "_") empty controller
-                in (counts', NtmLayer controller' namedMemory namedReadHead namedWriteHead namedReadOut)
+                    namedReadAddr = zipWith (np "rAddr") enumerate readAddr
+                    namedWriteAddr = zipWith (np "wAddr") enumerate writeAddr
+                    namedReadOut = zipWith (np "rOut") enumerate readOutput
+                    (_, lstm') = autoNameLayer (fullName ++ "_") empty lstm
+                    (_, readFc') = autoNameLayer (fullName ++ "_readFc_") empty readFc
+                    (_, writeFc') = autoNameLayer (fullName ++ "_writeFc_") empty writeFc
+                    (_, outputFc') = autoNameLayer (fullName ++ "_outputFc_") empty outputFc
+                in (counts', NtmLayer lstm' readFc' writeFc' outputFc'
+                             namedMemory namedReadAddr namedWriteAddr namedReadOut)
               _ => (counts', nameParams fullName layer)
 
   autoNameNetwork : String -> SortedMap String Nat
@@ -691,10 +793,10 @@ mutual
     let iwb' = syncWeightBuf iwb 0 iwRows
         rwb' = syncWeightBuf rwb 0 rwRows
     in LstmLayer (VTensor iwRows) (VTensor rwRows) bias hs cs (Just iwb') (Just rwb')
-  syncLayerBuffers (NtmLayer controller mem rh wh ro) =
-    let rh' = { addressingWeights $= projectWeights } rh
-        wh' = { readHead.addressingWeights $= projectWeights } wh
-    in NtmLayer (syncNetworkBuffers controller) mem rh' wh' ro
+  syncLayerBuffers (NtmLayer lstm readFc writeFc outputFc mem ra wa ro) =
+    NtmLayer (syncLayerBuffers lstm) (syncLayerBuffers readFc)
+             (syncLayerBuffers writeFc) (syncLayerBuffers outputFc)
+             mem (projectWeights ra) (projectWeights wa) ro
   syncLayerBuffers l = l
 
   export
