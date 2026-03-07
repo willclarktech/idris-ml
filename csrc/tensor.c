@@ -370,6 +370,9 @@ typedef struct {
   int *x_tape_idx;    /* n tape indices of input elements */
   int out_tape_start; /* tape index of first output element */
   int w_tape_start;   /* tape start index for bulk-registered weights */
+  int has_bias;       /* 1 if bias is fused into the matmul */
+  double *bias_vals;  /* m bias values (persistent buffer pointer) */
+  int bias_tape_start; /* tape start index for bulk-registered bias */
 } MatVecMeta;
 
 typedef struct {
@@ -445,12 +448,14 @@ typedef struct {
   double *prev_cell_vals;   /* o */
   int *muliw_tape_idx;      /* 4*o tape indices */
   int *mulrw_tape_idx;      /* 4*o tape indices */
-  int *bias_tape_idx;       /* 4*o tape indices */
+  int *bias_tape_idx;       /* 4*o tape indices (NULL if use_bias_buf) */
   int *prev_cell_tape_idx;  /* o tape indices */
   /* Cached for backward: */
   double *gate_vals;        /* 4*o (activated gates: iGate, fGate, gGate, oGate) */
   double *new_cell_vals;    /* o */
   int out_tape_start;       /* first output index (2*o outputs: cell + hidden) */
+  int use_bias_buf;         /* 1 if bias comes from WeightBuf (contiguous indices) */
+  int bias_buf_tape_start;  /* tape start for bias WeightBuf (valid if use_bias_buf) */
 } LstmCellMeta;
 
 
@@ -469,6 +474,9 @@ MatVecMeta *matvec_meta_alloc(int m, int n) {
   meta->x_tape_idx = (int *)arena_alloc(n * sizeof(int));
   meta->out_tape_start = 0;
   meta->w_tape_start = 0;
+  meta->has_bias = 0;
+  meta->bias_vals = NULL;
+  meta->bias_tape_start = 0;
   return meta;
 }
 
@@ -486,6 +494,30 @@ MatVecMeta *matvec_meta_alloc_buf(int m, int n, double *w_vals_ptr,
   meta->x_tape_idx = (int *)arena_alloc(n * sizeof(int));
   meta->out_tape_start = 0;
   meta->w_tape_start = w_tape_start;
+  meta->has_bias = 0;
+  meta->bias_vals = NULL;
+  meta->bias_tape_start = 0;
+  return meta;
+}
+
+/* Allocate MatVecMeta for persistent weight + bias buffer path.
+ * Both weights and bias use bulk tape registration (contiguous indices). */
+MatVecMeta *matvec_meta_alloc_buf_bias(int m, int n, double *w_vals_ptr,
+                                       int w_tape_start,
+                                       double *bias_vals_ptr,
+                                       int bias_tape_start) {
+  MatVecMeta *meta = (MatVecMeta *)arena_alloc(sizeof(MatVecMeta));
+  meta->m = m;
+  meta->n = n;
+  meta->w_vals = w_vals_ptr;
+  meta->x_vals = (double *)arena_alloc(n * sizeof(double));
+  meta->w_tape_idx = NULL;
+  meta->x_tape_idx = (int *)arena_alloc(n * sizeof(int));
+  meta->out_tape_start = 0;
+  meta->w_tape_start = w_tape_start;
+  meta->has_bias = 1;
+  meta->bias_vals = bias_vals_ptr;
+  meta->bias_tape_start = bias_tape_start;
   return meta;
 }
 
@@ -578,6 +610,32 @@ LstmCellMeta *lstm_cell_meta_alloc(int o) {
   m->gate_vals = (double *)arena_alloc(fo * sizeof(double));
   m->new_cell_vals = (double *)arena_alloc(o * sizeof(double));
   m->out_tape_start = 0;
+  m->use_bias_buf = 0;
+  m->bias_buf_tape_start = 0;
+  return m;
+}
+
+/* Allocate LstmCellMeta for bias WeightBuf path.
+ * bias_vals points to the persistent C buffer (no packing needed).
+ * bias_tape_idx is NULL — backward uses bias_buf_tape_start + offset. */
+LstmCellMeta *lstm_cell_meta_alloc_buf(int o, double *bias_vals_ptr,
+                                        int bias_tape_start) {
+  int fo = 4 * o;
+  LstmCellMeta *m = (LstmCellMeta *)arena_alloc(sizeof(LstmCellMeta));
+  m->o = o;
+  m->muliw_vals = (double *)arena_alloc(fo * sizeof(double));
+  m->mulrw_vals = (double *)arena_alloc(fo * sizeof(double));
+  m->bias_vals = bias_vals_ptr;
+  m->prev_cell_vals = (double *)arena_alloc(o * sizeof(double));
+  m->muliw_tape_idx = (int *)arena_alloc(fo * sizeof(int));
+  m->mulrw_tape_idx = (int *)arena_alloc(fo * sizeof(int));
+  m->bias_tape_idx = NULL;
+  m->prev_cell_tape_idx = (int *)arena_alloc(o * sizeof(int));
+  m->gate_vals = (double *)arena_alloc(fo * sizeof(double));
+  m->new_cell_vals = (double *)arena_alloc(o * sizeof(double));
+  m->out_tape_start = 0;
+  m->use_bias_buf = 1;
+  m->bias_buf_tape_start = bias_tape_start;
   return m;
 }
 
@@ -669,10 +727,14 @@ void *matvec_meta_set_out(void *meta_ptr, int start) {
   return meta_ptr;
 }
 
-/* Run forward matmul using values packed in meta. */
+/* Run forward matmul using values packed in meta.
+ * If has_bias, adds bias: out[i] += bias[i] after matmul. */
 void *matvec_meta_compute(void *meta_ptr, double *out) {
   MatVecMeta *m = (MatVecMeta *)meta_ptr;
   tensor_matvec(m->w_vals, m->x_vals, out, m->m, m->n);
+  if (m->has_bias) {
+    for (int i = 0; i < m->m; i++) out[i] += m->bias_vals[i];
+  }
   return out;
 }
 
@@ -989,6 +1051,15 @@ void tensor_matvec_backward(double *grad_array, MatVecMeta *meta) {
       }
     }
   }
+
+  /* Bias backward: grad[bias_tape_start + i] += dy[i] */
+  if (meta->has_bias) {
+    int bs = meta->bias_tape_start;
+    for (int i = 0; i < m; i++) {
+      double dy = grad_array[out_start + i];
+      if (dy != 0.0) grad_array[bs + i] += dy;
+    }
+  }
 }
 
 /*
@@ -1238,10 +1309,18 @@ void tensor_lstm_cell_backward(double *grad_array, LstmCellMeta *m) {
     grad_array[m->mulrw_tape_idx[2*o + j]] += dc_g;
     grad_array[m->mulrw_tape_idx[3*o + j]] += dc_o;
 
-    grad_array[m->bias_tape_idx[j]]       += dc_i;
-    grad_array[m->bias_tape_idx[o + j]]   += dc_f;
-    grad_array[m->bias_tape_idx[2*o + j]] += dc_g;
-    grad_array[m->bias_tape_idx[3*o + j]] += dc_o;
+    if (m->use_bias_buf) {
+      int bs = m->bias_buf_tape_start;
+      grad_array[bs + j]       += dc_i;
+      grad_array[bs + o + j]   += dc_f;
+      grad_array[bs + 2*o + j] += dc_g;
+      grad_array[bs + 3*o + j] += dc_o;
+    } else {
+      grad_array[m->bias_tape_idx[j]]       += dc_i;
+      grad_array[m->bias_tape_idx[o + j]]   += dc_f;
+      grad_array[m->bias_tape_idx[2*o + j]] += dc_g;
+      grad_array[m->bias_tape_idx[3*o + j]] += dc_o;
+    }
 
     grad_array[m->prev_cell_tape_idx[j]] += d_prevCell;
   }
