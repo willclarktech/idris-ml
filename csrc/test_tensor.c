@@ -1640,6 +1640,65 @@ static void test_adam_gc_step(void) {
 
 
 /* -------------------------------------------------------------------
+   Bulk delta application tests
+   ------------------------------------------------------------------- */
+
+static void test_buf_apply_deltas(void) {
+  /* 4 elements: 2 named (pid_ids 0, 1), 1 unnamed (-1), 1 named (pid_id 0) */
+  double vals[] = {1.0, 2.0, 3.0, 4.0};
+  int pid_ids[] = {0, 1, -1, 0};
+  double deltas[] = {0.1, 0.5};  /* 2 parameters */
+  buf_apply_deltas(vals, pid_ids, 4, deltas);
+  check_close("buf_apply_deltas[0] pid=0", vals[0], 0.9, 1e-12);
+  check_close("buf_apply_deltas[1] pid=1", vals[1], 1.5, 1e-12);
+  check_close("buf_apply_deltas[2] unnamed", vals[2], 3.0, 1e-12);
+  check_close("buf_apply_deltas[3] pid=0", vals[3], 3.9, 1e-12);
+}
+
+static void test_pid_ids_alloc(void) {
+  int *arr = pid_ids_alloc(5);
+  check("pid_ids_alloc[0]", arr[0] == -1);
+  check("pid_ids_alloc[4]", arr[4] == -1);
+  free(arr);
+}
+
+static void test_ntm_mem_pid_ids(void) {
+  /* Allocate 2x3 NtmMemBuf, set pid_ids, apply deltas */
+  NtmMemBuf *mb = ntm_mem_alloc(2, 3);
+
+  /* All pid_ids should start at -1 */
+  check("ntm_mem pid_ids init", mb->pid_ids[0] == -1);
+  check("ntm_mem pid_ids init[5]", mb->pid_ids[5] == -1);
+
+  /* Set values and pid_ids */
+  for (int i = 0; i < 6; i++) mb->vals[i] = (double)(i + 1);
+  ntm_mem_set_pid_id(mb, 0, 0);
+  ntm_mem_set_pid_id(mb, 1, 1);
+  ntm_mem_set_pid_id(mb, 2, 0);
+  /* 3, 4, 5 remain -1 (unnamed) */
+
+  double deltas[] = {0.5, 1.0};
+  ntm_mem_apply_deltas(mb, deltas);
+
+  check_close("ntm_mem_apply pid=0", mb->vals[0], 0.5, 1e-12);
+  check_close("ntm_mem_apply pid=1", mb->vals[1], 1.0, 1e-12);
+  check_close("ntm_mem_apply pid=0", mb->vals[2], 2.5, 1e-12);
+  check_close("ntm_mem_apply unnamed", mb->vals[3], 4.0, 1e-12);
+  check_close("ntm_mem_apply unnamed", mb->vals[4], 5.0, 1e-12);
+  check_close("ntm_mem_apply unnamed", mb->vals[5], 6.0, 1e-12);
+
+  /* Verify cache was reset */
+  check("ntm_mem_apply cache reset", mb->cached_gen == -1);
+
+  free(mb->vals);
+  free(mb->tape_idx);
+  free(mb->pids);
+  free(mb->pid_ids);
+  free(mb);
+}
+
+
+/* -------------------------------------------------------------------
    Main
    ------------------------------------------------------------------- */
 
@@ -1693,6 +1752,9 @@ int main(void) {
   test_rmsprop_vc_step();
   test_sgd_step();
   test_adam_gc_step();
+  test_buf_apply_deltas();
+  test_pid_ids_alloc();
+  test_ntm_mem_pid_ids();
 
   printf("\n%d passed, %d failed\n", tests_passed, tests_failed);
   return tests_failed > 0 ? 1 : 0;

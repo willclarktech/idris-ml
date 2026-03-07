@@ -899,3 +899,47 @@ mutual
   syncNetworkBuffers : {i, o : Nat} -> {hs : List Nat} -> Network i hs o Variable -> Network i hs o Variable
   syncNetworkBuffers (OutputLayer layer) = OutputLayer (syncLayerBuffers layer)
   syncNetworkBuffers (layer ~> rest) = syncLayerBuffers layer ~> syncNetworkBuffers rest
+
+
+----------------------------------------------------------------------
+-- Bulk Delta Application (C-direct, no emap/sync)
+----------------------------------------------------------------------
+
+mutual
+  ||| Apply optimizer deltas directly to C buffers (WeightBuf/NtmMemBuf),
+  ||| bypassing emap + syncLayerBuffers. Resets cache generations and
+  ||| projects addressing weights. Variable.value fields are NOT updated
+  ||| (forward pass reads from buffers, not Variable records).
+  export
+  applyDeltasAndSyncLayer : {i, o : Nat} -> AnyPtr -> Layer i o Variable -> Layer i o Variable
+  applyDeltasAndSyncLayer deltas (LinearLayer w b (Just wb) (Just bb)) =
+    let wb' = prim__weightBufApplyDeltas wb deltas
+        bb' = prim__weightBufApplyDeltas bb deltas
+    in LinearLayer w b (Just wb') (Just bb')
+  applyDeltasAndSyncLayer deltas (LinearLayer w b (Just wb) Nothing) =
+    let wb' = prim__weightBufApplyDeltas wb deltas
+    in LinearLayer w b (Just wb') Nothing
+  applyDeltasAndSyncLayer deltas (LstmLayer iw rw b hs cs (Just iwb) (Just rwb) (Just bb)) =
+    let iwb' = prim__weightBufApplyDeltas iwb deltas
+        rwb' = prim__weightBufApplyDeltas rwb deltas
+        bb' = prim__weightBufApplyDeltas bb deltas
+    in LstmLayer iw rw b hs cs (Just iwb') (Just rwb') (Just bb')
+  applyDeltasAndSyncLayer deltas (LstmLayer iw rw b hs cs (Just iwb) (Just rwb) Nothing) =
+    let iwb' = prim__weightBufApplyDeltas iwb deltas
+        rwb' = prim__weightBufApplyDeltas rwb deltas
+    in LstmLayer iw rw b hs cs (Just iwb') (Just rwb') Nothing
+  applyDeltasAndSyncLayer deltas (NtmLayer lstm readFc writeFc outputFc mem ra wa ro (Just memBuf)) =
+    let mb' = prim__ntmMemBufApplyDeltas memBuf deltas
+    in NtmLayer (applyDeltasAndSyncLayer deltas lstm) (applyDeltasAndSyncLayer deltas readFc)
+                (applyDeltasAndSyncLayer deltas writeFc) (applyDeltasAndSyncLayer deltas outputFc)
+                mem (projectWeights ra) (projectWeights wa) ro (Just mb')
+  applyDeltasAndSyncLayer deltas (NtmLayer lstm readFc writeFc outputFc mem ra wa ro Nothing) =
+    NtmLayer (applyDeltasAndSyncLayer deltas lstm) (applyDeltasAndSyncLayer deltas readFc)
+             (applyDeltasAndSyncLayer deltas writeFc) (applyDeltasAndSyncLayer deltas outputFc)
+             mem (projectWeights ra) (projectWeights wa) ro Nothing
+  applyDeltasAndSyncLayer _ l = l
+
+  export
+  applyDeltasAndSyncNetwork : {i, o : Nat} -> {hs : List Nat} -> AnyPtr -> Network i hs o Variable -> Network i hs o Variable
+  applyDeltasAndSyncNetwork deltas (OutputLayer layer) = OutputLayer (applyDeltasAndSyncLayer deltas layer)
+  applyDeltasAndSyncNetwork deltas (layer ~> rest) = applyDeltasAndSyncLayer deltas layer ~> applyDeltasAndSyncNetwork deltas rest

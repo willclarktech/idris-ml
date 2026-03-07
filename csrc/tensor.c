@@ -1784,6 +1784,23 @@ WeightBuf *weight_buf_alloc(int count) {
   return wb;
 }
 
+/* Generic bulk delta application for C-backed parameter buffers.
+ * vals[i] -= deltas[pid_ids[i]] for all i where pid_ids[i] >= 0.
+ * pid_ids[i] == -1 means unnamed/non-learnable, skip. */
+void buf_apply_deltas(double *vals, int *pid_ids, int count, double *deltas) {
+  for (int i = 0; i < count; i++) {
+    int id = pid_ids[i];
+    if (id >= 0) vals[i] -= deltas[id];
+  }
+}
+
+/* Allocate a pid_ids array initialized to -1 (unnamed). */
+int *pid_ids_alloc(int count) {
+  int *arr = (int *)malloc(count * sizeof(int));
+  for (int i = 0; i < count; i++) arr[i] = -1;
+  return arr;
+}
+
 WeightBuf *weight_buf_set_val(WeightBuf *wb, int idx, double val) {
   wb->vals[idx] = val;
   return wb;
@@ -1941,6 +1958,7 @@ typedef struct {
   double *vals;       /* n*w memory values (persistent, updated each timestep) */
   int *tape_idx;      /* n*w tape indices (updated each timestep) */
   char **pids;        /* n*w interned pid strings (set once in nameParams) */
+  int *pid_ids;       /* n*w dense pid_ids (-1 = unnamed, set once in nameParams) */
   int cached_gen;     /* epoch cache: tape generation (-1 = uncached) */
   int cached_start;   /* epoch cache: first tape index */
 } NtmMemBuf;
@@ -1953,6 +1971,7 @@ NtmMemBuf *ntm_mem_alloc(int n, int w) {
   mb->vals = (double *)calloc(total, sizeof(double));
   mb->tape_idx = (int *)calloc(total, sizeof(int));
   mb->pids = (char **)calloc(total, sizeof(char *));
+  mb->pid_ids = pid_ids_alloc(total);
   mb->cached_gen = -1;
   mb->cached_start = -1;
   return mb;
@@ -1968,6 +1987,20 @@ NtmMemBuf *ntm_mem_set_val(NtmMemBuf *mb, int idx, double val) {
 NtmMemBuf *ntm_mem_set_pid(NtmMemBuf *mb, int idx, char *pid) {
   mb->pids[idx] = intern_str(pid);
   return mb;
+}
+
+/* Set dense pid_id for one element. Used during nameParams. */
+NtmMemBuf *ntm_mem_set_pid_id(NtmMemBuf *mb, int idx, int pid_id) {
+  mb->pid_ids[idx] = pid_id;
+  return mb;
+}
+
+/* Apply optimizer deltas directly to buffer values.
+ * vals[i] -= deltas[pid_ids[i]] for named elements.
+ * Resets cached_gen to force re-registration next epoch. */
+void ntm_mem_apply_deltas(NtmMemBuf *mb, double *deltas) {
+  buf_apply_deltas(mb->vals, mb->pid_ids, mb->n * mb->w, deltas);
+  mb->cached_gen = -1;
 }
 
 /* After InterpWrite: copy output values into buffer. */

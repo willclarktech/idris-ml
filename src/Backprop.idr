@@ -276,7 +276,7 @@ epochTwoPhaseDense opt dataPoints lossFn model st =
   let loss = calculateLossTwoPhaseVar lossFn model dataPoints
       denseBuf = collectGradsDense 1.0 loss st.buf
       st' = opt.step denseBuf st
-      model' = syncNetworkBuffers (emap (applyDeltasDense denseBuf) model)
+      model' = applyDeltasAndSyncNetwork denseBuf model
   in (model', st', loss.value)
 
 ||| Dense two-phase training with schedule and early stopping.
@@ -334,7 +334,7 @@ epochRecurrentDense opt dataPoints lossFn model st =
   let loss = calculateLossRecurrentVar lossFn model dataPoints
       denseBuf = collectGradsDense 1.0 loss st.buf
       st' = opt.step denseBuf st
-      model' = syncNetworkBuffers (emap (applyDeltasDense denseBuf) model)
+      model' = applyDeltasAndSyncNetwork denseBuf model
   in (model', st', loss.value)
 
 ||| Dense recurrent training with schedule and early stopping.

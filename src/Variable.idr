@@ -150,9 +150,11 @@ prim__tapeGetPid : Int -> String
 -- Weight Buffer FFI (Scheme vector: [C double*, pid vector, cached-start, cached-gen])
 ----------------------------------------------------------------------
 
--- Allocate: Scheme 4-vector with C double buffer and pid vector.
+-- Allocate: Scheme 6-vector with C double buffer, pid vector, pid_ids C array, and count.
+-- [0] = C double*, [1] = pid scheme vector, [2] = cached_start, [3] = cached_gen,
+-- [4] = C int* pid_ids (all -1), [5] = count
 export
-%foreign "scheme:(lambda (count) (let ((cbuf ((foreign-procedure \"tensor_alloc\" (int) void*) count)) (pids (make-vector count \"\"))) (vector cbuf pids -1 -1)))"
+%foreign "scheme:(lambda (count) (let ((cbuf ((foreign-procedure \"tensor_alloc\" (int) void*) count)) (pids (make-vector count \"\")) (pid-ids ((foreign-procedure \"pid_ids_alloc\" (int) void*) count))) (vector cbuf pids -1 -1 pid-ids count)))"
 prim__weightBufAlloc : Int -> AnyPtr
 
 -- Get the C double* from a weight buffer.
@@ -166,6 +168,17 @@ prim__weightBufSetVal : AnyPtr -> Int -> Double -> AnyPtr
 -- Write a pid string to the pid vector at index.
 %foreign "scheme:(lambda (wbuf idx pid) (let ((pids (vector-ref wbuf 1))) (vector-set! pids idx pid) wbuf))"
 prim__weightBufSetPid : AnyPtr -> Int -> String -> AnyPtr
+
+-- Set dense pid_id at index in C pid_ids array. Used during naming.
+-- Looks up pid-to-id hash table; -1 if not found/not initialized.
+%foreign "scheme:(lambda (wbuf idx pid) (if (top-level-bound? 'pid-to-id) (let ((id (hashtable-ref (top-level-value 'pid-to-id) pid -1))) (when (>= id 0) (foreign-set! 'integer-32 (vector-ref wbuf 4) (* idx 4) id))) (void)) wbuf)"
+prim__weightBufSetPidId : AnyPtr -> Int -> String -> AnyPtr
+
+-- Apply optimizer deltas directly to C buffer vals, reset cache.
+-- vals[i] -= deltas[pid_ids[i]] for named elements.
+export
+%foreign "scheme:(lambda (wbuf deltas) ((foreign-procedure \"buf_apply_deltas\" (void* void* int void*) void) (vector-ref wbuf 0) (vector-ref wbuf 4) (vector-ref wbuf 5) deltas) (vector-set! wbuf 2 -1) (vector-set! wbuf 3 -1) wbuf)"
+prim__weightBufApplyDeltas : AnyPtr -> AnyPtr -> AnyPtr
 
 -- Ensure weight buffer entries are on tape (epoch-cached).
 -- Writes to foreign-alloc tape arrays using foreign-set!.
@@ -193,6 +206,16 @@ prim__ntmMemBufSetVal : AnyPtr -> Int -> Double -> AnyPtr
 -- Set pid at index in Scheme pid vector.
 %foreign "scheme:(lambda (mb idx pid) (vector-set! (vector-ref mb 2) idx pid) mb)"
 prim__ntmMemBufSetPid : AnyPtr -> Int -> String -> AnyPtr
+
+-- Set dense pid_id at index in C NtmMemBuf. Used during naming.
+-- Looks up pid-to-id hash table; skips if not found/not initialized.
+%foreign "scheme:(lambda (mb idx pid) (if (top-level-bound? 'pid-to-id) (let ((id (hashtable-ref (top-level-value 'pid-to-id) pid -1))) (when (>= id 0) ((foreign-procedure \"ntm_mem_set_pid_id\" (void* int int) void*) (vector-ref mb 0) idx id))) (void)) mb)"
+prim__ntmMemBufSetPidId : AnyPtr -> Int -> String -> AnyPtr
+
+-- Apply optimizer deltas directly to C NtmMemBuf vals, reset cache.
+export
+%foreign "scheme:(lambda (mb deltas) ((foreign-procedure \"ntm_mem_apply_deltas\" (void* void*) void) (vector-ref mb 0) deltas) (vector-set! mb 4 -1) (vector-set! mb 5 -1) mb)"
+prim__ntmMemBufApplyDeltas : AnyPtr -> AnyPtr -> AnyPtr
 
 -- Ensure memory entries are on tape (epoch-cached). Creates ConstOps with pids,
 -- updates C tape_idx. Also sets C-side pid_ids. Returns wrapper for threading.
@@ -994,9 +1017,11 @@ export
 initWeightBufRow : AnyPtr -> Int -> Vect k (Scalar Variable) -> AnyPtr
 initWeightBufRow wBuf _ [] = wBuf
 initWeightBufRow wBuf off (STensor v :: rest) =
-  let wBuf' = prim__weightBufSetVal wBuf off v.value
-      wBuf'' = prim__weightBufSetPid wBuf' off (fromMaybe "" v.paramId)
-  in initWeightBufRow wBuf'' (off + 1) rest
+  let pid = fromMaybe "" v.paramId
+      wBuf' = prim__weightBufSetVal wBuf off v.value
+      wBuf'' = prim__weightBufSetPid wBuf' off pid
+      wBuf''' = prim__weightBufSetPidId wBuf'' off pid
+  in initWeightBufRow wBuf''' (off + 1) rest
 
 export
 initWeightBuf : AnyPtr -> Int -> {n : Nat} -> Vect m (Vector n Variable) -> AnyPtr
@@ -1029,9 +1054,11 @@ syncWeightBuf wBuf off {m=S k} {n} (VTensor row :: rows) =
 initNtmMemBufRow : AnyPtr -> Int -> Vect k (Scalar Variable) -> AnyPtr
 initNtmMemBufRow mb _ [] = mb
 initNtmMemBufRow mb off (STensor v :: rest) =
-  let mb' = prim__ntmMemBufSetVal mb off v.value
-      mb'' = prim__ntmMemBufSetPid mb' off (fromMaybe "" v.paramId)
-  in initNtmMemBufRow mb'' (off + 1) rest
+  let pid = fromMaybe "" v.paramId
+      mb' = prim__ntmMemBufSetVal mb off v.value
+      mb'' = prim__ntmMemBufSetPid mb' off pid
+      mb''' = prim__ntmMemBufSetPidId mb'' off pid
+  in initNtmMemBufRow mb''' (off + 1) rest
 
 export
 initNtmMemBuf : AnyPtr -> Int -> {w : Nat} -> Vect n (Vector w Variable) -> AnyPtr

@@ -182,7 +182,7 @@ profileEpoch opt dataPoints lossFn model st epochNum = do
   t5 <- clockTime Monotonic
 
   -- Phase 4: Apply deltas + sync buffers
-  let model' = syncNetworkBuffers (emap (applyDeltasDense denseBuf) model)
+  let model' = applyDeltasAndSyncNetwork denseBuf model
   t6 <- clockTime Monotonic
 
   let line = padL 5 (show epochNum)
