@@ -359,6 +359,54 @@ forwardWriteHeadInterpVarBuf memBuf (MkWriteHead readHead) inp =
 ----------------------------------------------------------------------
 
 mutual
+  -- Extract weight and bias buffers from a LinearLayer.
+  getLinearBufs : Layer i o Variable -> (Maybe AnyPtr, Maybe AnyPtr)
+  getLinearBufs (LinearLayer _ _ wBuf bBuf) = (wBuf, bBuf)
+  getLinearBufs _ = (Nothing, Nothing)
+
+  -- LSTM forward that also returns the raw output buffer + cell const start.
+  -- Returns (updatedLayer, hidden, Just (outBuf, cellConstStart)) on the full-buffer path,
+  -- or (updatedLayer, hidden, Nothing) on fallback.
+  applyLstmGetBuf : {i, o : Nat} -> Layer i o Variable -> Vector i Variable
+    -> (Layer i o Variable, Vector o Variable, Maybe (AnyPtr, Int))
+  applyLstmGetBuf {i} {o} (LstmLayer inputWeights recurrentWeights bias hiddenState cellState iwBuf rwBuf bBuf) xs =
+    if i * o <= 4
+      then let r = applyLayer (LstmLayer inputWeights recurrentWeights bias hiddenState cellState iwBuf rwBuf bBuf) xs
+           in (fst r, snd r, Nothing)
+      else case (iwBuf, rwBuf, bBuf) of
+        (Just iwb, Just rwb, Just bb) =>
+          let gateSize : Nat
+              gateSize = 4 * o
+              mulIWResult = matrixVectorMultiplyVarBufOut {m=gateSize, n=i} iwb xs
+              mulRWResult = matrixVectorMultiplyVarBufOut {m=gateSize, n=o} rwb hiddenState
+              cellResult = lstmCellVarFromBufsExt
+                             (fst mulIWResult) (snd mulIWResult)
+                             (fst mulRWResult) (snd mulRWResult) bb cellState
+              newCell = fst cellResult
+              newHidden = fst (snd cellResult)
+              outBuf = fst (snd (snd cellResult))
+              cellConstStart = snd (snd (snd cellResult))
+              updatedLayer = LstmLayer inputWeights recurrentWeights bias newHidden newCell iwBuf rwBuf bBuf
+          in (updatedLayer, newHidden, Just (outBuf, cellConstStart))
+        _ =>
+          let gateSize : Nat
+              gateSize = 4 * o
+              mulIW : Vector gateSize Variable
+              mulIW = maybe (matrixVectorMultiplyVar {m=gateSize, n=i} inputWeights xs)
+                            (\wb => matrixVectorMultiplyVarBuf {m=gateSize, n=i} wb xs) iwBuf
+              mulRW : Vector gateSize Variable
+              mulRW = maybe (matrixVectorMultiplyVar {m=gateSize, n=o} recurrentWeights hiddenState)
+                            (\wb => matrixVectorMultiplyVarBuf {m=gateSize, n=o} wb hiddenState) rwBuf
+              cellResult = maybe (lstmCellVar mulIW mulRW bias cellState)
+                                 (\bb => lstmCellVarBuf mulIW mulRW bb cellState) bBuf
+              newCell = fst cellResult
+              newHidden = snd cellResult
+              updatedLayer = LstmLayer inputWeights recurrentWeights bias newHidden newCell iwBuf rwBuf bBuf
+          in (updatedLayer, newHidden, Nothing)
+  applyLstmGetBuf layer xs =
+    let r = applyLayerVar layer xs
+    in (fst r, snd r, Nothing)
+
   export
   applyLayerVar : {i, o : Nat} -> Layer i o Variable -> Vector i Variable -> (Layer i o Variable, Vector o Variable)
   applyLayerVar layer@(LinearLayer weights bias wBuf bBuf) xs =
@@ -421,12 +469,21 @@ mutual
   -- Buffer-aware NTM forward pass (persistent memory buffer)
   applyLayerVar (NtmLayer {n} {m} {h} lstm readFc writeFc outputFc memory readAddr writeAddr readOutput (Just memBuf)) inp =
     let
-      lstmResult = applyLayerVar lstm (readOutput ++ inp)
-      hidden = snd lstmResult
-      cell = extractCellState (fst lstmResult)
-      rawReadParams = snd (applyLayerVar readFc cell)
+      lstmResult = applyLstmGetBuf lstm (readOutput ++ inp)
+      updatedLstm = fst lstmResult
+      hidden = fst (snd lstmResult)
+      lstmBufInfo = snd (snd lstmResult)
+      -- Read FC: prefer buffer-passing from LSTM cell output
+      rawReadParams = case (lstmBufInfo, getLinearBufs readFc) of
+        (Just (buf, ccs), (Just wb, Just bb)) =>
+          matrixVectorMultiplyVarBufBiasFromBuf {m=ReadParamWidth m, n=h} wb bb buf 0 ccs
+        _ => snd (applyLayerVar readFc (extractCellState updatedLstm))
       readParams = map (clampVar (-20.0) 20.0) rawReadParams
-      rawWriteParams = snd (applyLayerVar writeFc cell)
+      -- Write FC: prefer buffer-passing from LSTM cell output
+      rawWriteParams = case (lstmBufInfo, getLinearBufs writeFc) of
+        (Just (buf, ccs), (Just wb, Just bb)) =>
+          matrixVectorMultiplyVarBufBiasFromBuf {m=WriteParamWidth m, n=h} wb bb buf 0 ccs
+        _ => snd (applyLayerVar writeFc (extractCellState updatedLstm))
       writeParams = map (clampVar (-20.0) 20.0) rawWriteParams
       -- Read head (buffer-aware: C memcpy pack)
       rh = MkReadHead readAddr
@@ -438,10 +495,14 @@ mutual
       writeResult = forwardWriteHeadInterpVarBuf memBuf wh writeParams
       newWriteAddr' = (fst writeResult).readHead.addressingWeights
       mb' = snd writeResult
-      -- Output FC
-      output = snd (applyLayerVar outputFc (hidden ++ newReadOutput))
+      -- Output FC: prefer hybrid buffer+vec from LSTM hidden + readOutput
+      output = case (lstmBufInfo, getLinearBufs outputFc) of
+        (Just (buf, ccs), (Just wb, Just bb)) =>
+          matrixVectorMultiplyVarBufBiasFromBufAndVec {m=o, n1=h, n2=m}
+            wb bb buf (cast h) (ccs + cast h) newReadOutput
+        _ => snd (applyLayerVar outputFc (hidden ++ newReadOutput))
       -- memory unchanged (for applyDeltas); buffer mutated via mb'
-      newLayer = NtmLayer (fst lstmResult) readFc writeFc outputFc
+      newLayer = NtmLayer updatedLstm readFc writeFc outputFc
                           memory newReadAddr' newWriteAddr' newReadOutput (Just mb')
     in (newLayer, output)
   -- Variable-based NTM forward pass (no buffer)
