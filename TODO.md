@@ -18,7 +18,7 @@
 
 | Item | Difficulty | Notes |
 |------|-----------|-------|
-| Current RSS tracking via `mach_task_info` | M | `getRssMB` reports peak RSS (high-water mark). Current RSS requires macOS `mach_task_info` or Linux `/proc/self/statm` — useful for verifying GC reclaims memory |
+| Reinforcement learning demo | L | Simple RL example (e.g. policy gradient on CartPole or grid world) to demonstrate autograd beyond supervised/sequence tasks |
 | DNC (Differentiable Neural Computer) | XL | Graves et al. 2016 successor to NTM — temporal link matrix, dynamic memory allocation, multiple read heads |
 | Convolutional layers | L | |
 | Transformer | XL | |
@@ -70,3 +70,4 @@
 - RMSprop optimizer with value clipping (`rmsprop`, `rmspropValueClip` in Optimizer.idr)
 - Binary vector data format + two-phase training (`TwoPhaseDataPoint`, `epochTwoPhase`, `copyTaskBinary`, `recallTaskBinary`)
 - PyTorch-aligned NTM architecture (LSTM controller, separate head FCs from cell state, output FC from hidden++read, interpolation write)
+- Current RSS tracking via `mach_task_info` (`getCurrentRssMB` in Variable.idr)
