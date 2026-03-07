@@ -81,7 +81,7 @@ elif [[ "$TASK" == "copy" ]]; then
   BATCH_VALUES="4 16"
   SEED_VALUES="1 2 42"
 
-  echo "lr,clip,batch,epochs,patience,epochsDone,seed,trainAcc,testAcc" > "$RESULTS_FILE"
+  echo "lr,clip,batch,epochs,esThresh,epochsDone,seed,trainAcc,testAcc" > "$RESULTS_FILE"
 
   CONFIGS=""
   for lr in $LR_VALUES; do
@@ -99,7 +99,7 @@ else
   CLIP_VALUES="5.0 10.0"
   SEED_VALUES="1 2 42"
 
-  echo "lr,clip,epochs,patience,epochsDone,seed,k2Acc,k4Acc,k6Acc" > "$RESULTS_FILE"
+  echo "lr,clip,epochs,esThresh,epochsDone,seed,k2Acc,k4Acc,k6Acc" > "$RESULTS_FILE"
 
   CONFIGS=""
   for lr in $LR_VALUES; do
@@ -141,16 +141,16 @@ run_one() {
     local outfile="${TMPDIR_SWEEP}/${tag}.out"
 
     "$EXEC" --lr "$lr" --clip "$clip" --alpha 0.95 --momentum 0.9 \
-      --batch "$batch" --epochs "$EPOCHS" --patience "$PATIENCE" --seed "$seed" \
+      --batch "$batch" --epochs "$EPOCHS" --seed "$seed" \
       > "$outfile" 2>&1
 
     local result
     result=$(grep "^RESULT" "$outfile" || echo "")
     if [[ -n "$result" ]]; then
-      # RESULT: $1=RESULT $2=lr $3=clip $4=alpha $5=epochs $6=patience $7=epochsDone $8=seed $9=trainAcc $10=testAcc
+      # RESULT: $1=RESULT $2=lr $3=clip $4=alpha $5=epochs $6=esThresh $7=epochsDone $8=seed $9=trainAcc $10=testAcc
       echo "$result" | awk -F'\t' -v b="$batch" '{print $2","$3","b","$5","$6","$7","$8","$9","$10}'
     else
-      echo "$lr,$clip,$batch,$EPOCHS,$PATIENCE,0,$seed,-1,-1"
+      echo "$lr,$clip,$batch,$EPOCHS,0.01,0,$seed,-1,-1"
     fi
   else
     # recall task
@@ -159,16 +159,16 @@ run_one() {
     local outfile="${TMPDIR_SWEEP}/${tag}.out"
 
     "$EXEC" --lr "$lr" --clip "$clip" --alpha 0.95 --momentum 0.9 \
-      --epochs "$EPOCHS" --patience "$PATIENCE" --seed "$seed" \
+      --epochs "$EPOCHS" --seed "$seed" \
       > "$outfile" 2>&1
 
     local result
     result=$(grep "^RESULT" "$outfile" || echo "")
     if [[ -n "$result" ]]; then
-      # RESULT: $1=RESULT $2=lr $3=clip $4=alpha $5=epochs $6=patience $7=epochsDone $8=seed $9=k2Acc $10=k4Acc $11=k6Acc
+      # RESULT: $1=RESULT $2=lr $3=clip $4=alpha $5=epochs $6=esThresh $7=epochsDone $8=seed $9=k2Acc $10=k4Acc $11=k6Acc
       echo "$result" | awk -F'\t' '{print $2","$3","$5","$6","$7","$8","$9","$10","$11}'
     else
-      echo "$lr,$clip,$EPOCHS,$PATIENCE,0,$seed,-1,-1,-1"
+      echo "$lr,$clip,$EPOCHS,0.01,0,$seed,-1,-1,-1"
     fi
   fi
 }

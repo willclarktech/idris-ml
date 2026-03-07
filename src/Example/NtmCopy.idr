@@ -102,23 +102,28 @@ bitAccuracy preds targets =
 -- Training Loop
 ----------------------------------------------------------------------
 
-||| Simple training loop with periodic data regeneration.
+||| Simple training loop with periodic data regeneration and
+||| windowed-average convergence-based early stopping.
 ||| Returns (model, optimizer state, epochs completed).
 trainLoop :
   (Double -> DenseOptimizer) -> Schedule ->
   Network InputW [] OutputW Variable ->
-  (totalEpochs : Nat) -> (patience : Nat) -> (batchSize : Nat) ->
+  (totalEpochs : Nat) -> (esThreshold : Double) -> (esWindow : Nat) -> (esPatience : Nat) ->
+  (batchSize : Nat) ->
   (minLen, maxLen : Nat) ->
   DenseOptimizerState ->
   Clock Monotonic ->
   IO (Network InputW [] OutputW Variable, DenseOptimizerState, Nat)
-trainLoop makeOpt schedule model totalEpochs patience batchSize minLen maxLen st t0 =
-  go 0 model st (1.0/0.0) 0
+trainLoop makeOpt schedule model totalEpochs esThreshold esWindow esPatience batchSize minLen maxLen st t0 =
+  go 0 model st 0.0 0 [] 0
   where
+    wc : Nat
+    wc = max 1 (div esWindow 100)
+
     go : Nat -> Network InputW [] OutputW Variable -> DenseOptimizerState ->
-         Double -> Nat ->
+         Double -> Nat -> List Double -> Nat ->
          IO (Network InputW [] OutputW Variable, DenseOptimizerState, Nat)
-    go ep m s bestLoss staleCount =
+    go ep m s iSum iCount avgs convCount =
       if ep >= totalEpochs then pure (m, s, ep)
       else do
         batch <- copyTaskBinaryBatchVect {w = W} batchSize minLen maxLen
@@ -138,36 +143,57 @@ trainLoop makeOpt schedule model totalEpochs patience batchSize minLen maxLen st
             putStrLn $ "  " ++ formatElapsed t0 now ++ " Diverged (NaN) at epoch " ++ show ep
             pure (m', s', ep)
           else do
-            let improved = loss < bestLoss - 0.001
-                bestLoss' = if improved then loss else bestLoss
-                sc : Nat
-                sc = if improved then 0 else staleCount + 1
-            if patience > 0 && sc >= patience
-              then do
-                now <- clockTime Monotonic
-                putStrLn $ "  " ++ formatElapsed t0 now ++ " Early stop at epoch " ++ show (ep + 1)
-                         ++ " (patience=" ++ show patience ++ ")"
-                pure (m', s', ep + 1)
-              else go (ep + 1) m' s' bestLoss' sc
+            let iSum' = iSum + loss
+                iCount' = iCount + 1
+            if iCount' < 100
+              then go (ep + 1) m' s' iSum' iCount' avgs convCount
+              else do
+                let avg = iSum' / 100.0
+                    avgs' = avg :: avgs
+                if length avgs' < wc
+                  then go (ep + 1) m' s' 0.0 0 avgs' convCount
+                  else do
+                    let windowAvg = foldl (+) 0.0 (take wc avgs') / cast wc
+                    if windowAvg >= esThreshold
+                      then go (ep + 1) m' s' 0.0 0 avgs' 0
+                      else do
+                        let cc = convCount + 1
+                        if cc >= esPatience
+                          then do
+                            now <- clockTime Monotonic
+                            putStrLn $ "  " ++ formatElapsed t0 now
+                                     ++ " Converged at epoch " ++ show (ep + 1)
+                                     ++ " (window_avg=" ++ show windowAvg ++ ")"
+                            pure (m', s', ep + 1)
+                          else do
+                            now <- clockTime Monotonic
+                            putStrLn $ "    " ++ formatElapsed t0 now
+                                     ++ " convergence " ++ show cc ++ "/" ++ show esPatience
+                                     ++ " (window_avg=" ++ show windowAvg ++ ")"
+                            go (ep + 1) m' s' 0.0 0 avgs' cc
 
 
-||| Training loop with batch_size=1 (online learning).
+||| Training loop with batch_size=1 (online learning) and
+||| windowed-average convergence-based early stopping.
 ||| Generates 1 sequence per epoch for higher gradient noise.
 trainLoop1 :
   (Double -> DenseOptimizer) -> Schedule ->
   Network InputW [] OutputW Variable ->
-  (totalEpochs : Nat) -> (patience : Nat) ->
+  (totalEpochs : Nat) -> (esThreshold : Double) -> (esWindow : Nat) -> (esPatience : Nat) ->
   (minLen, maxLen : Nat) ->
   DenseOptimizerState ->
   Clock Monotonic ->
   IO (Network InputW [] OutputW Variable, DenseOptimizerState, Nat)
-trainLoop1 makeOpt schedule model totalEpochs patience minLen maxLen st t0 =
-  go 0 model st (1.0/0.0) 0
+trainLoop1 makeOpt schedule model totalEpochs esThreshold esWindow esPatience minLen maxLen st t0 =
+  go 0 model st 0.0 0 [] 0
   where
+    wc : Nat
+    wc = max 1 (div esWindow 100)
+
     go : Nat -> Network InputW [] OutputW Variable -> DenseOptimizerState ->
-         Double -> Nat ->
+         Double -> Nat -> List Double -> Nat ->
          IO (Network InputW [] OutputW Variable, DenseOptimizerState, Nat)
-    go ep m s bestLoss staleCount =
+    go ep m s iSum iCount avgs convCount =
       if ep >= totalEpochs then pure (m, s, ep)
       else do
         batch <- copyTaskBinaryBatchVect {w = W} 1 minLen maxLen
@@ -187,17 +213,34 @@ trainLoop1 makeOpt schedule model totalEpochs patience minLen maxLen st t0 =
             putStrLn $ "  " ++ formatElapsed t0 now ++ " Diverged (NaN) at epoch " ++ show ep
             pure (m', s', ep)
           else do
-            let improved = loss < bestLoss - 0.001
-                bestLoss' = if improved then loss else bestLoss
-                sc : Nat
-                sc = if improved then 0 else staleCount + 1
-            if patience > 0 && sc >= patience
-              then do
-                now <- clockTime Monotonic
-                putStrLn $ "  " ++ formatElapsed t0 now ++ " Early stop at epoch " ++ show (ep + 1)
-                         ++ " (patience=" ++ show patience ++ ")"
-                pure (m', s', ep + 1)
-              else go (ep + 1) m' s' bestLoss' sc
+            let iSum' = iSum + loss
+                iCount' = iCount + 1
+            if iCount' < 100
+              then go (ep + 1) m' s' iSum' iCount' avgs convCount
+              else do
+                let avg = iSum' / 100.0
+                    avgs' = avg :: avgs
+                if length avgs' < wc
+                  then go (ep + 1) m' s' 0.0 0 avgs' convCount
+                  else do
+                    let windowAvg = foldl (+) 0.0 (take wc avgs') / cast wc
+                    if windowAvg >= esThreshold
+                      then go (ep + 1) m' s' 0.0 0 avgs' 0
+                      else do
+                        let cc = convCount + 1
+                        if cc >= esPatience
+                          then do
+                            now <- clockTime Monotonic
+                            putStrLn $ "  " ++ formatElapsed t0 now
+                                     ++ " Converged at epoch " ++ show (ep + 1)
+                                     ++ " (window_avg=" ++ show windowAvg ++ ")"
+                            pure (m', s', ep + 1)
+                          else do
+                            now <- clockTime Monotonic
+                            putStrLn $ "    " ++ formatElapsed t0 now
+                                     ++ " convergence " ++ show cc ++ "/" ++ show esPatience
+                                     ++ " (window_avg=" ++ show windowAvg ++ ")"
+                            go (ep + 1) m' s' 0.0 0 avgs' cc
 
 
 ----------------------------------------------------------------------
@@ -212,14 +255,16 @@ record Config where
   eps : Double
   momentum : Double
   epochs : Nat
-  patience : Nat
+  esThreshold : Double
+  esWindow : Nat
+  esPatience : Nat
   seed : Bits64
   minLen : Nat
   maxLen : Nat
   batch : Nat
 
 defaultConfig : Config
-defaultConfig = MkConfig 0.0001 10.0 0.95 1.0e-8 0.9 50000 1000 123 1 20 16
+defaultConfig = MkConfig 0.0001 10.0 0.95 1.0e-8 0.9 50000 0.01 1000 3 123 1 20 16
 
 parseConfig : List String -> Config
 parseConfig args = go args defaultConfig
@@ -232,7 +277,9 @@ parseConfig args = go args defaultConfig
     go ("--eps" :: v :: rest) c = go rest ({ eps := cast v } c)
     go ("--momentum" :: v :: rest) c = go rest ({ momentum := cast v } c)
     go ("--epochs" :: v :: rest) c = go rest ({ epochs := cast (cast {to=Integer} v) } c)
-    go ("--patience" :: v :: rest) c = go rest ({ patience := cast (cast {to=Integer} v) } c)
+    go ("--es-threshold" :: v :: rest) c = go rest ({ esThreshold := cast v } c)
+    go ("--es-window" :: v :: rest) c = go rest ({ esWindow := cast (cast {to=Integer} v) } c)
+    go ("--es-patience" :: v :: rest) c = go rest ({ esPatience := cast (cast {to=Integer} v) } c)
     go ("--seed" :: v :: rest) c = go rest ({ seed := cast (cast {to=Integer} v) } c)
     go ("--min-len" :: v :: rest) c = go rest ({ minLen := cast (cast {to=Integer} v) } c)
     go ("--max-len" :: v :: rest) c = go rest ({ maxLen := cast (cast {to=Integer} v) } c)
@@ -257,10 +304,12 @@ main = do
            ++ " alpha=" ++ show cfg.alpha
            ++ " momentum=" ++ show cfg.momentum
            ++ " epochs=" ++ show cfg.epochs
-           ++ " patience=" ++ show cfg.patience
            ++ " seed=" ++ show cfg.seed
            ++ " batch=" ++ show cfg.batch
            ++ " seqLen=" ++ show cfg.minLen ++ "-" ++ show cfg.maxLen
+  putStrLn $ "Early stopping: threshold=" ++ show cfg.esThreshold
+           ++ " window=" ++ show cfg.esWindow
+           ++ " patience=" ++ show cfg.esPatience
   putStrLn $ "Architecture: N=" ++ show N ++ " M=" ++ show M ++ " H=" ++ show H
   putStrLn ""
 
@@ -282,9 +331,11 @@ main = do
   (trained, finalSt, epochsDone) <-
     if cfg.batch == 1
       then trainLoop1 makeOpt schedule model
-             cfg.epochs cfg.patience cfg.minLen cfg.maxLen st0 t0
+             cfg.epochs cfg.esThreshold cfg.esWindow cfg.esPatience
+             cfg.minLen cfg.maxLen st0 t0
       else trainLoop makeOpt schedule model
-             cfg.epochs cfg.patience cfg.batch cfg.minLen cfg.maxLen st0 t0
+             cfg.epochs cfg.esThreshold cfg.esWindow cfg.esPatience
+             cfg.batch cfg.minLen cfg.maxLen st0 t0
 
   putStrLn $ "Training complete: " ++ show epochsDone ++ " epochs"
   putStrLn ""
@@ -316,7 +367,7 @@ main = do
            ++ show cfg.clipVal ++ "\t"
            ++ show cfg.alpha ++ "\t"
            ++ show cfg.epochs ++ "\t"
-           ++ show cfg.patience ++ "\t"
+           ++ show cfg.esThreshold ++ "\t"
            ++ show epochsDone ++ "\t"
            ++ show cfg.seed ++ "\t"
            ++ show shortAcc ++ "\t"
