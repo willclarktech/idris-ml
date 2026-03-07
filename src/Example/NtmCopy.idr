@@ -103,18 +103,18 @@ bitAccuracy preds targets =
 ||| Simple training loop with periodic data regeneration.
 ||| Returns (model, optimizer state, epochs completed).
 trainLoop :
-  (Double -> Optimizer) -> Schedule ->
+  (Double -> DenseOptimizer) -> Schedule ->
   Network InputW [] OutputW Variable ->
   (totalEpochs : Nat) -> (patience : Nat) -> (chunkSize : Nat) ->
   (minLen, maxLen : Nat) ->
-  OptimizerState ->
-  IO (Network InputW [] OutputW Variable, OptimizerState, Nat)
+  DenseOptimizerState ->
+  IO (Network InputW [] OutputW Variable, DenseOptimizerState, Nat)
 trainLoop makeOpt schedule model totalEpochs patience chunkSize minLen maxLen st =
   go 0 model st (1.0/0.0) 0
   where
-    go : Nat -> Network InputW [] OutputW Variable -> OptimizerState ->
+    go : Nat -> Network InputW [] OutputW Variable -> DenseOptimizerState ->
          Double -> Nat ->
-         IO (Network InputW [] OutputW Variable, OptimizerState, Nat)
+         IO (Network InputW [] OutputW Variable, DenseOptimizerState, Nat)
     go ep m s bestLoss staleCount =
       if ep >= totalEpochs then pure (m, s, ep)
       else do
@@ -122,7 +122,7 @@ trainLoop makeOpt schedule model totalEpochs patience chunkSize minLen maxLen st
         let dps = map (map fromDouble) batch
             lr = schedule ep
             opt = makeOpt lr
-            (m', s', loss) = epochTwoPhase opt dps binaryCrossEntropyWithLogits m s
+            (m', s', loss) = epochTwoPhaseDense opt dps binaryCrossEntropyWithLogits m s
         when (modNatNZ ep 100 ItIsSucc == 0) $
           putStrLn $ "  " ++ show ep ++ ":\tloss=" ++ show loss
         if loss /= loss
@@ -209,11 +209,13 @@ main = do
   putStrLn ""
 
   -- Training
-  let makeOpt = \lr => rmspropValueClip lr cfg.alpha cfg.eps cfg.clipVal
+  let numPids = getNumPids 0
+  let makeOpt = \lr => rmspropValueClipDense lr cfg.alpha cfg.eps cfg.clipVal
   let schedule = constant cfg.lr
+  let st0 = initDenseState numPids
   putStrLn "Training..."
   (trained, finalSt, epochsDone) <- trainLoop makeOpt schedule model
-    cfg.epochs cfg.patience 1 cfg.minLen cfg.maxLen initState
+    cfg.epochs cfg.patience 1 cfg.minLen cfg.maxLen st0
 
   putStrLn $ "Training complete: " ++ show epochsDone ++ " epochs"
   putStrLn ""

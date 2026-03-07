@@ -134,19 +134,21 @@ benchNtm = do
   -- Generate fixed training data
   batch <- copyTaskBinaryBatchVect {w = BenchW} BenchBatch 2 4
   let dataPoints = map (map fromDouble) batch
-  let opt = rmspropValueClip 0.0001 0.95 1.0e-8 10.0
+  let numPids = getNumPids 0
+  let opt = rmspropValueClipDense 0.0001 0.95 1.0e-8 10.0
+  let st0 = initDenseState numPids
 
   -- Warmup: 10 epochs
   let (warmModel, warmSt, _) = foldl
         (\(m, s, _), _ =>
-          epochTwoPhase opt dataPoints binaryCrossEntropyWithLogits m s)
-        (model, initState, 0.0) [1..10]
+          epochTwoPhaseDense opt dataPoints binaryCrossEntropyWithLogits m s)
+        (model, st0, 0.0) [1..10]
 
   -- Benchmark: 100 epochs
   t0 <- clockTime Monotonic
   let (benchModel, _, benchLoss) = foldl
         (\(m, s, _), _ =>
-          epochTwoPhase opt dataPoints binaryCrossEntropyWithLogits m s)
+          epochTwoPhaseDense opt dataPoints binaryCrossEntropyWithLogits m s)
         (warmModel, warmSt, 0.0) [1..100]
   t1 <- clockTime Monotonic
 

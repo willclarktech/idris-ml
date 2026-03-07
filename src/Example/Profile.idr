@@ -1,7 +1,6 @@
 module Example.Profile
 
 import Data.List
-import Data.SortedMap
 import Data.Vect
 import System
 import System.Clock
@@ -45,69 +44,70 @@ fmtMs d = padL 10 (showMs d)
 
 
 ----------------------------------------------------------------------
--- NTM Copy Task Setup (same config as Bench.idr)
+-- NTM Copy Task Setup (matches NtmCopy.idr)
 ----------------------------------------------------------------------
 
+||| Binary vector width (data channels)
 W : Nat
-W = 3
+W = 8
 
+||| Input width = data + delimiter channel
+InputW : Nat
+InputW = S W
+
+||| Output width = data channels only
+OutputW : Nat
+OutputW = W
+
+||| Number of memory slots
 N : Nat
-N = 10
+N = 128
 
+||| Memory width
+M : Nat
+M = 20
+
+||| Controller hidden size
 H : Nat
-H = 20
+H = 100
 
-E : Nat
-E = 5
-
-ntmSequences : Vect E (List (Fin W))
-ntmSequences =
-  [ [1, 2, 1, 2]
-  , [1, 1, 2, 2, 1]
-  , [2, 1, 1, 2, 2, 1]
-  , [2, 1, 2, 1, 2, 1, 2]
-  , [1, 2, 1, 1, 2, 2, 1, 2]
-  ]
-
-ntmRawData : Vect E (RecurrentDataPoint W W Double)
-ntmRawData = map (copyTaskPoint {w=W}) ntmSequences
+||| Batch size (data points per epoch)
+BatchSize : Nat
+BatchSize = 16
 
 
 ----------------------------------------------------------------------
--- Profiled Epoch (inlined epochRecurrent with timing)
+-- Profiled Epoch (inlined epochTwoPhase with timing)
 ----------------------------------------------------------------------
 
 profileEpoch :
-  {i, o, n : Nat} ->
-  {hs : List Nat} ->
-  Optimizer ->
-  Vect n (RecurrentDataPoint i o Variable) ->
+  DenseOptimizer ->
+  Vect BatchSize (TwoPhaseDataPoint InputW OutputW Variable) ->
   LossFunction Variable ->
-  Network i hs o Variable ->
-  OptimizerState ->
+  Network InputW [] OutputW Variable ->
+  DenseOptimizerState ->
   Nat ->
-  IO (Network i hs o Variable, OptimizerState)
+  IO (Network InputW [] OutputW Variable, DenseOptimizerState)
 profileEpoch opt dataPoints lossFn model st epochNum = do
   -- Phase 1: Forward pass + loss
   t0 <- clockTime Monotonic
-  let loss = calculateLossRecurrentVar lossFn model dataPoints
+  let loss = calculateLossTwoPhaseVar lossFn model dataPoints
   let lossVal = loss.value
   t1 <- clockTime Monotonic
 
   -- Read tape size between forward and backward
   let ts = tapeSize loss.tapeIdx
 
-  -- Phase 2: Backward pass
-  let grads = collectGrads 1.0 loss
-  let nGrads = cast {to=Int} (length (Data.SortedMap.toList grads))
+  -- Phase 2: Backward pass (dense: accumulates into C array)
+  let denseBuf = collectGradsDense 1.0 loss st.buf
   t2 <- clockTime Monotonic
 
-  -- Phase 3: Optimizer step
-  let (deltas, st') = opt.step grads st
+  -- Phase 3: Optimizer step (in-place on dense array)
+  let st' = opt.step denseBuf st
   t3 <- clockTime Monotonic
 
   -- Phase 4: Apply deltas + sync buffers
-  let model' = syncNetworkBuffers (emap (applyDeltas deltas) model)
+  let model' = syncNetworkBuffers (emap (applyDeltasDense denseBuf) model)
   t4 <- clockTime Monotonic
 
   let line = padL 5 (show epochNum)
@@ -116,7 +116,7 @@ profileEpoch opt dataPoints lossFn model st epochNum = do
           ++ fmtMs (elapsedMs t2 t3)
           ++ fmtMs (elapsedMs t3 t4)
           ++ padL 10 (show ts)
-          ++ padL 8 (show nGrads)
+          ++ padL 8 (show st.n)
           ++ "    " ++ show lossVal
   putStrLn line
 
@@ -128,15 +128,13 @@ profileEpoch opt dataPoints lossFn model st epochNum = do
 ----------------------------------------------------------------------
 
 profileLoop :
-  {i, o, n : Nat} ->
-  {hs : List Nat} ->
-  Optimizer ->
-  Vect n (RecurrentDataPoint i o Variable) ->
+  DenseOptimizer ->
+  Vect BatchSize (TwoPhaseDataPoint InputW OutputW Variable) ->
   LossFunction Variable ->
-  Network i hs o Variable ->
-  OptimizerState ->
+  Network InputW [] OutputW Variable ->
+  DenseOptimizerState ->
   Nat -> Nat ->
-  IO (Network i hs o Variable, OptimizerState)
+  IO (Network InputW [] OutputW Variable, DenseOptimizerState)
 profileLoop opt dataPoints lossFn model st cur count =
   if cur >= count
     then pure (model, st)
@@ -153,20 +151,28 @@ main : IO ()
 main = do
   srand 123456
 
-  -- Build NTM model (same as Bench.idr)
-  controllerHidden <- linearLayer {i = NtmInputWidth W, o = H}
-  controllerOut <- linearLayer {i = H, o = NtmOutputWidth N W}
-  let controller = controllerHidden ~> sigmoidLayer ~> OutputLayer controllerOut
-  ntm <- ntmLayer {n = N, w = W} controller
-  let model = autoName (ntm ~> OutputLayer logSoftmaxLayer)
+  putStrLn "=== NTM Copy Profile ==="
+  putStrLn $ "Architecture: N=" ++ show N ++ " M=" ++ show M ++ " H=" ++ show H
+  putStrLn $ "Batch=" ++ show BatchSize ++ " seqLen=1-20"
+  putStrLn ""
 
-  let dataPoints = map (map fromDouble) ntmRawData
-  let opt = adamGlobalClip 0.001 0.9 0.999 (pow 10 (-8)) 5.0
+  -- Build NTM model (same as NtmCopy.idr: no output activation, BCE loss)
+  ntm <- ntmLayer {inputSize = InputW, outputSize = OutputW, n = N, m = M, h = H}
+  let model = autoName $ OutputLayer ntm
+
+  let numPids = getNumPids 0
+  let opt = rmspropValueClipDense 0.0001 0.95 1.0e-8 10.0
+  let st0 = initDenseState numPids
+
+  -- Generate a fixed batch for consistent profiling
+  batch <- copyTaskBinaryBatchVect {w = W} BatchSize 1 20
+  let dataPoints = map (map fromDouble) batch
 
   -- Warmup: 5 epochs (untimed)
-  let (warmModel, warmSt) = trainRecurrentFrom opt model dataPoints nllLoss 5 initState
+  putStrLn "Warmup (5 epochs)..."
+  (warmModel, warmSt) <- go 0 model st0
+  putStrLn ""
 
-  putStrLn "=== NTM Profile (10 epochs) ==="
   let header = padL 5 "Epoch"
             ++ padL 10 "Fwd(ms)"
             ++ padL 10 "Bwd(ms)"
@@ -178,8 +184,20 @@ main = do
   putStrLn header
 
   -- Profile: 10 epochs with per-phase timing
-  (finalModel, _) <- profileLoop opt dataPoints nllLoss warmModel warmSt 0 10
+  (finalModel, _) <- profileLoop opt dataPoints binaryCrossEntropyWithLogits warmModel warmSt 0 10
 
-  -- Final loss
-  let finalLoss = calculateLossRecurrent nllLoss finalModel dataPoints
-  putStrLn ("\nFinal loss: " ++ show finalLoss.value)
+  putStrLn "\nDone."
+
+  where
+    -- Warmup loop using epochTwoPhaseDense
+    go : Nat -> Network InputW [] OutputW Variable ->
+         DenseOptimizerState ->
+         IO (Network InputW [] OutputW Variable, DenseOptimizerState)
+    go 5 m s = pure (m, s)
+    go k m s = do
+      batch <- copyTaskBinaryBatchVect {w = W} BatchSize 1 20
+      let dps = map (map fromDouble) batch
+          opt = rmspropValueClipDense 0.0001 0.95 1.0e-8 10.0
+          (m', s', loss) = epochTwoPhaseDense opt dps binaryCrossEntropyWithLogits m s
+      putStrLn $ "  warmup " ++ show (k + 1) ++ ": loss=" ++ show loss
+      go (k + 1) m' s'
