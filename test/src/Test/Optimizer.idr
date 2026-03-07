@@ -47,6 +47,40 @@ tests =
         a = fromMaybe 0.0 (lookup "a" clipped)
     in checkClose "clipGlobalNorm no-op when under" 0.1 a tol
 
+  -- RMSprop first step: v = (1-alpha)*g^2, delta = lr*g/sqrt(v+eps)
+  , let grads = fromList [("w", 2.0)]
+        opt = rmsprop 0.01 0.99 1.0e-8
+        (deltas, st') = opt.step grads initState
+        d = fromMaybe 0.0 (lookup "w" deltas)
+        -- v = 0.01*4 = 0.04, delta = 0.01*2/sqrt(0.04+1e-8) = 0.02/0.2 = 0.1
+    in checkClose "rmsprop step" 0.1 d tol
+
+  -- RMSprop accumulates running average across steps
+  , let grads = fromList [("w", 2.0)]
+        opt = rmsprop 0.01 0.99 1.0e-8
+        (_, st1) = opt.step grads initState
+        (deltas2, _) = opt.step grads st1
+        d = fromMaybe 0.0 (lookup "w" deltas2)
+        -- v1 = 0.04, v2 = 0.99*0.04 + 0.01*4 = 0.0396+0.04 = 0.0796
+        -- delta = 0.01*2/sqrt(0.0796) = 0.02/0.28213.. ≈ 0.0708988..
+    in checkClose "rmsprop accumulates" 0.07088811799 d 1.0e-5
+
+  -- clipGradValue clips to range
+  , let grads = fromList [("a", 15.0), ("b", -20.0), ("c", 5.0)]
+        clipped = clipGradValue 10.0 grads
+        a = fromMaybe 0.0 (lookup "a" clipped)
+        b = fromMaybe 0.0 (lookup "b" clipped)
+        c = fromMaybe 0.0 (lookup "c" clipped)
+    in check "clipGradValue" (abs (a - 10.0) < tol && abs (b - (-10.0)) < tol && abs (c - 5.0) < tol)
+
+  -- rmspropValueClip clips before computing step
+  , let grads = fromList [("w", 200.0)]
+        opt = rmspropValueClip 0.01 0.99 1.0e-8 10.0
+        (deltas, _) = opt.step grads initState
+        d = fromMaybe 0.0 (lookup "w" deltas)
+        -- clipped to 10, v = 0.01*100=1.0, delta = 0.01*10/sqrt(1+1e-8) ≈ 0.1
+    in checkClose "rmspropValueClip clips" 0.1 d 1.0e-5
+
   -- applyDeltas updates named variable
   , let deltas = fromList [("w", 0.5)]
         v = param "w" 3.0

@@ -79,6 +79,55 @@ clipGlobalNorm maxNorm grads =
   in map (* scale) grads
 
 ----------------------------------------------------------------------
+-- Value Clipping
+----------------------------------------------------------------------
+
+||| Clip each gradient element to [-maxVal, maxVal].
+||| Matches PyTorch's clip_grad_value_.
+export
+clipGradValue : Double -> SortedMap String Double -> SortedMap String Double
+clipGradValue maxVal = map (clipGrad maxVal)
+
+----------------------------------------------------------------------
+-- RMSprop
+----------------------------------------------------------------------
+
+rmspropStep : (lr : Double) -> (alpha : Double) -> (eps : Double) ->
+              SortedMap String Double -> OptimizerState ->
+              (SortedMap String Double, OptimizerState)
+rmspropStep lr alpha eps grads st =
+  foldl (\(ds, s), (pid, g) =>
+    let vPrev = fromMaybe 0 $ lookup pid s.v
+        vNew = alpha * vPrev + (1 - alpha) * g * g
+        delta = lr * g / (Prelude.sqrt vNew + eps)
+    in (insert pid delta ds,
+        { v := insert pid vNew s.v } s))
+    (empty, st) (Data.SortedMap.toList grads)
+
+||| RMSprop optimizer (Hinton, 2012).
+||| v_t = alpha * v_{t-1} + (1 - alpha) * g^2
+||| delta = lr * g / (sqrt(v_t) + eps)
+export
+rmsprop : (lr : Double) -> (alpha : Double) -> (eps : Double) -> Optimizer
+rmsprop lr alpha eps = MkOptimizer step
+  where
+    step : SortedMap String Double -> OptimizerState ->
+           (SortedMap String Double, OptimizerState)
+    step grads st = rmspropStep lr alpha eps grads st
+
+||| RMSprop with per-element value clipping (matches PyTorch reference).
+export
+rmspropValueClip : (lr : Double) -> (alpha : Double) -> (eps : Double) ->
+                   (maxVal : Double) -> Optimizer
+rmspropValueClip lr alpha eps maxVal = MkOptimizer step
+  where
+    step : SortedMap String Double -> OptimizerState ->
+           (SortedMap String Double, OptimizerState)
+    step grads st =
+      let clipped = clipGradValue maxVal grads
+      in rmspropStep lr alpha eps clipped st
+
+----------------------------------------------------------------------
 -- Adam
 ----------------------------------------------------------------------
 
