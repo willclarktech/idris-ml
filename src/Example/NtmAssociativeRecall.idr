@@ -127,6 +127,7 @@ trainLoop makeOpt schedule model totalEpochs patience minItems maxItems st =
             lr = schedule ep
             opt = makeOpt lr
             (m', s', loss) = epochTwoPhaseDense opt dps binaryCrossEntropyWithLogits m s
+        when (modNatNZ ep 10 ItIsSucc == 0) forceGC
         when (modNatNZ ep 100 ItIsSucc == 0) $
           putStrLn $ "  " ++ show ep ++ ":\tloss=" ++ show loss
         if loss /= loss
