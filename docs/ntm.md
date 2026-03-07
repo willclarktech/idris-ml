@@ -39,12 +39,12 @@ The aligned NTM retains several stability measures from Collier & Beel and refer
 
 | Measure | Value | Source |
 |---------|-------|--------|
-| Memory init | constant 1e-6 | Collier & Beel: 3.5x faster convergence |
+| Memory init | sigmoid(xavier_random) ≈ [0,1] | Matches PyTorch's sigmoid(FC_bias) |
 | Controller output clipping | [-20, 20] via `clampVar` | Collier & Beel: prevents extreme head params |
 | No tanh memory bounding | Raw interpolation write | Matches PyTorch reference; tanh was for erase+add |
 | Value clipping | ±10.0 on gradients | PyTorch reference (loudinthecloud, vlgiitr) |
 
-**Constant memory init**: `ntmLayer` initializes memory to `1e-6` via `pure (fromDouble 1.0e-6)`. Collier & Beel's controlled experiment showed this converges 3.5x faster than random init.
+**Memory init**: `ntmLayer` initializes memory to `sigmoid(xavier_random)` — values in [0,1], matching PyTorch's `sigmoid(FC_bias)`. Head FCs use `xavierGain 1.4 uniform` weights + `normal(0.01)` bias. Output FC uses `he uniform` weights + `normal(0.01)` bias. Read output uses kaiming uniform.
 
 **Controller output clipping**: `applyLayerVar` clamps the raw head FC outputs to [-20, 20] using `clampVar` (straight-through gradient). This prevents extreme head parameters (β, g, γ, add vectors) from destabilizing training.
 
@@ -196,6 +196,10 @@ Both the idris-ml and PyTorch implementations now match the reference architectu
 |--------|-------------|
 | Controller | LSTM |
 | Head param source | Separate FCs from LSTM cell state |
+| Head FC init | `xavierGain 1.4 uniform` + `normal(0.01)` bias |
+| Output FC init | `he uniform` + `normal(0.01)` bias |
+| Memory init | `sigmoid(xavier_random)` ≈ [0,1] |
+| Read output init | Kaiming uniform |
 | Output computation | `output_fc(cat(hidden, read_output))` |
 | Write mechanism | Interpolation write |
 | γ activation | `1 + softplus(x)` unbounded |

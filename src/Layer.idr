@@ -691,6 +691,16 @@ linearLayerWith initFn = do
   weights <- traverse (\_ => map fromDouble (initFn i o)) (the (Matrix o i ty) zeros)
   pure $ LinearLayer weights zeros Nothing Nothing
 
+||| Create a linear layer with custom weight and bias init.
+export
+linearLayerWithBias : {i, o : Nat} -> (Num ty, FromDouble ty) =>
+    InitStrategy -> (biasStd : Double) -> IO (Layer i o ty)
+linearLayerWithBias initFn biasStd = do
+  weights <- traverse (\_ => map fromDouble (initFn i o)) (the (Matrix o i ty) zeros)
+  bias <- traverse (\_ => map fromDouble (normalSample >>= \s => pure (s * biasStd)))
+                    (the (Vector o ty) zeros)
+  pure $ LinearLayer weights bias Nothing Nothing
+
 export
 linearLayer : {i, o : Nat} -> (Num ty, FromDouble ty) => IO (Layer i o ty)
 linearLayer = linearLayerWith (xavier uniform)
@@ -733,19 +743,26 @@ lstmLayer = lstmLayerWith (xavier uniform)
 
 ||| Create a PyTorch-aligned NTM layer.
 ||| n = memory slots, m = memory width, h = controller hidden size.
+||| Head FCs use xavier(gain=1.4) + normal(0.01) bias (matching PyTorch).
+||| Output FC uses kaiming uniform + normal(0.01) bias.
+||| Memory init: sigmoid(xavier_random) ≈ values in [0,1], matching PyTorch's sigmoid(FC_bias).
+||| Read output: kaiming uniform (matching PyTorch).
 export
 ntmLayer : {inputSize, outputSize, n, m, h : Nat} ->
            (Num ty, FromDouble ty) => IO (Layer inputSize outputSize ty)
 ntmLayer = do
   lstm <- lstmLayer {i = m + inputSize, o = h}
-  readFc <- linearLayer {i = h, o = ReadParamWidth m}
-  writeFc <- linearLayer {i = h, o = WriteParamWidth m}
-  outputFc <- linearLayer {i = h + m, o = outputSize}
-  let memory = the (Matrix n m ty) (pure (fromDouble 1.0e-6))
+  readFc <- linearLayerWithBias (xavierGain 1.4 uniform) 0.01 {i = h, o = ReadParamWidth m}
+  writeFc <- linearLayerWithBias (xavierGain 1.4 uniform) 0.01 {i = h, o = WriteParamWidth m}
+  outputFc <- linearLayerWithBias (he uniform) 0.01 {i = h + m, o = outputSize}
+  -- Memory: sigmoid(random) ≈ values in [0,1], matching PyTorch's sigmoid(FC_bias)
+  memInit <- traverse (\_ => map fromDouble (xavier uniform n m >>= \v => pure (1.0 / (1.0 + exp (negate v)))))
+                      (the (Matrix n m ty) zeros)
   let readAddr = the (Vector n ty) zeros
   let writeAddr = the (Vector n ty) zeros
-  let readOutput = the (Vector m ty) zeros
-  pure $ NtmLayer lstm readFc writeFc outputFc memory readAddr writeAddr readOutput Nothing
+  -- Read output: kaiming uniform, matching PyTorch
+  readOut <- traverse (\_ => map fromDouble (he uniform m 1)) (the (Vector m ty) zeros)
+  pure $ NtmLayer lstm readFc writeFc outputFc memInit readAddr writeAddr readOut Nothing
 
 export
 sigmoidLayer : (FromDouble ty, Neg ty, Fractional ty, Floating ty) => Layer n n ty
