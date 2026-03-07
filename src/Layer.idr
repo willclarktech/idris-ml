@@ -354,6 +354,31 @@ calculateLossRecurrentVar lossFn model dataPoints =
 
 
 ----------------------------------------------------------------------
+-- Two-Phase Loss Computation (Variable)
+----------------------------------------------------------------------
+
+||| Two-phase loss: encoding phase (discard outputs), then output phase
+||| (feed zeros, compute loss on collected outputs vs targets).
+export
+calculateLossTwoPhaseVar : {i, o, n : Nat} -> {hs : List Nat} ->
+    LossFunction Variable -> Network i hs o Variable ->
+    Vect n (TwoPhaseDataPoint i o Variable) ->
+    Variable
+calculateLossTwoPhaseVar lossFn model dataPoints =
+  let
+    perSequence : TwoPhaseDataPoint i o Variable -> List Variable
+    perSequence dp =
+      let zeroInput : Vector i Variable
+          zeroInput = map (const (fromDouble 0.0)) zeros
+          outputInputs = Data.List.replicate (length (targets dp)) zeroInput
+          encResult = forwardRecurrentVar model (encodingInputs dp)
+          outResult = forwardRecurrentVar (fst encResult) outputInputs
+      in zipWith lossFn (snd outResult) (targets dp)
+    losses = map perSequence dataPoints
+  in mean . VTensor $ map (STensor . mean) losses
+
+
+----------------------------------------------------------------------
 -- Evaluation Functions
 ----------------------------------------------------------------------
 
@@ -413,6 +438,24 @@ calculateLossRecurrent lossFn model dataPoints =
       in zipWith lossFn preds (ys dp)
     losses = map perSequence dataPoints
   in mean . VTensor $ map (STensor . mean) losses
+
+
+----------------------------------------------------------------------
+-- Two-Phase Evaluation (Generic)
+----------------------------------------------------------------------
+
+||| Two-phase forward: encoding phase then output phase with zeros.
+export
+forwardTwoPhase : (Floating ty, Fractional ty, Neg ty, Num ty, Ord ty) =>
+    {i, o : Nat} -> {hs : List Nat} ->
+    Network i hs o ty -> TwoPhaseDataPoint i o ty ->
+    (Network i hs o ty, List (Vector o ty))
+forwardTwoPhase model dp =
+  let encResult = forwardRecurrent model (encodingInputs dp)
+      zeroInput : Vector i ty
+      zeroInput = zeros
+      outputInputs = Data.List.replicate (length (targets dp)) zeroInput
+  in forwardRecurrent (fst encResult) outputInputs
 
 
 ----------------------------------------------------------------------

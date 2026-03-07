@@ -10,6 +10,7 @@ import Test.Schedule
 import Test.Init
 import Test.Sampler
 import Test.Layer
+import Test.Generate
 
 main : IO ()
 main = runAll
@@ -22,4 +23,5 @@ main = runAll
   , ("Init",      Test.Init.tests)
   , ("Sampler",   Test.Sampler.tests)
   , ("Layer",     Test.Layer.tests)
+  , ("Generate",  Test.Generate.tests)
   ]

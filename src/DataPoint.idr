@@ -28,3 +28,16 @@ implementation {i, o : Nat} -> Show ty => Show (RecurrentDataPoint i o ty) where
 public export
 implementation Functor (RecurrentDataPoint i o) where
   map f (MkRecurrentDataPoint xs ys) = MkRecurrentDataPoint (map (map f) xs) (map (map f) ys)
+
+||| Two-phase data point for encoding/output-phase tasks (e.g., NTM copy/recall).
+||| During encoding, outputs are discarded. During the output phase,
+||| zero inputs are fed and outputs are compared against targets.
+public export
+record TwoPhaseDataPoint i o ty where
+  constructor MkTwoPhaseDataPoint
+  encodingInputs : List (Vector i ty)
+  targets : List (Vector o ty)
+
+public export
+implementation Functor (TwoPhaseDataPoint i o) where
+  map f (MkTwoPhaseDataPoint xs ys) = MkTwoPhaseDataPoint (map (map f) xs) (map (map f) ys)

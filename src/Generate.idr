@@ -2,6 +2,7 @@ module Generate
 
 import Data.Fin
 import Data.List
+import Data.Nat
 import Data.Vect
 import System.Random
 
@@ -190,3 +191,137 @@ associativeRecallTask = MkSequenceTask "associative-recall" $ \len => do
   let pairs = zip keys values
   queryKeys <- shuffleList keys
   pure $ associativeRecallPoint pairs queryKeys
+
+
+----------------------------------------------------------------------
+-- Binary vector generation helpers
+----------------------------------------------------------------------
+
+||| Generate a random binary vector (each element 0.0 or 1.0).
+randomBinaryVector : {w : Nat} -> IO (Vector w Double)
+randomBinaryVector {w = Z} = pure (VTensor [])
+randomBinaryVector {w = S k} = do
+  bits <- traverse (\_ => do
+    b <- randomRIO (the Int32 0, 1)
+    pure (if b == 1 then 1.0 else 0.0)) (replicate (S k) ())
+  pure (VTensor (map STensor bits))
+
+||| Make a vector with a 1.0 at the specified position and 0.0 elsewhere.
+||| Position is from the end: 0 = last channel, 1 = second-to-last, etc.
+makeDelimiter : {w : Nat} -> (channelFromEnd : Nat) -> Vector w Double
+makeDelimiter {w} pos =
+  let go : (n : Nat) -> Vect n (Tensor [] Double)
+      go Z = []
+      go (S k) = (if k == pos then STensor 1.0 else STensor 0.0) :: go k
+  in VTensor (go w)
+
+
+----------------------------------------------------------------------
+-- Binary copy task (PyTorch-aligned)
+----------------------------------------------------------------------
+
+||| Append one element to a vector: Vector w -> Vector (S w).
+||| Channel ordering: original elements first, new element last.
+appendElem : {w : Nat} -> Tensor [] Double -> Vector w Double -> Vector (S w) Double
+appendElem {w = Z} e (VTensor []) = VTensor [e]
+appendElem {w = S k} e (VTensor (x :: xs)) =
+  let (VTensor rest) = appendElem e (VTensor xs)
+  in VTensor (x :: rest)
+
+||| Generate n random binary vectors of width w.
+genBinaryRows : {w : Nat} -> (n : Nat) -> IO (List (Vector w Double))
+genBinaryRows Z = pure []
+genBinaryRows (S k) = do
+  row <- randomBinaryVector {w}
+  rest <- genBinaryRows k
+  pure (row :: rest)
+
+||| Generate a binary copy task data point.
+||| Input: seq_len rows of [binary_data(w), 0] + 1 delimiter [0..0, 1]
+||| Target: seq_len rows of binary_data(w)
+||| Input width: w+1, output width: w
+export
+copyTaskBinary : {w : Nat} -> (seqLen : Nat) -> IO (TwoPhaseDataPoint (S w) w Double)
+copyTaskBinary {w} seqLen = do
+  dataRows <- genBinaryRows {w} seqLen
+  let inputRows = map (appendElem (STensor 0.0)) dataRows
+      delimiter = makeDelimiter {w = S w} 0
+  pure $ MkTwoPhaseDataPoint (inputRows ++ [delimiter]) dataRows
+
+||| Binary copy task as a two-phase sequence task.
+export
+copyTaskBinaryBatch : {w : Nat} -> (batchSize : Nat) -> (minLen, maxLen : Nat)
+                   -> IO (List (TwoPhaseDataPoint (S w) w Double))
+copyTaskBinaryBatch Z _ _ = pure []
+copyTaskBinaryBatch (S k) minLen maxLen = do
+  len <- randomInt minLen maxLen
+  dp <- copyTaskBinary {w} len
+  rest <- copyTaskBinaryBatch k minLen maxLen
+  pure (dp :: rest)
+
+||| Binary copy task batch as a Vect.
+export
+copyTaskBinaryBatchVect : {w : Nat} -> (n : Nat) -> (minLen, maxLen : Nat)
+                       -> IO (Vect n (TwoPhaseDataPoint (S w) w Double))
+copyTaskBinaryBatchVect Z _ _ = pure []
+copyTaskBinaryBatchVect (S k) minLen maxLen = do
+  len <- randomInt minLen maxLen
+  dp <- copyTaskBinary {w} len
+  rest <- copyTaskBinaryBatchVect k minLen maxLen
+  pure (dp :: rest)
+
+
+----------------------------------------------------------------------
+-- Binary associative recall task (PyTorch-aligned)
+----------------------------------------------------------------------
+
+||| Pad a data vector with two zero channels: [data, 0, 0] -> Vector (S (S w)).
+padData2 : {w : Nat} -> Vector w Double -> Vector (S (S w)) Double
+padData2 = appendElem (STensor 0.0) . appendElem (STensor 0.0)
+
+||| Generate a list of items, each item is seqLen binary vectors.
+genItems : {w : Nat} -> (numItems, seqLen : Nat) -> IO (List (List (Vector w Double)))
+genItems Z _ = pure []
+genItems (S k) seqLen = do
+  item <- genBinaryRows {w} seqLen
+  rest <- genItems k seqLen
+  pure (item :: rest)
+
+||| Generate a binary recall task data point.
+||| Each item is seqLen binary vectors of width w.
+||| Input width: w+2 (data + item_delim + query_delim)
+||| Output width: w
+||| Structure: [item_delim item₁] ... [item_delim itemₙ] [query_delim query_item query_delim]
+||| Target: item following the queried item (seqLen vectors of width w)
+export
+recallTaskBinary : {w : Nat} -> (numItems : Nat) -> (seqLen : Nat)
+                -> IO (TwoPhaseDataPoint (S (S w)) w Double)
+recallTaskBinary {w} numItems seqLen = do
+  items <- genItems {w} numItems seqLen
+  queryIdx <- randomInt 0 (minus numItems 2)
+  let -- Item delimiter: [0...0, 1, 0] (channel w = 1)
+      itemDelim : Vector (S (S w)) Double
+      itemDelim = makeDelimiter {w = S (S w)} 1
+      -- Query delimiter: [0...0, 0, 1] (channel w+1 = 1)
+      queryDelim : Vector (S (S w)) Double
+      queryDelim = makeDelimiter {w = S (S w)} 0
+      -- Build encoding: [item_delim item₁_rows] ... [item_delim itemₙ_rows]
+      encItems = concatMap (\item => itemDelim :: map (padData2 {w}) item) items
+      -- Query item and target (list indexing)
+      queryItem = fromMaybe [] (getAt queryIdx items)
+      targetItem = fromMaybe [] (getAt (S queryIdx) items)
+      -- Query phase: [query_delim] [query_item_rows] [query_delim]
+      encQuery = queryDelim :: map (padData2 {w}) queryItem ++ [queryDelim]
+  pure $ MkTwoPhaseDataPoint (encItems ++ encQuery) targetItem
+
+||| Binary recall task batch as a Vect.
+export
+recallTaskBinaryBatchVect : {w : Nat} -> (n : Nat) -> (minItems, maxItems : Nat) ->
+                           (seqLen : Nat) ->
+                           IO (Vect n (TwoPhaseDataPoint (S (S w)) w Double))
+recallTaskBinaryBatchVect Z _ _ _ = pure []
+recallTaskBinaryBatchVect (S k) minItems maxItems seqLen = do
+  numItems <- randomInt (max 2 minItems) (max 2 maxItems)
+  dp <- recallTaskBinary {w} numItems seqLen
+  rest <- recallTaskBinaryBatchVect k minItems maxItems seqLen
+  pure (dp :: rest)

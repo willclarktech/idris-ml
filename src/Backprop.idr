@@ -116,6 +116,28 @@ trainRecurrent opt model dataPoints lossFn epochs =
 
 
 ----------------------------------------------------------------------
+-- Two-Phase Training
+----------------------------------------------------------------------
+
+export
+epochTwoPhase :
+  {i, o, n : Nat} ->
+  {hs : List Nat} ->
+  Optimizer ->
+  Vect n (TwoPhaseDataPoint i o Variable) ->
+  LossFunction Variable ->
+  Network i hs o Variable ->
+  OptimizerState ->
+  (Network i hs o Variable, OptimizerState, Double)
+epochTwoPhase opt dataPoints lossFn model st =
+  let loss = calculateLossTwoPhaseVar lossFn model dataPoints
+      grads = collectGrads 1.0 loss
+      (deltas, st') = opt.step grads st
+      model' = syncNetworkBuffers (emap (applyDeltas deltas) model)
+  in (model', st', loss.value)
+
+
+----------------------------------------------------------------------
 -- Scheduled Training with Early Stopping
 ----------------------------------------------------------------------
 
@@ -185,6 +207,48 @@ trainRecurrentScheduledFrom makeOpt schedule model dataPoints lossFn totalEpochs
             opt = makeOpt lr
             (m', s', loss) = epochRecurrent opt dataPoints lossFn m s
         in if loss /= loss then (m', s', ep + 1)  -- NaN check: diverged
+           else let improved = loss < bestLoss - minDelta
+                    bestLoss' = if improved then loss else bestLoss
+                    staleCount' : Nat
+                    staleCount' = if improved then 0 else staleCount + 1
+                in if patience > 0 && staleCount' >= patience
+                   then (m', s', ep + 1)
+                   else go (ep + 1) m' s' bestLoss' staleCount'
+
+
+----------------------------------------------------------------------
+-- Scheduled Two-Phase Training with Early Stopping
+----------------------------------------------------------------------
+
+||| Two-phase training with a learning rate schedule and optional early stopping.
+||| Returns (model, optimizerState, epochsCompleted).
+export
+trainTwoPhaseScheduledFrom :
+  {i, o, n : Nat} ->
+  {hs : List Nat} ->
+  (Double -> Optimizer) ->
+  Schedule ->
+  Network i hs o Variable ->
+  Vect n (TwoPhaseDataPoint i o Variable) ->
+  LossFunction Variable ->
+  (totalEpochs : Nat) ->
+  (patience : Nat) ->
+  OptimizerState ->
+  (Network i hs o Variable, OptimizerState, Nat)
+trainTwoPhaseScheduledFrom makeOpt schedule model dataPoints lossFn totalEpochs patience st =
+  go 0 model st (1.0/0.0) 0
+  where
+    minDelta : Double
+    minDelta = 0.001
+    go : Nat -> Network i hs o Variable -> OptimizerState -> Double -> Nat ->
+         (Network i hs o Variable, OptimizerState, Nat)
+    go ep m s bestLoss staleCount =
+      if ep >= totalEpochs then (m, s, ep)
+      else
+        let lr = schedule ep
+            opt = makeOpt lr
+            (m', s', loss) = epochTwoPhase opt dataPoints lossFn m s
+        in if loss /= loss then (m', s', ep + 1)
            else let improved = loss < bestLoss - minDelta
                     bestLoss' = if improved then loss else bestLoss
                     staleCount' : Nat
