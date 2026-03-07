@@ -289,8 +289,8 @@ main = do
   putStrLn $ "Training complete: " ++ show epochsDone ++ " epochs"
   putStrLn ""
 
-  -- Evaluation
-  let dblModel = toDoubleNetwork trained
+  -- Evaluation (sync C buffer values back to Variable records for toDoubleNetwork)
+  let dblModel = toDoubleNetwork (readFromBuffersNetwork trained)
 
   let evalOne : TwoPhaseDataPoint InputW OutputW Double -> Double
       evalOne dp =

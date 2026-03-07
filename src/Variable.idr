@@ -161,6 +161,11 @@ prim__weightBufAlloc : Int -> AnyPtr
 %foreign "scheme:(lambda (wbuf) (vector-ref wbuf 0))"
 prim__weightBufVals : AnyPtr -> AnyPtr
 
+-- Read a double value from the C buffer at index.
+export
+%foreign "scheme:(lambda (wbuf idx) (foreign-ref 'double (vector-ref wbuf 0) (* idx 8)))"
+prim__weightBufGetVal : AnyPtr -> Int -> Double
+
 -- Write a double value to the C buffer at index.
 %foreign "scheme:(lambda (wbuf idx val) (let ((ptr (vector-ref wbuf 0))) (foreign-set! 'double ptr (* idx 8) val) wbuf))"
 prim__weightBufSetVal : AnyPtr -> Int -> Double -> AnyPtr
@@ -198,6 +203,11 @@ prim__tapeEnsureBulkConst : AnyPtr -> Int -> Int
 export
 %foreign "scheme:(lambda (n w) (let* ((count (* n w)) (cptr ((foreign-procedure \"ntm_mem_alloc\" (int int) void*) n w)) (vptr ((foreign-procedure \"ntm_mem_vals_ptr\" (void*) void*) cptr)) (pids (make-vector count \"\"))) (vector cptr vptr pids count -1 -1)))"
 prim__ntmMemBufAlloc : Int -> Int -> AnyPtr
+
+-- Read value at index from cached vals_ptr.
+export
+%foreign "scheme:(lambda (mb idx) (foreign-ref 'double (vector-ref mb 1) (* idx 8)))"
+prim__ntmMemBufGetVal : AnyPtr -> Int -> Double
 
 -- Set value at index (Scheme-native foreign-set! on cached vals_ptr, no FFI crossing).
 %foreign "scheme:(lambda (mb idx val) (foreign-set! 'double (vector-ref mb 1) (* idx 8) val) mb)"
@@ -1112,6 +1122,20 @@ syncWeightBuf wBuf off {m=S k} {n} (VTensor row :: rows) =
   let wBuf' = syncWeightBufRow wBuf off row
   in syncWeightBuf wBuf' (off + cast {to=Int} n) rows
 
+-- Read values from C buffer back into Variable records (reverse of sync).
+export
+readWeightBufRow : AnyPtr -> Int -> Vect k (Scalar Variable) -> Vect k (Scalar Variable)
+readWeightBufRow _ _ [] = []
+readWeightBufRow wBuf off (STensor v :: rest) =
+  let val = prim__weightBufGetVal wBuf off
+  in STensor ({ value := val } v) :: readWeightBufRow wBuf (off + 1) rest
+
+export
+readWeightBuf : AnyPtr -> Int -> {n : Nat} -> Vect m (Vector n Variable) -> Vect m (Vector n Variable)
+readWeightBuf _ _ {m=Z} [] = []
+readWeightBuf wBuf off {m=S k} {n} (VTensor row :: rows) =
+  VTensor (readWeightBufRow wBuf off row) :: readWeightBuf wBuf (off + cast {to=Int} n) rows
+
 
 ----------------------------------------------------------------------
 -- NTM Memory Buffer Helpers
@@ -1147,6 +1171,20 @@ syncNtmMemBuf mb _ {n=Z} [] = mb
 syncNtmMemBuf mb off {n=S k} {w} (VTensor row :: rows) =
   let mb' = syncNtmMemBufRow mb off row
   in syncNtmMemBuf mb' (off + cast {to=Int} w) rows
+
+-- Read values from NtmMemBuf back into Variable records (reverse of sync).
+export
+readNtmMemBufRow : AnyPtr -> Int -> Vect k (Scalar Variable) -> Vect k (Scalar Variable)
+readNtmMemBufRow _ _ [] = []
+readNtmMemBufRow mb off (STensor v :: rest) =
+  let val = prim__ntmMemBufGetVal mb off
+  in STensor ({ value := val } v) :: readNtmMemBufRow mb (off + 1) rest
+
+export
+readNtmMemBuf : AnyPtr -> Int -> {w : Nat} -> Vect n (Vector w Variable) -> Vect n (Vector w Variable)
+readNtmMemBuf _ _ {n=Z} [] = []
+readNtmMemBuf mb off {n=S k} {w} (VTensor row :: rows) =
+  VTensor (readNtmMemBufRow mb off row) :: readNtmMemBuf mb (off + cast {to=Int} w) rows
 
 
 ||| Dot product using C BLAS, recording a single DotOp tape entry.

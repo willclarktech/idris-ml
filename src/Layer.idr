@@ -1019,3 +1019,39 @@ mutual
   applyDeltasAndSyncNetwork : {i, o : Nat} -> {hs : List Nat} -> AnyPtr -> Network i hs o Variable -> Network i hs o Variable
   applyDeltasAndSyncNetwork deltas (OutputLayer layer) = OutputLayer (applyDeltasAndSyncLayer deltas layer)
   applyDeltasAndSyncNetwork deltas (layer ~> rest) = applyDeltasAndSyncLayer deltas layer ~> applyDeltasAndSyncNetwork deltas rest
+
+
+----------------------------------------------------------------------
+-- Read From Buffers (C buffer -> Variable.value)
+----------------------------------------------------------------------
+
+mutual
+  ||| Read values from C buffers back into Variable.value fields.
+  ||| Reverse of syncLayerBuffers. Call after dense training before
+  ||| toDoubleNetwork to ensure Variable records reflect trained weights.
+  export
+  readFromBuffersLayer : {i, o : Nat} -> Layer i o Variable -> Layer i o Variable
+  readFromBuffersLayer (LinearLayer (VTensor wRows) (VTensor biasElems) (Just wb) (Just bb)) =
+    LinearLayer (VTensor (readWeightBuf wb 0 wRows)) (VTensor (readWeightBufRow bb 0 biasElems)) (Just wb) (Just bb)
+  readFromBuffersLayer (LinearLayer (VTensor wRows) bias (Just wb) Nothing) =
+    LinearLayer (VTensor (readWeightBuf wb 0 wRows)) bias (Just wb) Nothing
+  readFromBuffersLayer (LstmLayer (VTensor iwRows) (VTensor rwRows) (VTensor biasElems) hs cs (Just iwb) (Just rwb) (Just bb)) =
+    LstmLayer (VTensor (readWeightBuf iwb 0 iwRows)) (VTensor (readWeightBuf rwb 0 rwRows))
+              (VTensor (readWeightBufRow bb 0 biasElems)) hs cs (Just iwb) (Just rwb) (Just bb)
+  readFromBuffersLayer (LstmLayer (VTensor iwRows) (VTensor rwRows) bias hs cs (Just iwb) (Just rwb) Nothing) =
+    LstmLayer (VTensor (readWeightBuf iwb 0 iwRows)) (VTensor (readWeightBuf rwb 0 rwRows))
+              bias hs cs (Just iwb) (Just rwb) Nothing
+  readFromBuffersLayer (NtmLayer lstm readFc writeFc outputFc (VTensor memRows) ra wa ro (Just memBuf)) =
+    NtmLayer (readFromBuffersLayer lstm) (readFromBuffersLayer readFc)
+             (readFromBuffersLayer writeFc) (readFromBuffersLayer outputFc)
+             (VTensor (readNtmMemBuf memBuf 0 memRows)) ra wa ro (Just memBuf)
+  readFromBuffersLayer (NtmLayer lstm readFc writeFc outputFc mem ra wa ro Nothing) =
+    NtmLayer (readFromBuffersLayer lstm) (readFromBuffersLayer readFc)
+             (readFromBuffersLayer writeFc) (readFromBuffersLayer outputFc)
+             mem ra wa ro Nothing
+  readFromBuffersLayer l = l
+
+  export
+  readFromBuffersNetwork : {i, o : Nat} -> {hs : List Nat} -> Network i hs o Variable -> Network i hs o Variable
+  readFromBuffersNetwork (OutputLayer layer) = OutputLayer (readFromBuffersLayer layer)
+  readFromBuffersNetwork (layer ~> rest) = readFromBuffersLayer layer ~> readFromBuffersNetwork rest
