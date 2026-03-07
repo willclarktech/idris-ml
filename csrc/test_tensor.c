@@ -1643,6 +1643,31 @@ static void test_adam_gc_step(void) {
    Bulk delta application tests
    ------------------------------------------------------------------- */
 
+static void test_buf_to_meta_off(void) {
+  /* Source buffer: [10, 20, 30, 40, 50] */
+  double src[] = {10.0, 20.0, 30.0, 40.0, 50.0};
+  double dst_vals[3];
+  int dst_tape[3];
+
+  /* Read 3 elements starting at offset 1 (values 20, 30, 40), tape_start=100 */
+  buf_to_meta_off(dst_vals, dst_tape, src, 1, 100, 3);
+  check_close("buf_to_meta_off val[0]", dst_vals[0], 20.0, 1e-12);
+  check_close("buf_to_meta_off val[1]", dst_vals[1], 30.0, 1e-12);
+  check_close("buf_to_meta_off val[2]", dst_vals[2], 40.0, 1e-12);
+  check("buf_to_meta_off tape[0]", dst_tape[0] == 100);
+  check("buf_to_meta_off tape[1]", dst_tape[1] == 101);
+  check("buf_to_meta_off tape[2]", dst_tape[2] == 102);
+
+  /* Offset 0 should behave like buf_to_meta */
+  double dst2_vals[2];
+  int dst2_tape[2];
+  buf_to_meta_off(dst2_vals, dst2_tape, src, 0, 50, 2);
+  check_close("buf_to_meta_off off=0 val[0]", dst2_vals[0], 10.0, 1e-12);
+  check_close("buf_to_meta_off off=0 val[1]", dst2_vals[1], 20.0, 1e-12);
+  check("buf_to_meta_off off=0 tape[0]", dst2_tape[0] == 50);
+  check("buf_to_meta_off off=0 tape[1]", dst2_tape[1] == 51);
+}
+
 static void test_buf_apply_deltas(void) {
   /* 4 elements: 2 named (pid_ids 0, 1), 1 unnamed (-1), 1 named (pid_id 0) */
   double vals[] = {1.0, 2.0, 3.0, 4.0};
@@ -1752,6 +1777,7 @@ int main(void) {
   test_rmsprop_vc_step();
   test_sgd_step();
   test_adam_gc_step();
+  test_buf_to_meta_off();
   test_buf_apply_deltas();
   test_pid_ids_alloc();
   test_ntm_mem_pid_ids();

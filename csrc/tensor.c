@@ -332,6 +332,17 @@ void *buf_to_meta(double *dst_vals, int *dst_tape,
   return dst_vals;
 }
 
+/* Like buf_to_meta but reads from src_buf + src_off instead of src_buf[0].
+ * Used for reading a slice of an output buffer (e.g., cell or hidden from
+ * the LSTM [cell|hidden] output buffer). */
+void *buf_to_meta_off(double *dst_vals, int *dst_tape,
+                      double *src_buf, int src_off,
+                      int tape_start, int count) {
+  memcpy(dst_vals, src_buf + src_off, count * sizeof(double));
+  for (int i = 0; i < count; i++) dst_tape[i] = tape_start + i;
+  return dst_vals;
+}
+
 
 /* -------------------------------------------------------------------
    Forward operations
