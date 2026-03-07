@@ -359,6 +359,21 @@ The meta struct is arena-allocated and stores prediction/target values and tape 
 
 `epochTwoPhaseDenseBce` in Backprop.idr uses `calculateLossTwoPhaseVarBce` which calls `bceWithLogitsVar` directly, bypassing the generic `calculateLoss` + `binaryCrossEntropyWithLogits` scalar path.
 
+## NTM batch size: copy=16 vs recall=1
+
+The copy and recall tasks use different default batch sizes based on their optimization landscape characteristics.
+
+**Copy (batch=16)**: the copy task has a uniform structure — encode N vectors, decode N vectors. Every sequence in a batch produces a similar gradient signal regardless of sequence length. Batch averaging gives smoother gradients and faster wall-clock convergence without sacrificing gradient quality.
+
+**Recall (batch=1)**: the associative recall task has three properties that make batching harmful:
+1. **Variable structure**: each sequence has 2-6 items with a random query position. Averaging gradients across structurally different sequences dilutes the specific memory addressing signal (write to distinct slots, retrieve by content match).
+2. **Local minima**: the NTM must simultaneously learn content-based addressing, distinct write slots, and query-triggered retrieval. Noisy gradients from single-sequence updates help escape local minima (similar to how small-batch SGD generalizes better in deep learning).
+3. **Update efficiency**: 100K iterations at batch=1 takes ~22 min with 100K gradient updates. The same iterations at batch=16 takes ~6 hours with the same number of (less effective) updates.
+
+All reference implementations use batch=1 for recall: Graves et al. 2014, Collier & Beel 2018 (Adam lr=0.001, evaluated every 200 steps), vlgiitr/ntm-pytorch (100K iterations). The snipsco/ntm-lasagne implementation found recall gets stuck in local minima even at 500K+ iterations.
+
+Both tasks support a `--batch` CLI flag for experimentation.
+
 ## Periodic forced GC for long NTM training
 
 Running NTM training for 50K+ epochs causes OOM kills (SIGKILL/exit 137) at ~3000 epochs on macOS. Root cause: each forward pass creates tens of thousands of temporary Scheme Variable records and intermediate allocations on the Chez Scheme heap. After `collectGradsDense` resets the tape, these become garbage. However, Chez Scheme's generational GC doesn't collect aggressively enough — temporary objects promoted to older generations accumulate faster than major collections run. Additionally, ~160MB of `foreign-alloc` tape arrays are invisible to the GC, so it underestimates actual memory pressure.
