@@ -341,13 +341,13 @@ Update `docs/performance-analysis.md` with:
 - Convergence comparison results
 - What changed and why
 
-### Current performance baseline (2026-03-05)
+### Current performance baseline (2026-03-06)
 
 Per-epoch at batch=16 (NTM-copy, N=128 M=20 H=100):
 - Forward (Enc+Out): ~74ms | Backward: ~15ms | Tape: 1.48M entries
 - Idris/PyTorch ratio: **0.87x** (Idris faster)
-- Best convergence config: lr=1e-4, batch=16 (78% short, 58% full in 2K epochs with PyTorch-aligned changes)
-- PyTorch alignment changes applied: C-backed BCE, zero forget bias, no output clamping, learned h0/c0, lr=1e-4
+- Convergence: loss ~1e-6 by 5000 epochs (88% short, 77% full accuracy)
+- PyTorch alignment changes applied: C-backed BCE, zero forget bias, no output clamping, learned h0/c0, lr=1e-4, per-sequence NtmMemBuf reset
 
 ### Performance optimization history
 
@@ -408,7 +408,7 @@ Optimizations applied to NTM-copy (from 1.38s/epoch to 0.145s/epoch, ~10x):
 - **C-backed addressing ops**: `interpolateVar`, `shiftVar`, `focusVar` in Variable.idr use C kernels (InterpolateOp/ShiftOp/FocusOp, tags 21-23) replacing ~1400 scalar tape entries per head with 3 tensor ops. `shiftVar` takes a pre-softmax'd kernel (apply `softmaxVar` first). Used in both `forwardReadHeadUnboundedVar` and `forwardReadHeadUnboundedVarBuf` in Layer.idr
 - **C-backed LSTM cell op**: `lstmCellVar` in Variable.idr uses a C kernel (LstmCellOp, tag 24) fusing bias add + gate activations (sigmoid/tanh) + cell/hidden update into a single tape entry. Replaces ~1700 scalar entries per LSTM timestep with 1. The two matmul ops (iW×x, rW×h) remain as separate MatVecOps. `applyLayerVar` in Layer.idr dispatches to `lstmCellVar` for the Variable-specialized LSTM path
 - **C-backed BCE with logits**: `bceWithLogitsVar` in Variable.idr uses a C kernel (BceWithLogitsOp, tag 26) fusing sigmoid + BCE loss into a single tape entry per output vector. Forward: `(1/n) * sum_i [max(p_i,0) - p_i*y_i + log(1+exp(-|p_i|))]`. Backward: `d_p_i = (1/n) * (sigmoid(p_i) - y_i) * d_loss` (gradients to predictions only, not targets). `epochTwoPhaseDenseBce` in Backprop.idr uses this directly instead of the scalar `binaryCrossEntropyWithLogits`. Meta stored via Scheme-side `ext_meta_set` (NOT C-side `tape_meta`) to match `walk_backward_ext` dispatch
-- **Persistent NtmMemBuf**: NTM memory matrix kept as persistent `NtmMemBuf` C struct across timesteps. Eliminates 4× per-timestep packMatrix (2560 elements each). Buffer initialized in `nameParams`, synced after `applyDeltas` via `syncLayerBuffers`, epoch-cached tape registration via `prim__ntmMemBufEnsure`. Buffer-aware ops: `batchCosineSimilarityVarBuf`, `readOpVarBuf`, `interpolationWriteVarBuf` in Variable.idr
+- **Persistent NtmMemBuf**: NTM memory matrix kept as persistent `NtmMemBuf` C struct across timesteps. Eliminates 4× per-timestep packMatrix (2560 elements each). Buffer initialized in `nameParams`, synced after `applyDeltas` via `syncLayerBuffers`, epoch-cached tape registration via `prim__ntmMemBufEnsure`. Buffer-aware ops: `batchCosineSimilarityVarBuf`, `readOpVarBuf`, `interpolationWriteVarBuf` in Variable.idr. **Per-sequence reset**: NtmMemBuf stores `initial_vals` (snapshotted at init and after optimizer deltas). `prim__ntmMemBufReset` restores `vals` from `initial_vals` and invalidates cache (forces tape re-registration). `resetNtmMemBufs` in Layer.idr reconstructs the Network with the reset buffer, called before each sequence in `calculateLossTwoPhaseVar`/`VarBce` to prevent cross-sequence mutation
 - **Bias WeightBuf**: LinearLayer and LstmLayer have bias WeightBuf fields (`bBuf : Maybe AnyPtr`) alongside weight WeightBufs. `nameParams` allocates them, `syncLayerBuffers` syncs after `applyDeltas`. LinearLayer fuses MatVec+Bias in a single C kernel (`matrixVectorMultiplyVarBufBias`). LstmLayer reads bias from WeightBuf in the C LSTM cell kernel (`lstmCellVarBuf`/`lstmCellVarFromBufs`). Eliminates per-timestep bias re-registration (~160K tape entries/epoch)
 - **Learned LSTM h0/c0**: LstmLayer has `h0Buf : Maybe AnyPtr` and `c0Buf : Maybe AnyPtr` fields for learnable initial hidden/cell states. Initialized with Xavier uniform in `lstmLayerWith`. Named as `prefix_h0`/`prefix_c0` in `nameParams`, allocated as WeightBufs. Synced via `applyDeltasAndSyncLayer`/`readFromBuffersLayer`. Matches PyTorch reference's `nn.Parameter(torch.zeros(...))` learnable initial states
 - **Buffer-passing MatVec→LstmCell**: `matrixVectorMultiplyVarBufOut` returns raw `(AnyPtr, Int)` buffer+tapeStart instead of Variables. `lstmCellVarFromBufs` consumes these directly via `buf_to_meta` C helper, avoiding `buildOutputScalars`+`packVec` roundtrip for 2×4o intermediate elements per LSTM timestep
