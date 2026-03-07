@@ -16,7 +16,7 @@ def _copy_config(**kwargs: object) -> NtmConfig:
 
 class TestNtmCopyQuick:
     def test_forward_shape(self) -> None:
-        """Output should be (seq_width,) sigmoid values in [0,1]."""
+        """Output should be (seq_width,) raw logits (unbounded)."""
         cfg = _copy_config()
         model = NtmModel(cfg)
         model.reset_state()
@@ -25,7 +25,7 @@ class TestNtmCopyQuick:
         x[0] = 1.0
         output = model(x)
         assert output.shape == (cfg.output_width,)
-        assert (output >= 0).all() and (output <= 1).all()
+        assert output.isfinite().all()
 
     def test_loss_decreases(self) -> None:
         """Loss should decrease over 200 training steps."""

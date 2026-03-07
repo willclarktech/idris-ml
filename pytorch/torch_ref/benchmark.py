@@ -108,8 +108,8 @@ def _train_ntm_epoch(
             out = model(zero_input)
             outputs.append(out)
 
-        pred = torch.stack(outputs).clamp(1e-7, 1 - 1e-7)  # (seq_len, output_width)
-        loss = F.binary_cross_entropy(pred, target_seq)
+        pred = torch.stack(outputs)  # (seq_len, output_width) — raw logits
+        loss = F.binary_cross_entropy_with_logits(pred, target_seq)
         total_loss = total_loss + loss
 
     avg_loss = total_loss / len(batch)
@@ -145,7 +145,7 @@ def bench_ntm() -> tuple[float, float, float]:
     # Generate fixed batch
     batch = generate_copy_batch(batch_size, seq_min=2, seq_max=4, seq_width=w)
 
-    optimizer = torch.optim.RMSprop(model.parameters(), lr=lr, alpha=alpha)
+    optimizer = torch.optim.RMSprop(model.parameters(), lr=lr, alpha=alpha, momentum=0.9)
 
     # Warmup: 10 epochs
     for _ in range(10):
@@ -188,7 +188,7 @@ def bench_ntm_copy() -> tuple[float, float, float]:
     # Generate fixed batch
     batch = generate_copy_batch(batch_size, seq_min=1, seq_max=20, seq_width=w)
 
-    optimizer = torch.optim.RMSprop(model.parameters(), lr=lr, alpha=alpha)
+    optimizer = torch.optim.RMSprop(model.parameters(), lr=lr, alpha=alpha, momentum=0.9)
 
     # Warmup: 10 epochs
     for _ in range(10):

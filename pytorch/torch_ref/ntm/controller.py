@@ -1,6 +1,6 @@
 """LSTM controller for NTM.
 
-Learned initial state via FC from dummy input (non-zero initial h and c).
+Learned initial state via direct nn.Parameter (non-zero initial h and c).
 """
 
 import torch
@@ -16,14 +16,13 @@ class LSTMController(nn.Module):
         self.hidden_size = hidden_size
         self.lstm = nn.LSTMCell(input_size, hidden_size)
 
-        # Learned initial state: FC from dummy → non-zero h0, c0
-        self.h_bias_fc = nn.Linear(1, hidden_size)
-        self.c_bias_fc = nn.Linear(1, hidden_size)
+        # Learned initial state: direct parameters
+        self.h0 = nn.Parameter(torch.zeros(hidden_size))
+        self.c0 = nn.Parameter(torch.zeros(hidden_size))
 
     def reset_state(self) -> None:
-        dummy = torch.tensor([[0.0]])
-        self._h = self.h_bias_fc(dummy).squeeze(0)
-        self._c = self.c_bias_fc(dummy).squeeze(0)
+        self._h = self.h0.clone()
+        self._c = self.c0.clone()
 
     @property
     def last_hidden(self) -> Tensor:

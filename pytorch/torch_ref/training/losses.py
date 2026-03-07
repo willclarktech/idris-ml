@@ -9,6 +9,7 @@ NOTE: nllLoss takes soft target vectors (not class indices), computing
 """
 
 import torch
+import torch.nn.functional as F
 from torch import Tensor
 
 
@@ -47,9 +48,6 @@ def weighted_nll_loss(log_probs: Tensor, targets: Tensor, weight: float = 3.0) -
 def bce_with_logits(logits: Tensor, targets: Tensor) -> Tensor:
     """Binary cross-entropy with logits.
 
-    Applies sigmoid then BCE. Clamps sigmoid output to avoid log(0).
+    Uses PyTorch's fused kernel: numerically stable, no clamp needed.
     """
-    eps = 1e-6
-    sigp = torch.sigmoid(logits).clamp(eps, 1 - eps)
-    pointwise = -(targets * torch.log(sigp) + (1 - targets) * torch.log(1 - sigp))
-    return pointwise.mean()
+    return F.binary_cross_entropy_with_logits(logits, targets)

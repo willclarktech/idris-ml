@@ -2,14 +2,13 @@
 
 Head parameters are produced by separate linear layers from the controller
 cell state. Memory uses interpolation write (no erase vector). Memory and
-controller state are learned via FC+sigmoid from a dummy input.
+controller state are learned via direct nn.Parameter + sigmoid.
 """
 
 from typing import Protocol
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from torch import Tensor
 
 from torch_ref.ntm.addressing import addressing_params_width
@@ -76,9 +75,15 @@ class NTMLayer(nn.Module):
         nn.init.kaiming_uniform_(self.output_fc.weight)
         nn.init.normal_(self.output_fc.bias, std=0.01)
 
-        # Learned memory initialization (FC+sigmoid from dummy)
-        self.memory_bias_fc = nn.Linear(1, n * m)
+        # Learned memory initialization (direct parameter + sigmoid)
+        self.memory_init = nn.Parameter(torch.empty(n * m))
+        nn.init.xavier_uniform_(self.memory_init.data.view(n, m))
         self.memory: Tensor = torch.full((n, m), 1e-6)
+
+        # Fixed read output init (kaiming, non-learnable, set once)
+        read_out = torch.empty(1, self.m)
+        nn.init.kaiming_uniform_(read_out)
+        self._init_read_output = read_out.squeeze(0)
 
         self._diag: dict[str, Tensor] = {}
         self.stash_diagnostics: bool = False
@@ -88,17 +93,13 @@ class NTMLayer(nn.Module):
         self.controller.reset_state()
 
         # Learned memory init
-        dummy = torch.tensor([[0.0]])
-        memory_bias = F.sigmoid(self.memory_bias_fc(dummy))
-        self.memory = memory_bias.view(self.n, self.m)
+        self.memory = torch.sigmoid(self.memory_init).view(self.n, self.m)
 
         self._current_read_addr = torch.zeros(self.n)
         self._current_write_addr = torch.zeros(self.n)
 
-        # Read head output: kaiming init
-        read_out = torch.empty(1, self.m)
-        nn.init.kaiming_uniform_(read_out)
-        self._current_read_output = read_out.squeeze(0)
+        # Read head output: fixed kaiming init
+        self._current_read_output = self._init_read_output
 
     def forward(self, x: Tensor) -> Tensor:
         """Forward pass for one timestep.

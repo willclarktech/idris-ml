@@ -130,7 +130,7 @@ def run_copy(args: argparse.Namespace) -> None:
                 for _ in range(test_len):
                     out = model(torch.zeros(input_seq.shape[1]))
                     outputs.append(out)
-                pred = torch.stack(outputs)
+                pred = torch.sigmoid(torch.stack(outputs))
                 pred_bits = (pred > 0.5).float()
                 correct_bits += (pred_bits == target_seq).sum().item()
                 total_bits += target_seq.numel()
@@ -251,7 +251,7 @@ def run_recall(args: argparse.Namespace) -> None:
                     out = model(zero_input)
                     outputs.append(out)
 
-                pred = torch.stack(outputs)
+                pred = torch.sigmoid(torch.stack(outputs))
                 pred_bits = (pred >= 0.5).float()
                 correct_bits += (pred_bits == target_seq).sum().item()
                 total_bits += target_seq.numel()

@@ -1,7 +1,7 @@
 """Unified NTM model for copy and associative recall tasks.
 
-LSTM controller (hidden=100) → separate head FCs → NTMLayer → sigmoid output.
-Loss: BCELoss. Optimizer: RMSprop lr=1e-4. Value clip [-10,10].
+LSTM controller (hidden=100) → separate head FCs → NTMLayer → logit output.
+Loss: BCEWithLogitsLoss. Optimizer: RMSprop lr=1e-4. Value clip [-10,10].
 """
 
 from dataclasses import dataclass
@@ -9,6 +9,7 @@ from typing import Literal
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch import Tensor
 from torch.nn.utils import clip_grad_norm_, clip_grad_value_
 
@@ -51,9 +52,8 @@ class NtmModel(nn.Module):
         self.ntm.reset_state()
 
     def forward(self, x: Tensor) -> Tensor:
-        """Forward one timestep, returns sigmoid output."""
-        raw = self.ntm(x)
-        return torch.sigmoid(raw)
+        """Forward one timestep, returns raw logits."""
+        return self.ntm(x)
 
 
 def train_ntm_step(
@@ -86,8 +86,8 @@ def train_ntm_step(
         out = model(zero_input)
         outputs.append(out)
 
-    pred = torch.stack(outputs)  # (seq_len, output_width)
-    loss = nn.functional.binary_cross_entropy(pred, target_seq)
+    pred = torch.stack(outputs)  # (seq_len, output_width) — raw logits
+    loss = F.binary_cross_entropy_with_logits(pred, target_seq)
 
     loss.backward()
     if clip_mode == "norm":
@@ -98,7 +98,7 @@ def train_ntm_step(
 
     # Bit error: number of incorrect bits
     with torch.no_grad():
-        pred_bits = (pred >= 0.5).float()
+        pred_bits = (torch.sigmoid(pred) >= 0.5).float()
         bit_error = torch.sum(torch.abs(pred_bits - target_seq)).item()
 
     return loss.item(), bit_error

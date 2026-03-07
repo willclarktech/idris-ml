@@ -1,6 +1,7 @@
 """NTM read/write head operations."""
 
 import torch
+import torch.nn.functional as F
 from torch import Tensor
 
 from torch_ref.ntm.addressing import (
@@ -10,10 +11,6 @@ from torch_ref.ntm.addressing import (
     interpolate,
     shift,
 )
-
-
-def softplus(x: Tensor) -> Tensor:
-    return torch.log(1 + torch.exp(x))
 
 
 def read_op(weights: Tensor, memory: Tensor) -> Tensor:
@@ -42,9 +39,9 @@ def forward_read_head(
     key_vector = main_input[:w]
     shift_vector = main_input[w : w + SHIFT_KERNEL_SIZE]
 
-    beta = softplus(params[0])
+    beta = F.softplus(params[0])
     g = torch.sigmoid(params[1])
-    gamma = 1 + softplus(params[2])
+    gamma = 1 + F.softplus(params[2])
 
     content_weights = content_address(beta, memory, key_vector)
     interpolated = interpolate(g, content_weights, addressing_weights)

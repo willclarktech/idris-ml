@@ -4,7 +4,7 @@
 
 Experiments run with `bench/bench/scripts/convergence.py` to verify PyTorch NTM recall convergence under different optimizer and curriculum configurations.
 
-Architecture (current): LSTM controller (hidden=100), N=128 memory slots, M=20 memory width, separate head FCs with cell state input, interpolation write (no erase), learned memory init (FC+sigmoid), learned controller init (FC from dummy), xavier gain=1.4 for head FCs, kaiming for output FC. BCELoss. Value clip ±10.
+Architecture (current): LSTM controller (hidden=100), N=128 memory slots, M=20 memory width, separate head FCs with cell state input, interpolation write (no erase), learned memory init (nn.Parameter+sigmoid), learned controller h0/c0 (nn.Parameter), xavier gain=1.4 for head FCs, kaiming for output FC. BCEWithLogitsLoss (fused sigmoid+BCE). Value clip ±10.
 
 ## Summary
 
@@ -341,6 +341,15 @@ Diagnostics show improved addressing vs baseline (9 distinct write slots, entrop
 ```
 
 All three init changes together still can't overcome the baseline architecture limitations.
+
+## PyTorch-side alignment optimizations (2026-03-06)
+
+After the Idris implementation was fully aligned, an audit identified suboptimal patterns in the PyTorch reference that made benchmark comparisons unfair:
+
+1. **BCEWithLogitsLoss**: Replaced `sigmoid → clamp → BCELoss` with `F.binary_cross_entropy_with_logits` (fused kernel). Model now returns raw logits; sigmoid applied only for eval bit accuracy. Fixes numerical instability and clamp inconsistency between `train_ntm_step` and `_train_ntm_epoch`
+2. **bench_ntm_copy momentum**: Added `momentum=0.9` to `bench_ntm_copy` RMSprop optimizer, matching convergence.py and Idris. Previously missing, making PyTorch do less optimizer work per step in timing benchmarks
+3. **F.softplus**: Replaced manual `torch.log(1 + torch.exp(x))` with `F.softplus(x)` in memory.py. Uses threshold=20 to avoid overflow for large x
+4. **Direct nn.Parameter for init**: Replaced FC(dummy) wrappers for h0/c0/memory_init with direct `nn.Parameter`. Eliminates 2760 dead weight parameters and 48 FC forward/backward ops per epoch. Functionally equivalent (FC with zero input only uses bias)
 
 ## Next steps
 
