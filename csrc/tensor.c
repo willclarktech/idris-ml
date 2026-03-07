@@ -682,6 +682,34 @@ void ext_meta_reset(void) {
 }
 
 /* -------------------------------------------------------------------
+   Tape parameter integer IDs (C-side, parallel to Scheme tape)
+   pid_id >= 0 for named parameters, -1 for intermediates.
+   Used by walk_backward_ext to filter: only collect named params.
+   ------------------------------------------------------------------- */
+
+static int *tape_pid_ids = NULL;
+static int tape_pid_ids_cap = 0;
+
+void tape_pid_id_set(int idx, int pid_id) {
+  if (idx >= tape_pid_ids_cap) {
+    int new_cap = tape_pid_ids_cap == 0 ? 4096 : tape_pid_ids_cap * 2;
+    while (idx >= new_cap) new_cap *= 2;
+    int *p = (int *)realloc(tape_pid_ids, new_cap * sizeof(int));
+    memset(p + tape_pid_ids_cap, -1, (new_cap - tape_pid_ids_cap) * sizeof(int));
+    tape_pid_ids = p;
+    tape_pid_ids_cap = new_cap;
+  }
+  tape_pid_ids[idx] = pid_id;
+}
+
+void tape_pid_ids_reset(int count) {
+  if (tape_pid_ids && count > 0) {
+    int n = count < tape_pid_ids_cap ? count : tape_pid_ids_cap;
+    memset(tape_pid_ids, -1, n * sizeof(int));
+  }
+}
+
+/* -------------------------------------------------------------------
    Gradient array (C-backed for use with tensor backward)
    ------------------------------------------------------------------- */
 
@@ -1606,9 +1634,10 @@ int walk_backward_ext(double *grad, int tape_sz,
     if (tag == 25) continue;  /* ShadowConst: gradient slot only, skip */
 
     if (tag == 0) {
-      /* ConstOp: always collect — caller filters by pid in Scheme.
-       * We can't check pid here since pids are in Scheme vector. */
-      if (g != 0.0) {
+      /* ConstOp: only collect named parameters (pid_id >= 0).
+       * tape_pid_ids is C-side array set during nameParams/ensureOnTape. */
+      if (g != 0.0 && tape_pid_ids && idx < tape_pid_ids_cap
+          && tape_pid_ids[idx] >= 0) {
         if (n_collected >= result_cap) {
           result_cap *= 2;
           result_idxs = (int *)realloc(result_idxs, result_cap * sizeof(int));
