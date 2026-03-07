@@ -593,8 +593,8 @@ setForgetBias {o} (VTensor elems) =
 export
 lstmLayerWith : {i, o : Nat} -> (Num ty, FromDouble ty) => InitStrategy -> IO (Layer i o ty)
 lstmLayerWith {i} {o} initFn = do
-  inputWeights <- traverse (\_ => map fromDouble (initFn i o)) (the (Matrix (4 * o) i ty) zeros)
-  recurrentWeights <- traverse (\_ => map fromDouble (initFn o o)) (the (Matrix (4 * o) o ty) zeros)
+  inputWeights <- traverse (\_ => map fromDouble (initFn i (4 * o))) (the (Matrix (4 * o) i ty) zeros)
+  recurrentWeights <- traverse (\_ => map fromDouble (initFn o (4 * o))) (the (Matrix (4 * o) o ty) zeros)
   let bias = setForgetBias {o} (the (Vector (4 * o) ty) zeros)
   pure $ LstmLayer inputWeights recurrentWeights bias zeros zeros Nothing Nothing
 
