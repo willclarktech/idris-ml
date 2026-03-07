@@ -307,6 +307,10 @@ prim__matvecMetaAllocBufBias : Int -> Int -> AnyPtr -> Int -> AnyPtr -> Int -> A
 %foreign "scheme:(lambda (dv dt sb ts n) ((foreign-procedure \"buf_to_meta\" (void* void* void* int int) void*) dv dt sb ts n))"
 prim__bufToMeta : AnyPtr -> AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
 
+-- Like prim__bufToMeta but reads from src_buf + src_off (for slicing output buffers)
+%foreign "scheme:(lambda (dv dt sb so ts n) ((foreign-procedure \"buf_to_meta_off\" (void* void* void* int int int) void*) dv dt sb so ts n))"
+prim__bufToMetaOff : AnyPtr -> AnyPtr -> AnyPtr -> Int -> Int -> Int -> AnyPtr
+
 -- Raw array accessors (one C call each, cached for bulk writes)
 %foreign "scheme:(lambda (meta) ((foreign-procedure \"matvec_meta_w_vals\" (void*) void*) meta))"
 prim__matvecWVals : AnyPtr -> AnyPtr
@@ -1007,6 +1011,65 @@ matrixVectorMultiplyVarBufOut {m} {n} wBuf (VTensor xs) =
   in (outBuf'', shadowStart)
 
 
+||| Matrix-vector multiply with fused bias where ALL input comes from a C buffer.
+||| Used for FC layers consuming LSTM cell output directly from the output buffer.
+||| srcBuf + srcOff points to the input elements; srcTapeStart is their tape index.
+export
+matrixVectorMultiplyVarBufBiasFromBuf : {m, n : Nat} -> AnyPtr -> AnyPtr
+  -> AnyPtr -> Int -> Int -> Vector m Variable
+matrixVectorMultiplyVarBufBiasFromBuf {m} {n} wBuf bBuf srcBuf srcOff srcTapeStart =
+  let mI = cast {to=Int} m
+      nI = cast {to=Int} n
+      -- Ensure weights and bias on tape (cached within epoch)
+      wTapeStart = tapeEnsureBulkConst wBuf (mI * nI)
+      bTapeStart = tapeEnsureBulkConst bBuf mI
+      -- Allocate meta with fused bias
+      wValsPtr = prim__weightBufVals wBuf
+      bValsPtr = prim__weightBufVals bBuf
+      meta = prim__matvecMetaAllocBufBias mI nI wValsPtr wTapeStart bValsPtr bTapeStart
+      outBuf = prim__tensorAllocArena mI
+      -- Copy input from buffer (1 C call instead of n packVec iterations)
+      xvPtr = prim__matvecXVals meta
+      xtPtr = prim__matvecXTape meta
+      xvPtr' = prim__bufToMetaOff xvPtr xtPtr srcBuf srcOff srcTapeStart nI
+      -- Compute forward (matmul + bias addition)
+      outBuf' = prim__matvecCompute meta (prim__seq xvPtr' outBuf)
+      -- Append MatVecOp entry
+      outBuf'' = tapeAppendMatVecOp mI meta outBuf'
+  in VTensor $ buildOutputScalars outBuf'' 0 m
+
+
+||| Hybrid FC matmul: first n1 elements from a C buffer, remaining n2 from Variables.
+||| Used for output FC consuming LSTM hidden (from buffer) ++ readOutput (Variables).
+export
+matrixVectorMultiplyVarBufBiasFromBufAndVec : {m, n1, n2 : Nat} -> AnyPtr -> AnyPtr
+  -> AnyPtr -> Int -> Int -> Vector n2 Variable -> Vector m Variable
+matrixVectorMultiplyVarBufBiasFromBufAndVec {m} {n1} {n2} wBuf bBuf srcBuf srcOff srcTapeStart (VTensor vecElems) =
+  let mI = cast {to=Int} m
+      n1I = cast {to=Int} n1
+      n2I = cast {to=Int} n2
+      nI = n1I + n2I
+      -- Ensure weights and bias on tape (cached within epoch)
+      wTapeStart = tapeEnsureBulkConst wBuf (mI * nI)
+      bTapeStart = tapeEnsureBulkConst bBuf mI
+      -- Allocate meta with fused bias (total input size = n1 + n2)
+      wValsPtr = prim__weightBufVals wBuf
+      bValsPtr = prim__weightBufVals bBuf
+      meta = prim__matvecMetaAllocBufBias mI nI wValsPtr wTapeStart bValsPtr bTapeStart
+      outBuf = prim__tensorAllocArena mI
+      -- Copy first n1 elements from buffer
+      xvPtr = prim__matvecXVals meta
+      xtPtr = prim__matvecXTape meta
+      xvPtr' = prim__bufToMetaOff xvPtr xtPtr srcBuf srcOff srcTapeStart n1I
+      -- Pack remaining n2 elements from Variables at offset n1
+      xvPtr'' = packVec xvPtr' xtPtr n1I vecElems
+      -- Compute forward (matmul + bias addition)
+      outBuf' = prim__matvecCompute meta (prim__seq xvPtr'' outBuf)
+      -- Append MatVecOp entry
+      outBuf'' = tapeAppendMatVecOp mI meta outBuf'
+  in VTensor $ buildOutputScalars outBuf'' 0 m
+
+
 ----------------------------------------------------------------------
 -- Weight Buffer Helpers
 ----------------------------------------------------------------------
@@ -1633,6 +1696,49 @@ lstmCellVarFromBufs {o} mulIWBuf mulIWStart mulRWBuf mulRWStart bBuf (VTensor pr
       cellScalars = buildOutputScalars outBuf'' 0 o
       hiddenScalars = buildOutputScalars outBuf'' oI o
   in (VTensor cellScalars, VTensor hiddenScalars)
+
+
+||| Like lstmCellVarFromBufs but also returns the raw output buffer and cell
+||| const start, enabling downstream FC layers to read directly from the buffer.
+||| Returns (newCell, newHidden, outBuf, cellConstStart).
+export
+lstmCellVarFromBufsExt : {o : Nat}
+                      -> AnyPtr -> Int    -- mulIW output buffer + const start
+                      -> AnyPtr -> Int    -- mulRW output buffer + const start
+                      -> AnyPtr           -- bias WeightBuf
+                      -> Vector o Variable  -- prev cell state
+                      -> (Vector o Variable, Vector o Variable, AnyPtr, Int)
+lstmCellVarFromBufsExt {o} mulIWBuf mulIWStart mulRWBuf mulRWStart bBuf (VTensor prevCellElems) =
+  let oI = cast {to=Int} o
+      fo = 4 * oI
+      twoO = 2 * oI
+      -- Ensure bias on tape (cached within epoch)
+      bTapeStart = tapeEnsureBulkConst bBuf fo
+      bValsPtr = prim__weightBufVals bBuf
+      -- Allocate meta with bias buffer path
+      meta = prim__lstmCellMetaAllocBuf oI bValsPtr bTapeStart
+      outBuf = prim__tensorAllocArena twoO
+      -- Bulk-copy mulIW from output buffer into meta
+      iwvPtr = prim__lstmCellMulIWVals meta
+      iwtPtr = prim__lstmCellMulIWTape meta
+      iwvPtr' = prim__bufToMeta iwvPtr iwtPtr mulIWBuf mulIWStart fo
+      -- Bulk-copy mulRW from output buffer into meta
+      rwvPtr = prim__lstmCellMulRWVals (prim__seq iwvPtr' meta)
+      rwtPtr = prim__lstmCellMulRWTape meta
+      rwvPtr' = prim__bufToMeta rwvPtr rwtPtr mulRWBuf mulRWStart fo
+      -- Pack prevCell
+      pcvPtr = prim__lstmCellPrevCellVals (prim__seq rwvPtr' meta)
+      pctPtr = prim__lstmCellPrevCellTape meta
+      pcvPtr' = packVec pcvPtr pctPtr 0 prevCellElems
+      -- Compute
+      outBuf' = prim__lstmCellCompute meta (prim__seq pcvPtr' outBuf)
+      -- Append LstmCellOp tape entry (2*o outputs: cell + hidden)
+      outBuf'' = tapeAppendLstmCellOp twoO meta outBuf'
+      -- Build output Variables: first o = newCell, next o = newHidden
+      cellConstStart = prim__appendOutputConstOff outBuf'' 0 oI
+      cellScalars = buildVarsFromBuf outBuf'' 0 (cast cellConstStart) (cast (tapeGeneration (cast cellConstStart))) o
+      hiddenScalars = buildOutputScalars outBuf'' oI o
+  in (VTensor cellScalars, VTensor hiddenScalars, outBuf'', cellConstStart)
 
 
 ----------------------------------------------------------------------
