@@ -177,6 +177,12 @@ let schedule = oneCycle 0.001 25.0 1e5 0.25 6000
 -- Two-phase training (NTM copy/recall with binary vectors):
 let opt = rmspropValueClip 0.0001 0.95 1.0e-8 10.0
 let (m', s', loss) = epochTwoPhase opt dataPoints binaryCrossEntropyWithLogits model st
+
+-- Dense optimizer (C arrays, no SortedMap — ~47% faster for NTM):
+let numPids = getNumPids 0
+let opt = rmspropValueClipDense 0.0001 0.95 1.0e-8 10.0
+let st0 = initDenseState numPids
+let (m', s', loss) = epochTwoPhaseDense opt dataPoints binaryCrossEntropyWithLogits model st0
 ```
 
 ### Supervised vs Recurrent vs TwoPhase API
@@ -187,7 +193,7 @@ The library provides three training modes:
 |--------|-----------|-----------|----------|
 | Data type | `DataPoint i o ty` | `RecurrentDataPoint i o ty` | `TwoPhaseDataPoint i o ty` |
 | Forward | `forward` | `forwardRecurrent` | `forwardTwoPhase` |
-| Train | `epoch` / `train` | `epochRecurrent` / `trainRecurrent` | `epochTwoPhase` / `trainTwoPhaseScheduledFrom` |
+| Train | `epoch` / `train` | `epochRecurrent` / `trainRecurrent` | `epochTwoPhaseDense` / `trainTwoPhaseScheduledFromDense` |
 | Loss phase | All outputs | All outputs | Output phase only |
 | Use case | Feedforward nets | RNN/LSTM sequences | NTM copy/recall |
 
@@ -320,4 +326,5 @@ Commit at each step. The PyTorch implementation serves as the correctness oracle
 - **Shadow ConstOps (tag=25)**: Buffer-passing ops (`*BufOut`, `*BufIO`) create shadow ConstOps instead of regular output ConstOps. These provide gradient slots without values/pids — skipped during backward collection (`if (tag == 25) continue`). Tags set via C bulk `tape_set_shadow_tags` instead of per-element Scheme `foreign-set!`. Shadow ConstOps still occupy tape entries; full elimination requires gradient region reservation (not yet implemented)
 - **C-side pid filtering**: `walk_backward_ext` filters ConstOps by integer `pid_id` (C-side `tape_pid_ids` array, parallel to tape). Only collects ConstOps with `pid_id >= 0` (named parameters). Dense pid_ids assigned via Scheme `pid-to-id` hash table in `prim__tapeSetParamId`. Set in three paths: `prim__tapeSetParamId` (initial naming), `prim__tapeAppendConst` (stale re-registration), `prim__tapeEnsureBulkConst`/`prim__ntmMemBufEnsure` (WeightBuf/NtmMemBuf). Reset via `tape_pid_ids_reset` after backward
 - **out_tape_start semantics**: Tensor op meta structs store `out_tape_start = idx + 1` (first output gradient index, NOT the op entry index). Backward kernels read `meta->out_tape_start` directly without `+1`. Set by `tensor_op_set_out(tag, meta, idx+1)` during `prim__tapeAppendTensorOp`
+- **Dense optimizer**: `DenseOptimizer`/`DenseOptimizerState` in Optimizer.idr use C arrays indexed by integer pid_id instead of `SortedMap String Double`. `collectGradsDense` accumulates gradients into a pre-allocated C array during backward (no per-result FFI calls, no SortedMap inserts). Optimizer step functions (`rmsprop_vc_step`, `sgd_step`, `adam_gc_step`) operate in-place on the array. `applyDeltasDense` uses the Scheme `pid-to-id` hash table for O(1) lookup. NTM examples use this path via `epochTwoPhaseDense`; supervised/LSTM examples still use the original `SortedMap` path. Must call `getNumPids 0` after `autoName` to get the parameter count for `initDenseState`
 - **Chez Scheme output buffering**: Stdout is fully buffered when redirected to file/pipe (e.g. background tasks). Use `stdbuf -oL ./build/exec/<name>` to force line-buffering for long-running training

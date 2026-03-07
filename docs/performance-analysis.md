@@ -2,25 +2,23 @@
 
 ## 1. Current Performance Profile
 
-NTM copy task: **~0.66s/epoch** vs PyTorch **~0.2s/epoch** = ~3.3x gap.
+NTM copy task: **~0.46s/epoch** vs PyTorch **~0.2s/epoch** = ~2.3x gap.
 
 Optimizations applied (from 1.38s baseline):
 - Buffer-passing for addressing chain ops (1.38s -> 1.0s)
 - Shadow ConstOps for intermediate outputs (tape compaction)
 - C-side pid filtering in walk_backward_ext (1.0s -> 0.66s)
 - Bulk C shadow tag setting
+- Dense optimizer: C arrays replace SortedMap (0.66s -> 0.46s)
 
 Per-epoch breakdown (n=128, m=20, h=100, variable timesteps):
 
 | Phase | Time | Notes |
 |-------|------|-------|
-| Forward: variable materialization + packVec | ~350ms | Endpoints still materialize Variables |
-| Forward: C tensor compute | ~50ms | Actual math (Accelerate BLAS) |
-| Forward: scalar ops + shadow ConstOps | ~60ms | Loss computation, sigmoid(rawAdd), tape appends |
-| Backward: walk_backward_ext | ~35ms | Scanning ~3.5M tape entries (measured) |
-| Backward: buildGradMap | ~50ms | ~67K results, SortedMap O(n log n) |
-| Optimizer + applyDeltas | ~80ms | SortedMap with ~62K entries |
-| syncBuffers | ~30ms | Writing values back to C WeightBufs |
+| Forward pass | ~195ms | Variable materialization + C tensor compute + loss |
+| Backward: walk_backward_ext_dense | ~32ms | Dense accumulation into C array by pid_id |
+| Optimizer: C in-place step | ~0ms | rmsprop_vc_step on dense array (negligible) |
+| Apply deltas + sync buffers | ~16ms | O(1) hash lookup per param + WeightBuf sync |
 
 ## 2. Root Cause: Scalar vs Tensor Autograd
 
@@ -67,15 +65,36 @@ This is the only path to close the remaining ~3.3x gap.
 | Baseline (pre-optimization) | 1.38s | -- | ~7x |
 | A: Buffer-passing + shadow ConstOps | ~1.0s | 1.4x | ~5x |
 | B: + C-side pid filtering | ~0.66s | 2.1x | ~3.3x |
-| C: Tensor-level Variable (estimated) | ~0.3s | -- | ~1.5x |
+| D: + Dense optimizer (C arrays) | ~0.46s | 3.0x | ~2.3x |
+| C: Tensor-level Variable (estimated) | ~0.25s | -- | ~1.3x |
+
+### Path D: Dense Optimizer (DONE)
+
+Replaced `SortedMap String Double` in optimizer hot path with dense C arrays
+indexed by integer `pid_id`. Three changes:
+
+1. **Dense backward accumulation**: `walk_backward_ext_dense` accumulates gradients
+   directly into a pre-allocated C array (`out_dense[pid_id] += grad`). Eliminates
+   `buildGradMap` entirely — no per-result FFI calls, no O(log n) SortedMap inserts.
+
+2. **C optimizer step**: `rmsprop_vc_step`/`sgd_step`/`adam_gc_step` operate in-place
+   on the dense gradient array, transforming it to deltas. Eliminates `toList` + fold
+   with O(log n) lookups/inserts per parameter.
+
+3. **Hash lookup for deltas**: `applyDeltasDense` uses Scheme's `pid-to-id` hash table
+   (O(1)) instead of SortedMap lookup (O(log n)) to find each parameter's delta.
+
+Measured improvement: backward+optimizer went from ~130ms to ~32ms (saved ~100ms).
+Total epoch from ~660ms to ~460ms.
 
 ### Remaining bottleneck analysis
 
-The forward pass dominates (~460ms of 660ms). The C backward pass is only ~35ms.
+The forward pass dominates (~195ms of ~243ms total non-forward). The backward pass
+(~32ms) and apply-deltas (~16ms) are now well-optimized.
 Key forward costs:
 - Endpoint Variable materialization: `buildOutputScalars` for network state (addressing
   weights, hidden state, cell state, read output) still creates Scheme Variable records
 - `packVec` for tensor op inputs from Variables: per-element `ensureOnTape` + `setDouble` + `setInt32`
 - Loss computation: scalar ops for binary cross-entropy with logits
 
-Irreducible gap (~1.5x) from: Scheme orchestration overhead, non-SIMD C kernels.
+Irreducible gap (~1.3x) from: Scheme orchestration overhead, non-SIMD C kernels.
