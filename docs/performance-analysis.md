@@ -10,12 +10,12 @@ loss function, data format, and batch size on both sides.
 | Supervised (1000 ep) | 77 | 230 | 0.33x | Idris 3x faster |
 | RNN (1000 ep) | 355 | 2076 | 0.17x | Idris 6x faster |
 | NTM-small (100 ep) | 538 | 1242 | 0.43x | Idris 2.3x faster (w=3, n=10, m=5, h=20, batch=5) |
-| NTM-copy (100 ep) | 25030 | 14044 | 1.78x | **PyTorch 1.8x faster** (w=8, n=128, m=20, h=100, batch=16) |
+| NTM-copy (100 ep) | 23099 | 14399 | 1.60x | **PyTorch 1.6x faster** (w=8, n=128, m=20, h=100, batch=16) |
 
 The small NTM hides the scalar-vs-tensor autograd gap. At production scale (NTM-copy),
 PyTorch's tensor-level autograd gives it a ~1.8x advantage.
 
-NTM-copy per-epoch: Idris **~234ms** vs PyTorch **~140ms**.
+NTM-copy per-epoch: Idris **~218ms** vs PyTorch **~140ms**.
 
 Optimizations applied (from 1.38s/epoch baseline):
 - Buffer-passing for addressing chain ops (1.38s -> 1.0s)
@@ -24,6 +24,7 @@ Optimizations applied (from 1.38s/epoch baseline):
 - Bulk C shadow tag setting
 - Dense optimizer: C arrays replace SortedMap (0.66s -> 0.46s)
 - C-bulk ConstOp creation: memset+memcpy replaces per-element Scheme loops (0.247s -> 0.234s)
+- C-bulk delta application: apply deltas directly to C buffers, skip emap+sync (0.234s -> 0.218s)
 
 Per-epoch breakdown (n=128, m=20, h=100, variable timesteps):
 
@@ -32,7 +33,7 @@ Per-epoch breakdown (n=128, m=20, h=100, variable timesteps):
 | Forward pass | ~176ms | Variable materialization + C tensor compute + loss |
 | Backward: walk_backward_ext_dense | ~37ms | Dense accumulation into C array by pid_id |
 | Optimizer: C in-place step | ~0ms | rmsprop_vc_step on dense array (negligible) |
-| Apply deltas + sync buffers | ~16ms | O(1) hash lookup per param + WeightBuf sync |
+| Apply deltas to C buffers | ~0.3ms | buf_apply_deltas on WeightBuf/NtmMemBuf pid_ids |
 
 ## 2. Root Cause: Scalar vs Tensor Autograd
 
@@ -81,6 +82,7 @@ This is the only path to close the remaining ~2x gap.
 | B: + C-side pid filtering | ~0.66s | 2.1x | ~5x |
 | D: + Dense optimizer (C arrays) | ~0.247s | 5.6x | ~2.0x |
 | E: + C-bulk ConstOps (memset+memcpy) | ~0.234s | 5.9x | ~1.8x |
+| F: + C-bulk delta application | ~0.218s | 6.3x | ~1.6x |
 | C: Tensor-level Variable (estimated) | ~0.15s | -- | ~1.2x |
 
 ### Path D: Dense Optimizer (DONE)
@@ -104,8 +106,8 @@ Total epoch from ~660ms to ~460ms.
 
 ### Remaining bottleneck analysis
 
-The forward pass dominates (~195ms of ~243ms total non-forward). The backward pass
-(~32ms) and apply-deltas (~16ms) are now well-optimized.
+The forward pass dominates (~176ms of ~218ms epoch). The backward pass
+(~37ms) and apply-deltas (~0.3ms) are now well-optimized.
 Key forward costs:
 - Endpoint Variable materialization: `buildOutputScalars` for network state (addressing
   weights, hidden state, cell state, read output) still creates Scheme Variable records
@@ -185,6 +187,31 @@ the per-element cost was lower than estimated. The remaining forward pass time i
 dominated by Scheme Variable record allocation and `ensureOnTape`/`packVec` loops,
 not by ConstOp tape writes.
 
+### After C-bulk delta application (2026-03-04, commit f8d0b4f)
+
+Applied optimizer deltas directly to WeightBuf/NtmMemBuf C arrays via `buf_apply_deltas`,
+bypassing the Scheme `emap (applyDeltasDense ...)` + `syncNetworkBuffers` traversals
+(~63K Variable record updates + ~63K buffer sync writes per epoch).
+
+```
+Epoch   Enc(ms)   Out(ms)  Loss(ms)   Bwd(ms)   Opt(ms)  Sync(ms)  TapeSize    Loss
+    1     101.1      78.3       4.5      37.4       0.0       0.4   3561699
+   avg     ~97       ~80        ~5       ~37        ~0      ~0.3    3561699
+```
+
+Sync phase: **~16ms -> ~0.3ms** (eliminated). Total epoch: **~234ms -> ~218ms**.
+
+Bench-compare:
+```
+Model             Idris (ms)   PyTorch (ms)    Ratio
+Supervised              92.9          258.6    0.36x
+RNN                    408.9         2411.3    0.17x
+NTM-small              538.7         1496.6    0.36x
+NTM-copy             23099.1        14399.0    1.60x
+```
+
+NTM-copy: 25030ms -> 23099ms (**1.78x -> 1.60x** vs PyTorch). ~8% improvement.
+
 ### Gradient Region Reservation (NOT IMPLEMENTED)
 
 Planned to eliminate 2.23M ShadowOps (63% of tape) by reserving gradient indices
@@ -204,5 +231,5 @@ op reserves grad-only slots at positions [S+1, S+count], the next real tape entr
 Correctly separating them requires knowing final tape-size upfront (impossible during
 forward pass) or dual grad arrays (requires changing all backward kernels). The
 estimated benefit (~2-5ms backward, ~80MB memory) does not justify the architectural
-complexity. The remaining ~1.8x gap vs PyTorch is best addressed by tensor-level
+complexity. The remaining ~1.6x gap vs PyTorch is best addressed by tensor-level
 Variables (Path C).
