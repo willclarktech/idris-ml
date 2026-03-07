@@ -26,7 +26,7 @@ from torch_ref.diagnostics.ntm_diagnostics import (
     instrumented_forward_recall,
     print_summary,
 )
-from torch_ref.models.ntm import NtmConfig, NtmModel, train_ntm_step
+from torch_ref.models.ntm import NtmConfig, NtmModel
 
 
 def _fmt_elapsed(t0: float) -> str:
@@ -86,15 +86,8 @@ def run_copy(args: argparse.Namespace) -> None:
     patience_count = 0
     t0 = time.monotonic()
     for i in range(1, iterations + 1):
-        if batch_size == 1:
-            input_seq, target_seq = generate_copy_sequence(
-                seq_len=random.randint(1, 20),
-                seq_width=COPY_SEQ_WIDTH,
-            )
-            loss, _ = train_ntm_step(model, input_seq, target_seq, optimizer, clip_mode=clip_mode)
-        else:
-            batch = generate_copy_batch(batch_size, seq_min=1, seq_max=20, seq_width=COPY_SEQ_WIDTH)
-            loss = _train_ntm_epoch(model, batch, optimizer, clip_value=cfg.clip_value)
+        batch = generate_copy_batch(batch_size, seq_min=1, seq_max=20, seq_width=COPY_SEQ_WIDTH)
+        loss = _train_ntm_epoch(model, batch, optimizer, clip_value=cfg.clip_value)
         losses.append(loss)
 
         if i % 500 == 0:
@@ -185,64 +178,36 @@ def run_recall(args: argparse.Namespace) -> None:
     early_stop = not getattr(args, "no_early_stop", False)
     es_window = 1000
     es_patience = 3  # consecutive checkpoints (500 iters each)
-    # Use loss-based early stopping for batched mode (no per-sample bit errors)
-    es_metric = "loss" if batch_size > 1 else "bit_err"
-    es_threshold = 0.01 if batch_size > 1 else 0.3
+    es_threshold = 0.01
 
     print(f"  iterations={iterations}")
     if early_stop:
-        print(
-            f"  early_stop: {es_metric}<{es_threshold} over {es_window} iters,"
-            f" patience={es_patience}"
-        )
+        print(f"  early_stop: loss<{es_threshold} over {es_window} iters, patience={es_patience}")
 
     # Training loop
     losses: list[float] = []
-    bit_errors: list[float] = []
     patience_count = 0
     t0 = time.monotonic()
     for i in range(1, iterations + 1):
-        if batch_size > 1:
-            batch = generate_recall_batch(
-                batch_size, min_items, max_items, RECALL_SEQ_LEN, RECALL_SEQ_WIDTH
-            )
-            loss = _train_ntm_epoch(model, batch, optimizer, clip_value=cfg.clip_value)
-            losses.append(loss)
-        else:
-            num_items = random.randint(min_items, max_items)
-            input_seq, target_seq = generate_recall_sequence(
-                num_items=num_items,
-                seq_len=RECALL_SEQ_LEN,
-                seq_width=RECALL_SEQ_WIDTH,
-            )
-            loss, bit_err = train_ntm_step(
-                model, input_seq, target_seq, optimizer, clip_mode=clip_mode
-            )
-            losses.append(loss)
-            bit_errors.append(bit_err)
+        batch = generate_recall_batch(
+            batch_size, min_items, max_items, RECALL_SEQ_LEN, RECALL_SEQ_WIDTH
+        )
+        loss = _train_ntm_epoch(model, batch, optimizer, clip_value=cfg.clip_value)
+        losses.append(loss)
 
         if i % 500 == 0:
             avg_loss = sum(losses[-500:]) / len(losses[-500:])
-            if batch_size > 1:
-                print(f"  {_fmt_elapsed(t0)} iter {i:6d}: loss={avg_loss:.6f}")
-            else:
-                avg_bits = sum(bit_errors[-500:]) / len(bit_errors[-500:])
-                print(
-                    f"  {_fmt_elapsed(t0)} iter {i:6d}: loss={avg_loss:.6f}  bit_err={avg_bits:.2f}"
-                )
+            print(f"  {_fmt_elapsed(t0)} iter {i:6d}: loss={avg_loss:.6f}")
 
             # Early stopping
             if early_stop and i >= es_window:
-                if batch_size > 1:
-                    window_avg = sum(losses[-es_window:]) / es_window
-                else:
-                    window_avg = sum(bit_errors[-es_window:]) / es_window
+                window_avg = sum(losses[-es_window:]) / es_window
                 if window_avg < es_threshold:
                     patience_count += 1
                     if patience_count >= es_patience:
                         print(
                             f"  {_fmt_elapsed(t0)} ** early stop at iter {i}"
-                            f" (avg {es_metric}={window_avg:.4f})"
+                            f" (avg loss={window_avg:.4f})"
                         )
                         break
                 else:
@@ -326,7 +291,9 @@ def main() -> None:
         "--copy-clip", choices=["value", "norm"], default="value", help="Copy clip mode"
     )
     parser.add_argument("--copy-lr", type=float, default=1e-4, help="Copy learning rate")
-    parser.add_argument("--copy-batch-size", type=int, default=16, help="Copy batch size")
+    parser.add_argument(
+        "--copy-batch-size", type=int, default=1, help="Copy batch size (default: 1)"
+    )
 
     # Recall task flags
     parser.add_argument("--recall-iters", type=int, default=100000, help="Recall iterations")
@@ -344,7 +311,12 @@ def main() -> None:
     parser.add_argument("--recall-lr", type=float, default=1e-4, help="Recall learning rate")
     parser.add_argument("--recall-min-items", type=int, default=2, help="Recall min items")
     parser.add_argument("--recall-max-items", type=int, default=6, help="Recall max items")
-    parser.add_argument("--recall-batch-size", type=int, default=1, help="Recall batch size (default: 1, matching reference implementations)")
+    parser.add_argument(
+        "--recall-batch-size",
+        type=int,
+        default=1,
+        help="Recall batch size (default: 1, matching reference implementations)",
+    )
     args = parser.parse_args()
 
     torch.manual_seed(args.seed)
