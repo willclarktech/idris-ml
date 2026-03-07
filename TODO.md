@@ -5,7 +5,6 @@
 | Item | Difficulty | Notes |
 |------|-----------|-------|
 | Cleaner port/adapter model for layers | L | Currently Layer.idr contains every layer type and all dispatch logic in one mutual block; consider typeclass-based extensibility |
-| NTM recall convergence investigation | M | Batch=1 matches reference setup; need full 100K run to verify convergence. If Idris batch=1 doesn't converge, compare forward pass numerics with PyTorch |
 
 ## Medium Priority
 
@@ -86,3 +85,4 @@
 - NTM recall batch=1 default (matching reference implementations; batch=16 for copy)
 - NTM recall benchmark in bench-compare (`benchNtmRecall` / `bench_ntm_recall`)
 - Periodic bit accuracy logging in NTM recall training loop
+- NTM recall convergence (batch=1 converges; batch=16 plateaus due to gradient dilution across variable-structure sequences)
