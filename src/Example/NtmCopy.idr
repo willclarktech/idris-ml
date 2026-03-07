@@ -219,7 +219,7 @@ record Config where
   batch : Nat
 
 defaultConfig : Config
-defaultConfig = MkConfig 0.0001 10.0 0.95 1.0e-8 0.9 50000 5000 123456 1 20 16
+defaultConfig = MkConfig 0.0001 10.0 0.95 1.0e-8 0.9 50000 5000 42 1 20 16
 
 parseConfig : List String -> Config
 parseConfig args = go args defaultConfig
