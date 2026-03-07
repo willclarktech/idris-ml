@@ -101,8 +101,8 @@ prim__tapeAppendUnary : Int -> Int -> Double -> Int
 prim__tapeAppendBinary : Int -> Int -> Int -> Double -> Int
 
 -- Append tensor op entry. Meta stored in C ext_meta array via ext_meta_set.
--- set_out called via C to record output tape start in the meta struct.
-%foreign "scheme:(lambda (tag count meta out) (let ((idx (top-level-value 'tape-size))) ((top-level-value 'tape-ensure-cap!) idx) (foreign-set! 'integer-32 (top-level-value 'tape-tags-fp) (* idx 4) tag) (foreign-set! 'integer-32 (top-level-value 'tape-arg2-fp) (* idx 4) count) ((foreign-procedure \"ext_meta_set\" (int void*) void) idx meta) (vector-set! (top-level-value 'tape-pids) idx \"\") ((foreign-procedure \"tensor_op_set_out\" (int void* int) void*) tag meta idx) (set-top-level-value! 'tape-size (+ idx 1)) out))"
+-- set_out stores idx+1 (first output gradient index, after the op entry).
+%foreign "scheme:(lambda (tag count meta out) (let ((idx (top-level-value 'tape-size))) ((top-level-value 'tape-ensure-cap!) idx) (foreign-set! 'integer-32 (top-level-value 'tape-tags-fp) (* idx 4) tag) (foreign-set! 'integer-32 (top-level-value 'tape-arg2-fp) (* idx 4) count) ((foreign-procedure \"ext_meta_set\" (int void*) void) idx meta) (vector-set! (top-level-value 'tape-pids) idx \"\") ((foreign-procedure \"tensor_op_set_out\" (int void* int) void*) tag meta (+ idx 1)) (set-top-level-value! 'tape-size (+ idx 1)) out))"
 prim__tapeAppendTensorOp : Int -> Int -> AnyPtr -> AnyPtr -> AnyPtr
 
 -- Append DotOp + output ConstOp, set meta->out_tape_idx. Returns ConstOp tape index.
@@ -211,6 +211,12 @@ prim__appendOutputConst : AnyPtr -> Int -> Int
 -- Bulk append ConstOps from C output buffer with offset. Returns start tape index.
 %foreign "scheme:(lambda (outBuf off count) (let* ((start (top-level-value 'tape-size)) (end (+ start count))) ((top-level-value 'tape-ensure-cap!) (- end 1)) (let ((tags-fp (top-level-value 'tape-tags-fp)) (vals-fp (top-level-value 'tape-vals-fp)) (pidv (top-level-value 'tape-pids))) (do ((k 0 (+ k 1))) ((= k count)) (let ((idx (+ start k))) (foreign-set! 'integer-32 tags-fp (* idx 4) 0) (foreign-set! 'double vals-fp (* idx 8) (foreign-ref 'double outBuf (* (+ off k) 8))) (vector-set! pidv idx \"\")))) (set-top-level-value! 'tape-size end) start))"
 prim__appendOutputConstOff : AnyPtr -> Int -> Int -> Int
+
+-- Bulk append shadow ConstOps (tag=25): gradient slots only, no values/pids.
+-- Skipped during backward walk collection. Returns start tape index.
+-- Takes a dummy AnyPtr first arg for evaluation sequencing (forces prior side effects).
+%foreign "scheme:(lambda (dummy count) (let* ((start (top-level-value 'tape-size)) (end (+ start count))) ((top-level-value 'tape-ensure-cap!) (- end 1)) (let ((tags-fp (top-level-value 'tape-tags-fp))) (do ((k 0 (+ k 1))) ((= k count)) (foreign-set! 'integer-32 tags-fp (* (+ start k) 4) 25))) (set-top-level-value! 'tape-size end) start))"
+prim__appendShadowConst : AnyPtr -> Int -> Int
 
 -- After InterpWrite: update buffer vals + tape_idx from output. Returns wrapper.
 %foreign "scheme:(lambda (mb outBuf start) (let ((cptr (vector-ref mb 0))) ((foreign-procedure \"ntm_mem_update_vals\" (void* void*) void) cptr outBuf) ((foreign-procedure \"ntm_mem_update_tape_idx\" (void* int) void) cptr start) mb))"
@@ -806,6 +812,17 @@ buildOutputScalars outBuf off (S k) =
       gen = tapeGeneration (cast constStart)
   in buildVarsFromBuf outBuf off (cast constStart) (cast gen) (S k)
 
+-- Build k output Scalars using shadow ConstOps (tag=25): gradient slots only.
+-- Values read from outBuf, tape indices from shadow entries. Skipped during
+-- backward collection — suitable for intermediate state (not parameters).
+buildOutputScalarsShadow : AnyPtr -> Int -> (k : Nat) -> Vect k (Scalar Variable)
+buildOutputScalarsShadow outBuf off Z = []
+buildOutputScalarsShadow outBuf off (S k) =
+  let count = cast {to=Int} (S k)
+      shadowStart = prim__appendShadowConst outBuf count
+      gen = tapeGeneration (cast shadowStart)
+  in buildVarsFromBuf outBuf off (cast shadowStart) (cast gen) (S k)
+
 ||| Matrix-vector multiply using C BLAS, recording a single MatVecOp
 ||| tape entry instead of m*n scalar entries.
 export
@@ -885,7 +902,7 @@ matrixVectorMultiplyVarBufBias {m} {n} wBuf bBuf (VTensor xs) =
 
 ||| Matrix-vector multiply returning raw buffer + tape start instead of Variables.
 ||| Used for buffer-passing to the next chained tensor op (e.g., LstmCell).
-||| Returns (outBuf, constStart) where constStart is the first output ConstOp index.
+||| Returns (outBuf, shadowStart) where shadowStart is the first shadow ConstOp index.
 export
 matrixVectorMultiplyVarBufOut : {m, n : Nat} -> AnyPtr -> Vector n Variable -> (AnyPtr, Int)
 matrixVectorMultiplyVarBufOut {m} {n} wBuf (VTensor xs) =
@@ -900,8 +917,8 @@ matrixVectorMultiplyVarBufOut {m} {n} wBuf (VTensor xs) =
       xvPtr' = packVec xvPtr xtPtr 0 xs
       outBuf' = prim__matvecCompute meta (prim__seq xvPtr' outBuf)
       outBuf'' = tapeAppendMatVecOp mI meta outBuf'
-      constStart = prim__appendOutputConst outBuf'' mI
-  in (outBuf'', constStart)
+      shadowStart = prim__appendShadowConst outBuf'' mI
+  in (outBuf'', shadowStart)
 
 
 ----------------------------------------------------------------------
@@ -1029,8 +1046,8 @@ softmaxVarBufOut {n} (VTensor xs) =
       xvPtr' = packVec xvPtr xtPtr 0 xs
       outBuf' = prim__softmaxCompute meta (prim__seq xvPtr' outBuf)
       outBuf'' = tapeAppendSoftmaxOp (toTag SoftmaxOp) nI meta outBuf'
-      constStart = prim__appendOutputConst outBuf'' nI
-  in (outBuf'', constStart)
+      shadowStart = prim__appendShadowConst outBuf'' nI
+  in (outBuf'', shadowStart)
 
 ||| Softmax with buffer input and buffer output (full buffer-passing).
 ||| Input comes from a preceding buffer-passing op via (outBuf, constStart).
@@ -1045,8 +1062,8 @@ softmaxVarBufIO {n} (srcBuf, srcStart) =
       xvPtr' = prim__bufToMeta xvPtr xtPtr srcBuf srcStart nI
       outBuf' = prim__softmaxCompute meta (prim__seq xvPtr' outBuf)
       outBuf'' = tapeAppendSoftmaxOp (toTag SoftmaxOp) nI meta outBuf'
-      constStart = prim__appendOutputConst outBuf'' nI
-  in (outBuf'', constStart)
+      shadowStart = prim__appendShadowConst outBuf'' nI
+  in (outBuf'', shadowStart)
 
 ||| LogSoftmax using C kernel, recording a single LogSoftmaxOp tape entry.
 export
@@ -1210,8 +1227,8 @@ batchCosineSimilarityVarBufBufOut {n} {w} beta memBuf (VTensor keyElems) =
       meta'' = prim__batchCosSimSetBeta (prim__seq kvPtr' meta') beta.value (cast betaIdx)
       outBuf' = prim__batchCosSimCompute meta'' outBuf
       outBuf'' = tapeAppendBatchCosSimOp nI meta'' outBuf'
-      constStart = prim__appendOutputConst outBuf'' nI
-  in (outBuf'', constStart)
+      shadowStart = prim__appendShadowConst outBuf'' nI
+  in (outBuf'', shadowStart)
 
 ||| Read operation using persistent memory buffer.
 export
@@ -1317,8 +1334,8 @@ interpolateVarBufIO {n} g (contentBuf, contentStart) (VTensor prevElems) =
       -- Compute
       outBuf' = prim__interpolateCompute meta' outBuf
       outBuf'' = tapeAppendInterpolateOp nI meta' outBuf'
-      constStart = prim__appendOutputConst outBuf'' nI
-  in (outBuf'', constStart)
+      shadowStart = prim__appendShadowConst outBuf'' nI
+  in (outBuf'', shadowStart)
 
 ||| C-backed circular shift: out[i] = k[0]*in[(i+1)%n] + k[1]*in[i] + k[2]*in[(i-1)%n]
 ||| Kernel must already be softmax'd. Records a single ShiftOp tape entry (tag 22).
@@ -1360,8 +1377,8 @@ shiftVarBufIO {n} (inputBuf, inputStart) (kernelBuf, kernelStart) =
       -- Compute
       outBuf' = prim__shiftCompute (prim__seq kvPtr' meta) outBuf
       outBuf'' = tapeAppendShiftOp nI meta outBuf'
-      constStart = prim__appendOutputConst outBuf'' nI
-  in (outBuf'', constStart)
+      shadowStart = prim__appendShadowConst outBuf'' nI
+  in (outBuf'', shadowStart)
 
 ||| C-backed focus/sharpening: out[i] = in[i]^gamma / sum(in[k]^gamma)
 ||| Records a single FocusOp tape entry (tag 23).
@@ -1401,7 +1418,7 @@ focusVarFromBuf {n} gamma (inputBuf, inputStart) =
       -- Compute
       outBuf' = prim__focusCompute meta' outBuf
       outBuf'' = tapeAppendFocusOp nI meta' outBuf'
-  in VTensor $ buildOutputScalars outBuf'' 0 n
+  in VTensor $ buildOutputScalarsShadow outBuf'' 0 n
 
 
 ----------------------------------------------------------------------

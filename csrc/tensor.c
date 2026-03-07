@@ -224,7 +224,8 @@ static int tape_last_op_idx = 0;
 
 /* Append tensor op (MatVec, Softmax, BatchCosSim, etc.)
  * tag: op tag, count: number of outputs, meta: op-specific metadata
- * Also calls the appropriate meta_set_out to record the tape index. */
+ * Also calls the appropriate meta_set_out to record the output gradient start.
+ * out_tape_start = idx + 1 (first output ConstOp, right after the op entry). */
 void *tape_append_tensor_op(int tag, int count, void *meta, void *out_buf) {
   int idx = tape_size;
   tape_ensure_cap(idx);
@@ -233,16 +234,17 @@ void *tape_append_tensor_op(int tag, int count, void *meta, void *out_buf) {
   tape_meta[idx] = meta;
   tape_pids[idx] = NULL;
   tape_size = idx + 1;
-  /* Call the appropriate meta_set_out based on tag */
+  /* set_out stores idx+1: the first output gradient index (after op entry) */
+  int out_start = idx + 1;
   switch (tag) {
-    case 11: matvec_meta_set_out(meta, idx); break;
+    case 11: matvec_meta_set_out(meta, out_start); break;
     case 13: /* fall through */
-    case 14: softmax_meta_set_out(meta, idx); break;
-    case 15: batch_cossim_meta_set_out(meta, idx); break;
-    case 16: readop_meta_set_out(meta, idx); break;
-    case 17: writeop_meta_set_out(meta, idx); break;
-    case 18: interp_write_meta_set_out(meta, idx); break;
-    case 24: lstm_cell_meta_set_out(meta, idx); break;
+    case 14: softmax_meta_set_out(meta, out_start); break;
+    case 15: batch_cossim_meta_set_out(meta, out_start); break;
+    case 16: readop_meta_set_out(meta, out_start); break;
+    case 17: writeop_meta_set_out(meta, out_start); break;
+    case 18: interp_write_meta_set_out(meta, out_start); break;
+    case 24: lstm_cell_meta_set_out(meta, out_start); break;
   }
   return out_buf;
 }
@@ -1027,7 +1029,7 @@ void *writeop_compute(void *meta_ptr, double *out) {
 void tensor_matvec_backward(double *grad_array, MatVecMeta *meta) {
   int m = meta->m;
   int n = meta->n;
-  int out_start = meta->out_tape_start + 1; /* skip the MatVecOp entry */
+  int out_start = meta->out_tape_start;
 
   if (meta->w_tape_idx != NULL) {
     /* Original path: per-element tape indices */
@@ -1096,7 +1098,7 @@ void tensor_dot_backward(double *grad_array, DotMeta *meta) {
  */
 void tensor_softmax_backward(double *grad_array, SoftmaxMeta *meta) {
   int n = meta->n;
-  int out_start = meta->out_tape_start + 1; /* skip the op entry */
+  int out_start = meta->out_tape_start;
 
   double dot = 0.0;
   for (int i = 0; i < n; i++)
@@ -1115,7 +1117,7 @@ void tensor_softmax_backward(double *grad_array, SoftmaxMeta *meta) {
  */
 void tensor_logsoftmax_backward(double *grad_array, SoftmaxMeta *meta) {
   int n = meta->n;
-  int out_start = meta->out_tape_start + 1; /* skip the op entry */
+  int out_start = meta->out_tape_start;
 
   double sum_dy = 0.0;
   for (int i = 0; i < n; i++)
@@ -1136,7 +1138,7 @@ void tensor_logsoftmax_backward(double *grad_array, SoftmaxMeta *meta) {
  */
 void tensor_batch_cossim_backward(double *grad_array, BatchCosSimMeta *m) {
   int n = m->n, w = m->w;
-  int out_start = m->out_tape_start + 1;
+  int out_start = m->out_tape_start;
   double kn = m->key_norm;
   double kn_sq = kn * kn;
   double d_beta = 0.0;
@@ -1176,7 +1178,7 @@ void tensor_batch_cossim_backward(double *grad_array, BatchCosSimMeta *m) {
  */
 void tensor_readop_backward(double *grad_array, ReadOpMeta *m) {
   int n = m->n, w = m->w;
-  int out_start = m->out_tape_start + 1;
+  int out_start = m->out_tape_start;
 
   for (int i = 0; i < n; i++) {
     double d_weight = 0.0;
@@ -1199,7 +1201,7 @@ void tensor_readop_backward(double *grad_array, ReadOpMeta *m) {
  */
 void tensor_writeop_backward(double *grad_array, WriteOpMeta *m) {
   int n = m->n, w = m->w;
-  int out_start = m->out_tape_start + 1;
+  int out_start = m->out_tape_start;
 
   for (int i = 0; i < n; i++) {
     double d_weight = 0.0;
@@ -1230,7 +1232,7 @@ void tensor_writeop_backward(double *grad_array, WriteOpMeta *m) {
  */
 void tensor_interp_write_backward(double *grad_array, InterpWriteMeta *m) {
   int n = m->n, w = m->w;
-  int out_start = m->out_tape_start + 1;
+  int out_start = m->out_tape_start;
 
   for (int i = 0; i < n; i++) {
     double d_weight = 0.0;
@@ -1279,7 +1281,7 @@ void tensor_interp_write_backward(double *grad_array, InterpWriteMeta *m) {
  */
 void tensor_lstm_cell_backward(double *grad_array, LstmCellMeta *m) {
   int o = m->o;
-  int out_start = m->out_tape_start + 1; /* skip the op entry */
+  int out_start = m->out_tape_start; /* skip the op entry */
 
   for (int j = 0; j < o; j++) {
     double d_nc = grad_array[out_start + j];         /* d_newCell */
@@ -1600,6 +1602,8 @@ int walk_backward_ext(double *grad, int tape_sz,
   for (int idx = tape_sz - 1; idx >= 0; idx--) {
     int tag = tags[idx];
     double g = grad[idx];
+
+    if (tag == 25) continue;  /* ShadowConst: gradient slot only, skip */
 
     if (tag == 0) {
       /* ConstOp: always collect — caller filters by pid in Scheme.

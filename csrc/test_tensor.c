@@ -110,7 +110,7 @@ static void test_matvec_backward(void) {
   int x_idx[] = {4, 5};
   memcpy(meta->w_tape_idx, w_idx, 4 * sizeof(int));
   memcpy(meta->x_tape_idx, x_idx, 2 * sizeof(int));
-  meta->out_tape_start = 6;
+  meta->out_tape_start = 7;
 
   /* grad array: 9 entries */
   double grad[9] = {0};
@@ -145,7 +145,7 @@ static void test_matvec_backward_scaled(void) {
   int x_idx[] = {4, 5};
   memcpy(meta->w_tape_idx, w_idx, 4 * sizeof(int));
   memcpy(meta->x_tape_idx, x_idx, 2 * sizeof(int));
-  meta->out_tape_start = 6;
+  meta->out_tape_start = 7;
 
   double grad[9] = {0};
   grad[7] = 2.0;
@@ -261,7 +261,7 @@ static void test_softmax_backward(void) {
 
   int x_idx[] = {0, 1, 2};
   memcpy(meta->x_tape_idx, x_idx, 3 * sizeof(int));
-  meta->out_tape_start = 3;
+  meta->out_tape_start = 4;
   /* grad layout: [dx0, dx1, dx2, <op>, dy0, dy1, dy2] */
   double grad[7] = {0};
   grad[4] = 1.0; /* dy[0] */
@@ -294,7 +294,7 @@ static void test_logsoftmax_backward(void) {
 
   int x_idx[] = {0, 1, 2};
   memcpy(meta->x_tape_idx, x_idx, 3 * sizeof(int));
-  meta->out_tape_start = 3;
+  meta->out_tape_start = 4;
   double grad[7] = {0};
   grad[4] = 1.0; /* dy[0] */
 
@@ -358,7 +358,7 @@ static void test_batch_cossim_backward(void) {
   memcpy(m->mem_tape_idx, mem_idx, 4 * sizeof(int));
   memcpy(m->key_tape_idx, key_idx, 2 * sizeof(int));
   m->beta_tape_idx = 6;
-  m->out_tape_start = 7;
+  m->out_tape_start = 8;
 
   /* dy = [1, 1] */
   double grad[10] = {0};
@@ -465,7 +465,7 @@ static void test_readop_backward(void) {
   int w_idx[] = {4, 5};
   memcpy(m->mem_tape_idx, mem_idx, 4 * sizeof(int));
   memcpy(m->weight_tape_idx, w_idx, 2 * sizeof(int));
-  m->out_tape_start = 6;
+  m->out_tape_start = 7;
 
   /* layout: 0-3=mem, 4-5=weights, 6=op, 7-8=output */
   double grad[9] = {0};
@@ -541,7 +541,7 @@ static void test_writeop_backward(void) {
   memcpy(m->weight_tape_idx, wt_idx, 2 * sizeof(int));
   memcpy(m->erase_tape_idx, er_idx, 2 * sizeof(int));
   memcpy(m->add_tape_idx, ad_idx, 2 * sizeof(int));
-  m->out_tape_start = 10;
+  m->out_tape_start = 11;
 
   /* dy = [1, 1, 1, 1] */
   double grad[15] = {0};
@@ -692,7 +692,7 @@ static void test_interp_write_backward(void) {
   memcpy(m->mem_tape_idx, mem_idx, 4 * sizeof(int));
   memcpy(m->weight_tape_idx, wt_idx, 2 * sizeof(int));
   memcpy(m->add_tape_idx, ad_idx, 2 * sizeof(int));
-  m->out_tape_start = 8;
+  m->out_tape_start = 9;
 
   /* Run forward to populate out_vals (needed for tanh derivative in backward) */
   double fwd_out[4];
@@ -1236,7 +1236,7 @@ static void test_lstm_cell_backward(void) {
     m->prev_cell_vals[j] = pcell[j];
     m->prev_cell_tape_idx[j] = 3 * fo + j;
   }
-  m->out_tape_start = n_inputs; /* op entry at idx 26, outputs at 27..30 */
+  m->out_tape_start = n_inputs + 1; /* op entry at idx 26, outputs at 27..30 */
 
   double out[4];
   lstm_cell_compute(m, out);
@@ -1390,7 +1390,7 @@ static void test_matvec_bias_backward(void) {
   memcpy(meta->x_vals, x, 2 * sizeof(double));
   int x_idx[] = {6, 7};
   memcpy(meta->x_tape_idx, x_idx, 2 * sizeof(int));
-  meta->out_tape_start = 8;
+  meta->out_tape_start = 9;
 
   /* grad: 0-3=W, 4-5=bias, 6-7=x, 8=op, 9-10=output */
   double grad[11] = {0};
@@ -1485,7 +1485,7 @@ static void test_lstm_cell_bias_buf_backward(void) {
     m->prev_cell_vals[j] = pcell[j];
     m->prev_cell_tape_idx[j] = 3 * fo + j;
   }
-  m->out_tape_start = n_inputs;
+  m->out_tape_start = n_inputs + 1;
 
   double out[4];
   lstm_cell_compute(m, out);
