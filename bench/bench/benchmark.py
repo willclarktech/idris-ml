@@ -1,11 +1,11 @@
-"""Timing benchmark matching idris-ml's Example/Bench.idr.
+"""Timing benchmark.
 
 - Supervised: 100 warmup + 1000 timed epochs, SGD lr=0.03
 - RNN: 100 warmup + 1000 timed epochs, SGD lr=0.03
 - NTM: 10 warmup + 100 timed epochs, Adam lr=0.001 maxNorm=5.0
 
-NOTE: The NTM benchmark uses a simple copy-like task for timing comparison
-with idris-ml's Bench.idr. It is NOT the reference copy task architecture.
+NOTE: The NTM benchmark uses a simple copy-like task for timing comparison.
+It is NOT the reference copy task architecture.
 """
 
 import time
@@ -100,8 +100,7 @@ def _make_bench_data(
 def bench_ntm() -> tuple[float, float]:
     """Benchmark NTM model. Returns (elapsed_ms, final_loss).
 
-    Uses a small NTM (w=3, n=10) with LSTM controller for timing comparison
-    with idris-ml's Bench.idr.
+    Uses a small NTM (w=3, n=10) with LSTM controller for timing.
     """
     torch.manual_seed(123456)
 

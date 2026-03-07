@@ -1,9 +1,9 @@
-"""RNN model matching idris-ml's Example/Rnn.idr.
+"""RNN model with linear recurrence (no activation).
 
-NOTE: We use a custom LinearRNNCell instead of nn.RNN because idris-ml's
-RnnLayer has NO activation function — it's a raw linear recurrence:
+Uses a custom LinearRNNCell instead of nn.RNN because the Idris-side
+RnnLayer has no activation — it's a raw linear recurrence:
   h' = W_ih @ x + W_hh @ h + b
-PyTorch's nn.RNN always applies tanh, which would diverge from idris-ml.
+PyTorch's nn.RNN always applies tanh.
 """
 
 import torch
@@ -14,7 +14,7 @@ from bench.training.losses import bce_with_logits
 
 
 class LinearRNNCell(nn.Module):
-    """Linear RNN cell with no activation, matching idris-ml RnnLayer."""
+    """Linear RNN cell with no activation."""
 
     def __init__(self, input_size: int, hidden_size: int) -> None:
         super().__init__()
@@ -38,10 +38,7 @@ class LinearRNNCell(nn.Module):
 
 
 def generate_rnn_data(n: int) -> tuple[list[float], list[float]]:
-    """Generate cyclic [0,1,0] pattern of length n.
-
-    Matches Rnn.idr generateData.
-    """
+    """Generate cyclic [0,1,0] pattern of length n."""
     pattern = [0.0, 1.0, 0.0]
     inputs = [pattern[i % 3] for i in range(n)]
     outputs = [pattern[(i + 1) % 3] for i in range(n)]
@@ -49,10 +46,7 @@ def generate_rnn_data(n: int) -> tuple[list[float], list[float]]:
 
 
 def generate_rnn_dataset(n: int) -> list[tuple[list[Tensor], list[Tensor]]]:
-    """Generate n sequences with lengths 3, 4, ..., n+2.
-
-    Matches Rnn.idr generateDataSet (range mapped with +3).
-    """
+    """Generate n sequences with lengths 3, 4, ..., n+2."""
     dataset = []
     for i in range(n):
         length = i + 3
@@ -63,7 +57,6 @@ def generate_rnn_dataset(n: int) -> list[tuple[list[Tensor], list[Tensor]]]:
     return dataset
 
 
-# Same 8 sequences as Rnn.idr
 RNN_DATA = generate_rnn_dataset(8)
 
 
@@ -74,8 +67,8 @@ def train_rnn_epoch(
 ) -> float:
     """Train one recurrent epoch, return loss value.
 
-    Matches Backprop.idr epochRecurrent: for each sequence, reset state,
-    forward all timesteps, accumulate loss. Average across sequences.
+    For each sequence: reset state, forward all timesteps, accumulate loss.
+    Average across sequences.
     """
     optimizer.zero_grad()
     total_loss = torch.tensor(0.0)

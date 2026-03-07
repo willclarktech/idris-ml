@@ -1,4 +1,4 @@
-"""Multi-stage curriculum training matching idris-ml's Curriculum.idr.
+"""Multi-stage curriculum training.
 
 Periodic data regeneration with two-level early stopping:
 - Within-stage patience (stale count)
@@ -31,7 +31,7 @@ def _one_cycle_lr(
     total_epochs: int,
     epoch: int,
 ) -> float:
-    """One-cycle learning rate schedule matching Schedule.idr oneCycle."""
+    """One-cycle learning rate schedule."""
     warmup_epochs = int(pct_start * total_epochs)
     if epoch < warmup_epochs:
         lr_start = base_lr / peak_ratio
@@ -60,7 +60,6 @@ def run_curriculum(
 ) -> tuple[int, float]:
     """Run multi-stage curriculum training.
 
-    Matches Curriculum.idr runCurriculum.
     Returns: (total_epochs_done, final_loss)
     """
     done = 0

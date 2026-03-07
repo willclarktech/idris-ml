@@ -1,6 +1,6 @@
-"""Side-by-side comparison of idris-ml and PyTorch benchmarks.
+"""Side-by-side comparison of Idris and PyTorch benchmarks.
 
-Runs both idris-ml bench (via build/exec/bench) and PyTorch benchmark,
+Runs both Idris bench (via build/exec/bench) and PyTorch benchmark,
 parses output, and prints a comparison table with ratios.
 """
 
@@ -16,7 +16,7 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
 def parse_idris_output(output: str) -> dict[str, tuple[float, float]]:
-    """Parse idris-ml bench output into {model: (ms, loss)} dict."""
+    """Parse Idris bench output into {model: (ms, loss)} dict."""
     results: dict[str, tuple[float, float]] = {}
     lines = output.strip().split("\n")
     i = 0
@@ -38,7 +38,7 @@ def parse_idris_output(output: str) -> dict[str, tuple[float, float]]:
 
 
 def run_idris_bench() -> dict[str, tuple[float, float]] | None:
-    """Run idris-ml bench and parse output."""
+    """Run Idris bench and parse output."""
     bench_bin = _REPO_ROOT / "build" / "exec" / "bench"
     try:
         result = subprocess.run(
@@ -76,7 +76,7 @@ def main() -> None:
     idris_results = run_idris_bench()
 
     print("\n" + "=" * 70)
-    print("Benchmark Comparison: idris-ml vs PyTorch")
+    print("Benchmark Comparison: Idris vs PyTorch")
     print("=" * 70)
 
     cols = ["Model", "Idris (ms)", "PyTorch (ms)", "Ratio", "Idris Loss", "PyTorch Loss"]

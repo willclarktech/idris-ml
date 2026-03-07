@@ -1,6 +1,5 @@
-"""Supervised model matching idris-ml's Example/Supervised.idr.
+"""Supervised model: Linear(2->3) + softmax with cross-entropy loss.
 
-Linear(2→3) + softmax with cross-entropy loss.
 Xavier uniform init, zero bias.
 """
 
@@ -22,7 +21,6 @@ class SupervisedModel(nn.Module):
         return torch.softmax(self.linear(x), dim=-1)
 
 
-# Same 5 data points as Supervised.idr
 SUPERVISED_DATA = [
     (torch.tensor([1.5, -2.7]), torch.tensor([0.0, 1.0, 0.0])),
     (torch.tensor([-3.2, 4.1]), torch.tensor([0.0, 1.0, 0.0])),
@@ -39,7 +37,7 @@ def train_supervised_epoch(
 ) -> float:
     """Train one epoch, return loss value.
 
-    Matches Backprop.idr epoch: forward all samples, compute mean loss, backward, step.
+    Forward all samples, compute mean loss, backward, step.
     """
     optimizer.zero_grad()
     total_loss = torch.tensor(0.0)
