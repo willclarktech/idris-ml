@@ -2,8 +2,8 @@
 
 import torch
 
-from bench.models.supervised import SUPERVISED_DATA, SupervisedModel, train_supervised_epoch
-from bench.training.losses import cross_entropy
+from torch_ref.models.supervised import SUPERVISED_DATA, SupervisedModel, train_supervised_epoch
+from torch_ref.training.losses import cross_entropy
 
 
 class TestSupervised:

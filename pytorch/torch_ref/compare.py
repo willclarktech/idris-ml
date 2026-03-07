@@ -9,9 +9,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-from bench.benchmark import bench_ntm, bench_rnn, bench_supervised
+from torch_ref.benchmark import bench_ntm, bench_rnn, bench_supervised
 
-# Repo root is bench/../
+# Repo root is pytorch/../
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
 

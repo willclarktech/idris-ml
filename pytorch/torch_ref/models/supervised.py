@@ -7,7 +7,7 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
-from bench.training.losses import cross_entropy
+from torch_ref.training.losses import cross_entropy
 
 
 class SupervisedModel(nn.Module):

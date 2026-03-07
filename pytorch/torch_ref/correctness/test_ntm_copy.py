@@ -4,8 +4,8 @@ import random
 
 import torch
 
-from bench.data.copy_task import generate_copy_sequence
-from bench.models.ntm import NtmConfig, NtmModel, train_ntm_step
+from torch_ref.data.copy_task import generate_copy_sequence
+from torch_ref.models.ntm import NtmConfig, NtmModel, train_ntm_step
 
 
 def _copy_config(**kwargs: object) -> NtmConfig:

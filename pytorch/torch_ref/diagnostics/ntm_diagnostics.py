@@ -10,8 +10,8 @@ from dataclasses import dataclass, field
 import torch
 from torch import Tensor
 
-from bench.models.ntm import NtmModel
-from bench.ntm.addressing import (
+from torch_ref.models.ntm import NtmModel
+from torch_ref.ntm.addressing import (
     SHIFT_KERNEL_SIZE,
     addressing_params_width,
     content_address,

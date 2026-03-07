@@ -5,12 +5,12 @@ import random
 
 import torch
 
-from bench.data.recall_task import generate_recall_sequence
-from bench.diagnostics.ntm_diagnostics import (
+from torch_ref.data.recall_task import generate_recall_sequence
+from torch_ref.diagnostics.ntm_diagnostics import (
     compute_summary,
     instrumented_forward_recall,
 )
-from bench.models.ntm import NtmConfig, NtmModel, train_ntm_step
+from torch_ref.models.ntm import NtmConfig, NtmModel, train_ntm_step
 
 SEQ_WIDTH = 6
 SEQ_LEN = 3

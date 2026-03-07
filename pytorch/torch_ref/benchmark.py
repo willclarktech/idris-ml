@@ -13,11 +13,11 @@ import time
 import torch
 from torch.nn.utils import clip_grad_norm_
 
-from bench.models.rnn import LinearRNNCell, generate_rnn_dataset, train_rnn_epoch
-from bench.models.supervised import SUPERVISED_DATA, SupervisedModel, train_supervised_epoch
-from bench.ntm.controller import LSTMController
-from bench.ntm.layer import NTMLayer
-from bench.training.losses import nll_loss
+from torch_ref.models.rnn import LinearRNNCell, generate_rnn_dataset, train_rnn_epoch
+from torch_ref.models.supervised import SUPERVISED_DATA, SupervisedModel, train_supervised_epoch
+from torch_ref.ntm.controller import LSTMController
+from torch_ref.ntm.layer import NTMLayer
+from torch_ref.training.losses import nll_loss
 
 
 def bench_supervised() -> tuple[float, float]:

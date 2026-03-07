@@ -2,7 +2,7 @@
 
 import torch
 
-from bench.models.rnn import RNN_DATA, LinearRNNCell, train_rnn_epoch
+from torch_ref.models.rnn import RNN_DATA, LinearRNNCell, train_rnn_epoch
 
 
 class TestRnn:

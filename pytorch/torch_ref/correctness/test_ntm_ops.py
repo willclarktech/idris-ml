@@ -2,8 +2,8 @@
 
 import torch
 
-from bench.ntm.addressing import content_address, cosine_similarity, focus, interpolate, shift
-from bench.ntm.memory import (
+from torch_ref.ntm.addressing import content_address, cosine_similarity, focus, interpolate, shift
+from torch_ref.ntm.memory import (
     forward_read_head,
     forward_write_head,
     read_op,

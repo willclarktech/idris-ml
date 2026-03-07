@@ -12,8 +12,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
-from bench.ntm.addressing import addressing_params_width
-from bench.ntm.memory import forward_read_head, forward_write_head
+from torch_ref.ntm.addressing import addressing_params_width
+from torch_ref.ntm.memory import forward_read_head, forward_write_head
 
 
 class Controller(Protocol):

@@ -12,8 +12,8 @@ import torch.nn as nn
 from torch import Tensor
 from torch.nn.utils import clip_grad_norm_, clip_grad_value_
 
-from bench.ntm.controller import LSTMController
-from bench.ntm.layer import NTMLayer
+from torch_ref.ntm.controller import LSTMController
+from torch_ref.ntm.layer import NTMLayer
 
 
 @dataclass

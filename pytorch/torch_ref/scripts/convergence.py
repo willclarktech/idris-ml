@@ -7,7 +7,7 @@ Early stopping: training halts when the average metric over the last 5000
 iterations stays below a threshold for 10 consecutive checkpoints (5000 iters).
 
 Usage:
-    uv run python -m bench.scripts.convergence [--task {copy,recall,both}] [--seed N]
+    uv run python -m torch_ref.scripts.convergence [--task {copy,recall,both}] [--seed N]
 """
 
 import argparse
@@ -16,14 +16,14 @@ from typing import Literal
 
 import torch
 
-from bench.data.copy_task import generate_copy_sequence
-from bench.data.recall_task import generate_recall_sequence
-from bench.diagnostics.ntm_diagnostics import (
+from torch_ref.data.copy_task import generate_copy_sequence
+from torch_ref.data.recall_task import generate_recall_sequence
+from torch_ref.diagnostics.ntm_diagnostics import (
     compute_summary,
     instrumented_forward_recall,
     print_summary,
 )
-from bench.models.ntm import NtmConfig, NtmModel, train_ntm_step
+from torch_ref.models.ntm import NtmConfig, NtmModel, train_ntm_step
 
 # ---------------------------------------------------------------------------
 # Copy task

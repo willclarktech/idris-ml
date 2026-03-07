@@ -58,36 +58,36 @@ sweep: $(CLIB)
 sweep-quick: $(CLIB)
 	bash scripts/sweep.sh --parallel 4 --quick
 
-# PyTorch benchmarks (uv manages Python)
-bench-setup:
-	cd bench && uv sync --dev
+# PyTorch reference implementation (uv manages Python)
+ref-setup:
+	cd pytorch && uv sync --dev
 
 bench-py:
-	cd bench && uv run python -m bench.benchmark
+	cd pytorch && uv run python -m torch_ref.benchmark
 
 bench-compare: $(CLIB)
 	idris2 --source-dir src -p contrib -o bench src/Example/Bench.idr
-	cd bench && uv run python -m bench.compare
+	cd pytorch && uv run python -m torch_ref.compare
 
-bench-test:
-	cd bench && uv run pytest bench/correctness/ -v
+ref-test:
+	cd pytorch && uv run pytest torch_ref/correctness/ -v
 
-bench-lint:
-	cd bench && uv run ruff check bench/ && uv run ruff format --check bench/
+ref-lint:
+	cd pytorch && uv run ruff check torch_ref/ && uv run ruff format --check torch_ref/
 
-bench-typecheck:
-	cd bench && uv run pyright bench/
+ref-typecheck:
+	cd pytorch && uv run pyright torch_ref/
 
-bench-convergence:
-	cd bench && uv run python -u -m bench.scripts.convergence --task both
+ref-convergence:
+	cd pytorch && uv run python -u -m torch_ref.scripts.convergence --task both
 
-bench-convergence-copy:
-	cd bench && uv run python -u -m bench.scripts.convergence --task copy
+ref-convergence-copy:
+	cd pytorch && uv run python -u -m torch_ref.scripts.convergence --task copy
 
-bench-convergence-recall:
-	cd bench && uv run python -u -m bench.scripts.convergence --task recall
+ref-convergence-recall:
+	cd pytorch && uv run python -u -m torch_ref.scripts.convergence --task recall
 
 clean:
 	rm -f $(CLIB) $(BUILD)/test_tensor
 
-.PHONY: test test-c check supervised rnn ntm-copy ntm-associative-recall bench sweep sweep-quick clean bench-setup bench-py bench-compare bench-test bench-lint bench-typecheck bench-convergence bench-convergence-copy bench-convergence-recall
+.PHONY: test test-c check supervised rnn ntm-copy ntm-associative-recall bench sweep sweep-quick clean ref-setup bench-py bench-compare ref-test ref-lint ref-typecheck ref-convergence ref-convergence-copy ref-convergence-recall

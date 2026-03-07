@@ -3,7 +3,7 @@
 import torch
 from torch import Tensor
 
-from bench.ntm.addressing import (
+from torch_ref.ntm.addressing import (
     SHIFT_KERNEL_SIZE,
     content_address,
     focus,

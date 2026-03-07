@@ -10,7 +10,7 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
-from bench.training.losses import bce_with_logits
+from torch_ref.training.losses import bce_with_logits
 
 
 class LinearRNNCell(nn.Module):

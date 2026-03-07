@@ -1,5 +1,5 @@
 [project]
-name = "idris-ml-bench"
+name = "idris-ml-torch-ref"
 version = "0.0.0"
 requires-python = ">=3.12"
 dependencies = [

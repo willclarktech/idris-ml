@@ -3,9 +3,9 @@
 build/
 .claude/
 
-bench/.venv/
+pytorch/.venv/
 __pycache__/
 *.pyc
 .pytest_cache/
 logs/
-bench/reference/
+pytorch/reference/

@@ -53,7 +53,7 @@ wheels = [
 ]
 
 [[package]]
-name = "idris-ml-bench"
+name = "idris-ml-torch-ref"
 version = "0.0.0"
 source = { virtual = "." }
 dependencies = [
