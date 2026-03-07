@@ -184,3 +184,25 @@ Note: Chez Scheme `foreign-set!` is a native operation (not a C FFI crossing), s
 the per-element cost was lower than estimated. The remaining forward pass time is
 dominated by Scheme Variable record allocation and `ensureOnTape`/`packVec` loops,
 not by ConstOp tape writes.
+
+### Gradient Region Reservation (NOT IMPLEMENTED)
+
+Planned to eliminate 2.23M ShadowOps (63% of tape) by reserving gradient indices
+outside the tape. Analysis revealed a fundamental index collision problem:
+
+Shadow grad slots and future tape entries share the same index space. When a tensor
+op reserves grad-only slots at positions [S+1, S+count], the next real tape entry
+(ConstOp/ScalarOp) also goes at tape[S+1], causing gradient corruption. Example:
+
+```
+1. Tensor op A at tape[100]. Reserve shadow grad slots at 101..300.
+2. Next ConstOp appended at tape[101] — collides with shadow slot 101.
+3. grad[101] now accumulates gradients from BOTH the ConstOp and the shadow,
+   corrupting the backward pass.
+```
+
+Correctly separating them requires knowing final tape-size upfront (impossible during
+forward pass) or dual grad arrays (requires changing all backward kernels). The
+estimated benefit (~2-5ms backward, ~80MB memory) does not justify the architectural
+complexity. The remaining ~1.8x gap vs PyTorch is best addressed by tensor-level
+Variables (Path C).
