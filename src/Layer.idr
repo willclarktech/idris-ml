@@ -225,8 +225,7 @@ mutual
       wh = MkWriteHead (MkReadHead writeAddr)
       writeResult = forwardWriteHeadInterp softmax memory wh writeParams
       newWriteAddr' = (fst writeResult).readHead.addressingWeights
-      rawMemory = snd writeResult
-      newMemory = map tanhBound rawMemory
+      newMemory = snd writeResult
       -- 6. Output FC(hidden ++ readOutput)
       output = snd (applyLayer outputFc (hidden ++ newReadOutput))
       newLayer = NtmLayer (fst lstmResult) readFc writeFc outputFc
@@ -389,8 +388,7 @@ mutual
       wh = MkWriteHead (MkReadHead writeAddr)
       writeResult = forwardWriteHeadInterpVar memory wh writeParams
       newWriteAddr' = (fst writeResult).readHead.addressingWeights
-      rawMemory = snd writeResult
-      newMemory = map tanhVar rawMemory
+      newMemory = snd writeResult
       -- 6. Output FC(hidden ++ readOutput)
       output = snd (applyLayerVar outputFc (hidden ++ newReadOutput))
       newLayer = NtmLayer (fst lstmResult) readFc writeFc outputFc

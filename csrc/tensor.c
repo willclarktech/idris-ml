@@ -185,6 +185,7 @@ typedef struct {
   int *mem_tape_idx;      /* n*w tape indices (arena) */
   int *weight_tape_idx;   /* n tape indices (arena) */
   int *add_tape_idx;      /* w tape indices (arena) */
+  double *out_vals;       /* n*w tanh-bounded output values (arena) */
   int out_tape_start;     /* set by tape append */
 } InterpWriteMeta;
 
@@ -293,6 +294,7 @@ InterpWriteMeta *interp_write_meta_alloc(int n, int w) {
   m->mem_tape_idx = (int *)arena_alloc(n * w * sizeof(int));
   m->weight_tape_idx = (int *)arena_alloc(n * sizeof(int));
   m->add_tape_idx = (int *)arena_alloc(w * sizeof(int));
+  m->out_vals = (double *)arena_alloc(n * w * sizeof(double));
   m->out_tape_start = 0;
   return m;
 }
@@ -536,7 +538,10 @@ void *readop_compute(void *meta_ptr, double *out) {
   return out;
 }
 
-/* Interpolation write: out[i*w+j] = (1 - w[i]) * mem[i*w+j] + w[i] * add[j] */
+/* Interpolation write with fused tanh:
+ * raw = (1 - w[i]) * mem[i*w+j] + w[i] * add[j]
+ * out[i*w+j] = tanh(raw)
+ * Saves out_vals for backward (tanh derivative needs output values). */
 void *interp_write_compute(void *meta_ptr, double *out) {
   InterpWriteMeta *m = (InterpWriteMeta *)meta_ptr;
   int n = m->n, w = m->w;
@@ -544,7 +549,10 @@ void *interp_write_compute(void *meta_ptr, double *out) {
   for (int i = 0; i < n; i++) {
     double wi = m->weight_vals[i];
     for (int j = 0; j < w; j++) {
-      out[i * w + j] = (1.0 - wi) * m->mem_vals[i * w + j] + wi * m->add_vals[j];
+      double raw = (1.0 - wi) * m->mem_vals[i * w + j] + wi * m->add_vals[j];
+      double t = tanh(raw);
+      out[i * w + j] = t;
+      m->out_vals[i * w + j] = t;
     }
   }
   return out;
@@ -766,12 +774,14 @@ void tensor_writeop_backward(double *grad_array, WriteOpMeta *m) {
 }
 
 /*
- * Interpolation write backward:
- *   out[i][j] = (1 - w[i]) * mem[i][j] + w[i] * add[j]
+ * Interpolation write backward (with fused tanh):
+ *   raw[i][j] = (1 - w[i]) * mem[i][j] + w[i] * add[j]
+ *   out[i][j] = tanh(raw[i][j])
  *
- *   d_mem[i][j] += dy[i][j] * (1 - w[i])
- *   d_weight[i] += sum_j dy[i][j] * (add[j] - mem[i][j])
- *   d_add[j]    += sum_i dy[i][j] * w[i]
+ *   d_raw = d_out * (1 - out^2)       (tanh derivative)
+ *   d_mem[i][j] += d_raw * (1 - w[i])
+ *   d_weight[i] += sum_j d_raw * (add[j] - mem[i][j])
+ *   d_add[j]    += sum_i d_raw * w[i]
  */
 void tensor_interp_write_backward(double *grad_array, InterpWriteMeta *m) {
   int n = m->n, w = m->w;
@@ -781,10 +791,12 @@ void tensor_interp_write_backward(double *grad_array, InterpWriteMeta *m) {
     double d_weight = 0.0;
     double wi = m->weight_vals[i];
     for (int j = 0; j < w; j++) {
-      double dy = grad_array[out_start + i * w + j];
-      grad_array[m->mem_tape_idx[i * w + j]] += dy * (1.0 - wi);
-      d_weight += dy * (m->add_vals[j] - m->mem_vals[i * w + j]);
-      grad_array[m->add_tape_idx[j]] += dy * wi;
+      double d_out = grad_array[out_start + i * w + j];
+      double oval = m->out_vals[i * w + j];
+      double d_raw = d_out * (1.0 - oval * oval);   /* tanh derivative */
+      grad_array[m->mem_tape_idx[i * w + j]] += d_raw * (1.0 - wi);
+      d_weight += d_raw * (m->add_vals[j] - m->mem_vals[i * w + j]);
+      grad_array[m->add_tape_idx[j]] += d_raw * wi;
     }
     grad_array[m->weight_tape_idx[i]] += d_weight;
   }

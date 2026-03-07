@@ -168,13 +168,17 @@ forwardWriteHead smFn memory (MkWriteHead readHead) inp =
 -- Interpolation Write
 ----------------------------------------------------------------------
 
-||| Interpolation write: mem'[i][j] = w[i] * add[j] + (1 - w[i]) * mem[i][j]
+||| Interpolation write with fused tanh bounding:
+||| mem'[i][j] = tanh(w[i] * add[j] + (1 - w[i]) * mem[i][j])
 ||| Simpler than erase+add — single vector replaces content at addressed slots.
+||| Uses `tanhFn` (sigmoid-based tanh) to avoid FromDouble constraint.
 export
-interpolationWrite : (Num ty, Neg ty) =>
+interpolationWrite : (Num ty, Neg ty, Fractional ty, Floating ty) =>
     {n, w : Nat} -> Matrix n w ty -> Vector n ty -> Vector w ty -> Matrix n w ty
 interpolationWrite (VTensor memRows) (VTensor weights) addVec =
-  VTensor $ zipWith (\(STensor wt), row => zipWith (\m, a => (1 - wt) * m + wt * a) row addVec) weights memRows
+  let tanhFn : ty -> ty
+      tanhFn x = 2 * sig (2 * x) - 1
+  in VTensor $ zipWith (\(STensor wt), row => map tanhFn $ zipWith (\m, a => (1 - wt) * m + wt * a) row addVec) weights memRows
 
 
 ----------------------------------------------------------------------

@@ -646,10 +646,10 @@ static void test_writeop_backward(void) {
 
 static void test_interp_write_forward(void) {
   /* mem = [[1, 2], [3, 4]], weights = [0.8, 0.0], add = [5, 6]
-   * out[0][0] = (1-0.8)*1 + 0.8*5 = 0.2 + 4.0 = 4.2
-   * out[0][1] = (1-0.8)*2 + 0.8*6 = 0.4 + 4.8 = 5.2
-   * out[1][0] = (1-0.0)*3 + 0.0*5 = 3.0
-   * out[1][1] = (1-0.0)*4 + 0.0*6 = 4.0 */
+   * raw[0][0] = (1-0.8)*1 + 0.8*5 = 4.2,  out = tanh(4.2)
+   * raw[0][1] = (1-0.8)*2 + 0.8*6 = 5.2,  out = tanh(5.2)
+   * raw[1][0] = (1-0.0)*3 + 0.0*5 = 3.0,  out = tanh(3.0)
+   * raw[1][1] = (1-0.0)*4 + 0.0*6 = 4.0,  out = tanh(4.0) */
   arena_reset();
   InterpWriteMeta *m = interp_write_meta_alloc(2, 2);
   double mem[] = {1, 2, 3, 4};
@@ -662,10 +662,10 @@ static void test_interp_write_forward(void) {
   double out[4] = {0};
   interp_write_compute(m, out);
 
-  check_close("interp_write[0][0]", out[0], 4.2, 1e-10);
-  check_close("interp_write[0][1]", out[1], 5.2, 1e-10);
-  check_close("interp_write[1][0]", out[2], 3.0, 1e-10);
-  check_close("interp_write[1][1]", out[3], 4.0, 1e-10);
+  check_close("interp_write[0][0]", out[0], tanh(4.2), 1e-10);
+  check_close("interp_write[0][1]", out[1], tanh(5.2), 1e-10);
+  check_close("interp_write[1][0]", out[2], tanh(3.0), 1e-10);
+  check_close("interp_write[1][1]", out[3], tanh(4.0), 1e-10);
 }
 
 static void test_interp_write_backward(void) {
@@ -693,6 +693,10 @@ static void test_interp_write_backward(void) {
   memcpy(m->weight_tape_idx, wt_idx, 2 * sizeof(int));
   memcpy(m->add_tape_idx, ad_idx, 2 * sizeof(int));
   m->out_tape_start = 8;
+
+  /* Run forward to populate out_vals (needed for tanh derivative in backward) */
+  double fwd_out[4];
+  interp_write_compute(m, fwd_out);
 
   /* dy = [1, 1, 1, 1] */
   double grad[13] = {0};
