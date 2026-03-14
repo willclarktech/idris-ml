@@ -17,6 +17,7 @@
 
 | Item | Difficulty | Notes |
 |------|-----------|-------|
+| Static graph optimizations via dependent types | L–XL | Investigate whether dependent types can recover other benefits of static computation graphs beyond shape checking. Candidates: compile-time operator fusion (type-level graph rewriting), memory planning (shapes known at compile time → buffer sizes computable statically), dead branch elimination (totality checker + erasure), automatic kernel selection (dispatch to specialized C kernels based on type-level dimensions). Some of these may be achievable through Idris 2 elaborator reflection or specialization. See `docs/static-vs-dynamic-graphs.md` for the static vs dynamic tradeoff context |
 | Reinforcement learning demo | L | Simple RL example (e.g. policy gradient on CartPole or grid world) to demonstrate autograd beyond supervised/sequence tasks |
 | DNC (Differentiable Neural Computer) | XL | Graves et al. 2016 successor to NTM — temporal link matrix, dynamic memory allocation, multiple read heads |
 | Convolutional layers | L | |
