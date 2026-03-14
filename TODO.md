@@ -1,5 +1,11 @@
 # Backlog
 
+## High Priority
+
+| Item | Difficulty | Notes |
+|------|-----------|-------|
+| Broadcasting | XL | Type-safe broadcasting for tensor ops (e.g. scalar-vector, vector-matrix, batch dimensions). Needs careful design — NumPy-style implicit broadcasting is a major source of silent bugs, but no broadcasting at all forces manual expansion. Explore options: explicit broadcast combinators with proof obligations, ranked type families, or a restricted subset (e.g. scalar broadcast only). Key tension: expressiveness vs the shape safety guarantees that are the whole point of dependent types. See `docs/static-vs-dynamic-graphs.md` for context on why silent broadcasting is dangerous |
+
 ## Medium Priority
 
 | Item | Difficulty | Notes |
