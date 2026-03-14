@@ -144,6 +144,9 @@ let model = ll ~> OutputLayer softmaxLayer
 
 -- This would NOT compile: Linear(2→10) can't feed into Linear(5→3)
 -- because 10 ≠ 5
+ll1 <- linearLayer {i=2, o=10}
+ll2 <- linearLayer {i=5, o=3}
+let model = ll1 ~> OutputLayer ll2  -- Error: Can't unify 10 with 5
 ```
 
 ### NTM dimensions are computed at the type level
