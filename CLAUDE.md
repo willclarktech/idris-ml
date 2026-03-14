@@ -19,61 +19,28 @@ idris2 --build idris-ml.ipkg
 # Type-check a single module
 idris2 --source-dir src -p contrib --check src/<File>.idr
 
-# Build an example (examples aren't in the package, so manual flags are needed)
-idris2 --source-dir src -p contrib -o <name> src/Example/<Name>.idr
+# Build and run an example (all examples accept --help for CLI flags)
+idris2 --source-dir src -p contrib -o <name> src/Example/<Name>.idr && ./build/exec/<name>
 
-# Run a built example
-./build/exec/<name>
+# Tests
+make test            # Idris unit tests
+make test-c          # C library tests
 
-# Run Idris unit tests
-make test
+# Benchmarks
+make bench           # Idris benchmark (Supervised + RNN + NTM)
+make bench-compare   # Side-by-side Idris vs PyTorch
+make profile         # Per-sub-phase timing + tape histogram
 
-# Run C library tests
-make test-c
+# PyTorch reference (requires uv)
+make ref-setup       # One-time: install Python deps
+make ref-test        # Correctness tests
+make ref-lint        # Lint (ruff)
+make ref-typecheck   # Type-check (pyright)
+make ref-convergence # NTM convergence verification
 
-# Run benchmark (Supervised + RNN + NTM)
-make bench
-
-# PyTorch reference implementation (requires uv)
-make ref-setup          # One-time: install Python deps
-make ref-test           # Run PyTorch correctness tests
-make ref-lint           # Lint Python code (ruff)
-make ref-typecheck      # Type-check Python code (pyright)
-make ref-convergence    # NTM convergence verification (copy + recall)
-make ref-convergence-copy      # Copy task only
-make ref-convergence-recall    # Recall task only
-
-# Benchmarks (Idris vs PyTorch timing)
-make bench-py           # Run PyTorch timing benchmark
-make bench-compare      # Side-by-side Idris vs PyTorch comparison
-```
-
-Concrete examples:
-
-```bash
-idris2 --source-dir src -p contrib -o supervised src/Example/Supervised.idr && ./build/exec/supervised
-idris2 --source-dir src -p contrib -o rnn src/Example/Rnn.idr && ./build/exec/rnn
-idris2 --source-dir src -p contrib -o lstm src/Example/Lstm.idr && ./build/exec/lstm
-idris2 --source-dir src -p contrib -o ntm-copy src/Example/NtmCopy.idr && ./build/exec/ntm-copy
-idris2 --source-dir src -p contrib -o ntm-associative-recall src/Example/NtmAssociativeRecall.idr && ./build/exec/ntm-associative-recall
-# LSTM with custom hyperparameters
-./build/exec/lstm --lr 0.1 --epochs 2000 --patience 500 --seed 42
-# NTM copy with custom hyperparameters
-./build/exec/ntm-copy --lr 0.0001 --clip 10.0 --alpha 0.95 --epochs 50000 --seed 42
-# NTM copy with custom early stopping
-./build/exec/ntm-copy --es-threshold 0.001 --es-window 2000 --es-patience 5
-# NTM associative recall with custom hyperparameters
-./build/exec/ntm-associative-recall --lr 0.0001 --epochs 100000 --seed 42 --min-items 2 --max-items 6
-# Hyperparameter sweep (builds once, runs grid in parallel)
-bash scripts/sweep.sh --parallel 4
-# Quick sweep (2000 epochs for fast screening)
-bash scripts/sweep.sh --parallel 4 --quick
-# Sweep for associative recall task
-bash scripts/sweep.sh --task recall --parallel 4
-bash scripts/sweep.sh --task recall --parallel 4 --quick
-# Sweep for LSTM task
-bash scripts/sweep.sh --task lstm --parallel 4
-bash scripts/sweep.sh --task lstm --parallel 4 --quick
+# Hyperparameter sweep
+bash scripts/sweep.sh --task copy --parallel 4         # full
+bash scripts/sweep.sh --task copy --parallel 4 --quick  # 2000 epochs for screening
 ```
 
 ## Architecture
@@ -89,21 +56,17 @@ bash scripts/sweep.sh --task lstm --parallel 4 --quick
 6. **Memory** - NTM read/write head operations
 7. **Variable** - Tape-based autograd (Wengert list) with hybrid Scheme/C storage and C backward pass
 8. **DataPoint** - `DataPoint`, `RecurrentDataPoint`, and `TwoPhaseDataPoint` records
-8b. **Generate** - Random data generation: `SequenceTask` port, `copyTask`/`associativeRecallTask` adapters, `copyTaskBinary`/`recallTaskBinary` (binary vector format), `randomBatchVect`
+8b. **Generate** - Random data generation: `copyTaskBinary`/`recallTaskBinary`, `randomBatchVect`
 9. **Endofunctor** - `emap : (ty -> ty) -> e ty -> e ty` for type-preserving maps
 10. **Layer** - Re-export hub for the interface-based layer system:
-    - **Layer.Core** - `LayerLike` interface, `AnyLayer` existential wrapper, `Network` type, all network-level operations (forward, loss, autoName, sync, debug)
-    - **Layer.Linear** - `LinearState` + `LayerLike` instance + constructors
-    - **Layer.Rnn** - `RnnState` + `LayerLike` instance + constructors
-    - **Layer.Lstm** - `LstmState` + `LayerLike` instance + constructors + buffer-passing helpers
-    - **Layer.Activation** - `ActivationState` + `LayerLike` instance + constructors
-    - **Layer.Normalization** - `NormalizationState` + `LayerLike` instance + constructors
-    - **Layer.Ntm** - `NtmState` + `LayerLike` instance + NTM head ops + constructor (imports Lstm and Linear for concrete sub-layer types)
-11. **Optimizer** - SGD, Adam, and RMSprop optimizers with per-parameter, global norm, or value gradient clipping
+    - **Layer.Core** - `LayerLike` interface, `AnyLayer` existential, `Network` type, network-level ops
+    - **Layer.Linear**, **Layer.Rnn**, **Layer.Lstm**, **Layer.Activation**, **Layer.Normalization** - per-layer `LayerLike` instances
+    - **Layer.Ntm** - `NtmState` + NTM head ops (imports Lstm and Linear for sub-layers)
+11. **Optimizer** - SGD, Adam, and RMSprop with per-parameter, global norm, or value gradient clipping
 12. **Schedule** - Learning rate schedules: `constant`, `cosineAnnealing`, `oneCycle`
-13. **Backprop** - Training loop: `epoch`, `train`, `trainFrom`, `epochRecurrent`, `trainRecurrent`, `trainRecurrentFrom`, `trainScheduledFrom`, `trainRecurrentScheduledFrom`, `epochTwoPhase`, `trainTwoPhaseScheduledFrom`, `epochTwoPhaseDenseBce`
-14. **Curriculum** - Multi-stage curriculum training: `Stage` record, `runCurriculum` with periodic data regeneration and two-level early stopping
-15. **Debug** - Generic forward-pass diagnostics: `debugForward`, `debugForwardRecurrent`, per-layer state extraction, `toDoubleNetwork`
+13. **Backprop** - Training loop: `epoch`, `epochRecurrent`, `epochTwoPhaseDenseBce`, and `train*` variants
+14. **Curriculum** - Multi-stage curriculum training: `Stage` record, `runCurriculum`
+15. **Debug** - Forward-pass diagnostics: `debugForward`, `debugForwardRecurrent`, `toDoubleNetwork`
 
 ### Core type signatures
 
@@ -124,257 +87,91 @@ record Variable where
   tapeGen : Nat           -- tape generation (staleness detection)
   paramId : Maybe String  -- parameter name (Nothing = intermediate)
   value : Double          -- cached forward result
-
--- Layer/Core.idr (interface-based layer system)
-interface LayerLike (l : Nat -> Nat -> Type -> Type) where
-  applyGeneric : ... => {i, o : Nat} -> l i o ty -> Vector i ty -> (l i o ty, Vector o ty)
-  applyVar : {i, o : Nat} -> l i o Variable -> Vector i Variable -> (l i o Variable, Vector o Variable)
-  emapLayer : {i, o : Nat} -> (ty -> ty) -> l i o ty -> l i o ty
-  nameLayer : {i, o : Nat} -> String -> l i o Variable -> l i o Variable
-  -- ... plus showLayer, layerPrefix, toDoubleLayer, debugApply, syncBuffers,
-  --     applyDeltasAndSync, readFromBuffers, resetState, getParamIds
-
--- Existential wrapper: hides concrete layer type behind the interface
-data AnyLayer : Nat -> Nat -> Type -> Type where
-  MkAnyLayer : (l : Nat -> Nat -> Type -> Type) -> LayerLike l => l i o ty -> AnyLayer i o ty
-
--- Network chains AnyLayers (no mutual recursion with any layer type)
-data Network : (inputDims : Nat) -> (hiddenDims : List Nat) -> (outputDims : Nat) -> Type -> Type where
-  OutputLayer : AnyLayer i o ty -> Network i [] o ty
-  (~>) : AnyLayer i h ty -> Network h hs o ty -> Network i (h :: hs) o ty
-
--- Endofunctor.idr
-interface Endofunctor e where
-  emap : (ty -> ty) -> e ty -> e ty
 ```
+
+The `LayerLike` interface + `AnyLayer` existential wrapper provides dynamic dispatch over layer types. `Network` chains `AnyLayer`s via `(~>)`. `Endofunctor`'s `emap` applies type-preserving transforms (e.g., `applyDeltas`). Adding a new layer type = one file implementing `LayerLike`, zero edits elsewhere.
 
 ## Key Patterns
 
-### Network composition with `(~>)`
+### Network composition
 
 ```idris
--- Supervised: linear -> softmax
-ll <- nameParams "ll" <$> linearLayer
-let model = ll ~> OutputLayer softmaxLayer
+ll <- linearLayer
+let model = autoName $ ll ~> OutputLayer softmaxLayer
 
--- NTM: LSTM controller with separate head FCs and output FC
 ntm <- ntmLayer {inputSize = InputW, outputSize = OutputW, n = N, m = M, h = H}
 let model = autoName $ OutputLayer ntm
 ```
 
-### Forward pass returns updated network (state threading)
+### Forward pass (state threading)
 
 ```idris
--- forward dispatches through AnyLayer, returning (updated, output) pairs
 forward : Network i hs o ty -> Vector i ty -> (Network i hs o ty, Vector o ty)
-
--- RNN/NTM layers carry state; linear/activation layers return unchanged
 let (updatedModel, output) = forward model input
 ```
 
 ### Training cycle
 
 ```idris
--- Backprop.idr: forward -> backward (resets tape) -> optimizer step -> apply deltas
+-- Basic: forward -> backward (tape reset) -> optimizer -> apply deltas
 epoch opt dataPoints lossFn model st =
-  let loss = calculateLoss lossFn model dataPoints   -- 1. Forward pass (appends to tape)
-      grads = collectGrads 1.0 loss                  -- 2. Backward + tape reset (gen++)
-      (deltas, st') = opt.step grads st              -- 3. Optimizer computes deltas
-  in (emap (applyDeltas deltas) model, st', loss)    -- 4. Update .value + return loss
+  let loss = calculateLoss lossFn model dataPoints
+      grads = collectGrads 1.0 loss
+      (deltas, st') = opt.step grads st
+  in (emap (applyDeltas deltas) model, st', loss)
 
--- Scheduled training with early stopping:
-let makeOpt = \lr => adamGlobalClip lr 0.9 0.999 1e-8 5.0
-let schedule = oneCycle 0.001 25.0 1e5 0.25 6000
-(model', st', epochsDone) = trainRecurrentScheduledFrom makeOpt schedule model dps lossFn 6000 10 initState
-
--- Two-phase training (NTM copy/recall with binary vectors):
-let opt = rmspropValueClip 0.0001 0.95 1.0e-8 10.0
-let (m', s', loss) = epochTwoPhase opt dataPoints binaryCrossEntropyWithLogits model st
-
--- Dense optimizer (C arrays, no SortedMap — ~47% faster for NTM):
-let numPids = getNumPids 0
-let opt = rmspropValueClipDense 0.0001 0.95 1.0e-8 10.0
-let st0 = initDenseState numPids
-let (m', s', loss) = epochTwoPhaseDense opt dataPoints binaryCrossEntropyWithLogits model st0
-
--- Dense optimizer with C-backed BCE (fused sigmoid + BCE loss, single tape entry):
+-- NTM production: dense optimizer with C-backed BCE
 let opt = rmspropValueClipMomentumDense 0.0001 0.95 1.0e-8 10.0 0.9
 let (m', s', loss) = epochTwoPhaseDenseBce opt dataPoints model st0
 ```
 
-### Supervised vs Recurrent vs TwoPhase API
+### Training modes
 
-The library provides three training modes:
-
-| Aspect | Supervised | Recurrent | TwoPhase |
-|--------|-----------|-----------|----------|
-| Data type | `DataPoint i o ty` | `RecurrentDataPoint i o ty` | `TwoPhaseDataPoint i o ty` |
-| Forward | `forward` | `forwardRecurrent` | `forwardTwoPhase` |
-| Train | `epoch` / `train` | `epochRecurrent` / `trainRecurrent` | `epochTwoPhaseDense` / `trainTwoPhaseScheduledFromDense` |
-| Loss phase | All outputs | All outputs | Output phase only |
-| Use case | Feedforward nets | RNN/LSTM sequences | NTM copy/recall |
+| Mode | Data type | Use case |
+|------|-----------|----------|
+| Supervised | `DataPoint i o ty` | Feedforward nets |
+| Recurrent | `RecurrentDataPoint i o ty` | RNN/LSTM sequences |
+| TwoPhase | `TwoPhaseDataPoint i o ty` | NTM copy/recall (output-phase loss only) |
 
 ### Parameter naming (required for gradient flow)
 
 Every learnable layer must be named before training. Use `autoName` (preferred):
 
 ```idris
-ll <- linearLayer
 let model = autoName $ ll ~> OutputLayer softmaxLayer  -- ll0_weight0, ll0_bias0, ...
-
--- NTM: ntm0_lstm0_weight0 (controller), ntm0_readFc_ll0_weight0, ntm0_mem0, ...
-let model = autoName $ OutputLayer ntm
-```
-
-Manual naming is also available for custom prefixes:
-
-```idris
-ll <- nameParams "ll" <$> linearLayer           -- names: ll_weight0, ll_bias0, ...
-nameNetworkParams "ntm" $ ntm ~> OutputLayer logSoftmaxLayer  -- recursive naming
-```
-
-### Endofunctor for type-preserving transforms
-
-`emap` maps `(ty -> ty)` over Layer/Network without changing shape types. Used by `applyDeltas` in training:
-
-```idris
--- Apply optimizer deltas to all parameters
-emap (applyDeltas deltas) model
-```
-
-### Data preparation (Double -> Variable)
-
-Raw data is `Double`; training requires `Variable`. Convert with `map fromDouble`:
-
-```idris
-let prepared = map (map fromDouble) dataPoints  -- DataPoint i o Double -> DataPoint i o Variable
 ```
 
 ### Curriculum training
 
-Multi-stage training with periodic data regeneration. Each `Stage` encapsulates a label, advancement threshold, and an `IO` data generator:
-
-```idris
-import Curriculum
-
-stages : List (Stage W W BatchSize)
-stages =
-  [ MkStage "Stage 1 (len 1-3)" 0.15 (genData 1 3)
-  , MkStage "Stage 2 (len 1-5)" 0.10 (genData 1 5)
-  , MkStage "Stage 3 (len 1-8)" 0.0  (genData 1 8)
-  ]
-
-(trained, st', epochsDone) <- runCurriculum makeOpt schedule model
-  nllLoss stages totalEpochs patience chunkSize initState
-```
-
-The module is generic over network architecture and data generation — it doesn't know about copy tasks or NTM-specific types.
+Multi-stage training via the `Curriculum` module. Each `Stage` has a label, advancement threshold, and `IO` data generator. `runCurriculum` handles stage progression and two-level early stopping. Not required for LSTM-controller NTMs.
 
 ### Debug / diagnostics
 
-Convert a trained `Variable`-typed network to `Double` and run the debug forward pass to dump per-timestep internal state:
-
 ```idris
-import Debug
 let dblModel = toDoubleNetwork trained
 let (_, _, snapshots) = debugForwardRecurrent dblModel inputs
 printDiagnostics "label" snapshots
 ```
 
-## Adding New Examples
+## Workflows
 
-When adding a new model/example to the project, follow this workflow in order:
+### Adding new examples
 
-1. **Source reference implementation** — find a paper or established implementation to use as ground truth for architecture, hyperparameters, and expected convergence behavior. Add to the References section above
-2. **Write PyTorch implementation** — port the reference into `pytorch/torch_ref/models/`, add correctness tests in `pytorch/torch_ref/correctness/`, add a benchmark function in `pytorch/torch_ref/benchmark.py`, and wire it into `pytorch/torch_ref/compare.py`. Verify with `make ref-test && make ref-lint && make ref-typecheck`
-3. **Write idris-ml implementation** — implement in `src/Example/`, add to `src/Example/Bench.idr`, and add a Makefile target. Verify with `make test && make bench-compare`
+1. **Source reference** — find paper/implementation for ground truth. Add to References
+2. **PyTorch implementation** — port to `pytorch/torch_ref/models/`, add tests + benchmark. Verify: `make ref-test && make ref-lint && make ref-typecheck`
+3. **Idris implementation** — implement in `src/Example/`, add to `Bench.idr` + Makefile. Verify: `make test && make bench-compare`
 
-Commit at each step. The PyTorch implementation serves as the correctness oracle for the Idris version.
+Commit at each step. PyTorch is the correctness oracle.
 
-## Performance Optimization
+### Performance optimization
 
-When investigating or improving performance, follow this workflow:
+- **Profile first**: `make profile` — sub-phase timing + tape histogram. Keep `Profile.idr` in sync with production config
+- **Benchmark**: `make bench-compare` — always compare at same batch size (current: 16)
+- **Sweep**: `bash scripts/sweep.sh` — systematic grid search, never manually loop
+- **Convergence**: `make ref-convergence-copy` vs `./build/exec/ntm-copy` at matched settings
+- **Document**: update `docs/performance-analysis.md` with fresh profile data + results
 
-### 1. Profile first
-
-Always profile before optimizing. Use the sub-phase profiler to identify where time is actually spent:
-
-```bash
-make profile    # Per-sub-phase timing: Enc/Out/Loss/Bwd/Opt/Sync + tape histogram
-```
-
-Key files:
-- `src/Example/Profile.idr` — sub-phase profiler (must match current training config)
-- `docs/performance-analysis.md` — historical profile data and optimization log
-
-Profile.idr must stay in sync with production training config (optimizer, batch size, etc.). When changing training hyperparameters, update Profile.idr to match.
-
-### 2. Benchmark at matched settings
-
-Compare Idris vs PyTorch at identical batch size, architecture, optimizer:
-
-```bash
-make bench-compare    # Side-by-side timing for all models at production batch size
-```
-
-Key files:
-- `src/Example/Bench.idr` — Idris benchmark scenarios
-- `pytorch/torch_ref/benchmark.py` — PyTorch benchmark scenarios (must mirror Idris)
-- `pytorch/torch_ref/compare.py` — runs both and prints comparison table
-
-**Important**: Always compare at the same batch size. Current production batch size is 16. The ratio from bench-compare is the ground truth for per-epoch speed — convergence comparisons can be misleading if batch sizes differ.
-
-### 3. Tune hyperparameters with sweep
-
-Use the sweep script for systematic grid search — never manually loop:
-
-```bash
-bash scripts/sweep.sh --task copy --parallel 4 --quick  # 2000 epochs for screening
-bash scripts/sweep.sh --task copy --parallel 4           # full convergence
-```
-
-Key file: `scripts/sweep.sh` — must stay in sync with current CLI flags for each task.
-
-### 4. Run convergence comparison
-
-After tuning, compare end-to-end convergence at matched settings:
-
-```bash
-make ref-convergence-copy    # PyTorch convergence (batch=16 default)
-./build/exec/ntm-copy        # Idris convergence (uses defaultConfig)
-```
-
-Key file: `pytorch/torch_ref/scripts/convergence.py` — PyTorch convergence defaults must match Idris defaults (batch size, lr, etc.).
-
-### 5. Document results
-
-Update `docs/performance-analysis.md` with:
-- Fresh profile data (sub-phase breakdown + tape histogram)
-- bench-compare numbers (Idris vs PyTorch ratio)
-- Convergence comparison results
-- What changed and why
-
-### Current performance baseline (2026-03-06)
-
-Per-epoch at batch=16 (NTM-copy, N=128 M=20 H=100):
-- Forward (Enc+Out): ~74ms | Backward: ~15ms | Tape: 1.48M entries
-- Idris/PyTorch ratio: **0.87x** (Idris faster)
-- Convergence batch=16 (seed=123): converges at ~3600 epochs (97% short, 99% full accuracy)
-- Convergence batch=1 (seed=42): converges at ~9300 epochs (100% short, 100% full accuracy)
-- PyTorch alignment changes applied: C-backed BCE, zero forget bias, no output clamping, learned h0/c0, lr=1e-4, per-sequence NtmMemBuf reset, NtmMemBuf delta application fix
-- PyTorch-side optimizations applied: BCEWithLogitsLoss (fused kernel, model returns logits), F.softplus, direct nn.Parameter for h0/c0/memory_init (no FC wrappers), momentum=0.9 in all NTM benchmarks
-- NTM recall: uses `rmspropValueClipMomentumDense` (momentum=0.9), matching copy task and PyTorch reference
-
-### Performance optimization history
-
-Optimizations applied to NTM-copy (from 1.38s/epoch to 0.145s/epoch, ~10x):
-1. Buffer-passing for addressing chain ops (eliminate Variable materialization)
-2. Shadow ConstOps (tape compaction for intermediate outputs)
-3. C-side pid filtering in backward pass
-4. Dense optimizer (C arrays replace SortedMap)
-5. C-bulk ConstOp creation (memset+memcpy)
-6. C-bulk delta application (bypass emap+sync)
-7. LSTM→FC buffer-passing + case destructuring fix (eliminate 3x re-eval)
+See `docs/performance-analysis.md` for current baseline and optimization history.
 
 ## Conventions
 
@@ -387,56 +184,49 @@ Optimizations applied to NTM-copy (from 1.38s/epoch to 0.145s/epoch, ~10x):
 
 ## Gotchas
 
-- **Temporary test files**: Idris2 requires source files to be in `--source-dir`. Never put test files in `/tmp` — they won't compile. Instead, add temporary test files to `src/Example/` and remove them after debugging
-- **`total` is a keyword**: Idris 2 reserves `total` as a totality annotation keyword. Never use it as a variable/parameter name — produces a cryptic "Couldn't parse declaration" error at the definition clause. Use `numEpochs`, `totalEpochs`, etc. instead
-- **Build flags**: Forgetting `--source-dir src` or `-p contrib` produces confusing import errors
-- **Elementwise `(*)`**: `Tensor`'s `Num` instance uses elementwise multiply. For matrix-vector products, use `matrixVectorMultiply` or `vectorMatrixMultiply` from Math.idr
-- **`paramId` requirement**: Variables without a `paramId` (i.e., `Nothing`) are invisible to gradient collection and won't receive updates. Use `autoName` (preferred) or `nameParams`/`nameNetworkParams` before training. `autoName` assigns type-based prefixes with per-type counters (`ll0`, `ll1`, `rnn0`, `lstm0`, `ntm0`, ...) and scopes NTM sub-layer names under their parent (`ntm0_lstm0_`, `ntm0_readFc_ll0_`), preventing the collision bug in `nameNetworkParams`. `setParamId` writes to both the Variable record and the tape's pid vector
-- **Test suite**: Run `make test` for Idris unit tests, `make test-c` for C tests. Tests live in `test/src/Test/*.idr` with `Harness.idr` providing assertion helpers
-- **Tape generation staleness**: After `collectGrads` resets the tape (gen++), Variables from the previous epoch are stale. `ensureOnTape` detects this via generation mismatch and re-registers with current `.value`. Same stale Variable used N times creates N Const entries — gradients accumulate correctly via `mergeWith (+)` on paramId
-- **Interface-based layer system**: The `LayerLike` interface + `AnyLayer` existential wrapper eliminates all mutual recursion. Each layer type lives in its own module. `AnyLayer` stores the type constructor as a non-erased parameter (`(l : Nat -> Nat -> Type -> Type)`) for interface dispatch after pattern matching. All interface methods need explicit `{i, o : Nat}` because Idris 2 QTT erases Nat type parameters by default. Instance heads for types with extra parameters (e.g., `NtmState n m h`) use `{n, m, h : Nat} -> LayerLike (NtmState n m h)` to make those Nats accessible. Adding a new layer type = one file implementing `LayerLike`, zero edits elsewhere
-- **NTM dimension calculations**: `ReadParamWidth m = (m + ShiftKernelSize) + 3` (key of width m + 3-element shift kernel + 3 dynamic params: β, g, γ). `WriteParamWidth m = ReadParamWidth m + m` (addressing params + add vector of width m). The LSTM controller input is `m + inputSize` (read output + input). The output FC input is `h + m` (hidden + read output). The `ntmLayer` constructor takes `{inputSize, outputSize, n, m, h}` as implicit args
-- **NTM head parameters**: β (key strength), g (interpolation gate), γ (sharpening) are dynamic — extracted from head FC outputs (fed by LSTM cell state). β uses softplus, g uses sigmoid, γ uses `1 + softplus(x)` (unbounded, [1, ∞)). Add vectors are raw linear (no activation). See `forwardReadHeadUnbounded`/`forwardWriteHeadInterp` in Memory.idr
-- **NTM state flow**: `readHeadOutput` from the previous timestep concatenates with current input to form LSTM input (width `m + inputSize`). LSTM cell state feeds head FCs, hidden state + read output feeds output FC. Memory, addressing weights, and read output all update each step
-- **NTM batch size**: Copy task converges well with batch=16 (uniform encode-then-decode structure, consistent gradient signal across sequences). Recall task requires batch=1 (online learning) — variable item counts (2-6), random query positions, and content-based retrieval create a complex optimization landscape with many local minima. Batch averaging dilutes the per-sequence addressing signal that the NTM needs to learn distinct write slots and query-triggered retrieval. All reference implementations (Graves 2014, Collier & Beel 2018, vlgiitr) use batch=1 for recall and train for 100K+ iterations. The snipsco/ntm-lasagne implementation found recall gets stuck in local minima even at 500K iterations with larger batches. Default: `NtmCopy.idr` uses batch=1 (seed=42 converges at ~9300 epochs; seed=123 does not converge — batch=1 is seed-sensitive), `NtmAssociativeRecall.idr` uses batch=1
-- **NTM two-phase training**: copy/recall use `epochTwoPhaseDenseBce` — encoding inputs fed with outputs discarded, then zero inputs fed during output phase with loss on targets. The C-backed `bceWithLogitsVar` (tag 26) fuses sigmoid + BCE into a single tape entry per output vector, replacing ~7 scalar ops per element. No output activation layer needed
-- **`logSoftmax` + `nllLoss`**: Separate softmax + cross-entropy creates autograd intermediate gradients of 1/pp (up to 1e6) that destabilize recurrent training. Use `logSoftmaxLayer` + `nllLoss` instead. Note: the aligned NTM uses sigmoid + BCE instead, which doesn't have this issue
-- **`pow` zero-base NaN**: `pow(0, k)` backward for the exponent computes `0^k * log(0) = 0 * -Inf = NaN`. Fixed by returning 0 when base is 0
-- **Detached max in `logSoftmax`**: The max subtraction for numerical stability uses a detached constant (`fromDouble . cast`), not a reference to the max Variable. Otherwise the max element receives incorrect gradients
-- **Hybrid tape architecture**: Forward pass uses Scheme `foreign-set!` for scalar tape entries (tags/arg1/arg2/vals into `foreign-alloc` arrays — no FFI crossing) and C `ext_meta_set` for tensor op meta pointers (arena-allocated structs). Backward pass runs entirely in C via `walk_backward_ext`, reading meta from `ext_meta` array. PIDs stored in Scheme vector, looked up after C backward returns indices. `foreign-set! 'void*` MUST NOT be used for storing C pointers — it corrupts memory in Chez Scheme
-- **Chunked arena allocator**: Meta structs AND tensor op output buffers are arena-allocated via `arena_alloc` (`prim__tensorAllocArena`). The arena uses a linked list of chunks (never `realloc`) to prevent invalidating previously allocated pointers when the arena grows mid-forward-pass. Reset frees old chunks and resets the head chunk. Output buffers are safe to arena-allocate because values are read into Variable records during `buildOutputScalars`/`buildVarsFromBuf` before `arena_reset`. `prim__tensorAlloc` (calloc) is still used for persistent WeightBuf allocations
-- **Tape-based backward pass**: `collectGrads` allocates a mutable gradient array via FFI, seeds it with the initial gradient, then `walk_backward_ext` scans the tape in reverse in C. Scalar ops propagate inline; tensor ops dispatch to C backward kernels. ConstOps with non-zero gradient are collected as (index, grad) pairs. Scheme looks up PIDs and builds `SortedMap`. The tape is reset at the end of `collectGrads` (gen++)
-- **Zero-arg FFI CSE trap**: Idris 2 compiles zero-argument `%noinline` definitions as constants evaluated once at load time. `tapeGeneration` must take a dummy argument (the tape index) passed through to `prim__tapeGen` to prevent the Chez backend from caching the result. This also applies to any other FFI wrapper reading mutable state
-- **FFI side-effect threading**: `let _ = ffiCall` is dropped by the compiler. FFI functions with side effects must return a value that is used in subsequent computation. `prim__gradAdd` returns the handle (`AnyPtr`), enabling handle threading through the backward pass. Dense optimizer steps use `prim__seq result st.v` to force evaluation: `let result = prim__rmspropVcStep ... in { v := prim__seq result st.v } st`. Without this, the optimizer call is silently eliminated and raw gradients are applied as deltas (lr/clip/momentum have zero effect)
-- **`fst`/`snd` re-evaluation trap**: When a function with FFI side effects returns a tuple and the caller accesses fields via separate `fst`/`snd` projections (e.g., `fst result`, `snd result`, `fst result` again), Idris 2 compiled to Chez Scheme may re-evaluate the function call for each projection instead of sharing the result. This causes FFI side effects (tape appends, buffer allocations) to execute multiple times. Fix: use `case f args of (a, b, c) => ...` to destructure in a single pattern match. This was a 3× re-evaluation bug in the NTM forward pass — the LSTM controller was called 3 times per timestep instead of once
-- **Gradient clipping**: `adam` clips per-parameter; `adamGlobalClip` clips by global L2 norm (preserves gradient direction). Use `adamGlobalClip` for attention/recurrent models where parameters must coordinate — per-parameter clipping distorts direction and causes periodic loss spikes. Default maxNorm is 50.0 (Collier & Beel); 5.0 was too aggressive
-- **Controller output clipping (removed)**: Previously `applyLayerVar` clamped raw NTM controller output to [-20, 20] via `clampVar`. Removed to match PyTorch reference which has no output clamping. The LSTM controller + RMSprop + value clip ±10 provide sufficient stability without artificial clamping
-- **NTM early stopping**: NTM examples (copy/recall) use windowed-average convergence checking instead of best-loss patience. Parameters: `esThreshold` (default 0.01), `esWindow` (default 1000 epochs), `esPatience` (default 3 consecutive checks). Every 100 accumulated epochs, computes interval average loss, then averages the last `esWindow/100` intervals. Stops when this window average < threshold for `esPatience` consecutive checks. CLI flags: `--es-threshold`, `--es-window`, `--es-patience`. The LSTM example still uses the old best-loss patience mechanism
-- **Curriculum learning**: Available via the Curriculum module for staged training. The PyTorch-aligned NTM (LSTM controller + RMSprop) does not require curriculum — it converges directly with two-phase training. Curriculum was previously required for feedforward controllers (ajithcodesit finding)
-- **No tanh memory bounding**: Interpolation write uses raw interpolation (no tanh) to match the PyTorch reference. The Collier & Beel tanh recommendation was for the original erase+add write mechanism, not interpolation write. Tanh caused cumulative degradation during output phase (near-zero write weights still applied tanh every timestep). `tanhBound` in Layer.idr is only used for LSTM gates, not NTM memory. The C kernel `interp_write_compute` supports both modes via `raw_mode` flag (1=raw, 0=tanh); Idris always sets raw_mode=1
-- **NTM initial addressing**: Read/write addressing weights are initialized to zeros and read output to Kaiming uniform (non-learnable, matching PyTorch reference). `syncLayerBuffers` projects addressing weights onto the probability simplex via `projectWeights` (clamp to [0, epsilon], renormalize) to prevent NaN from `pow(negative, non-integer)` in `focus`
-- **Hyperparameter tuning**: Fix algorithmic issues first (bounded activations, correct clipping, efficient backward pass), then use `scripts/sweep.sh` for systematic grid search. Never manually loop over hyperparameters — see `docs/design-decisions.md` for rationale
-- **C shared library required**: `build/libidrisml.dylib` must exist before running any example. Build with `make build/libidrisml.dylib`. The library is loaded by the generated Chez Scheme code at startup. Idris 2 copies the dylib to `build/exec/<name>_app/` at compile time — the Makefile targets also copy it explicitly to ensure the latest version is used. When building manually (not via `make`), you must copy the dylib to the app dir after rebuilding: `cp build/libidrisml.dylib build/exec/<name>_app/`
-- **Scheme-native C memory access**: Use Chez Scheme's `foreign-ref`/`foreign-set!` for reading/writing C-allocated arrays instead of calling C functions per element. This avoids the Scheme→C boundary crossing overhead. See `prim__gradAdd`/`prim__gradGet` and `prim__setDouble`/`prim__setInt32` in Variable.idr
-- **`prim__seq` for evaluation ordering**: When two FFI side-effect chains must execute in order but have no data dependency, use `prim__seq a b` (Scheme `(lambda (a b) b)`) to force `a` to evaluate before `b` is used. Chez Scheme evaluates function arguments strictly
-- **Tensor Foldable reversal**: The `foldr` instance for `Tensor` processes elements in reversed order (head into accumulator first). `toList` produces elements backwards. Use direct `Vect` traversal instead when element order matters (e.g., packing into C buffers)
-- **Weight initialization**: `linearLayer`/`rnnLayer` default to Xavier uniform. Biases are always zero. Init strategies compose a variance method with a distribution sampler: `xavier uniform` (default), `xavier normal`, `he normal`, `xavierGain 1.4 uniform`, etc. Use `linearLayerWith (fixedRange 1.0)` for the old `U(-1,1)` behavior. Use `linearLayerWithBias initFn biasStd` for custom bias init (normal with given std). NTM head FCs use `xavierGain 1.4 uniform` + `normal(0.01)` bias, output FC uses `he uniform` + `normal(0.01)` bias (matching PyTorch reference). NTM memory initialized to `sigmoid(xavier_random)` ≈ values in [0,1] (matching PyTorch's `sigmoid(FC_bias)`). Read output uses kaiming uniform. `Sampler.idr` provides `uniform` and `normal` (Box-Muller); `Init.idr` provides `xavier`, `xavierGain`, `he`, `lecun`, `fixedRange`
-- **C-backed softmax/logSoftmax**: `softmaxVar`/`logSoftmaxVar` in Variable.idr use C kernels and record a single SoftmaxOp/LogSoftmaxOp tape entry per vector instead of ~29 scalar entries. `applyLayerVar` dispatches NormalizationLayer "softmax"/"logSoftmax" to these
-- **C-backed NTM memory ops**: `batchCosineSimilarityVar`, `readOpVar`, `writeOpVar`, `interpolationWriteVar` in Variable.idr use C kernels (BatchCosSimOp/ReadOpOp/WriteOpOp/InterpolationWriteOp, tags 15-18) to reduce tape entries per NTM timestep. `forwardReadHeadUnboundedVar`/`forwardWriteHeadInterpVar` in Layer.idr wire these into the Variable-specialized NTM forward pass. Generic `forwardReadHeadUnbounded`/`forwardWriteHeadInterp` in Memory.idr remain parameterized on `NormalizationFunction ty` for the Double path
-- **C-backed addressing ops**: `interpolateVar`, `shiftVar`, `focusVar` in Variable.idr use C kernels (InterpolateOp/ShiftOp/FocusOp, tags 21-23) replacing ~1400 scalar tape entries per head with 3 tensor ops. `shiftVar` takes a pre-softmax'd kernel (apply `softmaxVar` first). Used in both `forwardReadHeadUnboundedVar` and `forwardReadHeadUnboundedVarBuf` in Layer.idr
-- **C-backed LSTM cell op**: `lstmCellVar` in Variable.idr uses a C kernel (LstmCellOp, tag 24) fusing bias add + gate activations (sigmoid/tanh) + cell/hidden update into a single tape entry. Replaces ~1700 scalar entries per LSTM timestep with 1. The two matmul ops (iW×x, rW×h) remain as separate MatVecOps. `applyLayerVar` in Layer.idr dispatches to `lstmCellVar` for the Variable-specialized LSTM path
-- **C-backed BCE with logits**: `bceWithLogitsVar` in Variable.idr uses a C kernel (BceWithLogitsOp, tag 26) fusing sigmoid + BCE loss into a single tape entry per output vector. Forward: `(1/n) * sum_i [max(p_i,0) - p_i*y_i + log(1+exp(-|p_i|))]`. Backward: `d_p_i = (1/n) * (sigmoid(p_i) - y_i) * d_loss` (gradients to predictions only, not targets). `epochTwoPhaseDenseBce` in Backprop.idr uses this directly instead of the scalar `binaryCrossEntropyWithLogits`. Meta stored via Scheme-side `ext_meta_set` (NOT C-side `tape_meta`) to match `walk_backward_ext` dispatch
-- **Persistent NtmMemBuf**: NTM memory matrix kept as persistent `NtmMemBuf` C struct across timesteps. Eliminates 4× per-timestep packMatrix (2560 elements each). Buffer initialized in `nameParams`, synced after `applyDeltas` via `syncLayerBuffers`, epoch-cached tape registration via `prim__ntmMemBufEnsure`. Buffer-aware ops: `batchCosineSimilarityVarBuf`, `readOpVarBuf`, `interpolationWriteVarBuf` in Variable.idr. **Per-sequence reset**: NtmMemBuf stores `initial_vals` (snapshotted at init and after optimizer deltas). `prim__ntmMemBufReset` restores `vals` from `initial_vals` and invalidates cache (forces tape re-registration). `resetNtmMemBufs` in Layer.idr reconstructs the Network with the reset buffer, called before each sequence in `calculateLossTwoPhaseVar`/`VarBce` to prevent cross-sequence mutation
-- **Bias WeightBuf**: LinearLayer and LstmLayer have bias WeightBuf fields (`bBuf : Maybe AnyPtr`) alongside weight WeightBufs. `nameParams` allocates them, `syncLayerBuffers` syncs after `applyDeltas`. LinearLayer fuses MatVec+Bias in a single C kernel (`matrixVectorMultiplyVarBufBias`). LstmLayer reads bias from WeightBuf in the C LSTM cell kernel (`lstmCellVarBuf`/`lstmCellVarFromBufs`). Eliminates per-timestep bias re-registration (~160K tape entries/epoch)
-- **Learned LSTM h0/c0**: LstmLayer has `h0Buf : Maybe AnyPtr` and `c0Buf : Maybe AnyPtr` fields for learnable initial hidden/cell states. Initialized with Xavier uniform in `lstmLayerWith`. Named as `prefix_h0`/`prefix_c0` in `nameParams`, allocated as WeightBufs. Synced via `applyDeltasAndSyncLayer`/`readFromBuffersLayer`. Matches PyTorch reference's `nn.Parameter(torch.zeros(...))` learnable initial states
-- **Buffer-passing MatVec→LstmCell**: `matrixVectorMultiplyVarBufOut` returns raw `(AnyPtr, Int)` buffer+tapeStart instead of Variables. `lstmCellVarFromBufs` consumes these directly via `buf_to_meta` C helper, avoiding `buildOutputScalars`+`packVec` roundtrip for 2×4o intermediate elements per LSTM timestep
-- **Bulk buildOutputScalars**: `prim__appendOutputConstOff` bulk-appends ConstOps from a C buffer with offset in a single Scheme FFI call (internal loop), replacing per-element `tapeAppendConst`. `buildVarsFromBuf` reads values with sequential tape indices. Used by all tensor op output paths
-- **Shadow ConstOps (tag=25)**: Buffer-passing ops (`*BufOut`, `*BufIO`) create shadow ConstOps instead of regular output ConstOps. These provide gradient slots without values/pids — skipped during backward collection (`if (tag == 25) continue`). Tags set via C bulk `tape_set_shadow_tags` instead of per-element Scheme `foreign-set!`. Shadow ConstOps still occupy tape entries; full elimination requires gradient region reservation (not yet implemented)
-- **C-side pid filtering**: `walk_backward_ext` filters ConstOps by integer `pid_id` (C-side `tape_pid_ids` array, parallel to tape). Only collects ConstOps with `pid_id >= 0` (named parameters). Dense pid_ids assigned via Scheme `pid-to-id` hash table in `prim__tapeSetParamId`. Set in three paths: `prim__tapeSetParamId` (initial naming), `prim__tapeAppendConst` (stale re-registration), `prim__tapeEnsureBulkConst`/`prim__ntmMemBufEnsure` (WeightBuf/NtmMemBuf). Reset via `tape_pid_ids_reset` after backward
-- **out_tape_start semantics**: Tensor op meta structs store `out_tape_start = idx + 1` (first output gradient index, NOT the op entry index). Backward kernels read `meta->out_tape_start` directly without `+1`. Set by `tensor_op_set_out(tag, meta, idx+1)` during `prim__tapeAppendTensorOp`
-- **Dense optimizer**: `DenseOptimizer`/`DenseOptimizerState` in Optimizer.idr use C arrays indexed by integer pid_id instead of `SortedMap String Double`. `collectGradsDense` accumulates gradients into a pre-allocated C array during backward (no per-result FFI calls, no SortedMap inserts). The gradient array is persistent across epochs via `grad_alloc_reuse` (calloc once, memset-zero on reuse). Optimizer step functions (`rmsprop_vc_step`, `sgd_step`, `adam_gc_step`) operate in-place on the array. Dense epoch functions use `applyDeltasAndSyncNetwork` which applies deltas directly to C buffers via `buf_apply_deltas` (bypassing `emap` + `syncLayerBuffers`). NTM examples use this path via `epochTwoPhaseDense`; supervised/LSTM examples still use the original `SortedMap` path. Must call `getNumPids 0` after `autoName` to get the parameter count for `initDenseState`
-- **C-bulk delta application**: `applyDeltasAndSyncLayer`/`applyDeltasAndSyncNetwork` in Layer.idr apply optimizer deltas directly to WeightBuf/NtmMemBuf C arrays via `buf_apply_deltas(vals, pid_ids, count, deltas)`. Each buffer stores a parallel `int *pid_ids` array (populated during `nameParams`). This bypasses the Scheme `emap (applyDeltasDense ...)` + `syncNetworkBuffers` traversals (~63K Variable operations). WeightBuf pid_ids stored in Scheme 6-vector slot [4]; NtmMemBuf pid_ids stored in C struct field. Cache generations are reset to force tape re-registration next epoch. **Important**: Variable.value fields are NOT updated — call `readFromBuffersNetwork` before `toDoubleNetwork` to sync C buffer values back into Variable records for evaluation
-- **Chez Scheme output buffering**: Stdout is fully buffered when redirected to file/pipe (e.g. background tasks). Use `stdbuf -oL ./build/exec/<name>` to force line-buffering for long-running training
-- **Periodic GC for long training**: NTM training (50K+ epochs) OOMs without periodic forced GC. `forceGC` (exported from Variable.idr) calls Chez `(collect (collect-maximum-generation))` with `(heap-reserve-ratio 1.0)` every 10 epochs in NTM training loops. The `heap-reserve-ratio 1.0` minimizes retained heap (default ~2.0 retains 2x live data), and max-generation collection is more thorough. The FFI lambda must take 0 args — `%World` is erased in Chez Scheme's PrimIO calling convention
-- **`getRssMB` peak RSS tracking**: `getRssMB` (exported from Variable.idr) returns peak RSS in MB via C `get_rss_mb` (`getrusage(RUSAGE_SELF).ru_maxrss`). Takes a dummy `Nat` arg to prevent CSE (pass epoch number at call sites). Returns peak (high-water mark) RSS, not current — it only goes up. Division to MB done in C to avoid 64-bit return value issues. Used in training loop logs and bench output
-- **`getCurrentRssMB` current RSS**: `getCurrentRssMB` (exported from Variable.idr) returns current resident memory in MB via `mach_task_info` on macOS. Unlike `getRssMB` (peak), this reflects actual current usage and can decrease after GC. Returns -1 on non-macOS platforms
+See [`docs/gotchas.md`](docs/gotchas.md) for detailed explanations of each entry.
+
+### Idris 2 / Chez Scheme traps
+
+- **`total` is a keyword**: never use as a variable name — cryptic parse error. Use `numEpochs`, `totalEpochs`
+- **Build flags**: forgetting `--source-dir src` or `-p contrib` produces confusing import errors
+- **Temporary test files**: Idris2 requires source files in `--source-dir`. Put temp files in `src/Example/`, not `/tmp`
+- **Elementwise `(*)`**: `Tensor`'s `Num` uses elementwise multiply. Use `matrixVectorMultiply` for matvec
+- **Tensor Foldable reversal**: `foldr`/`toList` produce reversed order. Use direct `Vect` traversal for ordered packing
+- **Zero-arg FFI CSE trap**: zero-arg `%noinline` defs are constants (evaluated once). Pass a dummy arg through to the FFI call
+- **FFI side-effect threading**: `let _ = ffiCall` is dropped. FFI must return a value consumed by later computation
+- **`fst`/`snd` re-evaluation**: separate projections may re-evaluate FFI calls. Use `case ... of (a, b) =>` destructuring
+- **`prim__seq` ordering**: use `prim__seq a b` to force evaluation order when no data dependency exists
+- **`foreign-set! 'void*` corruption**: do NOT store C pointers via `foreign-set! 'void*` — corrupts memory. Use C helpers
+- **Chez output buffering**: stdout fully buffered when piped. Use `stdbuf -oL ./build/exec/<name>`
+- **C shared library required**: build `libidrisml.dylib` first. Manual builds need `cp build/libidrisml.dylib build/exec/<name>_app/`
+
+### Training & numerics
+
+- **`paramId` / autoName**: variables without paramId are invisible to gradients. Always `autoName` before training
+- **Tape generation staleness**: after `collectGrads` (tape reset, gen++), old Variables are stale. `ensureOnTape` handles this transparently
+- **`logSoftmax` + `nllLoss`**: separate softmax+CE creates 1/pp intermediates (up to 1e6). Use `logSoftmaxLayer` + `nllLoss`
+- **`pow` zero-base NaN**: `pow(0, k)` backward = `0^k * log(0) = NaN`. Fixed: return 0 when base is 0
+- **Detached max in `logSoftmax`**: max subtraction uses detached constant to avoid corrupting max element's gradient
+- **Gradient clipping**: `adamGlobalClip` for recurrent models (preserves direction). Per-param clipping distorts direction
+- **Periodic GC**: NTM 50K+ epochs OOMs without `forceGC` every 10 epochs. Uses `heap-reserve-ratio 1.0`
+- **RSS tracking**: `getRssMB` (peak, monotonic) and `getCurrentRssMB` (current, macOS only). Both take dummy args to prevent CSE
+
+### NTM-specific
+
+- **Dimension calculations**: `ReadParamWidth m = m + ShiftKernelSize + 3`, `WriteParamWidth m = ReadParamWidth m + m`. LSTM input: `m + inputSize`, output FC input: `h + m`
+- **Head parameters**: β=softplus, g=sigmoid, γ=1+softplus (unbounded). Add vectors are raw linear. See Memory.idr
+- **State flow**: previous read output + current input → LSTM. Cell state → head FCs. Hidden + read output → output FC
+- **Two-phase training**: `epochTwoPhaseDenseBce` — encode with outputs discarded, decode with loss on targets. No output activation layer (C-backed fused sigmoid+BCE)
+- **Batch size**: copy and recall use batch=1 (seed-sensitive). Larger batches dilute per-sequence addressing signal
+- **No tanh memory bounding**: raw interpolation write matches PyTorch reference. Tanh was for erase+add, causes cumulative degradation with interpolation
+- **Initial addressing**: weights initialized to zeros (projected to simplex), read output to Kaiming uniform. Non-learnable, reset per sequence
+- **Early stopping**: windowed-average convergence (`--es-threshold`, `--es-window`, `--es-patience`). LSTM example uses old best-loss patience
+
+### Architecture & infrastructure
+
+- **Interface-based layer system**: `LayerLike` + `AnyLayer` existential. Explicit `{i, o : Nat}` needed on all methods (QTT erases Nat params). Adding a layer = one file, zero edits elsewhere
+- **Dense optimizer**: NTM uses C-array optimizer (`epochTwoPhaseDenseBce`). Call `getNumPids 0` after `autoName`. Call `readFromBuffersNetwork` before `toDoubleNetwork` (C buffers don't update Variable.value)
+- **Persistent NtmMemBuf**: memory matrix in C struct across timesteps. Reset per sequence via `resetNtmMemBufs`. `initial_vals` snapshotted after optimizer deltas
+- **Test suite**: `make test` (Idris), `make test-c` (C). Tests in `test/src/Test/*.idr`, `Harness.idr` for assertions
+- **Curriculum learning**: available via `Curriculum` module. Not needed for LSTM-controller NTMs — converges directly with two-phase training
