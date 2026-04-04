@@ -45,6 +45,9 @@ TensorHandle tensor_tanh(TensorHandle t);
 TensorHandle tensor_add_scalar(TensorHandle t, double s);
 TensorHandle tensor_mul_scalar(TensorHandle t, double s);
 
+/* Clamp: element-wise max(t, min_val). Returns new tensor. */
+TensorHandle tensor_clamp_min(TensorHandle t, double min_val);
+
 /* ---------- Reduction ---------- */
 
 TensorHandle tensor_sum(TensorHandle t);

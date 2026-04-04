@@ -84,7 +84,7 @@ enum {
     OP_BCE_WITH_LOGITS,
     OP_NTM_READ_HEAD, OP_NTM_INTERP_WRITE,
     OP_LSTM_GATES,
-    OP_ADD_SCALAR, OP_MUL_SCALAR,
+    OP_ADD_SCALAR, OP_MUL_SCALAR, OP_CLAMP_MIN,
     OP_STACK,     /* stack of scalar tensors into 1D */
     OP_RESHAPE,   /* reshape (view) — grad passes through unchanged */
     OP_SELECT,    /* select element from vector — grad goes to parent[index] */
@@ -288,6 +288,22 @@ TensorHandle tensor_mul_scalar(TensorHandle ha, double s) {
     double val = a->data[0] * s;
     Tensor* r = make_scalar(val, a->requires_grad);
     if (r->requires_grad) tape_append(OP_MUL_SCALAR, r, a, NULL, s);
+    return r;
+}
+
+TensorHandle tensor_clamp_min(TensorHandle ha, double min_val) {
+    Tensor* a = (Tensor*)ha;
+    int n = a->numel;
+    double* data = malloc(n * sizeof(double));
+    for (int i = 0; i < n; i++) data[i] = fmax(a->data[i], min_val);
+    Tensor* r;
+    if (n == 1) {
+        r = make_scalar(data[0], a->requires_grad);
+    } else {
+        r = make_tensor(data, a->shape, a->rank, a->requires_grad);
+    }
+    free(data);
+    if (r->requires_grad) tape_append(OP_CLAMP_MIN, r, a, NULL, min_val);
     return r;
 }
 
@@ -778,8 +794,28 @@ void tensor_backward(TensorHandle h) {
             break;
 
         case OP_DIV:
-            if (a) { ensure_grad(a); a->grad[0] += r->grad[0] / b->data[0]; }
-            if (b) { ensure_grad(b); b->grad[0] -= r->grad[0] * a->data[0] / (b->data[0] * b->data[0]); }
+            if (a) {
+                ensure_grad(a); ensure_grad(r);
+                if (a->numel == 1) {
+                    a->grad[0] += r->grad[0] / b->data[0];
+                } else {
+                    /* a is multi-dim, b is scalar: d(a/b)/da = 1/b for each element */
+                    for (int j = 0; j < a->numel; j++)
+                        a->grad[j] += r->grad[j] / b->data[b->numel == 1 ? 0 : j];
+                }
+            }
+            if (b) {
+                ensure_grad(b); ensure_grad(r);
+                if (b->numel == 1 && a->numel > 1) {
+                    /* d(a/b)/db = -sum(a_i * grad_i) / b^2 */
+                    double s = 0;
+                    for (int j = 0; j < a->numel; j++)
+                        s += r->grad[j] * a->data[j];
+                    b->grad[0] -= s / (b->data[0] * b->data[0]);
+                } else {
+                    b->grad[0] -= r->grad[0] * a->data[0] / (b->data[0] * b->data[0]);
+                }
+            }
             break;
 
         case OP_NEG:
@@ -803,8 +839,33 @@ void tensor_backward(TensorHandle h) {
             break;
 
         case OP_POW:
-            if (a) { ensure_grad(a); a->grad[0] += r->grad[0] * b->data[0] * pow(a->data[0], b->data[0] - 1.0); }
-            if (b) { ensure_grad(b); b->grad[0] += r->grad[0] * r->data[0] * log(a->data[0]); }
+            if (a) {
+                ensure_grad(a); ensure_grad(r);
+                if (a->numel > 1 && b->numel == 1) {
+                    /* a is [n], b is scalar: d(a^b)/da_i = b * a_i^(b-1) * grad_i */
+                    double bv = b->data[0];
+                    for (int j = 0; j < a->numel; j++) {
+                        double av = fmax(a->data[j], 1e-20); /* prevent pow(0, neg) */
+                        a->grad[j] += r->grad[j] * bv * pow(av, bv - 1.0);
+                    }
+                } else {
+                    a->grad[0] += r->grad[0] * b->data[0] * pow(fmax(a->data[0], 1e-20), b->data[0] - 1.0);
+                }
+            }
+            if (b) {
+                ensure_grad(b); ensure_grad(r);
+                if (b->numel == 1 && a->numel > 1) {
+                    /* d(a^b)/db = sum(a_i^b * log(a_i) * grad_i) */
+                    double s = 0;
+                    for (int j = 0; j < a->numel; j++) {
+                        double av = fmax(a->data[j], 1e-20);
+                        s += r->grad[j] * r->data[j] * log(av);
+                    }
+                    b->grad[0] += s;
+                } else {
+                    b->grad[0] += r->grad[0] * r->data[0] * log(fmax(a->data[0], 1e-20));
+                }
+            }
             break;
 
         case OP_SIGMOID: {
@@ -826,6 +887,18 @@ void tensor_backward(TensorHandle h) {
         case OP_MUL_SCALAR:
             if (a) { ensure_grad(a); a->grad[0] += r->grad[0] * e->scalar_arg; }
             break;
+
+        case OP_CLAMP_MIN: {
+            /* Gradient passes through where input > min, zero where clamped */
+            double min_val = e->scalar_arg;
+            if (a) {
+                ensure_grad(a);
+                ensure_grad(r);
+                for (int j = 0; j < a->numel; j++)
+                    a->grad[j] += (a->data[j] > min_val) ? r->grad[j] : 0.0;
+            }
+            break;
+        }
 
         case OP_SELECT: {
             /* Select: grad of parent[index] += grad of result */
@@ -1316,7 +1389,6 @@ void optimizer_step(OptimizerHandle h) {
     optimizer_ensure_buffers(opt);
     opt->t++;
 
-    /* Debug: check for NaN gradients (disabled) */
 
     for (int i = 0; i < param_count_val; i++) {
         Tensor* t = param_registry[i].tensor;

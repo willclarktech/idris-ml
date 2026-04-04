@@ -124,6 +124,9 @@ prim__mulScalar : AnyPtr -> Double -> AnyPtr
 %foreign "C:tensor_add_scalar,libidrisml"
 prim__addScalar : AnyPtr -> Double -> AnyPtr
 
+%foreign "C:tensor_clamp_min,libidrisml"
+prim__clampMin : AnyPtr -> Double -> AnyPtr
+
 -- NTM
 %foreign "C:tensor_cosine_similarity,libidrisml"
 prim__cosineSimilarity : AnyPtr -> AnyPtr -> Int -> AnyPtr
@@ -709,24 +712,29 @@ interpolateVar {n} g (VTensor newVec) (VTensor oldVec) =
   in VTensor $ tensorToScalars result 0 n
 
 ||| NTM shift: circular convolution of weights with shift kernel.
+||| Clamps output to [1e-10, ∞) to prevent negative weights feeding into focusVar.
 export
 shiftVar : {n : Nat} -> Vector n Variable -> Vector 3 Variable -> Vector n Variable
 shiftVar {n} (VTensor wts) (VTensor shifts) =
-  let wtTensor = vecToTensor wts 0
-      shiftTensor = vecToTensor shifts 0
-      result = prim__conv1dCircular wtTensor shiftTensor
+  let wtTensor = vecStackTensor wts
+      shiftTensor = vecStackTensor shifts
+      shifted = prim__conv1dCircular wtTensor shiftTensor
+      result = prim__clampMin shifted 1.0e-10
   in VTensor $ tensorToScalars result 0 n
 
 ||| NTM focus (sharpening): w^gamma / sum(w^gamma)
+||| Clamps weights to [1e-10, ∞) before pow to prevent NaN from pow(0/negative, gamma).
 export
 focusVar : {n : Nat} -> Variable -> Vector n Variable -> Vector n Variable
 focusVar {n} gamma (VTensor wts) =
-  let wtTensor = vecToTensor wts 0
+  let wtTensor = vecStackTensor wts
       gammaT = gamma.tensorPtr
+      -- Clamp to epsilon before pow (prevents NaN from pow(0, gamma) or pow(negative, gamma))
+      clamped = prim__clampMin wtTensor 1.0e-10
       -- w^gamma
-      powered = prim__pow wtTensor gammaT
-      -- sum(w^gamma)
-      powSum = prim__sum powered
+      powered = prim__pow clamped gammaT
+      -- sum(w^gamma) + epsilon
+      powSum = prim__addScalar (prim__sum powered) 1.0e-10
       -- normalize
       result = prim__div powered powSum
   in VTensor $ tensorToScalars result 0 n

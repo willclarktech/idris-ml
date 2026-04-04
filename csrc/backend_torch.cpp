@@ -126,6 +126,10 @@ TensorHandle tensor_mul_scalar(TensorHandle h, double s) {
     return from_tensor(*to_tensor(h) * s);
 }
 
+TensorHandle tensor_clamp_min(TensorHandle h, double min_val) {
+    return from_tensor(torch::clamp_min(*to_tensor(h), min_val));
+}
+
 /* ---------- Reduction ---------- */
 
 TensorHandle tensor_sum(TensorHandle h) {
