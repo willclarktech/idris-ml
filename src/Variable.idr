@@ -12,123 +12,123 @@ import Util
 
 
 ----------------------------------------------------------------------
--- Backend FFI (libtorch via libidrisml_torch)
+-- Backend FFI (libtorch via libidrisml)
 ----------------------------------------------------------------------
 
 -- Lifecycle
-%foreign "C:tensor_create_scalar,libidrisml_torch"
+%foreign "C:tensor_create_scalar,libidrisml"
 prim__createScalar : Double -> Int -> AnyPtr
 
-%foreign "C:tensor_free,libidrisml_torch"
+%foreign "C:tensor_free,libidrisml"
 prim__free : AnyPtr -> ()
 
-%foreign "C:tensor_item,libidrisml_torch"
+%foreign "C:tensor_item,libidrisml"
 prim__item : AnyPtr -> Double
 
 -- Arithmetic (all return new tensors — libtorch builds autograd graph)
-%foreign "C:tensor_add,libidrisml_torch"
+%foreign "C:tensor_add,libidrisml"
 prim__add : AnyPtr -> AnyPtr -> AnyPtr
 
-%foreign "C:tensor_sub,libidrisml_torch"
+%foreign "C:tensor_sub,libidrisml"
 prim__sub : AnyPtr -> AnyPtr -> AnyPtr
 
-%foreign "C:tensor_mul,libidrisml_torch"
+%foreign "C:tensor_mul,libidrisml"
 prim__mul : AnyPtr -> AnyPtr -> AnyPtr
 
-%foreign "C:tensor_div,libidrisml_torch"
+%foreign "C:tensor_div,libidrisml"
 prim__div : AnyPtr -> AnyPtr -> AnyPtr
 
-%foreign "C:tensor_neg,libidrisml_torch"
+%foreign "C:tensor_neg,libidrisml"
 prim__neg : AnyPtr -> AnyPtr
 
-%foreign "C:tensor_abs,libidrisml_torch"
+%foreign "C:tensor_abs,libidrisml"
 prim__abs : AnyPtr -> AnyPtr
 
-%foreign "C:tensor_exp,libidrisml_torch"
+%foreign "C:tensor_exp,libidrisml"
 prim__exp : AnyPtr -> AnyPtr
 
-%foreign "C:tensor_log,libidrisml_torch"
+%foreign "C:tensor_log,libidrisml"
 prim__log : AnyPtr -> AnyPtr
 
-%foreign "C:tensor_sqrt,libidrisml_torch"
+%foreign "C:tensor_sqrt,libidrisml"
 prim__sqrt : AnyPtr -> AnyPtr
 
-%foreign "C:tensor_pow,libidrisml_torch"
+%foreign "C:tensor_pow,libidrisml"
 prim__pow : AnyPtr -> AnyPtr -> AnyPtr
 
-%foreign "C:tensor_sigmoid,libidrisml_torch"
+%foreign "C:tensor_sigmoid,libidrisml"
 prim__sigmoid : AnyPtr -> AnyPtr
 
-%foreign "C:tensor_tanh,libidrisml_torch"
+%foreign "C:tensor_tanh,libidrisml"
 prim__tanh : AnyPtr -> AnyPtr
 
 -- Linear algebra
-%foreign "C:tensor_mv,libidrisml_torch"
+%foreign "C:tensor_mv,libidrisml"
 prim__mv : AnyPtr -> AnyPtr -> AnyPtr
 
-%foreign "C:tensor_dot,libidrisml_torch"
+%foreign "C:tensor_dot,libidrisml"
 prim__dot : AnyPtr -> AnyPtr -> AnyPtr
 
-%foreign "C:tensor_outer,libidrisml_torch"
+%foreign "C:tensor_outer,libidrisml"
 prim__outer : AnyPtr -> AnyPtr -> AnyPtr
 
-%foreign "C:tensor_matmul,libidrisml_torch"
+%foreign "C:tensor_matmul,libidrisml"
 prim__matmul : AnyPtr -> AnyPtr -> AnyPtr
 
 -- Activation
-%foreign "C:tensor_softmax,libidrisml_torch"
+%foreign "C:tensor_softmax,libidrisml"
 prim__softmax : AnyPtr -> Int -> AnyPtr
 
-%foreign "C:tensor_log_softmax,libidrisml_torch"
+%foreign "C:tensor_log_softmax,libidrisml"
 prim__logSoftmax : AnyPtr -> Int -> AnyPtr
 
 -- Loss
-%foreign "C:tensor_bce_with_logits,libidrisml_torch"
+%foreign "C:tensor_bce_with_logits,libidrisml"
 prim__bceWithLogits : AnyPtr -> AnyPtr -> AnyPtr
 
 -- Reduction
-%foreign "C:tensor_sum,libidrisml_torch"
+%foreign "C:tensor_sum,libidrisml"
 prim__sum : AnyPtr -> AnyPtr
 
-%foreign "C:tensor_mean,libidrisml_torch"
+%foreign "C:tensor_mean,libidrisml"
 prim__mean : AnyPtr -> AnyPtr
 
 -- Tensor creation/accessors
-%foreign "C:tensor_create,libidrisml_torch"
+%foreign "C:tensor_create,libidrisml"
 prim__create : AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
 
-%foreign "C:tensor_numel,libidrisml_torch"
+%foreign "C:tensor_numel,libidrisml"
 prim__numel : AnyPtr -> Int
 
-%foreign "C:tensor_size,libidrisml_torch"
+%foreign "C:tensor_size,libidrisml"
 prim__size : AnyPtr -> Int -> Int
 
-%foreign "C:tensor_select,libidrisml_torch"
+%foreign "C:tensor_select,libidrisml"
 prim__select : AnyPtr -> Int -> Int -> AnyPtr
 
-%foreign "C:tensor_unsqueeze,libidrisml_torch"
+%foreign "C:tensor_unsqueeze,libidrisml"
 prim__unsqueeze : AnyPtr -> Int -> AnyPtr
 
-%foreign "C:tensor_stack,libidrisml_torch"
+%foreign "C:tensor_stack,libidrisml"
 prim__stack : AnyPtr -> Int -> Int -> AnyPtr
 
-%foreign "C:tensor_detach,libidrisml_torch"
+%foreign "C:tensor_detach,libidrisml"
 prim__detach : AnyPtr -> AnyPtr
 
-%foreign "C:tensor_with_grad,libidrisml_torch"
+%foreign "C:tensor_with_grad,libidrisml"
 prim__withGrad : AnyPtr -> AnyPtr
 
-%foreign "C:tensor_mul_scalar,libidrisml_torch"
+%foreign "C:tensor_mul_scalar,libidrisml"
 prim__mulScalar : AnyPtr -> Double -> AnyPtr
 
-%foreign "C:tensor_add_scalar,libidrisml_torch"
+%foreign "C:tensor_add_scalar,libidrisml"
 prim__addScalar : AnyPtr -> Double -> AnyPtr
 
 -- NTM
-%foreign "C:tensor_cosine_similarity,libidrisml_torch"
+%foreign "C:tensor_cosine_similarity,libidrisml"
 prim__cosineSimilarity : AnyPtr -> AnyPtr -> Int -> AnyPtr
 
-%foreign "C:tensor_conv1d_circular,libidrisml_torch"
+%foreign "C:tensor_conv1d_circular,libidrisml"
 prim__conv1dCircular : AnyPtr -> AnyPtr -> AnyPtr
 
 -- Autograd
@@ -136,10 +136,10 @@ prim__conv1dCircular : AnyPtr -> AnyPtr -> AnyPtr
 %foreign "scheme:(lambda (t) ((foreign-procedure \"tensor_backward\" (void*) void) t) t)"
 prim__backward : AnyPtr -> AnyPtr
 
-%foreign "C:tensor_grad,libidrisml_torch"
+%foreign "C:tensor_grad,libidrisml"
 prim__grad : AnyPtr -> AnyPtr
 
-%foreign "C:tensor_zero_grad,libidrisml_torch"
+%foreign "C:tensor_zero_grad,libidrisml"
 prim__zeroGrad : AnyPtr -> ()
 
 -- Parameter registry
@@ -149,77 +149,77 @@ prim__zeroGrad : AnyPtr -> ()
 export
 prim__paramRegister : String -> AnyPtr -> AnyPtr
 
-%foreign "C:param_clear,libidrisml_torch"
+%foreign "C:param_clear,libidrisml"
 prim__paramClear : ()
 
-%foreign "C:param_count,libidrisml_torch"
+%foreign "C:param_count,libidrisml"
 prim__paramCount : Int
 
-%foreign "C:param_name,libidrisml_torch"
+%foreign "C:param_name,libidrisml"
 prim__paramName : Int -> String
 
-%foreign "C:param_grad_item,libidrisml_torch"
+%foreign "C:param_grad_item,libidrisml"
 prim__paramGradItem : Int -> Double
 
-%foreign "C:param_grad_item_and_zero,libidrisml_torch"
+%foreign "C:param_grad_item_and_zero,libidrisml"
 prim__paramGradItemAndZero : Int -> Double
 
 %foreign "scheme:(lambda () ((foreign-procedure \"param_zero_all_grads\" () void)) 0)"
 prim__paramZeroAllGrads : Int
 
-%foreign "C:param_subtract_delta,libidrisml_torch"
+%foreign "C:param_subtract_delta,libidrisml"
 prim__paramSubtractDelta : Int -> Double -> ()
 
 -- In-place scalar subtract on a tensor (under no_grad). Returns tensor for threading.
-%foreign "C:tensor_subtract_scalar_inplace,libidrisml_torch"
+%foreign "C:tensor_subtract_scalar_inplace,libidrisml"
 export
 prim__tensorSubScalarInplace : AnyPtr -> Double -> AnyPtr
 
 -- Tensor-level parameter creation
-%foreign "C:tensor_create_param_2d,libidrisml_torch"
+%foreign "C:tensor_create_param_2d,libidrisml"
 export
 prim__createParam2d : Int -> Int -> AnyPtr -> AnyPtr
 
-%foreign "C:tensor_create_param_1d,libidrisml_torch"
+%foreign "C:tensor_create_param_1d,libidrisml"
 export
 prim__createParam1d : Int -> AnyPtr -> AnyPtr
 
-%foreign "C:tensor_view_2d,libidrisml_torch"
+%foreign "C:tensor_view_2d,libidrisml"
 export
 prim__view2d : AnyPtr -> Int -> Int -> AnyPtr
 
-%foreign "C:tensor_view_1d,libidrisml_torch"
+%foreign "C:tensor_view_1d,libidrisml"
 export
 prim__view1d : AnyPtr -> Int -> AnyPtr
 
-%foreign "C:tensor_item_2d,libidrisml_torch"
+%foreign "C:tensor_item_2d,libidrisml"
 export
 prim__item2d : AnyPtr -> Int -> Int -> Double
 
-%foreign "C:tensor_item_1d,libidrisml_torch"
+%foreign "C:tensor_item_1d,libidrisml"
 export
 prim__item1d : AnyPtr -> Int -> Double
 
 -- Fused LSTM gates: takes combined [4*o] tensor + prev_cell [o], returns pair handle
-%foreign "C:tensor_lstm_gates_pair,libidrisml_torch"
+%foreign "C:tensor_lstm_gates_pair,libidrisml"
 export
 prim__lstmGatesPair : AnyPtr -> AnyPtr -> Int -> AnyPtr
 
-%foreign "C:tensor_pair_first,libidrisml_torch"
+%foreign "C:tensor_pair_first,libidrisml"
 export
 prim__pairFirst : AnyPtr -> AnyPtr
 
-%foreign "C:tensor_pair_second,libidrisml_torch"
+%foreign "C:tensor_pair_second,libidrisml"
 export
 prim__pairSecond : AnyPtr -> AnyPtr
 
 -- Fused NTM read head: entire addressing pipeline in one C call
-%foreign "C:tensor_ntm_read_head,libidrisml_torch"
+%foreign "C:tensor_ntm_read_head,libidrisml"
 export
 prim__ntmReadHead : AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr
 
 -- NTM interpolation write: memory + outer(weights, add)
-%foreign "C:tensor_ntm_interp_write,libidrisml_torch"
+%foreign "C:tensor_ntm_interp_write,libidrisml"
 export
 prim__ntmInterpWrite : AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr
 
@@ -235,18 +235,18 @@ tensorAdd : AnyPtr -> AnyPtr -> AnyPtr
 tensorAdd = prim__add
 
 -- No-grad scope
-%foreign "C:tensor_no_grad_begin,libidrisml_torch"
+%foreign "C:tensor_no_grad_begin,libidrisml"
 prim__noGradBegin : ()
 
-%foreign "C:tensor_no_grad_end,libidrisml_torch"
+%foreign "C:tensor_no_grad_end,libidrisml"
 prim__noGradEnd : ()
 
 -- LSTM
-%foreign "C:tensor_lstm_cell,libidrisml_torch"
+%foreign "C:tensor_lstm_cell,libidrisml"
 prim__lstmCell : AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> ()
 
 -- Debug
-%foreign "C:tensor_print,libidrisml_torch"
+%foreign "C:tensor_print,libidrisml"
 prim__print : AnyPtr -> ()
 
 
@@ -270,39 +270,39 @@ prim__seq : AnyPtr -> AnyPtr -> AnyPtr
 -- Scheme-side foreign-alloc + foreign-set! can be reordered by the
 -- Chez Scheme optimizer, causing C functions to read stale pointers.
 
-%foreign "C:tensor_alloc_doubles,libidrisml_torch"
+%foreign "C:tensor_alloc_doubles,libidrisml"
 export
 prim__allocDoubles : Int -> AnyPtr
 
-%foreign "C:tensor_write_double,libidrisml_torch"
+%foreign "C:tensor_write_double,libidrisml"
 prim__writeDouble : AnyPtr -> Int -> Double -> ()
 
-%foreign "C:tensor_read_double,libidrisml_torch"
+%foreign "C:tensor_read_double,libidrisml"
 prim__readDouble : AnyPtr -> Int -> Double
 
 -- Wrapper that returns the buffer pointer for threading through let chains
 %foreign "scheme:(lambda (buf off val) ((foreign-procedure \"tensor_write_double\" (void* int double) void) buf off val) buf)"
 prim__setDouble : AnyPtr -> Int -> Double -> AnyPtr
 
-%foreign "C:tensor_create_1d,libidrisml_torch"
+%foreign "C:tensor_create_1d,libidrisml"
 prim__create1d : Int -> AnyPtr -> Int -> AnyPtr
 
-%foreign "C:tensor_create_2d,libidrisml_torch"
+%foreign "C:tensor_create_2d,libidrisml"
 prim__create2d : Int -> Int -> AnyPtr -> Int -> AnyPtr
 
 -- Tensor pointer array: stack scalar Variable tensorPtrs to create
 -- a 1D/2D tensor that preserves the autograd graph.
-%foreign "C:tensor_ptr_array_alloc,libidrisml_torch"
+%foreign "C:tensor_ptr_array_alloc,libidrisml"
 prim__ptrArrayAlloc : Int -> AnyPtr
 
 -- Returns the array for threading
 %foreign "scheme:(lambda (arr idx t) ((foreign-procedure \"tensor_ptr_array_set\" (void* int void*) void) arr idx t) arr)"
 prim__ptrArraySet : AnyPtr -> Int -> AnyPtr -> AnyPtr
 
-%foreign "C:tensor_stack_from_array,libidrisml_torch"
+%foreign "C:tensor_stack_from_array,libidrisml"
 prim__stackFromArray : AnyPtr -> Int -> Int -> AnyPtr
 
-%foreign "C:tensor_reshape,libidrisml_torch"
+%foreign "C:tensor_reshape,libidrisml"
 prim__reshape : AnyPtr -> AnyPtr -> Int -> AnyPtr
 
 %foreign "scheme:(lambda (n) (foreign-alloc (* n 4)))"
@@ -822,13 +822,13 @@ collectGrads initGrad root =
 -- Native Optimizer
 ----------------------------------------------------------------------
 
-%foreign "C:optimizer_create_sgd,libidrisml_torch"
+%foreign "C:optimizer_create_sgd,libidrisml"
 prim__optimizerCreateSgd : Double -> AnyPtr
 
-%foreign "C:optimizer_create_rmsprop,libidrisml_torch"
+%foreign "C:optimizer_create_rmsprop,libidrisml"
 prim__optimizerCreateRmsprop : Double -> Double -> Double -> Double -> Double -> AnyPtr
 
-%foreign "C:optimizer_create_adam,libidrisml_torch"
+%foreign "C:optimizer_create_adam,libidrisml"
 prim__optimizerCreateAdam : Double -> Double -> Double -> Double -> AnyPtr
 
 -- optimizer_step and optimizer_zero_grad have void return — use Scheme wrappers
@@ -925,10 +925,10 @@ export
 forceGC : IO ()
 forceGC = pure ()
 
-%foreign "C:get_rss_mb,libidrisml_torch"
+%foreign "C:get_rss_mb,libidrisml"
 prim__getRssMB : Int
 
-%foreign "C:get_current_rss_mb,libidrisml_torch"
+%foreign "C:get_current_rss_mb,libidrisml"
 prim__getCurrentRssMB : Int
 
 export

@@ -85,6 +85,7 @@ enum {
     OP_NTM_READ_HEAD, OP_NTM_INTERP_WRITE,
     OP_LSTM_GATES,
     OP_ADD_SCALAR, OP_MUL_SCALAR,
+    OP_STACK,     /* stack of scalar tensors into 1D */
 };
 
 typedef struct {
@@ -93,6 +94,8 @@ typedef struct {
     Tensor* arg1;       /* non-owning: first input */
     Tensor* arg2;       /* non-owning: second input (NULL for unary) */
     double scalar_arg;  /* for add_scalar, mul_scalar */
+    Tensor** inputs;    /* for OP_STACK: array of constituent scalar tensors */
+    int input_count;    /* number of inputs for stack */
 } TapeEntry;
 
 #define TAPE_INIT_CAP 4096
@@ -211,11 +214,42 @@ TensorHandle name(TensorHandle ha) { \
     return r; \
 }
 
-SCALAR_BINOP(tensor_add, OP_ADD, a->data[0] + b->data[0])
-SCALAR_BINOP(tensor_sub, OP_SUB, a->data[0] - b->data[0])
-SCALAR_BINOP(tensor_mul, OP_MUL, a->data[0] * b->data[0])
-SCALAR_BINOP(tensor_div, OP_DIV, a->data[0] / b->data[0])
-SCALAR_BINOP(tensor_pow, OP_POW, pow(a->data[0], b->data[0]))
+/* Element-wise binary ops: handle both scalar and multi-dim */
+static TensorHandle binop_elementwise(TensorHandle ha, TensorHandle hb, int op_tag,
+                                       double (*scalar_fn)(double, double)) {
+    Tensor* a = (Tensor*)ha; Tensor* b = (Tensor*)hb;
+    int rg = a->requires_grad || b->requires_grad;
+    if (a->numel == 1 && b->numel == 1) {
+        Tensor* r = make_scalar(scalar_fn(a->data[0], b->data[0]), rg);
+        if (rg) tape_append(op_tag, r, a, b, 0);
+        return r;
+    }
+    /* Multi-dim: element-wise with broadcasting */
+    int n = a->numel > b->numel ? a->numel : b->numel;
+    double* data = malloc(n * sizeof(double));
+    for (int i = 0; i < n; i++) {
+        double av = a->data[a->numel == 1 ? 0 : i];
+        double bv = b->data[b->numel == 1 ? 0 : i];
+        data[i] = scalar_fn(av, bv);
+    }
+    Tensor* big = a->numel >= b->numel ? a : b;
+    Tensor* r = make_tensor(data, big->shape, big->rank, rg);
+    free(data);
+    if (rg) tape_append(op_tag, r, a, b, 0);
+    return r;
+}
+
+static double fn_add(double a, double b) { return a + b; }
+static double fn_sub(double a, double b) { return a - b; }
+static double fn_mul(double a, double b) { return a * b; }
+static double fn_div(double a, double b) { return a / b; }
+static double fn_pow(double a, double b) { return pow(a, b); }
+
+TensorHandle tensor_add(TensorHandle a, TensorHandle b) { return binop_elementwise(a, b, OP_ADD, fn_add); }
+TensorHandle tensor_sub(TensorHandle a, TensorHandle b) { return binop_elementwise(a, b, OP_SUB, fn_sub); }
+TensorHandle tensor_mul(TensorHandle a, TensorHandle b) { return binop_elementwise(a, b, OP_MUL, fn_mul); }
+TensorHandle tensor_div(TensorHandle a, TensorHandle b) { return binop_elementwise(a, b, OP_DIV, fn_div); }
+TensorHandle tensor_pow(TensorHandle a, TensorHandle b) { return binop_elementwise(a, b, OP_POW, fn_pow); }
 
 SCALAR_UNOP(tensor_neg, OP_NEG, -a->data[0])
 SCALAR_UNOP(tensor_abs, OP_ABS, fabs(a->data[0]))
@@ -667,18 +701,45 @@ void tensor_backward(TensorHandle h) {
         case OP_CONST: break; /* leaf — grad already accumulated */
 
         case OP_ADD:
-            if (a) { ensure_grad(a); a->grad[0] += r->grad[0]; }
-            if (b) { ensure_grad(b); b->grad[0] += r->grad[0]; }
+            if (a) { ensure_grad(a); ensure_grad(r);
+                for (int j = 0; j < a->numel; j++) a->grad[j] += r->grad[a->numel == 1 ? 0 : j];
+                /* broadcast: if a is scalar and r is multi-dim, sum the grads */
+                if (a->numel == 1 && r->numel > 1) { double s=0; for(int j=1;j<r->numel;j++) s+=r->grad[j]; a->grad[0]+=s; }
+            }
+            if (b) { ensure_grad(b); ensure_grad(r);
+                for (int j = 0; j < b->numel; j++) b->grad[j] += r->grad[b->numel == 1 ? 0 : j];
+                if (b->numel == 1 && r->numel > 1) { double s=0; for(int j=1;j<r->numel;j++) s+=r->grad[j]; b->grad[0]+=s; }
+            }
             break;
 
         case OP_SUB:
-            if (a) { ensure_grad(a); a->grad[0] += r->grad[0]; }
-            if (b) { ensure_grad(b); b->grad[0] -= r->grad[0]; }
+            if (a) { ensure_grad(a); ensure_grad(r);
+                for (int j = 0; j < a->numel; j++) a->grad[j] += r->grad[a->numel == 1 ? 0 : j];
+                if (a->numel == 1 && r->numel > 1) { double s=0; for(int j=1;j<r->numel;j++) s+=r->grad[j]; a->grad[0]+=s; }
+            }
+            if (b) { ensure_grad(b); ensure_grad(r);
+                for (int j = 0; j < b->numel; j++) b->grad[j] -= r->grad[b->numel == 1 ? 0 : j];
+                if (b->numel == 1 && r->numel > 1) { double s=0; for(int j=1;j<r->numel;j++) s-=r->grad[j]; b->grad[0]+=s; }
+            }
             break;
 
         case OP_MUL:
-            if (a) { ensure_grad(a); a->grad[0] += r->grad[0] * b->data[0]; }
-            if (b) { ensure_grad(b); b->grad[0] += r->grad[0] * a->data[0]; }
+            if (a) { ensure_grad(a); ensure_grad(r);
+                if (a->numel == 1 && b->numel > 1) {
+                    double s = 0; for (int j = 0; j < b->numel; j++) s += r->grad[j] * b->data[j];
+                    a->grad[0] += s;
+                } else {
+                    for (int j = 0; j < a->numel; j++) a->grad[j] += r->grad[j] * b->data[b->numel==1?0:j];
+                }
+            }
+            if (b) { ensure_grad(b); ensure_grad(r);
+                if (b->numel == 1 && a->numel > 1) {
+                    double s = 0; for (int j = 0; j < a->numel; j++) s += r->grad[j] * a->data[j];
+                    b->grad[0] += s;
+                } else {
+                    for (int j = 0; j < b->numel; j++) b->grad[j] += r->grad[j] * a->data[a->numel==1?0:j];
+                }
+            }
             break;
 
         case OP_DIV:
@@ -731,6 +792,20 @@ void tensor_backward(TensorHandle h) {
             if (a) { ensure_grad(a); a->grad[0] += r->grad[0] * e->scalar_arg; }
             break;
 
+        case OP_STACK:
+            /* Distribute gradient from stacked tensor back to constituent scalars */
+            if (e->inputs) {
+                for (int j = 0; j < e->input_count; j++) {
+                    Tensor* inp = e->inputs[j];
+                    if (inp->requires_grad) {
+                        ensure_grad(inp);
+                        ensure_grad(r);
+                        inp->grad[0] += r->grad[j];
+                    }
+                }
+            }
+            break;
+
         case OP_SUM:
             if (a) {
                 ensure_grad(a);
@@ -745,6 +820,101 @@ void tensor_backward(TensorHandle h) {
                 for (int j = 0; j < a->numel; j++) a->grad[j] += r->grad[0] * scale;
             }
             break;
+
+        case OP_DOT:
+            /* d(dot(a,b))/da = b, d(dot(a,b))/db = a (element-wise) */
+            if (a && a->numel > 1) {
+                ensure_grad(a);
+                for (int j = 0; j < a->numel; j++) a->grad[j] += r->grad[0] * b->data[j];
+            } else if (a) {
+                ensure_grad(a);
+                a->grad[0] += r->grad[0] * b->data[0];
+            }
+            if (b && b->numel > 1) {
+                ensure_grad(b);
+                for (int j = 0; j < b->numel; j++) b->grad[j] += r->grad[0] * a->data[j];
+            } else if (b) {
+                ensure_grad(b);
+                b->grad[0] += r->grad[0] * a->data[0];
+            }
+            break;
+
+        case OP_MV: {
+            /* d(Ax)/dA = grad ⊗ x, d(Ax)/dx = A^T @ grad */
+            int m = a->shape[0], n_mv = a->shape[1];
+            ensure_grad(r);
+            if (a->requires_grad) {
+                ensure_grad(a);
+                for (int ii = 0; ii < m; ii++)
+                    for (int jj = 0; jj < n_mv; jj++)
+                        a->grad[ii*n_mv+jj] += r->grad[ii] * b->data[jj];
+            }
+            if (b->requires_grad) {
+                ensure_grad(b);
+                for (int jj = 0; jj < n_mv; jj++) {
+                    double s = 0;
+                    for (int ii = 0; ii < m; ii++) s += a->data[ii*n_mv+jj] * r->grad[ii];
+                    b->grad[jj] += s;
+                }
+            }
+            break;
+        }
+
+        case OP_OUTER: {
+            /* d(outer(a,b))/da[i] = sum_j(grad[i,j] * b[j]) */
+            /* d(outer(a,b))/db[j] = sum_i(grad[i,j] * a[i]) */
+            int m_out = a->numel, n_out = b->numel;
+            if (a->requires_grad) {
+                ensure_grad(a);
+                ensure_grad(r);
+                for (int ii = 0; ii < m_out; ii++) {
+                    double s = 0;
+                    for (int jj = 0; jj < n_out; jj++) s += r->grad[ii*n_out+jj] * b->data[jj];
+                    a->grad[ii] += s;
+                }
+            }
+            if (b->requires_grad) {
+                ensure_grad(b);
+                ensure_grad(r);
+                for (int jj = 0; jj < n_out; jj++) {
+                    double s = 0;
+                    for (int ii = 0; ii < m_out; ii++) s += r->grad[ii*n_out+jj] * a->data[ii];
+                    b->grad[jj] += s;
+                }
+            }
+            break;
+        }
+
+        case OP_SOFTMAX: {
+            /* Softmax backward: d/dx_i = sum_j(grad_j * sm_j * (delta_ij - sm_i)) */
+            if (a) {
+                ensure_grad(a);
+                ensure_grad(r);
+                int n_sm = r->numel;
+                for (int ii = 0; ii < n_sm; ii++) {
+                    double s = 0;
+                    for (int jj = 0; jj < n_sm; jj++) {
+                        double delta = (ii == jj) ? 1.0 : 0.0;
+                        s += r->grad[jj] * r->data[jj] * (delta - r->data[ii]);
+                    }
+                    a->grad[ii] += s;
+                }
+            }
+            break;
+        }
+
+        case OP_BCE_WITH_LOGITS: {
+            /* d/dp_i = (1/n) * (sigmoid(p_i) - y_i) */
+            if (a) {
+                ensure_grad(a);
+                int n_bce = a->numel;
+                for (int j = 0; j < n_bce; j++) {
+                    double sig = 1.0 / (1.0 + exp(-a->data[j]));
+                    a->grad[j] += r->grad[0] * (sig - b->data[j]) / n_bce;
+                }
+            }
+            break;
+        }
 
         default: break; /* unimplemented backward */
         }
@@ -940,14 +1110,24 @@ void tensor_ptr_array_set(TensorHandle* arr, int idx, TensorHandle t) {
 TensorHandle tensor_stack_from_array(TensorHandle* arr, int count, int dim) {
     double* data = malloc(count * sizeof(double));
     int rg = 0;
+    Tensor** inputs = malloc(count * sizeof(Tensor*));
     for (int i = 0; i < count; i++) {
-        data[i] = ((Tensor*)arr[i])->data[0];
-        if (((Tensor*)arr[i])->requires_grad) rg = 1;
+        Tensor* t = (Tensor*)arr[i];
+        data[i] = t->data[0];
+        inputs[i] = t;
+        if (t->requires_grad) rg = 1;
     }
     free(arr);
     int shape[] = {count};
     Tensor* r = make_tensor(data, shape, 1, rg);
     free(data);
+    if (rg) {
+        int idx = tape_append(OP_STACK, r, NULL, NULL, 0);
+        tape[idx].inputs = inputs;
+        tape[idx].input_count = count;
+    } else {
+        free(inputs);
+    }
     return r;
 }
 
