@@ -243,8 +243,8 @@ TensorPair* tensor_ntm_read_head(
     auto shifted = torch::conv1d(inp_3d, ker_3d).reshape({n});
 
     /* 4. Sharpening: w^gamma / sum(w^gamma) */
-    auto powered = torch::pow(shifted, gamma);
-    auto focused = powered / powered.sum();
+    auto powered = torch::pow(torch::clamp(shifted, 1e-10), gamma);
+    auto focused = powered / (powered.sum() + 1e-10);
 
     /* 5. Read: matmul(weights, memory) → [w] */
     auto read_output = torch::matmul(focused, memory);
