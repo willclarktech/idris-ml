@@ -1510,6 +1510,47 @@ void tensor_ptr_array_set(TensorHandle* arr, int idx, TensorHandle t) {
 }
 
 TensorHandle tensor_stack_from_array(TensorHandle* arr, int count, int dim) {
+    /* Fast path: if all inputs are consecutive selects from the same parent
+       tensor (data pointers are contiguous), skip the copy and return a
+       tensor that shares the parent's data. This eliminates the repack
+       cost when tensorToScalars → vecStackTensor round-trips. */
+    if (count > 0) {
+        Tensor* first = (Tensor*)arr[0];
+        double* base = first->data;
+        int consecutive = 1;
+        int rg_check = first->requires_grad;
+        for (int i = 1; i < count; i++) {
+            Tensor* t = (Tensor*)arr[i];
+            if (t->data != base + i) { consecutive = 0; break; }
+            if (t->requires_grad) rg_check = 1;
+        }
+        if (consecutive) { 
+            /* Create a tensor that shares the parent's data buffer (no copy) */
+            Tensor* r = arena_alloc(sizeof(Tensor));
+            memset(r, 0, sizeof(Tensor));
+            r->data = base;  /* shared with parent */
+            r->shape = arena_alloc(sizeof(int));
+            r->shape[0] = count;
+            r->rank = 1;
+            r->numel = count;
+            r->requires_grad = rg_check;
+            r->persistent = 0;
+            /* Still record OP_STACK with input pointers for backward.
+               STACK backward distributes r->grad[i] to inputs[i]->grad[0].
+               The inputs are SELECT views, so their grad flows to the parent. */
+            if (rg_check) {
+                Tensor** inputs = malloc(count * sizeof(Tensor*));
+                for (int i = 0; i < count; i++) inputs[i] = (Tensor*)arr[i];
+                int idx = tape_append(OP_STACK, r, NULL, NULL, 0);
+                tape[idx].inputs = inputs;
+                tape[idx].input_count = count;
+            }
+            free(arr);
+            return r;
+        }
+    }
+
+    /* Slow path: copy values and create new tensor */
     double* data = malloc(count * sizeof(double));
     int rg = 0;
     Tensor** inputs = malloc(count * sizeof(Tensor*));
