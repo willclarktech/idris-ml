@@ -31,34 +31,98 @@ typedef struct {
     int requires_grad;
     int tape_idx;       /* index into tape (-1 if not tracked) */
     double* grad;       /* gradient storage (same shape as data), NULL if not allocated */
+    int persistent;     /* 1 = param tensor (malloc'd), 0 = intermediate (arena) */
 } Tensor;
 
+/* ================================================================
+   Arena allocator — bump-pointer for intermediate tensors.
+   Reset in bulk at optimizer_step. Params use regular malloc.
+   ================================================================ */
+
+#define ARENA_INIT_SIZE (1 << 20)  /* 1 MB */
+
+typedef struct ArenaChunk {
+    char* data;
+    size_t cap;
+    size_t used;
+    struct ArenaChunk* next;
+} ArenaChunk;
+
+static ArenaChunk* arena_head = NULL;
+static ArenaChunk* arena_current = NULL;
+
+static ArenaChunk* arena_new_chunk(size_t min_size) {
+    size_t cap = min_size > ARENA_INIT_SIZE ? min_size : ARENA_INIT_SIZE;
+    ArenaChunk* c = malloc(sizeof(ArenaChunk));
+    c->data = malloc(cap);
+    c->cap = cap;
+    c->used = 0;
+    c->next = NULL;
+    return c;
+}
+
+static void* arena_alloc(size_t bytes) {
+    /* Align to 8 bytes */
+    bytes = (bytes + 7) & ~7;
+    if (!arena_head) {
+        arena_head = arena_new_chunk(ARENA_INIT_SIZE);
+        arena_current = arena_head;
+    }
+    if (arena_current->used + bytes > arena_current->cap) {
+        /* Need new chunk */
+        if (arena_current->next) {
+            arena_current = arena_current->next;
+            arena_current->used = 0;
+        } else {
+            ArenaChunk* c = arena_new_chunk(bytes);
+            arena_current->next = c;
+            arena_current = c;
+        }
+    }
+    void* ptr = arena_current->data + arena_current->used;
+    arena_current->used += bytes;
+    return ptr;
+}
+
+static void arena_reset(void) {
+    ArenaChunk* c = arena_head;
+    while (c) { c->used = 0; c = c->next; }
+    arena_current = arena_head;
+}
+
+/* make_scalar/make_tensor: use arena for intermediate tensors */
+
 static Tensor* make_scalar(double val, int requires_grad) {
-    Tensor* t = calloc(1, sizeof(Tensor));
-    t->data = malloc(sizeof(double));
-    t->data[0] = val;
+    Tensor* t = arena_alloc(sizeof(Tensor));
+    memset(t, 0, sizeof(Tensor));
+    double* d = arena_alloc(sizeof(double));
+    d[0] = val;
+    t->data = d;
     t->shape = NULL;
     t->rank = 0;
     t->numel = 1;
     t->requires_grad = requires_grad;
     t->tape_idx = -1;
     t->grad = NULL;
+    t->persistent = 0;
     return t;
 }
 
 static Tensor* make_tensor(double* data, int* shape, int rank, int requires_grad) {
-    Tensor* t = calloc(1, sizeof(Tensor));
     int numel = 1;
     for (int i = 0; i < rank; i++) numel *= shape[i];
-    t->data = malloc(numel * sizeof(double));
+    Tensor* t = arena_alloc(sizeof(Tensor));
+    memset(t, 0, sizeof(Tensor));
+    t->data = arena_alloc(numel * sizeof(double));
     memcpy(t->data, data, numel * sizeof(double));
-    t->shape = malloc(rank * sizeof(int));
+    t->shape = arena_alloc(rank * sizeof(int));
     memcpy(t->shape, shape, rank * sizeof(int));
     t->rank = rank;
     t->numel = numel;
     t->requires_grad = requires_grad;
     t->tape_idx = -1;
     t->grad = NULL;
+    t->persistent = 0;
     return t;
 }
 
