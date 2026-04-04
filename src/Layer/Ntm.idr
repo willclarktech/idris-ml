@@ -234,11 +234,10 @@ export
                     -- Output FC: hidden ++ readOutput
                     newReadOutput = VTensor (tensorToScalars newReadOutT 0 m)
                     output = snd (applyVar outputFc (hidden ++ newReadOutput))
-                    -- Unpack addressing weights for the Variable-level state
-                    newReadAddr = VTensor (tensorToScalars newReadAddrT 0 n)
-                    newWriteAddr = VTensor (tensorToScalars newWriteAddrT 0 n)
+                    -- Skip unpacking addressing weights — tensor handles carry the real
+                    -- data, scalar Vects are stale placeholders (never read in tensor path)
                 in (MkNtm updLstm readFc writeFc outputFc
-                         memory newReadAddr newWriteAddr newReadOutput
+                         memory readAddr writeAddr newReadOutput
                          (Just newMemT) (Just newReadAddrT) (Just newWriteAddrT) (Just newReadOutT), output)
 
   -- Variable-based NTM forward pass: fallback scalar path (no consolidated tensors)
