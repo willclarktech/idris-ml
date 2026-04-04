@@ -26,11 +26,7 @@ TensorHandle tensor_create_scalar(double value, int requires_grad) {
 
 TensorHandle tensor_create(double* data, int* shape, int rank, int requires_grad) {
     std::vector<int64_t> dims(rank);
-    int64_t numel = 1;
-    for (int i = 0; i < rank; i++) {
-        dims[i] = shape[i];
-        numel *= shape[i];
-    }
+    for (int i = 0; i < rank; i++) dims[i] = shape[i];
     auto opts = torch::TensorOptions().dtype(torch::kFloat64);
     auto t = torch::from_blob(data, dims, opts).clone();
     if (requires_grad) t.requires_grad_(true);
@@ -385,6 +381,32 @@ void param_subtract_delta(int idx, double delta) {
     torch::NoGradGuard no_grad;
     auto& entry = param_registry[idx];
     entry.tensor->sub_(delta);
+}
+
+/* ---------- Convenience ---------- */
+
+TensorHandle tensor_create_1d(int n, double* data, int requires_grad) {
+    auto t = torch::from_blob(data, {(int64_t)n}, torch::kFloat64).clone();
+    if (requires_grad) t.requires_grad_(true);
+    return from_tensor(std::move(t));
+}
+
+TensorHandle tensor_create_2d(int rows, int cols, double* data, int requires_grad) {
+    auto t = torch::from_blob(data, {(int64_t)rows, (int64_t)cols}, torch::kFloat64).clone();
+    if (requires_grad) t.requires_grad_(true);
+    return from_tensor(std::move(t));
+}
+
+double* tensor_alloc_doubles(int n) {
+    return (double*)calloc(n, sizeof(double));
+}
+
+double tensor_read_double(double* buf, int idx) {
+    return buf[idx];
+}
+
+void tensor_write_double(double* buf, int idx, double val) {
+    buf[idx] = val;
 }
 
 /* ---------- Debug ---------- */

@@ -106,6 +106,9 @@ prim__size : AnyPtr -> Int -> Int
 %foreign "C:tensor_select,libidrisml_torch"
 prim__select : AnyPtr -> Int -> Int -> AnyPtr
 
+%foreign "C:tensor_unsqueeze,libidrisml_torch"
+prim__unsqueeze : AnyPtr -> Int -> AnyPtr
+
 %foreign "C:tensor_stack,libidrisml_torch"
 prim__stack : AnyPtr -> Int -> Int -> AnyPtr
 
@@ -129,8 +132,9 @@ prim__cosineSimilarity : AnyPtr -> AnyPtr -> Int -> AnyPtr
 prim__conv1dCircular : AnyPtr -> AnyPtr -> AnyPtr
 
 -- Autograd
-%foreign "C:tensor_backward,libidrisml_torch"
-prim__backward : AnyPtr -> ()
+-- Returns the input pointer for threading (prevents dead code elimination).
+%foreign "scheme:(lambda (t) ((foreign-procedure \"tensor_backward\" (void*) void) t) t)"
+prim__backward : AnyPtr -> AnyPtr
 
 %foreign "C:tensor_grad,libidrisml_torch"
 prim__grad : AnyPtr -> AnyPtr
@@ -139,8 +143,9 @@ prim__grad : AnyPtr -> AnyPtr
 prim__zeroGrad : AnyPtr -> ()
 
 -- Parameter registry
-%foreign "C:param_register,libidrisml_torch"
-prim__paramRegister : String -> AnyPtr -> ()
+-- Returns the tensorPtr for threading (prevents dead code elimination).
+%foreign "scheme:(lambda (name t) ((foreign-procedure \"param_register\" (string void*) void) name t) t)"
+prim__paramRegister : String -> AnyPtr -> AnyPtr
 
 %foreign "C:param_clear,libidrisml_torch"
 prim__paramClear : ()
@@ -154,8 +159,8 @@ prim__paramName : Int -> String
 %foreign "C:param_grad_item,libidrisml_torch"
 prim__paramGradItem : Int -> Double
 
-%foreign "C:param_zero_all_grads,libidrisml_torch"
-prim__paramZeroAllGrads : ()
+%foreign "scheme:(lambda () ((foreign-procedure \"param_zero_all_grads\" () void)) 0)"
+prim__paramZeroAllGrads : Int
 
 %foreign "C:param_subtract_delta,libidrisml_torch"
 prim__paramSubtractDelta : Int -> Double -> ()
@@ -177,28 +182,43 @@ prim__print : AnyPtr -> ()
 
 
 ----------------------------------------------------------------------
+-- Sequencing helper
+----------------------------------------------------------------------
+
+-- Force evaluation of first arg, return second.
+-- Must use concrete AnyPtr types — polymorphic types cause Chez
+-- to miscount arguments when b is itself a function type.
+%foreign "scheme:(lambda (a b) b)"
+export
+prim__seq : AnyPtr -> AnyPtr -> AnyPtr
+
+
+----------------------------------------------------------------------
 -- Helpers: pack/unpack between Variable vectors and libtorch tensors
 ----------------------------------------------------------------------
 
--- Build a 1D libtorch tensor from a Vect of scalar Variables.
--- Allocates a C double array, fills it, creates tensor.
-%foreign "scheme:(lambda (n) (foreign-alloc (* n 8)))"
+-- Use C-side allocation to avoid Scheme/C FFI evaluation order issues.
+-- Scheme-side foreign-alloc + foreign-set! can be reordered by the
+-- Chez Scheme optimizer, causing C functions to read stale pointers.
+
+%foreign "C:tensor_alloc_doubles,libidrisml_torch"
 prim__allocDoubles : Int -> AnyPtr
 
-%foreign "scheme:(lambda (buf off val) (foreign-set! 'double buf (* off 8) val) buf)"
+%foreign "C:tensor_write_double,libidrisml_torch"
+prim__writeDouble : AnyPtr -> Int -> Double -> ()
+
+%foreign "C:tensor_read_double,libidrisml_torch"
+prim__readDouble : AnyPtr -> Int -> Double
+
+-- Wrapper that returns the buffer pointer for threading through let chains
+%foreign "scheme:(lambda (buf off val) ((foreign-procedure \"tensor_write_double\" (void* int double) void) buf off val) buf)"
 prim__setDouble : AnyPtr -> Int -> Double -> AnyPtr
 
-%foreign "scheme:(lambda (buf off) (foreign-ref 'double buf (* off 8)))"
-prim__getDouble : AnyPtr -> Int -> Double
+%foreign "C:tensor_create_1d,libidrisml_torch"
+prim__create1d : Int -> AnyPtr -> Int -> AnyPtr
 
-%foreign "scheme:(lambda (buf) (foreign-free buf) 0)"
-prim__freeAlloc : AnyPtr -> Int
-
-%foreign "scheme:(lambda (n) (foreign-alloc (* n 4)))"
-prim__allocInts : Int -> AnyPtr
-
-%foreign "scheme:(lambda (buf off val) (foreign-set! 'integer-32 buf (* off 4) val) buf)"
-prim__setInt : AnyPtr -> Int -> Int -> AnyPtr
+%foreign "C:tensor_create_2d,libidrisml_torch"
+prim__create2d : Int -> Int -> AnyPtr -> Int -> AnyPtr
 
 public export
 record Variable where
@@ -223,17 +243,17 @@ packMatrixValues buf off {m=S k} {n} (VTensor row :: rows) =
 
 -- Create a 1D libtorch tensor from a Vect of scalar Variables.
 -- The tensor inherits requires_grad if any input has it.
+-- vecToTensor: pack scalar values into a C buffer, then create a libtorch 1D tensor.
+-- Uses C-side allocation (tensor_alloc_doubles) and writes (tensor_write_double)
+-- to avoid Chez Scheme optimizer reordering issues with foreign-alloc/foreign-set!.
+-- The prim__setDouble wrapper returns the buffer ptr, threading data dependency.
 vecToTensor : {n : Nat} -> Vect n (Scalar Variable) -> (requiresGrad : Int) -> AnyPtr
 vecToTensor {n} elems rg =
   let nI = cast {to=Int} n
       buf = prim__allocDoubles nI
       buf' = packScalarValues buf 0 elems
-      shape = prim__allocInts 1
-      shape' = prim__setInt shape 0 nI
-      t = prim__create buf' shape' 1 rg
-      _ = prim__freeAlloc buf'
-      _ = prim__freeAlloc shape'
-  in t
+      -- buf' IS buf (returned by prim__setDouble chain), forces all writes
+  in prim__create1d nI buf' rg
 
 -- Create a 2D libtorch tensor from a Matrix of scalar Variables.
 matToTensor : {m, n : Nat} -> Vect m (Vector n Variable) -> (requiresGrad : Int) -> AnyPtr
@@ -242,12 +262,7 @@ matToTensor {m} {n} rows rg =
       nI = cast {to=Int} n
       buf = prim__allocDoubles (mI * nI)
       buf' = packMatrixValues buf 0 rows
-      shape = prim__allocInts 2
-      shape' = prim__setInt (prim__setInt shape 0 mI) 1 nI
-      t = prim__create buf' shape' 2 rg
-      _ = prim__freeAlloc buf'
-      _ = prim__freeAlloc shape'
-  in t
+  in prim__create2d mI nI buf' rg
 
 -- Read k scalar values from a 1D libtorch tensor into a Vect.
 tensorToScalars : AnyPtr -> Int -> (k : Nat) -> Vect k (Scalar Variable)
@@ -409,8 +424,8 @@ tanhVar v =
 export
 setParamId : String -> Variable -> Variable
 setParamId pid v =
-  let _ = prim__paramRegister pid v.tensorPtr
-  in Var v.tensorPtr (Just pid) v.value
+  let ptr = prim__paramRegister pid v.tensorPtr
+  in Var ptr (Just pid) v.value
 
 export
 param : String -> Double -> Variable
@@ -507,25 +522,34 @@ logSoftmaxVar {n} (VTensor xs) =
 export
 batchCosineSimilarityVar : {n, w : Nat} -> Variable -> Matrix n w Variable -> Vector w Variable -> Vector n Variable
 batchCosineSimilarityVar {n} {w} beta (VTensor memRows) (VTensor keyElems) =
-  let memTensor = matToTensor memRows 0  -- [n, w]
+  let memTensor = matToTensor memRows 0   -- [n, w]
       keyTensor = vecToTensor keyElems 0  -- [w]
-      -- Expand key to [n, w] for batch cosine similarity
-      -- cosine_similarity expects matching dimensions
-      cosSim = prim__cosineSimilarity memTensor (prim__matmul (prim__createScalar 1.0 0) keyTensor) 1
+      -- Unsqueeze key to [1, w] for broadcasting with [n, w]
+      keyExpanded = prim__unsqueeze keyTensor 0  -- [1, w]
+      -- cosine_similarity along dim=1: [n, w] vs [1, w] -> [n]
+      cosSim = prim__cosineSimilarity memTensor keyExpanded 1
       -- Scale by beta and softmax
-      scaled = prim__mul beta.tensorPtr cosSim
+      scaled = prim__mulScalar cosSim beta.value
       result = prim__softmax scaled 0
   in VTensor $ tensorToScalars result 0 n
 
 ||| NTM read: weighted sum of memory rows.
 ||| read(w, M) = w^T * M (w is attention weights [n], M is memory [n x w_dim])
+-- readOpVar uses a Scheme lambda to sequence tensor creation + matmul
+-- in a single evaluation step, avoiding Chez optimizer reordering.
+%foreign "scheme:(lambda (n w wts_buf mem_buf) (let ((wt ((foreign-procedure \"tensor_create_1d\" (int void* int) void*) n wts_buf 0)) (mt ((foreign-procedure \"tensor_create_2d\" (int int void* int) void*) n w mem_buf 0))) ((foreign-procedure \"tensor_matmul\" (void* void*) void*) wt mt)))"
+prim__readOp : Int -> Int -> AnyPtr -> AnyPtr -> AnyPtr
+
 export
 readOpVar : {n, w : Nat} -> Vector n Variable -> Matrix n w Variable -> Vector w Variable
 readOpVar {n} {w} (VTensor wts) (VTensor memRows) =
-  let wtTensor = vecToTensor wts 0     -- [n]
-      memTensor = matToTensor memRows 0  -- [n, w]
-      -- result = w^T @ M -> [w]
-      result = prim__matmul wtTensor memTensor
+  let nI = cast {to=Int} n
+      wI = cast {to=Int} w
+      wtsBuf = prim__allocDoubles nI
+      wtsBuf' = packScalarValues wtsBuf 0 wts
+      memBuf = prim__allocDoubles (nI * wI)
+      memBuf' = packMatrixValues (prim__seq wtsBuf' memBuf) 0 memRows
+      result = prim__readOp nI wI wtsBuf' memBuf'
   in VTensor $ tensorToScalars result 0 w
 
 ||| NTM write: erase + add.
@@ -741,13 +765,17 @@ buildGradMap n i acc = if i >= n then acc
 ||| Calls backward() on the loss tensor, then reads .grad() from all
 ||| registered parameters. Returns gradients keyed by parameter name.
 export
+-- Fused backward + param count: ensures backward() completes before
+-- returning the count (Chez would drop a standalone backward call).
+-- Checks requires_grad before calling backward to avoid crash on non-differentiable tensors.
+%foreign "scheme:(lambda (t) (let ((rg ((foreign-procedure \"tensor_requires_grad\" (void*) int) t))) (when (= rg 1) ((foreign-procedure \"tensor_backward\" (void*) void) t))) ((foreign-procedure \"param_count\" () int)))"
+prim__backwardAndCount : AnyPtr -> Int
+
+export
 collectGrads : Double -> Variable -> SortedMap String Double
 collectGrads initGrad root =
-  let _ = prim__backward root.tensorPtr
-      n = prim__paramCount
-      grads = buildGradMap n 0 empty
-      _ = prim__paramZeroAllGrads
-  in grads
+  let n = prim__backwardAndCount root.tensorPtr
+  in buildGradMap n 0 empty
 
 
 ----------------------------------------------------------------------
@@ -905,12 +933,3 @@ getRssMB = pure 0.0
 export
 getCurrentRssMB : IO Double
 getCurrentRssMB = pure 0.0
-
-
-----------------------------------------------------------------------
--- Sequencing helper
-----------------------------------------------------------------------
-
-%foreign "scheme:(lambda (a b) b)"
-export
-prim__seq : a -> b -> b

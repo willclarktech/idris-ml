@@ -119,6 +119,19 @@ TensorHandle param_tensor(int idx);
 void         param_zero_all_grads(void);
 void         param_subtract_delta(int idx, double delta); /* in-place: param -= delta */
 
+/* ---------- Convenience: build tensors from scalar arrays ---------- */
+
+/* Create a 1D tensor from n doubles passed as individual args via a C array */
+TensorHandle tensor_create_1d(int n, double* data, int requires_grad);
+TensorHandle tensor_create_2d(int rows, int cols, double* data, int requires_grad);
+
+/* Allocate a C double buffer (for Scheme-side packing) */
+double* tensor_alloc_doubles(int n);
+/* Read a double from a C buffer */
+double tensor_read_double(double* buf, int idx);
+/* Write a double to a C buffer */
+void tensor_write_double(double* buf, int idx, double val);
+
 /* ---------- Debug ---------- */
 
 void tensor_print(TensorHandle t);
