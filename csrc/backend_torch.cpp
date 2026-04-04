@@ -452,6 +452,69 @@ TensorHandle tensor_cat_from_array(TensorHandle* arr, int count, int dim) {
     return from_tensor(torch::cat(vec, dim));
 }
 
+/* ---------- Native Optimizer ---------- */
+
+/* Helper: collect all param_registry tensors into a vector */
+static std::vector<at::Tensor> collect_param_tensors() {
+    std::vector<at::Tensor> params;
+    params.reserve(param_registry.size());
+    for (auto& entry : param_registry) {
+        params.push_back(*entry.tensor);
+    }
+    return params;
+}
+
+OptimizerHandle optimizer_create_sgd(double lr) {
+    auto params = collect_param_tensors();
+    auto opts = torch::optim::SGDOptions(lr);
+    auto* opt = new torch::optim::SGD(params, opts);
+    return static_cast<OptimizerHandle>(opt);
+}
+
+OptimizerHandle optimizer_create_rmsprop(double lr, double alpha, double eps,
+                                          double weight_decay, double momentum) {
+    auto params = collect_param_tensors();
+    auto opts = torch::optim::RMSpropOptions(lr)
+        .alpha(alpha)
+        .eps(eps)
+        .weight_decay(weight_decay)
+        .momentum(momentum);
+    auto* opt = new torch::optim::RMSprop(params, opts);
+    return static_cast<OptimizerHandle>(opt);
+}
+
+OptimizerHandle optimizer_create_adam(double lr, double beta1, double beta2, double eps) {
+    auto params = collect_param_tensors();
+    auto opts = torch::optim::AdamOptions(lr)
+        .betas(std::make_tuple(beta1, beta2))
+        .eps(eps);
+    auto* opt = new torch::optim::Adam(params, opts);
+    return static_cast<OptimizerHandle>(opt);
+}
+
+void optimizer_free(OptimizerHandle h) {
+    delete static_cast<torch::optim::Optimizer*>(h);
+}
+
+void optimizer_step(OptimizerHandle h) {
+    static_cast<torch::optim::Optimizer*>(h)->step();
+}
+
+void optimizer_zero_grad(OptimizerHandle h) {
+    static_cast<torch::optim::Optimizer*>(h)->zero_grad();
+}
+
+void optimizer_clip_grad_value(double max_val) {
+    auto params = collect_param_tensors();
+    torch::nn::utils::clip_grad_value_(params, max_val);
+}
+
+double optimizer_clip_grad_norm(double max_norm) {
+    auto params = collect_param_tensors();
+    auto norm = torch::nn::utils::clip_grad_norm_(params, max_norm);
+    return norm;
+}
+
 /* ---------- Debug ---------- */
 
 void tensor_print(TensorHandle h) {

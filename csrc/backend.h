@@ -144,6 +144,22 @@ void           tensor_ptr_array_set(TensorHandle* arr, int idx, TensorHandle t);
 TensorHandle   tensor_stack_from_array(TensorHandle* arr, int count, int dim);
 TensorHandle   tensor_cat_from_array(TensorHandle* arr, int count, int dim);
 
+/* ---------- Native Optimizer ---------- */
+
+typedef void* OptimizerHandle;
+
+OptimizerHandle optimizer_create_sgd(double lr);
+OptimizerHandle optimizer_create_rmsprop(double lr, double alpha, double eps,
+                                          double weight_decay, double momentum);
+OptimizerHandle optimizer_create_adam(double lr, double beta1, double beta2, double eps);
+void            optimizer_free(OptimizerHandle opt);
+void            optimizer_step(OptimizerHandle opt);
+void            optimizer_zero_grad(OptimizerHandle opt);
+
+/* Gradient clipping (operates on all registered params) */
+void optimizer_clip_grad_value(double max_val);
+double optimizer_clip_grad_norm(double max_norm);  /* returns actual norm */
+
 /* ---------- Debug ---------- */
 
 void tensor_print(TensorHandle t);

@@ -156,6 +156,33 @@ int main(void) {
     tensor_free(w); tensor_free(bb); tensor_free(xx); tensor_free(wx); tensor_free(y2);
     param_clear();
 
+    /* --- Native optimizer: SGD on y = w*x, target 3.0 --- */
+    param_clear();
+    TensorHandle opt_w = tensor_create_scalar(0.5, 1);
+    param_register("w", opt_w);
+
+    OptimizerHandle sgd = optimizer_create_sgd(0.01);
+
+    /* Train 100 steps: loss = (w*2 - 3)^2, optimal w = 1.5 */
+    for (int step = 0; step < 100; step++) {
+        optimizer_zero_grad(sgd);
+        TensorHandle opt_x = tensor_create_scalar(2.0, 0);
+        TensorHandle opt_t = tensor_create_scalar(3.0, 0);
+        TensorHandle opt_y = tensor_mul(opt_w, opt_x);
+        TensorHandle opt_diff = tensor_sub(opt_y, opt_t);
+        TensorHandle opt_loss = tensor_mul(opt_diff, opt_diff);
+        tensor_backward(opt_loss);
+        optimizer_step(sgd);
+        tensor_free(opt_x); tensor_free(opt_t); tensor_free(opt_y);
+        tensor_free(opt_diff); tensor_free(opt_loss);
+    }
+    double final_w = tensor_item(opt_w);
+    ASSERT_NEAR("native SGD converges w->1.5", final_w, 1.5, 0.01);
+
+    optimizer_free(sgd);
+    tensor_free(opt_w);
+    param_clear();
+
     /* --- Summary --- */
     if (failures == 0) {
         printf("\nAll backend tests passed!\n");
