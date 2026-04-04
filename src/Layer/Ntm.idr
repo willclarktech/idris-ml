@@ -272,35 +272,38 @@ export
     "Ntm<" ++ show i ++ ":" ++ show o
     ++ ", mem=" ++ show n ++ "x" ++ show m ++ ", h=" ++ show h ++ ">"
 
-  nameLayer prefx (MkNtm lstm readFc writeFc outputFc (VTensor memRows) (VTensor raElems) (VTensor waElems) (VTensor roElems) _ _ _ _) =
-    let -- Sub-layers: auto-name with scoped prefixes (always counter 0)
-        namedLstm = nameLayer (prefx ++ "_lstm0") lstm
+  nameLayer prefx (MkNtm lstm readFc writeFc outputFc memory readAddr writeAddr readOutput _ _ _ _) =
+    let namedLstm = nameLayer (prefx ++ "_lstm0") lstm
         namedReadFc = nameLayer (prefx ++ "_readFc_ll0") readFc
         namedWriteFc = nameLayer (prefx ++ "_writeFc_ll0") writeFc
         namedOutputFc = nameLayer (prefx ++ "_outputFc_ll0") outputFc
-        -- Create consolidated tensors for NTM state
-        nI = cast {to=Int} n
-        mI = cast {to=Int} m
-        memBuf = prim__allocDoubles (nI * mI)
-        memBuf' = packMatrixValues memBuf 0 {n=m} memRows
-        memT = prim__paramRegister (prefx ++ "_memory") (prim__createParam2d nI mI memBuf')
-        raBuf = prim__allocDoubles nI
-        raBuf' = packScalarValues raBuf 0 raElems
-        raT = prim__paramRegister (prefx ++ "_readAddr") (prim__createParam1d nI raBuf')
-        waBuf = prim__allocDoubles nI
-        waBuf' = packScalarValues waBuf 0 waElems
-        waT = prim__paramRegister (prefx ++ "_writeAddr") (prim__createParam1d nI waBuf')
-        roBuf = prim__allocDoubles mI
-        roBuf' = packScalarValues roBuf 0 roElems
-        roT = prim__paramRegister (prefx ++ "_readOutput") (prim__createParam1d mI roBuf')
-        -- Build view Variables from consolidated tensors
-        viewMem = buildViewMatrix (prefx ++ "_mem") memT 0 0 n m
-        viewRA = buildViewVector (prefx ++ "_rAddr") raT 0 n
-        viewWA = buildViewVector (prefx ++ "_wAddr") waT 0 n
-        viewRO = buildViewVector (prefx ++ "_rOut") roT 0 m
-    in MkNtm namedLstm namedReadFc namedWriteFc namedOutputFc
-             (VTensor viewMem) (VTensor viewRA) (VTensor viewWA) (VTensor viewRO)
-             (Just memT) (Just raT) (Just waT) (Just roT)
+    in if prim__backendSupportsTensorParams == 1
+      then -- Tensor path: consolidated tensors + views
+        let np = nameParam . (prefx ++ "_" ++)
+            (VTensor memRows) = memory
+            (VTensor raElems) = readAddr
+            (VTensor waElems) = writeAddr
+            (VTensor roElems) = readOutput
+            nI = cast {to=Int} n
+            mI = cast {to=Int} m
+            memT = prim__paramRegister (prefx ++ "_memory") (prim__createParam2d nI mI (let buf = prim__allocDoubles (nI * mI) in packMatrixValues buf 0 {n=m} memRows))
+            raT = prim__paramRegister (prefx ++ "_readAddr") (prim__createParam1d nI (let buf = prim__allocDoubles nI in packScalarValues buf 0 raElems))
+            waT = prim__paramRegister (prefx ++ "_writeAddr") (prim__createParam1d nI (let buf = prim__allocDoubles nI in packScalarValues buf 0 waElems))
+            roT = prim__paramRegister (prefx ++ "_readOutput") (prim__createParam1d mI (let buf = prim__allocDoubles mI in packScalarValues buf 0 roElems))
+        in MkNtm namedLstm namedReadFc namedWriteFc namedOutputFc
+                 (VTensor $ buildViewMatrix (prefx ++ "_mem") memT 0 0 n m)
+                 (VTensor $ buildViewVector (prefx ++ "_rAddr") raT 0 n)
+                 (VTensor $ buildViewVector (prefx ++ "_wAddr") waT 0 n)
+                 (VTensor $ buildViewVector (prefx ++ "_rOut") roT 0 m)
+                 (Just memT) (Just raT) (Just waT) (Just roT)
+      else -- Scalar path (tape backend)
+        let np = nameParam . (prefx ++ "_" ++)
+        in MkNtm namedLstm namedReadFc namedWriteFc namedOutputFc
+                 (zipWith (np "mem") enumerate memory)
+                 (zipWith (np "rAddr") enumerate readAddr)
+                 (zipWith (np "wAddr") enumerate writeAddr)
+                 (zipWith (np "rOut") enumerate readOutput)
+                 Nothing Nothing Nothing Nothing
 
   layerPrefix _ = "ntm"
 

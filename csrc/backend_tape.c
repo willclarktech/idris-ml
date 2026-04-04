@@ -653,13 +653,25 @@ TensorHandle tensor_squeeze(TensorHandle h, int dim) {
 TensorHandle tensor_select(TensorHandle h, int dim, int index) {
     Tensor* t = (Tensor*)h;
     if (t->rank == 1) {
-        return make_scalar(t->data[index], 0);
+        /* Share data with parent, preserve requires_grad */
+        Tensor* v = calloc(1, sizeof(Tensor));
+        v->data = &t->data[index];
+        v->shape = NULL;
+        v->rank = 0;
+        v->numel = 1;
+        v->requires_grad = t->requires_grad;
+        v->tape_idx = -1;
+        v->grad = NULL;
+        if (v->requires_grad) tape_append(OP_CONST, v, NULL, NULL, 0);
+        return v;
     } else if (t->rank == 2 && dim == 0) {
         int cols = t->shape[1];
         int shape[] = {cols};
-        return make_tensor(t->data + index * cols, shape, 1, 0);
+        Tensor* r = make_tensor(t->data + index * cols, shape, 1, t->requires_grad);
+        if (r->requires_grad) tape_append(OP_CONST, r, NULL, NULL, 0);
+        return r;
     }
-    return make_scalar(t->data[index], 0);
+    return make_scalar(t->data[index], t->requires_grad);
 }
 
 TensorHandle tensor_stack(TensorHandle* tensors, int count, int dim) {
@@ -680,7 +692,7 @@ TensorHandle tensor_cat(TensorHandle* tensors, int count, int dim) {
    Autograd — backward pass
    ================================================================ */
 
-void tensor_backward(TensorHandle h) {
+void tensor_backward(TensorHandle h) { 
     Tensor* loss = (Tensor*)h;
     if (loss->tape_idx < 0) return;
 
@@ -1156,13 +1168,30 @@ TensorHandle tensor_create_param_1d(int n, double* data) {
 TensorHandle tensor_view_2d(TensorHandle h, int row, int col) {
     Tensor* t = (Tensor*)h;
     int cols = t->shape[1];
-    double val = t->data[row * cols + col];
-    return make_scalar(val, 0); /* views as copies for now */
+    /* View shares data with parent (data pointer into parent's array).
+       NOT requires_grad — the parent handles grad tracking. */
+    Tensor* v = calloc(1, sizeof(Tensor));
+    v->data = &t->data[row * cols + col];
+    v->shape = NULL;
+    v->rank = 0;
+    v->numel = 1;
+    v->requires_grad = 0;
+    v->tape_idx = -1;
+    v->grad = NULL;
+    return v;
 }
 
 TensorHandle tensor_view_1d(TensorHandle h, int idx) {
     Tensor* t = (Tensor*)h;
-    return make_scalar(t->data[idx], 0);
+    Tensor* v = calloc(1, sizeof(Tensor));
+    v->data = &t->data[idx];
+    v->shape = NULL;
+    v->rank = 0;
+    v->numel = 1;
+    v->requires_grad = 0;
+    v->tape_idx = -1;
+    v->grad = NULL;
+    return v;
 }
 
 double tensor_item_2d(TensorHandle h, int row, int col) {
@@ -1230,7 +1259,7 @@ void optimizer_zero_grad(OptimizerHandle h) {
     param_zero_all_grads();
 }
 
-void optimizer_step(OptimizerHandle h) {
+void optimizer_step(OptimizerHandle h) { 
     Optimizer* opt = (Optimizer*)h;
     optimizer_ensure_buffers(opt);
     opt->t++;
@@ -1273,11 +1302,12 @@ void optimizer_step(OptimizerHandle h) {
         }
     }
 
-    /* Reset tape after each step (tensors persist but tape is cleared) */
+    /* Reset tape and re-register ONLY the param tensors (from param_registry).
+       Ephemeral tensors (select results, intermediates) are not re-registered.
+       They will be recreated in the next forward pass. */
     tape_reset();
-    /* Re-register params on tape for next forward pass */
-    for (int i = 0; i < param_count_val; i++) {
-        Tensor* t = param_registry[i].tensor;
+    for (int j = 0; j < param_count_val; j++) {
+        Tensor* t = param_registry[j].tensor;
         t->tape_idx = -1;
         if (t->grad) memset(t->grad, 0, t->numel * sizeof(double));
         tape_append(OP_CONST, t, NULL, NULL, 0);
@@ -1317,6 +1347,8 @@ double optimizer_clip_grad_norm(double max_norm) {
 /* ================================================================
    System
    ================================================================ */
+
+int backend_supports_tensor_params(void) { return 0; }
 
 int get_rss_mb(void) {
 #ifdef __APPLE__

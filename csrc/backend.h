@@ -205,6 +205,13 @@ void            optimizer_zero_grad(OptimizerHandle opt);
 void optimizer_clip_grad_value(double max_val);
 double optimizer_clip_grad_norm(double max_norm);  /* returns actual norm */
 
+/* ---------- Backend Capabilities ---------- */
+
+/* Returns 1 if the backend supports tensor-level parameters
+   (consolidated weight tensors with views that share storage).
+   Returns 0 if the backend uses scalar-per-element parameters. */
+int backend_supports_tensor_params(void);
+
 /* ---------- System ---------- */
 
 int get_rss_mb(void);           /* peak RSS in MB (getrusage) */

@@ -646,6 +646,10 @@ TensorHandle tensor_pair_first(TensorPair* p) { return p->first; }
 TensorHandle tensor_pair_second(TensorPair* p) { return p->second; }
 void tensor_pair_free(TensorPair* p) { delete p; }
 
+/* ---------- Backend Capabilities ---------- */
+
+int backend_supports_tensor_params(void) { return 1; }
+
 /* ---------- System ---------- */
 
 int get_rss_mb(void) {

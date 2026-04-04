@@ -921,6 +921,10 @@ getNumPids _ = prim__paramCount
 -- GC / RSS
 ----------------------------------------------------------------------
 
+%foreign "C:backend_supports_tensor_params,libidrisml"
+export
+prim__backendSupportsTensorParams : Int
+
 export
 forceGC : IO ()
 forceGC = pure ()

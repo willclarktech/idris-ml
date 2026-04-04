@@ -82,25 +82,27 @@ LayerLike LinearState where
 
   showLayer {i} {o} _ = "Linear<" ++ show i ++ ":" ++ show o ++ ">"
 
-  nameLayer {i} {o} prefx (MkLinear (VTensor wRows) (VTensor bElems) _ _) =
-    let oI = cast {to=Int} o
-        iI = cast {to=Int} i
-        -- Pack weight values into a flat C buffer (row-major)
-        wBuf = prim__allocDoubles (oI * iI)
-        wBuf' = packMatrixValues wBuf 0 {n=i} wRows
-        -- Create consolidated [o, i] parameter tensor (requires_grad=true)
-        weightT = prim__createParam2d oI iI wBuf'
-        -- Register consolidated tensor (used by native optimizer)
-        weightT' = prim__paramRegister (prefx ++ "_weights") weightT
-        -- Pack bias values
-        bBuf = prim__allocDoubles oI
-        bBuf' = packScalarValues bBuf 0 bElems
-        biasT = prim__createParam1d oI bBuf'
-        biasT' = prim__paramRegister (prefx ++ "_biases") biasT
-        -- Build scalar view Variables with paramIds (share storage with consolidated tensors)
-    in MkLinear (VTensor $ buildViewMatrix (prefx ++ "_weight") weightT' 0 0 o i)
-                (VTensor $ buildViewVector (prefx ++ "_bias") biasT' 0 o)
-                (Just weightT') (Just biasT')
+  nameLayer {i} {o} prefx (MkLinear weights bias _ _) =
+    if prim__backendSupportsTensorParams == 1
+      then -- Tensor path: consolidated weight tensors + view Variables
+        let (VTensor wRows) = weights
+            (VTensor bElems) = bias
+            oI = cast {to=Int} o
+            iI = cast {to=Int} i
+            wBuf = prim__allocDoubles (oI * iI)
+            wBuf' = packMatrixValues wBuf 0 {n=i} wRows
+            weightT = prim__paramRegister (prefx ++ "_weights") (prim__createParam2d oI iI wBuf')
+            bBuf = prim__allocDoubles oI
+            bBuf' = packScalarValues bBuf 0 bElems
+            biasT = prim__paramRegister (prefx ++ "_biases") (prim__createParam1d oI bBuf')
+        in MkLinear (VTensor $ buildViewMatrix (prefx ++ "_weight") weightT 0 0 o i)
+                    (VTensor $ buildViewVector (prefx ++ "_bias") biasT 0 o)
+                    (Just weightT) (Just biasT)
+      else -- Scalar path: per-element named Variables (tape backend)
+        let np = nameParam . (prefx ++ "_" ++)
+            namedWeights = zipWith (np "weight") enumerate weights
+            namedBias = zipWith (np "bias") enumerate bias
+        in MkLinear namedWeights namedBias Nothing Nothing
 
   layerPrefix _ = "ll"
 

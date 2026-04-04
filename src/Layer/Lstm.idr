@@ -162,38 +162,36 @@ LayerLike LstmState where
 
   showLayer {i} {o} _ = "Lstm<" ++ show i ++ ":" ++ show o ++ ">"
 
-  nameLayer {i} {o} prefx (MkLstm (VTensor iwRows) (VTensor rwRows) (VTensor bElems) (VTensor hsElems) (VTensor csElems) _ _ _) =
-    let gateSize = 4 * o
-        gsI = cast {to=Int} gateSize
-        iI = cast {to=Int} i
-        oI = cast {to=Int} o
-        -- Create consolidated input weights [4*o, i]
-        iwBuf = prim__allocDoubles (gsI * iI)
-        iwBuf' = packMatrixValues iwBuf 0 {n=i} iwRows
-        iwT = prim__paramRegister (prefx ++ "_inputWeights") (prim__createParam2d gsI iI iwBuf')
-        -- Create consolidated recurrent weights [4*o, o]
-        rwBuf = prim__allocDoubles (gsI * oI)
-        rwBuf' = packMatrixValues rwBuf 0 {n=o} rwRows
-        rwT = prim__paramRegister (prefx ++ "_recurrentWeights") (prim__createParam2d gsI oI rwBuf')
-        -- Create consolidated bias [4*o]
-        bBuf = prim__allocDoubles gsI
-        bBuf' = packScalarValues bBuf 0 bElems
-        bT = prim__paramRegister (prefx ++ "_biases") (prim__createParam1d gsI bBuf')
-        -- h0 and c0 as parameter vectors
-        h0Buf = prim__allocDoubles oI
-        h0Buf' = packScalarValues h0Buf 0 hsElems
-        h0T = prim__paramRegister (prefx ++ "_h0") (prim__createParam1d oI h0Buf')
-        c0Buf = prim__allocDoubles oI
-        c0Buf' = packScalarValues c0Buf 0 csElems
-        c0T = prim__paramRegister (prefx ++ "_c0") (prim__createParam1d oI c0Buf')
-        -- Build view Variables (share storage with consolidated tensors)
-        viewIW = buildViewMatrix (prefx ++ "_inputWeight") iwT 0 0 (4 * o) i
-        viewRW = buildViewMatrix (prefx ++ "_recurrentWeight") rwT 0 0 (4 * o) o
-        viewBias = buildViewVector (prefx ++ "_bias") bT 0 (4 * o)
-        viewH0 = buildViewVector (prefx ++ "_h0") h0T 0 o
-        viewC0 = buildViewVector (prefx ++ "_c0") c0T 0 o
-    in MkLstm (VTensor viewIW) (VTensor viewRW) (VTensor viewBias) (VTensor viewH0) (VTensor viewC0)
-              (Just iwT) (Just rwT) (Just bT)
+  nameLayer {i} {o} prefx (MkLstm iw rw b hs cs _ _ _) =
+    if prim__backendSupportsTensorParams == 1
+      then -- Tensor path
+        let (VTensor iwRows) = iw
+            (VTensor rwRows) = rw
+            (VTensor bElems) = b
+            (VTensor hsElems) = hs
+            (VTensor csElems) = cs
+            gsI = cast {to=Int} (4 * o)
+            iI = cast {to=Int} i
+            oI = cast {to=Int} o
+            iwT = prim__paramRegister (prefx ++ "_inputWeights") (prim__createParam2d gsI iI (let buf = prim__allocDoubles (gsI * iI) in packMatrixValues buf 0 {n=i} iwRows))
+            rwT = prim__paramRegister (prefx ++ "_recurrentWeights") (prim__createParam2d gsI oI (let buf = prim__allocDoubles (gsI * oI) in packMatrixValues buf 0 {n=o} rwRows))
+            bT = prim__paramRegister (prefx ++ "_biases") (prim__createParam1d gsI (let buf = prim__allocDoubles gsI in packScalarValues buf 0 bElems))
+            h0T = prim__paramRegister (prefx ++ "_h0") (prim__createParam1d oI (let buf = prim__allocDoubles oI in packScalarValues buf 0 hsElems))
+            c0T = prim__paramRegister (prefx ++ "_c0") (prim__createParam1d oI (let buf = prim__allocDoubles oI in packScalarValues buf 0 csElems))
+        in MkLstm (VTensor $ buildViewMatrix (prefx ++ "_inputWeight") iwT 0 0 (4 * o) i)
+                  (VTensor $ buildViewMatrix (prefx ++ "_recurrentWeight") rwT 0 0 (4 * o) o)
+                  (VTensor $ buildViewVector (prefx ++ "_bias") bT 0 (4 * o))
+                  (VTensor $ buildViewVector (prefx ++ "_h0") h0T 0 o)
+                  (VTensor $ buildViewVector (prefx ++ "_c0") c0T 0 o)
+                  (Just iwT) (Just rwT) (Just bT)
+      else -- Scalar path (tape backend)
+        let np = nameParam . (prefx ++ "_" ++)
+        in MkLstm (zipWith (np "inputWeight") enumerate iw)
+                  (zipWith (np "recurrentWeight") enumerate rw)
+                  (zipWith (np "bias") enumerate b)
+                  (zipWith (np "h0") enumerate hs)
+                  (zipWith (np "c0") enumerate cs)
+                  Nothing Nothing Nothing
 
   layerPrefix _ = "lstm"
 
