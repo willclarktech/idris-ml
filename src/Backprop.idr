@@ -297,6 +297,53 @@ epochTwoPhaseDenseBce opt dataPoints model st =
       model' = emap (applyDeltas deltas) model
   in (model', { inner := innerSt' } st, loss.value)
 
+||| Native two-phase epoch with BCE loss.
+||| Uses libtorch optimizer directly: zero_grad → backward → clip → step.
+||| No collectGrads, no SortedMap, no applyDeltas.
+export
+epochTwoPhaseBceNative :
+  {i, o, n : Nat} ->
+  {hs : List Nat} ->
+  NativeOptimizer ->
+  Vect n (TwoPhaseDataPoint i o Variable) ->
+  Network i hs o Variable ->
+  (Network i hs o Variable, Double)
+epochTwoPhaseBceNative opt dataPoints model =
+  let loss = calculateLossTwoPhaseVarBce model dataPoints
+      lossVal = nativeTrainStep opt loss
+  -- Model structure unchanged; tensor values mutated in-place by optimizer
+  in (model, lossVal)
+
+||| Native epoch for supervised training.
+export
+epochNative :
+  {i, o, n : Nat} ->
+  {hs : List Nat} ->
+  NativeOptimizer ->
+  Vect n (DataPoint i o Variable) ->
+  LossFunction Variable ->
+  Network i hs o Variable ->
+  (Network i hs o Variable, Double)
+epochNative opt dataPoints lossFn model =
+  let loss = calculateLossVar lossFn model dataPoints
+      lossVal = nativeTrainStep opt loss
+  in (model, lossVal)
+
+||| Native epoch for recurrent training.
+export
+epochRecurrentNative :
+  {i, o, n : Nat} ->
+  {hs : List Nat} ->
+  NativeOptimizer ->
+  Vect n (RecurrentDataPoint i o Variable) ->
+  LossFunction Variable ->
+  Network i hs o Variable ->
+  (Network i hs o Variable, Double)
+epochRecurrentNative opt dataPoints lossFn model =
+  let loss = calculateLossRecurrentVar lossFn model dataPoints
+      lossVal = nativeTrainStep opt loss
+  in (model, lossVal)
+
 ||| Dense two-phase training with schedule and early stopping.
 export
 trainTwoPhaseScheduledFromDense :

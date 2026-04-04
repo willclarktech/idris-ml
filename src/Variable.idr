@@ -754,6 +754,96 @@ collectGrads initGrad root =
 
 
 ----------------------------------------------------------------------
+-- Native Optimizer
+----------------------------------------------------------------------
+
+%foreign "C:optimizer_create_sgd,libidrisml_torch"
+prim__optimizerCreateSgd : Double -> AnyPtr
+
+%foreign "C:optimizer_create_rmsprop,libidrisml_torch"
+prim__optimizerCreateRmsprop : Double -> Double -> Double -> Double -> Double -> AnyPtr
+
+%foreign "C:optimizer_create_adam,libidrisml_torch"
+prim__optimizerCreateAdam : Double -> Double -> Double -> Double -> AnyPtr
+
+-- optimizer_step and optimizer_zero_grad have void return — use Scheme wrappers
+-- to return a threading value (prevents dead code elimination).
+%foreign "scheme:(lambda (opt) ((foreign-procedure \"optimizer_zero_grad\" (void*) void) opt) opt)"
+prim__optimizerZeroGrad : AnyPtr -> AnyPtr
+
+%foreign "scheme:(lambda (opt) ((foreign-procedure \"optimizer_step\" (void*) void) opt) opt)"
+prim__optimizerStep : AnyPtr -> AnyPtr
+
+-- backward: same as prim__backward but returns the tensorPtr for threading
+%foreign "scheme:(lambda (t) (let ((rg ((foreign-procedure \"tensor_requires_grad\" (void*) int) t))) (when (= rg 1) ((foreign-procedure \"tensor_backward\" (void*) void) t))) t)"
+prim__backwardForNative : AnyPtr -> AnyPtr
+
+%foreign "scheme:(lambda (maxVal) ((foreign-procedure \"optimizer_clip_grad_value\" (double) void) maxVal) 0)"
+prim__clipGradValue : Double -> Int
+
+%foreign "scheme:(lambda (maxNorm) ((foreign-procedure \"optimizer_clip_grad_norm\" (double) double) maxNorm))"
+prim__clipGradNorm : Double -> Double
+
+public export
+data ClipMode = NoClip | ValueClip Double | NormClip Double
+
+||| Native libtorch optimizer. Single step() call updates all parameters.
+public export
+record NativeOptimizer where
+  constructor MkNativeOptimizer
+  handle : AnyPtr
+  clipMode : ClipMode
+
+||| Create a native SGD optimizer.
+export
+nativeSgd : Double -> NativeOptimizer
+nativeSgd lr = MkNativeOptimizer (prim__optimizerCreateSgd lr) NoClip
+
+||| Create a native RMSprop optimizer (matches PyTorch defaults).
+export
+nativeRmsprop : (lr : Double) -> (alpha : Double) -> (eps : Double) ->
+                (clipVal : Double) -> (momentum : Double) -> NativeOptimizer
+nativeRmsprop lr alpha eps clipVal momentum =
+  MkNativeOptimizer
+    (prim__optimizerCreateRmsprop lr alpha eps 0.0 momentum)
+    (ValueClip clipVal)
+
+||| Create a native Adam optimizer with global norm clipping.
+export
+nativeAdamGlobalClip : (lr : Double) -> (beta1 : Double) -> (beta2 : Double) ->
+                       (eps : Double) -> (maxNorm : Double) -> NativeOptimizer
+nativeAdamGlobalClip lr beta1 beta2 eps maxNorm =
+  MkNativeOptimizer
+    (prim__optimizerCreateAdam lr beta1 beta2 eps)
+    (NormClip maxNorm)
+
+-- Fused native train step: zero_grad → backward → clip → step.
+-- All in one Scheme lambda to ensure correct evaluation order.
+-- Returns loss value (read before step, so not stale).
+%foreign "scheme:(lambda (opt clip-mode clip-val loss-ptr loss-val) ((foreign-procedure \"optimizer_zero_grad\" (void*) void) opt) (let ((rg ((foreign-procedure \"tensor_requires_grad\" (void*) int) loss-ptr))) (when (= rg 1) ((foreign-procedure \"tensor_backward\" (void*) void) loss-ptr))) (cond ((= clip-mode 1) ((foreign-procedure \"optimizer_clip_grad_value\" (double) void) clip-val)) ((= clip-mode 2) ((foreign-procedure \"optimizer_clip_grad_norm\" (double) double) clip-val)) (else (void))) ((foreign-procedure \"optimizer_step\" (void*) void) opt) loss-val)"
+prim__nativeTrainStep : AnyPtr -> Int -> Double -> AnyPtr -> Double -> Double
+
+||| Run one native optimizer step: zero_grad → backward → clip → step.
+||| Returns the loss value (read before step, so not stale).
+export
+nativeTrainStep : NativeOptimizer -> Variable -> Double
+nativeTrainStep opt loss =
+  let clipMode : Int
+      clipMode = case opt.clipMode of NoClip => 0; ValueClip _ => 1; NormClip _ => 2
+      clipVal : Double
+      clipVal = case opt.clipMode of NoClip => 0.0; ValueClip v => v; NormClip v => v
+  in prim__nativeTrainStep opt.handle clipMode clipVal loss.tensorPtr loss.value
+
+||| Refresh cached Variable.value from the underlying tensorPtr.
+||| Needed after native optimizer step since tensor values changed in-place.
+export
+refreshValue : Variable -> Variable
+refreshValue v = case v.paramId of
+  Just _ => { value := prim__item v.tensorPtr } v
+  Nothing => v
+
+
+----------------------------------------------------------------------
 -- Parameter Count
 ----------------------------------------------------------------------
 
