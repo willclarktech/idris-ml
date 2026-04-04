@@ -405,3 +405,57 @@ The refactored system uses:
 **Performance**: Dynamic dispatch through the existential adds one dictionary lookup per layer per call. For training, the actual compute (C-backed matmul, LSTM cell, memory ops) dominates.
 
 **Numerical equivalence verified**: The refactored code produces bit-for-bit identical loss values to the original monolithic Layer.idr at every epoch checkpoint (tested with seed=42, batch=1, 10K epochs — both converge at epoch 9300 with 100%/100% accuracy). The interface dispatch, existential wrapping, and module splitting do not affect the numerical computation path.
+
+## Multi-backend architecture (2026-04)
+
+### Why we moved from Scheme-embedded tape to `backend.h` C abstraction
+
+The original autograd stored the tape in Chez Scheme's heap via `top-level-value` (147 inline Scheme FFI lambdas in Variable.idr managing tape allocation, resizing, and pid tracking). This was fast (~1 memory write per scalar op) but:
+
+- Tied to Chez Scheme — no other Idris 2 backend could use it
+- 1950 lines of tangled Scheme/C FFI code in Variable.idr
+- No GPU path — Scheme can't dispatch to CUDA/Metal
+- Adding new ops required editing both Scheme lambdas and C backward rules
+- The tape management was duplicated between `prim__tapeGen` and `prim__tapeAppendConst` (two copies of the same 15-line Scheme init guard)
+
+The `backend.h` C API abstracts all tensor operations behind ~80 function declarations. Any backend (libtorch, custom tape, MLX) implements these functions. Variable.idr uses `%foreign "C:func_name,libidrisml"` — one library name, backend chosen at build time.
+
+### Three-backend strategy
+
+**Tape backend** (`BACKEND=tape`, default): Custom C with arena allocator, Accelerate BLAS, and tape-based autograd. Zero external dependencies. Target: match or exceed PyTorch CPU performance for scalar models.
+
+**libtorch backend** (`BACKEND=torch`): Links against PyTorch's C++ library. Tensor-level autograd, GPU support (CUDA/MPS/ROCm), native optimizers. Dependency: ~2GB libtorch install. Target: GPU training, large batch workloads.
+
+**MLX backend** (`BACKEND=mlx`, planned): Links against Apple's [mlx-c](https://github.com/ml-explore/mlx-c). Metal GPU, lazy evaluation, ~50MB dependency. Target: Apple Silicon ML workloads.
+
+All three compile to `libidrisml.dylib` — same name, same API. The Idris code is identical across backends. `Makefile` selects: `make backend BACKEND=tape|torch|mlx`.
+
+### Build-time backend selection
+
+The `backend_supports_tensor_params()` C function returns 1 (torch) or 0 (tape) to let Idris code adapt. When 1: layer `nameLayer` creates consolidated weight tensors (`[o,i]` for Linear, `[4*o,i]` for LSTM) with scalar views sharing storage. The tensor-level forward path (`tensor_mv`) operates on consolidated tensors directly. When 0: layer `nameLayer` creates per-scalar named Variables. The scalar fallback forward path stacks scalars → C op → unstacks.
+
+This is a runtime-queryable capability, not a compile-time flag, so the same compiled Idris binary works with either backend.
+
+### Performance trade-offs
+
+| | Tape | libtorch | Old Scheme tape |
+|---|---|---|---|
+| Supervised (1000 ep) | ~5.8s | ~7.2s | 90ms |
+| RNN (1000 ep) | ~16.9s | ~28.6s | 400ms |
+| NTM-copy (100 ep) | NaN (fixing) | ~19.3s | ~14.7s |
+| Peak RSS (Supervised) | 68MB | 453MB | 42MB |
+| Per-scalar op cost | 2-3 malloc | tensor alloc + graph node | 1 memory write |
+| GPU support | No | CUDA/MPS | No |
+| Dependencies | 0 | ~2GB | 0 |
+
+The old Scheme tape was fastest because `foreign-set!` into pre-allocated arrays is essentially a memory write — no allocation, no FFI crossing. The new tape backend allocates a `Tensor` struct per op. Closing this gap requires arena allocation and reducing the stack/unstack overhead.
+
+### NTM numerical stability: epsilon clamping
+
+The NTM addressing pipeline computes `pow(weights, gamma) / sum(pow(weights, gamma))` for focus/sharpening. After circular shift convolution, weights can become negative or zero. `pow(negative, gamma)` = NaN when gamma is non-integer.
+
+The fused C `tensor_ntm_read_head` (used by torch backend) clamps to `1e-10` before pow (line 594 in backend_torch.cpp). The scalar Variable-level `focusVar` (used by tape backend) did NOT have this clamping, causing NaN after the first optimizer step when gradients pushed weights negative.
+
+Fix: add `tensor_clamp_min` to `backend.h` and use in `focusVar` before `prim__pow`. Both backends must implement this. The torch backend already had the clamp in its fused path but needs it in the standalone `tensor_clamp_min` function too.
+
+The old Scheme backend avoided this issue through buffer-passing: addressing weights stayed in C buffers where the NTM-specific C ops applied the clamping internally. The new architecture's scalar path bypasses those C ops.
