@@ -1,7 +1,24 @@
 UNAME := $(shell uname)
 BUILD := build
 
-# C shared library
+# --- libtorch detection (LIBTORCH_PATH > pkg-config > python3 torch) ---
+ifndef LIBTORCH_PATH
+  LIBTORCH_PATH := $(shell pkg-config --variable=prefix torch 2>/dev/null)
+endif
+ifndef LIBTORCH_PATH
+  LIBTORCH_PATH := $(shell python3 -c "import torch, os; print(os.path.dirname(torch.__file__))" 2>/dev/null)
+endif
+ifndef LIBTORCH_PATH
+  LIBTORCH_PATH := $(shell pytorch/.venv/bin/python3 -c "import torch, os; print(os.path.dirname(torch.__file__))" 2>/dev/null)
+endif
+
+ifdef LIBTORCH_PATH
+  TORCH_INC := $(LIBTORCH_PATH)/include
+  TORCH_INC_API := $(LIBTORCH_PATH)/include/torch/csrc/api/include
+  TORCH_LIB := $(LIBTORCH_PATH)/lib
+endif
+
+# C shared library (legacy backend)
 CSRC := csrc/tensor.c
 ifeq ($(UNAME), Darwin)
   CLIB := $(BUILD)/libidrisml.dylib
@@ -13,6 +30,30 @@ endif
 
 $(CLIB): $(CSRC) | $(BUILD)
 	cc $(CFLAGS) -o $@ $<
+
+# libtorch backend
+BACKEND_SRC := csrc/backend_torch.cpp
+ifeq ($(UNAME), Darwin)
+  BACKEND_LIB := $(BUILD)/libidrisml_torch.dylib
+  BACKEND_CXXFLAGS := -std=c++17 -O2 -shared -I$(TORCH_INC) -I$(TORCH_INC_API) -L$(TORCH_LIB) -ltorch -ltorch_cpu -lc10 -Wl,-rpath,$(TORCH_LIB)
+else
+  BACKEND_LIB := $(BUILD)/libidrisml_torch.so
+  BACKEND_CXXFLAGS := -std=c++17 -O2 -shared -fPIC -I$(TORCH_INC) -I$(TORCH_INC_API) -L$(TORCH_LIB) -ltorch -ltorch_cpu -lc10 -Wl,-rpath,$(TORCH_LIB)
+endif
+
+$(BACKEND_LIB): $(BACKEND_SRC) csrc/backend.h | $(BUILD)
+ifdef LIBTORCH_PATH
+	c++ $(BACKEND_CXXFLAGS) -o $@ $<
+else
+	$(error libtorch not found. Set LIBTORCH_PATH, install via pkg-config, or run: cd pytorch && uv sync)
+endif
+
+backend: $(BACKEND_LIB)
+
+print-torch:
+	@echo "LIBTORCH_PATH=$(LIBTORCH_PATH)"
+	@echo "TORCH_INC=$(TORCH_INC)"
+	@echo "TORCH_LIB=$(TORCH_LIB)"
 
 # Idris tests (check builds library .ttc files first)
 test: check
@@ -107,4 +148,4 @@ ref-convergence-recall:
 clean:
 	rm -f $(CLIB) $(BUILD)/test_tensor
 
-.PHONY: test test-c check supervised rnn lstm ntm-copy ntm-associative-recall bench profile sweep sweep-quick clean ref-setup bench-py bench-compare ref-test ref-lint ref-typecheck ref-convergence ref-convergence-copy ref-convergence-recall
+.PHONY: test test-c check supervised rnn lstm ntm-copy ntm-associative-recall bench profile sweep sweep-quick clean backend print-torch ref-setup bench-py bench-compare ref-test ref-lint ref-typecheck ref-convergence ref-convergence-copy ref-convergence-recall
