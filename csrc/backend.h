@@ -205,6 +205,11 @@ void            optimizer_zero_grad(OptimizerHandle opt);
 void optimizer_clip_grad_value(double max_val);
 double optimizer_clip_grad_norm(double max_norm);  /* returns actual norm */
 
+/* ---------- System ---------- */
+
+int get_rss_mb(void);           /* peak RSS in MB (getrusage) */
+int get_current_rss_mb(void);   /* current RSS in MB (macOS mach_task_info) */
+
 /* ---------- Debug ---------- */
 
 void tensor_print(TensorHandle t);

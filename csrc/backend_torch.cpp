@@ -5,6 +5,10 @@
 
 #include <cstring>
 #include <string>
+#include <sys/resource.h>
+#ifdef __APPLE__
+#include <mach/mach.h>
+#endif
 
 /* ---------- Helpers ---------- */
 
@@ -641,6 +645,30 @@ TensorPair* tensor_lstm_gates_pair(TensorHandle combined_h, TensorHandle prev_ce
 TensorHandle tensor_pair_first(TensorPair* p) { return p->first; }
 TensorHandle tensor_pair_second(TensorPair* p) { return p->second; }
 void tensor_pair_free(TensorPair* p) { delete p; }
+
+/* ---------- System ---------- */
+
+int get_rss_mb(void) {
+    struct rusage usage;
+    getrusage(RUSAGE_SELF, &usage);
+#ifdef __APPLE__
+    return (int)(usage.ru_maxrss / (1024 * 1024)); /* bytes on macOS */
+#else
+    return (int)(usage.ru_maxrss / 1024);           /* KB on Linux */
+#endif
+}
+
+int get_current_rss_mb(void) {
+#ifdef __APPLE__
+    mach_task_basic_info_data_t info;
+    mach_msg_type_number_t count = MACH_TASK_BASIC_INFO_COUNT;
+    if (task_info(mach_task_self(), MACH_TASK_BASIC_INFO,
+                  (task_info_t)&info, &count) == KERN_SUCCESS) {
+        return (int)(info.resident_size / (1024 * 1024));
+    }
+#endif
+    return get_rss_mb(); /* fallback to peak */
+}
 
 /* ---------- Debug ---------- */
 

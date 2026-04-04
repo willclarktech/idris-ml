@@ -918,17 +918,23 @@ getNumPids _ = prim__paramCount
 
 
 ----------------------------------------------------------------------
--- GC / RSS stubs
+-- GC / RSS
 ----------------------------------------------------------------------
 
 export
 forceGC : IO ()
 forceGC = pure ()
 
+%foreign "C:get_rss_mb,libidrisml_torch"
+prim__getRssMB : Int
+
+%foreign "C:get_current_rss_mb,libidrisml_torch"
+prim__getCurrentRssMB : Int
+
 export
 getRssMB : Nat -> Int
-getRssMB _ = 0
+getRssMB _ = prim__getRssMB
 
 export
 getCurrentRssMB : Nat -> Int
-getCurrentRssMB _ = 0
+getCurrentRssMB _ = prim__getCurrentRssMB
