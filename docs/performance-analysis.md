@@ -473,10 +473,10 @@ libtorch's native tensor-level autograd. -4701 net lines of code.
 ### Benchmark Results (libtorch backend)
 
 ```
-Model             Idris-torch (ms)  Old C (ms)   PyTorch (ms)  vs Old C   vs PyTorch
-Supervised (1000 ep)       4,047         90         242          45x slower  17x slower
-RNN (1000 ep)             21,893        400       2,212          55x slower  10x slower
-NTM-copy (100 ep)         20,505     14,660      13,186          1.4x slower 1.6x slower
+Model             Idris-torch (ms)  Old C (ms)   PyTorch (ms)  vs Old C   vs PyTorch   Peak RSS
+Supervised (1000 ep)       7,187         90         242          80x slower  30x slower    453 MB
+RNN (1000 ep)             28,627        400       2,212          72x slower  13x slower   2245 MB
+NTM-copy (100 ep)         19,341     14,660      13,186          1.3x slower 1.5x slower  3371 MB
 ```
 
 ### Analysis
