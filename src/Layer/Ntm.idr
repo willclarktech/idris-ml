@@ -287,12 +287,9 @@ export
         namedReadFc = nameLayer (prefx ++ "_readFc_ll0") readFc
         namedWriteFc = nameLayer (prefx ++ "_writeFc_ll0") writeFc
         namedOutputFc = nameLayer (prefx ++ "_outputFc_ll0") outputFc
-        -- Allocate NtmMemBuf
-        (VTensor memRows) = namedMemory
-        mb = prim__ntmMemBufAlloc (cast n) (cast m)
-        mb' = prim__ntmMemBufSnapshotInitial (initNtmMemBuf mb 0 memRows)
+    -- No NtmMemBuf in libtorch backend — memory matrix stored as Variables
     in MkNtm namedLstm namedReadFc namedWriteFc namedOutputFc
-             namedMemory namedReadAddr namedWriteAddr namedReadOut (Just mb')
+             namedMemory namedReadAddr namedWriteAddr namedReadOut Nothing
 
   layerPrefix _ = "ntm"
 

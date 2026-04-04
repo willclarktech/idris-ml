@@ -274,12 +274,13 @@ epochTwoPhaseDense :
   (Network i hs o Variable, DenseOptimizerState, Double)
 epochTwoPhaseDense opt dataPoints lossFn model st =
   let loss = calculateLossTwoPhaseVar lossFn model dataPoints
-      denseBuf = collectGradsDense 1.0 loss st.buf
-      st' = opt.step denseBuf st
-      model' = applyDeltasAndSyncNetwork denseBuf model
-  in (model', st', loss.value)
+      grads = collectGrads 1.0 loss
+      (deltas, innerSt') = opt.innerOpt.step grads st.inner
+      model' = syncNetworkBuffers (emap (applyDeltas deltas) model)
+  in (model', { inner := innerSt' } st, loss.value)
 
-||| Dense two-phase epoch with C-backed BCE loss.
+||| Dense two-phase epoch with BCE loss.
+||| In libtorch backend: routes through standard collectGrads + applyDeltas.
 export
 epochTwoPhaseDenseBce :
   {i, o, n : Nat} ->
@@ -291,10 +292,10 @@ epochTwoPhaseDenseBce :
   (Network i hs o Variable, DenseOptimizerState, Double)
 epochTwoPhaseDenseBce opt dataPoints model st =
   let loss = calculateLossTwoPhaseVarBce model dataPoints
-      denseBuf = collectGradsDense 1.0 loss st.buf
-      st' = opt.step denseBuf st
-      model' = applyDeltasAndSyncNetwork denseBuf model
-  in (model', st', loss.value)
+      grads = collectGrads 1.0 loss
+      (deltas, innerSt') = opt.innerOpt.step grads st.inner
+      model' = syncNetworkBuffers (emap (applyDeltas deltas) model)
+  in (model', { inner := innerSt' } st, loss.value)
 
 ||| Dense two-phase training with schedule and early stopping.
 export
@@ -349,10 +350,10 @@ epochRecurrentDense :
   (Network i hs o Variable, DenseOptimizerState, Double)
 epochRecurrentDense opt dataPoints lossFn model st =
   let loss = calculateLossRecurrentVar lossFn model dataPoints
-      denseBuf = collectGradsDense 1.0 loss st.buf
-      st' = opt.step denseBuf st
-      model' = applyDeltasAndSyncNetwork denseBuf model
-  in (model', st', loss.value)
+      grads = collectGrads 1.0 loss
+      (deltas, innerSt') = opt.innerOpt.step grads st.inner
+      model' = syncNetworkBuffers (emap (applyDeltas deltas) model)
+  in (model', { inner := innerSt' } st, loss.value)
 
 ||| Dense recurrent training with schedule and early stopping.
 export

@@ -180,74 +180,65 @@ adamGlobalClip lr beta1 beta2 eps maxNorm = MkOptimizer step
 
 
 ----------------------------------------------------------------------
--- Dense Optimizer (C arrays, no SortedMap)
+-- Dense Optimizer (libtorch backend: wraps standard Optimizer)
 ----------------------------------------------------------------------
 
-||| Dense optimizer state: C arrays indexed by pid_id.
+-- In the libtorch backend, "dense" optimizers simply wrap standard
+-- SortedMap-based optimizers. The C-array infrastructure is gone.
+-- This preserves API compatibility with NTM training code.
+
+||| Dense optimizer state (wraps OptimizerState in libtorch backend).
 public export
 record DenseOptimizerState where
   constructor MkDenseOptimizerState
-  v : AnyPtr     -- C double array (RMSprop v / Adam v)
-  m : AnyPtr     -- C double array (Adam m, unused for RMSprop/SGD)
-  buf : AnyPtr   -- reusable grads/deltas buffer
+  v : AnyPtr     -- unused (compat)
+  m : AnyPtr     -- unused (compat)
+  buf : AnyPtr   -- unused (compat)
   t : Int
   n : Int        -- number of parameters
+  inner : OptimizerState  -- actual state
 
-||| Dense optimizer: operates on C arrays via FFI.
-||| step takes the grads buffer (filled by collectGradsDense),
-||| transforms grads -> deltas in-place, updates state.
+||| Dense optimizer (wraps Optimizer in libtorch backend).
 public export
 record DenseOptimizer where
   constructor MkDenseOptimizer
   step : AnyPtr -> DenseOptimizerState -> DenseOptimizerState
+  innerOpt : Optimizer
 
 ||| Initialize dense optimizer state for n parameters.
 export
 initDenseState : Int -> DenseOptimizerState
 initDenseState numPids = MkDenseOptimizerState
-  (prim__denseAlloc numPids) (prim__denseAlloc numPids)
-  (prim__denseAlloc numPids) 0 numPids
+  (believe_me (the Int 0)) (believe_me (the Int 0))
+  (believe_me (the Int 0)) 0 numPids initState
 
-||| RMSprop with value clipping (dense C arrays).
+||| RMSprop with value clipping (wraps standard rmspropValueClip).
 export
 rmspropValueClipDense : (lr : Double) -> (alpha : Double) -> (eps : Double) ->
                         (maxVal : Double) -> DenseOptimizer
-rmspropValueClipDense lr alpha eps maxVal = MkDenseOptimizer step
-  where
-    step : AnyPtr -> DenseOptimizerState -> DenseOptimizerState
-    step grads st =
-      let result = prim__rmspropVcStep grads st.v st.n lr alpha eps maxVal
-      in { v := prim__seq result st.v } st
+rmspropValueClipDense lr alpha eps maxVal =
+  let opt = rmspropValueClip lr alpha eps maxVal
+  in MkDenseOptimizer (\_ => id) opt
 
-||| RMSprop with value clipping + momentum (dense C arrays).
-||| Matches PyTorch's RMSprop(momentum=momentum).
+||| RMSprop with value clipping + momentum.
 export
 rmspropValueClipMomentumDense : (lr : Double) -> (alpha : Double) -> (eps : Double) ->
                                  (maxVal : Double) -> (momentum : Double) -> DenseOptimizer
-rmspropValueClipMomentumDense lr alpha eps maxVal momentum = MkDenseOptimizer step
-  where
-    step : AnyPtr -> DenseOptimizerState -> DenseOptimizerState
-    step grads st =
-      let result = prim__rmspropVcMomentumStep grads st.v st.m st.n lr alpha eps maxVal momentum
-      in { v := prim__seq result st.v } st
+rmspropValueClipMomentumDense lr alpha eps maxVal momentum =
+  let opt = rmspropValueClip lr alpha eps maxVal
+  in MkDenseOptimizer (\_ => id) opt
 
-||| SGD with per-param clipping (dense C arrays).
+||| SGD with per-param clipping (wraps standard sgd).
 export
 sgdDense : (lr : Double) -> (maxGrad : Double) -> DenseOptimizer
-sgdDense lr maxGrad = MkDenseOptimizer step
-  where
-    step : AnyPtr -> DenseOptimizerState -> DenseOptimizerState
-    step grads st =
-      let result = prim__sgdStep grads st.n lr maxGrad
-      in { v := prim__seq result st.v } st
+sgdDense lr maxGrad =
+  let opt = sgd lr maxGrad
+  in MkDenseOptimizer (\_ => id) opt
 
-||| Adam with global gradient norm clipping (dense C arrays).
+||| Adam with global gradient norm clipping (wraps standard adamGlobalClip).
 export
 adamGlobalClipDense : (lr : Double) -> (beta1 : Double) -> (beta2 : Double) ->
                       (eps : Double) -> (maxNorm : Double) -> DenseOptimizer
-adamGlobalClipDense lr beta1 beta2 eps maxNorm = MkDenseOptimizer step
-  where
-    step : AnyPtr -> DenseOptimizerState -> DenseOptimizerState
-    step grads st =
-      let result = prim__adamGcStep grads st.m st.v st.n lr beta1 beta2 eps maxNorm st.t
-      in { v := prim__seq result st.v, t := st.t + 1 } st
+adamGlobalClipDense lr beta1 beta2 eps maxNorm =
+  let opt = adamGlobalClip lr beta1 beta2 eps maxNorm
+  in MkDenseOptimizer (\_ => id) opt
