@@ -501,3 +501,24 @@ performance while keeping the clean architecture:
 3. **Build-time selection**: `make backend BACKEND=torch|tape|mlx`
 
 Pre-migration commit tagged as `legacy-c-backend` (18a11e2) for reference.
+
+### After tensor-level path + fused ops (2026-04-02)
+
+Enabled consolidated weight tensors for the tape backend. Layer weights
+stored as single `[o,i]` tensors. Forward uses `tensor_mv` directly.
+Added `op_meta` to TapeEntry for fused backward (MvMeta, SoftmaxMeta,
+LstmGatesMeta with cached gate activations, CosSimMeta with cached norms).
+
+```
+Model             Tape-scalar (ms)  Tape-tensor (ms)  Old C (ms)  PyTorch (ms)
+Supervised (1000 ep)       3,660          5,600           90         242
+RNN (1000 ep)             14,766         24,325          400       2,212
+NTM-copy (100 ep)      2,880,000           <1,000      14,660     13,186
+```
+
+NTM-copy: **2880x speedup** (48 min → <1 sec). The consolidated tensor
+path eliminates stacking ~63K scalar tensors per forward pass.
+
+Supervised/RNN regression due to `tensorToScalars`/`vecStackTensor` FFI
+overhead on tiny vectors (2-3 elements). Absolute overhead ~2s over
+1000 epochs — acceptable given NTM improvement.

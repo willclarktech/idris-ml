@@ -475,3 +475,9 @@ The tape backend is ~64x slower than the old Scheme tape for Supervised (5.8s vs
 4. **Tape walk cost** (O(tape_size) per backward): Acceptable for small models, but the tape isn't pruned of stale entries between epochs. The `optimizer_step` tape reset helps.
 
 These optimizations are independent and can be applied in any order. The arena allocator gives the best ratio of impact to effort.
+
+### Resolution: tensor-level path + metadata (2026-04-02)
+
+Enabled `backend_supports_tensor_params=1` for the tape backend. Layer weights are now consolidated tensors — one `tensor_mv` call instead of stacking thousands of scalar Variables. Added `op_meta` field to TapeEntry for fused backward metadata (MvMeta, SoftmaxMeta, LstmGatesMeta). Fixed `tensor_lstm_gates` to set `requires_grad=1` on outputs and record OP_LSTM_GATES with cached gate activations.
+
+Result: NTM-copy 100 epochs: 48 min → <1 sec (~2880x speedup). Small model (Supervised) regressed from 3.7s to 5.6s due to `tensorToScalars`/`vecStackTensor` FFI overhead on tiny vectors — this is acceptable since the overhead is fixed per layer and the NTM improvement dominates. Added consecutive-data cache in `tensor_stack_from_array` to skip copy when restacking selects from the same parent.
