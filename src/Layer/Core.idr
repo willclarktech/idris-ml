@@ -426,32 +426,6 @@ autoName net = snd (autoNameNetwork "" empty net)
 
 
 ----------------------------------------------------------------------
--- Network-Level Operations (sync, deltas, readback)
-----------------------------------------------------------------------
-
-export
-syncNetworkBuffers : {i, o : Nat} -> {hs : List Nat} ->
-                     Network i hs o Variable -> Network i hs o Variable
-syncNetworkBuffers (OutputLayer (MkAnyLayer l @{dict} layer)) = OutputLayer (MkAnyLayer l @{dict} (syncBuffers @{dict} layer))
-syncNetworkBuffers ((MkAnyLayer l @{dict} layer) ~> rest) = MkAnyLayer l @{dict} (syncBuffers @{dict} layer) ~> syncNetworkBuffers rest
-
-export
-applyDeltasAndSyncNetwork : {i, o : Nat} -> {hs : List Nat} ->
-                            AnyPtr -> Network i hs o Variable -> Network i hs o Variable
-applyDeltasAndSyncNetwork deltas (OutputLayer (MkAnyLayer l @{dict} layer)) =
-  OutputLayer (MkAnyLayer l @{dict} (applyDeltasAndSync @{dict} deltas layer))
-applyDeltasAndSyncNetwork deltas ((MkAnyLayer l @{dict} layer) ~> rest) =
-  MkAnyLayer l @{dict} (applyDeltasAndSync @{dict} deltas layer) ~> applyDeltasAndSyncNetwork deltas rest
-
-export
-readFromBuffersNetwork : {i, o : Nat} -> {hs : List Nat} ->
-                         Network i hs o Variable -> Network i hs o Variable
-readFromBuffersNetwork (OutputLayer (MkAnyLayer l @{dict} layer)) = OutputLayer (MkAnyLayer l @{dict} (readFromBuffers @{dict} layer))
-readFromBuffersNetwork ((MkAnyLayer l @{dict} layer) ~> rest) =
-  MkAnyLayer l @{dict} (readFromBuffers @{dict} layer) ~> readFromBuffersNetwork rest
-
-
-----------------------------------------------------------------------
 -- Variable -> Double Network Conversion
 ----------------------------------------------------------------------
 
