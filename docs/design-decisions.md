@@ -459,3 +459,19 @@ The fused C `tensor_ntm_read_head` (used by torch backend) clamps to `1e-10` bef
 Fix: add `tensor_clamp_min` to `backend.h` and use in `focusVar` before `prim__pow`. Both backends must implement this. The torch backend already had the clamp in its fused path but needs it in the standalone `tensor_clamp_min` function too.
 
 The old Scheme backend avoided this issue through buffer-passing: addressing weights stayed in C buffers where the NTM-specific C ops applied the clamping internally. The new architecture's scalar path bypasses those C ops.
+
+**Update (2026-04-02)**: Adding `tensor_clamp_min` to `focusVar` and `shiftVar` prevents forward-pass NaN. However, backward-pass NaN persists at NTM scale (128 memory slots × 20 width). Root cause: multiple compound ops (`tensor_cosine_similarity`, `tensor_conv1d_circular`) needed tape entries for backward. Added `OP_COSINE_SIM` and `OP_CONV1D_CIRC` backward rules. Also fixed multi-dim backward for `OP_POW` and `OP_DIV`, and `tensor_unsqueeze` to use `tensor_reshape` for tape continuity. Individual ops pass C tests in isolation, but the full NTM addressing chain at scale produces NaN gradients after one optimizer step — likely a gradient accumulation/explosion issue requiring epsilon guards in backward rules at scale.
+
+### Tape backend performance: optimization roadmap
+
+The tape backend is ~64x slower than the old Scheme tape for Supervised (5.8s vs 90ms). The bottlenecks (ranked by impact):
+
+1. **Per-scalar tensor allocation** (2-3 `malloc/calloc` per op): The old backend did 1 memory write per op (`foreign-set!` into pre-allocated arrays). Fix: arena allocator (bump-pointer, bulk reset).
+
+2. **Stack/unstack overhead** (STACK → RESHAPE → MV → SELECT per matmul): The old backend used persistent weight buffers and buffer-passing. Fix: fused OP_MV_SCALARS that reads directly from scalar Variable tensor pointers without intermediate stacking.
+
+3. **FFI crossing overhead** (N+2 Scheme→C calls per vector pack): `packScalarPtrs` calls `prim__ptrArraySet` N times. Fix: single C call that accepts all handles.
+
+4. **Tape walk cost** (O(tape_size) per backward): Acceptable for small models, but the tape isn't pruned of stale entries between epochs. The `optimizer_step` tape reset helps.
+
+These optimizations are independent and can be applied in any order. The arena allocator gives the best ratio of impact to effort.
