@@ -220,6 +220,27 @@ prim__create1d : Int -> AnyPtr -> Int -> AnyPtr
 %foreign "C:tensor_create_2d,libidrisml_torch"
 prim__create2d : Int -> Int -> AnyPtr -> Int -> AnyPtr
 
+-- Tensor pointer array: stack scalar Variable tensorPtrs to create
+-- a 1D/2D tensor that preserves the autograd graph.
+%foreign "C:tensor_ptr_array_alloc,libidrisml_torch"
+prim__ptrArrayAlloc : Int -> AnyPtr
+
+-- Returns the array for threading
+%foreign "scheme:(lambda (arr idx t) ((foreign-procedure \"tensor_ptr_array_set\" (void* int void*) void) arr idx t) arr)"
+prim__ptrArraySet : AnyPtr -> Int -> AnyPtr -> AnyPtr
+
+%foreign "C:tensor_stack_from_array,libidrisml_torch"
+prim__stackFromArray : AnyPtr -> Int -> Int -> AnyPtr
+
+%foreign "C:tensor_reshape,libidrisml_torch"
+prim__reshape : AnyPtr -> AnyPtr -> Int -> AnyPtr
+
+%foreign "scheme:(lambda (n) (foreign-alloc (* n 4)))"
+prim__allocInts : Int -> AnyPtr
+
+%foreign "scheme:(lambda (buf off val) (foreign-set! 'integer-32 buf (* off 4) val) buf)"
+prim__setInt : AnyPtr -> Int -> Int -> AnyPtr
+
 public export
 record Variable where
   constructor Var
@@ -243,19 +264,17 @@ packMatrixValues buf off {m=S k} {n} (VTensor row :: rows) =
 
 -- Create a 1D libtorch tensor from a Vect of scalar Variables.
 -- The tensor inherits requires_grad if any input has it.
--- vecToTensor: pack scalar values into a C buffer, then create a libtorch 1D tensor.
--- Uses C-side allocation (tensor_alloc_doubles) and writes (tensor_write_double)
--- to avoid Chez Scheme optimizer reordering issues with foreign-alloc/foreign-set!.
--- The prim__setDouble wrapper returns the buffer ptr, threading data dependency.
+-- vecToTensor (value-based): pack scalar values into a C buffer.
+-- Does NOT preserve autograd graph — use for non-differentiable contexts only.
 vecToTensor : {n : Nat} -> Vect n (Scalar Variable) -> (requiresGrad : Int) -> AnyPtr
 vecToTensor {n} elems rg =
   let nI = cast {to=Int} n
       buf = prim__allocDoubles nI
       buf' = packScalarValues buf 0 elems
-      -- buf' IS buf (returned by prim__setDouble chain), forces all writes
   in prim__create1d nI buf' rg
 
--- Create a 2D libtorch tensor from a Matrix of scalar Variables.
+-- matToTensor (value-based): pack matrix values into a C buffer.
+-- Does NOT preserve autograd graph.
 matToTensor : {m, n : Nat} -> Vect m (Vector n Variable) -> (requiresGrad : Int) -> AnyPtr
 matToTensor {m} {n} rows rg =
   let mI = cast {to=Int} m
@@ -263,6 +282,43 @@ matToTensor {m} {n} rows rg =
       buf = prim__allocDoubles (mI * nI)
       buf' = packMatrixValues buf 0 rows
   in prim__create2d mI nI buf' rg
+
+-- Pack scalar Variable tensorPtrs into a C pointer array (for torch::stack).
+packScalarPtrs : AnyPtr -> Int -> Vect k (Scalar Variable) -> AnyPtr
+packScalarPtrs arr _ [] = arr
+packScalarPtrs arr off (STensor v :: rest) =
+  let arr' = prim__ptrArraySet arr off v.tensorPtr
+  in packScalarPtrs arr' (off + 1) rest
+
+-- vecStackTensor: stack scalar Variable tensorPtrs into a 1D tensor.
+-- PRESERVES autograd graph — use for differentiable ops (dot, softmax, etc.)
+vecStackTensor : {n : Nat} -> Vect n (Scalar Variable) -> AnyPtr
+vecStackTensor {n} elems =
+  let nI = cast {to=Int} n
+      arr = prim__ptrArrayAlloc nI
+      arr' = packScalarPtrs arr 0 elems
+  in prim__stackFromArray arr' nI 0
+
+-- Pack a matrix (Vect of Vectors) of tensorPtrs into a flat pointer array (row-major).
+packMatrixPtrs : AnyPtr -> Int -> {n : Nat} -> Vect m (Vector n Variable) -> AnyPtr
+packMatrixPtrs arr _ {m=Z} [] = arr
+packMatrixPtrs arr off {m=S k} {n} (VTensor row :: rows) =
+  let arr' = packScalarPtrs arr off row
+  in packMatrixPtrs arr' (off + cast {to=Int} n) rows
+
+-- matStackTensor: stack matrix Variable tensorPtrs into a 2D tensor.
+-- PRESERVES autograd graph.
+matStackTensor : {m, n : Nat} -> Vect m (Vector n Variable) -> AnyPtr
+matStackTensor {m} {n} rows =
+  let mI = cast {to=Int} m
+      nI = cast {to=Int} n
+      -- Stack all m*n scalars into a flat 1D tensor, then reshape to [m, n]
+      arr = prim__ptrArrayAlloc (mI * nI)
+      arr' = packMatrixPtrs arr 0 rows
+      flat = prim__stackFromArray arr' (mI * nI) 0  -- [m*n]
+      shape = prim__allocInts 2
+      shape' = prim__setInt (prim__setInt shape 0 mI) 1 nI
+  in prim__reshape flat shape' 2
 
 -- Read k scalar values from a 1D libtorch tensor into a Vect.
 tensorToScalars : AnyPtr -> Int -> (k : Nat) -> Vect k (Scalar Variable)
@@ -446,8 +502,8 @@ nameParam prefx i p = setParamId (prefx ++ show i) p
 export
 matrixVectorMultiplyVar : {m, n : Nat} -> Matrix m n Variable -> Vector n Variable -> Vector m Variable
 matrixVectorMultiplyVar {m} {n} (VTensor rows) (VTensor xs) =
-  let matTensor = matToTensor rows 0
-      vecTensor = vecToTensor xs 0
+  let matTensor = matStackTensor rows
+      vecTensor = vecStackTensor xs
       result = prim__mv matTensor vecTensor
   in VTensor $ tensorToScalars result 0 m
 
@@ -465,12 +521,12 @@ matrixVectorMultiplyVarBufBias : {m, n : Nat} -> AnyPtr -> AnyPtr -> Vector n Va
 matrixVectorMultiplyVarBufBias {m} wBuf bBuf (VTensor xs) =
   VTensor $ replicate m (STensor (fromDouble 0.0))
 
-||| Dot product using libtorch.
+||| Dot product using libtorch (autograd-preserving).
 export
 dotProductVar : {n : Nat} -> Vector n Variable -> Vector n Variable -> Variable
 dotProductVar {n} (VTensor as) (VTensor bs) =
-  let aTensor = vecToTensor as 0
-      bTensor = vecToTensor bs 0
+  let aTensor = vecStackTensor as
+      bTensor = prim__seq aTensor (vecStackTensor bs)
       result = prim__dot aTensor bTensor
       val = prim__item result
   in Var result Nothing val
@@ -484,8 +540,8 @@ dotProductVar {n} (VTensor as) (VTensor bs) =
 export
 bceWithLogitsVar : {n : Nat} -> Vector n Variable -> Vector n Variable -> Variable
 bceWithLogitsVar {n} (VTensor preds) (VTensor targets) =
-  let predTensor = vecToTensor preds 0
-      targetTensor = vecToTensor targets 0
+  let predTensor = vecStackTensor preds
+      targetTensor = vecStackTensor targets
       result = prim__bceWithLogits predTensor targetTensor
       val = prim__item result
   in Var result Nothing val
@@ -499,7 +555,7 @@ bceWithLogitsVar {n} (VTensor preds) (VTensor targets) =
 export
 softmaxVar : {n : Nat} -> Vector n Variable -> Vector n Variable
 softmaxVar {n} (VTensor xs) =
-  let inTensor = vecToTensor xs 0
+  let inTensor = vecStackTensor xs
       result = prim__softmax inTensor 0
   in VTensor $ tensorToScalars result 0 n
 
@@ -507,7 +563,7 @@ softmaxVar {n} (VTensor xs) =
 export
 logSoftmaxVar : {n : Nat} -> Vector n Variable -> Vector n Variable
 logSoftmaxVar {n} (VTensor xs) =
-  let inTensor = vecToTensor xs 0
+  let inTensor = vecStackTensor xs
       result = prim__logSoftmax inTensor 0
   in VTensor $ tensorToScalars result 0 n
 
@@ -522,34 +578,24 @@ logSoftmaxVar {n} (VTensor xs) =
 export
 batchCosineSimilarityVar : {n, w : Nat} -> Variable -> Matrix n w Variable -> Vector w Variable -> Vector n Variable
 batchCosineSimilarityVar {n} {w} beta (VTensor memRows) (VTensor keyElems) =
-  let memTensor = matToTensor memRows 0   -- [n, w]
-      keyTensor = vecToTensor keyElems 0  -- [w]
+  let memTensor = matStackTensor memRows     -- [n, w], autograd-connected
+      keyTensor = vecStackTensor keyElems    -- [w], autograd-connected
       -- Unsqueeze key to [1, w] for broadcasting with [n, w]
       keyExpanded = prim__unsqueeze keyTensor 0  -- [1, w]
       -- cosine_similarity along dim=1: [n, w] vs [1, w] -> [n]
       cosSim = prim__cosineSimilarity memTensor keyExpanded 1
-      -- Scale by beta and softmax
-      scaled = prim__mulScalar cosSim beta.value
-      result = prim__softmax scaled 0
+      -- Scale by beta (no softmax — that's applied downstream in the NTM addressing pipeline)
+      result = prim__mul beta.tensorPtr cosSim
   in VTensor $ tensorToScalars result 0 n
 
 ||| NTM read: weighted sum of memory rows.
 ||| read(w, M) = w^T * M (w is attention weights [n], M is memory [n x w_dim])
--- readOpVar uses a Scheme lambda to sequence tensor creation + matmul
--- in a single evaluation step, avoiding Chez optimizer reordering.
-%foreign "scheme:(lambda (n w wts_buf mem_buf) (let ((wt ((foreign-procedure \"tensor_create_1d\" (int void* int) void*) n wts_buf 0)) (mt ((foreign-procedure \"tensor_create_2d\" (int int void* int) void*) n w mem_buf 0))) ((foreign-procedure \"tensor_matmul\" (void* void*) void*) wt mt)))"
-prim__readOp : Int -> Int -> AnyPtr -> AnyPtr -> AnyPtr
-
 export
 readOpVar : {n, w : Nat} -> Vector n Variable -> Matrix n w Variable -> Vector w Variable
 readOpVar {n} {w} (VTensor wts) (VTensor memRows) =
-  let nI = cast {to=Int} n
-      wI = cast {to=Int} w
-      wtsBuf = prim__allocDoubles nI
-      wtsBuf' = packScalarValues wtsBuf 0 wts
-      memBuf = prim__allocDoubles (nI * wI)
-      memBuf' = packMatrixValues (prim__seq wtsBuf' memBuf) 0 memRows
-      result = prim__readOp nI wI wtsBuf' memBuf'
+  let wtTensor = vecStackTensor wts       -- [n], autograd-connected
+      memTensor = matStackTensor memRows   -- [n, w], autograd-connected
+      result = prim__matmul wtTensor memTensor  -- [w]
   in VTensor $ tensorToScalars result 0 w
 
 ||| NTM write: erase + add.
@@ -558,10 +604,10 @@ export
 writeOpVar : {n, w : Nat} -> Vector n Variable -> Matrix n w Variable ->
              Vector w Variable -> Vector w Variable -> Matrix n w Variable
 writeOpVar {n} {w} (VTensor wts) (VTensor memRows) (VTensor eraseElems) (VTensor addElems) =
-  let wtTensor = vecToTensor wts 0        -- [n]
-      memTensor = matToTensor memRows 0     -- [n, w]
-      eraseTensor = vecToTensor eraseElems 0 -- [w]
-      addTensor = vecToTensor addElems 0    -- [w]
+  let wtTensor = vecStackTensor wts           -- [n]
+      memTensor = matStackTensor memRows       -- [n, w]
+      eraseTensor = vecStackTensor eraseElems  -- [w]
+      addTensor = vecStackTensor addElems      -- [w]
       -- erase_gate = outer(w, e) -> [n, w]
       eraseGate = prim__outer wtTensor eraseTensor
       -- ones - erase_gate
@@ -629,9 +675,9 @@ focusVar {n} gamma (VTensor wts) =
 export
 interpolationWriteVar : {n, w : Nat} -> Vector n Variable -> Matrix n w Variable -> Vector w Variable -> Matrix n w Variable
 interpolationWriteVar {n} {w} (VTensor wts) (VTensor memRows) (VTensor addElems) =
-  let wtTensor = vecToTensor wts 0
-      memTensor = matToTensor memRows 0
-      addTensor = vecToTensor addElems 0
+  let wtTensor = vecStackTensor wts
+      memTensor = matStackTensor memRows
+      addTensor = vecStackTensor addElems
       -- M' = M + outer(w, a)
       addGate = prim__outer wtTensor addTensor
       result = prim__add memTensor addGate

@@ -132,6 +132,13 @@ double tensor_read_double(double* buf, int idx);
 /* Write a double to a C buffer */
 void tensor_write_double(double* buf, int idx, double val);
 
+/* ---------- Tensor pointer array (for stack/cat from Idris) ---------- */
+
+TensorHandle* tensor_ptr_array_alloc(int n);
+void           tensor_ptr_array_set(TensorHandle* arr, int idx, TensorHandle t);
+TensorHandle   tensor_stack_from_array(TensorHandle* arr, int count, int dim);
+TensorHandle   tensor_cat_from_array(TensorHandle* arr, int count, int dim);
+
 /* ---------- Debug ---------- */
 
 void tensor_print(TensorHandle t);

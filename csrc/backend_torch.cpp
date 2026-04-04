@@ -409,6 +409,30 @@ void tensor_write_double(double* buf, int idx, double val) {
     buf[idx] = val;
 }
 
+/* ---------- Tensor pointer array ---------- */
+
+TensorHandle* tensor_ptr_array_alloc(int n) {
+    return (TensorHandle*)calloc(n, sizeof(TensorHandle));
+}
+
+void tensor_ptr_array_set(TensorHandle* arr, int idx, TensorHandle t) {
+    arr[idx] = t;
+}
+
+TensorHandle tensor_stack_from_array(TensorHandle* arr, int count, int dim) {
+    std::vector<at::Tensor> vec(count);
+    for (int i = 0; i < count; i++) vec[i] = *to_tensor(arr[i]);
+    free(arr);
+    return from_tensor(torch::stack(vec, dim));
+}
+
+TensorHandle tensor_cat_from_array(TensorHandle* arr, int count, int dim) {
+    std::vector<at::Tensor> vec(count);
+    for (int i = 0; i < count; i++) vec[i] = *to_tensor(arr[i]);
+    free(arr);
+    return from_tensor(torch::cat(vec, dim));
+}
+
 /* ---------- Debug ---------- */
 
 void tensor_print(TensorHandle h) {
