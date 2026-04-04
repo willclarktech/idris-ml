@@ -275,6 +275,10 @@ TensorHandle tensor_with_grad(TensorHandle h) {
     return from_tensor(std::move(t));
 }
 
+void tensor_set_requires_grad(TensorHandle h, int requires_grad) {
+    to_tensor(h)->requires_grad_(requires_grad != 0);
+}
+
 /* No-grad scope */
 static thread_local bool no_grad_active = false;
 static thread_local std::unique_ptr<torch::NoGradGuard> no_grad_guard;
@@ -365,6 +369,15 @@ double param_grad_item(int idx) {
     return g.item<double>();
 }
 
+double param_grad_item_and_zero(int idx) {
+    auto* t = param_registry[idx].tensor;
+    auto& g = t->grad();
+    if (!g.defined()) return 0.0;
+    double val = g.item<double>();
+    g.zero_();
+    return val;
+}
+
 TensorHandle param_tensor(int idx) {
     return static_cast<TensorHandle>(param_registry[idx].tensor);
 }
@@ -381,6 +394,12 @@ void param_subtract_delta(int idx, double delta) {
     torch::NoGradGuard no_grad;
     auto& entry = param_registry[idx];
     entry.tensor->sub_(delta);
+}
+
+TensorHandle tensor_subtract_scalar_inplace(TensorHandle h, double val) {
+    torch::NoGradGuard no_grad;
+    to_tensor(h)->sub_(val);
+    return h;
 }
 
 /* ---------- Convenience ---------- */

@@ -48,15 +48,8 @@ LayerLike LinearState where
     let np = nameParam . (prefx ++ "_" ++)
         namedWeights = zipWith (np "weight") enumerate weights
         namedBias = zipWith (np "bias") enumerate bias
-    in if i * o <= 4
-      then MkLinear namedWeights namedBias Nothing Nothing
-      else let (VTensor namedRows) = namedWeights
-               (VTensor biasElems) = namedBias
-               wBuf = prim__weightBufAlloc (cast (o * i))
-               wBuf' = initWeightBuf wBuf 0 namedRows
-               bBuf = prim__weightBufAlloc (cast o)
-               bBuf' = initWeightBufRow bBuf 0 biasElems
-           in MkLinear namedWeights namedBias (Just wBuf') (Just bBuf')
+    -- No buffers in libtorch backend — libtorch tensors ARE the weights
+    in MkLinear namedWeights namedBias Nothing Nothing
 
   layerPrefix _ = "ll"
 

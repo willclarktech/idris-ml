@@ -162,31 +162,13 @@ LayerLike LstmState where
 
   nameLayer {i} {o} prefx (MkLstm iw rw b hs cs _ _ _ _ _) =
     let np = nameParam . (prefx ++ "_" ++)
-        gateSize : Nat
-        gateSize = 4 * o
         namedIW = zipWith (np "inputWeight") enumerate iw
         namedRW = zipWith (np "recurrentWeight") enumerate rw
         namedBias = zipWith (np "bias") enumerate b
         namedH0 = zipWith (np "h0") enumerate hs
         namedC0 = zipWith (np "c0") enumerate cs
-    in if i * o <= 4
-      then MkLstm namedIW namedRW namedBias namedH0 namedC0 Nothing Nothing Nothing Nothing Nothing
-      else let (VTensor iwRows) = namedIW
-               (VTensor rwRows) = namedRW
-               (VTensor biasElems) = namedBias
-               (VTensor h0Elems) = namedH0
-               (VTensor c0Elems) = namedC0
-               iwb = prim__weightBufAlloc (cast (gateSize * i))
-               iwb' = initWeightBuf iwb 0 iwRows
-               rwb = prim__weightBufAlloc (cast (gateSize * o))
-               rwb' = initWeightBuf rwb 0 rwRows
-               bb = prim__weightBufAlloc (cast gateSize)
-               bb' = initWeightBufRow bb 0 biasElems
-               h0b = prim__weightBufAlloc (cast o)
-               h0b' = initWeightBufRow h0b 0 h0Elems
-               c0b = prim__weightBufAlloc (cast o)
-               c0b' = initWeightBufRow c0b 0 c0Elems
-           in MkLstm namedIW namedRW namedBias namedH0 namedC0 (Just iwb') (Just rwb') (Just bb') (Just h0b') (Just c0b')
+    -- No buffers in libtorch backend
+    in MkLstm namedIW namedRW namedBias namedH0 namedC0 Nothing Nothing Nothing Nothing Nothing
 
   layerPrefix _ = "lstm"
 

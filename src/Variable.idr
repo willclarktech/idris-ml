@@ -143,8 +143,9 @@ prim__grad : AnyPtr -> AnyPtr
 prim__zeroGrad : AnyPtr -> ()
 
 -- Parameter registry
+-- Registers a parameter: enables requires_grad and adds to the registry.
 -- Returns the tensorPtr for threading (prevents dead code elimination).
-%foreign "scheme:(lambda (name t) ((foreign-procedure \"param_register\" (string void*) void) name t) t)"
+%foreign "scheme:(lambda (name t) ((foreign-procedure \"tensor_set_requires_grad\" (void* int) void) t 1) ((foreign-procedure \"param_register\" (string void*) void) name t) t)"
 prim__paramRegister : String -> AnyPtr -> AnyPtr
 
 %foreign "C:param_clear,libidrisml_torch"
@@ -159,11 +160,19 @@ prim__paramName : Int -> String
 %foreign "C:param_grad_item,libidrisml_torch"
 prim__paramGradItem : Int -> Double
 
+%foreign "C:param_grad_item_and_zero,libidrisml_torch"
+prim__paramGradItemAndZero : Int -> Double
+
 %foreign "scheme:(lambda () ((foreign-procedure \"param_zero_all_grads\" () void)) 0)"
 prim__paramZeroAllGrads : Int
 
 %foreign "C:param_subtract_delta,libidrisml_torch"
 prim__paramSubtractDelta : Int -> Double -> ()
+
+-- In-place scalar subtract on a tensor (under no_grad). Returns tensor for threading.
+%foreign "C:tensor_subtract_scalar_inplace,libidrisml_torch"
+export
+prim__tensorSubScalarInplace : AnyPtr -> Double -> AnyPtr
 
 -- No-grad scope
 %foreign "C:tensor_no_grad_begin,libidrisml_torch"
@@ -739,13 +748,30 @@ readOpVarBuf {n} {w} weights memBuf = VTensor $ replicate w (STensor (fromDouble
 -- LSTM Cell
 ----------------------------------------------------------------------
 
-||| LSTM cell stub (matches original signature).
-||| TODO: implement via libtorch lstm_cell
+||| LSTM cell implemented via Variable arithmetic (autograd-tracked).
+||| combined = mulIW + mulRW + bias, then split into 4 gates of size o.
+||| newCell = sigmoid(f) * prevCell + sigmoid(i) * tanh(g)
+||| newHidden = sigmoid(o) * tanh(newCell)
 export
 lstmCellVar : {o : Nat} -> Vector (4 * o) Variable -> Vector (4 * o) Variable
            -> Vector (4 * o) Variable -> Vector o Variable
            -> (Vector o Variable, Vector o Variable)
-lstmCellVar _ _ _ cs = (cs, cs)  -- stub: returns prev cell state as both outputs
+lstmCellVar {o} mulIW mulRW bias prevCell =
+  let combined = mulIW + mulRW + bias
+      -- Split into 4 gates
+      s1 = Tensor.splitAt o combined
+      s2 = Tensor.splitAt o (snd s1)
+      s3 = Tensor.splitAt o (snd s2)
+      iGate = fst s1      -- input gate
+      fGate = fst s2      -- forget gate
+      gGate = fst s3      -- cell gate
+      -- oGate needs coercion: (4*o) - o - o - o may not reduce to o
+      oGate : Vector o Variable
+      oGate = believe_me (snd s3)
+      -- Apply activations and compute new cell/hidden
+      newCell = map sigmoidVar fGate * prevCell + map sigmoidVar iGate * map tanhVar gGate
+      newHidden = map sigmoidVar oGate * map tanhVar newCell
+  in (newCell, newHidden)
 
 ||| LSTM cell with bias from weight buffer. Stub.
 export
@@ -801,10 +827,11 @@ matrixVectorMultiplyVarBufBiasFromBufAndVec {m} {n1} {n2} wBuf bBuf srcBuf srcOf
 ----------------------------------------------------------------------
 
 -- Build gradient map by iterating over the parameter registry.
+-- Reads each param's gradient and immediately zeros it (prevents accumulation).
 buildGradMap : Int -> Int -> SortedMap String Double -> SortedMap String Double
 buildGradMap n i acc = if i >= n then acc
   else let name = prim__paramName i
-           grad = prim__paramGradItem i
+           grad = prim__paramGradItemAndZero i
        in buildGradMap n (i + 1) (insert name grad acc)
 
 ||| Collect gradients via libtorch backward pass.
@@ -813,15 +840,22 @@ buildGradMap n i acc = if i >= n then acc
 export
 -- Fused backward + param count: ensures backward() completes before
 -- returning the count (Chez would drop a standalone backward call).
--- Checks requires_grad before calling backward to avoid crash on non-differentiable tensors.
-%foreign "scheme:(lambda (t) (let ((rg ((foreign-procedure \"tensor_requires_grad\" (void*) int) t))) (when (= rg 1) ((foreign-procedure \"tensor_backward\" (void*) void) t))) ((foreign-procedure \"param_count\" () int)))"
+-- Fused backward + zero_grads + param count.
+-- Ensures backward() runs, then zero_all_grads() runs, then returns count.
+-- All in one Scheme lambda so Chez can't reorder.
+%foreign "scheme:(lambda (t) (let ((rg ((foreign-procedure \"tensor_requires_grad\" (void*) int) t))) (when (= rg 1) ((foreign-procedure \"tensor_backward\" (void*) void) t))) (let ((n ((foreign-procedure \"param_count\" () int)))) n))"
 prim__backwardAndCount : AnyPtr -> Int
+
+-- Zero all parameter gradients. Returns 0 for threading.
+%foreign "scheme:(lambda (dummy) ((foreign-procedure \"param_zero_all_grads\" () void)) 0)"
+prim__zeroAllGrads : Int -> Int
 
 export
 collectGrads : Double -> Variable -> SortedMap String Double
 collectGrads initGrad root =
   let n = prim__backwardAndCount root.tensorPtr
-  in buildGradMap n 0 empty
+      grads = buildGradMap n 0 empty
+  in grads
 
 
 ----------------------------------------------------------------------

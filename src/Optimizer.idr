@@ -46,7 +46,8 @@ export
 applyDeltas : SortedMap String Double -> Variable -> Variable
 applyDeltas deltas v = case v.paramId of
   Just pid => case lookup pid deltas of
-    Just d  => { value := v.value - d } v
+    Just d  => let ptr' = prim__tensorSubScalarInplace v.tensorPtr d
+               in { value := v.value - d, tensorPtr := ptr' } v
     Nothing => v
   Nothing  => v
 

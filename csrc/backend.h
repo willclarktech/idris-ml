@@ -88,6 +88,7 @@ void         tensor_zero_grad(TensorHandle t);
 int          tensor_requires_grad(TensorHandle t);
 TensorHandle tensor_detach(TensorHandle t);
 TensorHandle tensor_with_grad(TensorHandle t);  /* returns copy with requires_grad=true */
+void         tensor_set_requires_grad(TensorHandle t, int requires_grad);
 
 /* No-grad scope (for optimizer steps, inference) */
 void         tensor_no_grad_begin(void);
@@ -115,9 +116,13 @@ void         param_clear(void);
 int          param_count(void);
 const char*  param_name(int idx);
 double       param_grad_item(int idx);          /* read scalar grad for param i */
+double       param_grad_item_and_zero(int idx); /* read grad, then zero it */
 TensorHandle param_tensor(int idx);
 void         param_zero_all_grads(void);
 void         param_subtract_delta(int idx, double delta); /* in-place: param -= delta */
+
+/* In-place scalar subtract on a tensor (under no_grad). Returns tensor for threading. */
+TensorHandle tensor_subtract_scalar_inplace(TensorHandle t, double val);
 
 /* ---------- Convenience: build tensors from scalar arrays ---------- */
 
