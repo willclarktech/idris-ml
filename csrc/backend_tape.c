@@ -204,9 +204,19 @@ static void tape_reset(void) {
    ================================================================ */
 
 TensorHandle tensor_create_scalar(double value, int requires_grad) {
-    Tensor* t = make_scalar(value, requires_grad);
+    Tensor* t;
     if (requires_grad) {
+        /* Param tensors use regular malloc — persist across arena resets */
+        t = calloc(1, sizeof(Tensor));
+        t->data = malloc(sizeof(double));
+        t->data[0] = value;
+        t->rank = 0; t->numel = 1;
+        t->requires_grad = 1;
+        t->tape_idx = -1;
+        t->persistent = 1;
         tape_append(OP_CONST, t, NULL, NULL, 0);
+    } else {
+        t = make_scalar(value, 0);
     }
     return t;
 }
@@ -1407,15 +1417,31 @@ TensorHandle tensor_cat_from_array(TensorHandle* arr, int count, int dim) {
    ================================================================ */
 
 TensorHandle tensor_create_param_2d(int rows, int cols, double* data) {
-    int shape[] = {rows, cols};
-    Tensor* t = make_tensor(data, shape, 2, 1);
+    /* Param tensors use regular malloc — persist across arena resets */
+    int numel = rows * cols;
+    Tensor* t = calloc(1, sizeof(Tensor));
+    t->data = malloc(numel * sizeof(double));
+    memcpy(t->data, data, numel * sizeof(double));
+    t->shape = malloc(2 * sizeof(int));
+    t->shape[0] = rows; t->shape[1] = cols;
+    t->rank = 2; t->numel = numel;
+    t->requires_grad = 1;
+    t->tape_idx = -1;
+    t->persistent = 1;
     tape_append(OP_CONST, t, NULL, NULL, 0);
     return t;
 }
 
 TensorHandle tensor_create_param_1d(int n, double* data) {
-    int shape[] = {n};
-    Tensor* t = make_tensor(data, shape, 1, 1);
+    Tensor* t = calloc(1, sizeof(Tensor));
+    t->data = malloc(n * sizeof(double));
+    memcpy(t->data, data, n * sizeof(double));
+    t->shape = malloc(sizeof(int));
+    t->shape[0] = n;
+    t->rank = 1; t->numel = n;
+    t->requires_grad = 1;
+    t->tape_idx = -1;
+    t->persistent = 1;
     tape_append(OP_CONST, t, NULL, NULL, 0);
     return t;
 }
