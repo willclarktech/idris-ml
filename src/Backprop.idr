@@ -32,7 +32,7 @@ epoch opt dataPoints lossFn model st =
   let loss = calculateLossVar lossFn model dataPoints
       grads = collectGrads 1.0 loss
       (deltas, st') = opt.step grads st
-      model' = syncNetworkBuffers (emap (applyDeltas deltas) model)
+      model' = emap (applyDeltas deltas) model
   in (model', st', loss.value)
 
 export
@@ -82,7 +82,7 @@ epochRecurrent opt dataPoints lossFn model st =
   let loss = calculateLossRecurrentVar lossFn model dataPoints
       grads = collectGrads 1.0 loss
       (deltas, st') = opt.step grads st
-      model' = syncNetworkBuffers (emap (applyDeltas deltas) model)
+      model' = emap (applyDeltas deltas) model
   in (model', st', loss.value)
 
 export
@@ -133,7 +133,7 @@ epochTwoPhase opt dataPoints lossFn model st =
   let loss = calculateLossTwoPhaseVar lossFn model dataPoints
       grads = collectGrads 1.0 loss
       (deltas, st') = opt.step grads st
-      model' = syncNetworkBuffers (emap (applyDeltas deltas) model)
+      model' = emap (applyDeltas deltas) model
   in (model', st', loss.value)
 
 
@@ -276,7 +276,7 @@ epochTwoPhaseDense opt dataPoints lossFn model st =
   let loss = calculateLossTwoPhaseVar lossFn model dataPoints
       grads = collectGrads 1.0 loss
       (deltas, innerSt') = opt.innerOpt.step grads st.inner
-      model' = syncNetworkBuffers (emap (applyDeltas deltas) model)
+      model' = emap (applyDeltas deltas) model
   in (model', { inner := innerSt' } st, loss.value)
 
 ||| Dense two-phase epoch with BCE loss.
@@ -294,7 +294,7 @@ epochTwoPhaseDenseBce opt dataPoints model st =
   let loss = calculateLossTwoPhaseVarBce model dataPoints
       grads = collectGrads 1.0 loss
       (deltas, innerSt') = opt.innerOpt.step grads st.inner
-      model' = syncNetworkBuffers (emap (applyDeltas deltas) model)
+      model' = emap (applyDeltas deltas) model
   in (model', { inner := innerSt' } st, loss.value)
 
 ||| Dense two-phase training with schedule and early stopping.
@@ -352,7 +352,7 @@ epochRecurrentDense opt dataPoints lossFn model st =
   let loss = calculateLossRecurrentVar lossFn model dataPoints
       grads = collectGrads 1.0 loss
       (deltas, innerSt') = opt.innerOpt.step grads st.inner
-      model' = syncNetworkBuffers (emap (applyDeltas deltas) model)
+      model' = emap (applyDeltas deltas) model
   in (model', { inner := innerSt' } st, loss.value)
 
 ||| Dense recurrent training with schedule and early stopping.
