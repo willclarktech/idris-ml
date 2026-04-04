@@ -18,19 +18,6 @@ ifdef LIBTORCH_PATH
   TORCH_LIB := $(LIBTORCH_PATH)/lib
 endif
 
-# C shared library (legacy backend)
-CSRC := csrc/tensor.c
-ifeq ($(UNAME), Darwin)
-  CLIB := $(BUILD)/libidrisml.dylib
-  CFLAGS := -O2 -shared -framework Accelerate
-else
-  CLIB := $(BUILD)/libidrisml.so
-  CFLAGS := -O2 -shared -fPIC -lm
-endif
-
-$(CLIB): $(CSRC) | $(BUILD)
-	cc $(CFLAGS) -o $@ $<
-
 # libtorch backend
 BACKEND_SRC := csrc/backend_torch.cpp
 ifeq ($(UNAME), Darwin)
@@ -59,64 +46,59 @@ print-torch:
 	@echo "TORCH_INC=$(TORCH_INC)"
 	@echo "TORCH_LIB=$(TORCH_LIB)"
 
-# Idris tests (check builds library .ttc files first)
-test: check
-	idris2 --source-dir src --source-dir test/src -p contrib -o test test/src/Main.idr
-	cp $(CLIB) build/exec/test_app/
-	./build/exec/test
-
-# C tests
-test-c: csrc/test_tensor.c $(CSRC) | $(BUILD)
-	cc -O2 -o $(BUILD)/test_tensor csrc/test_tensor.c $(if $(filter Darwin,$(UNAME)),-framework Accelerate,-lm)
-	./$(BUILD)/test_tensor
-
 # Idris build (type-check library)
-check: $(CLIB)
+check: backend
 	idris2 --build idris-ml.ipkg
 
+# Idris tests
+test: check
+	idris2 --source-dir src --source-dir test/src -p contrib -o test test/src/Main.idr
+	cp $(BACKEND_LIB) build/exec/test_app/
+	./build/exec/test
+
 # Build and run examples
-supervised: $(CLIB)
+supervised: backend
 	idris2 --source-dir src -p contrib -o supervised src/Example/Supervised.idr
-	cp $(CLIB) build/exec/supervised_app/
+	cp $(BACKEND_LIB) build/exec/supervised_app/
 	./build/exec/supervised
 
-rnn: $(CLIB)
+rnn: backend
 	idris2 --source-dir src -p contrib -o rnn src/Example/Rnn.idr
-	cp $(CLIB) build/exec/rnn_app/
+	cp $(BACKEND_LIB) build/exec/rnn_app/
 	./build/exec/rnn
 
-lstm: $(CLIB)
+lstm: backend
 	idris2 --source-dir src -p contrib -o lstm src/Example/Lstm.idr
-	cp $(CLIB) build/exec/lstm_app/
+	cp $(BACKEND_LIB) build/exec/lstm_app/
 	./build/exec/lstm
 
-ntm-copy: $(CLIB)
+ntm-copy: backend
 	idris2 --source-dir src -p contrib -o ntm-copy src/Example/NtmCopy.idr
-	cp $(CLIB) build/exec/ntm-copy_app/
+	cp $(BACKEND_LIB) build/exec/ntm-copy_app/
 	./build/exec/ntm-copy
 
-ntm-associative-recall: $(CLIB)
+ntm-associative-recall: backend
 	idris2 --source-dir src -p contrib -o ntm-associative-recall src/Example/NtmAssociativeRecall.idr
-	cp $(CLIB) build/exec/ntm-associative-recall_app/
+	cp $(BACKEND_LIB) build/exec/ntm-associative-recall_app/
 	./build/exec/ntm-associative-recall
 
-bench: $(CLIB)
+bench: backend
 	idris2 --source-dir src -p contrib -o bench src/Example/Bench.idr
-	cp $(CLIB) build/exec/bench_app/
+	cp $(BACKEND_LIB) build/exec/bench_app/
 	./build/exec/bench
 
 $(BUILD):
 	mkdir -p $(BUILD)
 
-profile: $(CLIB)
+profile: backend
 	idris2 --source-dir src -p contrib -o profile src/Example/Profile.idr
-	cp $(CLIB) build/exec/profile_app/
+	cp $(BACKEND_LIB) build/exec/profile_app/
 	./build/exec/profile
 
-sweep: $(CLIB)
+sweep: backend
 	bash scripts/sweep.sh --parallel 4
 
-sweep-quick: $(CLIB)
+sweep-quick: backend
 	bash scripts/sweep.sh --parallel 4 --quick
 
 # PyTorch reference implementation (uv manages Python)
@@ -126,9 +108,9 @@ ref-setup:
 bench-py:
 	cd pytorch && uv run python -m torch_ref.benchmark
 
-bench-compare: $(CLIB)
+bench-compare: backend
 	idris2 --source-dir src -p contrib -o bench src/Example/Bench.idr
-	cp $(CLIB) build/exec/bench_app/
+	cp $(BACKEND_LIB) build/exec/bench_app/
 	cd pytorch && uv run python -m torch_ref.compare
 
 ref-test:
@@ -150,6 +132,6 @@ ref-convergence-recall:
 	cd pytorch && uv run python -u -m torch_ref.scripts.convergence --task recall
 
 clean:
-	rm -f $(CLIB) $(BUILD)/test_tensor
+	rm -f $(BACKEND_LIB) $(BUILD)/test_backend
 
-.PHONY: test test-c test-backend check supervised rnn lstm ntm-copy ntm-associative-recall bench profile sweep sweep-quick clean backend print-torch ref-setup bench-py bench-compare ref-test ref-lint ref-typecheck ref-convergence ref-convergence-copy ref-convergence-recall
+.PHONY: test test-backend check supervised rnn lstm ntm-copy ntm-associative-recall bench profile sweep sweep-quick clean backend print-torch ref-setup bench-py bench-compare ref-test ref-lint ref-typecheck ref-convergence ref-convergence-copy ref-convergence-recall

@@ -84,7 +84,6 @@ record NtmState (n : Nat) (m : Nat) (h : Nat) (inputSize : Nat) (outputSize : Na
   readAddr : Vector n ty
   writeAddr : Vector n ty
   readOutput : Vector m ty
-  memBuf : Maybe AnyPtr
 
 
 ----------------------------------------------------------------------
@@ -127,43 +126,6 @@ forwardWriteHeadInterpVar memory (MkWriteHead readHead) inp =
       newMemoryMatrix = interpolationWriteVar newWriteHead.readHead.addressingWeights memory addVector
   in (newWriteHead, newMemoryMatrix)
 
-||| Buffer-aware read head: uses NtmMemBuf for memory.
-forwardReadHeadUnboundedVarBuf : {n, w : Nat} ->
-    AnyPtr -> ReadHead n Variable ->
-    Vector ((w + ShiftKernelSize) + 3) Variable ->
-    (ReadHead n Variable, Vector w Variable)
-forwardReadHeadUnboundedVarBuf memBufPtr rh inp =
-  let (mainInput, params) = splitAt (w + ShiftKernelSize) inp
-      (keyVector, shiftVector) = splitAt w mainInput
-      (betaVec, params') = splitAt 1 params
-      (gVec, gammaVec) = splitAt 1 params'
-      beta = softplus (sum betaVec)
-      g = sigmoidVar (sum gVec)
-      gamma = 1 + softplus (sum gammaVec)
-      scoresBuf = batchCosineSimilarityVarBufBufOut {n} beta memBufPtr keyVector
-      contentBuf = softmaxVarBufIO {n} scoresBuf
-      interpBuf = interpolateVarBufIO {n} g contentBuf rh.addressingWeights
-      shiftKBuf = softmaxVarBufOut shiftVector
-      shiftedBuf = shiftVarBufIO {n} interpBuf shiftKBuf
-      focused = focusVarFromBuf {n} gamma shiftedBuf
-      newReadHead = { addressingWeights := focused } rh
-      output = readOpVarBuf newReadHead.addressingWeights memBufPtr
-  in (newReadHead, output)
-
-||| Buffer-aware write head: uses NtmMemBuf, returns (head, updated buffer).
-forwardWriteHeadInterpVarBuf : {n, w : Nat} ->
-    AnyPtr -> WriteHead n Variable ->
-    Vector (((w + ShiftKernelSize) + 3) + w) Variable ->
-    (WriteHead n Variable, AnyPtr)
-forwardWriteHeadInterpVarBuf memBufPtr (MkWriteHead readHead) inp =
-  let (readHeadInput, rawAdd) = Tensor.splitAt ((w + ShiftKernelSize) + 3) inp
-      addVector = rawAdd
-      (newReadHead, _) = forwardReadHeadUnboundedVarBuf memBufPtr readHead readHeadInput
-      newWriteHead = MkWriteHead newReadHead
-      mb' = interpolationWriteVarBuf newWriteHead.readHead.addressingWeights memBufPtr addVector
-  in (newWriteHead, mb')
-
-
 ----------------------------------------------------------------------
 -- Debug Helpers
 ----------------------------------------------------------------------
@@ -192,7 +154,7 @@ showMatD (VTensor rows) = "[" ++ go rows ++ "]"
 export
 {n, m, h : Nat} -> LayerLike (NtmState n m h) where
   -- Generic forward pass (Double-based)
-  applyGeneric (MkNtm lstm readFc writeFc outputFc memory readAddr writeAddr readOutput mb) inp =
+  applyGeneric (MkNtm lstm readFc writeFc outputFc memory readAddr writeAddr readOutput) inp =
     let -- 1. Controller: LSTM(readOutput ++ input)
         (updLstm, hidden) = applyGeneric lstm (readOutput ++ inp)
         -- 2. Cell state for head FCs
@@ -213,42 +175,10 @@ export
         -- 6. Output FC(hidden ++ readOutput)
         output = snd (applyGeneric outputFc (hidden ++ newReadOutput))
     in (MkNtm updLstm readFc writeFc outputFc
-             newMemory newReadAddr' newWriteAddr' newReadOutput mb, output)
+             newMemory newReadAddr' newWriteAddr' newReadOutput, output)
 
-  -- Buffer-aware NTM forward pass (persistent memory buffer)
-  applyVar (MkNtm lstm readFc writeFc outputFc memory readAddr writeAddr readOutput (Just memBufPtr)) inp =
-    case applyLstmGetBuf lstm (readOutput ++ inp) of
-      (updLstm, hidden, lstmBufInfo) =>
-        let cell = extractCellState updLstm
-            -- Read FC: prefer buffer-passing from LSTM cell output
-            readParams = case (lstmBufInfo, getLinearBufs readFc) of
-              (Just (buf, ccs), (Just wb, Just bb)) =>
-                matrixVectorMultiplyVarBufBiasFromBuf {m=ReadParamWidth m, n=h} wb bb buf 0 ccs
-              _ => snd (applyVar readFc cell)
-            -- Write FC: prefer buffer-passing from LSTM cell output
-            writeParams = case (lstmBufInfo, getLinearBufs writeFc) of
-              (Just (buf, ccs), (Just wb, Just bb)) =>
-                matrixVectorMultiplyVarBufBiasFromBuf {m=WriteParamWidth m, n=h} wb bb buf 0 ccs
-              _ => snd (applyVar writeFc cell)
-            rh = MkReadHead readAddr
-        in case forwardReadHeadUnboundedVarBuf memBufPtr rh readParams of
-          (readHead, newReadOutput) =>
-            let newReadAddr' = readHead.addressingWeights
-                wh = MkWriteHead (MkReadHead writeAddr)
-            in case forwardWriteHeadInterpVarBuf memBufPtr wh writeParams of
-              (writeHead, mb') =>
-                let newWriteAddr' = writeHead.readHead.addressingWeights
-                    -- Output FC: prefer hybrid buffer+vec from LSTM hidden + readOutput
-                    output = case (lstmBufInfo, getLinearBufs outputFc) of
-                      (Just (buf, ccs), (Just wb, Just bb)) =>
-                        matrixVectorMultiplyVarBufBiasFromBufAndVec {m=o, n1=h, n2=m}
-                          wb bb buf (cast h) (ccs + cast h) newReadOutput
-                      _ => snd (applyVar outputFc (hidden ++ newReadOutput))
-                in (MkNtm updLstm readFc writeFc outputFc
-                         memory newReadAddr' newWriteAddr' newReadOutput (Just mb'), output)
-
-  -- Variable-based NTM forward pass (no buffer)
-  applyVar (MkNtm lstm readFc writeFc outputFc memory readAddr writeAddr readOutput Nothing) inp =
+  -- Variable-based NTM forward pass
+  applyVar (MkNtm lstm readFc writeFc outputFc memory readAddr writeAddr readOutput) inp =
     case applyVar lstm (readOutput ++ inp) of
       (updLstm, hidden) =>
         let cell = extractCellState updLstm
@@ -266,17 +196,17 @@ export
                             newWriteAddr' = writeHead.readHead.addressingWeights
                             output = snd (applyVar outputFc (hidden ++ newReadOutput))
                         in (MkNtm updLstm readFc writeFc outputFc
-                                 newMemory newReadAddr' newWriteAddr' newReadOutput Nothing, output)
+                                 newMemory newReadAddr' newWriteAddr' newReadOutput, output)
 
-  emapLayer f (MkNtm lstm rfc wfc ofc mem ra wa ro mb) =
+  emapLayer f (MkNtm lstm rfc wfc ofc mem ra wa ro) =
     MkNtm (emapLayer f lstm) (emapLayer f rfc) (emapLayer f wfc) (emapLayer f ofc)
-           (map f mem) (map f ra) (map f wa) (map f ro) mb
+           (map f mem) (map f ra) (map f wa) (map f ro)
 
   showLayer {i} {o} _ =
     "Ntm<" ++ show i ++ ":" ++ show o
     ++ ", mem=" ++ show n ++ "x" ++ show m ++ ", h=" ++ show h ++ ">"
 
-  nameLayer prefx (MkNtm lstm readFc writeFc outputFc memory readAddr writeAddr readOutput _) =
+  nameLayer prefx (MkNtm lstm readFc writeFc outputFc memory readAddr writeAddr readOutput) =
     let np = nameParam . (prefx ++ "_" ++)
         namedMemory = zipWith (np "mem") enumerate memory
         namedReadAddr = zipWith (np "rAddr") enumerate readAddr
@@ -287,18 +217,17 @@ export
         namedReadFc = nameLayer (prefx ++ "_readFc_ll0") readFc
         namedWriteFc = nameLayer (prefx ++ "_writeFc_ll0") writeFc
         namedOutputFc = nameLayer (prefx ++ "_outputFc_ll0") outputFc
-    -- No NtmMemBuf in libtorch backend — memory matrix stored as Variables
     in MkNtm namedLstm namedReadFc namedWriteFc namedOutputFc
-             namedMemory namedReadAddr namedWriteAddr namedReadOut Nothing
+             namedMemory namedReadAddr namedWriteAddr namedReadOut
 
   layerPrefix _ = "ntm"
 
-  toDoubleLayer (MkNtm lstm rfc wfc ofc mem ra wa ro _) =
+  toDoubleLayer (MkNtm lstm rfc wfc ofc mem ra wa ro) =
     MkNtm (toDoubleLayer lstm) (toDoubleLayer rfc) (toDoubleLayer wfc) (toDoubleLayer ofc)
-           (map value mem) (map value ra) (map value wa) (map value ro) Nothing
+           (map value mem) (map value ra) (map value wa) (map value ro)
 
-  debugApply {i} {o} (MkNtm lstm readFc writeFc outputFc memory readAddr writeAddr readOutput mb) inp =
-    let st = MkNtm lstm readFc writeFc outputFc memory readAddr writeAddr readOutput mb
+  debugApply {i} {o} (MkNtm lstm readFc writeFc outputFc memory readAddr writeAddr readOutput) inp =
+    let st = MkNtm lstm readFc writeFc outputFc memory readAddr writeAddr readOutput
         (updated, output) = applyGeneric st inp
         entry = MkDebugEntry ("Ntm<" ++ show i ++ ":" ++ show o
                 ++ ", mem=" ++ show n ++ "x" ++ show m ++ ">")
@@ -309,38 +238,21 @@ export
           ]
     in (updated, output, entry)
 
-  syncBuffers (MkNtm lstm readFc writeFc outputFc (VTensor memRows) ra wa ro (Just mb)) =
-    let mb' = prim__ntmMemBufResetCache (syncNtmMemBuf mb 0 memRows)
-    in MkNtm (syncBuffers lstm) (syncBuffers readFc) (syncBuffers writeFc) (syncBuffers outputFc)
-             (VTensor memRows) (projectWeights ra) (projectWeights wa) ro (Just mb')
-  syncBuffers (MkNtm lstm readFc writeFc outputFc mem ra wa ro Nothing) =
+  syncBuffers (MkNtm lstm readFc writeFc outputFc mem ra wa ro) =
     MkNtm (syncBuffers lstm) (syncBuffers readFc) (syncBuffers writeFc) (syncBuffers outputFc)
-           mem (projectWeights ra) (projectWeights wa) ro Nothing
+           mem (projectWeights ra) (projectWeights wa) ro
 
-  applyDeltasAndSync deltas (MkNtm lstm readFc writeFc outputFc mem ra wa ro (Just mb)) =
-    let mb' = prim__ntmMemBufApplyDeltas mb deltas
-    in MkNtm (applyDeltasAndSync deltas lstm) (applyDeltasAndSync deltas readFc)
-             (applyDeltasAndSync deltas writeFc) (applyDeltasAndSync deltas outputFc)
-             mem (projectWeights ra) (projectWeights wa) ro (Just mb')
-  applyDeltasAndSync deltas (MkNtm lstm readFc writeFc outputFc mem ra wa ro Nothing) =
+  applyDeltasAndSync deltas (MkNtm lstm readFc writeFc outputFc mem ra wa ro) =
     MkNtm (applyDeltasAndSync deltas lstm) (applyDeltasAndSync deltas readFc)
            (applyDeltasAndSync deltas writeFc) (applyDeltasAndSync deltas outputFc)
-           mem (projectWeights ra) (projectWeights wa) ro Nothing
+           mem (projectWeights ra) (projectWeights wa) ro
 
-  readFromBuffers (MkNtm lstm readFc writeFc outputFc (VTensor memRows) ra wa ro (Just mb)) =
+  readFromBuffers (MkNtm lstm readFc writeFc outputFc mem ra wa ro) =
     MkNtm (readFromBuffers lstm) (readFromBuffers readFc)
            (readFromBuffers writeFc) (readFromBuffers outputFc)
-           (VTensor (readNtmMemBuf mb 0 memRows)) ra wa ro (Just mb)
-  readFromBuffers (MkNtm lstm readFc writeFc outputFc mem ra wa ro Nothing) =
-    MkNtm (readFromBuffers lstm) (readFromBuffers readFc)
-           (readFromBuffers writeFc) (readFromBuffers outputFc)
-           mem ra wa ro Nothing
+           mem ra wa ro
 
-  resetState (MkNtm lstm readFc writeFc outputFc mem ra wa ro (Just mb)) =
-    MkNtm lstm readFc writeFc outputFc mem ra wa ro (Just (prim__ntmMemBufReset mb))
-  resetState st = st
-
-  getParamIds (MkNtm lstm readFc writeFc outputFc mem ra wa ro _) =
+  getParamIds (MkNtm lstm readFc writeFc outputFc mem ra wa ro) =
     getParamIds lstm ++ getParamIds readFc ++ getParamIds writeFc ++ getParamIds outputFc
       ++ tensorIds mem ++ tensorIds ra ++ tensorIds wa ++ tensorIds ro
     where
@@ -368,4 +280,4 @@ ntmLayer = do
   let readAddr = the (Vector n ty) zeros
   let writeAddr = the (Vector n ty) zeros
   readOut <- traverse (\_ => map fromDouble (he uniform m 1)) (the (Vector m ty) zeros)
-  pure $ MkAnyLayer (NtmState n m h) $ MkNtm lstm readFc writeFc outputFc memInit readAddr writeAddr readOut Nothing
+  pure $ MkAnyLayer (NtmState n m h) $ MkNtm lstm readFc writeFc outputFc memInit readAddr writeAddr readOut
