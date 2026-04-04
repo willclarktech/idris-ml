@@ -1007,9 +1007,9 @@ forceGC : IO ()
 forceGC = pure ()
 
 export
-getRssMB : IO Double
-getRssMB = pure 0.0
+getRssMB : Nat -> Int
+getRssMB _ = 0
 
 export
-getCurrentRssMB : IO Double
-getCurrentRssMB = pure 0.0
+getCurrentRssMB : Nat -> Int
+getCurrentRssMB _ = 0
