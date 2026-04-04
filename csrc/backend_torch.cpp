@@ -328,6 +328,65 @@ void tensor_lstm_cell(
     *out_c = from_tensor(std::get<1>(result));
 }
 
+/* ---------- Parameter Registry ---------- */
+
+struct ParamEntry {
+    std::string name;
+    at::Tensor* tensor;   /* non-owning: the Variable still owns the at::Tensor */
+};
+
+static std::vector<ParamEntry> param_registry;
+
+void param_register(const char* name, TensorHandle h) {
+    /* Replace if already registered under this name */
+    for (auto& entry : param_registry) {
+        if (entry.name == name) {
+            entry.tensor = to_tensor(h);
+            return;
+        }
+    }
+    param_registry.push_back({name, to_tensor(h)});
+}
+
+void param_clear(void) {
+    param_registry.clear();
+}
+
+int param_count(void) {
+    return static_cast<int>(param_registry.size());
+}
+
+static thread_local std::string param_name_buf;
+
+const char* param_name(int idx) {
+    param_name_buf = param_registry[idx].name;
+    return param_name_buf.c_str();
+}
+
+double param_grad_item(int idx) {
+    auto& g = param_registry[idx].tensor->grad();
+    if (!g.defined()) return 0.0;
+    return g.item<double>();
+}
+
+TensorHandle param_tensor(int idx) {
+    return static_cast<TensorHandle>(param_registry[idx].tensor);
+}
+
+void param_zero_all_grads(void) {
+    for (auto& entry : param_registry) {
+        if (entry.tensor->grad().defined()) {
+            entry.tensor->grad().zero_();
+        }
+    }
+}
+
+void param_subtract_delta(int idx, double delta) {
+    torch::NoGradGuard no_grad;
+    auto& entry = param_registry[idx];
+    entry.tensor->sub_(delta);
+}
+
 /* ---------- Debug ---------- */
 
 void tensor_print(TensorHandle h) {

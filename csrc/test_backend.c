@@ -133,6 +133,29 @@ int main(void) {
     tensor_no_grad_end();
     tensor_free(ng); tensor_free(ng2);
 
+    /* --- Parameter registry + collectGrads pattern --- */
+    param_clear();
+    TensorHandle w = tensor_create_scalar(3.0, 1);
+    TensorHandle bb = tensor_create_scalar(1.0, 1);
+    param_register("w", w);
+    param_register("b", bb);
+    ASSERT_NEAR("param_count", (double)param_count(), 2.0, 1e-10);
+
+    TensorHandle xx = tensor_create_scalar(2.0, 0);
+    TensorHandle wx = tensor_mul(w, xx);
+    TensorHandle y2 = tensor_add(wx, bb);
+    tensor_backward(y2);
+
+    ASSERT_NEAR("param_grad w (=x)", param_grad_item(0), 2.0, 1e-10);
+    ASSERT_NEAR("param_grad b (=1)", param_grad_item(1), 1.0, 1e-10);
+
+    /* Zero grads and verify */
+    param_zero_all_grads();
+    ASSERT_NEAR("zeroed grad w", param_grad_item(0), 0.0, 1e-10);
+
+    tensor_free(w); tensor_free(bb); tensor_free(xx); tensor_free(wx); tensor_free(y2);
+    param_clear();
+
     /* --- Summary --- */
     if (failures == 0) {
         printf("\nAll backend tests passed!\n");

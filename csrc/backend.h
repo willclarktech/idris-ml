@@ -107,6 +107,18 @@ void tensor_lstm_cell(
     TensorHandle b_ih, TensorHandle b_hh,
     TensorHandle* out_h, TensorHandle* out_c);
 
+/* ---------- Parameter Registry ---------- */
+
+/* Register a named parameter for gradient collection after backward() */
+void         param_register(const char* name, TensorHandle t);
+void         param_clear(void);
+int          param_count(void);
+const char*  param_name(int idx);
+double       param_grad_item(int idx);          /* read scalar grad for param i */
+TensorHandle param_tensor(int idx);
+void         param_zero_all_grads(void);
+void         param_subtract_delta(int idx, double delta); /* in-place: param -= delta */
+
 /* ---------- Debug ---------- */
 
 void tensor_print(TensorHandle t);
