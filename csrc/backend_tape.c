@@ -673,7 +673,7 @@ TensorHandle tensor_unsqueeze(TensorHandle h, int dim) {
     Tensor* t = (Tensor*)h;
     if (t->rank == 1) {
         int shape[] = {1, t->numel};
-        return make_tensor(t->data, shape, 2, t->requires_grad);
+        return tensor_reshape(h, shape, 2);  /* shares data + records OP_RESHAPE */
     }
     return tensor_clone(h);
 }
