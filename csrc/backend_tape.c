@@ -352,16 +352,30 @@ TensorHandle tensor_tanh(TensorHandle ha) {
 
 TensorHandle tensor_add_scalar(TensorHandle ha, double s) {
     Tensor* a = (Tensor*)ha;
-    double val = a->data[0] + s;
-    Tensor* r = make_scalar(val, a->requires_grad);
+    if (a->numel == 1) {
+        Tensor* r = make_scalar(a->data[0] + s, a->requires_grad);
+        if (r->requires_grad) tape_append(OP_ADD_SCALAR, r, a, NULL, s);
+        return r;
+    }
+    /* Multi-element: add scalar to each element */
+    double* data = arena_alloc(a->numel * sizeof(double));
+    for (int i = 0; i < a->numel; i++) data[i] = a->data[i] + s;
+    Tensor* r = make_tensor(data, a->shape, a->rank, a->requires_grad);
     if (r->requires_grad) tape_append(OP_ADD_SCALAR, r, a, NULL, s);
     return r;
 }
 
 TensorHandle tensor_mul_scalar(TensorHandle ha, double s) {
     Tensor* a = (Tensor*)ha;
-    double val = a->data[0] * s;
-    Tensor* r = make_scalar(val, a->requires_grad);
+    if (a->numel == 1) {
+        Tensor* r = make_scalar(a->data[0] * s, a->requires_grad);
+        if (r->requires_grad) tape_append(OP_MUL_SCALAR, r, a, NULL, s);
+        return r;
+    }
+    /* Multi-element: multiply each element by scalar */
+    double* data = arena_alloc(a->numel * sizeof(double));
+    for (int i = 0; i < a->numel; i++) data[i] = a->data[i] * s;
+    Tensor* r = make_tensor(data, a->shape, a->rank, a->requires_grad);
     if (r->requires_grad) tape_append(OP_MUL_SCALAR, r, a, NULL, s);
     return r;
 }
@@ -807,13 +821,16 @@ TensorHandle tensor_cat(TensorHandle* tensors, int count, int dim) {
    Autograd — backward pass
    ================================================================ */
 
-void tensor_backward(TensorHandle h) { 
+
+
+void tensor_backward(TensorHandle h) {
     Tensor* loss = (Tensor*)h;
     if (loss->tape_idx < 0) return;
 
     /* Initialize loss gradient to 1.0 */
     ensure_grad(loss);
     loss->grad[0] = 1.0;
+    
 
     /* Walk tape in reverse */
 
@@ -958,11 +975,17 @@ void tensor_backward(TensorHandle h) {
         }
 
         case OP_ADD_SCALAR:
-            if (a) { ensure_grad(a); a->grad[0] += r->grad[0]; }
+            if (a) {
+                ensure_grad(a); ensure_grad(r);
+                for (int j = 0; j < a->numel; j++) a->grad[j] += r->grad[j];
+            }
             break;
 
         case OP_MUL_SCALAR:
-            if (a) { ensure_grad(a); a->grad[0] += r->grad[0] * e->scalar_arg; }
+            if (a) {
+                ensure_grad(a); ensure_grad(r);
+                for (int j = 0; j < a->numel; j++) a->grad[j] += r->grad[j] * e->scalar_arg;
+            }
             break;
 
         case OP_CLAMP_MIN: {
@@ -1194,7 +1217,6 @@ void tensor_backward(TensorHandle h) {
 
         default: break; /* unimplemented backward */
         }
-
     }
 }
 
