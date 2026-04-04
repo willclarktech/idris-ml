@@ -636,19 +636,16 @@ logSoftmaxVar {n} (VTensor xs) =
 -- NTM Operations (libtorch compositions)
 ----------------------------------------------------------------------
 
-||| Batch cosine similarity: softmax(beta * cosine_similarity(k, M)).
+||| Batch cosine similarity: beta * cosine_similarity(k, M).
 ||| k is a query vector [w], M is a memory matrix [n x w].
-||| Returns attention weights [n].
+||| Returns scores [n] (not softmaxed — softmax applied downstream).
 export
 batchCosineSimilarityVar : {n, w : Nat} -> Variable -> Matrix n w Variable -> Vector w Variable -> Vector n Variable
 batchCosineSimilarityVar {n} {w} beta (VTensor memRows) (VTensor keyElems) =
   let memTensor = matStackTensor memRows     -- [n, w], autograd-connected
       keyTensor = vecStackTensor keyElems    -- [w], autograd-connected
-      -- Unsqueeze key to [1, w] for broadcasting with [n, w]
       keyExpanded = prim__unsqueeze keyTensor 0  -- [1, w]
-      -- cosine_similarity along dim=1: [n, w] vs [1, w] -> [n]
-      cosSim = prim__cosineSimilarity memTensor keyExpanded 1
-      -- Scale by beta (no softmax — that's applied downstream in the NTM addressing pipeline)
+      cosSim = prim__cosineSimilarity memTensor keyExpanded 1  -- [n]
       result = prim__mul beta.tensorPtr cosSim
   in VTensor $ tensorToScalars result 0 n
 

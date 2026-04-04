@@ -85,6 +85,7 @@ enum {
     OP_NTM_READ_HEAD, OP_NTM_INTERP_WRITE,
     OP_LSTM_GATES,
     OP_ADD_SCALAR, OP_MUL_SCALAR, OP_CLAMP_MIN,
+    OP_COSINE_SIM, OP_CONV1D_CIRC,
     OP_STACK,     /* stack of scalar tensors into 1D */
     OP_RESHAPE,   /* reshape (view) — grad passes through unchanged */
     OP_SELECT,    /* select element from vector — grad goes to parent[index] */
@@ -525,6 +526,7 @@ TensorHandle tensor_cosine_similarity(TensorHandle ha, TensorHandle hb, int dim)
         }
         Tensor* r = make_tensor(out, out_shape, 1, a->requires_grad || b->requires_grad);
         free(out);
+        if (r->requires_grad) tape_append(OP_COSINE_SIM, r, a, b, 0);
         return r;
     }
     return make_scalar(0, 0); /* fallback */
@@ -546,6 +548,7 @@ TensorHandle tensor_conv1d_circular(TensorHandle hinput, TensorHandle hkernel) {
     int shape[] = {n};
     Tensor* r = make_tensor(out, shape, 1, input->requires_grad || kernel->requires_grad);
     free(out);
+    if (r->requires_grad) tape_append(OP_CONV1D_CIRC, r, input, kernel, 0);
     return r;
 }
 
@@ -1047,6 +1050,69 @@ void tensor_backward(TensorHandle h) {
                 for (int j = 0; j < n_bce; j++) {
                     double sig = 1.0 / (1.0 + exp(-a->data[j]));
                     a->grad[j] += r->grad[0] * (sig - b->data[j]) / n_bce;
+                }
+            }
+            break;
+        }
+
+        case OP_COSINE_SIM: {
+            /* Cosine similarity backward: a=[n,w] matrix, b=[1,w] key (unsqueezed) */
+            if (a && a->rank == 2 && b && b->rank == 2) {
+                int n_cs = a->shape[0], w_cs = a->shape[1];
+                double* brow = b->data;
+                double bnorm2 = 0;
+                for (int j = 0; j < w_cs; j++) bnorm2 += brow[j] * brow[j];
+                double bnorm = sqrt(bnorm2) + 1e-8;
+
+                ensure_grad(a); ensure_grad(r);
+                for (int ii = 0; ii < n_cs; ii++) {
+                    double anorm2 = 0;
+                    for (int j = 0; j < w_cs; j++) anorm2 += a->data[ii*w_cs+j] * a->data[ii*w_cs+j];
+                    double anorm = sqrt(anorm2) + 1e-8;
+                    double cos_val = r->data[ii];
+                    double g = r->grad[ii];
+                    for (int j = 0; j < w_cs; j++) {
+                        a->grad[ii*w_cs+j] += g * (brow[j] / (anorm * bnorm) - cos_val * a->data[ii*w_cs+j] / (anorm2 + 1e-10));
+                    }
+                }
+
+                if (b->requires_grad) {
+                    ensure_grad(b);
+                    for (int ii = 0; ii < n_cs; ii++) {
+                        double anorm2 = 0;
+                        for (int j = 0; j < w_cs; j++) anorm2 += a->data[ii*w_cs+j] * a->data[ii*w_cs+j];
+                        double anorm = sqrt(anorm2) + 1e-8;
+                        double cos_val = r->data[ii];
+                        double g = r->grad[ii];
+                        for (int j = 0; j < w_cs; j++) {
+                            b->grad[j] += g * (a->data[ii*w_cs+j] / (anorm * bnorm) - cos_val * brow[j] / (bnorm2 + 1e-10));
+                        }
+                    }
+                }
+            }
+            break;
+        }
+
+        case OP_CONV1D_CIRC: {
+            /* Circular convolution backward */
+            int n_cv = a->numel, k_cv = b->numel, pad_cv = k_cv / 2;
+            ensure_grad(r);
+            if (a->requires_grad) {
+                ensure_grad(a);
+                for (int ii = 0; ii < n_cv; ii++) {
+                    for (int j = 0; j < k_cv; j++) {
+                        int idx = (ii - pad_cv + j + n_cv) % n_cv;
+                        a->grad[idx] += r->grad[ii] * b->data[k_cv - 1 - j];
+                    }
+                }
+            }
+            if (b->requires_grad) {
+                ensure_grad(b);
+                for (int ii = 0; ii < n_cv; ii++) {
+                    for (int j = 0; j < k_cv; j++) {
+                        int idx = (ii - pad_cv + j + n_cv) % n_cv;
+                        b->grad[k_cv - 1 - j] += r->grad[ii] * a->data[idx];
+                    }
                 }
             }
             break;
