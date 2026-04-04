@@ -155,6 +155,7 @@ enum {
     OP_RESHAPE,   /* reshape (view) — grad passes through unchanged */
     OP_SELECT,    /* select element from vector — grad goes to parent[index] */
     OP_VECMAT,    /* [n] x [n,m] -> [m] vector-matrix multiply */
+    OP_NTM_READ_HEAD_READ, /* read output — shares NtmReadHeadMeta with OP_NTM_READ_HEAD */
 };
 
 typedef struct {
@@ -182,6 +183,33 @@ typedef struct {
     double* row_norms;
     double* dots;
 } CosSimMeta;
+
+typedef struct {
+    int n, w, k;
+    Tensor* memory;
+    Tensor* prev_weights;
+    Tensor* key;
+    Tensor* beta;
+    Tensor* g;
+    Tensor* gamma;
+    Tensor* shift;
+    double beta_v, g_v, gamma_v;
+    double key_norm;
+    double* row_norms;     /* [n] */
+    double* raw_cos;       /* [n] pre-beta cosine similarity */
+    double* content_weights; /* [n] softmax output */
+    double* interp;        /* [n] interpolated weights */
+    double* shifted;       /* [n] after circular conv */
+    double* shifted_clamped; /* [n] after clamp */
+    double* powered;       /* [n] clamped^gamma */
+    double pow_sum;
+    double* focused;       /* [n] final normalized weights */
+} NtmReadHeadMeta;
+
+typedef struct {
+    int n, w;
+    Tensor* add_vector;
+} NtmInterpWriteMeta;
 
 #define TAPE_INIT_CAP 4096
 
@@ -673,6 +701,105 @@ TensorHandle tensor_conv1d_circular(TensorHandle hinput, TensorHandle hkernel) {
     return r;
 }
 
+/* Backward helper: propagate d_focused through the NTM read head addressing chain */
+static void ntm_read_head_backward_chain(NtmReadHeadMeta* m, double* d_focused) {
+    int n = m->n, w = m->w, k = m->k;
+    int pad = k / 2;
+    double S = m->pow_sum + 1e-10;
+
+    /* Step 1: d_focused → d_powered (division normalization backward) */
+    double dot_fg = 0;
+    for (int i = 0; i < n; i++) dot_fg += d_focused[i] * m->focused[i];
+    double* d_powered = calloc(n, sizeof(double));
+    for (int i = 0; i < n; i++)
+        d_powered[i] = (d_focused[i] - dot_fg) / S;
+
+    /* Step 2: d_powered → d_clamped + d_gamma (power backward) */
+    double* d_clamped = calloc(n, sizeof(double));
+    double d_gamma = 0;
+    for (int i = 0; i < n; i++) {
+        double c = m->shifted_clamped[i];
+        d_clamped[i] = d_powered[i] * m->gamma_v * pow(c, m->gamma_v - 1.0);
+        if (c > 1e-10)  /* avoid log(~0) */
+            d_gamma += d_powered[i] * m->powered[i] * log(c);
+    }
+
+    /* Step 3: d_clamped → d_shifted (clamp backward) */
+    double* d_shifted = calloc(n, sizeof(double));
+    for (int i = 0; i < n; i++)
+        d_shifted[i] = (m->shifted[i] > 1e-10) ? d_clamped[i] : 0.0;
+
+    /* Step 4: d_shifted → d_interp + d_shift (circular conv backward) */
+    double* d_interp = calloc(n, sizeof(double));
+    double* d_shift_k = calloc(k, sizeof(double));
+    for (int i = 0; i < n; i++)
+        for (int j = 0; j < k; j++) {
+            int idx = (i - pad + j + n) % n;
+            d_interp[idx] += d_shifted[i] * m->shift->data[k - 1 - j];
+            d_shift_k[k - 1 - j] += d_shifted[i] * m->interp[idx];
+        }
+
+    /* Step 5: d_interp → d_content + d_prev + d_g (interpolation backward) */
+    double* d_content = calloc(n, sizeof(double));
+    double d_g = 0;
+    for (int i = 0; i < n; i++) {
+        d_content[i] = d_interp[i] * m->g_v;
+        d_g += d_interp[i] * (m->content_weights[i] - m->prev_weights->data[i]);
+    }
+    if (m->prev_weights->requires_grad) {
+        ensure_grad(m->prev_weights);
+        for (int i = 0; i < n; i++)
+            m->prev_weights->grad[i] += d_interp[i] * (1.0 - m->g_v);
+    }
+
+    /* Step 6: d_content → d_scaled (softmax backward) */
+    double dot_dc = 0;
+    for (int i = 0; i < n; i++) dot_dc += d_content[i] * m->content_weights[i];
+    double* d_scaled = calloc(n, sizeof(double));
+    for (int i = 0; i < n; i++)
+        d_scaled[i] = m->content_weights[i] * (d_content[i] - dot_dc);
+
+    /* Step 7: d_scaled → d_beta + d_raw_cos */
+    double d_beta = 0;
+    for (int i = 0; i < n; i++) d_beta += d_scaled[i] * m->raw_cos[i];
+    /* d_raw_cos[i] = d_scaled[i] * beta */
+    /* Step 8: d_raw_cos → d_memory + d_key (cosine similarity backward) */
+    double kn = m->key_norm, kn2 = kn * kn;
+    if (m->memory->requires_grad) {
+        ensure_grad(m->memory);
+        for (int i = 0; i < n; i++) {
+            double mn = m->row_norms[i], mn2 = mn * mn;
+            double d_rc = d_scaled[i] * m->beta_v;  /* d_raw_cos[i] */
+            for (int j = 0; j < w; j++)
+                m->memory->grad[i*w+j] += d_rc * (m->key->data[j] / (mn * kn)
+                    - m->raw_cos[i] * m->memory->data[i*w+j] / mn2);
+        }
+    }
+    if (m->key->requires_grad) {
+        ensure_grad(m->key);
+        for (int i = 0; i < n; i++) {
+            double mn = m->row_norms[i];
+            double d_rc = d_scaled[i] * m->beta_v;
+            for (int j = 0; j < w; j++)
+                m->key->grad[j] += d_rc * (m->memory->data[i*w+j] / (mn * kn)
+                    - m->raw_cos[i] * m->key->data[j] / kn2);
+        }
+    }
+
+    /* Scalar gradients */
+    if (m->beta->requires_grad) { ensure_grad(m->beta); m->beta->grad[0] += d_beta; }
+    if (m->g->requires_grad) { ensure_grad(m->g); m->g->grad[0] += d_g; }
+    if (m->gamma->requires_grad) { ensure_grad(m->gamma); m->gamma->grad[0] += d_gamma; }
+    if (m->shift->requires_grad) {
+        ensure_grad(m->shift);
+        for (int j = 0; j < k; j++) m->shift->grad[j] += d_shift_k[j];
+    }
+
+    free(d_powered); free(d_clamped); free(d_shifted);
+    free(d_interp); free(d_shift_k); free(d_content);
+    free(d_scaled);
+}
+
 TensorPair* tensor_ntm_read_head(
     TensorHandle memory_h, TensorHandle prev_weights_h,
     TensorHandle key_h, TensorHandle beta_h, TensorHandle g_h,
@@ -687,13 +814,36 @@ TensorPair* tensor_ntm_read_head(
     Tensor* shift = (Tensor*)shift_kernel_h;
 
     int n = memory->shape[0], w = memory->shape[1];
+    int kk = shift->numel, pad = kk / 2;
     double beta_v = beta->data[0], g_v = g_t->data[0], gamma_v = gamma->data[0];
+    int rg = memory->requires_grad || prev_w->requires_grad || key->requires_grad
+           || beta->requires_grad || g_t->requires_grad || gamma->requires_grad
+           || shift->requires_grad;
+
+    NtmReadHeadMeta* meta = NULL;
+    if (rg) {
+        meta = arena_alloc(sizeof(NtmReadHeadMeta));
+        meta->n = n; meta->w = w; meta->k = kk;
+        meta->memory = memory; meta->prev_weights = prev_w;
+        meta->key = key; meta->beta = beta; meta->g = g_t;
+        meta->gamma = gamma; meta->shift = shift;
+        meta->beta_v = beta_v; meta->g_v = g_v; meta->gamma_v = gamma_v;
+        meta->row_norms = arena_alloc(n * sizeof(double));
+        meta->raw_cos = arena_alloc(n * sizeof(double));
+        meta->content_weights = arena_alloc(n * sizeof(double));
+        meta->interp = arena_alloc(n * sizeof(double));
+        meta->shifted = arena_alloc(n * sizeof(double));
+        meta->shifted_clamped = arena_alloc(n * sizeof(double));
+        meta->powered = arena_alloc(n * sizeof(double));
+        meta->focused = arena_alloc(n * sizeof(double));
+    }
 
     /* 1. Content addressing */
     double* cos_sim = calloc(n, sizeof(double));
     double key_norm = 0;
     for (int j = 0; j < w; j++) key_norm += key->data[j] * key->data[j];
     key_norm = sqrt(key_norm) + 1e-8;
+    if (meta) meta->key_norm = key_norm;
     for (int i = 0; i < n; i++) {
         double dot = 0, row_norm = 0;
         for (int j = 0; j < w; j++) {
@@ -701,7 +851,9 @@ TensorPair* tensor_ntm_read_head(
             row_norm += memory->data[i*w+j] * memory->data[i*w+j];
         }
         row_norm = sqrt(row_norm) + 1e-8;
-        cos_sim[i] = beta_v * dot / (row_norm * key_norm);
+        double rc = dot / (row_norm * key_norm);
+        if (meta) { meta->row_norms[i] = row_norm; meta->raw_cos[i] = rc; }
+        cos_sim[i] = beta_v * rc;
     }
     /* softmax */
     double max_cs = cos_sim[0];
@@ -709,32 +861,39 @@ TensorPair* tensor_ntm_read_head(
     double sum_exp = 0;
     for (int i = 0; i < n; i++) { cos_sim[i] = exp(cos_sim[i] - max_cs); sum_exp += cos_sim[i]; }
     for (int i = 0; i < n; i++) cos_sim[i] /= sum_exp;
+    if (meta) memcpy(meta->content_weights, cos_sim, n * sizeof(double));
 
     /* 2. Interpolation */
     double* interp = calloc(n, sizeof(double));
     for (int i = 0; i < n; i++)
         interp[i] = g_v * cos_sim[i] + (1.0 - g_v) * prev_w->data[i];
+    if (meta) memcpy(meta->interp, interp, n * sizeof(double));
 
     /* 3. Circular shift */
-    int k = shift->numel, pad = k / 2;
     double* shifted = calloc(n, sizeof(double));
     for (int i = 0; i < n; i++) {
         double s = 0;
-        for (int j = 0; j < k; j++) {
+        for (int j = 0; j < kk; j++) {
             int idx = (i - pad + j + n) % n;
-            s += interp[idx] * shift->data[k - 1 - j];
+            s += interp[idx] * shift->data[kk - 1 - j];
         }
         shifted[i] = s;
     }
+    if (meta) memcpy(meta->shifted, shifted, n * sizeof(double));
 
     /* 4. Sharpening */
     double* focused = calloc(n, sizeof(double));
     double pow_sum = 0;
     for (int i = 0; i < n; i++) {
-        focused[i] = pow(fmax(shifted[i], 1e-10), gamma_v);
+        double clamped = fmax(shifted[i], 1e-10);
+        if (meta) meta->shifted_clamped[i] = clamped;
+        focused[i] = pow(clamped, gamma_v);
+        if (meta) meta->powered[i] = focused[i];
         pow_sum += focused[i];
     }
+    if (meta) meta->pow_sum = pow_sum;
     for (int i = 0; i < n; i++) focused[i] /= (pow_sum + 1e-10);
+    if (meta) memcpy(meta->focused, focused, n * sizeof(double));
 
     /* 5. Read */
     double* read_out = calloc(w, sizeof(double));
@@ -745,8 +904,15 @@ TensorPair* tensor_ntm_read_head(
     int w_shape[] = {n};
     int r_shape[] = {w};
     TensorPair* pair = malloc(sizeof(TensorPair));
-    pair->first = make_tensor(focused, w_shape, 1, 0);
-    pair->second = make_tensor(read_out, r_shape, 1, 0);
+    pair->first = make_tensor(focused, w_shape, 1, rg);
+    pair->second = make_tensor(read_out, r_shape, 1, rg);
+
+    if (rg) {
+        int idx_w = tape_append(OP_NTM_READ_HEAD, (Tensor*)pair->first, NULL, NULL, 0);
+        tape[idx_w].op_meta = meta;
+        int idx_r = tape_append(OP_NTM_READ_HEAD_READ, (Tensor*)pair->second, NULL, NULL, 0);
+        tape[idx_r].op_meta = meta;
+    }
 
     free(cos_sim); free(interp); free(shifted); free(focused); free(read_out);
     return pair;
@@ -759,14 +925,21 @@ TensorHandle tensor_ntm_interp_write(
     Tensor* weights = (Tensor*)weights_h;
     Tensor* add_vec = (Tensor*)add_vector_h;
     int n = memory->shape[0], w = memory->shape[1];
+    int rg = memory->requires_grad || weights->requires_grad || add_vec->requires_grad;
     double* data = malloc(n * w * sizeof(double));
     memcpy(data, memory->data, n * w * sizeof(double));
     for (int i = 0; i < n; i++)
         for (int j = 0; j < w; j++)
             data[i*w+j] += weights->data[i] * add_vec->data[j];
     int shape[] = {n, w};
-    Tensor* r = make_tensor(data, shape, 2, 0);
+    Tensor* r = make_tensor(data, shape, 2, rg);
     free(data);
+    if (rg) {
+        NtmInterpWriteMeta* meta = arena_alloc(sizeof(NtmInterpWriteMeta));
+        meta->n = n; meta->w = w; meta->add_vector = add_vec;
+        int idx = tape_append(OP_NTM_INTERP_WRITE, r, memory, weights, 0);
+        tape[idx].op_meta = meta;
+    }
     return r;
 }
 
@@ -1354,6 +1527,73 @@ void tensor_backward(TensorHandle h) {
             break;
         }
 
+        case OP_NTM_READ_HEAD: {
+            NtmReadHeadMeta* m = (NtmReadHeadMeta*)e->op_meta;
+            if (m) {
+                ensure_grad(r);
+                ntm_read_head_backward_chain(m, r->grad);
+            }
+            break;
+        }
+
+        case OP_NTM_READ_HEAD_READ: {
+            NtmReadHeadMeta* m = (NtmReadHeadMeta*)e->op_meta;
+            if (m) {
+                ensure_grad(r);
+                int nn = m->n, ww = m->w;
+                /* d_focused[i] = sum_j d_read_out[j] * memory[i,j] */
+                double* d_focused = calloc(nn, sizeof(double));
+                for (int ii = 0; ii < nn; ii++)
+                    for (int jj = 0; jj < ww; jj++)
+                        d_focused[ii] += r->grad[jj] * m->memory->data[ii * ww + jj];
+                /* d_memory[i,j] += d_read_out[j] * focused[i] */
+                if (m->memory->requires_grad) {
+                    ensure_grad(m->memory);
+                    for (int ii = 0; ii < nn; ii++)
+                        for (int jj = 0; jj < ww; jj++)
+                            m->memory->grad[ii * ww + jj] += r->grad[jj] * m->focused[ii];
+                }
+                ntm_read_head_backward_chain(m, d_focused);
+                free(d_focused);
+            }
+            break;
+        }
+
+        case OP_NTM_INTERP_WRITE: {
+            NtmInterpWriteMeta* m = (NtmInterpWriteMeta*)e->op_meta;
+            if (m) {
+                ensure_grad(r);
+                int nn = m->n, ww = m->w;
+                /* d_memory = d_result */
+                if (a && a->requires_grad) {
+                    ensure_grad(a);
+                    for (int ij = 0; ij < nn * ww; ij++)
+                        a->grad[ij] += r->grad[ij];
+                }
+                /* d_weights[i] = sum_j d_result[i,j] * add_vector[j] */
+                if (b && b->requires_grad) {
+                    ensure_grad(b);
+                    for (int ii = 0; ii < nn; ii++) {
+                        double s = 0;
+                        for (int jj = 0; jj < ww; jj++)
+                            s += r->grad[ii * ww + jj] * m->add_vector->data[jj];
+                        b->grad[ii] += s;
+                    }
+                }
+                /* d_add_vector[j] = sum_i d_result[i,j] * weights[i] */
+                if (m->add_vector->requires_grad) {
+                    ensure_grad(m->add_vector);
+                    for (int jj = 0; jj < ww; jj++) {
+                        double s = 0;
+                        for (int ii = 0; ii < nn; ii++)
+                            s += r->grad[ii * ww + jj] * b->data[ii];
+                        m->add_vector->grad[jj] += s;
+                    }
+                }
+            }
+            break;
+        }
+
         default: break; /* unimplemented backward */
         }
     }
@@ -1681,16 +1921,14 @@ TensorHandle tensor_create_param_1d(int n, double* data) {
 TensorHandle tensor_view_2d(TensorHandle h, int row, int col) {
     Tensor* t = (Tensor*)h;
     int cols = t->shape[1];
-    int linear_idx = row * cols + col;
     Tensor* v = calloc(1, sizeof(Tensor));
-    v->data = &t->data[linear_idx];
+    v->data = &t->data[row * cols + col];
     v->shape = NULL;
     v->rank = 0;
     v->numel = 1;
-    v->requires_grad = t->requires_grad;
+    v->requires_grad = 0;
     v->tape_idx = -1;
     v->grad = NULL;
-    if (v->requires_grad) tape_append(OP_SELECT, v, t, NULL, (double)linear_idx);
     return v;
 }
 
@@ -1701,10 +1939,9 @@ TensorHandle tensor_view_1d(TensorHandle h, int idx) {
     v->shape = NULL;
     v->rank = 0;
     v->numel = 1;
-    v->requires_grad = t->requires_grad;
+    v->requires_grad = 0;
     v->tape_idx = -1;
     v->grad = NULL;
-    if (v->requires_grad) tape_append(OP_SELECT, v, t, NULL, (double)idx);
     return v;
 }
 

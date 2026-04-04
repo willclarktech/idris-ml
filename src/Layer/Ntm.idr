@@ -183,10 +183,64 @@ export
              newMemory newReadAddr' newWriteAddr' newReadOutput
              Nothing Nothing Nothing Nothing, output)
 
-  -- Variable-based NTM forward pass: uses individual Variable ops for addressing
-  -- (which have backward rules) and tensor-level LSTM/FC sub-layers.
-  -- The fused C NTM ops (prim__ntmReadHead, prim__ntmInterpWrite) are not used
-  -- because they lack backward rules in the tape backend.
+  -- Variable-based NTM forward pass: fused C ops when tensor handles available
+  applyVar (MkNtm lstm readFc writeFc outputFc memory readAddr writeAddr readOutput (Just memT) (Just raT) (Just waT) (Just roT)) inp =
+    case applyVar lstm (readOutput ++ inp) of
+      (updLstm, hidden) =>
+        let cell = extractCellState updLstm
+        in case applyVar readFc cell of
+          (_, readParams) =>
+            case applyVar writeFc cell of
+              (_, writeParams) =>
+                -- Parse read head params (scalar Variables from FC output)
+                let (mainInput, params) = splitAt (m + ShiftKernelSize) readParams
+                    (keyVector, shiftVector) = splitAt m mainInput
+                    (betaVec, params') = splitAt 1 params
+                    (gVec, gammaVec) = splitAt 1 params'
+                    beta = softplus (sum betaVec)
+                    g = sigmoidVar (sum gVec)
+                    gamma = 1 + softplus (sum gammaVec)
+                    shiftKernel = softmaxVar shiftVector
+                    -- Stack key and shift kernel (small: m and 3 elements)
+                    (VTensor keyElems) = keyVector
+                    keyT = vecStackTensor keyElems
+                    (VTensor shiftElems) = shiftKernel
+                    shiftT = vecStackTensor shiftElems
+                    -- Fused read head: 1 C call for entire addressing pipeline
+                    readPair = prim__ntmReadHead memT raT keyT beta.tensorPtr g.tensorPtr gamma.tensorPtr shiftT
+                    newReadAddrT = prim__pairFirst readPair
+                    newReadOutT = prim__pairSecond readPair
+                    -- Parse write head params
+                    (wReadHeadInput, rawAdd) = Tensor.splitAt ((m + ShiftKernelSize) + 3) writeParams
+                    (wMainInput, wParams) = splitAt (m + ShiftKernelSize) wReadHeadInput
+                    (wKeyVector, wShiftVector) = splitAt m wMainInput
+                    (wBetaVec, wParams') = splitAt 1 wParams
+                    (wGVec, wGammaVec) = splitAt 1 wParams'
+                    wBeta = softplus (sum wBetaVec)
+                    wG = sigmoidVar (sum wGVec)
+                    wGamma = 1 + softplus (sum wGammaVec)
+                    wShiftKernel = softmaxVar wShiftVector
+                    (VTensor wKeyElems) = wKeyVector
+                    wKeyT = vecStackTensor wKeyElems
+                    (VTensor wShiftElems) = wShiftKernel
+                    wShiftT = vecStackTensor wShiftElems
+                    -- Fused write head addressing
+                    writePair = prim__ntmReadHead memT waT wKeyT wBeta.tensorPtr wG.tensorPtr wGamma.tensorPtr wShiftT
+                    newWriteAddrT = prim__pairFirst writePair
+                    -- Interpolation write: memory' = memory + outer(writeAddr, addVector)
+                    (VTensor addElems) = rawAdd
+                    addT = vecStackTensor addElems
+                    newMemT = prim__ntmInterpWrite memT newWriteAddrT addT
+                    -- Output FC: hidden ++ readOutput
+                    newReadOutput = VTensor (tensorToScalars newReadOutT 0 m)
+                    output = snd (applyVar outputFc (hidden ++ newReadOutput))
+                    -- Skip unpacking addressing weights — tensor handles carry the real
+                    -- data, scalar Vects are stale placeholders (never read in tensor path)
+                in (MkNtm updLstm readFc writeFc outputFc
+                         memory readAddr writeAddr newReadOutput
+                         (Just newMemT) (Just newReadAddrT) (Just newWriteAddrT) (Just newReadOutT), output)
+
+  -- Variable-based NTM forward pass: fallback using individual Variable ops
   applyVar (MkNtm lstm readFc writeFc outputFc memory readAddr writeAddr readOutput _ _ _ _) inp =
     case applyVar lstm (readOutput ++ inp) of
       (updLstm, hidden) =>
