@@ -65,10 +65,12 @@ main = do
   let trained = foldl (\m, _ => fst (epochRecurrentNative opt dataPoints lossFn m)) model [1 .. epochs]
   let dblModel = toDoubleNetwork (emap refreshValue trained)
   let dblData = rawData 8
-  let predictions' = decodeOutput $ evaluateRecurrent dblModel dblData
+  let dblPreds = evaluateRecurrent dblModel dblData
+  let predictions' : Vect 8 (List (Vector 1 Double))
+      predictions' = map (map (map (\x => cast (0 < x)))) dblPreds
   let loss' = calculateLossRecurrent lossFn dblModel dblData
 
   putStr "Post loss: "
-  printLn $ value loss'
+  printLn loss'
   putStr "Predictions: "
-  printLn $ predictions'
+  printLn predictions'
