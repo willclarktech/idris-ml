@@ -5,6 +5,7 @@ import System.Random
 
 import Backprop
 import DataPoint
+import Endofunctor
 import Floating
 import Layer
 import Math
@@ -44,11 +45,13 @@ main = do
   putStr "Predictions: "
   printLn $ map (map value) predictions
 
-  let trained = train (sgd lr (1.0/0.0)) model prepared lossFn epochs
-  let predictions' = evaluate trained prepared
-  let loss' = calculateLoss lossFn trained prepared
+  let opt = nativeSgd lr
+  let trained = trainNative opt model prepared lossFn epochs
+  let dblModel = toDoubleNetwork (emap refreshValue trained)
+  let predictions' = evaluate dblModel (map (map fromDouble) dataPoints)
+  let loss' = calculateLoss lossFn dblModel (map (map fromDouble) dataPoints)
 
   putStr "Post loss: "
-  printLn $ value loss'
+  printLn loss'
   putStr "Predictions: "
-  printLn $ map (map value) predictions'
+  printLn predictions'

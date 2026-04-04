@@ -22,8 +22,41 @@ record LinearState (inputSize : Nat) (outputSize : Nat) (ty : Type) where
   constructor MkLinear
   weights : Matrix outputSize inputSize ty
   bias : Vector outputSize ty
-  wBuf : Maybe AnyPtr
-  bBuf : Maybe AnyPtr
+  weightTensor : Maybe AnyPtr  -- consolidated [o, i] tensor (for Variable forward)
+  biasTensor : Maybe AnyPtr    -- consolidated [o] tensor
+
+
+----------------------------------------------------------------------
+-- Helpers: build Variable matrix/vector from tensor views
+----------------------------------------------------------------------
+
+-- Build a row of scalar Variables from views into a 2D tensor.
+-- Each view Variable gets a paramId for identification (but is NOT individually registered).
+-- linearIdx: offset for this row's start in the flat index space
+export
+buildViewRow : String -> AnyPtr -> Int -> Int -> Int -> (k : Nat) -> Vect k (Scalar Variable)
+buildViewRow _ _ _ _ _ Z = []
+buildViewRow name mat row col linearIdx (S k) =
+  let ptr = prim__view2d mat row col
+      val = prim__item2d mat row col
+  in STensor (Var ptr (Just (name ++ show linearIdx)) val) :: buildViewRow name mat row (col + 1) (linearIdx + 1) k
+
+-- Build a matrix of scalar Variables from views into a 2D tensor.
+export
+buildViewMatrix : String -> AnyPtr -> Int -> Int -> (rows : Nat) -> (cols : Nat) -> Vect rows (Vector cols Variable)
+buildViewMatrix _ _ _ _ Z _ = []
+buildViewMatrix name mat row linearIdx (S r) cols =
+  let colsI = cast {to=Int} cols
+  in VTensor (buildViewRow name mat row 0 linearIdx cols) :: buildViewMatrix name mat (row + 1) (linearIdx + colsI) r cols
+
+-- Build a vector of scalar Variables from views into a 1D tensor.
+export
+buildViewVector : String -> AnyPtr -> Int -> (k : Nat) -> Vect k (Scalar Variable)
+buildViewVector _ _ _ Z = []
+buildViewVector name vec idx (S k) =
+  let ptr = prim__view1d vec idx
+      val = prim__item1d vec idx
+  in STensor (Var ptr (Just (name ++ show idx)) val) :: buildViewVector name vec (idx + 1) k
 
 
 ----------------------------------------------------------------------
@@ -32,78 +65,77 @@ record LinearState (inputSize : Nat) (outputSize : Nat) (ty : Type) where
 
 export
 LayerLike LinearState where
-  applyGeneric (MkLinear w b wb bb) xs = (MkLinear w b wb bb, matrixVectorMultiply w xs + b)
+  applyGeneric (MkLinear w b _ _) xs = (MkLinear w b Nothing Nothing, matrixVectorMultiply w xs + b)
 
-  applyVar st@(MkLinear weights bias wBuf bBuf) xs =
-    case (wBuf, bBuf) of
-      (Just wb, Just bb) => (st, matrixVectorMultiplyVarBufBias wb bb xs)
-      (Just wb, Nothing) => (st, matrixVectorMultiplyVarBuf wb xs + bias)
+  applyVar {i} {o} st@(MkLinear weights bias wt bt) xs =
+    case (wt, bt) of
+      -- Tensor-level forward: 1 mv + 1 add (no torch::stack for weights)
+      (Just weightT, Just biasT) =>
+        let (VTensor xElems) = xs
+            inputT = vecStackTensor {n=i} xElems
+            resultT = tensorAdd (tensorMv weightT inputT) biasT
+        in (st, VTensor $ tensorToScalars resultT 0 o)
+      -- Scalar fallback
       _ => (st, matrixVectorMultiplyVar weights xs + bias)
 
-  emapLayer f (MkLinear w b wb bb) = MkLinear (map f w) (map f b) wb bb
+  emapLayer f (MkLinear w b wt bt) = MkLinear (map f w) (map f b) wt bt
 
   showLayer {i} {o} _ = "Linear<" ++ show i ++ ":" ++ show o ++ ">"
 
-  nameLayer {i} {o} prefx (MkLinear weights bias _ _) =
-    let np = nameParam . (prefx ++ "_" ++)
-        namedWeights = zipWith (np "weight") enumerate weights
-        namedBias = zipWith (np "bias") enumerate bias
-    in if i * o <= 4
-      then MkLinear namedWeights namedBias Nothing Nothing
-      else let (VTensor namedRows) = namedWeights
-               (VTensor biasElems) = namedBias
-               wBuf = prim__weightBufAlloc (cast (o * i))
-               wBuf' = initWeightBuf wBuf 0 namedRows
-               bBuf = prim__weightBufAlloc (cast o)
-               bBuf' = initWeightBufRow bBuf 0 biasElems
-           in MkLinear namedWeights namedBias (Just wBuf') (Just bBuf')
+  nameLayer {i} {o} prefx (MkLinear (VTensor wRows) (VTensor bElems) _ _) =
+    let oI = cast {to=Int} o
+        iI = cast {to=Int} i
+        -- Pack weight values into a flat C buffer (row-major)
+        wBuf = prim__allocDoubles (oI * iI)
+        wBuf' = packMatrixValues wBuf 0 {n=i} wRows
+        -- Create consolidated [o, i] parameter tensor (requires_grad=true)
+        weightT = prim__createParam2d oI iI wBuf'
+        -- Register consolidated tensor (used by native optimizer)
+        weightT' = prim__paramRegister (prefx ++ "_weights") weightT
+        -- Pack bias values
+        bBuf = prim__allocDoubles oI
+        bBuf' = packScalarValues bBuf 0 bElems
+        biasT = prim__createParam1d oI bBuf'
+        biasT' = prim__paramRegister (prefx ++ "_biases") biasT
+        -- Build scalar view Variables with paramIds (share storage with consolidated tensors)
+    in MkLinear (VTensor $ buildViewMatrix (prefx ++ "_weight") weightT' 0 0 o i)
+                (VTensor $ buildViewVector (prefx ++ "_bias") biasT' 0 o)
+                (Just weightT') (Just biasT')
 
   layerPrefix _ = "ll"
 
-  toDoubleLayer (MkLinear w b _ _) = MkLinear (map value w) (map value b) Nothing Nothing
+  toDoubleLayer {i} {o} (MkLinear w b wt bt) =
+    case (wt, bt) of
+      (Just weightT, Just biasT) =>
+        -- Read values from consolidated tensors
+        let wRows = buildDoubleMatrix weightT 0 o i
+            bElems = buildDoubleVector biasT 0 o
+        in MkLinear (VTensor wRows) (VTensor bElems) Nothing Nothing
+      _ => MkLinear (map value w) (map value b) Nothing Nothing
+    where
+      buildDoubleRow : AnyPtr -> Int -> Int -> (k : Nat) -> Vect k (Scalar Double)
+      buildDoubleRow _ _ _ Z = []
+      buildDoubleRow mat row col (S k) =
+        STensor (prim__item2d mat row col) :: buildDoubleRow mat row (col + 1) k
+
+      buildDoubleMatrix : AnyPtr -> Int -> (rows : Nat) -> (cols : Nat) -> Vect rows (Vector cols Double)
+      buildDoubleMatrix _ _ Z _ = []
+      buildDoubleMatrix mat row (S r) cols =
+        VTensor (buildDoubleRow mat row 0 cols) :: buildDoubleMatrix mat (row + 1) r cols
+
+      buildDoubleVector : AnyPtr -> Int -> (k : Nat) -> Vect k (Scalar Double)
+      buildDoubleVector _ _ Z = []
+      buildDoubleVector vec idx (S k) =
+        STensor (prim__item1d vec idx) :: buildDoubleVector vec (idx + 1) k
 
   debugApply {i} {o} st inp =
     let (updated, out) = applyGeneric st inp
     in (updated, out, MkDebugEntry ("Linear<" ++ show i ++ ":" ++ show o ++ ">") [])
 
-  syncBuffers (MkLinear (VTensor wRows) (VTensor biasElems) (Just wb) (Just bb)) =
-    let wb' = syncWeightBuf wb 0 wRows
-        bb' = syncWeightBufRow bb 0 biasElems
-    in MkLinear (VTensor wRows) (VTensor biasElems) (Just wb') (Just bb')
-  syncBuffers (MkLinear (VTensor wRows) bias (Just wb) Nothing) =
-    let wb' = syncWeightBuf wb 0 wRows
-    in MkLinear (VTensor wRows) bias (Just wb') Nothing
-  syncBuffers l = l
-
-  applyDeltasAndSync deltas (MkLinear w b (Just wb) (Just bb)) =
-    let wb' = prim__weightBufApplyDeltas wb deltas
-        bb' = prim__weightBufApplyDeltas bb deltas
-    in MkLinear w b (Just wb') (Just bb')
-  applyDeltasAndSync deltas (MkLinear w b (Just wb) Nothing) =
-    let wb' = prim__weightBufApplyDeltas wb deltas
-    in MkLinear w b (Just wb') Nothing
-  applyDeltasAndSync _ l = l
-
-  readFromBuffers (MkLinear (VTensor wRows) (VTensor biasElems) (Just wb) (Just bb)) =
-    MkLinear (VTensor (readWeightBuf wb 0 wRows)) (VTensor (readWeightBufRow bb 0 biasElems)) (Just wb) (Just bb)
-  readFromBuffers (MkLinear (VTensor wRows) bias (Just wb) Nothing) =
-    MkLinear (VTensor (readWeightBuf wb 0 wRows)) bias (Just wb) Nothing
-  readFromBuffers l = l
-
   getParamIds (MkLinear w b _ _) = tensorIds w ++ tensorIds b
     where
       tensorIds : {dims : Vect rank Nat} -> Tensor dims Variable -> List String
       tensorIds = mapMaybe paramId . toList
-
-
-----------------------------------------------------------------------
--- Public Helpers (for NTM buffer-passing)
-----------------------------------------------------------------------
-
-||| Extract weight and bias buffers from a LinearState.
-export
-getLinearBufs : LinearState i o Variable -> (Maybe AnyPtr, Maybe AnyPtr)
-getLinearBufs st = (st.wBuf, st.bBuf)
 
 
 ----------------------------------------------------------------------

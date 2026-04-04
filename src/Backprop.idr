@@ -32,7 +32,7 @@ epoch opt dataPoints lossFn model st =
   let loss = calculateLossVar lossFn model dataPoints
       grads = collectGrads 1.0 loss
       (deltas, st') = opt.step grads st
-      model' = syncNetworkBuffers (emap (applyDeltas deltas) model)
+      model' = emap (applyDeltas deltas) model
   in (model', st', loss.value)
 
 export
@@ -82,7 +82,7 @@ epochRecurrent opt dataPoints lossFn model st =
   let loss = calculateLossRecurrentVar lossFn model dataPoints
       grads = collectGrads 1.0 loss
       (deltas, st') = opt.step grads st
-      model' = syncNetworkBuffers (emap (applyDeltas deltas) model)
+      model' = emap (applyDeltas deltas) model
   in (model', st', loss.value)
 
 export
@@ -133,7 +133,7 @@ epochTwoPhase opt dataPoints lossFn model st =
   let loss = calculateLossTwoPhaseVar lossFn model dataPoints
       grads = collectGrads 1.0 loss
       (deltas, st') = opt.step grads st
-      model' = syncNetworkBuffers (emap (applyDeltas deltas) model)
+      model' = emap (applyDeltas deltas) model
   in (model', st', loss.value)
 
 
@@ -259,133 +259,69 @@ trainTwoPhaseScheduledFrom makeOpt schedule model dataPoints lossFn totalEpochs 
 
 
 ----------------------------------------------------------------------
--- Dense Two-Phase Training (C arrays, no SortedMap)
+-- Native Training (libtorch optimizer)
 ----------------------------------------------------------------------
 
+||| Native two-phase epoch with BCE loss.
+||| Uses libtorch optimizer directly: zero_grad → backward → clip → step.
+||| No collectGrads, no SortedMap, no applyDeltas.
 export
-epochTwoPhaseDense :
+epochTwoPhaseBceNative :
   {i, o, n : Nat} ->
   {hs : List Nat} ->
-  DenseOptimizer ->
-  Vect n (TwoPhaseDataPoint i o Variable) ->
-  LossFunction Variable ->
-  Network i hs o Variable ->
-  DenseOptimizerState ->
-  (Network i hs o Variable, DenseOptimizerState, Double)
-epochTwoPhaseDense opt dataPoints lossFn model st =
-  let loss = calculateLossTwoPhaseVar lossFn model dataPoints
-      denseBuf = collectGradsDense 1.0 loss st.buf
-      st' = opt.step denseBuf st
-      model' = applyDeltasAndSyncNetwork denseBuf model
-  in (model', st', loss.value)
-
-||| Dense two-phase epoch with C-backed BCE loss.
-export
-epochTwoPhaseDenseBce :
-  {i, o, n : Nat} ->
-  {hs : List Nat} ->
-  DenseOptimizer ->
+  NativeOptimizer ->
   Vect n (TwoPhaseDataPoint i o Variable) ->
   Network i hs o Variable ->
-  DenseOptimizerState ->
-  (Network i hs o Variable, DenseOptimizerState, Double)
-epochTwoPhaseDenseBce opt dataPoints model st =
+  (Network i hs o Variable, Double)
+epochTwoPhaseBceNative opt dataPoints model =
   let loss = calculateLossTwoPhaseVarBce model dataPoints
-      denseBuf = collectGradsDense 1.0 loss st.buf
-      st' = opt.step denseBuf st
-      model' = applyDeltasAndSyncNetwork denseBuf model
-  in (model', st', loss.value)
+      lossVal = nativeTrainStep opt loss
+  -- Model structure unchanged; tensor values mutated in-place by optimizer
+  in (model, lossVal)
 
-||| Dense two-phase training with schedule and early stopping.
+||| Native epoch for supervised training.
 export
-trainTwoPhaseScheduledFromDense :
+epochNative :
   {i, o, n : Nat} ->
   {hs : List Nat} ->
-  (Double -> DenseOptimizer) ->
-  Schedule ->
-  Network i hs o Variable ->
-  Vect n (TwoPhaseDataPoint i o Variable) ->
+  NativeOptimizer ->
+  Vect n (DataPoint i o Variable) ->
   LossFunction Variable ->
-  (totalEpochs : Nat) ->
-  (patience : Nat) ->
-  DenseOptimizerState ->
-  (Network i hs o Variable, DenseOptimizerState, Nat)
-trainTwoPhaseScheduledFromDense makeOpt schedule model dataPoints lossFn totalEpochs patience st =
-  go 0 model st (1.0/0.0) 0
-  where
-    minDelta : Double
-    minDelta = 0.001
-    go : Nat -> Network i hs o Variable -> DenseOptimizerState -> Double -> Nat ->
-         (Network i hs o Variable, DenseOptimizerState, Nat)
-    go ep m s bestLoss staleCount =
-      if ep >= totalEpochs then (m, s, ep)
-      else
-        let lr = schedule ep
-            opt = makeOpt lr
-            (m', s', loss) = epochTwoPhaseDense opt dataPoints lossFn m s
-        in if loss /= loss then (m', s', ep + 1)
-           else let improved = loss < bestLoss - minDelta
-                    bestLoss' = if improved then loss else bestLoss
-                    staleCount' : Nat
-                    staleCount' = if improved then 0 else staleCount + 1
-                in if patience > 0 && staleCount' >= patience
-                   then (m', s', ep + 1)
-                   else go (ep + 1) m' s' bestLoss' staleCount'
+  Network i hs o Variable ->
+  (Network i hs o Variable, Double)
+epochNative opt dataPoints lossFn model =
+  let loss = calculateLossVar lossFn model dataPoints
+      lossVal = nativeTrainStep opt loss
+  in (model, lossVal)
 
-
-----------------------------------------------------------------------
--- Dense Recurrent Training (C arrays, no SortedMap)
-----------------------------------------------------------------------
-
+||| Native epoch for recurrent training.
 export
-epochRecurrentDense :
+epochRecurrentNative :
   {i, o, n : Nat} ->
   {hs : List Nat} ->
-  DenseOptimizer ->
+  NativeOptimizer ->
   Vect n (RecurrentDataPoint i o Variable) ->
   LossFunction Variable ->
   Network i hs o Variable ->
-  DenseOptimizerState ->
-  (Network i hs o Variable, DenseOptimizerState, Double)
-epochRecurrentDense opt dataPoints lossFn model st =
+  (Network i hs o Variable, Double)
+epochRecurrentNative opt dataPoints lossFn model =
   let loss = calculateLossRecurrentVar lossFn model dataPoints
-      denseBuf = collectGradsDense 1.0 loss st.buf
-      st' = opt.step denseBuf st
-      model' = applyDeltasAndSyncNetwork denseBuf model
-  in (model', st', loss.value)
+      lossVal = nativeTrainStep opt loss
+  in (model, lossVal)
 
-||| Dense recurrent training with schedule and early stopping.
+||| Simple native training loop: run N epochs, return final model.
 export
-trainRecurrentScheduledFromDense :
+trainNative :
   {i, o, n : Nat} ->
   {hs : List Nat} ->
-  (Double -> DenseOptimizer) ->
-  Schedule ->
+  NativeOptimizer ->
   Network i hs o Variable ->
-  Vect n (RecurrentDataPoint i o Variable) ->
+  Vect n (DataPoint i o Variable) ->
   LossFunction Variable ->
-  (totalEpochs : Nat) ->
-  (patience : Nat) ->
-  DenseOptimizerState ->
-  (Network i hs o Variable, DenseOptimizerState, Nat)
-trainRecurrentScheduledFromDense makeOpt schedule model dataPoints lossFn totalEpochs patience st =
-  go 0 model st (1.0/0.0) 0
-  where
-    minDelta : Double
-    minDelta = 0.001
-    go : Nat -> Network i hs o Variable -> DenseOptimizerState -> Double -> Nat ->
-         (Network i hs o Variable, DenseOptimizerState, Nat)
-    go ep m s bestLoss staleCount =
-      if ep >= totalEpochs then (m, s, ep)
-      else
-        let lr = schedule ep
-            opt = makeOpt lr
-            (m', s', loss) = epochRecurrentDense opt dataPoints lossFn m s
-        in if loss /= loss then (m', s', ep + 1)
-           else let improved = loss < bestLoss - minDelta
-                    bestLoss' = if improved then loss else bestLoss
-                    staleCount' : Nat
-                    staleCount' = if improved then 0 else staleCount + 1
-                in if patience > 0 && staleCount' >= patience
-                   then (m', s', ep + 1)
-                   else go (ep + 1) m' s' bestLoss' staleCount'
+  Int ->
+  Network i hs o Variable
+trainNative opt model dataPoints lossFn epochs =
+  foldl (\m, _ =>
+    let (m', _) = epochNative opt dataPoints lossFn m
+    in m') model [1 .. epochs]
+

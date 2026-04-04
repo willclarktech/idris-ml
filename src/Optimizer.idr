@@ -46,7 +46,8 @@ export
 applyDeltas : SortedMap String Double -> Variable -> Variable
 applyDeltas deltas v = case v.paramId of
   Just pid => case lookup pid deltas of
-    Just d  => { value := v.value - d } v
+    Just d  => let ptr' = prim__tensorSubScalarInplace v.tensorPtr d
+               in { value := v.value - d, tensorPtr := ptr' } v
     Nothing => v
   Nothing  => v
 
@@ -178,75 +179,3 @@ adamGlobalClip lr beta1 beta2 eps maxNorm = MkOptimizer step
       in adamStep lr beta1 beta2 eps clipped st
 
 
-----------------------------------------------------------------------
--- Dense Optimizer (C arrays, no SortedMap)
-----------------------------------------------------------------------
-
-||| Dense optimizer state: C arrays indexed by pid_id.
-public export
-record DenseOptimizerState where
-  constructor MkDenseOptimizerState
-  v : AnyPtr     -- C double array (RMSprop v / Adam v)
-  m : AnyPtr     -- C double array (Adam m, unused for RMSprop/SGD)
-  buf : AnyPtr   -- reusable grads/deltas buffer
-  t : Int
-  n : Int        -- number of parameters
-
-||| Dense optimizer: operates on C arrays via FFI.
-||| step takes the grads buffer (filled by collectGradsDense),
-||| transforms grads -> deltas in-place, updates state.
-public export
-record DenseOptimizer where
-  constructor MkDenseOptimizer
-  step : AnyPtr -> DenseOptimizerState -> DenseOptimizerState
-
-||| Initialize dense optimizer state for n parameters.
-export
-initDenseState : Int -> DenseOptimizerState
-initDenseState numPids = MkDenseOptimizerState
-  (prim__denseAlloc numPids) (prim__denseAlloc numPids)
-  (prim__denseAlloc numPids) 0 numPids
-
-||| RMSprop with value clipping (dense C arrays).
-export
-rmspropValueClipDense : (lr : Double) -> (alpha : Double) -> (eps : Double) ->
-                        (maxVal : Double) -> DenseOptimizer
-rmspropValueClipDense lr alpha eps maxVal = MkDenseOptimizer step
-  where
-    step : AnyPtr -> DenseOptimizerState -> DenseOptimizerState
-    step grads st =
-      let result = prim__rmspropVcStep grads st.v st.n lr alpha eps maxVal
-      in { v := prim__seq result st.v } st
-
-||| RMSprop with value clipping + momentum (dense C arrays).
-||| Matches PyTorch's RMSprop(momentum=momentum).
-export
-rmspropValueClipMomentumDense : (lr : Double) -> (alpha : Double) -> (eps : Double) ->
-                                 (maxVal : Double) -> (momentum : Double) -> DenseOptimizer
-rmspropValueClipMomentumDense lr alpha eps maxVal momentum = MkDenseOptimizer step
-  where
-    step : AnyPtr -> DenseOptimizerState -> DenseOptimizerState
-    step grads st =
-      let result = prim__rmspropVcMomentumStep grads st.v st.m st.n lr alpha eps maxVal momentum
-      in { v := prim__seq result st.v } st
-
-||| SGD with per-param clipping (dense C arrays).
-export
-sgdDense : (lr : Double) -> (maxGrad : Double) -> DenseOptimizer
-sgdDense lr maxGrad = MkDenseOptimizer step
-  where
-    step : AnyPtr -> DenseOptimizerState -> DenseOptimizerState
-    step grads st =
-      let result = prim__sgdStep grads st.n lr maxGrad
-      in { v := prim__seq result st.v } st
-
-||| Adam with global gradient norm clipping (dense C arrays).
-export
-adamGlobalClipDense : (lr : Double) -> (beta1 : Double) -> (beta2 : Double) ->
-                      (eps : Double) -> (maxNorm : Double) -> DenseOptimizer
-adamGlobalClipDense lr beta1 beta2 eps maxNorm = MkDenseOptimizer step
-  where
-    step : AnyPtr -> DenseOptimizerState -> DenseOptimizerState
-    step grads st =
-      let result = prim__adamGcStep grads st.m st.v st.n lr beta1 beta2 eps maxNorm st.t
-      in { v := prim__seq result st.v, t := st.t + 1 } st

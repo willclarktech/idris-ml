@@ -20,6 +20,7 @@ import System.Random
 import Backprop
 import DataPoint
 import Debug
+import Endofunctor
 import Floating
 import Generate
 import Layer
@@ -102,60 +103,52 @@ bitAccuracy preds targets =
 -- Training Loop
 ----------------------------------------------------------------------
 
-||| Simple training loop with periodic data regeneration and
-||| windowed-average convergence-based early stopping.
-||| Returns (model, optimizer state, epochs completed).
+||| Training loop with native libtorch optimizer and early stopping.
 trainLoop :
-  (Double -> DenseOptimizer) -> Schedule ->
+  NativeOptimizer ->
   Network InputW [] OutputW Variable ->
   (totalEpochs : Nat) -> (esThreshold : Double) -> (esWindow : Nat) -> (esPatience : Nat) ->
   (batchSize : Nat) ->
   (minLen, maxLen : Nat) ->
-  DenseOptimizerState ->
   Clock Monotonic ->
-  IO (Network InputW [] OutputW Variable, DenseOptimizerState, Nat)
-trainLoop makeOpt schedule model totalEpochs esThreshold esWindow esPatience batchSize minLen maxLen st t0 =
-  go 0 model st 0.0 0 [] 0
+  IO (Network InputW [] OutputW Variable, Nat)
+trainLoop opt model totalEpochs esThreshold esWindow esPatience batchSize minLen maxLen t0 =
+  go 0 model 0.0 0 [] 0
   where
     wc : Nat
     wc = max 1 (div esWindow 100)
 
-    go : Nat -> Network InputW [] OutputW Variable -> DenseOptimizerState ->
+    go : Nat -> Network InputW [] OutputW Variable ->
          Double -> Nat -> List Double -> Nat ->
-         IO (Network InputW [] OutputW Variable, DenseOptimizerState, Nat)
-    go ep m s iSum iCount avgs convCount =
-      if ep >= totalEpochs then pure (m, s, ep)
+         IO (Network InputW [] OutputW Variable, Nat)
+    go ep m iSum iCount avgs convCount =
+      if ep >= totalEpochs then pure (m, ep)
       else do
         batch <- copyTaskBinaryBatchVect {w = W} batchSize minLen maxLen
         let dps = map (map fromDouble) batch
-            lr = schedule ep
-            opt = makeOpt lr
-            (m', s', loss) = epochTwoPhaseDenseBce opt dps m s
-        when (modNatNZ ep 10 ItIsSucc == 0) forceGC
+            (m', loss) = epochTwoPhaseBceNative opt dps m
         when (modNatNZ ep 100 ItIsSucc == 0) $ do
           now <- clockTime Monotonic
           putStrLn $ "  " ++ formatElapsed t0 now ++ " " ++ show ep ++ ":\tloss=" ++ show loss
-                   ++ "\tpeak=" ++ show (getRssMB ep) ++ "MB"
-                   ++ "\tcur=" ++ show (getCurrentRssMB ep) ++ "MB"
         if loss /= loss
           then do
             now <- clockTime Monotonic
             putStrLn $ "  " ++ formatElapsed t0 now ++ " Diverged (NaN) at epoch " ++ show ep
-            pure (m', s', ep)
+            pure (m', ep)
           else do
             let iSum' = iSum + loss
                 iCount' = iCount + 1
             if iCount' < 100
-              then go (ep + 1) m' s' iSum' iCount' avgs convCount
+              then go (ep + 1) m' iSum' iCount' avgs convCount
               else do
                 let avg = iSum' / 100.0
                     avgs' = avg :: avgs
                 if length avgs' < wc
-                  then go (ep + 1) m' s' 0.0 0 avgs' convCount
+                  then go (ep + 1) m' 0.0 0 avgs' convCount
                   else do
                     let windowAvg = foldl (+) 0.0 (take wc avgs') / cast wc
                     if windowAvg >= esThreshold
-                      then go (ep + 1) m' s' 0.0 0 avgs' 0
+                      then go (ep + 1) m' 0.0 0 avgs' 0
                       else do
                         let cc = convCount + 1
                         if cc >= esPatience
@@ -164,83 +157,13 @@ trainLoop makeOpt schedule model totalEpochs esThreshold esWindow esPatience bat
                             putStrLn $ "  " ++ formatElapsed t0 now
                                      ++ " Converged at epoch " ++ show (ep + 1)
                                      ++ " (window_avg=" ++ show windowAvg ++ ")"
-                            pure (m', s', ep + 1)
+                            pure (m', ep + 1)
                           else do
                             now <- clockTime Monotonic
                             putStrLn $ "    " ++ formatElapsed t0 now
                                      ++ " convergence " ++ show cc ++ "/" ++ show esPatience
                                      ++ " (window_avg=" ++ show windowAvg ++ ")"
-                            go (ep + 1) m' s' 0.0 0 avgs' cc
-
-
-||| Training loop with batch_size=1 (online learning) and
-||| windowed-average convergence-based early stopping.
-||| Generates 1 sequence per epoch for higher gradient noise.
-trainLoop1 :
-  (Double -> DenseOptimizer) -> Schedule ->
-  Network InputW [] OutputW Variable ->
-  (totalEpochs : Nat) -> (esThreshold : Double) -> (esWindow : Nat) -> (esPatience : Nat) ->
-  (minLen, maxLen : Nat) ->
-  DenseOptimizerState ->
-  Clock Monotonic ->
-  IO (Network InputW [] OutputW Variable, DenseOptimizerState, Nat)
-trainLoop1 makeOpt schedule model totalEpochs esThreshold esWindow esPatience minLen maxLen st t0 =
-  go 0 model st 0.0 0 [] 0
-  where
-    wc : Nat
-    wc = max 1 (div esWindow 100)
-
-    go : Nat -> Network InputW [] OutputW Variable -> DenseOptimizerState ->
-         Double -> Nat -> List Double -> Nat ->
-         IO (Network InputW [] OutputW Variable, DenseOptimizerState, Nat)
-    go ep m s iSum iCount avgs convCount =
-      if ep >= totalEpochs then pure (m, s, ep)
-      else do
-        batch <- copyTaskBinaryBatchVect {w = W} 1 minLen maxLen
-        let dps = map (map fromDouble) batch
-            lr = schedule ep
-            opt = makeOpt lr
-            (m', s', loss) = epochTwoPhaseDenseBce opt dps m s
-        when (modNatNZ ep 10 ItIsSucc == 0) forceGC
-        when (modNatNZ ep 500 ItIsSucc == 0) $ do
-          now <- clockTime Monotonic
-          putStrLn $ "  " ++ formatElapsed t0 now ++ " " ++ show ep ++ ":\tloss=" ++ show loss
-                   ++ "\tpeak=" ++ show (getRssMB ep) ++ "MB"
-                   ++ "\tcur=" ++ show (getCurrentRssMB ep) ++ "MB"
-        if loss /= loss
-          then do
-            now <- clockTime Monotonic
-            putStrLn $ "  " ++ formatElapsed t0 now ++ " Diverged (NaN) at epoch " ++ show ep
-            pure (m', s', ep)
-          else do
-            let iSum' = iSum + loss
-                iCount' = iCount + 1
-            if iCount' < 100
-              then go (ep + 1) m' s' iSum' iCount' avgs convCount
-              else do
-                let avg = iSum' / 100.0
-                    avgs' = avg :: avgs
-                if length avgs' < wc
-                  then go (ep + 1) m' s' 0.0 0 avgs' convCount
-                  else do
-                    let windowAvg = foldl (+) 0.0 (take wc avgs') / cast wc
-                    if windowAvg >= esThreshold
-                      then go (ep + 1) m' s' 0.0 0 avgs' 0
-                      else do
-                        let cc = convCount + 1
-                        if cc >= esPatience
-                          then do
-                            now <- clockTime Monotonic
-                            putStrLn $ "  " ++ formatElapsed t0 now
-                                     ++ " Converged at epoch " ++ show (ep + 1)
-                                     ++ " (window_avg=" ++ show windowAvg ++ ")"
-                            pure (m', s', ep + 1)
-                          else do
-                            now <- clockTime Monotonic
-                            putStrLn $ "    " ++ formatElapsed t0 now
-                                     ++ " convergence " ++ show cc ++ "/" ++ show esPatience
-                                     ++ " (window_avg=" ++ show windowAvg ++ ")"
-                            go (ep + 1) m' s' 0.0 0 avgs' cc
+                            go (ep + 1) m' 0.0 0 avgs' cc
 
 
 ----------------------------------------------------------------------
@@ -322,26 +245,19 @@ main = do
   putStrLn ""
 
   -- Training
-  let numPids = getNumPids 0
-  let makeOpt = \lr => rmspropValueClipMomentumDense lr cfg.alpha cfg.eps cfg.clipVal cfg.momentum
-  let schedule = constant cfg.lr
-  let st0 = initDenseState numPids
+  let opt = nativeRmsprop cfg.lr cfg.alpha cfg.eps cfg.clipVal cfg.momentum
   putStrLn $ "Training (batch=" ++ show cfg.batch ++ ")..."
   t0 <- clockTime Monotonic
-  (trained, finalSt, epochsDone) <-
-    if cfg.batch == 1
-      then trainLoop1 makeOpt schedule model
-             cfg.epochs cfg.esThreshold cfg.esWindow cfg.esPatience
-             cfg.minLen cfg.maxLen st0 t0
-      else trainLoop makeOpt schedule model
-             cfg.epochs cfg.esThreshold cfg.esWindow cfg.esPatience
-             cfg.batch cfg.minLen cfg.maxLen st0 t0
+  (trained, epochsDone) <-
+    trainLoop opt model
+      cfg.epochs cfg.esThreshold cfg.esWindow cfg.esPatience
+      cfg.batch cfg.minLen cfg.maxLen t0
 
   putStrLn $ "Training complete: " ++ show epochsDone ++ " epochs"
   putStrLn ""
 
-  -- Evaluation (sync C buffer values back to Variable records for toDoubleNetwork)
-  let dblModel = toDoubleNetwork (readFromBuffersNetwork trained)
+  -- Evaluation: refresh Variable values from tensors (optimizer mutates in-place)
+  let dblModel = toDoubleNetwork (emap refreshValue trained)
 
   let evalOne : TwoPhaseDataPoint InputW OutputW Double -> Double
       evalOne dp =

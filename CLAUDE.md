@@ -10,8 +10,8 @@ Deep learning library in Idris 2 with compile-time tensor shape checking and aut
 ## Build Commands
 
 ```bash
-# Build C shared library (required before running examples)
-make build/libidrisml.dylib
+# Build libtorch backend (required before running examples)
+make backend
 
 # Type-check all library modules
 idris2 --build idris-ml.ipkg
@@ -24,12 +24,11 @@ idris2 --source-dir src -p contrib -o <name> src/Example/<Name>.idr && ./build/e
 
 # Tests
 make test            # Idris unit tests
-make test-c          # C library tests
+make test-backend    # C backend tests
 
 # Benchmarks
 make bench           # Idris benchmark (Supervised + RNN + NTM)
 make bench-compare   # Side-by-side Idris vs PyTorch
-make profile         # Per-sub-phase timing + tape histogram
 
 # PyTorch reference (requires uv)
 make ref-setup       # One-time: install Python deps
@@ -54,7 +53,7 @@ bash scripts/sweep.sh --task copy --parallel 4 --quick  # 2000 epochs for screen
 4. **Tensor** - Shape-indexed tensor: `Tensor : Vect rank Nat -> Type -> Type`
 5. **Math** - Loss functions, activations, linear algebra
 6. **Memory** - NTM read/write head operations
-7. **Variable** - Tape-based autograd (Wengert list) with hybrid Scheme/C storage and C backward pass
+7. **Variable** - Autograd variables wrapping libtorch tensors. `NativeOptimizer` for training
 8. **DataPoint** - `DataPoint`, `RecurrentDataPoint`, and `TwoPhaseDataPoint` records
 8b. **Generate** - Random data generation: `copyTaskBinary`/`recallTaskBinary`, `randomBatchVect`
 9. **Endofunctor** - `emap : (ty -> ty) -> e ty -> e ty` for type-preserving maps
@@ -62,9 +61,9 @@ bash scripts/sweep.sh --task copy --parallel 4 --quick  # 2000 epochs for screen
     - **Layer.Core** - `LayerLike` interface, `AnyLayer` existential, `Network` type, network-level ops
     - **Layer.Linear**, **Layer.Rnn**, **Layer.Lstm**, **Layer.Activation**, **Layer.Normalization** - per-layer `LayerLike` instances
     - **Layer.Ntm** - `NtmState` + NTM head ops (imports Lstm and Linear for sub-layers)
-11. **Optimizer** - SGD, Adam, and RMSprop with per-parameter, global norm, or value gradient clipping
+11. **Optimizer** - SGD, Adam, RMSprop (Idris-side), plus `NativeOptimizer` (libtorch torch::optim)
 12. **Schedule** - Learning rate schedules: `constant`, `cosineAnnealing`, `oneCycle`
-13. **Backprop** - Training loop: `epoch`, `epochRecurrent`, `epochTwoPhaseDenseBce`, and `train*` variants
+13. **Backprop** - Training loop: `epoch`, `epochRecurrent`, `epochTwoPhaseBceNative`, and `train*` variants
 14. **Curriculum** - Multi-stage curriculum training: `Stage` record, `runCurriculum`
 15. **Debug** - Forward-pass diagnostics: `debugForward`, `debugForwardRecurrent`, `toDoubleNetwork`
 
@@ -80,11 +79,10 @@ Scalar = Tensor []
 Vector elems = Tensor [elems]
 Matrix rows columns = Tensor [rows, columns]
 
--- Variable.idr (tape-based autograd)
+-- Variable.idr (libtorch autograd)
 record Variable where
   constructor Var
-  tapeIdx : Nat           -- index into global tape (Wengert list)
-  tapeGen : Nat           -- tape generation (staleness detection)
+  tensorPtr : AnyPtr      -- libtorch tensor (carries autograd graph)
   paramId : Maybe String  -- parameter name (Nothing = intermediate)
   value : Double          -- cached forward result
 ```
@@ -113,16 +111,16 @@ let (updatedModel, output) = forward model input
 ### Training cycle
 
 ```idris
--- Basic: forward -> backward (tape reset) -> optimizer -> apply deltas
+-- Idris-side optimizer: forward -> backward -> collect grads -> apply deltas
 epoch opt dataPoints lossFn model st =
   let loss = calculateLoss lossFn model dataPoints
       grads = collectGrads 1.0 loss
       (deltas, st') = opt.step grads st
   in (emap (applyDeltas deltas) model, st', loss)
 
--- NTM production: dense optimizer with C-backed BCE
-let opt = rmspropValueClipMomentumDense 0.0001 0.95 1.0e-8 10.0 0.9
-let (m', s', loss) = epochTwoPhaseDenseBce opt dataPoints model st0
+-- Native optimizer (preferred): single libtorch step, no per-scalar overhead
+let opt = nativeRmsprop 0.0001 0.95 1.0e-8 10.0 0.9
+let (m', loss) = epochTwoPhaseBceNative opt dataPoints model
 ```
 
 ### Training modes
@@ -165,7 +163,7 @@ Commit at each step. PyTorch is the correctness oracle.
 
 ### Performance optimization
 
-- **Profile first**: `make profile` — sub-phase timing + tape histogram. Keep `Profile.idr` in sync with production config
+- **Profile first**: `make profile` — per-epoch timing
 - **Benchmark**: `make bench-compare` — always compare at same batch size (current: 16)
 - **Sweep**: `bash scripts/sweep.sh` — systematic grid search, never manually loop
 - **Convergence**: `make ref-convergence-copy` vs `./build/exec/ntm-copy` at matched settings
@@ -199,25 +197,25 @@ See [`docs/gotchas.md`](docs/gotchas.md) for detailed explanations of each entry
 - **`prim__seq` ordering**: use `prim__seq a b` to force evaluation order when no data dependency exists
 - **`foreign-set! 'void*` corruption**: do NOT store C pointers via `foreign-set! 'void*` — corrupts memory. Use C helpers
 - **Chez output buffering**: stdout fully buffered when piped. Use `stdbuf -oL ./build/exec/<name>`
-- **C shared library required**: build `libidrisml.dylib` first. Manual builds need `cp build/libidrisml.dylib build/exec/<name>_app/`
+- **libtorch backend required**: `make backend` builds `libidrisml_torch.dylib`. Manual builds need `cp build/libidrisml_torch.dylib build/exec/<name>_app/`
+- **Scheme-side allocation reordering**: `foreign-alloc`/`foreign-set!` can be reordered by Chez — use C-side allocation (`tensor_alloc_doubles`/`tensor_write_double`) instead
+- **`prim__seq` must use concrete types**: polymorphic `a -> b -> b` causes Chez arg count mismatch. Use `AnyPtr -> AnyPtr -> AnyPtr`
 
 ### Training & numerics
 
 - **`paramId` / autoName**: variables without paramId are invisible to gradients. Always `autoName` before training
-- **Tape generation staleness**: after `collectGrads` (tape reset, gen++), old Variables are stale. `ensureOnTape` handles this transparently
+- **`setParamId` enables requires_grad**: Variables from `fromDouble` have `requires_grad=false`. `nameParam`/`setParamId` must upgrade them
 - **`logSoftmax` + `nllLoss`**: separate softmax+CE creates 1/pp intermediates (up to 1e6). Use `logSoftmaxLayer` + `nllLoss`
-- **`pow` zero-base NaN**: `pow(0, k)` backward = `0^k * log(0) = NaN`. Fixed: return 0 when base is 0
-- **Detached max in `logSoftmax`**: max subtraction uses detached constant to avoid corrupting max element's gradient
-- **Gradient clipping**: `adamGlobalClip` for recurrent models (preserves direction). Per-param clipping distorts direction
-- **Periodic GC**: NTM 50K+ epochs OOMs without `forceGC` every 10 epochs. Uses `heap-reserve-ratio 1.0`
-- **RSS tracking**: `getRssMB` (peak, monotonic) and `getCurrentRssMB` (current, macOS only). Both take dummy args to prevent CSE
+- **Gradient clipping**: use `NormClip` for recurrent models (preserves direction). `ValueClip` per-param
+- **Native optimizer**: preferred for training — `nativeRmsprop`/`nativeSgd`/`nativeAdamGlobalClip`. Single `optimizer.step()` updates all params
+- **Stale Variable.value**: after native optimizer step, cached `value` fields are stale. Use `emap refreshValue` before `toDoubleNetwork`
 
 ### NTM-specific
 
 - **Dimension calculations**: `ReadParamWidth m = m + ShiftKernelSize + 3`, `WriteParamWidth m = ReadParamWidth m + m`. LSTM input: `m + inputSize`, output FC input: `h + m`
 - **Head parameters**: β=softplus, g=sigmoid, γ=1+softplus (unbounded). Add vectors are raw linear. See Memory.idr
 - **State flow**: previous read output + current input → LSTM. Cell state → head FCs. Hidden + read output → output FC
-- **Two-phase training**: `epochTwoPhaseDenseBce` — encode with outputs discarded, decode with loss on targets. No output activation layer (C-backed fused sigmoid+BCE)
+- **Two-phase training**: `epochTwoPhaseBceNative` — encode with outputs discarded, decode with loss on targets. No output activation layer (fused sigmoid+BCE via libtorch)
 - **Batch size**: copy and recall use batch=1 (seed-sensitive). Larger batches dilute per-sequence addressing signal
 - **No tanh memory bounding**: raw interpolation write matches PyTorch reference. Tanh was for erase+add, causes cumulative degradation with interpolation
 - **Initial addressing**: weights initialized to zeros (projected to simplex), read output to Kaiming uniform. Non-learnable, reset per sequence
@@ -226,7 +224,6 @@ See [`docs/gotchas.md`](docs/gotchas.md) for detailed explanations of each entry
 ### Architecture & infrastructure
 
 - **Interface-based layer system**: `LayerLike` + `AnyLayer` existential. Explicit `{i, o : Nat}` needed on all methods (QTT erases Nat params). Adding a layer = one file, zero edits elsewhere
-- **Dense optimizer**: NTM uses C-array optimizer (`epochTwoPhaseDenseBce`). Call `getNumPids 0` after `autoName`. Call `readFromBuffersNetwork` before `toDoubleNetwork` (C buffers don't update Variable.value)
-- **Persistent NtmMemBuf**: memory matrix in C struct across timesteps. Reset per sequence via `resetNtmMemBufs`. `initial_vals` snapshotted after optimizer deltas
-- **Test suite**: `make test` (Idris), `make test-c` (C). Tests in `test/src/Test/*.idr`, `Harness.idr` for assertions
+- **libtorch backend**: `csrc/backend.h` (abstract C API) + `csrc/backend_torch.cpp` (libtorch implementation). ~50 tensor ops, parameter registry, native optimizers. Autograd delegated entirely to libtorch
+- **Test suite**: `make test` (Idris), `make test-backend` (C backend). Tests in `test/src/Test/*.idr`, `Harness.idr` for assertions
 - **Curriculum learning**: available via `Curriculum` module. Not needed for LSTM-controller NTMs — converges directly with two-phase training

@@ -84,7 +84,11 @@ record NtmState (n : Nat) (m : Nat) (h : Nat) (inputSize : Nat) (outputSize : Na
   readAddr : Vector n ty
   writeAddr : Vector n ty
   readOutput : Vector m ty
-  memBuf : Maybe AnyPtr
+  -- Consolidated tensors (Just after nameLayer)
+  memTensor : Maybe AnyPtr      -- [n, m]
+  readAddrTensor : Maybe AnyPtr -- [n]
+  writeAddrTensor : Maybe AnyPtr -- [n]
+  readOutTensor : Maybe AnyPtr  -- [m]
 
 
 ----------------------------------------------------------------------
@@ -127,43 +131,6 @@ forwardWriteHeadInterpVar memory (MkWriteHead readHead) inp =
       newMemoryMatrix = interpolationWriteVar newWriteHead.readHead.addressingWeights memory addVector
   in (newWriteHead, newMemoryMatrix)
 
-||| Buffer-aware read head: uses NtmMemBuf for memory.
-forwardReadHeadUnboundedVarBuf : {n, w : Nat} ->
-    AnyPtr -> ReadHead n Variable ->
-    Vector ((w + ShiftKernelSize) + 3) Variable ->
-    (ReadHead n Variable, Vector w Variable)
-forwardReadHeadUnboundedVarBuf memBufPtr rh inp =
-  let (mainInput, params) = splitAt (w + ShiftKernelSize) inp
-      (keyVector, shiftVector) = splitAt w mainInput
-      (betaVec, params') = splitAt 1 params
-      (gVec, gammaVec) = splitAt 1 params'
-      beta = softplus (sum betaVec)
-      g = sigmoidVar (sum gVec)
-      gamma = 1 + softplus (sum gammaVec)
-      scoresBuf = batchCosineSimilarityVarBufBufOut {n} beta memBufPtr keyVector
-      contentBuf = softmaxVarBufIO {n} scoresBuf
-      interpBuf = interpolateVarBufIO {n} g contentBuf rh.addressingWeights
-      shiftKBuf = softmaxVarBufOut shiftVector
-      shiftedBuf = shiftVarBufIO {n} interpBuf shiftKBuf
-      focused = focusVarFromBuf {n} gamma shiftedBuf
-      newReadHead = { addressingWeights := focused } rh
-      output = readOpVarBuf newReadHead.addressingWeights memBufPtr
-  in (newReadHead, output)
-
-||| Buffer-aware write head: uses NtmMemBuf, returns (head, updated buffer).
-forwardWriteHeadInterpVarBuf : {n, w : Nat} ->
-    AnyPtr -> WriteHead n Variable ->
-    Vector (((w + ShiftKernelSize) + 3) + w) Variable ->
-    (WriteHead n Variable, AnyPtr)
-forwardWriteHeadInterpVarBuf memBufPtr (MkWriteHead readHead) inp =
-  let (readHeadInput, rawAdd) = Tensor.splitAt ((w + ShiftKernelSize) + 3) inp
-      addVector = rawAdd
-      (newReadHead, _) = forwardReadHeadUnboundedVarBuf memBufPtr readHead readHeadInput
-      newWriteHead = MkWriteHead newReadHead
-      mb' = interpolationWriteVarBuf newWriteHead.readHead.addressingWeights memBufPtr addVector
-  in (newWriteHead, mb')
-
-
 ----------------------------------------------------------------------
 -- Debug Helpers
 ----------------------------------------------------------------------
@@ -192,7 +159,7 @@ showMatD (VTensor rows) = "[" ++ go rows ++ "]"
 export
 {n, m, h : Nat} -> LayerLike (NtmState n m h) where
   -- Generic forward pass (Double-based)
-  applyGeneric (MkNtm lstm readFc writeFc outputFc memory readAddr writeAddr readOutput mb) inp =
+  applyGeneric (MkNtm lstm readFc writeFc outputFc memory readAddr writeAddr readOutput _ _ _ _) inp =
     let -- 1. Controller: LSTM(readOutput ++ input)
         (updLstm, hidden) = applyGeneric lstm (readOutput ++ inp)
         -- 2. Cell state for head FCs
@@ -213,42 +180,69 @@ export
         -- 6. Output FC(hidden ++ readOutput)
         output = snd (applyGeneric outputFc (hidden ++ newReadOutput))
     in (MkNtm updLstm readFc writeFc outputFc
-             newMemory newReadAddr' newWriteAddr' newReadOutput mb, output)
+             newMemory newReadAddr' newWriteAddr' newReadOutput
+             Nothing Nothing Nothing Nothing, output)
 
-  -- Buffer-aware NTM forward pass (persistent memory buffer)
-  applyVar (MkNtm lstm readFc writeFc outputFc memory readAddr writeAddr readOutput (Just memBufPtr)) inp =
-    case applyLstmGetBuf lstm (readOutput ++ inp) of
-      (updLstm, hidden, lstmBufInfo) =>
+  -- Variable-based NTM forward pass: tensor-level path when consolidated tensors available
+  applyVar (MkNtm lstm readFc writeFc outputFc memory readAddr writeAddr readOutput (Just memT) (Just raT) (Just waT) (Just roT)) inp =
+    case applyVar lstm (readOutput ++ inp) of
+      (updLstm, hidden) =>
         let cell = extractCellState updLstm
-            -- Read FC: prefer buffer-passing from LSTM cell output
-            readParams = case (lstmBufInfo, getLinearBufs readFc) of
-              (Just (buf, ccs), (Just wb, Just bb)) =>
-                matrixVectorMultiplyVarBufBiasFromBuf {m=ReadParamWidth m, n=h} wb bb buf 0 ccs
-              _ => snd (applyVar readFc cell)
-            -- Write FC: prefer buffer-passing from LSTM cell output
-            writeParams = case (lstmBufInfo, getLinearBufs writeFc) of
-              (Just (buf, ccs), (Just wb, Just bb)) =>
-                matrixVectorMultiplyVarBufBiasFromBuf {m=WriteParamWidth m, n=h} wb bb buf 0 ccs
-              _ => snd (applyVar writeFc cell)
-            rh = MkReadHead readAddr
-        in case forwardReadHeadUnboundedVarBuf memBufPtr rh readParams of
-          (readHead, newReadOutput) =>
-            let newReadAddr' = readHead.addressingWeights
-                wh = MkWriteHead (MkReadHead writeAddr)
-            in case forwardWriteHeadInterpVarBuf memBufPtr wh writeParams of
-              (writeHead, mb') =>
-                let newWriteAddr' = writeHead.readHead.addressingWeights
-                    -- Output FC: prefer hybrid buffer+vec from LSTM hidden + readOutput
-                    output = case (lstmBufInfo, getLinearBufs outputFc) of
-                      (Just (buf, ccs), (Just wb, Just bb)) =>
-                        matrixVectorMultiplyVarBufBiasFromBufAndVec {m=o, n1=h, n2=m}
-                          wb bb buf (cast h) (ccs + cast h) newReadOutput
-                      _ => snd (applyVar outputFc (hidden ++ newReadOutput))
+        in case applyVar readFc cell of
+          (_, readParams) =>
+            case applyVar writeFc cell of
+              (_, writeParams) =>
+                -- Parse read head params (scalar Variables from FC output)
+                let (mainInput, params) = splitAt (m + ShiftKernelSize) readParams
+                    (keyVector, shiftVector) = splitAt m mainInput
+                    (betaVec, params') = splitAt 1 params
+                    (gVec, gammaVec) = splitAt 1 params'
+                    beta = softplus (sum betaVec)
+                    g = sigmoidVar (sum gVec)
+                    gamma = 1 + softplus (sum gammaVec)
+                    shiftKernel = softmaxVar shiftVector
+                    -- Stack key and shift kernel (small: m and 3 elements)
+                    (VTensor keyElems) = keyVector
+                    keyT = vecStackTensor keyElems
+                    (VTensor shiftElems) = shiftKernel
+                    shiftT = vecStackTensor shiftElems
+                    -- Fused read head: 1 C call for entire addressing pipeline
+                    readPair = prim__ntmReadHead memT raT keyT beta.tensorPtr g.tensorPtr gamma.tensorPtr shiftT
+                    newReadAddrT = prim__pairFirst readPair
+                    newReadOutT = prim__pairSecond readPair
+                    -- Parse write head params
+                    (wReadHeadInput, rawAdd) = Tensor.splitAt ((m + ShiftKernelSize) + 3) writeParams
+                    (wMainInput, wParams) = splitAt (m + ShiftKernelSize) wReadHeadInput
+                    (wKeyVector, wShiftVector) = splitAt m wMainInput
+                    (wBetaVec, wParams') = splitAt 1 wParams
+                    (wGVec, wGammaVec) = splitAt 1 wParams'
+                    wBeta = softplus (sum wBetaVec)
+                    wG = sigmoidVar (sum wGVec)
+                    wGamma = 1 + softplus (sum wGammaVec)
+                    wShiftKernel = softmaxVar wShiftVector
+                    (VTensor wKeyElems) = wKeyVector
+                    wKeyT = vecStackTensor wKeyElems
+                    (VTensor wShiftElems) = wShiftKernel
+                    wShiftT = vecStackTensor wShiftElems
+                    -- Fused write head addressing
+                    writePair = prim__ntmReadHead memT waT wKeyT wBeta.tensorPtr wG.tensorPtr wGamma.tensorPtr wShiftT
+                    newWriteAddrT = prim__pairFirst writePair
+                    -- Interpolation write: memory' = memory + outer(writeAddr, addVector)
+                    (VTensor addElems) = rawAdd
+                    addT = vecStackTensor addElems
+                    newMemT = prim__ntmInterpWrite memT newWriteAddrT addT
+                    -- Output FC: hidden ++ readOutput
+                    newReadOutput = VTensor (tensorToScalars newReadOutT 0 m)
+                    output = snd (applyVar outputFc (hidden ++ newReadOutput))
+                    -- Unpack addressing weights for the Variable-level state
+                    newReadAddr = VTensor (tensorToScalars newReadAddrT 0 n)
+                    newWriteAddr = VTensor (tensorToScalars newWriteAddrT 0 n)
                 in (MkNtm updLstm readFc writeFc outputFc
-                         memory newReadAddr' newWriteAddr' newReadOutput (Just mb'), output)
+                         memory newReadAddr newWriteAddr newReadOutput
+                         (Just newMemT) (Just newReadAddrT) (Just newWriteAddrT) (Just newReadOutT), output)
 
-  -- Variable-based NTM forward pass (no buffer)
-  applyVar (MkNtm lstm readFc writeFc outputFc memory readAddr writeAddr readOutput Nothing) inp =
+  -- Variable-based NTM forward pass: fallback scalar path (no consolidated tensors)
+  applyVar (MkNtm lstm readFc writeFc outputFc memory readAddr writeAddr readOutput _ _ _ _) inp =
     case applyVar lstm (readOutput ++ inp) of
       (updLstm, hidden) =>
         let cell = extractCellState updLstm
@@ -266,42 +260,57 @@ export
                             newWriteAddr' = writeHead.readHead.addressingWeights
                             output = snd (applyVar outputFc (hidden ++ newReadOutput))
                         in (MkNtm updLstm readFc writeFc outputFc
-                                 newMemory newReadAddr' newWriteAddr' newReadOutput Nothing, output)
+                                 newMemory newReadAddr' newWriteAddr' newReadOutput
+                                 Nothing Nothing Nothing Nothing, output)
 
-  emapLayer f (MkNtm lstm rfc wfc ofc mem ra wa ro mb) =
+  emapLayer f (MkNtm lstm rfc wfc ofc mem ra wa ro _ _ _ _) =
     MkNtm (emapLayer f lstm) (emapLayer f rfc) (emapLayer f wfc) (emapLayer f ofc)
-           (map f mem) (map f ra) (map f wa) (map f ro) mb
+           (map f mem) (map f ra) (map f wa) (map f ro)
+           Nothing Nothing Nothing Nothing
 
   showLayer {i} {o} _ =
     "Ntm<" ++ show i ++ ":" ++ show o
     ++ ", mem=" ++ show n ++ "x" ++ show m ++ ", h=" ++ show h ++ ">"
 
-  nameLayer prefx (MkNtm lstm readFc writeFc outputFc memory readAddr writeAddr readOutput _) =
-    let np = nameParam . (prefx ++ "_" ++)
-        namedMemory = zipWith (np "mem") enumerate memory
-        namedReadAddr = zipWith (np "rAddr") enumerate readAddr
-        namedWriteAddr = zipWith (np "wAddr") enumerate writeAddr
-        namedReadOut = zipWith (np "rOut") enumerate readOutput
-        -- Sub-layers: auto-name with scoped prefixes (always counter 0)
+  nameLayer prefx (MkNtm lstm readFc writeFc outputFc (VTensor memRows) (VTensor raElems) (VTensor waElems) (VTensor roElems) _ _ _ _) =
+    let -- Sub-layers: auto-name with scoped prefixes (always counter 0)
         namedLstm = nameLayer (prefx ++ "_lstm0") lstm
         namedReadFc = nameLayer (prefx ++ "_readFc_ll0") readFc
         namedWriteFc = nameLayer (prefx ++ "_writeFc_ll0") writeFc
         namedOutputFc = nameLayer (prefx ++ "_outputFc_ll0") outputFc
-        -- Allocate NtmMemBuf
-        (VTensor memRows) = namedMemory
-        mb = prim__ntmMemBufAlloc (cast n) (cast m)
-        mb' = prim__ntmMemBufSnapshotInitial (initNtmMemBuf mb 0 memRows)
+        -- Create consolidated tensors for NTM state
+        nI = cast {to=Int} n
+        mI = cast {to=Int} m
+        memBuf = prim__allocDoubles (nI * mI)
+        memBuf' = packMatrixValues memBuf 0 {n=m} memRows
+        memT = prim__paramRegister (prefx ++ "_memory") (prim__createParam2d nI mI memBuf')
+        raBuf = prim__allocDoubles nI
+        raBuf' = packScalarValues raBuf 0 raElems
+        raT = prim__paramRegister (prefx ++ "_readAddr") (prim__createParam1d nI raBuf')
+        waBuf = prim__allocDoubles nI
+        waBuf' = packScalarValues waBuf 0 waElems
+        waT = prim__paramRegister (prefx ++ "_writeAddr") (prim__createParam1d nI waBuf')
+        roBuf = prim__allocDoubles mI
+        roBuf' = packScalarValues roBuf 0 roElems
+        roT = prim__paramRegister (prefx ++ "_readOutput") (prim__createParam1d mI roBuf')
+        -- Build view Variables from consolidated tensors
+        viewMem = buildViewMatrix (prefx ++ "_mem") memT 0 0 n m
+        viewRA = buildViewVector (prefx ++ "_rAddr") raT 0 n
+        viewWA = buildViewVector (prefx ++ "_wAddr") waT 0 n
+        viewRO = buildViewVector (prefx ++ "_rOut") roT 0 m
     in MkNtm namedLstm namedReadFc namedWriteFc namedOutputFc
-             namedMemory namedReadAddr namedWriteAddr namedReadOut (Just mb')
+             (VTensor viewMem) (VTensor viewRA) (VTensor viewWA) (VTensor viewRO)
+             (Just memT) (Just raT) (Just waT) (Just roT)
 
   layerPrefix _ = "ntm"
 
-  toDoubleLayer (MkNtm lstm rfc wfc ofc mem ra wa ro _) =
+  toDoubleLayer (MkNtm lstm rfc wfc ofc mem ra wa ro _ _ _ _) =
     MkNtm (toDoubleLayer lstm) (toDoubleLayer rfc) (toDoubleLayer wfc) (toDoubleLayer ofc)
-           (map value mem) (map value ra) (map value wa) (map value ro) Nothing
+           (map value mem) (map value ra) (map value wa) (map value ro)
+           Nothing Nothing Nothing Nothing
 
-  debugApply {i} {o} (MkNtm lstm readFc writeFc outputFc memory readAddr writeAddr readOutput mb) inp =
-    let st = MkNtm lstm readFc writeFc outputFc memory readAddr writeAddr readOutput mb
+  debugApply {i} {o} (MkNtm lstm readFc writeFc outputFc memory readAddr writeAddr readOutput mt rat wat rot) inp =
+    let st = MkNtm lstm readFc writeFc outputFc memory readAddr writeAddr readOutput mt rat wat rot
         (updated, output) = applyGeneric st inp
         entry = MkDebugEntry ("Ntm<" ++ show i ++ ":" ++ show o
                 ++ ", mem=" ++ show n ++ "x" ++ show m ++ ">")
@@ -312,38 +321,24 @@ export
           ]
     in (updated, output, entry)
 
-  syncBuffers (MkNtm lstm readFc writeFc outputFc (VTensor memRows) ra wa ro (Just mb)) =
-    let mb' = prim__ntmMemBufResetCache (syncNtmMemBuf mb 0 memRows)
-    in MkNtm (syncBuffers lstm) (syncBuffers readFc) (syncBuffers writeFc) (syncBuffers outputFc)
-             (VTensor memRows) (projectWeights ra) (projectWeights wa) ro (Just mb')
-  syncBuffers (MkNtm lstm readFc writeFc outputFc mem ra wa ro Nothing) =
+  syncBuffers (MkNtm lstm readFc writeFc outputFc mem ra wa ro mt rat wat rot) =
     MkNtm (syncBuffers lstm) (syncBuffers readFc) (syncBuffers writeFc) (syncBuffers outputFc)
-           mem (projectWeights ra) (projectWeights wa) ro Nothing
+           mem (projectWeights ra) (projectWeights wa) ro
+           mt rat wat rot
 
-  applyDeltasAndSync deltas (MkNtm lstm readFc writeFc outputFc mem ra wa ro (Just mb)) =
-    let mb' = prim__ntmMemBufApplyDeltas mb deltas
-    in MkNtm (applyDeltasAndSync deltas lstm) (applyDeltasAndSync deltas readFc)
-             (applyDeltasAndSync deltas writeFc) (applyDeltasAndSync deltas outputFc)
-             mem (projectWeights ra) (projectWeights wa) ro (Just mb')
-  applyDeltasAndSync deltas (MkNtm lstm readFc writeFc outputFc mem ra wa ro Nothing) =
+  applyDeltasAndSync deltas (MkNtm lstm readFc writeFc outputFc mem ra wa ro mt rat wat rot) =
     MkNtm (applyDeltasAndSync deltas lstm) (applyDeltasAndSync deltas readFc)
            (applyDeltasAndSync deltas writeFc) (applyDeltasAndSync deltas outputFc)
-           mem (projectWeights ra) (projectWeights wa) ro Nothing
+           mem (projectWeights ra) (projectWeights wa) ro
+           mt rat wat rot
 
-  readFromBuffers (MkNtm lstm readFc writeFc outputFc (VTensor memRows) ra wa ro (Just mb)) =
+  readFromBuffers (MkNtm lstm readFc writeFc outputFc mem ra wa ro mt rat wat rot) =
     MkNtm (readFromBuffers lstm) (readFromBuffers readFc)
            (readFromBuffers writeFc) (readFromBuffers outputFc)
-           (VTensor (readNtmMemBuf mb 0 memRows)) ra wa ro (Just mb)
-  readFromBuffers (MkNtm lstm readFc writeFc outputFc mem ra wa ro Nothing) =
-    MkNtm (readFromBuffers lstm) (readFromBuffers readFc)
-           (readFromBuffers writeFc) (readFromBuffers outputFc)
-           mem ra wa ro Nothing
+           mem ra wa ro
+           mt rat wat rot
 
-  resetState (MkNtm lstm readFc writeFc outputFc mem ra wa ro (Just mb)) =
-    MkNtm lstm readFc writeFc outputFc mem ra wa ro (Just (prim__ntmMemBufReset mb))
-  resetState st = st
-
-  getParamIds (MkNtm lstm readFc writeFc outputFc mem ra wa ro _) =
+  getParamIds (MkNtm lstm readFc writeFc outputFc mem ra wa ro _ _ _ _) =
     getParamIds lstm ++ getParamIds readFc ++ getParamIds writeFc ++ getParamIds outputFc
       ++ tensorIds mem ++ tensorIds ra ++ tensorIds wa ++ tensorIds ro
     where
@@ -371,4 +366,4 @@ ntmLayer = do
   let readAddr = the (Vector n ty) zeros
   let writeAddr = the (Vector n ty) zeros
   readOut <- traverse (\_ => map fromDouble (he uniform m 1)) (the (Vector m ty) zeros)
-  pure $ MkAnyLayer (NtmState n m h) $ MkNtm lstm readFc writeFc outputFc memInit readAddr writeAddr readOut Nothing
+  pure $ MkAnyLayer (NtmState n m h) $ MkNtm lstm readFc writeFc outputFc memInit readAddr writeAddr readOut Nothing Nothing Nothing Nothing
