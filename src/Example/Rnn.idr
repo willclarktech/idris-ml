@@ -7,12 +7,14 @@ import System.Random
 
 import Backprop
 import DataPoint
+import Endofunctor
 import Floating
 import Layer
 import Math
 import Optimizer
 import Tensor
 import Util
+import Variable
 import Variable
 
 
@@ -59,9 +61,12 @@ main = do
   putStr "Predictions: "
   printLn $ predictions
 
-  let trained = trainRecurrent (sgd lr (1.0/0.0)) model dataPoints lossFn epochs
-  let predictions' = decodeOutput $ evaluateRecurrent trained dataPoints
-  let loss' = calculateLossRecurrent lossFn trained dataPoints
+  let opt = nativeSgd lr
+  let trained = foldl (\m, _ => fst (epochRecurrentNative opt dataPoints lossFn m)) model [1 .. epochs]
+  let dblModel = toDoubleNetwork (emap refreshValue trained)
+  let dblData = rawData 8
+  let predictions' = decodeOutput $ evaluateRecurrent dblModel dblData
+  let loss' = calculateLossRecurrent lossFn dblModel dblData
 
   putStr "Post loss: "
   printLn $ value loss'

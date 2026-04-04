@@ -452,6 +452,37 @@ TensorHandle tensor_cat_from_array(TensorHandle* arr, int count, int dim) {
     return from_tensor(torch::cat(vec, dim));
 }
 
+/* ---------- Tensor-level parameter creation ---------- */
+
+TensorHandle tensor_create_param_2d(int rows, int cols, double* data) {
+    auto t = torch::from_blob(data, {(int64_t)rows, (int64_t)cols}, torch::kFloat64).clone();
+    t.requires_grad_(true);
+    return from_tensor(std::move(t));
+}
+
+TensorHandle tensor_create_param_1d(int n, double* data) {
+    auto t = torch::from_blob(data, {(int64_t)n}, torch::kFloat64).clone();
+    t.requires_grad_(true);
+    return from_tensor(std::move(t));
+}
+
+TensorHandle tensor_view_2d(TensorHandle h, int row, int col) {
+    /* Returns a 0-dim view that shares storage with the parent tensor */
+    return from_tensor(to_tensor(h)->select(0, row).select(0, col));
+}
+
+TensorHandle tensor_view_1d(TensorHandle h, int idx) {
+    return from_tensor(to_tensor(h)->select(0, idx));
+}
+
+double tensor_item_2d(TensorHandle h, int row, int col) {
+    return to_tensor(h)->index({row, col}).item<double>();
+}
+
+double tensor_item_1d(TensorHandle h, int idx) {
+    return (*to_tensor(h))[idx].item<double>();
+}
+
 /* ---------- Native Optimizer ---------- */
 
 /* Helper: collect all param_registry tensors into a vector */

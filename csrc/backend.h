@@ -144,6 +144,21 @@ void           tensor_ptr_array_set(TensorHandle* arr, int idx, TensorHandle t);
 TensorHandle   tensor_stack_from_array(TensorHandle* arr, int count, int dim);
 TensorHandle   tensor_cat_from_array(TensorHandle* arr, int count, int dim);
 
+/* ---------- Tensor-level parameter creation ---------- */
+
+/* Create a [rows, cols] tensor filled with given data, requires_grad=true */
+TensorHandle tensor_create_param_2d(int rows, int cols, double* data);
+/* Create a [n] tensor filled with given data, requires_grad=true */
+TensorHandle tensor_create_param_1d(int n, double* data);
+/* Get a scalar view into element [row, col] of a 2D tensor (shares storage) */
+TensorHandle tensor_view_2d(TensorHandle mat, int row, int col);
+/* Get a scalar view into element [idx] of a 1D tensor (shares storage) */
+TensorHandle tensor_view_1d(TensorHandle vec, int idx);
+/* Read item from a 2D tensor at [row, col] without creating a new tensor */
+double tensor_item_2d(TensorHandle mat, int row, int col);
+/* Read item from a 1D tensor at [idx] */
+double tensor_item_1d(TensorHandle vec, int idx);
+
 /* ---------- Native Optimizer ---------- */
 
 typedef void* OptimizerHandle;

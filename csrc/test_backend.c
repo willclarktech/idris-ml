@@ -183,6 +183,36 @@ int main(void) {
     tensor_free(opt_w);
     param_clear();
 
+    /* --- Tensor view: scalar views share storage with parent --- */
+    param_clear();
+    double wdata[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
+    int wshape[] = {2, 3};
+    TensorHandle wmat = tensor_create(wdata, wshape, 2, 1);
+    param_register("wmat", wmat);
+
+    /* Select element [0,1] as a scalar view */
+    TensorHandle row0 = tensor_select(wmat, 0, 0);
+    TensorHandle elem01 = tensor_select(row0, 0, 1);
+    ASSERT_NEAR("view elem[0,1]", tensor_item(elem01), 2.0, 1e-10);
+
+    /* Modify parent via optimizer, check view sees change */
+    OptimizerHandle sgd2 = optimizer_create_sgd(1.0); /* lr=1.0 for easy math */
+    /* loss = sum(wmat) so grad = ones */
+    TensorHandle wsum = tensor_sum(wmat);
+    optimizer_zero_grad(sgd2);
+    tensor_backward(wsum);
+    optimizer_step(sgd2);
+    /* After step: wmat[0,1] should be 2.0 - 1.0*1.0 = 1.0 */
+    ASSERT_NEAR("parent updated", tensor_item(tensor_select(tensor_select(wmat, 0, 0), 0, 1)), 1.0, 1e-10);
+    /* Check if view shares storage (elem01 was selected BEFORE the step) */
+    /* Note: elem01 may or may not reflect the change depending on view semantics */
+    double view_val = tensor_item(elem01);
+    printf("view after parent update: %f (1.0 if shared storage, 2.0 if copy)\n", view_val);
+
+    optimizer_free(sgd2);
+    tensor_free(wmat); tensor_free(wsum);
+    param_clear();
+
     /* --- Summary --- */
     if (failures == 0) {
         printf("\nAll backend tests passed!\n");

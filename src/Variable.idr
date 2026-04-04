@@ -146,6 +146,7 @@ prim__zeroGrad : AnyPtr -> ()
 -- Registers a parameter: enables requires_grad and adds to the registry.
 -- Returns the tensorPtr for threading (prevents dead code elimination).
 %foreign "scheme:(lambda (name t) ((foreign-procedure \"tensor_set_requires_grad\" (void* int) void) t 1) ((foreign-procedure \"param_register\" (string void*) void) name t) t)"
+export
 prim__paramRegister : String -> AnyPtr -> AnyPtr
 
 %foreign "C:param_clear,libidrisml_torch"
@@ -173,6 +174,42 @@ prim__paramSubtractDelta : Int -> Double -> ()
 %foreign "C:tensor_subtract_scalar_inplace,libidrisml_torch"
 export
 prim__tensorSubScalarInplace : AnyPtr -> Double -> AnyPtr
+
+-- Tensor-level parameter creation
+%foreign "C:tensor_create_param_2d,libidrisml_torch"
+export
+prim__createParam2d : Int -> Int -> AnyPtr -> AnyPtr
+
+%foreign "C:tensor_create_param_1d,libidrisml_torch"
+export
+prim__createParam1d : Int -> AnyPtr -> AnyPtr
+
+%foreign "C:tensor_view_2d,libidrisml_torch"
+export
+prim__view2d : AnyPtr -> Int -> Int -> AnyPtr
+
+%foreign "C:tensor_view_1d,libidrisml_torch"
+export
+prim__view1d : AnyPtr -> Int -> AnyPtr
+
+%foreign "C:tensor_item_2d,libidrisml_torch"
+export
+prim__item2d : AnyPtr -> Int -> Int -> Double
+
+%foreign "C:tensor_item_1d,libidrisml_torch"
+export
+prim__item1d : AnyPtr -> Int -> Double
+
+-- Tensor-level forward ops (used by layers with consolidated weight tensors)
+||| Matrix-vector multiply on raw tensor pointers.
+export
+tensorMv : AnyPtr -> AnyPtr -> AnyPtr
+tensorMv = prim__mv
+
+||| Add two raw tensor pointers.
+export
+tensorAdd : AnyPtr -> AnyPtr -> AnyPtr
+tensorAdd = prim__add
 
 -- No-grad scope
 %foreign "C:tensor_no_grad_begin,libidrisml_torch"
@@ -211,6 +248,7 @@ prim__seq : AnyPtr -> AnyPtr -> AnyPtr
 -- Chez Scheme optimizer, causing C functions to read stale pointers.
 
 %foreign "C:tensor_alloc_doubles,libidrisml_torch"
+export
 prim__allocDoubles : Int -> AnyPtr
 
 %foreign "C:tensor_write_double,libidrisml_torch"
@@ -258,6 +296,7 @@ record Variable where
   value : Double
 
 -- Pack scalar Variable values into a pre-allocated double buffer.
+export
 packScalarValues : AnyPtr -> Int -> Vect k (Scalar Variable) -> AnyPtr
 packScalarValues buf _ [] = buf
 packScalarValues buf off (STensor v :: rest) =
@@ -265,6 +304,7 @@ packScalarValues buf off (STensor v :: rest) =
   in packScalarValues buf' (off + 1) rest
 
 -- Pack all rows of a matrix into a flat double buffer (row-major).
+export
 packMatrixValues : AnyPtr -> Int -> {n : Nat} -> Vect m (Vector n Variable) -> AnyPtr
 packMatrixValues buf _ {m=Z} [] = buf
 packMatrixValues buf off {m=S k} {n} (VTensor row :: rows) =
@@ -301,6 +341,7 @@ packScalarPtrs arr off (STensor v :: rest) =
 
 -- vecStackTensor: stack scalar Variable tensorPtrs into a 1D tensor.
 -- PRESERVES autograd graph — use for differentiable ops (dot, softmax, etc.)
+export
 vecStackTensor : {n : Nat} -> Vect n (Scalar Variable) -> AnyPtr
 vecStackTensor {n} elems =
   let nI = cast {to=Int} n
@@ -330,6 +371,7 @@ matStackTensor {m} {n} rows =
   in prim__reshape flat shape' 2
 
 -- Read k scalar values from a 1D libtorch tensor into a Vect.
+export
 tensorToScalars : AnyPtr -> Int -> (k : Nat) -> Vect k (Scalar Variable)
 tensorToScalars _ _ Z = []
 tensorToScalars t off (S k) =

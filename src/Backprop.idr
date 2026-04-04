@@ -309,3 +309,19 @@ epochRecurrentNative opt dataPoints lossFn model =
       lossVal = nativeTrainStep opt loss
   in (model, lossVal)
 
+||| Simple native training loop: run N epochs, return final model.
+export
+trainNative :
+  {i, o, n : Nat} ->
+  {hs : List Nat} ->
+  NativeOptimizer ->
+  Network i hs o Variable ->
+  Vect n (DataPoint i o Variable) ->
+  LossFunction Variable ->
+  Int ->
+  Network i hs o Variable
+trainNative opt model dataPoints lossFn epochs =
+  foldl (\m, _ =>
+    let (m', _) = epochNative opt dataPoints lossFn m
+    in m') model [1 .. epochs]
+
