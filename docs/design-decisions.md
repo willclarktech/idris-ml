@@ -481,3 +481,19 @@ These optimizations are independent and can be applied in any order. The arena a
 Enabled `backend_supports_tensor_params=1` for the tape backend. Layer weights are now consolidated tensors — one `tensor_mv` call instead of stacking thousands of scalar Variables. Added `op_meta` field to TapeEntry for fused backward metadata (MvMeta, SoftmaxMeta, LstmGatesMeta). Fixed `tensor_lstm_gates` to set `requires_grad=1` on outputs and record OP_LSTM_GATES with cached gate activations.
 
 Result: NTM-copy 100 epochs: 48 min → <1 sec (~2880x speedup). Small model (Supervised) regressed from 3.7s to 5.6s due to `tensorToScalars`/`vecStackTensor` FFI overhead on tiny vectors — this is acceptable since the overhead is fixed per layer and the NTM improvement dominates. Added consecutive-data cache in `tensor_stack_from_array` to skip copy when restacking selects from the same parent.
+
+### Gradient chain fixes (2026-04-04)
+
+Four bugs prevented convergence on the tape backend:
+
+1. **`tensor_select` rank-0 fallback**: `binop_elementwise` produces scalars (rank 0) when both args have `numel==1`. When `tensorToScalars` called `tensor_select` on these scalars, the fallback path created a copy with `requires_grad=1` but no tape entry — severing the gradient chain. Fix: return the scalar directly (identity select on rank 0).
+
+2. **`tensor_matmul` [n]×[n,m] backward**: Used `OP_DOT` backward rule which only reads `grad[0]`, incorrect for vector results. Added `OP_VECMAT` with correct backward: `d_a[i] = Σ_j grad[j]*b[i,j]`, `d_b[i,j] = grad[j]*a[i]`.
+
+3. **`tensor_view_1d/2d` requires_grad=0**: View Variables into param tensors were created with `requires_grad=0`. When the NTM stacked these views (e.g., memory matrix), the resulting tensor had `rg=0` and was disconnected from autograd. Fix: inherit parent's `requires_grad` and record `OP_SELECT` tape entries for views.
+
+4. **Optimizer per-element buffers**: RMSprop/Adam allocated one velocity/momentum slot per param tensor instead of per element. A [400,29] weight matrix had all 11,600 elements sharing one `v[]` slot — the last element's `g²` overwrote all previous. Fix: size buffers by total element count, index by `param_offset + element_j`.
+
+Also removed fused NTM C ops (`tensor_ntm_read_head`, `tensor_ntm_interp_write`) from the tensor path since they lack backward rules in the tape backend. The individual Variable-level addressing ops (which use `OP_COSINE_SIM`, `OP_SOFTMAX`, `OP_CONV1D_CIRC`, `OP_POW`, `OP_VECMAT` etc.) are used instead.
+
+Result: LSTM converges (0.714 → 0.048 in 5k epochs, ~1.5 min). NTM-copy with short sequences (1-5) reaches 83.5% accuracy in 2k epochs (~40 min). NTM per-epoch is ~1.3s (short) / ~3.5s (full) — ~10-30x slower than the old fused-C backend. Performance optimization is the next priority.
