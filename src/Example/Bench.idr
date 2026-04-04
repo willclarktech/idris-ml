@@ -49,19 +49,20 @@ benchSupervised = do
   ll <- linearLayer
   let model = autoName $ ll ~> OutputLayer softmaxLayer
   let prepared = map (map fromDouble) supervisedData
-  let opt = sgd 0.03 (1.0/0.0)
+  let opt = nativeSgd 0.03
 
   -- Warmup: 100 epochs
-  let warmModel = train opt model prepared crossEntropy 100
+  let warmModel = trainNative opt model prepared crossEntropy 100
 
   -- Benchmark: 1000 epochs
   t0 <- clockTime Monotonic
-  let trained = train opt warmModel prepared crossEntropy 1000
-  let loss = calculateLoss crossEntropy trained prepared
+  let trained = trainNative opt warmModel prepared crossEntropy 1000
+  let dblModel = toDoubleNetwork (emap refreshValue trained)
+  let loss = calculateLoss crossEntropy dblModel (map (map fromDouble) supervisedData)
   t1 <- clockTime Monotonic
 
   putStrLn $ "Supervised (1000 epochs): " ++ show (elapsedMs t0 t1) ++ " ms"
-  putStrLn $ "  Final loss: " ++ show (value loss)
+  putStrLn $ "  Final loss: " ++ show loss
   putStrLn $ "  Peak RSS: " ++ show (getRssMB 0) ++ " MB"
 
 
@@ -88,19 +89,20 @@ benchRnn = do
   rnn <- rnnLayer
   let model = autoName $ OutputLayer rnn
   let dataPoints = map (map fromDouble) (rnnRawData 8)
-  let opt = sgd 0.03 (1.0/0.0)
+  let opt = nativeSgd 0.03
 
   -- Warmup: 100 epochs
-  let warmModel = trainRecurrent opt model dataPoints binaryCrossEntropyWithLogits 100
+  let warmModel = foldl (\m, _ => fst (epochRecurrentNative opt dataPoints binaryCrossEntropyWithLogits m)) model [1..100]
 
   -- Benchmark: 1000 epochs
   t0 <- clockTime Monotonic
-  let trained = trainRecurrent opt warmModel dataPoints binaryCrossEntropyWithLogits 1000
-  let loss = calculateLossRecurrent binaryCrossEntropyWithLogits trained dataPoints
+  let trained = foldl (\m, _ => fst (epochRecurrentNative opt dataPoints binaryCrossEntropyWithLogits m)) warmModel [1..1000]
+  let dblModel = toDoubleNetwork (emap refreshValue trained)
+  let loss = calculateLossRecurrent binaryCrossEntropyWithLogits dblModel (rnnRawData 8)
   t1 <- clockTime Monotonic
 
   putStrLn $ "RNN (1000 epochs):        " ++ show (elapsedMs t0 t1) ++ " ms"
-  putStrLn $ "  Final loss: " ++ show (value loss)
+  putStrLn $ "  Final loss: " ++ show loss
   putStrLn $ "  Peak RSS: " ++ show (getRssMB 1) ++ " MB"
 
 
