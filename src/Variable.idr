@@ -200,6 +200,19 @@ prim__item2d : AnyPtr -> Int -> Int -> Double
 export
 prim__item1d : AnyPtr -> Int -> Double
 
+-- Fused LSTM gates: takes combined [4*o] tensor + prev_cell [o], returns pair handle
+%foreign "C:tensor_lstm_gates_pair,libidrisml_torch"
+export
+prim__lstmGatesPair : AnyPtr -> AnyPtr -> Int -> AnyPtr
+
+%foreign "C:tensor_pair_first,libidrisml_torch"
+export
+prim__pairFirst : AnyPtr -> AnyPtr
+
+%foreign "C:tensor_pair_second,libidrisml_torch"
+export
+prim__pairSecond : AnyPtr -> AnyPtr
+
 -- Tensor-level forward ops (used by layers with consolidated weight tensors)
 ||| Matrix-vector multiply on raw tensor pointers.
 export

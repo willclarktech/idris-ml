@@ -108,6 +108,20 @@ void tensor_lstm_cell(
     TensorHandle b_ih, TensorHandle b_hh,
     TensorHandle* out_h, TensorHandle* out_c);
 
+/* Fused LSTM cell from pre-computed gate values.
+   combined = mulIW + mulRW + bias  ([4*o] tensor)
+   Returns (new_hidden, new_cell) via out pointers. */
+void tensor_lstm_gates(
+    TensorHandle combined, TensorHandle prev_cell, int o,
+    TensorHandle* out_h, TensorHandle* out_c);
+
+/* Pair result: stores two tensor handles. Used for LSTM (hidden, cell). */
+typedef struct { TensorHandle first; TensorHandle second; } TensorPair;
+TensorPair* tensor_lstm_gates_pair(TensorHandle combined, TensorHandle prev_cell, int o);
+TensorHandle tensor_pair_first(TensorPair* p);
+TensorHandle tensor_pair_second(TensorPair* p);
+void tensor_pair_free(TensorPair* p);
+
 /* ---------- Parameter Registry ---------- */
 
 /* Register a named parameter for gradient collection after backward() */

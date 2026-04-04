@@ -3,9 +3,11 @@ module Layer.Lstm
 import Data.Vect
 import Data.Zippable
 
+import Endofunctor
 import Floating
 import Init
 import Layer.Core
+import Layer.Linear
 import Math
 import Tensor
 import Util
@@ -55,6 +57,10 @@ record LstmState (inputSize : Nat) (outputSize : Nat) (ty : Type) where
   bias : Vector (4 * outputSize) ty
   hiddenState : Vector outputSize ty
   cellState : Vector outputSize ty
+  -- Consolidated tensors (Just after nameLayer, Nothing before)
+  iwTensor : Maybe AnyPtr     -- [4*o, i]
+  rwTensor : Maybe AnyPtr     -- [4*o, o]
+  biasTensor : Maybe AnyPtr   -- [4*o]
 
 
 ----------------------------------------------------------------------
@@ -104,7 +110,7 @@ showVecD (VTensor xs) = "[" ++ go xs ++ "]"
 
 export
 LayerLike LstmState where
-  applyGeneric {i} {o} (MkLstm iw rw b hs cs) xs =
+  applyGeneric {i} {o} (MkLstm iw rw b hs cs _ _ _) xs =
     let combined = matrixVectorMultiply iw xs + matrixVectorMultiply rw hs + b
         gates = lstmSplitGates {o} combined
         iGate = fst gates
@@ -113,46 +119,114 @@ LayerLike LstmState where
         oGate = snd (snd (snd gates))
         newCell = map sig fGate * cs + map sig iGate * map tanhBound gGate
         newHidden = map sig oGate * map tanhBound newCell
-    in (MkLstm iw rw b newHidden newCell, newHidden)
+    in (MkLstm iw rw b newHidden newCell Nothing Nothing Nothing, newHidden)
     where
       sig : ty -> ty
       sig x = 1 / (1 + exp (-x))
 
-  applyVar {i} {o} (MkLstm iw rw b hs cs) xs =
-    let gateSize : Nat
-        gateSize = 4 * o
-        mulIW = matrixVectorMultiplyVar {m=gateSize, n=i} iw xs
-        mulRW = matrixVectorMultiplyVar {m=gateSize, n=o} rw hs
-        cellResult = lstmCellVar mulIW mulRW b cs
-        newCell = fst cellResult
-        newHidden = snd cellResult
-    in (MkLstm iw rw b newHidden newCell, newHidden)
+  applyVar {i} {o} st@(MkLstm iw rw b hs cs iwT rwT bT) xs =
+    case (iwT, rwT, bT) of
+      -- Tensor-level forward: 2 mv + 1 add + fused LSTM gates (all at tensor level)
+      (Just iwTensor, Just rwTensor, Just biasTensor) =>
+        let (VTensor hsElems) = hs
+            (VTensor csElems) = cs
+            (VTensor xElems) = xs
+            oI = cast {to=Int} o
+            -- Stack input and hidden into 1D tensors (only these, not weights)
+            inputT = vecStackTensor {n=i} xElems
+            hiddenT = vecStackTensor {n=o} hsElems
+            cellT = vecStackTensor {n=o} csElems
+            -- Tensor-level gate computation: mv + mv + bias
+            combined = tensorAdd (tensorAdd (tensorMv iwTensor inputT) (tensorMv rwTensor hiddenT)) biasTensor
+            -- Fused sigmoid/tanh gate application in C
+            pair = prim__lstmGatesPair combined cellT oI
+            newHiddenT = prim__pairFirst pair
+            newCellT = prim__pairSecond pair
+            -- Unpack back to Variable vectors
+            newHidden = VTensor $ tensorToScalars newHiddenT 0 o
+            newCell = VTensor $ tensorToScalars newCellT 0 o
+        in (MkLstm iw rw b newHidden newCell iwT rwT bT, newHidden)
+      -- Scalar fallback
+      _ =>
+        let gateSize : Nat
+            gateSize = 4 * o
+            mulIW = matrixVectorMultiplyVar {m=gateSize, n=i} iw xs
+            mulRW = matrixVectorMultiplyVar {m=gateSize, n=o} rw hs
+            cellResult = lstmCellVar mulIW mulRW b cs
+            newCell = fst cellResult
+            newHidden = snd cellResult
+        in (MkLstm iw rw b newHidden newCell Nothing Nothing Nothing, newHidden)
 
-  emapLayer f (MkLstm iw rw b hs cs) =
-    MkLstm (map f iw) (map f rw) (map f b) (map f hs) (map f cs)
+  emapLayer f (MkLstm iw rw b hs cs iwT rwT bT) =
+    MkLstm (map f iw) (map f rw) (map f b) (map f hs) (map f cs) iwT rwT bT
 
   showLayer {i} {o} _ = "Lstm<" ++ show i ++ ":" ++ show o ++ ">"
 
-  nameLayer prefx (MkLstm iw rw b hs cs) =
-    let np = nameParam . (prefx ++ "_" ++)
-        namedIW = zipWith (np "inputWeight") enumerate iw
-        namedRW = zipWith (np "recurrentWeight") enumerate rw
-        namedBias = zipWith (np "bias") enumerate b
-        namedH0 = zipWith (np "h0") enumerate hs
-        namedC0 = zipWith (np "c0") enumerate cs
-    in MkLstm namedIW namedRW namedBias namedH0 namedC0
+  nameLayer {i} {o} prefx (MkLstm (VTensor iwRows) (VTensor rwRows) (VTensor bElems) (VTensor hsElems) (VTensor csElems) _ _ _) =
+    let gateSize = 4 * o
+        gsI = cast {to=Int} gateSize
+        iI = cast {to=Int} i
+        oI = cast {to=Int} o
+        -- Create consolidated input weights [4*o, i]
+        iwBuf = prim__allocDoubles (gsI * iI)
+        iwBuf' = packMatrixValues iwBuf 0 {n=i} iwRows
+        iwT = prim__paramRegister (prefx ++ "_inputWeights") (prim__createParam2d gsI iI iwBuf')
+        -- Create consolidated recurrent weights [4*o, o]
+        rwBuf = prim__allocDoubles (gsI * oI)
+        rwBuf' = packMatrixValues rwBuf 0 {n=o} rwRows
+        rwT = prim__paramRegister (prefx ++ "_recurrentWeights") (prim__createParam2d gsI oI rwBuf')
+        -- Create consolidated bias [4*o]
+        bBuf = prim__allocDoubles gsI
+        bBuf' = packScalarValues bBuf 0 bElems
+        bT = prim__paramRegister (prefx ++ "_biases") (prim__createParam1d gsI bBuf')
+        -- h0 and c0 as parameter vectors
+        h0Buf = prim__allocDoubles oI
+        h0Buf' = packScalarValues h0Buf 0 hsElems
+        h0T = prim__paramRegister (prefx ++ "_h0") (prim__createParam1d oI h0Buf')
+        c0Buf = prim__allocDoubles oI
+        c0Buf' = packScalarValues c0Buf 0 csElems
+        c0T = prim__paramRegister (prefx ++ "_c0") (prim__createParam1d oI c0Buf')
+        -- Build view Variables (share storage with consolidated tensors)
+        viewIW = buildViewMatrix (prefx ++ "_inputWeight") iwT 0 0 (4 * o) i
+        viewRW = buildViewMatrix (prefx ++ "_recurrentWeight") rwT 0 0 (4 * o) o
+        viewBias = buildViewVector (prefx ++ "_bias") bT 0 (4 * o)
+        viewH0 = buildViewVector (prefx ++ "_h0") h0T 0 o
+        viewC0 = buildViewVector (prefx ++ "_c0") c0T 0 o
+    in MkLstm (VTensor viewIW) (VTensor viewRW) (VTensor viewBias) (VTensor viewH0) (VTensor viewC0)
+              (Just iwT) (Just rwT) (Just bT)
 
   layerPrefix _ = "lstm"
 
-  toDoubleLayer (MkLstm iw rw b hs cs) =
-    MkLstm (map value iw) (map value rw) (map value b) (map value hs) (map value cs)
+  toDoubleLayer {i} {o} (MkLstm iw rw b hs cs iwT rwT bT) =
+    case (iwT, rwT, bT) of
+      (Just iwTensor, Just rwTensor, Just biasTensor) =>
+        let wIW = buildDoubleMatrix iwTensor 0 (4 * o) i
+            wRW = buildDoubleMatrix rwTensor 0 (4 * o) o
+            wBias = buildDoubleVector biasTensor 0 (4 * o)
+        in MkLstm (VTensor wIW) (VTensor wRW) (VTensor wBias) (map value hs) (map value cs) Nothing Nothing Nothing
+      _ => MkLstm (map value iw) (map value rw) (map value b) (map value hs) (map value cs) Nothing Nothing Nothing
+    where
+      buildDoubleRow : AnyPtr -> Int -> Int -> (k : Nat) -> Vect k (Scalar Double)
+      buildDoubleRow _ _ _ Z = []
+      buildDoubleRow mat row col (S k) =
+        STensor (prim__item2d mat row col) :: buildDoubleRow mat row (col + 1) k
+
+      buildDoubleMatrix : AnyPtr -> Int -> (rows : Nat) -> (cols : Nat) -> Vect rows (Vector cols Double)
+      buildDoubleMatrix _ _ Z _ = []
+      buildDoubleMatrix mat row (S r) cols =
+        VTensor (buildDoubleRow mat row 0 cols) :: buildDoubleMatrix mat (row + 1) r cols
+
+      buildDoubleVector : AnyPtr -> Int -> (k : Nat) -> Vect k (Scalar Double)
+      buildDoubleVector _ _ Z = []
+      buildDoubleVector vec idx (S k) =
+        STensor (prim__item1d vec idx) :: buildDoubleVector vec (idx + 1) k
 
   debugApply {i} {o} st inp =
     let (updated, out) = applyGeneric st inp
     in (updated, out, MkDebugEntry ("Lstm<" ++ show i ++ ":" ++ show o ++ ">")
          [("hidden", showVecD st.hiddenState), ("cell", showVecD st.cellState)])
 
-  getParamIds (MkLstm iw rw b hs cs) =
+  getParamIds (MkLstm iw rw b hs cs _ _ _) =
     tensorIds iw ++ tensorIds rw ++ tensorIds b ++ tensorIds hs ++ tensorIds cs
     where
       tensorIds : {dims : Vect rank Nat} -> Tensor dims Variable -> List String
@@ -172,7 +246,7 @@ mkLstmWith {i} {o} initFn = do
   let b = the (Vector (4 * o) ty) zeros
   h0 <- traverse (\_ => map fromDouble (xavier uniform o 1)) (the (Vector o ty) zeros)
   c0 <- traverse (\_ => map fromDouble (xavier uniform o 1)) (the (Vector o ty) zeros)
-  pure $ MkLstm iw rw b h0 c0
+  pure $ MkLstm iw rw b h0 c0 Nothing Nothing Nothing
 
 ||| Create a raw LstmState with default Xavier uniform init
 export

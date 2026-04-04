@@ -33,6 +33,7 @@ record LinearState (inputSize : Nat) (outputSize : Nat) (ty : Type) where
 -- Build a row of scalar Variables from views into a 2D tensor.
 -- Each view Variable gets a paramId for identification (but is NOT individually registered).
 -- linearIdx: offset for this row's start in the flat index space
+export
 buildViewRow : String -> AnyPtr -> Int -> Int -> Int -> (k : Nat) -> Vect k (Scalar Variable)
 buildViewRow _ _ _ _ _ Z = []
 buildViewRow name mat row col linearIdx (S k) =
@@ -41,6 +42,7 @@ buildViewRow name mat row col linearIdx (S k) =
   in STensor (Var ptr (Just (name ++ show linearIdx)) val) :: buildViewRow name mat row (col + 1) (linearIdx + 1) k
 
 -- Build a matrix of scalar Variables from views into a 2D tensor.
+export
 buildViewMatrix : String -> AnyPtr -> Int -> Int -> (rows : Nat) -> (cols : Nat) -> Vect rows (Vector cols Variable)
 buildViewMatrix _ _ _ _ Z _ = []
 buildViewMatrix name mat row linearIdx (S r) cols =
@@ -48,6 +50,7 @@ buildViewMatrix name mat row linearIdx (S r) cols =
   in VTensor (buildViewRow name mat row 0 linearIdx cols) :: buildViewMatrix name mat (row + 1) (linearIdx + colsI) r cols
 
 -- Build a vector of scalar Variables from views into a 1D tensor.
+export
 buildViewVector : String -> AnyPtr -> Int -> (k : Nat) -> Vect k (Scalar Variable)
 buildViewVector _ _ _ Z = []
 buildViewVector name vec idx (S k) =

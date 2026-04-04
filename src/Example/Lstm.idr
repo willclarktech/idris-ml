@@ -10,11 +10,13 @@ import System.Random
 
 import Backprop
 import DataPoint
+import Endofunctor
 import Floating
 import Layer
 import Math
 import Optimizer
 import Tensor
+import Variable
 import Util
 import Variable
 
@@ -47,30 +49,27 @@ decodeOutput = map (map (map (cast . (0<))))
 ||| Training loop with early stopping.
 ||| Returns (model, epochs completed, final loss).
 trainLoop :
-  Optimizer ->
+  NativeOptimizer ->
   Network 1 [1] 1 Variable ->
   Vect 8 (RecurrentDataPoint 1 1 Variable) ->
   LossFunction Variable ->
   (totalEpochs : Nat) -> (patience : Nat) ->
-  OptimizerState ->
   Clock Monotonic ->
   IO (Network 1 [1] 1 Variable, Nat, Double)
-trainLoop opt model dataPoints lossFn totalEpochs patience st t0 =
-  go 0 model st (1.0/0.0) 0
+trainLoop opt model dataPoints lossFn totalEpochs patience t0 =
+  go 0 model (1.0/0.0) 0
   where
-    go : Nat -> Network 1 [1] 1 Variable -> OptimizerState ->
+    go : Nat -> Network 1 [1] 1 Variable ->
          Double -> Nat ->
          IO (Network 1 [1] 1 Variable, Nat, Double)
-    go ep m s bestLoss staleCount =
+    go ep m bestLoss staleCount =
       if ep >= totalEpochs then do
-        let loss = value $ calculateLossRecurrent lossFn m dataPoints
-        pure (m, ep, loss)
+        pure (m, ep, bestLoss)
       else do
-        let (m', s', loss) = epochRecurrent opt dataPoints lossFn m s
+        let (m', loss) = epochRecurrentNative opt dataPoints lossFn m
         when (modNatNZ ep 100 ItIsSucc == 0) $ do
           now <- clockTime Monotonic
           putStrLn $ "  " ++ formatElapsed t0 now ++ " " ++ show ep ++ ":\tloss=" ++ show loss
-                   ++ "\trss=" ++ show (getRssMB ep) ++ "MB"
         if loss /= loss
           then do
             now <- clockTime Monotonic
@@ -87,7 +86,7 @@ trainLoop opt model dataPoints lossFn totalEpochs patience st t0 =
                 putStrLn $ "  " ++ formatElapsed t0 now ++ " Early stop at epoch " ++ show (ep + 1)
                          ++ " (patience=" ++ show patience ++ ")"
                 pure (m', ep + 1, loss)
-              else go (ep + 1) m' s' bestLoss' sc
+              else go (ep + 1) m' bestLoss' sc
 
 
 ----------------------------------------------------------------------
@@ -155,18 +154,21 @@ main = do
 
   putStrLn ""
   putStrLn "Training..."
-  let opt = sgd cfg.lr (1.0/0.0)
+  let opt = nativeSgd cfg.lr
   t0 <- clockTime Monotonic
   (trained, epochsDone, finalLoss) <- trainLoop opt model dataPoints lossFn
-    cfg.epochs cfg.patience initState t0
+    cfg.epochs cfg.patience t0
 
-  let predictions' = decodeOutput $ evaluateRecurrent trained dataPoints
-  let loss' = calculateLossRecurrent lossFn trained dataPoints
+  let dblModel = toDoubleNetwork (emap refreshValue trained)
+  let dblData = rawData 8
+  let predictions' : Vect 8 (List (Vector 1 Double))
+      predictions' = map (map (map (\x => cast (0 < x)))) (evaluateRecurrent dblModel dblData)
+  let loss' = calculateLossRecurrent lossFn dblModel dblData
 
   putStr "Post loss: "
-  printLn $ value loss'
+  printLn loss'
   putStr "Predictions: "
-  printLn $ predictions'
+  printLn predictions'
 
   -- Machine-readable result line
   putStrLn $ "RESULT\t"
@@ -175,4 +177,4 @@ main = do
            ++ show cfg.patience ++ "\t"
            ++ show epochsDone ++ "\t"
            ++ show cfg.seed ++ "\t"
-           ++ show (value loss')
+           ++ show loss'
