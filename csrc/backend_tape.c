@@ -723,6 +723,7 @@ void tensor_backward(TensorHandle h) {
     loss->grad[0] = 1.0;
 
     /* Walk tape in reverse */
+
     for (int i = loss->tape_idx; i >= 0; i--) {
         TapeEntry* e = &tape[i];
         Tensor* r = e->result;
@@ -980,6 +981,7 @@ void tensor_backward(TensorHandle h) {
 
         default: break; /* unimplemented backward */
         }
+
     }
 }
 
@@ -1309,10 +1311,12 @@ void optimizer_zero_grad(OptimizerHandle h) {
     param_zero_all_grads();
 }
 
-void optimizer_step(OptimizerHandle h) { 
+void optimizer_step(OptimizerHandle h) {
     Optimizer* opt = (Optimizer*)h;
     optimizer_ensure_buffers(opt);
     opt->t++;
+
+    /* Debug: check for NaN gradients (disabled) */
 
     for (int i = 0; i < param_count_val; i++) {
         Tensor* t = param_registry[i].tensor;
