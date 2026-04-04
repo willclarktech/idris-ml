@@ -150,9 +150,11 @@ enum {
     OP_LSTM_GATES,
     OP_ADD_SCALAR, OP_MUL_SCALAR, OP_CLAMP_MIN,
     OP_COSINE_SIM, OP_CONV1D_CIRC,
+    OP_LSTM_GATES_CELL,  /* cell output — shares LstmGatesMeta with OP_LSTM_GATES */
     OP_STACK,     /* stack of scalar tensors into 1D */
     OP_RESHAPE,   /* reshape (view) — grad passes through unchanged */
     OP_SELECT,    /* select element from vector — grad goes to parent[index] */
+    OP_VECMAT,    /* [n] x [n,m] -> [m] vector-matrix multiply */
 };
 
 typedef struct {
@@ -491,7 +493,7 @@ TensorHandle tensor_matmul(TensorHandle ha, TensorHandle hb) {
     Tensor* b = (Tensor*)hb;
     /* 1D x 2D = mv transpose, or delegate based on ranks */
     if (a->rank == 1 && b->rank == 2) {
-        /* [n] x [n,m] = [m] — treat as row vector matmul */
+        /* [n] x [n,m] = [m] — row vector × matrix */
         int n = a->numel, m = b->shape[1];
         int out_shape[] = {m};
         double* out_data = calloc(m, sizeof(double));
@@ -502,7 +504,7 @@ TensorHandle tensor_matmul(TensorHandle ha, TensorHandle hb) {
         }
         Tensor* r = make_tensor(out_data, out_shape, 1, a->requires_grad || b->requires_grad);
         free(out_data);
-        if (r->requires_grad) tape_append(OP_DOT, r, a, b, 0);
+        if (r->requires_grad) tape_append(OP_VECMAT, r, a, b, 0);
         return r;
     }
     if (a->rank == 2 && b->rank == 1) return tensor_mv(ha, hb);
@@ -803,6 +805,9 @@ TensorHandle tensor_squeeze(TensorHandle h, int dim) {
 
 TensorHandle tensor_select(TensorHandle h, int dim, int index) {
     Tensor* t = (Tensor*)h;
+    /* Scalar: select(scalar, 0, 0) is identity — return the tensor directly
+       to preserve tape connectivity (the scalar already has a tape entry). */
+    if (t->rank == 0) return h;
     if (t->rank == 1) {
         Tensor* v = calloc(1, sizeof(Tensor));
         v->data = &t->data[index];
@@ -861,14 +866,16 @@ void tensor_backward(TensorHandle h) {
     /* Initialize loss gradient to 1.0 */
     ensure_grad(loss);
     loss->grad[0] = 1.0;
-    
+
+    int processed = 0, skipped = 0;
 
     /* Walk tape in reverse */
 
     for (int i = loss->tape_idx; i >= 0; i--) {
         TapeEntry* e = &tape[i];
         Tensor* r = e->result;
-        if (!r->grad) continue;
+        if (!r->grad) { skipped++; continue; }
+        processed++;
 
         Tensor* a = e->arg1;
         Tensor* b = e->arg2;
@@ -1106,6 +1113,30 @@ void tensor_backward(TensorHandle h) {
             }
             break;
 
+        case OP_VECMAT: {
+            /* r[j] = sum_i a[i] * b[i*m+j], where a=[n], b=[n,m], r=[m] */
+            int n_vm = a->numel;
+            int m_vm = r->numel;
+            ensure_grad(r);
+            if (a) {
+                /* d_a[i] = sum_j r_grad[j] * b[i*m+j] */
+                ensure_grad(a);
+                for (int i = 0; i < n_vm; i++) {
+                    double s = 0;
+                    for (int j = 0; j < m_vm; j++) s += r->grad[j] * b->data[i*m_vm+j];
+                    a->grad[i] += s;
+                }
+            }
+            if (b) {
+                /* d_b[i*m+j] = r_grad[j] * a[i] */
+                ensure_grad(b);
+                for (int i = 0; i < n_vm; i++)
+                    for (int j = 0; j < m_vm; j++)
+                        b->grad[i*m_vm+j] += r->grad[j] * a->data[i];
+            }
+            break;
+        }
+
         case OP_MV: {
             /* d(Ax)/dA[i,j] = grad[i] * x[j], d(Ax)/dx[j] = sum_i A[i,j] * grad[i] */
             MvMeta* meta = (MvMeta*)e->op_meta;
@@ -1227,6 +1258,39 @@ void tensor_backward(TensorHandle h) {
             break;
         }
 
+        case OP_LSTM_GATES_CELL: {
+            /* Cell output backward: cell[j] = fG[j]*prevCell[j] + iG[j]*gG[j]
+               d_cell comes directly from downstream (FC layers reading cell state,
+               and next timestep's LSTM using it as prev_cell). */
+            LstmGatesMeta* lm = (LstmGatesMeta*)e->op_meta;
+            if (lm && a) {
+                int o_lstm = lm->o;
+                ensure_grad(a);  /* combined [4*o] */
+                ensure_grad(r);  /* cell [o] */
+                if (b) ensure_grad(b);  /* prev_cell [o] */
+
+                for (int j = 0; j < o_lstm; j++) {
+                    double d_cell = r->grad[j];
+
+                    /* d_fGate = d_cell * prevCell */
+                    double d_fG = d_cell * (b ? b->data[j] : 0);
+                    /* d_iGate = d_cell * gG */
+                    double d_iG = d_cell * lm->gG[j];
+                    /* d_gGate = d_cell * iG */
+                    double d_gG = d_cell * lm->iG[j];
+                    /* d_prevCell = d_cell * fG */
+                    if (b) b->grad[j] += d_cell * lm->fG[j];
+
+                    /* Activation derivatives → combined gradient (additive with OP_LSTM_GATES) */
+                    a->grad[j]            += d_iG * lm->iG[j] * (1.0 - lm->iG[j]);
+                    a->grad[o_lstm + j]    += d_fG * lm->fG[j] * (1.0 - lm->fG[j]);
+                    a->grad[2*o_lstm + j]  += d_gG * (1.0 - lm->gG[j] * lm->gG[j]);
+                    /* No output gate gradient from cell path (oG only affects hidden) */
+                }
+            }
+            break;
+        }
+
         case OP_COSINE_SIM: {
             /* Cosine similarity backward: a=[n,w] matrix, b=[1,w] key (unsqueezed) */
             if (a && a->rank == 2 && b && b->rank == 2) {
@@ -1293,6 +1357,7 @@ void tensor_backward(TensorHandle h) {
         default: break; /* unimplemented backward */
         }
     }
+    (void)processed; (void)skipped;
 }
 
 TensorHandle tensor_grad(TensorHandle h) {
@@ -1396,13 +1461,14 @@ void tensor_lstm_gates(TensorHandle combined_h, TensorHandle prev_cell_h, int o,
     free(out_cell);
 
     if (rg) {
-        /* Record LSTM gates as a tape entry on the hidden output.
-           The cell output gets a CONST entry (backward will need to
-           collect grad from both). */
-        int idx = tape_append(OP_LSTM_GATES, (Tensor*)*out_h, combined, prev_cell, (double)o);
-        tape[idx].op_meta = meta;
-        /* Also put cell on tape as CONST so it has requires_grad */
-        tape_append(OP_CONST, (Tensor*)*out_c, NULL, NULL, 0);
+        /* Record hidden output with OP_LSTM_GATES — backward propagates d_hidden */
+        int idx_h = tape_append(OP_LSTM_GATES, (Tensor*)*out_h, combined, prev_cell, (double)o);
+        tape[idx_h].op_meta = meta;
+        /* Record cell output with OP_LSTM_GATES_CELL — backward propagates d_cell.
+           Both entries share the same metadata and accumulate gradients additively
+           into combined->grad and prev_cell->grad. */
+        int idx_c = tape_append(OP_LSTM_GATES_CELL, (Tensor*)*out_c, combined, prev_cell, (double)o);
+        tape[idx_c].op_meta = meta;
     }
 }
 
@@ -1615,16 +1681,16 @@ TensorHandle tensor_create_param_1d(int n, double* data) {
 TensorHandle tensor_view_2d(TensorHandle h, int row, int col) {
     Tensor* t = (Tensor*)h;
     int cols = t->shape[1];
-    /* View shares data with parent (data pointer into parent's array).
-       NOT requires_grad — the parent handles grad tracking. */
+    int linear_idx = row * cols + col;
     Tensor* v = calloc(1, sizeof(Tensor));
-    v->data = &t->data[row * cols + col];
+    v->data = &t->data[linear_idx];
     v->shape = NULL;
     v->rank = 0;
     v->numel = 1;
-    v->requires_grad = 0;
+    v->requires_grad = t->requires_grad;
     v->tape_idx = -1;
     v->grad = NULL;
+    if (v->requires_grad) tape_append(OP_SELECT, v, t, NULL, (double)linear_idx);
     return v;
 }
 
@@ -1635,9 +1701,10 @@ TensorHandle tensor_view_1d(TensorHandle h, int idx) {
     v->shape = NULL;
     v->rank = 0;
     v->numel = 1;
-    v->requires_grad = 0;
+    v->requires_grad = t->requires_grad;
     v->tape_idx = -1;
     v->grad = NULL;
+    if (v->requires_grad) tape_append(OP_SELECT, v, t, NULL, (double)idx);
     return v;
 }
 
@@ -1665,9 +1732,25 @@ typedef struct {
     int allocated;
 } Optimizer;
 
+/* Compute total number of elements across all params (for per-element optimizer buffers) */
+static int param_total_elements(void) {
+    int total = 0;
+    for (int i = 0; i < param_count_val; i++)
+        total += param_registry[i].tensor->numel;
+    return total;
+}
+
+/* Offset into the flat per-element buffer for param i, element j */
+static int param_element_offset(int param_idx) {
+    int off = 0;
+    for (int i = 0; i < param_idx; i++)
+        off += param_registry[i].tensor->numel;
+    return off;
+}
+
 static void optimizer_ensure_buffers(Optimizer* opt) {
     if (opt->allocated) return;
-    int n = param_count_val;
+    int n = param_total_elements();
     opt->v = calloc(n, sizeof(double));
     opt->m = calloc(n, sizeof(double));
     opt->allocated = 1;
@@ -1711,13 +1794,14 @@ void optimizer_step(OptimizerHandle h) {
     optimizer_ensure_buffers(opt);
     opt->t++;
 
-
     for (int i = 0; i < param_count_val; i++) {
         Tensor* t = param_registry[i].tensor;
         if (!t->grad) continue;
+        int base = param_element_offset(i);
 
         for (int j = 0; j < t->numel; j++) {
             double g = t->grad[j];
+            int idx = base + j;  /* per-element index into optimizer buffers */
 
             switch (opt->type) {
             case 0: /* SGD */
@@ -1725,7 +1809,6 @@ void optimizer_step(OptimizerHandle h) {
                 break;
 
             case 1: { /* RMSprop */
-                int idx = i; /* simplified: 1 slot per param (scalar) */
                 opt->v[idx] = opt->alpha * opt->v[idx] + (1.0 - opt->alpha) * g * g;
                 double delta = opt->lr * g / (sqrt(opt->v[idx]) + opt->eps);
                 if (opt->momentum > 0) {
@@ -1738,7 +1821,6 @@ void optimizer_step(OptimizerHandle h) {
             }
 
             case 2: { /* Adam */
-                int idx = i;
                 opt->m[idx] = opt->beta1 * opt->m[idx] + (1.0 - opt->beta1) * g;
                 opt->v[idx] = opt->beta2 * opt->v[idx] + (1.0 - opt->beta2) * g * g;
                 double mhat = opt->m[idx] / (1.0 - pow(opt->beta1, opt->t));
