@@ -86,6 +86,8 @@ enum {
     OP_LSTM_GATES,
     OP_ADD_SCALAR, OP_MUL_SCALAR,
     OP_STACK,     /* stack of scalar tensors into 1D */
+    OP_RESHAPE,   /* reshape (view) — grad passes through unchanged */
+    OP_SELECT,    /* select element from vector — grad goes to parent[index] */
 };
 
 typedef struct {
@@ -634,7 +636,18 @@ TensorHandle tensor_ntm_interp_write(
 
 TensorHandle tensor_reshape(TensorHandle h, int* shape, int rank) {
     Tensor* t = (Tensor*)h;
-    return make_tensor(t->data, shape, rank, t->requires_grad);
+    /* Create a new tensor with different shape but shared data */
+    Tensor* r = calloc(1, sizeof(Tensor));
+    r->data = t->data;  /* shared */
+    r->shape = malloc(rank * sizeof(int));
+    memcpy(r->shape, shape, rank * sizeof(int));
+    r->rank = rank;
+    r->numel = t->numel;
+    r->requires_grad = t->requires_grad;
+    r->tape_idx = -1;
+    r->grad = NULL;
+    if (r->requires_grad) tape_append(OP_RESHAPE, r, t, NULL, 0);
+    return r;
 }
 
 TensorHandle tensor_unsqueeze(TensorHandle h, int dim) {
@@ -653,7 +666,6 @@ TensorHandle tensor_squeeze(TensorHandle h, int dim) {
 TensorHandle tensor_select(TensorHandle h, int dim, int index) {
     Tensor* t = (Tensor*)h;
     if (t->rank == 1) {
-        /* Share data with parent, preserve requires_grad */
         Tensor* v = calloc(1, sizeof(Tensor));
         v->data = &t->data[index];
         v->shape = NULL;
@@ -662,13 +674,23 @@ TensorHandle tensor_select(TensorHandle h, int dim, int index) {
         v->requires_grad = t->requires_grad;
         v->tape_idx = -1;
         v->grad = NULL;
-        if (v->requires_grad) tape_append(OP_CONST, v, NULL, NULL, 0);
+        /* Record OP_SELECT so backward propagates grad to parent[index] */
+        if (v->requires_grad) tape_append(OP_SELECT, v, t, NULL, (double)index);
         return v;
     } else if (t->rank == 2 && dim == 0) {
         int cols = t->shape[1];
         int shape[] = {cols};
-        Tensor* r = make_tensor(t->data + index * cols, shape, 1, t->requires_grad);
-        if (r->requires_grad) tape_append(OP_CONST, r, NULL, NULL, 0);
+        /* Row selection: share data with parent */
+        Tensor* r = calloc(1, sizeof(Tensor));
+        r->data = t->data + index * cols;
+        r->shape = malloc(sizeof(int));
+        r->shape[0] = cols;
+        r->rank = 1;
+        r->numel = cols;
+        r->requires_grad = t->requires_grad;
+        r->tape_idx = -1;
+        r->grad = NULL;
+        if (r->requires_grad) tape_append(OP_SELECT, r, t, NULL, (double)index);
         return r;
     }
     return make_scalar(t->data[index], t->requires_grad);
@@ -802,6 +824,34 @@ void tensor_backward(TensorHandle h) {
 
         case OP_MUL_SCALAR:
             if (a) { ensure_grad(a); a->grad[0] += r->grad[0] * e->scalar_arg; }
+            break;
+
+        case OP_SELECT: {
+            /* Select: grad of parent[index] += grad of result */
+            int sel_idx = (int)e->scalar_arg;
+            if (a) {
+                ensure_grad(a);
+                ensure_grad(r);
+                if (r->numel == 1) {
+                    /* Scalar select from vector */
+                    a->grad[sel_idx] += r->grad[0];
+                } else {
+                    /* Row select from matrix */
+                    int cols = r->numel;
+                    for (int j = 0; j < cols; j++)
+                        a->grad[sel_idx * cols + j] += r->grad[j];
+                }
+            }
+            break;
+        }
+
+        case OP_RESHAPE:
+            /* Reshape is a view — gradient passes through unchanged */
+            if (a) {
+                ensure_grad(a);
+                ensure_grad(r);
+                for (int j = 0; j < a->numel; j++) a->grad[j] += r->grad[j];
+            }
             break;
 
         case OP_STACK:
