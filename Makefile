@@ -41,6 +41,25 @@ test-backend: $(BACKEND_LIB) csrc/test_backend.c | $(BUILD)
 	cc -o $(BUILD)/test_backend csrc/test_backend.c -L$(BUILD) -lidrisml_torch -Wl,-rpath,$(BUILD) -lm
 	./$(BUILD)/test_backend
 
+# Tape backend (custom C, no libtorch dependency)
+TAPE_SRC := csrc/backend_tape.c
+ifeq ($(UNAME), Darwin)
+  TAPE_LIB := $(BUILD)/libidrisml_tape.dylib
+  TAPE_CFLAGS := -O2 -shared -framework Accelerate
+else
+  TAPE_LIB := $(BUILD)/libidrisml_tape.so
+  TAPE_CFLAGS := -O2 -shared -fPIC -lm -lblas
+endif
+
+$(TAPE_LIB): $(TAPE_SRC) csrc/backend.h | $(BUILD)
+	cc $(TAPE_CFLAGS) -o $@ $<
+
+backend-tape: $(TAPE_LIB)
+
+test-tape: $(TAPE_LIB) csrc/test_backend_tape.c | $(BUILD)
+	cc -o $(BUILD)/test_tape csrc/test_backend_tape.c -L$(BUILD) -lidrisml_tape -Wl,-rpath,$(BUILD) -lm
+	./$(BUILD)/test_tape
+
 print-torch:
 	@echo "LIBTORCH_PATH=$(LIBTORCH_PATH)"
 	@echo "TORCH_INC=$(TORCH_INC)"
