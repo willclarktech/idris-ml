@@ -50,6 +50,10 @@ endif
 
 backend: $(BACKEND_LIB)
 
+test-backend: $(BACKEND_LIB) csrc/test_backend.c | $(BUILD)
+	cc -o $(BUILD)/test_backend csrc/test_backend.c -L$(BUILD) -lidrisml_torch -Wl,-rpath,$(BUILD) -lm
+	./$(BUILD)/test_backend
+
 print-torch:
 	@echo "LIBTORCH_PATH=$(LIBTORCH_PATH)"
 	@echo "TORCH_INC=$(TORCH_INC)"
@@ -148,4 +152,4 @@ ref-convergence-recall:
 clean:
 	rm -f $(CLIB) $(BUILD)/test_tensor
 
-.PHONY: test test-c check supervised rnn lstm ntm-copy ntm-associative-recall bench profile sweep sweep-quick clean backend print-torch ref-setup bench-py bench-compare ref-test ref-lint ref-typecheck ref-convergence ref-convergence-copy ref-convergence-recall
+.PHONY: test test-c test-backend check supervised rnn lstm ntm-copy ntm-associative-recall bench profile sweep sweep-quick clean backend print-torch ref-setup bench-py bench-compare ref-test ref-lint ref-typecheck ref-convergence ref-convergence-copy ref-convergence-recall
