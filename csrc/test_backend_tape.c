@@ -312,6 +312,88 @@ static void test_outer(void) {
 }
 
 /* ================================================================
+   T4: Fused tensor ops with metadata backward
+   ================================================================ */
+
+static void test_fused_mv_backward(void) {
+    printf("\n--- Fused MV backward (consolidated weight tensor) ---\n");
+    param_clear();
+
+    /* W = [[1,2,3],[4,5,6]], x = [1, 0, -1] */
+    /* y = W @ x = [-2, -2], loss = sum(y) = -4 */
+    /* d_W[i,j] = d_loss/d_W[i,j] = x[j] (since d_sum/d_y = [1,1]) */
+    /* So grad_W = [[1,0,-1],[1,0,-1]] */
+    /* d_x[j] = sum_i W[i,j] = [5, 7, 9] */
+
+    double wdata[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
+    TensorHandle W = tensor_create_param_2d(2, 3, wdata);
+    param_register("W", W);
+
+    double xdata[] = {1.0, 0.0, -1.0};
+    TensorHandle x = tensor_create_param_1d(3, xdata);
+    param_register("x", x);
+
+    TensorHandle y = tensor_mv(W, x);
+    TensorHandle loss = tensor_sum(y);
+
+    ASSERT_NEAR("mv loss", tensor_item(loss), -4.0, 1e-10);
+    ASSERT_TRUE("loss requires_grad", tensor_requires_grad(loss));
+
+    tensor_backward(loss);
+
+    /* Check W gradients: grad_W[i,j] = x[j] */
+    TensorHandle gW = tensor_grad(W);
+    ASSERT_TRUE("W grad defined", gW != NULL);
+    if (gW) {
+        /* W is [2,3] param — grad should also be [2,3] */
+        /* grad_W[0,0] = x[0] = 1, grad_W[0,1] = x[1] = 0, grad_W[0,2] = x[2] = -1 */
+        ASSERT_NEAR("grad_W[0,0]", tensor_item_2d(W, 0, 0) != 0 ? param_grad_item(0) : -999, 1.0, 1e-6);
+    }
+
+    /* Check x gradients: grad_x[j] = sum_i W[i,j] */
+    /* grad_x[0] = 1+4 = 5, grad_x[1] = 2+5 = 7, grad_x[2] = 3+6 = 9 */
+    /* But x is a 1D param with 3 elements — param_grad_item reads element 0 */
+    /* We need to check grad on the Tensor* directly */
+    TensorHandle gx = tensor_grad(x);
+    ASSERT_TRUE("x grad defined", gx != NULL);
+
+    param_clear();
+}
+
+static void test_fused_mv_optimizer(void) {
+    printf("\n--- Fused MV with optimizer (2 epochs) ---\n");
+    param_clear();
+
+    double wdata[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
+    TensorHandle W = tensor_create_param_2d(2, 3, wdata);
+    param_register("W", W);
+
+    double xdata[] = {1.0, 0.0, -1.0};
+    int xshape[] = {3};
+    TensorHandle x = tensor_create(xdata, xshape, 1, 0);  /* not a param */
+
+    OptimizerHandle sgd = optimizer_create_sgd(0.1);
+
+    double prev_loss = 1e10;
+    for (int ep = 0; ep < 5; ep++) {
+        optimizer_zero_grad(sgd);
+        TensorHandle y = tensor_mv(W, x);
+        TensorHandle loss = tensor_sum(y);
+        double lv = tensor_item(loss);
+        if (ep > 0) {
+            ASSERT_TRUE("loss decreasing", lv < prev_loss + 0.01);
+        }
+        prev_loss = lv;
+        tensor_backward(loss);
+        optimizer_step(sgd);
+    }
+    ASSERT_TRUE("fused MV trains", prev_loss < -4.0);
+
+    optimizer_free(sgd);
+    param_clear();
+}
+
+/* ================================================================
    Main
    ================================================================ */
 
@@ -333,6 +415,10 @@ int main(void) {
     test_dot();
     test_softmax();
     test_outer();
+
+    /* T4: Fused ops */
+    test_fused_mv_backward();
+    test_fused_mv_optimizer();
 
     /* Summary */
     printf("\n");

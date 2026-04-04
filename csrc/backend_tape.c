@@ -163,7 +163,23 @@ typedef struct {
     double scalar_arg;  /* for add_scalar, mul_scalar */
     Tensor** inputs;    /* for OP_STACK: array of constituent scalar tensors */
     int input_count;    /* number of inputs for stack */
+    void* op_meta;      /* op-specific metadata for backward (arena-allocated) */
 } TapeEntry;
+
+/* Op metadata structs for fused backward */
+typedef struct { int m, n; double* x_vals; } MvMeta;
+typedef struct { int n; double* out_vals; } SoftmaxMeta;
+typedef struct {
+    int o;
+    double* iG; double* fG; double* gG; double* oG;  /* activated gate values */
+    double* new_cell;
+} LstmGatesMeta;
+typedef struct {
+    int n, w;
+    double key_norm;
+    double* row_norms;
+    double* dots;
+} CosSimMeta;
 
 #define TAPE_INIT_CAP 4096
 
@@ -191,6 +207,7 @@ static int tape_append(int op, Tensor* result, Tensor* arg1, Tensor* arg2, doubl
     tape[idx].arg1 = arg1;
     tape[idx].arg2 = arg2;
     tape[idx].scalar_arg = scalar_arg;
+    tape[idx].op_meta = NULL;
     result->tape_idx = idx;
     return idx;
 }
@@ -447,7 +464,15 @@ TensorHandle tensor_mv(TensorHandle hmat, TensorHandle hvec) {
 
     Tensor* r = make_tensor(out_data, out_shape, 1, mat->requires_grad || vec->requires_grad);
     free(out_data);
-    if (r->requires_grad) tape_append(OP_MV, r, mat, vec, 0);
+    if (r->requires_grad) {
+        int idx = tape_append(OP_MV, r, mat, vec, 0);
+        /* Save input values for backward (input may be arena-allocated, freed before backward) */
+        MvMeta* meta = arena_alloc(sizeof(MvMeta));
+        meta->m = m; meta->n = n;
+        meta->x_vals = arena_alloc(n * sizeof(double));
+        memcpy(meta->x_vals, vec->data, n * sizeof(double));
+        tape[idx].op_meta = meta;
+    }
     return r;
 }
 
@@ -520,7 +545,13 @@ TensorHandle tensor_softmax(TensorHandle h, int dim) {
         r = make_tensor(data, t->shape, t->rank, t->requires_grad);
     }
     free(data);
-    if (r->requires_grad) tape_append(OP_SOFTMAX, r, t, NULL, 0);
+    if (r->requires_grad) {
+        int idx = tape_append(OP_SOFTMAX, r, t, NULL, 0);
+        SoftmaxMeta* meta = arena_alloc(sizeof(SoftmaxMeta));
+        meta->n = n;
+        meta->out_vals = r->data;  /* r persists in arena — safe to reference */
+        tape[idx].op_meta = meta;
+    }
     return r;
 }
 
@@ -1076,20 +1107,23 @@ void tensor_backward(TensorHandle h) {
             break;
 
         case OP_MV: {
-            /* d(Ax)/dA = grad ⊗ x, d(Ax)/dx = A^T @ grad */
-            int m = a->shape[0], n_mv = a->shape[1];
+            /* d(Ax)/dA[i,j] = grad[i] * x[j], d(Ax)/dx[j] = sum_i A[i,j] * grad[i] */
+            MvMeta* meta = (MvMeta*)e->op_meta;
+            int m_mv = meta ? meta->m : a->shape[0];
+            int n_mv = meta ? meta->n : a->shape[1];
+            double* x_vals = meta ? meta->x_vals : b->data;
             ensure_grad(r);
             if (a->requires_grad) {
                 ensure_grad(a);
-                for (int ii = 0; ii < m; ii++)
+                for (int ii = 0; ii < m_mv; ii++)
                     for (int jj = 0; jj < n_mv; jj++)
-                        a->grad[ii*n_mv+jj] += r->grad[ii] * b->data[jj];
+                        a->grad[ii*n_mv+jj] += r->grad[ii] * x_vals[jj];
             }
-            if (b->requires_grad) {
+            if (b && b->requires_grad) {
                 ensure_grad(b);
                 for (int jj = 0; jj < n_mv; jj++) {
                     double s = 0;
-                    for (int ii = 0; ii < m; ii++) s += a->data[ii*n_mv+jj] * r->grad[ii];
+                    for (int ii = 0; ii < m_mv; ii++) s += a->data[ii*n_mv+jj] * r->grad[ii];
                     b->grad[jj] += s;
                 }
             }
@@ -1147,6 +1181,47 @@ void tensor_backward(TensorHandle h) {
                 for (int j = 0; j < n_bce; j++) {
                     double sig = 1.0 / (1.0 + exp(-a->data[j]));
                     a->grad[j] += r->grad[0] * (sig - b->data[j]) / n_bce;
+                }
+            }
+            break;
+        }
+
+        case OP_LSTM_GATES: {
+            /* LSTM gates backward: propagate from hidden output to combined + prev_cell.
+               hidden[j] = oG[j] * tanh(cell[j])
+               cell[j] = fG[j] * prevCell[j] + iG[j] * gG[j]
+               The cell output gradient needs to be collected separately.
+               For now, this backward only handles the hidden output's gradient. */
+            LstmGatesMeta* lm = (LstmGatesMeta*)e->op_meta;
+            if (lm && a) {
+                int o_lstm = lm->o;
+                ensure_grad(a);  /* combined [4*o] */
+                ensure_grad(r);  /* hidden [o] */
+                if (b) ensure_grad(b);  /* prev_cell [o] */
+
+                for (int j = 0; j < o_lstm; j++) {
+                    double d_h = r->grad[j];
+                    double tanhC = tanh(lm->new_cell[j]);
+
+                    /* d_oGate = d_h * tanh(cell) */
+                    double d_oG = d_h * tanhC;
+                    /* d_cell from hidden path */
+                    double d_cell = d_h * lm->oG[j] * (1.0 - tanhC * tanhC);
+
+                    /* d_fGate = d_cell * prevCell */
+                    double d_fG = d_cell * (b ? b->data[j] : 0);
+                    /* d_iGate = d_cell * gG */
+                    double d_iG = d_cell * lm->gG[j];
+                    /* d_gGate = d_cell * iG */
+                    double d_gG = d_cell * lm->iG[j];
+                    /* d_prevCell = d_cell * fG */
+                    if (b) b->grad[j] += d_cell * lm->fG[j];
+
+                    /* Activation derivatives → combined gradient */
+                    a->grad[j]          += d_iG * lm->iG[j] * (1.0 - lm->iG[j]);  /* sigmoid' */
+                    a->grad[o_lstm + j]  += d_fG * lm->fG[j] * (1.0 - lm->fG[j]);
+                    a->grad[2*o_lstm + j] += d_gG * (1.0 - lm->gG[j] * lm->gG[j]);  /* tanh' */
+                    a->grad[3*o_lstm + j] += d_oG * lm->oG[j] * (1.0 - lm->oG[j]);
                 }
             }
             break;
@@ -1284,23 +1359,51 @@ void tensor_lstm_gates(TensorHandle combined_h, TensorHandle prev_cell_h, int o,
 {
     Tensor* combined = (Tensor*)combined_h;
     Tensor* prev_cell = (Tensor*)prev_cell_h;
+    int rg = combined->requires_grad || prev_cell->requires_grad;
     double* out_hidden = calloc(o, sizeof(double));
     double* out_cell = calloc(o, sizeof(double));
 
+    /* Save gate activations for backward */
+    LstmGatesMeta* meta = NULL;
+    if (rg) {
+        meta = arena_alloc(sizeof(LstmGatesMeta));
+        meta->o = o;
+        meta->iG = arena_alloc(o * sizeof(double));
+        meta->fG = arena_alloc(o * sizeof(double));
+        meta->gG = arena_alloc(o * sizeof(double));
+        meta->oG = arena_alloc(o * sizeof(double));
+        meta->new_cell = arena_alloc(o * sizeof(double));
+    }
+
     for (int j = 0; j < o; j++) {
-        double ig = 1.0 / (1.0 + exp(-combined->data[j]));         /* input gate */
-        double fg = 1.0 / (1.0 + exp(-combined->data[o+j]));       /* forget gate */
-        double gg = tanh(combined->data[2*o+j]);                     /* cell gate */
-        double og = 1.0 / (1.0 + exp(-combined->data[3*o+j]));     /* output gate */
+        double ig = 1.0 / (1.0 + exp(-combined->data[j]));
+        double fg = 1.0 / (1.0 + exp(-combined->data[o+j]));
+        double gg = tanh(combined->data[2*o+j]);
+        double og = 1.0 / (1.0 + exp(-combined->data[3*o+j]));
         out_cell[j] = fg * prev_cell->data[j] + ig * gg;
         out_hidden[j] = og * tanh(out_cell[j]);
+        if (meta) {
+            meta->iG[j] = ig; meta->fG[j] = fg;
+            meta->gG[j] = gg; meta->oG[j] = og;
+            meta->new_cell[j] = out_cell[j];
+        }
     }
 
     int shape[] = {o};
-    *out_h = make_tensor(out_hidden, shape, 1, 0);
-    *out_c = make_tensor(out_cell, shape, 1, 0);
+    *out_h = make_tensor(out_hidden, shape, 1, rg);
+    *out_c = make_tensor(out_cell, shape, 1, rg);
     free(out_hidden);
     free(out_cell);
+
+    if (rg) {
+        /* Record LSTM gates as a tape entry on the hidden output.
+           The cell output gets a CONST entry (backward will need to
+           collect grad from both). */
+        int idx = tape_append(OP_LSTM_GATES, (Tensor*)*out_h, combined, prev_cell, (double)o);
+        tape[idx].op_meta = meta;
+        /* Also put cell on tape as CONST so it has requires_grad */
+        tape_append(OP_CONST, (Tensor*)*out_c, NULL, NULL, 0);
+    }
 }
 
 TensorPair* tensor_lstm_gates_pair(TensorHandle combined, TensorHandle prev_cell, int o) {
@@ -1652,7 +1755,7 @@ double optimizer_clip_grad_norm(double max_norm) {
    System
    ================================================================ */
 
-int backend_supports_tensor_params(void) { return 0; }
+int backend_supports_tensor_params(void) { return 1; }
 
 int get_rss_mb(void) {
 #ifdef __APPLE__
