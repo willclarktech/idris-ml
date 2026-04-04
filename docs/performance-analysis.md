@@ -456,3 +456,48 @@ forward pass) or dual grad arrays (requires changing all backward kernels). The
 estimated benefit (~2-5ms backward, ~80MB memory) does not justify the architectural
 complexity. The remaining ~1.6x gap vs PyTorch is best addressed by tensor-level
 Variables (Path C).
+
+## 6. libtorch Backend (2026-04-01)
+
+Replaced the custom C backend entirely with libtorch. All autograd delegated to
+libtorch's native tensor-level autograd. -4701 net lines of code.
+
+### Architecture Changes
+
+- Variable: `{tensorPtr : AnyPtr, paramId, value}` wrapping `at::Tensor*`
+- Autograd: libtorch builds computation graph per-op, `backward()` traverses it
+- Optimizer: `torch::optim::RMSprop/SGD/Adam` via NativeOptimizer
+- Linear/LSTM: consolidated weight tensors (1 tensor_mv call vs stacking m*n scalars)
+- NTM: fused C read/write head operations (cosine sim + softmax + interpolation + shift + sharpen + read in 1 C call)
+
+### Benchmark Results (libtorch backend)
+
+```
+Model             Idris-torch (ms)  Old C (ms)   PyTorch (ms)  vs Old C   vs PyTorch
+Supervised (1000 ep)       4,047         90         242          45x slower  17x slower
+RNN (1000 ep)             21,893        400       2,212          55x slower  10x slower
+NTM-copy (100 ep)         20,505     14,660      13,186          1.4x slower 1.6x slower
+```
+
+### Analysis
+
+The libtorch backend is dramatically slower for small models (Supervised, RNN)
+because every scalar Variable is a libtorch tensor with autograd graph overhead.
+The old backend used arena-allocated tape entries (~4 memory writes per op) vs
+libtorch's tensor allocation + graph node construction per op.
+
+NTM performance is closer (1.4x) because fused C operations handle the memory
+matrix addressing at the tensor level, amortizing the per-op overhead.
+
+### Performance Recovery Path
+
+The `backend.h` C API abstracts all tensor operations. To recover old-backend
+performance while keeping the clean architecture:
+
+1. **Port tape management from Scheme to C**: Create `backend_tape.c` implementing
+   `backend.h` with the old arena-allocated tape + BLAS kernels. Same API, old
+   performance characteristics.
+2. **MLX backend**: Create `backend_mlx.c` for Apple Metal GPU via mlx-c.
+3. **Build-time selection**: `make backend BACKEND=torch|tape|mlx`
+
+Pre-migration commit tagged as `legacy-c-backend` (18a11e2) for reference.
