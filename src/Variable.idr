@@ -213,6 +213,16 @@ prim__pairFirst : AnyPtr -> AnyPtr
 export
 prim__pairSecond : AnyPtr -> AnyPtr
 
+-- Fused NTM read head: entire addressing pipeline in one C call
+%foreign "C:tensor_ntm_read_head,libidrisml_torch"
+export
+prim__ntmReadHead : AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr
+
+-- NTM interpolation write: memory + outer(weights, add)
+%foreign "C:tensor_ntm_interp_write,libidrisml_torch"
+export
+prim__ntmInterpWrite : AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr
+
 -- Tensor-level forward ops (used by layers with consolidated weight tensors)
 ||| Matrix-vector multiply on raw tensor pointers.
 export

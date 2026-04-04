@@ -8,6 +8,9 @@ extern "C" {
 /* Opaque tensor handle — wraps backend-specific tensor (e.g. at::Tensor*) */
 typedef void* TensorHandle;
 
+/* Pair of tensor handles (for functions returning two results) */
+typedef struct { TensorHandle first; TensorHandle second; } TensorPair;
+
 /* ---------- Lifecycle ---------- */
 
 TensorHandle tensor_create_scalar(double value, int requires_grad);
@@ -71,6 +74,21 @@ TensorHandle tensor_mse_loss(TensorHandle input, TensorHandle target);
 TensorHandle tensor_cosine_similarity(TensorHandle a, TensorHandle b, int dim);
 TensorHandle tensor_conv1d_circular(TensorHandle input, TensorHandle kernel);
 
+/* Fused NTM read head addressing pipeline (all tensor-level, no scalar stacking).
+   Takes: memory [n,w], prev_weights [n], key [w], beta (scalar), g (scalar),
+          gamma (scalar), shift_kernel [3]
+   Returns: (new_weights [n], read_output [w]) as TensorPair* */
+TensorPair* tensor_ntm_read_head(
+    TensorHandle memory, TensorHandle prev_weights,
+    TensorHandle key, TensorHandle beta, TensorHandle g,
+    TensorHandle gamma, TensorHandle shift_kernel);
+
+/* Fused NTM write: interpolation write (no erase).
+   memory' = memory + outer(weights, add_vector)
+   Returns: new_memory [n,w] */
+TensorHandle tensor_ntm_interp_write(
+    TensorHandle memory, TensorHandle weights, TensorHandle add_vector);
+
 /* ---------- Shape manipulation ---------- */
 
 TensorHandle tensor_reshape(TensorHandle t, int* shape, int rank);
@@ -115,8 +133,6 @@ void tensor_lstm_gates(
     TensorHandle combined, TensorHandle prev_cell, int o,
     TensorHandle* out_h, TensorHandle* out_c);
 
-/* Pair result: stores two tensor handles. Used for LSTM (hidden, cell). */
-typedef struct { TensorHandle first; TensorHandle second; } TensorPair;
 TensorPair* tensor_lstm_gates_pair(TensorHandle combined, TensorHandle prev_cell, int o);
 TensorHandle tensor_pair_first(TensorPair* p);
 TensorHandle tensor_pair_second(TensorPair* p);

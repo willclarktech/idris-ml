@@ -210,6 +210,61 @@ TensorHandle tensor_conv1d_circular(TensorHandle input, TensorHandle kernel) {
     return from_tensor(out.reshape({n}));
 }
 
+TensorPair* tensor_ntm_read_head(
+    TensorHandle memory_h, TensorHandle prev_weights_h,
+    TensorHandle key_h, TensorHandle beta_h, TensorHandle g_h,
+    TensorHandle gamma_h, TensorHandle shift_kernel_h)
+{
+    auto& memory = *to_tensor(memory_h);           /* [n, w] */
+    auto& prev_weights = *to_tensor(prev_weights_h); /* [n] */
+    auto& key = *to_tensor(key_h);                 /* [w] */
+    auto& beta = *to_tensor(beta_h);               /* scalar */
+    auto& g = *to_tensor(g_h);                     /* scalar */
+    auto& gamma = *to_tensor(gamma_h);             /* scalar */
+    auto& shift_kernel = *to_tensor(shift_kernel_h); /* [3] or [K] */
+
+    /* 1. Content addressing: softmax(beta * cosine_similarity(key, memory)) */
+    auto key_expanded = key.unsqueeze(0);           /* [1, w] */
+    auto cos_sim = torch::nn::functional::cosine_similarity(
+        memory, key_expanded,
+        torch::nn::functional::CosineSimilarityFuncOptions().dim(1));
+    auto content_weights = torch::softmax(beta * cos_sim, 0);
+
+    /* 2. Interpolation: g * content + (1-g) * prev */
+    auto interpolated = g * content_weights + (1.0 - g) * prev_weights;
+
+    /* 3. Circular shift convolution */
+    int64_t n = interpolated.size(0);
+    int64_t k = shift_kernel.size(0);
+    int64_t pad = k / 2;
+    auto padded = torch::cat({interpolated.slice(0, n - pad, n), interpolated, interpolated.slice(0, 0, pad)});
+    auto inp_3d = padded.reshape({1, 1, -1});
+    auto ker_3d = shift_kernel.flip(0).reshape({1, 1, -1});
+    auto shifted = torch::conv1d(inp_3d, ker_3d).reshape({n});
+
+    /* 4. Sharpening: w^gamma / sum(w^gamma) */
+    auto powered = torch::pow(shifted, gamma);
+    auto focused = powered / powered.sum();
+
+    /* 5. Read: matmul(weights, memory) → [w] */
+    auto read_output = torch::matmul(focused, memory);
+
+    auto* p = new TensorPair;
+    p->first = from_tensor(std::move(focused));
+    p->second = from_tensor(std::move(read_output));
+    return p;
+}
+
+TensorHandle tensor_ntm_interp_write(
+    TensorHandle memory_h, TensorHandle weights_h, TensorHandle add_vector_h)
+{
+    auto& memory = *to_tensor(memory_h);
+    auto& weights = *to_tensor(weights_h);
+    auto& add_vector = *to_tensor(add_vector_h);
+    /* memory' = memory + outer(weights, add_vector) */
+    return from_tensor(memory + torch::outer(weights, add_vector));
+}
+
 /* ---------- Shape manipulation ---------- */
 
 TensorHandle tensor_reshape(TensorHandle h, int* shape, int rank) {
