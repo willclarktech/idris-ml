@@ -237,3 +237,39 @@ Tensor op meta structs store `out_tape_start = idx + 1` (first output gradient i
 ### C-bulk delta application
 
 `applyDeltasAndSyncLayer`/`applyDeltasAndSyncNetwork` in Layer.idr apply optimizer deltas directly to WeightBuf/NtmMemBuf C arrays via `buf_apply_deltas(vals, pid_ids, count, deltas)`. Each buffer stores a parallel `int *pid_ids` array (populated during `nameParams`). This bypasses the Scheme `emap (applyDeltasDense ...)` + `syncNetworkBuffers` traversals (~63K Variable operations). WeightBuf pid_ids stored in Scheme 6-vector slot [4]; NtmMemBuf pid_ids stored in C struct field. Cache generations are reset to force tape re-registration next epoch. **Important**: Variable.value fields are NOT updated — call `readFromBuffersNetwork` before `toDoubleNetwork` to sync C buffer values back into Variable records for evaluation.
+
+## C Tape Backend (backend_tape.c)
+
+These gotchas apply to the C tape backend (`BACKEND=tape`), which implements `backend.h` with a flat Wengert list in C.
+
+### `tensor_select` rank-0 identity
+
+`binop_elementwise` produces scalars (rank 0, numel=1) when both inputs have numel==1. If `tensorToScalars` then calls `tensor_select` on the rank-0 result, it must return the tensor itself (identity) to preserve the tape entry. The fallback path (`make_scalar(t->data[index], t->requires_grad)`) creates a copy with NO tape entry, breaking the gradient chain. Affected: any layer with output size 1 (e.g., LSTM example's Linear<1:1>).
+
+### Arena vs calloc for view tensors
+
+`tensor_select` (rank-1 and rank-2) creates view Tensor structs. Use `arena_alloc` (freed on tape reset) not `calloc` (never freed). Each `tensorToScalars(n)` call creates n view tensors; over thousands of epochs this leaks GBs. Exception: `tensor_view_1d`/`tensor_view_2d` are called once in `nameLayer` and must persist — keep as `calloc`.
+
+### Optimizer per-element buffers
+
+RMSprop/Adam velocity and momentum buffers must be sized by total parameter ELEMENTS, not total parameter count. A [400,29] weight matrix needs 11,600 velocity slots, not 1. Index via `param_element_offset(i) + j`. SGD is unaffected (no buffers).
+
+### Fused ops require backward rules
+
+Any fused C operation that sets `requires_grad=1` on its output MUST also append tape entries and implement backward cases. Without a backward rule, the gradient chain breaks silently — the op's result gets gradient but it's never propagated to inputs. The NTM fused ops (`tensor_ntm_read_head`, `tensor_ntm_interp_write`) were originally forward-only; backward rules were added for OP_NTM_READ_HEAD, OP_NTM_READ_HEAD_READ, and OP_NTM_INTERP_WRITE.
+
+### NTM state is not a parameter
+
+NTM memory, readAddr, writeAddr, readOutput are per-sequence state, NOT learned parameters. Do NOT register them with `prim__paramRegister` — the optimizer will corrupt them with gradient updates. Use `tensor_create_state_2d`/`tensor_create_state_1d` (persistent, `requires_grad=0`, no param registration). The fused addressing ops still propagate gradients to the key, beta, g, gamma, shift inputs (which DO come from FC layers with `requires_grad=1`).
+
+### `tensor_matmul` vector-matrix backward
+
+`tensor_matmul` for [n]×[n,m] → [m] needs `OP_VECMAT` (not `OP_DOT`). The DOT backward only reads `grad[0]`, which is wrong for vector results. The VECMAT backward: `d_a[i] = Σ_j grad[j]*b[i,j]`, `d_b[i,j] = grad[j]*a[i]`.
+
+### Arena never frees chunks
+
+`arena_reset()` resets `.used` pointers but never frees chunks. Memory grows to accommodate the peak forward+backward pass, then stabilizes. For NTM with n=128, this can reach several GB before stabilizing. This is by design (avoids realloc invalidation) but means RSS never decreases.
+
+### `toDoubleLayer` must use tensor handles for learned weights
+
+After training with `NativeOptimizer`, the optimizer mutates param tensor data in-place. The scalar Variable `.value` fields are stale (from initial forward pass). `toDoubleLayer` must read from tensor handles (via `buildDoubleMatrix`/`buildDoubleVector` using `prim__item2d`/`prim__item1d`) for learned weights. Exception: non-learnable state (NTM memory, addressing) can use `map value` since those retain initial values.
