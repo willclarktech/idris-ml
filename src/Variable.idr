@@ -187,6 +187,15 @@ prim__createParam2d : Int -> Int -> AnyPtr -> AnyPtr
 export
 prim__createParam1d : Int -> AnyPtr -> AnyPtr
 
+-- Persistent non-param tensors (for non-learnable state like NTM memory)
+%foreign "C:tensor_create_state_2d,libidrisml"
+export
+prim__createState2d : Int -> Int -> AnyPtr -> AnyPtr
+
+%foreign "C:tensor_create_state_1d,libidrisml"
+export
+prim__createState1d : Int -> AnyPtr -> AnyPtr
+
 %foreign "C:tensor_view_2d,libidrisml"
 export
 prim__view2d : AnyPtr -> Int -> Int -> AnyPtr

@@ -184,6 +184,9 @@ TensorHandle   tensor_cat_from_array(TensorHandle* arr, int count, int dim);
 TensorHandle tensor_create_param_2d(int rows, int cols, double* data);
 /* Create a [n] tensor filled with given data, requires_grad=true */
 TensorHandle tensor_create_param_1d(int n, double* data);
+/* Create persistent tensors WITHOUT requires_grad (for non-learnable state) */
+TensorHandle tensor_create_state_2d(int rows, int cols, double* data);
+TensorHandle tensor_create_state_1d(int n, double* data);
 /* Get a scalar view into element [row, col] of a 2D tensor (shares storage) */
 TensorHandle tensor_view_2d(TensorHandle mat, int row, int col);
 /* Get a scalar view into element [idx] of a 1D tensor (shares storage) */

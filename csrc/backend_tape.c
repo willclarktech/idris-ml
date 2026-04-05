@@ -1925,6 +1925,34 @@ TensorHandle tensor_create_param_1d(int n, double* data) {
     return t;
 }
 
+/* Persistent tensors WITHOUT requires_grad — for non-learnable NTM state */
+TensorHandle tensor_create_state_2d(int rows, int cols, double* data) {
+    int numel = rows * cols;
+    Tensor* t = calloc(1, sizeof(Tensor));
+    t->data = malloc(numel * sizeof(double));
+    memcpy(t->data, data, numel * sizeof(double));
+    t->shape = malloc(2 * sizeof(int));
+    t->shape[0] = rows; t->shape[1] = cols;
+    t->rank = 2; t->numel = numel;
+    t->requires_grad = 0;
+    t->tape_idx = -1;
+    t->persistent = 1;
+    return t;
+}
+
+TensorHandle tensor_create_state_1d(int n, double* data) {
+    Tensor* t = calloc(1, sizeof(Tensor));
+    t->data = malloc(n * sizeof(double));
+    memcpy(t->data, data, n * sizeof(double));
+    t->shape = malloc(sizeof(int));
+    t->shape[0] = n;
+    t->rank = 1; t->numel = n;
+    t->requires_grad = 0;
+    t->tape_idx = -1;
+    t->persistent = 1;
+    return t;
+}
+
 TensorHandle tensor_view_2d(TensorHandle h, int row, int col) {
     Tensor* t = (Tensor*)h;
     int cols = t->shape[1];

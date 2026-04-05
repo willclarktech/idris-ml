@@ -98,17 +98,13 @@ tests =
        r3 <- check "autoName lstm+linear: no duplicates" (noDuplicates ids)
        pure (r1 && r2 && r3)
 
-  -- NTM: LSTM + head FCs + output FC + state params
+  -- NTM: LSTM + head FCs + output FC (state is non-learnable, not registered as params)
   , do srand 42
        ntm <- ntmLayer {inputSize=9, outputSize=8, n=10, m=5, h=4}
        let named = autoName $ OutputLayer ntm
        let ids = networkParamIds named
-       r1 <- check "autoName ntm: has ntm0_mem" (hasPrefix "ntm0_mem" ids)
-       r2 <- check "autoName ntm: has ntm0_rAddr" (hasPrefix "ntm0_rAddr" ids)
-       r3 <- check "autoName ntm: has ntm0_wAddr" (hasPrefix "ntm0_wAddr" ids)
-       r4 <- check "autoName ntm: has ntm0_rOut" (hasPrefix "ntm0_rOut" ids)
-       r5 <- check "autoName ntm: has ntm0_lstm0_ (controller)" (hasPrefix "ntm0_lstm0_" ids)
-       r6 <- check "autoName ntm: has ntm0_readFc_ (read FC)" (hasPrefix "ntm0_readFc_" ids)
-       r7 <- check "autoName ntm: no duplicates" (noDuplicates ids)
-       pure (r1 && r2 && r3 && r4 && r5 && r6 && r7)
+       r1 <- check "autoName ntm: has ntm0_lstm0_ (controller)" (hasPrefix "ntm0_lstm0_" ids)
+       r2 <- check "autoName ntm: has ntm0_readFc_ (read FC)" (hasPrefix "ntm0_readFc_" ids)
+       r3 <- check "autoName ntm: no duplicates" (noDuplicates ids)
+       pure (r1 && r2 && r3)
   ]

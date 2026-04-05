@@ -277,23 +277,20 @@ export
         namedWriteFc = nameLayer (prefx ++ "_writeFc_ll0") writeFc
         namedOutputFc = nameLayer (prefx ++ "_outputFc_ll0") outputFc
     in if prim__backendSupportsTensorParams == 1
-      then -- Tensor path: consolidated tensors + views
-        let np = nameParam . (prefx ++ "_" ++)
-            (VTensor memRows) = memory
+      then -- Tensor path: consolidated tensors for sub-layers + non-param state tensors
+        let (VTensor memRows) = memory
             (VTensor raElems) = readAddr
             (VTensor waElems) = writeAddr
             (VTensor roElems) = readOutput
             nI = cast {to=Int} n
             mI = cast {to=Int} m
-            memT = prim__paramRegister (prefx ++ "_memory") (prim__createParam2d nI mI (let buf = prim__allocDoubles (nI * mI) in packMatrixValues buf 0 {n=m} memRows))
-            raT = prim__paramRegister (prefx ++ "_readAddr") (prim__createParam1d nI (let buf = prim__allocDoubles nI in packScalarValues buf 0 raElems))
-            waT = prim__paramRegister (prefx ++ "_writeAddr") (prim__createParam1d nI (let buf = prim__allocDoubles nI in packScalarValues buf 0 waElems))
-            roT = prim__paramRegister (prefx ++ "_readOutput") (prim__createParam1d mI (let buf = prim__allocDoubles mI in packScalarValues buf 0 roElems))
+            -- NTM state: persistent but NOT params (non-learnable, reset per sequence)
+            memT = prim__createState2d nI mI (let buf = prim__allocDoubles (nI * mI) in packMatrixValues buf 0 {n=m} memRows)
+            raT = prim__createState1d nI (let buf = prim__allocDoubles nI in packScalarValues buf 0 raElems)
+            waT = prim__createState1d nI (let buf = prim__allocDoubles nI in packScalarValues buf 0 waElems)
+            roT = prim__createState1d mI (let buf = prim__allocDoubles mI in packScalarValues buf 0 roElems)
         in MkNtm namedLstm namedReadFc namedWriteFc namedOutputFc
-                 (VTensor $ buildViewMatrix (prefx ++ "_mem") memT 0 0 n m)
-                 (VTensor $ buildViewVector (prefx ++ "_rAddr") raT 0 n)
-                 (VTensor $ buildViewVector (prefx ++ "_wAddr") waT 0 n)
-                 (VTensor $ buildViewVector (prefx ++ "_rOut") roT 0 m)
+                 memory readAddr writeAddr readOutput
                  (Just memT) (Just raT) (Just waT) (Just roT)
       else -- Scalar path (tape backend)
         let np = nameParam . (prefx ++ "_" ++)
@@ -306,35 +303,10 @@ export
 
   layerPrefix _ = "ntm"
 
-  toDoubleLayer {n} {m} (MkNtm lstm rfc wfc ofc mem ra wa ro memT raT waT roT) =
-    let dLstm = toDoubleLayer lstm
-        dRfc = toDoubleLayer rfc
-        dWfc = toDoubleLayer wfc
-        dOfc = toDoubleLayer ofc
-    in case (memT, raT, waT, roT) of
-      (Just mT, Just rT, Just wT, Just oT) =>
-        MkNtm dLstm dRfc dWfc dOfc
-              (VTensor $ buildDblMat mT 0 n m) (VTensor $ buildDblVec rT 0 n)
-              (VTensor $ buildDblVec wT 0 n) (VTensor $ buildDblVec oT 0 m)
-              Nothing Nothing Nothing Nothing
-      _ => MkNtm dLstm dRfc dWfc dOfc
-                 (map value mem) (map value ra) (map value wa) (map value ro)
-                 Nothing Nothing Nothing Nothing
-    where
-      buildDblRow : AnyPtr -> Int -> Int -> (k : Nat) -> Vect k (Scalar Double)
-      buildDblRow _ _ _ Z = []
-      buildDblRow mat row col (S k) =
-        STensor (prim__item2d mat row col) :: buildDblRow mat row (col + 1) k
-
-      buildDblMat : AnyPtr -> Int -> (rows : Nat) -> (cols : Nat) -> Vect rows (Vector cols Double)
-      buildDblMat _ _ Z _ = []
-      buildDblMat mat row (S r) cols =
-        VTensor (buildDblRow mat row 0 cols) :: buildDblMat mat (row + 1) r cols
-
-      buildDblVec : AnyPtr -> Int -> (k : Nat) -> Vect k (Scalar Double)
-      buildDblVec _ _ Z = []
-      buildDblVec vec idx (S k) =
-        STensor (prim__item1d vec idx) :: buildDblVec vec (idx + 1) k
+  toDoubleLayer (MkNtm lstm rfc wfc ofc mem ra wa ro _ _ _ _) =
+    MkNtm (toDoubleLayer lstm) (toDoubleLayer rfc) (toDoubleLayer wfc) (toDoubleLayer ofc)
+           (map value mem) (map value ra) (map value wa) (map value ro)
+           Nothing Nothing Nothing Nothing
 
   debugApply {i} {o} (MkNtm lstm readFc writeFc outputFc memory readAddr writeAddr readOutput mt rat wat rot) inp =
     let st = MkNtm lstm readFc writeFc outputFc memory readAddr writeAddr readOutput mt rat wat rot
