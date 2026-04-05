@@ -982,7 +982,8 @@ TensorHandle tensor_select(TensorHandle h, int dim, int index) {
        to preserve tape connectivity (the scalar already has a tape entry). */
     if (t->rank == 0) return h;
     if (t->rank == 1) {
-        Tensor* v = calloc(1, sizeof(Tensor));
+        Tensor* v = arena_alloc(sizeof(Tensor));
+        memset(v, 0, sizeof(Tensor));
         v->data = &t->data[index];
         v->shape = NULL;
         v->rank = 0;
@@ -995,11 +996,11 @@ TensorHandle tensor_select(TensorHandle h, int dim, int index) {
         return v;
     } else if (t->rank == 2 && dim == 0) {
         int cols = t->shape[1];
-        int shape[] = {cols};
         /* Row selection: share data with parent */
-        Tensor* r = calloc(1, sizeof(Tensor));
+        Tensor* r = arena_alloc(sizeof(Tensor));
+        memset(r, 0, sizeof(Tensor));
         r->data = t->data + index * cols;
-        r->shape = malloc(sizeof(int));
+        r->shape = arena_alloc(sizeof(int));
         r->shape[0] = cols;
         r->rank = 1;
         r->numel = cols;

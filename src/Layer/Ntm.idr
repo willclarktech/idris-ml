@@ -306,10 +306,35 @@ export
 
   layerPrefix _ = "ntm"
 
-  toDoubleLayer (MkNtm lstm rfc wfc ofc mem ra wa ro _ _ _ _) =
-    MkNtm (toDoubleLayer lstm) (toDoubleLayer rfc) (toDoubleLayer wfc) (toDoubleLayer ofc)
-           (map value mem) (map value ra) (map value wa) (map value ro)
-           Nothing Nothing Nothing Nothing
+  toDoubleLayer {n} {m} (MkNtm lstm rfc wfc ofc mem ra wa ro memT raT waT roT) =
+    let dLstm = toDoubleLayer lstm
+        dRfc = toDoubleLayer rfc
+        dWfc = toDoubleLayer wfc
+        dOfc = toDoubleLayer ofc
+    in case (memT, raT, waT, roT) of
+      (Just mT, Just rT, Just wT, Just oT) =>
+        MkNtm dLstm dRfc dWfc dOfc
+              (VTensor $ buildDblMat mT 0 n m) (VTensor $ buildDblVec rT 0 n)
+              (VTensor $ buildDblVec wT 0 n) (VTensor $ buildDblVec oT 0 m)
+              Nothing Nothing Nothing Nothing
+      _ => MkNtm dLstm dRfc dWfc dOfc
+                 (map value mem) (map value ra) (map value wa) (map value ro)
+                 Nothing Nothing Nothing Nothing
+    where
+      buildDblRow : AnyPtr -> Int -> Int -> (k : Nat) -> Vect k (Scalar Double)
+      buildDblRow _ _ _ Z = []
+      buildDblRow mat row col (S k) =
+        STensor (prim__item2d mat row col) :: buildDblRow mat row (col + 1) k
+
+      buildDblMat : AnyPtr -> Int -> (rows : Nat) -> (cols : Nat) -> Vect rows (Vector cols Double)
+      buildDblMat _ _ Z _ = []
+      buildDblMat mat row (S r) cols =
+        VTensor (buildDblRow mat row 0 cols) :: buildDblMat mat (row + 1) r cols
+
+      buildDblVec : AnyPtr -> Int -> (k : Nat) -> Vect k (Scalar Double)
+      buildDblVec _ _ Z = []
+      buildDblVec vec idx (S k) =
+        STensor (prim__item1d vec idx) :: buildDblVec vec (idx + 1) k
 
   debugApply {i} {o} (MkNtm lstm readFc writeFc outputFc memory readAddr writeAddr readOutput mt rat wat rot) inp =
     let st = MkNtm lstm readFc writeFc outputFc memory readAddr writeAddr readOutput mt rat wat rot
