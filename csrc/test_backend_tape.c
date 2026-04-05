@@ -5,6 +5,7 @@
 #include "backend.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <math.h>
 
 static int failures = 0;
@@ -533,6 +534,140 @@ static void test_lstm_select_stack_chain(void) {
 }
 
 /* ================================================================
+   T6: NTM read head gradient check (finite differences)
+   ================================================================ */
+
+/* Helper: run fused NTM read head forward, sum outputs, return scalar loss */
+static double ntm_read_forward_loss(
+    double* mem_data, int n, int w,
+    double* prev_w_data, double* key_data,
+    double beta_v, double g_v, double gamma_v,
+    double* shift_data, int k)
+{
+    param_clear();
+    int mem_shape[] = {n, w};
+    TensorHandle mem = tensor_create(mem_data, mem_shape, 2, 1);
+    int pw_shape[] = {n};
+    TensorHandle pw = tensor_create(prev_w_data, pw_shape, 1, 1);
+    int key_shape[] = {w};
+    TensorHandle key = tensor_create(key_data, key_shape, 1, 1);
+    TensorHandle beta = tensor_create_scalar(beta_v, 1);
+    TensorHandle g = tensor_create_scalar(g_v, 1);
+    TensorHandle gamma = tensor_create_scalar(gamma_v, 1);
+    int s_shape[] = {k};
+    TensorHandle shift = tensor_create(shift_data, s_shape, 1, 1);
+
+    TensorPair* pair = tensor_ntm_read_head(mem, pw, key, beta, g, gamma, shift);
+    TensorHandle focused = tensor_pair_first(pair);
+    TensorHandle read_out = tensor_pair_second(pair);
+
+    /* loss = sum(focused) + sum(read_out) */
+    TensorHandle loss = tensor_add(tensor_sum(focused), tensor_sum(read_out));
+    double val = tensor_item(loss);
+    free(pair);
+    return val;
+}
+
+static void test_ntm_read_head_grad(void) {
+    printf("\n--- NTM read head gradient check ---\n");
+    param_clear();
+
+    int n = 4, w = 3, k = 3;
+    double mem[] = {0.1, 0.2, 0.3,
+                    0.4, 0.5, 0.6,
+                    0.7, 0.8, 0.9,
+                    0.01, 0.02, 0.03};
+    double prev_w[] = {0.25, 0.25, 0.25, 0.25};
+    double key_data[] = {0.5, 0.3, 0.1};
+    double beta_v = 1.5, g_v = 0.7, gamma_v = 1.2;
+    double shift_data[] = {0.1, 0.8, 0.1};
+
+    /* Analytical gradient via backward */
+    int mem_shape[] = {n, w};
+    TensorHandle memT = tensor_create(mem, mem_shape, 2, 1);
+    param_register("mem", memT);
+    int pw_shape[] = {n};
+    TensorHandle pwT = tensor_create(prev_w, pw_shape, 1, 1);
+    param_register("pw", pwT);
+    int key_shape[] = {w};
+    TensorHandle keyT = tensor_create(key_data, key_shape, 1, 1);
+    param_register("key", keyT);
+    TensorHandle betaT = tensor_create_scalar(beta_v, 1);
+    param_register("beta", betaT);
+    TensorHandle gT = tensor_create_scalar(g_v, 1);
+    param_register("g", gT);
+    TensorHandle gammaT = tensor_create_scalar(gamma_v, 1);
+    param_register("gamma", gammaT);
+    int s_shape[] = {k};
+    TensorHandle shiftT = tensor_create(shift_data, s_shape, 1, 1);
+    param_register("shift", shiftT);
+
+    TensorPair* pair = tensor_ntm_read_head(memT, pwT, keyT, betaT, gT, gammaT, shiftT);
+    TensorHandle focused = tensor_pair_first(pair);
+    TensorHandle read_out = tensor_pair_second(pair);
+
+    TensorHandle loss = tensor_add(tensor_sum(focused), tensor_sum(read_out));
+    tensor_backward(loss);
+
+    /* Params: 0=mem, 1=pw, 2=key, 3=beta, 4=g, 5=gamma, 6=shift */
+
+    /* Check key gradient via finite differences */
+    double eps = 1e-5;
+    double key_copy[3];
+    int key_ok = 1;
+    for (int j = 0; j < w; j++) {
+        memcpy(key_copy, key_data, w * sizeof(double));
+        key_copy[j] += eps;
+        double f_plus = ntm_read_forward_loss(mem, n, w, prev_w, key_copy, beta_v, g_v, gamma_v, shift_data, k);
+        key_copy[j] = key_data[j] - eps;
+        double f_minus = ntm_read_forward_loss(mem, n, w, prev_w, key_copy, beta_v, g_v, gamma_v, shift_data, k);
+        double fd_grad = (f_plus - f_minus) / (2 * eps);
+        double analytic = param_grad_item_at(2, j);
+        double err = fabs(fd_grad - analytic);
+        printf("  key[%d]: fd=%f analytic=%f err=%e\n", j, fd_grad, analytic, err);
+        if (err > 1e-3) key_ok = 0;
+    }
+    ASSERT_TRUE("key gradient matches finite diff", key_ok);
+
+    /* Check beta gradient */
+    {
+        double f_plus = ntm_read_forward_loss(mem, n, w, prev_w, key_data, beta_v + eps, g_v, gamma_v, shift_data, k);
+        double f_minus = ntm_read_forward_loss(mem, n, w, prev_w, key_data, beta_v - eps, g_v, gamma_v, shift_data, k);
+        double fd_grad = (f_plus - f_minus) / (2 * eps);
+        double analytic = param_grad_item_at(3, 0);
+        printf("  beta: fd=%f analytic=%f err=%e\n", fd_grad, analytic, fabs(fd_grad - analytic));
+        ASSERT_NEAR("beta gradient", analytic, fd_grad, 1e-3);
+    }
+
+    /* Check g gradient */
+    {
+        double f_plus = ntm_read_forward_loss(mem, n, w, prev_w, key_data, beta_v, g_v + eps, gamma_v, shift_data, k);
+        double f_minus = ntm_read_forward_loss(mem, n, w, prev_w, key_data, beta_v, g_v - eps, gamma_v, shift_data, k);
+        double fd_grad = (f_plus - f_minus) / (2 * eps);
+        double analytic = param_grad_item_at(4, 0);
+        printf("  g: fd=%f analytic=%f err=%e\n", fd_grad, analytic, fabs(fd_grad - analytic));
+        ASSERT_NEAR("g gradient", analytic, fd_grad, 1e-3);
+    }
+
+    /* Check memory gradient (first element) */
+    {
+        double mem_copy[12];
+        memcpy(mem_copy, mem, 12 * sizeof(double));
+        mem_copy[0] += eps;
+        double f_plus = ntm_read_forward_loss(mem_copy, n, w, prev_w, key_data, beta_v, g_v, gamma_v, shift_data, k);
+        mem_copy[0] = mem[0] - eps;
+        double f_minus = ntm_read_forward_loss(mem_copy, n, w, prev_w, key_data, beta_v, g_v, gamma_v, shift_data, k);
+        double fd_grad = (f_plus - f_minus) / (2 * eps);
+        double analytic = param_grad_item_at(0, 0);
+        printf("  mem[0]: fd=%f analytic=%f err=%e\n", fd_grad, analytic, fabs(fd_grad - analytic));
+        ASSERT_NEAR("mem[0] gradient", analytic, fd_grad, 1e-3);
+    }
+
+    param_clear();
+    free(pair);
+}
+
+/* ================================================================
    Main
    ================================================================ */
 
@@ -562,6 +697,9 @@ int main(void) {
     /* T5: LSTM gradient chain */
     test_lstm_gradient_chain();
     test_lstm_select_stack_chain();
+
+    /* T6: NTM gradient check */
+    test_ntm_read_head_grad();
 
     /* Summary */
     printf("\n");

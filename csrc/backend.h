@@ -149,6 +149,7 @@ void         param_clear(void);
 int          param_count(void);
 const char*  param_name(int idx);
 double       param_grad_item(int idx);          /* read scalar grad for param i */
+double       param_grad_item_at(int param_idx, int elem_idx); /* read grad element */
 double       param_grad_item_and_zero(int idx); /* read grad, then zero it */
 TensorHandle param_tensor(int idx);
 void         param_zero_all_grads(void);

@@ -1761,6 +1761,12 @@ double param_grad_item(int idx) {
     return t->grad[0];
 }
 
+double param_grad_item_at(int param_idx, int elem_idx) {
+    Tensor* t = param_registry[param_idx].tensor;
+    if (!t->grad || elem_idx >= t->numel) return 0.0;
+    return t->grad[elem_idx];
+}
+
 double param_grad_item_and_zero(int idx) {
     Tensor* t = param_registry[idx].tensor;
     if (!t->grad) return 0.0;
