@@ -52,6 +52,7 @@ main = do
   putStrLn $ "Architecture: " ++ show model
   putStrLn ""
 
+  let dataPoints = map (map fromDouble) (rawData 8)
   let opt = nativeSgd lr
 
   putStrLn "Training..."
@@ -63,7 +64,7 @@ main = do
           let loss = calculateLossRecurrent lossFn dblM (rawData 8)
           pure (m, loss)
         else do
-          let (m', loss) = epochRecurrentNative opt (map (map fromDouble) (rawData 8)) lossFn m
+          let (m', loss) = epochRecurrentNative opt dataPoints lossFn m
           when (modNatNZ ep 100 ItIsSucc == 0) $ do
             now <- clockTime Monotonic
             putStrLn $ "  " ++ formatElapsed t0 now ++ " " ++ show ep
@@ -83,7 +84,7 @@ main = do
   putStrLn $ "  Loss: " ++ show finalLoss
   let showSeq : List (Vector 1 Double) -> String
       showSeq xs = concatMap (\(VTensor [STensor v]) => if v >= 0.5 then "1" else "0") xs
-  let tgts = decodeYs dataPoints
+  let tgts = map ys (rawData 8)
   putStrLn "  Seq  Target     Predicted"
   traverse_ (\(i, (t, p)) =>
     let ts = showSeq (toList t)
@@ -93,3 +94,5 @@ main = do
     (zip Fin.range (zip tgts predictions))
   putStrLn ""
   putStrLn $ formatTimingSummary tStart t1 epochs
+  putStrLn $ "RESULT\tepochs=" ++ show epochs ++ "\tloss=" ++ show finalLoss
+           ++ "\ttime=" ++ show (seconds t1 - seconds tStart) ++ "s"

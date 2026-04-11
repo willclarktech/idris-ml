@@ -268,22 +268,18 @@ static void tape_reset(void) {
    ================================================================ */
 
 TensorHandle tensor_create_scalar(double value, int requires_grad) {
-    if (requires_grad) {
-        /* Param scalars: heap-allocated, persist across arena resets */
-        Tensor* t = calloc(1, sizeof(Tensor));
-        t->data = malloc(sizeof(double));
-        t->data[0] = value;
-        t->rank = 0; t->numel = 1;
-        t->requires_grad = 1;
-        t->tape_idx = -1;
-        t->persistent = 1;
-        tape_append(OP_CONST, t, NULL, NULL, 0);
-        return t;
-    } else {
-        /* Non-grad scalars (fromDouble constants, data): arena-allocated.
-           Callers must not cache these across optimizer_step (arena_reset). */
-        return make_scalar(value, 0);
-    }
+    /* Always heap-allocate: these are returned to Idris and may be cached
+       in Variables across epochs (surviving arena_reset). The per-epoch leak
+       from training data tensors (~15KB/epoch) is acceptable. */
+    Tensor* t = calloc(1, sizeof(Tensor));
+    t->data = malloc(sizeof(double));
+    t->data[0] = value;
+    t->rank = 0; t->numel = 1;
+    t->requires_grad = requires_grad;
+    t->tape_idx = -1;
+    t->persistent = 1;
+    if (requires_grad) tape_append(OP_CONST, t, NULL, NULL, 0);
+    return t;
 }
 
 TensorHandle tensor_create(double* data, int* shape, int rank, int requires_grad) {

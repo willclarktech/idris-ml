@@ -59,8 +59,7 @@ trainLoop opt model dataPoints lossFn totalEpochs patience t0 =
     go ep m bestLoss staleCount =
       if ep >= totalEpochs then pure (m, ep, bestLoss)
       else do
-        -- Recreate Variable data each epoch (fromDouble is arena-allocated)
-        let (m', loss) = epochRecurrentNative opt (map (map fromDouble) (rawData 8)) lossFn m
+        let (m', loss) = epochRecurrentNative opt dataPoints lossFn m
         when (modNatNZ ep 100 ItIsSucc == 0) $ do
           now <- clockTime Monotonic
           putStrLn $ "  " ++ formatElapsed t0 now ++ " " ++ show ep ++ "\tloss=" ++ show loss
@@ -135,11 +134,12 @@ main = do
   putStrLn $ "Architecture: " ++ show model
   putStrLn ""
 
+  let dataPoints = map (map fromDouble) (rawData 8)
   let opt = nativeSgd cfg.lr
 
   putStrLn "Training..."
   t0 <- clockTime Monotonic
-  (trained, epochsDone, finalLoss) <- trainLoop opt model (map (map fromDouble) (rawData 8)) lossFn
+  (trained, epochsDone, finalLoss) <- trainLoop opt model dataPoints lossFn
     cfg.epochs cfg.patience t0
   t1 <- clockTime Monotonic
 

@@ -43,6 +43,7 @@ main = do
   putStrLn $ "Architecture: " ++ show model
   putStrLn ""
 
+  let prepared = map (map fromDouble) dataPoints
   let opt = nativeSgd lr
 
   putStrLn "Training..."
@@ -54,8 +55,7 @@ main = do
                                           (map (map fromDouble) dataPoints)
           pure (m, loss)
         else do
-          -- Recreate Variable data each epoch (fromDouble is arena-allocated)
-          let (m', loss) = epochNative opt (map (map fromDouble) dataPoints) lossFn m
+          let (m', loss) = epochNative opt prepared lossFn m
           when (modNatNZ ep 100 ItIsSucc == 0) $ do
             now <- clockTime Monotonic
             putStrLn $ "  " ++ formatElapsed t0 now ++ " " ++ show ep
@@ -93,3 +93,5 @@ main = do
   traverse_ (\(dp, pred) => showSample dp pred) (zip dataPoints predictions)
   putStrLn ""
   putStrLn $ formatTimingSummary tStart t1 epochs
+  putStrLn $ "RESULT\tepochs=" ++ show epochs ++ "\tloss=" ++ show finalLoss
+           ++ "\ttime=" ++ show (seconds t1 - seconds tStart) ++ "s"

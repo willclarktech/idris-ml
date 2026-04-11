@@ -121,8 +121,15 @@ trainLoop opt model totalEpochs esThreshold esWindow esPatience batchSize minLen
             (m', loss) = epochTwoPhaseBceNative opt dps m
         when (modNatNZ ep 100 ItIsSucc == 0) $ do
           now <- clockTime Monotonic
+          -- Quick eval for bit accuracy
+          let dblM = toDoubleNetwork (emap refreshValue m')
+          evalBatch <- copyTaskBinaryBatchVect {w = W} 10 1 20
+          let avgAcc = foldl (+) 0.0
+                (toList (map (\dp => let (_, preds) = forwardTwoPhase dblM dp
+                                     in bitAccuracy preds (targets dp)) evalBatch)) / 10.0
           putStrLn $ "  " ++ formatElapsed t0 now ++ " " ++ show ep
                    ++ "\tloss=" ++ show loss
+                   ++ "\tacc=" ++ show (avgAcc * 100.0) ++ "%"
                    ++ "\tpeak=" ++ show (getRssMB ep) ++ "MB"
                    ++ "\tcur=" ++ show (getCurrentRssMB ep) ++ "MB"
         if loss /= loss

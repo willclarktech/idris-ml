@@ -107,7 +107,7 @@ trainLoop opt model totalEpochs esThreshold esWindow esPatience minItems maxItem
           let accs = map (\dp => let (_, preds) = forwardTwoPhase dblModel dp
                                  in bitAccuracy preds (targets dp)) evalBatch
           let avgAcc = foldl (+) 0.0 (toList accs) / 10.0
-          putStrLn $ "  " ++ formatElapsed t0 now ++ " " ++ show ep ++ ":\tloss=" ++ show loss
+          putStrLn $ "  " ++ formatElapsed t0 now ++ " " ++ show ep ++ "\tloss=" ++ show loss
                    ++ "\tbit_acc=" ++ show avgAcc
                    ++ "\tpeak=" ++ show (getRssMB ep) ++ "MB"
                    ++ "\tcur=" ++ show (getCurrentRssMB ep) ++ "MB"
@@ -181,7 +181,7 @@ trainLoop1 opt model totalEpochs esThreshold esWindow esPatience minItems maxIte
           let accs = map (\dp => let (_, preds) = forwardTwoPhase dblModel dp
                                  in bitAccuracy preds (targets dp)) evalBatch
           let avgAcc = foldl (+) 0.0 (toList accs) / 10.0
-          putStrLn $ "  " ++ formatElapsed t0 now ++ " " ++ show ep ++ ":\tloss=" ++ show loss
+          putStrLn $ "  " ++ formatElapsed t0 now ++ " " ++ show ep ++ "\tloss=" ++ show loss
                    ++ "\tbit_acc=" ++ show avgAcc
                    ++ "\tpeak=" ++ show (getRssMB ep) ++ "MB"
                    ++ "\tcur=" ++ show (getCurrentRssMB ep) ++ "MB"
