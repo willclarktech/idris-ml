@@ -517,3 +517,19 @@ Single-head causal self-attention with per-position output projection. Type para
 New C ops: `tensor_mm` (BLAS-backed), `tensor_transpose_2d`, `tensor_softmax_2d`, `tensor_log_softmax_2d`, `tensor_masked_fill`, `tensor_causal_mask`.
 
 New pure Idris ops in Math.idr: `matrixMultiply`, `softmaxMatrix`, `causalMaskMatrix`, `reshapeToMatrix`, `flattenMatrix`, `scaleMatrix`, `clampMinTensor`.
+
+### Multi-head Transformer (2026-04-03)
+
+Standard Pre-LN architecture with multi-head attention, layer normalization, learned embeddings, and sinusoidal positional encoding.
+
+**Sum-not-concat for head combining**: Instead of concatenating head outputs [seqLen, headDim] into [seqLen, dModel] then projecting via a single [dModel, dModel] matrix, we use per-head output projections [headDim, dModel] and sum the results. This is mathematically equivalent (`concat(heads) @ Wo = Σ_h head_h @ Wo_h` where `Wo_h` is the h-th column block), but avoids needing a 2D column-concatenation op. Uses only existing `tensor_mm` + `tensor_add`.
+
+**Per-head separate weight matrices**: Each head has its own Q/K/V projection weights [dModel, headDim] rather than one big [dModel, dModel] projection split into heads. Avoids needing 2D column slicing (tensor_narrow on dim=1). Stored as `Vect numHeads (LinearState dModel headDim ty)`.
+
+**LayerNormState as sub-component**: Layer normalization is not a standalone `LayerLike` layer — it's used internally by the transformer. `LayerNormState` has the same dual-storage pattern as `LinearState` (typed Vect for applyGeneric, AnyPtr tensors for applyVar). Helper functions (`emapLayerNorm`, `nameLayerNorm`, etc.) parallel `LayerLike` methods.
+
+**New C op: `tensor_layer_norm_2d`**: Row-wise normalization with learnable scale/shift. Stores normalized values and reciprocal std devs in `LayerNormMeta` for efficient backward. Gradient verified via finite differences.
+
+**Type safety proof: `dModel = numHeads * headDim`**: The `MHTransformerState` record requires an erased proof `0 headDimPrf : dModel = numHeads * headDim`. At construction (`mkMHTransformer`), the proof is auto-resolved (e.g., dModel=32, numHeads=4, headDim=8 → `Refl`). Zero `believe_me`.
+
+**Example: sequence reversal** (vocab=10, seqLen=11, dModel=32, numHeads=4). Teacher-forced: `[t0..t4, SEP, t4..t0, EOS]`, predict next token. Achieves 100% accuracy in ~500 epochs (114ms/epoch). PyTorch reference converges similarly (~500 epochs).
