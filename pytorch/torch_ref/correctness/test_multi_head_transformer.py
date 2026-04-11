@@ -1,4 +1,4 @@
-"""Correctness tests for multi-head transformer on sequence reversal."""
+"""Correctness tests for multi-head transformer on sequence reversal and sorting."""
 
 import torch
 
@@ -6,17 +6,23 @@ from torch_ref.models.multi_head_transformer import (
     MultiHeadTransformer,
     eval_reversal_accuracy,
     generate_reversal_data,
+    generate_sorting_data,
     train_reversal_epoch,
 )
 
-# Task config matching Idris
+# Reversal task config
 VOCAB_SIZE = 10  # 8 content tokens + SEP + EOS
 INPUT_LEN = 5
-SEQ_LEN = 2 * INPUT_LEN + 1  # input + SEP + reversed + EOS, minus 1 for shift = 11
+SEQ_LEN = 2 * INPUT_LEN + 1  # 11
 SEP_TOKEN = 8
 EOS_TOKEN = 9
 D_MODEL = 32
 NUM_HEADS = 4
+
+# Sorting task config
+SORT_VOCAB = 8  # digits 0-5 + SEP + EOS
+SORT_SEP = 6
+SORT_EOS = 7
 
 
 class TestMultiHeadTransformer:
@@ -99,3 +105,17 @@ class TestMultiHeadTransformer:
         assert torch.allclose(out1[:-1], out2[:-1], atol=1e-5), (
             "Causal masking broken: earlier positions affected by change at last position"
         )
+
+    def test_sorting_converges(self) -> None:
+        """Sorting task should converge with 2 blocks."""
+        torch.manual_seed(42)
+        model = MultiHeadTransformer(SORT_VOCAB, SEQ_LEN, D_MODEL, NUM_HEADS, num_blocks=2)
+        optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+
+        for _ in range(500):
+            data = generate_sorting_data(16, INPUT_LEN, SORT_VOCAB, SORT_SEP, SORT_EOS)
+            train_reversal_epoch(model, data, optimizer, reversal_start=INPUT_LEN)
+
+        eval_data = generate_sorting_data(16, INPUT_LEN, SORT_VOCAB, SORT_SEP, SORT_EOS)
+        _, acc = eval_reversal_accuracy(model, eval_data, INPUT_LEN)
+        assert acc >= 0.9, f"Sorting accuracy too low: {acc:.2%}"

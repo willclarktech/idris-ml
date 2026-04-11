@@ -1,9 +1,10 @@
--- | Transformer Sequence Reversal Example
+-- | Transformer Sequence Sorting Example
 -- |
--- | Sequence reversal with learned embeddings, sinusoidal positional
--- | encoding, multi-head causal self-attention, and layer normalization.
+-- | Sort a sequence of digits using a multi-block transformer with
+-- | learned embeddings, sinusoidal PE, multi-head causal self-attention,
+-- | and layer normalization.
 -- |
--- | Input (teacher-forced): [t0, t1, ..., t4, SEP, t4, ..., t0, EOS]
+-- | Input (teacher-forced): [t0, t1, ..., t4, SEP, sorted_0, ..., sorted_4, EOS]
 -- | Target: predict next token at each position.
 
 module Example.Transformer
@@ -35,12 +36,12 @@ import Variable
 ----------------------------------------------------------------------
 
 VocabSize : Nat
-VocabSize = 10         -- 8 content tokens (A-H) + SEP + EOS
+VocabSize = 8          -- digits 0-5 + SEP + EOS
 
 InputLen : Nat
-InputLen = 5           -- tokens before separator
+InputLen = 5           -- tokens to sort
 
--- Full sequence: [t0..t4, SEP, t4..t0, EOS] = 12 tokens
+-- Full sequence: [t0..t4, SEP, sorted_0..sorted_4, EOS] = 12 tokens
 -- Teacher forcing: input = first 11, target = last 11
 SeqLen : Nat
 SeqLen = 2 * InputLen + 1
@@ -55,13 +56,13 @@ HeadDim : Nat
 HeadDim = 8
 
 NumBlocks : Nat
-NumBlocks = 1
+NumBlocks = 2
 
 SepToken : Nat
-SepToken = 8
+SepToken = 6
 
 EosToken : Nat
-EosToken = 9
+EosToken = 7
 
 InputDim : Nat
 InputDim = SeqLen * VocabSize
@@ -137,8 +138,8 @@ catCELossTensor predT targetT =
 ----------------------------------------------------------------------
 
 tokenName : Nat -> String
-tokenName n = if n < 8
-  then strCons (cast (cast {to=Int} n + 65)) ""  -- A=0, B=1, ...
+tokenName n = if n < 6
+  then show n                   -- digits 0-5
   else if n == SepToken then "|"
   else if n == EosToken then "$"
   else "?"
@@ -182,7 +183,7 @@ record Config where
   seed : Bits64
 
 defaultConfig : Config
-defaultConfig = MkConfig 0.001 500 200 42
+defaultConfig = MkConfig 0.001 1000 300 42
 
 specs : List (ArgSpec Config)
 specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
@@ -206,7 +207,7 @@ main = do
   let opt = nativeAdamGlobalClip cfg.lr 0.9 0.999 1.0e-8 1.0
       positions = map finToNat (toList (Data.Vect.Fin.range {len=SeqLen}))
 
-  putStrLn "=== Transformer: Sequence Reversal ==="
+  putStrLn "=== Transformer: Sequence Sorting ==="
   putStrLn $ "Config: lr=" ++ show cfg.lr ++ " epochs=" ++ show cfg.epochs
            ++ " patience=" ++ show cfg.patience ++ " seed=" ++ show cfg.seed
   putStrLn $ "Architecture: seqLen=" ++ show SeqLen ++ " dModel=" ++ show DModel
@@ -226,24 +227,24 @@ main = do
 
   -- Data source: fresh batch each epoch (pre-allocated C tensors, zero conversion)
   let genBatch : IO (Vect BatchSize (TensorDataPoint InputDim OutputDim))
-      genBatch = reversalTensorBatchVect InputDim OutputDim VocabSize InputLen SeqLen SepToken EosToken BatchSize
+      genBatch = sortingTensorBatchVect InputDim OutputDim VocabSize InputLen SeqLen SepToken EosToken BatchSize
 
   -- Metrics: accuracy on a fresh eval batch (uses per-sequence forward)
   let evalMetrics : Network InputDim [] OutputDim Variable -> IO (List (String, String))
       evalMetrics m = do
-        evalData <- reversalTensorBatchVect InputDim OutputDim VocabSize InputLen SeqLen SepToken EosToken BatchSize
+        evalData <- sortingTensorBatchVect InputDim OutputDim VocabSize InputLen SeqLen SepToken EosToken BatchSize
         let results = map (\dp =>
               let (_, outT) = forwardVarTensor m (inputTensor dp)
                   predVals = tensorVals (VTensor (tensorToScalars outT 0 OutputDim))
                   targetVals = tensorVals (VTensor (tensorToScalars (targetTensor dp) 0 OutputDim))
                   predicted = map (argmaxAt VocabSize predVals) positions
                   expected = map (argmaxAt VocabSize targetVals) positions
-                  revPred = drop InputLen predicted
-                  revExp = drop InputLen expected
-              in countMatches revPred revExp) evalData
-            totalRevCorrect = foldl (+) 0 (toList results)
-            totalRevPositions = BatchSize * (SeqLen `minus` InputLen)
-        pure [("rev_acc", show totalRevCorrect ++ "/" ++ show totalRevPositions)]
+                  sortPred = drop InputLen predicted
+                  sortExp = drop InputLen expected
+              in countMatches sortPred sortExp) evalData
+            totalCorrect = foldl (+) 0 (toList results)
+            totalPositions = BatchSize * (SeqLen `minus` InputLen)
+        pure [("sort_acc", show totalCorrect ++ "/" ++ show totalPositions)]
 
   let trainCfg = MkTrainConfig cfg.epochs 100 (Patience cfg.patience 0.001) evalMetrics
 
@@ -254,7 +255,7 @@ main = do
   -- Evaluate on a fresh example
   putStrLn ""
   putStrLn "Evaluation:"
-  evalRaw <- reversalTensorBatchVect InputDim OutputDim VocabSize InputLen SeqLen SepToken EosToken 1
+  evalRaw <- sortingTensorBatchVect InputDim OutputDim VocabSize InputLen SeqLen SepToken EosToken 1
   let tdp = index FZ evalRaw
       (_, outT) = forwardVarTensor trained (inputTensor tdp)
       predVals = tensorVals (VTensor (tensorToScalars outT 0 OutputDim))
@@ -263,21 +264,21 @@ main = do
       inputDecoded = map (argmaxAt VocabSize inputVals) positions
       targetDecoded = map (argmaxAt VocabSize targetVals) positions
       predicted = map (argmaxAt VocabSize predVals) positions
-      revCorrect = countMatches (drop InputLen predicted) (drop InputLen targetDecoded)
-      revTotal = SeqLen `minus` InputLen
+      sortCorrect = countMatches (drop InputLen predicted) (drop InputLen targetDecoded)
+      sortTotal = SeqLen `minus` InputLen
 
   let inputTokens = Data.List.take InputLen inputDecoded
-      revTarget = drop InputLen targetDecoded
-      revPredicted = drop InputLen predicted
+      sortTarget = drop InputLen targetDecoded
+      sortPredicted = drop InputLen predicted
   putStr "  Input:      "
   putStrLn $ concatMap tokenName inputTokens
   putStr "  Target:     "
-  putStrLn $ concatMap tokenName revTarget
+  putStrLn $ concatMap tokenName sortTarget
   putStr "  Predicted:  "
-  putStrLn $ concatMap tokenName revPredicted
-  putStrLn $ "  Rev acc:    " ++ show revCorrect ++ "/" ++ show revTotal
+  putStrLn $ concatMap tokenName sortPredicted
+  putStrLn $ "  Sort acc:   " ++ show sortCorrect ++ "/" ++ show sortTotal
 
   putStrLn ""
   putStrLn $ formatResult [("epochs", show epochsDone),
-                            ("rev_acc", show revCorrect ++ "/" ++ show revTotal),
+                            ("sort_acc", show sortCorrect ++ "/" ++ show sortTotal),
                             ("seed", show cfg.seed)]

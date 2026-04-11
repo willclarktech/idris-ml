@@ -414,6 +414,38 @@ reversalTensorBatchVect i o vocabSize inputLen seqLen sepToken eosToken (S k) = 
   pure (dp :: rest)
 
 
+||| Generate one sorting data point as pre-allocated C tensors.
+||| Input: [t0..t_{n-1}, SEP, sorted_0..sorted_{n-1}, EOS]
+export
+sortingTensorPoint : (i : Nat) -> (o : Nat) ->
+                     (vocabSize : Nat) -> (inputLen : Nat) -> (seqLen : Nat) ->
+                     (sepToken : Nat) -> (eosToken : Nat) ->
+                     IO (TensorDataPoint i o)
+sortingTensorPoint i o vocabSize inputLen seqLen sepToken eosToken = do
+  tokens <- sequence (replicate inputLen (randomInt 0 (minus vocabSize 3)))
+  let sorted = Data.List.sort tokens
+      fullSeq = tokens ++ [sepToken] ++ sorted ++ [eosToken]
+      inputToks = Data.List.take seqLen fullSeq
+      targetToks = Data.List.take seqLen (drop 1 fullSeq)
+      sI = cast {to=Int} seqLen
+      vI = cast {to=Int} vocabSize
+      inIdxBuf = packTokens (prim__allocInts sI) 0 inputToks
+      tgtIdxBuf = packTokens (prim__allocInts sI) 0 targetToks
+  pure $ MkTensorDataPoint (prim__oneHot inIdxBuf sI vI) (prim__oneHot tgtIdxBuf sI vI)
+
+||| Generate a batch of sorting tensor data points.
+export
+sortingTensorBatchVect : (i : Nat) -> (o : Nat) ->
+                         (vocabSize : Nat) -> (inputLen : Nat) -> (seqLen : Nat) ->
+                         (sepToken : Nat) -> (eosToken : Nat) ->
+                         (n : Nat) -> IO (Vect n (TensorDataPoint i o))
+sortingTensorBatchVect _ _ _ _ _ _ _ Z = pure []
+sortingTensorBatchVect i o vocabSize inputLen seqLen sepToken eosToken (S k) = do
+  dp <- sortingTensorPoint i o vocabSize inputLen seqLen sepToken eosToken
+  rest <- sortingTensorBatchVect i o vocabSize inputLen seqLen sepToken eosToken k
+  pure (dp :: rest)
+
+
 ----------------------------------------------------------------------
 -- Pattern Sequence Data (for RNN/LSTM examples)
 ----------------------------------------------------------------------

@@ -157,6 +157,41 @@ class MultiHeadTransformer(nn.Module):
         return logits
 
 
+def generate_sorting_data(
+    num_samples: int,
+    input_len: int,
+    vocab_size: int,
+    sep_token: int,
+    eos_token: int,
+) -> list[tuple[Tensor, Tensor]]:
+    """Generate sequence sorting training data.
+
+    Each sample: [t0, t1, ..., t_{n-1}, SEP, sorted_0, ..., sorted_{n-1}, EOS]
+    Target: shifted by one (predict next token at each position).
+    Tokens are sampled from [0, vocab_size - 2) to leave room for SEP and EOS.
+
+    Returns list of (input_onehot, target_indices) pairs.
+    """
+    data = []
+    base_vocab = vocab_size - 2
+    for _ in range(num_samples):
+        tokens = torch.randint(0, base_vocab, (input_len,))
+        sorted_tokens, _ = tokens.sort()
+        seq = torch.cat(
+            [
+                tokens,
+                torch.tensor([sep_token]),
+                sorted_tokens,
+                torch.tensor([eos_token]),
+            ]
+        )
+        inp = seq[:-1]
+        tgt = seq[1:]
+        inp_onehot = F.one_hot(inp.long(), vocab_size).float()
+        data.append((inp_onehot, tgt.long()))
+    return data
+
+
 def generate_reversal_data(
     num_samples: int,
     input_len: int,
