@@ -268,7 +268,17 @@ NTM memory, readAddr, writeAddr, readOutput are per-sequence state, NOT learned 
 
 ### Arena never frees chunks
 
-`arena_reset()` resets `.used` pointers but never frees chunks. Memory grows to accommodate the peak forward+backward pass, then stabilizes. For NTM with n=128, this can reach several GB before stabilizing. This is by design (avoids realloc invalidation) but means RSS never decreases.
+`arena_reset()` resets `.used` pointers but never frees chunks. Memory grows to accommodate the peak forward+backward pass, then stabilizes. For NTM with n=128, the peak is ~8MB (6 chunks). This is by design (avoids realloc invalidation) but means RSS never decreases within a run.
+
+### `tape_reset` must call `arena_reset`
+
+The arena holds all intermediate tensors from the forward+backward pass. `tape_reset()` must call `arena_reset()` to reclaim this memory. Without it, the arena grows by ~1.7MB/epoch indefinitely (the original bug that caused 8.5GB memory usage).
+
+Additionally, `tape_reset` must free: (1) OP_STACK `inputs` arrays (heap-allocated `Tensor**`), and (2) grad arrays on non-persistent tensors (heap-allocated by `ensure_grad` during backward, leaked when arena tensors are reused).
+
+### `fromDouble` persistent scalar leak
+
+`tensor_create_scalar(value, 0)` must heap-allocate (persistent) because Idris may cache `fromDouble` results in Variables across epochs (e.g., `let data = map fromDouble ...` evaluated once, reused). Arena allocation would cause use-after-free when `arena_reset` runs between epochs. The tradeoff: ~56 bytes leaked per `fromDouble` call. For NTM training with fresh data each epoch, this is ~15KB/epoch. Over 50k epochs: ~750MB. A proper fix requires either Idris-level finalizers or an explicit ephemeral tensor pool.
 
 ### `toDoubleLayer` must use tensor handles for learned weights
 

@@ -522,3 +522,73 @@ path eliminates stacking ~63K scalar tensors per forward pass.
 Supervised/RNN regression due to `tensorToScalars`/`vecStackTensor` FFI
 overhead on tiny vectors (2-3 elements). Absolute overhead ~2s over
 1000 epochs — acceptable given NTM improvement.
+
+### After convergence fixes + fused NTM backward (2026-04-05)
+
+NTM copy now converges (loss → 1e-8, eval 81% short / 68% full in 10k
+epochs). NTM-AR converges (loss → 1e-4). But wall-clock is 1h (copy)
+and 2h (recall) vs ~2 min and ~5 min on the old C backend.
+
+```
+Model              Current (ms/ep)  Old C (ms/ep)  Ratio
+Supervised                    2           ~0.1       20x
+RNN                          12           ~0.4       30x
+LSTM                         14           ~0.2       70x
+NTM-copy                   ~380           ~120        3x
+NTM-AR                     ~430           ~180        2.4x
+```
+
+#### Bottleneck: tensorToScalars/vecStackTensor round-trip
+
+The dominant cost is the SELECT→STACK cycle: extracting tensor results
+to scalar Variables, then stacking them back into tensors for the next
+layer. Per NTM timestep:
+
+```
+Operation                   SELECT calls  STACK packing  Total FFI
+LSTM hidden (h=100)              100          100          ~300
+LSTM cell (h=100)                100          100          ~300
+Read FC output (26 elem)          26           26          ~80
+Write FC output (46 elem)         46           46          ~140
+Read output (m=20)                20           20          ~60
+Output FC input (h+m=120)          0          120          ~240
+Output FC output (w=8)             8            0           ~16
+Head param packing (key, shift)    0           46          ~140
+                                 ---          ---         -----
+Total per timestep               300          458         ~1276
+```
+
+With ~10 timesteps/epoch: **~12,760 FFI calls** just for pack/unpack.
+At ~2μs per Chez→C FFI call: **~25ms per epoch** of pure FFI overhead.
+Actual epoch time is ~380ms, so FFI is ~7% — the rest is computation.
+
+The old C backend avoided this entirely: the Chez Scheme tape stored
+per-scalar Variables, but scalar arithmetic was in-process Scheme calls
+(no FFI boundary). Weight buffers stayed in C via buffer-passing.
+
+#### Optimization opportunities (ranked by impact)
+
+1. **LSTM tensor handle pass-through**: Store `newHiddenT`/`newCellT`
+   as tensor handles in LstmState (like NTM does for memory). Next
+   timestep uses handles directly instead of SELECT→STACK round-trip.
+   Saves ~600 FFI calls/timestep = ~6000/epoch.
+
+2. **Output FC tensor concat**: Replace `hidden ++ newReadOutput` (Vect
+   concat of scalar Variables → STACK) with C-side `tensor_cat` of the
+   two tensor handles. Saves ~240 FFI calls/timestep.
+
+3. **FC output tensor pass-through**: Read/Write FC outputs go through
+   tensorToScalars only to be split by `splitAt` for head param parsing.
+   Instead, use C-side `tensor_slice` to extract key/shift/beta/g/gamma
+   sub-tensors directly. Saves ~140 FFI calls/timestep.
+
+4. **Batch training data**: Currently batch=1. Batching sequences of
+   the same length would amortize per-sequence overhead and reduce
+   total epochs needed for convergence (though NTMs are sensitive to
+   batch size for recall tasks).
+
+5. **`fromDouble` persistent leak**: Each `tensor_create_scalar(_, 0)`
+   heap-allocates a persistent Tensor (~56 bytes) that is never freed.
+   The NTM creates ~260 per epoch from training data. Over 50k epochs:
+   ~14MB. Minor but worth fixing via a separate ephemeral tensor pool
+   or Idris-level finalizers.

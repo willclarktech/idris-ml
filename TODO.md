@@ -4,6 +4,10 @@
 
 | Item | Difficulty | Notes |
 |------|-----------|-------|
+| LSTM tensor handle pass-through | M | Store `newHiddenT`/`newCellT` as tensor handles in LstmState. Next timestep uses handles directly instead of SELECT→STACK round-trip. Saves ~600 FFI calls/timestep (~6000/epoch for NTM). See `docs/performance-analysis.md` |
+| Output FC tensor concat | M | Replace `hidden ++ newReadOutput` (Vect concat → STACK) with C-side `tensor_cat` of two tensor handles. Saves ~240 FFI calls/timestep |
+| FC output tensor slicing | M | Read/Write FC outputs go through tensorToScalars only to be split by `splitAt`. Use C-side `tensor_slice` to extract key/shift/beta/g/gamma sub-tensors directly. Saves ~140 FFI calls/timestep |
+| `fromDouble` persistent leak | S | ~56 bytes per `fromDouble` never freed. ~15KB/epoch for NTM. Fix: ephemeral tensor pool freed per-epoch, or Idris-level finalizers |
 | Broadcasting | XL | Type-safe broadcasting for tensor ops (e.g. scalar-vector, vector-matrix, batch dimensions). Needs careful design — NumPy-style implicit broadcasting is a major source of silent bugs, but no broadcasting at all forces manual expansion. Explore options: explicit broadcast combinators with proof obligations, ranked type families, or a restricted subset (e.g. scalar broadcast only). Key tension: expressiveness vs the shape safety guarantees that are the whole point of dependent types. See `docs/static-vs-dynamic-graphs.md` for context on why silent broadcasting is dangerous |
 
 ## Medium Priority
