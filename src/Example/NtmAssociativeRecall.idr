@@ -81,25 +81,20 @@ record Config where
 defaultConfig : Config
 defaultConfig = MkConfig 0.0001 10.0 0.95 1.0e-8 0.9 100000 0.01 1000 3 42 2 6 1
 
-parseConfig : List String -> Config
-parseConfig args = go args defaultConfig
-  where
-    go : List String -> Config -> Config
-    go [] c = c
-    go ("--lr" :: v :: rest) c = go rest ({ lr := cast v } c)
-    go ("--clip" :: v :: rest) c = go rest ({ clipVal := cast v } c)
-    go ("--alpha" :: v :: rest) c = go rest ({ alpha := cast v } c)
-    go ("--eps" :: v :: rest) c = go rest ({ eps := cast v } c)
-    go ("--momentum" :: v :: rest) c = go rest ({ momentum := cast v } c)
-    go ("--epochs" :: v :: rest) c = go rest ({ epochs := cast (cast {to=Integer} v) } c)
-    go ("--es-threshold" :: v :: rest) c = go rest ({ esThreshold := cast v } c)
-    go ("--es-window" :: v :: rest) c = go rest ({ esWindow := cast (cast {to=Integer} v) } c)
-    go ("--es-patience" :: v :: rest) c = go rest ({ esPatience := cast (cast {to=Integer} v) } c)
-    go ("--seed" :: v :: rest) c = go rest ({ seed := cast (cast {to=Integer} v) } c)
-    go ("--min-items" :: v :: rest) c = go rest ({ minItems := cast (cast {to=Integer} v) } c)
-    go ("--max-items" :: v :: rest) c = go rest ({ maxItems := cast (cast {to=Integer} v) } c)
-    go ("--batch" :: v :: rest) c = go rest ({ batch := cast (cast {to=Integer} v) } c)
-    go (_ :: rest) c = go rest c
+specs : List (ArgSpec Config)
+specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
+        , Arg "--clip" (\v, c => { clipVal := cast v } c)
+        , Arg "--alpha" (\v, c => { alpha := cast v } c)
+        , Arg "--eps" (\v, c => { eps := cast v } c)
+        , Arg "--momentum" (\v, c => { momentum := cast v } c)
+        , Arg "--epochs" (\v, c => { epochs := castNat v } c)
+        , Arg "--es-threshold" (\v, c => { esThreshold := cast v } c)
+        , Arg "--es-window" (\v, c => { esWindow := castNat v } c)
+        , Arg "--es-patience" (\v, c => { esPatience := castNat v } c)
+        , Arg "--seed" (\v, c => { seed := castBits64 v } c)
+        , Arg "--min-items" (\v, c => { minItems := castNat v } c)
+        , Arg "--max-items" (\v, c => { maxItems := castNat v } c)
+        , Arg "--batch" (\v, c => { batch := castNat v } c) ]
 
 
 ----------------------------------------------------------------------
@@ -108,9 +103,8 @@ parseConfig args = go args defaultConfig
 
 main : IO ()
 main = do
-  tStart <- clockTime Monotonic
   args <- getArgs
-  let cfg = parseConfig (drop 1 args)
+  let cfg = parseArgs defaultConfig specs (drop 1 args)
 
   srand cfg.seed
 
@@ -152,7 +146,6 @@ main = do
 
   (trained, epochsDone, _) <- runTraining
     (\m, d => epochTwoPhaseBceNative opt d m) genBatch trainCfg model
-  t1 <- clockTime Monotonic
 
   -- Evaluation
   let dblModel = toDoubleNetwork (emap refreshValue trained)
@@ -175,10 +168,6 @@ main = do
   putStrLn $ "  K=4 items: " ++ show (k4Acc * 100.0) ++ "% bit accuracy"
   putStrLn $ "  K=6 items: " ++ show (k6Acc * 100.0) ++ "% bit accuracy"
   putStrLn ""
-  putStrLn $ formatTimingSummary tStart t1 epochsDone
-  putStrLn $ "RESULT\tepochs=" ++ show epochsDone
-           ++ "\tacc_k2=" ++ show k2Acc
-           ++ "\tacc_k4=" ++ show k4Acc
-           ++ "\tacc_k6=" ++ show k6Acc
-           ++ "\ttime=" ++ show (seconds t1 - seconds tStart) ++ "s"
-           ++ "\tseed=" ++ show cfg.seed
+  putStrLn $ formatResult [("epochs", show epochsDone), ("acc_k2", show k2Acc),
+                            ("acc_k4", show k4Acc), ("acc_k6", show k6Acc),
+                            ("seed", show cfg.seed)]

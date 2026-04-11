@@ -1,5 +1,6 @@
 ||| Unified training runner for all examples.
-||| Handles epoch iteration, progress logging, NaN detection, and early stopping.
+||| Handles epoch iteration, progress logging, NaN detection, early stopping,
+||| CLI arg parsing, and result formatting.
 module Train
 
 import Data.List
@@ -7,6 +8,55 @@ import Data.Nat
 import System.Clock
 
 import Util
+
+
+----------------------------------------------------------------------
+-- CLI Argument Parsing
+----------------------------------------------------------------------
+
+||| Specification for a single CLI flag.
+public export
+record ArgSpec a where
+  constructor Arg
+  flag : String
+  apply : String -> a -> a
+
+||| Parse CLI args using a list of flag specs.
+||| Unknown flags are silently skipped.
+export
+parseArgs : a -> List (ArgSpec a) -> List String -> a
+parseArgs defaults specs args = go args defaults
+  where
+    findSpec : String -> List (ArgSpec a) -> Maybe (ArgSpec a)
+    findSpec _ [] = Nothing
+    findSpec f (s :: rest) = if s.flag == f then Just s else findSpec f rest
+
+    go : List String -> a -> a
+    go [] c = c
+    go (f :: v :: rest) c = case findSpec f specs of
+      Just s => go rest (s.apply v c)
+      Nothing => go (v :: rest) c
+    go (_ :: rest) c = go rest c
+
+||| Cast a String to Nat (via Integer).
+export
+castNat : String -> Nat
+castNat s = cast (the Integer (cast s))
+
+||| Cast a String to Bits64 (via Integer).
+export
+castBits64 : String -> Bits64
+castBits64 s = cast (the Integer (cast s))
+
+
+----------------------------------------------------------------------
+-- Result Formatting
+----------------------------------------------------------------------
+
+||| Format a machine-readable RESULT line from key-value pairs.
+export
+formatResult : List (String, String) -> String
+formatResult kvs = "RESULT" ++ concatMap (\(k, v) => "\t" ++ k ++ "=" ++ v) kvs
 
 
 ----------------------------------------------------------------------
@@ -76,12 +126,15 @@ runTraining :
   model ->
   IO (model, Nat, Double)
 runTraining {model} epochFn dataSrc cfg model0 = do
-  t0 <- clockTime Monotonic
+  tStart <- clockTime Monotonic
   putStrLn "Training..."
-  case cfg.earlyStop of
-    NoEarlyStop => goSimple 0 model0 0.0 t0
-    Patience pat minD => goPatience 0 model0 (1.0/0.0) 0 t0 pat minD
-    WindowedAvg thresh win pat => goWindowed 0 model0 0.0 0 [] 0 t0 thresh win pat
+  result@(m, epochsDone, loss) <- case cfg.earlyStop of
+    NoEarlyStop => goSimple 0 model0 0.0 tStart
+    Patience pat minD => goPatience 0 model0 (1.0/0.0) 0 tStart pat minD
+    WindowedAvg thresh win pat => goWindowed 0 model0 0.0 0 [] 0 tStart thresh win pat
+  tEnd <- clockTime Monotonic
+  putStrLn $ formatTimingSummary tStart tEnd epochsDone
+  pure result
   where
     shouldLog : Nat -> Bool
     shouldLog ep = case cfg.logEvery of

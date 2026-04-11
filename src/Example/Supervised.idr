@@ -1,6 +1,8 @@
 module Example.Supervised
 
+import Data.List
 import Data.Vect
+import System
 import System.Clock
 import System.Random
 
@@ -27,19 +29,34 @@ dataPoints =
       MkDataPoint (VTensor [2.9, -1.4]) (VTensor [1, 0, 0])
     ]
 
+record Config where
+  constructor MkConfig
+  lr : Double
+  epochs : Nat
+  seed : Bits64
+
+defaultConfig : Config
+defaultConfig = MkConfig 0.03 1000 123456
+
+specs : List (ArgSpec Config)
+specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
+        , Arg "--epochs" (\v, c => { epochs := castNat v } c)
+        , Arg "--seed" (\v, c => { seed := castBits64 v } c) ]
+
 main : IO ()
 main = do
-  tStart <- clockTime Monotonic
-  srand 123456
+  args <- getArgs
+  let cfg = parseArgs defaultConfig specs (drop 1 args)
 
-  let epochs = 1000
-  let lr = 0.03
+  srand cfg.seed
+
   let lossFn = crossEntropy
-  let opt = nativeSgd lr
+  let opt = nativeSgd cfg.lr
   let prepared = map (map fromDouble) dataPoints
 
   putStrLn "=== Supervised Classification ==="
-  putStrLn $ "Config: lr=" ++ show lr ++ " epochs=" ++ show epochs ++ " seed=123456"
+  putStrLn $ "Config: lr=" ++ show cfg.lr ++ " epochs=" ++ show cfg.epochs
+           ++ " seed=" ++ show cfg.seed
 
   ll <- linearLayer
   let model = autoName $ ll ~> OutputLayer softmaxLayer
@@ -47,11 +64,7 @@ main = do
   putStrLn ""
 
   (trained, epochsDone, _) <- runTraining
-    (\m, d => epochNative opt d lossFn m)
-    (pure prepared)
-    (simpleConfig epochs)
-    model
-  t1 <- clockTime Monotonic
+    (\m, d => epochNative opt d lossFn m) (pure prepared) (simpleConfig cfg.epochs) model
 
   let dblModel = toDoubleNetwork (emap refreshValue trained)
   let predictions = evaluate dblModel (map (map fromDouble) dataPoints)
@@ -64,23 +77,17 @@ main = do
       showSample dp pred =
         let argmax : Vector 3 Double -> Nat
             argmax (VTensor [STensor a, STensor b, STensor c]) =
-              if a >= b && a >= c then 0
-              else if b >= c then 1
-              else 2
+              if a >= b && a >= c then 0 else if b >= c then 1 else 2
             argmax _ = 0
             showVec : {k : Nat} -> Vector k Double -> String
             showVec (VTensor xs) = "[" ++ go xs ++ "]"
-              where
-                go : Vect j (Scalar Double) -> String
-                go [] = ""
-                go [STensor v] = show v
-                go (STensor v :: rest) = show v ++ ", " ++ go rest
-            target = argmax (y dp)
-            predicted = argmax pred
-            mark = if target == predicted then " ok" else " WRONG"
-        in putStrLn $ "  " ++ showVec (x dp) ++ " -> class " ++ show predicted ++ mark
+              where go : Vect j (Scalar Double) -> String
+                    go [] = ""
+                    go [STensor v] = show v
+                    go (STensor v :: rest) = show v ++ ", " ++ go rest
+        in putStrLn $ "  " ++ showVec (x dp) ++ " -> class " ++ show (argmax pred)
+                    ++ (if argmax (y dp) == argmax pred then " ok" else " WRONG")
   traverse_ (\(dp, pred) => showSample dp pred) (zip dataPoints predictions)
   putStrLn ""
-  putStrLn $ formatTimingSummary tStart t1 epochsDone
-  putStrLn $ "RESULT\tepochs=" ++ show epochsDone ++ "\tloss=" ++ show finalLoss
-           ++ "\ttime=" ++ show (seconds t1 - seconds tStart) ++ "s"
+  putStrLn $ formatResult [("epochs", show epochsDone), ("loss", show finalLoss),
+                            ("seed", show cfg.seed)]

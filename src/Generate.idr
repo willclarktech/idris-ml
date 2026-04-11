@@ -3,11 +3,13 @@ module Generate
 import Data.Fin
 import Data.List
 import Data.Nat
+import Data.Stream
 import Data.Vect
 import System.Random
 
 import DataPoint
 import Math
+import Tensor
 import Tensor
 
 
@@ -325,3 +327,24 @@ recallTaskBinaryBatchVect (S k) minItems maxItems seqLen = do
   dp <- recallTaskBinary {w} numItems seqLen
   rest <- recallTaskBinaryBatchVect k minItems maxItems seqLen
   pure (dp :: rest)
+
+
+----------------------------------------------------------------------
+-- Pattern Sequence Data (for RNN/LSTM examples)
+----------------------------------------------------------------------
+
+generatePatternSeq : Nat -> (List Double, List Double)
+generatePatternSeq len =
+  let infinitePattern = cycle [0, 1, 0]
+  in (take len infinitePattern, take len (drop 1 infinitePattern))
+
+prepScalars : List Double -> List (Vector 1 Double)
+prepScalars ns = map (flatten . STensor) ns
+
+||| Generate repeating pattern data: input = pattern, output = next element.
+||| Pattern is [0,1,0,0,1,0,...]. Used by RNN and LSTM examples.
+export
+patternData : (n : Nat) -> Vect n (RecurrentDataPoint 1 1 Double)
+patternData n =
+  let pairs = map (generatePatternSeq . (+3) . finToNat) (Data.Vect.Fin.range {len=n})
+  in map (\(is, os) => MkRecurrentDataPoint (prepScalars is) (prepScalars os)) pairs

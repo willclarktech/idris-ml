@@ -1,8 +1,8 @@
 module Example.Rnn
 
 import Data.List
-import Data.Stream
 import Data.Vect
+import System
 import System.Clock
 import System.Random
 
@@ -10,6 +10,7 @@ import Backprop
 import DataPoint
 import Endofunctor
 import Floating
+import Generate
 import Layer
 import Math
 import Optimizer
@@ -19,33 +20,37 @@ import Util
 import Variable
 
 
-generateData : Nat -> (List Double, List Double)
-generateData n =
-  let infinitePattern = cycle [0, 1, 0]
-  in (take n infinitePattern, take n (drop 1 infinitePattern))
+record Config where
+  constructor MkConfig
+  lr : Double
+  epochs : Nat
+  seed : Bits64
 
-generateDataSet : {n : Nat} -> Vect n (List Double, List Double)
-generateDataSet = map (generateData . (+3) . finToNat) Data.Vect.Fin.range
+defaultConfig : Config
+defaultConfig = MkConfig 0.03 1000 123456
 
-rawData : (n : Nat) -> Vect n (RecurrentDataPoint 1 1 Double)
-rawData n = map (\(is, os) => MkRecurrentDataPoint (prep is) (prep os)) $ generateDataSet {n}
-  where
-    prep : (ns : List Double) -> List (Vector 1 Double)
-    prep ns = map (flatten . STensor) ns
+specs : List (ArgSpec Config)
+specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
+        , Arg "--epochs" (\v, c => { epochs := castNat v } c)
+        , Arg "--seed" (\v, c => { seed := castBits64 v } c) ]
+
+showSeq : List (Vector 1 Double) -> String
+showSeq xs = concatMap (\(VTensor [STensor v]) => if v >= 0.5 then "1" else "0") xs
 
 main : IO ()
 main = do
-  tStart <- clockTime Monotonic
-  srand 123456
+  args <- getArgs
+  let cfg = parseArgs defaultConfig specs (drop 1 args)
 
-  let epochs = 1000
-  let lr = 0.03
+  srand cfg.seed
+
   let lossFn = binaryCrossEntropyWithLogits
-  let opt = nativeSgd lr
-  let dataPoints = map (map fromDouble) (rawData 8)
+  let opt = nativeSgd cfg.lr
+  let dataPoints = map (map fromDouble) (patternData 8)
 
   putStrLn "=== RNN Pattern Prediction ==="
-  putStrLn $ "Config: lr=" ++ show lr ++ " epochs=" ++ show epochs ++ " seed=123456"
+  putStrLn $ "Config: lr=" ++ show cfg.lr ++ " epochs=" ++ show cfg.epochs
+           ++ " seed=" ++ show cfg.seed
 
   rnn <- rnnLayer
   let model = autoName $ OutputLayer rnn
@@ -53,32 +58,24 @@ main = do
   putStrLn ""
 
   (trained, epochsDone, _) <- runTraining
-    (\m, d => epochRecurrentNative opt d lossFn m)
-    (pure dataPoints)
-    (simpleConfig epochs)
-    model
-  t1 <- clockTime Monotonic
+    (\m, d => epochRecurrentNative opt d lossFn m) (pure dataPoints) (simpleConfig cfg.epochs) model
 
   let dblModel = toDoubleNetwork (emap refreshValue trained)
-  let dblPreds = evaluateRecurrent dblModel (rawData 8)
   let predictions : Vect 8 (List (Vector 1 Double))
-      predictions = map (map (map (\x => cast (0 < x)))) dblPreds
-  let finalLoss = calculateLossRecurrent lossFn dblModel (rawData 8)
+      predictions = map (map (map (\x => cast (0 < x)))) (evaluateRecurrent dblModel (patternData 8))
+  let finalLoss = calculateLossRecurrent lossFn dblModel (patternData 8)
 
   putStrLn ""
   putStrLn "Eval:"
   putStrLn $ "  Loss: " ++ show finalLoss
-  let showSeq : List (Vector 1 Double) -> String
-      showSeq xs = concatMap (\(VTensor [STensor v]) => if v >= 0.5 then "1" else "0") xs
-  let tgts = map ys (rawData 8)
+  let tgts = map ys (patternData 8)
   putStrLn "  Seq  Target     Predicted"
   traverse_ (\(i, (t, p)) =>
     let ts = showSeq (toList t)
         ps = showSeq (toList p)
-        mark = if ts == ps then " ok" else ""
-    in putStrLn $ "  " ++ show (finToNat i + 1) ++ ".   " ++ ts ++ "  ->  " ++ ps ++ mark)
+    in putStrLn $ "  " ++ show (finToNat i + 1) ++ ".   " ++ ts ++ "  ->  " ++ ps
+                ++ (if ts == ps then " ok" else ""))
     (zip Fin.range (zip tgts predictions))
   putStrLn ""
-  putStrLn $ formatTimingSummary tStart t1 epochsDone
-  putStrLn $ "RESULT\tepochs=" ++ show epochsDone ++ "\tloss=" ++ show finalLoss
-           ++ "\ttime=" ++ show (seconds t1 - seconds tStart) ++ "s"
+  putStrLn $ formatResult [("epochs", show epochsDone), ("loss", show finalLoss),
+                            ("seed", show cfg.seed)]
