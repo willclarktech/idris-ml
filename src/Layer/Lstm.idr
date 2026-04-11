@@ -61,6 +61,9 @@ record LstmState (inputSize : Nat) (outputSize : Nat) (ty : Type) where
   iwTensor : Maybe AnyPtr     -- [4*o, i]
   rwTensor : Maybe AnyPtr     -- [4*o, o]
   biasTensor : Maybe AnyPtr   -- [4*o]
+  -- Tensor handles for hidden/cell state (avoid vecStackTensor round-trip)
+  hiddenTensor : Maybe AnyPtr -- [o]
+  cellTensor : Maybe AnyPtr   -- [o]
 
 
 ----------------------------------------------------------------------
@@ -71,6 +74,15 @@ record LstmState (inputSize : Nat) (outputSize : Nat) (ty : Type) where
 export
 extractCellState : {o : Nat} -> LstmState i o ty -> Vector o ty
 extractCellState st = st.cellState
+
+||| Extract hidden/cell tensor handles (for NTM direct tensor pipeline).
+export
+extractHiddenTensor : LstmState i o Variable -> Maybe AnyPtr
+extractHiddenTensor st = st.hiddenTensor
+
+export
+extractCellTensor : LstmState i o Variable -> Maybe AnyPtr
+extractCellTensor st = st.cellTensor
 
 
 ----------------------------------------------------------------------
@@ -110,7 +122,7 @@ showVecD (VTensor xs) = "[" ++ go xs ++ "]"
 
 export
 LayerLike LstmState where
-  applyGeneric {i} {o} (MkLstm iw rw b hs cs _ _ _) xs =
+  applyGeneric {i} {o} (MkLstm iw rw b hs cs _ _ _ _ _) xs =
     let combined = matrixVectorMultiply iw xs + matrixVectorMultiply rw hs + b
         gates = lstmSplitGates {o} combined
         iGate = fst gates
@@ -119,33 +131,35 @@ LayerLike LstmState where
         oGate = snd (snd (snd gates))
         newCell = map sig fGate * cs + map sig iGate * map tanhBound gGate
         newHidden = map sig oGate * map tanhBound newCell
-    in (MkLstm iw rw b newHidden newCell Nothing Nothing Nothing, newHidden)
+    in (MkLstm iw rw b newHidden newCell Nothing Nothing Nothing Nothing Nothing, newHidden)
     where
       sig : ty -> ty
       sig x = 1 / (1 + exp (-x))
 
-  applyVar {i} {o} st@(MkLstm iw rw b hs cs iwT rwT bT) xs =
+  applyVar {i} {o} st@(MkLstm iw rw b hs cs iwT rwT bT hT cT) xs =
     case (iwT, rwT, bT) of
       -- Tensor-level forward: 2 mv + 1 add + fused LSTM gates (all at tensor level)
       (Just iwTensor, Just rwTensor, Just biasTensor) =>
-        let (VTensor hsElems) = hs
-            (VTensor csElems) = cs
-            (VTensor xElems) = xs
+        let (VTensor xElems) = xs
             oI = cast {to=Int} o
-            -- Stack input and hidden into 1D tensors (only these, not weights)
             inputT = vecStackTensor {n=i} xElems
-            hiddenT = vecStackTensor {n=o} hsElems
-            cellT = vecStackTensor {n=o} csElems
+            -- Use stored tensor handles if available (skip vecStackTensor)
+            hiddenT = case hT of
+              Just h => h
+              Nothing => let (VTensor hsElems) = hs in vecStackTensor {n=o} hsElems
+            cellT = case cT of
+              Just c => c
+              Nothing => let (VTensor csElems) = cs in vecStackTensor {n=o} csElems
             -- Tensor-level gate computation: mv + mv + bias
             combined = tensorAdd (tensorAdd (tensorMv iwTensor inputT) (tensorMv rwTensor hiddenT)) biasTensor
             -- Fused sigmoid/tanh gate application in C
             pair = prim__lstmGatesPair combined cellT oI
             newHiddenT = prim__pairFirst pair
             newCellT = prim__pairSecond pair
-            -- Unpack back to Variable vectors
+            -- Unpack back to Variable vectors (still needed for layer output)
             newHidden = VTensor $ tensorToScalars newHiddenT 0 o
             newCell = VTensor $ tensorToScalars newCellT 0 o
-        in (MkLstm iw rw b newHidden newCell iwT rwT bT, newHidden)
+        in (MkLstm iw rw b newHidden newCell iwT rwT bT (Just newHiddenT) (Just newCellT), newHidden)
       -- Scalar fallback
       _ =>
         let gateSize : Nat
@@ -155,14 +169,14 @@ LayerLike LstmState where
             cellResult = lstmCellVar mulIW mulRW b cs
             newCell = fst cellResult
             newHidden = snd cellResult
-        in (MkLstm iw rw b newHidden newCell Nothing Nothing Nothing, newHidden)
+        in (MkLstm iw rw b newHidden newCell Nothing Nothing Nothing Nothing Nothing, newHidden)
 
-  emapLayer f (MkLstm iw rw b hs cs iwT rwT bT) =
-    MkLstm (map f iw) (map f rw) (map f b) (map f hs) (map f cs) iwT rwT bT
+  emapLayer f (MkLstm iw rw b hs cs iwT rwT bT _ _) =
+    MkLstm (map f iw) (map f rw) (map f b) (map f hs) (map f cs) iwT rwT bT Nothing Nothing
 
   showLayer {i} {o} _ = "Lstm<" ++ show i ++ ":" ++ show o ++ ">"
 
-  nameLayer {i} {o} prefx (MkLstm iw rw b hs cs _ _ _) =
+  nameLayer {i} {o} prefx (MkLstm iw rw b hs cs _ _ _ _ _) =
     if prim__backendSupportsTensorParams == 1
       then -- Tensor path
         let (VTensor iwRows) = iw
@@ -183,26 +197,26 @@ LayerLike LstmState where
                   (VTensor $ buildViewVector (prefx ++ "_bias") bT 0 (4 * o))
                   (VTensor $ buildViewVector (prefx ++ "_h0") h0T 0 o)
                   (VTensor $ buildViewVector (prefx ++ "_c0") c0T 0 o)
-                  (Just iwT) (Just rwT) (Just bT)
-      else -- Scalar path (tape backend)
+                  (Just iwT) (Just rwT) (Just bT) Nothing Nothing
+      else -- Scalar path
         let np = nameParam . (prefx ++ "_" ++)
         in MkLstm (zipWith (np "inputWeight") enumerate iw)
                   (zipWith (np "recurrentWeight") enumerate rw)
                   (zipWith (np "bias") enumerate b)
                   (zipWith (np "h0") enumerate hs)
                   (zipWith (np "c0") enumerate cs)
-                  Nothing Nothing Nothing
+                  Nothing Nothing Nothing Nothing Nothing
 
   layerPrefix _ = "lstm"
 
-  toDoubleLayer {i} {o} (MkLstm iw rw b hs cs iwT rwT bT) =
+  toDoubleLayer {i} {o} (MkLstm iw rw b hs cs iwT rwT bT _ _) =
     case (iwT, rwT, bT) of
       (Just iwTensor, Just rwTensor, Just biasTensor) =>
         let wIW = buildDoubleMatrix iwTensor 0 (4 * o) i
             wRW = buildDoubleMatrix rwTensor 0 (4 * o) o
             wBias = buildDoubleVector biasTensor 0 (4 * o)
-        in MkLstm (VTensor wIW) (VTensor wRW) (VTensor wBias) (map value hs) (map value cs) Nothing Nothing Nothing
-      _ => MkLstm (map value iw) (map value rw) (map value b) (map value hs) (map value cs) Nothing Nothing Nothing
+        in MkLstm (VTensor wIW) (VTensor wRW) (VTensor wBias) (map value hs) (map value cs) Nothing Nothing Nothing Nothing Nothing
+      _ => MkLstm (map value iw) (map value rw) (map value b) (map value hs) (map value cs) Nothing Nothing Nothing Nothing Nothing
     where
       buildDoubleRow : AnyPtr -> Int -> Int -> (k : Nat) -> Vect k (Scalar Double)
       buildDoubleRow _ _ _ Z = []
@@ -224,7 +238,7 @@ LayerLike LstmState where
     in (updated, out, MkDebugEntry ("Lstm<" ++ show i ++ ":" ++ show o ++ ">")
          [("hidden", showVecD st.hiddenState), ("cell", showVecD st.cellState)])
 
-  getParamIds (MkLstm iw rw b hs cs _ _ _) =
+  getParamIds (MkLstm iw rw b hs cs _ _ _ _ _) =
     tensorIds iw ++ tensorIds rw ++ tensorIds b ++ tensorIds hs ++ tensorIds cs
     where
       tensorIds : {dims : Vect rank Nat} -> Tensor dims Variable -> List String
@@ -244,7 +258,7 @@ mkLstmWith {i} {o} initFn = do
   let b = the (Vector (4 * o) ty) zeros
   h0 <- traverse (\_ => map fromDouble (xavier uniform o 1)) (the (Vector o ty) zeros)
   c0 <- traverse (\_ => map fromDouble (xavier uniform o 1)) (the (Vector o ty) zeros)
-  pure $ MkLstm iw rw b h0 c0 Nothing Nothing Nothing
+  pure $ MkLstm iw rw b h0 c0 Nothing Nothing Nothing Nothing Nothing
 
 ||| Create a raw LstmState with default Xavier uniform init
 export
