@@ -193,17 +193,20 @@ def train_reversal_epoch(
     model: MultiHeadTransformer,
     data: list[tuple[Tensor, Tensor]],
     optimizer: torch.optim.Optimizer,
+    reversal_start: int = 0,
 ) -> float:
     """Train one epoch on reversal data.
 
-    Uses per-position cross-entropy loss (matching Idris perPositionCE).
+    Loss is computed only on positions >= reversal_start (the reversal
+    portion). Prefix positions are random and unpredictable from left
+    context, so masking them out makes the loss meaningful.
     """
     optimizer.zero_grad()
     total_loss = torch.tensor(0.0)
 
     for inp_onehot, target_indices in data:
         logits = model(inp_onehot)  # [seqLen, vocabSize]
-        loss = F.cross_entropy(logits, target_indices)
+        loss = F.cross_entropy(logits[reversal_start:], target_indices[reversal_start:])
         total_loss = total_loss + loss
 
     avg_loss = total_loss / len(data)

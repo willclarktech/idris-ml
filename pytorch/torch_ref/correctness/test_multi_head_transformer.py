@@ -37,19 +37,18 @@ class TestMultiHeadTransformer:
         assert out.shape == (4, SEQ_LEN, VOCAB_SIZE)
 
     def test_loss_decreases(self) -> None:
-        """Loss should decrease over 200 epochs."""
+        """Loss should decrease over 200 epochs (reversal-only loss)."""
         torch.manual_seed(42)
         model = MultiHeadTransformer(VOCAB_SIZE, SEQ_LEN, D_MODEL, NUM_HEADS)
-        data = generate_reversal_data(16, INPUT_LEN, VOCAB_SIZE, SEP_TOKEN, EOS_TOKEN)
         optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
-        # Measure initial loss
-        initial_loss = train_reversal_epoch(model, data, optimizer)
+        data = generate_reversal_data(16, INPUT_LEN, VOCAB_SIZE, SEP_TOKEN, EOS_TOKEN)
+        initial_loss = train_reversal_epoch(model, data, optimizer, reversal_start=INPUT_LEN)
 
-        # Train 200 more epochs
         loss_val = initial_loss
         for _ in range(200):
-            loss_val = train_reversal_epoch(model, data, optimizer)
+            data = generate_reversal_data(16, INPUT_LEN, VOCAB_SIZE, SEP_TOKEN, EOS_TOKEN)
+            loss_val = train_reversal_epoch(model, data, optimizer, reversal_start=INPUT_LEN)
 
         assert loss_val < initial_loss, (
             f"Loss did not decrease: {initial_loss:.4f} -> {loss_val:.4f}"
@@ -59,13 +58,14 @@ class TestMultiHeadTransformer:
         """After sufficient training, should achieve high reversal accuracy."""
         torch.manual_seed(42)
         model = MultiHeadTransformer(VOCAB_SIZE, SEQ_LEN, D_MODEL, NUM_HEADS)
-        data = generate_reversal_data(16, INPUT_LEN, VOCAB_SIZE, SEP_TOKEN, EOS_TOKEN)
         optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
-        for _ in range(2000):
-            train_reversal_epoch(model, data, optimizer)
+        for _ in range(500):
+            data = generate_reversal_data(16, INPUT_LEN, VOCAB_SIZE, SEP_TOKEN, EOS_TOKEN)
+            train_reversal_epoch(model, data, optimizer, reversal_start=INPUT_LEN)
 
-        full_acc, rev_acc = eval_reversal_accuracy(model, data, INPUT_LEN)
+        eval_data = generate_reversal_data(16, INPUT_LEN, VOCAB_SIZE, SEP_TOKEN, EOS_TOKEN)
+        _, rev_acc = eval_reversal_accuracy(model, eval_data, INPUT_LEN)
         assert rev_acc >= 0.9, f"Reversal accuracy too low: {rev_acc:.2%}"
 
     def test_data_generation(self) -> None:

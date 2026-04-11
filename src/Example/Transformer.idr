@@ -71,27 +71,41 @@ BatchSize = 16
 
 
 ----------------------------------------------------------------------
--- Per-position categorical cross-entropy loss
+-- Per-position categorical cross-entropy loss (reversal portion only)
 ----------------------------------------------------------------------
 
-||| Categorical cross-entropy applied per position.
-perPositionCE : {seqLen, vocabSize : Nat} ->
-                Vector (seqLen * vocabSize) Variable -> Vector (seqLen * vocabSize) Variable -> Variable
-perPositionCE {seqLen} {vocabSize} (VTensor preds) (VTensor targets) =
+-- Number of positions in the reversal portion (SEP + reversed + EOS)
+ReversalLen : Nat
+ReversalLen = SeqLen `minus` InputLen
+
+||| Categorical cross-entropy on the reversal portion only.
+||| Positions 0..InputLen-1 are random prefix (unpredictable from left
+||| context), so we mask them out of the loss. Only positions
+||| InputLen..SeqLen-1 (separator, reversed tokens, EOS) contribute.
+reversalCE : {seqLen, vocabSize : Nat} -> (skipPositions : Int) ->
+             Vector (seqLen * vocabSize) Variable -> Vector (seqLen * vocabSize) Variable -> Variable
+reversalCE {seqLen} {vocabSize} skip (VTensor preds) (VTensor targets) =
   let vsI = cast {to=Int} vocabSize
-      logitsTensor = prim__reshape2d (vecStackTensor preds) (cast {to=Int} seqLen) vsI
-      logProbs = prim__logSoftmax2d logitsTensor
-      targetTensor = prim__reshape2d (vecStackTensor targets) (cast {to=Int} seqLen) vsI
-      product = prim__mul logProbs targetTensor
+      sI = cast {to=Int} seqLen
+      revLen = sI - skip
+      -- Reshape to [seqLen, vocabSize], then narrow to reversal rows
+      logitsFull = prim__reshape2d (vecStackTensor preds) sI vsI
+      targetFull = prim__reshape2d (vecStackTensor targets) sI vsI
+      logits = prim__narrow logitsFull 0 (skip * vsI) (revLen * vsI)
+      logitsR = prim__reshape2d logits revLen vsI
+      logProbs = prim__logSoftmax2d logitsR
+      tgts = prim__narrow targetFull 0 (skip * vsI) (revLen * vsI)
+      tgtsR = prim__reshape2d tgts revLen vsI
+      product = prim__mul logProbs tgtsR
       totalSum = prim__sum product
-      loss = prim__mulScalar (prim__neg totalSum) (1.0 / cast {to=Double} seqLen)
+      loss = prim__mulScalar (prim__neg totalSum) (1.0 / cast {to=Double} revLen)
       val = prim__item loss
   in Var loss Nothing val
 
 catCELoss : LossFunction Variable
 catCELoss {n} preds targets =
   case decEq n (SeqLen * VocabSize) of
-    Yes Refl => perPositionCE {seqLen=SeqLen, vocabSize=VocabSize} preds targets
+    Yes Refl => reversalCE {seqLen=SeqLen, vocabSize=VocabSize} (cast InputLen) preds targets
     No _ => fromDouble 0.0  -- unreachable
 
 

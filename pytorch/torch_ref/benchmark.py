@@ -233,6 +233,7 @@ def bench_ntm_recall() -> tuple[float, float, float]:
 def bench_multi_head_transformer() -> tuple[float, float, float]:
     """Benchmark multi-head transformer on reversal task.
 
+    Fresh data each epoch, loss only on reversal portion (matching Idris).
     Returns (elapsed_ms, final_loss, peak_rss_mb).
     """
     torch.manual_seed(123456)
@@ -241,13 +242,13 @@ def bench_multi_head_transformer() -> tuple[float, float, float]:
     d_model, num_heads = 32, 4
 
     model = MultiHeadTransformer(vocab_size, seq_len, d_model, num_heads)
-    data = generate_reversal_data(16, input_len, vocab_size, sep_token, eos_token)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
     def run_epoch() -> float:
-        return train_reversal_epoch(model, data, optimizer)
+        data = generate_reversal_data(16, input_len, vocab_size, sep_token, eos_token)
+        return train_reversal_epoch(model, data, optimizer, reversal_start=input_len)
 
-    return _run_benchmark(run_epoch, warmup=100, epochs=1000)
+    return _run_benchmark(run_epoch, warmup=100, epochs=500)
 
 
 BENCHMARKS: dict[str, tuple[str, Callable[[], tuple[float, float, float]]]] = {
