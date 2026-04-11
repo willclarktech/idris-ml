@@ -11,6 +11,8 @@ import Data.Vect
 import System
 import System.Random
 
+import PrimIO  -- for unsafePerformIO
+
 import Backprop
 import DataPoint
 import Endofunctor
@@ -31,7 +33,7 @@ import Variable
 ----------------------------------------------------------------------
 
 VocabSize : Nat
-VocabSize = 4
+VocabSize = 5
 
 SeqLen : Nat
 SeqLen = 16
@@ -54,20 +56,22 @@ OutputDim = SeqLen * VocabSize
 posEnc : Nat -> Nat -> Double
 posEnc pos dim =
   let p = cast {to=Double} pos
-      d = cast {to=Double} dim
+      i = cast {to=Double} (div dim 2)  -- pair index: dims 0,1 share freq; 2,3 share; etc.
       dm = cast {to=Double} DModel
-      angle = p / pow 10000.0 (d / dm)
+      angle = p / pow 10000.0 (2.0 * i / dm)
   in if modNatNZ dim 2 ItIsSucc == 0 then sin angle else cos angle
 
-||| Embed a token at a position: one-hot + positional encoding.
+||| Embed a token at a position: token one-hot + position one-hot.
+||| First VocabSize dims = token identity, next SeqLen dims = position.
 embedTokenAt : Nat -> Nat -> Vect DModel Double
 embedTokenAt pos idx =
-  let hot = map (\i => if finToNat i == idx then 1.0 else 0.0)
-                (Data.Vect.Fin.range {len=VocabSize})
-      padding = replicate (minus DModel VocabSize) 0.0
-      raw = hot ++ padding
-      pe = map (\i => posEnc pos (finToNat i)) (Data.Vect.Fin.range {len=DModel})
-  in zipWith (+) raw pe
+  let tokHot = map (\i => if finToNat i == idx then 1.0 else 0.0)
+                   (Data.Vect.Fin.range {len=VocabSize})
+      posHot = map (\i => if finToNat i == pos then 1.0 else 0.0)
+                   (Data.Vect.Fin.range {len=SeqLen})
+      -- VocabSize + SeqLen = 5 + 16 = 21, need DModel=32, pad remaining 11
+      padding = replicate (minus DModel (VocabSize + SeqLen)) 0.0
+  in tokHot ++ posHot ++ padding
 
 
 ----------------------------------------------------------------------
@@ -75,7 +79,7 @@ embedTokenAt pos idx =
 ----------------------------------------------------------------------
 
 pattern : List Nat
-pattern = take 100 $ cycle [0, 1, 2, 3]
+pattern = take 100 $ cycle [0, 1, 2, 3, 4]
 
 makeExample : Nat -> DataPoint InputDim OutputDim Double
 makeExample start =
@@ -94,7 +98,7 @@ makeExample start =
   in MkDataPoint (VTensor (toVect InputDim inputFlat))
                   (VTensor (toVect OutputDim targetFlat))
 
-trainingData : Vect 8 (DataPoint InputDim OutputDim Double)
+trainingData : Vect 16 (DataPoint InputDim OutputDim Double)
 trainingData = map (makeExample . finToNat) range
 
 
@@ -155,6 +159,7 @@ tokenName 0 = "A"
 tokenName 1 = "B"
 tokenName 2 = "C"
 tokenName 3 = "D"
+tokenName 4 = "E"
 tokenName _ = "?"
 
 main : IO ()
@@ -185,37 +190,68 @@ main = do
   let preVals = map (\v => prim__item v.tensorPtr) (Data.List.take 8 (toList prePred))
   putStrLn $ show preVals
 
-  -- Custom epoch: train + on last epoch print training predictions
-  let myEpoch : Network InputDim [] OutputDim Variable ->
-                Vect 8 (DataPoint InputDim OutputDim Variable) ->
-                (Network InputDim [] OutputDim Variable, Double)
-      myEpoch m d =
-        let loss = calculateLossVar catCELoss m d
-            lossVal = nativeTrainStep opt loss
-        in (m, lossVal)
-
-  (trained, epochsDone, _) <- runTraining myEpoch (pure prepared)
-    (simpleConfig cfg.epochs) model
-
-  -- Individual prediction FIRST (before loss recalc pollutes the tape)
-  let firstInput = x (index FZ prepared)
-  let (_, firstPred) = forwardVar trained firstInput
-  -- THEN compute per-element loss on this specific output
-  let firstTarget = y (index FZ prepared)
-  let singleLoss = catCELoss firstPred firstTarget
-  putStrLn $ "Single-example loss: " ++ show (prim__item singleLoss.tensorPtr)
-
-  -- Helper to index a list
+  -- Helpers
   let listAt : Nat -> List Double -> Double
       listAt _ [] = 0.0
-      listAt Z (x :: _) = x
+      listAt Z (xx :: _) = xx
       listAt (S k) (_ :: xs) = listAt k xs
+  let positions = map finToNat (toList (Data.Vect.Fin.range {len=SeqLen}))
+
+  -- Metrics: compute accuracy on training data during training
+  let evalMetrics : Network InputDim [] OutputDim Variable -> IO (List (String, String))
+      evalMetrics m = do
+        -- Use calculateLossVar to run the full forward + loss in one go
+        -- This is the same path that training uses, so results should match
+        let freshData = map (map fromDouble) trainingData
+            lossVar = calculateLossVar catCELoss m freshData
+            lossVal = prim__item lossVar.tensorPtr
+        -- Also run forwardVar for argmax predictions
+        let (_, pred) = forwardVar m (x (index FZ freshData))
+            predVals = map (\v => prim__item v.tensorPtr) (toList pred)
+            expected = Data.List.take SeqLen (drop 1 pattern)
+            predicted = map (\pos =>
+              let probs = map (\j => listAt (pos * VocabSize + j) predVals) (the (List Nat) [0,1,2,3,4])
+                  best = foldl (\(bi,bv), (i,v) => if v > bv then (i,v) else (bi,bv))
+                               (the (Nat, Double) (0, -1.0e10)) (zip (the (List Nat) [0,1,2,3,4]) probs)
+              in fst best) positions
+            correct = foldl (\acc, (a,b) => if a == b then acc + 1 else acc) (the Nat 0) (zip expected predicted)
+        pure [("acc", show correct ++ "/" ++ show SeqLen)]
+
+  -- Use simple config (accuracy not reliably trackable during training due to Idris purity)
+  (trained, epochsDone, _) <- runTraining
+    (\m, d => epochNative opt d catCELoss m) (pure prepared) (simpleConfig cfg.epochs) model
+
+  -- Evaluate ALL data points
+  -- Use unsafePerformIO to force re-evaluation of the forward pass
+  -- (pure forwardVar may be cached by Idris even though C tensors were mutated)
+  putStrLn "Per-example accuracy:"
+  traverse_ (\idx => do
+    let dp = unsafePerformIO (pure (map fromDouble (index idx trainingData)))
+        (_, pred) = forwardVar trained (x dp)
+        predVals = map (\v => prim__item v.tensorPtr) (toList pred)
+        expected = Data.List.take SeqLen (drop (finToNat idx + 1) pattern)
+        predicted = map (\pos =>
+          let probs = map (\j => listAt (pos * VocabSize + j) predVals) (the (List Nat) [0,1,2,3,4])
+              best = foldl (\(bi,bv), (i,v) => if v > bv then (i,v) else (bi,bv))
+                           (the (Nat, Double) (0, -1.0e10)) (zip (the (List Nat) [0,1,2,3,4]) probs)
+          in fst best) positions
+        correct = foldl (\acc, (a,b) => if a == b then acc + 1 else acc) (the Nat 0) (zip expected predicted)
+    -- Also compute loss on this example's predictions via catCELoss
+    let singleLoss = catCELoss pred (y dp)
+    putStrLn $ "  start=" ++ show (finToNat idx) ++ " acc=" ++ show correct ++ "/16"
+             ++ " loss=" ++ show (prim__item singleLoss.tensorPtr)
+    ) (Data.Vect.Fin.range {len=16})
+
+  -- First data point predictions
+  let firstInput = x (index FZ prepared)
+  let (_, firstPred) = forwardVar trained firstInput
+
   -- Show logits for first 4 positions
   let allVals = map (\v => prim__item v.tensorPtr) (toList firstPred)
   putStrLn "Post-train logits (per position, 4 classes each):"
   traverse_ (\pos =>
     let start = pos * VocabSize
-        vals = map (\j => listAt (start + j) allVals) (the (List Nat) [0,1,2,3])
+        vals = map (\j => listAt (start + j) allVals) (the (List Nat) [0,1,2,3,4])
         target = listAt pos (drop 1 (map cast pattern))
     in putStrLn $ "  pos " ++ show pos ++ " target=" ++ tokenName (cast target)
                 ++ " logits=" ++ show vals
@@ -231,10 +267,10 @@ main = do
       showPos : Nat -> String
       showPos pos =
         let start = pos * VocabSize
-            probs = map (\j => listAt (start + j) predList) (the (List Nat) [0,1,2,3])
+            probs = map (\j => listAt (start + j) predList) (the (List Nat) [0,1,2,3,4])
             best = foldl (\(bi,bv), (i,v) => if v > bv then (i,v) else (bi,bv))
                          (the (Nat, Double) (0, -1.0e10))
-                         (zip (the (List Nat) [0,1,2,3]) probs)
+                         (zip (the (List Nat) [0,1,2,3,4]) probs)
         in tokenName (fst best)
   let positions = map finToNat (toList (Data.Vect.Fin.range {len=SeqLen}))
   putStr "  Pattern:   "
@@ -243,8 +279,8 @@ main = do
   putStrLn $ concatMap showPos positions
   let predicted = map (\pos => fst (foldl (\(bi,bv), (i,v) => if v > bv then (i,v) else (bi,bv))
         (the (Nat, Double) (0, -1.0e10))
-        (zip (the (List Nat) [0,1,2,3])
-             (map (\j => listAt (pos * VocabSize + j) predList) (the (List Nat) [0,1,2,3]))))
+        (zip (the (List Nat) [0,1,2,3,4])
+             (map (\j => listAt (pos * VocabSize + j) predList) (the (List Nat) [0,1,2,3,4]))))
         ) positions
       expected = Data.List.take SeqLen (drop 1 pattern)
       correct = foldl (\acc, (a,b) => if a == b then acc + 1 else acc) (the Nat 0) (zip expected predicted)

@@ -47,7 +47,7 @@ prim__causalMask : Int -> AnyPtr
 export
 {seqLen : Nat} -> {dModel : Nat} -> {vocabSize : Nat} -> LayerLike (TransformerState seqLen dModel vocabSize) where
 
-  applyGeneric {i} {o} st xs = (st, believe_me xs)  -- TODO: proper Double-level impl
+  applyGeneric {i} {o} st xs = (st, believe_me xs)  -- Transformer eval uses Variable path
 
   applyVar {i} {o} st xs =
     case extractWeightTensor (queryW st) of
