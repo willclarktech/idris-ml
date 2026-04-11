@@ -5,16 +5,16 @@
 | Item | Difficulty | Notes |
 |------|-----------|-------|
 | Reinforcement learning example | L–XL | Policy gradient (e.g. REINFORCE on CartPole or grid world). Requires: environment interface, episode rollout, discounted return computation, policy gradient loss (`-log_prob * reward`). May need: `Categorical` distribution sampling from logits, baseline variance reduction. Could reuse `Train.runTraining` with episodes as "epochs" |
-| Write README.md | S | Project overview, build instructions, example outputs, architecture diagram. Important for anyone discovering the repo |
+| Transformer | XL | Self-attention, multi-head attention, positional encoding, layer norm. The most impactful architecture to add. Requires: matrix multiply (batched), softmax over attention dim, residual connections. Dependent types can enforce query/key/value dimension agreement at compile time |
+| MLX backend | XL | Apple Metal GPU via [mlx-c](https://github.com/ml-explore/mlx-c). New `backend_mlx.c` implementing `backend.h`. Build-time selection: `make BACKEND=mlx backend`. Would give GPU acceleration on Apple Silicon with the same Idris code. The `backend.h` abstraction was designed for this |
 
 ## Medium Priority
 
 | Item | Difficulty | Notes |
 |------|-----------|-------|
-| Transformer | XL | Self-attention, multi-head attention, positional encoding. The most impactful architecture to support after RNN/LSTM/NTM |
 | Convolutional layers | L | Conv1D/Conv2D with autograd. Natural next layer type for image tasks |
-| Regularisation/normalisation layers | M | Dropout, layer norm, batch norm. Required for training deeper models |
-| More Tensor functions | M | Partially done: `tensor_cat2`, `tensor_narrow` added for NTM pipeline. Remaining: general concat, reshape, transpose, gather/scatter |
+| Regularisation/normalisation layers | M | Dropout, layer norm, batch norm. Required for transformers and deeper models |
+| More Tensor functions | M | Partially done: `tensor_cat2`, `tensor_narrow` added for NTM pipeline. Remaining: general concat, reshape, transpose, gather/scatter, batched matmul |
 
 ## Low Priority
 
@@ -23,13 +23,13 @@
 | Broadcasting | XL | Type-safe broadcasting. Key tension: expressiveness vs shape safety guarantees. See `docs/static-vs-dynamic-graphs.md` |
 | Static graph optimizations | L–XL | Compile-time operator fusion, memory planning via dependent types. See `docs/static-vs-dynamic-graphs.md` |
 | DNC (Differentiable Neural Computer) | XL | Graves et al. 2016 — temporal link matrix, dynamic memory allocation, multiple read heads |
-| Heterogeneous context (CPU/GPU) | XL | MLX backend for Apple Metal GPU |
 | `fromDouble` persistent leak | S | ~15KB/epoch, ~140MB over 10k NTM epochs. Manageable at current scale (peak 348MB). Only matters for 50k+ epoch runs |
 | Reshaping layers | M | No current use case |
 
 ## Done
 
 Architecture & infrastructure:
+- README.md with static-vs-dynamic graph motivation
 - C tape backend (`backend_tape.c`) with build-time backend selection (`BACKEND=tape|torch`)
 - Interface-based layer system (`LayerLike` + `AnyLayer` existential)
 - Unified training runner (`Train.idr`: `runTraining`, `TrainConfig`, `EarlyStopConfig`)
