@@ -45,10 +45,10 @@ prim__neg : AnyPtr -> AnyPtr
 prim__abs : AnyPtr -> AnyPtr
 
 %foreign "C:tensor_exp,libidrisml"
-prim__exp : AnyPtr -> AnyPtr
+export prim__exp : AnyPtr -> AnyPtr
 
 %foreign "C:tensor_log,libidrisml"
-prim__log : AnyPtr -> AnyPtr
+export prim__log : AnyPtr -> AnyPtr
 
 %foreign "C:tensor_sqrt,libidrisml"
 prim__sqrt : AnyPtr -> AnyPtr
@@ -57,7 +57,7 @@ prim__sqrt : AnyPtr -> AnyPtr
 prim__pow : AnyPtr -> AnyPtr -> AnyPtr
 
 %foreign "C:tensor_sigmoid,libidrisml"
-prim__sigmoid : AnyPtr -> AnyPtr
+export prim__sigmoid : AnyPtr -> AnyPtr
 
 %foreign "C:tensor_tanh,libidrisml"
 prim__tanh : AnyPtr -> AnyPtr
@@ -77,7 +77,7 @@ prim__matmul : AnyPtr -> AnyPtr -> AnyPtr
 
 -- Activation
 %foreign "C:tensor_softmax,libidrisml"
-prim__softmax : AnyPtr -> Int -> AnyPtr
+export prim__softmax : AnyPtr -> Int -> AnyPtr
 
 %foreign "C:tensor_log_softmax,libidrisml"
 prim__logSoftmax : AnyPtr -> Int -> AnyPtr
@@ -104,7 +104,7 @@ prim__numel : AnyPtr -> Int
 prim__size : AnyPtr -> Int -> Int
 
 %foreign "C:tensor_select,libidrisml"
-prim__select : AnyPtr -> Int -> Int -> AnyPtr
+export prim__select : AnyPtr -> Int -> Int -> AnyPtr
 
 %foreign "C:tensor_unsqueeze,libidrisml"
 prim__unsqueeze : AnyPtr -> Int -> AnyPtr
@@ -122,7 +122,7 @@ prim__withGrad : AnyPtr -> AnyPtr
 prim__mulScalar : AnyPtr -> Double -> AnyPtr
 
 %foreign "C:tensor_add_scalar,libidrisml"
-prim__addScalar : AnyPtr -> Double -> AnyPtr
+export prim__addScalar : AnyPtr -> Double -> AnyPtr
 
 %foreign "C:tensor_clamp_min,libidrisml"
 prim__clampMin : AnyPtr -> Double -> AnyPtr
@@ -313,6 +313,14 @@ prim__ptrArraySet : AnyPtr -> Int -> AnyPtr -> AnyPtr
 
 %foreign "C:tensor_stack_from_array,libidrisml"
 prim__stackFromArray : AnyPtr -> Int -> Int -> AnyPtr
+
+%foreign "C:tensor_cat2,libidrisml"
+export
+prim__cat2 : AnyPtr -> AnyPtr -> AnyPtr
+
+%foreign "C:tensor_narrow,libidrisml"
+export
+prim__narrow : AnyPtr -> Int -> Int -> Int -> AnyPtr
 
 %foreign "C:tensor_reshape,libidrisml"
 prim__reshape : AnyPtr -> AnyPtr -> Int -> AnyPtr

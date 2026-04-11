@@ -100,6 +100,8 @@ TensorHandle tensor_squeeze(TensorHandle t, int dim);
 TensorHandle tensor_select(TensorHandle t, int dim, int index);
 TensorHandle tensor_stack(TensorHandle* tensors, int count, int dim);
 TensorHandle tensor_cat(TensorHandle* tensors, int count, int dim);
+TensorHandle tensor_cat2(TensorHandle a, TensorHandle b);
+TensorHandle tensor_narrow(TensorHandle t, int dim, int start, int len);
 
 /* ---------- Autograd ---------- */
 

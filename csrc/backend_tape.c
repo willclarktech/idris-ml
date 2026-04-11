@@ -156,6 +156,8 @@ enum {
     OP_RESHAPE,   /* reshape (view) — grad passes through unchanged */
     OP_SELECT,    /* select element from vector — grad goes to parent[index] */
     OP_VECMAT,    /* [n] x [n,m] -> [m] vector-matrix multiply */
+    OP_CAT,       /* concatenate two 1D tensors: [a] ++ [b] -> [a+b] */
+    OP_NARROW,    /* view into a slice of a 1D tensor */
     OP_NTM_READ_HEAD_READ, /* read output — shares NtmReadHeadMeta with OP_NTM_READ_HEAD */
 };
 
@@ -1039,7 +1041,44 @@ TensorHandle tensor_stack(TensorHandle* tensors, int count, int dim) {
 }
 
 TensorHandle tensor_cat(TensorHandle* tensors, int count, int dim) {
-    return tensor_stack(tensors, count, dim); /* simplified */
+    return tensor_stack(tensors, count, dim); /* simplified: scalar-only */
+}
+
+/* Concatenate two 1D tensors: [a] ++ [b] -> [a+b] */
+TensorHandle tensor_cat2(TensorHandle ha, TensorHandle hb) {
+    Tensor* a = (Tensor*)ha;
+    Tensor* b = (Tensor*)hb;
+    int na = a->numel, nb = b->numel, total = na + nb;
+    int rg = a->requires_grad || b->requires_grad;
+    double* data = arena_alloc(total * sizeof(double));
+    memcpy(data, a->data, na * sizeof(double));
+    memcpy(data + na, b->data, nb * sizeof(double));
+    int* shape = arena_alloc(sizeof(int));
+    shape[0] = total;
+    Tensor* r = arena_alloc(sizeof(Tensor));
+    memset(r, 0, sizeof(Tensor));
+    r->data = data; r->shape = shape; r->rank = 1;
+    r->numel = total; r->requires_grad = rg;
+    r->tape_idx = -1;
+    /* OP_CAT stores a as arg1, b as arg2. scalar_arg = split point (na) */
+    if (rg) tape_append(OP_CAT, r, a, b, (double)na);
+    return r;
+}
+
+/* View into a slice of a 1D tensor: t[start..start+len) */
+TensorHandle tensor_narrow(TensorHandle h, int dim, int start, int len) {
+    Tensor* t = (Tensor*)h;
+    Tensor* r = arena_alloc(sizeof(Tensor));
+    memset(r, 0, sizeof(Tensor));
+    r->data = t->data + start;
+    r->shape = arena_alloc(sizeof(int));
+    r->shape[0] = len;
+    r->rank = 1; r->numel = len;
+    r->requires_grad = t->requires_grad;
+    r->tape_idx = -1;
+    /* OP_NARROW: scatter gradient back to parent at offset */
+    if (r->requires_grad) tape_append(OP_NARROW, r, t, NULL, (double)start);
+    return r;
 }
 
 /* ================================================================
@@ -1322,6 +1361,32 @@ void tensor_backward(TensorHandle h) {
                 for (int i = 0; i < n_vm; i++)
                     for (int j = 0; j < m_vm; j++)
                         b->grad[i*m_vm+j] += r->grad[j] * a->data[i];
+            }
+            break;
+        }
+
+        case OP_CAT: {
+            /* r = cat(a, b), split at scalar_arg */
+            int split = (int)e->scalar_arg;
+            ensure_grad(r);
+            if (a) {
+                ensure_grad(a);
+                for (int j = 0; j < a->numel; j++) a->grad[j] += r->grad[j];
+            }
+            if (b) {
+                ensure_grad(b);
+                for (int j = 0; j < b->numel; j++) b->grad[j] += r->grad[split + j];
+            }
+            break;
+        }
+
+        case OP_NARROW: {
+            /* r = parent[start..start+len), scatter grad back */
+            int start = (int)e->scalar_arg;
+            ensure_grad(r);
+            if (a) {
+                ensure_grad(a);
+                for (int j = 0; j < r->numel; j++) a->grad[start + j] += r->grad[j];
             }
             break;
         }

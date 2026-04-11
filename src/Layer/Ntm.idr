@@ -192,55 +192,60 @@ export
         case (extractCellTensor updLstm, extractWeightTensor readFc, extractBiasTensor readFc,
               extractWeightTensor writeFc, extractBiasTensor writeFc) of
           (Just cellT, Just rfcW, Just rfcB, Just wfcW, Just wfcB) =>
-            let -- Read FC at tensor level
+            let mI = cast {to=Int} m
+                skI = cast {to=Int} ShiftKernelSize
+                -- Read FC at tensor level: result is [ReadParamWidth m] tensor
                 readResultT = tensorAdd (tensorMv rfcW cellT) rfcB
-                readParamsV = VTensor (tensorToScalars readResultT 0 (ReadParamWidth m))
-                -- Write FC at tensor level
-                writeResultT = tensorAdd (tensorMv wfcW cellT) wfcB
-                writeParamsV = VTensor (tensorToScalars writeResultT 0 (WriteParamWidth m))
-                -- Parse read head params
-                (mainInput, params) = splitAt (m + ShiftKernelSize) readParamsV
-                (keyVector, shiftVector) = splitAt m mainInput
-                (betaVec, params') = splitAt 1 params
-                (gVec, gammaVec) = splitAt 1 params'
-                beta = softplus (sum betaVec)
-                g = sigmoidVar (sum gVec)
-                gamma = 1 + softplus (sum gammaVec)
-                shiftKernel = softmaxVar shiftVector
-                (VTensor keyElems) = keyVector
-                keyT = vecStackTensor keyElems
-                (VTensor shiftElems) = shiftKernel
-                shiftT = vecStackTensor shiftElems
+                -- Parse read head params via tensor_narrow (no scalar unpack)
+                keyT = prim__narrow readResultT 0 0 mI
+                shiftT = prim__softmax (prim__narrow readResultT 0 mI skI) 0
+                betaPtr = prim__select readResultT 0 (mI + skI)
+                gPtr = prim__select readResultT 0 (mI + skI + 1)
+                gammaPtr = prim__select readResultT 0 (mI + skI + 2)
+                -- Activations at tensor level: softplus(x) = log(1+exp(x))
+                betaT = prim__log (prim__addScalar (prim__exp betaPtr) 1.0)
+                gT = prim__sigmoid gPtr
+                gammaT = prim__addScalar (prim__log (prim__addScalar (prim__exp gammaPtr) 1.0)) 1.0
                 -- Fused read head
-                readPair = prim__ntmReadHead memT raT keyT beta.tensorPtr g.tensorPtr gamma.tensorPtr shiftT
+                readPair = prim__ntmReadHead memT raT keyT betaT gT gammaT shiftT
                 newReadAddrT = prim__pairFirst readPair
                 newReadOutT = prim__pairSecond readPair
-                -- Parse write head params
-                (wReadHeadInput, rawAdd) = Tensor.splitAt ((m + ShiftKernelSize) + 3) writeParamsV
-                (wMainInput, wParams) = splitAt (m + ShiftKernelSize) wReadHeadInput
-                (wKeyVector, wShiftVector) = splitAt m wMainInput
-                (wBetaVec, wParams') = splitAt 1 wParams
-                (wGVec, wGammaVec) = splitAt 1 wParams'
-                wBeta = softplus (sum wBetaVec)
-                wG = sigmoidVar (sum wGVec)
-                wGamma = 1 + softplus (sum wGammaVec)
-                wShiftKernel = softmaxVar wShiftVector
-                (VTensor wKeyElems) = wKeyVector
-                wKeyT = vecStackTensor wKeyElems
-                (VTensor wShiftElems) = wShiftKernel
-                wShiftT = vecStackTensor wShiftElems
-                -- Fused write head + interp write
-                writePair = prim__ntmReadHead memT waT wKeyT wBeta.tensorPtr wG.tensorPtr wGamma.tensorPtr wShiftT
+                -- Write FC at tensor level: result is [WriteParamWidth m] tensor
+                writeResultT = tensorAdd (tensorMv wfcW cellT) wfcB
+                -- Parse write head params via tensor_narrow
+                rpw = cast {to=Int} (ReadParamWidth m)
+                wKeyT = prim__narrow writeResultT 0 0 mI
+                wShiftT = prim__softmax (prim__narrow writeResultT 0 mI skI) 0
+                wBetaPtr = prim__select writeResultT 0 (mI + skI)
+                wGPtr = prim__select writeResultT 0 (mI + skI + 1)
+                wGammaPtr = prim__select writeResultT 0 (mI + skI + 2)
+                wBetaT = prim__log (prim__addScalar (prim__exp wBetaPtr) 1.0)
+                wGT = prim__sigmoid wGPtr
+                wGammaT = prim__addScalar (prim__log (prim__addScalar (prim__exp wGammaPtr) 1.0)) 1.0
+                -- Write head addressing + interp write
+                writePair = prim__ntmReadHead memT waT wKeyT wBetaT wGT wGammaT wShiftT
                 newWriteAddrT = prim__pairFirst writePair
-                (VTensor addElems) = rawAdd
-                addT = vecStackTensor addElems
+                addT = prim__narrow writeResultT 0 rpw mI
                 newMemT = prim__ntmInterpWrite memT newWriteAddrT addT
-                -- Output FC
-                newReadOutput = VTensor (tensorToScalars newReadOutT 0 m)
-                output = snd (applyVar outputFc (hidden ++ newReadOutput))
-            in (MkNtm updLstm readFc writeFc outputFc
-                     memory readAddr writeAddr newReadOutput
-                     (Just newMemT) (Just newReadAddrT) (Just newWriteAddrT) (Just newReadOutT), output)
+                -- Output FC: concat hidden + readOutput at tensor level
+                hiddenT = case extractHiddenTensor updLstm of
+                  Just h => h
+                  Nothing => let (VTensor hs) = hidden in vecStackTensor hs
+                concatT = prim__cat2 hiddenT newReadOutT
+            in case (extractWeightTensor outputFc, extractBiasTensor outputFc) of
+                 (Just ofcW, Just ofcB) =>
+                   let outputT = tensorAdd (tensorMv ofcW concatT) ofcB
+                       output = VTensor (tensorToScalars outputT 0 o)
+                       newReadOutput = VTensor (tensorToScalars newReadOutT 0 m)
+                   in (MkNtm updLstm readFc writeFc outputFc
+                            memory readAddr writeAddr newReadOutput
+                            (Just newMemT) (Just newReadAddrT) (Just newWriteAddrT) (Just newReadOutT), output)
+                 _ => -- output FC missing tensors, fall through
+                   let newReadOutput = VTensor (tensorToScalars newReadOutT 0 m)
+                       output = snd (applyVar outputFc (hidden ++ newReadOutput))
+                   in (MkNtm updLstm readFc writeFc outputFc
+                            memory readAddr writeAddr newReadOutput
+                            (Just newMemT) (Just newReadAddrT) (Just newWriteAddrT) (Just newReadOutT), output)
           -- Fallback if tensor handles missing
           _ => let cell = extractCellState updLstm
                in case applyVar readFc cell of
