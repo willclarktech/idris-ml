@@ -44,6 +44,14 @@ interface LayerLike (l : Nat -> Nat -> Type -> Type) where
   -- Forward pass (Variable-specialized, for training with C-backed ops)
   applyVar : {i, o : Nat} -> l i o Variable -> Vector i Variable -> (l i o Variable, Vector o Variable)
 
+  -- Forward pass (tensor-level, bypasses scalar packing/unpacking)
+  -- Takes/returns raw C tensor handles. Default wraps applyVar.
+  applyVarTensor : {i, o : Nat} -> l i o Variable -> AnyPtr -> (l i o Variable, AnyPtr)
+  applyVarTensor {i} {o} st inputT =
+    let input = VTensor (tensorToScalars inputT 0 i)
+        (st', VTensor outElems) = applyVar st input
+    in (st', vecStackTensor outElems)
+
   -- Type-preserving map (for applyDeltas in non-dense path)
   emapLayer : {i, o : Nat} -> (ty -> ty) -> l i o ty -> l i o ty
 
@@ -112,6 +120,12 @@ applyVarAny : {i, o : Nat} -> AnyLayer i o Variable -> Vector i Variable -> (Any
 applyVarAny (MkAnyLayer l @{dict} layer) xs =
   case applyVar @{dict} layer xs of
     (layer', out) => (MkAnyLayer l @{dict} layer', out)
+
+export
+applyVarTensorAny : {i, o : Nat} -> AnyLayer i o Variable -> AnyPtr -> (AnyLayer i o Variable, AnyPtr)
+applyVarTensorAny (MkAnyLayer l @{dict} layer) inputT =
+  case applyVarTensor @{dict} layer inputT of
+    (layer', outT) => (MkAnyLayer l @{dict} layer', outT)
 
 public export
 {i, o : Nat} -> Endofunctor (AnyLayer i o) where
@@ -184,6 +198,21 @@ forwardVar {hs = h :: _} (l ~> layers) x =
     (l', layerOutput) =>
       case forwardVar layers layerOutput of
         (rest', networkOutput) => (l' ~> rest', networkOutput)
+
+||| Tensor-level forward pass: threads raw C tensor handles through layers.
+||| No scalar packing/unpacking at layer boundaries.
+export
+forwardVarTensor : {i, o : Nat} -> {hs : List Nat} ->
+                   Network i hs o Variable -> AnyPtr ->
+                   (Network i hs o Variable, AnyPtr)
+forwardVarTensor (OutputLayer l) inputT =
+  case applyVarTensorAny l inputT of
+    (l', outT) => (OutputLayer l', outT)
+forwardVarTensor {hs = h :: _} (l ~> layers) inputT =
+  case applyVarTensorAny l inputT of
+    (l', midT) =>
+      case forwardVarTensor layers midT of
+        (rest', outT) => (l' ~> rest', outT)
 
 
 ----------------------------------------------------------------------

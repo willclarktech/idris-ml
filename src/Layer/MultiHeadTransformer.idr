@@ -145,6 +145,13 @@ export
        in (st, replace {p = \x => Vector x ty} (sym st.outputPrf) result)
 
   applyVar {i} {o} st xs =
+    let (VTensor xElems) = xs
+        inputFlat = vecStackTensor xElems
+        (st', outT) = applyVarTensor st inputFlat
+        output = VTensor (tensorToScalars outT 0 o)
+    in (st', output)
+
+  applyVarTensor {i} {o} st inputFlat =
     case extractWeightTensor (tokenEmbed st) of
       Just embedW =>
         let Just f1W = extractWeightTensor (ff1 st)   | Nothing => idris_crash "Transformer: ff1 not initialized"
@@ -162,9 +169,7 @@ export
             vI = cast {to=Int} vocabSize
             hdI = cast {to=Int} headDim
 
-            -- Pack input: Vector (seqLen*vocabSize) -> [seqLen, vocabSize]
-            (VTensor xElems) = xs
-            inputFlat = vecStackTensor xElems
+            -- Reshape input: 1D [seqLen*vocabSize] -> [seqLen, vocabSize]
             inputMat = prim__reshape2d inputFlat sI vI
 
             -- Token embedding: input @ embedW^T -> [seqLen, dModel]
@@ -198,9 +203,7 @@ export
             outT = prim__mm normedFinal (prim__transpose2d vpW)
 
             -- Flatten to 1D
-            flat1d = prim__narrow outT 0 0 (sI * vI)
-            output = VTensor (tensorToScalars flat1d 0 o)
-        in (st, output)
+        in (st, prim__narrow outT 0 0 (sI * vI))
       Nothing => idris_crash "Transformer: tokenEmbed not initialized"
     where
       writePE : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr

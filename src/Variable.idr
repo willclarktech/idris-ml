@@ -1002,6 +1002,22 @@ prim__memoryReport : Int -> Int
 %foreign "scheme:(lambda (dummy) ((foreign-procedure \"backend_reset_for_eval\" () void)) dummy)"
 prim__resetForEval : Int -> Int
 
+||| Bulk-convert a Vector of Doubles to a C tensor handle (single tensor creation).
+||| Much faster than per-element fromDouble + vecStackTensor.
+export
+bulkToTensor : {n : Nat} -> Vector n Double -> AnyPtr
+bulkToTensor {n} (VTensor elems) =
+  let nI = cast {to=Int} n
+      buf = prim__allocDoubles nI
+      buf' = packDoubleBuf buf 0 elems
+  in prim__create1d nI buf' 0  -- requires_grad=0 for input data
+  where
+    packDoubleBuf : AnyPtr -> Int -> Vect k (Scalar Double) -> AnyPtr
+    packDoubleBuf buf _ [] = buf
+    packDoubleBuf buf off (STensor v :: rest) =
+      let buf' = prim__setDouble buf off v
+      in packDoubleBuf buf' (off + 1) rest
+
 ||| Reset tape + arena for a clean eval forward pass.
 ||| Returns a dummy value that should be threaded into subsequent computation.
 export

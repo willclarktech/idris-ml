@@ -2231,6 +2231,13 @@ TensorHandle tensor_subtract_scalar_inplace(TensorHandle h, double val) {
    Convenience functions
    ================================================================ */
 
+/* Create 1D tensor from a raw memory buffer (e.g. Scheme bytevector).
+   The buffer must contain n IEEE-754 doubles in native byte order. */
+TensorHandle tensor_create_from_bytevec(int n, double* data, int requires_grad) {
+    int shape[] = {n};
+    return tensor_create(data, shape, 1, requires_grad);
+}
+
 TensorHandle tensor_create_1d(int n, double* data, int requires_grad) {
     int shape[] = {n};
     return tensor_create(data, shape, 1, requires_grad);

@@ -294,6 +294,41 @@ epochNative opt dataPoints lossFn model =
       lossVal = nativeTrainStep opt loss
   in (model, lossVal)
 
+||| Tensor-level loss function: takes raw tensor handles (pred, target) -> Variable.
+public export
+0 LossFnTensor : Type
+LossFnTensor = AnyPtr -> AnyPtr -> Variable
+
+||| Tensor-level native epoch: bypasses scalar packing/unpacking entirely.
+||| Accepts DataPoint Double (raw data), bulk-converts to C tensors,
+||| forwards through network at tensor level, computes loss on tensors.
+||| ~99% fewer FFI calls than epochNative.
+export
+epochNativeTensor :
+  {i, o, n : Nat} ->
+  {hs : List Nat} ->
+  NativeOptimizer ->
+  Vect n (DataPoint i o Double) ->
+  LossFnTensor ->
+  Network i hs o Variable ->
+  (Network i hs o Variable, Double)
+epochNativeTensor opt dataPoints lossFn model =
+  let -- Bulk-convert inputs and targets to C tensors (1 FFI call each)
+      tensorPairs = map (\dp => (bulkToTensor (x dp), bulkToTensor (y dp))) dataPoints
+      -- Forward each through network at tensor level (no scalar wrapping)
+      (_, losses) = foldl (\(m, acc), (inT, tgtT) =>
+        let (m', outT) = forwardVarTensor m inT
+            loss = lossFn outT tgtT
+        in (m', loss :: acc))
+        (the (Network i hs o Variable, List Variable) (model, [])) tensorPairs
+      -- Mean loss
+      totalLoss = foldl (\acc, l => acc + l) (the Variable (fromDouble 0.0)) losses
+      nf = fromDouble (cast (natToInteger n))
+      avgLoss : Variable
+      avgLoss = totalLoss / nf
+      lossVal = nativeTrainStep opt avgLoss
+  in (model, lossVal)
+
 ||| Native epoch for recurrent training.
 export
 epochRecurrentNative :

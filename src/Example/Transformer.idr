@@ -108,6 +108,26 @@ catCELoss {n} preds targets =
     Yes Refl => reversalCE {seqLen=SeqLen, vocabSize=VocabSize} (cast InputLen) preds targets
     No _ => fromDouble 0.0  -- unreachable
 
+||| Tensor-level loss: takes raw AnyPtr tensors (pred, target), both 1D [seqLen*vocabSize].
+catCELossTensor : LossFnTensor
+catCELossTensor predT targetT =
+  let vsI = cast {to=Int} VocabSize
+      sI = cast {to=Int} SeqLen
+      skip = cast {to=Int} InputLen
+      revLen = sI - skip
+      logitsFull = prim__reshape2d predT sI vsI
+      targetFull = prim__reshape2d targetT sI vsI
+      logits = prim__narrow logitsFull 0 (skip * vsI) (revLen * vsI)
+      logitsR = prim__reshape2d logits revLen vsI
+      logProbs = prim__logSoftmax2d logitsR
+      tgts = prim__narrow targetFull 0 (skip * vsI) (revLen * vsI)
+      tgtsR = prim__reshape2d tgts revLen vsI
+      product = prim__mul logProbs tgtsR
+      totalSum = prim__sum product
+      loss = prim__mulScalar (prim__neg totalSum) (1.0 / cast {to=Double} revLen)
+      val = prim__item loss
+  in Var loss Nothing val
+
 
 ----------------------------------------------------------------------
 -- Helpers
@@ -195,21 +215,21 @@ main = do
   putStrLn $ "Model: " ++ show model
   putStrLn ""
 
-  -- Data source: fresh batch each epoch
-  let genBatch : IO (Vect BatchSize (DataPoint InputDim OutputDim Variable))
-      genBatch = map (map fromDouble) <$>
-        reversalBatchVect VocabSize InputLen SeqLen SepToken EosToken BatchSize
+  -- Data source: fresh batch each epoch (raw Doubles — epochNativeTensor handles conversion)
+  let genBatch : IO (Vect BatchSize (DataPoint InputDim OutputDim Double))
+      genBatch = reversalBatchVect VocabSize InputLen SeqLen SepToken EosToken BatchSize
 
-  -- Metrics: accuracy on a fresh eval batch
+  -- Metrics: accuracy on a fresh eval batch (uses tensor-level forward)
   let evalMetrics : Network InputDim [] OutputDim Variable -> IO (List (String, String))
       evalMetrics m = do
-        raw <- reversalBatchVect VocabSize InputLen SeqLen SepToken EosToken BatchSize
-        let evalData : Vect BatchSize (DataPoint InputDim OutputDim Variable)
-            evalData = map (map fromDouble) raw
-            results = map (\dp =>
-              let (_, pred) = forwardVar m (x dp)
-                  predVals = tensorVals pred
-                  targetVals = tensorVals (y dp)
+        evalData <- the (IO (Vect BatchSize (DataPoint InputDim OutputDim Double)))
+          (reversalBatchVect VocabSize InputLen SeqLen SepToken EosToken BatchSize)
+        let results = map (\dp =>
+              let inT = bulkToTensor (x dp)
+                  tgtT = bulkToTensor (y dp)
+                  (_, outT) = forwardVarTensor m inT
+                  predVals = tensorVals (VTensor (tensorToScalars outT 0 OutputDim))
+                  targetVals = tensorVals (VTensor (tensorToScalars tgtT 0 OutputDim))
                   predicted = map (argmaxAt VocabSize predVals) positions
                   expected = map (argmaxAt VocabSize targetVals) positions
                   revPred = drop InputLen predicted
@@ -222,7 +242,7 @@ main = do
   let trainCfg = MkTrainConfig cfg.epochs 100 (Patience cfg.patience 0.001) evalMetrics
 
   (trained, epochsDone, finalLoss) <- runTraining
-    (\m, d => epochNative opt d catCELoss m) genBatch trainCfg model
+    (\m, d => epochNativeTensor opt d catCELossTensor m) genBatch trainCfg model
 
   -- Evaluate on a fresh example
   putStrLn ""

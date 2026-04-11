@@ -170,6 +170,7 @@ TensorHandle tensor_subtract_scalar_inplace(TensorHandle t, double val);
 /* ---------- Convenience: build tensors from scalar arrays ---------- */
 
 /* Create a 1D tensor from n doubles passed as individual args via a C array */
+TensorHandle tensor_create_from_bytevec(int n, double* data, int requires_grad);
 TensorHandle tensor_create_1d(int n, double* data, int requires_grad);
 TensorHandle tensor_create_2d(int rows, int cols, double* data, int requires_grad);
 
