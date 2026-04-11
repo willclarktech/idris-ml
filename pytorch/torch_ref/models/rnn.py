@@ -37,6 +37,38 @@ class LinearRNNCell(nn.Module):
         return self._h
 
 
+class LinearLSTMCell(nn.Module):
+    """LSTM cell with linear output projection.
+
+    Matches Idris LSTM example: LSTM(1, hidden) -> Linear(hidden, 1).
+    """
+
+    def __init__(self, input_size: int, hidden_size: int, output_size: int) -> None:
+        super().__init__()
+        self.hidden_size = hidden_size
+        self.lstm = nn.LSTMCell(input_size, hidden_size)
+        self.output_proj = nn.Linear(hidden_size, output_size)
+
+        nn.init.xavier_uniform_(self.lstm.weight_ih)
+        nn.init.xavier_uniform_(self.lstm.weight_hh)
+        nn.init.xavier_uniform_(self.output_proj.weight)
+        nn.init.zeros_(self.output_proj.bias)
+
+    def reset_state(self) -> None:
+        self._h = torch.zeros(self.hidden_size)
+        self._c = torch.zeros(self.hidden_size)
+
+    def forward(self, x: Tensor) -> Tensor:
+        # LSTMCell expects (batch, input_size), add batch dim
+        h_in = self._h.unsqueeze(0)
+        c_in = self._c.unsqueeze(0)
+        x_in = x.unsqueeze(0)
+        h_out, c_out = self.lstm(x_in, (h_in, c_in))
+        self._h = h_out.squeeze(0)
+        self._c = c_out.squeeze(0)
+        return self.output_proj(self._h)
+
+
 def generate_rnn_data(n: int) -> tuple[list[float], list[float]]:
     """Generate cyclic [0,1,0] pattern of length n."""
     pattern = [0.0, 1.0, 0.0]
@@ -58,6 +90,27 @@ def generate_rnn_dataset(n: int) -> list[tuple[list[Tensor], list[Tensor]]]:
 
 
 RNN_DATA = generate_rnn_dataset(8)
+
+
+def train_lstm_epoch(
+    model: LinearLSTMCell,
+    data: list[tuple[list[Tensor], list[Tensor]]],
+    optimizer: torch.optim.Optimizer,
+) -> float:
+    """Train one LSTM epoch, same structure as train_rnn_epoch."""
+    optimizer.zero_grad()
+    total_loss = torch.tensor(0.0)
+    for xs, ys in data:
+        model.reset_state()
+        seq_loss = torch.tensor(0.0)
+        for x, y in zip(xs, ys, strict=True):
+            pred = model(x)
+            seq_loss = seq_loss + bce_with_logits(pred, y)
+        total_loss = total_loss + seq_loss / len(xs)
+    loss = total_loss / len(data)
+    loss.backward()
+    optimizer.step()
+    return loss.item()
 
 
 def train_rnn_epoch(

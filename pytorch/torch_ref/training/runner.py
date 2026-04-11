@@ -16,8 +16,13 @@ class TrainConfig:
 
     total_epochs: int = 1000
     log_every: int = 100
-    patience: int = 0  # 0 = no early stopping
+    # Patience-based early stopping (0 = disabled)
+    patience: int = 0
     min_delta: float = 0.001
+    # Windowed-average early stopping (threshold=0 = disabled)
+    windowed_threshold: float = 0.0
+    windowed_window: int = 1000
+    windowed_patience: int = 3
 
 
 def _format_elapsed(start: float) -> str:
@@ -74,6 +79,13 @@ def run_training(
     final_loss = 0.0
     epochs_done = 0
 
+    # Windowed-average state
+    use_windowed = config.windowed_threshold > 0
+    interval_sum = 0.0
+    interval_count = 0
+    avgs: list[float] = []
+    conv_count = 0
+
     for ep in range(config.total_epochs):
         loss = epoch_fn()
         epochs_done = ep + 1
@@ -91,7 +103,7 @@ def run_training(
         final_loss = loss
 
         # Patience-based early stopping
-        if config.patience > 0:
+        if config.patience > 0 and not use_windowed:
             if loss < best_loss - config.min_delta:
                 best_loss = loss
                 stale = 0
@@ -103,6 +115,34 @@ def run_training(
                     f" (patience={config.patience})"
                 )
                 break
+
+        # Windowed-average early stopping
+        if use_windowed:
+            interval_sum += loss
+            interval_count += 1
+            if interval_count >= 100:
+                avg = interval_sum / 100.0
+                avgs.append(avg)
+                interval_sum = 0.0
+                interval_count = 0
+                wc = max(1, config.windowed_window // 100)
+                if len(avgs) >= wc:
+                    window_avg = sum(avgs[-wc:]) / wc
+                    if window_avg < config.windowed_threshold:
+                        conv_count += 1
+                        if conv_count >= config.windowed_patience:
+                            print(
+                                f"  {_format_elapsed(t_start)} Converged at epoch {epochs_done}"
+                                f" (window_avg={window_avg})"
+                            )
+                            break
+                        print(
+                            f"    {_format_elapsed(t_start)} convergence"
+                            f" {conv_count}/{config.windowed_patience}"
+                            f" (window_avg={window_avg})"
+                        )
+                    else:
+                        conv_count = 0
 
     total_sec = int(time.monotonic() - t_start)
     dur = _format_duration(total_sec)
