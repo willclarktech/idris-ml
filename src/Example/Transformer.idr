@@ -196,6 +196,15 @@ main = do
       listAt Z (xx :: _) = xx
       listAt (S k) (_ :: xs) = listAt k xs
   let positions = map finToNat (toList (Data.Vect.Fin.range {len=SeqLen}))
+  -- Extract Variable values in FORWARD order.
+  -- Tensor's Foldable reverses (documented gotcha). Unwrap VTensor to get
+  -- the underlying Vect and use Vect's toList which preserves order.
+  let tensorVals : {n : Nat} -> Vector n Variable -> List Double
+      tensorVals (VTensor xs) =
+        let vectToList : Vect k (Scalar Variable) -> List Double
+            vectToList [] = []
+            vectToList (STensor v :: rest) = prim__item v.tensorPtr :: vectToList rest
+        in vectToList xs
 
   -- Metrics: compute accuracy on training data during training
   let evalMetrics : Network InputDim [] OutputDim Variable -> IO (List (String, String))
@@ -207,7 +216,7 @@ main = do
             lossVal = prim__item lossVar.tensorPtr
         -- Also run forwardVar for argmax predictions
         let (_, pred) = forwardVar m (x (index FZ freshData))
-            predVals = map (\v => prim__item v.tensorPtr) (toList pred)
+            predVals = tensorVals pred
             expected = Data.List.take SeqLen (drop 1 pattern)
             predicted = map (\pos =>
               let probs = map (\j => listAt (pos * VocabSize + j) predVals) (the (List Nat) [0,1,2,3,4])
@@ -228,7 +237,7 @@ main = do
   traverse_ (\idx => do
     let dp = unsafePerformIO (pure (map fromDouble (index idx trainingData)))
         (_, pred) = forwardVar trained (x dp)
-        predVals = map (\v => prim__item v.tensorPtr) (toList pred)
+        predVals = tensorVals pred
         expected = Data.List.take SeqLen (drop (finToNat idx + 1) pattern)
         predicted = map (\pos =>
           let probs = map (\j => listAt (pos * VocabSize + j) predVals) (the (List Nat) [0,1,2,3,4])
@@ -247,7 +256,7 @@ main = do
   let (_, firstPred) = forwardVar trained firstInput
 
   -- Show logits for first 4 positions
-  let allVals = map (\v => prim__item v.tensorPtr) (toList firstPred)
+  let allVals = tensorVals firstPred
   putStrLn "Post-train logits (per position, 4 classes each):"
   traverse_ (\pos =>
     let start = pos * VocabSize
@@ -259,7 +268,7 @@ main = do
 
   putStrLn ""
   putStrLn "Eval:"
-  let predList = map (\v => prim__item v.tensorPtr) (toList firstPred)
+  let predList = tensorVals firstPred
       listAt : Nat -> List Double -> Double
       listAt _ [] = 0.0
       listAt Z (x :: _) = x
