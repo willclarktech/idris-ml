@@ -102,6 +102,10 @@ TensorHandle tensor_stack(TensorHandle* tensors, int count, int dim);
 TensorHandle tensor_cat(TensorHandle* tensors, int count, int dim);
 TensorHandle tensor_cat2(TensorHandle a, TensorHandle b);
 TensorHandle tensor_narrow(TensorHandle t, int dim, int start, int len);
+TensorHandle tensor_mm(TensorHandle a, TensorHandle b);
+TensorHandle tensor_transpose_2d(TensorHandle t);
+TensorHandle tensor_softmax_2d(TensorHandle t);
+TensorHandle tensor_masked_fill(TensorHandle t, TensorHandle mask, double value);
 
 /* ---------- Autograd ---------- */
 

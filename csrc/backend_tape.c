@@ -159,6 +159,10 @@ enum {
     OP_CAT,       /* concatenate two 1D tensors: [a] ++ [b] -> [a+b] */
     OP_NARROW,    /* view into a slice of a 1D tensor */
     OP_NTM_READ_HEAD_READ, /* read output — shares NtmReadHeadMeta with OP_NTM_READ_HEAD */
+    OP_MM,            /* [m,n] x [n,k] -> [m,k] matrix-matrix multiply */
+    OP_TRANSPOSE_2D,  /* [m,n] -> [n,m] transpose */
+    OP_SOFTMAX_2D,    /* row-wise softmax on [m,n] */
+    OP_MASKED_FILL,   /* fill masked positions with a value */
 };
 
 typedef struct {
@@ -571,6 +575,84 @@ TensorHandle tensor_outer(TensorHandle ha, TensorHandle hb) {
     Tensor* r = make_tensor(data, shape, 2, a->requires_grad || b->requires_grad);
     free(data);
     if (r->requires_grad) tape_append(OP_OUTER, r, a, b, 0);
+    return r;
+}
+
+/* Matrix-matrix multiply: [m,n] x [n,k] -> [m,k] */
+TensorHandle tensor_mm(TensorHandle ha, TensorHandle hb) {
+    Tensor* a = (Tensor*)ha;
+    Tensor* b = (Tensor*)hb;
+    int m = a->shape[0], n = a->shape[1], k = b->shape[1];
+    int rg = a->requires_grad || b->requires_grad;
+    double* data = calloc(m * k, sizeof(double));
+
+#ifdef __APPLE__
+    cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
+                m, k, n, 1.0, a->data, n, b->data, k, 0.0, data, k);
+#else
+    for (int i = 0; i < m; i++)
+        for (int j = 0; j < k; j++) {
+            double s = 0;
+            for (int p = 0; p < n; p++) s += a->data[i*n+p] * b->data[p*k+j];
+            data[i*k+j] = s;
+        }
+#endif
+
+    int shape[] = {m, k};
+    Tensor* r = make_tensor(data, shape, 2, rg);
+    free(data);
+    if (rg) tape_append(OP_MM, r, a, b, 0);
+    return r;
+}
+
+/* Transpose 2D tensor: [m,n] -> [n,m] */
+TensorHandle tensor_transpose_2d(TensorHandle h) {
+    Tensor* t = (Tensor*)h;
+    int m = t->shape[0], n = t->shape[1];
+    double* data = malloc(m * n * sizeof(double));
+    for (int i = 0; i < m; i++)
+        for (int j = 0; j < n; j++)
+            data[j*m+i] = t->data[i*n+j];
+    int shape[] = {n, m};
+    Tensor* r = make_tensor(data, shape, 2, t->requires_grad);
+    free(data);
+    if (r->requires_grad) tape_append(OP_TRANSPOSE_2D, r, t, NULL, 0);
+    return r;
+}
+
+/* Row-wise softmax on 2D tensor: [m,n] -> [m,n], each row sums to 1 */
+TensorHandle tensor_softmax_2d(TensorHandle h) {
+    Tensor* t = (Tensor*)h;
+    int m = t->shape[0], n = t->shape[1];
+    double* data = malloc(m * n * sizeof(double));
+    for (int i = 0; i < m; i++) {
+        double max_val = t->data[i*n];
+        for (int j = 1; j < n; j++)
+            if (t->data[i*n+j] > max_val) max_val = t->data[i*n+j];
+        double sum_exp = 0;
+        for (int j = 0; j < n; j++) {
+            data[i*n+j] = exp(t->data[i*n+j] - max_val);
+            sum_exp += data[i*n+j];
+        }
+        for (int j = 0; j < n; j++) data[i*n+j] /= sum_exp;
+    }
+    int shape[] = {m, n};
+    Tensor* r = make_tensor(data, shape, 2, t->requires_grad);
+    free(data);
+    if (r->requires_grad) tape_append(OP_SOFTMAX_2D, r, t, NULL, 0);
+    return r;
+}
+
+/* Masked fill: replace positions where mask[i]=1 with value */
+TensorHandle tensor_masked_fill(TensorHandle h, TensorHandle hmask, double value) {
+    Tensor* t = (Tensor*)h;
+    Tensor* mask = (Tensor*)hmask;
+    double* data = malloc(t->numel * sizeof(double));
+    for (int i = 0; i < t->numel; i++)
+        data[i] = (mask->data[i] != 0.0) ? value : t->data[i];
+    Tensor* r = make_tensor(data, t->shape, t->rank, t->requires_grad);
+    free(data);
+    if (r->requires_grad) tape_append(OP_MASKED_FILL, r, t, mask, 0);
     return r;
 }
 
@@ -1390,6 +1472,76 @@ void tensor_backward(TensorHandle h) {
             if (a) {
                 ensure_grad(a);
                 for (int j = 0; j < r->numel; j++) a->grad[start + j] += r->grad[j];
+            }
+            break;
+        }
+
+        case OP_MM: {
+            /* r = a @ b where a=[m,n], b=[n,k], r=[m,k]
+               d_a = grad @ b^T, d_b = a^T @ grad */
+            int mm = a->shape[0], nn = a->shape[1], kk = r->shape[1];
+            ensure_grad(r);
+            if (a && a->requires_grad) {
+                ensure_grad(a);
+                /* d_a[i,j] = sum_p grad[i,p] * b[j,p] (grad @ b^T) */
+                for (int i = 0; i < mm; i++)
+                    for (int j = 0; j < nn; j++) {
+                        double s = 0;
+                        for (int p = 0; p < kk; p++) s += r->grad[i*kk+p] * b->data[j*kk+p];
+                        a->grad[i*nn+j] += s;
+                    }
+            }
+            if (b && b->requires_grad) {
+                ensure_grad(b);
+                /* d_b[j,p] = sum_i a[i,j] * grad[i,p] (a^T @ grad) */
+                for (int j = 0; j < nn; j++)
+                    for (int p = 0; p < kk; p++) {
+                        double s = 0;
+                        for (int i = 0; i < mm; i++) s += a->data[i*nn+j] * r->grad[i*kk+p];
+                        b->grad[j*kk+p] += s;
+                    }
+            }
+            break;
+        }
+
+        case OP_TRANSPOSE_2D: {
+            /* r = a^T where a=[m,n], r=[n,m]. Gradient: transpose back. */
+            int mm = a->shape[0], nn = a->shape[1];
+            ensure_grad(r);
+            if (a) {
+                ensure_grad(a);
+                for (int i = 0; i < mm; i++)
+                    for (int j = 0; j < nn; j++)
+                        a->grad[i*nn+j] += r->grad[j*mm+i];
+            }
+            break;
+        }
+
+        case OP_SOFTMAX_2D: {
+            /* Row-wise softmax backward. For each row i:
+               d_input[i,j] = sum_k (grad[i,k] * softmax[i,k] * (delta_jk - softmax[i,j])) */
+            int mm = r->shape[0], nn = r->shape[1];
+            ensure_grad(r);
+            if (a) {
+                ensure_grad(a);
+                for (int i = 0; i < mm; i++) {
+                    double dot = 0;
+                    for (int j = 0; j < nn; j++)
+                        dot += r->grad[i*nn+j] * r->data[i*nn+j];
+                    for (int j = 0; j < nn; j++)
+                        a->grad[i*nn+j] += r->data[i*nn+j] * (r->grad[i*nn+j] - dot);
+                }
+            }
+            break;
+        }
+
+        case OP_MASKED_FILL: {
+            /* Gradient passes through where mask is 0, zero where mask is 1 */
+            ensure_grad(r);
+            if (a) {
+                ensure_grad(a);
+                for (int j = 0; j < a->numel; j++)
+                    if (b->data[j] == 0.0) a->grad[j] += r->grad[j];
             }
             break;
         }

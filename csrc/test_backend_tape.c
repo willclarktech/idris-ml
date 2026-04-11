@@ -668,6 +668,95 @@ static void test_ntm_read_head_grad(void) {
 }
 
 /* ================================================================
+   T7: Transformer ops (matrix multiply, transpose, softmax_2d)
+   ================================================================ */
+
+static void test_mm_and_transpose(void) {
+    printf("\n--- Matrix multiply + transpose ---\n");
+    param_clear();
+
+    /* A = [[1,2,3],[4,5,6]] (2x3), B = [[7,8],[9,10],[11,12]] (3x2) */
+    double a_data[] = {1,2,3, 4,5,6};
+    double b_data[] = {7,8, 9,10, 11,12};
+    int a_shape[] = {2, 3};
+    int b_shape[] = {3, 2};
+    TensorHandle a = tensor_create(a_data, a_shape, 2, 0);
+    TensorHandle b = tensor_create(b_data, b_shape, 2, 0);
+
+    /* C = A @ B = [[58,64],[139,154]] */
+    TensorHandle c = tensor_mm(a, b);
+    ASSERT_NEAR("mm[0,0]", tensor_item_2d(c, 0, 0), 58.0, 1e-10);
+    ASSERT_NEAR("mm[0,1]", tensor_item_2d(c, 0, 1), 64.0, 1e-10);
+    ASSERT_NEAR("mm[1,0]", tensor_item_2d(c, 1, 0), 139.0, 1e-10);
+    ASSERT_NEAR("mm[1,1]", tensor_item_2d(c, 1, 1), 154.0, 1e-10);
+
+    /* Transpose: A^T should be [[1,4],[2,5],[3,6]] (3x2) */
+    TensorHandle at = tensor_transpose_2d(a);
+    ASSERT_NEAR("transpose[0,0]", tensor_item_2d(at, 0, 0), 1.0, 1e-10);
+    ASSERT_NEAR("transpose[0,1]", tensor_item_2d(at, 0, 1), 4.0, 1e-10);
+    ASSERT_NEAR("transpose[2,1]", tensor_item_2d(at, 2, 1), 6.0, 1e-10);
+}
+
+static void test_softmax_2d(void) {
+    printf("\n--- Row-wise softmax 2D ---\n");
+    /* 2x3 matrix, each row should sum to 1 */
+    double data[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
+    int shape[] = {2, 3};
+    TensorHandle t = tensor_create(data, shape, 2, 0);
+    TensorHandle s = tensor_softmax_2d(t);
+
+    double row0_sum = tensor_item_2d(s, 0, 0) + tensor_item_2d(s, 0, 1) + tensor_item_2d(s, 0, 2);
+    double row1_sum = tensor_item_2d(s, 1, 0) + tensor_item_2d(s, 1, 1) + tensor_item_2d(s, 1, 2);
+    ASSERT_NEAR("softmax_2d row0 sum", row0_sum, 1.0, 1e-10);
+    ASSERT_NEAR("softmax_2d row1 sum", row1_sum, 1.0, 1e-10);
+    /* Max element in each row should have highest probability */
+    ASSERT_TRUE("softmax_2d row0 max", tensor_item_2d(s, 0, 2) > tensor_item_2d(s, 0, 0));
+    ASSERT_TRUE("softmax_2d row1 max", tensor_item_2d(s, 1, 2) > tensor_item_2d(s, 1, 0));
+}
+
+static void test_mm_backward(void) {
+    printf("\n--- Matrix multiply backward (finite diff) ---\n");
+    param_clear();
+
+    double a_data[] = {0.1, 0.2, 0.3, 0.4, 0.5, 0.6};
+    double b_data[] = {0.7, 0.8, 0.9, 1.0, 1.1, 1.2};
+    int a_shape[] = {2, 3};
+    int b_shape[] = {3, 2};
+
+    /* Analytical gradient */
+    TensorHandle a = tensor_create(a_data, a_shape, 2, 1);
+    param_register("a", a);
+    TensorHandle b = tensor_create(b_data, b_shape, 2, 1);
+    param_register("b", b);
+
+    TensorHandle c = tensor_mm(a, b);
+    TensorHandle loss = tensor_sum(c);
+    tensor_backward(loss);
+
+    /* Finite diff check for a[0,0] */
+    double eps = 1e-5;
+    double a_copy[6];
+    memcpy(a_copy, a_data, 6 * sizeof(double));
+    a_copy[0] += eps;
+    {
+        param_clear();
+        TensorHandle a2 = tensor_create(a_copy, a_shape, 2, 0);
+        TensorHandle b2 = tensor_create(b_data, b_shape, 2, 0);
+        double f_plus = tensor_item(tensor_sum(tensor_mm(a2, b2)));
+        a_copy[0] = a_data[0] - eps;
+        TensorHandle a3 = tensor_create(a_copy, a_shape, 2, 0);
+        TensorHandle b3 = tensor_create(b_data, b_shape, 2, 0);
+        double f_minus = tensor_item(tensor_sum(tensor_mm(a3, b3)));
+        double fd = (f_plus - f_minus) / (2 * eps);
+        double analytic = param_grad_item_at(0, 0);
+        printf("  a[0,0]: fd=%f analytic=%f err=%e\n", fd, analytic, fabs(fd - analytic));
+        ASSERT_NEAR("mm grad a[0,0]", analytic, fd, 1e-3);
+    }
+
+    param_clear();
+}
+
+/* ================================================================
    Main
    ================================================================ */
 
@@ -700,6 +789,11 @@ int main(void) {
 
     /* T6: NTM gradient check */
     test_ntm_read_head_grad();
+
+    /* T7: Transformer ops */
+    test_mm_and_transpose();
+    test_softmax_2d();
+    test_mm_backward();
 
     /* Summary */
     printf("\n");
