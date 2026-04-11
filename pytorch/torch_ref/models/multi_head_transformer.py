@@ -1,7 +1,8 @@
 """Multi-head Transformer for sequence reversal.
 
 Pre-LN architecture with learned embeddings, sinusoidal positional encoding,
-multi-head causal self-attention, and feedforward layers.
+multi-head causal self-attention, and feedforward layers. Supports N stacked
+blocks (default 1).
 
 Architecture matches the Idris implementation:
 - Per-head separate Q/K/V weights (not one big projection split into heads)
@@ -18,8 +19,56 @@ import torch.nn.functional as F
 from torch import Tensor
 
 
+class TransformerBlock(nn.Module):
+    """Single Pre-LN transformer block: attention + FFN with residuals."""
+
+    def __init__(self, d_model: int, num_heads: int, ff_dim: int, causal_mask: Tensor) -> None:
+        super().__init__()
+        assert d_model % num_heads == 0
+        self.num_heads = num_heads
+        self.head_dim = d_model // num_heads
+        self.causal_mask = causal_mask
+
+        self.query_ws = nn.ModuleList(
+            [nn.Linear(d_model, self.head_dim, bias=False) for _ in range(num_heads)]
+        )
+        self.key_ws = nn.ModuleList(
+            [nn.Linear(d_model, self.head_dim, bias=False) for _ in range(num_heads)]
+        )
+        self.value_ws = nn.ModuleList(
+            [nn.Linear(d_model, self.head_dim, bias=False) for _ in range(num_heads)]
+        )
+        self.out_proj_ws = nn.ModuleList(
+            [nn.Linear(self.head_dim, d_model, bias=False) for _ in range(num_heads)]
+        )
+        self.norm1 = nn.LayerNorm(d_model)
+        self.norm2 = nn.LayerNorm(d_model)
+        self.ff1 = nn.Linear(d_model, ff_dim, bias=False)
+        self.ff2 = nn.Linear(ff_dim, d_model, bias=False)
+
+    def forward(self, h: Tensor) -> Tensor:
+        # Pre-LN Multi-Head Attention
+        normed = self.norm1(h)
+        attn_out = torch.zeros_like(h)
+        for i in range(self.num_heads):
+            q = self.query_ws[i](normed)
+            k = self.key_ws[i](normed)
+            v = self.value_ws[i](normed)
+            scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(self.head_dim)
+            scores = scores.masked_fill(self.causal_mask, -1e20)
+            attn = F.softmax(scores, dim=-1)
+            head_out = torch.matmul(attn, v)
+            attn_out = attn_out + self.out_proj_ws[i](head_out)
+        h = h + attn_out
+
+        # Pre-LN Feedforward
+        normed = self.norm2(h)
+        h = h + self.ff2(F.relu(self.ff1(normed)))
+        return h
+
+
 class MultiHeadTransformer(nn.Module):
-    """Pre-LN Transformer block with learned embeddings and output projection.
+    """Pre-LN Transformer with N stacked blocks, learned embeddings, and output projection.
 
     Input: token indices (LongTensor [batch, seqLen])
     Output: logits [batch, seqLen, vocabSize]
@@ -31,6 +80,7 @@ class MultiHeadTransformer(nn.Module):
         seq_len: int,
         d_model: int,
         num_heads: int,
+        num_blocks: int = 1,
         ff_dim: int | None = None,
     ) -> None:
         super().__init__()
@@ -39,47 +89,26 @@ class MultiHeadTransformer(nn.Module):
         self.seq_len = seq_len
         self.d_model = d_model
         self.num_heads = num_heads
+        self.num_blocks = num_blocks
         self.head_dim = d_model // num_heads
         self.ff_dim = ff_dim or 4 * d_model
 
-        # Learned token embedding
         self.token_embed = nn.Linear(vocab_size, d_model, bias=False)
-
-        # Per-head Q/K/V projections [d_model -> head_dim]
-        self.query_ws = nn.ModuleList(
-            [nn.Linear(d_model, self.head_dim, bias=False) for _ in range(num_heads)]
-        )
-        self.key_ws = nn.ModuleList(
-            [nn.Linear(d_model, self.head_dim, bias=False) for _ in range(num_heads)]
-        )
-        self.value_ws = nn.ModuleList(
-            [nn.Linear(d_model, self.head_dim, bias=False) for _ in range(num_heads)]
-        )
-
-        # Per-head output projections [head_dim -> d_model]
-        self.out_proj_ws = nn.ModuleList(
-            [nn.Linear(self.head_dim, d_model, bias=False) for _ in range(num_heads)]
-        )
-
-        # Layer norms (Pre-LN)
-        self.norm1 = nn.LayerNorm(d_model)
-        self.norm2 = nn.LayerNorm(d_model)
-        self.norm_final = nn.LayerNorm(d_model)
-
-        # Feedforward
-        self.ff1 = nn.Linear(d_model, self.ff_dim, bias=False)
-        self.ff2 = nn.Linear(self.ff_dim, d_model, bias=False)
-
-        # Output projection to vocab
-        self.vocab_proj = nn.Linear(d_model, vocab_size, bias=False)
-
-        # Precompute sinusoidal positional encoding
         self.register_buffer("pos_enc", self._sinusoidal_pe(seq_len, d_model))
 
-        # Precompute causal mask
         mask = torch.triu(torch.ones(seq_len, seq_len, dtype=torch.bool), diagonal=1)
         self.register_buffer("causal_mask", mask)
         self.causal_mask: Tensor
+
+        self.blocks = nn.ModuleList(
+            [
+                TransformerBlock(d_model, num_heads, self.ff_dim, self.causal_mask)
+                for _ in range(num_blocks)
+            ]
+        )
+
+        self.norm_final = nn.LayerNorm(d_model)
+        self.vocab_proj = nn.Linear(d_model, vocab_size, bias=False)
 
         self._init_weights()
 
@@ -115,34 +144,11 @@ class MultiHeadTransformer(nn.Module):
         if unbatched:
             x = x.unsqueeze(0)
 
-        # Embed: [batch, seqLen, vocabSize] @ [vocabSize, dModel] -> [batch, seqLen, dModel]
         h = self.token_embed(x) + self.pos_enc
 
-        # Pre-LN Multi-Head Attention
-        normed = self.norm1(h)
-        attn_out = torch.zeros_like(h)
-        for i in range(self.num_heads):
-            q = self.query_ws[i](normed)  # [batch, seqLen, headDim]
-            k = self.key_ws[i](normed)
-            v = self.value_ws[i](normed)
+        for block in self.blocks:
+            h = block(h)
 
-            # Scaled dot-product attention
-            scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(self.head_dim)
-            scores = scores.masked_fill(self.causal_mask, -1e20)
-            attn = F.softmax(scores, dim=-1)
-            head_out = torch.matmul(attn, v)  # [batch, seqLen, headDim]
-
-            # Per-head output projection, summed
-            attn_out = attn_out + self.out_proj_ws[i](head_out)
-
-        h = h + attn_out  # Residual
-
-        # Pre-LN Feedforward
-        normed = self.norm2(h)
-        ff_out = self.ff2(F.relu(self.ff1(normed)))
-        h = h + ff_out  # Residual
-
-        # Final LayerNorm + output projection
         logits = self.vocab_proj(self.norm_final(h))
 
         if unbatched:
@@ -167,10 +173,9 @@ def generate_reversal_data(
     Returns list of (input_onehot, target_indices) pairs.
     """
     data = []
-    base_vocab = vocab_size - 2  # tokens 0..base_vocab-1 are content tokens
+    base_vocab = vocab_size - 2
     for _ in range(num_samples):
         tokens = torch.randint(0, base_vocab, (input_len,))
-        # Full sequence: tokens + SEP + reversed tokens + EOS
         seq = torch.cat(
             [
                 tokens,
@@ -179,11 +184,8 @@ def generate_reversal_data(
                 torch.tensor([eos_token]),
             ]
         )
-        # Input: all but last token (teacher forcing)
         inp = seq[:-1]
-        # Target: all but first token
         tgt = seq[1:]
-        # One-hot encode input
         inp_onehot = F.one_hot(inp.long(), vocab_size).float()
         data.append((inp_onehot, tgt.long()))
     return data
@@ -205,7 +207,7 @@ def train_reversal_epoch(
     total_loss = torch.tensor(0.0)
 
     for inp_onehot, target_indices in data:
-        logits = model(inp_onehot)  # [seqLen, vocabSize]
+        logits = model(inp_onehot)
         loss = F.cross_entropy(logits[reversal_start:], target_indices[reversal_start:])
         total_loss = total_loss + loss
 

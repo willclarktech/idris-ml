@@ -54,6 +54,9 @@ NumHeads = 4
 HeadDim : Nat
 HeadDim = 8
 
+NumBlocks : Nat
+NumBlocks = 1
+
 SepToken : Nat
 SepToken = 8
 
@@ -208,52 +211,46 @@ main = do
            ++ " patience=" ++ show cfg.patience ++ " seed=" ++ show cfg.seed
   putStrLn $ "Architecture: seqLen=" ++ show SeqLen ++ " dModel=" ++ show DModel
            ++ " heads=" ++ show NumHeads ++ " headDim=" ++ show HeadDim
-           ++ " vocab=" ++ show VocabSize
+           ++ " blocks=" ++ show NumBlocks ++ " vocab=" ++ show VocabSize
 
-  tfm <- mkTransformer {seqLen=SeqLen, dModel=DModel, numHeads=NumHeads,
-                         headDim=HeadDim, vocabSize=VocabSize}
-  let namedTfm = nameLayer "tfm0" tfm
-      model = autoName $ OutputLayer (MkAnyLayer
-        (TransformerState SeqLen DModel NumHeads HeadDim VocabSize) namedTfm)
+  mht <- transformerLayer {seqLen=SeqLen, dModel=DModel, numHeads=NumHeads,
+                            headDim=HeadDim, numBlocks=NumBlocks, vocabSize=VocabSize}
+  let model = autoName $ OutputLayer mht
   putStrLn $ "Model: " ++ show model
   putStrLn ""
-
-  -- Batch forward function using transformer-specific batching
-  let batchFwd : List AnyPtr -> Int -> List AnyPtr
-      batchFwd = transformerForwardBatch namedTfm
 
   -- Data source: fresh batch each epoch (pre-allocated C tensors, zero conversion)
   let genBatch : IO (Vect BatchSize (TensorDataPoint InputDim OutputDim))
       genBatch = reversalTensorBatchVect InputDim OutputDim VocabSize InputLen SeqLen SepToken EosToken BatchSize
 
-  -- Metrics: accuracy on a fresh eval batch
+  -- Metrics: accuracy on a fresh eval batch (uses per-sequence forward)
   let evalMetrics : Network InputDim [] OutputDim Variable -> IO (List (String, String))
       evalMetrics m = do
         evalData <- reversalTensorBatchVect InputDim OutputDim VocabSize InputLen SeqLen SepToken EosToken BatchSize
-        let outputs = batchFwd (toList (map inputTensor evalData)) (cast BatchSize)
-            results = zipWith (\outT, dp =>
-              let predVals = tensorVals (VTensor (tensorToScalars outT 0 OutputDim))
+        let results = map (\dp =>
+              let (_, outT) = forwardVarTensor m (inputTensor dp)
+                  predVals = tensorVals (VTensor (tensorToScalars outT 0 OutputDim))
                   targetVals = tensorVals (VTensor (tensorToScalars (targetTensor dp) 0 OutputDim))
                   predicted = map (argmaxAt VocabSize predVals) positions
                   expected = map (argmaxAt VocabSize targetVals) positions
                   revPred = drop InputLen predicted
                   revExp = drop InputLen expected
-              in countMatches revPred revExp) outputs (toList evalData)
-            totalRevCorrect = foldl (+) 0 results
+              in countMatches revPred revExp) evalData
+            totalRevCorrect = foldl (+) 0 (toList results)
             totalRevPositions = BatchSize * (SeqLen `minus` InputLen)
         pure [("rev_acc", show totalRevCorrect ++ "/" ++ show totalRevPositions)]
 
   let trainCfg = MkTrainConfig cfg.epochs 100 (Patience cfg.patience 0.001) evalMetrics
 
   (trained, epochsDone, finalLoss) <- runTraining
-    (\m, d => epochNativeTensorBatch opt d batchFwd catCELossTensor m) genBatch trainCfg model
+    (\m, d => epochNativeTensorPre opt d catCELossTensor m) genBatch trainCfg model
 
   -- Evaluate on a fresh example
   putStrLn ""
   putStrLn "Evaluation:"
   evalRaw <- reversalTensorBatchVect InputDim OutputDim VocabSize InputLen SeqLen SepToken EosToken 1
   let tdp = index FZ evalRaw
-      [outT] = batchFwd [inputTensor tdp] 1 | _ => idris_crash "eval: unexpected output count"
+      (_, outT) = forwardVarTensor trained (inputTensor tdp)
       predVals = tensorVals (VTensor (tensorToScalars outT 0 OutputDim))
       inputVals = tensorVals (VTensor (tensorToScalars (inputTensor tdp) 0 InputDim))
       targetVals = tensorVals (VTensor (tensorToScalars (targetTensor tdp) 0 OutputDim))

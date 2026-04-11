@@ -46,6 +46,7 @@ def main() -> None:
     parser.add_argument("--lr", type=float, default=0.001)
     parser.add_argument("--epochs", type=int, default=500)
     parser.add_argument("--patience", type=int, default=200)
+    parser.add_argument("--blocks", type=int, default=1)
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
 
@@ -55,12 +56,15 @@ def main() -> None:
     print(f"Config: lr={args.lr} epochs={args.epochs} patience={args.patience} seed={args.seed}")
     print(
         f"Architecture: seqLen={SEQ_LEN} dModel={D_MODEL}"
-        f" heads={NUM_HEADS} headDim={HEAD_DIM} vocab={VOCAB_SIZE}"
+        f" heads={NUM_HEADS} headDim={HEAD_DIM}"
+        f" blocks={args.blocks} vocab={VOCAB_SIZE}"
     )
 
-    model = MultiHeadTransformer(VOCAB_SIZE, SEQ_LEN, D_MODEL, NUM_HEADS)
+    model = MultiHeadTransformer(VOCAB_SIZE, SEQ_LEN, D_MODEL, NUM_HEADS, num_blocks=args.blocks)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
-    print(f"Model: Transformer<{SEQ_LEN}x{D_MODEL} h={NUM_HEADS} v={VOCAB_SIZE}>")
+    print(
+        f"Model: Transformer<{SEQ_LEN}x{D_MODEL} h={NUM_HEADS} blocks={args.blocks} v={VOCAB_SIZE}>"
+    )
     print()
 
     # Training with fresh data each epoch

@@ -5,7 +5,7 @@
 | Item | Difficulty | Notes |
 |------|-----------|-------|
 | Reinforcement learning example | L–XL | Policy gradient (e.g. REINFORCE on CartPole or grid world). Requires: environment interface, episode rollout, discounted return computation, policy gradient loss (`-log_prob * reward`). May need: `Categorical` distribution sampling from logits, baseline variance reduction. Could reuse `Train.runTraining` with episodes as "epochs" |
-| Transformer: multi-block stacking | S–M | Current multi-head impl is single block. Add N-block stacking with shared architecture |
+| Transformer: deeper example task | S | Current reversal task converges with 1 block. Find a task that benefits from 2+ blocks to demonstrate stacking |
 | MLX backend | XL | Apple Metal GPU via [mlx-c](https://github.com/ml-explore/mlx-c). New `backend_mlx.c` implementing `backend.h`. Build-time selection: `make BACKEND=mlx backend`. Would give GPU acceleration on Apple Silicon with the same Idris code. The `backend.h` abstraction was designed for this |
 
 ## Medium Priority

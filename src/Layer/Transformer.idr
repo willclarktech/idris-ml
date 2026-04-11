@@ -1,8 +1,8 @@
--- | Multi-Head Transformer with Pre-LN, Learned Embeddings, Sinusoidal PE
+-- | Transformer with Multi-Block Stacking, Pre-LN, Learned Embeddings
 -- |
--- | Standard transformer block: learned token embedding, sinusoidal
--- | positional encoding, multi-head causal self-attention (per-head
--- | weights, sum-not-concat), layer normalization, feedforward.
+-- | Standard transformer: N stacked blocks (each: layer norm, multi-head
+-- | causal self-attention, residual, layer norm, FFN, residual), plus
+-- | learned token embedding, sinusoidal PE, final layer norm, output proj.
 -- |
 -- | Input: seqLen * vocabSize (one-hot tokens)
 -- | Output: seqLen * vocabSize (per-position logits)
@@ -25,37 +25,103 @@ import Variable
 
 
 ----------------------------------------------------------------------
--- State
+-- Block State
 ----------------------------------------------------------------------
 
-||| Multi-head Transformer block.
-||| Type parameters: seqLen, dModel, numHeads, headDim, vocabSize.
-||| Proof: dModel = numHeads * headDim (compile-time checked).
+||| One transformer block: attention + FFN with layer norms.
+public export
+record BlockState (dModel : Nat) (numHeads : Nat) (headDim : Nat) (ty : Type) where
+  constructor MkBlock
+  queryWs   : Vect numHeads (LinearState dModel headDim ty)
+  keyWs     : Vect numHeads (LinearState dModel headDim ty)
+  valueWs   : Vect numHeads (LinearState dModel headDim ty)
+  outProjWs : Vect numHeads (LinearState headDim dModel ty)
+  norm1     : LayerNormState dModel ty
+  norm2     : LayerNormState dModel ty
+  ff1       : LinearState dModel (4 * dModel) ty
+  ff2       : LinearState (4 * dModel) dModel ty
+
+export
+mkBlock : {dModel, numHeads, headDim : Nat} -> (Num ty, FromDouble ty) =>
+          IO (BlockState dModel numHeads headDim ty)
+mkBlock = do
+  qs  <- mkLinears numHeads {i=dModel, o=headDim}
+  ks  <- mkLinears numHeads {i=dModel, o=headDim}
+  vs  <- mkLinears numHeads {i=dModel, o=headDim}
+  ops <- mkLinears numHeads {i=headDim, o=dModel}
+  n1  <- mkLayerNorm {dim=dModel}
+  n2  <- mkLayerNorm {dim=dModel}
+  f1  <- mkLinear {i=dModel, o=4*dModel}
+  f2  <- mkLinear {i=4*dModel, o=dModel}
+  pure $ MkBlock qs ks vs ops n1 n2 f1 f2
+  where
+    mkLinears : (k : Nat) -> {i, o : Nat} -> IO (Vect k (LinearState i o ty))
+    mkLinears Z = pure []
+    mkLinears (S k) = [| mkLinear :: mkLinears k |]
+
+export
+emapBlock : {dModel, numHeads, headDim : Nat} -> (ty -> ty) -> BlockState dModel numHeads headDim ty -> BlockState dModel numHeads headDim ty
+emapBlock f (MkBlock qs ks vs ops n1 n2 f1 f2) =
+  MkBlock (map (emapLayer f) qs) (map (emapLayer f) ks)
+          (map (emapLayer f) vs) (map (emapLayer f) ops)
+          (emapLayerNorm f n1) (emapLayerNorm f n2)
+          (emapLayer f f1) (emapLayer f f2)
+
+nameHeads : {a, b : Nat} -> String -> Nat -> Vect k (LinearState a b Variable) -> Vect k (LinearState a b Variable)
+nameHeads _ _ [] = []
+nameHeads pfx idx (h :: hs) = nameLayer (pfx ++ show idx) h :: nameHeads pfx (S idx) hs
+
+export
+nameBlock : {dModel, numHeads, headDim : Nat} -> String -> BlockState dModel numHeads headDim Variable
+          -> BlockState dModel numHeads headDim Variable
+nameBlock pfx (MkBlock qs ks vs ops n1 n2 f1 f2) =
+  MkBlock (nameHeads (pfx ++ "_q") 0 qs) (nameHeads (pfx ++ "_k") 0 ks)
+          (nameHeads (pfx ++ "_v") 0 vs) (nameHeads (pfx ++ "_o") 0 ops)
+          (nameLayerNorm (pfx ++ "_n1") n1) (nameLayerNorm (pfx ++ "_n2") n2)
+          (nameLayer (pfx ++ "_ff1") f1) (nameLayer (pfx ++ "_ff2") f2)
+
+export
+toDoubleBlock : {dModel, numHeads, headDim : Nat} -> BlockState dModel numHeads headDim Variable
+              -> BlockState dModel numHeads headDim Double
+toDoubleBlock (MkBlock qs ks vs ops n1 n2 f1 f2) =
+  MkBlock (map toDoubleLayer qs) (map toDoubleLayer ks)
+          (map toDoubleLayer vs) (map toDoubleLayer ops)
+          (toDoubleLayerNorm n1) (toDoubleLayerNorm n2)
+          (toDoubleLayer f1) (toDoubleLayer f2)
+
+export
+getBlockParamIds : {dModel, numHeads, headDim : Nat} -> BlockState dModel numHeads headDim Variable -> List String
+getBlockParamIds (MkBlock qs ks vs ops n1 n2 f1 f2) =
+  concatMap getParamIds (toList qs) ++ concatMap getParamIds (toList ks) ++
+  concatMap getParamIds (toList vs) ++ concatMap getParamIds (toList ops) ++
+  getLayerNormParamIds n1 ++ getLayerNormParamIds n2 ++
+  getParamIds f1 ++ getParamIds f2
+
+nameBlocks : {dModel, numHeads, headDim : Nat} -> String -> Nat ->
+             Vect k (BlockState dModel numHeads headDim Variable) ->
+             Vect k (BlockState dModel numHeads headDim Variable)
+nameBlocks _ _ [] = []
+nameBlocks pfx idx (b :: bs) = nameBlock (pfx ++ show idx) b :: nameBlocks pfx (S idx) bs
+
+
+----------------------------------------------------------------------
+-- Transformer State
+----------------------------------------------------------------------
+
+||| Multi-block Transformer.
+||| Type parameters: seqLen, dModel, numHeads, headDim, numBlocks, vocabSize.
 public export
 record TransformerState
     (seqLen : Nat) (dModel : Nat) (numHeads : Nat) (headDim : Nat)
-    (vocabSize : Nat) (inputSize : Nat) (outputSize : Nat) (ty : Type) where
+    (numBlocks : Nat) (vocabSize : Nat)
+    (inputSize : Nat) (outputSize : Nat) (ty : Type) where
   constructor MkTransformer
-  -- Type safety proofs (erased at runtime)
   0 headDimPrf  : dModel = numHeads * headDim
   0 inputPrf    : inputSize = seqLen * vocabSize
   0 outputPrf   : outputSize = seqLen * vocabSize
-  -- Learned token embedding [dModel, vocabSize]
   tokenEmbed    : LinearState vocabSize dModel ty
-  -- Per-head Q/K/V projections [headDim, dModel]
-  queryWs       : Vect numHeads (LinearState dModel headDim ty)
-  keyWs         : Vect numHeads (LinearState dModel headDim ty)
-  valueWs       : Vect numHeads (LinearState dModel headDim ty)
-  -- Per-head output projections [dModel, headDim]
-  outProjWs     : Vect numHeads (LinearState headDim dModel ty)
-  -- Layer norms
-  norm1         : LayerNormState dModel ty
-  norm2         : LayerNormState dModel ty
+  blocks        : Vect numBlocks (BlockState dModel numHeads headDim ty)
   normFinal     : LayerNormState dModel ty
-  -- FFN
-  ff1           : LinearState dModel (4 * dModel) ty
-  ff2           : LinearState (4 * dModel) dModel ty
-  -- Output head
   vocabProj     : LinearState dModel vocabSize ty
 
 
@@ -63,7 +129,6 @@ record TransformerState
 -- Sinusoidal Positional Encoding
 ----------------------------------------------------------------------
 
-||| Sinusoidal positional encoding value.
 posEncVal : Nat -> Nat -> Nat -> Double
 posEncVal dModel pos dim =
   let p = cast {to=Double} pos
@@ -74,38 +139,50 @@ posEncVal dModel pos dim =
 
 
 ----------------------------------------------------------------------
--- Helpers
+-- Pure Idris block forward (for applyGeneric)
 ----------------------------------------------------------------------
 
-||| Per-head attention loop for pure Idris path.
-headLoopGeneric : (FromDouble ty, Floating ty, Fractional ty, Neg ty, Ord ty, Num ty) =>
-                  {seqLen, dModel, headDim : Nat} ->
-                  Vect k (LinearState dModel headDim ty) ->
-                  Vect k (LinearState dModel headDim ty) ->
-                  Vect k (LinearState dModel headDim ty) ->
-                  Vect k (LinearState headDim dModel ty) ->
-                  Matrix seqLen dModel ty -> Matrix seqLen dModel ty
-headLoopGeneric [] [] [] [] normed = scaleMatrix (fromDouble 0.0) normed  -- zeros
-headLoopGeneric (q :: qs) (k :: ks) (v :: vs) (op :: ops) normed =
-  let qi = matrixMultiply normed (transpose (weights q))
-      ki = matrixMultiply normed (transpose (weights k))
-      vi = matrixMultiply normed (transpose (weights v))
-      scores = scaleMatrix (fromDouble (1.0 / sqrt (cast (natToInteger headDim))))
-                 (matrixMultiply qi (transpose ki))
-      masked = causalMaskMatrix scores
-      attn = softmaxMatrix masked
-      headOut = matrixMultiply attn vi
-      proj = matrixMultiply headOut (transpose (weights op))
-  in proj + headLoopGeneric qs ks vs ops normed
+blockForwardGeneric : (FromDouble ty, Floating ty, Fractional ty, Neg ty, Ord ty, Num ty) =>
+                      {seqLen, dModel, headDim : Nat} ->
+                      BlockState dModel numHeads headDim ty ->
+                      Matrix seqLen dModel ty -> Matrix seqLen dModel ty
+blockForwardGeneric blk h =
+  let -- Pre-LN Multi-Head Attention
+      normed1 = layerNormMatrix h (gamma (norm1 blk)) (beta (norm1 blk)) (fromDouble 1.0e-5)
+      attnOut = headLoopGeneric (queryWs blk) (keyWs blk) (valueWs blk) (outProjWs blk) normed1
+      h1 = attnOut + h
+      -- Pre-LN Feedforward
+      normed2 = layerNormMatrix h1 (gamma (norm2 blk)) (beta (norm2 blk)) (fromDouble 1.0e-5)
+      ffHidden = clampMinTensor (fromDouble 0.0) (matrixMultiply normed2 (transpose (weights (ff1 blk))))
+      ffOut = matrixMultiply ffHidden (transpose (weights (ff2 blk)))
+  in ffOut + h1
+  where
+    headLoopGeneric : Vect k (LinearState dModel headDim ty) ->
+                      Vect k (LinearState dModel headDim ty) ->
+                      Vect k (LinearState dModel headDim ty) ->
+                      Vect k (LinearState headDim dModel ty) ->
+                      Matrix seqLen dModel ty -> Matrix seqLen dModel ty
+    headLoopGeneric [] [] [] [] normed = scaleMatrix (fromDouble 0.0) normed
+    headLoopGeneric (q :: qs) (k :: ks) (v :: vs) (op :: ops) normed =
+      let qi = matrixMultiply normed (transpose (weights q))
+          ki = matrixMultiply normed (transpose (weights k))
+          vi = matrixMultiply normed (transpose (weights v))
+          scores = scaleMatrix (fromDouble (1.0 / sqrt (cast (natToInteger headDim))))
+                     (matrixMultiply qi (transpose ki))
+          masked = causalMaskMatrix scores
+          attn = softmaxMatrix masked
+          headOut = matrixMultiply attn vi
+          proj = matrixMultiply headOut (transpose (weights op))
+      in proj + headLoopGeneric qs ks vs ops normed
 
 
 ----------------------------------------------------------------------
--- Per-head attention (shared by single and batched forward)
+-- C tensor block forward (for applyVarTensor)
 ----------------------------------------------------------------------
 
 %default partial
+
 ||| Run multi-head attention on a single [seqLen, dModel] input.
-||| Returns [seqLen, dModel] — sum of per-head output projections.
 runHeadAttention : {headDim : Nat} ->
                    Vect k (LinearState dModel headDim Variable) ->
                    Vect k (LinearState dModel headDim Variable) ->
@@ -133,49 +210,55 @@ runHeadAttention (q :: qs) (k :: ks) (v :: vs) (op :: ops) normed sI hdI acc =
       in runHeadAttention qs ks vs ops normed sI hdI (Just acc')
     _ => idris_crash "Transformer: head weight not initialized"
 
+||| Forward one block on a [seqLen, dModel] tensor.
+blockForwardTensor : {headDim : Nat} -> BlockState dModel numHeads headDim Variable
+                   -> AnyPtr -> Int -> Int -> AnyPtr
+blockForwardTensor blk h sI hdI =
+  let Just n1g = extractGammaTensor (norm1 blk)   | Nothing => idris_crash "block: n1g"
+      Just n1b = extractBetaTensor (norm1 blk)    | Nothing => idris_crash "block: n1b"
+      Just n2g = extractGammaTensor (norm2 blk)   | Nothing => idris_crash "block: n2g"
+      Just n2b = extractBetaTensor (norm2 blk)    | Nothing => idris_crash "block: n2b"
+      Just f1W = extractWeightTensor (ff1 blk)    | Nothing => idris_crash "block: ff1"
+      Just f2W = extractWeightTensor (ff2 blk)    | Nothing => idris_crash "block: ff2"
+  in let normed1 = prim__layerNorm2d h n1g n1b 1.0e-5
+         attnOut = runHeadAttention (queryWs blk) (keyWs blk) (valueWs blk) (outProjWs blk)
+                     normed1 sI hdI Nothing
+         h1 = tensorAdd attnOut h
+         normed2 = prim__layerNorm2d h1 n2g n2b 1.0e-5
+         ffHidden = prim__clampMin (prim__mm normed2 (prim__transpose2d f1W)) 0.0
+         ffOut = prim__mm ffHidden (prim__transpose2d f2W)
+     in tensorAdd ffOut h1
+
+||| Fold over blocks, threading [seqLen, dModel] tensor.
+foldBlocks : {headDim : Nat} -> Vect k (BlockState dModel numHeads headDim Variable)
+           -> AnyPtr -> Int -> Int -> AnyPtr
+foldBlocks [] h _ _ = h
+foldBlocks (b :: bs) h sI hdI = foldBlocks bs (blockForwardTensor b h sI hdI) sI hdI
+
 
 ----------------------------------------------------------------------
 -- LayerLike Instance
 ----------------------------------------------------------------------
 
--- applyVar uses idris_crash for unreachable fallbacks
-%default partial
 export
 {seqLen : Nat} -> {dModel : Nat} -> {numHeads : Nat} -> {headDim : Nat} ->
-{vocabSize : Nat} -> LayerLike (TransformerState seqLen dModel numHeads headDim vocabSize) where
+{numBlocks : Nat} -> {vocabSize : Nat} ->
+LayerLike (TransformerState seqLen dModel numHeads headDim numBlocks vocabSize) where
 
-  -- Pure Idris path (Double-level evaluation)
   applyGeneric {i} {o} st xs =
-    let -- Reshape input: [seqLen * vocabSize] -> [seqLen, vocabSize]
-        input = reshapeToMatrix {m=seqLen, n=vocabSize} (rewrite sym st.inputPrf in xs)
-        -- Token embedding: [seqLen, vocabSize] @ [vocabSize, dModel]^T -> [seqLen, dModel]
+    let input = reshapeToMatrix {m=seqLen, n=vocabSize} (rewrite sym st.inputPrf in xs)
         embedW = weights (tokenEmbed st)
-        embedded = matrixMultiply input (transpose embedW)  -- [seqLen, dModel]
-        -- Add sinusoidal positional encoding
+        embedded = matrixMultiply input (transpose embedW)
         posEnc = VTensor $ map (\pi =>
           VTensor $ map (\di => STensor (fromDouble (posEncVal dModel (finToNat pi) (finToNat di))))
                         (Data.Vect.Fin.range {len=dModel}))
                   (Data.Vect.Fin.range {len=seqLen})
         h0 = embedded + posEnc
-
-        -- Pre-LN Multi-Head Attention
-        normed1 = layerNormMatrix h0 (gamma (norm1 st)) (beta (norm1 st)) (fromDouble 1.0e-5)
-        -- Per-head attention
-        attnOut = headLoopGeneric (queryWs st) (keyWs st) (valueWs st) (outProjWs st) normed1
-        -- Residual 1
-        h1 = attnOut + h0
-
-        -- Pre-LN Feedforward
-        normed2 = layerNormMatrix h1 (gamma (norm2 st)) (beta (norm2 st)) (fromDouble 1.0e-5)
-        ffHidden = clampMinTensor (fromDouble 0.0) (matrixMultiply normed2 (transpose (weights (ff1 st))))
-        ffOut = matrixMultiply ffHidden (transpose (weights (ff2 st)))
-        -- Residual 2
-        h2 = ffOut + h1
-
-        -- Final LayerNorm + output projection
-        normedFinal = layerNormMatrix h2 (gamma (normFinal st)) (beta (normFinal st)) (fromDouble 1.0e-5)
+        -- Fold through blocks
+        hN = foldl (\h, blk => blockForwardGeneric blk h) h0 (blocks st)
+        -- Final norm + output projection
+        normedFinal = layerNormMatrix hN (gamma (normFinal st)) (beta (normFinal st)) (fromDouble 1.0e-5)
         output = matrixMultiply normedFinal (transpose (weights (vocabProj st)))
-
     in let result = flattenMatrix output
        in (st, replace {p = \x => Vector x ty} (sym st.outputPrf) result)
 
@@ -189,57 +272,27 @@ export
   applyVarTensor {i} {o} st inputFlat =
     case extractWeightTensor (tokenEmbed st) of
       Just embedW =>
-        let Just f1W = extractWeightTensor (ff1 st)   | Nothing => idris_crash "Transformer: ff1 not initialized"
-            Just f2W = extractWeightTensor (ff2 st)   | Nothing => idris_crash "Transformer: ff2 not initialized"
-            Just vpW = extractWeightTensor (vocabProj st) | Nothing => idris_crash "Transformer: vocabProj not initialized"
-            Just n1g = extractGammaTensor (norm1 st)   | Nothing => idris_crash "Transformer: norm1 gamma not initialized"
-            Just n1b = extractBetaTensor (norm1 st)    | Nothing => idris_crash "Transformer: norm1 beta not initialized"
-            Just n2g = extractGammaTensor (norm2 st)   | Nothing => idris_crash "Transformer: norm2 gamma not initialized"
-            Just n2b = extractBetaTensor (norm2 st)    | Nothing => idris_crash "Transformer: norm2 beta not initialized"
-            Just nfg = extractGammaTensor (normFinal st) | Nothing => idris_crash "Transformer: normFinal gamma not initialized"
-            Just nfb = extractBetaTensor (normFinal st)  | Nothing => idris_crash "Transformer: normFinal beta not initialized"
+        let Just vpW = extractWeightTensor (vocabProj st) | Nothing => idris_crash "Transformer: vocabProj"
+            Just nfg = extractGammaTensor (normFinal st)  | Nothing => idris_crash "Transformer: nfg"
+            Just nfb = extractBetaTensor (normFinal st)   | Nothing => idris_crash "Transformer: nfb"
         in
         let sI = cast {to=Int} seqLen
             dI = cast {to=Int} dModel
             vI = cast {to=Int} vocabSize
             hdI = cast {to=Int} headDim
-
-            -- Reshape input: 1D [seqLen*vocabSize] -> [seqLen, vocabSize]
             inputMat = prim__reshape2d inputFlat sI vI
-
-            -- Token embedding: input @ embedW^T -> [seqLen, dModel]
             embedded = prim__mm inputMat (prim__transpose2d embedW)
-
-            -- Add sinusoidal positional encoding
             peBuf = prim__allocDoubles (sI * dI)
             peBuf' = writePE peBuf 0 0 sI dI
             peT = prim__createState2d sI dI peBuf'
             h0 = tensorAdd embedded peT
-
-            -- Pre-LN Multi-Head Attention
-            normed1 = prim__layerNorm2d h0 n1g n1b 1.0e-5
-
-            -- Per-head attention, summed
-            attnOut = runHeadAttention (queryWs st) (keyWs st) (valueWs st) (outProjWs st) normed1 sI hdI Nothing
-
-            -- Residual 1
-            h1 = tensorAdd attnOut h0
-
-            -- Pre-LN Feedforward
-            normed2 = prim__layerNorm2d h1 n2g n2b 1.0e-5
-            ffHidden = prim__clampMin (prim__mm normed2 (prim__transpose2d f1W)) 0.0
-            ffOut = prim__mm ffHidden (prim__transpose2d f2W)
-
-            -- Residual 2
-            h2 = tensorAdd ffOut h1
-
-            -- Final LayerNorm + output projection
-            normedFinal = prim__layerNorm2d h2 nfg nfb 1.0e-5
+            -- Fold through blocks
+            hN = foldBlocks (blocks st) h0 sI hdI
+            -- Final norm + output projection
+            normedFinal = prim__layerNorm2d hN nfg nfb 1.0e-5
             outT = prim__mm normedFinal (prim__transpose2d vpW)
-
-            -- Flatten to 1D
         in (st, prim__narrow outT 0 0 (sI * vI))
-      Nothing => idris_crash "Transformer: tokenEmbed not initialized"
+      Nothing => idris_crash "Transformer: tokenEmbed"
     where
       writePE : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
       writePE buf pos dim sLen dMod =
@@ -249,54 +302,34 @@ export
                  buf' = prim__setDouble buf (pos * dMod + dim) val
              in writePE buf' pos (dim + 1) sLen dMod
 
-  emapLayer f (MkTransformer hdp ip op te qs ks vs ops n1 n2 nf f1 f2 vp) =
-    MkTransformer hdp ip op
-      (emapLayer f te)
-      (map (emapLayer f) qs) (map (emapLayer f) ks)
-      (map (emapLayer f) vs) (map (emapLayer f) ops)
-      (emapLayerNorm f n1) (emapLayerNorm f n2) (emapLayerNorm f nf)
-      (emapLayer f f1) (emapLayer f f2)
-      (emapLayer f vp)
+  emapLayer f (MkTransformer hdp ip op te blks nf vp) =
+    MkTransformer hdp ip op (emapLayer f te) (map (emapBlock f) blks)
+                  (emapLayerNorm f nf) (emapLayer f vp)
 
   showLayer _ = "Transformer<" ++ show seqLen ++ "x" ++ show dModel
-    ++ " h=" ++ show numHeads ++ " v=" ++ show vocabSize ++ ">"
+    ++ " h=" ++ show numHeads ++ " blocks=" ++ show numBlocks
+    ++ " v=" ++ show vocabSize ++ ">"
 
-  nameLayer prefx (MkTransformer hdp ip op te qs ks vs ops n1 n2 nf f1 f2 vp) =
+  nameLayer prefx (MkTransformer hdp ip op te blks nf vp) =
     MkTransformer hdp ip op
       (nameLayer (prefx ++ "_embed") te)
-      (nameHeads (prefx ++ "_q") 0 qs) (nameHeads (prefx ++ "_k") 0 ks)
-      (nameHeads (prefx ++ "_v") 0 vs) (nameHeads (prefx ++ "_o") 0 ops)
-      (nameLayerNorm (prefx ++ "_n1") n1)
-      (nameLayerNorm (prefx ++ "_n2") n2)
+      (nameBlocks (prefx ++ "_b") 0 blks)
       (nameLayerNorm (prefx ++ "_nf") nf)
-      (nameLayer (prefx ++ "_ff1") f1) (nameLayer (prefx ++ "_ff2") f2)
       (nameLayer (prefx ++ "_vp") vp)
-    where
-      nameHeads : {a, b : Nat} -> String -> Nat -> Vect k (LinearState a b Variable) -> Vect k (LinearState a b Variable)
-      nameHeads _ _ [] = []
-      nameHeads pfx idx (h :: hs) = nameLayer (pfx ++ show idx) h :: nameHeads pfx (S idx) hs
 
-  layerPrefix _ = "mht"
+  layerPrefix _ = "tfm"
 
-  toDoubleLayer (MkTransformer hdp ip op te qs ks vs ops n1 n2 nf f1 f2 vp) =
-    MkTransformer hdp ip op
-      (toDoubleLayer te)
-      (map toDoubleLayer qs) (map toDoubleLayer ks)
-      (map toDoubleLayer vs) (map toDoubleLayer ops)
-      (toDoubleLayerNorm n1) (toDoubleLayerNorm n2) (toDoubleLayerNorm nf)
-      (toDoubleLayer f1) (toDoubleLayer f2)
-      (toDoubleLayer vp)
+  toDoubleLayer (MkTransformer hdp ip op te blks nf vp) =
+    MkTransformer hdp ip op (toDoubleLayer te) (map toDoubleBlock blks)
+                  (toDoubleLayerNorm nf) (toDoubleLayer vp)
 
   debugApply st inp =
     let (updated, out) = applyGeneric st inp
     in (updated, out, MkDebugEntry (showLayer @{%search} st) [])
 
-  getParamIds (MkTransformer _ _ _ te qs ks vs ops n1 n2 nf f1 f2 vp) =
-    getParamIds te ++
-    concatMap getParamIds (toList qs) ++ concatMap getParamIds (toList ks) ++
-    concatMap getParamIds (toList vs) ++ concatMap getParamIds (toList ops) ++
-    getLayerNormParamIds n1 ++ getLayerNormParamIds n2 ++ getLayerNormParamIds nf ++
-    getParamIds f1 ++ getParamIds f2 ++ getParamIds vp
+  getParamIds (MkTransformer _ _ _ te blks nf vp) =
+    getParamIds te ++ concatMap getBlockParamIds (toList blks) ++
+    getLayerNormParamIds nf ++ getParamIds vp
 
 
 ----------------------------------------------------------------------
@@ -304,111 +337,115 @@ export
 ----------------------------------------------------------------------
 
 export
-mkTransformer : {seqLen, dModel, numHeads, headDim, vocabSize : Nat} ->
-                  {auto prf : dModel = numHeads * headDim} ->
-                  (Num ty, FromDouble ty) =>
-                  IO (TransformerState seqLen dModel numHeads headDim vocabSize
-                                        (seqLen * vocabSize) (seqLen * vocabSize) ty)
+mkTransformer : {seqLen, dModel, numHeads, headDim, numBlocks, vocabSize : Nat} ->
+                {auto prf : dModel = numHeads * headDim} ->
+                (Num ty, FromDouble ty) =>
+                IO (TransformerState seqLen dModel numHeads headDim numBlocks vocabSize
+                                     (seqLen * vocabSize) (seqLen * vocabSize) ty)
 mkTransformer {prf} = do
   te  <- mkLinear {i=vocabSize, o=dModel}
-  qs  <- mkLinears numHeads {i=dModel, o=headDim}
-  ks  <- mkLinears numHeads {i=dModel, o=headDim}
-  vs  <- mkLinears numHeads {i=dModel, o=headDim}
-  ops <- mkLinears numHeads {i=headDim, o=dModel}
-  n1  <- mkLayerNorm {dim=dModel}
-  n2  <- mkLayerNorm {dim=dModel}
+  blks <- mkBlocks numBlocks
   nf  <- mkLayerNorm {dim=dModel}
-  f1  <- mkLinear {i=dModel, o=4*dModel}
-  f2  <- mkLinear {i=4*dModel, o=dModel}
   vp  <- mkLinear {i=dModel, o=vocabSize}
-  pure $ MkTransformer prf Refl Refl te qs ks vs ops n1 n2 nf f1 f2 vp
+  pure $ MkTransformer prf Refl Refl te blks nf vp
   where
-    mkLinears : (k : Nat) -> {i, o : Nat} -> IO (Vect k (LinearState i o ty))
-    mkLinears Z = pure []
-    mkLinears (S k) = [| mkLinear :: mkLinears k |]
+    mkBlocks : (k : Nat) -> IO (Vect k (BlockState dModel numHeads headDim ty))
+    mkBlocks Z = pure []
+    mkBlocks (S k) = [| mkBlock :: mkBlocks k |]
 
 export
-transformerLayer : {seqLen, dModel, numHeads, headDim, vocabSize : Nat} ->
-                     {auto prf : dModel = numHeads * headDim} ->
-                     (Num ty, FromDouble ty) =>
-                     IO (AnyLayer (seqLen * vocabSize) (seqLen * vocabSize) ty)
-transformerLayer = map (MkAnyLayer (TransformerState seqLen dModel numHeads headDim vocabSize)) mkTransformer
+transformerLayer : {seqLen, dModel, numHeads, headDim, numBlocks, vocabSize : Nat} ->
+                   {auto prf : dModel = numHeads * headDim} ->
+                   (Num ty, FromDouble ty) =>
+                   IO (AnyLayer (seqLen * vocabSize) (seqLen * vocabSize) ty)
+transformerLayer = map (MkAnyLayer (TransformerState seqLen dModel numHeads headDim numBlocks vocabSize)) mkTransformer
 
 
 ----------------------------------------------------------------------
 -- Batched Forward (for epochNativeTensorBatch)
 ----------------------------------------------------------------------
 
+||| Forward one block on batched data.
+||| Projections/FF/norms batched as [B*seqLen, dim].
+||| Attention loops per-sequence.
+batchBlockForward : {seqLen, dModel, numHeads, headDim : Nat} ->
+                    BlockState dModel numHeads headDim Variable ->
+                    AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
+batchBlockForward blk h bsI sI dI hdI =
+  let Just n1g = extractGammaTensor (norm1 blk)   | Nothing => idris_crash "bblock: n1g"
+      Just n1b = extractBetaTensor (norm1 blk)    | Nothing => idris_crash "bblock: n1b"
+      Just n2g = extractGammaTensor (norm2 blk)   | Nothing => idris_crash "bblock: n2g"
+      Just n2b = extractBetaTensor (norm2 blk)    | Nothing => idris_crash "bblock: n2b"
+      Just f1W = extractWeightTensor (ff1 blk)    | Nothing => idris_crash "bblock: ff1"
+      Just f2W = extractWeightTensor (ff2 blk)    | Nothing => idris_crash "bblock: ff2"
+  in let batchSize = bsI `div` sI
+         -- Pre-LN: [B*seqLen, dModel]
+         normed1 = prim__layerNorm2d h n1g n1b 1.0e-5
+         -- Attention: per-sequence loop
+         normed1flat = prim__narrow normed1 0 0 (bsI * dI)
+         attnResults = attnLoop (queryWs blk) (keyWs blk) (valueWs blk) (outProjWs blk)
+                         normed1flat 0 batchSize sI dI hdI []
+         attnOut = prim__reshape2d (catAll attnResults) bsI dI
+         -- Residual 1
+         h1 = tensorAdd attnOut h
+         -- Pre-LN Feedforward: [B*seqLen, dModel]
+         normed2 = prim__layerNorm2d h1 n2g n2b 1.0e-5
+         ffHidden = prim__clampMin (prim__mm normed2 (prim__transpose2d f1W)) 0.0
+         ffOut = prim__mm ffHidden (prim__transpose2d f2W)
+     in tensorAdd ffOut h1
+  where
+    catAll : List AnyPtr -> AnyPtr
+    catAll [] = idris_crash "catAll: empty"
+    catAll [x] = x
+    catAll (x :: y :: rest) = catAll (prim__cat2 x y :: rest)
+
+    attnLoop : Vect nh (LinearState dModel headDim Variable) ->
+               Vect nh (LinearState dModel headDim Variable) ->
+               Vect nh (LinearState dModel headDim Variable) ->
+               Vect nh (LinearState headDim dModel Variable) ->
+               AnyPtr -> Int -> Int -> Int -> Int -> Int -> List AnyPtr -> List AnyPtr
+    attnLoop qs ks vs ops normedFlat idx bTotal sLen dMd hdDim acc =
+      if idx >= bTotal then reverse acc
+      else let off = idx * sLen * dMd
+               seqSlice = prim__reshape2d (prim__narrow normedFlat 0 off (sLen * dMd)) sLen dMd
+               attnOut = runHeadAttention qs ks vs ops seqSlice sLen hdDim Nothing
+               attnFlat = prim__narrow attnOut 0 0 (sLen * dMd)
+           in assert_total $ attnLoop qs ks vs ops normedFlat (idx + 1) bTotal sLen dMd hdDim (attnFlat :: acc)
+
 ||| Forward B sequences through the transformer in a single call.
-||| Batches projections/FF/norms as [B*seqLen, dim] matmuls.
-||| Loops per-sequence only for the attention block (cross-position deps).
-||| Input: array of B tensor handles, each [seqLen*vocabSize].
-||| Output: array of B tensor handles, each [seqLen*vocabSize].
 export
 transformerForwardBatch :
-  {seqLen, dModel, numHeads, headDim, vocabSize : Nat} ->
-  TransformerState seqLen dModel numHeads headDim vocabSize
+  {seqLen, dModel, numHeads, headDim, numBlocks, vocabSize : Nat} ->
+  TransformerState seqLen dModel numHeads headDim numBlocks vocabSize
                    (seqLen * vocabSize) (seqLen * vocabSize) Variable ->
   List AnyPtr -> Int -> List AnyPtr
 transformerForwardBatch st inputs batchSize =
   case extractWeightTensor (tokenEmbed st) of
     Just embedW =>
-      let Just f1W = extractWeightTensor (ff1 st)   | Nothing => idris_crash "Transformer: ff1"
-          Just f2W = extractWeightTensor (ff2 st)   | Nothing => idris_crash "Transformer: ff2"
-          Just vpW = extractWeightTensor (vocabProj st) | Nothing => idris_crash "Transformer: vocabProj"
-          Just n1g = extractGammaTensor (norm1 st)   | Nothing => idris_crash "Transformer: n1g"
-          Just n1b = extractBetaTensor (norm1 st)    | Nothing => idris_crash "Transformer: n1b"
-          Just n2g = extractGammaTensor (norm2 st)   | Nothing => idris_crash "Transformer: n2g"
-          Just n2b = extractBetaTensor (norm2 st)    | Nothing => idris_crash "Transformer: n2b"
-          Just nfg = extractGammaTensor (normFinal st) | Nothing => idris_crash "Transformer: nfg"
-          Just nfb = extractBetaTensor (normFinal st)  | Nothing => idris_crash "Transformer: nfb"
+      let Just vpW = extractWeightTensor (vocabProj st) | Nothing => idris_crash "Transformer: vocabProj"
+          Just nfg = extractGammaTensor (normFinal st)  | Nothing => idris_crash "Transformer: nfg"
+          Just nfb = extractBetaTensor (normFinal st)   | Nothing => idris_crash "Transformer: nfb"
       in
       let sI = cast {to=Int} seqLen
           dI = cast {to=Int} dModel
           vI = cast {to=Int} vocabSize
           hdI = cast {to=Int} headDim
-          bsI = batchSize * sI  -- B*seqLen
+          bsI = batchSize * sI
 
-          -- Concatenate all inputs: B × [seqLen*vocabSize] → [B*seqLen*vocabSize]
           catted = catAll inputs
-          -- Reshape to [B*seqLen, vocabSize]
           batchMat = prim__reshape2d catted bsI vI
-
-          -- Token embedding: [B*seqLen, vocabSize] @ embedW^T → [B*seqLen, dModel]
           embedded = prim__mm batchMat (prim__transpose2d embedW)
 
-          -- Add sinusoidal PE (tiled B times)
           peBuf = prim__allocDoubles (bsI * dI)
           peBuf' = writePEBatch peBuf 0 0 bsI dI sI
           peT = prim__createState2d bsI dI peBuf'
           h0 = tensorAdd embedded peT
 
-          -- Pre-LN: [B*seqLen, dModel]
-          normed1 = prim__layerNorm2d h0 n1g n1b 1.0e-5
+          -- Fold through blocks (batched)
+          hN = foldl (\h, blk => batchBlockForward {seqLen} {dModel} {numHeads} {headDim} blk h bsI sI dI hdI) h0 (blocks st)
 
-          -- Attention: must loop per sequence
-          -- Flatten normed1 to 1D for slicing
-          normed1flat = prim__narrow normed1 0 0 (bsI * dI)
-          attnResults = attnLoop normed1flat 0 batchSize sI dI hdI []
-          -- Cat attention outputs back: [B*seqLen, dModel]
-          attnOut = prim__reshape2d (catAll attnResults) bsI dI
-
-          -- Residual 1
-          h1 = tensorAdd attnOut h0
-
-          -- Pre-LN Feedforward: [B*seqLen, dModel]
-          normed2 = prim__layerNorm2d h1 n2g n2b 1.0e-5
-          ffHidden = prim__clampMin (prim__mm normed2 (prim__transpose2d f1W)) 0.0
-          ffOut = prim__mm ffHidden (prim__transpose2d f2W)
-
-          -- Residual 2
-          h2 = tensorAdd ffOut h1
-
-          -- Final LayerNorm + output projection
-          normedFinal = prim__layerNorm2d h2 nfg nfb 1.0e-5
-          outBatch = prim__mm normedFinal (prim__transpose2d vpW)  -- [B*seqLen, vocabSize]
-
-          -- Split back into B outputs of [seqLen*vocabSize]
+          normedFinal = prim__layerNorm2d hN nfg nfb 1.0e-5
+          outBatch = prim__mm normedFinal (prim__transpose2d vpW)
           outFlat = prim__narrow outBatch 0 0 (bsI * vI)
       in splitOutputs outFlat 0 batchSize (sI * vI)
     Nothing => idris_crash "Transformer: tokenEmbed"
@@ -426,16 +463,6 @@ transformerForwardBatch st inputs batchSize =
                val = posEncVal dModel (cast origPos) (cast dim)
                buf' = prim__setDouble buf (pos * dMod + dim) val
            in assert_total $ writePEBatch buf' pos (dim + 1) bsLen dMod sLen
-
-    attnLoop : AnyPtr -> Int -> Int -> Int -> Int -> Int -> List AnyPtr -> List AnyPtr
-    attnLoop normedFlat idx bTotal sLen dMd hdDim acc =
-      if idx >= bTotal then reverse acc
-      else let off = idx * sLen * dMd
-               seqSlice = prim__reshape2d (prim__narrow normedFlat 0 off (sLen * dMd)) sLen dMd
-               attnOut = runHeadAttention (queryWs st) (keyWs st) (valueWs st) (outProjWs st)
-                           seqSlice sLen hdDim Nothing
-               attnFlat = prim__narrow attnOut 0 0 (sLen * dMd)
-           in assert_total $ attnLoop normedFlat (idx + 1) bTotal sLen dMd hdDim (attnFlat :: acc)
 
     splitOutputs : AnyPtr -> Int -> Int -> Int -> List AnyPtr
     splitOutputs flat idx bTotal chunkSize =
