@@ -123,7 +123,8 @@ trainLoop opt model totalEpochs esThreshold esWindow esPatience batchSize minLen
           now <- clockTime Monotonic
           putStrLn $ "  " ++ formatElapsed t0 now ++ " " ++ show ep
                    ++ "\tloss=" ++ show loss
-                   ++ "\tmem=" ++ show (getRssMB ep) ++ "MB"
+                   ++ "\tpeak=" ++ show (getRssMB ep) ++ "MB"
+                   ++ "\tcur=" ++ show (getCurrentRssMB ep) ++ "MB"
         if loss /= loss
           then do
             now <- clockTime Monotonic
