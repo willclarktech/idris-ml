@@ -136,7 +136,7 @@ ref-setup:
 	cd pytorch && uv sync --dev
 
 bench-py:
-	cd pytorch && uv run python -m torch_ref.benchmark
+	cd pytorch && uv run python -m torch_ref.benchmark $(BENCH)
 
 bench-compare: backend
 	idris2 --source-dir src -p contrib -o bench src/Example/Bench.idr
