@@ -141,6 +141,19 @@ LayerLike LinearState where
 
 
 ----------------------------------------------------------------------
+-- Tensor Handle Accessors (for NTM direct tensor pipeline)
+----------------------------------------------------------------------
+
+export
+extractWeightTensor : LinearState i o Variable -> Maybe AnyPtr
+extractWeightTensor st = st.weightTensor
+
+export
+extractBiasTensor : LinearState i o Variable -> Maybe AnyPtr
+extractBiasTensor st = st.biasTensor
+
+
+----------------------------------------------------------------------
 -- Constructors
 ----------------------------------------------------------------------
 

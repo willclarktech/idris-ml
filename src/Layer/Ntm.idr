@@ -183,62 +183,79 @@ export
              newMemory newReadAddr' newWriteAddr' newReadOutput
              Nothing Nothing Nothing Nothing, output)
 
-  -- Variable-based NTM forward pass: fused C ops when tensor handles available
+  -- Variable-based NTM forward pass: tensor pipeline with fused C ops.
+  -- Bypasses sub-layer applyVar to keep data as tensor handles.
   applyVar (MkNtm lstm readFc writeFc outputFc memory readAddr writeAddr readOutput (Just memT) (Just raT) (Just waT) (Just roT)) inp =
     case applyVar lstm (readOutput ++ inp) of
       (updLstm, hidden) =>
-        let cell = extractCellState updLstm
-        in case applyVar readFc cell of
-          (_, readParams) =>
-            case applyVar writeFc cell of
-              (_, writeParams) =>
-                -- Parse read head params (scalar Variables from FC output)
-                let (mainInput, params) = splitAt (m + ShiftKernelSize) readParams
-                    (keyVector, shiftVector) = splitAt m mainInput
-                    (betaVec, params') = splitAt 1 params
-                    (gVec, gammaVec) = splitAt 1 params'
-                    beta = softplus (sum betaVec)
-                    g = sigmoidVar (sum gVec)
-                    gamma = 1 + softplus (sum gammaVec)
-                    shiftKernel = softmaxVar shiftVector
-                    -- Stack key and shift kernel (small: m and 3 elements)
-                    (VTensor keyElems) = keyVector
-                    keyT = vecStackTensor keyElems
-                    (VTensor shiftElems) = shiftKernel
-                    shiftT = vecStackTensor shiftElems
-                    -- Fused read head: 1 C call for entire addressing pipeline
-                    readPair = prim__ntmReadHead memT raT keyT beta.tensorPtr g.tensorPtr gamma.tensorPtr shiftT
-                    newReadAddrT = prim__pairFirst readPair
-                    newReadOutT = prim__pairSecond readPair
-                    -- Parse write head params
-                    (wReadHeadInput, rawAdd) = Tensor.splitAt ((m + ShiftKernelSize) + 3) writeParams
-                    (wMainInput, wParams) = splitAt (m + ShiftKernelSize) wReadHeadInput
-                    (wKeyVector, wShiftVector) = splitAt m wMainInput
-                    (wBetaVec, wParams') = splitAt 1 wParams
-                    (wGVec, wGammaVec) = splitAt 1 wParams'
-                    wBeta = softplus (sum wBetaVec)
-                    wG = sigmoidVar (sum wGVec)
-                    wGamma = 1 + softplus (sum wGammaVec)
-                    wShiftKernel = softmaxVar wShiftVector
-                    (VTensor wKeyElems) = wKeyVector
-                    wKeyT = vecStackTensor wKeyElems
-                    (VTensor wShiftElems) = wShiftKernel
-                    wShiftT = vecStackTensor wShiftElems
-                    -- Fused write head addressing
-                    writePair = prim__ntmReadHead memT waT wKeyT wBeta.tensorPtr wG.tensorPtr wGamma.tensorPtr wShiftT
-                    newWriteAddrT = prim__pairFirst writePair
-                    -- Interpolation write: memory' = memory + outer(writeAddr, addVector)
-                    (VTensor addElems) = rawAdd
-                    addT = vecStackTensor addElems
-                    newMemT = prim__ntmInterpWrite memT newWriteAddrT addT
-                    -- Output FC: hidden ++ readOutput
-                    newReadOutput = VTensor (tensorToScalars newReadOutT 0 m)
-                    output = snd (applyVar outputFc (hidden ++ newReadOutput))
-                    -- Skip unpacking addressing weights — tensor handles carry the real
-                    -- data, scalar Vects are stale placeholders (never read in tensor path)
-                in (MkNtm updLstm readFc writeFc outputFc
-                         memory readAddr writeAddr newReadOutput
-                         (Just newMemT) (Just newReadAddrT) (Just newWriteAddrT) (Just newReadOutT), output)
+        -- Direct tensor FC: cell -> head params (skip FC applyVar round-trip)
+        case (extractCellTensor updLstm, extractWeightTensor readFc, extractBiasTensor readFc,
+              extractWeightTensor writeFc, extractBiasTensor writeFc) of
+          (Just cellT, Just rfcW, Just rfcB, Just wfcW, Just wfcB) =>
+            let -- Read FC at tensor level
+                readResultT = tensorAdd (tensorMv rfcW cellT) rfcB
+                readParamsV = VTensor (tensorToScalars readResultT 0 (ReadParamWidth m))
+                -- Write FC at tensor level
+                writeResultT = tensorAdd (tensorMv wfcW cellT) wfcB
+                writeParamsV = VTensor (tensorToScalars writeResultT 0 (WriteParamWidth m))
+                -- Parse read head params
+                (mainInput, params) = splitAt (m + ShiftKernelSize) readParamsV
+                (keyVector, shiftVector) = splitAt m mainInput
+                (betaVec, params') = splitAt 1 params
+                (gVec, gammaVec) = splitAt 1 params'
+                beta = softplus (sum betaVec)
+                g = sigmoidVar (sum gVec)
+                gamma = 1 + softplus (sum gammaVec)
+                shiftKernel = softmaxVar shiftVector
+                (VTensor keyElems) = keyVector
+                keyT = vecStackTensor keyElems
+                (VTensor shiftElems) = shiftKernel
+                shiftT = vecStackTensor shiftElems
+                -- Fused read head
+                readPair = prim__ntmReadHead memT raT keyT beta.tensorPtr g.tensorPtr gamma.tensorPtr shiftT
+                newReadAddrT = prim__pairFirst readPair
+                newReadOutT = prim__pairSecond readPair
+                -- Parse write head params
+                (wReadHeadInput, rawAdd) = Tensor.splitAt ((m + ShiftKernelSize) + 3) writeParamsV
+                (wMainInput, wParams) = splitAt (m + ShiftKernelSize) wReadHeadInput
+                (wKeyVector, wShiftVector) = splitAt m wMainInput
+                (wBetaVec, wParams') = splitAt 1 wParams
+                (wGVec, wGammaVec) = splitAt 1 wParams'
+                wBeta = softplus (sum wBetaVec)
+                wG = sigmoidVar (sum wGVec)
+                wGamma = 1 + softplus (sum wGammaVec)
+                wShiftKernel = softmaxVar wShiftVector
+                (VTensor wKeyElems) = wKeyVector
+                wKeyT = vecStackTensor wKeyElems
+                (VTensor wShiftElems) = wShiftKernel
+                wShiftT = vecStackTensor wShiftElems
+                -- Fused write head + interp write
+                writePair = prim__ntmReadHead memT waT wKeyT wBeta.tensorPtr wG.tensorPtr wGamma.tensorPtr wShiftT
+                newWriteAddrT = prim__pairFirst writePair
+                (VTensor addElems) = rawAdd
+                addT = vecStackTensor addElems
+                newMemT = prim__ntmInterpWrite memT newWriteAddrT addT
+                -- Output FC
+                newReadOutput = VTensor (tensorToScalars newReadOutT 0 m)
+                output = snd (applyVar outputFc (hidden ++ newReadOutput))
+            in (MkNtm updLstm readFc writeFc outputFc
+                     memory readAddr writeAddr newReadOutput
+                     (Just newMemT) (Just newReadAddrT) (Just newWriteAddrT) (Just newReadOutT), output)
+          -- Fallback if tensor handles missing
+          _ => let cell = extractCellState updLstm
+               in case applyVar readFc cell of
+                    (_, readParams) => case applyVar writeFc cell of
+                      (_, writeParams) =>
+                        let rh = MkReadHead readAddr
+                        in case forwardReadHeadUnboundedVar memory rh readParams of
+                          (readHead, newRO) =>
+                            let wh = MkWriteHead (MkReadHead writeAddr)
+                            in case forwardWriteHeadInterpVar memory wh writeParams of
+                              (writeHead, newMem) =>
+                                let output = snd (applyVar outputFc (hidden ++ newRO))
+                                in (MkNtm updLstm readFc writeFc outputFc
+                                         newMem readHead.addressingWeights writeHead.readHead.addressingWeights newRO
+                                         Nothing Nothing Nothing Nothing, output)
 
   -- Variable-based NTM forward pass: fallback using individual Variable ops
   applyVar (MkNtm lstm readFc writeFc outputFc memory readAddr writeAddr readOutput _ _ _ _) inp =
