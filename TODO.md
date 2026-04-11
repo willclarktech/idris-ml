@@ -12,6 +12,7 @@
 
 | Item | Difficulty | Notes |
 |------|-----------|-------|
+| Batched forward backward bug | M | `transformerForwardBatch` produces correct forward outputs but gradients are wrong (model doesn't converge). The narrow→cat chain for per-sequence attention slicing likely creates incorrect autograd graph during backward. Forward outputs match per-sequence path exactly. Needs finite-diff gradient comparison to isolate |
 | Batch dimension support for attention | M | `tensor_bmm` exists for projections. Remaining: batch the per-sequence attention block (Q@K^T, softmax, attn@V) with block-diagonal masking. Would eliminate the last per-sequence loop (~576 FFI calls/epoch). Impact limited by Chez runtime overhead — see `docs/design-decisions.md` performance analysis |
 | Convolutional layers | L | Conv1D/Conv2D with autograd. Natural next layer type for image tasks |
 | Regularisation/normalisation layers | M | Dropout, batch norm. Layer norm done. Required for deeper models |
