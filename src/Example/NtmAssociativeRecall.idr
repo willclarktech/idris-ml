@@ -173,7 +173,7 @@ trainLoop1 opt model totalEpochs esThreshold esWindow esPatience minItems maxIte
         batch <- recallTaskBinaryBatchVect {w = W} 1 minItems maxItems SeqLen
         let dps = map (map fromDouble) batch
             (m', loss) = epochTwoPhaseBceNative opt dps m
-        when (modNatNZ ep 500 ItIsSucc == 0) $ do
+        when (modNatNZ ep 100 ItIsSucc == 0) $ do
           now <- clockTime Monotonic
           -- Quick eval for bit accuracy
           let dblModel = toDoubleNetwork (emap refreshValue m')
