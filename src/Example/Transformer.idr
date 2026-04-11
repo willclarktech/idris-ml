@@ -236,7 +236,6 @@ main = do
       inputDecoded = map (argmaxAt VocabSize inputVals) positions
       targetDecoded = map (argmaxAt VocabSize targetVals) positions
       predicted = map (argmaxAt VocabSize predVals) positions
-      fullCorrect = countMatches predicted targetDecoded
       revCorrect = countMatches (drop InputLen predicted) (drop InputLen targetDecoded)
       revTotal = SeqLen `minus` InputLen
 
@@ -246,11 +245,9 @@ main = do
   putStrLn $ concatMap tokenName targetDecoded
   putStr "  Predicted:  "
   putStrLn $ concatMap tokenName predicted
-  putStrLn $ "  Full acc:   " ++ show fullCorrect ++ "/" ++ show SeqLen
   putStrLn $ "  Rev acc:    " ++ show revCorrect ++ "/" ++ show revTotal
 
   putStrLn ""
   putStrLn $ formatResult [("epochs", show epochsDone),
-                            ("full_acc", show fullCorrect ++ "/" ++ show SeqLen),
                             ("rev_acc", show revCorrect ++ "/" ++ show revTotal),
                             ("seed", show cfg.seed)]

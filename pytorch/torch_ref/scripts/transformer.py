@@ -101,13 +101,11 @@ def main() -> None:
     print(f"  Target:     {''.join(token_name(t) for t in target_decoded)}")
     print(f"  Predicted:  {''.join(token_name(t) for t in predicted)}")
 
-    full_correct = sum(1 for p, t in zip(predicted, target_decoded, strict=True) if p == t)
     rev_correct = sum(
         1 for p, t in zip(predicted[INPUT_LEN:], target_decoded[INPUT_LEN:], strict=True) if p == t
     )
     rev_total = SEQ_LEN - INPUT_LEN
 
-    print(f"  Full acc:   {full_correct}/{SEQ_LEN}")
     print(f"  Rev acc:    {rev_correct}/{rev_total}")
 
     print()
@@ -115,7 +113,6 @@ def main() -> None:
         format_result(
             [
                 ("epochs", str(epochs_done)),
-                ("full_acc", f"{full_correct}/{SEQ_LEN}"),
                 ("rev_acc", f"{rev_correct}/{rev_total}"),
                 ("seed", str(args.seed)),
             ]
