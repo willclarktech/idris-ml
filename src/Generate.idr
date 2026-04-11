@@ -330,6 +330,50 @@ recallTaskBinaryBatchVect (S k) minItems maxItems seqLen = do
 
 
 ----------------------------------------------------------------------
+-- Reversal task (for Transformer example)
+----------------------------------------------------------------------
+
+||| Generate one sequence reversal data point.
+||| Full sequence: [t0..t_{n-1}, SEP, t_{n-1}..t0, EOS]
+||| Input (teacher-forced): first seqLen tokens, one-hot encoded.
+||| Target: tokens 1..seqLen, one-hot encoded.
+export
+reversalPoint : {inputDim, outputDim : Nat} ->
+                (vocabSize : Nat) -> (inputLen : Nat) -> (seqLen : Nat) ->
+                (sepToken : Nat) -> (eosToken : Nat) ->
+                IO (DataPoint inputDim outputDim Double)
+reversalPoint vocabSize inputLen seqLen sepToken eosToken = do
+  tokens <- sequence (replicate inputLen (randomInt 0 (minus vocabSize 3)))
+  let revToks = reverse tokens
+      fullSeq = tokens ++ [sepToken] ++ revToks ++ [eosToken]
+      inputToks = Data.List.take seqLen fullSeq
+      targetToks = Data.List.take seqLen (drop 1 fullSeq)
+      oneHot : Nat -> List Double
+      oneHot tok = map (\i => if finToNat i == tok then 1.0 else 0.0)
+                       (toList (Data.Vect.Fin.range {len=vocabSize}))
+      inputFlat = concatMap oneHot inputToks
+      targetFlat = concatMap oneHot targetToks
+      toVect : (n : Nat) -> List Double -> Vect n (Scalar Double)
+      toVect Z _ = []
+      toVect (S k) [] = STensor 0.0 :: toVect k []
+      toVect (S k) (x :: xs) = STensor x :: toVect k xs
+  pure $ MkDataPoint (VTensor (toVect inputDim inputFlat))
+                     (VTensor (toVect outputDim targetFlat))
+
+||| Generate a batch of reversal data points as a Vect.
+export
+reversalBatchVect : {inputDim, outputDim : Nat} ->
+                    (vocabSize : Nat) -> (inputLen : Nat) -> (seqLen : Nat) ->
+                    (sepToken : Nat) -> (eosToken : Nat) ->
+                    (n : Nat) -> IO (Vect n (DataPoint inputDim outputDim Double))
+reversalBatchVect _ _ _ _ _ Z = pure []
+reversalBatchVect vocabSize inputLen seqLen sepToken eosToken (S k) = do
+  dp <- reversalPoint vocabSize inputLen seqLen sepToken eosToken
+  rest <- reversalBatchVect vocabSize inputLen seqLen sepToken eosToken k
+  pure (dp :: rest)
+
+
+----------------------------------------------------------------------
 -- Pattern Sequence Data (for RNN/LSTM examples)
 ----------------------------------------------------------------------
 
