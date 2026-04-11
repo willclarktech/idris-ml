@@ -74,7 +74,8 @@ static void* arena_alloc(size_t bytes) {
             arena_current = arena_current->next;
             arena_current->used = 0;
         } else {
-            ArenaChunk* c = arena_new_chunk(bytes);
+            size_t cap = bytes > ARENA_INIT_SIZE ? bytes : ARENA_INIT_SIZE;
+            ArenaChunk* c = arena_new_chunk(cap);
             arena_current->next = c;
             arena_current = c;
         }
@@ -232,18 +233,34 @@ static int tape_append(int op, Tensor* result, Tensor* arg1, Tensor* arg2, doubl
         tape = realloc(tape, tape_cap * sizeof(TapeEntry));
     }
     int idx = tape_size++;
+    memset(&tape[idx], 0, sizeof(TapeEntry));
     tape[idx].op = op;
     tape[idx].result = result;
     tape[idx].arg1 = arg1;
     tape[idx].arg2 = arg2;
     tape[idx].scalar_arg = scalar_arg;
-    tape[idx].op_meta = NULL;
     result->tape_idx = idx;
     return idx;
 }
 
 static void tape_reset(void) {
+    /* Free heap-allocated resources before clearing tape */
+    for (int i = 0; i < tape_size; i++) {
+        /* Free OP_STACK inputs arrays */
+        if (tape[i].op == OP_STACK && tape[i].inputs) {
+            free(tape[i].inputs);
+            tape[i].inputs = NULL;
+        }
+        /* Free grad arrays on non-persistent (arena) tensors.
+           These are heap-allocated by ensure_grad during backward. */
+        Tensor* r = tape[i].result;
+        if (r && !r->persistent && r->grad) {
+            free(r->grad);
+            r->grad = NULL;
+        }
+    }
     tape_size = 0;
+    arena_reset();
 }
 
 /* ================================================================
@@ -903,7 +920,7 @@ TensorPair* tensor_ntm_read_head(
 
     int w_shape[] = {n};
     int r_shape[] = {w};
-    TensorPair* pair = malloc(sizeof(TensorPair));
+    TensorPair* pair = arena_alloc(sizeof(TensorPair));
     pair->first = make_tensor(focused, w_shape, 1, rg);
     pair->second = make_tensor(read_out, r_shape, 1, rg);
 
@@ -949,10 +966,11 @@ TensorHandle tensor_ntm_interp_write(
 
 TensorHandle tensor_reshape(TensorHandle h, int* shape, int rank) {
     Tensor* t = (Tensor*)h;
-    /* Create a new tensor with different shape but shared data */
-    Tensor* r = calloc(1, sizeof(Tensor));
+    /* Create a new tensor with different shape but shared data (arena-allocated) */
+    Tensor* r = arena_alloc(sizeof(Tensor));
+    memset(r, 0, sizeof(Tensor));
     r->data = t->data;  /* shared */
-    r->shape = malloc(rank * sizeof(int));
+    r->shape = arena_alloc(rank * sizeof(int));
     memcpy(r->shape, shape, rank * sizeof(int));
     r->rank = rank;
     r->numel = t->numel;
@@ -1714,7 +1732,7 @@ void tensor_lstm_gates(TensorHandle combined_h, TensorHandle prev_cell_h, int o,
 }
 
 TensorPair* tensor_lstm_gates_pair(TensorHandle combined, TensorHandle prev_cell, int o) {
-    TensorPair* p = malloc(sizeof(TensorPair));
+    TensorPair* p = arena_alloc(sizeof(TensorPair));
     tensor_lstm_gates(combined, prev_cell, o, &p->first, &p->second);
     return p;
 }
@@ -1808,6 +1826,11 @@ TensorHandle tensor_create_1d(int n, double* data, int requires_grad) {
 TensorHandle tensor_create_2d(int rows, int cols, double* data, int requires_grad) {
     int shape[] = {rows, cols};
     return tensor_create(data, shape, 2, requires_grad);
+}
+
+TensorHandle tensor_reshape_2d(TensorHandle h, int rows, int cols) {
+    int shape[] = {rows, cols};
+    return tensor_reshape(h, shape, 2);
 }
 
 double* tensor_alloc_doubles(int n) { return calloc(n, sizeof(double)); }

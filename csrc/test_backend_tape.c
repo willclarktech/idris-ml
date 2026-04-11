@@ -473,7 +473,7 @@ static void test_lstm_gradient_chain(void) {
     ASSERT_TRUE("w param has gradient (grad_item)", gw0 != 0.0 || gb0 != 0.0);
 
     param_clear();
-    free(pair);
+    /* pair is arena-allocated, freed by arena_reset */
 }
 
 /* T5b: LSTM chain with STACK (mimics vecStackTensor round-trip) */
@@ -564,7 +564,7 @@ static double ntm_read_forward_loss(
     /* loss = sum(focused) + sum(read_out) */
     TensorHandle loss = tensor_add(tensor_sum(focused), tensor_sum(read_out));
     double val = tensor_item(loss);
-    free(pair);
+    /* pair is arena-allocated */
     return val;
 }
 
@@ -664,7 +664,7 @@ static void test_ntm_read_head_grad(void) {
     }
 
     param_clear();
-    free(pair);
+    /* pair is arena-allocated */
 }
 
 /* ================================================================

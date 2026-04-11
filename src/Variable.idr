@@ -391,6 +391,9 @@ packMatrixPtrs arr off {m=S k} {n} (VTensor row :: rows) =
   let arr' = packScalarPtrs arr off row
   in packMatrixPtrs arr' (off + cast {to=Int} n) rows
 
+%foreign "C:tensor_reshape_2d,libidrisml"
+prim__reshape2d : AnyPtr -> Int -> Int -> AnyPtr
+
 -- matStackTensor: stack matrix Variable tensorPtrs into a 2D tensor.
 -- PRESERVES autograd graph.
 matStackTensor : {m, n : Nat} -> Vect m (Vector n Variable) -> AnyPtr
@@ -401,9 +404,7 @@ matStackTensor {m} {n} rows =
       arr = prim__ptrArrayAlloc (mI * nI)
       arr' = packMatrixPtrs arr 0 rows
       flat = prim__stackFromArray arr' (mI * nI) 0  -- [m*n]
-      shape = prim__allocInts 2
-      shape' = prim__setInt (prim__setInt shape 0 mI) 1 nI
-  in prim__reshape flat shape' 2
+  in prim__reshape2d flat mI nI
 
 -- Read k scalar values from a 1D libtorch tensor into a Vect.
 export
