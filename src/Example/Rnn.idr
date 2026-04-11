@@ -52,7 +52,6 @@ main = do
   putStrLn $ "Architecture: " ++ show model
   putStrLn ""
 
-  let dataPoints = map (map fromDouble) (rawData 8)
   let opt = nativeSgd lr
 
   putStrLn "Training..."
@@ -64,7 +63,7 @@ main = do
           let loss = calculateLossRecurrent lossFn dblM (rawData 8)
           pure (m, loss)
         else do
-          let (m', loss) = epochRecurrentNative opt dataPoints lossFn m
+          let (m', loss) = epochRecurrentNative opt (map (map fromDouble) (rawData 8)) lossFn m
           when (modNatNZ ep 100 ItIsSucc == 0) $ do
             now <- clockTime Monotonic
             putStrLn $ "  " ++ formatElapsed t0 now ++ " " ++ show ep
