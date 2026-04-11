@@ -164,6 +164,7 @@ enum {
     OP_TRANSPOSE_2D,  /* [m,n] -> [n,m] transpose */
     OP_SOFTMAX_2D,    /* row-wise softmax on [m,n] */
     OP_MASKED_FILL,   /* fill masked positions with a value */
+    OP_LAYER_NORM_2D, /* row-wise layer normalization on [m,n] */
 };
 
 typedef struct {
@@ -219,6 +220,14 @@ typedef struct {
     Tensor* add_vector;
 } NtmInterpWriteMeta;
 
+typedef struct {
+    Tensor* gamma;     /* scale parameter [n] */
+    Tensor* bias;      /* shift parameter [n] */
+    double* x_hat;     /* normalized values [m*n] */
+    double* rstd;      /* reciprocal std devs [m] */
+    int m, n;
+} LayerNormMeta;
+
 #define TAPE_INIT_CAP 4096
 
 static TapeEntry* tape = NULL;
@@ -257,6 +266,14 @@ static void tape_reset(void) {
         if (tape[i].op == OP_STACK && tape[i].inputs) {
             free(tape[i].inputs);
             tape[i].inputs = NULL;
+        }
+        /* Free OP_LAYER_NORM_2D heap arrays */
+        if (tape[i].op == OP_LAYER_NORM_2D && tape[i].op_meta) {
+            LayerNormMeta* meta = (LayerNormMeta*)tape[i].op_meta;
+            free(meta->x_hat);
+            free(meta->rstd);
+            meta->x_hat = NULL;
+            meta->rstd = NULL;
         }
         /* Free grad arrays on non-persistent (arena) tensors.
            These are heap-allocated by ensure_grad during backward. */
@@ -697,6 +714,59 @@ TensorHandle tensor_causal_mask(int n) {
     int shape[] = {n, n};
     Tensor* r = make_tensor(data, shape, 2, 0);  /* no grad needed for mask */
     free(data);
+    return r;
+}
+
+/* Row-wise layer normalization on 2D tensor: y[i,j] = gamma[j] * x_hat[i,j] + beta[j]
+   where x_hat[i,j] = (x[i,j] - mean_i) / sqrt(var_i + eps) */
+TensorHandle tensor_layer_norm_2d(TensorHandle h, TensorHandle hgamma,
+                                   TensorHandle hbias, double eps) {
+    Tensor* t = (Tensor*)h;
+    Tensor* gamma = (Tensor*)hgamma;
+    Tensor* bias = (Tensor*)hbias;
+    int m = t->shape[0], n = t->shape[1];
+    double* data = malloc(m * n * sizeof(double));
+    double* x_hat = malloc(m * n * sizeof(double));
+    double* rstd = malloc(m * sizeof(double));
+    for (int i = 0; i < m; i++) {
+        /* Compute mean */
+        double mean = 0;
+        for (int j = 0; j < n; j++) mean += t->data[i*n+j];
+        mean /= n;
+        /* Compute variance */
+        double var = 0;
+        for (int j = 0; j < n; j++) {
+            double d = t->data[i*n+j] - mean;
+            var += d * d;
+        }
+        var /= n;
+        double inv_std = 1.0 / sqrt(var + eps);
+        rstd[i] = inv_std;
+        /* Normalize and apply affine */
+        for (int j = 0; j < n; j++) {
+            x_hat[i*n+j] = (t->data[i*n+j] - mean) * inv_std;
+            data[i*n+j] = gamma->data[j] * x_hat[i*n+j] + bias->data[j];
+        }
+    }
+    int shape[] = {m, n};
+    int rg = t->requires_grad || gamma->requires_grad || bias->requires_grad;
+    Tensor* r = make_tensor(data, shape, 2, rg);
+    free(data);
+    if (rg) {
+        /* Store x_hat and rstd in persistent (heap) arrays since arena resets */
+        LayerNormMeta* meta = arena_alloc(sizeof(LayerNormMeta));
+        meta->gamma = gamma;
+        meta->bias = bias;
+        meta->x_hat = x_hat;  /* heap-allocated, freed in tape_reset */
+        meta->rstd = rstd;    /* heap-allocated, freed in tape_reset */
+        meta->m = m;
+        meta->n = n;
+        int idx = tape_append(OP_LAYER_NORM_2D, r, t, NULL, 0);
+        tape[idx].op_meta = meta;
+    } else {
+        free(x_hat);
+        free(rstd);
+    }
     return r;
 }
 
@@ -1605,6 +1675,56 @@ void tensor_backward(TensorHandle h) {
                 ensure_grad(a);
                 for (int j = 0; j < a->numel; j++)
                     if (b->data[j] == 0.0) a->grad[j] += r->grad[j];
+            }
+            break;
+        }
+
+        case OP_LAYER_NORM_2D: {
+            /* Row-wise layer norm backward.
+               y = gamma * x_hat + beta, x_hat = (x - mean) / std
+               d_gamma[j] = sum_i dy[i,j] * x_hat[i,j]
+               d_beta[j]  = sum_i dy[i,j]
+               dx = (1/std) * (dy*gamma - mean(dy*gamma) - x_hat * mean(dy*gamma*x_hat)) */
+            LayerNormMeta* meta = (LayerNormMeta*)e->op_meta;
+            int mm = meta->m, nn = meta->n;
+            ensure_grad(r);
+            /* d_gamma and d_beta */
+            if (meta->gamma && meta->gamma->requires_grad) {
+                ensure_grad(meta->gamma);
+                for (int j = 0; j < nn; j++) {
+                    double dg = 0;
+                    for (int i = 0; i < mm; i++) dg += r->grad[i*nn+j] * meta->x_hat[i*nn+j];
+                    meta->gamma->grad[j] += dg;
+                }
+            }
+            if (meta->bias && meta->bias->requires_grad) {
+                ensure_grad(meta->bias);
+                for (int j = 0; j < nn; j++) {
+                    double db = 0;
+                    for (int i = 0; i < mm; i++) db += r->grad[i*nn+j];
+                    meta->bias->grad[j] += db;
+                }
+            }
+            /* d_input */
+            if (a && a->requires_grad) {
+                ensure_grad(a);
+                for (int i = 0; i < mm; i++) {
+                    /* dx_hat = dy * gamma */
+                    double mean_dxhat = 0;
+                    double mean_dxhat_xhat = 0;
+                    for (int j = 0; j < nn; j++) {
+                        double dxh = r->grad[i*nn+j] * meta->gamma->data[j];
+                        mean_dxhat += dxh;
+                        mean_dxhat_xhat += dxh * meta->x_hat[i*nn+j];
+                    }
+                    mean_dxhat /= nn;
+                    mean_dxhat_xhat /= nn;
+                    for (int j = 0; j < nn; j++) {
+                        double dxh = r->grad[i*nn+j] * meta->gamma->data[j];
+                        a->grad[i*nn+j] += meta->rstd[i] *
+                            (dxh - mean_dxhat - meta->x_hat[i*nn+j] * mean_dxhat_xhat);
+                    }
+                }
             }
             break;
         }
