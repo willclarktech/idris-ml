@@ -189,8 +189,8 @@ main = do
            ++ " heads=" ++ show NumHeads ++ " headDim=" ++ show HeadDim
            ++ " vocab=" ++ show VocabSize
 
-  mht <- mhTransformerLayer {seqLen=SeqLen, dModel=DModel, numHeads=NumHeads,
-                              headDim=HeadDim, vocabSize=VocabSize}
+  mht <- transformerLayer {seqLen=SeqLen, dModel=DModel, numHeads=NumHeads,
+                            headDim=HeadDim, vocabSize=VocabSize}
   let model = autoName $ OutputLayer mht
   putStrLn $ "Model: " ++ show model
   putStrLn ""

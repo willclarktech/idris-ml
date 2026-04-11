@@ -32,10 +32,10 @@ import Variable
 ||| Type parameters: seqLen, dModel, numHeads, headDim, vocabSize.
 ||| Proof: dModel = numHeads * headDim (compile-time checked).
 public export
-record MHTransformerState
+record TransformerState
     (seqLen : Nat) (dModel : Nat) (numHeads : Nat) (headDim : Nat)
     (vocabSize : Nat) (inputSize : Nat) (outputSize : Nat) (ty : Type) where
-  constructor MkMHTransformer
+  constructor MkTransformer
   -- Type safety proofs (erased at runtime)
   0 headDimPrf  : dModel = numHeads * headDim
   0 inputPrf    : inputSize = seqLen * vocabSize
@@ -107,7 +107,7 @@ headLoopGeneric (q :: qs) (k :: ks) (v :: vs) (op :: ops) normed =
 %default partial
 export
 {seqLen : Nat} -> {dModel : Nat} -> {numHeads : Nat} -> {headDim : Nat} ->
-{vocabSize : Nat} -> LayerLike (MHTransformerState seqLen dModel numHeads headDim vocabSize) where
+{vocabSize : Nat} -> LayerLike (TransformerState seqLen dModel numHeads headDim vocabSize) where
 
   -- Pure Idris path (Double-level evaluation)
   applyGeneric {i} {o} st xs =
@@ -147,15 +147,15 @@ export
   applyVar {i} {o} st xs =
     case extractWeightTensor (tokenEmbed st) of
       Just embedW =>
-        let Just f1W = extractWeightTensor (ff1 st)   | Nothing => idris_crash "MHTransformer: ff1 not initialized"
-            Just f2W = extractWeightTensor (ff2 st)   | Nothing => idris_crash "MHTransformer: ff2 not initialized"
-            Just vpW = extractWeightTensor (vocabProj st) | Nothing => idris_crash "MHTransformer: vocabProj not initialized"
-            Just n1g = extractGammaTensor (norm1 st)   | Nothing => idris_crash "MHTransformer: norm1 gamma not initialized"
-            Just n1b = extractBetaTensor (norm1 st)    | Nothing => idris_crash "MHTransformer: norm1 beta not initialized"
-            Just n2g = extractGammaTensor (norm2 st)   | Nothing => idris_crash "MHTransformer: norm2 gamma not initialized"
-            Just n2b = extractBetaTensor (norm2 st)    | Nothing => idris_crash "MHTransformer: norm2 beta not initialized"
-            Just nfg = extractGammaTensor (normFinal st) | Nothing => idris_crash "MHTransformer: normFinal gamma not initialized"
-            Just nfb = extractBetaTensor (normFinal st)  | Nothing => idris_crash "MHTransformer: normFinal beta not initialized"
+        let Just f1W = extractWeightTensor (ff1 st)   | Nothing => idris_crash "Transformer: ff1 not initialized"
+            Just f2W = extractWeightTensor (ff2 st)   | Nothing => idris_crash "Transformer: ff2 not initialized"
+            Just vpW = extractWeightTensor (vocabProj st) | Nothing => idris_crash "Transformer: vocabProj not initialized"
+            Just n1g = extractGammaTensor (norm1 st)   | Nothing => idris_crash "Transformer: norm1 gamma not initialized"
+            Just n1b = extractBetaTensor (norm1 st)    | Nothing => idris_crash "Transformer: norm1 beta not initialized"
+            Just n2g = extractGammaTensor (norm2 st)   | Nothing => idris_crash "Transformer: norm2 gamma not initialized"
+            Just n2b = extractBetaTensor (norm2 st)    | Nothing => idris_crash "Transformer: norm2 beta not initialized"
+            Just nfg = extractGammaTensor (normFinal st) | Nothing => idris_crash "Transformer: normFinal gamma not initialized"
+            Just nfb = extractBetaTensor (normFinal st)  | Nothing => idris_crash "Transformer: normFinal beta not initialized"
         in
         let sI = cast {to=Int} seqLen
             dI = cast {to=Int} dModel
@@ -201,7 +201,7 @@ export
             flat1d = prim__narrow outT 0 0 (sI * vI)
             output = VTensor (tensorToScalars flat1d 0 o)
         in (st, output)
-      Nothing => idris_crash "MHTransformer: tokenEmbed not initialized"
+      Nothing => idris_crash "Transformer: tokenEmbed not initialized"
     where
       writePE : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
       writePE buf pos dim sLen dMod =
@@ -235,10 +235,10 @@ export
                   Nothing => proj
                   Just prev => tensorAdd prev proj
             in headLoop qs ks vs ops normed sI hdI (Just acc')
-          _ => idris_crash "MHTransformer: head weight not initialized"
+          _ => idris_crash "Transformer: head weight not initialized"
 
-  emapLayer f (MkMHTransformer hdp ip op te qs ks vs ops n1 n2 nf f1 f2 vp) =
-    MkMHTransformer hdp ip op
+  emapLayer f (MkTransformer hdp ip op te qs ks vs ops n1 n2 nf f1 f2 vp) =
+    MkTransformer hdp ip op
       (emapLayer f te)
       (map (emapLayer f) qs) (map (emapLayer f) ks)
       (map (emapLayer f) vs) (map (emapLayer f) ops)
@@ -246,11 +246,11 @@ export
       (emapLayer f f1) (emapLayer f f2)
       (emapLayer f vp)
 
-  showLayer _ = "MHTransformer<" ++ show seqLen ++ "x" ++ show dModel
+  showLayer _ = "Transformer<" ++ show seqLen ++ "x" ++ show dModel
     ++ " h=" ++ show numHeads ++ " v=" ++ show vocabSize ++ ">"
 
-  nameLayer prefx (MkMHTransformer hdp ip op te qs ks vs ops n1 n2 nf f1 f2 vp) =
-    MkMHTransformer hdp ip op
+  nameLayer prefx (MkTransformer hdp ip op te qs ks vs ops n1 n2 nf f1 f2 vp) =
+    MkTransformer hdp ip op
       (nameLayer (prefx ++ "_embed") te)
       (nameHeads (prefx ++ "_q") 0 qs) (nameHeads (prefx ++ "_k") 0 ks)
       (nameHeads (prefx ++ "_v") 0 vs) (nameHeads (prefx ++ "_o") 0 ops)
@@ -266,8 +266,8 @@ export
 
   layerPrefix _ = "mht"
 
-  toDoubleLayer (MkMHTransformer hdp ip op te qs ks vs ops n1 n2 nf f1 f2 vp) =
-    MkMHTransformer hdp ip op
+  toDoubleLayer (MkTransformer hdp ip op te qs ks vs ops n1 n2 nf f1 f2 vp) =
+    MkTransformer hdp ip op
       (toDoubleLayer te)
       (map toDoubleLayer qs) (map toDoubleLayer ks)
       (map toDoubleLayer vs) (map toDoubleLayer ops)
@@ -279,7 +279,7 @@ export
     let (updated, out) = applyGeneric st inp
     in (updated, out, MkDebugEntry (showLayer @{%search} st) [])
 
-  getParamIds (MkMHTransformer _ _ _ te qs ks vs ops n1 n2 nf f1 f2 vp) =
+  getParamIds (MkTransformer _ _ _ te qs ks vs ops n1 n2 nf f1 f2 vp) =
     getParamIds te ++
     concatMap getParamIds (toList qs) ++ concatMap getParamIds (toList ks) ++
     concatMap getParamIds (toList vs) ++ concatMap getParamIds (toList ops) ++
@@ -292,12 +292,12 @@ export
 ----------------------------------------------------------------------
 
 export
-mkMHTransformer : {seqLen, dModel, numHeads, headDim, vocabSize : Nat} ->
+mkTransformer : {seqLen, dModel, numHeads, headDim, vocabSize : Nat} ->
                   {auto prf : dModel = numHeads * headDim} ->
                   (Num ty, FromDouble ty) =>
-                  IO (MHTransformerState seqLen dModel numHeads headDim vocabSize
+                  IO (TransformerState seqLen dModel numHeads headDim vocabSize
                                         (seqLen * vocabSize) (seqLen * vocabSize) ty)
-mkMHTransformer {prf} = do
+mkTransformer {prf} = do
   te  <- mkLinear {i=vocabSize, o=dModel}
   qs  <- mkLinears numHeads {i=dModel, o=headDim}
   ks  <- mkLinears numHeads {i=dModel, o=headDim}
@@ -309,15 +309,15 @@ mkMHTransformer {prf} = do
   f1  <- mkLinear {i=dModel, o=4*dModel}
   f2  <- mkLinear {i=4*dModel, o=dModel}
   vp  <- mkLinear {i=dModel, o=vocabSize}
-  pure $ MkMHTransformer prf Refl Refl te qs ks vs ops n1 n2 nf f1 f2 vp
+  pure $ MkTransformer prf Refl Refl te qs ks vs ops n1 n2 nf f1 f2 vp
   where
     mkLinears : (k : Nat) -> {i, o : Nat} -> IO (Vect k (LinearState i o ty))
     mkLinears Z = pure []
     mkLinears (S k) = [| mkLinear :: mkLinears k |]
 
 export
-mhTransformerLayer : {seqLen, dModel, numHeads, headDim, vocabSize : Nat} ->
+transformerLayer : {seqLen, dModel, numHeads, headDim, vocabSize : Nat} ->
                      {auto prf : dModel = numHeads * headDim} ->
                      (Num ty, FromDouble ty) =>
                      IO (AnyLayer (seqLen * vocabSize) (seqLen * vocabSize) ty)
-mhTransformerLayer = map (MkAnyLayer (MHTransformerState seqLen dModel numHeads headDim vocabSize)) mkMHTransformer
+transformerLayer = map (MkAnyLayer (TransformerState seqLen dModel numHeads headDim vocabSize)) mkTransformer

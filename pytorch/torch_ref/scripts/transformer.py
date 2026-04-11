@@ -60,7 +60,7 @@ def main() -> None:
 
     model = MultiHeadTransformer(VOCAB_SIZE, SEQ_LEN, D_MODEL, NUM_HEADS)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
-    print(f"Model: MHTransformer<{SEQ_LEN}x{D_MODEL} h={NUM_HEADS} v={VOCAB_SIZE}>")
+    print(f"Model: Transformer<{SEQ_LEN}x{D_MODEL} h={NUM_HEADS} v={VOCAB_SIZE}>")
     print()
 
     # Training with fresh data each epoch
