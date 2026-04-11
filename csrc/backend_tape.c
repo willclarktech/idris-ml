@@ -269,10 +269,13 @@ static void tape_reset(void) {
    Lifecycle
    ================================================================ */
 
+static int persistent_scalar_count = 0;
+
 TensorHandle tensor_create_scalar(double value, int requires_grad) {
     /* Always heap-allocate: these are returned to Idris and may be cached
        in Variables across epochs (surviving arena_reset). The per-epoch leak
        from training data tensors (~15KB/epoch) is acceptable. */
+    persistent_scalar_count++;
     Tensor* t = calloc(1, sizeof(Tensor));
     t->data = malloc(sizeof(double));
     t->data[0] = value;
@@ -2256,6 +2259,47 @@ int get_current_rss_mb(void) {
         return (int)(info.resident_size / (1024 * 1024));
 #endif
     return get_rss_mb();
+}
+
+void backend_memory_report(void) {
+    /* Arena stats */
+    int chunk_count = 0;
+    size_t total_cap = 0, total_used = 0;
+    for (ArenaChunk* c = arena_head; c; c = c->next) {
+        chunk_count++;
+        total_cap += c->cap;
+        total_used += c->used;
+    }
+
+    /* Param stats */
+    int total_param_elems = 0;
+    size_t param_grad_bytes = 0;
+    for (int i = 0; i < param_count_val; i++) {
+        Tensor* t = param_registry[i].tensor;
+        total_param_elems += t->numel;
+        if (t->grad) param_grad_bytes += t->numel * sizeof(double);
+    }
+
+    size_t leaked_bytes = (size_t)persistent_scalar_count * 56;  /* ~56B per scalar */
+
+    fprintf(stderr, "=== Memory Report ===\n");
+    fprintf(stderr, "  Arena: %d chunks, %zuKB capacity, %zuKB used\n",
+            chunk_count, total_cap / 1024, total_used / 1024);
+    fprintf(stderr, "  Tape: %d entries (cap %d), %zuKB\n",
+            tape_size, tape_cap, (size_t)tape_cap * sizeof(TapeEntry) / 1024);
+    fprintf(stderr, "  Params: %d tensors, %d elements, %zuKB grads\n",
+            param_count_val, total_param_elems, param_grad_bytes / 1024);
+    fprintf(stderr, "  Persistent scalars: %d (~%zuKB leaked)\n",
+            persistent_scalar_count, leaked_bytes / 1024);
+    fprintf(stderr, "  RSS: peak=%dMB cur=%dMB\n",
+            get_rss_mb(), get_current_rss_mb());
+    fprintf(stderr, "  Expected: arena %zuKB + tape %zuKB + params %zuKB + leaked %zuKB = %zuKB\n",
+            total_cap / 1024,
+            (size_t)tape_cap * sizeof(TapeEntry) / 1024,
+            (size_t)total_param_elems * sizeof(double) / 1024,
+            leaked_bytes / 1024,
+            (total_cap + (size_t)tape_cap * sizeof(TapeEntry) +
+             (size_t)total_param_elems * sizeof(double) + leaked_bytes) / 1024);
 }
 
 /* ================================================================

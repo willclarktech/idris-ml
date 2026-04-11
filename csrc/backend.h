@@ -225,6 +225,7 @@ int backend_supports_tensor_params(void);
 
 int get_rss_mb(void);           /* peak RSS in MB (getrusage) */
 int get_current_rss_mb(void);   /* current RSS in MB (macOS mach_task_info) */
+void backend_memory_report(void); /* print detailed memory breakdown to stderr */
 
 /* ---------- Debug ---------- */
 

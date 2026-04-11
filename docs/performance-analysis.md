@@ -566,29 +566,48 @@ The old C backend avoided this entirely: the Chez Scheme tape stored
 per-scalar Variables, but scalar arithmetic was in-process Scheme calls
 (no FFI boundary). Weight buffers stayed in C via buffer-passing.
 
-#### Optimization opportunities (ranked by impact)
+#### Optimization results: NTM tensor pipeline (2026-04-08)
 
-1. **LSTM tensor handle pass-through**: Store `newHiddenT`/`newCellT`
-   as tensor handles in LstmState (like NTM does for memory). Next
-   timestep uses handles directly instead of SELECT→STACK round-trip.
-   Saves ~600 FFI calls/timestep = ~6000/epoch.
+All four optimizations implemented. The NTM fused `applyVar` now
+bypasses sub-layer `applyVar` calls and operates directly on tensor
+handles through the full pipeline: LSTM → FCs → head parsing → fused
+addressing → output FC. Only the final output (8 elements) is
+unpacked to scalar Variables.
 
-2. **Output FC tensor concat**: Replace `hidden ++ newReadOutput` (Vect
-   concat of scalar Variables → STACK) with C-side `tensor_cat` of the
-   two tensor handles. Saves ~240 FFI calls/timestep.
+| Phase | Change | ms/epoch | Reduction |
+|-------|--------|----------|-----------|
+| Before | — | ~380 | — |
+| Phase 1: LSTM hidden/cell tensor handles | Skip vecStackTensor for h/c state | ~200 | -47% |
+| Phase 2: Direct FC tensor calls | Bypass readFc/writeFc applyVar | ~185 | -51% cum. |
+| Phase 3: tensor_narrow for head params | Slice FC output in C | ~110 | -71% cum. |
+| Phase 4: tensor_cat2 for output FC | Concat hidden+readOutput in C | ~110 | -71% cum. |
 
-3. **FC output tensor pass-through**: Read/Write FC outputs go through
-   tensorToScalars only to be split by `splitAt` for head param parsing.
-   Instead, use C-side `tensor_slice` to extract key/shift/beta/g/gamma
-   sub-tensors directly. Saves ~140 FFI calls/timestep.
+New C ops added: `OP_CAT` (concat two 1D tensors), `OP_NARROW` (view
+into tensor slice). Both with correct backward rules.
 
-4. **Batch training data**: Currently batch=1. Batching sequences of
-   the same length would amortize per-sequence overhead and reduce
-   total epochs needed for convergence (though NTMs are sensitive to
-   batch size for recall tasks).
+Current per-timestep FFI calls: ~78 (was ~1,296). NTM-copy now runs
+at **~110ms/epoch** — faster than the old C backend (~120ms).
 
-5. **`fromDouble` persistent leak**: Each `tensor_create_scalar(_, 0)`
-   heap-allocates a persistent Tensor (~56 bytes) that is never freed.
-   The NTM creates ~260 per epoch from training data. Over 50k epochs:
-   ~14MB. Minor but worth fixing via a separate ephemeral tensor pool
-   or Idris-level finalizers.
+```
+Model              Before (ms/ep)  After (ms/ep)  Old C (ms/ep)  PyTorch (ms/ep)
+Supervised (1000)           4           2            ~0.1            —
+RNN (1000)                 14          12            ~0.4            —
+LSTM (2000)                14          14            ~0.2            —
+NTM-copy                 ~380        ~110           ~120           ~130
+NTM-AR                   ~430        ~130           ~180           ~215
+```
+
+#### Remaining optimization opportunities
+
+1. **`fromDouble` persistent leak**: Each `tensor_create_scalar(_, 0)`
+   heap-allocates ~56 bytes that is never freed. NTM creates ~260 per
+   epoch. Over 50k epochs: ~750MB. Needs ephemeral tensor pool or
+   Idris-level finalizers. Tracked via `persistent_scalar_count` in
+   `backend_memory_report()`.
+
+2. **LSTM input tensor pass-through** (Phase 5): The LSTM input
+   `readOutput ++ inp` still goes through Vect concat + vecStackTensor.
+   Saves ~31 FFI calls/timestep — modest, deferred.
+
+3. **Batch training**: Currently batch=1 for NTM. Batching
+   same-length sequences would amortize per-sequence overhead.

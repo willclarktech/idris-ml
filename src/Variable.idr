@@ -965,3 +965,11 @@ getRssMB _ = prim__getRssMB
 export
 getCurrentRssMB : Nat -> Int
 getCurrentRssMB _ = prim__getCurrentRssMB
+
+%foreign "scheme:(lambda (dummy) ((foreign-procedure \"backend_memory_report\" () void)) dummy)"
+prim__memoryReport : Int -> Int
+
+||| Print detailed memory breakdown to stderr.
+export
+memoryReport : IO ()
+memoryReport = let _ = prim__memoryReport 0 in pure ()
