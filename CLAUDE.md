@@ -47,7 +47,7 @@ bash scripts/sweep.sh --task copy --parallel 4 --quick  # 2000 epochs for screen
 ### Module dependency order (leaves first)
 
 1. **Floating** - Extended `Floating` interface adding `sqrt`
-2. **Util** - Helpers: `enumerate`, `permute`, `chunks`
+2. **Util** - Helpers: `enumerate`, `permute`, `chunks`, `formatElapsed`, `formatDuration`, `sigD`
 3. **Sampler** - Distribution samplers: `uniform`, `normal` (Box-Muller), `normalSample`
 3b. **Init** - Weight initialization strategies composable with samplers: `xavier`, `xavierGain`, `he`, `lecun`, `fixedRange`
 4. **Tensor** - Shape-indexed tensor: `Tensor : Vect rank Nat -> Type -> Type`
@@ -55,7 +55,7 @@ bash scripts/sweep.sh --task copy --parallel 4 --quick  # 2000 epochs for screen
 6. **Memory** - NTM read/write head operations
 7. **Variable** - Autograd variables wrapping libtorch tensors. `NativeOptimizer` for training
 8. **DataPoint** - `DataPoint`, `RecurrentDataPoint`, and `TwoPhaseDataPoint` records
-8b. **Generate** - Random data generation: `copyTaskBinary`/`recallTaskBinary`, `randomBatchVect`
+8b. **Generate** - Random data generation: `copyTaskBinary`/`recallTaskBinary`, `randomBatchVect`, `patternData`
 9. **Endofunctor** - `emap : (ty -> ty) -> e ty -> e ty` for type-preserving maps
 10. **Layer** - Re-export hub for the interface-based layer system:
     - **Layer.Core** - `LayerLike` interface, `AnyLayer` existential, `Network` type, network-level ops
@@ -63,9 +63,10 @@ bash scripts/sweep.sh --task copy --parallel 4 --quick  # 2000 epochs for screen
     - **Layer.Ntm** - `NtmState` + NTM head ops (imports Lstm and Linear for sub-layers)
 11. **Optimizer** - SGD, Adam, RMSprop (Idris-side), plus `NativeOptimizer` (libtorch torch::optim)
 12. **Schedule** - Learning rate schedules: `constant`, `cosineAnnealing`, `oneCycle`
-13. **Backprop** - Training loop: `epoch`, `epochRecurrent`, `epochTwoPhaseBceNative`, and `train*` variants
-14. **Curriculum** - Multi-stage curriculum training: `Stage` record, `runCurriculum`
-15. **Debug** - Forward-pass diagnostics: `debugForward`, `debugForwardRecurrent`, `toDoubleNetwork`
+13. **Backprop** - Epoch functions: `epochNative`, `epochRecurrentNative`, `epochTwoPhaseBceNative`
+14. **Train** - Unified training runner: `runTraining`, `TrainConfig`, `EarlyStopConfig`, `ArgSpec`/`parseArgs`, `formatResult`
+15. **Curriculum** - Multi-stage curriculum training: `Stage` record, `runCurriculum`
+16. **Debug** - Forward-pass diagnostics: `debugForward`, `debugForwardRecurrent`, `toDoubleNetwork`
 
 ### Core type signatures
 
@@ -108,28 +109,43 @@ forward : Network i hs o ty -> Vector i ty -> (Network i hs o ty, Vector o ty)
 let (updatedModel, output) = forward model input
 ```
 
-### Training cycle
+### Training (Train.idr)
+
+All examples use `runTraining` from the `Train` module:
 
 ```idris
--- Idris-side optimizer: forward -> backward -> collect grads -> apply deltas
-epoch opt dataPoints lossFn model st =
-  let loss = calculateLoss lossFn model dataPoints
-      grads = collectGrads 1.0 loss
-      (deltas, st') = opt.step grads st
-  in (emap (applyDeltas deltas) model, st', loss)
+-- Simple: run N epochs, no early stopping
+(trained, epochs, loss) <- runTraining
+  (\m, d => epochNative opt d lossFn m) (pure data) (simpleConfig 1000) model
 
--- Native optimizer (preferred): single libtorch step, no per-scalar overhead
-let opt = nativeRmsprop 0.0001 0.95 1.0e-8 10.0 0.9
-let (m', loss) = epochTwoPhaseBceNative opt dataPoints model
+-- Patience-based early stopping (LSTM)
+(trained, epochs, loss) <- runTraining
+  (\m, d => epochRecurrentNative opt d lossFn m) (pure data) (patienceConfig 2000 500) model
+
+-- Windowed convergence + per-epoch data gen + metrics (NTM)
+let cfg = MkTrainConfig epochs 100 (WindowedAvg threshold window patience) evalMetrics
+(trained, epochs, loss) <- runTraining
+  (\m, d => epochTwoPhaseBceNative opt d m) genBatch cfg model
+```
+
+`runTraining` handles: epoch loop, NaN detection, progress logging, early stopping, timing summary.
+
+### CLI arg parsing
+
+Declarative via `ArgSpec` + `parseArgs`:
+```idris
+specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
+        , Arg "--epochs" (\v, c => { epochs := castNat v } c) ]
+cfg = parseArgs defaultConfig specs (drop 1 args)
 ```
 
 ### Training modes
 
-| Mode | Data type | Use case |
-|------|-----------|----------|
-| Supervised | `DataPoint i o ty` | Feedforward nets |
-| Recurrent | `RecurrentDataPoint i o ty` | RNN/LSTM sequences |
-| TwoPhase | `TwoPhaseDataPoint i o ty` | NTM copy/recall (output-phase loss only) |
+| Mode | Epoch function | Data type | Use case |
+|------|---------------|-----------|----------|
+| Supervised | `epochNative` | `DataPoint i o ty` | Feedforward nets |
+| Recurrent | `epochRecurrentNative` | `RecurrentDataPoint i o ty` | RNN/LSTM sequences |
+| TwoPhase | `epochTwoPhaseBceNative` | `TwoPhaseDataPoint i o ty` | NTM copy/recall |
 
 ### Parameter naming (required for gradient flow)
 
