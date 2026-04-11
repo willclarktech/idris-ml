@@ -41,3 +41,12 @@ record TwoPhaseDataPoint i o ty where
 public export
 implementation Functor (TwoPhaseDataPoint i o) where
   map f (MkTwoPhaseDataPoint xs ys) = MkTwoPhaseDataPoint (map (map f) xs) (map (map f) ys)
+
+||| Data point with pre-allocated C tensor handles.
+||| Bypasses all scalar packing — the tensors are created directly from raw data.
+||| The type parameters i and o are phantom (for type safety only).
+public export
+record TensorDataPoint (i : Nat) (o : Nat) where
+  constructor MkTensorDataPoint
+  inputTensor : AnyPtr   -- 1D tensor [i]
+  targetTensor : AnyPtr  -- 1D tensor [o]

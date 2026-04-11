@@ -329,6 +329,30 @@ epochNativeTensor opt dataPoints lossFn model =
       lossVal = nativeTrainStep opt avgLoss
   in (model, lossVal)
 
+||| Tensor-level native epoch with pre-allocated tensor data.
+||| Zero conversion overhead — tensors are created directly by the data generator.
+export
+epochNativeTensorPre :
+  {i, o, n : Nat} ->
+  {hs : List Nat} ->
+  NativeOptimizer ->
+  Vect n (TensorDataPoint i o) ->
+  LossFnTensor ->
+  Network i hs o Variable ->
+  (Network i hs o Variable, Double)
+epochNativeTensorPre opt dataPoints lossFn model =
+  let (_, losses) = foldl (\(m, acc), dp =>
+        let (m', outT) = forwardVarTensor m (inputTensor dp)
+            loss = lossFn outT (targetTensor dp)
+        in (m', loss :: acc))
+        (the (Network i hs o Variable, List Variable) (model, [])) dataPoints
+      totalLoss = foldl (\acc, l => acc + l) (the Variable (fromDouble 0.0)) losses
+      nf = fromDouble (cast (natToInteger n))
+      avgLoss : Variable
+      avgLoss = totalLoss / nf
+      lossVal = nativeTrainStep opt avgLoss
+  in (model, lossVal)
+
 ||| Native epoch for recurrent training.
 export
 epochRecurrentNative :

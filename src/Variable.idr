@@ -297,7 +297,12 @@ prim__readDouble : AnyPtr -> Int -> Double
 export
 prim__setDouble : AnyPtr -> Int -> Double -> AnyPtr
 
+%foreign "C:tensor_one_hot,libidrisml"
+export
+prim__oneHot : AnyPtr -> Int -> Int -> AnyPtr
+
 %foreign "C:tensor_create_1d,libidrisml"
+export
 prim__create1d : Int -> AnyPtr -> Int -> AnyPtr
 
 %foreign "C:tensor_create_2d,libidrisml"
@@ -355,9 +360,11 @@ prim__layerNorm2d : AnyPtr -> AnyPtr -> AnyPtr -> Double -> AnyPtr
 prim__reshape : AnyPtr -> AnyPtr -> Int -> AnyPtr
 
 %foreign "scheme:(lambda (n) (foreign-alloc (* n 4)))"
+export
 prim__allocInts : Int -> AnyPtr
 
 %foreign "scheme:(lambda (buf off val) (foreign-set! 'integer-32 buf (* off 4) val) buf)"
+export
 prim__setInt : AnyPtr -> Int -> Int -> AnyPtr
 
 public export

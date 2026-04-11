@@ -2231,11 +2231,22 @@ TensorHandle tensor_subtract_scalar_inplace(TensorHandle h, double val) {
    Convenience functions
    ================================================================ */
 
-/* Create 1D tensor from a raw memory buffer (e.g. Scheme bytevector).
-   The buffer must contain n IEEE-754 doubles in native byte order. */
-TensorHandle tensor_create_from_bytevec(int n, double* data, int requires_grad) {
-    int shape[] = {n};
-    return tensor_create(data, shape, 1, requires_grad);
+/* Create a one-hot encoded 1D tensor from token indices.
+   tokens: array of token indices (int), n_tokens long
+   vocab_size: number of classes per token
+   Output: 1D tensor of length n_tokens * vocab_size */
+TensorHandle tensor_one_hot(int* tokens, int n_tokens, int vocab_size) {
+    int total = n_tokens * vocab_size;
+    double* data = calloc(total, sizeof(double));  /* zeros */
+    for (int i = 0; i < n_tokens; i++) {
+        int tok = tokens[i];
+        if (tok >= 0 && tok < vocab_size)
+            data[i * vocab_size + tok] = 1.0;
+    }
+    int shape[] = {total};
+    Tensor* r = make_tensor(data, shape, 1, 0);
+    free(data);
+    return r;
 }
 
 TensorHandle tensor_create_1d(int n, double* data, int requires_grad) {

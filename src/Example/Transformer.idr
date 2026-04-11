@@ -215,21 +215,18 @@ main = do
   putStrLn $ "Model: " ++ show model
   putStrLn ""
 
-  -- Data source: fresh batch each epoch (raw Doubles — epochNativeTensor handles conversion)
-  let genBatch : IO (Vect BatchSize (DataPoint InputDim OutputDim Double))
-      genBatch = reversalBatchVect VocabSize InputLen SeqLen SepToken EosToken BatchSize
+  -- Data source: fresh batch each epoch (pre-allocated C tensors, zero conversion)
+  let genBatch : IO (Vect BatchSize (TensorDataPoint InputDim OutputDim))
+      genBatch = reversalTensorBatchVect InputDim OutputDim VocabSize InputLen SeqLen SepToken EosToken BatchSize
 
   -- Metrics: accuracy on a fresh eval batch (uses tensor-level forward)
   let evalMetrics : Network InputDim [] OutputDim Variable -> IO (List (String, String))
       evalMetrics m = do
-        evalData <- the (IO (Vect BatchSize (DataPoint InputDim OutputDim Double)))
-          (reversalBatchVect VocabSize InputLen SeqLen SepToken EosToken BatchSize)
+        evalData <- reversalTensorBatchVect InputDim OutputDim VocabSize InputLen SeqLen SepToken EosToken BatchSize
         let results = map (\dp =>
-              let inT = bulkToTensor (x dp)
-                  tgtT = bulkToTensor (y dp)
-                  (_, outT) = forwardVarTensor m inT
+              let (_, outT) = forwardVarTensor m (inputTensor dp)
                   predVals = tensorVals (VTensor (tensorToScalars outT 0 OutputDim))
-                  targetVals = tensorVals (VTensor (tensorToScalars tgtT 0 OutputDim))
+                  targetVals = tensorVals (VTensor (tensorToScalars (targetTensor dp) 0 OutputDim))
                   predicted = map (argmaxAt VocabSize predVals) positions
                   expected = map (argmaxAt VocabSize targetVals) positions
                   revPred = drop InputLen predicted
@@ -242,17 +239,17 @@ main = do
   let trainCfg = MkTrainConfig cfg.epochs 100 (Patience cfg.patience 0.001) evalMetrics
 
   (trained, epochsDone, finalLoss) <- runTraining
-    (\m, d => epochNativeTensor opt d catCELossTensor m) genBatch trainCfg model
+    (\m, d => epochNativeTensorPre opt d catCELossTensor m) genBatch trainCfg model
 
   -- Evaluate on a fresh example
   putStrLn ""
   putStrLn "Evaluation:"
-  evalRaw <- reversalBatchVect VocabSize InputLen SeqLen SepToken EosToken 1
-  let dp = the (DataPoint InputDim OutputDim Variable) (map fromDouble (index FZ evalRaw))
-      (_, pred) = forwardVar trained (x dp)
-      predVals = tensorVals pred
-      inputVals = tensorVals (x dp)
-      targetVals = tensorVals (y dp)
+  evalRaw <- reversalTensorBatchVect InputDim OutputDim VocabSize InputLen SeqLen SepToken EosToken 1
+  let tdp = index FZ evalRaw
+      (_, outT) = forwardVarTensor trained (inputTensor tdp)
+      predVals = tensorVals (VTensor (tensorToScalars outT 0 OutputDim))
+      inputVals = tensorVals (VTensor (tensorToScalars (inputTensor tdp) 0 InputDim))
+      targetVals = tensorVals (VTensor (tensorToScalars (targetTensor tdp) 0 OutputDim))
       inputDecoded = map (argmaxAt VocabSize inputVals) positions
       targetDecoded = map (argmaxAt VocabSize targetVals) positions
       predicted = map (argmaxAt VocabSize predVals) positions

@@ -10,7 +10,7 @@ import System.Random
 import DataPoint
 import Math
 import Tensor
-import Tensor
+import Variable
 
 
 ----------------------------------------------------------------------
@@ -370,6 +370,47 @@ reversalBatchVect _ _ _ _ _ Z = pure []
 reversalBatchVect vocabSize inputLen seqLen sepToken eosToken (S k) = do
   dp <- reversalPoint vocabSize inputLen seqLen sepToken eosToken
   rest <- reversalBatchVect vocabSize inputLen seqLen sepToken eosToken k
+  pure (dp :: rest)
+
+
+-- Pack a list of Nats into a C int buffer (for passing token indices to C)
+packTokens : AnyPtr -> Int -> List Nat -> AnyPtr
+packTokens buf _ [] = buf
+packTokens buf off (tok :: rest) =
+  let buf' = prim__setInt buf off (cast tok)
+  in packTokens buf' (off + 1) rest
+
+||| Generate one reversal data point as pre-allocated C tensors.
+||| One-hot encoding done in C (single FFI call per sequence).
+export
+reversalTensorPoint : (i : Nat) -> (o : Nat) ->
+                      (vocabSize : Nat) -> (inputLen : Nat) -> (seqLen : Nat) ->
+                      (sepToken : Nat) -> (eosToken : Nat) ->
+                      IO (TensorDataPoint i o)
+reversalTensorPoint i o vocabSize inputLen seqLen sepToken eosToken = do
+  tokens <- sequence (replicate inputLen (randomInt 0 (minus vocabSize 3)))
+  let revToks = reverse tokens
+      fullSeq = tokens ++ [sepToken] ++ revToks ++ [eosToken]
+      inputToks = Data.List.take seqLen fullSeq
+      targetToks = Data.List.take seqLen (drop 1 fullSeq)
+      sI = cast {to=Int} seqLen
+      vI = cast {to=Int} vocabSize
+      -- Pack token indices to C int buffers (seqLen ints each)
+      inIdxBuf = packTokens (prim__allocInts sI) 0 inputToks
+      tgtIdxBuf = packTokens (prim__allocInts sI) 0 targetToks
+      -- One-hot encode in C (1 FFI call each → seqLen*vocabSize doubles)
+  pure $ MkTensorDataPoint (prim__oneHot inIdxBuf sI vI) (prim__oneHot tgtIdxBuf sI vI)
+
+||| Generate a batch of reversal tensor data points.
+export
+reversalTensorBatchVect : (i : Nat) -> (o : Nat) ->
+                          (vocabSize : Nat) -> (inputLen : Nat) -> (seqLen : Nat) ->
+                          (sepToken : Nat) -> (eosToken : Nat) ->
+                          (n : Nat) -> IO (Vect n (TensorDataPoint i o))
+reversalTensorBatchVect _ _ _ _ _ _ _ Z = pure []
+reversalTensorBatchVect i o vocabSize inputLen seqLen sepToken eosToken (S k) = do
+  dp <- reversalTensorPoint i o vocabSize inputLen seqLen sepToken eosToken
+  rest <- reversalTensorBatchVect i o vocabSize inputLen seqLen sepToken eosToken k
   pure (dp :: rest)
 
 
