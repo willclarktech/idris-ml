@@ -222,6 +222,28 @@ causalMaskMatrix {n} mat =
   in VTensor $ zipWith (\i, row => maskRow i row) Data.Vect.Fin.range (case mat of VTensor rs => rs)
 
 
+||| Row-wise layer normalization on a matrix.
+||| Each row is independently normalized then scaled/shifted by gamma and beta.
+||| y[i,j] = gamma[j] * (x[i,j] - mean_i) / sqrt(var_i + eps) + beta[j]
+export
+layerNormMatrix : (FromDouble ty, Floating ty, Fractional ty, Neg ty) =>
+                  {m, n : Nat} -> Matrix m n ty -> Vector n ty -> Vector n ty -> ty
+                  -> Matrix m n ty
+layerNormMatrix {m} {n} (VTensor rows) gamma beta eps =
+  VTensor $ map normRow rows
+  where
+    nf : ty
+    nf = fromDouble (cast (natToInteger n))
+    normRow : Vector n ty -> Vector n ty
+    normRow row =
+      let mu = sum row / nf
+          centered = map (\x => x - mu) row
+          var = sum (map (\x => x * x) centered) / nf
+          invStd = fromDouble 1.0 / sqrt (var + eps)
+          -- gamma * (x - mean) * invStd + beta
+      in zipWith (*) gamma (map (* invStd) centered) + beta
+
+
 ----------------------------------------------------------------------
 -- Evaluation Metrics
 ----------------------------------------------------------------------

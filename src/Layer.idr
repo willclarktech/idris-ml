@@ -5,6 +5,7 @@ module Layer
 
 import public Layer.Core
 import public Layer.Linear
+import public Layer.LayerNorm
 import public Layer.Activation
 import public Layer.Normalization
 import public Layer.Rnn

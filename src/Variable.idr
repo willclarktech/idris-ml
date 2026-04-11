@@ -294,6 +294,7 @@ prim__readDouble : AnyPtr -> Int -> Double
 
 -- Wrapper that returns the buffer pointer for threading through let chains
 %foreign "scheme:(lambda (buf off val) ((foreign-procedure \"tensor_write_double\" (void* int double) void) buf off val) buf)"
+export
 prim__setDouble : AnyPtr -> Int -> Double -> AnyPtr
 
 %foreign "C:tensor_create_1d,libidrisml"
@@ -338,9 +339,17 @@ prim__softmax2d : AnyPtr -> AnyPtr
 export
 prim__maskedFill : AnyPtr -> AnyPtr -> Double -> AnyPtr
 
+%foreign "C:tensor_causal_mask,libidrisml"
+export
+prim__causalMask : Int -> AnyPtr
+
 %foreign "C:tensor_log_softmax_2d,libidrisml"
 export
 prim__logSoftmax2d : AnyPtr -> AnyPtr
+
+%foreign "C:tensor_layer_norm_2d,libidrisml"
+export
+prim__layerNorm2d : AnyPtr -> AnyPtr -> AnyPtr -> Double -> AnyPtr
 
 %foreign "C:tensor_reshape,libidrisml"
 prim__reshape : AnyPtr -> AnyPtr -> Int -> AnyPtr
