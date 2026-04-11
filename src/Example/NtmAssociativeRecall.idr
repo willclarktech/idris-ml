@@ -108,7 +108,7 @@ trainLoop opt model totalEpochs esThreshold esWindow esPatience minItems maxItem
                                  in bitAccuracy preds (targets dp)) evalBatch
           let avgAcc = foldl (+) 0.0 (toList accs) / 10.0
           putStrLn $ "  " ++ formatElapsed t0 now ++ " " ++ show ep ++ "\tloss=" ++ show loss
-                   ++ "\tbit_acc=" ++ show avgAcc
+                   ++ "\tacc=" ++ show avgAcc
                    ++ "\tpeak=" ++ show (getRssMB ep) ++ "MB"
                    ++ "\tcur=" ++ show (getCurrentRssMB ep) ++ "MB"
         if loss /= loss
@@ -182,7 +182,7 @@ trainLoop1 opt model totalEpochs esThreshold esWindow esPatience minItems maxIte
                                  in bitAccuracy preds (targets dp)) evalBatch
           let avgAcc = foldl (+) 0.0 (toList accs) / 10.0
           putStrLn $ "  " ++ formatElapsed t0 now ++ " " ++ show ep ++ "\tloss=" ++ show loss
-                   ++ "\tbit_acc=" ++ show avgAcc
+                   ++ "\tacc=" ++ show avgAcc
                    ++ "\tpeak=" ++ show (getRssMB ep) ++ "MB"
                    ++ "\tcur=" ++ show (getCurrentRssMB ep) ++ "MB"
         if loss /= loss
