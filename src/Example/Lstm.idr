@@ -152,10 +152,16 @@ main = do
   putStrLn ""
   putStrLn "Eval:"
   putStrLn $ "  Loss: " ++ show loss
-  putStr "  Targets:     "
-  printLn $ decodeYs dataPoints
-  putStr "  Predictions: "
-  printLn predictions
+  let showSeq : List (Vector 1 Double) -> String
+      showSeq xs = concatMap (\(VTensor [STensor v]) => if v >= 0.5 then "1" else "0") xs
+  let tgts = decodeYs dataPoints
+  putStrLn "  Seq  Target     Predicted"
+  traverse_ (\(i, (t, p)) =>
+    let ts = showSeq (toList t)
+        ps = showSeq (toList p)
+        mark = if ts == ps then " ok" else ""
+    in putStrLn $ "  " ++ show (finToNat i + 1) ++ ".   " ++ ts ++ "  ->  " ++ ps ++ mark)
+    (zip Fin.range (zip tgts predictions))
   putStrLn ""
   putStrLn $ formatTimingSummary tStart t1 epochsDone
   putStrLn $ "RESULT\tepochs=" ++ show epochsDone ++ "\tloss=" ++ show loss

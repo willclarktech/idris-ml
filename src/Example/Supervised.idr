@@ -71,7 +71,25 @@ main = do
   putStrLn ""
   putStrLn "Eval:"
   putStrLn $ "  Loss: " ++ show finalLoss
-  putStr "  Predictions: "
-  printLn predictions
+  let showSample : DataPoint 2 3 Double -> Vector 3 Double -> IO ()
+      showSample dp pred =
+        let argmax : Vector 3 Double -> Nat
+            argmax (VTensor [STensor a, STensor b, STensor c]) =
+              if a >= b && a >= c then 0
+              else if b >= c then 1
+              else 2
+            argmax _ = 0
+            showVec : {k : Nat} -> Vector k Double -> String
+            showVec (VTensor xs) = "[" ++ go xs ++ "]"
+              where
+                go : Vect j (Scalar Double) -> String
+                go [] = ""
+                go [STensor v] = show v
+                go (STensor v :: rest) = show v ++ ", " ++ go rest
+            target = argmax (y dp)
+            predicted = argmax pred
+            mark = if target == predicted then " ok" else " WRONG"
+        in putStrLn $ "  " ++ showVec (x dp) ++ " -> class " ++ show predicted ++ mark
+  traverse_ (\(dp, pred) => showSample dp pred) (zip dataPoints predictions)
   putStrLn ""
   putStrLn $ formatTimingSummary tStart t1 epochs
