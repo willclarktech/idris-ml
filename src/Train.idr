@@ -1,0 +1,180 @@
+||| Unified training runner for all examples.
+||| Handles epoch iteration, progress logging, NaN detection, and early stopping.
+module Train
+
+import Data.List
+import Data.Nat
+import System.Clock
+
+import Util
+
+
+----------------------------------------------------------------------
+-- Early Stopping Strategies
+----------------------------------------------------------------------
+
+||| Early stopping configuration.
+public export
+data EarlyStopConfig
+  = NoEarlyStop
+  | Patience Nat Double              -- patience, minDelta
+  | WindowedAvg Double Nat Nat       -- threshold, window, patience
+
+
+----------------------------------------------------------------------
+-- Training Configuration
+----------------------------------------------------------------------
+
+||| Extra metrics to log at each logging step (e.g. accuracy, memory).
+public export
+0 MetricsFn : Type -> Type
+MetricsFn model = model -> IO (List (String, String))
+
+||| Training configuration.
+public export
+record TrainConfig (model : Type) where
+  constructor MkTrainConfig
+  totalEpochs : Nat
+  logEvery : Nat
+  earlyStop : EarlyStopConfig
+  metrics : MetricsFn model
+
+||| Simple config: run N epochs, log every 100, no early stopping.
+export
+simpleConfig : Nat -> TrainConfig model
+simpleConfig n = MkTrainConfig n 100 NoEarlyStop (const (pure []))
+
+||| Config with patience-based early stopping.
+export
+patienceConfig : Nat -> Nat -> TrainConfig model
+patienceConfig epochs pat = MkTrainConfig epochs 100 (Patience pat 0.001) (const (pure []))
+
+||| Config with windowed-average early stopping.
+export
+windowedConfig : Nat -> Double -> Nat -> Nat -> TrainConfig model
+windowedConfig epochs threshold window pat =
+  MkTrainConfig epochs 100 (WindowedAvg threshold window pat) (const (pure []))
+
+
+----------------------------------------------------------------------
+-- Training Runner
+----------------------------------------------------------------------
+
+||| Run training with the given configuration.
+|||
+||| @epochFn   One training step: model -> data -> (model, loss)
+||| @dataSrc   IO action producing training data each epoch
+||| @cfg       Training configuration
+||| @model     Initial model
+||| Returns (trained model, epochs completed, final loss)
+export
+runTraining :
+  {0 model : Type} -> {0 dp : Type} ->
+  (epochFn : model -> dp -> (model, Double)) ->
+  (dataSrc : IO dp) ->
+  TrainConfig model ->
+  model ->
+  IO (model, Nat, Double)
+runTraining {model} epochFn dataSrc cfg model0 = do
+  t0 <- clockTime Monotonic
+  putStrLn "Training..."
+  case cfg.earlyStop of
+    NoEarlyStop => goSimple 0 model0 0.0 t0
+    Patience pat minD => goPatience 0 model0 (1.0/0.0) 0 t0 pat minD
+    WindowedAvg thresh win pat => goWindowed 0 model0 0.0 0 [] 0 t0 thresh win pat
+  where
+    shouldLog : Nat -> Bool
+    shouldLog ep = case cfg.logEvery of
+      Z => False
+      S k => modNatNZ ep (S k) ItIsSucc == 0
+
+    fmtMetrics : List (String, String) -> String
+    fmtMetrics [] = ""
+    fmtMetrics ((k, v) :: rest) = "\t" ++ k ++ "=" ++ v ++ fmtMetrics rest
+
+    logEpoch : Clock Monotonic -> Nat -> Double -> model -> IO ()
+    logEpoch t0 ep loss m = do
+      now <- clockTime Monotonic
+      extra <- cfg.metrics m
+      putStrLn $ "  " ++ formatElapsed t0 now ++ " " ++ show ep
+               ++ "\tloss=" ++ show loss ++ fmtMetrics extra
+
+    -- Simple: no early stopping
+    goSimple : Nat -> model -> Double -> Clock Monotonic -> IO (model, Nat, Double)
+    goSimple ep m lastLoss t0 =
+      if ep >= cfg.totalEpochs then pure (m, ep, lastLoss)
+      else do
+        d <- dataSrc
+        let (m', loss) = epochFn m d
+        when (shouldLog ep) $ logEpoch t0 ep loss m'
+        if loss /= loss
+          then do now <- clockTime Monotonic
+                  putStrLn $ "  " ++ formatElapsed t0 now ++ " Diverged (NaN) at epoch " ++ show ep
+                  pure (m', ep, loss)
+          else goSimple (S ep) m' loss t0
+
+    diverged : Clock Monotonic -> Nat -> model -> Double -> IO (model, Nat, Double)
+    diverged t0 ep m loss = do
+      now <- clockTime Monotonic
+      putStrLn $ "  " ++ formatElapsed t0 now ++ " Diverged (NaN) at epoch " ++ show ep
+      pure (m, ep, loss)
+
+    -- Patience-based early stopping
+    goPatience : Nat -> model -> Double -> Nat -> Clock Monotonic -> Nat -> Double ->
+                 IO (model, Nat, Double)
+    goPatience ep m bestLoss stale t0 pat minD =
+      if ep >= cfg.totalEpochs then pure (m, ep, bestLoss)
+      else do
+        d <- dataSrc
+        let (m', loss) = epochFn m d
+        when (shouldLog ep) $ logEpoch t0 ep loss m'
+        if loss /= loss
+          then diverged t0 ep m' loss
+          else do
+            let improved = loss < bestLoss - minD
+                best' = if improved then loss else bestLoss
+                stale' : Nat
+                stale' = if improved then 0 else stale + 1
+            if pat > 0 && stale' >= pat
+              then do now <- clockTime Monotonic
+                      putStrLn $ "  " ++ formatElapsed t0 now ++ " Early stop at epoch "
+                               ++ show (ep + 1) ++ " (patience=" ++ show pat ++ ")"
+                      pure (m', ep + 1, loss)
+              else goPatience (S ep) m' best' stale' t0 pat minD
+
+    -- Windowed-average early stopping
+    goWindowed : Nat -> model -> Double -> Nat -> List Double -> Nat ->
+                 Clock Monotonic -> Double -> Nat -> Nat ->
+                 IO (model, Nat, Double)
+    goWindowed ep m iSum iCount avgs convCount t0 thresh win pat =
+      if ep >= cfg.totalEpochs then pure (m, ep, 0.0)
+      else do
+        d <- dataSrc
+        let (m', loss) = epochFn m d
+        when (shouldLog ep) $ logEpoch t0 ep loss m'
+        if loss /= loss
+          then diverged t0 ep m' loss
+          else let iSum' = iSum + loss
+                   iCount' = iCount + 1
+               in if iCount' < 100
+                 then goWindowed (S ep) m' iSum' iCount' avgs convCount t0 thresh win pat
+                 else let avg = iSum' / 100.0
+                          avgs' = avg :: avgs
+                          wc = max 1 (div win 100)
+                      in if length avgs' < wc
+                        then goWindowed (S ep) m' 0.0 0 avgs' convCount t0 thresh win pat
+                        else let windowAvg = foldl (+) 0.0 (take wc avgs') / cast wc
+                             in if windowAvg >= thresh
+                               then goWindowed (S ep) m' 0.0 0 avgs' 0 t0 thresh win pat
+                               else let cc = convCount + 1
+                                    in if cc >= pat
+                                      then do now <- clockTime Monotonic
+                                              putStrLn $ "  " ++ formatElapsed t0 now
+                                                       ++ " Converged at epoch " ++ show (ep + 1)
+                                                       ++ " (window_avg=" ++ show windowAvg ++ ")"
+                                              pure (m', ep + 1, loss)
+                                      else do now <- clockTime Monotonic
+                                              putStrLn $ "    " ++ formatElapsed t0 now
+                                                       ++ " convergence " ++ show cc ++ "/" ++ show pat
+                                                       ++ " (window_avg=" ++ show windowAvg ++ ")"
+                                              goWindowed (S ep) m' 0.0 0 avgs' cc t0 thresh win pat

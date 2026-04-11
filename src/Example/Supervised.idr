@@ -12,6 +12,7 @@ import Layer
 import Math
 import Optimizer
 import Tensor
+import Train
 import Util
 import Variable
 
@@ -34,6 +35,8 @@ main = do
   let epochs = 1000
   let lr = 0.03
   let lossFn = crossEntropy
+  let opt = nativeSgd lr
+  let prepared = map (map fromDouble) dataPoints
 
   putStrLn "=== Supervised Classification ==="
   putStrLn $ "Config: lr=" ++ show lr ++ " epochs=" ++ show epochs ++ " seed=123456"
@@ -43,30 +46,16 @@ main = do
   putStrLn $ "Architecture: " ++ show model
   putStrLn ""
 
-  let prepared = map (map fromDouble) dataPoints
-  let opt = nativeSgd lr
-
-  putStrLn "Training..."
-  t0 <- clockTime Monotonic
-  let go : Nat -> Network 2 [3] 3 Variable -> IO (Network 2 [3] 3 Variable, Double)
-      go ep m =
-        if ep >= epochs then do
-          let loss = calculateLoss lossFn (toDoubleNetwork (emap refreshValue m))
-                                          (map (map fromDouble) dataPoints)
-          pure (m, loss)
-        else do
-          let (m', loss) = epochNative opt prepared lossFn m
-          when (modNatNZ ep 100 ItIsSucc == 0) $ do
-            now <- clockTime Monotonic
-            putStrLn $ "  " ++ formatElapsed t0 now ++ " " ++ show ep
-                     ++ "\tloss=" ++ show loss
-          go (S ep) m'
-
-  (trained, finalLoss) <- go 0 model
+  (trained, epochsDone, _) <- runTraining
+    (\m, d => epochNative opt d lossFn m)
+    (pure prepared)
+    (simpleConfig epochs)
+    model
   t1 <- clockTime Monotonic
 
   let dblModel = toDoubleNetwork (emap refreshValue trained)
   let predictions = evaluate dblModel (map (map fromDouble) dataPoints)
+  let finalLoss = calculateLoss lossFn dblModel (map (map fromDouble) dataPoints)
 
   putStrLn ""
   putStrLn "Eval:"
@@ -92,6 +81,6 @@ main = do
         in putStrLn $ "  " ++ showVec (x dp) ++ " -> class " ++ show predicted ++ mark
   traverse_ (\(dp, pred) => showSample dp pred) (zip dataPoints predictions)
   putStrLn ""
-  putStrLn $ formatTimingSummary tStart t1 epochs
-  putStrLn $ "RESULT\tepochs=" ++ show epochs ++ "\tloss=" ++ show finalLoss
+  putStrLn $ formatTimingSummary tStart t1 epochsDone
+  putStrLn $ "RESULT\tepochs=" ++ show epochsDone ++ "\tloss=" ++ show finalLoss
            ++ "\ttime=" ++ show (seconds t1 - seconds tStart) ++ "s"

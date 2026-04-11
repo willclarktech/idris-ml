@@ -16,6 +16,7 @@ import Layer
 import Math
 import Optimizer
 import Tensor
+import Train
 import Util
 import Variable
 
@@ -33,53 +34,6 @@ rawData n = map (\(is, os) => MkRecurrentDataPoint (prep is) (prep os)) $ genera
   where
     prep : (ns : List Double) -> List (Vector 1 Double)
     prep ns = map (flatten . STensor) ns
-
-decodeYs : Vect n (RecurrentDataPoint 1 1 Variable) -> Vect n (List (Vector 1 Double))
-decodeYs = map (map (map value) . ys)
-
-
-----------------------------------------------------------------------
--- Training Loop
-----------------------------------------------------------------------
-
-trainLoop :
-  NativeOptimizer ->
-  Network 1 [1] 1 Variable ->
-  Vect 8 (RecurrentDataPoint 1 1 Variable) ->
-  LossFunction Variable ->
-  (totalEpochs : Nat) -> (patience : Nat) ->
-  Clock Monotonic ->
-  IO (Network 1 [1] 1 Variable, Nat, Double)
-trainLoop opt model dataPoints lossFn totalEpochs patience t0 =
-  go 0 model (1.0/0.0) 0
-  where
-    go : Nat -> Network 1 [1] 1 Variable ->
-         Double -> Nat ->
-         IO (Network 1 [1] 1 Variable, Nat, Double)
-    go ep m bestLoss staleCount =
-      if ep >= totalEpochs then pure (m, ep, bestLoss)
-      else do
-        let (m', loss) = epochRecurrentNative opt dataPoints lossFn m
-        when (modNatNZ ep 100 ItIsSucc == 0) $ do
-          now <- clockTime Monotonic
-          putStrLn $ "  " ++ formatElapsed t0 now ++ " " ++ show ep ++ "\tloss=" ++ show loss
-        if loss /= loss
-          then do
-            now <- clockTime Monotonic
-            putStrLn $ "  " ++ formatElapsed t0 now ++ " Diverged (NaN) at epoch " ++ show ep
-            pure (m', ep, loss)
-          else do
-            let improved = loss < bestLoss - 0.001
-                bestLoss' = if improved then loss else bestLoss
-                sc : Nat
-                sc = if improved then 0 else staleCount + 1
-            if patience > 0 && sc >= patience
-              then do
-                now <- clockTime Monotonic
-                putStrLn $ "  " ++ formatElapsed t0 now ++ " Early stop at epoch " ++ show (ep + 1)
-                         ++ " (patience=" ++ show patience ++ ")"
-                pure (m', ep + 1, loss)
-              else go (ep + 1) m' bestLoss' sc
 
 
 ----------------------------------------------------------------------
@@ -121,6 +75,8 @@ main = do
   srand cfg.seed
 
   let lossFn = binaryCrossEntropyWithLogits
+  let opt = nativeSgd cfg.lr
+  let dataPoints = map (map fromDouble) (rawData 8)
 
   putStrLn "=== LSTM Pattern Prediction ==="
   putStrLn $ "Config: lr=" ++ show cfg.lr
@@ -134,27 +90,24 @@ main = do
   putStrLn $ "Architecture: " ++ show model
   putStrLn ""
 
-  let dataPoints = map (map fromDouble) (rawData 8)
-  let opt = nativeSgd cfg.lr
-
-  putStrLn "Training..."
-  t0 <- clockTime Monotonic
-  (trained, epochsDone, finalLoss) <- trainLoop opt model dataPoints lossFn
-    cfg.epochs cfg.patience t0
+  (trained, epochsDone, _) <- runTraining
+    (\m, d => epochRecurrentNative opt d lossFn m)
+    (pure dataPoints)
+    (patienceConfig cfg.epochs cfg.patience)
+    model
   t1 <- clockTime Monotonic
 
   let dblModel = toDoubleNetwork (emap refreshValue trained)
-  let dblData = rawData 8
   let predictions : Vect 8 (List (Vector 1 Double))
-      predictions = map (map (map (\x => cast (0 < x)))) (evaluateRecurrent dblModel dblData)
-  let loss = calculateLossRecurrent lossFn dblModel dblData
+      predictions = map (map (map (\x => cast (0 < x)))) (evaluateRecurrent dblModel (rawData 8))
+  let loss = calculateLossRecurrent lossFn dblModel (rawData 8)
 
   putStrLn ""
   putStrLn "Eval:"
   putStrLn $ "  Loss: " ++ show loss
   let showSeq : List (Vector 1 Double) -> String
       showSeq xs = concatMap (\(VTensor [STensor v]) => if v >= 0.5 then "1" else "0") xs
-  let tgts = decodeYs dataPoints
+  let tgts = map ys (rawData 8)
   putStrLn "  Seq  Target     Predicted"
   traverse_ (\(i, (t, p)) =>
     let ts = showSeq (toList t)

@@ -26,5 +26,6 @@ modules = Backprop
         , Sampler
         , Schedule
         , Tensor
+        , Train
         , Util
         , Variable

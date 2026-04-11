@@ -14,6 +14,7 @@ import Layer
 import Math
 import Optimizer
 import Tensor
+import Train
 import Util
 import Variable
 
@@ -32,9 +33,6 @@ rawData n = map (\(is, os) => MkRecurrentDataPoint (prep is) (prep os)) $ genera
     prep : (ns : List Double) -> List (Vector 1 Double)
     prep ns = map (flatten . STensor) ns
 
-decodeYs : Vect n (RecurrentDataPoint 1 1 Variable) -> Vect n (List (Vector 1 Double))
-decodeYs = map (map (map value) . ys)
-
 main : IO ()
 main = do
   tStart <- clockTime Monotonic
@@ -43,6 +41,8 @@ main = do
   let epochs = 1000
   let lr = 0.03
   let lossFn = binaryCrossEntropyWithLogits
+  let opt = nativeSgd lr
+  let dataPoints = map (map fromDouble) (rawData 8)
 
   putStrLn "=== RNN Pattern Prediction ==="
   putStrLn $ "Config: lr=" ++ show lr ++ " epochs=" ++ show epochs ++ " seed=123456"
@@ -52,32 +52,18 @@ main = do
   putStrLn $ "Architecture: " ++ show model
   putStrLn ""
 
-  let dataPoints = map (map fromDouble) (rawData 8)
-  let opt = nativeSgd lr
-
-  putStrLn "Training..."
-  t0 <- clockTime Monotonic
-  let go : Nat -> Network 1 [] 1 Variable -> IO (Network 1 [] 1 Variable, Double)
-      go ep m =
-        if ep >= epochs then do
-          let dblM = toDoubleNetwork (emap refreshValue m)
-          let loss = calculateLossRecurrent lossFn dblM (rawData 8)
-          pure (m, loss)
-        else do
-          let (m', loss) = epochRecurrentNative opt dataPoints lossFn m
-          when (modNatNZ ep 100 ItIsSucc == 0) $ do
-            now <- clockTime Monotonic
-            putStrLn $ "  " ++ formatElapsed t0 now ++ " " ++ show ep
-                     ++ "\tloss=" ++ show loss
-          go (S ep) m'
-
-  (trained, finalLoss) <- go 0 model
+  (trained, epochsDone, _) <- runTraining
+    (\m, d => epochRecurrentNative opt d lossFn m)
+    (pure dataPoints)
+    (simpleConfig epochs)
+    model
   t1 <- clockTime Monotonic
 
   let dblModel = toDoubleNetwork (emap refreshValue trained)
   let dblPreds = evaluateRecurrent dblModel (rawData 8)
   let predictions : Vect 8 (List (Vector 1 Double))
       predictions = map (map (map (\x => cast (0 < x)))) dblPreds
+  let finalLoss = calculateLossRecurrent lossFn dblModel (rawData 8)
 
   putStrLn ""
   putStrLn "Eval:"
@@ -93,6 +79,6 @@ main = do
     in putStrLn $ "  " ++ show (finToNat i + 1) ++ ".   " ++ ts ++ "  ->  " ++ ps ++ mark)
     (zip Fin.range (zip tgts predictions))
   putStrLn ""
-  putStrLn $ formatTimingSummary tStart t1 epochs
-  putStrLn $ "RESULT\tepochs=" ++ show epochs ++ "\tloss=" ++ show finalLoss
+  putStrLn $ formatTimingSummary tStart t1 epochsDone
+  putStrLn $ "RESULT\tepochs=" ++ show epochsDone ++ "\tloss=" ++ show finalLoss
            ++ "\ttime=" ++ show (seconds t1 - seconds tStart) ++ "s"
