@@ -143,6 +143,12 @@ bench-compare: backend
 	cp $(LIB) build/exec/bench_app/
 	cd pytorch && uv run python -m torch_ref.compare
 
+ref-transformer:
+	cd pytorch && uv run python -m torch_ref.scripts.transformer
+
+ref-supervised:
+	cd pytorch && uv run python -m torch_ref.scripts.supervised
+
 ref-test:
 	cd pytorch && uv run pytest torch_ref/correctness/ -v
 
@@ -164,4 +170,4 @@ ref-convergence-recall:
 clean:
 	rm -f $(LIB) $(BUILD)/test_backend $(BUILD)/test_tape
 
-.PHONY: test test-backend-torch test-backend-tape check supervised rnn lstm ntm-copy ntm-associative-recall transformer bench profile sweep sweep-quick clean backend print-torch ref-setup bench-py bench-compare ref-test ref-lint ref-typecheck ref-convergence ref-convergence-copy ref-convergence-recall
+.PHONY: test test-backend-torch test-backend-tape check supervised rnn lstm ntm-copy ntm-associative-recall transformer bench profile sweep sweep-quick clean backend print-torch ref-setup ref-transformer ref-supervised bench-py bench-compare ref-test ref-lint ref-typecheck ref-convergence ref-convergence-copy ref-convergence-recall
