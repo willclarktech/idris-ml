@@ -100,6 +100,41 @@ headLoopGeneric (q :: qs) (k :: ks) (v :: vs) (op :: ops) normed =
 
 
 ----------------------------------------------------------------------
+-- Per-head attention (shared by single and batched forward)
+----------------------------------------------------------------------
+
+%default partial
+||| Run multi-head attention on a single [seqLen, dModel] input.
+||| Returns [seqLen, dModel] — sum of per-head output projections.
+runHeadAttention : {headDim : Nat} ->
+                   Vect k (LinearState dModel headDim Variable) ->
+                   Vect k (LinearState dModel headDim Variable) ->
+                   Vect k (LinearState dModel headDim Variable) ->
+                   Vect k (LinearState headDim dModel Variable) ->
+                   AnyPtr -> Int -> Int -> Maybe AnyPtr -> AnyPtr
+runHeadAttention [] [] [] [] _ _ _ (Just acc) = acc
+runHeadAttention [] [] [] [] normed sI hdI Nothing = normed
+runHeadAttention (q :: qs) (k :: ks) (v :: vs) (op :: ops) normed sI hdI acc =
+  case (extractWeightTensor q, extractWeightTensor k, extractWeightTensor v, extractWeightTensor op) of
+    (Just qW, Just kW, Just vW, Just opW) =>
+      let qi = prim__mm normed (prim__transpose2d qW)
+          ki = prim__mm normed (prim__transpose2d kW)
+          vi = prim__mm normed (prim__transpose2d vW)
+          scores = prim__mulScalar (prim__mm qi (prim__transpose2d ki))
+                     (1.0 / sqrt (cast {to=Double} headDim))
+          mask = prim__causalMask sI
+          masked = prim__maskedFill scores mask (-1.0e20)
+          attn = prim__softmax2d masked
+          headOut = prim__mm attn vi
+          proj = prim__mm headOut (prim__transpose2d opW)
+          acc' = case acc of
+            Nothing => proj
+            Just prev => tensorAdd prev proj
+      in runHeadAttention qs ks vs ops normed sI hdI (Just acc')
+    _ => idris_crash "Transformer: head weight not initialized"
+
+
+----------------------------------------------------------------------
 -- LayerLike Instance
 ----------------------------------------------------------------------
 
@@ -185,7 +220,7 @@ export
             normed1 = prim__layerNorm2d h0 n1g n1b 1.0e-5
 
             -- Per-head attention, summed
-            attnOut = headLoop (queryWs st) (keyWs st) (valueWs st) (outProjWs st) normed1 sI hdI Nothing
+            attnOut = runHeadAttention (queryWs st) (keyWs st) (valueWs st) (outProjWs st) normed1 sI hdI Nothing
 
             -- Residual 1
             h1 = tensorAdd attnOut h0
@@ -213,32 +248,6 @@ export
         else let val = posEncVal dModel (cast pos) (cast dim)
                  buf' = prim__setDouble buf (pos * dMod + dim) val
              in writePE buf' pos (dim + 1) sLen dMod
-
-      headLoop : Vect k (LinearState dModel headDim Variable) ->
-                 Vect k (LinearState dModel headDim Variable) ->
-                 Vect k (LinearState dModel headDim Variable) ->
-                 Vect k (LinearState headDim dModel Variable) ->
-                 AnyPtr -> Int -> Int -> Maybe AnyPtr -> AnyPtr
-      headLoop [] [] [] [] _ _ _ (Just acc) = acc
-      headLoop [] [] [] [] normed sI hdI Nothing = normed  -- shouldn't happen
-      headLoop (q :: qs) (k :: ks) (v :: vs) (op :: ops) normed sI hdI acc =
-        case (extractWeightTensor q, extractWeightTensor k, extractWeightTensor v, extractWeightTensor op) of
-          (Just qW, Just kW, Just vW, Just opW) =>
-            let qi = prim__mm normed (prim__transpose2d qW)
-                ki = prim__mm normed (prim__transpose2d kW)
-                vi = prim__mm normed (prim__transpose2d vW)
-                scores = prim__mulScalar (prim__mm qi (prim__transpose2d ki))
-                           (1.0 / sqrt (cast {to=Double} headDim))
-                mask = prim__causalMask sI
-                masked = prim__maskedFill scores mask (-1.0e20)
-                attn = prim__softmax2d masked
-                headOut = prim__mm attn vi
-                proj = prim__mm headOut (prim__transpose2d opW)
-                acc' = case acc of
-                  Nothing => proj
-                  Just prev => tensorAdd prev proj
-            in headLoop qs ks vs ops normed sI hdI (Just acc')
-          _ => idris_crash "Transformer: head weight not initialized"
 
   emapLayer f (MkTransformer hdp ip op te qs ks vs ops n1 n2 nf f1 f2 vp) =
     MkTransformer hdp ip op
@@ -324,3 +333,112 @@ transformerLayer : {seqLen, dModel, numHeads, headDim, vocabSize : Nat} ->
                      (Num ty, FromDouble ty) =>
                      IO (AnyLayer (seqLen * vocabSize) (seqLen * vocabSize) ty)
 transformerLayer = map (MkAnyLayer (TransformerState seqLen dModel numHeads headDim vocabSize)) mkTransformer
+
+
+----------------------------------------------------------------------
+-- Batched Forward (for epochNativeTensorBatch)
+----------------------------------------------------------------------
+
+||| Forward B sequences through the transformer in a single call.
+||| Batches projections/FF/norms as [B*seqLen, dim] matmuls.
+||| Loops per-sequence only for the attention block (cross-position deps).
+||| Input: array of B tensor handles, each [seqLen*vocabSize].
+||| Output: array of B tensor handles, each [seqLen*vocabSize].
+export
+transformerForwardBatch :
+  {seqLen, dModel, numHeads, headDim, vocabSize : Nat} ->
+  TransformerState seqLen dModel numHeads headDim vocabSize
+                   (seqLen * vocabSize) (seqLen * vocabSize) Variable ->
+  List AnyPtr -> Int -> List AnyPtr
+transformerForwardBatch st inputs batchSize =
+  case extractWeightTensor (tokenEmbed st) of
+    Just embedW =>
+      let Just f1W = extractWeightTensor (ff1 st)   | Nothing => idris_crash "Transformer: ff1"
+          Just f2W = extractWeightTensor (ff2 st)   | Nothing => idris_crash "Transformer: ff2"
+          Just vpW = extractWeightTensor (vocabProj st) | Nothing => idris_crash "Transformer: vocabProj"
+          Just n1g = extractGammaTensor (norm1 st)   | Nothing => idris_crash "Transformer: n1g"
+          Just n1b = extractBetaTensor (norm1 st)    | Nothing => idris_crash "Transformer: n1b"
+          Just n2g = extractGammaTensor (norm2 st)   | Nothing => idris_crash "Transformer: n2g"
+          Just n2b = extractBetaTensor (norm2 st)    | Nothing => idris_crash "Transformer: n2b"
+          Just nfg = extractGammaTensor (normFinal st) | Nothing => idris_crash "Transformer: nfg"
+          Just nfb = extractBetaTensor (normFinal st)  | Nothing => idris_crash "Transformer: nfb"
+      in
+      let sI = cast {to=Int} seqLen
+          dI = cast {to=Int} dModel
+          vI = cast {to=Int} vocabSize
+          hdI = cast {to=Int} headDim
+          bsI = batchSize * sI  -- B*seqLen
+
+          -- Concatenate all inputs: B × [seqLen*vocabSize] → [B*seqLen*vocabSize]
+          catted = catAll inputs
+          -- Reshape to [B*seqLen, vocabSize]
+          batchMat = prim__reshape2d catted bsI vI
+
+          -- Token embedding: [B*seqLen, vocabSize] @ embedW^T → [B*seqLen, dModel]
+          embedded = prim__mm batchMat (prim__transpose2d embedW)
+
+          -- Add sinusoidal PE (tiled B times)
+          peBuf = prim__allocDoubles (bsI * dI)
+          peBuf' = writePEBatch peBuf 0 0 bsI dI sI
+          peT = prim__createState2d bsI dI peBuf'
+          h0 = tensorAdd embedded peT
+
+          -- Pre-LN: [B*seqLen, dModel]
+          normed1 = prim__layerNorm2d h0 n1g n1b 1.0e-5
+
+          -- Attention: must loop per sequence
+          -- Flatten normed1 to 1D for slicing
+          normed1flat = prim__narrow normed1 0 0 (bsI * dI)
+          attnResults = attnLoop normed1flat 0 batchSize sI dI hdI []
+          -- Cat attention outputs back: [B*seqLen, dModel]
+          attnOut = prim__reshape2d (catAll attnResults) bsI dI
+
+          -- Residual 1
+          h1 = tensorAdd attnOut h0
+
+          -- Pre-LN Feedforward: [B*seqLen, dModel]
+          normed2 = prim__layerNorm2d h1 n2g n2b 1.0e-5
+          ffHidden = prim__clampMin (prim__mm normed2 (prim__transpose2d f1W)) 0.0
+          ffOut = prim__mm ffHidden (prim__transpose2d f2W)
+
+          -- Residual 2
+          h2 = tensorAdd ffOut h1
+
+          -- Final LayerNorm + output projection
+          normedFinal = prim__layerNorm2d h2 nfg nfb 1.0e-5
+          outBatch = prim__mm normedFinal (prim__transpose2d vpW)  -- [B*seqLen, vocabSize]
+
+          -- Split back into B outputs of [seqLen*vocabSize]
+          outFlat = prim__narrow outBatch 0 0 (bsI * vI)
+      in splitOutputs outFlat 0 batchSize (sI * vI)
+    Nothing => idris_crash "Transformer: tokenEmbed"
+  where
+    catAll : List AnyPtr -> AnyPtr
+    catAll [] = idris_crash "catAll: empty"
+    catAll [x] = x
+    catAll (x :: y :: rest) = catAll (prim__cat2 x y :: rest)
+
+    writePEBatch : AnyPtr -> Int -> Int -> Int -> Int -> Int -> AnyPtr
+    writePEBatch buf pos dim bsLen dMod sLen =
+      if pos >= bsLen then buf
+      else if dim >= dMod then assert_total $ writePEBatch buf (pos + 1) 0 bsLen dMod sLen
+      else let origPos = pos `mod` sLen
+               val = posEncVal dModel (cast origPos) (cast dim)
+               buf' = prim__setDouble buf (pos * dMod + dim) val
+           in assert_total $ writePEBatch buf' pos (dim + 1) bsLen dMod sLen
+
+    attnLoop : AnyPtr -> Int -> Int -> Int -> Int -> Int -> List AnyPtr -> List AnyPtr
+    attnLoop normedFlat idx bTotal sLen dMd hdDim acc =
+      if idx >= bTotal then reverse acc
+      else let off = idx * sLen * dMd
+               seqSlice = prim__reshape2d (prim__narrow normedFlat 0 off (sLen * dMd)) sLen dMd
+               attnOut = runHeadAttention (queryWs st) (keyWs st) (valueWs st) (outProjWs st)
+                           seqSlice sLen hdDim Nothing
+               attnFlat = prim__narrow attnOut 0 0 (sLen * dMd)
+           in assert_total $ attnLoop normedFlat (idx + 1) bTotal sLen dMd hdDim (attnFlat :: acc)
+
+    splitOutputs : AnyPtr -> Int -> Int -> Int -> List AnyPtr
+    splitOutputs flat idx bTotal chunkSize =
+      if idx >= bTotal then []
+      else let chunk = prim__narrow flat 0 (idx * chunkSize) chunkSize
+           in assert_total $ chunk :: splitOutputs flat (idx + 1) bTotal chunkSize

@@ -104,6 +104,8 @@ TensorHandle tensor_cat2(TensorHandle a, TensorHandle b);
 TensorHandle tensor_narrow(TensorHandle t, int dim, int start, int len);
 TensorHandle tensor_mm(TensorHandle a, TensorHandle b);
 TensorHandle tensor_bmm(TensorHandle a, TensorHandle b);   /* [B,m,n] x [n,k] -> [B,m,k] */
+TensorHandle tensor_batch(TensorHandle* handles, int count); /* B × [m,n] -> [B,m,n] */
+TensorHandle* tensor_unbatch(TensorHandle h, int* out_count); /* [B,...] -> B × [...] */
 TensorHandle tensor_transpose_2d(TensorHandle t);
 TensorHandle tensor_softmax_2d(TensorHandle t);
 TensorHandle tensor_masked_fill(TensorHandle t, TensorHandle mask, double value);

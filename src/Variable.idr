@@ -301,6 +301,10 @@ prim__setDouble : AnyPtr -> Int -> Double -> AnyPtr
 export
 prim__oneHot : AnyPtr -> Int -> Int -> AnyPtr
 
+%foreign "C:tensor_bmm,libidrisml"
+export
+prim__bmm : AnyPtr -> AnyPtr -> AnyPtr
+
 %foreign "C:tensor_create_1d,libidrisml"
 export
 prim__create1d : Int -> AnyPtr -> Int -> AnyPtr

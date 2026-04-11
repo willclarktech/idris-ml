@@ -353,6 +353,38 @@ epochNativeTensorPre opt dataPoints lossFn model =
       lossVal = nativeTrainStep opt avgLoss
   in (model, lossVal)
 
+||| Batched tensor-level epoch: forwards all data points through a
+||| batch-aware forward function, computes per-element loss, averages.
+||| The batchFwd function takes a list of input tensor handles and the
+||| batch size, returns a list of output tensor handles.
+export
+epochNativeTensorBatch :
+  {i, o, n : Nat} ->
+  {hs : List Nat} ->
+  NativeOptimizer ->
+  Vect n (TensorDataPoint i o) ->
+  (List AnyPtr -> Int -> List AnyPtr) ->
+  LossFnTensor ->
+  Network i hs o Variable ->
+  (Network i hs o Variable, Double)
+epochNativeTensorBatch {n} opt dataPoints batchFwd lossFn model =
+  let nI = cast {to=Int} (natToInteger n)
+      inputs = toList (map inputTensor dataPoints)
+      targets = toList (map targetTensor dataPoints)
+      outputs = batchFwd inputs nI
+      losses = zipLoss outputs targets
+      totalLoss = foldl (\acc, l => acc + l) (the Variable (fromDouble 0.0)) losses
+      nf = fromDouble (cast (natToInteger n))
+      avgLoss : Variable
+      avgLoss = totalLoss / nf
+      lossVal = nativeTrainStep opt avgLoss
+  in (model, lossVal)
+  where
+    zipLoss : List AnyPtr -> List AnyPtr -> List Variable
+    zipLoss [] _ = []
+    zipLoss _ [] = []
+    zipLoss (o :: os) (t :: ts) = lossFn o t :: zipLoss os ts
+
 ||| Native epoch for recurrent training.
 export
 epochRecurrentNative :

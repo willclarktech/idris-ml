@@ -658,6 +658,53 @@ TensorHandle tensor_bmm(TensorHandle ha, TensorHandle hb) {
     return r;
 }
 
+/* Stack B tensors of shape [m, n] into [B, m, n].
+   All tensors must have the same shape. No gradient tracking (data tensors). */
+TensorHandle tensor_batch(TensorHandle* handles, int count) {
+    Tensor* first = (Tensor*)handles[0];
+    int elem_size = first->numel;
+    int total = count * elem_size;
+    double* data = malloc(total * sizeof(double));
+    for (int i = 0; i < count; i++) {
+        Tensor* t = (Tensor*)handles[i];
+        memcpy(data + i * elem_size, t->data, elem_size * sizeof(double));
+    }
+    /* Build shape: [count, first->shape[0], ..., first->shape[rank-1]] */
+    int rank = first->rank + 1;
+    int* shape = malloc(rank * sizeof(int));
+    shape[0] = count;
+    for (int i = 0; i < first->rank; i++) shape[i+1] = first->shape[i];
+    Tensor* r = make_tensor(data, shape, rank, 0);
+    free(data);
+    free(shape);
+    return r;
+}
+
+/* Split [B, ...] tensor into B tensors of shape [...].
+   Returns array of B tensor handles (caller must free array). */
+TensorHandle* tensor_unbatch(TensorHandle h, int* out_count) {
+    Tensor* t = (Tensor*)h;
+    int B = t->shape[0];
+    *out_count = B;
+    int elem_size = t->numel / B;
+    int inner_rank = t->rank - 1;
+    TensorHandle* handles = malloc(B * sizeof(TensorHandle));
+    for (int i = 0; i < B; i++) {
+        Tensor* r = arena_alloc(sizeof(Tensor));
+        memset(r, 0, sizeof(Tensor));
+        r->data = t->data + i * elem_size;  /* view into parent */
+        r->shape = arena_alloc(inner_rank * sizeof(int));
+        for (int j = 0; j < inner_rank; j++) r->shape[j] = t->shape[j+1];
+        r->rank = inner_rank;
+        r->numel = elem_size;
+        r->requires_grad = t->requires_grad;
+        r->tape_idx = -1;
+        r->persistent = 0;
+        handles[i] = (TensorHandle)r;
+    }
+    return handles;
+}
+
 /* Transpose 2D tensor: [m,n] -> [n,m] */
 TensorHandle tensor_transpose_2d(TensorHandle h) {
     Tensor* t = (Tensor*)h;
