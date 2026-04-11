@@ -119,13 +119,13 @@ prim__detach : AnyPtr -> AnyPtr
 prim__withGrad : AnyPtr -> AnyPtr
 
 %foreign "C:tensor_mul_scalar,libidrisml"
-prim__mulScalar : AnyPtr -> Double -> AnyPtr
+export prim__mulScalar : AnyPtr -> Double -> AnyPtr
 
 %foreign "C:tensor_add_scalar,libidrisml"
 export prim__addScalar : AnyPtr -> Double -> AnyPtr
 
 %foreign "C:tensor_clamp_min,libidrisml"
-prim__clampMin : AnyPtr -> Double -> AnyPtr
+export prim__clampMin : AnyPtr -> Double -> AnyPtr
 
 -- NTM
 %foreign "C:tensor_cosine_similarity,libidrisml"
@@ -287,7 +287,7 @@ export
 prim__allocDoubles : Int -> AnyPtr
 
 %foreign "C:tensor_write_double,libidrisml"
-prim__writeDouble : AnyPtr -> Int -> Double -> ()
+export prim__writeDouble : AnyPtr -> Int -> Double -> ()
 
 %foreign "C:tensor_read_double,libidrisml"
 prim__readDouble : AnyPtr -> Int -> Double
@@ -321,6 +321,22 @@ prim__cat2 : AnyPtr -> AnyPtr -> AnyPtr
 %foreign "C:tensor_narrow,libidrisml"
 export
 prim__narrow : AnyPtr -> Int -> Int -> Int -> AnyPtr
+
+%foreign "C:tensor_mm,libidrisml"
+export
+prim__mm : AnyPtr -> AnyPtr -> AnyPtr
+
+%foreign "C:tensor_transpose_2d,libidrisml"
+export
+prim__transpose2d : AnyPtr -> AnyPtr
+
+%foreign "C:tensor_softmax_2d,libidrisml"
+export
+prim__softmax2d : AnyPtr -> AnyPtr
+
+%foreign "C:tensor_masked_fill,libidrisml"
+export
+prim__maskedFill : AnyPtr -> AnyPtr -> Double -> AnyPtr
 
 %foreign "C:tensor_reshape,libidrisml"
 prim__reshape : AnyPtr -> AnyPtr -> Int -> AnyPtr
@@ -400,7 +416,7 @@ packMatrixPtrs arr off {m=S k} {n} (VTensor row :: rows) =
   in packMatrixPtrs arr' (off + cast {to=Int} n) rows
 
 %foreign "C:tensor_reshape_2d,libidrisml"
-prim__reshape2d : AnyPtr -> Int -> Int -> AnyPtr
+export prim__reshape2d : AnyPtr -> Int -> Int -> AnyPtr
 
 -- matStackTensor: stack matrix Variable tensorPtrs into a 2D tensor.
 -- PRESERVES autograd graph.

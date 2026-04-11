@@ -656,6 +656,18 @@ TensorHandle tensor_masked_fill(TensorHandle h, TensorHandle hmask, double value
     return r;
 }
 
+/* Create upper-triangular causal mask [n,n]: 1.0 above diagonal, 0.0 on/below */
+TensorHandle tensor_causal_mask(int n) {
+    double* data = calloc(n * n, sizeof(double));
+    for (int i = 0; i < n; i++)
+        for (int j = i + 1; j < n; j++)
+            data[i*n+j] = 1.0;
+    int shape[] = {n, n};
+    Tensor* r = make_tensor(data, shape, 2, 0);  /* no grad needed for mask */
+    free(data);
+    return r;
+}
+
 /* ================================================================
    Activation / normalization
    ================================================================ */
