@@ -97,9 +97,12 @@ def main() -> None:
     target_decoded = target_indices.tolist()
     predicted = preds.tolist()
 
-    print(f"  Input:      {''.join(token_name(t) for t in input_decoded)}")
-    print(f"  Target:     {''.join(token_name(t) for t in target_decoded)}")
-    print(f"  Predicted:  {''.join(token_name(t) for t in predicted)}")
+    input_tokens = input_decoded[:INPUT_LEN]
+    rev_target = target_decoded[INPUT_LEN:]
+    rev_predicted = predicted[INPUT_LEN:]
+    print(f"  Input:      {''.join(token_name(t) for t in input_tokens)}")
+    print(f"  Target:     {''.join(token_name(t) for t in rev_target)}")
+    print(f"  Predicted:  {''.join(token_name(t) for t in rev_predicted)}")
 
     rev_correct = sum(
         1 for p, t in zip(predicted[INPUT_LEN:], target_decoded[INPUT_LEN:], strict=True) if p == t

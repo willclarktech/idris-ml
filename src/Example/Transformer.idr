@@ -239,12 +239,15 @@ main = do
       revCorrect = countMatches (drop InputLen predicted) (drop InputLen targetDecoded)
       revTotal = SeqLen `minus` InputLen
 
+  let inputTokens = Data.List.take InputLen inputDecoded
+      revTarget = drop InputLen targetDecoded
+      revPredicted = drop InputLen predicted
   putStr "  Input:      "
-  putStrLn $ concatMap tokenName inputDecoded
+  putStrLn $ concatMap tokenName inputTokens
   putStr "  Target:     "
-  putStrLn $ concatMap tokenName targetDecoded
+  putStrLn $ concatMap tokenName revTarget
   putStr "  Predicted:  "
-  putStrLn $ concatMap tokenName predicted
+  putStrLn $ concatMap tokenName revPredicted
   putStrLn $ "  Rev acc:    " ++ show revCorrect ++ "/" ++ show revTotal
 
   putStrLn ""
