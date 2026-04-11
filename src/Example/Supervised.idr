@@ -1,6 +1,7 @@
 module Example.Supervised
 
 import Data.Vect
+import System.Clock
 import System.Random
 
 import Backprop
@@ -11,6 +12,7 @@ import Layer
 import Math
 import Optimizer
 import Tensor
+import Util
 import Variable
 
 
@@ -26,32 +28,50 @@ dataPoints =
 
 main : IO ()
 main = do
+  tStart <- clockTime Monotonic
   srand 123456
 
   let epochs = 1000
   let lr = 0.03
   let lossFn = crossEntropy
 
+  putStrLn "=== Supervised Classification ==="
+  putStrLn $ "Config: lr=" ++ show lr ++ " epochs=" ++ show epochs ++ " seed=123456"
+
   ll <- linearLayer
   let model = autoName $ ll ~> OutputLayer softmaxLayer
-  putStr "Model: "
-  printLn model
+  putStrLn $ "Architecture: " ++ show model
+  putStrLn ""
+
   let prepared = map (map fromDouble) dataPoints
-  let predictions = evaluate model prepared
-  let loss = calculateLoss lossFn model prepared
-
-  putStr "Pre loss: "
-  printLn $ value loss
-  putStr "Predictions: "
-  printLn $ map (map value) predictions
-
   let opt = nativeSgd lr
-  let trained = trainNative opt model prepared lossFn epochs
-  let dblModel = toDoubleNetwork (emap refreshValue trained)
-  let predictions' = evaluate dblModel (map (map fromDouble) dataPoints)
-  let loss' = calculateLoss lossFn dblModel (map (map fromDouble) dataPoints)
 
-  putStr "Post loss: "
-  printLn loss'
-  putStr "Predictions: "
-  printLn predictions'
+  putStrLn "Training..."
+  t0 <- clockTime Monotonic
+  let go : Nat -> Network 2 [3] 3 Variable -> IO (Network 2 [3] 3 Variable, Double)
+      go ep m =
+        if ep >= epochs then do
+          let loss = calculateLoss lossFn (toDoubleNetwork (emap refreshValue m))
+                                          (map (map fromDouble) dataPoints)
+          pure (m, loss)
+        else do
+          let (m', loss) = epochNative opt prepared lossFn m
+          when (modNatNZ ep 100 ItIsSucc == 0) $ do
+            now <- clockTime Monotonic
+            putStrLn $ "  " ++ formatElapsed t0 now ++ " " ++ show ep
+                     ++ "\tloss=" ++ show loss
+          go (S ep) m'
+
+  (trained, finalLoss) <- go 0 model
+  t1 <- clockTime Monotonic
+
+  let dblModel = toDoubleNetwork (emap refreshValue trained)
+  let predictions = evaluate dblModel (map (map fromDouble) dataPoints)
+
+  putStrLn ""
+  putStrLn "Eval:"
+  putStrLn $ "  Loss: " ++ show finalLoss
+  putStr "  Predictions: "
+  printLn predictions
+  putStrLn ""
+  putStrLn $ formatTimingSummary tStart t1 epochs

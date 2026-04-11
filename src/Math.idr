@@ -162,3 +162,36 @@ matrixVectorMultiply (VTensor mat) vec = VTensor $ map (STensor . dotProduct vec
 export
 vectorMatrixMultiply : (Num ty) => {n : Nat} -> Vector n ty -> Matrix m n ty -> Vector m ty
 vectorMatrixMultiply = flip matrixVectorMultiply
+
+
+----------------------------------------------------------------------
+-- Evaluation Metrics
+----------------------------------------------------------------------
+
+||| Count correct/total bits between prediction and target vectors.
+||| Predictions are thresholded at 0.5 after sigmoid.
+export
+countBits : {w : Nat} -> Vector w Double -> Vector w Double -> (Nat, Nat)
+countBits (VTensor preds) (VTensor targets) = go preds targets 0 0
+  where
+    sigD : Double -> Double
+    sigD x = 1.0 / (1.0 + exp (negate x))
+    go : Vect k (Scalar Double) -> Vect k (Scalar Double) -> Nat -> Nat -> (Nat, Nat)
+    go [] [] c t = (c, t)
+    go (STensor p :: ps') (STensor tgt :: ts') c t =
+      let predBit = if sigD p >= 0.5 then 1.0 else 0.0
+          match : Nat
+          match = if predBit == tgt then 1 else 0
+      in go ps' ts' (c + match) (t + 1)
+
+||| Fraction of correctly predicted bits (sigmoid threshold 0.5).
+export
+bitAccuracy : {w : Nat} -> List (Vector w Double) -> List (Vector w Double) -> Double
+bitAccuracy preds targets = go preds targets 0 0
+  where
+    go : List (Vector w Double) -> List (Vector w Double) -> Nat -> Nat -> Double
+    go [] _ c t = if t == 0 then 0.0 else cast c / cast t
+    go _ [] c t = if t == 0 then 0.0 else cast c / cast t
+    go (p :: ps) (tgt :: tgts) c t =
+      let res = countBits p tgt
+      in go ps tgts (c + fst res) (t + snd res)

@@ -1,8 +1,7 @@
--- | NTM Copy Task (PyTorch-aligned)
+-- | NTM Copy Task
 -- |
 -- | Binary vector copy task with LSTM controller, interpolation write,
--- | sigmoid output + BCE loss, and RMSprop optimizer. Matches the
--- | PyTorch reference in pytorch/torch_ref/.
+-- | sigmoid output + BCE loss, and RMSprop optimizer.
 -- |
 -- | Architecture: NtmLayer (LSTM controller, separate head FCs from
 -- | cell state, output FC from hidden ++ read_output) -> sigmoid.
@@ -70,40 +69,33 @@ TestSize = 20
 
 
 ----------------------------------------------------------------------
--- Evaluation Helpers
+-- Display Helpers
 ----------------------------------------------------------------------
 
-||| Apply sigmoid to a Double value.
-sigD : Double -> Double
-sigD x = 1.0 / (1.0 + exp (-x))
-
-||| Count (correct, total) bits in one prediction-target pair.
-countBits : {w : Nat} -> Vector w Double -> Vector w Double -> (Nat, Nat)
-countBits (VTensor ps) (VTensor ts) = go ps ts 0 0
+||| Show a binary vector as compact [1,0,1,...] string.
+showBinaryVec : {w : Nat} -> Vector w Double -> String
+showBinaryVec (VTensor xs) = "[" ++ go xs ++ "]"
   where
-    go : Vect k (Tensor [] Double) -> Vect k (Tensor [] Double) -> Nat -> Nat -> (Nat, Nat)
-    go [] [] c t = (c, t)
-    go (STensor p :: ps') (STensor tgt :: ts') c t =
-      let predBit = if sigD p >= 0.5 then 1.0 else 0.0
-          match : Nat
-          match = if predBit == tgt then 1 else 0
-      in go ps' ts' (c + match) (t + 1)
+    go : Vect k (Scalar Double) -> String
+    go [] = ""
+    go [STensor x] = if x >= 0.5 then "1" else "0"
+    go (STensor x :: rest) = (if x >= 0.5 then "1" else "0") ++ "," ++ go rest
 
-||| Compute bit accuracy: fraction of correctly predicted bits.
-||| Predictions are thresholded at 0.5 after sigmoid.
-bitAccuracy : {w : Nat} -> List (Vector w Double) -> List (Vector w Double) -> Double
-bitAccuracy preds targets =
-  let results = zipWith countBits preds targets
-      totalCorrect = foldl (\acc, (c, _) => acc + c) (the Nat 0) results
-      totalBits = foldl (\acc, (_, t) => acc + t) (the Nat 0) results
-  in if totalBits == 0 then 0.0 else cast totalCorrect / cast totalBits
+||| Show a binary vector from logits (apply sigmoid then threshold).
+showBinaryLogits : {w : Nat} -> Vector w Double -> String
+showBinaryLogits (VTensor xs) = "[" ++ go xs ++ "]"
+  where
+    go : Vect k (Scalar Double) -> String
+    go [] = ""
+    go [STensor x] = if sigD x >= 0.5 then "1" else "0"
+    go (STensor x :: rest) = (if sigD x >= 0.5 then "1" else "0") ++ "," ++ go rest
 
 
 ----------------------------------------------------------------------
 -- Training Loop
 ----------------------------------------------------------------------
 
-||| Training loop with native libtorch optimizer and early stopping.
+||| Training loop with native optimizer and windowed convergence check.
 trainLoop :
   NativeOptimizer ->
   Network InputW [] OutputW Variable ->
@@ -129,7 +121,9 @@ trainLoop opt model totalEpochs esThreshold esWindow esPatience batchSize minLen
             (m', loss) = epochTwoPhaseBceNative opt dps m
         when (modNatNZ ep 100 ItIsSucc == 0) $ do
           now <- clockTime Monotonic
-          putStrLn $ "  " ++ formatElapsed t0 now ++ " " ++ show ep ++ ":\tloss=" ++ show loss
+          putStrLn $ "  " ++ formatElapsed t0 now ++ " " ++ show ep
+                   ++ "\tloss=" ++ show loss
+                   ++ "\tmem=" ++ show (getRssMB ep) ++ "MB"
         if loss /= loss
           then do
             now <- clockTime Monotonic
@@ -216,47 +210,37 @@ parseConfig args = go args defaultConfig
 
 main : IO ()
 main = do
+  tStart <- clockTime Monotonic
   args <- getArgs
   let cfg = parseConfig (drop 1 args)
 
   srand cfg.seed
 
-  putStrLn "=== NTM Copy Task (PyTorch-aligned) ==="
+  putStrLn "=== NTM Copy ==="
   putStrLn $ "Config: lr=" ++ show cfg.lr
            ++ " clip=" ++ show cfg.clipVal
-           ++ " alpha=" ++ show cfg.alpha
-           ++ " momentum=" ++ show cfg.momentum
            ++ " epochs=" ++ show cfg.epochs
            ++ " seed=" ++ show cfg.seed
            ++ " batch=" ++ show cfg.batch
            ++ " seqLen=" ++ show cfg.minLen ++ "-" ++ show cfg.maxLen
-  putStrLn $ "Early stopping: threshold=" ++ show cfg.esThreshold
-           ++ " window=" ++ show cfg.esWindow
-           ++ " patience=" ++ show cfg.esPatience
   putStrLn $ "Architecture: N=" ++ show N ++ " M=" ++ show M ++ " H=" ++ show H
-  putStrLn ""
 
-  -- Build NTM (no output activation; loss is BCEWithLogits)
   ntm <- ntmLayer {inputSize = InputW, outputSize = OutputW, n = N, m = M, h = H}
   let model = autoName $ OutputLayer ntm
-
-  putStr "Model:\t\t"
-  printLn model
+  putStrLn $ "Model: " ++ show model
   putStrLn ""
 
   -- Training
   let opt = nativeRmsprop cfg.lr cfg.alpha cfg.eps cfg.clipVal cfg.momentum
-  putStrLn $ "Training (batch=" ++ show cfg.batch ++ ")..."
+  putStrLn "Training..."
   t0 <- clockTime Monotonic
   (trained, epochsDone) <-
     trainLoop opt model
       cfg.epochs cfg.esThreshold cfg.esWindow cfg.esPatience
       cfg.batch cfg.minLen cfg.maxLen t0
+  t1 <- clockTime Monotonic
 
-  putStrLn $ "Training complete: " ++ show epochsDone ++ " epochs"
-  putStrLn ""
-
-  -- Evaluation: refresh Variable values from tensors (optimizer mutates in-place)
+  -- Evaluation
   let dblModel = toDoubleNetwork (emap refreshValue trained)
 
   let evalOne : TwoPhaseDataPoint InputW OutputW Double -> Double
@@ -271,20 +255,29 @@ main = do
   let shortAcc = foldl (+) 0.0 (toList shortAccs) / cast TestSize
   let fullAcc = foldl (+) 0.0 (toList fullAccs) / cast TestSize
 
-  putStrLn "Eval (random binary sequences):"
-  putStr "  Short (len 1-5):\t"
-  putStrLn $ show shortAcc
-  putStr "  Full (len 1-20):\t"
-  putStrLn $ show fullAcc
+  putStrLn ""
+  putStrLn "Eval:"
+  -- Show 1-2 sample sequences
+  sampleBatch <- copyTaskBinaryBatchVect {w = W} 2 3 5
+  let showSample : TwoPhaseDataPoint InputW OutputW Double -> IO ()
+      showSample dp =
+        let (_, preds) = forwardTwoPhase dblModel dp
+            tgts = targets dp
+        in do putStr "  Input:  "
+              putStrLn $ unwords (map showBinaryVec (encodingInputs dp))
+              putStr "  Target: "
+              putStrLn $ unwords (map showBinaryVec tgts)
+              putStr "  Output: "
+              putStrLn $ unwords (map showBinaryLogits preds)
+              putStrLn ""
+  traverse_ showSample (toList sampleBatch)
 
-  -- Machine-readable result line
-  putStrLn $ "RESULT\t"
-           ++ show cfg.lr ++ "\t"
-           ++ show cfg.clipVal ++ "\t"
-           ++ show cfg.alpha ++ "\t"
-           ++ show cfg.epochs ++ "\t"
-           ++ show cfg.esThreshold ++ "\t"
-           ++ show epochsDone ++ "\t"
-           ++ show cfg.seed ++ "\t"
-           ++ show shortAcc ++ "\t"
-           ++ show fullAcc
+  putStrLn $ "  Short (len 1-5):  " ++ show (shortAcc * 100.0) ++ "% bit accuracy"
+  putStrLn $ "  Full  (len 1-20): " ++ show (fullAcc * 100.0) ++ "% bit accuracy"
+  putStrLn ""
+  putStrLn $ formatTimingSummary tStart t1 epochsDone
+  putStrLn $ "RESULT\tepochs=" ++ show epochsDone
+           ++ "\tacc_short=" ++ show shortAcc
+           ++ "\tacc_full=" ++ show fullAcc
+           ++ "\ttime=" ++ show (seconds t1 - seconds tStart) ++ "s"
+           ++ "\tseed=" ++ show cfg.seed

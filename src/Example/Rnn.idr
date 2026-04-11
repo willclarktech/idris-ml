@@ -3,6 +3,7 @@ module Example.Rnn
 import Data.List
 import Data.Stream
 import Data.Vect
+import System.Clock
 import System.Random
 
 import Backprop
@@ -14,7 +15,6 @@ import Math
 import Optimizer
 import Tensor
 import Util
-import Variable
 import Variable
 
 
@@ -35,42 +35,56 @@ rawData n = map (\(is, os) => MkRecurrentDataPoint (prep is) (prep os)) $ genera
 decodeYs : Vect n (RecurrentDataPoint 1 1 Variable) -> Vect n (List (Vector 1 Double))
 decodeYs = map (map (map value) . ys)
 
-decodeOutput : Vect n (List (Vector o Variable)) -> Vect n (List (Vector o Double))
-decodeOutput = map (map (map (cast . (0<))))
-
 main : IO ()
 main = do
+  tStart <- clockTime Monotonic
   srand 123456
 
   let epochs = 1000
   let lr = 0.03
   let lossFn = binaryCrossEntropyWithLogits
 
+  putStrLn "=== RNN Pattern Prediction ==="
+  putStrLn $ "Config: lr=" ++ show lr ++ " epochs=" ++ show epochs ++ " seed=123456"
+
   rnn <- rnnLayer
   let model = autoName $ OutputLayer rnn
-  putStr "Model: "
-  printLn model
+  putStrLn $ "Architecture: " ++ show model
+  putStrLn ""
+
   let dataPoints = map (map fromDouble) (rawData 8)
-  putStr "Targets: "
-  printLn $ decodeYs dataPoints
-  let predictions = decodeOutput $ evaluateRecurrent model dataPoints
-  let loss = calculateLossRecurrent lossFn model dataPoints
-
-  putStr "Pre loss: "
-  printLn $ value loss
-  putStr "Predictions: "
-  printLn $ predictions
-
   let opt = nativeSgd lr
-  let trained = foldl (\m, _ => fst (epochRecurrentNative opt dataPoints lossFn m)) model [1 .. epochs]
-  let dblModel = toDoubleNetwork (emap refreshValue trained)
-  let dblData = rawData 8
-  let dblPreds = evaluateRecurrent dblModel dblData
-  let predictions' : Vect 8 (List (Vector 1 Double))
-      predictions' = map (map (map (\x => cast (0 < x)))) dblPreds
-  let loss' = calculateLossRecurrent lossFn dblModel dblData
 
-  putStr "Post loss: "
-  printLn loss'
-  putStr "Predictions: "
-  printLn predictions'
+  putStrLn "Training..."
+  t0 <- clockTime Monotonic
+  let go : Nat -> Network 1 [] 1 Variable -> IO (Network 1 [] 1 Variable, Double)
+      go ep m =
+        if ep >= epochs then do
+          let dblM = toDoubleNetwork (emap refreshValue m)
+          let loss = calculateLossRecurrent lossFn dblM (rawData 8)
+          pure (m, loss)
+        else do
+          let (m', loss) = epochRecurrentNative opt dataPoints lossFn m
+          when (modNatNZ ep 100 ItIsSucc == 0) $ do
+            now <- clockTime Monotonic
+            putStrLn $ "  " ++ formatElapsed t0 now ++ " " ++ show ep
+                     ++ "\tloss=" ++ show loss
+          go (S ep) m'
+
+  (trained, finalLoss) <- go 0 model
+  t1 <- clockTime Monotonic
+
+  let dblModel = toDoubleNetwork (emap refreshValue trained)
+  let dblPreds = evaluateRecurrent dblModel (rawData 8)
+  let predictions : Vect 8 (List (Vector 1 Double))
+      predictions = map (map (map (\x => cast (0 < x)))) dblPreds
+
+  putStrLn ""
+  putStrLn "Eval:"
+  putStrLn $ "  Loss: " ++ show finalLoss
+  putStr "  Targets:     "
+  printLn $ decodeYs dataPoints
+  putStr "  Predictions: "
+  printLn predictions
+  putStrLn ""
+  putStrLn $ formatTimingSummary tStart t1 epochs

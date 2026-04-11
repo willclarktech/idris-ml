@@ -1,8 +1,7 @@
--- | NTM Associative Recall Task (PyTorch-aligned)
+-- | NTM Associative Recall Task
 -- |
 -- | Binary vector recall task with LSTM controller, interpolation write,
--- | sigmoid output + BCE loss, and RMSprop optimizer. Matches the
--- | PyTorch reference in pytorch/torch_ref/.
+-- | sigmoid output + BCE loss, and RMSprop optimizer.
 -- |
 -- | Architecture: NtmLayer (LSTM controller, separate head FCs from
 -- | cell state, output FC from hidden ++ read_output) -> sigmoid.
@@ -70,36 +69,6 @@ BatchSize = 16
 ||| Evaluation batch size
 TestSize : Nat
 TestSize = 20
-
-
-----------------------------------------------------------------------
--- Evaluation Helpers
-----------------------------------------------------------------------
-
-||| Apply sigmoid to a Double value.
-sigD : Double -> Double
-sigD x = 1.0 / (1.0 + exp (-x))
-
-||| Count (correct, total) bits in one prediction-target pair.
-countBits : {w : Nat} -> Vector w Double -> Vector w Double -> (Nat, Nat)
-countBits (VTensor ps) (VTensor ts) = go ps ts 0 0
-  where
-    go : Vect k (Tensor [] Double) -> Vect k (Tensor [] Double) -> Nat -> Nat -> (Nat, Nat)
-    go [] [] c t = (c, t)
-    go (STensor p :: ps') (STensor tgt :: ts') c t =
-      let predBit = if sigD p >= 0.5 then 1.0 else 0.0
-          match : Nat
-          match = if predBit == tgt then 1 else 0
-      in go ps' ts' (c + match) (t + 1)
-
-||| Compute bit accuracy: fraction of correctly predicted bits.
-||| Predictions are thresholded at 0.5 after sigmoid.
-bitAccuracy : {w : Nat} -> List (Vector w Double) -> List (Vector w Double) -> Double
-bitAccuracy preds targets =
-  let results = zipWith countBits preds targets
-      totalCorrect = foldl (\acc, (c, _) => acc + c) (the Nat 0) results
-      totalBits = foldl (\acc, (_, t) => acc + t) (the Nat 0) results
-  in if totalBits == 0 then 0.0 else cast totalCorrect / cast totalBits
 
 
 ----------------------------------------------------------------------
@@ -302,12 +271,13 @@ parseConfig args = go args defaultConfig
 
 main : IO ()
 main = do
+  tStart <- clockTime Monotonic
   args <- getArgs
   let cfg = parseConfig (drop 1 args)
 
   srand cfg.seed
 
-  putStrLn "=== NTM Associative Recall (PyTorch-aligned) ==="
+  putStrLn "=== NTM Associative Recall ==="
   putStrLn $ "Config: lr=" ++ show cfg.lr
            ++ " clip=" ++ show cfg.clipVal
            ++ " alpha=" ++ show cfg.alpha
@@ -327,8 +297,7 @@ main = do
   ntm <- ntmLayer {inputSize = InputW, outputSize = OutputW, n = N, m = M, h = H}
   let model = autoName $ OutputLayer ntm
 
-  putStr "Model:\t\t"
-  printLn model
+  putStrLn $ "Model: " ++ show model
   putStrLn ""
 
   -- Training
@@ -363,23 +332,18 @@ main = do
   let k4Acc = foldl (+) 0.0 (toList k4Accs) / cast TestSize
   let k6Acc = foldl (+) 0.0 (toList k6Accs) / cast TestSize
 
-  putStrLn "Eval (random binary sequences):"
-  putStr "  K=2 items:\t"
-  putStrLn $ show k2Acc
-  putStr "  K=4 items:\t"
-  putStrLn $ show k4Acc
-  putStr "  K=6 items:\t"
-  putStrLn $ show k6Acc
+  t1 <- clockTime Monotonic
 
-  -- Machine-readable result line
-  putStrLn $ "RESULT\t"
-           ++ show cfg.lr ++ "\t"
-           ++ show cfg.clipVal ++ "\t"
-           ++ show cfg.alpha ++ "\t"
-           ++ show cfg.epochs ++ "\t"
-           ++ show cfg.esThreshold ++ "\t"
-           ++ show epochsDone ++ "\t"
-           ++ show cfg.seed ++ "\t"
-           ++ show k2Acc ++ "\t"
-           ++ show k4Acc ++ "\t"
-           ++ show k6Acc
+  putStrLn ""
+  putStrLn "Eval:"
+  putStrLn $ "  K=2 items: " ++ show (k2Acc * 100.0) ++ "% bit accuracy"
+  putStrLn $ "  K=4 items: " ++ show (k4Acc * 100.0) ++ "% bit accuracy"
+  putStrLn $ "  K=6 items: " ++ show (k6Acc * 100.0) ++ "% bit accuracy"
+  putStrLn ""
+  putStrLn $ formatTimingSummary tStart t1 epochsDone
+  putStrLn $ "RESULT\tepochs=" ++ show epochsDone
+           ++ "\tacc_k2=" ++ show k2Acc
+           ++ "\tacc_k4=" ++ show k4Acc
+           ++ "\tacc_k6=" ++ show k6Acc
+           ++ "\ttime=" ++ show (seconds t1 - seconds tStart) ++ "s"
+           ++ "\tseed=" ++ show cfg.seed

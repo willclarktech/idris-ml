@@ -16,7 +16,6 @@ import Layer
 import Math
 import Optimizer
 import Tensor
-import Variable
 import Util
 import Variable
 
@@ -38,16 +37,11 @@ rawData n = map (\(is, os) => MkRecurrentDataPoint (prep is) (prep os)) $ genera
 decodeYs : Vect n (RecurrentDataPoint 1 1 Variable) -> Vect n (List (Vector 1 Double))
 decodeYs = map (map (map value) . ys)
 
-decodeOutput : Vect n (List (Vector o Variable)) -> Vect n (List (Vector o Double))
-decodeOutput = map (map (map (cast . (0<))))
-
 
 ----------------------------------------------------------------------
 -- Training Loop
 ----------------------------------------------------------------------
 
-||| Training loop with early stopping.
-||| Returns (model, epochs completed, final loss).
 trainLoop :
   NativeOptimizer ->
   Network 1 [1] 1 Variable ->
@@ -63,13 +57,12 @@ trainLoop opt model dataPoints lossFn totalEpochs patience t0 =
          Double -> Nat ->
          IO (Network 1 [1] 1 Variable, Nat, Double)
     go ep m bestLoss staleCount =
-      if ep >= totalEpochs then do
-        pure (m, ep, bestLoss)
+      if ep >= totalEpochs then pure (m, ep, bestLoss)
       else do
         let (m', loss) = epochRecurrentNative opt dataPoints lossFn m
         when (modNatNZ ep 100 ItIsSucc == 0) $ do
           now <- clockTime Monotonic
-          putStrLn $ "  " ++ formatElapsed t0 now ++ " " ++ show ep ++ ":\tloss=" ++ show loss
+          putStrLn $ "  " ++ formatElapsed t0 now ++ " " ++ show ep ++ "\tloss=" ++ show loss
         if loss /= loss
           then do
             now <- clockTime Monotonic
@@ -121,6 +114,7 @@ parseConfig args = go args defaultConfig
 
 main : IO ()
 main = do
+  tStart <- clockTime Monotonic
   args <- getArgs
   let cfg = parseConfig (drop 1 args)
 
@@ -133,48 +127,37 @@ main = do
            ++ " epochs=" ++ show cfg.epochs
            ++ " patience=" ++ show cfg.patience
            ++ " seed=" ++ show cfg.seed
-  putStrLn ""
 
-  -- LSTM as drop-in replacement for RNN
   lstm <- lstmLayer
   ll <- linearLayer {i=1, o=1}
   let model = autoName $ lstm ~> OutputLayer ll
-  putStr "Model: "
-  printLn model
-  let dataPoints = map (map fromDouble) (rawData 8)
-  putStr "Targets: "
-  printLn $ decodeYs dataPoints
-  let predictions = decodeOutput $ evaluateRecurrent model dataPoints
-  let loss = calculateLossRecurrent lossFn model dataPoints
-
-  putStr "Pre loss: "
-  printLn $ value loss
-  putStr "Predictions: "
-  printLn $ predictions
-
+  putStrLn $ "Architecture: " ++ show model
   putStrLn ""
-  putStrLn "Training..."
+
+  let dataPoints = map (map fromDouble) (rawData 8)
   let opt = nativeSgd cfg.lr
+
+  putStrLn "Training..."
   t0 <- clockTime Monotonic
   (trained, epochsDone, finalLoss) <- trainLoop opt model dataPoints lossFn
     cfg.epochs cfg.patience t0
+  t1 <- clockTime Monotonic
 
   let dblModel = toDoubleNetwork (emap refreshValue trained)
   let dblData = rawData 8
-  let predictions' : Vect 8 (List (Vector 1 Double))
-      predictions' = map (map (map (\x => cast (0 < x)))) (evaluateRecurrent dblModel dblData)
-  let loss' = calculateLossRecurrent lossFn dblModel dblData
+  let predictions : Vect 8 (List (Vector 1 Double))
+      predictions = map (map (map (\x => cast (0 < x)))) (evaluateRecurrent dblModel dblData)
+  let loss = calculateLossRecurrent lossFn dblModel dblData
 
-  putStr "Post loss: "
-  printLn loss'
-  putStr "Predictions: "
-  printLn predictions'
-
-  -- Machine-readable result line
-  putStrLn $ "RESULT\t"
-           ++ show cfg.lr ++ "\t"
-           ++ show cfg.epochs ++ "\t"
-           ++ show cfg.patience ++ "\t"
-           ++ show epochsDone ++ "\t"
-           ++ show cfg.seed ++ "\t"
-           ++ show loss'
+  putStrLn ""
+  putStrLn "Eval:"
+  putStrLn $ "  Loss: " ++ show loss
+  putStr "  Targets:     "
+  printLn $ decodeYs dataPoints
+  putStr "  Predictions: "
+  printLn predictions
+  putStrLn ""
+  putStrLn $ formatTimingSummary tStart t1 epochsDone
+  putStrLn $ "RESULT\tepochs=" ++ show epochsDone ++ "\tloss=" ++ show loss
+           ++ "\ttime=" ++ show (seconds t1 - seconds tStart) ++ "s"
+           ++ "\tseed=" ++ show cfg.seed
