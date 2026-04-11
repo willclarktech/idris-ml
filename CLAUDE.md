@@ -67,7 +67,7 @@ bash scripts/sweep.sh --task copy --parallel 4 --quick  # 2000 epochs for screen
     - **Layer.LayerNorm** - `LayerNormState` with learnable gamma/beta (used as sub-component)
     - **Layer.Ntm** - `NtmState` + NTM head ops (imports Lstm and Linear for sub-layers)
     - **Layer.Transformer** - `TransformerState` with causal self-attention (single-head)
-    - **Layer.MultiHeadTransformer** - `MHTransformerState` with multi-head attention, layer norm, learned embeddings, sinusoidal PE
+    - **Layer.Transformer** - `TransformerState` with multi-head attention, layer norm, learned embeddings, sinusoidal PE
 11. **Optimizer** - SGD, Adam, RMSprop (Idris-side), plus `NativeOptimizer` (libtorch torch::optim)
 12. **Schedule** - Learning rate schedules: `constant`, `cosineAnnealing`, `oneCycle`
 13. **Backprop** - Epoch functions: `epochNative`, `epochRecurrentNative`, `epochTwoPhaseBceNative`

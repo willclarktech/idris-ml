@@ -21,7 +21,7 @@ import Floating
 import Generate
 import Layer
 import Layer.Core
-import Layer.MultiHeadTransformer
+import Layer.Transformer
 import Math
 import Optimizer
 import Tensor

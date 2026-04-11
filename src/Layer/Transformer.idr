@@ -7,7 +7,7 @@
 -- | Input: seqLen * vocabSize (one-hot tokens)
 -- | Output: seqLen * vocabSize (per-position logits)
 
-module Layer.MultiHeadTransformer
+module Layer.Transformer
 
 import Data.Vect
 import Decidable.Equality
