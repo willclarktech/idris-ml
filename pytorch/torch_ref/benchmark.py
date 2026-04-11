@@ -250,44 +250,36 @@ def bench_multi_head_transformer() -> tuple[float, float, float]:
     return _run_benchmark(run_epoch, warmup=100, epochs=1000)
 
 
+BENCHMARKS: dict[str, tuple[str, Callable[[], tuple[float, float, float]]]] = {
+    "supervised": ("Supervised (1000 epochs)", bench_supervised),
+    "rnn": ("RNN (1000 epochs)", bench_rnn),
+    "ntm": ("NTM (100 epochs)", bench_ntm),
+    "ntm-copy": ("NTM-copy (100 epochs)", bench_ntm_copy),
+    "ntm-copy-1k": ("NTM-copy-1k (1000 epochs)", bench_ntm_copy_1k),
+    "ntm-recall": ("NTM-recall (100 epochs)", bench_ntm_recall),
+    "transformer": ("Transformer (1000 epochs)", bench_multi_head_transformer),
+}
+
+
 def main() -> None:
+    import sys
+
+    requested = sys.argv[1:] or list(BENCHMARKS.keys())
+    unknown = [r for r in requested if r not in BENCHMARKS]
+    if unknown:
+        print(f"Unknown benchmarks: {', '.join(unknown)}")
+        print(f"Available: {', '.join(BENCHMARKS.keys())}")
+        sys.exit(1)
+
     print("PyTorch Benchmark")
     print("=" * 50)
 
-    elapsed, loss, rss = bench_supervised()
-    print(f"Supervised (1000 epochs): {elapsed:.1f} ms")
-    print(f"  Final loss: {loss:.6f}")
-    print(f"  Peak RSS: {rss:.0f} MB")
-
-    elapsed, loss, rss = bench_rnn()
-    print(f"RNN (1000 epochs):        {elapsed:.1f} ms")
-    print(f"  Final loss: {loss:.6f}")
-    print(f"  Peak RSS: {rss:.0f} MB")
-
-    elapsed, loss, rss = bench_ntm()
-    print(f"NTM (100 epochs):         {elapsed:.1f} ms")
-    print(f"  Final loss: {loss:.6f}")
-    print(f"  Peak RSS: {rss:.0f} MB")
-
-    elapsed, loss, rss = bench_ntm_copy()
-    print(f"NTM-copy (100 epochs):    {elapsed:.1f} ms")
-    print(f"  Final loss: {loss:.6f}")
-    print(f"  Peak RSS: {rss:.0f} MB")
-
-    elapsed, loss, rss = bench_ntm_copy_1k()
-    print(f"NTM-copy-1k (1000 epochs): {elapsed:.1f} ms")
-    print(f"  Final loss: {loss:.6f}")
-    print(f"  Peak RSS: {rss:.0f} MB")
-
-    elapsed, loss, rss = bench_ntm_recall()
-    print(f"NTM-recall (100 epochs):  {elapsed:.1f} ms")
-    print(f"  Final loss: {loss:.6f}")
-    print(f"  Peak RSS: {rss:.0f} MB")
-
-    elapsed, loss, rss = bench_multi_head_transformer()
-    print(f"MH-Transformer (1000 ep): {elapsed:.1f} ms")
-    print(f"  Final loss: {loss:.6f}")
-    print(f"  Peak RSS: {rss:.0f} MB")
+    for name in requested:
+        label, fn = BENCHMARKS[name]
+        elapsed, loss, rss = fn()
+        print(f"{label + ':':<30s} {elapsed:.1f} ms")
+        print(f"  Final loss: {loss:.6f}")
+        print(f"  Peak RSS: {rss:.0f} MB")
 
 
 if __name__ == "__main__":
