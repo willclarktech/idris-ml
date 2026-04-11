@@ -235,6 +235,11 @@ int get_current_rss_mb(void);   /* current RSS in MB (macOS mach_task_info) */
 void backend_memory_report(void); /* print detailed memory breakdown to stderr */
 void backend_reset_for_eval(void); /* reset tape + arena for clean eval forward */
 
+/* ---------- Profiling ---------- */
+
+void backend_profile_reset(void);
+void backend_profile_report(void);
+
 /* ---------- Debug ---------- */
 
 void tensor_print(TensorHandle t);

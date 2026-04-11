@@ -1284,9 +1284,20 @@ TensorHandle tensor_narrow(TensorHandle h, int dim, int start, int len) {
    Autograd — backward pass
    ================================================================ */
 
+/* Forward declarations for profiling */
+#include <sys/time.h>
+static double _wall_ms(void) {
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return tv.tv_sec * 1000.0 + tv.tv_usec / 1000.0;
+}
+static double prof_forward_ms = 0, prof_backward_ms = 0, prof_optimizer_ms = 0;
+static int prof_forward_ops = 0, prof_backward_ops = 0, prof_epochs = 0;
+
 
 
 void tensor_backward(TensorHandle h) {
+    double t0 = _wall_ms();
     Tensor* loss = (Tensor*)h;
     if (loss->tape_idx < 0) return;
 
@@ -2017,6 +2028,8 @@ void tensor_backward(TensorHandle h) {
         }
     }
     (void)processed; (void)skipped;
+    prof_backward_ms += _wall_ms() - t0;
+    prof_backward_ops += processed;
 }
 
 TensorHandle tensor_grad(TensorHandle h) {
@@ -2485,6 +2498,7 @@ void optimizer_zero_grad(OptimizerHandle h) {
 }
 
 void optimizer_step(OptimizerHandle h) {
+    double t0_opt = _wall_ms();
     Optimizer* opt = (Optimizer*)h;
     optimizer_ensure_buffers(opt);
     opt->t++;
@@ -2527,6 +2541,9 @@ void optimizer_step(OptimizerHandle h) {
         }
     }
 
+    /* Snapshot tape size before reset */
+    prof_forward_ops = tape_size;
+
     /* Reset tape and re-register ONLY the param tensors (from param_registry).
        Ephemeral tensors (select results, intermediates) are not re-registered.
        They will be recreated in the next forward pass. */
@@ -2537,6 +2554,8 @@ void optimizer_step(OptimizerHandle h) {
         if (t->grad) memset(t->grad, 0, t->numel * sizeof(double));
         tape_append(OP_CONST, t, NULL, NULL, 0);
     }
+    prof_optimizer_ms += _wall_ms() - t0_opt;
+    prof_epochs++;
 }
 
 void optimizer_clip_grad_value(double max_val) {
@@ -2646,6 +2665,32 @@ void backend_memory_report(void) {
             leaked_bytes / 1024,
             (total_cap + (size_t)tape_cap * sizeof(TapeEntry) +
              (size_t)total_param_elems * sizeof(double) + leaked_bytes) / 1024);
+}
+
+/* ================================================================
+   Profiling
+   ================================================================ */
+
+void backend_profile_reset(void) {
+    prof_forward_ms = prof_backward_ms = prof_optimizer_ms = 0;
+    prof_forward_ops = prof_backward_ops = prof_epochs = 0;
+}
+
+void backend_profile_report(void) {
+    fprintf(stderr, "=== Profile Report ===\n");
+    fprintf(stderr, "  Epochs: %d\n", prof_epochs);
+    fprintf(stderr, "  Tape entries (last fwd): %d\n", tape_size);
+    fprintf(stderr, "  Params: %d tensors, %d elements\n",
+            param_count_val, ({int n=0; for(int i=0;i<param_count_val;i++) n+=param_registry[i].tensor->numel; n;}));
+    fprintf(stderr, "  Forward:   %.1fms total (%.1fms/epoch)\n",
+            prof_forward_ms, prof_epochs > 0 ? prof_forward_ms / prof_epochs : 0);
+    fprintf(stderr, "  Backward:  %.1fms total (%.1fms/epoch)\n",
+            prof_backward_ms, prof_epochs > 0 ? prof_backward_ms / prof_epochs : 0);
+    fprintf(stderr, "  Optimizer: %.1fms total (%.1fms/epoch)\n",
+            prof_optimizer_ms, prof_epochs > 0 ? prof_optimizer_ms / prof_epochs : 0);
+    double total = prof_forward_ms + prof_backward_ms + prof_optimizer_ms;
+    fprintf(stderr, "  C total:   %.1fms total (%.1fms/epoch)\n",
+            total, prof_epochs > 0 ? total / prof_epochs : 0);
 }
 
 /* ================================================================

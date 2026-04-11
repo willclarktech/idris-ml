@@ -1012,3 +1012,25 @@ resetForEval dummy = prim__resetForEval dummy
 export
 memoryReport : IO ()
 memoryReport = let _ = prim__memoryReport 0 in pure ()
+
+%foreign "scheme:(lambda (dummy) ((foreign-procedure \"backend_profile_reset\" () void)) dummy)"
+prim__profileReset : Int -> Int
+
+%foreign "scheme:(lambda (dummy) ((foreign-procedure \"backend_profile_report\" () void)) dummy)"
+prim__profileReport : Int -> Int
+
+%foreign "C:backend_profile_reset,libidrisml"
+prim__profileResetC : PrimIO ()
+
+%foreign "C:backend_profile_report,libidrisml"
+prim__profileReportC : PrimIO ()
+
+||| Reset profiling counters.
+export
+profileReset : IO ()
+profileReset = primIO prim__profileResetC
+
+||| Print profiling breakdown to stderr.
+export
+profileReport : IO ()
+profileReport = primIO prim__profileReportC
