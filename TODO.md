@@ -4,6 +4,7 @@
 
 | Item | Difficulty | Notes |
 |------|-----------|-------|
+| Reinforcement learning example | L–XL | Policy gradient (e.g. REINFORCE on CartPole or grid world). Requires: environment interface, episode rollout, discounted return computation, policy gradient loss (`-log_prob * reward`). Demonstrates autograd beyond supervised/sequence tasks. May need: `Categorical` distribution sampling from logits, baseline variance reduction. Could reuse `Train.runTraining` with episodes as "epochs" and cumulative reward as the loss metric |
 | `fromDouble` persistent leak | S | ~15KB/epoch, ~140MB over 10k NTM epochs. Manageable for current training runs (peak 348MB). Only matters for 50k+ epoch runs. Tracked via `persistent_scalar_count` in `backend_memory_report()` |
 | Broadcasting | XL | Type-safe broadcasting for tensor ops (e.g. scalar-vector, vector-matrix, batch dimensions). Needs careful design — NumPy-style implicit broadcasting is a major source of silent bugs, but no broadcasting at all forces manual expansion. Explore options: explicit broadcast combinators with proof obligations, ranked type families, or a restricted subset (e.g. scalar broadcast only). Key tension: expressiveness vs the shape safety guarantees that are the whole point of dependent types. See `docs/static-vs-dynamic-graphs.md` for context on why silent broadcasting is dangerous |
 
@@ -19,7 +20,6 @@
 | Item | Difficulty | Notes |
 |------|-----------|-------|
 | Static graph optimizations via dependent types | L–XL | Investigate whether dependent types can recover other benefits of static computation graphs beyond shape checking. Candidates: compile-time operator fusion (type-level graph rewriting), memory planning (shapes known at compile time → buffer sizes computable statically), dead branch elimination (totality checker + erasure), automatic kernel selection (dispatch to specialized C kernels based on type-level dimensions). Some of these may be achievable through Idris 2 elaborator reflection or specialization. See `docs/static-vs-dynamic-graphs.md` for the static vs dynamic tradeoff context |
-| Reinforcement learning demo | L | Simple RL example (e.g. policy gradient on CartPole or grid world) to demonstrate autograd beyond supervised/sequence tasks |
 | DNC (Differentiable Neural Computer) | XL | Graves et al. 2016 successor to NTM — temporal link matrix, dynamic memory allocation, multiple read heads |
 | Convolutional layers | L | |
 | Transformer | XL | |
