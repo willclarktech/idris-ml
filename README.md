@@ -59,6 +59,7 @@ You get dynamic graph ergonomics (standard `if`/`for`/`while`, normal debugging,
 | LSTM | Same task, LSTM controller | `make lstm` |
 | NTM Copy | Neural Turing Machine binary vector copy | `make ntm-copy` |
 | NTM Recall | NTM associative recall (content-based memory) | `make ntm-associative-recall` |
+| Transformer | Autoregressive next-token prediction (causal self-attention) | `make transformer` |
 
 All examples accept `--epochs`, `--lr`, `--seed` and task-specific flags.
 

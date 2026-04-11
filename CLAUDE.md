@@ -65,6 +65,7 @@ bash scripts/sweep.sh --task copy --parallel 4 --quick  # 2000 epochs for screen
     - **Layer.Core** - `LayerLike` interface, `AnyLayer` existential, `Network` type, network-level ops
     - **Layer.Linear**, **Layer.Rnn**, **Layer.Lstm**, **Layer.Activation**, **Layer.Normalization** - per-layer `LayerLike` instances
     - **Layer.Ntm** - `NtmState` + NTM head ops (imports Lstm and Linear for sub-layers)
+    - **Layer.Transformer** - `TransformerState` with causal self-attention (single-head)
 11. **Optimizer** - SGD, Adam, RMSprop (Idris-side), plus `NativeOptimizer` (libtorch torch::optim)
 12. **Schedule** - Learning rate schedules: `constant`, `cosineAnnealing`, `oneCycle`
 13. **Backprop** - Epoch functions: `epochNative`, `epochRecurrentNative`, `epochTwoPhaseBceNative`

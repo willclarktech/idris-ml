@@ -107,6 +107,11 @@ ntm-associative-recall: backend
 	cp $(LIB) build/exec/ntm-associative-recall_app/
 	./build/exec/ntm-associative-recall
 
+transformer: backend
+	idris2 --source-dir src -p contrib -o transformer src/Example/Transformer.idr
+	cp $(LIB) build/exec/transformer_app/
+	./build/exec/transformer
+
 bench: backend
 	idris2 --source-dir src -p contrib -o bench src/Example/Bench.idr
 	cp $(LIB) build/exec/bench_app/
@@ -159,4 +164,4 @@ ref-convergence-recall:
 clean:
 	rm -f $(LIB) $(BUILD)/test_backend $(BUILD)/test_tape
 
-.PHONY: test test-backend-torch test-backend-tape check supervised rnn lstm ntm-copy ntm-associative-recall bench profile sweep sweep-quick clean backend print-torch ref-setup bench-py bench-compare ref-test ref-lint ref-typecheck ref-convergence ref-convergence-copy ref-convergence-recall
+.PHONY: test test-backend-torch test-backend-tape check supervised rnn lstm ntm-copy ntm-associative-recall transformer bench profile sweep sweep-quick clean backend print-torch ref-setup bench-py bench-compare ref-test ref-lint ref-typecheck ref-convergence ref-convergence-copy ref-convergence-recall
