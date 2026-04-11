@@ -12,7 +12,7 @@
 
 | Item | Difficulty | Notes |
 |------|-----------|-------|
-| Batch dimension support in tensor ops | L–XL | Add batch dim to `tensor_mm`, `tensor_softmax_2d`, etc. Enables processing multiple sequences in one FFI call. Same approach as PyTorch. Currently: 16 separate forwards = 4,000 FFI calls. With batching: 1 forward = 250 FFI calls. See `docs/design-decisions.md` |
+| Batch dimension support for attention | M | `tensor_bmm` exists for projections. Remaining: batch the per-sequence attention block (Q@K^T, softmax, attn@V) with block-diagonal masking. Would eliminate the last per-sequence loop (~576 FFI calls/epoch). Impact limited by Chez runtime overhead — see `docs/design-decisions.md` performance analysis |
 | Convolutional layers | L | Conv1D/Conv2D with autograd. Natural next layer type for image tasks |
 | Regularisation/normalisation layers | M | Dropout, batch norm. Layer norm done. Required for deeper models |
 | More Tensor functions | M | Partially done: `tensor_cat2`, `tensor_narrow` added for NTM pipeline. Remaining: general concat, reshape, transpose, gather/scatter |
@@ -26,7 +26,7 @@
 | DNC (Differentiable Neural Computer) | XL | Graves et al. 2016 — temporal link matrix, dynamic memory allocation, multiple read heads |
 | `fromDouble` persistent leak | S | ~15KB/epoch, ~140MB over 10k NTM epochs. Manageable at current scale (peak 348MB). Only matters for 50k+ epoch runs |
 | Reshaping layers | M | No current use case |
-| Chez Scheme FFI performance | S–XL | Chez `foreign-procedure` overhead is ~10-50μs/call vs CPython's ~1μs. At 4,384 calls/epoch this dominates training time. Options: contribute upstream to Chez Scheme, implement custom FFI bridge, or explore Idris→C backend (bypass Chez entirely) |
+| Chez Scheme runtime overhead | S–XL | Chez GC, thunk evaluation, and allocation account for ~50ms/epoch (vs 2ms in C). Not FFI marshaling — reducing FFI call count from 4,384 to ~1,220 only saved 6ms. Options: explore Idris→C backend (bypass Chez entirely), or accept ~3x gap vs PyTorch on CPU |
 
 ## Done
 
@@ -69,7 +69,8 @@ Performance:
 - Tensor-level forward path (`applyVarTensor`, `forwardVarTensor`) — eliminates scalar packing at layer boundaries
 - `epochNativeTensorPre` + `TensorDataPoint` — zero-copy data flow from generator to C
 - C-side one-hot encoding (`tensor_one_hot`) — eliminates per-element FFI for data prep
-- Transformer: 160ms → 58ms/epoch (2.8x); C backend time unchanged at 2ms. Remaining 56ms is Chez Scheme FFI overhead (~4,384 calls/epoch × ~13μs each)
+- Transformer: 160ms → 52ms/epoch (3.1x). C backend: 2ms. Remaining ~50ms is Chez Scheme runtime overhead (GC, thunk evaluation, list allocation), not FFI marshaling — see `docs/design-decisions.md`
+- Batched transformer forward: projections/FF/norms as `[B*seqLen, dim]` matmuls, per-sequence loop only for attention
 - Backend profiling (`backend_profile_reset`/`backend_profile_report`)
 - NTM-copy: ~110ms/epoch (faster than old C backend's ~120ms)
 - Arena allocator with chunked linked list (no realloc)

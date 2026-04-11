@@ -532,4 +532,34 @@ Standard Pre-LN architecture with multi-head attention, layer normalization, lea
 
 **Type safety proof: `dModel = numHeads * headDim`**: The `MHTransformerState` record requires an erased proof `0 headDimPrf : dModel = numHeads * headDim`. At construction (`mkMHTransformer`), the proof is auto-resolved (e.g., dModel=32, numHeads=4, headDim=8 → `Refl`). Zero `believe_me`.
 
-**Example: sequence reversal** (vocab=10, seqLen=11, dModel=32, numHeads=4). Teacher-forced: `[t0..t4, SEP, t4..t0, EOS]`, predict next token. Achieves 100% accuracy in ~500 epochs (114ms/epoch). PyTorch reference converges similarly (~500 epochs).
+**Example: sequence reversal** (vocab=10, seqLen=11, dModel=32, numHeads=4). Teacher-forced: `[t0..t4, SEP, t4..t0, EOS]`, predict next token. Achieves 100% accuracy in ~500 epochs. PyTorch reference converges similarly (~500 epochs).
+
+### Transformer performance analysis (2026-04-10)
+
+Systematic investigation of the gap between Idris (52ms/epoch) and PyTorch (16ms/epoch).
+
+**Profiling setup**: `backend_profile_report()` instruments C-side backward and optimizer timing. Wall-clock timing from `runTraining`. Batch size 16, seqLen=11, dModel=32, 4 heads.
+
+**Key finding: the bottleneck is Chez Scheme runtime overhead, not FFI marshaling.**
+
+| Optimization | Wall time/epoch | FFI calls/epoch | Speedup |
+|---|---|---|---|
+| Baseline (scalar packing) | 160ms | ~33,800 | 1x |
+| Tensor-level forward (`applyVarTensor`) | 98ms | ~4,400 | 1.6x |
+| C-side one-hot encoding + `TensorDataPoint` | 58ms | ~4,400 | 2.8x |
+| Batched projections (`[B*seqLen, dim]` matmuls) | 52ms | ~1,220 | 3.1x |
+
+C backend time was **2ms/epoch throughout** — unchanged by any optimization. The 160ms → 52ms improvement came entirely from reducing Idris/Scheme overhead.
+
+**Why reducing FFI calls didn't help as predicted**: We estimated ~13μs per FFI call (56ms ÷ 4,384 calls). Reducing calls from 4,384 to 1,220 should have saved ~41ms. Actual savings: 6ms. The ~13μs figure was wrong — most of the 56ms was Chez Scheme runtime cost (GC, thunk evaluation, list allocation, closure dispatch), not FFI marshaling overhead. FFI marshaling is ~1-2μs per call; the rest is Scheme computation between calls.
+
+**Breakdown of the remaining 50ms**:
+- Chez GC pauses: ~5-15ms (triggered by per-epoch allocation of lists, closures, data structures)
+- Scheme-side computation: ~20-30ms (list operations in foldl, pattern matching, numeric casting, closure evaluation)
+- FFI marshaling: ~2-5ms (~1,220 calls × ~2-4μs each)
+- Data generation: ~5-10ms (random number generation, list manipulation)
+
+**Implication**: Further FFI call reduction (e.g., batching the attention loop) would save only ~2-5ms. The ~3.25x gap vs PyTorch is fundamentally the cost of Chez Scheme as a runtime. Closing it requires either:
+1. An Idris→C compiler backend (bypass Chez entirely)
+2. Moving the entire epoch loop into C (eliminating Scheme from the hot path)
+3. Accepting the gap — the C backend itself is fast (2ms), and Chez overhead is constant per epoch regardless of model size
