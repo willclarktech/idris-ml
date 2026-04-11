@@ -12,9 +12,10 @@
 
 | Item | Difficulty | Notes |
 |------|-----------|-------|
+| Batch dimension support in tensor ops | L–XL | Add batch dim to `tensor_mm`, `tensor_softmax_2d`, etc. Enables processing multiple sequences in one FFI call. Same approach as PyTorch. Currently: 16 separate forwards = 4,000 FFI calls. With batching: 1 forward = 250 FFI calls. See `docs/design-decisions.md` |
 | Convolutional layers | L | Conv1D/Conv2D with autograd. Natural next layer type for image tasks |
-| Regularisation/normalisation layers | M | Dropout, layer norm, batch norm. Required for transformers and deeper models |
-| More Tensor functions | M | Partially done: `tensor_cat2`, `tensor_narrow` added for NTM pipeline. Remaining: general concat, reshape, transpose, gather/scatter, batched matmul |
+| Regularisation/normalisation layers | M | Dropout, batch norm. Layer norm done. Required for deeper models |
+| More Tensor functions | M | Partially done: `tensor_cat2`, `tensor_narrow` added for NTM pipeline. Remaining: general concat, reshape, transpose, gather/scatter |
 
 ## Low Priority
 
@@ -25,6 +26,7 @@
 | DNC (Differentiable Neural Computer) | XL | Graves et al. 2016 — temporal link matrix, dynamic memory allocation, multiple read heads |
 | `fromDouble` persistent leak | S | ~15KB/epoch, ~140MB over 10k NTM epochs. Manageable at current scale (peak 348MB). Only matters for 50k+ epoch runs |
 | Reshaping layers | M | No current use case |
+| Chez Scheme FFI performance | S–XL | Chez `foreign-procedure` overhead is ~10-50μs/call vs CPython's ~1μs. At 4,384 calls/epoch this dominates training time. Options: contribute upstream to Chez Scheme, implement custom FFI bridge, or explore Idris→C backend (bypass Chez entirely) |
 
 ## Done
 
@@ -64,6 +66,11 @@ NTM-specific:
 - Curriculum training module (multi-stage)
 
 Performance:
+- Tensor-level forward path (`applyVarTensor`, `forwardVarTensor`) — eliminates scalar packing at layer boundaries
+- `epochNativeTensorPre` + `TensorDataPoint` — zero-copy data flow from generator to C
+- C-side one-hot encoding (`tensor_one_hot`) — eliminates per-element FFI for data prep
+- Transformer: 160ms → 58ms/epoch (2.8x); C backend time unchanged at 2ms. Remaining 56ms is Chez Scheme FFI overhead (~4,384 calls/epoch × ~13μs each)
+- Backend profiling (`backend_profile_reset`/`backend_profile_report`)
 - NTM-copy: ~110ms/epoch (faster than old C backend's ~120ms)
 - Arena allocator with chunked linked list (no realloc)
 - Consecutive-data cache in tensor_stack_from_array
