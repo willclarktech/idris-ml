@@ -165,6 +165,7 @@ enum {
     OP_SOFTMAX_2D,    /* row-wise softmax on [m,n] */
     OP_MASKED_FILL,   /* fill masked positions with a value */
     OP_LAYER_NORM_2D, /* row-wise layer normalization on [m,n] */
+    OP_BMM,           /* batched matrix multiply: [B,m,n] x [n,k] -> [B,m,k] */
 };
 
 typedef struct {
@@ -620,6 +621,40 @@ TensorHandle tensor_mm(TensorHandle ha, TensorHandle hb) {
     Tensor* r = make_tensor(data, shape, 2, rg);
     free(data);
     if (rg) tape_append(OP_MM, r, a, b, 0);
+    return r;
+}
+
+/* Batched matrix-matrix multiply: [B,m,n] x [n,k] -> [B,m,k]
+   Weight matrix b is shared across all batch elements. */
+TensorHandle tensor_bmm(TensorHandle ha, TensorHandle hb) {
+    Tensor* a = (Tensor*)ha;
+    Tensor* b = (Tensor*)hb;
+    int B = a->shape[0], m = a->shape[1], n = a->shape[2], k = b->shape[1];
+    int rg = a->requires_grad || b->requires_grad;
+    double* data = calloc(B * m * k, sizeof(double));
+
+    for (int bi = 0; bi < B; bi++) {
+#ifdef __APPLE__
+        cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
+                    m, k, n, 1.0,
+                    a->data + bi * m * n, n,
+                    b->data, k,
+                    0.0, data + bi * m * k, k);
+#else
+        for (int i = 0; i < m; i++)
+            for (int j = 0; j < k; j++) {
+                double s = 0;
+                for (int p = 0; p < n; p++)
+                    s += a->data[bi*m*n + i*n+p] * b->data[p*k+j];
+                data[bi*m*k + i*k+j] = s;
+            }
+#endif
+    }
+
+    int shape[] = {B, m, k};
+    Tensor* r = make_tensor(data, shape, 3, rg);
+    free(data);
+    if (rg) tape_append(OP_BMM, r, a, b, 0);
     return r;
 }
 
@@ -1625,6 +1660,37 @@ void tensor_backward(TensorHandle h) {
                         for (int i = 0; i < mm; i++) s += a->data[i*nn+j] * r->grad[i*kk+p];
                         b->grad[j*kk+p] += s;
                     }
+            }
+            break;
+        }
+
+        case OP_BMM: {
+            /* r = a @ b where a=[B,m,n], b=[n,k], r=[B,m,k]
+               d_a[bi] = grad[bi] @ b^T, d_b = sum_bi a[bi]^T @ grad[bi] */
+            int BB = a->shape[0], mm = a->shape[1], nn = a->shape[2], kk = b->shape[1];
+            ensure_grad(r);
+            if (a && a->requires_grad) {
+                ensure_grad(a);
+                for (int bi = 0; bi < BB; bi++)
+                    for (int i = 0; i < mm; i++)
+                        for (int j = 0; j < nn; j++) {
+                            double s = 0;
+                            for (int p = 0; p < kk; p++)
+                                s += r->grad[bi*mm*kk + i*kk+p] * b->data[j*kk+p];
+                            a->grad[bi*mm*nn + i*nn+j] += s;
+                        }
+            }
+            if (b && b->requires_grad) {
+                ensure_grad(b);
+                /* Accumulate across all batch elements */
+                for (int bi = 0; bi < BB; bi++)
+                    for (int j = 0; j < nn; j++)
+                        for (int p = 0; p < kk; p++) {
+                            double s = 0;
+                            for (int i = 0; i < mm; i++)
+                                s += a->data[bi*mm*nn + i*nn+j] * r->grad[bi*mm*kk + i*kk+p];
+                            b->grad[j*kk+p] += s;
+                        }
             }
             break;
         }
