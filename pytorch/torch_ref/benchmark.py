@@ -20,6 +20,11 @@ from torch.nn.utils import clip_grad_value_
 
 from torch_ref.data.copy_task import generate_copy_batch
 from torch_ref.data.recall_task import generate_recall_batch
+from torch_ref.models.multi_head_transformer import (
+    MultiHeadTransformer,
+    generate_reversal_data,
+    train_reversal_epoch,
+)
 from torch_ref.models.ntm import NtmConfig, NtmModel
 from torch_ref.models.rnn import LinearRNNCell, generate_rnn_dataset, train_rnn_epoch
 from torch_ref.models.supervised import SUPERVISED_DATA, SupervisedModel, train_supervised_epoch
@@ -225,6 +230,26 @@ def bench_ntm_recall() -> tuple[float, float, float]:
     return _run_benchmark(run_epoch, warmup=10, epochs=100)
 
 
+def bench_multi_head_transformer() -> tuple[float, float, float]:
+    """Benchmark multi-head transformer on reversal task.
+
+    Returns (elapsed_ms, final_loss, peak_rss_mb).
+    """
+    torch.manual_seed(123456)
+    vocab_size, input_len, seq_len = 10, 5, 11
+    sep_token, eos_token = 8, 9
+    d_model, num_heads = 32, 4
+
+    model = MultiHeadTransformer(vocab_size, seq_len, d_model, num_heads)
+    data = generate_reversal_data(16, input_len, vocab_size, sep_token, eos_token)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+
+    def run_epoch() -> float:
+        return train_reversal_epoch(model, data, optimizer)
+
+    return _run_benchmark(run_epoch, warmup=100, epochs=1000)
+
+
 def main() -> None:
     print("PyTorch Benchmark")
     print("=" * 50)
@@ -256,6 +281,11 @@ def main() -> None:
 
     elapsed, loss, rss = bench_ntm_recall()
     print(f"NTM-recall (100 epochs):  {elapsed:.1f} ms")
+    print(f"  Final loss: {loss:.6f}")
+    print(f"  Peak RSS: {rss:.0f} MB")
+
+    elapsed, loss, rss = bench_multi_head_transformer()
+    print(f"MH-Transformer (1000 ep): {elapsed:.1f} ms")
     print(f"  Final loss: {loss:.6f}")
     print(f"  Peak RSS: {rss:.0f} MB")
 
