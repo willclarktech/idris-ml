@@ -23,7 +23,7 @@ prim__createScalar : Double -> Int -> AnyPtr
 prim__free : AnyPtr -> ()
 
 %foreign "C:tensor_item,libidrisml"
-prim__item : AnyPtr -> Double
+export prim__item : AnyPtr -> Double
 
 -- Arithmetic (all return new tensors — libtorch builds autograd graph)
 %foreign "C:tensor_add,libidrisml"
@@ -33,13 +33,13 @@ prim__add : AnyPtr -> AnyPtr -> AnyPtr
 prim__sub : AnyPtr -> AnyPtr -> AnyPtr
 
 %foreign "C:tensor_mul,libidrisml"
-prim__mul : AnyPtr -> AnyPtr -> AnyPtr
+export prim__mul : AnyPtr -> AnyPtr -> AnyPtr
 
 %foreign "C:tensor_div,libidrisml"
 prim__div : AnyPtr -> AnyPtr -> AnyPtr
 
 %foreign "C:tensor_neg,libidrisml"
-prim__neg : AnyPtr -> AnyPtr
+export prim__neg : AnyPtr -> AnyPtr
 
 %foreign "C:tensor_abs,libidrisml"
 prim__abs : AnyPtr -> AnyPtr
@@ -88,7 +88,7 @@ prim__bceWithLogits : AnyPtr -> AnyPtr -> AnyPtr
 
 -- Reduction
 %foreign "C:tensor_sum,libidrisml"
-prim__sum : AnyPtr -> AnyPtr
+export prim__sum : AnyPtr -> AnyPtr
 
 %foreign "C:tensor_mean,libidrisml"
 prim__mean : AnyPtr -> AnyPtr
@@ -337,6 +337,10 @@ prim__softmax2d : AnyPtr -> AnyPtr
 %foreign "C:tensor_masked_fill,libidrisml"
 export
 prim__maskedFill : AnyPtr -> AnyPtr -> Double -> AnyPtr
+
+%foreign "C:tensor_log_softmax_2d,libidrisml"
+export
+prim__logSoftmax2d : AnyPtr -> AnyPtr
 
 %foreign "C:tensor_reshape,libidrisml"
 prim__reshape : AnyPtr -> AnyPtr -> Int -> AnyPtr
@@ -984,6 +988,15 @@ getCurrentRssMB _ = prim__getCurrentRssMB
 
 %foreign "scheme:(lambda (dummy) ((foreign-procedure \"backend_memory_report\" () void)) dummy)"
 prim__memoryReport : Int -> Int
+
+%foreign "scheme:(lambda (dummy) ((foreign-procedure \"backend_reset_for_eval\" () void)) dummy)"
+prim__resetForEval : Int -> Int
+
+||| Reset tape + arena for a clean eval forward pass.
+||| Returns a dummy value that should be threaded into subsequent computation.
+export
+resetForEval : Int -> Int
+resetForEval dummy = prim__resetForEval dummy
 
 ||| Print detailed memory breakdown to stderr.
 export

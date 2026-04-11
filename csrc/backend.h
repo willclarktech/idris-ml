@@ -106,6 +106,7 @@ TensorHandle tensor_mm(TensorHandle a, TensorHandle b);
 TensorHandle tensor_transpose_2d(TensorHandle t);
 TensorHandle tensor_softmax_2d(TensorHandle t);
 TensorHandle tensor_masked_fill(TensorHandle t, TensorHandle mask, double value);
+TensorHandle tensor_log_softmax_2d(TensorHandle t);
 
 /* ---------- Autograd ---------- */
 
@@ -230,6 +231,7 @@ int backend_supports_tensor_params(void);
 int get_rss_mb(void);           /* peak RSS in MB (getrusage) */
 int get_current_rss_mb(void);   /* current RSS in MB (macOS mach_task_info) */
 void backend_memory_report(void); /* print detailed memory breakdown to stderr */
+void backend_reset_for_eval(void); /* reset tape + arena for clean eval forward */
 
 /* ---------- Debug ---------- */
 

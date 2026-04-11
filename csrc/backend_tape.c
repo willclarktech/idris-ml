@@ -159,6 +159,7 @@ enum {
     OP_CAT,       /* concatenate two 1D tensors: [a] ++ [b] -> [a+b] */
     OP_NARROW,    /* view into a slice of a 1D tensor */
     OP_NTM_READ_HEAD_READ, /* read output — shares NtmReadHeadMeta with OP_NTM_READ_HEAD */
+    OP_LOG_SOFTMAX_2D, /* row-wise log-softmax on [m,n] */
     OP_MM,            /* [m,n] x [n,k] -> [m,k] matrix-matrix multiply */
     OP_TRANSPOSE_2D,  /* [m,n] -> [n,m] transpose */
     OP_SOFTMAX_2D,    /* row-wise softmax on [m,n] */
@@ -641,6 +642,37 @@ TensorHandle tensor_softmax_2d(TensorHandle h) {
     free(data);
     if (r->requires_grad) tape_append(OP_SOFTMAX_2D, r, t, NULL, 0);
     return r;
+}
+
+/* Row-wise log-softmax on 2D tensor: [m,n] -> [m,n] */
+TensorHandle tensor_log_softmax_2d(TensorHandle h) {
+    Tensor* t = (Tensor*)h;
+    int m = t->shape[0], n = t->shape[1];
+    double* data = malloc(m * n * sizeof(double));
+    for (int i = 0; i < m; i++) {
+        double max_val = t->data[i*n];
+        for (int j = 1; j < n; j++)
+            if (t->data[i*n+j] > max_val) max_val = t->data[i*n+j];
+        double sum_exp = 0;
+        for (int j = 0; j < n; j++) sum_exp += exp(t->data[i*n+j] - max_val);
+        double log_sum = log(sum_exp) + max_val;
+        for (int j = 0; j < n; j++) data[i*n+j] = t->data[i*n+j] - log_sum;
+    }
+    int shape[] = {m, n};
+    Tensor* r = make_tensor(data, shape, 2, t->requires_grad);
+    free(data);
+    if (r->requires_grad) tape_append(OP_LOG_SOFTMAX_2D, r, t, NULL, 0);
+    return r;
+}
+
+/* Element-wise multiply for multi-element tensors (same shape) */
+TensorHandle tensor_mul_elementwise(TensorHandle ha, TensorHandle hb) {
+    return tensor_mul(ha, hb);  /* tensor_mul already handles multi-element via binop_elementwise */
+}
+
+/* Sum all elements of a tensor (not just scalar) */
+TensorHandle tensor_sum_all(TensorHandle h) {
+    return tensor_sum(h);  /* tensor_sum already sums all elements */
 }
 
 /* Masked fill: replace positions where mask[i]=1 with value */
@@ -1547,6 +1579,25 @@ void tensor_backward(TensorHandle h) {
             break;
         }
 
+        case OP_LOG_SOFTMAX_2D: {
+            /* Row-wise log-softmax backward.
+               d_input[i,j] = d_output[i,j] - softmax[i,j] * sum_k(d_output[i,k])
+               where softmax[i,j] = exp(output[i,j]) since output = log_softmax */
+            int mm = r->shape[0], nn = r->shape[1];
+            ensure_grad(r);
+            if (a) {
+                ensure_grad(a);
+                for (int i = 0; i < mm; i++) {
+                    double sum_grad = 0;
+                    for (int j = 0; j < nn; j++)
+                        sum_grad += r->grad[i*nn+j];
+                    for (int j = 0; j < nn; j++)
+                        a->grad[i*nn+j] += r->grad[i*nn+j] - exp(r->data[i*nn+j]) * sum_grad;
+                }
+            }
+            break;
+        }
+
         case OP_MASKED_FILL: {
             /* Gradient passes through where mask is 0, zero where mask is 1 */
             ensure_grad(r);
@@ -2423,6 +2474,17 @@ int get_current_rss_mb(void) {
         return (int)(info.resident_size / (1024 * 1024));
 #endif
     return get_rss_mb();
+}
+
+void backend_reset_for_eval(void) {
+    tape_reset();
+    /* Re-register params so they have valid tape indices */
+    for (int j = 0; j < param_count_val; j++) {
+        Tensor* t = param_registry[j].tensor;
+        t->tape_idx = -1;
+        if (t->grad) memset(t->grad, 0, t->numel * sizeof(double));
+        tape_append(OP_CONST, t, NULL, NULL, 0);
+    }
 }
 
 void backend_memory_report(void) {
