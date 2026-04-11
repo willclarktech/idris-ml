@@ -10,8 +10,11 @@ Deep learning library in Idris 2 with compile-time tensor shape checking and aut
 ## Build Commands
 
 ```bash
-# Build libtorch backend (required before running examples)
+# Build C tape backend (default, no external dependencies)
 make backend
+
+# Build libtorch backend (optional, requires libtorch)
+make BACKEND=torch backend
 
 # Type-check all library modules
 idris2 --build idris-ml.ipkg
@@ -19,12 +22,13 @@ idris2 --build idris-ml.ipkg
 # Type-check a single module
 idris2 --source-dir src -p contrib --check src/<File>.idr
 
-# Build and run an example (all examples accept --help for CLI flags)
+# Build and run an example (all examples accept --epochs, --lr, --seed)
 idris2 --source-dir src -p contrib -o <name> src/Example/<Name>.idr && ./build/exec/<name>
 
 # Tests
-make test            # Idris unit tests
-make test-backend    # C backend tests
+make test                # Idris unit tests
+make test-backend-tape   # C tape backend tests
+make test-backend-torch  # libtorch backend tests (requires BACKEND=torch)
 
 # Benchmarks
 make bench           # Idris benchmark (Supervised + RNN + NTM)
@@ -213,7 +217,7 @@ See [`docs/gotchas.md`](docs/gotchas.md) for detailed explanations of each entry
 - **`prim__seq` ordering**: use `prim__seq a b` to force evaluation order when no data dependency exists
 - **`foreign-set! 'void*` corruption**: do NOT store C pointers via `foreign-set! 'void*` — corrupts memory. Use C helpers
 - **Chez output buffering**: stdout fully buffered when piped. Use `stdbuf -oL ./build/exec/<name>`
-- **libtorch backend required**: `make backend` builds `libidrisml_torch.dylib`. Manual builds need `cp build/libidrisml_torch.dylib build/exec/<name>_app/`
+- **Backend library required**: `make backend` builds `libidrisml.dylib` (C tape backend by default). Manual builds need `cp build/libidrisml.dylib build/exec/<name>_app/`
 - **Scheme-side allocation reordering**: `foreign-alloc`/`foreign-set!` can be reordered by Chez — use C-side allocation (`tensor_alloc_doubles`/`tensor_write_double`) instead
 - **`prim__seq` must use concrete types**: polymorphic `a -> b -> b` causes Chez arg count mismatch. Use `AnyPtr -> AnyPtr -> AnyPtr`
 
