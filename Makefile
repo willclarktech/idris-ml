@@ -29,6 +29,17 @@ ifeq ($(BACKEND), torch)
     BACKEND_FLAGS := -std=c++17 -O2 -shared -fPIC -I$(TORCH_INC) -I$(TORCH_INC_API) -L$(TORCH_LIB) -ltorch -ltorch_cpu -lc10 -Wl,-rpath,$(TORCH_LIB)
     BACKEND_CC := c++
   endif
+else ifeq ($(BACKEND), mlx)
+  # MLX backend: Apple Metal GPU via MLX C++ API
+  MLX_SITE := $(shell python3 -c "import mlx; import os; print(os.path.dirname(mlx.__file__))" 2>/dev/null)
+  MLX_INC := $(MLX_SITE)/include
+  MLX_LIB := $(MLX_SITE)/lib
+  BACKEND_SRC := csrc/backend_mlx.cpp
+  ifeq ($(UNAME), Darwin)
+    LIB := $(BUILD)/libidrisml.dylib
+    BACKEND_FLAGS := -std=c++20 -O2 -shared -I$(MLX_INC) -L$(MLX_LIB) -lmlx -Wl,-rpath,$(MLX_LIB) -framework Accelerate -framework Metal -framework Foundation
+    BACKEND_CC := c++
+  endif
 else
   # Tape backend (default): custom C, no libtorch dependency
   BACKEND_SRC := csrc/backend_tape.c
