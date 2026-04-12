@@ -139,9 +139,9 @@ main = do
 
   let opt = nativeRmsprop cfg.lr cfg.alpha cfg.eps cfg.clipVal cfg.momentum
 
-  -- Data source: generate fresh batch each epoch
-  let genBatch : IO (Vect (cfg.batch) (TwoPhaseDataPoint InputW OutputW Variable))
-      genBatch = map (map fromDouble) <$> copyTaskBinaryBatchVect {w = W} cfg.batch cfg.minLen cfg.maxLen
+  -- Data source: fresh batch each epoch (raw Doubles — epochTwoPhaseTensor handles conversion)
+  let genBatch : IO (Vect (cfg.batch) (TwoPhaseDataPoint InputW OutputW Double))
+      genBatch = copyTaskBinaryBatchVect {w = W} cfg.batch cfg.minLen cfg.maxLen
 
   -- Metrics: bit accuracy + memory (computed at each log step)
   let evalMetrics : Network InputW [] OutputW Variable -> IO (List (String, String))
@@ -159,7 +159,7 @@ main = do
                    (WindowedAvg cfg.esThreshold cfg.esWindow cfg.esPatience) evalMetrics
 
   (trained, epochsDone, _) <- runTraining
-    (\m, d => epochTwoPhaseBceNative opt d m) genBatch trainCfg model
+    (\m, d => epochTwoPhaseTensor opt d m) genBatch trainCfg model
 
   -- Evaluation
   let dblModel = toDoubleNetwork (emap refreshValue trained)

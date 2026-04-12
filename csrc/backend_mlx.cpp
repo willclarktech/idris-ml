@@ -63,7 +63,7 @@ enum {
     OP_MASKED_FILL, OP_LAYER_NORM_2D,
     OP_RESHAPE, OP_NARROW, OP_CAT,
     OP_POW, OP_ABS,
-    OP_STACK,
+    OP_STACK, OP_OUTER,
 };
 
 struct LayerNormMeta {
@@ -337,7 +337,7 @@ TensorHandle tensor_outer(TensorHandle ha, TensorHandle hb) {
     auto a = (Tensor*)ha; auto b = (Tensor*)hb;
     bool rg = a->requires_grad || b->requires_grad;
     auto r = new Tensor(mx::outer(a->data, b->data), rg);
-    // TODO: proper OP_OUTER backward
+    if (rg) tape_append(OP_OUTER, r, a, b, 0);
     return (TensorHandle)r;
 }
 
@@ -375,13 +375,118 @@ TensorHandle tensor_mse_loss(TensorHandle input, TensorHandle target) { STUB(); 
    NTM-specific
    ================================================================ */
 
-TensorHandle tensor_cosine_similarity(TensorHandle a, TensorHandle b, int dim) { STUB(); }
-TensorHandle tensor_conv1d_circular(TensorHandle input, TensorHandle kernel) { STUB(); }
-TensorPair* tensor_ntm_read_head(TensorHandle memory, TensorHandle prev_weights,
-    TensorHandle key, TensorHandle beta, TensorHandle g,
-    TensorHandle gamma, TensorHandle shift_kernel) { STUB(); }
-TensorHandle tensor_ntm_interp_write(TensorHandle memory, TensorHandle weights,
-    TensorHandle add_vector) { STUB(); }
+TensorHandle tensor_cosine_similarity(TensorHandle hmemory, TensorHandle hkey, int dim) {
+    // Decompose using tensor_* wrappers for proper tape recording
+    // memory=[n,m], key=[m] → result=[n]
+    auto mem = (Tensor*)hmemory;
+    int n = (int)mem->data.shape(0);
+    int m = (int)mem->data.shape(1);
+
+    // key as column: [m,1]
+    int col_shape[] = {m, 1};
+    TensorHandle key_col = tensor_reshape(hkey, col_shape, 2);
+    // dots = memory @ key_col → [n,1]
+    TensorHandle dots_2d = tensor_mm(hmemory, key_col);
+    // Flatten to [n]
+    int n_shape[] = {n};
+    TensorHandle dots = tensor_reshape(dots_2d, n_shape, 1);
+
+    // Row norms: sqrt(sum(memory^2, axis=1) + eps)
+    // Using mx:: directly for norm computation (read-only, no grad needed for norms as divisor)
+    mx::eval(mem->data);
+    auto a_sq = mx::square(mem->data);
+    auto a_sum = mx::sum(a_sq, {1});
+    auto a_norms = mx::sqrt(mx::add(a_sum, mx::array(1.0e-8)));
+    auto key_t = ((Tensor*)hkey)->data;
+    mx::eval(key_t);
+    auto b_norm = mx::sqrt(mx::add(mx::sum(mx::square(key_t)), mx::array(1.0e-8)));
+    auto norms = mx::multiply(a_norms, b_norm);
+
+    // result = dots / norms (element-wise)
+    auto norms_tensor = new Tensor(norms, false);
+    return tensor_div(dots, (TensorHandle)norms_tensor);
+}
+
+TensorHandle tensor_conv1d_circular(TensorHandle hinput, TensorHandle hkernel) {
+    // Circular convolution for shift kernel (typically size 3)
+    auto inp = (Tensor*)hinput; auto kern = (Tensor*)hkernel;
+    int n = (int)inp->data.size();
+    int k = (int)kern->data.size();
+
+    // For kernel size 3: out[i] = k[0]*in[(i-1+n)%n] + k[1]*in[i] + k[2]*in[(i+1)%n]
+    // Use mx::roll for circular shifts
+    mx::array result = mx::zeros({n}, mx::float64);
+    int half_k = k / 2;
+    for (int j = 0; j < k; j++) {
+        int shift = half_k - j;  // k=3: shifts are [1, 0, -1]
+        auto shifted = mx::roll(inp->data, shift);
+        auto kern_j = mx::take(kern->data, mx::array(j));
+        result = mx::add(result, mx::multiply(shifted, kern_j));
+    }
+
+    bool rg = inp->requires_grad || kern->requires_grad;
+    auto r = new Tensor(result, rg);
+    return (TensorHandle)r;
+}
+
+TensorPair* tensor_ntm_read_head(TensorHandle hmemory, TensorHandle hprev_weights,
+    TensorHandle hkey, TensorHandle hbeta, TensorHandle hg,
+    TensorHandle hgamma, TensorHandle hshift_kernel) {
+    // Decompose the 7-step read head pipeline using existing tensor_* functions
+    // This way each sub-op records its own tape entry for backward.
+
+    // 1. Content addressing: cosine_sim * beta → softmax
+    TensorHandle cos_sim = tensor_cosine_similarity(hmemory, hkey, 0);
+    TensorHandle scaled = tensor_mul(cos_sim, hbeta);
+    TensorHandle content_weights = tensor_softmax(scaled, 0);
+
+    // 2. Interpolation: g * content + (1-g) * prev
+    TensorHandle one = tensor_create_scalar(1.0, 0);
+    TensorHandle one_minus_g = tensor_sub(one, hg);
+    TensorHandle g_content = tensor_mul(hg, content_weights);
+    TensorHandle omg_prev = tensor_mul(one_minus_g, hprev_weights);
+    TensorHandle interp = tensor_add(g_content, omg_prev);
+
+    // 3. Circular shift
+    TensorHandle shifted = tensor_conv1d_circular(interp, hshift_kernel);
+
+    // 4. Clamp + power sharpen + normalize
+    TensorHandle clamped = tensor_clamp_min(shifted, 1.0e-10);
+    TensorHandle powered = tensor_pow(clamped, hgamma);
+    TensorHandle power_sum = tensor_sum(powered);
+    TensorHandle eps = tensor_create_scalar(1.0e-10, 0);
+    TensorHandle power_sum_eps = tensor_add(power_sum, eps);
+    TensorHandle focused = tensor_div(powered, power_sum_eps);
+
+    // 5. Read from memory: focused @ memory → [m]
+    // focused is [n], memory is [n, m]
+    // read_out[j] = sum_i(focused[i] * memory[i,j])
+    // This is: reshape focused to [1, n], matmul [1,n] × [n,m] → [1, m], squeeze
+    auto f = (Tensor*)focused;
+    auto m = (Tensor*)hmemory;
+    int n_slots = (int)m->data.shape(0);
+    int m_width = (int)m->data.shape(1);
+    auto f_row = mx::reshape(f->data, {1, n_slots});
+    auto read_2d = mx::matmul(f_row, m->data);  // [1, m]
+    auto read_out = mx::reshape(read_2d, {m_width}); // [m]
+    bool rg = f->requires_grad || m->requires_grad;
+    auto read_tensor = new Tensor(read_out, rg);
+    // Record MM for backward
+    auto f_reshaped = new Tensor(f_row, f->requires_grad);
+    if (rg) tape_append(OP_MM, read_tensor, f_reshaped, (Tensor*)hmemory, 0);
+
+    auto pair = (TensorPair*)malloc(sizeof(TensorPair));
+    pair->first = focused;
+    pair->second = (TensorHandle)read_tensor;
+    return pair;
+}
+
+TensorHandle tensor_ntm_interp_write(TensorHandle hmemory, TensorHandle hweights,
+    TensorHandle hadd_vector) {
+    // memory_new = memory + outer(weights, add_vector)
+    TensorHandle outer_prod = tensor_outer(hweights, hadd_vector);
+    return tensor_add(hmemory, outer_prod);
+}
 
 /* ================================================================
    Shape manipulation
@@ -739,6 +844,21 @@ void tensor_backward(TensorHandle h) {
             int split = (int)e.scalar_arg;
             if (a && a->requires_grad) { ensure_grad(a); a->grad = mx::add(a->grad, mx::slice(r->grad, {0}, {split})); }
             if (b && b->requires_grad) { ensure_grad(b); b->grad = mx::add(b->grad, mx::slice(r->grad, {split}, {(int)r->data.size()})); }
+            break;
+        }
+
+        case OP_OUTER: {
+            // r = outer(a, b) where a=[n], b=[m], r=[n,m]
+            // d_a[i] = sum_j(grad[i,j] * b[j])
+            // d_b[j] = sum_i(grad[i,j] * a[i])
+            if (a && a->requires_grad) {
+                ensure_grad(a);
+                a->grad = mx::add(a->grad, mx::sum(mx::multiply(r->grad, b->data), {1}));
+            }
+            if (b && b->requires_grad) {
+                ensure_grad(b);
+                b->grad = mx::add(b->grad, mx::sum(mx::multiply(r->grad, mx::reshape(a->data, {(int)a->data.size(), 1})), {0}));
+            }
             break;
         }
 
