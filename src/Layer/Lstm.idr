@@ -30,6 +30,7 @@ tanhBound x = 2 * (1 / (1 + exp (negate (2 * x)))) - 1
 ----------------------------------------------------------------------
 
 ||| Coerce `Vector (o + 0) ty` to `Vector o ty`.
+export
 coerceLastGate : {o : Nat} -> Vector (o + 0) ty -> Vector o ty
 coerceLastGate {o} v = rewrite sym (plusZeroRightNeutral o) in v
 

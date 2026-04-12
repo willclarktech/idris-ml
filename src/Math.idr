@@ -165,6 +165,64 @@ vectorMatrixMultiply = flip matrixVectorMultiply
 
 
 ----------------------------------------------------------------------
+-- Matrix Operations (pure Idris, type-safe)
+----------------------------------------------------------------------
+
+||| Matrix multiply: [m, n] × [n, k] -> [m, k].
+||| Each output[i,j] = dot(row_i of A, col_j of B).
+export
+matrixMultiply : Num ty => {m, n, k : Nat} -> Matrix m n ty -> Matrix n k ty -> Matrix m k ty
+matrixMultiply (VTensor aRows) b =
+  let VTensor bCols = transpose b  -- [k, n]
+  in VTensor $ map (\aRow => VTensor $ map (\bCol => STensor (dotProduct aRow bCol)) bCols) aRows
+
+||| Row-wise softmax on a matrix: each row independently normalized.
+export
+softmaxMatrix : (FromDouble ty, Floating ty, Fractional ty, Neg ty, Ord ty) =>
+                {m, n : Nat} -> Matrix m n ty -> Matrix m n ty
+softmaxMatrix (VTensor rows) = VTensor $ map (\row => softmax row) rows
+
+||| Element-wise clamp minimum.
+export
+clampMinTensor : (Num ty, Ord ty) => ty -> Tensor dims ty -> Tensor dims ty
+clampMinTensor minVal (STensor x) = STensor (max minVal x)
+clampMinTensor minVal (VTensor xs) = VTensor (map (clampMinTensor minVal) xs)
+
+||| Reshape flat vector to matrix: Vector (m * n) -> Matrix m n.
+||| Type-safe: uses Tensor.splitAt which unifies (S k)*n = n + (k*n) via Refl.
+export
+reshapeToMatrix : {m, n : Nat} -> Vector (m * n) ty -> Matrix m n ty
+reshapeToMatrix {m = Z} _ = VTensor []
+reshapeToMatrix {m = S k} {n} vec =
+  let (row, rest) = Tensor.splitAt n vec  -- (S k)*n = n + (k*n) by definition
+  in VTensor (row :: case reshapeToMatrix {m=k} {n} rest of VTensor rows => rows)
+
+||| Flatten matrix to vector: Matrix m n -> Vector (m * n).
+||| Type-safe: (S k)*n = n + (k*n) lets us concatenate Vects directly.
+export
+flattenMatrix : {m, n : Nat} -> Matrix m n ty -> Vector (m * n) ty
+flattenMatrix {m = Z} _ = VTensor []  -- 0 * n = 0 by definition
+flattenMatrix {m = S k} {n} (VTensor (VTensor row :: rest)) =
+  let VTensor restFlat = flattenMatrix {m=k} {n} (VTensor rest)
+  in VTensor (row ++ restFlat)  -- n + (k*n) = (S k)*n by definition
+
+||| Scalar multiply each element of a matrix.
+export
+scaleMatrix : Num ty => ty -> Matrix m n ty -> Matrix m n ty
+scaleMatrix s (VTensor rows) = VTensor $ map (\row => map (* s) row) rows
+
+||| Apply causal mask: set upper triangle to a large negative value.
+export
+causalMaskMatrix : (FromDouble ty, Num ty) => {n : Nat} -> Matrix n n ty -> Matrix n n ty
+causalMaskMatrix {n} mat =
+  let maskVal : Fin n -> Fin n -> ty -> ty
+      maskVal i j x = if finToNat j > finToNat i then fromDouble (-1.0e20) else x
+      maskRow : Fin n -> Vector n ty -> Vector n ty
+      maskRow i (VTensor elems) = VTensor $ zipWith (\j, e => case e of STensor x => STensor (maskVal i j x)) Data.Vect.Fin.range elems
+  in VTensor $ zipWith (\i, row => maskRow i row) Data.Vect.Fin.range (case mat of VTensor rs => rs)
+
+
+----------------------------------------------------------------------
 -- Evaluation Metrics
 ----------------------------------------------------------------------
 

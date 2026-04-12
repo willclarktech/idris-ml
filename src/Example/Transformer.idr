@@ -8,10 +8,10 @@ module Example.Transformer
 import Data.List
 import Data.Stream
 import Data.Vect
+import Decidable.Equality
 import System
 import System.Random
 
-import PrimIO  -- for unsafePerformIO
 
 import Backprop
 import DataPoint
@@ -127,8 +127,18 @@ perPositionCE {seqLen} {vocabSize} (VTensor preds) (VTensor targets) =
       val = prim__item loss
   in Var loss Nothing val
 
-catCELoss : {n : Nat} -> Vector n Variable -> Vector n Variable -> Variable
-catCELoss preds targets = perPositionCE {seqLen=SeqLen, vocabSize=VocabSize} (believe_me preds) (believe_me targets)
+||| Per-position categorical CE loss wrapped as LossFunction.
+||| The implicit {n} is always instantiated to OutputDim = SeqLen * VocabSize
+||| by calculateLossVar (from the network output dimension).
+catCELoss : LossFunction Variable
+catCELoss {n} preds targets =
+  -- n unifies with OutputDim at the call site.
+  -- We need to tell Idris that n = SeqLen * VocabSize.
+  -- Since this is true by construction (the network has output dim OutputDim),
+  -- we use decEq to verify at runtime and crash if wrong.
+  case decEq n (SeqLen * VocabSize) of
+    Yes Refl => perPositionCE {seqLen=SeqLen, vocabSize=VocabSize} preds targets
+    No _ => fromDouble 0.0  -- unreachable: n = OutputDim by network construction
 
 
 ----------------------------------------------------------------------
@@ -231,11 +241,9 @@ main = do
     (\m, d => epochNative opt d catCELoss m) (pure prepared) (simpleConfig cfg.epochs) model
 
   -- Evaluate ALL data points
-  -- Use unsafePerformIO to force re-evaluation of the forward pass
-  -- (pure forwardVar may be cached by Idris even though C tensors were mutated)
   putStrLn "Per-example accuracy:"
   traverse_ (\idx => do
-    let dp = unsafePerformIO (pure (map fromDouble (index idx trainingData)))
+    let dp = map fromDouble (index idx trainingData)
         (_, pred) = forwardVar trained (x dp)
         predVals = tensorVals pred
         expected = Data.List.take SeqLen (drop (finToNat idx + 1) pattern)

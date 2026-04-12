@@ -815,9 +815,10 @@ lstmCellVar {o} mulIW mulRW bias prevCell =
       iGate = fst s1      -- input gate
       fGate = fst s2      -- forget gate
       gGate = fst s3      -- cell gate
-      -- oGate needs coercion: (4*o) - o - o - o may not reduce to o
+      -- After 3 splits from Vector (4*o), remainder is Vector (o + 0).
+      -- Prove o + 0 = o via plusZeroRightNeutral.
       oGate : Vector o Variable
-      oGate = believe_me (snd s3)
+      oGate = rewrite sym (plusZeroRightNeutral o) in snd s3
       -- Apply activations and compute new cell/hidden
       newCell = map sigmoidVar fGate * prevCell + map sigmoidVar iGate * map tanhVar gGate
       newHidden = map sigmoidVar oGate * map tanhVar newCell
