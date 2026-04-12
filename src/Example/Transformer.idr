@@ -215,8 +215,9 @@ main = do
 
   tfm <- mkTransformer {seqLen=SeqLen, dModel=DModel, numHeads=NumHeads,
                          headDim=HeadDim, numBlocks=NumBlocks, vocabSize=VocabSize}
+  -- Name once — use the same named state for both model and batch forward
   let namedTfm = nameLayer "tfm0" tfm
-      model = autoName $ OutputLayer (MkAnyLayer
+      model = OutputLayer (MkAnyLayer
         (TransformerState SeqLen DModel NumHeads HeadDim NumBlocks VocabSize) namedTfm)
   putStrLn $ "Model: " ++ show model
   putStrLn ""
@@ -246,8 +247,9 @@ main = do
 
   let trainCfg = MkTrainConfig cfg.epochs 100 (Patience cfg.patience 0.001) evalMetrics
 
+  let batchFwd = transformerForwardBatch namedTfm
   (trained, epochsDone, finalLoss) <- runTraining
-    (\m, d => epochNativeTensorPre opt d catCELossTensor m) genBatch trainCfg model
+    (\m, d => epochNativeTensorBatch opt d batchFwd catCELossTensor m) genBatch trainCfg model
 
   -- Evaluate on a fresh example
   putStrLn ""
