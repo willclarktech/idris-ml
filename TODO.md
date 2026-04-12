@@ -69,8 +69,8 @@ Performance:
 - Tensor-level forward path (`applyVarTensor`, `forwardVarTensor`) — eliminates scalar packing at layer boundaries
 - `epochNativeTensorPre` + `TensorDataPoint` — zero-copy data flow from generator to C
 - C-side one-hot encoding (`tensor_one_hot`) — eliminates per-element FFI for data prep
-- Transformer: 160ms → 52ms/epoch (3.1x). C backend: 2ms. Remaining ~50ms is Chez Scheme runtime overhead (GC, thunk evaluation, list allocation), not FFI marshaling — see `docs/design-decisions.md`
-- Batched transformer forward: projections/FF/norms as `[B*seqLen, dim]` matmuls, per-sequence loop only for attention
+- Transformer: 160ms → 56ms/epoch (2.9x). C backend: 2ms. Remaining ~54ms is Chez Scheme runtime overhead (GC, thunk evaluation, list allocation), not FFI marshaling — see `docs/design-decisions.md`
+- Batched transformer forward (`transformerForwardBatch`): projections/FF/norms batched as `[B*seqLen, dim]`, per-sequence loop only for attention. Fixed double-nameLayer bug (stale weight handles)
 - Backend profiling (`backend_profile_reset`/`backend_profile_report`)
 - NTM-copy: ~110ms/epoch (faster than old C backend's ~120ms)
 - Arena allocator with chunked linked list (no realloc)

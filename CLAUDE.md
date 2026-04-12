@@ -238,6 +238,7 @@ See [`docs/gotchas.md`](docs/gotchas.md) for detailed explanations of each entry
 ### Training & numerics
 
 - **`paramId` / autoName**: variables without paramId are invisible to gradients. Always `autoName` before training
+- **Double `nameLayer`**: calling `nameLayer` then `autoName` creates TWO sets of parameter tensors. The first set becomes stale (optimizer only updates the second). If holding a direct state reference, name once and skip `autoName`
 - **`setParamId` enables requires_grad**: Variables from `fromDouble` have `requires_grad=false`. `nameParam`/`setParamId` must upgrade them
 - **`logSoftmax` + `nllLoss`**: separate softmax+CE creates 1/pp intermediates (up to 1e6). Use `logSoftmaxLayer` + `nllLoss`
 - **Gradient clipping**: use `NormClip` for recurrent models (preserves direction). `ValueClip` per-param

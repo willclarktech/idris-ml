@@ -78,6 +78,17 @@ Gradient flow, numerical stability, and training patterns.
 
 Variables without a `paramId` (i.e., `Nothing`) are invisible to gradient collection and won't receive updates. Use `autoName` (preferred) or `nameParams`/`nameNetworkParams` before training. `autoName` assigns type-based prefixes with per-type counters (`ll0`, `ll1`, `rnn0`, `lstm0`, `ntm0`, ...) and scopes NTM sub-layer names under their parent (`ntm0_lstm0_`, `ntm0_readFc_ll0_`), preventing the collision bug in `nameNetworkParams`. `setParamId` writes to both the Variable record and the tape's pid vector.
 
+### Double `nameLayer` creates stale handles
+
+Calling `nameLayer` on a layer state, then wrapping it in `autoName $ OutputLayer (MkAnyLayer ...)`, names the state TWICE. Each `nameLayer` call creates new consolidated parameter tensors via `prim__paramRegister`. The first set becomes stale — the optimizer only updates the second set (from `autoName`). If you hold a reference to the pre-`autoName` state (e.g., for a batched forward function), it reads stale weights and the model won't converge.
+
+Fix: either use `autoName` alone (let it call `nameLayer` internally), or call `nameLayer` once and skip `autoName`. If you need both a `Network` and a direct state reference, name once and share:
+
+```idris
+let namedTfm = nameLayer "tfm0" tfm
+    model = OutputLayer (MkAnyLayer ... namedTfm)  -- no autoName
+```
+
 ### Tape generation staleness
 
 After `collectGrads` resets the tape (gen++), Variables from the previous epoch are stale. `ensureOnTape` detects this via generation mismatch and re-registers with current `.value`. Same stale Variable used N times creates N Const entries — gradients accumulate correctly via `mergeWith (+)` on paramId.

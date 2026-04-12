@@ -547,9 +547,11 @@ Systematic investigation of the gap between Idris (52ms/epoch) and PyTorch (16ms
 | Baseline (scalar packing) | 160ms | ~33,800 | 1x |
 | Tensor-level forward (`applyVarTensor`) | 98ms | ~4,400 | 1.6x |
 | C-side one-hot encoding + `TensorDataPoint` | 58ms | ~4,400 | 2.8x |
-| Batched projections (`[B*seqLen, dim]` matmuls) | 52ms | ~1,220 | 3.1x |
+| Batched projections (`[B*seqLen, dim]` matmuls) | 56ms | ~1,220 | 2.9x |
 
-C backend time was **2ms/epoch throughout** — unchanged by any optimization. The 160ms → 52ms improvement came entirely from reducing Idris/Scheme overhead.
+C backend time was **2ms/epoch throughout** — unchanged by any optimization. The 160ms → 56ms improvement came entirely from reducing Idris/Scheme overhead.
+
+**Double-nameLayer bug** (2026-04-11): The batched forward initially appeared to have incorrect gradients (model wouldn't converge). Root cause: `nameLayer` was called twice — once explicitly on the transformer state, then again by `autoName`. This created two sets of parameter tensors. The batched forward closure captured the first (stale) set while the optimizer updated the second. C backward rules were correct throughout (verified by finite-difference gradient checks). Fix: name once, skip `autoName`, share the same named state between the model Network and the batched forward function.
 
 **Why reducing FFI calls didn't help as predicted**: We estimated ~13μs per FFI call (56ms ÷ 4,384 calls). Reducing calls from 4,384 to 1,220 should have saved ~41ms. Actual savings: 6ms. The ~13μs figure was wrong — most of the 56ms was Chez Scheme runtime cost (GC, thunk evaluation, list allocation, closure dispatch), not FFI marshaling overhead. FFI marshaling is ~1-2μs per call; the rest is Scheme computation between calls.
 
