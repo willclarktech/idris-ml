@@ -5,7 +5,6 @@
 | Item | Difficulty | Notes |
 |------|-----------|-------|
 | Reinforcement learning example | L–XL | Policy gradient (e.g. REINFORCE on CartPole or grid world). Requires: environment interface, episode rollout, discounted return computation, policy gradient loss (`-log_prob * reward`). May need: `Categorical` distribution sampling from logits, baseline variance reduction. Could reuse `Train.runTraining` with episodes as "epochs" |
-| MLX backend: NTM gradient flow | M | NTM on MLX: decomposed ops (cosine_sim, conv1d_circular) use mx:: directly without tape entries — backward won't flow through them. Need to wrap in tensor_* calls or add custom OP entries |
 
 ## Medium Priority
 
