@@ -244,6 +244,10 @@ void backend_reset_for_eval(void); /* reset tape + arena for clean eval forward 
 void backend_profile_reset(void);
 void backend_profile_report(void);
 
+/* ---------- Backend Info ---------- */
+
+const char* backend_name(void);
+
 /* ---------- Debug ---------- */
 
 void tensor_print(TensorHandle t);

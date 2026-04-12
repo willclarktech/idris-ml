@@ -2855,6 +2855,8 @@ void backend_profile_report(void) {
    Debug
    ================================================================ */
 
+const char* backend_name(void) { return "tape"; }
+
 void tensor_print(TensorHandle h) {
     Tensor* t = (Tensor*)h;
     if (t->rank == 0) {

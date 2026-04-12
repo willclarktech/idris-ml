@@ -1090,6 +1090,14 @@ export
 zeroAllGrads : IO ()
 zeroAllGrads = primIO prim__zeroAllGradsC
 
+%foreign "C:backend_name,libidrisml"
+prim__backendName : String
+
+||| Get the name of the active backend ("tape", "mlx", "torch").
+export
+backendName : String
+backendName = prim__backendName
+
 %foreign "C:backend_profile_reset,libidrisml"
 prim__profileResetC : PrimIO ()
 

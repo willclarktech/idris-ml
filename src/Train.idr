@@ -8,6 +8,7 @@ import Data.Nat
 import System.Clock
 
 import Util
+import Variable
 
 
 ----------------------------------------------------------------------
@@ -127,7 +128,7 @@ runTraining :
   IO (model, Nat, Double)
 runTraining {model} epochFn dataSrc cfg model0 = do
   tStart <- clockTime Monotonic
-  putStrLn "Training..."
+  putStrLn $ "Training... [backend=" ++ backendName ++ "]"
   result@(m, epochsDone, loss) <- case cfg.earlyStop of
     NoEarlyStop => goSimple 0 model0 0.0 tStart
     Patience pat minD => goPatience 0 model0 (1.0/0.0) 0 tStart pat minD

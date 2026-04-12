@@ -678,6 +678,10 @@ int get_current_rss_mb(void) {
     return get_rss_mb(); /* fallback to peak */
 }
 
+/* ---------- Backend Info ---------- */
+
+const char* backend_name(void) { return "torch"; }
+
 /* ---------- Debug ---------- */
 
 void tensor_print(TensorHandle h) {
