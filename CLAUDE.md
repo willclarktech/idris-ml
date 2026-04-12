@@ -13,6 +13,9 @@ Deep learning library in Idris 2 with compile-time tensor shape checking and aut
 # Build C tape backend (default, no external dependencies)
 make backend
 
+# Build MLX backend (Apple Metal GPU, requires python3Packages.mlx from nix)
+make BACKEND=mlx MLX_SITE=/path/to/mlx backend
+
 # Build libtorch backend (optional, requires libtorch)
 make BACKEND=torch backend
 

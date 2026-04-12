@@ -5,7 +5,7 @@
 | Item | Difficulty | Notes |
 |------|-----------|-------|
 | Reinforcement learning example | L–XL | Policy gradient (e.g. REINFORCE on CartPole or grid world). Requires: environment interface, episode rollout, discounted return computation, policy gradient loss (`-log_prob * reward`). May need: `Categorical` distribution sampling from logits, baseline variance reduction. Could reuse `Train.runTraining` with episodes as "epochs" |
-| MLX backend | XL | Apple Metal GPU via [mlx-c](https://github.com/ml-explore/mlx-c). New `backend_mlx.c` implementing `backend.h`. Build-time selection: `make BACKEND=mlx backend`. Would give GPU acceleration on Apple Silicon with the same Idris code. The `backend.h` abstraction was designed for this |
+| MLX backend: NTM gradient flow | M | NTM on MLX: decomposed ops (cosine_sim, conv1d_circular) use mx:: directly without tape entries — backward won't flow through them. Need to wrap in tensor_* calls or add custom OP entries |
 
 ## Medium Priority
 
@@ -75,3 +75,12 @@ Performance:
 - Arena allocator with chunked linked list (no realloc)
 - Consecutive-data cache in tensor_stack_from_array
 - Memory diagnostics (`backend_memory_report()`)
+
+MLX backend:
+- `backend_mlx.cpp` — Apple Metal GPU via MLX C++ API, tape-based autograd on MLX arrays
+- All 6 examples work on tape backend via tensor path (`applyVarTensor`, `epochNativeTensorPre`, `epochRecurrentNativeTensor`, `epochTwoPhaseTensor`)
+- Transformer, Supervised, RNN, LSTM verified on MLX with identical loss values to tape
+- NTM ops decomposed into primitives (cosine_sim, conv1d_circular, read_head, interp_write)
+- Eliminated scalar path dependency: all training uses tensor-level forward
+- Multi-element unary ops in tape backend (neg, abs, exp, log, sqrt, sigmoid, tanh)
+- OP_LOG_SOFTMAX backward rule added to tape backend
