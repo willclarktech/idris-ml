@@ -213,10 +213,14 @@ main = do
            ++ " heads=" ++ show NumHeads ++ " headDim=" ++ show HeadDim
            ++ " blocks=" ++ show NumBlocks ++ " vocab=" ++ show VocabSize
 
-  mht <- transformerLayer {seqLen=SeqLen, dModel=DModel, numHeads=NumHeads,
-                            headDim=HeadDim, numBlocks=NumBlocks, vocabSize=VocabSize}
-  let model = autoName $ OutputLayer mht
+  tfm <- mkTransformer {seqLen=SeqLen, dModel=DModel, numHeads=NumHeads,
+                         headDim=HeadDim, numBlocks=NumBlocks, vocabSize=VocabSize}
+  let namedTfm = nameLayer "tfm0" tfm
+      model = autoName $ OutputLayer (MkAnyLayer
+        (TransformerState SeqLen DModel NumHeads HeadDim NumBlocks VocabSize) namedTfm)
   putStrLn $ "Model: " ++ show model
+  putStrLn ""
+
   putStrLn ""
 
   -- Data source: fresh batch each epoch (pre-allocated C tensors, zero conversion)

@@ -164,6 +164,10 @@ prim__paramName : Int -> String
 %foreign "C:param_grad_item,libidrisml"
 prim__paramGradItem : Int -> Double
 
+%foreign "C:param_grad_item_at,libidrisml"
+export
+prim__paramGradItemAt : Int -> Int -> Double
+
 %foreign "C:param_grad_item_and_zero,libidrisml"
 prim__paramGradItemAndZero : Int -> Double
 
@@ -1045,6 +1049,46 @@ prim__profileReset : Int -> Int
 
 %foreign "scheme:(lambda (dummy) ((foreign-procedure \"backend_profile_report\" () void)) dummy)"
 prim__profileReport : Int -> Int
+
+%foreign "C:tensor_backward,libidrisml"
+prim__backwardC : AnyPtr -> PrimIO ()
+
+%foreign "C:param_zero_all_grads,libidrisml"
+prim__zeroAllGradsC : PrimIO ()
+
+||| Run backward on a loss tensor.
+export
+runBackward : AnyPtr -> IO ()
+runBackward ptr = primIO (prim__backwardC ptr)
+
+%foreign "C:param_count,libidrisml"
+prim__paramCountC : PrimIO Int
+
+%foreign "C:param_name,libidrisml"
+prim__paramNameC : Int -> PrimIO String
+
+%foreign "C:param_grad_item_at,libidrisml"
+prim__paramGradItemAtC : Int -> Int -> PrimIO Double
+
+||| Get parameter count (for gradient inspection).
+export
+getParamCount : IO Int
+getParamCount = primIO prim__paramCountC
+
+||| Get parameter name by index.
+export
+getParamName : Int -> IO String
+getParamName i = primIO (prim__paramNameC i)
+
+||| Get gradient element for param i, element j.
+export
+getParamGradAt : Int -> Int -> IO Double
+getParamGradAt i j = primIO (prim__paramGradItemAtC i j)
+
+||| Zero all parameter gradients.
+export
+zeroAllGrads : IO ()
+zeroAllGrads = primIO prim__zeroAllGradsC
 
 %foreign "C:backend_profile_reset,libidrisml"
 prim__profileResetC : PrimIO ()
