@@ -32,6 +32,14 @@ LayerLike NormalizationState where
   applyVar st@(MkNormalization "logSoftmax" _) xs = (st, logSoftmaxVar xs)
   applyVar st@(MkNormalization _ f) xs = (st, f xs)
 
+  -- Tensor-level: direct C kernel call, no scalar packing
+  applyVarTensor st@(MkNormalization "softmax" _) inputT = (st, prim__softmax inputT 0)
+  applyVarTensor st@(MkNormalization "logSoftmax" _) inputT = (st, prim__logSoftmax inputT 0)
+  applyVarTensor {i} {o} st inputT =
+    let input = VTensor (tensorToScalars inputT 0 i)
+        (st', VTensor outElems) = applyVar st input
+    in (st', vecStackTensor outElems)
+
   emapLayer _ st = st
 
   showLayer (MkNormalization name _) = "Normalization<" ++ name ++ ">"

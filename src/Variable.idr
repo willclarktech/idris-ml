@@ -17,7 +17,7 @@ import Util
 
 -- Lifecycle
 %foreign "C:tensor_create_scalar,libidrisml"
-prim__createScalar : Double -> Int -> AnyPtr
+export prim__createScalar : Double -> Int -> AnyPtr
 
 %foreign "C:tensor_free,libidrisml"
 prim__free : AnyPtr -> ()
@@ -80,7 +80,7 @@ prim__matmul : AnyPtr -> AnyPtr -> AnyPtr
 export prim__softmax : AnyPtr -> Int -> AnyPtr
 
 %foreign "C:tensor_log_softmax,libidrisml"
-prim__logSoftmax : AnyPtr -> Int -> AnyPtr
+export prim__logSoftmax : AnyPtr -> Int -> AnyPtr
 
 -- Loss
 %foreign "C:tensor_bce_with_logits,libidrisml"
@@ -91,7 +91,7 @@ prim__bceWithLogits : AnyPtr -> AnyPtr -> AnyPtr
 export prim__sum : AnyPtr -> AnyPtr
 
 %foreign "C:tensor_mean,libidrisml"
-prim__mean : AnyPtr -> AnyPtr
+export prim__mean : AnyPtr -> AnyPtr
 
 -- Tensor creation/accessors
 %foreign "C:tensor_create,libidrisml"

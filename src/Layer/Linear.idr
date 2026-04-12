@@ -63,20 +63,22 @@ buildViewVector name vec idx (S k) =
 -- LayerLike Instance
 ----------------------------------------------------------------------
 
+%default partial
 export
 LayerLike LinearState where
   applyGeneric (MkLinear w b _ _) xs = (MkLinear w b Nothing Nothing, matrixVectorMultiply w xs + b)
 
-  applyVar {i} {o} st@(MkLinear weights bias wt bt) xs =
+  applyVar {i} {o} st xs =
+    let (VTensor xElems) = xs
+        inputT = vecStackTensor {n=i} xElems
+        (st', outT) = applyVarTensor st inputT
+    in (st', VTensor $ tensorToScalars outT 0 o)
+
+  applyVarTensor {i} {o} st@(MkLinear weights bias wt bt) inputT =
     case (wt, bt) of
-      -- Tensor-level forward: 1 mv + 1 add (no torch::stack for weights)
       (Just weightT, Just biasT) =>
-        let (VTensor xElems) = xs
-            inputT = vecStackTensor {n=i} xElems
-            resultT = tensorAdd (tensorMv weightT inputT) biasT
-        in (st, VTensor $ tensorToScalars resultT 0 o)
-      -- Scalar fallback
-      _ => (st, matrixVectorMultiplyVar weights xs + bias)
+        (st, tensorAdd (tensorMv weightT inputT) biasT)
+      _ => idris_crash "Linear: weight tensors not initialized (call autoName first)"
 
   emapLayer f (MkLinear w b wt bt) = MkLinear (map f w) (map f b) wt bt
 

@@ -29,6 +29,29 @@ dataPoints =
       MkDataPoint (VTensor [2.9, -1.4]) (VTensor [1, 0, 0])
     ]
 
+-- Convert static DataPoint Double to TensorDataPoint (pre-allocated C tensors)
+toTensorDP : DataPoint 2 3 Double -> TensorDataPoint 2 3
+toTensorDP dp = MkTensorDataPoint (bulkToTensor (x dp)) (bulkToTensor (y dp))
+
+-- Tensor-level NLL loss: -sum(target * logSoftmax(logits)) / n
+-- Network outputs raw logits (no softmax layer). logSoftmax applied in loss.
+nllLossTensor : LossFnTensor
+nllLossTensor predT targetT =
+  let logP = prim__logSoftmax predT 0
+      product = prim__mul logP targetT
+      totalSum = prim__sum product
+      loss = prim__mulScalar (prim__neg totalSum) (1.0 / 3.0)
+      val = prim__item loss
+  in Var loss Nothing val
+
+-- Argmax on a 1D tensor (works on logits — softmax is monotonic)
+evalPrediction : AnyPtr -> Nat
+evalPrediction outT =
+  let v0 = prim__item1d outT 0
+      v1 = prim__item1d outT 1
+      v2 = prim__item1d outT 2
+  in if v0 >= v1 && v0 >= v2 then 0 else if v1 >= v2 then 1 else 2
+
 record Config where
   constructor MkConfig
   lr : Double
@@ -50,44 +73,47 @@ main = do
 
   srand cfg.seed
 
-  let lossFn = crossEntropy
   let opt = nativeSgd cfg.lr
-  let prepared = map (map fromDouble) dataPoints
+  let tensorData = map toTensorDP dataPoints
 
   putStrLn "=== Supervised Classification ==="
   putStrLn $ "Config: lr=" ++ show cfg.lr ++ " epochs=" ++ show cfg.epochs
            ++ " seed=" ++ show cfg.seed
 
   ll <- linearLayer
-  let model = autoName $ ll ~> OutputLayer softmaxLayer
+  let model = autoName $ OutputLayer ll
   putStrLn $ "Architecture: " ++ show model
   putStrLn ""
 
   (trained, epochsDone, _) <- runTraining
-    (\m, d => epochNative opt d lossFn m) (pure prepared) (simpleConfig cfg.epochs) model
+    (\m, d => epochNativeTensorPre opt d nllLossTensor m) (pure tensorData) (simpleConfig cfg.epochs) model
 
-  let dblModel = toDoubleNetwork (emap refreshValue trained)
-  let predictions = evaluate dblModel (map (map fromDouble) dataPoints)
-  let finalLoss = calculateLoss lossFn dblModel (map (map fromDouble) dataPoints)
-
+  -- Eval using tensor-level forward
+  let evalDPs = map toTensorDP dataPoints
   putStrLn ""
   putStrLn "Eval:"
-  putStrLn $ "  Loss: " ++ show finalLoss
-  let showSample : DataPoint 2 3 Double -> Vector 3 Double -> IO ()
-      showSample dp pred =
-        let argmax : Vector 3 Double -> Nat
-            argmax (VTensor [STensor a, STensor b, STensor c]) =
-              if a >= b && a >= c then 0 else if b >= c then 1 else 2
-            argmax _ = 0
-            showVec : {k : Nat} -> Vector k Double -> String
-            showVec (VTensor xs) = "[" ++ go xs ++ "]"
-              where go : Vect j (Scalar Double) -> String
-                    go [] = ""
-                    go [STensor v] = show v
-                    go (STensor v :: rest) = show v ++ ", " ++ go rest
-        in putStrLn $ "  " ++ showVec (x dp) ++ " -> class " ++ show (argmax pred)
-                    ++ (if argmax (y dp) == argmax pred then " ok" else " WRONG")
-  traverse_ (\(dp, pred) => showSample dp pred) (zip dataPoints predictions)
+  -- Compute loss on fresh forward
+  let evalLosses = map (\dp =>
+        let (_, outT) = forwardVarTensor trained (inputTensor dp)
+            loss = nllLossTensor outT (targetTensor dp)
+        in prim__item loss.tensorPtr) evalDPs
+  let evalLoss = foldl (+) 0.0 (toList evalLosses) / 5.0
+  putStrLn $ "  Loss: " ++ show evalLoss
+
+  traverse_ (\(dp, orig) =>
+    let (_, outT) = forwardVarTensor trained (inputTensor dp)
+        predClass = evalPrediction outT
+        targetClass = evalPrediction (targetTensor dp)
+        showVec : {k : Nat} -> Vector k Double -> String
+        showVec (VTensor xs) = "[" ++ go xs ++ "]"
+          where go : Vect j (Scalar Double) -> String
+                go [] = ""
+                go [STensor v] = show v
+                go (STensor v :: rest) = show v ++ ", " ++ go rest
+    in putStrLn $ "  " ++ showVec (x orig) ++ " -> class " ++ show predClass
+                ++ (if targetClass == predClass then " ok" else " WRONG"))
+    (zip evalDPs dataPoints)
+
   putStrLn ""
-  putStrLn $ formatResult [("epochs", show epochsDone), ("loss", show finalLoss),
+  putStrLn $ formatResult [("epochs", show epochsDone), ("loss", show evalLoss),
                             ("seed", show cfg.seed)]
