@@ -65,6 +65,7 @@ enum {
     OP_POW, OP_ABS,
     OP_STACK, OP_OUTER,
     OP_COSINE_SIM, OP_CONV1D_CIRC,
+    OP_MV,
 };
 
 struct CosSimMeta {
@@ -327,10 +328,16 @@ TensorHandle tensor_matmul(TensorHandle ha, TensorHandle hb) {
 }
 
 TensorHandle tensor_mv(TensorHandle hmat, TensorHandle hvec) {
+    // mat=[m,n], vec=[n] → result=[m]
     auto mat = (Tensor*)hmat; auto vec = (Tensor*)hvec;
+    int n = (int)vec->data.size();
+    int m_size = (int)mat->data.shape(0);
+    auto vec_col = mx::reshape(vec->data, {n, 1});
+    auto result_col = mx::matmul(mat->data, vec_col); // [m, 1]
+    auto result = mx::reshape(result_col, {m_size});   // [m]
     bool rg = mat->requires_grad || vec->requires_grad;
-    auto r = new Tensor(mx::matmul(mat->data, vec->data), rg);
-    if (rg) tape_append(OP_MM, r, mat, vec, 0);
+    auto r = new Tensor(result, rg);
+    if (rg) tape_append(OP_MV, r, mat, vec, 0);
     return (TensorHandle)r;
 }
 
@@ -361,7 +368,16 @@ TensorHandle tensor_softmax(TensorHandle h, int dim) {
     if (t->requires_grad) tape_append(OP_SOFTMAX_2D, r, t, nullptr, 0);
     return (TensorHandle)r;
 }
-TensorHandle tensor_log_softmax(TensorHandle t, int dim) { STUB(); }
+TensorHandle tensor_log_softmax(TensorHandle h, int dim) {
+    auto t = (Tensor*)h;
+    // log_softmax = x - log(sum(exp(x)))
+    auto maxv = mx::max(t->data, dim, true);
+    auto shifted = mx::subtract(t->data, maxv);
+    auto lse = mx::add(mx::log(mx::sum(mx::exp(shifted), dim, true)), maxv);
+    auto r = new Tensor(mx::subtract(t->data, lse), t->requires_grad);
+    if (t->requires_grad) tape_append(OP_LOG_SOFTMAX_2D, r, t, nullptr, 0);
+    return (TensorHandle)r;
+}
 
 /* ================================================================
    Loss functions
@@ -853,6 +869,26 @@ void tensor_backward(TensorHandle h) {
             int split = (int)e.scalar_arg;
             if (a && a->requires_grad) { ensure_grad(a); a->grad = mx::add(a->grad, mx::slice(r->grad, {0}, {split})); }
             if (b && b->requires_grad) { ensure_grad(b); b->grad = mx::add(b->grad, mx::slice(r->grad, {split}, {(int)r->data.size()})); }
+            break;
+        }
+
+        case OP_MV: {
+            // r = a @ b where a=[m,n], b=[n], r=[m]
+            // d_a[i,j] = grad[i] * b[j]  (outer product)
+            // d_b[j] = sum_i(a[i,j] * grad[i])
+            if (a && a->requires_grad) {
+                ensure_grad(a);
+                // grad=[m], b=[n] → outer product [m,n]
+                a->grad = mx::add(a->grad, mx::outer(r->grad, b->data));
+            }
+            if (b && b->requires_grad) {
+                ensure_grad(b);
+                // a=[m,n]^T @ grad=[m] → [n]
+                auto aT = mx::transpose(a->data);
+                auto grad_col = mx::reshape(r->grad, {(int)r->grad.size(), 1});
+                auto result = mx::reshape(mx::matmul(aT, grad_col), {(int)b->data.size()});
+                b->grad = mx::add(b->grad, result);
+            }
             break;
         }
 
