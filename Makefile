@@ -60,6 +60,13 @@ else
   endif
 endif
 
+# Track which backend was last built — force rebuild on switch
+BACKEND_STAMP := $(BUILD)/.backend_stamp
+LAST_BACKEND := $(shell cat $(BACKEND_STAMP) 2>/dev/null)
+ifneq ($(BACKEND),$(LAST_BACKEND))
+  $(shell rm -f $(LIB))
+endif
+
 $(LIB): $(BACKEND_SRC) csrc/backend.h | $(BUILD)
 ifeq ($(BACKEND), torch)
   ifndef LIBTORCH_PATH
@@ -67,6 +74,7 @@ ifeq ($(BACKEND), torch)
   endif
 endif
 	$(BACKEND_CC) $(BACKEND_FLAGS) -o $@ $<
+	@echo $(BACKEND) > $(BACKEND_STAMP)
 
 backend: $(LIB)
 
