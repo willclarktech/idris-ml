@@ -33,8 +33,14 @@ dataPoints =
 toTensorDP : DataPoint 2 3 Double -> TensorDataPoint 2 3
 toTensorDP dp = MkTensorDataPoint (bulkToTensor (x dp)) (bulkToTensor (y dp))
 
+-- Simplest possible tensor loss: just sum the predictions (for debugging)
+debugLoss : LossFnTensor
+debugLoss predT targetT =
+  let loss = prim__sum predT
+      val = prim__item loss
+  in Var loss Nothing val
+
 -- Tensor-level NLL loss: -sum(target * logSoftmax(logits)) / n
--- Network outputs raw logits (no softmax layer). logSoftmax applied in loss.
 nllLossTensor : LossFnTensor
 nllLossTensor predT targetT =
   let logP = prim__logSoftmax predT 0
@@ -85,19 +91,22 @@ main = do
   putStrLn $ "Architecture: " ++ show model
   putStrLn ""
 
+  -- Quick forward test
+  let (_, testOut) = forwardVarTensor model (inputTensor (index FZ tensorData))
+  putStrLn $ "Forward test: " ++ show (prim__item (prim__sum testOut))
+
   (trained, epochsDone, _) <- runTraining
     (\m, d => epochNativeTensorPre opt d nllLossTensor m) (pure tensorData) (simpleConfig cfg.epochs) model
 
-  -- Eval using tensor-level forward
-  let evalDPs = map toTensorDP dataPoints
+  -- Eval: create fresh tensor data (training reset freed arena)
   putStrLn ""
   putStrLn "Eval:"
-  -- Compute loss on fresh forward
-  let evalLosses = map (\dp =>
+  let freshEvalDPs = map toTensorDP dataPoints  -- fresh tensors after tape reset
+      evalLosses = map (\dp =>
         let (_, outT) = forwardVarTensor trained (inputTensor dp)
             loss = nllLossTensor outT (targetTensor dp)
-        in prim__item loss.tensorPtr) evalDPs
-  let evalLoss = foldl (+) 0.0 (toList evalLosses) / 5.0
+        in prim__item loss.tensorPtr) freshEvalDPs
+      evalLoss = foldl (+) 0.0 (toList evalLosses) / 5.0
   putStrLn $ "  Loss: " ++ show evalLoss
 
   traverse_ (\(dp, orig) =>
@@ -112,7 +121,7 @@ main = do
                 go (STensor v :: rest) = show v ++ ", " ++ go rest
     in putStrLn $ "  " ++ showVec (x orig) ++ " -> class " ++ show predClass
                 ++ (if targetClass == predClass then " ok" else " WRONG"))
-    (zip evalDPs dataPoints)
+    (zip freshEvalDPs dataPoints)
 
   putStrLn ""
   putStrLn $ formatResult [("epochs", show epochsDone), ("loss", show evalLoss),

@@ -1017,15 +1017,15 @@ prim__memoryReport : Int -> Int
 %foreign "scheme:(lambda (dummy) ((foreign-procedure \"backend_reset_for_eval\" () void)) dummy)"
 prim__resetForEval : Int -> Int
 
-||| Bulk-convert a Vector of Doubles to a C tensor handle (single tensor creation).
-||| Much faster than per-element fromDouble + vecStackTensor.
+||| Bulk-convert a Vector of Doubles to a persistent C tensor handle.
+||| Uses heap allocation (not arena) so the tensor survives tape resets.
 export
 bulkToTensor : {n : Nat} -> Vector n Double -> AnyPtr
 bulkToTensor {n} (VTensor elems) =
   let nI = cast {to=Int} n
       buf = prim__allocDoubles nI
       buf' = packDoubleBuf buf 0 elems
-  in prim__create1d nI buf' 0  -- requires_grad=0 for input data
+  in prim__createState1d nI buf'  -- persistent, requires_grad=0
   where
     packDoubleBuf : AnyPtr -> Int -> Vect k (Scalar Double) -> AnyPtr
     packDoubleBuf buf _ [] = buf
