@@ -64,6 +64,16 @@ enum {
     OP_RESHAPE, OP_NARROW, OP_CAT,
     OP_POW, OP_ABS,
     OP_STACK, OP_OUTER,
+    OP_COSINE_SIM, OP_CONV1D_CIRC,
+};
+
+struct CosSimMeta {
+    int n, m;
+    mx::array row_norms;  // [n]
+    mx::array key_norm;   // scalar
+    mx::array dots;       // [n]
+    CosSimMeta() : n(0), m(0), row_norms(mx::array(0.0f)),
+                   key_norm(mx::array(0.0f)), dots(mx::array(0.0f)) {}
 };
 
 struct LayerNormMeta {
@@ -98,6 +108,10 @@ static void tape_reset() {
     for (auto& e : tape) {
         if (e.op == OP_LAYER_NORM_2D && e.meta) {
             delete (LayerNormMeta*)e.meta;
+            e.meta = nullptr;
+        }
+        if (e.op == OP_COSINE_SIM && e.meta) {
+            delete (CosSimMeta*)e.meta;
             e.meta = nullptr;
         }
         if (e.op == OP_STACK && e.meta) {
@@ -376,49 +390,43 @@ TensorHandle tensor_mse_loss(TensorHandle input, TensorHandle target) { STUB(); 
    ================================================================ */
 
 TensorHandle tensor_cosine_similarity(TensorHandle hmemory, TensorHandle hkey, int dim) {
-    // Decompose using tensor_* wrappers for proper tape recording
     // memory=[n,m], key=[m] → result=[n]
-    auto mem = (Tensor*)hmemory;
+    auto mem = (Tensor*)hmemory; auto key = (Tensor*)hkey;
+    auto eps = mx::array(1.0e-8);
     int n = (int)mem->data.shape(0);
     int m = (int)mem->data.shape(1);
 
-    // key as column: [m,1]
-    int col_shape[] = {m, 1};
-    TensorHandle key_col = tensor_reshape(hkey, col_shape, 2);
-    // dots = memory @ key_col → [n,1]
-    TensorHandle dots_2d = tensor_mm(hmemory, key_col);
-    // Flatten to [n]
-    int n_shape[] = {n};
-    TensorHandle dots = tensor_reshape(dots_2d, n_shape, 1);
+    // Compute forward
+    auto key_2d = mx::reshape(key->data, {1, m});
+    auto dots = mx::sum(mx::multiply(mem->data, key_2d), {1}); // [n]
+    auto row_norms = mx::sqrt(mx::add(mx::sum(mx::square(mem->data), {1}), eps)); // [n]
+    auto key_norm = mx::sqrt(mx::add(mx::sum(mx::square(key->data)), eps)); // scalar
+    auto result = mx::divide(dots, mx::multiply(row_norms, key_norm));
 
-    // Row norms: sqrt(sum(memory^2, axis=1) + eps)
-    // Using mx:: directly for norm computation (read-only, no grad needed for norms as divisor)
-    mx::eval(mem->data);
-    auto a_sq = mx::square(mem->data);
-    auto a_sum = mx::sum(a_sq, {1});
-    auto a_norms = mx::sqrt(mx::add(a_sum, mx::array(1.0e-8)));
-    auto key_t = ((Tensor*)hkey)->data;
-    mx::eval(key_t);
-    auto b_norm = mx::sqrt(mx::add(mx::sum(mx::square(key_t)), mx::array(1.0e-8)));
-    auto norms = mx::multiply(a_norms, b_norm);
-
-    // result = dots / norms (element-wise)
-    auto norms_tensor = new Tensor(norms, false);
-    return tensor_div(dots, (TensorHandle)norms_tensor);
+    bool rg = mem->requires_grad || key->requires_grad;
+    auto r = new Tensor(result, rg);
+    if (rg) {
+        auto meta = new CosSimMeta();
+        meta->n = n; meta->m = m;
+        meta->row_norms = row_norms;
+        meta->key_norm = key_norm;
+        meta->dots = dots;
+        int idx = tape_append(OP_COSINE_SIM, r, mem, key, 0);
+        tape[idx].meta = meta;
+    }
+    return (TensorHandle)r;
 }
 
 TensorHandle tensor_conv1d_circular(TensorHandle hinput, TensorHandle hkernel) {
-    // Circular convolution for shift kernel (typically size 3)
+    // Circular convolution: out[i] = sum_j input[(i-k/2+j+n)%n] * kernel[k-1-j]
     auto inp = (Tensor*)hinput; auto kern = (Tensor*)hkernel;
     int n = (int)inp->data.size();
     int k = (int)kern->data.size();
 
-    // For kernel size 3: out[i] = k[0]*in[(i-1+n)%n] + k[1]*in[i] + k[2]*in[(i+1)%n]
-    // Use mx::roll for circular shifts
     mx::array result = mx::zeros({n}, mx::float64);
     int half_k = k / 2;
     for (int j = 0; j < k; j++) {
-        int shift = half_k - j;  // k=3: shifts are [1, 0, -1]
+        int shift = half_k - j;
         auto shifted = mx::roll(inp->data, shift);
         auto kern_j = mx::take(kern->data, mx::array(j));
         result = mx::add(result, mx::multiply(shifted, kern_j));
@@ -426,6 +434,7 @@ TensorHandle tensor_conv1d_circular(TensorHandle hinput, TensorHandle hkernel) {
 
     bool rg = inp->requires_grad || kern->requires_grad;
     auto r = new Tensor(result, rg);
+    if (rg) tape_append(OP_CONV1D_CIRC, r, inp, kern, 0);
     return (TensorHandle)r;
 }
 
@@ -844,6 +853,78 @@ void tensor_backward(TensorHandle h) {
             int split = (int)e.scalar_arg;
             if (a && a->requires_grad) { ensure_grad(a); a->grad = mx::add(a->grad, mx::slice(r->grad, {0}, {split})); }
             if (b && b->requires_grad) { ensure_grad(b); b->grad = mx::add(b->grad, mx::slice(r->grad, {split}, {(int)r->data.size()})); }
+            break;
+        }
+
+        case OP_COSINE_SIM: {
+            // r = cosine(a, b) where a=[n,m], b=[m], r=[n]
+            // d_a[i,j] = grad[i] * (b[j] / (norm_a[i] * norm_b) - cos[i] * a[i,j] / norm_a[i]^2)
+            // d_b[j] = sum_i grad[i] * (a[i,j] / (norm_a[i] * norm_b) - cos[i] * b[j] / norm_b^2)
+            auto meta = (CosSimMeta*)e.meta;
+            if (a && a->requires_grad) {
+                ensure_grad(a);
+                int nn = meta->n, mm = meta->m;
+                // grad_expanded = grad[:, None] → [n, 1]
+                auto g_2d = mx::reshape(r->grad, {nn, 1});
+                auto b_2d = mx::reshape(b->data, {1, mm});
+                auto nab = mx::multiply(mx::reshape(meta->row_norms, {nn, 1}), meta->key_norm);
+                auto cos_2d = mx::reshape(r->data, {nn, 1});
+                auto rn2 = mx::reshape(mx::square(meta->row_norms), {nn, 1});
+                // d_a = grad * (b / (na*nb) - cos * a / na^2)
+                auto term1 = mx::divide(b_2d, nab);
+                auto term2 = mx::divide(mx::multiply(cos_2d, a->data), rn2);
+                a->grad = mx::add(a->grad, mx::multiply(g_2d, mx::subtract(term1, term2)));
+            }
+            if (b && b->requires_grad) {
+                ensure_grad(b);
+                int nn = meta->n, mm = meta->m;
+                auto g_2d = mx::reshape(r->grad, {nn, 1});
+                auto nab = mx::multiply(mx::reshape(meta->row_norms, {nn, 1}), meta->key_norm);
+                auto cos_2d = mx::reshape(r->data, {nn, 1});
+                auto bn2 = mx::square(meta->key_norm);
+                auto b_2d = mx::reshape(b->data, {1, mm});
+                auto term1 = mx::divide(a->data, nab);
+                auto term2 = mx::divide(mx::multiply(cos_2d, b_2d), bn2);
+                auto per_row = mx::multiply(g_2d, mx::subtract(term1, term2));
+                b->grad = mx::add(b->grad, mx::sum(per_row, {0}));
+            }
+            break;
+        }
+
+        case OP_CONV1D_CIRC: {
+            // r = conv1d_circular(a, b) where a=[n], b=[k]
+            // Backward: reverse the convolution
+            int nn = (int)a->data.size();
+            int kk = (int)b->data.size();
+            int half_k = kk / 2;
+            if (a && a->requires_grad) {
+                ensure_grad(a);
+                // d_input[idx] += grad[i] * kernel[k-1-j] for each (i,j) pair
+                // Equivalent: convolve grad with flipped kernel
+                for (int j = 0; j < kk; j++) {
+                    int shift = -(half_k - j);  // reverse shift
+                    auto shifted_grad = mx::roll(r->grad, shift);
+                    auto kern_j = mx::take(b->data, mx::array(j));
+                    a->grad = mx::add(a->grad, mx::multiply(shifted_grad, kern_j));
+                }
+            }
+            if (b && b->requires_grad) {
+                ensure_grad(b);
+                // d_kernel[j] = sum_i grad[i] * input[shifted_idx]
+                mx::eval(r->grad);
+                mx::eval(a->data);
+                auto grad_data = r->grad.data<double>();
+                auto inp_data = a->data.data<double>();
+                std::vector<double> dk(kk, 0.0);
+                for (int j = 0; j < kk; j++) {
+                    int shift = half_k - j;
+                    for (int i = 0; i < nn; i++) {
+                        int idx = ((i + shift) % nn + nn) % nn;
+                        dk[j] += grad_data[i] * inp_data[idx];
+                    }
+                }
+                b->grad = mx::add(b->grad, mx::array(dk.data(), {kk}, mx::float64));
+            }
             break;
         }
 
