@@ -121,6 +121,7 @@ showVecD (VTensor xs) = "[" ++ go xs ++ "]"
 -- LayerLike Instance
 ----------------------------------------------------------------------
 
+%default partial
 export
 LayerLike LstmState where
   applyGeneric {i} {o} (MkLstm iw rw b hs cs _ _ _ _ _) xs =
@@ -137,40 +138,29 @@ LayerLike LstmState where
       sig : ty -> ty
       sig x = 1 / (1 + exp (-x))
 
-  applyVar {i} {o} st@(MkLstm iw rw b hs cs iwT rwT bT hT cT) xs =
+  applyVar {i} {o} st xs =
+    let (VTensor xElems) = xs
+        inputT = vecStackTensor {n=i} xElems
+        (st', outT) = applyVarTensor st inputT
+        output = VTensor $ tensorToScalars outT 0 o
+    in (st', output)
+
+  applyVarTensor {i} {o} st@(MkLstm iw rw b hs cs iwT rwT bT hT cT) inputT =
     case (iwT, rwT, bT) of
-      -- Tensor-level forward: 2 mv + 1 add + fused LSTM gates (all at tensor level)
       (Just iwTensor, Just rwTensor, Just biasTensor) =>
-        let (VTensor xElems) = xs
-            oI = cast {to=Int} o
-            inputT = vecStackTensor {n=i} xElems
-            -- Use stored tensor handles if available (skip vecStackTensor)
+        let oI = cast {to=Int} o
             hiddenT = case hT of
               Just h => h
-              Nothing => let (VTensor hsElems) = hs in vecStackTensor {n=o} hsElems
+              Nothing => let buf = prim__allocDoubles oI in prim__createState1d oI buf
             cellT = case cT of
               Just c => c
-              Nothing => let (VTensor csElems) = cs in vecStackTensor {n=o} csElems
-            -- Tensor-level gate computation: mv + mv + bias
+              Nothing => let buf = prim__allocDoubles oI in prim__createState1d oI buf
             combined = tensorAdd (tensorAdd (tensorMv iwTensor inputT) (tensorMv rwTensor hiddenT)) biasTensor
-            -- Fused sigmoid/tanh gate application in C
             pair = prim__lstmGatesPair combined cellT oI
             newHiddenT = prim__pairFirst pair
             newCellT = prim__pairSecond pair
-            -- Unpack back to Variable vectors (still needed for layer output)
-            newHidden = VTensor $ tensorToScalars newHiddenT 0 o
-            newCell = VTensor $ tensorToScalars newCellT 0 o
-        in (MkLstm iw rw b newHidden newCell iwT rwT bT (Just newHiddenT) (Just newCellT), newHidden)
-      -- Scalar fallback
-      _ =>
-        let gateSize : Nat
-            gateSize = 4 * o
-            mulIW = matrixVectorMultiplyVar {m=gateSize, n=i} iw xs
-            mulRW = matrixVectorMultiplyVar {m=gateSize, n=o} rw hs
-            cellResult = lstmCellVar mulIW mulRW b cs
-            newCell = fst cellResult
-            newHidden = snd cellResult
-        in (MkLstm iw rw b newHidden newCell Nothing Nothing Nothing Nothing Nothing, newHidden)
+        in (MkLstm iw rw b hs cs iwT rwT bT (Just newHiddenT) (Just newCellT), newHiddenT)
+      _ => idris_crash "Lstm: weight tensors not initialized (call autoName first)"
 
   emapLayer f (MkLstm iw rw b hs cs iwT rwT bT _ _) =
     MkLstm (map f iw) (map f rw) (map f b) (map f hs) (map f cs) iwT rwT bT Nothing Nothing

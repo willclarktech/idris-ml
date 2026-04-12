@@ -801,10 +801,35 @@ void tensor_lstm_cell(TensorHandle input, TensorHandle hx, TensorHandle cx,
     TensorHandle* out_h, TensorHandle* out_c) { STUB(); }
 void tensor_lstm_gates(TensorHandle combined, TensorHandle prev_cell, int o,
     TensorHandle* out_h, TensorHandle* out_c) { STUB(); }
-TensorPair* tensor_lstm_gates_pair(TensorHandle combined, TensorHandle prev_cell, int o) { STUB(); }
-TensorHandle tensor_pair_first(TensorPair* p) { STUB(); }
-TensorHandle tensor_pair_second(TensorPair* p) { STUB(); }
-void tensor_pair_free(TensorPair* p) { STUB(); }
+TensorPair* tensor_lstm_gates_pair(TensorHandle hcombined, TensorHandle hprev_cell, int o) {
+    // Decompose into primitives — each records its own tape entry
+    // Split combined [4*o] into 4 gates
+    TensorHandle ig_raw = tensor_narrow(hcombined, 0, 0, o);
+    TensorHandle fg_raw = tensor_narrow(hcombined, 0, o, o);
+    TensorHandle gg_raw = tensor_narrow(hcombined, 0, 2*o, o);
+    TensorHandle og_raw = tensor_narrow(hcombined, 0, 3*o, o);
+    // Apply activations
+    TensorHandle ig = tensor_sigmoid(ig_raw);
+    TensorHandle fg = tensor_sigmoid(fg_raw);
+    TensorHandle gg = tensor_tanh(gg_raw);
+    TensorHandle og = tensor_sigmoid(og_raw);
+    // c_t = f_t ⊙ c_{t-1} + i_t ⊙ g_t
+    TensorHandle fc = tensor_mul(fg, hprev_cell);
+    TensorHandle ig_gg = tensor_mul(ig, gg);
+    TensorHandle new_cell = tensor_add(fc, ig_gg);
+    // h_t = o_t ⊙ tanh(c_t)
+    TensorHandle tanh_cell = tensor_tanh(new_cell);
+    TensorHandle new_hidden = tensor_mul(og, tanh_cell);
+    // Return pair
+    auto pair = (TensorPair*)malloc(sizeof(TensorPair));
+    pair->first = new_hidden;
+    pair->second = new_cell;
+    return pair;
+}
+
+TensorHandle tensor_pair_first(TensorPair* p) { return p->first; }
+TensorHandle tensor_pair_second(TensorPair* p) { return p->second; }
+void tensor_pair_free(TensorPair* p) { if (p) free(p); }
 
 /* ================================================================
    Parameter registry
