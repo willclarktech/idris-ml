@@ -30,7 +30,7 @@ export prim__item : AnyPtr -> Double
 prim__add : AnyPtr -> AnyPtr -> AnyPtr
 
 %foreign "C:tensor_sub,libidrisml"
-prim__sub : AnyPtr -> AnyPtr -> AnyPtr
+export prim__sub : AnyPtr -> AnyPtr -> AnyPtr
 
 %foreign "C:tensor_mul,libidrisml"
 export prim__mul : AnyPtr -> AnyPtr -> AnyPtr
@@ -42,7 +42,7 @@ prim__div : AnyPtr -> AnyPtr -> AnyPtr
 export prim__neg : AnyPtr -> AnyPtr
 
 %foreign "C:tensor_abs,libidrisml"
-prim__abs : AnyPtr -> AnyPtr
+export prim__abs : AnyPtr -> AnyPtr
 
 %foreign "C:tensor_exp,libidrisml"
 export prim__exp : AnyPtr -> AnyPtr

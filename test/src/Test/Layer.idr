@@ -54,13 +54,13 @@ tests =
        r4 <- check "autoName two linear: 17 params" (length ids == 17)
        pure (r1 && r2 && r3 && r4)
 
-  -- RNN layer: rnn0_inputWeight*, rnn0_bias*
+  -- RNN layer: rnn0_iw*, rnn0_bias*
   , do srand 42
        rnn <- rnnLayer {i=2, o=3}
        let named = autoName $ OutputLayer rnn
        let ids = networkParamIds named
-       r1 <- check "autoName rnn: has rnn0_inputWeight" (hasPrefix "rnn0_inputWeight" ids)
-       r2 <- check "autoName rnn: has rnn0_recurrentWeight" (hasPrefix "rnn0_recurrentWeight" ids)
+       r1 <- check "autoName rnn: has rnn0_iw" (hasPrefix "rnn0_iw" ids)
+       r2 <- check "autoName rnn: has rnn0_rw" (hasPrefix "rnn0_rw" ids)
        r3 <- check "autoName rnn: has rnn0_bias" (hasPrefix "rnn0_bias" ids)
        pure (r1 && r2 && r3)
 
@@ -71,7 +71,7 @@ tests =
        let named = autoName $ ll ~> sigmoidLayer ~> OutputLayer rnn
        let ids = networkParamIds named
        r1 <- check "autoName mixed: has ll0_weight" (hasPrefix "ll0_weight" ids)
-       r2 <- check "autoName mixed: has rnn0_inputWeight" (hasPrefix "rnn0_inputWeight" ids)
+       r2 <- check "autoName mixed: has rnn0_iw" (hasPrefix "rnn0_iw" ids)
        r3 <- check "autoName mixed: no ll1" (not (hasPrefix "ll1_" ids))
        r4 <- check "autoName mixed: no duplicates" (noDuplicates ids)
        pure (r1 && r2 && r3 && r4)

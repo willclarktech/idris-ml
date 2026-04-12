@@ -385,6 +385,49 @@ epochNativeTensorBatch {n} opt dataPoints batchFwd lossFn model =
     zipLoss _ [] = []
     zipLoss (o :: os) (t :: ts) = lossFn o t :: zipLoss os ts
 
+||| Tensor-level recurrent epoch.
+||| Each RecurrentDataPoint has xs (list of input tensors) and ys (list of target tensors).
+||| Converts from RecurrentDataPoint Double by bulk-creating tensors.
+export
+epochRecurrentNativeTensor :
+  {i, o, n : Nat} ->
+  {hs : List Nat} ->
+  NativeOptimizer ->
+  Vect n (RecurrentDataPoint i o Double) ->
+  LossFnTensor ->
+  Network i hs o Variable ->
+  (Network i hs o Variable, Double)
+epochRecurrentNativeTensor opt dataPoints lossFn model =
+  let -- Process each sequence: reset state, forward timesteps, compute loss
+      seqLosses = toList $ map (\dp =>
+        let m0 = resetNetworkState model
+            -- Forward each timestep, collect output tensors
+            (_, outTs) = foldl (\(m, outs), x =>
+              let inT = bulkToTensor x
+                  (m', outT) = forwardVarTensor m inT
+              in (m', outT :: outs))
+              (the (Network i hs o Variable, List AnyPtr) (m0, []))
+              (xs dp)
+            revOuts = reverse outTs
+            -- Compute per-timestep loss and average
+            tgtTs = map bulkToTensor (ys dp)
+            stepLosses = zipLoss revOuts tgtTs
+            seqLoss = foldl (\acc, l => acc + l) (the Variable (fromDouble 0.0)) stepLosses
+            nSteps = fromDouble (cast (length stepLosses))
+        in seqLoss / nSteps) dataPoints
+      -- Average across sequences
+      totalLoss = foldl (\acc, l => acc + l) (the Variable (fromDouble 0.0)) seqLosses
+      nSeqs = fromDouble (cast (natToInteger n))
+      avgLoss : Variable
+      avgLoss = totalLoss / nSeqs
+      lossVal = nativeTrainStep opt avgLoss
+  in (model, lossVal)
+  where
+    zipLoss : List AnyPtr -> List AnyPtr -> List Variable
+    zipLoss [] _ = []
+    zipLoss _ [] = []
+    zipLoss (o :: os) (t :: ts) = lossFn o t :: zipLoss os ts
+
 ||| Native epoch for recurrent training.
 export
 epochRecurrentNative :
