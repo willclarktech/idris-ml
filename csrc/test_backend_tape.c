@@ -978,6 +978,124 @@ static void test_bmm_backward(void) {
     param_clear();
 }
 
+/* Test: narrow → mm → cat → sum backward gradient check.
+   This mimics the batched transformer forward pattern:
+   - Input [2*3, 2] (2 sequences of 3 positions, dModel=2)
+   - Narrow to get two [3,2] slices
+   - mm each slice with a shared weight [2,2]
+   - Cat results back to [2*3, 2]
+   - Sum → scalar loss → backward
+   Compare weight gradient against finite difference. */
+static void test_narrow_cat_gradient(void) {
+    printf("\n--- Narrow→MM→Cat gradient check ---\n");
+    param_clear();
+
+    /* Input: [6,2] = 2 sequences of [3,2] */
+    double x_data[] = {1,2, 3,4, 5,6,   7,8, 9,10, 11,12};
+    int x_shape[] = {6, 2};
+    /* Weight: [2,2] (shared across both sequences) */
+    double w_data[] = {0.1, 0.2, 0.3, 0.4};
+    int w_shape[] = {2, 2};
+
+    /* Analytical path: narrow→mm→cat→sum→backward */
+    TensorHandle x = tensor_create(x_data, x_shape, 2, 0);
+    TensorHandle w = tensor_create(w_data, w_shape, 2, 1);
+    param_register("w", w);
+
+    /* Flatten x to 1D for narrow */
+    int x_flat_shape[] = {12};
+    TensorHandle x_flat = tensor_reshape(x, x_flat_shape, 1);
+    /* Slice: seq0 = x[0:6], seq1 = x[6:12] */
+    TensorHandle s0_flat = tensor_narrow(x_flat, 0, 0, 6);
+    TensorHandle s1_flat = tensor_narrow(x_flat, 0, 6, 6);
+    /* Reshape to [3,2] */
+    int seq_shape[] = {3, 2};
+    TensorHandle s0 = tensor_reshape(s0_flat, seq_shape, 2);
+    TensorHandle s1 = tensor_reshape(s1_flat, seq_shape, 2);
+    /* MM with shared weight: s0 @ w^T, s1 @ w^T */
+    TensorHandle wt = tensor_transpose_2d(w);
+    TensorHandle o0 = tensor_mm(s0, wt);
+    TensorHandle o1 = tensor_mm(s1, wt);
+    /* Flatten outputs and cat */
+    int o_flat_shape[] = {6};
+    TensorHandle o0_flat = tensor_reshape(o0, o_flat_shape, 1);
+    TensorHandle o1_flat = tensor_reshape(o1, o_flat_shape, 1);
+    TensorHandle catted = tensor_cat2(o0_flat, o1_flat);
+    /* Sum → loss */
+    TensorHandle loss = tensor_sum(catted);
+    tensor_backward(loss);
+
+    double grad_w00 = param_grad_item_at(0, 0);
+    printf("  Analytical w[0,0] grad = %f\n", grad_w00);
+
+    /* Reference: just do mm on full [6,2] without narrow/cat */
+    param_clear();
+    TensorHandle x2 = tensor_create(x_data, x_shape, 2, 0);
+    TensorHandle w2 = tensor_create(w_data, w_shape, 2, 1);
+    param_register("w2", w2);
+    TensorHandle wt2 = tensor_transpose_2d(w2);
+    TensorHandle out_full = tensor_mm(x2, wt2);
+    TensorHandle loss_full = tensor_sum(out_full);
+    tensor_backward(loss_full);
+    double grad_w00_ref = param_grad_item_at(0, 0);
+    printf("  Reference w[0,0] grad  = %f\n", grad_w00_ref);
+
+    ASSERT_NEAR("narrow-cat grad matches direct", grad_w00, grad_w00_ref, 1e-6);
+
+    /* Test with requires_grad input (like layer norm output) */
+    param_clear();
+    TensorHandle x_rg = tensor_create(x_data, x_shape, 2, 1);
+    param_register("x_rg", x_rg);
+    TensorHandle w_rg = tensor_create(w_data, w_shape, 2, 1);
+    param_register("w_rg", w_rg);
+    {
+        int xf_shape[] = {12};
+        TensorHandle xf = tensor_reshape(x_rg, xf_shape, 1);
+        TensorHandle s0f = tensor_narrow(xf, 0, 0, 6);
+        TensorHandle s1f = tensor_narrow(xf, 0, 6, 6);
+        int ss[] = {3, 2};
+        TensorHandle s0r = tensor_reshape(s0f, ss, 2);
+        TensorHandle s1r = tensor_reshape(s1f, ss, 2);
+        TensorHandle wtr = tensor_transpose_2d(w_rg);
+        TensorHandle o0r = tensor_mm(s0r, wtr);
+        TensorHandle o1r = tensor_mm(s1r, wtr);
+        int of_shape[] = {6};
+        TensorHandle o0f = tensor_reshape(o0r, of_shape, 1);
+        TensorHandle o1f = tensor_reshape(o1r, of_shape, 1);
+        TensorHandle catr = tensor_cat2(o0f, o1f);
+        TensorHandle lossr = tensor_sum(catr);
+        tensor_backward(lossr);
+
+        double grad_x00 = param_grad_item_at(0, 0);
+        double grad_w00_rg = param_grad_item_at(1, 0);
+        printf("  rg: x[0,0] grad = %f, w[0,0] grad = %f\n", grad_x00, grad_w00_rg);
+        ASSERT_NEAR("rg x grad", grad_x00, 0.1 + 0.3, 1e-6);  /* sum of w col 0 */
+        ASSERT_NEAR("rg w grad (same)", grad_w00_rg, grad_w00_ref, 1e-6);
+    }
+    param_clear();
+
+    /* Also finite diff check */
+    double eps = 1e-5;
+    {
+        double w_copy[4]; memcpy(w_copy, w_data, sizeof(w_data));
+        param_clear();
+        w_copy[0] = w_data[0] + eps;
+        TensorHandle xp = tensor_create(x_data, x_shape, 2, 0);
+        TensorHandle wp = tensor_create(w_copy, w_shape, 2, 0);
+        TensorHandle wtp = tensor_transpose_2d(wp);
+        double f_plus = tensor_item(tensor_sum(tensor_mm(xp, wtp)));
+        w_copy[0] = w_data[0] - eps;
+        TensorHandle xm = tensor_create(x_data, x_shape, 2, 0);
+        TensorHandle wm = tensor_create(w_copy, w_shape, 2, 0);
+        TensorHandle wtm = tensor_transpose_2d(wm);
+        double f_minus = tensor_item(tensor_sum(tensor_mm(xm, wtm)));
+        double fd = (f_plus - f_minus) / (2 * eps);
+        printf("  Finite diff w[0,0]     = %f\n", fd);
+        ASSERT_NEAR("narrow-cat grad vs finite diff", grad_w00, fd, 1e-3);
+    }
+    param_clear();
+}
+
 /* ================================================================
    Main
    ================================================================ */
@@ -1024,6 +1142,9 @@ int main(void) {
     /* T9: Batched ops */
     test_bmm_forward();
     test_bmm_backward();
+
+    /* T10: Narrow→Cat gradient chain */
+    test_narrow_cat_gradient();
 
     /* Summary */
     printf("\n");
