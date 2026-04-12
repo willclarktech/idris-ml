@@ -10,4 +10,3 @@ __pycache__/
 logs/
 results/
 pytorch/reference/
-build/.backend_stamp

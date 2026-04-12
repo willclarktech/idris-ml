@@ -60,23 +60,21 @@ else
   endif
 endif
 
-# Track which backend was last built — force rebuild on switch
-BACKEND_STAMP := $(BUILD)/.backend_stamp
-LAST_BACKEND := $(shell cat $(BACKEND_STAMP) 2>/dev/null)
-ifneq ($(BACKEND),$(LAST_BACKEND))
-  $(shell rm -f $(LIB))
-endif
+# Per-backend dylib: each backend compiles to its own file.
+# Switching backends = updating a symlink (instant, no recompile).
+BACKEND_LIB := $(BUILD)/libidrisml_$(BACKEND).dylib
 
-$(LIB): $(BACKEND_SRC) csrc/backend.h | $(BUILD)
+$(BACKEND_LIB): $(BACKEND_SRC) csrc/backend.h | $(BUILD)
 ifeq ($(BACKEND), torch)
   ifndef LIBTORCH_PATH
 	$(error libtorch not found. Set LIBTORCH_PATH, install via pkg-config, or run: cd pytorch && uv sync)
   endif
 endif
 	$(BACKEND_CC) $(BACKEND_FLAGS) -o $@ $<
-	@echo $(BACKEND) > $(BACKEND_STAMP)
 
-backend: $(LIB)
+# Always update symlink to point to the active backend
+backend: $(BACKEND_LIB)
+	@ln -sf libidrisml_$(BACKEND).dylib $(LIB)
 
 # Backend-specific test suites
 test-backend-torch: csrc/test_backend.c | $(BUILD)
@@ -205,6 +203,6 @@ ref-convergence-recall:
 	cd pytorch && uv run python -u -m torch_ref.scripts.convergence --task recall
 
 clean:
-	rm -f $(LIB) $(BUILD)/test_backend $(BUILD)/test_tape
+	rm -f $(BUILD)/libidrisml*.dylib $(BUILD)/test_backend $(BUILD)/test_tape
 
 .PHONY: test test-backend-torch test-backend-tape check supervised rnn lstm ntm-copy ntm-associative-recall transformer bench profile sweep sweep-quick clean backend print-torch ref-setup ref-supervised ref-rnn ref-lstm ref-ntm-copy ref-ntm-recall ref-transformer bench-py bench-compare ref-test ref-lint ref-typecheck ref-convergence ref-convergence-copy ref-convergence-recall
