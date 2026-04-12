@@ -62,6 +62,8 @@ enum {
     OP_SOFTMAX_2D, OP_LOG_SOFTMAX_2D,
     OP_MASKED_FILL, OP_LAYER_NORM_2D,
     OP_RESHAPE, OP_NARROW, OP_CAT,
+    OP_POW, OP_ABS,
+    OP_STACK,
 };
 
 struct LayerNormMeta {
@@ -93,10 +95,13 @@ static int tape_append(int op, Tensor* result, Tensor* arg1, Tensor* arg2, doubl
 }
 
 static void tape_reset() {
-    // Free LayerNormMeta
     for (auto& e : tape) {
         if (e.op == OP_LAYER_NORM_2D && e.meta) {
             delete (LayerNormMeta*)e.meta;
+            e.meta = nullptr;
+        }
+        if (e.op == OP_STACK && e.meta) {
+            delete (std::vector<Tensor*>*)e.meta;
             e.meta = nullptr;
         }
     }
@@ -207,7 +212,12 @@ TensorHandle tensor_neg(TensorHandle h) {
     return (TensorHandle)r;
 }
 
-TensorHandle tensor_abs(TensorHandle h) { STUB(); }
+TensorHandle tensor_abs(TensorHandle h) {
+    auto t = (Tensor*)h;
+    auto r = new Tensor(mx::abs(t->data), t->requires_grad);
+    if (t->requires_grad) tape_append(OP_ABS, r, t, nullptr, 0);
+    return (TensorHandle)r;
+}
 
 TensorHandle tensor_exp(TensorHandle h) {
     auto t = (Tensor*)h;
@@ -230,9 +240,25 @@ TensorHandle tensor_sqrt(TensorHandle h) {
     return (TensorHandle)r;
 }
 
-TensorHandle tensor_pow(TensorHandle base, TensorHandle exp) { STUB(); }
-TensorHandle tensor_sigmoid(TensorHandle h) { STUB(); }
-TensorHandle tensor_tanh(TensorHandle h) { STUB(); }
+TensorHandle tensor_pow(TensorHandle hbase, TensorHandle hexp) {
+    auto b = (Tensor*)hbase; auto e = (Tensor*)hexp;
+    bool rg = b->requires_grad || e->requires_grad;
+    auto r = new Tensor(mx::power(b->data, e->data), rg);
+    if (rg) tape_append(OP_POW, r, b, e, 0);
+    return (TensorHandle)r;
+}
+TensorHandle tensor_sigmoid(TensorHandle h) {
+    auto t = (Tensor*)h;
+    auto r = new Tensor(mx::sigmoid(t->data), t->requires_grad);
+    if (t->requires_grad) tape_append(OP_SIGMOID, r, t, nullptr, 0);
+    return (TensorHandle)r;
+}
+TensorHandle tensor_tanh(TensorHandle h) {
+    auto t = (Tensor*)h;
+    auto r = new Tensor(mx::tanh(t->data), t->requires_grad);
+    if (t->requires_grad) tape_append(OP_TANH, r, t, nullptr, 0);
+    return (TensorHandle)r;
+}
 
 TensorHandle tensor_add_scalar(TensorHandle h, double s) {
     auto t = (Tensor*)h;
@@ -267,25 +293,81 @@ TensorHandle tensor_sum(TensorHandle h) {
 }
 
 TensorHandle tensor_sum_dim(TensorHandle t, int dim, int keepdim) { STUB(); }
-TensorHandle tensor_mean(TensorHandle h) { STUB(); }
+TensorHandle tensor_mean(TensorHandle h) {
+    auto t = (Tensor*)h;
+    auto r = new Tensor(mx::mean(t->data), t->requires_grad);
+    if (t->requires_grad) tape_append(OP_MEAN, r, t, nullptr, 0);
+    return (TensorHandle)r;
+}
 
 /* ================================================================
    Linear algebra
    ================================================================ */
 
-TensorHandle tensor_matmul(TensorHandle a, TensorHandle b) { STUB(); }
-TensorHandle tensor_mv(TensorHandle mat, TensorHandle vec) { STUB(); }
-TensorHandle tensor_dot(TensorHandle a, TensorHandle b) { STUB(); }
-TensorHandle tensor_outer(TensorHandle a, TensorHandle b) { STUB(); }
+TensorHandle tensor_matmul(TensorHandle ha, TensorHandle hb) {
+    auto a = (Tensor*)ha; auto b = (Tensor*)hb;
+    bool rg = a->requires_grad || b->requires_grad;
+    auto r = new Tensor(mx::matmul(a->data, b->data), rg);
+    if (rg) tape_append(OP_MM, r, a, b, 0);
+    return (TensorHandle)r;
+}
 
-TensorHandle tensor_softmax(TensorHandle t, int dim) { STUB(); }
+TensorHandle tensor_mv(TensorHandle hmat, TensorHandle hvec) {
+    auto mat = (Tensor*)hmat; auto vec = (Tensor*)hvec;
+    bool rg = mat->requires_grad || vec->requires_grad;
+    auto r = new Tensor(mx::matmul(mat->data, vec->data), rg);
+    if (rg) tape_append(OP_MM, r, mat, vec, 0);
+    return (TensorHandle)r;
+}
+
+TensorHandle tensor_dot(TensorHandle ha, TensorHandle hb) {
+    auto a = (Tensor*)ha; auto b = (Tensor*)hb;
+    bool rg = a->requires_grad || b->requires_grad;
+    auto r = new Tensor(mx::sum(mx::multiply(a->data, b->data)), rg);
+    // Use OP_MUL + OP_SUM for backward (approximate)
+    if (rg) {
+        auto prod = new Tensor(mx::multiply(a->data, b->data), rg);
+        tape_append(OP_MUL, prod, a, b, 0);
+        tape_append(OP_SUM, r, prod, nullptr, 0);
+    }
+    return (TensorHandle)r;
+}
+
+TensorHandle tensor_outer(TensorHandle ha, TensorHandle hb) {
+    auto a = (Tensor*)ha; auto b = (Tensor*)hb;
+    bool rg = a->requires_grad || b->requires_grad;
+    auto r = new Tensor(mx::outer(a->data, b->data), rg);
+    // TODO: proper OP_OUTER backward
+    return (TensorHandle)r;
+}
+
+TensorHandle tensor_softmax(TensorHandle h, int dim) {
+    auto t = (Tensor*)h;
+    auto r = new Tensor(mx::softmax(t->data, dim), t->requires_grad);
+    if (t->requires_grad) tape_append(OP_SOFTMAX_2D, r, t, nullptr, 0);
+    return (TensorHandle)r;
+}
 TensorHandle tensor_log_softmax(TensorHandle t, int dim) { STUB(); }
 
 /* ================================================================
    Loss functions
    ================================================================ */
 
-TensorHandle tensor_bce_with_logits(TensorHandle input, TensorHandle target) { STUB(); }
+TensorHandle tensor_bce_with_logits(TensorHandle hinput, TensorHandle htarget) {
+    auto inp = (Tensor*)hinput; auto tgt = (Tensor*)htarget;
+    // BCE with logits: max(x,0) - x*y + log(1+exp(-|x|))
+    auto x = inp->data; auto y = tgt->data;
+    auto relu_x = mx::maximum(x, mx::array(0.0));
+    auto abs_x = mx::abs(x);
+    auto result = mx::mean(mx::add(mx::subtract(relu_x, mx::multiply(x, y)),
+                                    mx::log(mx::add(mx::array(1.0), mx::exp(mx::negative(abs_x))))));
+    bool rg = inp->requires_grad;
+    auto r = new Tensor(result, rg);
+    // For backward: d/dx = sigmoid(x) - y, averaged
+    // Record as opaque for now — use OP_MUL as placeholder
+    // TODO: proper backward
+    return (TensorHandle)r;
+}
 TensorHandle tensor_cross_entropy(TensorHandle input, TensorHandle target) { STUB(); }
 TensorHandle tensor_mse_loss(TensorHandle input, TensorHandle target) { STUB(); }
 
@@ -521,10 +603,55 @@ void tensor_backward(TensorHandle h) {
             break;
         }
 
+        case OP_SIGMOID:
+            if (a && a->requires_grad) {
+                ensure_grad(a);
+                // d/dx sigmoid(x) = sigmoid(x) * (1 - sigmoid(x))
+                a->grad = mx::add(a->grad, mx::multiply(r->grad,
+                    mx::multiply(r->data, mx::subtract(mx::array(1.0), r->data))));
+            }
+            break;
+
+        case OP_TANH:
+            if (a && a->requires_grad) {
+                ensure_grad(a);
+                // d/dx tanh(x) = 1 - tanh(x)^2
+                a->grad = mx::add(a->grad, mx::multiply(r->grad,
+                    mx::subtract(mx::array(1.0), mx::square(r->data))));
+            }
+            break;
+
+        case OP_POW: {
+            // d/db (b^e) = e * b^(e-1) * grad
+            if (a && a->requires_grad) {
+                ensure_grad(a);
+                a->grad = mx::add(a->grad, mx::multiply(r->grad,
+                    mx::multiply(b->data, mx::power(a->data, mx::subtract(b->data, mx::array(1.0))))));
+            }
+            break;
+        }
+
+        case OP_ABS:
+            if (a && a->requires_grad) {
+                ensure_grad(a);
+                // d/dx |x| = sign(x)
+                a->grad = mx::add(a->grad, mx::multiply(r->grad, mx::sign(a->data)));
+            }
+            break;
+
         case OP_SUM:
             if (a && a->requires_grad) {
                 ensure_grad(a);
                 a->grad = mx::add(a->grad, mx::broadcast_to(r->grad, a->data.shape()));
+            }
+            break;
+
+        case OP_MEAN:
+            if (a && a->requires_grad) {
+                ensure_grad(a);
+                double n = (double)a->data.size();
+                a->grad = mx::add(a->grad, mx::multiply(
+                    mx::broadcast_to(r->grad, a->data.shape()), mx::array(1.0 / n)));
             }
             break;
 
@@ -612,6 +739,23 @@ void tensor_backward(TensorHandle h) {
             int split = (int)e.scalar_arg;
             if (a && a->requires_grad) { ensure_grad(a); a->grad = mx::add(a->grad, mx::slice(r->grad, {0}, {split})); }
             if (b && b->requires_grad) { ensure_grad(b); b->grad = mx::add(b->grad, mx::slice(r->grad, {split}, {(int)r->data.size()})); }
+            break;
+        }
+
+        case OP_STACK: {
+            // Distribute gradient from stacked tensor back to constituent scalars
+            auto inputs = (std::vector<Tensor*>*)e.meta;
+            if (inputs) {
+                mx::eval(r->grad);
+                auto grad_data = r->grad.data<double>();
+                for (int j = 0; j < (int)inputs->size(); j++) {
+                    auto inp = (*inputs)[j];
+                    if (inp->requires_grad) {
+                        ensure_grad(inp);
+                        inp->grad = mx::add(inp->grad, mx::array(grad_data[j]));
+                    }
+                }
+            }
             break;
         }
 
@@ -743,9 +887,20 @@ void tensor_ptr_array_set(TensorHandle* arr, int idx, TensorHandle t) { arr[idx]
 
 TensorHandle tensor_stack_from_array(TensorHandle* arr, int count, int dim) {
     std::vector<mx::array> arrs;
-    for (int i = 0; i < count; i++)
-        arrs.push_back(((Tensor*)arr[i])->data);
-    auto r = new Tensor(mx::stack(arrs, dim), false);
+    bool rg = false;
+    for (int i = 0; i < count; i++) {
+        auto t = (Tensor*)arr[i];
+        arrs.push_back(t->data);
+        if (t->requires_grad) rg = true;
+    }
+    auto r = new Tensor(mx::stack(arrs, dim), rg);
+    // Record OP_STACK so backward can distribute gradients
+    if (rg) {
+        int idx = tape_append(OP_STACK, r, nullptr, nullptr, (double)count);
+        tape[idx].meta = (void*)(new std::vector<Tensor*>());
+        for (int i = 0; i < count; i++)
+            ((std::vector<Tensor*>*)tape[idx].meta)->push_back((Tensor*)arr[i]);
+    }
     return (TensorHandle)r;
 }
 
