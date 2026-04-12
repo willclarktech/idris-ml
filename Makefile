@@ -31,7 +31,13 @@ ifeq ($(BACKEND), torch)
   endif
 else ifeq ($(BACKEND), mlx)
   # MLX backend: Apple Metal GPU via MLX C++ API
-  MLX_SITE := $(shell python3 -c "import mlx; import os; print(os.path.dirname(mlx.__file__))" 2>/dev/null)
+  # Detect MLX: try Python import, then nix build result, then manual MLX_SITE
+  ifndef MLX_SITE
+    MLX_SITE := $(shell python3 -c "import mlx; import os; print(os.path.dirname(mlx.__file__))" 2>/dev/null)
+  endif
+  ifeq ($(MLX_SITE),)
+    $(error MLX not found. Set MLX_SITE=/path/to/mlx or run: nix build nixpkgs\#python3Packages.mlx -o /tmp/mlx-result && make BACKEND=mlx MLX_SITE=/tmp/mlx-result/lib/python3.13/site-packages/mlx backend)
+  endif
   MLX_INC := $(MLX_SITE)/include
   MLX_LIB := $(MLX_SITE)/lib
   BACKEND_SRC := csrc/backend_mlx.cpp
