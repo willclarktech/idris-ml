@@ -12,11 +12,13 @@
 #include <cstdio>
 #include <cstring>
 #include <cmath>
+#include <iostream>
 
 // MLX C++ API
 #include <mlx/mlx.h>
 
 namespace mx = mlx::core;
+using Shape = mx::Shape;  // SmallVector<int>
 
 /* ================================================================
    Stub macro — prints function name and aborts
@@ -40,7 +42,7 @@ struct Tensor {
     int persistent;         // 1 = parameter, 0 = intermediate
 
     Tensor(mx::array a, bool rg = false)
-        : arr(std::move(a)), grad(), requires_grad(rg),
+        : arr(std::move(a)), grad(mx::array(0.0f)), requires_grad(rg),
           has_grad(false), param_name(nullptr), persistent(0) {}
 };
 
@@ -56,10 +58,9 @@ TensorHandle tensor_create_scalar(double value, int requires_grad) {
 }
 
 TensorHandle tensor_create(double* data, int* shape, int rank, int requires_grad) {
-    std::vector<int> sh(shape, shape + rank);
+    Shape sh(shape, shape + rank);
     int numel = 1;
     for (int i = 0; i < rank; i++) numel *= shape[i];
-    // MLX expects data in its own format; copy from doubles
     auto t = new Tensor(
         mx::array(data, sh, mx::float64),
         requires_grad != 0
@@ -179,7 +180,7 @@ TensorHandle tensor_ntm_interp_write(TensorHandle memory, TensorHandle weights,
 
 TensorHandle tensor_reshape(TensorHandle t, int* shape, int rank) {
     auto tt = (Tensor*)t;
-    std::vector<int> sh(shape, shape + rank);
+    Shape sh(shape, shape + rank);
     auto r = new Tensor(mx::reshape(tt->arr, sh), tt->requires_grad);
     return (TensorHandle)r;
 }
