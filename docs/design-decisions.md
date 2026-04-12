@@ -497,3 +497,23 @@ Four bugs prevented convergence on the tape backend:
 Also removed fused NTM C ops (`tensor_ntm_read_head`, `tensor_ntm_interp_write`) from the tensor path since they lack backward rules in the tape backend. The individual Variable-level addressing ops (which use `OP_COSINE_SIM`, `OP_SOFTMAX`, `OP_CONV1D_CIRC`, `OP_POW`, `OP_VECMAT` etc.) are used instead.
 
 Result: LSTM converges (0.714 → 0.048 in 5k epochs, ~1.5 min). NTM-copy with short sequences (1-5) reaches 83.5% accuracy in 2k epochs (~40 min). NTM per-epoch is ~1.3s (short) / ~3.5s (full) — ~10-30x slower than the old fused-C backend. Performance optimization is the next priority.
+
+### Zero believe_me policy (2026-04-10)
+
+Eliminated all `believe_me` and `unsafePerformIO` from the codebase. Every type conversion is now proven correct:
+
+**Nat arithmetic in reshape/flatten**: `(S k) * n = n + (k * n)` reduces as `Refl` in Idris 2. `Tensor.splitAt` uses this to split `Vector ((S k) * n)` into `(Vector n, Vector (k * n))` type-safely. No arithmetic lemma imports needed — the mult definition itself provides the proof.
+
+**Erased proof fields in TransformerState**: The record carries `0 inputPrf : inputSize = seqLen * dModel` and `0 outputPrf : outputSize = seqLen * vocabSize`. These are erased at runtime (zero cost) but enable `rewrite` at layer boundaries to convert between the generic `Vector i ty` from `LayerLike` and the specific `Vector (seqLen * dModel) ty` needed by `reshapeToMatrix`.
+
+**`decEq` for runtime-verified type equality**: The categorical cross-entropy loss function accepts `{n : Nat} -> Vector n Variable -> ...` (generic) but internally needs `n = SeqLen * VocabSize`. Uses `case decEq n (SeqLen * VocabSize) of Yes Refl => ...` to verify and unify at runtime. The `No` branch is unreachable by construction (the network output dimension guarantees the match).
+
+**Pure Idris matrix ops for applyGeneric**: The Transformer's `applyGeneric` (used by `toDoubleNetwork` for evaluation) implements the full attention pipeline in pure Idris using `matrixMultiply`, `transpose`, `softmaxMatrix`, etc. from Math.idr. These work for any `Num`/`Floating` type — no C tensors needed. The C tensor path (`applyVar`) is used for training performance.
+
+### Transformer architecture (2026-04-10)
+
+Single-head causal self-attention with per-position output projection. Type parameters `seqLen`, `dModel`, `vocabSize` encode all dimensions at compile time. The dependent types enforce: Q/K shape = [seqLen, dModel], attention scores = [seqLen, seqLen], output = [seqLen, vocabSize].
+
+New C ops: `tensor_mm` (BLAS-backed), `tensor_transpose_2d`, `tensor_softmax_2d`, `tensor_log_softmax_2d`, `tensor_masked_fill`, `tensor_causal_mask`.
+
+New pure Idris ops in Math.idr: `matrixMultiply`, `softmaxMatrix`, `causalMaskMatrix`, `reshapeToMatrix`, `flattenMatrix`, `scaleMatrix`, `clampMinTensor`.

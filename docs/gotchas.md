@@ -28,7 +28,19 @@ Idris2 requires source files to be in `--source-dir`. Never put test files in `/
 
 ### Tensor Foldable reversal
 
-The `foldr` instance for `Tensor` processes elements in reversed order (head into accumulator first). `toList` produces elements backwards. Use direct `Vect` traversal instead when element order matters (e.g., packing into C buffers).
+The `foldr` instance for `Tensor` processes elements in reversed order (head into accumulator first). `toList` produces elements backwards. Use direct `Vect` traversal instead when element order matters (e.g., packing into C buffers, extracting prediction values for argmax).
+
+Pattern for correct-order extraction:
+```idris
+tensorVals : {n : Nat} -> Vector n Variable -> List Double
+tensorVals (VTensor xs) =
+  let go : Vect k (Scalar Variable) -> List Double
+      go [] = []
+      go (STensor v :: rest) = prim__item v.tensorPtr :: go rest
+  in go xs
+```
+
+This caused a subtle bug in the Transformer example where `toList` reversed prediction logits, making the loss function (which uses `vecStackTensor` in forward order) show near-zero loss while the argmax (which used `toList` in reversed order) gave wrong classes.
 
 ### Zero-arg FFI CSE trap
 

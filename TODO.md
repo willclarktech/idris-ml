@@ -29,8 +29,10 @@
 ## Done
 
 Architecture & infrastructure:
+- Zero `believe_me` policy: all type conversions proven (Nat proofs, erased record proofs, decEq)
+- Pure Idris matrix ops: matrixMultiply, transpose, softmaxMatrix, reshapeToMatrix, flattenMatrix
 - README.md with static-vs-dynamic graph motivation
-- Transformer (single-head causal self-attention, autoregressive character prediction example)
+- Transformer (single-head causal self-attention, autoregressive character prediction, pure Idris eval path)
 - C tape backend (`backend_tape.c`) with build-time backend selection (`BACKEND=tape|torch`)
 - Interface-based layer system (`LayerLike` + `AnyLayer` existential)
 - Unified training runner (`Train.idr`: `runTraining`, `TrainConfig`, `EarlyStopConfig`)

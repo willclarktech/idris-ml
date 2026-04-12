@@ -164,6 +164,17 @@ let model = autoName $ ll ~> OutputLayer softmaxLayer  -- ll0_weight0, ll0_bias0
 
 Multi-stage training via the `Curriculum` module. Each `Stage` has a label, advancement threshold, and `IO` data generator. `runCurriculum` handles stage progression and two-level early stopping. Not required for LSTM-controller NTMs.
 
+### Type safety conventions
+
+The codebase has **zero `believe_me`** and **zero `unsafePerformIO`**. Keep it that way.
+
+- **Nat arithmetic**: `(S k) * n` reduces to `n + (k * n)` as `Refl`. Use `Tensor.splitAt` for reshape/flatten.
+- **Erased proofs in records**: Transformer carries `0 inputPrf : i = seqLen * dModel` for type-safe reshape at layer boundaries. Zero runtime cost.
+- **`decEq` + `Refl`**: When a generic `{n : Nat}` must equal a specific value, use `case decEq n expected of Yes Refl => ...` to unify types in the branch.
+- **`rewrite`**: Convert between provably-equal types: `rewrite sym prf in expr`.
+- **`coerceLastGate`**: For the `o + 0 = o` case after repeated `splitAt`, use `rewrite plusZeroRightNeutral`.
+- **Never add `believe_me`**: If a type won't unify, prove it. If you can't prove it, the types might actually be wrong.
+
 ### Debug / diagnostics
 
 ```idris
