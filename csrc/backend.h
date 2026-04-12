@@ -112,6 +112,8 @@ TensorHandle tensor_masked_fill(TensorHandle t, TensorHandle mask, double value)
 TensorHandle tensor_log_softmax_2d(TensorHandle t);
 TensorHandle tensor_layer_norm_2d(TensorHandle input, TensorHandle gamma,
                                    TensorHandle bias, double eps);
+TensorHandle tensor_reshape_2d(TensorHandle t, int rows, int cols);
+TensorHandle tensor_causal_mask(int n);
 
 /* ---------- Autograd ---------- */
 

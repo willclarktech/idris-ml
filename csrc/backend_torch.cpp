@@ -515,6 +515,92 @@ TensorHandle tensor_cat_from_array(TensorHandle* arr, int count, int dim) {
     return from_tensor(torch::cat(vec, dim));
 }
 
+/* ---------- Convenience shape ops (added for tensor path) ---------- */
+
+TensorHandle tensor_mm(TensorHandle a, TensorHandle b) {
+    return from_tensor(torch::mm(*to_tensor(a), *to_tensor(b)));
+}
+
+TensorHandle tensor_bmm(TensorHandle a, TensorHandle b) {
+    // a=[B,m,n], b=[n,k] (shared weight) → [B,m,k]
+    auto& ta = *to_tensor(a);
+    auto& tb = *to_tensor(b);
+    int B = ta.size(0);
+    std::vector<at::Tensor> results;
+    for (int i = 0; i < B; i++)
+        results.push_back(torch::mm(ta[i], tb));
+    return from_tensor(torch::stack(results));
+}
+
+TensorHandle tensor_transpose_2d(TensorHandle h) {
+    return from_tensor(to_tensor(h)->t().contiguous());
+}
+
+TensorHandle tensor_softmax_2d(TensorHandle h) {
+    return from_tensor(torch::softmax(*to_tensor(h), -1));
+}
+
+TensorHandle tensor_log_softmax_2d(TensorHandle h) {
+    return from_tensor(torch::log_softmax(*to_tensor(h), -1));
+}
+
+TensorHandle tensor_masked_fill(TensorHandle h, TensorHandle mask, double value) {
+    return from_tensor(to_tensor(h)->masked_fill(to_tensor(mask)->to(torch::kBool), value));
+}
+
+TensorHandle tensor_layer_norm_2d(TensorHandle input, TensorHandle gamma,
+                                   TensorHandle bias, double eps) {
+    auto& t = *to_tensor(input);
+    int64_t n = t.size(-1);
+    return from_tensor(torch::layer_norm(t, {n}, *to_tensor(gamma), *to_tensor(bias), eps));
+}
+
+TensorHandle tensor_cat2(TensorHandle a, TensorHandle b) {
+    return from_tensor(torch::cat({*to_tensor(a), *to_tensor(b)}, 0));
+}
+
+TensorHandle tensor_narrow(TensorHandle h, int dim, int start, int len) {
+    // Match tape backend: always returns 1D (flattened)
+    auto t = to_tensor(h)->flatten().narrow(0, start, len).contiguous();
+    return from_tensor(std::move(t));
+}
+
+TensorHandle tensor_reshape_2d(TensorHandle h, int rows, int cols) {
+    return from_tensor(to_tensor(h)->reshape({(int64_t)rows, (int64_t)cols}));
+}
+
+TensorHandle tensor_causal_mask(int n) {
+    auto t = torch::triu(torch::ones({(int64_t)n, (int64_t)n}, torch::kFloat64), 1);
+    return from_tensor(std::move(t));
+}
+
+TensorHandle tensor_one_hot(int* tokens, int n_tokens, int vocab_size) {
+    int total = n_tokens * vocab_size;
+    auto t = torch::zeros({(int64_t)total}, torch::kFloat64);
+    auto acc = t.accessor<double, 1>();
+    for (int i = 0; i < n_tokens; i++) {
+        int tok = tokens[i];
+        if (tok >= 0 && tok < vocab_size)
+            acc[i * vocab_size + tok] = 1.0;
+    }
+    return from_tensor(std::move(t));
+}
+
+TensorHandle tensor_batch(TensorHandle* handles, int count) {
+    std::vector<at::Tensor> vec(count);
+    for (int i = 0; i < count; i++) vec[i] = *to_tensor(handles[i]);
+    return from_tensor(torch::stack(vec));
+}
+
+TensorHandle* tensor_unbatch(TensorHandle h, int* out_count) {
+    auto tensors = to_tensor(h)->unbind(0);
+    *out_count = (int)tensors.size();
+    auto* arr = (TensorHandle*)malloc(*out_count * sizeof(TensorHandle));
+    for (int i = 0; i < *out_count; i++)
+        arr[i] = from_tensor(tensors[i].contiguous());
+    return arr;
+}
+
 /* ---------- Tensor-level parameter creation ---------- */
 
 TensorHandle tensor_create_param_2d(int rows, int cols, double* data) {
@@ -526,6 +612,16 @@ TensorHandle tensor_create_param_2d(int rows, int cols, double* data) {
 TensorHandle tensor_create_param_1d(int n, double* data) {
     auto t = torch::from_blob(data, {(int64_t)n}, torch::kFloat64).clone();
     t.requires_grad_(true);
+    return from_tensor(std::move(t));
+}
+
+TensorHandle tensor_create_state_2d(int rows, int cols, double* data) {
+    auto t = torch::from_blob(data, {(int64_t)rows, (int64_t)cols}, torch::kFloat64).clone();
+    return from_tensor(std::move(t));
+}
+
+TensorHandle tensor_create_state_1d(int n, double* data) {
+    auto t = torch::from_blob(data, {(int64_t)n}, torch::kFloat64).clone();
     return from_tensor(std::move(t));
 }
 
@@ -591,7 +687,18 @@ void optimizer_free(OptimizerHandle h) {
 }
 
 void optimizer_step(OptimizerHandle h) {
-    static_cast<torch::optim::Optimizer*>(h)->step();
+    auto* opt = static_cast<torch::optim::Optimizer*>(h);
+    /* Re-sync param list from registry (handles late registration via autoName) */
+    auto& param_groups = opt->param_groups();
+    if (!param_groups.empty()) {
+        auto& params = param_groups[0].params();
+        auto current = collect_param_tensors();
+        if (params.size() != current.size()) {
+            params.clear();
+            for (auto& t : current) params.push_back(t);
+        }
+    }
+    opt->step();
 }
 
 void optimizer_zero_grad(OptimizerHandle h) {
@@ -681,6 +788,28 @@ int get_current_rss_mb(void) {
 /* ---------- Backend Info ---------- */
 
 const char* backend_name(void) { return "torch"; }
+
+void backend_memory_report(void) {
+    fprintf(stderr, "Torch backend: peak RSS = %d MB, current RSS = %d MB\n",
+            get_rss_mb(), get_current_rss_mb());
+}
+
+void backend_reset_for_eval(void) {
+    /* Zero all param grads for a clean eval forward */
+    for (auto& entry : param_registry) {
+        if (entry.tensor->grad().defined())
+            entry.tensor->grad().zero_();
+    }
+}
+
+void backend_profile_reset(void) {}
+void backend_profile_report(void) {}
+
+double param_grad_item_at(int param_idx, int elem_idx) {
+    auto& t = *param_registry[param_idx].tensor;
+    if (!t.grad().defined()) return 0.0;
+    return t.grad().data_ptr<double>()[elem_idx];
+}
 
 /* ---------- Debug ---------- */
 
