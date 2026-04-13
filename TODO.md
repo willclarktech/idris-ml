@@ -4,6 +4,7 @@
 
 | Item | Difficulty | Notes |
 |------|-----------|-------|
+| Model serialization (save/load/checkpointing) | M–L | Save trained model weights to disk and reload them. Enables: checkpointing during long training runs, sharing trained models, inference without retraining. Needs: serialize parameter tensors (name → flat double array), file format (binary or JSON), `saveModel`/`loadModel` in Idris, C-side `param_save`/`param_load` in backend.h. Should work across all 3 backends (tape/mlx/torch). Consider: save optimizer state too for training resumption |
 | Reinforcement learning example | L–XL | Policy gradient (e.g. REINFORCE on CartPole or grid world). Requires: environment interface, episode rollout, discounted return computation, policy gradient loss (`-log_prob * reward`). May need: `Categorical` distribution sampling from logits, baseline variance reduction. Could reuse `Train.runTraining` with episodes as "epochs" |
 
 ## Medium Priority
