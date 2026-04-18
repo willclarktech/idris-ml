@@ -265,7 +265,7 @@ main = do
   let finalPair = evalAccuracy evalModel testDs testCount 1000
       finalAcc = fst finalPair
       finalTestLoss = snd finalPair
-  putStrLn $ "Final accuracy (1000 test samples): " ++ show finalAcc
+  putStrLn $ "Final accuracy (1000 test samples): " ++ show (finalAcc * 100.0) ++ "%"
   putStrLn $ "Final test loss: " ++ show finalTestLoss
 
   putStrLn ""

@@ -47,12 +47,12 @@ def main() -> None:
             elapsed = time.time() - t0
             print(
                 f"  [{elapsed:07.2f}s] {epoch}"
-                f"\tloss={loss:.6f}\taccuracy={accuracy:.4f}"
+                f"\tloss={loss:.6f}\taccuracy={accuracy * 100:.1f}%"
             )
 
     accuracy = evaluate(model, 500)
     elapsed = time.time() - t0
-    print(f"\nFinal accuracy (500 samples): {accuracy:.4f} ({elapsed:.1f}s)")
+    print(f"\nFinal accuracy (500 samples): {accuracy * 100:.1f}% ({elapsed:.1f}s)")
     print(format_result([
         ("accuracy", f"{accuracy:.4f}"),
         ("epochs", str(args.epochs)),

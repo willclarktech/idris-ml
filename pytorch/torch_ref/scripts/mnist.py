@@ -50,12 +50,12 @@ def main() -> None:
             test_loss, accuracy = evaluate(model, test_loader)
             print(
                 f"  [{elapsed:07.2f}s] {epoch}\tloss={loss:.6f}"
-                f"\ttest_loss={test_loss:.6f}\taccuracy={accuracy:.4f}"
+                f"\ttest_loss={test_loss:.6f}\taccuracy={accuracy * 100:.1f}%"
             )
 
     test_loss, accuracy = evaluate(model, test_loader)
     elapsed = time.time() - t0
-    print(f"\nFinal: test_loss={test_loss:.6f} accuracy={accuracy:.4f} ({elapsed:.1f}s)")
+    print(f"\nFinal: test_loss={test_loss:.6f} accuracy={accuracy * 100:.1f}% ({elapsed:.1f}s)")
     print(format_result([
         ("accuracy", f"{accuracy:.4f}"),
         ("epochs", str(args.epochs)),
