@@ -65,7 +65,7 @@ EosToken : Nat
 EosToken = 7
 
 InputDim : Nat
-InputDim = SeqLen * VocabSize
+InputDim = SeqLen
 
 OutputDim : Nat
 OutputDim = SeqLen * VocabSize
@@ -259,9 +259,10 @@ main = do
   let tdp = index FZ evalRaw
       (_, outT) = forwardVarTensor trained (inputTensor tdp)
       predVals = tensorVals (VTensor (tensorToScalars outT 0 OutputDim))
-      inputVals = tensorVals (VTensor (tensorToScalars (inputTensor tdp) 0 InputDim))
       targetVals = tensorVals (VTensor (tensorToScalars (targetTensor tdp) 0 OutputDim))
-      inputDecoded = map (argmaxAt VocabSize inputVals) positions
+      -- Input is token indices — read directly from tensor
+      inpT = inputTensor tdp
+      inputDecoded = map (\p => cast {to=Nat} (cast {to=Integer} (prim__item1d inpT (cast p)))) positions
       targetDecoded = map (argmaxAt VocabSize targetVals) positions
       predicted = map (argmaxAt VocabSize predVals) positions
       sortCorrect = countMatches (drop InputLen predicted) (drop InputLen targetDecoded)

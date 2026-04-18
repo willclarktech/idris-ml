@@ -58,7 +58,7 @@ BatchSize : Nat
 BatchSize = 32
 
 InputDim : Nat
-InputDim = SeqLen * VocabSize
+InputDim = SeqLen
 
 OutputDim : Nat
 OutputDim = SeqLen * VocabSize
@@ -143,6 +143,12 @@ packIntBuf buf off (tok :: rest) =
   let buf' = prim__setInt buf off tok
   in packIntBuf buf' (off + 1) rest
 
+||| Pack a list of Ints as Doubles into a C double buffer.
+packDoubleBuf : AnyPtr -> Int -> List Int -> AnyPtr
+packDoubleBuf buf _ [] = buf
+packDoubleBuf buf off (tok :: rest) =
+  packDoubleBuf (prim__setDouble buf off (cast {to=Double} tok)) (off + 1) rest
+
 
 ----------------------------------------------------------------------
 -- Data Generation
@@ -169,9 +175,11 @@ gptTensorPoint = do
       targetToks = Data.List.take SeqLen (drop 1 window)
       sI = cast {to=Int} SeqLen
       vI = cast {to=Int} VocabSize
-      inIdxBuf = packIntBuf (prim__allocInts sI) 0 inputToks
+      -- Input: token indices as doubles [seqLen]
+      inT = prim__create1d sI (packDoubleBuf (prim__allocDoubles sI) 0 inputToks) 0
+      -- Target: still one-hot [seqLen * vocabSize] for cross-entropy
       tgtIdxBuf = packIntBuf (prim__allocInts sI) 0 targetToks
-  pure $ MkTensorDataPoint (prim__oneHot inIdxBuf sI vI) (prim__oneHot tgtIdxBuf sI vI)
+  pure $ MkTensorDataPoint inT (prim__oneHot tgtIdxBuf sI vI)
 
 ||| Generate a batch of GPT data points.
 gptBatchVect : (n : Nat) -> IO (Vect n (TensorDataPoint InputDim OutputDim))
@@ -242,8 +250,7 @@ generateText model seed genLen temperature =
     go m ctx (S k) acc =
       let sI = cast {to=Int} SeqLen
           vI = cast {to=Int} VocabSize
-          idxBuf = packIntBuf (prim__allocInts sI) 0 ctx
-          inT = prim__oneHot idxBuf sI vI
+          inT = prim__create1d sI (packDoubleBuf (prim__allocDoubles sI) 0 ctx) 0
           fwdPair = forwardVarTensor m inT
           outT = snd fwdPair
           unnorm = sampleAt outT (minus SeqLen 1)
@@ -272,9 +279,8 @@ evalBPC model nSamples = go model nSamples 0.0
           targetToks = Data.List.take SeqLen (drop 1 window)
           sI = cast {to=Int} SeqLen
           vI = cast {to=Int} VocabSize
-          inIdxBuf = packIntBuf (prim__allocInts sI) 0 inputToks
+          inT = prim__create1d sI (packDoubleBuf (prim__allocDoubles sI) 0 inputToks) 0
           tgtIdxBuf = packIntBuf (prim__allocInts sI) 0 targetToks
-          inT = prim__oneHot inIdxBuf sI vI
           tgtT = prim__oneHot tgtIdxBuf sI vI
           fwdPair = forwardVarTensor m inT
           outT = snd fwdPair

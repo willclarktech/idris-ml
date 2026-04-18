@@ -380,6 +380,12 @@ packTokens buf off (tok :: rest) =
   let buf' = prim__setInt buf off (cast tok)
   in packTokens buf' (off + 1) rest
 
+||| Pack token indices as doubles (for embedding-based transformer input)
+packTokensDouble : AnyPtr -> Int -> List Nat -> AnyPtr
+packTokensDouble buf _ [] = buf
+packTokensDouble buf off (tok :: rest) =
+  packTokensDouble (prim__setDouble buf off (cast {to=Double} (natToInteger tok))) (off + 1) rest
+
 ||| Generate one reversal data point as pre-allocated C tensors.
 ||| One-hot encoding done in C (single FFI call per sequence).
 export
@@ -395,11 +401,11 @@ reversalTensorPoint i o vocabSize inputLen seqLen sepToken eosToken = do
       targetToks = Data.List.take seqLen (drop 1 fullSeq)
       sI = cast {to=Int} seqLen
       vI = cast {to=Int} vocabSize
-      -- Pack token indices to C int buffers (seqLen ints each)
-      inIdxBuf = packTokens (prim__allocInts sI) 0 inputToks
+      -- Input: token indices as doubles [seqLen]
+      inT = prim__create1d sI (packTokensDouble (prim__allocDoubles sI) 0 inputToks) 0
+      -- Target: one-hot [seqLen * vocabSize] for cross-entropy
       tgtIdxBuf = packTokens (prim__allocInts sI) 0 targetToks
-      -- One-hot encode in C (1 FFI call each → seqLen*vocabSize doubles)
-  pure $ MkTensorDataPoint (prim__oneHot inIdxBuf sI vI) (prim__oneHot tgtIdxBuf sI vI)
+  pure $ MkTensorDataPoint inT (prim__oneHot tgtIdxBuf sI vI)
 
 ||| Generate a batch of reversal tensor data points.
 export
@@ -429,9 +435,9 @@ sortingTensorPoint i o vocabSize inputLen seqLen sepToken eosToken = do
       targetToks = Data.List.take seqLen (drop 1 fullSeq)
       sI = cast {to=Int} seqLen
       vI = cast {to=Int} vocabSize
-      inIdxBuf = packTokens (prim__allocInts sI) 0 inputToks
+      inT = prim__create1d sI (packTokensDouble (prim__allocDoubles sI) 0 inputToks) 0
       tgtIdxBuf = packTokens (prim__allocInts sI) 0 targetToks
-  pure $ MkTensorDataPoint (prim__oneHot inIdxBuf sI vI) (prim__oneHot tgtIdxBuf sI vI)
+  pure $ MkTensorDataPoint inT (prim__oneHot tgtIdxBuf sI vI)
 
 ||| Generate a batch of sorting tensor data points.
 export
