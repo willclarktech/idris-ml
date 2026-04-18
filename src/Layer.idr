@@ -15,3 +15,4 @@ import public Layer.Conv
 import public Layer.BatchNorm
 import public Layer.Dropout
 import public Layer.Embedding
+import public Layer.Residual

@@ -20,6 +20,7 @@ modules = Backprop
         , Layer.Core
         , Layer.Dropout
         , Layer.Embedding
+        , Layer.Residual
         , Layer.LayerNorm
         , Layer.Linear
         , Layer.Lstm
