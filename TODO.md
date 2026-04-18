@@ -8,14 +8,13 @@ Core PyTorch feature parity — the 20% of features that enables 80% of real-wor
 
 | Item | Difficulty | Notes |
 |------|-----------|-------|
-| Gradient accumulation | S | Training loop pattern. Skip `optimizer_step` for N iterations |
 | Integrate embedding into Transformer | M | Replace one-hot × linear with EmbeddingState in TransformerState. Change interface from `[seqLen * vocab]` to `[seqLen]` token indices |
 
 **Done (Tier 1):** Embedding layer, AdamW optimizer, GELU activation, average pooling 1D+2D, residual layer wrapper, weight decay
 
 **Done (Tier 2):** GRU layer, grouped/depthwise conv, transposed convolution 1D+2D, cross-attention
 
-**Done (Tier 3):** Group normalization, LR warmup + cosine schedule
+**Done (Tier 3):** Group normalization, LR warmup + cosine schedule, gradient accumulation
 
 **Infrastructure**
 
