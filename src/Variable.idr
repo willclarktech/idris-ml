@@ -134,6 +134,11 @@ prim__cosineSimilarity : AnyPtr -> AnyPtr -> Int -> AnyPtr
 %foreign "C:tensor_conv1d_circular,libidrisml"
 prim__conv1dCircular : AnyPtr -> AnyPtr -> AnyPtr
 
+-- Batch Norm
+%foreign "C:tensor_batch_norm,libidrisml"
+export
+prim__batchNorm : AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> Int -> Int -> Int -> Double -> Double -> AnyPtr
+
 -- Dropout
 %foreign "C:tensor_dropout,libidrisml"
 export

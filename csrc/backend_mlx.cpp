@@ -85,6 +85,7 @@ enum {
     OP_BMM_3X3,
     OP_SOFTMAX_3D,
     OP_TRANSPOSE_LAST2,
+    OP_BATCH_NORM,
     OP_DROPOUT,
     OP_CONV2D,
     OP_MAX_POOL2D,
@@ -95,6 +96,13 @@ enum {
 struct LayerNormReplayMeta {
     int gamma_pool_idx;
     int bias_pool_idx;
+    double eps;
+};
+
+struct BatchNormReplayMeta {
+    int gamma_pool_idx;
+    int beta_pool_idx;
+    int C, spatial;
     double eps;
 };
 
@@ -135,6 +143,10 @@ static void tape_reset() {
         }
         if (e.op == OP_STACK && e.meta) {
             delete (std::vector<int>*)e.meta;
+            e.meta = nullptr;
+        }
+        if (e.op == OP_BATCH_NORM && e.meta) {
+            delete (BatchNormReplayMeta*)e.meta;
             e.meta = nullptr;
         }
         if (e.op == OP_CONV2D && e.meta) {
@@ -511,6 +523,57 @@ TensorHandle tensor_conv1d_circular(TensorHandle hinput, TensorHandle hkernel) {
     bool rg = inp->requires_grad || kern->requires_grad;
     auto r = new Tensor(result, rg);
     if (rg) tape_append(OP_CONV1D_CIRC, r, inp, kern, 0);
+    return (TensorHandle)r;
+}
+
+TensorHandle tensor_batch_norm(TensorHandle hinput, TensorHandle hgamma, TensorHandle hbeta,
+                               TensorHandle hrunning_mean, TensorHandle hrunning_var,
+                               int C, int spatial, int training,
+                               double momentum, double eps) {
+    auto inp = (Tensor*)hinput;
+    auto gamma = (Tensor*)hgamma;
+    auto beta = (Tensor*)hbeta;
+    auto rm = (Tensor*)hrunning_mean;
+    auto rv = (Tensor*)hrunning_var;
+
+    // Reshape flat input to [C, spatial]
+    auto x = mx::reshape(inp->data, {C, spatial});
+    auto mean = mx::mean(x, std::vector<int>{1}, true);  // [C, 1]
+    auto var = mx::var(x, std::vector<int>{1}, true);     // [C, 1]
+
+    if (training) {
+        // Update running stats (non-differentiable)
+        auto new_rm = mx::add(mx::multiply(mx::array(1.0 - momentum, mx::float64), rm->data),
+                              mx::multiply(mx::array(momentum, mx::float64), mx::squeeze(mean)));
+        auto new_rv = mx::add(mx::multiply(mx::array(1.0 - momentum, mx::float64), rv->data),
+                              mx::multiply(mx::array(momentum, mx::float64), mx::squeeze(var)));
+        rm->data = new_rm;
+        rv->data = new_rv;
+        mx::eval(rm->data);
+        mx::eval(rv->data);
+    } else {
+        mean = mx::reshape(rm->data, {C, 1});
+        var = mx::reshape(rv->data, {C, 1});
+    }
+
+    auto rstd = mx::rsqrt(mx::add(var, mx::array(eps, mx::float64)));
+    auto x_hat = mx::multiply(mx::subtract(x, mean), rstd);
+    auto g = mx::reshape(gamma->data, {C, 1});
+    auto b = mx::reshape(beta->data, {C, 1});
+    auto result = mx::flatten(mx::add(mx::multiply(g, x_hat), b));
+
+    bool rg = inp->requires_grad || gamma->requires_grad || beta->requires_grad;
+    auto r = new Tensor(result, rg);
+    if (rg) {
+        int idx = tape_append(OP_BATCH_NORM, r, inp, nullptr, 0);
+        auto* meta = new BatchNormReplayMeta();
+        meta->gamma_pool_idx = gamma->pool_idx;
+        meta->beta_pool_idx = beta->pool_idx;
+        meta->C = C;
+        meta->spatial = spatial;
+        meta->eps = eps;
+        tape[idx].meta = meta;
+    }
     return (TensorHandle)r;
 }
 
@@ -995,6 +1058,18 @@ void tensor_backward(TensorHandle h) {
                 auto rstd = mx::rsqrt(mx::add(var, mx::array(meta->eps)));
                 auto x_hat = mx::multiply(centered, rstd);
                 pool[out] = mx::add(mx::multiply(gamma, x_hat), bias);
+                break;
+            }
+            case OP_BATCH_NORM: {
+                auto* bm = (BatchNormReplayMeta*)e.meta;
+                auto x = mx::reshape(a, {bm->C, bm->spatial});
+                auto mean = mx::mean(x, std::vector<int>{1}, true);
+                auto var = mx::var(x, std::vector<int>{1}, true);
+                auto rstd = mx::rsqrt(mx::add(var, mx::array(bm->eps, mx::float64)));
+                auto x_hat = mx::multiply(mx::subtract(x, mean), rstd);
+                auto g = mx::reshape(pool[bm->gamma_pool_idx], {bm->C, 1});
+                auto bt = mx::reshape(pool[bm->beta_pool_idx], {bm->C, 1});
+                pool[out] = mx::flatten(mx::add(mx::multiply(g, x_hat), bt));
                 break;
             }
             case OP_DROPOUT: {

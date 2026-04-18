@@ -169,6 +169,7 @@ enum {
     OP_BMM_3X3,       /* batched matmul: [B,m,n] x [B,n,k] -> [B,m,k] */
     OP_SOFTMAX_3D,    /* row-wise softmax on [B,m,n] along last dim */
     OP_TRANSPOSE_LAST2, /* [B,m,n] -> [B,n,m] */
+    OP_BATCH_NORM,    /* per-channel normalization */
     OP_DROPOUT,       /* inverted dropout with stored mask */
     OP_CONV2D,        /* [inC,H,W] * [outC,inC,kH,kW] + [outC] -> [outC,oH,oW] */
     OP_MAX_POOL2D,    /* [C,H,W] -> [C,oH,oW] with max indices */
@@ -236,6 +237,14 @@ typedef struct {
 } LayerNormMeta;
 
 typedef struct {
+    Tensor* gamma;
+    Tensor* beta;
+    double* x_hat;     /* normalized values [C * spatial], heap-allocated */
+    double* rstd;      /* reciprocal std devs [C], heap-allocated */
+    int C, spatial;
+} BatchNormMeta;
+
+typedef struct {
     double* mask;   /* [numel] binary mask (0 or 1/(1-p)), heap-allocated */
     int numel;
 } DropoutMeta;
@@ -291,6 +300,14 @@ static void tape_reset(void) {
         /* Free OP_LAYER_NORM_2D heap arrays */
         if (tape[i].op == OP_LAYER_NORM_2D && tape[i].op_meta) {
             LayerNormMeta* meta = (LayerNormMeta*)tape[i].op_meta;
+            free(meta->x_hat);
+            free(meta->rstd);
+            meta->x_hat = NULL;
+            meta->rstd = NULL;
+        }
+        /* Free OP_BATCH_NORM arrays */
+        if (tape[i].op == OP_BATCH_NORM && tape[i].op_meta) {
+            BatchNormMeta* meta = (BatchNormMeta*)tape[i].op_meta;
             free(meta->x_hat);
             free(meta->rstd);
             meta->x_hat = NULL;
@@ -1134,6 +1151,78 @@ TensorHandle tensor_conv1d_circular(TensorHandle hinput, TensorHandle hkernel) {
     Tensor* r = make_tensor(out, shape, 1, input->requires_grad || kernel->requires_grad);
     free(out);
     if (r->requires_grad) tape_append(OP_CONV1D_CIRC, r, input, kernel, 0);
+    return r;
+}
+
+/* ================================================================
+   Batch Normalization: per-channel, across spatial dims
+   Input treated as [C, spatial]. Normalizes each channel independently.
+   ================================================================ */
+
+TensorHandle tensor_batch_norm(TensorHandle hinput, TensorHandle hgamma, TensorHandle hbeta,
+                               TensorHandle hrunning_mean, TensorHandle hrunning_var,
+                               int C, int spatial, int training,
+                               double momentum, double eps) {
+    Tensor* input = (Tensor*)hinput;
+    Tensor* gamma = (Tensor*)hgamma;
+    Tensor* beta = (Tensor*)hbeta;
+    Tensor* running_mean = (Tensor*)hrunning_mean;
+    Tensor* running_var = (Tensor*)hrunning_var;
+    int n = C * spatial;
+
+    double* out = calloc(n, sizeof(double));
+    double* x_hat = malloc(n * sizeof(double));
+    double* rstd = malloc(C * sizeof(double));
+
+    for (int c = 0; c < C; c++) {
+        double mean, var;
+        if (training) {
+            /* Compute mean and var from input for this channel */
+            mean = 0;
+            for (int j = 0; j < spatial; j++) mean += input->data[c * spatial + j];
+            mean /= spatial;
+            var = 0;
+            for (int j = 0; j < spatial; j++) {
+                double d = input->data[c * spatial + j] - mean;
+                var += d * d;
+            }
+            var /= spatial;
+            /* Update running stats (in-place, no grad) */
+            running_mean->data[c] = (1.0 - momentum) * running_mean->data[c] + momentum * mean;
+            running_var->data[c] = (1.0 - momentum) * running_var->data[c] + momentum * var;
+        } else {
+            mean = running_mean->data[c];
+            var = running_var->data[c];
+        }
+
+        double rs = 1.0 / sqrt(var + eps);
+        rstd[c] = rs;
+        for (int j = 0; j < spatial; j++) {
+            int idx = c * spatial + j;
+            x_hat[idx] = (input->data[idx] - mean) * rs;
+            out[idx] = gamma->data[c] * x_hat[idx] + beta->data[c];
+        }
+    }
+
+    int out_shape[1] = {n};
+    int rg = input->requires_grad || gamma->requires_grad || beta->requires_grad;
+    Tensor* r = make_tensor(out, out_shape, 1, rg);
+    free(out);
+
+    if (r->requires_grad) {
+        int idx = tape_append(OP_BATCH_NORM, r, input, NULL, 0);
+        BatchNormMeta* meta = arena_alloc(sizeof(BatchNormMeta));
+        meta->gamma = gamma;
+        meta->beta = beta;
+        meta->x_hat = x_hat;
+        meta->rstd = rstd;
+        meta->C = C;
+        meta->spatial = spatial;
+        tape[idx].op_meta = meta;
+    } else {
+        free(x_hat);
+        free(rstd);
+    }
     return r;
 }
 
@@ -2512,6 +2601,53 @@ void tensor_backward(TensorHandle h) {
                         for (int ii = 0; ii < nn; ii++)
                             s += r->grad[ii * ww + jj] * b->data[ii];
                         m->add_vector->grad[jj] += s;
+                    }
+                }
+            }
+            break;
+        }
+
+        case OP_BATCH_NORM: {
+            /* y = gamma * x_hat + beta where x_hat = (x - mean) / std
+               d_gamma[c] = sum_j dy[c,j] * x_hat[c,j]
+               d_beta[c]  = sum_j dy[c,j]
+               dx = rstd * (dy*gamma - mean(dy*gamma) - x_hat * mean(dy*gamma*x_hat)) */
+            BatchNormMeta* meta = (BatchNormMeta*)e->op_meta;
+            int CC = meta->C, sp = meta->spatial;
+            ensure_grad(r);
+            /* d_gamma and d_beta */
+            if (meta->gamma->requires_grad) {
+                ensure_grad(meta->gamma);
+                for (int c = 0; c < CC; c++) {
+                    double dg = 0;
+                    for (int j = 0; j < sp; j++) dg += r->grad[c*sp+j] * meta->x_hat[c*sp+j];
+                    meta->gamma->grad[c] += dg;
+                }
+            }
+            if (meta->beta->requires_grad) {
+                ensure_grad(meta->beta);
+                for (int c = 0; c < CC; c++) {
+                    double db = 0;
+                    for (int j = 0; j < sp; j++) db += r->grad[c*sp+j];
+                    meta->beta->grad[c] += db;
+                }
+            }
+            /* d_input */
+            if (a && a->requires_grad) {
+                ensure_grad(a);
+                for (int c = 0; c < CC; c++) {
+                    double mean_dxhat = 0, mean_dxhat_xhat = 0;
+                    for (int j = 0; j < sp; j++) {
+                        double dxh = r->grad[c*sp+j] * meta->gamma->data[c];
+                        mean_dxhat += dxh;
+                        mean_dxhat_xhat += dxh * meta->x_hat[c*sp+j];
+                    }
+                    mean_dxhat /= sp;
+                    mean_dxhat_xhat /= sp;
+                    for (int j = 0; j < sp; j++) {
+                        double dxh = r->grad[c*sp+j] * meta->gamma->data[c];
+                        a->grad[c*sp+j] += meta->rstd[c] *
+                            (dxh - mean_dxhat - meta->x_hat[c*sp+j] * mean_dxhat_xhat);
                     }
                 }
             }

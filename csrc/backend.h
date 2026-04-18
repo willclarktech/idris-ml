@@ -72,6 +72,17 @@ TensorHandle tensor_bce_with_logits(TensorHandle input, TensorHandle target);
 TensorHandle tensor_cross_entropy(TensorHandle input, TensorHandle target);
 TensorHandle tensor_mse_loss(TensorHandle input, TensorHandle target);
 
+/* ---------- Batch Normalization ---------- */
+
+/* Per-channel normalization on [C, *] tensors (instance norm when batch=1).
+   input: [C, D] or flat [C*D]. gamma/beta: [C] learnable.
+   running_mean/running_var: [C] state (updated in-place when training=1).
+   Returns normalized, scaled, shifted tensor (same shape as input). */
+TensorHandle tensor_batch_norm(TensorHandle input, TensorHandle gamma, TensorHandle beta,
+                               TensorHandle running_mean, TensorHandle running_var,
+                               int channels, int spatial, int training,
+                               double momentum, double eps);
+
 /* ---------- Dropout ---------- */
 
 /* Inverted dropout: zero with probability p, scale survivors by 1/(1-p).

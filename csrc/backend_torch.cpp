@@ -247,6 +247,24 @@ TensorHandle tensor_conv1d_circular(TensorHandle input, TensorHandle kernel) {
     return from_tensor(out.reshape({n}));
 }
 
+TensorHandle tensor_batch_norm(TensorHandle hinput, TensorHandle hgamma, TensorHandle hbeta,
+                               TensorHandle hrunning_mean, TensorHandle hrunning_var,
+                               int channels, int spatial, int training,
+                               double momentum, double eps) {
+    auto& inp = *to_tensor(hinput);
+    auto& gamma = *to_tensor(hgamma);
+    auto& beta = *to_tensor(hbeta);
+    auto& rm = *to_tensor(hrunning_mean);
+    auto& rv = *to_tensor(hrunning_var);
+
+    /* Reshape to [1, C, spatial] for torch::batch_norm (expects [N,C,...]) */
+    auto inp_3d = inp.reshape({1, (int64_t)channels, (int64_t)spatial});
+    auto out = torch::batch_norm(inp_3d, gamma, beta, rm, rv,
+                                 /*training=*/training, momentum, eps,
+                                 /*cudnn_enabled=*/false);
+    return from_tensor(out.reshape({-1}));  /* flatten back to [C*spatial] */
+}
+
 TensorHandle tensor_dropout(TensorHandle hinput, double p, int training, unsigned int seed) {
     (void)seed;  /* torch uses its own RNG */
     auto& inp = *to_tensor(hinput);
