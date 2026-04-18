@@ -788,11 +788,19 @@ void tensor_backward(TensorHandle h) {
             break;
 
         case OP_POW: {
-            // d/db (b^e) = e * b^(e-1) * grad
+            // r = a^b
+            // d/da = b * a^(b-1) * grad
+            // d/db = a^b * ln(a) * grad
             if (a && a->requires_grad) {
                 ensure_grad(a);
-                a->grad = mx::add(a->grad, mx::multiply(r->grad,
-                    mx::multiply(b->data, mx::power(a->data, mx::subtract(b->data, mx::array(1.0))))));
+                auto ga = mx::multiply(r->grad,
+                    mx::multiply(b->data, mx::power(a->data, mx::subtract(b->data, mx::array(1.0)))));
+                a->grad = mx::add(a->grad, reduce_grad(ga, a->data.shape()));
+            }
+            if (b && b->requires_grad) {
+                ensure_grad(b);
+                auto gb = mx::multiply(r->grad, mx::multiply(r->data, mx::log(a->data)));
+                b->grad = mx::add(b->grad, reduce_grad(gb, b->data.shape()));
             }
             break;
         }
