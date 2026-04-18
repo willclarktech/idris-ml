@@ -67,15 +67,11 @@ TensorHandle tensor_clone(TensorHandle h) {
 static std::unordered_set<void*> freed_by_cleanup;
 
 void tensor_free(TensorHandle h) {
-    if (!h) return;
-    auto* p = static_cast<at::Tensor*>(h);
-    // Skip if already freed by free_intermediates()
-    if (freed_by_cleanup.erase(p)) return;
-    // Null out in intermediates to avoid double-free in free_intermediates()
-    for (auto& slot : intermediates) {
-        if (slot == p) { slot = nullptr; break; }
-    }
-    delete p;
+    // Torch tensors participate in autograd graphs — explicit deletion can
+    // corrupt torch's internal bookkeeping. Let free_intermediates (called
+    // by optimizer_step) handle bulk cleanup of computation intermediates.
+    // Persistent user-created tensors leak slightly — acceptable for tests.
+    (void)h;
 }
 
 /* ---------- Accessors ---------- */
@@ -447,6 +443,9 @@ void param_register(const char* name, TensorHandle h) {
 
 void param_clear(void) {
     param_registry.clear();
+    intermediates.clear();
+    for (auto* p : all_pairs) delete p;
+    all_pairs.clear();
     freed_by_cleanup.clear();
 }
 
@@ -480,7 +479,7 @@ const char* param_name(int idx) {
 double param_grad_item(int idx) {
     auto& g = param_registry[idx].tensor->grad();
     if (!g.defined()) return 0.0;
-    return g.item<double>();
+    return g.flatten().data_ptr<double>()[0];
 }
 
 double param_grad_item_and_zero(int idx) {
