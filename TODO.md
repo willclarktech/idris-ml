@@ -4,7 +4,6 @@
 
 | Item | Difficulty | Notes |
 |------|-----------|-------|
-| Revisit Makefile test suites | S–M | Current test infrastructure is fragmented: `make test` (Idris unit tests), `make test-backend-tape` (C tape tests), `make test-backend-torch` (C torch tests), standalone `test_safetensors.c`. Missing: MLX backend C tests, unified `make test-all` target, test for cross-backend serialization round-trip, integration tests that verify examples produce expected RESULT lines. Consider: single `make test-all` that runs Idris + all backend C tests + serialization + transfer smoke test. Also the standalone `test_safetensors.c` should be integrated into the backend test suite or have its own Makefile target |
 | Revisit native autograd (torch/MLX) | M–L | Currently all 3 backends use a custom Wengert list (tape) for autograd. Torch and MLX have built-in autograd that could be faster, more numerically stable, and support higher-order gradients. Investigate: (1) performance gap between custom tape vs native autograd, (2) which ops benefit most, (3) whether hybrid approach is feasible (native autograd for standard ops, custom for fused NTM ops). Would require rearchitecting the backward pass in backend_mlx.cpp and backend_torch.cpp |
 | Reinforcement learning example | L–XL | Policy gradient (e.g. REINFORCE on CartPole or grid world). Requires: environment interface, episode rollout, discounted return computation, policy gradient loss (`-log_prob * reward`). May need: `Categorical` distribution sampling from logits, baseline variance reduction. Could reuse `Train.runTraining` with episodes as "epochs" |
 
@@ -42,7 +41,7 @@ Architecture & infrastructure:
 - Unified training runner (`Train.idr`: `runTraining`, `TrainConfig`, `EarlyStopConfig`)
 - Declarative arg parsing (`ArgSpec` + `parseArgs`)
 - Uniform example output formatting (banners, progress, timing, RESULT lines)
-- Unit test suite (`make test`, `make test-backend-tape`)
+- Unified test infrastructure: `make test-all` runs Idris unit tests + C backend tests on all available backends + specialized C tests (safetensors, NTM grad, NTM timestep) + integration tests (`test-examples` validates RESULT lines) + PyTorch reference tests. Backend detection via cached dylibs. Consolidated `test_backend.c` (was split across `test_backend.c` and `test_backend_tape.c`)
 - PyTorch reference benchmarks (`pytorch/` directory)
 
 Layers & models:

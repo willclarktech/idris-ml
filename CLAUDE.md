@@ -29,9 +29,15 @@ idris2 --source-dir src -p contrib --check src/<File>.idr
 idris2 --source-dir src -p contrib -o <name> src/Example/<Name>.idr && ./build/exec/<name>
 
 # Tests
-make test                # Idris unit tests
-make test-backend-tape   # C tape backend tests
-make test-backend-torch  # libtorch backend tests (requires BACKEND=torch)
+make test-all            # Everything: Idris + C backends + integration + PyTorch ref
+make test                # Idris unit tests (pure logic, tape backend)
+make test-backend-tape   # C backend API tests on tape
+make test-backend-mlx    # C backend API tests on MLX
+make test-backend-torch  # C backend API tests on torch
+make test-safetensors    # SafeTensors serialization round-trip
+make test-ntm-grad       # NTM gradient NaN detection
+make test-ntm-timestep   # NTM full timestep integration
+make test-examples       # All examples on all backends, validates RESULT lines
 
 # Benchmarks
 make bench           # Idris benchmark (Supervised + RNN + NTM)
@@ -285,5 +291,5 @@ See [`docs/gotchas.md`](docs/gotchas.md) for detailed explanations of each entry
 
 - **Interface-based layer system**: `LayerLike` + `AnyLayer` existential. Explicit `{i, o : Nat}` needed on all methods (QTT erases Nat params). Adding a layer = one file, zero edits elsewhere
 - **libtorch backend**: `csrc/backend.h` (abstract C API) + `csrc/backend_torch.cpp` (libtorch implementation). ~50 tensor ops, parameter registry, native optimizers. Autograd delegated entirely to libtorch
-- **Test suite**: `make test` (Idris), `make test-backend` (C backend). Tests in `test/src/Test/*.idr`, `Harness.idr` for assertions
+- **Test suite**: `make test-all` runs everything. `make test` (Idris unit tests), `make test-backend-{tape,mlx,torch}` (C API tests per backend), `make test-safetensors` / `test-ntm-grad` / `test-ntm-timestep` (specialized C tests), `make test-examples` (integration: all examples on all backends with RESULT line validation). Tests in `test/src/Test/*.idr`, `Harness.idr` for assertions
 - **Curriculum learning**: available via `Curriculum` module. Not needed for LSTM-controller NTMs — converges directly with two-phase training
