@@ -338,3 +338,83 @@ maxPool1dLayer : {c, len, poolK, str : Nat} ->
                           ty
 maxPool1dLayer = MkAnyLayer (MaxPool1DState c len poolK str)
                   (MkMaxPool1D Refl Refl)
+
+
+----------------------------------------------------------------------
+-- AvgPool2D State (same type structure as MaxPool2D)
+----------------------------------------------------------------------
+
+public export
+record AvgPool2DState (c : Nat) (inH : Nat) (inW : Nat)
+                      (poolH : Nat) (poolW : Nat) (strH : Nat) (strW : Nat)
+                      (inputSize : Nat) (outputSize : Nat) (ty : Type) where
+  constructor MkAvgPool2D
+  0 inputPrf  : inputSize = c * (inH * inW)
+  0 outputPrf : outputSize = c * (PoolOutDim inH poolH strH * PoolOutDim inW poolW strW)
+
+export
+{c, inH, inW, poolH, poolW, strH, strW : Nat} ->
+  LayerLike (AvgPool2DState c inH inW poolH poolW strH strW) where
+  applyGeneric _ _ = idris_crash "AvgPool2D: use tensor path"
+  applyVar _ _ = idris_crash "AvgPool2D: use tensor path"
+  applyVarTensor {i} {o} st inputT =
+    let cI = cast {to=Int} c
+        hI = cast {to=Int} inH
+        wI = cast {to=Int} inW
+        inp3d = prim__reshape3d inputT cI hI wI
+        outT = prim__avgPool2d inp3d (cast poolH) (cast poolW) (cast strH) (cast strW)
+        oI = cast {to=Int} o
+    in (st, prim__reshape1d outT oI)
+  emapLayer _ st = st
+  showLayer _ = "AvgPool2D<k=" ++ show poolH ++ " s=" ++ show strH ++ ">"
+  nameLayer _ st = st
+  layerPrefix _ = "avgpool"
+  toDoubleLayer (MkAvgPool2D ip op) = MkAvgPool2D ip op
+  debugApply _ _ = idris_crash "AvgPool2D: use tensor path"
+
+export
+avgPool2dLayer : {c, inH, inW, poolH, poolW, strH, strW : Nat} ->
+                 AnyLayer (c * (inH * inW))
+                          (c * (PoolOutDim inH poolH strH * PoolOutDim inW poolW strW))
+                          ty
+avgPool2dLayer = MkAnyLayer (AvgPool2DState c inH inW poolH poolW strH strW)
+                  (MkAvgPool2D Refl Refl)
+
+
+----------------------------------------------------------------------
+-- AvgPool1D State
+----------------------------------------------------------------------
+
+public export
+record AvgPool1DState (c : Nat) (len : Nat) (poolK : Nat) (str : Nat)
+                      (inputSize : Nat) (outputSize : Nat) (ty : Type) where
+  constructor MkAvgPool1D
+  0 inputPrf  : inputSize = c * len
+  0 outputPrf : outputSize = c * (PoolOutDim len poolK str)
+
+export
+{c, len, poolK, str : Nat} ->
+  LayerLike (AvgPool1DState c len poolK str) where
+  applyGeneric _ _ = idris_crash "AvgPool1D: use tensor path"
+  applyVar _ _ = idris_crash "AvgPool1D: use tensor path"
+  applyVarTensor {i} {o} st inputT =
+    let cI = cast {to=Int} c
+        lenI = cast {to=Int} len
+        inp2d = prim__reshape2d inputT cI lenI
+        outT = prim__avgPool1d inp2d (cast poolK) (cast str)
+        oI = cast {to=Int} o
+    in (st, prim__reshape1d outT oI)
+  emapLayer _ st = st
+  showLayer _ = "AvgPool1D<k=" ++ show poolK ++ " s=" ++ show str ++ ">"
+  nameLayer _ st = st
+  layerPrefix _ = "avgpool1d"
+  toDoubleLayer (MkAvgPool1D ip op) = MkAvgPool1D ip op
+  debugApply _ _ = idris_crash "AvgPool1D: use tensor path"
+
+export
+avgPool1dLayer : {c, len, poolK, str : Nat} ->
+                 AnyLayer (c * len)
+                          (c * (PoolOutDim len poolK str))
+                          ty
+avgPool1dLayer = MkAnyLayer (AvgPool1DState c len poolK str)
+                  (MkAvgPool1D Refl Refl)

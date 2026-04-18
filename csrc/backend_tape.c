@@ -173,6 +173,8 @@ enum {
     OP_EMBEDDING,     /* row gather from weight matrix */
     OP_BATCH_NORM,    /* per-channel normalization */
     OP_DROPOUT,       /* inverted dropout with stored mask */
+    OP_AVG_POOL1D,    /* [C,L] -> [C,oL] mean pooling */
+    OP_AVG_POOL2D,    /* [C,H,W] -> [C,oH,oW] mean pooling */
     OP_CONV1D,        /* [inC,L] * [outC,inC,kL] + [outC] -> [outC,oL] */
     OP_MAX_POOL1D,    /* [C,L] -> [C,oL] with max indices */
     OP_CONV2D,        /* [inC,H,W] * [outC,inC,kH,kW] + [outC] -> [outC,oH,oW] */
@@ -257,6 +259,14 @@ typedef struct {
     double* mask;   /* [numel] binary mask (0 or 1/(1-p)), heap-allocated */
     int numel;
 } DropoutMeta;
+
+typedef struct {
+    int C, L, kL, stride, oL;
+} AvgPool1DMeta;
+
+typedef struct {
+    int C, H, W, kH, kW, strH, strW, oH, oW;
+} AvgPool2DMeta;
 
 typedef struct {
     int inC, outC, L, kL, pad, stride, oL;
@@ -1381,6 +1391,64 @@ TensorHandle tensor_scatter_add(TensorHandle hindex, TensorHandle hsrc, int out_
     int shape[] = {out_size};
     Tensor* r = make_tensor(out, shape, 1, src->requires_grad);
     free(out);
+    return r;
+}
+
+/* ================================================================
+   Average Pooling
+   ================================================================ */
+
+TensorHandle tensor_avg_pool1d(TensorHandle hinput, int kL, int stride) {
+    Tensor* input = (Tensor*)hinput;
+    int C = input->shape[0], L = input->shape[1];
+    int oL = (L - kL) / stride + 1;
+    double scale = 1.0 / kL;
+    double* out = calloc(C * oL, sizeof(double));
+    for (int c = 0; c < C; c++)
+        for (int ol = 0; ol < oL; ol++) {
+            double s = 0;
+            for (int kl = 0; kl < kL; kl++) s += input->data[c*L + ol*stride + kl];
+            out[c*oL + ol] = s * scale;
+        }
+    int out_shape[] = {C, oL};
+    Tensor* r = make_tensor(out, out_shape, 2, input->requires_grad);
+    free(out);
+    if (r->requires_grad) {
+        int idx = tape_append(OP_AVG_POOL1D, r, input, NULL, 0);
+        AvgPool1DMeta* meta = arena_alloc(sizeof(AvgPool1DMeta));
+        meta->C = C; meta->L = L; meta->kL = kL; meta->stride = stride; meta->oL = oL;
+        tape[idx].op_meta = meta;
+    }
+    return r;
+}
+
+TensorHandle tensor_avg_pool2d(TensorHandle hinput, int kH, int kW, int strideH, int strideW) {
+    Tensor* input = (Tensor*)hinput;
+    int C = input->shape[0], H = input->shape[1], W = input->shape[2];
+    int oH = (H - kH) / strideH + 1;
+    int oW = (W - kW) / strideW + 1;
+    double scale = 1.0 / (kH * kW);
+    double* out = calloc(C * oH * oW, sizeof(double));
+    for (int c = 0; c < C; c++)
+        for (int oh = 0; oh < oH; oh++)
+            for (int ow = 0; ow < oW; ow++) {
+                double s = 0;
+                for (int kh = 0; kh < kH; kh++)
+                    for (int kw = 0; kw < kW; kw++)
+                        s += input->data[c*H*W + (oh*strideH+kh)*W + ow*strideW+kw];
+                out[c*oH*oW + oh*oW + ow] = s * scale;
+            }
+    int out_shape[] = {C, oH, oW};
+    Tensor* r = make_tensor(out, out_shape, 3, input->requires_grad);
+    free(out);
+    if (r->requires_grad) {
+        int idx = tape_append(OP_AVG_POOL2D, r, input, NULL, 0);
+        AvgPool2DMeta* meta = arena_alloc(sizeof(AvgPool2DMeta));
+        meta->C = C; meta->H = H; meta->W = W;
+        meta->kH = kH; meta->kW = kW; meta->strH = strideH; meta->strW = strideW;
+        meta->oH = oH; meta->oW = oW;
+        tape[idx].op_meta = meta;
+    }
     return r;
 }
 
@@ -2900,6 +2968,37 @@ void tensor_backward(TensorHandle h) {
                 ensure_grad(a);
                 for (int j = 0; j < meta->numel; j++)
                     a->grad[j] += r->grad[j] * meta->mask[j];
+            }
+            break;
+        }
+
+        case OP_AVG_POOL1D: {
+            AvgPool1DMeta* meta = (AvgPool1DMeta*)e->op_meta;
+            ensure_grad(r);
+            if (a && a->requires_grad) {
+                ensure_grad(a);
+                double scale = 1.0 / meta->kL;
+                for (int c = 0; c < meta->C; c++)
+                    for (int ol = 0; ol < meta->oL; ol++)
+                        for (int kl = 0; kl < meta->kL; kl++)
+                            a->grad[c*meta->L + ol*meta->stride + kl] += r->grad[c*meta->oL + ol] * scale;
+            }
+            break;
+        }
+
+        case OP_AVG_POOL2D: {
+            AvgPool2DMeta* meta = (AvgPool2DMeta*)e->op_meta;
+            ensure_grad(r);
+            if (a && a->requires_grad) {
+                ensure_grad(a);
+                double scale = 1.0 / (meta->kH * meta->kW);
+                for (int c = 0; c < meta->C; c++)
+                    for (int oh = 0; oh < meta->oH; oh++)
+                        for (int ow = 0; ow < meta->oW; ow++)
+                            for (int kh = 0; kh < meta->kH; kh++)
+                                for (int kw = 0; kw < meta->kW; kw++)
+                                    a->grad[c*meta->H*meta->W + (oh*meta->strH+kh)*meta->W + ow*meta->strW+kw]
+                                        += r->grad[c*meta->oH*meta->oW + oh*meta->oW + ow] * scale;
             }
             break;
         }

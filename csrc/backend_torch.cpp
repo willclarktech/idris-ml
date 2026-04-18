@@ -301,6 +301,20 @@ TensorHandle tensor_scatter_add(TensorHandle hindex, TensorHandle hsrc, int out_
     return from_tensor(out);
 }
 
+TensorHandle tensor_avg_pool1d(TensorHandle hinput, int kL, int stride) {
+    auto& inp = *to_tensor(hinput);
+    auto inp_3d = inp.unsqueeze(0);
+    auto out = torch::avg_pool1d(inp_3d, {kL}, {stride});
+    return from_tensor(out.squeeze(0));
+}
+
+TensorHandle tensor_avg_pool2d(TensorHandle hinput, int kH, int kW, int strideH, int strideW) {
+    auto& inp = *to_tensor(hinput);
+    auto inp_4d = inp.unsqueeze(0);
+    auto out = torch::avg_pool2d(inp_4d, {kH, kW}, {strideH, strideW});
+    return from_tensor(out.squeeze(0));
+}
+
 TensorHandle tensor_conv1d(TensorHandle hinput, TensorHandle hkernel,
                            TensorHandle hbias, int pad, int stride) {
     auto& inp = *to_tensor(hinput);

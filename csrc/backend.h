@@ -110,6 +110,12 @@ TensorHandle tensor_conv2d(TensorHandle input, TensorHandle kernel,
                            TensorHandle bias, int padH, int padW,
                            int strideH, int strideW);
 
+/* AvgPool1D: input [C, L]. Returns [C, oL] where oL = (L - kL) / stride + 1. */
+TensorHandle tensor_avg_pool1d(TensorHandle input, int kL, int stride);
+
+/* AvgPool2D: input [C, H, W]. Returns [C, oH, oW]. */
+TensorHandle tensor_avg_pool2d(TensorHandle input, int kH, int kW, int strideH, int strideW);
+
 /* MaxPool2D: input [C, H, W].
    Returns [C, oH, oW] where oH = (H - kH) / strideH + 1. */
 TensorHandle tensor_max_pool2d(TensorHandle input, int kH, int kW,

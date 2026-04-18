@@ -178,6 +178,15 @@ export prim__gather : AnyPtr -> AnyPtr -> Int -> AnyPtr
 %foreign "C:tensor_scatter_add,libidrisml"
 export prim__scatterAdd : AnyPtr -> AnyPtr -> Int -> AnyPtr
 
+-- Average Pooling
+%foreign "C:tensor_avg_pool1d,libidrisml"
+export
+prim__avgPool1d : AnyPtr -> Int -> Int -> AnyPtr
+
+%foreign "C:tensor_avg_pool2d,libidrisml"
+export
+prim__avgPool2d : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
+
 -- Conv1D / MaxPool1D
 %foreign "C:tensor_conv1d,libidrisml"
 export

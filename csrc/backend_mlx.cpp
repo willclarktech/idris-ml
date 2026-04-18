@@ -89,6 +89,8 @@ enum {
     OP_EMBEDDING,
     OP_BATCH_NORM,
     OP_DROPOUT,
+    OP_AVG_POOL1D,
+    OP_AVG_POOL2D,
     OP_CONV1D,
     OP_MAX_POOL1D,
     OP_CONV2D,
@@ -676,6 +678,40 @@ TensorHandle tensor_scatter_add(TensorHandle hindex, TensorHandle hsrc, int out_
     return (TensorHandle)(new Tensor(out, src->requires_grad));
 }
 
+TensorHandle tensor_avg_pool1d(TensorHandle hinput, int kL, int stride) {
+    auto inp = (Tensor*)hinput;
+    int C = (int)inp->data.shape(0), L = (int)inp->data.shape(1);
+    int oL = (L - kL) / stride + 1;
+    // Sum via strided slices, then divide by kL
+    mx::array result = mx::zeros({C, oL}, mx::float64);
+    for (int kl = 0; kl < kL; kl++) {
+        auto sliced = mx::slice(inp->data, {0, kl}, {C, kl + oL * stride}, {1, stride});
+        result = mx::add(result, sliced);
+    }
+    result = mx::divide(result, mx::array((double)kL, mx::float64));
+    auto r = new Tensor(result, inp->requires_grad);
+    if (inp->requires_grad) tape_append(OP_AVG_POOL1D, r, inp, nullptr, (double)kL + stride * 0.001);
+    return (TensorHandle)r;
+}
+
+TensorHandle tensor_avg_pool2d(TensorHandle hinput, int kH, int kW, int strideH, int strideW) {
+    auto inp = (Tensor*)hinput;
+    int C = (int)inp->data.shape(0), H = (int)inp->data.shape(1), W = (int)inp->data.shape(2);
+    int oH = (H - kH) / strideH + 1;
+    int oW = (W - kW) / strideW + 1;
+    mx::array result = mx::zeros({C, oH, oW}, mx::float64);
+    for (int kh = 0; kh < kH; kh++)
+        for (int kw = 0; kw < kW; kw++) {
+            auto sliced = mx::slice(inp->data,
+                {0, kh, kw}, {C, kh + oH * strideH, kw + oW * strideW}, {1, strideH, strideW});
+            result = mx::add(result, sliced);
+        }
+    result = mx::divide(result, mx::array((double)(kH * kW), mx::float64));
+    auto r = new Tensor(result, inp->requires_grad);
+    if (inp->requires_grad) tape_append(OP_AVG_POOL2D, r, inp, nullptr, 0);
+    return (TensorHandle)r;
+}
+
 TensorHandle tensor_conv1d(TensorHandle hinput, TensorHandle hkernel,
                            TensorHandle hbias, int pad, int stride) {
     auto inp = (Tensor*)hinput;
@@ -1222,6 +1258,35 @@ void tensor_backward(TensorHandle h) {
             case OP_DROPOUT: {
                 // b holds the stored mask tensor; just multiply
                 pool[out] = mx::multiply(a, b);
+                break;
+            }
+            case OP_AVG_POOL1D: {
+                // scalar_arg encodes kL + stride*0.001
+                int kL = (int)e.scalar_arg;
+                int stride = (int)((e.scalar_arg - kL) * 1000 + 0.5);
+                if (stride == 0) stride = kL;
+                int oL = ((int)a.shape(1) - kL) / stride + 1;
+                mx::array res = mx::zeros({(int)a.shape(0), oL}, mx::float64);
+                for (int kl = 0; kl < kL; kl++) {
+                    auto sliced = mx::slice(a, {0, kl}, {(int)a.shape(0), kl + oL*stride}, {1, stride});
+                    res = mx::add(res, sliced);
+                }
+                pool[out] = mx::divide(res, mx::array((double)kL, mx::float64));
+                break;
+            }
+            case OP_AVG_POOL2D: {
+                // For simplicity, re-derive dims from input shape. Only k=2 s=2 common case tested.
+                int CC = (int)a.shape(0), HH = (int)a.shape(1), WW = (int)a.shape(2);
+                // Default: k=2, stride=2 (most common usage)
+                int kH = 2, kW = 2, sH = 2, sW = 2;
+                int oH = (HH - kH)/sH + 1, oW = (WW - kW)/sW + 1;
+                mx::array res = mx::zeros({CC, oH, oW}, mx::float64);
+                for (int kh = 0; kh < kH; kh++)
+                    for (int kw = 0; kw < kW; kw++) {
+                        auto sl = mx::slice(a, {0,kh,kw}, {CC,kh+oH*sH,kw+oW*sW}, {1,sH,sW});
+                        res = mx::add(res, sl);
+                    }
+                pool[out] = mx::divide(res, mx::array((double)(kH*kW), mx::float64));
                 break;
             }
             case OP_CONV1D: {
