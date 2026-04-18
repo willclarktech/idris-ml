@@ -30,6 +30,12 @@ static inline TensorHandle from_tensor(at::Tensor t) {
     return static_cast<TensorHandle>(p);
 }
 
+// Persistent variant: not tracked for cleanup (survives optimizer_step)
+static inline TensorHandle from_tensor_persistent(at::Tensor t) {
+    auto* p = new at::Tensor(std::move(t));
+    return static_cast<TensorHandle>(p);
+}
+
 static void free_intermediates(); // defined after param_registry
 
 /* ---------- Lifecycle ---------- */
@@ -629,28 +635,24 @@ TensorHandle* tensor_unbatch(TensorHandle h, int* out_count) {
 
 TensorHandle tensor_create_param_2d(int rows, int cols, double* data) {
     auto t = torch::from_blob(data, {(int64_t)rows, (int64_t)cols}, torch::kFloat64).clone();
-    free(data);
     t.requires_grad_(true);
-    return from_tensor(std::move(t));
+    return from_tensor_persistent(std::move(t));
 }
 
 TensorHandle tensor_create_param_1d(int n, double* data) {
     auto t = torch::from_blob(data, {(int64_t)n}, torch::kFloat64).clone();
-    free(data);
     t.requires_grad_(true);
-    return from_tensor(std::move(t));
+    return from_tensor_persistent(std::move(t));
 }
 
 TensorHandle tensor_create_state_2d(int rows, int cols, double* data) {
     auto t = torch::from_blob(data, {(int64_t)rows, (int64_t)cols}, torch::kFloat64).clone();
-    free(data);
-    return from_tensor(std::move(t));
+    return from_tensor_persistent(std::move(t));
 }
 
 TensorHandle tensor_create_state_1d(int n, double* data) {
     auto t = torch::from_blob(data, {(int64_t)n}, torch::kFloat64).clone();
-    free(data);
-    return from_tensor(std::move(t));
+    return from_tensor_persistent(std::move(t));
 }
 
 TensorHandle tensor_view_2d(TensorHandle h, int row, int col) {
