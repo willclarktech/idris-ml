@@ -134,6 +134,32 @@ prim__cosineSimilarity : AnyPtr -> AnyPtr -> Int -> AnyPtr
 %foreign "C:tensor_conv1d_circular,libidrisml"
 prim__conv1dCircular : AnyPtr -> AnyPtr -> AnyPtr
 
+-- Conv2D / MaxPool2D
+%foreign "C:tensor_conv2d,libidrisml"
+export
+prim__conv2d : AnyPtr -> AnyPtr -> AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
+
+%foreign "C:tensor_max_pool2d,libidrisml"
+export
+prim__maxPool2d : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
+
+-- MNIST data loading
+%foreign "C:mnist_load,libidrisml"
+export
+prim__mnistLoad : String -> String -> AnyPtr
+
+%foreign "C:mnist_count,libidrisml"
+export
+prim__mnistCount : AnyPtr -> Int
+
+%foreign "C:mnist_get_image,libidrisml"
+export
+prim__mnistGetImage : AnyPtr -> Int -> AnyPtr
+
+%foreign "C:mnist_get_label,libidrisml"
+export
+prim__mnistGetLabel : AnyPtr -> Int -> Int
+
 -- Autograd
 -- Returns the input pointer for threading (prevents dead code elimination).
 %foreign "scheme:(lambda (t) ((foreign-procedure \"tensor_backward\" (void*) void) t) t)"
@@ -466,6 +492,24 @@ packMatrixPtrs arr off {m=S k} {n} (VTensor row :: rows) =
 
 %foreign "C:tensor_reshape_2d,libidrisml"
 export prim__reshape2d : AnyPtr -> Int -> Int -> AnyPtr
+
+-- Reshape to 1D: flatten any tensor to [n]
+export
+prim__reshape1d : AnyPtr -> Int -> AnyPtr
+prim__reshape1d t n =
+  let shape = prim__allocInts 1
+      shape' = prim__setInt shape 0 n
+  in prim__reshape t shape' 1
+
+-- Create a tensor with requires_grad=1 from data buffer and shape array.
+-- For 4D kernel params where tensor_create_param_2d won't work.
+export
+prim__createWithGrad : AnyPtr -> AnyPtr -> Int -> AnyPtr
+prim__createWithGrad dataBuf shape rank =
+  prim__tensorCreate dataBuf shape rank 1
+  where
+    %foreign "C:tensor_create,libidrisml"
+    prim__tensorCreate : AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
 
 -- matStackTensor: stack matrix Variable tensorPtrs into a 2D tensor.
 -- PRESERVES autograd graph.
