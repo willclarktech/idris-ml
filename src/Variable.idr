@@ -186,6 +186,13 @@ export prim__gather : AnyPtr -> AnyPtr -> Int -> AnyPtr
 %foreign "C:tensor_scatter_add,libidrisml"
 export prim__scatterAdd : AnyPtr -> AnyPtr -> Int -> AnyPtr
 
+-- Sort / Scan
+%foreign "C:tensor_argsort,libidrisml"
+export prim__argsort : AnyPtr -> Int -> Int -> AnyPtr
+
+%foreign "C:tensor_cumprod,libidrisml"
+export prim__cumprod : AnyPtr -> Int -> AnyPtr
+
 -- Average Pooling
 %foreign "C:tensor_avg_pool1d,libidrisml"
 export
