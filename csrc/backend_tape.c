@@ -39,7 +39,7 @@ typedef struct {
    Reset in bulk at optimizer_step. Params use regular malloc.
    ================================================================ */
 
-#define ARENA_INIT_SIZE (1 << 20)  /* 1 MB */
+#define ARENA_INIT_SIZE (1 << 22)  /* 4 MB */
 
 typedef struct ArenaChunk {
     char* data;
