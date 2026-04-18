@@ -327,9 +327,9 @@ Without this tracking, non-tape tensors (every `bulkToTensor` call, BCE constant
 
 Binary op backwards (ADD, SUB, MUL, DIV, POW) must call `reduce_grad()` to sum gradients over broadcast-expanded dimensions. Without this, scalar × vector operations (e.g., `g * content_weights` in NTM interpolation) produce vector-shaped gradients for scalar parameters, corrupting the autograd chain.
 
-### NTM convergence (known issue)
+### NTM convergence and stability
 
-The decomposed NTM read/write head pipeline (cosine_sim → softmax → interpolation → conv1d_circular → clamp → pow → normalize) may have gradient accuracy issues compared to the tape backend's fused ops. All individual op backwards have been verified, but NTM Copy accuracy on MLX lags behind tape (~50% vs ~60-70% at the same epoch count). The OP_COSINE_SIM and OP_CONV1D_CIRC custom backward rules are the most likely source.
+The decomposed NTM head pipeline converges on MLX (loss drops to near-zero on individual batches) but is less stable than the tape backend's fused ops. The loss oscillates and may NaN around epoch 10-12K. The tape backend converges smoothly to 100% accuracy by epoch 16K. The numerical differences stem from the decomposed backward accumulating small errors across ~50 primitive ops per timestep. Gradient clipping at 10.0 may need tuning for MLX.
 
 ## Torch Backend (backend_torch.cpp)
 
