@@ -181,6 +181,8 @@ enum {
     OP_CONV2D,        /* [inC,H,W] * [outC,inC,kH,kW] + [outC] -> [outC,oH,oW] */
     OP_MAX_POOL2D,    /* [C,H,W] -> [C,oH,oW] with max indices */
     OP_CUMPROD,       /* cumulative product along dim 0 */
+    OP_GATHER,        /* gather by index: out[i] = input[index[i]] */
+    OP_SCATTER_ADD,   /* scatter add: out[index[i]] += src[i] */
 };
 
 typedef struct {
@@ -1448,8 +1450,11 @@ TensorHandle tensor_gather(TensorHandle hinput, TensorHandle hindex, int n) {
     int shape[] = {n};
     Tensor* r = make_tensor(out, shape, 1, input->requires_grad);
     free(out);
-    /* No tape entry needed — gather is a read-only index operation.
-       For training, embedding lookups use scatter_add in backward. */
+    /* Record tape entry: backward scatters grad back to input positions.
+       index stored as arg2 (non-grad integer tensor). */
+    if (r->requires_grad) {
+        tape_append(OP_GATHER, r, input, index, (double)n);
+    }
     return r;
 }
 
@@ -1465,6 +1470,11 @@ TensorHandle tensor_scatter_add(TensorHandle hindex, TensorHandle hsrc, int out_
     int shape[] = {out_size};
     Tensor* r = make_tensor(out, shape, 1, src->requires_grad);
     free(out);
+    /* Record tape entry: backward gathers grad back to src positions.
+       index stored as arg2 (non-grad integer tensor), src as arg1. */
+    if (r->requires_grad) {
+        tape_append(OP_SCATTER_ADD, r, src, index, (double)out_size);
+    }
     return r;
 }
 
@@ -3442,6 +3452,36 @@ void tensor_backward(TensorHandle h) {
             break;
         }
 
+        case OP_SCATTER_ADD: {
+            /* r[index[i]] += a[i]. Backward: d_a[i] += d_r[index[i]] (gather). */
+            ensure_grad(r);
+            if (a && a->requires_grad) {
+                ensure_grad(a);
+                Tensor* index = b;  /* b holds the index tensor */
+                int nn = a->numel;
+                for (int i = 0; i < nn; i++) {
+                    int idx = (int)index->data[i];
+                    if (idx >= 0 && idx < r->numel)
+                        a->grad[i] += r->grad[idx];
+                }
+            }
+            break;
+        }
+        case OP_GATHER: {
+            /* r[i] = a[index[i]]. Backward: d_a[index[i]] += d_r[i] (scatter-add). */
+            ensure_grad(r);
+            if (a && a->requires_grad) {
+                ensure_grad(a);
+                Tensor* index = b;  /* b holds the index tensor */
+                int nn = (int)e->scalar_arg;
+                for (int i = 0; i < nn; i++) {
+                    int idx = (int)index->data[i];
+                    if (idx >= 0 && idx < a->numel)
+                        a->grad[idx] += r->grad[i];
+                }
+            }
+            break;
+        }
         case OP_CUMPROD: {
             /* r[i] = prod(a[0..i]). Backward:
                d_a[i] = sum_{j>=i} d_r[j] * r[j] / a[i]

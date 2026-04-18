@@ -394,8 +394,7 @@ prim__seq : AnyPtr -> AnyPtr -> AnyPtr
 -- Chez Scheme optimizer, causing C functions to read stale pointers.
 
 %foreign "C:tensor_alloc_doubles,libidrisml"
-export
-prim__allocDoubles : Int -> AnyPtr
+export prim__allocDoubles : Int -> AnyPtr
 
 %foreign "C:tensor_write_double,libidrisml"
 export prim__writeDouble : AnyPtr -> Int -> Double -> ()
@@ -442,7 +441,7 @@ export
 prim__create1d : Int -> AnyPtr -> Int -> AnyPtr
 
 %foreign "C:tensor_create_2d,libidrisml"
-prim__create2d : Int -> Int -> AnyPtr -> Int -> AnyPtr
+export prim__create2d : Int -> Int -> AnyPtr -> Int -> AnyPtr
 
 -- Tensor pointer array: stack scalar Variable tensorPtrs to create
 -- a 1D/2D tensor that preserves the autograd graph.

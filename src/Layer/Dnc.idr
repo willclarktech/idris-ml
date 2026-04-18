@@ -202,23 +202,23 @@ dncLinkUpdate {n} (VTensor linkRows) (VTensor wElems) precedenceVec =
     buildMatrixRows t row (S r') cols =
       let rowTensor = prim__select t 0 row
       in VTensor (tensorToScalars rowTensor 0 cols) :: buildMatrixRows t (row + 1) r' cols
-    -- Zero the diagonal by selecting off-diag via select+mul
+    -- Zero the diagonal: L[i,i] = 0.
+    -- Build (1-I) mask [n,n] using C allocation, then element-wise multiply.
     zeroDiag : Int -> AnyPtr -> AnyPtr
     zeroDiag nI linkT =
-      -- For each diagonal element, set to 0 via mask
-      -- Simple approach: loop is O(n), acceptable for n=128
-      go 0 nI linkT
+      let numElems = nI * nI
+          buf = prim__allocDoubles numElems
+          buf' = fillMask buf 0 nI numElems
+          maskT = prim__create2d nI nI buf' 0
+      in prim__mul linkT maskT
       where
-        go : Int -> Int -> AnyPtr -> AnyPtr
-        go i nI' t = if i >= nI' then t else
-          let -- Select row i, zero element i, put back
-              -- Actually, simpler: multiply entire matrix by (1 - diag)
-              -- But building a diag tensor from primitives is tricky.
-              -- For now, just compute and note the diagonal is small
-              -- The paper says L[i,i] = 0 but during training the gradient
-              -- will push it toward 0 anyway. Skip explicit zeroing for now.
-              dummy = t
-          in go (i + 1) nI' dummy
+        fillMask : AnyPtr -> Int -> Int -> Int -> AnyPtr
+        fillMask b i nn numE = if i >= numE then b else
+          let row = i `div` nn
+              col = i `mod` nn
+              val = if row == col then 0.0 else 1.0
+              b' = prim__setDouble b i val
+          in fillMask b' (i + 1) nn numE
 
 ||| Read weighting for one head:
 ||| w^r = pi[0]*backward + pi[1]*content + pi[2]*forward
