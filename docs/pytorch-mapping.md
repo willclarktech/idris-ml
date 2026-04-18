@@ -33,7 +33,7 @@ No mutation, no `zero_grad`, no manual backward/step separation. The epoch funct
 | `x.shape` | No runtime query — shape is in the type | `Vector 3 Double` means shape is `[3]`, always |
 | `x + y` | `x + y` | Elementwise, same as PyTorch |
 | `x * y` | `x * y` | **Elementwise** — not matmul |
-| `x @ y` | `matrixMultiply x y` | Dimension-checked at compile time |
+| `x @ y` | `x <> y` | Infix matmul, dimension-checked at compile time |
 | `x.reshape(3,4)` | `reshapeToMatrix v` | Requires `auto` proof that product of dims matches |
 | Runtime `RuntimeError: shape mismatch` | Compile error: `Can't unify 8 with 5` | The point of the library |
 

@@ -770,6 +770,8 @@ nameParam prefx i p = setParamId (prefx ++ show i) p
 -- Tensor-level Operations (libtorch compositions)
 ----------------------------------------------------------------------
 
+export infixl 9 <>
+
 ||| Matrix-vector multiply using libtorch (autograd-tracked).
 export
 matrixVectorMultiplyVar : {m, n : Nat} -> Matrix m n Variable -> Vector n Variable -> Vector m Variable
@@ -779,6 +781,12 @@ matrixVectorMultiplyVar {m} {n} (VTensor rows) (VTensor xs) =
       result = prim__mv matTensor vecTensor
   in VTensor $ tensorToScalars result 0 m
 
+
+||| Infix matrix-vector multiply (autograd-tracked): [m, n] <> [n] -> [m]
+namespace MatVecVar
+  export
+  (<>) : {m, n : Nat} -> Matrix m n Variable -> Vector n Variable -> Vector m Variable
+  (<>) = matrixVectorMultiplyVar
 
 ||| Dot product using libtorch (autograd-preserving).
 export

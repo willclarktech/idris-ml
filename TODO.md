@@ -6,18 +6,12 @@
 |------|-----------|-------|
 | CUDA support | M–L | Torch backend should work via `tensor_to_device("cuda")` — untested. Test script ready: `scripts/test_cuda_colab.sh`. See `docs/cuda-testing.md` |
 
-## Medium Priority
-
-| Item | Difficulty | Notes |
-|------|-----------|-------|
-| Revisit `(*)` as matrix multiplication | M | Currently `(*)` on Tensor is elementwise (via `Num`). Consider whether `(*)` should be matmul instead — trade-offs: mathematical convention (matrix ring) vs NumPy/PyTorch convention (elementwise). Explicit `matrixMultiply`/`matrixVectorMultiply` is unambiguous but verbose |
-
 ## Low Priority
 
 | Item | Difficulty | Notes |
 |------|-----------|-------|
 | Opaque type-level Nats | M–XL | Idris 2 Peano Nats hang the compiler for dims > ~1000. Need machine-backed type-level naturals (like GHC TypeLits). Engage with Idris 2 upstream. Blocks identity layers (dropout, batch norm) at large dims. See `docs/gotchas.md` |
-| Broadcasting | XL | Type-safe broadcasting. Key tension: expressiveness vs shape safety guarantees. See `docs/static-vs-dynamic-graphs.md` |
+| Broadcasting | XL | Type-safe broadcasting. Key tension: expressiveness vs shape safety guarantees. Dex's typed index sets are the most promising model for a dependently-typed setting. See `docs/static-vs-dynamic-graphs.md` |
 | Static graph optimizations | L–XL | Compile-time operator fusion, memory planning via dependent types. See `docs/static-vs-dynamic-graphs.md` |
 | DNC (Differentiable Neural Computer) | XL | Graves et al. 2016 — temporal link matrix, dynamic memory allocation, multiple read heads |
 | `fromDouble` persistent leak | S | Partially fixed: `tensor_create_scalar` and `tensor_create` non-grad tensors are now non-persistent on MLX (freed by tape_reset). Remaining: Chez Scheme GC doesn't call `tensor_free`, so non-persistent tensors accumulate within one epoch until optimizer_step. ~15KB/epoch overhead, manageable |

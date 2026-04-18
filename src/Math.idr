@@ -176,6 +176,28 @@ matrixMultiply (VTensor aRows) b =
   let VTensor bCols = transpose b  -- [k, n]
   in VTensor $ map (\aRow => VTensor $ map (\bCol => STensor (dotProduct aRow bCol)) bCols) aRows
 
+----------------------------------------------------------------------
+-- Infix Matrix Multiplication
+----------------------------------------------------------------------
+
+export infixl 9 <>
+
+||| Matrix-matrix multiply: [m, n] <> [n, k] -> [m, k]
+namespace MatMat
+  export
+  (<>) : Num ty => {m, n, k : Nat} -> Matrix m n ty -> Matrix n k ty -> Matrix m k ty
+  (<>) = matrixMultiply
+
+||| Matrix-vector multiply: [m, n] <> [n] -> [m]
+namespace MatVec
+  export
+  (<>) : Num ty => {m, n : Nat} -> Matrix m n ty -> Vector n ty -> Vector m ty
+  (<>) = matrixVectorMultiply
+
+----------------------------------------------------------------------
+-- Matrix Utilities
+----------------------------------------------------------------------
+
 ||| Row-wise softmax on a matrix: each row independently normalized.
 export
 softmaxMatrix : (FromDouble ty, Floating ty, Fractional ty, Neg ty, Ord ty) =>

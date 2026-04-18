@@ -268,7 +268,7 @@ See [`docs/gotchas.md`](docs/gotchas.md) for detailed explanations of each entry
 - **`total` is a keyword**: never use as a variable name — cryptic parse error. Use `numEpochs`, `totalEpochs`
 - **Build flags**: forgetting `--source-dir src` or `-p contrib` produces confusing import errors
 - **Temporary test files**: Idris2 requires source files in `--source-dir`. Put temp files in `src/Example/`, not `/tmp`
-- **Elementwise `(*)`**: `Tensor`'s `Num` uses elementwise multiply. Use `matrixVectorMultiply` for matvec
+- **Elementwise `(*)`**: `Tensor`'s `Num` uses elementwise multiply. Use `(<>)` for matmul: `w <> x` for mat-vec, `a <> b` for mat-mat. Equivalent to PyTorch's `@` operator
 - **Tensor Foldable reversal**: `foldr`/`toList` produce reversed order. Use direct `Vect` traversal for ordered packing
 - **Zero-arg FFI CSE trap**: zero-arg `%noinline` defs are constants (evaluated once). Pass a dummy arg through to the FFI call
 - **FFI side-effect threading**: `let _ = ffiCall` is dropped. FFI must return a value consumed by later computation
