@@ -161,6 +161,11 @@ example-transformer: backend
 	cp $(LIB) build/exec/transformer_app/
 	./build/exec/transformer
 
+example-gpt: backend
+	idris2 --source-dir src -p contrib -o gpt src/Example/Gpt.idr
+	cp $(LIB) build/exec/gpt_app/
+	./build/exec/gpt $(GPT_ARGS)
+
 example-reinforce: backend
 	idris2 --source-dir src -p contrib -o reinforce src/Example/Reinforce.idr
 	cp $(LIB) build/exec/reinforce_app/
@@ -250,7 +255,7 @@ clean:
 	rm -f $(BUILD)/libidrisml*.dylib $(BUILD)/test_backend $(BUILD)/test_safetensors \
 	      $(BUILD)/test_ntm_grad $(BUILD)/test_ntm_timestep
 
-EXAMPLES := example-supervised example-rnn example-lstm example-transformer example-ntm-copy example-ntm-associative-recall example-reinforce
+EXAMPLES := example-supervised example-rnn example-lstm example-transformer example-gpt example-ntm-copy example-ntm-associative-recall example-reinforce
 BACKENDS := tape mlx torch
 
 # Run all examples on all available backends, validate RESULT lines.
@@ -263,6 +268,7 @@ test-examples:
 			echo "--- $$e [$$b] ---"; \
 			extra_args=""; \
 			if [ "$$e" = "example-reinforce" ]; then extra_args="REINFORCE_ARGS=--epochs 200"; fi; \
+			if [ "$$e" = "example-gpt" ]; then extra_args="GPT_ARGS=--epochs 200"; fi; \
 			output=$$($(MAKE) --no-print-directory BACKEND=$$b $$e $$extra_args 2>&1) || { echo "FAIL: $$e [$$b] crashed"; fail=1; continue; }; \
 			result_line=$$(echo "$$output" | grep '^RESULT'); \
 			if [ -z "$$result_line" ]; then \
@@ -311,7 +317,7 @@ test-all:
         test-backend-torch test-safetensors test-ntm-grad test-ntm-timestep \
         test-examples check example-supervised example-rnn example-lstm \
         example-ntm-copy example-ntm-associative-recall example-reinforce \
-        example-transformer example-transfer example-transfer-demo \
+        example-gpt example-transformer example-transfer example-transfer-demo \
         example-bench example-profile sweep sweep-quick clean \
         backend print-torch ref-setup ref-supervised ref-rnn ref-lstm ref-ntm-copy \
         ref-ntm-recall ref-transformer bench-py bench-compare ref-test ref-lint \
