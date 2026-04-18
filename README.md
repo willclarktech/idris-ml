@@ -60,6 +60,7 @@ You get dynamic graph ergonomics (standard `if`/`for`/`while`, normal debugging,
 | NTM Copy | Neural Turing Machine binary vector copy | `make example-ntm-copy` |
 | NTM Recall | NTM associative recall (content-based memory) | `make example-ntm-associative-recall` |
 | Transformer | Autoregressive next-token prediction (causal self-attention) | `make example-transformer` |
+| GPT | Character-level language model on Shakespeare | `make example-gpt` |
 | REINFORCE | Policy gradient on CartPole (pure Idris env) | `make example-reinforce` |
 
 All examples accept `--epochs`, `--lr`, `--seed` and task-specific flags.

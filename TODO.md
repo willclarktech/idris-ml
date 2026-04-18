@@ -8,7 +8,6 @@
 
 | Item | Difficulty | Notes |
 |------|-----------|-------|
-| GPT example | M–L | Minimal GPT following [Karpathy's minGPT](https://gist.github.com/karpathy/8627fe009c40f57531cb18360106ce95). Character-level language model using existing multi-head transformer with batched attention. Needs: tokenizer (char-level), dataset loading (tiny Shakespeare or similar), generation loop (autoregressive sampling), possibly GELU activation. Existing infrastructure covers most requirements — transformer layer, learned embeddings, causal masking, batched attention, Adam optimizer. PyTorch reference first, then Idris port |
 | Convolutional layers | L | Conv1D/Conv2D with autograd. Natural next layer type for image tasks |
 | Regularisation/normalisation layers | M | Dropout, batch norm. Layer norm done. Required for deeper models |
 | More Tensor functions | M | Partially done: `tensor_cat2`, `tensor_narrow` added for NTM pipeline. Remaining: general concat, reshape, transpose, gather/scatter |
@@ -47,6 +46,7 @@ Layers & models:
 - Linear, RNN, LSTM, NTM (copy + associative recall)
 - Multi-head Transformer (Pre-LN, learned embeddings, sinusoidal PE, layer norm, per-head weights with sum-not-concat)
 - REINFORCE on CartPole (`Example/Reinforce.idr`): pure Idris CartPole environment (Gymnasium-compatible physics), REINFORCE with mean-return baseline, `categoricalSample` in Sampler.idr, tensor-level `applyVarTensor` for tanh/sigmoid activations. Converges to 200.0 greedy eval on all 3 backends. PyTorch reference in `pytorch/torch_ref/models/reinforce.py`
+- GPT char-level LM (`Example/Gpt.idr`): character-level language model on embedded Shakespeare corpus (1342 chars, 36-char vocab). Reuses TransformerState with batched forward, autoregressive text generation. PyTorch reference in `pytorch/torch_ref/models/gpt.py`
 - Softmax, LogSoftmax, Sigmoid activations
 - Xavier/He/LeCun weight initialization
 
