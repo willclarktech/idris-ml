@@ -1,5 +1,6 @@
 module Backprop
 
+import Data.List
 import Data.SortedMap
 import Data.Vect
 
@@ -352,6 +353,47 @@ epochNativeTensorPre opt dataPoints lossFn model =
       avgLoss = totalLoss / nf
       lossVal = nativeTrainStep opt avgLoss
   in (model, lossVal)
+
+||| Tensor-level epoch with gradient accumulation.
+||| Splits data into micro-batches of size n/accumSteps, backward each,
+||| then steps once. Simulates a batch size of n with less memory.
+export
+epochNativeTensorPreAccum :
+  {i, o, n : Nat} ->
+  {hs : List Nat} ->
+  NativeOptimizer ->
+  (accumSteps : Nat) ->
+  Vect n (TensorDataPoint i o) ->
+  LossFnTensor ->
+  Network i hs o Variable ->
+  (Network i hs o Variable, Double)
+epochNativeTensorPreAccum opt accumSteps dataPoints lossFn model =
+  let allDps = toList dataPoints
+      totalLossVal = goAccum allDps 0.0 accumSteps
+      stepped = nativeOptimizerStep opt
+      -- Thread the step side effect through the result
+      adjustedLoss = totalLossVal + cast {to=Double} stepped * 0.0
+  in (model, adjustedLoss)
+  where
+    microBatchLoss : List (TensorDataPoint i o) -> Nat -> Double
+    microBatchLoss [] _ = 0.0
+    microBatchLoss _ Z = 0.0
+    microBatchLoss (dp :: rest) (S k) =
+      let fwdPair = forwardVarTensor model (inputTensor dp)
+          outT = snd fwdPair
+          loss = lossFn outT (targetTensor dp)
+          lv = nativeBackwardOnly loss
+      in lv + microBatchLoss rest k
+
+    goAccum : List (TensorDataPoint i o) -> Double -> Nat -> Double
+    goAccum _ acc Z = acc
+    goAccum [] acc _ = acc
+    goAccum dps acc (S k) =
+      let stepSize = div (length dps) (S k)
+          micro = take stepSize dps
+          rest = drop stepSize dps
+          lossSum = microBatchLoss micro stepSize
+      in goAccum rest (acc + lossSum / cast {to=Double} (natToInteger n)) k
 
 ||| Batched tensor-level epoch: forwards all data points through a
 ||| batch-aware forward function, computes per-element loss, averages.

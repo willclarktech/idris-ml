@@ -163,15 +163,17 @@ record Config where
   epochs : Nat
   patience : Nat
   seed : Bits64
+  accumSteps : Nat
 
 defaultConfig : Config
-defaultConfig = MkConfig 0.001 1000 200 42
+defaultConfig = MkConfig 0.001 1000 200 42 1
 
 specs : List (ArgSpec Config)
 specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
         , Arg "--epochs" (\v, c => { epochs := castNat v } c)
         , Arg "--patience" (\v, c => { patience := castNat v } c)
-        , Arg "--seed" (\v, c => { seed := castBits64 v } c) ]
+        , Arg "--seed" (\v, c => { seed := castBits64 v } c)
+        , Arg "--accum-steps" (\v, c => { accumSteps := castNat v } c) ]
 
 
 partial
@@ -185,6 +187,7 @@ main = do
   putStrLn "=== SeqClassify: 1D Waveform Classification ==="
   putStrLn $ "Config: lr=" ++ show cfg.lr ++ " epochs=" ++ show cfg.epochs
            ++ " patience=" ++ show cfg.patience ++ " seed=" ++ show cfg.seed
+           ++ " accum=" ++ show cfg.accumSteps
   putStrLn "Architecture: Conv1d(1->4,k=3) -> ReLU -> Pool(2) -> Conv1d(4->8,k=3) -> ReLU -> Pool(2) -> Dropout(0.5) -> Linear(48->3)"
 
   conv1 <- conv1dLayer {inC=InC, outC=C1, len=SeqLen, kL=K, pad=0}
@@ -213,8 +216,10 @@ main = do
 
   let trainCfg = patienceConfig cfg.epochs cfg.patience
 
-  (trained, epochsDone, finalLoss) <- runTraining
-    (\m, d => epochNativeTensorPre opt d seqCE m) genBatch trainCfg model
+  let epochFn = if cfg.accumSteps > 1
+        then \m, d => epochNativeTensorPreAccum opt cfg.accumSteps d seqCE m
+        else \m, d => epochNativeTensorPre opt d seqCE m
+  (trained, epochsDone, finalLoss) <- runTraining epochFn genBatch trainCfg model
 
   putStrLn ""
   putStrLn $ formatResult [("loss", show finalLoss),
