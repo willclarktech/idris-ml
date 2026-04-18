@@ -283,7 +283,7 @@ test-all:
 	@echo "=== C backend tests ==="
 	@for b in tape mlx torch; do \
 		echo "--- test-backend [$$b] ---"; \
-		$(MAKE) BACKEND=$$b test-backend 2>&1 && echo "" || echo "SKIPPED: $$b backend not available"; \
+		$(MAKE) BACKEND=$$b test-backend 2>&1 && echo "" || echo "FAILED or SKIPPED: $$b"; \
 	done
 	@echo "=== Specialized C tests ==="
 	$(MAKE) BACKEND=tape test-safetensors

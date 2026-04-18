@@ -349,21 +349,18 @@ static void test_fused_mv_backward(void) {
 
     tensor_backward(loss);
 
-    /* Check W gradients: grad_W[i,j] = x[j] */
-    TensorHandle gW = tensor_grad(W);
-    ASSERT_TRUE("W grad defined", gW != NULL);
-    if (gW) {
-        /* W is [2,3] param — grad should also be [2,3] */
-        /* grad_W[0,0] = x[0] = 1, grad_W[0,1] = x[1] = 0, grad_W[0,2] = x[2] = -1 */
-        ASSERT_NEAR("grad_W[0,0]", tensor_item_2d(W, 0, 0) != 0 ? param_grad_item(0) : -999, 1.0, 1e-6);
-    }
+    /* Check W gradients via param registry: grad_W[i,j] = x[j] */
+    /* W is param 0: 6 elements. grad_W = [[1,0,-1],[1,0,-1]] */
+    ASSERT_NEAR("grad_W[0,0]", param_grad_item_at(0, 0), 1.0, 1e-6);
+    ASSERT_NEAR("grad_W[0,1]", param_grad_item_at(0, 1), 0.0, 1e-6);
+    ASSERT_NEAR("grad_W[0,2]", param_grad_item_at(0, 2), -1.0, 1e-6);
+    ASSERT_NEAR("grad_W[1,0]", param_grad_item_at(0, 3), 1.0, 1e-6);
 
-    /* Check x gradients: grad_x[j] = sum_i W[i,j] */
-    /* grad_x[0] = 1+4 = 5, grad_x[1] = 2+5 = 7, grad_x[2] = 3+6 = 9 */
-    /* But x is a 1D param with 3 elements — param_grad_item reads element 0 */
-    /* We need to check grad on the Tensor* directly */
-    TensorHandle gx = tensor_grad(x);
-    ASSERT_TRUE("x grad defined", gx != NULL);
+    /* Check x gradients via param registry: grad_x[j] = sum_i W[i,j] */
+    /* x is param 1: 3 elements. grad_x = [5, 7, 9] */
+    ASSERT_NEAR("grad_x[0]", param_grad_item_at(1, 0), 5.0, 1e-6);
+    ASSERT_NEAR("grad_x[1]", param_grad_item_at(1, 1), 7.0, 1e-6);
+    ASSERT_NEAR("grad_x[2]", param_grad_item_at(1, 2), 9.0, 1e-6);
 
     param_clear();
 }
