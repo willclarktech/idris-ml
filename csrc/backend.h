@@ -390,6 +390,17 @@ TensorHandle tensor_gather(TensorHandle input, TensorHandle index, int n);
 /* Scatter: out = zeros; out[index[i]] += src[i] (1D scatter-add) */
 TensorHandle tensor_scatter_add(TensorHandle index, TensorHandle src, int out_size);
 
+/* ---------- Sort / Scan ---------- */
+
+/* Argsort: returns integer indices that sort input along dim.
+   descending=0 for ascending, 1 for descending.
+   Input: 1D tensor [n]. Returns: 1D integer tensor [n]. */
+TensorHandle tensor_argsort(TensorHandle t, int dim, int descending);
+
+/* Cumulative product along dim. Input: 1D tensor [n]. Returns: 1D tensor [n].
+   out[i] = prod(input[0..i]). */
+TensorHandle tensor_cumprod(TensorHandle t, int dim);
+
 /* ---------- MNIST data loading ---------- */
 
 void* mnist_load(const char* images_path, const char* labels_path);

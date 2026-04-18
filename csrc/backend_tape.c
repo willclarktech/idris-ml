@@ -180,6 +180,7 @@ enum {
     OP_MAX_POOL1D,    /* [C,L] -> [C,oL] with max indices */
     OP_CONV2D,        /* [inC,H,W] * [outC,inC,kH,kW] + [outC] -> [outC,oH,oW] */
     OP_MAX_POOL2D,    /* [C,H,W] -> [C,oH,oW] with max indices */
+    OP_CUMPROD,       /* cumulative product along dim 0 */
 };
 
 typedef struct {
@@ -1464,6 +1465,59 @@ TensorHandle tensor_scatter_add(TensorHandle hindex, TensorHandle hsrc, int out_
     int shape[] = {out_size};
     Tensor* r = make_tensor(out, shape, 1, src->requires_grad);
     free(out);
+    return r;
+}
+
+/* ================================================================
+   Sort / Scan
+   ================================================================ */
+
+/* Comparison for ascending argsort */
+static const double* argsort_data_ptr;
+static int argsort_cmp_asc(const void* a, const void* b) {
+    int ia = *(const int*)a, ib = *(const int*)b;
+    double da = argsort_data_ptr[ia], db = argsort_data_ptr[ib];
+    return (da > db) - (da < db);
+}
+static int argsort_cmp_desc(const void* a, const void* b) {
+    int ia = *(const int*)a, ib = *(const int*)b;
+    double da = argsort_data_ptr[ia], db = argsort_data_ptr[ib];
+    return (db > da) - (db < da);
+}
+
+TensorHandle tensor_argsort(TensorHandle ht, int dim, int descending) {
+    (void)dim; /* only 1D supported */
+    Tensor* t = (Tensor*)ht;
+    int n = t->numel;
+    int* indices = malloc(n * sizeof(int));
+    for (int i = 0; i < n; i++) indices[i] = i;
+    argsort_data_ptr = t->data;
+    qsort(indices, n, sizeof(int), descending ? argsort_cmp_desc : argsort_cmp_asc);
+    double* out = malloc(n * sizeof(double));
+    for (int i = 0; i < n; i++) out[i] = (double)indices[i];
+    free(indices);
+    int shape[] = {n};
+    Tensor* r = make_tensor(out, shape, 1, 0); /* integer indices: no grad */
+    free(out);
+    return r;
+}
+
+TensorHandle tensor_cumprod(TensorHandle ht, int dim) {
+    (void)dim; /* only 1D supported */
+    Tensor* t = (Tensor*)ht;
+    int n = t->numel;
+    double* out = malloc(n * sizeof(double));
+    double prod = 1.0;
+    for (int i = 0; i < n; i++) {
+        prod *= t->data[i];
+        out[i] = prod;
+    }
+    int shape[] = {n};
+    Tensor* r = make_tensor(out, shape, 1, t->requires_grad);
+    free(out);
+    if (r->requires_grad) {
+        tape_append(OP_CUMPROD, r, t, NULL, 0);
+    }
     return r;
 }
 
@@ -3384,6 +3438,37 @@ void tensor_backward(TensorHandle h) {
                 int out_numel = meta->C * meta->oH * meta->oW;
                 for (int i = 0; i < out_numel; i++)
                     a->grad[meta->max_indices[i]] += r->grad[i];
+            }
+            break;
+        }
+
+        case OP_CUMPROD: {
+            /* r[i] = prod(a[0..i]). Backward:
+               d_a[i] = sum_{j>=i} d_r[j] * r[j] / a[i]
+               When a[i] == 0: use exclusive prefix recomputation. */
+            ensure_grad(r);
+            if (a && a->requires_grad) {
+                ensure_grad(a);
+                int n = a->numel;
+                /* Safe backward: compute d_a[i] by accumulating from the right */
+                double suffix_sum = 0.0;
+                for (int i = n - 1; i >= 0; i--) {
+                    suffix_sum += r->grad[i] * r->data[i];
+                    if (fabs(a->data[i]) > 1e-30) {
+                        a->grad[i] += suffix_sum / a->data[i];
+                    } else {
+                        /* a[i] == 0: recompute without a[i] */
+                        double partial = 0.0;
+                        for (int j = i; j < n; j++) {
+                            double prod_excl = 1.0;
+                            for (int k = 0; k <= j; k++) {
+                                if (k != i) prod_excl *= a->data[k];
+                            }
+                            partial += r->grad[j] * prod_excl;
+                        }
+                        a->grad[i] += partial;
+                    }
+                }
             }
             break;
         }

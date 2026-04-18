@@ -96,6 +96,7 @@ enum {
     OP_MAX_POOL1D,
     OP_CONV2D,
     OP_MAX_POOL2D,
+    OP_CUMPROD,
 };
 
 // Lightweight metadata for ops that need extra info during replay.
@@ -687,6 +688,31 @@ TensorHandle tensor_scatter_add(TensorHandle hindex, TensorHandle hsrc, int out_
                         mx::add(out, mx::broadcast_to(val, {out_size})), out);
     }
     return (TensorHandle)(new Tensor(out, src->requires_grad));
+}
+
+TensorHandle tensor_argsort(TensorHandle ht, int dim, int descending) {
+    auto t = (Tensor*)ht;
+    // MLX argsort returns ascending by default
+    auto indices = mx::argsort(t->data, dim);
+    if (descending) {
+        // Reverse: take from end
+        int n = (int)t->data.size();
+        auto rev_idx = mx::subtract(mx::array(n - 1), mx::arange(n));
+        indices = mx::take(indices, rev_idx);
+    }
+    auto result = mx::astype(indices, mx::float64);
+    mx::eval(result);
+    return (TensorHandle)(new Tensor(result, false)); // no grad for indices
+}
+
+TensorHandle tensor_cumprod(TensorHandle ht, int dim) {
+    auto t = (Tensor*)ht;
+    auto result = mx::cumprod(t->data, dim);
+    auto r = new Tensor(result, t->requires_grad);
+    if (r->requires_grad) {
+        tape_append(OP_CUMPROD, r, t, NULL, 0.0);
+    }
+    return (TensorHandle)r;
 }
 
 TensorHandle tensor_gru_cell(TensorHandle hcombined, TensorHandle hprev, int o) {
@@ -1505,6 +1531,10 @@ void tensor_backward(TensorHandle h) {
                     }
                 }
                 pool[out] = res;
+                break;
+            }
+            case OP_CUMPROD: {
+                pool[out] = mx::cumprod(a, 0);
                 break;
             }
             default: break;

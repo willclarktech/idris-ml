@@ -312,6 +312,18 @@ TensorHandle tensor_scatter_add(TensorHandle hindex, TensorHandle hsrc, int out_
     return from_tensor(out);
 }
 
+TensorHandle tensor_argsort(TensorHandle ht, int dim, int descending) {
+    auto& t = *to_tensor(ht);
+    auto result = torch::argsort(t, dim, (bool)descending).to(torch::kFloat64);
+    return from_tensor(result);
+}
+
+TensorHandle tensor_cumprod(TensorHandle ht, int dim) {
+    auto& t = *to_tensor(ht);
+    auto result = torch::cumprod(t, dim);
+    return from_tensor(result);
+}
+
 TensorHandle tensor_gru_cell(TensorHandle hcombined, TensorHandle hprev, int o) {
     auto& combined = *to_tensor(hcombined);
     auto& prev = *to_tensor(hprev);

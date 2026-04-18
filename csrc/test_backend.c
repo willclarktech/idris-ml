@@ -1849,6 +1849,57 @@ int main(void) {
         ASSERT_NEAR("scatter[1]", sr[1], 0.0, 1e-10);
     }
 
+    /* T18: Argsort + Cumprod */
+    {
+        printf("\n--- Argsort + Cumprod ---\n");
+        param_clear();
+
+        /* Argsort ascending */
+        double data[] = {0.9, 0.1, 0.5, 0.3};
+        int ds[] = {4};
+        TensorHandle t = tensor_create(data, ds, 1, 0);
+        TensorHandle sorted_idx = tensor_argsort(t, 0, 0); /* ascending */
+        double idx_out[4];
+        tensor_to_doubles(sorted_idx, idx_out);
+        /* 0.1(idx1), 0.3(idx3), 0.5(idx2), 0.9(idx0) */
+        ASSERT_NEAR("argsort[0]", idx_out[0], 1.0, 1e-10);
+        ASSERT_NEAR("argsort[1]", idx_out[1], 3.0, 1e-10);
+        ASSERT_NEAR("argsort[2]", idx_out[2], 2.0, 1e-10);
+        ASSERT_NEAR("argsort[3]", idx_out[3], 0.0, 1e-10);
+
+        /* Argsort descending */
+        TensorHandle sorted_desc = tensor_argsort(t, 0, 1); /* descending */
+        double desc_out[4];
+        tensor_to_doubles(sorted_desc, desc_out);
+        /* 0.9(idx0), 0.5(idx2), 0.3(idx3), 0.1(idx1) */
+        ASSERT_NEAR("argsort_desc[0]", desc_out[0], 0.0, 1e-10);
+        ASSERT_NEAR("argsort_desc[1]", desc_out[1], 2.0, 1e-10);
+
+        /* Cumprod forward */
+        double cp_data[] = {2.0, 3.0, 4.0};
+        int cp_s[] = {3};
+        TensorHandle cp_in = tensor_create(cp_data, cp_s, 1, 1);
+        param_register("cp_in", cp_in);
+        TensorHandle cp_out = tensor_cumprod(cp_in, 0);
+        double cp_result[3];
+        tensor_to_doubles(cp_out, cp_result);
+        ASSERT_NEAR("cumprod[0]", cp_result[0], 2.0, 1e-10);
+        ASSERT_NEAR("cumprod[1]", cp_result[1], 6.0, 1e-10);
+        ASSERT_NEAR("cumprod[2]", cp_result[2], 24.0, 1e-10);
+
+        /* Cumprod backward */
+        TensorHandle cp_loss = tensor_sum(cp_out);
+        tensor_backward(cp_loss);
+        /* d_in[0] = d_out[0]*1 + d_out[1]*3 + d_out[2]*12 = 1 + 3 + 12 = 16 */
+        /* d_in[1] = d_out[1]*2 + d_out[2]*8 = 2 + 8 = 10 */
+        /* d_in[2] = d_out[2]*6 = 6 */
+        ASSERT_NEAR("d_cumprod[0]", param_grad_item_at(0, 0), 16.0, 1e-6);
+        ASSERT_NEAR("d_cumprod[1]", param_grad_item_at(0, 1), 10.0, 1e-6);
+        ASSERT_NEAR("d_cumprod[2]", param_grad_item_at(0, 2), 6.0, 1e-6);
+
+        param_clear();
+    }
+
     /* Summary */
     printf("\n");
     if (failures == 0) {
