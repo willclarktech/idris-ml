@@ -64,13 +64,16 @@ endif
 # Switching backends = updating a symlink (instant, no recompile).
 BACKEND_LIB := $(BUILD)/libidrisml_$(BACKEND).dylib
 
-# Shared C sources (backend-agnostic: serialization, JSON)
-SHARED_OBJ := $(BUILD)/safetensors.o $(BUILD)/cJSON.o
+# Shared C sources (backend-agnostic: serialization, JSON, data loading)
+SHARED_OBJ := $(BUILD)/safetensors.o $(BUILD)/cJSON.o $(BUILD)/mnist.o
 
 $(BUILD)/safetensors.o: csrc/safetensors.c csrc/backend.h csrc/cJSON.h | $(BUILD)
 	cc -O2 -c -o $@ $<
 
 $(BUILD)/cJSON.o: csrc/cJSON.c csrc/cJSON.h | $(BUILD)
+	cc -O2 -c -o $@ $<
+
+$(BUILD)/mnist.o: csrc/mnist.c csrc/backend.h | $(BUILD)
 	cc -O2 -c -o $@ $<
 
 $(BACKEND_LIB): $(BACKEND_SRC) csrc/backend.h $(SHARED_OBJ) | $(BUILD)
@@ -80,6 +83,10 @@ ifeq ($(BACKEND), torch)
   endif
 endif
 	$(BACKEND_CC) $(BACKEND_FLAGS) -o $@ $< $(SHARED_OBJ)
+
+# Download MNIST dataset
+download-mnist:
+	bash scripts/download_mnist.sh
 
 # Always update symlink to point to the active backend
 backend: $(BACKEND_LIB)
@@ -313,7 +320,7 @@ test-all:
 	@echo ""
 	@echo "=== All tests complete ==="
 
-.PHONY: all-backends test test-all test-backend test-backend-tape test-backend-mlx \
+.PHONY: all-backends test test-all download-mnist test-backend test-backend-tape test-backend-mlx \
         test-backend-torch test-safetensors test-ntm-grad test-ntm-timestep \
         test-examples check example-supervised example-rnn example-lstm \
         example-ntm-copy example-ntm-associative-recall example-reinforce \

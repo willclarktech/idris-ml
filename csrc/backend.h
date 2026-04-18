@@ -299,6 +299,14 @@ void optimizer_set_v(OptimizerHandle opt, int idx, const double* data);
 void optimizer_get_meta(OptimizerHandle opt, double* out9);
 void optimizer_set_meta(OptimizerHandle opt, const double* in9);
 
+/* ---------- MNIST data loading ---------- */
+
+void* mnist_load(const char* images_path, const char* labels_path);
+int mnist_count(void* handle);
+TensorHandle mnist_get_image(void* handle, int index);  /* [1, 28, 28] tensor */
+int mnist_get_label(void* handle, int index);            /* 0-9 */
+void mnist_free(void* handle);
+
 /* ---------- Debug ---------- */
 
 void tensor_print(TensorHandle t);
