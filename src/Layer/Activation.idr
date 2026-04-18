@@ -29,6 +29,15 @@ LayerLike ActivationState where
 
   applyVar st@(MkActivation _ f) xs = (st, map f xs)
 
+  -- Tensor-level dispatch: apply prim__tanh/prim__sigmoid directly on the
+  -- tensor instead of unpacking to scalars. 1 tape entry vs ~7n entries.
+  applyVarTensor st@(MkActivation "tanh" _) inputT = (st, prim__tanh inputT)
+  applyVarTensor st@(MkActivation "sigmoid" _) inputT = (st, prim__sigmoid inputT)
+  applyVarTensor {i} st inputT =
+    let input = VTensor (tensorToScalars inputT 0 i)
+        (st', VTensor outElems) = applyVar st input
+    in (st', vecStackTensor outElems)
+
   emapLayer _ st = st
 
   showLayer (MkActivation name _) = "Activation<" ++ name ++ ">"

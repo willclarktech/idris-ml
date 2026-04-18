@@ -60,7 +60,7 @@ prim__pow : AnyPtr -> AnyPtr -> AnyPtr
 export prim__sigmoid : AnyPtr -> AnyPtr
 
 %foreign "C:tensor_tanh,libidrisml"
-prim__tanh : AnyPtr -> AnyPtr
+export prim__tanh : AnyPtr -> AnyPtr
 
 -- Linear algebra
 %foreign "C:tensor_mv,libidrisml"
