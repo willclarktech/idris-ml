@@ -87,6 +87,10 @@ interface LayerLike (l : Nat -> Nat -> Type -> Type) where
   resetState : {i, o : Nat} -> l i o Variable -> l i o Variable
   resetState x = x
 
+  -- Set training/eval mode (for dropout, batch norm; default: identity)
+  setTraining : {i, o : Nat} -> Bool -> l i o ty -> l i o ty
+  setTraining _ x = x
+
   -- Get all parameter IDs (for testing)
   getParamIds : {i, o : Nat} -> l i o Variable -> List String
   getParamIds _ = []
@@ -368,6 +372,12 @@ export
 resetNetworkState : {i, o : Nat} -> {hs : List Nat} -> Network i hs o Variable -> Network i hs o Variable
 resetNetworkState (OutputLayer (MkAnyLayer l @{dict} layer)) = OutputLayer (MkAnyLayer l @{dict} (resetState @{dict} layer))
 resetNetworkState ((MkAnyLayer l @{dict} layer) ~> rest) = MkAnyLayer l @{dict} (resetState @{dict} layer) ~> resetNetworkState rest
+
+||| Set training/eval mode on all layers in a network.
+export
+setNetworkTraining : {i, o : Nat} -> {hs : List Nat} -> Bool -> Network i hs o ty -> Network i hs o ty
+setNetworkTraining mode (OutputLayer (MkAnyLayer l @{dict} layer)) = OutputLayer (MkAnyLayer l @{dict} (setTraining @{dict} mode layer))
+setNetworkTraining mode ((MkAnyLayer l @{dict} layer) ~> rest) = MkAnyLayer l @{dict} (setTraining @{dict} mode layer) ~> setNetworkTraining mode rest
 
 ||| Two-phase forward: encoding phase then output phase with zeros.
 export
