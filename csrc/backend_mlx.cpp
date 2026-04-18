@@ -85,6 +85,8 @@ enum {
     OP_BMM_3X3,
     OP_SOFTMAX_3D,
     OP_TRANSPOSE_LAST2,
+    OP_CONV2D,
+    OP_MAX_POOL2D,
 };
 
 // Lightweight metadata for ops that need extra info during replay.
@@ -93,6 +95,16 @@ struct LayerNormReplayMeta {
     int gamma_pool_idx;
     int bias_pool_idx;
     double eps;
+};
+
+struct Conv2DReplayMeta {
+    int padH, padW, strH, strW;
+    int inC, H, W;
+    int bias_pool_idx;  // -1 if no bias
+};
+
+struct MaxPool2DReplayMeta {
+    int C, H, W, kH, kW, strH, strW, oH, oW;
 };
 
 struct TapeEntry {
@@ -122,6 +134,14 @@ static void tape_reset() {
         }
         if (e.op == OP_STACK && e.meta) {
             delete (std::vector<int>*)e.meta;
+            e.meta = nullptr;
+        }
+        if (e.op == OP_CONV2D && e.meta) {
+            delete (Conv2DReplayMeta*)e.meta;
+            e.meta = nullptr;
+        }
+        if (e.op == OP_MAX_POOL2D && e.meta) {
+            delete (MaxPool2DReplayMeta*)e.meta;
             e.meta = nullptr;
         }
     }
@@ -490,6 +510,75 @@ TensorHandle tensor_conv1d_circular(TensorHandle hinput, TensorHandle hkernel) {
     bool rg = inp->requires_grad || kern->requires_grad;
     auto r = new Tensor(result, rg);
     if (rg) tape_append(OP_CONV1D_CIRC, r, inp, kern, 0);
+    return (TensorHandle)r;
+}
+
+TensorHandle tensor_conv2d(TensorHandle hinput, TensorHandle hkernel,
+                           TensorHandle hbias, int padH, int padW,
+                           int strideH, int strideW) {
+    auto inp = (Tensor*)hinput;   // [inC, H, W]
+    auto ker = (Tensor*)hkernel;  // [outC, inC, kH, kW]
+    Tensor* bias = hbias ? (Tensor*)hbias : nullptr;
+
+    int inC = (int)inp->data.shape(0), H = (int)inp->data.shape(1), W = (int)inp->data.shape(2);
+
+    // MLX conv2d expects NHWC: input [N,H,W,C_in], weight [C_out,kH,kW,C_in]
+    auto inp_hwc = mx::transpose(inp->data, {1, 2, 0});  // [H, W, inC]
+    auto inp_nhwc = mx::reshape(inp_hwc, {1, H, W, inC}); // [1, H, W, inC]
+    // kernel: [outC, inC, kH, kW] -> [outC, kH, kW, inC]
+    auto ker_mlx = mx::transpose(ker->data, {0, 2, 3, 1});
+
+    auto out = mx::conv2d(inp_nhwc, ker_mlx,
+                          {strideH, strideW}, {padH, padW});
+    // out: [1, oH, oW, outC] -> squeeze batch -> [oH, oW, outC] -> [outC, oH, oW]
+    auto out_sq = mx::squeeze(out, 0);
+    auto result = mx::transpose(out_sq, {2, 0, 1});
+
+    if (bias) result = mx::add(result, mx::reshape(bias->data, {-1, 1, 1}));
+
+    bool rg = inp->requires_grad || ker->requires_grad || (bias && bias->requires_grad);
+    auto r = new Tensor(result, rg);
+    if (rg) {
+        int idx = tape_append(OP_CONV2D, r, inp, ker, 0);
+        auto* meta = new Conv2DReplayMeta();
+        meta->padH = padH; meta->padW = padW;
+        meta->strH = strideH; meta->strW = strideW;
+        meta->inC = inC; meta->H = H; meta->W = W;
+        meta->bias_pool_idx = bias ? bias->pool_idx : -1;
+        tape[idx].meta = meta;
+    }
+    return (TensorHandle)r;
+}
+
+TensorHandle tensor_max_pool2d(TensorHandle hinput, int kH, int kW,
+                               int strideH, int strideW) {
+    auto inp = (Tensor*)hinput;  // [C, H, W]
+    int C = (int)inp->data.shape(0), H = (int)inp->data.shape(1), W = (int)inp->data.shape(2);
+    int oH = (H - kH) / strideH + 1;
+    int oW = (W - kW) / strideW + 1;
+
+    // Max pool via strided slicing: for each (kh,kw) offset, slice with stride and take max
+    mx::array result = mx::full({C, oH, oW}, -1e30, mx::float64);
+    for (int kh = 0; kh < kH; kh++) {
+        for (int kw = 0; kw < kW; kw++) {
+            auto sliced = mx::slice(inp->data,
+                {0, kh, kw},
+                {C, kh + oH * strideH, kw + oW * strideW},
+                {1, strideH, strideW});
+            result = mx::maximum(result, sliced);
+        }
+    }
+
+    auto r = new Tensor(result, inp->requires_grad);
+    if (inp->requires_grad) {
+        int idx = tape_append(OP_MAX_POOL2D, r, inp, nullptr, 0);
+        auto* meta = new MaxPool2DReplayMeta();
+        meta->C = C; meta->H = H; meta->W = W;
+        meta->kH = kH; meta->kW = kW;
+        meta->strH = strideH; meta->strW = strideW;
+        meta->oH = oH; meta->oW = oW;
+        tape[idx].meta = meta;
+    }
     return (TensorHandle)r;
 }
 
@@ -883,6 +972,37 @@ void tensor_backward(TensorHandle h) {
                 auto rstd = mx::rsqrt(mx::add(var, mx::array(meta->eps)));
                 auto x_hat = mx::multiply(centered, rstd);
                 pool[out] = mx::add(mx::multiply(gamma, x_hat), bias);
+                break;
+            }
+            case OP_CONV2D: {
+                auto* cm = (Conv2DReplayMeta*)e.meta;
+                int inC = cm->inC, HH = cm->H, WW = cm->W;
+                auto inp_hwc = mx::transpose(a, {1, 2, 0});
+                auto inp_nhwc = mx::reshape(inp_hwc, {1, HH, WW, inC});
+                auto ker_mlx = mx::transpose(b, {0, 2, 3, 1});
+                auto cv = mx::conv2d(inp_nhwc, ker_mlx,
+                                     {cm->strH, cm->strW}, {cm->padH, cm->padW});
+                auto cv_sq = mx::squeeze(cv, 0);
+                auto cv_out = mx::transpose(cv_sq, {2, 0, 1});
+                if (cm->bias_pool_idx >= 0) {
+                    cv_out = mx::add(cv_out, mx::reshape(pool[cm->bias_pool_idx], {-1, 1, 1}));
+                }
+                pool[out] = cv_out;
+                break;
+            }
+            case OP_MAX_POOL2D: {
+                auto* pm = (MaxPool2DReplayMeta*)e.meta;
+                mx::array res = mx::full({pm->C, pm->oH, pm->oW}, -1e30, mx::float64);
+                for (int kh = 0; kh < pm->kH; kh++) {
+                    for (int kw = 0; kw < pm->kW; kw++) {
+                        auto sliced = mx::slice(a,
+                            {0, kh, kw},
+                            {pm->C, kh + pm->oH * pm->strH, kw + pm->oW * pm->strW},
+                            {1, pm->strH, pm->strW});
+                        res = mx::maximum(res, sliced);
+                    }
+                }
+                pool[out] = res;
                 break;
             }
             default: break;

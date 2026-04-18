@@ -1334,6 +1334,158 @@ static void test_tensor_view(void) {
 }
 
 /* ================================================================
+   T13: Conv2D + MaxPool2D
+   ================================================================ */
+
+static void test_conv2d_forward(void) {
+    printf("\n--- Conv2D forward ---\n");
+
+    /* Input: [1, 4, 4] — single channel 4x4 image */
+    double inp_data[] = {
+        1, 2, 3, 4,
+        5, 6, 7, 8,
+        9, 10, 11, 12,
+        13, 14, 15, 16
+    };
+    int inp_shape[] = {1, 4, 4};
+    TensorHandle inp = tensor_create(inp_data, inp_shape, 3, 0);
+
+    /* Kernel: [1, 1, 2, 2] — one output channel, 2x2 kernel */
+    double ker_data[] = {1, 0, 0, 1};
+    int ker_shape[] = {1, 1, 2, 2};
+    TensorHandle ker = tensor_create(ker_data, ker_shape, 4, 0);
+
+    /* No bias, no padding, stride=1 */
+    TensorHandle out = tensor_conv2d(inp, ker, NULL, 0, 0, 1, 1);
+
+    /* Output should be [1, 3, 3]: out[0,oh,ow] = inp[oh,ow] + inp[oh+1,ow+1]
+       = {1+6, 2+7, 3+8, 5+10, 6+11, 7+12, 9+14, 10+15, 11+16} */
+    ASSERT_TRUE("conv2d output rank", tensor_dim(out) == 3);
+    ASSERT_TRUE("conv2d output size 0", tensor_size(out, 0) == 1);
+    ASSERT_TRUE("conv2d output size 1", tensor_size(out, 1) == 3);
+    ASSERT_TRUE("conv2d output size 2", tensor_size(out, 2) == 3);
+
+    double expected[] = {7, 9, 11, 15, 17, 19, 23, 25, 27};
+    double result[9];
+    tensor_to_doubles(out, result);
+    for (int i = 0; i < 9; i++) {
+        char msg[64];
+        snprintf(msg, sizeof(msg), "conv2d out[%d]", i);
+        ASSERT_NEAR(msg, result[i], expected[i], 1e-10);
+    }
+}
+
+static void test_conv2d_backward(void) {
+    printf("\n--- Conv2D backward (finite diff) ---\n");
+    param_clear();
+
+    /* Analytical gradient */
+    double inp_data[] = {1, 2, 3, 4, 5, 6, 7, 8, 9};
+    int inp_shape[] = {1, 3, 3};
+
+    double ker_data[] = {1, 1, 1, 1};
+    int ker_shape[] = {1, 1, 2, 2};
+
+    TensorHandle inp = tensor_create(inp_data, inp_shape, 3, 1);
+    param_register("inp", inp);
+    TensorHandle ker = tensor_create(ker_data, ker_shape, 4, 1);
+    param_register("ker", ker);
+
+    TensorHandle out = tensor_conv2d(inp, ker, NULL, 0, 0, 1, 1);
+    TensorHandle loss = tensor_sum(out);
+    double loss_val = tensor_item(loss);
+    ASSERT_NEAR("conv2d loss", loss_val, 80.0, 1e-10);
+
+    tensor_backward(loss);
+
+    /* Check kernel gradients via param registry */
+    /* d_ker[0] = sum of top-left corners = 1+2+4+5 = 12 */
+    ASSERT_NEAR("d_kernel[0]", param_grad_item_at(1, 0), 12.0, 1e-10);
+    ASSERT_NEAR("d_kernel[1]", param_grad_item_at(1, 1), 16.0, 1e-10);
+    ASSERT_NEAR("d_kernel[2]", param_grad_item_at(1, 2), 24.0, 1e-10);
+    ASSERT_NEAR("d_kernel[3]", param_grad_item_at(1, 3), 28.0, 1e-10);
+
+    /* Finite diff check for ker[0] */
+    double eps = 1e-5;
+    {
+        param_clear();
+        double ker_p[4] = {1+eps, 1, 1, 1};
+        double ker_m[4] = {1-eps, 1, 1, 1};
+        TensorHandle i1 = tensor_create(inp_data, inp_shape, 3, 0);
+        TensorHandle k1 = tensor_create(ker_p, ker_shape, 4, 0);
+        double fp = tensor_item(tensor_sum(tensor_conv2d(i1, k1, NULL, 0,0,1,1)));
+        TensorHandle i2 = tensor_create(inp_data, inp_shape, 3, 0);
+        TensorHandle k2 = tensor_create(ker_m, ker_shape, 4, 0);
+        double fm = tensor_item(tensor_sum(tensor_conv2d(i2, k2, NULL, 0,0,1,1)));
+        double fd = (fp - fm) / (2*eps);
+        ASSERT_NEAR("conv2d fd d_ker[0]", fd, 12.0, 0.2);  /* MLX float32 precision */
+    }
+
+    param_clear();
+}
+
+static void test_max_pool2d_forward(void) {
+    printf("\n--- MaxPool2D forward ---\n");
+
+    /* Input: [1, 4, 4] */
+    double inp_data[] = {
+        1, 2, 3, 4,
+        5, 6, 7, 8,
+        9, 10, 11, 12,
+        13, 14, 15, 16
+    };
+    int inp_shape[] = {1, 4, 4};
+    TensorHandle inp = tensor_create(inp_data, inp_shape, 3, 0);
+
+    /* MaxPool2D: k=2, stride=2 -> output [1, 2, 2] */
+    TensorHandle out = tensor_max_pool2d(inp, 2, 2, 2, 2);
+
+    ASSERT_TRUE("pool output rank", tensor_dim(out) == 3);
+    ASSERT_TRUE("pool output size 0", tensor_size(out, 0) == 1);
+    ASSERT_TRUE("pool output size 1", tensor_size(out, 1) == 2);
+    ASSERT_TRUE("pool output size 2", tensor_size(out, 2) == 2);
+
+    double result[4];
+    tensor_to_doubles(out, result);
+    /* max of each 2x2 block: {6, 8, 14, 16} */
+    ASSERT_NEAR("pool out[0]", result[0], 6.0, 1e-10);
+    ASSERT_NEAR("pool out[1]", result[1], 8.0, 1e-10);
+    ASSERT_NEAR("pool out[2]", result[2], 14.0, 1e-10);
+    ASSERT_NEAR("pool out[3]", result[3], 16.0, 1e-10);
+}
+
+static void test_max_pool2d_backward(void) {
+    printf("\n--- MaxPool2D backward (finite diff) ---\n");
+    param_clear();
+
+    double inp_data[] = {
+        1, 2, 3, 4,
+        5, 6, 7, 8,
+        9, 10, 11, 12,
+        13, 14, 15, 16
+    };
+    int inp_shape[] = {1, 4, 4};
+
+    TensorHandle inp = tensor_create(inp_data, inp_shape, 3, 1);
+    param_register("inp", inp);
+
+    TensorHandle out = tensor_max_pool2d(inp, 2, 2, 2, 2);
+    TensorHandle loss = tensor_sum(out);
+    tensor_backward(loss);
+
+    /* Gradient at max positions (indices 5,7,13,15) should be 1.0 */
+    ASSERT_NEAR("d_pool inp[5]", param_grad_item_at(0, 5), 1.0, 1e-10);
+    ASSERT_NEAR("d_pool inp[7]", param_grad_item_at(0, 7), 1.0, 1e-10);
+    ASSERT_NEAR("d_pool inp[13]", param_grad_item_at(0, 13), 1.0, 1e-10);
+    ASSERT_NEAR("d_pool inp[15]", param_grad_item_at(0, 15), 1.0, 1e-10);
+    /* Non-max positions should be 0 */
+    ASSERT_NEAR("d_pool inp[0]", param_grad_item_at(0, 0), 0.0, 1e-10);
+    ASSERT_NEAR("d_pool inp[4]", param_grad_item_at(0, 4), 0.0, 1e-10);
+
+    param_clear();
+}
+
+/* ================================================================
    Main
    ================================================================ */
 
@@ -1391,6 +1543,12 @@ int main(void) {
 
     /* T12: Tensor view */
     test_tensor_view();
+
+    /* T13: Conv2D + MaxPool2D */
+    test_conv2d_forward();
+    test_conv2d_backward();
+    test_max_pool2d_forward();
+    test_max_pool2d_backward();
 
     /* Summary */
     printf("\n");

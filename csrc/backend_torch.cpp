@@ -247,6 +247,34 @@ TensorHandle tensor_conv1d_circular(TensorHandle input, TensorHandle kernel) {
     return from_tensor(out.reshape({n}));
 }
 
+TensorHandle tensor_conv2d(TensorHandle hinput, TensorHandle hkernel,
+                           TensorHandle hbias, int padH, int padW,
+                           int strideH, int strideW) {
+    auto& inp = *to_tensor(hinput);   /* [inC, H, W] */
+    auto& ker = *to_tensor(hkernel);  /* [outC, inC, kH, kW] */
+
+    /* torch::conv2d expects [N, C, H, W] — add batch dim */
+    auto inp_4d = inp.unsqueeze(0);
+    at::Tensor bias_t;
+    if (hbias) bias_t = *to_tensor(hbias);
+
+    auto out = hbias
+        ? torch::conv2d(inp_4d, ker, bias_t,
+              /*stride=*/{strideH, strideW}, /*padding=*/{padH, padW})
+        : torch::conv2d(inp_4d, ker, /*bias=*/{},
+              /*stride=*/{strideH, strideW}, /*padding=*/{padH, padW});
+
+    return from_tensor(out.squeeze(0));  /* remove batch dim */
+}
+
+TensorHandle tensor_max_pool2d(TensorHandle hinput, int kH, int kW,
+                               int strideH, int strideW) {
+    auto& inp = *to_tensor(hinput);  /* [C, H, W] */
+    auto inp_4d = inp.unsqueeze(0);  /* [1, C, H, W] */
+    auto out = torch::max_pool2d(inp_4d, {kH, kW}, {strideH, strideW});
+    return from_tensor(out.squeeze(0));
+}
+
 TensorPair* tensor_ntm_read_head(
     TensorHandle memory_h, TensorHandle prev_weights_h,
     TensorHandle key_h, TensorHandle beta_h, TensorHandle g_h,

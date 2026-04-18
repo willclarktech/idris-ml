@@ -169,6 +169,8 @@ enum {
     OP_BMM_3X3,       /* batched matmul: [B,m,n] x [B,n,k] -> [B,m,k] */
     OP_SOFTMAX_3D,    /* row-wise softmax on [B,m,n] along last dim */
     OP_TRANSPOSE_LAST2, /* [B,m,n] -> [B,n,m] */
+    OP_CONV2D,        /* [inC,H,W] * [outC,inC,kH,kW] + [outC] -> [outC,oH,oW] */
+    OP_MAX_POOL2D,    /* [C,H,W] -> [C,oH,oW] with max indices */
 };
 
 typedef struct {
@@ -232,6 +234,15 @@ typedef struct {
     int m, n;
 } LayerNormMeta;
 
+typedef struct {
+    int inC, outC, H, W, kH, kW, padH, padW, strH, strW, oH, oW;
+} Conv2DMeta;
+
+typedef struct {
+    int C, H, W, kH, kW, strH, strW, oH, oW;
+    int* max_indices;  /* [C * oH * oW] index into flat input per-channel */
+} MaxPool2DMeta;
+
 #define TAPE_INIT_CAP 4096
 
 static TapeEntry* tape = NULL;
@@ -278,6 +289,12 @@ static void tape_reset(void) {
             free(meta->rstd);
             meta->x_hat = NULL;
             meta->rstd = NULL;
+        }
+        /* Free OP_MAX_POOL2D max indices */
+        if (tape[i].op == OP_MAX_POOL2D && tape[i].op_meta) {
+            MaxPool2DMeta* meta = (MaxPool2DMeta*)tape[i].op_meta;
+            free(meta->max_indices);
+            meta->max_indices = NULL;
         }
         /* Free grad arrays on non-persistent (arena) tensors.
            These are heap-allocated by ensure_grad during backward. */
@@ -1105,6 +1122,125 @@ TensorHandle tensor_conv1d_circular(TensorHandle hinput, TensorHandle hkernel) {
     Tensor* r = make_tensor(out, shape, 1, input->requires_grad || kernel->requires_grad);
     free(out);
     if (r->requires_grad) tape_append(OP_CONV1D_CIRC, r, input, kernel, 0);
+    return r;
+}
+
+/* ================================================================
+   Conv2D: input [inC, H, W], kernel [outC, inC, kH, kW], bias [outC] or NULL
+   Output: [outC, oH, oW]
+   ================================================================ */
+
+TensorHandle tensor_conv2d(TensorHandle hinput, TensorHandle hkernel,
+                           TensorHandle hbias, int padH, int padW,
+                           int strideH, int strideW) {
+    Tensor* input = (Tensor*)hinput;
+    Tensor* kernel = (Tensor*)hkernel;
+    Tensor* bias = (Tensor*)hbias;
+
+    int inC = input->shape[0], H = input->shape[1], W = input->shape[2];
+    int outC = kernel->shape[0], kH = kernel->shape[2], kW = kernel->shape[3];
+    int oH = (H + 2*padH - kH) / strideH + 1;
+    int oW = (W + 2*padW - kW) / strideW + 1;
+    int out_numel = outC * oH * oW;
+
+    double* out = calloc(out_numel, sizeof(double));
+
+    for (int oc = 0; oc < outC; oc++) {
+        for (int oh = 0; oh < oH; oh++) {
+            for (int ow = 0; ow < oW; ow++) {
+                double val = bias ? bias->data[oc] : 0.0;
+                for (int ic = 0; ic < inC; ic++) {
+                    for (int kh = 0; kh < kH; kh++) {
+                        for (int kw = 0; kw < kW; kw++) {
+                            int ih = oh * strideH - padH + kh;
+                            int iw = ow * strideW - padW + kw;
+                            if (ih >= 0 && ih < H && iw >= 0 && iw < W) {
+                                val += input->data[ic*H*W + ih*W + iw]
+                                     * kernel->data[oc*inC*kH*kW + ic*kH*kW + kh*kW + kw];
+                            }
+                        }
+                    }
+                }
+                out[oc*oH*oW + oh*oW + ow] = val;
+            }
+        }
+    }
+
+    int out_shape[] = {outC, oH, oW};
+    int rg = input->requires_grad || kernel->requires_grad || (bias && bias->requires_grad);
+    Tensor* r = make_tensor(out, out_shape, 3, rg);
+    free(out);
+
+    if (r->requires_grad) {
+        int idx = tape_append(OP_CONV2D, r, input, kernel, 0);
+        Conv2DMeta* meta = arena_alloc(sizeof(Conv2DMeta));
+        meta->inC = inC; meta->outC = outC;
+        meta->H = H; meta->W = W;
+        meta->kH = kH; meta->kW = kW;
+        meta->padH = padH; meta->padW = padW;
+        meta->strH = strideH; meta->strW = strideW;
+        meta->oH = oH; meta->oW = oW;
+        tape[idx].op_meta = meta;
+        /* Store bias pointer in scalar_arg slot (cast) for backward */
+        tape[idx].inputs = (Tensor**)bias;  /* reuse inputs field for bias ptr */
+    }
+    return r;
+}
+
+/* ================================================================
+   MaxPool2D: input [C, H, W] -> [C, oH, oW]
+   ================================================================ */
+
+TensorHandle tensor_max_pool2d(TensorHandle hinput, int kH, int kW,
+                               int strideH, int strideW) {
+    Tensor* input = (Tensor*)hinput;
+    int C = input->shape[0], H = input->shape[1], W = input->shape[2];
+    int oH = (H - kH) / strideH + 1;
+    int oW = (W - kW) / strideW + 1;
+    int out_numel = C * oH * oW;
+
+    double* out = calloc(out_numel, sizeof(double));
+    int* max_idx = malloc(out_numel * sizeof(int));
+
+    for (int c = 0; c < C; c++) {
+        for (int oh = 0; oh < oH; oh++) {
+            for (int ow = 0; ow < oW; ow++) {
+                double best = -1e30;
+                int best_idx = 0;
+                for (int kh = 0; kh < kH; kh++) {
+                    for (int kw = 0; kw < kW; kw++) {
+                        int ih = oh * strideH + kh;
+                        int iw = ow * strideW + kw;
+                        int flat = c*H*W + ih*W + iw;
+                        if (input->data[flat] > best) {
+                            best = input->data[flat];
+                            best_idx = flat;
+                        }
+                    }
+                }
+                int out_idx = c*oH*oW + oh*oW + ow;
+                out[out_idx] = best;
+                max_idx[out_idx] = best_idx;
+            }
+        }
+    }
+
+    int out_shape[] = {C, oH, oW};
+    Tensor* r = make_tensor(out, out_shape, 3, input->requires_grad);
+    free(out);
+
+    if (r->requires_grad) {
+        int idx = tape_append(OP_MAX_POOL2D, r, input, NULL, 0);
+        MaxPool2DMeta* meta = arena_alloc(sizeof(MaxPool2DMeta));
+        meta->C = C; meta->H = H; meta->W = W;
+        meta->kH = kH; meta->kW = kW;
+        meta->strH = strideH; meta->strW = strideW;
+        meta->oH = oH; meta->oW = oW;
+        meta->max_indices = max_idx;  /* heap-allocated, freed in tape_reset */
+        tape[idx].op_meta = meta;
+    } else {
+        free(max_idx);
+    }
     return r;
 }
 
@@ -2317,6 +2453,84 @@ void tensor_backward(TensorHandle h) {
                         m->add_vector->grad[jj] += s;
                     }
                 }
+            }
+            break;
+        }
+
+        case OP_CONV2D: {
+            /* r = conv2d(a=input, b=kernel) + bias
+               a=[inC,H,W], b=[outC,inC,kH,kW], r=[outC,oH,oW] */
+            Conv2DMeta* meta = (Conv2DMeta*)e->op_meta;
+            int inC = meta->inC, outC = meta->outC;
+            int HH = meta->H, WW = meta->W, kH = meta->kH, kW = meta->kW;
+            int padH = meta->padH, padW = meta->padW;
+            int strideH = meta->strH, strideW = meta->strW;
+            int oH = meta->oH, oW = meta->oW;
+            ensure_grad(r);
+
+            /* d_input */
+            if (a && a->requires_grad) {
+                ensure_grad(a);
+                for (int oc = 0; oc < outC; oc++)
+                    for (int oh = 0; oh < oH; oh++)
+                        for (int ow = 0; ow < oW; ow++) {
+                            double dout = r->grad[oc*oH*oW + oh*oW + ow];
+                            for (int ic = 0; ic < inC; ic++)
+                                for (int kh = 0; kh < kH; kh++)
+                                    for (int kw = 0; kw < kW; kw++) {
+                                        int ih = oh * strideH - padH + kh;
+                                        int iw = ow * strideW - padW + kw;
+                                        if (ih >= 0 && ih < HH && iw >= 0 && iw < WW)
+                                            a->grad[ic*HH*WW + ih*WW + iw] +=
+                                                dout * b->data[oc*inC*kH*kW + ic*kH*kW + kh*kW + kw];
+                                    }
+                        }
+            }
+
+            /* d_kernel */
+            if (b && b->requires_grad) {
+                ensure_grad(b);
+                for (int oc = 0; oc < outC; oc++)
+                    for (int ic = 0; ic < inC; ic++)
+                        for (int kh = 0; kh < kH; kh++)
+                            for (int kw = 0; kw < kW; kw++) {
+                                double s = 0;
+                                for (int oh = 0; oh < oH; oh++)
+                                    for (int ow = 0; ow < oW; ow++) {
+                                        int ih = oh * strideH - padH + kh;
+                                        int iw = ow * strideW - padW + kw;
+                                        if (ih >= 0 && ih < HH && iw >= 0 && iw < WW)
+                                            s += r->grad[oc*oH*oW + oh*oW + ow]
+                                               * a->data[ic*HH*WW + ih*WW + iw];
+                                    }
+                                b->grad[oc*inC*kH*kW + ic*kH*kW + kh*kW + kw] += s;
+                            }
+            }
+
+            /* d_bias */
+            Tensor* bias_t = (Tensor*)e->inputs;  /* stored in inputs field */
+            if (bias_t && bias_t->requires_grad) {
+                ensure_grad(bias_t);
+                for (int oc = 0; oc < outC; oc++) {
+                    double s = 0;
+                    for (int oh = 0; oh < oH; oh++)
+                        for (int ow = 0; ow < oW; ow++)
+                            s += r->grad[oc*oH*oW + oh*oW + ow];
+                    bias_t->grad[oc] += s;
+                }
+            }
+            break;
+        }
+
+        case OP_MAX_POOL2D: {
+            /* r = max_pool2d(a=input). Gradient flows only to max positions. */
+            MaxPool2DMeta* meta = (MaxPool2DMeta*)e->op_meta;
+            ensure_grad(r);
+            if (a && a->requires_grad) {
+                ensure_grad(a);
+                int out_numel = meta->C * meta->oH * meta->oW;
+                for (int i = 0; i < out_numel; i++)
+                    a->grad[meta->max_indices[i]] += r->grad[i];
             }
             break;
         }

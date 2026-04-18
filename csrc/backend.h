@@ -72,6 +72,19 @@ TensorHandle tensor_bce_with_logits(TensorHandle input, TensorHandle target);
 TensorHandle tensor_cross_entropy(TensorHandle input, TensorHandle target);
 TensorHandle tensor_mse_loss(TensorHandle input, TensorHandle target);
 
+/* ---------- Convolution & Pooling ---------- */
+
+/* Conv2D: input [inC, H, W], kernel [outC, inC, kH, kW], bias [outC] or NULL.
+   Returns [outC, oH, oW] where oH = (H + 2*padH - kH) / strideH + 1. */
+TensorHandle tensor_conv2d(TensorHandle input, TensorHandle kernel,
+                           TensorHandle bias, int padH, int padW,
+                           int strideH, int strideW);
+
+/* MaxPool2D: input [C, H, W].
+   Returns [C, oH, oW] where oH = (H - kH) / strideH + 1. */
+TensorHandle tensor_max_pool2d(TensorHandle input, int kH, int kW,
+                               int strideH, int strideW);
+
 /* ---------- NTM-specific compositions ---------- */
 
 TensorHandle tensor_cosine_similarity(TensorHandle a, TensorHandle b, int dim);
