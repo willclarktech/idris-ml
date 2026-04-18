@@ -5,6 +5,7 @@
 | Item | Difficulty | Notes |
 |------|-----------|-------|
 | CUDA support | M–L | Torch backend should work via `tensor_to_device("cuda")` — untested. Test script ready: `scripts/test_cuda_colab.sh`. See `docs/cuda-testing.md` |
+| Type-safe device placement | M–L | Add type-level `Device` parameter (CPU/CUDA/Metal) to Tensor/Variable so mismatched-device ops are compile-time errors. Currently device is implicit in backend selection — tensors from different devices can be mixed silently at runtime. Dependent types can enforce device agreement statically |
 
 ## Low Priority
 
