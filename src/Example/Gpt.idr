@@ -321,7 +321,7 @@ main = do
 
   srand cfg.seed
 
-  let opt = nativeAdamGlobalClip cfg.lr 0.9 0.999 1.0e-8 1.0
+  let opt = nativeAdamW cfg.lr 0.9 0.999 1.0e-8 0.01 1.0
 
   putStrLn "=== GPT: Character-Level Language Model ==="
   putStrLn $ "Config: lr=" ++ show cfg.lr ++ " epochs=" ++ show cfg.epochs
