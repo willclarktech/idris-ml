@@ -4,8 +4,7 @@
 
 | Item | Difficulty | Notes |
 |------|-----------|-------|
-| CUDA support | M–L | Torch backend should work via `tensor_to_device("cuda")` — untested. Test script ready: `scripts/test_cuda_colab.sh`. See `docs/cuda-testing.md` |
-| Type-safe device placement | M–L | Add type-level `Device` parameter (CPU/CUDA/Metal) to Tensor/Variable so mismatched-device ops are compile-time errors. Currently device is implicit in backend selection — tensors from different devices can be mixed silently at runtime. Dependent types can enforce device agreement statically |
+| CUDA support | M–L | Torch backend should work via `tensor_to_device("cuda")` — untested. Test script ready: `scripts/test_cuda_colab.sh`. See `docs/cuda-testing.md`. Device type system ready: `Variable (CUDA 0)` compiles, `toDevice` + FFI bindings exist |
 
 ## Low Priority
 
@@ -24,6 +23,7 @@
 ## Done
 
 Architecture & infrastructure:
+- Type-safe device placement: `Variable (0 d : Device)` phantom parameter prevents mixing CPU/CUDA/MPS tensors at compile time. Zero runtime cost (erased). `toDevice` for intentional transfers. FFI bindings for `tensor_to_device`/`tensor_device`. 21 library files + 18 example/test files updated
 - General DataLoader (`DataLoader.idr`): `mkGeneratorLoader` for synthetic data, `mkIndexedLoader` for file-backed datasets with shuffled epoch iteration (Fisher-Yates via C, position tracking via IORef). MNIST updated to use shuffled loading
 - Jupyter kernel (`jupyter/`): pexpect-based REPL wrapper providing interactive notebook experience. `Notebook.Prelude` re-exports all modules. Cell parser auto-routes `:t`/`:doc`/`:exec`/`:let`/expressions. FFI works via dylib copy to `_tmpchez_app/`. Session recovery on crash. `make jupyter-install` + `make jupyter-lab`
 - Batched attention: per-sequence attention loop eliminated. All sequences processed in parallel via 3D ops (`bmm_3x3`, `softmax_3d`, `transpose_last2`). FFI calls reduced from B×H×12 to H×8 per block. New ops: `tensor_bmm_3x3` ([B,m,n]×[B,n,k]), `tensor_softmax_3d`, `tensor_transpose_last2`, `tensor_expand_mask`

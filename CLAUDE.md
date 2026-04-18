@@ -66,7 +66,8 @@ bash scripts/sweep.sh --task copy --parallel 4 --quick  # 2000 epochs for screen
 
 ### Module dependency order (leaves first)
 
-1. **Floating** - Extended `Floating` interface adding `sqrt`
+1. **Device** - `data Device = CPU | CUDA Nat | MPS` — phantom type for compile-time device safety
+1b. **Floating** - Extended `Floating` interface adding `sqrt`
 2. **Util** - Helpers: `enumerate`, `permute`, `chunks`, `formatElapsed`, `formatDuration`, `sigD`
 3. **Sampler** - Distribution samplers: `uniform`, `normal` (Box-Muller), `normalSample`, `categoricalSample` (cumulative sum)
 3b. **Init** - Weight initialization strategies composable with samplers: `xavier`, `xavierGain`, `he`, `lecun`, `fixedRange`
@@ -111,12 +112,17 @@ Scalar = Tensor []
 Vector elems = Tensor [elems]
 Matrix rows columns = Tensor [rows, columns]
 
+-- Device.idr (type-safe device placement)
+data Device = CPU | CUDA Nat | MPS
+
 -- Variable.idr (backend-agnostic autograd)
-record Variable where
+record Variable (0 d : Device) where  -- phantom Device, erased at runtime
   constructor Var
   tensorPtr : AnyPtr      -- libtorch tensor (carries autograd graph)
   paramId : Maybe String  -- parameter name (Nothing = intermediate)
   value : Double          -- cached forward result
+-- Network i hs o (Variable CPU) can't accept Vector i (Variable (CUDA 0))
+-- toDevice : (d2 : Device) -> Variable d1 -> IO (Variable d2)
 ```
 
 The `LayerLike` interface + `AnyLayer` existential wrapper provides dynamic dispatch over layer types. `Network` chains `AnyLayer`s via `(~>)`. `Endofunctor`'s `emap` applies type-preserving transforms (e.g., `applyDeltas`). Adding a new layer type = one file implementing `LayerLike`, zero edits elsewhere.
@@ -223,6 +229,7 @@ The codebase has **zero `believe_me`** and **zero `unsafePerformIO`**. Keep it t
 - **`rewrite`**: Convert between provably-equal types: `rewrite sym prf in expr`.
 - **`coerceLastGate`**: For the `o + 0 = o` case after repeated `splitAt`, use `rewrite plusZeroRightNeutral`.
 - **Never add `believe_me`**: If a type won't unify, prove it. If you can't prove it, the types might actually be wrong.
+- **Device phantom type**: `Variable (0 d : Device)` — erased at runtime, prevents mixing CPU/CUDA/MPS tensors at compile time. Use `Variable CPU` in type annotations. `toDevice` is the only intentional device bridge. `LossFnTensor d` is parameterized by device.
 
 ### Debug / diagnostics
 

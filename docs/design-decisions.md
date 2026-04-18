@@ -18,6 +18,21 @@ Extends NTM (Graves et al. 2016). Key design choices:
 
 6. **Numerical stability via clamping** — DNC's multi-timestep state (link matrix, usage, addressing weights) requires six clamping points to prevent forward-pass explosion: link decay clamped to [0, inf) when write weights sum > 1, link entries clamped non-negative, allocation usage clamped to [1e-6, inf) before cumprod (prevents backward gradient explosion via division), retention clamped to [1e-10, inf), read weights clamped and renormalized after mode mixture. Without clamping, NaN occurs at seqLen >= 4. NTM uses the same pattern (`focusVar` clamps weights before pow/division). Weight projection (`projectWeights`) in syncBuffers prevents addressing weight drift across gradient updates.
 
+## Type-safe device placement
+
+PyTorch's most common footgun: model on CPU, data on GPU, runtime crash. Idris 2's dependent types solve this at compile time.
+
+**Approach**: Phantom erased parameter on Variable — `record Variable (0 d : Device)`. The `0` means zero runtime cost. The existing `ty` parameter in `Tensor dims ty` / `Network i hs o ty` carries device info automatically: `Network i hs o (Variable CPU)` can't accept `Vector i (Variable (CUDA 0))`.
+
+**Key decisions**:
+1. Device on Variable only (not on Tensor itself) — eval path uses `Double` which doesn't need device tracking
+2. `FromDouble (Variable d)` for all `d` — pragmatic for CPU-only phase. When GPU codepaths land, restrict to `FromDouble (Variable CPU)` only
+3. `toDevice : (d2 : Device) -> Variable d1 -> IO (Variable d2)` takes runtime Device (not erased) since it performs physical data transfer
+4. `LossFnTensor` parameterized by Device: `LossFnTensor d = AnyPtr -> AnyPtr -> Variable d`
+5. Layer constructors unchanged — `linearLayer : (Num ty, FromDouble ty) => IO (AnyLayer i o ty)` stays generic. Idris infers `ty = Variable CPU` from context
+
+**Scope**: 21 library files + 18 example/test files. Purely mechanical: add `{d : Device}` to signatures, `Variable` → `Variable d`.
+
 ## Tape-based autograd (Wengert list)
 
 The autograd uses a flat tape (Wengert list) stored as five parallel Chez Scheme vectors (tags, arg1, arg2, values, paramIds) via `top-level-value`. Variables are indices into this tape. Each arithmetic operation appends an entry recording the op tag, input indices, and forward value.
