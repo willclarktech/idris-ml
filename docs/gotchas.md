@@ -339,6 +339,26 @@ Binary op backwards (ADD, SUB, MUL, DIV, POW) must call `reduce_grad()` to sum g
 
 The attention weight normalization `focused = powered / sum(powered)` must use a fused `OP_NORMALIZE` op, not separate `div + sum + add` ops. The decomposed backward computes `d/d(numerator) = grad/denom` and `d/d(denominator) = -grad*numer/denom²` separately — these are huge values that nearly cancel. With peaked attention (near-converged NTM), catastrophic cancellation produces NaN. The fused formula `d_a[i] = (d_r[i] - dot(d_r, r)) / (sum(a) + eps)` avoids this.
 
+### `mx::transpose` requires explicit axes
+
+`mx::transpose(x)` with no axis argument reverses ALL dimensions — it does NOT swap the last two like PyTorch/NumPy. For a 2D matrix, this gives the wrong result. Use `mx::transpose(x, {1, 0})` for 2D, `mx::transpose(x, {0, 2, 1})` for batched 3D. This bug was the root cause of wrong MM backward gradients, broken NTM read head addressing, and incorrect transpose test values.
+
+### `mx::array(double)` defaults to float32
+
+`mx::array(3.0)` creates a float32 scalar, not float64. Reading it back with `item<double>()` returns 0.0 (reinterpreting float32 bits as float64). Always use `mx::array(value, mx::float64)` for double-precision scalars. This caused `tensor_create_scalar` to produce zero-valued tensors.
+
+### Metal float32 transcendentals
+
+MLX's Metal GPU computes `exp`, `sigmoid`, `tanh`, etc. in float32 even when the input array is float64. Expect ~1e-6 precision for these ops, not 1e-10. Test tolerances for transcendental functions should be 1e-5 or wider on MLX.
+
+### Non-contiguous views and `data<T>()`
+
+`mx::transpose` and similar ops return views with swapped strides. The raw `data<double>()` pointer still points to the original contiguous memory layout. Index arithmetic like `data[row * cols + col]` produces wrong results on transposed views. Use `mx::flatten` to force a contiguous copy first, or use MLX's indexing API.
+
+### Lazy eval use-after-free in `tape_reset`
+
+`tape_reset()` must call `mx::eval()` on ALL tensors before deleting any non-persistent ones. MLX array operations are lazy — `mx::add(a, b)` captures references to `a` and `b`, not copies. If `a` is deleted by `tape_reset` while a surviving tensor's lazy graph still references `a->data`, the next `mx::eval` hits a dangling pointer. The fix: batch-eval all tensor data and grads before the delete loop.
+
 ### NTM convergence comparison
 
 MLX NTM converges to ~91% short / 87% full bit accuracy at epoch 15K. Tape backend converges to 100% / 98% at epoch 16K. The gap comes from the decomposed vs fused backward accumulating small numerical differences across ~50 primitive ops per timestep. MLX uses array-wide operations where a single imprecise element affects the whole gradient tensor, while tape processes elements independently.

@@ -11,7 +11,6 @@
 
 | Item | Difficulty | Notes |
 |------|-----------|-------|
-| MLX C test remaining failures | S | 3 precision FAILs (exp/sigmoid tolerance ~1e-6 vs 1e-10), layer norm backward returns zero gradients (pre-existing backward bug for OP_LAYER_NORM_2D), `tensor_bmm` not implemented (STUB abort at T9). T1–T8 pass. Could widen tolerances or add MLX-specific tolerance |
 | Batch dimension support for attention | M | `tensor_bmm` exists for projections. Remaining: batch the per-sequence attention block (Q@K^T, softmax, attn@V) with block-diagonal masking. Would eliminate the last per-sequence loop (~576 FFI calls/epoch). Impact limited by Chez runtime overhead — see `docs/design-decisions.md` performance analysis |
 | Convolutional layers | L | Conv1D/Conv2D with autograd. Natural next layer type for image tasks |
 | Regularisation/normalisation layers | M | Dropout, batch norm. Layer norm done. Required for deeper models |
@@ -42,7 +41,7 @@ Architecture & infrastructure:
 - Unified training runner (`Train.idr`: `runTraining`, `TrainConfig`, `EarlyStopConfig`)
 - Declarative arg parsing (`ArgSpec` + `parseArgs`)
 - Uniform example output formatting (banners, progress, timing, RESULT lines)
-- Unified test infrastructure: `make test-all` runs Idris unit tests + C backend tests on all available backends + specialized C tests (safetensors, NTM grad, NTM timestep) + integration tests (`test-examples` validates RESULT lines) + PyTorch reference tests. Backend detection via cached dylibs. Consolidated `test_backend.c` (was split across `test_backend.c` and `test_backend_tape.c`)
+- Unified test infrastructure: `make test-all` runs Idris unit tests + C backend tests on all available backends + specialized C tests (safetensors, NTM grad, NTM timestep) + integration tests (`test-examples` validates RESULT lines) + PyTorch reference tests. Backend detection via cached dylibs. Consolidated `test_backend.c` — all tests pass on all 3 backends
 - PyTorch reference benchmarks (`pytorch/` directory)
 
 Layers & models:

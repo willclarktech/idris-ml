@@ -276,6 +276,15 @@ See [`docs/gotchas.md`](docs/gotchas.md) for detailed explanations of each entry
 - **Native optimizer**: preferred for training — `nativeRmsprop`/`nativeSgd`/`nativeAdamGlobalClip`. Single `optimizer.step()` updates all params
 - **Stale Variable.value**: after native optimizer step, cached `value` fields are stale. Use `emap refreshValue` before `toDoubleNetwork`
 
+### MLX backend
+
+- **`mx::transpose` requires explicit axes**: `mx::transpose(x)` reverses ALL axes (not just last two). Use `mx::transpose(x, {1, 0})` for 2D transpose, `mx::transpose(x, {0, 2, 1})` for batched 3D
+- **`mx::array(double)` defaults to float32**: Use `mx::array(value, mx::float64)` for double-precision scalars. Without the explicit dtype, `item<double>()` returns 0.0
+- **Metal float32 transcendentals**: `mx::exp`, `mx::sigmoid`, etc. compute on GPU in float32 even with float64 inputs. Expect ~1e-6 precision, not 1e-10
+- **Lazy eval use-after-free**: `tape_reset` must `mx::eval` ALL tensors before deleting intermediates — surviving tensors' lazy graphs may reference deleted arrays
+- **Non-contiguous views**: `mx::transpose` returns a view with swapped strides. `data<double>()` pointer arithmetic assumes contiguous layout — use `mx::flatten` first or MLX indexing
+- **`tensor_free` must check `all_tensors` membership**: after `tape_reset` deletes a tensor, a subsequent `tensor_free` on the same pointer is a double-free. Skip if not in `all_tensors`
+
 ### NTM-specific
 
 - **Dimension calculations**: `ReadParamWidth m = m + ShiftKernelSize + 3`, `WriteParamWidth m = ReadParamWidth m + m`. LSTM input: `m + inputSize`, output FC input: `h + m`
