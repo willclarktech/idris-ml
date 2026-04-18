@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import platform
 import shutil
+import termios
+import time
 from pathlib import Path
 
 import pexpect
@@ -56,8 +58,13 @@ class Idris2REPL:
             timeout=self.timeout,
             encoding="utf-8",
             echo=False,
+            dimensions=(24, 10000),  # wide terminal to prevent line wrapping
         )
         self.child.expect(self.PROMPT_RE, timeout=self.timeout)
+        # Disable canonical mode to remove PTY line-length limit (1024 bytes on macOS).
+        attrs = termios.tcgetattr(self.child.child_fd)
+        attrs[3] &= ~termios.ICANON
+        termios.tcsetattr(self.child.child_fd, termios.TCSANOW, attrs)
 
     def send(self, cmd: str, timeout: int | None = None) -> str:
         """Send a command and return the output (text between send and next prompt)."""

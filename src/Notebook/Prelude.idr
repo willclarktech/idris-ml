@@ -44,3 +44,53 @@ import public Tensor
 import public Train
 import public Util
 import public Variable
+
+----------------------------------------------------------------------
+-- Notebook convenience functions
+----------------------------------------------------------------------
+
+||| Convert a Vector of Doubles to a persistent 1D C tensor.
+||| Persistent tensors survive tape resets across training epochs.
+export
+vectorToTensor : {n : Nat} -> Vector n Double -> AnyPtr
+vectorToTensor {n} (VTensor elems) =
+  let nI = cast {to=Int} n
+      buf = packBuf (prim__allocDoubles nI) 0 elems
+  in prim__createState1d nI buf
+  where
+    packBuf : AnyPtr -> Int -> Vect k (Scalar Double) -> AnyPtr
+    packBuf buf _ [] = buf
+    packBuf buf off (STensor v :: rest) = packBuf (prim__setDouble buf off v) (off + 1) rest
+
+||| Convert a DataPoint with Doubles to a TensorDataPoint for C-level training.
+export
+toTDP : {i, o : Nat} -> DataPoint i o Double -> TensorDataPoint i o
+toTDP dp = MkTensorDataPoint (vectorToTensor (x dp)) (vectorToTensor (y dp))
+
+||| Tensor-level cross-entropy loss: -mean(target * logSoftmax(pred)).
+||| Works for any number of output classes.
+export
+crossEntropyTensor : LossFnTensor
+crossEntropyTensor predT targetT =
+  let logP = prim__logSoftmax predT 0
+      product = prim__mul logP targetT
+      loss = prim__neg (prim__mean product)
+      val = prim__item loss
+  in Var loss Nothing val
+
+||| Tensor-level binary cross-entropy with logits (numerically stable).
+||| Formula: mean(max(x,0) - x*y + log(1+exp(-|x|)))
+export
+bceTensor : LossFnTensor
+bceTensor predT targetT =
+  let relu_x = prim__clampMin predT 0.0
+      xy = prim__mul predT targetT
+      abs_x = prim__abs predT
+      neg_abs_x = prim__neg abs_x
+      exp_neg = prim__exp neg_abs_x
+      one_plus_exp = tensorAdd exp_neg (prim__createScalar 1.0 0)
+      log_term = prim__log one_plus_exp
+      loss = tensorAdd (prim__sub relu_x xy) log_term
+      result = prim__mean loss
+      val = prim__item result
+  in Var result Nothing val
