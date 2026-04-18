@@ -84,3 +84,25 @@ Six clamping points prevent forward-pass explosion (previously NaN at seqLen >= 
 6. Weight projection in syncBuffers (clamp to [1e-8, inf) + renormalize)
 
 Additional correctness fix: output FC uses current timestep's read outputs (was using previous timestep's).
+
+## R=4 Multi-Head Testing
+
+The DNC layer is parameterized at type level with `r : Nat`. R=4 matches the Graves et al. 2016 paper. All type-level dimensions stay under the ~1000 Peano Nat threshold (max dim = 180 for output FC input = h + r*m = 100 + 4*20).
+
+### PyTorch Reference R=4
+
+| Task | Epochs | Short/K=2 | Full/K=4/K=6 | ms/epoch |
+|------|--------|-----------|--------------|----------|
+| Copy | 3,000 | 99.2% | 92.1% | 580 |
+| Recall | 500 | 69% K=2 | 59% K=4, 56% K=6 | 796 |
+
+Copy converges to near-100% by 3K epochs. Recall at 500 epochs is still early (R=1 needed 5K+ epochs for breakthrough).
+
+### Idris R=4
+
+| Task | Epochs | Backend | Result | ms/epoch |
+|------|--------|---------|--------|----------|
+| Copy | 100 | tape | 54% short | 1100 |
+| Recall | 100 | tape | 56% K=2 | 4360 |
+
+Both compile and run with no NaN. Recall is slower per-epoch (4.4s vs 1.1s) due to 4 read heads each doing O(n^2) link matrix operations. R=4 is a compile-time constant change (`R = 4` in example files), requiring no layer code modifications.

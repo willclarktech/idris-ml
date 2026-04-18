@@ -5,7 +5,6 @@
 | Item | Difficulty | Notes |
 |------|-----------|-------|
 | CUDA support | M–L | Torch backend should work via `tensor_to_device("cuda")` — untested. Test script ready: `scripts/test_cuda_colab.sh`. See `docs/cuda-testing.md` |
-| DNC R=4 multi-head | S–M | R=1 converges on all tasks. R=4 matches the paper but needs longer training. Type-level `r : Nat` already parameterized |
 
 ## Low Priority
 
@@ -43,7 +42,7 @@ Architecture & infrastructure:
 - PyTorch reference benchmarks (`pytorch/` directory)
 
 Layers & models:
-- Linear, RNN, LSTM, NTM (copy + associative recall), DNC (copy + associative recall). DNC convergence validated: PyTorch ref 100% on both tasks (copy 2.9K epochs, recall 7.6K epochs), Idris 77% short at 2K epochs with batch=1 (tracks PyTorch trajectory). See `docs/dnc-convergence-results.md`
+- Linear, RNN, LSTM, NTM (copy + associative recall), DNC (copy + associative recall). DNC convergence validated on R=1 and R=4: PyTorch ref 100% on both tasks, Idris tracks PyTorch trajectory. R=4 multi-head verified (compile + run, no code changes needed). See `docs/dnc-convergence-results.md`
 - Multi-head Transformer (Pre-LN, embedding lookup, sinusoidal PE, layer norm, per-head weights with sum-not-concat). Input: token indices `[seqLen]`, output: logits `[seqLen * vocabSize]`
 - REINFORCE on CartPole (`Example/Reinforce.idr`): pure Idris CartPole environment (Gymnasium-compatible physics), REINFORCE with mean-return baseline, `categoricalSample` in Sampler.idr, tensor-level `applyVarTensor` for tanh/sigmoid activations. Converges to 200.0 greedy eval on all 3 backends. PyTorch reference in `pytorch/torch_ref/models/reinforce.py`
 - MNIST CNN (`Example/Mnist.idr`): LeNet-style Conv2D(1->16,k=5) -> ReLU -> MaxPool(2) -> Conv2D(16->32,k=5) -> ReLU -> MaxPool(2) -> Linear(512->10). Type-safe spatial dimension chain via `ConvOutDim`/`PoolOutDim` type-level functions. First example with external data (MNIST .idx files). Conv2D + MaxPool2D ops on all 3 backends. ReLU tensor-level activation. PyTorch reference in `pytorch/torch_ref/models/mnist_cnn.py`
