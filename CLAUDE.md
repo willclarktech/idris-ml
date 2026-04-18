@@ -40,8 +40,8 @@ make test-ntm-timestep   # NTM full timestep integration
 make test-examples       # All examples on all backends, validates RESULT lines
 
 # Benchmarks
-make bench           # Idris benchmark (Supervised + RNN + NTM)
-make bench-compare   # Side-by-side Idris vs PyTorch
+make example-bench           # Idris benchmark (Supervised + RNN + NTM)
+make bench-compare           # Side-by-side Idris vs PyTorch
 
 # PyTorch reference (requires uv)
 make ref-setup       # One-time: install Python deps
@@ -229,7 +229,7 @@ Commit at each step. PyTorch is the correctness oracle.
 
 ### Performance optimization
 
-- **Profile first**: `make profile` — per-epoch timing
+- **Profile first**: `make example-profile` — per-epoch timing
 - **Benchmark**: `make bench-compare` — always compare at same batch size (current: 16)
 - **Sweep**: `bash scripts/sweep.sh` — systematic grid search, never manually loop
 - **Convergence**: `make ref-convergence-copy` vs `./build/exec/ntm-copy` at matched settings

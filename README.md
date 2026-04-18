@@ -54,12 +54,13 @@ You get dynamic graph ergonomics (standard `if`/`for`/`while`, normal debugging,
 
 | Example | Description | Command |
 |---------|-------------|---------|
-| Supervised | 3-class classification with softmax | `make supervised` |
-| RNN | Sequence prediction (repeating pattern) | `make rnn` |
-| LSTM | Same task, LSTM controller | `make lstm` |
-| NTM Copy | Neural Turing Machine binary vector copy | `make ntm-copy` |
-| NTM Recall | NTM associative recall (content-based memory) | `make ntm-associative-recall` |
-| Transformer | Autoregressive next-token prediction (causal self-attention) | `make transformer` |
+| Supervised | 3-class classification with softmax | `make example-supervised` |
+| RNN | Sequence prediction (repeating pattern) | `make example-rnn` |
+| LSTM | Same task, LSTM controller | `make example-lstm` |
+| NTM Copy | Neural Turing Machine binary vector copy | `make example-ntm-copy` |
+| NTM Recall | NTM associative recall (content-based memory) | `make example-ntm-associative-recall` |
+| Transformer | Autoregressive next-token prediction (causal self-attention) | `make example-transformer` |
+| REINFORCE | Policy gradient on CartPole (pure Idris env) | `make example-reinforce` |
 
 All examples accept `--epochs`, `--lr`, `--seed` and task-specific flags.
 
@@ -69,8 +70,8 @@ Requires [Idris 2](https://github.com/idris-lang/Idris2) (0.8.0+) and a C compil
 
 ```bash
 make backend       # build the C tape backend (no external dependencies)
-make supervised    # run an example
-make ntm-copy      # train NTM on binary copy task
+make example-supervised    # run an example
+make example-ntm-copy      # train NTM on binary copy task
 make test          # run test suite
 ```
 

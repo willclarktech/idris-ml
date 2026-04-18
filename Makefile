@@ -131,57 +131,57 @@ test: check
 	./build/exec/test
 
 # Build and run examples
-supervised: backend
+example-supervised: backend
 	idris2 --source-dir src -p contrib -o supervised src/Example/Supervised.idr
 	cp $(LIB) build/exec/supervised_app/
 	./build/exec/supervised
 
-rnn: backend
+example-rnn: backend
 	idris2 --source-dir src -p contrib -o rnn src/Example/Rnn.idr
 	cp $(LIB) build/exec/rnn_app/
 	./build/exec/rnn
 
-lstm: backend
+example-lstm: backend
 	idris2 --source-dir src -p contrib -o lstm src/Example/Lstm.idr
 	cp $(LIB) build/exec/lstm_app/
 	./build/exec/lstm
 
-ntm-copy: backend
+example-ntm-copy: backend
 	idris2 --source-dir src -p contrib -o ntm-copy src/Example/NtmCopy.idr
 	cp $(LIB) build/exec/ntm-copy_app/
 	./build/exec/ntm-copy
 
-ntm-associative-recall: backend
+example-ntm-associative-recall: backend
 	idris2 --source-dir src -p contrib -o ntm-associative-recall src/Example/NtmAssociativeRecall.idr
 	cp $(LIB) build/exec/ntm-associative-recall_app/
 	./build/exec/ntm-associative-recall
 
-transformer: backend
+example-transformer: backend
 	idris2 --source-dir src -p contrib -o transformer src/Example/Transformer.idr
 	cp $(LIB) build/exec/transformer_app/
 	./build/exec/transformer
 
-reinforce: backend
+example-reinforce: backend
 	idris2 --source-dir src -p contrib -o reinforce src/Example/Reinforce.idr
 	cp $(LIB) build/exec/reinforce_app/
 	./build/exec/reinforce $(REINFORCE_ARGS)
 
-transfer: backend
+example-transfer: backend
 	idris2 --source-dir src -p contrib -o transfer src/Example/Transfer.idr
 	cp $(LIB) build/exec/transfer_app/
 	./build/exec/transfer $(TRANSFER_ARGS)
 
-transfer-demo:
+example-transfer-demo:
 	@echo "=== Phase 1: Train on tape ==="
-	$(MAKE) BACKEND=tape transfer TRANSFER_ARGS="--mode train --epochs 500 --save /tmp/transfer.safetensors"
+	$(MAKE) BACKEND=tape example-transfer TRANSFER_ARGS="--mode train --epochs 500 --save /tmp/transfer.safetensors"
 	@echo ""
 	@echo "=== Phase 2: Continue on mlx ==="
-	$(MAKE) BACKEND=mlx transfer TRANSFER_ARGS="--mode continue --load /tmp/transfer.safetensors --epochs 500 --save /tmp/transfer2.safetensors"
+	$(MAKE) BACKEND=mlx example-transfer TRANSFER_ARGS="--mode continue --load /tmp/transfer.safetensors --epochs 500 --save /tmp/transfer2.safetensors"
 	@echo ""
 	@echo "=== Phase 3: Infer on torch ==="
-	$(MAKE) BACKEND=torch transfer TRANSFER_ARGS="--mode infer --load /tmp/transfer2.safetensors"
+	$(MAKE) BACKEND=torch example-transfer TRANSFER_ARGS="--mode infer --load /tmp/transfer2.safetensors"
 
-bench: backend
+example-bench: backend
 	idris2 --source-dir src -p contrib -o bench src/Example/Bench.idr
 	cp $(LIB) build/exec/bench_app/
 	./build/exec/bench
@@ -189,7 +189,7 @@ bench: backend
 $(BUILD):
 	mkdir -p $(BUILD)
 
-profile: backend
+example-profile: backend
 	idris2 --source-dir src -p contrib -o profile src/Example/Profile.idr
 	cp $(LIB) build/exec/profile_app/
 	./build/exec/profile
@@ -207,9 +207,7 @@ ref-setup:
 bench-py:
 	cd pytorch && uv run python -m torch_ref.benchmark $(BENCH)
 
-bench-compare: backend
-	idris2 --source-dir src -p contrib -o bench src/Example/Bench.idr
-	cp $(LIB) build/exec/bench_app/
+bench-compare: example-bench
 	cd pytorch && uv run python -m torch_ref.compare
 
 ref-supervised:
@@ -252,7 +250,7 @@ clean:
 	rm -f $(BUILD)/libidrisml*.dylib $(BUILD)/test_backend $(BUILD)/test_safetensors \
 	      $(BUILD)/test_ntm_grad $(BUILD)/test_ntm_timestep
 
-EXAMPLES := supervised rnn lstm transformer ntm-copy ntm-associative-recall reinforce
+EXAMPLES := example-supervised example-rnn example-lstm example-transformer example-ntm-copy example-ntm-associative-recall example-reinforce
 BACKENDS := tape mlx torch
 
 # Run all examples on all available backends, validate RESULT lines.
@@ -264,7 +262,7 @@ test-examples:
 		for e in $(EXAMPLES); do \
 			echo "--- $$e [$$b] ---"; \
 			extra_args=""; \
-			if [ "$$e" = "reinforce" ]; then extra_args="REINFORCE_ARGS=--epochs 200"; fi; \
+			if [ "$$e" = "example-reinforce" ]; then extra_args="REINFORCE_ARGS=--epochs 200"; fi; \
 			output=$$($(MAKE) --no-print-directory BACKEND=$$b $$e $$extra_args 2>&1) || { echo "FAIL: $$e [$$b] crashed"; fail=1; continue; }; \
 			result_line=$$(echo "$$output" | grep '^RESULT'); \
 			if [ -z "$$result_line" ]; then \
@@ -311,8 +309,10 @@ test-all:
 
 .PHONY: all-backends test test-all test-backend test-backend-tape test-backend-mlx \
         test-backend-torch test-safetensors test-ntm-grad test-ntm-timestep \
-        test-examples check supervised rnn lstm ntm-copy ntm-associative-recall \
-        reinforce transformer transfer transfer-demo bench profile sweep sweep-quick clean \
+        test-examples check example-supervised example-rnn example-lstm \
+        example-ntm-copy example-ntm-associative-recall example-reinforce \
+        example-transformer example-transfer example-transfer-demo \
+        example-bench example-profile sweep sweep-quick clean \
         backend print-torch ref-setup ref-supervised ref-rnn ref-lstm ref-ntm-copy \
         ref-ntm-recall ref-transformer bench-py bench-compare ref-test ref-lint \
         ref-typecheck ref-convergence ref-convergence-copy ref-convergence-recall
