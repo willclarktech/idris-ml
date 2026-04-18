@@ -72,14 +72,18 @@ bash scripts/sweep.sh --task copy --parallel 4 --quick  # 2000 epochs for screen
 9. **Endofunctor** - `emap : (ty -> ty) -> e ty -> e ty` for type-preserving maps
 10. **Layer** - Re-export hub for the interface-based layer system:
     - **Layer.Core** - `LayerLike` interface, `AnyLayer` existential, `Network` type, network-level ops
-    - **Layer.Linear**, **Layer.Rnn**, **Layer.Lstm**, **Layer.Activation**, **Layer.Normalization** - per-layer `LayerLike` instances
+    - **Layer.Linear**, **Layer.Rnn**, **Layer.Lstm**, **Layer.Gru**, **Layer.Activation**, **Layer.Normalization** - per-layer `LayerLike` instances
     - **Layer.LayerNorm** - `LayerNormState` with learnable gamma/beta (used as sub-component)
-    - **Layer.Conv** - `Conv2DState` and `MaxPool2DState` with type-level dimension functions (`ConvOutDim`, `PoolOutDim`)
+    - **Layer.BatchNorm** - `BatchNormState` with running mean/var, training/eval mode. Per-channel normalization (instance norm when batch=1)
+    - **Layer.Conv** - `Conv1DState`, `Conv2DState`, `MaxPool1DState`, `MaxPool2DState`, `AvgPool1DState`, `AvgPool2DState` with type-level `ConvOutDim`/`PoolOutDim`
+    - **Layer.Dropout** - `DropoutState` with inverted dropout, training/eval toggle via `setTraining`
+    - **Layer.Embedding** - `EmbeddingState` for token index lookup (gather forward, scatter_add backward)
+    - **Layer.Residual** - `ResidualState` wrapping `AnyLayer n n ty`. Forward: `add(input, inner(input))`
     - **Layer.Ntm** - `NtmState` + NTM head ops (imports Lstm and Linear for sub-layers)
     - **Layer.Transformer** - `TransformerState` with multi-head attention, layer norm, learned embeddings, sinusoidal PE
-11. **Optimizer** - SGD, Adam, RMSprop (Idris-side), plus `NativeOptimizer` (C-side, all backends)
-12. **Schedule** - Learning rate schedules: `constant`, `cosineAnnealing`, `oneCycle`
-13. **Backprop** - Epoch functions: `epochNative`, `epochRecurrentNative`, `epochTwoPhaseBceNative`
+11. **Optimizer** - SGD, Adam, AdamW, RMSprop (Idris-side), plus `NativeOptimizer` (C-side, all backends). AdamW has decoupled weight decay
+12. **Schedule** - Learning rate schedules: `constant`, `cosineAnnealing`, `oneCycle`, `withWarmup`, `cosineWithWarmup`
+13. **Backprop** - Epoch functions: `epochNative`, `epochRecurrentNative`, `epochTwoPhaseBceNative`, `epochNativeTensorPreAccum` (gradient accumulation)
 14. **Train** - Unified training runner: `runTraining`, `TrainConfig`, `EarlyStopConfig`, `ArgSpec`/`parseArgs`, `formatResult`
 15. **Curriculum** - Multi-stage curriculum training: `Stage` record, `runCurriculum`
 16. **Debug** - Forward-pass diagnostics: `debugForward`, `debugForwardRecurrent`, `toDoubleNetwork`
@@ -161,7 +165,8 @@ cfg = parseArgs defaultConfig specs (drop 1 args)
 | Mode | Epoch function | Data type | Use case |
 |------|---------------|-----------|----------|
 | Supervised | `epochNative` | `DataPoint i o ty` | Feedforward nets |
-| Recurrent | `epochRecurrentNative` | `RecurrentDataPoint i o ty` | RNN/LSTM sequences |
+| Supervised (accum) | `epochNativeTensorPreAccum` | `Vect n (TensorDataPoint i o)` | Gradient accumulation (larger effective batch) |
+| Recurrent | `epochRecurrentNative` | `RecurrentDataPoint i o ty` | RNN/LSTM/GRU sequences |
 | TwoPhase | `epochTwoPhaseBceNative` | `TwoPhaseDataPoint i o ty` | NTM copy/recall |
 | RL (REINFORCE) | `epochRL` (custom) | `List (List Double)` (random pool) | Policy gradient |
 
