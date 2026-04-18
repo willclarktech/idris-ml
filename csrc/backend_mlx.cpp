@@ -496,25 +496,14 @@ TensorPair* tensor_ntm_read_head(TensorHandle hmemory, TensorHandle hprev_weight
     TensorHandle focused = tensor_div(powered, power_sum_eps);
 
     // 5. Read from memory: focused @ memory → [m]
-    // focused is [n], memory is [n, m]
-    // read_out[j] = sum_i(focused[i] * memory[i,j])
-    // This is: reshape focused to [1, n], matmul [1,n] × [n,m] → [1, m], squeeze
-    auto f = (Tensor*)focused;
-    auto m = (Tensor*)hmemory;
-    int n_slots = (int)m->data.shape(0);
-    int m_width = (int)m->data.shape(1);
-    auto f_row = mx::reshape(f->data, {1, n_slots});
-    auto read_2d = mx::matmul(f_row, m->data);  // [1, m]
-    auto read_out = mx::reshape(read_2d, {m_width}); // [m]
-    bool rg = f->requires_grad || m->requires_grad;
-    auto read_tensor = new Tensor(read_out, rg);
-    // Record MM for backward
-    auto f_reshaped = new Tensor(f_row, f->requires_grad);
-    if (rg) tape_append(OP_MM, read_tensor, f_reshaped, (Tensor*)hmemory, 0);
+    // Use tensor_mv for proper backward handling (MV handles 1D vectors correctly)
+    // focused is [n], memory^T is [m, n], so mv(memory^T, focused) → [m]
+    TensorHandle memT_transposed = tensor_transpose_2d(hmemory);
+    TensorHandle read_result = tensor_mv(memT_transposed, focused);
 
     auto pair = (TensorPair*)malloc(sizeof(TensorPair));
     pair->first = focused;
-    pair->second = (TensorHandle)read_tensor;
+    pair->second = read_result;
     return pair;
 }
 
