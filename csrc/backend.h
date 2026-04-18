@@ -93,10 +93,13 @@ TensorHandle tensor_dropout(TensorHandle input, double p, int training, unsigned
 
 /* ---------- Convolution & Pooling ---------- */
 
-/* Conv1D: input [inC, L], kernel [outC, inC, kL], bias [outC] or NULL.
+/* Conv1D: input [inC, L], kernel [outC, inC/groups, kL], bias [outC] or NULL.
    Returns [outC, oL] where oL = (L + 2*pad - kL) / stride + 1. */
 TensorHandle tensor_conv1d(TensorHandle input, TensorHandle kernel,
                            TensorHandle bias, int pad, int stride);
+/* Grouped Conv1D: same as conv1d but with groups parameter. */
+TensorHandle tensor_conv1d_grouped(TensorHandle input, TensorHandle kernel,
+                                   TensorHandle bias, int pad, int stride, int groups);
 
 /* MaxPool1D: input [C, L]. Returns [C, oL] where oL = (L - kL) / stride + 1. */
 TensorHandle tensor_max_pool1d(TensorHandle input, int kL, int stride);
@@ -109,6 +112,11 @@ TensorHandle tensor_create_param_3d(int d0, int d1, int d2, double* data);
 TensorHandle tensor_conv2d(TensorHandle input, TensorHandle kernel,
                            TensorHandle bias, int padH, int padW,
                            int strideH, int strideW);
+/* Grouped Conv2D: same as conv2d but with groups parameter.
+   kernel shape: [outC, inC/groups, kH, kW]. groups=inC for depthwise. */
+TensorHandle tensor_conv2d_grouped(TensorHandle input, TensorHandle kernel,
+                                   TensorHandle bias, int padH, int padW,
+                                   int strideH, int strideW, int groups);
 
 /* AvgPool1D: input [C, L]. Returns [C, oL] where oL = (L - kL) / stride + 1. */
 TensorHandle tensor_avg_pool1d(TensorHandle input, int kL, int stride);

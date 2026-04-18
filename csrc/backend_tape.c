@@ -1565,6 +1565,94 @@ TensorHandle tensor_create_param_3d(int d0, int d1, int d2, double* data) {
 }
 
 /* ================================================================
+   Grouped Convolution: splits channels into groups, applies separate convs.
+   For tape backend, we just call the ungrouped conv per-group.
+   ================================================================ */
+
+TensorHandle tensor_conv1d_grouped(TensorHandle hinput, TensorHandle hkernel,
+                                   TensorHandle hbias, int pad, int stride, int groups) {
+    if (groups == 1) return tensor_conv1d(hinput, hkernel, hbias, pad, stride);
+    /* Decompose into per-group conv1d and concatenate */
+    Tensor* input = (Tensor*)hinput;
+    Tensor* kernel = (Tensor*)hkernel;
+    Tensor* bias = (Tensor*)hbias;
+    int inC = input->shape[0], L = input->shape[1];
+    int outC = kernel->shape[0];
+    int inC_g = inC / groups;
+    int outC_g = outC / groups;
+    int kL = kernel->shape[2];
+    int oL = (L + 2*pad - kL) / stride + 1;
+    int total = outC * oL;
+    double* out = calloc(total, sizeof(double));
+    for (int g = 0; g < groups; g++) {
+        for (int oc = 0; oc < outC_g; oc++) {
+            int abs_oc = g * outC_g + oc;
+            for (int ol = 0; ol < oL; ol++) {
+                double val = bias ? bias->data[abs_oc] : 0.0;
+                for (int ic = 0; ic < inC_g; ic++) {
+                    int abs_ic = g * inC_g + ic;
+                    for (int kl = 0; kl < kL; kl++) {
+                        int il = ol * stride - pad + kl;
+                        if (il >= 0 && il < L)
+                            val += input->data[abs_ic*L + il] * kernel->data[abs_oc*inC_g*kL + ic*kL + kl];
+                    }
+                }
+                out[abs_oc*oL + ol] = val;
+            }
+        }
+    }
+    int out_shape[] = {outC, oL};
+    Tensor* r = make_tensor(out, out_shape, 2, input->requires_grad || kernel->requires_grad);
+    free(out);
+    /* No separate backward for grouped — reuse OP_CONV1D with groups=1 per group.
+       For simplicity, grouped conv on tape backend doesn't support backward yet.
+       Torch and MLX backends use native grouped conv with full autograd. */
+    return r;
+}
+
+TensorHandle tensor_conv2d_grouped(TensorHandle hinput, TensorHandle hkernel,
+                                   TensorHandle hbias, int padH, int padW,
+                                   int strideH, int strideW, int groups) {
+    if (groups == 1) return tensor_conv2d(hinput, hkernel, hbias, padH, padW, strideH, strideW);
+    Tensor* input = (Tensor*)hinput;
+    Tensor* kernel = (Tensor*)hkernel;
+    Tensor* bias = (Tensor*)hbias;
+    int inC = input->shape[0], H = input->shape[1], W = input->shape[2];
+    int outC = kernel->shape[0];
+    int inC_g = inC / groups;
+    int outC_g = outC / groups;
+    int kH = kernel->shape[2], kW = kernel->shape[3];
+    int oH = (H + 2*padH - kH) / strideH + 1;
+    int oW = (W + 2*padW - kW) / strideW + 1;
+    double* out = calloc(outC * oH * oW, sizeof(double));
+    for (int g = 0; g < groups; g++) {
+        for (int oc = 0; oc < outC_g; oc++) {
+            int abs_oc = g * outC_g + oc;
+            for (int oh = 0; oh < oH; oh++)
+                for (int ow = 0; ow < oW; ow++) {
+                    double val = bias ? bias->data[abs_oc] : 0.0;
+                    for (int ic = 0; ic < inC_g; ic++) {
+                        int abs_ic = g * inC_g + ic;
+                        for (int kh = 0; kh < kH; kh++)
+                            for (int kw = 0; kw < kW; kw++) {
+                                int ih = oh*strideH - padH + kh;
+                                int iw = ow*strideW - padW + kw;
+                                if (ih >= 0 && ih < H && iw >= 0 && iw < W)
+                                    val += input->data[abs_ic*H*W + ih*W + iw]
+                                         * kernel->data[abs_oc*inC_g*kH*kW + ic*kH*kW + kh*kW + kw];
+                            }
+                    }
+                    out[abs_oc*oH*oW + oh*oW + ow] = val;
+                }
+        }
+    }
+    int out_shape[] = {outC, oH, oW};
+    Tensor* r = make_tensor(out, out_shape, 3, input->requires_grad || kernel->requires_grad);
+    free(out);
+    return r;
+}
+
+/* ================================================================
    Conv2D: input [inC, H, W], kernel [outC, inC, kH, kW], bias [outC] or NULL
    Output: [outC, oH, oW]
    ================================================================ */
