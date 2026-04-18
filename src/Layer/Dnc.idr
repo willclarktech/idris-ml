@@ -83,6 +83,24 @@ concatReads {r = S k} {m} ((VTensor v) :: rest) =
 
 
 ----------------------------------------------------------------------
+-- Addressing Weight Projection
+----------------------------------------------------------------------
+
+||| Project addressing weights onto the probability simplex after
+||| gradient updates. Clamps to [epsilon, inf) and renormalizes.
+projectWeights : {n : Nat} -> Vector n Variable -> Vector n Variable
+projectWeights (VTensor vs) =
+  let clamp : Tensor [] Variable -> Tensor [] Variable
+      clamp (STensor v) = STensor ({ value $= max 0.00000001 } v)
+      clamped = map clamp vs
+      s : Double
+      s = foldl (\acc, (STensor v) => acc + v.value) 0.0 clamped
+      normalize : Tensor [] Variable -> Tensor [] Variable
+      normalize (STensor v) = STensor ({ value $= (/ s) } v)
+  in VTensor (map normalize clamped)
+
+
+----------------------------------------------------------------------
 -- DNC-specific Variable Operations
 ----------------------------------------------------------------------
 
@@ -99,7 +117,12 @@ dncUsageUpdate {r} {n} prevUsage prevWriteW freeGates prevReadWs =
       -- retention = prod_j(1 - f_j * w^r_j)
       ones = the (Vector n Variable) (map (\_ => fromDouble 1.0) prevUsage)
       retention = computeRetention ones freeGates prevReadWs ones
-  in writeUsage * retention
+      -- Clamp retention to [1e-10, inf) to prevent usage zeroing
+      VTensor retElems = retention
+      retT = vecStackTensor retElems
+      retClamped = prim__clampMin retT 1.0e-10
+      clampedRetention = VTensor $ tensorToScalars retClamped 0 n
+  in writeUsage * clampedRetention
   where
     computeRetention : Vector n Variable -> Vect k Variable -> Vect k (Vector n Variable) ->
                        Vector n Variable -> Vector n Variable
@@ -118,8 +141,9 @@ dncAllocate {n} (VTensor usageElems) =
       usageT = vecStackTensor usageElems
       -- Sort ascending
       indicesT = prim__argsort usageT 0 0
-      -- Gather sorted usage
-      sortedUsageT = prim__gather usageT indicesT nI
+      -- Gather sorted usage, clamp to [1e-6, inf) to prevent cumprod underflow
+      -- (1e-6 not 1e-10 because cumprod backward divides by these values)
+      sortedUsageT = prim__clampMin (prim__gather usageT indicesT nI) 1.0e-6
       -- Cumprod of sorted usage
       cumprodT = prim__cumprod sortedUsageT 0
       -- Shifted cumprod: [1, cp[0], cp[1], ..., cp[n-2]]
@@ -183,17 +207,19 @@ dncLinkUpdate {n} (VTensor linkRows) (VTensor wElems) precedenceVec =
       wjT = prim__unsqueeze wT 0  -- [1, n]
       pjT = prim__unsqueeze precT 0  -- [1, n]
       -- (1 - w_i - w_j) * L + w_i * p_j
+      -- Clamp decay to [0, inf) — prevents negative decay when w_i + w_j > 1
       ones = prim__createScalar 1.0 0
       decay = prim__sub (prim__sub ones wiT) wjT  -- [n, n]
-      newLinkT = prim__add (prim__mul decay linkT) (prim__mul wiT pjT)
-      -- Zero diagonal: multiply by (1 - I)
-      -- Build identity mask as tensor
+      decayClamped = prim__clampMin decay 0.0
+      newLinkT = prim__add (prim__mul decayClamped linkT) (prim__mul wiT pjT)
+      -- Zero diagonal and clamp entries non-negative
       diagMask = zeroDiag nI newLinkT
+      linkClamped = prim__clampMin diagMask 0.0
       -- Precedence update: p' = (1 - sum(w)) * p + w
       wSum = prim__sum wT
       oneMinusWSum = prim__sub (prim__createScalar 1.0 0) wSum
       newPrecT = prim__add (prim__mul oneMinusWSum precT) wT
-      newLink = VTensor $ buildMatrixRows diagMask 0 n n
+      newLink = VTensor $ buildMatrixRows linkClamped 0 n n
       newPrec = VTensor $ tensorToScalars newPrecT 0 n
   in (newLink, newPrec)
   where
@@ -242,7 +268,11 @@ dncReadWeight {n} (VTensor linkRows) (VTensor prevRwElems) contentW (VTensor [ST
       scaledContent = prim__mul pi1.tensorPtr cwT
       scaledForward = prim__mul pi2.tensorPtr forwardT
       result = prim__add (prim__add scaledBack scaledContent) scaledForward
-  in VTensor $ tensorToScalars result 0 n
+      -- Clamp and normalize read weights (mirrors NTM's focusVar pattern)
+      resultClamped = prim__clampMin result 1.0e-10
+      resultSum = prim__addScalar (prim__sum resultClamped) 1.0e-10
+      normalized = prim__div resultClamped resultSum
+  in VTensor $ tensorToScalars normalized 0 n
 
 
 ----------------------------------------------------------------------
@@ -319,7 +349,6 @@ export
         (_, readKeysFlat) = applyVar st.readKeysFc cell
         (_, readBetasRaw) = applyVar st.readBetasFc cell
         (_, readModesFlat) = applyVar st.readModesFc cell
-        (_, outputVec) = applyVar st.outputFc (hidden ++ allReads)
         -- 4. Activate params
         writeBeta = softplus (headScalar writeBetaRaw)
         eraseVec = map sigmoidVar eraseRaw
@@ -351,6 +380,9 @@ export
         readResults = computeReads 0 st.readWeights keysTensor betasTensor modesTensor newLink newMem
         newReadWs = map fst readResults
         newReadOuts = map snd readResults
+        -- 12. Output: use CURRENT read outputs (not previous timestep's)
+        allNewReads = concatReads {r} {m} newReadOuts
+        (_, outputVec) = applyVar st.outputFc (hidden ++ allNewReads)
     in (MkDnc updLstm st.writeKeyFc st.writeBetaFc st.eraseFc st.addFc
               st.freeGatesFc st.allocGateFc st.writeGateFc
               st.readKeysFc st.readBetasFc st.readModesFc st.outputFc
@@ -448,6 +480,30 @@ export
     ++ getParamIds eFc ++ getParamIds aFc ++ getParamIds fgFc
     ++ getParamIds agFc ++ getParamIds wgFc ++ getParamIds rkFc
     ++ getParamIds rbFc ++ getParamIds rmFc ++ getParamIds oFc
+
+  syncBuffers (MkDnc lstm wkFc wbFc eFc aFc fgFc agFc wgFc rkFc rbFc rmFc oFc
+               mem usage ww rws ros link prec _ _ _ _ _ _ _) =
+    MkDnc (syncBuffers lstm) (syncBuffers wkFc) (syncBuffers wbFc)
+           (syncBuffers eFc) (syncBuffers aFc) (syncBuffers fgFc)
+           (syncBuffers agFc) (syncBuffers wgFc) (syncBuffers rkFc)
+           (syncBuffers rbFc) (syncBuffers rmFc) (syncBuffers oFc)
+           mem usage (projectWeights ww)
+           (map projectWeights rws) ros
+           link prec
+           Nothing Nothing Nothing Nothing Nothing Nothing Nothing
+
+  applyDeltasAndSync deltas (MkDnc lstm wkFc wbFc eFc aFc fgFc agFc wgFc rkFc rbFc rmFc oFc
+                              mem usage ww rws ros link prec _ _ _ _ _ _ _) =
+    MkDnc (applyDeltasAndSync deltas lstm) (applyDeltasAndSync deltas wkFc)
+           (applyDeltasAndSync deltas wbFc) (applyDeltasAndSync deltas eFc)
+           (applyDeltasAndSync deltas aFc) (applyDeltasAndSync deltas fgFc)
+           (applyDeltasAndSync deltas agFc) (applyDeltasAndSync deltas wgFc)
+           (applyDeltasAndSync deltas rkFc) (applyDeltasAndSync deltas rbFc)
+           (applyDeltasAndSync deltas rmFc) (applyDeltasAndSync deltas oFc)
+           mem usage (projectWeights ww)
+           (map projectWeights rws) ros
+           link prec
+           Nothing Nothing Nothing Nothing Nothing Nothing Nothing
 
 
 ----------------------------------------------------------------------

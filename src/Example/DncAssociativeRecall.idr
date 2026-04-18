@@ -44,7 +44,7 @@ OutputW : Nat
 OutputW = W
 
 N : Nat
-N = 128
+N = 32  -- Reduced from 128 for faster link matrix ops (O(n^2))
 
 M : Nat
 M = 20
