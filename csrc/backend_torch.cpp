@@ -247,6 +247,14 @@ TensorHandle tensor_conv1d_circular(TensorHandle input, TensorHandle kernel) {
     return from_tensor(out.reshape({n}));
 }
 
+TensorHandle tensor_dropout(TensorHandle hinput, double p, int training, unsigned int seed) {
+    (void)seed;  /* torch uses its own RNG */
+    auto& inp = *to_tensor(hinput);
+    if (!training || p <= 0.0) return hinput;
+    auto out = torch::dropout(inp, p, /*train=*/true);
+    return from_tensor(out);
+}
+
 TensorHandle tensor_conv2d(TensorHandle hinput, TensorHandle hkernel,
                            TensorHandle hbias, int padH, int padW,
                            int strideH, int strideW) {

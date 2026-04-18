@@ -72,6 +72,13 @@ TensorHandle tensor_bce_with_logits(TensorHandle input, TensorHandle target);
 TensorHandle tensor_cross_entropy(TensorHandle input, TensorHandle target);
 TensorHandle tensor_mse_loss(TensorHandle input, TensorHandle target);
 
+/* ---------- Dropout ---------- */
+
+/* Inverted dropout: zero with probability p, scale survivors by 1/(1-p).
+   When training=0, returns input unchanged.
+   seed controls the random mask (deterministic per call). */
+TensorHandle tensor_dropout(TensorHandle input, double p, int training, unsigned int seed);
+
 /* ---------- Convolution & Pooling ---------- */
 
 /* Conv2D: input [inC, H, W], kernel [outC, inC, kH, kW], bias [outC] or NULL.

@@ -134,6 +134,11 @@ prim__cosineSimilarity : AnyPtr -> AnyPtr -> Int -> AnyPtr
 %foreign "C:tensor_conv1d_circular,libidrisml"
 prim__conv1dCircular : AnyPtr -> AnyPtr -> AnyPtr
 
+-- Dropout
+%foreign "C:tensor_dropout,libidrisml"
+export
+prim__dropout : AnyPtr -> Double -> Int -> Int -> AnyPtr
+
 -- Conv2D / MaxPool2D
 %foreign "C:tensor_conv2d,libidrisml"
 export

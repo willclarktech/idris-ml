@@ -169,6 +169,7 @@ enum {
     OP_BMM_3X3,       /* batched matmul: [B,m,n] x [B,n,k] -> [B,m,k] */
     OP_SOFTMAX_3D,    /* row-wise softmax on [B,m,n] along last dim */
     OP_TRANSPOSE_LAST2, /* [B,m,n] -> [B,n,m] */
+    OP_DROPOUT,       /* inverted dropout with stored mask */
     OP_CONV2D,        /* [inC,H,W] * [outC,inC,kH,kW] + [outC] -> [outC,oH,oW] */
     OP_MAX_POOL2D,    /* [C,H,W] -> [C,oH,oW] with max indices */
 };
@@ -235,6 +236,11 @@ typedef struct {
 } LayerNormMeta;
 
 typedef struct {
+    double* mask;   /* [numel] binary mask (0 or 1/(1-p)), heap-allocated */
+    int numel;
+} DropoutMeta;
+
+typedef struct {
     int inC, outC, H, W, kH, kW, padH, padW, strH, strW, oH, oW;
 } Conv2DMeta;
 
@@ -289,6 +295,12 @@ static void tape_reset(void) {
             free(meta->rstd);
             meta->x_hat = NULL;
             meta->rstd = NULL;
+        }
+        /* Free OP_DROPOUT mask */
+        if (tape[i].op == OP_DROPOUT && tape[i].op_meta) {
+            DropoutMeta* meta = (DropoutMeta*)tape[i].op_meta;
+            free(meta->mask);
+            meta->mask = NULL;
         }
         /* Free OP_MAX_POOL2D max indices */
         if (tape[i].op == OP_MAX_POOL2D && tape[i].op_meta) {
@@ -1122,6 +1134,55 @@ TensorHandle tensor_conv1d_circular(TensorHandle hinput, TensorHandle hkernel) {
     Tensor* r = make_tensor(out, shape, 1, input->requires_grad || kernel->requires_grad);
     free(out);
     if (r->requires_grad) tape_append(OP_CONV1D_CIRC, r, input, kernel, 0);
+    return r;
+}
+
+/* ================================================================
+   Dropout: inverted dropout with mask
+   ================================================================ */
+
+TensorHandle tensor_dropout(TensorHandle hinput, double p, int training, unsigned int seed) {
+    Tensor* input = (Tensor*)hinput;
+    int n = input->numel;
+
+    if (!training || p <= 0.0) return hinput;  /* eval mode or p=0: identity */
+
+    double scale = 1.0 / (1.0 - p);
+    double* out = arena_alloc(n * sizeof(double));
+    double* mask = malloc(n * sizeof(double));  /* heap: survives for backward */
+
+    for (int i = 0; i < n; i++) {
+        /* Simple LCG per-element (fast, deterministic per seed) */
+        seed = seed * 1103515245u + 12345u;
+        double r = (double)((seed >> 16) & 0x7fff) / 32767.0;
+        if (r < p) {
+            mask[i] = 0.0;
+            out[i] = 0.0;
+        } else {
+            mask[i] = scale;
+            out[i] = input->data[i] * scale;
+        }
+    }
+
+    Tensor* r = arena_alloc(sizeof(Tensor));
+    memset(r, 0, sizeof(Tensor));
+    r->data = out;
+    r->shape = input->shape;  /* share shape (same dims) */
+    r->rank = input->rank;
+    r->numel = n;
+    r->requires_grad = input->requires_grad;
+    r->tape_idx = -1;
+    r->persistent = 0;
+
+    if (r->requires_grad) {
+        int idx = tape_append(OP_DROPOUT, r, input, NULL, 0);
+        DropoutMeta* meta = arena_alloc(sizeof(DropoutMeta));
+        meta->mask = mask;
+        meta->numel = n;
+        tape[idx].op_meta = meta;
+    } else {
+        free(mask);
+    }
     return r;
 }
 
@@ -2453,6 +2514,18 @@ void tensor_backward(TensorHandle h) {
                         m->add_vector->grad[jj] += s;
                     }
                 }
+            }
+            break;
+        }
+
+        case OP_DROPOUT: {
+            /* Gradient passes through the same mask used in forward */
+            DropoutMeta* meta = (DropoutMeta*)e->op_meta;
+            ensure_grad(r);
+            if (a && a->requires_grad) {
+                ensure_grad(a);
+                for (int j = 0; j < meta->numel; j++)
+                    a->grad[j] += r->grad[j] * meta->mask[j];
             }
             break;
         }

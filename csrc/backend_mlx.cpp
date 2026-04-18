@@ -85,6 +85,7 @@ enum {
     OP_BMM_3X3,
     OP_SOFTMAX_3D,
     OP_TRANSPOSE_LAST2,
+    OP_DROPOUT,
     OP_CONV2D,
     OP_MAX_POOL2D,
 };
@@ -510,6 +511,28 @@ TensorHandle tensor_conv1d_circular(TensorHandle hinput, TensorHandle hkernel) {
     bool rg = inp->requires_grad || kern->requires_grad;
     auto r = new Tensor(result, rg);
     if (rg) tape_append(OP_CONV1D_CIRC, r, inp, kern, 0);
+    return (TensorHandle)r;
+}
+
+TensorHandle tensor_dropout(TensorHandle hinput, double p, int training, unsigned int seed) {
+    auto inp = (Tensor*)hinput;
+    if (!training || p <= 0.0) return hinput;
+
+    // Generate bernoulli mask and scale by 1/(1-p)
+    // MLX random only supports float32 on Metal — generate in f32, compare, cast result to f64
+    double scale = 1.0 / (1.0 - p);
+    auto rnd = mx::random::uniform(mx::array(0.0f), mx::array(1.0f), inp->data.shape(), mx::float32);
+    auto keep = mx::greater(rnd, mx::array((float)p, mx::float32));
+    auto mask = mx::astype(mx::where(keep, mx::array(scale, mx::float64), mx::array(0.0, mx::float64)), mx::float64);
+    auto result = mx::multiply(inp->data, mask);
+
+    auto r = new Tensor(result, inp->requires_grad);
+    if (inp->requires_grad) {
+        // For replay: store the mask as a constant in the pool so vjp can diff through multiply
+        auto mask_t = new Tensor(mask, false);
+        mask_t->persistent = 1;  // survives tape_reset
+        int idx = tape_append(OP_DROPOUT, r, inp, mask_t, 0);
+    }
     return (TensorHandle)r;
 }
 
@@ -972,6 +995,11 @@ void tensor_backward(TensorHandle h) {
                 auto rstd = mx::rsqrt(mx::add(var, mx::array(meta->eps)));
                 auto x_hat = mx::multiply(centered, rstd);
                 pool[out] = mx::add(mx::multiply(gamma, x_hat), bias);
+                break;
+            }
+            case OP_DROPOUT: {
+                // b holds the stored mask tensor; just multiply
+                pool[out] = mx::multiply(a, b);
                 break;
             }
             case OP_CONV2D: {
