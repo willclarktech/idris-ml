@@ -5,7 +5,6 @@
 | Item | Difficulty | Notes |
 |------|-----------|-------|
 | CUDA support | M–L | Torch backend should work via `tensor_to_device("cuda")` — untested. Test script ready: `scripts/test_cuda_colab.sh`. See `docs/cuda-testing.md` |
-| Fix batched embedding forward | M | `transformerForwardBatch` crashes on epoch 2 with embedding (Chez Scheme pointer invalidation). C-level works fine. See `docs/gotchas.md` |
 | General DataLoader | M | Reusable batched data pipeline with shuffle/batch/repeat. Current examples generate data ad-hoc |
 
 ## Medium Priority

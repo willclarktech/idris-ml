@@ -26,9 +26,9 @@ Idris2 requires source files to be in `--source-dir`. Never put test files in `/
 
 `Tensor`'s `Num` instance uses elementwise multiply. For matrix-vector products, use `matrixVectorMultiply` or `vectorMatrixMultiply` from Math.idr.
 
-### transformerForwardBatch crashes with embedding on epoch 2
+### Arena chunk size must exceed largest single allocation
 
-The batched forward path (`transformerForwardBatch`) crashes with "invalid memory reference" on the second epoch when using embedding lookup. The C-level embedding + backward + optimizer step works fine in isolation (verified with multi-epoch C test). The crash is in the Chez Scheme FFI layer — likely stale pointer caching after `tape_reset`. Workaround: use `epochNativeTensorPre` (per-sample forward) instead of `epochNativeTensorBatch`. Slower (~30%) but stable.
+The arena allocator uses chunked linked-list allocation. If a single `arena_alloc` request matches the chunk size exactly, subsequent allocations after `arena_reset` can hit chunk boundary corruption. Fixed by increasing `ARENA_INIT_SIZE` from 1MB to 4MB. The trigger was embedding output for batch=32 × seqLen=64 × dModel=64 = 131072 doubles = exactly 1MB.
 
 ### Large Nat type-level reduction hangs the compiler
 
