@@ -85,16 +85,20 @@ endif
 backend: $(BACKEND_LIB)
 	@ln -sf libidrisml_$(BACKEND).dylib $(LIB)
 
-# Backend-specific test suites
-test-backend-torch: csrc/test_backend.c | $(BUILD)
-	$(MAKE) BACKEND=torch backend
+# Backend API test suite — runs against whichever backend is active
+test-backend: csrc/test_backend.c backend | $(BUILD)
 	cc -o $(BUILD)/test_backend csrc/test_backend.c -L$(BUILD) -lidrisml -Wl,-rpath,$(BUILD) -lm
 	./$(BUILD)/test_backend
 
-test-backend-tape: csrc/test_backend_tape.c | $(BUILD)
-	$(MAKE) BACKEND=tape backend
-	cc -o $(BUILD)/test_tape csrc/test_backend_tape.c -L$(BUILD) -lidrisml -Wl,-rpath,$(BUILD) -lm
-	./$(BUILD)/test_tape
+# Per-backend convenience targets
+test-backend-tape:
+	$(MAKE) BACKEND=tape test-backend
+
+test-backend-mlx:
+	$(MAKE) BACKEND=mlx test-backend
+
+test-backend-torch:
+	$(MAKE) BACKEND=torch test-backend
 
 print-torch:
 	@echo "LIBTORCH_PATH=$(LIBTORCH_PATH)"
