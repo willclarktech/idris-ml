@@ -448,7 +448,7 @@ epochTwoPhaseTensor opt dataPoints model =
                   (m', _) = forwardVarTensor m inT
               in m') m0 (encodingInputs dp)
             -- Decode phase: forward zeros, compute BCE loss per timestep
-            zeroT = prim__createState1d (cast {to=Int} i) (prim__allocDoubles (cast {to=Int} i))
+            zeroT = prim__create1d (cast {to=Int} i) (prim__allocDoubles (cast {to=Int} i)) 0
             (_, outTs) = foldl (\(m, outs), _ =>
               let (m', outT) = forwardVarTensor m zeroT
               in (m', outT :: outs))

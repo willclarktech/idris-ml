@@ -151,10 +151,10 @@ LayerLike LstmState where
         let oI = cast {to=Int} o
             hiddenT = case hT of
               Just h => h
-              Nothing => let buf = prim__allocDoubles oI in prim__createState1d oI buf
+              Nothing => let buf = prim__allocDoubles oI in prim__create1d oI buf 0
             cellT = case cT of
               Just c => c
-              Nothing => let buf = prim__allocDoubles oI in prim__createState1d oI buf
+              Nothing => let buf = prim__allocDoubles oI in prim__create1d oI buf 0
             combined = tensorAdd (tensorAdd (tensorMv iwTensor inputT) (tensorMv rwTensor hiddenT)) biasTensor
             pair = prim__lstmGatesPair combined cellT oI
             newHiddenT = prim__pairFirst pair

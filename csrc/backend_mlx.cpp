@@ -110,6 +110,7 @@ static int tape_append(int op, Tensor* result, Tensor* arg1, Tensor* arg2, doubl
 }
 
 static void tape_reset() {
+    // Free op metadata
     for (auto& e : tape) {
         if (e.op == OP_LAYER_NORM_2D && e.meta) {
             delete (LayerNormMeta*)e.meta;
@@ -122,6 +123,13 @@ static void tape_reset() {
         if (e.op == OP_STACK && e.meta) {
             delete (std::vector<Tensor*>*)e.meta;
             e.meta = nullptr;
+        }
+    }
+    // Free non-persistent intermediate tensors that are on the tape
+    for (auto& e : tape) {
+        if (e.result && !e.result->persistent) {
+            delete e.result;
+            e.result = nullptr;
         }
     }
     tape.clear();

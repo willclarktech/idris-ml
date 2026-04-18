@@ -1025,7 +1025,7 @@ bulkToTensor {n} (VTensor elems) =
   let nI = cast {to=Int} n
       buf = prim__allocDoubles nI
       buf' = packDoubleBuf buf 0 elems
-  in prim__createState1d nI buf'  -- persistent, requires_grad=0
+  in prim__create1d nI buf' 0  -- non-persistent, requires_grad=0 (freed on tape reset)
   where
     packDoubleBuf : AnyPtr -> Int -> Vect k (Scalar Double) -> AnyPtr
     packDoubleBuf buf _ [] = buf

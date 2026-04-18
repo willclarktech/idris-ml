@@ -5,10 +5,18 @@
 
 #include <cstring>
 #include <string>
+#include <vector>
+#include <unordered_set>
 #include <sys/resource.h>
 #ifdef __APPLE__
 #include <mach/mach.h>
 #endif
+
+/* ---------- Intermediate tensor tracking ---------- */
+
+// Track all non-persistent tensors so we can free them at optimizer_step
+static std::vector<at::Tensor*> intermediates;
+static bool tracking_enabled = true;
 
 /* ---------- Helpers ---------- */
 
@@ -17,8 +25,12 @@ static inline at::Tensor* to_tensor(TensorHandle h) {
 }
 
 static inline TensorHandle from_tensor(at::Tensor t) {
-    return static_cast<TensorHandle>(new at::Tensor(std::move(t)));
+    auto* p = new at::Tensor(std::move(t));
+    if (tracking_enabled) intermediates.push_back(p);
+    return static_cast<TensorHandle>(p);
 }
+
+static void free_intermediates(); // defined after param_registry
 
 /* ---------- Lifecycle ---------- */
 
@@ -415,6 +427,15 @@ void param_clear(void) {
     param_registry.clear();
 }
 
+static void free_intermediates() {
+    std::unordered_set<at::Tensor*> param_set;
+    for (auto& entry : param_registry) param_set.insert(entry.tensor);
+    for (auto* p : intermediates) {
+        if (param_set.find(p) == param_set.end()) delete p;
+    }
+    intermediates.clear();
+}
+
 int param_count(void) {
     return static_cast<int>(param_registry.size());
 }
@@ -699,6 +720,8 @@ void optimizer_step(OptimizerHandle h) {
         }
     }
     opt->step();
+    // Free intermediate tensors from this epoch's forward/backward
+    free_intermediates();
 }
 
 void optimizer_zero_grad(OptimizerHandle h) {
@@ -795,7 +818,7 @@ void backend_memory_report(void) {
 }
 
 void backend_reset_for_eval(void) {
-    /* Zero all param grads for a clean eval forward */
+    free_intermediates();
     for (auto& entry : param_registry) {
         if (entry.tensor->grad().defined())
             entry.tensor->grad().zero_();

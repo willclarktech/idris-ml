@@ -53,7 +53,7 @@ LayerLike RnnState where
               Just pt => pt
               Nothing => -- First call: previousOutput is zeros
                 let buf = prim__allocDoubles (cast {to=Int} o)
-                in prim__createState1d (cast {to=Int} o) buf
+                in prim__create1d (cast {to=Int} o) buf 0
             resultT = tensorAdd (tensorAdd (tensorMv iwT inputT) (tensorMv rwT poT)) bT
         in ({ prevOutTensor := Just resultT } st, resultT)
       _ => idris_crash "Rnn: weight tensors not initialized (call autoName first)"
