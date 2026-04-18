@@ -1217,6 +1217,21 @@ TensorHandle tensor_conv1d_circular(TensorHandle hinput, TensorHandle hkernel) {
 }
 
 /* ================================================================
+   Cross-Attention: Q @ K^T * scale [+ mask] -> softmax -> @ V
+   Q [B,seqQ,d], K [B,seqK,d], V [B,seqK,d] -> [B,seqQ,d]
+   ================================================================ */
+
+TensorHandle tensor_cross_attention(TensorHandle hQ, TensorHandle hK, TensorHandle hV,
+                                    TensorHandle hmask, double scale) {
+    /* Compose from existing ops — backward handled by tape of individual ops */
+    TensorHandle KT = tensor_transpose_last2(hK);
+    TensorHandle scores = tensor_mul_scalar(tensor_bmm_3x3(hQ, KT), scale);
+    if (hmask) scores = tensor_masked_fill(scores, hmask, -1.0e20);
+    TensorHandle attn = tensor_softmax_3d(scores);
+    return tensor_bmm_3x3(attn, hV);
+}
+
+/* ================================================================
    Embedding: row gather from weight matrix
    weight [vocabSize, embedDim], indices [n] -> output [n * embedDim]
    ================================================================ */

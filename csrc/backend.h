@@ -370,6 +370,13 @@ void optimizer_set_meta(OptimizerHandle opt, const double* in9);
 /* Create a [d0, d1, d2, d3] tensor filled with given data, requires_grad=true */
 TensorHandle tensor_create_param_4d(int d0, int d1, int d2, int d3, double* data);
 
+/* ---------- Cross-Attention ---------- */
+
+/* Scaled dot-product attention: Q [B,seqQ,d], K [B,seqK,d], V [B,seqK,d].
+   Returns [B,seqQ,d]. mask may be NULL (no masking). scale = 1/sqrt(d). */
+TensorHandle tensor_cross_attention(TensorHandle Q, TensorHandle K, TensorHandle V,
+                                    TensorHandle mask, double scale);
+
 /* ---------- Embedding ---------- */
 
 /* Embedding lookup: weight [vocabSize, embedDim], indices [n] (double-valued ints).

@@ -137,6 +137,11 @@ prim__conv1dCircular : AnyPtr -> AnyPtr -> AnyPtr
 %foreign "C:tensor_gelu,libidrisml"
 export prim__gelu : AnyPtr -> AnyPtr
 
+-- Cross-attention: Q @ K^T * scale [+ mask] -> softmax -> @ V
+%foreign "C:tensor_cross_attention,libidrisml"
+export
+prim__crossAttention : AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> Double -> AnyPtr
+
 %foreign "C:tensor_gru_cell,libidrisml"
 export prim__gruCell : AnyPtr -> AnyPtr -> Int -> AnyPtr
 

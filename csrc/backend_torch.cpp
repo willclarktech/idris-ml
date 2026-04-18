@@ -277,6 +277,17 @@ TensorHandle tensor_dropout(TensorHandle hinput, double p, int training, unsigne
     return from_tensor(out);
 }
 
+TensorHandle tensor_cross_attention(TensorHandle hQ, TensorHandle hK, TensorHandle hV,
+                                    TensorHandle hmask, double scale) {
+    auto& Q = *to_tensor(hQ);
+    auto& K = *to_tensor(hK);
+    auto& V = *to_tensor(hV);
+    auto scores = torch::bmm(Q, K.transpose(-2, -1)) * scale;
+    if (hmask) scores = scores.masked_fill(*to_tensor(hmask), -1.0e20);
+    auto attn = torch::softmax(scores, -1);
+    return from_tensor(torch::bmm(attn, V));
+}
+
 TensorHandle tensor_embedding(TensorHandle hweight, TensorHandle hindices, int n, int embedDim) {
     auto& weight = *to_tensor(hweight);  /* [vocabSize, embedDim] */
     auto& indices = *to_tensor(hindices);
