@@ -161,6 +161,11 @@ transformer: backend
 	cp $(LIB) build/exec/transformer_app/
 	./build/exec/transformer
 
+reinforce: backend
+	idris2 --source-dir src -p contrib -o reinforce src/Example/Reinforce.idr
+	cp $(LIB) build/exec/reinforce_app/
+	./build/exec/reinforce $(REINFORCE_ARGS)
+
 transfer: backend
 	idris2 --source-dir src -p contrib -o transfer src/Example/Transfer.idr
 	cp $(LIB) build/exec/transfer_app/
@@ -247,7 +252,7 @@ clean:
 	rm -f $(BUILD)/libidrisml*.dylib $(BUILD)/test_backend $(BUILD)/test_safetensors \
 	      $(BUILD)/test_ntm_grad $(BUILD)/test_ntm_timestep
 
-EXAMPLES := supervised rnn lstm transformer ntm-copy ntm-associative-recall
+EXAMPLES := supervised rnn lstm transformer ntm-copy ntm-associative-recall reinforce
 BACKENDS := tape mlx torch
 
 # Run all examples on all available backends, validate RESULT lines.
@@ -258,7 +263,9 @@ test-examples:
 		$(MAKE) --no-print-directory BACKEND=$$b backend 2>/dev/null || { skip="$$skip $$b"; continue; }; \
 		for e in $(EXAMPLES); do \
 			echo "--- $$e [$$b] ---"; \
-			output=$$($(MAKE) --no-print-directory BACKEND=$$b $$e 2>&1) || { echo "FAIL: $$e [$$b] crashed"; fail=1; continue; }; \
+			extra_args=""; \
+			if [ "$$e" = "reinforce" ]; then extra_args="REINFORCE_ARGS=--epochs 200"; fi; \
+			output=$$($(MAKE) --no-print-directory BACKEND=$$b $$e $$extra_args 2>&1) || { echo "FAIL: $$e [$$b] crashed"; fail=1; continue; }; \
 			result_line=$$(echo "$$output" | grep '^RESULT'); \
 			if [ -z "$$result_line" ]; then \
 				echo "FAIL: $$e [$$b] -- no RESULT line"; \
@@ -305,7 +312,7 @@ test-all:
 .PHONY: all-backends test test-all test-backend test-backend-tape test-backend-mlx \
         test-backend-torch test-safetensors test-ntm-grad test-ntm-timestep \
         test-examples check supervised rnn lstm ntm-copy ntm-associative-recall \
-        transformer transfer transfer-demo bench profile sweep sweep-quick clean \
+        reinforce transformer transfer transfer-demo bench profile sweep sweep-quick clean \
         backend print-torch ref-setup ref-supervised ref-rnn ref-lstm ref-ntm-copy \
         ref-ntm-recall ref-transformer bench-py bench-compare ref-test ref-lint \
         ref-typecheck ref-convergence ref-convergence-copy ref-convergence-recall

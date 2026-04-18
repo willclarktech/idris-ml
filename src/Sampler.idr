@@ -32,3 +32,23 @@ normalSample = do
 export
 normal : Sampler
 normal var = map (* prim__doubleSqrt var) normalSample
+
+
+----------------------------------------------------------------------
+-- Categorical sampling
+----------------------------------------------------------------------
+
+||| Sample from a categorical distribution via cumulative sum.
+||| @probs  probability for each category (should sum to ~1.0)
+||| @r      uniform random value in [0, 1)
+||| Returns the index of the sampled category.
+export
+categoricalSample : List Double -> Double -> Nat
+categoricalSample probs r = go 0 0.0 probs
+  where
+    go : Nat -> Double -> List Double -> Nat
+    go idx _ [] = idx
+    go idx _ [_] = idx
+    go idx cumul (p :: rest) =
+      let cumul' = cumul + p
+      in if r < cumul' then idx else go (S idx) cumul' rest
