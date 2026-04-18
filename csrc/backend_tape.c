@@ -2893,6 +2893,22 @@ TensorHandle tensor_create_param_2d(int rows, int cols, double* data) {
     return t;
 }
 
+TensorHandle tensor_create_param_4d(int d0, int d1, int d2, int d3, double* data) {
+    int numel = d0 * d1 * d2 * d3;
+    Tensor* t = calloc(1, sizeof(Tensor));
+    t->data = malloc(numel * sizeof(double));
+    memcpy(t->data, data, numel * sizeof(double));
+    free(data);
+    t->shape = malloc(4 * sizeof(int));
+    t->shape[0] = d0; t->shape[1] = d1; t->shape[2] = d2; t->shape[3] = d3;
+    t->rank = 4; t->numel = numel;
+    t->requires_grad = 1;
+    t->tape_idx = -1;
+    t->persistent = 1;
+    tape_append(OP_CONST, t, NULL, NULL, 0);
+    return t;
+}
+
 TensorHandle tensor_create_param_1d(int n, double* data) {
     Tensor* t = calloc(1, sizeof(Tensor));
     t->data = malloc(n * sizeof(double));

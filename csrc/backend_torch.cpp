@@ -722,6 +722,12 @@ TensorHandle tensor_create_param_2d(int rows, int cols, double* data) {
     return from_tensor_persistent(std::move(t));
 }
 
+TensorHandle tensor_create_param_4d(int d0, int d1, int d2, int d3, double* data) {
+    auto t = torch::from_blob(data, {(int64_t)d0, (int64_t)d1, (int64_t)d2, (int64_t)d3}, torch::kFloat64).clone();
+    t.requires_grad_(true);
+    return from_tensor_persistent(std::move(t));
+}
+
 TensorHandle tensor_create_param_1d(int n, double* data) {
     auto t = torch::from_blob(data, {(int64_t)n}, torch::kFloat64).clone();
     t.requires_grad_(true);

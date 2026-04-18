@@ -299,6 +299,9 @@ void optimizer_set_v(OptimizerHandle opt, int idx, const double* data);
 void optimizer_get_meta(OptimizerHandle opt, double* out9);
 void optimizer_set_meta(OptimizerHandle opt, const double* in9);
 
+/* Create a [d0, d1, d2, d3] tensor filled with given data, requires_grad=true */
+TensorHandle tensor_create_param_4d(int d0, int d1, int d2, int d3, double* data);
+
 /* ---------- MNIST data loading ---------- */
 
 void* mnist_load(const char* images_path, const char* labels_path);

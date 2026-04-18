@@ -501,15 +501,9 @@ prim__reshape1d t n =
       shape' = prim__setInt shape 0 n
   in prim__reshape t shape' 1
 
--- Create a tensor with requires_grad=1 from data buffer and shape array.
--- For 4D kernel params where tensor_create_param_2d won't work.
+%foreign "C:tensor_create_param_4d,libidrisml"
 export
-prim__createWithGrad : AnyPtr -> AnyPtr -> Int -> AnyPtr
-prim__createWithGrad dataBuf shape rank =
-  prim__tensorCreate dataBuf shape rank 1
-  where
-    %foreign "C:tensor_create,libidrisml"
-    prim__tensorCreate : AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
+prim__createParam4d : Int -> Int -> Int -> Int -> AnyPtr -> AnyPtr
 
 -- matStackTensor: stack matrix Variable tensorPtrs into a 2D tensor.
 -- PRESERVES autograd graph.

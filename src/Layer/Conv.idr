@@ -30,7 +30,7 @@ import Variable
 ||| ConvOutDim inDim kernel pad = inDim + 2*pad - kernel + 1
 public export
 ConvOutDim : Nat -> Nat -> Nat -> Nat
-ConvOutDim inDim kernel pad = (inDim + 2 * pad) `minus` kernel + 1
+ConvOutDim inDim kernel pad = ((inDim + 2 * pad) `minus` kernel) + 1
 
 ||| Output spatial dimension for pooling.
 ||| PoolOutDim inDim kernel stride = (inDim - kernel) / stride + 1
@@ -95,19 +95,12 @@ export
   nameLayer {i} {o} prefx (MkConv2D ip op kernelFlat bias _ _) =
     if prim__backendSupportsTensorParams == 1
       then
-        let kerN = outC * inC * kH * kW
-            kerI = cast {to=Int} kerN
+        let kerI = cast {to=Int} (outC * inC * kH * kW)
             kerBuf = prim__allocDoubles kerI
             (VTensor kerElems) = kernelFlat
             kerBuf' = packScalarValues kerBuf 0 kerElems
-            -- Create 4D param: need to use general tensor_create with shape
-            kerShape = prim__allocInts 4
-            kerShape1 = prim__setInt kerShape 0 (cast {to=Int} outC)
-            kerShape2 = prim__setInt kerShape1 1 (cast {to=Int} inC)
-            kerShape3 = prim__setInt kerShape2 2 (cast {to=Int} kH)
-            kerShape4 = prim__setInt kerShape3 3 (cast {to=Int} kW)
             kerT = prim__paramRegister (prefx ++ "_kernel")
-                     (prim__createWithGrad kerBuf' kerShape4 4)
+                     (prim__createParam4d (cast outC) (cast inC) (cast kH) (cast kW) kerBuf')
             biasI = cast {to=Int} outC
             biasBuf = prim__allocDoubles biasI
             (VTensor biasElems) = bias

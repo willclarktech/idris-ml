@@ -1226,6 +1226,14 @@ TensorHandle tensor_create_param_2d(int rows, int cols, double* data) {
     return t;
 }
 
+TensorHandle tensor_create_param_4d(int d0, int d1, int d2, int d3, double* data) {
+    int shape[] = {d0, d1, d2, d3};
+    auto t = tensor_create(data, shape, 4, 1);
+    free(data);
+    ((Tensor*)t)->persistent = 1;
+    return t;
+}
+
 TensorHandle tensor_create_param_1d(int n, double* data) {
     int shape[] = {n};
     auto t = tensor_create(data, shape, 1, 1);
