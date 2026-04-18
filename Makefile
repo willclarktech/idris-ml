@@ -60,6 +60,16 @@ else
   endif
 endif
 
+# --- Backend availability detection (for test-all / test-examples) ---
+# Uses cached dylibs: build a backend with `make BACKEND=mlx backend` etc.
+AVAILABLE_BACKENDS := tape
+ifneq ($(wildcard $(BUILD)/libidrisml_torch.dylib),)
+  AVAILABLE_BACKENDS += torch
+endif
+ifneq ($(wildcard $(BUILD)/libidrisml_mlx.dylib),)
+  AVAILABLE_BACKENDS += mlx
+endif
+
 # Per-backend dylib: each backend compiles to its own file.
 # Switching backends = updating a symlink (instant, no recompile).
 BACKEND_LIB := $(BUILD)/libidrisml_$(BACKEND).dylib
@@ -99,6 +109,19 @@ test-backend-mlx:
 
 test-backend-torch:
 	$(MAKE) BACKEND=torch test-backend
+
+# Specialized C test suites
+test-safetensors: csrc/test_safetensors.c backend | $(BUILD)
+	cc -o $(BUILD)/test_safetensors csrc/test_safetensors.c -L$(BUILD) -lidrisml -Wl,-rpath,$(BUILD) -lm
+	./$(BUILD)/test_safetensors
+
+test-ntm-grad: csrc/test_ntm_grad.c backend | $(BUILD)
+	cc -o $(BUILD)/test_ntm_grad csrc/test_ntm_grad.c -L$(BUILD) -lidrisml -Wl,-rpath,$(BUILD) -lm
+	./$(BUILD)/test_ntm_grad
+
+test-ntm-timestep: csrc/test_ntm_timestep.c backend | $(BUILD)
+	cc -o $(BUILD)/test_ntm_timestep csrc/test_ntm_timestep.c -L$(BUILD) -lidrisml -Wl,-rpath,$(BUILD) -lm
+	./$(BUILD)/test_ntm_timestep
 
 print-torch:
 	@echo "LIBTORCH_PATH=$(LIBTORCH_PATH)"
@@ -231,19 +254,66 @@ ref-convergence-recall:
 	cd pytorch && uv run python -u -m torch_ref.scripts.convergence --task recall
 
 clean:
-	rm -f $(BUILD)/libidrisml*.dylib $(BUILD)/test_backend $(BUILD)/test_tape
+	rm -f $(BUILD)/libidrisml*.dylib $(BUILD)/test_backend $(BUILD)/test_safetensors \
+	      $(BUILD)/test_ntm_grad $(BUILD)/test_ntm_timestep
 
 EXAMPLES := supervised rnn lstm transformer ntm-copy ntm-associative-recall
 BACKENDS := tape mlx torch
 
-# Run all examples on all backends
-all-backends:
-	@for e in $(EXAMPLES); do \
-		for b in $(BACKENDS); do \
-			echo "=== $$e [$$b] ==="; \
-			$(MAKE) BACKEND=$$b $$e || exit 1; \
-			echo; \
+# Run all examples on all available backends, validate RESULT lines
+test-examples:
+	@fail=0; \
+	for e in $(EXAMPLES); do \
+		for b in $(AVAILABLE_BACKENDS); do \
+			echo "--- $$e [$$b] ---"; \
+			output=$$($(MAKE) --no-print-directory BACKEND=$$b $$e 2>&1) || { echo "FAIL: $$e [$$b] crashed"; fail=1; continue; }; \
+			result_line=$$(echo "$$output" | grep '^RESULT'); \
+			if [ -z "$$result_line" ]; then \
+				echo "FAIL: $$e [$$b] -- no RESULT line"; \
+				fail=1; \
+			else \
+				echo "ok: $$result_line"; \
+			fi; \
 		done; \
-	done
+	done; \
+	if [ $$fail -ne 0 ]; then echo "Some integration tests FAILED"; exit 1; fi; \
+	echo "All integration tests passed."
 
-.PHONY: all-backends test test-backend-torch test-backend-tape check supervised rnn lstm ntm-copy ntm-associative-recall transformer transfer transfer-demo bench profile sweep sweep-quick clean backend print-torch ref-setup ref-supervised ref-rnn ref-lstm ref-ntm-copy ref-ntm-recall ref-transformer bench-py bench-compare ref-test ref-lint ref-typecheck ref-convergence ref-convergence-copy ref-convergence-recall
+all-backends: test-examples
+
+# Run everything: Idris unit tests, C backend tests, specialized tests,
+# integration tests, PyTorch reference tests (if available)
+test-all:
+	@echo "=== Idris unit tests ==="
+	$(MAKE) test
+	@echo ""
+	@echo "=== C backend tests ==="
+	@for b in $(AVAILABLE_BACKENDS); do \
+		echo "--- test-backend [$$b] ---"; \
+		$(MAKE) BACKEND=$$b test-backend || exit 1; \
+		echo; \
+	done
+	@echo "=== Specialized C tests ==="
+	$(MAKE) BACKEND=tape test-safetensors
+	$(MAKE) BACKEND=tape test-ntm-grad
+	$(MAKE) BACKEND=tape test-ntm-timestep
+	@echo ""
+	@echo "=== Integration tests (examples on all backends) ==="
+	$(MAKE) test-examples
+	@echo ""
+	@if command -v uv >/dev/null 2>&1 && [ -f pytorch/pyproject.toml ]; then \
+		echo "=== PyTorch reference tests ==="; \
+		$(MAKE) ref-test; \
+	else \
+		echo "=== PyTorch reference tests SKIPPED (uv not found) ==="; \
+	fi
+	@echo ""
+	@echo "=== All tests complete ==="
+
+.PHONY: all-backends test test-all test-backend test-backend-tape test-backend-mlx \
+        test-backend-torch test-safetensors test-ntm-grad test-ntm-timestep \
+        test-examples check supervised rnn lstm ntm-copy ntm-associative-recall \
+        transformer transfer transfer-demo bench profile sweep sweep-quick clean \
+        backend print-torch ref-setup ref-supervised ref-rnn ref-lstm ref-ntm-copy \
+        ref-ntm-recall ref-transformer bench-py bench-compare ref-test ref-lint \
+        ref-typecheck ref-convergence ref-convergence-copy ref-convergence-recall
