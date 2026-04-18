@@ -68,7 +68,7 @@ enum {
     OP_SIGMOID, OP_TANH,
     OP_ADD_SCALAR, OP_MUL_SCALAR, OP_CLAMP_MIN,
     OP_SUM, OP_MEAN,
-    OP_MM, OP_TRANSPOSE_2D,
+    OP_MM, OP_BMM, OP_TRANSPOSE_2D,
     OP_SOFTMAX_2D, OP_LOG_SOFTMAX_2D,
     OP_MASKED_FILL, OP_LAYER_NORM_2D,
     OP_RESHAPE, OP_NARROW, OP_CAT,
@@ -619,13 +619,19 @@ TensorHandle tensor_mm(TensorHandle ha, TensorHandle hb) {
     return (TensorHandle)r;
 }
 
-TensorHandle tensor_bmm(TensorHandle a, TensorHandle b) { STUB(); }
+TensorHandle tensor_bmm(TensorHandle ha, TensorHandle hb) {
+    auto a = (Tensor*)ha; auto b = (Tensor*)hb;
+    bool rg = a->requires_grad || b->requires_grad;
+    auto r = new Tensor(mx::matmul(a->data, b->data), rg);
+    if (rg) tape_append(OP_BMM, r, a, b, 0);
+    return (TensorHandle)r;
+}
 TensorHandle tensor_batch(TensorHandle* handles, int count) { STUB(); }
 TensorHandle* tensor_unbatch(TensorHandle h, int* out_count) { STUB(); }
 
 TensorHandle tensor_transpose_2d(TensorHandle h) {
     auto t = (Tensor*)h;
-    auto r = new Tensor(mx::transpose(t->data), t->requires_grad);
+    auto r = new Tensor(mx::transpose(t->data, {1, 0}), t->requires_grad);
     if (t->requires_grad) tape_append(OP_TRANSPOSE_2D, r, t, nullptr, 0);
     return (TensorHandle)r;
 }
@@ -873,13 +879,37 @@ void tensor_backward(TensorHandle h) {
 
         case OP_MM: {
             // r = a @ b, d_a = grad @ b^T, d_b = a^T @ grad
-            if (a && a->requires_grad) { ensure_grad(a); a->grad = mx::add(a->grad, mx::matmul(r->grad, mx::transpose(b->data))); }
-            if (b && b->requires_grad) { ensure_grad(b); b->grad = mx::add(b->grad, mx::matmul(mx::transpose(a->data), r->grad)); }
+            if (a && a->requires_grad) { ensure_grad(a); a->grad = mx::add(a->grad, mx::matmul(r->grad, mx::transpose(b->data, {1, 0}))); }
+            if (b && b->requires_grad) { ensure_grad(b); b->grad = mx::add(b->grad, mx::matmul(mx::transpose(a->data, {1, 0}), r->grad)); }
+            break;
+        }
+
+        case OP_BMM: {
+            // r = a @ b (batched matmul with broadcasting)
+            // Transpose helper: swap last two dims regardless of rank
+            auto swap_last2 = [](const mx::array& x) -> mx::array {
+                int nd = x.ndim();
+                if (nd == 2) return mx::transpose(x, {1, 0});
+                std::vector<int> axes(nd);
+                for (int i = 0; i < nd; i++) axes[i] = i;
+                std::swap(axes[nd-2], axes[nd-1]);
+                return mx::transpose(x, axes);
+            };
+            if (a && a->requires_grad) {
+                ensure_grad(a);
+                auto dA = mx::matmul(r->grad, swap_last2(b->data));
+                a->grad = mx::add(a->grad, reduce_grad(dA, a->data.shape()));
+            }
+            if (b && b->requires_grad) {
+                ensure_grad(b);
+                auto dB = mx::matmul(swap_last2(a->data), r->grad);
+                b->grad = mx::add(b->grad, reduce_grad(dB, b->data.shape()));
+            }
             break;
         }
 
         case OP_TRANSPOSE_2D:
-            if (a && a->requires_grad) { ensure_grad(a); a->grad = mx::add(a->grad, mx::transpose(r->grad)); }
+            if (a && a->requires_grad) { ensure_grad(a); a->grad = mx::add(a->grad, mx::transpose(r->grad, {1, 0})); }
             break;
 
         case OP_SOFTMAX_2D: {
@@ -970,7 +1000,7 @@ void tensor_backward(TensorHandle h) {
             if (b && b->requires_grad) {
                 ensure_grad(b);
                 // a=[m,n]^T @ grad=[m] → [n]
-                auto aT = mx::transpose(a->data);
+                auto aT = mx::transpose(a->data, {1, 0});
                 auto grad_col = mx::reshape(r->grad, {(int)r->grad.size(), 1});
                 auto result = mx::reshape(mx::matmul(aT, grad_col), {(int)b->data.size()});
                 b->grad = mx::add(b->grad, result);
@@ -1206,18 +1236,7 @@ void param_register(const char* name, TensorHandle h) {
 }
 
 void param_clear(void) {
-    // Remove param tensors from all_tensors and delete them
-    for (auto& p : param_registry) {
-        for (size_t i = 0; i < all_tensors.size(); i++) {
-            if (all_tensors[i] == p.tensor) {
-                all_tensors.erase(all_tensors.begin() + i);
-                break;
-            }
-        }
-        delete p.tensor;
-    }
     param_registry.clear();
-    // Also clean up any remaining non-persistent tensors and pairs
     tape_reset();
 }
 int param_count(void) { return (int)param_registry.size(); }
@@ -1381,9 +1400,11 @@ TensorHandle tensor_view_1d(TensorHandle vec, int idx) {
 
 double tensor_item_2d(TensorHandle mat, int row, int col) {
     auto t = (Tensor*)mat;
-    mx::eval(t->data);
+    // Flatten to contiguous for correct indexing on non-contiguous views (e.g. transpose)
+    auto flat = mx::flatten(t->data, mx::StreamOrDevice{});
+    mx::eval(flat);
     int cols = t->data.shape(1);
-    return t->data.data<double>()[row * cols + col];
+    return flat.data<double>()[row * cols + col];
 }
 
 double tensor_item_1d(TensorHandle vec, int idx) {

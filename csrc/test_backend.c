@@ -85,7 +85,7 @@ static void test_arithmetic(void) {
     tensor_free(c);
 
     c = tensor_exp(a);
-    ASSERT_NEAR("exp(3)", tensor_item(c), exp(3.0), 1e-6);
+    ASSERT_NEAR("exp(3)", tensor_item(c), exp(3.0), 1e-5);  /* MLX Metal: float32 transcendentals */
     tensor_free(c);
 
     c = tensor_log(b);
@@ -101,7 +101,7 @@ static void test_arithmetic(void) {
     tensor_free(c);
 
     c = tensor_sigmoid(a);
-    ASSERT_NEAR("sigmoid(3)", tensor_item(c), 1.0/(1.0+exp(-3.0)), 1e-10);
+    ASSERT_NEAR("sigmoid(3)", tensor_item(c), 1.0/(1.0+exp(-3.0)), 1e-5);  /* MLX Metal: float32 transcendentals */
     tensor_free(c);
 
     c = tensor_tanh(a);
@@ -183,7 +183,7 @@ static void test_autograd_exp(void) {
     TensorHandle y = tensor_exp(w);
     tensor_backward(y);
 
-    ASSERT_NEAR("d(exp(w))/dw = exp(1)", param_grad_item_and_zero(0), exp(1.0), 1e-10);
+    ASSERT_NEAR("d(exp(w))/dw = exp(1)", param_grad_item_and_zero(0), exp(1.0), 1e-5);  /* MLX Metal: float32 transcendentals */
 
     tensor_free(w); tensor_free(y);
     param_clear();
