@@ -355,9 +355,8 @@ main = do
 
   let trainCfg = MkTrainConfig cfg.epochs 100 (Patience cfg.patience 0.001) evalMetrics
 
-  let batchFwd = transformerForwardBatch namedTfm
   (trained, epochsDone, finalLoss) <- runTraining
-    (\m, d => epochNativeTensorBatch opt d batchFwd allPositionsCE m) genBatch trainCfg model
+    (\m, d => epochNativeTensorPre opt d allPositionsCE m) genBatch trainCfg model
 
   putStrLn ""
   let bpc = evalBPC trained 50
