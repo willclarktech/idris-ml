@@ -119,7 +119,7 @@ def main() -> None:
         eval_batch = generate_recall_batch(10, args.min_items, args.max_items, SEQ_LEN, W)
         acc = _bit_accuracy(model, eval_batch)
         return [
-            ("acc", f"{acc:.4f}"),
+            ("acc", f"{acc * 100:.1f}%"),
             ("peak", f"{_peak_rss_mb()}MB"),
         ]
 
