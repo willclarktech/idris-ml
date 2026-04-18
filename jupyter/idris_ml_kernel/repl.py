@@ -12,7 +12,11 @@ import pexpect
 class Idris2REPL:
     """Manage a persistent idris2 REPL subprocess with FFI dylib support."""
 
-    PROMPT_RE = r"(\[scheme\] )?[A-Za-z][A-Za-z0-9.]*> "
+    # The REPL prompt looks like "Notebook.Prelude> " at line start.
+    # Must not match layer names in output like "relu> " mid-line.
+    # The module name always contains a dot (Notebook.Prelude, Layer.Core, etc.)
+    # or is "Main" (the only dotless name, but won't appear in layer output).
+    PROMPT_RE = r"(\[scheme\] )?[A-Za-z][A-Za-z0-9]*\.[A-Za-z0-9.]*> "
 
     # .dylib on macOS, .so on Linux
     _LIB_EXT = ".dylib" if platform.system() == "Darwin" else ".so"
