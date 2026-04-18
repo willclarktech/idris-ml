@@ -16,6 +16,7 @@ import public Backprop
 import public Checkpoint
 import public DataLoader
 import public DataPoint
+import public Device
 import public Endofunctor
 import public Floating
 import public Generate
@@ -70,7 +71,7 @@ toTDP dp = MkTensorDataPoint (vectorToTensor (x dp)) (vectorToTensor (y dp))
 ||| Tensor-level cross-entropy loss: -mean(target * logSoftmax(pred)).
 ||| Works for any number of output classes.
 export
-crossEntropyTensor : LossFnTensor
+crossEntropyTensor : LossFnTensor CPU
 crossEntropyTensor predT targetT =
   let logP = prim__logSoftmax predT 0
       product = prim__mul logP targetT
@@ -81,7 +82,7 @@ crossEntropyTensor predT targetT =
 ||| Tensor-level binary cross-entropy with logits (numerically stable).
 ||| Formula: mean(max(x,0) - x*y + log(1+exp(-|x|)))
 export
-bceTensor : LossFnTensor
+bceTensor : LossFnTensor CPU
 bceTensor predT targetT =
   let relu_x = prim__clampMin predT 0.0
       xy = prim__mul predT targetT

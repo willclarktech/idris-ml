@@ -2,6 +2,7 @@ module Layer.Activation
 
 import Data.Vect
 
+import Device
 import Floating
 import Layer.Core
 import Math
@@ -27,15 +28,15 @@ export
 LayerLike ActivationState where
   applyGeneric st@(MkActivation _ f) xs = (st, map f xs)
 
-  applyVar st@(MkActivation _ f) xs = (st, map f xs)
+  applyVar {d} st@(MkActivation _ f) xs = (st, map f xs)
 
   -- Tensor-level dispatch: apply prim__tanh/prim__sigmoid directly on the
   -- tensor instead of unpacking to scalars. 1 tape entry vs ~7n entries.
-  applyVarTensor st@(MkActivation "tanh" _) inputT = (st, prim__tanh inputT)
-  applyVarTensor st@(MkActivation "sigmoid" _) inputT = (st, prim__sigmoid inputT)
-  applyVarTensor st@(MkActivation "relu" _) inputT = (st, prim__clampMin inputT 0.0)
-  applyVarTensor st@(MkActivation "gelu" _) inputT = (st, prim__gelu inputT)
-  applyVarTensor {i} st inputT =
+  applyVarTensor {d} st@(MkActivation "tanh" _) inputT = (st, prim__tanh inputT)
+  applyVarTensor {d} st@(MkActivation "sigmoid" _) inputT = (st, prim__sigmoid inputT)
+  applyVarTensor {d} st@(MkActivation "relu" _) inputT = (st, prim__clampMin inputT 0.0)
+  applyVarTensor {d} st@(MkActivation "gelu" _) inputT = (st, prim__gelu inputT)
+  applyVarTensor {d} {i} st inputT =
     let input = VTensor (tensorToScalars inputT 0 i)
         (st', VTensor outElems) = applyVar st input
     in (st', vecStackTensor outElems)
@@ -44,9 +45,9 @@ LayerLike ActivationState where
 
   showLayer (MkActivation name _) = "Activation<" ++ name ++ ">"
 
-  nameLayer _ st = st
+  nameLayer {d} _ st = st
 
-  toDoubleLayer (MkActivation "sigmoid" _) = MkActivation "sigmoid" sigmoid
+  toDoubleLayer {d} (MkActivation "sigmoid" _) = MkActivation "sigmoid" sigmoid
   toDoubleLayer (MkActivation "tanh" _) = MkActivation "tanh" Math.tanh
   toDoubleLayer (MkActivation "relu" _) = MkActivation "relu" (\x => max x (fromDouble 0.0))
   toDoubleLayer (MkActivation "gelu" _) = MkActivation "gelu" id  -- approx for Double eval

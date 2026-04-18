@@ -5,6 +5,7 @@ import Data.SortedMap
 import Data.Vect
 
 import DataPoint
+import Device
 import Endofunctor
 import Floating
 import Math
@@ -21,14 +22,15 @@ import Variable
 
 export
 epoch :
+  {d : Device} ->
   {i, o, n : Nat} ->
   {hs : List Nat} ->
   Optimizer ->
-  Vect n (DataPoint i o Variable) ->
-  LossFunction Variable ->
-  Network i hs o Variable ->
+  Vect n (DataPoint i o (Variable d)) ->
+  LossFunction (Variable d) ->
+  Network i hs o (Variable d) ->
   OptimizerState ->
-  (Network i hs o Variable, OptimizerState, Double)
+  (Network i hs o (Variable d), OptimizerState, Double)
 epoch opt dataPoints lossFn model st =
   let loss = calculateLossVar lossFn model dataPoints
       grads = collectGrads 1.0 loss
@@ -38,15 +40,16 @@ epoch opt dataPoints lossFn model st =
 
 export
 trainFrom :
+  {d : Device} ->
   {i, o, n : Nat} ->
   {hs : List Nat} ->
   Optimizer ->
-  Network i hs o Variable ->
-  Vect n (DataPoint i o Variable) ->
-  LossFunction Variable ->
+  Network i hs o (Variable d) ->
+  Vect n (DataPoint i o (Variable d)) ->
+  LossFunction (Variable d) ->
   Int ->
   OptimizerState ->
-  (Network i hs o Variable, OptimizerState)
+  (Network i hs o (Variable d), OptimizerState)
 trainFrom opt model dataPoints lossFn epochs st =
   foldl (\(m, s), _ =>
     let (m', s', _) = epoch opt dataPoints lossFn m s
@@ -54,14 +57,15 @@ trainFrom opt model dataPoints lossFn epochs st =
 
 export
 train :
+  {d : Device} ->
   {i, o, n : Nat} ->
   {hs : List Nat} ->
   Optimizer ->
-  Network i hs o Variable ->
-  Vect n (DataPoint i o Variable) ->
-  LossFunction Variable ->
+  Network i hs o (Variable d) ->
+  Vect n (DataPoint i o (Variable d)) ->
+  LossFunction (Variable d) ->
   Int ->
-  Network i hs o Variable
+  Network i hs o (Variable d)
 train opt model dataPoints lossFn epochs =
   fst $ trainFrom opt model dataPoints lossFn epochs initState
 
@@ -71,14 +75,15 @@ train opt model dataPoints lossFn epochs =
 
 export
 epochRecurrent :
+  {d : Device} ->
   {i, o, n : Nat} ->
   {hs : List Nat} ->
   Optimizer ->
-  Vect n (RecurrentDataPoint i o Variable) ->
-  LossFunction Variable ->
-  Network i hs o Variable ->
+  Vect n (RecurrentDataPoint i o (Variable d)) ->
+  LossFunction (Variable d) ->
+  Network i hs o (Variable d) ->
   OptimizerState ->
-  (Network i hs o Variable, OptimizerState, Double)
+  (Network i hs o (Variable d), OptimizerState, Double)
 epochRecurrent opt dataPoints lossFn model st =
   let loss = calculateLossRecurrentVar lossFn model dataPoints
       grads = collectGrads 1.0 loss
@@ -88,15 +93,16 @@ epochRecurrent opt dataPoints lossFn model st =
 
 export
 trainRecurrentFrom :
+  {d : Device} ->
   {i, o, n : Nat} ->
   {hs : List Nat} ->
   Optimizer ->
-  Network i hs o Variable ->
-  Vect n (RecurrentDataPoint i o Variable) ->
-  LossFunction Variable ->
+  Network i hs o (Variable d) ->
+  Vect n (RecurrentDataPoint i o (Variable d)) ->
+  LossFunction (Variable d) ->
   Int ->
   OptimizerState ->
-  (Network i hs o Variable, OptimizerState)
+  (Network i hs o (Variable d), OptimizerState)
 trainRecurrentFrom opt model dataPoints lossFn epochs st =
   foldl (\(m, s), _ =>
     let (m', s', _) = epochRecurrent opt dataPoints lossFn m s
@@ -104,14 +110,15 @@ trainRecurrentFrom opt model dataPoints lossFn epochs st =
 
 export
 trainRecurrent :
+  {d : Device} ->
   {i, o, n : Nat} ->
   {hs : List Nat} ->
   Optimizer ->
-  Network i hs o Variable ->
-  Vect n (RecurrentDataPoint i o Variable) ->
-  LossFunction Variable ->
+  Network i hs o (Variable d) ->
+  Vect n (RecurrentDataPoint i o (Variable d)) ->
+  LossFunction (Variable d) ->
   Int ->
-  Network i hs o Variable
+  Network i hs o (Variable d)
 trainRecurrent opt model dataPoints lossFn epochs =
   fst $ trainRecurrentFrom opt model dataPoints lossFn epochs initState
 
@@ -122,14 +129,15 @@ trainRecurrent opt model dataPoints lossFn epochs =
 
 export
 epochTwoPhase :
+  {d : Device} ->
   {i, o, n : Nat} ->
   {hs : List Nat} ->
   Optimizer ->
-  Vect n (TwoPhaseDataPoint i o Variable) ->
-  LossFunction Variable ->
-  Network i hs o Variable ->
+  Vect n (TwoPhaseDataPoint i o (Variable d)) ->
+  LossFunction (Variable d) ->
+  Network i hs o (Variable d) ->
   OptimizerState ->
-  (Network i hs o Variable, OptimizerState, Double)
+  (Network i hs o (Variable d), OptimizerState, Double)
 epochTwoPhase opt dataPoints lossFn model st =
   let loss = calculateLossTwoPhaseVar lossFn model dataPoints
       grads = collectGrads 1.0 loss
@@ -146,24 +154,25 @@ epochTwoPhase opt dataPoints lossFn model st =
 ||| Returns (model, optimizerState, epochsCompleted).
 export
 trainScheduledFrom :
+  {d : Device} ->
   {i, o, n : Nat} ->
   {hs : List Nat} ->
   (Double -> Optimizer) ->
   Schedule ->
-  Network i hs o Variable ->
-  Vect n (DataPoint i o Variable) ->
-  LossFunction Variable ->
+  Network i hs o (Variable d) ->
+  Vect n (DataPoint i o (Variable d)) ->
+  LossFunction (Variable d) ->
   (totalEpochs : Nat) ->
   (patience : Nat) ->
   OptimizerState ->
-  (Network i hs o Variable, OptimizerState, Nat)
+  (Network i hs o (Variable d), OptimizerState, Nat)
 trainScheduledFrom makeOpt schedule model dataPoints lossFn totalEpochs patience st =
   go 0 model st (1.0/0.0) 0
   where
     minDelta : Double
     minDelta = 0.001
-    go : Nat -> Network i hs o Variable -> OptimizerState -> Double -> Nat ->
-         (Network i hs o Variable, OptimizerState, Nat)
+    go : Nat -> Network i hs o (Variable d) -> OptimizerState -> Double -> Nat ->
+         (Network i hs o (Variable d), OptimizerState, Nat)
     go ep m s bestLoss staleCount =
       if ep >= totalEpochs then (m, s, ep)
       else
@@ -183,24 +192,25 @@ trainScheduledFrom makeOpt schedule model dataPoints lossFn totalEpochs patience
 ||| Returns (model, optimizerState, epochsCompleted).
 export
 trainRecurrentScheduledFrom :
+  {d : Device} ->
   {i, o, n : Nat} ->
   {hs : List Nat} ->
   (Double -> Optimizer) ->
   Schedule ->
-  Network i hs o Variable ->
-  Vect n (RecurrentDataPoint i o Variable) ->
-  LossFunction Variable ->
+  Network i hs o (Variable d) ->
+  Vect n (RecurrentDataPoint i o (Variable d)) ->
+  LossFunction (Variable d) ->
   (totalEpochs : Nat) ->
   (patience : Nat) ->
   OptimizerState ->
-  (Network i hs o Variable, OptimizerState, Nat)
+  (Network i hs o (Variable d), OptimizerState, Nat)
 trainRecurrentScheduledFrom makeOpt schedule model dataPoints lossFn totalEpochs patience st =
   go 0 model st (1.0/0.0) 0
   where
     minDelta : Double
     minDelta = 0.001
-    go : Nat -> Network i hs o Variable -> OptimizerState -> Double -> Nat ->
-         (Network i hs o Variable, OptimizerState, Nat)
+    go : Nat -> Network i hs o (Variable d) -> OptimizerState -> Double -> Nat ->
+         (Network i hs o (Variable d), OptimizerState, Nat)
     go ep m s bestLoss staleCount =
       if ep >= totalEpochs then (m, s, ep)
       else
@@ -225,24 +235,25 @@ trainRecurrentScheduledFrom makeOpt schedule model dataPoints lossFn totalEpochs
 ||| Returns (model, optimizerState, epochsCompleted).
 export
 trainTwoPhaseScheduledFrom :
+  {d : Device} ->
   {i, o, n : Nat} ->
   {hs : List Nat} ->
   (Double -> Optimizer) ->
   Schedule ->
-  Network i hs o Variable ->
-  Vect n (TwoPhaseDataPoint i o Variable) ->
-  LossFunction Variable ->
+  Network i hs o (Variable d) ->
+  Vect n (TwoPhaseDataPoint i o (Variable d)) ->
+  LossFunction (Variable d) ->
   (totalEpochs : Nat) ->
   (patience : Nat) ->
   OptimizerState ->
-  (Network i hs o Variable, OptimizerState, Nat)
+  (Network i hs o (Variable d), OptimizerState, Nat)
 trainTwoPhaseScheduledFrom makeOpt schedule model dataPoints lossFn totalEpochs patience st =
   go 0 model st (1.0/0.0) 0
   where
     minDelta : Double
     minDelta = 0.001
-    go : Nat -> Network i hs o Variable -> OptimizerState -> Double -> Nat ->
-         (Network i hs o Variable, OptimizerState, Nat)
+    go : Nat -> Network i hs o (Variable d) -> OptimizerState -> Double -> Nat ->
+         (Network i hs o (Variable d), OptimizerState, Nat)
     go ep m s bestLoss staleCount =
       if ep >= totalEpochs then (m, s, ep)
       else
@@ -268,12 +279,13 @@ trainTwoPhaseScheduledFrom makeOpt schedule model dataPoints lossFn totalEpochs 
 ||| No collectGrads, no SortedMap, no applyDeltas.
 export
 epochTwoPhaseBceNative :
+  {d : Device} ->
   {i, o, n : Nat} ->
   {hs : List Nat} ->
   NativeOptimizer ->
-  Vect n (TwoPhaseDataPoint i o Variable) ->
-  Network i hs o Variable ->
-  (Network i hs o Variable, Double)
+  Vect n (TwoPhaseDataPoint i o (Variable d)) ->
+  Network i hs o (Variable d) ->
+  (Network i hs o (Variable d), Double)
 epochTwoPhaseBceNative opt dataPoints model =
   let loss = calculateLossTwoPhaseVarBce model dataPoints
       lossVal = nativeTrainStep opt loss
@@ -283,13 +295,14 @@ epochTwoPhaseBceNative opt dataPoints model =
 ||| Native epoch for supervised training.
 export
 epochNative :
+  {d : Device} ->
   {i, o, n : Nat} ->
   {hs : List Nat} ->
   NativeOptimizer ->
-  Vect n (DataPoint i o Variable) ->
-  LossFunction Variable ->
-  Network i hs o Variable ->
-  (Network i hs o Variable, Double)
+  Vect n (DataPoint i o (Variable d)) ->
+  LossFunction (Variable d) ->
+  Network i hs o (Variable d) ->
+  (Network i hs o (Variable d), Double)
 epochNative opt dataPoints lossFn model =
   let loss = calculateLossVar lossFn model dataPoints
       lossVal = nativeTrainStep opt loss
@@ -297,8 +310,8 @@ epochNative opt dataPoints lossFn model =
 
 ||| Tensor-level loss function: takes raw tensor handles (pred, target) -> Variable.
 public export
-0 LossFnTensor : Type
-LossFnTensor = AnyPtr -> AnyPtr -> Variable
+0 LossFnTensor : Device -> Type
+LossFnTensor d = AnyPtr -> AnyPtr -> Variable d
 
 ||| Tensor-level native epoch: bypasses scalar packing/unpacking entirely.
 ||| Accepts DataPoint Double (raw data), bulk-converts to C tensors,
@@ -306,13 +319,14 @@ LossFnTensor = AnyPtr -> AnyPtr -> Variable
 ||| ~99% fewer FFI calls than epochNative.
 export
 epochNativeTensor :
+  {d : Device} ->
   {i, o, n : Nat} ->
   {hs : List Nat} ->
   NativeOptimizer ->
   Vect n (DataPoint i o Double) ->
-  LossFnTensor ->
-  Network i hs o Variable ->
-  (Network i hs o Variable, Double)
+  LossFnTensor d ->
+  Network i hs o (Variable d) ->
+  (Network i hs o (Variable d), Double)
 epochNativeTensor opt dataPoints lossFn model =
   let -- Bulk-convert inputs and targets to C tensors (1 FFI call each)
       tensorPairs = map (\dp => (bulkToTensor (x dp), bulkToTensor (y dp))) dataPoints
@@ -321,11 +335,11 @@ epochNativeTensor opt dataPoints lossFn model =
         let (m', outT) = forwardVarTensor m inT
             loss = lossFn outT tgtT
         in (m', loss :: acc))
-        (the (Network i hs o Variable, List Variable) (model, [])) tensorPairs
+        (the (Network i hs o (Variable d), List (Variable d)) (model, [])) tensorPairs
       -- Mean loss
-      totalLoss = foldl (\acc, l => acc + l) (the Variable (fromDouble 0.0)) losses
+      totalLoss = foldl (\acc, l => acc + l) (the (Variable d) (fromDouble 0.0)) losses
       nf = fromDouble (cast (natToInteger n))
-      avgLoss : Variable
+      avgLoss : Variable d
       avgLoss = totalLoss / nf
       lossVal = nativeTrainStep opt avgLoss
   in (model, lossVal)
@@ -334,22 +348,23 @@ epochNativeTensor opt dataPoints lossFn model =
 ||| Zero conversion overhead — tensors are created directly by the data generator.
 export
 epochNativeTensorPre :
+  {d : Device} ->
   {i, o, n : Nat} ->
   {hs : List Nat} ->
   NativeOptimizer ->
   Vect n (TensorDataPoint i o) ->
-  LossFnTensor ->
-  Network i hs o Variable ->
-  (Network i hs o Variable, Double)
+  LossFnTensor d ->
+  Network i hs o (Variable d) ->
+  (Network i hs o (Variable d), Double)
 epochNativeTensorPre opt dataPoints lossFn model =
   let (_, losses) = foldl (\(m, acc), dp =>
         let (m', outT) = forwardVarTensor m (inputTensor dp)
             loss = lossFn outT (targetTensor dp)
         in (m', loss :: acc))
-        (the (Network i hs o Variable, List Variable) (model, [])) dataPoints
-      totalLoss = foldl (\acc, l => acc + l) (the Variable (fromDouble 0.0)) losses
+        (the (Network i hs o (Variable d), List (Variable d)) (model, [])) dataPoints
+      totalLoss = foldl (\acc, l => acc + l) (the (Variable d) (fromDouble 0.0)) losses
       nf = fromDouble (cast (natToInteger n))
-      avgLoss : Variable
+      avgLoss : Variable d
       avgLoss = totalLoss / nf
       lossVal = nativeTrainStep opt avgLoss
   in (model, lossVal)
@@ -359,14 +374,15 @@ epochNativeTensorPre opt dataPoints lossFn model =
 ||| then steps once. Simulates a batch size of n with less memory.
 export
 epochNativeTensorPreAccum :
+  {d : Device} ->
   {i, o, n : Nat} ->
   {hs : List Nat} ->
   NativeOptimizer ->
   (accumSteps : Nat) ->
   Vect n (TensorDataPoint i o) ->
-  LossFnTensor ->
-  Network i hs o Variable ->
-  (Network i hs o Variable, Double)
+  LossFnTensor d ->
+  Network i hs o (Variable d) ->
+  (Network i hs o (Variable d), Double)
 epochNativeTensorPreAccum opt accumSteps dataPoints lossFn model =
   let allDps = toList dataPoints
       totalLossVal = goAccum allDps 0.0 accumSteps
@@ -401,28 +417,29 @@ epochNativeTensorPreAccum opt accumSteps dataPoints lossFn model =
 ||| batch size, returns a list of output tensor handles.
 export
 epochNativeTensorBatch :
+  {d : Device} ->
   {i, o, n : Nat} ->
   {hs : List Nat} ->
   NativeOptimizer ->
   Vect n (TensorDataPoint i o) ->
   (List AnyPtr -> Int -> List AnyPtr) ->
-  LossFnTensor ->
-  Network i hs o Variable ->
-  (Network i hs o Variable, Double)
+  LossFnTensor d ->
+  Network i hs o (Variable d) ->
+  (Network i hs o (Variable d), Double)
 epochNativeTensorBatch {n} opt dataPoints batchFwd lossFn model =
   let nI = cast {to=Int} (natToInteger n)
       inputs = toList (map inputTensor dataPoints)
       targets = toList (map targetTensor dataPoints)
       outputs = batchFwd inputs nI
       losses = zipLoss outputs targets
-      totalLoss = foldl (\acc, l => acc + l) (the Variable (fromDouble 0.0)) losses
+      totalLoss = foldl (\acc, l => acc + l) (the (Variable d) (fromDouble 0.0)) losses
       nf = fromDouble (cast (natToInteger n))
-      avgLoss : Variable
+      avgLoss : Variable d
       avgLoss = totalLoss / nf
       lossVal = nativeTrainStep opt avgLoss
   in (model, lossVal)
   where
-    zipLoss : List AnyPtr -> List AnyPtr -> List Variable
+    zipLoss : List AnyPtr -> List AnyPtr -> List (Variable d)
     zipLoss [] _ = []
     zipLoss _ [] = []
     zipLoss (o :: os) (t :: ts) = lossFn o t :: zipLoss os ts
@@ -432,13 +449,14 @@ epochNativeTensorBatch {n} opt dataPoints batchFwd lossFn model =
 ||| Converts from RecurrentDataPoint Double by bulk-creating tensors.
 export
 epochRecurrentNativeTensor :
+  {d : Device} ->
   {i, o, n : Nat} ->
   {hs : List Nat} ->
   NativeOptimizer ->
   Vect n (RecurrentDataPoint i o Double) ->
-  LossFnTensor ->
-  Network i hs o Variable ->
-  (Network i hs o Variable, Double)
+  LossFnTensor d ->
+  Network i hs o (Variable d) ->
+  (Network i hs o (Variable d), Double)
 epochRecurrentNativeTensor opt dataPoints lossFn model =
   let -- Process each sequence: reset state, forward timesteps, compute loss
       seqLosses = toList $ map (\dp =>
@@ -448,24 +466,24 @@ epochRecurrentNativeTensor opt dataPoints lossFn model =
               let inT = bulkToTensor x
                   (m', outT) = forwardVarTensor m inT
               in (m', outT :: outs))
-              (the (Network i hs o Variable, List AnyPtr) (m0, []))
+              (the (Network i hs o (Variable d), List AnyPtr) (m0, []))
               (xs dp)
             revOuts = reverse outTs
             -- Compute per-timestep loss and average
             tgtTs = map bulkToTensor (ys dp)
             stepLosses = zipLoss revOuts tgtTs
-            seqLoss = foldl (\acc, l => acc + l) (the Variable (fromDouble 0.0)) stepLosses
+            seqLoss = foldl (\acc, l => acc + l) (the (Variable d) (fromDouble 0.0)) stepLosses
             nSteps = fromDouble (cast (length stepLosses))
         in seqLoss / nSteps) dataPoints
       -- Average across sequences
-      totalLoss = foldl (\acc, l => acc + l) (the Variable (fromDouble 0.0)) seqLosses
+      totalLoss = foldl (\acc, l => acc + l) (the (Variable d) (fromDouble 0.0)) seqLosses
       nSeqs = fromDouble (cast (natToInteger n))
-      avgLoss : Variable
+      avgLoss : Variable d
       avgLoss = totalLoss / nSeqs
       lossVal = nativeTrainStep opt avgLoss
   in (model, lossVal)
   where
-    zipLoss : List AnyPtr -> List AnyPtr -> List Variable
+    zipLoss : List AnyPtr -> List AnyPtr -> List (Variable d)
     zipLoss [] _ = []
     zipLoss _ [] = []
     zipLoss (o :: os) (t :: ts) = lossFn o t :: zipLoss os ts
@@ -475,12 +493,13 @@ epochRecurrentNativeTensor opt dataPoints lossFn model =
 ||| Decode phase: forward zeros, collect outputs, compute BCE loss.
 export
 epochTwoPhaseTensor :
+  {d : Device} ->
   {i, o, n : Nat} ->
   {hs : List Nat} ->
   NativeOptimizer ->
   Vect n (TwoPhaseDataPoint i o Double) ->
-  Network i hs o Variable ->
-  (Network i hs o Variable, Double)
+  Network i hs o (Variable d) ->
+  (Network i hs o (Variable d), Double)
 epochTwoPhaseTensor opt dataPoints model =
   let seqLosses = toList $ map (\dp =>
         let m0 = resetNetworkState model
@@ -494,23 +513,23 @@ epochTwoPhaseTensor opt dataPoints model =
             (_, outTs) = foldl (\(m, outs), _ =>
               let (m', outT) = forwardVarTensor m zeroT
               in (m', outT :: outs))
-              (the (Network i hs o Variable, List AnyPtr) (mEnc, []))
+              (the (Network i hs o (Variable d), List AnyPtr) (mEnc, []))
               (targets dp)
             revOuts = reverse outTs
             tgtTs = map bulkToTensor (targets dp)
             stepLosses = zipLossBce revOuts tgtTs
-            seqLoss = foldl (\acc, l => acc + l) (the Variable (fromDouble 0.0)) stepLosses
+            seqLoss = foldl (\acc, l => acc + l) (the (Variable d) (fromDouble 0.0)) stepLosses
             nSteps = fromDouble (cast (length stepLosses))
         in seqLoss / nSteps) dataPoints
-      totalLoss = foldl (\acc, l => acc + l) (the Variable (fromDouble 0.0)) seqLosses
+      totalLoss = foldl (\acc, l => acc + l) (the (Variable d) (fromDouble 0.0)) seqLosses
       nSeqs = fromDouble (cast (natToInteger n))
-      avgLoss : Variable
+      avgLoss : Variable d
       avgLoss = totalLoss / nSeqs
       lossVal = nativeTrainStep opt avgLoss
   in (model, lossVal)
   where
     -- BCE with logits: max(x,0) - x*y + log(1+exp(-|x|))
-    bceTensor : AnyPtr -> AnyPtr -> Variable
+    bceTensor : AnyPtr -> AnyPtr -> Variable d
     bceTensor predT targetT =
       let relu_x = prim__clampMin predT 0.0
           xy = prim__mul predT targetT
@@ -524,7 +543,7 @@ epochTwoPhaseTensor opt dataPoints model =
           val = prim__item result
       in Var result Nothing val
 
-    zipLossBce : List AnyPtr -> List AnyPtr -> List Variable
+    zipLossBce : List AnyPtr -> List AnyPtr -> List (Variable d)
     zipLossBce [] _ = []
     zipLossBce _ [] = []
     zipLossBce (o :: os) (t :: ts) = bceTensor o t :: zipLossBce os ts
@@ -532,13 +551,14 @@ epochTwoPhaseTensor opt dataPoints model =
 ||| Native epoch for recurrent training.
 export
 epochRecurrentNative :
+  {d : Device} ->
   {i, o, n : Nat} ->
   {hs : List Nat} ->
   NativeOptimizer ->
-  Vect n (RecurrentDataPoint i o Variable) ->
-  LossFunction Variable ->
-  Network i hs o Variable ->
-  (Network i hs o Variable, Double)
+  Vect n (RecurrentDataPoint i o (Variable d)) ->
+  LossFunction (Variable d) ->
+  Network i hs o (Variable d) ->
+  (Network i hs o (Variable d), Double)
 epochRecurrentNative opt dataPoints lossFn model =
   let loss = calculateLossRecurrentVar lossFn model dataPoints
       lossVal = nativeTrainStep opt loss
@@ -547,14 +567,15 @@ epochRecurrentNative opt dataPoints lossFn model =
 ||| Simple native training loop: run N epochs, return final model.
 export
 trainNative :
+  {d : Device} ->
   {i, o, n : Nat} ->
   {hs : List Nat} ->
   NativeOptimizer ->
-  Network i hs o Variable ->
-  Vect n (DataPoint i o Variable) ->
-  LossFunction Variable ->
+  Network i hs o (Variable d) ->
+  Vect n (DataPoint i o (Variable d)) ->
+  LossFunction (Variable d) ->
   Int ->
-  Network i hs o Variable
+  Network i hs o (Variable d)
 trainNative opt model dataPoints lossFn epochs =
   foldl (\m, _ =>
     let (m', _) = epochNative opt dataPoints lossFn m

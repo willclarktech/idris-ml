@@ -10,6 +10,7 @@ module Layer.BatchNorm
 
 import Data.Vect
 
+import Device
 import Endofunctor
 import Floating
 import Init
@@ -51,9 +52,9 @@ export
   LayerLike (BatchNormState channels spatialDim) where
 
   applyGeneric _ _ = idris_crash "BatchNorm: use tensor path"
-  applyVar _ _ = idris_crash "BatchNorm: use tensor path"
+  applyVar {d} _ _ = idris_crash "BatchNorm: use tensor path"
 
-  applyVarTensor {i} {o} st inputT =
+  applyVarTensor {d} {i} {o} st inputT =
     case (st.gammaTensor, st.betaTensor, st.meanTensor, st.varTensor) of
       (Just gT, Just bT, Just mT, Just vT) =>
         let cI = cast {to=Int} channels
@@ -69,7 +70,7 @@ export
 
   showLayer _ = "BatchNorm<" ++ show channels ++ ">"
 
-  nameLayer {i} {o} prefx (MkBatchNorm ip op gamma beta t m e _ _ _ _) =
+  nameLayer {d} {i} {o} prefx (MkBatchNorm ip op gamma beta t m e _ _ _ _) =
     if prim__backendSupportsTensorParams == 1
       then
         let cI = cast {to=Int} channels
@@ -107,7 +108,7 @@ export
 
   layerPrefix _ = "bn"
 
-  toDoubleLayer (MkBatchNorm ip op g b _ m e _ _ _ _) =
+  toDoubleLayer {d} (MkBatchNorm ip op g b _ m e _ _ _ _) =
     MkBatchNorm ip op (map value g) (map value b) False m e Nothing Nothing Nothing Nothing
 
   setTraining mode (MkBatchNorm ip op g b _ m e gt bt mt vt) =

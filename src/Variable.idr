@@ -6,6 +6,7 @@ import Data.SortedMap
 import Data.Vect
 import System.Random
 
+import Device
 import Floating
 import Tensor
 import Util
@@ -510,7 +511,7 @@ export
 prim__setInt : AnyPtr -> Int -> Int -> AnyPtr
 
 public export
-record Variable where
+record Variable (0 d : Device) where
   constructor Var
   tensorPtr : AnyPtr
   paramId : Maybe String
@@ -518,7 +519,7 @@ record Variable where
 
 -- Pack scalar Variable values into a pre-allocated double buffer.
 export
-packScalarValues : AnyPtr -> Int -> Vect k (Scalar Variable) -> AnyPtr
+packScalarValues : {d : Device} -> AnyPtr -> Int -> Vect k (Scalar (Variable d)) -> AnyPtr
 packScalarValues buf _ [] = buf
 packScalarValues buf off (STensor v :: rest) =
   let buf' = prim__setDouble buf off v.value
@@ -526,7 +527,7 @@ packScalarValues buf off (STensor v :: rest) =
 
 -- Pack all rows of a matrix into a flat double buffer (row-major).
 export
-packMatrixValues : AnyPtr -> Int -> {n : Nat} -> Vect m (Vector n Variable) -> AnyPtr
+packMatrixValues : {d : Device} -> AnyPtr -> Int -> {n : Nat} -> Vect m (Vector n (Variable d)) -> AnyPtr
 packMatrixValues buf _ {m=Z} [] = buf
 packMatrixValues buf off {m=S k} {n} (VTensor row :: rows) =
   let buf' = packScalarValues buf off row
@@ -536,7 +537,7 @@ packMatrixValues buf off {m=S k} {n} (VTensor row :: rows) =
 -- The tensor inherits requires_grad if any input has it.
 -- vecToTensor (value-based): pack scalar values into a C buffer.
 -- Does NOT preserve autograd graph — use for non-differentiable contexts only.
-vecToTensor : {n : Nat} -> Vect n (Scalar Variable) -> (requiresGrad : Int) -> AnyPtr
+vecToTensor : {d : Device} -> {n : Nat} -> Vect n (Scalar (Variable d)) -> (requiresGrad : Int) -> AnyPtr
 vecToTensor {n} elems rg =
   let nI = cast {to=Int} n
       buf = prim__allocDoubles nI
@@ -545,7 +546,7 @@ vecToTensor {n} elems rg =
 
 -- matToTensor (value-based): pack matrix values into a C buffer.
 -- Does NOT preserve autograd graph.
-matToTensor : {m, n : Nat} -> Vect m (Vector n Variable) -> (requiresGrad : Int) -> AnyPtr
+matToTensor : {d : Device} -> {m, n : Nat} -> Vect m (Vector n (Variable d)) -> (requiresGrad : Int) -> AnyPtr
 matToTensor {m} {n} rows rg =
   let mI = cast {to=Int} m
       nI = cast {to=Int} n
@@ -554,7 +555,7 @@ matToTensor {m} {n} rows rg =
   in prim__create2d mI nI buf' rg
 
 -- Pack scalar Variable tensorPtrs into a C pointer array (for torch::stack).
-packScalarPtrs : AnyPtr -> Int -> Vect k (Scalar Variable) -> AnyPtr
+packScalarPtrs : {d : Device} -> AnyPtr -> Int -> Vect k (Scalar (Variable d)) -> AnyPtr
 packScalarPtrs arr _ [] = arr
 packScalarPtrs arr off (STensor v :: rest) =
   let arr' = prim__ptrArraySet arr off v.tensorPtr
@@ -563,7 +564,7 @@ packScalarPtrs arr off (STensor v :: rest) =
 -- vecStackTensor: stack scalar Variable tensorPtrs into a 1D tensor.
 -- PRESERVES autograd graph — use for differentiable ops (dot, softmax, etc.)
 export
-vecStackTensor : {n : Nat} -> Vect n (Scalar Variable) -> AnyPtr
+vecStackTensor : {d : Device} -> {n : Nat} -> Vect n (Scalar (Variable d)) -> AnyPtr
 vecStackTensor {n} elems =
   let nI = cast {to=Int} n
       arr = prim__ptrArrayAlloc nI
@@ -571,7 +572,7 @@ vecStackTensor {n} elems =
   in prim__stackFromArray arr' nI 0
 
 -- Pack a matrix (Vect of Vectors) of tensorPtrs into a flat pointer array (row-major).
-packMatrixPtrs : AnyPtr -> Int -> {n : Nat} -> Vect m (Vector n Variable) -> AnyPtr
+packMatrixPtrs : {d : Device} -> AnyPtr -> Int -> {n : Nat} -> Vect m (Vector n (Variable d)) -> AnyPtr
 packMatrixPtrs arr _ {m=Z} [] = arr
 packMatrixPtrs arr off {m=S k} {n} (VTensor row :: rows) =
   let arr' = packScalarPtrs arr off row
@@ -595,7 +596,7 @@ prim__createParam4d : Int -> Int -> Int -> Int -> AnyPtr -> AnyPtr
 -- matStackTensor: stack matrix Variable tensorPtrs into a 2D tensor.
 -- PRESERVES autograd graph.
 export
-matStackTensor : {m, n : Nat} -> Vect m (Vector n Variable) -> AnyPtr
+matStackTensor : {d : Device} -> {m, n : Nat} -> Vect m (Vector n (Variable d)) -> AnyPtr
 matStackTensor {m} {n} rows =
   let mI = cast {to=Int} m
       nI = cast {to=Int} n
@@ -607,7 +608,7 @@ matStackTensor {m} {n} rows =
 
 -- Read k scalar values from a 1D libtorch tensor into a Vect.
 export
-tensorToScalars : AnyPtr -> Int -> (k : Nat) -> Vect k (Scalar Variable)
+tensorToScalars : {d : Device} -> AnyPtr -> Int -> (k : Nat) -> Vect k (Scalar (Variable d))
 tensorToScalars _ _ Z = []
 tensorToScalars t off (S k) =
   let elemPtr = prim__select t 0 off
@@ -620,36 +621,36 @@ tensorToScalars t off (S k) =
 ----------------------------------------------------------------------
 
 export
-Show Variable where
+{d : Device} -> Show (Variable d) where
   show v =
     "Var" ++
     (case v.paramId of (Just pid) => "<" ++ pid ++ ">"; Nothing => "") ++
     "(" ++ show v.value ++ ")"
 
 public export
-implementation Eq Variable where
+{d : Device} -> Eq (Variable d) where
   v1 == v2 = v1.value == v2.value
 
 public export
-implementation Ord Variable where
+{d : Device} -> Ord (Variable d) where
   v1 < v2 = v1.value < v2.value
 
 public export
-implementation FromDouble Variable where
+{d : Device} -> FromDouble (Variable d) where
   fromDouble n =
     let ptr = prim__createScalar n 0
     in Var ptr Nothing n
 
 public export
-implementation Cast Variable Double where
+{d : Device} -> Cast (Variable d) Double where
   cast v = v.value
 
 public export
-implementation Cast Double Variable where
+{d : Device} -> Cast Double (Variable d) where
   cast = fromDouble
 
 public export
-implementation Random Variable where
+{d : Device} -> Random (Variable d) where
   randomIO = map fromDouble randomIO
   randomRIO (lo, hi) = map fromDouble (randomRIO (lo.value, hi.value))
 
@@ -659,7 +660,7 @@ implementation Random Variable where
 ----------------------------------------------------------------------
 
 public export
-implementation Num Variable where
+{d : Device} -> Num (Variable d) where
   v1 + v2 =
     let ptr = prim__add v1.tensorPtr v2.tensorPtr
         val = v1.value + v2.value
@@ -675,7 +676,7 @@ implementation Num Variable where
     in fromDouble val
 
 public export
-implementation Neg Variable where
+{d : Device} -> Neg (Variable d) where
   v1 - v2 =
     let ptr = prim__sub v1.tensorPtr v2.tensorPtr
         val = v1.value - v2.value
@@ -687,21 +688,21 @@ implementation Neg Variable where
     in Var ptr Nothing val
 
 public export
-implementation Abs Variable where
+{d : Device} -> Abs (Variable d) where
   abs v =
     let ptr = prim__abs v.tensorPtr
         val = abs v.value
     in Var ptr Nothing val
 
 public export
-implementation Fractional Variable where
+{d : Device} -> Fractional (Variable d) where
   v1 / v2 =
     let ptr = prim__div v1.tensorPtr v2.tensorPtr
         val = v1.value / v2.value
     in Var ptr Nothing val
 
 public export
-implementation Floating Variable where
+{d : Device} -> Floating (Variable d) where
   exp v =
     let ptr = prim__exp v.tensorPtr
         val = exp v.value
@@ -731,7 +732,7 @@ implementation Floating Variable where
 ||| When clamped, the output is a detached constant (no gradient).
 ||| When within bounds, the original variable passes through unchanged.
 export
-clampVar : Double -> Double -> Variable -> Variable
+clampVar : {d : Device} -> Double -> Double -> Variable d -> Variable d
 clampVar lo hi v =
   if v.value < lo then fromDouble lo
   else if v.value > hi then fromDouble hi
@@ -744,7 +745,7 @@ clampVar lo hi v =
 
 ||| Sigmoid with libtorch autograd.
 export
-sigmoidVar : Variable -> Variable
+sigmoidVar : {d : Device} -> Variable d -> Variable d
 sigmoidVar v =
   let ptr = prim__sigmoid v.tensorPtr
       val = 1.0 / (1.0 + exp (negate v.value))
@@ -752,7 +753,7 @@ sigmoidVar v =
 
 ||| Tanh with libtorch autograd.
 export
-tanhVar : Variable -> Variable
+tanhVar : {d : Device} -> Variable d -> Variable d
 tanhVar v =
   let ptr = prim__tanh v.tensorPtr
       val = 2.0 / (1.0 + exp (negate (2.0 * v.value))) - 1.0
@@ -764,19 +765,19 @@ tanhVar v =
 ----------------------------------------------------------------------
 
 export
-setParamId : String -> Variable -> Variable
+setParamId : {d : Device} -> String -> Variable d -> Variable d
 setParamId pid v =
   let ptr = prim__paramRegister pid v.tensorPtr
   in Var ptr (Just pid) v.value
 
 export
-param : String -> Double -> Variable
+param : {d : Device} -> String -> Double -> Variable d
 param pid val =
   let ptr = prim__createScalar val 1  -- requires_grad=true for parameters
   in setParamId pid (Var ptr Nothing val)
 
 export
-nameParam : String -> Nat -> Variable -> Variable
+nameParam : {d : Device} -> String -> Nat -> Variable d -> Variable d
 nameParam prefx i p = setParamId (prefx ++ show i) p
 
 
@@ -788,7 +789,7 @@ export infixl 9 <>
 
 ||| Matrix-vector multiply using libtorch (autograd-tracked).
 export
-matrixVectorMultiplyVar : {m, n : Nat} -> Matrix m n Variable -> Vector n Variable -> Vector m Variable
+matrixVectorMultiplyVar : {d : Device} -> {m, n : Nat} -> Matrix m n (Variable d) -> Vector n (Variable d) -> Vector m (Variable d)
 matrixVectorMultiplyVar {m} {n} (VTensor rows) (VTensor xs) =
   let matTensor = matStackTensor rows
       vecTensor = vecStackTensor xs
@@ -799,12 +800,12 @@ matrixVectorMultiplyVar {m} {n} (VTensor rows) (VTensor xs) =
 ||| Infix matrix-vector multiply (autograd-tracked): [m, n] <> [n] -> [m]
 namespace MatVecVar
   export
-  (<>) : {m, n : Nat} -> Matrix m n Variable -> Vector n Variable -> Vector m Variable
+  (<>) : {d : Device} -> {m, n : Nat} -> Matrix m n (Variable d) -> Vector n (Variable d) -> Vector m (Variable d)
   (<>) = matrixVectorMultiplyVar
 
 ||| Dot product using libtorch (autograd-preserving).
 export
-dotProductVar : {n : Nat} -> Vector n Variable -> Vector n Variable -> Variable
+dotProductVar : {d : Device} -> {n : Nat} -> Vector n (Variable d) -> Vector n (Variable d) -> Variable d
 dotProductVar {n} (VTensor as) (VTensor bs) =
   let aTensor = vecStackTensor as
       bTensor = prim__seq aTensor (vecStackTensor bs)
@@ -819,7 +820,7 @@ dotProductVar {n} (VTensor as) (VTensor bs) =
 
 ||| Fused binary cross-entropy with logits loss using libtorch.
 export
-bceWithLogitsVar : {n : Nat} -> Vector n Variable -> Vector n Variable -> Variable
+bceWithLogitsVar : {d : Device} -> {n : Nat} -> Vector n (Variable d) -> Vector n (Variable d) -> Variable d
 bceWithLogitsVar {n} (VTensor preds) (VTensor targets) =
   let predTensor = vecStackTensor preds
       targetTensor = vecStackTensor targets
@@ -834,7 +835,7 @@ bceWithLogitsVar {n} (VTensor preds) (VTensor targets) =
 
 ||| Softmax using libtorch (autograd-tracked).
 export
-softmaxVar : {n : Nat} -> Vector n Variable -> Vector n Variable
+softmaxVar : {d : Device} -> {n : Nat} -> Vector n (Variable d) -> Vector n (Variable d)
 softmaxVar {n} (VTensor xs) =
   let inTensor = vecStackTensor xs
       result = prim__softmax inTensor 0
@@ -842,7 +843,7 @@ softmaxVar {n} (VTensor xs) =
 
 ||| LogSoftmax using libtorch.
 export
-logSoftmaxVar : {n : Nat} -> Vector n Variable -> Vector n Variable
+logSoftmaxVar : {d : Device} -> {n : Nat} -> Vector n (Variable d) -> Vector n (Variable d)
 logSoftmaxVar {n} (VTensor xs) =
   let inTensor = vecStackTensor xs
       result = prim__logSoftmax inTensor 0
@@ -857,7 +858,7 @@ logSoftmaxVar {n} (VTensor xs) =
 ||| k is a query vector [w], M is a memory matrix [n x w].
 ||| Returns scores [n] (not softmaxed — softmax applied downstream).
 export
-batchCosineSimilarityVar : {n, w : Nat} -> Variable -> Matrix n w Variable -> Vector w Variable -> Vector n Variable
+batchCosineSimilarityVar : {d : Device} -> {n, w : Nat} -> Variable d -> Matrix n w (Variable d) -> Vector w (Variable d) -> Vector n (Variable d)
 batchCosineSimilarityVar {n} {w} beta (VTensor memRows) (VTensor keyElems) =
   let memTensor = matStackTensor memRows     -- [n, w], autograd-connected
       keyTensor = vecStackTensor keyElems    -- [w], autograd-connected
@@ -869,7 +870,7 @@ batchCosineSimilarityVar {n} {w} beta (VTensor memRows) (VTensor keyElems) =
 ||| NTM read: weighted sum of memory rows.
 ||| read(w, M) = w^T * M (w is attention weights [n], M is memory [n x w_dim])
 export
-readOpVar : {n, w : Nat} -> Vector n Variable -> Matrix n w Variable -> Vector w Variable
+readOpVar : {d : Device} -> {n, w : Nat} -> Vector n (Variable d) -> Matrix n w (Variable d) -> Vector w (Variable d)
 readOpVar {n} {w} (VTensor wts) (VTensor memRows) =
   let wtTensor = vecStackTensor wts       -- [n], autograd-connected
       memTensor = matStackTensor memRows   -- [n, w], autograd-connected
@@ -879,8 +880,8 @@ readOpVar {n} {w} (VTensor wts) (VTensor memRows) =
 ||| NTM write: erase + add.
 ||| write(w, M, e, a) = M * (1 - outer(w, e)) + outer(w, a)
 export
-writeOpVar : {n, w : Nat} -> Vector n Variable -> Matrix n w Variable ->
-             Vector w Variable -> Vector w Variable -> Matrix n w Variable
+writeOpVar : {d : Device} -> {n, w : Nat} -> Vector n (Variable d) -> Matrix n w (Variable d) ->
+             Vector w (Variable d) -> Vector w (Variable d) -> Matrix n w (Variable d)
 writeOpVar {n} {w} (VTensor wts) (VTensor memRows) (VTensor eraseElems) (VTensor addElems) =
   let wtTensor = vecStackTensor wts           -- [n]
       memTensor = matStackTensor memRows       -- [n, w]
@@ -900,14 +901,14 @@ writeOpVar {n} {w} (VTensor wts) (VTensor memRows) (VTensor eraseElems) (VTensor
   in -- Unpack result [n, w] back to Matrix
      VTensor $ buildMatrixFromTensor result 0 n w
   where
-    buildRow : AnyPtr -> Int -> (k : Nat) -> Vect k (Scalar Variable)
+    buildRow : AnyPtr -> Int -> (k : Nat) -> Vect k (Scalar (Variable d))
     buildRow _ _ Z = []
     buildRow t col (S k) =
       let elemPtr = prim__select (prim__select t 0 0) 0 col  -- This won't work for 2D
           val = 0.0  -- placeholder
       in STensor (Var t Nothing val) :: buildRow t (col + 1) k
 
-    buildMatrixFromTensor : AnyPtr -> Int -> (rows : Nat) -> (cols : Nat) -> Vect rows (Vector cols Variable)
+    buildMatrixFromTensor : AnyPtr -> Int -> (rows : Nat) -> (cols : Nat) -> Vect rows (Vector cols (Variable d))
     buildMatrixFromTensor _ _ Z _ = []
     buildMatrixFromTensor t row (S r) cols =
       let rowTensor = prim__select t 0 row  -- select row from [n, w] -> [w]
@@ -915,7 +916,7 @@ writeOpVar {n} {w} (VTensor wts) (VTensor memRows) (VTensor eraseElems) (VTensor
 
 ||| NTM interpolation: g * new + (1-g) * old
 export
-interpolateVar : {n : Nat} -> Variable -> Vector n Variable -> Vector n Variable -> Vector n Variable
+interpolateVar : {d : Device} -> {n : Nat} -> Variable d -> Vector n (Variable d) -> Vector n (Variable d) -> Vector n (Variable d)
 interpolateVar {n} g (VTensor newVec) (VTensor oldVec) =
   let newT = vecToTensor newVec 0
       oldT = vecToTensor oldVec 0
@@ -928,7 +929,7 @@ interpolateVar {n} g (VTensor newVec) (VTensor oldVec) =
 ||| NTM shift: circular convolution of weights with shift kernel.
 ||| Clamps output to [1e-10, ∞) to prevent negative weights feeding into focusVar.
 export
-shiftVar : {n : Nat} -> Vector n Variable -> Vector 3 Variable -> Vector n Variable
+shiftVar : {d : Device} -> {n : Nat} -> Vector n (Variable d) -> Vector 3 (Variable d) -> Vector n (Variable d)
 shiftVar {n} (VTensor wts) (VTensor shifts) =
   let wtTensor = vecStackTensor wts
       shiftTensor = vecStackTensor shifts
@@ -939,7 +940,7 @@ shiftVar {n} (VTensor wts) (VTensor shifts) =
 ||| NTM focus (sharpening): w^gamma / sum(w^gamma)
 ||| Clamps weights to [1e-10, ∞) before pow to prevent NaN from pow(0/negative, gamma).
 export
-focusVar : {n : Nat} -> Variable -> Vector n Variable -> Vector n Variable
+focusVar : {d : Device} -> {n : Nat} -> Variable d -> Vector n (Variable d) -> Vector n (Variable d)
 focusVar {n} gamma (VTensor wts) =
   let wtTensor = vecStackTensor wts
       gammaT = gamma.tensorPtr
@@ -956,7 +957,7 @@ focusVar {n} gamma (VTensor wts) =
 ||| NTM interpolation write: weights * outer(add) added to memory.
 ||| This is the simplified write used in the NTM layer (no erase gate).
 export
-interpolationWriteVar : {n, w : Nat} -> Vector n Variable -> Matrix n w Variable -> Vector w Variable -> Matrix n w Variable
+interpolationWriteVar : {d : Device} -> {n, w : Nat} -> Vector n (Variable d) -> Matrix n w (Variable d) -> Vector w (Variable d) -> Matrix n w (Variable d)
 interpolationWriteVar {n} {w} (VTensor wts) (VTensor memRows) (VTensor addElems) =
   let wtTensor = vecStackTensor wts
       memTensor = matStackTensor memRows
@@ -966,7 +967,7 @@ interpolationWriteVar {n} {w} (VTensor wts) (VTensor memRows) (VTensor addElems)
       result = prim__add memTensor addGate
   in VTensor $ buildMatrixRows result 0 n w
   where
-    buildMatrixRows : AnyPtr -> Int -> (rows : Nat) -> (cols : Nat) -> Vect rows (Vector cols Variable)
+    buildMatrixRows : AnyPtr -> Int -> (rows : Nat) -> (cols : Nat) -> Vect rows (Vector cols (Variable d))
     buildMatrixRows _ _ Z _ = []
     buildMatrixRows t row (S r) cols =
       let rowTensor = prim__select t 0 row
@@ -982,9 +983,9 @@ interpolationWriteVar {n} {w} (VTensor wts) (VTensor memRows) (VTensor addElems)
 ||| newCell = sigmoid(f) * prevCell + sigmoid(i) * tanh(g)
 ||| newHidden = sigmoid(o) * tanh(newCell)
 export
-lstmCellVar : {o : Nat} -> Vector (4 * o) Variable -> Vector (4 * o) Variable
-           -> Vector (4 * o) Variable -> Vector o Variable
-           -> (Vector o Variable, Vector o Variable)
+lstmCellVar : {d : Device} -> {o : Nat} -> Vector (4 * o) (Variable d) -> Vector (4 * o) (Variable d)
+           -> Vector (4 * o) (Variable d) -> Vector o (Variable d)
+           -> (Vector o (Variable d), Vector o (Variable d))
 lstmCellVar {o} mulIW mulRW bias prevCell =
   let combined = mulIW + mulRW + bias
       -- Split into 4 gates
@@ -996,7 +997,7 @@ lstmCellVar {o} mulIW mulRW bias prevCell =
       gGate = fst s3      -- cell gate
       -- After 3 splits from Vector (4*o), remainder is Vector (o + 0).
       -- Prove o + 0 = o via plusZeroRightNeutral.
-      oGate : Vector o Variable
+      oGate : Vector o (Variable d)
       oGate = rewrite sym (plusZeroRightNeutral o) in snd s3
       -- Apply activations and compute new cell/hidden
       newCell = map sigmoidVar fGate * prevCell + map sigmoidVar iGate * map tanhVar gGate
@@ -1034,7 +1035,7 @@ prim__backwardAndCount : AnyPtr -> Int
 prim__zeroAllGrads : Int -> Int
 
 export
-collectGrads : Double -> Variable -> SortedMap String Double
+collectGrads : {d : Device} -> Double -> Variable d -> SortedMap String Double
 collectGrads initGrad root =
   let n = prim__backwardAndCount root.tensorPtr
       grads = buildGradMap n 0 empty
@@ -1126,7 +1127,7 @@ prim__nativeTrainStep : AnyPtr -> Int -> Double -> AnyPtr -> Double -> Double
 ||| Run one native optimizer step: zero_grad → backward → clip → step.
 ||| Returns the loss value (read before step, so not stale).
 export
-nativeTrainStep : NativeOptimizer -> Variable -> Double
+nativeTrainStep : {d : Device} -> NativeOptimizer -> Variable d -> Double
 nativeTrainStep opt loss =
   let clipMode : Int
       clipMode = case opt.clipMode of NoClip => 0; ValueClip _ => 1; NormClip _ => 2
@@ -1146,7 +1147,7 @@ prim__backwardOnly : AnyPtr -> Double -> Double
 ||| Backward pass only — accumulates gradients without zeroing or stepping.
 ||| Call N times for gradient accumulation, then call nativeOptimizerStep.
 export
-nativeBackwardOnly : Variable -> Double
+nativeBackwardOnly : {d : Device} -> Variable d -> Double
 nativeBackwardOnly loss = prim__backwardOnly loss.tensorPtr loss.value
 
 -- Clip + step + zero_grad: call after N accumulations.
@@ -1167,7 +1168,7 @@ nativeOptimizerStep opt =
 ||| Refresh cached Variable.value from the underlying tensorPtr.
 ||| Needed after native optimizer step since tensor values changed in-place.
 export
-refreshValue : Variable -> Variable
+refreshValue : {d : Device} -> Variable d -> Variable d
 refreshValue v = case v.paramId of
   Just _ => { value := prim__item v.tensorPtr } v
   Nothing => v

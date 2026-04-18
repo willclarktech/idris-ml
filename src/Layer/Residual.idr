@@ -9,6 +9,7 @@ module Layer.Residual
 
 import Data.Vect
 
+import Device
 import Endofunctor
 import Floating
 import Layer.Core
@@ -36,9 +37,9 @@ data ResidualState : Nat -> Nat -> Type -> Type where
 export
 LayerLike ResidualState where
   applyGeneric _ _ = idris_crash "Residual: use tensor path"
-  applyVar _ _ = idris_crash "Residual: use tensor path"
+  applyVar {d} _ _ = idris_crash "Residual: use tensor path"
 
-  applyVarTensor (MkResidual inner) inputT =
+  applyVarTensor {d} (MkResidual inner) inputT =
     let innerPair = applyVarTensorAny inner inputT
         innerOut = snd innerPair
         inner' = fst innerPair
@@ -48,12 +49,12 @@ LayerLike ResidualState where
 
   showLayer (MkResidual inner) = "Residual<" ++ show inner ++ ">"
 
-  nameLayer pfx (MkResidual (MkAnyLayer l @{dict} layer)) =
+  nameLayer {d} pfx (MkResidual (MkAnyLayer l @{dict} layer)) =
     MkResidual (MkAnyLayer l @{dict} (nameLayer @{dict} pfx layer))
 
   layerPrefix _ = "res"
 
-  toDoubleLayer (MkResidual (MkAnyLayer l @{dict} layer)) =
+  toDoubleLayer {d} (MkResidual (MkAnyLayer l @{dict} layer)) =
     MkResidual (MkAnyLayer l @{dict} (toDoubleLayer @{dict} layer))
 
   setTraining mode (MkResidual (MkAnyLayer l @{dict} layer)) =

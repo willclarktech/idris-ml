@@ -10,6 +10,7 @@ module Layer.Embedding
 
 import Data.Vect
 
+import Device
 import Endofunctor
 import Floating
 import Init
@@ -45,9 +46,9 @@ export
   LayerLike (EmbeddingState vocabSize embedDim seqLen) where
 
   applyGeneric _ _ = idris_crash "Embedding: use tensor path"
-  applyVar _ _ = idris_crash "Embedding: use tensor path"
+  applyVar {d} _ _ = idris_crash "Embedding: use tensor path"
 
-  applyVarTensor {i} {o} st inputT =
+  applyVarTensor {d} {i} {o} st inputT =
     case st.weightTensor of
       Just wT =>
         let nI = cast {to=Int} seqLen
@@ -59,7 +60,7 @@ export
 
   showLayer _ = "Embedding<" ++ show vocabSize ++ "x" ++ show embedDim ++ ">"
 
-  nameLayer {i} {o} prefx (MkEmbedding ip op w _) =
+  nameLayer {d} {i} {o} prefx (MkEmbedding ip op w _) =
     if prim__backendSupportsTensorParams == 1
       then
         let nI = cast {to=Int} (vocabSize * embedDim)
@@ -73,7 +74,7 @@ export
 
   layerPrefix _ = "emb"
 
-  toDoubleLayer (MkEmbedding ip op w _) =
+  toDoubleLayer {d} (MkEmbedding ip op w _) =
     MkEmbedding ip op (map value w) Nothing
 
   debugApply _ _ = idris_crash "Embedding: use tensor path"

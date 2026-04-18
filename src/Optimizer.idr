@@ -3,6 +3,7 @@ module Optimizer
 import Data.Maybe
 import Data.SortedMap
 
+import Device
 import Variable
 
 
@@ -43,7 +44,7 @@ clipGrad : Double -> Double -> Double
 clipGrad maxAbs g = max (-maxAbs) (min maxAbs g)
 
 export
-applyDeltas : SortedMap String Double -> Variable -> Variable
+applyDeltas : {d : Device} -> SortedMap String Double -> Variable d -> Variable d
 applyDeltas deltas v = case v.paramId of
   Just pid => case lookup pid deltas of
     Just d  => let ptr' = prim__tensorSubScalarInplace v.tensorPtr d

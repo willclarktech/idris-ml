@@ -2,6 +2,7 @@ module Layer.LayerNorm
 
 import Data.Vect
 
+import Device
 import Endofunctor
 import Floating
 import Layer.Core
@@ -46,7 +47,7 @@ emapLayerNorm : (ty -> ty) -> LayerNormState dim ty -> LayerNormState dim ty
 emapLayerNorm f (MkLayerNorm g b gt bt) = MkLayerNorm (map f g) (map f b) gt bt
 
 export
-nameLayerNorm : {dim : Nat} -> String -> LayerNormState dim Variable -> LayerNormState dim Variable
+nameLayerNorm : {d : Device} -> {dim : Nat} -> String -> LayerNormState dim (Variable d) -> LayerNormState dim (Variable d)
 nameLayerNorm {dim} prefx (MkLayerNorm gamma beta _ _) =
   if prim__backendSupportsTensorParams == 1
     then
@@ -65,7 +66,7 @@ nameLayerNorm {dim} prefx (MkLayerNorm gamma beta _ _) =
     else MkLayerNorm gamma beta Nothing Nothing
 
 export
-toDoubleLayerNorm : {dim : Nat} -> LayerNormState dim Variable -> LayerNormState dim Double
+toDoubleLayerNorm : {d : Device} -> {dim : Nat} -> LayerNormState dim (Variable d) -> LayerNormState dim Double
 toDoubleLayerNorm {dim} (MkLayerNorm _ _ (Just gt) (Just bt)) =
   let gVec = VTensor $ map (\i => STensor (prim__item1d gt (cast (finToNat i))))
                            (Data.Vect.Fin.range {len=dim})
@@ -78,9 +79,9 @@ toDoubleLayerNorm (MkLayerNorm g b _ _) =
               Nothing Nothing
 
 export
-getLayerNormParamIds : LayerNormState dim Variable -> List String
+getLayerNormParamIds : {d : Device} -> LayerNormState dim (Variable d) -> List String
 getLayerNormParamIds (MkLayerNorm (VTensor gElems) (VTensor bElems) _ _) =
-  let getIds : Vect k (Scalar Variable) -> List String
+  let getIds : Vect k (Scalar (Variable d)) -> List String
       getIds [] = []
       getIds (STensor (Var _ (Just pid) _) :: rest) = pid :: getIds rest
       getIds (_ :: rest) = getIds rest
@@ -88,10 +89,10 @@ getLayerNormParamIds (MkLayerNorm (VTensor gElems) (VTensor bElems) _ _) =
 
 ||| Extract the gamma AnyPtr handle.
 export
-extractGammaTensor : LayerNormState dim Variable -> Maybe AnyPtr
+extractGammaTensor : {d : Device} -> LayerNormState dim (Variable d) -> Maybe AnyPtr
 extractGammaTensor st = st.gammaTensor
 
 ||| Extract the beta AnyPtr handle.
 export
-extractBetaTensor : LayerNormState dim Variable -> Maybe AnyPtr
+extractBetaTensor : {d : Device} -> LayerNormState dim (Variable d) -> Maybe AnyPtr
 extractBetaTensor st = st.betaTensor

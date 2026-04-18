@@ -8,6 +8,7 @@ module Layer.Dropout
 
 import Data.Vect
 
+import Device
 import Endofunctor
 import Floating
 import Layer.Core
@@ -46,9 +47,9 @@ record DropoutState (n : Nat) (inputSize : Nat) (outputSize : Nat) (ty : Type) w
 export
 {n : Nat} -> LayerLike (DropoutState n) where
   applyGeneric _ _ = idris_crash "Dropout: use tensor path"
-  applyVar _ _ = idris_crash "Dropout: use tensor path"
+  applyVar {d} _ _ = idris_crash "Dropout: use tensor path"
 
-  applyVarTensor {i} {o} st@(MkDropout dp op p t) inputT =
+  applyVarTensor {d} {i} {o} st@(MkDropout dp op p t) inputT =
     if t
       then let seed = dropoutSeed 0
            in (st, prim__dropout inputT p 1 seed)
@@ -56,9 +57,9 @@ export
 
   emapLayer _ st = st
   showLayer (MkDropout _ _ p _) = "Dropout<p=" ++ show p ++ ">"
-  nameLayer _ st = st
+  nameLayer {d} _ st = st
   layerPrefix _ = "drop"
-  toDoubleLayer (MkDropout dp op p _) = MkDropout dp op p False
+  toDoubleLayer {d} (MkDropout dp op p _) = MkDropout dp op p False
 
   setTraining mode (MkDropout dp op p _) = MkDropout dp op p mode
 

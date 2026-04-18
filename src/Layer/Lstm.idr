@@ -3,6 +3,7 @@ module Layer.Lstm
 import Data.Vect
 import Data.Zippable
 
+import Device
 import Endofunctor
 import Floating
 import Init
@@ -78,11 +79,11 @@ extractCellState st = st.cellState
 
 ||| Extract hidden/cell tensor handles (for NTM direct tensor pipeline).
 export
-extractHiddenTensor : LstmState i o Variable -> Maybe AnyPtr
+extractHiddenTensor : {d : Device} -> LstmState i o (Variable d) -> Maybe AnyPtr
 extractHiddenTensor st = st.hiddenTensor
 
 export
-extractCellTensor : LstmState i o Variable -> Maybe AnyPtr
+extractCellTensor : {d : Device} -> LstmState i o (Variable d) -> Maybe AnyPtr
 extractCellTensor st = st.cellTensor
 
 
@@ -138,14 +139,14 @@ LayerLike LstmState where
       sig : ty -> ty
       sig x = 1 / (1 + exp (-x))
 
-  applyVar {i} {o} st xs =
+  applyVar {d} {i} {o} st xs =
     let (VTensor xElems) = xs
         inputT = vecStackTensor {n=i} xElems
         (st', outT) = applyVarTensor st inputT
         output = VTensor $ tensorToScalars outT 0 o
     in (st', output)
 
-  applyVarTensor {i} {o} st@(MkLstm iw rw b hs cs iwT rwT bT hT cT) inputT =
+  applyVarTensor {d} {i} {o} st@(MkLstm iw rw b hs cs iwT rwT bT hT cT) inputT =
     case (iwT, rwT, bT) of
       (Just iwTensor, Just rwTensor, Just biasTensor) =>
         let oI = cast {to=Int} o
@@ -167,7 +168,7 @@ LayerLike LstmState where
 
   showLayer {i} {o} _ = "Lstm<" ++ show i ++ ":" ++ show o ++ ">"
 
-  nameLayer {i} {o} prefx (MkLstm iw rw b hs cs _ _ _ _ _) =
+  nameLayer {d} {i} {o} prefx (MkLstm iw rw b hs cs _ _ _ _ _) =
     if prim__backendSupportsTensorParams == 1
       then -- Tensor path
         let (VTensor iwRows) = iw
@@ -200,7 +201,7 @@ LayerLike LstmState where
 
   layerPrefix _ = "lstm"
 
-  toDoubleLayer {i} {o} (MkLstm iw rw b hs cs iwT rwT bT _ _) =
+  toDoubleLayer {d} {i} {o} (MkLstm iw rw b hs cs iwT rwT bT _ _) =
     case (iwT, rwT, bT) of
       (Just iwTensor, Just rwTensor, Just biasTensor) =>
         let wIW = buildDoubleMatrix iwTensor 0 (4 * o) i
@@ -229,10 +230,10 @@ LayerLike LstmState where
     in (updated, out, MkDebugEntry ("Lstm<" ++ show i ++ ":" ++ show o ++ ">")
          [("hidden", showVecD st.hiddenState), ("cell", showVecD st.cellState)])
 
-  getParamIds (MkLstm iw rw b hs cs _ _ _ _ _) =
+  getParamIds {d} (MkLstm iw rw b hs cs _ _ _ _ _) =
     tensorIds iw ++ tensorIds rw ++ tensorIds b ++ tensorIds hs ++ tensorIds cs
     where
-      tensorIds : {dims : Vect rank Nat} -> Tensor dims Variable -> List String
+      tensorIds : {dims : Vect rank Nat} -> Tensor dims (Variable d) -> List String
       tensorIds = mapMaybe paramId . toList
 
 

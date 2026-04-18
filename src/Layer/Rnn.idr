@@ -3,6 +3,7 @@ module Layer.Rnn
 import Data.Vect
 import Data.Zippable
 
+import Device
 import Floating
 import Init
 import Layer.Core
@@ -42,11 +43,11 @@ LayerLike RnnState where
     let output = matrixVectorMultiply iw xs + matrixVectorMultiply rw po + b
     in (MkRnn iw rw b output Nothing Nothing Nothing Nothing, output)
 
-  applyVar st@(MkRnn iw rw b po _ _ _ _) xs =
+  applyVar {d} st@(MkRnn iw rw b po _ _ _ _) xs =
     let output = matrixVectorMultiplyVar iw xs + matrixVectorMultiplyVar rw po + b
     in ({ previousOutput := output, prevOutTensor := Nothing } st, output)
 
-  applyVarTensor {i} {o} st inputT =
+  applyVarTensor {d} {i} {o} st inputT =
     case (iwTensor st, rwTensor st, biasTensor st) of
       (Just iwT, Just rwT, Just bT) =>
         let poT = case prevOutTensor st of
@@ -63,7 +64,7 @@ LayerLike RnnState where
 
   showLayer {i} {o} _ = "Rnn<" ++ show i ++ ":" ++ show o ++ ">"
 
-  nameLayer {i} {o} prefx (MkRnn iw rw b po _ _ _ _) =
+  nameLayer {d} {i} {o} prefx (MkRnn iw rw b po _ _ _ _) =
     if prim__backendSupportsTensorParams == 1
       then
         let oI = cast {to=Int} o
@@ -96,7 +97,7 @@ LayerLike RnnState where
 
   layerPrefix _ = "rnn"
 
-  toDoubleLayer {i} {o} (MkRnn iw rw b po iwT rwT bT _) =
+  toDoubleLayer {d} {i} {o} (MkRnn iw rw b po iwT rwT bT _) =
     case (iwT, rwT, bT) of
       (Just iwTensor, Just rwTensor, Just biasTensor) =>
         let wIW = buildDoubleMatrix iwTensor 0 o i
@@ -120,7 +121,7 @@ LayerLike RnnState where
       buildDoubleVector vec idx (S k) =
         STensor (prim__item1d vec idx) :: buildDoubleVector vec (idx + 1) k
 
-  resetState st = { previousOutput := zeros, prevOutTensor := Nothing } st
+  resetState {d} st = { previousOutput := zeros, prevOutTensor := Nothing } st
 
   debugApply {i} {o} st@(MkRnn _ _ _ po _ _ _ _) inp =
     let (updated, out) = applyGeneric st inp
@@ -135,9 +136,9 @@ LayerLike RnnState where
           go [STensor x] = show x
           go (STensor x :: rest) = show x ++ " " ++ go rest
 
-  getParamIds (MkRnn iw rw b _ _ _ _ _) = tensorIds iw ++ tensorIds rw ++ tensorIds b
+  getParamIds {d} (MkRnn iw rw b _ _ _ _ _) = tensorIds iw ++ tensorIds rw ++ tensorIds b
     where
-      tensorIds : {dims : Vect rank Nat} -> Tensor dims Variable -> List String
+      tensorIds : {dims : Vect rank Nat} -> Tensor dims (Variable d) -> List String
       tensorIds = mapMaybe paramId . toList
 
 

@@ -12,6 +12,7 @@ module Layer.Transformer
 import Data.Vect
 import Decidable.Equality
 
+import Device
 import Endofunctor
 import Floating
 import Init
@@ -67,13 +68,13 @@ emapBlock f (MkBlock qs ks vs ops n1 n2 f1 f2) =
           (emapLayerNorm f n1) (emapLayerNorm f n2)
           (emapLayer f f1) (emapLayer f f2)
 
-nameHeads : {a, b : Nat} -> String -> Nat -> Vect k (LinearState a b Variable) -> Vect k (LinearState a b Variable)
+nameHeads : {d : Device} -> {a, b : Nat} -> String -> Nat -> Vect k (LinearState a b (Variable d)) -> Vect k (LinearState a b (Variable d))
 nameHeads _ _ [] = []
 nameHeads pfx idx (h :: hs) = nameLayer (pfx ++ show idx) h :: nameHeads pfx (S idx) hs
 
 export
-nameBlock : {dModel, numHeads, headDim : Nat} -> String -> BlockState dModel numHeads headDim Variable
-          -> BlockState dModel numHeads headDim Variable
+nameBlock : {d : Device} -> {dModel, numHeads, headDim : Nat} -> String -> BlockState dModel numHeads headDim (Variable d)
+          -> BlockState dModel numHeads headDim (Variable d)
 nameBlock pfx (MkBlock qs ks vs ops n1 n2 f1 f2) =
   MkBlock (nameHeads (pfx ++ "_q") 0 qs) (nameHeads (pfx ++ "_k") 0 ks)
           (nameHeads (pfx ++ "_v") 0 vs) (nameHeads (pfx ++ "_o") 0 ops)
@@ -81,7 +82,7 @@ nameBlock pfx (MkBlock qs ks vs ops n1 n2 f1 f2) =
           (nameLayer (pfx ++ "_ff1") f1) (nameLayer (pfx ++ "_ff2") f2)
 
 export
-toDoubleBlock : {dModel, numHeads, headDim : Nat} -> BlockState dModel numHeads headDim Variable
+toDoubleBlock : {d : Device} -> {dModel, numHeads, headDim : Nat} -> BlockState dModel numHeads headDim (Variable d)
               -> BlockState dModel numHeads headDim Double
 toDoubleBlock (MkBlock qs ks vs ops n1 n2 f1 f2) =
   MkBlock (map toDoubleLayer qs) (map toDoubleLayer ks)
@@ -90,16 +91,16 @@ toDoubleBlock (MkBlock qs ks vs ops n1 n2 f1 f2) =
           (toDoubleLayer f1) (toDoubleLayer f2)
 
 export
-getBlockParamIds : {dModel, numHeads, headDim : Nat} -> BlockState dModel numHeads headDim Variable -> List String
+getBlockParamIds : {d : Device} -> {dModel, numHeads, headDim : Nat} -> BlockState dModel numHeads headDim (Variable d) -> List String
 getBlockParamIds (MkBlock qs ks vs ops n1 n2 f1 f2) =
   concatMap getParamIds (toList qs) ++ concatMap getParamIds (toList ks) ++
   concatMap getParamIds (toList vs) ++ concatMap getParamIds (toList ops) ++
   getLayerNormParamIds n1 ++ getLayerNormParamIds n2 ++
   getParamIds f1 ++ getParamIds f2
 
-nameBlocks : {dModel, numHeads, headDim : Nat} -> String -> Nat ->
-             Vect k (BlockState dModel numHeads headDim Variable) ->
-             Vect k (BlockState dModel numHeads headDim Variable)
+nameBlocks : {d : Device} -> {dModel, numHeads, headDim : Nat} -> String -> Nat ->
+             Vect k (BlockState dModel numHeads headDim (Variable d)) ->
+             Vect k (BlockState dModel numHeads headDim (Variable d))
 nameBlocks _ _ [] = []
 nameBlocks pfx idx (b :: bs) = nameBlock (pfx ++ show idx) b :: nameBlocks pfx (S idx) bs
 
@@ -184,11 +185,11 @@ blockForwardGeneric blk h =
 %default partial
 
 ||| Run multi-head attention on a single [seqLen, dModel] input.
-runHeadAttention : {headDim : Nat} ->
-                   Vect k (LinearState dModel headDim Variable) ->
-                   Vect k (LinearState dModel headDim Variable) ->
-                   Vect k (LinearState dModel headDim Variable) ->
-                   Vect k (LinearState headDim dModel Variable) ->
+runHeadAttention : {d : Device} -> {headDim : Nat} ->
+                   Vect k (LinearState dModel headDim (Variable d)) ->
+                   Vect k (LinearState dModel headDim (Variable d)) ->
+                   Vect k (LinearState dModel headDim (Variable d)) ->
+                   Vect k (LinearState headDim dModel (Variable d)) ->
                    AnyPtr -> Int -> Int -> Maybe AnyPtr -> AnyPtr
 runHeadAttention [] [] [] [] _ _ _ (Just acc) = acc
 runHeadAttention [] [] [] [] normed sI hdI Nothing = normed
@@ -212,7 +213,7 @@ runHeadAttention (q :: qs) (k :: ks) (v :: vs) (op :: ops) normed sI hdI acc =
     _ => idris_crash "Transformer: head weight not initialized"
 
 ||| Forward one block on a [seqLen, dModel] tensor.
-blockForwardTensor : {headDim : Nat} -> BlockState dModel numHeads headDim Variable
+blockForwardTensor : {d : Device} -> {headDim : Nat} -> BlockState dModel numHeads headDim (Variable d)
                    -> AnyPtr -> Int -> Int -> AnyPtr
 blockForwardTensor blk h sI hdI =
   let Just n1g = extractGammaTensor (norm1 blk)   | Nothing => idris_crash "block: n1g"
@@ -231,7 +232,7 @@ blockForwardTensor blk h sI hdI =
      in tensorAdd ffOut h1
 
 ||| Fold over blocks, threading [seqLen, dModel] tensor.
-foldBlocks : {headDim : Nat} -> Vect k (BlockState dModel numHeads headDim Variable)
+foldBlocks : {d : Device} -> {headDim : Nat} -> Vect k (BlockState dModel numHeads headDim (Variable d))
            -> AnyPtr -> Int -> Int -> AnyPtr
 foldBlocks [] h _ _ = h
 foldBlocks (b :: bs) h sI hdI = foldBlocks bs (blockForwardTensor b h sI hdI) sI hdI
@@ -248,14 +249,14 @@ LayerLike (TransformerState seqLen dModel numHeads headDim numBlocks vocabSize) 
 
   applyGeneric _ _ = idris_crash "Transformer: use tensor path (embedding requires C backend)"
 
-  applyVar {i} {o} st xs =
+  applyVar {d} {i} {o} st xs =
     let (VTensor xElems) = xs
         inputFlat = vecStackTensor xElems
         (st', outT) = applyVarTensor st inputFlat
         output = VTensor (tensorToScalars outT 0 o)
     in (st', output)
 
-  applyVarTensor {i} {o} st inputFlat =
+  applyVarTensor {d} {i} {o} st inputFlat =
     case st.tokenEmbedTensor of
       Just embedT =>
         let Just vpW = extractWeightTensor (vocabProj st) | Nothing => idris_crash "Transformer: vocabProj"
@@ -295,7 +296,7 @@ LayerLike (TransformerState seqLen dModel numHeads headDim numBlocks vocabSize) 
     ++ " h=" ++ show numHeads ++ " blocks=" ++ show numBlocks
     ++ " v=" ++ show vocabSize ++ ">"
 
-  nameLayer {i} {o} prefx (MkTransformer hdp ip op tew _ blks nf vp) =
+  nameLayer {d} {i} {o} prefx (MkTransformer hdp ip op tew _ blks nf vp) =
     let vI = cast {to=Int} vocabSize
         dI = cast {to=Int} dModel
         nI = cast {to=Int} (vocabSize * dModel)
@@ -311,7 +312,7 @@ LayerLike (TransformerState seqLen dModel numHeads headDim numBlocks vocabSize) 
 
   layerPrefix _ = "tfm"
 
-  toDoubleLayer (MkTransformer hdp ip op tew _ blks nf vp) =
+  toDoubleLayer {d} (MkTransformer hdp ip op tew _ blks nf vp) =
     MkTransformer hdp ip op (map value tew) Nothing (map toDoubleBlock blks)
                   (toDoubleLayerNorm nf) (toDoubleLayer vp)
 
@@ -319,7 +320,7 @@ LayerLike (TransformerState seqLen dModel numHeads headDim numBlocks vocabSize) 
     let (updated, out) = applyGeneric st inp
     in (updated, out, MkDebugEntry (showLayer @{%search} st) [])
 
-  getParamIds (MkTransformer _ _ _ _ _ blks nf vp) =
+  getParamIds {d} (MkTransformer _ _ _ _ _ blks nf vp) =
     concatMap getBlockParamIds (toList blks) ++
     getLayerNormParamIds nf ++ getParamIds vp
 
@@ -362,8 +363,8 @@ transformerLayer = map (MkAnyLayer (TransformerState seqLen dModel numHeads head
 ||| Forward one block on batched data.
 ||| Projections/FF/norms batched as [B*seqLen, dim].
 ||| Batched attention: all sequences processed in parallel via 3D ops.
-batchBlockForward : {seqLen, dModel, numHeads, headDim : Nat} ->
-                    BlockState dModel numHeads headDim Variable ->
+batchBlockForward : {d : Device} -> {seqLen, dModel, numHeads, headDim : Nat} ->
+                    BlockState dModel numHeads headDim (Variable d) ->
                     AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
 batchBlockForward blk h bsI sI dI hdI =
   let Just n1g = extractGammaTensor (norm1 blk)   | Nothing => idris_crash "bblock: n1g"
@@ -393,10 +394,10 @@ batchBlockForward blk h bsI sI dI hdI =
          ffOut = prim__mm ffHidden (prim__transpose2d f2W)
      in tensorAdd ffOut h1
   where
-    batchedHeadLoop : Vect nh (LinearState dModel headDim Variable) ->
-                      Vect nh (LinearState dModel headDim Variable) ->
-                      Vect nh (LinearState dModel headDim Variable) ->
-                      Vect nh (LinearState headDim dModel Variable) ->
+    batchedHeadLoop : Vect nh (LinearState dModel headDim (Variable d)) ->
+                      Vect nh (LinearState dModel headDim (Variable d)) ->
+                      Vect nh (LinearState dModel headDim (Variable d)) ->
+                      Vect nh (LinearState headDim dModel (Variable d)) ->
                       AnyPtr -> AnyPtr -> Int -> Int -> Int -> Int -> Double ->
                       Maybe AnyPtr -> AnyPtr
     batchedHeadLoop [] [] [] [] _ _ _ _ _ _ _ (Just acc) = acc
@@ -427,9 +428,9 @@ batchBlockForward blk h bsI sI dI hdI =
 ||| Forward B sequences through the transformer in a single call.
 export
 transformerForwardBatch :
-  {seqLen, dModel, numHeads, headDim, numBlocks, vocabSize : Nat} ->
+  {d : Device} -> {seqLen, dModel, numHeads, headDim, numBlocks, vocabSize : Nat} ->
   TransformerState seqLen dModel numHeads headDim numBlocks vocabSize
-                   seqLen (seqLen * vocabSize) Variable ->
+                   seqLen (seqLen * vocabSize) (Variable d) ->
   List AnyPtr -> Int -> List AnyPtr
 transformerForwardBatch st inputs batchSize =
   case st.tokenEmbedTensor of

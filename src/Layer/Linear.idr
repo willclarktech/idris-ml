@@ -3,6 +3,7 @@ module Layer.Linear
 import Data.Vect
 import Data.Zippable
 
+import Device
 import Endofunctor
 import Floating
 import Init
@@ -34,7 +35,7 @@ record LinearState (inputSize : Nat) (outputSize : Nat) (ty : Type) where
 -- Each view Variable gets a paramId for identification (but is NOT individually registered).
 -- linearIdx: offset for this row's start in the flat index space
 export
-buildViewRow : String -> AnyPtr -> Int -> Int -> Int -> (k : Nat) -> Vect k (Scalar Variable)
+buildViewRow : {d : Device} -> String -> AnyPtr -> Int -> Int -> Int -> (k : Nat) -> Vect k (Scalar (Variable d))
 buildViewRow _ _ _ _ _ Z = []
 buildViewRow name mat row col linearIdx (S k) =
   let ptr = prim__view2d mat row col
@@ -43,7 +44,7 @@ buildViewRow name mat row col linearIdx (S k) =
 
 -- Build a matrix of scalar Variables from views into a 2D tensor.
 export
-buildViewMatrix : String -> AnyPtr -> Int -> Int -> (rows : Nat) -> (cols : Nat) -> Vect rows (Vector cols Variable)
+buildViewMatrix : {d : Device} -> String -> AnyPtr -> Int -> Int -> (rows : Nat) -> (cols : Nat) -> Vect rows (Vector cols (Variable d))
 buildViewMatrix _ _ _ _ Z _ = []
 buildViewMatrix name mat row linearIdx (S r) cols =
   let colsI = cast {to=Int} cols
@@ -51,7 +52,7 @@ buildViewMatrix name mat row linearIdx (S r) cols =
 
 -- Build a vector of scalar Variables from views into a 1D tensor.
 export
-buildViewVector : String -> AnyPtr -> Int -> (k : Nat) -> Vect k (Scalar Variable)
+buildViewVector : {d : Device} -> String -> AnyPtr -> Int -> (k : Nat) -> Vect k (Scalar (Variable d))
 buildViewVector _ _ _ Z = []
 buildViewVector name vec idx (S k) =
   let ptr = prim__view1d vec idx
@@ -68,13 +69,13 @@ export
 LayerLike LinearState where
   applyGeneric (MkLinear w b _ _) xs = (MkLinear w b Nothing Nothing, matrixVectorMultiply w xs + b)
 
-  applyVar {i} {o} st xs =
+  applyVar {d} {i} {o} st xs =
     let (VTensor xElems) = xs
         inputT = vecStackTensor {n=i} xElems
         (st', outT) = applyVarTensor st inputT
     in (st', VTensor $ tensorToScalars outT 0 o)
 
-  applyVarTensor {i} {o} st@(MkLinear weights bias wt bt) inputT =
+  applyVarTensor {d} {i} {o} st@(MkLinear weights bias wt bt) inputT =
     case (wt, bt) of
       (Just weightT, Just biasT) =>
         (st, tensorAdd (tensorMv weightT inputT) biasT)
@@ -84,7 +85,7 @@ LayerLike LinearState where
 
   showLayer {i} {o} _ = "Linear<" ++ show i ++ ":" ++ show o ++ ">"
 
-  nameLayer {i} {o} prefx (MkLinear weights bias _ _) =
+  nameLayer {d} {i} {o} prefx (MkLinear weights bias _ _) =
     if prim__backendSupportsTensorParams == 1
       then -- Tensor path: consolidated weight tensors + view Variables
         let (VTensor wRows) = weights
@@ -108,7 +109,7 @@ LayerLike LinearState where
 
   layerPrefix _ = "ll"
 
-  toDoubleLayer {i} {o} (MkLinear w b wt bt) =
+  toDoubleLayer {d} {i} {o} (MkLinear w b wt bt) =
     case (wt, bt) of
       (Just weightT, Just biasT) =>
         -- Read values from consolidated tensors
@@ -136,9 +137,9 @@ LayerLike LinearState where
     let (updated, out) = applyGeneric st inp
     in (updated, out, MkDebugEntry ("Linear<" ++ show i ++ ":" ++ show o ++ ">") [])
 
-  getParamIds (MkLinear w b _ _) = tensorIds w ++ tensorIds b
+  getParamIds {d} (MkLinear w b _ _) = tensorIds w ++ tensorIds b
     where
-      tensorIds : {dims : Vect rank Nat} -> Tensor dims Variable -> List String
+      tensorIds : {dims : Vect rank Nat} -> Tensor dims (Variable d) -> List String
       tensorIds = mapMaybe paramId . toList
 
 
@@ -147,11 +148,11 @@ LayerLike LinearState where
 ----------------------------------------------------------------------
 
 export
-extractWeightTensor : LinearState i o Variable -> Maybe AnyPtr
+extractWeightTensor : {d : Device} -> LinearState i o (Variable d) -> Maybe AnyPtr
 extractWeightTensor st = st.weightTensor
 
 export
-extractBiasTensor : LinearState i o Variable -> Maybe AnyPtr
+extractBiasTensor : {d : Device} -> LinearState i o (Variable d) -> Maybe AnyPtr
 extractBiasTensor st = st.biasTensor
 
 

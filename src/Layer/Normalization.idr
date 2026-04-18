@@ -2,6 +2,7 @@ module Layer.Normalization
 
 import Data.Vect
 
+import Device
 import Floating
 import Layer.Core
 import Math
@@ -28,14 +29,14 @@ LayerLike NormalizationState where
   applyGeneric st@(MkNormalization _ f) xs = (st, f xs)
 
   -- Variable-specialized: dispatch to C-backed kernels for softmax/logSoftmax
-  applyVar st@(MkNormalization "softmax" _) xs = (st, softmaxVar xs)
-  applyVar st@(MkNormalization "logSoftmax" _) xs = (st, logSoftmaxVar xs)
-  applyVar st@(MkNormalization _ f) xs = (st, f xs)
+  applyVar {d} st@(MkNormalization "softmax" _) xs = (st, softmaxVar xs)
+  applyVar {d} st@(MkNormalization "logSoftmax" _) xs = (st, logSoftmaxVar xs)
+  applyVar {d} st@(MkNormalization _ f) xs = (st, f xs)
 
   -- Tensor-level: direct C kernel call, no scalar packing
-  applyVarTensor st@(MkNormalization "softmax" _) inputT = (st, prim__softmax inputT 0)
-  applyVarTensor st@(MkNormalization "logSoftmax" _) inputT = (st, prim__logSoftmax inputT 0)
-  applyVarTensor {i} {o} st inputT =
+  applyVarTensor {d} st@(MkNormalization "softmax" _) inputT = (st, prim__softmax inputT 0)
+  applyVarTensor {d} st@(MkNormalization "logSoftmax" _) inputT = (st, prim__logSoftmax inputT 0)
+  applyVarTensor {d} {i} {o} st inputT =
     let input = VTensor (tensorToScalars inputT 0 i)
         (st', VTensor outElems) = applyVar st input
     in (st', vecStackTensor outElems)
@@ -44,9 +45,9 @@ LayerLike NormalizationState where
 
   showLayer (MkNormalization name _) = "Normalization<" ++ name ++ ">"
 
-  nameLayer _ st = st
+  nameLayer {d} _ st = st
 
-  toDoubleLayer (MkNormalization "softmax" _) = MkNormalization "softmax" softmax
+  toDoubleLayer {d} (MkNormalization "softmax" _) = MkNormalization "softmax" softmax
   toDoubleLayer (MkNormalization "logSoftmax" _) = MkNormalization "logSoftmax" logSoftmax
   toDoubleLayer (MkNormalization name _) = MkNormalization name id
 

@@ -4,6 +4,7 @@ import Data.Vect
 import Data.Zippable
 import System.Random
 
+import Device
 import Floating
 import Init
 import Layer.Core
@@ -88,14 +89,14 @@ concatReads {r = S k} {m} ((VTensor v) :: rest) =
 
 ||| Project addressing weights onto the probability simplex after
 ||| gradient updates. Clamps to [epsilon, inf) and renormalizes.
-projectWeights : {n : Nat} -> Vector n Variable -> Vector n Variable
+projectWeights : {d : Device} -> {n : Nat} -> Vector n (Variable d) -> Vector n (Variable d)
 projectWeights (VTensor vs) =
-  let clamp : Tensor [] Variable -> Tensor [] Variable
+  let clamp : Tensor [] (Variable d) -> Tensor [] (Variable d)
       clamp (STensor v) = STensor ({ value $= max 0.00000001 } v)
       clamped = map clamp vs
       s : Double
       s = foldl (\acc, (STensor v) => acc + v.value) 0.0 clamped
-      normalize : Tensor [] Variable -> Tensor [] Variable
+      normalize : Tensor [] (Variable d) -> Tensor [] (Variable d)
       normalize (STensor v) = STensor ({ value $= (/ s) } v)
   in VTensor (map normalize clamped)
 
@@ -107,15 +108,15 @@ projectWeights (VTensor vs) =
 ||| Update usage vector.
 ||| u_t = (u_{t-1} + w^w_{t-1} - u_{t-1} * w^w_{t-1}) * retention
 ||| retention = prod_j(1 - f^j_t * w^{r,j}_{t-1})
-dncUsageUpdate : {r, n : Nat} ->
-    Vector n Variable -> Vector n Variable ->
-    Vect r Variable -> Vect r (Vector n Variable) ->
-    Vector n Variable
+dncUsageUpdate : {d : Device} -> {r, n : Nat} ->
+    Vector n (Variable d) -> Vector n (Variable d) ->
+    Vect r (Variable d) -> Vect r (Vector n (Variable d)) ->
+    Vector n (Variable d)
 dncUsageUpdate {r} {n} prevUsage prevWriteW freeGates prevReadWs =
   let -- write_usage = u + w - u*w
       writeUsage = prevUsage + prevWriteW - prevUsage * prevWriteW
       -- retention = prod_j(1 - f_j * w^r_j)
-      ones = the (Vector n Variable) (map (\_ => fromDouble 1.0) prevUsage)
+      ones = the (Vector n (Variable d)) (map (\_ => fromDouble 1.0) prevUsage)
       retention = computeRetention ones freeGates prevReadWs ones
       -- Clamp retention to [1e-10, inf) to prevent usage zeroing
       VTensor retElems = retention
@@ -124,8 +125,8 @@ dncUsageUpdate {r} {n} prevUsage prevWriteW freeGates prevReadWs =
       clampedRetention = VTensor $ tensorToScalars retClamped 0 n
   in writeUsage * clampedRetention
   where
-    computeRetention : Vector n Variable -> Vect k Variable -> Vect k (Vector n Variable) ->
-                       Vector n Variable -> Vector n Variable
+    computeRetention : Vector n (Variable d) -> Vect k (Variable d) -> Vect k (Vector n (Variable d)) ->
+                       Vector n (Variable d) -> Vector n (Variable d)
     computeRetention _ [] [] acc = acc
     computeRetention ones' (fg :: fgs) (rw :: rws) acc =
       let -- (1 - f_j * w^r_j)
@@ -135,7 +136,7 @@ dncUsageUpdate {r} {n} prevUsage prevWriteW freeGates prevReadWs =
 
 ||| Allocation weighting from usage vector.
 ||| Uses argsort + cumprod at tensor level.
-dncAllocate : {n : Nat} -> Vector n Variable -> Vector n Variable
+dncAllocate : {d : Device} -> {n : Nat} -> Vector n (Variable d) -> Vector n (Variable d)
 dncAllocate {n} (VTensor usageElems) =
   let nI = cast {to=Int} n
       usageT = vecStackTensor usageElems
@@ -159,18 +160,18 @@ dncAllocate {n} (VTensor usageElems) =
   in VTensor $ tensorToScalars allocT 0 n
 
 ||| Write weighting: w^w = g^w * (g^a * a + (1-g^a) * c^w)
-dncWriteWeight : {n : Nat} ->
-    Vector n Variable -> Vector n Variable ->
-    Variable -> Variable -> Vector n Variable
+dncWriteWeight : {d : Device} -> {n : Nat} ->
+    Vector n (Variable d) -> Vector n (Variable d) ->
+    Variable d -> Variable d -> Vector n (Variable d)
 dncWriteWeight contentW allocW writeGate allocGate =
   let oneMinusAG = fromDouble 1.0 - allocGate
       blended = map (* allocGate) allocW + map (* oneMinusAG) contentW
   in map (* writeGate) blended
 
 ||| Erase+add write: M' = M * (1 - outer(w, e)) + outer(w, a)
-dncEraseAddWrite : {n, m : Nat} ->
-    Matrix n m Variable -> Vector n Variable ->
-    Vector m Variable -> Vector m Variable -> Matrix n m Variable
+dncEraseAddWrite : {d : Device} -> {n, m : Nat} ->
+    Matrix n m (Variable d) -> Vector n (Variable d) ->
+    Vector m (Variable d) -> Vector m (Variable d) -> Matrix n m (Variable d)
 dncEraseAddWrite {n} {m} (VTensor memRows) (VTensor wts) (VTensor eraseElems) (VTensor addElems) =
   let wtTensor = vecStackTensor wts
       memTensor = matStackTensor memRows
@@ -184,7 +185,7 @@ dncEraseAddWrite {n} {m} (VTensor memRows) (VTensor wts) (VTensor eraseElems) (V
       result = prim__add erased addGate
   in VTensor $ buildMatrixRows result 0 n m
   where
-    buildMatrixRows : AnyPtr -> Int -> (rows : Nat) -> (cols : Nat) -> Vect rows (Vector cols Variable)
+    buildMatrixRows : AnyPtr -> Int -> (rows : Nat) -> (cols : Nat) -> Vect rows (Vector cols (Variable d))
     buildMatrixRows _ _ Z _ = []
     buildMatrixRows t row (S r') cols =
       let rowTensor = prim__select t 0 row
@@ -193,9 +194,9 @@ dncEraseAddWrite {n} {m} (VTensor memRows) (VTensor wts) (VTensor eraseElems) (V
 ||| Link matrix update:
 ||| L'[i,j] = (1 - w[i] - w[j]) * L[i,j] + w[i] * p[j]
 ||| L'[i,i] = 0
-dncLinkUpdate : {n : Nat} ->
-    Matrix n n Variable -> Vector n Variable -> Vector n Variable ->
-    (Matrix n n Variable, Vector n Variable)
+dncLinkUpdate : {d : Device} -> {n : Nat} ->
+    Matrix n n (Variable d) -> Vector n (Variable d) -> Vector n (Variable d) ->
+    (Matrix n n (Variable d), Vector n (Variable d))
 dncLinkUpdate {n} (VTensor linkRows) (VTensor wElems) precedenceVec =
   let nI = cast {to=Int} n
       wT = vecStackTensor wElems
@@ -223,7 +224,7 @@ dncLinkUpdate {n} (VTensor linkRows) (VTensor wElems) precedenceVec =
       newPrec = VTensor $ tensorToScalars newPrecT 0 n
   in (newLink, newPrec)
   where
-    buildMatrixRows : AnyPtr -> Int -> (rows : Nat) -> (cols : Nat) -> Vect rows (Vector cols Variable)
+    buildMatrixRows : AnyPtr -> Int -> (rows : Nat) -> (cols : Nat) -> Vect rows (Vector cols (Variable d))
     buildMatrixRows _ _ Z _ = []
     buildMatrixRows t row (S r') cols =
       let rowTensor = prim__select t 0 row
@@ -248,10 +249,10 @@ dncLinkUpdate {n} (VTensor linkRows) (VTensor wElems) precedenceVec =
 
 ||| Read weighting for one head:
 ||| w^r = pi[0]*backward + pi[1]*content + pi[2]*forward
-dncReadWeight : {n : Nat} ->
-    Matrix n n Variable -> Vector n Variable ->
-    Vector n Variable -> Vector 3 Variable ->
-    Vector n Variable
+dncReadWeight : {d : Device} -> {n : Nat} ->
+    Matrix n n (Variable d) -> Vector n (Variable d) ->
+    Vector n (Variable d) -> Vector 3 (Variable d) ->
+    Vector n (Variable d)
 dncReadWeight {n} (VTensor linkRows) (VTensor prevRwElems) contentW (VTensor [STensor pi0, STensor pi1, STensor pi2]) =
   let nI = cast {to=Int} n
       linkT = matStackTensor linkRows
@@ -331,7 +332,7 @@ export
         in (rw, ro) :: readHeadsGeneric rest restKeys (VTensor restBetas) mem
 
   -- Variable forward pass (scalar)
-  applyVar st inp =
+  applyVar {d} st inp =
     let -- 1. Controller input: concat all read outputs + input
         allReads = concatReads {r} {m} st.readOutputs
         controllerInput = allReads ++ inp
@@ -389,17 +390,17 @@ export
               newMem newUsage newWriteW newReadWs newReadOuts newLink newPrec
               Nothing Nothing Nothing Nothing Nothing Nothing Nothing, outputVec)
     where
-      headScalar : Vector 1 Variable -> Variable
+      headScalar : Vector 1 (Variable d) -> Variable d
       headScalar (VTensor [STensor v]) = v
 
-      toVectScalars : {k : Nat} -> Vector k Variable -> Vect k Variable
+      toVectScalars : {k : Nat} -> Vector k (Variable d) -> Vect k (Variable d)
       toVectScalars (VTensor vs) = map (\(STensor v) => v) vs
 
       -- Process each read head using tensor-level slicing
-      computeReads : Int -> Vect k (Vector n Variable) ->
+      computeReads : Int -> Vect k (Vector n (Variable d)) ->
                      AnyPtr -> AnyPtr -> AnyPtr ->
-                     Matrix n n Variable -> Matrix n m Variable ->
-                     Vect k (Vector n Variable, Vector m Variable)
+                     Matrix n n (Variable d) -> Matrix n m (Variable d) ->
+                     Vect k (Vector n (Variable d), Vector m (Variable d))
       computeReads _ [] _ _ _ _ _ = []
       computeReads idx (prevRw :: restRws) keysTensor betasTensor modesTensor link mem =
         let mI = cast {to=Int} m
@@ -438,7 +439,7 @@ export
     "Dnc<" ++ show i ++ ":" ++ show o
     ++ ", R=" ++ show r ++ ", mem=" ++ show n ++ "x" ++ show m ++ ", h=" ++ show h ++ ">"
 
-  nameLayer prefx (MkDnc lstm wkFc wbFc eFc aFc fgFc agFc wgFc rkFc rbFc rmFc oFc
+  nameLayer {d} prefx (MkDnc lstm wkFc wbFc eFc aFc fgFc agFc wgFc rkFc rbFc rmFc oFc
                     mem usage ww rws ros link prec _ _ _ _ _ _ _) =
     let namedLstm   = nameLayer (prefx ++ "_lstm0") lstm
         namedWkFc   = nameLayer (prefx ++ "_writeKey_ll0") wkFc
@@ -459,7 +460,7 @@ export
 
   layerPrefix _ = "dnc"
 
-  toDoubleLayer (MkDnc lstm wkFc wbFc eFc aFc fgFc agFc wgFc rkFc rbFc rmFc oFc
+  toDoubleLayer {d} (MkDnc lstm wkFc wbFc eFc aFc fgFc agFc wgFc rkFc rbFc rmFc oFc
                   mem usage ww rws ros link prec _ _ _ _ _ _ _) =
     MkDnc (toDoubleLayer lstm) (toDoubleLayer wkFc) (toDoubleLayer wbFc)
            (toDoubleLayer eFc) (toDoubleLayer aFc) (toDoubleLayer fgFc)
@@ -475,13 +476,13 @@ export
         entry = MkDebugEntry ("Dnc<" ++ show r ++ " heads>") []
     in (updated, output, entry)
 
-  getParamIds (MkDnc lstm wkFc wbFc eFc aFc fgFc agFc wgFc rkFc rbFc rmFc oFc _ _ _ _ _ _ _ _ _ _ _ _ _ _) =
+  getParamIds {d} (MkDnc lstm wkFc wbFc eFc aFc fgFc agFc wgFc rkFc rbFc rmFc oFc _ _ _ _ _ _ _ _ _ _ _ _ _ _) =
     getParamIds lstm ++ getParamIds wkFc ++ getParamIds wbFc
     ++ getParamIds eFc ++ getParamIds aFc ++ getParamIds fgFc
     ++ getParamIds agFc ++ getParamIds wgFc ++ getParamIds rkFc
     ++ getParamIds rbFc ++ getParamIds rmFc ++ getParamIds oFc
 
-  syncBuffers (MkDnc lstm wkFc wbFc eFc aFc fgFc agFc wgFc rkFc rbFc rmFc oFc
+  syncBuffers {d} (MkDnc lstm wkFc wbFc eFc aFc fgFc agFc wgFc rkFc rbFc rmFc oFc
                mem usage ww rws ros link prec _ _ _ _ _ _ _) =
     MkDnc (syncBuffers lstm) (syncBuffers wkFc) (syncBuffers wbFc)
            (syncBuffers eFc) (syncBuffers aFc) (syncBuffers fgFc)
@@ -492,7 +493,7 @@ export
            link prec
            Nothing Nothing Nothing Nothing Nothing Nothing Nothing
 
-  applyDeltasAndSync deltas (MkDnc lstm wkFc wbFc eFc aFc fgFc agFc wgFc rkFc rbFc rmFc oFc
+  applyDeltasAndSync {d} deltas (MkDnc lstm wkFc wbFc eFc aFc fgFc agFc wgFc rkFc rbFc rmFc oFc
                               mem usage ww rws ros link prec _ _ _ _ _ _ _) =
     MkDnc (applyDeltasAndSync deltas lstm) (applyDeltasAndSync deltas wkFc)
            (applyDeltasAndSync deltas wbFc) (applyDeltasAndSync deltas eFc)

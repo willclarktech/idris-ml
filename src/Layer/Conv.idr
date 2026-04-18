@@ -11,6 +11,7 @@ module Layer.Conv
 
 import Data.Vect
 
+import Device
 import Endofunctor
 import Floating
 import Init
@@ -69,9 +70,9 @@ export
 
   applyGeneric _ _ = idris_crash "Conv2D: generic forward not implemented (use tensor path)"
 
-  applyVar _ _ = idris_crash "Conv2D: scalar Variable forward not implemented (use tensor path)"
+  applyVar {d} _ _ = idris_crash "Conv2D: scalar Variable forward not implemented (use tensor path)"
 
-  applyVarTensor {i} {o} st inputT =
+  applyVarTensor {d} {i} {o} st inputT =
     case (st.kernelTensor, st.biasTensor) of
       (Just kerT, Just biasT) =>
         let hI  = cast {to=Int} h
@@ -92,7 +93,7 @@ export
   showLayer _ = "Conv2D<" ++ show inC ++ "->" ++ show outC
              ++ " k=" ++ show kH ++ "x" ++ show kW ++ ">"
 
-  nameLayer {i} {o} prefx (MkConv2D ip op kernelFlat bias _ _) =
+  nameLayer {d} {i} {o} prefx (MkConv2D ip op kernelFlat bias _ _) =
     if prim__backendSupportsTensorParams == 1
       then
         let kerI = cast {to=Int} (outC * inC * kH * kW)
@@ -112,7 +113,7 @@ export
 
   layerPrefix _ = "conv"
 
-  toDoubleLayer (MkConv2D ip op k b _ _) =
+  toDoubleLayer {d} (MkConv2D ip op k b _ _) =
     MkConv2D ip op (map value k) (map value b) Nothing Nothing
 
   debugApply st inp =
@@ -163,9 +164,9 @@ export
   LayerLike (MaxPool2DState c inH inW poolH poolW strH strW) where
 
   applyGeneric _ _ = idris_crash "MaxPool2D: generic forward not implemented"
-  applyVar _ _ = idris_crash "MaxPool2D: scalar forward not implemented"
+  applyVar {d} _ _ = idris_crash "MaxPool2D: scalar forward not implemented"
 
-  applyVarTensor {i} {o} st inputT =
+  applyVarTensor {d} {i} {o} st inputT =
     let cI  = cast {to=Int} c
         hI  = cast {to=Int} inH
         wI  = cast {to=Int} inW
@@ -178,9 +179,9 @@ export
 
   emapLayer _ st = st
   showLayer _ = "MaxPool2D<k=" ++ show poolH ++ " s=" ++ show strH ++ ">"
-  nameLayer _ st = st
+  nameLayer {d} _ st = st
   layerPrefix _ = "pool"
-  toDoubleLayer (MkMaxPool2D ip op) = MkMaxPool2D ip op
+  toDoubleLayer {d} (MkMaxPool2D ip op) = MkMaxPool2D ip op
 
   debugApply st inp =
     let (updated, out) = applyGeneric st inp
@@ -227,9 +228,9 @@ export
   LayerLike (Conv1DState inC outC len kL pad) where
 
   applyGeneric _ _ = idris_crash "Conv1D: use tensor path"
-  applyVar _ _ = idris_crash "Conv1D: use tensor path"
+  applyVar {d} _ _ = idris_crash "Conv1D: use tensor path"
 
-  applyVarTensor {i} {o} st inputT =
+  applyVarTensor {d} {i} {o} st inputT =
     case (st.kernelTensor, st.biasTensor) of
       (Just kerT, Just biasT) =>
         let inCI = cast {to=Int} inC
@@ -245,7 +246,7 @@ export
   emapLayer f (MkConv1D ip op k b kt bt) = MkConv1D ip op (map f k) (map f b) kt bt
   showLayer _ = "Conv1D<" ++ show inC ++ "->" ++ show outC ++ " k=" ++ show kL ++ ">"
 
-  nameLayer {i} {o} prefx (MkConv1D ip op kernelFlat bias _ _) =
+  nameLayer {d} {i} {o} prefx (MkConv1D ip op kernelFlat bias _ _) =
     if prim__backendSupportsTensorParams == 1
       then
         let kerI = cast {to=Int} (outC * inC * kL)
@@ -264,7 +265,7 @@ export
       else idris_crash "Conv1D: scalar path not supported"
 
   layerPrefix _ = "conv1d"
-  toDoubleLayer (MkConv1D ip op k b _ _) =
+  toDoubleLayer {d} (MkConv1D ip op k b _ _) =
     MkConv1D ip op (map value k) (map value b) Nothing Nothing
   debugApply _ _ = idris_crash "Conv1D: use tensor path"
 
@@ -308,9 +309,9 @@ export
   LayerLike (MaxPool1DState c len poolK str) where
 
   applyGeneric _ _ = idris_crash "MaxPool1D: use tensor path"
-  applyVar _ _ = idris_crash "MaxPool1D: use tensor path"
+  applyVar {d} _ _ = idris_crash "MaxPool1D: use tensor path"
 
-  applyVarTensor {i} {o} st inputT =
+  applyVarTensor {d} {i} {o} st inputT =
     let cI = cast {to=Int} c
         lenI = cast {to=Int} len
         inp2d = prim__reshape2d inputT cI lenI
@@ -321,9 +322,9 @@ export
 
   emapLayer _ st = st
   showLayer _ = "MaxPool1D<k=" ++ show poolK ++ " s=" ++ show str ++ ">"
-  nameLayer _ st = st
+  nameLayer {d} _ st = st
   layerPrefix _ = "pool1d"
-  toDoubleLayer (MkMaxPool1D ip op) = MkMaxPool1D ip op
+  toDoubleLayer {d} (MkMaxPool1D ip op) = MkMaxPool1D ip op
   debugApply _ _ = idris_crash "MaxPool1D: use tensor path"
 
 
@@ -356,8 +357,8 @@ export
 {c, inH, inW, poolH, poolW, strH, strW : Nat} ->
   LayerLike (AvgPool2DState c inH inW poolH poolW strH strW) where
   applyGeneric _ _ = idris_crash "AvgPool2D: use tensor path"
-  applyVar _ _ = idris_crash "AvgPool2D: use tensor path"
-  applyVarTensor {i} {o} st inputT =
+  applyVar {d} _ _ = idris_crash "AvgPool2D: use tensor path"
+  applyVarTensor {d} {i} {o} st inputT =
     let cI = cast {to=Int} c
         hI = cast {to=Int} inH
         wI = cast {to=Int} inW
@@ -367,9 +368,9 @@ export
     in (st, prim__reshape1d outT oI)
   emapLayer _ st = st
   showLayer _ = "AvgPool2D<k=" ++ show poolH ++ " s=" ++ show strH ++ ">"
-  nameLayer _ st = st
+  nameLayer {d} _ st = st
   layerPrefix _ = "avgpool"
-  toDoubleLayer (MkAvgPool2D ip op) = MkAvgPool2D ip op
+  toDoubleLayer {d} (MkAvgPool2D ip op) = MkAvgPool2D ip op
   debugApply _ _ = idris_crash "AvgPool2D: use tensor path"
 
 export
@@ -396,8 +397,8 @@ export
 {c, len, poolK, str : Nat} ->
   LayerLike (AvgPool1DState c len poolK str) where
   applyGeneric _ _ = idris_crash "AvgPool1D: use tensor path"
-  applyVar _ _ = idris_crash "AvgPool1D: use tensor path"
-  applyVarTensor {i} {o} st inputT =
+  applyVar {d} _ _ = idris_crash "AvgPool1D: use tensor path"
+  applyVarTensor {d} {i} {o} st inputT =
     let cI = cast {to=Int} c
         lenI = cast {to=Int} len
         inp2d = prim__reshape2d inputT cI lenI
@@ -406,9 +407,9 @@ export
     in (st, prim__reshape1d outT oI)
   emapLayer _ st = st
   showLayer _ = "AvgPool1D<k=" ++ show poolK ++ " s=" ++ show str ++ ">"
-  nameLayer _ st = st
+  nameLayer {d} _ st = st
   layerPrefix _ = "avgpool1d"
-  toDoubleLayer (MkAvgPool1D ip op) = MkAvgPool1D ip op
+  toDoubleLayer {d} (MkAvgPool1D ip op) = MkAvgPool1D ip op
   debugApply _ _ = idris_crash "AvgPool1D: use tensor path"
 
 export

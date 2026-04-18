@@ -6,6 +6,7 @@ import Data.Vect
 import Data.Zippable
 
 import DataPoint
+import Device
 import Endofunctor
 import Floating
 import Math
@@ -42,11 +43,11 @@ interface LayerLike (l : Nat -> Nat -> Type -> Type) where
                  {i, o : Nat} -> l i o ty -> Vector i ty -> (l i o ty, Vector o ty)
 
   -- Forward pass (Variable-specialized, for training with C-backed ops)
-  applyVar : {i, o : Nat} -> l i o Variable -> Vector i Variable -> (l i o Variable, Vector o Variable)
+  applyVar : {d : Device} -> {i, o : Nat} -> l i o (Variable d) -> Vector i (Variable d) -> (l i o (Variable d), Vector o (Variable d))
 
   -- Forward pass (tensor-level, bypasses scalar packing/unpacking)
   -- Takes/returns raw C tensor handles. Default wraps applyVar.
-  applyVarTensor : {i, o : Nat} -> l i o Variable -> AnyPtr -> (l i o Variable, AnyPtr)
+  applyVarTensor : {d : Device} -> {i, o : Nat} -> l i o (Variable d) -> AnyPtr -> (l i o (Variable d), AnyPtr)
   applyVarTensor {i} {o} st inputT =
     let input = VTensor (tensorToScalars inputT 0 i)
         (st', VTensor outElems) = applyVar st input
@@ -59,32 +60,32 @@ interface LayerLike (l : Nat -> Nat -> Type -> Type) where
   showLayer : {i, o : Nat} -> Show ty => l i o ty -> String
 
   -- Parameter naming (assigns paramIds for gradient collection)
-  nameLayer : {i, o : Nat} -> String -> l i o Variable -> l i o Variable
+  nameLayer : {d : Device} -> {i, o : Nat} -> String -> l i o (Variable d) -> l i o (Variable d)
 
   -- Auto-naming prefix (e.g., "ll" for linear, "lstm" for LSTM)
   layerPrefix : {i, o : Nat} -> l i o ty -> String
   layerPrefix _ = ""
 
   -- Convert Variable-typed layer to Double (for evaluation/debug)
-  toDoubleLayer : {i, o : Nat} -> l i o Variable -> l i o Double
+  toDoubleLayer : {d : Device} -> {i, o : Nat} -> l i o (Variable d) -> l i o Double
 
   -- Debug forward: run applyGeneric + capture internal state snapshot
   debugApply : {i, o : Nat} -> l i o Double -> Vector i Double -> (l i o Double, Vector o Double, DebugEntry)
 
   -- Buffer sync after optimizer deltas (default: identity)
-  syncBuffers : {i, o : Nat} -> l i o Variable -> l i o Variable
+  syncBuffers : {d : Device} -> {i, o : Nat} -> l i o (Variable d) -> l i o (Variable d)
   syncBuffers x = x
 
   -- Direct delta application to C buffers (dense optimizer path)
-  applyDeltasAndSync : {i, o : Nat} -> AnyPtr -> l i o Variable -> l i o Variable
+  applyDeltasAndSync : {d : Device} -> {i, o : Nat} -> AnyPtr -> l i o (Variable d) -> l i o (Variable d)
   applyDeltasAndSync _ x = x
 
   -- Read C buffer values back to Variable records
-  readFromBuffers : {i, o : Nat} -> l i o Variable -> l i o Variable
+  readFromBuffers : {d : Device} -> {i, o : Nat} -> l i o (Variable d) -> l i o (Variable d)
   readFromBuffers x = x
 
   -- Reset per-sequence state (NTM memory reset, default: identity)
-  resetState : {i, o : Nat} -> l i o Variable -> l i o Variable
+  resetState : {d : Device} -> {i, o : Nat} -> l i o (Variable d) -> l i o (Variable d)
   resetState x = x
 
   -- Set training/eval mode (for dropout, batch norm; default: identity)
@@ -92,7 +93,7 @@ interface LayerLike (l : Nat -> Nat -> Type -> Type) where
   setTraining _ x = x
 
   -- Get all parameter IDs (for testing)
-  getParamIds : {i, o : Nat} -> l i o Variable -> List String
+  getParamIds : {d : Device} -> {i, o : Nat} -> l i o (Variable d) -> List String
   getParamIds _ = []
 
 
@@ -120,13 +121,13 @@ applyGenericAny (MkAnyLayer l @{dict} layer) xs =
     (layer', out) => (MkAnyLayer l @{dict} layer', out)
 
 export
-applyVarAny : {i, o : Nat} -> AnyLayer i o Variable -> Vector i Variable -> (AnyLayer i o Variable, Vector o Variable)
+applyVarAny : {d : Device} -> {i, o : Nat} -> AnyLayer i o (Variable d) -> Vector i (Variable d) -> (AnyLayer i o (Variable d), Vector o (Variable d))
 applyVarAny (MkAnyLayer l @{dict} layer) xs =
   case applyVar @{dict} layer xs of
     (layer', out) => (MkAnyLayer l @{dict} layer', out)
 
 export
-applyVarTensorAny : {i, o : Nat} -> AnyLayer i o Variable -> AnyPtr -> (AnyLayer i o Variable, AnyPtr)
+applyVarTensorAny : {d : Device} -> {i, o : Nat} -> AnyLayer i o (Variable d) -> AnyPtr -> (AnyLayer i o (Variable d), AnyPtr)
 applyVarTensorAny (MkAnyLayer l @{dict} layer) inputT =
   case applyVarTensor @{dict} layer inputT of
     (layer', outT) => (MkAnyLayer l @{dict} layer', outT)
@@ -191,9 +192,9 @@ forward {hs = h :: _} (l ~> layers) x =
 ----------------------------------------------------------------------
 
 export
-forwardVar : {i, o : Nat} -> {hs : List Nat} ->
-             Network i hs o Variable -> Vector i Variable ->
-             (Network i hs o Variable, Vector o Variable)
+forwardVar : {d : Device} -> {i, o : Nat} -> {hs : List Nat} ->
+             Network i hs o (Variable d) -> Vector i (Variable d) ->
+             (Network i hs o (Variable d), Vector o (Variable d))
 forwardVar (OutputLayer l) x =
   case applyVarAny l x of
     (l', output) => (OutputLayer l', output)
@@ -206,9 +207,9 @@ forwardVar {hs = h :: _} (l ~> layers) x =
 ||| Tensor-level forward pass: threads raw C tensor handles through layers.
 ||| No scalar packing/unpacking at layer boundaries.
 export
-forwardVarTensor : {i, o : Nat} -> {hs : List Nat} ->
-                   Network i hs o Variable -> AnyPtr ->
-                   (Network i hs o Variable, AnyPtr)
+forwardVarTensor : {d : Device} -> {i, o : Nat} -> {hs : List Nat} ->
+                   Network i hs o (Variable d) -> AnyPtr ->
+                   (Network i hs o (Variable d), AnyPtr)
 forwardVarTensor (OutputLayer l) inputT =
   case applyVarTensorAny l inputT of
     (l', outT) => (OutputLayer l', outT)
@@ -265,23 +266,23 @@ evaluate model = map (evaluateSingleDataPoint model)
 -- Variable Supervised Loss
 ----------------------------------------------------------------------
 
-forwardNextVar : {i, o : Nat} -> {hs : List Nat} ->
-                 (Network i hs o Variable, Vect n (Vector o Variable)) -> Vector i Variable ->
-                 (Network i hs o Variable, Vect (S n) (Vector o Variable))
+forwardNextVar : {d : Device} -> {i, o : Nat} -> {hs : List Nat} ->
+                 (Network i hs o (Variable d), Vect n (Vector o (Variable d))) -> Vector i (Variable d) ->
+                 (Network i hs o (Variable d), Vect (S n) (Vector o (Variable d)))
 forwardNextVar (nn, outputs) inp =
   let (updatedModel, newOutput) = forwardVar nn inp
   in (updatedModel, snoc outputs newOutput)
 
-forwardManyVar : {i, o : Nat} -> {hs : List Nat} ->
-                 Network i hs o Variable -> Vect n (Vector i Variable) ->
-                 (Network i hs o Variable, Vect n (Vector o Variable))
+forwardManyVar : {d : Device} -> {i, o : Nat} -> {hs : List Nat} ->
+                 Network i hs o (Variable d) -> Vect n (Vector i (Variable d)) ->
+                 (Network i hs o (Variable d), Vect n (Vector o (Variable d)))
 forwardManyVar network xs =
-  foldlD (\k => (Network i hs o Variable, Vect k (Vector o Variable))) forwardNextVar (network, []) xs
+  foldlD (\k => (Network i hs o (Variable d), Vect k (Vector o (Variable d)))) forwardNextVar (network, []) xs
 
 export
-calculateLossVar : {i, o, n : Nat} -> {hs : List Nat} ->
-                   LossFunction Variable -> Network i hs o Variable ->
-                   Vect n (DataPoint i o Variable) -> Variable
+calculateLossVar : {d : Device} -> {i, o, n : Nat} -> {hs : List Nat} ->
+                   LossFunction (Variable d) -> Network i hs o (Variable d) ->
+                   Vect n (DataPoint i o (Variable d)) -> Variable d
 calculateLossVar lossFn model dataPoints =
   let xs = map x dataPoints
       ys = map y dataPoints
@@ -338,25 +339,25 @@ evaluateRecurrent model dataPoints = map (evaluateSingleRecurrentDataPoint model
 -- Variable Recurrent Forward / Loss
 ----------------------------------------------------------------------
 
-recurVar : {i, o : Nat} -> {hs : List Nat} ->
-           (Network i hs o Variable, List (Vector o Variable)) -> Vector i Variable ->
-           (Network i hs o Variable, List (Vector o Variable))
+recurVar : {d : Device} -> {i, o : Nat} -> {hs : List Nat} ->
+           (Network i hs o (Variable d), List (Vector o (Variable d))) -> Vector i (Variable d) ->
+           (Network i hs o (Variable d), List (Vector o (Variable d)))
 recurVar (m, os) inp =
   let (updatedModel, output) = forwardVar m inp
   in (updatedModel, snoc os output)
 
 export
-forwardRecurrentVar : {i, o : Nat} -> {hs : List Nat} ->
-                      Network i hs o Variable -> List (Vector i Variable) ->
-                      (Network i hs o Variable, List (Vector o Variable))
+forwardRecurrentVar : {d : Device} -> {i, o : Nat} -> {hs : List Nat} ->
+                      Network i hs o (Variable d) -> List (Vector i (Variable d)) ->
+                      (Network i hs o (Variable d), List (Vector o (Variable d)))
 forwardRecurrentVar model = foldl recurVar (model, [])
 
 export
-calculateLossRecurrentVar : {i, o, n : Nat} -> {hs : List Nat} ->
-                            LossFunction Variable -> Network i hs o Variable ->
-                            Vect n (RecurrentDataPoint i o Variable) -> Variable
+calculateLossRecurrentVar : {d : Device} -> {i, o, n : Nat} -> {hs : List Nat} ->
+                            LossFunction (Variable d) -> Network i hs o (Variable d) ->
+                            Vect n (RecurrentDataPoint i o (Variable d)) -> Variable d
 calculateLossRecurrentVar lossFn model dataPoints =
-  let perSequence : RecurrentDataPoint i o Variable -> List Variable
+  let perSequence : RecurrentDataPoint i o (Variable d) -> List (Variable d)
       perSequence dp = let (_, preds) = forwardRecurrentVar model (xs dp)
                        in zipWith lossFn preds (ys dp)
       losses = map perSequence dataPoints
@@ -369,7 +370,7 @@ calculateLossRecurrentVar lossFn model dataPoints =
 
 ||| Reset per-sequence state for all layers in the network.
 export
-resetNetworkState : {i, o : Nat} -> {hs : List Nat} -> Network i hs o Variable -> Network i hs o Variable
+resetNetworkState : {d : Device} -> {i, o : Nat} -> {hs : List Nat} -> Network i hs o (Variable d) -> Network i hs o (Variable d)
 resetNetworkState (OutputLayer (MkAnyLayer l @{dict} layer)) = OutputLayer (MkAnyLayer l @{dict} (resetState @{dict} layer))
 resetNetworkState ((MkAnyLayer l @{dict} layer) ~> rest) = MkAnyLayer l @{dict} (resetState @{dict} layer) ~> resetNetworkState rest
 
@@ -395,13 +396,13 @@ forwardTwoPhase model dp =
 ||| Two-phase loss: encoding phase (discard outputs), then output phase
 ||| (feed zeros, compute loss on collected outputs vs targets).
 export
-calculateLossTwoPhaseVar : {i, o, n : Nat} -> {hs : List Nat} ->
-                           LossFunction Variable -> Network i hs o Variable ->
-                           Vect n (TwoPhaseDataPoint i o Variable) -> Variable
+calculateLossTwoPhaseVar : {d : Device} -> {i, o, n : Nat} -> {hs : List Nat} ->
+                           LossFunction (Variable d) -> Network i hs o (Variable d) ->
+                           Vect n (TwoPhaseDataPoint i o (Variable d)) -> Variable d
 calculateLossTwoPhaseVar lossFn model dataPoints =
-  let perSequence : TwoPhaseDataPoint i o Variable -> List Variable
+  let perSequence : TwoPhaseDataPoint i o (Variable d) -> List (Variable d)
       perSequence dp =
-        let zeroInput : Vector i Variable
+        let zeroInput : Vector i (Variable d)
             zeroInput = map (const (fromDouble 0.0)) zeros
             outputInputs = Data.List.replicate (length (targets dp)) zeroInput
             model' = resetNetworkState model
@@ -414,13 +415,13 @@ calculateLossTwoPhaseVar lossFn model dataPoints =
 ||| Two-phase loss with C-backed BCE: encoding phase (discard outputs),
 ||| then output phase (feed zeros, compute fused BCE loss).
 export
-calculateLossTwoPhaseVarBce : {i, o, n : Nat} -> {hs : List Nat} ->
-                              Network i hs o Variable ->
-                              Vect n (TwoPhaseDataPoint i o Variable) -> Variable
+calculateLossTwoPhaseVarBce : {d : Device} -> {i, o, n : Nat} -> {hs : List Nat} ->
+                              Network i hs o (Variable d) ->
+                              Vect n (TwoPhaseDataPoint i o (Variable d)) -> Variable d
 calculateLossTwoPhaseVarBce model dataPoints =
-  let perSequence : TwoPhaseDataPoint i o Variable -> List Variable
+  let perSequence : TwoPhaseDataPoint i o (Variable d) -> List (Variable d)
       perSequence dp =
-        let zeroInput : Vector i Variable
+        let zeroInput : Vector i (Variable d)
             zeroInput = map (const (fromDouble 0.0)) zeros
             outputInputs = Data.List.replicate (length (targets dp)) zeroInput
             model' = resetNetworkState model
@@ -435,8 +436,8 @@ calculateLossTwoPhaseVarBce model dataPoints =
 -- Automatic Parameter Naming
 ----------------------------------------------------------------------
 
-autoNameAny : {i, o : Nat} -> String -> SortedMap String Nat -> AnyLayer i o Variable ->
-              (SortedMap String Nat, AnyLayer i o Variable)
+autoNameAny : {d : Device} -> {i, o : Nat} -> String -> SortedMap String Nat -> AnyLayer i o (Variable d) ->
+              (SortedMap String Nat, AnyLayer i o (Variable d))
 autoNameAny scope counts (MkAnyLayer l @{dict} layer) =
   let pfx = layerPrefix @{dict} layer
   in if pfx == "" then (counts, MkAnyLayer l @{dict} layer)
@@ -445,10 +446,10 @@ autoNameAny scope counts (MkAnyLayer l @{dict} layer) =
               fullName = scope ++ pfx ++ show n
           in (counts', MkAnyLayer l @{dict} (nameLayer @{dict} fullName layer))
 
-autoNameNetwork : String -> SortedMap String Nat ->
+autoNameNetwork : {d : Device} -> String -> SortedMap String Nat ->
                   {i, o : Nat} -> {hs : List Nat} ->
-                  Network i hs o Variable ->
-                  (SortedMap String Nat, Network i hs o Variable)
+                  Network i hs o (Variable d) ->
+                  (SortedMap String Nat, Network i hs o (Variable d))
 autoNameNetwork scope counts (OutputLayer l) =
   let (counts', l') = autoNameAny scope counts l
   in (counts', OutputLayer l')
@@ -459,8 +460,8 @@ autoNameNetwork scope counts (l ~> rest) =
 
 ||| Automatically name all parameters using type-based prefixes.
 export
-autoName : {i, o : Nat} -> {hs : List Nat} ->
-           Network i hs o Variable -> Network i hs o Variable
+autoName : {d : Device} -> {i, o : Nat} -> {hs : List Nat} ->
+           Network i hs o (Variable d) -> Network i hs o (Variable d)
 autoName net = snd (autoNameNetwork "" empty net)
 
 
@@ -468,12 +469,12 @@ autoName net = snd (autoNameNetwork "" empty net)
 -- Variable -> Double Network Conversion
 ----------------------------------------------------------------------
 
-toDoubleAny : {i, o : Nat} -> AnyLayer i o Variable -> AnyLayer i o Double
+toDoubleAny : {d : Device} -> {i, o : Nat} -> AnyLayer i o (Variable d) -> AnyLayer i o Double
 toDoubleAny (MkAnyLayer l @{dict} layer) = MkAnyLayer l @{dict} (toDoubleLayer @{dict} layer)
 
 export
-toDoubleNetwork : {i, o : Nat} -> {hs : List Nat} ->
-                  Network i hs o Variable -> Network i hs o Double
+toDoubleNetwork : {d : Device} -> {i, o : Nat} -> {hs : List Nat} ->
+                  Network i hs o (Variable d) -> Network i hs o Double
 toDoubleNetwork (OutputLayer l) = OutputLayer (toDoubleAny l)
 toDoubleNetwork (l ~> rest) = toDoubleAny l ~> toDoubleNetwork rest
 
@@ -519,11 +520,11 @@ debugForwardRecurrent model inputs = foldl step (model, [], []) inputs
 -- Network Parameter IDs (for testing)
 ----------------------------------------------------------------------
 
-anyLayerParamIds : {i, o : Nat} -> AnyLayer i o Variable -> List String
+anyLayerParamIds : {d : Device} -> {i, o : Nat} -> AnyLayer i o (Variable d) -> List String
 anyLayerParamIds (MkAnyLayer _ @{dict} layer) = getParamIds @{dict} layer
 
 export
-networkParamIds : {i, o : Nat} -> {hs : List Nat} ->
-                  Network i hs o Variable -> List String
+networkParamIds : {d : Device} -> {i, o : Nat} -> {hs : List Nat} ->
+                  Network i hs o (Variable d) -> List String
 networkParamIds (OutputLayer l) = anyLayerParamIds l
 networkParamIds (l ~> rest) = anyLayerParamIds l ++ networkParamIds rest

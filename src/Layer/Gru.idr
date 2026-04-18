@@ -9,6 +9,7 @@ module Layer.Gru
 
 import Data.Vect
 
+import Device
 import Endofunctor
 import Floating
 import Init
@@ -41,9 +42,9 @@ record GruState (inputSize : Nat) (outputSize : Nat) (ty : Type) where
 export
 LayerLike GruState where
   applyGeneric _ _ = idris_crash "GRU: use tensor path"
-  applyVar _ _ = idris_crash "GRU: use tensor path"
+  applyVar {d} _ _ = idris_crash "GRU: use tensor path"
 
-  applyVarTensor {i} {o} st inputT =
+  applyVarTensor {d} {i} {o} st inputT =
     case (extractWeightTensor (wIH st), extractBiasTensor (wIH st),
           extractWeightTensor (wHH st), extractBiasTensor (wHH st),
           st.hiddenTensor) of
@@ -63,7 +64,7 @@ LayerLike GruState where
 
   showLayer {i} {o} _ = "GRU<" ++ show i ++ ":" ++ show o ++ ">"
 
-  nameLayer {i} {o} pfx (MkGru wih whh h _) =
+  nameLayer {d} {i} {o} pfx (MkGru wih whh h _) =
     let wih' = nameLayer (pfx ++ "_wih") wih
         whh' = nameLayer (pfx ++ "_whh") whh
         oI = cast {to=Int} o
@@ -72,17 +73,17 @@ LayerLike GruState where
         hT = prim__createState1d oI hBuf'
     in MkGru wih' whh' h (Just hT)
     where
-      packScalarVals : AnyPtr -> Int -> Vector n Variable -> AnyPtr
+      packScalarVals : AnyPtr -> Int -> Vector n (Variable d) -> AnyPtr
       packScalarVals buf _ (VTensor []) = buf
       packScalarVals buf idx (VTensor (STensor v :: rest)) =
         packScalarVals (prim__setDouble buf idx v.value) (idx + 1) (VTensor rest)
 
   layerPrefix _ = "gru"
 
-  toDoubleLayer (MkGru wih whh h _) =
+  toDoubleLayer {d} (MkGru wih whh h _) =
     MkGru (toDoubleLayer wih) (toDoubleLayer whh) (map value h) Nothing
 
-  resetState {o} (MkGru wih whh h ht) =
+  resetState {d} {o} (MkGru wih whh h ht) =
     case ht of
       Just t =>
         let oI = cast {to=Int} o

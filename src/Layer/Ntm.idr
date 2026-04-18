@@ -4,6 +4,7 @@ import Data.Vect
 import Data.Zippable
 import System.Random
 
+import Device
 import Floating
 import Init
 import Layer.Core
@@ -57,14 +58,14 @@ WriteParamWidth m = ReadParamWidth m + m
 
 ||| Project addressing weights onto the probability simplex after
 ||| gradient updates. Clamps to [epsilon, inf) and renormalizes.
-projectWeights : {n : Nat} -> Vector n Variable -> Vector n Variable
+projectWeights : {d : Device} -> {n : Nat} -> Vector n (Variable d) -> Vector n (Variable d)
 projectWeights (VTensor vs) =
-  let clamp : Tensor [] Variable -> Tensor [] Variable
+  let clamp : Tensor [] (Variable d) -> Tensor [] (Variable d)
       clamp (STensor v) = STensor ({ value $= max 0.00000001 } v)
       clamped = map clamp vs
       s : Double
       s = foldl (\acc, (STensor v) => acc + v.value) 0.0 clamped
-      normalize : Tensor [] Variable -> Tensor [] Variable
+      normalize : Tensor [] (Variable d) -> Tensor [] (Variable d)
       normalize (STensor v) = STensor ({ value $= (/ s) } v)
   in VTensor (map normalize clamped)
 
@@ -96,10 +97,10 @@ record NtmState (n : Nat) (m : Nat) (h : Nat) (inputSize : Nat) (outputSize : Na
 ----------------------------------------------------------------------
 
 ||| Variable-specialized read head with unbounded gamma (softplus).
-forwardReadHeadUnboundedVar : {n, w : Nat} ->
-    Matrix n w Variable -> ReadHead n Variable ->
-    Vector ((w + ShiftKernelSize) + 3) Variable ->
-    (ReadHead n Variable, Vector w Variable)
+forwardReadHeadUnboundedVar : {d : Device} -> {n, w : Nat} ->
+    Matrix n w (Variable d) -> ReadHead n (Variable d) ->
+    Vector ((w + ShiftKernelSize) + 3) (Variable d) ->
+    (ReadHead n (Variable d), Vector w (Variable d))
 forwardReadHeadUnboundedVar memory rh inp =
   let (mainInput, params) = splitAt (w + ShiftKernelSize) inp
       (keyVector, shiftVector) = splitAt w mainInput
@@ -119,10 +120,10 @@ forwardReadHeadUnboundedVar memory rh inp =
   in (newReadHead, output)
 
 ||| Variable-specialized write head with interpolation write (no erase).
-forwardWriteHeadInterpVar : {n, w : Nat} ->
-    Matrix n w Variable -> WriteHead n Variable ->
-    Vector (((w + ShiftKernelSize) + 3) + w) Variable ->
-    (WriteHead n Variable, Matrix n w Variable)
+forwardWriteHeadInterpVar : {d : Device} -> {n, w : Nat} ->
+    Matrix n w (Variable d) -> WriteHead n (Variable d) ->
+    Vector (((w + ShiftKernelSize) + 3) + w) (Variable d) ->
+    (WriteHead n (Variable d), Matrix n w (Variable d))
 forwardWriteHeadInterpVar memory (MkWriteHead readHead) inp =
   let (readHeadInput, rawAdd) = Tensor.splitAt ((w + ShiftKernelSize) + 3) inp
       addVector = rawAdd
@@ -185,14 +186,14 @@ export
              Nothing Nothing Nothing Nothing, output)
 
   -- Tensor path: delegates to applyVarTensor when tensor handles available
-  applyVar {i} {o} st@(MkNtm _ _ _ _ _ _ _ _ (Just _) (Just _) (Just _) (Just _)) xs =
+  applyVar {d} {i} {o} st@(MkNtm _ _ _ _ _ _ _ _ (Just _) (Just _) (Just _) (Just _)) xs =
     let (VTensor xElems) = xs
         inputT = vecStackTensor xElems
         (st', outT) = applyVarTensor st inputT
         output = VTensor (tensorToScalars outT 0 o)
     in (st', output)
   -- Scalar fallback: when tensor handles not initialized
-  applyVar (MkNtm lstm readFc writeFc outputFc memory readAddr writeAddr readOutput _ _ _ _) inp =
+  applyVar {d} (MkNtm lstm readFc writeFc outputFc memory readAddr writeAddr readOutput _ _ _ _) inp =
     case applyVar lstm (readOutput ++ inp) of
       (updLstm, hidden) =>
         let cell = extractCellState updLstm
@@ -213,7 +214,7 @@ export
 
   -- Tensor-level NTM forward: no scalar packing/unpacking.
   -- Fixes OOM on MLX/torch by avoiding tensorToScalars intermediates.
-  applyVarTensor {i} {o} (MkNtm lstm readFc writeFc outputFc memory readAddr writeAddr readOutput (Just memT) (Just raT) (Just waT) (Just roT)) inputT =
+  applyVarTensor {d} {i} {o} (MkNtm lstm readFc writeFc outputFc memory readAddr writeAddr readOutput (Just memT) (Just raT) (Just waT) (Just roT)) inputT =
     let Just rfcW = extractWeightTensor readFc | Nothing => idris_crash "NTM: readFc W"
         Just rfcB = extractBiasTensor readFc   | Nothing => idris_crash "NTM: readFc B"
         Just wfcW = extractWeightTensor writeFc | Nothing => idris_crash "NTM: writeFc W"
@@ -263,7 +264,7 @@ export
         in (MkNtm updLstm readFc writeFc outputFc
                   memory readAddr writeAddr readOutput
                   (Just newMemT) (Just newReadAddrT) (Just newWriteAddrT) (Just newReadOutT), outputT)
-  applyVarTensor st inputT = idris_crash "NTM: state tensors not initialized"
+  applyVarTensor {d} st inputT = idris_crash "NTM: state tensors not initialized"
 
   emapLayer f (MkNtm lstm rfc wfc ofc mem ra wa ro _ _ _ _) =
     MkNtm (emapLayer f lstm) (emapLayer f rfc) (emapLayer f wfc) (emapLayer f ofc)
@@ -274,7 +275,7 @@ export
     "Ntm<" ++ show i ++ ":" ++ show o
     ++ ", mem=" ++ show n ++ "x" ++ show m ++ ", h=" ++ show h ++ ">"
 
-  nameLayer prefx (MkNtm lstm readFc writeFc outputFc memory readAddr writeAddr readOutput _ _ _ _) =
+  nameLayer {d} prefx (MkNtm lstm readFc writeFc outputFc memory readAddr writeAddr readOutput _ _ _ _) =
     let namedLstm = nameLayer (prefx ++ "_lstm0") lstm
         namedReadFc = nameLayer (prefx ++ "_readFc_ll0") readFc
         namedWriteFc = nameLayer (prefx ++ "_writeFc_ll0") writeFc
@@ -306,7 +307,7 @@ export
 
   layerPrefix _ = "ntm"
 
-  toDoubleLayer (MkNtm lstm rfc wfc ofc mem ra wa ro _ _ _ _) =
+  toDoubleLayer {d} (MkNtm lstm rfc wfc ofc mem ra wa ro _ _ _ _) =
     MkNtm (toDoubleLayer lstm) (toDoubleLayer rfc) (toDoubleLayer wfc) (toDoubleLayer ofc)
            (map value mem) (map value ra) (map value wa) (map value ro)
            Nothing Nothing Nothing Nothing
@@ -323,28 +324,28 @@ export
           ]
     in (updated, output, entry)
 
-  syncBuffers (MkNtm lstm readFc writeFc outputFc mem ra wa ro mt rat wat rot) =
+  syncBuffers {d} (MkNtm lstm readFc writeFc outputFc mem ra wa ro mt rat wat rot) =
     MkNtm (syncBuffers lstm) (syncBuffers readFc) (syncBuffers writeFc) (syncBuffers outputFc)
            mem (projectWeights ra) (projectWeights wa) ro
            mt rat wat rot
 
-  applyDeltasAndSync deltas (MkNtm lstm readFc writeFc outputFc mem ra wa ro mt rat wat rot) =
+  applyDeltasAndSync {d} deltas (MkNtm lstm readFc writeFc outputFc mem ra wa ro mt rat wat rot) =
     MkNtm (applyDeltasAndSync deltas lstm) (applyDeltasAndSync deltas readFc)
            (applyDeltasAndSync deltas writeFc) (applyDeltasAndSync deltas outputFc)
            mem (projectWeights ra) (projectWeights wa) ro
            mt rat wat rot
 
-  readFromBuffers (MkNtm lstm readFc writeFc outputFc mem ra wa ro mt rat wat rot) =
+  readFromBuffers {d} (MkNtm lstm readFc writeFc outputFc mem ra wa ro mt rat wat rot) =
     MkNtm (readFromBuffers lstm) (readFromBuffers readFc)
            (readFromBuffers writeFc) (readFromBuffers outputFc)
            mem ra wa ro
            mt rat wat rot
 
-  getParamIds (MkNtm lstm readFc writeFc outputFc mem ra wa ro _ _ _ _) =
+  getParamIds {d} (MkNtm lstm readFc writeFc outputFc mem ra wa ro _ _ _ _) =
     getParamIds lstm ++ getParamIds readFc ++ getParamIds writeFc ++ getParamIds outputFc
       ++ tensorIds mem ++ tensorIds ra ++ tensorIds wa ++ tensorIds ro
     where
-      tensorIds : {dims : Vect rank Nat} -> Tensor dims Variable -> List String
+      tensorIds : {dims : Vect rank Nat} -> Tensor dims (Variable d) -> List String
       tensorIds = mapMaybe paramId . toList
 
 
