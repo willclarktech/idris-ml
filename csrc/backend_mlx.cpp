@@ -457,7 +457,7 @@ TensorHandle tensor_cosine_similarity(TensorHandle hmemory, TensorHandle hkey, i
 }
 
 TensorHandle tensor_conv1d_circular(TensorHandle hinput, TensorHandle hkernel) {
-    // Circular convolution: out[i] = sum_j input[(i-k/2+j+n)%n] * kernel[k-1-j]
+    // Circular correlation: out[i] = sum_j input[(i-k/2+j+n)%n] * kernel[j]
     auto inp = (Tensor*)hinput; auto kern = (Tensor*)hkernel;
     int n = (int)inp->data.size();
     int k = (int)kern->data.size();
@@ -997,7 +997,7 @@ void tensor_backward(TensorHandle h) {
                 auto inp_data = a->data.data<double>();
                 std::vector<double> dk(kk, 0.0);
                 for (int j = 0; j < kk; j++) {
-                    int shift = half_k - j;
+                    int shift = j - half_k;  // must match forward: input[(i - half_k + j) % n]
                     for (int i = 0; i < nn; i++) {
                         int idx = ((i + shift) % nn + nn) % nn;
                         dk[j] += grad_data[i] * inp_data[idx];
@@ -1387,6 +1387,22 @@ void optimizer_step(OptimizerHandle h) {
         case 0: // SGD
             t->data = mx::subtract(t->data, mx::multiply(mx::array(opt->lr), g));
             break;
+        case 1: { // RMSprop
+            // v = alpha * v + (1 - alpha) * g^2
+            opt->v_bufs[i] = mx::add(mx::multiply(mx::array(opt->alpha), opt->v_bufs[i]),
+                                      mx::multiply(mx::array(1.0 - opt->alpha), mx::square(g)));
+            // delta = lr * g / (sqrt(v) + eps)
+            auto delta = mx::divide(mx::multiply(mx::array(opt->lr), g),
+                                     mx::add(mx::sqrt(opt->v_bufs[i]), mx::array(opt->eps)));
+            if (opt->momentum > 0) {
+                // m = momentum * m + delta
+                opt->m_bufs[i] = mx::add(mx::multiply(mx::array(opt->momentum), opt->m_bufs[i]), delta);
+                t->data = mx::subtract(t->data, opt->m_bufs[i]);
+            } else {
+                t->data = mx::subtract(t->data, delta);
+            }
+            break;
+        }
         case 2: { // Adam
             opt->m_bufs[i] = mx::add(mx::multiply(mx::array(opt->beta1), opt->m_bufs[i]),
                                       mx::multiply(mx::array(1.0 - opt->beta1), g));
