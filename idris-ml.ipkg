@@ -32,6 +32,7 @@ modules = Backprop
         , Layer.Transformer
         , Math
         , Memory
+        , Notebook.Prelude
         , Optimizer
         , Sampler
         , Schedule

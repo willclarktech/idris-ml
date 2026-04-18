@@ -1,0 +1,5 @@
+{
+  "argv": ["python3", "-m", "idris_ml_kernel", "-f", "{connection_file}"],
+  "display_name": "Idris 2 (idris-ml)",
+  "language": "idris2"
+}

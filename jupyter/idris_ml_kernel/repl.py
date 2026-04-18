@@ -1,0 +1,96 @@
+"""Persistent Idris 2 REPL wrapper via pexpect."""
+
+from __future__ import annotations
+
+import platform
+import shutil
+from pathlib import Path
+
+import pexpect
+
+
+class Idris2REPL:
+    """Manage a persistent idris2 REPL subprocess with FFI dylib support."""
+
+    PROMPT_RE = r"(\[scheme\] )?[A-Za-z][A-Za-z0-9.]*> "
+
+    # .dylib on macOS, .so on Linux
+    _LIB_EXT = ".dylib" if platform.system() == "Darwin" else ".so"
+
+    def __init__(self, project_root: Path, timeout: int = 60):
+        self.root = project_root
+        self.timeout = timeout
+        self.modules: list[str] = []
+        self.lets: list[str] = []
+        self._ensure_dylib()
+        self._spawn()
+
+    def _lib_name(self) -> str:
+        return f"libidrisml{self._LIB_EXT}"
+
+    def _ensure_dylib(self) -> None:
+        """Copy the backend dylib where :exec's temp Chez directory expects it."""
+        tmpchez = self.root / "build" / "exec" / "_tmpchez_app"
+        tmpchez.mkdir(parents=True, exist_ok=True)
+        dylib = self.root / "build" / self._lib_name()
+        dest = tmpchez / self._lib_name()
+        if dylib.exists():
+            shutil.copy2(dylib, dest)
+
+    def _spawn(self) -> None:
+        """Start the idris2 REPL with Notebook.Prelude loaded."""
+        self.child = pexpect.spawn(
+            "idris2",
+            [
+                "--source-dir", "src",
+                "-p", "contrib",
+                "--no-banner",
+                "--no-colour",
+                "src/Notebook/Prelude.idr",
+            ],
+            cwd=str(self.root),
+            timeout=self.timeout,
+            encoding="utf-8",
+            echo=False,
+        )
+        self.child.expect(self.PROMPT_RE, timeout=self.timeout)
+
+    def send(self, cmd: str, timeout: int | None = None) -> str:
+        """Send a command and return the output (text between send and next prompt)."""
+        t = timeout if timeout is not None else self.timeout
+        self.child.sendline(cmd)
+        self.child.expect(self.PROMPT_RE, timeout=t)
+        output = self.child.before or ""
+        # Strip echoed command from front (pexpect may echo even with echo=False)
+        lines = output.split("\n")
+        if lines and lines[0].strip() == cmd.strip():
+            lines = lines[1:]
+        return "\n".join(lines).strip()
+
+    def is_alive(self) -> bool:
+        return self.child.isalive()
+
+    def restart(self) -> None:
+        """Kill and respawn, replaying session state."""
+        try:
+            self.child.close(force=True)
+        except Exception:
+            pass
+        self._ensure_dylib()
+        self._spawn()
+        for mod in self.modules:
+            self.send(f":module {mod}")
+        for let_cmd in self.lets:
+            self.send(let_cmd)
+
+    def close(self) -> None:
+        """Shut down the REPL."""
+        try:
+            self.child.sendline(":q")
+            self.child.expect(pexpect.EOF, timeout=5)
+        except Exception:
+            pass
+        try:
+            self.child.close(force=True)
+        except Exception:
+            pass

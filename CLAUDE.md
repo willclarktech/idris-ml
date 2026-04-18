@@ -50,6 +50,12 @@ make ref-lint        # Lint (ruff)
 make ref-typecheck   # Type-check (pyright)
 make ref-convergence # NTM convergence verification
 
+# Jupyter kernel (interactive REPL notebooks)
+make jupyter-install      # Install kernel + deps
+make jupyter-lab          # Launch JupyterLab with example notebooks
+make test-jupyter         # Full kernel tests (REPL + FFI integration)
+make test-jupyter-unit    # Cell parser unit tests only (no backend needed)
+
 # Hyperparameter sweep
 bash scripts/sweep.sh --task copy --parallel 4         # full
 bash scripts/sweep.sh --task copy --parallel 4 --quick  # 2000 epochs for screening
@@ -89,6 +95,7 @@ bash scripts/sweep.sh --task copy --parallel 4 --quick  # 2000 epochs for screen
 15. **Curriculum** - Multi-stage curriculum training: `Stage` record, `runCurriculum`
 16. **Debug** - Forward-pass diagnostics: `debugForward`, `debugForwardRecurrent`, `toDoubleNetwork`
 17. **Checkpoint** - SafeTensors serialization: `saveModel`/`loadModel`, `saveOptimizer`/`loadOptimizer`
+18. **Notebook.Prelude** - Re-exports all library modules via `import public` for Jupyter kernel interactive use
 
 ### Core type signatures
 

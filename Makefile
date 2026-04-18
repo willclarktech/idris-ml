@@ -275,6 +275,33 @@ ref-convergence-recall:
 test-cuda:
 	bash scripts/test_cuda_colab.sh
 
+# Jupyter kernel (venv in jupyter/.venv)
+JUPYTER_VENV := jupyter/.venv
+JUPYTER_PIP := $(JUPYTER_VENV)/bin/pip
+JUPYTER_PYTHON := $(JUPYTER_VENV)/bin/python3
+JUPYTER_PYTEST := $(JUPYTER_VENV)/bin/pytest
+
+$(JUPYTER_VENV)/bin/activate:
+	python3 -m venv $(JUPYTER_VENV)
+	$(JUPYTER_PIP) install --upgrade pip setuptools >/dev/null
+
+jupyter-install: backend check $(JUPYTER_VENV)/bin/activate
+	$(JUPYTER_PIP) install -e jupyter/.[dev]
+	$(JUPYTER_PYTHON) -m idris_ml_kernel.install
+
+jupyter-lab: jupyter-install
+	$(JUPYTER_VENV)/bin/jupyter lab --notebook-dir=jupyter/notebooks
+
+# Jupyter kernel tests (requires backend + idris2)
+test-jupyter: backend check $(JUPYTER_VENV)/bin/activate
+	$(JUPYTER_PIP) install -q -e jupyter/.[dev]
+	cd jupyter && ../$(JUPYTER_PYTEST) tests/ -v
+
+# Quick: just cell parser (no REPL, no backend needed)
+test-jupyter-unit: $(JUPYTER_VENV)/bin/activate
+	$(JUPYTER_PIP) install -q -e jupyter/.[dev]
+	cd jupyter && ../$(JUPYTER_PYTEST) tests/test_cell_parser.py -v
+
 clean:
 	rm -f $(BUILD)/libidrisml*.dylib $(BUILD)/test_backend $(BUILD)/test_safetensors \
 	      $(BUILD)/test_ntm_grad $(BUILD)/test_ntm_timestep
@@ -337,6 +364,13 @@ test-all:
 		echo "=== PyTorch reference tests SKIPPED (uv not found) ==="; \
 	fi
 	@echo ""
+	@if command -v pytest >/dev/null 2>&1 && [ -f jupyter/pyproject.toml ]; then \
+		echo "=== Jupyter kernel tests ==="; \
+		$(MAKE) test-jupyter; \
+	else \
+		echo "=== Jupyter kernel tests SKIPPED (pytest or jupyter not found) ==="; \
+	fi
+	@echo ""
 	@echo "=== All tests complete ==="
 
 .PHONY: all-backends test test-all download-mnist test-backend test-backend-tape test-backend-mlx \
@@ -348,4 +382,5 @@ test-all:
         example-bench example-profile sweep sweep-quick clean \
         backend print-torch ref-setup ref-supervised ref-rnn ref-lstm ref-ntm-copy \
         ref-ntm-recall ref-transformer bench-py bench-compare ref-test ref-lint \
-        ref-typecheck ref-convergence ref-convergence-copy ref-convergence-recall
+        ref-typecheck ref-convergence ref-convergence-copy ref-convergence-recall \
+        jupyter-install jupyter-lab test-jupyter test-jupyter-unit
