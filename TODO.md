@@ -4,13 +4,9 @@
 
 Core PyTorch feature parity — the 20% of features that enables 80% of real-world architectures. See plan rationale in `docs/feature-parity.md` (TODO).
 
-**Remaining**
+**All feature parity tiers complete.**
 
-| Item | Difficulty | Notes |
-|------|-----------|-------|
-| Integrate embedding into Transformer | M | Replace one-hot × linear with EmbeddingState in TransformerState. Change interface from `[seqLen * vocab]` to `[seqLen]` token indices |
-
-**Done (Tier 1):** Embedding layer, AdamW optimizer, GELU activation, average pooling 1D+2D, residual layer wrapper, weight decay
+**Done (Tier 1):** Embedding layer (integrated into Transformer), AdamW optimizer, GELU activation, average pooling 1D+2D, residual layer wrapper, weight decay
 
 **Done (Tier 2):** GRU layer, grouped/depthwise conv, transposed convolution 1D+2D, cross-attention
 
