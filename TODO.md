@@ -6,6 +6,12 @@
 |------|-----------|-------|
 | CUDA support | M–L | Torch backend should work via `tensor_to_device("cuda")` — untested. Test script ready: `scripts/test_cuda_colab.sh`. See `docs/cuda-testing.md` |
 
+## Medium Priority
+
+| Item | Difficulty | Notes |
+|------|-----------|-------|
+| Revisit `(*)` as matrix multiplication | M | Currently `(*)` on Tensor is elementwise (via `Num`). Consider whether `(*)` should be matmul instead — trade-offs: mathematical convention (matrix ring) vs NumPy/PyTorch convention (elementwise). Explicit `matrixMultiply`/`matrixVectorMultiply` is unambiguous but verbose |
+
 ## Low Priority
 
 | Item | Difficulty | Notes |
