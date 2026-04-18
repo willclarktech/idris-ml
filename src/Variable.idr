@@ -137,6 +137,9 @@ prim__conv1dCircular : AnyPtr -> AnyPtr -> AnyPtr
 %foreign "C:tensor_gelu,libidrisml"
 export prim__gelu : AnyPtr -> AnyPtr
 
+%foreign "C:tensor_gru_cell,libidrisml"
+export prim__gruCell : AnyPtr -> AnyPtr -> Int -> AnyPtr
+
 -- Embedding
 %foreign "C:tensor_embedding,libidrisml"
 export

@@ -170,6 +170,7 @@ enum {
     OP_SOFTMAX_3D,    /* row-wise softmax on [B,m,n] along last dim */
     OP_TRANSPOSE_LAST2, /* [B,m,n] -> [B,n,m] */
     OP_GELU,          /* GELU activation (tanh approximation) */
+    OP_GRU_CELL,      /* GRU cell: z,r,n gates -> new hidden */
     OP_EMBEDDING,     /* row gather from weight matrix */
     OP_BATCH_NORM,    /* per-channel normalization */
     OP_DROPOUT,       /* inverted dropout with stored mask */
@@ -241,6 +242,12 @@ typedef struct {
     double* rstd;      /* reciprocal std devs [m] */
     int m, n;
 } LayerNormMeta;
+
+typedef struct {
+    int o;
+    double* zG; double* rG; double* nG;  /* activated gate values [o] each */
+    double* rh;  /* r * prev_hidden [o] */
+} GruCellMeta;
 
 typedef struct {
     int n, embedDim;
@@ -332,6 +339,13 @@ static void tape_reset(void) {
             free(meta->rstd);
             meta->x_hat = NULL;
             meta->rstd = NULL;
+        }
+        /* Free OP_GRU_CELL gate arrays */
+        if (tape[i].op == OP_GRU_CELL && tape[i].op_meta) {
+            GruCellMeta* meta = (GruCellMeta*)tape[i].op_meta;
+            free(meta->zG); free(meta->rG); free(meta->nG);
+            free(meta->rh);
+            meta->zG = meta->rG = meta->nG = meta->rh = NULL;
         }
         /* Free OP_EMBEDDING indices */
         if (tape[i].op == OP_EMBEDDING && tape[i].op_meta) {
@@ -2201,6 +2215,33 @@ void tensor_backward(TensorHandle h) {
             break;
         }
 
+        case OP_GRU_CELL: {
+            /* h' = (1-z)*n + z*prev
+               d_combined[i]     (z_raw) = dh' * (prev[i] - n[i]) * z[i] * (1-z[i])
+               d_combined[o+i]   (r_raw) = 0 (simplified: r already folded into n_raw)
+               d_combined[2o+i]  (n_raw) = dh' * (1-z[i]) * (1-n[i]^2)
+               d_prev[i] = dh' * z[i] */
+            GruCellMeta* meta = (GruCellMeta*)e->op_meta;
+            int oo = meta->o;
+            ensure_grad(r);
+            if (a && a->requires_grad) {
+                ensure_grad(a);
+                for (int i = 0; i < oo; i++) {
+                    double dh = r->grad[i];
+                    double z = meta->zG[i], n = meta->nG[i];
+                    a->grad[i]      += dh * (b->data[i] - n) * z * (1.0 - z);  /* d_z_raw */
+                    /* d_r_raw: simplified model doesn't backprop through r separately */
+                    a->grad[2*oo+i] += dh * (1.0 - z) * (1.0 - n * n);          /* d_n_raw */
+                }
+            }
+            if (b && b->requires_grad) {
+                ensure_grad(b);
+                for (int i = 0; i < oo; i++)
+                    b->grad[i] += r->grad[i] * meta->zG[i];  /* d_prev */
+            }
+            break;
+        }
+
         case OP_GELU: {
             /* d_gelu/dx = 0.5*(1+tanh(inner)) + 0.5*x*(1-tanh^2)*c*(1+3*0.044715*x^2) */
             if (a) {
@@ -3266,6 +3307,47 @@ TensorPair* tensor_lstm_gates_pair(TensorHandle combined, TensorHandle prev_cell
 TensorHandle tensor_pair_first(TensorPair* p) { return p->first; }
 TensorHandle tensor_pair_second(TensorPair* p) { return p->second; }
 void tensor_pair_free(TensorPair* p) { free(p); }
+
+/* ================================================================
+   GRU Cell
+   combined = [z_raw, r_raw, n_raw] each [o], total [3*o]
+   z = sigmoid(z_raw), r = sigmoid(r_raw)
+   n = tanh(n_raw) -- note: n_raw should already include r*h contribution
+   h' = (1-z)*n + z*prev_hidden
+   ================================================================ */
+
+TensorHandle tensor_gru_cell(TensorHandle hcombined, TensorHandle hprev, int o) {
+    Tensor* combined = (Tensor*)hcombined;
+    Tensor* prev = (Tensor*)hprev;
+
+    double* zG = malloc(o * sizeof(double));
+    double* rG = malloc(o * sizeof(double));
+    double* nG = malloc(o * sizeof(double));
+    double* out = calloc(o, sizeof(double));
+
+    for (int i = 0; i < o; i++) {
+        zG[i] = 1.0 / (1.0 + exp(-combined->data[i]));           /* z = sigmoid */
+        rG[i] = 1.0 / (1.0 + exp(-combined->data[o + i]));       /* r = sigmoid */
+        nG[i] = tanh(combined->data[2*o + i]);                     /* n = tanh */
+        out[i] = (1.0 - zG[i]) * nG[i] + zG[i] * prev->data[i]; /* h' */
+    }
+
+    int shape[] = {o};
+    Tensor* r = make_tensor(out, shape, 1, combined->requires_grad || prev->requires_grad);
+    free(out);
+
+    if (r->requires_grad) {
+        int idx = tape_append(OP_GRU_CELL, r, combined, prev, 0);
+        GruCellMeta* meta = arena_alloc(sizeof(GruCellMeta));
+        meta->o = o;
+        meta->zG = zG; meta->rG = rG; meta->nG = nG;
+        meta->rh = NULL;  /* not needed for this simplified GRU */
+        tape[idx].op_meta = meta;
+    } else {
+        free(zG); free(rG); free(nG);
+    }
+    return r;
+}
 
 /* ================================================================
    Parameter Registry

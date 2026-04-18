@@ -301,6 +301,16 @@ TensorHandle tensor_scatter_add(TensorHandle hindex, TensorHandle hsrc, int out_
     return from_tensor(out);
 }
 
+TensorHandle tensor_gru_cell(TensorHandle hcombined, TensorHandle hprev, int o) {
+    auto& combined = *to_tensor(hcombined);
+    auto& prev = *to_tensor(hprev);
+    auto z = torch::sigmoid(combined.slice(0, 0, o));
+    auto r = torch::sigmoid(combined.slice(0, o, 2*o));
+    auto n = torch::tanh(combined.slice(0, 2*o, 3*o));
+    auto h_new = (1.0 - z) * n + z * prev;
+    return from_tensor(h_new);
+}
+
 TensorHandle tensor_avg_pool1d(TensorHandle hinput, int kL, int stride) {
     auto& inp = *to_tensor(hinput);
     auto inp_3d = inp.unsqueeze(0);

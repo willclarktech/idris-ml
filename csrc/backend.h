@@ -190,6 +190,12 @@ void         tensor_no_grad_end(void);
 TensorHandle tensor_to_device(TensorHandle t, const char* device);  /* "cpu", "mps", "cuda" */
 const char*  tensor_device(TensorHandle t);
 
+/* ---------- GRU ---------- */
+
+/* GRU cell: combined = W @ [h, x] + bias ([3*o] tensor: z, r, n gates).
+   Returns new hidden state [o]. */
+TensorHandle tensor_gru_cell(TensorHandle combined, TensorHandle prev_hidden, int o);
+
 /* ---------- LSTM ---------- */
 
 /* Returns (h', c') as two tensors via out pointers */

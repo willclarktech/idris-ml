@@ -86,6 +86,7 @@ enum {
     OP_SOFTMAX_3D,
     OP_TRANSPOSE_LAST2,
     OP_GELU,
+    OP_GRU_CELL,
     OP_EMBEDDING,
     OP_BATCH_NORM,
     OP_DROPOUT,
@@ -678,6 +679,24 @@ TensorHandle tensor_scatter_add(TensorHandle hindex, TensorHandle hsrc, int out_
     return (TensorHandle)(new Tensor(out, src->requires_grad));
 }
 
+TensorHandle tensor_gru_cell(TensorHandle hcombined, TensorHandle hprev, int o) {
+    auto combined = (Tensor*)hcombined;
+    auto prev = (Tensor*)hprev;
+    // Decompose into primitives — MLX replay autograd handles backward
+    auto z_raw = mx::slice(combined->data, {0}, {o});
+    auto r_raw = mx::slice(combined->data, {o}, {2*o});
+    auto n_raw = mx::slice(combined->data, {2*o}, {3*o});
+    auto z = mx::sigmoid(z_raw);
+    auto n = mx::tanh(n_raw);
+    auto one = mx::array(1.0, mx::float64);
+    auto result = mx::add(mx::multiply(mx::subtract(one, z), n), mx::multiply(z, prev->data));
+
+    bool rg = combined->requires_grad || prev->requires_grad;
+    auto r = new Tensor(result, rg);
+    if (rg) tape_append(OP_GRU_CELL, r, combined, prev, (double)o);
+    return (TensorHandle)r;
+}
+
 TensorHandle tensor_avg_pool1d(TensorHandle hinput, int kL, int stride) {
     auto inp = (Tensor*)hinput;
     int C = (int)inp->data.shape(0), L = (int)inp->data.shape(1);
@@ -1234,6 +1253,14 @@ void tensor_backward(TensorHandle h) {
                 auto rstd = mx::rsqrt(mx::add(var, mx::array(meta->eps)));
                 auto x_hat = mx::multiply(centered, rstd);
                 pool[out] = mx::add(mx::multiply(gamma, x_hat), bias);
+                break;
+            }
+            case OP_GRU_CELL: {
+                int oo = (int)e.scalar_arg;
+                auto z = mx::sigmoid(mx::slice(a, {0}, {oo}));
+                auto n = mx::tanh(mx::slice(a, {2*oo}, {3*oo}));
+                auto one = mx::array(1.0, mx::float64);
+                pool[out] = mx::add(mx::multiply(mx::subtract(one, z), n), mx::multiply(z, b));
                 break;
             }
             case OP_EMBEDDING: {
