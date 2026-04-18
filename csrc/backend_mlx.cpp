@@ -675,6 +675,28 @@ static void ensure_grad(Tensor* t) {
     }
 }
 
+// Reduce gradient to match target shape (undo broadcasting)
+static mx::array reduce_grad(const mx::array& grad, const mx::Shape& target_shape) {
+    if (grad.shape() == target_shape) return grad;
+    // Scalar target: sum everything
+    if (target_shape.empty() || (target_shape.size() == 1 && target_shape[0] == 1)) {
+        return mx::sum(grad);
+    }
+    // General: sum over axes that were broadcast-expanded
+    auto g = grad;
+    // First, reduce leading dims if grad has more dims
+    while ((int)g.ndim() > (int)target_shape.size()) {
+        g = mx::sum(g, 0);
+    }
+    // Then reduce along dims where target is 1 but grad is > 1
+    for (int i = 0; i < (int)target_shape.size(); i++) {
+        if (target_shape[i] == 1 && (int)g.shape(i) != 1) {
+            g = mx::sum(g, i, true);
+        }
+    }
+    return mx::reshape(g, target_shape);
+}
+
 void tensor_backward(TensorHandle h) {
     Tensor* loss = (Tensor*)h;
     if (loss->tape_idx < 0) return;
@@ -695,23 +717,23 @@ void tensor_backward(TensorHandle h) {
             break;
 
         case OP_ADD:
-            if (a && a->requires_grad) { ensure_grad(a); a->grad = mx::add(a->grad, r->grad); }
-            if (b && b->requires_grad) { ensure_grad(b); b->grad = mx::add(b->grad, r->grad); }
+            if (a && a->requires_grad) { ensure_grad(a); a->grad = mx::add(a->grad, reduce_grad(r->grad, a->data.shape())); }
+            if (b && b->requires_grad) { ensure_grad(b); b->grad = mx::add(b->grad, reduce_grad(r->grad, b->data.shape())); }
             break;
 
         case OP_SUB:
-            if (a && a->requires_grad) { ensure_grad(a); a->grad = mx::add(a->grad, r->grad); }
-            if (b && b->requires_grad) { ensure_grad(b); b->grad = mx::subtract(b->grad, r->grad); }
+            if (a && a->requires_grad) { ensure_grad(a); a->grad = mx::add(a->grad, reduce_grad(r->grad, a->data.shape())); }
+            if (b && b->requires_grad) { ensure_grad(b); b->grad = mx::subtract(b->grad, reduce_grad(r->grad, b->data.shape())); }
             break;
 
         case OP_MUL:
-            if (a && a->requires_grad) { ensure_grad(a); a->grad = mx::add(a->grad, mx::multiply(r->grad, b->data)); }
-            if (b && b->requires_grad) { ensure_grad(b); b->grad = mx::add(b->grad, mx::multiply(r->grad, a->data)); }
+            if (a && a->requires_grad) { ensure_grad(a); a->grad = mx::add(a->grad, reduce_grad(mx::multiply(r->grad, b->data), a->data.shape())); }
+            if (b && b->requires_grad) { ensure_grad(b); b->grad = mx::add(b->grad, reduce_grad(mx::multiply(r->grad, a->data), b->data.shape())); }
             break;
 
         case OP_DIV:
-            if (a && a->requires_grad) { ensure_grad(a); a->grad = mx::add(a->grad, mx::divide(r->grad, b->data)); }
-            if (b && b->requires_grad) { ensure_grad(b); b->grad = mx::subtract(b->grad, mx::divide(mx::multiply(r->grad, a->data), mx::square(b->data))); }
+            if (a && a->requires_grad) { ensure_grad(a); a->grad = mx::add(a->grad, reduce_grad(mx::divide(r->grad, b->data), a->data.shape())); }
+            if (b && b->requires_grad) { ensure_grad(b); b->grad = mx::subtract(b->grad, reduce_grad(mx::divide(mx::multiply(r->grad, a->data), mx::square(b->data)), b->data.shape())); }
             break;
 
         case OP_NEG:
@@ -1011,23 +1033,27 @@ void tensor_backward(TensorHandle h) {
         }
 
         case OP_SELECT: {
-            // r = a[index] (scalar from vector, or row from matrix)
+            // r = a[index] where a is [n] or [n, m]
             // d_a[index] += grad
             int sel_idx = (int)e.scalar_arg;
             if (a && a->requires_grad) {
                 ensure_grad(a);
-                if (r->data.size() == 1) {
-                    // Scalar select from vector: scatter grad into position
-                    auto z = mx::zeros_like(a->grad);
-                    auto idx = mx::array({sel_idx});
-                    a->grad = mx::add(a->grad, mx::scatter(z, idx, mx::reshape(r->grad, {1}), 0));
+                int n = (int)a->data.shape(0);
+                int a_rank = (int)a->data.ndim();
+                if (a_rank == 1) {
+                    // Scalar select from vector: a[idx] → scalar
+                    // Build one-hot mask and multiply by grad scalar
+                    auto mask = mx::equal(mx::arange(n), mx::array(sel_idx));
+                    auto g_val = mx::reshape(r->grad, {});  // ensure 0-dim
+                    a->grad = mx::add(a->grad, mx::multiply(mx::astype(mask, mx::float64), g_val));
                 } else {
-                    // Row select from matrix: scatter row gradient
-                    int cols = (int)r->data.size();
-                    auto z = mx::zeros_like(a->grad);
-                    auto idx = mx::array({sel_idx});
+                    // Row select from matrix: a[idx, :] → [m]
+                    // Build one-hot row mask [n,1] and broadcast with grad [1,m]
+                    int cols = (int)a->data.shape(1);
+                    auto mask = mx::equal(mx::arange(n), mx::array(sel_idx));
+                    auto mask_col = mx::reshape(mx::astype(mask, mx::float64), {n, 1});
                     auto grad_row = mx::reshape(r->grad, {1, cols});
-                    a->grad = mx::add(a->grad, mx::scatter(z, idx, grad_row, 0));
+                    a->grad = mx::add(a->grad, mx::multiply(mask_col, grad_row));
                 }
             }
             break;
