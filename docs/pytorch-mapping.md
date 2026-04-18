@@ -73,6 +73,13 @@ No mutation, no `zero_grad`, no manual backward/step separation. The epoch funct
 
 Note: layers with learnable parameters return `IO` (random initialization). Stateless layers are pure values.
 
+**Memory-augmented architectures:**
+
+| PyTorch | idris-ml | Notes |
+|---------|----------|-------|
+| Custom NTM (Graves 2014) | `ntmLayer` | `IO (AnyLayer i o ty)`, LSTM controller + memory |
+| Custom DNC (Graves 2016) | `dncLayer` | `IO (AnyLayer i o ty)`, extends NTM with temporal links, allocation, multi-head read |
+
 ### Model composition
 
 ```python

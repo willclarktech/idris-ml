@@ -6,6 +6,7 @@ Deep learning library in Idris 2 with compile-time tensor shape checking and aut
 
 - [Neural Turing Machines (Graves, Wayne, Danihelka 2014)](https://arxiv.org/abs/1410.5401) — original NTM paper
 - [Implementing Neural Turing Machines (Collier & Beel 2018)](https://isg.beel.org/blog/2018/08/01/a-stable-neural-turing-machine-ntm-implementation-source-code-and-pre-print/) — stability findings: constant memory init (1e-6) converges 3.5x faster, tanh memory bounding, grad clip norm 50
+- [Hybrid computing using a neural network with dynamic external memory (Graves et al. 2016)](https://www.nature.com/articles/nature20101) — DNC paper: temporal link matrix, usage-based allocation, multiple read heads with mode mixture
 
 ## Build Commands
 
@@ -87,6 +88,7 @@ bash scripts/sweep.sh --task copy --parallel 4 --quick  # 2000 epochs for screen
     - **Layer.Embedding** - `EmbeddingState` for token index lookup (gather forward, scatter_add backward)
     - **Layer.Residual** - `ResidualState` wrapping `AnyLayer n n ty`. Forward: `add(input, inner(input))`
     - **Layer.Ntm** - `NtmState` + NTM head ops (imports Lstm and Linear for sub-layers)
+    - **Layer.Dnc** - `DncState` + DNC head ops (Graves et al. 2016: temporal link matrix, usage-based allocation, multi-head read with mode mixture). R read heads parameterized at type level
     - **Layer.Transformer** - `TransformerState` with multi-head attention, layer norm, learned embeddings, sinusoidal PE
 11. **Optimizer** - SGD, Adam, AdamW, RMSprop (Idris-side), plus `NativeOptimizer` (C-side, all backends). AdamW has decoupled weight decay
 12. **Schedule** - Learning rate schedules: `constant`, `cosineAnnealing`, `oneCycle`, `withWarmup`, `cosineWithWarmup`
@@ -318,6 +320,16 @@ The MLX backend uses **replay-based native autograd** via `mlx::vjp`. Forward op
 - **No tanh memory bounding**: raw interpolation write matches PyTorch reference. Tanh was for erase+add, causes cumulative degradation with interpolation
 - **Initial addressing**: weights initialized to zeros (projected to simplex), read output to Kaiming uniform. Non-learnable, reset per sequence
 - **Early stopping**: windowed-average convergence (`--es-threshold`, `--es-window`, `--es-patience`). LSTM example uses old best-loss patience
+
+### DNC-specific
+
+- **Extends NTM**: Same LSTM controller + two-phase training, but replaces shift-based addressing with usage allocation + temporal links + multi-mode reads
+- **Dimension calculations**: Controller input: `r * m + inputSize`. Output FC input: `h + r * m`. Separate FC layers for each parameter group (write key, beta, erase, add, free gates, alloc gate, write gate, read keys, read betas, read modes)
+- **Link matrix is O(n²)**: `Matrix n n ty`. With n=128, the link update involves 16K element operations per timestep. This makes DNC significantly slower than NTM per epoch on tape backend
+- **Allocation uses argsort + cumprod**: `tensor_argsort` (non-differentiable integer indices) + `tensor_cumprod` (differentiable with backward rule). Allocation weights sum to ≤1
+- **R read heads**: Type-level `r : Nat`. R=1 exercises all DNC mechanisms. R=4 matches the paper but needs more epochs
+- **applyGeneric (eval path)**: Simplified — uses content-based addressing only (no temporal links or allocation). Sufficient for eval accuracy measurement since the model learns content addressing as primary mechanism
+- **Tape overflow with long sequences**: DNC generates ~5x more tape entries per timestep than NTM. With n=128 and seqLen=20, use shorter sequences for initial training or switch to torch/MLX backends
 
 ### Architecture & infrastructure
 

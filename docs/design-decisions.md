@@ -2,6 +2,20 @@
 
 See [ntm.md](ntm.md) for NTM-specific design decisions (head parameters, memory operations, addressing, diagnostics, convergence).
 
+## DNC (Differentiable Neural Computer)
+
+Extends NTM (Graves et al. 2016). Key design choices:
+
+1. **Separate FC layers per parameter group** — cleaner than one massive FC + slicing. Each FC (writeKeyFc, eraseFc, freeGatesFc, etc.) gets its own named parameters. Matches the paper's "interface vector" decomposition.
+
+2. **Decomposed ops, not fused** — DNC addressing ops (allocation, link update, mode mixture) are composed from existing tensor primitives. No fused C ops needed (unlike NTM's `tensor_ntm_read_head`). Two new primitives added: `tensor_argsort` (integer indices, non-differentiable) and `tensor_cumprod` (differentiable with backward rule).
+
+3. **Erase+add write** — DNC uses `M' = M * (1 - outer(w, e)) + outer(w, a)` with separate erase and add vectors. More expressive than NTM's interpolation write. Matches the paper.
+
+4. **R read heads parameterized at type level** — `DncState r n m h inputSize outputSize ty` with `r : Nat`. R=1 exercises all DNC mechanisms (temporal links, allocation, multi-mode reads). R=4 matches the paper.
+
+5. **Simplified applyGeneric for eval** — The Double-typed eval path uses content-based addressing only (no temporal links or allocation). Full DNC addressing requires tensor-level ops that only work with Variable. This is acceptable because the trained model's content addressing weights carry most of the information for eval.
+
 ## Tape-based autograd (Wengert list)
 
 The autograd uses a flat tape (Wengert list) stored as five parallel Chez Scheme vectors (tags, arg1, arg2, values, paramIds) via `top-level-value`. Variables are indices into this tape. Each arithmetic operation appends an entry recording the op tag, input indices, and forward value.

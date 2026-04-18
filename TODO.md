@@ -5,6 +5,7 @@
 | Item | Difficulty | Notes |
 |------|-----------|-------|
 | CUDA support | M–L | Torch backend should work via `tensor_to_device("cuda")` — untested. Test script ready: `scripts/test_cuda_colab.sh`. See `docs/cuda-testing.md` |
+| DNC convergence tuning | M | DNC layer works end-to-end (copy + recall examples). Needs hyperparameter tuning for full convergence (50k+ epochs). Current: ~50% bit accuracy at 5 epochs. Tape backend is slow for DNC (O(n²) link matrix). Consider R=4 multi-head once R=1 converges |
 
 ## Low Priority
 
@@ -13,7 +14,6 @@
 | Opaque type-level Nats | M–XL | Idris 2 Peano Nats hang the compiler for dims > ~1000. Need machine-backed type-level naturals (like GHC TypeLits). Engage with Idris 2 upstream. Blocks identity layers (dropout, batch norm) at large dims. See `docs/gotchas.md` |
 | Broadcasting | XL | Type-safe broadcasting. Key tension: expressiveness vs shape safety guarantees. Dex's typed index sets are the most promising model for a dependently-typed setting. See `docs/static-vs-dynamic-graphs.md` |
 | Static graph optimizations | L–XL | Compile-time operator fusion, memory planning via dependent types. See `docs/static-vs-dynamic-graphs.md` |
-| DNC (Differentiable Neural Computer) | XL | Graves et al. 2016 — temporal link matrix, dynamic memory allocation, multiple read heads |
 | `fromDouble` persistent leak | S | Partially fixed: `tensor_create_scalar` and `tensor_create` non-grad tensors are now non-persistent on MLX (freed by tape_reset). Remaining: Chez Scheme GC doesn't call `tensor_free`, so non-persistent tensors accumulate within one epoch until optimizer_step. ~15KB/epoch overhead, manageable |
 | Reshaping layers | M | No current use case |
 | Chez Scheme runtime overhead | S–XL | Chez GC, thunk evaluation, and allocation account for ~50ms/epoch (vs 2ms in C). Not FFI marshaling — reducing FFI call count from 4,384 to ~1,220 only saved 6ms. Options: explore Idris→C backend (bypass Chez entirely), or accept ~3x gap vs PyTorch on CPU |
@@ -43,7 +43,7 @@ Architecture & infrastructure:
 - PyTorch reference benchmarks (`pytorch/` directory)
 
 Layers & models:
-- Linear, RNN, LSTM, NTM (copy + associative recall)
+- Linear, RNN, LSTM, NTM (copy + associative recall), DNC (copy + associative recall)
 - Multi-head Transformer (Pre-LN, embedding lookup, sinusoidal PE, layer norm, per-head weights with sum-not-concat). Input: token indices `[seqLen]`, output: logits `[seqLen * vocabSize]`
 - REINFORCE on CartPole (`Example/Reinforce.idr`): pure Idris CartPole environment (Gymnasium-compatible physics), REINFORCE with mean-return baseline, `categoricalSample` in Sampler.idr, tensor-level `applyVarTensor` for tanh/sigmoid activations. Converges to 200.0 greedy eval on all 3 backends. PyTorch reference in `pytorch/torch_ref/models/reinforce.py`
 - MNIST CNN (`Example/Mnist.idr`): LeNet-style Conv2D(1->16,k=5) -> ReLU -> MaxPool(2) -> Conv2D(16->32,k=5) -> ReLU -> MaxPool(2) -> Linear(512->10). Type-safe spatial dimension chain via `ConvOutDim`/`PoolOutDim` type-level functions. First example with external data (MNIST .idx files). Conv2D + MaxPool2D ops on all 3 backends. ReLU tensor-level activation. PyTorch reference in `pytorch/torch_ref/models/mnist_cnn.py`
