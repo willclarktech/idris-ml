@@ -134,7 +134,18 @@ static void tape_reset() {
         }
     }
     tape.clear();
-    // Free ALL non-persistent tensors (on-tape and off-tape).
+    // Force evaluation of all pending lazy ops before deleting any tensor.
+    // MLX arrays hold lazy references to inputs — deleting an intermediate
+    // while a surviving tensor's graph still references it is use-after-free.
+    {
+        std::vector<mx::array> to_eval;
+        for (auto* t : all_tensors) {
+            to_eval.push_back(t->data);
+            if (t->has_grad) to_eval.push_back(t->grad);
+        }
+        if (!to_eval.empty()) mx::eval(to_eval);
+    }
+    // Now safely delete non-persistent tensors.
     // Persistent tensors (params, state, views) survive.
     std::vector<Tensor*> survivors;
     for (auto* t : all_tensors) {
@@ -165,15 +176,24 @@ static std::vector<ParamEntry> param_registry;
 extern "C" {
 
 TensorHandle tensor_create_scalar(double value, int requires_grad) {
-    auto t = new Tensor(mx::array(value), requires_grad != 0);
-    if (requires_grad) tape_append(OP_CONST, t, nullptr, nullptr, 0);
+    // Explicit float64 — mx::array(double) defaults to float32
+    auto t = new Tensor(mx::array(value, mx::float64), requires_grad != 0);
+    if (requires_grad) {
+        tape_append(OP_CONST, t, nullptr, nullptr, 0);
+    } else {
+        t->persistent = 1;  // caller manages lifetime via tensor_free
+    }
     return (TensorHandle)t;
 }
 
 TensorHandle tensor_create(double* data, int* shape, int rank, int requires_grad) {
     mx::Shape sh(shape, shape + rank);
     auto t = new Tensor(mx::array(data, sh, mx::float64), requires_grad != 0);
-    if (requires_grad) tape_append(OP_CONST, t, nullptr, nullptr, 0);
+    if (requires_grad) {
+        tape_append(OP_CONST, t, nullptr, nullptr, 0);
+    } else {
+        t->persistent = 1;  // caller manages lifetime via tensor_free
+    }
     return (TensorHandle)t;
 }
 
@@ -184,8 +204,22 @@ TensorHandle tensor_clone(TensorHandle h) {
 }
 
 void tensor_free(TensorHandle h) {
-    // Don't delete params or intermediates during training — tape refs them
-    // Only delete explicitly freed tensors (rare)
+    if (!h) return;
+    auto t = (Tensor*)h;
+    // Skip registered params — they're managed by param_clear
+    for (auto& p : param_registry) {
+        if (p.tensor == t) return;
+    }
+    // Remove from all_tensors tracking and delete.
+    // If not found in all_tensors, it was already freed by tape_reset — skip.
+    for (size_t i = 0; i < all_tensors.size(); i++) {
+        if (all_tensors[i] == t) {
+            all_tensors.erase(all_tensors.begin() + i);
+            delete t;
+            return;
+        }
+    }
+    // Not in all_tensors — already freed by tape_reset, skip
 }
 
 /* ================================================================
@@ -1171,7 +1205,21 @@ void param_register(const char* name, TensorHandle h) {
     param_registry.push_back({std::string(name), t});
 }
 
-void param_clear(void) { param_registry.clear(); }
+void param_clear(void) {
+    // Remove param tensors from all_tensors and delete them
+    for (auto& p : param_registry) {
+        for (size_t i = 0; i < all_tensors.size(); i++) {
+            if (all_tensors[i] == p.tensor) {
+                all_tensors.erase(all_tensors.begin() + i);
+                break;
+            }
+        }
+        delete p.tensor;
+    }
+    param_registry.clear();
+    // Also clean up any remaining non-persistent tensors and pairs
+    tape_reset();
+}
 int param_count(void) { return (int)param_registry.size(); }
 const char* param_name(int idx) { return param_registry[idx].name.c_str(); }
 
@@ -1179,7 +1227,9 @@ double param_grad_item(int idx) {
     auto t = param_registry[idx].tensor;
     if (!t->has_grad) return 0.0;
     mx::eval(t->grad);
-    return t->grad.item<double>();
+    auto flat = mx::flatten(t->grad, mx::StreamOrDevice{});
+    mx::eval(flat);
+    return flat.data<double>()[0];
 }
 
 double param_grad_item_at(int param_idx, int elem_idx) {
