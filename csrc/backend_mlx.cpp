@@ -481,8 +481,8 @@ TensorHandle tensor_cosine_similarity(TensorHandle hmemory, TensorHandle hkey, i
 
     // Compute forward
     auto key_2d = mx::reshape(key->data, {1, m});
-    auto dots = mx::sum(mx::multiply(mem->data, key_2d), {1}); // [n]
-    auto row_norms = mx::sqrt(mx::add(mx::sum(mx::square(mem->data), {1}), eps)); // [n]
+    auto dots = mx::sum(mx::multiply(mem->data, key_2d), std::vector<int>{1}); // [n]
+    auto row_norms = mx::sqrt(mx::add(mx::sum(mx::square(mem->data), std::vector<int>{1}), eps)); // [n]
     auto key_norm = mx::sqrt(mx::add(mx::sum(mx::square(key->data)), eps)); // scalar
     auto result = mx::divide(dots, mx::multiply(row_norms, key_norm));
 
@@ -938,9 +938,9 @@ void tensor_backward(TensorHandle h) {
                 // Inline cosine similarity forward
                 int n = (int)a.shape(0), m = (int)a.shape(1);
                 auto key_2d = mx::reshape(b, {1, m});
-                auto dots = mx::sum(mx::multiply(a, key_2d), {1});
+                auto dots = mx::sum(mx::multiply(a, key_2d), std::vector<int>{1});
                 auto eps = mx::array(1.0e-8);
-                auto row_norms = mx::sqrt(mx::add(mx::sum(mx::square(a), {1}), eps));
+                auto row_norms = mx::sqrt(mx::add(mx::sum(mx::square(a), std::vector<int>{1}), eps));
                 auto key_norm = mx::sqrt(mx::add(mx::sum(mx::square(b)), eps));
                 pool[out] = mx::divide(dots, mx::multiply(row_norms, key_norm));
                 break;
