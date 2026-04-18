@@ -656,12 +656,13 @@ TensorHandle tensor_create_state_1d(int n, double* data) {
 }
 
 TensorHandle tensor_view_2d(TensorHandle h, int row, int col) {
-    /* Returns a 0-dim view that shares storage with the parent tensor */
-    return from_tensor(to_tensor(h)->select(0, row).select(0, col));
+    /* Returns a 0-dim view that shares storage with the parent tensor.
+       Must be persistent — views into param tensors survive free_intermediates. */
+    return from_tensor_persistent(to_tensor(h)->select(0, row).select(0, col));
 }
 
 TensorHandle tensor_view_1d(TensorHandle h, int idx) {
-    return from_tensor(to_tensor(h)->select(0, idx));
+    return from_tensor_persistent(to_tensor(h)->select(0, idx));
 }
 
 double tensor_item_2d(TensorHandle h, int row, int col) {

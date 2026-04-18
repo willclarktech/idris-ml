@@ -51,9 +51,9 @@ LayerLike RnnState where
       (Just iwT, Just rwT, Just bT) =>
         let poT = case prevOutTensor st of
               Just pt => pt
-              Nothing => -- First call: previousOutput is zeros
+              Nothing => -- First call: persistent zero state (survives tape resets)
                 let buf = prim__allocDoubles (cast {to=Int} o)
-                in prim__create1d (cast {to=Int} o) buf 0
+                in prim__createState1d (cast {to=Int} o) buf
             resultT = tensorAdd (tensorAdd (tensorMv iwT inputT) (tensorMv rwT poT)) bT
         in ({ prevOutTensor := Just resultT } st, resultT)
       _ => idris_crash "Rnn: weight tensors not initialized (call autoName first)"
@@ -96,9 +96,29 @@ LayerLike RnnState where
 
   layerPrefix _ = "rnn"
 
-  toDoubleLayer (MkRnn iw rw b po _ _ _ _) =
-    MkRnn (map value iw) (map value rw) (map value b) (map value po)
-          Nothing Nothing Nothing Nothing
+  toDoubleLayer {i} {o} (MkRnn iw rw b po iwT rwT bT _) =
+    case (iwT, rwT, bT) of
+      (Just iwTensor, Just rwTensor, Just biasTensor) =>
+        let wIW = buildDoubleMatrix iwTensor 0 o i
+            wRW = buildDoubleMatrix rwTensor 0 o o
+            wBias = buildDoubleVector biasTensor 0 o
+        in MkRnn (VTensor wIW) (VTensor wRW) (VTensor wBias) (map value po) Nothing Nothing Nothing Nothing
+      _ => MkRnn (map value iw) (map value rw) (map value b) (map value po) Nothing Nothing Nothing Nothing
+    where
+      buildDoubleRow : AnyPtr -> Int -> Int -> (k : Nat) -> Vect k (Scalar Double)
+      buildDoubleRow _ _ _ Z = []
+      buildDoubleRow mat row col (S k) =
+        STensor (prim__item2d mat row col) :: buildDoubleRow mat row (col + 1) k
+
+      buildDoubleMatrix : AnyPtr -> Int -> (rows : Nat) -> (cols : Nat) -> Vect rows (Vector cols Double)
+      buildDoubleMatrix _ _ Z _ = []
+      buildDoubleMatrix mat row (S r) cols =
+        VTensor (buildDoubleRow mat row 0 cols) :: buildDoubleMatrix mat (row + 1) r cols
+
+      buildDoubleVector : AnyPtr -> Int -> (k : Nat) -> Vect k (Scalar Double)
+      buildDoubleVector _ _ Z = []
+      buildDoubleVector vec idx (S k) =
+        STensor (prim__item1d vec idx) :: buildDoubleVector vec (idx + 1) k
 
   resetState st = { previousOutput := zeros, prevOutTensor := Nothing } st
 
