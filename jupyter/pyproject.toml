@@ -11,6 +11,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=7.0"]
+lab = ["jupyterlab>=3.0"]
 
 [project.scripts]
 idris-ml-kernel-install = "idris_ml_kernel.install:main"

@@ -290,6 +290,7 @@ jupyter-install: backend check $(JUPYTER_VENV)/bin/activate
 	$(JUPYTER_PYTHON) -m idris_ml_kernel.install
 
 jupyter-lab: jupyter-install
+	$(JUPYTER_PIP) install -q jupyterlab
 	$(JUPYTER_VENV)/bin/jupyter lab --notebook-dir=jupyter/notebooks
 
 # Jupyter kernel tests (requires backend + idris2)
