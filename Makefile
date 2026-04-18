@@ -276,13 +276,16 @@ test-cuda:
 	bash scripts/test_cuda_colab.sh
 
 # Jupyter kernel (venv in jupyter/.venv)
+# Use nix Python if available (3.12+), fall back to system python3
+NIX_PYTHON := $(shell nix build nixpkgs\#python3 --no-link --print-out-paths 2>/dev/null)/bin/python3
+VENV_PYTHON := $(shell [ -x "$(NIX_PYTHON)" ] && echo "$(NIX_PYTHON)" || echo python3)
 JUPYTER_VENV := jupyter/.venv
 JUPYTER_PIP := $(JUPYTER_VENV)/bin/pip
 JUPYTER_PYTHON := $(JUPYTER_VENV)/bin/python3
 JUPYTER_PYTEST := $(JUPYTER_VENV)/bin/pytest
 
 $(JUPYTER_VENV)/bin/activate:
-	python3 -m venv $(JUPYTER_VENV)
+	$(VENV_PYTHON) -m venv $(JUPYTER_VENV)
 	$(JUPYTER_PIP) install --upgrade pip setuptools >/dev/null
 
 jupyter-install: backend check $(JUPYTER_VENV)/bin/activate
