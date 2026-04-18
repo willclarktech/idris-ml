@@ -29,9 +29,24 @@ dataPoints =
       MkDataPoint (VTensor [2.9, -1.4]) (VTensor [1, 0, 0])
     ]
 
--- Convert static DataPoint Double to TensorDataPoint (pre-allocated C tensors)
+-- Convert static DataPoint Double to persistent TensorDataPoint.
+-- Uses prim__createState1d (persistent, survives tape resets) because
+-- this data is reused across epochs via `pure tensorData`.
+bulkToTensorPersistent : {n : Nat} -> Vector n Double -> AnyPtr
+bulkToTensorPersistent {n} (VTensor elems) =
+  let nI = cast {to=Int} n
+      buf = prim__allocDoubles nI
+      buf' = packDoubleBuf buf 0 elems
+  in prim__createState1d nI buf'
+  where
+    packDoubleBuf : AnyPtr -> Int -> Vect k (Scalar Double) -> AnyPtr
+    packDoubleBuf buf _ [] = buf
+    packDoubleBuf buf off (STensor v :: rest) =
+      let buf' = prim__setDouble buf off v
+      in packDoubleBuf buf' (off + 1) rest
+
 toTensorDP : DataPoint 2 3 Double -> TensorDataPoint 2 3
-toTensorDP dp = MkTensorDataPoint (bulkToTensor (x dp)) (bulkToTensor (y dp))
+toTensorDP dp = MkTensorDataPoint (bulkToTensorPersistent (x dp)) (bulkToTensorPersistent (y dp))
 
 -- Simplest possible tensor loss: just sum the predictions (for debugging)
 debugLoss : LossFnTensor
