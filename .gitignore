@@ -4,7 +4,8 @@ build/
 data/
 .claude/
 
-pytorch/.venv/
+.venv/
+*.egg-info/
 __pycache__/
 *.pyc
 .pytest_cache/
