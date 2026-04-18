@@ -65,7 +65,7 @@ endif
 BACKEND_LIB := $(BUILD)/libidrisml_$(BACKEND).dylib
 
 # Shared C sources (backend-agnostic: serialization, JSON, data loading)
-SHARED_OBJ := $(BUILD)/safetensors.o $(BUILD)/cJSON.o $(BUILD)/mnist.o
+SHARED_OBJ := $(BUILD)/safetensors.o $(BUILD)/cJSON.o $(BUILD)/mnist.o $(BUILD)/dataloader.o
 
 $(BUILD)/safetensors.o: csrc/safetensors.c csrc/backend.h csrc/cJSON.h | $(BUILD)
 	cc -O2 -c -o $@ $<
@@ -74,6 +74,9 @@ $(BUILD)/cJSON.o: csrc/cJSON.c csrc/cJSON.h | $(BUILD)
 	cc -O2 -c -o $@ $<
 
 $(BUILD)/mnist.o: csrc/mnist.c csrc/backend.h | $(BUILD)
+	cc -O2 -c -o $@ $<
+
+$(BUILD)/dataloader.o: csrc/dataloader.c | $(BUILD)
 	cc -O2 -c -o $@ $<
 
 $(BACKEND_LIB): $(BACKEND_SRC) csrc/backend.h $(SHARED_OBJ) | $(BUILD)

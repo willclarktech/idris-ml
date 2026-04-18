@@ -68,7 +68,8 @@ bash scripts/sweep.sh --task copy --parallel 4 --quick  # 2000 epochs for screen
 6. **Memory** - NTM read/write head operations
 7. **Variable** - Autograd variables wrapping backend tensor pointers (tape/MLX/torch). `NativeOptimizer` for training
 8. **DataPoint** - `DataPoint`, `RecurrentDataPoint`, and `TwoPhaseDataPoint` records
-8b. **Generate** - Random data generation: `copyTaskBinary`/`recallTaskBinary`, `randomBatchVect`, `patternData`
+8b. **DataLoader** - Reusable batched data pipeline: `mkGeneratorLoader` (synthetic), `mkIndexedLoader` (file-backed with shuffle/repeat via IORef + C Fisher-Yates)
+8c. **Generate** - Random data generation: `copyTaskBinary`/`recallTaskBinary`, `randomBatchVect`, `patternData`
 9. **Endofunctor** - `emap : (ty -> ty) -> e ty -> e ty` for type-preserving maps
 10. **Layer** - Re-export hub for the interface-based layer system:
     - **Layer.Core** - `LayerLike` interface, `AnyLayer` existential, `Network` type, network-level ops

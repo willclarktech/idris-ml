@@ -17,6 +17,7 @@ import System
 import System.Random
 
 import Backprop
+import DataLoader
 import DataPoint
 import Endofunctor
 import Floating
@@ -112,22 +113,15 @@ BatchSize = 32
 -- Data Loading
 ----------------------------------------------------------------------
 
-||| Generate a batch of MNIST data points from the loaded dataset.
-mnistBatch : AnyPtr -> Int -> (n : Nat) ->
-             IO (Vect n (TensorDataPoint InputDim NumClasses))
-mnistBatch _ _ Z = pure []
-mnistBatch ds numImages (S k) = do
-  idx <- randomInt 0 (cast (numImages - 1))
-  let imgT = prim__mnistGetImage ds (cast idx)
-      lbl = prim__mnistGetLabel ds (cast idx)
-      -- Flatten image [1,28,28] -> [784]
+||| Fetch a single MNIST image as a TensorDataPoint.
+mnistItem : AnyPtr -> Nat -> IO (TensorDataPoint InputDim NumClasses)
+mnistItem ds idx = do
+  let imgT = prim__mnistGetImage ds (cast {to=Int} (natToInteger idx))
+      lbl = prim__mnistGetLabel ds (cast {to=Int} (natToInteger idx))
       flatImg = prim__reshape1d imgT (cast {to=Int} InputDim)
-      -- One-hot encode label
-      lblBuf = prim__allocInts 1
-      lblBuf' = prim__setInt lblBuf 0 lbl
-      tgtT = prim__oneHot lblBuf' 1 (cast {to=Int} NumClasses)
-  rest <- mnistBatch ds numImages k
-  pure (MkTensorDataPoint flatImg tgtT :: rest)
+      lblBuf = prim__setInt (prim__allocInts 1) 0 lbl
+      tgtT = prim__oneHot lblBuf 1 (cast {to=Int} NumClasses)
+  pure (MkTensorDataPoint flatImg tgtT)
 
 
 ----------------------------------------------------------------------
@@ -259,8 +253,7 @@ main = do
 
   let opt = nativeAdamGlobalClip cfg.lr 0.9 0.999 1.0e-8 1.0
 
-  let genBatch : IO (Vect BatchSize (TensorDataPoint InputDim NumClasses))
-      genBatch = mnistBatch trainDs trainCount BatchSize
+  genBatch <- mkIndexedLoader {batchSize=BatchSize} (cast trainCount) (mnistItem trainDs)
 
   let trainCfg = patienceConfig cfg.epochs cfg.patience
 

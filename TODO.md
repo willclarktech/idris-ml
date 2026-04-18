@@ -5,7 +5,6 @@
 | Item | Difficulty | Notes |
 |------|-----------|-------|
 | CUDA support | M–L | Torch backend should work via `tensor_to_device("cuda")` — untested. Test script ready: `scripts/test_cuda_colab.sh`. See `docs/cuda-testing.md` |
-| General DataLoader | M | Reusable batched data pipeline with shuffle/batch/repeat. Current examples generate data ad-hoc |
 
 ## Medium Priority
 
@@ -30,6 +29,7 @@
 ## Done
 
 Architecture & infrastructure:
+- General DataLoader (`DataLoader.idr`): `mkGeneratorLoader` for synthetic data, `mkIndexedLoader` for file-backed datasets with shuffled epoch iteration (Fisher-Yates via C, position tracking via IORef). MNIST updated to use shuffled loading
 - Batched attention: per-sequence attention loop eliminated. All sequences processed in parallel via 3D ops (`bmm_3x3`, `softmax_3d`, `transpose_last2`). FFI calls reduced from B×H×12 to H×8 per block. New ops: `tensor_bmm_3x3` ([B,m,n]×[B,n,k]), `tensor_softmax_3d`, `tensor_transpose_last2`, `tensor_expand_mask`
 - Native autograd: torch already used native autograd (2-line backward). MLX migrated from 480 lines of hand-written backward rules to replay-based native autograd via `mlx::vjp` — zero backward rules, MLX handles all gradient computation. Tape backend keeps manual tape (no framework). Adding a new op on MLX: ~2 lines (forward replay case), backward is free
 - Model serialization: SafeTensors format (`param_save`/`param_load`, `optimizer_save`/`optimizer_load`), Idris `Checkpoint` module (`saveModel`/`loadModel`), Python interop verified, optimizer state with Adam/RMSprop buffer round-trip

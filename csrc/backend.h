@@ -398,6 +398,12 @@ TensorHandle mnist_get_image(void* handle, int index);  /* [1, 28, 28] tensor */
 int mnist_get_label(void* handle, int index);            /* 0-9 */
 void mnist_free(void* handle);
 
+/* ---------- DataLoader ---------- */
+
+int* create_index_array(int n);
+int* shuffle_index_array(int* arr, int n);
+int  index_array_get(int* arr, int i);
+
 /* ---------- Debug ---------- */
 
 void tensor_print(TensorHandle t);
