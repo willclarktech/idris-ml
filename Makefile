@@ -205,4 +205,17 @@ ref-convergence-recall:
 clean:
 	rm -f $(BUILD)/libidrisml*.dylib $(BUILD)/test_backend $(BUILD)/test_tape
 
-.PHONY: test test-backend-torch test-backend-tape check supervised rnn lstm ntm-copy ntm-associative-recall transformer bench profile sweep sweep-quick clean backend print-torch ref-setup ref-supervised ref-rnn ref-lstm ref-ntm-copy ref-ntm-recall ref-transformer bench-py bench-compare ref-test ref-lint ref-typecheck ref-convergence ref-convergence-copy ref-convergence-recall
+EXAMPLES := supervised rnn lstm transformer ntm-copy ntm-associative-recall
+BACKENDS := tape mlx torch
+
+# Run all examples on all backends
+all-backends:
+	@for e in $(EXAMPLES); do \
+		for b in $(BACKENDS); do \
+			echo "=== $$e [$$b] ==="; \
+			$(MAKE) BACKEND=$$b $$e || exit 1; \
+			echo; \
+		done; \
+	done
+
+.PHONY: all-backends test test-backend-torch test-backend-tape check supervised rnn lstm ntm-copy ntm-associative-recall transformer bench profile sweep sweep-quick clean backend print-torch ref-setup ref-supervised ref-rnn ref-lstm ref-ntm-copy ref-ntm-recall ref-transformer bench-py bench-compare ref-test ref-lint ref-typecheck ref-convergence ref-convergence-copy ref-convergence-recall
