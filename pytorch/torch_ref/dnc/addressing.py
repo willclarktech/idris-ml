@@ -67,6 +67,8 @@ def update_usage(
     retention = torch.ones_like(prev_usage)
     for j, rw in enumerate(prev_read_weights):
         retention = retention * (1 - free_gates[j] * rw)
+    # Clamp retention to prevent usage zeroing
+    retention = retention.clamp(min=1e-10)
 
     return write_usage * retention
 
@@ -82,8 +84,9 @@ def allocation_weighting(usage: Tensor) -> Tensor:
     """
     n = usage.shape[0]
 
-    # Sort usage ascending
+    # Sort usage ascending, clamp to prevent cumprod underflow
     sorted_usage, sorted_indices = torch.sort(usage, dim=0)
+    sorted_usage = sorted_usage.clamp(min=1e-6)
 
     # Cumulative product of sorted usage (shifted by 1: first element is 1.0)
     # cumprod_term[j] = prod_{i=0}^{j-1} sorted_usage[i]
@@ -150,10 +153,13 @@ def update_link_matrix(
     w_j = write_weights.unsqueeze(0)  # [1, n]
     p_j = prev_precedence.unsqueeze(0)  # [1, n]
 
-    new_link = (1 - w_i - w_j) * prev_link + w_i * p_j
+    # Clamp decay to [0, inf) — prevents negative decay when w_i + w_j > 1
+    decay = (1 - w_i - w_j).clamp(min=0.0)
+    new_link = decay * prev_link + w_i * p_j
 
-    # Zero diagonal
+    # Zero diagonal and clamp entries non-negative
     new_link = new_link * (1 - torch.eye(new_link.shape[0]))
+    new_link = new_link.clamp(min=0.0)
 
     return new_link, new_precedence
 
@@ -187,4 +193,7 @@ def read_weighting(
     forward_w = link_matrix @ prev_read_weights
     backward_w = link_matrix.t() @ prev_read_weights
 
-    return pi[0] * backward_w + pi[1] * content_w + pi[2] * forward_w
+    result = pi[0] * backward_w + pi[1] * content_w + pi[2] * forward_w
+    # Clamp and normalize read weights
+    result = result.clamp(min=1e-10)
+    return result / (result.sum() + 1e-10)
