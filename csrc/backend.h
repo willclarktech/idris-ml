@@ -181,6 +181,8 @@ TensorHandle tensor_create_2d(int rows, int cols, double* data, int requires_gra
 
 /* Allocate a C double buffer (for Scheme-side packing) */
 double* tensor_alloc_doubles(int n);
+/* Free a C double buffer (after tensor creation) */
+void tensor_free_doubles(double* buf);
 /* Read a double from a C buffer */
 double tensor_read_double(double* buf, int idx);
 /* Write a double to a C buffer */

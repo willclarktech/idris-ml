@@ -490,12 +490,14 @@ TensorHandle tensor_subtract_scalar_inplace(TensorHandle h, double val) {
 
 TensorHandle tensor_create_1d(int n, double* data, int requires_grad) {
     auto t = torch::from_blob(data, {(int64_t)n}, torch::kFloat64).clone();
+    free(data);
     if (requires_grad) t.requires_grad_(true);
     return from_tensor(std::move(t));
 }
 
 TensorHandle tensor_create_2d(int rows, int cols, double* data, int requires_grad) {
     auto t = torch::from_blob(data, {(int64_t)rows, (int64_t)cols}, torch::kFloat64).clone();
+    free(data);
     if (requires_grad) t.requires_grad_(true);
     return from_tensor(std::move(t));
 }
@@ -503,6 +505,7 @@ TensorHandle tensor_create_2d(int rows, int cols, double* data, int requires_gra
 double* tensor_alloc_doubles(int n) {
     return (double*)calloc(n, sizeof(double));
 }
+void tensor_free_doubles(double* buf) { free(buf); }
 
 double tensor_read_double(double* buf, int idx) {
     return buf[idx];
@@ -626,23 +629,27 @@ TensorHandle* tensor_unbatch(TensorHandle h, int* out_count) {
 
 TensorHandle tensor_create_param_2d(int rows, int cols, double* data) {
     auto t = torch::from_blob(data, {(int64_t)rows, (int64_t)cols}, torch::kFloat64).clone();
+    free(data);
     t.requires_grad_(true);
     return from_tensor(std::move(t));
 }
 
 TensorHandle tensor_create_param_1d(int n, double* data) {
     auto t = torch::from_blob(data, {(int64_t)n}, torch::kFloat64).clone();
+    free(data);
     t.requires_grad_(true);
     return from_tensor(std::move(t));
 }
 
 TensorHandle tensor_create_state_2d(int rows, int cols, double* data) {
     auto t = torch::from_blob(data, {(int64_t)rows, (int64_t)cols}, torch::kFloat64).clone();
+    free(data);
     return from_tensor(std::move(t));
 }
 
 TensorHandle tensor_create_state_1d(int n, double* data) {
     auto t = torch::from_blob(data, {(int64_t)n}, torch::kFloat64).clone();
+    free(data);
     return from_tensor(std::move(t));
 }
 

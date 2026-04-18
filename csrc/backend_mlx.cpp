@@ -659,6 +659,7 @@ TensorHandle tensor_one_hot(int* tokens, int n_tokens, int vocab_size) {
     }
     mx::Shape sh = {total};
     auto t = new Tensor(mx::array(data.data(), sh, mx::float64), false);
+    free(tokens);
     return (TensorHandle)t;
 }
 
@@ -1142,15 +1143,20 @@ TensorHandle tensor_subtract_scalar_inplace(TensorHandle h, double val) {
 
 TensorHandle tensor_create_1d(int n, double* data, int requires_grad) {
     int shape[] = {n};
-    return tensor_create(data, shape, 1, requires_grad);
+    auto t = tensor_create(data, shape, 1, requires_grad);
+    free(data);
+    return t;
 }
 
 TensorHandle tensor_create_2d(int rows, int cols, double* data, int requires_grad) {
     int shape[] = {rows, cols};
-    return tensor_create(data, shape, 2, requires_grad);
+    auto t = tensor_create(data, shape, 2, requires_grad);
+    free(data);
+    return t;
 }
 
 double* tensor_alloc_doubles(int n) { return (double*)calloc(n, sizeof(double)); }
+void tensor_free_doubles(double* buf) { free(buf); }
 double tensor_read_double(double* buf, int idx) { return buf[idx]; }
 void tensor_write_double(double* buf, int idx, double val) { buf[idx] = val; }
 
@@ -1186,22 +1192,30 @@ TensorHandle tensor_cat_from_array(TensorHandle* arr, int count, int dim) { STUB
 
 TensorHandle tensor_create_param_2d(int rows, int cols, double* data) {
     int shape[] = {rows, cols};
-    return tensor_create(data, shape, 2, 1);
+    auto t = tensor_create(data, shape, 2, 1);
+    free(data);
+    return t;
 }
 
 TensorHandle tensor_create_param_1d(int n, double* data) {
     int shape[] = {n};
-    return tensor_create(data, shape, 1, 1);
+    auto t = tensor_create(data, shape, 1, 1);
+    free(data);
+    return t;
 }
 
 TensorHandle tensor_create_state_2d(int rows, int cols, double* data) {
     int shape[] = {rows, cols};
-    return tensor_create(data, shape, 2, 0);
+    auto t = tensor_create(data, shape, 2, 0);
+    free(data);
+    return t;
 }
 
 TensorHandle tensor_create_state_1d(int n, double* data) {
     int shape[] = {n};
-    return tensor_create(data, shape, 1, 0);
+    auto t = tensor_create(data, shape, 1, 0);
+    free(data);
+    return t;
 }
 
 TensorHandle tensor_view_2d(TensorHandle mat, int row, int col) {

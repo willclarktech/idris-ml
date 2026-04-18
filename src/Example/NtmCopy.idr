@@ -139,7 +139,7 @@ main = do
 
   let opt = nativeRmsprop cfg.lr cfg.alpha cfg.eps cfg.clipVal cfg.momentum
 
-  -- Data source: fresh batch each epoch (raw Doubles — epochTwoPhaseTensor handles conversion)
+  -- Data source: fresh batch each epoch (raw Doubles)
   let genBatch : IO (Vect (cfg.batch) (TwoPhaseDataPoint InputW OutputW Double))
       genBatch = copyTaskBinaryBatchVect {w = W} cfg.batch cfg.minLen cfg.maxLen
 

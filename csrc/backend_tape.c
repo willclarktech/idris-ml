@@ -2386,17 +2386,22 @@ TensorHandle tensor_one_hot(int* tokens, int n_tokens, int vocab_size) {
     int shape[] = {total};
     Tensor* r = make_tensor(data, shape, 1, 0);
     free(data);
+    free(tokens);
     return r;
 }
 
 TensorHandle tensor_create_1d(int n, double* data, int requires_grad) {
     int shape[] = {n};
-    return tensor_create(data, shape, 1, requires_grad);
+    TensorHandle t = tensor_create(data, shape, 1, requires_grad);
+    free(data);  /* tensor_create copies data into arena; free the original */
+    return t;
 }
 
 TensorHandle tensor_create_2d(int rows, int cols, double* data, int requires_grad) {
     int shape[] = {rows, cols};
-    return tensor_create(data, shape, 2, requires_grad);
+    TensorHandle t = tensor_create(data, shape, 2, requires_grad);
+    free(data);
+    return t;
 }
 
 TensorHandle tensor_reshape_2d(TensorHandle h, int rows, int cols) {
@@ -2405,6 +2410,7 @@ TensorHandle tensor_reshape_2d(TensorHandle h, int rows, int cols) {
 }
 
 double* tensor_alloc_doubles(int n) { return calloc(n, sizeof(double)); }
+void tensor_free_doubles(double* buf) { free(buf); }
 double tensor_read_double(double* buf, int idx) { return buf[idx]; }
 void tensor_write_double(double* buf, int idx, double val) { buf[idx] = val; }
 
@@ -2495,6 +2501,7 @@ TensorHandle tensor_create_param_2d(int rows, int cols, double* data) {
     Tensor* t = calloc(1, sizeof(Tensor));
     t->data = malloc(numel * sizeof(double));
     memcpy(t->data, data, numel * sizeof(double));
+    free(data);  /* free the input buffer (caller used tensor_alloc_doubles) */
     t->shape = malloc(2 * sizeof(int));
     t->shape[0] = rows; t->shape[1] = cols;
     t->rank = 2; t->numel = numel;
@@ -2509,6 +2516,7 @@ TensorHandle tensor_create_param_1d(int n, double* data) {
     Tensor* t = calloc(1, sizeof(Tensor));
     t->data = malloc(n * sizeof(double));
     memcpy(t->data, data, n * sizeof(double));
+    free(data);
     t->shape = malloc(sizeof(int));
     t->shape[0] = n;
     t->rank = 1; t->numel = n;
@@ -2525,6 +2533,7 @@ TensorHandle tensor_create_state_2d(int rows, int cols, double* data) {
     Tensor* t = calloc(1, sizeof(Tensor));
     t->data = malloc(numel * sizeof(double));
     memcpy(t->data, data, numel * sizeof(double));
+    free(data);
     t->shape = malloc(2 * sizeof(int));
     t->shape[0] = rows; t->shape[1] = cols;
     t->rank = 2; t->numel = numel;
@@ -2538,6 +2547,7 @@ TensorHandle tensor_create_state_1d(int n, double* data) {
     Tensor* t = calloc(1, sizeof(Tensor));
     t->data = malloc(n * sizeof(double));
     memcpy(t->data, data, n * sizeof(double));
+    free(data);
     t->shape = malloc(sizeof(int));
     t->shape[0] = n;
     t->rank = 1; t->numel = n;
