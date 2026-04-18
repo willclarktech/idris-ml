@@ -66,8 +66,26 @@ Then use them in later cells:
 ```
 
 ```
-:exec (let a = prim__createScalar 2.0 1 in let b = prim__createScalar 3.0 0 in let c = prim__mul a b in putStrLn (show (prim__item c)))
+:exec (let a = prim__createScalar 2.0 1 in
+  let b = prim__createScalar 3.0 0 in
+  let c = prim__mul a b in
+  putStrLn ("2*3=" ++ show (prim__item c)))
 ```
+
+### Multi-line `do` blocks
+
+Idris 2's braced `do { }` syntax does not support bare `let` — use `<- pure` instead:
+
+```
+:exec do { ll <- linearLayer {i=2, o=3};
+  model <- pure (autoName (OutputLayer ll));
+  buf <- pure (prim__setDouble (prim__setDouble (prim__allocDoubles 2) 0 1.0) 1 2.0);
+  inT <- pure (prim__createState1d 2 buf);
+  pair <- pure (forwardVarTensor model inT);
+  putStrLn ("output sum = " ++ show (prim__item (prim__sum (snd pair)))) }
+```
+
+Multi-line cells are automatically joined — write naturally across lines.
 
 ### Shift-Tab inspection
 
@@ -83,7 +101,7 @@ Place cursor on a name and press Shift-Tab to see its type and documentation.
 
 ## Limitations
 
-- **Single-line `:exec`** — complex expressions use `let...in` nesting. For multi-line training loops, write a `.idr` file and use `:load`
+- **No `let` in braced `do`** — `do { let x = y; ... }` fails with "Expected in". Use `x <- pure y` instead. Multi-line `let...in` chains work fine outside `do {}`
 - **No incremental output** — long-running `:exec` cells buffer until complete. For training, use compiled executables (`make example-*`)
 - **`:let` scope** — simple functions and values work. Complex types, interfaces, and implementations need `.idr` files + `:load`
 - **macOS/Linux only** — pexpect requires PTY support (Windows users can use WSL)
