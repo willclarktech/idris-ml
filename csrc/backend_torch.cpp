@@ -44,7 +44,10 @@ static void free_intermediates(); // defined after param_registry
 TensorHandle tensor_create_scalar(double value, int requires_grad) {
     auto t = torch::tensor(value, torch::dtype(torch::kFloat64));
     if (requires_grad) t.requires_grad_(true);
-    return from_tensor(std::move(t));
+    // User-created tensors are not tracked — caller manages lifetime via
+    // tensor_free or param_register. Only computation intermediates (from
+    // tensor_add, tensor_mul, etc.) are tracked for free_intermediates().
+    return from_tensor_persistent(std::move(t));
 }
 
 TensorHandle tensor_create(double* data, int* shape, int rank, int requires_grad) {
@@ -53,15 +56,26 @@ TensorHandle tensor_create(double* data, int* shape, int rank, int requires_grad
     auto opts = torch::TensorOptions().dtype(torch::kFloat64);
     auto t = torch::from_blob(data, dims, opts).clone();
     if (requires_grad) t.requires_grad_(true);
-    return from_tensor(std::move(t));
+    return from_tensor_persistent(std::move(t));
 }
 
 TensorHandle tensor_clone(TensorHandle h) {
     return from_tensor(to_tensor(h)->clone());
 }
 
+// Track pointers freed by free_intermediates so tensor_free skips them
+static std::unordered_set<void*> freed_by_cleanup;
+
 void tensor_free(TensorHandle h) {
-    delete to_tensor(h);
+    if (!h) return;
+    auto* p = static_cast<at::Tensor*>(h);
+    // Skip if already freed by free_intermediates()
+    if (freed_by_cleanup.erase(p)) return;
+    // Null out in intermediates to avoid double-free in free_intermediates()
+    for (auto& slot : intermediates) {
+        if (slot == p) { slot = nullptr; break; }
+    }
+    delete p;
 }
 
 /* ---------- Accessors ---------- */
@@ -433,13 +447,18 @@ void param_register(const char* name, TensorHandle h) {
 
 void param_clear(void) {
     param_registry.clear();
+    freed_by_cleanup.clear();
 }
 
 static void free_intermediates() {
     std::unordered_set<at::Tensor*> param_set;
     for (auto& entry : param_registry) param_set.insert(entry.tensor);
+    freed_by_cleanup.clear();
     for (auto* p : intermediates) {
-        if (param_set.find(p) == param_set.end()) delete p;
+        if (p && param_set.find(p) == param_set.end()) {
+            freed_by_cleanup.insert(p);
+            delete p;
+        }
     }
     intermediates.clear();
     // Free TensorPair structs

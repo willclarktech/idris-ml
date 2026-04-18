@@ -1338,6 +1338,8 @@ static void test_tensor_view(void) {
    ================================================================ */
 
 int main(void) {
+    setbuf(stdout, NULL);
+
     /* T1 */
     test_scalar_creation();
     test_arithmetic();
