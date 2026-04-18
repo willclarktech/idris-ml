@@ -4,7 +4,6 @@
 
 | Item | Difficulty | Notes |
 |------|-----------|-------|
-| Cross-backend transfer example | M | End-to-end demo: train on backend A → `saveModel` → load on backend B → continue training → `saveModel` → load on backend C → inference only. Proves SafeTensors portability across tape/MLX/torch. Could use the Supervised example (fast, deterministic). Needs: CLI `--save`/`--load` flags (or a dedicated `Example/Transfer.idr`), `backend_reset_for_eval` for inference path, comparison of eval outputs across backends. Also exercises `saveOptimizer`/`loadOptimizer` for the mid-training handoff |
 | Revisit native autograd (torch/MLX) | M–L | Currently all 3 backends use a custom Wengert list (tape) for autograd. Torch and MLX have built-in autograd that could be faster, more numerically stable, and support higher-order gradients. Investigate: (1) performance gap between custom tape vs native autograd, (2) which ops benefit most, (3) whether hybrid approach is feasible (native autograd for standard ops, custom for fused NTM ops). Would require rearchitecting the backward pass in backend_mlx.cpp and backend_torch.cpp |
 | Reinforcement learning example | L–XL | Policy gradient (e.g. REINFORCE on CartPole or grid world). Requires: environment interface, episode rollout, discounted return computation, policy gradient loss (`-log_prob * reward`). May need: `Categorical` distribution sampling from logits, baseline variance reduction. Could reuse `Train.runTraining` with episodes as "epochs" |
 
@@ -32,6 +31,7 @@
 
 Architecture & infrastructure:
 - Model serialization: SafeTensors format (`param_save`/`param_load`, `optimizer_save`/`optimizer_load`), Idris `Checkpoint` module (`saveModel`/`loadModel`), Python interop verified, optimizer state with Adam/RMSprop buffer round-trip
+- Cross-backend transfer example (`Example/Transfer.idr`): train→save→continue→save→infer across tape/MLX/torch, `make transfer-demo` orchestrates all 3 phases
 - Zero `believe_me` policy: all type conversions proven (Nat proofs, erased record proofs, decEq)
 - Pure Idris matrix ops: matrixMultiply, transpose, softmaxMatrix, reshapeToMatrix, flattenMatrix
 - README.md with static-vs-dynamic graph motivation
