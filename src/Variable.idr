@@ -1112,6 +1112,36 @@ nativeTrainStep opt loss =
       clipVal = case opt.clipMode of NoClip => 0.0; ValueClip v => v; NormClip v => v
   in prim__nativeTrainStep opt.handle clipMode clipVal loss.tensorPtr loss.value
 
+----------------------------------------------------------------------
+-- Gradient Accumulation (split backward / step)
+----------------------------------------------------------------------
+
+-- Backward only: accumulates gradients without zeroing or stepping.
+-- Use for gradient accumulation: call N times, then nativeOptimizerStep once.
+%foreign "scheme:(lambda (loss-ptr loss-val) (let ((rg ((foreign-procedure \"tensor_requires_grad\" (void*) int) loss-ptr))) (when (= rg 1) ((foreign-procedure \"tensor_backward\" (void*) void) loss-ptr))) loss-val)"
+prim__backwardOnly : AnyPtr -> Double -> Double
+
+||| Backward pass only — accumulates gradients without zeroing or stepping.
+||| Call N times for gradient accumulation, then call nativeOptimizerStep.
+export
+nativeBackwardOnly : Variable -> Double
+nativeBackwardOnly loss = prim__backwardOnly loss.tensorPtr loss.value
+
+-- Clip + step + zero_grad: call after N accumulations.
+%foreign "scheme:(lambda (opt clip-mode clip-val dummy) (cond ((= clip-mode 1) ((foreign-procedure \"optimizer_clip_grad_value\" (double) void) clip-val)) ((= clip-mode 2) ((foreign-procedure \"optimizer_clip_grad_norm\" (double) double) clip-val)) (else (void))) ((foreign-procedure \"optimizer_step\" (void*) void) opt) ((foreign-procedure \"optimizer_zero_grad\" (void*) void) opt) 0)"
+prim__optimizerStepAndZero : AnyPtr -> Int -> Double -> Int -> Int
+
+||| Clip gradients, step optimizer, zero gradients. Call after accumulation.
+||| Returns an Int (0) to ensure the side effect is evaluated.
+export
+nativeOptimizerStep : NativeOptimizer -> Int
+nativeOptimizerStep opt =
+  let clipMode : Int
+      clipMode = case opt.clipMode of NoClip => 0; ValueClip _ => 1; NormClip _ => 2
+      clipVal : Double
+      clipVal = case opt.clipMode of NoClip => 0.0; ValueClip v => v; NormClip v => v
+  in prim__optimizerStepAndZero opt.handle clipMode clipVal 0
+
 ||| Refresh cached Variable.value from the underlying tensorPtr.
 ||| Needed after native optimizer step since tensor values changed in-place.
 export
