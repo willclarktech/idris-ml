@@ -325,11 +325,13 @@ The MLX backend uses **replay-based native autograd** via `mlx::vjp`. Forward op
 
 - **Extends NTM**: Same LSTM controller + two-phase training, but replaces shift-based addressing with usage allocation + temporal links + multi-mode reads
 - **Dimension calculations**: Controller input: `r * m + inputSize`. Output FC input: `h + r * m`. Separate FC layers for each parameter group (write key, beta, erase, add, free gates, alloc gate, write gate, read keys, read betas, read modes)
-- **Link matrix is O(n²)**: `Matrix n n ty`. With n=128, the link update involves 16K element operations per timestep. This makes DNC significantly slower than NTM per epoch on tape backend
-- **Allocation uses argsort + cumprod**: `tensor_argsort` (non-differentiable integer indices) + `tensor_cumprod` (differentiable with backward rule). Allocation weights sum to ≤1
+- **Link matrix is O(n²)**: `Matrix n n ty`. Default N=32 (link matrix = 1024 elements). Larger N increases capacity but slows training. DNC is significantly slower than NTM per epoch on tape backend
+- **Allocation uses argsort + cumprod**: `tensor_argsort` (non-differentiable integer indices) + `tensor_cumprod` (differentiable with backward rule). Allocation weights sum to ≤1. Sorted usage clamped to [1e-6, inf) to prevent cumprod underflow
 - **R read heads**: Type-level `r : Nat`. R=1 exercises all DNC mechanisms. R=4 matches the paper but needs more epochs
 - **applyGeneric (eval path)**: Simplified — uses content-based addressing only (no temporal links or allocation). Sufficient for eval accuracy measurement since the model learns content addressing as primary mechanism
-- **Tape overflow with long sequences**: DNC generates ~5x more tape entries per timestep than NTM. With n=128 and seqLen=20, use shorter sequences for initial training or switch to torch/MLX backends
+- **Numerical stability clamping**: Six clamping points prevent forward-pass explosion: link matrix decay clamped to [0, inf), link entries clamped non-negative, allocation usage clamped to [1e-6, inf), retention clamped to [1e-10, inf), read weights clamped and normalized. Without these, multi-timestep state accumulation causes NaN at seqLen >= 4
+- **Weight projection**: `syncBuffers` and `applyDeltasAndSync` project write weights and read weights onto the probability simplex (clamp to [1e-8, inf) + renormalize), matching the NTM pattern
+- **Output FC uses current reads**: The output is computed from the CURRENT timestep's read outputs (after memory access), not the previous timestep's. This matches the paper and PyTorch reference
 
 ### Architecture & infrastructure
 

@@ -5,7 +5,7 @@
 | Item | Difficulty | Notes |
 |------|-----------|-------|
 | CUDA support | M–L | Torch backend should work via `tensor_to_device("cuda")` — untested. Test script ready: `scripts/test_cuda_colab.sh`. See `docs/cuda-testing.md` |
-| DNC convergence tuning | M | DNC layer works end-to-end (copy + recall examples). Needs hyperparameter tuning for full convergence (50k+ epochs). Current: ~50% bit accuracy at 5 epochs. Tape backend is slow for DNC (O(n²) link matrix). Consider R=4 multi-head once R=1 converges |
+| DNC convergence tuning | M | Stability fixed: 6 clamping points + output FC ordering + weight projection. No NaN at seqLen=10. 69% short / 59% full bit accuracy at 500 epochs (N=32). Needs longer training runs (50k+ epochs) and R=4 multi-head testing |
 
 ## Low Priority
 

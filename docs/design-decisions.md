@@ -16,6 +16,8 @@ Extends NTM (Graves et al. 2016). Key design choices:
 
 5. **Simplified applyGeneric for eval** — The Double-typed eval path uses content-based addressing only (no temporal links or allocation). Full DNC addressing requires tensor-level ops that only work with Variable. This is acceptable because the trained model's content addressing weights carry most of the information for eval.
 
+6. **Numerical stability via clamping** — DNC's multi-timestep state (link matrix, usage, addressing weights) requires six clamping points to prevent forward-pass explosion: link decay clamped to [0, inf) when write weights sum > 1, link entries clamped non-negative, allocation usage clamped to [1e-6, inf) before cumprod (prevents backward gradient explosion via division), retention clamped to [1e-10, inf), read weights clamped and renormalized after mode mixture. Without clamping, NaN occurs at seqLen >= 4. NTM uses the same pattern (`focusVar` clamps weights before pow/division). Weight projection (`projectWeights`) in syncBuffers prevents addressing weight drift across gradient updates.
+
 ## Tape-based autograd (Wengert list)
 
 The autograd uses a flat tape (Wengert list) stored as five parallel Chez Scheme vectors (tags, arg1, arg2, values, paramIds) via `top-level-value`. Variables are indices into this tape. Each arithmetic operation appends an entry recording the op tag, input indices, and forward value.
