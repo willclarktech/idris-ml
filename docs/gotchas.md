@@ -323,9 +323,13 @@ Without this tracking, non-tape tensors (every `bulkToTensor` call, BCE constant
 
 `tensor_create_state_1d`/`_2d` must set `persistent=1`. Without it, NTM memory matrix, addressing weights, and read output tensors are freed at the first `tape_reset()`, causing use-after-free. The tape backend uses separate `calloc` with `persistent=1`; torch uses `from_tensor_persistent()`.
 
-### `tensor_select` has no backward
+### Broadcasting gradient reduction
 
-MLX `tensor_select` creates a new tensor but has no tape entry (unlike tape backend's `OP_SELECT`). Gradients for scalar parameters extracted via `prim__select` (beta, g, gamma in NTM heads) are silently lost. The tape backend handles this correctly with `OP_SELECT` backward. This is a correctness bug, not a memory bug.
+Binary op backwards (ADD, SUB, MUL, DIV, POW) must call `reduce_grad()` to sum gradients over broadcast-expanded dimensions. Without this, scalar × vector operations (e.g., `g * content_weights` in NTM interpolation) produce vector-shaped gradients for scalar parameters, corrupting the autograd chain.
+
+### NTM convergence (known issue)
+
+The decomposed NTM read/write head pipeline (cosine_sim → softmax → interpolation → conv1d_circular → clamp → pow → normalize) may have gradient accuracy issues compared to the tape backend's fused ops. All individual op backwards have been verified, but NTM Copy accuracy on MLX lags behind tape (~50% vs ~60-70% at the same epoch count). The OP_COSINE_SIM and OP_CONV1D_CIRC custom backward rules are the most likely source.
 
 ## Torch Backend (backend_torch.cpp)
 
