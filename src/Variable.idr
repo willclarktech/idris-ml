@@ -27,7 +27,7 @@ export prim__item : AnyPtr -> Double
 
 -- Arithmetic (all return new tensors — libtorch builds autograd graph)
 %foreign "C:tensor_add,libidrisml"
-prim__add : AnyPtr -> AnyPtr -> AnyPtr
+export prim__add : AnyPtr -> AnyPtr -> AnyPtr
 
 %foreign "C:tensor_sub,libidrisml"
 export prim__sub : AnyPtr -> AnyPtr -> AnyPtr
@@ -36,7 +36,7 @@ export prim__sub : AnyPtr -> AnyPtr -> AnyPtr
 export prim__mul : AnyPtr -> AnyPtr -> AnyPtr
 
 %foreign "C:tensor_div,libidrisml"
-prim__div : AnyPtr -> AnyPtr -> AnyPtr
+export prim__div : AnyPtr -> AnyPtr -> AnyPtr
 
 %foreign "C:tensor_neg,libidrisml"
 export prim__neg : AnyPtr -> AnyPtr
@@ -70,10 +70,10 @@ prim__mv : AnyPtr -> AnyPtr -> AnyPtr
 prim__dot : AnyPtr -> AnyPtr -> AnyPtr
 
 %foreign "C:tensor_outer,libidrisml"
-prim__outer : AnyPtr -> AnyPtr -> AnyPtr
+export prim__outer : AnyPtr -> AnyPtr -> AnyPtr
 
 %foreign "C:tensor_matmul,libidrisml"
-prim__matmul : AnyPtr -> AnyPtr -> AnyPtr
+export prim__matmul : AnyPtr -> AnyPtr -> AnyPtr
 
 -- Activation
 %foreign "C:tensor_softmax,libidrisml"
@@ -107,7 +107,7 @@ prim__size : AnyPtr -> Int -> Int
 export prim__select : AnyPtr -> Int -> Int -> AnyPtr
 
 %foreign "C:tensor_unsqueeze,libidrisml"
-prim__unsqueeze : AnyPtr -> Int -> AnyPtr
+export prim__unsqueeze : AnyPtr -> Int -> AnyPtr
 
 %foreign "C:tensor_stack,libidrisml"
 prim__stack : AnyPtr -> Int -> Int -> AnyPtr
@@ -588,6 +588,7 @@ prim__createParam4d : Int -> Int -> Int -> Int -> AnyPtr -> AnyPtr
 
 -- matStackTensor: stack matrix Variable tensorPtrs into a 2D tensor.
 -- PRESERVES autograd graph.
+export
 matStackTensor : {m, n : Nat} -> Vect m (Vector n Variable) -> AnyPtr
 matStackTensor {m} {n} rows =
   let mI = cast {to=Int} m

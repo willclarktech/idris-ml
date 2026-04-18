@@ -27,6 +27,7 @@ modules = Backprop
         , Layer.Linear
         , Layer.Lstm
         , Layer.Normalization
+        , Layer.Dnc
         , Layer.Ntm
         , Layer.Rnn
         , Layer.Transformer

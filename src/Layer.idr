@@ -10,6 +10,7 @@ import public Layer.Activation
 import public Layer.Normalization
 import public Layer.Rnn
 import public Layer.Lstm
+import public Layer.Dnc
 import public Layer.Ntm
 import public Layer.Conv
 import public Layer.BatchNorm
