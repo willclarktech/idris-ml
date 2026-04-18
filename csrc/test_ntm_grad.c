@@ -3,8 +3,9 @@
 
 #include "backend.h"
 #include <stdio.h>
-#include <math.h>
 #include <stdlib.h>
+#include <string.h>
+#include <math.h>
 
 #define N 128  /* memory slots */
 #define W 20   /* memory width */
@@ -14,25 +15,23 @@ int main(void) {
     srand(42);
 
     /* Create memory matrix [N, W] as a param */
-    double* mem_data = calloc(N * W, sizeof(double));
+    /* Note: tensor_create_param_* takes ownership and frees the buffer */
+    double* mem_data = (double*)malloc(N * W * sizeof(double));
     for (int i = 0; i < N * W; i++) mem_data[i] = 1e-6; /* small init */
     TensorHandle mem = tensor_create_param_2d(N, W, mem_data);
     param_register("mem", mem);
-    free(mem_data);
 
     /* Key vector [W] as a param */
-    double* key_data = calloc(W, sizeof(double));
+    double* key_data = (double*)malloc(W * sizeof(double));
     for (int i = 0; i < W; i++) key_data[i] = ((double)rand() / RAND_MAX - 0.5) * 0.1;
     TensorHandle key = tensor_create_param_1d(W, key_data);
     param_register("key", key);
-    free(key_data);
 
     /* Previous addressing weights [N] — uniform */
-    double* prev_w_data = calloc(N, sizeof(double));
+    double* prev_w_data = (double*)malloc(N * sizeof(double));
     for (int i = 0; i < N; i++) prev_w_data[i] = 1.0 / N;
     TensorHandle prev_w = tensor_create_param_1d(N, prev_w_data);
     param_register("prev_w", prev_w);
-    free(prev_w_data);
 
     /* Scalars: beta, g, gamma */
     TensorHandle beta = tensor_create_scalar(1.0, 1);
@@ -43,7 +42,9 @@ int main(void) {
     param_register("gamma", gamma);
 
     /* Shift kernel [3] — center-heavy */
-    double sk_data[] = {0.1, 0.8, 0.1};
+    double sk_src[] = {0.1, 0.8, 0.1};
+    double* sk_data = (double*)malloc(3 * sizeof(double));
+    memcpy(sk_data, sk_src, 3 * sizeof(double));
     TensorHandle shift_k = tensor_create_param_1d(3, sk_data);
     param_register("shift", shift_k);
 
