@@ -2,24 +2,11 @@
 
 ## High Priority
 
-Core PyTorch feature parity — the 20% of features that enables 80% of real-world architectures. See plan rationale in `docs/feature-parity.md` (TODO).
-
-**All feature parity tiers complete.**
-
-**Done (Tier 1):** Embedding layer (integrated into Transformer), AdamW optimizer, GELU activation, average pooling 1D+2D, residual layer wrapper, weight decay
-
-**Done (Tier 2):** GRU layer, grouped/depthwise conv, transposed convolution 1D+2D, cross-attention
-
-**Done (Tier 3):** Group normalization, LR warmup + cosine schedule, gradient accumulation
-
-**Infrastructure**
-
 | Item | Difficulty | Notes |
 |------|-----------|-------|
-| CUDA support | M–L | Torch backend should work via `tensor_to_device("cuda")` — untested. See `docs/cuda-testing.md` |
-| General DataLoader | M | Reusable batched data pipeline. Current examples are ad-hoc |
-
-**Explicitly skipped** (and why): distributed training (infra not library), mixed precision/quantization (optimisation), model zoo (compositions of primitives), TorchScript (our type system is the compile-time analysis), bidirectional RNN (transformers obsoleted), exotic losses (compose from primitives)
+| CUDA support | M–L | Torch backend should work via `tensor_to_device("cuda")` — untested. Test script ready: `scripts/test_cuda_colab.sh`. See `docs/cuda-testing.md` |
+| Fix batched embedding forward | M | `transformerForwardBatch` crashes on epoch 2 with embedding (Chez Scheme pointer invalidation). C-level works fine. See `docs/gotchas.md` |
+| General DataLoader | M | Reusable batched data pipeline with shuffle/batch/repeat. Current examples generate data ad-hoc |
 
 ## Medium Priority
 
@@ -38,6 +25,8 @@ Core PyTorch feature parity — the 20% of features that enables 80% of real-wor
 | `fromDouble` persistent leak | S | Partially fixed: `tensor_create_scalar` and `tensor_create` non-grad tensors are now non-persistent on MLX (freed by tape_reset). Remaining: Chez Scheme GC doesn't call `tensor_free`, so non-persistent tensors accumulate within one epoch until optimizer_step. ~15KB/epoch overhead, manageable |
 | Reshaping layers | M | No current use case |
 | Chez Scheme runtime overhead | S–XL | Chez GC, thunk evaluation, and allocation account for ~50ms/epoch (vs 2ms in C). Not FFI marshaling — reducing FFI call count from 4,384 to ~1,220 only saved 6ms. Options: explore Idris→C backend (bypass Chez entirely), or accept ~3x gap vs PyTorch on CPU |
+
+**Explicitly not planned:** distributed training (infrastructure, not library), mixed precision/quantization (performance optimisation), model zoo (compositions of existing primitives), TorchScript (our type system is the compile-time analysis), bidirectional RNN (transformers have obsoleted), exotic losses (compose from primitives)
 
 ## Done
 
@@ -60,10 +49,10 @@ Architecture & infrastructure:
 
 Layers & models:
 - Linear, RNN, LSTM, NTM (copy + associative recall)
-- Multi-head Transformer (Pre-LN, learned embeddings, sinusoidal PE, layer norm, per-head weights with sum-not-concat)
+- Multi-head Transformer (Pre-LN, embedding lookup, sinusoidal PE, layer norm, per-head weights with sum-not-concat). Input: token indices `[seqLen]`, output: logits `[seqLen * vocabSize]`
 - REINFORCE on CartPole (`Example/Reinforce.idr`): pure Idris CartPole environment (Gymnasium-compatible physics), REINFORCE with mean-return baseline, `categoricalSample` in Sampler.idr, tensor-level `applyVarTensor` for tanh/sigmoid activations. Converges to 200.0 greedy eval on all 3 backends. PyTorch reference in `pytorch/torch_ref/models/reinforce.py`
 - MNIST CNN (`Example/Mnist.idr`): LeNet-style Conv2D(1->16,k=5) -> ReLU -> MaxPool(2) -> Conv2D(16->32,k=5) -> ReLU -> MaxPool(2) -> Linear(512->10). Type-safe spatial dimension chain via `ConvOutDim`/`PoolOutDim` type-level functions. First example with external data (MNIST .idx files). Conv2D + MaxPool2D ops on all 3 backends. ReLU tensor-level activation. PyTorch reference in `pytorch/torch_ref/models/mnist_cnn.py`
-- GPT char-level LM (`Example/Gpt.idr`): character-level language model on embedded Shakespeare corpus (1342 chars, 36-char vocab). Reuses TransformerState with batched forward, autoregressive text generation. PyTorch reference in `pytorch/torch_ref/models/gpt.py`
+- GPT char-level LM (`Example/Gpt.idr`): character-level language model on embedded Shakespeare corpus (1342 chars, 36-char vocab). Reuses TransformerState with embedding lookup, AdamW, autoregressive text generation. PyTorch reference in `pytorch/torch_ref/models/gpt.py`
 - Dropout layer (`Layer/Dropout.idr`): inverted dropout with training/eval mode toggle via `setTraining`/`setNetworkTraining`. C ops on all 3 backends
 - Batch norm layer (`Layer/BatchNorm.idr`): per-channel normalization with running stats, training/eval mode. C ops on all 3 backends. Note: Peano Nat ceiling limits use to dims ≤ ~500
 - Conv1D + MaxPool1D (`Layer/Conv.idr`): 1D convolution and pooling with type-safe `ConvOutDim`/`PoolOutDim`. SeqClassify example classifies synthetic waveforms (sine/square/triangle)
