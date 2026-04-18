@@ -517,6 +517,14 @@ record Variable (0 d : Device) where
   paramId : Maybe String
   value : Double
 
+||| Transfer a variable to a different device.
+||| This is the one place where device types intentionally change.
+export
+toDevice : (d2 : Device) -> Variable d1 -> IO (Variable d2)
+toDevice d2 v = do
+  let newPtr = prim__toDevice v.tensorPtr (deviceToString d2)
+  pure (Var newPtr v.paramId (prim__item newPtr))
+
 -- Pack scalar Variable values into a pre-allocated double buffer.
 export
 packScalarValues : {d : Device} -> AnyPtr -> Int -> Vect k (Scalar (Variable d)) -> AnyPtr
