@@ -1565,6 +1565,69 @@ TensorHandle tensor_create_param_3d(int d0, int d1, int d2, double* data) {
 }
 
 /* ================================================================
+   Transposed Convolution
+   ConvTranspose1D: output[oc][ol] = sum over ic,kl of input[ic][il] * kernel[ic][oc][kl]
+   where ol = il*stride - pad + kl
+   ================================================================ */
+
+TensorHandle tensor_conv_transpose1d(TensorHandle hinput, TensorHandle hkernel,
+                                     TensorHandle hbias, int pad, int stride) {
+    Tensor* input = (Tensor*)hinput;
+    Tensor* kernel = (Tensor*)hkernel;
+    Tensor* bias = (Tensor*)hbias;
+    int inC = input->shape[0], L = input->shape[1];
+    int outC = kernel->shape[1], kL = kernel->shape[2];
+    int oL = (L - 1) * stride - 2 * pad + kL;
+    double* out = calloc(outC * oL, sizeof(double));
+    if (bias) for (int oc = 0; oc < outC; oc++)
+        for (int ol = 0; ol < oL; ol++) out[oc*oL + ol] = bias->data[oc];
+    for (int ic = 0; ic < inC; ic++)
+        for (int il = 0; il < L; il++)
+            for (int oc = 0; oc < outC; oc++)
+                for (int kl = 0; kl < kL; kl++) {
+                    int ol = il * stride - pad + kl;
+                    if (ol >= 0 && ol < oL)
+                        out[oc*oL + ol] += input->data[ic*L + il] * kernel->data[ic*outC*kL + oc*kL + kl];
+                }
+    int out_shape[] = {outC, oL};
+    Tensor* r = make_tensor(out, out_shape, 2, input->requires_grad || kernel->requires_grad);
+    free(out);
+    return r;
+}
+
+TensorHandle tensor_conv_transpose2d(TensorHandle hinput, TensorHandle hkernel,
+                                     TensorHandle hbias, int padH, int padW,
+                                     int strideH, int strideW) {
+    Tensor* input = (Tensor*)hinput;
+    Tensor* kernel = (Tensor*)hkernel;
+    Tensor* bias = (Tensor*)hbias;
+    int inC = input->shape[0], H = input->shape[1], W = input->shape[2];
+    int outC = kernel->shape[1], kH = kernel->shape[2], kW = kernel->shape[3];
+    int oH = (H - 1) * strideH - 2 * padH + kH;
+    int oW = (W - 1) * strideW - 2 * padW + kW;
+    double* out = calloc(outC * oH * oW, sizeof(double));
+    if (bias) for (int oc = 0; oc < outC; oc++)
+        for (int oh = 0; oh < oH; oh++)
+            for (int ow = 0; ow < oW; ow++) out[oc*oH*oW + oh*oW + ow] = bias->data[oc];
+    for (int ic = 0; ic < inC; ic++)
+        for (int ih = 0; ih < H; ih++)
+            for (int iw = 0; iw < W; iw++)
+                for (int oc = 0; oc < outC; oc++)
+                    for (int kh = 0; kh < kH; kh++)
+                        for (int kw = 0; kw < kW; kw++) {
+                            int oh = ih*strideH - padH + kh;
+                            int ow = iw*strideW - padW + kw;
+                            if (oh >= 0 && oh < oH && ow >= 0 && ow < oW)
+                                out[oc*oH*oW + oh*oW + ow] += input->data[ic*H*W + ih*W + iw]
+                                    * kernel->data[ic*outC*kH*kW + oc*kH*kW + kh*kW + kw];
+                        }
+    int out_shape[] = {outC, oH, oW};
+    Tensor* r = make_tensor(out, out_shape, 3, input->requires_grad || kernel->requires_grad);
+    free(out);
+    return r;
+}
+
+/* ================================================================
    Grouped Convolution: splits channels into groups, applies separate convs.
    For tape backend, we just call the ungrouped conv per-group.
    ================================================================ */

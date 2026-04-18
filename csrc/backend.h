@@ -118,6 +118,17 @@ TensorHandle tensor_conv2d_grouped(TensorHandle input, TensorHandle kernel,
                                    TensorHandle bias, int padH, int padW,
                                    int strideH, int strideW, int groups);
 
+/* ConvTranspose1D: input [inC, L], kernel [inC, outC, kL], bias [outC] or NULL.
+   Returns [outC, oL] where oL = (L-1)*stride - 2*pad + kL. */
+TensorHandle tensor_conv_transpose1d(TensorHandle input, TensorHandle kernel,
+                                     TensorHandle bias, int pad, int stride);
+
+/* ConvTranspose2D: input [inC, H, W], kernel [inC, outC, kH, kW], bias [outC] or NULL.
+   Returns [outC, oH, oW]. */
+TensorHandle tensor_conv_transpose2d(TensorHandle input, TensorHandle kernel,
+                                     TensorHandle bias, int padH, int padW,
+                                     int strideH, int strideW);
+
 /* AvgPool1D: input [C, L]. Returns [C, oL] where oL = (L - kL) / stride + 1. */
 TensorHandle tensor_avg_pool1d(TensorHandle input, int kL, int stride);
 
