@@ -11,7 +11,7 @@
 
 | Item | Difficulty | Notes |
 |------|-----------|-------|
-| C test suite on MLX/torch backends | M | `make test-backend-tape` passes all tests. MLX: `tensor_item` returns 0.0 for non-requires_grad scalars (lazy eval timing), crashes in fused MV optimizer test — passes with `fprintf` interleaved (timing-dependent). Torch: crashes after fused MV optimizer → LSTM test sequence (stale pointer from `free_intermediates` / `tensor_free` interaction). All examples work on all 3 backends — issues are in the C test suite's manual `tensor_free` patterns, not in the Idris training path. Root cause: `free_intermediates` model assumes strict create-forward-backward-step-cleanup cycle with no tensor reuse |
+| MLX C test remaining failures | S | 3 precision FAILs (exp/sigmoid tolerance ~1e-6 vs 1e-10), layer norm backward returns zero gradients (pre-existing backward bug for OP_LAYER_NORM_2D), `tensor_bmm` not implemented (STUB abort at T9). T1–T8 pass. Could widen tolerances or add MLX-specific tolerance |
 | Batch dimension support for attention | M | `tensor_bmm` exists for projections. Remaining: batch the per-sequence attention block (Q@K^T, softmax, attn@V) with block-diagonal masking. Would eliminate the last per-sequence loop (~576 FFI calls/epoch). Impact limited by Chez runtime overhead — see `docs/design-decisions.md` performance analysis |
 | Convolutional layers | L | Conv1D/Conv2D with autograd. Natural next layer type for image tasks |
 | Regularisation/normalisation layers | M | Dropout, batch norm. Layer norm done. Required for deeper models |
