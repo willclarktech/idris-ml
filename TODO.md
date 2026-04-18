@@ -4,33 +4,19 @@
 
 Core PyTorch feature parity — the 20% of features that enables 80% of real-world architectures. See plan rationale in `docs/feature-parity.md` (TODO).
 
-**Tier 1 — Blocking: standard recipes impossible without these**
+**Remaining**
 
 | Item | Difficulty | Notes |
 |------|-----------|-------|
-| Embedding layer | S | Lookup table replaces one-hot × linear. O(1) vs O(vocab) per token. Uses existing `gather`/`scatter_add`. Blocks practical NLP |
-| AdamW optimizer | S | Decoupled weight decay (Loshchilov & Hutter 2019). The de facto standard. Regular Adam + L2 is mathematically wrong. Trivial: Adam + `param -= lr * wd * param` |
-| GELU activation | S | Standard in GPT-2+, BERT. Tanh approximation. One C function + Activation dispatch |
-| Average pooling (1D + 2D) | S | Global avg pool is the standard CNN classification head. Simpler than max pool (uniform backward) |
-| Residual layer wrapper | S–M | `ResidualState` wrapping `AnyLayer n n ty`. Forward: `add(input, inner(input))`. Enables ResNet-style composition via `~>` |
-| Weight decay in optimizers | S | `param *= (1 - lr * wd)` per step. Fundamental regularisation, not just AdamW |
+| Cross-attention | M | Q from one source, K/V from another. Extends existing multi-head attention. Enables encoder-decoder. Last Tier 2 item |
+| Gradient accumulation | S | Training loop pattern. Skip `optimizer_step` for N iterations |
+| Integrate embedding into Transformer | M | Replace one-hot × linear with EmbeddingState in TransformerState. Change interface from `[seqLen * vocab]` to `[seqLen]` token indices |
 
-**Tier 2 — Important: enables common architectures**
+**Done (Tier 1):** Embedding layer, AdamW optimizer, GELU activation, average pooling 1D+2D, residual layer wrapper, weight decay
 
-| Item | Difficulty | Notes |
-|------|-----------|-------|
-| Cross-attention | M | Q from one source, K/V from another. Extends existing multi-head attention. Enables encoder-decoder (translation, summarisation, multimodal) |
-| GRU layer | M | 2 gates (reset, update) vs LSTM's 4. Lighter, common in production. Same `LayerLike` pattern |
-| Grouped/depthwise conv | M | MobileNet, EfficientNet. Our conv2d + a `groups` parameter that partitions channels |
-| Transposed convolution | M | VAEs, GANs, segmentation. Backward of conv = forward of transposed conv |
+**Done (Tier 2):** GRU layer, grouped/depthwise conv, transposed convolution 1D+2D
 
-**Tier 3 — Polish: diminishing returns**
-
-| Item | Difficulty | Notes |
-|------|-----------|-------|
-| Group normalization | S | Per-channel-group norm. No batch dependency. Better than batch norm for small batches |
-| LR warmup + cosine | S | Linear ramp then cosine decay. Standard transformer recipe. We have cosine, need warmup |
-| Gradient accumulation | S | Training loop pattern, not a new feature. Skip `optimizer_step` for N iterations |
+**Done (Tier 3):** Group normalization, LR warmup + cosine schedule
 
 **Infrastructure**
 
