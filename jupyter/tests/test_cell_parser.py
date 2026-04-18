@@ -1,6 +1,6 @@
 """Unit tests for cell_parser — no REPL or backend needed."""
 
-from idris_ml_kernel.cell_parser import looks_like_definition, parse_cell
+from idris_ml_kernel.cell_parser import _unclosed_brackets, looks_like_definition, parse_cell
 
 
 # --- REPL command passthrough ---
@@ -158,3 +158,43 @@ def test_exec_continuation_stops_at_colon():
     assert len(result) == 2
     assert result[0] == ':exec putStrLn "hello"'
     assert result[1] == ":t Var"
+
+
+# --- Bracket continuation ---
+
+
+def test_definition_with_unclosed_bracket():
+    cell = "myList : List Int\nmyList = [1, 2,\n3, 4]"
+    result = parse_cell(cell)
+    assert result == [":let myList : List Int", ":let myList = [1, 2, 3, 4]"]
+
+
+def test_long_vect_definition():
+    cell = (
+        "trainData = [MkDataPoint (VTensor [STensor 1.0]) (VTensor [STensor 0.0]),\n"
+        "MkDataPoint (VTensor [STensor 0.0]) (VTensor [STensor 1.0])]"
+    )
+    result = parse_cell(cell)
+    assert len(result) == 1
+    assert result[0].startswith(":let trainData = [")
+    assert result[0].endswith("]")
+
+
+def test_unclosed_brackets_helper():
+    assert _unclosed_brackets("[1, 2,") is True
+    assert _unclosed_brackets("[1, 2]") is False
+    assert _unclosed_brackets("(foo") is True
+    assert _unclosed_brackets("(foo)") is False
+    assert _unclosed_brackets('["hello (not a paren"]') is False
+
+
+def test_bare_expression_bracket_continuation():
+    cell = "(1 + 2\n+ 3)"
+    result = parse_cell(cell)
+    assert result == ["(1 + 2 + 3)"]
+
+
+def test_string_brackets_not_counted():
+    cell = 'foo = "has [brackets" ++ "]"'
+    result = parse_cell(cell)
+    assert len(result) == 1

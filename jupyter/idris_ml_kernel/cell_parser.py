@@ -15,13 +15,37 @@ def looks_like_definition(line: str) -> bool:
     return False
 
 
+def _unclosed_brackets(text: str) -> bool:
+    """True if text has more opening brackets than closing ones."""
+    depth = 0
+    in_string = False
+    escape = False
+    for ch in text:
+        if escape:
+            escape = False
+            continue
+        if ch == "\\":
+            escape = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            depth -= 1
+    return depth > 0
+
+
 def parse_cell(code: str) -> list[str]:
     """Parse a notebook cell into a list of REPL commands.
 
     Routes each line:
       - REPL commands starting with ':' are passed through
-      - Multi-line :exec/:t/:doc commands are joined (continuation lines
-        that don't start with ':' are appended to the previous command)
+      - Multi-line commands are joined when brackets are unclosed or
+        continuation lines don't start with ':'
       - Lines that look like definitions get ':let ' prefixed
       - Everything else is sent as a bare expression
     """
@@ -30,8 +54,9 @@ def parse_cell(code: str) -> list[str]:
     i = 0
     while i < len(lines):
         s = lines[i].strip()
+
         if any(s.startswith(prefix) for prefix in _EXPR_COMMANDS):
-            # Join continuation lines that don't start with ':'
+            # :exec/:t/:doc — join continuation lines
             parts = [s]
             while i + 1 < len(lines) and not lines[i + 1].strip().startswith(":"):
                 i += 1
@@ -40,8 +65,18 @@ def parse_cell(code: str) -> list[str]:
         elif s.startswith(":"):
             commands.append(s)
         elif looks_like_definition(s):
-            commands.append(f":let {s}")
+            # Join continuation lines while brackets are unclosed
+            parts = [s]
+            while i + 1 < len(lines) and _unclosed_brackets(" ".join(parts)):
+                i += 1
+                parts.append(lines[i].strip())
+            commands.append(f":let {' '.join(parts)}")
         else:
-            commands.append(s)
+            # Bare expression — also join on unclosed brackets
+            parts = [s]
+            while i + 1 < len(lines) and _unclosed_brackets(" ".join(parts)):
+                i += 1
+                parts.append(lines[i].strip())
+            commands.append(" ".join(parts))
         i += 1
     return commands
