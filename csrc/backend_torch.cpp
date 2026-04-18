@@ -16,6 +16,7 @@
 
 // Track all non-persistent tensors so we can free them at optimizer_step
 static std::vector<at::Tensor*> intermediates;
+static std::vector<TensorPair*> all_pairs;
 static bool tracking_enabled = true;
 
 /* ---------- Helpers ---------- */
@@ -278,6 +279,7 @@ TensorPair* tensor_ntm_read_head(
     auto* p = new TensorPair;
     p->first = from_tensor(std::move(focused));
     p->second = from_tensor(std::move(read_output));
+    all_pairs.push_back(p);
     return p;
 }
 
@@ -440,6 +442,9 @@ static void free_intermediates() {
         if (param_set.find(p) == param_set.end()) delete p;
     }
     intermediates.clear();
+    // Free TensorPair structs
+    for (auto* p : all_pairs) delete p;
+    all_pairs.clear();
 }
 
 int param_count(void) {
@@ -783,6 +788,7 @@ TensorPair* tensor_lstm_gates_pair(TensorHandle combined_h, TensorHandle prev_ce
     auto* p = new TensorPair;
     p->first = from_tensor(std::move(new_hidden));
     p->second = from_tensor(std::move(new_cell));
+    all_pairs.push_back(p);
     return p;
 }
 

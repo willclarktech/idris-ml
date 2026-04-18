@@ -38,17 +38,23 @@ namespace mx = mlx::core;
    Tensor representation
    ================================================================ */
 
+/* Forward declarations for self-registration */
+static std::vector<struct Tensor*> all_tensors;
+static std::vector<TensorPair*> all_pairs;
+
 struct Tensor {
     mx::array data;
     mx::array grad;
     bool requires_grad;
     bool has_grad;
     int tape_idx;
-    int persistent;  // 1 = param, 0 = intermediate
+    int persistent;  // 1 = param/state, 0 = intermediate
 
     Tensor(mx::array d, bool rg = false)
         : data(std::move(d)), grad(mx::array(0.0f)), requires_grad(rg),
-          has_grad(false), tape_idx(-1), persistent(0) {}
+          has_grad(false), tape_idx(-1), persistent(0) {
+        all_tensors.push_back(this);
+    }
 };
 
 /* ================================================================
@@ -125,14 +131,18 @@ static void tape_reset() {
             e.meta = nullptr;
         }
     }
-    // Free non-persistent intermediate tensors that are on the tape
-    for (auto& e : tape) {
-        if (e.result && !e.result->persistent) {
-            delete e.result;
-            e.result = nullptr;
-        }
-    }
     tape.clear();
+    // Free ALL non-persistent tensors (on-tape and off-tape).
+    // Persistent tensors (params, state, views) survive.
+    std::vector<Tensor*> survivors;
+    for (auto* t : all_tensors) {
+        if (t->persistent) survivors.push_back(t);
+        else delete t;
+    }
+    all_tensors = std::move(survivors);
+    // Free TensorPair structs
+    for (auto* p : all_pairs) free(p);
+    all_pairs.clear();
 }
 
 /* ================================================================
@@ -504,6 +514,7 @@ TensorPair* tensor_ntm_read_head(TensorHandle hmemory, TensorHandle hprev_weight
     auto pair = (TensorPair*)malloc(sizeof(TensorPair));
     pair->first = focused;
     pair->second = read_result;
+    all_pairs.push_back(pair);
     return pair;
 }
 
@@ -1063,6 +1074,7 @@ TensorPair* tensor_lstm_gates_pair(TensorHandle hcombined, TensorHandle hprev_ce
     auto pair = (TensorPair*)malloc(sizeof(TensorPair));
     pair->first = new_hidden;
     pair->second = new_cell;
+    all_pairs.push_back(pair);
     return pair;
 }
 
@@ -1196,6 +1208,7 @@ TensorHandle tensor_create_param_1d(int n, double* data) {
 TensorHandle tensor_create_state_2d(int rows, int cols, double* data) {
     int shape[] = {rows, cols};
     auto t = tensor_create(data, shape, 2, 0);
+    ((Tensor*)t)->persistent = 1;  // survives tape_reset
     free(data);
     return t;
 }
@@ -1203,6 +1216,7 @@ TensorHandle tensor_create_state_2d(int rows, int cols, double* data) {
 TensorHandle tensor_create_state_1d(int n, double* data) {
     int shape[] = {n};
     auto t = tensor_create(data, shape, 1, 0);
+    ((Tensor*)t)->persistent = 1;  // survives tape_reset
     free(data);
     return t;
 }
