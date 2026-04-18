@@ -17,6 +17,7 @@
 | `fromDouble` persistent leak | S | Partially fixed: `tensor_create_scalar` and `tensor_create` non-grad tensors are now non-persistent on MLX (freed by tape_reset). Remaining: Chez Scheme GC doesn't call `tensor_free`, so non-persistent tensors accumulate within one epoch until optimizer_step. ~15KB/epoch overhead, manageable |
 | Reshaping layers | M | No current use case |
 | Chez Scheme runtime overhead | S–XL | Chez GC, thunk evaluation, and allocation account for ~50ms/epoch (vs 2ms in C). Not FFI marshaling — reducing FFI call count from 4,384 to ~1,220 only saved 6ms. Options: explore Idris→C backend (bypass Chez entirely), or accept ~3x gap vs PyTorch on CPU |
+| CodeMirror Idris 2 mode | S–M | Jupyter kernel uses `"codemirror_mode": "haskell"` as a fallback. Investigate whether an Idris 2 CodeMirror grammar exists or could be written (CodeMirror 6 Lezer grammar). Would give proper syntax highlighting in JupyterLab |
 
 **Explicitly not planned:** distributed training (infrastructure, not library), mixed precision/quantization (performance optimisation), model zoo (compositions of existing primitives), TorchScript (our type system is the compile-time analysis), bidirectional RNN (transformers have obsoleted), exotic losses (compose from primitives)
 
