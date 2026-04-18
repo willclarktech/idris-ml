@@ -61,7 +61,7 @@ bash scripts/sweep.sh --task copy --parallel 4 --quick  # 2000 epochs for screen
 
 1. **Floating** - Extended `Floating` interface adding `sqrt`
 2. **Util** - Helpers: `enumerate`, `permute`, `chunks`, `formatElapsed`, `formatDuration`, `sigD`
-3. **Sampler** - Distribution samplers: `uniform`, `normal` (Box-Muller), `normalSample`
+3. **Sampler** - Distribution samplers: `uniform`, `normal` (Box-Muller), `normalSample`, `categoricalSample` (cumulative sum)
 3b. **Init** - Weight initialization strategies composable with samplers: `xavier`, `xavierGain`, `he`, `lecun`, `fixedRange`
 4. **Tensor** - Shape-indexed tensor: `Tensor : Vect rank Nat -> Type -> Type`
 5. **Math** - Loss functions, activations, linear algebra
@@ -163,6 +163,7 @@ cfg = parseArgs defaultConfig specs (drop 1 args)
 | Supervised | `epochNative` | `DataPoint i o ty` | Feedforward nets |
 | Recurrent | `epochRecurrentNative` | `RecurrentDataPoint i o ty` | RNN/LSTM sequences |
 | TwoPhase | `epochTwoPhaseBceNative` | `TwoPhaseDataPoint i o ty` | NTM copy/recall |
+| RL (REINFORCE) | `epochRL` (custom) | `List (List Double)` (random pool) | Policy gradient |
 
 ### Parameter naming (required for gradient flow)
 
@@ -306,7 +307,7 @@ The MLX backend uses **replay-based native autograd** via `mlx::vjp`. Forward op
 
 ### Architecture & infrastructure
 
-- **Interface-based layer system**: `LayerLike` + `AnyLayer` existential. Explicit `{i, o : Nat}` needed on all methods (QTT erases Nat params). Adding a layer = one file, zero edits elsewhere
+- **Interface-based layer system**: `LayerLike` + `AnyLayer` existential. Explicit `{i, o : Nat}` needed on all methods (QTT erases Nat params). Adding a layer = one file, zero edits elsewhere. `ActivationState` has tensor-level `applyVarTensor` overrides for tanh/sigmoid (1 tape entry vs ~7n for scalar path)
 - **libtorch backend**: `csrc/backend.h` (abstract C API) + `csrc/backend_torch.cpp` (libtorch implementation). ~50 tensor ops, parameter registry, native optimizers. Autograd delegated entirely to libtorch
 - **Autograd strategy per backend**: tape = manual Wengert tape + hand-written backward rules (reference, fastest for small tensors). torch = native `tensor.backward()` (2-line backward, zero rules). MLX = replay-based native autograd via `mlx::vjp` (forward ops recorded to tape, replayed inside closure for `mlx::vjp`, zero backward rules). Adding a new op: tape needs forward + backward rule, MLX needs only forward replay case (~2 lines), torch needs nothing (native autograd)
 - **Test suite**: `make test-all` runs everything. `make test` (Idris unit tests), `make test-backend-{tape,mlx,torch}` (C API tests per backend), `make test-safetensors` / `test-ntm-grad` / `test-ntm-timestep` (specialized C tests), `make test-examples` (integration: all examples on all backends with RESULT line validation). Tests in `test/src/Test/*.idr`, `Harness.idr` for assertions

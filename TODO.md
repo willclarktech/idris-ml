@@ -2,9 +2,7 @@
 
 ## High Priority
 
-| Item | Difficulty | Notes |
-|------|-----------|-------|
-| Reinforcement learning example | L–XL | Policy gradient (e.g. REINFORCE on CartPole or grid world). Requires: environment interface, episode rollout, discounted return computation, policy gradient loss (`-log_prob * reward`). May need: `Categorical` distribution sampling from logits, baseline variance reduction. Could reuse `Train.runTraining` with episodes as "epochs" |
+(empty)
 
 ## Medium Priority
 
@@ -48,6 +46,7 @@ Architecture & infrastructure:
 Layers & models:
 - Linear, RNN, LSTM, NTM (copy + associative recall)
 - Multi-head Transformer (Pre-LN, learned embeddings, sinusoidal PE, layer norm, per-head weights with sum-not-concat)
+- REINFORCE on CartPole (`Example/Reinforce.idr`): pure Idris CartPole environment (Gymnasium-compatible physics), REINFORCE with mean-return baseline, `categoricalSample` in Sampler.idr, tensor-level `applyVarTensor` for tanh/sigmoid activations. Converges to 200.0 greedy eval on all 3 backends. PyTorch reference in `pytorch/torch_ref/models/reinforce.py`
 - Softmax, LogSoftmax, Sigmoid activations
 - Xavier/He/LeCun weight initialization
 
