@@ -119,3 +119,42 @@ def test_lld_bare_number():
 
 def test_lld_string():
     assert looks_like_definition('"hello"') is False
+
+
+# --- Multi-line continuation ---
+
+
+def test_exec_multiline_joined():
+    cell = ':exec do { srand 42;\nll <- linearLayer;\nputStrLn "done" }'
+    result = parse_cell(cell)
+    assert len(result) == 1
+    assert result[0] == ':exec do { srand 42; ll <- linearLayer; putStrLn "done" }'
+
+
+def test_type_query_multiline():
+    cell = ":t Vect 3\n(DataPoint 2 3 Double)"
+    result = parse_cell(cell)
+    assert len(result) == 1
+    assert result[0] == ":t Vect 3 (DataPoint 2 3 Double)"
+
+
+def test_doc_multiline():
+    cell = ":doc linearLayer\n-- extra"
+    result = parse_cell(cell)
+    assert len(result) == 1
+
+
+def test_exec_then_separate_command():
+    cell = ':exec putStrLn "a"\n:exec putStrLn "b"'
+    result = parse_cell(cell)
+    assert len(result) == 2
+    assert result[0] == ':exec putStrLn "a"'
+    assert result[1] == ':exec putStrLn "b"'
+
+
+def test_exec_continuation_stops_at_colon():
+    cell = ':exec putStrLn\n"hello"\n:t Var'
+    result = parse_cell(cell)
+    assert len(result) == 2
+    assert result[0] == ':exec putStrLn "hello"'
+    assert result[1] == ":t Var"
