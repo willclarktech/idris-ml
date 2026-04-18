@@ -7,6 +7,7 @@ import System.Random
 
 import Backprop
 import DataPoint
+import Device
 import Endofunctor
 import Floating
 import Generate
@@ -28,7 +29,7 @@ showSeq xs = "[" ++ go xs ++ "]"
     go (VTensor [STensor v] :: rest) = show (cast {to=Int} v) ++ "," ++ go rest
 
 -- Tensor-level BCE with logits: max(x,0) - x*y + log(1+exp(-|x|))
-bceLossTensor : LossFnTensor
+bceLossTensor : LossFnTensor CPU
 bceLossTensor predT targetT =
   let relu_x = prim__clampMin predT 0.0
       xy = prim__mul predT targetT

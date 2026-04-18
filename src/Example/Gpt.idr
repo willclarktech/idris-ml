@@ -29,6 +29,7 @@ import Sampler
 import Tensor
 import Train
 import Util
+import Device
 import Variable
 
 
@@ -195,7 +196,7 @@ gptBatchVect (S k) = do
 ----------------------------------------------------------------------
 
 ||| Categorical cross-entropy on ALL positions (standard LM loss).
-allPositionsCE : LossFnTensor
+allPositionsCE : LossFnTensor CPU
 allPositionsCE predT targetT =
   let vsI = cast {to=Int} VocabSize
       sI = cast {to=Int} SeqLen
@@ -216,7 +217,7 @@ allPositionsCE predT targetT =
 ||| Generate text autoregressively from a seed string.
 ||| Returns seed ++ generated characters.
 generateText : {hs : List Nat} ->
-               Network InputDim hs OutputDim Variable ->
+               Network InputDim hs OutputDim (Variable CPU) ->
                String -> Nat -> Double -> String
 generateText model seed genLen temperature =
   let seedIdxs = map charToIdx (unpack seed)
@@ -244,7 +245,7 @@ generateText model seed genLen temperature =
            (the (Int, Double) (0, -1.0e10))
            (zip (map cast vocabIdxs) probs))
 
-    go : {hs' : List Nat} -> Network InputDim hs' OutputDim Variable ->
+    go : {hs' : List Nat} -> Network InputDim hs' OutputDim (Variable CPU) ->
          List Int -> Nat -> List Char -> List Char
     go _ _ Z acc = reverse acc
     go m ctx (S k) acc =
@@ -268,11 +269,11 @@ generateText model seed genLen temperature =
 
 ||| Evaluate bits per character on random windows.
 evalBPC : {hs : List Nat} ->
-          Network InputDim hs OutputDim Variable -> Nat -> Double
+          Network InputDim hs OutputDim (Variable CPU) -> Nat -> Double
 evalBPC model nSamples = go model nSamples 0.0
   where
     singleBPC : {hs' : List Nat} ->
-                Network InputDim hs' OutputDim Variable -> Nat -> Double
+                Network InputDim hs' OutputDim (Variable CPU) -> Nat -> Double
     singleBPC m start =
       let window = listSlice corpusIndices start (SeqLen + 1)
           inputToks = Data.List.take SeqLen window
@@ -288,7 +289,7 @@ evalBPC model nSamples = go model nSamples 0.0
       in loss.value / log 2.0
 
     go : {hs' : List Nat} ->
-         Network InputDim hs' OutputDim Variable -> Nat -> Double -> Double
+         Network InputDim hs' OutputDim (Variable CPU) -> Nat -> Double -> Double
     go _ Z acc = acc
     go m (S k) acc =
       let maxStart = minus corpusLen (SeqLen + 1)
@@ -348,7 +349,7 @@ main = do
   let genBatch : IO (Vect BatchSize (TensorDataPoint InputDim OutputDim))
       genBatch = gptBatchVect BatchSize
 
-  let evalMetrics : Network InputDim [] OutputDim Variable -> IO (List (String, String))
+  let evalMetrics : Network InputDim [] OutputDim (Variable CPU) -> IO (List (String, String))
       evalMetrics m = do
         let bpc = evalBPC m 20
         pure [("bpc", show bpc)]

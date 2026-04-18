@@ -28,6 +28,7 @@ import Optimizer
 import Tensor
 import Train
 import Util
+import Device
 import Variable
 
 
@@ -87,7 +88,7 @@ ReversalLen = SeqLen `minus` InputLen
 ||| context), so we mask them out of the loss. Only positions
 ||| InputLen..SeqLen-1 (separator, reversed tokens, EOS) contribute.
 reversalCE : {seqLen, vocabSize : Nat} -> (skipPositions : Int) ->
-             Vector (seqLen * vocabSize) Variable -> Vector (seqLen * vocabSize) Variable -> Variable
+             Vector (seqLen * vocabSize) (Variable CPU) -> Vector (seqLen * vocabSize) (Variable CPU) -> Variable CPU
 reversalCE {seqLen} {vocabSize} skip (VTensor preds) (VTensor targets) =
   let vsI = cast {to=Int} vocabSize
       sI = cast {to=Int} seqLen
@@ -106,14 +107,14 @@ reversalCE {seqLen} {vocabSize} skip (VTensor preds) (VTensor targets) =
       val = prim__item loss
   in Var loss Nothing val
 
-catCELoss : LossFunction Variable
+catCELoss : LossFunction (Variable CPU)
 catCELoss {n} preds targets =
   case decEq n (SeqLen * VocabSize) of
     Yes Refl => reversalCE {seqLen=SeqLen, vocabSize=VocabSize} (cast InputLen) preds targets
     No _ => fromDouble 0.0  -- unreachable
 
 ||| Tensor-level loss: takes raw AnyPtr tensors (pred, target), both 1D [seqLen*vocabSize].
-catCELossTensor : LossFnTensor
+catCELossTensor : LossFnTensor CPU
 catCELossTensor predT targetT =
   let vsI = cast {to=Int} VocabSize
       sI = cast {to=Int} SeqLen
@@ -145,10 +146,10 @@ tokenName n = if n < 6
   else "?"
 
 ||| Extract Variable values in forward order (avoids Tensor toList reversal).
-tensorVals : {n : Nat} -> Vector n Variable -> List Double
+tensorVals : {n : Nat} -> Vector n (Variable CPU) -> List Double
 tensorVals (VTensor xs) = go xs
   where
-    go : Vect k (Scalar Variable) -> List Double
+    go : Vect k (Scalar (Variable CPU)) -> List Double
     go [] = []
     go (STensor v :: rest) = prim__item v.tensorPtr :: go rest
 
@@ -230,7 +231,7 @@ main = do
       genBatch = sortingTensorBatchVect InputDim OutputDim VocabSize InputLen SeqLen SepToken EosToken BatchSize
 
   -- Metrics: accuracy on a fresh eval batch (uses per-sequence forward)
-  let evalMetrics : Network InputDim [] OutputDim Variable -> IO (List (String, String))
+  let evalMetrics : Network InputDim [] OutputDim (Variable CPU) -> IO (List (String, String))
       evalMetrics m = do
         evalData <- sortingTensorBatchVect InputDim OutputDim VocabSize InputLen SeqLen SepToken EosToken BatchSize
         let results = map (\dp =>

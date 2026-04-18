@@ -4,9 +4,12 @@ import Data.Maybe
 import Data.SortedMap
 
 import Harness
+import Device
 import Optimizer
 import Variable
 
+cpuParam : String -> Double -> Variable CPU
+cpuParam = param
 
 tol : Double
 tol = 1.0e-6
@@ -83,7 +86,7 @@ tests =
 
   -- applyDeltas updates named variable
   , let deltas = fromList [("w", 0.5)]
-        v = param "w" 3.0
+        v = cpuParam "w" 3.0
         v' = applyDeltas deltas v
     in checkClose "applyDeltas updates" 2.5 v'.value tol
   ]

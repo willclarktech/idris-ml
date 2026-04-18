@@ -30,6 +30,7 @@ import Math
 import Tensor
 import Train
 import Util
+import Device
 import Variable
 
 
@@ -129,7 +130,7 @@ mnistItem ds idx = do
 ----------------------------------------------------------------------
 
 ||| Cross-entropy loss: -sum(target * log_softmax(logits)) / batch
-mnistCE : LossFnTensor
+mnistCE : LossFnTensor CPU
 mnistCE predT targetT =
   let logProbs = prim__logSoftmax predT 0  -- dim=0 for 1D logits
       product = prim__mul logProbs targetT
@@ -145,7 +146,7 @@ mnistCE predT targetT =
 
 ||| Evaluate accuracy on nSamples random test images.
 evalAccuracy : {hs : List Nat} ->
-               Network InputDim hs NumClasses Variable ->
+               Network InputDim hs NumClasses (Variable CPU) ->
                AnyPtr -> Int -> Nat -> (Double, Double)
 evalAccuracy model ds numImages nSamples = go model nSamples 0 0.0
   where
@@ -156,7 +157,7 @@ evalAccuracy model ds numImages nSamples = go model nSamples 0 0.0
            in if v > best then assert_total $ argmax outT v idx (idx + 1)
                           else assert_total $ argmax outT best bestI (idx + 1)
 
-    go : {hs' : List Nat} -> Network InputDim hs' NumClasses Variable ->
+    go : {hs' : List Nat} -> Network InputDim hs' NumClasses (Variable CPU) ->
          Nat -> Nat -> Double -> (Double, Double)
     go _ Z correct totalLoss =
       let n = cast {to=Double} (natToInteger nSamples)
@@ -229,18 +230,18 @@ main = do
   -- (Batch norm omitted: Idris type-checker hangs on large Nat reduction
   -- for channels*spatialDim proofs. BatchNormState works for smaller dims.)
   conv1 <- conv2dLayer {inC=InC, outC=OutC1, h=ImgH, w=ImgW, kH=KH, kW=KW, padH=0, padW=0}
-  let relu1 : AnyLayer AfterConv1 AfterConv1 Variable
+  let relu1 : AnyLayer AfterConv1 AfterConv1 (Variable CPU)
       relu1 = reluLayer
-  let pool1 : AnyLayer AfterConv1 AfterPool1 Variable
+  let pool1 : AnyLayer AfterConv1 AfterPool1 (Variable CPU)
       pool1 = maxPool2dLayer {c=OutC1, inH=Conv1OutH, inW=Conv1OutW, poolH=2, poolW=2, strH=2, strW=2}
-  let drop1 : AnyLayer AfterPool1 AfterPool1 Variable
+  let drop1 : AnyLayer AfterPool1 AfterPool1 (Variable CPU)
       drop1 = dropoutLayer 0.25
   conv2 <- conv2dLayer {inC=OutC1, outC=OutC2, h=Pool1OutH, w=Pool1OutW, kH=KH, kW=KW, padH=0, padW=0}
-  let relu2 : AnyLayer AfterConv2 AfterConv2 Variable
+  let relu2 : AnyLayer AfterConv2 AfterConv2 (Variable CPU)
       relu2 = reluLayer
-  let pool2 : AnyLayer AfterConv2 AfterPool2 Variable
+  let pool2 : AnyLayer AfterConv2 AfterPool2 (Variable CPU)
       pool2 = maxPool2dLayer {c=OutC2, inH=Conv2OutH, inW=Conv2OutW, poolH=2, poolW=2, strH=2, strW=2}
-  let drop2 : AnyLayer AfterPool2 AfterPool2 Variable
+  let drop2 : AnyLayer AfterPool2 AfterPool2 (Variable CPU)
       drop2 = dropoutLayer 0.5
   fc <- linearLayer {i=AfterPool2, o=NumClasses}
 

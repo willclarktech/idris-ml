@@ -23,6 +23,7 @@ import Optimizer
 import Tensor
 import Train
 import Util
+import Device
 import Variable
 
 
@@ -144,7 +145,7 @@ main = do
       genBatch = copyTaskBinaryBatchVect {w = W} cfg.batch cfg.minLen cfg.maxLen
 
   -- Metrics: bit accuracy + memory (computed at each log step)
-  let evalMetrics : Network InputW [] OutputW Variable -> IO (List (String, String))
+  let evalMetrics : Network InputW [] OutputW (Variable CPU) -> IO (List (String, String))
       evalMetrics m = do
         let dblM = toDoubleNetwork (emap refreshValue m)
         evalBatch <- copyTaskBinaryBatchVect {w = W} 10 1 20

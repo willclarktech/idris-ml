@@ -10,6 +10,7 @@ import Floating
 import Layer
 import Memory
 import Tensor
+import Device
 import Variable
 
 
@@ -34,7 +35,7 @@ tests : List (IO Bool)
 tests =
   [ -- Single linear layer: ll0_weight*, ll0_bias*
     do srand 42
-       ll <- linearLayer {i=2, o=3}
+       ll <- linearLayer {ty = Variable CPU} {i=2, o=3}
        let named = autoName $ OutputLayer ll
        let ids = networkParamIds named
        r1 <- check "autoName linear: has ll0_weight" (hasPrefix "ll0_weight" ids)
@@ -44,8 +45,8 @@ tests =
 
   -- Two linear layers: ll0 and ll1, no collisions
   , do srand 42
-       l1 <- linearLayer {i=2, o=3}
-       l2 <- linearLayer {i=3, o=2}
+       l1 <- linearLayer {ty = Variable CPU} {i=2, o=3}
+       l2 <- linearLayer {ty = Variable CPU} {i=3, o=2}
        let named = autoName $ l1 ~> OutputLayer l2
        let ids = networkParamIds named
        r1 <- check "autoName two linear: has ll0_weight" (hasPrefix "ll0_weight" ids)
@@ -56,7 +57,7 @@ tests =
 
   -- RNN layer: rnn0_iw*, rnn0_bias*
   , do srand 42
-       rnn <- rnnLayer {i=2, o=3}
+       rnn <- rnnLayer {ty = Variable CPU} {i=2, o=3}
        let named = autoName $ OutputLayer rnn
        let ids = networkParamIds named
        r1 <- check "autoName rnn: has rnn0_iw" (hasPrefix "rnn0_iw" ids)
@@ -66,8 +67,8 @@ tests =
 
   -- Mixed: linear ~> sigmoid ~> rnn -> ll0 and rnn0 prefixes
   , do srand 42
-       ll <- linearLayer {i=2, o=3}
-       rnn <- rnnLayer {i=3, o=2}
+       ll <- linearLayer {ty = Variable CPU} {i=2, o=3}
+       rnn <- rnnLayer {ty = Variable CPU} {i=3, o=2}
        let named = autoName $ ll ~> sigmoidLayer ~> OutputLayer rnn
        let ids = networkParamIds named
        r1 <- check "autoName mixed: has ll0_weight" (hasPrefix "ll0_weight" ids)
@@ -78,7 +79,7 @@ tests =
 
   -- LSTM layer: lstm0_inputWeight*, lstm0_bias*
   , do srand 42
-       lstm <- lstmLayer {i=2, o=3}
+       lstm <- lstmLayer {ty = Variable CPU} {i=2, o=3}
        let named = autoName $ OutputLayer lstm
        let ids = networkParamIds named
        r1 <- check "autoName lstm: has lstm0_inputWeight" (hasPrefix "lstm0_inputWeight" ids)
@@ -89,8 +90,8 @@ tests =
 
   -- LSTM + linear: no collisions
   , do srand 42
-       lstm <- lstmLayer {i=2, o=3}
-       ll <- linearLayer {i=3, o=2}
+       lstm <- lstmLayer {ty = Variable CPU} {i=2, o=3}
+       ll <- linearLayer {ty = Variable CPU} {i=3, o=2}
        let named = autoName $ lstm ~> OutputLayer ll
        let ids = networkParamIds named
        r1 <- check "autoName lstm+linear: has lstm0_" (hasPrefix "lstm0_" ids)
@@ -100,7 +101,7 @@ tests =
 
   -- NTM: LSTM + head FCs + output FC (state is non-learnable, not registered as params)
   , do srand 42
-       ntm <- ntmLayer {inputSize=9, outputSize=8, n=10, m=5, h=4}
+       ntm <- ntmLayer {ty = Variable CPU} {inputSize=9, outputSize=8, n=10, m=5, h=4}
        let named = autoName $ OutputLayer ntm
        let ids = networkParamIds named
        r1 <- check "autoName ntm: has ntm0_lstm0_ (controller)" (hasPrefix "ntm0_lstm0_" ids)

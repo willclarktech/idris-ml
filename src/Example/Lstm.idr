@@ -8,6 +8,7 @@ import System.Random
 
 import Backprop
 import DataPoint
+import Device
 import Endofunctor
 import Floating
 import Generate
@@ -40,7 +41,7 @@ showSeq : List (Vector 1 Double) -> String
 showSeq xs = concatMap (\(VTensor [STensor v]) => if v >= 0.5 then "1" else "0") xs
 
 -- Tensor-level BCE with logits: max(x,0) - x*y + log(1+exp(-|x|))
-bceLossTensor : LossFnTensor
+bceLossTensor : LossFnTensor CPU
 bceLossTensor predT targetT =
   let relu_x = prim__clampMin predT 0.0
       xy = prim__mul predT targetT

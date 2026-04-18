@@ -11,6 +11,7 @@ import Sampler
 import Tensor
 import Train
 import Util
+import Device
 import Variable
 
 
@@ -61,7 +62,7 @@ StepRec : Type
 StepRec = (AnyPtr, Double, Double)
 
 rolloutEp : {hs : List Nat} ->
-            Network 4 hs 2 Variable -> CPState -> List Double -> Nat ->
+            Network 4 hs 2 (Variable CPU) -> CPState -> List Double -> Nat ->
             List StepRec -> List StepRec
 rolloutEp _ _ _ Z acc = reverse acc
 rolloutEp _ _ [] _ acc = reverse acc
@@ -93,7 +94,7 @@ discReturns gamma rewards = reverse (go 0.0 (reverse rewards))
     go g (r :: rs) = let g' = r + gamma * g in g' :: go g' rs
 
 -- Compute per-episode step losses with advantage
-epStepLosses : Double -> Double -> List StepRec -> List Variable
+epStepLosses : Double -> Double -> List StepRec -> List (Variable CPU)
 epStepLosses gamma baseline steps =
   let rewards = map (\(_, _, r) => r) steps
       rets = discReturns gamma rewards
@@ -104,15 +105,15 @@ epStepLosses gamma baseline steps =
 sumRewards : List StepRec -> Double
 sumRewards steps = foldl (\a, (_, _, r) => a + r) 0.0 steps
 
-averageLoss : List Variable -> Variable
+averageLoss : List (Variable CPU) -> Variable CPU
 averageLoss losses =
   let n = fromDouble (cast (natToInteger (length losses)))
       s = foldl (+) (fromDouble 0.0) losses
   in s / n
 
 computeLoss : {hs : List Nat} -> Double ->
-              Network 4 hs 2 Variable -> List (List Double) ->
-              Variable
+              Network 4 hs 2 (Variable CPU) -> List (List Double) ->
+              Variable CPU
 computeLoss gamma model randomBatch =
   let episodes = map (\rs => rolloutEp model (MkCP 0 0 0 0) rs MaxSteps []) randomBatch
       epReturns = map sumRewards episodes
@@ -128,8 +129,8 @@ computeLoss gamma model randomBatch =
 ----------------------------------------------------------------------
 
 epochRL : {hs : List Nat} -> NativeOptimizer -> Double ->
-          Network 4 hs 2 Variable -> List (List Double) ->
-          (Network 4 hs 2 Variable, Double)
+          Network 4 hs 2 (Variable CPU) -> List (List Double) ->
+          (Network 4 hs 2 (Variable CPU), Double)
 epochRL opt gamma model batch =
   let loss = computeLoss gamma model batch
       lossVal = nativeTrainStep opt loss
@@ -158,7 +159,7 @@ genBatch batchSz = go batchSz
 ----------------------------------------------------------------------
 
 evalEp : {hs : List Nat} ->
-         Network 4 hs 2 Variable -> CPState -> Nat -> Double -> Double
+         Network 4 hs 2 (Variable CPU) -> CPState -> Nat -> Double -> Double
 evalEp _ _ Z acc = acc
 evalEp model st (S k) acc =
   let stateT = bulkToTensor (observe st)
@@ -170,7 +171,7 @@ evalEp model st (S k) acc =
          if done then acc + reward
          else evalEp model st' k (acc + reward)
 
-evalN : {hs : List Nat} -> Network 4 hs 2 Variable -> Nat -> Double -> Double
+evalN : {hs : List Nat} -> Network 4 hs 2 (Variable CPU) -> Nat -> Double -> Double
 evalN _ Z acc = acc
 evalN model (S k) acc =
   evalN model k (acc + evalEp model (MkCP 0 0 0 0) MaxSteps 0.0)

@@ -23,6 +23,7 @@ import Optimizer
 import Tensor
 import Train
 import Util
+import Device
 import Variable
 
 
@@ -130,7 +131,7 @@ main = do
       genBatch = recallTaskBinaryBatchVect {w = W} cfg.batch cfg.minItems cfg.maxItems SeqLen
 
   -- Metrics: bit accuracy + memory
-  let evalMetrics : Network InputW [] OutputW Variable -> IO (List (String, String))
+  let evalMetrics : Network InputW [] OutputW (Variable CPU) -> IO (List (String, String))
       evalMetrics m = do
         let dblM = toDoubleNetwork (emap refreshValue m)
         evalBatch <- recallTaskBinaryBatchVect {w = W} 10 cfg.minItems cfg.maxItems SeqLen

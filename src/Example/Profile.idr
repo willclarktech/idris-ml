@@ -16,6 +16,7 @@ import Math
 import Optimizer
 import Tensor
 import Util
+import Device
 import Variable
 
 
@@ -82,10 +83,10 @@ BatchSize = 16
 
 profileEpoch :
   NativeOptimizer ->
-  Vect BatchSize (TwoPhaseDataPoint InputW OutputW Variable) ->
-  Network InputW [] OutputW Variable ->
+  Vect BatchSize (TwoPhaseDataPoint InputW OutputW (Variable CPU)) ->
+  Network InputW [] OutputW (Variable CPU) ->
   Nat ->
-  IO (Network InputW [] OutputW Variable)
+  IO (Network InputW [] OutputW (Variable CPU))
 profileEpoch opt dataPoints model epochNum = do
   t0 <- clockTime Monotonic
   let (model', lossVal) = epochTwoPhaseBceNative opt dataPoints model
@@ -105,10 +106,10 @@ profileEpoch opt dataPoints model epochNum = do
 
 profileLoop :
   NativeOptimizer ->
-  Vect BatchSize (TwoPhaseDataPoint InputW OutputW Variable) ->
-  Network InputW [] OutputW Variable ->
+  Vect BatchSize (TwoPhaseDataPoint InputW OutputW (Variable CPU)) ->
+  Network InputW [] OutputW (Variable CPU) ->
   Nat -> Nat ->
-  IO (Network InputW [] OutputW Variable)
+  IO (Network InputW [] OutputW (Variable CPU))
 profileLoop opt dataPoints model cur count =
   if cur >= count
     then pure model
@@ -161,8 +162,8 @@ main = do
 
   where
     -- Warmup loop using epochTwoPhaseBceNative
-    go : Nat -> Network InputW [] OutputW Variable ->
-         IO (Network InputW [] OutputW Variable)
+    go : Nat -> Network InputW [] OutputW (Variable CPU) ->
+         IO (Network InputW [] OutputW (Variable CPU))
     go 5 m = pure m
     go k m = do
       batch <- copyTaskBinaryBatchVect {w = W} BatchSize 1 20

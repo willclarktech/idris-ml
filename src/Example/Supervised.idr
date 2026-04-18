@@ -8,6 +8,7 @@ import System.Random
 
 import Backprop
 import DataPoint
+import Device
 import Endofunctor
 import Floating
 import Layer
@@ -49,14 +50,14 @@ toTensorDP : DataPoint 2 3 Double -> TensorDataPoint 2 3
 toTensorDP dp = MkTensorDataPoint (bulkToTensorPersistent (x dp)) (bulkToTensorPersistent (y dp))
 
 -- Simplest possible tensor loss: just sum the predictions (for debugging)
-debugLoss : LossFnTensor
+debugLoss : LossFnTensor CPU
 debugLoss predT targetT =
   let loss = prim__sum predT
       val = prim__item loss
   in Var loss Nothing val
 
 -- Tensor-level NLL loss: -sum(target * logSoftmax(logits)) / n
-nllLossTensor : LossFnTensor
+nllLossTensor : LossFnTensor CPU
 nllLossTensor predT targetT =
   let logP = prim__logSoftmax predT 0
       product = prim__mul logP targetT

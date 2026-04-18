@@ -17,6 +17,7 @@ import Math
 import Optimizer
 import Tensor
 import Util
+import Device
 import Variable
 
 
@@ -219,8 +220,8 @@ benchNtmCopy = do
 ----------------------------------------------------------------------
 
 copy1kEpoch : NativeOptimizer ->
-              Network CopyInputW [] CopyOutputW Variable ->
-              IO (Network CopyInputW [] CopyOutputW Variable, Double)
+              Network CopyInputW [] CopyOutputW (Variable CPU) ->
+              IO (Network CopyInputW [] CopyOutputW (Variable CPU), Double)
 copy1kEpoch opt m = do
   batch <- copyTaskBinaryBatchVect {w = CopyW} CopyBatch 1 20
   let dps = map (map fromDouble) batch
@@ -228,9 +229,9 @@ copy1kEpoch opt m = do
   pure res
 
 copy1kLoop : NativeOptimizer -> Nat -> Nat ->
-             Network CopyInputW [] CopyOutputW Variable ->
+             Network CopyInputW [] CopyOutputW (Variable CPU) ->
              Double ->
-             IO (Network CopyInputW [] CopyOutputW Variable, Double)
+             IO (Network CopyInputW [] CopyOutputW (Variable CPU), Double)
 copy1kLoop opt numEpochs remaining m loss =
   if remaining == 0 then pure (m, loss)
   else do

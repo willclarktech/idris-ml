@@ -29,6 +29,7 @@ import Math
 import Tensor
 import Train
 import Util
+import Device
 import Variable
 
 
@@ -143,7 +144,7 @@ seqBatch (S k) = do
 -- Loss
 ----------------------------------------------------------------------
 
-seqCE : LossFnTensor
+seqCE : LossFnTensor CPU
 seqCE predT targetT =
   let logProbs = prim__logSoftmax predT 0
       product = prim__mul logProbs targetT
@@ -191,16 +192,16 @@ main = do
   putStrLn "Architecture: Conv1d(1->4,k=3) -> ReLU -> Pool(2) -> Conv1d(4->8,k=3) -> ReLU -> Pool(2) -> Dropout(0.5) -> Linear(48->3)"
 
   conv1 <- conv1dLayer {inC=InC, outC=C1, len=SeqLen, kL=K, pad=0}
-  let relu1 : AnyLayer AfterConv1 AfterConv1 Variable
+  let relu1 : AnyLayer AfterConv1 AfterConv1 (Variable CPU)
       relu1 = reluLayer
-  let pool1 : AnyLayer AfterConv1 AfterPool1 Variable
+  let pool1 : AnyLayer AfterConv1 AfterPool1 (Variable CPU)
       pool1 = maxPool1dLayer {c=C1, len=Conv1Out, poolK=2, str=2}
   conv2 <- conv1dLayer {inC=C1, outC=C2, len=Pool1Out, kL=K, pad=0}
-  let relu2 : AnyLayer AfterConv2 AfterConv2 Variable
+  let relu2 : AnyLayer AfterConv2 AfterConv2 (Variable CPU)
       relu2 = reluLayer
-  let pool2 : AnyLayer AfterConv2 AfterPool2 Variable
+  let pool2 : AnyLayer AfterConv2 AfterPool2 (Variable CPU)
       pool2 = maxPool1dLayer {c=C2, len=Conv2Out, poolK=2, str=2}
-  let drop : AnyLayer AfterPool2 AfterPool2 Variable
+  let drop : AnyLayer AfterPool2 AfterPool2 (Variable CPU)
       drop = dropoutLayer 0.5
   fc <- linearLayer {i=AfterPool2, o=NumClasses}
 

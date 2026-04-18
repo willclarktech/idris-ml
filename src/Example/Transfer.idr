@@ -18,6 +18,7 @@ import Optimizer
 import Tensor
 import Train
 import Util
+import Device
 import Variable
 
 ----------------------------------------------------------------------
@@ -49,7 +50,7 @@ bulkToTensorPersistent {n} (VTensor elems) =
 toTensorDP : DataPoint 2 3 Double -> TensorDataPoint 2 3
 toTensorDP dp = MkTensorDataPoint (bulkToTensorPersistent (x dp)) (bulkToTensorPersistent (y dp))
 
-nllLossTensor : LossFnTensor
+nllLossTensor : LossFnTensor CPU
 nllLossTensor predT targetT =
   let logP = prim__logSoftmax predT 0
       product = prim__mul logP targetT
@@ -101,7 +102,7 @@ optPath path =
 -- Eval helper
 ----------------------------------------------------------------------
 
-evalModel : Network 2 [] 3 Variable -> IO Double
+evalModel : Network 2 [] 3 (Variable CPU) -> IO Double
 evalModel model = do
   let freshDPs = map toTensorDP dataPoints
       losses = map (\dp =>
@@ -110,7 +111,7 @@ evalModel model = do
         in prim__item loss.tensorPtr) freshDPs
   pure (foldl (+) 0.0 (toList losses) / 5.0)
 
-printPredictions : Network 2 [] 3 Variable -> IO ()
+printPredictions : Network 2 [] 3 (Variable CPU) -> IO ()
 printPredictions model = do
   let freshDPs = map toTensorDP dataPoints
   traverse_ (\(dp, orig) =>
@@ -131,7 +132,7 @@ printPredictions model = do
 -- Modes
 ----------------------------------------------------------------------
 
-doTrain : Config -> Network 2 [] 3 Variable -> IO ()
+doTrain : Config -> Network 2 [] 3 (Variable CPU) -> IO ()
 doTrain cfg model = do
   let opt = nativeSgd cfg.lr
       tensorData = map toTensorDP dataPoints
@@ -151,7 +152,7 @@ doTrain cfg model = do
   putStrLn $ formatResult [("mode", "train"), ("epochs", show epochsDone),
                             ("loss", show evalLoss), ("backend", backendName)]
 
-doContinue : Config -> Network 2 [] 3 Variable -> IO ()
+doContinue : Config -> Network 2 [] 3 (Variable CPU) -> IO ()
 doContinue cfg model = do
   -- Load model
   ok <- loadModel cfg.loadPath
@@ -180,7 +181,7 @@ doContinue cfg model = do
   putStrLn $ formatResult [("mode", "continue"), ("epochs", show epochsDone),
                             ("loss", show evalLoss), ("backend", backendName)]
 
-doInfer : Config -> Network 2 [] 3 Variable -> IO ()
+doInfer : Config -> Network 2 [] 3 (Variable CPU) -> IO ()
 doInfer cfg model = do
   ok <- loadModel cfg.loadPath
   putStrLn $ (if ok then "Loaded model from " else "FAILED to load from ") ++ cfg.loadPath
