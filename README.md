@@ -67,15 +67,26 @@ You get dynamic graph ergonomics (standard `if`/`for`/`while`, normal debugging,
 
 All examples accept `--epochs`, `--lr`, `--seed` and task-specific flags.
 
-## Quick start
+## Getting started
 
-Requires [Idris 2](https://github.com/idris-lang/Idris2) (0.8.0+) and a C compiler.
+**Interactive notebooks** — progressive tutorial from tensors to training:
+
+1. [Tensors and Types](jupyter/notebooks/01_tensors_and_types.ipynb) — shape-indexed types, the core value proposition
+2. [Building Models](jupyter/notebooks/02_building_models.ipynb) — layer composition, dimension checking
+3. [Data and Loss](jupyter/notebooks/03_data_and_loss.ipynb) — typed training data, loss functions
+4. [Training](jupyter/notebooks/04_training.ipynb) — end-to-end classifier with evaluation
+5. [Sequences](jupyter/notebooks/05_sequences.ipynb) — RNN/LSTM for time-series
+
+Coming from PyTorch? See [docs/pytorch-mapping.md](docs/pytorch-mapping.md) for concept translation.
+
+**Quick start** — requires [Idris 2](https://github.com/idris-lang/Idris2) (0.8.0+) and a C compiler:
 
 ```bash
-make backend       # build the C tape backend (no external dependencies)
-make example-supervised    # run an example
-make example-ntm-copy      # train NTM on binary copy task
-make test          # run test suite
+make backend                # build the C tape backend (no external dependencies)
+make example-supervised     # run the simplest example
+make example-ntm-copy       # train NTM on binary copy task
+make test                   # run test suite
+make jupyter-install && make jupyter-lab  # interactive notebooks
 ```
 
 For the optional libtorch backend: `make BACKEND=torch backend`.
