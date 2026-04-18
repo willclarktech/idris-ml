@@ -260,6 +260,12 @@ ref-ntm-copy:
 ref-ntm-recall:
 	cd pytorch && uv run python -m torch_ref.scripts.ntm_recall
 
+ref-dnc-copy:
+	cd pytorch && uv run python -m torch_ref.scripts.dnc_copy
+
+ref-dnc-recall:
+	cd pytorch && uv run python -m torch_ref.scripts.dnc_recall
+
 ref-transformer:
 	cd pytorch && uv run python -m torch_ref.scripts.transformer
 
@@ -396,6 +402,7 @@ test-all:
         example-transfer example-transfer-demo \
         example-bench example-profile sweep sweep-quick clean \
         backend print-torch ref-setup ref-supervised ref-rnn ref-lstm ref-ntm-copy \
-        ref-ntm-recall ref-transformer bench-py bench-compare ref-test ref-lint \
+        ref-ntm-recall ref-dnc-copy ref-dnc-recall \
+        ref-transformer bench-py bench-compare ref-test ref-lint \
         ref-typecheck ref-convergence ref-convergence-copy ref-convergence-recall \
         jupyter-install jupyter-lab test-jupyter test-jupyter-unit
