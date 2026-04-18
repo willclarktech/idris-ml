@@ -252,12 +252,53 @@ dncReadWeight {n} (VTensor linkRows) (VTensor prevRwElems) contentW (VTensor [ST
 %default partial
 export
 {r, n, m, h : Nat} -> LayerLike (DncState r n m h) where
-  -- Generic forward pass (Double-based)
+  -- Generic forward pass (Double-based) — used for eval after toDoubleNetwork.
+  -- Simplified: uses content addressing for read/write, skips temporal links
+  -- and allocation (those mainly affect training dynamics, not eval output).
   applyGeneric st inp =
-    -- For now, delegate to applyVar via fromDouble/toDouble roundtrip
-    -- This is only used for eval/debug, not training
-    let (st', output) = applyGeneric st inp
-    in (st', output)
+    let allReads = concatReads {r} {m} st.readOutputs
+        controllerInput = allReads ++ inp
+        (updLstm, hidden) = applyGeneric st.lstm controllerInput
+        cell = extractCellState updLstm
+        (_, writeKey) = applyGeneric st.writeKeyFc cell
+        (_, writeBetaRaw) = applyGeneric st.writeBetaFc cell
+        (_, eraseRaw) = applyGeneric st.eraseFc cell
+        (_, addVec) = applyGeneric st.addFc cell
+        (_, readKeysFlat) = applyGeneric st.readKeysFc cell
+        (_, readBetasRaw) = applyGeneric st.readBetasFc cell
+        -- Write: content-based addressing only
+        writeBeta = softplus (headScalarG writeBetaRaw)
+        contentWriteW = getContentAddress softmax writeBeta st.dncMemory writeKey
+        eraseVec = map sig eraseRaw
+        wh = MkWriteHead (MkReadHead contentWriteW)
+        newMem = writeOp wh st.dncMemory eraseVec addVec
+        -- Read: content-based addressing only (no temporal links for eval)
+        newReadOuts = readHeadsGeneric st.readWeights readKeysFlat readBetasRaw newMem
+        -- Output
+        allNewReads = concatReads {r} {m} (map snd newReadOuts)
+        output = snd (applyGeneric st.outputFc (hidden ++ allNewReads))
+    in (MkDnc updLstm st.writeKeyFc st.writeBetaFc st.eraseFc st.addFc
+              st.freeGatesFc st.allocGateFc st.writeGateFc
+              st.readKeysFc st.readBetasFc st.readModesFc st.outputFc
+              newMem st.usage contentWriteW (map fst newReadOuts) (map snd newReadOuts)
+              st.linkMatrix st.precedence
+              Nothing Nothing Nothing Nothing Nothing Nothing Nothing, output)
+    where
+      headScalarG : Vector 1 ty -> ty
+      headScalarG (VTensor [STensor v]) = v
+
+      -- Read heads: content-based only (simplified for eval).
+      -- Uses splitAt to peel off m elements at a time for keys.
+      readHeadsGeneric :
+                         Vect k (Vector n ty) -> Vector (k * m) ty -> Vector k ty ->
+                         Matrix n m ty -> Vect k (Vector n ty, Vector m ty)
+      readHeadsGeneric [] _ _ _ = []
+      readHeadsGeneric {k = S j} (prevRw :: rest) keysFlat (VTensor (STensor headBetaRaw :: restBetas)) mem =
+        let beta = the ty (softplus headBetaRaw)
+            (headKey, restKeys) = Tensor.splitAt m keysFlat
+            rw = getContentAddress softmax beta mem headKey
+            ro = readOp (MkReadHead rw) mem
+        in (rw, ro) :: readHeadsGeneric rest restKeys (VTensor restBetas) mem
 
   -- Variable forward pass (scalar)
   applyVar st inp =

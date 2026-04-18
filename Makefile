@@ -166,6 +166,16 @@ example-ntm-associative-recall: backend
 	cp $(LIB) build/exec/ntm-associative-recall_app/
 	./build/exec/ntm-associative-recall
 
+example-dnc-copy: backend
+	idris2 --source-dir src -p contrib -o dnc-copy src/Example/DncCopy.idr
+	cp $(LIB) build/exec/dnc-copy_app/
+	./build/exec/dnc-copy
+
+example-dnc-recall: backend
+	idris2 --source-dir src -p contrib -o dnc-recall src/Example/DncAssociativeRecall.idr
+	cp $(LIB) build/exec/dnc-recall_app/
+	./build/exec/dnc-recall
+
 example-transformer: backend
 	idris2 --source-dir src -p contrib -o transformer src/Example/Transformer.idr
 	cp $(LIB) build/exec/transformer_app/
@@ -310,7 +320,7 @@ clean:
 	rm -f $(BUILD)/libidrisml*.dylib $(BUILD)/test_backend $(BUILD)/test_safetensors \
 	      $(BUILD)/test_ntm_grad $(BUILD)/test_ntm_timestep
 
-EXAMPLES := example-supervised example-rnn example-lstm example-transformer example-gpt example-mnist example-seq-classify example-ntm-copy example-ntm-associative-recall example-reinforce
+EXAMPLES := example-supervised example-rnn example-lstm example-transformer example-gpt example-mnist example-seq-classify example-ntm-copy example-ntm-associative-recall example-dnc-copy example-dnc-recall example-reinforce
 BACKENDS := tape mlx torch
 
 # Run all examples on all available backends, validate RESULT lines.
@@ -380,7 +390,8 @@ test-all:
 .PHONY: all-backends test test-all download-mnist test-backend test-backend-tape test-backend-mlx \
         test-backend-torch test-safetensors test-ntm-grad test-ntm-timestep \
         test-examples check example-supervised example-rnn example-lstm \
-        example-ntm-copy example-ntm-associative-recall example-reinforce \
+        example-ntm-copy example-ntm-associative-recall example-dnc-copy example-dnc-recall \
+        example-reinforce \
         example-gpt example-mnist example-seq-classify example-transformer \
         example-transfer example-transfer-demo \
         example-bench example-profile sweep sweep-quick clean \
