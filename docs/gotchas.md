@@ -306,3 +306,29 @@ Additionally, `tape_reset` must free: (1) OP_STACK `inputs` arrays (heap-allocat
 ### `toDoubleLayer` must use tensor handles for learned weights
 
 After training with `NativeOptimizer`, the optimizer mutates param tensor data in-place. The scalar Variable `.value` fields are stale (from initial forward pass). `toDoubleLayer` must read from tensor handles (via `buildDoubleMatrix`/`buildDoubleVector` using `prim__item2d`/`prim__item1d`) for learned weights. Exception: non-learnable state (NTM memory, addressing) can use `map value` since those retain initial values.
+
+## MLX Backend (backend_mlx.cpp)
+
+### Tensor lifetime: tape vs non-tape
+
+All `Tensor*` objects self-register in `all_tensors` via the constructor. `tape_reset()` frees non-persistent ones. Unlike the tape backend's arena (which bulk-frees by resetting a pointer), MLX individually `delete`s each tensor. This means:
+
+- **Ephemeral data tensors** (from `tensor_create` with `requires_grad=0`): NOT on the tape, but still tracked in `all_tensors`. Freed at `tape_reset()`.
+- **Persistent tensors** (params via `param_register`, state via `tensor_create_state_*`, views via `tensor_view_*`): Marked `persistent=1`, survive `tape_reset()`.
+- **TensorPair structs**: Tracked in `all_pairs`, freed at `tape_reset()`.
+
+Without this tracking, non-tape tensors (every `bulkToTensor` call, BCE constants, zero tensors) would leak ~250 objects per NTM epoch × 50K epochs = 2-4GB.
+
+### State tensors must be persistent
+
+`tensor_create_state_1d`/`_2d` must set `persistent=1`. Without it, NTM memory matrix, addressing weights, and read output tensors are freed at the first `tape_reset()`, causing use-after-free. The tape backend uses separate `calloc` with `persistent=1`; torch uses `from_tensor_persistent()`.
+
+### `tensor_select` has no backward
+
+MLX `tensor_select` creates a new tensor but has no tape entry (unlike tape backend's `OP_SELECT`). Gradients for scalar parameters extracted via `prim__select` (beta, g, gamma in NTM heads) are silently lost. The tape backend handles this correctly with `OP_SELECT` backward. This is a correctness bug, not a memory bug.
+
+## Torch Backend (backend_torch.cpp)
+
+### View tensors must be persistent
+
+`tensor_view_2d`/`tensor_view_1d` must use `from_tensor_persistent()`, not `from_tensor()`. Views are created once at `nameLayer` time and referenced by scalar Variables for the lifetime of the model. If tracked as intermediates, `free_intermediates()` frees them after the first epoch, causing crash in `refreshValue` → `prim__item` on stale pointers.

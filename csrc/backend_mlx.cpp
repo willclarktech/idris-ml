@@ -76,6 +76,7 @@ enum {
     OP_STACK, OP_OUTER,
     OP_COSINE_SIM, OP_CONV1D_CIRC,
     OP_MV,
+    OP_SELECT,
 };
 
 struct CosSimMeta {
@@ -542,8 +543,8 @@ TensorHandle tensor_squeeze(TensorHandle t, int dim) { STUB(); }
 
 TensorHandle tensor_select(TensorHandle h, int dim, int index) {
     auto t = (Tensor*)h;
-    // For 1D: just take element at index
     auto r = new Tensor(mx::take(t->data, mx::array(index), dim), t->requires_grad);
+    if (t->requires_grad) tape_append(OP_SELECT, r, t, nullptr, (double)index);
     return (TensorHandle)r;
 }
 
@@ -1004,6 +1005,29 @@ void tensor_backward(TensorHandle h) {
                         ensure_grad(inp);
                         inp->grad = mx::add(inp->grad, mx::array(grad_data[j]));
                     }
+                }
+            }
+            break;
+        }
+
+        case OP_SELECT: {
+            // r = a[index] (scalar from vector, or row from matrix)
+            // d_a[index] += grad
+            int sel_idx = (int)e.scalar_arg;
+            if (a && a->requires_grad) {
+                ensure_grad(a);
+                if (r->data.size() == 1) {
+                    // Scalar select from vector: scatter grad into position
+                    auto z = mx::zeros_like(a->grad);
+                    auto idx = mx::array({sel_idx});
+                    a->grad = mx::add(a->grad, mx::scatter(z, idx, mx::reshape(r->grad, {1}), 0));
+                } else {
+                    // Row select from matrix: scatter row gradient
+                    int cols = (int)r->data.size();
+                    auto z = mx::zeros_like(a->grad);
+                    auto idx = mx::array({sel_idx});
+                    auto grad_row = mx::reshape(r->grad, {1, cols});
+                    a->grad = mx::add(a->grad, mx::scatter(z, idx, grad_row, 0));
                 }
             }
             break;
