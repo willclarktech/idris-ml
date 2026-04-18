@@ -144,6 +144,21 @@ transformer: backend
 	cp $(LIB) build/exec/transformer_app/
 	./build/exec/transformer
 
+transfer: backend
+	idris2 --source-dir src -p contrib -o transfer src/Example/Transfer.idr
+	cp $(LIB) build/exec/transfer_app/
+	./build/exec/transfer $(TRANSFER_ARGS)
+
+transfer-demo:
+	@echo "=== Phase 1: Train on tape ==="
+	$(MAKE) BACKEND=tape transfer TRANSFER_ARGS="--mode train --epochs 500 --save /tmp/transfer.safetensors"
+	@echo ""
+	@echo "=== Phase 2: Continue on mlx ==="
+	$(MAKE) BACKEND=mlx transfer TRANSFER_ARGS="--mode continue --load /tmp/transfer.safetensors --epochs 500 --save /tmp/transfer2.safetensors"
+	@echo ""
+	@echo "=== Phase 3: Infer on torch ==="
+	$(MAKE) BACKEND=torch transfer TRANSFER_ARGS="--mode infer --load /tmp/transfer2.safetensors"
+
 bench: backend
 	idris2 --source-dir src -p contrib -o bench src/Example/Bench.idr
 	cp $(LIB) build/exec/bench_app/
@@ -227,4 +242,4 @@ all-backends:
 		done; \
 	done
 
-.PHONY: all-backends test test-backend-torch test-backend-tape check supervised rnn lstm ntm-copy ntm-associative-recall transformer bench profile sweep sweep-quick clean backend print-torch ref-setup ref-supervised ref-rnn ref-lstm ref-ntm-copy ref-ntm-recall ref-transformer bench-py bench-compare ref-test ref-lint ref-typecheck ref-convergence ref-convergence-copy ref-convergence-recall
+.PHONY: all-backends test test-backend-torch test-backend-tape check supervised rnn lstm ntm-copy ntm-associative-recall transformer transfer transfer-demo bench profile sweep sweep-quick clean backend print-torch ref-setup ref-supervised ref-rnn ref-lstm ref-ntm-copy ref-ntm-recall ref-transformer bench-py bench-compare ref-test ref-lint ref-typecheck ref-convergence ref-convergence-copy ref-convergence-recall
