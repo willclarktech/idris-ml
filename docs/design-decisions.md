@@ -510,7 +510,7 @@ Eliminated all `believe_me` and `unsafePerformIO` from the codebase. Every type 
 
 **Nat arithmetic in reshape/flatten**: `(S k) * n = n + (k * n)` reduces as `Refl` in Idris 2. `Tensor.splitAt` uses this to split `Vector ((S k) * n)` into `(Vector n, Vector (k * n))` type-safely. No arithmetic lemma imports needed — the mult definition itself provides the proof.
 
-**Erased proof fields in TransformerState**: The record carries `0 inputPrf : inputSize = seqLen * dModel` and `0 outputPrf : outputSize = seqLen * vocabSize`. These are erased at runtime (zero cost) but enable `rewrite` at layer boundaries to convert between the generic `Vector i ty` from `LayerLike` and the specific `Vector (seqLen * dModel) ty` needed by `reshapeToMatrix`.
+**Erased proof fields in TransformerState**: The record carries `0 inputPrf : inputSize = seqLen` and `0 outputPrf : outputSize = seqLen * vocabSize`. Input is token indices (embedding lookup, O(1) per token — replaces one-hot + linear). These are erased at runtime (zero cost) but enable `rewrite` at layer boundaries.
 
 **`decEq` for runtime-verified type equality**: The categorical cross-entropy loss function accepts `{n : Nat} -> Vector n Variable -> ...` (generic) but internally needs `n = SeqLen * VocabSize`. Uses `case decEq n (SeqLen * VocabSize) of Yes Refl => ...` to verify and unify at runtime. The `No` branch is unreachable by construction (the network output dimension guarantees the match).
 
@@ -518,7 +518,7 @@ Eliminated all `believe_me` and `unsafePerformIO` from the codebase. Every type 
 
 ### Transformer architecture (2026-04-10)
 
-Single-head causal self-attention with per-position output projection. Type parameters `seqLen`, `dModel`, `vocabSize` encode all dimensions at compile time. The dependent types enforce: Q/K shape = [seqLen, dModel], attention scores = [seqLen, seqLen], output = [seqLen, vocabSize].
+Multi-head causal self-attention with embedding lookup, Pre-LN, and per-head Q/K/V weights. Input: `[seqLen]` token indices → embedding → `[seqLen, dModel]` → blocks → `[seqLen, vocabSize]` logits. Type parameters `seqLen`, `dModel`, `numHeads`, `headDim`, `numBlocks`, `vocabSize` encode all dimensions at compile time.
 
 New C ops: `tensor_mm` (BLAS-backed), `tensor_transpose_2d`, `tensor_softmax_2d`, `tensor_log_softmax_2d`, `tensor_masked_fill`, `tensor_causal_mask`.
 
