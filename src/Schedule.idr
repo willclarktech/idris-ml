@@ -63,3 +63,31 @@ oneCycle lrMax div divFinal pctStart totalEpochs epoch =
          let decayEpochs = totalEpochs `minus` warmupEnd
              t = cast (epoch `minus` warmupEnd) / cast decayEpochs
          in lrFinal + 0.5 * (lrMax - lrFinal) * (1.0 + cos (t * pi))
+
+
+----------------------------------------------------------------------
+-- Warmup wrapper
+----------------------------------------------------------------------
+
+||| Linear warmup from startLR to the base schedule's value at warmupEnd.
+||| After warmupEpochs, delegates to the base schedule (shifted).
+export
+withWarmup : (warmupEpochs : Nat) -> (startLR : Double) -> Schedule -> Schedule
+withWarmup warmupEpochs startLR base epoch =
+  if epoch < warmupEpochs
+    then let targetLR = base warmupEpochs
+             t = cast epoch / cast warmupEpochs
+         in startLR + t * (targetLR - startLR)
+    else base epoch
+
+
+----------------------------------------------------------------------
+-- Cosine with warmup (standard transformer recipe)
+----------------------------------------------------------------------
+
+||| Cosine annealing with linear warmup. The standard modern transformer LR schedule.
+export
+cosineWithWarmup : (lrMax : Double) -> (lrMin : Double)
+                -> (warmupEpochs : Nat) -> (totalEpochs : Nat) -> Schedule
+cosineWithWarmup lrMax lrMin warmupEpochs =
+  withWarmup warmupEpochs lrMin . cosineAnnealing lrMax lrMin

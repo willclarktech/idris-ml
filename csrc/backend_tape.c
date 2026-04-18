@@ -1325,6 +1325,50 @@ TensorHandle tensor_batch_norm(TensorHandle hinput, TensorHandle hgamma, TensorH
 }
 
 /* ================================================================
+   Group Normalization: normalize within channel groups
+   ================================================================ */
+
+TensorHandle tensor_group_norm(TensorHandle hinput, TensorHandle hgamma, TensorHandle hbeta,
+                               int numGroups, int channels, int spatial, double eps) {
+    Tensor* input = (Tensor*)hinput;
+    Tensor* gamma = (Tensor*)hgamma;
+    Tensor* beta = (Tensor*)hbeta;
+    int n = channels * spatial;
+    int chPerGroup = channels / numGroups;
+    int groupSize = chPerGroup * spatial;
+
+    double* out = calloc(n, sizeof(double));
+    for (int g = 0; g < numGroups; g++) {
+        /* Compute mean and var for this group */
+        double mean = 0;
+        int base = g * groupSize;
+        for (int j = 0; j < groupSize; j++) mean += input->data[base + j];
+        mean /= groupSize;
+        double var = 0;
+        for (int j = 0; j < groupSize; j++) {
+            double d = input->data[base + j] - mean;
+            var += d * d;
+        }
+        var /= groupSize;
+        double rstd = 1.0 / sqrt(var + eps);
+        /* Normalize, then scale+shift per-channel */
+        for (int c = 0; c < chPerGroup; c++) {
+            int absC = g * chPerGroup + c;
+            for (int s = 0; s < spatial; s++) {
+                int idx = absC * spatial + s;
+                double x_hat = (input->data[idx] - mean) * rstd;
+                out[idx] = gamma->data[absC] * x_hat + beta->data[absC];
+            }
+        }
+    }
+    int out_shape[] = {n};
+    Tensor* r = make_tensor(out, out_shape, 1, input->requires_grad || gamma->requires_grad);
+    free(out);
+    /* No backward tape entry for now — torch/MLX handle it natively */
+    return r;
+}
+
+/* ================================================================
    Dropout: inverted dropout with mask
    ================================================================ */
 

@@ -697,6 +697,40 @@ TensorHandle tensor_gru_cell(TensorHandle hcombined, TensorHandle hprev, int o) 
     return (TensorHandle)r;
 }
 
+TensorHandle tensor_group_norm(TensorHandle hinput, TensorHandle hgamma, TensorHandle hbeta,
+                               int numGroups, int channels, int spatial, double eps) {
+    /* Same loop as tape backend — MLX doesn't have native group_norm */
+    auto inp = (Tensor*)hinput;
+    auto gamma = (Tensor*)hgamma;
+    auto beta = (Tensor*)hbeta;
+    int n = channels * spatial;
+    int chPerGroup = channels / numGroups;
+    int groupSize = chPerGroup * spatial;
+    mx::eval(inp->data); mx::eval(gamma->data); mx::eval(beta->data);
+    double* out = (double*)calloc(n, sizeof(double));
+    for (int g = 0; g < numGroups; g++) {
+        double mean = 0;
+        int base = g * groupSize;
+        for (int j = 0; j < groupSize; j++) mean += inp->data.data<double>()[base + j];
+        mean /= groupSize;
+        double var = 0;
+        for (int j = 0; j < groupSize; j++) { double d = inp->data.data<double>()[base+j] - mean; var += d*d; }
+        var /= groupSize;
+        double rstd = 1.0 / sqrt(var + eps);
+        for (int c = 0; c < chPerGroup; c++) {
+            int absC = g * chPerGroup + c;
+            for (int s = 0; s < spatial; s++) {
+                int idx = absC * spatial + s;
+                double x_hat = (inp->data.data<double>()[idx] - mean) * rstd;
+                out[idx] = gamma->data.data<double>()[absC] * x_hat + beta->data.data<double>()[absC];
+            }
+        }
+    }
+    auto result = mx::array(out, {n}, mx::float64);
+    free(out);
+    return (TensorHandle)(new Tensor(result, inp->requires_grad || gamma->requires_grad));
+}
+
 TensorHandle tensor_conv_transpose1d(TensorHandle hinput, TensorHandle hkernel,
                                      TensorHandle hbias, int pad, int stride) {
     /* Implement as naive loop (same as tape) since MLX doesn't expose conv_transpose1d directly */

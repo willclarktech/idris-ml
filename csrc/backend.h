@@ -84,6 +84,11 @@ TensorHandle tensor_batch_norm(TensorHandle input, TensorHandle gamma, TensorHan
                                int channels, int spatial, int training,
                                double momentum, double eps);
 
+/* Group normalization: input [C * spatial], gamma/beta [C].
+   Normalizes within each group of channels. */
+TensorHandle tensor_group_norm(TensorHandle input, TensorHandle gamma, TensorHandle beta,
+                               int numGroups, int channels, int spatial, double eps);
+
 /* ---------- Dropout ---------- */
 
 /* Inverted dropout: zero with probability p, scale survivors by 1/(1-p).
