@@ -25,6 +25,13 @@ prim__free : AnyPtr -> ()
 %foreign "C:tensor_item,libidrisml"
 export prim__item : AnyPtr -> Double
 
+-- Device transfer
+%foreign "C:tensor_to_device,libidrisml"
+export prim__toDevice : AnyPtr -> String -> AnyPtr
+
+%foreign "C:tensor_device,libidrisml"
+export prim__tensorDevice : AnyPtr -> String
+
 -- Arithmetic (all return new tensors — libtorch builds autograd graph)
 %foreign "C:tensor_add,libidrisml"
 export prim__add : AnyPtr -> AnyPtr -> AnyPtr
