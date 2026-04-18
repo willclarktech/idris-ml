@@ -74,8 +74,8 @@ bash scripts/sweep.sh --task copy --parallel 4 --quick  # 2000 epochs for screen
     - **Layer.Core** - `LayerLike` interface, `AnyLayer` existential, `Network` type, network-level ops
     - **Layer.Linear**, **Layer.Rnn**, **Layer.Lstm**, **Layer.Activation**, **Layer.Normalization** - per-layer `LayerLike` instances
     - **Layer.LayerNorm** - `LayerNormState` with learnable gamma/beta (used as sub-component)
+    - **Layer.Conv** - `Conv2DState` and `MaxPool2DState` with type-level dimension functions (`ConvOutDim`, `PoolOutDim`)
     - **Layer.Ntm** - `NtmState` + NTM head ops (imports Lstm and Linear for sub-layers)
-    - **Layer.Transformer** - `TransformerState` with causal self-attention (single-head)
     - **Layer.Transformer** - `TransformerState` with multi-head attention, layer norm, learned embeddings, sinusoidal PE
 11. **Optimizer** - SGD, Adam, RMSprop (Idris-side), plus `NativeOptimizer` (C-side, all backends)
 12. **Schedule** - Learning rate schedules: `constant`, `cosineAnnealing`, `oneCycle`

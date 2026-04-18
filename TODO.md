@@ -8,9 +8,9 @@
 
 | Item | Difficulty | Notes |
 |------|-----------|-------|
-| Convolutional layers | L | Conv1D/Conv2D with autograd. Natural next layer type for image tasks |
 | Regularisation/normalisation layers | M | Dropout, batch norm. Layer norm done. Required for deeper models |
 | More Tensor functions | M | Partially done: `tensor_cat2`, `tensor_narrow` added for NTM pipeline. Remaining: general concat, reshape, transpose, gather/scatter |
+| Conv1D layer | S | Same pattern as Conv2D but for 1D sequences. Backend ops exist (conv1d_circular for NTM). No current use case |
 
 ## Low Priority
 
@@ -46,6 +46,7 @@ Layers & models:
 - Linear, RNN, LSTM, NTM (copy + associative recall)
 - Multi-head Transformer (Pre-LN, learned embeddings, sinusoidal PE, layer norm, per-head weights with sum-not-concat)
 - REINFORCE on CartPole (`Example/Reinforce.idr`): pure Idris CartPole environment (Gymnasium-compatible physics), REINFORCE with mean-return baseline, `categoricalSample` in Sampler.idr, tensor-level `applyVarTensor` for tanh/sigmoid activations. Converges to 200.0 greedy eval on all 3 backends. PyTorch reference in `pytorch/torch_ref/models/reinforce.py`
+- MNIST CNN (`Example/Mnist.idr`): LeNet-style Conv2D(1->16,k=5) -> ReLU -> MaxPool(2) -> Conv2D(16->32,k=5) -> ReLU -> MaxPool(2) -> Linear(512->10). Type-safe spatial dimension chain via `ConvOutDim`/`PoolOutDim` type-level functions. First example with external data (MNIST .idx files). Conv2D + MaxPool2D ops on all 3 backends. ReLU tensor-level activation. PyTorch reference in `pytorch/torch_ref/models/mnist_cnn.py`
 - GPT char-level LM (`Example/Gpt.idr`): character-level language model on embedded Shakespeare corpus (1342 chars, 36-char vocab). Reuses TransformerState with batched forward, autoregressive text generation. PyTorch reference in `pytorch/torch_ref/models/gpt.py`
 - Softmax, LogSoftmax, Sigmoid activations
 - Xavier/He/LeCun weight initialization
