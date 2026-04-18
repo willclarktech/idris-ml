@@ -355,6 +355,8 @@ main = do
 
   let trainCfg = MkTrainConfig cfg.epochs 100 (Patience cfg.patience 0.001) evalMetrics
 
+  -- Note: epochNativeTensorPre (non-batched) used because epochNativeTensorBatch
+  -- crashes on epoch 2 with embedding. See docs/gotchas.md.
   (trained, epochsDone, finalLoss) <- runTraining
     (\m, d => epochNativeTensorPre opt d allPositionsCE m) genBatch trainCfg model
 
