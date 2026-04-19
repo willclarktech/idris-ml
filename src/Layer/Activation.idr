@@ -36,6 +36,8 @@ LayerLike ActivationState where
   applyVarTensor {d} st@(MkActivation "sigmoid" _) inputT = (st, prim__sigmoid inputT)
   applyVarTensor {d} st@(MkActivation "relu" _) inputT = (st, prim__clampMin inputT 0.0)
   applyVarTensor {d} st@(MkActivation "gelu" _) inputT = (st, prim__gelu inputT)
+  applyVarTensor {d} st@(MkActivation "silu" _) inputT = (st, prim__silu inputT)
+  applyVarTensor {d} st@(MkActivation "leaky_relu" _) inputT = (st, prim__leakyRelu inputT 0.01)
   applyVarTensor {d} {i} st inputT =
     let input = VTensor (tensorToScalars inputT 0 i)
         (st', VTensor outElems) = applyVar st input
@@ -51,6 +53,8 @@ LayerLike ActivationState where
   toDoubleLayer (MkActivation "tanh" _) = MkActivation "tanh" Math.tanh
   toDoubleLayer (MkActivation "relu" _) = MkActivation "relu" (\x => max x (fromDouble 0.0))
   toDoubleLayer (MkActivation "gelu" _) = MkActivation "gelu" id  -- approx for Double eval
+  toDoubleLayer (MkActivation "leaky_relu" _) = MkActivation "leaky_relu" (\x => if x >= fromDouble 0.0 then x else fromDouble 0.01 * x)
+  toDoubleLayer (MkActivation "silu" _) = MkActivation "silu" (\x => x * sigmoid x)
   toDoubleLayer (MkActivation name _) = MkActivation name id
 
   debugApply st inp =
@@ -77,3 +81,11 @@ reluLayer = MkAnyLayer ActivationState (MkActivation "relu" (\x => max x (fromDo
 export
 geluLayer : AnyLayer n n ty
 geluLayer = MkAnyLayer ActivationState (MkActivation "gelu" id)
+
+export
+leakyReluLayer : (Ord ty, FromDouble ty, Num ty) => AnyLayer n n ty
+leakyReluLayer = MkAnyLayer ActivationState (MkActivation "leaky_relu" (\x => if x >= fromDouble 0.0 then x else fromDouble 0.01 * x))
+
+export
+siluLayer : (FromDouble ty, Neg ty, Fractional ty, Floating ty) => AnyLayer n n ty
+siluLayer = MkAnyLayer ActivationState (MkActivation "silu" (\x => x * sigmoid x))

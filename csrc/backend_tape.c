@@ -183,6 +183,8 @@ enum {
     OP_CUMPROD,       /* cumulative product along dim 0 */
     OP_GATHER,        /* gather by index: out[i] = input[index[i]] */
     OP_SCATTER_ADD,   /* scatter add: out[index[i]] += src[i] */
+    OP_LEAKY_RELU,    /* max(alpha*x, x) — alpha in scalar_arg */
+    OP_SILU,          /* x * sigmoid(x) (Swish activation) */
 };
 
 typedef struct {
@@ -567,6 +569,30 @@ static double fn_gelu_d(double x) {
     return 0.5 * x * (1.0 + tanh(inner));
 }
 TensorHandle tensor_gelu(TensorHandle a) { return unop_elementwise(a, OP_GELU, fn_gelu_d); }
+
+/* LeakyReLU: max(alpha*x, x). Uses scalar_arg to store alpha. */
+TensorHandle tensor_leaky_relu(TensorHandle ha, double alpha) {
+    Tensor* a = (Tensor*)ha;
+    if (a->numel == 1) {
+        double x = a->data[0];
+        Tensor* r = make_scalar(x >= 0 ? x : alpha * x, a->requires_grad);
+        if (a->requires_grad) tape_append(OP_LEAKY_RELU, r, a, NULL, alpha);
+        return r;
+    }
+    double* data = malloc(a->numel * sizeof(double));
+    for (int i = 0; i < a->numel; i++) {
+        double x = a->data[i];
+        data[i] = x >= 0 ? x : alpha * x;
+    }
+    Tensor* r = make_tensor(data, a->shape, a->rank, a->requires_grad);
+    free(data);
+    if (a->requires_grad) tape_append(OP_LEAKY_RELU, r, a, NULL, alpha);
+    return r;
+}
+
+/* SiLU / Swish: x * sigmoid(x) */
+static double fn_silu(double x) { return x / (1.0 + exp(-x)); }
+TensorHandle tensor_silu(TensorHandle a) { return unop_elementwise(a, OP_SILU, fn_silu); }
 
 TensorHandle tensor_add_scalar(TensorHandle ha, double s) {
     Tensor* a = (Tensor*)ha;
@@ -3508,6 +3534,29 @@ void tensor_backward(TensorHandle h) {
                         }
                         a->grad[i] += partial;
                     }
+                }
+            }
+            break;
+        }
+
+        case OP_LEAKY_RELU: {
+            /* d/dx leaky_relu = 1 if x >= 0, alpha otherwise */
+            double alpha = e->scalar_arg;
+            if (a) {
+                ensure_grad(a);
+                for (int j = 0; j < a->numel; j++)
+                    a->grad[j] += r->grad[j] * (a->data[j] >= 0 ? 1.0 : alpha);
+            }
+            break;
+        }
+        case OP_SILU: {
+            /* d/dx silu(x) = sigmoid(x) * (1 + x * (1 - sigmoid(x))) */
+            if (a) {
+                ensure_grad(a);
+                for (int j = 0; j < a->numel; j++) {
+                    double x = a->data[j];
+                    double s = 1.0 / (1.0 + exp(-x));
+                    a->grad[j] += r->grad[j] * s * (1.0 + x * (1.0 - s));
                 }
             }
             break;

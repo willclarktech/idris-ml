@@ -151,6 +151,14 @@ TensorHandle tensor_gelu(TensorHandle h) {
     return from_tensor(torch::gelu(*to_tensor(h)));
 }
 
+TensorHandle tensor_leaky_relu(TensorHandle h, double alpha) {
+    return from_tensor(torch::leaky_relu(*to_tensor(h), alpha));
+}
+
+TensorHandle tensor_silu(TensorHandle h) {
+    return from_tensor(torch::silu(*to_tensor(h)));
+}
+
 TensorHandle tensor_add_scalar(TensorHandle h, double s) {
     return from_tensor(*to_tensor(h) + s);
 }

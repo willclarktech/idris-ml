@@ -1900,6 +1900,57 @@ int main(void) {
         param_clear();
     }
 
+    /* T19: LeakyReLU + SiLU activations */
+    {
+        printf("\n--- LeakyReLU + SiLU ---\n");
+        param_clear();
+
+        /* LeakyReLU forward: positive passes through, negative scaled by alpha */
+        double lr_data[] = {2.0, -3.0, 0.0, 1.0};
+        int lr_s[] = {4};
+        TensorHandle lr_in = tensor_create(lr_data, lr_s, 1, 1);
+        param_register("lr_in", lr_in);
+        TensorHandle lr_out = tensor_leaky_relu(lr_in, 0.1);
+        double lr_result[4];
+        tensor_to_doubles(lr_out, lr_result);
+        ASSERT_NEAR("leaky_relu(2)", lr_result[0], 2.0, 1e-10);
+        ASSERT_NEAR("leaky_relu(-3)", lr_result[1], -0.3, 1e-10);
+        ASSERT_NEAR("leaky_relu(0)", lr_result[2], 0.0, 1e-10);
+        ASSERT_NEAR("leaky_relu(1)", lr_result[3], 1.0, 1e-10);
+
+        /* LeakyReLU backward */
+        TensorHandle lr_loss = tensor_sum(lr_out);
+        tensor_backward(lr_loss);
+        /* d/dx: 1 for x>=0, alpha for x<0 */
+        ASSERT_NEAR("d_leaky_relu(2)", param_grad_item_at(0, 0), 1.0, 1e-10);
+        ASSERT_NEAR("d_leaky_relu(-3)", param_grad_item_at(0, 1), 0.1, 1e-10);
+        ASSERT_NEAR("d_leaky_relu(0)", param_grad_item_at(0, 2), 1.0, 1e-10);
+        ASSERT_NEAR("d_leaky_relu(1)", param_grad_item_at(0, 3), 1.0, 1e-10);
+        param_clear();
+
+        /* SiLU forward: silu(x) = x * sigmoid(x) */
+        double s_data[] = {0.0, 1.0, -1.0};
+        int s_s[] = {3};
+        TensorHandle s_in = tensor_create(s_data, s_s, 1, 1);
+        param_register("s_in", s_in);
+        TensorHandle s_out = tensor_silu(s_in);
+        double s_result[3];
+        tensor_to_doubles(s_out, s_result);
+        ASSERT_NEAR("silu(0)", s_result[0], 0.0, 1e-10);  /* 0 * 0.5 = 0 */
+        ASSERT_NEAR("silu(1)", s_result[1], 1.0 / (1.0 + exp(-1.0)), 1e-10);
+        ASSERT_NEAR("silu(-1)", s_result[2], -1.0 / (1.0 + exp(1.0)), 1e-10);
+
+        /* SiLU backward */
+        TensorHandle s_loss = tensor_sum(s_out);
+        tensor_backward(s_loss);
+        /* d_silu(x) = sigmoid(x) * (1 + x * (1 - sigmoid(x))) */
+        double sig0 = 0.5, sig1 = 1.0/(1.0+exp(-1.0)), sigm1 = 1.0/(1.0+exp(1.0));
+        ASSERT_NEAR("d_silu(0)", param_grad_item_at(0, 0), sig0 * (1.0 + 0.0 * (1.0 - sig0)), 1e-10);
+        ASSERT_NEAR("d_silu(1)", param_grad_item_at(0, 1), sig1 * (1.0 + 1.0 * (1.0 - sig1)), 1e-10);
+        ASSERT_NEAR("d_silu(-1)", param_grad_item_at(0, 2), sigm1 * (1.0 + (-1.0) * (1.0 - sigm1)), 1e-10);
+        param_clear();
+    }
+
     /* Summary */
     printf("\n");
     if (failures == 0) {

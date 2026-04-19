@@ -97,6 +97,8 @@ enum {
     OP_CONV2D,
     OP_MAX_POOL2D,
     OP_CUMPROD,
+    OP_LEAKY_RELU,
+    OP_SILU,
 };
 
 // Lightweight metadata for ops that need extra info during replay.
@@ -389,6 +391,23 @@ TensorHandle tensor_tanh(TensorHandle h) {
     auto t = (Tensor*)h;
     auto r = new Tensor(mx::tanh(t->data), t->requires_grad);
     if (t->requires_grad) tape_append(OP_TANH, r, t, nullptr, 0);
+    return (TensorHandle)r;
+}
+
+TensorHandle tensor_leaky_relu(TensorHandle h, double alpha) {
+    auto t = (Tensor*)h;
+    auto alpha_arr = mx::array(alpha, mx::float64);
+    auto result = mx::maximum(mx::multiply(alpha_arr, t->data), t->data);
+    auto r = new Tensor(result, t->requires_grad);
+    if (t->requires_grad) tape_append(OP_LEAKY_RELU, r, t, nullptr, alpha);
+    return (TensorHandle)r;
+}
+
+TensorHandle tensor_silu(TensorHandle h) {
+    auto t = (Tensor*)h;
+    auto result = mx::multiply(t->data, mx::sigmoid(t->data));
+    auto r = new Tensor(result, t->requires_grad);
+    if (t->requires_grad) tape_append(OP_SILU, r, t, nullptr, 0);
     return (TensorHandle)r;
 }
 
@@ -1331,6 +1350,12 @@ void tensor_backward(TensorHandle h) {
                 pool[out] = mx::multiply(mx::multiply(mx::array(0.5, mx::float64), a), mx::add(mx::array(1.0, mx::float64), mx::tanh(inner)));
                 break;
             }
+            case OP_LEAKY_RELU: {
+                auto alpha = mx::array(e.scalar_arg, mx::float64);
+                pool[out] = mx::maximum(mx::multiply(alpha, a), a);
+                break;
+            }
+            case OP_SILU: pool[out] = mx::multiply(a, mx::sigmoid(a)); break;
             case OP_ADD_SCALAR: pool[out] = mx::add(a, mx::array(e.scalar_arg)); break;
             case OP_MUL_SCALAR: pool[out] = mx::multiply(a, mx::array(e.scalar_arg)); break;
             case OP_CLAMP_MIN: pool[out] = mx::maximum(a, mx::array(e.scalar_arg)); break;
