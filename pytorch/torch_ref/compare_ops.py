@@ -37,9 +37,14 @@ def run_c_bench() -> dict[str, float]:
         [bench_bin],
         capture_output=True,
         text=True,
-        timeout=120,
+        timeout=300,
         cwd=root,
+        env={**os.environ, "DYLD_LIBRARY_PATH": os.path.join(root, "build")},
     )
+    if result.returncode != 0:
+        print(f"  WARNING: bench_ops exited with code {result.returncode}")
+        if result.stderr:
+            print(f"  stderr: {result.stderr[:200]}")
     return parse_bench_output(result.stdout)
 
 
@@ -111,11 +116,46 @@ def main() -> None:
 
         print(f"{label:<35} {c_str:>12} {pt_str:>12} {ratio_str:>8}")
 
+    # Summary: compute per-category average ratios
+    categories: dict[str, list[float]] = {}
+    for label in all_labels:
+        c_ms = c_results.get(label)
+        pt_ms = pt_results.get(label)
+        if c_ms is None or pt_ms is None or pt_ms <= 0:
+            continue
+        ratio = c_ms / pt_ms
+        if "matmul" in label and "vec" not in label:
+            categories.setdefault("BLAS (matmul)", []).append(ratio)
+        elif "matvec" in label:
+            categories.setdefault("BLAS (matvec)", []).append(ratio)
+        elif "add+mul" in label:
+            categories.setdefault("Element-wise", []).append(ratio)
+        elif "softmax" in label:
+            categories.setdefault("Softmax", []).append(ratio)
+        elif "conv2d" in label:
+            categories.setdefault("Conv2d", []).append(ratio)
+        elif "train_step" in label:
+            categories.setdefault("Train step", []).append(ratio)
+
     print()
-    print("Ratio = Backend / PyTorch (lower is better for backend)")
-    print("Note: C backend benchmarks bypass Idris/Chez Scheme overhead.")
-    print("End-to-end training adds ~50ms/epoch Chez runtime overhead.")
-    print("Run `make bench-compare` for full training loop comparison.")
+    print("Summary (average ratio by category):")
+    for cat, ratios in categories.items():
+        avg = sum(ratios) / len(ratios)
+        if avg < 1.0:
+            desc = f"{1/avg:.1f}x faster than PyTorch"
+        elif avg < 1.05:
+            desc = "~parity with PyTorch"
+        else:
+            desc = f"{avg:.1f}x slower than PyTorch"
+        print(f"  {cat:<20} {avg:.2f}x  ({desc})")
+
+    print()
+    print("Ratio = Backend / PyTorch (<1 = faster, >1 = slower)")
+    print()
+    print("These measure raw C backend speed (no Idris/Chez overhead).")
+    print("End-to-end Idris training adds ~50ms/epoch Chez runtime overhead")
+    print("(GC, thunk evaluation, allocation — not FFI marshaling).")
+    print("Run `make bench-compare` for full Idris vs PyTorch training comparison.")
 
 
 if __name__ == "__main__":

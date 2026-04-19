@@ -172,6 +172,11 @@ static void bench_conv2d(int inC, int outC, int h, int w, int kH, int kW, int it
     TensorHandle kernel = make_4d(outC, inC, kH, kW, 0);
     TensorHandle bias = make_vector(outC, 0);
 
+    for (int i = 0; i < 3; i++) {
+        TensorHandle out = tensor_conv2d(input, kernel, bias, 0, 0, 1, 1);
+        tensor_free(out);
+    }
+
     double t0 = wall_ms();
     for (int i = 0; i < iters; i++) {
         TensorHandle out = tensor_conv2d(input, kernel, bias, 0, 0, 1, 1);
@@ -241,46 +246,56 @@ static void bench_train_step(int inputDim, int outputDim, int iters) {
    ================================================================ */
 
 int main(void) {
+    /* Warmup: trigger arena + tape initialization so it doesn't pollute benchmarks */
+    {
+        TensorHandle a = tensor_create_scalar(1.0, 1);
+        TensorHandle b = tensor_create_scalar(2.0, 0);
+        TensorHandle c = tensor_add(a, b);
+        TensorHandle loss = tensor_sum(c);
+        tensor_backward(loss);
+        backend_reset_for_eval();
+    }
+
     printf("=== Operator Benchmarks (C backend) ===\n\n");
 
     /* --- Matmul --- */
     printf("--- Matrix multiply ---\n");
-    bench_matmul(64, 64, 64, 1000);
-    bench_matmul(256, 256, 256, 200);
-    bench_matmul(1024, 1024, 1024, 20);
+    bench_matmul(64, 64, 64, 500);
+    bench_matmul(256, 256, 256, 100);
+    bench_matmul(1024, 1024, 1024, 10);
     printf("\n");
 
     /* --- Matrix-vector --- */
     printf("--- Matrix-vector multiply ---\n");
-    bench_matvec(256, 256, 2000);
-    bench_matvec(1024, 1024, 500);
+    bench_matvec(256, 256, 1000);
+    bench_matvec(1024, 1024, 200);
     printf("\n");
 
     /* --- Element-wise --- */
     printf("--- Element-wise (add + mul) ---\n");
-    bench_elementwise(1000, 2000);
-    bench_elementwise(10000, 1000);
-    bench_elementwise(100000, 200);
+    bench_elementwise(1000, 1000);
+    bench_elementwise(10000, 500);
+    bench_elementwise(100000, 100);
     printf("\n");
 
     /* --- Softmax --- */
     printf("--- Softmax ---\n");
-    bench_softmax(256, 2000);
-    bench_softmax(1024, 1000);
-    bench_softmax(10000, 200);
+    bench_softmax(256, 1000);
+    bench_softmax(1024, 500);
+    bench_softmax(10000, 100);
     printf("\n");
 
     /* --- Conv2d forward --- */
     printf("--- Conv2d forward ---\n");
-    bench_conv2d(1, 16, 28, 28, 5, 5, 1);       /* MNIST layer 1 */
-    bench_conv2d(16, 32, 12, 12, 5, 5, 1);      /* MNIST layer 2 */
+    bench_conv2d(1, 16, 28, 28, 5, 5, 10);      /* MNIST layer 1 */
+    bench_conv2d(16, 32, 12, 12, 5, 5, 10);     /* MNIST layer 2 */
     printf("\n");
 
     /* --- Training step (forward + backward + optimizer) --- */
     printf("--- Training step (linear fwd+bwd+step) ---\n");
-    bench_train_step(64, 64, 500);
-    bench_train_step(256, 256, 200);
-    bench_train_step(1024, 1024, 20);
+    bench_train_step(64, 64, 200);
+    bench_train_step(256, 256, 100);
+    bench_train_step(1024, 1024, 10);
     printf("\n");
 
     printf("=== Done ===\n");

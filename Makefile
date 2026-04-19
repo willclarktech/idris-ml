@@ -245,14 +245,16 @@ bench-py:
 bench-compare: example-bench
 	cd pytorch && uv run python -m torch_ref.compare
 
-bench-ops: backend
-	cc -o $(BUILD)/bench_ops csrc/bench_ops.c -L$(BUILD) -lidrisml -Wl,-rpath,$(BUILD) -lm
+$(BUILD)/bench_ops: csrc/bench_ops.c backend | $(BUILD)
+	cc -o $(BUILD)/bench_ops csrc/bench_ops.c -L$(BUILD) -lidrisml -Wl,-rpath,$(CURDIR)/$(BUILD) -lm
+
+bench-ops: $(BUILD)/bench_ops
 	./$(BUILD)/bench_ops
 
 bench-ops-py:
 	cd pytorch && uv run python -m torch_ref.bench_ops
 
-bench-ops-compare: bench-ops
+bench-ops-compare: $(BUILD)/bench_ops
 	cd pytorch && uv run python -m torch_ref.compare_ops
 
 ref-supervised:
@@ -347,7 +349,7 @@ test-notebooks: jupyter-install
 
 clean:
 	rm -f $(BUILD)/libidrisml*.dylib $(BUILD)/test_backend $(BUILD)/test_safetensors \
-	      $(BUILD)/test_ntm_grad $(BUILD)/test_ntm_timestep
+	      $(BUILD)/test_ntm_grad $(BUILD)/test_ntm_timestep $(BUILD)/bench_ops
 
 EXAMPLES := example-supervised example-rnn example-lstm example-transformer example-gpt example-mnist example-seq-classify example-ntm-copy example-ntm-associative-recall example-dnc-copy example-dnc-recall example-reinforce
 BACKENDS := tape mlx torch
