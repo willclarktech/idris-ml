@@ -10,6 +10,7 @@
 
 | Item | Difficulty | Notes |
 |------|-----------|-------|
+| GPT example | M–L | Minimal GPT following [Karpathy's minGPT](https://gist.github.com/karpathy/8627fe009c40f57531cb18360106ce95). Character-level language model using existing multi-head transformer with batched attention. Needs: tokenizer (char-level), dataset loading (tiny Shakespeare or similar), generation loop (autoregressive sampling), possibly GELU activation. Existing infrastructure covers most requirements — transformer layer, learned embeddings, causal masking, batched attention, Adam optimizer. PyTorch reference first, then Idris port |
 | Convolutional layers | L | Conv1D/Conv2D with autograd. Natural next layer type for image tasks |
 | Regularisation/normalisation layers | M | Dropout, batch norm. Layer norm done. Required for deeper models |
 | More Tensor functions | M | Partially done: `tensor_cat2`, `tensor_narrow` added for NTM pipeline. Remaining: general concat, reshape, transpose, gather/scatter |
