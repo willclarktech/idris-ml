@@ -91,3 +91,27 @@ cosineWithWarmup : (lrMax : Double) -> (lrMin : Double)
                 -> (warmupEpochs : Nat) -> (totalEpochs : Nat) -> Schedule
 cosineWithWarmup lrMax lrMin warmupEpochs =
   withWarmup warmupEpochs lrMin . cosineAnnealing lrMax lrMin
+
+
+----------------------------------------------------------------------
+-- Step LR
+----------------------------------------------------------------------
+
+||| Reduce LR by a factor every stepSize epochs.
+||| lr = baseLR * gamma ^ (epoch / stepSize)
+export
+stepLR : (baseLR : Double) -> (stepSize : Nat) -> (gamma : Double) -> Schedule
+stepLR baseLR stepSize gamma epoch =
+  let step = cast {to=Double} epoch / cast {to=Double} (max stepSize 1)
+  in baseLR * pow gamma (cast {to=Double} (cast {to=Integer} step))
+
+
+----------------------------------------------------------------------
+-- Exponential LR
+----------------------------------------------------------------------
+
+||| Exponential decay: lr = baseLR * gamma ^ epoch.
+export
+exponentialLR : (baseLR : Double) -> (gamma : Double) -> Schedule
+exponentialLR baseLR gamma epoch =
+  baseLR * pow gamma (cast epoch)

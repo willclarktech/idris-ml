@@ -25,4 +25,25 @@ tests =
 
   -- oneCycle: past total = lrMax / divFinal
   , checkClose "oneCycle past total" (0.001 / 1.0e5) (oneCycle 0.001 25.0 1.0e5 0.25 6000 6000) tol
+
+  -- stepLR: epoch 0 = baseLR
+  , checkClose "stepLR epoch 0" 0.1 (stepLR 0.1 10 0.5 0) tol
+
+  -- stepLR: epoch 9 = baseLR (still in first step)
+  , checkClose "stepLR epoch 9" 0.1 (stepLR 0.1 10 0.5 9) tol
+
+  -- stepLR: epoch 10 = baseLR * gamma
+  , checkClose "stepLR epoch 10" 0.05 (stepLR 0.1 10 0.5 10) tol
+
+  -- stepLR: epoch 20 = baseLR * gamma^2
+  , checkClose "stepLR epoch 20" 0.025 (stepLR 0.1 10 0.5 20) tol
+
+  -- exponentialLR: epoch 0 = baseLR
+  , checkClose "exponentialLR epoch 0" 0.1 (exponentialLR 0.1 0.95 0) tol
+
+  -- exponentialLR: epoch 1 = baseLR * gamma
+  , checkClose "exponentialLR epoch 1" (0.1 * 0.95) (exponentialLR 0.1 0.95 1) tol
+
+  -- exponentialLR: epoch 10 = baseLR * gamma^10
+  , checkClose "exponentialLR epoch 10" (0.1 * pow 0.95 10.0) (exponentialLR 0.1 0.95 10) tol
   ]
