@@ -72,7 +72,7 @@ bash scripts/sweep.sh --task copy --parallel 4 --quick  # 2000 epochs for screen
 3. **Sampler** - Distribution samplers: `uniform`, `normal` (Box-Muller), `normalSample`, `categoricalSample` (cumulative sum)
 3b. **Init** - Weight initialization strategies composable with samplers: `xavier`, `xavierGain`, `he`, `lecun`, `fixedRange`
 4. **Tensor** - Shape-indexed tensor: `Tensor : Vect rank Nat -> Type -> Type`
-5. **Math** - Loss functions, activations, linear algebra
+5. **Math** - Loss functions (MSE, BCE, cross-entropy, NLL, L1, Huber, KL divergence), activations, linear algebra
 6. **Memory** - NTM read/write head operations
 7. **Variable** - Autograd variables wrapping backend tensor pointers (tape/MLX/torch). `NativeOptimizer` for training
 8. **DataPoint** - `DataPoint`, `RecurrentDataPoint`, and `TwoPhaseDataPoint` records
@@ -91,8 +91,8 @@ bash scripts/sweep.sh --task copy --parallel 4 --quick  # 2000 epochs for screen
     - **Layer.Ntm** - `NtmState` + NTM head ops (imports Lstm and Linear for sub-layers)
     - **Layer.Dnc** - `DncState` + DNC head ops (Graves et al. 2016: temporal link matrix, usage-based allocation, multi-head read with mode mixture). R read heads parameterized at type level
     - **Layer.Transformer** - `TransformerState` with multi-head attention, layer norm, learned embeddings, sinusoidal PE
-11. **Optimizer** - SGD, Adam, AdamW, RMSprop (Idris-side), plus `NativeOptimizer` (C-side, all backends). AdamW has decoupled weight decay
-12. **Schedule** - Learning rate schedules: `constant`, `cosineAnnealing`, `oneCycle`, `withWarmup`, `cosineWithWarmup`
+11. **Optimizer** - SGD, Adam, AdamW, RMSprop (Idris-side), plus `NativeOptimizer` (C-side, all backends). AdamW has decoupled weight decay. Per-parameter LR overrides via `setParamLR`
+12. **Schedule** - Learning rate schedules: `constant`, `cosineAnnealing`, `oneCycle`, `withWarmup`, `cosineWithWarmup`, `stepLR`, `exponentialLR`
 13. **Backprop** - Epoch functions: `epochNative`, `epochRecurrentNative`, `epochTwoPhaseBceNative`, `epochNativeTensorPreAccum` (gradient accumulation)
 14. **Train** - Unified training runner: `runTraining`, `TrainConfig`, `EarlyStopConfig`, `ArgSpec`/`parseArgs`, `formatResult`
 15. **Curriculum** - Multi-stage curriculum training: `Stage` record, `runCurriculum`

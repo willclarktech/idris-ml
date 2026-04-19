@@ -51,7 +51,7 @@ Layers & models:
 - Dropout layer (`Layer/Dropout.idr`): inverted dropout with training/eval mode toggle via `setTraining`/`setNetworkTraining`. C ops on all 3 backends
 - Batch norm layer (`Layer/BatchNorm.idr`): per-channel normalization with running stats, training/eval mode. C ops on all 3 backends. Note: Peano Nat ceiling limits use to dims ≤ ~500
 - Conv1D + MaxPool1D (`Layer/Conv.idr`): 1D convolution and pooling with type-safe `ConvOutDim`/`PoolOutDim`. SeqClassify example classifies synthetic waveforms (sine/square/triangle)
-- ReLU, GELU tensor-level activations in `Layer/Activation.idr`
+- ReLU, GELU, LeakyReLU, SiLU/Swish tensor-level activations in `Layer/Activation.idr`
 - Embedding layer (`Layer/Embedding.idr`): token index lookup via gather/scatter_add. O(1) per token vs O(vocab) for one-hot
 - GRU layer (`Layer/Gru.idr`): 2-gate recurrent unit (lighter than LSTM). C ops on all 3 backends
 - Residual layer wrapper (`Layer/Residual.idr`): `output = input + inner(input)`. Enables ResNet-style composition
@@ -59,19 +59,21 @@ Layers & models:
 - Grouped/depthwise convolution: `tensor_conv1d_grouped`, `tensor_conv2d_grouped` with groups parameter
 - Transposed convolution 1D + 2D: `tensor_conv_transpose1d`, `tensor_conv_transpose2d` for upsampling
 - Cross-attention: `tensor_cross_attention(Q, K, V, mask, scale)` for encoder-decoder architectures
-- Tensor function wrappers: gather, scatter_add, squeeze, clone, sum_dim, dim/size queries, embedding. FFI bindings for previously unbound C ops
+- Tensor function wrappers: gather, scatter_add, squeeze, clone, sum_dim, min/max reductions, dim/size queries, embedding. FFI bindings for previously unbound C ops
+- Loss functions: MSE, BCE, BCE with logits, cross-entropy, NLL, L1 (MAE), Huber/Smooth L1, KL divergence (standard + log-space)
 - Training/eval mode: `setTraining`/`setNetworkTraining` in LayerLike interface (for dropout, batch norm)
 
 Autograd & optimization:
 - Tape-based autograd (Wengert list) — originally Chez Scheme, now C backend
-- Fused backward rules: OP_MV, OP_LSTM_GATES, OP_GRU_CELL, OP_NTM_READ_HEAD, OP_NTM_INTERP_WRITE, OP_VECMAT, OP_CAT, OP_NARROW, OP_CONV1D, OP_CONV2D, OP_MAX_POOL1D, OP_MAX_POOL2D, OP_DROPOUT, OP_BATCH_NORM, OP_EMBEDDING, OP_GELU
+- Fused backward rules: OP_MV, OP_LSTM_GATES, OP_GRU_CELL, OP_NTM_READ_HEAD, OP_NTM_INTERP_WRITE, OP_VECMAT, OP_CAT, OP_NARROW, OP_CONV1D, OP_CONV2D, OP_MAX_POOL1D, OP_MAX_POOL2D, OP_DROPOUT, OP_BATCH_NORM, OP_EMBEDDING, OP_GELU, OP_LEAKY_RELU, OP_SILU
 - SGD, RMSprop (with momentum), Adam, AdamW (decoupled weight decay) optimizers (native C + Idris-side)
 - Global gradient norm/value clipping
-- Learning rate schedules (cosine annealing, one-cycle, warmup + cosine, composable warmup wrapper)
+- Learning rate schedules (cosine annealing, one-cycle, warmup + cosine, composable warmup wrapper, step LR, exponential LR)
 - Per-element optimizer buffers (RMSprop/Adam/AdamW)
 - Gradient accumulation: `nativeBackwardOnly` + `nativeOptimizerStep` for split backward/step, `epochNativeTensorPreAccum` convenience function
 - Group normalization: `tensor_group_norm` for per-channel-group normalization
 - Softmax, LogSoftmax, Sigmoid activations
+- Per-parameter LR overrides: `optimizer_set_param_lr` / `setParamLR` (tape + MLX backends). Enables transfer learning (freeze layers, layer-wise LR)
 - Xavier/He/LeCun weight initialization
 
 NTM-specific:
