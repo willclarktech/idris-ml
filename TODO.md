@@ -6,11 +6,7 @@
 
 ## Medium Priority
 
-| Item | Difficulty | Notes |
-|------|-----------|-------|
-| Regularisation/normalisation layers | M | Dropout, batch norm. Layer norm done. Required for deeper models |
-| More Tensor functions | M | Partially done: `tensor_cat2`, `tensor_narrow` added for NTM pipeline. Remaining: general concat, reshape, transpose, gather/scatter |
-| Conv1D layer | S | Same pattern as Conv2D but for 1D sequences. Backend ops exist (conv1d_circular for NTM). No current use case |
+(empty)
 
 ## Low Priority
 
@@ -49,6 +45,11 @@ Layers & models:
 - REINFORCE on CartPole (`Example/Reinforce.idr`): pure Idris CartPole environment (Gymnasium-compatible physics), REINFORCE with mean-return baseline, `categoricalSample` in Sampler.idr, tensor-level `applyVarTensor` for tanh/sigmoid activations. Converges to 200.0 greedy eval on all 3 backends. PyTorch reference in `pytorch/torch_ref/models/reinforce.py`
 - MNIST CNN (`Example/Mnist.idr`): LeNet-style Conv2D(1->16,k=5) -> ReLU -> MaxPool(2) -> Conv2D(16->32,k=5) -> ReLU -> MaxPool(2) -> Linear(512->10). Type-safe spatial dimension chain via `ConvOutDim`/`PoolOutDim` type-level functions. First example with external data (MNIST .idx files). Conv2D + MaxPool2D ops on all 3 backends. ReLU tensor-level activation. PyTorch reference in `pytorch/torch_ref/models/mnist_cnn.py`
 - GPT char-level LM (`Example/Gpt.idr`): character-level language model on embedded Shakespeare corpus (1342 chars, 36-char vocab). Reuses TransformerState with batched forward, autoregressive text generation. PyTorch reference in `pytorch/torch_ref/models/gpt.py`
+- Dropout layer (`Layer/Dropout.idr`): inverted dropout with training/eval mode toggle via `setTraining`/`setNetworkTraining`. C ops on all 3 backends
+- Batch norm layer (`Layer/BatchNorm.idr`): per-channel normalization with running stats, training/eval mode. C ops on all 3 backends. Note: Peano Nat ceiling limits use to dims ≤ ~500
+- Conv1D + MaxPool1D (`Layer/Conv.idr`): 1D convolution and pooling with type-safe `ConvOutDim`/`PoolOutDim`. SeqClassify example classifies synthetic waveforms (sine/square/triangle)
+- ReLU tensor-level activation in `Layer/Activation.idr`
+- Tensor function wrappers: gather, scatter_add, squeeze, clone, sum_dim, dim/size queries. FFI bindings for previously unbound C ops
 - Softmax, LogSoftmax, Sigmoid activations
 - Xavier/He/LeCun weight initialization
 

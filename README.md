@@ -62,6 +62,7 @@ You get dynamic graph ergonomics (standard `if`/`for`/`while`, normal debugging,
 | Transformer | Autoregressive next-token prediction (causal self-attention) | `make example-transformer` |
 | GPT | Character-level language model on Shakespeare | `make example-gpt` |
 | MNIST | CNN digit classification (Conv2D + MaxPool2D) | `make example-mnist` |
+| SeqClassify | 1D waveform classification (Conv1D + MaxPool1D) | `make example-seq-classify` |
 | REINFORCE | Policy gradient on CartPole (pure Idris env) | `make example-reinforce` |
 
 All examples accept `--epochs`, `--lr`, `--seed` and task-specific flags.
