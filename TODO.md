@@ -2,22 +2,44 @@
 
 ## High Priority
 
+Core PyTorch feature parity — the 20% of features that enables 80% of real-world architectures. See plan rationale in `docs/feature-parity.md` (TODO).
+
+**Tier 1 — Blocking: standard recipes impossible without these**
+
 | Item | Difficulty | Notes |
 |------|-----------|-------|
-| Core PyTorch feature parity | L–XL | The gaps that matter most for practical use, roughly in priority order: |
+| Embedding layer | S | Lookup table replaces one-hot × linear. O(1) vs O(vocab) per token. Uses existing `gather`/`scatter_add`. Blocks practical NLP |
+| AdamW optimizer | S | Decoupled weight decay (Loshchilov & Hutter 2019). The de facto standard. Regular Adam + L2 is mathematically wrong. Trivial: Adam + `param -= lr * wd * param` |
+| GELU activation | S | Standard in GPT-2+, BERT. Tanh approximation. One C function + Activation dispatch |
+| Average pooling (1D + 2D) | S | Global avg pool is the standard CNN classification head. Simpler than max pool (uniform backward) |
+| Residual layer wrapper | S–M | `ResidualState` wrapping `AnyLayer n n ty`. Forward: `add(input, inner(input))`. Enables ResNet-style composition via `~>` |
+| Weight decay in optimizers | S | `param *= (1 - lr * wd)` per step. Fundamental regularisation, not just AdamW |
 
-**Layers & ops:**
-- Embedding layer (S): `nn.Embedding` — lookup table instead of one-hot + linear. Current GPT/Transformer uses one-hot [seqLen, vocab] × linear, wasting O(vocab) per token. Embedding is O(1) lookup + gradient via scatter. Uses the new `tensor_gather`/`tensor_scatter_add`
-- GELU activation (S): standard in modern transformers (GPT-2+). `x * 0.5 * (1 + erf(x / sqrt(2)))`. Quick to add alongside existing ReLU/sigmoid/tanh tensor dispatch
-- GRU layer (M): lighter recurrent unit than LSTM (2 gates vs 4). Common for smaller sequence models. Same `LayerLike` pattern as LSTM
-- Average pooling (S): `AvgPool1D`/`AvgPool2D` — mean instead of max. Needed for global average pooling (common in modern CNNs). Simpler backward than max pool (uniform gradient)
-- Cross-attention (M): Q from decoder, K/V from encoder. Extends existing multi-head attention. Enables encoder-decoder (seq2seq, machine translation)
-- Transposed convolution (M): `ConvTranspose1D`/`2D` for upsampling (VAEs, GANs, segmentation). Backward of conv is forward of transposed conv
+**Tier 2 — Important: enables common architectures**
 
-**Infrastructure:**
-- CUDA support (M–L): torch backend should work on CUDA with `tensor_to_device("cuda")` — the binding exists but is untested. MLX is Metal-only. Tape backend is CPU-only. Need: verify torch CUDA path, add device selection to examples, benchmark GPU vs CPU. May need Linux CI for testing
-- General DataLoader pattern (M): current examples generate/load data ad-hoc. A reusable batched data pipeline would reduce boilerplate. Shuffle, batch, repeat
-- Group normalization (S): normalizes over channel groups, no batch dependency. Works at any dim (no Peano Nat issue if group size is small). Better alternative to batch norm for this project
+| Item | Difficulty | Notes |
+|------|-----------|-------|
+| Cross-attention | M | Q from one source, K/V from another. Extends existing multi-head attention. Enables encoder-decoder (translation, summarisation, multimodal) |
+| GRU layer | M | 2 gates (reset, update) vs LSTM's 4. Lighter, common in production. Same `LayerLike` pattern |
+| Grouped/depthwise conv | M | MobileNet, EfficientNet. Our conv2d + a `groups` parameter that partitions channels |
+| Transposed convolution | M | VAEs, GANs, segmentation. Backward of conv = forward of transposed conv |
+
+**Tier 3 — Polish: diminishing returns**
+
+| Item | Difficulty | Notes |
+|------|-----------|-------|
+| Group normalization | S | Per-channel-group norm. No batch dependency. Better than batch norm for small batches |
+| LR warmup + cosine | S | Linear ramp then cosine decay. Standard transformer recipe. We have cosine, need warmup |
+| Gradient accumulation | S | Training loop pattern, not a new feature. Skip `optimizer_step` for N iterations |
+
+**Infrastructure**
+
+| Item | Difficulty | Notes |
+|------|-----------|-------|
+| CUDA support | M–L | Torch backend should work via `tensor_to_device("cuda")` — untested. See `docs/cuda-testing.md` |
+| General DataLoader | M | Reusable batched data pipeline. Current examples are ad-hoc |
+
+**Explicitly skipped** (and why): distributed training (infra not library), mixed precision/quantization (optimisation), model zoo (compositions of primitives), TorchScript (our type system is the compile-time analysis), bidirectional RNN (transformers obsoleted), exotic losses (compose from primitives)
 
 ## Medium Priority
 
