@@ -107,11 +107,19 @@ Place cursor on a name and press Shift-Tab to see its type and documentation.
 - **macOS/Linux only** — pexpect requires PTY support (Windows users can use WSL)
 - **First run slow** — cold TTC cache means ~10s startup while modules compile. Subsequent starts ~0.5s
 
+## Notebooks
+
+Two categories in `notebooks/`:
+
+- **`tutorials/`** — Concept-oriented (01-06): tensors & types, building models, data & loss, training, sequences, device safety
+- **`models/`** — Architecture-oriented (9 notebooks): supervised, rnn_lstm, transformer, gpt, ntm, dnc, cnn, reinforce, seq_classify. Each walks through model construction, type queries, and training (interactive where feasible, CLI instructions for heavy models)
+
 ## Tests
 
 ```bash
 make test-jupyter-unit   # cell parser only (no backend needed)
 make test-jupyter        # full suite: parser + REPL integration + FFI + recovery
+make test-notebooks      # run all notebooks headless (catches API breakage)
 ```
 
 ## Switching backends
