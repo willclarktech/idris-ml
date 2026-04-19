@@ -178,6 +178,11 @@ example-mnist: backend
 	cp $(LIB) build/exec/mnist_app/
 	./build/exec/mnist $(MNIST_ARGS)
 
+example-seq-classify: backend
+	idris2 --source-dir src -p contrib -o seq-classify src/Example/SeqClassify.idr
+	cp $(LIB) build/exec/seq-classify_app/
+	./build/exec/seq-classify $(SEQ_ARGS)
+
 example-reinforce: backend
 	idris2 --source-dir src -p contrib -o reinforce src/Example/Reinforce.idr
 	cp $(LIB) build/exec/reinforce_app/
@@ -267,7 +272,7 @@ clean:
 	rm -f $(BUILD)/libidrisml*.dylib $(BUILD)/test_backend $(BUILD)/test_safetensors \
 	      $(BUILD)/test_ntm_grad $(BUILD)/test_ntm_timestep
 
-EXAMPLES := example-supervised example-rnn example-lstm example-transformer example-gpt example-mnist example-ntm-copy example-ntm-associative-recall example-reinforce
+EXAMPLES := example-supervised example-rnn example-lstm example-transformer example-gpt example-mnist example-seq-classify example-ntm-copy example-ntm-associative-recall example-reinforce
 BACKENDS := tape mlx torch
 
 # Run all examples on all available backends, validate RESULT lines.
@@ -282,6 +287,7 @@ test-examples:
 			if [ "$$e" = "example-reinforce" ]; then extra_args="REINFORCE_ARGS=--epochs 200"; fi; \
 			if [ "$$e" = "example-gpt" ]; then extra_args="GPT_ARGS=--epochs 200"; fi; \
 			if [ "$$e" = "example-mnist" ]; then extra_args="MNIST_ARGS=--epochs 5"; fi; \
+			if [ "$$e" = "example-seq-classify" ]; then extra_args="SEQ_ARGS=--epochs 200"; fi; \
 			output=$$($(MAKE) --no-print-directory BACKEND=$$b $$e $$extra_args 2>&1) || { echo "FAIL: $$e [$$b] crashed"; fail=1; continue; }; \
 			result_line=$$(echo "$$output" | grep '^RESULT'); \
 			if [ -z "$$result_line" ]; then \
@@ -330,7 +336,8 @@ test-all:
         test-backend-torch test-safetensors test-ntm-grad test-ntm-timestep \
         test-examples check example-supervised example-rnn example-lstm \
         example-ntm-copy example-ntm-associative-recall example-reinforce \
-        example-gpt example-mnist example-transformer example-transfer example-transfer-demo \
+        example-gpt example-mnist example-seq-classify example-transformer \
+        example-transfer example-transfer-demo \
         example-bench example-profile sweep sweep-quick clean \
         backend print-torch ref-setup ref-supervised ref-rnn ref-lstm ref-ntm-copy \
         ref-ntm-recall ref-transformer bench-py bench-compare ref-test ref-lint \
