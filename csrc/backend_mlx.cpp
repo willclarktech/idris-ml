@@ -77,6 +77,7 @@ enum {
     OP_COSINE_SIM, OP_CONV1D_CIRC,
     OP_MV,
     OP_SELECT,
+    OP_NORMALIZE,
 };
 
 struct CosSimMeta {
@@ -477,6 +478,16 @@ TensorHandle tensor_conv1d_circular(TensorHandle hinput, TensorHandle hkernel) {
     return (TensorHandle)r;
 }
 
+// Fused normalize: r[i] = a[i] / (sum(a) + eps)
+// Numerically stable backward avoids catastrophic cancellation from separate div/sum ops.
+static TensorHandle tensor_normalize_1d(TensorHandle h) {
+    auto t = (Tensor*)h;
+    auto S = mx::add(mx::sum(t->data), mx::array(1e-10));
+    auto r = new Tensor(mx::divide(t->data, S), t->requires_grad);
+    if (t->requires_grad) tape_append(OP_NORMALIZE, r, t, nullptr, 0);
+    return (TensorHandle)r;
+}
+
 TensorPair* tensor_ntm_read_head(TensorHandle hmemory, TensorHandle hprev_weights,
     TensorHandle hkey, TensorHandle hbeta, TensorHandle hg,
     TensorHandle hgamma, TensorHandle hshift_kernel) {
@@ -501,10 +512,7 @@ TensorPair* tensor_ntm_read_head(TensorHandle hmemory, TensorHandle hprev_weight
     // 4. Clamp + power sharpen + normalize
     TensorHandle clamped = tensor_clamp_min(shifted, 1.0e-10);
     TensorHandle powered = tensor_pow(clamped, hgamma);
-    TensorHandle power_sum = tensor_sum(powered);
-    TensorHandle eps = tensor_create_scalar(1.0e-10, 0);
-    TensorHandle power_sum_eps = tensor_add(power_sum, eps);
-    TensorHandle focused = tensor_div(powered, power_sum_eps);
+    TensorHandle focused = tensor_normalize_1d(powered);
 
     // 5. Read from memory: focused @ memory → [m]
     // Use tensor_mv for proper backward handling (MV handles 1D vectors correctly)
@@ -1063,6 +1071,18 @@ void tensor_backward(TensorHandle h) {
                     auto grad_row = mx::reshape(r->grad, {1, cols});
                     a->grad = mx::add(a->grad, mx::multiply(mask_col, grad_row));
                 }
+            }
+            break;
+        }
+
+        case OP_NORMALIZE: {
+            // r = a / (sum(a) + eps), fused backward avoids catastrophic cancellation
+            // d_a[i] = (d_r[i] - dot(d_r, r)) / (sum(a) + eps)
+            if (a && a->requires_grad) {
+                ensure_grad(a);
+                auto S = mx::add(mx::sum(a->data), mx::array(1e-10));
+                auto dot = mx::sum(mx::multiply(r->grad, r->data));
+                a->grad = mx::add(a->grad, mx::divide(mx::subtract(r->grad, dot), S));
             }
             break;
         }
