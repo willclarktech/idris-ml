@@ -451,6 +451,20 @@ TensorHandle tensor_mean(TensorHandle h) {
     return (TensorHandle)r;
 }
 
+TensorHandle tensor_min(TensorHandle h) {
+    auto t = (Tensor*)h;
+    auto result = mx::min(t->data);
+    mx::eval(result);
+    return (TensorHandle)new Tensor(result, false);
+}
+
+TensorHandle tensor_max(TensorHandle h) {
+    auto t = (Tensor*)h;
+    auto result = mx::max(t->data);
+    mx::eval(result);
+    return (TensorHandle)new Tensor(result, false);
+}
+
 /* ================================================================
    Linear algebra
    ================================================================ */

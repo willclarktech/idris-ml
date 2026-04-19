@@ -56,6 +56,8 @@ TensorHandle tensor_clamp_min(TensorHandle t, double min_val);
 TensorHandle tensor_sum(TensorHandle t);
 TensorHandle tensor_sum_dim(TensorHandle t, int dim, int keepdim);
 TensorHandle tensor_mean(TensorHandle t);
+TensorHandle tensor_min(TensorHandle t);     /* scalar reduction: min of all elements */
+TensorHandle tensor_max(TensorHandle t);     /* scalar reduction: max of all elements */
 
 /* ---------- Linear algebra ---------- */
 

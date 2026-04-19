@@ -101,6 +101,12 @@ export prim__sum : AnyPtr -> AnyPtr
 %foreign "C:tensor_mean,libidrisml"
 export prim__mean : AnyPtr -> AnyPtr
 
+%foreign "C:tensor_min,libidrisml"
+export prim__tensorMin : AnyPtr -> AnyPtr
+
+%foreign "C:tensor_max,libidrisml"
+export prim__tensorMax : AnyPtr -> AnyPtr
+
 -- Tensor creation/accessors
 %foreign "C:tensor_create,libidrisml"
 prim__create : AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr

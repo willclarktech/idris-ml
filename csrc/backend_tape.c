@@ -667,6 +667,20 @@ TensorHandle tensor_mean(TensorHandle h) {
     return r;
 }
 
+TensorHandle tensor_min(TensorHandle h) {
+    Tensor* t = (Tensor*)h;
+    double m = t->data[0];
+    for (int i = 1; i < t->numel; i++) if (t->data[i] < m) m = t->data[i];
+    return make_scalar(m, 0);  /* non-differentiable reduction */
+}
+
+TensorHandle tensor_max(TensorHandle h) {
+    Tensor* t = (Tensor*)h;
+    double m = t->data[0];
+    for (int i = 1; i < t->numel; i++) if (t->data[i] > m) m = t->data[i];
+    return make_scalar(m, 0);  /* non-differentiable reduction */
+}
+
 /* ================================================================
    Linear algebra
    ================================================================ */

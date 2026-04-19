@@ -185,6 +185,14 @@ TensorHandle tensor_mean(TensorHandle h) {
     return from_tensor(to_tensor(h)->mean());
 }
 
+TensorHandle tensor_min(TensorHandle h) {
+    return from_tensor(to_tensor(h)->min().detach());
+}
+
+TensorHandle tensor_max(TensorHandle h) {
+    return from_tensor(to_tensor(h)->max().detach());
+}
+
 /* ---------- Linear algebra ---------- */
 
 TensorHandle tensor_matmul(TensorHandle a, TensorHandle b) {

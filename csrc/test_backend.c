@@ -1951,6 +1951,18 @@ int main(void) {
         param_clear();
     }
 
+    /* T20: min/max reductions */
+    {
+        printf("\n--- Min/Max reductions ---\n");
+        double data[] = {3.0, -1.0, 7.0, 2.0, -5.0};
+        int ds[] = {5};
+        TensorHandle t = tensor_create(data, ds, 1, 0);
+        TensorHandle mn = tensor_min(t);
+        TensorHandle mx = tensor_max(t);
+        ASSERT_NEAR("min([3,-1,7,2,-5])", tensor_item(mn), -5.0, 1e-10);
+        ASSERT_NEAR("max([3,-1,7,2,-5])", tensor_item(mx), 7.0, 1e-10);
+    }
+
     /* Summary */
     printf("\n");
     if (failures == 0) {
