@@ -4,7 +4,6 @@
 
 | Item | Difficulty | Notes |
 |------|-----------|-------|
-| Revisit native autograd (torch/MLX) | M–L | Currently all 3 backends use a custom Wengert list (tape) for autograd. Torch and MLX have built-in autograd that could be faster, more numerically stable, and support higher-order gradients. Investigate: (1) performance gap between custom tape vs native autograd, (2) which ops benefit most, (3) whether hybrid approach is feasible (native autograd for standard ops, custom for fused NTM ops). Would require rearchitecting the backward pass in backend_mlx.cpp and backend_torch.cpp |
 | Reinforcement learning example | L–XL | Policy gradient (e.g. REINFORCE on CartPole or grid world). Requires: environment interface, episode rollout, discounted return computation, policy gradient loss (`-log_prob * reward`). May need: `Categorical` distribution sampling from logits, baseline variance reduction. Could reuse `Train.runTraining` with episodes as "epochs" |
 
 ## Medium Priority
@@ -30,6 +29,7 @@
 ## Done
 
 Architecture & infrastructure:
+- Native autograd: torch already used native autograd (2-line backward). MLX migrated from 480 lines of hand-written backward rules to replay-based native autograd via `mlx::vjp` — zero backward rules, MLX handles all gradient computation. Tape backend keeps manual tape (no framework). Adding a new op on MLX: ~2 lines (forward replay case), backward is free
 - Model serialization: SafeTensors format (`param_save`/`param_load`, `optimizer_save`/`optimizer_load`), Idris `Checkpoint` module (`saveModel`/`loadModel`), Python interop verified, optimizer state with Adam/RMSprop buffer round-trip
 - Cross-backend transfer example (`Example/Transfer.idr`): train→save→continue→save→infer across tape/MLX/torch, `make transfer-demo` orchestrates all 3 phases
 - Zero `believe_me` policy: all type conversions proven (Nat proofs, erased record proofs, decEq)
