@@ -4078,13 +4078,15 @@ double tensor_item_1d(TensorHandle h, int idx) {
 
 typedef struct {
     double lr;
-    int type; /* 0=SGD, 1=RMSprop, 2=Adam */
+    int type; /* 0=SGD, 1=RMSprop, 2=Adam, 3=AdamW */
     double alpha, eps, weight_decay, momentum;
     double beta1, beta2;
     double* v;  /* second moment (RMSprop/Adam) */
     double* m;  /* first moment (Adam) / momentum buffer (RMSprop) */
     int t;      /* step count */
     int allocated;
+    double* param_lr;      /* per-param LR overrides (NULL = use opt->lr for all) */
+    int param_lr_count;    /* number of entries in param_lr */
 } Optimizer;
 
 /* Compute total number of elements across all params (for per-element optimizer buffers) */
@@ -4145,7 +4147,27 @@ OptimizerHandle optimizer_create_adamw(double lr, double beta1, double beta2, do
 
 void optimizer_free(OptimizerHandle h) {
     Optimizer* opt = (Optimizer*)h;
-    free(opt->v); free(opt->m); free(opt);
+    free(opt->v); free(opt->m); free(opt->param_lr); free(opt);
+}
+
+void optimizer_set_param_lr(OptimizerHandle h, const char* name, double lr) {
+    Optimizer* opt = (Optimizer*)h;
+    /* Ensure param_lr array is large enough */
+    if (opt->param_lr == NULL || opt->param_lr_count < param_count_val) {
+        int new_count = param_count_val > 64 ? param_count_val : 64;
+        double* new_lr = realloc(opt->param_lr, new_count * sizeof(double));
+        /* Initialize new entries to -1 (sentinel: use base LR) */
+        for (int i = opt->param_lr_count; i < new_count; i++) new_lr[i] = -1.0;
+        opt->param_lr = new_lr;
+        opt->param_lr_count = new_count;
+    }
+    /* Find param by name and set its LR */
+    for (int i = 0; i < param_count_val; i++) {
+        if (strcmp(param_registry[i].name, name) == 0) {
+            opt->param_lr[i] = lr;
+            return;
+        }
+    }
 }
 
 void optimizer_zero_grad(OptimizerHandle h) {
@@ -4164,18 +4186,23 @@ void optimizer_step(OptimizerHandle h) {
         if (!t->grad) continue;
         int base = param_element_offset(i);
 
+        /* Per-param LR: use override if set, otherwise base LR */
+        double lr = opt->lr;
+        if (opt->param_lr && i < opt->param_lr_count && opt->param_lr[i] >= 0)
+            lr = opt->param_lr[i];
+
         for (int j = 0; j < t->numel; j++) {
             double g = t->grad[j];
             int idx = base + j;  /* per-element index into optimizer buffers */
 
             switch (opt->type) {
             case 0: /* SGD */
-                t->data[j] -= opt->lr * g;
+                t->data[j] -= lr * g;
                 break;
 
             case 1: { /* RMSprop */
                 opt->v[idx] = opt->alpha * opt->v[idx] + (1.0 - opt->alpha) * g * g;
-                double delta = opt->lr * g / (sqrt(opt->v[idx]) + opt->eps);
+                double delta = lr * g / (sqrt(opt->v[idx]) + opt->eps);
                 if (opt->momentum > 0) {
                     opt->m[idx] = opt->momentum * opt->m[idx] + delta;
                     t->data[j] -= opt->m[idx];
@@ -4190,7 +4217,7 @@ void optimizer_step(OptimizerHandle h) {
                 opt->v[idx] = opt->beta2 * opt->v[idx] + (1.0 - opt->beta2) * g * g;
                 double mhat = opt->m[idx] / (1.0 - pow(opt->beta1, opt->t));
                 double vhat = opt->v[idx] / (1.0 - pow(opt->beta2, opt->t));
-                t->data[j] -= opt->lr * mhat / (sqrt(vhat) + opt->eps);
+                t->data[j] -= lr * mhat / (sqrt(vhat) + opt->eps);
                 break;
             }
 
@@ -4199,8 +4226,8 @@ void optimizer_step(OptimizerHandle h) {
                 opt->v[idx] = opt->beta2 * opt->v[idx] + (1.0 - opt->beta2) * g * g;
                 double mhat = opt->m[idx] / (1.0 - pow(opt->beta1, opt->t));
                 double vhat = opt->v[idx] / (1.0 - pow(opt->beta2, opt->t));
-                t->data[j] -= opt->lr * mhat / (sqrt(vhat) + opt->eps);
-                t->data[j] -= opt->lr * opt->weight_decay * t->data[j];
+                t->data[j] -= lr * mhat / (sqrt(vhat) + opt->eps);
+                t->data[j] -= lr * opt->weight_decay * t->data[j];
                 break;
             }
             }

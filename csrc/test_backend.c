@@ -1951,7 +1951,35 @@ int main(void) {
         param_clear();
     }
 
-    /* T20: min/max reductions */
+    /* T20: Per-param LR overrides */
+    {
+        printf("\n--- Per-param LR ---\n");
+        param_clear();
+        /* Two params: w=5.0, b=3.0 */
+        TensorHandle w = tensor_create_scalar(5.0, 1);
+        TensorHandle b = tensor_create_scalar(3.0, 1);
+        param_register("w", w);
+        param_register("b", b);
+
+        /* Forward: loss = w + b, so dw=1, db=1 */
+        TensorHandle loss = tensor_add(w, b);
+        tensor_backward(loss);
+
+        /* Create SGD with base LR=0.1, override w's LR to 0.5 */
+        OptimizerHandle opt = optimizer_create_sgd(0.1);
+        optimizer_set_param_lr(opt, "w", 0.5);
+        optimizer_step(opt);
+
+        /* w should decrease by 0.5*1=0.5 (from 5.0 to 4.5) */
+        /* b should decrease by 0.1*1=0.1 (from 3.0 to 2.9) */
+        ASSERT_NEAR("w after per-param LR", tensor_item(w), 4.5, 1e-10);
+        ASSERT_NEAR("b after base LR", tensor_item(b), 2.9, 1e-10);
+
+        optimizer_free(opt);
+        param_clear();
+    }
+
+    /* T21: min/max reductions */
     {
         printf("\n--- Min/Max reductions ---\n");
         double data[] = {3.0, -1.0, 7.0, 2.0, -5.0};

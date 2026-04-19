@@ -1887,6 +1887,8 @@ struct Optimizer {
     int t;
     // Per-parameter buffers
     std::vector<mx::array> m_bufs, v_bufs;
+    // Per-param LR overrides (indexed by param registry position, -1 = use base)
+    std::vector<double> param_lr;
 };
 
 OptimizerHandle optimizer_create_sgd(double lr) {
@@ -1920,6 +1922,19 @@ OptimizerHandle optimizer_create_adamw(double lr, double beta1, double beta2, do
 void optimizer_free(OptimizerHandle h) { delete (Optimizer*)h; }
 void optimizer_zero_grad(OptimizerHandle h) { param_zero_all_grads(); }
 
+void optimizer_set_param_lr(OptimizerHandle h, const char* name, double lr) {
+    auto opt = (Optimizer*)h;
+    int np = (int)param_registry.size();
+    if ((int)opt->param_lr.size() < np)
+        opt->param_lr.resize(np, -1.0);
+    for (int i = 0; i < np; i++) {
+        if (strcmp(param_registry[i].name, name) == 0) {
+            opt->param_lr[i] = lr;
+            return;
+        }
+    }
+}
+
 void optimizer_step(OptimizerHandle h) {
     auto opt = (Optimizer*)h;
     opt->t++;
@@ -1942,19 +1957,21 @@ void optimizer_step(OptimizerHandle h) {
         mx::eval(t->grad);
         auto g = t->grad;
 
+        /* Per-param LR: use override if set, otherwise base LR */
+        double lr = opt->lr;
+        if (i < (int)opt->param_lr.size() && opt->param_lr[i] >= 0)
+            lr = opt->param_lr[i];
+
         switch (opt->type) {
         case 0: // SGD
-            t->data = mx::subtract(t->data, mx::multiply(mx::array(opt->lr), g));
+            t->data = mx::subtract(t->data, mx::multiply(mx::array(lr), g));
             break;
         case 1: { // RMSprop
-            // v = alpha * v + (1 - alpha) * g^2
             opt->v_bufs[i] = mx::add(mx::multiply(mx::array(opt->alpha), opt->v_bufs[i]),
                                       mx::multiply(mx::array(1.0 - opt->alpha), mx::square(g)));
-            // delta = lr * g / (sqrt(v) + eps)
-            auto delta = mx::divide(mx::multiply(mx::array(opt->lr), g),
+            auto delta = mx::divide(mx::multiply(mx::array(lr), g),
                                      mx::add(mx::sqrt(opt->v_bufs[i]), mx::array(opt->eps)));
             if (opt->momentum > 0) {
-                // m = momentum * m + delta
                 opt->m_bufs[i] = mx::add(mx::multiply(mx::array(opt->momentum), opt->m_bufs[i]), delta);
                 t->data = mx::subtract(t->data, opt->m_bufs[i]);
             } else {
@@ -1970,7 +1987,7 @@ void optimizer_step(OptimizerHandle h) {
             auto mhat = mx::divide(opt->m_bufs[i], mx::array(1.0 - std::pow(opt->beta1, opt->t)));
             auto vhat = mx::divide(opt->v_bufs[i], mx::array(1.0 - std::pow(opt->beta2, opt->t)));
             t->data = mx::subtract(t->data,
-                mx::divide(mx::multiply(mx::array(opt->lr), mhat),
+                mx::divide(mx::multiply(mx::array(lr), mhat),
                             mx::add(mx::sqrt(vhat), mx::array(opt->eps))));
             break;
         }
@@ -1982,10 +1999,10 @@ void optimizer_step(OptimizerHandle h) {
             auto mhat = mx::divide(opt->m_bufs[i], mx::array(1.0 - std::pow(opt->beta1, opt->t)));
             auto vhat = mx::divide(opt->v_bufs[i], mx::array(1.0 - std::pow(opt->beta2, opt->t)));
             t->data = mx::subtract(t->data,
-                mx::divide(mx::multiply(mx::array(opt->lr), mhat),
+                mx::divide(mx::multiply(mx::array(lr), mhat),
                             mx::add(mx::sqrt(vhat), mx::array(opt->eps))));
             t->data = mx::subtract(t->data,
-                mx::multiply(mx::array(opt->lr * opt->weight_decay), t->data));
+                mx::multiply(mx::array(lr * opt->weight_decay), t->data));
             break;
         }
         default:

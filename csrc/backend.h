@@ -316,6 +316,7 @@ OptimizerHandle optimizer_create_adamw(double lr, double beta1, double beta2, do
 void            optimizer_free(OptimizerHandle opt);
 void            optimizer_step(OptimizerHandle opt);
 void            optimizer_zero_grad(OptimizerHandle opt);
+void            optimizer_set_param_lr(OptimizerHandle opt, const char* name, double lr);
 
 /* Gradient clipping (operates on all registered params) */
 void optimizer_clip_grad_value(double max_val);

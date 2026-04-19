@@ -1138,6 +1138,16 @@ nativeAdamW lr beta1 beta2 eps wd maxNorm =
     (prim__optimizerCreateAdamW lr beta1 beta2 eps wd)
     (NormClip maxNorm)
 
+%foreign "C:optimizer_set_param_lr,libidrisml"
+prim__optimizerSetParamLR : AnyPtr -> String -> Double -> ()
+
+||| Set a per-parameter learning rate override. Parameters matching the given
+||| name will use this LR instead of the optimizer's base LR.
+||| Use LR=0 to freeze a parameter. Set LR<0 to revert to base LR.
+export
+setParamLR : NativeOptimizer -> String -> Double -> ()
+setParamLR opt name lr = prim__optimizerSetParamLR opt.handle name lr
+
 -- Fused native train step: zero_grad → backward → clip → step.
 -- All in one Scheme lambda to ensure correct evaluation order.
 -- Returns loss value (read before step, so not stale).

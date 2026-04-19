@@ -1056,6 +1056,12 @@ void optimizer_zero_grad(OptimizerHandle h) {
     static_cast<OptWrapper*>(h)->opt->zero_grad();
 }
 
+void optimizer_set_param_lr(OptimizerHandle h, const char* name, double lr) {
+    /* TODO: libtorch uses native param groups — per-param LR overrides
+       would require rebuilding groups. Not yet implemented. */
+    (void)h; (void)name; (void)lr;
+}
+
 void optimizer_clip_grad_value(double max_val) {
     auto params = collect_param_tensors();
     torch::nn::utils::clip_grad_value_(params, max_val);
