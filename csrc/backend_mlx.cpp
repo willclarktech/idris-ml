@@ -141,6 +141,9 @@ static void tape_reset() {
         else delete t;
     }
     all_tensors = std::move(survivors);
+    // Reassign pool indices to be contiguous (keeps pool vector compact)
+    next_pool_idx = 0;
+    for (auto* t : all_tensors) t->pool_idx = next_pool_idx++;
     // Free TensorPair structs
     for (auto* p : all_pairs) free(p);
     all_pairs.clear();
@@ -166,11 +169,8 @@ extern "C" {
 TensorHandle tensor_create_scalar(double value, int requires_grad) {
     // Explicit float64 — mx::array(double) defaults to float32
     auto t = new Tensor(mx::array(value, mx::float64), requires_grad != 0);
-    if (requires_grad) {
-        tape_append(OP_CONST, t, nullptr, nullptr, 0);
-    } else {
-        t->persistent = 1;  // caller manages lifetime via tensor_free
-    }
+    if (requires_grad) tape_append(OP_CONST, t, nullptr, nullptr, 0);
+    // Non-grad scalars stay non-persistent — freed by tape_reset at optimizer_step
     return (TensorHandle)t;
 }
 
@@ -180,7 +180,7 @@ TensorHandle tensor_create(double* data, int* shape, int rank, int requires_grad
     if (requires_grad) {
         tape_append(OP_CONST, t, nullptr, nullptr, 0);
     } else {
-        t->persistent = 1;  // caller manages lifetime via tensor_free
+        t->persistent = 1;  // data tensors may be reused across optimizer steps
     }
     return (TensorHandle)t;
 }
