@@ -21,7 +21,9 @@
 
 ## Medium Priority
 
-(empty)
+| Item | Difficulty | Notes |
+|------|-----------|-------|
+| Jupyter/Colab notebook examples | M–L | Existing [idris2-jupyter](https://github.com/madman-bob/idris2-jupyter) uses Python backend + REPL syntax — won't work with C FFI. Need either: custom Jupyter kernel that compiles .idr + links libidrisml, or a wrapper that shells out to idris2. Put examples in notebooks for interactive exploration on Colab |
 
 ## Low Priority
 

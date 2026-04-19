@@ -268,6 +268,10 @@ ref-convergence-copy:
 ref-convergence-recall:
 	cd pytorch && uv run python -u -m torch_ref.scripts.convergence --task recall
 
+# CUDA test (run on Colab or Linux with CUDA GPU)
+test-cuda:
+	bash scripts/test_cuda_colab.sh
+
 clean:
 	rm -f $(BUILD)/libidrisml*.dylib $(BUILD)/test_backend $(BUILD)/test_safetensors \
 	      $(BUILD)/test_ntm_grad $(BUILD)/test_ntm_timestep
