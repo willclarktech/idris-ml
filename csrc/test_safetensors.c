@@ -117,6 +117,74 @@ int main(void) {
 
     /* Clean up */
     remove(path);
+
+    /* --- Optimizer state round-trip --- */
+    printf("\n--- Optimizer state round-trip test ---\n\n");
+
+    /* Create an Adam optimizer and run a few steps to populate buffers */
+    OptimizerHandle opt = optimizer_create_adam(0.001, 0.9, 0.999, 1e-8);
+
+    /* Do a few fake training steps to populate optimizer state */
+    /* First, we need gradients. Set them manually by doing backward. */
+    /* For simplicity, just set up a simple loss and backward */
+    {
+        TensorHandle loss = tensor_dot(param_tensor(0), param_tensor(0)); /* sum of squares */
+        tensor_backward(loss);
+        optimizer_step(opt);
+
+        loss = tensor_dot(param_tensor(0), param_tensor(0));
+        tensor_backward(loss);
+        optimizer_step(opt);
+    }
+
+    /* Read back optimizer state */
+    double meta[9];
+    optimizer_get_meta(opt, meta);
+    printf("opt type=%d, lr=%g, t=%d\n", (int)meta[0], meta[1], (int)meta[8]);
+    ASSERT_NEAR("opt type", meta[0], 2.0, 1e-15);   /* Adam=2 */
+    ASSERT_NEAR("opt lr", meta[1], 0.001, 1e-15);
+    ASSERT_NEAR("opt step", meta[8], 2.0, 1e-15);    /* 2 steps */
+
+    double m_buf[6], v_buf[6];
+    optimizer_get_m(opt, 0, m_buf);
+    optimizer_get_v(opt, 0, v_buf);
+    printf("m[0]=%.10f, v[0]=%.10f\n", m_buf[0], v_buf[0]);
+    ASSERT_TRUE("m[0] != 0 (populated)", m_buf[0] != 0.0);
+    ASSERT_TRUE("v[0] != 0 (populated)", v_buf[0] != 0.0);
+
+    /* Save optimizer state */
+    const char* opt_path = "/tmp/idrisml_test.optimizer.safetensors";
+    int orc = optimizer_save(opt, opt_path);
+    ASSERT_TRUE("optimizer_save returns 0", orc == 0);
+
+    /* Create a fresh optimizer and load state */
+    OptimizerHandle opt2 = optimizer_create_adam(0.1, 0.5, 0.5, 0.1); /* different params */
+    orc = optimizer_load(opt2, opt_path);
+    ASSERT_TRUE("optimizer_load returns 0", orc == 0);
+
+    /* Verify restored meta */
+    double meta2[9];
+    optimizer_get_meta(opt2, meta2);
+    ASSERT_NEAR("restored opt type", meta2[0], 2.0, 1e-15);
+    ASSERT_NEAR("restored opt lr", meta2[1], 0.001, 1e-15);
+    ASSERT_NEAR("restored opt step", meta2[8], 2.0, 1e-15);
+
+    /* Verify restored buffers */
+    double m_buf2[6], v_buf2[6];
+    optimizer_get_m(opt2, 0, m_buf2);
+    optimizer_get_v(opt2, 0, v_buf2);
+    for (int i = 0; i < 6; i++) {
+        char msg[64];
+        snprintf(msg, sizeof(msg), "restored opt m[%d]", i);
+        ASSERT_NEAR(msg, m_buf2[i], m_buf[i], 1e-15);
+        snprintf(msg, sizeof(msg), "restored opt v[%d]", i);
+        ASSERT_NEAR(msg, v_buf2[i], v_buf[i], 1e-15);
+    }
+
+    /* Clean up */
+    remove(opt_path);
+    optimizer_free(opt);
+    optimizer_free(opt2);
     param_clear();
 
     printf("\n");

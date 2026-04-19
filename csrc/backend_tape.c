@@ -2767,6 +2767,73 @@ double optimizer_clip_grad_norm(double max_norm) {
 }
 
 /* ================================================================
+   Optimizer buffer accessors (for serialization)
+   ================================================================ */
+
+int optimizer_buf_count(OptimizerHandle h) {
+    (void)h;
+    return param_count_val;
+}
+
+void optimizer_get_m(OptimizerHandle h, int idx, double* out) {
+    Optimizer* opt = (Optimizer*)h;
+    if (!opt->allocated) { memset(out, 0, param_registry[idx].tensor->numel * sizeof(double)); return; }
+    int offset = param_element_offset(idx);
+    int numel = param_registry[idx].tensor->numel;
+    memcpy(out, opt->m + offset, numel * sizeof(double));
+}
+
+void optimizer_get_v(OptimizerHandle h, int idx, double* out) {
+    Optimizer* opt = (Optimizer*)h;
+    if (!opt->allocated) { memset(out, 0, param_registry[idx].tensor->numel * sizeof(double)); return; }
+    int offset = param_element_offset(idx);
+    int numel = param_registry[idx].tensor->numel;
+    memcpy(out, opt->v + offset, numel * sizeof(double));
+}
+
+void optimizer_set_m(OptimizerHandle h, int idx, const double* data) {
+    Optimizer* opt = (Optimizer*)h;
+    optimizer_ensure_buffers(opt);
+    int offset = param_element_offset(idx);
+    int numel = param_registry[idx].tensor->numel;
+    memcpy(opt->m + offset, data, numel * sizeof(double));
+}
+
+void optimizer_set_v(OptimizerHandle h, int idx, const double* data) {
+    Optimizer* opt = (Optimizer*)h;
+    optimizer_ensure_buffers(opt);
+    int offset = param_element_offset(idx);
+    int numel = param_registry[idx].tensor->numel;
+    memcpy(opt->v + offset, data, numel * sizeof(double));
+}
+
+void optimizer_get_meta(OptimizerHandle h, double* out9) {
+    Optimizer* opt = (Optimizer*)h;
+    out9[0] = (double)opt->type;
+    out9[1] = opt->lr;
+    out9[2] = opt->beta1;
+    out9[3] = opt->beta2;
+    out9[4] = opt->eps;
+    out9[5] = opt->alpha;
+    out9[6] = opt->weight_decay;
+    out9[7] = opt->momentum;
+    out9[8] = (double)opt->t;
+}
+
+void optimizer_set_meta(OptimizerHandle h, const double* in9) {
+    Optimizer* opt = (Optimizer*)h;
+    opt->type = (int)in9[0];
+    opt->lr = in9[1];
+    opt->beta1 = in9[2];
+    opt->beta2 = in9[3];
+    opt->eps = in9[4];
+    opt->alpha = in9[5];
+    opt->weight_decay = in9[6];
+    opt->momentum = in9[7];
+    opt->t = (int)in9[8];
+}
+
+/* ================================================================
    System
    ================================================================ */
 

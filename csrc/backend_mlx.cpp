@@ -1496,6 +1496,96 @@ double optimizer_clip_grad_norm(double max_norm) {
 }
 
 /* ================================================================
+   Optimizer buffer accessors (for serialization)
+   ================================================================ */
+
+int optimizer_buf_count(OptimizerHandle h) {
+    (void)h;
+    return (int)param_registry.size();
+}
+
+void optimizer_get_m(OptimizerHandle h, int idx, double* out) {
+    auto opt = (Optimizer*)h;
+    if (idx >= (int)opt->m_bufs.size()) {
+        int n = param_registry[idx].tensor->data.size();
+        memset(out, 0, n * sizeof(double));
+        return;
+    }
+    mx::eval(opt->m_bufs[idx]);
+    auto& arr = opt->m_bufs[idx];
+    memcpy(out, arr.data<double>(), arr.size() * sizeof(double));
+}
+
+void optimizer_get_v(OptimizerHandle h, int idx, double* out) {
+    auto opt = (Optimizer*)h;
+    if (idx >= (int)opt->v_bufs.size()) {
+        int n = param_registry[idx].tensor->data.size();
+        memset(out, 0, n * sizeof(double));
+        return;
+    }
+    mx::eval(opt->v_bufs[idx]);
+    auto& arr = opt->v_bufs[idx];
+    memcpy(out, arr.data<double>(), arr.size() * sizeof(double));
+}
+
+void optimizer_set_m(OptimizerHandle h, int idx, const double* data) {
+    auto opt = (Optimizer*)h;
+    // Ensure buffers exist
+    int np = (int)param_registry.size();
+    if ((int)opt->m_bufs.size() != np) {
+        opt->m_bufs.clear();
+        opt->v_bufs.clear();
+        for (auto& p : param_registry) {
+            opt->m_bufs.push_back(mx::zeros(p.tensor->data.shape(), mx::float64));
+            opt->v_bufs.push_back(mx::zeros(p.tensor->data.shape(), mx::float64));
+        }
+    }
+    auto shape = param_registry[idx].tensor->data.shape();
+    opt->m_bufs[idx] = mx::array(data, shape, mx::float64);
+}
+
+void optimizer_set_v(OptimizerHandle h, int idx, const double* data) {
+    auto opt = (Optimizer*)h;
+    int np = (int)param_registry.size();
+    if ((int)opt->v_bufs.size() != np) {
+        opt->m_bufs.clear();
+        opt->v_bufs.clear();
+        for (auto& p : param_registry) {
+            opt->m_bufs.push_back(mx::zeros(p.tensor->data.shape(), mx::float64));
+            opt->v_bufs.push_back(mx::zeros(p.tensor->data.shape(), mx::float64));
+        }
+    }
+    auto shape = param_registry[idx].tensor->data.shape();
+    opt->v_bufs[idx] = mx::array(data, shape, mx::float64);
+}
+
+void optimizer_get_meta(OptimizerHandle h, double* out9) {
+    auto opt = (Optimizer*)h;
+    out9[0] = (double)opt->type;
+    out9[1] = opt->lr;
+    out9[2] = opt->beta1;
+    out9[3] = opt->beta2;
+    out9[4] = opt->eps;
+    out9[5] = opt->alpha;
+    out9[6] = opt->weight_decay;
+    out9[7] = opt->momentum;
+    out9[8] = (double)opt->t;
+}
+
+void optimizer_set_meta(OptimizerHandle h, const double* in9) {
+    auto opt = (Optimizer*)h;
+    opt->type = (int)in9[0];
+    opt->lr = in9[1];
+    opt->beta1 = in9[2];
+    opt->beta2 = in9[3];
+    opt->eps = in9[4];
+    opt->alpha = in9[5];
+    opt->weight_decay = in9[6];
+    opt->momentum = in9[7];
+    opt->t = (int)in9[8];
+}
+
+/* ================================================================
    Backend capabilities
    ================================================================ */
 

@@ -702,40 +702,51 @@ static std::vector<at::Tensor> collect_param_tensors() {
     return params;
 }
 
+/* Wrapper to track optimizer type alongside PyTorch optimizer */
+struct OptWrapper {
+    int type; // 0=sgd, 1=rmsprop, 2=adam
+    double lr, beta1, beta2, eps, alpha, weight_decay, momentum;
+    torch::optim::Optimizer* opt;
+};
+
 OptimizerHandle optimizer_create_sgd(double lr) {
     auto params = collect_param_tensors();
-    auto opts = torch::optim::SGDOptions(lr);
-    auto* opt = new torch::optim::SGD(params, opts);
-    return static_cast<OptimizerHandle>(opt);
+    auto* w = new OptWrapper();
+    w->type = 0; w->lr = lr;
+    w->opt = new torch::optim::SGD(params, torch::optim::SGDOptions(lr));
+    return static_cast<OptimizerHandle>(w);
 }
 
 OptimizerHandle optimizer_create_rmsprop(double lr, double alpha, double eps,
                                           double weight_decay, double momentum) {
     auto params = collect_param_tensors();
-    auto opts = torch::optim::RMSpropOptions(lr)
-        .alpha(alpha)
-        .eps(eps)
-        .weight_decay(weight_decay)
-        .momentum(momentum);
-    auto* opt = new torch::optim::RMSprop(params, opts);
-    return static_cast<OptimizerHandle>(opt);
+    auto* w = new OptWrapper();
+    w->type = 1; w->lr = lr; w->alpha = alpha; w->eps = eps;
+    w->weight_decay = weight_decay; w->momentum = momentum;
+    w->opt = new torch::optim::RMSprop(params,
+        torch::optim::RMSpropOptions(lr).alpha(alpha).eps(eps)
+            .weight_decay(weight_decay).momentum(momentum));
+    return static_cast<OptimizerHandle>(w);
 }
 
 OptimizerHandle optimizer_create_adam(double lr, double beta1, double beta2, double eps) {
     auto params = collect_param_tensors();
-    auto opts = torch::optim::AdamOptions(lr)
-        .betas(std::make_tuple(beta1, beta2))
-        .eps(eps);
-    auto* opt = new torch::optim::Adam(params, opts);
-    return static_cast<OptimizerHandle>(opt);
+    auto* w = new OptWrapper();
+    w->type = 2; w->lr = lr; w->beta1 = beta1; w->beta2 = beta2; w->eps = eps;
+    w->opt = new torch::optim::Adam(params,
+        torch::optim::AdamOptions(lr).betas(std::make_tuple(beta1, beta2)).eps(eps));
+    return static_cast<OptimizerHandle>(w);
 }
 
 void optimizer_free(OptimizerHandle h) {
-    delete static_cast<torch::optim::Optimizer*>(h);
+    auto* w = static_cast<OptWrapper*>(h);
+    delete w->opt;
+    delete w;
 }
 
 void optimizer_step(OptimizerHandle h) {
-    auto* opt = static_cast<torch::optim::Optimizer*>(h);
+    auto* w = static_cast<OptWrapper*>(h);
+    auto* opt = w->opt;
     /* Re-sync param list from registry (handles late registration via autoName) */
     auto& param_groups = opt->param_groups();
     if (!param_groups.empty()) {
@@ -752,7 +763,7 @@ void optimizer_step(OptimizerHandle h) {
 }
 
 void optimizer_zero_grad(OptimizerHandle h) {
-    static_cast<torch::optim::Optimizer*>(h)->zero_grad();
+    static_cast<OptWrapper*>(h)->opt->zero_grad();
 }
 
 void optimizer_clip_grad_value(double max_val) {
@@ -764,6 +775,158 @@ double optimizer_clip_grad_norm(double max_norm) {
     auto params = collect_param_tensors();
     auto norm = torch::nn::utils::clip_grad_norm_(params, max_norm);
     return norm;
+}
+
+/* ================================================================
+   Optimizer buffer accessors (for serialization)
+   ================================================================ */
+
+/* Helper: get the i-th param tensor's data key for state lookup */
+static void* param_state_key(torch::optim::Optimizer* opt, int idx) {
+    auto& params = opt->param_groups()[0].params();
+    if (idx >= (int)params.size()) return nullptr;
+    return params[idx].unsafeGetTensorImpl();
+}
+
+int optimizer_buf_count(OptimizerHandle h) {
+    (void)h;
+    return (int)param_registry.size();
+}
+
+void optimizer_get_m(OptimizerHandle h, int idx, double* out) {
+    auto* w = static_cast<OptWrapper*>(h);
+    int numel = (int)param_registry[idx].tensor->numel();
+    auto key = param_state_key(w->opt, idx);
+    if (!key || w->opt->state().count(key) == 0) {
+        memset(out, 0, numel * sizeof(double));
+        return;
+    }
+    auto& state = *w->opt->state().at(key);
+    at::Tensor buf;
+    if (w->type == 2) { /* Adam */
+        buf = static_cast<torch::optim::AdamParamState&>(state).exp_avg();
+    } else if (w->type == 1) { /* RMSprop */
+        auto& rms = static_cast<torch::optim::RMSpropParamState&>(state);
+        buf = rms.momentum_buffer().defined() ? rms.momentum_buffer() : at::zeros_like(*param_registry[idx].tensor);
+    } else {
+        memset(out, 0, numel * sizeof(double));
+        return;
+    }
+    buf = buf.contiguous().to(torch::kFloat64);
+    memcpy(out, buf.data_ptr<double>(), numel * sizeof(double));
+}
+
+void optimizer_get_v(OptimizerHandle h, int idx, double* out) {
+    auto* w = static_cast<OptWrapper*>(h);
+    int numel = (int)param_registry[idx].tensor->numel();
+    auto key = param_state_key(w->opt, idx);
+    if (!key || w->opt->state().count(key) == 0) {
+        memset(out, 0, numel * sizeof(double));
+        return;
+    }
+    auto& state = *w->opt->state().at(key);
+    at::Tensor buf;
+    if (w->type == 2) { /* Adam */
+        buf = static_cast<torch::optim::AdamParamState&>(state).exp_avg_sq();
+    } else if (w->type == 1) { /* RMSprop */
+        buf = static_cast<torch::optim::RMSpropParamState&>(state).square_avg();
+    } else {
+        memset(out, 0, numel * sizeof(double));
+        return;
+    }
+    buf = buf.contiguous().to(torch::kFloat64);
+    memcpy(out, buf.data_ptr<double>(), numel * sizeof(double));
+}
+
+void optimizer_set_m(OptimizerHandle h, int idx, const double* data) {
+    auto* w = static_cast<OptWrapper*>(h);
+    int numel = (int)param_registry[idx].tensor->numel();
+    auto key = param_state_key(w->opt, idx);
+    if (!key) return;
+    auto tensor = torch::from_blob((void*)data, {(int64_t)numel}, torch::kFloat64).clone();
+    tensor = tensor.reshape(param_registry[idx].tensor->sizes());
+    /* Ensure state entry exists */
+    if (w->opt->state().count(key) == 0) {
+        if (w->type == 2) w->opt->state()[key] = std::make_unique<torch::optim::AdamParamState>();
+        else if (w->type == 1) w->opt->state()[key] = std::make_unique<torch::optim::RMSpropParamState>();
+        else return;
+    }
+    auto& state = *w->opt->state().at(key);
+    if (w->type == 2) {
+        static_cast<torch::optim::AdamParamState&>(state).exp_avg(tensor);
+    } else if (w->type == 1) {
+        static_cast<torch::optim::RMSpropParamState&>(state).momentum_buffer(tensor);
+    }
+}
+
+void optimizer_set_v(OptimizerHandle h, int idx, const double* data) {
+    auto* w = static_cast<OptWrapper*>(h);
+    int numel = (int)param_registry[idx].tensor->numel();
+    auto key = param_state_key(w->opt, idx);
+    if (!key) return;
+    auto tensor = torch::from_blob((void*)data, {(int64_t)numel}, torch::kFloat64).clone();
+    tensor = tensor.reshape(param_registry[idx].tensor->sizes());
+    if (w->opt->state().count(key) == 0) {
+        if (w->type == 2) w->opt->state()[key] = std::make_unique<torch::optim::AdamParamState>();
+        else if (w->type == 1) w->opt->state()[key] = std::make_unique<torch::optim::RMSpropParamState>();
+        else return;
+    }
+    auto& state = *w->opt->state().at(key);
+    if (w->type == 2) {
+        static_cast<torch::optim::AdamParamState&>(state).exp_avg_sq(tensor);
+    } else if (w->type == 1) {
+        static_cast<torch::optim::RMSpropParamState&>(state).square_avg(tensor);
+    }
+}
+
+void optimizer_get_meta(OptimizerHandle h, double* out9) {
+    auto* w = static_cast<OptWrapper*>(h);
+    out9[0] = (double)w->type;
+    out9[1] = w->lr;
+    out9[2] = w->beta1;
+    out9[3] = w->beta2;
+    out9[4] = w->eps;
+    out9[5] = w->alpha;
+    out9[6] = w->weight_decay;
+    out9[7] = w->momentum;
+    /* Get step count from first param's state if available */
+    int64_t step = 0;
+    if (!w->opt->param_groups().empty()) {
+        auto& params = w->opt->param_groups()[0].params();
+        if (!params.empty()) {
+            auto key = params[0].unsafeGetTensorImpl();
+            if (w->opt->state().count(key)) {
+                auto& state = *w->opt->state().at(key);
+                if (w->type == 2) step = static_cast<torch::optim::AdamParamState&>(state).step();
+                else if (w->type == 1) step = static_cast<torch::optim::RMSpropParamState&>(state).step();
+            }
+        }
+    }
+    out9[8] = (double)step;
+}
+
+void optimizer_set_meta(OptimizerHandle h, const double* in9) {
+    auto* w = static_cast<OptWrapper*>(h);
+    w->type = (int)in9[0];
+    w->lr = in9[1];
+    w->beta1 = in9[2];
+    w->beta2 = in9[3];
+    w->eps = in9[4];
+    w->alpha = in9[5];
+    w->weight_decay = in9[6];
+    w->momentum = in9[7];
+    /* Step count: set on all param states */
+    int64_t step = (int64_t)in9[8];
+    if (!w->opt->param_groups().empty()) {
+        for (auto& p : w->opt->param_groups()[0].params()) {
+            auto key = p.unsafeGetTensorImpl();
+            if (w->opt->state().count(key)) {
+                auto& state = *w->opt->state().at(key);
+                if (w->type == 2) static_cast<torch::optim::AdamParamState&>(state).step(step);
+                else if (w->type == 1) static_cast<torch::optim::RMSpropParamState&>(state).step(step);
+            }
+        }
+    }
 }
 
 void tensor_lstm_gates(
