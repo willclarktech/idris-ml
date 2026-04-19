@@ -331,6 +331,12 @@ void optimizer_set_meta(OptimizerHandle opt, const double* in9);
 /* Create a [d0, d1, d2, d3] tensor filled with given data, requires_grad=true */
 TensorHandle tensor_create_param_4d(int d0, int d1, int d2, int d3, double* data);
 
+/* ---------- Embedding ---------- */
+
+/* Embedding lookup: weight [vocabSize, embedDim], indices [n] (double-valued ints).
+   Returns [n * embedDim] (flat). Backward: scatter_add grads to weight rows. */
+TensorHandle tensor_embedding(TensorHandle weight, TensorHandle indices, int n, int embedDim);
+
 /* ---------- Gather / Scatter ---------- */
 
 /* Gather: out[i] = input[index[i]] along dim 0 (1D index into 1D input) */

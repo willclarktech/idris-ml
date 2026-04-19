@@ -14,3 +14,4 @@ import public Layer.Ntm
 import public Layer.Conv
 import public Layer.BatchNorm
 import public Layer.Dropout
+import public Layer.Embedding

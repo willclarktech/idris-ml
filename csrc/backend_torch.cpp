@@ -273,6 +273,14 @@ TensorHandle tensor_dropout(TensorHandle hinput, double p, int training, unsigne
     return from_tensor(out);
 }
 
+TensorHandle tensor_embedding(TensorHandle hweight, TensorHandle hindices, int n, int embedDim) {
+    auto& weight = *to_tensor(hweight);  /* [vocabSize, embedDim] */
+    auto& indices = *to_tensor(hindices);
+    auto idx_long = indices.to(torch::kLong);
+    auto out = torch::embedding(weight, idx_long);  /* [n, embedDim] */
+    return from_tensor(out.reshape({-1}));  /* flatten to [n * embedDim] */
+}
+
 TensorHandle tensor_gather(TensorHandle hinput, TensorHandle hindex, int n) {
     auto& inp = *to_tensor(hinput);
     auto& idx = *to_tensor(hindex);

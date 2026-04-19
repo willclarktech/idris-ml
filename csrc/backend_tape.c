@@ -169,6 +169,7 @@ enum {
     OP_BMM_3X3,       /* batched matmul: [B,m,n] x [B,n,k] -> [B,m,k] */
     OP_SOFTMAX_3D,    /* row-wise softmax on [B,m,n] along last dim */
     OP_TRANSPOSE_LAST2, /* [B,m,n] -> [B,n,m] */
+    OP_EMBEDDING,     /* row gather from weight matrix */
     OP_BATCH_NORM,    /* per-channel normalization */
     OP_DROPOUT,       /* inverted dropout with stored mask */
     OP_CONV1D,        /* [inC,L] * [outC,inC,kL] + [outC] -> [outC,oL] */
@@ -237,6 +238,11 @@ typedef struct {
     double* rstd;      /* reciprocal std devs [m] */
     int m, n;
 } LayerNormMeta;
+
+typedef struct {
+    int n, embedDim;
+    int* indices;  /* [n] integer indices, heap-allocated */
+} EmbeddingMeta;
 
 typedef struct {
     Tensor* gamma;
@@ -315,6 +321,12 @@ static void tape_reset(void) {
             free(meta->rstd);
             meta->x_hat = NULL;
             meta->rstd = NULL;
+        }
+        /* Free OP_EMBEDDING indices */
+        if (tape[i].op == OP_EMBEDDING && tape[i].op_meta) {
+            EmbeddingMeta* meta = (EmbeddingMeta*)tape[i].op_meta;
+            free(meta->indices);
+            meta->indices = NULL;
         }
         /* Free OP_BATCH_NORM arrays */
         if (tape[i].op == OP_BATCH_NORM && tape[i].op_meta) {
@@ -1168,6 +1180,42 @@ TensorHandle tensor_conv1d_circular(TensorHandle hinput, TensorHandle hkernel) {
     Tensor* r = make_tensor(out, shape, 1, input->requires_grad || kernel->requires_grad);
     free(out);
     if (r->requires_grad) tape_append(OP_CONV1D_CIRC, r, input, kernel, 0);
+    return r;
+}
+
+/* ================================================================
+   Embedding: row gather from weight matrix
+   weight [vocabSize, embedDim], indices [n] -> output [n * embedDim]
+   ================================================================ */
+
+TensorHandle tensor_embedding(TensorHandle hweight, TensorHandle hindices, int n, int embedDim) {
+    Tensor* weight = (Tensor*)hweight;
+    Tensor* indices = (Tensor*)hindices;
+    int out_numel = n * embedDim;
+
+    double* out = calloc(out_numel, sizeof(double));
+    int* idx_copy = malloc(n * sizeof(int));
+
+    for (int i = 0; i < n; i++) {
+        int idx = (int)indices->data[i];
+        idx_copy[i] = idx;
+        memcpy(out + i * embedDim, weight->data + idx * embedDim, embedDim * sizeof(double));
+    }
+
+    int out_shape[] = {out_numel};
+    Tensor* r = make_tensor(out, out_shape, 1, weight->requires_grad);
+    free(out);
+
+    if (r->requires_grad) {
+        int tape_idx = tape_append(OP_EMBEDDING, r, weight, NULL, 0);
+        EmbeddingMeta* meta = arena_alloc(sizeof(EmbeddingMeta));
+        meta->n = n;
+        meta->embedDim = embedDim;
+        meta->indices = idx_copy;
+        tape[tape_idx].op_meta = meta;
+    } else {
+        free(idx_copy);
+    }
     return r;
 }
 
@@ -2752,6 +2800,21 @@ void tensor_backward(TensorHandle h) {
                             s += r->grad[ii * ww + jj] * b->data[ii];
                         m->add_vector->grad[jj] += s;
                     }
+                }
+            }
+            break;
+        }
+
+        case OP_EMBEDDING: {
+            /* Scatter grad rows back to weight matrix */
+            EmbeddingMeta* meta = (EmbeddingMeta*)e->op_meta;
+            ensure_grad(r);
+            if (a && a->requires_grad) {
+                ensure_grad(a);
+                for (int i = 0; i < meta->n; i++) {
+                    int idx = meta->indices[i];
+                    for (int j = 0; j < meta->embedDim; j++)
+                        a->grad[idx * meta->embedDim + j] += r->grad[i * meta->embedDim + j];
                 }
             }
             break;

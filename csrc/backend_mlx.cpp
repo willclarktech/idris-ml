@@ -85,6 +85,7 @@ enum {
     OP_BMM_3X3,
     OP_SOFTMAX_3D,
     OP_TRANSPOSE_LAST2,
+    OP_EMBEDDING,
     OP_BATCH_NORM,
     OP_DROPOUT,
     OP_CONV1D,
@@ -614,6 +615,23 @@ TensorHandle tensor_dropout(TensorHandle hinput, double p, int training, unsigne
         auto mask_t = new Tensor(mask, false);
         mask_t->persistent = 1;  // survives tape_reset
         int idx = tape_append(OP_DROPOUT, r, inp, mask_t, 0);
+    }
+    return (TensorHandle)r;
+}
+
+TensorHandle tensor_embedding(TensorHandle hweight, TensorHandle hindices, int n, int embedDim) {
+    auto weight = (Tensor*)hweight;
+    auto indices = (Tensor*)hindices;
+    auto idx_int = mx::astype(indices->data, mx::int32);
+    auto rows = mx::take(weight->data, idx_int, 0);  /* [n, embedDim] */
+    auto result = mx::flatten(rows);  /* [n * embedDim] */
+
+    auto r = new Tensor(result, weight->requires_grad);
+    if (weight->requires_grad) {
+        // For replay: store indices as arg2 so vjp can differentiate through take
+        auto idx_t = new Tensor(idx_int, false);
+        idx_t->persistent = 1;
+        tape_append(OP_EMBEDDING, r, weight, idx_t, (double)embedDim);
     }
     return (TensorHandle)r;
 }
@@ -1161,6 +1179,13 @@ void tensor_backward(TensorHandle h) {
                 auto rstd = mx::rsqrt(mx::add(var, mx::array(meta->eps)));
                 auto x_hat = mx::multiply(centered, rstd);
                 pool[out] = mx::add(mx::multiply(gamma, x_hat), bias);
+                break;
+            }
+            case OP_EMBEDDING: {
+                // a = weight, b = indices (int32), scalar_arg = embedDim
+                auto idx_int = mx::astype(b, mx::int32);
+                auto rows = mx::take(a, idx_int, 0);
+                pool[out] = mx::flatten(rows);
                 break;
             }
             case OP_BATCH_NORM: {
