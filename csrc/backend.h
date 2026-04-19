@@ -271,6 +271,8 @@ OptimizerHandle optimizer_create_sgd(double lr);
 OptimizerHandle optimizer_create_rmsprop(double lr, double alpha, double eps,
                                           double weight_decay, double momentum);
 OptimizerHandle optimizer_create_adam(double lr, double beta1, double beta2, double eps);
+OptimizerHandle optimizer_create_adamw(double lr, double beta1, double beta2, double eps,
+                                       double weight_decay);
 void            optimizer_free(OptimizerHandle opt);
 void            optimizer_step(OptimizerHandle opt);
 void            optimizer_zero_grad(OptimizerHandle opt);

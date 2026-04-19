@@ -1066,6 +1066,18 @@ nativeAdamGlobalClip lr beta1 beta2 eps maxNorm =
     (prim__optimizerCreateAdam lr beta1 beta2 eps)
     (NormClip maxNorm)
 
+%foreign "C:optimizer_create_adamw,libidrisml"
+prim__optimizerCreateAdamW : Double -> Double -> Double -> Double -> Double -> AnyPtr
+
+||| Create a native AdamW optimizer (decoupled weight decay) with global norm clipping.
+export
+nativeAdamW : (lr : Double) -> (beta1 : Double) -> (beta2 : Double) ->
+              (eps : Double) -> (weightDecay : Double) -> (maxNorm : Double) -> NativeOptimizer
+nativeAdamW lr beta1 beta2 eps wd maxNorm =
+  MkNativeOptimizer
+    (prim__optimizerCreateAdamW lr beta1 beta2 eps wd)
+    (NormClip maxNorm)
+
 -- Fused native train step: zero_grad → backward → clip → step.
 -- All in one Scheme lambda to ensure correct evaluation order.
 -- Returns loss value (read before step, so not stale).

@@ -3555,6 +3555,15 @@ OptimizerHandle optimizer_create_adam(double lr, double beta1, double beta2, dou
     return opt;
 }
 
+OptimizerHandle optimizer_create_adamw(double lr, double beta1, double beta2, double eps,
+                                       double weight_decay) {
+    Optimizer* opt = calloc(1, sizeof(Optimizer));
+    opt->lr = lr; opt->type = 3;
+    opt->beta1 = beta1; opt->beta2 = beta2; opt->eps = eps;
+    opt->weight_decay = weight_decay;
+    return opt;
+}
+
 void optimizer_free(OptimizerHandle h) {
     Optimizer* opt = (Optimizer*)h;
     free(opt->v); free(opt->m); free(opt);
@@ -3603,6 +3612,16 @@ void optimizer_step(OptimizerHandle h) {
                 double mhat = opt->m[idx] / (1.0 - pow(opt->beta1, opt->t));
                 double vhat = opt->v[idx] / (1.0 - pow(opt->beta2, opt->t));
                 t->data[j] -= opt->lr * mhat / (sqrt(vhat) + opt->eps);
+                break;
+            }
+
+            case 3: { /* AdamW (decoupled weight decay) */
+                opt->m[idx] = opt->beta1 * opt->m[idx] + (1.0 - opt->beta1) * g;
+                opt->v[idx] = opt->beta2 * opt->v[idx] + (1.0 - opt->beta2) * g * g;
+                double mhat = opt->m[idx] / (1.0 - pow(opt->beta1, opt->t));
+                double vhat = opt->v[idx] / (1.0 - pow(opt->beta2, opt->t));
+                t->data[j] -= opt->lr * mhat / (sqrt(vhat) + opt->eps);
+                t->data[j] -= opt->lr * opt->weight_decay * t->data[j];
                 break;
             }
             }

@@ -890,6 +890,17 @@ OptimizerHandle optimizer_create_adam(double lr, double beta1, double beta2, dou
     return static_cast<OptimizerHandle>(w);
 }
 
+OptimizerHandle optimizer_create_adamw(double lr, double beta1, double beta2, double eps,
+                                       double weight_decay) {
+    auto params = collect_param_tensors();
+    auto* w = new OptWrapper();
+    w->type = 3; w->lr = lr; w->beta1 = beta1; w->beta2 = beta2; w->eps = eps;
+    w->opt = new torch::optim::AdamW(params,
+        torch::optim::AdamWOptions(lr).betas(std::make_tuple(beta1, beta2))
+                                      .eps(eps).weight_decay(weight_decay));
+    return static_cast<OptimizerHandle>(w);
+}
+
 void optimizer_free(OptimizerHandle h) {
     auto* w = static_cast<OptWrapper*>(h);
     delete w->opt;

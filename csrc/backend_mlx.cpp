@@ -1612,6 +1612,14 @@ OptimizerHandle optimizer_create_adam(double lr, double beta1, double beta2, dou
     return (OptimizerHandle)opt;
 }
 
+OptimizerHandle optimizer_create_adamw(double lr, double beta1, double beta2, double eps,
+                                       double weight_decay) {
+    auto opt = new Optimizer();
+    opt->type = 3; opt->lr = lr; opt->beta1 = beta1; opt->beta2 = beta2;
+    opt->eps = eps; opt->weight_decay = weight_decay; opt->t = 0;
+    return (OptimizerHandle)opt;
+}
+
 void optimizer_free(OptimizerHandle h) { delete (Optimizer*)h; }
 void optimizer_zero_grad(OptimizerHandle h) { param_zero_all_grads(); }
 
@@ -1667,6 +1675,20 @@ void optimizer_step(OptimizerHandle h) {
             t->data = mx::subtract(t->data,
                 mx::divide(mx::multiply(mx::array(opt->lr), mhat),
                             mx::add(mx::sqrt(vhat), mx::array(opt->eps))));
+            break;
+        }
+        case 3: { // AdamW (decoupled weight decay)
+            opt->m_bufs[i] = mx::add(mx::multiply(mx::array(opt->beta1), opt->m_bufs[i]),
+                                      mx::multiply(mx::array(1.0 - opt->beta1), g));
+            opt->v_bufs[i] = mx::add(mx::multiply(mx::array(opt->beta2), opt->v_bufs[i]),
+                                      mx::multiply(mx::array(1.0 - opt->beta2), mx::square(g)));
+            auto mhat = mx::divide(opt->m_bufs[i], mx::array(1.0 - std::pow(opt->beta1, opt->t)));
+            auto vhat = mx::divide(opt->v_bufs[i], mx::array(1.0 - std::pow(opt->beta2, opt->t)));
+            t->data = mx::subtract(t->data,
+                mx::divide(mx::multiply(mx::array(opt->lr), mhat),
+                            mx::add(mx::sqrt(vhat), mx::array(opt->eps))));
+            t->data = mx::subtract(t->data,
+                mx::multiply(mx::array(opt->lr * opt->weight_decay), t->data));
             break;
         }
         default:
