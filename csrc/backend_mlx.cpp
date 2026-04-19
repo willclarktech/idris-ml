@@ -1210,6 +1210,18 @@ void param_subtract_delta(int idx, double delta) {
     t->data = mx::subtract(t->data, mx::array(delta));
 }
 
+void param_load_data(int idx, const double* data, int numel) {
+    auto t = param_registry[idx].tensor;
+    auto shape = t->data.shape();
+    int existing = t->data.size();
+    if (existing != numel) {
+        fprintf(stderr, "param_load_data: size mismatch for '%s': expected %d, got %d\n",
+                param_registry[idx].name.c_str(), existing, numel);
+        return;
+    }
+    t->data = mx::array(data, shape, mx::float64);
+}
+
 TensorHandle tensor_subtract_scalar_inplace(TensorHandle h, double val) {
     auto t = (Tensor*)h;
     t->data = mx::subtract(t->data, mx::array(val));

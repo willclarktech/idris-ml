@@ -64,13 +64,22 @@ endif
 # Switching backends = updating a symlink (instant, no recompile).
 BACKEND_LIB := $(BUILD)/libidrisml_$(BACKEND).dylib
 
-$(BACKEND_LIB): $(BACKEND_SRC) csrc/backend.h | $(BUILD)
+# Shared C sources (backend-agnostic: serialization, JSON)
+SHARED_OBJ := $(BUILD)/safetensors.o $(BUILD)/cJSON.o
+
+$(BUILD)/safetensors.o: csrc/safetensors.c csrc/backend.h csrc/cJSON.h | $(BUILD)
+	cc -O2 -c -o $@ $<
+
+$(BUILD)/cJSON.o: csrc/cJSON.c csrc/cJSON.h | $(BUILD)
+	cc -O2 -c -o $@ $<
+
+$(BACKEND_LIB): $(BACKEND_SRC) csrc/backend.h $(SHARED_OBJ) | $(BUILD)
 ifeq ($(BACKEND), torch)
   ifndef LIBTORCH_PATH
 	$(error libtorch not found. Set LIBTORCH_PATH, install via pkg-config, or run: cd pytorch && uv sync)
   endif
 endif
-	$(BACKEND_CC) $(BACKEND_FLAGS) -o $@ $<
+	$(BACKEND_CC) $(BACKEND_FLAGS) -o $@ $< $(SHARED_OBJ)
 
 # Always update symlink to point to the active backend
 backend: $(BACKEND_LIB)

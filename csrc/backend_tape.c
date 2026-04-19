@@ -2361,6 +2361,16 @@ void param_subtract_delta(int idx, double delta) {
     t->data[0] -= delta;
 }
 
+void param_load_data(int idx, const double* data, int numel) {
+    Tensor* t = param_registry[idx].tensor;
+    if (t->numel != numel) {
+        fprintf(stderr, "param_load_data: size mismatch for '%s': expected %d, got %d\n",
+                param_registry[idx].name, t->numel, numel);
+        return;
+    }
+    memcpy(t->data, data, numel * sizeof(double));
+}
+
 TensorHandle tensor_subtract_scalar_inplace(TensorHandle h, double val) {
     Tensor* t = (Tensor*)h;
     for (int i = 0; i < t->numel; i++) t->data[i] -= val;

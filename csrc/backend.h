@@ -252,6 +252,33 @@ void backend_profile_report(void);
 
 const char* backend_name(void);
 
+/* ---------- Serialization (SafeTensors) ---------- */
+
+/* Save all registered params to a .safetensors file. Returns 0 on success. */
+int param_save(const char* path);
+
+/* Load params from a .safetensors file into the existing param registry.
+   Matches by name. Skips tensors not in registry. Returns 0 on success. */
+int param_load(const char* path);
+
+/* Overwrite param tensor data in-place from a double buffer (per-backend). */
+void param_load_data(int idx, const double* data, int numel);
+
+/* Save optimizer state to a .safetensors file. Returns 0 on success. */
+int optimizer_save(OptimizerHandle opt, const char* path);
+
+/* Load optimizer state from a .safetensors file. Returns 0 on success. */
+int optimizer_load(OptimizerHandle opt, const char* path);
+
+/* Optimizer buffer accessors (per-backend, for serialization) */
+int  optimizer_buf_count(OptimizerHandle opt);
+void optimizer_get_m(OptimizerHandle opt, int idx, double* out);
+void optimizer_get_v(OptimizerHandle opt, int idx, double* out);
+void optimizer_set_m(OptimizerHandle opt, int idx, const double* data);
+void optimizer_set_v(OptimizerHandle opt, int idx, const double* data);
+void optimizer_get_meta(OptimizerHandle opt, double* out9);
+void optimizer_set_meta(OptimizerHandle opt, const double* in9);
+
 /* ---------- Debug ---------- */
 
 void tensor_print(TensorHandle t);

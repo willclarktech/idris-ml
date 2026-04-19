@@ -491,6 +491,18 @@ void param_subtract_delta(int idx, double delta) {
     entry.tensor->sub_(delta);
 }
 
+void param_load_data(int idx, const double* data, int numel) {
+    torch::NoGradGuard no_grad;
+    auto& entry = param_registry[idx];
+    int existing = entry.tensor->numel();
+    if (existing != numel) {
+        fprintf(stderr, "param_load_data: size mismatch for '%s': expected %d, got %d\n",
+                entry.name.c_str(), existing, numel);
+        return;
+    }
+    memcpy(entry.tensor->data_ptr<double>(), data, numel * sizeof(double));
+}
+
 TensorHandle tensor_subtract_scalar_inplace(TensorHandle h, double val) {
     torch::NoGradGuard no_grad;
     to_tensor(h)->sub_(val);

@@ -5,6 +5,7 @@ sourcedir = "src"
 depends = contrib
 
 modules = Backprop
+        , Checkpoint
         , Curriculum
         , DataPoint
         , Debug
