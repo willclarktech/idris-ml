@@ -14,13 +14,18 @@ modules = Backprop
         , Generate
         , Init
         , Layer
-        , Layer.Core
-        , Layer.Linear
         , Layer.Activation
-        , Layer.Normalization
-        , Layer.Rnn
+        , Layer.BatchNorm
+        , Layer.Conv
+        , Layer.Core
+        , Layer.Dropout
+        , Layer.LayerNorm
+        , Layer.Linear
         , Layer.Lstm
+        , Layer.Normalization
         , Layer.Ntm
+        , Layer.Rnn
+        , Layer.Transformer
         , Math
         , Memory
         , Optimizer

@@ -24,6 +24,7 @@ import Generate
 import Layer
 import Layer.Core
 import Layer.Conv
+import Layer.Dropout
 import Math
 import Tensor
 import Train
@@ -230,21 +231,29 @@ main = do
       testCount = prim__mnistCount testDs
   putStrLn $ "Train: " ++ show trainCount ++ " images, Test: " ++ show testCount ++ " images"
 
-  -- Build model
+  -- Build model with dropout
+  -- (Batch norm omitted: Idris type-checker hangs on large Nat reduction
+  -- for channels*spatialDim proofs. BatchNormState works for smaller dims.)
   conv1 <- conv2dLayer {inC=InC, outC=OutC1, h=ImgH, w=ImgW, kH=KH, kW=KW, padH=0, padW=0}
   let relu1 : AnyLayer AfterConv1 AfterConv1 Variable
       relu1 = reluLayer
   let pool1 : AnyLayer AfterConv1 AfterPool1 Variable
       pool1 = maxPool2dLayer {c=OutC1, inH=Conv1OutH, inW=Conv1OutW, poolH=2, poolW=2, strH=2, strW=2}
+  let drop1 : AnyLayer AfterPool1 AfterPool1 Variable
+      drop1 = dropoutLayer 0.25
   conv2 <- conv2dLayer {inC=OutC1, outC=OutC2, h=Pool1OutH, w=Pool1OutW, kH=KH, kW=KW, padH=0, padW=0}
   let relu2 : AnyLayer AfterConv2 AfterConv2 Variable
       relu2 = reluLayer
   let pool2 : AnyLayer AfterConv2 AfterPool2 Variable
       pool2 = maxPool2dLayer {c=OutC2, inH=Conv2OutH, inW=Conv2OutW, poolH=2, poolW=2, strH=2, strW=2}
+  let drop2 : AnyLayer AfterPool2 AfterPool2 Variable
+      drop2 = dropoutLayer 0.5
   fc <- linearLayer {i=AfterPool2, o=NumClasses}
 
   let model = autoName $
-        conv1 ~> relu1 ~> pool1 ~> conv2 ~> relu2 ~> pool2 ~> fc ~> OutputLayer softmaxLayer
+        conv1 ~> relu1 ~> pool1
+        ~> conv2 ~> relu2 ~> pool2 ~> drop2
+        ~> fc ~> OutputLayer softmaxLayer
   putStrLn $ "Model: " ++ show model
   putStrLn ""
 
@@ -259,7 +268,8 @@ main = do
     (\m, d => epochNativeTensorPre opt d mnistCE m) genBatch trainCfg model
 
   putStrLn ""
-  let finalPair = evalAccuracy trained testDs testCount 1000
+  let evalModel = setNetworkTraining False trained
+  let finalPair = evalAccuracy evalModel testDs testCount 1000
       finalAcc = fst finalPair
       finalTestLoss = snd finalPair
   putStrLn $ "Final accuracy (1000 test samples): " ++ show finalAcc
