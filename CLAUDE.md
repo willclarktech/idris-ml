@@ -285,6 +285,14 @@ See [`docs/gotchas.md`](docs/gotchas.md) for detailed explanations of each entry
 - **Non-contiguous views**: `mx::transpose` returns a view with swapped strides. `data<double>()` pointer arithmetic assumes contiguous layout — use `mx::flatten` first or MLX indexing
 - **`tensor_free` must check `all_tensors` membership**: after `tape_reset` deletes a tensor, a subsequent `tensor_free` on the same pointer is a double-free. Skip if not in `all_tensors`
 
+### MLX replay autograd
+
+The MLX backend uses **replay-based native autograd** via `mlx::vjp`. Forward ops record to a tape. `tensor_backward` replays the tape inside a closure and passes it to `mlx::vjp` — zero hand-written backward rules. Key performance constraints:
+
+- **Constant pool from tape, not all_tensors**: backward must build the replay pool by scanning tape entries, not iterating `all_tensors`. Scanning `all_tensors` causes O(N²) degradation as persistent tensors accumulate
+- **Non-grad tensors must be non-persistent**: `tensor_create_scalar`/`tensor_create` with `requires_grad=0` must NOT set `persistent=1` — they'd accumulate in `all_tensors` forever. Exception: `tensor_create_state_*` is explicitly persistent (NTM memory, LSTM state)
+- **Pool indices must be compact**: `tape_reset` reassigns surviving tensors' `pool_idx` to contiguous 0..N. Without this, pool vectors grow unboundedly across epochs
+
 ### NTM-specific
 
 - **Dimension calculations**: `ReadParamWidth m = m + ShiftKernelSize + 3`, `WriteParamWidth m = ReadParamWidth m + m`. LSTM input: `m + inputSize`, output FC input: `h + m`
