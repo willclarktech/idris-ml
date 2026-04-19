@@ -16,6 +16,7 @@
 #include <iostream>
 #include <vector>
 #include <string>
+#include <unordered_set>
 #include <sys/resource.h>
 #ifdef __APPLE__
 #include <mach/mach.h>
@@ -177,11 +178,8 @@ TensorHandle tensor_create_scalar(double value, int requires_grad) {
 TensorHandle tensor_create(double* data, int* shape, int rank, int requires_grad) {
     mx::Shape sh(shape, shape + rank);
     auto t = new Tensor(mx::array(data, sh, mx::float64), requires_grad != 0);
-    if (requires_grad) {
-        tape_append(OP_CONST, t, nullptr, nullptr, 0);
-    } else {
-        t->persistent = 1;  // data tensors may be reused across optimizer steps
-    }
+    if (requires_grad) tape_append(OP_CONST, t, nullptr, nullptr, 0);
+    // Non-grad data tensors: non-persistent, freed by tape_reset at optimizer_step
     return (TensorHandle)t;
 }
 
@@ -710,15 +708,21 @@ void tensor_backward(TensorHandle h) {
     }
     if (param_arrays.empty()) return;
 
-    // Build constant pool: all non-param tensor data by pool_idx
-    // Use vector<pair> instead of unordered_map (mx::array lacks default ctor)
+    // Build constant pool from tape (O(tape_size), not O(all_tensors))
     std::vector<std::pair<int, mx::array>> constants;
-    for (auto* t : all_tensors) {
-        bool is_param = false;
-        for (auto& p : param_registry) {
-            if (p.tensor == t) { is_param = true; break; }
+    std::unordered_set<int> seen;
+    for (auto& idx : param_pool_indices) seen.insert(idx);
+    auto add_const = [&](Tensor* t) {
+        if (t && !seen.count(t->pool_idx)) {
+            seen.insert(t->pool_idx);
+            constants.emplace_back(t->pool_idx, t->data);
         }
-        if (!is_param) constants.emplace_back(t->pool_idx, t->data);
+    };
+    for (int i = 0; i <= loss->tape_idx; i++) {
+        auto& e = tape[i];
+        add_const(e.result);
+        add_const(e.arg1);
+        add_const(e.arg2);
     }
 
     // Capture tape state for the closure

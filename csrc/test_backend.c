@@ -375,13 +375,13 @@ static void test_fused_mv_optimizer(void) {
 
     double xdata[] = {1.0, 0.0, -1.0};
     int xshape[] = {3};
-    TensorHandle x = tensor_create(xdata, xshape, 1, 0);  /* not a param */
 
     OptimizerHandle sgd = optimizer_create_sgd(0.1);
 
     double prev_loss = 1e10;
     for (int ep = 0; ep < 5; ep++) {
         optimizer_zero_grad(sgd);
+        TensorHandle x = tensor_create(xdata, xshape, 1, 0);  /* fresh each epoch */
         TensorHandle y = tensor_mv(W, x);
         TensorHandle loss = tensor_sum(y);
         double lv = tensor_item(loss);
