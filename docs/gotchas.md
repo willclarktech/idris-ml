@@ -327,9 +327,21 @@ Without this tracking, non-tape tensors (every `bulkToTensor` call, BCE constant
 
 Binary op backwards (ADD, SUB, MUL, DIV, POW) must call `reduce_grad()` to sum gradients over broadcast-expanded dimensions. Without this, scalar × vector operations (e.g., `g * content_weights` in NTM interpolation) produce vector-shaped gradients for scalar parameters, corrupting the autograd chain.
 
-### NTM convergence and stability
+### RMSprop optimizer must be implemented
 
-The decomposed NTM head pipeline converges on MLX (loss drops to near-zero on individual batches) but is less stable than the tape backend's fused ops. The loss oscillates and may NaN around epoch 10-12K. The tape backend converges smoothly to 100% accuracy by epoch 16K. The numerical differences stem from the decomposed backward accumulating small errors across ~50 primitive ops per timestep. Gradient clipping at 10.0 may need tuning for MLX.
+`optimizer_step` must have a `case 1:` for RMSprop. Without it, `optimizer_step` falls through to `default: break;` (no-op) and weights are never updated. This silently affects any example using `nativeRmsprop` (NTM Copy, NTM Recall). SGD (case 0) and Adam (case 2) were implemented first; RMSprop was missing until the bug was caught.
+
+### Conv1d circular d_kernel backward shift sign
+
+`OP_CONV1D_CIRC` d_kernel backward must use `shift = j - half_k` (matching forward indexing), not `shift = half_k - j`. The forward computes `result[i] = sum_j(input[(i - half_k + j) % n] * kernel[j])`, so the backward needs `d_kernel[j] = sum_i(grad[i] * input[(i - half_k + j) % n])`. The inverted shift corrupts shift kernel gradients, preventing the NTM from learning memory addressing order.
+
+### Fused OP_NORMALIZE for attention normalization
+
+The attention weight normalization `focused = powered / sum(powered)` must use a fused `OP_NORMALIZE` op, not separate `div + sum + add` ops. The decomposed backward computes `d/d(numerator) = grad/denom` and `d/d(denominator) = -grad*numer/denom²` separately — these are huge values that nearly cancel. With peaked attention (near-converged NTM), catastrophic cancellation produces NaN. The fused formula `d_a[i] = (d_r[i] - dot(d_r, r)) / (sum(a) + eps)` avoids this.
+
+### NTM convergence comparison
+
+MLX NTM converges to ~91% short / 87% full bit accuracy at epoch 15K. Tape backend converges to 100% / 98% at epoch 16K. The gap comes from the decomposed vs fused backward accumulating small numerical differences across ~50 primitive ops per timestep. MLX uses array-wide operations where a single imprecise element affects the whole gradient tensor, while tape processes elements independently.
 
 ## Torch Backend (backend_torch.cpp)
 

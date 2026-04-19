@@ -426,35 +426,41 @@ The `backend.h` C API abstracts all tensor operations behind ~80 function declar
 
 **libtorch backend** (`BACKEND=torch`): Links against PyTorch's C++ library. Tensor-level autograd, GPU support (CUDA/MPS/ROCm), native optimizers. Dependency: ~2GB libtorch install. Target: GPU training, large batch workloads.
 
-**MLX backend** (`BACKEND=mlx`, planned): Links against Apple's [mlx-c](https://github.com/ml-explore/mlx-c). Metal GPU, lazy evaluation, ~50MB dependency. Target: Apple Silicon ML workloads.
+**MLX backend** (`BACKEND=mlx`): Links against Apple's MLX C++ API. Metal GPU, lazy evaluation, ~50MB dependency. Target: Apple Silicon ML workloads. NTM ops decomposed into primitives (cosine_sim, conv1d_circular, etc.) with per-op backward rules + fused OP_NORMALIZE for numerical stability.
 
 All three compile to `libidrisml.dylib` — same name, same API. The Idris code is identical across backends. `Makefile` selects: `make backend BACKEND=tape|torch|mlx`.
 
 ### Build-time backend selection
 
-The `backend_supports_tensor_params()` C function returns 1 (torch) or 0 (tape) to let Idris code adapt. When 1: layer `nameLayer` creates consolidated weight tensors (`[o,i]` for Linear, `[4*o,i]` for LSTM) with scalar views sharing storage. The tensor-level forward path (`tensor_mv`) operates on consolidated tensors directly. When 0: layer `nameLayer` creates per-scalar named Variables. The scalar fallback forward path stacks scalars → C op → unstacks.
+The `backend_supports_tensor_params()` C function returns 1 (all current backends: tape, MLX, torch) to let Idris code adapt. When 1: layer `nameLayer` creates consolidated weight tensors (`[o,i]` for Linear, `[4*o,i]` for LSTM) with scalar views sharing storage. The tensor-level forward path (`tensor_mv`) operates on consolidated tensors directly. When 0: layer `nameLayer` creates per-scalar named Variables (legacy scalar fallback).
 
 This is a runtime-queryable capability, not a compile-time flag, so the same compiled Idris binary works with either backend.
 
 ### Performance trade-offs
 
-| | Tape | libtorch | Old Scheme tape |
+| | Tape | MLX | Torch |
 |---|---|---|---|
-| Supervised (1000 ep) | ~5.8s | ~7.2s | 90ms |
-| RNN (1000 ep) | ~16.9s | ~28.6s | 400ms |
-| NTM-copy (100 ep) | NaN (fixing) | ~19.3s | ~14.7s |
-| Peak RSS (Supervised) | 68MB | 453MB | 42MB |
-| Per-scalar op cost | 2-3 malloc | tensor alloc + graph node | 1 memory write |
-| GPU support | No | CUDA/MPS | No |
-| Dependencies | 0 | ~2GB | 0 |
+| Supervised (1000 ep) | 0s | 0s | 1s |
+| RNN (2000 ep) | 18s | 34s | 23s |
+| Transformer (sort) | ~14s (870 ep) | ~13s (788 ep) | ~14s (874 ep) |
+| NTM-copy (converge) | 9m (16K ep, 100%) | 13m (15K ep, 91%) | untested |
+| Peak RSS (NTM) | 201MB | 418MB | — |
+| GPU support | No | Metal | CUDA/MPS |
+| Dependencies | 0 | ~50MB MLX | ~2GB libtorch |
 
-The old Scheme tape was fastest because `foreign-set!` into pre-allocated arrays is essentially a memory write — no allocation, no FFI crossing. The new tape backend allocates a `Tensor` struct per op. Closing this gap requires arena allocation and reducing the stack/unstack overhead.
+### Decomposed vs fused NTM ops
 
-### NTM numerical stability: epsilon clamping
+The tape backend uses fused ops (`tensor_ntm_read_head`, `tensor_ntm_interp_write`) with hand-written backward rules that compute gradients in a numerically stable way. The MLX backend decomposes these into ~15 primitive ops (cosine_sim, softmax, mul, div, conv1d_circular, etc.), each with its own backward rule.
 
-The NTM addressing pipeline computes `pow(weights, gamma) / sum(pow(weights, gamma))` for focus/sharpening. After circular shift convolution, weights can become negative or zero. `pow(negative, gamma)` = NaN when gamma is non-integer.
+Trade-offs:
+- **Fused (tape)**: Better numerical stability (single backward formula avoids catastrophic cancellation in normalization), simpler gradient chain, but hard to port to new backends
+- **Decomposed (MLX)**: Each primitive is independently tested and reusable, but the composed backward accumulates precision errors. Required a fused `OP_NORMALIZE` for the attention normalization step to prevent NaN divergence. Result: 91% vs 100% accuracy gap
 
-The fused C `tensor_ntm_read_head` (used by torch backend) clamps to `1e-10` before pow (line 594 in backend_torch.cpp). The scalar Variable-level `focusVar` (used by tape backend) did NOT have this clamping, causing NaN after the first optimizer step when gradients pushed weights negative.
+### NTM numerical stability: epsilon clamping and fused normalize
+
+The NTM addressing pipeline computes `pow(weights, gamma) / sum(pow(weights, gamma))` for focus/sharpening. After circular shift convolution, weights can become negative or zero. `pow(negative, gamma)` = NaN when gamma is non-integer. All backends clamp to `1e-10` before pow.
+
+The normalization `x / sum(x)` backward is numerically sensitive: the decomposed `d/d(numer) = grad/denom` and `d/d(denom) = -grad*numer/denom²` are huge near-cancelling terms. The tape backend's fused formula `d_x[i] = (d_r[i] - dot(d_r, r)) / (sum(x) + eps)` avoids this. The MLX backend uses a fused `OP_NORMALIZE` op for the same reason — without it, NaN diverges at epoch ~12K.
 
 Fix: add `tensor_clamp_min` to `backend.h` and use in `focusVar` before `prim__pow`. Both backends must implement this. The torch backend already had the clamp in its fused path but needs it in the standalone `tensor_clamp_min` function too.
 

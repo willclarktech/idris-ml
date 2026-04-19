@@ -78,9 +78,16 @@ Performance:
 
 MLX backend:
 - `backend_mlx.cpp` — Apple Metal GPU via MLX C++ API, tape-based autograd on MLX arrays
-- All 6 examples work on tape backend via tensor path (`applyVarTensor`, `epochNativeTensorPre`, `epochRecurrentNativeTensor`, `epochTwoPhaseTensor`)
-- Transformer, Supervised, RNN, LSTM verified on MLX with identical loss values to tape
-- NTM ops decomposed into primitives (cosine_sim, conv1d_circular, read_head, interp_write)
-- Eliminated scalar path dependency: all training uses tensor-level forward
+- All 6 examples work on all 3 backends (tape, MLX, torch) via tensor path
+- NTM Copy: tape 100%/98%, MLX 91%/87%, torch (untested recent fixes)
+- NTM ops decomposed into primitives with per-op backward rules
+- Fused OP_NORMALIZE for numerically stable attention normalization
+- `all_tensors` self-registration: every Tensor tracked, non-persistent freed at `tape_reset()`
+- State tensor persistence (`tensor_create_state_*` sets `persistent=1`)
+- TensorPair tracking and cleanup on both MLX and torch
+- RMSprop optimizer implemented (was missing — NTM used RMSprop, weights never updated)
+- OP_SELECT backward, OP_POW exponent gradient, broadcast `reduce_grad()`
+- Conv1d_circular d_kernel backward sign fix
+- Torch: persistent view tensors, RNN `toDoubleLayer` tensor path
 - Multi-element unary ops in tape backend (neg, abs, exp, log, sqrt, sigmoid, tanh)
 - OP_LOG_SOFTMAX backward rule added to tape backend

@@ -60,7 +60,7 @@ bash scripts/sweep.sh --task copy --parallel 4 --quick  # 2000 epochs for screen
 4. **Tensor** - Shape-indexed tensor: `Tensor : Vect rank Nat -> Type -> Type`
 5. **Math** - Loss functions, activations, linear algebra
 6. **Memory** - NTM read/write head operations
-7. **Variable** - Autograd variables wrapping libtorch tensors. `NativeOptimizer` for training
+7. **Variable** - Autograd variables wrapping backend tensor pointers (tape/MLX/torch). `NativeOptimizer` for training
 8. **DataPoint** - `DataPoint`, `RecurrentDataPoint`, and `TwoPhaseDataPoint` records
 8b. **Generate** - Random data generation: `copyTaskBinary`/`recallTaskBinary`, `randomBatchVect`, `patternData`
 9. **Endofunctor** - `emap : (ty -> ty) -> e ty -> e ty` for type-preserving maps
@@ -71,7 +71,7 @@ bash scripts/sweep.sh --task copy --parallel 4 --quick  # 2000 epochs for screen
     - **Layer.Ntm** - `NtmState` + NTM head ops (imports Lstm and Linear for sub-layers)
     - **Layer.Transformer** - `TransformerState` with causal self-attention (single-head)
     - **Layer.Transformer** - `TransformerState` with multi-head attention, layer norm, learned embeddings, sinusoidal PE
-11. **Optimizer** - SGD, Adam, RMSprop (Idris-side), plus `NativeOptimizer` (libtorch torch::optim)
+11. **Optimizer** - SGD, Adam, RMSprop (Idris-side), plus `NativeOptimizer` (C-side, all backends)
 12. **Schedule** - Learning rate schedules: `constant`, `cosineAnnealing`, `oneCycle`
 13. **Backprop** - Epoch functions: `epochNative`, `epochRecurrentNative`, `epochTwoPhaseBceNative`
 14. **Train** - Unified training runner: `runTraining`, `TrainConfig`, `EarlyStopConfig`, `ArgSpec`/`parseArgs`, `formatResult`
@@ -90,7 +90,7 @@ Scalar = Tensor []
 Vector elems = Tensor [elems]
 Matrix rows columns = Tensor [rows, columns]
 
--- Variable.idr (libtorch autograd)
+-- Variable.idr (backend-agnostic autograd)
 record Variable where
   constructor Var
   tensorPtr : AnyPtr      -- libtorch tensor (carries autograd graph)
@@ -234,7 +234,7 @@ See [`docs/gotchas.md`](docs/gotchas.md) for detailed explanations of each entry
 - **`prim__seq` ordering**: use `prim__seq a b` to force evaluation order when no data dependency exists
 - **`foreign-set! 'void*` corruption**: do NOT store C pointers via `foreign-set! 'void*` — corrupts memory. Use C helpers
 - **Chez output buffering**: stdout fully buffered when piped. Use `stdbuf -oL ./build/exec/<name>`
-- **Backend library required**: `make backend` builds `libidrisml.dylib` (C tape backend by default). Manual builds need `cp build/libidrisml.dylib build/exec/<name>_app/`
+- **Backend library required**: `make backend` builds `libidrisml.dylib` (tape by default, `BACKEND=mlx|torch` for others). Per-backend caching: `libidrisml_tape.dylib`, `libidrisml_mlx.dylib`, `libidrisml_torch.dylib` with symlink switching. Manual builds need `cp build/libidrisml.dylib build/exec/<name>_app/`
 - **Scheme-side allocation reordering**: `foreign-alloc`/`foreign-set!` can be reordered by Chez — use C-side allocation (`tensor_alloc_doubles`/`tensor_write_double`) instead
 - **`prim__seq` must use concrete types**: polymorphic `a -> b -> b` causes Chez arg count mismatch. Use `AnyPtr -> AnyPtr -> AnyPtr`
 
