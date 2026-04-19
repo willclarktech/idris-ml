@@ -367,7 +367,7 @@ transformerLayer = map (MkAnyLayer (TransformerState seqLen dModel numHeads head
 
 ||| Forward one block on batched data.
 ||| Projections/FF/norms batched as [B*seqLen, dim].
-||| Attention loops per-sequence.
+||| Batched attention: all sequences processed in parallel via 3D ops.
 batchBlockForward : {seqLen, dModel, numHeads, headDim : Nat} ->
                     BlockState dModel numHeads headDim Variable ->
                     AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
@@ -381,11 +381,16 @@ batchBlockForward blk h bsI sI dI hdI =
   in let batchSize = bsI `div` sI
          -- Pre-LN: [B*seqLen, dModel]
          normed1 = prim__layerNorm2d h n1g n1b 1.0e-5
-         -- Attention: per-sequence loop
-         normed1flat = prim__narrow normed1 0 0 (bsI * dI)
-         attnResults = attnLoop (queryWs blk) (keyWs blk) (valueWs blk) (outProjWs blk)
-                         normed1flat 0 batchSize sI dI hdI []
-         attnOut = prim__reshape2d (catAll attnResults) bsI dI
+         -- Reshape to 3D: [B, seqLen, dModel]
+         normed3d = prim__reshape3d normed1 batchSize sI dI
+         -- Causal mask: [seqLen, seqLen] → [B, seqLen, seqLen]
+         mask3d = prim__expandMask (prim__causalMask sI) batchSize
+         -- Batched multi-head attention (per-head loop, batched over B)
+         scale = 1.0 / sqrt (cast {to=Double} headDim)
+         attnOut3d = batchedHeadLoop (queryWs blk) (keyWs blk) (valueWs blk) (outProjWs blk)
+                       normed3d mask3d batchSize sI dI hdI scale Nothing
+         -- Reshape back to [B*seqLen, dModel]
+         attnOut = prim__reshape2d attnOut3d bsI dI
          -- Residual 1
          h1 = tensorAdd attnOut h
          -- Pre-LN Feedforward: [B*seqLen, dModel]
@@ -394,23 +399,36 @@ batchBlockForward blk h bsI sI dI hdI =
          ffOut = prim__mm ffHidden (prim__transpose2d f2W)
      in tensorAdd ffOut h1
   where
-    catAll : List AnyPtr -> AnyPtr
-    catAll [] = idris_crash "catAll: empty"
-    catAll [x] = x
-    catAll (x :: y :: rest) = catAll (prim__cat2 x y :: rest)
-
-    attnLoop : Vect nh (LinearState dModel headDim Variable) ->
-               Vect nh (LinearState dModel headDim Variable) ->
-               Vect nh (LinearState dModel headDim Variable) ->
-               Vect nh (LinearState headDim dModel Variable) ->
-               AnyPtr -> Int -> Int -> Int -> Int -> Int -> List AnyPtr -> List AnyPtr
-    attnLoop qs ks vs ops normedFlat idx bTotal sLen dMd hdDim acc =
-      if idx >= bTotal then reverse acc
-      else let off = idx * sLen * dMd
-               seqSlice = prim__reshape2d (prim__narrow normedFlat 0 off (sLen * dMd)) sLen dMd
-               attnOut = runHeadAttention qs ks vs ops seqSlice sLen hdDim Nothing
-               attnFlat = prim__narrow attnOut 0 0 (sLen * dMd)
-           in assert_total $ attnLoop qs ks vs ops normedFlat (idx + 1) bTotal sLen dMd hdDim (attnFlat :: acc)
+    batchedHeadLoop : Vect nh (LinearState dModel headDim Variable) ->
+                      Vect nh (LinearState dModel headDim Variable) ->
+                      Vect nh (LinearState dModel headDim Variable) ->
+                      Vect nh (LinearState headDim dModel Variable) ->
+                      AnyPtr -> AnyPtr -> Int -> Int -> Int -> Int -> Double ->
+                      Maybe AnyPtr -> AnyPtr
+    batchedHeadLoop [] [] [] [] _ _ _ _ _ _ _ (Just acc) = acc
+    batchedHeadLoop [] [] [] [] normed _ _ _ _ _ _ Nothing = normed
+    batchedHeadLoop (q :: qs) (k :: ks) (v :: vs) (op :: ops) normed mask bsz sLen dMd hdDim sc acc =
+      case (extractWeightTensor q, extractWeightTensor k, extractWeightTensor v, extractWeightTensor op) of
+        (Just qW, Just kW, Just vW, Just opW) =>
+          -- Q/K/V projections: [B,sLen,dModel] × [dModel,hdDim] → [B,sLen,hdDim]
+          let qi = prim__bmm normed (prim__transpose2d qW)
+              ki = prim__bmm normed (prim__transpose2d kW)
+              vi = prim__bmm normed (prim__transpose2d vW)
+              -- Scaled dot-product: [B,sLen,hdDim] × [B,hdDim,sLen] → [B,sLen,sLen]
+              kiT = prim__transposeLast2 ki
+              scores = prim__mulScalar (prim__bmm3x3 qi kiT) sc
+              -- Causal mask + softmax: [B,sLen,sLen]
+              masked = prim__maskedFill scores mask (-1.0e20)
+              attn = prim__softmax3d masked
+              -- Attention @ V: [B,sLen,sLen] × [B,sLen,hdDim] → [B,sLen,hdDim]
+              headOut = prim__bmm3x3 attn vi
+              -- Output projection: [B,sLen,hdDim] × [hdDim,dModel] → [B,sLen,dModel]
+              proj = prim__bmm headOut (prim__transpose2d opW)
+              acc' = case acc of
+                Nothing => proj
+                Just prev => tensorAdd prev proj
+          in batchedHeadLoop qs ks vs ops normed mask bsz sLen dMd hdDim sc (Just acc')
+        _ => idris_crash "Transformer: head weight not initialized"
 
 ||| Forward B sequences through the transformer in a single call.
 export

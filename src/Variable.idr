@@ -309,6 +309,27 @@ prim__oneHot : AnyPtr -> Int -> Int -> AnyPtr
 export
 prim__bmm : AnyPtr -> AnyPtr -> AnyPtr
 
+-- 3D batched attention ops
+%foreign "C:tensor_bmm_3x3,libidrisml"
+export
+prim__bmm3x3 : AnyPtr -> AnyPtr -> AnyPtr
+
+%foreign "C:tensor_softmax_3d,libidrisml"
+export
+prim__softmax3d : AnyPtr -> AnyPtr
+
+%foreign "C:tensor_transpose_last2,libidrisml"
+export
+prim__transposeLast2 : AnyPtr -> AnyPtr
+
+%foreign "C:tensor_reshape_3d,libidrisml"
+export
+prim__reshape3d : AnyPtr -> Int -> Int -> Int -> AnyPtr
+
+%foreign "C:tensor_expand_mask,libidrisml"
+export
+prim__expandMask : AnyPtr -> Int -> AnyPtr
+
 %foreign "C:tensor_create_1d,libidrisml"
 export
 prim__create1d : Int -> AnyPtr -> Int -> AnyPtr
