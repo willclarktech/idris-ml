@@ -77,6 +77,7 @@ bash scripts/sweep.sh --task copy --parallel 4 --quick  # 2000 epochs for screen
 14. **Train** - Unified training runner: `runTraining`, `TrainConfig`, `EarlyStopConfig`, `ArgSpec`/`parseArgs`, `formatResult`
 15. **Curriculum** - Multi-stage curriculum training: `Stage` record, `runCurriculum`
 16. **Debug** - Forward-pass diagnostics: `debugForward`, `debugForwardRecurrent`, `toDoubleNetwork`
+17. **Checkpoint** - SafeTensors serialization: `saveModel`/`loadModel`, `saveOptimizer`/`loadOptimizer`
 
 ### Core type signatures
 
@@ -164,6 +165,27 @@ Every learnable layer must be named before training. Use `autoName` (preferred):
 ```idris
 let model = autoName $ ll ~> OutputLayer softmaxLayer  -- ll0_weight0, ll0_bias0, ...
 ```
+
+### Model serialization (SafeTensors)
+
+Save/load weights and optimizer state using the SafeTensors format (`.safetensors`). Backend-agnostic — works on tape, MLX, and torch. Python interop: PyTorch loads via `safetensors.torch.load_file()`, MLX via `mx.load()`.
+
+```idris
+import Checkpoint
+
+-- Save trained model
+ok <- saveModel "model.safetensors"
+
+-- Load into existing model (after autoName, before or after training)
+ok <- loadModel "model.safetensors"
+let model' = emap refreshValue model  -- update cached Variable.value fields
+
+-- Save/load optimizer state for training resumption
+ok <- saveOptimizer "model.optimizer.safetensors" opt
+ok <- loadOptimizer "model.optimizer.safetensors" opt
+```
+
+C-level API: `param_save`/`param_load` for weights, `optimizer_save`/`optimizer_load` for optimizer buffers. Shared implementation in `csrc/safetensors.c` using `csrc/cJSON.{c,h}` (vendored, MIT).
 
 ### Curriculum training
 
