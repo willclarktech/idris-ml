@@ -89,4 +89,31 @@ tests =
         lsm = logSoftmax xs
         (VTensor [STensor a0, _, _]) = lsm
     in check "logSoftmax stable with large inputs" (a0 == a0)  -- not NaN
+
+  -- l1Loss: mean(|pred - target|)
+  , let preds = the (Vector 2 Double) (VTensor [STensor 1.0, STensor 5.0])
+        targets = the (Vector 2 Double) (VTensor [STensor 3.0, STensor 2.0])
+    in checkClose "l1Loss" 2.5 (l1Loss preds targets) tol  -- (2 + 3) / 2
+
+  -- huberLoss: quadratic region (|d| <= delta)
+  , let preds = the (Vector 2 Double) (VTensor [STensor 1.0, STensor 2.0])
+        targets = the (Vector 2 Double) (VTensor [STensor 1.5, STensor 2.3])
+        -- |d| = [0.5, 0.3], both <= 1.0, so 0.5*d^2 = [0.125, 0.045], mean = 0.085
+    in checkClose "huberLoss quadratic" 0.085 (huberLoss 1.0 preds targets) tol
+
+  -- huberLoss: linear region (|d| > delta)
+  , let preds = the (Vector 1 Double) (VTensor [STensor 0.0])
+        targets = the (Vector 1 Double) (VTensor [STensor 5.0])
+        -- |d| = 5.0 > 1.0, so delta * (|d| - 0.5*delta) = 1.0 * (5.0 - 0.5) = 4.5
+    in checkClose "huberLoss linear" 4.5 (huberLoss 1.0 preds targets) tol
+
+  -- klDivLoss: identical distributions = 0
+  , let p = the (Vector 3 Double) (VTensor [STensor 0.2, STensor 0.3, STensor 0.5])
+        q = the (Vector 3 Double) (VTensor [STensor 0.2, STensor 0.3, STensor 0.5])
+    in checkClose "klDivLoss identical = 0" 0.0 (klDivLoss p q) tol
+
+  -- klDivLoss: non-negative for different distributions
+  , let p = the (Vector 3 Double) (VTensor [STensor 0.5, STensor 0.3, STensor 0.2])
+        q = the (Vector 3 Double) (VTensor [STensor 0.2, STensor 0.3, STensor 0.5])
+    in check "klDivLoss non-negative" (klDivLoss p q >= 0.0)
   ]

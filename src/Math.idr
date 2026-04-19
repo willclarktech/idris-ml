@@ -104,6 +104,37 @@ export
 nllLoss : (Neg ty, Fractional ty) => LossFunction ty
 nllLoss = reduceLoss (\p, y => -(y * p))
 
+||| L1 loss (mean absolute error): mean(|pred - target|).
+export
+l1Loss : (Neg ty, Fractional ty, Ord ty) => LossFunction ty
+l1Loss = reduceLoss (\p, y => let d = p - y in max d (negate d))
+
+||| Huber loss (Smooth L1): quadratic near zero, linear far away.
+||| Robust to outliers. delta controls the transition point.
+export
+huberLoss : (FromDouble ty, Neg ty, Fractional ty, Ord ty) => (delta : Double) -> LossFunction ty
+huberLoss delta = reduceLoss (\p, y =>
+  let d = p - y
+      absD = max d (negate d)
+      deltaT = fromDouble delta
+  in if absD <= deltaT then fromDouble 0.5 * absD * absD
+     else deltaT * (absD - fromDouble 0.5 * deltaT))
+
+||| KL divergence loss: sum(target * log(target / pred)).
+||| Expects probability distributions (not log-space).
+export
+klDivLoss : (Neg ty, Floating ty, Fractional ty, Ord ty) => LossFunction ty
+klDivLoss = reduceLoss (\p, y =>
+  let ep = pow 10 (-10)
+      safep = max p ep
+  in y * log (y / safep))
+
+||| KL divergence loss (log-space input): sum(target * (log(target) - logPred)).
+||| Use with logSoftmax outputs.
+export
+klDivLossLog : (Neg ty, Floating ty, Fractional ty) => LossFunction ty
+klDivLossLog = reduceLoss (\logP, y => y * (log y - logP))
+
 ----------------------------------------------------------------------
 -- Encoding
 ----------------------------------------------------------------------
