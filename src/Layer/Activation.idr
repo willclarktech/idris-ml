@@ -34,6 +34,7 @@ LayerLike ActivationState where
   applyVarTensor st@(MkActivation "tanh" _) inputT = (st, prim__tanh inputT)
   applyVarTensor st@(MkActivation "sigmoid" _) inputT = (st, prim__sigmoid inputT)
   applyVarTensor st@(MkActivation "relu" _) inputT = (st, prim__clampMin inputT 0.0)
+  applyVarTensor st@(MkActivation "gelu" _) inputT = (st, prim__gelu inputT)
   applyVarTensor {i} st inputT =
     let input = VTensor (tensorToScalars inputT 0 i)
         (st', VTensor outElems) = applyVar st input
@@ -48,6 +49,7 @@ LayerLike ActivationState where
   toDoubleLayer (MkActivation "sigmoid" _) = MkActivation "sigmoid" sigmoid
   toDoubleLayer (MkActivation "tanh" _) = MkActivation "tanh" Math.tanh
   toDoubleLayer (MkActivation "relu" _) = MkActivation "relu" (\x => max x (fromDouble 0.0))
+  toDoubleLayer (MkActivation "gelu" _) = MkActivation "gelu" id  -- approx for Double eval
   toDoubleLayer (MkActivation name _) = MkActivation name id
 
   debugApply st inp =
@@ -70,3 +72,7 @@ tanhLayer = MkAnyLayer ActivationState (MkActivation "tanh" Math.tanh)
 export
 reluLayer : (Ord ty, FromDouble ty) => AnyLayer n n ty
 reluLayer = MkAnyLayer ActivationState (MkActivation "relu" (\x => max x (fromDouble 0.0)))
+
+export
+geluLayer : AnyLayer n n ty
+geluLayer = MkAnyLayer ActivationState (MkActivation "gelu" id)

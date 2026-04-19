@@ -40,6 +40,7 @@ TensorHandle tensor_sqrt(TensorHandle t);
 TensorHandle tensor_pow(TensorHandle base, TensorHandle exp);
 TensorHandle tensor_sigmoid(TensorHandle t);
 TensorHandle tensor_tanh(TensorHandle t);
+TensorHandle tensor_gelu(TensorHandle t);   /* GELU activation (tanh approx) */
 
 /* Scalar broadcast variants */
 TensorHandle tensor_add_scalar(TensorHandle t, double s);

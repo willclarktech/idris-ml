@@ -169,6 +169,7 @@ enum {
     OP_BMM_3X3,       /* batched matmul: [B,m,n] x [B,n,k] -> [B,m,k] */
     OP_SOFTMAX_3D,    /* row-wise softmax on [B,m,n] along last dim */
     OP_TRANSPOSE_LAST2, /* [B,m,n] -> [B,n,m] */
+    OP_GELU,          /* GELU activation (tanh approximation) */
     OP_EMBEDDING,     /* row gather from weight matrix */
     OP_BATCH_NORM,    /* per-channel normalization */
     OP_DROPOUT,       /* inverted dropout with stored mask */
@@ -531,6 +532,14 @@ static double fn_tanh_d(double x) { return tanh(x); }
 TensorHandle tensor_sigmoid(TensorHandle a) { return unop_elementwise(a, OP_SIGMOID, fn_sigmoid); }
 
 TensorHandle tensor_tanh(TensorHandle a) { return unop_elementwise(a, OP_TANH, fn_tanh_d); }
+
+/* GELU(x) = x * 0.5 * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3))) */
+static double fn_gelu_d(double x) {
+    double c = 0.7978845608028654;  /* sqrt(2/pi) */
+    double inner = c * (x + 0.044715 * x * x * x);
+    return 0.5 * x * (1.0 + tanh(inner));
+}
+TensorHandle tensor_gelu(TensorHandle a) { return unop_elementwise(a, OP_GELU, fn_gelu_d); }
 
 TensorHandle tensor_add_scalar(TensorHandle ha, double s) {
     Tensor* a = (Tensor*)ha;
@@ -2121,6 +2130,22 @@ void tensor_backward(TensorHandle h) {
 
         case OP_TANH: {
             if (a) { ensure_grad(a); for (int j = 0; j < a->numel; j++) { double t = r->data[j]; a->grad[j] += r->grad[j] * (1.0 - t * t); } }
+            break;
+        }
+
+        case OP_GELU: {
+            /* d_gelu/dx = 0.5*(1+tanh(inner)) + 0.5*x*(1-tanh^2)*c*(1+3*0.044715*x^2) */
+            if (a) {
+                ensure_grad(a);
+                double c = 0.7978845608028654;
+                for (int j = 0; j < a->numel; j++) {
+                    double x = a->data[j];
+                    double inner = c * (x + 0.044715 * x * x * x);
+                    double t = tanh(inner);
+                    double dtdx = (1.0 - t * t) * c * (1.0 + 3.0 * 0.044715 * x * x);
+                    a->grad[j] += r->grad[j] * (0.5 * (1.0 + t) + 0.5 * x * dtdx);
+                }
+            }
             break;
         }
 

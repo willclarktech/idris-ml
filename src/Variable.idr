@@ -134,6 +134,9 @@ prim__cosineSimilarity : AnyPtr -> AnyPtr -> Int -> AnyPtr
 %foreign "C:tensor_conv1d_circular,libidrisml"
 prim__conv1dCircular : AnyPtr -> AnyPtr -> AnyPtr
 
+%foreign "C:tensor_gelu,libidrisml"
+export prim__gelu : AnyPtr -> AnyPtr
+
 -- Embedding
 %foreign "C:tensor_embedding,libidrisml"
 export

@@ -85,6 +85,7 @@ enum {
     OP_BMM_3X3,
     OP_SOFTMAX_3D,
     OP_TRANSPOSE_LAST2,
+    OP_GELU,
     OP_EMBEDDING,
     OP_BATCH_NORM,
     OP_DROPOUT,
@@ -368,6 +369,18 @@ TensorHandle tensor_sigmoid(TensorHandle h) {
     if (t->requires_grad) tape_append(OP_SIGMOID, r, t, nullptr, 0);
     return (TensorHandle)r;
 }
+TensorHandle tensor_gelu(TensorHandle h) {
+    auto t = (Tensor*)h;
+    // GELU tanh approx: x * 0.5 * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))
+    auto x = t->data;
+    auto c = mx::array(0.7978845608028654, mx::float64);
+    auto inner = mx::multiply(c, mx::add(x, mx::multiply(mx::array(0.044715, mx::float64), mx::power(x, mx::array(3, mx::float64)))));
+    auto result = mx::multiply(mx::multiply(mx::array(0.5, mx::float64), x), mx::add(mx::array(1.0, mx::float64), mx::tanh(inner)));
+    auto r = new Tensor(result, t->requires_grad);
+    if (t->requires_grad) tape_append(OP_GELU, r, t, nullptr, 0);
+    return (TensorHandle)r;
+}
+
 TensorHandle tensor_tanh(TensorHandle h) {
     auto t = (Tensor*)h;
     auto r = new Tensor(mx::tanh(t->data), t->requires_grad);
@@ -1095,6 +1108,12 @@ void tensor_backward(TensorHandle h) {
             case OP_POW: pool[out] = mx::power(a, b); break;
             case OP_SIGMOID: pool[out] = mx::sigmoid(a); break;
             case OP_TANH: pool[out] = mx::tanh(a); break;
+            case OP_GELU: {
+                auto c = mx::array(0.7978845608028654, mx::float64);
+                auto inner = mx::multiply(c, mx::add(a, mx::multiply(mx::array(0.044715, mx::float64), mx::power(a, mx::array(3, mx::float64)))));
+                pool[out] = mx::multiply(mx::multiply(mx::array(0.5, mx::float64), a), mx::add(mx::array(1.0, mx::float64), mx::tanh(inner)));
+                break;
+            }
             case OP_ADD_SCALAR: pool[out] = mx::add(a, mx::array(e.scalar_arg)); break;
             case OP_MUL_SCALAR: pool[out] = mx::multiply(a, mx::array(e.scalar_arg)); break;
             case OP_CLAMP_MIN: pool[out] = mx::maximum(a, mx::array(e.scalar_arg)); break;
