@@ -528,3 +528,9 @@ networkParamIds : {d : Device} -> {i, o : Nat} -> {hs : List Nat} ->
                   Network i hs o (Variable d) -> List String
 networkParamIds (OutputLayer l) = anyLayerParamIds l
 networkParamIds (l ~> rest) = anyLayerParamIds l ++ networkParamIds rest
+
+||| Total number of named parameters in a network.
+export
+networkParamCount : {d : Device} -> {i, o : Nat} -> {hs : List Nat} ->
+                    Network i hs o (Variable d) -> Nat
+networkParamCount = length . networkParamIds
