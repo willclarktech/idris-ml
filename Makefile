@@ -322,6 +322,19 @@ test-jupyter-unit: $(JUPYTER_VENV)/bin/activate
 	$(JUPYTER_PIP) install -q -e jupyter/.[dev]
 	cd jupyter && ../$(JUPYTER_PYTEST) tests/test_cell_parser.py -v
 
+# Run all notebooks headless to check for API breakage
+test-notebooks: jupyter-install
+	@fail=0; \
+	for nb in jupyter/notebooks/tutorials/*.ipynb jupyter/notebooks/models/*.ipynb; do \
+		echo "--- $$nb ---"; \
+		$(JUPYTER_VENV)/bin/jupyter nbconvert --execute --to notebook \
+			--ExecutePreprocessor.timeout=120 "$$nb" \
+			--output /tmp/test_nb_out.ipynb 2>&1 || { echo "FAIL: $$nb"; fail=1; continue; }; \
+		echo "ok"; \
+	done; \
+	rm -f /tmp/test_nb_out.ipynb; \
+	[ $$fail -eq 0 ] && echo "All notebooks passed" || { echo "Some notebooks failed"; exit 1; }
+
 clean:
 	rm -f $(BUILD)/libidrisml*.dylib $(BUILD)/test_backend $(BUILD)/test_safetensors \
 	      $(BUILD)/test_ntm_grad $(BUILD)/test_ntm_timestep
@@ -391,6 +404,13 @@ test-all:
 		echo "=== Jupyter kernel tests SKIPPED (pytest or jupyter not found) ==="; \
 	fi
 	@echo ""
+	@if [ -d jupyter/.venv ] && $(JUPYTER_VENV)/bin/jupyter --version >/dev/null 2>&1; then \
+		echo "=== Notebook execution tests ==="; \
+		$(MAKE) test-notebooks; \
+	else \
+		echo "=== Notebook execution tests SKIPPED (jupyter not installed) ==="; \
+	fi
+	@echo ""
 	@echo "=== All tests complete ==="
 
 .PHONY: all-backends test test-all download-mnist test-backend test-backend-tape test-backend-mlx \
@@ -405,4 +425,4 @@ test-all:
         ref-ntm-recall ref-dnc-copy ref-dnc-recall \
         ref-transformer bench-py bench-compare ref-test ref-lint \
         ref-typecheck ref-convergence ref-convergence-copy ref-convergence-recall \
-        jupyter-install jupyter-lab test-jupyter test-jupyter-unit
+        jupyter-install jupyter-lab test-jupyter test-jupyter-unit test-notebooks
