@@ -144,6 +144,32 @@ prim__batchNorm : AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> Int -> Int -
 export
 prim__dropout : AnyPtr -> Double -> Int -> Int -> AnyPtr
 
+-- Shape / info queries
+%foreign "C:tensor_squeeze,libidrisml"
+export prim__squeeze : AnyPtr -> Int -> AnyPtr
+
+%foreign "C:tensor_clone,libidrisml"
+export prim__clone : AnyPtr -> AnyPtr
+
+%foreign "C:tensor_dim,libidrisml"
+export prim__tensorDim : AnyPtr -> Int
+
+%foreign "C:tensor_size,libidrisml"
+export prim__tensorSizeAt : AnyPtr -> Int -> Int
+
+%foreign "C:tensor_sum_dim,libidrisml"
+export prim__sumDim : AnyPtr -> Int -> Int -> AnyPtr
+
+%foreign "C:tensor_requires_grad,libidrisml"
+export prim__requiresGrad : AnyPtr -> Int
+
+-- Gather / Scatter
+%foreign "C:tensor_gather,libidrisml"
+export prim__gather : AnyPtr -> AnyPtr -> Int -> AnyPtr
+
+%foreign "C:tensor_scatter_add,libidrisml"
+export prim__scatterAdd : AnyPtr -> AnyPtr -> Int -> AnyPtr
+
 -- Conv1D / MaxPool1D
 %foreign "C:tensor_conv1d,libidrisml"
 export

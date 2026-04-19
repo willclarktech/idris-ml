@@ -273,6 +273,22 @@ TensorHandle tensor_dropout(TensorHandle hinput, double p, int training, unsigne
     return from_tensor(out);
 }
 
+TensorHandle tensor_gather(TensorHandle hinput, TensorHandle hindex, int n) {
+    auto& inp = *to_tensor(hinput);
+    auto& idx = *to_tensor(hindex);
+    auto idx_long = idx.to(torch::kLong);
+    return from_tensor(torch::index_select(inp, 0, idx_long));
+}
+
+TensorHandle tensor_scatter_add(TensorHandle hindex, TensorHandle hsrc, int out_size) {
+    auto& idx = *to_tensor(hindex);
+    auto& src = *to_tensor(hsrc);
+    auto out = torch::zeros({(int64_t)out_size}, torch::kFloat64);
+    auto idx_long = idx.to(torch::kLong);
+    out.scatter_add_(0, idx_long, src);
+    return from_tensor(out);
+}
+
 TensorHandle tensor_conv1d(TensorHandle hinput, TensorHandle hkernel,
                            TensorHandle hbias, int pad, int stride) {
     auto& inp = *to_tensor(hinput);

@@ -1293,6 +1293,41 @@ TensorHandle tensor_dropout(TensorHandle hinput, double p, int training, unsigne
 }
 
 /* ================================================================
+   Gather / Scatter
+   ================================================================ */
+
+TensorHandle tensor_gather(TensorHandle hinput, TensorHandle hindex, int n) {
+    Tensor* input = (Tensor*)hinput;
+    Tensor* index = (Tensor*)hindex;
+    double* out = calloc(n, sizeof(double));
+    for (int i = 0; i < n; i++) {
+        int idx = (int)index->data[i];
+        out[i] = input->data[idx];
+    }
+    int shape[] = {n};
+    Tensor* r = make_tensor(out, shape, 1, input->requires_grad);
+    free(out);
+    /* No tape entry needed — gather is a read-only index operation.
+       For training, embedding lookups use scatter_add in backward. */
+    return r;
+}
+
+TensorHandle tensor_scatter_add(TensorHandle hindex, TensorHandle hsrc, int out_size) {
+    Tensor* index = (Tensor*)hindex;
+    Tensor* src = (Tensor*)hsrc;
+    double* out = calloc(out_size, sizeof(double));
+    for (int i = 0; i < src->numel; i++) {
+        int idx = (int)index->data[i];
+        if (idx >= 0 && idx < out_size)
+            out[idx] += src->data[i];
+    }
+    int shape[] = {out_size};
+    Tensor* r = make_tensor(out, shape, 1, src->requires_grad);
+    free(out);
+    return r;
+}
+
+/* ================================================================
    Conv1D: input [inC, L], kernel [outC, inC, kL], bias [outC] or NULL
    Output: [outC, oL]
    ================================================================ */

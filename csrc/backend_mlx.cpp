@@ -618,6 +618,33 @@ TensorHandle tensor_dropout(TensorHandle hinput, double p, int training, unsigne
     return (TensorHandle)r;
 }
 
+TensorHandle tensor_gather(TensorHandle hinput, TensorHandle hindex, int n) {
+    auto inp = (Tensor*)hinput;
+    auto idx = (Tensor*)hindex;
+    auto idx_int = mx::astype(idx->data, mx::int32);
+    auto result = mx::take(inp->data, idx_int, 0);
+    return (TensorHandle)(new Tensor(result, inp->requires_grad));
+}
+
+TensorHandle tensor_scatter_add(TensorHandle hindex, TensorHandle hsrc, int out_size) {
+    auto idx = (Tensor*)hindex;
+    auto src = (Tensor*)hsrc;
+    auto out = mx::zeros({out_size}, mx::float64);
+    // Scatter-add via loop (small n expected)
+    mx::eval(idx->data); mx::eval(src->data);
+    auto idx_flat = mx::astype(idx->data, mx::int32);
+    mx::eval(idx_flat);
+    // Use put_along_axis or manual loop
+    for (int i = 0; i < (int)src->data.size(); i++) {
+        int ix = idx_flat.data<int32_t>()[i];
+        auto val = mx::take(src->data, mx::array(i));
+        auto cur = mx::take(out, mx::array(ix));
+        out = mx::where(mx::equal(mx::arange(out_size), mx::array(ix)),
+                        mx::add(out, mx::broadcast_to(val, {out_size})), out);
+    }
+    return (TensorHandle)(new Tensor(out, src->requires_grad));
+}
+
 TensorHandle tensor_conv1d(TensorHandle hinput, TensorHandle hkernel,
                            TensorHandle hbias, int pad, int stride) {
     auto inp = (Tensor*)hinput;

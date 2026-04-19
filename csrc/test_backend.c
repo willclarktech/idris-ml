@@ -1787,6 +1787,33 @@ int main(void) {
     test_max_pool2d_forward();
     test_max_pool2d_backward();
 
+    /* T16: Gather/Scatter */
+    {
+        printf("\n--- Gather/Scatter ---\n");
+        double data[] = {10, 20, 30, 40, 50};
+        int ds[] = {5};
+        TensorHandle t = tensor_create(data, ds, 1, 0);
+        double idx_d[] = {2, 0, 4};
+        int is[] = {3};
+        TensorHandle idx = tensor_create(idx_d, is, 1, 0);
+        TensorHandle g = tensor_gather(t, idx, 3);
+        double gr[3];
+        tensor_to_doubles(g, gr);
+        ASSERT_NEAR("gather[0]", gr[0], 30.0, 1e-10);
+        ASSERT_NEAR("gather[1]", gr[1], 10.0, 1e-10);
+        ASSERT_NEAR("gather[2]", gr[2], 50.0, 1e-10);
+
+        double src_d[] = {1, 2, 3};
+        TensorHandle src = tensor_create(src_d, is, 1, 0);
+        TensorHandle s = tensor_scatter_add(idx, src, 5);
+        double sr[5];
+        tensor_to_doubles(s, sr);
+        ASSERT_NEAR("scatter[0]", sr[0], 2.0, 1e-10);
+        ASSERT_NEAR("scatter[2]", sr[2], 1.0, 1e-10);
+        ASSERT_NEAR("scatter[4]", sr[4], 3.0, 1e-10);
+        ASSERT_NEAR("scatter[1]", sr[1], 0.0, 1e-10);
+    }
+
     /* Summary */
     printf("\n");
     if (failures == 0) {
