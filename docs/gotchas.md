@@ -26,6 +26,25 @@ Idris2 requires source files to be in `--source-dir`. Never put test files in `/
 
 `Tensor`'s `Num` instance uses elementwise multiply. For matrix-vector products, use `matrixVectorMultiply` or `vectorMatrixMultiply` from Math.idr.
 
+### Large Nat type-level reduction hangs the compiler
+
+Idris 2 represents `Nat` as Peano numbers at the type level — `2304` becomes `S (S (... (S Z)...))` with 2304 constructors. Type unification walks all of them. This causes the type-checker to **hang indefinitely** when:
+
+- An identity layer (same input/output dim) is used at a large dimension. For example, `DropoutState 2304` or `BatchNormState 16 576` requires proving `2304 = 2304`, which means reducing `16 * (12 * 12)` to a chain of 2304 `S` constructors.
+- The network chain (`~>`) gets long (10+ layers), compounding unification cost.
+
+**Practical thresholds observed:**
+- Dims ≤ 512: fine (dropout at `AfterPool2 = 32 * (4*4) = 512` compiles instantly)
+- Dims ~ 2304: hangs (dropout at `AfterPool1 = 16 * (12*12) = 2304` never completes)
+- Dims ~ 9216: hopeless (batch norm at `AfterConv1 = 16 * (24*24) = 9216`)
+
+**Workarounds:**
+- Place identity layers (dropout, batch norm) only at smaller dimensions (after pooling, before FC)
+- Avoid identity layers at conv output dimensions (which can be thousands)
+- For batch norm specifically, consider fusing it into the conv layer (conv-bn fusion) rather than making it a separate network layer
+
+**Root cause:** Idris 2 lacks opaque/machine-backed type-level naturals (like GHC's `TypeLits`). This is the single largest practical limitation for type-safe tensor shapes at scale. See the Idris 2 issue tracker for discussion.
+
 ### Tensor Foldable reversal
 
 The `foldr` instance for `Tensor` processes elements in reversed order (head into accumulator first). `toList` produces elements backwards. Use direct `Vect` traversal instead when element order matters (e.g., packing into C buffers, extracting prediction values for argmax).

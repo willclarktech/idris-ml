@@ -266,6 +266,7 @@ See [`docs/gotchas.md`](docs/gotchas.md) for detailed explanations of each entry
 - **Backend library required**: `make backend` builds `libidrisml.dylib` (tape by default, `BACKEND=mlx|torch` for others). Per-backend caching: `libidrisml_tape.dylib`, `libidrisml_mlx.dylib`, `libidrisml_torch.dylib` with symlink switching. Manual builds need `cp build/libidrisml.dylib build/exec/<name>_app/`
 - **Scheme-side allocation reordering**: `foreign-alloc`/`foreign-set!` can be reordered by Chez — use C-side allocation (`tensor_alloc_doubles`/`tensor_write_double`) instead
 - **`prim__seq` must use concrete types**: polymorphic `a -> b -> b` causes Chez arg count mismatch. Use `AnyPtr -> AnyPtr -> AnyPtr`
+- **Large Nat type-level reduction**: Idris 2 Peano Nats hang the type-checker for dims > ~1000. Identity layers (dropout, batch norm) at conv output dims (e.g., 16*576=9216) never compile. Place them only at smaller dims (≤512). See `docs/gotchas.md` for thresholds
 
 ### Training & numerics
 
