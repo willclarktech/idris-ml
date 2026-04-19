@@ -144,6 +144,19 @@ prim__batchNorm : AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> Int -> Int -
 export
 prim__dropout : AnyPtr -> Double -> Int -> Int -> AnyPtr
 
+-- Conv1D / MaxPool1D
+%foreign "C:tensor_conv1d,libidrisml"
+export
+prim__conv1d : AnyPtr -> AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
+
+%foreign "C:tensor_max_pool1d,libidrisml"
+export
+prim__maxPool1d : AnyPtr -> Int -> Int -> AnyPtr
+
+%foreign "C:tensor_create_param_3d,libidrisml"
+export
+prim__createParam3d : Int -> Int -> Int -> AnyPtr -> AnyPtr
+
 -- Conv2D / MaxPool2D
 %foreign "C:tensor_conv2d,libidrisml"
 export

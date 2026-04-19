@@ -171,6 +171,8 @@ enum {
     OP_TRANSPOSE_LAST2, /* [B,m,n] -> [B,n,m] */
     OP_BATCH_NORM,    /* per-channel normalization */
     OP_DROPOUT,       /* inverted dropout with stored mask */
+    OP_CONV1D,        /* [inC,L] * [outC,inC,kL] + [outC] -> [outC,oL] */
+    OP_MAX_POOL1D,    /* [C,L] -> [C,oL] with max indices */
     OP_CONV2D,        /* [inC,H,W] * [outC,inC,kH,kW] + [outC] -> [outC,oH,oW] */
     OP_MAX_POOL2D,    /* [C,H,W] -> [C,oH,oW] with max indices */
 };
@@ -250,6 +252,15 @@ typedef struct {
 } DropoutMeta;
 
 typedef struct {
+    int inC, outC, L, kL, pad, stride, oL;
+} Conv1DMeta;
+
+typedef struct {
+    int C, L, kL, stride, oL;
+    int* max_indices;
+} MaxPool1DMeta;
+
+typedef struct {
     int inC, outC, H, W, kH, kW, padH, padW, strH, strW, oH, oW;
 } Conv2DMeta;
 
@@ -318,6 +329,12 @@ static void tape_reset(void) {
             DropoutMeta* meta = (DropoutMeta*)tape[i].op_meta;
             free(meta->mask);
             meta->mask = NULL;
+        }
+        /* Free OP_MAX_POOL1D max indices */
+        if (tape[i].op == OP_MAX_POOL1D && tape[i].op_meta) {
+            MaxPool1DMeta* meta = (MaxPool1DMeta*)tape[i].op_meta;
+            free(meta->max_indices);
+            meta->max_indices = NULL;
         }
         /* Free OP_MAX_POOL2D max indices */
         if (tape[i].op == OP_MAX_POOL2D && tape[i].op_meta) {
@@ -1273,6 +1290,104 @@ TensorHandle tensor_dropout(TensorHandle hinput, double p, int training, unsigne
         free(mask);
     }
     return r;
+}
+
+/* ================================================================
+   Conv1D: input [inC, L], kernel [outC, inC, kL], bias [outC] or NULL
+   Output: [outC, oL]
+   ================================================================ */
+
+TensorHandle tensor_conv1d(TensorHandle hinput, TensorHandle hkernel,
+                           TensorHandle hbias, int pad, int stride) {
+    Tensor* input = (Tensor*)hinput;
+    Tensor* kernel = (Tensor*)hkernel;
+    Tensor* bias = (Tensor*)hbias;
+
+    int inC = input->shape[0], L = input->shape[1];
+    int outC = kernel->shape[0], kL = kernel->shape[2];
+    int oL = (L + 2*pad - kL) / stride + 1;
+
+    double* out = calloc(outC * oL, sizeof(double));
+    for (int oc = 0; oc < outC; oc++) {
+        for (int ol = 0; ol < oL; ol++) {
+            double val = bias ? bias->data[oc] : 0.0;
+            for (int ic = 0; ic < inC; ic++)
+                for (int kl = 0; kl < kL; kl++) {
+                    int il = ol * stride - pad + kl;
+                    if (il >= 0 && il < L)
+                        val += input->data[ic*L + il] * kernel->data[oc*inC*kL + ic*kL + kl];
+                }
+            out[oc*oL + ol] = val;
+        }
+    }
+
+    int out_shape[] = {outC, oL};
+    int rg = input->requires_grad || kernel->requires_grad || (bias && bias->requires_grad);
+    Tensor* r = make_tensor(out, out_shape, 2, rg);
+    free(out);
+
+    if (r->requires_grad) {
+        int idx = tape_append(OP_CONV1D, r, input, kernel, 0);
+        Conv1DMeta* meta = arena_alloc(sizeof(Conv1DMeta));
+        meta->inC = inC; meta->outC = outC; meta->L = L;
+        meta->kL = kL; meta->pad = pad; meta->stride = stride; meta->oL = oL;
+        tape[idx].op_meta = meta;
+        tape[idx].inputs = (Tensor**)bias;
+    }
+    return r;
+}
+
+TensorHandle tensor_max_pool1d(TensorHandle hinput, int kL, int stride) {
+    Tensor* input = (Tensor*)hinput;
+    int C = input->shape[0], L = input->shape[1];
+    int oL = (L - kL) / stride + 1;
+
+    double* out = calloc(C * oL, sizeof(double));
+    int* max_idx = malloc(C * oL * sizeof(int));
+
+    for (int c = 0; c < C; c++)
+        for (int ol = 0; ol < oL; ol++) {
+            double best = -1e30;
+            int best_idx = 0;
+            for (int kl = 0; kl < kL; kl++) {
+                int il = ol * stride + kl;
+                int flat = c*L + il;
+                if (input->data[flat] > best) { best = input->data[flat]; best_idx = flat; }
+            }
+            out[c*oL + ol] = best;
+            max_idx[c*oL + ol] = best_idx;
+        }
+
+    int out_shape[] = {C, oL};
+    Tensor* r = make_tensor(out, out_shape, 2, input->requires_grad);
+    free(out);
+
+    if (r->requires_grad) {
+        int idx = tape_append(OP_MAX_POOL1D, r, input, NULL, 0);
+        MaxPool1DMeta* meta = arena_alloc(sizeof(MaxPool1DMeta));
+        meta->C = C; meta->L = L; meta->kL = kL; meta->stride = stride; meta->oL = oL;
+        meta->max_indices = max_idx;
+        tape[idx].op_meta = meta;
+    } else {
+        free(max_idx);
+    }
+    return r;
+}
+
+TensorHandle tensor_create_param_3d(int d0, int d1, int d2, double* data) {
+    int numel = d0 * d1 * d2;
+    Tensor* t = calloc(1, sizeof(Tensor));
+    t->data = malloc(numel * sizeof(double));
+    memcpy(t->data, data, numel * sizeof(double));
+    free(data);
+    t->shape = malloc(3 * sizeof(int));
+    t->shape[0] = d0; t->shape[1] = d1; t->shape[2] = d2;
+    t->rank = 3; t->numel = numel;
+    t->requires_grad = 1;
+    t->tape_idx = -1;
+    t->persistent = 1;
+    tape_append(OP_CONST, t, NULL, NULL, 0);
+    return t;
 }
 
 /* ================================================================
@@ -2662,6 +2777,62 @@ void tensor_backward(TensorHandle h) {
                 ensure_grad(a);
                 for (int j = 0; j < meta->numel; j++)
                     a->grad[j] += r->grad[j] * meta->mask[j];
+            }
+            break;
+        }
+
+        case OP_CONV1D: {
+            Conv1DMeta* meta = (Conv1DMeta*)e->op_meta;
+            int inC = meta->inC, outC = meta->outC, LL = meta->L;
+            int kL = meta->kL, pad = meta->pad, str = meta->stride, oL = meta->oL;
+            ensure_grad(r);
+            if (a && a->requires_grad) {
+                ensure_grad(a);
+                for (int oc = 0; oc < outC; oc++)
+                    for (int ol = 0; ol < oL; ol++) {
+                        double dout = r->grad[oc*oL + ol];
+                        for (int ic = 0; ic < inC; ic++)
+                            for (int kl = 0; kl < kL; kl++) {
+                                int il = ol * str - pad + kl;
+                                if (il >= 0 && il < LL)
+                                    a->grad[ic*LL + il] += dout * b->data[oc*inC*kL + ic*kL + kl];
+                            }
+                    }
+            }
+            if (b && b->requires_grad) {
+                ensure_grad(b);
+                for (int oc = 0; oc < outC; oc++)
+                    for (int ic = 0; ic < inC; ic++)
+                        for (int kl = 0; kl < kL; kl++) {
+                            double s = 0;
+                            for (int ol = 0; ol < oL; ol++) {
+                                int il = ol * str - pad + kl;
+                                if (il >= 0 && il < LL)
+                                    s += r->grad[oc*oL + ol] * a->data[ic*LL + il];
+                            }
+                            b->grad[oc*inC*kL + ic*kL + kl] += s;
+                        }
+            }
+            Tensor* bias_t = (Tensor*)e->inputs;
+            if (bias_t && bias_t->requires_grad) {
+                ensure_grad(bias_t);
+                for (int oc = 0; oc < outC; oc++) {
+                    double s = 0;
+                    for (int ol = 0; ol < oL; ol++) s += r->grad[oc*oL + ol];
+                    bias_t->grad[oc] += s;
+                }
+            }
+            break;
+        }
+
+        case OP_MAX_POOL1D: {
+            MaxPool1DMeta* meta = (MaxPool1DMeta*)e->op_meta;
+            ensure_grad(r);
+            if (a && a->requires_grad) {
+                ensure_grad(a);
+                int out_numel = meta->C * meta->oL;
+                for (int i = 0; i < out_numel; i++)
+                    a->grad[meta->max_indices[i]] += r->grad[i];
             }
             break;
         }

@@ -92,6 +92,17 @@ TensorHandle tensor_dropout(TensorHandle input, double p, int training, unsigned
 
 /* ---------- Convolution & Pooling ---------- */
 
+/* Conv1D: input [inC, L], kernel [outC, inC, kL], bias [outC] or NULL.
+   Returns [outC, oL] where oL = (L + 2*pad - kL) / stride + 1. */
+TensorHandle tensor_conv1d(TensorHandle input, TensorHandle kernel,
+                           TensorHandle bias, int pad, int stride);
+
+/* MaxPool1D: input [C, L]. Returns [C, oL] where oL = (L - kL) / stride + 1. */
+TensorHandle tensor_max_pool1d(TensorHandle input, int kL, int stride);
+
+/* Create a [d0, d1, d2] tensor with requires_grad=true */
+TensorHandle tensor_create_param_3d(int d0, int d1, int d2, double* data);
+
 /* Conv2D: input [inC, H, W], kernel [outC, inC, kH, kW], bias [outC] or NULL.
    Returns [outC, oH, oW] where oH = (H + 2*padH - kH) / strideH + 1. */
 TensorHandle tensor_conv2d(TensorHandle input, TensorHandle kernel,

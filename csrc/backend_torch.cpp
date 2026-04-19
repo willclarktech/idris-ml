@@ -273,6 +273,32 @@ TensorHandle tensor_dropout(TensorHandle hinput, double p, int training, unsigne
     return from_tensor(out);
 }
 
+TensorHandle tensor_conv1d(TensorHandle hinput, TensorHandle hkernel,
+                           TensorHandle hbias, int pad, int stride) {
+    auto& inp = *to_tensor(hinput);
+    auto& ker = *to_tensor(hkernel);
+    auto inp_3d = inp.unsqueeze(0);
+    at::Tensor bias_t;
+    if (hbias) bias_t = *to_tensor(hbias);
+    auto out = hbias
+        ? torch::conv1d(inp_3d, ker, bias_t, /*stride=*/{stride}, /*padding=*/{pad})
+        : torch::conv1d(inp_3d, ker, /*bias=*/{}, /*stride=*/{stride}, /*padding=*/{pad});
+    return from_tensor(out.squeeze(0));
+}
+
+TensorHandle tensor_max_pool1d(TensorHandle hinput, int kL, int stride) {
+    auto& inp = *to_tensor(hinput);
+    auto inp_3d = inp.unsqueeze(0);
+    auto out = torch::max_pool1d(inp_3d, {kL}, {stride});
+    return from_tensor(out.squeeze(0));
+}
+
+TensorHandle tensor_create_param_3d(int d0, int d1, int d2, double* data) {
+    auto t = torch::from_blob(data, {(int64_t)d0, (int64_t)d1, (int64_t)d2}, torch::kFloat64).clone();
+    t.requires_grad_(true);
+    return from_tensor_persistent(std::move(t));
+}
+
 TensorHandle tensor_conv2d(TensorHandle hinput, TensorHandle hkernel,
                            TensorHandle hbias, int padH, int padW,
                            int strideH, int strideW) {

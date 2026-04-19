@@ -87,6 +87,8 @@ enum {
     OP_TRANSPOSE_LAST2,
     OP_BATCH_NORM,
     OP_DROPOUT,
+    OP_CONV1D,
+    OP_MAX_POOL1D,
     OP_CONV2D,
     OP_MAX_POOL2D,
 };
@@ -104,6 +106,15 @@ struct BatchNormReplayMeta {
     int beta_pool_idx;
     int C, spatial;
     double eps;
+};
+
+struct Conv1DReplayMeta {
+    int pad, stride, inC, L;
+    int bias_pool_idx;
+};
+
+struct MaxPool1DReplayMeta {
+    int C, L, kL, stride, oL;
 };
 
 struct Conv2DReplayMeta {
@@ -147,6 +158,14 @@ static void tape_reset() {
         }
         if (e.op == OP_BATCH_NORM && e.meta) {
             delete (BatchNormReplayMeta*)e.meta;
+            e.meta = nullptr;
+        }
+        if (e.op == OP_CONV1D && e.meta) {
+            delete (Conv1DReplayMeta*)e.meta;
+            e.meta = nullptr;
+        }
+        if (e.op == OP_MAX_POOL1D && e.meta) {
+            delete (MaxPool1DReplayMeta*)e.meta;
             e.meta = nullptr;
         }
         if (e.op == OP_CONV2D && e.meta) {
@@ -597,6 +616,63 @@ TensorHandle tensor_dropout(TensorHandle hinput, double p, int training, unsigne
         int idx = tape_append(OP_DROPOUT, r, inp, mask_t, 0);
     }
     return (TensorHandle)r;
+}
+
+TensorHandle tensor_conv1d(TensorHandle hinput, TensorHandle hkernel,
+                           TensorHandle hbias, int pad, int stride) {
+    auto inp = (Tensor*)hinput;
+    auto ker = (Tensor*)hkernel;
+    Tensor* bias = hbias ? (Tensor*)hbias : nullptr;
+    int inC = (int)inp->data.shape(0), L = (int)inp->data.shape(1);
+
+    // MLX conv1d: input [N, L, C_in], weight [C_out, kL, C_in]
+    auto inp_lc = mx::transpose(inp->data, {1, 0});  // [L, inC]
+    auto inp_nlc = mx::reshape(inp_lc, {1, L, inC});
+    auto ker_mlx = mx::transpose(ker->data, {0, 2, 1});  // [outC, kL, inC]
+    auto out = mx::conv1d(inp_nlc, ker_mlx, stride, pad);
+    auto out_sq = mx::squeeze(out, 0);  // [oL, outC]
+    auto result = mx::transpose(out_sq, {1, 0});  // [outC, oL]
+    if (bias) result = mx::add(result, mx::reshape(bias->data, {-1, 1}));
+
+    bool rg = inp->requires_grad || ker->requires_grad || (bias && bias->requires_grad);
+    auto r = new Tensor(result, rg);
+    if (rg) {
+        int idx = tape_append(OP_CONV1D, r, inp, ker, 0);
+        auto* meta = new Conv1DReplayMeta();
+        meta->pad = pad; meta->stride = stride; meta->inC = inC; meta->L = L;
+        meta->bias_pool_idx = bias ? bias->pool_idx : -1;
+        tape[idx].meta = meta;
+    }
+    return (TensorHandle)r;
+}
+
+TensorHandle tensor_max_pool1d(TensorHandle hinput, int kL, int stride) {
+    auto inp = (Tensor*)hinput;
+    int C = (int)inp->data.shape(0), L = (int)inp->data.shape(1);
+    int oL = (L - kL) / stride + 1;
+
+    mx::array result = mx::full({C, oL}, -1e30, mx::float64);
+    for (int kl = 0; kl < kL; kl++) {
+        auto sliced = mx::slice(inp->data, {0, kl}, {C, kl + oL * stride}, {1, stride});
+        result = mx::maximum(result, sliced);
+    }
+
+    auto r = new Tensor(result, inp->requires_grad);
+    if (inp->requires_grad) {
+        int idx = tape_append(OP_MAX_POOL1D, r, inp, nullptr, 0);
+        auto* meta = new MaxPool1DReplayMeta();
+        meta->C = C; meta->L = L; meta->kL = kL; meta->stride = stride; meta->oL = oL;
+        tape[idx].meta = meta;
+    }
+    return (TensorHandle)r;
+}
+
+TensorHandle tensor_create_param_3d(int d0, int d1, int d2, double* data) {
+    int shape[] = {d0, d1, d2};
+    auto t = tensor_create(data, shape, 3, 1);
+    free(data);
+    ((Tensor*)t)->persistent = 1;
+    return t;
 }
 
 TensorHandle tensor_conv2d(TensorHandle hinput, TensorHandle hkernel,
@@ -1075,6 +1151,30 @@ void tensor_backward(TensorHandle h) {
             case OP_DROPOUT: {
                 // b holds the stored mask tensor; just multiply
                 pool[out] = mx::multiply(a, b);
+                break;
+            }
+            case OP_CONV1D: {
+                auto* cm = (Conv1DReplayMeta*)e.meta;
+                int inC = cm->inC, LL = cm->L;
+                auto inp_lc = mx::transpose(a, {1, 0});
+                auto inp_nlc = mx::reshape(inp_lc, {1, LL, inC});
+                auto ker_mlx = mx::transpose(b, {0, 2, 1});
+                auto cv = mx::conv1d(inp_nlc, ker_mlx, cm->stride, cm->pad);
+                auto cv_sq = mx::squeeze(cv, 0);
+                auto cv_out = mx::transpose(cv_sq, {1, 0});
+                if (cm->bias_pool_idx >= 0)
+                    cv_out = mx::add(cv_out, mx::reshape(pool[cm->bias_pool_idx], {-1, 1}));
+                pool[out] = cv_out;
+                break;
+            }
+            case OP_MAX_POOL1D: {
+                auto* pm = (MaxPool1DReplayMeta*)e.meta;
+                mx::array res = mx::full({pm->C, pm->oL}, -1e30, mx::float64);
+                for (int kl = 0; kl < pm->kL; kl++) {
+                    auto sliced = mx::slice(a, {0, kl}, {pm->C, kl + pm->oL * pm->stride}, {1, pm->stride});
+                    res = mx::maximum(res, sliced);
+                }
+                pool[out] = res;
                 break;
             }
             case OP_CONV2D: {

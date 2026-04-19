@@ -199,3 +199,142 @@ maxPool2dLayer : {c, inH, inW, poolH, poolW, strH, strW : Nat} ->
                           ty
 maxPool2dLayer = MkAnyLayer (MaxPool2DState c inH inW poolH poolW strH strW)
                   (MkMaxPool2D Refl Refl)
+
+
+----------------------------------------------------------------------
+-- Conv1D State
+----------------------------------------------------------------------
+
+public export
+record Conv1DState (inC : Nat) (outC : Nat) (len : Nat)
+                   (kL : Nat) (pad : Nat)
+                   (inputSize : Nat) (outputSize : Nat) (ty : Type) where
+  constructor MkConv1D
+  0 inputPrf  : inputSize = inC * len
+  0 outputPrf : outputSize = outC * (ConvOutDim len kL pad)
+  kernelFlat  : Vector (outC * inC * kL) ty
+  bias        : Vector outC ty
+  kernelTensor : Maybe AnyPtr
+  biasTensor   : Maybe AnyPtr
+
+
+----------------------------------------------------------------------
+-- Conv1D LayerLike Instance
+----------------------------------------------------------------------
+
+export
+{inC, outC, len, kL, pad : Nat} ->
+  LayerLike (Conv1DState inC outC len kL pad) where
+
+  applyGeneric _ _ = idris_crash "Conv1D: use tensor path"
+  applyVar _ _ = idris_crash "Conv1D: use tensor path"
+
+  applyVarTensor {i} {o} st inputT =
+    case (st.kernelTensor, st.biasTensor) of
+      (Just kerT, Just biasT) =>
+        let inCI = cast {to=Int} inC
+            lenI = cast {to=Int} len
+            inp2d = prim__reshape2d inputT inCI lenI
+            padI = cast {to=Int} pad
+            outT = prim__conv1d inp2d kerT biasT padI 1
+            oI = cast {to=Int} o
+            flatOut = prim__reshape1d outT oI
+        in (st, flatOut)
+      _ => idris_crash "Conv1D: weight tensors not initialized"
+
+  emapLayer f (MkConv1D ip op k b kt bt) = MkConv1D ip op (map f k) (map f b) kt bt
+  showLayer _ = "Conv1D<" ++ show inC ++ "->" ++ show outC ++ " k=" ++ show kL ++ ">"
+
+  nameLayer {i} {o} prefx (MkConv1D ip op kernelFlat bias _ _) =
+    if prim__backendSupportsTensorParams == 1
+      then
+        let kerI = cast {to=Int} (outC * inC * kL)
+            kerBuf = prim__allocDoubles kerI
+            (VTensor kerElems) = kernelFlat
+            kerBuf' = packScalarValues kerBuf 0 kerElems
+            kerT = prim__paramRegister (prefx ++ "_kernel")
+                     (prim__createParam3d (cast outC) (cast inC) (cast kL) kerBuf')
+            biasI = cast {to=Int} outC
+            biasBuf = prim__allocDoubles biasI
+            (VTensor biasElems) = bias
+            biasBuf' = packScalarValues biasBuf 0 biasElems
+            biasT = prim__paramRegister (prefx ++ "_bias")
+                      (prim__createParam1d biasI biasBuf')
+        in MkConv1D ip op kernelFlat bias (Just kerT) (Just biasT)
+      else idris_crash "Conv1D: scalar path not supported"
+
+  layerPrefix _ = "conv1d"
+  toDoubleLayer (MkConv1D ip op k b _ _) =
+    MkConv1D ip op (map value k) (map value b) Nothing Nothing
+  debugApply _ _ = idris_crash "Conv1D: use tensor path"
+
+
+----------------------------------------------------------------------
+-- Conv1D Constructor
+----------------------------------------------------------------------
+
+export
+conv1dLayer : {inC, outC, len, kL, pad : Nat} ->
+              (Num ty, FromDouble ty) =>
+              IO (AnyLayer (inC * len)
+                           (outC * (ConvOutDim len kL pad))
+                           ty)
+conv1dLayer = do
+  kernelVals <- traverse (\_ => map fromDouble (he normal (inC * kL) outC))
+                         (the (Vector (outC * inC * kL) ty) zeros)
+  let biasVals = the (Vector outC ty) zeros
+  pure $ MkAnyLayer (Conv1DState inC outC len kL pad)
+    (MkConv1D Refl Refl kernelVals biasVals Nothing Nothing)
+
+
+----------------------------------------------------------------------
+-- MaxPool1D State
+----------------------------------------------------------------------
+
+public export
+record MaxPool1DState (c : Nat) (len : Nat) (poolK : Nat) (str : Nat)
+                      (inputSize : Nat) (outputSize : Nat) (ty : Type) where
+  constructor MkMaxPool1D
+  0 inputPrf  : inputSize = c * len
+  0 outputPrf : outputSize = c * (PoolOutDim len poolK str)
+
+
+----------------------------------------------------------------------
+-- MaxPool1D LayerLike Instance
+----------------------------------------------------------------------
+
+export
+{c, len, poolK, str : Nat} ->
+  LayerLike (MaxPool1DState c len poolK str) where
+
+  applyGeneric _ _ = idris_crash "MaxPool1D: use tensor path"
+  applyVar _ _ = idris_crash "MaxPool1D: use tensor path"
+
+  applyVarTensor {i} {o} st inputT =
+    let cI = cast {to=Int} c
+        lenI = cast {to=Int} len
+        inp2d = prim__reshape2d inputT cI lenI
+        outT = prim__maxPool1d inp2d (cast {to=Int} poolK) (cast {to=Int} str)
+        oI = cast {to=Int} o
+        flatOut = prim__reshape1d outT oI
+    in (st, flatOut)
+
+  emapLayer _ st = st
+  showLayer _ = "MaxPool1D<k=" ++ show poolK ++ " s=" ++ show str ++ ">"
+  nameLayer _ st = st
+  layerPrefix _ = "pool1d"
+  toDoubleLayer (MkMaxPool1D ip op) = MkMaxPool1D ip op
+  debugApply _ _ = idris_crash "MaxPool1D: use tensor path"
+
+
+----------------------------------------------------------------------
+-- MaxPool1D Constructor
+----------------------------------------------------------------------
+
+export
+maxPool1dLayer : {c, len, poolK, str : Nat} ->
+                 AnyLayer (c * len)
+                          (c * (PoolOutDim len poolK str))
+                          ty
+maxPool1dLayer = MkAnyLayer (MaxPool1DState c len poolK str)
+                  (MkMaxPool1D Refl Refl)
