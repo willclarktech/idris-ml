@@ -5,6 +5,7 @@
 | Item | Difficulty | Notes |
 |------|-----------|-------|
 | Model serialization (save/load/checkpointing) | M–L | Save trained model weights to disk and reload them. Enables: checkpointing during long training runs, sharing trained models, inference without retraining. Needs: serialize parameter tensors (name → flat double array), file format (binary or JSON), `saveModel`/`loadModel` in Idris, C-side `param_save`/`param_load` in backend.h. Should work across all 3 backends (tape/mlx/torch). Consider: save optimizer state too for training resumption |
+| Revisit native autograd (torch/MLX) | M–L | Currently all 3 backends use a custom Wengert list (tape) for autograd. Torch and MLX have built-in autograd that could be faster, more numerically stable, and support higher-order gradients. Investigate: (1) performance gap between custom tape vs native autograd, (2) which ops benefit most, (3) whether hybrid approach is feasible (native autograd for standard ops, custom for fused NTM ops). Would require rearchitecting the backward pass in backend_mlx.cpp and backend_torch.cpp |
 | Reinforcement learning example | L–XL | Policy gradient (e.g. REINFORCE on CartPole or grid world). Requires: environment interface, episode rollout, discounted return computation, policy gradient loss (`-log_prob * reward`). May need: `Categorical` distribution sampling from logits, baseline variance reduction. Could reuse `Train.runTraining` with episodes as "epochs" |
 
 ## Medium Priority
@@ -20,6 +21,7 @@
 
 | Item | Difficulty | Notes |
 |------|-----------|-------|
+| Fix tape backend test crash (T4: Fused MV backward) | S–M | `make test-backend-tape` aborts with SIGABRT at `test_fused_mv_backward`. Pre-existing issue — not caused by recent changes. Likely memory corruption or stale pointer in consolidated weight tensor + view test. All other tests (T1–T3, T5–T11) pass when run individually |
 | Broadcasting | XL | Type-safe broadcasting. Key tension: expressiveness vs shape safety guarantees. See `docs/static-vs-dynamic-graphs.md` |
 | Static graph optimizations | L–XL | Compile-time operator fusion, memory planning via dependent types. See `docs/static-vs-dynamic-graphs.md` |
 | DNC (Differentiable Neural Computer) | XL | Graves et al. 2016 — temporal link matrix, dynamic memory allocation, multiple read heads |
