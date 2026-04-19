@@ -82,6 +82,9 @@ enum {
     OP_MV,
     OP_SELECT,
     OP_NORMALIZE,
+    OP_BMM_3X3,
+    OP_SOFTMAX_3D,
+    OP_TRANSPOSE_LAST2,
 };
 
 // Lightweight metadata for ops that need extra info during replay.
@@ -607,6 +610,42 @@ TensorHandle tensor_bmm(TensorHandle ha, TensorHandle hb) {
 TensorHandle tensor_batch(TensorHandle* handles, int count) { STUB(); }
 TensorHandle* tensor_unbatch(TensorHandle h, int* out_count) { STUB(); }
 
+TensorHandle tensor_bmm_3x3(TensorHandle ha, TensorHandle hb) {
+    auto a = (Tensor*)ha; auto b = (Tensor*)hb;
+    bool rg = a->requires_grad || b->requires_grad;
+    auto r = new Tensor(mx::matmul(a->data, b->data), rg);
+    if (rg) tape_append(OP_BMM_3X3, r, a, b, 0);
+    return (TensorHandle)r;
+}
+
+TensorHandle tensor_softmax_3d(TensorHandle h) {
+    auto t = (Tensor*)h;
+    auto r = new Tensor(mx::softmax(t->data, -1), t->requires_grad);
+    if (t->requires_grad) tape_append(OP_SOFTMAX_3D, r, t, nullptr, 0);
+    return (TensorHandle)r;
+}
+
+TensorHandle tensor_transpose_last2(TensorHandle h) {
+    auto t = (Tensor*)h;
+    auto r = new Tensor(mx::transpose(t->data, {0, 2, 1}), t->requires_grad);
+    if (t->requires_grad) tape_append(OP_TRANSPOSE_LAST2, r, t, nullptr, 0);
+    return (TensorHandle)r;
+}
+
+TensorHandle tensor_reshape_3d(TensorHandle h, int d0, int d1, int d2) {
+    int shape[] = {d0, d1, d2};
+    return tensor_reshape(h, shape, 3);
+}
+
+TensorHandle tensor_expand_mask(TensorHandle hmask, int B) {
+    auto mask = (Tensor*)hmask;
+    int m = mask->data.shape(0), n = mask->data.shape(1);
+    // [m,n] → [1,m,n] → broadcast to [B,m,n]
+    auto expanded = mx::broadcast_to(mx::reshape(mask->data, {1, m, n}), {B, m, n});
+    auto r = new Tensor(expanded, false);
+    return (TensorHandle)r;
+}
+
 TensorHandle tensor_transpose_2d(TensorHandle h) {
     auto t = (Tensor*)h;
     auto r = new Tensor(mx::transpose(t->data, {1, 0}), t->requires_grad);
@@ -765,7 +804,9 @@ void tensor_backward(TensorHandle h) {
             case OP_CLAMP_MIN: pool[out] = mx::maximum(a, mx::array(e.scalar_arg)); break;
             case OP_SUM: pool[out] = mx::sum(a); break;
             case OP_MEAN: pool[out] = mx::mean(a); break;
-            case OP_MM: case OP_BMM: pool[out] = mx::matmul(a, b); break;
+            case OP_MM: case OP_BMM: case OP_BMM_3X3: pool[out] = mx::matmul(a, b); break;
+            case OP_SOFTMAX_3D: pool[out] = mx::softmax(a, -1); break;
+            case OP_TRANSPOSE_LAST2: pool[out] = mx::transpose(a, {0, 2, 1}); break;
             case OP_MV: {
                 auto col = mx::reshape(b, {(int)b.size(), 1});
                 pool[out] = mx::reshape(mx::matmul(a, col), {(int)a.shape(0)});

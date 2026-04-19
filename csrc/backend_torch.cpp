@@ -597,6 +597,26 @@ TensorHandle tensor_bmm(TensorHandle a, TensorHandle b) {
     return from_tensor(torch::stack(results));
 }
 
+TensorHandle tensor_bmm_3x3(TensorHandle a, TensorHandle b) {
+    return from_tensor(torch::bmm(*to_tensor(a), *to_tensor(b)));
+}
+
+TensorHandle tensor_softmax_3d(TensorHandle h) {
+    return from_tensor(torch::softmax(*to_tensor(h), -1));
+}
+
+TensorHandle tensor_transpose_last2(TensorHandle h) {
+    return from_tensor(to_tensor(h)->transpose(-2, -1).contiguous());
+}
+
+TensorHandle tensor_reshape_3d(TensorHandle h, int d0, int d1, int d2) {
+    return from_tensor(to_tensor(h)->reshape({(int64_t)d0, (int64_t)d1, (int64_t)d2}));
+}
+
+TensorHandle tensor_expand_mask(TensorHandle hmask, int B) {
+    return from_tensor(to_tensor(hmask)->unsqueeze(0).expand({(int64_t)B, -1, -1}).contiguous());
+}
+
 TensorHandle tensor_transpose_2d(TensorHandle h) {
     return from_tensor(to_tensor(h)->t().contiguous());
 }

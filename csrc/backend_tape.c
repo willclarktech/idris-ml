@@ -166,6 +166,9 @@ enum {
     OP_MASKED_FILL,   /* fill masked positions with a value */
     OP_LAYER_NORM_2D, /* row-wise layer normalization on [m,n] */
     OP_BMM,           /* batched matrix multiply: [B,m,n] x [n,k] -> [B,m,k] */
+    OP_BMM_3X3,       /* batched matmul: [B,m,n] x [B,n,k] -> [B,m,k] */
+    OP_SOFTMAX_3D,    /* row-wise softmax on [B,m,n] along last dim */
+    OP_TRANSPOSE_LAST2, /* [B,m,n] -> [B,n,m] */
 };
 
 typedef struct {
@@ -670,6 +673,98 @@ TensorHandle tensor_bmm(TensorHandle ha, TensorHandle hb) {
     Tensor* r = make_tensor(data, shape, 3, rg);
     free(data);
     if (rg) tape_append(OP_BMM, r, a, b, 0);
+    return r;
+}
+
+TensorHandle tensor_bmm_3x3(TensorHandle ha, TensorHandle hb) {
+    Tensor* a = (Tensor*)ha;
+    Tensor* b = (Tensor*)hb;
+    int B = a->shape[0], m = a->shape[1], n = a->shape[2], k = b->shape[2];
+    int rg = a->requires_grad || b->requires_grad;
+    double* data = calloc(B * m * k, sizeof(double));
+
+    for (int bi = 0; bi < B; bi++) {
+#ifdef __APPLE__
+        cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
+                    m, k, n, 1.0,
+                    a->data + bi * m * n, n,
+                    b->data + bi * n * k, k,
+                    0.0, data + bi * m * k, k);
+#else
+        for (int i = 0; i < m; i++)
+            for (int j = 0; j < k; j++) {
+                double s = 0;
+                for (int p = 0; p < n; p++)
+                    s += a->data[bi*m*n + i*n+p] * b->data[bi*n*k + p*k+j];
+                data[bi*m*k + i*k+j] = s;
+            }
+#endif
+    }
+
+    int shape[] = {B, m, k};
+    Tensor* r = make_tensor(data, shape, 3, rg);
+    free(data);
+    if (rg) tape_append(OP_BMM_3X3, r, a, b, 0);
+    return r;
+}
+
+TensorHandle tensor_softmax_3d(TensorHandle h) {
+    Tensor* t = (Tensor*)h;
+    int B = t->shape[0], m = t->shape[1], n = t->shape[2];
+    int total_rows = B * m;
+    double* data = malloc(t->numel * sizeof(double));
+
+    for (int i = 0; i < total_rows; i++) {
+        double max_val = t->data[i*n];
+        for (int j = 1; j < n; j++)
+            if (t->data[i*n+j] > max_val) max_val = t->data[i*n+j];
+        double sum = 0;
+        for (int j = 0; j < n; j++) {
+            data[i*n+j] = exp(t->data[i*n+j] - max_val);
+            sum += data[i*n+j];
+        }
+        for (int j = 0; j < n; j++)
+            data[i*n+j] /= sum;
+    }
+
+    int shape[] = {B, m, n};
+    Tensor* r = make_tensor(data, shape, 3, t->requires_grad);
+    free(data);
+    if (t->requires_grad) tape_append(OP_SOFTMAX_3D, r, t, NULL, 0);
+    return r;
+}
+
+TensorHandle tensor_transpose_last2(TensorHandle h) {
+    Tensor* t = (Tensor*)h;
+    int B = t->shape[0], m = t->shape[1], n = t->shape[2];
+    double* data = malloc(t->numel * sizeof(double));
+
+    for (int bi = 0; bi < B; bi++)
+        for (int i = 0; i < m; i++)
+            for (int j = 0; j < n; j++)
+                data[bi*n*m + j*m + i] = t->data[bi*m*n + i*n + j];
+
+    int shape[] = {B, n, m};
+    Tensor* r = make_tensor(data, shape, 3, t->requires_grad);
+    free(data);
+    if (t->requires_grad) tape_append(OP_TRANSPOSE_LAST2, r, t, NULL, 0);
+    return r;
+}
+
+TensorHandle tensor_reshape_3d(TensorHandle h, int d0, int d1, int d2) {
+    int shape[] = {d0, d1, d2};
+    return tensor_reshape(h, shape, 3);
+}
+
+TensorHandle tensor_expand_mask(TensorHandle hmask, int B) {
+    Tensor* mask = (Tensor*)hmask;
+    int mn = mask->numel;
+    double* data = malloc(B * mn * sizeof(double));
+    for (int bi = 0; bi < B; bi++)
+        memcpy(data + bi * mn, mask->data, mn * sizeof(double));
+    int shape[] = {B, mask->shape[0], mask->shape[1]};
+    Tensor* r = make_tensor(data, shape, 3, 0);
+    free(data);
     return r;
 }
 
@@ -1751,6 +1846,68 @@ void tensor_backward(TensorHandle h) {
                                 s += a->data[bi*mm*nn + i*nn+j] * r->grad[bi*mm*kk + i*kk+p];
                             b->grad[j*kk+p] += s;
                         }
+            }
+            break;
+        }
+
+        case OP_BMM_3X3: {
+            /* r = a @ b where a=[B,m,n], b=[B,n,k], r=[B,m,k]
+               d_a[bi] = grad[bi] @ b[bi]^T, d_b[bi] = a[bi]^T @ grad[bi] */
+            int BB = a->shape[0], mm = a->shape[1], nn = a->shape[2], kk = b->shape[2];
+            ensure_grad(r);
+            if (a && a->requires_grad) {
+                ensure_grad(a);
+                for (int bi = 0; bi < BB; bi++)
+                    for (int i = 0; i < mm; i++)
+                        for (int j = 0; j < nn; j++) {
+                            double s = 0;
+                            for (int p = 0; p < kk; p++)
+                                s += r->grad[bi*mm*kk + i*kk+p] * b->data[bi*nn*kk + j*kk+p];
+                            a->grad[bi*mm*nn + i*nn+j] += s;
+                        }
+            }
+            if (b && b->requires_grad) {
+                ensure_grad(b);
+                for (int bi = 0; bi < BB; bi++)
+                    for (int j = 0; j < nn; j++)
+                        for (int p = 0; p < kk; p++) {
+                            double s = 0;
+                            for (int i = 0; i < mm; i++)
+                                s += a->data[bi*mm*nn + i*nn+j] * r->grad[bi*mm*kk + i*kk+p];
+                            b->grad[bi*nn*kk + j*kk+p] += s;
+                        }
+            }
+            break;
+        }
+
+        case OP_SOFTMAX_3D: {
+            /* r = softmax(a) on [B,m,n] along last dim. Same as 2D but B*m rows. */
+            int BB = a->shape[0], mm = a->shape[1], nn = a->shape[2];
+            int total_rows = BB * mm;
+            ensure_grad(r);
+            if (a) {
+                ensure_grad(a);
+                for (int i = 0; i < total_rows; i++) {
+                    double dot = 0;
+                    for (int j = 0; j < nn; j++)
+                        dot += r->grad[i*nn+j] * r->data[i*nn+j];
+                    for (int j = 0; j < nn; j++)
+                        a->grad[i*nn+j] += r->data[i*nn+j] * (r->grad[i*nn+j] - dot);
+                }
+            }
+            break;
+        }
+
+        case OP_TRANSPOSE_LAST2: {
+            /* r = transpose_last2(a) where a=[B,m,n], r=[B,n,m]. Transpose grad back. */
+            int BB = a->shape[0], mm = a->shape[1], nn = a->shape[2];
+            ensure_grad(r);
+            if (a) {
+                ensure_grad(a);
+                for (int bi = 0; bi < BB; bi++)
+                    for (int i = 0; i < mm; i++)
+                        for (int j = 0; j < nn; j++)
+                            a->grad[bi*mm*nn + i*nn+j] += r->grad[bi*nn*mm + j*mm+i];
             }
             break;
         }

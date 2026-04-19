@@ -113,6 +113,13 @@ TensorHandle tensor_log_softmax_2d(TensorHandle t);
 TensorHandle tensor_layer_norm_2d(TensorHandle input, TensorHandle gamma,
                                    TensorHandle bias, double eps);
 TensorHandle tensor_reshape_2d(TensorHandle t, int rows, int cols);
+
+/* 3D batched attention ops */
+TensorHandle tensor_bmm_3x3(TensorHandle a, TensorHandle b);  /* [B,m,n] x [B,n,k] -> [B,m,k] */
+TensorHandle tensor_softmax_3d(TensorHandle t);                /* softmax along last dim */
+TensorHandle tensor_transpose_last2(TensorHandle t);           /* [B,m,n] -> [B,n,m] */
+TensorHandle tensor_reshape_3d(TensorHandle t, int d0, int d1, int d2);
+TensorHandle tensor_expand_mask(TensorHandle mask, int B);     /* [m,n] -> [B,m,n] */
 TensorHandle tensor_causal_mask(int n);
 
 /* ---------- Autograd ---------- */
