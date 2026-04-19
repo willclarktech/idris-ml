@@ -245,6 +245,16 @@ bench-py:
 bench-compare: example-bench
 	cd pytorch && uv run python -m torch_ref.compare
 
+bench-ops: backend
+	cc -o $(BUILD)/bench_ops csrc/bench_ops.c -L$(BUILD) -lidrisml -Wl,-rpath,$(BUILD) -lm
+	./$(BUILD)/bench_ops
+
+bench-ops-py:
+	cd pytorch && uv run python -m torch_ref.bench_ops
+
+bench-ops-compare: bench-ops
+	cd pytorch && uv run python -m torch_ref.compare_ops
+
 ref-supervised:
 	cd pytorch && uv run python -m torch_ref.scripts.supervised
 
@@ -423,6 +433,6 @@ test-all:
         example-bench example-profile sweep sweep-quick clean \
         backend print-torch ref-setup ref-supervised ref-rnn ref-lstm ref-ntm-copy \
         ref-ntm-recall ref-dnc-copy ref-dnc-recall \
-        ref-transformer bench-py bench-compare ref-test ref-lint \
+        ref-transformer bench-py bench-compare bench-ops bench-ops-py bench-ops-compare ref-test ref-lint \
         ref-typecheck ref-convergence ref-convergence-copy ref-convergence-recall \
         jupyter-install jupyter-lab test-jupyter test-jupyter-unit test-notebooks
