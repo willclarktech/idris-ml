@@ -1,9 +1,9 @@
 /* backend_mlx.cpp — MLX backend implementing backend.h.
  *
  * Uses Apple's MLX framework for GPU-accelerated tensor operations
- * on Apple Silicon via Metal. Tape-based autograd (same structure as
- * backend_tape.c) with MLX arrays for compute — backward ops also
- * run on GPU via MLX.
+ * on Apple Silicon via Metal. Forward ops record to a tape; backward
+ * replays the tape inside mlx::grad for native autograd — zero
+ * hand-written backward rules.
  *
  * Build: make BACKEND=mlx MLX_SITE=/path/to/mlx backend
  */
@@ -42,6 +42,8 @@ namespace mx = mlx::core;
 static std::vector<struct Tensor*> all_tensors;
 static std::vector<TensorPair*> all_pairs;
 
+static int next_pool_idx = 0;
+
 struct Tensor {
     mx::array data;
     mx::array grad;
@@ -49,10 +51,11 @@ struct Tensor {
     bool has_grad;
     int tape_idx;
     int persistent;  // 1 = param/state, 0 = intermediate
+    int pool_idx;    // unique index for replay pool
 
     Tensor(mx::array d, bool rg = false)
         : data(std::move(d)), grad(mx::array(0.0f)), requires_grad(rg),
-          has_grad(false), tape_idx(-1), persistent(0) {
+          has_grad(false), tape_idx(-1), persistent(0), pool_idx(next_pool_idx++) {
         all_tensors.push_back(this);
     }
 };
@@ -80,23 +83,12 @@ enum {
     OP_NORMALIZE,
 };
 
-struct CosSimMeta {
-    int n, m;
-    mx::array row_norms;  // [n]
-    mx::array key_norm;   // scalar
-    mx::array dots;       // [n]
-    CosSimMeta() : n(0), m(0), row_norms(mx::array(0.0f)),
-                   key_norm(mx::array(0.0f)), dots(mx::array(0.0f)) {}
-};
-
-struct LayerNormMeta {
-    Tensor* gamma;
-    Tensor* bias;
-    mx::array x_hat;
-    mx::array rstd;
-    int m, n;
-    LayerNormMeta() : gamma(nullptr), bias(nullptr),
-                       x_hat(mx::array(0.0f)), rstd(mx::array(0.0f)), m(0), n(0) {}
+// Lightweight metadata for ops that need extra info during replay.
+// No gradient arrays — mlx::grad handles backward automatically.
+struct LayerNormReplayMeta {
+    int gamma_pool_idx;
+    int bias_pool_idx;
+    double eps;
 };
 
 struct TapeEntry {
@@ -121,15 +113,11 @@ static void tape_reset() {
     // Free op metadata
     for (auto& e : tape) {
         if (e.op == OP_LAYER_NORM_2D && e.meta) {
-            delete (LayerNormMeta*)e.meta;
-            e.meta = nullptr;
-        }
-        if (e.op == OP_COSINE_SIM && e.meta) {
-            delete (CosSimMeta*)e.meta;
+            delete (LayerNormReplayMeta*)e.meta;
             e.meta = nullptr;
         }
         if (e.op == OP_STACK && e.meta) {
-            delete (std::vector<Tensor*>*)e.meta;
+            delete (std::vector<int>*)e.meta;
             e.meta = nullptr;
         }
     }
@@ -433,7 +421,7 @@ TensorHandle tensor_log_softmax(TensorHandle h, int dim) {
     auto shifted = mx::subtract(t->data, maxv);
     auto lse = mx::add(mx::log(mx::sum(mx::exp(shifted), dim, true)), maxv);
     auto r = new Tensor(mx::subtract(t->data, lse), t->requires_grad);
-    if (t->requires_grad) tape_append(OP_LOG_SOFTMAX_2D, r, t, nullptr, 0);
+    if (t->requires_grad) tape_append(OP_LOG_SOFTMAX_2D, r, t, nullptr, (double)dim);
     return (TensorHandle)r;
 }
 
@@ -479,15 +467,7 @@ TensorHandle tensor_cosine_similarity(TensorHandle hmemory, TensorHandle hkey, i
 
     bool rg = mem->requires_grad || key->requires_grad;
     auto r = new Tensor(result, rg);
-    if (rg) {
-        auto meta = new CosSimMeta();
-        meta->n = n; meta->m = m;
-        meta->row_norms = row_norms;
-        meta->key_norm = key_norm;
-        meta->dots = dots;
-        int idx = tape_append(OP_COSINE_SIM, r, mem, key, 0);
-        tape[idx].meta = meta;
-    }
+    if (rg) tape_append(OP_COSINE_SIM, r, mem, key, 0);
     return (TensorHandle)r;
 }
 
@@ -658,7 +638,7 @@ TensorHandle tensor_log_softmax_2d(TensorHandle h) {
     auto shifted = mx::subtract(t->data, maxv);
     auto lse = mx::add(mx::log(mx::sum(mx::exp(shifted), -1, true)), maxv);
     auto r = new Tensor(mx::subtract(t->data, lse), t->requires_grad);
-    if (t->requires_grad) tape_append(OP_LOG_SOFTMAX_2D, r, t, nullptr, 0);
+    if (t->requires_grad) tape_append(OP_LOG_SOFTMAX_2D, r, t, nullptr, -1.0);
     return (TensorHandle)r;
 }
 
@@ -679,14 +659,11 @@ TensorHandle tensor_layer_norm_2d(TensorHandle h, TensorHandle hgamma,
     bool rg = t->requires_grad || gamma->requires_grad || bias->requires_grad;
     auto r = new Tensor(result, rg);
     if (rg) {
-        auto meta = new LayerNormMeta();
-        meta->gamma = gamma;
-        meta->bias = bias;
-        meta->x_hat = x_hat;
-        meta->rstd = mx::reshape(rstd, {m});
-        meta->m = m;
-        meta->n = n;
-        int idx = tape_append(OP_LAYER_NORM_2D, r, t, nullptr, 0);
+        int idx = tape_append(OP_LAYER_NORM_2D, r, t, nullptr, eps);
+        auto meta = new LayerNormReplayMeta();
+        meta->gamma_pool_idx = gamma->pool_idx;
+        meta->bias_pool_idx = bias->pool_idx;
+        meta->eps = eps;
         tape[idx].meta = meta;
     }
     return (TensorHandle)r;
@@ -713,447 +690,173 @@ TensorHandle tensor_one_hot(int* tokens, int n_tokens, int vocab_size) {
 }
 
 /* ================================================================
-   Autograd — backward pass
+   Autograd — replay-based native backward via mlx::grad
+
+   Forward ops record to the tape. tensor_backward replays the tape
+   inside a closure and passes it to mlx::grad for native autograd.
+   Zero hand-written backward rules.
    ================================================================ */
-
-static void ensure_grad(Tensor* t) {
-    if (!t->has_grad) {
-        t->grad = mx::zeros(t->data.shape(), mx::float64);
-        t->has_grad = true;
-    }
-}
-
-// Reduce gradient to match target shape (undo broadcasting)
-static mx::array reduce_grad(const mx::array& grad, const mx::Shape& target_shape) {
-    if (grad.shape() == target_shape) return grad;
-    // Scalar target: sum everything
-    if (target_shape.empty() || (target_shape.size() == 1 && target_shape[0] == 1)) {
-        return mx::sum(grad);
-    }
-    // General: sum over axes that were broadcast-expanded
-    auto g = grad;
-    // First, reduce leading dims if grad has more dims
-    while ((int)g.ndim() > (int)target_shape.size()) {
-        g = mx::sum(g, 0);
-    }
-    // Then reduce along dims where target is 1 but grad is > 1
-    for (int i = 0; i < (int)target_shape.size(); i++) {
-        if (target_shape[i] == 1 && (int)g.shape(i) != 1) {
-            g = mx::sum(g, i, true);
-        }
-    }
-    return mx::reshape(g, target_shape);
-}
 
 void tensor_backward(TensorHandle h) {
     Tensor* loss = (Tensor*)h;
     if (loss->tape_idx < 0) return;
 
-    ensure_grad(loss);
-    loss->grad = mx::array(1.0);
+    // Collect param pool indices and arrays
+    std::vector<int> param_pool_indices;
+    std::vector<mx::array> param_arrays;
+    for (auto& p : param_registry) {
+        param_pool_indices.push_back(p.tensor->pool_idx);
+        param_arrays.push_back(p.tensor->data);
+    }
+    if (param_arrays.empty()) return;
 
-    for (int i = loss->tape_idx; i >= 0; i--) {
-        auto& e = tape[i];
-        Tensor* r = e.result;
-        if (!r->has_grad) continue;
-
-        Tensor* a = e.arg1;
-        Tensor* b = e.arg2;
-
-        switch (e.op) {
-        case OP_CONST:
-            break;
-
-        case OP_ADD:
-            if (a && a->requires_grad) { ensure_grad(a); a->grad = mx::add(a->grad, reduce_grad(r->grad, a->data.shape())); }
-            if (b && b->requires_grad) { ensure_grad(b); b->grad = mx::add(b->grad, reduce_grad(r->grad, b->data.shape())); }
-            break;
-
-        case OP_SUB:
-            if (a && a->requires_grad) { ensure_grad(a); a->grad = mx::add(a->grad, reduce_grad(r->grad, a->data.shape())); }
-            if (b && b->requires_grad) { ensure_grad(b); b->grad = mx::subtract(b->grad, reduce_grad(r->grad, b->data.shape())); }
-            break;
-
-        case OP_MUL:
-            if (a && a->requires_grad) { ensure_grad(a); a->grad = mx::add(a->grad, reduce_grad(mx::multiply(r->grad, b->data), a->data.shape())); }
-            if (b && b->requires_grad) { ensure_grad(b); b->grad = mx::add(b->grad, reduce_grad(mx::multiply(r->grad, a->data), b->data.shape())); }
-            break;
-
-        case OP_DIV:
-            if (a && a->requires_grad) { ensure_grad(a); a->grad = mx::add(a->grad, reduce_grad(mx::divide(r->grad, b->data), a->data.shape())); }
-            if (b && b->requires_grad) { ensure_grad(b); b->grad = mx::subtract(b->grad, reduce_grad(mx::divide(mx::multiply(r->grad, a->data), mx::square(b->data)), b->data.shape())); }
-            break;
-
-        case OP_NEG:
-            if (a && a->requires_grad) { ensure_grad(a); a->grad = mx::subtract(a->grad, r->grad); }
-            break;
-
-        case OP_EXP:
-            if (a && a->requires_grad) { ensure_grad(a); a->grad = mx::add(a->grad, mx::multiply(r->grad, r->data)); }
-            break;
-
-        case OP_LOG:
-            if (a && a->requires_grad) { ensure_grad(a); a->grad = mx::add(a->grad, mx::divide(r->grad, a->data)); }
-            break;
-
-        case OP_SQRT:
-            if (a && a->requires_grad) { ensure_grad(a); a->grad = mx::add(a->grad, mx::divide(r->grad, mx::multiply(mx::array(2.0), r->data))); }
-            break;
-
-        case OP_ADD_SCALAR:
-            if (a && a->requires_grad) { ensure_grad(a); a->grad = mx::add(a->grad, r->grad); }
-            break;
-
-        case OP_MUL_SCALAR:
-            if (a && a->requires_grad) { ensure_grad(a); a->grad = mx::add(a->grad, mx::multiply(r->grad, mx::array(e.scalar_arg))); }
-            break;
-
-        case OP_CLAMP_MIN: {
-            if (a && a->requires_grad) {
-                ensure_grad(a);
-                auto mask = mx::greater_equal(a->data, mx::array(e.scalar_arg));
-                a->grad = mx::add(a->grad, mx::multiply(r->grad, mx::astype(mask, mx::float64)));
-            }
-            break;
+    // Build constant pool: all non-param tensor data by pool_idx
+    // Use vector<pair> instead of unordered_map (mx::array lacks default ctor)
+    std::vector<std::pair<int, mx::array>> constants;
+    for (auto* t : all_tensors) {
+        bool is_param = false;
+        for (auto& p : param_registry) {
+            if (p.tensor == t) { is_param = true; break; }
         }
+        if (!is_param) constants.emplace_back(t->pool_idx, t->data);
+    }
 
-        case OP_SIGMOID:
-            if (a && a->requires_grad) {
-                ensure_grad(a);
-                // d/dx sigmoid(x) = sigmoid(x) * (1 - sigmoid(x))
-                a->grad = mx::add(a->grad, mx::multiply(r->grad,
-                    mx::multiply(r->data, mx::subtract(mx::array(1.0), r->data))));
-            }
-            break;
+    // Capture tape state for the closure
+    int loss_pool_idx = loss->pool_idx;
+    int loss_tape_idx = loss->tape_idx;
+    auto tape_ref = &tape;
+    auto constants_ref = &constants;
 
-        case OP_TANH:
-            if (a && a->requires_grad) {
-                ensure_grad(a);
-                // d/dx tanh(x) = 1 - tanh(x)^2
-                a->grad = mx::add(a->grad, mx::multiply(r->grad,
-                    mx::subtract(mx::array(1.0), mx::square(r->data))));
-            }
-            break;
+    // Replay forward pass inside mlx::vjp
+    int pool_size = next_pool_idx;
+    auto forward_fn = [&](const std::vector<mx::array>& params) -> mx::array {
+        // Pool: flat vector indexed by pool_idx. Initialize with placeholder.
+        std::vector<mx::array> pool(pool_size, mx::array(0.0f));
+        for (auto& [idx, arr] : *constants_ref) pool[idx] = arr;
+        for (int i = 0; i < (int)params.size(); i++)
+            pool[param_pool_indices[i]] = params[i];
 
-        case OP_POW: {
-            // r = a^b
-            // d/da = b * a^(b-1) * grad
-            // d/db = a^b * ln(a) * grad
-            if (a && a->requires_grad) {
-                ensure_grad(a);
-                auto ga = mx::multiply(r->grad,
-                    mx::multiply(b->data, mx::power(a->data, mx::subtract(b->data, mx::array(1.0)))));
-                a->grad = mx::add(a->grad, reduce_grad(ga, a->data.shape()));
-            }
-            if (b && b->requires_grad) {
-                ensure_grad(b);
-                auto gb = mx::multiply(r->grad, mx::multiply(r->data, mx::log(a->data)));
-                b->grad = mx::add(b->grad, reduce_grad(gb, b->data.shape()));
-            }
-            break;
-        }
+        for (int i = 0; i <= loss_tape_idx; i++) {
+            auto& e = (*tape_ref)[i];
+            int out = e.result->pool_idx;
+            auto a = e.arg1 ? pool[e.arg1->pool_idx] : mx::array(0.0f);
+            auto b = e.arg2 ? pool[e.arg2->pool_idx] : mx::array(0.0f);
 
-        case OP_ABS:
-            if (a && a->requires_grad) {
-                ensure_grad(a);
-                // d/dx |x| = sign(x)
-                a->grad = mx::add(a->grad, mx::multiply(r->grad, mx::sign(a->data)));
+            switch (e.op) {
+            case OP_CONST: break;
+            case OP_ADD: pool[out] = mx::add(a, b); break;
+            case OP_SUB: pool[out] = mx::subtract(a, b); break;
+            case OP_MUL: pool[out] = mx::multiply(a, b); break;
+            case OP_DIV: pool[out] = mx::divide(a, b); break;
+            case OP_NEG: pool[out] = mx::negative(a); break;
+            case OP_ABS: pool[out] = mx::abs(a); break;
+            case OP_EXP: pool[out] = mx::exp(a); break;
+            case OP_LOG: pool[out] = mx::log(a); break;
+            case OP_SQRT: pool[out] = mx::sqrt(a); break;
+            case OP_POW: pool[out] = mx::power(a, b); break;
+            case OP_SIGMOID: pool[out] = mx::sigmoid(a); break;
+            case OP_TANH: pool[out] = mx::tanh(a); break;
+            case OP_ADD_SCALAR: pool[out] = mx::add(a, mx::array(e.scalar_arg)); break;
+            case OP_MUL_SCALAR: pool[out] = mx::multiply(a, mx::array(e.scalar_arg)); break;
+            case OP_CLAMP_MIN: pool[out] = mx::maximum(a, mx::array(e.scalar_arg)); break;
+            case OP_SUM: pool[out] = mx::sum(a); break;
+            case OP_MEAN: pool[out] = mx::mean(a); break;
+            case OP_MM: case OP_BMM: pool[out] = mx::matmul(a, b); break;
+            case OP_MV: {
+                auto col = mx::reshape(b, {(int)b.size(), 1});
+                pool[out] = mx::reshape(mx::matmul(a, col), {(int)a.shape(0)});
+                break;
             }
-            break;
-
-        case OP_SUM:
-            if (a && a->requires_grad) {
-                ensure_grad(a);
-                a->grad = mx::add(a->grad, mx::broadcast_to(r->grad, a->data.shape()));
+            case OP_OUTER: pool[out] = mx::outer(a, b); break;
+            case OP_TRANSPOSE_2D: pool[out] = mx::transpose(a, {1, 0}); break;
+            case OP_SOFTMAX_2D: pool[out] = mx::softmax(a, -1); break;
+            case OP_LOG_SOFTMAX_2D: {
+                int dim = (int)e.scalar_arg;  // stored by forward (0 for 1D, -1 for 2D)
+                auto maxv = mx::max(a, dim, true);
+                auto shifted = mx::subtract(a, maxv);
+                auto lse = mx::add(mx::log(mx::sum(mx::exp(shifted), dim, true)), maxv);
+                pool[out] = mx::subtract(a, lse);
+                break;
             }
-            break;
-
-        case OP_MEAN:
-            if (a && a->requires_grad) {
-                ensure_grad(a);
-                double n = (double)a->data.size();
-                a->grad = mx::add(a->grad, mx::multiply(
-                    mx::broadcast_to(r->grad, a->data.shape()), mx::array(1.0 / n)));
+            case OP_MASKED_FILL: {
+                pool[out] = mx::where(b, mx::array(-1e9, mx::float64), a);
+                break;
             }
-            break;
-
-        case OP_MM: {
-            // r = a @ b, d_a = grad @ b^T, d_b = a^T @ grad
-            if (a && a->requires_grad) { ensure_grad(a); a->grad = mx::add(a->grad, mx::matmul(r->grad, mx::transpose(b->data, {1, 0}))); }
-            if (b && b->requires_grad) { ensure_grad(b); b->grad = mx::add(b->grad, mx::matmul(mx::transpose(a->data, {1, 0}), r->grad)); }
-            break;
-        }
-
-        case OP_BMM: {
-            // r = a @ b (batched matmul with broadcasting)
-            // Transpose helper: swap last two dims regardless of rank
-            auto swap_last2 = [](const mx::array& x) -> mx::array {
-                int nd = x.ndim();
-                if (nd == 2) return mx::transpose(x, {1, 0});
-                std::vector<int> axes(nd);
-                for (int i = 0; i < nd; i++) axes[i] = i;
-                std::swap(axes[nd-2], axes[nd-1]);
-                return mx::transpose(x, axes);
-            };
-            if (a && a->requires_grad) {
-                ensure_grad(a);
-                auto dA = mx::matmul(r->grad, swap_last2(b->data));
-                a->grad = mx::add(a->grad, reduce_grad(dA, a->data.shape()));
+            case OP_RESHAPE: pool[out] = mx::reshape(a, e.result->data.shape()); break;
+            case OP_SELECT: pool[out] = mx::take(a, mx::array((int)e.scalar_arg), 0); break;
+            case OP_NARROW: {
+                int start = (int)e.scalar_arg;
+                int len = (int)e.result->data.size();
+                pool[out] = mx::slice(mx::flatten(a), {start}, {start + len});
+                break;
             }
-            if (b && b->requires_grad) {
-                ensure_grad(b);
-                auto dB = mx::matmul(swap_last2(a->data), r->grad);
-                b->grad = mx::add(b->grad, reduce_grad(dB, b->data.shape()));
-            }
-            break;
-        }
-
-        case OP_TRANSPOSE_2D:
-            if (a && a->requires_grad) { ensure_grad(a); a->grad = mx::add(a->grad, mx::transpose(r->grad, {1, 0})); }
-            break;
-
-        case OP_SOFTMAX_2D: {
-            if (a && a->requires_grad) {
-                ensure_grad(a);
-                auto dot = mx::sum(mx::multiply(r->grad, r->data), -1, true);
-                a->grad = mx::add(a->grad, mx::multiply(r->data, mx::subtract(r->grad, dot)));
-            }
-            break;
-        }
-
-        case OP_LOG_SOFTMAX_2D: {
-            if (a && a->requires_grad) {
-                ensure_grad(a);
-                auto sum_grad = mx::sum(r->grad, -1, true);
-                a->grad = mx::add(a->grad, mx::subtract(r->grad, mx::multiply(mx::exp(r->data), sum_grad)));
-            }
-            break;
-        }
-
-        case OP_MASKED_FILL: {
-            if (a && a->requires_grad) {
-                ensure_grad(a);
-                auto pass = mx::where(b->data, mx::zeros(r->grad.shape(), mx::float64), r->grad);
-                a->grad = mx::add(a->grad, pass);
-            }
-            break;
-        }
-
-        case OP_LAYER_NORM_2D: {
-            auto meta = (LayerNormMeta*)e.meta;
-            int mm = meta->m, nn = meta->n;
-            // d_gamma, d_bias
-            if (meta->gamma && meta->gamma->requires_grad) {
-                ensure_grad(meta->gamma);
-                meta->gamma->grad = mx::add(meta->gamma->grad, mx::sum(mx::multiply(r->grad, meta->x_hat), 0));
-            }
-            if (meta->bias && meta->bias->requires_grad) {
-                ensure_grad(meta->bias);
-                meta->bias->grad = mx::add(meta->bias->grad, mx::sum(r->grad, 0));
-            }
-            // d_input
-            if (a && a->requires_grad) {
-                ensure_grad(a);
-                auto dx_hat = mx::multiply(r->grad, meta->gamma->data);
-                auto mean_dxhat = mx::mean(dx_hat, -1, true);
-                auto mean_dxhat_xhat = mx::mean(mx::multiply(dx_hat, meta->x_hat), -1, true);
-                auto rstd_2d = mx::reshape(meta->rstd, {mm, 1});
-                a->grad = mx::add(a->grad, mx::multiply(rstd_2d,
-                    mx::subtract(dx_hat, mx::add(mean_dxhat, mx::multiply(meta->x_hat, mean_dxhat_xhat)))));
-            }
-            break;
-        }
-
-        case OP_RESHAPE:
-            if (a && a->requires_grad) { ensure_grad(a); a->grad = mx::add(a->grad, mx::reshape(r->grad, a->data.shape())); }
-            break;
-
-        case OP_NARROW: {
-            int start = (int)e.scalar_arg;
-            if (a && a->requires_grad) {
-                ensure_grad(a);
-                // Scatter gradient back — work on flattened arrays
-                auto flat_grad = mx::flatten(a->grad);
-                flat_grad = mx::slice_update(flat_grad, r->grad,
-                    mx::Shape{start}, mx::Shape{start + (int)r->data.size()});
-                a->grad = mx::reshape(flat_grad, a->data.shape());
-            }
-            break;
-        }
-
-        case OP_CAT: {
-            int split = (int)e.scalar_arg;
-            if (a && a->requires_grad) { ensure_grad(a); a->grad = mx::add(a->grad, mx::slice(r->grad, {0}, {split})); }
-            if (b && b->requires_grad) { ensure_grad(b); b->grad = mx::add(b->grad, mx::slice(r->grad, {split}, {(int)r->data.size()})); }
-            break;
-        }
-
-        case OP_MV: {
-            // r = a @ b where a=[m,n], b=[n], r=[m]
-            // d_a[i,j] = grad[i] * b[j]  (outer product)
-            // d_b[j] = sum_i(a[i,j] * grad[i])
-            if (a && a->requires_grad) {
-                ensure_grad(a);
-                // grad=[m], b=[n] → outer product [m,n]
-                a->grad = mx::add(a->grad, mx::outer(r->grad, b->data));
-            }
-            if (b && b->requires_grad) {
-                ensure_grad(b);
-                // a=[m,n]^T @ grad=[m] → [n]
-                auto aT = mx::transpose(a->data, {1, 0});
-                auto grad_col = mx::reshape(r->grad, {(int)r->grad.size(), 1});
-                auto result = mx::reshape(mx::matmul(aT, grad_col), {(int)b->data.size()});
-                b->grad = mx::add(b->grad, result);
-            }
-            break;
-        }
-
-        case OP_COSINE_SIM: {
-            // r = cosine(a, b) where a=[n,m], b=[m], r=[n]
-            // d_a[i,j] = grad[i] * (b[j] / (norm_a[i] * norm_b) - cos[i] * a[i,j] / norm_a[i]^2)
-            // d_b[j] = sum_i grad[i] * (a[i,j] / (norm_a[i] * norm_b) - cos[i] * b[j] / norm_b^2)
-            auto meta = (CosSimMeta*)e.meta;
-            if (a && a->requires_grad) {
-                ensure_grad(a);
-                int nn = meta->n, mm = meta->m;
-                // grad_expanded = grad[:, None] → [n, 1]
-                auto g_2d = mx::reshape(r->grad, {nn, 1});
-                auto b_2d = mx::reshape(b->data, {1, mm});
-                auto nab = mx::multiply(mx::reshape(meta->row_norms, {nn, 1}), meta->key_norm);
-                auto cos_2d = mx::reshape(r->data, {nn, 1});
-                auto rn2 = mx::reshape(mx::square(meta->row_norms), {nn, 1});
-                // d_a = grad * (b / (na*nb) - cos * a / na^2)
-                auto term1 = mx::divide(b_2d, nab);
-                auto term2 = mx::divide(mx::multiply(cos_2d, a->data), rn2);
-                a->grad = mx::add(a->grad, mx::multiply(g_2d, mx::subtract(term1, term2)));
-            }
-            if (b && b->requires_grad) {
-                ensure_grad(b);
-                int nn = meta->n, mm = meta->m;
-                auto g_2d = mx::reshape(r->grad, {nn, 1});
-                auto nab = mx::multiply(mx::reshape(meta->row_norms, {nn, 1}), meta->key_norm);
-                auto cos_2d = mx::reshape(r->data, {nn, 1});
-                auto bn2 = mx::square(meta->key_norm);
-                auto b_2d = mx::reshape(b->data, {1, mm});
-                auto term1 = mx::divide(a->data, nab);
-                auto term2 = mx::divide(mx::multiply(cos_2d, b_2d), bn2);
-                auto per_row = mx::multiply(g_2d, mx::subtract(term1, term2));
-                b->grad = mx::add(b->grad, mx::sum(per_row, {0}));
-            }
-            break;
-        }
-
-        case OP_CONV1D_CIRC: {
-            // r = conv1d_circular(a, b) where a=[n], b=[k]
-            // Backward: reverse the convolution
-            int nn = (int)a->data.size();
-            int kk = (int)b->data.size();
-            int half_k = kk / 2;
-            if (a && a->requires_grad) {
-                ensure_grad(a);
-                // d_input[idx] += grad[i] * kernel[k-1-j] for each (i,j) pair
-                // Equivalent: convolve grad with flipped kernel
-                for (int j = 0; j < kk; j++) {
-                    int shift = -(half_k - j);  // reverse shift
-                    auto shifted_grad = mx::roll(r->grad, shift);
-                    auto kern_j = mx::take(b->data, mx::array(j));
-                    a->grad = mx::add(a->grad, mx::multiply(shifted_grad, kern_j));
+            case OP_CAT: pool[out] = mx::concatenate({a, b}, 0); break;
+            case OP_STACK: {
+                auto* indices = (std::vector<int>*)e.meta;
+                if (indices) {
+                    std::vector<mx::array> arrs;
+                    for (int idx : *indices) arrs.push_back(pool[idx]);
+                    pool[out] = mx::stack(arrs, 0);
                 }
+                break;
             }
-            if (b && b->requires_grad) {
-                ensure_grad(b);
-                // d_kernel[j] = sum_i grad[i] * input[shifted_idx]
-                mx::eval(r->grad);
-                mx::eval(a->data);
-                auto grad_data = r->grad.data<double>();
-                auto inp_data = a->data.data<double>();
-                std::vector<double> dk(kk, 0.0);
-                for (int j = 0; j < kk; j++) {
-                    int shift = j - half_k;  // must match forward: input[(i - half_k + j) % n]
-                    for (int i = 0; i < nn; i++) {
-                        int idx = ((i + shift) % nn + nn) % nn;
-                        dk[j] += grad_data[i] * inp_data[idx];
-                    }
+            case OP_COSINE_SIM: {
+                // Inline cosine similarity forward
+                int n = (int)a.shape(0), m = (int)a.shape(1);
+                auto key_2d = mx::reshape(b, {1, m});
+                auto dots = mx::sum(mx::multiply(a, key_2d), {1});
+                auto eps = mx::array(1.0e-8);
+                auto row_norms = mx::sqrt(mx::add(mx::sum(mx::square(a), {1}), eps));
+                auto key_norm = mx::sqrt(mx::add(mx::sum(mx::square(b)), eps));
+                pool[out] = mx::divide(dots, mx::multiply(row_norms, key_norm));
+                break;
+            }
+            case OP_CONV1D_CIRC: {
+                // Inline circular convolution forward
+                int n = (int)a.size(), k = (int)b.size();
+                int half_k = k / 2;
+                auto result = mx::zeros({n}, mx::float64);
+                for (int j = 0; j < k; j++) {
+                    auto shifted = mx::roll(a, half_k - j);
+                    auto kern_j = mx::take(b, mx::array(j));
+                    result = mx::add(result, mx::multiply(shifted, kern_j));
                 }
-                b->grad = mx::add(b->grad, mx::array(dk.data(), {kk}, mx::float64));
+                pool[out] = result;
+                break;
             }
-            break;
+            case OP_NORMALIZE: {
+                pool[out] = mx::divide(a, mx::add(mx::sum(a), mx::array(1e-10)));
+                break;
+            }
+            case OP_LAYER_NORM_2D: {
+                auto meta = (LayerNormReplayMeta*)e.meta;
+                auto gamma = pool[meta->gamma_pool_idx];
+                auto bias = pool[meta->bias_pool_idx];
+                auto mean = mx::mean(a, -1, true);
+                auto centered = mx::subtract(a, mean);
+                auto var = mx::mean(mx::square(centered), -1, true);
+                auto rstd = mx::rsqrt(mx::add(var, mx::array(meta->eps)));
+                auto x_hat = mx::multiply(centered, rstd);
+                pool[out] = mx::add(mx::multiply(gamma, x_hat), bias);
+                break;
+            }
+            default: break;
+            }
         }
+        return pool[loss_pool_idx];
+    };
 
-        case OP_OUTER: {
-            // r = outer(a, b) where a=[n], b=[m], r=[n,m]
-            // d_a[i] = sum_j(grad[i,j] * b[j])
-            // d_b[j] = sum_i(grad[i,j] * a[i])
-            if (a && a->requires_grad) {
-                ensure_grad(a);
-                a->grad = mx::add(a->grad, mx::sum(mx::multiply(r->grad, b->data), {1}));
-            }
-            if (b && b->requires_grad) {
-                ensure_grad(b);
-                b->grad = mx::add(b->grad, mx::sum(mx::multiply(r->grad, mx::reshape(a->data, {(int)a->data.size(), 1})), {0}));
-            }
-            break;
-        }
+    // Compute gradients via MLX native autograd (vjp with unit cotangent)
+    auto forward_vec = [&](const std::vector<mx::array>& params) -> std::vector<mx::array> {
+        return {forward_fn(params)};
+    };
+    auto vjp_result = mx::vjp(forward_vec, param_arrays, {mx::array(1.0f)});
+    auto& grads = vjp_result.second;
 
-        case OP_STACK: {
-            // Distribute gradient from stacked tensor back to constituent scalars
-            auto inputs = (std::vector<Tensor*>*)e.meta;
-            if (inputs) {
-                mx::eval(r->grad);
-                auto grad_data = r->grad.data<double>();
-                for (int j = 0; j < (int)inputs->size(); j++) {
-                    auto inp = (*inputs)[j];
-                    if (inp->requires_grad) {
-                        ensure_grad(inp);
-                        inp->grad = mx::add(inp->grad, mx::array(grad_data[j]));
-                    }
-                }
-            }
-            break;
-        }
-
-        case OP_SELECT: {
-            // r = a[index] where a is [n] or [n, m]
-            // d_a[index] += grad
-            int sel_idx = (int)e.scalar_arg;
-            if (a && a->requires_grad) {
-                ensure_grad(a);
-                int n = (int)a->data.shape(0);
-                int a_rank = (int)a->data.ndim();
-                if (a_rank == 1) {
-                    // Scalar select from vector: a[idx] → scalar
-                    // Build one-hot mask and multiply by grad scalar
-                    auto mask = mx::equal(mx::arange(n), mx::array(sel_idx));
-                    auto g_val = mx::reshape(r->grad, {});  // ensure 0-dim
-                    a->grad = mx::add(a->grad, mx::multiply(mx::astype(mask, mx::float64), g_val));
-                } else {
-                    // Row select from matrix: a[idx, :] → [m]
-                    // Build one-hot row mask [n,1] and broadcast with grad [1,m]
-                    int cols = (int)a->data.shape(1);
-                    auto mask = mx::equal(mx::arange(n), mx::array(sel_idx));
-                    auto mask_col = mx::reshape(mx::astype(mask, mx::float64), {n, 1});
-                    auto grad_row = mx::reshape(r->grad, {1, cols});
-                    a->grad = mx::add(a->grad, mx::multiply(mask_col, grad_row));
-                }
-            }
-            break;
-        }
-
-        case OP_NORMALIZE: {
-            // r = a / (sum(a) + eps), fused backward avoids catastrophic cancellation
-            // d_a[i] = (d_r[i] - dot(d_r, r)) / (sum(a) + eps)
-            if (a && a->requires_grad) {
-                ensure_grad(a);
-                auto S = mx::add(mx::sum(a->data), mx::array(1e-10));
-                auto dot = mx::sum(mx::multiply(r->grad, r->data));
-                a->grad = mx::add(a->grad, mx::divide(mx::subtract(r->grad, dot), S));
-            }
-            break;
-        }
-
-        default:
-            break;
-        }
+    // Distribute gradients to parameter tensors
+    for (int i = 0; i < (int)param_registry.size(); i++) {
+        param_registry[i].tensor->grad = grads[i];
+        param_registry[i].tensor->has_grad = true;
     }
 }
 
@@ -1334,12 +1037,13 @@ TensorHandle tensor_stack_from_array(TensorHandle* arr, int count, int dim) {
         if (t->requires_grad) rg = true;
     }
     auto r = new Tensor(mx::stack(arrs, dim), rg);
-    // Record OP_STACK so backward can distribute gradients
+    // Record OP_STACK with input pool indices for replay
     if (rg) {
         int idx = tape_append(OP_STACK, r, nullptr, nullptr, (double)count);
-        tape[idx].meta = (void*)(new std::vector<Tensor*>());
+        auto* indices = new std::vector<int>();
         for (int i = 0; i < count; i++)
-            ((std::vector<Tensor*>*)tape[idx].meta)->push_back((Tensor*)arr[i]);
+            indices->push_back(((Tensor*)arr[i])->pool_idx);
+        tape[idx].meta = (void*)indices;
     }
     return (TensorHandle)r;
 }
