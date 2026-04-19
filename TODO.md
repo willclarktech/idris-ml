@@ -10,7 +10,6 @@
 
 | Item | Difficulty | Notes |
 |------|-----------|-------|
-| Batch dimension support for attention | M | `tensor_bmm` exists for projections. Remaining: batch the per-sequence attention block (Q@K^T, softmax, attn@V) with block-diagonal masking. Would eliminate the last per-sequence loop (~576 FFI calls/epoch). Impact limited by Chez runtime overhead — see `docs/design-decisions.md` performance analysis |
 | Convolutional layers | L | Conv1D/Conv2D with autograd. Natural next layer type for image tasks |
 | Regularisation/normalisation layers | M | Dropout, batch norm. Layer norm done. Required for deeper models |
 | More Tensor functions | M | Partially done: `tensor_cat2`, `tensor_narrow` added for NTM pipeline. Remaining: general concat, reshape, transpose, gather/scatter |
@@ -29,6 +28,7 @@
 ## Done
 
 Architecture & infrastructure:
+- Batched attention: per-sequence attention loop eliminated. All sequences processed in parallel via 3D ops (`bmm_3x3`, `softmax_3d`, `transpose_last2`). FFI calls reduced from B×H×12 to H×8 per block. New ops: `tensor_bmm_3x3` ([B,m,n]×[B,n,k]), `tensor_softmax_3d`, `tensor_transpose_last2`, `tensor_expand_mask`
 - Native autograd: torch already used native autograd (2-line backward). MLX migrated from 480 lines of hand-written backward rules to replay-based native autograd via `mlx::vjp` — zero backward rules, MLX handles all gradient computation. Tape backend keeps manual tape (no framework). Adding a new op on MLX: ~2 lines (forward replay case), backward is free
 - Model serialization: SafeTensors format (`param_save`/`param_load`, `optimizer_save`/`optimizer_load`), Idris `Checkpoint` module (`saveModel`/`loadModel`), Python interop verified, optimizer state with Adam/RMSprop buffer round-trip
 - Cross-backend transfer example (`Example/Transfer.idr`): train→save→continue→save→infer across tape/MLX/torch, `make transfer-demo` orchestrates all 3 phases
