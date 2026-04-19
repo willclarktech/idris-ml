@@ -10,6 +10,13 @@
 
 static int failures = 0;
 
+/* Helper: copy stack array to heap (tensor_create_param_* frees the input buffer) */
+static double* heap_copy(const double* src, int n) {
+    double* buf = (double*)malloc(n * sizeof(double));
+    memcpy(buf, src, n * sizeof(double));
+    return buf;
+}
+
 #define ASSERT_NEAR(msg, got, expected, tol) do { \
     double _g = (got), _e = (expected); \
     if (fabs(_g - _e) > (tol)) { \
@@ -328,11 +335,11 @@ static void test_fused_mv_backward(void) {
     /* d_x[j] = sum_i W[i,j] = [5, 7, 9] */
 
     double wdata[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
-    TensorHandle W = tensor_create_param_2d(2, 3, wdata);
+    TensorHandle W = tensor_create_param_2d(2, 3, heap_copy(wdata, 6));
     param_register("W", W);
 
     double xdata[] = {1.0, 0.0, -1.0};
-    TensorHandle x = tensor_create_param_1d(3, xdata);
+    TensorHandle x = tensor_create_param_1d(3, heap_copy(xdata, 3));
     param_register("x", x);
 
     TensorHandle y = tensor_mv(W, x);
@@ -367,7 +374,7 @@ static void test_fused_mv_optimizer(void) {
     param_clear();
 
     double wdata[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
-    TensorHandle W = tensor_create_param_2d(2, 3, wdata);
+    TensorHandle W = tensor_create_param_2d(2, 3, heap_copy(wdata, 6));
     param_register("W", W);
 
     double xdata[] = {1.0, 0.0, -1.0};
@@ -409,12 +416,12 @@ static void test_lstm_gradient_chain(void) {
                        0.3, 0.4,   /* forget gate row */
                        0.5, 0.6,   /* cell gate row */
                        0.7, 0.8};  /* output gate row */
-    TensorHandle w = tensor_create_param_2d(4, 2, w_data);
+    TensorHandle w = tensor_create_param_2d(4, 2, heap_copy(w_data, 8));
     param_register("w", w);
 
     /* Create bias param [4] */
     double b_data[] = {0.0, 1.0, 0.0, 0.0};  /* forget bias = 1 */
-    TensorHandle b = tensor_create_param_1d(4, b_data);
+    TensorHandle b = tensor_create_param_1d(4, heap_copy(b_data, 4));
     param_register("b", b);
 
     /* Input [2] — not a param, requires_grad=0 */
@@ -483,7 +490,7 @@ static void test_lstm_select_stack_chain(void) {
 
     /* Param: linear weight [1, 2] */
     double lw_data[] = {0.3, 0.7};
-    TensorHandle lw = tensor_create_param_2d(1, 2, lw_data);
+    TensorHandle lw = tensor_create_param_2d(1, 2, heap_copy(lw_data, 2));
     param_register("lw", lw);
 
     /* Create a hidden vector [2] with requires_grad (like LSTM output) */
