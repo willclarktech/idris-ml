@@ -20,7 +20,6 @@
 
 | Item | Difficulty | Notes |
 |------|-----------|-------|
-| Fix tape backend test crash (T4: Fused MV backward) | S–M | `make test-backend-tape` aborts with SIGABRT at `test_fused_mv_backward`. Pre-existing issue — not caused by recent changes. Likely memory corruption or stale pointer in consolidated weight tensor + view test. All other tests (T1–T3, T5–T11) pass when run individually |
 | Broadcasting | XL | Type-safe broadcasting. Key tension: expressiveness vs shape safety guarantees. See `docs/static-vs-dynamic-graphs.md` |
 | Static graph optimizations | L–XL | Compile-time operator fusion, memory planning via dependent types. See `docs/static-vs-dynamic-graphs.md` |
 | DNC (Differentiable Neural Computer) | XL | Graves et al. 2016 — temporal link matrix, dynamic memory allocation, multiple read heads |
