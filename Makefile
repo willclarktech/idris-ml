@@ -245,8 +245,14 @@ bench-py:
 bench-compare: example-bench
 	cd pytorch && uv run python -m torch_ref.compare
 
+# Build bench_ops linked against the active backend
 $(BUILD)/bench_ops: csrc/bench_ops.c backend | $(BUILD)
 	cc -o $(BUILD)/bench_ops csrc/bench_ops.c -L$(BUILD) -lidrisml -Wl,-rpath,$(CURDIR)/$(BUILD) -lm
+
+# Build bench_ops for a specific backend (e.g., make bench-ops-build-tape)
+bench-ops-build-%: csrc/bench_ops.c | $(BUILD)
+	@$(MAKE) --no-print-directory BACKEND=$* backend 2>/dev/null
+	cc -o $(BUILD)/bench_ops_$* csrc/bench_ops.c -L$(BUILD) -lidrisml -Wl,-rpath,$(CURDIR)/$(BUILD) -lm
 
 bench-ops: $(BUILD)/bench_ops
 	./$(BUILD)/bench_ops
@@ -254,7 +260,15 @@ bench-ops: $(BUILD)/bench_ops
 bench-ops-py:
 	cd pytorch && uv run python -m torch_ref.bench_ops
 
-bench-ops-compare: $(BUILD)/bench_ops
+# Compare all available backends vs PyTorch.
+# Links each bench_ops_<backend> directly against its specific dylib.
+bench-ops-compare:
+	@for b in tape mlx torch; do \
+		$(MAKE) --no-print-directory BACKEND=$$b backend 2>/dev/null && \
+		cc -o $(BUILD)/bench_ops_$$b csrc/bench_ops.c \
+			$(BUILD)/libidrisml_$$b.dylib -Wl,-rpath,$(CURDIR)/$(BUILD) -lm 2>/dev/null \
+		|| true; \
+	done
 	cd pytorch && uv run python -m torch_ref.compare_ops
 
 ref-supervised:

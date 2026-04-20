@@ -63,6 +63,12 @@ static TensorHandle make_4d(int n, int c, int h, int w, int requires_grad) {
    Matmul benchmarks
    ================================================================ */
 
+/* Force evaluation (needed for MLX lazy eval; harmless on tape/torch) */
+static void force_eval(TensorHandle t) {
+    volatile double v = tensor_item(tensor_sum(t));
+    (void)v;
+}
+
 static void bench_matmul(int m, int n, int k, int iters) {
     TensorHandle a = make_matrix(m, n, 0);
     TensorHandle b = make_matrix(n, k, 0);
@@ -70,12 +76,14 @@ static void bench_matmul(int m, int n, int k, int iters) {
     /* warmup */
     for (int i = 0; i < 10; i++) {
         TensorHandle c = tensor_mm(a, b);
+        force_eval(c);
         tensor_free(c);
     }
 
     double t0 = wall_ms();
     for (int i = 0; i < iters; i++) {
         TensorHandle c = tensor_mm(a, b);
+        force_eval(c);
         tensor_free(c);
     }
     double elapsed = wall_ms() - t0;
@@ -95,12 +103,14 @@ static void bench_matvec(int m, int n, int iters) {
 
     for (int i = 0; i < 10; i++) {
         TensorHandle r = tensor_mv(mat, vec);
+        force_eval(r);
         tensor_free(r);
     }
 
     double t0 = wall_ms();
     for (int i = 0; i < iters; i++) {
         TensorHandle r = tensor_mv(mat, vec);
+        force_eval(r);
         tensor_free(r);
     }
     double elapsed = wall_ms() - t0;
@@ -121,6 +131,7 @@ static void bench_elementwise(int n, int iters) {
     for (int i = 0; i < 10; i++) {
         TensorHandle c = tensor_add(a, b);
         TensorHandle d = tensor_mul(c, b);
+        force_eval(d);
         tensor_free(d);
         tensor_free(c);
     }
@@ -129,6 +140,7 @@ static void bench_elementwise(int n, int iters) {
     for (int i = 0; i < iters; i++) {
         TensorHandle c = tensor_add(a, b);
         TensorHandle d = tensor_mul(c, b);
+        force_eval(d);
         tensor_free(d);
         tensor_free(c);
     }
@@ -148,12 +160,14 @@ static void bench_softmax(int n, int iters) {
 
     for (int i = 0; i < 10; i++) {
         TensorHandle s = tensor_softmax(a, 0);
+        force_eval(s);
         tensor_free(s);
     }
 
     double t0 = wall_ms();
     for (int i = 0; i < iters; i++) {
         TensorHandle s = tensor_softmax(a, 0);
+        force_eval(s);
         tensor_free(s);
     }
     double elapsed = wall_ms() - t0;
@@ -174,12 +188,14 @@ static void bench_conv2d(int inC, int outC, int h, int w, int kH, int kW, int it
 
     for (int i = 0; i < 3; i++) {
         TensorHandle out = tensor_conv2d(input, kernel, bias, 0, 0, 1, 1);
+        force_eval(out);
         tensor_free(out);
     }
 
     double t0 = wall_ms();
     for (int i = 0; i < iters; i++) {
         TensorHandle out = tensor_conv2d(input, kernel, bias, 0, 0, 1, 1);
+        force_eval(out);
         tensor_free(out);
     }
     double elapsed = wall_ms() - t0;
@@ -263,12 +279,14 @@ int main(void) {
     bench_matmul(64, 64, 64, 500);
     bench_matmul(256, 256, 256, 100);
     bench_matmul(1024, 1024, 1024, 10);
+    fflush(stdout);
     printf("\n");
 
     /* --- Matrix-vector --- */
     printf("--- Matrix-vector multiply ---\n");
     bench_matvec(256, 256, 1000);
     bench_matvec(1024, 1024, 200);
+    fflush(stdout);
     printf("\n");
 
     /* --- Element-wise --- */
@@ -276,6 +294,7 @@ int main(void) {
     bench_elementwise(1000, 1000);
     bench_elementwise(10000, 500);
     bench_elementwise(100000, 100);
+    fflush(stdout);
     printf("\n");
 
     /* --- Softmax --- */
@@ -283,12 +302,7 @@ int main(void) {
     bench_softmax(256, 1000);
     bench_softmax(1024, 500);
     bench_softmax(10000, 100);
-    printf("\n");
-
-    /* --- Conv2d forward --- */
-    printf("--- Conv2d forward ---\n");
-    bench_conv2d(1, 16, 28, 28, 5, 5, 10);      /* MNIST layer 1 */
-    bench_conv2d(16, 32, 12, 12, 5, 5, 10);     /* MNIST layer 2 */
+    fflush(stdout);
     printf("\n");
 
     /* --- Training step (forward + backward + optimizer) --- */
@@ -296,6 +310,14 @@ int main(void) {
     bench_train_step(64, 64, 200);
     bench_train_step(256, 256, 100);
     bench_train_step(1024, 1024, 10);
+    fflush(stdout);
+    printf("\n");
+
+    /* --- Conv2d forward (last: may crash on torch backend due to shape mismatch) --- */
+    printf("--- Conv2d forward ---\n");
+    bench_conv2d(1, 16, 28, 28, 5, 5, 10);      /* MNIST layer 1 */
+    bench_conv2d(16, 32, 12, 12, 5, 5, 10);     /* MNIST layer 2 */
+    fflush(stdout);
     printf("\n");
 
     printf("=== Done ===\n");
