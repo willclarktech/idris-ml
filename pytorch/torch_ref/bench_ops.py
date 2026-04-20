@@ -115,14 +115,14 @@ def bench_conv2d(in_c: int, out_c: int, h: int, w: int, kh: int, kw: int, iters:
 
 
 def bench_train_step(input_dim: int, output_dim: int, iters: int) -> None:
-    W = torch.randn(output_dim, input_dim, dtype=torch.float64, requires_grad=True)
+    w = torch.randn(output_dim, input_dim, dtype=torch.float64, requires_grad=True)
     b = torch.zeros(output_dim, dtype=torch.float64, requires_grad=True)
-    opt = torch.optim.SGD([W, b], lr=0.01)
+    opt = torch.optim.SGD([w, b], lr=0.01)
 
     # warmup
     for _ in range(5):
         x = torch.randn(input_dim, dtype=torch.float64)
-        y = W @ x + b
+        y = w @ x + b
         loss = y.sum()
         opt.zero_grad()
         loss.backward()
@@ -131,7 +131,7 @@ def bench_train_step(input_dim: int, output_dim: int, iters: int) -> None:
     t0 = wall_ms()
     for _ in range(iters):
         x = torch.randn(input_dim, dtype=torch.float64)
-        y = W @ x + b
+        y = w @ x + b
         loss = y.sum()
         opt.zero_grad()
         loss.backward()

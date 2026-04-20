@@ -8,6 +8,8 @@ Usage:
     cd pytorch && uv run python -m torch_ref.compare_ops   # compare only
 """
 
+import contextlib
+import io
 import os
 import platform
 import re
@@ -38,7 +40,7 @@ def find_project_root() -> str:
 
 
 def run_c_bench(backend: str) -> dict[str, float] | None:
-    """Run the C bench_ops binary for a specific backend. Returns None if not available."""
+    """Run the C bench_ops binary for a specific backend. Returns None if unavailable."""
     root = find_project_root()
     bench_bin = os.path.join(root, "build", f"bench_ops_{backend}")
     if not os.path.exists(bench_bin):
@@ -53,10 +55,10 @@ def run_c_bench(backend: str) -> dict[str, float] | None:
         )
         parsed = parse_bench_output(result.stdout)
         if result.returncode != 0 and not parsed:
-            print(f"  WARNING: bench_ops_{backend} crashed with no output (code {result.returncode})")
+            print(f"  WARNING: bench_ops_{backend} crashed with no output")
             return None
         if result.returncode != 0:
-            print(f"  (exited with code {result.returncode}, {len(parsed)} benchmarks captured)")
+            print(f"  ({len(parsed)} benchmarks captured before exit)")
         return parsed if parsed else None
     except (subprocess.TimeoutExpired, FileNotFoundError):
         print(f"  WARNING: bench_ops_{backend} timed out or not found")
@@ -65,11 +67,8 @@ def run_c_bench(backend: str) -> dict[str, float] | None:
 
 def run_pytorch_bench() -> dict[str, float]:
     """Run PyTorch benchmarks, capturing stdout."""
-    import io
-    from contextlib import redirect_stdout
-
     f = io.StringIO()
-    with redirect_stdout(f):
+    with contextlib.redirect_stdout(f):
         pytorch_main()
     return parse_bench_output(f.getvalue())
 
@@ -77,15 +76,15 @@ def run_pytorch_bench() -> dict[str, float]:
 def classify_op(label: str) -> str:
     if "matmul" in label and "vec" not in label:
         return "Matrix multiply"
-    elif "matvec" in label:
+    if "matvec" in label:
         return "Matrix-vector"
-    elif "add+mul" in label:
+    if "add+mul" in label:
         return "Element-wise"
-    elif "softmax" in label:
+    if "softmax" in label:
         return "Softmax"
-    elif "conv2d" in label:
+    if "conv2d" in label:
         return "Conv2d"
-    elif "train_step" in label:
+    if "train_step" in label:
         return "Training step"
     return ""
 
@@ -100,6 +99,41 @@ def fmt_ratio(backend_ms: float | None, pt_ms: float | None) -> str:
     return "---"
 
 
+def print_system_info(available: dict[str, dict[str, float]]) -> None:
+    """Print system information header."""
+    print()
+    print("=" * 90)
+    print("System Information")
+    print("=" * 90)
+    mac_ver = platform.mac_ver()[0]
+    if platform.system() == "Darwin":
+        cpu = subprocess.run(
+            ["sysctl", "-n", "machdep.cpu.brand_string"],
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+    else:
+        cpu = platform.processor()
+    mem_gb = ""
+    if platform.system() == "Darwin":
+        mem_bytes = subprocess.run(
+            ["sysctl", "-n", "hw.memsize"],
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        with contextlib.suppress(ValueError):
+            mem_gb = f"{int(mem_bytes) / (1024**3):.0f} GB"
+    print(f"  Platform:  {platform.system()} {platform.release()} ({platform.machine()})")
+    if mac_ver:
+        print(f"  macOS:     {mac_ver}")
+    print(f"  CPU:       {cpu}")
+    if mem_gb:
+        print(f"  Memory:    {mem_gb}")
+    print(f"  PyTorch:   {torch.__version__}")
+    print("  Precision: float64 (double)")
+    print(f"  Backends:  {', '.join(available.keys())}")
+
+
 def main() -> None:
     # Discover available backends
     available: dict[str, dict[str, float]] = {}
@@ -110,7 +144,7 @@ def main() -> None:
             available[backend] = results
             print(f"  {len(results)} benchmarks collected")
         else:
-            print(f"  skipped (not built)")
+            print("  skipped (not built)")
 
     print("Running PyTorch benchmarks...")
     pt_results = run_pytorch_bench()
@@ -119,34 +153,7 @@ def main() -> None:
         print("\nNo backend benchmarks available. Run: make bench-ops-compare")
         return
 
-    # System info
-    print()
-    print("=" * 90)
-    print("System Information")
-    print("=" * 90)
-    mac_ver = platform.mac_ver()[0]
-    cpu = subprocess.run(
-        ["sysctl", "-n", "machdep.cpu.brand_string"],
-        capture_output=True, text=True
-    ).stdout.strip() if platform.system() == "Darwin" else platform.processor()
-    mem_gb = ""
-    if platform.system() == "Darwin":
-        mem_bytes = subprocess.run(
-            ["sysctl", "-n", "hw.memsize"], capture_output=True, text=True
-        ).stdout.strip()
-        try:
-            mem_gb = f"{int(mem_bytes) / (1024**3):.0f} GB"
-        except ValueError:
-            pass
-    print(f"  Platform:  {platform.system()} {platform.release()} ({platform.machine()})")
-    if mac_ver:
-        print(f"  macOS:     {mac_ver}")
-    print(f"  CPU:       {cpu}")
-    if mem_gb:
-        print(f"  Memory:    {mem_gb}")
-    print(f"  PyTorch:   {torch.__version__}")
-    print(f"  Precision: float64 (double)")
-    print(f"  Backends:  {', '.join(available.keys())}")
+    print_system_info(available)
 
     # Collect all labels in order
     all_labels: list[str] = []
@@ -163,15 +170,13 @@ def main() -> None:
     print("=" * 90)
     print()
 
-    # Column layout
     op_w = 28
     col_w = 11
     ratio_w = 7
 
-    # Header line
     hdr = f"{'Operation':<{op_w}}"
     for name in backend_names:
-        hdr += f" {name+' (ms)':>{col_w}}"
+        hdr += f" {name + ' (ms)':>{col_w}}"
     hdr += f" {'PyTorch':>{col_w}}"
     for name in backend_names:
         hdr += f" {name[:5]:>{ratio_w}}"
@@ -195,14 +200,13 @@ def main() -> None:
         print(line)
 
     # Per-backend category summaries
-    cat_names = ["BLAS (matmul)", "BLAS (matvec)", "Element-wise", "Softmax", "Conv2d", "Train step"]
-    cat_classify = {
-        "BLAS (matmul)": lambda l: "matmul" in l and "vec" not in l,
-        "BLAS (matvec)": lambda l: "matvec" in l,
-        "Element-wise": lambda l: "add+mul" in l,
-        "Softmax": lambda l: "softmax" in l,
-        "Conv2d": lambda l: "conv2d" in l,
-        "Train step": lambda l: "train_step" in l,
+    cat_map: dict[str, callable] = {
+        "BLAS (matmul)": lambda lbl: "matmul" in lbl and "vec" not in lbl,
+        "BLAS (matvec)": lambda lbl: "matvec" in lbl,
+        "Element-wise": lambda lbl: "add+mul" in lbl,
+        "Softmax": lambda lbl: "softmax" in lbl,
+        "Conv2d": lambda lbl: "conv2d" in lbl,
+        "Train step": lambda lbl: "train_step" in lbl,
     }
 
     print()
@@ -213,8 +217,7 @@ def main() -> None:
     print(sum_hdr)
     print("  " + "-" * (len(sum_hdr) - 2))
 
-    for cat in cat_names:
-        pred = cat_classify[cat]
+    for cat, pred in cat_map.items():
         line = f"  {cat:<20}"
         for name in backend_names:
             ratios = []

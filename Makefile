@@ -264,9 +264,11 @@ bench-ops-py:
 # Links each bench_ops_<backend> directly against its specific dylib.
 bench-ops-compare:
 	@for b in tape mlx torch; do \
-		$(MAKE) --no-print-directory BACKEND=$$b backend 2>/dev/null && \
+		if [ ! -f $(BUILD)/libidrisml_$$b.dylib ]; then \
+			$(MAKE) --no-print-directory BACKEND=$$b backend 2>/dev/null || continue; \
+		fi; \
 		cc -o $(BUILD)/bench_ops_$$b csrc/bench_ops.c \
-			$(BUILD)/libidrisml_$$b.dylib -Wl,-rpath,$(CURDIR)/$(BUILD) -lm 2>/dev/null \
+			$(BUILD)/libidrisml_$$b.dylib -Wl,-rpath,$(CURDIR)/$(BUILD) -lm -lc++ 2>/dev/null \
 		|| true; \
 	done
 	cd pytorch && uv run python -m torch_ref.compare_ops
