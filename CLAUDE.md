@@ -42,7 +42,10 @@ make test-examples       # All examples on all backends, validates RESULT lines
 
 # Benchmarks
 make example-bench           # Idris benchmark (Supervised + RNN + NTM)
-make bench-compare           # Side-by-side Idris vs PyTorch
+make bench-compare           # Side-by-side Idris vs PyTorch (end-to-end training)
+make bench-ops-compare       # Operator-level C backend vs PyTorch (raw speed)
+make bench-ops               # Operator-level C backend only
+make bench-ops-py            # Operator-level PyTorch only
 
 # PyTorch reference (requires uv)
 make ref-setup       # One-time: install Python deps

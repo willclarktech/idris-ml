@@ -95,6 +95,7 @@ Performance:
 - Arena allocator with chunked linked list (no realloc)
 - Consecutive-data cache in tensor_stack_from_array
 - Memory diagnostics (`backend_memory_report()`)
+- Operator-level benchmarks (`csrc/bench_ops.c`): matmul, matvec, element-wise, softmax, conv2d, training step at multiple sizes. PyTorch reference (`bench_ops.py`) + comparison table (`compare_ops.py`). `make bench-ops-compare`. See `docs/benchmarks.md`
 
 MLX backend:
 - `backend_mlx.cpp` — Apple Metal GPU via MLX C++ API, tape-based autograd on MLX arrays
