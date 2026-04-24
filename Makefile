@@ -504,7 +504,8 @@ BACKENDS := tape mlx torch
 #   sac 1500          partial; default 5000 for solve
 #   reinforce 200     partial; default 1000 for solve
 #   ntm-copy 500      smoke; default 50000 (convergence ~9300) — way too slow for CI
-#   ntm-recall 500    smoke; default 100000 (convergence ~20000)
+#   ntm-recall 350    smoke; default 100000 (convergence ~20000) — kept under 600s
+#                     timeout on MLX (~946ms/epoch there vs ~290ms on tape)
 #   dnc-copy 30/b1    smoke (--epochs 30 --max-len 3 --batch 1) — DNC is ~3s/epoch on
 #                     tape at N=128 (O(N²) link matrix); batch=1 + max-len=3 is the
 #                     only way to fit both under EXAMPLE_TIMEOUT and under the 2M
@@ -537,7 +538,7 @@ test-examples:
 				example-ppo)         extra_args="PPO_ARGS=--epochs 20" ;; \
 				example-sac)         extra_args="SAC_ARGS=--epochs 1500" ;; \
 				example-ntm-copy)    extra_args="NTM_COPY_ARGS=--epochs 500" ;; \
-				example-ntm-associative-recall) extra_args="NTM_RECALL_ARGS=--epochs 500" ;; \
+				example-ntm-associative-recall) extra_args="NTM_RECALL_ARGS=--epochs 350" ;; \
 				example-dnc-copy)    extra_args="DNC_COPY_ARGS=--epochs 30 --max-len 3 --batch 1" ;; \
 				example-dnc-recall)  extra_args="DNC_RECALL_ARGS=--epochs 10 --max-items 2 --batch 1" ;; \
 			esac; \
