@@ -1079,6 +1079,10 @@ prim__optimizerCreateRmsprop : Double -> Double -> Double -> Double -> Double ->
 %foreign "C:optimizer_create_adam,libidrisml"
 prim__optimizerCreateAdam : Double -> Double -> Double -> Double -> AnyPtr
 
+%foreign "C:optimizer_create_adam_group,libidrisml"
+export
+prim__optimizerCreateAdamGroup : Double -> Double -> Double -> Double -> String -> AnyPtr
+
 %foreign "C:optimizer_clip_grad_norm,libidrisml"
 prim__clipGradNorm : Double -> Double
 
@@ -1113,6 +1117,21 @@ nativeAdamGlobalClip : (lr : Double) -> (beta1 : Double) -> (beta2 : Double) ->
 nativeAdamGlobalClip lr beta1 beta2 eps maxNorm =
   MkNativeOptimizer
     (prim__optimizerCreateAdam lr beta1 beta2 eps)
+    (NormClip maxNorm)
+
+||| Create a native Adam optimizer that only manages params whose registry
+||| paramId starts with `scope`. Empty scope behaves like
+||| `nativeAdamGlobalClip`. Used for multi-network setups where each
+||| network (e.g. SAC actor / q1 / q2) needs its own optimizer so that
+||| gradient leakage from one network's loss doesn't update another
+||| network's weights (matches PyTorch's one-optimizer-per-net pattern).
+export
+nativeAdamGroup : (scope : String) ->
+                  (lr : Double) -> (beta1 : Double) -> (beta2 : Double) ->
+                  (eps : Double) -> (maxNorm : Double) -> NativeOptimizer
+nativeAdamGroup scope lr beta1 beta2 eps maxNorm =
+  MkNativeOptimizer
+    (prim__optimizerCreateAdamGroup lr beta1 beta2 eps scope)
     (NormClip maxNorm)
 
 %foreign "C:optimizer_create_adamw,libidrisml"

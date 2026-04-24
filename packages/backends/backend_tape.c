@@ -4240,7 +4240,14 @@ typedef struct {
     int allocated;
     double* param_lr;      /* per-param LR overrides (NULL = use opt->lr for all) */
     int param_lr_count;    /* number of entries in param_lr */
+    char prefix[128];      /* param-name prefix filter (empty = manages all) */
 } Optimizer;
+
+/* Returns 1 if param[i]'s name starts with opt->prefix (or prefix is empty). */
+static int opt_owns_param(Optimizer* opt, int i) {
+    if (opt->prefix[0] == '\0') return 1;
+    return strncmp(param_registry[i].name, opt->prefix, strlen(opt->prefix)) == 0;
+}
 
 /* Compute total number of elements across all params (for per-element optimizer buffers) */
 static int param_total_elements(void) {
@@ -4286,6 +4293,18 @@ OptimizerHandle optimizer_create_adam(double lr, double beta1, double beta2, dou
     Optimizer* opt = calloc(1, sizeof(Optimizer));
     opt->lr = lr; opt->type = 2;
     opt->beta1 = beta1; opt->beta2 = beta2; opt->eps = eps;
+    return opt;
+}
+
+/* Adam that only updates params whose registry name starts with `prefix`.
+ * Empty prefix behaves like optimizer_create_adam (manages all params). */
+OptimizerHandle optimizer_create_adam_group(double lr, double beta1, double beta2,
+                                            double eps, const char* prefix) {
+    Optimizer* opt = (Optimizer*)optimizer_create_adam(lr, beta1, beta2, eps);
+    if (prefix) {
+        strncpy(opt->prefix, prefix, sizeof(opt->prefix) - 1);
+        opt->prefix[sizeof(opt->prefix) - 1] = '\0';
+    }
     return opt;
 }
 
@@ -4335,6 +4354,7 @@ void optimizer_step(OptimizerHandle h) {
     opt->t++;
 
     for (int i = 0; i < param_count_val; i++) {
+        if (!opt_owns_param(opt, i)) continue;
         Tensor* t = param_registry[i].tensor;
         if (!t->grad) continue;
         int base = param_element_offset(i);
@@ -4406,8 +4426,10 @@ void optimizer_step(OptimizerHandle h) {
     prof_epoch_start = _wall_ms();
 }
 
-void optimizer_clip_grad_value(double max_val) {
+/* Internal clip-value helper scoped to params owned by `opt`. */
+static void clip_grad_value_opt(Optimizer* opt, double max_val) {
     for (int i = 0; i < param_count_val; i++) {
+        if (opt && !opt_owns_param(opt, i)) continue;
         Tensor* t = param_registry[i].tensor;
         if (!t->grad) continue;
         for (int j = 0; j < t->numel; j++) {
@@ -4417,9 +4439,11 @@ void optimizer_clip_grad_value(double max_val) {
     }
 }
 
-double optimizer_clip_grad_norm(double max_norm) {
+/* Internal clip-norm helper scoped to params owned by `opt`. */
+static double clip_grad_norm_opt(Optimizer* opt, double max_norm) {
     double total = 0;
     for (int i = 0; i < param_count_val; i++) {
+        if (opt && !opt_owns_param(opt, i)) continue;
         Tensor* t = param_registry[i].tensor;
         if (!t->grad) continue;
         for (int j = 0; j < t->numel; j++) total += t->grad[j] * t->grad[j];
@@ -4428,12 +4452,22 @@ double optimizer_clip_grad_norm(double max_norm) {
     if (norm > max_norm) {
         double scale = max_norm / norm;
         for (int i = 0; i < param_count_val; i++) {
+            if (opt && !opt_owns_param(opt, i)) continue;
             Tensor* t = param_registry[i].tensor;
             if (!t->grad) continue;
             for (int j = 0; j < t->numel; j++) t->grad[j] *= scale;
         }
     }
     return norm;
+}
+
+/* Public global clippers retained for direct-FFI callers (backward compat). */
+void optimizer_clip_grad_value(double max_val) {
+    clip_grad_value_opt(NULL, max_val);
+}
+
+double optimizer_clip_grad_norm(double max_norm) {
+    return clip_grad_norm_opt(NULL, max_norm);
 }
 
 /* ================================================================
@@ -4753,16 +4787,18 @@ double native_train_step(OptimizerHandle opt, int clip_mode, double clip_val,
     Tensor* loss = (Tensor*)loss_ptr;
     optimizer_zero_grad(opt);
     if (loss->requires_grad) tensor_backward(loss_ptr);
-    if (clip_mode == 1) optimizer_clip_grad_value(clip_val);
-    else if (clip_mode == 2) optimizer_clip_grad_norm(clip_val);
+    /* Scope grad-clipping to this optimizer's owned params, so multi-
+     * optimizer setups (SAC actor/q1/q2) each clip their own norm. */
+    if (clip_mode == 1) clip_grad_value_opt((Optimizer*)opt, clip_val);
+    else if (clip_mode == 2) clip_grad_norm_opt((Optimizer*)opt, clip_val);
     optimizer_step(opt);
     return loss_val;
 }
 
 int optimizer_step_with_clip(OptimizerHandle opt, int clip_mode, double clip_val, int dummy) {
     (void)dummy;
-    if (clip_mode == 1) optimizer_clip_grad_value(clip_val);
-    else if (clip_mode == 2) optimizer_clip_grad_norm(clip_val);
+    if (clip_mode == 1) clip_grad_value_opt((Optimizer*)opt, clip_val);
+    else if (clip_mode == 2) clip_grad_norm_opt((Optimizer*)opt, clip_val);
     optimizer_step(opt);
     optimizer_zero_grad(opt);
     return 0;

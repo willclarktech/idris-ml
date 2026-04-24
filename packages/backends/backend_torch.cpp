@@ -1010,7 +1010,25 @@ struct OptWrapper {
     int type; // 0=sgd, 1=rmsprop, 2=adam
     double lr, beta1, beta2, eps, alpha, weight_decay, momentum;
     torch::optim::Optimizer* opt;
+    std::string prefix;  // empty = manages all params; else only params whose
+                          // registry name starts with `prefix` (SAC multi-opt)
 };
+
+static std::vector<at::Tensor> collect_param_tensors_filtered(const std::string& prefix) {
+    std::vector<at::Tensor> params;
+    params.reserve(param_registry.size());
+    for (auto& entry : param_registry) {
+        if (prefix.empty()) {
+            params.push_back(*entry.tensor);
+        } else {
+            std::string name(entry.name);
+            if (name.rfind(prefix, 0) == 0) {
+                params.push_back(*entry.tensor);
+            }
+        }
+    }
+    return params;
+}
 
 OptimizerHandle optimizer_create_sgd(double lr) {
     auto params = collect_param_tensors();
@@ -1041,6 +1059,18 @@ OptimizerHandle optimizer_create_adam(double lr, double beta1, double beta2, dou
     return static_cast<OptimizerHandle>(w);
 }
 
+OptimizerHandle optimizer_create_adam_group(double lr, double beta1, double beta2,
+                                            double eps, const char* prefix) {
+    std::string pfx = prefix ? prefix : "";
+    auto params = collect_param_tensors_filtered(pfx);
+    auto* w = new OptWrapper();
+    w->type = 2; w->lr = lr; w->beta1 = beta1; w->beta2 = beta2; w->eps = eps;
+    w->prefix = pfx;
+    w->opt = new torch::optim::Adam(params,
+        torch::optim::AdamOptions(lr).betas(std::make_tuple(beta1, beta2)).eps(eps));
+    return static_cast<OptimizerHandle>(w);
+}
+
 OptimizerHandle optimizer_create_adamw(double lr, double beta1, double beta2, double eps,
                                        double weight_decay) {
     auto params = collect_param_tensors();
@@ -1062,11 +1092,12 @@ void optimizer_step(OptimizerHandle h) {
     double t0 = _wall_ms_torch();
     auto* w = static_cast<OptWrapper*>(h);
     auto* opt = w->opt;
-    /* Re-sync param list from registry (handles late registration via autoName) */
+    /* Re-sync param list from registry (handles late registration via autoName).
+     * For group-scoped optimizers, only sync params whose name starts with w->prefix. */
     auto& param_groups = opt->param_groups();
     if (!param_groups.empty()) {
         auto& params = param_groups[0].params();
-        auto current = collect_param_tensors();
+        auto current = collect_param_tensors_filtered(w->prefix);
         if (params.size() != current.size()) {
             params.clear();
             for (auto& t : current) params.push_back(t);
@@ -1089,15 +1120,22 @@ void optimizer_set_param_lr(OptimizerHandle h, const char* name, double lr) {
     (void)h; (void)name; (void)lr;
 }
 
-void optimizer_clip_grad_value(double max_val) {
-    auto params = collect_param_tensors();
+static void clip_grad_value_filtered(const std::string& prefix, double max_val) {
+    auto params = collect_param_tensors_filtered(prefix);
     torch::nn::utils::clip_grad_value_(params, max_val);
 }
 
+static double clip_grad_norm_filtered(const std::string& prefix, double max_norm) {
+    auto params = collect_param_tensors_filtered(prefix);
+    return torch::nn::utils::clip_grad_norm_(params, max_norm);
+}
+
+void optimizer_clip_grad_value(double max_val) {
+    clip_grad_value_filtered("", max_val);
+}
+
 double optimizer_clip_grad_norm(double max_norm) {
-    auto params = collect_param_tensors();
-    auto norm = torch::nn::utils::clip_grad_norm_(params, max_norm);
-    return norm;
+    return clip_grad_norm_filtered("", max_norm);
 }
 
 /* ================================================================
@@ -1396,17 +1434,20 @@ double tensor_backward_return_loss(TensorHandle loss_ptr, double loss_val) {
 }
 double native_train_step(OptimizerHandle opt, int clip_mode, double clip_val,
                          TensorHandle loss_ptr, double loss_val) {
+    auto* w = static_cast<OptWrapper*>(opt);
     optimizer_zero_grad(opt);
     if (tensor_requires_grad(loss_ptr)) tensor_backward(loss_ptr);
-    if (clip_mode == 1) optimizer_clip_grad_value(clip_val);
-    else if (clip_mode == 2) optimizer_clip_grad_norm(clip_val);
+    /* Scope grad-clipping to this optimizer's owned params (matches tape backend). */
+    if (clip_mode == 1) clip_grad_value_filtered(w->prefix, clip_val);
+    else if (clip_mode == 2) clip_grad_norm_filtered(w->prefix, clip_val);
     optimizer_step(opt);
     return loss_val;
 }
 int optimizer_step_with_clip(OptimizerHandle opt, int clip_mode, double clip_val, int dummy) {
     (void)dummy;
-    if (clip_mode == 1) optimizer_clip_grad_value(clip_val);
-    else if (clip_mode == 2) optimizer_clip_grad_norm(clip_val);
+    auto* w = static_cast<OptWrapper*>(opt);
+    if (clip_mode == 1) clip_grad_value_filtered(w->prefix, clip_val);
+    else if (clip_mode == 2) clip_grad_norm_filtered(w->prefix, clip_val);
     optimizer_step(opt); optimizer_zero_grad(opt);
     return 0;
 }

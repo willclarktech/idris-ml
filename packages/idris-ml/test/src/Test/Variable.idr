@@ -23,6 +23,17 @@ lookupGrad key m = case lookup key m of
 cpuParam : String -> Double -> Variable CPU
 cpuParam = param
 
+-- Inline FFI + wrapper for the new group-scoped optimizer (see the A2C /
+-- PPO / SAC workaround: single-file `idris2 -o file.idr` invocation
+-- doesn't always pick up newly-exported idris-ml symbols even after
+-- install; inline bindings sidestep this).
+%foreign "C:optimizer_create_adam_group,libidrisml"
+prim__mkAdamGroupLocal : Double -> Double -> Double -> Double -> String -> AnyPtr
+
+mkAdamGroup : String -> NativeOptimizer
+mkAdamGroup scope =
+  MkNativeOptimizer (prim__mkAdamGroupLocal 0.1 0.9 0.999 1.0e-8 scope) (NormClip 1.0)
+
 export
 tests : List (IO Bool)
 tests =
@@ -223,4 +234,19 @@ tests =
     in check "writeOpVar forward"
        (abs (r00.value - 0.5) < tol && abs (r01.value - 0.5) < tol
         && abs (r10.value - 1.0) < tol && abs (r11.value - 1.0) < tol)
+
+  -- nativeAdamGroup filter: only updates params whose name starts with scope.
+  -- (Inline wrapper because single-file `-o` invocation doesn't always see
+  -- newly-exported idris-ml symbols; same workaround used in Example/A2c.idr.)
+  , do
+      let a_w = cpuParam "groupTest_a_w" 1.0
+          b_w = cpuParam "groupTest_b_w" 1.0
+          x2  = fromDouble 2.0
+          y   = a_w * x2 + b_w * x2
+          optA = mkAdamGroup "groupTest_a_"
+      _ <- pure (nativeTrainStep optA y)
+      let aAfter = (refreshValue a_w).value
+          bAfter = (refreshValue b_w).value
+      check "nativeAdamGroup filters by prefix"
+        (abs (aAfter - 1.0) > 0.01 && abs (bAfter - 1.0) < tol)
   ]

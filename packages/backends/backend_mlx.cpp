@@ -1922,7 +1922,14 @@ struct Optimizer {
     std::vector<mx::array> m_bufs, v_bufs;
     // Per-param LR overrides (indexed by param registry position, -1 = use base)
     std::vector<double> param_lr;
+    std::string prefix;  // empty = manages all params; else prefix filter
 };
+
+/* Returns true if param[i]'s name starts with opt->prefix (or prefix is empty). */
+static bool opt_owns_param_mlx(Optimizer* opt, int i) {
+    if (opt->prefix.empty()) return true;
+    return param_registry[i].name.rfind(opt->prefix, 0) == 0;
+}
 
 OptimizerHandle optimizer_create_sgd(double lr) {
     auto opt = new Optimizer();
@@ -1941,6 +1948,14 @@ OptimizerHandle optimizer_create_rmsprop(double lr, double alpha, double eps,
 OptimizerHandle optimizer_create_adam(double lr, double beta1, double beta2, double eps) {
     auto opt = new Optimizer();
     opt->type = 2; opt->lr = lr; opt->beta1 = beta1; opt->beta2 = beta2; opt->eps = eps; opt->t = 0;
+    return (OptimizerHandle)opt;
+}
+
+OptimizerHandle optimizer_create_adam_group(double lr, double beta1, double beta2,
+                                            double eps, const char* prefix) {
+    auto opt = new Optimizer();
+    opt->type = 2; opt->lr = lr; opt->beta1 = beta1; opt->beta2 = beta2; opt->eps = eps; opt->t = 0;
+    opt->prefix = prefix ? std::string(prefix) : std::string();
     return (OptimizerHandle)opt;
 }
 
@@ -1985,6 +2000,7 @@ void optimizer_step(OptimizerHandle h) {
     }
 
     for (int i = 0; i < np; i++) {
+        if (!opt_owns_param_mlx(opt, i)) continue;
         auto t = param_registry[i].tensor;
         if (!t->has_grad) continue;
 
@@ -2060,18 +2076,22 @@ void optimizer_step(OptimizerHandle h) {
     prof_epochs_mlx++;
 }
 
-void optimizer_clip_grad_value(double max_val) {
-    for (auto& p : param_registry) {
+/* Internal: clip grads for params matching prefix (empty prefix = all). */
+static void clip_grad_value_filtered(const std::string& prefix, double max_val) {
+    for (size_t i = 0; i < param_registry.size(); i++) {
+        auto& p = param_registry[i];
+        if (!prefix.empty() && p.name.rfind(prefix, 0) != 0) continue;
         if (p.tensor->has_grad) {
             p.tensor->grad = mx::clip(p.tensor->grad, mx::array(-max_val), mx::array(max_val));
         }
     }
 }
 
-double optimizer_clip_grad_norm(double max_norm) {
-    // Compute total norm
+static double clip_grad_norm_filtered(const std::string& prefix, double max_norm) {
     mx::array total = mx::array(0.0);
-    for (auto& p : param_registry) {
+    for (size_t i = 0; i < param_registry.size(); i++) {
+        auto& p = param_registry[i];
+        if (!prefix.empty() && p.name.rfind(prefix, 0) != 0) continue;
         if (p.tensor->has_grad) {
             total = mx::add(total, mx::sum(mx::square(p.tensor->grad)));
         }
@@ -2080,13 +2100,23 @@ double optimizer_clip_grad_norm(double max_norm) {
     double norm = std::sqrt(total.item<double>());
     if (norm > max_norm) {
         double scale = max_norm / norm;
-        for (auto& p : param_registry) {
+        for (size_t i = 0; i < param_registry.size(); i++) {
+            auto& p = param_registry[i];
+            if (!prefix.empty() && p.name.rfind(prefix, 0) != 0) continue;
             if (p.tensor->has_grad) {
                 p.tensor->grad = mx::multiply(p.tensor->grad, mx::array(scale));
             }
         }
     }
     return norm;
+}
+
+void optimizer_clip_grad_value(double max_val) {
+    clip_grad_value_filtered("", max_val);
+}
+
+double optimizer_clip_grad_norm(double max_norm) {
+    return clip_grad_norm_filtered("", max_norm);
 }
 
 /* ================================================================
@@ -2275,17 +2305,19 @@ double tensor_backward_return_loss(TensorHandle loss_ptr, double loss_val) {
 }
 double native_train_step(OptimizerHandle opt, int clip_mode, double clip_val,
                          TensorHandle loss_ptr, double loss_val) {
+    auto* o = (Optimizer*)opt;
     optimizer_zero_grad(opt);
     if (tensor_requires_grad(loss_ptr)) tensor_backward(loss_ptr);
-    if (clip_mode == 1) optimizer_clip_grad_value(clip_val);
-    else if (clip_mode == 2) optimizer_clip_grad_norm(clip_val);
+    if (clip_mode == 1) clip_grad_value_filtered(o->prefix, clip_val);
+    else if (clip_mode == 2) clip_grad_norm_filtered(o->prefix, clip_val);
     optimizer_step(opt);
     return loss_val;
 }
 int optimizer_step_with_clip(OptimizerHandle opt, int clip_mode, double clip_val, int dummy) {
     (void)dummy;
-    if (clip_mode == 1) optimizer_clip_grad_value(clip_val);
-    else if (clip_mode == 2) optimizer_clip_grad_norm(clip_val);
+    auto* o = (Optimizer*)opt;
+    if (clip_mode == 1) clip_grad_value_filtered(o->prefix, clip_val);
+    else if (clip_mode == 2) clip_grad_norm_filtered(o->prefix, clip_val);
     optimizer_step(opt); optimizer_zero_grad(opt);
     return 0;
 }

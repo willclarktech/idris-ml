@@ -312,6 +312,10 @@ OptimizerHandle optimizer_create_sgd(double lr);
 OptimizerHandle optimizer_create_rmsprop(double lr, double alpha, double eps,
                                           double weight_decay, double momentum);
 OptimizerHandle optimizer_create_adam(double lr, double beta1, double beta2, double eps);
+/* Adam whose step() / clip_grad only touches params whose registry name starts
+ * with `prefix`. Empty prefix behaves identically to optimizer_create_adam. */
+OptimizerHandle optimizer_create_adam_group(double lr, double beta1, double beta2,
+                                            double eps, const char* prefix);
 OptimizerHandle optimizer_create_adamw(double lr, double beta1, double beta2, double eps,
                                        double weight_decay);
 void            optimizer_free(OptimizerHandle opt);
