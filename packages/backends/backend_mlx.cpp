@@ -2119,6 +2119,33 @@ double optimizer_clip_grad_norm(double max_norm) {
     return clip_grad_norm_filtered("", max_norm);
 }
 
+/* Polyak soft update: mirror of the tape/torch implementation. */
+int polyak_blend(double tau, const char* online_scope, const char* target_scope) {
+    if (!online_scope || !target_scope) return 0;
+    std::string on_s(online_scope), tg_s(target_scope);
+    int blended = 0;
+    mx::array tau_arr = mx::array(tau);
+    mx::array one_minus_tau = mx::array(1.0 - tau);
+    for (size_t i = 0; i < param_registry.size(); i++) {
+        const std::string& on_name = param_registry[i].name;
+        if (on_name.rfind(on_s, 0) != 0) continue;
+        std::string tgt_name = tg_s + on_name.substr(on_s.size());
+        for (size_t j = 0; j < param_registry.size(); j++) {
+            if (param_registry[j].name != tgt_name) continue;
+            auto* on_t = param_registry[i].tensor;
+            auto* tg_t = param_registry[j].tensor;
+            if (on_t->data.shape() != tg_t->data.shape()) break;
+            tg_t->data = mx::add(
+                mx::multiply(one_minus_tau, tg_t->data),
+                mx::multiply(tau_arr, on_t->data));
+            mx::eval(tg_t->data);
+            blended++;
+            break;
+        }
+    }
+    return blended;
+}
+
 /* ================================================================
    Optimizer buffer accessors (for serialization)
    ================================================================ */

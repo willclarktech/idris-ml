@@ -1083,6 +1083,21 @@ prim__optimizerCreateAdam : Double -> Double -> Double -> Double -> AnyPtr
 export
 prim__optimizerCreateAdamGroup : Double -> Double -> Double -> Double -> String -> AnyPtr
 
+%foreign "C:polyak_blend,libidrisml"
+export
+prim__polyakBlend : Double -> String -> String -> Int
+
+||| Polyak soft update for twin-network param groups registered under
+||| `onlineScope` vs `targetScope`: for each online param, finds the
+||| matching target param (same suffix after scope prefix) and blends
+|||   target_data ← (1 − tau) · target_data + tau · online_data
+||| in-place. Returns the number of param pairs blended. Used by SAC to
+||| track target-Q networks.
+export
+polyakUpdate : (tau : Double) -> (onlineScope : String) -> (targetScope : String) -> IO Int
+polyakUpdate tau onlineScope targetScope =
+  pure (prim__polyakBlend tau onlineScope targetScope)
+
 %foreign "C:optimizer_clip_grad_norm,libidrisml"
 prim__clipGradNorm : Double -> Double
 

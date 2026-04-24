@@ -327,6 +327,13 @@ void            optimizer_set_param_lr(OptimizerHandle opt, const char* name, do
 void optimizer_clip_grad_value(double max_val);
 double optimizer_clip_grad_norm(double max_norm);  /* returns actual norm */
 
+/* Polyak soft update for twin-network setups (SAC target Q-nets).
+ * For each registered param P whose name starts with `online_scope`,
+ * finds the matching target param under `target_scope` and blends:
+ *   target.data ← (1 − tau) · target.data + tau · online.data (in-place).
+ * Returns the number of param pairs blended. */
+int polyak_blend(double tau, const char* online_scope, const char* target_scope);
+
 /* ---------- Backend Capabilities ---------- */
 
 /* Returns 1 if the backend supports tensor-level parameters

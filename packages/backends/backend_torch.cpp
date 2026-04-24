@@ -1138,6 +1138,29 @@ double optimizer_clip_grad_norm(double max_norm) {
     return clip_grad_norm_filtered("", max_norm);
 }
 
+/* Polyak soft update: mirror of the tape-backend implementation. */
+int polyak_blend(double tau, const char* online_scope, const char* target_scope) {
+    if (!online_scope || !target_scope) return 0;
+    std::string on_s(online_scope), tg_s(target_scope);
+    int blended = 0;
+    torch::NoGradGuard no_grad;
+    for (size_t i = 0; i < param_registry.size(); i++) {
+        const std::string& on_name = param_registry[i].name;
+        if (on_name.rfind(on_s, 0) != 0) continue;
+        std::string tgt_name = tg_s + on_name.substr(on_s.size());
+        for (size_t j = 0; j < param_registry.size(); j++) {
+            if (param_registry[j].name != tgt_name) continue;
+            at::Tensor& on_t = *param_registry[i].tensor;
+            at::Tensor& tg_t = *param_registry[j].tensor;
+            if (!on_t.sizes().equals(tg_t.sizes())) break;
+            tg_t.mul_(1.0 - tau).add_(on_t, tau);
+            blended++;
+            break;
+        }
+    }
+    return blended;
+}
+
 /* ================================================================
    Optimizer buffer accessors (for serialization)
    ================================================================ */

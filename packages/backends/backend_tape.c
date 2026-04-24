@@ -4308,6 +4308,47 @@ OptimizerHandle optimizer_create_adam_group(double lr, double beta1, double beta
     return opt;
 }
 
+/* Polyak soft update at the param-registry level.
+ * For each param P whose name starts with `online_scope`, find the
+ * corresponding param Q whose name is `target_scope ++ suffix(P)` and
+ * blend Q's data in-place: Q.data ← (1−tau)·Q.data + tau·P.data.
+ *
+ * Used by SAC: actor / q1 / q2 network params are registered with
+ * distinct scope prefixes; target-Q params are registered with
+ * `q1_tgt_` / `q2_tgt_` prefixes. One call per target network per
+ * training step moves the target toward the online at rate τ.
+ * Returns number of param-pairs blended (for sanity checking). */
+int polyak_blend(double tau, const char* online_scope, const char* target_scope) {
+    if (!online_scope || !target_scope) return 0;
+    size_t on_len = strlen(online_scope);
+    size_t tg_len = strlen(target_scope);
+    int blended = 0;
+    double one_minus_tau = 1.0 - tau;
+    for (int i = 0; i < param_count_val; i++) {
+        const char* on_name = param_registry[i].name;
+        if (strncmp(on_name, online_scope, on_len) != 0) continue;
+        /* Build target name: target_scope ++ (on_name + on_len). */
+        char tgt_name[256];
+        size_t suffix_len = strlen(on_name + on_len);
+        if (tg_len + suffix_len + 1 > sizeof(tgt_name)) continue;
+        memcpy(tgt_name, target_scope, tg_len);
+        memcpy(tgt_name + tg_len, on_name + on_len, suffix_len + 1);
+        /* Find target param. */
+        for (int j = 0; j < param_count_val; j++) {
+            if (strcmp(param_registry[j].name, tgt_name) != 0) continue;
+            Tensor* on_t = param_registry[i].tensor;
+            Tensor* tg_t = param_registry[j].tensor;
+            if (on_t->numel != tg_t->numel) break;
+            for (int k = 0; k < on_t->numel; k++) {
+                tg_t->data[k] = one_minus_tau * tg_t->data[k] + tau * on_t->data[k];
+            }
+            blended++;
+            break;
+        }
+    }
+    return blended;
+}
+
 OptimizerHandle optimizer_create_adamw(double lr, double beta1, double beta2, double eps,
                                        double weight_decay) {
     Optimizer* opt = calloc(1, sizeof(Optimizer));

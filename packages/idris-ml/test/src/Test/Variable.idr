@@ -34,6 +34,12 @@ mkAdamGroup : String -> NativeOptimizer
 mkAdamGroup scope =
   MkNativeOptimizer (prim__mkAdamGroupLocal 0.1 0.9 0.999 1.0e-8 scope) (NormClip 1.0)
 
+%foreign "C:polyak_blend,libidrisml"
+prim__polyakLocal : Double -> String -> String -> Int
+
+polyakBlend : Double -> String -> String -> IO Int
+polyakBlend tau on tg = pure (prim__polyakLocal tau on tg)
+
 export
 tests : List (IO Bool)
 tests =
@@ -234,6 +240,40 @@ tests =
     in check "writeOpVar forward"
        (abs (r00.value - 0.5) < tol && abs (r01.value - 0.5) < tol
         && abs (r10.value - 1.0) < tol && abs (r11.value - 1.0) < tol)
+
+  -- polyak_blend: τ=1 copies online into target; τ=0 leaves target unchanged;
+  -- τ=0.5 gives the midpoint. Uses inline FFI for the same reason as the
+  -- adam-group test below.
+  , do
+      let onlineW = cpuParam "polyakTest_online_w" 2.0
+          targetW = cpuParam "polyakTest_target_w" 0.0
+      -- τ = 0.5 ⇒ target ← 0.5·target + 0.5·online = 0.5·0 + 0.5·2 = 1.0
+      _ <- polyakBlend 0.5 "polyakTest_online_" "polyakTest_target_"
+      let tAfter = (refreshValue targetW).value
+          oAfter = (refreshValue onlineW).value
+      check "polyak tau=0.5 blends correctly"
+        (abs (tAfter - 1.0) < tol && abs (oAfter - 2.0) < tol)
+
+  , do
+      let onlineW = cpuParam "polyakTest2_online_w" 3.0
+          targetW = cpuParam "polyakTest2_target_w" 0.0
+      -- τ = 1 ⇒ target ← online. Also reference onlineW post-blend so Idris
+      -- forces its construction (and thus registry entry) before polyakBlend.
+      _ <- polyakBlend 1.0 "polyakTest2_online_" "polyakTest2_target_"
+      let tAfter = (refreshValue targetW).value
+          oAfter = (refreshValue onlineW).value
+      check "polyak tau=1 snapshots online"
+        (abs (tAfter - 3.0) < tol && abs (oAfter - 3.0) < tol)
+
+  , do
+      let onlineW = cpuParam "polyakTest3_online_w" 5.0
+          targetW = cpuParam "polyakTest3_target_w" 9.0
+      -- τ = 0 ⇒ target unchanged
+      _ <- polyakBlend 0.0 "polyakTest3_online_" "polyakTest3_target_"
+      let tAfter = (refreshValue targetW).value
+          oAfter = (refreshValue onlineW).value  -- force registration
+      check "polyak tau=0 leaves target unchanged"
+        (abs (tAfter - 9.0) < tol && abs (oAfter - 5.0) < tol)
 
   -- nativeAdamGroup filter: only updates params whose name starts with scope.
   -- (Inline wrapper because single-file `-o` invocation doesn't always see
