@@ -1151,7 +1151,21 @@ TensorHandle tensor_reshape(TensorHandle h, int* shape, int rank) {
     return (TensorHandle)r;
 }
 
-TensorHandle tensor_unsqueeze(TensorHandle t, int dim) { STUB(); }
+TensorHandle tensor_unsqueeze(TensorHandle h, int dim) {
+    auto t = (Tensor*)h;
+    const auto& orig = t->data.shape();
+    int rank = (int)orig.size();
+    std::vector<int> new_dims;
+    new_dims.reserve(rank + 1);
+    for (int i = 0; i <= rank; i++) {
+        if (i == dim) new_dims.push_back(1);
+        if (i < rank) new_dims.push_back(orig[i]);
+    }
+    mx::Shape sh(new_dims.begin(), new_dims.end());
+    auto r = new Tensor(mx::reshape(t->data, sh), t->requires_grad);
+    if (t->requires_grad) tape_append(OP_RESHAPE, r, t, nullptr, 0);
+    return (TensorHandle)r;
+}
 TensorHandle tensor_squeeze(TensorHandle t, int dim) { STUB(); }
 
 TensorHandle tensor_select(TensorHandle h, int dim, int index) {
