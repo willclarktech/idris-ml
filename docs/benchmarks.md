@@ -159,9 +159,30 @@ Top backward ops: LINEAR 0.22ms, SIGMOID 0.02ms, SOFTMAX 0.01ms
 3. **Forward is negligible** — fused `tensor_linear` makes forward nearly free
 4. **OP_LINEAR dominates backward** (73%) but backward itself is tiny
 
-**Decision**: Prioritize **vDSP optimizer vectorization** (Phase 2C) over tape pruning (Phase 2B). The data shows the optimizer's scalar element loops over 8707 params × 100 epochs are the clear bottleneck.
+**Update**: Profiling from C-only (above) was misleading. When profiling real Idris models via `runTraining`, the picture is completely different:
 
-*Note: Large models with many non-parameter intermediates (transformers with attention matrices, NTMs with memory ops) may show different patterns — dead ops could be significant there. But for typical feedforward/recurrent architectures, the optimizer dominates.*
+**Real Idris model profiles** (profiling integrated into `runTraining`):
+
+| Model | Forward | Backward | Optimizer | Dead ops | ms/epoch (C) |
+|-------|---------|----------|-----------|----------|--------------|
+| Supervised (9 params, 1000 ep) | 99% | 0.5% | 0.1% | 0% | 0.4 |
+| Transformer (26K params, 1000 ep) | 92% | 7.5% | 0.7% | 17% | 45.4 |
+| NTM Copy (60K params, 16400 ep) | 95% | 4.3% | 0.3% | 7% | 34.8 |
+
+**Key insight: Forward dominates on ALL real models (92-99% of C time).**
+
+The C-only microbenchmark showed optimizer dominating because it only had backward+optimizer (no FFI calls from Idris). In real models, the forward pass makes many FFI calls from Idris→C (tensor creation, matmul, softmax, loss), each with per-op overhead (malloc, arena_alloc, tape_append).
+
+**Top backward ops**:
+- Transformer: OP_MM (matmul grad) 66%, OP_BMM 21%
+- NTM: OP_MV (matvec grad) 68%, OP_NTM_READ 12%
+
+**Ruled out as priorities**:
+- Tape pruning: 7-17% dead × 4-7% backward = <1.3% total
+- vDSP optimizer: 0.1-0.7% of total time
+- Lazy grad: backward is only 4-7% of total
+
+**Actual priority**: Reduce per-op overhead in forward (allocation + tape bookkeeping per FFI call).
 
 ### Round 2: Fused `tensor_linear` (all backends)
 
