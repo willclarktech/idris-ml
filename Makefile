@@ -525,7 +525,27 @@ test-examples:
 				echo "$$output" | tail -40 | sed 's/^/  | /'; \
 				fail=1; \
 			else \
-				echo "ok: $$result_line"; \
+				expect=$$(awk -v t="$$e" '$$1==t {print $$2, $$3, $$4; exit}' test-examples.expect 2>/dev/null); \
+				if [ -z "$$expect" ]; then \
+					echo "ok: $$result_line"; \
+				else \
+					key=$$(echo "$$expect" | awk '{print $$1}'); \
+					op=$$(echo "$$expect" | awk '{print $$2}'); \
+					thr=$$(echo "$$expect" | awk '{print $$3}'); \
+					val=$$(echo "$$result_line" | tr '\t' '\n' | grep "^$$key=" | head -1 | cut -d= -f2-); \
+					case "$$val" in */*) val=$$(echo "$$val" | awk -F/ 'BEGIN{OFMT="%.6f"} {print $$1/$$2}') ;; esac; \
+					if [ -z "$$val" ]; then \
+						echo "FAIL: $$e [$$b] -- key '$$key' not in RESULT"; \
+						echo "$$result_line" | sed 's/^/  | /'; \
+						fail=1; \
+					elif awk -v a="$$val" -v thr="$$thr" "BEGIN { exit !(a $$op thr) }"; then \
+						echo "ok: $$result_line  [$$key=$$val $$op $$thr]"; \
+					else \
+						echo "FAIL: $$e [$$b] -- $$key=$$val fails check ($$op $$thr)"; \
+						echo "$$result_line" | sed 's/^/  | /'; \
+						fail=1; \
+					fi; \
+				fi; \
 			fi; \
 		done; \
 	done; \

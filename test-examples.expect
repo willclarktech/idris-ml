@@ -1,0 +1,50 @@
+# test-examples threshold expectations
+#
+# Format: <target> <key> <op> <threshold>
+#
+# <key>       is one of the key=value fields emitted by `formatResult` in Train.idr.
+#             If a value looks like "N/M" it's auto-converted to the ratio N/M before compare.
+# <op>        shell-style numeric comparison: <, <=, >, >=, ==, !=
+# <threshold> a number (float or int). Compared as: (value $op threshold).
+#
+# Lines starting with # are ignored. Blank lines are ignored.
+# Missing a target from this file means "presence-only" (no threshold check).
+#
+# Calibration philosophy: where examples run at reduced epoch counts in test-examples
+# (see Makefile EXAMPLE_* overrides), thresholds are loose SMOKE tests — they catch
+# "blew up" (loss=NaN, return=random-policy) but not "failed to converge".
+# Where examples run at full default epochs, thresholds are tight convergence checks.
+# Multi-seed convergence validation lives in `test-examples-convergence`, not here.
+
+# ---- Supervised / recurrent: convergence checks ----
+example-supervised               loss         <   0.5
+example-rnn                      loss         <   0.5
+example-lstm                     loss         <   0.7
+example-transformer              sort_acc     >=  0.8
+
+# ---- Smoke tests (reduced epochs) ----
+example-gpt                      bpc          <   10.0
+example-mnist                    accuracy     >=  0.5
+example-seq-classify             loss         <   2.0
+
+# ---- Memory-augmented nets: convergence ----
+example-ntm-copy                 acc_short    >=  0.9
+example-ntm-associative-recall   acc_k2       >=  0.8
+example-dnc-copy                 acc_short    >=  0.8
+example-dnc-recall               acc_k2       >=  0.6
+
+# ---- RL: tabular (full convergence) ----
+example-q-learning               avg_return   >=  -120
+example-sarsa                    avg_return   >=  -120
+example-monte-carlo              win_rate     >=  0.3
+
+# ---- RL: deep (partial convergence at reduced epochs) ----
+example-reinforce                avg_return   >=  50
+example-dqn                      avg_return   >=  -300
+example-a2c                      avg_return   >=  40
+example-ppo                      avg_return   >=  20
+example-sac                      avg_return   >=  -400
+
+# ---- Cross-backend transfer ----
+example-transfer                 loss         <   2.0
+example-transfer-demo            loss         <   2.0
