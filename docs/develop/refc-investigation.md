@@ -57,12 +57,30 @@ After resolving the Random blocker, RefC generates C code successfully but compi
 
 4. **const char* vs char*** — RefC generates `char*` for String returns but our `backend_name()` returns `const char*`. Minor, suppressed with `-Wno-incompatible-pointer-types-discards-qualifiers`.
 
+### Resolution
+
+Shims provided in `csrc/refc_shims.c` for all three missing functions. Supervised example now compiles and links successfully.
+
+## Blocker 3 (open): RefC trampoline crash
+
+The compiled Supervised binary segfaults immediately in `idris2_trampoline` — the RefC runtime's closure dispatch function. Investigation:
+
+- `__mainExpression_0()` creates a closure wrapping `PrimIO_unsafePerformIO` → `Example_Supervised_main`
+- `idris2_trampoline` tries to read the tag byte from the closure's Value_header
+- Register `x19` contains a garbage pointer (different each run: `0xffffffff8d020002`, `0x5b020002`, etc.)
+- All functions resolve at link time — no missing symbols
+- No implicit function declaration warnings — the generated C is clean
+- Simple RefC programs (hello world, tensor creation + read) work fine
+- The crash is BEFORE any idris-ml code runs — it's in the RefC runtime dispatching the initial closure
+
+**Diagnosis**: This appears to be a bug in Idris 0.8.0's RefC trampoline when handling complex programs with many closures. The generated C code is correct (verified by inspection), and all symbols link properly. The runtime simply can't dispatch the initial closure correctly.
+
 ### Assessment
 
-The missing `idris2_negate_Double` is a RefC runtime bug/gap in Idris 0.8.0. Options:
-- Wait for a newer Idris 2 release with a more complete RefC runtime
-- Provide our own shim implementations of the missing functions
-- File an upstream issue
+This is an upstream RefC runtime bug, not fixable on our side. Options:
+- Wait for a newer Idris 2 release with RefC fixes
+- File upstream issue with reproduction case
+- Build Idris 2 from `main` branch (which has updated RefC runtime)
 
 ## Decision
 
