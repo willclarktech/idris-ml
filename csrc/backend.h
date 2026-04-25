@@ -63,6 +63,7 @@ TensorHandle tensor_max(TensorHandle t);     /* scalar reduction: max of all ele
 
 TensorHandle tensor_matmul(TensorHandle a, TensorHandle b);     /* general matmul */
 TensorHandle tensor_mv(TensorHandle mat, TensorHandle vec);     /* matrix-vector */
+TensorHandle tensor_linear(TensorHandle W, TensorHandle x, TensorHandle bias); /* y = Wx + b (fused) */
 TensorHandle tensor_dot(TensorHandle a, TensorHandle b);        /* vector dot */
 TensorHandle tensor_outer(TensorHandle a, TensorHandle b);      /* outer product */
 

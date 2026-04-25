@@ -203,6 +203,12 @@ TensorHandle tensor_mv(TensorHandle mat, TensorHandle vec) {
     return from_tensor(torch::mv(*to_tensor(mat), *to_tensor(vec)));
 }
 
+TensorHandle tensor_linear(TensorHandle W, TensorHandle x, TensorHandle bias) {
+    auto result = torch::mv(*to_tensor(W), *to_tensor(x));
+    if (bias) result = result + *to_tensor(bias);
+    return from_tensor(result);
+}
+
 TensorHandle tensor_dot(TensorHandle a, TensorHandle b) {
     return from_tensor(torch::dot(*to_tensor(a), *to_tensor(b)));
 }

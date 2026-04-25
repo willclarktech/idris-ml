@@ -236,7 +236,7 @@ static void bench_train_step(int inputDim, int outputDim, int iters) {
     /* warmup */
     for (int i = 0; i < 5; i++) {
         TensorHandle x = make_vector(inputDim, 0);
-        TensorHandle y = tensor_add(tensor_mv(W, x), b);
+        TensorHandle y = tensor_linear(W, x, b);
         TensorHandle loss = tensor_sum(y);
         tensor_backward(loss);
         optimizer_step(opt);
@@ -245,7 +245,7 @@ static void bench_train_step(int inputDim, int outputDim, int iters) {
     double t0 = wall_ms();
     for (int i = 0; i < iters; i++) {
         TensorHandle x = make_vector(inputDim, 0);
-        TensorHandle y = tensor_add(tensor_mv(W, x), b);
+        TensorHandle y = tensor_linear(W, x, b);
         TensorHandle loss = tensor_sum(y);
         tensor_backward(loss);
         optimizer_step(opt);

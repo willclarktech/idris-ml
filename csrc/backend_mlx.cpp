@@ -491,6 +491,20 @@ TensorHandle tensor_mv(TensorHandle hmat, TensorHandle hvec) {
     return (TensorHandle)r;
 }
 
+TensorHandle tensor_linear(TensorHandle hW, TensorHandle hx, TensorHandle hbias) {
+    auto W = (Tensor*)hW; auto x = (Tensor*)hx; auto bias = (Tensor*)hbias;
+    int n = (int)x->data.size();
+    int m_size = (int)W->data.shape(0);
+    auto vec_col = mx::reshape(x->data, {n, 1});
+    auto result_col = mx::matmul(W->data, vec_col);
+    auto result = mx::reshape(result_col, {m_size});
+    if (bias) result = mx::add(result, bias->data);
+    bool rg = W->requires_grad || x->requires_grad || (bias && bias->requires_grad);
+    auto r = new Tensor(result, rg);
+    if (rg) tape_append(OP_MV, r, W, x, 0);  /* reuse OP_MV for replay-based backward */
+    return (TensorHandle)r;
+}
+
 TensorHandle tensor_dot(TensorHandle ha, TensorHandle hb) {
     auto a = (Tensor*)ha; auto b = (Tensor*)hb;
     bool rg = a->requires_grad || b->requires_grad;

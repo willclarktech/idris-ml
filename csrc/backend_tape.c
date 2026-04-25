@@ -143,7 +143,7 @@ enum {
     OP_ADD, OP_SUB, OP_MUL, OP_DIV,
     OP_NEG, OP_ABS, OP_EXP, OP_LOG, OP_SQRT, OP_POW,
     OP_SIGMOID, OP_TANH,
-    OP_MV, OP_DOT, OP_OUTER,
+    OP_MV, OP_LINEAR, OP_DOT, OP_OUTER,
     OP_SOFTMAX, OP_LOG_SOFTMAX,
     OP_SUM, OP_MEAN,
     OP_BCE_WITH_LOGITS,
@@ -200,6 +200,7 @@ typedef struct {
 
 /* Op metadata structs for fused backward */
 typedef struct { int m, n; double* x_vals; } MvMeta;
+typedef struct { int m, n; double* x_vals; Tensor* bias; } LinearMeta;
 typedef struct { int n; double* out_vals; } SoftmaxMeta;
 typedef struct {
     int o;
@@ -749,6 +750,52 @@ TensorHandle tensor_mv(TensorHandle hmat, TensorHandle hvec) {
         meta->m = m; meta->n = n;
         meta->x_vals = arena_alloc(n * sizeof(double));
         memcpy(meta->x_vals, vec->data, n * sizeof(double));
+        tape[idx].op_meta = meta;
+    }
+    return r;
+}
+
+/* Fused linear: y = W @ x + bias. Single allocation, single tape entry.
+   W: [m, n], x: [n], bias: [m] (or NULL). Result: [m]. */
+TensorHandle tensor_linear(TensorHandle hW, TensorHandle hx, TensorHandle hbias) {
+    Tensor* W = (Tensor*)hW;
+    Tensor* x = (Tensor*)hx;
+    Tensor* bias = (Tensor*)hbias;
+    int m = W->shape[0], n = W->shape[1];
+    int out_shape[] = {m};
+    double* out_data = malloc(m * sizeof(double));
+
+    /* y = W @ x */
+#ifdef __APPLE__
+    cblas_dgemv(CblasRowMajor, CblasNoTrans, m, n, 1.0,
+                W->data, n, x->data, 1, 0.0, out_data, 1);
+#else
+    for (int i = 0; i < m; i++) {
+        double s = 0;
+        for (int j = 0; j < n; j++) s += W->data[i*n+j] * x->data[j];
+        out_data[i] = s;
+    }
+#endif
+
+    /* y += bias */
+    if (bias) {
+#ifdef __APPLE__
+        vDSP_vaddD(out_data, 1, bias->data, 1, out_data, 1, (vDSP_Length)m);
+#else
+        for (int i = 0; i < m; i++) out_data[i] += bias->data[i];
+#endif
+    }
+
+    int rg = W->requires_grad || x->requires_grad || (bias && bias->requires_grad);
+    Tensor* r = make_tensor(out_data, out_shape, 1, rg);
+    free(out_data);
+    if (rg) {
+        int idx = tape_append(OP_LINEAR, r, W, x, 0);
+        LinearMeta* meta = arena_alloc(sizeof(LinearMeta));
+        meta->m = m; meta->n = n;
+        meta->x_vals = arena_alloc(n * sizeof(double));
+        memcpy(meta->x_vals, x->data, n * sizeof(double));
+        meta->bias = bias;
         tape[idx].op_meta = meta;
     }
     return r;
@@ -3012,6 +3059,37 @@ void tensor_backward(TensorHandle h) {
                     for (int ii = 0; ii < m_mv; ii++) s += a->data[ii*n_mv+jj] * r->grad[ii];
                     b->grad[jj] += s;
                 }
+            }
+            break;
+        }
+
+        case OP_LINEAR: {
+            /* y = W @ x + bias.  grad_W[i,j] = grad[i]*x[j], grad_x[j] = sum_i W[i,j]*grad[i], grad_bias = grad */
+            LinearMeta* lm = (LinearMeta*)e->op_meta;
+            int m_l = lm->m, n_l = lm->n;
+            double* x_vals_l = lm->x_vals;
+            ensure_grad(r);
+            /* a = W */
+            if (a->requires_grad) {
+                ensure_grad(a);
+                for (int ii = 0; ii < m_l; ii++)
+                    for (int jj = 0; jj < n_l; jj++)
+                        a->grad[ii*n_l+jj] += r->grad[ii] * x_vals_l[jj];
+            }
+            /* b = x */
+            if (b && b->requires_grad) {
+                ensure_grad(b);
+                for (int jj = 0; jj < n_l; jj++) {
+                    double s = 0;
+                    for (int ii = 0; ii < m_l; ii++) s += a->data[ii*n_l+jj] * r->grad[ii];
+                    b->grad[jj] += s;
+                }
+            }
+            /* bias */
+            if (lm->bias && lm->bias->requires_grad) {
+                ensure_grad(lm->bias);
+                for (int ii = 0; ii < m_l; ii++)
+                    lm->bias->grad[ii] += r->grad[ii];
             }
             break;
         }
