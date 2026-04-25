@@ -73,7 +73,15 @@ The compiled Supervised binary segfaults immediately in `idris2_trampoline` — 
 - Simple RefC programs (hello world, tensor creation + read) work fine
 - The crash is BEFORE any idris-ml code runs — it's in the RefC runtime dispatching the initial closure
 
-**Diagnosis**: This appears to be a bug in Idris 0.8.0's RefC trampoline when handling complex programs with many closures. The generated C code is correct (verified by inspection), and all symbols link properly. The runtime simply can't dispatch the initial closure correctly.
+**Diagnosis** (via ASAN): The crash happens in `Tensor_map` (Functor instance for Tensor) called from `Example_Supervised_dataPoints` when constructing `VTensor [1.5, -2.7]`. The Functor map returns a pointer into the zero page (`x19 = 0x1490`). This is a RefC runtime bug with nested algebraic data types (Vect of STensor constructors), not an FFI issue. Simple programs (scalar tensor creation, reads) work; constructing nested Idris data structures crashes.
+
+Stack trace:
+```
+#0 idris2_trampoline
+#1 Tensor_map_Functor (supervised-refc.c:12149)
+#3 Example_Supervised_dataPoints (supervised-refc.c:5756)
+#6 Example_Supervised_main
+```
 
 ### Assessment
 
