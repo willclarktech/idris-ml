@@ -16,7 +16,7 @@ packages/
     src/              # Tensor, Variable, Layer.*, Train, etc.
     test/             # Idris unit tests
   idris-ml-notebook/  # Notebook Prelude (re-exports all idris-ml modules for Jupyter)
-  idris-gym/          # Pure Idris RL environments (Gym.Env, Gym.CartPole)
+  idris-gym/          # Pure Idris RL environments (Gymnasium-parity API: Env, Space, Rng, Wrapper, Vector + ClassicControl/ToyText envs)
   idris-ml-examples/  # Example programs (depends on idris-ml + idris-gym)
     src/Example/
   backends/           # C/C++ backends (tape, MLX, torch)
@@ -48,6 +48,7 @@ make example-<name>
 # Tests
 make test-all            # Everything: Idris + C backends + integration + PyTorch ref
 make test                # Idris unit tests (pure logic, tape backend)
+make test-gym            # Gym package unit tests (pure Idris, no backend)
 make test-backend-tape   # C backend API tests on tape
 make test-backend-mlx    # C backend API tests on MLX
 make test-backend-torch  # C backend API tests on torch
@@ -370,10 +371,22 @@ The MLX backend uses **replay-based native autograd** via `mlx::vjp`. Forward op
 - **Weight projection**: `syncBuffers` and `applyDeltasAndSync` project write weights and read weights onto the probability simplex (clamp to [1e-8, inf) + renormalize), matching the NTM pattern
 - **Output FC uses current reads**: The output is computed from the CURRENT timestep's read outputs (after memory access), not the previous timestep's. This matches the paper and PyTorch reference
 
+### Gym (RL environments)
+
+- **Gymnasium-parity API**: `Env state action obs` interface with 4-tuple `step : state -> action -> (Double, state, Outcome, Info)`. `Outcome = Continue | Terminated | Truncated` splits v0.26+ `done` into natural vs artificial termination (affects value bootstrapping). `Info = List (String, String)` for auxiliary diagnostics
+- **Spaces are values, not types**: `Space = Discrete Nat | Box (Vect n Double) (Vect n Double) | MultiBin Nat | MultiDisc (Vect k Nat)` exposed via `actionSpace`/`obsSpace` methods. Type-level bounds rejected — `Double` can't appear in type-level `Space` values
+- **Discrete actions use `Nat`, not `Fin n`**: keeping the interface polymorphic in `action` lets a single interface cover discrete (`Nat`) and continuous (`Double`, `Vect k Double`) envs. `Fin n` would force specialization or expensive `natToFin` wrapping at every `categoricalSample` call site
+- **Stochastic envs: seed-in-state + pure PRNG**: `Gym.Rng` provides SplitMix64 (pure, no FFI). Stochastic env states carry a `Bits64` seed; `step` advances it in the returned state. Preserves zero-`unsafePerformIO`
+- **Wrappers as helper functions, not `Env` instances**: `TimeLimit`, `Record`, `Normalize`, `Action`. Wrapping an `Env` as another `Env` hits interface-resolution issues with nested multi-param interface constraints — explicit helper functions (`timeLimitedStep`, `recordedStep`) are simpler and faster to compile
+- **`defaultTimeLimit`, not `maxSteps`**: episode truncation is a training decision, not an env property. `TimeLimit` wrapper enforces it; the env's `defaultTimeLimit : Maybe Nat` is informational only
+- **Instance resolution requires explicit `{state, action, obs}`**: methods that don't mention all three interface params (e.g. `step` doesn't use `obs`) can't resolve the instance alone. Wrappers and helper functions pass `{state} {action} {obs}` explicitly
+- **Envs grouped by category**: `Gym.ClassicControl.{CartPole, MountainCar, MountainCarCont, Pendulum, Acrobot}`, `Gym.ToyText.{CliffWalking, Taxi, FrozenLake, Blackjack}`. Re-export hubs (`Gym.ClassicControl`, `Gym.ToyText`, `Gym.Wrapper`) for one-line imports. Mirrors Gymnasium's own package layout
+- **Acrobot uses semi-implicit Euler**, not RK4: 4 substeps of dt=0.05 vs Gymnasium's custom RK4 with dt=0.2. Task and termination match; trajectories diverge numerically
+
 ### Architecture & infrastructure
 
 - **Interface-based layer system**: `LayerLike` + `AnyLayer` existential. Explicit `{i, o : Nat}` needed on all methods (QTT erases Nat params). Adding a layer = one file, zero edits elsewhere. `ActivationState` has tensor-level `applyVarTensor` overrides for tanh/sigmoid (1 tape entry vs ~7n for scalar path)
 - **libtorch backend**: `packages/backends/backend.h` (abstract C API) + `packages/backends/backend_torch.cpp` (libtorch implementation). ~50 tensor ops, parameter registry, native optimizers. Autograd delegated entirely to libtorch
 - **Autograd strategy per backend**: tape = manual Wengert tape + hand-written backward rules (reference, fastest for small tensors). torch = native `tensor.backward()` (2-line backward, zero rules). MLX = replay-based native autograd via `mlx::vjp` (forward ops recorded to tape, replayed inside closure for `mlx::vjp`, zero backward rules). Adding a new op: tape needs forward + backward rule, MLX needs only forward replay case (~2 lines), torch needs nothing (native autograd)
-- **Test suite**: `make test-all` runs everything. `make test` (Idris unit tests), `make test-backend-{tape,mlx,torch}` (C API tests per backend), `make test-safetensors` / `test-ntm-grad` / `test-ntm-timestep` (specialized C tests), `make test-examples` (integration: all examples on all backends with RESULT line validation). Tests in `packages/idris-ml/test/src/Test/*.idr`, `Harness.idr` for assertions
+- **Test suite**: `make test-all` runs everything. `make test` (Idris unit tests), `make test-gym` (Gym package unit tests, pure Idris), `make test-backend-{tape,mlx,torch}` (C API tests per backend), `make test-safetensors` / `test-ntm-grad` / `test-ntm-timestep` (specialized C tests), `make test-examples` (integration: all examples on all backends with RESULT line validation). Tests in `packages/idris-ml/test/src/Test/*.idr`, `packages/idris-gym/test/src/Test/*.idr`, per-package `Harness.idr` for assertions
 - **Curriculum learning**: available via `Curriculum` module. Not needed for LSTM-controller NTMs — converges directly with two-phase training

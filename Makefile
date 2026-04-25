@@ -185,6 +185,11 @@ test: install
 	cp $(LIB) build/exec/test_app/
 	./build/exec/test
 
+# Idris tests for idris-gym package (pure Idris, no backend required)
+test-gym: install-gym
+	cd packages/idris-gym/test && idris2 --build test.ipkg
+	stdbuf -oL ./packages/idris-gym/test/build/exec/idris-gym-test
+
 # Build and run examples (require: make install)
 example-supervised: install
 	idris2 $(IDRIS_FLAGS) -o supervised $(EXAMPLE_SRC)/Example/Supervised.idr
@@ -450,6 +455,9 @@ test-all:
 	@echo "=== Idris unit tests ==="
 	$(MAKE) test
 	@echo ""
+	@echo "=== Gym unit tests ==="
+	$(MAKE) test-gym
+	@echo ""
 	@echo "=== C backend tests ==="
 	@for b in tape mlx torch; do \
 		echo "--- test-backend [$$b] ---"; \
@@ -496,7 +504,7 @@ check-all: check check-gym check-notebook check-examples
 # Verify everything: check-all + run all tests
 all: check-all test-all
 
-.PHONY: all check-all all-backends test test-all download-mnist test-backend test-backend-tape test-backend-mlx \
+.PHONY: all check-all all-backends test test-gym test-all download-mnist test-backend test-backend-tape test-backend-mlx \
         test-backend-torch test-safetensors test-ntm-grad test-ntm-timestep \
         test-examples check check-gym check-notebook check-examples install install-core install-gym install-notebook \
         example-supervised example-rnn example-lstm \

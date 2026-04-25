@@ -2,6 +2,71 @@
 
 See [ntm.md](ntm.md) for NTM-specific design decisions (head parameters, memory operations, addressing, diagnostics, convergence).
 
+## Gym (Gymnasium-parity RL API)
+
+The `idris-gym` package provides a pure-Idris reimplementation of Gymnasium's core API. Feature-complete for pure-math envs (Classic Control + Toy Text); deferred for envs that need physics engines or ROM emulators (Box2D, MuJoCo, Atari).
+
+### Outcome: sum type, not two bools
+
+Gymnasium v0.26+ split the old `done` flag into `terminated` (natural end) and `truncated` (artificial end) because value-function bootstrapping treats them differently: when the episode was artificially cut off by a time limit, the next state's value should still be bootstrapped. We model this as:
+
+```idris
+data Outcome = Continue | Terminated | Truncated
+```
+
+A sum type is better than two bools because it makes the invalid fourth state (`terminated=True, truncated=True`) unrepresentable. Pattern matching is lightweight, and we provide `done : Outcome -> Bool` for the common "is it over?" query.
+
+### Spaces as values, not types
+
+An earlier sketch had `Space` as a type-level descriptor with `ActionTy : Space -> Type` projecting into concrete action types. We rejected this because:
+
+- `Double` bounds can't appear in a type-level `Space`: Idris doesn't permit primitive `Double` as a dependent-type index, so `Box` bounds would need to be erased metadata or encoded as rationals. Either way, the type-level encoding buys nothing over a value-level one.
+- Threading a `Space` type parameter through every function (rolloutEp, epochRL, evalEp, etc.) is invasive and produces noisy signatures.
+- Gymnasium itself keeps spaces at the value level (runtime Python objects).
+
+So `Space = Discrete Nat | Box (Vect n Double) (Vect n Double) | MultiBin Nat | MultiDisc (Vect k Nat)` is a plain ADT exposed via `actionSpace`/`obsSpace` methods on the `Env` interface. Validity is a contract; the policy network's output dimension enforces it in practice.
+
+### Discrete actions: `Nat`, not `Fin n`
+
+`Fin n` would prevent out-of-range discrete actions at the type level, but it comes with a high cost:
+
+- `Sampler.categoricalSample` returns `Nat`. Upgrading it to `Fin n` requires either changing the sampler (the `List` length is erased, so it doesn't just work), wrapping with `natToFin + fromMaybe` at every call site, or duplicating the sampler.
+- `Env state action obs` is polymorphic in `action` so a single interface covers discrete (`action = Nat`) and continuous (`action = Double` or `Vect k Double`) envs. `Fin n` would force specialization.
+- `actionSpace = Discrete n` already exposes the bound for wrappers that need it.
+
+Actions sampled from `categoricalSample (Vect n policy outputs)` are in `{0..n-1}` by construction — the invariant holds at the source, not the interface.
+
+### Stochastic envs: seed-in-state + pure PRNG
+
+`FrozenLake` (slippery) and `Blackjack` (card draws) need randomness inside `step`. Three options:
+
+- Make `step` return `IO` — breaks the zero-`unsafePerformIO` policy and poisons callers.
+- Thread a `List Double` of pre-generated random numbers (the current `Reinforce.idr` pattern for action selection) — awkward when the env itself needs internal randomness.
+- State carries a `Bits64` seed; `step` returns the advanced seed in the next state. Pure, zero FFI.
+
+We chose the third. `Gym.Rng` implements SplitMix64 (Steele, Lea, Flood 2014) using Idris 2's `Bits64` primitives (`prim__shr_Bits64`, `prim__xor_Bits64`, arithmetic that wraps mod 2^64). Derived distributions: `nextDouble` (top-53-bit conversion), `nextNat`, `nextNormal` (Box-Muller).
+
+### TimeLimit as wrapper, not interface method
+
+The previous interface had `maxSteps : Nat` baked in. We removed it because:
+
+- Truncation is a training decision, not a property of the physics. CartPole's physics doesn't terminate after 200 steps — that's a Gymnasium convention for CartPole-v1.
+- Wrapping via `TimeLimited` makes Truncated distinct from Terminated, which matters for value bootstrapping.
+
+The env exposes `defaultTimeLimit : Maybe Nat` as informational-only metadata. Actual enforcement happens through the `TimeLimited` wrapper.
+
+### Wrappers as helper functions, not `Env` instances
+
+Our first attempt implemented `Env (TimeLimited state) action obs` delegating to `Env state action obs`. This ran into a name-shadowing problem: the inner `state` from the `Env state action obs` constraint and the outer `state` from `Env (TimeLimited state) action obs` share the same name, confusing instance resolution.
+
+Further complication: interface methods that don't mention all three type parameters (e.g. `step : state -> action -> ...` doesn't mention `obs`) can't resolve the implementation from the method call alone — Idris can't pin down `obs`. Workarounds (named implementations, explicit `{state} {action} {obs}` on every call) are verbose.
+
+Rather than fight the interface resolver, wrappers are exported as plain functions: `timeLimitedStep`, `recordedStep`, `normalizeObs`, `clipAction`, etc. Callers thread wrapper state manually. This is simpler, compiles faster, and matches the existing `Sampler`/`Generate`-style module idiom.
+
+### Acrobot: semi-implicit Euler, not RK4
+
+Gymnasium uses RK4 with dt=0.2 for Acrobot. We use semi-implicit Euler with 4 substeps of dt=0.05. Implementation is ~20 lines vs ~60 for proper RK4, and the task + termination condition are identical. Trajectories diverge numerically from the Gymnasium reference; for RL training purposes this is fine, but it would break a byte-identical reference comparison.
+
 ## DNC (Differentiable Neural Computer)
 
 Extends NTM (Graves et al. 2016). Key design choices:
