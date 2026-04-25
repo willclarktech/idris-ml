@@ -184,6 +184,22 @@ The C-only microbenchmark showed optimizer dominating because it only had backwa
 
 **Actual priority**: Reduce per-op overhead in forward (allocation + tape bookkeeping per FFI call).
 
+### Fused Ops: Cross-Attention + FFN (all backends)
+
+**Change**: Use `tensor_cross_attention` (already existed) to replace 6 FFI calls per attention head with 1. Added `tensor_ffn_relu` (relu(x@W1)@W2) to replace 3 FFI calls per block with 1. Reduces Idris→C boundary crossings per transformer epoch by ~50%.
+
+**Result**: Correctness verified (transformer converges, sort_acc=6/6). Performance improvement unmeasurable in VM environment due to scheduling noise (results fluctuate 1.5-2x between runs). The optimization is architecturally sound but requires bare-metal benchmarking for reliable measurement.
+
+### Arena-Direct Allocation (tape backend)
+
+**Change**: Element-wise ops now compute directly into arena-allocated buffers instead of malloc→compute→copy→free. Eliminates 1 malloc + 1 memcpy + 1 free per element-wise op.
+
+**Result**: Tests pass. Micro-benchmark shows improvement at 1k elements (3.3→2.2ms) but results at 10k+ are within VM noise. Same measurement limitation as fused ops.
+
+### Measurement Limitation
+
+This VM (Tart on M4 Pro) has significant scheduling noise — benchmark results vary 1.5-2x between identical runs. Optimizations that reduce per-call overhead by 100-200ns are real but unmeasurable here. Future work: run benchmarks on bare-metal or use statistical methods (many trials, confidence intervals) to detect small improvements.
+
 ### Round 2: Fused `tensor_linear` (all backends)
 
 **Change**: Add `tensor_linear(W, x, bias)` that does `y = W @ x + b` in a single C call with one allocation, one tape entry, and a fused backward rule. Implemented on all three backends.
