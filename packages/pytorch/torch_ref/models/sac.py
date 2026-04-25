@@ -1,0 +1,248 @@
+"""SAC (Haarnoja et al. 2018) on Pendulum-v1.
+
+Stochastic tanh-squashed Gaussian actor, twin Q-networks, Polyak-averaged
+target Q-networks, fixed entropy temperature α. Self-contained Pendulum
+physics imported from `ppo.py` to stay aligned with the PPO env.
+
+Aligned with `Example.Sac` (Idris): separate actor + Q1 + Q2 networks
+registered with distinct paramId prefixes. τ=1 (hard target copy every
+`target_sync` steps) for simpler Idris porting — standard SAC uses
+τ=0.005 and updates every step; at Pendulum's scale hard target copy
+converges too.
+"""
+
+from __future__ import annotations
+
+import copy
+import math
+import random
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from torch import Tensor
+
+from torch_ref.models.ppo import MAX_STEPS, PendulumState, observe, pendulum_step
+
+MAX_ACTION = 2.0  # Pendulum torque range
+
+# ---------------------------------------------------------------------------
+# Actor: tanh-squashed Gaussian policy
+# ---------------------------------------------------------------------------
+
+
+class Actor(nn.Module):
+    def __init__(self, obs_dim: int = 3, hidden: int = 64) -> None:
+        super().__init__()
+        self.fc1 = nn.Linear(obs_dim, hidden, dtype=torch.float64)
+        self.fc2 = nn.Linear(hidden, hidden, dtype=torch.float64)
+        self.mean_head = nn.Linear(hidden, 1, dtype=torch.float64)
+        self.log_std = nn.Parameter(torch.zeros(1, dtype=torch.float64))
+
+    def forward(self, x: Tensor) -> tuple[Tensor, Tensor]:
+        h = F.relu(self.fc2(F.relu(self.fc1(x))))
+        mean = self.mean_head(h).squeeze(-1)
+        log_std = torch.clamp(
+            self.log_std.squeeze(0) + torch.zeros_like(mean), min=-5.0, max=2.0
+        )
+        return mean, log_std
+
+    def sample(self, x: Tensor, rng: random.Random | None = None) -> tuple[Tensor, Tensor]:
+        """Reparameterized sample: a = tanh(mean + std * eps) * MAX_ACTION.
+
+        Returns (action, log_prob), both with gradient flow through the actor
+        when x requires grad (via reparameterization trick).
+        """
+        mean, log_std = self(x)
+        std = torch.exp(log_std)
+        if rng is None:
+            eps = torch.randn_like(mean)
+        else:
+            eps = torch.tensor(rng.gauss(0.0, 1.0), dtype=torch.float64)
+        u = mean + std * eps  # pre-tanh
+        a_squashed = torch.tanh(u)
+        action = a_squashed * MAX_ACTION
+        # Gaussian log-prob of u, corrected for tanh squash + action scaling:
+        #   log_prob = gaussian_log_prob(u) - log(1 - tanh(u)^2 + ε) - log(MAX_ACTION)
+        log_prob_u = -0.5 * ((u - mean) / std) ** 2 - log_std - 0.5 * math.log(2 * math.pi)
+        log_prob = log_prob_u - torch.log(1.0 - a_squashed**2 + 1e-6) - math.log(MAX_ACTION)
+        return action, log_prob
+
+
+# ---------------------------------------------------------------------------
+# Q-networks: (obs, action) → scalar
+# ---------------------------------------------------------------------------
+
+
+class QNet(nn.Module):
+    def __init__(self, obs_dim: int = 3, act_dim: int = 1, hidden: int = 64) -> None:
+        super().__init__()
+        self.fc1 = nn.Linear(obs_dim + act_dim, hidden, dtype=torch.float64)
+        self.fc2 = nn.Linear(hidden, hidden, dtype=torch.float64)
+        self.head = nn.Linear(hidden, 1, dtype=torch.float64)
+
+    def forward(self, obs: Tensor, action: Tensor) -> Tensor:
+        a = action.unsqueeze(-1) if action.dim() == obs.dim() - 1 else action
+        x = torch.cat([obs, a], dim=-1)
+        h = F.relu(self.fc2(F.relu(self.fc1(x))))
+        return self.head(h).squeeze(-1)
+
+
+# ---------------------------------------------------------------------------
+# Replay buffer
+# ---------------------------------------------------------------------------
+
+
+class ReplayBuffer:
+    def __init__(self, capacity: int) -> None:
+        from collections import deque
+        self.buf: deque[tuple[list[float], float, float, list[float], bool]] = deque(
+            maxlen=capacity
+        )
+
+    def push(self, obs: list[float], a: float, r: float, next_obs: list[float], done: bool) -> None:
+        self.buf.append((obs, a, r, next_obs, done))
+
+    def sample(self, n: int, rng: random.Random) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor]:
+        batch = rng.sample(self.buf, n)
+        obs = torch.tensor([b[0] for b in batch], dtype=torch.float64)
+        actions = torch.tensor([b[1] for b in batch], dtype=torch.float64)
+        rewards = torch.tensor([b[2] for b in batch], dtype=torch.float64)
+        next_obs = torch.tensor([b[3] for b in batch], dtype=torch.float64)
+        dones = torch.tensor([float(b[4]) for b in batch], dtype=torch.float64)
+        return obs, actions, rewards, next_obs, dones
+
+    def __len__(self) -> int:
+        return len(self.buf)
+
+
+# ---------------------------------------------------------------------------
+# SAC update
+# ---------------------------------------------------------------------------
+
+
+def sac_update(
+    actor: Actor, q1: QNet, q2: QNet, q1_target: QNet, q2_target: QNet,
+    actor_opt: torch.optim.Optimizer, q1_opt: torch.optim.Optimizer,
+    q2_opt: torch.optim.Optimizer, buffer: ReplayBuffer, batch_size: int,
+    gamma: float, alpha: float, rng: random.Random,
+) -> float:
+    obs, actions, rewards, next_obs, dones = buffer.sample(batch_size, rng)
+    with torch.no_grad():
+        next_action, next_logp = actor.sample(next_obs)
+        target_q = torch.min(q1_target(next_obs, next_action), q2_target(next_obs, next_action))
+        target = rewards + gamma * (1.0 - dones) * (target_q - alpha * next_logp)
+
+    # Q losses (Bellman MSE)
+    q1_loss = F.mse_loss(q1(obs, actions), target)
+    q2_loss = F.mse_loss(q2(obs, actions), target)
+    q1_opt.zero_grad()
+    q1_loss.backward()
+    q1_opt.step()
+    q2_opt.zero_grad()
+    q2_loss.backward()
+    q2_opt.step()
+
+    # Actor loss: E[α * log π(a|s) - min(Q1(s,a), Q2(s,a))]
+    sampled_action, logp = actor.sample(obs)
+    q_min = torch.min(q1(obs, sampled_action), q2(obs, sampled_action))
+    actor_loss = (alpha * logp - q_min).mean()
+    actor_opt.zero_grad()
+    actor_loss.backward()
+    actor_opt.step()
+
+    return float(actor_loss.item())
+
+
+def hard_sync(target: nn.Module, online: nn.Module) -> None:
+    target.load_state_dict(online.state_dict())
+
+
+# ---------------------------------------------------------------------------
+# Training
+# ---------------------------------------------------------------------------
+
+
+def train_sac(
+    total_steps: int = 30000, buffer_capacity: int = 100000, batch_size: int = 64,
+    lr: float = 3e-4, gamma: float = 0.99, alpha: float = 0.2,
+    warmup_steps: int = 1000, target_sync: int = 100,
+    seed: int = 42, log_every: int = 2000,
+) -> tuple[Actor, list[float]]:
+    """Hard target copy every `target_sync` steps (Idris-friendly; standard
+    SAC uses Polyak τ=0.005 but that needs a tensor-level blend op we
+    haven't added to the Idris backend yet)."""
+    torch.manual_seed(seed)
+    rng = random.Random(seed)
+    actor = Actor()
+    q1 = QNet()
+    q2 = QNet()
+    q1_target = copy.deepcopy(q1)
+    q2_target = copy.deepcopy(q2)
+    actor_opt = torch.optim.Adam(actor.parameters(), lr=lr)
+    q1_opt = torch.optim.Adam(q1.parameters(), lr=lr)
+    q2_opt = torch.optim.Adam(q2.parameters(), lr=lr)
+    buffer = ReplayBuffer(buffer_capacity)
+
+    history: list[float] = []
+    state = PendulumState()
+    ep_return = 0.0
+    ep_len = 0
+    for step in range(total_steps):
+        obs = observe(state)
+        if step < warmup_steps:
+            action = rng.uniform(-MAX_ACTION, MAX_ACTION)
+        else:
+            with torch.no_grad():
+                a_t, _ = actor.sample(obs)
+                action = float(a_t.item())
+        reward, next_state, _ = pendulum_step(state, action)
+        ep_return += reward
+        ep_len += 1
+        done = ep_len >= MAX_STEPS
+        buffer.push(obs.tolist(), action, reward, observe(next_state).tolist(), done)
+        state = next_state
+        if done:
+            history.append(ep_return)
+            ep_return = 0.0
+            ep_len = 0
+            state = PendulumState()
+        if len(buffer) >= max(batch_size, warmup_steps):
+            sac_update(
+                actor, q1, q2, q1_target, q2_target,
+                actor_opt, q1_opt, q2_opt, buffer, batch_size, gamma, alpha, rng,
+            )
+            if (step + 1) % target_sync == 0:
+                hard_sync(q1_target, q1)
+                hard_sync(q2_target, q2)
+        if (step + 1) % log_every == 0:
+            recent = history[-20:] or [0.0]
+            print(
+                f"  step {step + 1:6d}  eps_seen={len(history):4d}  "
+                f"recent_20_return={sum(recent)/len(recent):.1f}"
+            )
+    return actor, history
+
+
+def evaluate(actor: Actor, n_episodes: int = 20) -> float:
+    total = 0.0
+    for _ in range(n_episodes):
+        state = PendulumState()
+        ep_return = 0.0
+        for _ in range(MAX_STEPS):
+            obs = observe(state)
+            with torch.no_grad():
+                mean, _ = actor(obs)
+            action = float(torch.tanh(mean).item()) * MAX_ACTION
+            reward, state, _ = pendulum_step(state, action)
+            ep_return += reward
+        total += ep_return
+    return total / n_episodes
+
+
+if __name__ == "__main__":
+    print("=== SAC on Pendulum ===")
+    actor, history = train_sac()
+    avg = evaluate(actor)
+    print(f"\nEval (20 episodes, greedy): avg_return={avg:.1f}")
+    print(f"RESULT\tavg_return={avg:.1f}\tsteps={30000}\tseed=42")
