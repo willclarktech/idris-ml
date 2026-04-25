@@ -50,7 +50,10 @@ When adding or changing an example, always update both Idris and PyTorch to matc
 |------|-------------|
 | Reinforce script | `pytorch/torch_ref/scripts/reinforce.py` — was missing |
 
-## Remaining known differences
+### LSTM hidden size (resolved)
 
-- **LSTM hidden size**: Idris uses `{i=1, o=1}`, PyTorch uses `hidden_size=4`. Needs investigation — may be a genuine architectural difference.
-- **Transformer gradient clipping**: Both now clip at 1.0 (was already aligned in training code, just not the script).
+Idris LSTM ties hidden=output in `LstmState`. Was using `{i=1, o=1}` (hidden=1) while PyTorch used `LinearLSTMCell(1, 4, 1)` (hidden=4 + output projection). Fixed by using `lstmLayer {i=1, o=4}` + `linearLayer {i=4, o=1}` to match.
+
+## Status
+
+All known discrepancies resolved. Both implementations now use identical defaults.
