@@ -28,14 +28,14 @@ example-mnist                    accuracy     >=  0.12
 example-seq-classify             loss         <   2.0
 
 # ---- Memory-augmented nets: smoke (reduced epochs in test-examples) ----
-# NTM/DNC full convergence takes 10000+ epochs (minutes per run) — not viable
+# NTM full convergence takes 10000+ epochs (minutes per run) — not viable
 # within EXAMPLE_TIMEOUT. Caps run them as smoke tests that catch "blew up /
 # diverged / doesn't learn" regressions. Full-convergence validation lives
 # in a separate slow target (TODO: test-examples-convergence NTM lane).
+#
+# DNC (copy + recall) is excluded from test-examples entirely — see Makefile.
 example-ntm-copy                 acc_short    >=  0.5
 example-ntm-associative-recall   acc_k2       >=  0.5
-example-dnc-copy                 acc_short    >=  0.5
-example-dnc-recall               acc_k2       >=  0.5
 
 # ---- RL: tabular (full convergence) ----
 example-q-learning               avg_return   >=  -120
