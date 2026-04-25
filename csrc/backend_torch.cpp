@@ -1334,6 +1334,8 @@ void backend_reset_for_eval(void) {
     }
 }
 
+void backend_epoch_begin(void) { /* no-op for torch: profiling is backward+optimizer only */ }
+
 void backend_profile_reset(void) {
     prof_backward_ms = prof_optimizer_ms = 0;
     prof_epochs = 0;

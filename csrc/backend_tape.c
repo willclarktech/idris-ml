@@ -185,6 +185,7 @@ enum {
     OP_SCATTER_ADD,   /* scatter add: out[index[i]] += src[i] */
     OP_LEAKY_RELU,    /* max(alpha*x, x) — alpha in scalar_arg */
     OP_SILU,          /* x * sigmoid(x) (Swish activation) */
+    OP_COUNT          /* sentinel — must be last */
 };
 
 typedef struct {
@@ -2458,11 +2459,20 @@ static double _wall_ms(void) {
 }
 static double prof_forward_ms = 0, prof_backward_ms = 0, prof_optimizer_ms = 0;
 static int prof_forward_ops = 0, prof_backward_ops = 0, prof_epochs = 0;
+static double prof_epoch_start = 0; /* set by backend_epoch_begin() */
+static int prof_backward_processed = 0, prof_backward_skipped = 0;
+static double prof_backward_per_op[OP_COUNT] = {0};
+static int prof_backward_count_per_op[OP_COUNT] = {0};
 
 
 
 void tensor_backward(TensorHandle h) {
     double t0 = _wall_ms();
+    /* Attribute time since epoch_begin to forward */
+    if (prof_epoch_start > 0) {
+        prof_forward_ms += t0 - prof_epoch_start;
+        prof_epoch_start = 0;
+    }
     Tensor* loss = (Tensor*)h;
     if (loss->tape_idx < 0) return;
 
@@ -2479,6 +2489,7 @@ void tensor_backward(TensorHandle h) {
         Tensor* r = e->result;
         if (!r->grad) { skipped++; continue; }
         processed++;
+        double t_op = _wall_ms();
 
         Tensor* a = e->arg1;
         Tensor* b = e->arg2;
@@ -3693,8 +3704,14 @@ void tensor_backward(TensorHandle h) {
 
         default: break; /* unimplemented backward */
         }
+        /* Accumulate per-op timing */
+        if (e->op < OP_COUNT) {
+            prof_backward_per_op[e->op] += _wall_ms() - t_op;
+            prof_backward_count_per_op[e->op]++;
+        }
     }
-    (void)processed; (void)skipped;
+    prof_backward_processed += processed;
+    prof_backward_skipped += skipped;
     prof_backward_ms += _wall_ms() - t0;
     prof_backward_ops += processed;
 }
@@ -4546,9 +4563,43 @@ void backend_memory_report(void) {
    Profiling
    ================================================================ */
 
+void backend_epoch_begin(void) {
+    prof_epoch_start = _wall_ms();
+}
+
 void backend_profile_reset(void) {
     prof_forward_ms = prof_backward_ms = prof_optimizer_ms = 0;
     prof_forward_ops = prof_backward_ops = prof_epochs = 0;
+    prof_epoch_start = 0;
+    prof_backward_processed = prof_backward_skipped = 0;
+    memset(prof_backward_per_op, 0, sizeof(prof_backward_per_op));
+    memset(prof_backward_count_per_op, 0, sizeof(prof_backward_count_per_op));
+}
+
+static const char* op_name(int op) {
+    static const char* names[] = {
+        "CONST", "ADD", "SUB", "MUL", "DIV",
+        "NEG", "ABS", "EXP", "LOG", "SQRT", "POW",
+        "SIGMOID", "TANH",
+        "MV", "LINEAR", "DOT", "OUTER",
+        "SOFTMAX", "LOG_SOFTMAX",
+        "SUM", "MEAN",
+        "BCE_LOGITS",
+        "NTM_READ", "NTM_WRITE",
+        "LSTM_GATES",
+        "ADD_S", "MUL_S", "CLAMP",
+        "COS_SIM", "CONV1D_CIRC",
+        "LSTM_CELL",
+        "STACK", "RESHAPE", "SELECT", "VECMAT", "CAT", "NARROW",
+        "NTM_READ2", "LOG_SM_2D",
+        "MM", "TRANS_2D", "SM_2D", "MASK_FILL", "LN_2D",
+        "BMM", "BMM_3X3", "SM_3D", "TRANS_L2",
+        "GELU", "GRU", "EMBED", "BATCH_NORM", "DROPOUT",
+        "AVGP1D", "AVGP2D", "CONV1D", "MAXP1D", "CONV2D", "MAXP2D",
+        "CUMPROD", "GATHER", "SCATTER_ADD", "LEAKY_RELU", "SILU"
+    };
+    if (op >= 0 && op < OP_COUNT) return names[op];
+    return "???";
 }
 
 void backend_profile_report(void) {
@@ -4566,6 +4617,40 @@ void backend_profile_report(void) {
     double total = prof_forward_ms + prof_backward_ms + prof_optimizer_ms;
     fprintf(stderr, "  C total:   %.1fms total (%.1fms/epoch)\n",
             total, prof_epochs > 0 ? total / prof_epochs : 0);
+    /* Tape walk stats */
+    int total_visited = prof_backward_processed + prof_backward_skipped;
+    if (total_visited > 0) {
+        fprintf(stderr, "  Backward walk: %d processed, %d skipped (%.0f%% dead)\n",
+                prof_backward_processed, prof_backward_skipped,
+                100.0 * prof_backward_skipped / total_visited);
+    }
+    /* Top-5 ops by backward time */
+    fprintf(stderr, "  Top backward ops:\n");
+    for (int rank = 0; rank < 5; rank++) {
+        int best = -1;
+        double best_time = 0;
+        for (int j = 0; j < OP_COUNT; j++) {
+            if (prof_backward_per_op[j] > best_time) {
+                /* Skip already printed */
+                int already = 0;
+                for (int k = 0; k < rank; k++) {
+                    /* Find k-th best again to skip it */
+                    double kt = 0; int ki = -1;
+                    for (int m = 0; m < OP_COUNT; m++) {
+                        if (prof_backward_per_op[m] > kt) { kt = prof_backward_per_op[m]; ki = m; }
+                    }
+                    /* This naive approach doesn't work for rank>0. Use simpler method. */
+                    (void)kt; (void)ki;
+                }
+                (void)already;
+                best = j; best_time = prof_backward_per_op[j];
+            }
+        }
+        if (best < 0 || best_time < 0.001) break;
+        fprintf(stderr, "    %-12s %.2fms (%d calls)\n",
+                op_name(best), best_time, prof_backward_count_per_op[best]);
+        prof_backward_per_op[best] = -1; /* mark as printed (will be reset on next profile_reset) */
+    }
 }
 
 /* ================================================================

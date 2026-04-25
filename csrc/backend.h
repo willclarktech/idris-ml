@@ -341,6 +341,7 @@ void backend_reset_for_eval(void); /* reset tape + arena for clean eval forward 
 
 void backend_profile_reset(void);
 void backend_profile_report(void);
+void backend_epoch_begin(void);  /* mark start of forward pass for timing */
 
 /* ---------- Backend Info ---------- */
 

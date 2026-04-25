@@ -2212,6 +2212,8 @@ void backend_reset_for_eval(void) {
         tape_append(OP_CONST, p.tensor, nullptr, nullptr, 0);
     }
 }
+void backend_epoch_begin(void) { /* no-op for MLX: profiling is backward+optimizer only */ }
+
 void backend_profile_reset(void) {
     prof_backward_ms_mlx = prof_optimizer_ms_mlx = 0;
     prof_epochs_mlx = 0;
