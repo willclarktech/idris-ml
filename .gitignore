@@ -3,6 +3,7 @@
 build/
 data/
 .claude/
+.idris2/
 
 .venv/
 *.egg-info/
@@ -11,5 +12,5 @@ __pycache__/
 .pytest_cache/
 logs/
 results/
-pytorch/reference/
+packages/pytorch/reference/
 .ipynb_checkpoints/

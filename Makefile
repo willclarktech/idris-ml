@@ -2,6 +2,20 @@ UNAME := $(shell uname)
 BUILD := build
 BACKEND ?= tape
 
+# --- Package paths ---
+CORE_SRC := packages/idris-ml/src
+GYM_SRC := packages/idris-gym/src
+EXAMPLE_SRC := packages/idris-ml-examples/src
+TEST_SRC := packages/idris-ml/test/src
+BACKENDS_DIR := packages/backends
+
+# Local package install prefix (writable, avoids polluting system Idris2)
+IDRIS2_LOCAL := $(CURDIR)/.idris2
+export IDRIS2_PACKAGE_PATH := $(IDRIS2_LOCAL)/idris2-0.8.0
+
+# Idris flags for example/test builds (use installed packages)
+IDRIS_FLAGS := --source-dir $(EXAMPLE_SRC) -p contrib -p idris-ml -p idris-gym
+
 # --- Backend selection ---
 ifeq ($(BACKEND), torch)
   # libtorch detection
@@ -12,14 +26,14 @@ ifeq ($(BACKEND), torch)
     LIBTORCH_PATH := $(shell python3 -c "import torch, os; print(os.path.dirname(torch.__file__))" 2>/dev/null)
   endif
   ifndef LIBTORCH_PATH
-    LIBTORCH_PATH := $(shell pytorch/.venv/bin/python3 -c "import torch, os; print(os.path.dirname(torch.__file__))" 2>/dev/null)
+    LIBTORCH_PATH := $(shell packages/pytorch/.venv/bin/python3 -c "import torch, os; print(os.path.dirname(torch.__file__))" 2>/dev/null)
   endif
   ifdef LIBTORCH_PATH
     TORCH_INC := $(LIBTORCH_PATH)/include
     TORCH_INC_API := $(LIBTORCH_PATH)/include/torch/csrc/api/include
     TORCH_LIB := $(LIBTORCH_PATH)/lib
   endif
-  BACKEND_SRC := csrc/backend_torch.cpp
+  BACKEND_SRC := $(BACKENDS_DIR)/backend_torch.cpp
   ifeq ($(UNAME), Darwin)
     LIB := $(BUILD)/libidrisml.dylib
     BACKEND_FLAGS := -std=c++17 -O2 -shared -I$(TORCH_INC) -I$(TORCH_INC_API) -L$(TORCH_LIB) -ltorch -ltorch_cpu -lc10 -Wl,-rpath,$(TORCH_LIB)
@@ -31,7 +45,6 @@ ifeq ($(BACKEND), torch)
   endif
 else ifeq ($(BACKEND), mlx)
   # MLX backend: Apple Metal GPU via MLX C++ API
-  # Auto-detect MLX from nix store (cached after first build)
   ifndef MLX_SITE
     MLX_SITE := $(shell python3 -c "import mlx; import os; print(os.path.dirname(mlx.__file__))" 2>/dev/null)
   endif
@@ -40,7 +53,7 @@ else ifeq ($(BACKEND), mlx)
   endif
   MLX_INC := $(MLX_SITE)/include
   MLX_LIB := $(MLX_SITE)/lib
-  BACKEND_SRC := csrc/backend_mlx.cpp
+  BACKEND_SRC := $(BACKENDS_DIR)/backend_mlx.cpp
   ifeq ($(UNAME), Darwin)
     LIB := $(BUILD)/libidrisml.dylib
     BACKEND_FLAGS := -std=c++20 -O2 -shared -I$(MLX_INC) -L$(MLX_LIB) -lmlx -Wl,-rpath,$(MLX_LIB) -framework Accelerate -framework Metal -framework Foundation
@@ -48,7 +61,7 @@ else ifeq ($(BACKEND), mlx)
   endif
 else
   # Tape backend (default): custom C, no libtorch dependency
-  BACKEND_SRC := csrc/backend_tape.c
+  BACKEND_SRC := $(BACKENDS_DIR)/backend_tape.c
   ifeq ($(UNAME), Darwin)
     LIB := $(BUILD)/libidrisml.dylib
     BACKEND_FLAGS := -O2 -shared -DACCELERATE_NEW_LAPACK -framework Accelerate
@@ -67,22 +80,22 @@ BACKEND_LIB := $(BUILD)/libidrisml_$(BACKEND).dylib
 # Shared C sources (backend-agnostic: serialization, JSON, data loading)
 SHARED_OBJ := $(BUILD)/safetensors.o $(BUILD)/cJSON.o $(BUILD)/mnist.o $(BUILD)/dataloader.o
 
-$(BUILD)/safetensors.o: csrc/safetensors.c csrc/backend.h csrc/cJSON.h | $(BUILD)
+$(BUILD)/safetensors.o: $(BACKENDS_DIR)/safetensors.c $(BACKENDS_DIR)/backend.h $(BACKENDS_DIR)/cJSON.h | $(BUILD)
 	cc -O2 -c -o $@ $<
 
-$(BUILD)/cJSON.o: csrc/cJSON.c csrc/cJSON.h | $(BUILD)
+$(BUILD)/cJSON.o: $(BACKENDS_DIR)/cJSON.c $(BACKENDS_DIR)/cJSON.h | $(BUILD)
 	cc -O2 -c -o $@ $<
 
-$(BUILD)/mnist.o: csrc/mnist.c csrc/backend.h | $(BUILD)
+$(BUILD)/mnist.o: $(BACKENDS_DIR)/mnist.c $(BACKENDS_DIR)/backend.h | $(BUILD)
 	cc -O2 -c -o $@ $<
 
-$(BUILD)/dataloader.o: csrc/dataloader.c | $(BUILD)
+$(BUILD)/dataloader.o: $(BACKENDS_DIR)/dataloader.c | $(BUILD)
 	cc -O2 -c -o $@ $<
 
-$(BACKEND_LIB): $(BACKEND_SRC) csrc/backend.h $(SHARED_OBJ) | $(BUILD)
+$(BACKEND_LIB): $(BACKEND_SRC) $(BACKENDS_DIR)/backend.h $(SHARED_OBJ) | $(BUILD)
 ifeq ($(BACKEND), torch)
   ifndef LIBTORCH_PATH
-	$(error libtorch not found. Set LIBTORCH_PATH, install via pkg-config, or run: cd pytorch && uv sync)
+	$(error libtorch not found. Set LIBTORCH_PATH, install via pkg-config, or run: cd packages/pytorch && uv sync)
   endif
 endif
 	$(BACKEND_CC) $(BACKEND_FLAGS) -o $@ $< $(SHARED_OBJ)
@@ -96,8 +109,8 @@ backend: $(BACKEND_LIB)
 	@ln -sf libidrisml_$(BACKEND).dylib $(LIB)
 
 # Backend API test suite — runs against whichever backend is active
-test-backend: csrc/test_backend.c backend | $(BUILD)
-	cc -o $(BUILD)/test_backend csrc/test_backend.c -L$(BUILD) -lidrisml -Wl,-rpath,$(BUILD) -lm
+test-backend: $(BACKENDS_DIR)/test_backend.c backend | $(BUILD)
+	cc -o $(BUILD)/test_backend $(BACKENDS_DIR)/test_backend.c -L$(BUILD) -lidrisml -Wl,-rpath,$(BUILD) -lm
 	./$(BUILD)/test_backend
 
 # Per-backend convenience targets
@@ -111,16 +124,16 @@ test-backend-torch:
 	$(MAKE) BACKEND=torch test-backend
 
 # Specialized C test suites
-test-safetensors: csrc/test_safetensors.c backend | $(BUILD)
-	cc -o $(BUILD)/test_safetensors csrc/test_safetensors.c -L$(BUILD) -lidrisml -Wl,-rpath,$(BUILD) -lm
+test-safetensors: $(BACKENDS_DIR)/test_safetensors.c backend | $(BUILD)
+	cc -o $(BUILD)/test_safetensors $(BACKENDS_DIR)/test_safetensors.c -L$(BUILD) -lidrisml -Wl,-rpath,$(BUILD) -lm
 	./$(BUILD)/test_safetensors
 
-test-ntm-grad: csrc/test_ntm_grad.c backend | $(BUILD)
-	cc -o $(BUILD)/test_ntm_grad csrc/test_ntm_grad.c -L$(BUILD) -lidrisml -Wl,-rpath,$(BUILD) -lm
+test-ntm-grad: $(BACKENDS_DIR)/test_ntm_grad.c backend | $(BUILD)
+	cc -o $(BUILD)/test_ntm_grad $(BACKENDS_DIR)/test_ntm_grad.c -L$(BUILD) -lidrisml -Wl,-rpath,$(BUILD) -lm
 	./$(BUILD)/test_ntm_grad
 
-test-ntm-timestep: csrc/test_ntm_timestep.c backend | $(BUILD)
-	cc -o $(BUILD)/test_ntm_timestep csrc/test_ntm_timestep.c -L$(BUILD) -lidrisml -Wl,-rpath,$(BUILD) -lm
+test-ntm-timestep: $(BACKENDS_DIR)/test_ntm_timestep.c backend | $(BUILD)
+	cc -o $(BUILD)/test_ntm_timestep $(BACKENDS_DIR)/test_ntm_timestep.c -L$(BUILD) -lidrisml -Wl,-rpath,$(BUILD) -lm
 	./$(BUILD)/test_ntm_timestep
 
 print-torch:
@@ -130,79 +143,98 @@ print-torch:
 	@echo "BACKEND=$(BACKEND)"
 	@echo "LIB=$(LIB)"
 
-# Idris build (type-check library)
+# Install core library to local prefix (needed before building examples/tests)
+install-core: backend
+	@cd packages/idris-ml && IDRIS2_PREFIX=$(IDRIS2_LOCAL) idris2 --install idris-ml.ipkg >/dev/null
+
+# Install gym to local prefix
+install-gym:
+	@cd packages/idris-gym && IDRIS2_PREFIX=$(IDRIS2_LOCAL) idris2 --install idris-gym.ipkg >/dev/null
+
+# Install all Idris packages locally
+install: install-core install-gym
+
+# Idris build (type-check core library)
 check: backend
-	idris2 --build idris-ml.ipkg
+	cd packages/idris-ml && idris2 --build idris-ml.ipkg
+
+# Type-check gym package
+check-gym:
+	cd packages/idris-gym && idris2 --build idris-gym.ipkg
+
+# Type-check examples (requires installed core + gym)
+check-examples: install
+	cd packages/idris-ml-examples && idris2 --build idris-ml-examples.ipkg
 
 # Idris tests
-test: check
-	idris2 --source-dir src --source-dir test/src -p contrib -o test test/src/Main.idr
+test: install
+	idris2 --source-dir $(TEST_SRC) -p contrib -p idris-ml -o test $(TEST_SRC)/Main.idr
 	cp $(LIB) build/exec/test_app/
 	./build/exec/test
 
-# Build and run examples
-example-supervised: backend
-	idris2 --source-dir src -p contrib -o supervised src/Example/Supervised.idr
+# Build and run examples (require: make install)
+example-supervised: install
+	idris2 $(IDRIS_FLAGS) -o supervised $(EXAMPLE_SRC)/Example/Supervised.idr
 	cp $(LIB) build/exec/supervised_app/
 	./build/exec/supervised
 
-example-rnn: backend
-	idris2 --source-dir src -p contrib -o rnn src/Example/Rnn.idr
+example-rnn: install
+	idris2 $(IDRIS_FLAGS) -o rnn $(EXAMPLE_SRC)/Example/Rnn.idr
 	cp $(LIB) build/exec/rnn_app/
 	./build/exec/rnn
 
-example-lstm: backend
-	idris2 --source-dir src -p contrib -o lstm src/Example/Lstm.idr
+example-lstm: install
+	idris2 $(IDRIS_FLAGS) -o lstm $(EXAMPLE_SRC)/Example/Lstm.idr
 	cp $(LIB) build/exec/lstm_app/
 	./build/exec/lstm
 
-example-ntm-copy: backend
-	idris2 --source-dir src -p contrib -o ntm-copy src/Example/NtmCopy.idr
+example-ntm-copy: install
+	idris2 $(IDRIS_FLAGS) -o ntm-copy $(EXAMPLE_SRC)/Example/NtmCopy.idr
 	cp $(LIB) build/exec/ntm-copy_app/
 	./build/exec/ntm-copy
 
-example-ntm-associative-recall: backend
-	idris2 --source-dir src -p contrib -o ntm-associative-recall src/Example/NtmAssociativeRecall.idr
+example-ntm-associative-recall: install
+	idris2 $(IDRIS_FLAGS) -o ntm-associative-recall $(EXAMPLE_SRC)/Example/NtmAssociativeRecall.idr
 	cp $(LIB) build/exec/ntm-associative-recall_app/
 	./build/exec/ntm-associative-recall
 
-example-dnc-copy: backend
-	idris2 --source-dir src -p contrib -o dnc-copy src/Example/DncCopy.idr
+example-dnc-copy: install
+	idris2 $(IDRIS_FLAGS) -o dnc-copy $(EXAMPLE_SRC)/Example/DncCopy.idr
 	cp $(LIB) build/exec/dnc-copy_app/
 	./build/exec/dnc-copy
 
-example-dnc-recall: backend
-	idris2 --source-dir src -p contrib -o dnc-recall src/Example/DncAssociativeRecall.idr
+example-dnc-recall: install
+	idris2 $(IDRIS_FLAGS) -o dnc-recall $(EXAMPLE_SRC)/Example/DncAssociativeRecall.idr
 	cp $(LIB) build/exec/dnc-recall_app/
 	./build/exec/dnc-recall
 
-example-transformer: backend
-	idris2 --source-dir src -p contrib -o transformer src/Example/Transformer.idr
+example-transformer: install
+	idris2 $(IDRIS_FLAGS) -o transformer $(EXAMPLE_SRC)/Example/Transformer.idr
 	cp $(LIB) build/exec/transformer_app/
 	./build/exec/transformer
 
-example-gpt: backend
-	idris2 --source-dir src -p contrib -o gpt src/Example/Gpt.idr
+example-gpt: install
+	idris2 $(IDRIS_FLAGS) -o gpt $(EXAMPLE_SRC)/Example/Gpt.idr
 	cp $(LIB) build/exec/gpt_app/
 	./build/exec/gpt $(GPT_ARGS)
 
-example-mnist: backend
-	idris2 --source-dir src -p contrib -o mnist src/Example/Mnist.idr
+example-mnist: install
+	idris2 $(IDRIS_FLAGS) -o mnist $(EXAMPLE_SRC)/Example/Mnist.idr
 	cp $(LIB) build/exec/mnist_app/
 	./build/exec/mnist $(MNIST_ARGS)
 
-example-seq-classify: backend
-	idris2 --source-dir src -p contrib -o seq-classify src/Example/SeqClassify.idr
+example-seq-classify: install
+	idris2 $(IDRIS_FLAGS) -o seq-classify $(EXAMPLE_SRC)/Example/SeqClassify.idr
 	cp $(LIB) build/exec/seq-classify_app/
 	./build/exec/seq-classify $(SEQ_ARGS)
 
-example-reinforce: backend
-	idris2 --source-dir src -p contrib -o reinforce src/Example/Reinforce.idr
+example-reinforce: install
+	idris2 $(IDRIS_FLAGS) -o reinforce $(EXAMPLE_SRC)/Example/Reinforce.idr
 	cp $(LIB) build/exec/reinforce_app/
 	./build/exec/reinforce $(REINFORCE_ARGS)
 
-example-transfer: backend
-	idris2 --source-dir src -p contrib -o transfer src/Example/Transfer.idr
+example-transfer: install
+	idris2 $(IDRIS_FLAGS) -o transfer $(EXAMPLE_SRC)/Example/Transfer.idr
 	cp $(LIB) build/exec/transfer_app/
 	./build/exec/transfer $(TRANSFER_ARGS)
 
@@ -216,16 +248,16 @@ example-transfer-demo:
 	@echo "=== Phase 3: Infer on torch ==="
 	$(MAKE) BACKEND=torch example-transfer TRANSFER_ARGS="--mode infer --load /tmp/transfer2.safetensors"
 
-example-bench: backend
-	idris2 --source-dir src -p contrib -o bench src/Example/Bench.idr
+example-bench: install
+	idris2 $(IDRIS_FLAGS) -o bench $(EXAMPLE_SRC)/Example/Bench.idr
 	cp $(LIB) build/exec/bench_app/
 	./build/exec/bench
 
 $(BUILD):
 	mkdir -p $(BUILD)
 
-example-profile: backend
-	idris2 --source-dir src -p contrib -o profile src/Example/Profile.idr
+example-profile: install
+	idris2 $(IDRIS_FLAGS) -o profile $(EXAMPLE_SRC)/Example/Profile.idr
 	cp $(LIB) build/exec/profile_app/
 	./build/exec/profile
 
@@ -237,28 +269,28 @@ sweep-quick: backend
 
 # PyTorch reference implementation (uv manages Python)
 ref-setup:
-	cd pytorch && uv sync --dev
+	cd packages/pytorch && uv sync --dev
 
 bench-py:
-	cd pytorch && uv run python -m torch_ref.benchmark $(BENCH)
+	cd packages/pytorch && uv run python -m torch_ref.benchmark $(BENCH)
 
 bench-compare: example-bench
-	cd pytorch && uv run python -m torch_ref.compare
+	cd packages/pytorch && uv run python -m torch_ref.compare
 
 # Build bench_ops linked against the active backend
-$(BUILD)/bench_ops: csrc/bench_ops.c backend | $(BUILD)
-	cc -o $(BUILD)/bench_ops csrc/bench_ops.c -L$(BUILD) -lidrisml -Wl,-rpath,$(CURDIR)/$(BUILD) -lm
+$(BUILD)/bench_ops: $(BACKENDS_DIR)/bench_ops.c backend | $(BUILD)
+	cc -o $(BUILD)/bench_ops $(BACKENDS_DIR)/bench_ops.c -L$(BUILD) -lidrisml -Wl,-rpath,$(CURDIR)/$(BUILD) -lm
 
 # Build bench_ops for a specific backend (e.g., make bench-ops-build-tape)
-bench-ops-build-%: csrc/bench_ops.c | $(BUILD)
+bench-ops-build-%: $(BACKENDS_DIR)/bench_ops.c | $(BUILD)
 	@$(MAKE) --no-print-directory BACKEND=$* backend 2>/dev/null
-	cc -o $(BUILD)/bench_ops_$* csrc/bench_ops.c -L$(BUILD) -lidrisml -Wl,-rpath,$(CURDIR)/$(BUILD) -lm
+	cc -o $(BUILD)/bench_ops_$* $(BACKENDS_DIR)/bench_ops.c -L$(BUILD) -lidrisml -Wl,-rpath,$(CURDIR)/$(BUILD) -lm
 
 bench-ops: $(BUILD)/bench_ops
 	./$(BUILD)/bench_ops
 
 bench-ops-py:
-	cd pytorch && uv run python -m torch_ref.bench_ops
+	cd packages/pytorch && uv run python -m torch_ref.bench_ops
 
 # Compare all available backends vs PyTorch.
 # Links each bench_ops_<backend> directly against its specific dylib.
@@ -267,63 +299,63 @@ bench-ops-compare:
 		if [ ! -f $(BUILD)/libidrisml_$$b.dylib ]; then \
 			$(MAKE) --no-print-directory BACKEND=$$b backend 2>/dev/null || continue; \
 		fi; \
-		cc -o $(BUILD)/bench_ops_$$b csrc/bench_ops.c \
+		cc -o $(BUILD)/bench_ops_$$b $(BACKENDS_DIR)/bench_ops.c \
 			$(BUILD)/libidrisml_$$b.dylib -Wl,-rpath,$(CURDIR)/$(BUILD) -lm -lc++ 2>/dev/null \
 		|| true; \
 	done
-	cd pytorch && uv run python -m torch_ref.compare_ops
+	cd packages/pytorch && uv run python -m torch_ref.compare_ops
 
 ref-supervised:
-	cd pytorch && uv run python -m torch_ref.scripts.supervised
+	cd packages/pytorch && uv run python -m torch_ref.scripts.supervised
 
 ref-rnn:
-	cd pytorch && uv run python -m torch_ref.scripts.rnn
+	cd packages/pytorch && uv run python -m torch_ref.scripts.rnn
 
 ref-lstm:
-	cd pytorch && uv run python -m torch_ref.scripts.lstm
+	cd packages/pytorch && uv run python -m torch_ref.scripts.lstm
 
 ref-ntm-copy:
-	cd pytorch && uv run python -m torch_ref.scripts.ntm_copy
+	cd packages/pytorch && uv run python -m torch_ref.scripts.ntm_copy
 
 ref-ntm-recall:
-	cd pytorch && uv run python -m torch_ref.scripts.ntm_recall
+	cd packages/pytorch && uv run python -m torch_ref.scripts.ntm_recall
 
 ref-dnc-copy:
-	cd pytorch && uv run python -m torch_ref.scripts.dnc_copy
+	cd packages/pytorch && uv run python -m torch_ref.scripts.dnc_copy
 
 ref-dnc-recall:
-	cd pytorch && uv run python -m torch_ref.scripts.dnc_recall
+	cd packages/pytorch && uv run python -m torch_ref.scripts.dnc_recall
 
 ref-transformer:
-	cd pytorch && uv run python -m torch_ref.scripts.transformer
+	cd packages/pytorch && uv run python -m torch_ref.scripts.transformer
 
 ref-test:
-	cd pytorch && uv run pytest torch_ref/correctness/ -v
+	cd packages/pytorch && uv run pytest torch_ref/correctness/ -v
 
 ref-lint:
-	cd pytorch && uv run ruff check torch_ref/ && uv run ruff format --check torch_ref/
+	cd packages/pytorch && uv run ruff check torch_ref/ && uv run ruff format --check torch_ref/
 
 ref-typecheck:
-	cd pytorch && uv run pyright torch_ref/
+	cd packages/pytorch && uv run pyright torch_ref/
 
 ref-convergence:
-	cd pytorch && uv run python -u -m torch_ref.scripts.convergence --task both
+	cd packages/pytorch && uv run python -u -m torch_ref.scripts.convergence --task both
 
 ref-convergence-copy:
-	cd pytorch && uv run python -u -m torch_ref.scripts.convergence --task copy
+	cd packages/pytorch && uv run python -u -m torch_ref.scripts.convergence --task copy
 
 ref-convergence-recall:
-	cd pytorch && uv run python -u -m torch_ref.scripts.convergence --task recall
+	cd packages/pytorch && uv run python -u -m torch_ref.scripts.convergence --task recall
 
 # CUDA test (run on Colab or Linux with CUDA GPU)
 test-cuda:
 	bash scripts/test_cuda_colab.sh
 
-# Jupyter kernel (venv in jupyter/.venv)
+# Jupyter kernel (venv in packages/jupyter/.venv)
 # Use nix Python if available (3.12+), fall back to system python3
 NIX_PYTHON := $(shell nix build nixpkgs\#python3 --no-link --print-out-paths 2>/dev/null)/bin/python3
 VENV_PYTHON := $(shell [ -x "$(NIX_PYTHON)" ] && echo "$(NIX_PYTHON)" || echo python3)
-JUPYTER_VENV := jupyter/.venv
+JUPYTER_VENV := packages/jupyter/.venv
 JUPYTER_PIP := $(JUPYTER_VENV)/bin/pip
 JUPYTER_PYTHON := $(JUPYTER_VENV)/bin/python3
 JUPYTER_PYTEST := $(JUPYTER_VENV)/bin/pytest
@@ -333,27 +365,27 @@ $(JUPYTER_VENV)/bin/activate:
 	$(JUPYTER_PIP) install --upgrade pip setuptools >/dev/null
 
 jupyter-install: backend check $(JUPYTER_VENV)/bin/activate
-	$(JUPYTER_PIP) install -e jupyter/.[dev]
+	$(JUPYTER_PIP) install -e packages/jupyter/.[dev]
 	$(JUPYTER_PYTHON) -m idris_ml_kernel.install
 
 jupyter-lab: jupyter-install
 	$(JUPYTER_PIP) install -q jupyterlab
-	$(JUPYTER_VENV)/bin/jupyter lab --notebook-dir=jupyter/notebooks
+	$(JUPYTER_VENV)/bin/jupyter lab --notebook-dir=packages/jupyter/notebooks
 
 # Jupyter kernel tests (requires backend + idris2)
 test-jupyter: backend check $(JUPYTER_VENV)/bin/activate
-	$(JUPYTER_PIP) install -q -e jupyter/.[dev]
-	cd jupyter && ../$(JUPYTER_PYTEST) tests/ -v
+	$(JUPYTER_PIP) install -q -e packages/jupyter/.[dev]
+	cd packages/jupyter && ../../$(JUPYTER_PYTEST) tests/ -v
 
 # Quick: just cell parser (no REPL, no backend needed)
 test-jupyter-unit: $(JUPYTER_VENV)/bin/activate
-	$(JUPYTER_PIP) install -q -e jupyter/.[dev]
-	cd jupyter && ../$(JUPYTER_PYTEST) tests/test_cell_parser.py -v
+	$(JUPYTER_PIP) install -q -e packages/jupyter/.[dev]
+	cd packages/jupyter && ../../$(JUPYTER_PYTEST) tests/test_cell_parser.py -v
 
 # Run all notebooks headless to check for API breakage
 test-notebooks: jupyter-install
 	@fail=0; \
-	for nb in jupyter/notebooks/tutorials/*.ipynb jupyter/notebooks/models/*.ipynb; do \
+	for nb in packages/jupyter/notebooks/tutorials/*.ipynb packages/jupyter/notebooks/models/*.ipynb; do \
 		echo "--- $$nb ---"; \
 		$(JUPYTER_VENV)/bin/jupyter nbconvert --execute --to notebook \
 			--ExecutePreprocessor.timeout=120 "$$nb" \
@@ -418,21 +450,21 @@ test-all:
 	@echo "=== Integration tests (examples on all backends) ==="
 	$(MAKE) test-examples
 	@echo ""
-	@if command -v uv >/dev/null 2>&1 && [ -f pytorch/pyproject.toml ]; then \
+	@if command -v uv >/dev/null 2>&1 && [ -f packages/pytorch/pyproject.toml ]; then \
 		echo "=== PyTorch reference tests ==="; \
 		$(MAKE) ref-test; \
 	else \
 		echo "=== PyTorch reference tests SKIPPED (uv not found) ==="; \
 	fi
 	@echo ""
-	@if command -v pytest >/dev/null 2>&1 && [ -f jupyter/pyproject.toml ]; then \
+	@if command -v pytest >/dev/null 2>&1 && [ -f packages/jupyter/pyproject.toml ]; then \
 		echo "=== Jupyter kernel tests ==="; \
 		$(MAKE) test-jupyter; \
 	else \
 		echo "=== Jupyter kernel tests SKIPPED (pytest or jupyter not found) ==="; \
 	fi
 	@echo ""
-	@if [ -d jupyter/.venv ] && $(JUPYTER_VENV)/bin/jupyter --version >/dev/null 2>&1; then \
+	@if [ -d packages/jupyter/.venv ] && $(JUPYTER_VENV)/bin/jupyter --version >/dev/null 2>&1; then \
 		echo "=== Notebook execution tests ==="; \
 		$(MAKE) test-notebooks; \
 	else \
@@ -443,7 +475,8 @@ test-all:
 
 .PHONY: all-backends test test-all download-mnist test-backend test-backend-tape test-backend-mlx \
         test-backend-torch test-safetensors test-ntm-grad test-ntm-timestep \
-        test-examples check example-supervised example-rnn example-lstm \
+        test-examples check check-gym check-examples install install-core install-gym \
+        example-supervised example-rnn example-lstm \
         example-ntm-copy example-ntm-associative-recall example-dnc-copy example-dnc-recall \
         example-reinforce \
         example-gpt example-mnist example-seq-classify example-transformer \
