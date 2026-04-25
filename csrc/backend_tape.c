@@ -501,10 +501,28 @@ static TensorHandle binop_elementwise(TensorHandle ha, TensorHandle hb, int op_t
     /* Multi-dim: element-wise with broadcasting */
     int n = a->numel > b->numel ? a->numel : b->numel;
     double* data = malloc(n * sizeof(double));
-    for (int i = 0; i < n; i++) {
-        double av = a->data[a->numel == 1 ? 0 : i];
-        double bv = b->data[b->numel == 1 ? 0 : i];
-        data[i] = scalar_fn(av, bv);
+#ifdef __APPLE__
+    /* vDSP fast path: both operands same size (no broadcast) */
+    if (a->numel == b->numel && a->numel > 1) {
+        vDSP_Length vn = (vDSP_Length)n;
+        switch (op_tag) {
+            case OP_ADD: vDSP_vaddD(a->data, 1, b->data, 1, data, 1, vn); break;
+            case OP_SUB: vDSP_vsubD(b->data, 1, a->data, 1, data, 1, vn); break;
+            case OP_MUL: vDSP_vmulD(a->data, 1, b->data, 1, data, 1, vn); break;
+            case OP_DIV: vDSP_vdivD(b->data, 1, a->data, 1, data, 1, vn); break;
+            default:
+                for (int i = 0; i < n; i++) data[i] = scalar_fn(a->data[i], b->data[i]);
+                break;
+        }
+    } else
+#endif
+    {
+        /* Scalar broadcast or non-Apple fallback */
+        for (int i = 0; i < n; i++) {
+            double av = a->data[a->numel == 1 ? 0 : i];
+            double bv = b->data[b->numel == 1 ? 0 : i];
+            data[i] = scalar_fn(av, bv);
+        }
     }
     Tensor* big = a->numel >= b->numel ? a : b;
     Tensor* r = make_tensor(data, big->shape, big->rank, rg);
@@ -541,8 +559,27 @@ static TensorHandle unop_elementwise(TensorHandle ha, int op, double (*fn)(doubl
         return r;
     }
     /* Multi-element: apply fn element-wise, preserve shape */
-    double* data = malloc(a->numel * sizeof(double));
-    for (int i = 0; i < a->numel; i++) data[i] = fn(a->data[i]);
+    int n = a->numel;
+    double* data = malloc(n * sizeof(double));
+#ifdef __APPLE__
+    {
+        int vn = n;
+        int used_vdsp = 1;
+        switch (op) {
+            case OP_NEG: vDSP_vnegD(a->data, 1, data, 1, (vDSP_Length)n); break;
+            case OP_EXP: vvexp(data, a->data, &vn); break;
+            case OP_LOG: vvlog(data, a->data, &vn); break;
+            case OP_SQRT: vvsqrt(data, a->data, &vn); break;
+            case OP_TANH: vvtanh(data, a->data, &vn); break;
+            case OP_ABS: vvfabs(data, a->data, &vn); break;
+            default: used_vdsp = 0; break;
+        }
+        if (!used_vdsp)
+            for (int i = 0; i < n; i++) data[i] = fn(a->data[i]);
+    }
+#else
+    for (int i = 0; i < n; i++) data[i] = fn(a->data[i]);
+#endif
     Tensor* r = make_tensor(data, a->shape, a->rank, a->requires_grad);
     free(data);
     if (a->requires_grad) tape_append(op, r, a, NULL, 0);
