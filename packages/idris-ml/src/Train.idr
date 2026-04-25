@@ -114,12 +114,6 @@ windowedConfig epochs threshold window pat =
 ||| Run training with an IO-based epoch function. Use this when the
 ||| per-epoch step needs IO (e.g. sampling a replay-buffer batch, running
 ||| a vectorised env rollout). For pure epochs, use `runTraining`.
-|||
-||| @epochFn   One training step: model -> data -> IO (model, loss)
-||| @dataSrc   IO action producing training data each epoch
-||| @cfg       Training configuration
-||| @model     Initial model
-||| Returns (trained model, epochs completed, final loss)
 export
 runTrainingIO :
   {0 model : Type} -> {0 dp : Type} ->

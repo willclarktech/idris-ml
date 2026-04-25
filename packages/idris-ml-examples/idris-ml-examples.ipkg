@@ -9,6 +9,7 @@ depends = contrib
 modules = Example.Bench
         , Example.DncAssociativeRecall
         , Example.DncCopy
+        , Example.Dqn
         , Example.Gpt
         , Example.Lstm
         , Example.Mnist

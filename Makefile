@@ -266,6 +266,11 @@ example-monte-carlo: install
 	cp $(LIB) build/exec/monte-carlo_app/
 	./build/exec/monte-carlo $(MONTE_CARLO_ARGS)
 
+example-dqn: install
+	idris2 $(IDRIS_FLAGS) -o dqn $(EXAMPLE_SRC)/Example/Dqn.idr
+	cp $(LIB) build/exec/dqn_app/
+	./build/exec/dqn $(DQN_ARGS)
+
 example-transfer: install
 	idris2 $(IDRIS_FLAGS) -o transfer $(EXAMPLE_SRC)/Example/Transfer.idr
 	cp $(LIB) build/exec/transfer_app/
