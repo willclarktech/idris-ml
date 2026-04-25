@@ -281,6 +281,11 @@ example-ppo: install
 	cp $(LIB) build/exec/ppo_app/
 	stdbuf -oL ./build/exec/ppo $(PPO_ARGS)
 
+example-sac: install
+	idris2 $(IDRIS_FLAGS) -o sac $(EXAMPLE_SRC)/Example/Sac.idr
+	cp $(LIB) build/exec/sac_app/
+	stdbuf -oL ./build/exec/sac $(SAC_ARGS)
+
 example-transfer: install
 	idris2 $(IDRIS_FLAGS) -o transfer $(EXAMPLE_SRC)/Example/Transfer.idr
 	cp $(LIB) build/exec/transfer_app/

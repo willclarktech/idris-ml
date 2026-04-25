@@ -91,6 +91,24 @@ PPO has the same twin-network shape (actor + critic) and originally exhibited th
 
 Both descend then oscillate/plateau in the -1200 to -1600 band — PPO at rollout=400 is genuinely starved of data, and both implementations express that. The original PyTorch reference config (`rollout=2048`) converged to -353 in the same 300 rollouts but each Idris epoch is ~20× slower than PyTorch due to per-step `forwardVarTensor` calls (Idris autograd doesn't have a batched forward path), so we've shipped the shorter rollout for tractable iteration and noted the convergence gap as a compute-speed issue rather than an implementation gap. A follow-up to batch the Variable forward path would close this.
 
+### SAC alignment (documented approximation)
+
+PyTorch SAC and Idris SAC share:
+- Architecture: separate actor + twin Q-networks, tanh-squashed Gaussian actor with state-independent learnable `log_std`.
+- ParamId scoping (same fix as A2C / PPO): actor / q1 / q2 get `actor_`, `q1_`, `q2_` prefixes.
+- Hyperparameters: lr=3e-4, α=0.2, batch=64, warmup=1000, γ=0.99, buffer=100k, hard target sync every 100 steps.
+
+**Documented divergence**: PyTorch uses the full SAC actor loss `E[α·logπ(a|s) − min(Q1(s,â), Q2(s,â))]` with `â` sampled via the reparameterization trick — gradient flows to actor both through `logπ` AND through `Q1(s, â)` / `Q2(s, â)` (via `â`'s dependence on `mean` and `log_std`). Idris uses a log-prob-only variant: `Q1(s, â)` and `Q2(s, â)` are computed via `qValue` which returns a `Double`, so `min(Q1, Q2)` enters the actor loss as `fromDouble` (no gradient). This is a weaker form of SAC — closer to SAC-as-REINFORCE-with-entropy — because it needs `forwardVarTensor` to accept a grad-tracked input-tensor built from a grad-tracked concatenation of `obs ++ â`, which our current tensor path doesn't expose cleanly. Reparameterized actor gradient flow is filed as a follow-up (adds one FFI + a concat-with-grad op).
+
+At matched config, 10k env steps, seed=42:
+
+| Implementation | greedy_eval |
+|---|---|
+| PyTorch | -1331.6 |
+| Idris | -1973.4 |
+
+Both sides learn (above the ~-2200 random baseline for hanging-down Pendulum), but Idris' weaker actor gradient leaves a ~650-point gap. The gap should close once reparameterized actor gradient is wired up.
+
 ### Multi-seed A2C pass rates at aligned config
 
 At matched config (separate actor+critic, lr=7e-4, entropy=0.01, rollout=20 single-env, 5000 updates, γ=0.99, λ=0.95):

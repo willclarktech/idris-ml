@@ -22,6 +22,7 @@ modules = Example.A2c
         , Example.QLearning
         , Example.Reinforce
         , Example.Rnn
+        , Example.Sac
         , Example.Sarsa
         , Example.SeqClassify
         , Example.Supervised
