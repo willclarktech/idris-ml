@@ -1379,10 +1379,10 @@ TensorHandle param_register_return(const char* name, TensorHandle t) {
 }
 int param_zero_all_grads_return(int dummy) { (void)dummy; param_zero_all_grads(); return 0; }
 TensorHandle tensor_write_double_return(TensorHandle buf, int off, double val) {
-    tensor_write_double(buf, off, val); return buf;
+    tensor_write_double((double*)buf, off, val); return buf;
 }
 void* tensor_ptr_array_set_return(void* arr, int idx, TensorHandle t) {
-    tensor_ptr_array_set(arr, idx, t); return arr;
+    tensor_ptr_array_set((TensorHandle*)arr, idx, t); return arr;
 }
 int* tensor_alloc_ints(int n) { return (int*)calloc(n, sizeof(int)); }
 int* tensor_write_int_return(int* buf, int off, int val) { buf[off] = val; return buf; }
