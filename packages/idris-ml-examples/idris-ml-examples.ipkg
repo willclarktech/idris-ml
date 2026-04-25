@@ -6,7 +6,8 @@ depends = contrib
         , idris-ml
         , idris-gym
 
-modules = Example.A2c
+modules = Generate
+        , Example.A2c
         , Example.Bench
         , Example.DncAssociativeRecall
         , Example.DncCopy

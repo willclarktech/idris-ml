@@ -1,0 +1,15 @@
+package idris-ml-examples-test
+
+sourcedir = "src"
+
+depends = contrib
+        , idris-ml
+        , idris-ml-examples
+
+modules = Harness
+        , Main
+        , Test.Generate
+
+main = Main
+
+executable = idris-ml-examples-test

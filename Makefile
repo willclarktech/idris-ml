@@ -158,8 +158,12 @@ install-gym:
 install-notebook: install-core
 	@cd packages/idris-ml-notebook && IDRIS2_PREFIX=$(IDRIS2_LOCAL) idris2 --install idris-ml-notebook.ipkg >/dev/null
 
+# Install idris-ml-examples as a library (needed by its test harness)
+install-examples: install-core install-gym
+	@cd packages/idris-ml-examples && IDRIS2_PREFIX=$(IDRIS2_LOCAL) idris2 --install idris-ml-examples.ipkg >/dev/null
+
 # Install all Idris packages locally
-install: install-core install-gym install-notebook
+install: install-core install-gym install-notebook install-examples
 
 # Idris build (type-check core library)
 check: backend
@@ -189,6 +193,12 @@ test: install
 test-gym: install-gym
 	cd packages/idris-gym/test && idris2 --build test.ipkg
 	stdbuf -oL ./packages/idris-gym/test/build/exec/idris-gym-test
+
+# Unit tests for idris-ml-examples (runs moved Test.Generate)
+test-examples-unit: install-examples
+	cd packages/idris-ml-examples/test && idris2 --build test.ipkg
+	cp $(LIB) packages/idris-ml-examples/test/build/exec/idris-ml-examples-test_app/
+	stdbuf -oL ./packages/idris-ml-examples/test/build/exec/idris-ml-examples-test
 
 # Build and run examples (require: make install)
 example-supervised: install
@@ -497,6 +507,9 @@ test-all:
 	@echo "=== Gym unit tests ==="
 	$(MAKE) test-gym
 	@echo ""
+	@echo "=== Examples unit tests ==="
+	$(MAKE) test-examples-unit
+	@echo ""
 	@echo "=== C backend tests ==="
 	@for b in tape mlx torch; do \
 		echo "--- test-backend [$$b] ---"; \
@@ -543,9 +556,9 @@ check-all: check check-gym check-notebook check-examples
 # Verify everything: check-all + run all tests
 all: check-all test-all
 
-.PHONY: all check-all all-backends test test-gym test-all download-mnist test-backend test-backend-tape test-backend-mlx \
+.PHONY: all check-all all-backends test test-gym test-examples-unit test-all download-mnist test-backend test-backend-tape test-backend-mlx \
         test-backend-torch test-safetensors test-ntm-grad test-ntm-timestep \
-        test-examples check check-gym check-notebook check-examples install install-core install-gym install-notebook \
+        test-examples check check-gym check-notebook check-examples install install-core install-gym install-notebook install-examples \
         example-supervised example-rnn example-lstm \
         example-ntm-copy example-ntm-associative-recall example-dnc-copy example-dnc-recall \
         example-reinforce \

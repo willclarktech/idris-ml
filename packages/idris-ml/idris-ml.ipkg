@@ -14,7 +14,6 @@ modules = Compat.Random
         , Device
         , Endofunctor
         , Floating
-        , Generate
         , Init
         , Layer
         , Layer.Activation

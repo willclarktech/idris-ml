@@ -7,7 +7,6 @@ depends = contrib
 
 modules = Harness
         , Main
-        , Test.Generate
         , Test.Init
         , Test.Layer
         , Test.Math

@@ -19,7 +19,6 @@ import public DataPoint
 import public Device
 import public Endofunctor
 import public Floating
-import public Generate
 import public Init
 import public Layer
 import public Layer.Activation

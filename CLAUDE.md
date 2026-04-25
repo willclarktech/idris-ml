@@ -19,6 +19,8 @@ packages/
   idris-gym/          # Pure Idris RL environments (Gymnasium-parity API: Env, Space, Rng, Wrapper, Vector + ClassicControl/ToyText envs)
   idris-ml-examples/  # Example programs (depends on idris-ml + idris-gym)
     src/Example/
+    src/Generate.idr  # synthetic task-data generators (copy, recall, pattern, etc.)
+    test/             # unit tests for Generate
   backends/           # C/C++ backends (tape, MLX, torch)
   jupyter/            # Jupyter kernel (Python)
   pytorch/            # PyTorch reference implementations (Python)
@@ -98,7 +100,7 @@ bash scripts/sweep.sh --task copy --parallel 4 --quick  # 2000 epochs for screen
 7. **Variable** - Autograd variables wrapping backend tensor pointers (tape/MLX/torch). `NativeOptimizer` for training
 8. **DataPoint** - `DataPoint`, `RecurrentDataPoint`, and `TwoPhaseDataPoint` records
 8b. **DataLoader** - Reusable batched data pipeline: `mkGeneratorLoader` (synthetic), `mkIndexedLoader` (file-backed with shuffle/repeat via IORef + C Fisher-Yates)
-8c. **Generate** - Random data generation: `copyTaskBinary`/`recallTaskBinary`, `randomBatchVect`, `patternData`
+8c. **Generate** - Synthetic task-data generators (`copyTaskBinary`/`recallTaskBinary`, `randomBatchVect`, `patternData`). Lives in `idris-ml-examples/src/Generate.idr`, not in core — it's example/test scaffolding with no general-purpose consumers
 9. **Endofunctor** - `emap : (ty -> ty) -> e ty -> e ty` for type-preserving maps
 10. **Layer** - Re-export hub for the interface-based layer system:
     - **Layer.Core** - `LayerLike` interface, `AnyLayer` existential, `Network` type, network-level ops
