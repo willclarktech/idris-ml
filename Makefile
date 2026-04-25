@@ -261,6 +261,11 @@ example-sarsa: install
 	cp $(LIB) build/exec/sarsa_app/
 	./build/exec/sarsa $(SARSA_ARGS)
 
+example-monte-carlo: install
+	idris2 $(IDRIS_FLAGS) -o monte-carlo $(EXAMPLE_SRC)/Example/MonteCarlo.idr
+	cp $(LIB) build/exec/monte-carlo_app/
+	./build/exec/monte-carlo $(MONTE_CARLO_ARGS)
+
 example-transfer: install
 	idris2 $(IDRIS_FLAGS) -o transfer $(EXAMPLE_SRC)/Example/Transfer.idr
 	cp $(LIB) build/exec/transfer_app/
