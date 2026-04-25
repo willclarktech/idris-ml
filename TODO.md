@@ -11,6 +11,7 @@
 | Item | Difficulty | Notes |
 |------|-----------|-------|
 | Privacy-preserving ML (PPML) | M–L | Examples and layers for differential privacy (DP-SGD, gradient clipping + noise), secure aggregation, and homomorphic encryption (HE-friendly activations). Inspired by OpenMined/PySyft. Idris 2's type system could enforce privacy budgets at compile time (e.g., epsilon-tracking via phantom types). Start with DP-SGD example (clip per-sample gradients + Gaussian noise in optimizer), then HE-compatible polynomial activations |
+| Static graph optimizations | L–XL | Compile-time operator fusion, memory planning via dependent types. Idris 2's type system knows tensor shapes at compile time — could fuse sequences like matmul+bias+relu into single kernels, plan memory reuse for same-shape intermediates, and eliminate dead computations. See `docs/static-vs-dynamic-graphs.md` |
 
 ## Low Priority
 
@@ -18,10 +19,8 @@
 |------|-----------|-------|
 | Opaque type-level Nats | M–XL | Idris 2 Peano Nats hang the compiler for dims > ~1000. Need machine-backed type-level naturals (like GHC TypeLits). Engage with Idris 2 upstream. Blocks identity layers (dropout, batch norm) at large dims. See `docs/gotchas.md` |
 | Broadcasting | XL | Type-safe broadcasting. Key tension: expressiveness vs shape safety guarantees. Dex's typed index sets are the most promising model for a dependently-typed setting. See `docs/static-vs-dynamic-graphs.md` |
-| Static graph optimizations | L–XL | Compile-time operator fusion, memory planning via dependent types. See `docs/static-vs-dynamic-graphs.md` |
 | `fromDouble` persistent leak | S | Partially fixed: `tensor_create_scalar` and `tensor_create` non-grad tensors are now non-persistent on MLX (freed by tape_reset). Remaining: Chez Scheme GC doesn't call `tensor_free`, so non-persistent tensors accumulate within one epoch until optimizer_step. ~15KB/epoch overhead, manageable |
 | Reshaping layers | M | No current use case |
-| Chez Scheme runtime overhead | S–XL | Chez GC, thunk evaluation, and allocation account for ~50ms/epoch (vs 2ms in C). Not FFI marshaling — reducing FFI call count from 4,384 to ~1,220 only saved 6ms. Options: Idris→C backend (below), or accept ~3x gap vs PyTorch on CPU for small models |
 | Idris 2 C backend (custom) | XL | If RefC doesn't work out: custom Idris 2→C code generator optimized for tensor workloads. Much higher effort than RefC investigation above |
 | CodeMirror Idris 2 mode | S–M | Jupyter kernel uses `"codemirror_mode": "haskell"` as a fallback. Investigate whether an Idris 2 CodeMirror grammar exists or could be written (CodeMirror 6 Lezer grammar). Would give proper syntax highlighting in JupyterLab |
 | RefC backend adoption | S–M | Blocked on upstream Idris 2 RefC bugs. Our codebase is RefC-ready (zero Scheme FFI, Compat.Random, shims for missing runtime functions). RefC crashes in `idris2_trampoline` on nested ADTs (Tensor Functor map over Vect of STensor). Simple C FFI programs work. Revisit when Idris 2 releases post-0.8.0 with updated RefC runtime. See `docs/develop/refc-investigation.md` and `docs/develop/refc-upstream-bug.md` |
