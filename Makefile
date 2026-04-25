@@ -338,7 +338,7 @@ ref-dnc-recall:
 ref-transformer:
 	cd packages/pytorch && uv run python -m torch_ref.scripts.transformer
 
-ref-test:
+test-ref ref-test:
 	cd packages/pytorch && uv run pytest torch_ref/correctness/ -v
 
 ref-lint:
@@ -461,7 +461,7 @@ test-all:
 	@echo ""
 	@if command -v uv >/dev/null 2>&1 && [ -f packages/pytorch/pyproject.toml ]; then \
 		echo "=== PyTorch reference tests ==="; \
-		$(MAKE) ref-test; \
+		$(MAKE) test-ref; \
 	else \
 		echo "=== PyTorch reference tests SKIPPED (uv not found) ==="; \
 	fi
@@ -499,6 +499,6 @@ all: check-all test-all
         example-bench example-profile sweep sweep-quick clean \
         backend print-torch ref-setup ref-supervised ref-rnn ref-lstm ref-ntm-copy \
         ref-ntm-recall ref-dnc-copy ref-dnc-recall \
-        ref-transformer bench-py bench-compare bench-ops bench-ops-py bench-ops-compare ref-test ref-lint \
+        ref-transformer bench-py bench-compare bench-ops bench-ops-py bench-ops-compare test-ref ref-test ref-lint \
         ref-typecheck ref-convergence ref-convergence-copy ref-convergence-recall \
         jupyter-install jupyter-lab test-jupyter test-jupyter-unit test-notebooks
