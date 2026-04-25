@@ -19,3 +19,8 @@ modules = Gym.Space
         , Gym.ClassicControl.MountainCarCont
         , Gym.ClassicControl.Pendulum
         , Gym.ClassicControl.Acrobot
+        , Gym.ToyText
+        , Gym.ToyText.CliffWalking
+        , Gym.ToyText.Taxi
+        , Gym.ToyText.FrozenLake
+        , Gym.ToyText.Blackjack
