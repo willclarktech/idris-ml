@@ -1370,3 +1370,51 @@ double param_grad_item_at(int param_idx, int elem_idx) {
 void tensor_print(TensorHandle h) {
     std::cout << *to_tensor(h) << std::endl;
 }
+
+/* ---------- Portable FFI helpers ---------- */
+
+TensorHandle tensor_backward_return(TensorHandle t) { tensor_backward(t); return t; }
+TensorHandle param_register_return(const char* name, TensorHandle t) {
+    tensor_set_requires_grad(t, 1); param_register(name, t); return t;
+}
+int param_zero_all_grads_return(int dummy) { (void)dummy; param_zero_all_grads(); return 0; }
+TensorHandle tensor_write_double_return(TensorHandle buf, int off, double val) {
+    tensor_write_double(buf, off, val); return buf;
+}
+void* tensor_ptr_array_set_return(void* arr, int idx, TensorHandle t) {
+    tensor_ptr_array_set(arr, idx, t); return arr;
+}
+int* tensor_write_int_return(int* buf, int off, int val) { buf[off] = val; return buf; }
+int tensor_backward_conditional(TensorHandle t) {
+    if (tensor_requires_grad(t)) tensor_backward(t);
+    return param_count();
+}
+double tensor_backward_return_loss(TensorHandle loss_ptr, double loss_val) {
+    if (tensor_requires_grad(loss_ptr)) tensor_backward(loss_ptr);
+    return loss_val;
+}
+double native_train_step(OptimizerHandle opt, int clip_mode, double clip_val,
+                         TensorHandle loss_ptr, double loss_val) {
+    optimizer_zero_grad(opt);
+    if (tensor_requires_grad(loss_ptr)) tensor_backward(loss_ptr);
+    if (clip_mode == 1) optimizer_clip_grad_value(clip_val);
+    else if (clip_mode == 2) optimizer_clip_grad_norm(clip_val);
+    optimizer_step(opt);
+    return loss_val;
+}
+int optimizer_step_with_clip(OptimizerHandle opt, int clip_mode, double clip_val, int dummy) {
+    (void)dummy;
+    if (clip_mode == 1) optimizer_clip_grad_value(clip_val);
+    else if (clip_mode == 2) optimizer_clip_grad_norm(clip_val);
+    optimizer_step(opt); optimizer_zero_grad(opt);
+    return 0;
+}
+OptimizerHandle optimizer_zero_grad_return(OptimizerHandle opt) { optimizer_zero_grad(opt); return opt; }
+OptimizerHandle optimizer_step_return(OptimizerHandle opt) { optimizer_step(opt); return opt; }
+int optimizer_clip_grad_value_return(double max_val) { optimizer_clip_grad_value(max_val); return 0; }
+void* idrisml_seq(void* a, void* b) { (void)a; return b; }
+int backend_memory_report_return(int d) { backend_memory_report(); return d; }
+int backend_reset_for_eval_return(int d) { backend_reset_for_eval(); return d; }
+int backend_profile_reset_return(int d) { backend_profile_reset(); return d; }
+int backend_profile_report_return(int d) { backend_profile_report(); return d; }
+int dropout_random_seed(int x) { return rand() % (x + 1); }
