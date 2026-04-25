@@ -93,7 +93,7 @@ For the optional libtorch backend: `make BACKEND=torch backend`.
 
 ## Performance
 
-NTM-copy runs at ~110ms/epoch on the C tape backend (Apple M-series), comparable to the PyTorch reference (~130ms/epoch). See [docs/performance-analysis.md](docs/performance-analysis.md).
+NTM-copy runs at ~110ms/epoch on the C tape backend (Apple M-series), comparable to the PyTorch reference (~130ms/epoch). See [docs/benchmarks.md](docs/benchmarks.md) for comparisons across all backends.
 
 ## Architecture
 

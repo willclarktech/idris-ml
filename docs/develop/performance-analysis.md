@@ -611,3 +611,45 @@ NTM-AR                   ~430        ~130           ~180           ~215
 
 3. **Batch training**: Currently batch=1 for NTM. Batching
    same-length sequences would amortize per-sequence overhead.
+
+## Operator-Level Optimization History (2026-04)
+
+### Round 1: vDSP Vectorization (tape backend element-wise)
+
+Replace scalar `for` loops in `binop_elementwise` / `unop_elementwise` with Apple vDSP/vForce functions on macOS.
+
+| Size | Before | After | Predicted | Actual |
+|------|--------|-------|-----------|--------|
+| 1,000 | 5.4ms | 3.3ms | 2x | **1.6x** |
+| 10,000 | 29.8ms | 14.0ms | 3.5x | **2.1x** |
+| 100,000 | 141.6ms | 21.8ms | 4x | **6.5x** |
+
+Remaining gap at medium sizes is allocation overhead (malloc per op + tape append), not arithmetic.
+
+### Round 2: Fused `tensor_linear` (all backends)
+
+`tensor_linear(W, x, bias)` = `y = W @ x + b` in single C call. Marginal improvement (~0-10%) because backward dominates the training step, not forward allocation.
+
+### Phase 2A: Real Model Profiling
+
+Profiled via `runTraining` integration (automatic on all models):
+
+| Model | Forward | Backward | Optimizer | Dead ops |
+|-------|---------|----------|-----------|----------|
+| Supervised (9 params) | 99% | 0.5% | 0.1% | 0% |
+| Transformer (26K params) | 92% | 7.5% | 0.7% | 17% |
+| NTM Copy (60K params) | 95% | 4.3% | 0.3% | 7% |
+
+Forward (FFI calls from Idris) dominates all models. Backward and optimizer are negligible. Ruled out: tape pruning, vDSP optimizer, lazy grad allocation.
+
+### Fused Attention + FFN (all backends)
+
+`tensor_cross_attention` replaces 6 FFI calls per attention head with 1. `tensor_ffn_relu` replaces 3 FFI calls per FFN block with 1. Unmeasurable in VM due to scheduling noise.
+
+### Arena-Direct Allocation (tape backend)
+
+Element-wise ops compute directly into arena buffers (skip malloc+copy+free). Unmeasurable in VM.
+
+### Measurement Limitation
+
+VM (Tart on M4 Pro) has 1.5-2x scheduling noise between identical runs. Micro-optimizations (<100ns/call) require bare-metal or statistical methods to validate.

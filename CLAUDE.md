@@ -267,9 +267,9 @@ Commit at each step. PyTorch is the correctness oracle.
 - **Benchmark**: `make bench-compare` — always compare at same batch size (current: 16)
 - **Sweep**: `bash scripts/sweep.sh` — systematic grid search, never manually loop
 - **Convergence**: `make ref-convergence-copy` vs `./build/exec/ntm-copy` at matched settings
-- **Document**: update `docs/performance-analysis.md` with fresh profile data + results
+- **Document**: update `docs/develop/performance-analysis.md` with fresh profile data + results
 
-See `docs/performance-analysis.md` for current baseline and optimization history.
+See `docs/develop/performance-analysis.md` for current baseline and optimization history.
 
 ## Conventions
 
@@ -278,11 +278,11 @@ See `docs/performance-analysis.md` for current baseline and optimization history
 - **Imports**: Idris stdlib first (`Data.Vect`, `System.Random`), then internal modules alphabetically
 - **Commits**: Follow [Conventional Commits](https://www.conventionalcommits.org/) — `feat:`, `fix:`, `refactor:`, `docs:`, `chore:`, etc. Keep subject concise (~50 chars), imperative present tense. Commit work regularly in meaningful chunks — one logical change per commit. Never include ads, branding, or promotional text in commit messages or PR descriptions
 - **Section dividers**: `----------------------------------------------------------------------` with section titles in Layer.idr style
-- **Documentation**: Always update CLAUDE.md, docs/design-decisions.md, and TODO.md when adding features, changing architecture, or making design decisions
+- **Documentation**: Always update CLAUDE.md, docs/develop/design-decisions.md, and TODO.md when adding features, changing architecture, or making design decisions
 
 ## Gotchas
 
-See [`docs/gotchas.md`](docs/gotchas.md) for detailed explanations of each entry.
+See [`docs/develop/gotchas.md`](docs/develop/gotchas.md) for detailed explanations of each entry.
 
 ### Idris 2 / Chez Scheme traps
 
@@ -300,7 +300,7 @@ See [`docs/gotchas.md`](docs/gotchas.md) for detailed explanations of each entry
 - **Backend library required**: `make backend` builds `libidrisml.dylib` (tape by default, `BACKEND=mlx|torch` for others). Per-backend caching: `libidrisml_tape.dylib`, `libidrisml_mlx.dylib`, `libidrisml_torch.dylib` with symlink switching. Manual builds need `cp build/libidrisml.dylib build/exec/<name>_app/`
 - **Scheme-side allocation reordering**: `foreign-alloc`/`foreign-set!` can be reordered by Chez — use C-side allocation (`tensor_alloc_doubles`/`tensor_write_double`) instead
 - **`prim__seq` must use concrete types**: polymorphic `a -> b -> b` causes Chez arg count mismatch. Use `AnyPtr -> AnyPtr -> AnyPtr`
-- **Large Nat type-level reduction**: Idris 2 Peano Nats hang the type-checker for dims > ~1000. Identity layers (dropout, batch norm) at conv output dims (e.g., 16*576=9216) never compile. Place them only at smaller dims (≤512). See `docs/gotchas.md` for thresholds
+- **Large Nat type-level reduction**: Idris 2 Peano Nats hang the type-checker for dims > ~1000. Identity layers (dropout, batch norm) at conv output dims (e.g., 16*576=9216) never compile. Place them only at smaller dims (≤512). See `docs/develop/gotchas.md` for thresholds
 
 ### Training & numerics
 
