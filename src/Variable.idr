@@ -162,6 +162,11 @@ export prim__silu : AnyPtr -> AnyPtr
 export
 prim__crossAttention : AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> Double -> AnyPtr
 
+-- Fused FFN: out = relu(x @ W1) @ W2
+%foreign "C:tensor_ffn_relu,libidrisml"
+export
+prim__ffnRelu : AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr
+
 %foreign "C:tensor_gru_cell,libidrisml"
 export prim__gruCell : AnyPtr -> AnyPtr -> Int -> AnyPtr
 

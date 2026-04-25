@@ -390,8 +390,7 @@ batchBlockForward blk h bsI sI dI hdI =
          h1 = tensorAdd attnOut h
          -- Pre-LN Feedforward: [B*seqLen, dModel]
          normed2 = prim__layerNorm2d h1 n2g n2b 1.0e-5
-         ffHidden = prim__clampMin (prim__mm normed2 (prim__transpose2d f1W)) 0.0
-         ffOut = prim__mm ffHidden (prim__transpose2d f2W)
+         ffOut = prim__ffnRelu normed2 (prim__transpose2d f1W) (prim__transpose2d f2W)
      in tensorAdd ffOut h1
   where
     batchedHeadLoop : Vect nh (LinearState dModel headDim (Variable d)) ->
@@ -409,14 +408,8 @@ batchBlockForward blk h bsI sI dI hdI =
           let qi = prim__bmm normed (prim__transpose2d qW)
               ki = prim__bmm normed (prim__transpose2d kW)
               vi = prim__bmm normed (prim__transpose2d vW)
-              -- Scaled dot-product: [B,sLen,hdDim] × [B,hdDim,sLen] → [B,sLen,sLen]
-              kiT = prim__transposeLast2 ki
-              scores = prim__mulScalar (prim__bmm3x3 qi kiT) sc
-              -- Causal mask + softmax: [B,sLen,sLen]
-              masked = prim__maskedFill scores mask (-1.0e20)
-              attn = prim__softmax3d masked
-              -- Attention @ V: [B,sLen,sLen] × [B,sLen,hdDim] → [B,sLen,hdDim]
-              headOut = prim__bmm3x3 attn vi
+              -- Fused scaled dot-product attention: Q,K,V → output
+              headOut = prim__crossAttention qi ki vi mask sc
               -- Output projection: [B,sLen,hdDim] × [hdDim,dModel] → [B,sLen,dModel]
               proj = prim__bmm headOut (prim__transpose2d opW)
               acc' = case acc of

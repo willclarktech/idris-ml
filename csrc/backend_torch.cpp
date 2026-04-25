@@ -321,6 +321,11 @@ TensorHandle tensor_cross_attention(TensorHandle hQ, TensorHandle hK, TensorHand
     return from_tensor(torch::bmm(attn, V));
 }
 
+TensorHandle tensor_ffn_relu(TensorHandle hx, TensorHandle hW1, TensorHandle hW2) {
+    auto hidden = torch::clamp_min(torch::mm(*to_tensor(hx), *to_tensor(hW1)), 0.0);
+    return from_tensor(torch::mm(hidden, *to_tensor(hW2)));
+}
+
 TensorHandle tensor_embedding(TensorHandle hweight, TensorHandle hindices, int n, int embedDim) {
     auto& weight = *to_tensor(hweight);  /* [vocabSize, embedDim] */
     auto& indices = *to_tensor(hindices);
