@@ -239,22 +239,22 @@ example-lstm: install
 example-ntm-copy: install
 	idris2 $(IDRIS_FLAGS) -o ntm-copy $(EXAMPLE_SRC)/Example/NtmCopy.idr
 	cp $(LIB) build/exec/ntm-copy_app/
-	stdbuf -oL ./build/exec/ntm-copy
+	stdbuf -oL ./build/exec/ntm-copy $(NTM_COPY_ARGS)
 
 example-ntm-associative-recall: install
 	idris2 $(IDRIS_FLAGS) -o ntm-associative-recall $(EXAMPLE_SRC)/Example/NtmAssociativeRecall.idr
 	cp $(LIB) build/exec/ntm-associative-recall_app/
-	stdbuf -oL ./build/exec/ntm-associative-recall
+	stdbuf -oL ./build/exec/ntm-associative-recall $(NTM_RECALL_ARGS)
 
 example-dnc-copy: install
 	idris2 $(IDRIS_FLAGS) -o dnc-copy $(EXAMPLE_SRC)/Example/DncCopy.idr
 	cp $(LIB) build/exec/dnc-copy_app/
-	stdbuf -oL ./build/exec/dnc-copy
+	stdbuf -oL ./build/exec/dnc-copy $(DNC_COPY_ARGS)
 
 example-dnc-recall: install
 	idris2 $(IDRIS_FLAGS) -o dnc-recall $(EXAMPLE_SRC)/Example/DncAssociativeRecall.idr
 	cp $(LIB) build/exec/dnc-recall_app/
-	stdbuf -oL ./build/exec/dnc-recall
+	stdbuf -oL ./build/exec/dnc-recall $(DNC_RECALL_ARGS)
 
 example-transformer: install
 	idris2 $(IDRIS_FLAGS) -o transformer $(EXAMPLE_SRC)/Example/Transformer.idr
@@ -503,8 +503,13 @@ BACKENDS := tape mlx torch
 #   a2c 1000          partial; default 3000 for solve
 #   sac 1500          partial; default 5000 for solve
 #   reinforce 200     partial; default 1000 for solve
+#   ntm-copy 500      smoke; default 50000 (convergence ~9300) — way too slow for CI
+#   ntm-recall 500    smoke; default 100000 (convergence ~20000)
+#   dnc-copy 300      smoke; default 50000 (convergence harder than NTM, slower per-step)
+#   dnc-recall 300    smoke; default 50000
 #
-# Full-epoch, multi-seed convergence lives in test-examples-convergence.
+# Full-epoch, multi-seed convergence lives in test-examples-convergence (RL only
+# today; NTM/DNC full-convergence lane is a TODO).
 test-examples:
 	@fail=0; skip=""; \
 	if command -v timeout >/dev/null 2>&1; then TIMEOUT_PREFIX="timeout $(EXAMPLE_TIMEOUT)"; \
@@ -528,6 +533,10 @@ test-examples:
 				example-a2c)         extra_args="A2C_ARGS=--epochs 1000" ;; \
 				example-ppo)         extra_args="PPO_ARGS=--epochs 20" ;; \
 				example-sac)         extra_args="SAC_ARGS=--epochs 1500" ;; \
+				example-ntm-copy)    extra_args="NTM_COPY_ARGS=--epochs 500" ;; \
+				example-ntm-associative-recall) extra_args="NTM_RECALL_ARGS=--epochs 500" ;; \
+				example-dnc-copy)    extra_args="DNC_COPY_ARGS=--epochs 300" ;; \
+				example-dnc-recall)  extra_args="DNC_RECALL_ARGS=--epochs 300" ;; \
 			esac; \
 			if [ -n "$$extra_args" ]; then \
 				output=$$($$TIMEOUT_PREFIX $(MAKE) --no-print-directory BACKEND=$$b $$e "$$extra_args" 2>&1); rc=$$?; \
