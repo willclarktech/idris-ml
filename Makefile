@@ -218,7 +218,7 @@ example-gpt: install
 	cp $(LIB) build/exec/gpt_app/
 	./build/exec/gpt $(GPT_ARGS)
 
-example-mnist: install
+example-mnist: install download-mnist
 	idris2 $(IDRIS_FLAGS) -o mnist $(EXAMPLE_SRC)/Example/Mnist.idr
 	cp $(LIB) build/exec/mnist_app/
 	./build/exec/mnist $(MNIST_ARGS)
