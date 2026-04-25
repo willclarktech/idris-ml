@@ -482,7 +482,10 @@ clean:
 	rm -f $(BUILD)/libidrisml*.dylib $(BUILD)/test_backend $(BUILD)/test_safetensors \
 	      $(BUILD)/test_ntm_grad $(BUILD)/test_ntm_timestep $(BUILD)/bench_ops
 
-EXAMPLES := example-supervised example-rnn example-lstm example-transformer example-gpt example-mnist example-seq-classify example-ntm-copy example-ntm-associative-recall example-dnc-copy example-dnc-recall example-reinforce example-q-learning example-sarsa example-monte-carlo example-dqn example-a2c example-ppo example-sac
+# Examples run on every built backend. Keep in sync with packages/idris-ml-examples/src/Example/.
+# Excluded intentionally: Bench (bench-compare target), Profile (example-profile target) —
+# they don't emit RESULT lines and are covered elsewhere.
+EXAMPLES := example-supervised example-rnn example-lstm example-transformer example-gpt example-mnist example-seq-classify example-ntm-copy example-ntm-associative-recall example-dnc-copy example-dnc-recall example-reinforce example-q-learning example-sarsa example-monte-carlo example-dqn example-a2c example-ppo example-sac example-transfer
 BACKENDS := tape mlx torch
 
 # Run all examples on all available backends, validate RESULT lines.
@@ -519,36 +522,37 @@ test-examples:
 				echo "$$output" | tail -40 | sed 's/^/  | /'; \
 				fail=1; continue; \
 			fi; \
-			result_line=$$(echo "$$output" | grep '^RESULT'); \
+			result_line=$$(echo "$$output" | grep '^RESULT' | head -1); \
 			if [ -z "$$result_line" ]; then \
 				echo "FAIL: $$e [$$b] -- no RESULT line"; \
 				echo "$$output" | tail -40 | sed 's/^/  | /'; \
 				fail=1; \
 			else \
-				expect=$$(awk -v t="$$e" '$$1==t {print $$2, $$3, $$4; exit}' test-examples.expect 2>/dev/null); \
-				if [ -z "$$expect" ]; then \
-					echo "ok: $$result_line"; \
-				else \
-					key=$$(echo "$$expect" | awk '{print $$1}'); \
-					op=$$(echo "$$expect" | awk '{print $$2}'); \
-					thr=$$(echo "$$expect" | awk '{print $$3}'); \
-					val=$$(echo "$$result_line" | tr '\t' '\n' | grep "^$$key=" | head -1 | cut -d= -f2-); \
-					case "$$val" in */*) val=$$(echo "$$val" | awk -F/ 'BEGIN{OFMT="%.6f"} {print $$1/$$2}') ;; esac; \
-					if [ -z "$$val" ]; then \
-						echo "FAIL: $$e [$$b] -- key '$$key' not in RESULT"; \
-						echo "$$result_line" | sed 's/^/  | /'; \
-						fail=1; \
-					elif awk -v a="$$val" -v thr="$$thr" "BEGIN { exit !(a $$op thr) }"; then \
-						echo "ok: $$result_line  [$$key=$$val $$op $$thr]"; \
-					else \
-						echo "FAIL: $$e [$$b] -- $$key=$$val fails check ($$op $$thr)"; \
-						echo "$$result_line" | sed 's/^/  | /'; \
-						fail=1; \
-					fi; \
-				fi; \
+				scripts/check-result.sh "$$e" "$$result_line" || fail=1; \
 			fi; \
 		done; \
 	done; \
+	if [ -z "$$skip" ]; then \
+		echo "--- example-transfer-demo (tape->mlx->torch round-trip) ---"; \
+		demo_out=$$($$TIMEOUT_PREFIX $(MAKE) --no-print-directory example-transfer-demo 2>&1); demo_rc=$$?; \
+		if [ $$demo_rc -ne 0 ]; then \
+			if [ $$demo_rc -eq 124 ]; then echo "FAIL: example-transfer-demo timed out (>$(EXAMPLE_TIMEOUT)s)"; \
+			else echo "FAIL: example-transfer-demo crashed (rc=$$demo_rc)"; fi; \
+			echo "$$demo_out" | tail -40 | sed 's/^/  | /'; \
+			fail=1; \
+		else \
+			result_line=$$(echo "$$demo_out" | grep '^RESULT' | tail -1); \
+			if [ -z "$$result_line" ]; then \
+				echo "FAIL: example-transfer-demo -- no RESULT line"; \
+				echo "$$demo_out" | tail -40 | sed 's/^/  | /'; \
+				fail=1; \
+			else \
+				scripts/check-result.sh "example-transfer-demo" "$$result_line" || fail=1; \
+			fi; \
+		fi; \
+	else \
+		echo "--- example-transfer-demo: skipped (requires tape+mlx+torch; skipped:$$skip) ---"; \
+	fi; \
 	if [ -n "$$skip" ]; then echo "Skipped backends (not installed or build failed):$$skip"; fi; \
 	if [ $$fail -ne 0 ]; then echo "Some integration tests FAILED"; exit 1; fi; \
 	echo "All integration tests passed."
