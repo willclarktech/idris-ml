@@ -1,9 +1,9 @@
 """A2C (synchronous Advantage Actor-Critic) on CartPole-v0.
 
-Actor-critic with shared trunk, n-step returns, entropy bonus. Rollouts
-are collected across N parallel env copies (sequential "sync" style —
-pure Python, no threading). Self-contained CartPole physics imported
-from `reinforce.py`.
+Aligned with `Example.A2c` (Idris). Separate actor and critic networks
+(Idris uses distinct paramId prefixes via `prefixParamId` + `emap` to
+register them in the same optimizer without name collisions). Sequential
+single-env rollouts with auto-reset, matching Idris.
 """
 
 from __future__ import annotations
@@ -16,183 +16,158 @@ from torch import Tensor
 from torch_ref.models.reinforce import MAX_STEPS, CartPoleState, cartpole_step, observe
 
 
-class ActorCritic(nn.Module):
+class Actor(nn.Module):
     def __init__(self, obs_dim: int = 4, num_actions: int = 2, hidden: int = 64) -> None:
         super().__init__()
-        self.trunk1 = nn.Linear(obs_dim, hidden, dtype=torch.float64)
-        self.trunk2 = nn.Linear(hidden, hidden, dtype=torch.float64)
-        self.actor_head = nn.Linear(hidden, num_actions, dtype=torch.float64)
-        self.critic_head = nn.Linear(hidden, 1, dtype=torch.float64)
+        self.fc1 = nn.Linear(obs_dim, hidden, dtype=torch.float64)
+        self.fc2 = nn.Linear(hidden, hidden, dtype=torch.float64)
+        self.head = nn.Linear(hidden, num_actions, dtype=torch.float64)
 
-    def forward(self, x: Tensor) -> tuple[Tensor, Tensor]:
-        h = torch.tanh(self.trunk2(torch.tanh(self.trunk1(x))))
-        logits = self.actor_head(h)
-        value = self.critic_head(h).squeeze(-1)
-        return logits, value
+    def forward(self, x: Tensor) -> Tensor:
+        h = torch.tanh(self.fc2(torch.tanh(self.fc1(x))))
+        return self.head(h)
+
+
+class Critic(nn.Module):
+    def __init__(self, obs_dim: int = 4, hidden: int = 64) -> None:
+        super().__init__()
+        self.fc1 = nn.Linear(obs_dim, hidden, dtype=torch.float64)
+        self.fc2 = nn.Linear(hidden, hidden, dtype=torch.float64)
+        self.head = nn.Linear(hidden, 1, dtype=torch.float64)
+
+    def forward(self, x: Tensor) -> Tensor:
+        h = torch.tanh(self.fc2(torch.tanh(self.fc1(x))))
+        return self.head(h).squeeze(-1)
 
 
 def collect_rollout(
-    ac: ActorCritic,
-    states: list[CartPoleState],
-    rollout_len: int,
-) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor, list[CartPoleState]]:
-    """Roll out `rollout_len` steps across N envs in lockstep.
-
-    Returns (obs, actions, rewards, dones, log_probs, final_states).
-    Shapes: [T, N, ...] for trajectory arrays.
-    """
-    obs_t: list[Tensor] = []
-    action_t: list[list[int]] = []
-    reward_t: list[list[float]] = []
-    done_t: list[list[float]] = []
-    log_prob_t: list[Tensor] = []
-
+    actor: Actor, critic: Critic, state: CartPoleState, rollout_len: int,
+) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor, CartPoleState]:
+    """Single-env sequential rollout of exactly `rollout_len` steps with
+    auto-reset on done. Matches Idris exactly."""
+    obs_list: list[Tensor] = []
+    act_list: list[int] = []
+    rew_list: list[float] = []
+    val_list: list[float] = []
+    done_list: list[float] = []
     for _ in range(rollout_len):
-        obs = torch.stack([observe(s) for s in states])  # [N, obs_dim]
-        logits, _ = ac(obs)
+        obs = observe(state)
+        with torch.no_grad():
+            logits = actor(obs)
+            value = critic(obs)
         probs = F.softmax(logits, dim=-1)
-        actions = torch.multinomial(probs, 1).squeeze(-1)  # [N]
-        log_probs = F.log_softmax(logits, dim=-1).gather(1, actions.unsqueeze(1)).squeeze(1)
-
-        rewards: list[float] = []
-        dones: list[float] = []
-        new_states: list[CartPoleState] = []
-        for i, s in enumerate(states):
-            r, s_next, done = cartpole_step(s, int(actions[i].item()))
-            rewards.append(r)
-            dones.append(1.0 if done else 0.0)
-            new_states.append(CartPoleState() if done else s_next)
-        states = new_states
-
-        obs_t.append(obs)
-        action_t.append([int(a.item()) for a in actions])
-        reward_t.append(rewards)
-        done_t.append(dones)
-        log_prob_t.append(log_probs)
-
-    obs_tensor = torch.stack(obs_t)  # [T, N, obs_dim]
-    action_tensor = torch.tensor(action_t, dtype=torch.long)
-    reward_tensor = torch.tensor(reward_t, dtype=torch.float64)
-    done_tensor = torch.tensor(done_t, dtype=torch.float64)
-    log_prob_tensor = torch.stack(log_prob_t)  # [T, N]
-    return obs_tensor, action_tensor, reward_tensor, done_tensor, log_prob_tensor, states
+        action = int(torch.multinomial(probs, 1).item())
+        reward, next_state, done = cartpole_step(state, action)
+        obs_list.append(obs)
+        act_list.append(action)
+        rew_list.append(reward)
+        val_list.append(float(value.item()))
+        done_list.append(1.0 if done else 0.0)
+        state = CartPoleState() if done else next_state
+    return (
+        torch.stack(obs_list),
+        torch.tensor(act_list, dtype=torch.long),
+        torch.tensor(rew_list, dtype=torch.float64),
+        torch.tensor(val_list, dtype=torch.float64),
+        torch.tensor(done_list, dtype=torch.float64),
+        state,
+    )
 
 
 def compute_advantages(
-    rewards: Tensor, values: Tensor, dones: Tensor, bootstrap: Tensor, gamma: float, lam: float
+    rewards: Tensor, values: Tensor, dones: Tensor, bootstrap: float,
+    gamma: float, lam: float,
 ) -> tuple[Tensor, Tensor]:
-    """GAE advantages + return targets. Shapes: rewards/values/dones [T, N],
-    bootstrap [N]. Returns (advantages, returns) each [T, N]."""
+    """GAE, single-env, inputs [T]. Returns (advantages[T], returns[T])."""
     t_len = rewards.shape[0]
     advantages = torch.zeros_like(rewards)
-    gae = torch.zeros_like(bootstrap)
+    gae_val = 0.0
+    v_next = bootstrap
     for t in reversed(range(t_len)):
-        next_v = bootstrap if t == t_len - 1 else values[t + 1]
-        mask = 1.0 - dones[t]
-        delta = rewards[t] + gamma * next_v * mask - values[t]
-        gae = delta + gamma * lam * mask * gae
-        advantages[t] = gae
+        mask = 1.0 - float(dones[t].item())
+        delta = float(rewards[t].item()) + gamma * v_next * mask - float(values[t].item())
+        gae_val = delta + gamma * lam * mask * gae_val
+        advantages[t] = gae_val
+        v_next = float(values[t].item())
     returns = advantages + values
     return advantages, returns
 
 
 def a2c_update(
-    ac: ActorCritic,
-    optimizer: torch.optim.Optimizer,
-    obs: Tensor,
-    actions: Tensor,
-    rewards: Tensor,
-    dones: Tensor,
-    final_states: list[CartPoleState],
-    gamma: float,
-    lam: float,
-    entropy_coef: float,
-    value_coef: float,
+    actor: Actor, critic: Critic, optimizer: torch.optim.Optimizer,
+    obs: Tensor, actions: Tensor, advantages: Tensor, returns: Tensor,
+    entropy_coef: float, value_coef: float,
 ) -> float:
-    """One A2C gradient step. Returns loss value."""
-    t_len, n_envs = rewards.shape
-
-    # Re-forward to get grad-tracked logits + values
-    flat_obs = obs.reshape(t_len * n_envs, -1)
-    logits, values = ac(flat_obs)
-    logits = logits.reshape(t_len, n_envs, -1)
-    values = values.reshape(t_len, n_envs)
-
-    # Bootstrap: V(s_T) at final states
-    final_obs = torch.stack([observe(s) for s in final_states])  # [N, obs_dim]
-    with torch.no_grad():
-        _, bootstrap_v = ac(final_obs)
-
-    advantages, returns = compute_advantages(
-        rewards, values.detach(), dones, bootstrap_v, gamma, lam
-    )
-    # Normalize advantages
-    advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
-
-    log_probs = F.log_softmax(logits, dim=-1).gather(2, actions.unsqueeze(-1)).squeeze(-1)
+    logits = actor(obs)
+    values = critic(obs)
+    log_probs = F.log_softmax(logits, dim=-1).gather(1, actions.unsqueeze(1)).squeeze(1)
     probs = F.softmax(logits, dim=-1)
     entropy = -(probs * F.log_softmax(logits, dim=-1)).sum(dim=-1).mean()
-
-    policy_loss = -(log_probs * advantages).mean()
+    adv = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+    policy_loss = -(log_probs * adv).mean()
     value_loss = F.mse_loss(values, returns)
     loss = policy_loss + value_coef * value_loss - entropy_coef * entropy
-
     optimizer.zero_grad()
     loss.backward()
-    torch.nn.utils.clip_grad_norm_(ac.parameters(), 0.5)
+    torch.nn.utils.clip_grad_norm_(
+        list(actor.parameters()) + list(critic.parameters()), 0.5,
+    )
     optimizer.step()
     return float(loss.item())
 
 
 def train_a2c(
-    total_updates: int = 1000,
-    n_envs: int = 8,
-    rollout_len: int = 20,
-    lr: float = 7e-4,
-    gamma: float = 0.99,
-    lam: float = 0.95,
-    entropy_coef: float = 0.01,
-    value_coef: float = 0.5,
-    seed: int = 42,
-    log_every: int = 100,
-) -> tuple[ActorCritic, list[float]]:
+    total_updates: int = 5000, rollout_len: int = 10, lr: float = 7e-4,
+    gamma: float = 0.99, lam: float = 0.95, entropy_coef: float = 0.01,
+    value_coef: float = 0.5, seed: int = 42, log_every: int = 500,
+) -> tuple[Actor, Critic, list[float]]:
+    """Hyperparameters match Idris `Example.A2c.defaultConfig`:
+    lr=7e-4, entropy=0.01, rollout=10, gamma=0.99, lam=0.95."""
     torch.manual_seed(seed)
-    ac = ActorCritic()
-    optimizer = torch.optim.Adam(ac.parameters(), lr=lr)
-    states = [CartPoleState() for _ in range(n_envs)]
+    actor = Actor()
+    critic = Critic()
+    optimizer = torch.optim.Adam(
+        list(actor.parameters()) + list(critic.parameters()), lr=lr,
+    )
+    state = CartPoleState()
     history: list[float] = []
-    # Track episodic returns per env
-    ep_returns = [0.0] * n_envs
-    recent_returns: list[float] = []
+    ep_return = 0.0
     for update in range(total_updates):
-        obs, actions, rewards, dones, _, new_states = collect_rollout(ac, states, rollout_len)
-        a2c_update(
-            ac, optimizer, obs, actions, rewards, dones, new_states,
-            gamma, lam, entropy_coef, value_coef,
+        obs, actions, rewards, values, dones, new_state = collect_rollout(
+            actor, critic, state, rollout_len
         )
-        # Track per-env episodic returns (rewards here are per-step; episodes end when done=1)
+        with torch.no_grad():
+            bootstrap_v = critic(observe(new_state))
+            bootstrap = 0.0 if dones[-1].item() > 0.5 else float(bootstrap_v.item())
+        advantages, returns = compute_advantages(rewards, values, dones, bootstrap, gamma, lam)
+        a2c_update(
+            actor, critic, optimizer, obs, actions, advantages, returns,
+            entropy_coef, value_coef,
+        )
         for t in range(rollout_len):
-            for i in range(n_envs):
-                ep_returns[i] += float(rewards[t, i].item())
-                if dones[t, i].item() > 0.5:
-                    recent_returns.append(ep_returns[i])
-                    ep_returns[i] = 0.0
-        states = new_states
-        history.append(sum(recent_returns[-50:]) / max(1, min(len(recent_returns), 50)))
+            ep_return += float(rewards[t].item())
+            if dones[t].item() > 0.5:
+                history.append(ep_return)
+                ep_return = 0.0
+        state = new_state
         if (update + 1) % log_every == 0:
-            print(f"  update {update + 1:4d}  recent_50_return={history[-1]:.1f}")
-    return ac, history
+            recent = history[-50:] or [0.0]
+            print(
+                f"  update {update + 1:5d}  eps_seen={len(history):5d}  "
+                f"recent_50_return={sum(recent)/len(recent):.1f}"
+            )
+    return actor, critic, history
 
 
-def evaluate(ac: ActorCritic, n_episodes: int = 50) -> float:
+def evaluate(actor: Actor, n_episodes: int = 50) -> float:
     total = 0.0
     for _ in range(n_episodes):
         state = CartPoleState()
         ep_return = 0.0
         for _ in range(MAX_STEPS):
-            obs = observe(state).unsqueeze(0)
+            obs = observe(state)
             with torch.no_grad():
-                logits, _ = ac(obs)
+                logits = actor(obs)
             action = int(torch.argmax(logits, dim=-1).item())
             reward, state, done = cartpole_step(state, action)
             ep_return += reward
@@ -203,8 +178,8 @@ def evaluate(ac: ActorCritic, n_episodes: int = 50) -> float:
 
 
 if __name__ == "__main__":
-    print("=== A2C on CartPole ===")
-    ac, history = train_a2c()
-    avg = evaluate(ac)
+    print("=== A2C on CartPole (separate actor + critic) ===")
+    actor, _critic, history = train_a2c()
+    avg = evaluate(actor)
     print(f"\nEval (50 episodes, greedy): avg_return={avg:.1f}")
-    print(f"RESULT\tavg_return={avg:.1f}\tupdates={len(history)}\tseed=42")
+    print(f"RESULT\tavg_return={avg:.1f}\tupdates={5000}\tseed=42")

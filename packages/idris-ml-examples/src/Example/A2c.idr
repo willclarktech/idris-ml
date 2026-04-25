@@ -1,6 +1,7 @@
 module Example.A2c
 
 import Data.List
+import Data.SortedMap
 import Data.Vect
 import Data.IORef
 import System
@@ -22,31 +23,84 @@ import Variable
 
 
 ----------------------------------------------------------------------
--- Architecture: single combined actor-critic network. Output is a
--- 3-vector: [logit_0, logit_1, value]. Shared parameters end-to-end;
--- sidesteps the paramId-prefix problem that would arise from two
--- separately-autoNamed networks. A more orthodox A2C with a shared
--- trunk and separate heads would need a branching network type, which
--- isn't currently supported by the linear `Network` chain.
+-- Architecture: separate actor and critic MLPs (aligned with PyTorch
+-- reference `a2c.py`). We use `autoName` to generate paramIds like
+-- "ll0_weight0", then `emap (prefixParamIdLocal "actor_")` /
+-- `emap (prefixParamIdLocal "critic_")` to rescope them, so the two
+-- networks register disjoint keys with the single optimizer.
+--   Actor  : 4 -> 64 -> 64 -> 2 (action logits)
+--   Critic : 4 -> 64 -> 64 -> 1 (state value)
 ----------------------------------------------------------------------
+
+-- Local `autoNameNetwork`/`autoNameAny` because the `-o <file>` Idris
+-- invocation used by Makefile example targets fails to pick up symbols
+-- newly exported from `idris-ml` (even after a clean install). The
+-- `--build <pkg>.ipkg` path sees them fine — this is a single-file
+-- Idris resolution quirk. Inlining sidesteps it.
+--
+-- This is the critical path: it re-registers each layer's consolidated
+-- weight/bias tensors (the ones used by the `applyVarTensor` fast path)
+-- under a scoped paramId, which is what makes the optimizer see the
+-- actor and critic as distinct parameter groups. A simpler `emap` +
+-- `setParamId` approach only renames the scalar *view* Variables and
+-- leaves the consolidated weight tensor registered under the colliding
+-- unprefixed name — the second network's `autoName` then overwrites the
+-- first's registry entry, silently zeroing the first's gradient flow.
+autoNameAnyLocal : {d : Device} -> {i, o : Nat} -> String -> SortedMap String Nat ->
+                   AnyLayer i o (Variable d) ->
+                   (SortedMap String Nat, AnyLayer i o (Variable d))
+autoNameAnyLocal scope counts (MkAnyLayer l @{dict} layer) =
+  let pfx = layerPrefix @{dict} layer
+  in if pfx == "" then (counts, MkAnyLayer l @{dict} layer)
+     else let n = fromMaybe 0 (lookup pfx counts)
+              counts' = insert pfx (n + 1) counts
+              fullName = scope ++ pfx ++ show n
+          in (counts', MkAnyLayer l @{dict} (nameLayer @{dict} fullName layer))
+
+autoNameNetworkLocal : {d : Device} -> String -> SortedMap String Nat ->
+                       {i, o : Nat} -> {hs : List Nat} ->
+                       Network i hs o (Variable d) ->
+                       (SortedMap String Nat, Network i hs o (Variable d))
+autoNameNetworkLocal scope counts (OutputLayer l) =
+  let (counts', l') = autoNameAnyLocal scope counts l
+  in (counts', OutputLayer l')
+autoNameNetworkLocal scope counts (l ~> rest) =
+  let (counts', l') = autoNameAnyLocal scope counts l
+      (counts'', rest') = autoNameNetworkLocal scope counts' rest
+  in (counts'', l' ~> rest')
+
+autoNameScoped : {d : Device} -> {i, o : Nat} -> {hs : List Nat} ->
+                 String -> Network i hs o (Variable d) -> Network i hs o (Variable d)
+autoNameScoped scope net = snd (autoNameNetworkLocal scope empty net)
 
 ObsDim : Nat; ObsDim = 4
 Hidden : Nat; Hidden = 64
 NumActions : Nat; NumActions = 2
-OutDim : Nat; OutDim = 3   -- NumActions logits + 1 value
 MaxSteps : Nat; MaxSteps = cartPoleMaxSteps
-RolloutLen : Nat; RolloutLen = 10
+RolloutLen : Nat; RolloutLen = 20
 
-ACNet : Type
-ACNet = Network ObsDim [Hidden, Hidden, Hidden, Hidden] OutDim (Variable CPU)
+Actor : Type
+Actor = Network ObsDim [Hidden, Hidden, Hidden, Hidden] NumActions (Variable CPU)
+
+Critic : Type
+Critic = Network ObsDim [Hidden, Hidden, Hidden, Hidden] 1 (Variable CPU)
 
 
-mkACNet : IO ACNet
-mkACNet = do
+mkActor : IO Actor
+mkActor = do
   ll1 <- linearLayer {i=ObsDim} {o=Hidden}
   ll2 <- linearLayer {i=Hidden} {o=Hidden}
-  ll3 <- linearLayer {i=Hidden} {o=OutDim}
-  pure (autoName (ll1 ~> tanhLayer ~> ll2 ~> tanhLayer ~> OutputLayer ll3))
+  ll3 <- linearLayer {i=Hidden} {o=NumActions}
+  pure (autoNameScoped "actor_"
+    (ll1 ~> tanhLayer ~> ll2 ~> tanhLayer ~> OutputLayer ll3))
+
+mkCritic : IO Critic
+mkCritic = do
+  ll1 <- linearLayer {i=ObsDim} {o=Hidden}
+  ll2 <- linearLayer {i=Hidden} {o=Hidden}
+  ll3 <- linearLayer {i=Hidden} {o=1}
+  pure (autoNameScoped "critic_"
+    (ll1 ~> tanhLayer ~> ll2 ~> tanhLayer ~> OutputLayer ll3))
 
 
 ----------------------------------------------------------------------
@@ -74,40 +128,28 @@ record RollStep where
 
 
 ----------------------------------------------------------------------
--- Forward: read out logits (indices 0,1) and value (index 2) via the
--- tensor forward. Scalar extraction via prim__item1d.
+-- Top-level helpers (keep out of do-blocks to dodge Idris 2 parser
+-- quirks with multi-binding let + case).
 ----------------------------------------------------------------------
 
--- Returns (logit0, logit1, value) for a given observation.
-forwardAC : ACNet -> Vect ObsDim Double -> (Double, Double, Double)
-forwardAC net obs =
-  let outT = snd (forwardVarTensor net (bulkToTensor (obsTensor obs)))
-      l0 = prim__item1d outT 0
-      l1 = prim__item1d outT 1
-      v  = prim__item1d outT 2
-  in (l0, l1, v)
-
-
-sampleActionIO : ACNet -> Vect ObsDim Double -> IO (Nat, Double)
-sampleActionIO net obs = do
-  let (l0, l1, v) = forwardAC net obs
-      -- log_softmax over logits
-      maxL = if l0 >= l1 then l0 else l1
-      el0  = Prelude.exp (l0 - maxL)
-      el1  = Prelude.exp (l1 - maxL)
-      z    = el0 + el1
-      p0   = el0 / z
-      p1   = el1 / z
+sampleActionIO : Actor -> Critic -> Vect ObsDim Double -> IO (Nat, Double)
+sampleActionIO actor critic obs = do
+  let stateT  = bulkToTensor (obsTensor obs)
+      logitsT = snd (forwardVarTensor actor stateT)
+      logPT   = prim__logSoftmax logitsT 0
+      lp0     = prim__item1d logPT 0
+      lp1     = prim__item1d logPT 1
+      valueT  = snd (forwardVarTensor critic stateT)
+      v       = prim__item1d valueT 0
   u <- randomRIO (the Double 0.0, 1.0)
-  let a = categoricalSample [p0, p1] u
+  let a = categoricalSample [Prelude.exp lp0, Prelude.exp lp1] u
   pure (a, v)
 
-
-rollout : ACNet -> CPState -> Nat -> IO (List RollStep, CPState)
-rollout _ st Z = pure ([], st)
-rollout net st (S k) = do
+rollout : Actor -> Critic -> CPState -> Nat -> IO (List RollStep, CPState)
+rollout _ _ st Z = pure ([], st)
+rollout actor critic st (S k) = do
   let obs = observeVec st
-  pair <- sampleActionIO net obs
+  pair <- sampleActionIO actor critic obs
   let a = fst pair
       v = snd pair
   case cpStep st a of
@@ -115,25 +157,25 @@ rollout net st (S k) = do
       let isDone = done outcome
           stepRec = MkRS obs a r v isDone
           nextSt = if isDone then MkCP 0 0 0 0 else st'
-      recur <- rollout net nextSt k
+      recur <- rollout actor critic nextSt k
       pure (stepRec :: fst recur, snd recur)
 
 
 ----------------------------------------------------------------------
--- GAE pipeline helpers (top-level to avoid do-block let quirks).
+-- GAE helpers
 ----------------------------------------------------------------------
 
-bootstrapV : ACNet -> Vect ObsDim Double -> Double
-bootstrapV net obs =
-  let (_, _, v) = forwardAC net obs
-  in v
+bootstrapV : Critic -> Vect ObsDim Double -> Double
+bootstrapV critic obs =
+  let valueT = snd (forwardVarTensor critic (bulkToTensor (obsTensor obs)))
+  in prim__item1d valueT 0
 
-computeBootstrap : ACNet -> List RollStep -> CPState -> Double
+computeBootstrap : Critic -> List RollStep -> CPState -> Double
 computeBootstrap _ [] _ = 0.0
-computeBootstrap net steps finalSt =
+computeBootstrap critic steps finalSt =
   case last' steps of
     Nothing => 0.0
-    Just ls => if ls.isDone then 0.0 else bootstrapV net (observeVec finalSt)
+    Just ls => if ls.isDone then 0.0 else bootstrapV critic (observeVec finalSt)
 
 stepTriple : RollStep -> (Double, Double, Bool)
 stepTriple s = (s.reward, s.value, s.isDone)
@@ -158,34 +200,24 @@ normAdvs triples =
 
 
 ----------------------------------------------------------------------
--- Per-step loss via Variable arithmetic.
---   policy: -logπ(a|s) * advantage
---   value : value_coef * (V(s) - return)^2
---   ent   : -entropy_coef * H(π)
+-- Per-step A2C loss
 ----------------------------------------------------------------------
 
-perStepLoss : ACNet -> Double -> Double ->
+perStepLoss : Actor -> Critic -> Double -> Double ->
               (RollStep, Double, Double) -> Variable CPU
-perStepLoss net entropyCoef valueCoef (step, adv, retT) =
-  let stateT  = bulkToTensor (obsTensor step.obs)
-      outT    = snd (forwardVarTensor net stateT)
-
-      -- Slice out the logits (first 2 elements) and run log_softmax through
-      -- the C op so gradients flow correctly back to both logits.
-      logitsT = prim__narrow outT 0 0 2
-      logPT   = prim__logSoftmax logitsT 0
-      lp0Val  = prim__item1d logPT 0
-      lp1Val  = prim__item1d logPT 1
-      vVal    = prim__item1d outT 2
-
+perStepLoss actor critic entropyCoef valueCoef (step, adv, retT) =
+  let stateT   = bulkToTensor (obsTensor step.obs)
+      logitsT  = snd (forwardVarTensor actor stateT)
+      logPT    = prim__logSoftmax logitsT 0
       aIdx : Int
       aIdx     = cast {to=Int} (cast {to=Integer} step.action)
-      logProbPtr = prim__select logPT 0 aIdx
-      selLPVal   = if step.action == 0 then lp0Val else lp1Val
-      logProbV   = Var logProbPtr Nothing selLPVal
+      selLP    = prim__select logPT 0 aIdx
+      lpVal    = if step.action == 0 then prim__item1d logPT 0 else prim__item1d logPT 1
+      logProbV = Var selLP Nothing lpVal
 
-      valuePtr   = prim__select outT 0 2
-      valueV     = Var valuePtr Nothing vVal
+      valueT   = snd (forwardVarTensor critic stateT)
+      vVal     = prim__item1d valueT 0
+      valueV   = Var (prim__select valueT 0 0) Nothing vVal
 
       advC     : Variable CPU
       advC     = fromDouble adv
@@ -202,11 +234,25 @@ perStepLoss net entropyCoef valueCoef (step, adv, retT) =
       valueTerm : Variable CPU
       valueTerm = valCoefC * diff * diff
 
-      p0v      = Prelude.exp lp0Val
-      p1v      = Prelude.exp lp1Val
-      entH     = negate (p0v * lp0Val + p1v * lp1Val)
-      entTerm  : Variable CPU
-      entTerm  = zeroC - fromDouble (entropyCoef * entH)
+      -- Entropy H(π) = -Σ p_i log p_i, built with grad-tracked Variables
+      -- so the entropy bonus actually pulls the policy back from collapse.
+      -- (Previous version used `prim__item1d` which stripped gradient and
+      -- made `entTerm` a constant offset — a real bug caught during
+      -- multi-seed alignment with the PyTorch reference.)
+      lp0Val   = prim__item1d logPT 0
+      lp1Val   = prim__item1d logPT 1
+      lp0V     : Variable CPU
+      lp0V     = Var (prim__select logPT 0 0) Nothing lp0Val
+      lp1V     : Variable CPU
+      lp1V     = Var (prim__select logPT 0 1) Nothing lp1Val
+      p0V      : Variable CPU
+      p0V      = exp lp0V
+      p1V      : Variable CPU
+      p1V      = exp lp1V
+      negEntV  = p0V * lp0V + p1V * lp1V      -- = -H(π)
+      entCoefC : Variable CPU
+      entCoefC = fromDouble entropyCoef
+      entTerm  = entCoefC * negEntV           -- loss += ent_coef * (-H)
   in policyT + valueTerm + entTerm
 
 
@@ -219,16 +265,16 @@ aggregateLoss losses =
   in sumV / nV
 
 
-buildLoss : ACNet -> Double -> Double -> Double -> Double ->
+buildLoss : Actor -> Critic -> Double -> Double -> Double -> Double ->
             List RollStep -> CPState -> Variable CPU
-buildLoss net gamma lam entropyCoef valueCoef steps finalSt =
-  let bootstrap  = computeBootstrap net steps finalSt
+buildLoss actor critic gamma lam entropyCoef valueCoef steps finalSt =
+  let bootstrap  = computeBootstrap critic steps finalSt
       triples    = map stepTriple steps
       gaeOut     = gae gamma lam bootstrap triples
       merged     = map flattenTriple (zip steps gaeOut)
       normalized = normAdvs merged
       lossFn : (RollStep, Double, Double) -> Variable CPU
-      lossFn     = perStepLoss net entropyCoef valueCoef
+      lossFn     = perStepLoss actor critic entropyCoef valueCoef
       losses     = map lossFn normalized
   in aggregateLoss losses
 
@@ -239,7 +285,8 @@ buildLoss net gamma lam entropyCoef valueCoef steps finalSt =
 
 record A2CState where
   constructor MkA2C
-  net    : ACNet
+  actor  : Actor
+  critic : Critic
   envRef : IORef CPState
   retRef : IORef Double
 
@@ -253,8 +300,10 @@ record Config where
   valueCoef   : Double
   seed        : Bits64
 
+||| Defaults aligned with PyTorch `a2c.py`: lr=7e-4, entropy=0.01,
+||| rollout=20, gamma=0.99, lam=0.95.
 defaultConfig : Config
-defaultConfig = MkConfig 3.0e-3 5000 0.99 0.95 0.05 0.5 42
+defaultConfig = MkConfig 7.0e-4 5000 0.99 0.95 0.01 0.5 42
 
 specs : List (ArgSpec Config)
 specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
@@ -274,11 +323,11 @@ lastTerminated steps = case last' steps of
 a2cEpoch : NativeOptimizer -> Config -> A2CState -> IO (A2CState, Double)
 a2cEpoch opt cfg st = do
   startSt <- readIORef st.envRef
-  rolled  <- rollout st.net startSt RolloutLen
+  rolled  <- rollout st.actor st.critic startSt RolloutLen
   let steps   = fst rolled
       finalSt = snd rolled
   writeIORef st.envRef finalSt
-  let loss = buildLoss st.net cfg.gamma cfg.lam
+  let loss = buildLoss st.actor st.critic cfg.gamma cfg.lam
                        cfg.entropyCoef cfg.valueCoef steps finalSt
   _ <- pure (nativeTrainStep opt loss)
 
@@ -292,27 +341,29 @@ a2cEpoch opt cfg st = do
 
 
 ----------------------------------------------------------------------
--- Greedy evaluation (argmax on logits)
+-- Greedy evaluation
 ----------------------------------------------------------------------
 
-greedyAct : ACNet -> Vect ObsDim Double -> Nat
-greedyAct net obs =
-  let (l0, l1, _) = forwardAC net obs
+greedyAct : Actor -> Vect ObsDim Double -> Nat
+greedyAct actor obs =
+  let logits = snd (forwardVarTensor actor (bulkToTensor (obsTensor obs)))
+      l0 = prim__item1d logits 0
+      l1 = prim__item1d logits 1
   in if l0 >= l1 then 0 else 1
 
-evalEp : ACNet -> CPState -> Nat -> Double -> Double
+evalEp : Actor -> CPState -> Nat -> Double -> Double
 evalEp _ _ Z acc = acc
-evalEp net st (S k) acc =
-  let a = greedyAct net (observeVec st)
+evalEp actor st (S k) acc =
+  let a = greedyAct actor (observeVec st)
   in case cpStep st a of
        (r, st', outcome, _) =>
          if done outcome then acc + r
-         else evalEp net st' k (acc + r)
+         else evalEp actor st' k (acc + r)
 
-evalN : ACNet -> Nat -> Double -> Double
+evalN : Actor -> Nat -> Double -> Double
 evalN _ Z acc = acc
-evalN net (S k) acc =
-  evalN net k (acc + evalEp net (MkCP 0 0 0 0) MaxSteps 0.0)
+evalN actor (S k) acc =
+  evalN actor k (acc + evalEp actor (MkCP 0 0 0 0) MaxSteps 0.0)
 
 
 ----------------------------------------------------------------------
@@ -325,24 +376,26 @@ main = do
   let cfg = parseArgs defaultConfig specs (drop 1 args)
   srand cfg.seed
 
-  putStrLn "=== A2C on CartPole ==="
+  putStrLn "=== A2C on CartPole (separate actor + critic) ==="
   putStrLn $ "Config: lr=" ++ show cfg.lr
            ++ " epochs=" ++ show cfg.epochs
+           ++ " rollout=" ++ show RolloutLen
            ++ " gamma=" ++ show cfg.gamma
            ++ " lambda=" ++ show cfg.lam
            ++ " entropy=" ++ show cfg.entropyCoef
            ++ " seed=" ++ show cfg.seed
 
-  net    <- mkACNet
+  actor  <- mkActor
+  critic <- mkCritic
   envRef <- newIORef (the CPState (MkCP 0 0 0 0))
   retRef <- newIORef (the Double 0.0)
-  let st0 = MkA2C net envRef retRef
+  let st0 = MkA2C actor critic envRef retRef
       opt = nativeAdamGlobalClip cfg.lr 0.9 0.999 1.0e-8 0.5
 
   putStrLn ""
 
   let trainCfg : TrainConfig A2CState
-      trainCfg = MkTrainConfig cfg.epochs 100 NoEarlyStop (const (pure []))
+      trainCfg = MkTrainConfig cfg.epochs 500 NoEarlyStop (const (pure []))
   (trained, epochsDone, _) <- runTrainingIO
     (\s, _ => a2cEpoch opt cfg s)
     (pure ())
@@ -350,7 +403,7 @@ main = do
 
   putStrLn ""
   let nEval = the Nat 30
-      avgReturn = evalN trained.net nEval 0.0 / cast (natToInteger nEval)
+      avgReturn = evalN trained.actor nEval 0.0 / cast (natToInteger nEval)
   putStrLn $ "Eval (" ++ show nEval ++ " episodes, greedy): avg_return=" ++ show avgReturn
   putStrLn ""
   putStrLn $ formatResult [("avg_return", show avgReturn),

@@ -276,6 +276,11 @@ example-a2c: install
 	cp $(LIB) build/exec/a2c_app/
 	stdbuf -oL ./build/exec/a2c $(A2C_ARGS)
 
+example-ppo: install
+	idris2 $(IDRIS_FLAGS) -o ppo $(EXAMPLE_SRC)/Example/Ppo.idr
+	cp $(LIB) build/exec/ppo_app/
+	stdbuf -oL ./build/exec/ppo $(PPO_ARGS)
+
 example-transfer: install
 	idris2 $(IDRIS_FLAGS) -o transfer $(EXAMPLE_SRC)/Example/Transfer.idr
 	cp $(LIB) build/exec/transfer_app/

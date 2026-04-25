@@ -72,6 +72,25 @@ Same failure mode. Idris PPO used combined chain + `rollout=200, K=3, full-batch
 
 This incident prompted a strengthening of the alignment policy in CLAUDE.md — see "Architectural alignment — DO NOT pivot silently." The key rule: if Idris' Network chain can't express the PyTorch architecture, **update PyTorch to match Idris**, not keep both diverged.
 
+### A2C real bug surfaced by multi-seed alignment (resolved)
+
+After aligning both sides to separate actor + critic at matched hyperparameters, multi-seed testing exposed a real Idris implementation bug: the combined-net version had reported "converges to 200" based on a single seed=42 run, but in fact the policy at seed=42 was benefiting from random initialization more than from training. With separate actor + critic, Idris' optimizer wasn't updating the actor at all: `lr=0` and `lr=0.1` gave identical greedy-eval scores.
+
+**Root cause**: `prefixParamId` via `emap` only renames the scalar *view* Variables in `LinearState.weights`, but the consolidated weight tensor stored in `LinearState.weightTensor` (used by `applyVarTensor`) was registered under the original unprefixed paramId like `ll0_weights`. When the critic's `autoName` ran, it overwrote the actor's `ll0_weights` registry entry — so the actor's weight tensor had no gradient-collection hook and the optimizer never touched it. The renamed scalar views were accounted for in the registry, but they aren't the tensors used in the hot path.
+
+**Fix**: use a scope-prefixed `autoNameNetwork` instead of a post-hoc `emap`-based rename, so each layer's `nameLayer` receives the prefix directly and registers the consolidated weight tensor under a scoped name. `Example.A2c` inlines `autoNameNetworkLocal` / `autoNameAnyLocal` / `autoNameScoped` locally because the `-o <file>` invocation path used by Makefile example targets doesn't pick up newly-exported helpers from `idris-ml` (a single-file resolution quirk we haven't root-caused; `--build <pkg>.ipkg` works fine). This also prompted adding a multi-seed convergence requirement to CLAUDE.md.
+
+### Multi-seed A2C pass rates at aligned config
+
+At matched config (separate actor+critic, lr=7e-4, entropy=0.01, rollout=20 single-env, 5000 updates, γ=0.99, λ=0.95):
+
+| Implementation | Pass rate (greedy_eval ≥ 150 / total) |
+|---|---|
+| PyTorch | 3/7 (seeds 7, 100, 314) |
+| Idris | 4/7 (seeds 1, 7, 100, 99) |
+
+Single-env rollout=20 is a noisy A2C config — the PyTorch reference's original 200/200 convergence used 8 parallel envs × rollout=20 (= 160 effective steps per update) which smooths the gradient significantly. Both implementations agree at the aligned config; the "full convergence" requires multi-env rollouts (not yet implemented in Idris — Gym.Wrapper.Vector exists but is unwired here).
+
 ## Status
 
 All known discrepancies resolved. Both implementations now use identical defaults.

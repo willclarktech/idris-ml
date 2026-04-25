@@ -17,6 +17,7 @@ modules = Example.A2c
         , Example.MonteCarlo
         , Example.NtmAssociativeRecall
         , Example.NtmCopy
+        , Example.Ppo
         , Example.Profile
         , Example.QLearning
         , Example.Reinforce
