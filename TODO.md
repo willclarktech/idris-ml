@@ -5,6 +5,7 @@
 | Item | Difficulty | Notes |
 |------|-----------|-------|
 | CUDA support | M–L | Torch backend should work via `tensor_to_device("cuda")` — untested. Test script ready: `scripts/test_cuda_colab.sh`. See `docs/develop/cuda-testing.md`. Device type system ready: `Variable (CUDA 0)` compiles, `toDevice` + FFI bindings exist |
+| RefC backend investigation | S–M | Idris 2's built-in RefC backend (`--cg refc`) compiles to C with reference counting instead of Chez Scheme. Could eliminate the ~50ms/epoch Chez overhead (18-40% of total wall time on real models). Experimental but functional. Investigation: (1) can idris-ml compile and run under RefC? (2) do our C FFI bindings (`%foreign "C:..."`) work unchanged? (3) what's the perf difference vs Chez? See https://idris2.readthedocs.io/en/latest/backends/refc.html. Note: RefC docs say "performance is not as good as Scheme" but that's for pure Idris code — our hot path is FFI calls to C backends where RefC's lighter runtime could be a net win |
 
 ## Medium Priority
 
@@ -22,7 +23,7 @@
 | `fromDouble` persistent leak | S | Partially fixed: `tensor_create_scalar` and `tensor_create` non-grad tensors are now non-persistent on MLX (freed by tape_reset). Remaining: Chez Scheme GC doesn't call `tensor_free`, so non-persistent tensors accumulate within one epoch until optimizer_step. ~15KB/epoch overhead, manageable |
 | Reshaping layers | M | No current use case |
 | Chez Scheme runtime overhead | S–XL | Chez GC, thunk evaluation, and allocation account for ~50ms/epoch (vs 2ms in C). Not FFI marshaling — reducing FFI call count from 4,384 to ~1,220 only saved 6ms. Options: Idris→C backend (below), or accept ~3x gap vs PyTorch on CPU for small models |
-| Idris 2 C backend | XL | Compile Idris 2 to C instead of Chez Scheme. Would eliminate the ~50ms/epoch runtime overhead entirely, making idris-ml match the C benchmark numbers end-to-end. Requires upstream Idris 2 support or a custom code generator. Largest potential perf win but highest effort |
+| Idris 2 C backend (custom) | XL | If RefC doesn't work out: custom Idris 2→C code generator optimized for tensor workloads. Much higher effort than RefC investigation above |
 | CodeMirror Idris 2 mode | S–M | Jupyter kernel uses `"codemirror_mode": "haskell"` as a fallback. Investigate whether an Idris 2 CodeMirror grammar exists or could be written (CodeMirror 6 Lezer grammar). Would give proper syntax highlighting in JupyterLab |
 
 **Explicitly not planned:** distributed training (infrastructure, not library), mixed precision/quantization (performance optimisation), model zoo (compositions of existing primitives), TorchScript (our type system is the compile-time analysis), bidirectional RNN (transformers have obsoleted), exotic losses (compose from primitives)
