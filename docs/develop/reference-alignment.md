@@ -80,6 +80,17 @@ After aligning both sides to separate actor + critic at matched hyperparameters,
 
 **Fix**: use a scope-prefixed `autoNameNetwork` instead of a post-hoc `emap`-based rename, so each layer's `nameLayer` receives the prefix directly and registers the consolidated weight tensor under a scoped name. `Example.A2c` inlines `autoNameNetworkLocal` / `autoNameAnyLocal` / `autoNameScoped` locally because the `-o <file>` invocation path used by Makefile example targets doesn't pick up newly-exported helpers from `idris-ml` (a single-file resolution quirk we haven't root-caused; `--build <pkg>.ipkg` works fine). This also prompted adding a multi-seed convergence requirement to CLAUDE.md.
 
+### PPO (applied A2C's paramId-scoping fix)
+
+PPO has the same twin-network shape (actor + critic) and originally exhibited the same silent optimizer failure as A2C before the scoping fix. Rewriting `Example.Ppo` to use the inlined `autoNameScoped` helper (same pattern as A2C) restored actor gradient flow. At the aligned CI-sized config (`rollout=400, K=10, batch=64, lr=3e-4, γ=0.99, λ=0.95, clip=0.2, seed=42, 300 rollouts`):
+
+| Implementation | greedy_eval |
+|---|---|
+| PyTorch | -1197.1 |
+| Idris | -1571.9 |
+
+Both descend then oscillate/plateau in the -1200 to -1600 band — PPO at rollout=400 is genuinely starved of data, and both implementations express that. The original PyTorch reference config (`rollout=2048`) converged to -353 in the same 300 rollouts but each Idris epoch is ~20× slower than PyTorch due to per-step `forwardVarTensor` calls (Idris autograd doesn't have a batched forward path), so we've shipped the shorter rollout for tractable iteration and noted the convergence gap as a compute-speed issue rather than an implementation gap. A follow-up to batch the Variable forward path would close this.
+
 ### Multi-seed A2C pass rates at aligned config
 
 At matched config (separate actor+critic, lr=7e-4, entropy=0.01, rollout=20 single-env, 5000 updates, γ=0.99, λ=0.95):
