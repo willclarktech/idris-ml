@@ -39,6 +39,8 @@ import public Layer.Transformer
 import public Math
 import public Memory
 import public Optimizer
+import public RL.Gae
+import public RL.ReplayBuffer
 import public Sampler
 import public Schedule
 import public Tensor
