@@ -12,8 +12,8 @@ How fast is idris-ml compared to PyTorch? This page gives you a quick answer.
 | Medium training step (256d) | **2x faster** | ~parity | ~parity | Mixed overhead + compute |
 | Large training step (1024d) | ~2x slower | ~parity | ~2x slower | BLAS dominates, allocation overhead |
 | Large matmul (1024x1024) | 1.2x slower | 1.1x slower | ~parity | Both use Accelerate BLAS |
-| Element-wise (add, mul) | 5-6x slower | 2-3x slower | 1-7x slower | Arena allocator vs fused kernels |
-| Softmax | ~1.3x slower | ~1.3x slower | varies | Modest overhead |
+| Element-wise (100k, add+mul) | ~4x slower | 2-3x slower | 1-7x slower | Per-op allocation (arithmetic now vectorized via vDSP) |
+| Softmax | ~1.0x | ~1.3x slower | varies | vDSP-accelerated exp |
 
 **Bottom line**: For typical small-to-medium models (the kind you'd prototype in a research setting), the tape and torch backends are competitive with PyTorch. The overhead is in element-wise ops and small tensor allocation, not BLAS.
 
@@ -118,8 +118,26 @@ make bench-compare
 - **Iteration counts**: Tuned per-operation so each benchmark runs 1-50ms total. Full suite completes in <2s per backend
 - **Partial output**: If a backend crashes on conv2d (last benchmark), all prior results are still captured
 
+## Optimization History
+
+### Round 1: vDSP Vectorization (tape backend element-wise)
+
+**Change**: Replace scalar `for` loops in `binop_elementwise` / `unop_elementwise` with Apple vDSP/vForce functions (`vDSP_vaddD`, `vDSP_vmulD`, `vvexp`, `vvlog`, `vvsqrt`, `vvtanh`, etc.) on macOS. Linux fallback unchanged.
+
+**Predictions vs Results** (tape backend, `add+mul` benchmark):
+
+| Size | Before | After | Predicted | Actual | Notes |
+|------|--------|-------|-----------|--------|-------|
+| 1,000 | 5.4ms | 3.3ms | 2x | **1.6x** | Allocation overhead dominates at small sizes |
+| 10,000 | 29.8ms | 14.0ms | 3.5x | **2.1x** | malloc + tape_append larger fraction than expected |
+| 100,000 | 141.6ms | 21.8ms | 4x | **6.5x** | vDSP better than predicted (prefetch + pipeline) |
+
+Softmax improved 1.6x (benefits from vectorized `exp` inside). Training step unchanged (dominated by matmul).
+
+**Retrospective**: vDSP exceeded predictions at large sizes but undershot at small sizes. This tells us the remaining gap at 10k elements is **allocation overhead** (malloc per op + tape append), not arithmetic. To close further, we'd need to eliminate per-op allocation (tensor pooling or fused ops). At 100k, we went from 28x slower than PyTorch to **4.4x slower** — the remaining gap is entirely allocation cost (PyTorch uses memory pools, we malloc every time).
+
 ## Notes
 
-- The tape backend uses Apple Accelerate for BLAS (`cblas_dgemv`, `cblas_dgemm`). On Linux without Accelerate, matmul falls back to manual loops and will be significantly slower
+- The tape backend uses Apple Accelerate for BLAS (`cblas_dgemv`, `cblas_dgemm`) and vDSP for element-wise vectorization. On Linux without Accelerate, both matmul and element-wise fall back to scalar loops
 - The ~50ms/epoch Chez Scheme overhead is constant regardless of model size. For large models (NTM at production scale), it's negligible. For small models (Linear classifier), it dominates
 - Numbers in this doc are from a single representative run. Run `make bench-ops-compare` for results on your hardware
