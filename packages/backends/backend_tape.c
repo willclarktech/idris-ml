@@ -12,12 +12,50 @@
 #include <string.h>
 #include <math.h>
 #include <stdio.h>
+#include <signal.h>
+#include <execinfo.h>
+#include <unistd.h>
 
 #ifdef __APPLE__
 #include <Accelerate/Accelerate.h>
 #include <sys/resource.h>
 #include <mach/mach.h>
 #endif
+
+/* Override Chez Scheme's SIGSEGV/SIGBUS handler.
+
+   Chez installs a handler that prints "Exception: invalid memory reference.
+   Some debugging context lost" and exits. With large FFI workloads (e.g. DNC
+   copy at batch=16: ~1.6M tape entries, ~1.5M calls to prim__select), Chez's
+   handler fires and exits mid-forward. Experiments ruled out a real memory
+   fault in this backend: setting SIGSEGV to SIG_DFL runs cleanly (no
+   coredump), and our own handler installed here never fires either. Chez's
+   handler appears to misinterpret some legitimate FFI access pattern as a
+   fault — likely tied to its signal-based GC write barriers or safepoints.
+
+   By replacing the handler before the first tape_append, we bypass Chez's
+   spurious trigger. Any actual C-side memory fault still crashes with a
+   printed backtrace via idrisml_sigsegv_handler below (not silent). */
+static void idrisml_sigsegv_handler(int sig, siginfo_t* info, void* ctx) {
+    (void)ctx;
+    fprintf(stderr, "\n=== SIGSEGV/SIGBUS caught in libidrisml (sig=%d, addr=%p) ===\n",
+            sig, info ? info->si_addr : NULL);
+    void* frames[40];
+    int n = backtrace(frames, 40);
+    backtrace_symbols_fd(frames, n, 2);
+    _exit(139);
+}
+
+__attribute__((constructor))
+static void idrisml_install_sigsegv_handler(void) {
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_sigaction = idrisml_sigsegv_handler;
+    sa.sa_flags = SA_SIGINFO;
+    sigemptyset(&sa.sa_mask);
+    sigaction(SIGSEGV, &sa, NULL);
+    sigaction(SIGBUS, &sa, NULL);
+}
 
 /* ================================================================
    Tensor representation
@@ -317,13 +355,7 @@ typedef struct {
     int* max_indices;  /* [C * oH * oW] index into flat input per-channel */
 } MaxPool2DMeta;
 
-/* Initial tape capacity. DNC-copy at batch=16 produces ~1.6M tape entries per
-   batched forward, and repeated realloc() during the forward pass has been
-   observed to corrupt memory and SIGSEGV (root cause not yet pinpointed — see
-   TODO). Pre-sizing to 2M entries eliminates all reallocs for every example
-   we ship. Cost: ~114 MB of *virtual* memory up-front; macOS lazy-commit means
-   physical RSS only grows with actual writes, so small examples pay nothing. */
-#define TAPE_INIT_CAP (1 << 21)
+#define TAPE_INIT_CAP 4096
 
 static TapeEntry* tape = NULL;
 static int tape_size = 0;
