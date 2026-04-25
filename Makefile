@@ -2,6 +2,10 @@ UNAME := $(shell uname)
 BUILD := build
 BACKEND ?= tape
 
+# Per-example wall-clock cap for test-examples. Examples exceeding this are
+# killed and reported as timeouts. Override with `EXAMPLE_TIMEOUT=900 make ...`.
+EXAMPLE_TIMEOUT ?= 600
+
 # `make` builds backend + type-checks all packages. `make all` also runs tests.
 .DEFAULT_GOAL := check-all
 
@@ -485,8 +489,15 @@ BACKENDS := tape mlx torch
 # Tries to build each backend; skips gracefully if libraries not installed.
 test-examples:
 	@fail=0; skip=""; \
+	if command -v timeout >/dev/null 2>&1; then TIMEOUT_PREFIX="timeout $(EXAMPLE_TIMEOUT)"; \
+	elif command -v gtimeout >/dev/null 2>&1; then TIMEOUT_PREFIX="gtimeout $(EXAMPLE_TIMEOUT)"; \
+	else echo "WARNING: no timeout/gtimeout binary; examples will not be time-bounded"; TIMEOUT_PREFIX=""; fi; \
 	for b in tape mlx torch; do \
-		$(MAKE) --no-print-directory BACKEND=$$b backend 2>/dev/null || { skip="$$skip $$b"; continue; }; \
+		backend_output=$$($(MAKE) --no-print-directory BACKEND=$$b backend 2>&1) || { \
+			echo "--- backend $$b: build failed, skipping its examples ---"; \
+			echo "$$backend_output" | tail -20 | sed 's/^/  | /'; \
+			skip="$$skip $$b"; continue; \
+		}; \
 		for e in $(EXAMPLES); do \
 			echo "--- $$e [$$b] ---"; \
 			extra_args=""; \
@@ -498,17 +509,27 @@ test-examples:
 			if [ "$$e" = "example-a2c" ]; then extra_args="A2C_ARGS=--epochs 1000"; fi; \
 			if [ "$$e" = "example-ppo" ]; then extra_args="PPO_ARGS=--epochs 20"; fi; \
 			if [ "$$e" = "example-sac" ]; then extra_args="SAC_ARGS=--epochs 1500"; fi; \
-			output=$$($(MAKE) --no-print-directory BACKEND=$$b $$e $$extra_args 2>&1) || { echo "FAIL: $$e [$$b] crashed"; fail=1; continue; }; \
+			output=$$($$TIMEOUT_PREFIX $(MAKE) --no-print-directory BACKEND=$$b $$e $$extra_args 2>&1); rc=$$?; \
+			if [ $$rc -ne 0 ]; then \
+				if [ $$rc -eq 124 ]; then \
+					echo "FAIL: $$e [$$b] timed out (>$(EXAMPLE_TIMEOUT)s)"; \
+				else \
+					echo "FAIL: $$e [$$b] crashed (rc=$$rc)"; \
+				fi; \
+				echo "$$output" | tail -40 | sed 's/^/  | /'; \
+				fail=1; continue; \
+			fi; \
 			result_line=$$(echo "$$output" | grep '^RESULT'); \
 			if [ -z "$$result_line" ]; then \
 				echo "FAIL: $$e [$$b] -- no RESULT line"; \
+				echo "$$output" | tail -40 | sed 's/^/  | /'; \
 				fail=1; \
 			else \
 				echo "ok: $$result_line"; \
 			fi; \
 		done; \
 	done; \
-	if [ -n "$$skip" ]; then echo "Skipped backends (not installed):$$skip"; fi; \
+	if [ -n "$$skip" ]; then echo "Skipped backends (not installed or build failed):$$skip"; fi; \
 	if [ $$fail -ne 0 ]; then echo "Some integration tests FAILED"; exit 1; fi; \
 	echo "All integration tests passed."
 
