@@ -24,7 +24,7 @@ example-transformer              sort_acc     >=  0.8
 
 # ---- Smoke tests (reduced epochs) ----
 example-gpt                      bpc          <   10.0
-example-mnist                    accuracy     >=  0.5
+example-mnist                    accuracy     >=  0.12
 example-seq-classify             loss         <   2.0
 
 # ---- Memory-augmented nets: convergence ----

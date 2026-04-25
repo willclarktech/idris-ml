@@ -504,15 +504,21 @@ test-examples:
 		for e in $(EXAMPLES); do \
 			echo "--- $$e [$$b] ---"; \
 			extra_args=""; \
-			if [ "$$e" = "example-reinforce" ]; then extra_args="REINFORCE_ARGS=--epochs 200"; fi; \
-			if [ "$$e" = "example-gpt" ]; then extra_args="GPT_ARGS=--epochs 200"; fi; \
-			if [ "$$e" = "example-mnist" ]; then extra_args="MNIST_ARGS=--epochs 5"; fi; \
-			if [ "$$e" = "example-seq-classify" ]; then extra_args="SEQ_ARGS=--epochs 200"; fi; \
-			if [ "$$e" = "example-dqn" ]; then extra_args="DQN_ARGS=--epochs 50"; fi; \
-			if [ "$$e" = "example-a2c" ]; then extra_args="A2C_ARGS=--epochs 1000"; fi; \
-			if [ "$$e" = "example-ppo" ]; then extra_args="PPO_ARGS=--epochs 20"; fi; \
-			if [ "$$e" = "example-sac" ]; then extra_args="SAC_ARGS=--epochs 1500"; fi; \
-			output=$$($$TIMEOUT_PREFIX $(MAKE) --no-print-directory BACKEND=$$b $$e $$extra_args 2>&1); rc=$$?; \
+			case "$$e" in \
+				example-reinforce)   extra_args="REINFORCE_ARGS=--epochs 200" ;; \
+				example-gpt)         extra_args="GPT_ARGS=--epochs 200" ;; \
+				example-mnist)       extra_args="MNIST_ARGS=--epochs 5" ;; \
+				example-seq-classify) extra_args="SEQ_ARGS=--epochs 200" ;; \
+				example-dqn)         extra_args="DQN_ARGS=--epochs 50" ;; \
+				example-a2c)         extra_args="A2C_ARGS=--epochs 1000" ;; \
+				example-ppo)         extra_args="PPO_ARGS=--epochs 20" ;; \
+				example-sac)         extra_args="SAC_ARGS=--epochs 1500" ;; \
+			esac; \
+			if [ -n "$$extra_args" ]; then \
+				output=$$($$TIMEOUT_PREFIX $(MAKE) --no-print-directory BACKEND=$$b $$e "$$extra_args" 2>&1); rc=$$?; \
+			else \
+				output=$$($$TIMEOUT_PREFIX $(MAKE) --no-print-directory BACKEND=$$b $$e 2>&1); rc=$$?; \
+			fi; \
 			if [ $$rc -ne 0 ]; then \
 				if [ $$rc -eq 124 ]; then \
 					echo "FAIL: $$e [$$b] timed out (>$(EXAMPLE_TIMEOUT)s)"; \
