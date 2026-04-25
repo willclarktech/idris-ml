@@ -437,7 +437,7 @@ clean:
 	rm -f $(BUILD)/libidrisml*.dylib $(BUILD)/test_backend $(BUILD)/test_safetensors \
 	      $(BUILD)/test_ntm_grad $(BUILD)/test_ntm_timestep $(BUILD)/bench_ops
 
-EXAMPLES := example-supervised example-rnn example-lstm example-transformer example-gpt example-mnist example-seq-classify example-ntm-copy example-ntm-associative-recall example-dnc-copy example-dnc-recall example-reinforce example-q-learning example-sarsa example-monte-carlo
+EXAMPLES := example-supervised example-rnn example-lstm example-transformer example-gpt example-mnist example-seq-classify example-ntm-copy example-ntm-associative-recall example-dnc-copy example-dnc-recall example-reinforce example-q-learning example-sarsa example-monte-carlo example-dqn
 BACKENDS := tape mlx torch
 
 # Run all examples on all available backends, validate RESULT lines.
@@ -453,6 +453,7 @@ test-examples:
 			if [ "$$e" = "example-gpt" ]; then extra_args="GPT_ARGS=--epochs 200"; fi; \
 			if [ "$$e" = "example-mnist" ]; then extra_args="MNIST_ARGS=--epochs 5"; fi; \
 			if [ "$$e" = "example-seq-classify" ]; then extra_args="SEQ_ARGS=--epochs 200"; fi; \
+			if [ "$$e" = "example-dqn" ]; then extra_args="DQN_ARGS=--epochs 50"; fi; \
 			output=$$($(MAKE) --no-print-directory BACKEND=$$b $$e $$extra_args 2>&1) || { echo "FAIL: $$e [$$b] crashed"; fail=1; continue; }; \
 			result_line=$$(echo "$$output" | grep '^RESULT'); \
 			if [ -z "$$result_line" ]; then \

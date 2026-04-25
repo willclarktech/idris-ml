@@ -214,6 +214,8 @@ cfg = parseArgs defaultConfig specs (drop 1 args)
 | Recurrent | `epochRecurrentNative` | `RecurrentDataPoint i o ty` | RNN/LSTM/GRU sequences |
 | TwoPhase | `epochTwoPhaseBceNative` | `TwoPhaseDataPoint i o ty` | NTM copy/recall |
 | RL (REINFORCE) | `epochRL` (custom) | `List (List Double)` (random pool) | Policy gradient |
+| RL (tabular) | custom (uses `runTraining`) | noise pool (ε-greedy uniforms) | Q-learning / SARSA / MC |
+| RL (DQN) | custom (uses `runTrainingIO`) | `()` (buffer + RNG are stateful) | Off-policy deep Q-learning |
 
 ### Parameter naming (required for gradient flow)
 
@@ -382,6 +384,16 @@ The MLX backend uses **replay-based native autograd** via `mlx::vjp`. Forward op
 - **Instance resolution requires explicit `{state, action, obs}`**: methods that don't mention all three interface params (e.g. `step` doesn't use `obs`) can't resolve the instance alone. Wrappers and helper functions pass `{state} {action} {obs}` explicitly
 - **Envs grouped by category**: `Gym.ClassicControl.{CartPole, MountainCar, MountainCarCont, Pendulum, Acrobot}`, `Gym.ToyText.{CliffWalking, Taxi, FrozenLake, Blackjack}`. Re-export hubs (`Gym.ClassicControl`, `Gym.ToyText`, `Gym.Wrapper`) for one-line imports. Mirrors Gymnasium's own package layout
 - **Acrobot uses semi-implicit Euler**, not RK4: 4 substeps of dt=0.05 vs Gymnasium's custom RK4 with dt=0.2. Task and termination match; trajectories diverge numerically
+
+### RL algorithms
+
+- **Tabular Q-tables via `Tensor [|S|, |A|] Double`**: Q-learning, SARSA, and MC control store Q in a 2D Tensor (same abstraction the deep examples use for weights). Reads via `Tensor.index`, functional update via a 5-line `qSet` that patches nested `VTensor` rows with `Data.Vect.replaceAt`. No runtime cost vs `Vect (Vect Double)`
+- **`RL.ReplayBuffer` is an IO ring buffer**: `Data.IOArray` backing, `IORef` cursor+size. `sampleN n : IO (Vect n Transition)` uses `randomRIO` for uniform indices. Transitions are stored as `(Vect obsDim Double, Vect actDim Double, Double, Vect obsDim Double, Bool)` — discrete actions wrap as 1-vectors
+- **`RL.Gae` is pure**: `gae γ λ bootstrapValue [(r, v, done)] -> [(advantage, returnTarget)]`. Reverse fold over the trajectory; `mask = 1 - done` zeros bootstrap + GAE propagation at terminal states. Used by A2C/PPO — keeps the advantage computation testable with hand-computed reference values (see `Test.RL.Gae`)
+- **DQN target network = `toDoubleNetwork` snapshot**: instead of a parallel Variable network (which requires an FFI-level weight-copy op we don't have), the target is a frozen `Network i hs o Double` built via `emap refreshValue online >>= toDoubleNetwork`. Target forward uses the generic `forward` function (pure Double arithmetic), which produces no autograd graph. Sync cost = one pass over the network per N env steps
+- **DQN action selection uses Variable forward**: the online net's `forwardVarTensor` creates tape entries each step. Tape resets happen at every `nativeTrainStep`, so as long as training runs ≥ once per few env steps, memory stays bounded
+- **`Train.runTrainingIO` for RL epochs**: the base `runTraining` takes a pure `model -> dp -> (model, Double)` epoch. DQN needs IO (buffer push, sample). `runTrainingIO` accepts `model -> dp -> IO (model, Double)`; the pure variant is now a one-liner wrapper. Shared by any algorithm with stateful rollouts
+- **Total keyword collision**: `total` is a reserved keyword in Idris 2 — can't use as a variable name. Renames that tripped us here: `sumLoss` (not `total`), `played` (not `total` in eval), `numEpochs` in Train.idr
 
 ### Architecture & infrastructure
 
