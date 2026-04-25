@@ -162,9 +162,15 @@ check: backend
 check-gym:
 	cd packages/idris-gym && idris2 --build idris-gym.ipkg
 
-# Type-check examples (requires installed core + gym)
+# Type-check examples (builds each as executable, which is the real check)
 check-examples: install
-	cd packages/idris-ml-examples && idris2 --build idris-ml-examples.ipkg
+	@for f in $(EXAMPLE_SRC)/Example/*.idr; do \
+		mod=$$(basename "$$f" .idr); \
+		slug=$$(echo "$$mod" | tr 'A-Z' 'a-z'); \
+		echo "Building Example.$$mod..."; \
+		idris2 $(IDRIS_FLAGS) -o "check-$$slug" "$$f" || exit 1; \
+	done
+	@echo "All examples type-check."
 
 # Idris tests
 test: install

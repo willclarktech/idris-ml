@@ -20,6 +20,10 @@ import Util
 import Device
 import Variable
 
+-- All benchmarks use CPU device
+V : Type
+V = Variable CPU
+
 
 ----------------------------------------------------------------------
 -- Timing
@@ -47,7 +51,7 @@ supervisedData =
 
 benchSupervised : IO ()
 benchSupervised = do
-  ll <- linearLayer
+  ll <- linearLayer {ty = V}
   let model = autoName $ ll ~> OutputLayer softmaxLayer
   let prepared = map (map fromDouble) supervisedData
   let opt = nativeSgd 0.03
@@ -87,7 +91,7 @@ rnnRawData n = map (\(is, os) => MkRecurrentDataPoint (prep is) (prep os)) $ gen
 
 benchRnn : IO ()
 benchRnn = do
-  rnn <- rnnLayer
+  rnn <- rnnLayer {ty = V}
   let model = autoName $ OutputLayer rnn
   let dataPoints = map (map fromDouble) (rnnRawData 8)
   let opt = nativeSgd 0.03
@@ -134,7 +138,7 @@ BenchBatch = 5
 
 benchNtm : IO ()
 benchNtm = do
-  ntm <- ntmLayer {inputSize = BenchInputW, outputSize = BenchOutputW, n = BenchN, m = BenchM, h = BenchH}
+  ntm <- ntmLayer {ty = V, inputSize = BenchInputW, outputSize = BenchOutputW, n = BenchN, m = BenchM, h = BenchH}
   let model = autoName $ OutputLayer ntm
 
   -- Generate fixed training data
@@ -188,7 +192,7 @@ CopyBatch = 16
 
 benchNtmCopy : IO ()
 benchNtmCopy = do
-  ntm <- ntmLayer {inputSize = CopyInputW, outputSize = CopyOutputW, n = CopyN, m = CopyM, h = CopyH}
+  ntm <- ntmLayer {ty = V, inputSize = CopyInputW, outputSize = CopyOutputW, n = CopyN, m = CopyM, h = CopyH}
   let model = autoName $ OutputLayer ntm
 
   -- Generate fixed training data
@@ -242,7 +246,7 @@ copy1kLoop opt numEpochs remaining m loss =
 
 benchNtmCopy1k : IO ()
 benchNtmCopy1k = do
-  ntm <- ntmLayer {inputSize = CopyInputW, outputSize = CopyOutputW, n = CopyN, m = CopyM, h = CopyH}
+  ntm <- ntmLayer {ty = V, inputSize = CopyInputW, outputSize = CopyOutputW, n = CopyN, m = CopyM, h = CopyH}
   let model = autoName $ OutputLayer ntm
   let opt = nativeRmsprop 0.0001 0.95 1.0e-8 10.0 0.9
 
@@ -287,7 +291,7 @@ RecallBatch = 16
 
 benchNtmRecall : IO ()
 benchNtmRecall = do
-  ntm <- ntmLayer {inputSize = RecallInputW, outputSize = RecallOutputW, n = RecallN, m = RecallM, h = RecallH}
+  ntm <- ntmLayer {ty = V, inputSize = RecallInputW, outputSize = RecallOutputW, n = RecallN, m = RecallM, h = RecallH}
   let model = autoName $ OutputLayer ntm
 
   -- Generate fixed training data
