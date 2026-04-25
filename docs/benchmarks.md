@@ -12,8 +12,8 @@ How fast is idris-ml compared to PyTorch? This page gives you a quick answer.
 | Medium training step (256d) | **2x faster** | ~parity | ~parity | Mixed overhead + compute |
 | Large training step (1024d) | ~2x slower | ~parity | ~2x slower | BLAS dominates, allocation overhead |
 | Large matmul (1024x1024) | 1.2x slower | 1.1x slower | ~parity | Both use Accelerate BLAS |
-| Element-wise (100k, add+mul) | 4x slower | 4.6x slower | varies | Per-op allocation (arithmetic vectorized via vDSP) |
-| Softmax | ~parity | ~1.6x slower | varies | vDSP-accelerated exp |
+| Element-wise (100k, add+mul) | 4x slower | 3.7x slower | **1.2x (fast!)** | Per-op allocation vs PyTorch pools. MLX wins at large sizes (GPU) |
+| Softmax | ~parity | ~1.6x slower | varies | vDSP-accelerated exp. MLX slow at small sizes (GPU launch) |
 
 **Bottom line**: For typical small-to-medium models (the kind you'd prototype in a research setting), the tape and torch backends are competitive with PyTorch. The overhead is in element-wise ops and small tensor allocation, not BLAS.
 
@@ -36,44 +36,43 @@ These measure **raw C backend speed** — no Idris/Chez Scheme overhead in the l
 ### Results (post-optimization: vDSP + fused linear)
 
 ```
-Operation                      tape (ms)  torch (ms)     PyTorch    tape   torch
---------------------------------------------------------------------------------
-matmul 64x64x64                    5.1        3.0          1.4      3.6x    2.1x
-matmul 256x256x256                16.1       14.6          8.9      1.8x    1.6x
-matmul 1024x1024x1024             66.3       66.4         56.7      1.2x    1.2x
+Operation                      tape (ms)    mlx (ms)  torch (ms)     PyTorch    tape     mlx   torch
+----------------------------------------------------------------------------------------------------
+matmul 64x64x64                    7.2       10.6        3.2          1.5      4.9x    7.3x    2.2x
+matmul 256x256x256                23.3       11.8       15.0          9.0      2.6x    1.3x    1.7x
+matmul 1024x1024x1024             84.7       59.8       65.3         60.2      1.4x    1.0x    1.1x
 
-matvec 256x256                     2.5        2.6          2.5      1.0x    1.1x
-matvec 1024x1024                   5.4        5.9          3.9      1.4x    1.5x
+matvec 256x256                     2.8       22.6        2.9          2.1      1.3x   10.5x    1.4x
+matvec 1024x1024                   5.1       11.0        4.8          4.8      1.1x    2.3x    1.0x
 
-add+mul 1000                       3.3        2.6          1.1      3.0x    2.4x
-add+mul 10000                     14.0        7.5          3.1      4.5x    2.4x
-add+mul 100000                    20.0       23.0          5.0      4.0x    4.6x
+add+mul 1000                       4.4       18.8        2.1          1.2      3.7x   15.9x    1.8x
+add+mul 10000                     14.6       12.8        7.9          3.0      4.8x    4.2x    2.6x
+add+mul 100000                    23.9        6.8       20.9          5.6      4.3x    1.2x    3.7x
 
-softmax 256                        1.0        1.8          1.1      0.9x    1.6x
-softmax 1024                       1.9        2.5          1.5      1.3x    1.7x
-softmax 10000                      3.8        3.9          2.6      1.5x    1.5x
+softmax 256                        1.1       14.4        1.7          1.2      0.9x   12.3x    1.5x
+softmax 1024                       2.1        7.8        2.4          1.5      1.4x    5.1x    1.5x
+softmax 10000                      4.0        3.3        4.8          2.6      1.6x    1.3x    1.8x
 
-train_step 64->64                  1.0        3.3          7.4      0.1x    0.4x
-train_step 256->256                4.9        9.1         11.2      0.4x    0.8x
-train_step 1024->1024              8.0        5.4          3.4      2.4x    1.6x
+train_step 64->64                  1.0       18.9        3.5          7.9      0.1x    2.4x    0.4x
+train_step 256->256                5.3       11.5        9.7         11.8      0.4x    1.0x    0.8x
+train_step 1024->1024              8.5        7.3        3.3          2.9      2.9x    2.5x    1.1x
 ```
 
-Note: MLX results omitted (MLX backend has a compile issue preventing rebuild;
-existing numbers from prior runs available via `make bench-ops-compare`).
-Numbers are from warm runs (best of 3) to reduce VM scheduling noise.
+Numbers from `make bench-ops-compare`. Some variance expected in VM environment;
+run locally for stable results.
 
 Ratio = Backend / PyTorch. Below 1.0 = faster than PyTorch.
 
 ### Category averages
 
 ```
-Category               tape    torch
---------------------------------------
-BLAS (matmul)         2.2x     1.6x
-BLAS (matvec)         1.2x     1.3x
-Element-wise          3.8x     3.1x
-Softmax               1.2x     1.6x
-Train step (fwd+bwd)  1.0x     0.9x
+Category               tape     mlx    torch
+---------------------------------------------
+BLAS (matmul)         3.0x    3.2x     1.7x
+BLAS (matvec)         1.2x    6.4x     1.2x
+Element-wise          4.3x    7.1x     2.7x
+Softmax               1.3x    6.2x     1.6x
+Train step (fwd+bwd)  1.2x    2.0x     0.8x
 ```
 
 ### Interpretation
@@ -82,7 +81,7 @@ Train step (fwd+bwd)  1.0x     0.9x
 
 **Element-wise**: The largest gap. The tape backend allocates a new arena tensor for every add/mul. PyTorch fuses element-wise chains and uses optimized memory pools. The torch backend is 2-3x slower (libtorch dispatch overhead), while MLX is fast at large sizes (GPU-accelerated) but slow at small sizes (kernel launch overhead).
 
-**MLX small-tensor penalty**: MLX is designed for GPU workloads. For small tensors (256-element softmax, 64d matvec), Metal kernel launch overhead dominates, making it 5-15x slower than CPU backends. At 10k+ elements, MLX catches up or wins.
+**MLX small-tensor penalty**: MLX is designed for GPU workloads. For small tensors (256-element softmax, 64d matvec), Metal kernel launch overhead dominates, making it 5-15x slower than CPU backends. At 10k+ elements, MLX catches up or wins. For element-wise at 100k, MLX is the fastest backend (1.2x vs PyTorch) thanks to GPU parallelism.
 
 **Training step**: This is the most meaningful benchmark — a full forward + backward + optimizer step on a single linear layer. At small sizes, the tape backend is **8x faster** than PyTorch because PyTorch's autograd graph overhead dominates. The torch backend is 3x faster (libtorch autograd is lighter than Python-level PyTorch). At 1024d, PyTorch's optimized backward kernels dominate.
 
