@@ -317,7 +317,13 @@ typedef struct {
     int* max_indices;  /* [C * oH * oW] index into flat input per-channel */
 } MaxPool2DMeta;
 
-#define TAPE_INIT_CAP 4096
+/* Initial tape capacity. DNC-copy at batch=16 produces ~1.6M tape entries per
+   batched forward, and repeated realloc() during the forward pass has been
+   observed to corrupt memory and SIGSEGV (root cause not yet pinpointed — see
+   TODO). Pre-sizing to 2M entries eliminates all reallocs for every example
+   we ship. Cost: ~114 MB of *virtual* memory up-front; macOS lazy-commit means
+   physical RSS only grows with actual writes, so small examples pay nothing. */
+#define TAPE_INIT_CAP (1 << 21)
 
 static TapeEntry* tape = NULL;
 static int tape_size = 0;
