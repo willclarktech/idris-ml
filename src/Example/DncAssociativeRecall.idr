@@ -45,7 +45,7 @@ OutputW : Nat
 OutputW = W
 
 N : Nat
-N = 32  -- Reduced from 128 for faster link matrix ops (O(n^2))
+N = 128
 
 M : Nat
 M = 20
@@ -60,7 +60,7 @@ BatchSize : Nat
 BatchSize = 16
 
 TestSize : Nat
-TestSize = 20
+TestSize = 100
 
 
 ----------------------------------------------------------------------
@@ -84,7 +84,7 @@ record Config where
   batch : Nat
 
 defaultConfig : Config
-defaultConfig = MkConfig 0.0001 10.0 0.95 1.0e-8 0.9 100000 0.01 1000 3 42 2 6 1
+defaultConfig = MkConfig 0.0001 10.0 0.95 1.0e-8 0.9 100000 0.01 1000 3 42 2 6 16
 
 specs : List (ArgSpec Config)
 specs = [ Arg "--lr" (\v, c => { lr := cast v } c)

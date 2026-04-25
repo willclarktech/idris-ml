@@ -29,7 +29,7 @@ record Config where
   seed : Bits64
 
 defaultConfig : Config
-defaultConfig = MkConfig 0.1 2000 500 123456
+defaultConfig = MkConfig 0.03 2000 500 42
 
 specs : List (ArgSpec Config)
 specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
