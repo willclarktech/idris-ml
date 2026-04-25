@@ -54,6 +54,24 @@ When adding or changing an example, always update both Idris and PyTorch to matc
 
 Idris LSTM ties hidden=output in `LstmState`. Was using `{i=1, o=1}` (hidden=1) while PyTorch used `LinearLSTMCell(1, 4, 1)` (hidden=4 + output projection). Fixed by using `lstmLayer {i=1, o=4}` + `linearLayer {i=4, o=1}` to match.
 
+## Alignment Changes (2026-04-22) — RL suite
+
+### A2C divergence (resolved below)
+
+During initial A2C port, the Idris side was pivoted to a **combined single-chain network** (output vector = `[logit_0, logit_1, value]`) because Idris' `Network` type is a linear chain and can't express PyTorch's branching actor-head + critic-head on a shared trunk. The pivot was not mirrored in the PyTorch reference, which retained the branching architecture. Hyperparameters also drifted: Idris ended up at `lr=3e-3, entropy=0.05`, PyTorch at `lr=7e-4, entropy=0.01`.
+
+**Fix**: PyTorch `a2c.py` rewritten to use the same combined-chain architecture as Idris. Both sides now use `lr=3e-3, entropy=0.05, rollout=10, gamma=0.99, lam=0.95, value_coef=0.5`. Both converge to greedy eval ~200 on CartPole.
+
+### PPO divergence (resolved below)
+
+Same failure mode. Idris PPO used combined chain + `rollout=200, K=3, full-batch`; PyTorch ref used separate actor + critic + `rollout=2048, K=10, batch=64`. Architectural divergence hid whether Idris' plateau at -1500 was a config issue or an implementation bug.
+
+**Fix**: PyTorch `ppo.py` rewritten to use combined chain (state-independent learnable `log_std`, mean and value on the same output head), and both sides adopt `rollout=2048, K=10, batch=64`. The stronger PyTorch settings are the baseline because Idris-matched settings (short rollout + no mini-batching) demonstrably do not converge for either side.
+
+### Process note
+
+This incident prompted a strengthening of the alignment policy in CLAUDE.md — see "Architectural alignment — DO NOT pivot silently." The key rule: if Idris' Network chain can't express the PyTorch architecture, **update PyTorch to match Idris**, not keep both diverged.
+
 ## Status
 
 All known discrepancies resolved. Both implementations now use identical defaults.

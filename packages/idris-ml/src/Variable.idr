@@ -793,6 +793,19 @@ export
 nameParam : {d : Device} -> String -> Nat -> Variable d -> Variable d
 nameParam prefx i p = setParamId (prefx ++ show i) p
 
+||| Prefix an already-named Variable's paramId. Variables without a
+||| paramId (intermediates, cached constants) pass through unchanged.
+||| Paired with `Endofunctor.emap` this lets you rescope every param in
+||| a Network — e.g. `emap (prefixParamId "actor_") (autoName net)`
+||| gives "actor_ll0_weight0" etc. Used to disambiguate twin networks
+||| (actor vs. critic, or target vs. online) registered with a single
+||| optimizer.
+export
+prefixParamId : {d : Device} -> String -> Variable d -> Variable d
+prefixParamId scope v = case v.paramId of
+  Just pid => setParamId (scope ++ pid) v
+  Nothing  => v
+
 
 ----------------------------------------------------------------------
 -- Tensor-level Operations (libtorch compositions)

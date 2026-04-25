@@ -282,6 +282,12 @@ Commit at each step. PyTorch is the correctness oracle.
 
 **Alignment policy**: Idris examples and PyTorch references MUST use identical defaults for all hyperparameters (lr, batch size, epochs, seed, architecture, init). When a discrepancy is found, adopt whichever is the better practice in BOTH implementations. When changing an example, always update both sides. See `docs/develop/reference-alignment.md` for the full alignment record.
 
+**Architectural alignment — DO NOT pivot silently**: the alignment policy above exists so that a convergence failure can be diagnosed cleanly as *implementation* vs *configuration*. This signal is destroyed if the two sides use different architectures. Specifically:
+- If Idris' Network chain can't express the PyTorch architecture (e.g. PyTorch uses branching for a shared trunk + two heads, but our Network is a linear chain), **update the PyTorch reference to use the Idris-expressible architecture** — do not let the two sides diverge.
+- If you tune Idris hyperparameters away from the PyTorch reference's values, **update the PyTorch reference to the same hyperparameters and verify it still converges** before committing. If PyTorch diverges under those hyperparameters, revert both.
+- Divergent architectures or hyperparameters are a **refactor**, not a fix. Commit them explicitly with a message naming the divergence, and record it in `docs/develop/reference-alignment.md`. Never ship an example where the Idris and PyTorch sides implement structurally different algorithms under the same name.
+- **Process**: when a bug or convergence issue appears in one side but not the other, the first action is always to align configurations so both sides run the same experiment. Only after the experiments match can the remaining gap be attributed to implementation (and the Idris-specific autograd / FFI code debugged).
+
 ### Performance optimization
 
 - **Profile first**: `make example-profile` — per-epoch timing
