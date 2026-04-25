@@ -318,15 +318,18 @@ typedef struct {
     int* max_indices;  /* [C * oH * oW] index into flat input per-channel */
 } MaxPool2DMeta;
 
-/* Pre-size the tape to avoid realloc during forward passes. Large FFI
-   workloads (e.g. DNC at batch>=2) crash multi-epoch with a real SIGSEGV
-   that the system handler catches: its exact cause hasn't been pinpointed
-   (ASAN can't attach to Chez on macOS) but bisection reliably shows the
-   crash requires ≥ 2 tape reallocs across a run. Pre-allocating past the
-   workload size eliminates all reallocs and keeps the backend stable.
-   Cost: ~114 MB of *virtual* memory up-front; macOS lazy-commit means
-   physical RSS only grows with actual writes, so small examples pay
-   essentially nothing. Revisit when the real fault is pinpointed — TODO. */
+/* Pre-size the tape to avoid realloc during forward passes. Running multi-epoch
+   DNC workloads with a 4K initial capacity reliably SIGSEGVs because:
+     - tape_append grows via malloc+memcpy+free(old_tape)
+     - *something* holds a live reference into the freed tape region (not yet
+       pinpointed — no TapeEntry* captures in C; possibly Chez-side FFI cache
+       or a latent pointer via op_meta/inputs fields)
+     - leaking the old tape (skipping free) runs cleanly — confirms free() is
+       the trigger
+   Pre-sizing means we never free the tape, which makes the stale-reader
+   question moot. Cost: ~114 MB of virtual memory up-front; macOS lazy-commit
+   means physical RSS only grows with actual writes. Revisit once the real
+   stale reader is pinpointed — TODO. */
 #define TAPE_INIT_CAP (1 << 21)
 
 static TapeEntry* tape = NULL;
