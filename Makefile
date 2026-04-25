@@ -209,22 +209,22 @@ example-lstm: install
 example-ntm-copy: install
 	idris2 $(IDRIS_FLAGS) -o ntm-copy $(EXAMPLE_SRC)/Example/NtmCopy.idr
 	cp $(LIB) build/exec/ntm-copy_app/
-	./build/exec/ntm-copy
+	stdbuf -oL ./build/exec/ntm-copy
 
 example-ntm-associative-recall: install
 	idris2 $(IDRIS_FLAGS) -o ntm-associative-recall $(EXAMPLE_SRC)/Example/NtmAssociativeRecall.idr
 	cp $(LIB) build/exec/ntm-associative-recall_app/
-	./build/exec/ntm-associative-recall
+	stdbuf -oL ./build/exec/ntm-associative-recall
 
 example-dnc-copy: install
 	idris2 $(IDRIS_FLAGS) -o dnc-copy $(EXAMPLE_SRC)/Example/DncCopy.idr
 	cp $(LIB) build/exec/dnc-copy_app/
-	./build/exec/dnc-copy
+	stdbuf -oL ./build/exec/dnc-copy
 
 example-dnc-recall: install
 	idris2 $(IDRIS_FLAGS) -o dnc-recall $(EXAMPLE_SRC)/Example/DncAssociativeRecall.idr
 	cp $(LIB) build/exec/dnc-recall_app/
-	./build/exec/dnc-recall
+	stdbuf -oL ./build/exec/dnc-recall
 
 example-transformer: install
 	idris2 $(IDRIS_FLAGS) -o transformer $(EXAMPLE_SRC)/Example/Transformer.idr
@@ -234,17 +234,17 @@ example-transformer: install
 example-gpt: install
 	idris2 $(IDRIS_FLAGS) -o gpt $(EXAMPLE_SRC)/Example/Gpt.idr
 	cp $(LIB) build/exec/gpt_app/
-	./build/exec/gpt $(GPT_ARGS)
+	stdbuf -oL ./build/exec/gpt $(GPT_ARGS)
 
 example-mnist: install download-mnist
 	idris2 $(IDRIS_FLAGS) -o mnist $(EXAMPLE_SRC)/Example/Mnist.idr
 	cp $(LIB) build/exec/mnist_app/
-	./build/exec/mnist $(MNIST_ARGS)
+	stdbuf -oL ./build/exec/mnist $(MNIST_ARGS)
 
 example-seq-classify: install
 	idris2 $(IDRIS_FLAGS) -o seq-classify $(EXAMPLE_SRC)/Example/SeqClassify.idr
 	cp $(LIB) build/exec/seq-classify_app/
-	./build/exec/seq-classify $(SEQ_ARGS)
+	stdbuf -oL ./build/exec/seq-classify $(SEQ_ARGS)
 
 example-reinforce: install
 	idris2 $(IDRIS_FLAGS) -o reinforce $(EXAMPLE_SRC)/Example/Reinforce.idr
