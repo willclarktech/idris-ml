@@ -436,6 +436,7 @@ calculateLossTwoPhaseVarBce model dataPoints =
 -- Automatic Parameter Naming
 ----------------------------------------------------------------------
 
+export
 autoNameAny : {d : Device} -> {i, o : Nat} -> String -> SortedMap String Nat -> AnyLayer i o (Variable d) ->
               (SortedMap String Nat, AnyLayer i o (Variable d))
 autoNameAny scope counts (MkAnyLayer l @{dict} layer) =
@@ -446,6 +447,7 @@ autoNameAny scope counts (MkAnyLayer l @{dict} layer) =
               fullName = scope ++ pfx ++ show n
           in (counts', MkAnyLayer l @{dict} (nameLayer @{dict} fullName layer))
 
+export
 autoNameNetwork : {d : Device} -> String -> SortedMap String Nat ->
                   {i, o : Nat} -> {hs : List Nat} ->
                   Network i hs o (Variable d) ->
@@ -463,6 +465,14 @@ export
 autoName : {d : Device} -> {i, o : Nat} -> {hs : List Nat} ->
            Network i hs o (Variable d) -> Network i hs o (Variable d)
 autoName net = snd (autoNameNetwork "" empty net)
+
+||| Like `autoName` but prefixes every generated paramId with `scope`.
+||| Use when two networks share the same architecture and need distinct
+||| parameter namespaces (e.g. actor vs. critic in A2C).
+export
+autoNamePrefix : {d : Device} -> {i, o : Nat} -> {hs : List Nat} ->
+                 String -> Network i hs o (Variable d) -> Network i hs o (Variable d)
+autoNamePrefix scope net = snd (autoNameNetwork scope empty net)
 
 
 ----------------------------------------------------------------------
