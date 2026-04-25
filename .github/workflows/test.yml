@@ -1,0 +1,60 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test-examples:
+    name: test-examples (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Chez Scheme (Ubuntu)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y chezscheme build-essential
+
+      - name: Install Chez Scheme (macOS)
+        if: matrix.os == 'macos-latest'
+        run: brew install chezscheme
+
+      # Idris 2 v0.8.0 built from source, cached across runs to avoid the
+      # 5-10 min bootstrap on every push. Bump the cache key to force a rebuild.
+      - name: Cache Idris 2
+        id: idris2-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            /usr/local/bin/idris2
+            /usr/local/lib/idris2
+          key: idris2-v0.8.0-${{ matrix.os }}-v1
+
+      - name: Build and install Idris 2
+        if: steps.idris2-cache.outputs.cache-hit != 'true'
+        run: |
+          git clone --branch v0.8.0 --depth 1 https://github.com/idris-lang/Idris2.git /tmp/Idris2
+          cd /tmp/Idris2
+          SCHEME=$(command -v scheme || command -v chezscheme) make bootstrap
+          sudo make install
+
+      - name: Verify Idris 2
+        run: idris2 --version
+
+      - name: Build tape backend
+        run: make BACKEND=tape backend
+
+      - name: Install libraries
+        run: make install
+
+      - name: Run integration tests
+        run: make test-examples EXAMPLE_TIMEOUT=900
