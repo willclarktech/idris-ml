@@ -139,6 +139,30 @@ Softmax improved 1.6x (benefits from vectorized `exp` inside). Training step unc
 
 **Retrospective**: vDSP exceeded predictions at large sizes but undershot at small sizes. This tells us the remaining gap at 10k elements is **allocation overhead** (malloc per op + tape append), not arithmetic. To close further, we'd need to eliminate per-op allocation (tensor pooling or fused ops). At 100k, we went from 28x slower than PyTorch to **4.4x slower** — the remaining gap is entirely allocation cost (PyTorch uses memory pools, we malloc every time).
 
+### Phase 2A: Enhanced Profiling (tape backend)
+
+**Change**: Added forward timing (via `backend_epoch_begin()`), per-op backward breakdown (top-5 ops by time), and tape walk dead-op statistics. Profiled a 2-layer network (Linear(64→128) → sigmoid → Linear(128→3) → softmax, Adam optimizer, 100 epochs).
+
+**Findings** (2-layer model, 4 params, 8707 elements):
+
+```
+Forward:   0.3ms total (0.003ms/epoch)
+Backward:  0.3ms total (0.003ms/epoch)
+Optimizer: 11.6ms total (0.116ms/epoch)   ← 96% of C time!
+Backward walk: 900 processed, 0 skipped (0% dead)
+Top backward ops: LINEAR 0.22ms, SIGMOID 0.02ms, SOFTMAX 0.01ms
+```
+
+**Key conclusions**:
+1. **Optimizer is the bottleneck** (96% of time), not backward or forward
+2. **0% dead ops** — in fully-connected models, all tape entries are on the gradient path. Tape pruning would NOT help here
+3. **Forward is negligible** — fused `tensor_linear` makes forward nearly free
+4. **OP_LINEAR dominates backward** (73%) but backward itself is tiny
+
+**Decision**: Prioritize **vDSP optimizer vectorization** (Phase 2C) over tape pruning (Phase 2B). The data shows the optimizer's scalar element loops over 8707 params × 100 epochs are the clear bottleneck.
+
+*Note: Large models with many non-parameter intermediates (transformers with attention matrices, NTMs with memory ops) may show different patterns — dead ops could be significant there. But for typical feedforward/recurrent architectures, the optimizer dominates.*
+
 ### Round 2: Fused `tensor_linear` (all backends)
 
 **Change**: Add `tensor_linear(W, x, bias)` that does `y = W @ x + b` in a single C call with one allocation, one tape entry, and a fused backward rule. Implemented on all three backends.
