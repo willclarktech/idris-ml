@@ -1,0 +1,25 @@
+package idris-gym-test
+
+sourcedir = "src"
+
+depends = contrib
+        , idris-gym
+
+modules = Harness
+        , Main
+        , Test.Rng
+        , Test.Space
+        , Test.Wrapper
+        , Test.Vector
+        , Test.ClassicControl.CartPole
+        , Test.ClassicControl.MountainCar
+        , Test.ClassicControl.MountainCarCont
+        , Test.ClassicControl.Pendulum
+        , Test.ClassicControl.Acrobot
+        , Test.ToyText.CliffWalking
+        , Test.ToyText.Taxi
+        , Test.ToyText.FrozenLake
+        , Test.ToyText.Blackjack
+
+main = Main
+executable = idris-gym-test

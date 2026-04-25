@@ -23,6 +23,19 @@ done : Outcome -> Bool
 done Continue = False
 done _        = True
 
+public export
+Eq Outcome where
+  Continue   == Continue   = True
+  Terminated == Terminated = True
+  Truncated  == Truncated  = True
+  _ == _ = False
+
+public export
+Show Outcome where
+  show Continue   = "Continue"
+  show Terminated = "Terminated"
+  show Truncated  = "Truncated"
+
 
 ----------------------------------------------------------------------
 -- Info
