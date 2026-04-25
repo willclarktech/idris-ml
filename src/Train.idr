@@ -135,6 +135,7 @@ runTraining {model} epochFn dataSrc cfg model0 = do
     WindowedAvg thresh win pat => goWindowed 0 model0 0.0 0 [] 0 tStart thresh win pat
   tEnd <- clockTime Monotonic
   putStrLn $ formatTimingSummary tStart tEnd epochsDone
+  profileReport
   pure result
   where
     shouldLog : Nat -> Bool
