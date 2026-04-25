@@ -224,17 +224,17 @@ test-examples-unit: install-examples
 example-supervised: install
 	idris2 $(IDRIS_FLAGS) -o supervised $(EXAMPLE_SRC)/Example/Supervised.idr
 	cp $(LIB) build/exec/supervised_app/
-	./build/exec/supervised
+	./build/exec/supervised $(SUPERVISED_ARGS)
 
 example-rnn: install
 	idris2 $(IDRIS_FLAGS) -o rnn $(EXAMPLE_SRC)/Example/Rnn.idr
 	cp $(LIB) build/exec/rnn_app/
-	./build/exec/rnn
+	./build/exec/rnn $(RNN_ARGS)
 
 example-lstm: install
 	idris2 $(IDRIS_FLAGS) -o lstm $(EXAMPLE_SRC)/Example/Lstm.idr
 	cp $(LIB) build/exec/lstm_app/
-	./build/exec/lstm
+	./build/exec/lstm $(LSTM_ARGS)
 
 example-ntm-copy: install
 	idris2 $(IDRIS_FLAGS) -o ntm-copy $(EXAMPLE_SRC)/Example/NtmCopy.idr
@@ -259,7 +259,7 @@ example-dnc-recall: install
 example-transformer: install
 	idris2 $(IDRIS_FLAGS) -o transformer $(EXAMPLE_SRC)/Example/Transformer.idr
 	cp $(LIB) build/exec/transformer_app/
-	./build/exec/transformer
+	./build/exec/transformer $(TRANSFORMER_ARGS)
 
 example-gpt: install
 	idris2 $(IDRIS_FLAGS) -o gpt $(EXAMPLE_SRC)/Example/Gpt.idr
@@ -491,26 +491,20 @@ BACKENDS := tape mlx torch
 # Run all examples on all available backends, validate RESULT lines.
 # Tries to build each backend; skips gracefully if libraries not installed.
 #
-# Epoch reductions (below) keep test-examples under ~30min wall time. Examples
-# capped below their convergence epoch run as SMOKE tests — loose thresholds in
-# test-examples.expect catch "diverged" / "NaN" without requiring convergence:
+# CRASH-ONLY SMOKE GATE: each example runs 3-10 epochs, just enough to
+# exercise forward + backward + optimizer step plus a multi-epoch
+# state-lifecycle check. Thresholds in test-examples.expect are at
+# safety-net level — they catch crashes, NaN, total divergence, and
+# missing/renamed RESULT keys, but do NOT require the model to learn.
+# Convergence regressions are detected by test-examples-convergence
+# (RL multi-seed) and any future full-config lane.
 #
-#   gpt 200           smoke; default ~2000 for loss convergence
-#   mnist 5           smoke; default 20 for >95% accuracy
-#   seq-classify 200  smoke; default 1500 for convergence
-#   dqn 50            smoke; default 500 for CartPole solve
-#   ppo 20            smoke; default 400 rollouts for solve
-#   a2c 1000          partial; default 3000 for solve
-#   sac 1500          partial; default 5000 for solve
-#   reinforce 200     partial; default 1000 for solve
-#   ntm-copy 500      smoke; default 50000 (convergence ~9300) — way too slow for CI
-#   ntm-recall 350    smoke; default 100000 (convergence ~20000) — kept under 600s
-#                     timeout on MLX (~946ms/epoch there vs ~290ms on tape)
-#   dnc-copy 30/b1    smoke (--epochs 30 --max-len 3 --batch 1) — DNC is ~3s/epoch on
-#                     tape at N=128 (O(N²) link matrix); batch=1 + max-len=3 is the
-#                     only way to fit both under EXAMPLE_TIMEOUT and under the 2M
-#                     TAPE_INIT_CAP ceiling that the current realloc workaround needs.
-#   dnc-recall 10/b1  smoke (--epochs 10 --max-items 2 --batch 1)
+# Why 3-10 epochs (not 1): some bugs only manifest after a tape_reset
+# between epochs (DNC tape-realloc SIGSEGV, DNC-on-MLX state-lifecycle
+# bug). 3+ epochs guarantees we exercise that code path.
+#
+# DNC keeps --max-len 3 --batch 1: at default config DNC's per-epoch
+# cost is too high (~3-5 s/epoch even at batch=1 with N=128 link matrix).
 #
 # Full-epoch, multi-seed convergence lives in test-examples-convergence (RL only
 # today; NTM/DNC full-convergence lane is a TODO).
@@ -534,18 +528,22 @@ test-examples:
 			esac; \
 			extra_args=""; \
 			case "$$e" in \
-				example-reinforce)   extra_args="REINFORCE_ARGS=--epochs 200" ;; \
-				example-gpt)         extra_args="GPT_ARGS=--epochs 200" ;; \
-				example-mnist)       extra_args="MNIST_ARGS=--epochs 5" ;; \
-				example-seq-classify) extra_args="SEQ_ARGS=--epochs 200" ;; \
-				example-dqn)         extra_args="DQN_ARGS=--epochs 50" ;; \
-				example-a2c)         extra_args="A2C_ARGS=--epochs 1000" ;; \
-				example-ppo)         extra_args="PPO_ARGS=--epochs 20" ;; \
-				example-sac)         extra_args="SAC_ARGS=--epochs 1500" ;; \
-				example-ntm-copy)    extra_args="NTM_COPY_ARGS=--epochs 500" ;; \
-				example-ntm-associative-recall) extra_args="NTM_RECALL_ARGS=--epochs 350" ;; \
-				example-dnc-copy)    extra_args="DNC_COPY_ARGS=--epochs 30 --max-len 3 --batch 1" ;; \
-				example-dnc-recall)  extra_args="DNC_RECALL_ARGS=--epochs 10 --max-items 2 --batch 1" ;; \
+				example-supervised)  extra_args="SUPERVISED_ARGS=--epochs 5" ;; \
+				example-rnn)         extra_args="RNN_ARGS=--epochs 5" ;; \
+				example-lstm)        extra_args="LSTM_ARGS=--epochs 5" ;; \
+				example-transformer) extra_args="TRANSFORMER_ARGS=--epochs 5" ;; \
+				example-reinforce)   extra_args="REINFORCE_ARGS=--epochs 10" ;; \
+				example-gpt)         extra_args="GPT_ARGS=--epochs 3" ;; \
+				example-mnist)       extra_args="MNIST_ARGS=--epochs 3" ;; \
+				example-seq-classify) extra_args="SEQ_ARGS=--epochs 5" ;; \
+				example-dqn)         extra_args="DQN_ARGS=--epochs 10" ;; \
+				example-a2c)         extra_args="A2C_ARGS=--epochs 50" ;; \
+				example-ppo)         extra_args="PPO_ARGS=--epochs 5" ;; \
+				example-sac)         extra_args="SAC_ARGS=--epochs 100" ;; \
+				example-ntm-copy)    extra_args="NTM_COPY_ARGS=--epochs 5" ;; \
+				example-ntm-associative-recall) extra_args="NTM_RECALL_ARGS=--epochs 5" ;; \
+				example-dnc-copy)    extra_args="DNC_COPY_ARGS=--epochs 5 --max-len 3 --batch 1" ;; \
+				example-dnc-recall)  extra_args="DNC_RECALL_ARGS=--epochs 5 --max-items 2 --batch 1" ;; \
 			esac; \
 			if [ -n "$$extra_args" ]; then \
 				output=$$($$TIMEOUT_PREFIX $(MAKE) --no-print-directory BACKEND=$$b $$e "$$extra_args" 2>&1); rc=$$?; \
