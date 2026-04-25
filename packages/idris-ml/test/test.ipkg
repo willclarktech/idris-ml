@@ -13,6 +13,7 @@ modules = Harness
         , Test.Math
         , Test.Memory
         , Test.Optimizer
+        , Test.RL.ReplayBuffer
         , Test.Sampler
         , Test.Schedule
         , Test.Tensor

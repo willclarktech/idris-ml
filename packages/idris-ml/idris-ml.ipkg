@@ -36,6 +36,7 @@ modules = Compat.Random
         , Math
         , Memory
         , Optimizer
+        , RL.ReplayBuffer
         , Sampler
         , Schedule
         , Tensor

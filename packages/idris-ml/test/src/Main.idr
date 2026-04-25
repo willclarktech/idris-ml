@@ -11,17 +11,19 @@ import Test.Init
 import Test.Sampler
 import Test.Layer
 import Test.Generate
+import Test.RL.ReplayBuffer
 
 main : IO ()
 main = runAll
-  [ ("Tensor",    Test.Tensor.tests)
-  , ("Math",      Test.Math.tests)
-  , ("Variable",  Test.Variable.tests)
-  , ("Memory",    Test.Memory.tests)
-  , ("Optimizer", Test.Optimizer.tests)
-  , ("Schedule",  Test.Schedule.tests)
-  , ("Init",      Test.Init.tests)
-  , ("Sampler",   Test.Sampler.tests)
-  , ("Layer",     Test.Layer.tests)
-  , ("Generate",  Test.Generate.tests)
+  [ ("Tensor",          Test.Tensor.tests)
+  , ("Math",            Test.Math.tests)
+  , ("Variable",        Test.Variable.tests)
+  , ("Memory",          Test.Memory.tests)
+  , ("Optimizer",       Test.Optimizer.tests)
+  , ("Schedule",        Test.Schedule.tests)
+  , ("Init",            Test.Init.tests)
+  , ("Sampler",         Test.Sampler.tests)
+  , ("Layer",           Test.Layer.tests)
+  , ("Generate",        Test.Generate.tests)
+  , ("RL.ReplayBuffer", Test.RL.ReplayBuffer.tests)
   ]
