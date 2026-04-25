@@ -16,10 +16,10 @@ def _find_project_root() -> Path:
     env_root = os.environ.get("IDRIS_ML_ROOT")
     if env_root:
         return Path(env_root)
-    # Walk up from this file looking for idris-ml.ipkg
+    # Walk up from this file looking for packages/idris-ml/idris-ml.ipkg
     p = Path(__file__).resolve().parent
     for _ in range(10):
-        if (p / "idris-ml.ipkg").exists():
+        if (p / "packages" / "idris-ml" / "idris-ml.ipkg").exists():
             return p
         p = p.parent
     raise FileNotFoundError(

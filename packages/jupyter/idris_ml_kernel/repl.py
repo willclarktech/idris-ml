@@ -48,11 +48,11 @@ class Idris2REPL:
         self.child = pexpect.spawn(
             "idris2",
             [
-                "--source-dir", "src",
+                "--source-dir", "packages/idris-ml/src",
                 "-p", "contrib",
                 "--no-banner",
                 "--no-colour",
-                "src/Notebook/Prelude.idr",
+                "packages/idris-ml/src/Notebook/Prelude.idr",
             ],
             cwd=str(self.root),
             timeout=self.timeout,
