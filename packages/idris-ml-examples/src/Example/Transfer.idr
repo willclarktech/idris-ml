@@ -140,11 +140,14 @@ doTrain cfg model = do
   (trained, epochsDone, _) <- runTraining
     (\m, d => epochNativeTensorPre opt d nllLossTensor m) (pure tensorData)
     (simpleConfig cfg.epochs) model
-  -- Save
-  ok <- saveModel cfg.savePath
-  putStrLn $ (if ok then "Saved model to " else "FAILED to save model to ") ++ cfg.savePath
-  ok2 <- saveOptimizer (optPath cfg.savePath) opt
-  putStrLn $ (if ok2 then "Saved optimizer to " else "FAILED to save optimizer to ") ++ optPath cfg.savePath
+  -- Save (only if --save was given)
+  if cfg.savePath == ""
+    then putStrLn "No --save path given; skipping save"
+    else do
+      ok <- saveModel cfg.savePath
+      putStrLn $ (if ok then "Saved model to " else "FAILED to save model to ") ++ cfg.savePath
+      ok2 <- saveOptimizer (optPath cfg.savePath) opt
+      putStrLn $ (if ok2 then "Saved optimizer to " else "FAILED to save optimizer to ") ++ optPath cfg.savePath
   -- Eval
   evalLoss <- evalModel trained
   putStrLn $ "Eval loss: " ++ show evalLoss
@@ -169,11 +172,14 @@ doContinue cfg model = do
   (trained, epochsDone, _) <- runTraining
     (\m, d => epochNativeTensorPre opt d nllLossTensor m) (pure tensorData)
     (simpleConfig cfg.epochs) model'
-  -- Save
-  ok3 <- saveModel cfg.savePath
-  putStrLn $ (if ok3 then "Saved model to " else "FAILED to save model to ") ++ cfg.savePath
-  ok4 <- saveOptimizer (optPath cfg.savePath) opt
-  putStrLn $ (if ok4 then "Saved optimizer to " else "FAILED to save optimizer to ") ++ optPath cfg.savePath
+  -- Save (only if --save was given)
+  if cfg.savePath == ""
+    then putStrLn "No --save path given; skipping save"
+    else do
+      ok3 <- saveModel cfg.savePath
+      putStrLn $ (if ok3 then "Saved model to " else "FAILED to save model to ") ++ cfg.savePath
+      ok4 <- saveOptimizer (optPath cfg.savePath) opt
+      putStrLn $ (if ok4 then "Saved optimizer to " else "FAILED to save optimizer to ") ++ optPath cfg.savePath
   -- Eval
   evalLoss <- evalModel trained
   putStrLn $ "Eval loss: " ++ show evalLoss
