@@ -5,6 +5,7 @@
 | Item | Difficulty | Notes |
 |------|-----------|-------|
 | CUDA support | M–L | Torch backend should work via `tensor_to_device("cuda")` — untested. Test script ready: `scripts/test_cuda_colab.sh`. See `docs/develop/cuda-testing.md`. Device type system ready: `Variable (CUDA 0)` compiles, `toDevice` + FFI bindings exist |
+| Publish to package managers | S–M | Make idris-ml installable via standard Idris 2 package channels. Investigate: (1) [pack](https://github.com/stefan-hoeck/idris2-pack) — the main Idris 2 package manager, needs a `pack.toml`; (2) add to the [pack-db](https://github.com/stefan-hoeck/idris2-pack-db) collection. Note: the C backend (`libidrisml`) needs special handling — pack doesn't natively support native library deps. May need a `postinstall` script or `make backend` instruction. Also consider publishing to GitHub Releases with prebuilt dylibs for common platforms |
 
 ## Medium Priority
 
