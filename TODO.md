@@ -5,7 +5,6 @@
 | Item | Difficulty | Notes |
 |------|-----------|-------|
 | CUDA support | M–L | Torch backend should work via `tensor_to_device("cuda")` — untested. Test script ready: `scripts/test_cuda_colab.sh`. See `docs/develop/cuda-testing.md`. Device type system ready: `Variable (CUDA 0)` compiles, `toDevice` + FFI bindings exist |
-| RefC backend investigation | S–M | Idris 2's built-in RefC backend (`--cg refc`) compiles to C with reference counting instead of Chez Scheme. Could eliminate the ~50ms/epoch Chez overhead (18-40% of total wall time on real models). Experimental but functional. Investigation: (1) can idris-ml compile and run under RefC? (2) do our C FFI bindings (`%foreign "C:..."`) work unchanged? (3) what's the perf difference vs Chez? See https://idris2.readthedocs.io/en/latest/backends/refc.html. Note: RefC docs say "performance is not as good as Scheme" but that's for pure Idris code — our hot path is FFI calls to C backends where RefC's lighter runtime could be a net win |
 
 ## Medium Priority
 
@@ -25,7 +24,8 @@
 | Chez Scheme runtime overhead | S–XL | Chez GC, thunk evaluation, and allocation account for ~50ms/epoch (vs 2ms in C). Not FFI marshaling — reducing FFI call count from 4,384 to ~1,220 only saved 6ms. Options: Idris→C backend (below), or accept ~3x gap vs PyTorch on CPU for small models |
 | Idris 2 C backend (custom) | XL | If RefC doesn't work out: custom Idris 2→C code generator optimized for tensor workloads. Much higher effort than RefC investigation above |
 | CodeMirror Idris 2 mode | S–M | Jupyter kernel uses `"codemirror_mode": "haskell"` as a fallback. Investigate whether an Idris 2 CodeMirror grammar exists or could be written (CodeMirror 6 Lezer grammar). Would give proper syntax highlighting in JupyterLab |
-| Upstream Idris 2 RefC fixes | S | File issues/PRs for: (1) contrib's System.Random missing `%foreign "C:..."` alternatives for RefC, (2) RefC runtime missing `idris2_negate_Double`, `idris2_cast_string_to_Double`, `idris2_cast_string_to_Integer` (all exist in main branch but absent from 0.8.0 release), (3) RefC trampoline crash on complex programs. See `docs/develop/refc-investigation.md` |
+| RefC backend adoption | S–M | Blocked on upstream Idris 2 RefC bugs. Our codebase is RefC-ready (zero Scheme FFI, Compat.Random, shims for missing runtime functions). RefC crashes in `idris2_trampoline` on nested ADTs (Tensor Functor map over Vect of STensor). Simple C FFI programs work. Revisit when Idris 2 releases post-0.8.0 with updated RefC runtime. See `docs/develop/refc-investigation.md` and `docs/develop/refc-upstream-bug.md` |
+| Upstream Idris 2 RefC bug report | S | File issue on idris-lang/Idris2 for: RefC 0.8.0 trampoline crash on nested algebraic data types (Functor map over Vect of constructors). Repro, ASAN trace, and draft report in `docs/develop/refc-upstream-bug.md`. Also: (1) contrib System.Random needs `%foreign "C:..."` for RefC compat, (2) 0.8.0 runtime missing `idris2_negate_Double` etc. (fixed in main) |
 
 **Explicitly not planned:** distributed training (infrastructure, not library), mixed precision/quantization (performance optimisation), model zoo (compositions of existing primitives), TorchScript (our type system is the compile-time analysis), bidirectional RNN (transformers have obsoleted), exotic losses (compose from primitives)
 
