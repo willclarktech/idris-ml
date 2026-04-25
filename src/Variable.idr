@@ -266,17 +266,6 @@ prim__mnistGetImage : AnyPtr -> Int -> AnyPtr
 export
 prim__mnistGetLabel : AnyPtr -> Int -> Int
 
--- Autograd
--- Returns the input pointer for threading (prevents dead code elimination).
-%foreign "C:tensor_backward_return,libidrisml"
-prim__backward : AnyPtr -> AnyPtr
-
-%foreign "C:tensor_grad,libidrisml"
-prim__grad : AnyPtr -> AnyPtr
-
-%foreign "C:tensor_zero_grad,libidrisml"
-prim__zeroGrad : AnyPtr -> ()
-
 -- Parameter registry
 -- Registers a parameter: enables requires_grad and adds to the registry.
 -- Returns the tensorPtr for threading (prevents dead code elimination).
@@ -403,8 +392,8 @@ prim__print : AnyPtr -> ()
 ----------------------------------------------------------------------
 
 -- Force evaluation of first arg, return second.
--- Must use concrete AnyPtr types — polymorphic types cause Chez
--- to miscount arguments when b is itself a function type.
+-- Must use concrete AnyPtr types (not polymorphic) to avoid
+-- argument count issues at the FFI boundary.
 %foreign "C:idrisml_seq,libidrisml"
 export
 prim__seq : AnyPtr -> AnyPtr -> AnyPtr
@@ -414,9 +403,7 @@ prim__seq : AnyPtr -> AnyPtr -> AnyPtr
 -- Helpers: pack/unpack between Variable vectors and libtorch tensors
 ----------------------------------------------------------------------
 
--- Use C-side allocation to avoid Scheme/C FFI evaluation order issues.
--- Scheme-side foreign-alloc + foreign-set! can be reordered by the
--- Chez Scheme optimizer, causing C functions to read stale pointers.
+-- C-side allocation and write helpers for buffer construction.
 
 %foreign "C:tensor_alloc_doubles,libidrisml"
 export prim__allocDoubles : Int -> AnyPtr
@@ -1047,11 +1034,9 @@ buildGradMap n i acc = if i >= n then acc
 ||| Calls backward() on the loss tensor, then reads .grad() from all
 ||| registered parameters. Returns gradients keyed by parameter name.
 export
--- Fused backward + param count: ensures backward() completes before
--- returning the count (Chez would drop a standalone backward call).
--- Fused backward + zero_grads + param count.
+-- Fused backward (if requires_grad) + param count in single C call.
 -- Ensures backward() runs, then zero_all_grads() runs, then returns count.
--- All in one Scheme lambda so Chez can't reorder.
+-- Fused: backward (if requires_grad) + return param_count, in single C call.
 %foreign "C:tensor_backward_conditional,libidrisml"
 prim__backwardAndCount : AnyPtr -> Int
 
@@ -1079,18 +1064,6 @@ prim__optimizerCreateRmsprop : Double -> Double -> Double -> Double -> Double ->
 
 %foreign "C:optimizer_create_adam,libidrisml"
 prim__optimizerCreateAdam : Double -> Double -> Double -> Double -> AnyPtr
-
-%foreign "C:optimizer_zero_grad_return,libidrisml"
-prim__optimizerZeroGrad : AnyPtr -> AnyPtr
-
-%foreign "C:optimizer_step_return,libidrisml"
-prim__optimizerStep : AnyPtr -> AnyPtr
-
-%foreign "C:tensor_backward_return,libidrisml"
-prim__backwardForNative : AnyPtr -> AnyPtr
-
-%foreign "C:optimizer_clip_grad_value_return,libidrisml"
-prim__clipGradValue : Double -> Int
 
 %foreign "C:optimizer_clip_grad_norm,libidrisml"
 prim__clipGradNorm : Double -> Double
@@ -1151,7 +1124,7 @@ setParamLR : NativeOptimizer -> String -> Double -> ()
 setParamLR opt name lr = prim__optimizerSetParamLR opt.handle name lr
 
 -- Fused native train step: zero_grad → backward → clip → step.
--- All in one Scheme lambda to ensure correct evaluation order.
+-- Fused: zero_grad → backward → clip → step in single C call.
 -- Returns loss value (read before step, so not stale).
 %foreign "C:native_train_step,libidrisml"
 prim__nativeTrainStep : AnyPtr -> Int -> Double -> AnyPtr -> Double -> Double

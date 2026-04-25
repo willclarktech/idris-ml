@@ -358,9 +358,6 @@ double       tensor_backward_return_loss(TensorHandle loss_ptr, double loss_val)
 double       native_train_step(OptimizerHandle opt, int clip_mode, double clip_val,
                                TensorHandle loss_ptr, double loss_val); /* zero+bwd+clip+step; return loss_val */
 int          optimizer_step_with_clip(OptimizerHandle opt, int clip_mode, double clip_val, int dummy); /* clip+step+zero; return 0 */
-OptimizerHandle optimizer_zero_grad_return(OptimizerHandle opt); /* zero_grad; return opt */
-OptimizerHandle optimizer_step_return(OptimizerHandle opt); /* step; return opt */
-int          optimizer_clip_grad_value_return(double max_val); /* clip; return 0 */
 void*        idrisml_seq(void* a, void* b); /* evaluate a, return b */
 int          backend_memory_report_return(int dummy);
 int          backend_reset_for_eval_return(int dummy);

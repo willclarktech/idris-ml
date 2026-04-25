@@ -1410,9 +1410,6 @@ int optimizer_step_with_clip(OptimizerHandle opt, int clip_mode, double clip_val
     optimizer_step(opt); optimizer_zero_grad(opt);
     return 0;
 }
-OptimizerHandle optimizer_zero_grad_return(OptimizerHandle opt) { optimizer_zero_grad(opt); return opt; }
-OptimizerHandle optimizer_step_return(OptimizerHandle opt) { optimizer_step(opt); return opt; }
-int optimizer_clip_grad_value_return(double max_val) { optimizer_clip_grad_value(max_val); return 0; }
 void* idrisml_seq(void* a, void* b) { (void)a; return b; }
 int backend_memory_report_return(int d) { backend_memory_report(); return d; }
 int backend_reset_for_eval_return(int d) { backend_reset_for_eval(); return d; }
