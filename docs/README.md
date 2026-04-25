@@ -20,3 +20,4 @@ Architecture, design rationale, and implementation deep-dives live in [develop/]
 - [CUDA Testing](develop/cuda-testing.md) -- GPU testing on Google Colab
 - [RefC Investigation](develop/refc-investigation.md) -- RefC backend compatibility and findings
 - [RefC Upstream Bug](develop/refc-upstream-bug.md) -- draft bug report for idris-lang/Idris2
+- [Reference Alignment](develop/reference-alignment.md) -- Idris/PyTorch example alignment policy and change log

@@ -261,6 +261,8 @@ printDiagnostics "label" snapshots
 
 Commit at each step. PyTorch is the correctness oracle.
 
+**Alignment policy**: Idris examples and PyTorch references MUST use identical defaults for all hyperparameters (lr, batch size, epochs, seed, architecture, init). When a discrepancy is found, adopt whichever is the better practice in BOTH implementations. When changing an example, always update both sides. See `docs/develop/reference-alignment.md` for the full alignment record.
+
 ### Performance optimization
 
 - **Profile first**: `make example-profile` — per-epoch timing
