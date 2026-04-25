@@ -12,5 +12,4 @@ __pycache__/
 .pytest_cache/
 logs/
 results/
-packages/pytorch/reference/
 .ipynb_checkpoints/
