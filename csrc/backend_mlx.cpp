@@ -1942,7 +1942,7 @@ void optimizer_set_param_lr(OptimizerHandle h, const char* name, double lr) {
     if ((int)opt->param_lr.size() < np)
         opt->param_lr.resize(np, -1.0);
     for (int i = 0; i < np; i++) {
-        if (strcmp(param_registry[i].name, name) == 0) {
+        if (strcmp(param_registry[i].name.c_str(), name) == 0) {
             opt->param_lr[i] = lr;
             return;
         }
