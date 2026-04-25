@@ -6,6 +6,7 @@ import Data.SortedMap
 import Data.Vect
 import Compat.Random
 
+import DataPoint
 import Device
 import Floating
 import Tensor
@@ -1235,6 +1236,26 @@ bulkToTensor {n} (VTensor elems) =
     packDoubleBuf buf off (STensor v :: rest) =
       let buf' = prim__setDouble buf off v
       in packDoubleBuf buf' (off + 1) rest
+
+||| Bulk-convert a Vector of Doubles to a persistent C tensor handle.
+||| Persistent tensors survive tape resets — use when data is created once
+||| and reused across training epochs.
+export
+vectorToTensorPersistent : {n : Nat} -> Vector n Double -> AnyPtr
+vectorToTensorPersistent {n} (VTensor elems) =
+  let nI = cast {to=Int} n
+      buf = prim__allocDoubles nI
+      buf' = packBuf buf 0 elems
+  in prim__createState1d nI buf'
+  where
+    packBuf : AnyPtr -> Int -> Vect k (Scalar Double) -> AnyPtr
+    packBuf buf _ [] = buf
+    packBuf buf off (STensor v :: rest) = packBuf (prim__setDouble buf off v) (off + 1) rest
+
+||| Convert a DataPoint with Doubles to a TensorDataPoint with persistent C tensors.
+export
+toTDP : {i, o : Nat} -> DataPoint i o Double -> TensorDataPoint i o
+toTDP dp = MkTensorDataPoint (vectorToTensorPersistent (x dp)) (vectorToTensorPersistent (y dp))
 
 ||| Reset tape + arena for a clean eval forward pass.
 ||| Returns a dummy value that should be threaded into subsequent computation.

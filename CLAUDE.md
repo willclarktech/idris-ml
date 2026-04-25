@@ -15,6 +15,7 @@ packages/
   idris-ml/           # Core ML library (Idris ipkg)
     src/              # Tensor, Variable, Layer.*, Train, etc.
     test/             # Idris unit tests
+  idris-ml-notebook/  # Notebook Prelude (re-exports all idris-ml modules for Jupyter)
   idris-gym/          # Pure Idris RL environments (Gym.Env, Gym.CartPole)
   idris-ml-examples/  # Example programs (depends on idris-ml + idris-gym)
     src/Example/
@@ -117,7 +118,7 @@ bash scripts/sweep.sh --task copy --parallel 4 --quick  # 2000 epochs for screen
 15. **Curriculum** - Multi-stage curriculum training: `Stage` record, `runCurriculum`
 16. **Debug** - Forward-pass diagnostics: `debugForward`, `debugForwardRecurrent`, `toDoubleNetwork`
 17. **Checkpoint** - SafeTensors serialization: `saveModel`/`loadModel`, `saveOptimizer`/`loadOptimizer`
-18. **Notebook.Prelude** - Re-exports all library modules via `import public` for Jupyter kernel interactive use
+18. **Notebook.Prelude** - Re-exports all library modules via `import public` for Jupyter kernel interactive use (separate `idris-ml-notebook` package)
 
 ### Jupyter notebooks
 

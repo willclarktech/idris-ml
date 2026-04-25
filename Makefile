@@ -154,8 +154,12 @@ install-core: backend
 install-gym:
 	@cd packages/idris-gym && IDRIS2_PREFIX=$(IDRIS2_LOCAL) idris2 --install idris-gym.ipkg >/dev/null
 
+# Install notebook prelude to local prefix
+install-notebook: install-core
+	@cd packages/idris-ml-notebook && IDRIS2_PREFIX=$(IDRIS2_LOCAL) idris2 --install idris-ml-notebook.ipkg >/dev/null
+
 # Install all Idris packages locally
-install: install-core install-gym
+install: install-core install-gym install-notebook
 
 # Idris build (type-check core library)
 check: backend
@@ -482,15 +486,19 @@ test-all:
 	@echo ""
 	@echo "=== All tests complete ==="
 
+# Type-check notebook prelude package
+check-notebook: install-core
+	cd packages/idris-ml-notebook && idris2 --build idris-ml-notebook.ipkg
+
 # Build backend + type-check all packages (default target)
-check-all: check check-gym check-examples
+check-all: check check-gym check-notebook check-examples
 
 # Verify everything: check-all + run all tests
 all: check-all test-all
 
 .PHONY: all check-all all-backends test test-all download-mnist test-backend test-backend-tape test-backend-mlx \
         test-backend-torch test-safetensors test-ntm-grad test-ntm-timestep \
-        test-examples check check-gym check-examples install install-core install-gym \
+        test-examples check check-gym check-notebook check-examples install install-core install-gym install-notebook \
         example-supervised example-rnn example-lstm \
         example-ntm-copy example-ntm-associative-recall example-dnc-copy example-dnc-recall \
         example-reinforce \

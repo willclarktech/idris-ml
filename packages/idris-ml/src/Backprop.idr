@@ -313,6 +313,33 @@ public export
 0 LossFnTensor : Device -> Type
 LossFnTensor d = AnyPtr -> AnyPtr -> Variable d
 
+||| Tensor-level cross-entropy loss: -mean(target * logSoftmax(pred)).
+export
+crossEntropyTensor : LossFnTensor d
+crossEntropyTensor predT targetT =
+  let logP = prim__logSoftmax predT 0
+      product = prim__mul logP targetT
+      loss = prim__neg (prim__mean product)
+      val = prim__item loss
+  in Var loss Nothing val
+
+||| Tensor-level binary cross-entropy with logits (numerically stable).
+||| Formula: mean(max(x,0) - x*y + log(1+exp(-|x|)))
+export
+bceTensor : LossFnTensor d
+bceTensor predT targetT =
+  let relu_x = prim__clampMin predT 0.0
+      xy = prim__mul predT targetT
+      abs_x = prim__abs predT
+      neg_abs_x = prim__neg abs_x
+      exp_neg = prim__exp neg_abs_x
+      one_plus_exp = tensorAdd exp_neg (prim__createScalar 1.0 0)
+      log_term = prim__log one_plus_exp
+      loss = tensorAdd (prim__sub relu_x xy) log_term
+      result = prim__mean loss
+      val = prim__item result
+  in Var result Nothing val
+
 ||| Tensor-level native epoch: bypasses scalar packing/unpacking entirely.
 ||| Accepts DataPoint Double (raw data), bulk-converts to C tensors,
 ||| forwards through network at tensor level, computes loss on tensors.
@@ -528,21 +555,6 @@ epochTwoPhaseTensor opt dataPoints model =
       lossVal = nativeTrainStep opt avgLoss
   in (model, lossVal)
   where
-    -- BCE with logits: max(x,0) - x*y + log(1+exp(-|x|))
-    bceTensor : AnyPtr -> AnyPtr -> Variable d
-    bceTensor predT targetT =
-      let relu_x = prim__clampMin predT 0.0
-          xy = prim__mul predT targetT
-          abs_x = prim__abs predT
-          neg_abs_x = prim__neg abs_x
-          exp_neg = prim__exp neg_abs_x
-          one_plus_exp = tensorAdd exp_neg (prim__createScalar 1.0 0)
-          log_term = prim__log one_plus_exp
-          loss = tensorAdd (prim__sub relu_x xy) log_term
-          result = prim__mean loss
-          val = prim__item result
-      in Var result Nothing val
-
     zipLossBce : List AnyPtr -> List AnyPtr -> List (Variable d)
     zipLossBce [] _ = []
     zipLossBce _ [] = []

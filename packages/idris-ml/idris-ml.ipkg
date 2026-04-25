@@ -35,7 +35,6 @@ modules = Compat.Random
         , Layer.Transformer
         , Math
         , Memory
-        , Notebook.Prelude
         , Optimizer
         , Sampler
         , Schedule

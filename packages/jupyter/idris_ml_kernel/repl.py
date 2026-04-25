@@ -17,8 +17,8 @@ class Idris2REPL:
     # The REPL prompt looks like "Notebook.Prelude> " at line start.
     # Must not match layer names in output like "relu> " mid-line.
     # The module name always contains a dot (Notebook.Prelude, Layer.Core, etc.)
-    # or is "Main" (the only dotless name, but won't appear in layer output).
-    PROMPT_RE = r"(\[scheme\] )?[A-Za-z][A-Za-z0-9]*\.[A-Za-z0-9.]*> "
+    # or is "Main" (bare REPL before :module).
+    PROMPT_RE = r"(\[scheme\] )?(Main|[A-Za-z][A-Za-z0-9]*\.[A-Za-z0-9.]*)> "
 
     # .dylib on macOS, .so on Linux
     _LIB_EXT = ".dylib" if platform.system() == "Darwin" else ".so"
@@ -44,20 +44,27 @@ class Idris2REPL:
             shutil.copy2(dylib, dest)
 
     def _spawn(self) -> None:
-        """Start the idris2 REPL with Notebook.Prelude loaded."""
+        """Start the idris2 REPL with Notebook.Prelude loaded via installed packages."""
+        # Set IDRIS2_PACKAGE_PATH so idris2 finds locally-installed packages
+        pkg_path = str(self.root / ".idris2" / "idris2-0.8.0")
+        import os
+        env = os.environ.copy()
+        env["IDRIS2_PACKAGE_PATH"] = pkg_path
+
         self.child = pexpect.spawn(
             "idris2",
             [
-                "--source-dir", "packages/idris-ml/src",
                 "-p", "contrib",
+                "-p", "idris-ml",
+                "-p", "idris-ml-notebook",
                 "--no-banner",
                 "--no-colour",
-                "packages/idris-ml/src/Notebook/Prelude.idr",
             ],
             cwd=str(self.root),
             timeout=self.timeout,
             encoding="utf-8",
             echo=False,
+            env=env,
             dimensions=(24, 10000),  # wide terminal to prevent line wrapping
         )
         self.child.expect(self.PROMPT_RE, timeout=self.timeout)
@@ -65,6 +72,8 @@ class Idris2REPL:
         attrs = termios.tcgetattr(self.child.child_fd)
         attrs[3] &= ~termios.ICANON
         termios.tcsetattr(self.child.child_fd, termios.TCSANOW, attrs)
+        # Load the notebook prelude module
+        self.send(":module Notebook.Prelude")
 
     def send(self, cmd: str, timeout: int | None = None) -> str:
         """Send a command and return the output (text between send and next prompt)."""

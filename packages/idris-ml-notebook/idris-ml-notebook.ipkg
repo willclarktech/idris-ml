@@ -1,0 +1,7 @@
+package idris-ml-notebook
+
+depends = contrib, idris-ml
+
+sourcedir = "src"
+
+modules = Notebook.Prelude
