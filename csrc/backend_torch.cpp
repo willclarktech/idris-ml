@@ -8,9 +8,20 @@
 #include <vector>
 #include <unordered_set>
 #include <sys/resource.h>
+#include <sys/time.h>
 #ifdef __APPLE__
 #include <mach/mach.h>
 #endif
+
+/* ---------- Profiling ---------- */
+static double prof_backward_ms = 0, prof_optimizer_ms = 0;
+static int prof_epochs = 0;
+
+static double _wall_ms_torch(void) {
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return tv.tv_sec * 1000.0 + tv.tv_usec / 1000.0;
+}
 
 /* ---------- Intermediate tensor tracking ---------- */
 
@@ -579,7 +590,9 @@ TensorHandle tensor_cat(TensorHandle* tensors, int count, int dim) {
 /* ---------- Autograd ---------- */
 
 void tensor_backward(TensorHandle h) {
+    double t0 = _wall_ms_torch();
     to_tensor(h)->backward();
+    prof_backward_ms += _wall_ms_torch() - t0;
 }
 
 TensorHandle tensor_grad(TensorHandle h) {
@@ -1041,6 +1054,7 @@ void optimizer_free(OptimizerHandle h) {
 }
 
 void optimizer_step(OptimizerHandle h) {
+    double t0 = _wall_ms_torch();
     auto* w = static_cast<OptWrapper*>(h);
     auto* opt = w->opt;
     /* Re-sync param list from registry (handles late registration via autoName) */
@@ -1056,6 +1070,8 @@ void optimizer_step(OptimizerHandle h) {
     opt->step();
     // Free intermediate tensors from this epoch's forward/backward
     free_intermediates();
+    prof_optimizer_ms += _wall_ms_torch() - t0;
+    prof_epochs++;
 }
 
 void optimizer_zero_grad(OptimizerHandle h) {
@@ -1318,8 +1334,23 @@ void backend_reset_for_eval(void) {
     }
 }
 
-void backend_profile_reset(void) {}
-void backend_profile_report(void) {}
+void backend_profile_reset(void) {
+    prof_backward_ms = prof_optimizer_ms = 0;
+    prof_epochs = 0;
+}
+
+void backend_profile_report(void) {
+    fprintf(stderr, "=== Profile Report (torch backend) ===\n");
+    fprintf(stderr, "  Epochs: %d\n", prof_epochs);
+    fprintf(stderr, "  Params: %d tensors\n", (int)param_registry.size());
+    fprintf(stderr, "  Backward:  %.1fms total (%.1fms/epoch)\n",
+            prof_backward_ms, prof_epochs > 0 ? prof_backward_ms / prof_epochs : 0);
+    fprintf(stderr, "  Optimizer: %.1fms total (%.1fms/epoch)\n",
+            prof_optimizer_ms, prof_epochs > 0 ? prof_optimizer_ms / prof_epochs : 0);
+    double total = prof_backward_ms + prof_optimizer_ms;
+    fprintf(stderr, "  C total:   %.1fms total (%.1fms/epoch)\n",
+            total, prof_epochs > 0 ? total / prof_epochs : 0);
+}
 
 double param_grad_item_at(int param_idx, int elem_idx) {
     auto& t = *param_registry[param_idx].tensor;

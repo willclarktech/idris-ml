@@ -18,6 +18,7 @@
 #include <string>
 #include <unordered_set>
 #include <sys/resource.h>
+#include <sys/time.h>
 #ifdef __APPLE__
 #include <mach/mach.h>
 #endif
@@ -223,6 +224,16 @@ struct ParamEntry {
 };
 
 static std::vector<ParamEntry> param_registry;
+
+/* Profiling counters */
+static double prof_backward_ms_mlx = 0, prof_optimizer_ms_mlx = 0;
+static int prof_epochs_mlx = 0;
+
+static double _wall_ms_mlx(void) {
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return tv.tv_sec * 1000.0 + tv.tv_usec / 1000.0;
+}
 
 /* ================================================================
    Lifecycle
@@ -1308,8 +1319,9 @@ TensorHandle tensor_one_hot(int* tokens, int n_tokens, int vocab_size) {
    ================================================================ */
 
 void tensor_backward(TensorHandle h) {
+    double t0_bwd = _wall_ms_mlx();
     Tensor* loss = (Tensor*)h;
-    if (loss->tape_idx < 0) return;
+    if (loss->tape_idx < 0) { prof_backward_ms_mlx += _wall_ms_mlx() - t0_bwd; return; }
 
     // Collect param pool indices and arrays
     std::vector<int> param_pool_indices;
@@ -1608,6 +1620,7 @@ void tensor_backward(TensorHandle h) {
         param_registry[i].tensor->grad = grads[i];
         param_registry[i].tensor->has_grad = true;
     }
+    prof_backward_ms_mlx += _wall_ms_mlx() - t0_bwd;
 }
 
 TensorHandle tensor_grad(TensorHandle h) { STUB(); }
@@ -1950,6 +1963,7 @@ void optimizer_set_param_lr(OptimizerHandle h, const char* name, double lr) {
 }
 
 void optimizer_step(OptimizerHandle h) {
+    double t0_opt = _wall_ms_mlx();
     auto opt = (Optimizer*)h;
     opt->t++;
     int np = (int)param_registry.size();
@@ -2036,6 +2050,8 @@ void optimizer_step(OptimizerHandle h) {
         p.tensor->has_grad = false;
         tape_append(OP_CONST, p.tensor, nullptr, nullptr, 0);
     }
+    prof_optimizer_ms_mlx += _wall_ms_mlx() - t0_opt;
+    prof_epochs_mlx++;
 }
 
 void optimizer_clip_grad_value(double max_val) {
@@ -2196,8 +2212,23 @@ void backend_reset_for_eval(void) {
         tape_append(OP_CONST, p.tensor, nullptr, nullptr, 0);
     }
 }
-void backend_profile_reset(void) {}
-void backend_profile_report(void) {}
+void backend_profile_reset(void) {
+    prof_backward_ms_mlx = prof_optimizer_ms_mlx = 0;
+    prof_epochs_mlx = 0;
+}
+
+void backend_profile_report(void) {
+    fprintf(stderr, "=== Profile Report (MLX backend) ===\n");
+    fprintf(stderr, "  Epochs: %d\n", prof_epochs_mlx);
+    fprintf(stderr, "  Params: %d tensors\n", (int)param_registry.size());
+    fprintf(stderr, "  Backward:  %.1fms total (%.1fms/epoch)\n",
+            prof_backward_ms_mlx, prof_epochs_mlx > 0 ? prof_backward_ms_mlx / prof_epochs_mlx : 0);
+    fprintf(stderr, "  Optimizer: %.1fms total (%.1fms/epoch)\n",
+            prof_optimizer_ms_mlx, prof_epochs_mlx > 0 ? prof_optimizer_ms_mlx / prof_epochs_mlx : 0);
+    double total = prof_backward_ms_mlx + prof_optimizer_ms_mlx;
+    fprintf(stderr, "  C total:   %.1fms total (%.1fms/epoch)\n",
+            total, prof_epochs_mlx > 0 ? total / prof_epochs_mlx : 0);
+}
 
 /* ================================================================
    Debug

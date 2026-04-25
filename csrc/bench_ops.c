@@ -313,6 +313,8 @@ int main(void) {
     fflush(stdout);
     printf("\n");
 
+    backend_profile_report();
+
     /* --- Conv2d forward (last: may crash on torch backend due to shape mismatch) --- */
     printf("--- Conv2d forward ---\n");
     bench_conv2d(1, 16, 28, 28, 5, 5, 10);      /* MNIST layer 1 */
