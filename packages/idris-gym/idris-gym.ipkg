@@ -15,3 +15,7 @@ modules = Gym.Space
         , Gym.Vector
         , Gym.ClassicControl
         , Gym.ClassicControl.CartPole
+        , Gym.ClassicControl.MountainCar
+        , Gym.ClassicControl.MountainCarCont
+        , Gym.ClassicControl.Pendulum
+        , Gym.ClassicControl.Acrobot
