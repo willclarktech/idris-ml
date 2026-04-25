@@ -2,8 +2,8 @@
 
 Simple convolutional neural network for MNIST digit classification.
 Architecture matches the Idris implementation:
-  Conv2d(1->16, k=5) -> ReLU -> MaxPool(2) ->
-  Conv2d(16->32, k=5) -> ReLU -> MaxPool(2) ->
+  Conv2d(1->16, k=5) -> ReLU -> MaxPool(2) -> Dropout(0.25) ->
+  Conv2d(16->32, k=5) -> ReLU -> MaxPool(2) -> Dropout(0.5) ->
   Linear(512->10) -> LogSoftmax
 
 Uses torchvision for data loading.
@@ -33,12 +33,14 @@ class MnistCNN(nn.Module):
         super().__init__()
         self.conv1 = nn.Conv2d(1, 16, kernel_size=5, bias=True)
         self.conv2 = nn.Conv2d(16, 32, kernel_size=5, bias=True)
+        self.drop1 = nn.Dropout2d(0.25)
+        self.drop2 = nn.Dropout(0.5)
         self.fc = nn.Linear(512, 10)
 
     def forward(self, x: Tensor) -> Tensor:
         # x: [B, 1, 28, 28]
-        x = F.max_pool2d(F.relu(self.conv1(x)), 2)  # [B, 16, 12, 12]
-        x = F.max_pool2d(F.relu(self.conv2(x)), 2)  # [B, 32, 4, 4]
+        x = self.drop1(F.max_pool2d(F.relu(self.conv1(x)), 2))  # [B, 16, 12, 12]
+        x = self.drop2(F.max_pool2d(F.relu(self.conv2(x)), 2))  # [B, 32, 4, 4]
         x = x.view(x.size(0), -1)  # [B, 512]
         return F.log_softmax(self.fc(x), dim=1)  # [B, 10]
 

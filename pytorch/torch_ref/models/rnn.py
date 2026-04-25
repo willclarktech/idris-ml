@@ -51,6 +51,11 @@ class LinearLSTMCell(nn.Module):
 
         nn.init.xavier_uniform_(self.lstm.weight_ih)
         nn.init.xavier_uniform_(self.lstm.weight_hh)
+        # Forget gate bias = 1.0 (Jozefowicz et al. 2015, helps gradient flow)
+        nn.init.zeros_(self.lstm.bias_ih)
+        nn.init.zeros_(self.lstm.bias_hh)
+        with torch.no_grad():
+            self.lstm.bias_ih[hidden_size : 2 * hidden_size].fill_(1.0)
         nn.init.xavier_uniform_(self.output_proj.weight)
         nn.init.zeros_(self.output_proj.bias)
 

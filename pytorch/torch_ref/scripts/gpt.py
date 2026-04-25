@@ -57,7 +57,7 @@ def main() -> None:
         num_heads=NUM_HEADS,
         num_blocks=NUM_BLOCKS,
     )
-    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=0.01)
     n_params = sum(p.numel() for p in model.parameters())
     print(f"Parameters: {n_params}")
     print()
@@ -86,12 +86,12 @@ def main() -> None:
     print()
 
     print("Generation (seed='to be or '):")
-    sample = generate_text(model, "to be or ", length=100, temperature=0.8)
+    sample = generate_text(model, "to be or ", length=100, temperature=1.0)
     print(f"  {sample!r}")
 
     print()
     print("Generation (seed='the '):")
-    sample2 = generate_text(model, "the ", length=100, temperature=0.8)
+    sample2 = generate_text(model, "the ", length=100, temperature=1.0)
     print(f"  {sample2!r}")
 
     print()

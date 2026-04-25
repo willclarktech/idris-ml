@@ -29,12 +29,14 @@ class SeqClassifyCNN(nn.Module):
         super().__init__()
         self.conv1 = nn.Conv1d(1, 4, kernel_size=3)
         self.conv2 = nn.Conv1d(4, 8, kernel_size=3)
+        self.dropout = nn.Dropout(0.5)
         self.fc = nn.Linear(48, NUM_CLASSES)
 
     def forward(self, x: Tensor) -> Tensor:
         x = F.max_pool1d(F.relu(self.conv1(x)), 2)  # [B,4,15]
         x = F.max_pool1d(F.relu(self.conv2(x)), 2)  # [B,8,6]
         x = x.view(x.size(0), -1)  # [B,48]
+        x = self.dropout(x)
         return F.log_softmax(self.fc(x), dim=1)
 
 
