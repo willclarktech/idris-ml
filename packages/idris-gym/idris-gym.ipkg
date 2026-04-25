@@ -4,5 +4,14 @@ sourcedir = "src"
 
 depends = contrib
 
-modules = Gym.Env
-        , Gym.CartPole
+modules = Gym.Space
+        , Gym.Env
+        , Gym.Rng
+        , Gym.Wrapper
+        , Gym.Wrapper.TimeLimit
+        , Gym.Wrapper.Record
+        , Gym.Wrapper.Normalize
+        , Gym.Wrapper.Action
+        , Gym.Vector
+        , Gym.ClassicControl
+        , Gym.ClassicControl.CartPole

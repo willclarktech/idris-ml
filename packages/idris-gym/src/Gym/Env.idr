@@ -1,21 +1,67 @@
 module Gym.Env
 
-import Data.Vect
+import public Gym.Space
 
+
+----------------------------------------------------------------------
+-- Outcome
+----------------------------------------------------------------------
+
+||| How an episode step concluded.
+||| Continue  = episode still running.
+||| Terminated = natural end (pole fell, goal reached, agent died).
+||| Truncated = artificial end (time limit, wrapper intervention).
+|||
+||| The split matches Gymnasium v0.26+: value-function bootstrapping
+||| uses the next state on Truncated but not on Terminated.
+public export
+data Outcome = Continue | Terminated | Truncated
+
+||| Is the episode over, for either reason?
+public export
+done : Outcome -> Bool
+done Continue = False
+done _        = True
+
+
+----------------------------------------------------------------------
+-- Info
+----------------------------------------------------------------------
+
+||| Auxiliary key-value info returned alongside a step result.
+||| Matches Gymnasium's info dict but uses plain strings for pragmatism
+||| (Train.idr's formatResult uses the same List (String, String) shape).
+public export
+Info : Type
+Info = List (String, String)
+
+
+----------------------------------------------------------------------
+-- Env interface
+----------------------------------------------------------------------
 
 ||| Type-safe environment interface for reinforcement learning.
 |||
-||| @state  Internal environment state
-||| @action Discrete action type
-||| @obs    Observation type (what the agent sees)
+||| @state  Internal environment state (deterministic envs: physics only;
+|||         stochastic envs: include a PRNG seed field).
+||| @action Action type (Nat for Discrete, Double / Vect k Double for Box).
+||| @obs    Observation type (what the agent sees).
 public export
 interface Env state action obs where
   ||| Initial state for a new episode.
   reset : state
   ||| Advance the environment by one step.
-  ||| Returns (reward, next state, done flag).
-  step : state -> action -> (Double, state, Bool)
+  ||| Returns (reward, next state, outcome, info).
+  step : state -> action -> (Double, state, Outcome, Info)
   ||| Extract observation from internal state.
   observe : state -> obs
-  ||| Maximum steps per episode.
-  maxSteps : Nat
+  ||| Descriptor of the action space (metadata for wrappers/loggers).
+  actionSpace : Space
+  ||| Descriptor of the observation space.
+  obsSpace : Space
+  ||| Default truncation step count, if this env has a standard one.
+  ||| Truncation itself is enforced by the TimeLimited wrapper, not here.
+  defaultTimeLimit : Maybe Nat
+  defaultTimeLimit = Nothing
+
+

@@ -6,7 +6,8 @@ import System
 import Compat.Random
 
 import Floating
-import Gym.CartPole
+import Gym.ClassicControl.CartPole
+import Gym.Env
 import Layer
 import Sampler
 import Tensor
@@ -45,9 +46,9 @@ rolloutEp model st (r :: rs) (S k) acc =
       selLP = prim__select logProbsT 0 (cast {to=Int} action)
       selLPVal = if action == 0 then lp0 else lp1
   in case cpStep st action of
-       (reward, st', done) =>
+       (reward, st', outcome, _) =>
          let acc' = (selLP, selLPVal, reward) :: acc
-         in if done then reverse acc'
+         in if done outcome then reverse acc'
             else rolloutEp model st' rs k acc'
 
 
@@ -136,8 +137,8 @@ evalEp model st (S k) acc =
       logitsT = snd pair
       action = if prim__item1d logitsT 0 >= prim__item1d logitsT 1 then the Nat 0 else 1
   in case cpStep st action of
-       (reward, st', done) =>
-         if done then acc + reward
+       (reward, st', outcome, _) =>
+         if done outcome then acc + reward
          else evalEp model st' k (acc + reward)
 
 evalN : {hs : List Nat} -> Network 4 hs 2 (Variable CPU) -> Nat -> Double -> Double

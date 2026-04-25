@@ -1,4 +1,4 @@
-module Gym.CartPole
+module Gym.ClassicControl.CartPole
 
 import Data.Vect
 import Gym.Env
@@ -27,7 +27,7 @@ record CPState where
 
 ||| One physics step of CartPole. Action 0 = left, 1 = right.
 export
-cpStep : CPState -> Nat -> (Double, CPState, Bool)
+cpStep : CPState -> Nat -> (Double, CPState, Outcome, Info)
 cpStep s action =
   let force = if action == 1 then ForceMag else negate ForceMag
       cosT = prim__doubleCos s.cpTheta
@@ -38,7 +38,10 @@ cpStep s action =
       xAcc = temp - PoleMassLen * tAcc * cosT / TotalMass
       s' = MkCP (s.cpX + Tau * s.cpXDot) (s.cpXDot + Tau * xAcc)
                 (s.cpTheta + Tau * s.cpThetaDot) (s.cpThetaDot + Tau * tAcc)
-  in (1.0, s', abs s'.cpX > XThresh || abs s'.cpTheta > ThetaThresh)
+      outcome = if abs s'.cpX > XThresh || abs s'.cpTheta > ThetaThresh
+                then Terminated
+                else Continue
+  in (1.0, s', outcome, [])
 
 ||| Extract 4-element observation vector from CartPole state.
 export
@@ -50,9 +53,19 @@ public export
 cartPoleMaxSteps : Nat
 cartPoleMaxSteps = 200
 
+-- Gymnasium observation bounds: x, xDot (unbounded), theta, thetaDot (unbounded).
+-- We clamp the unbounded dims to a large finite number for the Box descriptor.
+cpObsLow : Vect 4 Double
+cpObsLow = [-4.8, -1.0e38, negate ThetaThresh * 2.0, -1.0e38]
+
+cpObsHigh : Vect 4 Double
+cpObsHigh = [4.8, 1.0e38, ThetaThresh * 2.0, 1.0e38]
+
 public export
 Env CPState Nat (Vect 4 Double) where
   reset = MkCP 0 0 0 0
   step = cpStep
   observe = cpObserve
-  maxSteps = cartPoleMaxSteps
+  actionSpace = Discrete 2
+  obsSpace = Box cpObsLow cpObsHigh
+  defaultTimeLimit = Just cartPoleMaxSteps
