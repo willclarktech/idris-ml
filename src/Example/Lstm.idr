@@ -68,8 +68,8 @@ main = do
   putStrLn $ "Config: lr=" ++ show cfg.lr ++ " epochs=" ++ show cfg.epochs
            ++ " patience=" ++ show cfg.patience ++ " seed=" ++ show cfg.seed
 
-  lstm <- lstmLayer
-  ll <- linearLayer {i=1, o=1}
+  lstm <- lstmLayer {i=1, o=4}
+  ll <- linearLayer {i=4, o=1}
   let model = autoName $ lstm ~> OutputLayer ll
   putStrLn $ "Architecture: " ++ show model
   putStrLn ""
