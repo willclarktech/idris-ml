@@ -111,22 +111,24 @@ windowedConfig epochs threshold window pat =
 -- Training Runner
 ----------------------------------------------------------------------
 
-||| Run training with the given configuration.
+||| Run training with an IO-based epoch function. Use this when the
+||| per-epoch step needs IO (e.g. sampling a replay-buffer batch, running
+||| a vectorised env rollout). For pure epochs, use `runTraining`.
 |||
-||| @epochFn   One training step: model -> data -> (model, loss)
+||| @epochFn   One training step: model -> data -> IO (model, loss)
 ||| @dataSrc   IO action producing training data each epoch
 ||| @cfg       Training configuration
 ||| @model     Initial model
 ||| Returns (trained model, epochs completed, final loss)
 export
-runTraining :
+runTrainingIO :
   {0 model : Type} -> {0 dp : Type} ->
-  (epochFn : model -> dp -> (model, Double)) ->
+  (epochFn : model -> dp -> IO (model, Double)) ->
   (dataSrc : IO dp) ->
   TrainConfig model ->
   model ->
   IO (model, Nat, Double)
-runTraining {model} epochFn dataSrc cfg model0 = do
+runTrainingIO {model} epochFn dataSrc cfg model0 = do
   tStart <- clockTime Monotonic
   putStrLn $ "Training... [backend=" ++ backendName ++ "]"
   result@(m, epochsDone, loss) <- case cfg.earlyStop of
@@ -160,7 +162,7 @@ runTraining {model} epochFn dataSrc cfg model0 = do
       if ep >= cfg.totalEpochs then pure (m, ep, lastLoss)
       else do
         d <- dataSrc
-        let (m', loss) = epochFn m d
+        (m', loss) <- epochFn m d
         when (shouldLog ep) $ logEpoch t0 ep loss m'
         if loss /= loss
           then do now <- clockTime Monotonic
@@ -181,7 +183,7 @@ runTraining {model} epochFn dataSrc cfg model0 = do
       if ep >= cfg.totalEpochs then pure (m, ep, bestLoss)
       else do
         d <- dataSrc
-        let (m', loss) = epochFn m d
+        (m', loss) <- epochFn m d
         when (shouldLog ep) $ logEpoch t0 ep loss m'
         if loss /= loss
           then diverged t0 ep m' loss
@@ -205,7 +207,7 @@ runTraining {model} epochFn dataSrc cfg model0 = do
       if ep >= cfg.totalEpochs then pure (m, ep, 0.0)
       else do
         d <- dataSrc
-        let (m', loss) = epochFn m d
+        (m', loss) <- epochFn m d
         when (shouldLog ep) $ logEpoch t0 ep loss m'
         if loss /= loss
           then diverged t0 ep m' loss
@@ -233,3 +235,16 @@ runTraining {model} epochFn dataSrc cfg model0 = do
                                                        ++ " convergence " ++ show cc ++ "/" ++ show pat
                                                        ++ " (window_avg=" ++ show windowAvg ++ ")"
                                               goWindowed (S ep) m' 0.0 0 avgs' cc t0 thresh win pat
+
+
+||| Run training with a pure epoch function. Equivalent to `runTrainingIO`
+||| with the epoch wrapped in `pure`.
+export
+runTraining :
+  {0 model : Type} -> {0 dp : Type} ->
+  (epochFn : model -> dp -> (model, Double)) ->
+  (dataSrc : IO dp) ->
+  TrainConfig model ->
+  model ->
+  IO (model, Nat, Double)
+runTraining epochFn = runTrainingIO (\m, d => pure (epochFn m d))
