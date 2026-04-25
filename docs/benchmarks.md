@@ -121,8 +121,26 @@ make bench-compare
 - **Iteration counts**: Tuned per-operation so each benchmark runs 1-50ms total. Full suite completes in <2s per backend
 - **Partial output**: If a backend crashes on conv2d (last benchmark), all prior results are still captured
 
+### Scheme→C FFI Portability (all backends)
+
+**Change**: Replaced all 23 `%foreign "scheme:..."` inline Scheme lambda FFI bindings with portable `%foreign "C:...,libidrisml"` calls. Added ~15 small C helper functions (e.g., `tensor_backward_return`, `native_train_step`, `idrisml_seq`) to all three backends. Also replaced `System.Random` (contrib, Scheme-only) with `Compat.Random` (C FFI via libc `srand`/`rand`).
+
+**Motivation**: Required for RefC backend compatibility. The inline Scheme lambdas were interpreted by Chez at each call; direct C calls have lower per-call overhead.
+
+**Results** (Supervised, 1000 epochs, 5 runs):
+
+| | C total (ms) | Range |
+|---|---|---|
+| Before (Scheme FFI) | ~375-484 | high variance |
+| After (C FFI) | ~348 | 345-351 (very stable) |
+
+~7-10% improvement in C time and significantly more stable measurements. The stability improvement suggests the inline Scheme interpretation added nondeterministic overhead that direct C calls avoid.
+
+**Also fixed**: `tensor_alloc_ints` was declared in `backend.h` but never implemented (previously handled by Scheme's `foreign-alloc`). Now implemented as `calloc(n, sizeof(int))` on all backends.
+
 ## Notes
 
 - The tape backend uses Apple Accelerate for BLAS (`cblas_dgemv`, `cblas_dgemm`) and vDSP for element-wise vectorization. On Linux without Accelerate, both matmul and element-wise fall back to scalar loops
 - The ~50ms/epoch Chez Scheme overhead is constant regardless of model size. For large models (NTM at production scale), it's negligible. For small models (Linear classifier), it dominates
+- Zero Scheme-specific FFI remains in the codebase — all FFI is portable C, compatible with both Chez and RefC backends
 - Numbers in this doc are from a single representative run. Run `make bench-ops-compare` for results on your hardware
