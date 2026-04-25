@@ -251,6 +251,11 @@ example-reinforce: install
 	cp $(LIB) build/exec/reinforce_app/
 	./build/exec/reinforce $(REINFORCE_ARGS)
 
+example-q-learning: install
+	idris2 $(IDRIS_FLAGS) -o q-learning $(EXAMPLE_SRC)/Example/QLearning.idr
+	cp $(LIB) build/exec/q-learning_app/
+	./build/exec/q-learning $(Q_LEARNING_ARGS)
+
 example-transfer: install
 	idris2 $(IDRIS_FLAGS) -o transfer $(EXAMPLE_SRC)/Example/Transfer.idr
 	cp $(LIB) build/exec/transfer_app/

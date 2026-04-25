@@ -15,6 +15,7 @@ modules = Example.Bench
         , Example.NtmAssociativeRecall
         , Example.NtmCopy
         , Example.Profile
+        , Example.QLearning
         , Example.Reinforce
         , Example.Rnn
         , Example.SeqClassify
