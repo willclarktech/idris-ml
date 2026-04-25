@@ -8,6 +8,21 @@ Deep learning library in Idris 2 with compile-time tensor shape checking and aut
 - [Implementing Neural Turing Machines (Collier & Beel 2018)](https://isg.beel.org/blog/2018/08/01/a-stable-neural-turing-machine-ntm-implementation-source-code-and-pre-print/) — stability findings: constant memory init (1e-6) converges 3.5x faster, tanh memory bounding, grad clip norm 50
 - [Hybrid computing using a neural network with dynamic external memory (Graves et al. 2016)](https://www.nature.com/articles/nature20101) — DNC paper: temporal link matrix, usage-based allocation, multiple read heads with mode mixture
 
+## Monorepo Structure
+
+```
+packages/
+  idris-ml/           # Core ML library (Idris ipkg)
+    src/              # Tensor, Variable, Layer.*, Train, etc.
+    test/             # Idris unit tests
+  idris-gym/          # Pure Idris RL environments (Gym.Env, Gym.CartPole)
+  idris-ml-examples/  # Example programs (depends on idris-ml + idris-gym)
+    src/Example/
+  backends/           # C/C++ backends (tape, MLX, torch)
+  jupyter/            # Jupyter kernel (Python)
+  pytorch/            # PyTorch reference implementations (Python)
+```
+
 ## Build Commands
 
 ```bash
@@ -20,14 +35,14 @@ make BACKEND=mlx MLX_SITE=/path/to/mlx backend
 # Build libtorch backend (optional, requires libtorch)
 make BACKEND=torch backend
 
-# Type-check all library modules
-idris2 --build idris-ml.ipkg
+# Install core lib + gym locally (required for examples/tests)
+make install
 
-# Type-check a single module
-idris2 --source-dir src -p contrib --check src/<File>.idr
+# Type-check all library modules
+cd packages/idris-ml && idris2 --build idris-ml.ipkg
 
 # Build and run an example (all examples accept --epochs, --lr, --seed)
-idris2 --source-dir src -p contrib -o <name> src/Example/<Name>.idr && ./build/exec/<name>
+make example-<name>
 
 # Tests
 make test-all            # Everything: Idris + C backends + integration + PyTorch ref
@@ -106,11 +121,11 @@ bash scripts/sweep.sh --task copy --parallel 4 --quick  # 2000 epochs for screen
 
 ### Jupyter notebooks
 
-Two categories in `jupyter/notebooks/`:
+Two categories in `packages/jupyter/notebooks/`:
 - **`tutorials/`** (01-06): Library concepts — tensors, types, layers, loss, training, devices
 - **`models/`** (9 notebooks): Per-architecture walkthroughs — supervised, rnn_lstm, transformer, gpt, ntm, dnc, cnn, reinforce, seq_classify. Each covers architecture, types, and training (interactive where feasible, CLI instructions for heavy models)
 
-`make test-notebooks` runs all notebooks headless to catch API breakage. CLI examples (`src/Example/`) remain the authoritative validation/benchmark targets via `make test-examples`.
+`make test-notebooks` runs all notebooks headless to catch API breakage. CLI examples (`packages/idris-ml-examples/src/Example/`) remain the authoritative validation/benchmark targets via `make test-examples`.
 
 ### Core type signatures
 
@@ -225,7 +240,7 @@ ok <- saveOptimizer "model.optimizer.safetensors" opt
 ok <- loadOptimizer "model.optimizer.safetensors" opt
 ```
 
-C-level API: `param_save`/`param_load` for weights, `optimizer_save`/`optimizer_load` for optimizer buffers. Shared implementation in `csrc/safetensors.c` using `csrc/cJSON.{c,h}` (vendored, MIT).
+C-level API: `param_save`/`param_load` for weights, `optimizer_save`/`optimizer_load` for optimizer buffers. Shared implementation in `packages/backends/safetensors.c` using `packages/backends/cJSON.{c,h}` (vendored, MIT).
 
 ### Curriculum training
 
@@ -256,8 +271,8 @@ printDiagnostics "label" snapshots
 ### Adding new examples
 
 1. **Source reference** — find paper/implementation for ground truth. Add to References
-2. **PyTorch implementation** — port to `pytorch/torch_ref/models/`, add tests + benchmark. Verify: `make ref-test && make ref-lint && make ref-typecheck`
-3. **Idris implementation** — implement in `src/Example/`, add to `Bench.idr` + Makefile. Verify: `make test && make bench-compare`
+2. **PyTorch implementation** — port to `packages/pytorch/torch_ref/models/`, add tests + benchmark. Verify: `make ref-test && make ref-lint && make ref-typecheck`
+3. **Idris implementation** — implement in `packages/idris-ml-examples/src/Example/`, add to `Bench.idr` + Makefile. Verify: `make test && make bench-compare`
 
 Commit at each step. PyTorch is the correctness oracle.
 
@@ -290,7 +305,7 @@ See [`docs/develop/gotchas.md`](docs/develop/gotchas.md) for detailed explanatio
 
 - **`total` is a keyword**: never use as a variable name — cryptic parse error. Use `numEpochs`, `totalEpochs`
 - **Build flags**: forgetting `--source-dir src` or `-p contrib` produces confusing import errors
-- **Temporary test files**: Idris2 requires source files in `--source-dir`. Put temp files in `src/Example/`, not `/tmp`
+- **Temporary test files**: Idris2 requires source files in `--source-dir`. Put temp files in `packages/idris-ml-examples/src/Example/`, not `/tmp`
 - **Elementwise `(*)`**: `Tensor`'s `Num` uses elementwise multiply. Use `(<>)` for matmul: `w <> x` for mat-vec, `a <> b` for mat-mat. Equivalent to PyTorch's `@` operator
 - **Tensor Foldable reversal**: `foldr`/`toList` produce reversed order. Use direct `Vect` traversal for ordered packing
 - **Zero-arg FFI CSE trap**: zero-arg `%noinline` defs are constants (evaluated once). Pass a dummy arg through to the FFI call
@@ -357,7 +372,7 @@ The MLX backend uses **replay-based native autograd** via `mlx::vjp`. Forward op
 ### Architecture & infrastructure
 
 - **Interface-based layer system**: `LayerLike` + `AnyLayer` existential. Explicit `{i, o : Nat}` needed on all methods (QTT erases Nat params). Adding a layer = one file, zero edits elsewhere. `ActivationState` has tensor-level `applyVarTensor` overrides for tanh/sigmoid (1 tape entry vs ~7n for scalar path)
-- **libtorch backend**: `csrc/backend.h` (abstract C API) + `csrc/backend_torch.cpp` (libtorch implementation). ~50 tensor ops, parameter registry, native optimizers. Autograd delegated entirely to libtorch
+- **libtorch backend**: `packages/backends/backend.h` (abstract C API) + `packages/backends/backend_torch.cpp` (libtorch implementation). ~50 tensor ops, parameter registry, native optimizers. Autograd delegated entirely to libtorch
 - **Autograd strategy per backend**: tape = manual Wengert tape + hand-written backward rules (reference, fastest for small tensors). torch = native `tensor.backward()` (2-line backward, zero rules). MLX = replay-based native autograd via `mlx::vjp` (forward ops recorded to tape, replayed inside closure for `mlx::vjp`, zero backward rules). Adding a new op: tape needs forward + backward rule, MLX needs only forward replay case (~2 lines), torch needs nothing (native autograd)
-- **Test suite**: `make test-all` runs everything. `make test` (Idris unit tests), `make test-backend-{tape,mlx,torch}` (C API tests per backend), `make test-safetensors` / `test-ntm-grad` / `test-ntm-timestep` (specialized C tests), `make test-examples` (integration: all examples on all backends with RESULT line validation). Tests in `test/src/Test/*.idr`, `Harness.idr` for assertions
+- **Test suite**: `make test-all` runs everything. `make test` (Idris unit tests), `make test-backend-{tape,mlx,torch}` (C API tests per backend), `make test-safetensors` / `test-ntm-grad` / `test-ntm-timestep` (specialized C tests), `make test-examples` (integration: all examples on all backends with RESULT line validation). Tests in `packages/idris-ml/test/src/Test/*.idr`, `Harness.idr` for assertions
 - **Curriculum learning**: available via `Curriculum` module. Not needed for LSTM-controller NTMs — converges directly with two-phase training
