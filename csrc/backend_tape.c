@@ -4381,6 +4381,8 @@ void optimizer_step(OptimizerHandle h) {
     }
     prof_optimizer_ms += _wall_ms() - t0_opt;
     prof_epochs++;
+    /* Auto-start timing for next epoch's forward pass */
+    prof_epoch_start = _wall_ms();
 }
 
 void optimizer_clip_grad_value(double max_val) {
