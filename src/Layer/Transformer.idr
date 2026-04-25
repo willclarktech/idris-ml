@@ -336,8 +336,8 @@ mkTransformer : {seqLen, dModel, numHeads, headDim, numBlocks, vocabSize : Nat} 
                 IO (TransformerState seqLen dModel numHeads headDim numBlocks vocabSize
                                      seqLen (seqLen * vocabSize) ty)
 mkTransformer {prf} = do
-  -- Embedding weights: small random init (same as nn.Embedding)
-  embedW <- traverse (\_ => map fromDouble (pure 0.0))
+  -- Embedding weights: xavier uniform init (matches nn.Embedding default)
+  embedW <- traverse (\_ => map fromDouble (xavier uniform vocabSize dModel))
                      (the (Vector (vocabSize * dModel) ty) zeros)
   blks <- mkBlocks numBlocks
   nf  <- mkLayerNorm {dim=dModel}

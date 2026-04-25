@@ -248,8 +248,8 @@ mkLstmWith {i} {o} initFn = do
   iw <- traverse (\_ => map fromDouble (initFn i (4 * o))) (the (Matrix (4 * o) i ty) zeros)
   rw <- traverse (\_ => map fromDouble (initFn o (4 * o))) (the (Matrix (4 * o) o ty) zeros)
   let b = the (Vector (4 * o) ty) zeros
-  h0 <- traverse (\_ => map fromDouble (xavier uniform o 1)) (the (Vector o ty) zeros)
-  c0 <- traverse (\_ => map fromDouble (xavier uniform o 1)) (the (Vector o ty) zeros)
+  let h0 = the (Vector o ty) zeros  -- zero init (standard, matches PyTorch)
+      c0 = the (Vector o ty) zeros
   pure $ MkLstm iw rw b h0 c0 Nothing Nothing Nothing Nothing Nothing
 
 ||| Create a raw LstmState with default Xavier uniform init
