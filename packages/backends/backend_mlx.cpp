@@ -98,6 +98,8 @@ enum {
     OP_CONV2D,
     OP_MAX_POOL2D,
     OP_CUMPROD,
+    OP_GATHER,        /* gather along axis 0 by integer indices */
+    OP_SCATTER_ADD,   /* scatter-add along axis 0 by integer indices */
     OP_LEAKY_RELU,
     OP_SILU,
 };
@@ -728,30 +730,29 @@ TensorHandle tensor_embedding(TensorHandle hweight, TensorHandle hindices, int n
 }
 
 TensorHandle tensor_gather(TensorHandle hinput, TensorHandle hindex, int n) {
+    (void)n;
     auto inp = (Tensor*)hinput;
     auto idx = (Tensor*)hindex;
     auto idx_int = mx::astype(idx->data, mx::int32);
     auto result = mx::take(inp->data, idx_int, 0);
-    return (TensorHandle)(new Tensor(result, inp->requires_grad));
+    auto r = new Tensor(result, inp->requires_grad);
+    if (inp->requires_grad) tape_append(OP_GATHER, r, inp, idx, 0);
+    return (TensorHandle)r;
 }
 
 TensorHandle tensor_scatter_add(TensorHandle hindex, TensorHandle hsrc, int out_size) {
     auto idx = (Tensor*)hindex;
     auto src = (Tensor*)hsrc;
-    auto out = mx::zeros({out_size}, mx::float64);
-    // Scatter-add via loop (small n expected)
-    mx::eval(idx->data); mx::eval(src->data);
-    auto idx_flat = mx::astype(idx->data, mx::int32);
-    mx::eval(idx_flat);
-    // Use put_along_axis or manual loop
-    for (int i = 0; i < (int)src->data.size(); i++) {
-        int ix = idx_flat.data<int32_t>()[i];
-        auto val = mx::take(src->data, mx::array(i));
-        auto cur = mx::take(out, mx::array(ix));
-        out = mx::where(mx::equal(mx::arange(out_size), mx::array(ix)),
-                        mx::add(out, mx::broadcast_to(val, {out_size})), out);
-    }
-    return (TensorHandle)(new Tensor(out, src->requires_grad));
+    auto idx_int = mx::astype(idx->data, mx::int32);
+    auto base = mx::zeros({out_size}, mx::float64);
+    /* mx::scatter_add updates shape: indices.shape + base.shape[axis+1:].
+       For 1D base on axis 0 that's [N, 1] (the trailing 1 is the empty
+       remainder reified as a singleton). */
+    auto updates_2d = mx::reshape(src->data, {(int)src->data.size(), 1});
+    auto result = mx::scatter_add(base, {idx_int}, updates_2d, std::vector<int>{0});
+    auto r = new Tensor(result, src->requires_grad);
+    if (src->requires_grad) tape_append(OP_SCATTER_ADD, r, src, idx, (double)out_size);
+    return (TensorHandle)r;
 }
 
 TensorHandle tensor_argsort(TensorHandle ht, int dim, int descending) {
@@ -1620,6 +1621,19 @@ void tensor_backward(TensorHandle h) {
             }
             case OP_CUMPROD: {
                 pool[out] = mx::cumprod(a, 0);
+                break;
+            }
+            case OP_GATHER: {
+                auto idx_int = mx::astype(b, mx::int32);
+                pool[out] = mx::take(a, idx_int, 0);
+                break;
+            }
+            case OP_SCATTER_ADD: {
+                int out_size = (int)e.scalar_arg;
+                auto idx_int = mx::astype(b, mx::int32);
+                auto base = mx::zeros({out_size}, mx::float64);
+                auto updates_2d = mx::reshape(a, {(int)a.size(), 1});
+                pool[out] = mx::scatter_add(base, {idx_int}, updates_2d, std::vector<int>{0});
                 break;
             }
             default: break;
