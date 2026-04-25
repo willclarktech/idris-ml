@@ -6,6 +6,12 @@
 |------|-----------|-------|
 | CUDA support | M–L | Torch backend should work via `tensor_to_device("cuda")` — untested. Test script ready: `scripts/test_cuda_colab.sh`. See `docs/develop/cuda-testing.md`. Device type system ready: `Variable (CUDA 0)` compiles, `toDevice` + FFI bindings exist |
 
+## Medium Priority
+
+| Item | Difficulty | Notes |
+|------|-----------|-------|
+| Privacy-preserving ML (PPML) | M–L | Examples and layers for differential privacy (DP-SGD, gradient clipping + noise), secure aggregation, and homomorphic encryption (HE-friendly activations). Inspired by OpenMined/PySyft. Idris 2's type system could enforce privacy budgets at compile time (e.g., epsilon-tracking via phantom types). Start with DP-SGD example (clip per-sample gradients + Gaussian noise in optimizer), then HE-compatible polynomial activations |
+
 ## Low Priority
 
 | Item | Difficulty | Notes |
