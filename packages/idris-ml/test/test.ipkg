@@ -1,0 +1,23 @@
+package idris-ml-test
+
+sourcedir = "src"
+
+depends = contrib
+        , idris-ml
+
+modules = Harness
+        , Main
+        , Test.Generate
+        , Test.Init
+        , Test.Layer
+        , Test.Math
+        , Test.Memory
+        , Test.Optimizer
+        , Test.Sampler
+        , Test.Schedule
+        , Test.Tensor
+        , Test.Variable
+
+main = Main
+
+executable = test

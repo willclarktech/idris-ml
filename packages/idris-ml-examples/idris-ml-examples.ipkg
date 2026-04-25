@@ -1,0 +1,23 @@
+package idris-ml-examples
+
+sourcedir = "src"
+
+depends = contrib
+        , idris-ml
+        , idris-gym
+
+modules = Example.Bench
+        , Example.DncAssociativeRecall
+        , Example.DncCopy
+        , Example.Gpt
+        , Example.Lstm
+        , Example.Mnist
+        , Example.NtmAssociativeRecall
+        , Example.NtmCopy
+        , Example.Profile
+        , Example.Reinforce
+        , Example.Rnn
+        , Example.SeqClassify
+        , Example.Supervised
+        , Example.Transfer
+        , Example.Transformer

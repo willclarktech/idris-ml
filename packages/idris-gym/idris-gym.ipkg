@@ -1,0 +1,8 @@
+package idris-gym
+
+sourcedir = "src"
+
+depends = contrib
+
+modules = Gym.Env
+        , Gym.CartPole

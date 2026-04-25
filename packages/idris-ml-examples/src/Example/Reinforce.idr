@@ -6,6 +6,7 @@ import System
 import Compat.Random
 
 import Floating
+import Gym.CartPole
 import Layer
 import Sampler
 import Tensor
@@ -15,42 +16,10 @@ import Device
 import Variable
 
 
-----------------------------------------------------------------------
--- CartPole Environment (Gymnasium-compatible constants)
-----------------------------------------------------------------------
-
-Gravity : Double;       Gravity = 9.8
-MassCart : Double;      MassCart = 1.0
-MassPole : Double;      MassPole = 0.1
-TotalMass : Double;     TotalMass = MassCart + MassPole
-HalfPoleLen : Double;   HalfPoleLen = 0.5
-PoleMassLen : Double;   PoleMassLen = MassPole * HalfPoleLen
-ForceMag : Double;      ForceMag = 10.0
-Tau : Double;           Tau = 0.02
-ThetaThresh : Double;   ThetaThresh = 12.0 * 2.0 * 3.141592653589793 / 360.0
-XThresh : Double;       XThresh = 2.4
-MaxSteps : Nat;         MaxSteps = 200
-
-record CPState where
-  constructor MkCP
-  cpX, cpXDot, cpTheta, cpThetaDot : Double
-
-cpStep : CPState -> Nat -> (Double, CPState, Bool)
-cpStep s action =
-  let force = if action == 1 then ForceMag else negate ForceMag
-      cosT = prim__doubleCos s.cpTheta
-      sinT = prim__doubleSin s.cpTheta
-      temp = (force + PoleMassLen * s.cpThetaDot * s.cpThetaDot * sinT) / TotalMass
-      tAcc = (Gravity * sinT - cosT * temp) /
-             (HalfPoleLen * (4.0 / 3.0 - MassPole * cosT * cosT / TotalMass))
-      xAcc = temp - PoleMassLen * tAcc * cosT / TotalMass
-      s' = MkCP (s.cpX + Tau * s.cpXDot) (s.cpXDot + Tau * xAcc)
-                (s.cpTheta + Tau * s.cpThetaDot) (s.cpThetaDot + Tau * tAcc)
-  in (1.0, s', abs s'.cpX > XThresh || abs s'.cpTheta > ThetaThresh)
+MaxSteps : Nat; MaxSteps = cartPoleMaxSteps
 
 observe : CPState -> Vector 4 Double
-observe s = VTensor [STensor s.cpX, STensor s.cpXDot,
-                     STensor s.cpTheta, STensor s.cpThetaDot]
+observe s = VTensor (map STensor (cpObserve s))
 
 
 ----------------------------------------------------------------------
