@@ -18,3 +18,4 @@ Architecture, design rationale, and implementation deep-dives live in [develop/]
 - [NTM Convergence](develop/ntm-convergence-results.md) -- ablation studies and experimental results
 - [DNC Convergence](develop/dnc-convergence-results.md) -- Differentiable Neural Computer results
 - [CUDA Testing](develop/cuda-testing.md) -- GPU testing on Google Colab
+- [RefC Investigation](develop/refc-investigation.md) -- RefC backend compatibility and benchmarking
