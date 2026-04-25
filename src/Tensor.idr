@@ -2,7 +2,7 @@ module Tensor
 
 import Data.Vect
 import Data.Fin
-import System.Random
+import Compat.Random
 
 import Floating
 

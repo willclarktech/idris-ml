@@ -4,7 +4,7 @@ import Data.List
 import Data.Maybe
 import Data.SortedMap
 import Data.Vect
-import System.Random
+import Compat.Random
 
 import Device
 import Floating

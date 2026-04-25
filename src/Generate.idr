@@ -5,7 +5,7 @@ import Data.List
 import Data.Nat
 import Data.Stream
 import Data.Vect
-import System.Random
+import Compat.Random
 
 import DataPoint
 import Math

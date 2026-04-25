@@ -4,7 +4,8 @@ sourcedir = "src"
 
 depends = contrib
 
-modules = Backprop
+modules = Compat.Random
+        , Backprop
         , Checkpoint
         , Curriculum
         , DataLoader

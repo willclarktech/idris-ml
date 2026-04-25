@@ -2,7 +2,7 @@ module Layer.Dnc
 
 import Data.Vect
 import Data.Zippable
-import System.Random
+import Compat.Random
 
 import Device
 import Floating

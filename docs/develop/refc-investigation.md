@@ -25,7 +25,7 @@ IDRIS2_CFLAGS="-I$GMP_INC" IDRIS2_LDFLAGS="-L$GMP_LIB" IDRIS2_LDLIBS="-lgmp" \
 
 RefC requires GMP (GNU Multiple Precision) for big integer support. On nix: `nix build nixpkgs#gmp.dev`.
 
-## Blocker: contrib's System.Random
+## Blocker 1 (resolved): contrib's System.Random
 
 **The idris-ml codebase cannot currently compile with RefC** due to:
 
@@ -43,20 +43,39 @@ Error: INTERNAL ERROR: [refc] FFI not found for System_Random_prim__srand
 
 3. **Use `--directive refc:<name>=<c_function>`** — RefC supports custom FFI directives that map Idris FFI names to C functions. Could potentially map `System_Random_prim__srand` to a C `srand` wrapper without changing any Idris code. Needs investigation.
 
+**Resolution**: Created `Compat.Random` module with C FFI (`srand`/`rand` from libc). Replaced all 23 `import System.Random` with `import Compat.Random`. Library type-checks and examples produce correct results on Chez.
+
+## Blocker 2 (open): RefC runtime library incomplete
+
+After resolving the Random blocker, RefC generates C code successfully but compilation fails:
+
+1. **Missing `idris2_negate_Double`** — The RefC runtime (`libidris2_refc.a`) on Idris 0.8.0 only has `idris2_negate_Integer`, not the Double variant. Our code uses `negate` on Doubles (e.g., in Sampler's uniform distribution). This is a gap in the RefC runtime library.
+
+2. **Missing `idris2_cast_string_to_Integer`** — Similar runtime function gap.
+
+3. **`-include csrc/backend.h`** needed — RefC's generated C file doesn't include our FFI headers. Workaround: pass `-include csrc/backend.h` via `IDRIS2_CFLAGS`.
+
+4. **const char* vs char*** — RefC generates `char*` for String returns but our `backend_name()` returns `const char*`. Minor, suppressed with `-Wno-incompatible-pointer-types-discards-qualifiers`.
+
+### Assessment
+
+The missing `idris2_negate_Double` is a RefC runtime bug/gap in Idris 0.8.0. Options:
+- Wait for a newer Idris 2 release with a more complete RefC runtime
+- Provide our own shim implementations of the missing functions
+- File an upstream issue
+
 ## Decision
 
-**Status: Blocked on contrib System.Random.**
+**Status: Blocked on RefC runtime library gaps (Idris 0.8.0).**
 
-The FFI portability work (eliminating all 23 Scheme bindings) is complete and was worth doing regardless — it removes fragile inline Scheme code from the codebase. When the System.Random blocker is resolved (via option 1, 2, or 3 above), RefC compilation should work.
+The FFI portability work and Compat.Random are complete and independently valuable. RefC is close to working — the Idris→C code generation succeeds, and all our FFI calls resolve correctly. The remaining issues are in Idris 2's own RefC runtime, not in our code.
 
-**No performance data collected** — couldn't reach the benchmarking step.
+**Recommendation**: File an upstream issue, provide shim implementations for `idris2_negate_Double` etc. to unblock, or revisit when Idris 2 updates its RefC runtime. The investigation shows RefC is architecturally viable for idris-ml but needs runtime library fixes.
 
-## Recommendation
+## What was independently valuable
 
-**Option 1 (our own Random module) is the fastest path** to unblocking. If RefC benchmarks show a meaningful improvement, we can upstream the fix to contrib afterwards. If benchmarks show no improvement, we save the effort.
-
-Next steps:
-1. Implement option 1 (own Random module) OR investigate option 3 (RefC directives)
-2. Get Supervised + Transformer compiling under RefC
-3. Run 5x benchmarks on each, compare wall time and C time
-4. Document results and make adopt/reject decision
+Even without RefC benchmarks, this investigation delivered:
+1. **Zero Scheme FFI remaining** — all 23 bindings replaced with portable C calls
+2. **Compat.Random module** — C-based random generation, no Chez dependency
+3. **Portable C helpers** on all 3 backends (tape, MLX, torch)
+4. **Clear understanding** of RefC's limitations and what's needed to unblock

@@ -1,7 +1,7 @@
 module Init
 
 import public Sampler
-import System.Random
+import Compat.Random
 
 
 ----------------------------------------------------------------------

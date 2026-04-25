@@ -6,7 +6,7 @@ module Example.Transfer
 import Data.List
 import Data.Vect
 import System
-import System.Random
+import Compat.Random
 
 import Backprop
 import Checkpoint

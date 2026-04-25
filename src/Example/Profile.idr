@@ -4,7 +4,7 @@ import Data.List
 import Data.Vect
 import System
 import System.Clock
-import System.Random
+import Compat.Random
 
 import Backprop
 import DataPoint

@@ -14,7 +14,7 @@ import Data.String
 import Data.Vect
 import Decidable.Equality
 import System
-import System.Random
+import Compat.Random
 
 import Backprop
 import DataPoint

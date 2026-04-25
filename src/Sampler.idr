@@ -1,6 +1,6 @@
 module Sampler
 
-import System.Random
+import Compat.Random
 
 
 ----------------------------------------------------------------------

@@ -3,7 +3,7 @@ module Example.Reinforce
 import Data.List
 import Data.Vect
 import System
-import System.Random
+import Compat.Random
 
 import Floating
 import Layer
