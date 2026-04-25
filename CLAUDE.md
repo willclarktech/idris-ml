@@ -216,6 +216,9 @@ cfg = parseArgs defaultConfig specs (drop 1 args)
 | RL (REINFORCE) | `epochRL` (custom) | `List (List Double)` (random pool) | Policy gradient |
 | RL (tabular) | custom (uses `runTraining`) | noise pool (ε-greedy uniforms) | Q-learning / SARSA / MC |
 | RL (DQN) | custom (uses `runTrainingIO`) | `()` (buffer + RNG are stateful) | Off-policy deep Q-learning |
+| RL (A2C) | custom (uses `runTrainingIO`) | `()` (env state + running return via IORef) | On-policy actor-critic with GAE |
+| RL (PPO) | custom (uses `runTrainingIO`) | `()` (K-epoch mini-batch over rollout) | On-policy clipped-surrogate w/ Gaussian policy |
+| RL (SAC) | custom (uses `runTrainingIO`) | `()` (buffer + target snapshots) | Off-policy twin-Q w/ tanh-squashed Gaussian actor |
 
 ### Parameter naming (required for gradient flow)
 
