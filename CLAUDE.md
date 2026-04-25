@@ -47,17 +47,14 @@ cd packages/idris-ml && idris2 --build idris-ml.ipkg
 # Build and run an example (all examples accept --epochs, --lr, --seed)
 make example-<name>
 
-# Tests
-make test-all            # Everything: Idris + C backends + integration + PyTorch ref
-make test                # Idris unit tests (pure logic, tape backend)
-make test-gym            # Gym package unit tests (pure Idris, no backend)
-make test-backend-tape   # C backend API tests on tape
-make test-backend-mlx    # C backend API tests on MLX
-make test-backend-torch  # C backend API tests on torch
-make test-safetensors    # SafeTensors serialization round-trip
-make test-ntm-grad       # NTM gradient NaN detection
-make test-ntm-timestep   # NTM full timestep integration
-make test-examples       # All examples on all backends, validates RESULT lines
+# Tests — see docs/develop/testing.md for the full layer breakdown
+make test-examples              # Smoke gate: every example × 3 backends, ~13 min
+make test-examples-convergence  # Every example to convergence at full epochs (hours, tape only)
+make test-all                   # Everything except convergence (~30 min)
+make test                       # Idris unit tests
+make test-gym                   # Gym package unit tests
+make test-backend-{tape,mlx,torch}  # C backend FFI tests per backend
+make test-safetensors / test-ntm-grad / test-ntm-timestep  # Specialized C tests
 
 # Benchmarks
 make example-bench           # Idris benchmark (Supervised + RNN + NTM)
@@ -419,5 +416,5 @@ The MLX backend uses **replay-based native autograd** via `mlx::vjp`. Forward op
 - **Interface-based layer system**: `LayerLike` + `AnyLayer` existential. Explicit `{i, o : Nat}` needed on all methods (QTT erases Nat params). Adding a layer = one file, zero edits elsewhere. `ActivationState` has tensor-level `applyVarTensor` overrides for tanh/sigmoid (1 tape entry vs ~7n for scalar path)
 - **libtorch backend**: `packages/backends/backend.h` (abstract C API) + `packages/backends/backend_torch.cpp` (libtorch implementation). ~50 tensor ops, parameter registry, native optimizers. Autograd delegated entirely to libtorch
 - **Autograd strategy per backend**: tape = manual Wengert tape + hand-written backward rules (reference, fastest for small tensors). torch = native `tensor.backward()` (2-line backward, zero rules). MLX = replay-based native autograd via `mlx::vjp` (forward ops recorded to tape, replayed inside closure for `mlx::vjp`, zero backward rules). Adding a new op: tape needs forward + backward rule, MLX needs only forward replay case (~2 lines), torch needs nothing (native autograd)
-- **Test suite**: `make test-all` runs everything. `make test` (Idris unit tests), `make test-gym` (Gym package unit tests, pure Idris), `make test-backend-{tape,mlx,torch}` (C API tests per backend), `make test-safetensors` / `test-ntm-grad` / `test-ntm-timestep` (specialized C tests), `make test-examples` (integration: all examples on all backends with RESULT line validation). Tests in `packages/idris-ml/test/src/Test/*.idr`, `packages/idris-gym/test/src/Test/*.idr`, per-package `Harness.idr` for assertions
+- **Test suite**: see `docs/develop/testing.md` for the full breakdown (smoke gate vs convergence vs unit/FFI/reference layers, per-target reference, threshold philosophy). The two top-level commands are `make test-examples` (crash-only smoke, ~13 min) and `make test-examples-convergence` (every example to convergence, hours). Tests in `packages/idris-ml/test/src/Test/*.idr`, `packages/idris-gym/test/src/Test/*.idr`, per-package `Harness.idr` for assertions
 - **Curriculum learning**: available via `Curriculum` module. Not needed for LSTM-controller NTMs — converges directly with two-phase training

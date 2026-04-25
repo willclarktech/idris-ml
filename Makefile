@@ -488,26 +488,10 @@ clean:
 EXAMPLES := example-supervised example-rnn example-lstm example-transformer example-gpt example-mnist example-seq-classify example-ntm-copy example-ntm-associative-recall example-dnc-copy example-dnc-recall example-reinforce example-q-learning example-sarsa example-monte-carlo example-dqn example-a2c example-ppo example-sac example-transfer
 BACKENDS := tape mlx torch
 
-# Run all examples on all available backends, validate RESULT lines.
-# Tries to build each backend; skips gracefully if libraries not installed.
-#
-# CRASH-ONLY SMOKE GATE: each example runs 3-10 epochs, just enough to
-# exercise forward + backward + optimizer step plus a multi-epoch
-# state-lifecycle check. Thresholds in test-examples.expect are at
-# safety-net level — they catch crashes, NaN, total divergence, and
-# missing/renamed RESULT keys, but do NOT require the model to learn.
-# Convergence regressions are detected by test-examples-convergence
-# (RL multi-seed) and any future full-config lane.
-#
-# Why 3-10 epochs (not 1): some bugs only manifest after a tape_reset
-# between epochs (DNC tape-realloc SIGSEGV, DNC-on-MLX state-lifecycle
-# bug). 3+ epochs guarantees we exercise that code path.
-#
-# DNC keeps --max-len 3 --batch 1: at default config DNC's per-epoch
-# cost is too high (~3-5 s/epoch even at batch=1 with N=128 link matrix).
-#
-# Full-epoch, multi-seed convergence lives in test-examples-convergence (RL only
-# today; NTM/DNC full-convergence lane is a TODO).
+# Crash-only smoke gate: every example × 3 backends, 3-10 epochs each,
+# safety-net thresholds in test-examples.expect. Catches crashes / NaN /
+# divergence / missing RESULT keys; does NOT require any model to learn.
+# See docs/develop/testing.md for the full testing-layer overview.
 test-examples:
 	@fail=0; skip=""; \
 	if command -v timeout >/dev/null 2>&1; then TIMEOUT_PREFIX="timeout $(EXAMPLE_TIMEOUT)"; \
@@ -596,108 +580,27 @@ test-examples:
 
 all-backends: test-examples
 
-# Multi-seed smoke test. Runs the seed-sensitive subset at the same reduced
-# epochs as test-examples, but across $(SEEDS), requiring at least
-# $(SEEDS_REQUIRED) of them to pass the threshold in test-examples.expect.
-# Catches the "ships at seed=42, fails elsewhere" regression called out in
-# CLAUDE.md. NTM/DNC are excluded: their default epoch counts make a 3-seed
-# matrix prohibitively slow; seed-sensitivity there is documented (e.g.
-# NtmCopy batch=1) and checked separately in a manual run.
-# For convergence CLAIMS (docs/PR descriptions), still use >= 5 seeds locally.
-STOCHASTIC_EXAMPLES := example-reinforce example-q-learning example-sarsa example-monte-carlo \
-                       example-dqn example-a2c example-ppo example-sac
-SEEDS := 42 123 7
-SEEDS_REQUIRED := 2
-
-test-examples-convergence:
-	@fail=0; \
-	if command -v timeout >/dev/null 2>&1; then TIMEOUT_PREFIX="timeout $(EXAMPLE_TIMEOUT)"; \
-	elif command -v gtimeout >/dev/null 2>&1; then TIMEOUT_PREFIX="gtimeout $(EXAMPLE_TIMEOUT)"; \
-	else TIMEOUT_PREFIX=""; fi; \
-	total_seeds=$$(echo $(SEEDS) | wc -w | tr -d ' '); \
-	for e in $(STOCHASTIC_EXAMPLES); do \
-		echo "=== $$e (needs >= $(SEEDS_REQUIRED)/$$total_seeds seeds) ==="; \
-		$(MAKE) --no-print-directory $$e >/dev/null 2>&1 || { \
-			echo "FAIL: $$e build (or default run) failed"; fail=1; continue; \
-		}; \
-		bin_name=$$(echo $$e | sed 's/^example-//'); \
-		bin="./build/exec/$$bin_name"; \
-		if [ ! -x "$$bin" ]; then \
-			echo "FAIL: $$e binary $$bin not found"; fail=1; continue; \
-		fi; \
-		epoch_args=""; \
-		case "$$e" in \
-			example-reinforce) epoch_args="--epochs 200" ;; \
-			example-dqn)       epoch_args="--epochs 50" ;; \
-			example-a2c)       epoch_args="--epochs 1000" ;; \
-			example-ppo)       epoch_args="--epochs 20" ;; \
-			example-sac)       epoch_args="--epochs 1500" ;; \
-		esac; \
-		passed=0; \
-		for s in $(SEEDS); do \
-			output=$$($$TIMEOUT_PREFIX $$bin $$epoch_args --seed $$s 2>&1); rc=$$?; \
-			if [ $$rc -ne 0 ]; then \
-				echo "  seed=$$s: crashed (rc=$$rc)"; continue; \
-			fi; \
-			result_line=$$(echo "$$output" | grep '^RESULT' | head -1); \
-			if [ -z "$$result_line" ]; then \
-				echo "  seed=$$s: no RESULT line"; continue; \
-			fi; \
-			if scripts/check-result.sh "$$e" "$$result_line" >/dev/null 2>&1; then \
-				passed=$$((passed+1)); \
-				echo "  seed=$$s: pass -- $$result_line"; \
-			else \
-				echo "  seed=$$s: fail -- $$result_line"; \
-			fi; \
-		done; \
-		if [ $$passed -ge $(SEEDS_REQUIRED) ]; then \
-			echo ">>> $$e: $$passed/$$total_seeds seeds passed (OK)"; \
-		else \
-			echo ">>> $$e: $$passed/$$total_seeds seeds passed (FAIL, need >= $(SEEDS_REQUIRED))"; \
-			fail=1; \
-		fi; \
-	done; \
-	if [ $$fail -ne 0 ]; then echo "Some convergence runs FAILED"; exit 1; fi; \
-	echo "All convergence runs passed."
-
-# ----------------------------------------------------------------------
-# Convergence lanes for the non-RL examples
-# ----------------------------------------------------------------------
-#
-# After the smoke collapse, test-examples no longer requires any model to
-# learn — its thresholds are safety-net only. These targets restore real
-# convergence-regression coverage. They use tight thresholds from
-# test-examples-convergence.expect and run at full default epochs.
-#
-#   test-examples-convergence-supervised : fast set (supervised, recurrent,
-#                                          transformer, mnist, seq-classify,
-#                                          gpt, transfer). ~20-30 min on tape.
-#                                          Suitable for nightly CI.
-#   test-examples-convergence-memory     : NTM/DNC at full default epochs.
-#                                          Hours on tape — manual release
-#                                          validation, NOT for CI.
-#   test-examples-convergence-all        : umbrella — runs all three convergence
-#                                          targets (supervised + RL multi-seed +
-#                                          memory-aug). Several hours.
-CONVERGENCE_SUPERVISED_EXAMPLES := example-supervised example-rnn example-lstm example-transformer \
-                                   example-mnist example-seq-classify example-gpt example-transfer
-CONVERGENCE_MEMORY_EXAMPLES := example-ntm-copy example-ntm-associative-recall \
-                               example-dnc-copy example-dnc-recall
+# Run every example to convergence at full default epochs, single seed=42,
+# tape backend, with tight thresholds from test-examples-convergence.expect.
+# Hours of wall time (NTM/DNC dominate). Intended for release validation,
+# not CI. See docs/develop/testing.md for the testing-layer overview.
+# 4h per-example cap (vs 600s for the smoke gate); plenty for NTM/DNC at default epochs
+CONVERGENCE_TIMEOUT ?= 14400
 CONVERGENCE_EXPECT := test-examples-convergence.expect
 
-# Helper invoked by the convergence-supervised and convergence-memory targets.
-# Args: $(1) = example list, $(2) = friendly label.
-define run_convergence_lane
+test-examples-convergence:
+	@echo "WARNING: full-convergence runs take several hours on tape."
+	@echo "         Press Ctrl-C in the next 5s to abort." && sleep 5
 	@fail=0; \
-	if command -v timeout >/dev/null 2>&1; then TIMEOUT_PREFIX="timeout $(EXAMPLE_TIMEOUT)"; \
-	elif command -v gtimeout >/dev/null 2>&1; then TIMEOUT_PREFIX="gtimeout $(EXAMPLE_TIMEOUT)"; \
+	if command -v timeout >/dev/null 2>&1; then TIMEOUT_PREFIX="timeout $(CONVERGENCE_TIMEOUT)"; \
+	elif command -v gtimeout >/dev/null 2>&1; then TIMEOUT_PREFIX="gtimeout $(CONVERGENCE_TIMEOUT)"; \
 	else TIMEOUT_PREFIX=""; fi; \
-	for e in $(1); do \
+	for e in $(EXAMPLES); do \
 		echo "=== $$e ==="; \
 		output=$$($$TIMEOUT_PREFIX $(MAKE) --no-print-directory BACKEND=tape $$e 2>&1); rc=$$?; \
 		if [ $$rc -ne 0 ]; then \
 			if [ $$rc -eq 124 ]; then \
-				echo "FAIL: $$e timed out (>$(EXAMPLE_TIMEOUT)s)"; \
+				echo "FAIL: $$e timed out (>$(CONVERGENCE_TIMEOUT)s)"; \
 			else \
 				echo "FAIL: $$e crashed (rc=$$rc)"; \
 			fi; \
@@ -712,27 +615,8 @@ define run_convergence_lane
 		fi; \
 		scripts/check-result.sh "$$e" "$$result_line" "$(CONVERGENCE_EXPECT)" || fail=1; \
 	done; \
-	if [ $$fail -ne 0 ]; then echo "Some $(2) runs FAILED"; exit 1; fi; \
-	echo "All $(2) runs passed."
-endef
-
-test-examples-convergence-supervised:
-	$(call run_convergence_lane,$(CONVERGENCE_SUPERVISED_EXAMPLES),supervised-convergence)
-
-# WARNING: this target takes several hours on the tape backend (NTM/DNC at
-# default 50K-100K epochs). Use for release validation, not CI.
-test-examples-convergence-memory:
-	@echo "WARNING: NTM/DNC convergence runs take several hours on tape."
-	@echo "         Press Ctrl-C in the next 5s to abort." && sleep 5
-	$(call run_convergence_lane,$(CONVERGENCE_MEMORY_EXAMPLES),memory-convergence)
-
-# Umbrella: every automated convergence lane in one command.
-# Skips test-examples-convergence-memory by default — uncomment to include.
-# Total wall time without memory: ~30-60 min depending on hardware.
-test-examples-convergence-all: test-examples-convergence-supervised test-examples-convergence
-	@echo ""
-	@echo "All non-memory convergence lanes passed."
-	@echo "(Run 'make test-examples-convergence-memory' separately for NTM/DNC; takes hours.)"
+	if [ $$fail -ne 0 ]; then echo "Some convergence runs FAILED"; exit 1; fi; \
+	echo "All convergence runs passed."
 
 # Run everything: Idris unit tests, C backend tests, specialized tests,
 # integration tests, PyTorch reference tests (if available)
@@ -794,8 +678,7 @@ all: check-all test-all
 
 .PHONY: all check-all all-backends test test-gym test-examples-unit test-all download-mnist test-backend test-backend-tape test-backend-mlx \
         test-backend-torch test-safetensors test-ntm-grad test-ntm-timestep \
-        test-examples test-examples-convergence test-examples-convergence-supervised \
-        test-examples-convergence-memory test-examples-convergence-all \
+        test-examples test-examples-convergence \
         check check-gym check-notebook check-examples install install-core install-gym install-notebook install-examples \
         example-supervised example-rnn example-lstm \
         example-ntm-copy example-ntm-associative-recall example-dnc-copy example-dnc-recall \

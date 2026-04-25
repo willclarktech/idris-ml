@@ -3,34 +3,41 @@
 # Format: <target> <key> <op> <threshold>
 # Same syntax as test-examples.expect — see that file's header for details.
 #
-# CONVERGENCE-LEVEL THRESHOLDS: these are the tight thresholds the smoke
-# gate (test-examples.expect) used to use before the crash-only collapse.
-# They require the model to actually learn — appropriate for the slow lanes
-# that run at full default epoch counts.
-#
-# Used by:
-#   - test-examples-convergence-supervised (non-RL fast-converging set, single seed=42)
-#   - (eventually) test-examples-convergence (RL multi-seed) once that target is
-#     migrated off test-examples.expect
+# CONVERGENCE-LEVEL THRESHOLDS: tight thresholds that require the model to
+# actually learn. Used by `make test-examples-convergence` which runs every
+# example to convergence at full default epochs (single seed=42, tape only).
+# See docs/develop/testing.md for the testing-layer overview.
 
-# ---- Supervised / recurrent ----
+# ---- Supervised / recurrent / transformer ----
 example-supervised               loss         <   0.5
 example-rnn                      loss         <   0.5
 example-lstm                     loss         <   0.7
 example-transformer              sort_acc     >=  0.8
 
 # ---- Other non-RL ----
-# Calibrate empirically — placeholders below; first clean run sets them
 example-mnist                    accuracy     >=  0.85
 example-seq-classify             loss         <   0.5
 example-gpt                      bpc          <   3.5
 example-transfer                 loss         <   0.5
 
-# ---- Memory-augmented (test-examples-convergence-memory) ----
-# Original tight thresholds before the smoke collapse. NTM/DNC at default
-# 50K-100K epochs takes hours; only the manual memory-convergence target
-# uses these.
+# ---- Memory-augmented (NTM/DNC at full default 50K-100K epochs) ----
 example-ntm-copy                 acc_short    >=  0.9
 example-ntm-associative-recall   acc_k2       >=  0.8
 example-dnc-copy                 acc_short    >=  0.8
 example-dnc-recall               acc_k2       >=  0.6
+
+# ---- RL: tabular ----
+example-q-learning               avg_return   >=  -120
+example-sarsa                    avg_return   >=  -120
+example-monte-carlo              win_rate     >=  0.3
+
+# ---- RL: deep (CartPole + Pendulum) ----
+# CartPole: REINFORCE/A2C aim for ~500; DQN ~100+ at convergence.
+# Pendulum: PPO/SAC aim for -200 to -500 at full convergence;
+# pre-smoke-collapse caps had PPO/SAC fail anyway, so thresholds are
+# documented partial-convergence levels.
+example-reinforce                avg_return   >=  150
+example-dqn                      avg_return   >=  100
+example-a2c                      avg_return   >=  150
+example-ppo                      avg_return   >=  -800
+example-sac                      avg_return   >=  -500
