@@ -2,6 +2,9 @@ UNAME := $(shell uname)
 BUILD := build
 BACKEND ?= tape
 
+# `make` builds backend + type-checks all packages. `make all` also runs tests.
+.DEFAULT_GOAL := check-all
+
 # --- Package paths ---
 CORE_SRC := packages/idris-ml/src
 GYM_SRC := packages/idris-gym/src
@@ -479,10 +482,13 @@ test-all:
 	@echo ""
 	@echo "=== All tests complete ==="
 
-# Verify everything: type-check all packages + run all tests
-all: check check-gym check-examples test-all
+# Build backend + type-check all packages (default target)
+check-all: check check-gym check-examples
 
-.PHONY: all all-backends test test-all download-mnist test-backend test-backend-tape test-backend-mlx \
+# Verify everything: check-all + run all tests
+all: check-all test-all
+
+.PHONY: all check-all all-backends test test-all download-mnist test-backend test-backend-tape test-backend-mlx \
         test-backend-torch test-safetensors test-ntm-grad test-ntm-timestep \
         test-examples check check-gym check-examples install install-core install-gym \
         example-supervised example-rnn example-lstm \
