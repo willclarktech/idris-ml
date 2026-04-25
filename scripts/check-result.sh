@@ -1,16 +1,15 @@
 #!/usr/bin/env bash
 # Validate a test-examples RESULT line against the threshold for <target>
-# in test-examples.expect.
+# in <expect_file> (defaults to test-examples.expect).
 #
-# Usage: check-result.sh <target> <result_line>
+# Usage: check-result.sh <target> <result_line> [<expect_file>]
 # Exit 0: passed (or no threshold defined; presence-only)
 # Exit 1: failed threshold, malformed expect, or missing key in RESULT
 
 set -u
 target=$1
 result_line=$2
-
-expect_file=$(dirname "$0")/../test-examples.expect
+expect_file=${3:-$(dirname "$0")/../test-examples.expect}
 if [ ! -f "$expect_file" ]; then
     echo "ERROR: $expect_file missing" >&2
     exit 1

@@ -660,6 +660,80 @@ test-examples-convergence:
 	if [ $$fail -ne 0 ]; then echo "Some convergence runs FAILED"; exit 1; fi; \
 	echo "All convergence runs passed."
 
+# ----------------------------------------------------------------------
+# Convergence lanes for the non-RL examples
+# ----------------------------------------------------------------------
+#
+# After the smoke collapse, test-examples no longer requires any model to
+# learn — its thresholds are safety-net only. These targets restore real
+# convergence-regression coverage. They use tight thresholds from
+# test-examples-convergence.expect and run at full default epochs.
+#
+#   test-examples-convergence-supervised : fast set (supervised, recurrent,
+#                                          transformer, mnist, seq-classify,
+#                                          gpt, transfer). ~20-30 min on tape.
+#                                          Suitable for nightly CI.
+#   test-examples-convergence-memory     : NTM/DNC at full default epochs.
+#                                          Hours on tape — manual release
+#                                          validation, NOT for CI.
+#   test-examples-convergence-all        : umbrella — runs all three convergence
+#                                          targets (supervised + RL multi-seed +
+#                                          memory-aug). Several hours.
+CONVERGENCE_SUPERVISED_EXAMPLES := example-supervised example-rnn example-lstm example-transformer \
+                                   example-mnist example-seq-classify example-gpt example-transfer
+CONVERGENCE_MEMORY_EXAMPLES := example-ntm-copy example-ntm-associative-recall \
+                               example-dnc-copy example-dnc-recall
+CONVERGENCE_EXPECT := test-examples-convergence.expect
+
+# Helper invoked by the convergence-supervised and convergence-memory targets.
+# Args: $(1) = example list, $(2) = friendly label.
+define run_convergence_lane
+	@fail=0; \
+	if command -v timeout >/dev/null 2>&1; then TIMEOUT_PREFIX="timeout $(EXAMPLE_TIMEOUT)"; \
+	elif command -v gtimeout >/dev/null 2>&1; then TIMEOUT_PREFIX="gtimeout $(EXAMPLE_TIMEOUT)"; \
+	else TIMEOUT_PREFIX=""; fi; \
+	for e in $(1); do \
+		echo "=== $$e ==="; \
+		output=$$($$TIMEOUT_PREFIX $(MAKE) --no-print-directory BACKEND=tape $$e 2>&1); rc=$$?; \
+		if [ $$rc -ne 0 ]; then \
+			if [ $$rc -eq 124 ]; then \
+				echo "FAIL: $$e timed out (>$(EXAMPLE_TIMEOUT)s)"; \
+			else \
+				echo "FAIL: $$e crashed (rc=$$rc)"; \
+			fi; \
+			echo "$$output" | tail -30 | sed 's/^/  | /'; \
+			fail=1; continue; \
+		fi; \
+		result_line=$$(echo "$$output" | grep '^RESULT' | head -1); \
+		if [ -z "$$result_line" ]; then \
+			echo "FAIL: $$e -- no RESULT line"; \
+			echo "$$output" | tail -30 | sed 's/^/  | /'; \
+			fail=1; continue; \
+		fi; \
+		scripts/check-result.sh "$$e" "$$result_line" "$(CONVERGENCE_EXPECT)" || fail=1; \
+	done; \
+	if [ $$fail -ne 0 ]; then echo "Some $(2) runs FAILED"; exit 1; fi; \
+	echo "All $(2) runs passed."
+endef
+
+test-examples-convergence-supervised:
+	$(call run_convergence_lane,$(CONVERGENCE_SUPERVISED_EXAMPLES),supervised-convergence)
+
+# WARNING: this target takes several hours on the tape backend (NTM/DNC at
+# default 50K-100K epochs). Use for release validation, not CI.
+test-examples-convergence-memory:
+	@echo "WARNING: NTM/DNC convergence runs take several hours on tape."
+	@echo "         Press Ctrl-C in the next 5s to abort." && sleep 5
+	$(call run_convergence_lane,$(CONVERGENCE_MEMORY_EXAMPLES),memory-convergence)
+
+# Umbrella: every automated convergence lane in one command.
+# Skips test-examples-convergence-memory by default — uncomment to include.
+# Total wall time without memory: ~30-60 min depending on hardware.
+test-examples-convergence-all: test-examples-convergence-supervised test-examples-convergence
+	@echo ""
+	@echo "All non-memory convergence lanes passed."
+	@echo "(Run 'make test-examples-convergence-memory' separately for NTM/DNC; takes hours.)"
+
 # Run everything: Idris unit tests, C backend tests, specialized tests,
 # integration tests, PyTorch reference tests (if available)
 test-all:
@@ -720,7 +794,9 @@ all: check-all test-all
 
 .PHONY: all check-all all-backends test test-gym test-examples-unit test-all download-mnist test-backend test-backend-tape test-backend-mlx \
         test-backend-torch test-safetensors test-ntm-grad test-ntm-timestep \
-        test-examples test-examples-convergence check check-gym check-notebook check-examples install install-core install-gym install-notebook install-examples \
+        test-examples test-examples-convergence test-examples-convergence-supervised \
+        test-examples-convergence-memory test-examples-convergence-all \
+        check check-gym check-notebook check-examples install install-core install-gym install-notebook install-examples \
         example-supervised example-rnn example-lstm \
         example-ntm-copy example-ntm-associative-recall example-dnc-copy example-dnc-recall \
         example-reinforce \
