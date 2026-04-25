@@ -136,6 +136,22 @@ Softmax improved 1.6x (benefits from vectorized `exp` inside). Training step unc
 
 **Retrospective**: vDSP exceeded predictions at large sizes but undershot at small sizes. This tells us the remaining gap at 10k elements is **allocation overhead** (malloc per op + tape append), not arithmetic. To close further, we'd need to eliminate per-op allocation (tensor pooling or fused ops). At 100k, we went from 28x slower than PyTorch to **4.4x slower** — the remaining gap is entirely allocation cost (PyTorch uses memory pools, we malloc every time).
 
+### Round 2: Fused `tensor_linear` (all backends)
+
+**Change**: Add `tensor_linear(W, x, bias)` that does `y = W @ x + b` in a single C call with one allocation, one tape entry, and a fused backward rule. Implemented on all three backends.
+
+**Predictions vs Results** (tape backend, `train_step` benchmark):
+
+| Size | Before | After | Predicted | Actual | Notes |
+|------|--------|-------|-----------|--------|-------|
+| 64→64 | 1.0ms | 0.98ms | 30% faster | **~0%** | Backward dominates, not forward alloc |
+| 256→256 | 5.5ms | 4.9ms | 20% faster | **~10%** | Modest, within noise |
+| 1024→1024 | 7.7ms | ~8ms | 5% faster | **~0%** | BLAS dominates entirely |
+
+**Retrospective**: The prediction was wrong. I assumed forward-pass allocation was a significant fraction of the training step cost. In reality, the backward pass (tape walk + gradient accumulation) dominates even at 64d. The `tensor_linear` fusion is still valuable for code cleanliness and will help more in real models (where many linear layers compound the savings), but for a micro-benchmark with a single layer + sum loss, the backward walk cost dwarfs the allocation saving.
+
+**Lesson**: Micro-benchmarks can mislead about where overhead lives. The training step includes: forward (fast), backward (tape walk + grad loops — slow), optimizer step (fast). Eliminating 1 allocation in the forward doesn't move the needle because backward is 60-70% of the step.
+
 ## Notes
 
 - The tape backend uses Apple Accelerate for BLAS (`cblas_dgemv`, `cblas_dgemm`) and vDSP for element-wise vectorization. On Linux without Accelerate, both matmul and element-wise fall back to scalar loops
