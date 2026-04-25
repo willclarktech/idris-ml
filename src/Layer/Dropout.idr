@@ -20,8 +20,8 @@ import Variable
 -- Helper: get a pseudo-random seed
 ----------------------------------------------------------------------
 
--- Use Scheme's random to get a seed. The dummy arg prevents CSE.
-%foreign "scheme:(lambda (x) (random (+ x 2147483647)))"
+-- Random seed for dropout mask. The dummy arg prevents CSE.
+%foreign "C:dropout_random_seed,libidrisml"
 dropoutSeed : Int -> Int
 
 

@@ -268,7 +268,7 @@ prim__mnistGetLabel : AnyPtr -> Int -> Int
 
 -- Autograd
 -- Returns the input pointer for threading (prevents dead code elimination).
-%foreign "scheme:(lambda (t) ((foreign-procedure \"tensor_backward\" (void*) void) t) t)"
+%foreign "C:tensor_backward_return,libidrisml"
 prim__backward : AnyPtr -> AnyPtr
 
 %foreign "C:tensor_grad,libidrisml"
@@ -280,7 +280,7 @@ prim__zeroGrad : AnyPtr -> ()
 -- Parameter registry
 -- Registers a parameter: enables requires_grad and adds to the registry.
 -- Returns the tensorPtr for threading (prevents dead code elimination).
-%foreign "scheme:(lambda (name t) ((foreign-procedure \"tensor_set_requires_grad\" (void* int) void) t 1) ((foreign-procedure \"param_register\" (string void*) void) name t) t)"
+%foreign "C:param_register_return,libidrisml"
 export
 prim__paramRegister : String -> AnyPtr -> AnyPtr
 
@@ -303,8 +303,8 @@ prim__paramGradItemAt : Int -> Int -> Double
 %foreign "C:param_grad_item_and_zero,libidrisml"
 prim__paramGradItemAndZero : Int -> Double
 
-%foreign "scheme:(lambda () ((foreign-procedure \"param_zero_all_grads\" () void)) 0)"
-prim__paramZeroAllGrads : Int
+%foreign "C:param_zero_all_grads_return,libidrisml"
+prim__paramZeroAllGrads : Int -> Int
 
 %foreign "C:param_subtract_delta,libidrisml"
 prim__paramSubtractDelta : Int -> Double -> ()
@@ -405,7 +405,7 @@ prim__print : AnyPtr -> ()
 -- Force evaluation of first arg, return second.
 -- Must use concrete AnyPtr types — polymorphic types cause Chez
 -- to miscount arguments when b is itself a function type.
-%foreign "scheme:(lambda (a b) b)"
+%foreign "C:idrisml_seq,libidrisml"
 export
 prim__seq : AnyPtr -> AnyPtr -> AnyPtr
 
@@ -428,7 +428,7 @@ export prim__writeDouble : AnyPtr -> Int -> Double -> ()
 prim__readDouble : AnyPtr -> Int -> Double
 
 -- Wrapper that returns the buffer pointer for threading through let chains
-%foreign "scheme:(lambda (buf off val) ((foreign-procedure \"tensor_write_double\" (void* int double) void) buf off val) buf)"
+%foreign "C:tensor_write_double_return,libidrisml"
 export
 prim__setDouble : AnyPtr -> Int -> Double -> AnyPtr
 
@@ -474,7 +474,7 @@ export prim__create2d : Int -> Int -> AnyPtr -> Int -> AnyPtr
 prim__ptrArrayAlloc : Int -> AnyPtr
 
 -- Returns the array for threading
-%foreign "scheme:(lambda (arr idx t) ((foreign-procedure \"tensor_ptr_array_set\" (void* int void*) void) arr idx t) arr)"
+%foreign "C:tensor_ptr_array_set_return,libidrisml"
 prim__ptrArraySet : AnyPtr -> Int -> AnyPtr -> AnyPtr
 
 %foreign "C:tensor_stack_from_array,libidrisml"
@@ -519,11 +519,11 @@ prim__layerNorm2d : AnyPtr -> AnyPtr -> AnyPtr -> Double -> AnyPtr
 %foreign "C:tensor_reshape,libidrisml"
 prim__reshape : AnyPtr -> AnyPtr -> Int -> AnyPtr
 
-%foreign "scheme:(lambda (n) (foreign-alloc (* n 4)))"
+%foreign "C:tensor_alloc_ints,libidrisml"
 export
 prim__allocInts : Int -> AnyPtr
 
-%foreign "scheme:(lambda (buf off val) (foreign-set! 'integer-32 buf (* off 4) val) buf)"
+%foreign "C:tensor_write_int_return,libidrisml"
 export
 prim__setInt : AnyPtr -> Int -> Int -> AnyPtr
 
@@ -1052,11 +1052,11 @@ export
 -- Fused backward + zero_grads + param count.
 -- Ensures backward() runs, then zero_all_grads() runs, then returns count.
 -- All in one Scheme lambda so Chez can't reorder.
-%foreign "scheme:(lambda (t) (let ((rg ((foreign-procedure \"tensor_requires_grad\" (void*) int) t))) (when (= rg 1) ((foreign-procedure \"tensor_backward\" (void*) void) t))) (let ((n ((foreign-procedure \"param_count\" () int)))) n))"
+%foreign "C:tensor_backward_conditional,libidrisml"
 prim__backwardAndCount : AnyPtr -> Int
 
 -- Zero all parameter gradients. Returns 0 for threading.
-%foreign "scheme:(lambda (dummy) ((foreign-procedure \"param_zero_all_grads\" () void)) 0)"
+%foreign "C:param_zero_all_grads_return,libidrisml"
 prim__zeroAllGrads : Int -> Int
 
 export
@@ -1080,22 +1080,19 @@ prim__optimizerCreateRmsprop : Double -> Double -> Double -> Double -> Double ->
 %foreign "C:optimizer_create_adam,libidrisml"
 prim__optimizerCreateAdam : Double -> Double -> Double -> Double -> AnyPtr
 
--- optimizer_step and optimizer_zero_grad have void return — use Scheme wrappers
--- to return a threading value (prevents dead code elimination).
-%foreign "scheme:(lambda (opt) ((foreign-procedure \"optimizer_zero_grad\" (void*) void) opt) opt)"
+%foreign "C:optimizer_zero_grad_return,libidrisml"
 prim__optimizerZeroGrad : AnyPtr -> AnyPtr
 
-%foreign "scheme:(lambda (opt) ((foreign-procedure \"optimizer_step\" (void*) void) opt) opt)"
+%foreign "C:optimizer_step_return,libidrisml"
 prim__optimizerStep : AnyPtr -> AnyPtr
 
--- backward: same as prim__backward but returns the tensorPtr for threading
-%foreign "scheme:(lambda (t) (let ((rg ((foreign-procedure \"tensor_requires_grad\" (void*) int) t))) (when (= rg 1) ((foreign-procedure \"tensor_backward\" (void*) void) t))) t)"
+%foreign "C:tensor_backward_return,libidrisml"
 prim__backwardForNative : AnyPtr -> AnyPtr
 
-%foreign "scheme:(lambda (maxVal) ((foreign-procedure \"optimizer_clip_grad_value\" (double) void) maxVal) 0)"
+%foreign "C:optimizer_clip_grad_value_return,libidrisml"
 prim__clipGradValue : Double -> Int
 
-%foreign "scheme:(lambda (maxNorm) ((foreign-procedure \"optimizer_clip_grad_norm\" (double) double) maxNorm))"
+%foreign "C:optimizer_clip_grad_norm,libidrisml"
 prim__clipGradNorm : Double -> Double
 
 public export
@@ -1156,7 +1153,7 @@ setParamLR opt name lr = prim__optimizerSetParamLR opt.handle name lr
 -- Fused native train step: zero_grad → backward → clip → step.
 -- All in one Scheme lambda to ensure correct evaluation order.
 -- Returns loss value (read before step, so not stale).
-%foreign "scheme:(lambda (opt clip-mode clip-val loss-ptr loss-val) ((foreign-procedure \"optimizer_zero_grad\" (void*) void) opt) (let ((rg ((foreign-procedure \"tensor_requires_grad\" (void*) int) loss-ptr))) (when (= rg 1) ((foreign-procedure \"tensor_backward\" (void*) void) loss-ptr))) (cond ((= clip-mode 1) ((foreign-procedure \"optimizer_clip_grad_value\" (double) void) clip-val)) ((= clip-mode 2) ((foreign-procedure \"optimizer_clip_grad_norm\" (double) double) clip-val)) (else (void))) ((foreign-procedure \"optimizer_step\" (void*) void) opt) loss-val)"
+%foreign "C:native_train_step,libidrisml"
 prim__nativeTrainStep : AnyPtr -> Int -> Double -> AnyPtr -> Double -> Double
 
 ||| Run one native optimizer step: zero_grad → backward → clip → step.
@@ -1176,7 +1173,7 @@ nativeTrainStep opt loss =
 
 -- Backward only: accumulates gradients without zeroing or stepping.
 -- Use for gradient accumulation: call N times, then nativeOptimizerStep once.
-%foreign "scheme:(lambda (loss-ptr loss-val) (let ((rg ((foreign-procedure \"tensor_requires_grad\" (void*) int) loss-ptr))) (when (= rg 1) ((foreign-procedure \"tensor_backward\" (void*) void) loss-ptr))) loss-val)"
+%foreign "C:tensor_backward_return_loss,libidrisml"
 prim__backwardOnly : AnyPtr -> Double -> Double
 
 ||| Backward pass only — accumulates gradients without zeroing or stepping.
@@ -1186,7 +1183,7 @@ nativeBackwardOnly : {d : Device} -> Variable d -> Double
 nativeBackwardOnly loss = prim__backwardOnly loss.tensorPtr loss.value
 
 -- Clip + step + zero_grad: call after N accumulations.
-%foreign "scheme:(lambda (opt clip-mode clip-val dummy) (cond ((= clip-mode 1) ((foreign-procedure \"optimizer_clip_grad_value\" (double) void) clip-val)) ((= clip-mode 2) ((foreign-procedure \"optimizer_clip_grad_norm\" (double) double) clip-val)) (else (void))) ((foreign-procedure \"optimizer_step\" (void*) void) opt) ((foreign-procedure \"optimizer_zero_grad\" (void*) void) opt) 0)"
+%foreign "C:optimizer_step_with_clip,libidrisml"
 prim__optimizerStepAndZero : AnyPtr -> Int -> Double -> Int -> Int
 
 ||| Clip gradients, step optimizer, zero gradients. Call after accumulation.
@@ -1244,10 +1241,10 @@ export
 getCurrentRssMB : Nat -> Int
 getCurrentRssMB _ = prim__getCurrentRssMB
 
-%foreign "scheme:(lambda (dummy) ((foreign-procedure \"backend_memory_report\" () void)) dummy)"
+%foreign "C:backend_memory_report_return,libidrisml"
 prim__memoryReport : Int -> Int
 
-%foreign "scheme:(lambda (dummy) ((foreign-procedure \"backend_reset_for_eval\" () void)) dummy)"
+%foreign "C:backend_reset_for_eval_return,libidrisml"
 prim__resetForEval : Int -> Int
 
 ||| Bulk-convert a Vector of Doubles to a C tensor handle.
@@ -1277,10 +1274,10 @@ export
 memoryReport : IO ()
 memoryReport = let _ = prim__memoryReport 0 in pure ()
 
-%foreign "scheme:(lambda (dummy) ((foreign-procedure \"backend_profile_reset\" () void)) dummy)"
+%foreign "C:backend_profile_reset_return,libidrisml"
 prim__profileReset : Int -> Int
 
-%foreign "scheme:(lambda (dummy) ((foreign-procedure \"backend_profile_report\" () void)) dummy)"
+%foreign "C:backend_profile_report_return,libidrisml"
 prim__profileReport : Int -> Int
 
 %foreign "C:tensor_backward,libidrisml"

@@ -343,6 +343,31 @@ void backend_profile_reset(void);
 void backend_profile_report(void);
 void backend_epoch_begin(void);  /* mark start of forward pass for timing */
 
+/* ---------- Portable FFI helpers (for RefC compatibility) ---------- */
+
+/* These wrap void-returning functions to return an argument for value threading.
+   Needed because RefC doesn't support inline Scheme lambdas. */
+TensorHandle tensor_backward_return(TensorHandle t);  /* backward(t); return t */
+TensorHandle param_register_return(const char* name, TensorHandle t); /* set_requires_grad + register; return t */
+int          param_zero_all_grads_return(int dummy);  /* zero_all_grads(); return 0 */
+TensorHandle tensor_write_double_return(TensorHandle buf, int off, double val); /* write; return buf */
+void*        tensor_ptr_array_set_return(void* arr, int idx, TensorHandle t); /* set; return arr */
+int*         tensor_write_int_return(int* buf, int off, int val); /* write; return buf */
+int          tensor_backward_conditional(TensorHandle t); /* backward if requires_grad; return param_count */
+double       tensor_backward_return_loss(TensorHandle loss_ptr, double loss_val); /* backward if rg; return loss_val */
+double       native_train_step(OptimizerHandle opt, int clip_mode, double clip_val,
+                               TensorHandle loss_ptr, double loss_val); /* zero+bwd+clip+step; return loss_val */
+int          optimizer_step_with_clip(OptimizerHandle opt, int clip_mode, double clip_val, int dummy); /* clip+step+zero; return 0 */
+OptimizerHandle optimizer_zero_grad_return(OptimizerHandle opt); /* zero_grad; return opt */
+OptimizerHandle optimizer_step_return(OptimizerHandle opt); /* step; return opt */
+int          optimizer_clip_grad_value_return(double max_val); /* clip; return 0 */
+void*        idrisml_seq(void* a, void* b); /* evaluate a, return b */
+int          backend_memory_report_return(int dummy);
+int          backend_reset_for_eval_return(int dummy);
+int          backend_profile_reset_return(int dummy);
+int          backend_profile_report_return(int dummy);
+int          dropout_random_seed(int x);  /* random int from seed */
+
 /* ---------- Backend Info ---------- */
 
 const char* backend_name(void);
