@@ -1384,6 +1384,7 @@ TensorHandle tensor_write_double_return(TensorHandle buf, int off, double val) {
 void* tensor_ptr_array_set_return(void* arr, int idx, TensorHandle t) {
     tensor_ptr_array_set(arr, idx, t); return arr;
 }
+int* tensor_alloc_ints(int n) { return (int*)calloc(n, sizeof(int)); }
 int* tensor_write_int_return(int* buf, int off, int val) { buf[off] = val; return buf; }
 int tensor_backward_conditional(TensorHandle t) {
     if (tensor_requires_grad(t)) tensor_backward(t);
