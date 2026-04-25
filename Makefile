@@ -19,6 +19,22 @@ export IDRIS2_PACKAGE_PATH := $(IDRIS2_LOCAL)/idris2-0.8.0
 # Idris flags for example/test builds (use installed packages)
 IDRIS_FLAGS := --source-dir $(EXAMPLE_SRC) -p contrib -p idris-ml -p idris-gym
 
+# Library source files — any change invalidates top-level build/ttc/ cache.
+# Idris 2's interface-hash dependency tracking doesn't invalidate downstream
+# TTCs when a module's public interface is unchanged but a where-clause body
+# (or other inlined internal) changed. Single-file `idris2 -o <name>` example
+# builds then reuse stale build/ttc/Example/*.ttc with old inlined code baked
+# in. Wiping build/ttc when any library source is newer than this stamp
+# forces a clean rebuild. See docs/develop/gotchas.md.
+LIBRARY_SRCS := $(shell find packages/idris-ml/src packages/idris-gym/src -name '*.idr' 2>/dev/null) \
+                packages/idris-ml-examples/src/Generate.idr
+
+build/.library-cache-stamp: $(LIBRARY_SRCS)
+	@echo "Library source changed — invalidating build/ttc cache"
+	@rm -rf build/ttc
+	@mkdir -p build
+	@touch $@
+
 # --- Backend selection ---
 ifeq ($(BACKEND), torch)
   # libtorch detection
@@ -163,7 +179,7 @@ install-examples: install-core install-gym
 	@cd packages/idris-ml-examples && IDRIS2_PREFIX=$(IDRIS2_LOCAL) idris2 --install idris-ml-examples.ipkg >/dev/null
 
 # Install all Idris packages locally
-install: install-core install-gym install-notebook install-examples
+install: install-core install-gym install-notebook install-examples build/.library-cache-stamp
 
 # Idris build (type-check core library)
 check: backend

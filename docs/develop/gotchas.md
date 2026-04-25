@@ -18,6 +18,14 @@ Forgetting `--source-dir src` or `-p contrib` produces confusing import errors. 
 idris2 --source-dir src -p contrib -o <name> src/Example/<Name>.idr
 ```
 
+### Top-level `build/ttc/` cache goes stale on where-clause body changes
+
+Idris 2's interface-hash dependency tracking invalidates downstream TTCs only when a module's public interface changes. When you edit the body of a where-clause local inside a public function (e.g. `logEpoch` inside `runTrainingIO`), the interface hash is unchanged and `build/ttc/<ver>/Example/*.ttc` are considered fresh — but they have the old inlined code baked into their Chez-compiled `.so`. Result: library changes install correctly (`~/.idris2/.../idris-ml-0/...`) but single-file `idris2 -o` example builds reuse stale code.
+
+Symptom: you edit a library internal, `make install` succeeds, `make example-foo` succeeds, but the binary runs old behavior. `rm -rf build/ttc` makes the change take effect.
+
+Mitigation: the Makefile has a `build/.library-cache-stamp` sentinel depending on every library `.idr` file. When any is newer than the stamp, the recipe wipes `build/ttc`. `install` depends on the stamp, so every `make example-<name>` / `make check-examples` / `make test-examples` path gets the fresh-cache guarantee transparently. If invoking `idris2` directly outside the Makefile, run `rm -rf build/ttc` after editing library internals.
+
 ### Temporary test files
 
 Idris2 requires source files to be in `--source-dir`. Never put test files in `/tmp` — they won't compile. Instead, add temporary test files to `src/Example/` and remove them after debugging.
