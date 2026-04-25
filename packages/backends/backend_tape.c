@@ -12,9 +12,6 @@
 #include <string.h>
 #include <math.h>
 #include <stdio.h>
-#include <signal.h>
-#include <execinfo.h>
-#include <unistd.h>
 
 #ifdef __APPLE__
 #include <Accelerate/Accelerate.h>
@@ -22,40 +19,6 @@
 #include <mach/mach.h>
 #endif
 
-/* Override Chez Scheme's SIGSEGV/SIGBUS handler.
-
-   Chez installs a handler that prints "Exception: invalid memory reference.
-   Some debugging context lost" and exits. With large FFI workloads (e.g. DNC
-   copy at batch=16: ~1.6M tape entries, ~1.5M calls to prim__select), Chez's
-   handler fires and exits mid-forward. Experiments ruled out a real memory
-   fault in this backend: setting SIGSEGV to SIG_DFL runs cleanly (no
-   coredump), and our own handler installed here never fires either. Chez's
-   handler appears to misinterpret some legitimate FFI access pattern as a
-   fault — likely tied to its signal-based GC write barriers or safepoints.
-
-   By replacing the handler before the first tape_append, we bypass Chez's
-   spurious trigger. Any actual C-side memory fault still crashes with a
-   printed backtrace via idrisml_sigsegv_handler below (not silent). */
-static void idrisml_sigsegv_handler(int sig, siginfo_t* info, void* ctx) {
-    (void)ctx;
-    fprintf(stderr, "\n=== SIGSEGV/SIGBUS caught in libidrisml (sig=%d, addr=%p) ===\n",
-            sig, info ? info->si_addr : NULL);
-    void* frames[40];
-    int n = backtrace(frames, 40);
-    backtrace_symbols_fd(frames, n, 2);
-    _exit(139);
-}
-
-__attribute__((constructor))
-static void idrisml_install_sigsegv_handler(void) {
-    struct sigaction sa;
-    memset(&sa, 0, sizeof(sa));
-    sa.sa_sigaction = idrisml_sigsegv_handler;
-    sa.sa_flags = SA_SIGINFO;
-    sigemptyset(&sa.sa_mask);
-    sigaction(SIGSEGV, &sa, NULL);
-    sigaction(SIGBUS, &sa, NULL);
-}
 
 /* ================================================================
    Tensor representation
@@ -355,7 +318,16 @@ typedef struct {
     int* max_indices;  /* [C * oH * oW] index into flat input per-channel */
 } MaxPool2DMeta;
 
-#define TAPE_INIT_CAP 4096
+/* Pre-size the tape to avoid realloc during forward passes. Large FFI
+   workloads (e.g. DNC at batch>=2) crash multi-epoch with a real SIGSEGV
+   that the system handler catches: its exact cause hasn't been pinpointed
+   (ASAN can't attach to Chez on macOS) but bisection reliably shows the
+   crash requires ≥ 2 tape reallocs across a run. Pre-allocating past the
+   workload size eliminates all reallocs and keeps the backend stable.
+   Cost: ~114 MB of *virtual* memory up-front; macOS lazy-commit means
+   physical RSS only grows with actual writes, so small examples pay
+   essentially nothing. Revisit when the real fault is pinpointed — TODO. */
+#define TAPE_INIT_CAP (1 << 21)
 
 static TapeEntry* tape = NULL;
 static int tape_size = 0;
