@@ -18,6 +18,7 @@ modules = Example.Bench
         , Example.QLearning
         , Example.Reinforce
         , Example.Rnn
+        , Example.Sarsa
         , Example.SeqClassify
         , Example.Supervised
         , Example.Transfer

@@ -256,6 +256,11 @@ example-q-learning: install
 	cp $(LIB) build/exec/q-learning_app/
 	./build/exec/q-learning $(Q_LEARNING_ARGS)
 
+example-sarsa: install
+	idris2 $(IDRIS_FLAGS) -o sarsa $(EXAMPLE_SRC)/Example/Sarsa.idr
+	cp $(LIB) build/exec/sarsa_app/
+	./build/exec/sarsa $(SARSA_ARGS)
+
 example-transfer: install
 	idris2 $(IDRIS_FLAGS) -o transfer $(EXAMPLE_SRC)/Example/Transfer.idr
 	cp $(LIB) build/exec/transfer_app/
