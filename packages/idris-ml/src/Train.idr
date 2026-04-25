@@ -131,6 +131,8 @@ runTrainingIO {model} epochFn dataSrc cfg model0 = do
     WindowedAvg thresh win pat => goWindowed 0 model0 0.0 0 [] 0 tStart thresh win pat
   tEnd <- clockTime Monotonic
   putStrLn $ formatTimingSummary tStart tEnd epochsDone
+  putStrLn $ "Peak RSS: " ++ show (getRssMB 0) ++ " MB"
+          ++ "\tCurrent RSS: " ++ show (getCurrentRssMB 0) ++ " MB"
   profileReport
   pure result
   where
@@ -147,8 +149,10 @@ runTrainingIO {model} epochFn dataSrc cfg model0 = do
     logEpoch t0 ep loss m = do
       now <- clockTime Monotonic
       extra <- cfg.metrics m
+      let memSuffix = "\tpeak=" ++ show (getRssMB 0) ++ "MB"
+                   ++ "\tcur=" ++ show (getCurrentRssMB 0) ++ "MB"
       putStrLn $ "  " ++ formatElapsed t0 now ++ " " ++ show ep
-               ++ "\tloss=" ++ show loss ++ fmtMetrics extra
+               ++ "\tloss=" ++ show loss ++ memSuffix ++ fmtMetrics extra
 
     -- Simple: no early stopping
     goSimple : Nat -> model -> Double -> Clock Monotonic -> IO (model, Nat, Double)

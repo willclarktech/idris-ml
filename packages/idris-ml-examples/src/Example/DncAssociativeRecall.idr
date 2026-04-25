@@ -142,9 +142,7 @@ main = do
         let avgAcc = foldl (+) 0.0
               (toList (map (\dp => let (_, preds) = forwardTwoPhase dblM dp
                                    in bitAccuracy preds (targets dp)) evalBatch)) / 10.0
-        pure [ ("acc", show (avgAcc * 100.0) ++ "%")
-             , ("peak", show (getRssMB 0) ++ "MB")
-             , ("cur", show (getCurrentRssMB 0) ++ "MB") ]
+        pure [ ("acc", show (avgAcc * 100.0) ++ "%") ]
 
   let trainCfg = MkTrainConfig cfg.epochs 100
                    (WindowedAvg cfg.esThreshold cfg.esWindow cfg.esPatience) evalMetrics
