@@ -11,8 +11,8 @@ from jupyter_client.kernelspec import KernelSpecManager
 
 def main():
     """Install kernel.json into Jupyter's kernel directory."""
-    # Find project root (parent of jupyter/)
-    project_root = Path(__file__).resolve().parent.parent.parent
+    # Find project root (packages/jupyter/idris_ml_kernel/ → 4 levels up)
+    project_root = Path(__file__).resolve().parent.parent.parent.parent
 
     kernel_spec = {
         "argv": [sys.executable, "-m", "idris_ml_kernel", "-f", "{connection_file}"],
