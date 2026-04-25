@@ -40,8 +40,13 @@ def main() -> None:
 
     print("Training...")
     t0 = time.time()
+    best_loss = float("inf")
+    stale = 0
+    patience = 200
+    epochs_done = 0
     for epoch in range(1, args.epochs + 1):
         loss = train_epoch(model, optimizer)
+        epochs_done = epoch
         if epoch == 1 or epoch % 100 == 0 or epoch == args.epochs:
             accuracy = evaluate(model)
             elapsed = time.time() - t0
@@ -49,13 +54,22 @@ def main() -> None:
                 f"  [{elapsed:07.2f}s] {epoch}"
                 f"\tloss={loss:.6f}\taccuracy={accuracy * 100:.1f}%"
             )
+        # Patience-based early stopping (matches Idris patienceConfig)
+        if loss < best_loss - 0.001:
+            best_loss = loss
+            stale = 0
+        else:
+            stale += 1
+            if stale >= patience:
+                print(f"  Early stop at epoch {epoch} (patience={patience})")
+                break
 
     accuracy = evaluate(model, 500)
     elapsed = time.time() - t0
     print(f"\nFinal accuracy (500 samples): {accuracy * 100:.1f}% ({elapsed:.1f}s)")
     print(format_result([
         ("accuracy", f"{accuracy:.4f}"),
-        ("epochs", str(args.epochs)),
+        ("epochs", str(epochs_done)),
         ("seed", str(args.seed)),
     ]))
 
