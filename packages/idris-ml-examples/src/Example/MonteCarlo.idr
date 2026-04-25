@@ -248,10 +248,12 @@ main = do
            ++ " seed=" ++ show cfg.seed
   putStrLn ""
 
+  let trainCfg : TrainConfig MCModel
+      trainCfg = MkTrainConfig cfg.epochs 5000 NoEarlyStop (const (pure []))
   (trained, epochsDone, _) <- runTraining
     (\m, d => epochMC cfg m d)
     genInput
-    (simpleConfig cfg.epochs) zeroModel
+    trainCfg zeroModel
 
   let (q, _) = trained
 
