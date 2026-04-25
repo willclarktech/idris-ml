@@ -25,6 +25,7 @@
 | Chez Scheme runtime overhead | S–XL | Chez GC, thunk evaluation, and allocation account for ~50ms/epoch (vs 2ms in C). Not FFI marshaling — reducing FFI call count from 4,384 to ~1,220 only saved 6ms. Options: Idris→C backend (below), or accept ~3x gap vs PyTorch on CPU for small models |
 | Idris 2 C backend (custom) | XL | If RefC doesn't work out: custom Idris 2→C code generator optimized for tensor workloads. Much higher effort than RefC investigation above |
 | CodeMirror Idris 2 mode | S–M | Jupyter kernel uses `"codemirror_mode": "haskell"` as a fallback. Investigate whether an Idris 2 CodeMirror grammar exists or could be written (CodeMirror 6 Lezer grammar). Would give proper syntax highlighting in JupyterLab |
+| Upstream Idris 2 RefC fixes | S | File issues/PRs for: (1) contrib's System.Random missing `%foreign "C:..."` alternatives for RefC, (2) RefC runtime missing `idris2_negate_Double`, `idris2_cast_string_to_Double`, `idris2_cast_string_to_Integer` (all exist in main branch but absent from 0.8.0 release), (3) RefC trampoline crash on complex programs. See `docs/develop/refc-investigation.md` |
 
 **Explicitly not planned:** distributed training (infrastructure, not library), mixed precision/quantization (performance optimisation), model zoo (compositions of existing primitives), TorchScript (our type system is the compile-time analysis), bidirectional RNN (transformers have obsoleted), exotic losses (compose from primitives)
 
