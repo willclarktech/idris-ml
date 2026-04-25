@@ -49,6 +49,7 @@ mkdir -p build
 cc -O2 -c -o build/safetensors.o csrc/safetensors.c
 cc -O2 -c -o build/cJSON.o csrc/cJSON.c
 cc -O2 -c -o build/mnist.o csrc/mnist.c
+cc -O2 -c -o build/dataloader.o csrc/dataloader.c
 
 # Torch backend (Linux)
 c++ -std=c++17 -O2 -shared -fPIC \
@@ -56,7 +57,7 @@ c++ -std=c++17 -O2 -shared -fPIC \
     -L"$TORCH_LIB" -ltorch -ltorch_cpu -lc10 -ltorch_cuda \
     -Wl,-rpath,"$TORCH_LIB" \
     -o build/libidrisml.so \
-    csrc/backend_torch.cpp build/safetensors.o build/cJSON.o build/mnist.o
+    csrc/backend_torch.cpp build/safetensors.o build/cJSON.o build/mnist.o build/dataloader.o
 echo "  build/libidrisml.so OK"
 echo ""
 
