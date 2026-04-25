@@ -45,11 +45,18 @@ example-sarsa                    avg_return   >=  -120
 example-monte-carlo              win_rate     >=  0.3
 
 # ---- RL: deep (partial convergence at reduced epochs) ----
+# REINFORCE/DQN/A2C run on CartPole (random ~20; solved ~500). PPO/SAC run on
+# Pendulum (random ~-1200 to -1500; solved ~-200) and are severely data-starved
+# at the CI smoke caps (PPO 20 rollouts ≈ 8k env steps; SAC 1500 env steps, 5%
+# of default). At those step counts neither can plausibly beat random, so their
+# thresholds are SAFETY-NET only — they catch NaN / total divergence but not
+# "failed to converge." Real convergence validation for PPO/SAC needs a
+# separate full-config lane (TODO).
 example-reinforce                avg_return   >=  50
 example-dqn                      avg_return   >=  -300
 example-a2c                      avg_return   >=  40
-example-ppo                      avg_return   >=  20
-example-sac                      avg_return   >=  -400
+example-ppo                      avg_return   >=  -2000
+example-sac                      avg_return   >=  -2000
 
 # ---- Cross-backend transfer ----
 example-transfer                 loss         <   2.0
