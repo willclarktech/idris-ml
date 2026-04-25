@@ -127,6 +127,23 @@ static Tensor* make_tensor(double* data, int* shape, int rank, int requires_grad
     return t;
 }
 
+/* Like make_tensor but data is ALREADY arena-allocated — no copy needed.
+   Caller must have arena_alloc'd the data buffer. */
+static Tensor* make_tensor_arena(double* arena_data, int numel, int* shape, int rank, int requires_grad) {
+    Tensor* t = arena_alloc(sizeof(Tensor));
+    memset(t, 0, sizeof(Tensor));
+    t->data = arena_data;  /* already in arena — no copy */
+    t->shape = arena_alloc(rank * sizeof(int));
+    memcpy(t->shape, shape, rank * sizeof(int));
+    t->rank = rank;
+    t->numel = numel;
+    t->requires_grad = requires_grad;
+    t->tape_idx = -1;
+    t->grad = NULL;
+    t->persistent = 0;
+    return t;
+}
+
 static void ensure_grad(Tensor* t) {
     if (!t->grad) {
         t->grad = calloc(t->numel, sizeof(double));
@@ -502,7 +519,7 @@ static TensorHandle binop_elementwise(TensorHandle ha, TensorHandle hb, int op_t
     }
     /* Multi-dim: element-wise with broadcasting */
     int n = a->numel > b->numel ? a->numel : b->numel;
-    double* data = malloc(n * sizeof(double));
+    double* data = arena_alloc(n * sizeof(double));
 #ifdef __APPLE__
     /* vDSP fast path: both operands same size (no broadcast) */
     if (a->numel == b->numel && a->numel > 1) {
@@ -527,8 +544,7 @@ static TensorHandle binop_elementwise(TensorHandle ha, TensorHandle hb, int op_t
         }
     }
     Tensor* big = a->numel >= b->numel ? a : b;
-    Tensor* r = make_tensor(data, big->shape, big->rank, rg);
-    free(data);
+    Tensor* r = make_tensor_arena(data, n, big->shape, big->rank, rg);
     if (rg) tape_append(op_tag, r, a, b, 0);
     return r;
 }
@@ -562,7 +578,7 @@ static TensorHandle unop_elementwise(TensorHandle ha, int op, double (*fn)(doubl
     }
     /* Multi-element: apply fn element-wise, preserve shape */
     int n = a->numel;
-    double* data = malloc(n * sizeof(double));
+    double* data = arena_alloc(n * sizeof(double));
 #ifdef __APPLE__
     {
         int vn = n;
@@ -582,8 +598,7 @@ static TensorHandle unop_elementwise(TensorHandle ha, int op, double (*fn)(doubl
 #else
     for (int i = 0; i < n; i++) data[i] = fn(a->data[i]);
 #endif
-    Tensor* r = make_tensor(data, a->shape, a->rank, a->requires_grad);
-    free(data);
+    Tensor* r = make_tensor_arena(data, n, a->shape, a->rank, a->requires_grad);
     if (a->requires_grad) tape_append(op, r, a, NULL, 0);
     return r;
 }
