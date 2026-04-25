@@ -24,20 +24,18 @@ import Variable
 
 
 ----------------------------------------------------------------------
--- Architecture: separate actor + twin Q-networks + target Q snapshots.
--- Aligned with `torch_ref/models/sac.py` (hard target sync every N
--- steps; Polyak soft update requires a tensor blend helper not yet
--- added to the Idris backend).
---
---   Actor : obs → Linear(3,64) → ReLU → Linear(64,64) → ReLU → Linear(64,1)
---                                                               + log_std
---   Q1/Q2 : (obs ++ action) → Linear(4,64) → ReLU → Linear(64,64) → ReLU → Linear(64,1)
---   Q1_target / Q2_target : Double-valued snapshots (refreshed every target-sync steps)
+-- Architecture (aligned with `torch_ref/models/sac.py`):
+--   Actor : Linear(3,64) → ReLU → Linear(64,64) → ReLU → Linear(64,1)   = mean
+--   Q1/Q2 : Linear(4,64) → ReLU → Linear(64,64) → ReLU → Linear(64,1)   = value
+--           (input is obs ++ action)
+--   log_std : standalone learnable Variable (scope "actor_log_std")
+--   Target Q nets: same architecture as Q1/Q2, registered under
+--                  "q1tgt_" / "q2tgt_" scope. No optimizer owns them;
+--                  they move via polyak soft update.
 ----------------------------------------------------------------------
 
--- --- Local autoName-with-scope (same reason as A2c / Ppo: the `-o`
---     invocation used by Makefile example targets doesn't see symbols
---     newly exported from idris-ml, but inlined helpers do).
+-- --- Inline autoName-with-scope (single-file invocation quirk — see A2C/PPO).
+
 autoNameAnyLocal : {d : Device} -> {i, o : Nat} -> String -> SortedMap String Nat ->
                    AnyLayer i o (Variable d) ->
                    (SortedMap String Nat, AnyLayer i o (Variable d))
@@ -65,6 +63,21 @@ autoNameScoped : {d : Device} -> {i, o : Nat} -> {hs : List Nat} ->
                  String -> Network i hs o (Variable d) -> Network i hs o (Variable d)
 autoNameScoped scope net = snd (autoNameNetworkLocal scope empty net)
 
+-- Inline FFI wrappers (single-file invocation quirk — see above).
+
+%foreign "C:optimizer_create_adam_group,libidrisml"
+prim__mkAdamGroupLocal : Double -> Double -> Double -> Double -> String -> AnyPtr
+
+mkAdamGroup : String -> Double -> Double -> NativeOptimizer
+mkAdamGroup scope lr clip =
+  MkNativeOptimizer (prim__mkAdamGroupLocal lr 0.9 0.999 1.0e-8 scope) (NormClip clip)
+
+%foreign "C:polyak_blend,libidrisml"
+prim__polyakLocal : Double -> String -> String -> Int
+
+polyakBlend : Double -> String -> String -> IO Int
+polyakBlend tau on tg = pure (prim__polyakLocal tau on tg)
+
 
 -- --- Constants ------------------------------------------------------
 
@@ -84,9 +97,6 @@ ActorNet = Network ObsDim [Hidden, Hidden, Hidden, Hidden] 1 (Variable CPU)
 QNet : Type
 QNet = Network QInputDim [Hidden, Hidden, Hidden, Hidden] 1 (Variable CPU)
 
-QNetD : Type
-QNetD = Network QInputDim [Hidden, Hidden, Hidden, Hidden] 1 Double
-
 
 mkActor : IO ActorNet
 mkActor = do
@@ -104,8 +114,9 @@ mkQ scope = do
   pure (autoNameScoped scope
     (ll1 ~> reluLayer ~> ll2 ~> reluLayer ~> OutputLayer ll3))
 
+-- log_std is scoped under "actor_" so it's updated by the actor optimizer.
 mkLogStd : Variable CPU
-mkLogStd = param "log_std" 0.0
+mkLogStd = param "actor_log_std" 0.0
 
 
 -- --- Observation helpers --------------------------------------------
@@ -116,7 +127,6 @@ observeVec s = pObserve s
 obsTensor : Vect ObsDim Double -> Vector ObsDim Double
 obsTensor v = VTensor (map STensor v)
 
--- Concat obs ++ action -> Vector 4.
 qInput : Vect ObsDim Double -> Double -> Vect QInputDim Double
 qInput obs a = obs ++ [a]
 
@@ -124,19 +134,12 @@ qInputTensor : Vect QInputDim Double -> Vector QInputDim Double
 qInputTensor v = VTensor (map STensor v)
 
 
--- --- Gaussian helpers -----------------------------------------------
+-- --- Gaussian / squash helpers --------------------------------------
 
 logTwoPiHalf : Double
 logTwoPiHalf = 0.5 * Prelude.log (2.0 * 3.141592653589793)
 
--- Pre-tanh Gaussian log-prob.
-gaussianLogProbPre : Double -> Double -> Double -> Double
-gaussianLogProbPre mean logStd u =
-  let std = Prelude.exp logStd
-      z = (u - mean) / std
-  in -0.5 * z * z - logStd - logTwoPiHalf
-
--- Tanh + scale squash correction for log-prob.
+-- Tanh squash correction for log-prob, as a plain Double.
 -- log_prob(action) = log_prob_u(u) - log(1 - tanh(u)^2 + eps) - log(MAX_ACTION)
 squashCorrection : Double -> Double
 squashCorrection u =
@@ -151,20 +154,16 @@ actorMean actor obs =
   let outT = snd (forwardVarTensor actor (bulkToTensor (obsTensor obs)))
   in prim__item1d outT 0
 
+-- Evaluate a Q-net at (obs, action), return the scalar as a plain Double.
+-- Used for values fed into Q-loss target (no gradient needed) and for
+-- min(Q1, Q2) comparisons in actor sampling.
 qValue : QNet -> Vect ObsDim Double -> Double -> Double
 qValue q obs action =
   let outT = snd (forwardVarTensor q (bulkToTensor (qInputTensor (qInput obs action))))
   in prim__item1d outT 0
 
-qValueDouble : QNetD -> Vect ObsDim Double -> Double -> Double
-qValueDouble q obs action =
-  let (_, out) = forward q (qInputTensor (qInput obs action))
-      STensor v = index FZ out
-  in v
 
-
--- Sample a squashed Gaussian action from the actor. Returns
---   (scaled_action, log_prob, raw_u_for_reparam).
+-- Sample a squashed Gaussian action. Pure-Double outputs for rollout use.
 sampleActionIO : ActorNet -> Variable CPU -> Vect ObsDim Double ->
                  IO (Double, Double)
 sampleActionIO actor logStdV obs = do
@@ -173,9 +172,8 @@ sampleActionIO actor logStdV obs = do
       std    = Prelude.exp logStd
   eps <- normalSample
   let u        = mean + std * eps
-      tu       = Math.tanh u
-      action   = tu * MaxAction
-      lp_u     = gaussianLogProbPre mean logStd u
+      action   = Math.tanh u * MaxAction
+      lp_u     = -0.5 * ((u - mean) / std) * ((u - mean) / std) - logStd - logTwoPiHalf
       lp       = lp_u - squashCorrection u
   pure (action, lp)
 
@@ -187,8 +185,8 @@ record SACState where
   actor   : ActorNet
   q1      : QNet
   q2      : QNet
-  q1Tgt   : IORef QNetD
-  q2Tgt   : IORef QNetD
+  q1Tgt   : QNet              -- Variable net, scope "q1tgt_", not owned by any optimizer
+  q2Tgt   : QNet              -- Variable net, scope "q2tgt_"
   logStdV : Variable CPU
   buffer  : ReplayBuffer ObsDim ActDim
   stepRef : IORef Nat
@@ -198,17 +196,19 @@ record SACState where
 record Config where
   constructor MkConfig
   lr           : Double
-  epochs       : Nat        -- env interactions
+  epochs       : Nat          -- env interactions
   gamma        : Double
   alpha        : Double
   bufferCap    : Nat
   batchSize    : Nat
   warmupSteps  : Nat
-  targetSync   : Nat
+  tau          : Double       -- Polyak soft-target coefficient
+  clipNorm     : Double
   seed         : Bits64
 
+||| Defaults aligned with `torch_ref/models/sac.py`.
 defaultConfig : Config
-defaultConfig = MkConfig 3.0e-4 30000 0.99 0.2 100000 64 1000 100 42
+defaultConfig = MkConfig 3.0e-4 30000 0.99 0.2 100000 64 1000 0.005 1.0 42
 
 specs : List (ArgSpec Config)
 specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
@@ -218,31 +218,32 @@ specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
         , Arg "--buffer-cap" (\v, c => { bufferCap := castNat v } c)
         , Arg "--batch" (\v, c => { batchSize := castNat v } c)
         , Arg "--warmup" (\v, c => { warmupSteps := castNat v } c)
-        , Arg "--target-sync" (\v, c => { targetSync := castNat v } c)
+        , Arg "--tau" (\v, c => { tau := cast v } c)
+        , Arg "--clip" (\v, c => { clipNorm := cast v } c)
         , Arg "--seed" (\v, c => { seed := castBits64 v } c)
         ]
 
 
--- --- Per-transition loss --------------------------------------------
+-- --- Q-network loss (per transition) --------------------------------
 
--- Q-network loss: MSE between Q(s,a) and target = r + γ(1-d)(min_tq - α*lp_a')
--- The target is computed using DOUBLE target nets + Double arithmetic, so
--- no gradient flows into Q params from the RHS — exactly what we want.
-qLoss : QNet -> QNetD -> QNetD -> ActorNet -> Variable CPU ->
+-- MSE( Q(s,a), r + γ(1−d)·(min_target_q − α·logπ(a'|s')) )
+-- Target value is computed in pure Double arithmetic — gradients from
+-- the target side never flow back to online Q params.
+qLoss : QNet -> QNet -> QNet -> ActorNet -> Variable CPU ->
         Double -> Double -> Transition ObsDim ActDim -> IO (Variable CPU)
 qLoss qOnline q1Tgt q2Tgt actor logStdV gamma alpha t = do
   nextPair <- sampleActionIO actor logStdV t.nextObs
   let nextAction = fst nextPair
       nextLogP   = snd nextPair
-      q1NextD    = qValueDouble q1Tgt t.nextObs nextAction
-      q2NextD    = qValueDouble q2Tgt t.nextObs nextAction
+      q1NextD    = qValue q1Tgt t.nextObs nextAction
+      q2NextD    = qValue q2Tgt t.nextObs nextAction
       minQNextD  = if q1NextD <= q2NextD then q1NextD else q2NextD
       doneMask   = if t.done then 0.0 else 1.0
       targetVal  = t.reward + gamma * doneMask * (minQNextD - alpha * nextLogP)
 
   let actVal   = case t.action of [a] => a
-      qInputV  = bulkToTensor (qInputTensor (qInput t.obs actVal))
-      qOut     = snd (forwardVarTensor qOnline qInputV)
+      qInputT  = bulkToTensor (qInputTensor (qInput t.obs actVal))
+      qOut     = snd (forwardVarTensor qOnline qInputT)
       qPtr     = prim__select qOut 0 0
       qScalar  = prim__item1d qOut 0
       qV       : Variable CPU
@@ -253,45 +254,72 @@ qLoss qOnline q1Tgt q2Tgt actor logStdV gamma alpha t = do
   pure (diff * diff)
 
 
--- Actor loss (per transition): α * logπ(a|s) - min(Q1(s,a), Q2(s,a))
--- where (a, logπ) come from a fresh reparameterized sample and
--- the Q-values are computed through the ONLINE Q-networks (we do
--- stop-gradient on those by using fromDouble of the Double value —
--- this is equivalent to PyTorch's torch.no_grad() on the Q call).
--- Note: ideally the reparameterization trick would make the actor
--- loss' gradient flow THROUGH the Q network's input, but our forward
--- path doesn't differentiate through the concatenation easily; we
--- approximate with log_prob-only gradient (equivalent to REINFORCE-
--- style actor update, still a valid SAC variant per the paper).
+-- --- Actor loss with reparameterization -----------------------------
+
+-- The key change from the earlier (log-prob-only) version: we build the
+-- reparameterized action AS A GRAD-TRACKED TENSOR using Variable-level
+-- operations on the actor's mean output and logStdV, concatenate with
+-- the obs tensor, forward Q1 / Q2 through it, and let gradient flow
+-- all the way back to the actor via the action input. The Q-net params
+-- also get gradients (they're in the graph) but actor_opt is
+-- prefix-scoped so it only applies actor grads; the leaked Q grads
+-- are zeroed next iteration by the respective Q optimizers.
 actorLoss : ActorNet -> QNet -> QNet -> Variable CPU -> Double ->
             Vect ObsDim Double -> IO (Variable CPU)
 actorLoss actor q1 q2 logStdV alpha obs = do
-  pair <- sampleActionIO actor logStdV obs
-  let action = fst pair
-      lp     = snd pair
-      q1Val  = qValue q1 obs action
-      q2Val  = qValue q2 obs action
-      minQ   = if q1Val <= q2Val then q1Val else q2Val
-
-  -- Re-forward the actor to build a grad-tracked log-prob scalar on the
-  -- same sampled action. We don't reuse `pair.lp` (which is a Double)
-  -- because the actor loss needs gradient flow through logStdV + mean.
   let stateT  = bulkToTensor (obsTensor obs)
-      meanOut = snd (forwardVarTensor actor stateT)
-      meanPtr = prim__select meanOut 0 0
+      meanOut = snd (forwardVarTensor actor stateT)    -- grad-tracked [1]
       meanVal = prim__item1d meanOut 0
-      meanV   : Variable CPU
-      meanV   = Var meanPtr Nothing meanVal
+      logStd  = (refreshValue logStdV).value
+      stdVal  = Prelude.exp logStd
 
+  eps <- normalSample
+  let -- u = mean + std*eps as a grad-tracked [1] tensor.
+      -- `prim__addScalar` preserves autograd; the `std*eps` product is a
+      -- constant Double.
+      uT          = prim__addScalar meanOut (stdVal * eps)
+      -- Grad-tracked tanh, then scale to [-MaxAction, MaxAction].
+      aSquashedT  = prim__tanh uT
+      aReparamT   = prim__mulScalar aSquashedT MaxAction
+
+      -- Concatenate obs (constant) with reparam action (grad-tracked) → [4].
+      obsT        = bulkToTensor (obsTensor obs)
+      qInputT     = prim__cat2 obsT aReparamT
+
+      -- Q1 / Q2 forward on the grad-tracked input → grad-tracked scalars.
+      q1OutT  = snd (forwardVarTensor q1 qInputT)
+      q1Val   = prim__item1d q1OutT 0
+      q1V     : Variable CPU
+      q1V     = Var (prim__select q1OutT 0 0) Nothing q1Val
+
+      q2OutT  = snd (forwardVarTensor q2 qInputT)
+      q2Val   = prim__item1d q2OutT 0
+      q2V     : Variable CPU
+      q2V     = Var (prim__select q2OutT 0 0) Nothing q2Val
+
+      -- Pick the smaller as a Variable (cached values drive the branch).
+      minQV   = if q1Val <= q2Val then q1V else q2V
+
+      -- Grad-tracked log-prob via Variable arithmetic, matching the
+      -- reparameterized sample. logπ(a) = logπ_u(u) − correction(u).
+      actVal  = Math.tanh (meanVal + stdVal * eps) * MaxAction
+      uVal    = meanVal + stdVal * eps
       actC    : Variable CPU
-      actC    = fromDouble action
-      diffM   = actC - meanV
+      actC    = fromDouble actVal
+      -- u-Variable: reconstruct u as a Variable from meanOut + stdVal*eps constant.
+      uV      : Variable CPU
+      uV      = Var (prim__select uT 0 0) Nothing uVal
+
       halfC   : Variable CPU
       halfC   = fromDouble 0.5
       twoC    : Variable CPU
       twoC    = fromDouble 2.0
       zeroC   : Variable CPU
       zeroC   = fromDouble 0.0
+
+      meanV   : Variable CPU
+      meanV   = Var (prim__select meanOut 0 0) Nothing meanVal
+      diffM   = uV - meanV
       negTwoLs = zeroC - twoC * logStdV
       varInv  = exp negTwoLs
       quad    = halfC * diffM * diffM * varInv
@@ -299,17 +327,15 @@ actorLoss actor q1 q2 logStdV alpha obs = do
       cC      = fromDouble logTwoPiHalf
       lpU     = (zeroC - quad) - logStdV - cC
       corrC   : Variable CPU
-      corrC   = fromDouble (squashCorrection action)
+      corrC   = fromDouble (squashCorrection uVal)
       lpV     = lpU - corrC
 
       alphaC  : Variable CPU
       alphaC  = fromDouble alpha
-      minQC   : Variable CPU
-      minQC   = fromDouble minQ
-  pure (alphaC * lpV - minQC)
+  pure (alphaC * lpV - minQV)
 
 
--- Batch aggregation ---------------------------------------------------
+-- --- Batch aggregation ----------------------------------------------
 
 sumVars : List (Variable CPU) -> Variable CPU
 sumVars xs =
@@ -324,41 +350,44 @@ aggregateMean losses =
   in s / nV
 
 
--- --- Update step ----------------------------------------------------
+-- --- One batch update: three group-scoped optimizer steps -----------
 
-runBatchUpdate : NativeOptimizer -> SACState -> Config ->
+runBatchUpdate : NativeOptimizer -> NativeOptimizer -> NativeOptimizer ->
+                 SACState -> Config ->
                  Vect n (Transition ObsDim ActDim) -> IO ()
-runBatchUpdate opt st cfg batch = do
-  q1T <- readIORef st.q1Tgt
-  q2T <- readIORef st.q2Tgt
+runBatchUpdate q1Opt q2Opt actorOpt st cfg batch = do
+  -- Q1 loss (owned by q1Opt which scopes to "q1_" — won't touch q2 or actor).
+  q1Losses <- traverse (qLoss st.q1 st.q1Tgt st.q2Tgt st.actor st.logStdV
+                              cfg.gamma cfg.alpha) (toList batch)
+  let q1LossV = aggregateMean q1Losses
+  _ <- pure (nativeTrainStep q1Opt q1LossV)
 
-  -- Q1 + Q2 combined loss (sum of both Qs' MSE — updated by a single nativeTrainStep).
-  q1Losses <- traverse (qLoss st.q1 q1T q2T st.actor st.logStdV cfg.gamma cfg.alpha) (toList batch)
-  q2Losses <- traverse (qLoss st.q2 q1T q2T st.actor st.logStdV cfg.gamma cfg.alpha) (toList batch)
-  let qLossV = aggregateMean q1Losses + aggregateMean q2Losses
-  _ <- pure (nativeTrainStep opt qLossV)
+  -- Q2 loss.
+  q2Losses <- traverse (qLoss st.q2 st.q1Tgt st.q2Tgt st.actor st.logStdV
+                              cfg.gamma cfg.alpha) (toList batch)
+  let q2LossV = aggregateMean q2Losses
+  _ <- pure (nativeTrainStep q2Opt q2LossV)
 
-  -- Actor loss
+  -- Actor loss (reparameterized). Backward graph touches Q params too but
+  -- actorOpt scopes to "actor_" so only actor + log_std get updated.
   actorLosses <- traverse (actorLoss st.actor st.q1 st.q2 st.logStdV cfg.alpha)
                           (map (\t => t.obs) (toList batch))
   let aLossV = aggregateMean actorLosses
-  _ <- pure (nativeTrainStep opt aLossV)
+  _ <- pure (nativeTrainStep actorOpt aLossV)
   pure ()
 
 
 -- --- Main loop -------------------------------------------------------
 
-sacStep : NativeOptimizer -> Config -> SACState -> IO (SACState, Double)
-sacStep opt cfg st = do
-  -- 1. Take one env step (warmup = random, else actor-sampled)
+sacStep : NativeOptimizer -> NativeOptimizer -> NativeOptimizer ->
+          Config -> SACState -> IO (SACState, Double)
+sacStep q1Opt q2Opt actorOpt cfg st = do
   stepCount <- readIORef st.stepRef
   envState  <- readIORef st.envRef
   let obs = observeVec envState
 
   action <- if stepCount < cfg.warmupSteps
-              then do
-                u <- randomRIO (the Double (negate MaxAction), MaxAction)
-                pure u
+              then randomRIO (the Double (negate MaxAction), MaxAction)
               else do
                 pair <- sampleActionIO st.actor st.logStdV obs
                 pure (fst pair)
@@ -373,23 +402,18 @@ sacStep opt cfg st = do
       writeIORef st.envRef nextSt
       writeIORef st.stepRef (stepCount + 1)
 
-      -- 2. Train step if buffer is warm
       bufSz <- bufferSize st.buffer
       _ <- if bufSz >= cfg.batchSize && stepCount >= cfg.warmupSteps
              then do
                mBatch <- sampleN cfg.batchSize st.buffer
                case mBatch of
-                 Nothing => pure ()
-                 Just batch => runBatchUpdate opt st cfg batch
-             else pure ()
-
-      -- 3. Hard target sync every N steps
-      _ <- if (stepCount + 1) `mod` cfg.targetSync == 0
-             then do
-               let refreshedQ1 = emap refreshValue st.q1
-                   refreshedQ2 = emap refreshValue st.q2
-               writeIORef st.q1Tgt (toDoubleNetwork refreshedQ1)
-               writeIORef st.q2Tgt (toDoubleNetwork refreshedQ2)
+                 Nothing    => pure ()
+                 Just batch => do
+                   runBatchUpdate q1Opt q2Opt actorOpt st cfg batch
+                   -- Polyak soft-update target Q-nets every step.
+                   _ <- polyakBlend cfg.tau "q1_" "q1tgt_"
+                   _ <- polyakBlend cfg.tau "q2_" "q2tgt_"
+                   pure ()
              else pure ()
 
       pure (st, negate r)
@@ -430,29 +454,35 @@ main = do
            ++ " alpha=" ++ show cfg.alpha
            ++ " batch=" ++ show cfg.batchSize
            ++ " warmup=" ++ show cfg.warmupSteps
-           ++ " target_sync=" ++ show cfg.targetSync
+           ++ " tau=" ++ show cfg.tau
            ++ " seed=" ++ show cfg.seed
 
   actor <- mkActor
   q1    <- mkQ "q1_"
   q2    <- mkQ "q2_"
+  q1Tgt <- mkQ "q1tgt_"
+  q2Tgt <- mkQ "q2tgt_"
   let logStdV = mkLogStd
+
+  -- Hard-copy online → target at init (tau=1).
+  _ <- polyakBlend 1.0 "q1_" "q1tgt_"
+  _ <- polyakBlend 1.0 "q2_" "q2tgt_"
 
   buffer  <- mkBuffer {obsDim=ObsDim, actDim=ActDim} cfg.bufferCap
   stepRef <- newIORef (the Nat 0)
   envRef  <- newIORef (the PState (MkP 3.141592653589793 0.0))
-  q1Tgt   <- newIORef (toDoubleNetwork (emap refreshValue q1))
-  q2Tgt   <- newIORef (toDoubleNetwork (emap refreshValue q2))
 
   let st0 = MkSAC actor q1 q2 q1Tgt q2Tgt logStdV buffer stepRef envRef
-      opt = nativeAdamGlobalClip cfg.lr 0.9 0.999 1.0e-8 1.0
+      actorOpt = mkAdamGroup "actor_" cfg.lr cfg.clipNorm
+      q1Opt    = mkAdamGroup "q1_"    cfg.lr cfg.clipNorm
+      q2Opt    = mkAdamGroup "q2_"    cfg.lr cfg.clipNorm
 
   putStrLn ""
 
   let trainCfg : TrainConfig SACState
       trainCfg = MkTrainConfig cfg.epochs 2000 NoEarlyStop (const (pure []))
   (trained, epochsDone, _) <- runTrainingIO
-    (\s, _ => sacStep opt cfg s)
+    (\s, _ => sacStep q1Opt q2Opt actorOpt cfg s)
     (pure ())
     trainCfg st0
 

@@ -5,10 +5,10 @@ target Q-networks, fixed entropy temperature α. Self-contained Pendulum
 physics imported from `ppo.py` to stay aligned with the PPO env.
 
 Aligned with `Example.Sac` (Idris): separate actor + Q1 + Q2 networks
-registered with distinct paramId prefixes. τ=1 (hard target copy every
-`target_sync` steps) for simpler Idris porting — standard SAC uses
-τ=0.005 and updates every step; at Pendulum's scale hard target copy
-converges too.
+registered under distinct paramId scope prefixes on the Idris side, and
+three separate Adam optimizers (one per network). Polyak soft target
+update τ=0.005 applied every step, matching the Idris `polyakBlend`
+wrapper that calls the C-backend `polyak_blend` FFI.
 """
 
 from __future__ import annotations
@@ -154,8 +154,12 @@ def sac_update(
     return float(actor_loss.item())
 
 
-def hard_sync(target: nn.Module, online: nn.Module) -> None:
-    target.load_state_dict(online.state_dict())
+def polyak_update(target: nn.Module, online: nn.Module, tau: float) -> None:
+    """target ← (1-τ)·target + τ·online, in-place. Matches the Idris
+    backend's `polyak_blend` FFI semantics."""
+    with torch.no_grad():
+        for t, o in zip(target.parameters(), online.parameters(), strict=True):
+            t.mul_(1.0 - tau).add_(o, alpha=tau)
 
 
 # ---------------------------------------------------------------------------
@@ -166,12 +170,11 @@ def hard_sync(target: nn.Module, online: nn.Module) -> None:
 def train_sac(
     total_steps: int = 30000, buffer_capacity: int = 100000, batch_size: int = 64,
     lr: float = 3e-4, gamma: float = 0.99, alpha: float = 0.2,
-    warmup_steps: int = 1000, target_sync: int = 100,
+    warmup_steps: int = 1000, tau: float = 0.005,
     seed: int = 42, log_every: int = 2000,
 ) -> tuple[Actor, list[float]]:
-    """Hard target copy every `target_sync` steps (Idris-friendly; standard
-    SAC uses Polyak τ=0.005 but that needs a tensor-level blend op we
-    haven't added to the Idris backend yet)."""
+    """Polyak soft update τ=0.005 every step, matching the Idris port which
+    calls `polyakBlend` after each gradient step."""
     torch.manual_seed(seed)
     rng = random.Random(seed)
     actor = Actor()
@@ -212,9 +215,9 @@ def train_sac(
                 actor, q1, q2, q1_target, q2_target,
                 actor_opt, q1_opt, q2_opt, buffer, batch_size, gamma, alpha, rng,
             )
-            if (step + 1) % target_sync == 0:
-                hard_sync(q1_target, q1)
-                hard_sync(q2_target, q2)
+            # Polyak soft update every step (matches Idris).
+            polyak_update(q1_target, q1, tau)
+            polyak_update(q2_target, q2, tau)
         if (step + 1) % log_every == 0:
             recent = history[-20:] or [0.0]
             print(
