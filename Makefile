@@ -473,7 +473,10 @@ test-all:
 	@echo ""
 	@echo "=== All tests complete ==="
 
-.PHONY: all-backends test test-all download-mnist test-backend test-backend-tape test-backend-mlx \
+# Verify everything: type-check all packages + run all tests
+all: check check-gym check-examples test-all
+
+.PHONY: all all-backends test test-all download-mnist test-backend test-backend-tape test-backend-mlx \
         test-backend-torch test-safetensors test-ntm-grad test-ntm-timestep \
         test-examples check check-gym check-examples install install-core install-gym \
         example-supervised example-rnn example-lstm \
