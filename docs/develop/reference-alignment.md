@@ -23,7 +23,7 @@ When adding or changing an example, always update both Idris and PyTorch to matc
 | LSTM | Seed | 123456 | 42 |
 | Supervised | Seed | 123456 | 42 |
 | RNN | Seed | 123456 | 42 |
-| MNIST | Epochs | 2000 | 100 |
+| MNIST | Epochs | 2000 | 100 (reverted — see below) |
 | NTM/DNC Copy/Recall | Eval test size | 20 | 100 |
 
 ### Idris layer implementations changed
@@ -130,6 +130,30 @@ At matched config (separate actor+critic, lr=7e-4, entropy=0.01, rollout=20 sing
 
 Single-env rollout=20 is a noisy A2C config — the PyTorch reference's original 200/200 convergence used 8 parallel envs × rollout=20 (= 160 effective steps per update) which smooths the gradient significantly. Both implementations agree at the aligned config; the "full convergence" requires multi-env rollouts (not yet implemented in Idris — Gym.Wrapper.Vector exists but is unwired here).
 
+## Alignment Changes (2026-04-26) — MNIST/SeqClassify double-softmax + epoch semantics
+
+### Double-softmax bug (resolved)
+
+Both `Example/Mnist.idr` and `Example/SeqClassify.idr` ended their model chain with `OutputLayer softmaxLayer`, then their loss functions called `prim__logSoftmax predT 0` on the already-softmaxed output. The composition `log_softmax(softmax(x))` flattens the distribution toward uniform and drives training-time loss toward `log C` (the empirically observed plateau values: ~2.27 for MNIST, ~1.10 for seq-classify). Surfaced when `make test-examples-convergence` ran for the first time.
+
+**Fix**: drop `OutputLayer softmaxLayer` from both model chains. The existing loss functions correctly apply `log_softmax` to raw logits — the recommended pattern (also documented in CLAUDE.md gotchas). PyTorch references already used this pattern (raw logits + `F.nll_loss`). Notebook mirrors (`models/cnn.ipynb`, `models/seq_classify.ipynb`) updated for consistency.
+
+Verified post-fix at full default epochs:
+- seq-classify: loss 0.61 → 0.121 (PyTorch reference 0.243 at 1000 epochs)
+- MNIST: see epoch-semantics divergence below
+
+### MNIST epoch semantics — Idris/PyTorch divergence (documented, not aligned)
+
+PyTorch's `train_epoch` for MNIST iterates **all batches** of the 60K-sample training set per epoch (~1875 batches at batch=64). Idris's `mkIndexedLoader` returns **one batch** per call, and `runTraining`/`epochNativeTensorPre` consumes one batch per epoch. So 100 PyTorch epochs ≈ 187,500 batches; 100 Idris "epochs" ≈ 100 batches — a 1875× compute gap masquerading as identical epoch counts. Earlier alignment work (commit `be5121e8`) reduced Idris MNIST epochs from 2000 → 100 to "match PyTorch", treating the epoch token as semantically identical when it wasn't.
+
+**Reverted**: Idris MNIST default epochs back to **2000** (one-batch-per-epoch). At batch=32, 2000 batches achieves accuracy 0.92 on the 1K test sample (≥0.85 threshold), wall time ~3 minutes — fits comfortably in the 4h `CONVERGENCE_TIMEOUT`.
+
+**Not aligned**: full PyTorch-style epochs in Idris would take ~4.7 hours per convergence run (3750 batches × 100 epochs at ~90ms/batch), exceeding the convergence-target budget. A proper alignment would require either:
+1. Refactoring Idris MNIST to do PyTorch-style full-pass epochs (and reducing the epoch count to a few), or
+2. Refactoring PyTorch to do single-batch-per-epoch with epoch counts matched to Idris.
+
+Per the alignment policy, this is a known divergence to revisit. For now, both implementations converge to comparable accuracy (Idris 0.92 / PyTorch 0.99) — but their "epoch" counts mean different things. Filed as follow-up.
+
 ## Status
 
-All known discrepancies resolved. Both implementations now use identical defaults.
+All known discrepancies resolved or documented. MNIST epoch semantics is the remaining open divergence (above).

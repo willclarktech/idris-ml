@@ -192,7 +192,7 @@ record Config where
   dataDir : String
 
 defaultConfig : Config
-defaultConfig = MkConfig 0.001 100 500 42 "data/mnist"
+defaultConfig = MkConfig 0.001 2000 500 42 "data/mnist"
 
 specs : List (ArgSpec Config)
 specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
