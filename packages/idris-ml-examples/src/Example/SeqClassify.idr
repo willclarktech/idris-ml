@@ -6,7 +6,7 @@
 -- | Input: [1, 32] = 32 flat (single-channel, 32 timesteps)
 -- | Conv1D(1->4, k=3) -> ReLU -> MaxPool1D(2) ->
 -- | Conv1D(4->8, k=3) -> ReLU -> MaxPool1D(2) ->
--- | Dropout(0.5) -> Linear(48->3) -> Softmax
+-- | Dropout(0.5) -> Linear(48->3). Outputs raw logits; the loss applies log_softmax.
 
 module Example.SeqClassify
 
@@ -206,7 +206,7 @@ main = do
   fc <- linearLayer {i=AfterPool2, o=NumClasses}
 
   let model = autoName $
-        conv1 ~> relu1 ~> pool1 ~> conv2 ~> relu2 ~> pool2 ~> drop ~> fc ~> OutputLayer softmaxLayer
+        conv1 ~> relu1 ~> pool1 ~> conv2 ~> relu2 ~> pool2 ~> drop ~> OutputLayer fc
   putStrLn $ "Model: " ++ show model
   putStrLn ""
 

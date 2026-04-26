@@ -2,8 +2,8 @@
 -- |
 -- | LeNet-style CNN for handwritten digit classification.
 -- | Conv2d(1->16,k=5) -> ReLU -> MaxPool(2) ->
--- | Conv2d(16->32,k=5) -> ReLU -> MaxPool(2) ->
--- | Linear(512->10) -> Softmax
+-- | Conv2d(16->32,k=5) -> ReLU -> MaxPool(2) -> Dropout(0.5) ->
+-- | Linear(512->10). Outputs raw logits; the loss applies log_softmax.
 -- |
 -- | Loads MNIST .idx files via C FFI. Trains on random mini-batches.
 
@@ -213,7 +213,7 @@ main = do
   putStrLn "=== MNIST: Convolutional Neural Network ==="
   putStrLn $ "Config: lr=" ++ show cfg.lr ++ " epochs=" ++ show cfg.epochs
            ++ " patience=" ++ show cfg.patience ++ " seed=" ++ show cfg.seed
-  putStrLn "Architecture: Conv2d(1->16,k=5) -> ReLU -> Pool(2) -> Conv2d(16->32,k=5) -> ReLU -> Pool(2) -> Linear(512->10)"
+  putStrLn "Architecture: Conv2d(1->16,k=5) -> ReLU -> Pool(2) -> Conv2d(16->32,k=5) -> ReLU -> Pool(2) -> Dropout(0.5) -> Linear(512->10)"
 
   -- Load MNIST
   let trainImgPath = cfg.dataDir ++ "/train-images-idx3-ubyte"
@@ -248,7 +248,7 @@ main = do
   let model = autoName $
         conv1 ~> relu1 ~> pool1
         ~> conv2 ~> relu2 ~> pool2 ~> drop2
-        ~> fc ~> OutputLayer softmaxLayer
+        ~> OutputLayer fc
   putStrLn $ "Model: " ++ show model
   putStrLn ""
 
