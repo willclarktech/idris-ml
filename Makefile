@@ -505,11 +505,6 @@ test-examples:
 		}; \
 		for e in $(EXAMPLES); do \
 			echo "--- $$e [$$b] ---"; \
-			case "$$b/$$e" in \
-				mlx/example-dnc-copy|mlx/example-dnc-recall) \
-					echo "  | skipped on mlx: known multi-epoch state-lifecycle bug (TODO)"; \
-					continue ;; \
-			esac; \
 			extra_args=""; \
 			case "$$e" in \
 				example-supervised)  extra_args="SUPERVISED_ARGS=--epochs 5" ;; \

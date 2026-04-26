@@ -236,6 +236,21 @@ LayerLike LstmState where
       tensorIds : {dims : Vect rank Nat} -> Tensor dims (Variable d) -> List String
       tensorIds = mapMaybe paramId . toList
 
+  -- Refresh hidden/cell state tensor handles to fresh persistent zeros.
+  -- Without this, hT/cT carry non-persistent Tensor*s from the previous
+  -- sequence's last applyVarTensor; on MLX `tape_reset` (after every
+  -- optimizer step) deletes those, leaving dangling pointers that the
+  -- next sequence's first applyVarTensor would dereference.
+  resetState {d} {o} (MkLstm iw rw b hs cs iwT rwT bT hT cT) =
+    let oI = cast {to=Int} o
+        newHT = case hT of
+          Just _ => let buf = prim__allocDoubles oI in Just (prim__createState1d oI buf)
+          Nothing => Nothing
+        newCT = case cT of
+          Just _ => let buf = prim__allocDoubles oI in Just (prim__createState1d oI buf)
+          Nothing => Nothing
+    in MkLstm iw rw b hs cs iwT rwT bT newHT newCT
+
 
 ----------------------------------------------------------------------
 -- Constructors

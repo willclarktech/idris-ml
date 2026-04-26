@@ -506,6 +506,26 @@ export
            link prec
            Nothing Nothing Nothing Nothing Nothing Nothing Nothing
 
+  -- Rebuild state Variables with fresh zero Tensor*s at each sequence start.
+  -- DNC's forward (applyVar) reads its state through the structured Variable
+  -- fields directly (no consolidated tensor handles). On MLX, tape_reset
+  -- after every optimizer step deletes the non-persistent Tensor*s wrapped
+  -- by those Variables, so by the next epoch every scalar Variable in
+  -- linkMatrix / usage / etc. is a dangling pointer. We construct fresh
+  -- zero Variables here so the next forward never dereferences a stale
+  -- Tensor*. Recursively resets the LSTM controller's hT/cT.
+  resetState {d} (MkDnc lstm wkFc wbFc eFc aFc fgFc agFc wgFc rkFc rbFc rmFc oFc
+                       _ _ _ _ _ _ _
+                       _ _ _ _ _ _ _) =
+    let zN    = the (Vector n (Variable d)) zeros
+        zM    = the (Vector m (Variable d)) zeros
+        memZ  = the (Matrix n m (Variable d)) zeros
+        linkZ = the (Matrix n n (Variable d)) zeros
+    in MkDnc (resetState lstm) wkFc wbFc eFc aFc fgFc agFc wgFc
+             rkFc rbFc rmFc oFc
+             memZ zN zN (replicate r zN) (replicate r zM) linkZ zN
+             Nothing Nothing Nothing Nothing Nothing Nothing Nothing
+
 
 ----------------------------------------------------------------------
 -- Constructor
