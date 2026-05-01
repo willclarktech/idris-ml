@@ -398,11 +398,13 @@ record Config where
   seed : Bits64
   lrFind : Bool
 
-||| Defaults: tinyshakespeare corpus, 1000 epochs, no patience-based
-||| stopping (cosine LR + warmup handles annealing). nanoGPT-aligned
-||| optimizer params live in main() since they're not user-tunable.
+||| Defaults: embedded corpus + 30 epochs for a ~30s smoke-friendly demo.
+||| The convergence run lives in `make example-gpt-full` (or pass
+||| `--corpus tinyshakespeare --epochs 1000` directly), which uses the
+||| nanoGPT-aligned recipe (cosine LR + 100-epoch warmup) to hit
+||| `val_bpc < 3.5` on the held-out 10% split.
 defaultConfig : Config
-defaultConfig = MkConfig "tinyshakespeare" 0.001 1000 0 42 False
+defaultConfig = MkConfig "embedded" 0.001 30 0 42 False
 
 specs : List (ArgSpec Config)
 specs = [ Arg "--corpus" (\v, c => { corpus := v } c)
@@ -455,9 +457,11 @@ main = do
   putStrLn ""
 
   -- ---- LR schedule (cosineWithWarmup) + epoch counter ----
-  -- 100-epoch linear warmup → cosine decay from cfg.lr to cfg.lr * 0.1
-  -- Matches nanoGPT/train_shakespeare_char.py defaults.
-  let warmupEpochs : Nat = 100
+  -- Linear warmup → cosine decay from cfg.lr to cfg.lr * 0.1.
+  -- Matches nanoGPT/train_shakespeare_char.py at full epochs (warmup=100,
+  -- epochs=1000); for the embedded smoke demo (epochs=30) we cap warmup
+  -- at epochs/10 so the LR actually ramps within the run.
+  let warmupEpochs : Nat = min 100 (div cfg.epochs 10)
       minLR : Double = cfg.lr * 0.1
       schedule : Schedule = cosineWithWarmup cfg.lr minLR warmupEpochs cfg.epochs
   epochRef <- newIORef Z

@@ -308,6 +308,14 @@ example-gpt: install
 	cp $(LIB) build/exec/gpt_app/
 	$(STDBUF) ./build/exec/gpt $(GPT_ARGS)
 
+# Full-corpus convergence run (~hours on tape). Default `make example-gpt`
+# is a ~30s embedded-corpus demo; this target is the real char-LM
+# convergence target (matching nanoGPT/train_shakespeare_char.py).
+example-gpt-full: install dataset-tinyshakespeare
+	idris2 $(IDRIS_FLAGS) -o gpt $(EXAMPLE_SRC)/Example/Gpt.idr
+	cp $(LIB) build/exec/gpt_app/
+	$(STDBUF) ./build/exec/gpt --corpus tinyshakespeare --epochs 1000 $(GPT_ARGS)
+
 example-mnist: install dataset-mnist
 	idris2 $(IDRIS_FLAGS) -o mnist $(EXAMPLE_SRC)/Example/Mnist.idr
 	cp $(LIB) build/exec/mnist_app/
@@ -565,7 +573,7 @@ test-examples:
 				example-lstm)        extra_args="LSTM_ARGS=--epochs 5" ;; \
 				example-transformer) extra_args="TRANSFORMER_ARGS=--epochs 5" ;; \
 				example-reinforce)   extra_args="REINFORCE_ARGS=--epochs 10" ;; \
-				example-gpt)         extra_args="GPT_ARGS=--corpus embedded --epochs 3" ;; \
+				example-gpt)         extra_args="GPT_ARGS=--epochs 3" ;; \
 				example-mnist)       extra_args="MNIST_ARGS=--epochs 1" ;; \
 				example-seq-classify) extra_args="SEQ_ARGS=--epochs 5" ;; \
 				example-dqn)         extra_args="DQN_ARGS=--epochs 10" ;; \
@@ -749,7 +757,7 @@ all: check-all test-all
         example-supervised example-rnn example-lstm \
         example-ntm-copy example-ntm-associative-recall example-dnc-copy example-dnc-recall \
         example-reinforce \
-        example-gpt example-mnist example-seq-classify example-transformer \
+        example-gpt example-gpt-full example-mnist example-seq-classify example-transformer \
         example-transfer example-transfer-demo \
         example-bench example-profile sweep sweep-quick clean \
         backend print-torch ref-setup ref-supervised ref-rnn ref-lstm ref-ntm-copy \

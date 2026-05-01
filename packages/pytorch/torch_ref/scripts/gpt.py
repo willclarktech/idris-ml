@@ -55,18 +55,20 @@ BETA1 = 0.9
 BETA2 = 0.99            # default torch is 0.999; nanoGPT uses 0.99 for char-LM
 WEIGHT_DECAY = 0.1      # default 0.01; nanoGPT uses 0.1
 GRAD_CLIP = 1.0
-WARMUP_EPOCHS = 100
 MIN_LR_FACTOR = 0.1     # min_lr = base_lr * MIN_LR_FACTOR
 
 
 def cosine_lr(epoch: int, base_lr: float, max_epochs: int) -> float:
-    """Cosine LR schedule with linear warmup. Verbatim nanoGPT formula."""
+    """Cosine LR schedule with linear warmup. Verbatim nanoGPT formula at
+    max_epochs >= 1000; for shorter smoke runs (embedded/30) the warmup
+    is capped at max_epochs/10 so the LR actually ramps."""
+    warmup_epochs = min(100, max_epochs // 10)
     min_lr = base_lr * MIN_LR_FACTOR
-    if epoch < WARMUP_EPOCHS:
-        return base_lr * (epoch + 1) / (WARMUP_EPOCHS + 1)
+    if epoch < warmup_epochs:
+        return base_lr * (epoch + 1) / (warmup_epochs + 1)
     if epoch >= max_epochs:
         return min_lr
-    decay_ratio = (epoch - WARMUP_EPOCHS) / max(1, max_epochs - WARMUP_EPOCHS)
+    decay_ratio = (epoch - warmup_epochs) / max(1, max_epochs - warmup_epochs)
     coeff = 0.5 * (1.0 + math.cos(math.pi * decay_ratio))
     return min_lr + coeff * (base_lr - min_lr)
 
@@ -74,9 +76,9 @@ def cosine_lr(epoch: int, base_lr: float, max_epochs: int) -> float:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--corpus", choices=["tinyshakespeare", "embedded"],
-                        default="tinyshakespeare")
+                        default="embedded")
     parser.add_argument("--lr", type=float, default=1e-3)
-    parser.add_argument("--epochs", type=int, default=1000)
+    parser.add_argument("--epochs", type=int, default=30)
     parser.add_argument("--patience", type=int, default=0,
                         help="0 disables patience; rely on cosine LR for annealing")
     parser.add_argument("--seed", type=int, default=42)

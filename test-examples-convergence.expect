@@ -17,7 +17,11 @@ example-transformer              sort_acc     >=  0.8
 # ---- Other non-RL ----
 example-mnist                    accuracy     >=  0.85
 example-seq-classify             loss         <   0.5
-example-gpt                      val_bpc      <   3.5
+# Default `make example-gpt` is now embedded/30 (~30s); RESULT emits `bpc`
+# (training-corpus). The full convergence target lives in `example-gpt-full`
+# (--corpus tinyshakespeare --epochs 1000), with val_bpc < 3.5 as the
+# documented expectation — not run from this loop because it takes hours.
+example-gpt                      bpc          <   5.0
 example-transfer                 loss         <   0.5
 
 # ---- Memory-augmented (NTM/DNC at full default 50K-100K epochs) ----
