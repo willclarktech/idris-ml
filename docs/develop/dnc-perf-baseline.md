@@ -89,3 +89,18 @@ count reduction); estimated 4-6× win there.
 If the projection holds, **the 18h CONVERGENCE_TIMEOUT bump committed
 in `aa8896a` becomes unnecessary** and can be reverted to the original
 4 h or tightened further.
+
+## Phase 1 implementation notes (research, pre-commit)
+
+The proven NTM pattern is in `Layer/Ntm.idr:189-267`:
+- `applyVar` (lines 189-194) is a thin wrapper: `vecStackTensor` input → `applyVarTensor` → `tensorToScalars` output. Hot path.
+- `applyVarTensor` (lines 217-267) does all internal work on `AnyPtr` tensor handles, calling `prim__cat2`, `applyVarTensor lstm`, `tensorMv`, `tensorAdd`, `prim__narrow`, `prim__select`, `prim__softmax`, `prim__sigmoid`, fused C ops `prim__ntmReadHead` / `prim__ntmInterpWrite`. State carried in record's `Maybe AnyPtr` fields, populated in `nameLayer` (lines 283-298).
+- Existing infra (`extractCellTensor`, `extractWeightTensor`, `extractBiasTensor`, `prim__createState1d/2d`, `packScalarValues`/`packMatrixValues`) is general — DNC reuses without changes.
+
+DNC's port has the same shape but more pieces:
+- 11 FC layers vs NTM's 3 — each becomes `tensorAdd (tensorMv W cellT) b` direct call.
+- 5 algorithm helpers (`dncUsageUpdate`, `dncAllocate`, `dncWriteWeight`, `dncEraseAddWrite`, `dncLinkUpdate`, `dncReadWeight`) currently take `Vector n (Variable d)` — each gets a tensor-level variant `…T` that takes/returns `AnyPtr`. Most internal ops are already C calls; the rewrite eliminates the `vecStackTensor`/`tensorToScalars` round-trips at boundaries.
+- 7 state-tensor fields already in the record (`memTensor`, `usageTensor`, `writeWtTensor`, `precedenceTensor`, `linkTensor`, `readWtTensors`, `readOutTensors`) — initialized in `nameLayer`'s tensor branch (mirror NTM lines 283-298).
+- Per-head loop in `computeReads` becomes a loop on tensor handles.
+
+Estimated implementation scope: ~300-500 lines across `Layer/Dnc.idr` (~200 LOC of new tensor helpers, ~150 LOC for `applyVarTensor`, ~30 LOC `nameLayer` init, ~20 LOC `applyVar` wrapper). No new C ops needed — every prim used by DNC already exists. Cross-backend correctness gated by re-running `make test-backend-{tape,mlx,torch}` plus a 5-seed dnc-copy convergence at default config.
