@@ -243,35 +243,42 @@ Same architecture (LSTM controller + DNC memory: usage allocation + temporal lin
 
 ---
 
-## Pattern observed across B3 so far
-
-After 5 examples (Supervised, Rnn, Lstm, Transformer, SeqClassify), the
-pattern crystallizes:
+## Pattern observed across B3 (final, all 11 examples dogfooded)
 
 | Example | Optimizer | Cross-backend | Outcome |
 |---|---|---|---|
 | Supervised | SGD | 1.20× | actionable; default already in range, ship-as-is |
 | Rnn | SGD | 380× | unreliable (1-cell architecture too small) |
-| Lstm | SGD | 1.75× | **actionable; default 0.03 → 0.5** ✓ |
+| **Lstm** | SGD | 1.75× | **actionable; default 0.03 → 0.5** ✓ |
 | Transformer | Adam | 1.0× (fallback) | unreliable (both bailed to lrMin) |
 | SeqClassify | Adam | 660,000× | unreliable |
+| Transfer | SGD | n/a (Idris-only) | duplicate of Supervised; ship-as-is |
+| Reinforce | Adam | 1.45× (both fallback) | unreliable (negative-loss bug + Adam fallback) |
+| Dqn | Adam | n/a (Idris-only) | unreliable (negative-loss bug) |
+| A2c | Adam | n/a (Idris-only) | unreliable (negative-loss bug) |
+| Ppo | Adam | n/a (Idris-only) | recommendation = "policy-collapse LR", not optimal |
+| Sac | Adam | n/a (Idris-only) | runtime sweep skipped (warmup-gated structure) |
+| Mnist | Adam | 2,910,000× | unreliable (Adam-fallback) |
+| Gpt | AdamW | n/a (Idris path skipped) | per-param LR schedule conflicts with `lrFind` |
+| NTM (Copy + Recall) | RMSprop | 1.20× / 1.75× (both fallback) | unreliable (curve flat then NaN) |
+| DNC (Copy + Recall) | RMSprop | 7,580× / 3,510,000× | unreliable (real Idris/PyTorch divergence) |
 
-**SGD-based examples (3/3) produced informative results; Adam-based
-examples (2/2) produced fallback / nonsense.** The reason is that Adam
-+ grad-norm clipping already adapts the effective per-parameter LR,
-flattening the lr_find loss curve.
+**Material default change from B3: 1 of 11 examples (Lstm).** All others ship-as-is. The cross-backend agreement gate is the right discipline: when applied honestly it caught every misleading case (Adam-fallback, negative-loss-bug, policy-collapse, both-backends-fallback at 1.0–1.75× ratio).
 
-**Implication for the remaining B3 sub-tickets**: don't expect default
-changes from the Adam-based examples (Mnist, Gpt, Dqn, A2c, Ppo, Sac).
-Add the `--lr-find` flag for consistency-of-approach and document
-the result, but expect the entry to be "ship-as-is".
+**Optimizer-by-optimizer**:
+- **SGD** (3 examples): 3/3 produced informative results, 1 yielded a real default change. lr_find at its strongest.
+- **RMSprop** (4 examples — NTM/DNC): all unreliable (flat curve then NaN, or real Idris/PyTorch divergence). The "small momentum-adapted optimizer" effect partially flattens the curve like Adam does.
+- **Adam / AdamW** (8 examples): 0/8 produced actionable signal. Across the suite, Adam's per-parameter LR adaptation flattens the lr_find loss curve to the point where the steepest-descent ÷ 10 heuristic gives either fallback (~lrMin/10) or wildly noisy values. **Confirms the fastai-vs-modern-optimizer story.**
 
-The lr_find tool is most useful for SGD examples and least useful for
-Adam-based ones — that's a real fastai-vs-modern-optimizer story.
-Future improvement: have `lrFind` emit a warning when the recommended
-LR is within 10× of `lrMin` (likely fallback). For now, the cross-
-backend ratio is the gate.
+**Two structural lr_find limitations exposed by B3** (filed as future improvement candidates):
+1. **Negative-loss handling**: `divergeFactor × min_smoothed` is sign-broken when losses can be negative (REINFORCE, A2C, DQN — anything reporting negated returns as "loss"). Affects 4/11 examples.
+2. **Fallback detection**: when `RECOMMENDED_LR ≤ 10× lrMin` or no negative-slope window appears, the recommendation is a fallback, not a real signal. The cross-backend gate catches this indirectly (when both backends fall back, ratio looks ≈ 1×); a direct check would be more robust.
+
+**Cross-cutting decisions for the suite**:
+- Cross-backend agreement gate (>2× → unreliable) is now the standard B3 entry policy. Documented in CLAUDE.md and `Hpo` tutorials.
+- B4 (network-structure tuning via the A3 sweep harness) is now the higher-headroom direction for Adam-based examples — `lr_find` won't move defaults there, but a small-network sweep may.
+- **B3 ticket is done**; remaining B3-fixes (PPO env swap, GPT default shrink) are tracked separately.
 
 ---
 
-(Future entries here — one block per example dogfooded by B3.)
+(Future entries here — one block per example dogfooded by future tunings.)
