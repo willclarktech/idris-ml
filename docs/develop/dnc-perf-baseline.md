@@ -7,17 +7,20 @@ seqLen=1-10, lr=1e-4, RMSprop`. 100-epoch wall-clock measurements with
 
 ## Cross-backend wall-clock
 
-| Backend | ms/epoch (wall) | C total | Outside-C (Idris+FFI) | Forward C | Backward C | Optimizer C |
-|---|---:|---:|---:|---:|---:|---:|
-| **tape**  | 1040 | 1025.6 (98.6%) |   14 | **1022.8** |   2.3 |   0.4 |
-| **mlx**   | 2260 |  685.5 (30%)   | 1575 | n/a*       | 151.0 | 534.5 |
-| **torch** | 1230 |  108.7 (9%)    | 1121 | n/a*       | 101.2 |   7.5 |
+| Backend | ms/epoch (wall) | C total | Outside-C (Idris+FFI) | Forward C | Backward C | Optimizer C | vs PyTorch |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| **tape**  | 1040 | 1025.6 (98.6%) |   14 | **1022.8** |   2.3 |   0.4 |  93.9× |
+| **mlx**   | 2260 |  685.5 (30%)   | 1575 | n/a*       | 151.0 | 534.5 | 204.2× |
+| **torch** | 1230 |  108.7 (9%)    | 1121 | n/a*       | 101.2 |   7.5 | 111.1× |
+| **PyTorch ref** | **11.07** | — | — | — | — | — | 1.0× |
 
 \* mlx/torch profile reports don't have a forward timer; their "C total"
 includes only backward + optimizer.
 
-**PyTorch reference** (per `dnc-convergence-results.md`): ~10 ms/epoch
-(44s / 4100 epochs to convergence at this same config).
+PyTorch reference measured fresh on the same default config (1000 epochs
+in 11.07s wall, acc_short=73.7% at that point). Matches the
+`dnc-convergence-results.md` historical reference (~10 ms/epoch, 44s for
+the full 4.1K-epoch convergence run).
 
 ## Tape top backward ops (100 epochs)
 
