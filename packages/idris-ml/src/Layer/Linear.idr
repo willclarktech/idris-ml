@@ -81,6 +81,12 @@ LayerLike LinearState where
         (st, tensorAdd (tensorMv weightT inputT) biasT)
       _ => idris_crash "Linear: weight tensors not initialized (call autoName first)"
 
+  applyVarTensorBatch {d} {i} {o} st@(MkLinear _ _ wt bt) b inputBT =
+    case (wt, bt) of
+      (Just weightT, Just biasT) =>
+        (st, prim__linear2d weightT inputBT biasT)
+      _ => idris_crash "Linear: weight tensors not initialized (call autoName first)"
+
   emapLayer f (MkLinear w b wt bt) = MkLinear (map f w) (map f b) wt bt
 
   showLayer {i} {o} _ = "Linear<" ++ show i ++ ":" ++ show o ++ ">"

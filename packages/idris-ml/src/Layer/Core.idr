@@ -53,6 +53,26 @@ interface LayerLike (l : Nat -> Nat -> Type -> Type) where
         (st', VTensor outElems) = applyVar st input
     in (st', vecStackTensor outElems)
 
+  -- Batched tensor forward: input shape [B, i] -> output shape [B, o].
+  -- Default: loop over batch via existing applyVarTensor, then stack.
+  -- Override per-layer to call a fused C op (avoids B× tape entries).
+  -- NOTE: state mutates row-to-row; for stateful layers (RNN/NTM/...)
+  -- override this with a real batched implementation.
+  applyVarTensorBatch : {d : Device} -> {i, o : Nat} ->
+                        l i o (Variable d) -> (b : Nat) -> AnyPtr ->
+                        (l i o (Variable d), AnyPtr)
+  applyVarTensorBatch {i} {o} st b inputBT =
+    let (st', outs) = goRows st 0 b
+    in (st', stackRowTensors outs)
+    where
+      goRows : l i o (Variable d) -> Int -> (k : Nat) -> (l i o (Variable d), Vect k AnyPtr)
+      goRows st _ Z = (st, [])
+      goRows st off (S n) =
+        let row = prim__select inputBT 0 off
+            (st', outRow) = applyVarTensor st row
+            (st'', rest) = goRows st' (off + 1) n
+        in (st'', outRow :: rest)
+
   -- Type-preserving map (for applyDeltas in non-dense path)
   emapLayer : {i, o : Nat} -> (ty -> ty) -> l i o ty -> l i o ty
 
@@ -130,6 +150,12 @@ export
 applyVarTensorAny : {d : Device} -> {i, o : Nat} -> AnyLayer i o (Variable d) -> AnyPtr -> (AnyLayer i o (Variable d), AnyPtr)
 applyVarTensorAny (MkAnyLayer l @{dict} layer) inputT =
   case applyVarTensor @{dict} layer inputT of
+    (layer', outT) => (MkAnyLayer l @{dict} layer', outT)
+
+export
+applyVarTensorBatchAny : {d : Device} -> {i, o : Nat} -> AnyLayer i o (Variable d) -> (b : Nat) -> AnyPtr -> (AnyLayer i o (Variable d), AnyPtr)
+applyVarTensorBatchAny (MkAnyLayer l @{dict} layer) b inputBT =
+  case applyVarTensorBatch @{dict} layer b inputBT of
     (layer', outT) => (MkAnyLayer l @{dict} layer', outT)
 
 public export
@@ -217,6 +243,22 @@ forwardVarTensor {hs = h :: _} (l ~> layers) inputT =
   case applyVarTensorAny l inputT of
     (l', midT) =>
       case forwardVarTensor layers midT of
+        (rest', outT) => (l' ~> rest', outT)
+
+||| Batched tensor-level forward: threads a [B, i] tensor through layers,
+||| producing [B, o]. Each layer dispatches to its `applyVarTensorBatch`
+||| (default loops + stacks; override for fused batched ops).
+export
+forwardVarTensorBatch : {d : Device} -> {i, o : Nat} -> {hs : List Nat} ->
+                        Network i hs o (Variable d) -> (b : Nat) -> AnyPtr ->
+                        (Network i hs o (Variable d), AnyPtr)
+forwardVarTensorBatch (OutputLayer l) b inputBT =
+  case applyVarTensorBatchAny l b inputBT of
+    (l', outT) => (OutputLayer l', outT)
+forwardVarTensorBatch {hs = h :: _} (l ~> layers) b inputBT =
+  case applyVarTensorBatchAny l b inputBT of
+    (l', midT) =>
+      case forwardVarTensorBatch layers b midT of
         (rest', outT) => (l' ~> rest', outT)
 
 

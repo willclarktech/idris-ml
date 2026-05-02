@@ -43,6 +43,28 @@ LayerLike ActivationState where
         (st', VTensor outElems) = applyVar st input
     in (st', vecStackTensor outElems)
 
+  -- Batched dispatch: element-wise activations are shape-agnostic, so the
+  -- same primitives apply on a [B, n] input and produce [B, n] output —
+  -- still one tape entry total (no per-row loop).
+  applyVarTensorBatch {d} st@(MkActivation "tanh" _) _ inputBT = (st, prim__tanh inputBT)
+  applyVarTensorBatch {d} st@(MkActivation "sigmoid" _) _ inputBT = (st, prim__sigmoid inputBT)
+  applyVarTensorBatch {d} st@(MkActivation "relu" _) _ inputBT = (st, prim__clampMin inputBT 0.0)
+  applyVarTensorBatch {d} st@(MkActivation "gelu" _) _ inputBT = (st, prim__gelu inputBT)
+  applyVarTensorBatch {d} st@(MkActivation "silu" _) _ inputBT = (st, prim__silu inputBT)
+  applyVarTensorBatch {d} st@(MkActivation "leaky_relu" _) _ inputBT = (st, prim__leakyRelu inputBT 0.01)
+  -- Unknown activation: fall back to per-row loop (matches interface default).
+  applyVarTensorBatch {d} {i} st@(MkActivation _ _) b inputBT =
+    let (st', outs) = goRows st 0 b
+    in (st', stackRowTensors outs)
+    where
+      goRows : ActivationState i i (Variable d) -> Int -> (k : Nat) -> (ActivationState i i (Variable d), Vect k AnyPtr)
+      goRows st _ Z = (st, [])
+      goRows (MkActivation name f) off (S n) =
+        let row = prim__select inputBT 0 off
+            (st', outRow) = applyVarTensor (MkActivation name f) row
+            (st'', rest) = goRows st' (off + 1) n
+        in (st'', outRow :: rest)
+
   emapLayer _ st = st
 
   showLayer (MkActivation name _) = "Activation<" ++ name ++ ">"

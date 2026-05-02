@@ -495,6 +495,10 @@ prim__narrow : AnyPtr -> Int -> Int -> Int -> AnyPtr
 export
 prim__mm : AnyPtr -> AnyPtr -> AnyPtr
 
+%foreign "C:tensor_linear_2d,libidrisml"
+export
+prim__linear2d : AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr
+
 %foreign "C:tensor_transpose_2d,libidrisml"
 export
 prim__transpose2d : AnyPtr -> AnyPtr
@@ -598,6 +602,23 @@ vecStackTensor {n} elems =
       arr = prim__ptrArrayAlloc nI
       arr' = packScalarPtrs arr 0 elems
   in prim__stackFromArray arr' nI 0
+
+-- stackRowTensors: stack `b` tensors of shape [o] into a [b, o] tensor.
+-- PRESERVES autograd graph. Used by the default `applyVarTensorBatch`
+-- fallback (per-row loop + stack).
+export
+stackRowTensors : {b : Nat} -> Vect b AnyPtr -> AnyPtr
+stackRowTensors {b} ts =
+  let bI = cast {to=Int} b
+      arr = prim__ptrArrayAlloc bI
+      arr' = packPtrs arr 0 ts
+  in prim__stackFromArray arr' bI 0
+  where
+    packPtrs : AnyPtr -> Int -> Vect k AnyPtr -> AnyPtr
+    packPtrs arr _ [] = arr
+    packPtrs arr off (t :: rest) =
+      let arr' = prim__ptrArraySet arr off t
+      in packPtrs arr' (off + 1) rest
 
 -- Pack a matrix (Vect of Vectors) of tensorPtrs into a flat pointer array (row-major).
 packMatrixPtrs : {d : Device} -> AnyPtr -> Int -> {n : Nat} -> Vect m (Vector n (Variable d)) -> AnyPtr
@@ -1298,6 +1319,29 @@ bulkToTensor {n} (VTensor elems) =
     packDoubleBuf buf off (STensor v :: rest) =
       let buf' = prim__setDouble buf off v
       in packDoubleBuf buf' (off + 1) rest
+
+||| Bulk-convert a Vect of Vectors of Doubles to a [b, i] C tensor handle.
+||| The C tensor_create_2d function frees the input buffer after copying.
+||| Use to stack a per-sample input batch into a single batched tensor.
+export
+bulkToTensor2d : {b, i : Nat} -> Vect b (Vector i Double) -> AnyPtr
+bulkToTensor2d {b} {i} rows =
+  let bI = cast {to=Int} b
+      iI = cast {to=Int} i
+      buf = prim__allocDoubles (bI * iI)
+      buf' = packRows buf 0 rows
+  in prim__create2d bI iI buf' 0
+  where
+    packRow : AnyPtr -> Int -> Vect k (Scalar Double) -> AnyPtr
+    packRow buf _ [] = buf
+    packRow buf off (STensor v :: rest) =
+      let buf' = prim__setDouble buf off v
+      in packRow buf' (off + 1) rest
+    packRows : AnyPtr -> Int -> Vect k (Vector i Double) -> AnyPtr
+    packRows buf _ [] = buf
+    packRows buf off (VTensor row :: rest) =
+      let buf' = packRow buf off row
+      in packRows buf' (off + cast {to=Int} i) rest
 
 ||| Bulk-convert a Vector of Doubles to a persistent C tensor handle.
 ||| Persistent tensors survive tape resets — use when data is created once
