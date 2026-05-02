@@ -224,14 +224,14 @@ specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
         ]
 
 
--- --- Q-network loss (per transition) --------------------------------
+-- --- Q-network loss (batched) ---------------------------------------
 
--- MSE( Q(s,a), r + γ(1−d)·(min_target_q − α·logπ(a'|s')) )
--- Target value is computed in pure Double arithmetic — gradients from
--- the target side never flow back to online Q params.
-qLoss : QNet -> QNet -> QNet -> ActorNet -> Variable CPU ->
-        Double -> Double -> Transition ObsDim ActDim -> IO (Variable CPU)
-qLoss qOnline q1Tgt q2Tgt actor logStdV gamma alpha t = do
+-- Compute the per-transition target value as a plain Double. No
+-- gradient flows from this side; q1Tgt/q2Tgt forwards happen via
+-- `qValue` on a fresh Variable graph that we discard.
+computeTargetVal : QNet -> QNet -> ActorNet -> Variable CPU ->
+                   Double -> Double -> Transition ObsDim ActDim -> IO Double
+computeTargetVal q1Tgt q2Tgt actor logStdV gamma alpha t = do
   nextPair <- sampleActionIO actor logStdV t.nextObs
   let nextAction = fst nextPair
       nextLogP   = snd nextPair
@@ -239,19 +239,39 @@ qLoss qOnline q1Tgt q2Tgt actor logStdV gamma alpha t = do
       q2NextD    = qValue q2Tgt t.nextObs nextAction
       minQNextD  = if q1NextD <= q2NextD then q1NextD else q2NextD
       doneMask   = if t.done then 0.0 else 1.0
-      targetVal  = t.reward + gamma * doneMask * (minQNextD - alpha * nextLogP)
+  pure (t.reward + gamma * doneMask * (minQNextD - alpha * nextLogP))
 
-  let actVal   = case t.action of [a] => a
-      qInputT  = bulkToTensor (qInputTensor (qInput t.obs actVal))
-      qOut     = snd (forwardVarTensor qOnline qInputT)
-      qPtr     = prim__select qOut 0 0
-      qScalar  = prim__item1d qOut 0
-      qV       : Variable CPU
-      qV       = Var qPtr Nothing qScalar
-      targetC  : Variable CPU
-      targetC  = fromDouble targetVal
-      diff     = qV - targetC
-  pure (diff * diff)
+-- Batched Q-loss: MSE(Q(s,a) - target) summed over B transitions.
+-- Stack qInputs ([obs ++ action]) into [B, QInputDim], do one batched
+-- Q-online forward, then assemble per-sample losses as Variables.
+qLossBatch : (n : Nat) -> QNet -> QNet -> QNet -> ActorNet -> Variable CPU ->
+             Double -> Double -> Vect n (Transition ObsDim ActDim) ->
+             IO (Variable CPU)
+qLossBatch n qOnline q1Tgt q2Tgt actor logStdV gamma alpha batch = do
+  targetVals <- traverse (computeTargetVal q1Tgt q2Tgt actor logStdV gamma alpha) batch
+  let qInputs : Vect n (Vector QInputDim Double)
+      qInputs   = map (\t => qInputTensor (qInput t.obs (oneAct t.action))) batch
+      qInputBT  = bulkToTensor2d qInputs
+      qOutB     = snd (forwardVarTensorBatch qOnline n qInputBT)  -- [B, 1]
+      losses    = perSampleLosses qOutB targetVals 0
+      n_d       = the Double (cast (natToInteger n))
+      sumV      = foldl (+) (the (Variable CPU) (fromDouble 0.0)) losses
+      nV        = the (Variable CPU) (fromDouble n_d)
+  pure (sumV / nV)
+  where
+    oneAct : Vect ActDim Double -> Double
+    oneAct [a] = a
+    perSampleLosses : (qOutB : AnyPtr) -> Vect k Double -> Int -> List (Variable CPU)
+    perSampleLosses _ [] _ = []
+    perSampleLosses qOutB (tv :: rest) k =
+      let qRow = prim__select qOutB 0 k
+          qScalar = prim__item1d qRow 0
+          qV : Variable CPU
+          qV = Var (prim__select qRow 0 0) Nothing qScalar
+          targetC : Variable CPU
+          targetC = fromDouble tv
+          diff = qV - targetC
+      in (diff * diff) :: perSampleLosses qOutB rest (k + 1)
 
 
 -- --- Actor loss with reparameterization -----------------------------
@@ -353,23 +373,23 @@ aggregateMean losses =
 -- --- One batch update: three group-scoped optimizer steps -----------
 
 runBatchUpdate : NativeOptimizer -> NativeOptimizer -> NativeOptimizer ->
-                 SACState -> Config ->
+                 SACState -> Config -> {n : Nat} ->
                  Vect n (Transition ObsDim ActDim) -> IO ()
-runBatchUpdate q1Opt q2Opt actorOpt st cfg batch = do
+runBatchUpdate q1Opt q2Opt actorOpt st cfg {n} batch = do
   -- Q1 loss (owned by q1Opt which scopes to "q1_" — won't touch q2 or actor).
-  q1Losses <- traverse (qLoss st.q1 st.q1Tgt st.q2Tgt st.actor st.logStdV
-                              cfg.gamma cfg.alpha) (toList batch)
-  let q1LossV = aggregateMean q1Losses
+  -- Batched: one Q-online forward across the whole minibatch.
+  q1LossV <- qLossBatch n st.q1 st.q1Tgt st.q2Tgt st.actor st.logStdV
+                        cfg.gamma cfg.alpha batch
   _ <- pure (nativeTrainStep q1Opt q1LossV)
 
   -- Q2 loss.
-  q2Losses <- traverse (qLoss st.q2 st.q1Tgt st.q2Tgt st.actor st.logStdV
-                              cfg.gamma cfg.alpha) (toList batch)
-  let q2LossV = aggregateMean q2Losses
+  q2LossV <- qLossBatch n st.q2 st.q1Tgt st.q2Tgt st.actor st.logStdV
+                        cfg.gamma cfg.alpha batch
   _ <- pure (nativeTrainStep q2Opt q2LossV)
 
-  -- Actor loss (reparameterized). Backward graph touches Q params too but
-  -- actorOpt scopes to "actor_" so only actor + log_std get updated.
+  -- Actor loss (reparameterized). Per-sample because each transition
+  -- needs its own random eps for sampling. Future work: batch by
+  -- pre-sampling eps as a [B] vector and stacking grad-tracked qInputs.
   actorLosses <- traverse (actorLoss st.actor st.q1 st.q2 st.logStdV cfg.alpha)
                           (map (\t => t.obs) (toList batch))
   let aLossV = aggregateMean actorLosses
