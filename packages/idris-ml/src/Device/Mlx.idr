@@ -13,65 +13,71 @@ import DType.Core
 -- Per-symbol bindings to the mlx backend's suffixed C exports
 ----------------------------------------------------------------------
 
-%foreign "scheme:(lambda (a0 a1) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_scalar_mlx\" (double int) void*) a0 a1))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-prim__createScalarMlx : Double -> Int -> AnyPtr
+-- UserDeviceCore (MlxDev s) instance methods call the streamed
+-- variants below; the trailing `Int` stream_tag is derived from the
+-- type-level `s` via `streamTag` (0 = MCpu, 1 = MGpu). The unstreamed
+-- `prim__*Mlx` declarations are kept for any caller that hasn't moved
+-- to the streamed surface (currently none in this file).
 
-%foreign "scheme:(lambda (a0 a1 a2 a3) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_mlx\" (void* void* int int) void*) a0 a1 a2 a3))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-prim__createMlx : AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
+%foreign "scheme:(lambda (a0 a1 a2) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_scalar_mlx_streamed\" (double int int) void*) a0 a1 a2))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
+prim__createScalarMlxStreamed : Double -> Int -> Int -> AnyPtr
 
-%foreign "scheme:(lambda (a0)  ((foreign-procedure \"tensor_free_mlx\" (void*) void) (vector-ref a0 1)))"
-prim__freeMlx : AnyPtr -> ()
+%foreign "scheme:(lambda (a0 a1 a2 a3 a4) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_mlx_streamed\" (void* void* int int int) void*) a0 a1 a2 a3 a4))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
+prim__createMlxStreamed : AnyPtr -> AnyPtr -> Int -> Int -> Int -> AnyPtr
 
-%foreign "scheme:(lambda (a0)  ((foreign-procedure \"tensor_item_mlx\" (void*) double) (vector-ref a0 1)))"
-prim__itemMlx : AnyPtr -> Double
+%foreign "scheme:(lambda (a0 a1)  ((foreign-procedure \"tensor_free_mlx_streamed\" (void* int) void) (vector-ref a0 1) a1))"
+prim__freeMlxStreamed : AnyPtr -> Int -> ()
 
-%foreign "scheme:(lambda (a0)  (let ((raw_r ((foreign-procedure \"tensor_clone_mlx\" (void*) void*) (vector-ref a0 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-prim__cloneMlx : AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (a0 a1)  ((foreign-procedure \"tensor_item_mlx_streamed\" (void* int) double) (vector-ref a0 1) a1))"
+prim__itemMlxStreamed : AnyPtr -> Int -> Double
 
-%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_add_mlx\" (void* void*) void*) (vector-ref a0 1) (vector-ref a1 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-prim__addMlx : AnyPtr -> AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_clone_mlx_streamed\" (void* int) void*) (vector-ref a0 1) a1))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
+prim__cloneMlxStreamed : AnyPtr -> Int -> AnyPtr
 
-%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_sub_mlx\" (void* void*) void*) (vector-ref a0 1) (vector-ref a1 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-prim__subMlx : AnyPtr -> AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (a0 a1 a2)  (let ((raw_r ((foreign-procedure \"tensor_add_mlx_streamed\" (void* void* int) void*) (vector-ref a0 1) (vector-ref a1 1) a2))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
+prim__addMlxStreamed : AnyPtr -> AnyPtr -> Int -> AnyPtr
 
-%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_mul_mlx\" (void* void*) void*) (vector-ref a0 1) (vector-ref a1 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-prim__mulMlx : AnyPtr -> AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (a0 a1 a2)  (let ((raw_r ((foreign-procedure \"tensor_sub_mlx_streamed\" (void* void* int) void*) (vector-ref a0 1) (vector-ref a1 1) a2))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
+prim__subMlxStreamed : AnyPtr -> AnyPtr -> Int -> AnyPtr
 
-%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_div_mlx\" (void* void*) void*) (vector-ref a0 1) (vector-ref a1 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-prim__divMlx : AnyPtr -> AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (a0 a1 a2)  (let ((raw_r ((foreign-procedure \"tensor_mul_mlx_streamed\" (void* void* int) void*) (vector-ref a0 1) (vector-ref a1 1) a2))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
+prim__mulMlxStreamed : AnyPtr -> AnyPtr -> Int -> AnyPtr
 
-%foreign "scheme:(lambda (a0)  (let ((raw_r ((foreign-procedure \"tensor_neg_mlx\" (void*) void*) (vector-ref a0 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-prim__negMlx : AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (a0 a1 a2)  (let ((raw_r ((foreign-procedure \"tensor_div_mlx_streamed\" (void* void* int) void*) (vector-ref a0 1) (vector-ref a1 1) a2))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
+prim__divMlxStreamed : AnyPtr -> AnyPtr -> Int -> AnyPtr
 
-%foreign "scheme:(lambda (a0)  (let ((raw_r ((foreign-procedure \"tensor_abs_mlx\" (void*) void*) (vector-ref a0 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-prim__absMlx : AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_neg_mlx_streamed\" (void* int) void*) (vector-ref a0 1) a1))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
+prim__negMlxStreamed : AnyPtr -> Int -> AnyPtr
 
-%foreign "scheme:(lambda (a0)  (let ((raw_r ((foreign-procedure \"tensor_exp_mlx\" (void*) void*) (vector-ref a0 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-prim__expMlx : AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_abs_mlx_streamed\" (void* int) void*) (vector-ref a0 1) a1))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
+prim__absMlxStreamed : AnyPtr -> Int -> AnyPtr
 
-%foreign "scheme:(lambda (a0)  (let ((raw_r ((foreign-procedure \"tensor_log_mlx\" (void*) void*) (vector-ref a0 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-prim__logMlx : AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_exp_mlx_streamed\" (void* int) void*) (vector-ref a0 1) a1))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
+prim__expMlxStreamed : AnyPtr -> Int -> AnyPtr
 
-%foreign "scheme:(lambda (a0)  (let ((raw_r ((foreign-procedure \"tensor_sqrt_mlx\" (void*) void*) (vector-ref a0 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-prim__sqrtMlx : AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_log_mlx_streamed\" (void* int) void*) (vector-ref a0 1) a1))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
+prim__logMlxStreamed : AnyPtr -> Int -> AnyPtr
 
-%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_pow_mlx\" (void* void*) void*) (vector-ref a0 1) (vector-ref a1 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-prim__powMlx : AnyPtr -> AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_sqrt_mlx_streamed\" (void* int) void*) (vector-ref a0 1) a1))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
+prim__sqrtMlxStreamed : AnyPtr -> Int -> AnyPtr
 
-%foreign "scheme:(lambda (a0)  (let ((raw_r ((foreign-procedure \"tensor_sigmoid_mlx\" (void*) void*) (vector-ref a0 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-prim__sigmoidMlx : AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (a0 a1 a2)  (let ((raw_r ((foreign-procedure \"tensor_pow_mlx_streamed\" (void* void* int) void*) (vector-ref a0 1) (vector-ref a1 1) a2))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
+prim__powMlxStreamed : AnyPtr -> AnyPtr -> Int -> AnyPtr
 
-%foreign "scheme:(lambda (a0)  (let ((raw_r ((foreign-procedure \"tensor_tanh_mlx\" (void*) void*) (vector-ref a0 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-prim__tanhMlx : AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_sigmoid_mlx_streamed\" (void* int) void*) (vector-ref a0 1) a1))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
+prim__sigmoidMlxStreamed : AnyPtr -> Int -> AnyPtr
 
-%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_add_scalar_mlx\" (void* double) void*) (vector-ref a0 1) a1))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-prim__addScalarMlx : AnyPtr -> Double -> AnyPtr
+%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_tanh_mlx_streamed\" (void* int) void*) (vector-ref a0 1) a1))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
+prim__tanhMlxStreamed : AnyPtr -> Int -> AnyPtr
 
-%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_mul_scalar_mlx\" (void* double) void*) (vector-ref a0 1) a1))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-prim__mulScalarMlx : AnyPtr -> Double -> AnyPtr
+%foreign "scheme:(lambda (a0 a1 a2)  (let ((raw_r ((foreign-procedure \"tensor_add_scalar_mlx_streamed\" (void* double int) void*) (vector-ref a0 1) a1 a2))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
+prim__addScalarMlxStreamed : AnyPtr -> Double -> Int -> AnyPtr
 
-%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_clamp_min_mlx\" (void* double) void*) (vector-ref a0 1) a1))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-prim__clampMinMlx : AnyPtr -> Double -> AnyPtr
+%foreign "scheme:(lambda (a0 a1 a2)  (let ((raw_r ((foreign-procedure \"tensor_mul_scalar_mlx_streamed\" (void* double int) void*) (vector-ref a0 1) a1 a2))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
+prim__mulScalarMlxStreamed : AnyPtr -> Double -> Int -> AnyPtr
+
+%foreign "scheme:(lambda (a0 a1 a2)  (let ((raw_r ((foreign-procedure \"tensor_clamp_min_mlx_streamed\" (void* double int) void*) (vector-ref a0 1) a1 a2))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
+prim__clampMinMlxStreamed : AnyPtr -> Double -> Int -> AnyPtr
 
 
 ----------------------------------------------------------------------
@@ -79,11 +85,12 @@ prim__clampMinMlx : AnyPtr -> Double -> AnyPtr
 --
 -- `MlxDev` is parameterized over a stream tag (`MGpu` vs `MCpu`) so
 -- that `MlxDev MGpu` and `MlxDev MCpu` are distinct device types at
--- the type level while sharing one set of `UserDevice*` instances
--- (the C-side symbols are stream-agnostic; the runtime stream is
--- selected via `mx::set_default_stream`, currently driven by the
--- `MLX_DEVICE` env var). Mirrors the `CUDA Nat` precedent in
--- `Device.idr`.
+-- the type level while sharing one set of `UserDevice*` instances.
+-- The instance bodies derive an `Int` stream tag from `s` via
+-- `streamTag` and thread it through the `_mlx_streamed` FFI surface
+-- to `mx::StreamContext` on the C side, so each op runs on the
+-- stream the type system claimed. Mirrors the `CUDA Nat` precedent
+-- in `Device.idr`.
 --
 -- Ergonomic aliases `MlxGpu : Type` and `MlxCpu : Type` are exported
 -- below so callers can write `Tensor [4] MlxGpu F32 WithGrad`
@@ -113,31 +120,43 @@ public export
 MlxCpu : Type
 MlxCpu = MlxDev MCpu
 
+||| Int encoding of an `MlxStream` for the streamed FFI surface.
+||| `MCpu → 0`, `MGpu → 1`. Mirrored on the C side by
+||| `stream_for_tag(int)` in `backend_mlx.cpp`. Each `UserDeviceCore`
+||| (and sibling-interface) method on `MlxDev s` derives the tag from
+||| `s` and threads it to the corresponding `_mlx_streamed` FFI so
+||| the op runs on the correct mlx stream — honouring the type-level
+||| device parameter rather than the global `mx::set_default_device`.
+public export
+streamTag : MlxStream -> Int
+streamTag MCpu = 0
+streamTag MGpu = 1
+
 public export
 {s : MlxStream} -> UserDeviceCore (MlxDev s) where
   deviceName       = case s of
                        MGpu => "mlx:gpu"
                        MCpu => "mlx:cpu"
-  primCreateScalar = prim__createScalarMlx
-  primCreate       = prim__createMlx
-  primFree         = prim__freeMlx
-  primItem         = prim__itemMlx
-  primClone        = prim__cloneMlx
-  primAdd          = prim__addMlx
-  primSub          = prim__subMlx
-  primMul          = prim__mulMlx
-  primDiv          = prim__divMlx
-  primNeg          = prim__negMlx
-  primAbs          = prim__absMlx
-  primExp          = prim__expMlx
-  primLog          = prim__logMlx
-  primSqrt         = prim__sqrtMlx
-  primPow          = prim__powMlx
-  primSigmoid      = prim__sigmoidMlx
-  primTanh         = prim__tanhMlx
-  primAddScalar    = prim__addScalarMlx
-  primMulScalar    = prim__mulScalarMlx
-  primClampMin     = prim__clampMinMlx
+  primCreateScalar v rg          = prim__createScalarMlxStreamed v rg (streamTag s)
+  primCreate d sh r rg           = prim__createMlxStreamed d sh r rg (streamTag s)
+  primFree h                     = prim__freeMlxStreamed h (streamTag s)
+  primItem h                     = prim__itemMlxStreamed h (streamTag s)
+  primClone h                    = prim__cloneMlxStreamed h (streamTag s)
+  primAdd a b                    = prim__addMlxStreamed a b (streamTag s)
+  primSub a b                    = prim__subMlxStreamed a b (streamTag s)
+  primMul a b                    = prim__mulMlxStreamed a b (streamTag s)
+  primDiv a b                    = prim__divMlxStreamed a b (streamTag s)
+  primNeg a                      = prim__negMlxStreamed a (streamTag s)
+  primAbs a                      = prim__absMlxStreamed a (streamTag s)
+  primExp a                      = prim__expMlxStreamed a (streamTag s)
+  primLog a                      = prim__logMlxStreamed a (streamTag s)
+  primSqrt a                     = prim__sqrtMlxStreamed a (streamTag s)
+  primPow b e                    = prim__powMlxStreamed b e (streamTag s)
+  primSigmoid a                  = prim__sigmoidMlxStreamed a (streamTag s)
+  primTanh a                     = prim__tanhMlxStreamed a (streamTag s)
+  primAddScalar a v              = prim__addScalarMlxStreamed a v (streamTag s)
+  primMulScalar a v              = prim__mulScalarMlxStreamed a v (streamTag s)
+  primClampMin a v               = prim__clampMinMlxStreamed a v (streamTag s)
 ----------------------------------------------------------------------
 -- Linear-slice FFI bindings (mlx-suffixed)
 ----------------------------------------------------------------------

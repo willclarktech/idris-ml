@@ -19,6 +19,7 @@ modules = BuildConfig
         , Example.Gru
         , Example.Lstm
         , Example.MatmulBench
+        , Example.MlxStreamDemo
         , Example.Mnist
         , Example.MonteCarlo
         , Example.MountainCar

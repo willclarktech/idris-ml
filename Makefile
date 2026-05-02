@@ -577,6 +577,14 @@ example-tcast-demo: install
 	cp $(LIB) build/exec/tcast-demo_app/
 	./build/exec/tcast-demo $(TCAST_DEMO_ARGS)
 
+# Mlx-only: cross-stream MlxCpu F64 / MlxGpu F32 smoke test. Builds
+# under any BACKEND list that includes mlx; references MlxCpu / MlxGpu
+# directly, so won't link under tape-only or torch-only builds.
+example-mlx-stream-demo: install
+	idris2 $(IDRIS_FLAGS) -o mlx-stream-demo $(EXAMPLE_SRC)/Example/MlxStreamDemo.idr
+	cp $(LIB) build/exec/mlx-stream-demo_app/
+	./build/exec/mlx-stream-demo $(MLX_STREAM_DEMO_ARGS)
+
 example-gpt: install
 	idris2 $(IDRIS_FLAGS) -o gpt $(EXAMPLE_SRC)/Example/Gpt.idr
 	cp $(LIB) build/exec/gpt_app/
