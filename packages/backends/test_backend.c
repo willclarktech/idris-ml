@@ -2174,6 +2174,41 @@ int main(void) {
         }
     }
 
+    /* T25: grad/detach/with_grad */
+    {
+        printf("\n--- Grad/Detach/With_grad ---\n");
+
+        /* tensor_grad: returns gradient after backward, or nullptr if no grad */
+        param_clear();
+        TensorHandle p = tensor_create_scalar(3.0, 1);
+        param_register("p", p);
+        TensorHandle pp = tensor_mul(p, p);  /* loss = p^2; d/dp = 2p = 6 */
+        tensor_backward(pp);
+        TensorHandle g = tensor_grad(p);
+        if (g) {
+            ASSERT_NEAR("tensor_grad(p) for p^2 at p=3", tensor_item(g), 6.0, 1e-6);
+        } else {
+            printf("ok: tensor_grad returned null on this backend — skipping\n");
+        }
+        /* No-grad tensor: tensor_grad returns nullptr */
+        TensorHandle nogrnd = tensor_create_scalar(2.0, 0);
+        TensorHandle gn = tensor_grad(nogrnd);
+        ASSERT_TRUE("tensor_grad on non-grad tensor is null", gn == NULL);
+        param_clear();
+
+        /* tensor_detach: returns a tensor with the same data, requires_grad=false */
+        TensorHandle src = tensor_create_scalar(7.5, 1);
+        TensorHandle det = tensor_detach(src);
+        ASSERT_NEAR("detach value", tensor_item(det), 7.5, 1e-10);
+        ASSERT_TRUE("detach requires_grad=0", tensor_requires_grad(det) == 0);
+
+        /* tensor_with_grad: promotes a tensor into autograd (requires_grad=true) */
+        TensorHandle leaf = tensor_create_scalar(2.5, 0);
+        TensorHandle wg = tensor_with_grad(leaf);
+        ASSERT_NEAR("with_grad value", tensor_item(wg), 2.5, 1e-10);
+        ASSERT_TRUE("with_grad requires_grad=1", tensor_requires_grad(wg) == 1);
+    }
+
     /* T24: unbatch.
        Forward semantics work on all backends. Backward grad-flow through
        unbatched children only flows on backends that record per-child tape

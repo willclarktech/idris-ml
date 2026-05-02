@@ -1769,7 +1769,15 @@ void tensor_backward(TensorHandle h) {
     prof_backward_ms_mlx += _wall_ms_mlx() - t0_bwd;
 }
 
-TensorHandle tensor_grad(TensorHandle h) { STUB(); }
+TensorHandle tensor_grad(TensorHandle h) {
+    auto t = (Tensor*)h;
+    if (!t->has_grad) return nullptr;
+    /* mx::vjp may return non-contiguous grads (broadcast strides). Force
+       a contiguous copy so the returned tensor has the expected layout. */
+    auto contig = mx::contiguous(t->grad);
+    mx::eval(contig);
+    return (TensorHandle)new Tensor(contig, false);
+}
 
 void tensor_zero_grad(TensorHandle h) {
     auto t = (Tensor*)h;
@@ -1779,8 +1787,23 @@ void tensor_zero_grad(TensorHandle h) {
 }
 
 int tensor_requires_grad(TensorHandle h) { return ((Tensor*)h)->requires_grad ? 1 : 0; }
-TensorHandle tensor_detach(TensorHandle h) { STUB(); }
-TensorHandle tensor_with_grad(TensorHandle h) { STUB(); }
+TensorHandle tensor_detach(TensorHandle h) {
+    /* Detach: clone data, requires_grad=false, no tape entry. The result is
+       a leaf with no autograd linkage to the source tensor. */
+    auto t = (Tensor*)h;
+    return (TensorHandle)new Tensor(mx::array(t->data), false);
+}
+
+TensorHandle tensor_with_grad(TensorHandle h) {
+    /* Promote a tensor into the autograd graph: clone with requires_grad=true,
+       record an OP_CONST tape entry so the constant pool picks up its data
+       during backward replay. Note: for the result's gradient to actually be
+       computed, the caller still needs to register it via param_register. */
+    auto t = (Tensor*)h;
+    auto r = new Tensor(mx::array(t->data), true);
+    tape_append(OP_CONST, r, nullptr, nullptr, 0);
+    return (TensorHandle)r;
+}
 
 void tensor_set_requires_grad(TensorHandle h, int rg) {
     ((Tensor*)h)->requires_grad = (rg != 0);
