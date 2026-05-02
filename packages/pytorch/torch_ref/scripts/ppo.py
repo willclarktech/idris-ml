@@ -32,7 +32,13 @@ from torch_ref.models.ppo import (
     reset_to_zero,
 )
 from torch_ref.training.lr_finder import LrFindConfig, lr_find
-from torch_ref.training.runner import format_elapsed, format_result, mem_suffix
+from torch_ref.training.runner import (
+    format_elapsed,
+    format_result,
+    get_dtype,
+    mem_suffix,
+    set_device,
+)
 
 
 def main() -> None:
@@ -54,8 +60,15 @@ def main() -> None:
         action="store_true",
         help="Run lr_find (LR-range test) instead of training, then exit.",
     )
+    parser.add_argument(
+        "--device",
+        default="cpu",
+        choices=["cpu", "mps", "cuda"],
+        help="Device for tensor ops (default: cpu)",
+    )
     args = parser.parse_args()
 
+    set_device(args.device)
     torch.manual_seed(args.seed)
     rng = random.Random(args.seed)
 
@@ -67,8 +80,8 @@ def main() -> None:
         f" entropy={args.entropy} seed={args.seed}"
     )
 
-    actor = Actor()
-    critic = Critic()
+    actor = Actor().to(args.device)
+    critic = Critic().to(args.device)
     actor_opt = torch.optim.Adam(actor.parameters(), lr=args.lr)
     critic_opt = torch.optim.Adam(critic.parameters(), lr=args.lr)
     print()
@@ -88,10 +101,10 @@ def main() -> None:
             )
         advs, rets = gae(rew_l, val_l, done_l, bootstrap, args.gamma, args.lam)
         obs_t = torch.stack(obs_l)
-        act_t = torch.tensor(act_l, dtype=torch.long)
-        lp_t = torch.tensor(lp_l, dtype=torch.float64)
-        adv_t = torch.tensor(advs, dtype=torch.float64)
-        ret_t = torch.tensor(rets, dtype=torch.float64)
+        act_t = torch.tensor(act_l, dtype=torch.long, device=args.device)
+        lp_t = torch.tensor(lp_l, dtype=get_dtype(), device=args.device)
+        adv_t = torch.tensor(advs, dtype=get_dtype(), device=args.device)
+        ret_t = torch.tensor(rets, dtype=get_dtype(), device=args.device)
         adv_t = (adv_t - adv_t.mean()) / (adv_t.std() + 1e-8)
         ppo_update(
             actor, critic, actor_opt, critic_opt, obs_t, act_t, lp_t, adv_t, ret_t,

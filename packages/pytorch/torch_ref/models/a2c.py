@@ -29,15 +29,21 @@ from torch_ref.models.reinforce import (
     obs_tensor,
     reset_to_zero,
 )
-from torch_ref.training.runner import format_elapsed, mem_suffix
+from torch_ref.training.runner import (
+    format_elapsed,
+    get_device,
+    get_dtype,
+    mem_suffix,
+    multinomial_safe,
+)
 
 
 class Actor(nn.Module):
     def __init__(self, obs_dim: int = 4, num_actions: int = 2, hidden: int = 64) -> None:
         super().__init__()
-        self.fc1 = nn.Linear(obs_dim, hidden, dtype=torch.float64)
-        self.fc2 = nn.Linear(hidden, hidden, dtype=torch.float64)
-        self.head = nn.Linear(hidden, num_actions, dtype=torch.float64)
+        self.fc1 = nn.Linear(obs_dim, hidden, dtype=get_dtype())
+        self.fc2 = nn.Linear(hidden, hidden, dtype=get_dtype())
+        self.head = nn.Linear(hidden, num_actions, dtype=get_dtype())
 
     def forward(self, x: Tensor) -> Tensor:
         h = torch.tanh(self.fc2(torch.tanh(self.fc1(x))))
@@ -47,9 +53,9 @@ class Actor(nn.Module):
 class Critic(nn.Module):
     def __init__(self, obs_dim: int = 4, hidden: int = 64) -> None:
         super().__init__()
-        self.fc1 = nn.Linear(obs_dim, hidden, dtype=torch.float64)
-        self.fc2 = nn.Linear(hidden, hidden, dtype=torch.float64)
-        self.head = nn.Linear(hidden, 1, dtype=torch.float64)
+        self.fc1 = nn.Linear(obs_dim, hidden, dtype=get_dtype())
+        self.fc2 = nn.Linear(hidden, hidden, dtype=get_dtype())
+        self.head = nn.Linear(hidden, 1, dtype=get_dtype())
 
     def forward(self, x: Tensor) -> Tensor:
         h = torch.tanh(self.fc2(torch.tanh(self.fc1(x))))
@@ -72,7 +78,7 @@ def collect_rollout(
             logits = actor(obs)
             value = critic(obs)
         probs = F.softmax(logits, dim=-1)
-        action = int(torch.multinomial(probs, 1).item())
+        action = int(multinomial_safe(probs, 1).item())
         next_obs_np, reward, term, trunc, _ = env.step(action)
         done = bool(term or trunc)
         obs_list.append(obs)
@@ -85,12 +91,13 @@ def collect_rollout(
             obs_np = reset_to_zero(env)
         else:
             obs_np = next_obs_np.astype(np.float64)
+    device, dtype = get_device(), get_dtype()
     return (
         torch.stack(obs_list),
-        torch.tensor(act_list, dtype=torch.long),
-        torch.tensor(rew_list, dtype=torch.float64),
-        torch.tensor(val_list, dtype=torch.float64),
-        torch.tensor(done_list, dtype=torch.float64),
+        torch.tensor(act_list, dtype=torch.long, device=device),
+        torch.tensor(rew_list, dtype=dtype, device=device),
+        torch.tensor(val_list, dtype=dtype, device=device),
+        torch.tensor(done_list, dtype=dtype, device=device),
         obs_np,
     )
 
@@ -145,8 +152,8 @@ def train_a2c(
     """Hyperparameters match Idris `Example.A2c.defaultConfig`:
     lr=7e-4, entropy=0.01, rollout=10, gamma=0.99, lam=0.95."""
     torch.manual_seed(seed)
-    actor = Actor()
-    critic = Critic()
+    actor = Actor().to(get_device())
+    critic = Critic().to(get_device())
     optimizer = torch.optim.Adam(
         list(actor.parameters()) + list(critic.parameters()), lr=lr,
     )

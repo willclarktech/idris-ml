@@ -28,7 +28,12 @@ from torch_ref.models.a2c import (
 )
 from torch_ref.models.reinforce import make_cartpole_env, obs_tensor, reset_to_zero
 from torch_ref.training.lr_finder import LrFindConfig, lr_find
-from torch_ref.training.runner import format_elapsed, format_result, mem_suffix
+from torch_ref.training.runner import (
+    format_elapsed,
+    format_result,
+    mem_suffix,
+    set_device,
+)
 
 
 def main() -> None:
@@ -47,8 +52,15 @@ def main() -> None:
         action="store_true",
         help="Run lr_find (LR-range test) instead of training, then exit.",
     )
+    parser.add_argument(
+        "--device",
+        default="cpu",
+        choices=["cpu", "mps", "cuda"],
+        help="Device for tensor ops (default: cpu)",
+    )
     args = parser.parse_args()
 
+    set_device(args.device)
     torch.manual_seed(args.seed)
 
     print("=== A2C on CartPole (separate actor + critic) ===")
@@ -58,8 +70,8 @@ def main() -> None:
         f" seed={args.seed}"
     )
 
-    actor = Actor()
-    critic = Critic()
+    actor = Actor().to(args.device)
+    critic = Critic().to(args.device)
     optimizer = torch.optim.Adam(
         list(actor.parameters()) + list(critic.parameters()), lr=args.lr,
     )

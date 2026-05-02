@@ -23,7 +23,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
-from torch_ref.training.runner import format_elapsed, mem_suffix
+from torch_ref.training.runner import format_elapsed, get_device, get_dtype, mem_suffix
 
 MAX_STEPS = 500  # gymnasium Acrobot-v1 default TimeLimit
 
@@ -48,7 +48,7 @@ def reset_to_zero(env: gym.Env) -> np.ndarray:
 
 
 def obs_tensor(obs: np.ndarray) -> Tensor:
-    return torch.tensor(obs, dtype=torch.float64)
+    return torch.tensor(obs, dtype=get_dtype(), device=get_device())
 
 
 class Actor(nn.Module):
@@ -56,9 +56,9 @@ class Actor(nn.Module):
 
     def __init__(self, obs_dim: int = 6, hidden: int = 64, num_actions: int = 3) -> None:
         super().__init__()
-        self.fc1 = nn.Linear(obs_dim, hidden, dtype=torch.float64)
-        self.fc2 = nn.Linear(hidden, hidden, dtype=torch.float64)
-        self.head = nn.Linear(hidden, num_actions, dtype=torch.float64)
+        self.fc1 = nn.Linear(obs_dim, hidden, dtype=get_dtype())
+        self.fc2 = nn.Linear(hidden, hidden, dtype=get_dtype())
+        self.head = nn.Linear(hidden, num_actions, dtype=get_dtype())
 
     def forward(self, x: Tensor) -> Tensor:
         h = torch.tanh(self.fc2(torch.tanh(self.fc1(x))))
@@ -68,9 +68,9 @@ class Actor(nn.Module):
 class Critic(nn.Module):
     def __init__(self, obs_dim: int = 6, hidden: int = 64) -> None:
         super().__init__()
-        self.fc1 = nn.Linear(obs_dim, hidden, dtype=torch.float64)
-        self.fc2 = nn.Linear(hidden, hidden, dtype=torch.float64)
-        self.head = nn.Linear(hidden, 1, dtype=torch.float64)
+        self.fc1 = nn.Linear(obs_dim, hidden, dtype=get_dtype())
+        self.fc2 = nn.Linear(hidden, hidden, dtype=get_dtype())
+        self.head = nn.Linear(hidden, 1, dtype=get_dtype())
 
     def forward(self, x: Tensor) -> Tensor:
         h = torch.tanh(self.fc2(torch.tanh(self.fc1(x))))
@@ -206,8 +206,8 @@ def train_ppo(
 ) -> tuple[Actor, list[float]]:
     torch.manual_seed(seed)
     rng = random.Random(seed)
-    actor = Actor()
-    critic = Critic()
+    actor = Actor().to(get_device())
+    critic = Critic().to(get_device())
     actor_opt = torch.optim.Adam(actor.parameters(), lr=lr)
     critic_opt = torch.optim.Adam(critic.parameters(), lr=lr)
     env = make_acrobot_env(seed)
@@ -224,11 +224,12 @@ def train_ppo(
                 else float(critic(obs_tensor(obs_np)).item())
             )
         advs, rets = gae(rew_l, val_l, done_l, bootstrap, gamma, lam)
+        device, dtype = get_device(), get_dtype()
         obs_t = torch.stack(obs_l)
-        act_t = torch.tensor(act_l, dtype=torch.long)
-        lp_t = torch.tensor(lp_l, dtype=torch.float64)
-        adv_t = torch.tensor(advs, dtype=torch.float64)
-        ret_t = torch.tensor(rets, dtype=torch.float64)
+        act_t = torch.tensor(act_l, dtype=torch.long, device=device)
+        lp_t = torch.tensor(lp_l, dtype=dtype, device=device)
+        adv_t = torch.tensor(advs, dtype=dtype, device=device)
+        ret_t = torch.tensor(rets, dtype=dtype, device=device)
         adv_t = (adv_t - adv_t.mean()) / (adv_t.std() + 1e-8)
         ppo_update(
             actor, critic, actor_opt, critic_opt, obs_t, act_t, lp_t, adv_t, ret_t,
