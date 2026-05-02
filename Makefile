@@ -683,8 +683,13 @@ all-backends: test-examples
 # tape backend, with tight thresholds from test-examples-convergence.expect.
 # Hours of wall time (NTM/DNC dominate). Intended for release validation,
 # not CI. See docs/develop/testing.md for the testing-layer overview.
-# 4h per-example cap (vs 600s for the smoke gate); plenty for NTM/DNC at default epochs
-CONVERGENCE_TIMEOUT ?= 14400
+# 18h per-example cap (vs 600s for the smoke gate). DNC-copy at default
+# 50K epochs takes ~13h on tape (~1s/epoch × 46K to hit 80% acc per
+# `dnc-convergence-results.md`); other examples are well under this cap.
+# This budget is intentionally generous — the test asserts every example
+# CAN converge, not that it converges in CI-friendly time. Will tighten
+# once the DNC layer-perf rewrite (separate TODO) lands.
+CONVERGENCE_TIMEOUT ?= 64800
 CONVERGENCE_EXPECT := test-examples-convergence.expect
 
 test-examples-convergence:
