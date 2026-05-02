@@ -388,8 +388,10 @@ runBatchUpdate q1Opt q2Opt actorOpt st cfg {n} batch = do
   _ <- pure (nativeTrainStep q2Opt q2LossV)
 
   -- Actor loss (reparameterized). Per-sample because each transition
-  -- needs its own random eps for sampling. Future work: batch by
-  -- pre-sampling eps as a [B] vector and stacking grad-tracked qInputs.
+  -- needs its own random eps for sampling, and stacking the resulting
+  -- grad-tracked qInputs through prim__cat2 + stackRowTensors triggered
+  -- a backend SIGSEGV — that path needs a 2D-along-axis-1 cat op. See
+  -- TODO follow-up "SAC actorLoss batched".
   actorLosses <- traverse (actorLoss st.actor st.q1 st.q2 st.logStdV cfg.alpha)
                           (map (\t => t.obs) (toList batch))
   let aLossV = aggregateMean actorLosses
