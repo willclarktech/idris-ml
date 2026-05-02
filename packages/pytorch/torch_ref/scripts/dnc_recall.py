@@ -7,6 +7,7 @@ import argparse
 import platform
 import random
 import resource
+import sys
 
 import torch
 import torch.nn.functional as F
@@ -14,6 +15,7 @@ from torch.nn.utils import clip_grad_value_
 
 from torch_ref.data.recall_task import generate_recall_batch
 from torch_ref.models.dnc import DncConfig, DncModel
+from torch_ref.training.lr_finder import LrFindConfig, lr_find
 from torch_ref.training.runner import TrainConfig, format_result, run_training
 
 # Architecture constants matching Idris
@@ -94,6 +96,11 @@ def main() -> None:
     parser.add_argument("--es-window", type=int, default=1000)
     parser.add_argument("--es-patience", type=int, default=3)
     parser.add_argument("--num-reads", type=int, default=R)
+    parser.add_argument(
+        "--lr-find",
+        action="store_true",
+        help="Run lr_find (LR-range test) instead of training, then exit.",
+    )
     args = parser.parse_args()
 
     random.seed(args.seed)
@@ -123,6 +130,12 @@ def main() -> None:
     def epoch_fn() -> float:
         batch = generate_recall_batch(args.batch, args.min_items, args.max_items, SEQ_LEN, W)
         return _train_dnc_epoch(model, batch, optimizer, args.clip)
+
+    if args.lr_find:
+        lr_find(LrFindConfig(num_iters=100), epoch_fn, optimizer)
+        print()
+        print("Done — re-run without --lr-find at the recommended LR.")
+        sys.exit(0)
 
     def metrics_fn() -> list[tuple[str, str]]:
         eval_batch = generate_recall_batch(10, args.min_items, args.max_items, SEQ_LEN, W)

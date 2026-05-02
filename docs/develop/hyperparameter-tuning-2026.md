@@ -223,6 +223,26 @@ Both NTM examples share the same architecture (LSTM controller + interpolation w
 
 ---
 
+## DNC (Copy + Associative Recall)           date: 2026-04-29
+
+Same architecture (LSTM controller + DNC memory: usage allocation + temporal links + erase+add write), training (`epochTwoPhaseTensor` with `nativeRmsprop`), and loss (sigmoid + BCE) as NTM. Reduced N=32 (vs NTM's 128) so the O(n²) link matrix stays tractable. R=1 read head, batch=1.
+
+- **Before (Copy)**: `lr=1e-4 clip=10 batch=1 seqLen=1-10 seed=42`. DNC<N=32, M=20, H=100, R=1>.
+- **Before (Recall)**: `lr=1e-4 clip=10 batch=1 items=2-6 seqLen=3 seed=42`. Same DNC dimensions.
+- **lr_find (Copy, Idris)**: `RECOMMENDED_LR=0.00260` (real signal, ~26× the default!). Diverged at iter 94 (lr ≈ 3.94). 1.5 min runtime (slow per-iter due to O(n²) link matrix).
+- **lr_find (Copy, PyTorch)**: `RECOMMENDED_LR=3.43e-7` (≈ `lrMin`/3 — fallback). Diverged at iter 79 (lr ≈ 0.24). 0.7 s.
+- **Cross-backend agreement (Copy)**: ratio = 0.00260 / 3.43e-7 ≈ **7,580×** — wildly disagreeing. **Treat as unreliable.**
+- **lr_find (Recall, Idris)**: `RECOMMENDED_LR=0.0351` (real signal, ~351× the default!). Diverged at iter 94. 3.5 min runtime.
+- **lr_find (Recall, PyTorch)**: `RECOMMENDED_LR=1e-8` (fallback). Diverged at iter 79.
+- **Cross-backend agreement (Recall)**: ratio = **3,510,000×** — wildly disagreeing.
+- **Multi-seed pass rate**: not measured. Defaults unchanged.
+- **Decision (both)**: ship-as-is at lr=1e-4. Cross-backend gate fails decisively in both cases — Idris finds a real curve, PyTorch falls back. Idris's recommendation looks plausible (10–100× higher than default for small DNC) but isn't trustworthy without backend agreement.
+- **Why Idris and PyTorch disagree here**: the `nativeRmsprop` step in Idris uses tape autograd through the DNC link matrix. PyTorch DNC uses a slightly different stability clamping schedule (see `Layer.Dnc` "Numerical stability clamping" in CLAUDE.md). The two backends produce structurally different loss curves under the same LR sweep — Idris's curve has a clear descent before NaN; PyTorch diverges earlier without producing a useful negative slope. **This is a real implementation divergence, not just lr_find heuristic noise** — flag for follow-up alignment work (already tracked separately as the "DNC layer perf" TODO).
+- **Implication**: B4 (architecture tuning, e.g. lower N) is the higher-headroom direction here, alongside the existing DNC alignment ticket.
+- **Commit**: (this commit).
+
+---
+
 ## Pattern observed across B3 so far
 
 After 5 examples (Supervised, Rnn, Lstm, Transformer, SeqClassify), the
