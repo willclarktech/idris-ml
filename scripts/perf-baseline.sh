@@ -59,10 +59,10 @@ case "$EXAMPLE_KEY" in
   reinforce)    IDRIS_TGT=example-reinforce;         IDRIS_VAR=REINFORCE_ARGS;      REF_MOD=torch_ref.scripts.reinforce;         N_SHORT=50;  N_LONG=200 ;;
   dqn)          IDRIS_TGT=example-dqn;               IDRIS_VAR=DQN_ARGS;            REF_MOD=torch_ref.scripts.dqn;               N_SHORT=20;  N_LONG=80  ;;
   mountain-car) IDRIS_TGT=example-mountain-car;      IDRIS_VAR=MOUNTAIN_CAR_ARGS;   REF_MOD=torch_ref.scripts.mountain_car;      N_SHORT=20;  N_LONG=80  ;;
-  mountain-car-cont) IDRIS_TGT=example-mountain-car-cont; IDRIS_VAR=MOUNTAIN_CAR_CONT_ARGS; REF_MOD=torch_ref.scripts.mountain_car_cont; N_SHORT=20; N_LONG=80 ;;
+  mountain-car-cont) IDRIS_TGT=example-mountain-car-cont; IDRIS_VAR=MOUNTAIN_CAR_CONT_ARGS; REF_MOD=torch_ref.scripts.mountain_car_cont; N_SHORT=1100; N_LONG=2000 ;;
   a2c)          IDRIS_TGT=example-a2c;               IDRIS_VAR=A2C_ARGS;            REF_MOD=torch_ref.scripts.a2c;               N_SHORT=50;  N_LONG=200 ;;
   ppo)          IDRIS_TGT=example-ppo;               IDRIS_VAR=PPO_ARGS;            REF_MOD=torch_ref.scripts.ppo;               N_SHORT=10;  N_LONG=40  ;;
-  sac)          IDRIS_TGT=example-sac;               IDRIS_VAR=SAC_ARGS;            REF_MOD=torch_ref.scripts.sac;               N_SHORT=20;  N_LONG=80  ;;
+  sac)          IDRIS_TGT=example-sac;               IDRIS_VAR=SAC_ARGS;            REF_MOD=torch_ref.scripts.sac;               N_SHORT=1100; N_LONG=2000 ;;
   *)
     echo "unknown example-key: $EXAMPLE_KEY" >&2
     exit 2 ;;
