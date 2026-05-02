@@ -19,7 +19,7 @@ from torch_ref.training.runner import TrainConfig, format_result, run_training
 # Architecture constants matching Idris
 W = 6
 SEQ_LEN = 3
-N, M, H = 128, 20, 100
+N, M, H = 32, 20, 100
 R = 1  # read heads
 INPUT_W = W + 2
 OUTPUT_W = W
@@ -87,7 +87,7 @@ def main() -> None:
     parser.add_argument("--clip", type=float, default=10.0)
     parser.add_argument("--epochs", type=int, default=50000)
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--batch", type=int, default=16)
+    parser.add_argument("--batch", type=int, default=1)
     parser.add_argument("--min-items", type=int, default=2)
     parser.add_argument("--max-items", type=int, default=6)
     parser.add_argument("--es-threshold", type=float, default=0.01)
@@ -142,7 +142,7 @@ def main() -> None:
     epochs_done, _ = run_training(epoch_fn, config, metrics_fn)
 
     # Evaluation
-    test_size = 100
+    test_size = 20
     k2_batch = generate_recall_batch(test_size, 2, 2, SEQ_LEN, W)
     k4_batch = generate_recall_batch(test_size, 4, 4, SEQ_LEN, W)
     k6_batch = generate_recall_batch(test_size, 6, 6, SEQ_LEN, W)

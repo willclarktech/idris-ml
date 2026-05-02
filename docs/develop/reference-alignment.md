@@ -14,17 +14,18 @@ When adding or changing an example, always update both Idris and PyTorch to matc
 |---------|-----------|--------|-------|
 | NTM Copy | Batch size | 1 | 16 |
 | NTM Recall | Batch size | 1 | 16 |
-| DNC Copy | Batch size | 1 | 16 |
-| DNC Copy | Memory size N | 32 | 128 |
-| DNC Copy | Max seq length | 10 | 20 |
-| DNC Recall | Batch size | 1 | 16 |
-| DNC Recall | Memory size N | 32 | 128 |
+| DNC Copy | Batch size | 1 | 16 (reverted — see 2026-04-29 below) |
+| DNC Copy | Memory size N | 32 | 128 (reverted — see 2026-04-29 below) |
+| DNC Copy | Max seq length | 10 | 20 (reverted — see 2026-04-29 below) |
+| DNC Recall | Batch size | 1 | 16 (reverted — see 2026-04-29 below) |
+| DNC Recall | Memory size N | 32 | 128 (reverted — see 2026-04-29 below) |
 | LSTM | Learning rate | 0.1 | 0.03 |
 | LSTM | Seed | 123456 | 42 |
 | Supervised | Seed | 123456 | 42 |
 | RNN | Seed | 123456 | 42 |
 | MNIST | Epochs | 2000 | 100 (reverted — see below) |
-| NTM/DNC Copy/Recall | Eval test size | 20 | 100 |
+| NTM Copy/Recall | Eval test size | 20 | 100 |
+| DNC Copy/Recall | Eval test size | 20 | 100 (reverted — see 2026-04-29 below) |
 
 ### Idris layer implementations changed
 
@@ -175,6 +176,26 @@ Wall-time impact: PyTorch ref reaches val_bpc = 3.32 at 1000 epochs in ~64s on A
 ### Smoke gate vs convergence path
 
 A single `--corpus {tinyshakespeare,embedded}` CLI flag selects between the new file-based corpus (default; convergence) and the legacy 1342-char embedded excerpt (smoke gate, no file dependency). The smoke gate (`make test-examples`) sets `--corpus embedded --epochs 3` to keep the wiring test fast and self-contained; the embedded corpus uses a strict subset of the 65-char vocab so a single tokenizer serves both paths.
+
+## Alignment Changes (2026-04-29) — DNC defaults reverted on both sides
+
+The Apr 21 unification (DNC Copy/Recall → batch=16, N=128, max-len=20) put the example at a config the Idris tape backend cannot validate end-to-end: ~5 min/epoch, ~10 days for the trajectory PyTorch reaches in 13 min. The previously-documented Idris convergence run (`docs/develop/dnc-convergence-results.md`) was entirely at the smaller pre-Apr-21 config (N=32, batch=1, max-len 10), and no run at the unified config has ever completed.
+
+Per the alignment policy ("update PyTorch to the lower config and re-verify"), reverted both sides to the smaller config:
+
+| Example | Parameter | Reverted to |
+|---------|-----------|-------------|
+| DNC Copy | Memory size N | 32 |
+| DNC Copy | Batch size (CLI default) | 1 |
+| DNC Copy | Max seq length (CLI default) | 10 |
+| DNC Copy | Eval test size | 20 |
+| DNC Recall | Memory size N | 32 |
+| DNC Recall | Batch size (CLI default) | 1 |
+| DNC Recall | Eval test size | 20 |
+
+NTM Copy/Recall were intentionally NOT reverted — NTM's per-epoch cost is ~10× lower than DNC's (no O(N²) link matrix), so it runs the unified config without the same wall-clock pain.
+
+Re-aligning DNC at PyTorch's previous config (N=128, batch=16) is blocked on tape-backend perf work — the dominant cost is `Layer/Dnc.idr`'s `zeroDiag` per-cell C-level fill loop and per-row `prim__select` extraction in `buildMatrixRows`. Filed as a Medium-priority TODO entry; revisit alignment once those land.
 
 ## Status
 

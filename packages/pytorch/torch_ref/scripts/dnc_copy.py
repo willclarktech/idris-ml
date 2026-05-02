@@ -18,7 +18,7 @@ from torch_ref.training.runner import TrainConfig, format_result, run_training
 
 # Architecture constants matching Idris
 W = 8
-N, M, H = 128, 20, 100
+N, M, H = 32, 20, 100
 R = 1  # read heads
 INPUT_W = W + 1
 OUTPUT_W = W
@@ -90,9 +90,9 @@ def main() -> None:
     parser.add_argument("--clip", type=float, default=10.0)
     parser.add_argument("--epochs", type=int, default=50000)
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--batch", type=int, default=16)
+    parser.add_argument("--batch", type=int, default=1)
     parser.add_argument("--min-len", type=int, default=1)
-    parser.add_argument("--max-len", type=int, default=20)
+    parser.add_argument("--max-len", type=int, default=10)
     parser.add_argument("--es-threshold", type=float, default=0.01)
     parser.add_argument("--es-window", type=int, default=1000)
     parser.add_argument("--es-patience", type=int, default=3)
@@ -168,7 +168,7 @@ def main() -> None:
             print(f"  Output: {out_str}")
             print()
 
-    test_size = 100
+    test_size = 20
     short_batch = generate_copy_batch(test_size, 1, 5, seq_width=W)
     full_batch = generate_copy_batch(test_size, 1, 20, seq_width=W)
     short_acc = _bit_accuracy(model, short_batch)
