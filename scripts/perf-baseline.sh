@@ -82,14 +82,28 @@ binary_for_target() {
 # Uses time.time_ns() (absolute since epoch) — time.monotonic_ns() is
 # process-relative, so its value resets each `python3 -c` invocation and
 # the diff is meaningless.
+#
+# On non-zero exit returns "CRASH:<rc>" and dumps the stderr tail to the
+# script's stderr; without this the wall-clock between launch and abort
+# gets billed as a legitimate measurement.
 run_idris() {
   local n="$1"
-  local bin t0 t1
+  local bin t0 t1 rc errlog
   bin=$(binary_for_target)
+  errlog=$(mktemp "${TMPDIR:-/tmp}/perf-baseline-err.XXXXXX")
+  rc=0
   t0=$(python3 -c 'import time; print(int(time.time_ns()/1_000_000))')
-  "$bin" --epochs "$n" --seed "$SEED" >/dev/null 2>&1
+  "$bin" --epochs "$n" --seed "$SEED" >/dev/null 2>"$errlog" || rc=$?
   t1=$(python3 -c 'import time; print(int(time.time_ns()/1_000_000))')
-  echo $((t1 - t0))
+  if [ "$rc" -ne 0 ]; then
+    echo "[CRASH] $bin (epochs=$n) exit=$rc" >&2
+    tail -3 "$errlog" >&2
+    rm -f "$errlog"
+    echo "CRASH:$rc"
+  else
+    rm -f "$errlog"
+    echo $((t1 - t0))
+  fi
 }
 
 # Same for pytorch ref.
@@ -107,11 +121,14 @@ run_pytorch() {
 # runtime init). Build the binary once before timing; both timed
 # invocations skip make and call the binary directly.
 two_point_idris() {
-  local t_short t_long
+  local warmup t_short t_long
   build_idris_binary
-  run_idris "$N_SHORT" >/dev/null   # warmup
+  warmup=$(run_idris "$N_SHORT")
+  if [[ "$warmup" == CRASH:* ]]; then echo "crashed"; return 0; fi
   t_short=$(run_idris "$N_SHORT")
+  if [[ "$t_short" == CRASH:* ]]; then echo "crashed"; return 0; fi
   t_long=$(run_idris "$N_LONG")
+  if [[ "$t_long" == CRASH:* ]]; then echo "crashed"; return 0; fi
   python3 -c "print(round((${t_long} - ${t_short}) / (${N_LONG} - ${N_SHORT}), 2))"
 }
 
@@ -135,7 +152,11 @@ echo "[perf-baseline] $EXAMPLE_KEY [$BACKEND]: idris N=$N_SHORT then $N_LONG..."
 IDRIS_MS=$(two_point_idris)
 echo "[perf-baseline] $EXAMPLE_KEY: pytorch N=$N_SHORT then $N_LONG..." >&2
 PY_MS=$(two_point_pytorch)
-RATIO=$(python3 -c "print(round(${IDRIS_MS} / ${PY_MS}, 2) if ${PY_MS} > 0 else 'inf')")
+if [ "$IDRIS_MS" = "crashed" ]; then
+  RATIO="N/A"
+else
+  RATIO=$(python3 -c "print(round(${IDRIS_MS} / ${PY_MS}, 2) if ${PY_MS} > 0 else 'inf')")
+fi
 
 echo "${EXAMPLE_KEY},${BACKEND},${IDRIS_MS},${PY_MS},${RATIO},${N_LONG},${SEED},${COMMIT},"
 
@@ -161,7 +182,9 @@ import json, os
 def num(s):
     try: return float(s)
     except (ValueError, TypeError): return None
-print(json.dumps({
+idris_raw = os.environ["IDRIS_MS"]
+crashed = idris_raw == "crashed"
+row = {
     "ts": os.environ["ISO_TS"],
     "date": os.environ["DATE"],
     "kind": "baseline",
@@ -169,10 +192,13 @@ print(json.dumps({
     "backend": os.environ["BACKEND"],
     "device": os.environ["DEVICE"],
     "commit": os.environ["COMMIT"],
-    "idris_ms_per_epoch": num(os.environ["IDRIS_MS"]),
+    "idris_ms_per_epoch": None if crashed else num(idris_raw),
     "pytorch_ms_per_epoch": num(os.environ["PY_MS"]),
-    "ratio": num(os.environ["RATIO"]),
+    "ratio": None if crashed else num(os.environ["RATIO"]),
     "n_long": int(os.environ["N_LONG"]),
     "seed": int(os.environ["SEED"]),
-}))
+}
+if crashed:
+    row["notes"] = "idris binary aborted during timed run"
+print(json.dumps(row))
 PY

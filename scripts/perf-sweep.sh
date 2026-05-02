@@ -112,19 +112,35 @@ binary_for_target() {
 }
 
 # Run one idris invocation by calling the prebuilt binary directly,
-# bypassing make. Returns wall-clock ms.
+# bypassing make. Returns wall-clock ms on success, "CRASH:<rc>" on
+# non-zero exit. Stderr tail is dumped to the script's own stderr so
+# the operator sees *why* a cell aborted instead of silently billing
+# the time-to-abort as a legitimate measurement (see the 2026-05-18
+# sweep that reported 3.27 ms/ep for ntm-recall mlx-gpu — the binary
+# was aborting in ~700 ms and the diff between N=10 and N=40 calls
+# was treated as the per-epoch number).
 run_idris_once() {
   local target="$1" _var="$2" n="$3" backend="$4" device="$5"
-  local bin t0 t1
+  local bin t0 t1 rc errlog
   bin=$(binary_for_target "$target")
+  errlog=$(mktemp "${TMPDIR:-/tmp}/perf-sweep-err.XXXXXX")
+  rc=0
   t0=$(now_ms)
   if [ "$backend" = "mlx" ]; then
-    MLX_DEVICE="$device" "$bin" --epochs "$n" --seed "$SEED" >/dev/null 2>&1
+    MLX_DEVICE="$device" "$bin" --epochs "$n" --seed "$SEED" >/dev/null 2>"$errlog" || rc=$?
   else
-    "$bin" --epochs "$n" --seed "$SEED" >/dev/null 2>&1
+    "$bin" --epochs "$n" --seed "$SEED" >/dev/null 2>"$errlog" || rc=$?
   fi
   t1=$(now_ms)
-  echo $((t1 - t0))
+  if [ "$rc" -ne 0 ]; then
+    echo "[CRASH] $bin (backend=$backend device=$device epochs=$n) exit=$rc" >&2
+    tail -3 "$errlog" >&2
+    rm -f "$errlog"
+    echo "CRASH:$rc"
+  else
+    rm -f "$errlog"
+    echo $((t1 - t0))
+  fi
 }
 
 run_pytorch_once() {
@@ -143,10 +159,13 @@ run_pytorch_once() {
 two_point_idris() {
   local target="$1" var="$2" n_short="$3" n_long="$4" backend="$5" device="$6"
   build_idris_binary "$target" "$var" "$backend" "$device"
-  run_idris_once "$target" "$var" "$n_short" "$backend" "$device" >/dev/null # warmup
-  local t_short t_long
+  local warmup t_short t_long
+  warmup=$(run_idris_once "$target" "$var" "$n_short" "$backend" "$device")
+  if [[ "$warmup" == CRASH:* ]]; then echo "crashed"; return 0; fi
   t_short=$(run_idris_once "$target" "$var" "$n_short" "$backend" "$device")
+  if [[ "$t_short" == CRASH:* ]]; then echo "crashed"; return 0; fi
   t_long=$(run_idris_once "$target" "$var" "$n_long" "$backend" "$device")
+  if [[ "$t_long" == CRASH:* ]]; then echo "crashed"; return 0; fi
   python3 -c "print(round(($t_long - $t_short) / ($n_long - $n_short), 2))"
 }
 
@@ -178,17 +197,22 @@ import json, os
 def num(s):
     try: return float(s)
     except (ValueError, TypeError): return None
-print(json.dumps({
+idris_raw = os.environ["IDRIS_MS"]
+crashed = idris_raw == "crashed"
+row = {
     "ts": os.environ["ISO_TS"], "date": os.environ["DATE"],
     "kind": "baseline",
     "example": os.environ["EXAMPLE"], "backend": os.environ["BACKEND"],
     "device": os.environ["DEVICE"], "commit": os.environ["COMMIT"],
-    "idris_ms_per_epoch": num(os.environ["IDRIS_MS"]),
+    "idris_ms_per_epoch": None if crashed else num(idris_raw),
     "pytorch_ms_per_epoch": num(os.environ["PY_MS"]),
-    "ratio": num(os.environ["RATIO"]),
+    "ratio": None if crashed else num(os.environ["RATIO"]),
     "n_long": int(os.environ["N_LONG"]),
     "seed": int(os.environ["SEED"]),
-}))
+}
+if crashed:
+    row["notes"] = "idris binary aborted during timed run"
+print(json.dumps(row))
 PY
 }
 
@@ -211,7 +235,11 @@ for example in "${EXAMPLES[@]}"; do
     read -r BACKEND DEVICE <<<"$bd"
     echo "[$example/$cell] idris N=$N_SHORT then $N_LONG..." >&2
     IDRIS_MS=$(two_point_idris "$IDRIS_TGT" "$IDRIS_VAR" "$N_SHORT" "$N_LONG" "$BACKEND" "$DEVICE")
-    RATIO=$(python3 -c "print(round($IDRIS_MS / $PY_MS, 2) if $PY_MS > 0 else float('inf'))")
+    if [ "$IDRIS_MS" = "crashed" ]; then
+      RATIO="N/A"
+    else
+      RATIO=$(python3 -c "print(round($IDRIS_MS / $PY_MS, 2) if $PY_MS > 0 else float('inf'))")
+    fi
     write_jsonl_row "$example" "$BACKEND" "$DEVICE" "$IDRIS_MS" "$PY_MS" "$RATIO" "$N_LONG"
     printf '%-18s %-8s %-6s %12s %12s %8s\n' "$example" "$BACKEND" "$DEVICE" "$IDRIS_MS" "$PY_MS" "$RATIO"
   done
