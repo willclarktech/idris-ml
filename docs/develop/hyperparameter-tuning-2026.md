@@ -343,6 +343,26 @@ Multi-seed at the new (dModel=16, HeadDim=4) — both backends:
 
 NumHeads stays 4; HeadDim drops 8 → 4 to keep `NumHeads × HeadDim == dModel`.
 
+### Gpt: dModel 64 → 32 (HeadDim 16 → 8) — reverted
+
+Tried halving Gpt's dModel at the new embedded/30 default (B3-fixes). Risk: limited capacity at dModel=32 might push bpc above the threshold.
+
+Multi-seed at dModel=32 (Idris):
+
+| Seed | bpc |
+|------|-----|
+| 1 | 4.86 |
+| 2 | 4.87 |
+| **3** | **5.03** *(above 5.0 threshold)* |
+| 4 | 4.79 |
+| 42 | 4.82 |
+
+4/5 seeds pass; seed=3 dips to 5.03 (above the 5.0 threshold). Compared to the dModel=64 baseline (bpc 4.40–4.54, range 0.14, all comfortably below 5.0), the dModel=32 cluster is right at the edge (4.79–5.03, range 0.24).
+
+**Decision: revert.** Same pattern as the Mnist and Dqn experiments — a seed-specific regression at smaller capacity. Notably seed=3 was the regressive seed in both Mnist and Gpt this round; that's consistent with seed=3 happening to land an unlucky weight init that smaller models can't compensate for.
+
+Wall-time saving at dModel=32 was small (Gpt is already fast at the new default — ~40 s); the trade isn't worth the loss of convergence margin.
+
 ### Mnist: Conv2D channels (16, 32) → (8, 16) — reverted
 
 Halved both Conv2D layer channels (`OutC1=16→8`, `OutC2=32→16`) on the LeNet-style architecture. Mnist's per-epoch cost is genuinely matmul-bound (full 60K-image pass), so this should yield the largest wall-time win of any B4 attempt.
