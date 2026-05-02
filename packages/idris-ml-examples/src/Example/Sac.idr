@@ -213,10 +213,18 @@ record Config where
 
 ||| Defaults aligned with `torch_ref/models/sac.py`. Early-stop matches the
 ||| `>=-500` test-examples-convergence threshold: stop when window-averaged
-||| loss (= -avg_episode_return) is below 500 for 1000 consecutive epochs.
+||| loss (= -avg_episode_return) is below 500.
+|||
+||| Note on patience semantics: `goWindowed` in Train.idr accumulates loss
+||| over 100-epoch blocks and increments the patience counter ONCE PER
+||| BLOCK, not per epoch. So `esPatience=100` means "100 blocks =
+||| ~10000 sustained epochs below threshold" — generous enough to ride
+||| out transient noise without burning the full 30000 epochs after
+||| the policy has clearly converged. `esWindow=1000` means we average
+||| the most recent 10 blocks (= ~1000 epochs ≈ 5 episodes).
 defaultConfig : Config
 defaultConfig = MkConfig 3.0e-4 30000 0.99 0.2 100000 64 1000 0.005 1.0 42
-                         500.0 1000 1000
+                         500.0 1000 100
 
 specs : List (ArgSpec Config)
 specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
