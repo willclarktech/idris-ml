@@ -495,6 +495,30 @@ Multi-seed convergence after migration (30K env steps, eval over 10 episodes, th
 
 5/5 pass; mean -1255, within the same band the pre-broken `pendulum_step` reference produced. Other env constants match between idris-gym and Pendulum-v1 (`Gravity=10`, `MaxTorque=2`, `MaxSpeed=8`, `Dt=0.05`, dynamics formula, reward `-(θ_norm² + 0.1·θ̇² + 0.001·u²)`, 200-step TimeLimit), so no further alignment work is needed for Pendulum.
 
+## Alignment Changes (2026-05-19) — torch_ref env layer migrated to gymnasium
+
+Eight of nine RL envs in `torch_ref/models/*.py` migrated from hand-rolled physics to `gym.make("...")`. Per-env summary (Pendulum landed in the SAC commit earlier the same day):
+
+| Env | Idris-gym | torch_ref before | torch_ref after | Reset convention |
+|---|---|---|---|---|
+| Pendulum-v1 | matches | hand-rolled | `gym.make` | pin `(π, 0.0)` |
+| FrozenLake-v1 | matches | hand-rolled | `gym.make` | (canonical pos 0) |
+| Taxi-v4 | matches except missing wall at rows 3-4 cols 0-1 | hand-rolled | `gym.make` | pin via `unwrapped.encode(2,2,0,3)` |
+| CliffWalking-v1 | matches | hand-rolled | `gym.make` | (canonical start 36) |
+| Blackjack-v1 | **was** Ace=2/13 / 10=3/13 → **now** 1/13 / 4/13 (canonical) | hand-rolled with same skewed distribution | `gym.make` | (no init state, deck draw) |
+| CartPole-v1 | matches (uses v0's 200-step cap) | hand-rolled CartPole-v0 | `gym.make("CartPole-v1")`, cap MAX_STEPS=200 | pin `(0,0,0,0)` |
+| MountainCar-v0 | matches | hand-rolled | `gym.make` | pin `(-0.5, 0.0)` |
+| MountainCarContinuous-v0 | matches | hand-rolled | `gym.make` | pin `(-0.5, 0.0)` |
+| Acrobot-v1 | **does NOT match Gymnasium**: idris-gym + torch_ref both use semi-implicit Euler with 4 dt=0.05 substeps; canonical Gymnasium uses RK4 | hand-rolled (Euler, matches idris-gym) | (deferred) | — |
+
+**Deferrals filed as TODO rows**:
+1. **Blackjack card distribution** — adopted in this commit on both sides. The pre-change Ace=2/13, 10=3/13 (from the n=0 and n=1 → 1 collision and n=10..12 → 10 mapping) was non-canonical. Both Idris (`Gym.ToyText.Blackjack.drawCard`) and torch_ref now use the canonical Gymnasium 13-card uniform suit. Convergence preserved on both: Idris win_rate=0.43, torch_ref win_rate=0.42.
+2. **Acrobot integrator** — not migrated. idris-gym keeps Euler; torch_ref's `ppo.py` keeps its hand-rolled Euler matching idris-gym. The principled fix is porting RK4 to `Gym.ClassicControl.Acrobot.idr` and switching torch_ref to `gym.make("Acrobot-v1")`. Filed as a Medium TODO row.
+3. **Taxi wall divergence** — canonical Taxi-v4 has a wall between cols 0-1 in rows 3-4 that neither side currently models. Fixed-start optimal trajectory doesn't traverse that gap, so observed convergence (+8) is unchanged. Q-table values in the SW corner now differ from idris-gym's, invisible to the test. Not separately filed; subsumed by [[Env.reset Rng-threading]] row's general "audit idris-gym physics against canonical" implication.
+4. **Deterministic resets** — every classic-control env pins gymnasium's randomized init to match idris-gym's `Env.reset = constant`. Threading a seedable Rng through `idris-gym` `Env.reset` is filed as a separate Medium TODO row; once that lands, the pins can be removed.
+
+Reset-state pinning is achieved via `env.unwrapped.state = np.array(..., dtype=np.float64)` after each `env.reset()`. Using `float64` is load-bearing — CartPole specifically loses ~5% convergence (95.0 vs 100.0 in the test_a2c.test_converges threshold) if the pin uses float32, because the env's internal Euler step then runs in float32. Pinning with float64 keeps internal physics at the same precision as the pre-migration Python-float hand-roll.
+
 ## Status
 
 All known discrepancies resolved (model-side); two backend-side
