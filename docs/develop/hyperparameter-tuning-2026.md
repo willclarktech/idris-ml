@@ -558,3 +558,16 @@ The walls in the 5×5 layout (between cols 1-2 in rows 0-1; between cols 2-3 in 
 Convergence runtime: ~7 s on tape. Smoke = full convergence run (no epoch override needed). Same number on all 3 backends (tabular doesn't exercise autograd).
 
 **Calibration footnote**: Taxi was the second straight B6 ticket where the existing tabular scaffolding extended cleanly without modification — no env-API changes, no new training-loop variant. ~30 minutes idea→committed. The 1-day estimate from the audit holds for env-gap tickets that need stochastic-env wiring or reward shaping; ports onto deterministic envs that share the QLearning/CliffWalking template are sub-hour.
+
+### MountainCar (attempted 2026-04-30, reverted)
+
+Fourth B6 attempt — port DQN to MountainCar with potential-based reward shaping (φ(s) = pos, Ng et al. 1999). Reverted before commit; documented here so the pattern doesn't get re-discovered.
+
+**Failure mode**: the per-transition DQN loss does a separate `forwardVarTensor` per batch element (64-element batch per train step). MountainCar's 200-step episodes mean every episode runs 200 train steps, each doing 64 forwards, so per-epoch cost was ~4 s on tape (vs CartPole DQN's ~50 ms — episodes there terminate at ~10 steps when the policy is bad). At 100 episodes the policy still hadn't escaped the truncation floor (eval avg_return=-200). Multi-seed validation would have taken hours per run, well outside the single-session budget.
+
+**What's actually needed before retrying**:
+- Batched per-transition loss using the `applyVarTensorBatch` infra added in the SAC actorLoss-batched ticket. The DQN per-transition loss can be reformulated as a single batched forward through the Q-net + per-row select on the [B, NumActions] output. Probably 5-10× speedup on the shaped MountainCar problem.
+- Either Gymnasium-style randomized initial state (env-side change to add `reset(seed)`) or much more aggressive shaping. Position-only shaping wasn't enough to escape truncation in 100 episodes; energy-based or velocity-based shaping should help.
+- Multi-seed validation budget at the new per-epoch cost: ~30 min/seed × 5 seeds × 3 backends = 7-8 hours of compute.
+
+**Implication for B6 scope**: MountainCar is **not** in the sub-hour-scope bucket established by Gru / FrozenLake / Taxi. Treat as ~1–2 days minimum, with the batched-forward refactor as a prerequisite. MountainCarCont (continuous action via Gaussian policy) is even harder and depends on having a reliable MountainCar convergence pattern first. Recommend deferring the pair until the batched-forward DQN refactor lands as its own optimization ticket.
