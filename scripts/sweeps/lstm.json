@@ -1,0 +1,10 @@
+{
+  "name": "lstm",
+  "src": "packages/idris-ml-examples/src/Example/Lstm.idr",
+  "exec": "lstm",
+  "fixed_flags": [],
+  "grid": {
+    "--lr": [0.1, 0.03, 0.01, 0.003],
+    "--seed": [1, 2, 3, 42]
+  }
+}

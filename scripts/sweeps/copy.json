@@ -1,0 +1,12 @@
+{
+  "name": "ntm-copy",
+  "src": "packages/idris-ml-examples/src/Example/NtmCopy.idr",
+  "exec": "ntm-copy",
+  "fixed_flags": ["--alpha", "0.95", "--momentum", "0.9"],
+  "grid": {
+    "--lr": [0.0001, 0.0003, 0.001, 0.003],
+    "--clip": [5.0, 10.0],
+    "--batch": [4, 16],
+    "--seed": [1, 2, 42]
+  }
+}
