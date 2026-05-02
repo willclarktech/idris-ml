@@ -18,6 +18,7 @@ import torch
 import torch.nn.functional as F
 from torch.nn.utils import clip_grad_value_
 
+from torch_ref.training.runner import get_device
 from torch_ref.data.copy_task import generate_copy_batch
 from torch_ref.data.recall_task import generate_recall_batch
 from torch_ref.models.multi_head_transformer import (
@@ -77,7 +78,8 @@ def _train_ntm_epoch(
     Two-phase: encoding (feed inputs, discard outputs) then output (feed zeros, compute loss).
     """
     optimizer.zero_grad()
-    total_loss = torch.tensor(0.0)
+    device = get_device()
+    total_loss = torch.tensor(0.0, device=device)
 
     for input_seq, target_seq in batch:
         model.reset_state()
@@ -89,7 +91,7 @@ def _train_ntm_epoch(
             model(input_seq[t])
 
         # Output phase: feed zeros, compute loss on targets
-        zero_input = torch.zeros(input_width)
+        zero_input = torch.zeros(input_width, device=device)
         outputs = []
         for _ in range(seq_len):
             out = model(zero_input)

@@ -28,6 +28,7 @@ from torch_ref.diagnostics.ntm_diagnostics import (
     print_summary,
 )
 from torch_ref.models.ntm import NtmConfig, NtmModel
+from torch_ref.training.runner import get_device, set_device
 
 
 def _fmt_elapsed(t0: float) -> str:
@@ -68,7 +69,7 @@ def _train_loop(
     early_stop: bool,
 ) -> NtmModel:
     """Run training loop with optional early stopping. Returns trained model."""
-    model = NtmModel(task.ntm_cfg)
+    model = NtmModel(task.ntm_cfg).to(get_device())
 
     if task.optimizer_name == "adam":
         optimizer: torch.optim.Optimizer = torch.optim.Adam(model.parameters(), lr=task.ntm_cfg.lr)
@@ -142,7 +143,7 @@ def _eval_copy(model: NtmModel) -> None:
                     model(input_seq[t])
                 outputs = []
                 for _ in range(test_len):
-                    out = model(torch.zeros(input_seq.shape[1]))
+                    out = model(torch.zeros(input_seq.shape[1], device=get_device()))
                     outputs.append(out)
                 pred = torch.sigmoid(torch.stack(outputs))
                 pred_bits = (pred > 0.5).float()
@@ -214,7 +215,7 @@ def _eval_recall(model: NtmModel) -> None:
                 for t in range(input_seq.shape[0]):
                     model(input_seq[t])
 
-                zero_input = torch.zeros(input_seq.shape[1])
+                zero_input = torch.zeros(input_seq.shape[1], device=get_device())
                 outputs = []
                 for _ in range(seq_len):
                     out = model(zero_input)
@@ -337,8 +338,15 @@ def main() -> None:
         default=1,
         help="Recall batch size (default: 1, matching reference implementations)",
     )
+    parser.add_argument(
+        "--device",
+        default="cpu",
+        choices=["cpu", "mps", "cuda"],
+        help="Device for tensor ops (default: cpu)",
+    )
     args = parser.parse_args()
 
+    set_device(args.device)
     torch.manual_seed(args.seed)
     random.seed(args.seed)
 

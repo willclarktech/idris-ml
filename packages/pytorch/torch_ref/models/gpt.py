@@ -29,6 +29,7 @@ import torch.nn.functional as F
 from torch import Tensor
 
 from torch_ref.models.multi_head_transformer import MultiHeadTransformer
+from torch_ref.training.runner import get_device, multinomial_safe
 
 # ---------------------------------------------------------------------------
 # Corpus & vocabulary
@@ -178,11 +179,12 @@ def generate_gpt_data(
     """
     max_start = len(corpus) - seq_len - 1
     data = []
+    device = get_device()
     for _ in range(batch_size):
         start = random.randint(0, max_start)
         window = corpus[start : start + seq_len + 1]
-        inp = torch.tensor(window[:seq_len], dtype=torch.long)
-        tgt = torch.tensor(window[1 : seq_len + 1], dtype=torch.long)
+        inp = torch.tensor(window[:seq_len], dtype=torch.long, device=device)
+        tgt = torch.tensor(window[1 : seq_len + 1], dtype=torch.long, device=device)
         inp_onehot = F.one_hot(inp, vocab_size).float()
         data.append((inp_onehot, tgt))
     return data
@@ -200,7 +202,7 @@ def train_gpt_epoch(
 ) -> float:
     """Train one epoch: CE loss on all positions."""
     optimizer.zero_grad()
-    total_loss = torch.tensor(0.0)
+    total_loss = torch.tensor(0.0, device=get_device())
 
     for inp_onehot, target_indices in data:
         logits = model(inp_onehot)  # [seq_len, vocab_size]
@@ -253,15 +255,16 @@ def generate_text(
     result = list(seed_text)
 
     with torch.no_grad():
+        device = get_device()
         for _ in range(length):
-            inp = torch.tensor(tokens, dtype=torch.long)
+            inp = torch.tensor(tokens, dtype=torch.long, device=device)
             inp_onehot = F.one_hot(inp, vocab_size).float()
             logits = model(inp_onehot)  # [seq_len, vocab_size]
 
             # Take logits at last position
             last_logits = logits[-1] / temperature
             probs = F.softmax(last_logits, dim=0)
-            next_token = torch.multinomial(probs, 1).item()
+            next_token = multinomial_safe(probs, 1).item()
 
             result.append(decode(int(next_token)))
             tokens = tokens[1:] + [int(next_token)]
@@ -325,11 +328,12 @@ def evaluate_bpc(
         return float("nan")
 
     with torch.no_grad():
+        device = get_device()
         for _ in range(n_samples):
             start = random.randint(0, max_start)
             window = corpus[start : start + seq_len + 1]
-            inp = torch.tensor(window[:seq_len], dtype=torch.long)
-            tgt = torch.tensor(window[1 : seq_len + 1], dtype=torch.long)
+            inp = torch.tensor(window[:seq_len], dtype=torch.long, device=device)
+            tgt = torch.tensor(window[1 : seq_len + 1], dtype=torch.long, device=device)
             inp_onehot = F.one_hot(inp, vocab_size).float()
             logits = model(inp_onehot)
             loss = F.cross_entropy(logits, tgt)

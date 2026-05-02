@@ -40,7 +40,7 @@ from torch_ref.models.gpt import (
 )
 from torch_ref.models.multi_head_transformer import MultiHeadTransformer
 from torch_ref.training.lr_finder import LrFindConfig, lr_find
-from torch_ref.training.runner import TrainConfig, format_result, run_training
+from torch_ref.training.runner import TrainConfig, format_result, run_training, set_device
 
 # Architecture config matching Idris (kept small for tape-backend tractability;
 # nanoGPT's full GPU defaults are 6 layers / 6 heads / 384 dim).
@@ -87,8 +87,15 @@ def main() -> None:
         action="store_true",
         help="Run lr_find (LR-range test) instead of training, then exit.",
     )
+    parser.add_argument(
+        "--device",
+        default="cpu",
+        choices=["cpu", "mps", "cuda"],
+        help="Device for tensor ops (default: cpu)",
+    )
     args = parser.parse_args()
 
+    set_device(args.device)
     torch.manual_seed(args.seed)
     random.seed(args.seed)
 
@@ -122,7 +129,7 @@ def main() -> None:
         d_model=D_MODEL,
         num_heads=NUM_HEADS,
         num_blocks=NUM_BLOCKS,
-    )
+    ).to(args.device)
     optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=args.lr,
@@ -170,6 +177,7 @@ def main() -> None:
         log_every=100,
         patience=args.patience,
         min_delta=0.001,
+        device=args.device,
     )
 
     epochs_done, final_loss = run_training(epoch_fn, config, metrics_fn)
