@@ -711,6 +711,60 @@ Caveats:
 
 Full empirical table: `docs/develop/mlx-survey.md` "Empirical findings".
 
+### Paravirt-GPU hang: every kernel fails until VM reboot
+
+When developing on a virtualised macOS (Tart, UTM, anything backed by
+`AppleParavirtGPUMetalIOGPUFamily`), a single mlx-gpu kernel that
+overruns the host watchdog wedges the paravirt GPU driver. Once
+wedged, every subsequent `MTLComputePipelineState` creation fails —
+including for processes that didn't trigger the hang. mlx reports
+`[metal::Device] Unable to load kernel <name> / Compilation failed`;
+PyTorch MPS reports `Failed to created pipeline state object, Error
+Domain=CompilerError Code=2 "Compilation failed"`.
+
+The error message points at "compilation," but the metallib is fine,
+the device handle stays valid, and `MTLCompilerService` is healthy
+and serving other processes. **The failure is below user space.**
+
+Diagnosis one-liner — confirm it's the paravirt hang rather than a
+real code regression before debugging further:
+
+```bash
+cd packages/pytorch && uv run python -c \
+  "import mlx.core as mx; mx.negative(mx.array([1.0]), stream=mx.gpu)" 2>&1
+/usr/bin/log show --process python3.12 --last 5m \
+  | grep -iE 'GPU Hang|Paravirt|kIOGPUCommandBuffer'
+```
+
+If the log shows
+`Caused GPU Hang Error (00000003:kIOGPUCommandBufferCallbackErrorHang)`
+or `AppleParavirtComputePipelineState: Failed to get compute pipeline
+state info`, the GPU is wedged.
+
+Recovery: **reboot the VM.** `mx.clear_cache()`, restarting Python,
+kicking WindowServer don't reach the driver state — they're all
+user-space. From inside the VM: `sudo reboot`. From the Tart host:
+`tart stop <vm> && tart run <vm>`.
+
+After reboot, the mlx-gpu baseline returns (3-12× slower than CPU
+stream at this codebase's example scales, per
+`project_mlx_gpu_environment.md`).
+
+Trigger pattern observed 2026-05-18: rnn / lstm / gru / transformer
+mlx-gpu sweeps completed cleanly; the hang fired during an
+`example-ntm-copy` mlx-gpu run. Likely cause is a long-running kernel
+in NTM's cosine-similarity / softmax inner loop overrunning the
+paravirt watchdog. Bare-metal Apple Silicon (no paravirt layer)
+shouldn't hit this, but in a VM the watchdog is shorter than the
+typical mlx kernel needs for these workloads.
+
+The footprint downstream: silent perf-script anomalies. Once mlx-gpu
+binaries abort, `scripts/perf-sweep.sh` (post-commit `c89ff85`)
+correctly marks the cell as `crashed`; earlier versions silently
+billed the time-to-abort as the per-epoch measurement. If a perf-log
+row's `ratio` looks impossibly good for an mlx-gpu cell, check
+`notes` and the surrounding rows for the abort signature.
+
 ## Torch Backend (backend_torch.cpp)
 
 ### View tensors must be persistent
