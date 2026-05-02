@@ -18,6 +18,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
+from torch_ref.training.runner import get_device
+
 
 class TransformerBlock(nn.Module):
     """Single Pre-LN transformer block: attention + FFN with residuals."""
@@ -27,7 +29,12 @@ class TransformerBlock(nn.Module):
         assert d_model % num_heads == 0
         self.num_heads = num_heads
         self.head_dim = d_model // num_heads
-        self.causal_mask = causal_mask
+        # Register the mask as a buffer so `model.to(device)` moves it
+        # alongside the parameters. Without this, .to(mps) on the outer
+        # model leaves this inner-block reference pointing at the
+        # original CPU tensor.
+        self.register_buffer("causal_mask", causal_mask)
+        self.causal_mask: Tensor
 
         self.query_ws = nn.ModuleList(
             [nn.Linear(d_model, self.head_dim, bias=False) for _ in range(num_heads)]
@@ -174,15 +181,16 @@ def generate_sorting_data(
     """
     data = []
     base_vocab = vocab_size - 2
+    device = get_device()
     for _ in range(num_samples):
-        tokens = torch.randint(0, base_vocab, (input_len,))
+        tokens = torch.randint(0, base_vocab, (input_len,), device=device)
         sorted_tokens, _ = tokens.sort()
         seq = torch.cat(
             [
                 tokens,
-                torch.tensor([sep_token]),
+                torch.tensor([sep_token], device=device),
                 sorted_tokens,
-                torch.tensor([eos_token]),
+                torch.tensor([eos_token], device=device),
             ]
         )
         inp = seq[:-1]
@@ -209,14 +217,15 @@ def generate_reversal_data(
     """
     data = []
     base_vocab = vocab_size - 2
+    device = get_device()
     for _ in range(num_samples):
-        tokens = torch.randint(0, base_vocab, (input_len,))
+        tokens = torch.randint(0, base_vocab, (input_len,), device=device)
         seq = torch.cat(
             [
                 tokens,
-                torch.tensor([sep_token]),
+                torch.tensor([sep_token], device=device),
                 tokens.flip(0),
-                torch.tensor([eos_token]),
+                torch.tensor([eos_token], device=device),
             ]
         )
         inp = seq[:-1]
@@ -239,7 +248,7 @@ def train_reversal_epoch(
     context, so masking them out makes the loss meaningful.
     """
     optimizer.zero_grad()
-    total_loss = torch.tensor(0.0)
+    total_loss = torch.tensor(0.0, device=get_device())
 
     for inp_onehot, target_indices in data:
         logits = model(inp_onehot)

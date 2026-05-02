@@ -10,6 +10,7 @@ import torch.nn as nn
 from torch import Tensor
 
 from torch_ref.training.losses import bce_with_logits
+from torch_ref.training.runner import get_device, get_dtype
 
 
 class SupervisedModel(nn.Module):
@@ -23,13 +24,27 @@ class SupervisedModel(nn.Module):
         return self.linear(x)
 
 
-SUPERVISED_DATA = [
-    (torch.tensor([1.5, -2.7]), torch.tensor([0.0, 1.0, 0.0])),
-    (torch.tensor([-3.2, 4.1]), torch.tensor([0.0, 1.0, 0.0])),
-    (torch.tensor([5.7, 0.0]), torch.tensor([0.0, 0.0, 1.0])),
-    (torch.tensor([-1.3, 8.8]), torch.tensor([0.0, 1.0, 0.0])),
-    (torch.tensor([2.9, -1.4]), torch.tensor([1.0, 0.0, 0.0])),
-]
+def _make_supervised_data() -> list[tuple[Tensor, Tensor]]:
+    """Build the (5, 2) supervised dataset on the active device/dtype."""
+    device, dtype = get_device(), get_dtype()
+    raw = [
+        ([1.5, -2.7], [0.0, 1.0, 0.0]),
+        ([-3.2, 4.1], [0.0, 1.0, 0.0]),
+        ([5.7, 0.0], [0.0, 0.0, 1.0]),
+        ([-1.3, 8.8], [0.0, 1.0, 0.0]),
+        ([2.9, -1.4], [1.0, 0.0, 0.0]),
+    ]
+    return [
+        (torch.tensor(x, device=device, dtype=dtype),
+         torch.tensor(y, device=device, dtype=dtype))
+        for x, y in raw
+    ]
+
+
+# Module-level constant — built at import time under the default
+# device (cpu). Scripts that switch to MPS should call
+# `_make_supervised_data()` after `set_device`.
+SUPERVISED_DATA = _make_supervised_data()
 
 
 def train_supervised_epoch(
@@ -42,7 +57,7 @@ def train_supervised_epoch(
     Forward all samples, compute mean loss, backward, step.
     """
     optimizer.zero_grad()
-    total_loss = torch.tensor(0.0)
+    total_loss = torch.tensor(0.0, device=get_device())
     for x, y in data:
         logits = model(x)
         total_loss = total_loss + bce_with_logits(logits, y)

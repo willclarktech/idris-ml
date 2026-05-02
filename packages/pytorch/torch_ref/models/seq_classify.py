@@ -20,6 +20,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
+from torch_ref.training.runner import get_device, get_dtype
+
 SEQ_LEN = 32
 NUM_CLASSES = 3
 
@@ -69,9 +71,10 @@ def generate_batch(
         wave = generate_waveform(label)
         inputs.append(wave)
         labels.append(label)
+    device = get_device()
     return (
-        torch.tensor(inputs, dtype=torch.float64).unsqueeze(1),
-        torch.tensor(labels, dtype=torch.long),
+        torch.tensor(inputs, dtype=get_dtype(), device=device).unsqueeze(1),
+        torch.tensor(labels, dtype=torch.long, device=device),
     )
 
 

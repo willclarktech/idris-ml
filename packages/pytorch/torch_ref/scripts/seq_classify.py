@@ -13,7 +13,7 @@ import torch
 
 from torch_ref.models.seq_classify import SeqClassifyCNN, evaluate, train_epoch
 from torch_ref.training.lr_finder import LrFindConfig, lr_find
-from torch_ref.training.runner import format_result
+from torch_ref.training.runner import format_result, get_dtype, set_device
 
 
 def main() -> None:
@@ -26,8 +26,15 @@ def main() -> None:
         action="store_true",
         help="Run lr_find (LR-range test) instead of training, then exit.",
     )
+    parser.add_argument(
+        "--device",
+        default="cpu",
+        choices=["cpu", "mps", "cuda"],
+        help="Device for tensor ops (default: cpu)",
+    )
     args = parser.parse_args()
 
+    set_device(args.device)
     torch.manual_seed(args.seed)
     random.seed(args.seed)
 
@@ -38,7 +45,7 @@ def main() -> None:
         " -> Conv1d(4->8,k=3) -> ReLU -> Pool(2) -> Linear(48->3)"
     )
 
-    model = SeqClassifyCNN().double()
+    model = SeqClassifyCNN().to(args.device, dtype=get_dtype())
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 
     param_count = sum(p.numel() for p in model.parameters())

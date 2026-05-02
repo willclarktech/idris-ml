@@ -19,7 +19,7 @@ from torch_ref.models.multi_head_transformer import (
     train_reversal_epoch,
 )
 from torch_ref.training.lr_finder import LrFindConfig, lr_find
-from torch_ref.training.runner import TrainConfig, format_result, run_training
+from torch_ref.training.runner import TrainConfig, format_result, run_training, set_device
 
 # Task config matching Idris
 VOCAB_SIZE = 8  # digits 0-5 + SEP + EOS
@@ -55,8 +55,15 @@ def main() -> None:
         action="store_true",
         help="Run lr_find (LR-range test) instead of training, then exit.",
     )
+    parser.add_argument(
+        "--device",
+        default="cpu",
+        choices=["cpu", "mps", "cuda"],
+        help="Device for tensor ops (default: cpu)",
+    )
     args = parser.parse_args()
 
+    set_device(args.device)
     torch.manual_seed(args.seed)
 
     print("=== Transformer: Sequence Sorting ===")
@@ -67,7 +74,7 @@ def main() -> None:
         f" blocks={args.blocks} vocab={VOCAB_SIZE}"
     )
 
-    model = MultiHeadTransformer(VOCAB_SIZE, SEQ_LEN, D_MODEL, NUM_HEADS, num_blocks=args.blocks)
+    model = MultiHeadTransformer(VOCAB_SIZE, SEQ_LEN, D_MODEL, NUM_HEADS, num_blocks=args.blocks).to(args.device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     print(
         f"Model: Transformer<{SEQ_LEN}x{D_MODEL} h={NUM_HEADS} blocks={args.blocks} v={VOCAB_SIZE}>"
@@ -96,6 +103,7 @@ def main() -> None:
         log_every=100,
         patience=args.patience,
         min_delta=0.001,
+        device=args.device,
     )
 
     epochs_done, final_loss = run_training(epoch_fn, config, metrics_fn)

@@ -8,9 +8,9 @@ import sys
 
 import torch
 
-from torch_ref.models.supervised import SUPERVISED_DATA, SupervisedModel, train_supervised_epoch
+from torch_ref.models.supervised import _make_supervised_data, SupervisedModel, train_supervised_epoch
 from torch_ref.training.lr_finder import LrFindConfig, lr_find
-from torch_ref.training.runner import TrainConfig, format_result, run_training
+from torch_ref.training.runner import TrainConfig, format_result, get_dtype, run_training, set_device
 
 
 def main() -> None:
@@ -23,15 +23,22 @@ def main() -> None:
         action="store_true",
         help="Run lr_find (LR-range test) instead of training, then exit.",
     )
+    parser.add_argument(
+        "--device",
+        default="cpu",
+        choices=["cpu", "mps", "cuda"],
+        help="Device for tensor ops (default: cpu)",
+    )
     args = parser.parse_args()
 
+    set_device(args.device)
     torch.manual_seed(args.seed)
 
     print("=== Supervised Classification ===")
     print(f"Config: lr={args.lr} epochs={args.epochs} seed={args.seed}")
 
-    model = SupervisedModel()
-    data = SUPERVISED_DATA
+    model = SupervisedModel().to(args.device, dtype=get_dtype())
+    data = _make_supervised_data()  # rebuilt under active device/dtype
     print("Model: Linear<2:3> -> softmax")
     print()
 
@@ -46,7 +53,7 @@ def main() -> None:
         print("Done — re-run without --lr-find at the recommended LR.")
         sys.exit(0)
 
-    config = TrainConfig(total_epochs=args.epochs, log_every=100)
+    config = TrainConfig(total_epochs=args.epochs, log_every=100, device=args.device)
     epochs_done, final_loss = run_training(epoch_fn, config)
 
     # Evaluation
