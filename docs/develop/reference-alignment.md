@@ -154,6 +154,28 @@ Aligned defaults:
 
 The convergence threshold (≥0.85) is unchanged in `test-examples-convergence.expect`. Wall time at 5 full-pass epochs: ≤15 minutes on tape — well inside the 4h `CONVERGENCE_TIMEOUT`. SeqClassify uses synthetic data and 1000 single-batch "epochs" already roughly match the PyTorch reference's 1000 single-batch loop (synthetic-data sampling rather than full-dataset iteration), so it stays as-is per the original TODO note.
 
+## Alignment Changes (2026-04-28) — GPT convergence on tinyshakespeare
+
+### Corpus + held-out validation
+
+Both Idris (`Example/Gpt.idr`) and PyTorch ref (`models/gpt.py` + `scripts/gpt.py`) were aligned but on a 1342-character hardcoded Shakespeare excerpt with a 36-char lowercase-collapse vocab. With those defaults, `test-examples-convergence` ran 2000 epochs and "converged" to bpc=0.13 — pure memorization of a 1.3 KB corpus, not learning. The threshold (`bpc < 3.5`) was hit hundreds of epochs before patience could fire.
+
+**Fix**: align both sides on Karpathy's [nanoGPT](https://github.com/karpathy/nanoGPT) `train_shakespeare_char` recipe — the canonical char-LM benchmark — at a model scale tractable on the tape backend (existing 2 blocks / 4 heads / dModel=64 / seqLen=64; ~26K params). Adopted from nanoGPT:
+
+- **Corpus**: tinyshakespeare (~1.1 M chars, 65-char vocab) loaded from `data/tinyshakespeare/input.txt` (fetched by `make dataset-tinyshakespeare`). Vocab built dynamically as the sorted set of distinct characters in the corpus.
+- **90/10 train/val split** (deterministic, last-N% as val). Convergence metric is `val_bpc` (held-out), not training-corpus bpc.
+- **AdamW recipe**: β1=0.9, **β2=0.99** (was 0.999), **wd=0.1** (was 0.01), grad clip 1.0.
+- **Cosine LR with linear warmup**: 100 epochs warmup → cosine decay from `lr` to `lr * 0.1`. Idris uses the existing `Schedule.cosineWithWarmup`; per-epoch LR update via a `setLRAll` helper that iterates the param registry. PyTorch uses an inline lambda matching the same nanoGPT formula.
+- **Default epochs**: 1000 (was 2000). Cosine LR + warmup converges faster than the previous bare patience-based setup.
+
+`test-examples-convergence.expect` updated: `bpc < 3.5` → `val_bpc < 3.5`. Same numeric value, but now on a real held-out set (random baseline = log₂(65) = 6.02; 3.5 is a meaningful "definitely learning" target for the small architecture).
+
+Wall-time impact: PyTorch ref reaches val_bpc = 3.32 at 1000 epochs in ~64s on Apple Silicon; tape-backend Idris extrapolates to ~30 min at the existing ~1.76 s/epoch — vs 58 min of overrun on the old configuration.
+
+### Smoke gate vs convergence path
+
+A single `--corpus {tinyshakespeare,embedded}` CLI flag selects between the new file-based corpus (default; convergence) and the legacy 1342-char embedded excerpt (smoke gate, no file dependency). The smoke gate (`make test-examples`) sets `--corpus embedded --epochs 3` to keep the wiring test fast and self-contained; the embedded corpus uses a strict subset of the 65-char vocab so a single tokenizer serves both paths.
+
 ## Status
 
 All known discrepancies resolved.
