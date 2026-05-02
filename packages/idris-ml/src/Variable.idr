@@ -476,6 +476,10 @@ prim__catFromArray : AnyPtr -> Int -> Int -> AnyPtr
 export
 prim__cat2 : AnyPtr -> AnyPtr -> AnyPtr
 
+%foreign "C:tensor_concat_2d_axis1,libidrisml"
+export
+prim__concat2dAxis1 : AnyPtr -> AnyPtr -> AnyPtr
+
 -- N-ary cat: caller retains ownership of the handle array.
 -- See tensor_cat in backend.h.
 %foreign "C:tensor_cat,libidrisml"

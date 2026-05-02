@@ -97,4 +97,43 @@ tests =
              && abs (readBO yB 1 0 - readO y1 0) < tol
              && abs (readBO yB 1 1 - readO y1 1) < tol
        check "batched forward matches per-sample (Linear-ReLU-Linear)" ok
+
+  -- SAC-style actor + Q-net composition with prim__concat2dAxis1.
+  -- Per-sample path: actor forward on obs -> mean [1], cat2(obs, mean) ->
+  -- qInput [4], Q forward -> scalar. Batched path: same flow on [B, 3]
+  -- inputs using prim__concat2dAxis1 to glue obsB + meanB -> [B, 4].
+  , do srand 13
+       a1 <- linearLayer {ty = Variable CPU} {i=3, o=4}
+       a2 <- linearLayer {ty = Variable CPU} {i=4, o=1}
+       let actor = autoName $ a1 ~> reluLayer ~> OutputLayer a2
+
+       q1 <- linearLayer {ty = Variable CPU} {i=4, o=4}
+       q2 <- linearLayer {ty = Variable CPU} {i=4, o=1}
+       let qnet = autoName $ q1 ~> reluLayer ~> OutputLayer q2
+
+       let o0 : Vect 3 Double = [0.5, -0.2, 0.9]
+       let o1 : Vect 3 Double = [-0.1, 0.6, -0.4]
+
+       -- Per-sample
+       let o0T = bulkToTensor (the (Vector 3 Double) (VTensor (map STensor o0)))
+       let o1T = bulkToTensor (the (Vector 3 Double) (VTensor (map STensor o1)))
+       let mean0 = snd (forwardVarTensor actor o0T)        -- [1]
+       let mean1 = snd (forwardVarTensor actor o1T)        -- [1]
+       let qIn0  = prim__cat2 o0T mean0                    -- [4]
+       let qIn1  = prim__cat2 o1T mean1                    -- [4]
+       let q0    = snd (forwardVarTensor qnet qIn0)        -- [1]
+       let q1Out = snd (forwardVarTensor qnet qIn1)        -- [1]
+
+       -- Batched
+       let stackedObs : Vect 2 (Vector 3 Double) =
+             [VTensor (map STensor o0), VTensor (map STensor o1)]
+       let obsBT  = bulkToTensor2d stackedObs              -- [2, 3]
+       let meanBT = snd (forwardVarTensorBatch actor 2 obsBT)        -- [2, 1]
+       let qInBT  = prim__concat2dAxis1 obsBT meanBT       -- [2, 4]
+       let qBT    = snd (forwardVarTensorBatch qnet 2 qInBT)         -- [2, 1]
+
+       let tol = 1.0e-6
+       let ok = abs (readBO qBT 0 0 - readO q0 0) < tol
+             && abs (readBO qBT 1 0 - readO q1Out 0) < tol
+       check "batched actor+concat+Q matches per-sample" ok
   ]
