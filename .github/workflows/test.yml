@@ -29,23 +29,37 @@ jobs:
         run: brew install chezscheme
 
       # Idris 2 v0.8.0 built from source, cached across runs to avoid the
-      # 5-10 min bootstrap on every push. Bump the cache key to force a rebuild.
+      # 5-10 min bootstrap on every push. Idris2's default PREFIX is
+      # $HOME/.idris2 — caching that whole tree (binary + libs) is simplest.
+      # Bump the cache key suffix to force a rebuild.
       - name: Cache Idris 2
         id: idris2-cache
         uses: actions/cache@v4
         with:
-          path: |
-            /usr/local/bin/idris2
-            /usr/local/lib/idris2
-          key: idris2-v0.8.0-${{ matrix.os }}-v1
+          path: ~/.idris2
+          key: idris2-v0.8.0-${{ matrix.os }}-v2
 
       - name: Build and install Idris 2
         if: steps.idris2-cache.outputs.cache-hit != 'true'
         run: |
+          # Locate Chez Scheme. Both Ubuntu (apt) and macOS (brew) install
+          # the binary as `scheme`. Add fallbacks for /opt/homebrew/bin and
+          # /usr/local/bin in case it isn't on PATH yet (fresh brew install).
+          SCHEME="$(command -v scheme || command -v chezscheme || true)"
+          if [ -z "$SCHEME" ]; then
+            for p in /opt/homebrew/bin/scheme /usr/local/bin/scheme /usr/bin/scheme; do
+              [ -x "$p" ] && SCHEME="$p" && break
+            done
+          fi
+          [ -n "$SCHEME" ] || { echo "Chez Scheme not found on PATH or in standard locations" >&2; exit 1; }
+          echo "Using SCHEME=$SCHEME"
           git clone --branch v0.8.0 --depth 1 https://github.com/idris-lang/Idris2.git /tmp/Idris2
           cd /tmp/Idris2
-          SCHEME=$(command -v scheme || command -v chezscheme) make bootstrap
-          sudo make install
+          make bootstrap SCHEME="$SCHEME"
+          make install
+
+      - name: Add Idris 2 to PATH
+        run: echo "$HOME/.idris2/bin" >> $GITHUB_PATH
 
       - name: Verify Idris 2
         run: idris2 --version
