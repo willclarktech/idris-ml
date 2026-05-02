@@ -206,6 +206,7 @@
 #define tensor_release_handle tensor_release_handle_torch
 #define tensor_requires_grad tensor_requires_grad_torch
 #define tensor_reshape tensor_reshape_torch
+#define tensor_reshape_1d tensor_reshape_1d_torch
 #define tensor_reshape_2d tensor_reshape_2d_torch
 #define tensor_reshape_3d tensor_reshape_3d_torch
 #define tensor_reshape_4d tensor_reshape_4d_torch

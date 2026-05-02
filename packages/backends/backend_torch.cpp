@@ -1043,6 +1043,10 @@ TensorHandle tensor_reshape_2d(TensorHandle h, int rows, int cols) {
     return from_tensor(to_tensor(h)->reshape({(int64_t)rows, (int64_t)cols}));
 }
 
+TensorHandle tensor_reshape_1d(TensorHandle h, int n) {
+    return from_tensor(to_tensor(h)->reshape({(int64_t)n}));
+}
+
 TensorHandle tensor_causal_mask(int n) {
     auto t = torch::triu(torch::ones({(int64_t)n, (int64_t)n}, torch::kFloat64), 1);
     return from_tensor(std::move(t));

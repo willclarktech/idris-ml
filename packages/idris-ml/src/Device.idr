@@ -239,6 +239,8 @@ UserDeviceCore MPS where
 
 %foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_mv\" (void* void*) void*) (vector-ref a0 1) (vector-ref a1 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 prim__mvUnified : AnyPtr -> AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_mm\" (void* void*) void*) (vector-ref a0 1) (vector-ref a1 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
+prim__mmUnified : AnyPtr -> AnyPtr -> AnyPtr
 %foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_matmul\" (void* void*) void*) (vector-ref a0 1) (vector-ref a1 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 prim__matmulUnified : AnyPtr -> AnyPtr -> AnyPtr
 %foreign "scheme:(lambda (a0 a1 a2)  (let ((raw_r ((foreign-procedure \"tensor_linear\" (void* void* void*) void*) (vector-ref a0 1) (vector-ref a1 1) (vector-ref a2 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
@@ -273,6 +275,8 @@ prim__stackUnified : AnyPtr -> Int -> Int -> AnyPtr
 prim__view1dUnified : AnyPtr -> Int -> AnyPtr
 %foreign "scheme:(lambda (a0 a1 a2)  (let ((raw_r ((foreign-procedure \"tensor_view_2d\" (void* int int) void*) (vector-ref a0 1) a1 a2))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 prim__view2dUnified : AnyPtr -> Int -> Int -> AnyPtr
+%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_reshape_1d\" (void* int) void*) (vector-ref a0 1) a1))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
+prim__reshape1dUnified : AnyPtr -> Int -> AnyPtr
 %foreign "scheme:(lambda (a0 a1 a2)  (let ((raw_r ((foreign-procedure \"tensor_reshape_2d\" (void* int int) void*) (vector-ref a0 1) a1 a2))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 prim__reshape2dUnified : AnyPtr -> Int -> Int -> AnyPtr
 %foreign "scheme:(lambda (a0 a1 a2 a3)  (let ((raw_r ((foreign-procedure \"tensor_reshape_3d\" (void* int int int) void*) (vector-ref a0 1) a1 a2 a3))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
@@ -281,6 +285,8 @@ prim__reshape3dUnified : AnyPtr -> Int -> Int -> Int -> AnyPtr
 prim__reshape4dUnified : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
 %foreign "scheme:(lambda (a0 a1 a2 a3)  (let ((raw_r ((foreign-procedure \"tensor_narrow\" (void* int int int) void*) (vector-ref a0 1) a1 a2 a3))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 prim__narrowUnified : AnyPtr -> Int -> Int -> Int -> AnyPtr
+%foreign "scheme:(lambda (a0 a1 a2)  (let ((raw_r ((foreign-procedure \"tensor_tile_2d\" (void* int int) void*) (vector-ref a0 1) a1 a2))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
+prim__tile2dUnified : AnyPtr -> Int -> Int -> AnyPtr
 %foreign "scheme:(lambda (a0)  (let ((raw_r ((foreign-procedure \"tensor_transpose_last2\" (void*) void*) (vector-ref a0 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 prim__transposeLast2Unified : AnyPtr -> AnyPtr
 %foreign "scheme:(lambda (a0)  (let ((raw_r ((foreign-procedure \"tensor_transpose_2d\" (void*) void*) (vector-ref a0 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
@@ -304,6 +310,7 @@ prim__cumprodUnified : AnyPtr -> Int -> AnyPtr
 public export
 UserDeviceLinear CPU where
   primMv = prim__mvUnified
+  primMm = prim__mmUnified
   primMatmul = prim__matmulUnified
   primLinear = prim__linearUnified
   primDot = prim__dotUnified
@@ -321,9 +328,11 @@ UserDeviceLinear CPU where
   primStack = prim__stackUnified
   primView1d = prim__view1dUnified
   primView2d = prim__view2dUnified
+  primReshape1d = prim__reshape1dUnified
   primReshape2d = prim__reshape2dUnified
   primReshape3d = prim__reshape3dUnified
   primReshape4d = prim__reshape4dUnified
+  primTile2d = prim__tile2dUnified
   primNarrow = prim__narrowUnified
   primTransposeLast2 = prim__transposeLast2Unified
   primTranspose2d = prim__transpose2dUnified
@@ -338,6 +347,7 @@ UserDeviceLinear CPU where
 public export
 {n : Nat} -> UserDeviceLinear (CUDA n) where
   primMv = prim__mvUnified
+  primMm = prim__mmUnified
   primMatmul = prim__matmulUnified
   primLinear = prim__linearUnified
   primDot = prim__dotUnified
@@ -355,9 +365,11 @@ public export
   primStack = prim__stackUnified
   primView1d = prim__view1dUnified
   primView2d = prim__view2dUnified
+  primReshape1d = prim__reshape1dUnified
   primReshape2d = prim__reshape2dUnified
   primReshape3d = prim__reshape3dUnified
   primReshape4d = prim__reshape4dUnified
+  primTile2d = prim__tile2dUnified
   primNarrow = prim__narrowUnified
   primTransposeLast2 = prim__transposeLast2Unified
   primTranspose2d = prim__transpose2dUnified
@@ -372,6 +384,7 @@ public export
 public export
 UserDeviceLinear MPS where
   primMv = prim__mvUnified
+  primMm = prim__mmUnified
   primMatmul = prim__matmulUnified
   primLinear = prim__linearUnified
   primDot = prim__dotUnified
@@ -389,9 +402,11 @@ UserDeviceLinear MPS where
   primStack = prim__stackUnified
   primView1d = prim__view1dUnified
   primView2d = prim__view2dUnified
+  primReshape1d = prim__reshape1dUnified
   primReshape2d = prim__reshape2dUnified
   primReshape3d = prim__reshape3dUnified
   primReshape4d = prim__reshape4dUnified
+  primTile2d = prim__tile2dUnified
   primNarrow = prim__narrowUnified
   primTransposeLast2 = prim__transposeLast2Unified
   primTranspose2d = prim__transpose2dUnified

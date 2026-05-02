@@ -206,6 +206,7 @@
 #define tensor_release_handle tensor_release_handle_mlx
 #define tensor_requires_grad tensor_requires_grad_mlx
 #define tensor_reshape tensor_reshape_mlx
+#define tensor_reshape_1d tensor_reshape_1d_mlx
 #define tensor_reshape_2d tensor_reshape_2d_mlx
 #define tensor_reshape_3d tensor_reshape_3d_mlx
 #define tensor_reshape_4d tensor_reshape_4d_mlx

@@ -119,6 +119,9 @@ UserDeviceCore TapeDev where
 %foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_mv_tape\" (void* void*) void*) (vector-ref a0 1) (vector-ref a1 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 prim__mvTape : AnyPtr -> AnyPtr -> AnyPtr
 
+%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_mm_tape\" (void* void*) void*) (vector-ref a0 1) (vector-ref a1 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
+prim__mmTape : AnyPtr -> AnyPtr -> AnyPtr
+
 %foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_matmul_tape\" (void* void*) void*) (vector-ref a0 1) (vector-ref a1 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 prim__matmulTape : AnyPtr -> AnyPtr -> AnyPtr
 
@@ -170,6 +173,9 @@ prim__view1dTape : AnyPtr -> Int -> AnyPtr
 %foreign "scheme:(lambda (a0 a1 a2)  (let ((raw_r ((foreign-procedure \"tensor_view_2d_tape\" (void* int int) void*) (vector-ref a0 1) a1 a2))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 prim__view2dTape : AnyPtr -> Int -> Int -> AnyPtr
 
+%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_reshape_1d_tape\" (void* int) void*) (vector-ref a0 1) a1))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
+prim__reshape1dTape : AnyPtr -> Int -> AnyPtr
+
 %foreign "scheme:(lambda (a0 a1 a2)  (let ((raw_r ((foreign-procedure \"tensor_reshape_2d_tape\" (void* int int) void*) (vector-ref a0 1) a1 a2))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 prim__reshape2dTape : AnyPtr -> Int -> Int -> AnyPtr
 
@@ -178,6 +184,9 @@ prim__reshape3dTape : AnyPtr -> Int -> Int -> Int -> AnyPtr
 
 %foreign "scheme:(lambda (a0 a1 a2 a3 a4)  (let ((raw_r ((foreign-procedure \"tensor_reshape_4d_tape\" (void* int int int int) void*) (vector-ref a0 1) a1 a2 a3 a4))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 prim__reshape4dTape : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
+
+%foreign "scheme:(lambda (a0 a1 a2)  (let ((raw_r ((foreign-procedure \"tensor_tile_2d_tape\" (void* int int) void*) (vector-ref a0 1) a1 a2))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
+prim__tile2dTape : AnyPtr -> Int -> Int -> AnyPtr
 
 %foreign "scheme:(lambda (a0 a1 a2 a3)  (let ((raw_r ((foreign-procedure \"tensor_narrow_tape\" (void* int int int) void*) (vector-ref a0 1) a1 a2 a3))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 prim__narrowTape : AnyPtr -> Int -> Int -> Int -> AnyPtr
@@ -213,6 +222,7 @@ prim__cumprodTape : AnyPtr -> Int -> AnyPtr
 public export
 UserDeviceLinear TapeDev where
   primMv             = prim__mvTape
+  primMm             = prim__mmTape
   primMatmul         = prim__matmulTape
   primLinear         = prim__linearTape
   primDot            = prim__dotTape
@@ -230,9 +240,11 @@ UserDeviceLinear TapeDev where
   primStack          = prim__stackTape
   primView1d         = prim__view1dTape
   primView2d         = prim__view2dTape
+  primReshape1d      = prim__reshape1dTape
   primReshape2d      = prim__reshape2dTape
   primReshape3d      = prim__reshape3dTape
   primReshape4d      = prim__reshape4dTape
+  primTile2d         = prim__tile2dTape
   primNarrow         = prim__narrowTape
   primTransposeLast2 = prim__transposeLast2Tape
   primTranspose2d    = prim__transpose2dTape

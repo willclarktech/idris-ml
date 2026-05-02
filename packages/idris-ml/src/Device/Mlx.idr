@@ -168,6 +168,9 @@ public export
 %foreign "scheme:(lambda (a0 a1 a2)  (let ((raw_r ((foreign-procedure \"tensor_mv_mlx_streamed\" (void* void* int) void*) (vector-ref a0 1) (vector-ref a1 1) a2))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 prim__mvMlxStreamed : AnyPtr -> AnyPtr -> Int -> AnyPtr
 
+%foreign "scheme:(lambda (a0 a1 a2)  (let ((raw_r ((foreign-procedure \"tensor_mm_mlx_streamed\" (void* void* int) void*) (vector-ref a0 1) (vector-ref a1 1) a2))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
+prim__mmMlxStreamed : AnyPtr -> AnyPtr -> Int -> AnyPtr
+
 %foreign "scheme:(lambda (a0 a1 a2)  (let ((raw_r ((foreign-procedure \"tensor_matmul_mlx_streamed\" (void* void* int) void*) (vector-ref a0 1) (vector-ref a1 1) a2))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 prim__matmulMlxStreamed : AnyPtr -> AnyPtr -> Int -> AnyPtr
 
@@ -219,6 +222,9 @@ prim__view1dMlxStreamed : AnyPtr -> Int -> Int -> AnyPtr
 %foreign "scheme:(lambda (a0 a1 a2 a3)  (let ((raw_r ((foreign-procedure \"tensor_view_2d_mlx_streamed\" (void* int int int) void*) (vector-ref a0 1) a1 a2 a3))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 prim__view2dMlxStreamed : AnyPtr -> Int -> Int -> Int -> AnyPtr
 
+%foreign "scheme:(lambda (a0 a1 a2)  (let ((raw_r ((foreign-procedure \"tensor_reshape_1d_mlx_streamed\" (void* int int) void*) (vector-ref a0 1) a1 a2))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
+prim__reshape1dMlxStreamed : AnyPtr -> Int -> Int -> AnyPtr
+
 %foreign "scheme:(lambda (a0 a1 a2 a3)  (let ((raw_r ((foreign-procedure \"tensor_reshape_2d_mlx_streamed\" (void* int int int) void*) (vector-ref a0 1) a1 a2 a3))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 prim__reshape2dMlxStreamed : AnyPtr -> Int -> Int -> Int -> AnyPtr
 
@@ -227,6 +233,9 @@ prim__reshape3dMlxStreamed : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
 
 %foreign "scheme:(lambda (a0 a1 a2 a3 a4 a5)  (let ((raw_r ((foreign-procedure \"tensor_reshape_4d_mlx_streamed\" (void* int int int int int) void*) (vector-ref a0 1) a1 a2 a3 a4 a5))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 prim__reshape4dMlxStreamed : AnyPtr -> Int -> Int -> Int -> Int -> Int -> AnyPtr
+
+%foreign "scheme:(lambda (a0 a1 a2 a3)  (let ((raw_r ((foreign-procedure \"tensor_tile_2d_mlx_streamed\" (void* int int int) void*) (vector-ref a0 1) a1 a2 a3))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
+prim__tile2dMlxStreamed : AnyPtr -> Int -> Int -> Int -> AnyPtr
 
 %foreign "scheme:(lambda (a0 a1 a2 a3 a4)  (let ((raw_r ((foreign-procedure \"tensor_narrow_mlx_streamed\" (void* int int int int) void*) (vector-ref a0 1) a1 a2 a3 a4))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 prim__narrowMlxStreamed : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
@@ -262,6 +271,7 @@ prim__cumprodMlxStreamed : AnyPtr -> Int -> Int -> AnyPtr
 public export
 {s : MlxStream} -> UserDeviceLinear (MlxDev s) where
   primMv a b               = prim__mvMlxStreamed a b (streamTag s)
+  primMm a b               = prim__mmMlxStreamed a b (streamTag s)
   primMatmul a b           = prim__matmulMlxStreamed a b (streamTag s)
   primLinear w x bs        = prim__linearMlxStreamed w x bs (streamTag s)
   primDot a b              = prim__dotMlxStreamed a b (streamTag s)
@@ -279,9 +289,11 @@ public export
   primStack ts c d         = prim__stackMlxStreamed ts c d (streamTag s)
   primView1d a n           = prim__view1dMlxStreamed a n (streamTag s)
   primView2d a r c         = prim__view2dMlxStreamed a r c (streamTag s)
+  primReshape1d a n        = prim__reshape1dMlxStreamed a n (streamTag s)
   primReshape2d a r c      = prim__reshape2dMlxStreamed a r c (streamTag s)
   primReshape3d a d0 d1 d2 = prim__reshape3dMlxStreamed a d0 d1 d2 (streamTag s)
   primReshape4d a d0 d1 d2 d3 = prim__reshape4dMlxStreamed a d0 d1 d2 d3 (streamTag s)
+  primTile2d a r0 r1       = prim__tile2dMlxStreamed a r0 r1 (streamTag s)
   primNarrow a d st ln     = prim__narrowMlxStreamed a d st ln (streamTag s)
   primTransposeLast2 a     = prim__transposeLast2MlxStreamed a (streamTag s)
   primTranspose2d a        = prim__transpose2dMlxStreamed a (streamTag s)

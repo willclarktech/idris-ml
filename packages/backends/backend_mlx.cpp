@@ -2160,12 +2160,16 @@ TensorHandle tensor_narrow(TensorHandle h, int dim, int start, int len) {
     return tensor_narrow_mlx_streamed(h, dim, start, len, default_stream_tag());
 }
 
-TensorHandle tensor_mm(TensorHandle ha, TensorHandle hb) {
+extern "C" TensorHandle tensor_mm_mlx_streamed(TensorHandle ha, TensorHandle hb, int stream_tag) {
+    WITH_STREAM(stream_tag);
     auto a = (Tensor*)ha; auto b = (Tensor*)hb;
     bool rg = a->requires_grad || b->requires_grad;
     auto r = new Tensor(mx::matmul(a->data, b->data), rg);
     if (rg) tape_append(OP_MM, r, a, b, 0);
     return (TensorHandle)r;
+}
+TensorHandle tensor_mm(TensorHandle ha, TensorHandle hb) {
+    return tensor_mm_mlx_streamed(ha, hb, default_stream_tag());
 }
 
 extern "C" TensorHandle tensor_bmm_mlx_streamed(TensorHandle ha, TensorHandle hb, int stream_tag) {
@@ -2270,7 +2274,8 @@ TensorHandle tensor_expand_mask(TensorHandle hmask, int B) {
     return tensor_expand_mask_mlx_streamed(hmask, B, default_stream_tag());
 }
 
-TensorHandle tensor_tile_2d(TensorHandle h, int rep0, int rep1) {
+extern "C" TensorHandle tensor_tile_2d_mlx_streamed(TensorHandle h, int rep0, int rep1, int stream_tag) {
+    WITH_STREAM(stream_tag);
     auto t = (Tensor*)h;
     auto tiled = mx::tile(t->data, {rep0, rep1});
     /* When the input is non-grad (e.g. cached positional encoding), the
@@ -2290,6 +2295,9 @@ TensorHandle tensor_tile_2d(TensorHandle h, int rep0, int rep1) {
         if (idx >= 0) tape[idx].meta = meta; else std::free(meta);
     }
     return (TensorHandle)r;
+}
+TensorHandle tensor_tile_2d(TensorHandle h, int rep0, int rep1) {
+    return tensor_tile_2d_mlx_streamed(h, rep0, rep1, default_stream_tag());
 }
 
 extern "C" TensorHandle tensor_transpose_2d_mlx_streamed(TensorHandle h, int stream_tag) {
@@ -2392,6 +2400,17 @@ extern "C" TensorHandle tensor_reshape_2d_mlx_streamed(TensorHandle h, int rows,
 }
 TensorHandle tensor_reshape_2d(TensorHandle h, int rows, int cols) {
     return tensor_reshape_2d_mlx_streamed(h, rows, cols, default_stream_tag());
+}
+
+extern "C" TensorHandle tensor_reshape_1d_mlx_streamed(TensorHandle h, int n, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
+    int shape[] = {n};
+    return tensor_reshape(h, shape, 1);
+
+}
+TensorHandle tensor_reshape_1d(TensorHandle h, int n) {
+    return tensor_reshape_1d_mlx_streamed(h, n, default_stream_tag());
 }
 
 TensorHandle tensor_one_hot(int* tokens, int n_tokens, int vocab_size) {

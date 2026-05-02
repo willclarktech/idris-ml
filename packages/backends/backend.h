@@ -207,6 +207,7 @@ TensorHandle tensor_conv1d_circular(TensorHandle input, TensorHandle kernel);
 /* ---------- Shape manipulation ---------- */
 
 TensorHandle tensor_reshape(TensorHandle t, int* shape, int rank);
+TensorHandle tensor_reshape_1d(TensorHandle t, int n);
 TensorHandle tensor_unsqueeze(TensorHandle t, int dim);
 TensorHandle tensor_squeeze(TensorHandle t, int dim);
 TensorHandle tensor_select(TensorHandle t, int dim, int index);

@@ -4878,6 +4878,11 @@ TensorHandle tensor_reshape_2d(TensorHandle h, int rows, int cols) {
     return tensor_reshape(h, shape, 2);
 }
 
+TensorHandle tensor_reshape_1d(TensorHandle h, int n) {
+    int shape[] = {n};
+    return tensor_reshape(h, shape, 1);
+}
+
 double* tensor_alloc_doubles(int n) { return calloc(n, sizeof(double)); }
 void tensor_free_doubles(double* buf) { free(buf); }
 double tensor_read_double(double* buf, int idx) { return buf[idx]; }

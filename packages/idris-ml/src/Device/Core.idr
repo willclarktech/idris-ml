@@ -116,6 +116,7 @@ public export
 interface UserDeviceCore d => UserDeviceLinear (0 d : Device) where
   -- Linear algebra ----------------------------------------------------
   primMv          : AnyPtr -> AnyPtr -> AnyPtr
+  primMm          : AnyPtr -> AnyPtr -> AnyPtr
   primMatmul      : AnyPtr -> AnyPtr -> AnyPtr
   primLinear      : AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr
   primDot         : AnyPtr -> AnyPtr -> AnyPtr
@@ -137,9 +138,11 @@ interface UserDeviceCore d => UserDeviceLinear (0 d : Device) where
   primStack       : AnyPtr -> Int -> Int -> AnyPtr
   primView1d      : AnyPtr -> Int -> AnyPtr
   primView2d      : AnyPtr -> Int -> Int -> AnyPtr
+  primReshape1d   : AnyPtr -> Int -> AnyPtr
   primReshape2d   : AnyPtr -> Int -> Int -> AnyPtr
   primReshape3d   : AnyPtr -> Int -> Int -> Int -> AnyPtr
   primReshape4d   : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
+  primTile2d      : AnyPtr -> Int -> Int -> AnyPtr
   primNarrow      : AnyPtr -> Int -> Int -> Int -> AnyPtr
   primTransposeLast2 : AnyPtr -> AnyPtr
   primTranspose2d : AnyPtr -> AnyPtr
