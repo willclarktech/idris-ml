@@ -509,11 +509,11 @@ Eight of nine RL envs in `torch_ref/models/*.py` migrated from hand-rolled physi
 | CartPole-v1 | matches (uses v0's 200-step cap) | hand-rolled CartPole-v0 | `gym.make("CartPole-v1")`, cap MAX_STEPS=200 | pin `(0,0,0,0)` |
 | MountainCar-v0 | matches | hand-rolled | `gym.make` | pin `(-0.5, 0.0)` |
 | MountainCarContinuous-v0 | matches | hand-rolled | `gym.make` | pin `(-0.5, 0.0)` |
-| Acrobot-v1 | **does NOT match Gymnasium**: idris-gym + torch_ref both use semi-implicit Euler with 4 dt=0.05 substeps; canonical Gymnasium uses RK4 | hand-rolled (Euler, matches idris-gym) | (deferred) | — |
+| Acrobot-v1 | matches (RK4, dt=0.2) | hand-rolled Euler-substep | `gym.make` (RK4) | pin `(0,0,0,0)` |
 
-**Deferrals filed as TODO rows**:
+**Paired-side resolutions in this sweep**:
 1. **Blackjack card distribution** — adopted in this commit on both sides. The pre-change Ace=2/13, 10=3/13 (from the n=0 and n=1 → 1 collision and n=10..12 → 10 mapping) was non-canonical. Both Idris (`Gym.ToyText.Blackjack.drawCard`) and torch_ref now use the canonical Gymnasium 13-card uniform suit. Convergence preserved on both: Idris win_rate=0.43, torch_ref win_rate=0.42.
-2. **Acrobot integrator** — not migrated. idris-gym keeps Euler; torch_ref's `ppo.py` keeps its hand-rolled Euler matching idris-gym. The principled fix is porting RK4 to `Gym.ClassicControl.Acrobot.idr` and switching torch_ref to `gym.make("Acrobot-v1")`. Filed as a Medium TODO row.
+2. **Acrobot integrator** — adopted in a same-day follow-up commit. idris-gym's `Gym.ClassicControl.Acrobot.aStep` switched from 4×dt=0.05 semi-implicit Euler substeps to single-step dt=0.2 RK4 (matching gymnasium's reference rk4); torch_ref `ppo.py` switched to `gym.make("Acrobot-v1")`. Both sides now run identical physics. PPO convergence *improved* with the more accurate integrator: Idris seed=42 -75.0 (was ~-200 under Euler), torch_ref 5-seed mean -77.2 (range -72 .. -88).
 3. **Taxi wall divergence** — canonical Taxi-v4 has a wall between cols 0-1 in rows 3-4 that neither side currently models. Fixed-start optimal trajectory doesn't traverse that gap, so observed convergence (+8) is unchanged. Q-table values in the SW corner now differ from idris-gym's, invisible to the test. Not separately filed; subsumed by [[Env.reset Rng-threading]] row's general "audit idris-gym physics against canonical" implication.
 4. **Deterministic resets** — every classic-control env pins gymnasium's randomized init to match idris-gym's `Env.reset = constant`. Threading a seedable Rng through `idris-gym` `Env.reset` is filed as a separate Medium TODO row; once that lands, the pins can be removed.
 
