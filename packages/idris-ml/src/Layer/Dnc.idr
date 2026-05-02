@@ -577,7 +577,21 @@ export
             lstmInputT = catReadOutsAndInputT roTs inputT
             -- 2. LSTM forward at tensor level
             (updLstm, hiddenT) = applyVarTensor lstm lstmInputT
-            Just cellT = extractCellTensor updLstm | _ => idris_crash "DNC: no cell tensor"
+            -- 3. Cell-state input for FCs.
+            -- IMPORTANT: scalar applyVar feeds the FCs `extractCellState updLstm`
+            -- which is the LSTM's `cellState : Vector h (Variable d)` field — a
+            -- VIEW into the c0 parameter. LSTM's applyVarTensor does NOT update
+            -- this Vector field (only the cellTensor handle), so the FCs see
+            -- the c0-param view across all timesteps within a sequence (and
+            -- across the whole epoch, since c0 only updates between optimizer
+            -- steps). This is mirrored here by stacking updLstm.cellState into
+            -- a tensor at each timestep — preserves the autograd connection
+            -- to c0 and matches the scalar baseline's training dynamics
+            -- exactly. Using updLstm.cellTensor (the evolving hidden state)
+            -- here changes the model's effective architecture and breaks
+            -- convergence equivalence (verified in P1 spike).
+            (VTensor csElems) = updLstm.cellState
+            cellT = vecStackTensor csElems
             -- 3. 11 FCs as direct C ops (no scalar round-trips)
             writeKeyT      = tensorAdd (tensorMv wkW cellT) wkB
             writeBetaRawT  = tensorAdd (tensorMv wbW cellT) wbB
