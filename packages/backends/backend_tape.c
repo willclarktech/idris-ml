@@ -205,6 +205,7 @@ enum {
     OP_SILU,          /* x * sigmoid(x) (Swish activation) */
     OP_LINEAR_2D,     /* [B,o] = [B,i] @ [o,i]^T + [o] (batched fused linear) */
     OP_CONCAT_2D_AXIS1, /* [m,n] ++ [m,k] -> [m,n+k] along axis 1 */
+    OP_SOFTPLUS,      /* log(1 + exp(x)), backward = sigmoid(x) */
     OP_COUNT          /* sentinel — must be last */
 };
 
@@ -740,6 +741,16 @@ TensorHandle tensor_leaky_relu(TensorHandle ha, double alpha) {
 /* SiLU / Swish: x * sigmoid(x) */
 static double fn_silu(double x) { return x / (1.0 + exp(-x)); }
 TensorHandle tensor_silu(TensorHandle a) { return unop_elementwise(a, OP_SILU, fn_silu); }
+
+/* Softplus: log(1 + exp(x)). Numerically stable formulation for large |x|.
+ * Backward: f'(x) = 1 / (1 + exp(-x)) = sigmoid(x). */
+static double fn_softplus(double x) {
+    /* For x > 30, log(1+exp(x)) ≈ x; for x < -30, ≈ exp(x); else direct */
+    if (x > 30.0) return x;
+    if (x < -30.0) return exp(x);
+    return log(1.0 + exp(x));
+}
+TensorHandle tensor_softplus(TensorHandle a) { return unop_elementwise(a, OP_SOFTPLUS, fn_softplus); }
 
 TensorHandle tensor_add_scalar(TensorHandle ha, double s) {
     Tensor* a = (Tensor*)ha;
@@ -2820,6 +2831,12 @@ void tensor_backward(TensorHandle h) {
 
         case OP_TANH: {
             if (a) { ensure_grad(a); for (int j = 0; j < a->numel; j++) { double t = r->data[j]; a->grad[j] += r->grad[j] * (1.0 - t * t); } }
+            break;
+        }
+
+        case OP_SOFTPLUS: {
+            /* d/dx softplus(x) = 1 / (1 + exp(-x)) = sigmoid(x). a->data is x. */
+            if (a) { ensure_grad(a); for (int j = 0; j < a->numel; j++) { double s = 1.0 / (1.0 + exp(-a->data[j])); a->grad[j] += r->grad[j] * s; } }
             break;
         }
 

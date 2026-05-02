@@ -158,6 +158,9 @@ export prim__leakyRelu : AnyPtr -> Double -> AnyPtr
 %foreign "C:tensor_silu,libidrisml"
 export prim__silu : AnyPtr -> AnyPtr
 
+%foreign "C:tensor_softplus,libidrisml"
+export prim__softplus : AnyPtr -> AnyPtr
+
 -- Cross-attention: Q @ K^T * scale [+ mask] -> softmax -> @ V
 %foreign "C:tensor_cross_attention,libidrisml"
 export

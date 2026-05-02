@@ -43,6 +43,7 @@ TensorHandle tensor_tanh(TensorHandle t);
 TensorHandle tensor_gelu(TensorHandle t);   /* GELU activation (tanh approx) */
 TensorHandle tensor_leaky_relu(TensorHandle t, double alpha);  /* max(alpha*x, x) */
 TensorHandle tensor_silu(TensorHandle t);   /* x * sigmoid(x) (Swish) */
+TensorHandle tensor_softplus(TensorHandle t);  /* log(1 + exp(x)), backward = sigmoid(x) */
 
 /* Scalar broadcast variants */
 TensorHandle tensor_add_scalar(TensorHandle t, double s);

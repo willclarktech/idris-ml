@@ -170,6 +170,10 @@ TensorHandle tensor_silu(TensorHandle h) {
     return from_tensor(torch::silu(*to_tensor(h)));
 }
 
+TensorHandle tensor_softplus(TensorHandle h) {
+    return from_tensor(torch::softplus(*to_tensor(h)));
+}
+
 TensorHandle tensor_add_scalar(TensorHandle h, double s) {
     return from_tensor(*to_tensor(h) + s);
 }

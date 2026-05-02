@@ -106,6 +106,7 @@ enum {
     OP_CAT_MULTI,     /* n-ary concatenate along given axis */
     OP_LINEAR_2D,     /* Y = X @ W^T + bias, shapes [B,o]=[B,i]@[o,i]^T+[o] */
     OP_CONCAT_2D_AXIS1, /* [m,n] ++ [m,k] -> [m,n+k] along axis 1 */
+    OP_SOFTPLUS,      /* log(1 + exp(x)), backward = sigmoid(x) */
 };
 
 // Lightweight metadata for ops that need extra info during replay.
@@ -446,6 +447,15 @@ TensorHandle tensor_silu(TensorHandle h) {
     auto result = mx::multiply(t->data, mx::sigmoid(t->data));
     auto r = new Tensor(result, t->requires_grad);
     if (t->requires_grad) tape_append(OP_SILU, r, t, nullptr, 0);
+    return (TensorHandle)r;
+}
+
+TensorHandle tensor_softplus(TensorHandle h) {
+    auto t = (Tensor*)h;
+    // softplus(x) = log(1 + exp(x))
+    auto result = mx::log(mx::add(mx::array(1.0, mx::float64), mx::exp(t->data)));
+    auto r = new Tensor(result, t->requires_grad);
+    if (t->requires_grad) tape_append(OP_SOFTPLUS, r, t, nullptr, 0);
     return (TensorHandle)r;
 }
 
@@ -1569,6 +1579,7 @@ void tensor_backward(TensorHandle h) {
                 break;
             }
             case OP_SILU: pool[out] = mx::multiply(a, mx::sigmoid(a)); break;
+            case OP_SOFTPLUS: pool[out] = mx::log(mx::add(mx::array(1.0, mx::float64), mx::exp(a))); break;
             case OP_ADD_SCALAR: pool[out] = mx::add(a, mx::array(e.scalar_arg)); break;
             case OP_MUL_SCALAR: pool[out] = mx::multiply(a, mx::array(e.scalar_arg)); break;
             case OP_CLAMP_MIN: pool[out] = mx::maximum(a, mx::array(e.scalar_arg)); break;

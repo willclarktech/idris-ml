@@ -352,7 +352,7 @@ dncReadHeadsT _ [] _ _ _ _ _ _ = ([], [])
 dncReadHeadsT idx (prevRw :: restRws) linkT memT keysT betasT modesT mI =
   let headKeyT      = prim__narrow keysT 0 (idx * mI) mI
       headBetaPtr   = prim__select betasT 0 idx
-      headBetaT     = prim__log (prim__addScalar (prim__exp headBetaPtr) 1.0)
+      headBetaT     = prim__softplus headBetaPtr
       headModesRawT = prim__narrow modesT 0 (idx * 3) 3
       headModesT    = prim__softmax headModesRawT 0
       cosScoresT    = prim__cosineSimilarity memT (prim__unsqueeze headKeyT 0) 1
@@ -604,7 +604,7 @@ export
             readBetasRawT  = tensorAdd (tensorMv rbW cellT) rbB
             readModesFlatT = tensorAdd (tensorMv rmW cellT) rmB
             -- 4. Activations
-            writeBetaT  = prim__log (prim__addScalar (prim__exp writeBetaRawT) 1.0)
+            writeBetaT  = prim__softplus writeBetaRawT
             eraseVecT   = prim__sigmoid eraseRawT
             freeGatesT  = prim__sigmoid freeGatesRawT
             allocGateT  = prim__sigmoid allocGateRawT

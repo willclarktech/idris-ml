@@ -2205,6 +2205,30 @@ int main(void) {
         ASSERT_NEAR("d_silu(1)", param_grad_item_at(0, 1), sig1 * (1.0 + 1.0 * (1.0 - sig1)), 1e-5);
         ASSERT_NEAR("d_silu(-1)", param_grad_item_at(0, 2), sigm1 * (1.0 + (-1.0) * (1.0 - sigm1)), 1e-5);
         param_clear();
+
+        /* Softplus forward: softplus(x) = log(1 + exp(x)) */
+        double sp_data[] = {0.0, 1.0, -1.0, 5.0, -5.0};
+        int sp_s[] = {5};
+        TensorHandle sp_in = tensor_create(sp_data, sp_s, 1, 1);
+        param_register("sp_in", sp_in);
+        TensorHandle sp_out = tensor_softplus(sp_in);
+        double sp_result[5];
+        tensor_to_doubles(sp_out, sp_result);
+        ASSERT_NEAR("softplus(0)", sp_result[0], log(2.0), 1e-10);
+        ASSERT_NEAR("softplus(1)", sp_result[1], log(1.0 + exp(1.0)), 1e-10);
+        ASSERT_NEAR("softplus(-1)", sp_result[2], log(1.0 + exp(-1.0)), 1e-10);
+        ASSERT_NEAR("softplus(5)", sp_result[3], log(1.0 + exp(5.0)), 1e-9);
+        ASSERT_NEAR("softplus(-5)", sp_result[4], log(1.0 + exp(-5.0)), 1e-10);
+
+        /* Softplus backward: d_softplus(x) = sigmoid(x) */
+        TensorHandle sp_loss = tensor_sum(sp_out);
+        tensor_backward(sp_loss);
+        ASSERT_NEAR("d_softplus(0)", param_grad_item_at(0, 0), 0.5, 1e-10);
+        ASSERT_NEAR("d_softplus(1)", param_grad_item_at(0, 1), 1.0/(1.0+exp(-1.0)), 1e-10);
+        ASSERT_NEAR("d_softplus(-1)", param_grad_item_at(0, 2), 1.0/(1.0+exp(1.0)), 1e-10);
+        ASSERT_NEAR("d_softplus(5)", param_grad_item_at(0, 3), 1.0/(1.0+exp(-5.0)), 1e-10);
+        ASSERT_NEAR("d_softplus(-5)", param_grad_item_at(0, 4), 1.0/(1.0+exp(5.0)), 1e-10);
+        param_clear();
     }
 
     /* T20: Per-param LR overrides */
