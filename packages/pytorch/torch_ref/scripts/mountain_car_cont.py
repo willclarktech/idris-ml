@@ -28,7 +28,7 @@ from torch_ref.models.mountain_car_cont import (
     reset_to_center,
     sac_update,
 )
-from torch_ref.training.runner import format_elapsed, format_result, mem_suffix
+from torch_ref.training.runner import format_elapsed, format_result, mem_suffix, set_device
 
 
 def main() -> None:
@@ -48,7 +48,15 @@ def main() -> None:
         "--lr-find", action="store_true",
         help="Stub for API consistency; SAC's per-step + warmup don't fit lr_find.",
     )
+    parser.add_argument(
+        "--device",
+        default="cpu",
+        choices=["cpu", "mps", "cuda"],
+        help="Device for tensor ops (default: cpu)",
+    )
     args = parser.parse_args()
+
+    set_device(args.device)
 
     if args.lr_find:
         print("lr_find skipped for SAC: per-step epochs + warmup don't fit")
@@ -66,9 +74,9 @@ def main() -> None:
         f" seed={args.seed}"
     )
 
-    actor = Actor()
-    q1 = QNet()
-    q2 = QNet()
+    actor = Actor().to(args.device)
+    q1 = QNet().to(args.device)
+    q2 = QNet().to(args.device)
     q1_target = copy.deepcopy(q1)
     q2_target = copy.deepcopy(q2)
     actor_opt = torch.optim.Adam(actor.parameters(), lr=args.lr)

@@ -31,15 +31,15 @@ from torch_ref.models.reinforce import (
     obs_tensor,
     reset_to_zero,
 )
-from torch_ref.training.runner import format_elapsed, mem_suffix
+from torch_ref.training.runner import format_elapsed, get_device, get_dtype, mem_suffix
 
 
 class QNetwork(nn.Module):
     def __init__(self, obs_dim: int = 4, num_actions: int = 2, hidden: int = 64) -> None:
         super().__init__()
-        self.fc1 = nn.Linear(obs_dim, hidden, dtype=torch.float64)
-        self.fc2 = nn.Linear(hidden, hidden, dtype=torch.float64)
-        self.fc3 = nn.Linear(hidden, num_actions, dtype=torch.float64)
+        self.fc1 = nn.Linear(obs_dim, hidden, dtype=get_dtype())
+        self.fc2 = nn.Linear(hidden, hidden, dtype=get_dtype())
+        self.fc3 = nn.Linear(hidden, num_actions, dtype=get_dtype())
 
     def forward(self, x: Tensor) -> Tensor:
         return self.fc3(F.relu(self.fc2(F.relu(self.fc1(x)))))
@@ -65,11 +65,12 @@ class ReplayBuffer:
         self, n: int, rng: random.Random
     ) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor]:
         batch = rng.sample(self.buf, n)
-        obs = torch.tensor([b[0] for b in batch], dtype=torch.float64)
-        actions = torch.tensor([b[1] for b in batch], dtype=torch.long)
-        rewards = torch.tensor([b[2] for b in batch], dtype=torch.float64)
-        next_obs = torch.tensor([b[3] for b in batch], dtype=torch.float64)
-        dones = torch.tensor([float(b[4]) for b in batch], dtype=torch.float64)
+        device, dtype = get_device(), get_dtype()
+        obs = torch.tensor([b[0] for b in batch], dtype=dtype, device=device)
+        actions = torch.tensor([b[1] for b in batch], dtype=torch.long, device=device)
+        rewards = torch.tensor([b[2] for b in batch], dtype=dtype, device=device)
+        next_obs = torch.tensor([b[3] for b in batch], dtype=dtype, device=device)
+        dones = torch.tensor([float(b[4]) for b in batch], dtype=dtype, device=device)
         return obs, actions, rewards, next_obs, dones
 
     def __len__(self) -> int:

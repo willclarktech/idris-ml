@@ -14,7 +14,7 @@ import time
 import torch
 
 from torch_ref.models.sac import evaluate, train_sac
-from torch_ref.training.runner import format_result
+from torch_ref.training.runner import format_result, set_device
 
 
 def main() -> None:
@@ -33,7 +33,15 @@ def main() -> None:
         "--lr-find", action="store_true",
         help="Stub for API consistency; SAC's per-step + warmup don't fit lr_find.",
     )
+    parser.add_argument(
+        "--device",
+        default="cpu",
+        choices=["cpu", "mps", "cuda"],
+        help="Device for tensor ops (default: cpu)",
+    )
     args = parser.parse_args()
+
+    set_device(args.device)
 
     if args.lr_find:
         print("lr_find skipped for SAC: per-step epochs + warmup don't fit")

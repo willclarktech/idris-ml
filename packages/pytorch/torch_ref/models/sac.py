@@ -28,7 +28,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
-from torch_ref.training.runner import format_elapsed, mem_suffix
+from torch_ref.training.runner import format_elapsed, get_device, get_dtype, mem_suffix
 
 MAX_ACTION = 2.0  # Pendulum torque range
 MAX_STEPS = 200  # gymnasium Pendulum-v1 default TimeLimit
@@ -48,7 +48,7 @@ def _reset_to_pi(env: gym.Env) -> np.ndarray:
 
 
 def _obs_tensor(obs: np.ndarray) -> Tensor:
-    return torch.tensor(obs, dtype=torch.float64)
+    return torch.tensor(obs, dtype=get_dtype(), device=get_device())
 
 
 # ---------------------------------------------------------------------------
@@ -59,10 +59,10 @@ def _obs_tensor(obs: np.ndarray) -> Tensor:
 class Actor(nn.Module):
     def __init__(self, obs_dim: int = 3, hidden: int = 64) -> None:
         super().__init__()
-        self.fc1 = nn.Linear(obs_dim, hidden, dtype=torch.float64)
-        self.fc2 = nn.Linear(hidden, hidden, dtype=torch.float64)
-        self.mean_head = nn.Linear(hidden, 1, dtype=torch.float64)
-        self.log_std = nn.Parameter(torch.zeros(1, dtype=torch.float64))
+        self.fc1 = nn.Linear(obs_dim, hidden, dtype=get_dtype())
+        self.fc2 = nn.Linear(hidden, hidden, dtype=get_dtype())
+        self.mean_head = nn.Linear(hidden, 1, dtype=get_dtype())
+        self.log_std = nn.Parameter(torch.zeros(1, dtype=get_dtype()))
 
     def forward(self, x: Tensor) -> tuple[Tensor, Tensor]:
         h = F.relu(self.fc2(F.relu(self.fc1(x))))
@@ -83,7 +83,7 @@ class Actor(nn.Module):
         if rng is None:
             eps = torch.randn_like(mean)
         else:
-            eps = torch.tensor(rng.gauss(0.0, 1.0), dtype=torch.float64)
+            eps = torch.tensor(rng.gauss(0.0, 1.0), dtype=get_dtype(), device=get_device())
         u = mean + std * eps  # pre-tanh
         a_squashed = torch.tanh(u)
         action = a_squashed * MAX_ACTION
@@ -102,9 +102,9 @@ class Actor(nn.Module):
 class QNet(nn.Module):
     def __init__(self, obs_dim: int = 3, act_dim: int = 1, hidden: int = 64) -> None:
         super().__init__()
-        self.fc1 = nn.Linear(obs_dim + act_dim, hidden, dtype=torch.float64)
-        self.fc2 = nn.Linear(hidden, hidden, dtype=torch.float64)
-        self.head = nn.Linear(hidden, 1, dtype=torch.float64)
+        self.fc1 = nn.Linear(obs_dim + act_dim, hidden, dtype=get_dtype())
+        self.fc2 = nn.Linear(hidden, hidden, dtype=get_dtype())
+        self.head = nn.Linear(hidden, 1, dtype=get_dtype())
 
     def forward(self, obs: Tensor, action: Tensor) -> Tensor:
         a = action.unsqueeze(-1) if action.dim() == obs.dim() - 1 else action
@@ -129,11 +129,12 @@ class ReplayBuffer:
 
     def sample(self, n: int, rng: random.Random) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor]:
         batch = rng.sample(self.buf, n)
-        obs = torch.tensor([b[0] for b in batch], dtype=torch.float64)
-        actions = torch.tensor([b[1] for b in batch], dtype=torch.float64)
-        rewards = torch.tensor([b[2] for b in batch], dtype=torch.float64)
-        next_obs = torch.tensor([b[3] for b in batch], dtype=torch.float64)
-        dones = torch.tensor([float(b[4]) for b in batch], dtype=torch.float64)
+        device, dtype = get_device(), get_dtype()
+        obs = torch.tensor([b[0] for b in batch], dtype=dtype, device=device)
+        actions = torch.tensor([b[1] for b in batch], dtype=dtype, device=device)
+        rewards = torch.tensor([b[2] for b in batch], dtype=dtype, device=device)
+        next_obs = torch.tensor([b[3] for b in batch], dtype=dtype, device=device)
+        dones = torch.tensor([float(b[4]) for b in batch], dtype=dtype, device=device)
         return obs, actions, rewards, next_obs, dones
 
     def __len__(self) -> int:
@@ -201,9 +202,9 @@ def train_sac(
     calls `polyakBlend` after each gradient step."""
     torch.manual_seed(seed)
     rng = random.Random(seed)
-    actor = Actor()
-    q1 = QNet()
-    q2 = QNet()
+    actor = Actor().to(get_device())
+    q1 = QNet().to(get_device())
+    q2 = QNet().to(get_device())
     q1_target = copy.deepcopy(q1)
     q2_target = copy.deepcopy(q2)
     actor_opt = torch.optim.Adam(actor.parameters(), lr=lr)
