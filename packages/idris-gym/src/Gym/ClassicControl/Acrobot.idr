@@ -5,12 +5,11 @@ import Gym.Env
 
 
 ----------------------------------------------------------------------
--- Acrobot-v1 (Gymnasium-compatible constants)
+-- Acrobot-v1 (Gymnasium-compatible)
 --
--- Gymnasium uses RK4 with dt = 0.2 total. We use semi-implicit Euler
--- with 4 substeps of dt = 0.05 for simpler implementation. Trajectories
--- diverge numerically from the Gymnasium reference but the task and
--- termination condition are identical.
+-- Single-step RK4 integration with dt = 0.2, matching the canonical
+-- `gymnasium.envs.classic_control.acrobot.rk4` reference. Each `step`
+-- advances state by one dt=0.2 RK4 evaluation using four `dsdt` calls.
 ----------------------------------------------------------------------
 
 LinkLen1 : Double; LinkLen1 = 1.0
@@ -23,7 +22,7 @@ MaxVel1 : Double; MaxVel1 = 4.0 * 3.141592653589793
 MaxVel2 : Double; MaxVel2 = 9.0 * 3.141592653589793
 Gravity : Double; Gravity = 9.8
 Pi : Double; Pi = 3.141592653589793
-Dt : Double; Dt = 0.05
+Dt : Double; Dt = 0.2
 
 ||| Acrobot state: two joint angles and angular velocities.
 public export
@@ -72,14 +71,38 @@ dsdt torque s =
       ddth1 = negate ((d2 * ddth2 + phi1) / d1)
   in (dth1, dth2, ddth1, ddth2, 0.0)
 
--- One semi-implicit Euler substep.
-eulerStep : Double -> AState -> AState
-eulerStep torque s =
-  let (_, _, ddth1, ddth2, _) = dsdt torque s
-      dth1' = s.aDth1 + Dt * ddth1
-      dth2' = s.aDth2 + Dt * ddth2
-      th1'  = s.aTh1 + Dt * dth1'
-      th2'  = s.aTh2 + Dt * dth2'
+-- Build a candidate state for an RK4 intermediate evaluation:
+-- s + scale * (derivative tuple).
+shiftBy : Double -> AState -> (Double, Double, Double, Double, Double) -> AState
+shiftBy scale s (dth1, dth2, ddth1, ddth2, _) =
+  MkA (s.aTh1  + scale * dth1)
+      (s.aTh2  + scale * dth2)
+      (s.aDth1 + scale * ddth1)
+      (s.aDth2 + scale * ddth2)
+
+-- One RK4 step of size Dt = 0.2, matching gymnasium's
+-- `rk4(dsdt, state, [0, dt])` call shape:
+--   k1 = f(s)
+--   k2 = f(s + (Dt/2) * k1)
+--   k3 = f(s + (Dt/2) * k2)
+--   k4 = f(s + Dt * k3)
+--   s' = s + (Dt/6) * (k1 + 2*k2 + 2*k3 + k4)
+rk4Step : Double -> AState -> AState
+rk4Step torque s =
+  let halfDt = Dt / 2.0
+      k1 = dsdt torque s
+      k2 = dsdt torque (shiftBy halfDt s k1)
+      k3 = dsdt torque (shiftBy halfDt s k2)
+      k4 = dsdt torque (shiftBy Dt s k3)
+      (dth1a, dth2a, ddth1a, ddth2a, _) = k1
+      (dth1b, dth2b, ddth1b, ddth2b, _) = k2
+      (dth1c, dth2c, ddth1c, ddth2c, _) = k3
+      (dth1d, dth2d, ddth1d, ddth2d, _) = k4
+      sixthDt = Dt / 6.0
+      th1' = s.aTh1  + sixthDt * (dth1a  + 2.0 * dth1b  + 2.0 * dth1c  + dth1d)
+      th2' = s.aTh2  + sixthDt * (dth2a  + 2.0 * dth2b  + 2.0 * dth2c  + dth2d)
+      dth1' = s.aDth1 + sixthDt * (ddth1a + 2.0 * ddth1b + 2.0 * ddth1c + ddth1d)
+      dth2' = s.aDth2 + sixthDt * (ddth2a + 2.0 * ddth2b + 2.0 * ddth2c + ddth2d)
   in MkA th1' th2' dth1' dth2'
 
 ||| One physics step. Action 0 = -1 torque, 1 = 0 torque, 2 = +1 torque.
@@ -87,14 +110,11 @@ export
 aStep : AState -> Nat -> (Double, AState, Outcome, Info)
 aStep s action =
   let torque = cast {to=Double} (cast {to=Integer} action) - 1.0
-      s1 = eulerStep torque s
-      s2 = eulerStep torque s1
-      s3 = eulerStep torque s2
-      s4 = eulerStep torque s3
-      th1 = wrapAngle s4.aTh1
-      th2 = wrapAngle s4.aTh2
-      dth1 = clamp (negate MaxVel1) MaxVel1 s4.aDth1
-      dth2 = clamp (negate MaxVel2) MaxVel2 s4.aDth2
+      sRk = rk4Step torque s
+      th1 = wrapAngle sRk.aTh1
+      th2 = wrapAngle sRk.aTh2
+      dth1 = clamp (negate MaxVel1) MaxVel1 sRk.aDth1
+      dth2 = clamp (negate MaxVel2) MaxVel2 sRk.aDth2
       s' = MkA th1 th2 dth1 dth2
       terminated = negate (prim__doubleCos th1)
                  - prim__doubleCos (th2 + th1) > 1.0
