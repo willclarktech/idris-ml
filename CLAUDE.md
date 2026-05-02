@@ -192,7 +192,12 @@ Four files, each with a distinct role. Don't conflate them; updating the wrong o
 
 ### Performance optimization workflow
 
-`make example-profile` → `make bench-compare` (same batch, currently 16) → `bash scripts/sweep.sh` for systematic grids → update `docs/develop/performance-analysis.md` with fresh data.
+**Post-change measurement (required after every landable commit)**: use the auto-logging scripts so results land in `perf-log.jsonl`. **Never** hand-write JSONL entries; **never** use `make bench-compare` for post-change gating (it doesn't log).
+- `scripts/perf-run.sh <example-key> <backend>` — single (example, backend) measurement.
+- `scripts/perf-baseline.sh <example-key> <backend>` — Idris-vs-PyTorch ratio with two-point timing.
+- `scripts/perf-sweep.sh [--examples …] [--cells tape,torch,mlx-cpu,mlx-gpu]` — **canonical for cross-backend cascade changes** (typeclass cascade, C ABI, lifecycle work). One PyTorch ref per example, cached across cells. A single-backend `bench-compare` on cross-backend work hides per-backend regressions and leaves no log entry.
+
+**Ad-hoc local exploration**: `make example-profile` → `make bench-compare` (same batch, currently 16) → `bash scripts/sweep.sh` for systematic grids → update `docs/develop/performance-analysis.md` with fresh data. `bench-compare` is convenient for eyeballing but does *not* log to `perf-log.jsonl`.
 
 ## Conventions
 
