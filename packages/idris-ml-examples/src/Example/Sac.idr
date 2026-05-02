@@ -284,51 +284,40 @@ qLossBatch n qOnline q1Tgt q2Tgt actor logStdV gamma alpha batch = do
 -- also get gradients (they're in the graph) but actor_opt is
 -- prefix-scoped so it only applies actor grads; the leaked Q grads
 -- are zeroed next iteration by the respective Q optimizers.
-actorLoss : ActorNet -> QNet -> QNet -> Variable CPU -> Double ->
-            Vect ObsDim Double -> IO (Variable CPU)
-actorLoss actor q1 q2 logStdV alpha obs = do
-  let stateT  = bulkToTensor (obsTensor obs)
-      meanOut = snd (forwardVarTensor actor stateT)    -- grad-tracked [1]
-      meanVal = prim__item1d meanOut 0
-      logStd  = (refreshValue logStdV).value
-      stdVal  = Prelude.exp logStd
+-- Build a [n, 1] non-grad tensor from a Vect of Doubles (one row each).
+buildScalarColumnT : {n : Nat} -> Vect n Double -> AnyPtr
+buildScalarColumnT {n} xs =
+  let rows : Vect n (Vector 1 Double)
+      rows = map (\x => VTensor [STensor x]) xs
+  in bulkToTensor2d rows
 
-  eps <- normalSample
-  let -- u = mean + std*eps as a grad-tracked [1] tensor.
-      -- `prim__addScalar` preserves autograd; the `std*eps` product is a
-      -- constant Double.
-      uT          = prim__addScalar meanOut (stdVal * eps)
-      -- Grad-tracked tanh, then scale to [-MaxAction, MaxAction].
-      aSquashedT  = prim__tanh uT
-      aReparamT   = prim__mulScalar aSquashedT MaxAction
-
-      -- Concatenate obs (constant) with reparam action (grad-tracked) → [4].
-      obsT        = bulkToTensor (obsTensor obs)
-      qInputT     = prim__cat2 obsT aReparamT
-
-      -- Q1 / Q2 forward on the grad-tracked input → grad-tracked scalars.
-      q1OutT  = snd (forwardVarTensor q1 qInputT)
-      q1Val   = prim__item1d q1OutT 0
+-- Per-sample actor loss using batched [n, 1] mean / u / q1 / q2 outputs.
+-- Builds the per-sample log-prob + min(Q) + alpha · logπ - minQ Variable
+-- expression by indexing into the [n, ...] outputs via prim__select.
+actorPerStepLoss : (meanB : AnyPtr) -> (uBT : AnyPtr) ->
+                   (q1B : AnyPtr) -> (q2B : AnyPtr) ->
+                   Variable CPU -> Double -> Double ->
+                   Int -> Double -> Variable CPU
+actorPerStepLoss meanB uBT q1B q2B logStdV alpha stdVal rowIdx eps =
+  let q1Row   = prim__select q1B 0 rowIdx
+      q1Val   = prim__item1d q1Row 0
       q1V     : Variable CPU
-      q1V     = Var (prim__select q1OutT 0 0) Nothing q1Val
-
-      q2OutT  = snd (forwardVarTensor q2 qInputT)
-      q2Val   = prim__item1d q2OutT 0
+      q1V     = Var (prim__select q1Row 0 0) Nothing q1Val
+      q2Row   = prim__select q2B 0 rowIdx
+      q2Val   = prim__item1d q2Row 0
       q2V     : Variable CPU
-      q2V     = Var (prim__select q2OutT 0 0) Nothing q2Val
-
-      -- Pick the smaller as a Variable (cached values drive the branch).
+      q2V     = Var (prim__select q2Row 0 0) Nothing q2Val
       minQV   = if q1Val <= q2Val then q1V else q2V
 
-      -- Grad-tracked log-prob via Variable arithmetic, matching the
-      -- reparameterized sample. logπ(a) = logπ_u(u) − correction(u).
-      actVal  = Math.tanh (meanVal + stdVal * eps) * MaxAction
-      uVal    = meanVal + stdVal * eps
-      actC    : Variable CPU
-      actC    = fromDouble actVal
-      -- u-Variable: reconstruct u as a Variable from meanOut + stdVal*eps constant.
+      meanRow = prim__select meanB 0 rowIdx
+      meanVal = prim__item1d meanRow 0
+      meanV   : Variable CPU
+      meanV   = Var (prim__select meanRow 0 0) Nothing meanVal
+
+      uRow    = prim__select uBT 0 rowIdx
+      uVal    = prim__item1d uRow 0
       uV      : Variable CPU
-      uV      = Var (prim__select uT 0 0) Nothing uVal
+      uV      = Var (prim__select uRow 0 0) Nothing uVal
 
       halfC   : Variable CPU
       halfC   = fromDouble 0.5
@@ -337,22 +326,59 @@ actorLoss actor q1 q2 logStdV alpha obs = do
       zeroC   : Variable CPU
       zeroC   = fromDouble 0.0
 
-      meanV   : Variable CPU
-      meanV   = Var (prim__select meanOut 0 0) Nothing meanVal
-      diffM   = uV - meanV
+      diffM    = uV - meanV
       negTwoLs = zeroC - twoC * logStdV
-      varInv  = exp negTwoLs
-      quad    = halfC * diffM * diffM * varInv
-      cC      : Variable CPU
-      cC      = fromDouble logTwoPiHalf
-      lpU     = (zeroC - quad) - logStdV - cC
-      corrC   : Variable CPU
-      corrC   = fromDouble (squashCorrection uVal)
-      lpV     = lpU - corrC
+      varInv   = exp negTwoLs
+      quad     = halfC * diffM * diffM * varInv
+      cC       : Variable CPU
+      cC       = fromDouble logTwoPiHalf
+      lpU      = (zeroC - quad) - logStdV - cC
+      corrC    : Variable CPU
+      corrC    = fromDouble (squashCorrection uVal)
+      lpV      = lpU - corrC
 
-      alphaC  : Variable CPU
-      alphaC  = fromDouble alpha
-  pure (alphaC * lpV - minQV)
+      alphaC   : Variable CPU
+      alphaC   = fromDouble alpha
+  in alphaC * lpV - minQV
+
+-- Batched actor loss: one batched actor forward, build qInput as
+-- prim__concat2dAxis1(obsBT [B, 3], aReparamBT [B, 1]) → [B, 4],
+-- one batched Q1 / Q2 forward each, then assemble per-sample losses.
+-- All per-sample work happens via prim__select on the [B, ...] outputs;
+-- the Q1+Q2 batched forwards replace what was previously 2B per-sample
+-- forwards (B=64 batch size → ~128× reduction in those op calls).
+actorLossBatch : (n : Nat) -> ActorNet -> QNet -> QNet -> Variable CPU ->
+                 Double -> Vect n (Vect ObsDim Double) -> IO (Variable CPU)
+actorLossBatch n actor q1 q2 logStdV alpha obsBatch = do
+  let logStd = (refreshValue logStdV).value
+      stdVal = Prelude.exp logStd
+  epses <- traverse (\_ => normalSample) obsBatch
+  let obsTensors : Vect n (Vector ObsDim Double)
+      obsTensors = map obsTensor obsBatch
+      obsBT      = bulkToTensor2d obsTensors                     -- [B, 3] non-grad
+      meanB      = snd (forwardVarTensorBatch actor n obsBT)      -- [B, 1] grad
+      epsScales  = map (\e => stdVal * e) epses
+      epsBT      = buildScalarColumnT epsScales                  -- [B, 1] non-grad
+      uBT        = tensorAdd meanB epsBT                         -- [B, 1] grad
+      aSquashedBT = prim__tanh uBT                               -- [B, 1] grad
+      aReparamBT = prim__mulScalar aSquashedBT MaxAction         -- [B, 1] grad
+      qInputBT   = prim__concat2dAxis1 obsBT aReparamBT          -- [B, 4] grad
+      q1B        = snd (forwardVarTensorBatch q1 n qInputBT)      -- [B, 1] grad
+      q2B        = snd (forwardVarTensorBatch q2 n qInputBT)      -- [B, 1] grad
+      losses     = enumeratedLosses meanB uBT q1B q2B epses 0
+      n_d        = the Double (cast (natToInteger n))
+      sumV       = foldl (+) (the (Variable CPU) (fromDouble 0.0)) losses
+      nV         = the (Variable CPU) (fromDouble n_d)
+  pure (sumV / nV)
+  where
+    enumeratedLosses : (meanB : AnyPtr) -> (uBT : AnyPtr) ->
+                       (q1B : AnyPtr) -> (q2B : AnyPtr) ->
+                       Vect k Double -> Int -> List (Variable CPU)
+    enumeratedLosses _ _ _ _ [] _ = []
+    enumeratedLosses meanB uBT q1B q2B (eps :: rest) k =
+      let stdVal = Prelude.exp (refreshValue logStdV).value
+      in actorPerStepLoss meanB uBT q1B q2B logStdV alpha stdVal k eps
+           :: enumeratedLosses meanB uBT q1B q2B rest (k + 1)
 
 
 -- --- Batch aggregation ----------------------------------------------
@@ -387,14 +413,14 @@ runBatchUpdate q1Opt q2Opt actorOpt st cfg {n} batch = do
                         cfg.gamma cfg.alpha batch
   _ <- pure (nativeTrainStep q2Opt q2LossV)
 
-  -- Actor loss (reparameterized). Per-sample because each transition
-  -- needs its own random eps for sampling, and stacking the resulting
-  -- grad-tracked qInputs through prim__cat2 + stackRowTensors triggered
-  -- a backend SIGSEGV — that path needs a 2D-along-axis-1 cat op. See
-  -- TODO follow-up "SAC actorLoss batched".
-  actorLosses <- traverse (actorLoss st.actor st.q1 st.q2 st.logStdV cfg.alpha)
-                          (map (\t => t.obs) (toList batch))
-  let aLossV = aggregateMean actorLosses
+  -- Actor loss (reparameterized) — fully batched via the new
+  -- prim__concat2dAxis1 op: stack obs into [B, 3], one batched actor
+  -- forward → meanB [B, 1], reparametrize via tensorAdd + tanh + mulScalar
+  -- to aReparamB [B, 1], concat with obs along axis 1 to qInput [B, 4],
+  -- one batched Q1 / Q2 forward each.
+  let obsVec : Vect n (Vect ObsDim Double)
+      obsVec = map (\t => t.obs) batch
+  aLossV <- actorLossBatch n st.actor st.q1 st.q2 st.logStdV cfg.alpha obsVec
   _ <- pure (nativeTrainStep actorOpt aLossV)
   pure ()
 
