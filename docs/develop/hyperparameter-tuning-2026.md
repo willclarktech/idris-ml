@@ -203,6 +203,26 @@ This is a useful negative-result entry for the workflow: `lr_find` is a screenin
 
 ---
 
+## NTM (Copy + Associative Recall)           date: 2026-04-29
+
+Both NTM examples share the same architecture (LSTM controller + interpolation write + content-addressing read), training (`epochTwoPhaseTensor` with `nativeRmsprop`), and loss (sigmoid + BCE). They produce essentially the same `lr_find` story, recorded once.
+
+- **Before (Copy)**: `lr=1e-4 clip=10 alpha=0.95 momentum=0.9 batch=16 seqLen=1-20 seed=42`. NTM<N=128, M=20, H=100>.
+- **Before (Recall)**: `lr=1e-4 clip=10 alpha=0.95 momentum=0.9 batch=16 items=2-6 seqLen=3 seed=42`. Same NTM dimensions.
+- **lr_find (Copy, Idris)**: `RECOMMENDED_LR=1.20e-8`. Loss decays from ~0.7 to ~0.55 then NaN at iter 80 (lr ≈ 0.29). Fallback to `lrMin/10`.
+- **lr_find (Copy, PyTorch)**: `RECOMMENDED_LR=1e-8`. Loss decays from ~0.7 to ~0.69 then diverges at iter 76 (lr ≈ 0.138). Also fallback (`lrMin/10`).
+- **Cross-backend agreement (Copy)**: ratio = 1.20× — *looks like* agreement (within 2× tolerance), but both are fallback (≤ 10× of `lrMin`). Same pattern as Transformer (1.0× both-fallback).
+- **lr_find (Recall, Idris)**: `RECOMMENDED_LR=1.75e-8`. Same shape — flat curve then NaN around iter 80.
+- **lr_find (Recall, PyTorch)**: `RECOMMENDED_LR=1e-8`. Diverges at iter 81 (lr ≈ 0.35). Fallback.
+- **Cross-backend agreement (Recall)**: ratio = 1.75× — same fake-agreement-both-fallback pattern.
+- **Multi-seed pass rate**: not measured. Defaults unchanged.
+- **Decision (both)**: ship-as-is at lr=1e-4. Cross-backend agreement is in the "fallback" bucket; recommendation is unreliable.
+- **Why this is structurally fallback**: NTM's loss curve is essentially flat across the early lr_find sweep (sigmoid+BCE on a fresh random network outputs probabilities ≈0.5, giving loss ≈ log 2 ≈ 0.69 regardless of LR), then collapses to NaN once the LR is large enough to overflow. There's no "negative-slope sweet spot" between random-init plateau and divergence — the curve is two-modal. The steepest-descent ÷ 10 heuristic has no minimum to recommend.
+- **Implication**: NTM at default lr=1e-4 is in the safe pre-divergence regime. B4 (architecture tuning, e.g. smaller M or H) is the higher-headroom direction for these examples.
+- **Commit**: (this commit).
+
+---
+
 ## Pattern observed across B3 so far
 
 After 5 examples (Supervised, Rnn, Lstm, Transformer, SeqClassify), the

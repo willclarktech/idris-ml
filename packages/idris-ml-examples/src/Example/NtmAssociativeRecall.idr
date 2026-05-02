@@ -17,6 +17,7 @@ import DataPoint
 import Endofunctor
 import Floating
 import Generate
+import Hpo.LrFinder
 import Layer
 import Math
 import Optimizer
@@ -78,9 +79,10 @@ record Config where
   minItems : Nat
   maxItems : Nat
   batch : Nat
+  lrFind : Bool
 
 defaultConfig : Config
-defaultConfig = MkConfig 0.0001 10.0 0.95 1.0e-8 0.9 100000 0.01 1000 3 42 2 6 16
+defaultConfig = MkConfig 0.0001 10.0 0.95 1.0e-8 0.9 100000 0.01 1000 3 42 2 6 16 False
 
 specs : List (ArgSpec Config)
 specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
@@ -95,7 +97,8 @@ specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
         , Arg "--seed" (\v, c => { seed := castBits64 v } c)
         , Arg "--min-items" (\v, c => { minItems := castNat v } c)
         , Arg "--max-items" (\v, c => { maxItems := castNat v } c)
-        , Arg "--batch" (\v, c => { batch := castNat v } c) ]
+        , Arg "--batch" (\v, c => { batch := castNat v } c)
+        , Arg "--lr-find" (\v, c => { lrFind := (v == "1" || v == "true") } c) ]
 
 
 ----------------------------------------------------------------------
@@ -139,6 +142,18 @@ main = do
               (toList (map (\dp => let (_, preds) = forwardTwoPhase dblM dp
                                    in bitAccuracy preds (targets dp)) evalBatch)) / 10.0
         pure [ ("acc", show (avgAcc * 100.0) ++ "%") ]
+
+  -- HPO branch: see NtmCopy.idr — same wiring, sigmoid+BCE, no negative-loss bug.
+  when cfg.lrFind $ do
+    let lrCfg : LrFindConfig
+        lrCfg = { numIters := 100 } defaultLrFindConfig
+    _ <- lrFind lrCfg
+      (\m, d => let (m', loss) = epochTwoPhaseTensor opt d m
+                in pure (m', loss))
+      genBatch opt model
+    putStrLn ""
+    putStrLn "Done — re-run without --lr-find at the recommended LR."
+    exitSuccess
 
   let trainCfg = MkTrainConfig cfg.epochs 100
                    (WindowedAvg cfg.esThreshold cfg.esWindow cfg.esPatience) evalMetrics
