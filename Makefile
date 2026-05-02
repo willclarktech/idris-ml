@@ -15,6 +15,14 @@ endif
 # killed and reported as timeouts. Override with `EXAMPLE_TIMEOUT=900 make ...`.
 EXAMPLE_TIMEOUT ?= 600
 
+# Line-buffer Chez output. Without this, stdout fully-buffers when piped or
+# redirected and progress logs only appear at process exit. We use stdbuf
+# unless its libstdbuf.so is incompatible with the system's dyld (e.g. brew
+# coreutils stdbuf on Apple-Silicon GH runners is arm64 but the inserted-
+# library loader requires arm64e). Test by injecting it into a no-op `true`:
+# success means libstdbuf loads, failure means we fall back to no buffering.
+STDBUF := $(shell stdbuf -oL true >/dev/null 2>&1 && echo "stdbuf -oL")
+
 # `make` builds backend + type-checks all packages. `make all` also runs tests.
 .DEFAULT_GOAL := check-all
 
@@ -240,13 +248,13 @@ test: install
 # Idris tests for idris-gym package (pure Idris, no backend required)
 test-gym: install-gym
 	cd packages/idris-gym/test && idris2 --build test.ipkg
-	stdbuf -oL ./packages/idris-gym/test/build/exec/idris-gym-test
+	$(STDBUF) ./packages/idris-gym/test/build/exec/idris-gym-test
 
 # Unit tests for idris-ml-examples (runs moved Test.Generate)
 test-examples-unit: install-examples
 	cd packages/idris-ml-examples/test && idris2 --build test.ipkg
 	cp $(LIB) packages/idris-ml-examples/test/build/exec/idris-ml-examples-test_app/
-	stdbuf -oL ./packages/idris-ml-examples/test/build/exec/idris-ml-examples-test
+	$(STDBUF) ./packages/idris-ml-examples/test/build/exec/idris-ml-examples-test
 
 # Build and run examples (require: make install)
 example-supervised: install
@@ -267,22 +275,22 @@ example-lstm: install
 example-ntm-copy: install
 	idris2 $(IDRIS_FLAGS) -o ntm-copy $(EXAMPLE_SRC)/Example/NtmCopy.idr
 	cp $(LIB) build/exec/ntm-copy_app/
-	stdbuf -oL ./build/exec/ntm-copy $(NTM_COPY_ARGS)
+	$(STDBUF) ./build/exec/ntm-copy $(NTM_COPY_ARGS)
 
 example-ntm-associative-recall: install
 	idris2 $(IDRIS_FLAGS) -o ntm-associative-recall $(EXAMPLE_SRC)/Example/NtmAssociativeRecall.idr
 	cp $(LIB) build/exec/ntm-associative-recall_app/
-	stdbuf -oL ./build/exec/ntm-associative-recall $(NTM_RECALL_ARGS)
+	$(STDBUF) ./build/exec/ntm-associative-recall $(NTM_RECALL_ARGS)
 
 example-dnc-copy: install
 	idris2 $(IDRIS_FLAGS) -o dnc-copy $(EXAMPLE_SRC)/Example/DncCopy.idr
 	cp $(LIB) build/exec/dnc-copy_app/
-	stdbuf -oL ./build/exec/dnc-copy $(DNC_COPY_ARGS)
+	$(STDBUF) ./build/exec/dnc-copy $(DNC_COPY_ARGS)
 
 example-dnc-recall: install
 	idris2 $(IDRIS_FLAGS) -o dnc-recall $(EXAMPLE_SRC)/Example/DncAssociativeRecall.idr
 	cp $(LIB) build/exec/dnc-recall_app/
-	stdbuf -oL ./build/exec/dnc-recall $(DNC_RECALL_ARGS)
+	$(STDBUF) ./build/exec/dnc-recall $(DNC_RECALL_ARGS)
 
 example-transformer: install
 	idris2 $(IDRIS_FLAGS) -o transformer $(EXAMPLE_SRC)/Example/Transformer.idr
@@ -292,17 +300,17 @@ example-transformer: install
 example-gpt: install
 	idris2 $(IDRIS_FLAGS) -o gpt $(EXAMPLE_SRC)/Example/Gpt.idr
 	cp $(LIB) build/exec/gpt_app/
-	stdbuf -oL ./build/exec/gpt $(GPT_ARGS)
+	$(STDBUF) ./build/exec/gpt $(GPT_ARGS)
 
 example-mnist: install download-mnist
 	idris2 $(IDRIS_FLAGS) -o mnist $(EXAMPLE_SRC)/Example/Mnist.idr
 	cp $(LIB) build/exec/mnist_app/
-	stdbuf -oL ./build/exec/mnist $(MNIST_ARGS)
+	$(STDBUF) ./build/exec/mnist $(MNIST_ARGS)
 
 example-seq-classify: install
 	idris2 $(IDRIS_FLAGS) -o seq-classify $(EXAMPLE_SRC)/Example/SeqClassify.idr
 	cp $(LIB) build/exec/seq-classify_app/
-	stdbuf -oL ./build/exec/seq-classify $(SEQ_ARGS)
+	$(STDBUF) ./build/exec/seq-classify $(SEQ_ARGS)
 
 example-reinforce: install
 	idris2 $(IDRIS_FLAGS) -o reinforce $(EXAMPLE_SRC)/Example/Reinforce.idr
@@ -327,22 +335,22 @@ example-monte-carlo: install
 example-dqn: install
 	idris2 $(IDRIS_FLAGS) -o dqn $(EXAMPLE_SRC)/Example/Dqn.idr
 	cp $(LIB) build/exec/dqn_app/
-	stdbuf -oL ./build/exec/dqn $(DQN_ARGS)
+	$(STDBUF) ./build/exec/dqn $(DQN_ARGS)
 
 example-a2c: install
 	idris2 $(IDRIS_FLAGS) -o a2c $(EXAMPLE_SRC)/Example/A2c.idr
 	cp $(LIB) build/exec/a2c_app/
-	stdbuf -oL ./build/exec/a2c $(A2C_ARGS)
+	$(STDBUF) ./build/exec/a2c $(A2C_ARGS)
 
 example-ppo: install
 	idris2 $(IDRIS_FLAGS) -o ppo $(EXAMPLE_SRC)/Example/Ppo.idr
 	cp $(LIB) build/exec/ppo_app/
-	stdbuf -oL ./build/exec/ppo $(PPO_ARGS)
+	$(STDBUF) ./build/exec/ppo $(PPO_ARGS)
 
 example-sac: install
 	idris2 $(IDRIS_FLAGS) -o sac $(EXAMPLE_SRC)/Example/Sac.idr
 	cp $(LIB) build/exec/sac_app/
-	stdbuf -oL ./build/exec/sac $(SAC_ARGS)
+	$(STDBUF) ./build/exec/sac $(SAC_ARGS)
 
 example-transfer: install
 	idris2 $(IDRIS_FLAGS) -o transfer $(EXAMPLE_SRC)/Example/Transfer.idr
