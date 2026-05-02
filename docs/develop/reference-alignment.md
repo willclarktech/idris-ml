@@ -105,10 +105,11 @@ Multi-seed greedy eval (20 episodes per seed), Acrobot solved is ~-100, random ~
 | 1    | -63.0   | -63.0 |
 | 2    | -63.0   | -82.0 |
 | 3    | -75.0   | -74.0 |
-| 4    | -106.0  | — |
+| 4    | -106.0  | -500.0 *(reproducible bad init — see note)* |
+| 5    | —       | -75.0 |
 | 42   | -73.0   | -94.0 |
 
-PyTorch: 5/5 converge to ≤-110 (well within solved). Idris: 4/4 seeds tested converge to between -63 and -94, all in the solved band — comparable to PyTorch's pass rate at the same config. Convergence threshold in `test-examples-convergence.expect` set to `>= -150` to accommodate seed variance with margin.
+PyTorch: 5/5 converge well within solved (-63 to -106). Idris: **5/6 seeds converge** (-63 to -94), all in the solved band; seed=4 reproducibly stays at -500 (random/timeout) across two independent runs. The seed=4 trajectory shows training loss pinned at 500.0 from epoch 0 onward — the policy collapses to a single action and the categorical entropy bonus + clipped surrogate can't escape. PyTorch at seed=4 is its worst result (-106) but still solved, so the failure mode appears specific to Idris's xavier-uniform init at that PRNG draw, not a systemic implementation gap. Convergence threshold in `test-examples-convergence.expect` is `>= -150` (which seed=42 = -94 clears with margin).
 
 The env swap also picks up Acrobot in the `docs/develop/example-coverage.md` gap list, so it's a 2-for-1: real PPO demonstration + new env coverage.
 

@@ -302,10 +302,11 @@ Multi-seed greedy eval (20 episodes per seed):
 | 1    | -63.0   | -63.0 |
 | 2    | -63.0   | -82.0 |
 | 3    | -75.0   | -74.0 |
-| 4    | -106.0  | — |
+| 4    | -106.0  | -500.0 *(reproducible bad init)* |
+| 5    | —       | -75.0 |
 | 42   | -73.0   | -94.0 |
 
-PyTorch: 5/5 converge well within solved (-63 to -106). Idris: 4/4 seeds tested converge to between -63 and -94 — comparable pass rate. Acrobot solved is ~-100, random ~-500.
+PyTorch 5/5 solved. Idris 5/6 solved (-63 to -94); seed=4 reproducibly collapses to -500 across two independent runs — appears to be an unlucky xavier-uniform draw at that PRNG seed, not a systemic gap. Acrobot solved is ~-100, random ~-500.
 
 Convergence threshold updated from `avg_return ≥ -800` (partial) to `avg_return ≥ -150` (real, with margin). Smoke threshold updated from `≥ -2500` (Pendulum random) to `≥ -550` (Acrobot random).
 
