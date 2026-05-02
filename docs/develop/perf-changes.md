@@ -2312,3 +2312,45 @@ ntm/dnc/transformer bit-identical. Torch lane bit-identical.
 - `Example.MlxStreamDemo` updated to exercise both L59 op routing and
   L60 creation routing (cross-stream `MlxCpu F64` + `MlxGpu F32` plus
   Linear-layer forward on `MlxGpu F32`)
+
+
+## 2026-05-19: Cross-backend `toDevice` + `torch-mps` perf cell
+
+**Motivation**: Phases 1-7 reworked the device taxonomy — `TorchDev`
+is now parametric over `TorchHwDev = TCpu | TMps | TCuda Nat`, the
+generic-CPU stub layer was deleted, and `BuildConfig.idr` selects
+the right `(ExampleDevice, ExampleDType)` for each cell. The
+`UserDeviceTransfer` interface (Phase 6) added a backendTag-aware
+`toDevice` that supports both intra-backend fast paths (e.g.
+`(TorchDev TCpu) → (TorchDev TMps)` via libtorch's `.to()`) and
+cross-backend host round-trip (e.g. `TapeDev → MlxDev MCpu`).
+
+**Change**: `scripts/perf-sweep.sh` accepts the new `torch-mps`
+cell (and renames `torch` → `torch-cpu` for clarity). The default
+cell list is now `tape,torch-cpu,torch-mps,mlx-cpu,mlx-gpu`. Cell
+→ backend/device translation passes `TORCH_DEVICE=mps` to make
+when building the torch lane on MPS, so examples compile against
+`Tensor [..] (TorchDev TMps) F32 WithGrad` and run on libtorch's
+Metal backend.
+
+**Smoke (single example, single seed):**
+
+| example   | tape  | torch-cpu | torch-mps |
+|-----------|-------|-----------|-----------|
+| reinforce | 10.21 | 38.84     |  9.28     |
+
+(ms/epoch; PyTorch ref CPU baseline is 57.5 ms/ep, so torch-mps
+ratio is 0.16× — torch-mps faster than tape on this workload.)
+
+**Known issue**: `example-supervised` on torch-mps converges to
+loss=1.67 (vs torch-cpu's 0.14). The model is a tiny `Linear(2→3)`
+on 5 data points; F32 precision likely rounds the gradient to
+~zero. Need to investigate whether it's a dtype precision artifact
+or a real bug on the MPS kernel coverage. Tracked as a TODO row
+"Investigate torch-mps + supervised convergence" pending the full
+perf-sweep run that exercises all examples × all cells.
+
+**Cross-references**:
+- Phase 2 commit: `TorchDev d` parameterisation
+- Phase 6 commit: cross-backend `toDevice` via `UserDeviceTransfer`
+- Phase 7 commit: collapse Device.idr to barrel re-export

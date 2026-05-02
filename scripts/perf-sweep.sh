@@ -36,7 +36,7 @@
 set -euo pipefail
 
 EXAMPLES_CSV="rnn,lstm,gru,transformer,ntm-copy,ntm-recall"
-CELLS_CSV="tape,torch,mlx-cpu,mlx-gpu"
+CELLS_CSV="tape,torch-cpu,torch-mps,mlx-cpu,mlx-gpu"
 SEED=42
 
 while [ $# -gt 0 ]; do
@@ -77,12 +77,18 @@ spec_for() {
 }
 
 # cell -> "BACKEND DEVICE"
+# DEVICE meaning per backend:
+#   tape:  always "cpu" (no hardware variants)
+#   torch: "cpu"|"mps"|"cuda" — fed to TORCH_DEVICE
+#   mlx:   "cpu"|"gpu"        — fed to MLX_DEVICE
 cell_to_backend_device() {
   case "$1" in
-    tape)    echo "tape cpu" ;;
-    torch)   echo "torch cpu" ;;
-    mlx-cpu) echo "mlx cpu" ;;
-    mlx-gpu) echo "mlx gpu" ;;
+    tape)      echo "tape cpu" ;;
+    torch)     echo "torch cpu" ;;
+    torch-cpu) echo "torch cpu" ;;
+    torch-mps) echo "torch mps" ;;
+    mlx-cpu)   echo "mlx cpu" ;;
+    mlx-gpu)   echo "mlx gpu" ;;
     *) return 1 ;;
   esac
 }
@@ -116,13 +122,20 @@ extract_marker() {
 # so the post-build run is cheap and effectively a warmup-we-discard.
 build_idris_binary() {
   local target="$1" var="$2" backend="$3" device="$4"
-  if [ "$backend" = "mlx" ]; then
-    MLX_DEVICE="$device" BACKEND="$backend" make --no-print-directory "$target" \
-      "$var=--epochs 1 --seed $SEED" >/dev/null 2>&1 || true
-  else
-    BACKEND="$backend" make --no-print-directory "$target" \
-      "$var=--epochs 1 --seed $SEED" >/dev/null 2>&1 || true
-  fi
+  case "$backend" in
+    mlx)
+      MLX_DEVICE="$device" BACKEND="$backend" make --no-print-directory "$target" \
+        "$var=--epochs 1 --seed $SEED" >/dev/null 2>&1 || true
+      ;;
+    torch)
+      TORCH_DEVICE="$device" BACKEND="$backend" make --no-print-directory "$target" \
+        "$var=--epochs 1 --seed $SEED" >/dev/null 2>&1 || true
+      ;;
+    *)
+      BACKEND="$backend" make --no-print-directory "$target" \
+        "$var=--epochs 1 --seed $SEED" >/dev/null 2>&1 || true
+      ;;
+  esac
 }
 
 # Derive binary path from make target: example-rnn -> ./build/exec/rnn.
