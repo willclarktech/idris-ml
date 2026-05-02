@@ -85,9 +85,9 @@ U8   = UInt 8
 Five separate type constructors, not a closed sum. Each family is its
 own ladder for within-family lossless upcasts; **cross-family**
 conversion is never auto-derived — converting a `UInt 8` to an `F16`,
-or a `BF16` to an `F32`, always requires explicit `tcast` (the compiler
-can't decide whether a `UInt 8 → F16` is what the user wanted, even
-though the bit-level fit is lossless).
+or a `BF16` to an `F32`, always requires explicit `tcastUnsafe` (the
+compiler can't decide whether a `UInt 8 → F16` is what the user wanted,
+even though the bit-level fit is lossless).
 
 ### Three layered typeclasses
 
@@ -213,9 +213,9 @@ but a type confusion. Similarly `BFloat 16 → Float 32`: bit-pattern
 lossless, but the user might want F32 with strict IEEE compatibility,
 not a bf-extended representation.
 
-So: cross-family conversions always go through `tcast` (or a more
-specific named cast like `tcastUintToFloat`). The compiler's role is
-to *reject* implicit cross-family, not to be a numerical-correctness
+So: cross-family conversions always go through `tcastUnsafe` (or a
+more specific named cast like `tcastUintToFloat`). The compiler's role
+is to *reject* implicit cross-family, not to be a numerical-correctness
 oracle.
 
 ### `MlxDev` as a parameterized family, not opaque siblings

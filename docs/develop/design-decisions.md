@@ -808,7 +808,7 @@ Three layered typeclasses sit on top:
   per-family** from `LTE m n` via Idris's auto-search. `Float m → Float n`
   iff `LTE m n`, same for `BFloat`/`IntN`/`UInt`. No cross-family
   instances — converting `UInt 8 → F16` or `BF16 → F32` requires
-  explicit `tcast`.
+  explicit `tcastUnsafe`.
 
 A separate empty `Compatible (0 d : Device) (0 t : DType)` interface
 gates which (device, dtype) pairs are admissible. The deliberately

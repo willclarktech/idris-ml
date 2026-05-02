@@ -218,7 +218,7 @@ failF64ToF32 : IO ()
 failF64ToF32 = demoUpcast {from=F64} {to=F32}  -- ✗ LTE 64 32 is not provable
 ```
 
-Cross-family conversions (`UInt 8 → F16`, `BF16 → F32`) have no instance and require an explicit `tcast` — even when the bit-pattern fits, the compiler can't decide whether that's what the user wanted.
+Cross-family conversions (`UInt 8 → F16`, `BF16 → F32`) have no instance and require an explicit `tcastUnsafe` — even when the bit-pattern fits, the compiler can't decide whether that's what the user wanted.
 
 This is exactly the kind of guarantee a dynamic graph can't give you. PyTorch's `Tensor` is a single runtime type with a dtype field; the dtype isn't visible to the type system, so the "this can't run on Metal" check happens when the kernel launches. Static graphs in TensorFlow 1.x knew the dtype at graph-construction time but didn't enforce device-dtype admissibility either; you found out at session-run. Dependent types put the (device, dtype) pair into the tensor's type, and the `Compatible` table makes the per-pair check a one-line interface declaration.
 
@@ -243,7 +243,7 @@ This gives you:
 | Silent broadcasting bugs | Possible | Possible | **Impossible** |
 | Dimension change propagation | Manual | Manual | **Automatic** |
 | Illegal device-dtype combinations | Runtime | Runtime | **Compile time** |
-| Silently lossy precision casts | Allowed | Allowed | **Require explicit `tcast`** |
+| Silently lossy precision casts | Allowed | Allowed | **Require explicit `tcastUnsafe`** |
 
 idris-ml's computation graph is dynamic — each forward pass builds a fresh autograd tape, control flow is standard Idris, variable-length sequences work naturally. But the *shape constraints, device-dtype admissibility, and lossless-upcast partial order* are static, verified at compile time by the type system. You get the ergonomics of PyTorch with stronger safety guarantees than TensorFlow 1.x ever provided.
 

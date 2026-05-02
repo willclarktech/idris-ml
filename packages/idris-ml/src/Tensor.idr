@@ -1136,33 +1136,35 @@ retypeGrad (MkTensor ptr pid) = MkTensor ptr pid
 ||| auto-search via per-family `LTE m n` instances in `DType.Core`;
 ||| narrowing casts (`F64 → F32`) and cross-family casts
 ||| (`UInt 8 → F16`) have no `UpcastableTo` instance and use
-||| `tcast` (below) instead.
+||| `tcastUnsafe` (below) instead.
 |||
 ||| Runtime support is deferred — the body is a hole that will be
 ||| filled when the C-side cast primitives land (`tensor_cast_dtype`).
 ||| Type signature is stable; calls type-check today and will
 ||| activate at runtime when the primitive arrives.
 export
-tcastSafe : (UpcastableTo from to, IsDType from, IsDType to) =>
-            Tensor dims d from g -> IO (Tensor dims d to g)
-tcastSafe v = ?tcastSafe_impl
+tcast : (UpcastableTo from to, IsDType from, IsDType to) =>
+        Tensor dims d from g -> IO (Tensor dims d to g)
+tcast v = ?tcast_impl
 
 ||| Explicit precision/dtype cast in ANY direction, including
 ||| narrowing (`F64 → F32`) and cross-family (`UInt 8 → F16`).
 ||| The caller takes responsibility for any precision loss or
-||| representation change — calling `tcast` is the explicit signal
-||| that the conversion was intentional.
+||| representation change — calling `tcastUnsafe` is the explicit
+||| signal that the conversion was intentional (mirrors the
+||| `unsafePerformIO` / `believe_me` convention for primitives
+||| where the caller takes responsibility).
 |||
-||| For lossless conversions, prefer `tcastSafe` so the compiler
+||| For lossless conversions, prefer `tcast` so the compiler
 ||| verifies via `UpcastableTo` that no information is lost. Use
-||| `tcast` only when the conversion is deliberately narrowing or
-||| cross-family.
+||| `tcastUnsafe` only when the conversion is deliberately
+||| narrowing or cross-family.
 |||
-||| Runtime support is deferred — see `tcastSafe`.
+||| Runtime support is deferred — see `tcast`.
 export
-tcast : (0 to : DType) -> (IsDType from, IsDType to) =>
-        Tensor dims d from g -> IO (Tensor dims d to g)
-tcast _ v = ?tcast_impl
+tcastUnsafe : (0 to : DType) -> (IsDType from, IsDType to) =>
+              Tensor dims d from g -> IO (Tensor dims d to g)
+tcastUnsafe _ v = ?tcastUnsafe_impl
 
 ||| Type-level aliases for common Tensor shapes. Aliases route shape
 ||| arithmetic (e.g. `4 * o`) through a Nat-argument slot rather than
