@@ -770,3 +770,193 @@ row's `ratio` looks impossibly good for an mlx-gpu cell, check
 ### View tensors must be persistent
 
 `tensor_view_2d`/`tensor_view_1d` must use `from_tensor_persistent()`, not `from_tensor()`. Views are created once at `nameLayer` time and referenced by scalar Variables for the lifetime of the model. If tracked as intermediates, `free_intermediates()` frees them after the first epoch, causing crash in `refreshValue` → `prim__item` on stale pointers.
+
+### libtorch MPS rejects F64 at *tensor construction*, not just at op dispatch
+
+The 2026-05-19 device-taxonomy plan originally assumed PyTorch's MPS
+backend silently falls back to CPU for ops without MPS kernels — so
+admitting `Compatible (TorchDev TMps) F64` would let users opt into
+"slow but correct" F64 on MPS.
+
+Reality: `tensor.to("mps")` on any F64-dtype tensor errors out:
+
+```
+TypeError: Cannot convert a MPS Tensor to float64 dtype as the MPS
+framework doesn't support float64. Please use float32 instead.
+```
+
+The check is inside libtorch's `at::native::to(...)` for MPS targets
+— it's not an op-level fallback gate, it's a hard rejection at the
+device-bind layer. PyTorch on Apple Silicon is F32-on-MPS, period.
+
+**What this means for the type system**: `Compatible (TorchDev TMps)
+F64` deliberately does NOT exist (mirrors the `(MlxDev MGpu) F64`
+rejection). Admitting it would let the type system mint a value the
+runtime can't represent.
+
+**What this means for PyTorch refs**: when `--device mps` is selected,
+the harness auto-downcasts to F32 via the `get_dtype()` switch in
+`torch_ref/training/runner.py`. F64 lanes (CPU / CUDA) keep their
+historical precision.
+
+### `torch.multinomial` has no MPS kernel
+
+`torch.multinomial` calls into a CPU-only kernel for MPS tensors.
+With `PYTORCH_ENABLE_MPS_FALLBACK=1` (now PyTorch's default) the
+runtime silently round-trips through CPU per call — measurable in
+tight RL loops.
+
+`torch_ref/training/runner.py` ships a `multinomial_safe(probs, n)`
+wrapper that's transparent on CPU/CUDA but explicit-CPU-roundtrip on
+MPS. Affected models: REINFORCE, A2C, PPO, SAC, GPT (anywhere
+categorical sampling fires). New RL models that sample categorically
+must use the wrapper, otherwise MPS perf measurements include a
+hidden silent-fallback cost.
+
+### `nn.Module` attribute that isn't `register_buffer`'d gets left behind on `.to(device)`
+
+The transformer model
+(`torch_ref/models/multi_head_transformer.py`) had a per-block
+`TransformerBlock` with `self.causal_mask = causal_mask` set in
+`__init__`. When the outer `MultiHeadTransformer.to("mps")` runs,
+PyTorch's `.to()` walks the module tree and moves parameters +
+registered buffers; plain `self.<name>` attribute references stay on
+CPU. The forward then crashes:
+
+```
+RuntimeError: expected self and mask to be on the same device, but
+got mask on cpu and self on mps:0
+```
+
+Fix: use `self.register_buffer("causal_mask", causal_mask)` so the
+mask travels with the module. Same trap applies to anything
+non-parameter that needs to follow the module — pre-computed
+indices, attention scaling constants stored as tensors, etc.
+
+PR review tell: any `self.<name> = <Tensor>` in `nn.Module.__init__`
+that isn't a parameter or wrapped in `register_buffer` is a
+`.to(device)` bug waiting to fire.
+
+## Idris 2 / Chez Scheme additions (cross-backend device work)
+
+### `let _ = ffiVoidCall` gets elided by the Chez codegen
+
+When an FFI function returns `()` (Idris unit), assigning its result
+to `_` in a `let` is dead-code-eliminated by the Chez codegen. The
+side effect (the C function being called) never fires. Caught
+during the cross-backend `toDevice` work:
+
+```idris
+-- Looks like it frees the buffer. Doesn't.
+let _ = primFreeHost {d=d1} dataBuf  -- elided
+```
+
+Fix: thread the call through `primIO` so the IO monad's sequencing
+forces evaluation:
+
+```idris
+primIO (\w => MkIORes (primFreeHost {d=d1} dataBuf) w)
+```
+
+Or use `ioRerun` (`Tensor.idr`) inside a `do`-block once it's
+visible. The forward-pass case is the inverse: `forwardVar` returns
+`IO`-typed values so the FFI body fires only on `<-` sequencing — the
+existing pattern. The cleanup-buffer case is the dual: a unit-typed
+FFI call needs explicit IO sequencing to fire at all.
+
+### Returning the buffer pointer through FFI Scheme wrappers (`tensor_to_doubles_return`)
+
+A void C function like `tensor_to_doubles(handle, buf)` writes into
+`buf` and returns nothing. Calling it from Idris and then using
+`buf` downstream requires Idris to know it must call the FFI before
+the use site. Without that data dependency, Chez's lazy evaluation
+can reorder or skip the call.
+
+Two ways to make the dependency visible:
+
+1. Add a C-side wrapper that returns the buffer:
+   `tensor_to_doubles_return(h, buf) -> double*` — calls
+   `tensor_to_doubles` then returns `buf`. Now Idris sees a value
+   it must depend on.
+2. Craft the Scheme FFI wrapper to call the void procedure then
+   return `a1` (the buf arg) explicitly:
+   ```scheme
+   (lambda (a0 a1)
+     ((foreign-procedure "tensor_to_doubles" (void* void*) void)
+       (vector-ref a0 1) a1)
+     a1)
+   ```
+
+We use (2) for `primToHost` instances in `Device/{Tape,Torch,Mlx}.idr`
+to avoid adding more C boilerplate. Pattern: when wrapping a
+side-effecting void C function whose Idris-side need is to thread an
+output buffer downstream, return the buffer at the end of the
+Scheme lambda body.
+
+### `Tensor`'s `dims : Vect rank Nat` parameter — bind it at non-zero quantity to observe it at runtime
+
+The `Tensor` record declares `dims : Vect rank Nat` at unrestricted
+quantity:
+
+```idris
+record Tensor (dims : Vect rank Nat) (0 d : Device) (0 dt : DType) (0 g : GradMode)
+```
+
+But when a function signature mentions `Tensor dims d dt g` without
+explicitly binding `dims` and `rank`, Idris auto-binds them at
+quantity 0 (the function-binder default). The body then can't
+observe `dims` at runtime — e.g. `product dims` fails with "dims is
+not accessible in this context."
+
+Fix: explicitly bind both at non-zero quantity:
+
+```idris
+toDevice : {0 d1, d2 : Type} -> ... =>
+           {rank : Nat} -> {dims : Vect rank Nat} ->
+           Tensor dims d1 dt WithGrad -> IO (Tensor dims d2 dt WithGrad)
+```
+
+Caught while building the cross-backend `toDevice` host-roundtrip
+path — needed `dims` at runtime to compute `product dims` (the
+allocation size) and to marshal the shape array for
+`primCreateFromHost`.
+
+The existing `toDevice` signature (pre-Phase-6) bound `dims`
+implicitly because its body only forwarded a single FFI call (no
+shape inspection). Once the body grew shape-dependent code, the
+quantity mismatch surfaced.
+
+### `ioRerun` is forward-declared in `Tensor.idr`
+
+`ioRerun : (() -> a) -> IO a` is defined ~line 1153 in
+`Tensor.idr`. Earlier-defined functions in the same module
+(`toDevice` at ~line 1100) can't reference it — Idris reports
+"Undefined name ioRerun."
+
+Workaround: inline its body using `primIO`:
+
+```idris
+primIO (\w => MkIORes (someFFICall) w)
+```
+
+Real fix would be to move `ioRerun` earlier in the module, but
+that touches a lot of forward refs in the existing layout. The
+inline pattern is two lines and unambiguous.
+
+### Multi-backend test build is the unblock for cross-backend Test.Transfer
+
+`Test.Transfer.idr` exercises `toDevice` over the
+`UserDeviceTransfer` interface. The intra-backend smoke
+(`TapeDev → TapeDev`) works under any single-BACKEND build.
+Cross-backend smokes (`TapeDev → TorchDev TCpu`,
+`TapeDev → MlxDev MCpu`, etc.) need both backends' C symbols
+linked at runtime, which means a `BACKEND=tape,torch` (multi-
+backend) test build — not the current `make test` default.
+
+Symptom of forgetting: `Exception in foreign-procedure: no entry
+for "tensor_to_device_tape"` when running on a torch-only build
+that references `TapeDev`-typed Idris code.
+
+The Transfer test is currently NOT wired into `Main.idr`'s
+default `tests` list for this reason. Multi-backend test target
+is parked in TODO.md.
