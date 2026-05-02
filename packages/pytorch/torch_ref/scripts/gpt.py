@@ -23,6 +23,7 @@ Usage:
 import argparse
 import math
 import random
+import sys
 
 import torch
 
@@ -38,6 +39,7 @@ from torch_ref.models.gpt import (
     train_val_split,
 )
 from torch_ref.models.multi_head_transformer import MultiHeadTransformer
+from torch_ref.training.lr_finder import LrFindConfig, lr_find
 from torch_ref.training.runner import TrainConfig, format_result, run_training
 
 # Architecture config matching Idris (kept small for tape-backend tractability;
@@ -78,6 +80,11 @@ def main() -> None:
     parser.add_argument("--patience", type=int, default=0,
                         help="0 disables patience; rely on cosine LR for annealing")
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
+        "--lr-find",
+        action="store_true",
+        help="Run lr_find (LR-range test) instead of training, then exit.",
+    )
     args = parser.parse_args()
 
     torch.manual_seed(args.seed)
@@ -123,6 +130,16 @@ def main() -> None:
     n_params = sum(p.numel() for p in model.parameters())
     print(f"Parameters: {n_params}")
     print()
+
+    if args.lr_find:
+        # One mini-batch update per iter, no LR schedule (lrFind controls LR).
+        def lr_find_epoch_fn() -> float:
+            data = generate_gpt_data(train_indices, BATCH_SIZE, SEQ_LEN, vocab_size)
+            return train_gpt_epoch(model, data, optimizer)
+        lr_find(LrFindConfig(num_iters=100), lr_find_epoch_fn, optimizer)
+        print()
+        print("Done — re-run without --lr-find at the recommended LR.")
+        sys.exit(0)
 
     epoch_counter = {"i": 0}
 

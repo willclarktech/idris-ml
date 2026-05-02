@@ -396,19 +396,21 @@ record Config where
   epochs : Nat
   patience : Nat        -- 0 = disabled (rely on cosine LR for annealing)
   seed : Bits64
+  lrFind : Bool
 
 ||| Defaults: tinyshakespeare corpus, 1000 epochs, no patience-based
 ||| stopping (cosine LR + warmup handles annealing). nanoGPT-aligned
 ||| optimizer params live in main() since they're not user-tunable.
 defaultConfig : Config
-defaultConfig = MkConfig "tinyshakespeare" 0.001 1000 0 42
+defaultConfig = MkConfig "tinyshakespeare" 0.001 1000 0 42 False
 
 specs : List (ArgSpec Config)
 specs = [ Arg "--corpus" (\v, c => { corpus := v } c)
         , Arg "--lr" (\v, c => { lr := cast v } c)
         , Arg "--epochs" (\v, c => { epochs := castNat v } c)
         , Arg "--patience" (\v, c => { patience := castNat v } c)
-        , Arg "--seed" (\v, c => { seed := castBits64 v } c) ]
+        , Arg "--seed" (\v, c => { seed := castBits64 v } c)
+        , Arg "--lr-find" (\v, c => { lrFind := (v == "1" || v == "true") } c) ]
 
 
 partial
@@ -471,6 +473,19 @@ main = do
 
   let noOpHook : Nat -> IO ()
       noOpHook _ = pure ()
+
+  -- HPO branch: GPT uses per-param LR overrides via setLRAll (cosine LR
+  -- + warmup), which take precedence over the optimizer's group-level LR
+  -- that lrFind would set. Combined with the per-batch transformer-
+  -- forward cost (~seconds per iter), the runtime sweep is skipped.
+  -- Document in hyperparameter-tuning-2026.md. Flag wired for API
+  -- consistency.
+  when cfg.lrFind $ do
+    putStrLn "lr_find skipped for GPT: per-param LR schedule (cosine + warmup)"
+    putStrLn "conflicts with lrFind's group-level setting; transformer-forward"
+    putStrLn "cost is also prohibitive at 100 iters."
+    putStrLn "See docs/develop/hyperparameter-tuning-2026.md."
+    exitSuccess
 
   let trainCfg = MkTrainConfig cfg.epochs 100
                    (if cfg.patience == 0

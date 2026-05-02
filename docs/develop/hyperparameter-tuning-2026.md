@@ -190,6 +190,19 @@ This is a useful negative-result entry for the workflow: `lr_find` is a screenin
 
 ---
 
+## Gpt           date: 2026-04-29
+
+- **Before**: `corpus=tinyshakespeare lr=0.001 epochs=1000 patience=0 seed=42`. 2-block multi-head transformer (seqLen=64, dModel=64, heads=4, headDim=16, vocab=65) with learned embeddings, sinusoidal PE, causal self-attention. `nativeAdamW` (β₂=0.99, wd=0.1, clip=1.0) + cosine LR schedule with 100-epoch warmup, applied via `setLRAll` (per-param LR override).
+- **lr_find (Idris)**: **skipped at runtime**. GPT's `setLRAll` calls `setParamLR` for every parameter, which takes precedence over the optimizer's group-level LR that `lrFind`'s `setLearningRate` writes. Combined with the per-batch transformer-forward cost, the runtime sweep is skipped. The flag is wired (prints a "skipped — see docs" message and exits).
+- **lr_find (PyTorch)**: `RECOMMENDED_LR=6.28e-5`, sweep range 1e-7..10, iters=100, divergence at iter 95 (lr ≈ 4.75, loss 161). One mini-batch update per iter, no LR schedule applied during the sweep. 7.6 s.
+- **Cross-backend agreement**: n/a — Idris path is skipped; can't compare.
+- **Multi-seed pass rate**: not measured. Default unchanged.
+- **Decision**: ship-as-is at lr=1e-3. PyTorch's recommendation (6.28e-5, ≈16× *lower* than the default) is suggestive but unverifiable without an Idris counterpart, and applying it would break alignment with the nanoGPT recipe (which trains at ≈1e-3 with cosine warmup). Defer to **B4** (network-structure tuning) and a future per-param-LR-aware variant of `lrFind`.
+- **Why this maps to the plan's "skip runtime sweep" theme**: GPT's per-param LR schedule structurally conflicts with `lrFind`'s group-level LR setting. Future improvement: a `setAllParamLR` variant of `setLearningRate` that writes the per-param overrides too, used by `lrFind` when an LR schedule is present.
+- **Commit**: (this commit).
+
+---
+
 ## Pattern observed across B3 so far
 
 After 5 examples (Supervised, Rnn, Lstm, Transformer, SeqClassify), the
