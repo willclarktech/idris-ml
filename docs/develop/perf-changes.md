@@ -2216,3 +2216,68 @@ but the trajectory is sound. Closes the high-priority TODO row.
   `TORCH_ADAM_FOREACH` → `TORCH_FOREACH`)
 - TODO row "Torch backend: multi-tensor optimizer via `_foreach_*`"
   — deleted from High Priority
+
+----
+
+### 2026-05-18 — L59+L60 typeclass cascade + stream-aware RuntimeDType — perf-neutral — `814bea4`
+
+**Motivation**: close per-call MLX stream selection so the type-level
+device tag `d` strictly determines the stream every op fires on. L59
+routed all operator-shaped `prim__*` call sites in Tensor.idr /
+Backprop.idr / 13 Layer files (~358 sites) through the
+`UserDevice{Core,Linear,NN,Conv,Tape}` typeclasses. L60 closed the
+companion gap on the dt-keyed creation path: `RuntimeDType`'s 11
+methods gained a stream_tag arg sourced from
+`UserDeviceCore.deviceStreamTag`; backend_mlx.cpp grew `_mlx_streamed`
+variants of all 22 per-dtype `tensor_create_*` and `tensor_cast_*`
+primitives; ~50 direct `prim__createParam*` / `prim__createState*` /
+`prim__createScalar` / `prim__create1d` call sites in Layer/Backprop
+were rewritten to `dtCreate*` typeclass calls threading
+`(deviceStreamTag {d})`.
+
+**Change**: routing-only. Every `tensor_*` C call on mlx now opens an
+`mx::StreamContext` from the cached cpu/gpu stream rather than
+inheriting `default_stream_tag()` (the env var). On tape/torch the
+new `_streamed` wrappers ignore the stream_tag and call the existing
+unstreamed function — pure pass-through.
+
+**Impact** (bench-compare, tape primary, commit `814bea4`):
+
+| Workload                       | Idris ms | PyTorch ms | Ratio | Idris RSS | PyTorch RSS |
+|--------------------------------|---------:|-----------:|------:|----------:|------------:|
+| Supervised (1000 ep)           |     25.8 |      263.0 | 0.10× |     49 MB |      259 MB |
+| RNN (1000 ep)                  |    293.5 |     1660.3 | 0.18× |     49 MB |      260 MB |
+| NTM (100 ep)                   |    184.8 |     1576.8 | 0.12× |     49 MB |      267 MB |
+| NTM-copy (100 ep)              |   4740.8 |    13690.7 | 0.35× |    167 MB |      302 MB |
+| NTM-copy-1k (1000 ep)          |  55440.8 |   218954.9 | 0.25× |    236 MB |      343 MB |
+| NTM-recall (100 ep)            |   6488.3 |    21768.4 | 0.30× |    164 MB |      343 MB |
+
+Idris faster than PyTorch across the board (tape lane). The recorded
+ratios in `perf-baseline.md` are stale (its tape RNN was 5.11 ms/ep
+total budget vs. observed 0.29 ms/ep here — never updated after the
+2026-05-14 `Data.Nat` → `Int` cast in `Layer.Transformer`) and should
+be refreshed.
+
+**Test-examples** (4 lanes × ~26 examples each):
+- 104 ok / 1 fail / 0 skip.
+- Single failure: `example-gpt [mlx-gpu]` flake at ~20% — "Exception:
+  invalid memory reference" during the *second* `Generation (seed=...)`
+  call. Confirmed pre-existing (1/5 same failure rate on commit
+  `300db03`, immediately before the L60 closure). Filed as Low TODO
+  row: "Flaky example-gpt [mlx-gpu] — invalid memory ref during 2nd
+  generation". Probably a Tensor refcount issue in the generation
+  code path, independent of L60.
+
+**Convergence-correctness**: bit-identical losses to L59 baseline on
+all tape examples (supervised 1.356680328199114, rnn 0.4884..., lstm
+0.6750..., ntm-copy 49.8%, dnc-copy 49.7%, transformer 2/6). Mlx 1
+ULP delta on supervised (within mlx f64 kernel-scheduling noise);
+ntm/dnc/transformer bit-identical. Torch lane bit-identical.
+
+**Cross-references**:
+- L59 closure entry in TODO.md "Done" (2026-05-18)
+- L60 closure entry in TODO.md "Done" (2026-05-18) — "Stream-aware
+  RuntimeDType cascade + L55 dtype-bypass closure"
+- `Example.MlxStreamDemo` updated to exercise both L59 op routing and
+  L60 creation routing (cross-stream `MlxCpu F64` + `MlxGpu F32` plus
+  Linear-layer forward on `MlxGpu F32`)
