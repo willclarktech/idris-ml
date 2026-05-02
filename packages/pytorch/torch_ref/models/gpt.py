@@ -2,7 +2,14 @@
 
 Minimal char-level language model following Karpathy's char-rnn/minGPT tradition.
 Uses the same MultiHeadTransformer architecture as the sorting example but trained
-on next-character prediction over an embedded Shakespeare corpus.
+on next-character prediction over a Shakespeare corpus.
+
+Two corpus paths are supported:
+- Embedded: a 1342-char hardcoded excerpt with a 36-char lowercase-collapse vocab
+  (legacy; used by the smoke gate where a fast wiring test is enough).
+- tinyshakespeare: 1.1 M chars, 65-char vocab (every distinct char in the file)
+  loaded from `data/tinyshakespeare/input.txt`. The canonical char-LM benchmark
+  used by nanoGPT; required for any "actually learned the task" claim.
 
 Architecture matches the Idris implementation:
 - Pre-LN with per-head Q/K/V weights, sum-not-concat output
@@ -14,6 +21,8 @@ from __future__ import annotations
 
 import math
 import random
+from dataclasses import dataclass
+from pathlib import Path
 
 import torch
 import torch.nn.functional as F
@@ -75,6 +84,80 @@ def encode_corpus(text: str) -> list[int]:
 
 
 CORPUS_INDICES = encode_corpus(CORPUS)
+
+
+# ---------------------------------------------------------------------------
+# Dynamic vocab + tinyshakespeare corpus loader (for convergence runs).
+#
+# nanoGPT builds a fresh vocab from every distinct character in the corpus.
+# tinyshakespeare's 65-char vocab includes uppercase, numerals, and assorted
+# punctuation that the embedded mapping above collapses or drops.
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class Vocabulary:
+    chars: list[str]                   # ordered: chars[i] is the char at id i
+    char_to_idx: dict[str, int]
+
+    @property
+    def size(self) -> int:
+        return len(self.chars)
+
+    def encode(self, text: str) -> list[int]:
+        # Unknown chars map to space if present, else id 0.
+        unk = self.char_to_idx.get(" ", 0)
+        return [self.char_to_idx.get(ch, unk) for ch in text]
+
+    def decode_idx(self, idx: int) -> str:
+        if 0 <= idx < self.size:
+            return self.chars[idx]
+        return " "
+
+    def decode(self, indices: list[int]) -> str:
+        return "".join(self.decode_idx(i) for i in indices)
+
+    @classmethod
+    def from_text(cls, text: str) -> Vocabulary:
+        chars = sorted(set(text))
+        char_to_idx = {ch: i for i, ch in enumerate(chars)}
+        return cls(chars=chars, char_to_idx=char_to_idx)
+
+
+def _default_tinyshakespeare_path() -> Path:
+    # repo_root/data/tinyshakespeare/input.txt
+    # __file__ = packages/pytorch/torch_ref/models/gpt.py
+    # parents:    0=models 1=torch_ref 2=pytorch 3=packages 4=repo_root
+    return Path(__file__).resolve().parents[4] / "data" / "tinyshakespeare" / "input.txt"
+
+
+def load_tinyshakespeare(
+    path: str | Path | None = None,
+) -> tuple[str, Vocabulary, list[int]]:
+    """Load tinyshakespeare and build vocab dynamically.
+
+    Returns (text, vocab, indices). Raises FileNotFoundError with a hint to
+    `make dataset-tinyshakespeare` if the file is missing.
+    """
+    p = Path(path) if path is not None else _default_tinyshakespeare_path()
+    if not p.is_file():
+        raise FileNotFoundError(
+            f"tinyshakespeare corpus not found at {p}. "
+            f"Run `make dataset-tinyshakespeare` from the repo root."
+        )
+    text = p.read_text()
+    vocab = Vocabulary.from_text(text)
+    indices = vocab.encode(text)
+    return text, vocab, indices
+
+
+def train_val_split(
+    indices: list[int], val_frac: float = 0.1
+) -> tuple[list[int], list[int]]:
+    """Deterministic train/val split — last val_frac of corpus is held out."""
+    n_val = int(len(indices) * val_frac)
+    n_train = len(indices) - n_val
+    return indices[:n_train], indices[n_train:]
 
 
 # ---------------------------------------------------------------------------
@@ -141,18 +224,31 @@ def generate_text(
     seed_text: str,
     length: int,
     temperature: float = 1.0,
+    vocab: Vocabulary | None = None,
 ) -> str:
     """Autoregressive text generation.
 
     Seeds with seed_text, generates `length` additional characters.
+    Pass `vocab=` to use a dynamic Vocabulary; otherwise the embedded
+    36-char mapping is used (legacy path).
     """
     seq_len = model.seq_len
     vocab_size = model.vocab_size
 
+    if vocab is None:
+        # Legacy embedded-vocab path
+        encode = encode_corpus
+        decode = idx_to_char
+        pad_id = 26  # space
+    else:
+        encode = vocab.encode
+        decode = vocab.decode_idx
+        pad_id = vocab.char_to_idx.get(" ", 0)
+
     # Encode seed, pad/truncate to seq_len
-    tokens = encode_corpus(seed_text)[-seq_len:]
+    tokens = encode(seed_text)[-seq_len:]
     if len(tokens) < seq_len:
-        tokens = [26] * (seq_len - len(tokens)) + tokens  # pad with spaces
+        tokens = [pad_id] * (seq_len - len(tokens)) + tokens
 
     result = list(seed_text)
 
@@ -167,7 +263,7 @@ def generate_text(
             probs = F.softmax(last_logits, dim=0)
             next_token = torch.multinomial(probs, 1).item()
 
-            result.append(idx_to_char(int(next_token)))
+            result.append(decode(int(next_token)))
             tokens = tokens[1:] + [int(next_token)]
 
     return "".join(result)
@@ -215,10 +311,18 @@ def evaluate_bpc(
     corpus: list[int],
     seq_len: int,
     n_samples: int = 50,
+    vocab_size: int = VOCAB_SIZE,
 ) -> float:
-    """Evaluate bits per character on random windows from corpus."""
+    """Evaluate bits per character on random windows from corpus.
+
+    Defaults to the embedded 36-char vocab; pass `vocab_size=` for a
+    dynamic Vocabulary. n_samples > available windows clips at the
+    corpus's max start index.
+    """
     total_loss = 0.0
     max_start = len(corpus) - seq_len - 1
+    if max_start < 0:
+        return float("nan")
 
     with torch.no_grad():
         for _ in range(n_samples):
@@ -226,7 +330,7 @@ def evaluate_bpc(
             window = corpus[start : start + seq_len + 1]
             inp = torch.tensor(window[:seq_len], dtype=torch.long)
             tgt = torch.tensor(window[1 : seq_len + 1], dtype=torch.long)
-            inp_onehot = F.one_hot(inp, VOCAB_SIZE).float()
+            inp_onehot = F.one_hot(inp, vocab_size).float()
             logits = model(inp_onehot)
             loss = F.cross_entropy(logits, tgt)
             total_loss += loss.item()
