@@ -220,6 +220,27 @@ Third B6 ticket — fills the Taxi env coverage gap. Tabular Q-learning on the d
 
 **10/10 hit optimal**. Deterministic env + fixed start = a single optimal trajectory of 13 actions (12·-1 + 20 = +8); the seed only affects ε-greedy exploration during training, and 20K episodes is sufficient on this state space (500 states × 6 actions = 3000-cell table) for every seed to converge to the optimal Q-function.
 
+### MountainCar example added (B6, 2026-04-30)
+
+Fourth B6 ticket — fills the MountainCar env coverage gap. DQN with velocity-magnitude reward shaping; mirrors the CartPole DQN architecture (MLP `2 → 64 → 64 → 3`, 3 actions). Required prerequisite was the batched-forward DQN refactor (commit `c7fe136`); without that the per-epoch cost was ~4 s on tape (200-step episodes × 64-batch per-sample forward), making multi-seed validation infeasible.
+
+**Configuration alignment**: Idris `Example.MountainCar` and PyTorch `torch_ref/models/mountain_car.py` use identical defaults: `lr=1e-3 gamma=0.99 batch=64 buffer=50000 target_sync=200 eps_start=1.0 eps_end=0.05 eps_decay=50000 shaping=10.0 epochs=500 seed=42`. Both implement the same Gymnasium-aligned MountainCar physics (constants from `Gym.ClassicControl.MountainCar` and Gymnasium's `mountain_car.py`) and the same shaping rule (`r_shaped = r_raw + 10 * |v_next|`).
+
+**Reward shaping note**: not strictly policy-invariant in the Ng99 sense (the optimal Q is altered by the bonus), but at the chosen weight (10·|v|) the optimal trajectory is preserved — kinetic energy is the proven precursor to reaching the goal in MountainCar. The eval metric reports the *raw* return for direct comparison to standard MountainCar reporting (-200 floor, -110 reliable, -100 optimal).
+
+**Multi-seed convergence (≥5 seeds, both backends)**, threshold `avg_return >= -180`:
+
+| Seed | Idris avg_return | PyTorch avg_return |
+|------|------------------|--------------------|
+| 4    | -104             | -106               |
+| 7    | -104             | -109               |
+| 13   | -110             | -150               |
+| 21   | -102             | -140               |
+| 42   | -152             | -110               |
+| **mean** | **-114**     | **-123**           |
+
+**10/10 pass**. Cross-backend mean delta is ~9 — within DQN seed noise. The two backends pick different "worst" seeds (Idris's seed=42 and PyTorch's seed=13) but both stay above the -180 threshold across all 5 seeds. Wall-clock: Idris tape ~17:48 / 500 episodes / seed=42 (≈2.1s/epoch); PyTorch ~85s / 500 episodes (≈12.6× faster, the standard FFI-per-step overhead seen across all RL examples on tape).
+
 ### LSTM multi-seed validation at lr=0.5 (B5, 2026-04-30)
 
 After B3 raised the LSTM default LR from 0.03 → 0.5 (lr_find recommendation, single-seed verified), B5 ran the full ≥5-seed validation at the new default on both backends. Convergence threshold: `loss < 0.05`.

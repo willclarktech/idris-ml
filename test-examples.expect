@@ -60,6 +60,7 @@ example-taxi                     avg_return   >=  5
 # All thresholds here are NaN/divergence catches, not convergence claims.
 example-reinforce                avg_return   >=  -100
 example-dqn                      avg_return   >=  -300
+example-mountain-car             avg_return   >=  -201
 example-a2c                      avg_return   >=  -100
 example-ppo                      avg_return   >=  -550
 example-sac                      avg_return   >=  -2500

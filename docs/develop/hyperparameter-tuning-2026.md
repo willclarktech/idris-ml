@@ -582,3 +582,34 @@ Refactored `Example/Dqn.idr`'s training loop to do one `forwardVarTensorBatch` p
 - PyTorch reference (`models/dqn.py`) was already natively batched via `q(obs).gather(...)` — no PyTorch changes.
 
 **Implication for MountainCar / MountainCarCont**: prerequisite cleared. Re-attempting MountainCar is now realistic — the per-epoch cost should drop from ~4 s to a fraction of that (a single batched forward replaces 64 per-sample forwards), making multi-seed validation budget-feasible. Reward shaping + initial-state randomization remain the open empirical questions.
+
+### MountainCar (B6, shipped 2026-04-30)
+
+DQN on MountainCar-v0 with velocity-magnitude reward shaping. Architecture mirrors CartPole DQN: MLP `2 → 64 → 64 → 3` (3 actions: push left / no push / push right). Defaults: `lr=1e-3, gamma=0.99, batch=64, buffer=50K, target_sync=200, eps 1.0→0.05 over 50K steps, shaping=10.0` over 500 episodes.
+
+**Key design decision — reward shaping**: MountainCar's raw reward (-1/step until goal at pos≥0.5) is too sparse for random exploration to ever reach the goal in 200 steps. The shaped training reward is `r_shaped = r_raw + 10 * |v_next|`, providing a dense signal that nudges the agent toward building kinetic energy. The eval metric stays the *raw* return so it's directly comparable to standard MountainCar reporting.
+
+This is **not** strictly policy-invariant in the Ng99 sense (the optimal Q is altered by the shaping bonus), but at the chosen weight (10·|v|) the optimal trajectory is preserved — kinetic energy is the proven precursor to reaching the goal anyway. Position-only or potential-difference shaping would be policy-invariant but produces a sparser gradient signal.
+
+**Multi-seed evidence at threshold ≥ -180** (5 seeds × 2 backends = 10 runs):
+
+| seed | Idris | PyTorch |
+|---|---:|---:|
+| 42 | -152 | -110 |
+| 4  | -104 | -106 |
+| 7  | -104 | -109 |
+| 13 | -110 | -150 |
+| 21 | -102 | -140 |
+| **mean** | **-114** | **-123** |
+
+10/10 pass. Cross-backend mean delta is ~9 — well within DQN seed noise. The two backends pick different "worst" seeds (Idris's seed=42 and PyTorch's seed=13) but both stay above the -180 threshold.
+
+**Wall-clock**:
+- Idris tape: ~17:48 / 500 episodes / seed=42 (≈2.1s/epoch)
+- PyTorch: ~85s / 500 episodes / seed=42 (≈0.17s/epoch — ~12.6× faster than Idris on tape)
+
+The Idris/PyTorch wall-clock gap is the FFI-per-step overhead that dominates fast small-tensor RL workloads on tape; this is the pattern documented in `performance-analysis.md` and is unrelated to the algorithm's correctness.
+
+**Closes** the MountainCar B6 gap. **Remaining**: MountainCarCont (Gaussian policy on the same sparse-reward env — even harder, depends on a working MountainCar pattern + actor-critic architecture).
+
+`Example/MountainCar.idr` (Idris), `models/mountain_car.py` + `scripts/mountain_car.py` (PyTorch).
