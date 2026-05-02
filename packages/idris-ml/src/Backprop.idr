@@ -55,19 +55,22 @@ bulkToPersistent {n} (VArray elems) =
 freshZeroLossT : {0 d : Device} -> Double -> IO (Tensor [] d dt WithGrad)
 freshZeroLossT seed = ioRerun (\_ => MkTensor (prim__createScalar seed 0) Nothing)
 
--- Add two scalar TVars (bypasses the implicit-resolution overhead of
--- the polymorphic `tadd`).
-taddScalar : {0 d : Device} -> Tensor [] d dt WithGrad -> Tensor [] d dt WithGrad -> IO (Tensor [] d dt WithGrad)
-taddScalar a b = ioRerun (\_ => MkTensor (prim__add a.tensorPtr b.tensorPtr) Nothing)
+-- Add two scalar TVars. Dispatches via `primAdd {d}` so the
+-- type-level device tag drives MLX stream selection.
+taddScalar : {0 d : Device} -> UserDeviceCore d =>
+             Tensor [] d dt WithGrad -> Tensor [] d dt WithGrad -> IO (Tensor [] d dt WithGrad)
+taddScalar a b = ioRerun (\_ => MkTensor (primAdd {d} a.tensorPtr b.tensorPtr) Nothing)
 
 -- Scale a scalar Tensor by a Double.
-scaleLoss : {0 d : Device} -> Tensor [] d dt WithGrad -> Double -> IO (Tensor [] d dt WithGrad)
-scaleLoss v s = ioRerun (\_ => MkTensor (prim__mulScalar v.tensorPtr s) Nothing)
+scaleLoss : {0 d : Device} -> UserDeviceCore d =>
+            Tensor [] d dt WithGrad -> Double -> IO (Tensor [] d dt WithGrad)
+scaleLoss v s = ioRerun (\_ => MkTensor (primMulScalar {d} v.tensorPtr s) Nothing)
 
 -- Sum a list of scalar tensors starting from a fresh zero. Replaces
 -- the old `foldl taddScalar (freshZeroLossT 0.0) losses` pattern under
 -- the IO-typed surface.
-sumLosses : {0 d : Device} -> List (Tensor [] d dt WithGrad) -> IO (Tensor [] d dt WithGrad)
+sumLosses : {0 d : Device} -> UserDeviceCore d =>
+            List (Tensor [] d dt WithGrad) -> IO (Tensor [] d dt WithGrad)
 sumLosses losses = do
   zero <- freshZeroLossT 0.0
   foldlM taddScalar zero losses
@@ -148,11 +151,13 @@ epochVarTensor opt dataPoints lossFn model = do
   pure (model, loss)
 
 
--- Concatenate a vector of per-sample [k] tensors into a single [n, k]
-catAllTensors : List AnyPtr -> AnyPtr
+-- Concatenate a vector of per-sample [k] tensors into a single [n, k].
+-- Routes through `primCat2 {d}` so the MLX stream tag follows the
+-- type-level device.
+catAllTensors : {0 d : Device} -> UserDeviceLinear d => List AnyPtr -> AnyPtr
 catAllTensors [] = idris_crash "catAllTensors: empty list"
 catAllTensors [x] = x
-catAllTensors (x :: y :: rest) = catAllTensors (prim__cat2 x y :: rest)
+catAllTensors (x :: y :: rest) = catAllTensors {d} (primCat2 {d} x y :: rest)
 
 -- Per-sample loss for batched-forward shape.
 perRowLoss : {0 d : Device} -> UserDeviceTape d => {n, o : Nat} ->
@@ -177,13 +182,13 @@ epochVarTensorBatch : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => {
 epochVarTensorBatch opt dataPoints lossFn model = do
   let inputs = toList (map inputTensor dataPoints)
       targets = toList (map targetTensor dataPoints)
-      stackedIn = catAllTensors inputs
-      stackedTgt = catAllTensors targets
+      stackedIn = catAllTensors {d} inputs
+      stackedTgt = catAllTensors {d} targets
       iI = cast {to=Int} i
       oI = cast {to=Int} o
       nI = cast {to=Int} n
-      stackedInReshaped = prim__reshape2d stackedIn nI iI
-      stackedTgtReshaped = prim__reshape2d stackedTgt nI oI
+      stackedInReshaped = primReshape2d {d} stackedIn nI iI
+      stackedTgtReshaped = primReshape2d {d} stackedTgt nI oI
       inV = the (Tensor [n, i] d dt WithGrad) (MkTensor stackedInReshaped Nothing)
       tgtV = the (Tensor [n, o] d dt WithGrad) (MkTensor stackedTgtReshaped Nothing)
   (_, predB) <- forwardVarBatch model inV
@@ -349,12 +354,12 @@ epochTwoPhaseVar opt dataPoints lossFn model = do
 ----------------------------------------------------------------------
 
 export
-tvecToVector : {n : Nat} -> AnyPtr -> Vector n Double
+tvecToVector : {0 d : Device} -> UserDeviceCore d => {n : Nat} -> AnyPtr -> Vector n Double
 tvecToVector {n} ptr = VArray (build 0 n)
   where
     build : Int -> (k : Nat) -> Vect k (Scalar Double)
     build _ Z = []
-    build off (S k) = SArray (prim__item1d ptr off) :: build (off + 1) k
+    build off (S k) = SArray (primItem1d {d} ptr off) :: build (off + 1) k
 
 export
 forwardTwoPhase : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => {i, o : Nat} -> {hs : List Nat} ->
@@ -375,7 +380,7 @@ forwardTwoPhase model dp = do
     decodeOnce zeroIn (net, preds) _ = do
       let inV = the (TVec i d dt WithGrad) (MkTensor zeroIn Nothing)
       (net', predV) <- forwardVar net inV
-      let predVec = the (Vector o Double) (tvecToVector {n = o} predV.tensorPtr)
+      let predVec = the (Vector o Double) (tvecToVector {d} {n = o} predV.tensorPtr)
       pure (net', preds ++ [predVec])
 
     foldlIO : (Network i hs o d dt WithGrad -> Vector i Double -> IO (Network i hs o d dt WithGrad))

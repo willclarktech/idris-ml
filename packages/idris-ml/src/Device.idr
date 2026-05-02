@@ -97,6 +97,9 @@ prim__freeUnified : AnyPtr -> ()
 %foreign "scheme:(lambda (a0)  ((foreign-procedure \"tensor_item\" (void*) double) (vector-ref a0 1)))"
 prim__itemUnified : AnyPtr -> Double
 
+%foreign "scheme:(lambda (a0 a1)  ((foreign-procedure \"tensor_item_1d\" (void* int) double) (vector-ref a0 1) a1))"
+prim__item1dUnified : AnyPtr -> Int -> Double
+
 %foreign "scheme:(lambda (a0)  (let ((raw_r ((foreign-procedure \"tensor_clone\" (void*) void*) (vector-ref a0 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 prim__cloneUnified : AnyPtr -> AnyPtr
 
@@ -160,6 +163,7 @@ UserDeviceCore CPU where
   primCreate       = prim__createUnified
   primFree         = prim__freeUnified
   primItem         = prim__itemUnified
+  primItem1d       = prim__item1dUnified
   primClone        = prim__cloneUnified
   primAdd          = prim__addUnified
   primSub          = prim__subUnified
@@ -184,6 +188,7 @@ public export
   primCreate       = prim__createUnified
   primFree         = prim__freeUnified
   primItem         = prim__itemUnified
+  primItem1d       = prim__item1dUnified
   primClone        = prim__cloneUnified
   primAdd          = prim__addUnified
   primSub          = prim__subUnified
@@ -208,6 +213,7 @@ UserDeviceCore MPS where
   primCreate       = prim__createUnified
   primFree         = prim__freeUnified
   primItem         = prim__itemUnified
+  primItem1d       = prim__item1dUnified
   primClone        = prim__cloneUnified
   primAdd          = prim__addUnified
   primSub          = prim__subUnified

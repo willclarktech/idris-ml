@@ -31,6 +31,9 @@ prim__freeMlxStreamed : AnyPtr -> Int -> ()
 %foreign "scheme:(lambda (a0 a1)  ((foreign-procedure \"tensor_item_mlx_streamed\" (void* int) double) (vector-ref a0 1) a1))"
 prim__itemMlxStreamed : AnyPtr -> Int -> Double
 
+%foreign "scheme:(lambda (a0 a1 a2)  ((foreign-procedure \"tensor_item_1d_mlx_streamed\" (void* int int) double) (vector-ref a0 1) a1 a2))"
+prim__item1dMlxStreamed : AnyPtr -> Int -> Int -> Double
+
 %foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_clone_mlx_streamed\" (void* int) void*) (vector-ref a0 1) a1))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 prim__cloneMlxStreamed : AnyPtr -> Int -> AnyPtr
 
@@ -141,6 +144,7 @@ public export
   primCreate d sh r rg           = prim__createMlxStreamed d sh r rg (streamTag s)
   primFree h                     = prim__freeMlxStreamed h (streamTag s)
   primItem h                     = prim__itemMlxStreamed h (streamTag s)
+  primItem1d h i                 = prim__item1dMlxStreamed h i (streamTag s)
   primClone h                    = prim__cloneMlxStreamed h (streamTag s)
   primAdd a b                    = prim__addMlxStreamed a b (streamTag s)
   primSub a b                    = prim__subMlxStreamed a b (streamTag s)

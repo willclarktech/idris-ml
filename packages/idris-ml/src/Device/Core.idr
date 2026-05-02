@@ -70,6 +70,9 @@ interface UserDeviceCore (0 d : Device) where
   ||| Read a 0-rank tensor's value.
   primItem : AnyPtr -> Double
 
+  ||| Read element `idx` from a 1-D tensor as a host Double.
+  primItem1d : AnyPtr -> Int -> Double
+
   ||| Deep-copy a tensor (new handle, same shape and values, fresh
   ||| autograd node).
   primClone : AnyPtr -> AnyPtr

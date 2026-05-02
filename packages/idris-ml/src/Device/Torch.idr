@@ -25,6 +25,9 @@ prim__freeTorch : AnyPtr -> ()
 %foreign "scheme:(lambda (a0)  ((foreign-procedure \"tensor_item_torch\" (void*) double) (vector-ref a0 1)))"
 prim__itemTorch : AnyPtr -> Double
 
+%foreign "scheme:(lambda (a0 a1)  ((foreign-procedure \"tensor_item_1d_torch\" (void* int) double) (vector-ref a0 1) a1))"
+prim__item1dTorch : AnyPtr -> Int -> Double
+
 %foreign "scheme:(lambda (a0)  (let ((raw_r ((foreign-procedure \"tensor_clone_torch\" (void*) void*) (vector-ref a0 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 prim__cloneTorch : AnyPtr -> AnyPtr
 
@@ -88,6 +91,7 @@ UserDeviceCore TorchDev where
   primCreate       = prim__createTorch
   primFree         = prim__freeTorch
   primItem         = prim__itemTorch
+  primItem1d       = prim__item1dTorch
   primClone        = prim__cloneTorch
   primAdd          = prim__addTorch
   primSub          = prim__subTorch

@@ -3493,10 +3493,14 @@ double tensor_item_2d(TensorHandle mat, int row, int col) {
     return mx_read_double(flat, (long)row * cols + col);
 }
 
-double tensor_item_1d(TensorHandle vec, int idx) {
+extern "C" double tensor_item_1d_mlx_streamed(TensorHandle vec, int idx, int stream_tag) {
+    WITH_STREAM(stream_tag);
     auto t = (Tensor*)vec;
     mx::eval(t->data);
     return mx_read_double(t->data, idx);
+}
+double tensor_item_1d(TensorHandle vec, int idx) {
+    return tensor_item_1d_mlx_streamed(vec, idx, default_stream_tag());
 }
 
 /* ================================================================

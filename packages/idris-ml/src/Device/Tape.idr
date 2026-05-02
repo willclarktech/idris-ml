@@ -25,6 +25,9 @@ prim__freeTape : AnyPtr -> ()
 %foreign "scheme:(lambda (a0)  ((foreign-procedure \"tensor_item_tape\" (void*) double) (vector-ref a0 1)))"
 prim__itemTape : AnyPtr -> Double
 
+%foreign "scheme:(lambda (a0 a1)  ((foreign-procedure \"tensor_item_1d_tape\" (void* int) double) (vector-ref a0 1) a1))"
+prim__item1dTape : AnyPtr -> Int -> Double
+
 %foreign "scheme:(lambda (a0)  (let ((raw_r ((foreign-procedure \"tensor_clone_tape\" (void*) void*) (vector-ref a0 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 prim__cloneTape : AnyPtr -> AnyPtr
 
@@ -91,6 +94,7 @@ UserDeviceCore TapeDev where
   primCreate       = prim__createTape
   primFree         = prim__freeTape
   primItem         = prim__itemTape
+  primItem1d       = prim__item1dTape
   primClone        = prim__cloneTape
   primAdd          = prim__addTape
   primSub          = prim__subTape
