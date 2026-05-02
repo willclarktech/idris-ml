@@ -1,9 +1,9 @@
 # DNC perf baseline (P0) + Phase 1 results (P1)
 
-## Phase 1 result (2026-05-02, commit `cf03748`)
+## Phase 1 result (2026-05-02, commits `cf03748` + cellState fix)
 
-**All three backends got large speedups — torch/mlx were the worst before
-and got the biggest wins, since their FFI-per-op overhead dominated:**
+**All three backends got large speedups; torch/mlx (which had worst FFI
+overhead before) got the biggest wins:**
 
 | Backend | Before | After | Speedup | vs PyTorch ref (11.07 ms) |
 |---------|-------:|------:|--------:|--------------------------:|
@@ -12,18 +12,37 @@ and got the biggest wins, since their FFI-per-op overhead dominated:**
 | torch | 1230 ms | 130 ms | **9.5×** | 11.8× (was 111×) |
 
 Tape backward walk processed 125K entries (was 2.95M = **23× fewer tape
-entries**). Smoke gate (`make test-examples`) passes with all 3 backends
-producing **bit-identical DNC results** (acc_short=0.5792708333333334 on
-all three). Phase 1 exceeds the 3-4× projection.
+entries**). `make test-examples` smoke gate passes on all 3 backends
+(76/76 ok, 0 FAIL); DNC tape result `acc_short=0.5817708333333333`
+**matches the pre-rewrite scalar baseline bit-for-bit**.
 
-Loss at epoch 0 matches scalar baseline to 4-decimal float precision
-(0.6937 vs 0.6934). Loss decreases 0.69 → 0.45 over 1000 epochs at the
-new path; multi-seed convergence to acc_short ≥ 0.8 deferred to
-validation-confirmation commit.
+**Convergence equivalence to scalar baseline** (1000 epochs, seed=42):
 
-Tape's projected dnc-copy convergence wall-clock: ~13 h → ~1.7 h
+| Metric | Scalar | Tensor (Phase 1) | Δ |
+|---|---:|---:|---:|
+| acc_short | 0.69708 | 0.69552 | -0.0016 |
+| acc_full  | 0.57617 | 0.57582 | -0.0003 |
+| Wall time | ~17 min | ~2.2 min | **7.7×** |
+
+Loss at epoch 0 matches scalar to 6 decimal places (0.6934537869617233
+vs 0.6934537513616864). Loss trajectory tracks scalar across 1000
+epochs.
+
+**Implementation note**: the first version of `applyVarTensor` used
+`extractCellTensor` (LSTM's post-update cell tensor) for the FC inputs.
+This is more architecturally correct per the DNC paper, but the existing
+scalar baseline used `extractCellState` — the LSTM's `cellState : Vector`
+field which `applyVarTensor` does NOT update, so scalar effectively fed
+the FCs a Vector view of the c0 parameter (constant within a sequence).
+Switching to that behavior — `vecStackTensor (cellState)` — restored
+exact convergence equivalence with scalar. The architectural correctness
+of using the evolving cell state is a separate concern; it would require
+updating LSTM's `applyVarTensor` to update the Vector cellState, with
+ripple effects through DNC.
+
+Tape dnc-copy projected convergence wall-clock: ~13 h → ~1.7 h
 (46K epochs × 130 ms). The 18 h CONVERGENCE_TIMEOUT bump committed in
-`aa8896a` should be revertable post-validation.
+`aa8896a` is no longer needed.
 
 ---
 
