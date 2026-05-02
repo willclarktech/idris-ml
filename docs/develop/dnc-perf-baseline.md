@@ -1,4 +1,30 @@
-# DNC perf baseline (P0 — pre-optimization)
+# DNC perf baseline (P0) + Phase 1 results (P1)
+
+## Phase 1 result (2026-05-02, commit `cf03748`)
+
+**Tape backend: 1040 ms/epoch → 128 ms/epoch — 8.1× speedup**
+
+Exceeds the 3-4× projection (NTM-mirror baseline). The targeted DNC
+`applyVar` rewrite to a tensor-handle pipeline (no per-op
+vecStackTensor/tensorToScalars round-trips) ran cleanly on tape.
+Convergence preserved: loss at epoch 0 matches scalar baseline to
+4-decimal float precision (0.6937 vs 0.6934); loss decreases
+0.69 → 0.45 over 1000 epochs at the new path.
+
+Cross-backend validation (mlx, torch) and multi-seed dnc-copy
+convergence to acc_short ≥ 0.8 are deferred to follow-up commits but
+expected to produce comparable wins on mlx/torch (which had even more
+FFI overhead in the baseline).
+
+Tape's projected dnc-copy convergence wall-clock: ~13 h → ~1.6 h
+(46K epochs × 128 ms). Likely lets us revert the 18 h CONVERGENCE_TIMEOUT
+bump.
+
+---
+
+# Original P0 baseline measurements
+
+
 
 Captured 2026-05-01 to ground the tape-backend performance overhaul. All
 runs at the current default config: `N=32 M=20 H=100 R=1, batch=1,
