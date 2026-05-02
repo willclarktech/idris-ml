@@ -20,6 +20,7 @@ import DataPoint
 import Endofunctor
 import Floating
 import Generate
+import Hpo.LrFinder
 import Layer
 import Layer.Core
 import Layer.Transformer
@@ -182,15 +183,17 @@ record Config where
   epochs : Nat
   patience : Nat
   seed : Bits64
+  lrFind : Bool
 
 defaultConfig : Config
-defaultConfig = MkConfig 0.001 1000 300 42
+defaultConfig = MkConfig 0.001 1000 300 42 False
 
 specs : List (ArgSpec Config)
 specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
         , Arg "--epochs" (\v, c => { epochs := castNat v } c)
         , Arg "--patience" (\v, c => { patience := castNat v } c)
-        , Arg "--seed" (\v, c => { seed := castBits64 v } c) ]
+        , Arg "--seed" (\v, c => { seed := castBits64 v } c)
+        , Arg "--lr-find" (\v, c => { lrFind := (v == "1" || v == "true") } c) ]
 
 
 ----------------------------------------------------------------------
@@ -250,6 +253,18 @@ main = do
   let trainCfg = MkTrainConfig cfg.epochs 100 (Patience cfg.patience 0.001) evalMetrics (\_ => pure ())
 
   let batchFwd = transformerForwardBatch namedTfm
+
+  when cfg.lrFind $ do
+    let lrCfg : LrFindConfig
+        lrCfg = { numIters := 100 } defaultLrFindConfig
+    _ <- lrFind lrCfg
+      (\m, d => let (m', loss) = epochNativeTensorBatch opt d batchFwd catCELossTensor m
+                in pure (m', loss))
+      genBatch opt model
+    putStrLn ""
+    putStrLn "Done — re-run without --lr-find at the recommended LR."
+    exitSuccess
+
   (trained, epochsDone, finalLoss) <- runTraining
     (\m, d => epochNativeTensorBatch opt d batchFwd catCELossTensor m) genBatch trainCfg model
 

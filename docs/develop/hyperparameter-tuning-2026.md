@@ -75,4 +75,18 @@ This is a useful negative-result entry for the workflow: `lr_find` is a screenin
 
 ---
 
+## Transformer           date: 2026-04-29
+
+- **Before**: `lr=0.001 epochs=1000 patience=300 seed=42`. 2-block multi-head transformer with Adam + global grad-norm clipping. Sequence sorting on synthetic 5-token inputs. Documented to converge with `sort_acc ≥ 0.8`.
+- **lr_find (Idris)**: `RECOMMENDED_LR=1e-8`, sweep range 1e-7..10, **diverged at iter 95 (lr ≈ 4.75)**, seed=42.
+- **lr_find (PyTorch)**: `RECOMMENDED_LR=1e-8`, sweep range 1e-7..10, **diverged at iter 94 (lr ≈ 3.94)**, seed=42.
+- **Cross-backend agreement**: ratio = 1.00× (identical). **But this is misleading** — both backends fell back to `lrMin` because no iteration had a meaningfully-negative slope before divergence.
+- **Why the heuristic fails here**: Adam with global grad-norm clipping already adapts the effective per-parameter LR, so the loss curve under an LR sweep is essentially flat (with noise) until the LR is large enough to overflow the gradient clip. The "steepest descent ÷ 10" heuristic — designed for plain SGD — picks up bias-corrected EMA noise at the start of the sweep instead of a real LR sweet-spot.
+- **Multi-seed pass rate**: not measured. Default unchanged.
+- **Decision**: ship-as-is at lr=0.001.
+- **Lesson**: when both backends agree on `RECOMMENDED_LR=lrMin` (or some other extremum), check whether the recommendation is a fallback (no negative slope) rather than a real signal. Future improvement: have `lrFind` emit a warning when the curve has no negative-slope region. For now: cross-backend agreement near-1.0× should be sanity-checked against the curve shape, not trusted blindly. Adam-based examples (Transformer, Gpt, Mnist, Dqn, A2c, Ppo, Sac) are likely to fall in this category.
+- **Commit**: n/a (no default change).
+
+---
+
 (Future entries here — one block per example dogfooded by B3.)
