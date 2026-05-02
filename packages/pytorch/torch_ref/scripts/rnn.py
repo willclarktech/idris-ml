@@ -11,7 +11,7 @@ import torch
 
 from torch_ref.models.rnn import LinearRNNCell, generate_rnn_dataset, train_rnn_epoch
 from torch_ref.training.lr_finder import LrFindConfig, lr_find
-from torch_ref.training.runner import TrainConfig, format_result, run_training
+from torch_ref.training.runner import TrainConfig, format_result, run_training, set_device
 
 
 def show_seq(tensors: list[torch.Tensor]) -> str:
@@ -28,8 +28,15 @@ def main() -> None:
         action="store_true",
         help="Run lr_find (LR-range test) instead of training, then exit.",
     )
+    parser.add_argument(
+        "--device",
+        default="cpu",
+        choices=["cpu", "mps", "cuda"],
+        help="Device for tensor ops (default: cpu)",
+    )
     args = parser.parse_args()
 
+    set_device(args.device)
     torch.manual_seed(args.seed)
 
     print("=== RNN Pattern Prediction ===")
@@ -40,7 +47,7 @@ def main() -> None:
     # activation) with no output projection. Aligned to the standard
     # nn.RNNCell shape: tanh activation, two biases, hidden=4 + linear
     # projection to 1.
-    model = LinearRNNCell(1, hidden_size=4, output_size=1)
+    model = LinearRNNCell(1, hidden_size=4, output_size=1).to(args.device)
     data = generate_rnn_dataset(8)
     print("Architecture: RnnCell(1, 4) -> Linear(4, 1)")
     print()
@@ -56,7 +63,7 @@ def main() -> None:
         print("Done — re-run without --lr-find at the recommended LR.")
         sys.exit(0)
 
-    config = TrainConfig(total_epochs=args.epochs, log_every=100)
+    config = TrainConfig(total_epochs=args.epochs, log_every=100, device=args.device)
     epochs_done, final_loss = run_training(epoch_fn, config)
 
     # Evaluation

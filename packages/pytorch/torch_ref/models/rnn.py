@@ -16,6 +16,7 @@ import torch.nn as nn
 from torch import Tensor
 
 from torch_ref.training.losses import bce_with_logits
+from torch_ref.training.runner import get_device
 
 
 class LinearRNNCell(nn.Module):
@@ -54,7 +55,7 @@ class LinearRNNCell(nn.Module):
         nn.init.xavier_uniform_(self.weight_out)
 
     def reset_state(self) -> None:
-        self._h = torch.zeros(self.hidden_size)
+        self._h = torch.zeros(self.hidden_size, device=self.weight_ih.device)
 
     def forward(self, x: Tensor) -> Tensor:
         self._h = torch.tanh(
@@ -142,7 +143,7 @@ class LinearGRUCell(nn.Module):
         nn.init.zeros_(self.output_proj.bias)
 
     def reset_state(self) -> None:
-        self._h = torch.zeros(self.hidden_size)
+        self._h = torch.zeros(self.hidden_size, device=self.weight_ih.device)
 
     def forward(self, x: Tensor) -> Tensor:
         ih = self.weight_ih @ x + self.bias_ih
@@ -166,15 +167,19 @@ def generate_rnn_data(n: int) -> tuple[list[float], list[float]]:
 def generate_rnn_dataset(n: int) -> list[tuple[list[Tensor], list[Tensor]]]:
     """Generate n sequences with lengths 3, 4, ..., n+2."""
     dataset = []
+    device = get_device()
     for i in range(n):
         length = i + 3
         inputs, outputs = generate_rnn_data(length)
-        xs = [torch.tensor([v]) for v in inputs]
-        ys = [torch.tensor([v]) for v in outputs]
+        xs = [torch.tensor([v], device=device) for v in inputs]
+        ys = [torch.tensor([v], device=device) for v in outputs]
         dataset.append((xs, ys))
     return dataset
 
 
+# Module-level dataset constant — built on whatever device is active
+# at import time (typically "cpu"). Scripts that switch to MPS/CUDA
+# should rebuild via `generate_rnn_dataset(...)` after `set_device`.
 RNN_DATA = generate_rnn_dataset(8)
 
 
@@ -185,10 +190,11 @@ def train_lstm_epoch(
 ) -> float:
     """Train one LSTM epoch, same structure as train_rnn_epoch."""
     optimizer.zero_grad()
-    total_loss = torch.tensor(0.0)
+    device = get_device()
+    total_loss = torch.tensor(0.0, device=device)
     for xs, ys in data:
         model.reset_state()
-        seq_loss = torch.tensor(0.0)
+        seq_loss = torch.tensor(0.0, device=device)
         for x, y in zip(xs, ys, strict=True):
             pred = model(x)
             seq_loss = seq_loss + bce_with_logits(pred, y)
@@ -206,10 +212,11 @@ def train_gru_epoch(
 ) -> float:
     """Train one GRU epoch, same structure as train_lstm_epoch."""
     optimizer.zero_grad()
-    total_loss = torch.tensor(0.0)
+    device = get_device()
+    total_loss = torch.tensor(0.0, device=device)
     for xs, ys in data:
         model.reset_state()
-        seq_loss = torch.tensor(0.0)
+        seq_loss = torch.tensor(0.0, device=device)
         for x, y in zip(xs, ys, strict=True):
             pred = model(x)
             seq_loss = seq_loss + bce_with_logits(pred, y)
@@ -231,10 +238,11 @@ def train_rnn_epoch(
     Average across sequences.
     """
     optimizer.zero_grad()
-    total_loss = torch.tensor(0.0)
+    device = get_device()
+    total_loss = torch.tensor(0.0, device=device)
     for xs, ys in data:
         model.reset_state()
-        seq_loss = torch.tensor(0.0)
+        seq_loss = torch.tensor(0.0, device=device)
         for x, y in zip(xs, ys, strict=True):
             pred = model(x)
             seq_loss = seq_loss + bce_with_logits(pred, y)

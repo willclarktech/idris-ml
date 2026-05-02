@@ -11,7 +11,7 @@ import torch
 
 from torch_ref.models.rnn import LinearLSTMCell, generate_rnn_dataset, train_lstm_epoch
 from torch_ref.training.lr_finder import LrFindConfig, lr_find
-from torch_ref.training.runner import TrainConfig, format_result, run_training
+from torch_ref.training.runner import TrainConfig, format_result, run_training, set_device
 
 
 def show_seq(tensors: list[torch.Tensor]) -> str:
@@ -29,15 +29,22 @@ def main() -> None:
         action="store_true",
         help="Run lr_find (LR-range test) instead of training, then exit.",
     )
+    parser.add_argument(
+        "--device",
+        default="cpu",
+        choices=["cpu", "mps", "cuda"],
+        help="Device for tensor ops (default: cpu)",
+    )
     args = parser.parse_args()
 
+    set_device(args.device)
     torch.manual_seed(args.seed)
 
     print("=== LSTM Pattern Prediction ===")
     print(f"Config: lr={args.lr} epochs={args.epochs} patience={args.patience} seed={args.seed}")
 
-    model = LinearLSTMCell(1, 4, 1)
-    data = generate_rnn_dataset(8)
+    model = LinearLSTMCell(1, 4, 1).to(args.device)
+    data = generate_rnn_dataset(8)  # built under active device set above
     print("Architecture: LstmLayer ~> OutputLayer (LinearLayer)")
     print()
 
@@ -52,7 +59,7 @@ def main() -> None:
         print("Done — re-run without --lr-find at the recommended LR.")
         sys.exit(0)
 
-    config = TrainConfig(total_epochs=args.epochs, log_every=100, patience=args.patience)
+    config = TrainConfig(total_epochs=args.epochs, log_every=100, patience=args.patience, device=args.device)
     epochs_done, final_loss = run_training(epoch_fn, config)
 
     # Evaluation
