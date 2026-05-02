@@ -449,10 +449,29 @@ Config-before: `lr=5e-4`, `epochs=300`, `batch=64`, `target_sync=100`. Architect
 
 Both backends produce a fallback recommendation (rec at or below `lrMin=1e-7`); the new fallback-detection rule fires on both. **Decision: ship-as-is.** The DQN loss curve is too noisy / Adam-adapted for `lr_find` to pick a useful LR.
 
+### Ppo (Acrobot, Adam) — added 2026-04-30 (session 5)
+
+PPO was originally on Pendulum at B3 ("ship-as-is, recommendation = policy-collapse LR"); B3-fixes (`36dbd5f`) swapped to Acrobot with categorical policy and re-validated convergence (5/5 PyTorch, 5/6 Idris) but did not re-run lr_find. This entry closes that gap.
+
+Config-before: `lr=3e-4`, `epochs=100`, `rollout=1024`, `K=10`, `batch=64`, `gamma=0.99`, `lambda=0.95`, `clip=0.2`, `entropy=0.01`. Architecture: 6 → 64 → 64 → 3 (actor) + 6 → 64 → 64 → 1 (critic), separate, tanh activations.
+
+PyTorch CLI parity for this entry: added `scripts/ppo.py` mirroring `scripts/{a2c,dqn}.py` (loss = `-avg_ep_return` per rollout, 30-iter sweep matching Idris's `numIters := 30`).
+
+| Backend | RECOMMENDED_LR | Fallback warning? |
+|---|---|---|
+| Idris | 4.894e-4 | no — clear descent zone iter 16–21 (smoothed 486 → 423) |
+| PyTorch | 2.395e-7 | no — but **effectively fallback** (rec ≈ 2.4× lrMin; the apparent steepest descent at iter 5→6 is noise where loss was clamped at 500=max-ep-len) |
+
+Cross-backend ratio: **~2,043×** — far over the 2× gate. The mechanism is the same Acrobot physics (deterministic), but Idris's xavier-uniform init draws different starting weights than PyTorch's default kaiming, and the curves' descent regions land at different LRs. Idris finds a real descent zone (loss drops from 486 to 423 over iters 16–21); PyTorch's curve descends in the same zone (smoothed 489 → 354 over iters 13–22) but the algorithm's argmin slope falls at iter 5→6 noise instead.
+
+**Decision: ship-as-is.** The current Idris default `lr=3e-4` is within 1.6× of the Idris recommendation (4.89e-4) — already in the right zone. PyTorch's "recommendation" is three orders below its default and is correctly identified by the cross-backend gate as untrustworthy. No change.
+
+Library note: PyTorch's case is exactly the kind of fallback the existing rules don't catch — `rec=2.395e-7 > lrMin=1e-7` (just barely), and the curve has *some* negative-slope segments so `isFallbackCurve` is False. Possible future tightening: warn when `rec` is within `recommendDiv × lrMin` (i.e. one steepest-descent step above the floor) — would have fired here. Filed as a smaller follow-up; not implemented yet.
+
 ### Cross-cutting takeaways from B3-redogfood
 
 - **The sign-stable fix works**: all three examples that previously bailed at iter 1 now run all 100/30 iterations. The negative-loss bug is closed.
-- **Adam-fallback story holds**: same pattern as the rest of the Adam-based examples in B3 — meaningful curves on some seeds, fallback on others, never a confident cross-backend match. Reinforce's 11× and A2c's 6.4× cross-backend disagreement are both directionally consistent (both backends recommend the same direction of change) but quantitatively uncertain. The cross-backend gate keeps us from shipping speculative changes.
+- **Adam-fallback story holds**: same pattern as the rest of the Adam-based examples in B3 — meaningful curves on some seeds, fallback on others, never a confident cross-backend match. Reinforce's 11×, A2c's 6.4×, and PPO's ~2000× cross-backend disagreements are all over the gate. Reinforce + A2c are directionally consistent (both backends recommend the same direction); PPO is not — Idris finds a real descent zone and recommends slightly higher than current default, PyTorch's algorithm picks early-iter noise and bottoms out near lrMin. The cross-backend gate catches all four.
 - **One small alignment finding**: `scripts/reinforce.py` had `reinforce_epoch` returning higher-is-better for the `--lr-find` epoch_fn. Negated for the lr_find path; unrelated to training output.
 - **One library improvement**: tightened fallback detection — the "rec ≤ lrMin" check now fires the WARNING on noisy curves where the steepest descent is just at iter 0 (Dqn case). Strict `isFallbackCurve` ("all slopes ≥ 0") wasn't catching this.
 
