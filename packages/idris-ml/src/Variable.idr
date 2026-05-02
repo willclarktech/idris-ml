@@ -144,7 +144,7 @@ export prim__clampMin : AnyPtr -> Double -> AnyPtr
 
 -- NTM
 %foreign "C:tensor_cosine_similarity,libidrisml"
-prim__cosineSimilarity : AnyPtr -> AnyPtr -> Int -> AnyPtr
+export prim__cosineSimilarity : AnyPtr -> AnyPtr -> Int -> AnyPtr
 
 %foreign "C:tensor_conv1d_circular,libidrisml"
 prim__conv1dCircular : AnyPtr -> AnyPtr -> AnyPtr

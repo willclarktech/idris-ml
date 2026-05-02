@@ -277,6 +277,106 @@ dncReadWeight {n} (VTensor linkRows) (VTensor prevRwElems) contentW (VTensor [ST
 
 
 ----------------------------------------------------------------------
+-- Tensor-level helpers for applyVarTensor (P1, 2026-05-02)
+--
+-- Top-level recursive helpers used by the LayerLike applyVarTensor.
+-- Defined here (not inside the instance's where-clause) to avoid the
+-- Idris2 elaborator hang observed when implicit-r' inside a where
+-- clause interacts with the LayerLike's outer {r : Nat}. Mirrors the
+-- structure NTM uses for forwardReadHeadUnboundedVar etc.
+----------------------------------------------------------------------
+
+||| Concat read outputs (Vect r AnyPtr) followed by the input tensor,
+||| producing a single 1D tensor for the LSTM controller's input.
+||| Purely tensor — no scalar Variable round-trips.
+catReadOutsAndInputT : {k : Nat} -> Vect k AnyPtr -> AnyPtr -> AnyPtr
+catReadOutsAndInputT [] inp = inp
+catReadOutsAndInputT (ro :: rest) inp =
+  prim__cat2 ro (catReadOutsAndInputT rest inp)
+
+||| Concat r read output tensors into a single [r*m] tensor for the
+||| output FC input. Crashes on r=0 (DNC always has at least 1 head).
+partial
+catReadOutsT : {k : Nat} -> Vect k AnyPtr -> AnyPtr
+catReadOutsT [] = idris_crash "DNC: catReadOutsT called with r=0"
+catReadOutsT (h :: t) = catRest h t
+  where
+    catRest : AnyPtr -> {k' : Nat} -> Vect k' AnyPtr -> AnyPtr
+    catRest acc [] = acc
+    catRest acc (h' :: rest) = catRest (prim__cat2 acc h') rest
+
+||| Compute prod_j (1 - free_gate_j * prev_read_w_j) over r heads.
+||| free gates passed as a [r] tensor; we select scalars via prim__select.
+||| prev read weights passed as Vect r AnyPtr (each [n]).
+||| Threads an accumulator (start with rank-0 ones scalar from caller).
+dncRetentionT : {k : Nat} -> Int -> AnyPtr -> Vect k AnyPtr -> AnyPtr -> AnyPtr
+dncRetentionT _ _ [] acc = acc
+dncRetentionT idx freeGatesT (rw :: rws) acc =
+  let fg = prim__select freeGatesT 0 idx
+      factor = prim__sub (prim__createScalar 1.0 0) (prim__mul fg rw)
+  in dncRetentionT (idx + 1) freeGatesT rws (prim__mul acc factor)
+
+||| Zero the diagonal of a [n,n] matrix by elementwise-multiplying with
+||| an off-diagonal mask.
+dncZeroDiagT : Int -> AnyPtr -> AnyPtr
+dncZeroDiagT nI matT =
+  let numElems = nI * nI
+      buf = prim__allocDoubles numElems
+      buf' = fillMaskOffDiag buf 0 nI numElems
+      maskT = prim__create2d nI nI buf' 0
+  in prim__mul matT maskT
+  where
+    fillMaskOffDiag : AnyPtr -> Int -> Int -> Int -> AnyPtr
+    fillMaskOffDiag b i nn numE = if i >= numE then b else
+      let row = i `div` nn
+          col = i `mod` nn
+          val = if row == col then 0.0 else 1.0
+          b' = prim__setDouble b i val
+      in fillMaskOffDiag b' (i + 1) nn numE
+
+||| Per-head read processing: for each head j in 0..r-1, compute the
+||| new read weight (via temporal-link forward + backward + content
+||| addressing mode mixture, clamped + normalized) and read output
+||| (read_w @ memory). Returns the new read weights and outputs as
+||| two parallel Vects.
+|||
+||| Inputs: idx (head start = 0), prevRws (Vect r prev read weights,
+||| each [n]), linkT [n,n], memT [n,m], readKeysFlatT [r*m],
+||| readBetasRawT [r], readModesFlatT [r*3], mI (= cast m).
+dncReadHeadsT : {k : Nat} -> Int -> Vect k AnyPtr ->
+                AnyPtr -> AnyPtr ->
+                AnyPtr -> AnyPtr -> AnyPtr ->
+                Int ->
+                (Vect k AnyPtr, Vect k AnyPtr)
+dncReadHeadsT _ [] _ _ _ _ _ _ = ([], [])
+dncReadHeadsT idx (prevRw :: restRws) linkT memT keysT betasT modesT mI =
+  let headKeyT      = prim__narrow keysT 0 (idx * mI) mI
+      headBetaPtr   = prim__select betasT 0 idx
+      headBetaT     = prim__log (prim__addScalar (prim__exp headBetaPtr) 1.0)
+      headModesRawT = prim__narrow modesT 0 (idx * 3) 3
+      headModesT    = prim__softmax headModesRawT 0
+      cosScoresT    = prim__cosineSimilarity memT (prim__unsqueeze headKeyT 0) 1
+      scaledScoresT = prim__mul headBetaT cosScoresT
+      contentRwT    = prim__softmax scaledScoresT 0
+      forwardT      = prim__matmul linkT prevRw
+      linkTransT    = prim__transpose2d linkT
+      backwardT     = prim__matmul linkTransT prevRw
+      pi0           = prim__select headModesT 0 0
+      pi1           = prim__select headModesT 0 1
+      pi2           = prim__select headModesT 0 2
+      scaledBack    = prim__mul pi0 backwardT
+      scaledContent = prim__mul pi1 contentRwT
+      scaledForward = prim__mul pi2 forwardT
+      rwSumT        = prim__add (prim__add scaledBack scaledContent) scaledForward
+      rwClampedT    = prim__clampMin rwSumT 1.0e-10
+      rwNormSumT    = prim__addScalar (prim__sum rwClampedT) 1.0e-10
+      rwT           = prim__div rwClampedT rwNormSumT
+      roT           = prim__matmul rwT memT
+      (restRws', restRos') = dncReadHeadsT (idx + 1) restRws linkT memT keysT betasT modesT mI
+  in (rwT :: restRws', roT :: restRos')
+
+
+----------------------------------------------------------------------
 -- LayerLike Instance
 ----------------------------------------------------------------------
 
@@ -331,7 +431,20 @@ export
             ro = readOp (MkReadHead rw) mem
         in (rw, ro) :: readHeadsGeneric rest restKeys (VTensor restBetas) mem
 
-  -- Variable forward pass (scalar)
+  -- Variable forward pass: delegates to applyVarTensor when state tensors
+  -- are initialized (post-nameLayer). Tensor path keeps state on AnyPtr
+  -- handles end-to-end, eliminating per-op vecStackTensor / tensorToScalars
+  -- round-trips (mirrors NTM's pattern, Layer/Ntm.idr:189-194).
+  applyVar {d} {i} {o} st@(MkDnc _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+                                (Just _) (Just _) (Just _) (Just _) (Just _)
+                                (Just _) (Just _)) xs =
+    let (VTensor xElems) = xs
+        inputT = vecStackTensor xElems
+        (st', outT) = applyVarTensor st inputT
+        output = VTensor (tensorToScalars outT 0 o)
+    in (st', output)
+  -- Scalar fallback: when state tensors not initialized (pre-nameLayer
+  -- or after resetState).
   applyVar {d} st inp =
     let -- 1. Controller input: concat all read outputs + input
         allReads = concatReads {r} {m} st.readOutputs
@@ -424,6 +537,128 @@ export
             ro = readOpVar rw mem
         in (rw, ro) :: computeReads (idx + 1) restRws keysTensor betasTensor modesTensor link mem
 
+  -- Tensor-level forward pass — keeps state on AnyPtr handles end-to-end.
+  -- Eliminates the ~30K small-op tape entries / 2.4M SELECT calls per epoch
+  -- that dominated DNC's pre-rewrite forward time. Mirrors NTM's pattern
+  -- (Layer/Ntm.idr:217-267) scaled to DNC's 11 FCs + allocation/link/multi-
+  -- head read mechanisms. Helpers are top-level (above) — see comment there.
+  applyVarTensor {d} (MkDnc lstm wkFc wbFc eFc aFc fgFc agFc wgFc rkFc rbFc rmFc oFc
+                            memory usage ww rws ros link prec
+                            (Just memT) (Just usageT) (Just wwT)
+                            (Just precT) (Just linkT)
+                            (Just rwTs) (Just roTs)) inputT =
+    let Just wkW = extractWeightTensor wkFc | _ => idris_crash "DNC: writeKeyFc W"
+        Just wkB = extractBiasTensor wkFc   | _ => idris_crash "DNC: writeKeyFc B"
+        Just wbW = extractWeightTensor wbFc | _ => idris_crash "DNC: writeBetaFc W"
+        Just wbB = extractBiasTensor wbFc   | _ => idris_crash "DNC: writeBetaFc B"
+        Just eW  = extractWeightTensor eFc  | _ => idris_crash "DNC: eraseFc W"
+        Just eB  = extractBiasTensor eFc    | _ => idris_crash "DNC: eraseFc B"
+        Just aW  = extractWeightTensor aFc  | _ => idris_crash "DNC: addFc W"
+        Just aB  = extractBiasTensor aFc    | _ => idris_crash "DNC: addFc B"
+        Just fgW = extractWeightTensor fgFc | _ => idris_crash "DNC: freeGatesFc W"
+        Just fgB = extractBiasTensor fgFc   | _ => idris_crash "DNC: freeGatesFc B"
+        Just agW = extractWeightTensor agFc | _ => idris_crash "DNC: allocGateFc W"
+        Just agB = extractBiasTensor agFc   | _ => idris_crash "DNC: allocGateFc B"
+        Just wgW = extractWeightTensor wgFc | _ => idris_crash "DNC: writeGateFc W"
+        Just wgB = extractBiasTensor wgFc   | _ => idris_crash "DNC: writeGateFc B"
+        Just rkW = extractWeightTensor rkFc | _ => idris_crash "DNC: readKeysFc W"
+        Just rkB = extractBiasTensor rkFc   | _ => idris_crash "DNC: readKeysFc B"
+        Just rbW = extractWeightTensor rbFc | _ => idris_crash "DNC: readBetasFc W"
+        Just rbB = extractBiasTensor rbFc   | _ => idris_crash "DNC: readBetasFc B"
+        Just rmW = extractWeightTensor rmFc | _ => idris_crash "DNC: readModesFc W"
+        Just rmB = extractBiasTensor rmFc   | _ => idris_crash "DNC: readModesFc B"
+        Just oW  = extractWeightTensor oFc  | _ => idris_crash "DNC: outputFc W"
+        Just oB  = extractBiasTensor oFc    | _ => idris_crash "DNC: outputFc B"
+        nI = cast {to=Int} n
+        mI = cast {to=Int} m
+        onesScalar = prim__createScalar 1.0 0
+    in
+        let -- 1. Concat read outputs + input → LSTM input
+            lstmInputT = catReadOutsAndInputT roTs inputT
+            -- 2. LSTM forward at tensor level
+            (updLstm, hiddenT) = applyVarTensor lstm lstmInputT
+            Just cellT = extractCellTensor updLstm | _ => idris_crash "DNC: no cell tensor"
+            -- 3. 11 FCs as direct C ops (no scalar round-trips)
+            writeKeyT      = tensorAdd (tensorMv wkW cellT) wkB
+            writeBetaRawT  = tensorAdd (tensorMv wbW cellT) wbB
+            eraseRawT      = tensorAdd (tensorMv eW  cellT) eB
+            addVecT        = tensorAdd (tensorMv aW  cellT) aB
+            freeGatesRawT  = tensorAdd (tensorMv fgW cellT) fgB
+            allocGateRawT  = tensorAdd (tensorMv agW cellT) agB
+            writeGateRawT  = tensorAdd (tensorMv wgW cellT) wgB
+            readKeysFlatT  = tensorAdd (tensorMv rkW cellT) rkB
+            readBetasRawT  = tensorAdd (tensorMv rbW cellT) rbB
+            readModesFlatT = tensorAdd (tensorMv rmW cellT) rmB
+            -- 4. Activations
+            writeBetaT  = prim__log (prim__addScalar (prim__exp writeBetaRawT) 1.0)
+            eraseVecT   = prim__sigmoid eraseRawT
+            freeGatesT  = prim__sigmoid freeGatesRawT
+            allocGateT  = prim__sigmoid allocGateRawT
+            writeGateT  = prim__sigmoid writeGateRawT
+            -- 5. Usage update: write_usage = u + w - u*w; retention = prod(1 - f_j * w^r_j)
+            writeUsageT = prim__sub (prim__add usageT wwT) (prim__mul usageT wwT)
+            retentionT  = dncRetentionT 0 freeGatesT rwTs onesScalar
+            retClampedT = prim__clampMin retentionT 1.0e-10
+            newUsageT   = prim__mul writeUsageT retClampedT
+            -- 6. Allocation: argsort + cumprod + scatter
+            indicesT      = prim__argsort newUsageT 0 0
+            sortedUsageT  = prim__clampMin (prim__gather newUsageT indicesT nI) 1.0e-6
+            cumprodT      = prim__cumprod sortedUsageT 0
+            slicedT       = prim__narrow cumprodT 0 0 (nI - 1)
+            shiftedT      = prim__cat2 (prim__unsqueeze onesScalar 0) slicedT
+            oneMinusUsageT = prim__sub onesScalar sortedUsageT
+            sortedAllocT  = prim__mul oneMinusUsageT shiftedT
+            allocT        = prim__scatterAdd indicesT sortedAllocT nI
+            -- 7. Write content addressing — match batchCosineSimilarityVar:
+            -- unsqueeze key [m] → [1,m] before cosine_similarity along dim 1.
+            cosScoresT    = prim__cosineSimilarity memT (prim__unsqueeze writeKeyT 0) 1
+            scaledScoresT = prim__mul writeBetaT cosScoresT
+            contentWriteWT = prim__softmax scaledScoresT 0
+            -- 8. Write weighting: w^w = g^w * (g^a * a + (1-g^a) * c)
+            oneMinusAGT   = prim__sub onesScalar allocGateT
+            blendT        = prim__add (prim__mul allocGateT allocT)
+                                       (prim__mul oneMinusAGT contentWriteWT)
+            newWriteWT    = prim__mul writeGateT blendT
+            -- 9. Memory write: M' = M*(1 - outer(w,e)) + outer(w,a)
+            eraseGateT    = prim__outer newWriteWT eraseVecT
+            keepGateT     = prim__sub onesScalar eraseGateT
+            erasedT       = prim__mul memT keepGateT
+            addGateT      = prim__outer newWriteWT addVecT
+            newMemT       = prim__add erasedT addGateT
+            -- 10. Link matrix update
+            wiT           = prim__unsqueeze newWriteWT 1
+            wjT           = prim__unsqueeze newWriteWT 0
+            pjT           = prim__unsqueeze precT 0
+            decayT        = prim__sub (prim__sub onesScalar wiT) wjT
+            decayClampT   = prim__clampMin decayT 0.0
+            newLinkRawT   = prim__add (prim__mul decayClampT linkT) (prim__mul wiT pjT)
+            newLinkT      = prim__clampMin (dncZeroDiagT nI newLinkRawT) 0.0
+            -- 11. Precedence update
+            wSumT         = prim__sum newWriteWT
+            oneMinusWSumT = prim__sub onesScalar wSumT
+            newPrecT      = prim__add (prim__mul oneMinusWSumT precT) newWriteWT
+            -- 12. Read heads (per-head tensor processing)
+            (newRwTs, newRoTs) = dncReadHeadsT 0 rwTs newLinkT newMemT
+                                    readKeysFlatT readBetasRawT readModesFlatT mI
+            -- 13. Output FC
+            allNewReadsT  = catReadOutsT newRoTs
+            outputInputT  = prim__cat2 hiddenT allNewReadsT
+            outputT       = tensorAdd (tensorMv oW outputInputT) oB
+        in (MkDnc updLstm wkFc wbFc eFc aFc fgFc agFc wgFc rkFc rbFc rmFc oFc
+                  memory usage ww rws ros link prec
+                  (Just newMemT) (Just newUsageT) (Just newWriteWT)
+                  (Just newPrecT) (Just newLinkT)
+                  (Just newRwTs) (Just newRoTs), outputT)
+  -- Fallback: when state tensors haven't been initialized yet (pre-nameLayer
+  -- or after a sub-component reset), pack the input down to scalar Variables,
+  -- run the existing scalar applyVar, and stack the output back to a tensor.
+  -- Slow but correct — mirrors NTM's safety pattern.
+  applyVarTensor {d} {i} {o} st inputT =
+    let inputV : Vector i (Variable d)
+        inputV = VTensor (tensorToScalars inputT 0 i)
+    in case applyVar st inputV of
+         (st', VTensor outElems) => (st', vecStackTensor outElems)
+
   emapLayer f (MkDnc lstm wkFc wbFc eFc aFc fgFc agFc wgFc rkFc rbFc rmFc oFc
                mem usage ww rws ros link prec _ _ _ _ _ _ _) =
     MkDnc (emapLayer f lstm) (emapLayer f wkFc) (emapLayer f wbFc)
@@ -453,10 +688,36 @@ export
         namedRbFc   = nameLayer (prefx ++ "_readBetas_ll0") rbFc
         namedRmFc   = nameLayer (prefx ++ "_readModes_ll0") rmFc
         namedOFc    = nameLayer (prefx ++ "_output_ll0") oFc
+        -- Initialize state tensors. Persistent but NOT params (non-
+        -- learnable, reset per-sequence). Mirrors NTM lines 283-298.
+        (VTensor memRows)    = mem
+        (VTensor usageElems) = usage
+        (VTensor wwElems)    = ww
+        (VTensor precElems)  = prec
+        (VTensor linkRows)   = link
+        nI = cast {to=Int} n
+        mI = cast {to=Int} m
+        memT   = prim__createState2d nI mI
+                  (let buf = prim__allocDoubles (nI * mI) in packMatrixValues buf 0 {n=m} memRows)
+        usageT = prim__createState1d nI
+                  (let buf = prim__allocDoubles nI in packScalarValues buf 0 usageElems)
+        wwT    = prim__createState1d nI
+                  (let buf = prim__allocDoubles nI in packScalarValues buf 0 wwElems)
+        precT  = prim__createState1d nI
+                  (let buf = prim__allocDoubles nI in packScalarValues buf 0 precElems)
+        linkT  = prim__createState2d nI nI
+                  (let buf = prim__allocDoubles (nI * nI) in packMatrixValues buf 0 {n=n} linkRows)
+        rwTs   = map (\(VTensor rwElems) =>
+                       prim__createState1d nI
+                         (let buf = prim__allocDoubles nI in packScalarValues buf 0 rwElems)) rws
+        roTs   = map (\(VTensor roElems) =>
+                       prim__createState1d mI
+                         (let buf = prim__allocDoubles mI in packScalarValues buf 0 roElems)) ros
     in MkDnc namedLstm namedWkFc namedWbFc namedEFc namedAFc namedFgFc namedAgFc namedWgFc
              namedRkFc namedRbFc namedRmFc namedOFc
              mem usage ww rws ros link prec
-             Nothing Nothing Nothing Nothing Nothing Nothing Nothing
+             (Just memT) (Just usageT) (Just wwT) (Just precT) (Just linkT)
+             (Just rwTs) (Just roTs)
 
   layerPrefix _ = "dnc"
 
@@ -483,7 +744,8 @@ export
     ++ getParamIds rbFc ++ getParamIds rmFc ++ getParamIds oFc
 
   syncBuffers {d} (MkDnc lstm wkFc wbFc eFc aFc fgFc agFc wgFc rkFc rbFc rmFc oFc
-               mem usage ww rws ros link prec _ _ _ _ _ _ _) =
+               mem usage ww rws ros link prec
+               memT usageT wwT precT linkT rwTs roTs) =
     MkDnc (syncBuffers lstm) (syncBuffers wkFc) (syncBuffers wbFc)
            (syncBuffers eFc) (syncBuffers aFc) (syncBuffers fgFc)
            (syncBuffers agFc) (syncBuffers wgFc) (syncBuffers rkFc)
@@ -491,10 +753,11 @@ export
            mem usage (projectWeights ww)
            (map projectWeights rws) ros
            link prec
-           Nothing Nothing Nothing Nothing Nothing Nothing Nothing
+           memT usageT wwT precT linkT rwTs roTs
 
   applyDeltasAndSync {d} deltas (MkDnc lstm wkFc wbFc eFc aFc fgFc agFc wgFc rkFc rbFc rmFc oFc
-                              mem usage ww rws ros link prec _ _ _ _ _ _ _) =
+                              mem usage ww rws ros link prec
+                              memT usageT wwT precT linkT rwTs roTs) =
     MkDnc (applyDeltasAndSync deltas lstm) (applyDeltasAndSync deltas wkFc)
            (applyDeltasAndSync deltas wbFc) (applyDeltasAndSync deltas eFc)
            (applyDeltasAndSync deltas aFc) (applyDeltasAndSync deltas fgFc)
@@ -504,16 +767,16 @@ export
            mem usage (projectWeights ww)
            (map projectWeights rws) ros
            link prec
-           Nothing Nothing Nothing Nothing Nothing Nothing Nothing
+           memT usageT wwT precT linkT rwTs roTs
 
-  -- Rebuild state Variables with fresh zero Tensor*s at each sequence start.
-  -- DNC's forward (applyVar) reads its state through the structured Variable
-  -- fields directly (no consolidated tensor handles). On MLX, tape_reset
-  -- after every optimizer step deletes the non-persistent Tensor*s wrapped
-  -- by those Variables, so by the next epoch every scalar Variable in
-  -- linkMatrix / usage / etc. is a dangling pointer. We construct fresh
-  -- zero Variables here so the next forward never dereferences a stale
-  -- Tensor*. Recursively resets the LSTM controller's hT/cT.
+  -- Rebuild state with fresh zeros at each sequence start. Both the scalar
+  -- Variable fields AND the tensor handles must be re-initialized:
+  -- - Scalar Variables: needed for the scalar fallback path (and for
+  --   Tensor* lifecycle on MLX where tape_reset deletes non-persistent
+  --   Tensor*s wrapped by stale state Variables).
+  -- - Tensor handles: persistent state tensors created via
+  --   prim__createState{1d,2d}, freshly zeroed each sequence so the
+  --   tensor-fast-path applyVarTensor can read them.
   resetState {d} (MkDnc lstm wkFc wbFc eFc aFc fgFc agFc wgFc rkFc rbFc rmFc oFc
                        _ _ _ _ _ _ _
                        _ _ _ _ _ _ _) =
@@ -521,10 +784,44 @@ export
         zM    = the (Vector m (Variable d)) zeros
         memZ  = the (Matrix n m (Variable d)) zeros
         linkZ = the (Matrix n n (Variable d)) zeros
+        zReadWs = replicate r zN
+        zReadOuts = replicate r zM
+        nI = cast {to=Int} n
+        mI = cast {to=Int} m
+        -- Destructure VTensors so packMatrixValues / packScalarValues see
+        -- the inner Vect (matching the nameLayer pattern).
+        (VTensor memZRows)    = memZ
+        (VTensor zNElems)     = zN
+        (VTensor linkZRows)   = linkZ
+        -- Re-init tensor state handles with fresh zeros (mirror nameLayer)
+        memT   = prim__createState2d nI mI
+                  (let buf = prim__allocDoubles (nI * mI) in
+                   packMatrixValues buf 0 {n=m} memZRows)
+        usageT = prim__createState1d nI
+                  (let buf = prim__allocDoubles nI in
+                   packScalarValues buf 0 zNElems)
+        wwT    = prim__createState1d nI
+                  (let buf = prim__allocDoubles nI in
+                   packScalarValues buf 0 zNElems)
+        precT  = prim__createState1d nI
+                  (let buf = prim__allocDoubles nI in
+                   packScalarValues buf 0 zNElems)
+        linkT  = prim__createState2d nI nI
+                  (let buf = prim__allocDoubles (nI * nI) in
+                   packMatrixValues buf 0 {n=n} linkZRows)
+        rwTs   = map (\(VTensor rwElems) =>
+                       prim__createState1d nI
+                         (let buf = prim__allocDoubles nI in
+                          packScalarValues buf 0 rwElems)) zReadWs
+        roTs   = map (\(VTensor roElems) =>
+                       prim__createState1d mI
+                         (let buf = prim__allocDoubles mI in
+                          packScalarValues buf 0 roElems)) zReadOuts
     in MkDnc (resetState lstm) wkFc wbFc eFc aFc fgFc agFc wgFc
              rkFc rbFc rmFc oFc
-             memZ zN zN (replicate r zN) (replicate r zM) linkZ zN
-             Nothing Nothing Nothing Nothing Nothing Nothing Nothing
+             memZ zN zN zReadWs zReadOuts linkZ zN
+             (Just memT) (Just usageT) (Just wwT) (Just precT) (Just linkT)
+             (Just rwTs) (Just roTs)
 
 
 ----------------------------------------------------------------------
