@@ -33,8 +33,17 @@ demoCreate = ?demoCreateImpl  -- not executable; type-checks if Compatible holds
 -- POSITIVE CASES — these compile because the relevant Compatible
 -- instances exist:
 
-okCpuF64 : IO (Tensor [4] CPU F64 WithGrad)
-okCpuF64 = demoCreate
+okTapeF64 : IO (Tensor [4] TapeDev F64 WithGrad)
+okTapeF64 = demoCreate
+
+okTorchCpuF64 : IO (Tensor [4] (TorchDev TCpu) F64 WithGrad)
+okTorchCpuF64 = demoCreate
+
+okTorchCpuF32 : IO (Tensor [4] (TorchDev TCpu) F32 WithGrad)
+okTorchCpuF32 = demoCreate
+
+okTorchMpsF32 : IO (Tensor [4] (TorchDev TMps) F32 WithGrad)
+okTorchMpsF32 = demoCreate
 
 okMlxCpuF64 : IO (Tensor [4] MlxCpu F64 WithGrad)
 okMlxCpuF64 = demoCreate
@@ -46,13 +55,15 @@ okMlxGpuF32 : IO (Tensor [4] (MlxDev MGpu) F32 WithGrad)
 okMlxGpuF32 = demoCreate
 
 
--- NEGATIVE CASE — uncomment to see the compile-time rejection:
+-- NEGATIVE CASES — uncomment to see the compile-time rejections:
 --
---   When checking type of Example.DTypePitch.failMlxGpuF64:
 --   Can't find an implementation for Compatible (MlxDev MGpu) F64
---
 -- failMlxGpuF64 : IO (Tensor [4] (MlxDev MGpu) F64 WithGrad)
 -- failMlxGpuF64 = demoCreate
+--
+--   Can't find an implementation for Compatible (TorchDev TMps) F64
+-- failTorchMpsF64 : IO (Tensor [4] (TorchDev TMps) F64 WithGrad)
+-- failTorchMpsF64 = demoCreate
 
 
 -- Same demo on the lossless-upcast partial order. `F32 → F64` is
@@ -73,9 +84,13 @@ main : IO ()
 main = do
   putStrLn "=== DType pitch ==="
   putStrLn "If you see this, the type-system check passed for:"
-  putStrLn "  * Tensor [4] CPU F64 WithGrad"
-  putStrLn "  * Tensor [4] MlxCpu F64 WithGrad"
-  putStrLn "  * Tensor [4] MlxCpu F32 WithGrad"
-  putStrLn "  * Tensor [4] MlxGpu F32 WithGrad"
+  putStrLn "  * Tensor [4] TapeDev F64 WithGrad"
+  putStrLn "  * Tensor [4] (TorchDev TCpu) F64 WithGrad"
+  putStrLn "  * Tensor [4] (TorchDev TCpu) F32 WithGrad"
+  putStrLn "  * Tensor [4] (TorchDev TMps) F32 WithGrad"
+  putStrLn "  * Tensor [4] (MlxDev MCpu) F64 WithGrad"
+  putStrLn "  * Tensor [4] (MlxDev MCpu) F32 WithGrad"
+  putStrLn "  * Tensor [4] (MlxDev MGpu) F32 WithGrad"
   putStrLn ""
-  putStrLn "Try uncommenting `failMlxGpuF64` for the type rejection demo."
+  putStrLn "Try uncommenting `failMlxGpuF64` or `failTorchMpsF64`"
+  putStrLn "for the type-level rejection demos."

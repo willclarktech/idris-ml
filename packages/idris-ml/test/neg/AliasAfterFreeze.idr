@@ -22,15 +22,15 @@ import Layer
 
 -- A parameter-free Network (single tanh activation) so we don't need
 -- RNG to construct it.
-buildNet : Network 4 [] 4 CPU dt WithGrad
-buildNet = OutputLayer (the (AnyLayer 4 4 CPU dt WithGrad) tanhLayerAny)
+buildNet : Network 4 [] 4 TapeDev dt WithGrad
+buildNet = OutputLayer (the (AnyLayer 4 4 TapeDev dt WithGrad) tanhLayerAny)
 
 -- ^^^ EXPECTED COMPILE ERROR: after `freezeNetwork net`, the variable
 -- `net` has 0 remaining uses (consumed linearly). The `forwardVar net
 -- ...` call below tries to use it a second time — Idris reports a
 -- linearity violation. Error message includes "linear" or "There are
 -- 0 uses" or similar.
-brokenReuse : (input : Tensor [4] CPU dt WithGrad) -> IO ()
+brokenReuse : (input : Tensor [4] TapeDev dt WithGrad) -> IO ()
 brokenReuse input = do
   let net = buildNet
   _ <- freezeNetwork net           -- consumes `net`

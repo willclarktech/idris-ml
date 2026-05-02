@@ -19,12 +19,12 @@ import Tensor
 -- the output of a `withNoGrad`-wrapped forward). The C-side handle
 -- is irrelevant for this compile test — the type itself triggers
 -- the gate.
-fakeNoGradLoss : Tensor (the (Vect 0 Nat) []) CPU dt NoGrad
+fakeNoGradLoss : Tensor (the (Vect 0 Nat) []) TapeDev dt NoGrad
 fakeNoGradLoss = believe_me ()
 
 -- ^^^ EXPECTED COMPILE ERROR: nativeTrainStep requires its loss
--- argument to be `Tensor [] CPU dt WithGrad`; we passed
--- `Tensor [] CPU dt NoGrad`. Error should mention both `WithGrad`
+-- argument to be `Tensor [] TapeDev dt WithGrad`; we passed
+-- `Tensor [] TapeDev dt NoGrad`. Error should mention both `WithGrad`
 -- and `NoGrad` (a "Mismatch between: ..." line in Idris 2 v0.8.0).
 brokenStep : NativeOptimizer -> Double
 brokenStep opt = nativeTrainStep opt fakeNoGradLoss
