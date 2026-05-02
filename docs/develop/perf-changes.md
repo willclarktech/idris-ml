@@ -48,6 +48,37 @@ is still useful (saves someone trying it again).
 
 ## Entries
 
+### 2026-05-19 — RL sweep post-gymnasium-migration + two-point timing breakdown — `0e2ecdc`
+
+**Plan job**: cross-cutting (after gymnasium-migration sweep)
+
+**Motivation**: First cross-backend perf sweep covering the 7 deep-RL examples (reinforce / a2c / dqn / mountain-car / mountain-car-cont / ppo / sac) after the gymnasium migration. Wanted ms/epoch baselines for the migrated reference scripts and Idris-vs-PyTorch ratios.
+
+**Change**: ran `scripts/perf-sweep.sh --examples reinforce,a2c,dqn,mountain-car,mountain-car-cont,ppo,sac --cells tape,torch,mlx-cpu,mlx-gpu --seed 42`. Sweep ran ~9h wall-clock; killed during sac mlx-gpu (the only cell not reported).
+
+**Impact** (all ms/epoch, commit `0e2ecdc`):
+
+| example | tape | torch | mlx-cpu | mlx-gpu | py-ref |
+|---|---:|---:|---:|---:|---:|
+| reinforce | 11.47 | 44.80 | **crash** | **crash** | 0.07 (broken) |
+| a2c | 1.71 | 2.73 | 60.78 | 129.97 | -0.59 (broken) |
+| dqn | 39.32 | 75.20 | 2078.92 | 2972.05 | -0.33 (broken) |
+| mountain-car | 165.48 | 405.35 | 15580.27 | 27607.35 | -0.23 (broken) |
+| mountain-car-cont | -0.07 | 0.12 | 10.32 | 1.83 | -0.95 (broken) |
+| ppo | 240.10 | 864.73 | 455761.73 | (cut off) | 166.53 |
+| sac | (cut off) | — | — | — | — |
+
+**Outcome**: partial. Tape and torch numbers are useful for regression tracking; the rest surfaces three workflow issues:
+
+1. **PyTorch ref timing is broken for short-converging deep-RL examples.** The two-point methodology in `perf-baseline.sh` / `perf-sweep.sh` (`wall(N_long) - wall(N_short)` divided by `N_long - N_short`) goes negative or near-zero when the per-epoch cost is dominated by Python startup + episode-length variance rather than fixed per-step compute. Only PPO (whose ref does linear-in-rollouts work each epoch) got a sane ratio. The Idris-side timings are valid (separate Idris-side two-point — both runs share the same Idris startup). Ratio columns are wrong for everything except PPO. **Workaround**: for short-converging deep-RL refs, use a longer fixed-`N` single-point timing with explicit `--epochs` override; need a new harness mode in `perf-baseline.sh`.
+2. **mlx is unusable for deep-RL workloads at current Idris-side per-op overhead.** PPO mlx-cpu is **455 sec/epoch** (vs 0.24 sec tape, 0.86 sec torch); mountain-car mlx-cpu is **15.6 sec/epoch** (vs 0.17 sec tape). The "Idris-side per-op overhead" Medium TODO row already filed for this. Long-rollout REINFORCE additionally crashes mlx with `[malloc] Unable to allocate 16 bytes` after ~2M tape appends — separate failure mode (mlx arena fragmentation on long-tape workloads), not just slowness.
+3. **Wall-clock cost** of running all 4 cells × 7 deep-RL examples is ~9h because mlx-cpu/gpu dominate. For routine post-change gating on RL changes, restrict to `tape,torch` cells (drops total to ~30 min on this hardware).
+
+**Cross-references**:
+- `docs/develop/perf-log.jsonl` 22 entries appended (lines tagged `commit 0e2ecdc`).
+- Existing Medium TODO row "Idris-side per-op overhead (cross-backend wall bottleneck)" — this sweep is fresh confirmation on RL workloads.
+- New gotcha for perf-baseline.sh / perf-sweep.sh: needs a long-fixed-N mode for short-converging examples.
+
 ### 2026-05-14 — GPU-specific "Idris-side overhead" is actually accumulated kernel-launch wall — `<commit>`
 
 **Plan job**: follow-up to the GptLarge Phase 3 wallclock matrix, where
