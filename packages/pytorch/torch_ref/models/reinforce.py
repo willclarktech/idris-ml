@@ -21,7 +21,13 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
-from torch_ref.training.runner import format_elapsed, mem_suffix
+from torch_ref.training.runner import (
+    format_elapsed,
+    get_device,
+    get_dtype,
+    mem_suffix,
+    multinomial_safe,
+)
 
 MAX_STEPS = 200
 
@@ -46,14 +52,14 @@ def reset_to_zero(env: gym.Env) -> np.ndarray:
 
 
 def obs_tensor(obs: np.ndarray) -> Tensor:
-    return torch.tensor(obs, dtype=torch.float64)
+    return torch.tensor(obs, dtype=get_dtype(), device=get_device())
 
 
 class PolicyNetwork(nn.Module):
     def __init__(self, hidden: int = 128) -> None:
         super().__init__()
-        self.fc1 = nn.Linear(4, hidden, dtype=torch.float64)
-        self.fc2 = nn.Linear(hidden, 2, dtype=torch.float64)
+        self.fc1 = nn.Linear(4, hidden, dtype=get_dtype())
+        self.fc2 = nn.Linear(hidden, 2, dtype=get_dtype())
 
     def forward(self, x: Tensor) -> Tensor:
         return self.fc2(torch.tanh(self.fc1(x)))
@@ -72,7 +78,7 @@ def collect_episode(
         logits = policy(obs)
         log_p = torch.log_softmax(logits, dim=0)
         probs = torch.exp(log_p)
-        action = int(torch.multinomial(probs, 1).item())
+        action = int(multinomial_safe(probs, 1).item())
         log_probs.append(log_p[action])
         next_obs_np, reward, term, trunc, _ = env.step(action)
         rewards.append(float(reward))
@@ -117,7 +123,7 @@ def reinforce_epoch(
     baseline = sum(episode_returns) / len(episode_returns)
     adjusted = [g - baseline for g in all_advantages]
     optimizer.zero_grad()
-    loss = torch.tensor(0.0, dtype=torch.float64)
+    loss = torch.tensor(0.0, dtype=get_dtype(), device=get_device())
     for lp, adv in zip(all_log_probs, adjusted, strict=True):
         loss = loss - lp * adv
     loss = loss / len(all_log_probs)

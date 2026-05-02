@@ -19,7 +19,12 @@ from torch_ref.models.reinforce import (
     reinforce_epoch,
 )
 from torch_ref.training.lr_finder import LrFindConfig, lr_find
-from torch_ref.training.runner import format_elapsed, format_result, mem_suffix
+from torch_ref.training.runner import (
+    format_elapsed,
+    format_result,
+    mem_suffix,
+    set_device,
+)
 
 
 def main() -> None:
@@ -34,8 +39,15 @@ def main() -> None:
         action="store_true",
         help="Run lr_find (LR-range test) instead of training, then exit.",
     )
+    parser.add_argument(
+        "--device",
+        default="cpu",
+        choices=["cpu", "mps", "cuda"],
+        help="Device for tensor ops (default: cpu)",
+    )
     args = parser.parse_args()
 
+    set_device(args.device)
     torch.manual_seed(args.seed)
 
     print("=== REINFORCE on CartPole ===")
@@ -44,7 +56,7 @@ def main() -> None:
         f" gamma={args.gamma} batch={args.batch} seed={args.seed}"
     )
 
-    policy = PolicyNetwork(hidden=128)
+    policy = PolicyNetwork(hidden=128).to(args.device)
     optimizer = torch.optim.Adam(policy.parameters(), lr=args.lr)
     torch.nn.utils.clip_grad_norm_(policy.parameters(), 1.0)  # setup
 

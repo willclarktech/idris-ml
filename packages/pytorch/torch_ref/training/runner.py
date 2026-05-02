@@ -11,9 +11,62 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import psutil
+import torch
 
 _PROC = psutil.Process()
 _PEAK_MB = 0
+
+# Module-level device + dtype singletons. Model/loop code calls
+# `get_device()` / `get_dtype()` to place new tensors on the active
+# device/dtype without threading the values through every signature.
+# `run_training` calls `set_device(config.device)` before the first
+# epoch; each script's main() can also call it directly when
+# constructing tensors before the training loop starts.
+#
+# Dtype is auto-selected from device: torch.float64 for cpu/cuda,
+# torch.float32 for mps (libtorch's MPS backend rejects float64 at
+# tensor construction with `Cannot convert a MPS Tensor to float64
+# dtype`, so we silently downcast). This mirrors idris-ml's
+# `(MlxDev MGpu) F32` only / `MlxDev MCpu` F32+F64 design.
+_DEVICE: str = "cpu"
+_DTYPE: torch.dtype = torch.float64
+
+
+def _dtype_for_device(d: str) -> torch.dtype:
+    """Default dtype per device: F32 on MPS (libtorch rejects F64),
+    F64 elsewhere (refs' historical default for numerical parity with
+    idris-ml's F64 default)."""
+    return torch.float32 if d == "mps" else torch.float64
+
+
+def set_device(d: str) -> None:
+    """Set the active device and auto-derive the dtype."""
+    global _DEVICE, _DTYPE
+    _DEVICE = d
+    _DTYPE = _dtype_for_device(d)
+
+
+def get_device() -> str:
+    """Active device string ("cpu" / "mps" / "cuda") for tensor creation."""
+    return _DEVICE
+
+
+def get_dtype() -> torch.dtype:
+    """Active floating-point dtype, auto-derived from `get_device()`."""
+    return _DTYPE
+
+
+def multinomial_safe(probs: torch.Tensor, num_samples: int) -> torch.Tensor:
+    """`torch.multinomial` with explicit MPS workaround.
+
+    `torch.multinomial` has no MPS kernel — on MPS tensors PyTorch
+    silently falls back to CPU under `PYTORCH_ENABLE_MPS_FALLBACK=1`
+    (the recent default). Making the round-trip explicit here keeps
+    the cost visible in profiles and grep-able in code.
+    """
+    if probs.device.type == "mps":
+        return torch.multinomial(probs.cpu(), num_samples).to("mps")
+    return torch.multinomial(probs, num_samples)
 
 
 @dataclass
@@ -43,6 +96,10 @@ class TrainConfig:
     # a `.step()` method). Stepped once per epoch after `epoch_fn` runs,
     # matching PyTorch convention.
     lr_scheduler: Any | None = None
+    # Device for tensor placement: "cpu" / "mps" / "cuda". Threaded into
+    # the module-level `_DEVICE` singleton at the start of run_training so
+    # `get_device()` calls inside model/loop code see the right value.
+    device: str = "cpu"
 
 
 def format_elapsed(start: float) -> str:
@@ -105,6 +162,7 @@ def run_training(
     Returns:
         (epochs_completed, final_loss)
     """
+    set_device(config.device)
     t_start = time.monotonic()
     print("Training...")
 
