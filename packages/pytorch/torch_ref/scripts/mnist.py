@@ -14,7 +14,7 @@ import torch.nn.functional as F
 
 from torch_ref.models.mnist_cnn import MnistCNN, evaluate, get_mnist_loaders, train_epoch
 from torch_ref.training.lr_finder import LrFindConfig, lr_find
-from torch_ref.training.runner import format_result
+from torch_ref.training.runner import format_result, set_device
 
 
 def main() -> None:
@@ -38,8 +38,15 @@ def main() -> None:
         help="Cap training set to first N images (0 = use full 60K). "
         "Used by smoke tests to keep the run sub-minute.",
     )
+    parser.add_argument(
+        "--device",
+        default="cpu",
+        choices=["cpu", "mps", "cuda"],
+        help="Device for tensor ops (default: cpu)",
+    )
     args = parser.parse_args()
 
+    set_device(args.device)
     torch.manual_seed(args.seed)
 
     print("=== MNIST: Convolutional Neural Network ===")
@@ -55,7 +62,7 @@ def main() -> None:
     train_loader, test_loader = get_mnist_loaders(
         args.batch_size, train_count=args.train_count
     )
-    model = MnistCNN()
+    model = MnistCNN().to(args.device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 
     param_count = sum(p.numel() for p in model.parameters())
@@ -67,6 +74,7 @@ def main() -> None:
 
         def epoch_fn() -> float:
             inputs, targets = next(loader_iter)
+            inputs, targets = inputs.to(args.device), targets.to(args.device)
             optimizer.zero_grad()
             logits = model(inputs)
             loss = F.cross_entropy(logits, targets)

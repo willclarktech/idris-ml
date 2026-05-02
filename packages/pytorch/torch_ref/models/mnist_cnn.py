@@ -19,6 +19,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
+from torch_ref.training.runner import get_device
+
 if TYPE_CHECKING:
     from torch.utils.data import DataLoader
 
@@ -96,7 +98,9 @@ def train_epoch(
     model.train()
     total_loss = 0.0
     count = 0
+    device = get_device()
     for data, target in loader:
+        data, target = data.to(device), target.to(device)
         optimizer.zero_grad()
         output = model(data)
         loss = F.nll_loss(output, target)
@@ -115,8 +119,10 @@ def evaluate(model: MnistCNN, loader: DataLoader) -> tuple[float, float]:
     total_loss = 0.0
     correct = 0
     count = 0
+    device = get_device()
     with torch.no_grad():
         for data, target in loader:
+            data, target = data.to(device), target.to(device)
             output = model(data)
             total_loss += F.nll_loss(output, target, reduction="sum").item()
             pred = output.argmax(dim=1)
