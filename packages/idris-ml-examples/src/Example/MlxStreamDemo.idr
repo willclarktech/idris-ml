@@ -12,16 +12,27 @@
 |||
 ||| (2) Layer-forward smoke: builds a `LinearState 4 4 (MlxDev MGpu) F32`
 |||     and runs its `applyVar` on a `MlxGpu F32` input. Exercises the
-|||     full L59 cascade — every `prim__*` call inside `tlinear`,
-|||     `LayerLike` dispatch, and `Layer/Linear.idr` now routes through
-|||     `primFoo {d=MlxDev MGpu}` which threads `streamTag MGpu = 1`
-|||     into the C side. Pre-L59 these would have collapsed to the
-|||     env stream.
+|||     full L59 op cascade *and* the L60 creation cascade —
+|||     `linearLayer` allocates weights/biases via `tparam2d {d} {dt}`
+|||     which dispatches through the (now stream-aware) `RuntimeDType`
+|||     interface, threading `deviceStreamTag {d=MlxDev MGpu} = 1`
+|||     into `tensor_create_param_2d_f32_mlx_streamed`. Pre-L60 the
+|||     param allocation hit the env stream regardless of the
+|||     type-level `d`; pre-L59 the forward ops similarly hit the env
+|||     stream. Both holes are closed.
+|||
+||| (3) `bulkToTensor` round-trip: explicitly stream-routes the
+|||     state-tensor creation path used by data marshalling. Reads
+|||     back values via `primItem1d {d}` — also stream-routed.
 |||
 ||| Pre-L60: both `MlxCpu F64` and `MlxGpu F32` collapsed to whatever
-||| stream `MLX_DEVICE` selected at process start — the type-level
-||| distinction was decorative. Post-L60 + L59: each tensor's ops run
-||| on the stream its type says, regardless of `MLX_DEVICE`.
+||| stream `MLX_DEVICE` selected at process start for the typeclass-
+||| routed ops AND for all dt-keyed creation primitives. Post-L60:
+||| both axes (operator dispatch + dtype-cascade allocation) route
+||| through the typeclass surface, with the stream tag derived from
+||| the destination device's `UserDeviceCore.deviceStreamTag` method.
+||| Each tensor's lifecycle runs on the stream its type says,
+||| regardless of `MLX_DEVICE`.
 |||
 ||| Mlx-only example. Skipped under tape / torch builds (its surface
 ||| references `MlxCpu` / `MlxGpu` which are only meaningfully linked
