@@ -12,6 +12,7 @@ import Backprop
 import Checkpoint
 import DataPoint
 import Endofunctor
+import Hpo.LrFinder
 import Layer
 import Math
 import Optimizer
@@ -78,9 +79,10 @@ record Config where
   seed : Bits64
   savePath : String
   loadPath : String
+  lrFind : Bool
 
 defaultConfig : Config
-defaultConfig = MkConfig "train" 500 0.03 123456 "" ""
+defaultConfig = MkConfig "train" 500 0.03 123456 "" "" False
 
 specs : List (ArgSpec Config)
 specs = [ Arg "--mode" (\v, c => { mode := v } c)
@@ -88,7 +90,8 @@ specs = [ Arg "--mode" (\v, c => { mode := v } c)
         , Arg "--lr" (\v, c => { lr := cast v } c)
         , Arg "--seed" (\v, c => { seed := castBits64 v } c)
         , Arg "--save" (\v, c => { savePath := v } c)
-        , Arg "--load" (\v, c => { loadPath := v } c) ]
+        , Arg "--load" (\v, c => { loadPath := v } c)
+        , Arg "--lr-find" (\v, c => { lrFind := (v == "1" || v == "true") } c) ]
 
 -- Derive optimizer state path: "model.safetensors" → "model.optimizer.safetensors"
 optPath : String -> String
@@ -213,6 +216,22 @@ main = do
 
   putStrLn $ "=== Cross-Backend Transfer [" ++ backendName ++ "] -- "
            ++ cfg.mode ++ " ==="
+
+  -- HPO branch: --lr-find runs lr_find on Transfer's training setup
+  -- (same dataset/model/loss as Supervised), independently of the mode.
+  -- Result matches Supervised's lr_find — see hyperparameter-tuning-2026.md.
+  when cfg.lrFind $ do
+    let opt = nativeSgd cfg.lr
+        tensorData = map toTensorDP dataPoints
+    let lrCfg : LrFindConfig
+        lrCfg = { numIters := 100 } defaultLrFindConfig
+    _ <- lrFind lrCfg
+      (\m, d => let (m', loss) = epochNativeTensorPre opt d nllLossTensor m
+                in pure (m', loss))
+      (pure tensorData) opt model
+    putStrLn ""
+    putStrLn "Done — re-run without --lr-find at the recommended LR."
+    exitSuccess
 
   case cfg.mode of
     "train"    => doTrain cfg model

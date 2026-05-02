@@ -101,6 +101,18 @@ This is a useful negative-result entry for the workflow: `lr_find` is a screenin
 
 ---
 
+## Transfer           date: 2026-04-29
+
+- **Before**: `lr=0.03 epochs=500 seed=123456`. Same 5-point classification dataset, single `Linear<2:3>` model, and NLL loss as Supervised. Transfer is an Idris-only SafeTensors portability demo (no PyTorch counterpart) — `--mode train|continue|infer` exercises save/load across backends.
+- **lr_find (Idris)**: `RECOMMENDED_LR=0.02420`, sweep range 1e-7..10, iters=100, divergence at iter 97 (lr ≈ 6.89), seed=123456.
+- **lr_find (PyTorch)**: n/a (no PyTorch counterpart).
+- **Cross-backend agreement**: n/a — single-backend example. Recommendation lines up with Supervised's neighborhood (Supervised Idris 0.0201 / PyTorch 0.0242 at seed=42), confirming the duplicate setup.
+- **Multi-seed pass rate**: not measured (Transfer's purpose is portability, not convergence per se — its convergence target is "matches Supervised").
+- **Decision**: ship-as-is at lr=0.03. Adding the `--lr-find` flag for consistency-of-approach across the example suite.
+- **Commit**: (this commit).
+
+---
+
 ## Pattern observed across B3 so far
 
 After 5 examples (Supervised, Rnn, Lstm, Transformer, SeqClassify), the
