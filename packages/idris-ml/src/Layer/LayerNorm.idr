@@ -62,7 +62,7 @@ fillConst buf _ 0 _ = buf
 fillConst buf off n v =
   fillConst (prim__setDouble buf off v) (off + 1) (n - 1) v
 
-||| Build a `LayerNormState n n CPU` with gamma initialised to 1.0
+||| Build a `LayerNormState n n TapeDev` with gamma initialised to 1.0
 ||| and beta to 0.0. Both register as C params under
 ||| `<prefix>_gamma` / `<prefix>_beta`.
 export

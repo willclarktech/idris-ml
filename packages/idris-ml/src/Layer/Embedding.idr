@@ -58,7 +58,7 @@ packDoubles buf _ [] = buf
 packDoubles buf off (x :: rest) =
   packDoubles (prim__setDouble buf off x) (off + 1) rest
 
-||| Build an `EmbeddingState vocab embedDim CPU` with weights
+||| Build an `EmbeddingState vocab embedDim TapeDev` with weights
 ||| sampled from N(0, 0.02) — same init as V1 `embeddingLayer`.
 ||| Weight registers as one C param under `<prefix>_weight`.
 export

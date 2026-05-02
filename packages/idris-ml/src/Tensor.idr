@@ -102,12 +102,12 @@ prim__free : AnyPtr -> ()
 %foreign "scheme:(lambda (a0)  ((foreign-procedure \"tensor_item\" (void*) double) (vector-ref a0 1)))"
 export prim__item : AnyPtr -> Double
 
--- Device transfer
-%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_to_device\" (void* string) void*) (vector-ref a0 1) a1))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-export prim__toDevice : AnyPtr -> String -> AnyPtr
-
-%foreign "scheme:(lambda (a0)  ((foreign-procedure \"tensor_device\" (void*) string) (vector-ref a0 1)))"
-export prim__tensorDevice : AnyPtr -> String
+-- (Phase 7: `prim__toDevice` and `prim__tensorDevice` were unified-
+-- name FFI bindings used by the old `toDevice`. They're now unused
+-- — `toDevice` lives on top of `UserDeviceTransfer`'s per-backend
+-- methods. The unified C symbols still exist (renamed at link time
+-- to `_<primary>` suffixes via the alias machinery) but no Idris
+-- code consumes them.)
 
 -- Arithmetic (all return new tensors — libtorch builds autograd graph)
 %foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_add\" (void* void*) void*) (vector-ref a0 1) (vector-ref a1 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"

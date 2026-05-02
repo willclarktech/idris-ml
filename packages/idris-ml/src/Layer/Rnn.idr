@@ -79,7 +79,7 @@ zeroBuf buf _ 0 = buf
 zeroBuf buf off n =
   zeroBuf (prim__setDouble buf off 0.0) (off + 1) (n - 1)
 
-||| Build an `RnnState i o CPU` with Xavier-uniform weights, zero
+||| Build an `RnnState i o TapeDev` with Xavier-uniform weights, zero
 ||| biases, and the given activation function. State starts as
 ||| Nothing; first `applyRnn` call zero-initialises it. Params
 ||| register under `<prefix>_iw`, `<prefix>_rw`, `<prefix>_ib`,

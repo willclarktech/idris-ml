@@ -205,7 +205,7 @@ applyNtm {n} {m} {h} {i} {o}
 -- Constructor
 ----------------------------------------------------------------------
 
-||| Build an `NtmState n m h inputSize outputSize CPU` matching the
+||| Build an `NtmState n m h inputSize outputSize TapeDev` matching the
 ||| PyTorch reference's `NTMLayer.__init__` (`torch_ref/ntm/layer.py`)
 ||| line-for-line. All inits mirror PyTorch's `nn.init` calls:
 |||

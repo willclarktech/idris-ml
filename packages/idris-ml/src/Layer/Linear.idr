@@ -72,7 +72,7 @@ zeroBuf buf _ 0 = buf
 zeroBuf buf off n =
   zeroBuf (prim__setDouble buf off 0.0) (off + 1) (n - 1)
 
-||| Build a `LinearState i o CPU` with custom weight + bias init
+||| Build a `LinearState i o TapeDev` with custom weight + bias init
 ||| strategies. Mirrors PyTorch's per-FC init customization (e.g. NTM's
 ||| read FCs use Xavier(gain=1.4) + normal(std=0.01) biases). The default
 ||| `linearLayer` is `mkLinearWith ... (xavier uniform) (pure 0.0)`.
@@ -96,7 +96,7 @@ mkLinearWith pfx wInit bInit = do
   b <- tparam1d (pfx ++ "_biases") bBuf'
   pure $ MkLinear w b
 
-||| Build a `LinearState i o CPU` with Xavier-uniform weights and
+||| Build a `LinearState i o TapeDev` with Xavier-uniform weights and
 ||| zero bias. Weights and biases are allocated as registered C
 ||| params under `<paramPrefix>_weights` and `<paramPrefix>_biases` —
 ||| matching the existing `Layer/Linear.idr` naming so the optimizer

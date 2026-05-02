@@ -59,8 +59,9 @@ DType = Type
 -- Each family is a `Nat`-parameterized type constructor. Users
 -- write `Float 32` directly, or use the aliases (`F32`) below.
 -- Constructors are present to mirror the Device tag convention
--- (`CPU`/`CUDA n`/`MPS`); user code never constructs values of
--- these types — they exist only as type-level tags.
+-- (`TapeDev` / `TorchDev d` / `MlxDev s`); user code never
+-- constructs values of these types — they exist only as
+-- type-level tags.
 ----------------------------------------------------------------------
 
 ||| IEEE 754 binary floating point of n bits. `F32`, `F64`, `F16`
@@ -91,8 +92,8 @@ data UInt : Nat -> Type where MkUInt : UInt n
 ----------------------------------------------------------------------
 -- Common aliases
 --
--- Exported for ergonomics. `Tensor [4] CPU F64 WithGrad` reads
--- better than `Tensor [4] CPU (Float 64) WithGrad`.
+-- Exported for ergonomics. `Tensor [4] TapeDev F64 WithGrad` reads
+-- better than `Tensor [4] TapeDev (Float 64) WithGrad`.
 ----------------------------------------------------------------------
 
 public export

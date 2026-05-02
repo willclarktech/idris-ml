@@ -78,7 +78,7 @@ zeroBuf buf _ 0 = buf
 zeroBuf buf off n =
   zeroBuf (prim__setDouble buf off 0.0) (off + 1) (n - 1)
 
-||| Build an `LstmState i o CPU` with Xavier-uniform weight init,
+||| Build an `LstmState i o TapeDev` with Xavier-uniform weight init,
 ||| two zero biases (matching `nn.LSTMCell`), and learned `h0`/`c0`
 ||| (zero-init, learned). Weights register as C params under
 ||| `<prefix>_iw`, `<prefix>_rw`, `<prefix>_ib`, `<prefix>_hb`,

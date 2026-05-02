@@ -374,7 +374,7 @@ mkKaimingReadOuts (S k) m bound = do
   rest <- mkKaimingReadOuts {d} {dt} k m bound
   pure (ptr :: rest)
 
-||| Build a `DncState r n m h i o CPU` matching the PyTorch reference's
+||| Build a `DncState r n m h i o TapeDev` matching the PyTorch reference's
 ||| `DNCLayer.__init__` (`torch_ref/dnc/layer.py`) line-for-line:
 |||
 ||| - LSTM controller:        Idris's `lstmLayer` (now with learned h0/c0)

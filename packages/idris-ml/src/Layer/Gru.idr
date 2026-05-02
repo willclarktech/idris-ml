@@ -68,7 +68,7 @@ zeroBuf buf _ 0 = buf
 zeroBuf buf off n =
   zeroBuf (prim__setDouble buf off 0.0) (off + 1) (n - 1)
 
-||| Build a `GruState i o CPU` with Xavier-uniform weights and
+||| Build a `GruState i o TapeDev` with Xavier-uniform weights and
 ||| zero biases. Params register under `<prefix>_iw`, `<prefix>_ih_b`,
 ||| `<prefix>_hw`, `<prefix>_hh_b`.
 export
