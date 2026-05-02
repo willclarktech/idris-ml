@@ -113,6 +113,25 @@ def has_diverged(diverge_factor: float, best: float, corrected: float) -> bool:
     return (corrected - best) > (diverge_factor - 1.0) * abs_ref
 
 
+def is_fallback_curve(curve: list[tuple[float, float]]) -> bool:
+    """``True`` when the swept curve has no usefully-descending region.
+
+    In that case, ``recommend_from_curve`` falls back to
+    ``lr_min / recommend_div`` and the recommendation is meaningless.
+    Fallback triggers:
+    - fewer than two points (no slope to measure)
+    - all slopes non-negative (loss never decreased)
+
+    Common in flat-curve regimes: small architectures, Adam already
+    adapting effective LR per parameter, or the LR sweep range missing
+    the actual sweet spot.
+    """
+    ss = _slopes(curve)
+    if not ss:
+        return True
+    return all(s >= 0.0 for _, s in ss)
+
+
 def lr_find(
     config: LrFindConfig,
     epoch_fn: Callable[[], float],
@@ -175,6 +194,11 @@ def lr_find(
     elapsed = time.monotonic() - t_start
     print(f"lr_find done in {elapsed:.2f}s")
 
+    if is_fallback_curve(points):
+        print(
+            "WARNING: fallback recommendation — "
+            "no negative-slope window in the swept curve."
+        )
     rec = recommend_from_curve(config.recommend_div, points)
     print(f"RECOMMENDED_LR={rec}")
 

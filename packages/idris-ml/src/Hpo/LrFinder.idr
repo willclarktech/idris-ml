@@ -134,6 +134,26 @@ hasDiverged divergeFactor best corrected =
   in (corrected - best) > (divergeFactor - 1.0) * absRef
 
 
+||| `True` when the swept (lr, smoothedLoss) curve has no usefully-
+||| descending region. In that case, `recommendFromCurve` falls back
+||| to `lrMin / recommendDiv` and the recommendation is meaningless.
+||| Fallback triggers:
+||| - fewer than two points (no slope to measure)
+||| - all slopes non-negative (loss never decreased)
+|||
+||| Callers should treat a fallback recommendation as a "lr_find could
+||| not find a useful LR" signal rather than acting on the value.
+||| Common in flat-curve regimes: small architectures, Adam already
+||| adapting effective LR per parameter, or the LR sweep range missing
+||| the actual sweet spot.
+export
+isFallbackCurve : List (Double, Double) -> Bool
+isFallbackCurve curve =
+  case slopes curve of
+    []  => True
+    ss  => all (\(_, s) => s >= 0.0) ss
+
+
 ----------------------------------------------------------------------
 -- Main loop
 ----------------------------------------------------------------------
@@ -165,7 +185,8 @@ lrFind {model} cfg epochFn dataSrc opt model0 = do
   result <- go 0 model0 0.0 (1.0 / 0.0) []
   tEnd <- clockTime Monotonic
   putStrLn $ "lr_find done in " ++ formatElapsed tStart tEnd
-  let pts = points result
+  when (isFallbackCurve (points result)) $
+    putStrLn "WARNING: fallback recommendation — no negative-slope window in the swept curve."
   putStrLn $ "RECOMMENDED_LR=" ++ show (recommendedLr result)
   pure result
   where

@@ -75,4 +75,18 @@ tests =
       (not (hasDiverged 4.0 0.0 0.0))
   , check "hasDiverged: best≈0, corrected=1.0 → diverged"
       (hasDiverged 4.0 0.0 1.0)
+
+  -- Fallback detection on the swept (lr, smoothedLoss) curve.
+  -- A useful curve has at least one negative slope (loss drops); a
+  -- fallback curve has all non-negative slopes (loss flat or rising).
+  , check "isFallbackCurve: empty curve → fallback"
+      (isFallbackCurve [])
+  , check "isFallbackCurve: single point → fallback"
+      (isFallbackCurve [(1.0e-3, 0.5)])
+  , check "isFallbackCurve: descending curve → not fallback"
+      (not (isFallbackCurve syntheticUCurve))
+  , check "isFallbackCurve: monotonically increasing → fallback"
+      (isFallbackCurve [(1.0e-4, 0.1), (1.0e-3, 0.2), (1.0e-2, 0.3)])
+  , check "isFallbackCurve: flat curve → fallback"
+      (isFallbackCurve [(1.0e-4, 0.5), (1.0e-3, 0.5), (1.0e-2, 0.5)])
   ]

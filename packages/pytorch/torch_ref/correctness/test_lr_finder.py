@@ -12,6 +12,7 @@ import math
 from torch_ref.training.lr_finder import (
     LrFindConfig,
     has_diverged,
+    is_fallback_curve,
     recommend_from_curve,
     sweep_lr,
 )
@@ -91,3 +92,25 @@ class TestHasDiverged:
 
     def test_zero_best_unit_jump_diverged(self) -> None:
         assert has_diverged(4.0, 0.0, 1.0)
+
+
+class TestIsFallbackCurve:
+    """Fallback detection: when the curve has no usefully-descending
+    region, ``recommend_from_curve`` falls back to ``lr_min /
+    recommend_div`` and the recommendation is meaningless.
+    """
+
+    def test_empty_curve_is_fallback(self) -> None:
+        assert is_fallback_curve([])
+
+    def test_single_point_is_fallback(self) -> None:
+        assert is_fallback_curve([(1e-3, 0.5)])
+
+    def test_descending_curve_is_not_fallback(self) -> None:
+        assert not is_fallback_curve(TestRecommendFromCurve.CURVE)
+
+    def test_monotonic_increase_is_fallback(self) -> None:
+        assert is_fallback_curve([(1e-4, 0.1), (1e-3, 0.2), (1e-2, 0.3)])
+
+    def test_flat_curve_is_fallback(self) -> None:
+        assert is_fallback_curve([(1e-4, 0.5), (1e-3, 0.5), (1e-2, 0.5)])
