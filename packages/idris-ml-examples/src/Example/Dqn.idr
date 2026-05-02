@@ -105,38 +105,55 @@ epsGreedyIO online obs eps = do
 
 
 ----------------------------------------------------------------------
--- DQN loss (per transition). Target Q uses the Double snapshot.
+-- DQN loss (batched). Target Q uses the Double snapshot (pure Idris,
+-- no FFI per scalar — kept per-sample). Online Q is batched: one
+-- [B, ObsDim] forward replaces B per-sample forwards. For 200-step
+-- episodes × batch=64, this is ~64× fewer tape entries per train step
+-- (B=64 forward calls collapse to 1).
 ----------------------------------------------------------------------
 
-perTransitionLoss : QNet -> QNetDouble -> Double -> Transition ObsDim 1 -> Variable CPU
-perTransitionLoss online target gamma t =
-  let stateT = bulkToTensor (obsTensor t.obs)
-      qT = snd (forwardVarTensor online stateT)
-      aIdx : Int
-      aIdx = case t.action of
-               ([a]) => cast {to=Int} (cast {to=Integer} a)
-      selPtr  = prim__select qT 0 aIdx
-      selVal  = prim__item1d qT aIdx
-      qsa     = Var selPtr Nothing selVal
-
-      -- Target: r + γ * max Q_target(s') * (1 - done)
-      qNextD = snd (forward target (obsTensor t.nextObs))
+computeTargetVal : QNetDouble -> Double -> Transition ObsDim 1 -> Double
+computeTargetVal tgt gamma t =
+  let qNextD = snd (forward tgt (obsTensor t.nextObs))
       nextMaxVal = vectorMax qNextD
       bootstrap  = if t.done then 0.0 else gamma * nextMaxVal
-      targetVal  = t.reward + bootstrap
-      targetVar  : Variable CPU
-      targetVar  = fromDouble targetVal
+  in t.reward + bootstrap
 
-      diff = qsa - targetVar
-  in diff * diff
+actionIdx : Vect 1 Double -> Int
+actionIdx [a] = cast {to=Int} (cast {to=Integer} a)
 
+-- Build per-sample (Q(s,a) - target)^2 Variables by indexing into the
+-- [B, NumActions] online output. Mirrors SAC's qLossBatch pattern
+-- (Example/Sac.idr): select row k, then column aIdx[k], wrap as Var to
+-- preserve autograd, subtract Double target, square.
+perSampleLosses : (qOutB : AnyPtr) -> Vect k (Transition ObsDim 1) ->
+                  Vect k Double -> Int -> List (Variable CPU)
+perSampleLosses _ [] [] _ = []
+perSampleLosses qOutB (t :: tRest) (tv :: tvRest) k =
+  let aIdx    = actionIdx t.action
+      qRow    = prim__select qOutB 0 k
+      qVal    = prim__item1d qRow aIdx
+      qV      : Variable CPU
+      qV      = Var (prim__select qRow 0 aIdx) Nothing qVal
+      targetC : Variable CPU
+      targetC = fromDouble tv
+      diff    = qV - targetC
+  in (diff * diff) :: perSampleLosses qOutB tRest tvRest (k + 1)
 
-batchLoss : QNet -> QNetDouble -> Double -> List (Transition ObsDim 1) -> Variable CPU
-batchLoss online target gamma batch =
-  let losses = map (perTransitionLoss online target gamma) batch
-      s = foldl (+) (fromDouble 0.0) losses
-      n = fromDouble (cast {to=Double} (natToInteger (length losses)))
-  in s / n
+batchLossBatched : (n : Nat) -> QNet -> QNetDouble -> Double ->
+                   Vect n (Transition ObsDim 1) -> Variable CPU
+batchLossBatched n online target gamma batch =
+  let targetVals : Vect n Double
+      targetVals = map (computeTargetVal target gamma) batch
+      obsTensors : Vect n (Vector ObsDim Double)
+      obsTensors = map (\t => obsTensor t.obs) batch
+      obsBT      = bulkToTensor2d obsTensors                         -- [B, ObsDim]
+      qOutB      = snd (forwardVarTensorBatch online n obsBT)         -- [B, NumActions]
+      losses     = perSampleLosses qOutB batch targetVals 0
+      n_d        = the Double (cast (natToInteger n))
+      sumV       = foldl (+) (the (Variable CPU) (fromDouble 0.0)) losses
+      nV         = the (Variable CPU) (fromDouble n_d)
+  in sumV / nV
 
 
 ----------------------------------------------------------------------
@@ -174,8 +191,7 @@ trainIfReady opt st = do
       mBatch <- sampleN st.cfgBatch st.buffer
       case mBatch of
         Just batchVec => do
-          let batchList = toList batchVec
-              loss = batchLoss st.qNet st.target st.cfgGamma batchList
+          let loss = batchLossBatched st.cfgBatch st.qNet st.target st.cfgGamma batchVec
           _ <- pure (nativeTrainStep opt loss)
           pure st
         Nothing => pure st

@@ -571,3 +571,14 @@ Fourth B6 attempt — port DQN to MountainCar with potential-based reward shapin
 - Multi-seed validation budget at the new per-epoch cost: ~30 min/seed × 5 seeds × 3 backends = 7-8 hours of compute.
 
 **Implication for B6 scope**: MountainCar is **not** in the sub-hour-scope bucket established by Gru / FrozenLake / Taxi. Treat as ~1–2 days minimum, with the batched-forward refactor as a prerequisite. MountainCarCont (continuous action via Gaussian policy) is even harder and depends on having a reliable MountainCar convergence pattern first. Recommend deferring the pair until the batched-forward DQN refactor lands as its own optimization ticket.
+
+### DQN batched forward (2026-04-30, prerequisite landed)
+
+Refactored `Example/Dqn.idr`'s training loop to do one `forwardVarTensorBatch` per train step instead of B per-sample `forwardVarTensor` calls. Pattern mirrors SAC's `qLossBatch` (Example/Sac.idr): stack obs into `[B, ObsDim]` via `bulkToTensor2d` → one batched online forward → per-row `prim__select(qOutB, 0, k)` then column select at the action index → wrap as `Var` to preserve autograd → squared-error vs the per-sample Double target. Target net stays per-sample (Double arithmetic, no FFI per scalar).
+
+**Validation**:
+- Multi-seed CartPole DQN at the unchanged H=64 default: 5/6 seeds ≥ 100 (200, 102, 106, 112, 200, 91). Pre-batched baseline was 4/5 ≥ 100 — pass rate matches within DQN's natural noise.
+- Full smoke gate (`make test-examples`) passes identically on all 3 backends (avg_return=9.0 at --epochs 10, seed=42).
+- PyTorch reference (`models/dqn.py`) was already natively batched via `q(obs).gather(...)` — no PyTorch changes.
+
+**Implication for MountainCar / MountainCarCont**: prerequisite cleared. Re-attempting MountainCar is now realistic — the per-epoch cost should drop from ~4 s to a fraction of that (a single batched forward replaces 64 per-sample forwards), making multi-seed validation budget-feasible. Reward shaping + initial-state randomization remain the open empirical questions.
