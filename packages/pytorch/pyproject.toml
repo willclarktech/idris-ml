@@ -8,6 +8,11 @@ dependencies = [
     "numpy>=1.24",
     "safetensors>=0.7.0",
     "psutil>=7.0",
+    # gymnasium for canonical RL envs in the torch_ref scripts.
+    # Migration replaces hand-rolled env physics with `gym.make(...)`
+    # so torch refs consume Gymnasium directly and idris-gym parity
+    # can be validated against the upstream.
+    "gymnasium>=1.0",
     # mlx for the MLX backend C++ bindings (used at build time by the
     # idris-ml Makefile, not by the torch reference scripts themselves).
     # Darwin-only — mlx ships Metal kernels and doesn't build on Linux.
