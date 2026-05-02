@@ -160,8 +160,14 @@ endif
 	$(BACKEND_CC) $(BACKEND_FLAGS) -o $@ $< $(SHARED_OBJ)
 
 # Download MNIST dataset
-download-mnist:
-	bash scripts/download_mnist.sh
+dataset-mnist:
+	bash scripts/dataset_mnist.sh
+
+# Download tinyshakespeare corpus (~1 MB, 65-char vocab) for the GPT
+# convergence run. Smoke gate uses the small embedded corpus and does
+# not need this file.
+dataset-tinyshakespeare:
+	bash scripts/dataset_tinyshakespeare.sh
 
 # Always update symlink to point to the active backend
 backend: $(BACKEND_LIB)
@@ -302,7 +308,7 @@ example-gpt: install
 	cp $(LIB) build/exec/gpt_app/
 	$(STDBUF) ./build/exec/gpt $(GPT_ARGS)
 
-example-mnist: install download-mnist
+example-mnist: install dataset-mnist
 	idris2 $(IDRIS_FLAGS) -o mnist $(EXAMPLE_SRC)/Example/Mnist.idr
 	cp $(LIB) build/exec/mnist_app/
 	$(STDBUF) ./build/exec/mnist $(MNIST_ARGS)
@@ -736,7 +742,7 @@ check-all: check check-gym check-notebook check-examples
 # Verify everything: check-all + run all tests
 all: check-all test-all
 
-.PHONY: all check-all all-backends test test-gym test-examples-unit test-all download-mnist test-backend test-backend-tape test-backend-mlx \
+.PHONY: all check-all all-backends test test-gym test-examples-unit test-all dataset-mnist dataset-tinyshakespeare test-backend test-backend-tape test-backend-mlx \
         test-backend-torch test-safetensors test-ntm-grad test-ntm-timestep \
         test-examples test-examples-convergence \
         check check-gym check-notebook check-examples install install-core install-gym install-notebook install-examples \
