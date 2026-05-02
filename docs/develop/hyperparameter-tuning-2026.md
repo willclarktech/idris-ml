@@ -270,9 +270,9 @@ Same architecture (LSTM controller + DNC memory: usage allocation + temporal lin
 - **RMSprop** (4 examples — NTM/DNC): all unreliable (flat curve then NaN, or real Idris/PyTorch divergence). The "small momentum-adapted optimizer" effect partially flattens the curve like Adam does.
 - **Adam / AdamW** (8 examples): 0/8 produced actionable signal. Across the suite, Adam's per-parameter LR adaptation flattens the lr_find loss curve to the point where the steepest-descent ÷ 10 heuristic gives either fallback (~lrMin/10) or wildly noisy values. **Confirms the fastai-vs-modern-optimizer story.**
 
-**Two structural lr_find limitations exposed by B3** (filed as future improvement candidates):
-1. **Negative-loss handling**: `divergeFactor × min_smoothed` is sign-broken when losses can be negative (REINFORCE, A2C, DQN — anything reporting negated returns as "loss"). Affects 4/11 examples.
-2. **Fallback detection**: when `RECOMMENDED_LR ≤ 10× lrMin` or no negative-slope window appears, the recommendation is a fallback, not a real signal. The cross-backend gate catches this indirectly (when both backends fall back, ratio looks ≈ 1×); a direct check would be more robust.
+**Two structural lr_find limitations exposed by B3**:
+1. ~~**Negative-loss handling**~~ — **fixed** (2026-04-30, see "Sign-stable divergence" entry under B4 below). New `hasDiverged` helper uses `(corrected - best) > (divergeFactor - 1) × |best|` instead of `corrected > divergeFactor × best`. Idris + PyTorch tests pin the behavior across positive/negative/near-zero `best` values.
+2. **Fallback detection**: when `RECOMMENDED_LR ≤ 10× lrMin` or no negative-slope window appears, the recommendation is a fallback, not a real signal. The cross-backend gate catches this indirectly (when both backends fall back, ratio looks ≈ 1×); a direct check would be more robust. Still open.
 
 **Cross-cutting decisions for the suite**:
 - Cross-backend agreement gate (>2× → unreliable) is now the standard B3 entry policy. Documented in CLAUDE.md and `Hpo` tutorials.

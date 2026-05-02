@@ -11,6 +11,7 @@ import math
 
 from torch_ref.training.lr_finder import (
     LrFindConfig,
+    has_diverged,
     recommend_from_curve,
     sweep_lr,
 )
@@ -55,3 +56,38 @@ class TestDefaults:
         assert cfg.num_iters == 100
         assert cfg.smooth_beta == 0.98
         assert cfg.recommend_div == 10.0
+
+
+class TestHasDiverged:
+    """Sign-stable divergence check.
+
+    Mirror of the Idris `Test.Hpo.LrFinder` cases for `hasDiverged`. The
+    classical `corrected > divergeFactor * best` rule is sign-broken for
+    negative losses (RL examples reporting `-avg_return`); these tests
+    pin the sign-stable behavior.
+    """
+
+    def test_positive_4x_diverged(self) -> None:
+        assert has_diverged(4.0, 1.0, 5.0)
+
+    def test_positive_3x_not_diverged(self) -> None:
+        assert not has_diverged(4.0, 1.0, 3.0)
+
+    def test_negative_best_corrected_above_not_diverged(self) -> None:
+        # best=-100, divergeFactor=4 → diverged when corrected > 200.
+        # corrected=-50 is improvement (not diverged).
+        assert not has_diverged(4.0, -100.0, -50.0)
+
+    def test_negative_best_corrected_at_threshold_diverged(self) -> None:
+        assert has_diverged(4.0, -100.0, 200.0 + 1e-9)
+
+    def test_negative_best_corrected_below_threshold_not_diverged(self) -> None:
+        assert not has_diverged(4.0, -100.0, 199.0)
+
+    def test_zero_best_no_change_not_diverged(self) -> None:
+        # |best|<1e-8 floor avoids divide-by-zero; tiny absolute jump
+        # still counts as a divergence.
+        assert not has_diverged(4.0, 0.0, 0.0)
+
+    def test_zero_best_unit_jump_diverged(self) -> None:
+        assert has_diverged(4.0, 0.0, 1.0)

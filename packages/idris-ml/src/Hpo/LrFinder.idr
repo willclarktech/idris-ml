@@ -119,6 +119,21 @@ recommendFromCurve recommendDiv curve =
   steepestDescent (slopes curve) / recommendDiv
 
 
+||| Sign-stable divergence check. Returns `True` when the current
+||| smoothed loss has worsened by more than `(divergeFactor - 1) × |best|`
+||| above the best smoothed loss seen so far. For positive losses this
+||| matches the classical `corrected > divergeFactor × best` rule. For
+||| negative losses (e.g. RL examples reporting `negate avg_return` as
+||| the "loss"), the classical rule trips at iter 1 because
+||| `divergeFactor × negative_best` is below any reasonable corrected
+||| value; this version stays correct.
+export
+hasDiverged : (divergeFactor : Double) -> (best : Double) -> (corrected : Double) -> Bool
+hasDiverged divergeFactor best corrected =
+  let absRef = if abs best < 1.0e-8 then 1.0e-8 else abs best
+  in (corrected - best) > (divergeFactor - 1.0) * absRef
+
+
 ----------------------------------------------------------------------
 -- Main loop
 ----------------------------------------------------------------------
@@ -178,13 +193,14 @@ lrFind {model} cfg epochFn dataSrc opt model0 = do
         putStrLn $ "  iter\t" ++ show i ++ "\tlr\t" ++ show lr
                  ++ "\tloss\t" ++ show loss
                  ++ "\tsmoothed\t" ++ show corrected
-        let diverged = corrected > cfg.divergeFactor * minS' && i > 0
+        let diverged = hasDiverged cfg.divergeFactor minS' corrected && i > 0
         if diverged
           then do
             putStrLn $ "  (diverged at iter " ++ show i
                      ++ ", smoothed=" ++ show corrected
-                     ++ " > " ++ show cfg.divergeFactor
-                     ++ " * min=" ++ show minS' ++ ")"
+                     ++ " > min=" ++ show minS'
+                     ++ " + " ++ show (cfg.divergeFactor - 1.0)
+                     ++ "*|min|)"
             let pts = reverse accRev'
                 rec = recommendFromCurve cfg.recommendDiv pts
             pure (MkLrFindResult pts rec)

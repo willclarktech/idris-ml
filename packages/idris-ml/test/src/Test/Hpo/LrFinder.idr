@@ -53,4 +53,26 @@ tests =
   , check "default numIters = 100" (defaultLrFindConfig.numIters == 100)
   , check "default smoothBeta = 0.98" (defaultLrFindConfig.smoothBeta == 0.98)
   , check "default recommendDiv = 10" (defaultLrFindConfig.recommendDiv == 10.0)
+
+  -- Sign-stable divergence check.
+  -- Positive-loss case: matches the classical divergeFactor × best rule.
+  , check "hasDiverged: positive loss, 4× best → diverged"
+      (hasDiverged 4.0 1.0 5.0)
+  , check "hasDiverged: positive loss, 3× best → not diverged"
+      (not (hasDiverged 4.0 1.0 3.0))
+  -- Negative-loss case (the classical rule was sign-broken here):
+  -- best=-100, divergeFactor=4 → diverged when corrected > -100 + 3×100 = 200.
+  , check "hasDiverged: negative best=-100, corrected=-50 → not diverged"
+      (not (hasDiverged 4.0 (-100.0) (-50.0)))
+  -- Threshold = -100 + 3*100 = 200; just above 200 should trip.
+  , check "hasDiverged: negative best=-100, corrected=200.001 → diverged"
+      (hasDiverged 4.0 (-100.0) 200.001)
+  , check "hasDiverged: negative best=-100, corrected=199 → not diverged"
+      (not (hasDiverged 4.0 (-100.0) 199.0))
+  -- Best ≈ 0 edge case: don't divide by zero; the |best|<1e-8 floor
+  -- means a tiny absolute jump is still a divergence.
+  , check "hasDiverged: best≈0, corrected=0 → not diverged"
+      (not (hasDiverged 4.0 0.0 0.0))
+  , check "hasDiverged: best≈0, corrected=1.0 → diverged"
+      (hasDiverged 4.0 0.0 1.0)
   ]

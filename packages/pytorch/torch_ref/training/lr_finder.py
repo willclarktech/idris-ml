@@ -97,6 +97,22 @@ def recommend_from_curve(recommend_div: float, curve: list[tuple[float, float]])
     return _steepest_descent(_slopes(curve)) / recommend_div
 
 
+def has_diverged(diverge_factor: float, best: float, corrected: float) -> bool:
+    """Sign-stable divergence check.
+
+    Returns True when ``corrected`` has worsened by more than
+    ``(diverge_factor - 1) * |best|`` above the best smoothed loss seen
+    so far. For positive losses this matches the classical
+    ``corrected > diverge_factor * best`` rule. For negative losses
+    (e.g. RL examples reporting ``-avg_return`` as the "loss"), the
+    classical rule trips at iter 1 because ``diverge_factor *
+    negative_best`` is below any reasonable corrected value; this
+    version stays correct.
+    """
+    abs_ref = max(abs(best), 1e-8)
+    return (corrected - best) > (diverge_factor - 1.0) * abs_ref
+
+
 def lr_find(
     config: LrFindConfig,
     epoch_fn: Callable[[], float],
@@ -149,10 +165,10 @@ def lr_find(
             f"  iter\t{i}\tlr\t{lr}\tloss\t{loss}\tsmoothed\t{corrected}"
         )
 
-        if i > 0 and corrected > config.diverge_factor * min_smoothed:
+        if i > 0 and has_diverged(config.diverge_factor, min_smoothed, corrected):
             print(
                 f"  (diverged at iter {i}, smoothed={corrected}"
-                f" > {config.diverge_factor} * min={min_smoothed})"
+                f" > min={min_smoothed} + {config.diverge_factor - 1.0}*|min|)"
             )
             break
 
