@@ -201,23 +201,28 @@ normAdvs triples =
 
 ----------------------------------------------------------------------
 -- Per-step A2C loss
+--
+-- The per-sample logits/value Variables are built from a row of the
+-- batched [B, NumActions] / [B, 1] tensors via `prim__select`. Forward
+-- through actor + critic happens once per epoch (batched) — see
+-- `buildLoss` below.
 ----------------------------------------------------------------------
 
-perStepLoss : Actor -> Critic -> Double -> Double ->
+perStepLoss : (logitsB : AnyPtr) -> (valuesB : AnyPtr) -> (rowIdx : Int) ->
+              Double -> Double ->
               (RollStep, Double, Double) -> Variable CPU
-perStepLoss actor critic entropyCoef valueCoef (step, adv, retT) =
-  let stateT   = bulkToTensor (obsTensor step.obs)
-      logitsT  = snd (forwardVarTensor actor stateT)
-      logPT    = prim__logSoftmax logitsT 0
+perStepLoss logitsB valuesB rowIdx entropyCoef valueCoef (step, adv, retT) =
+  let logitsRow = prim__select logitsB 0 rowIdx        -- [NumActions]
+      logPT     = prim__logSoftmax logitsRow 0
       aIdx : Int
-      aIdx     = cast {to=Int} (cast {to=Integer} step.action)
-      selLP    = prim__select logPT 0 aIdx
-      lpVal    = if step.action == 0 then prim__item1d logPT 0 else prim__item1d logPT 1
-      logProbV = Var selLP Nothing lpVal
+      aIdx      = cast {to=Int} (cast {to=Integer} step.action)
+      selLP     = prim__select logPT 0 aIdx
+      lpVal     = if step.action == 0 then prim__item1d logPT 0 else prim__item1d logPT 1
+      logProbV  = Var selLP Nothing lpVal
 
-      valueT   = snd (forwardVarTensor critic stateT)
-      vVal     = prim__item1d valueT 0
-      valueV   = Var (prim__select valueT 0 0) Nothing vVal
+      valueRow  = prim__select valuesB 0 rowIdx        -- [1]
+      vVal      = prim__item1d valueRow 0
+      valueV    = Var (prim__select valueRow 0 0) Nothing vVal
 
       advC     : Variable CPU
       advC     = fromDouble adv
@@ -236,9 +241,6 @@ perStepLoss actor critic entropyCoef valueCoef (step, adv, retT) =
 
       -- Entropy H(π) = -Σ p_i log p_i, built with grad-tracked Variables
       -- so the entropy bonus actually pulls the policy back from collapse.
-      -- (Previous version used `prim__item1d` which stripped gradient and
-      -- made `entTerm` a constant offset — a real bug caught during
-      -- multi-seed alignment with the PyTorch reference.)
       lp0Val   = prim__item1d logPT 0
       lp1Val   = prim__item1d logPT 1
       lp0V     : Variable CPU
@@ -265,6 +267,10 @@ aggregateLoss losses =
   in sumV / nV
 
 
+-- Pair each rollout step (after GAE + advantage normalization) with its
+-- batch row index, then build one batched actor + critic forward and
+-- index into the resulting [B, NumActions] / [B, 1] tensors per-sample.
+-- Replaces O(B) per-step `forwardVarTensor` calls with two batched ones.
 buildLoss : Actor -> Critic -> Double -> Double -> Double -> Double ->
             List RollStep -> CPState -> Variable CPU
 buildLoss actor critic gamma lam entropyCoef valueCoef steps finalSt =
@@ -273,10 +279,22 @@ buildLoss actor critic gamma lam entropyCoef valueCoef steps finalSt =
       gaeOut     = gae gamma lam bootstrap triples
       merged     = map flattenTriple (zip steps gaeOut)
       normalized = normAdvs merged
-      lossFn : (RollStep, Double, Double) -> Variable CPU
-      lossFn     = perStepLoss actor critic entropyCoef valueCoef
-      losses     = map lossFn normalized
+      normVec    = Data.Vect.fromList normalized
+      n          = length normalized
+      obsBatch : Vect (length normalized) (Vector ObsDim Double)
+      obsBatch   = map (\(s, _, _) => obsTensor s.obs) normVec
+      stackedT   = bulkToTensor2d obsBatch
+      logitsB    = snd (forwardVarTensorBatch actor n stackedT)
+      valuesB    = snd (forwardVarTensorBatch critic n stackedT)
+      losses     = enumeratedLosses logitsB valuesB normVec 0
   in aggregateLoss losses
+  where
+    enumeratedLosses : (logitsB : AnyPtr) -> (valuesB : AnyPtr) ->
+                       Vect k (RollStep, Double, Double) -> Int ->
+                       List (Variable CPU)
+    enumeratedLosses _ _ [] _ = []
+    enumeratedLosses lB vB (t :: rest) k =
+      perStepLoss lB vB k entropyCoef valueCoef t :: enumeratedLosses lB vB rest (k + 1)
 
 
 ----------------------------------------------------------------------
