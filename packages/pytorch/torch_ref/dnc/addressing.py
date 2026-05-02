@@ -92,13 +92,13 @@ def allocation_weighting(usage: Tensor) -> Tensor:
     # cumprod_term[j] = prod_{i=0}^{j-1} sorted_usage[i]
     cumprod_vals = torch.cumprod(sorted_usage, dim=0)
     # Shift right: [1, u[0], u[0]*u[1], ...]
-    shifted_cumprod = torch.cat([torch.ones(1), cumprod_vals[:-1]])
+    shifted_cumprod = torch.cat([torch.ones(1, device=usage.device), cumprod_vals[:-1]])
 
     # Allocation in sorted order
     sorted_alloc = (1 - sorted_usage) * shifted_cumprod
 
     # Unsort: scatter back to original positions
-    alloc = torch.zeros(n)
+    alloc = torch.zeros(n, device=usage.device)
     alloc.scatter_(0, sorted_indices, sorted_alloc)
 
     return alloc
@@ -158,7 +158,7 @@ def update_link_matrix(
     new_link = decay * prev_link + w_i * p_j
 
     # Zero diagonal and clamp entries non-negative
-    new_link = new_link * (1 - torch.eye(new_link.shape[0]))
+    new_link = new_link * (1 - torch.eye(new_link.shape[0], device=new_link.device))
     new_link = new_link.clamp(min=0.0)
 
     return new_link, new_precedence

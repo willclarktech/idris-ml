@@ -98,10 +98,12 @@ class DNCLayer(nn.Module):
         self.memory_init = nn.Parameter(torch.empty(n * m))
         nn.init.xavier_uniform_(self.memory_init.data.view(n, m))
 
-        # Fixed read output init (kaiming, non-learnable)
+        # Fixed read output init (kaiming, non-learnable). Registered as
+        # a buffer so .to(device) moves it alongside the parameters.
         read_out = torch.empty(num_reads, m)
         nn.init.kaiming_uniform_(read_out)
-        self._init_read_outputs = read_out
+        self.register_buffer("_init_read_outputs", read_out)
+        self._init_read_outputs: Tensor
 
     def reset_state(self) -> None:
         """Reset all state between sequences."""
@@ -110,15 +112,16 @@ class DNCLayer(nn.Module):
         # Memory
         self.memory = torch.sigmoid(self.memory_init).view(self.n, self.m)
 
-        # Addressing state
-        self.usage = torch.zeros(self.n)
-        self.write_weights = torch.zeros(self.n)
-        self.read_weights = [torch.zeros(self.n) for _ in range(self.num_reads)]
+        # Addressing state (allocated on the active param device)
+        device = self.memory_init.device
+        self.usage = torch.zeros(self.n, device=device)
+        self.write_weights = torch.zeros(self.n, device=device)
+        self.read_weights = [torch.zeros(self.n, device=device) for _ in range(self.num_reads)]
         self.read_outputs = [self._init_read_outputs[i].clone() for i in range(self.num_reads)]
 
         # Temporal link state
-        self.link_matrix = torch.zeros(self.n, self.n)
-        self.precedence = torch.zeros(self.n)
+        self.link_matrix = torch.zeros(self.n, self.n, device=device)
+        self.precedence = torch.zeros(self.n, device=device)
 
     def forward(self, x: Tensor) -> Tensor:
         """Forward one timestep.

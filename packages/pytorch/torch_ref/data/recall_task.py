@@ -20,6 +20,8 @@ import random
 import torch
 from torch import Tensor
 
+from torch_ref.training.runner import get_device
+
 
 def generate_recall_sequence(
     num_items: int,
@@ -40,20 +42,24 @@ def generate_recall_sequence(
     input_width = seq_width + 2
     item_delim_ch = seq_width  # channel index for item delimiter
     query_delim_ch = seq_width + 1  # channel index for query delimiter
+    device = get_device()
 
     # Generate random binary items
-    items = [torch.bernoulli(torch.full((seq_len, seq_width), 0.5)) for _ in range(num_items)]
+    items = [
+        torch.bernoulli(torch.full((seq_len, seq_width), 0.5, device=device))
+        for _ in range(num_items)
+    ]
 
     # Build input sequence: [item_delim item₁] [item_delim item₂] ...
     input_rows: list[Tensor] = []
     for item in items:
         # Item delimiter row
-        delim = torch.zeros(1, input_width)
+        delim = torch.zeros(1, input_width, device=device)
         delim[0, item_delim_ch] = 1.0
         input_rows.append(delim)
 
         # Item data rows (data in first seq_width channels)
-        item_rows = torch.zeros(seq_len, input_width)
+        item_rows = torch.zeros(seq_len, input_width, device=device)
         item_rows[:, :seq_width] = item
         input_rows.append(item_rows)
 
@@ -63,15 +69,15 @@ def generate_recall_sequence(
     target_item = items[query_idx + 1]  # the item after the query
 
     # Query phase: [query_delim] [query_item] [query_delim]
-    qd1 = torch.zeros(1, input_width)
+    qd1 = torch.zeros(1, input_width, device=device)
     qd1[0, query_delim_ch] = 1.0
     input_rows.append(qd1)
 
-    query_rows = torch.zeros(seq_len, input_width)
+    query_rows = torch.zeros(seq_len, input_width, device=device)
     query_rows[:, :seq_width] = query_item
     input_rows.append(query_rows)
 
-    qd2 = torch.zeros(1, input_width)
+    qd2 = torch.zeros(1, input_width, device=device)
     qd2[0, query_delim_ch] = 1.0
     input_rows.append(qd2)
 

@@ -12,6 +12,8 @@ import random
 import torch
 from torch import Tensor
 
+from torch_ref.training.runner import get_device
+
 
 def generate_copy_sequence(
     seq_len: int,
@@ -23,14 +25,15 @@ def generate_copy_sequence(
         input_seq: (seq_len+1, seq_width+1) — data rows + delimiter row
         target_seq: (seq_len, seq_width) — the binary vectors to reproduce
     """
+    device = get_device()
     # Random binary vectors
-    data = torch.bernoulli(torch.full((seq_len, seq_width), 0.5))
+    data = torch.bernoulli(torch.full((seq_len, seq_width), 0.5, device=device))
 
     # Input: data with extra delimiter channel (0 during data, 1 at delimiter)
-    input_data = torch.zeros(seq_len, seq_width + 1)
+    input_data = torch.zeros(seq_len, seq_width + 1, device=device)
     input_data[:, :seq_width] = data
 
-    delimiter = torch.zeros(1, seq_width + 1)
+    delimiter = torch.zeros(1, seq_width + 1, device=device)
     delimiter[0, seq_width] = 1.0  # delimiter channel
 
     input_seq = torch.cat([input_data, delimiter], dim=0)  # (seq_len+1, seq_width+1)

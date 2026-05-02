@@ -80,10 +80,13 @@ class NTMLayer(nn.Module):
         nn.init.xavier_uniform_(self.memory_init.data.view(n, m))
         self.memory: Tensor = torch.full((n, m), 1e-6)
 
-        # Fixed read output init (kaiming, non-learnable, set once)
+        # Fixed read output init (kaiming, non-learnable, set once).
+        # Registered as a buffer so model.to(device) moves it alongside
+        # the parameters.
         read_out = torch.empty(1, self.m)
         nn.init.kaiming_uniform_(read_out)
-        self._init_read_output = read_out.squeeze(0)
+        self.register_buffer("_init_read_output", read_out.squeeze(0))
+        self._init_read_output: Tensor
 
         self._diag: dict[str, Tensor] = {}
         self.stash_diagnostics: bool = False
@@ -95,8 +98,9 @@ class NTMLayer(nn.Module):
         # Learned memory init
         self.memory = torch.sigmoid(self.memory_init).view(self.n, self.m)
 
-        self._current_read_addr = torch.zeros(self.n)
-        self._current_write_addr = torch.zeros(self.n)
+        device = self.memory_init.device
+        self._current_read_addr = torch.zeros(self.n, device=device)
+        self._current_write_addr = torch.zeros(self.n, device=device)
 
         # Read head output: fixed kaiming init
         self._current_read_output = self._init_read_output

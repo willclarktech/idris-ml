@@ -16,7 +16,7 @@ from torch.nn.utils import clip_grad_value_
 from torch_ref.data.recall_task import generate_recall_batch
 from torch_ref.models.ntm import NtmConfig, NtmModel
 from torch_ref.training.lr_finder import LrFindConfig, lr_find
-from torch_ref.training.runner import TrainConfig, format_result, run_training
+from torch_ref.training.runner import TrainConfig, format_result, get_device, run_training, set_device
 
 # Architecture constants matching Idris
 W = 6
@@ -40,14 +40,15 @@ def _train_ntm_epoch(
     clip_value: float,
 ) -> float:
     optimizer.zero_grad()
-    total_loss = torch.tensor(0.0)
+    device = get_device()
+    total_loss = torch.tensor(0.0, device=device)
     for input_seq, target_seq in batch:
         model.reset_state()
         seq_len = target_seq.shape[0]
         input_width = input_seq.shape[1]
         for t in range(input_seq.shape[0]):
             model(input_seq[t])
-        zero_input = torch.zeros(input_width)
+        zero_input = torch.zeros(input_width, device=device)
         outputs = []
         for _ in range(seq_len):
             out = model(zero_input)
@@ -65,12 +66,13 @@ def _train_ntm_epoch(
 def _bit_accuracy(model: NtmModel, batch: list[tuple[torch.Tensor, torch.Tensor]]) -> float:
     correct = 0
     total = 0
+    device = get_device()
     with torch.no_grad():
         for input_seq, target_seq in batch:
             model.reset_state()
             for t in range(input_seq.shape[0]):
                 model(input_seq[t])
-            zero_input = torch.zeros(input_seq.shape[1])
+            zero_input = torch.zeros(input_seq.shape[1], device=device)
             outputs = []
             for _ in range(target_seq.shape[0]):
                 out = model(zero_input)
@@ -99,8 +101,15 @@ def main() -> None:
         action="store_true",
         help="Run lr_find (LR-range test) instead of training, then exit.",
     )
+    parser.add_argument(
+        "--device",
+        default="cpu",
+        choices=["cpu", "mps", "cuda"],
+        help="Device for tensor ops (default: cpu)",
+    )
     args = parser.parse_args()
 
+    set_device(args.device)
     random.seed(args.seed)
     torch.manual_seed(args.seed)
 
@@ -113,7 +122,7 @@ def main() -> None:
     print(f"Architecture: N={N} M={M} H={H}")
 
     cfg = NtmConfig(input_width=INPUT_W, output_width=OUTPUT_W, n=N, m=M, controller_size=H)
-    model = NtmModel(cfg)
+    model = NtmModel(cfg).to(args.device)
     optimizer = torch.optim.RMSprop(model.parameters(), lr=args.lr, alpha=0.95, momentum=0.9)
     print(f"Model: NTM<N={N} M={M} H={H}>")
     print()
@@ -143,6 +152,7 @@ def main() -> None:
         windowed_window=args.es_window,
         windowed_patience=args.es_patience,
         windowed_percentile=0.10,
+        device=args.device,
     )
     epochs_done, _ = run_training(epoch_fn, config, metrics_fn)
 
