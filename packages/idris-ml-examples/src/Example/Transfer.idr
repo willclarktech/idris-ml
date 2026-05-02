@@ -1,182 +1,185 @@
+||| Live cross-backend tensor transfer demo.
+|||
+||| Exercises `toDevice` (Tensor.idr) — the backendTag-aware
+||| migration introduced by Phase 6 of the 2026-05-19 device-
+||| taxonomy refactor — across every (backend, hardware) cell that
+||| runs on Apple Silicon:
+|||
+|||   TapeDev          (tape backend, host CPU,        F64 only)
+|||   TorchDev TCpu    (libtorch on host CPU,           F32 + F64)
+|||   TorchDev TMps    (libtorch on Apple Metal,        F32 only)
+|||   MlxDev MCpu      (mlx CPU stream,                 F32 + F64)
+|||   MlxDev MGpu      (mlx Metal stream,               F32 only)
+|||
+||| CUDA cells (`TorchDev (TCuda n)`) compile but aren't exercised
+||| here — no CUDA hardware on the macOS CI lane.
+|||
+||| Requires a multi-backend build so all three sets of C symbols
+||| (`tensor_*_tape`, `tensor_*_torch`, `tensor_*_mlx`) are linked:
+|||
+|||     make BACKEND=tape,torch,mlx example-transfer
+|||
+||| The Makefile target `example-transfer` invokes the multi-backend
+||| build directly. Without all three backends linked, the program
+||| crashes at FFI resolution on the first hop into the missing
+||| backend.
+|||
+||| The disk-based SafeTensors round-trip (the historical
+||| `Example/Transfer.idr` content) moved to `Example/Checkpoint.idr`.
 module Example.Transfer
-
--- Cross-backend transfer demo: train → save → load → continue → save → infer.
--- Run 3 times with different BACKEND= to prove SafeTensors portability.
 
 import Data.List
 import Data.Vect
-import System
-import Compat.Random
 
-import Backprop
-import Checkpoint
-import DataPoint
-import Hpo.LrFinder
-import Layer.Core
-import Layer.Linear
-import Array
-import Train
-import Util
 import Device
 import Tensor
-import BuildConfig
-
-----------------------------------------------------------------------
--- Data (same 5-point classification task as Supervised)
-----------------------------------------------------------------------
-
-dataPoints : Vect 5 (DataPoint 2 3 Double)
-dataPoints =
-    [ MkDataPoint (VArray [1.5, -2.7]) (VArray [0, 1, 0]),
-      MkDataPoint (VArray [-3.2, 4.1]) (VArray [0, 1, 0]),
-      MkDataPoint (VArray [5.7, 0]) (VArray [0, 0, 1]),
-      MkDataPoint (VArray [-1.3, 8.8]) (VArray [0, 1, 0]),
-      MkDataPoint (VArray [2.9, -1.4]) (VArray [1, 0, 0])
-    ]
-
--- Argmax on a 1D tensor (works on logits — softmax is monotonic)
-evalPrediction : AnyPtr -> Nat
-evalPrediction outT =
-  let v0 = prim__item1d outT 0
-      v1 = prim__item1d outT 1
-      v2 = prim__item1d outT 2
-  in if v0 >= v1 && v0 >= v2 then 0 else if v1 >= v2 then 1 else 2
-
--- Argmax on a one-hot Vector target.
-evalPredictionTarget : Vector 3 Double -> Nat
-evalPredictionTarget (VArray [SArray a, SArray b, SArray c]) =
-  if a >= b && a >= c then 0 else if b >= c then 1 else 2
+import Util
 
 
 ----------------------------------------------------------------------
--- Config
+-- Helpers
 ----------------------------------------------------------------------
 
-record Config where
-  constructor MkConfig
-  mode : String
-  epochs : Nat
-  lr : Double
-  seed : Bits64
-  savePath : String
-  loadPath : String
-  lrFind : Bool
+||| Create a 4-element Tensor on the destination backend using its
+||| `UserDeviceTransfer.primCreateFromHost` directly. Bypasses
+||| `bulkToTensor`, which routes via unified-name C symbols — those
+||| land on the primary backend at link time, regardless of the
+||| type-level `d`. For cross-backend transfer demos we need fresh
+||| tensors to actually live on the *specific* dest backend.
+makeVec4 : {0 d : Type} -> {0 dt : DType} ->
+           UserDeviceTransfer d => Compatible d dt =>
+           (Double, Double, Double, Double) ->
+           IO (Tensor [4] d dt WithGrad)
+makeVec4 (a, b, c, dd) = do
+  let buf  = primAllocHost    {d} 4
+  let buf1 = prim__setDouble  buf  0 a
+  let buf2 = prim__setDouble  buf1 1 b
+  let buf3 = prim__setDouble  buf2 2 c
+  let buf4 = prim__setDouble  buf3 3 dd
+  let sh   = primAllocIntHost {d} 1
+  let sh1  = primSetIntHost   {d} sh 0 4
+  let ptr  = primCreateFromHost {d} buf4 sh1 1 1  -- rg=1 → WithGrad
+  primIO (\w => MkIORes (primFreeIntHost {d} sh1)   w)
+  primIO (\w => MkIORes (primFreeHost    {d} buf4) w)
+  pure (MkTensor ptr Nothing)
 
-defaultConfig : Config
-defaultConfig = MkConfig "train" 500 0.03 123456 "" "" False
+||| Read all four values out via the backend's `primItem1d`. Returns
+||| F64 doubles regardless of the tensor's storage dtype (the C side
+||| promotes F32 to double on readback). The `{d}` annotations
+||| pin the typeclass dispatch — without them, Idris can't infer
+||| which backend's `primItem1d` to call from a bare `AnyPtr`.
+read4 : {0 d : Type} -> {0 dt : DType} -> UserDeviceCore d =>
+        Tensor [4] d dt WithGrad ->
+        (Double, Double, Double, Double)
+read4 t =
+  ( primItem1d {d} t.tensorPtr 0
+  , primItem1d {d} t.tensorPtr 1
+  , primItem1d {d} t.tensorPtr 2
+  , primItem1d {d} t.tensorPtr 3 )
 
-specs : List (ArgSpec Config)
-specs = [ Arg "--mode" (\v, c => { mode := v } c)
-        , Arg "--epochs" (\v, c => { epochs := castNat v } c)
-        , Arg "--lr" (\v, c => { lr := cast v } c)
-        , Arg "--seed" (\v, c => { seed := castBits64 v } c)
-        , Arg "--save" (\v, c => { savePath := v } c)
-        , Arg "--load" (\v, c => { loadPath := v } c)
-        , Arg "--lr-find" (\v, c => { lrFind := (v == "1" || v == "true") } c) ]
+expected : (Double, Double, Double, Double)
+expected = (1.0, 2.0, 3.0, 4.0)
 
--- Derive optimizer state path: "model.safetensors" → "model.optimizer.safetensors"
-optPath : String -> String
-optPath path =
-  let chars = unpack path
-      suffix = unpack ".safetensors"
-      base = pack (take (length chars `minus` length suffix) chars)
-  in base ++ ".optimizer.safetensors"
-
-
-----------------------------------------------------------------------
--- Eval helper
-----------------------------------------------------------------------
-
--- Forward each datapoint, compute NLL loss as a Double, average.
-evalModel : Network 2 [] 3 ExampleDevice ExampleDType WithGrad -> IO Double
-evalModel model = do
-  losses <- traverse (\dp => do
-        let inT = bulkToTensor {d=ExampleDevice} {dt=ExampleDType} (x dp)
-            inV = the (TVec 2 ExampleDevice ExampleDType WithGrad) (MkTensor inT Nothing)
-        (_, predV) <- forwardVar model inV
-        let tgtT = bulkToTensor {d=ExampleDevice} {dt=ExampleDType} (y dp)
-            tgtV = the (TVec 3 ExampleDevice ExampleDType WithGrad) (MkTensor tgtT Nothing)
-        lossT <- tnllLoss predV tgtV
-        pure (prim__item lossT.tensorPtr)) dataPoints
-  pure (foldl (+) 0.0 (toList losses) / 5.0)
-
-printPredictions : Network 2 [] 3 ExampleDevice ExampleDType WithGrad -> IO ()
-printPredictions model = do
-  traverse_ (\dp => do
-    let inT = bulkToTensor {d=ExampleDevice} {dt=ExampleDType} (x dp)
-        inV = the (TVec 2 ExampleDevice ExampleDType WithGrad) (MkTensor inT Nothing)
-    (_, predV) <- forwardVar model inV
-    let predClass = evalPrediction predV.tensorPtr
-        targetClass = evalPredictionTarget (y dp)
-        showVec : {k : Nat} -> Vector k Double -> String
-        showVec (VArray xs) = "[" ++ go xs ++ "]"
-          where go : Vect j (Scalar Double) -> String
-                go [] = ""
-                go [SArray v] = show v
-                go (SArray v :: rest) = show v ++ ", " ++ go rest
-    putStrLn $ "  " ++ showVec (x dp) ++ " -> class " ++ show predClass
-                ++ (if targetClass == predClass then " ok" else " WRONG"))
-    (toList dataPoints)
+||| Report a hop's values + verify within F32 round-trip tolerance.
+||| F32 cells lose precision past ~1e-7 of the input magnitude; these
+||| inputs (1.0–4.0) are exactly representable in F32, so the
+||| tolerance is conservative-but-safe.
+||| Returns True on match, False on mismatch.
+reportStep : String -> (Double, Double, Double, Double) -> IO Bool
+reportStep label (a, b, c, d) = do
+  let (ea, eb, ec, ed) = Transfer.expected
+  let delta = abs (a - ea) + abs (b - eb) + abs (c - ec) + abs (d - ed)
+  let ok = delta < 1.0e-6
+  putStrLn $ "  " ++ pad 22 label ++ "[" ++ show a ++ ", " ++ show b ++
+             ", " ++ show c ++ ", " ++ show d ++ "]" ++
+             (if ok then " ✓" else " ✗ MISMATCH (delta=" ++ show delta ++ ")")
+  pure ok
+  where
+    pad : Nat -> String -> String
+    pad n s =
+      if length s >= n
+        then s
+        else s ++ pack (List.replicate (n `minus` length s) ' ')
 
 
 ----------------------------------------------------------------------
--- Modes
+-- F64 hop: TapeDev ↔ TorchDev TCpu ↔ MlxDev MCpu
+--
+-- Exercises cross-backend transfers (differing backendTag → host
+-- round-trip). Three distinct backends, all on host CPU silicon,
+-- all admitting F64. Round-tripping through the chain should
+-- preserve values exactly (no dtype cast).
 ----------------------------------------------------------------------
 
-doTrain : Config -> Network 2 [] 3 ExampleDevice ExampleDType WithGrad -> IO ()
-doTrain cfg model = do
-  let opt = nativeSgd cfg.lr
-  putStrLn $ "Training " ++ show cfg.epochs ++ " epochs..."
-  (trained, epochsDone, _) <- runTraining
-    (\m, d => epochVar opt d tnllLoss m) (pure dataPoints)
-    (simpleConfig cfg.epochs) model
-  if cfg.savePath == ""
-    then putStrLn "No --save path given; skipping save"
-    else do
-      ok <- saveModel cfg.savePath
-      putStrLn $ (if ok then "Saved model to " else "FAILED to save model to ") ++ cfg.savePath
-      ok2 <- saveOptimizer (optPath cfg.savePath) opt
-      putStrLn $ (if ok2 then "Saved optimizer to " else "FAILED to save optimizer to ") ++ optPath cfg.savePath
-  evalLoss <- withNoGrad (evalModel trained)
-  putStrLn $ "Eval loss: " ++ show evalLoss
-  withNoGrad (printPredictions trained)
-  putStrLn $ formatResult [("mode", "train"), ("epochs", show epochsDone),
-                            ("loss", show evalLoss), ("backend", backendName)]
+hopF64 : IO Bool
+hopF64 = do
+  putStrLn "=== F64 hop (host-CPU silicon, 3 backends) ==="
+  putStrLn "    Starts on TapeDev, hops cross-backend to TorchDev TCpu,"
+  putStrLn "    then to MlxDev MCpu, back to TapeDev. Each transition is"
+  putStrLn "    a backendTag-mismatch → host-buffer round-trip."
+  putStrLn ""
 
-doContinue : Config -> Network 2 [] 3 ExampleDevice ExampleDType WithGrad -> IO ()
-doContinue cfg model = do
-  ok <- loadModel cfg.loadPath
-  putStrLn $ (if ok then "Loaded model from " else "FAILED to load from ") ++ cfg.loadPath
-  let opt = nativeSgd cfg.lr
-  ok2 <- loadOptimizer (optPath cfg.loadPath) opt
-  putStrLn $ (if ok2 then "Loaded optimizer from " else "FAILED to load optimizer from ")
-           ++ optPath cfg.loadPath
-  putStrLn $ "Training " ++ show cfg.epochs ++ " more epochs..."
-  (trained, epochsDone, _) <- runTraining
-    (\m, d => epochVar opt d tnllLoss m) (pure dataPoints)
-    (simpleConfig cfg.epochs) model
-  if cfg.savePath == ""
-    then putStrLn "No --save path given; skipping save"
-    else do
-      ok3 <- saveModel cfg.savePath
-      putStrLn $ (if ok3 then "Saved model to " else "FAILED to save model to ") ++ cfg.savePath
-      ok4 <- saveOptimizer (optPath cfg.savePath) opt
-      putStrLn $ (if ok4 then "Saved optimizer to " else "FAILED to save optimizer to ") ++ optPath cfg.savePath
-  evalLoss <- withNoGrad (evalModel trained)
-  putStrLn $ "Eval loss: " ++ show evalLoss
-  withNoGrad (printPredictions trained)
-  putStrLn $ formatResult [("mode", "continue"), ("epochs", show epochsDone),
-                            ("loss", show evalLoss), ("backend", backendName)]
+  v_tape <- makeVec4 {d = TapeDev} {dt = F64} expected
+  ok1 <- reportStep "TapeDev:"          (read4 v_tape)
 
-doInfer : Config -> Network 2 [] 3 ExampleDevice ExampleDType WithGrad -> IO ()
-doInfer cfg model = do
-  ok <- loadModel cfg.loadPath
-  putStrLn $ (if ok then "Loaded model from " else "FAILED to load from ") ++ cfg.loadPath
-  evalLoss <- withNoGrad (evalModel model)
-  putStrLn $ "Eval loss: " ++ show evalLoss
-  withNoGrad (printPredictions model)
-  putStrLn $ formatResult [("mode", "infer"), ("loss", show evalLoss),
-                            ("backend", backendName)]
+  v_torch <- toDevice (TorchDev TCpu) v_tape
+  ok2 <- reportStep "→ TorchDev TCpu:"  (read4 v_torch)
+
+  v_mlx <- toDevice (MlxDev MCpu) v_torch
+  ok3 <- reportStep "→ MlxDev MCpu:"    (read4 v_mlx)
+
+  v_back <- toDevice TapeDev v_mlx
+  ok4 <- reportStep "→ TapeDev (back):" (read4 v_back)
+
+  pure (ok1 && ok2 && ok3 && ok4)
+
+
+----------------------------------------------------------------------
+-- F32 hop: TorchDev TCpu ↔ TorchDev TMps ↔ MlxDev MGpu ↔ MlxDev MCpu
+--
+-- Exercises both intra-backend fast paths (matching backendTag →
+-- in-place hardware migration via libtorch's `.to()` / mlx's
+-- stream switch) and cross-backend round-trips (host buffer hop).
+-- F32 only — TapeDev is excluded because it doesn't admit F32
+-- (no parallel `float*` arena, see TODO row "Broaden runtime
+-- dtype coverage across backends").
+----------------------------------------------------------------------
+
+hopF32 : IO Bool
+hopF32 = do
+  putStrLn ""
+  putStrLn "=== F32 hop (includes Metal GPU cells, 4 cells) ==="
+  putStrLn "    Starts on TorchDev TCpu (built F64, narrowed to F32"
+  putStrLn "    via tcastUnsafe — see TODO 'Broaden runtime dtype"
+  putStrLn "    coverage' for why primCreateFromHost is F64-only on"
+  putStrLn "    torch today). Hops intra-torch (fast path via"
+  putStrLn "    libtorch's `.to('mps')`) to TorchDev TMps, cross-"
+  putStrLn "    backend to MlxDev MGpu, intra-mlx to MlxDev MCpu,"
+  putStrLn "    back cross-backend to TorchDev TCpu."
+  putStrLn ""
+
+  -- Build F64 then narrow to F32 (exactly representable for these
+  -- integer inputs). This sidesteps the primCreateFromHost dtype
+  -- gap on the torch backend (always lands F64) — once the cascade
+  -- threads dt through tensor_create_torch, makeVec4 {dt=F32} will
+  -- work directly and this tcastUnsafe step can go.
+  v_torch_cpu64 <- makeVec4 {d = TorchDev TCpu} {dt = F64} expected
+  v_torch_cpu   <- tcastUnsafe F32 v_torch_cpu64
+  ok1 <- reportStep "TorchDev TCpu (F32):"  (read4 v_torch_cpu)
+
+  v_torch_mps <- toDevice (TorchDev TMps) v_torch_cpu
+  ok2 <- reportStep "→ TorchDev TMps:"      (read4 v_torch_mps)
+
+  v_mlx_gpu <- toDevice (MlxDev MGpu) v_torch_mps
+  ok3 <- reportStep "→ MlxDev MGpu:"        (read4 v_mlx_gpu)
+
+  v_mlx_cpu <- toDevice (MlxDev MCpu) v_mlx_gpu
+  ok4 <- reportStep "→ MlxDev MCpu:"        (read4 v_mlx_cpu)
+
+  v_back <- toDevice (TorchDev TCpu) v_mlx_cpu
+  ok5 <- reportStep "→ TorchDev TCpu:"      (read4 v_back)
+
+  pure (ok1 && ok2 && ok3 && ok4 && ok5)
 
 
 ----------------------------------------------------------------------
@@ -185,30 +188,16 @@ doInfer cfg model = do
 
 main : IO ()
 main = do
-  args <- getArgs
-  let cfg = parseArgs defaultConfig specs (drop 1 args)
-  srand cfg.seed
+  putStrLn "=== Live cross-backend Tensor transfer demo ==="
+  putStrLn ""
+  putStrLn "Expected values at every hop: [1.0, 2.0, 3.0, 4.0]"
+  putStrLn ""
 
-  llAny <- linearLayerAny {i=2} {o=3} "ll"
-  let model : Network 2 [] 3 ExampleDevice ExampleDType WithGrad
-      model = OutputLayer llAny
+  ok64 <- hopF64
+  ok32 <- hopF32
 
-  putStrLn $ "=== Cross-Backend Transfer [" ++ backendName ++ "] -- "
-           ++ cfg.mode ++ " ==="
-
-  when cfg.lrFind $ do
-    let opt = nativeSgd cfg.lr
-    let lrCfg : LrFindConfig
-        lrCfg = { numIters := 100 } defaultLrFindConfig
-    _ <- lrFind lrCfg
-      (\m, d => epochVar opt d tnllLoss m)
-      (pure dataPoints) opt model
-    putStrLn ""
-    putStrLn "Done — re-run without --lr-find at the recommended LR."
-    exitSuccess
-
-  case cfg.mode of
-    "train"    => doTrain cfg model
-    "continue" => doContinue cfg model
-    "infer"    => doInfer cfg model
-    _ => putStrLn "Unknown mode. Use --mode train|continue|infer"
+  putStrLn ""
+  let overall = ok64 && ok32
+  putStrLn $ "RESULT\tf64=" ++ (if ok64 then "ok" else "FAIL") ++
+             "\tf32=" ++ (if ok32 then "ok" else "FAIL") ++
+             "\toverall=" ++ (if overall then "ok" else "FAIL")

@@ -705,20 +705,44 @@ example-sac: install
 	cp $(LIB) build/exec/sac_app/
 	$(STDBUF) ./build/exec/sac $(SEED_FLAG) $(SAC_ARGS)
 
-example-transfer: install
+# Live cross-backend Tensor transfer demo. Builds with all three
+# backends linked so the example can call tape / torch / mlx C
+# symbols in a single process. Exits 0 with RESULT line on success;
+# crashes at FFI resolution if any backend's symbols are missing.
+#
+# Torch is the primary because the F32 hop uses `tcastUnsafe` (a
+# RuntimeDType operation), which routes via unified C names; only
+# the primary backend's `tensor_cast_dtype_*` survives the link-time
+# aliasing. Tape's `tensor_cast_dtype_f32` aborts at runtime (no
+# F32 arena); mlx and torch implement it for real. Torch-primary is
+# also necessary for the *Torch* cells' creation path —
+# `prim__createTorch` is hardcoded F64 today, so the F32-typed
+# starting tensor lands F64 and gets narrowed to F32 by
+# `tcastUnsafe`, which needs the cast op to land on a backend that
+# supports it.
+example-transfer:
+	$(MAKE) BACKEND=torch,tape,mlx install
 	idris2 $(IDRIS_FLAGS) -o transfer $(EXAMPLE_SRC)/Example/Transfer.idr
 	cp $(LIB) build/exec/transfer_app/
-	./build/exec/transfer $(SEED_FLAG) $(TRANSFER_ARGS)
+	./build/exec/transfer $(TRANSFER_ARGS)
 
-example-transfer-demo:
+# SafeTensors checkpoint demo (formerly the Example/Transfer.idr
+# content). Per-phase BACKEND= invocation; `example-checkpoint-demo`
+# drives the tape→mlx→torch on-disk round-trip via three calls.
+example-checkpoint: install
+	idris2 $(IDRIS_FLAGS) -o checkpoint $(EXAMPLE_SRC)/Example/Checkpoint.idr
+	cp $(LIB) build/exec/checkpoint_app/
+	./build/exec/checkpoint $(SEED_FLAG) $(CHECKPOINT_ARGS)
+
+example-checkpoint-demo:
 	@echo "=== Phase 1: Train on tape ==="
-	$(MAKE) BACKEND=tape example-transfer TRANSFER_ARGS="--mode train --epochs 500 --save /tmp/transfer.safetensors"
+	$(MAKE) BACKEND=tape example-checkpoint CHECKPOINT_ARGS="--mode train --epochs 500 --save /tmp/checkpoint.safetensors"
 	@echo ""
 	@echo "=== Phase 2: Continue on mlx ==="
-	$(MAKE) BACKEND=mlx example-transfer TRANSFER_ARGS="--mode continue --load /tmp/transfer.safetensors --epochs 500 --save /tmp/transfer2.safetensors"
+	$(MAKE) BACKEND=mlx example-checkpoint CHECKPOINT_ARGS="--mode continue --load /tmp/checkpoint.safetensors --epochs 500 --save /tmp/checkpoint2.safetensors"
 	@echo ""
 	@echo "=== Phase 3: Infer on torch ==="
-	$(MAKE) BACKEND=torch example-transfer TRANSFER_ARGS="--mode infer --load /tmp/transfer2.safetensors"
+	$(MAKE) BACKEND=torch example-checkpoint CHECKPOINT_ARGS="--mode infer --load /tmp/checkpoint2.safetensors"
 
 example-matmul-bench: install
 	idris2 $(IDRIS_FLAGS) -o matmul-bench $(EXAMPLE_SRC)/Example/MatmulBench.idr
@@ -950,7 +974,7 @@ clean:
 # Examples run on every built backend. Keep in sync with packages/idris-ml-examples/src/Example/.
 # Excluded intentionally:
 #   Bench, Profile — no RESULT lines (covered by bench-compare / example-profile).
-EXAMPLES := example-supervised example-rnn example-lstm example-gru example-transformer example-gpt example-matmul-bench example-mnist example-seq-classify example-ntm-copy example-ntm-associative-recall example-dnc-copy example-dnc-recall example-reinforce example-q-learning example-sarsa example-monte-carlo example-frozen-lake example-taxi example-dqn example-mountain-car example-mountain-car-cont example-a2c example-ppo example-sac example-transfer
+EXAMPLES := example-supervised example-rnn example-lstm example-gru example-transformer example-gpt example-matmul-bench example-mnist example-seq-classify example-ntm-copy example-ntm-associative-recall example-dnc-copy example-dnc-recall example-reinforce example-q-learning example-sarsa example-monte-carlo example-frozen-lake example-taxi example-dqn example-mountain-car example-mountain-car-cont example-a2c example-ppo example-sac example-checkpoint
 # 4-lane matrix. `mlx-gpu` is a virtual lane that builds with
 # BACKEND=mlx MLX_DEVICE=gpu, exercising the F32-on-MlxGpu code path
 # (per BuildConfig.idr). All other lanes build at F64.
@@ -1039,31 +1063,31 @@ test-examples:
 		done; \
 	done; \
 	if [ -z "$$skip" ]; then \
-		echo "--- example-transfer-demo (tape->mlx->torch round-trip) ---"; \
+		echo "--- example-checkpoint-demo (tape->mlx->torch round-trip) ---"; \
 		t_start=$$(date +%s); \
-		demo_out=$$($$TIMEOUT_PREFIX $(MAKE) --no-print-directory example-transfer-demo 2>&1); demo_rc=$$?; \
+		demo_out=$$($$TIMEOUT_PREFIX $(MAKE) --no-print-directory example-checkpoint-demo 2>&1); demo_rc=$$?; \
 		t_end=$$(date +%s); elapsed=$$((t_end - t_start)); \
 		if [ $$elapsed -lt 60 ]; then elapsed_fmt="$${elapsed}s"; \
 		elif [ $$elapsed -lt 3600 ]; then elapsed_fmt="$$((elapsed/60))m$$((elapsed%60))s"; \
 		else elapsed_fmt="$$((elapsed/3600))h$$(((elapsed%3600)/60))m"; fi; \
 		if [ $$demo_rc -ne 0 ]; then \
-			if [ $$demo_rc -eq 124 ]; then echo "FAIL: example-transfer-demo timed out (>$(EXAMPLE_TIMEOUT)s) ($$elapsed_fmt)"; \
-			else echo "FAIL: example-transfer-demo crashed (rc=$$demo_rc) ($$elapsed_fmt)"; fi; \
+			if [ $$demo_rc -eq 124 ]; then echo "FAIL: example-checkpoint-demo timed out (>$(EXAMPLE_TIMEOUT)s) ($$elapsed_fmt)"; \
+			else echo "FAIL: example-checkpoint-demo crashed (rc=$$demo_rc) ($$elapsed_fmt)"; fi; \
 			echo "$$demo_out" | tail -40 | sed 's/^/  | /'; \
 			fail=1; \
 		else \
 			result_line=$$(echo "$$demo_out" | grep '^RESULT' | tail -1); \
 			if [ -z "$$result_line" ]; then \
-				echo "FAIL: example-transfer-demo -- no RESULT line ($$elapsed_fmt)"; \
+				echo "FAIL: example-checkpoint-demo -- no RESULT line ($$elapsed_fmt)"; \
 				echo "$$demo_out" | tail -40 | sed 's/^/  | /'; \
 				fail=1; \
 			else \
-				scripts/check-result.sh "example-transfer-demo" "$$result_line" || fail=1; \
+				scripts/check-result.sh "example-checkpoint-demo" "$$result_line" || fail=1; \
 				echo "  ($$elapsed_fmt)"; \
 			fi; \
 		fi; \
 	else \
-		echo "--- example-transfer-demo: skipped (requires tape+mlx+torch; skipped:$$skip) ---"; \
+		echo "--- example-checkpoint-demo: skipped (requires tape+mlx+torch; skipped:$$skip) ---"; \
 	fi; \
 	if [ -n "$$skip" ]; then echo "Skipped backends (not installed or build failed):$$skip"; fi; \
 	if [ $$fail -ne 0 ]; then echo "Some integration tests FAILED"; exit 1; fi; \
@@ -1185,7 +1209,7 @@ all: check-all test-all
         example-dqn example-mountain-car example-mountain-car-cont example-a2c example-ppo example-sac \
         example-gpt example-gpt-full example-matmul-bench example-mnist example-seq-classify example-transformer \
         ref-gpt \
-        example-transfer example-transfer-demo \
+        example-transfer example-checkpoint example-checkpoint-demo \
         example-bench example-profile sweep sweep-quick clean \
         backend print-torch ref-setup ref-supervised ref-rnn ref-lstm ref-gru ref-ntm-copy \
         ref-ntm-recall ref-dnc-copy ref-dnc-recall \
