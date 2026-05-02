@@ -220,6 +220,13 @@ TensorHandle tensor_linear(TensorHandle W, TensorHandle x, TensorHandle bias) {
     return from_tensor(result);
 }
 
+TensorHandle tensor_linear_2d(TensorHandle W, TensorHandle X, TensorHandle bias) {
+    /* X: [B, i], W: [o, i], bias: [o] -> Y: [B, o] = X @ W^T + bias */
+    auto result = torch::nn::functional::linear(*to_tensor(X), *to_tensor(W),
+                                                bias ? *to_tensor(bias) : torch::Tensor{});
+    return from_tensor(result);
+}
+
 TensorHandle tensor_dot(TensorHandle a, TensorHandle b) {
     return from_tensor(torch::dot(*to_tensor(a), *to_tensor(b)));
 }

@@ -203,6 +203,7 @@ enum {
     OP_SCATTER_ADD,   /* scatter add: out[index[i]] += src[i] */
     OP_LEAKY_RELU,    /* max(alpha*x, x) — alpha in scalar_arg */
     OP_SILU,          /* x * sigmoid(x) (Swish activation) */
+    OP_LINEAR_2D,     /* [B,o] = [B,i] @ [o,i]^T + [o] (batched fused linear) */
     OP_COUNT          /* sentinel — must be last */
 };
 
@@ -220,6 +221,7 @@ typedef struct {
 /* Op metadata structs for fused backward */
 typedef struct { int m, n; double* x_vals; } MvMeta;
 typedef struct { int m, n; double* x_vals; Tensor* bias; } LinearMeta;
+typedef struct { int B, i, o; double* x_vals; Tensor* bias; } Linear2dMeta;
 typedef struct { int n; double* out_vals; } SoftmaxMeta;
 typedef struct {
     int o;
@@ -856,6 +858,60 @@ TensorHandle tensor_mv(TensorHandle hmat, TensorHandle hvec) {
         meta->m = m; meta->n = n;
         meta->x_vals = arena_alloc(n * sizeof(double));
         memcpy(meta->x_vals, vec->data, n * sizeof(double));
+        e->op_meta = meta;
+    }
+    return r;
+}
+
+/* Fused batched linear: Y[B,o] = X[B,i] @ W[o,i]^T + bias[o].
+   Single allocation, single tape entry. W: [o, i], X: [B, i], bias: [o] (or NULL). */
+TensorHandle tensor_linear_2d(TensorHandle hW, TensorHandle hX, TensorHandle hbias) {
+    Tensor* W = (Tensor*)hW;
+    Tensor* X = (Tensor*)hX;
+    Tensor* bias = (Tensor*)hbias;
+    int oo = W->shape[0], ii = W->shape[1];
+    int BB = X->shape[0];
+    int out_shape[] = {BB, oo};
+    double* out_data = malloc(BB * oo * sizeof(double));
+
+    /* Y = X @ W^T : [B,i] @ [i,o] -> [B,o]. Use dgemm with B=W transposed. */
+#ifdef __APPLE__
+    cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasTrans,
+                BB, oo, ii, 1.0,
+                X->data, ii,
+                W->data, ii,
+                0.0, out_data, oo);
+#else
+    for (int b = 0; b < BB; b++) {
+        for (int o = 0; o < oo; o++) {
+            double s = 0;
+            for (int j = 0; j < ii; j++) s += X->data[b*ii+j] * W->data[o*ii+j];
+            out_data[b*oo+o] = s;
+        }
+    }
+#endif
+
+    /* Y += bias broadcast across batch */
+    if (bias) {
+        for (int b = 0; b < BB; b++) {
+#ifdef __APPLE__
+            vDSP_vaddD(out_data + b*oo, 1, bias->data, 1, out_data + b*oo, 1, (vDSP_Length)oo);
+#else
+            for (int o = 0; o < oo; o++) out_data[b*oo+o] += bias->data[o];
+#endif
+        }
+    }
+
+    int rg = W->requires_grad || X->requires_grad || (bias && bias->requires_grad);
+    Tensor* r = make_tensor(out_data, out_shape, 2, rg);
+    free(out_data);
+    if (rg) {
+        TapeEntry* e = tape_append(OP_LINEAR_2D, r, W, X, 0);
+        Linear2dMeta* meta = arena_alloc(sizeof(Linear2dMeta));
+        meta->B = BB; meta->i = ii; meta->o = oo;
+        meta->x_vals = arena_alloc(BB * ii * sizeof(double));
+        memcpy(meta->x_vals, X->data, BB * ii * sizeof(double));
+        meta->bias = bias;
         e->op_meta = meta;
     }
     return r;
@@ -3190,6 +3246,49 @@ void tensor_backward(TensorHandle h) {
                     double s = 0;
                     for (int ii = 0; ii < m_mv; ii++) s += a->data[ii*n_mv+jj] * r->grad[ii];
                     b->grad[jj] += s;
+                }
+            }
+            break;
+        }
+
+        case OP_LINEAR_2D: {
+            /* Y[B,o] = X[B,i] @ W[o,i]^T + bias[o].
+               dW[o,i]   = sum_b dY[b,o] * X[b,i]   (== dY^T @ X)
+               dX[B,i]   = dY[B,o] @ W[o,i]
+               dbias[o]  = sum_b dY[b,o] */
+            Linear2dMeta* lm2 = (Linear2dMeta*)e->op_meta;
+            int B2 = lm2->B, i2 = lm2->i, o2 = lm2->o;
+            double* x_vals_2 = lm2->x_vals;
+            ensure_grad(r);
+            /* a = W [o,i] */
+            if (a->requires_grad) {
+                ensure_grad(a);
+                for (int oo = 0; oo < o2; oo++)
+                    for (int jj = 0; jj < i2; jj++) {
+                        double s = 0;
+                        for (int bb = 0; bb < B2; bb++)
+                            s += r->grad[bb*o2+oo] * x_vals_2[bb*i2+jj];
+                        a->grad[oo*i2+jj] += s;
+                    }
+            }
+            /* b = X [B,i] */
+            if (b && b->requires_grad) {
+                ensure_grad(b);
+                for (int bb = 0; bb < B2; bb++)
+                    for (int jj = 0; jj < i2; jj++) {
+                        double s = 0;
+                        for (int oo = 0; oo < o2; oo++)
+                            s += r->grad[bb*o2+oo] * a->data[oo*i2+jj];
+                        b->grad[bb*i2+jj] += s;
+                    }
+            }
+            /* bias [o] */
+            if (lm2->bias && lm2->bias->requires_grad) {
+                ensure_grad(lm2->bias);
+                for (int oo = 0; oo < o2; oo++) {
+                    double s = 0;
+                    for (int bb = 0; bb < B2; bb++) s += r->grad[bb*o2+oo];
+                    lm2->bias->grad[oo] += s;
                 }
             }
             break;

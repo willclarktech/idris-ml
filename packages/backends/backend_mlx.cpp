@@ -104,6 +104,7 @@ enum {
     OP_SILU,
     OP_SUM_DIM,       /* sum along a single axis with optional keepdim */
     OP_CAT_MULTI,     /* n-ary concatenate along given axis */
+    OP_LINEAR_2D,     /* Y = X @ W^T + bias, shapes [B,o]=[B,i]@[o,i]^T+[o] */
 };
 
 // Lightweight metadata for ops that need extra info during replay.
@@ -112,6 +113,10 @@ struct LayerNormReplayMeta {
     int gamma_pool_idx;
     int bias_pool_idx;
     double eps;
+};
+
+struct LinearReplayMeta {
+    int bias_pool_idx;
 };
 
 struct BatchNormReplayMeta {
@@ -200,6 +205,10 @@ static void tape_reset() {
         }
         if (e.op == OP_SUM_DIM && e.meta) {
             delete (SumDimReplayMeta*)e.meta;
+            e.meta = nullptr;
+        }
+        if (e.op == OP_LINEAR_2D && e.meta) {
+            delete (LinearReplayMeta*)e.meta;
             e.meta = nullptr;
         }
     }
@@ -543,6 +552,23 @@ TensorHandle tensor_linear(TensorHandle hW, TensorHandle hx, TensorHandle hbias)
     bool rg = W->requires_grad || x->requires_grad || (bias && bias->requires_grad);
     auto r = new Tensor(result, rg);
     if (rg) tape_append(OP_MV, r, W, x, 0);  /* reuse OP_MV for replay-based backward */
+    return (TensorHandle)r;
+}
+
+TensorHandle tensor_linear_2d(TensorHandle hW, TensorHandle hX, TensorHandle hbias) {
+    /* W: [o, i], X: [B, i], bias: [o] -> Y: [B, o] = X @ W^T + bias */
+    auto W = (Tensor*)hW; auto X = (Tensor*)hX; auto bias = (Tensor*)hbias;
+    auto WT = mx::transpose(W->data, {1, 0});
+    auto result = mx::matmul(X->data, WT);
+    if (bias) result = mx::add(result, bias->data);
+    bool rg = W->requires_grad || X->requires_grad || (bias && bias->requires_grad);
+    auto r = new Tensor(result, rg);
+    if (rg) {
+        int idx = tape_append(OP_LINEAR_2D, r, X, W, 0);
+        auto meta = new LinearReplayMeta();
+        meta->bias_pool_idx = bias ? bias->pool_idx : -1;
+        tape[idx].meta = meta;
+    }
     return (TensorHandle)r;
 }
 
@@ -1630,6 +1656,16 @@ void tensor_backward(TensorHandle h) {
                 auto rstd = mx::rsqrt(mx::add(var, mx::array(meta->eps)));
                 auto x_hat = mx::multiply(centered, rstd);
                 pool[out] = mx::add(mx::multiply(gamma, x_hat), bias);
+                break;
+            }
+            case OP_LINEAR_2D: {
+                /* a = X [B,i], b = W [o,i]. Y = X @ W^T + bias */
+                auto meta = (LinearReplayMeta*)e.meta;
+                auto WT = mx::transpose(b, {1, 0});
+                auto y = mx::matmul(a, WT);
+                if (meta && meta->bias_pool_idx >= 0)
+                    y = mx::add(y, pool[meta->bias_pool_idx]);
+                pool[out] = y;
                 break;
             }
             case OP_GRU_CELL: {
