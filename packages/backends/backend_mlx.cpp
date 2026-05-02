@@ -105,6 +105,7 @@ enum {
     OP_SUM_DIM,       /* sum along a single axis with optional keepdim */
     OP_CAT_MULTI,     /* n-ary concatenate along given axis */
     OP_LINEAR_2D,     /* Y = X @ W^T + bias, shapes [B,o]=[B,i]@[o,i]^T+[o] */
+    OP_CONCAT_2D_AXIS1, /* [m,n] ++ [m,k] -> [m,n+k] along axis 1 */
 };
 
 // Lightweight metadata for ops that need extra info during replay.
@@ -569,6 +570,16 @@ TensorHandle tensor_linear_2d(TensorHandle hW, TensorHandle hX, TensorHandle hbi
         meta->bias_pool_idx = bias ? bias->pool_idx : -1;
         tape[idx].meta = meta;
     }
+    return (TensorHandle)r;
+}
+
+TensorHandle tensor_concat_2d_axis1(TensorHandle hA, TensorHandle hB) {
+    /* A: [m, n], B: [m, k] -> [m, n+k] along axis 1 */
+    auto A = (Tensor*)hA; auto B = (Tensor*)hB;
+    auto result = mx::concatenate({A->data, B->data}, 1);
+    bool rg = A->requires_grad || B->requires_grad;
+    auto r = new Tensor(result, rg);
+    if (rg) tape_append(OP_CONCAT_2D_AXIS1, r, A, B, 0);
     return (TensorHandle)r;
 }
 
@@ -1666,6 +1677,11 @@ void tensor_backward(TensorHandle h) {
                 if (meta && meta->bias_pool_idx >= 0)
                     y = mx::add(y, pool[meta->bias_pool_idx]);
                 pool[out] = y;
+                break;
+            }
+            case OP_CONCAT_2D_AXIS1: {
+                /* a = A [m,n], b = B [m,k]. Result = concat along axis 1 -> [m,n+k] */
+                pool[out] = mx::concatenate({a, b}, 1);
                 break;
             }
             case OP_GRU_CELL: {

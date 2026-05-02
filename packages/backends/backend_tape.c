@@ -204,6 +204,7 @@ enum {
     OP_LEAKY_RELU,    /* max(alpha*x, x) — alpha in scalar_arg */
     OP_SILU,          /* x * sigmoid(x) (Swish activation) */
     OP_LINEAR_2D,     /* [B,o] = [B,i] @ [o,i]^T + [o] (batched fused linear) */
+    OP_CONCAT_2D_AXIS1, /* [m,n] ++ [m,k] -> [m,n+k] along axis 1 */
     OP_COUNT          /* sentinel — must be last */
 };
 
@@ -914,6 +915,27 @@ TensorHandle tensor_linear_2d(TensorHandle hW, TensorHandle hX, TensorHandle hbi
         meta->bias = bias;
         e->op_meta = meta;
     }
+    return r;
+}
+
+/* Concatenate along axis 1: A[m,n] ++ B[m,k] -> [m, n+k].
+   Single tape entry; backward scatters dY back to dA / dB by column split. */
+TensorHandle tensor_concat_2d_axis1(TensorHandle hA, TensorHandle hB) {
+    Tensor* A = (Tensor*)hA;
+    Tensor* B = (Tensor*)hB;
+    int m = A->shape[0];
+    int n = A->shape[1];
+    int k = B->shape[1];
+    int out_shape[] = {m, n + k};
+    double* out_data = malloc(m * (n + k) * sizeof(double));
+    for (int i = 0; i < m; i++) {
+        memcpy(out_data + i * (n + k), A->data + i * n, n * sizeof(double));
+        memcpy(out_data + i * (n + k) + n, B->data + i * k, k * sizeof(double));
+    }
+    int rg = A->requires_grad || B->requires_grad;
+    Tensor* r = make_tensor(out_data, out_shape, 2, rg);
+    free(out_data);
+    if (rg) tape_append(OP_CONCAT_2D_AXIS1, r, A, B, (double)n);
     return r;
 }
 
@@ -3247,6 +3269,29 @@ void tensor_backward(TensorHandle h) {
                     for (int ii = 0; ii < m_mv; ii++) s += a->data[ii*n_mv+jj] * r->grad[ii];
                     b->grad[jj] += s;
                 }
+            }
+            break;
+        }
+
+        case OP_CONCAT_2D_AXIS1: {
+            /* r[m, n+k] = concat(A[m,n], B[m,k]) along axis 1.
+               dA[i,j]   += r->grad[i*(n+k) + j] for j<n
+               dB[i,j-n] += r->grad[i*(n+k) + j] for j>=n */
+            int m_c = a->shape[0];
+            int n_c = (int)e->scalar_arg;
+            int k_c = b->shape[1];
+            ensure_grad(r);
+            if (a->requires_grad) {
+                ensure_grad(a);
+                for (int i = 0; i < m_c; i++)
+                    for (int j = 0; j < n_c; j++)
+                        a->grad[i*n_c + j] += r->grad[i*(n_c + k_c) + j];
+            }
+            if (b->requires_grad) {
+                ensure_grad(b);
+                for (int i = 0; i < m_c; i++)
+                    for (int j = 0; j < k_c; j++)
+                        b->grad[i*k_c + j] += r->grad[i*(n_c + k_c) + (n_c + j)];
             }
             break;
         }

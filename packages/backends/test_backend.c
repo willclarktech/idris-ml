@@ -912,6 +912,98 @@ static void test_linear_2d_backward(void) {
     param_clear();
 }
 
+static void test_concat_2d_axis1_forward(void) {
+    printf("\n--- Concat 2D axis 1 forward ---\n");
+    /* A: [2, 3], B: [2, 1] -> out: [2, 4]
+       A = [[1,2,3],[4,5,6]] B = [[7],[8]] -> [[1,2,3,7],[4,5,6,8]] */
+    double a_data[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
+    double b_data[] = {7.0, 8.0};
+    int a_shape[] = {2, 3};
+    int b_shape[] = {2, 1};
+    TensorHandle A = tensor_create(a_data, a_shape, 2, 0);
+    TensorHandle B = tensor_create(b_data, b_shape, 2, 0);
+    TensorHandle Y = tensor_concat_2d_axis1(A, B);
+    ASSERT_NEAR("c2d Y[0,0]", tensor_item_2d(Y, 0, 0), 1.0, 1e-9);
+    ASSERT_NEAR("c2d Y[0,2]", tensor_item_2d(Y, 0, 2), 3.0, 1e-9);
+    ASSERT_NEAR("c2d Y[0,3]", tensor_item_2d(Y, 0, 3), 7.0, 1e-9);
+    ASSERT_NEAR("c2d Y[1,0]", tensor_item_2d(Y, 1, 0), 4.0, 1e-9);
+    ASSERT_NEAR("c2d Y[1,3]", tensor_item_2d(Y, 1, 3), 8.0, 1e-9);
+}
+
+static void test_concat_2d_axis1_matches_per_sample(void) {
+    printf("\n--- Concat 2D axis 1 matches per-sample cat2 ---\n");
+    /* For each row, prim__cat2 of [a-row] and [b-row] should equal the
+       corresponding row of tensor_concat_2d_axis1(A, B). */
+    double a_data[] = {1.0, 2.0, 3.0, -1.0, 0.5, 0.25};
+    double b_data[] = {0.7, -0.8};
+    int a_shape[] = {2, 3};
+    int b_shape[] = {2, 1};
+    TensorHandle A = tensor_create(a_data, a_shape, 2, 0);
+    TensorHandle B = tensor_create(b_data, b_shape, 2, 0);
+    TensorHandle Y = tensor_concat_2d_axis1(A, B);
+
+    /* Per-sample */
+    double a0[] = {1.0, 2.0, 3.0}; int a_row_shape[] = {3};
+    double a1[] = {-1.0, 0.5, 0.25};
+    double b0[] = {0.7}; double b1[] = {-0.8}; int b_row_shape[] = {1};
+    TensorHandle A0 = tensor_create(a0, a_row_shape, 1, 0);
+    TensorHandle B0 = tensor_create(b0, b_row_shape, 1, 0);
+    TensorHandle A1 = tensor_create(a1, a_row_shape, 1, 0);
+    TensorHandle B1 = tensor_create(b1, b_row_shape, 1, 0);
+    TensorHandle row0 = tensor_cat2(A0, B0);
+    TensorHandle row1 = tensor_cat2(A1, B1);
+
+    for (int j = 0; j < 4; j++) {
+        char msg[32];
+        snprintf(msg, 32, "row0[%d]==Y[0,%d]", j, j);
+        ASSERT_NEAR(msg, tensor_item_2d(Y, 0, j), tensor_item_1d(row0, j), 1e-9);
+    }
+    for (int j = 0; j < 4; j++) {
+        char msg[32];
+        snprintf(msg, 32, "row1[%d]==Y[1,%d]", j, j);
+        ASSERT_NEAR(msg, tensor_item_2d(Y, 1, j), tensor_item_1d(row1, j), 1e-9);
+    }
+}
+
+static void test_concat_2d_axis1_backward(void) {
+    printf("\n--- Concat 2D axis 1 backward (finite diff) ---\n");
+    param_clear();
+
+    double a_data[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
+    double b_data[] = {7.0, 8.0};
+    int a_shape[] = {2, 3};
+    int b_shape[] = {2, 1};
+
+    TensorHandle A = tensor_create(a_data, a_shape, 2, 1);
+    param_register("A", A);
+    TensorHandle B = tensor_create(b_data, b_shape, 2, 1);
+    param_register("B", B);
+
+    TensorHandle Y = tensor_concat_2d_axis1(A, B);
+    TensorHandle loss = tensor_sum(Y);
+    tensor_backward(loss);
+
+    /* Loss = sum(Y) so dY = 1 everywhere; dA = 1 everywhere [2,3]; dB = 1 [2,1]. */
+    {
+        double analytic = param_grad_item_at(0, 0);
+        ASSERT_NEAR("c2d grad A[0,0]", analytic, 1.0, 1e-9);
+    }
+    {
+        double analytic = param_grad_item_at(0, 5);  /* A[1,2] */
+        ASSERT_NEAR("c2d grad A[1,2]", analytic, 1.0, 1e-9);
+    }
+    {
+        double analytic = param_grad_item_at(1, 0);  /* B[0,0] */
+        ASSERT_NEAR("c2d grad B[0,0]", analytic, 1.0, 1e-9);
+    }
+    {
+        double analytic = param_grad_item_at(1, 1);  /* B[1,0] */
+        ASSERT_NEAR("c2d grad B[1,0]", analytic, 1.0, 1e-9);
+    }
+
+    param_clear();
+}
+
 static void test_layer_norm_2d(void) {
     printf("\n--- Layer norm 2D forward ---\n");
     /* 2x3 matrix */
@@ -1907,6 +1999,11 @@ int main(void) {
     test_linear_2d_forward();
     test_linear_2d_matches_per_sample();
     test_linear_2d_backward();
+
+    /* T7c: Batched 2D-along-axis-1 concat */
+    test_concat_2d_axis1_forward();
+    test_concat_2d_axis1_matches_per_sample();
+    test_concat_2d_axis1_backward();
 
     /* T8: Layer norm */
     test_layer_norm_2d();

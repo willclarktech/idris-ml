@@ -66,6 +66,8 @@ TensorHandle tensor_mv(TensorHandle mat, TensorHandle vec);     /* matrix-vector
 TensorHandle tensor_linear(TensorHandle W, TensorHandle x, TensorHandle bias); /* y = Wx + b (fused) */
 TensorHandle tensor_linear_2d(TensorHandle W, TensorHandle X, TensorHandle bias);
 /* W: [o,i], X: [B,i], bias: [o] -> Y: [B,o] = X @ W^T + broadcast(bias) */
+TensorHandle tensor_concat_2d_axis1(TensorHandle A, TensorHandle B);
+/* A: [m, n], B: [m, k] -> [m, n+k]. Concat along the last axis. */
 TensorHandle tensor_dot(TensorHandle a, TensorHandle b);        /* vector dot */
 TensorHandle tensor_outer(TensorHandle a, TensorHandle b);      /* outer product */
 

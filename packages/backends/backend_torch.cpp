@@ -227,6 +227,11 @@ TensorHandle tensor_linear_2d(TensorHandle W, TensorHandle X, TensorHandle bias)
     return from_tensor(result);
 }
 
+TensorHandle tensor_concat_2d_axis1(TensorHandle A, TensorHandle B) {
+    /* A: [m, n], B: [m, k] -> [m, n+k] along axis 1 */
+    return from_tensor(torch::cat({*to_tensor(A), *to_tensor(B)}, 1));
+}
+
 TensorHandle tensor_dot(TensorHandle a, TensorHandle b) {
     return from_tensor(torch::dot(*to_tensor(a), *to_tensor(b)));
 }
