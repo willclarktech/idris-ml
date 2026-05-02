@@ -13,19 +13,19 @@ import random
 import sys
 import time
 
+import numpy as np
 import torch
 
 from torch_ref.models.mountain_car_cont import (
-    Actor,
-    MCCState,
     MAX_ACTION,
-    MAX_STEPS,
+    Actor,
     QNet,
     ReplayBuffer,
     evaluate,
-    mcc_step,
-    observe,
+    make_mountaincarcont_env,
+    obs_tensor,
     polyak_update,
+    reset_to_center,
     sac_update,
 )
 from torch_ref.training.runner import format_elapsed, format_result, mem_suffix
@@ -44,8 +44,10 @@ def main() -> None:
     parser.add_argument("--warmup", type=int, default=1000)
     parser.add_argument("--tau", type=float, default=0.005)
     parser.add_argument("--shaping", type=float, default=10.0)
-    parser.add_argument("--lr-find", action="store_true",
-                        help="Stub for API consistency; SAC's per-step epoch + warmup don't fit lr_find.")
+    parser.add_argument(
+        "--lr-find", action="store_true",
+        help="Stub for API consistency; SAC's per-step + warmup don't fit lr_find.",
+    )
     args = parser.parse_args()
 
     if args.lr_find:
@@ -76,32 +78,33 @@ def main() -> None:
 
     print()
     history: list[float] = []
-    state = MCCState()
+    env = make_mountaincarcont_env(args.seed)
+    obs_np = reset_to_center(env)
     ep_return = 0.0
-    ep_len = 0
     t_start = time.monotonic()
     for step in range(args.epochs):
-        obs = observe(state)
+        obs = obs_tensor(obs_np)
         if step < args.warmup:
             action = rng.uniform(-MAX_ACTION, MAX_ACTION)
         else:
             with torch.no_grad():
                 a_t, _ = actor.sample(obs)
                 action = float(a_t.item())
-        raw_reward, next_state, terminated = mcc_step(state, action)
-        ep_return += raw_reward
-        ep_len += 1
-        truncated = ep_len >= MAX_STEPS
-        is_done = terminated or truncated
-        buffer_done = terminated
-        shaped = raw_reward + args.shaping * abs(next_state.vel)
-        buffer.push(obs.tolist(), action, shaped, observe(next_state).tolist(), buffer_done)
-        state = next_state
+        next_obs_np, raw_reward, terminated, truncated, _ = env.step(
+            np.array([action], dtype=np.float32)
+        )
+        next_obs_np = next_obs_np.astype(np.float64)
+        ep_return += float(raw_reward)
+        buffer_done = bool(terminated)
+        shaped = float(raw_reward) + args.shaping * abs(float(next_obs_np[1]))
+        buffer.push(obs_np.tolist(), action, shaped, next_obs_np.tolist(), buffer_done)
+        is_done = bool(terminated or truncated)
+        obs_np = next_obs_np
         if is_done:
             history.append(ep_return)
             ep_return = 0.0
-            ep_len = 0
-            state = MCCState()
+            env.reset()
+            obs_np = reset_to_center(env)
         if len(buffer) >= max(args.batch, args.warmup):
             sac_update(
                 actor, q1, q2, q1_target, q2_target,

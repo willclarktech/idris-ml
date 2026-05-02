@@ -5,6 +5,12 @@ naturally with the dense |v|-magnitude reward shaping that worked for
 DQN on discrete MountainCar — without it, random Gaussian exploration
 almost never reaches the goal in 999 steps.
 
+Uses canonical `gym.make("MountainCarContinuous-v0")` for env physics.
+Reset state pinned to (-0.5, 0.0) with float64 to mirror idris-gym's
+`Gym.ClassicControl.MountainCarContinuous.reset` (canonical Gymnasium
+randomizes pos ~ U(-0.6, -0.4); both Idris and torch_ref pin to
+deterministic center).
+
 Aligned with `Example.MountainCarCont` (Idris): same architecture
 (actor 2→64→64→1, twin Q 3→64→64→1, fixed alpha=0.2, polyak τ=0.005),
 same shaping (`r_shaped = r_raw + 10·|v_next|`), same eval protocol
@@ -18,8 +24,9 @@ import math
 import random
 import time
 from collections import deque
-from dataclasses import dataclass
 
+import gymnasium as gym
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -27,54 +34,24 @@ from torch import Tensor
 
 from torch_ref.training.runner import format_elapsed, mem_suffix
 
-# ---------------------------------------------------------------------------
-# MountainCarContinuous environment (Gymnasium-compatible constants)
-# ---------------------------------------------------------------------------
-
-MIN_POSITION = -1.2
-MAX_POSITION = 0.6
-MAX_SPEED = 0.07
-GOAL_POSITION = 0.45
-GOAL_VELOCITY = 0.0
-POWER = 0.0015
-MIN_ACTION = -1.0
 MAX_ACTION = 1.0
-MAX_STEPS = 999  # Gymnasium's default time limit
+MAX_STEPS = 999  # Gymnasium's MountainCarContinuous-v0 default TimeLimit
 
 
-@dataclass
-class MCCState:
-    pos: float = -0.5
-    vel: float = 0.0
+def make_mountaincarcont_env(seed: int) -> gym.Env:
+    env = gym.make("MountainCarContinuous-v0")
+    env.reset(seed=seed)
+    return env
 
 
-def mcc_step(state: MCCState, action: float) -> tuple[float, MCCState, bool]:
-    """One physics step. Returns (reward, next_state, terminated).
-
-    `terminated` is True only when the goal is reached — not when the
-    episode is truncated by step count.
-    """
-    clipped = max(MIN_ACTION, min(MAX_ACTION, action))
-    force = clipped * POWER
-    vel = state.vel + force - 0.0025 * math.cos(3.0 * state.pos)
-    vel = max(-MAX_SPEED, min(MAX_SPEED, vel))
-    pos = state.pos + vel
-    pos = max(MIN_POSITION, min(MAX_POSITION, pos))
-    if pos == MIN_POSITION and vel < 0.0:
-        vel = 0.0
-    next_state = MCCState(pos=pos, vel=vel)
-    terminated = pos >= GOAL_POSITION and vel >= GOAL_VELOCITY
-    reward = (100.0 if terminated else 0.0) - 0.1 * clipped * clipped
-    return reward, next_state, terminated
+def reset_to_center(env: gym.Env) -> np.ndarray:
+    """Pin env state to (-0.5, 0.0) and return obs (float64)."""
+    env.unwrapped.state = np.array([-0.5, 0.0], dtype=np.float64)  # pyright: ignore[reportAttributeAccessIssue]
+    return np.array([-0.5, 0.0], dtype=np.float64)
 
 
-def observe(state: MCCState) -> Tensor:
-    return torch.tensor([state.pos, state.vel], dtype=torch.float64)
-
-
-# ---------------------------------------------------------------------------
-# Actor: tanh-squashed Gaussian policy
-# ---------------------------------------------------------------------------
+def obs_tensor(obs: np.ndarray) -> Tensor:
+    return torch.tensor(obs, dtype=torch.float64)
 
 
 class Actor(nn.Module):
@@ -108,11 +85,6 @@ class Actor(nn.Module):
         return action, log_prob
 
 
-# ---------------------------------------------------------------------------
-# Q-networks
-# ---------------------------------------------------------------------------
-
-
 class QNet(nn.Module):
     def __init__(self, obs_dim: int = 2, act_dim: int = 1, hidden: int = 64) -> None:
         super().__init__()
@@ -125,11 +97,6 @@ class QNet(nn.Module):
         x = torch.cat([obs, a], dim=-1)
         h = F.relu(self.fc2(F.relu(self.fc1(x))))
         return self.head(h).squeeze(-1)
-
-
-# ---------------------------------------------------------------------------
-# Replay buffer
-# ---------------------------------------------------------------------------
 
 
 class ReplayBuffer:
@@ -154,11 +121,6 @@ class ReplayBuffer:
         return len(self.buf)
 
 
-# ---------------------------------------------------------------------------
-# SAC update
-# ---------------------------------------------------------------------------
-
-
 def sac_update(
     actor: Actor, q1: QNet, q2: QNet, q1_target: QNet, q2_target: QNet,
     actor_opt: torch.optim.Optimizer, q1_opt: torch.optim.Optimizer,
@@ -170,7 +132,6 @@ def sac_update(
         next_action, next_logp = actor.sample(next_obs)
         target_q = torch.min(q1_target(next_obs, next_action), q2_target(next_obs, next_action))
         target = rewards + gamma * (1.0 - dones) * (target_q - alpha * next_logp)
-
     q1_loss = F.mse_loss(q1(obs, actions), target)
     q2_loss = F.mse_loss(q2(obs, actions), target)
     q1_opt.zero_grad()
@@ -179,14 +140,12 @@ def sac_update(
     q2_opt.zero_grad()
     q2_loss.backward()
     q2_opt.step()
-
     sampled_action, logp = actor.sample(obs)
     q_min = torch.min(q1(obs, sampled_action), q2(obs, sampled_action))
     actor_loss = (alpha * logp - q_min).mean()
     actor_opt.zero_grad()
     actor_loss.backward()
     actor_opt.step()
-
     return float(actor_loss.item())
 
 
@@ -194,11 +153,6 @@ def polyak_update(target: nn.Module, online: nn.Module, tau: float) -> None:
     with torch.no_grad():
         for t, o in zip(target.parameters(), online.parameters(), strict=True):
             t.mul_(1.0 - tau).add_(o, alpha=tau)
-
-
-# ---------------------------------------------------------------------------
-# Training
-# ---------------------------------------------------------------------------
 
 
 def train_sac(
@@ -219,35 +173,36 @@ def train_sac(
     q2_opt = torch.optim.Adam(q2.parameters(), lr=lr)
     buffer = ReplayBuffer(buffer_capacity)
 
+    env = make_mountaincarcont_env(seed)
+    obs_np = reset_to_center(env)
     history: list[float] = []
-    state = MCCState()
     ep_return = 0.0
-    ep_len = 0
     t_start = time.monotonic()
     for step in range(total_steps):
-        obs = observe(state)
+        obs = obs_tensor(obs_np)
         if step < warmup_steps:
             action = rng.uniform(-MAX_ACTION, MAX_ACTION)
         else:
             with torch.no_grad():
                 a_t, _ = actor.sample(obs)
                 action = float(a_t.item())
-        raw_reward, next_state, terminated = mcc_step(state, action)
-        ep_return += raw_reward
-        ep_len += 1
-        truncated = ep_len >= MAX_STEPS
-        is_done = terminated or truncated
+        next_obs_np, raw_reward, terminated, truncated, _ = env.step(
+            np.array([action], dtype=np.float32)
+        )
+        next_obs_np = next_obs_np.astype(np.float64)
+        ep_return += float(raw_reward)
         # Buffer's done flag reflects TRUE termination only (so the
         # Q-target bootstrap continues at truncation boundaries).
-        buffer_done = terminated
-        shaped = raw_reward + shaping * abs(next_state.vel)
-        buffer.push(obs.tolist(), action, shaped, observe(next_state).tolist(), buffer_done)
-        state = next_state
+        buffer_done = bool(terminated)
+        shaped = float(raw_reward) + shaping * abs(float(next_obs_np[1]))
+        buffer.push(obs_np.tolist(), action, shaped, next_obs_np.tolist(), buffer_done)
+        is_done = bool(terminated or truncated)
+        obs_np = next_obs_np
         if is_done:
             history.append(ep_return)
             ep_return = 0.0
-            ep_len = 0
-            state = MCCState()
+            env.reset()
+            obs_np = reset_to_center(env)
         if len(buffer) >= max(batch_size, warmup_steps):
             sac_update(
                 actor, q1, q2, q1_target, q2_target,
@@ -267,19 +222,24 @@ def train_sac(
 
 
 def evaluate(actor: Actor, n_episodes: int = 20) -> float:
+    env = make_mountaincarcont_env(seed=0)
     total = 0.0
     for _ in range(n_episodes):
-        state = MCCState()
+        env.reset()
+        obs_np = reset_to_center(env)
         ep_return = 0.0
         for _ in range(MAX_STEPS):
-            obs = observe(state)
+            obs = obs_tensor(obs_np)
             with torch.no_grad():
                 mean, _ = actor(obs)
             action = float(torch.tanh(mean).item()) * MAX_ACTION
-            reward, state, terminated = mcc_step(state, action)
-            ep_return += reward
-            if terminated:
+            next_obs_np, reward, terminated, truncated, _ = env.step(
+                np.array([action], dtype=np.float32)
+            )
+            ep_return += float(reward)
+            if terminated or truncated:
                 break
+            obs_np = next_obs_np.astype(np.float64)
         total += ep_return
     return total / n_episodes
 
