@@ -27,6 +27,7 @@ modules = BuildConfig
         , Example.NtmAssociativeRecall
         , Example.NtmCopy
         , Example.Ppo
+        , Example.PrecisionCheckpoint
         , Example.Profile
         , Example.QLearning
         , Example.Reinforce

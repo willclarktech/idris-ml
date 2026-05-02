@@ -577,6 +577,32 @@ example-tcast-demo: install
 	cp $(LIB) build/exec/tcast-demo_app/
 	./build/exec/tcast-demo $(TCAST_DEMO_ARGS)
 
+# Cross-dtype SafeTensors round-trip smoke test for L63.
+#   1. Save F32 (BACKEND=mlx MLX_DEVICE=gpu): writes a checkpoint with
+#      "dtype":"F32" headers and 4-byte-per-element data.
+#   2. Load-strict in F64 (BACKEND=mlx): expects to FAIL with a dtype
+#      mismatch — `loadModel` returns False, the example exits nonzero.
+#   3. Load-cast in F64 (BACKEND=mlx): expects to PASS — bytes widened
+#      f32 -> f64 at load time, eval loss reproduces the trained loss.
+example-precision-checkpoint:
+	@rm -f /tmp/precision-checkpoint.safetensors
+	@echo "=== Step 1: save F32 (BACKEND=mlx MLX_DEVICE=gpu) ==="
+	$(MAKE) BACKEND=mlx MLX_DEVICE=gpu install >/dev/null
+	idris2 $(IDRIS_FLAGS) -o precision-checkpoint $(EXAMPLE_SRC)/Example/PrecisionCheckpoint.idr
+	cp $(LIB) build/exec/precision-checkpoint_app/
+	./build/exec/precision-checkpoint --mode save --path /tmp/precision-checkpoint.safetensors --expect pass
+	@echo ""
+	@echo "=== Step 2: load-strict into F64 (BACKEND=mlx), expect FAIL ==="
+	$(MAKE) BACKEND=mlx install >/dev/null
+	idris2 $(IDRIS_FLAGS) -o precision-checkpoint $(EXAMPLE_SRC)/Example/PrecisionCheckpoint.idr
+	cp $(LIB) build/exec/precision-checkpoint_app/
+	./build/exec/precision-checkpoint --mode load-strict --path /tmp/precision-checkpoint.safetensors --expect fail
+	@echo ""
+	@echo "=== Step 3: load-cast into F64 (BACKEND=mlx), expect PASS ==="
+	./build/exec/precision-checkpoint --mode load-cast --path /tmp/precision-checkpoint.safetensors --expect pass
+	@echo ""
+	@echo "All three steps passed (PrecisionCheckpoint L63 round-trip)."
+
 # Mlx-only: cross-stream MlxCpu F64 / MlxGpu F32 smoke test. Builds
 # under any BACKEND list that includes mlx; references MlxCpu / MlxGpu
 # directly, so won't link under tape-only or torch-only builds.
