@@ -8,6 +8,7 @@ depends = contrib
 modules = Harness
         , Main
         , Test.BatchedForward
+        , Test.Hpo.LrFinder
         , Test.Init
         , Test.Layer
         , Test.Math
