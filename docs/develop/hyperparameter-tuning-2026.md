@@ -350,4 +350,52 @@ hidden=32 is a real regression for seed=4: it reaches only 13 (vs 117 at hidden=
 - The headroom is in *large* networks where matmul actually scales: Transformer (dModel), NTM/DNC (memory size N), Mnist (Conv2D channels). DQN/Reinforce/A2C/PPO width tuning is unlikely to pay off given this finding.
 - Don't apply B4 by reflex; only run the grid where the matmul scale is actually a constraint.
 
+---
+
+## B3-redogfood (RL examples after sign-stable fix, 2026-04-30)
+
+The B3 entries for Reinforce/A2c/Dqn read "ship-as-is (negative-loss bug)" — the divergence check bailed at iter 1 because losses are negative (these examples report `negate avg_return`). With `0bca2a4` and `1e4f63e` shipped (sign-stable divergence + fallback detection), the bug no longer applies; re-dogfooding is now meaningful.
+
+**Cross-backend setup (new this round)**: B3 had Idris-only `--lr-find` for A2c and Dqn (no PyTorch CLI). Added `scripts/a2c.py` + `scripts/dqn.py` mirroring `scripts/reinforce.py`. Also negated the `epoch_fn` in `scripts/reinforce.py` — `reinforce_epoch` returns mean episode return (higher=better), but `lr_find` expects loss-style; without the negate, PyTorch saw an inverted curve.
+
+### Reinforce (CartPole, Adam)
+
+Config-before: `lr=0.001`, `epochs=2000`, `batch=10`. Architecture: 4 → 128 → 2.
+
+| Backend | RECOMMENDED_LR | Fallback warning? |
+|---|---|---|
+| Idris | 0.02009 | no — meaningful negative slope at lr ≈ 0.2 |
+| PyTorch (after loss-convention fix) | 0.001789 | no — meaningful negative slope at lr ≈ 0.018 |
+
+Cross-backend ratio: **11.2×**, exceeds the 2× gate. Both backends agree directionally (recommend HIGHER LR than current 0.001) but disagree on magnitude. **Decision: ship-as-is.** Honest cross-backend disagreement at this magnitude isn't a confident signal.
+
+### A2c (CartPole, Adam)
+
+Config-before: `lr=7e-4`, `epochs=5000`, `rollout=10`. Architecture: 4 → 64 → 64 → 2 (actor) + 4 → 64 → 64 → 1 (critic), separate.
+
+| Backend | RECOMMENDED_LR | Fallback warning? |
+|---|---|---|
+| Idris | 4.329e-5 | no |
+| PyTorch | 2.783e-4 | no |
+
+Cross-backend ratio: **6.4×**, exceeds the 2× gate. Both backends agree directionally (recommend LOWER LR than current 7e-4) — Idris ~16× lower, PyTorch ~2.5× lower. **Decision: ship-as-is.**
+
+### Dqn (CartPole, Adam)
+
+Config-before: `lr=5e-4`, `epochs=300`, `batch=64`, `target_sync=100`. Architecture: 4 → 64 → 64 → 2.
+
+| Backend | RECOMMENDED_LR | Fallback warning? |
+|---|---|---|
+| Idris | 6.723e-8 | **yes** (rec ≤ lrMin) |
+| PyTorch | 1.0e-8 | **yes** (rec ≤ lrMin) |
+
+Both backends produce a fallback recommendation (rec at or below `lrMin=1e-7`); the new fallback-detection rule fires on both. **Decision: ship-as-is.** The DQN loss curve is too noisy / Adam-adapted for `lr_find` to pick a useful LR.
+
+### Cross-cutting takeaways from B3-redogfood
+
+- **The sign-stable fix works**: all three examples that previously bailed at iter 1 now run all 100/30 iterations. The negative-loss bug is closed.
+- **Adam-fallback story holds**: same pattern as the rest of the Adam-based examples in B3 — meaningful curves on some seeds, fallback on others, never a confident cross-backend match. Reinforce's 11× and A2c's 6.4× cross-backend disagreement are both directionally consistent (both backends recommend the same direction of change) but quantitatively uncertain. The cross-backend gate keeps us from shipping speculative changes.
+- **One small alignment finding**: `scripts/reinforce.py` had `reinforce_epoch` returning higher-is-better for the `--lr-find` epoch_fn. Negated for the lr_find path; unrelated to training output.
+- **One library improvement**: tightened fallback detection — the "rec ≤ lrMin" check now fires the WARNING on noisy curves where the steepest descent is just at iter 0 (Dqn case). Strict `isFallbackCurve` ("all slopes ≥ 0") wasn't catching this.
+
 (Future entries here — one block per example dogfooded by future tunings.)
