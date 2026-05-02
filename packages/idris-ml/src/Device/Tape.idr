@@ -90,6 +90,7 @@ data TapeDev : Type where MkTapeDev : TapeDev
 public export
 UserDeviceCore TapeDev where
   deviceName       = "tape"
+  deviceStreamTag  = 0
   primCreateScalar = prim__createScalarTape
   primCreate       = prim__createTape
   primFree         = prim__freeTape

@@ -140,6 +140,7 @@ public export
   deviceName       = case s of
                        MGpu => "mlx:gpu"
                        MCpu => "mlx:cpu"
+  deviceStreamTag  = streamTag s
   primCreateScalar v rg          = prim__createScalarMlxStreamed v rg (streamTag s)
   primCreate d sh r rg           = prim__createMlxStreamed d sh r rg (streamTag s)
   primFree h                     = prim__freeMlxStreamed h (streamTag s)

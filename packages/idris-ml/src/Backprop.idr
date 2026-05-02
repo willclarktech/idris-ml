@@ -38,12 +38,12 @@ packDoublesIntoBuf buf off (x :: rest) =
   packDoublesIntoBuf (prim__setDouble buf off x) (off + 1) rest
 
 -- Non-persistent input/target tensor from Vector n Double.
-bulkToPersistent : {n : Nat} -> Vector n Double -> AnyPtr
+bulkToPersistent : {0 d : Device} -> UserDeviceCore d => RuntimeDType dt => {n : Nat} -> Vector n Double -> AnyPtr
 bulkToPersistent {n} (VArray elems) =
   let nI = cast {to=Int} n
       buf = prim__allocDoubles nI
       buf' = packScalars buf 0 elems
-  in prim__create1d nI buf' 0
+  in dtCreate1d {t=dt} nI buf' 0 (deviceStreamTag {d})
   where
     packScalars : AnyPtr -> Int -> Vect k (Scalar Double) -> AnyPtr
     packScalars b _ [] = b
@@ -52,8 +52,8 @@ bulkToPersistent {n} (VArray elems) =
 
 -- Scalar Tensor holding 0.0. IO so its FFI side effect happens at
 -- sequence-time rather than at call-time.
-freshZeroLossT : {0 d : Device} -> Double -> IO (Tensor [] d dt WithGrad)
-freshZeroLossT seed = ioRerun (\_ => MkTensor (prim__createScalar seed 0) Nothing)
+freshZeroLossT : {0 d : Device} -> UserDeviceCore d => RuntimeDType dt => Double -> IO (Tensor [] d dt WithGrad)
+freshZeroLossT seed = ioRerun (\_ => MkTensor (dtCreateScalar {t=dt} seed 0 (deviceStreamTag {d})) Nothing)
 
 -- Add two scalar TVars. Dispatches via `primAdd {d}` so the
 -- type-level device tag drives MLX stream selection.
@@ -69,7 +69,7 @@ scaleLoss v s = ioRerun (\_ => MkTensor (primMulScalar {d} v.tensorPtr s) Nothin
 -- Sum a list of scalar tensors starting from a fresh zero. Replaces
 -- the old `foldl taddScalar (freshZeroLossT 0.0) losses` pattern under
 -- the IO-typed surface.
-sumLosses : {0 d : Device} -> UserDeviceCore d =>
+sumLosses : {0 d : Device} -> UserDeviceCore d => RuntimeDType dt =>
             List (Tensor [] d dt WithGrad) -> IO (Tensor [] d dt WithGrad)
 sumLosses losses = do
   zero <- freshZeroLossT 0.0
@@ -92,14 +92,14 @@ sumLosses losses = do
 
 -- Per-point loss closure factored out to avoid let-block elaboration
 -- weirdness in epochVar's body.
-perPointLoss : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => {i, o : Nat} -> {hs : List Nat} ->
+perPointLoss : {0 d : Device} -> UserDeviceTape d => UserDeviceCore d => RuntimeDType dt => {i, o : Nat} -> {hs : List Nat} ->
                LossFn d dt o ->
                Network i hs o d dt WithGrad ->
                DataPoint i o Double ->
                IO (Tensor [] d dt WithGrad)
 perPointLoss lossFn model dp = do
-  let inT = bulkToPersistent (x dp)
-      tgtT = bulkToPersistent (y dp)
+  let inT = bulkToPersistent {d} {dt} (x dp)
+      tgtT = bulkToPersistent {d} {dt} (y dp)
       inV = the (TVec i d dt WithGrad) (MkTensor inT Nothing)
       tgtV = the (TVec o d dt WithGrad) (MkTensor tgtT Nothing)
   (_, predV) <- forwardVar model inV
@@ -109,7 +109,7 @@ perPointLoss lossFn model dp = do
 ||| sample losses, mean-reduce, native train step. Returns the
 ||| (unchanged) network and the loss scalar.
 export
-epochVar : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => {i, o, n : Nat} -> {hs : List Nat} ->
+epochVar : {0 d : Device} -> UserDeviceTape d => UserDeviceCore d => RuntimeDType dt => {i, o, n : Nat} -> {hs : List Nat} ->
             NativeOptimizer ->
             Vect n (DataPoint i o Double) ->
             LossFn d dt o ->
@@ -124,7 +124,7 @@ epochVar opt dataPoints lossFn model = do
 
 
 -- Per-point loss for already-tensor-pre-built inputs (TensorDataPoint).
-perPointLossTensor : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => {i, o : Nat} -> {hs : List Nat} ->
+perPointLossTensor : {0 d : Device} -> UserDeviceTape d => UserDeviceCore d => RuntimeDType dt => {i, o : Nat} -> {hs : List Nat} ->
                      LossFn d dt o ->
                      Network i hs o d dt WithGrad ->
                      TensorDataPoint i o ->
@@ -137,7 +137,7 @@ perPointLossTensor lossFn model dp = do
 
 ||| Supervised epoch over already-tensor-pre-built data points.
 export
-epochVarTensor : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => {i, o, n : Nat} -> {hs : List Nat} ->
+epochVarTensor : {0 d : Device} -> UserDeviceTape d => UserDeviceCore d => RuntimeDType dt => {i, o, n : Nat} -> {hs : List Nat} ->
                   NativeOptimizer ->
                   Vect n (TensorDataPoint i o) ->
                   LossFn d dt o ->
@@ -173,7 +173,7 @@ perRowLoss lossFn predB tgtB k = do
 
 ||| Batched supervised epoch over `TensorDataPoint`s.
 export
-epochVarTensorBatch : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => {i, o, n : Nat} -> {hs : List Nat} ->
+epochVarTensorBatch : {0 d : Device} -> UserDeviceTape d => UserDeviceCore d => RuntimeDType dt => {i, o, n : Nat} -> {hs : List Nat} ->
                        NativeOptimizer ->
                        Vect n (TensorDataPoint i o) ->
                        LossFn d dt o ->
@@ -213,21 +213,21 @@ epochVarTensorBatch opt dataPoints lossFn model = do
 
 -- One step of a sequence: forward, compute loss against target,
 -- accumulate.
-recurStep : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => {i, o : Nat} -> {hs : List Nat} ->
+recurStep : {0 d : Device} -> UserDeviceTape d => UserDeviceCore d => RuntimeDType dt => {i, o : Nat} -> {hs : List Nat} ->
             LossFn d dt o ->
             (Network i hs o d dt WithGrad, Tensor [] d dt WithGrad) ->
             (Vector i Double, Vector o Double) ->
             IO (Network i hs o d dt WithGrad, Tensor [] d dt WithGrad)
 recurStep lossFn (net, accLoss) (xVec, yVec) = do
-  let inV = the (TVec i d dt WithGrad) (MkTensor (bulkToPersistent xVec) Nothing)
-      tgtV = the (TVec o d dt WithGrad) (MkTensor (bulkToPersistent yVec) Nothing)
+  let inV = the (TVec i d dt WithGrad) (MkTensor (bulkToPersistent {d} {dt} xVec) Nothing)
+      tgtV = the (TVec o d dt WithGrad) (MkTensor (bulkToPersistent {d} {dt} yVec) Nothing)
   (net', predV) <- forwardVar net inV
   stepL <- lossFn predV tgtV
   newAcc <- taddScalar accLoss stepL
   pure (net', newAcc)
 
 -- Per-sequence loss: reset state, walk timesteps, mean-reduce.
-perSeqLoss : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => {i, o : Nat} -> {hs : List Nat} ->
+perSeqLoss : {0 d : Device} -> UserDeviceTape d => UserDeviceCore d => RuntimeDType dt => {i, o : Nat} -> {hs : List Nat} ->
              LossFn d dt o ->
              Network i hs o d dt WithGrad ->
              RecurrentDataPoint i o Double ->
@@ -255,7 +255,7 @@ perSeqLoss lossFn model dp = do
 
 ||| One recurrent epoch.
 export
-epochRecurrentVar : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => {i, o, n : Nat} -> {hs : List Nat} ->
+epochRecurrentVar : {0 d : Device} -> UserDeviceTape d => UserDeviceCore d => RuntimeDType dt => {i, o, n : Nat} -> {hs : List Nat} ->
                      NativeOptimizer ->
                      Vect n (RecurrentDataPoint i o Double) ->
                      LossFn d dt o ->
@@ -273,7 +273,7 @@ epochRecurrentVar opt dataPoints lossFn model = do
 -- Two-phase epoch (NTM/DNC pattern: encode then decode)
 ----------------------------------------------------------------------
 
-decodeStep : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => {i, o : Nat} -> {hs : List Nat} ->
+decodeStep : {0 d : Device} -> UserDeviceTape d => UserDeviceCore d => RuntimeDType dt => {i, o : Nat} -> {hs : List Nat} ->
              LossFn d dt o ->
              AnyPtr ->
              (Network i hs o d dt WithGrad, Tensor [] d dt WithGrad) ->
@@ -281,22 +281,22 @@ decodeStep : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => {i, o : Na
              IO (Network i hs o d dt WithGrad, Tensor [] d dt WithGrad)
 decodeStep lossFn zeroInPtr (net, accLoss) tgtVec = do
   let inV = the (TVec i d dt WithGrad) (MkTensor zeroInPtr Nothing)
-      tgtV = the (TVec o d dt WithGrad) (MkTensor (bulkToPersistent tgtVec) Nothing)
+      tgtV = the (TVec o d dt WithGrad) (MkTensor (bulkToPersistent {d} {dt} tgtVec) Nothing)
   (net', predV) <- forwardVar net inV
   stepL <- lossFn predV tgtV
   newAcc <- taddScalar accLoss stepL
   pure (net', newAcc)
 
-encodeStep : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => {i, o : Nat} -> {hs : List Nat} ->
+encodeStep : {0 d : Device} -> UserDeviceTape d => UserDeviceCore d => RuntimeDType dt => {i, o : Nat} -> {hs : List Nat} ->
              Network i hs o d dt WithGrad ->
              Vector i Double ->
              IO (Network i hs o d dt WithGrad)
 encodeStep net xVec = do
-  let inV = the (TVec i d dt WithGrad) (MkTensor (bulkToPersistent xVec) Nothing)
+  let inV = the (TVec i d dt WithGrad) (MkTensor (bulkToPersistent {d} {dt} xVec) Nothing)
   (net', _) <- forwardVar net inV
   pure net'
 
-perSeqLossTwoPhase : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => {i, o : Nat} -> {hs : List Nat} ->
+perSeqLossTwoPhase : {0 d : Device} -> UserDeviceTape d => UserDeviceCore d => RuntimeDType dt => {i, o : Nat} -> {hs : List Nat} ->
                      LossFn d dt o ->
                      Network i hs o d dt WithGrad ->
                      TwoPhaseDataPoint i o Double ->
@@ -305,7 +305,7 @@ perSeqLossTwoPhase lossFn model dp = do
   let startNet = resetNetwork model
   encNet <- foldlIO encodeStep startNet (encodingInputs dp)
   let iI = cast {to=Int} i
-      zeroIn = prim__create1d iI (prim__allocDoubles iI) 0
+      zeroIn = dtCreate1d {t=dt} iI (prim__allocDoubles iI) 0 (deviceStreamTag {d})
   zero <- freshZeroLossT 0.0
   (_, totalLoss) <- foldlIO2 (decodeStep lossFn zeroIn) (encNet, zero) (targets dp)
   let stepCount = length (targets dp)
@@ -335,7 +335,7 @@ perSeqLossTwoPhase lossFn model dp = do
 
 ||| One two-phase epoch.
 export
-epochTwoPhaseVar : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => {i, o, n : Nat} -> {hs : List Nat} ->
+epochTwoPhaseVar : {0 d : Device} -> UserDeviceTape d => UserDeviceCore d => RuntimeDType dt => {i, o, n : Nat} -> {hs : List Nat} ->
                     NativeOptimizer ->
                     Vect n (TwoPhaseDataPoint i o Double) ->
                     LossFn d dt o ->
@@ -362,7 +362,7 @@ tvecToVector {n} ptr = VArray (build 0 n)
     build off (S k) = SArray (primItem1d {d} ptr off) :: build (off + 1) k
 
 export
-forwardTwoPhase : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => {i, o : Nat} -> {hs : List Nat} ->
+forwardTwoPhase : {0 d : Device} -> UserDeviceTape d => UserDeviceCore d => RuntimeDType dt => {i, o : Nat} -> {hs : List Nat} ->
                       Network i hs o d dt WithGrad ->
                       TwoPhaseDataPoint i o Double ->
                       IO (Network i hs o d dt WithGrad, List (Vector o Double))
@@ -370,7 +370,7 @@ forwardTwoPhase model dp = do
   let startNet = resetNetwork model
   encNet <- foldlIO encodeStep startNet (encodingInputs dp)
   let iI = cast {to=Int} i
-      zeroIn = prim__create1d iI (prim__allocDoubles iI) 0
+      zeroIn = dtCreate1d {t=dt} iI (prim__allocDoubles iI) 0 (deviceStreamTag {d})
   foldlIO2 (decodeOnce zeroIn) (encNet, []) (targets dp)
   where
     decodeOnce : AnyPtr ->

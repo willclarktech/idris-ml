@@ -40,7 +40,7 @@ record GruState (i : Nat) (o : Nat) (0 d : Device) (0 dt : DType) (0 g : GradMod
 %default partial
 
 export
-applyGru : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => {o : Nat} ->
+applyGru : {0 d : Device} -> UserDeviceTape d => UserDeviceCore d => RuntimeDType dt => {o : Nat} ->
              GruState i o d dt g ->
              TVec i d dt g ->
              IO (GruState i o d dt g, TVec o d dt g)
@@ -72,7 +72,7 @@ zeroBuf buf off n =
 ||| zero biases. Params register under `<prefix>_iw`, `<prefix>_ih_b`,
 ||| `<prefix>_hw`, `<prefix>_hh_b`.
 export
-gruLayer : RuntimeDType dt => {i, o : Nat} -> (paramPrefix : String) ->
+gruLayer : UserDeviceCore d => RuntimeDType dt => {i, o : Nat} -> (paramPrefix : String) ->
              IO (GruState i o d dt WithGrad)
 gruLayer paramPrefix = do
   let gI = cast {to=Int} (3 * o)
@@ -92,10 +92,10 @@ gruLayer paramPrefix = do
       hwName  = paramPrefix ++ "_hw"
       ihBName = paramPrefix ++ "_ih_b"
       hhBName = paramPrefix ++ "_hh_b"
-      iwPtr  = prim__paramRegister iwName  (prim__createParam2d gI iI iwBuf')
-      hwPtr  = prim__paramRegister hwName  (prim__createParam2d gI oI hwBuf')
-      ihBPtr = prim__paramRegister ihBName (prim__createParam1d gI ihBBuf')
-      hhBPtr = prim__paramRegister hhBName (prim__createParam1d gI hhBBuf')
+      iwPtr  = prim__paramRegister iwName  (dtCreateParam2d {t=dt} gI iI iwBuf' (deviceStreamTag {d}))
+      hwPtr  = prim__paramRegister hwName  (dtCreateParam2d {t=dt} gI oI hwBuf' (deviceStreamTag {d}))
+      ihBPtr = prim__paramRegister ihBName (dtCreateParam1d {t=dt} gI ihBBuf' (deviceStreamTag {d}))
+      hhBPtr = prim__paramRegister hhBName (dtCreateParam1d {t=dt} gI hhBBuf' (deviceStreamTag {d}))
       iwTV : TMat (3 * o) i d dt WithGrad
       iwTV = MkTensor iwPtr (Just iwName)
       hwTV : TMat (3 * o) o d dt WithGrad
@@ -147,5 +147,5 @@ LayerLike GruState where
 
 ||| Wrap a `GruState` in `AnyLayer`.
 export
-gruLayerAny : RuntimeDType dt => {i, o : Nat} -> (paramPrefix : String) -> IO (AnyLayer i o d dt WithGrad)
+gruLayerAny : UserDeviceCore d => RuntimeDType dt => {i, o : Nat} -> (paramPrefix : String) -> IO (AnyLayer i o d dt WithGrad)
 gruLayerAny pid = map (MkAnyLayer GruState) (gruLayer pid)

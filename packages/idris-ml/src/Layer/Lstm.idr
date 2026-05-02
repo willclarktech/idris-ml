@@ -43,7 +43,7 @@ record LstmState (i : Nat) (o : Nat) (0 d : Device) (0 dt : DType) (0 g : GradMo
 ||| hidden + cell state, runs the fused gate computation, returns the
 ||| updated layer state and the new hidden output.
 export
-applyLstm : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => {o : Nat} ->
+applyLstm : {0 d : Device} -> UserDeviceTape d => UserDeviceCore d => RuntimeDType dt => {o : Nat} ->
               LstmState i o d dt g ->
               TVec i d dt g ->
               IO (LstmState i o d dt g, TVec o d dt g)
@@ -84,7 +84,7 @@ zeroBuf buf off n =
 ||| `<prefix>_iw`, `<prefix>_rw`, `<prefix>_ib`, `<prefix>_hb`,
 ||| `<prefix>_h0`, `<prefix>_c0`.
 export
-lstmLayer : RuntimeDType dt => {i, o : Nat} -> (paramPrefix : String) ->
+lstmLayer : UserDeviceCore d => RuntimeDType dt => {i, o : Nat} -> (paramPrefix : String) ->
               IO (LstmState i o d dt WithGrad)
 lstmLayer paramPrefix = do
   let gI = cast {to=Int} (4 * o)
@@ -110,12 +110,12 @@ lstmLayer paramPrefix = do
       hbName = paramPrefix ++ "_hb"
       h0Name = paramPrefix ++ "_h0"
       c0Name = paramPrefix ++ "_c0"
-      iwPtr = prim__paramRegister iwName (prim__createParam2d gI iI iwBuf')
-      rwPtr = prim__paramRegister rwName (prim__createParam2d gI oI rwBuf')
-      ibPtr = prim__paramRegister ibName (prim__createParam1d gI ibBuf')
-      hbPtr = prim__paramRegister hbName (prim__createParam1d gI hbBuf')
-      h0Ptr = prim__paramRegister h0Name (prim__createParam1d oI h0Buf')
-      c0Ptr = prim__paramRegister c0Name (prim__createParam1d oI c0Buf')
+      iwPtr = prim__paramRegister iwName (dtCreateParam2d {t=dt} gI iI iwBuf' (deviceStreamTag {d}))
+      rwPtr = prim__paramRegister rwName (dtCreateParam2d {t=dt} gI oI rwBuf' (deviceStreamTag {d}))
+      ibPtr = prim__paramRegister ibName (dtCreateParam1d {t=dt} gI ibBuf' (deviceStreamTag {d}))
+      hbPtr = prim__paramRegister hbName (dtCreateParam1d {t=dt} gI hbBuf' (deviceStreamTag {d}))
+      h0Ptr = prim__paramRegister h0Name (dtCreateParam1d {t=dt} oI h0Buf' (deviceStreamTag {d}))
+      c0Ptr = prim__paramRegister c0Name (dtCreateParam1d {t=dt} oI c0Buf' (deviceStreamTag {d}))
       iwTV : TMat (4 * o) i d dt WithGrad
       iwTV = MkTensor iwPtr (Just iwName)
       rwTV : TMat (4 * o) o d dt WithGrad
@@ -183,5 +183,5 @@ LayerLike LstmState where
 
 ||| Wrap an `LstmState` in `AnyLayer`.
 export
-lstmLayerAny : RuntimeDType dt => {i, o : Nat} -> (paramPrefix : String) -> IO (AnyLayer i o d dt WithGrad)
+lstmLayerAny : UserDeviceCore d => RuntimeDType dt => {i, o : Nat} -> (paramPrefix : String) -> IO (AnyLayer i o d dt WithGrad)
 lstmLayerAny pid = map (MkAnyLayer LstmState) (lstmLayer pid)

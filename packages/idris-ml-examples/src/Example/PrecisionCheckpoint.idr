@@ -96,9 +96,9 @@ specs =
 evalModel : Network 2 [] 3 ExampleDevice ExampleDType WithGrad -> IO Double
 evalModel model = do
   losses <- traverse (\dp => do
-        let inT  = bulkToTensor {dt=ExampleDType} (x dp)
+        let inT  = bulkToTensor {d=ExampleDevice} {dt=ExampleDType} (x dp)
             inV  = the (TVec 2 ExampleDevice ExampleDType WithGrad) (MkTensor inT Nothing)
-            tgtT = bulkToTensor {dt=ExampleDType} (y dp)
+            tgtT = bulkToTensor {d=ExampleDevice} {dt=ExampleDType} (y dp)
             tgtV = the (TVec 3 ExampleDevice ExampleDType WithGrad) (MkTensor tgtT Nothing)
         (_, predV) <- forwardVar model inV
         lossT <- tnllLoss predV tgtV

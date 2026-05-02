@@ -46,7 +46,7 @@ data BatchNormState : (channels : Nat) -> (spatialDim : Nat) ->
 %default partial
 
 export
-applyBatchNorm : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => {channels, spatialDim : Nat} ->
+applyBatchNorm : {0 d : Device} -> UserDeviceTape d => UserDeviceCore d => RuntimeDType dt => {channels, spatialDim : Nat} ->
                    BatchNormState channels spatialDim
                      (channels * spatialDim)
                      (channels * spatialDim) d dt g ->
@@ -84,7 +84,7 @@ fillConst buf off n v =
 ||| Params register as `<prefix>_gamma` / `<prefix>_beta`; state
 ||| tensors are persistent C tensors (non-learnable).
 export
-batchNormLayer : RuntimeDType dt => {channels, spatialDim : Nat} ->
+batchNormLayer : UserDeviceCore d => RuntimeDType dt => {channels, spatialDim : Nat} ->
                    (paramPrefix : String) ->
                    IO (BatchNormState channels spatialDim
                          (channels * spatialDim)
@@ -97,10 +97,10 @@ batchNormLayer paramPrefix = do
       vBuf = fillConst (prim__allocDoubles cI) 0 cI 1.0
       gName = paramPrefix ++ "_gamma"
       bName = paramPrefix ++ "_beta"
-      gPtr = prim__paramRegister gName (prim__createParam1d cI gBuf)
-      bPtr = prim__paramRegister bName (prim__createParam1d cI bBuf)
-      mPtr = prim__createState1d cI mBuf
-      vPtr = prim__createState1d cI vBuf
+      gPtr = prim__paramRegister gName (dtCreateParam1d {t=dt} cI gBuf (deviceStreamTag {d}))
+      bPtr = prim__paramRegister bName (dtCreateParam1d {t=dt} cI bBuf (deviceStreamTag {d}))
+      mPtr = dtCreateState1d {t=dt} cI mBuf (deviceStreamTag {d})
+      vPtr = dtCreateState1d {t=dt} cI vBuf (deviceStreamTag {d})
       gTV : TVec channels d dt WithGrad
       gTV = MkTensor gPtr (Just gName)
       bTV : TVec channels d dt WithGrad
@@ -147,7 +147,7 @@ public export
 
 ||| Wrap in `AnyLayer`.
 export
-batchNormLayerAny : RuntimeDType dt => {channels, spatialDim : Nat} ->
+batchNormLayerAny : UserDeviceCore d => RuntimeDType dt => {channels, spatialDim : Nat} ->
                       (paramPrefix : String) ->
                       IO (AnyLayer (channels * spatialDim) (channels * spatialDim) d dt WithGrad)
 batchNormLayerAny pid =

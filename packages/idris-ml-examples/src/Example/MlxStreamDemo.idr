@@ -67,7 +67,7 @@ main = do
 
   -- CPU-stream tensor at F64. `UserDeviceCore (MlxDev MCpu)`'s
   -- `primNeg` derives `streamTag MCpu = 0` and threads it.
-  let aCpuPtr = bulkToTensor {dt=F64} inputCpu
+  let aCpuPtr = bulkToTensor {d=MlxCpu} {dt=F64} inputCpu
       aCpu    = the (Tensor [4] MlxCpu F64 WithGrad) (MkTensor aCpuPtr Nothing)
   negCpu <- tneg aCpu
   putStrLn $ "MlxCpu F64  input  : " ++ showVec (readVec4 aCpu)
@@ -75,7 +75,7 @@ main = do
 
   -- GPU-stream tensor at F32. `UserDeviceCore (MlxDev MGpu)`'s
   -- `primNeg` derives `streamTag MGpu = 1` and threads it.
-  let bGpuPtr = bulkToTensor {dt=F32} inputGpu
+  let bGpuPtr = bulkToTensor {d=MlxGpu} {dt=F32} inputGpu
       bGpu    = the (Tensor [4] MlxGpu F32 WithGrad) (MkTensor bGpuPtr Nothing)
   negGpu <- tneg bGpu
   putStrLn $ "MlxGpu F32  input  : " ++ showVec (readVec4 bGpu)

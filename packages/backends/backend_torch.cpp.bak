@@ -1982,91 +1982,91 @@ int dropout_random_seed(int x) { return rand() % (x + 1); }
 
 /* ---- L60 dtype-cascade stream wrappers (no-op stream on torch) ---- */
 
-TensorHandle tensor_create_scalar_f32_streamed(double value, int requires_grad, int stream_tag) {
+extern "C" TensorHandle tensor_create_scalar_f32_streamed(double value, int requires_grad, int stream_tag) {
     (void)stream_tag;
     return tensor_create_scalar_f32(value, requires_grad);
 }
-TensorHandle tensor_create_scalar_f64_streamed(double value, int requires_grad, int stream_tag) {
+extern "C" TensorHandle tensor_create_scalar_f64_streamed(double value, int requires_grad, int stream_tag) {
     (void)stream_tag;
     return tensor_create_scalar_f64(value, requires_grad);
 }
-TensorHandle tensor_create_f32_streamed(double* data, int* shape, int rank, int requires_grad, int stream_tag) {
+extern "C" TensorHandle tensor_create_f32_streamed(double* data, int* shape, int rank, int requires_grad, int stream_tag) {
     (void)stream_tag;
     return tensor_create_f32(data, shape, rank, requires_grad);
 }
-TensorHandle tensor_create_f64_streamed(double* data, int* shape, int rank, int requires_grad, int stream_tag) {
+extern "C" TensorHandle tensor_create_f64_streamed(double* data, int* shape, int rank, int requires_grad, int stream_tag) {
     (void)stream_tag;
     return tensor_create_f64(data, shape, rank, requires_grad);
 }
-TensorHandle tensor_create_1d_f32_streamed(int n, double* data, int requires_grad, int stream_tag) {
+extern "C" TensorHandle tensor_create_1d_f32_streamed(int n, double* data, int requires_grad, int stream_tag) {
     (void)stream_tag;
     return tensor_create_1d_f32(n, data, requires_grad);
 }
-TensorHandle tensor_create_1d_f64_streamed(int n, double* data, int requires_grad, int stream_tag) {
+extern "C" TensorHandle tensor_create_1d_f64_streamed(int n, double* data, int requires_grad, int stream_tag) {
     (void)stream_tag;
     return tensor_create_1d_f64(n, data, requires_grad);
 }
-TensorHandle tensor_create_2d_f32_streamed(int rows, int cols, double* data, int requires_grad, int stream_tag) {
+extern "C" TensorHandle tensor_create_2d_f32_streamed(int rows, int cols, double* data, int requires_grad, int stream_tag) {
     (void)stream_tag;
     return tensor_create_2d_f32(rows, cols, data, requires_grad);
 }
-TensorHandle tensor_create_2d_f64_streamed(int rows, int cols, double* data, int requires_grad, int stream_tag) {
+extern "C" TensorHandle tensor_create_2d_f64_streamed(int rows, int cols, double* data, int requires_grad, int stream_tag) {
     (void)stream_tag;
     return tensor_create_2d_f64(rows, cols, data, requires_grad);
 }
-TensorHandle tensor_create_param_1d_f32_streamed(int n, double* data, int stream_tag) {
+extern "C" TensorHandle tensor_create_param_1d_f32_streamed(int n, double* data, int stream_tag) {
     (void)stream_tag;
     return tensor_create_param_1d_f32(n, data);
 }
-TensorHandle tensor_create_param_1d_f64_streamed(int n, double* data, int stream_tag) {
+extern "C" TensorHandle tensor_create_param_1d_f64_streamed(int n, double* data, int stream_tag) {
     (void)stream_tag;
     return tensor_create_param_1d_f64(n, data);
 }
-TensorHandle tensor_create_param_2d_f32_streamed(int rows, int cols, double* data, int stream_tag) {
+extern "C" TensorHandle tensor_create_param_2d_f32_streamed(int rows, int cols, double* data, int stream_tag) {
     (void)stream_tag;
     return tensor_create_param_2d_f32(rows, cols, data);
 }
-TensorHandle tensor_create_param_2d_f64_streamed(int rows, int cols, double* data, int stream_tag) {
+extern "C" TensorHandle tensor_create_param_2d_f64_streamed(int rows, int cols, double* data, int stream_tag) {
     (void)stream_tag;
     return tensor_create_param_2d_f64(rows, cols, data);
 }
-TensorHandle tensor_create_param_3d_f32_streamed(int d0, int d1, int d2, double* data, int stream_tag) {
+extern "C" TensorHandle tensor_create_param_3d_f32_streamed(int d0, int d1, int d2, double* data, int stream_tag) {
     (void)stream_tag;
     return tensor_create_param_3d_f32(d0, d1, d2, data);
 }
-TensorHandle tensor_create_param_3d_f64_streamed(int d0, int d1, int d2, double* data, int stream_tag) {
+extern "C" TensorHandle tensor_create_param_3d_f64_streamed(int d0, int d1, int d2, double* data, int stream_tag) {
     (void)stream_tag;
     return tensor_create_param_3d_f64(d0, d1, d2, data);
 }
-TensorHandle tensor_create_param_4d_f32_streamed(int d0, int d1, int d2, int d3, double* data, int stream_tag) {
+extern "C" TensorHandle tensor_create_param_4d_f32_streamed(int d0, int d1, int d2, int d3, double* data, int stream_tag) {
     (void)stream_tag;
     return tensor_create_param_4d_f32(d0, d1, d2, d3, data);
 }
-TensorHandle tensor_create_param_4d_f64_streamed(int d0, int d1, int d2, int d3, double* data, int stream_tag) {
+extern "C" TensorHandle tensor_create_param_4d_f64_streamed(int d0, int d1, int d2, int d3, double* data, int stream_tag) {
     (void)stream_tag;
     return tensor_create_param_4d_f64(d0, d1, d2, d3, data);
 }
-TensorHandle tensor_create_state_1d_f32_streamed(int n, double* data, int stream_tag) {
+extern "C" TensorHandle tensor_create_state_1d_f32_streamed(int n, double* data, int stream_tag) {
     (void)stream_tag;
     return tensor_create_state_1d_f32(n, data);
 }
-TensorHandle tensor_create_state_1d_f64_streamed(int n, double* data, int stream_tag) {
+extern "C" TensorHandle tensor_create_state_1d_f64_streamed(int n, double* data, int stream_tag) {
     (void)stream_tag;
     return tensor_create_state_1d_f64(n, data);
 }
-TensorHandle tensor_create_state_2d_f32_streamed(int rows, int cols, double* data, int stream_tag) {
+extern "C" TensorHandle tensor_create_state_2d_f32_streamed(int rows, int cols, double* data, int stream_tag) {
     (void)stream_tag;
     return tensor_create_state_2d_f32(rows, cols, data);
 }
-TensorHandle tensor_create_state_2d_f64_streamed(int rows, int cols, double* data, int stream_tag) {
+extern "C" TensorHandle tensor_create_state_2d_f64_streamed(int rows, int cols, double* data, int stream_tag) {
     (void)stream_tag;
     return tensor_create_state_2d_f64(rows, cols, data);
 }
-TensorHandle tensor_cast_dtype_f32_streamed(TensorHandle src, int stream_tag) {
+extern "C" TensorHandle tensor_cast_dtype_f32_streamed(TensorHandle src, int stream_tag) {
     (void)stream_tag;
     return tensor_cast_dtype_f32(src);
 }
-TensorHandle tensor_cast_dtype_f64_streamed(TensorHandle src, int stream_tag) {
+extern "C" TensorHandle tensor_cast_dtype_f64_streamed(TensorHandle src, int stream_tag) {
     (void)stream_tag;
     return tensor_cast_dtype_f64(src);
 }

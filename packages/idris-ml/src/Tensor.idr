@@ -640,85 +640,85 @@ prim__createParam4d : Int -> Int -> Int -> Int -> AnyPtr -> AnyPtr
 ----------------------------------------------------------------------
 
 -- tensor_create_scalar
-%foreign "scheme:(lambda (val rg) (when (not (top-level-bound? 'idris-libidrisml-loaded)) (load-shared-object \"libidrisml.dylib\") (set-top-level-value! 'idris-libidrisml-loaded #t)) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_scalar_f32\" (double int) void*) val rg))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-prim__createScalar_f32 : Double -> Int -> AnyPtr
+%foreign "scheme:(lambda (val rg a2) (when (not (top-level-bound? 'idris-libidrisml-loaded)) (load-shared-object \"libidrisml.dylib\") (set-top-level-value! 'idris-libidrisml-loaded #t)) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_scalar_f32_streamed\" (double int int) void*) val rg a2))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
+prim__createScalar_f32 : Double -> Int -> Int -> AnyPtr
 
-%foreign "scheme:(lambda (val rg) (when (not (top-level-bound? 'idris-libidrisml-loaded)) (load-shared-object \"libidrisml.dylib\") (set-top-level-value! 'idris-libidrisml-loaded #t)) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_scalar_f64\" (double int) void*) val rg))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-prim__createScalar_f64 : Double -> Int -> AnyPtr
+%foreign "scheme:(lambda (val rg a2) (when (not (top-level-bound? 'idris-libidrisml-loaded)) (load-shared-object \"libidrisml.dylib\") (set-top-level-value! 'idris-libidrisml-loaded #t)) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_scalar_f64_streamed\" (double int int) void*) val rg a2))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
+prim__createScalar_f64 : Double -> Int -> Int -> AnyPtr
 
 -- tensor_create
-%foreign "scheme:(lambda (a0 a1 a2 a3) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_f32\" (void* void* int int) void*) a0 a1 a2 a3))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-prim__create_f32 : AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
+%foreign "scheme:(lambda (a0 a1 a2 a3 a4) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_f32_streamed\" (void* void* int int int) void*) a0 a1 a2 a3 a4))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
+prim__create_f32 : AnyPtr -> AnyPtr -> Int -> Int -> Int -> AnyPtr
 
-%foreign "scheme:(lambda (a0 a1 a2 a3) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_f64\" (void* void* int int) void*) a0 a1 a2 a3))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-prim__create_f64 : AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
+%foreign "scheme:(lambda (a0 a1 a2 a3 a4) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_f64_streamed\" (void* void* int int int) void*) a0 a1 a2 a3 a4))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
+prim__create_f64 : AnyPtr -> AnyPtr -> Int -> Int -> Int -> AnyPtr
 
 -- tensor_create_1d
-%foreign "scheme:(lambda (a0 a1 a2) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_1d_f32\" (int void* int) void*) a0 a1 a2))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-prim__create1d_f32 : Int -> AnyPtr -> Int -> AnyPtr
+%foreign "scheme:(lambda (a0 a1 a2 a3) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_1d_f32_streamed\" (int void* int int) void*) a0 a1 a2 a3))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
+prim__create1d_f32 : Int -> AnyPtr -> Int -> Int -> AnyPtr
 
-%foreign "scheme:(lambda (a0 a1 a2) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_1d_f64\" (int void* int) void*) a0 a1 a2))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-prim__create1d_f64 : Int -> AnyPtr -> Int -> AnyPtr
+%foreign "scheme:(lambda (a0 a1 a2 a3) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_1d_f64_streamed\" (int void* int int) void*) a0 a1 a2 a3))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
+prim__create1d_f64 : Int -> AnyPtr -> Int -> Int -> AnyPtr
 
 -- tensor_create_2d
-%foreign "scheme:(lambda (a0 a1 a2 a3) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_2d_f32\" (int int void* int) void*) a0 a1 a2 a3))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-prim__create2d_f32 : Int -> Int -> AnyPtr -> Int -> AnyPtr
+%foreign "scheme:(lambda (a0 a1 a2 a3 a4) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_2d_f32_streamed\" (int int void* int int) void*) a0 a1 a2 a3 a4))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
+prim__create2d_f32 : Int -> Int -> AnyPtr -> Int -> Int -> AnyPtr
 
-%foreign "scheme:(lambda (a0 a1 a2 a3) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_2d_f64\" (int int void* int) void*) a0 a1 a2 a3))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-prim__create2d_f64 : Int -> Int -> AnyPtr -> Int -> AnyPtr
+%foreign "scheme:(lambda (a0 a1 a2 a3 a4) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_2d_f64_streamed\" (int int void* int int) void*) a0 a1 a2 a3 a4))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
+prim__create2d_f64 : Int -> Int -> AnyPtr -> Int -> Int -> AnyPtr
 
 -- tensor_create_param_1d
-%foreign "scheme:(lambda (a0 a1) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_param_1d_f32\" (int void*) void*) a0 a1))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-prim__createParam1d_f32 : Int -> AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (a0 a1 a2) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_param_1d_f32_streamed\" (int void* int) void*) a0 a1 a2))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
+prim__createParam1d_f32 : Int -> AnyPtr -> Int -> AnyPtr
 
-%foreign "scheme:(lambda (a0 a1) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_param_1d_f64\" (int void*) void*) a0 a1))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-prim__createParam1d_f64 : Int -> AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (a0 a1 a2) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_param_1d_f64_streamed\" (int void* int) void*) a0 a1 a2))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
+prim__createParam1d_f64 : Int -> AnyPtr -> Int -> AnyPtr
 
 -- tensor_create_param_2d
-%foreign "scheme:(lambda (a0 a1 a2) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_param_2d_f32\" (int int void*) void*) a0 a1 a2))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-prim__createParam2d_f32 : Int -> Int -> AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (a0 a1 a2 a3) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_param_2d_f32_streamed\" (int int void* int) void*) a0 a1 a2 a3))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
+prim__createParam2d_f32 : Int -> Int -> AnyPtr -> Int -> AnyPtr
 
-%foreign "scheme:(lambda (a0 a1 a2) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_param_2d_f64\" (int int void*) void*) a0 a1 a2))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-prim__createParam2d_f64 : Int -> Int -> AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (a0 a1 a2 a3) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_param_2d_f64_streamed\" (int int void* int) void*) a0 a1 a2 a3))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
+prim__createParam2d_f64 : Int -> Int -> AnyPtr -> Int -> AnyPtr
 
 -- tensor_create_param_3d
-%foreign "scheme:(lambda (a0 a1 a2 a3) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_param_3d_f32\" (int int int void*) void*) a0 a1 a2 a3))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-prim__createParam3d_f32 : Int -> Int -> Int -> AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (a0 a1 a2 a3 a4) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_param_3d_f32_streamed\" (int int int void* int) void*) a0 a1 a2 a3 a4))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
+prim__createParam3d_f32 : Int -> Int -> Int -> AnyPtr -> Int -> AnyPtr
 
-%foreign "scheme:(lambda (a0 a1 a2 a3) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_param_3d_f64\" (int int int void*) void*) a0 a1 a2 a3))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-prim__createParam3d_f64 : Int -> Int -> Int -> AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (a0 a1 a2 a3 a4) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_param_3d_f64_streamed\" (int int int void* int) void*) a0 a1 a2 a3 a4))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
+prim__createParam3d_f64 : Int -> Int -> Int -> AnyPtr -> Int -> AnyPtr
 
 -- tensor_create_param_4d
-%foreign "scheme:(lambda (a0 a1 a2 a3 a4) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_param_4d_f32\" (int int int int void*) void*) a0 a1 a2 a3 a4))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-prim__createParam4d_f32 : Int -> Int -> Int -> Int -> AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (a0 a1 a2 a3 a4 a5) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_param_4d_f32_streamed\" (int int int int void* int) void*) a0 a1 a2 a3 a4 a5))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
+prim__createParam4d_f32 : Int -> Int -> Int -> Int -> AnyPtr -> Int -> AnyPtr
 
-%foreign "scheme:(lambda (a0 a1 a2 a3 a4) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_param_4d_f64\" (int int int int void*) void*) a0 a1 a2 a3 a4))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-prim__createParam4d_f64 : Int -> Int -> Int -> Int -> AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (a0 a1 a2 a3 a4 a5) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_param_4d_f64_streamed\" (int int int int void* int) void*) a0 a1 a2 a3 a4 a5))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
+prim__createParam4d_f64 : Int -> Int -> Int -> Int -> AnyPtr -> Int -> AnyPtr
 
 -- tensor_create_state_1d
-%foreign "scheme:(lambda (a0 a1) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_state_1d_f32\" (int void*) void*) a0 a1))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-prim__createState1d_f32 : Int -> AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (a0 a1 a2) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_state_1d_f32_streamed\" (int void* int) void*) a0 a1 a2))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
+prim__createState1d_f32 : Int -> AnyPtr -> Int -> AnyPtr
 
-%foreign "scheme:(lambda (a0 a1) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_state_1d_f64\" (int void*) void*) a0 a1))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-prim__createState1d_f64 : Int -> AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (a0 a1 a2) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_state_1d_f64_streamed\" (int void* int) void*) a0 a1 a2))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
+prim__createState1d_f64 : Int -> AnyPtr -> Int -> AnyPtr
 
 -- tensor_create_state_2d
-%foreign "scheme:(lambda (a0 a1 a2) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_state_2d_f32\" (int int void*) void*) a0 a1 a2))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-prim__createState2d_f32 : Int -> Int -> AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (a0 a1 a2 a3) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_state_2d_f32_streamed\" (int int void* int) void*) a0 a1 a2 a3))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
+prim__createState2d_f32 : Int -> Int -> AnyPtr -> Int -> AnyPtr
 
-%foreign "scheme:(lambda (a0 a1 a2) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_state_2d_f64\" (int int void*) void*) a0 a1 a2))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-prim__createState2d_f64 : Int -> Int -> AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (a0 a1 a2 a3) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_state_2d_f64_streamed\" (int int void* int) void*) a0 a1 a2 a3))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
+prim__createState2d_f64 : Int -> Int -> AnyPtr -> Int -> AnyPtr
 
 -- Per-dtype cast primitives. Backend support mirrors the create
 -- primitives: mlx/torch implement both; tape implements _f64 (no-op
 -- alias today, since the only valid source dtype is F64) and aborts
 -- on _f32. Source dtype is read from the handle on the C side.
 
-%foreign "scheme:(lambda (a0)  (let ((raw_r ((foreign-procedure \"tensor_cast_dtype_f32\" (void*) void*) (vector-ref a0 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-prim__castDtype_f32 : AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_cast_dtype_f32_streamed\" (void* int) void*) (vector-ref a0 1) a1))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
+prim__castDtype_f32 : AnyPtr -> Int -> AnyPtr
 
-%foreign "scheme:(lambda (a0)  (let ((raw_r ((foreign-procedure \"tensor_cast_dtype_f64\" (void*) void*) (vector-ref a0 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-prim__castDtype_f64 : AnyPtr -> AnyPtr
+%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_cast_dtype_f64_streamed\" (void* int) void*) (vector-ref a0 1) a1))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
+prim__castDtype_f64 : AnyPtr -> Int -> AnyPtr
 
 
 -- RuntimeDType instances — bind typeclass methods to the per-dtype C
@@ -922,12 +922,12 @@ prim__memoryReport : Int -> PrimIO Int
 ||| Bulk-convert a Vector of Doubles to a C tensor handle.
 ||| The C tensor_create_1d function frees the input buffer after copying.
 export
-bulkToTensor : RuntimeDType dt => {n : Nat} -> Vector n Double -> AnyPtr
+bulkToTensor : {0 d : Device} -> UserDeviceCore d => RuntimeDType dt => {n : Nat} -> Vector n Double -> AnyPtr
 bulkToTensor {n} (VArray elems) =
   let nI = cast {to=Int} n
       buf = prim__allocDoubles nI
       buf' = packDoubleBuf buf 0 elems
-  in dtCreate1d {t=dt} nI buf' 0
+  in dtCreate1d {t=dt} nI buf' 0 (deviceStreamTag {d})
   where
     packDoubleBuf : AnyPtr -> Int -> Vect k (Scalar Double) -> AnyPtr
     packDoubleBuf buf _ [] = buf
@@ -939,13 +939,13 @@ bulkToTensor {n} (VArray elems) =
 ||| The C tensor_create_2d function frees the input buffer after copying.
 ||| Use to stack a per-sample input batch into a single batched tensor.
 export
-bulkToTensor2d : RuntimeDType dt => {b, i : Nat} -> Vect b (Vector i Double) -> AnyPtr
+bulkToTensor2d : {0 d : Device} -> UserDeviceCore d => RuntimeDType dt => {b, i : Nat} -> Vect b (Vector i Double) -> AnyPtr
 bulkToTensor2d {b} {i} rows =
   let bI = cast {to=Int} b
       iI = cast {to=Int} i
       buf = prim__allocDoubles (bI * iI)
       buf' = packRows buf 0 rows
-  in dtCreate2d {t=dt} bI iI buf' 0
+  in dtCreate2d {t=dt} bI iI buf' 0 (deviceStreamTag {d})
   where
     packRow : AnyPtr -> Int -> Vect k (Scalar Double) -> AnyPtr
     packRow buf _ [] = buf
@@ -962,12 +962,12 @@ bulkToTensor2d {b} {i} rows =
 ||| Persistent tensors survive tape resets — use when data is created once
 ||| and reused across training epochs.
 export
-vectorToTensorPersistent : RuntimeDType dt => {n : Nat} -> Vector n Double -> AnyPtr
+vectorToTensorPersistent : {0 d : Device} -> UserDeviceCore d => RuntimeDType dt => {n : Nat} -> Vector n Double -> AnyPtr
 vectorToTensorPersistent {n} (VArray elems) =
   let nI = cast {to=Int} n
       buf = prim__allocDoubles nI
       buf' = packBuf buf 0 elems
-  in dtCreateState1d {t=dt} nI buf'
+  in dtCreateState1d {t=dt} nI buf' (deviceStreamTag {d})
   where
     packBuf : AnyPtr -> Int -> Vect k (Scalar Double) -> AnyPtr
     packBuf buf _ [] = buf
@@ -975,8 +975,8 @@ vectorToTensorPersistent {n} (VArray elems) =
 
 ||| Convert a DataPoint with Doubles to a TensorDataPoint with persistent C tensors.
 export
-toTDP : RuntimeDType dt => {i, o : Nat} -> DataPoint i o Double -> TensorDataPoint i o
-toTDP dp = MkTensorDataPoint (vectorToTensorPersistent {dt} (x dp)) (vectorToTensorPersistent {dt} (y dp))
+toTDP : {0 d : Device} -> UserDeviceCore d => RuntimeDType dt => {i, o : Nat} -> DataPoint i o Double -> TensorDataPoint i o
+toTDP dp = MkTensorDataPoint (vectorToTensorPersistent {d} {dt} (x dp)) (vectorToTensorPersistent {d} {dt} (y dp))
 
 ||| Print detailed memory breakdown to stderr.
 export
@@ -1172,9 +1172,10 @@ ioRerun f = primIO (\w => MkIORes (f ()) w)
 ||| op becomes a node in the autograd graph on backends that trace
 ||| it (mlx/torch).
 export
-tcast : (UpcastableTo from to, IsDType from, IsDType to, RuntimeDType to) =>
+tcast : {0 d : Device} -> UserDeviceCore d =>
+        (UpcastableTo from to, IsDType from, IsDType to, RuntimeDType to) =>
         Tensor dims d from g -> IO (Tensor dims d to g)
-tcast v = ioRerun (\_ => MkTensor (dtCastFrom {t=to} v.tensorPtr) Nothing)
+tcast v = ioRerun (\_ => MkTensor (dtCastFrom {t=to} v.tensorPtr (deviceStreamTag {d})) Nothing)
 
 ||| Explicit precision/dtype cast in ANY direction, including
 ||| narrowing (`F64 → F32`) and cross-family (`UInt 8 → F16`).
@@ -1192,26 +1193,27 @@ tcast v = ioRerun (\_ => MkTensor (dtCastFrom {t=to} v.tensorPtr) Nothing)
 ||| Runtime path is the same as `tcast` (both dispatch through
 ||| `dtCastFrom`); the difference is purely the type-system gate.
 export
-tcastUnsafe : (0 to : DType) -> (IsDType from, IsDType to, RuntimeDType to) =>
+tcastUnsafe : {0 d : Device} -> UserDeviceCore d =>
+              (0 to : DType) -> (IsDType from, IsDType to, RuntimeDType to) =>
               Tensor dims d from g -> IO (Tensor dims d to g)
-tcastUnsafe to v = ioRerun (\_ => MkTensor (dtCastFrom {t=to} v.tensorPtr) Nothing)
+tcastUnsafe to v = ioRerun (\_ => MkTensor (dtCastFrom {t=to} v.tensorPtr (deviceStreamTag {d})) Nothing)
 
 ||| Create a registered learnable [o, i] parameter from a flat (row-major)
 ||| double buffer. Mirrors Linear.nameLayer's tensor path.
 export
-tparam2d : RuntimeDType dt => {o, i : Nat} -> (paramId : String) -> AnyPtr -> IO (Tensor [o, i] d dt WithGrad)
+tparam2d : {0 d : Device} -> UserDeviceCore d => RuntimeDType dt => {o, i : Nat} -> (paramId : String) -> AnyPtr -> IO (Tensor [o, i] d dt WithGrad)
 tparam2d {o} {i} pid buf = ioRerun (\_ =>
   let oI = cast {to=Int} o
       iI = cast {to=Int} i
-      reg = prim__paramRegister pid (dtCreateParam2d {t=dt} oI iI buf)
+      reg = prim__paramRegister pid (dtCreateParam2d {t=dt} oI iI buf (deviceStreamTag {d}))
   in MkTensor reg (Just pid))
 
 ||| Create a registered learnable [n] parameter from a double buffer.
 export
-tparam1d : RuntimeDType dt => {n : Nat} -> (paramId : String) -> AnyPtr -> IO (Tensor [n] d dt WithGrad)
+tparam1d : {0 d : Device} -> UserDeviceCore d => RuntimeDType dt => {n : Nat} -> (paramId : String) -> AnyPtr -> IO (Tensor [n] d dt WithGrad)
 tparam1d {n} pid buf = ioRerun (\_ =>
   let nI = cast {to=Int} n
-      reg = prim__paramRegister pid (dtCreateParam1d {t=dt} nI buf)
+      reg = prim__paramRegister pid (dtCreateParam1d {t=dt} nI buf (deviceStreamTag {d}))
   in MkTensor reg (Just pid))
 
 ||| Wrap an existing 1D tensor handle as a non-parameter input.
@@ -1297,8 +1299,8 @@ export
 ||| construct scalars via their own `UserDeviceCore.primCreateScalar`
 ||| directly. Same compromise applies to `tparamScalar` and
 ||| `freshZeroLossT`.
-tconstScalar : {0 d : Device} -> RuntimeDType dt => Double -> IO (Tensor [] d dt WithGrad)
-tconstScalar v = ioRerun (\_ => MkTensor (dtCreateScalar {t=dt} v 0) Nothing)
+tconstScalar : {0 d : Device} -> UserDeviceCore d => RuntimeDType dt => Double -> IO (Tensor [] d dt WithGrad)
+tconstScalar v = ioRerun (\_ => MkTensor (dtCreateScalar {t=dt} v 0 (deviceStreamTag {d})) Nothing)
 
 ||| Subtract two equally-shaped Tensors (autograd-tracked).
 export %inline
@@ -1337,9 +1339,9 @@ tlog v = ioRerun (\_ => MkTensor (primLog {d} v.tensorPtr) Nothing)
 ||| state-independent log_std). Mirrors V1's `param`. The optimizer
 ||| picks it up automatically by paramId scope.
 export
-tparamScalar : {0 d : Device} -> RuntimeDType dt => (paramId : String) -> (val : Double) -> IO (Tensor [] d dt WithGrad)
+tparamScalar : {0 d : Device} -> UserDeviceCore d => RuntimeDType dt => (paramId : String) -> (val : Double) -> IO (Tensor [] d dt WithGrad)
 tparamScalar pid val = ioRerun (\_ =>
-  let ptr = dtCreateScalar {t=dt} val 1               -- requires_grad=true
+  let ptr = dtCreateScalar {t=dt} val 1 (deviceStreamTag {d})    -- requires_grad=true
       reg = prim__paramRegister pid ptr
   in MkTensor reg (Just pid))
 
@@ -1409,11 +1411,11 @@ tlstmGatesPair {n} combined prevCell = ioRerun (\_ =>
 ||| Use for LSTM/RNN/GRU initial hidden + cell state. Persistent =
 ||| survives tape reset.
 export
-tzeroState1d : RuntimeDType dt => {n : Nat} -> IO (Tensor [n] d dt g)
+tzeroState1d : {0 d : Device} -> UserDeviceCore d => RuntimeDType dt => {n : Nat} -> IO (Tensor [n] d dt g)
 tzeroState1d {n} = ioRerun (\_ =>
   let nI = cast {to=Int} n
       buf = prim__allocDoubles nI
-  in MkTensor (dtCreateState1d {t=dt} nI buf) Nothing)
+  in MkTensor (dtCreateState1d {t=dt} nI buf (deviceStreamTag {d})) Nothing)
 
 ||| GRU cell — `nn.GRU` equation. Takes the two `[3 * n]` half-sums:
 |||   ih = W_ih @ x + b_ih

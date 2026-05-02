@@ -87,6 +87,7 @@ data TorchDev : Type where MkTorchDev : TorchDev
 public export
 UserDeviceCore TorchDev where
   deviceName       = "torch"
+  deviceStreamTag  = 0
   primCreateScalar = prim__createScalarTorch
   primCreate       = prim__createTorch
   primFree         = prim__freeTorch

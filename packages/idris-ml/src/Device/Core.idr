@@ -55,6 +55,17 @@ interface UserDeviceCore (0 d : Device) where
   ||| Used in logs and `Show Device`-style stringification.
   deviceName : String
 
+  ||| Per-device stream-selection tag. Threaded into every C-side
+  ||| `_streamed` primitive so the type-level `d` drives stream
+  ||| dispatch instead of `default_stream_tag()` (which reads the
+  ||| `MLX_DEVICE` env var at process start).
+  |||
+  ||| MLX devices return their stream's tag (`MGpu = 1`, `MCpu = 0`);
+  ||| every other backend returns 0 (the tape and torch backends
+  ||| have no stream concept — their `_streamed` C entries are
+  ||| no-op wrappers that ignore the arg).
+  deviceStreamTag : Int
+
   -- Lifecycle ---------------------------------------------------------
   ||| Allocate a 0-rank tensor with the given value and grad flag.
   ||| `requires_grad` is 0 or 1.

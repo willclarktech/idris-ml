@@ -610,17 +610,41 @@ static TensorHandle tensor_create_impl(double* data, int* shape, int rank, int r
 }
 
 // Per-dtype exports.
-TensorHandle tensor_create_scalar_f32(double value, int requires_grad) {
+extern "C" TensorHandle tensor_create_scalar_f32_mlx_streamed(double value, int requires_grad, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     return tensor_create_scalar_impl(value, requires_grad, mx::float32);
+
+}
+TensorHandle tensor_create_scalar_f32(double value, int requires_grad) {
+    return tensor_create_scalar_f32_mlx_streamed(value, requires_grad, default_stream_tag());
+}
+extern "C" TensorHandle tensor_create_scalar_f64_mlx_streamed(double value, int requires_grad, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
+    return tensor_create_scalar_impl(value, requires_grad, mx::float64);
+
 }
 TensorHandle tensor_create_scalar_f64(double value, int requires_grad) {
-    return tensor_create_scalar_impl(value, requires_grad, mx::float64);
+    return tensor_create_scalar_f64_mlx_streamed(value, requires_grad, default_stream_tag());
+}
+extern "C" TensorHandle tensor_create_f32_mlx_streamed(double* data, int* shape, int rank, int requires_grad, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
+    return tensor_create_impl(data, shape, rank, requires_grad, mx::float32);
+
 }
 TensorHandle tensor_create_f32(double* data, int* shape, int rank, int requires_grad) {
-    return tensor_create_impl(data, shape, rank, requires_grad, mx::float32);
+    return tensor_create_f32_mlx_streamed(data, shape, rank, requires_grad, default_stream_tag());
+}
+extern "C" TensorHandle tensor_create_f64_mlx_streamed(double* data, int* shape, int rank, int requires_grad, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
+    return tensor_create_impl(data, shape, rank, requires_grad, mx::float64);
+
 }
 TensorHandle tensor_create_f64(double* data, int* shape, int rank, int requires_grad) {
-    return tensor_create_impl(data, shape, rank, requires_grad, mx::float64);
+    return tensor_create_f64_mlx_streamed(data, shape, rank, requires_grad, default_stream_tag());
 }
 
 // Legacy unsuffixed: route to fp32 (current historical behavior on mlx).
@@ -647,17 +671,29 @@ TensorHandle tensor_create(double* data, int* shape, int rank, int requires_grad
 // Per-dtype cast primitives. mx::astype builds a new node in mlx's
 // autograd graph; the OP_CAST_DTYPE tape entry's scalar_arg encodes
 // the target dtype for replay (0.0 = f32, 1.0 = f64).
-TensorHandle tensor_cast_dtype_f32(TensorHandle h) {
+extern "C" TensorHandle tensor_cast_dtype_f32_mlx_streamed(TensorHandle h, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     auto t = (Tensor*)h;
     auto r = new Tensor(mx::astype(t->data, mx::float32), t->requires_grad);
     if (t->requires_grad) tape_append(OP_CAST_DTYPE, r, t, nullptr, 0.0);
     return (TensorHandle)r;
+
 }
-TensorHandle tensor_cast_dtype_f64(TensorHandle h) {
+TensorHandle tensor_cast_dtype_f32(TensorHandle h) {
+    return tensor_cast_dtype_f32_mlx_streamed(h, default_stream_tag());
+}
+extern "C" TensorHandle tensor_cast_dtype_f64_mlx_streamed(TensorHandle h, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     auto t = (Tensor*)h;
     auto r = new Tensor(mx::astype(t->data, mx::float64), t->requires_grad);
     if (t->requires_grad) tape_append(OP_CAST_DTYPE, r, t, nullptr, 1.0);
     return (TensorHandle)r;
+
+}
+TensorHandle tensor_cast_dtype_f64(TensorHandle h) {
+    return tensor_cast_dtype_f64_mlx_streamed(h, default_stream_tag());
 }
 
 extern "C" TensorHandle tensor_clone_mlx_streamed(TensorHandle h, int stream_tag) {
@@ -1842,11 +1878,23 @@ static TensorHandle tensor_create_param_3d_impl(int d0, int d1, int d2, double* 
     free(data);
     return t;
 }
-TensorHandle tensor_create_param_3d_f32(int d0, int d1, int d2, double* data) {
+extern "C" TensorHandle tensor_create_param_3d_f32_mlx_streamed(int d0, int d1, int d2, double* data, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     return tensor_create_param_3d_impl(d0, d1, d2, data, mx::float32);
+
+}
+TensorHandle tensor_create_param_3d_f32(int d0, int d1, int d2, double* data) {
+    return tensor_create_param_3d_f32_mlx_streamed(d0, d1, d2, data, default_stream_tag());
+}
+extern "C" TensorHandle tensor_create_param_3d_f64_mlx_streamed(int d0, int d1, int d2, double* data, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
+    return tensor_create_param_3d_impl(d0, d1, d2, data, mx::float64);
+
 }
 TensorHandle tensor_create_param_3d_f64(int d0, int d1, int d2, double* data) {
-    return tensor_create_param_3d_impl(d0, d1, d2, data, mx::float64);
+    return tensor_create_param_3d_f64_mlx_streamed(d0, d1, d2, data, default_stream_tag());
 }
 extern "C" TensorHandle tensor_create_param_3d_mlx_streamed(int d0, int d1, int d2, double* data, int stream_tag) {
     WITH_STREAM(stream_tag);
@@ -3293,17 +3341,41 @@ static TensorHandle tensor_create_2d_impl(int rows, int cols, double* data, int 
 }
 
 // Per-dtype exports.
-TensorHandle tensor_create_1d_f32(int n, double* data, int requires_grad) {
+extern "C" TensorHandle tensor_create_1d_f32_mlx_streamed(int n, double* data, int requires_grad, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     return tensor_create_1d_impl(n, data, requires_grad, mx::float32);
+
+}
+TensorHandle tensor_create_1d_f32(int n, double* data, int requires_grad) {
+    return tensor_create_1d_f32_mlx_streamed(n, data, requires_grad, default_stream_tag());
+}
+extern "C" TensorHandle tensor_create_1d_f64_mlx_streamed(int n, double* data, int requires_grad, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
+    return tensor_create_1d_impl(n, data, requires_grad, mx::float64);
+
 }
 TensorHandle tensor_create_1d_f64(int n, double* data, int requires_grad) {
-    return tensor_create_1d_impl(n, data, requires_grad, mx::float64);
+    return tensor_create_1d_f64_mlx_streamed(n, data, requires_grad, default_stream_tag());
+}
+extern "C" TensorHandle tensor_create_2d_f32_mlx_streamed(int rows, int cols, double* data, int requires_grad, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
+    return tensor_create_2d_impl(rows, cols, data, requires_grad, mx::float32);
+
 }
 TensorHandle tensor_create_2d_f32(int rows, int cols, double* data, int requires_grad) {
-    return tensor_create_2d_impl(rows, cols, data, requires_grad, mx::float32);
+    return tensor_create_2d_f32_mlx_streamed(rows, cols, data, requires_grad, default_stream_tag());
+}
+extern "C" TensorHandle tensor_create_2d_f64_mlx_streamed(int rows, int cols, double* data, int requires_grad, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
+    return tensor_create_2d_impl(rows, cols, data, requires_grad, mx::float64);
+
 }
 TensorHandle tensor_create_2d_f64(int rows, int cols, double* data, int requires_grad) {
-    return tensor_create_2d_impl(rows, cols, data, requires_grad, mx::float64);
+    return tensor_create_2d_f64_mlx_streamed(rows, cols, data, requires_grad, default_stream_tag());
 }
 
 // Legacy unsuffixed.
@@ -3395,23 +3467,59 @@ static TensorHandle tensor_create_param_4d_impl(int d0, int d1, int d2, int d3, 
 }
 
 // Per-dtype exports.
-TensorHandle tensor_create_param_1d_f32(int n, double* data) {
+extern "C" TensorHandle tensor_create_param_1d_f32_mlx_streamed(int n, double* data, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     return tensor_create_param_1d_impl(n, data, mx::float32);
+
+}
+TensorHandle tensor_create_param_1d_f32(int n, double* data) {
+    return tensor_create_param_1d_f32_mlx_streamed(n, data, default_stream_tag());
+}
+extern "C" TensorHandle tensor_create_param_1d_f64_mlx_streamed(int n, double* data, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
+    return tensor_create_param_1d_impl(n, data, mx::float64);
+
 }
 TensorHandle tensor_create_param_1d_f64(int n, double* data) {
-    return tensor_create_param_1d_impl(n, data, mx::float64);
+    return tensor_create_param_1d_f64_mlx_streamed(n, data, default_stream_tag());
+}
+extern "C" TensorHandle tensor_create_param_2d_f32_mlx_streamed(int rows, int cols, double* data, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
+    return tensor_create_param_2d_impl(rows, cols, data, mx::float32);
+
 }
 TensorHandle tensor_create_param_2d_f32(int rows, int cols, double* data) {
-    return tensor_create_param_2d_impl(rows, cols, data, mx::float32);
+    return tensor_create_param_2d_f32_mlx_streamed(rows, cols, data, default_stream_tag());
+}
+extern "C" TensorHandle tensor_create_param_2d_f64_mlx_streamed(int rows, int cols, double* data, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
+    return tensor_create_param_2d_impl(rows, cols, data, mx::float64);
+
 }
 TensorHandle tensor_create_param_2d_f64(int rows, int cols, double* data) {
-    return tensor_create_param_2d_impl(rows, cols, data, mx::float64);
+    return tensor_create_param_2d_f64_mlx_streamed(rows, cols, data, default_stream_tag());
+}
+extern "C" TensorHandle tensor_create_param_4d_f32_mlx_streamed(int d0, int d1, int d2, int d3, double* data, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
+    return tensor_create_param_4d_impl(d0, d1, d2, d3, data, mx::float32);
+
 }
 TensorHandle tensor_create_param_4d_f32(int d0, int d1, int d2, int d3, double* data) {
-    return tensor_create_param_4d_impl(d0, d1, d2, d3, data, mx::float32);
+    return tensor_create_param_4d_f32_mlx_streamed(d0, d1, d2, d3, data, default_stream_tag());
+}
+extern "C" TensorHandle tensor_create_param_4d_f64_mlx_streamed(int d0, int d1, int d2, int d3, double* data, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
+    return tensor_create_param_4d_impl(d0, d1, d2, d3, data, mx::float64);
+
 }
 TensorHandle tensor_create_param_4d_f64(int d0, int d1, int d2, int d3, double* data) {
-    return tensor_create_param_4d_impl(d0, d1, d2, d3, data, mx::float64);
+    return tensor_create_param_4d_f64_mlx_streamed(d0, d1, d2, d3, data, default_stream_tag());
 }
 
 // Legacy unsuffixed.
@@ -3460,17 +3568,41 @@ static TensorHandle tensor_create_state_2d_impl(int rows, int cols, double* data
 }
 
 // Per-dtype exports.
-TensorHandle tensor_create_state_1d_f32(int n, double* data) {
+extern "C" TensorHandle tensor_create_state_1d_f32_mlx_streamed(int n, double* data, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     return tensor_create_state_1d_impl(n, data, mx::float32);
+
+}
+TensorHandle tensor_create_state_1d_f32(int n, double* data) {
+    return tensor_create_state_1d_f32_mlx_streamed(n, data, default_stream_tag());
+}
+extern "C" TensorHandle tensor_create_state_1d_f64_mlx_streamed(int n, double* data, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
+    return tensor_create_state_1d_impl(n, data, mx::float64);
+
 }
 TensorHandle tensor_create_state_1d_f64(int n, double* data) {
-    return tensor_create_state_1d_impl(n, data, mx::float64);
+    return tensor_create_state_1d_f64_mlx_streamed(n, data, default_stream_tag());
+}
+extern "C" TensorHandle tensor_create_state_2d_f32_mlx_streamed(int rows, int cols, double* data, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
+    return tensor_create_state_2d_impl(rows, cols, data, mx::float32);
+
 }
 TensorHandle tensor_create_state_2d_f32(int rows, int cols, double* data) {
-    return tensor_create_state_2d_impl(rows, cols, data, mx::float32);
+    return tensor_create_state_2d_f32_mlx_streamed(rows, cols, data, default_stream_tag());
+}
+extern "C" TensorHandle tensor_create_state_2d_f64_mlx_streamed(int rows, int cols, double* data, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
+    return tensor_create_state_2d_impl(rows, cols, data, mx::float64);
+
 }
 TensorHandle tensor_create_state_2d_f64(int rows, int cols, double* data) {
-    return tensor_create_state_2d_impl(rows, cols, data, mx::float64);
+    return tensor_create_state_2d_f64_mlx_streamed(rows, cols, data, default_stream_tag());
 }
 
 // Legacy unsuffixed.
@@ -4277,3 +4409,73 @@ int backend_profile_report_return(int d) { backend_profile_report(); return d; }
 int dropout_random_seed(int x) { return rand() % (x + 1); }
 
 } // extern "C"
+
+
+/* ---- L60 dtype-cascade stream wrappers (forwards to *_mlx_streamed) ---- */
+
+TensorHandle tensor_create_scalar_f32_streamed(double value, int requires_grad, int stream_tag) {
+    return tensor_create_scalar_f32_mlx_streamed(value, requires_grad, stream_tag);
+}
+TensorHandle tensor_create_scalar_f64_streamed(double value, int requires_grad, int stream_tag) {
+    return tensor_create_scalar_f64_mlx_streamed(value, requires_grad, stream_tag);
+}
+TensorHandle tensor_create_f32_streamed(double* data, int* shape, int rank, int requires_grad, int stream_tag) {
+    return tensor_create_f32_mlx_streamed(data, shape, rank, requires_grad, stream_tag);
+}
+TensorHandle tensor_create_f64_streamed(double* data, int* shape, int rank, int requires_grad, int stream_tag) {
+    return tensor_create_f64_mlx_streamed(data, shape, rank, requires_grad, stream_tag);
+}
+TensorHandle tensor_create_1d_f32_streamed(int n, double* data, int requires_grad, int stream_tag) {
+    return tensor_create_1d_f32_mlx_streamed(n, data, requires_grad, stream_tag);
+}
+TensorHandle tensor_create_1d_f64_streamed(int n, double* data, int requires_grad, int stream_tag) {
+    return tensor_create_1d_f64_mlx_streamed(n, data, requires_grad, stream_tag);
+}
+TensorHandle tensor_create_2d_f32_streamed(int rows, int cols, double* data, int requires_grad, int stream_tag) {
+    return tensor_create_2d_f32_mlx_streamed(rows, cols, data, requires_grad, stream_tag);
+}
+TensorHandle tensor_create_2d_f64_streamed(int rows, int cols, double* data, int requires_grad, int stream_tag) {
+    return tensor_create_2d_f64_mlx_streamed(rows, cols, data, requires_grad, stream_tag);
+}
+TensorHandle tensor_create_param_1d_f32_streamed(int n, double* data, int stream_tag) {
+    return tensor_create_param_1d_f32_mlx_streamed(n, data, stream_tag);
+}
+TensorHandle tensor_create_param_1d_f64_streamed(int n, double* data, int stream_tag) {
+    return tensor_create_param_1d_f64_mlx_streamed(n, data, stream_tag);
+}
+TensorHandle tensor_create_param_2d_f32_streamed(int rows, int cols, double* data, int stream_tag) {
+    return tensor_create_param_2d_f32_mlx_streamed(rows, cols, data, stream_tag);
+}
+TensorHandle tensor_create_param_2d_f64_streamed(int rows, int cols, double* data, int stream_tag) {
+    return tensor_create_param_2d_f64_mlx_streamed(rows, cols, data, stream_tag);
+}
+TensorHandle tensor_create_param_3d_f32_streamed(int d0, int d1, int d2, double* data, int stream_tag) {
+    return tensor_create_param_3d_f32_mlx_streamed(d0, d1, d2, data, stream_tag);
+}
+TensorHandle tensor_create_param_3d_f64_streamed(int d0, int d1, int d2, double* data, int stream_tag) {
+    return tensor_create_param_3d_f64_mlx_streamed(d0, d1, d2, data, stream_tag);
+}
+TensorHandle tensor_create_param_4d_f32_streamed(int d0, int d1, int d2, int d3, double* data, int stream_tag) {
+    return tensor_create_param_4d_f32_mlx_streamed(d0, d1, d2, d3, data, stream_tag);
+}
+TensorHandle tensor_create_param_4d_f64_streamed(int d0, int d1, int d2, int d3, double* data, int stream_tag) {
+    return tensor_create_param_4d_f64_mlx_streamed(d0, d1, d2, d3, data, stream_tag);
+}
+TensorHandle tensor_create_state_1d_f32_streamed(int n, double* data, int stream_tag) {
+    return tensor_create_state_1d_f32_mlx_streamed(n, data, stream_tag);
+}
+TensorHandle tensor_create_state_1d_f64_streamed(int n, double* data, int stream_tag) {
+    return tensor_create_state_1d_f64_mlx_streamed(n, data, stream_tag);
+}
+TensorHandle tensor_create_state_2d_f32_streamed(int rows, int cols, double* data, int stream_tag) {
+    return tensor_create_state_2d_f32_mlx_streamed(rows, cols, data, stream_tag);
+}
+TensorHandle tensor_create_state_2d_f64_streamed(int rows, int cols, double* data, int stream_tag) {
+    return tensor_create_state_2d_f64_mlx_streamed(rows, cols, data, stream_tag);
+}
+TensorHandle tensor_cast_dtype_f32_streamed(TensorHandle src, int stream_tag) {
+    return tensor_cast_dtype_f32_mlx_streamed(src, stream_tag);
+}
+TensorHandle tensor_cast_dtype_f64_streamed(TensorHandle src, int stream_tag) {
+    return tensor_cast_dtype_f64_mlx_streamed(src, stream_tag);
+}

@@ -71,7 +71,7 @@ epsilonAt step start end decaySteps =
 
 greedyAction : QNet -> Vect ObsDim Double -> IO Nat
 greedyAction online obs = do
-  let stateT = bulkToTensor {dt=ExampleDType} (obsTensor obs)
+  let stateT = bulkToTensor {d=ExampleDevice} {dt=ExampleDType} (obsTensor obs)
       stateV = the (TVec ObsDim ExampleDevice ExampleDType WithGrad) (MkTensor stateT Nothing)
   (_, qV) <- forwardVar online stateV
   let q0 = prim__item1d qV.tensorPtr 0
@@ -108,7 +108,7 @@ vectorMaxPtr t =
 
 computeTargetVal : QNet -> Double -> Transition ObsDim 1 -> IO Double
 computeTargetVal target gamma t = do
-  let stateT = bulkToTensor {dt=ExampleDType} (obsTensor t.nextObs)
+  let stateT = bulkToTensor {d=ExampleDevice} {dt=ExampleDType} (obsTensor t.nextObs)
       stateV = the (TVec ObsDim ExampleDevice ExampleDType WithGrad) (MkTensor stateT Nothing)
   (_, qV) <- forwardVar target stateV
   let nextMax = vectorMaxPtr qV.tensorPtr
@@ -139,7 +139,7 @@ batchLossBatched : (n : Nat) -> QNet -> QNet -> Double ->
 batchLossBatched n online target gamma batch = do
   targetVals <- traverse (computeTargetVal target gamma) batch
   let obsTensors = map (\t => obsTensor t.obs) batch
-      obsBT = bulkToTensor2d {dt=ExampleDType} obsTensors
+      obsBT = bulkToTensor2d {d=ExampleDevice} {dt=ExampleDType} obsTensors
       obsBV = the (Tensor [n, ObsDim] ExampleDevice ExampleDType WithGrad) (MkTensor obsBT Nothing)
   (_, qOutB) <- forwardVarBatch online obsBV
   losses <- go qOutB (toList batch) (toList targetVals) 0

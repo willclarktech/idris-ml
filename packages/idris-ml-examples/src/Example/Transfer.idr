@@ -91,10 +91,10 @@ optPath path =
 evalModel : Network 2 [] 3 ExampleDevice ExampleDType WithGrad -> IO Double
 evalModel model = do
   losses <- traverse (\dp => do
-        let inT = bulkToTensor {dt=ExampleDType} (x dp)
+        let inT = bulkToTensor {d=ExampleDevice} {dt=ExampleDType} (x dp)
             inV = the (TVec 2 ExampleDevice ExampleDType WithGrad) (MkTensor inT Nothing)
         (_, predV) <- forwardVar model inV
-        let tgtT = bulkToTensor {dt=ExampleDType} (y dp)
+        let tgtT = bulkToTensor {d=ExampleDevice} {dt=ExampleDType} (y dp)
             tgtV = the (TVec 3 ExampleDevice ExampleDType WithGrad) (MkTensor tgtT Nothing)
         lossT <- tnllLoss predV tgtV
         pure (prim__item lossT.tensorPtr)) dataPoints
@@ -103,7 +103,7 @@ evalModel model = do
 printPredictions : Network 2 [] 3 ExampleDevice ExampleDType WithGrad -> IO ()
 printPredictions model = do
   traverse_ (\dp => do
-    let inT = bulkToTensor {dt=ExampleDType} (x dp)
+    let inT = bulkToTensor {d=ExampleDevice} {dt=ExampleDType} (x dp)
         inV = the (TVec 2 ExampleDevice ExampleDType WithGrad) (MkTensor inT Nothing)
     (_, predV) <- forwardVar model inV
     let predClass = evalPrediction predV.tensorPtr

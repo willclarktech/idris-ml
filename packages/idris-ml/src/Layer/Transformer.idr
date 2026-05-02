@@ -187,7 +187,7 @@ foldBlocks (b :: bs) h mask sI hdI =
 ----------------------------------------------------------------------
 
 export
-applyTransformer : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => {seqLen, dModel, numHeads, headDim, numBlocks, vocabSize : Nat} ->
+applyTransformer : {0 d : Device} -> UserDeviceTape d => UserDeviceCore d => RuntimeDType dt => {seqLen, dModel, numHeads, headDim, numBlocks, vocabSize : Nat} ->
                      TransformerState seqLen dModel numHeads headDim numBlocks
                                        vocabSize seqLen (seqLen * vocabSize) d dt g ->
                      TVec seqLen d dt g ->
@@ -337,7 +337,7 @@ applyTransformerBatch {seqLen} {dModel} {headDim} {vocabSize} {b}
 ----------------------------------------------------------------------
 
 -- Build a Vect of n Linear layers with sequential paramId suffixes.
-mkLinearVec : RuntimeDType dt => {i, o : Nat} -> (n : Nat) -> String -> IO (Vect n (LinearState i o d dt WithGrad))
+mkLinearVec : UserDeviceCore d => RuntimeDType dt => {i, o : Nat} -> (n : Nat) -> String -> IO (Vect n (LinearState i o d dt WithGrad))
 mkLinearVec Z _ = pure []
 mkLinearVec (S k) pfx = do
   l <- linearLayer {i} {o} (pfx ++ show k)
@@ -345,7 +345,7 @@ mkLinearVec (S k) pfx = do
   pure (l :: rest)
 
 -- Build one transformer block.
-mkBlock : RuntimeDType dt => {dModel, numHeads, headDim : Nat} ->
+mkBlock : UserDeviceCore d => RuntimeDType dt => {dModel, numHeads, headDim : Nat} ->
             (paramPrefix : String) ->
             IO (BlockState dModel numHeads headDim d dt WithGrad)
 mkBlock pfx = do
@@ -359,7 +359,7 @@ mkBlock pfx = do
   f2 <- linearLayer {i = 4 * dModel} {o = dModel} (pfx ++ "_ff2")
   pure $ MkBlock qs ks vs ops n1 n2 f1 f2
 
-mkBlocks : RuntimeDType dt => {dModel, numHeads, headDim : Nat} ->
+mkBlocks : UserDeviceCore d => RuntimeDType dt => {dModel, numHeads, headDim : Nat} ->
              (k : Nat) -> (paramPrefix : String) ->
              IO (Vect k (BlockState dModel numHeads headDim d dt WithGrad))
 mkBlocks Z _ = pure []
@@ -373,7 +373,7 @@ mkBlocks (S k) paramPrefix = do
 ||| All params register as C params under their respective prefixes.
 export
 transformerLayer :
-  RuntimeDType dt =>
+  UserDeviceCore d => RuntimeDType dt =>
   {seqLen, dModel, numHeads, headDim, numBlocks, vocabSize : Nat} ->
   {auto prf : dModel = numHeads * headDim} ->
   (paramPrefix : String) ->
@@ -388,7 +388,7 @@ transformerLayer {prf} paramPrefix = do
       embBuf = prim__allocDoubles nI
       embBuf' = packDoubles embBuf 0 embedVals
       embName = paramPrefix ++ "_embed"
-      embPtr = prim__paramRegister embName (prim__createParam2d vI dI embBuf')
+      embPtr = prim__paramRegister embName (dtCreateParam2d {t=dt} vI dI embBuf' (deviceStreamTag {d}))
       embTV : TMat vocabSize dModel d dt WithGrad
       embTV = MkTensor embPtr (Just embName)
   blks <- mkBlocks numBlocks (paramPrefix ++ "_b")
@@ -401,16 +401,16 @@ transformerLayer {prf} paramPrefix = do
       peBuf = prim__allocDoubles (sI * dI)
       peBuf' = writePE dModel peBuf 0 0 sI dI
       peTV : TMat seqLen dModel d dt WithGrad
-      peTV = MkTensor (prim__createState2d sI dI peBuf') Nothing
+      peTV = MkTensor (dtCreateState2d {t=dt} sI dI peBuf' (deviceStreamTag {d})) Nothing
       -- Build causal mask once via the same persistent-state path as PE
-      -- (routing through `prim__createState2d`). `primCausalMask {d}` itself
+      -- (routing through `dtCreateState2d {t=dt}    (deviceStreamTag {d})`). `primCausalMask {d}` itself
       -- returns an arena/intermediate tensor whose memory gets clobbered by
       -- `tape_reset` and `free_intermediates` between training steps, so
       -- caching its result would dangle after the first optimizer step.
       maskBufRaw = prim__allocDoubles (sI * sI)
       maskBuf = writeCausalMask maskBufRaw 0 1 sI
       maskTV : TMat seqLen seqLen d dt WithGrad
-      maskTV = MkTensor (prim__createState2d sI sI maskBuf) Nothing
+      maskTV = MkTensor (dtCreateState2d {t=dt} sI sI maskBuf (deviceStreamTag {d})) Nothing
   pure $ MkTransformer {prf} embTV blks nf vp peTV maskTV
 
 
@@ -514,7 +514,7 @@ public export
 
 export
 transformerLayerAny :
-  RuntimeDType dt =>
+  UserDeviceCore d => RuntimeDType dt =>
   {seqLen, dModel, numHeads, headDim, numBlocks, vocabSize : Nat} ->
   {auto prf : dModel = numHeads * headDim} ->
   (paramPrefix : String) ->

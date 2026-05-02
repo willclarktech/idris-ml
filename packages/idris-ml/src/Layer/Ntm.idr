@@ -76,18 +76,18 @@ data NtmState :
 -- Idris-wrapped Tensor handle is alive; freed once both let go. Without
 -- this management the per-sequence state leaks unboundedly across eval-
 -- phase forwards on mlx (see docs/develop/tensor-lifecycle.md).
-zeroState1d : (n : Nat) -> AnyPtr
+zeroState1d : {0 d : Device} -> UserDeviceCore d => RuntimeDType dt => (n : Nat) -> AnyPtr
 zeroState1d n =
   let nI = cast {to=Int} n
       buf = prim__allocDoubles nI
-  in prim__createState1d nI buf
+  in dtCreateState1d {t=dt} nI buf (deviceStreamTag {d})
 
-zeroState2d : (n, m : Nat) -> AnyPtr
+zeroState2d : {0 d : Device} -> UserDeviceCore d => RuntimeDType dt => (n, m : Nat) -> AnyPtr
 zeroState2d n m =
   let nI = cast {to=Int} n
       mI = cast {to=Int} m
       buf = prim__allocDoubles (nI * mI)
-  in prim__createState2d nI mI buf
+  in dtCreateState2d {t=dt} nI mI buf (deviceStreamTag {d})
 
 -- NTM read head decomposition (Graves et al. 2014, §3.3).
 -- Returns (newReadAddr [n], readOutput [m]) given memory [n,m],
@@ -137,7 +137,7 @@ ntmInterpWriteIdris {n} memT weightsT addVecT =
   in primAdd {d} kept writeAdd
 
 export
-applyNtm : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => {n, m, h, i, o : Nat} ->
+applyNtm : {0 d : Device} -> UserDeviceTape d => UserDeviceCore d => RuntimeDType dt => {n, m, h, i, o : Nat} ->
              NtmState n m h i o d dt g ->
              TVec i d dt g ->
              IO (NtmState n m h i o d dt g, TVec o d dt g)
@@ -151,10 +151,10 @@ applyNtm {n} {m} {h} {i} {o}
                   Nothing => initMemPtr
       raTPtr = case raT of
                  Just t => t.tensorPtr
-                 Nothing => zeroState1d n
+                 Nothing => zeroState1d {d} {dt} n
       waTPtr = case waT of
                  Just t => t.tensorPtr
-                 Nothing => zeroState1d n
+                 Nothing => zeroState1d {d} {dt} n
       roTPtr = case roT of
                  Just t => t.tensorPtr
                  Nothing => initReadOutT.tensorPtr
@@ -218,7 +218,7 @@ applyNtm {n} {m} {h} {i} {o}
 ||| - initial read output:    `kaiming_uniform_((1, m))`, non-learnable,
 |||                           sampled once at construction
 export
-ntmLayer : RuntimeDType dt => {n, m, h, i, o : Nat} ->
+ntmLayer : UserDeviceCore d => RuntimeDType dt => {n, m, h, i, o : Nat} ->
              (paramPrefix : String) ->
              IO (NtmState n m h i o d dt WithGrad)
 ntmLayer pfx = do
@@ -243,7 +243,7 @@ ntmLayer pfx = do
   let iroBuf = prim__allocDoubles mI
       iroBuf' = packDoubles iroBuf 0 iroVals
       initReadOutT : TVec m d dt WithGrad
-      initReadOutT = MkTensor (prim__createState1d mI iroBuf') Nothing
+      initReadOutT = MkTensor (dtCreateState1d {t=dt} mI iroBuf' (deviceStreamTag {d})) Nothing
   -- Per-sequence runtime state starts as Nothing — applyNtm computes the
   -- actual initial memT and roT from memInitT/initReadOutT on first call.
   pure $ MkNtm lstm rfc wfc ofc memInitT initReadOutT
@@ -316,7 +316,7 @@ public export
                 (map retypeGrad wa) (map retypeGrad ro))
 
 export
-ntmLayerAny : RuntimeDType dt => {n, m, h, i, o : Nat} ->
+ntmLayerAny : UserDeviceCore d => RuntimeDType dt => {n, m, h, i, o : Nat} ->
                 (paramPrefix : String) ->
                 IO (AnyLayer i o d dt WithGrad)
 ntmLayerAny pid =

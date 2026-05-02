@@ -105,13 +105,13 @@ record RollStep where
 
 criticValue : Critic -> Vect ObsDim Double -> IO Double
 criticValue critic obs = do
-  let stateV = the (TVec ObsDim ExampleDevice ExampleDType WithGrad) (MkTensor (bulkToTensor {dt=ExampleDType} (obsTensor obs)) Nothing)
+  let stateV = the (TVec ObsDim ExampleDevice ExampleDType WithGrad) (MkTensor (bulkToTensor {d=ExampleDevice} {dt=ExampleDType} (obsTensor obs)) Nothing)
   (_, outV) <- forwardVar critic stateV
   pure (prim__item1d outV.tensorPtr 0)
 
 sampleActionIO : Actor -> Critic -> Vect ObsDim Double -> IO (Nat, Double, Double)
 sampleActionIO actor critic obs = do
-  let stateV  = the (TVec ObsDim ExampleDevice ExampleDType WithGrad) (MkTensor (bulkToTensor {dt=ExampleDType} (obsTensor obs)) Nothing)
+  let stateV  = the (TVec ObsDim ExampleDevice ExampleDType WithGrad) (MkTensor (bulkToTensor {d=ExampleDevice} {dt=ExampleDType} (obsTensor obs)) Nothing)
   (_, logitsV) <- forwardVar actor stateV
   let logPT   = prim__logSoftmax logitsV.tensorPtr 0
       lp0     = prim__item1d logPT 0
@@ -327,7 +327,7 @@ runBatch opt actor critic cfg batch = do
       n = length batch
       obsBatch = the (Vect (length batch) (Vector ObsDim Double))
                      (map (\(s, _, _) => obsTensor s.obs) batchVec)
-      stackedT = bulkToTensor2d {dt=ExampleDType} obsBatch
+      stackedT = bulkToTensor2d {d=ExampleDevice} {dt=ExampleDType} obsBatch
       stackedV = the (Tensor [n, ObsDim] ExampleDevice ExampleDType WithGrad) (MkTensor stackedT Nothing)
   (_, logitsB) <- forwardVarBatch actor stackedV
   (_, valueB)  <- forwardVarBatch critic stackedV
@@ -410,7 +410,7 @@ ppoEpoch opt cfg st = do
 
 greedyAct : Actor -> Vect ObsDim Double -> IO Nat
 greedyAct actor obs = do
-  let stateV = the (TVec ObsDim ExampleDevice ExampleDType WithGrad) (MkTensor (bulkToTensor {dt=ExampleDType} (obsTensor obs)) Nothing)
+  let stateV = the (TVec ObsDim ExampleDevice ExampleDType WithGrad) (MkTensor (bulkToTensor {d=ExampleDevice} {dt=ExampleDType} (obsTensor obs)) Nothing)
   (_, logits) <- forwardVar actor stateV
   let l0 = prim__item1d logits.tensorPtr 0
       l1 = prim__item1d logits.tensorPtr 1

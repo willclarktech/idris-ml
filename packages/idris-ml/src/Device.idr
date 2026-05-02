@@ -159,6 +159,7 @@ prim__clampMinUnified : AnyPtr -> Double -> AnyPtr
 public export
 UserDeviceCore CPU where
   deviceName       = "cpu"
+  deviceStreamTag  = 0
   primCreateScalar = prim__createScalarUnified
   primCreate       = prim__createUnified
   primFree         = prim__freeUnified
@@ -184,6 +185,7 @@ UserDeviceCore CPU where
 public export
 {n : Nat} -> UserDeviceCore (CUDA n) where
   deviceName       = "cuda:" ++ show n
+  deviceStreamTag  = 0
   primCreateScalar = prim__createScalarUnified
   primCreate       = prim__createUnified
   primFree         = prim__freeUnified
@@ -209,6 +211,7 @@ public export
 public export
 UserDeviceCore MPS where
   deviceName       = "mps"
+  deviceStreamTag  = 0
   primCreateScalar = prim__createScalarUnified
   primCreate       = prim__createUnified
   primFree         = prim__freeUnified

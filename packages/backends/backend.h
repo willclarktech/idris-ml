@@ -557,6 +557,34 @@ void tensor_mlx_compile_reset_stats(void);
 
 void tensor_print(TensorHandle t);
 
+/* ---- L60 dtype-cascade stream wrappers ----
+   Cross-backend entry points threading stream_tag into the dt-keyed
+   creation/cast primitives. On mlx, these forward to the corresponding
+   *_mlx_streamed implementation (WITH_STREAM-wrapped). On tape/torch,
+   they ignore stream_tag and call the unstreamed function. */
+TensorHandle tensor_create_scalar_f32_streamed(double value, int requires_grad, int stream_tag);
+TensorHandle tensor_create_scalar_f64_streamed(double value, int requires_grad, int stream_tag);
+TensorHandle tensor_create_f32_streamed(double* data, int* shape, int rank, int requires_grad, int stream_tag);
+TensorHandle tensor_create_f64_streamed(double* data, int* shape, int rank, int requires_grad, int stream_tag);
+TensorHandle tensor_create_1d_f32_streamed(int n, double* data, int requires_grad, int stream_tag);
+TensorHandle tensor_create_1d_f64_streamed(int n, double* data, int requires_grad, int stream_tag);
+TensorHandle tensor_create_2d_f32_streamed(int rows, int cols, double* data, int requires_grad, int stream_tag);
+TensorHandle tensor_create_2d_f64_streamed(int rows, int cols, double* data, int requires_grad, int stream_tag);
+TensorHandle tensor_create_param_1d_f32_streamed(int n, double* data, int stream_tag);
+TensorHandle tensor_create_param_1d_f64_streamed(int n, double* data, int stream_tag);
+TensorHandle tensor_create_param_2d_f32_streamed(int rows, int cols, double* data, int stream_tag);
+TensorHandle tensor_create_param_2d_f64_streamed(int rows, int cols, double* data, int stream_tag);
+TensorHandle tensor_create_param_3d_f32_streamed(int d0, int d1, int d2, double* data, int stream_tag);
+TensorHandle tensor_create_param_3d_f64_streamed(int d0, int d1, int d2, double* data, int stream_tag);
+TensorHandle tensor_create_param_4d_f32_streamed(int d0, int d1, int d2, int d3, double* data, int stream_tag);
+TensorHandle tensor_create_param_4d_f64_streamed(int d0, int d1, int d2, int d3, double* data, int stream_tag);
+TensorHandle tensor_create_state_1d_f32_streamed(int n, double* data, int stream_tag);
+TensorHandle tensor_create_state_1d_f64_streamed(int n, double* data, int stream_tag);
+TensorHandle tensor_create_state_2d_f32_streamed(int rows, int cols, double* data, int stream_tag);
+TensorHandle tensor_create_state_2d_f64_streamed(int rows, int cols, double* data, int stream_tag);
+TensorHandle tensor_cast_dtype_f32_streamed(TensorHandle src, int stream_tag);
+TensorHandle tensor_cast_dtype_f64_streamed(TensorHandle src, int stream_tag);
+
 #ifdef __cplusplus
 }
 #endif
