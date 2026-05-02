@@ -484,8 +484,14 @@ test-notebooks: jupyter-install
 	[ $$fail -eq 0 ] && echo "All notebooks passed" || { echo "Some notebooks failed"; exit 1; }
 
 clean:
-	rm -f $(BUILD)/libidrisml*.dylib $(BUILD)/test_backend $(BUILD)/test_safetensors \
-	      $(BUILD)/test_ntm_grad $(BUILD)/test_ntm_timestep $(BUILD)/bench_ops
+	rm -rf $(BUILD)/ttc $(BUILD)/exec
+	rm -f $(BUILD)/.library-cache-stamp $(BUILD)/.backend_stamp
+	rm -f $(BUILD)/libidrisml*.dylib
+	rm -rf $(BUILD)/libidrisml*.dylib.dSYM
+	rm -f $(BUILD)/*.o
+	rm -f $(BUILD)/test_backend $(BUILD)/test_backend_debug $(BUILD)/test_safetensors \
+	      $(BUILD)/test_ntm_grad $(BUILD)/test_ntm_timestep $(BUILD)/test_tape \
+	      $(BUILD)/test_tensor $(BUILD)/bench_ops $(BUILD)/bench_ops_*
 
 # Examples run on every built backend. Keep in sync with packages/idris-ml-examples/src/Example/.
 # Excluded intentionally:
