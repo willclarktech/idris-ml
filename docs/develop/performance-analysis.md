@@ -15,7 +15,7 @@ Single-seed (seed=42) results, tape backend:
 |---|---|---|---|
 | A2C (5000 ep, RolloutLen=20)  | 80 → 12 | ~50 → ~29 | 160 / >=150 ✓ |
 | PPO (200 ep, RolloutLen=400)  | ~80 → 13 | ~5000 → ~3800 | -1704 / >=-800 ✗ (was -1572 pre-batch — also failed; gap is RL noise + threshold is over-aggressive) |
-| SAC (30000 ep, default)       | ~80 → 31 | -- → ~117 → ~91 (per-update) | -364.58 / >=-500 ✓ (45m 57s wall-clock at seed=42) — actorLoss batched in follow-up via new `tensor_concat_2d_axis1` op |
+| SAC (24300 ep, early-stopped) | ~80 → 31 | -- → ~117 → ~91 (per-update) | -366.59 / >=-500 ✓ (38m 51s wall-clock at seed=42; stopped at epoch 24300 of 30000 max) — actorLoss batched in follow-up via new `tensor_concat_2d_axis1` op; previously ran the full 30000 epochs because the displayed metric was the initial-state cost (constant ~9.87) and `NoEarlyStop` was the train config |
 
 Per-sample `forwardVarTensor` calls during rollout are unchanged (env step depends
 on current action — can't be batched). PPO threshold `>=-800` is set higher than
