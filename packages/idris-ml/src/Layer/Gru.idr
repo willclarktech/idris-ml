@@ -7,6 +7,7 @@
 
 module Layer.Gru
 
+import Data.Nat
 import Data.Vect
 
 import Device
@@ -19,6 +20,27 @@ import Math
 import Tensor
 import Util
 import Variable
+
+
+----------------------------------------------------------------------
+-- Gate splitting (mirrors Lstm.lstmSplitGates)
+----------------------------------------------------------------------
+
+coerceLastGate : {o : Nat} -> Vector (o + 0) ty -> Vector o ty
+coerceLastGate {o} v = rewrite sym (plusZeroRightNeutral o) in v
+
+||| Split the combined GRU gate vector into (z, r, n) gates. Order
+||| matches the C kernel `tensor_gru_cell` (z first, r second, n
+||| third). Note: the simplified GRU variant computes r but does NOT
+||| use it to mask n — see `applyGeneric`.
+export
+gruSplitGates :
+    {o : Nat} -> Vector (3 * o) ty
+    -> (Vector o ty, Vector o ty, Vector o ty)
+gruSplitGates {o} combined =
+  let s1 = Tensor.splitAt o combined
+      s2 = Tensor.splitAt o (snd s1)
+  in (fst s1, fst s2, coerceLastGate (snd s2))
 
 
 ----------------------------------------------------------------------
@@ -41,8 +63,31 @@ record GruState (inputSize : Nat) (outputSize : Nat) (ty : Type) where
 %default partial
 export
 LayerLike GruState where
-  applyGeneric _ _ = idris_crash "GRU: use tensor path"
-  applyVar {d} _ _ = idris_crash "GRU: use tensor path"
+  -- Pure-Double forward path used by `evaluateRecurrent` /
+  -- `calculateLossRecurrent` after `toDoubleNetwork`. Mirrors the C
+  -- kernel `tensor_gru_cell` exactly: simplified GRU variant where r
+  -- is computed but NOT used to mask n.
+  applyGeneric {o} (MkGru wih whh h _) xs =
+    let ihPart = matrixVectorMultiply (wih.weights) xs + (wih.bias)
+        hhPart = matrixVectorMultiply (whh.weights) h  + (whh.bias)
+        combined = ihPart + hhPart
+        gates = gruSplitGates {o} combined
+        zGate = fst gates
+        nGate = snd (snd gates)  -- r (= fst (snd gates)) intentionally unused
+        z = map sig zGate
+        n = map tanh nGate
+        ones = map (const (fromDouble 1.0)) (the (Vector o ty) zeros)
+        newH = (ones - z) * n + z * h
+    in (MkGru wih whh newH Nothing, newH)
+    where
+      sig : ty -> ty
+      sig x = 1 / (1 + exp (-x))
+
+  applyVar {d} {i} {o} st xs =
+    let (VTensor xElems) = xs
+        inputT = vecStackTensor {n=i} xElems
+        (st', outT) = applyVarTensor st inputT
+    in (st', VTensor $ tensorToScalars outT 0 o)
 
   applyVarTensor {d} {i} {o} st inputT =
     case (extractWeightTensor (wIH st), extractBiasTensor (wIH st),

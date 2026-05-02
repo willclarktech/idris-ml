@@ -27,6 +27,7 @@
 example-supervised               loss         <   5.0
 example-rnn                      loss         <   5.0
 example-lstm                     loss         <   5.0
+example-gru                      loss         <   5.0
 
 # ---- Transformer at 5 epochs is well below random sort_acc threshold —
 # leave the row out so it's presence-only (RESULT line is enough)

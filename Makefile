@@ -278,6 +278,11 @@ example-lstm: install
 	cp $(LIB) build/exec/lstm_app/
 	./build/exec/lstm $(LSTM_ARGS)
 
+example-gru: install
+	idris2 $(IDRIS_FLAGS) -o gru $(EXAMPLE_SRC)/Example/Gru.idr
+	cp $(LIB) build/exec/gru_app/
+	./build/exec/gru $(GRU_ARGS)
+
 example-ntm-copy: install
 	idris2 $(IDRIS_FLAGS) -o ntm-copy $(EXAMPLE_SRC)/Example/NtmCopy.idr
 	cp $(LIB) build/exec/ntm-copy_app/
@@ -452,6 +457,9 @@ ref-rnn:
 ref-lstm:
 	cd packages/pytorch && uv run python -m torch_ref.scripts.lstm
 
+ref-gru:
+	cd packages/pytorch && uv run python -m torch_ref.scripts.gru
+
 ref-ntm-copy:
 	cd packages/pytorch && uv run python -m torch_ref.scripts.ntm_copy
 
@@ -546,7 +554,7 @@ clean:
 # Examples run on every built backend. Keep in sync with packages/idris-ml-examples/src/Example/.
 # Excluded intentionally:
 #   Bench, Profile — no RESULT lines (covered by bench-compare / example-profile).
-EXAMPLES := example-supervised example-rnn example-lstm example-transformer example-gpt example-mnist example-seq-classify example-ntm-copy example-ntm-associative-recall example-dnc-copy example-dnc-recall example-reinforce example-q-learning example-sarsa example-monte-carlo example-dqn example-a2c example-ppo example-sac example-transfer
+EXAMPLES := example-supervised example-rnn example-lstm example-gru example-transformer example-gpt example-mnist example-seq-classify example-ntm-copy example-ntm-associative-recall example-dnc-copy example-dnc-recall example-reinforce example-q-learning example-sarsa example-monte-carlo example-dqn example-a2c example-ppo example-sac example-transfer
 BACKENDS := tape mlx torch
 
 # Crash-only smoke gate: every example × 3 backends, 3-10 epochs each,
@@ -571,6 +579,7 @@ test-examples:
 				example-supervised)  extra_args="SUPERVISED_ARGS=--epochs 5" ;; \
 				example-rnn)         extra_args="RNN_ARGS=--epochs 5" ;; \
 				example-lstm)        extra_args="LSTM_ARGS=--epochs 5" ;; \
+				example-gru)         extra_args="GRU_ARGS=--epochs 5" ;; \
 				example-transformer) extra_args="TRANSFORMER_ARGS=--epochs 5" ;; \
 				example-reinforce)   extra_args="REINFORCE_ARGS=--epochs 10" ;; \
 				example-gpt)         extra_args="GPT_ARGS=--epochs 3" ;; \
@@ -754,13 +763,13 @@ all: check-all test-all
         test-backend-torch test-safetensors test-ntm-grad test-ntm-timestep \
         test-examples test-examples-convergence \
         check check-gym check-notebook check-examples install install-core install-gym install-notebook install-examples \
-        example-supervised example-rnn example-lstm \
+        example-supervised example-rnn example-lstm example-gru \
         example-ntm-copy example-ntm-associative-recall example-dnc-copy example-dnc-recall \
         example-reinforce \
         example-gpt example-gpt-full example-mnist example-seq-classify example-transformer \
         example-transfer example-transfer-demo \
         example-bench example-profile sweep sweep-quick clean \
-        backend print-torch ref-setup ref-supervised ref-rnn ref-lstm ref-ntm-copy \
+        backend print-torch ref-setup ref-supervised ref-rnn ref-lstm ref-gru ref-ntm-copy \
         ref-ntm-recall ref-dnc-copy ref-dnc-recall \
         ref-transformer bench-py bench-compare bench-ops bench-ops-py bench-ops-compare test-ref ref-test ref-lint \
         ref-typecheck ref-convergence ref-convergence-copy ref-convergence-recall \

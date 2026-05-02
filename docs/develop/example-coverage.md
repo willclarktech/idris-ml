@@ -28,6 +28,7 @@ be replaced with measurements as part of B3 dogfood runs.
 | Supervised | FC: 2→8→1 | XOR-style classification | Supervised | --epochs 5 | <5 s (estimated) | loss < 0.5 | ~3 s (measured) @ 1000 ep | |
 | Rnn | RNN: 1→20→1 | Sine-wave regression | Recurrent | --epochs 5 | <5 s (estimated) | loss < 0.5 | ~5 s (estimated) @ 1000 ep | |
 | Lstm | LSTM: 1→4→1 | Synthetic timeseries | Recurrent | --epochs 5 | <5 s (estimated) | loss < 0.7 | ~8 s (estimated) @ 2000 ep | |
+| Gru | GRU: 1→4→1 | Synthetic timeseries (mirrors Lstm) | Recurrent | --epochs 5 | <5 s (measured) | loss < 0.05 | ~25 s (measured) @ ~1300 ep / seed=42 | **B6 added 2026-04-30**: 5/5 both backends, lr_find 1.0× cross-backend agreement at 0.475. Uses simplified GRU variant (r computed but unused) — see `reference-alignment.md` |
 | Transformer | 2 blocks, 4 heads, dModel=16 (was 32, B4 2026-04-30) | Sequence sorting | Supervised (batched) | --epochs 5 | ~5 s (estimated) | sort_acc ≥ 0.8 | ~25 s (measured) @ 1000 ep, both backends 5/5 at 6/6 sort_acc | uses LayerNorm + Embedding + Attention |
 | SeqClassify | embed→Conv1D→pool→FC | Synthetic waveform classification | Supervised | --epochs 5 | ~5 s (estimated) | loss < 0.5 | ~5 s (estimated) @ 1000 ep | |
 | Mnist | LeNet (Conv2D×2 + FC) | MNIST digit classification | Supervised (full-pass) | --epochs 1 | ~2 min (estimated, full pass) | accuracy ≥ 0.85 | ~10 min (measured) @ 5 ep | uses Dropout; smoke runs 1 full pass |
@@ -74,7 +75,7 @@ Empty cell = no current example.
 | **FC (Linear)** |  | Supervised, Transfer | SeqClassify |  |  |  |  | Reinforce, Dqn, A2c, Ppo | Sac |  |
 | **RNN** | Rnn |  |  |  |  |  |  |  |  |  |
 | **LSTM** |  | Lstm |  |  |  | NtmCopy, DncCopy | NtmAssociativeRecall, DncAssociativeRecall |  |  |  |
-| **GRU** |  |  |  |  |  |  |  |  |  |  |
+| **GRU** |  | Gru |  |  |  |  |  |  |  |  |
 | **Transformer** |  |  | Transformer |  | Gpt |  |  |  |  |  |
 | **Conv1D** |  |  | SeqClassify |  |  |  |  |  |  |  |
 | **Conv2D** |  |  |  | Mnist |  |  |  |  |  |  |
@@ -98,7 +99,7 @@ Architecture aliases:
 ## 3. Coverage gaps (drives B6)
 
 ### Layers without any example
-- **GRU** — `packages/idris-ml/src/Layer/Gru.idr` is shipped but no example uses it. Most natural fit: a GRU-on-synthetic-timeseries mirror of the existing Lstm example, to demonstrate the simpler recurrent unit. Alternative: GRU controller in NTM (research curiosity, not aligned with PyTorch references).
+- ~~**GRU**~~ — covered by Gru (B6 calibration spike, 2026-04-30; mirrors Lstm pattern-prediction at lr=0.5; 5/5 Idris + 5/5 PyTorch convergence). Side benefit: `Layer/Gru.idr` shipped without an `applyGeneric` implementation; this ticket added the pure-Double forward path needed by `evaluateRecurrent`.
 - **Residual** — `Layer/Residual.idr` exists but unused. Most natural fit: a small ResNet-style FC block on MNIST or a deeper Transformer demonstration.
 - **BatchNorm** — `Layer/BatchNorm.idr` exists but unused (Conv-based examples use it as a sub-component sporadically). A dedicated example is low priority.
 

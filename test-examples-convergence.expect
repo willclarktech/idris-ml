@@ -12,6 +12,7 @@
 example-supervised               loss         <   0.5
 example-rnn                      loss         <   0.5
 example-lstm                     loss         <   0.05
+example-gru                      loss         <   0.05
 example-transformer              sort_acc     >=  0.8
 
 # ---- Other non-RL ----

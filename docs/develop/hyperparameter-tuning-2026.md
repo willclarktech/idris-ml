@@ -475,4 +475,34 @@ Library note: PyTorch's case is exactly the kind of fallback the existing rules 
 - **One small alignment finding**: `scripts/reinforce.py` had `reinforce_epoch` returning higher-is-better for the `--lr-find` epoch_fn. Negated for the lr_find path; unrelated to training output.
 - **One library improvement**: tightened fallback detection — the "rec ≤ lrMin" check now fires the WARNING on noisy curves where the steepest descent is just at iter 0 (Dqn case). Strict `isFallbackCurve` ("all slopes ≥ 0") wasn't catching this.
 
-(Future entries here — one block per example dogfooded by future tunings.)
+## B6 — New examples (calibration spike, 2026-04-30)
+
+### Gru (pattern prediction, SGD)
+
+First B6 ticket. Mirrors Example.Lstm (same task, same architecture shape, same SGD optimizer) with the GRU layer instead of LSTM.
+
+Config-before / config-after (no change): `lr=0.5`, `epochs=2000`, `patience=500`, `seed=42`. Architecture: `GRU(1, 4) ~> Linear(4, 1)`, BCE-with-logits loss.
+
+| Backend | RECOMMENDED_LR (100-iter sweep, seed=42) |
+|---|---|
+| Idris | 0.4751 |
+| PyTorch | 0.4751 |
+
+Cross-backend ratio: **1.00× — exact agreement.** Current default 0.5 is within 5% of the recommendation; ship-as-is.
+
+**Multi-seed at lr=0.5** (5 seeds × 2 backends), threshold `loss < 0.05`:
+
+| Seed | Idris loss | PyTorch loss |
+|------|------------|--------------|
+| 1    | 8.42e-4    | 1.34e-3      |
+| 2    | 6.06e-4    | 8.88e-4      |
+| 3    | 8.23e-4    | 8.49e-4      |
+| 4    | 8.76e-4    | 9.04e-4      |
+| 42   | 8.17e-4    | 6.83e-4      |
+
+10/10 perfect, all 50× or more below the threshold. Convergence in 1095–1537 epochs (early-stopped via patience=500).
+
+**Calibration findings** (per the audit's "spike to re-estimate B6 cost"):
+- Total elapsed time, idea → committed: ~1 hour. Most expensive subtask was discovering that `Layer/Gru.idr` shipped without `applyGeneric` (used by `evaluateRecurrent`). Filed a 30-line `applyGeneric` matching the C kernel exactly.
+- Layer-spec review found the C kernel `tensor_gru_cell` implements a **simplified GRU** (r gate computed but unused). PyTorch reference `LinearGRUCell` mirrors that variant, not `nn.GRUCell`. Documented in `reference-alignment.md`. Filed as a possible future correctness improvement, but not a blocker.
+- The B6 cost estimate "1–2 days per example" from the skip-decision audit (session 5) is **on the high side for layer gaps that mirror existing examples**: GRU was ~1 hour. Env-gap tickets (MountainCar/Taxi/FrozenLake) likely fit the 1-day estimate; layer-gaps that are pure ports of existing recurrent / FC examples are several-hour scope.

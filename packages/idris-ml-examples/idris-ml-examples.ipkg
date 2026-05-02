@@ -13,6 +13,7 @@ modules = Generate
         , Example.DncCopy
         , Example.Dqn
         , Example.Gpt
+        , Example.Gru
         , Example.Lstm
         , Example.Mnist
         , Example.MonteCarlo

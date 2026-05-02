@@ -143,6 +143,45 @@ First B4 default change to land — Transformer's attention is matmul-bound (cos
 
 10/10 perfect convergence at the new defaults. Threshold `sort_acc >= 0.8` cleared with full margin. Detail entry in `hyperparameter-tuning-2026.md` "Transformer: dModel 32 → 16" section.
 
+### GRU example added (B6 calibration spike, 2026-04-30)
+
+First B6 ticket — fills the GRU layer coverage gap from B1. Pattern-prediction task and architecture mirror LSTM (1 → 4 → 1, BCE loss, SGD, patience=500, lr=0.5).
+
+**Cross-backend agreement check** (Idris + PyTorch both run 100-iter `--lr-find` at seed=42):
+
+| Backend | RECOMMENDED_LR |
+|---|---|
+| Idris | 0.4751 |
+| PyTorch | 0.4751 |
+
+Ratio: **1.00× — exact agreement.** The 0.5 default is within 5% of both backends' recommendation. Ship-as-is.
+
+**Multi-seed convergence at lr=0.5 (≥5 seeds, both backends)**, threshold `loss < 0.05`:
+
+| Seed | Idris loss | PyTorch loss |
+|------|------------|--------------|
+| 1    | 8.42e-4    | 1.34e-3      |
+| 2    | 6.06e-4    | 8.88e-4      |
+| 3    | 8.23e-4    | 8.49e-4      |
+| 4    | 8.76e-4    | 9.04e-4      |
+| 42   | 8.17e-4    | 6.83e-4      |
+
+**10/10 pass**, all 50× or more below the threshold. Convergence in 1095–1537 epochs (early-stopped via patience=500).
+
+**Implementation note — simplified GRU variant**: the C kernel `tensor_gru_cell` (in `backend_{tape,mlx,torch}.c{,pp}`) computes z and r gates but uses only z and n in the update rule:
+
+```
+h' = (1 - z) * n + z * h    where  n = tanh(combined[2o:3o])
+```
+
+Standard PyTorch `nn.GRUCell` masks the hidden contribution to n with r:
+
+```
+n = tanh(W_in x + b_in + r * (W_hn h + b_hn))
+```
+
+For cross-backend alignment we ship the simplified variant in **both** Idris (`tensor_gru_cell`) and PyTorch (`LinearGRUCell` in `models/rnn.py`). r is computed but unused in both. Filed under the layer-perf TODO bucket as a possible future correctness improvement; the simplified variant converges fine on the pattern task and matches across backends.
+
 ### LSTM multi-seed validation at lr=0.5 (B5, 2026-04-30)
 
 After B3 raised the LSTM default LR from 0.03 → 0.5 (lr_find recommendation, single-seed verified), B5 ran the full ≥5-seed validation at the new default on both backends. Convergence threshold: `loss < 0.05`.
