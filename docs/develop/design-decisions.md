@@ -780,6 +780,18 @@ So in practice, the worst a non-device `d` can do is type-check uselessly. The u
 
 **Revisit triggers**: open if users in the wild file confusing "no `UserDeviceCore X` instance" errors traced back to a typo like `Tensor [4] Bool`, OR if we ever want to define library code that's polymorphic in `d` without `UserDeviceCore d` available (currently impossible — every op needs it, so every polymorphic-in-`d` site naturally has it). Option 2 (`IsDevice`) is the cheapest sharper variant; option 3 is the heaviest if we want compile-time rejection at declaration sites.
 
+### 2026-05-19 follow-up: per-backend hardware parameterisation + cross-backend transfer
+
+Two structural extensions land on top of the open-`d` model:
+
+1. **`TorchDev` parameterised over hardware** — same shape as the existing `MlxDev s`: `data TorchHwDev = TCpu | TMps | TCuda Nat`, `data TorchDev : TorchHwDev -> Type`. Each `(TorchDev d)` cell binds to `*_torch` C symbols; the `d` parameter drives a post-create `tensor_to_device(h, "mps"|"cuda:n")` so the libtorch handle lands on the right hardware variant. `Compatible (TorchDev TMps) F64` deliberately doesn't exist — libtorch's MPS backend errors at F64 *construction*, not just dispatch, so admitting the combination would let the type system mint a runtime-unrepresentable value (mirrors the `MlxDev MGpu F64` rejection).
+
+2. **`UserDeviceTransfer` interface + backendTag-aware `toDevice`** — every backend declares a globally-unique `backendTag : String` ("tape", "torch", "mlx") plus host-marshalling primitives (`primToHost` / `primAllocHost` / `primFreeHost` / int-buffer helpers / `primCreateFromHost` / `primIntraMigrate`). `toDevice` in `Tensor.idr` compares source and dest tags at runtime: matching → fast intra-backend `primIntraMigrate` (libtorch's `.to()` on torch; stream switch on mlx; no-op on tape); differing → host buffer round-trip. Cross-backend transfer creates a fresh handle on the destination — registry membership doesn't follow, users re-register on the dest side if they need optimizer visibility.
+
+The "open `d`" property is preserved: BYO backends declare their own tag type with `UserDeviceCore` + `UserDeviceTransfer` instances and immediately participate in `toDevice` without modifying core library code. Collision-on-`backendTag` is a runtime concern (would route the intra fast path through a foreign backend's C symbols and crash on handle type mismatch); convention is to namespace as `"user/<name>"`. Built-in tags are reserved.
+
+Phase 7 of the 2026-05-19 refactor collapsed the historical generic-device-tag layer (`CPU` / `CUDA n` / `MPS` top-level types in `Device.idr`, plus their `*_Unified` C-symbol forwarding instances). `Device.idr` is now a barrel re-export only; every Tensor in the codebase carries a specific backend-tagged device (`TapeDev` / `TorchDev d` / `MlxDev s`). The link-time alias machinery that exposed each primary backend's symbols under unified C names still exists but has no Idris consumers — `TODO.md` has a parked row to delete it.
+
 ### Open `dt` parameter: same `Type` alias trick, with Compatible + UpcastableTo on top (2026-05-17)
 
 `Tensor` gained a fourth 0-quantity phantom parameter for the data

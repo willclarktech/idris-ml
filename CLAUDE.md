@@ -32,6 +32,8 @@ make BACKEND=tape,torch,mlx backend       # macOS full build (all three)
 make BACKEND=torch backend                # Torch-only build (CI lane)
 make BACKEND=mlx MLX_SITE=... backend     # MLX-only (Apple Metal)
 make BACKEND=mlx MLX_DEVICE=gpu install   # F32 mode: examples target Tensor [..] (MlxDev MGpu) F32
+make BACKEND=torch TORCH_DEVICE=mps install # F32 on Metal via libtorch: Tensor [..] (TorchDev TMps) F32
+make BACKEND=torch TORCH_DEVICE=cuda install # CUDA (when on a CUDA box): Tensor [..] (TorchDev (TCuda 0)) F64
 make rename-headers                       # Regen packages/backends/rename_<b>.h from backend.h
 make check-rename-headers                 # CI gate: errors if regen would change anything
 make install                              # Install core lib + gym (required for examples/tests)
@@ -70,9 +72,17 @@ Matrix r c   = Array [r, c]
 -- Device.idr (open device kind — pick a Type with a UserDeviceCore instance)
 0 Device : Type
 Device = Type
--- CPU / CUDA Nat / MPS are types with built-in UserDeviceCore instances
--- (forwarding to the primary backend's symbols); users can declare their
--- own. See docs/develop/design-decisions.md "Open `d` parameter".
+-- Built-in backend tags:
+--   TapeDev               — tape backend (CPU only, no hardware variants)
+--   TorchDev d            — libtorch; d : TorchHwDev = TCpu | TMps | TCuda Nat
+--   MlxDev s              — mlx; s : MlxStream = MCpu | MGpu
+-- Each backend also implements `UserDeviceTransfer` so the generic
+-- `toDevice` works between any pair: matching backendTag → fast
+-- intra-backend HW migration (libtorch's `.to()` / mlx's stream switch);
+-- differing → host buffer round-trip. Users can declare their own backend
+-- by adding a tag type with these interface instances and a unique
+-- `backendTag` string. See docs/develop/design-decisions.md "Open `d`
+-- parameter".
 
 -- DType.Core (open dtype kind — pick a Type with an IsDType / Compatible instance)
 0 DType : Type
@@ -81,7 +91,9 @@ DType = Type
 -- IsDType instances. Aliases F32 = Float 32, F64 = Float 64, etc.
 -- `Compatible d t` gates which (device, dtype) pairs are admissible.
 -- `Compatible (MlxDev MGpu) F64` deliberately does not exist — that
--- compile-time rejection is the Phase-3 demo. See
+-- compile-time rejection mirrors mlx 0.31's Metal-GPU F32-only constraint.
+-- `Compatible (TorchDev TMps) F64` similarly does not exist — libtorch
+-- rejects F64 at MPS tensor *construction*, not just dispatch. See
 -- docs/develop/design-decisions.md "Open `dt` parameter".
 
 -- Tensor.idr (autograd handle — backend-agnostic)
@@ -96,7 +108,16 @@ record Tensor (dims : Vect rank Nat) (0 d : Device) (0 dt : DType) (0 g : GradMo
 
 The library is **fully polymorphic in dt** — every interface method, smart constructor, and layer state record binds `dt` as an implicit and uses it. Callers pin the concrete dtype at the leaf use site. Hardcoding F64 in method bodies while leaving the record's slot polymorphic caused a 30+ GB elaborator memory blowup; see `docs/develop/gotchas.md` "Polymorphic type-parameter slot vs concrete value in method body."
 
-Examples don't hardcode `CPU` / `F64`. They reference `ExampleDevice` / `ExampleDType` from `packages/idris-ml-examples/src/BuildConfig.idr` — a Makefile-generated source file (template at `BuildConfig.idr.in`, version-controlled). The generator reads `BACKEND` + `MLX_DEVICE` at build time and emits `MlxDev MGpu` + `F32` when `BACKEND=mlx MLX_DEVICE=gpu`, otherwise `CPU` + `F64`. Idris-2 can't drive type-level selection from a runtime env var (types fix at elaboration), so the env is observed at build time and baked in. Switching modes is `make BACKEND=mlx MLX_DEVICE=gpu install` — no example source edits needed.
+Examples don't hardcode device or dtype. They reference `ExampleDevice` / `ExampleDType` from `packages/idris-ml-examples/src/BuildConfig.idr` — a Makefile-generated source file (template at `BuildConfig.idr.in`, version-controlled). The generator reads `BACKEND` + `MLX_DEVICE` + `TORCH_DEVICE` at build time and picks the right `(ExampleDevice, ExampleDType)` cell:
+
+  - `BACKEND=tape`                       → `TapeDev`, `F64`
+  - `BACKEND=torch TORCH_DEVICE=cpu`      → `TorchDev TCpu`, `F64`
+  - `BACKEND=torch TORCH_DEVICE=mps`      → `TorchDev TMps`, `F32`
+  - `BACKEND=torch TORCH_DEVICE=cuda`     → `TorchDev (TCuda 0)`, `F64`
+  - `BACKEND=mlx MLX_DEVICE=cpu`          → `MlxDev MCpu`, `F64`
+  - `BACKEND=mlx MLX_DEVICE=gpu`          → `MlxDev MGpu`, `F32`
+
+Idris-2 can't drive type-level selection from a runtime env var (types fix at elaboration), so the env is observed at build time and baked into `BuildConfig.idr`. Switching modes is just a different `make install` invocation — no example source edits needed.
 
 The `LayerLike` interface (4 methods: `applyVar`, `applyVarBatch`, `layerPrefix`, `resetState`) + `AnyLayer` existential provides dynamic dispatch over layer types. `Network` chains `AnyLayer`s via `(~~>)`. Adding a new layer = one file implementing `LayerLike`, zero edits elsewhere.
 
