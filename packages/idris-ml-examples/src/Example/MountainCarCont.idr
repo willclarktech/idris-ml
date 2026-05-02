@@ -99,14 +99,14 @@ squashCorrection u =
 
 actorMean : ActorNet -> Vect ObsDim Double -> IO Double
 actorMean actor obs = do
-  let stateV = the (TVec ObsDim ExampleDevice ExampleDType WithGrad) (MkTensor (bulkToTensor (obsTensor obs)) Nothing)
+  let stateV = the (TVec ObsDim ExampleDevice ExampleDType WithGrad) (MkTensor (bulkToTensor {dt=ExampleDType} (obsTensor obs)) Nothing)
   (_, outV) <- forwardVar actor stateV
   pure (prim__item1d outV.tensorPtr 0)
 
 qValue : QNet -> Vect ObsDim Double -> Double -> IO Double
 qValue q obs action = do
   let inV = the (TVec QInputDim ExampleDevice ExampleDType WithGrad)
-                (MkTensor (bulkToTensor (qInputTensor (qInput obs action))) Nothing)
+                (MkTensor (bulkToTensor {dt=ExampleDType} (qInputTensor (qInput obs action))) Nothing)
   (_, outV) <- forwardVar q inV
   pure (prim__item1d outV.tensorPtr 0)
 
@@ -220,7 +220,7 @@ qLossBatch n qOnline q1Tgt q2Tgt actor logStdV gamma alpha batch = do
   targetVals <- traverse (computeTargetVal q1Tgt q2Tgt actor logStdV gamma alpha) batch
   let qInputs = the (Vect n (Vector QInputDim Double))
                     (map (\t => qInputTensor (qInput t.obs (oneAct t.action))) batch)
-      qInputBT = bulkToTensor2d qInputs
+      qInputBT = bulkToTensor2d {dt=ExampleDType} qInputs
       qInputV = the (Tensor [n, QInputDim] ExampleDevice ExampleDType WithGrad) (MkTensor qInputBT Nothing)
   (_, qOutB) <- forwardVarBatch qOnline qInputV
   losses <- go qOutB (toList targetVals) 0
@@ -241,7 +241,7 @@ qLossBatch n qOnline q1Tgt q2Tgt actor logStdV gamma alpha batch = do
 buildScalarColumn : {n : Nat} -> Vect n Double -> Tensor [n, 1] ExampleDevice ExampleDType WithGrad
 buildScalarColumn {n} xs =
   let rows = the (Vect n (Vector 1 Double)) (map (\x => VArray [SArray x]) xs)
-      ptr = bulkToTensor2d rows
+      ptr = bulkToTensor2d {dt=ExampleDType} rows
   in MkTensor ptr Nothing
 
 actorPerStepLoss : {n : Nat} ->
@@ -284,7 +284,7 @@ actorLossBatch n actor q1 q2 logStdV alpha obsBatch = do
       stdVal = Prelude.exp logStd
   epses <- traverse (\_ => normalSample) obsBatch
   let obsTensors = the (Vect n (Vector ObsDim Double)) (map obsTensor obsBatch)
-      obsBT = bulkToTensor2d obsTensors
+      obsBT = bulkToTensor2d {dt=ExampleDType} obsTensors
       obsBV = the (Tensor [n, ObsDim] ExampleDevice ExampleDType WithGrad) (MkTensor obsBT Nothing)
   (_, meanB) <- forwardVarBatch actor obsBV
   let epsScales = map (\e => stdVal * e) epses

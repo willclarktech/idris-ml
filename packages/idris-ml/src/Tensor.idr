@@ -919,17 +919,13 @@ prim__memoryReport : Int -> PrimIO Int
 
 ||| Bulk-convert a Vector of Doubles to a C tensor handle.
 ||| The C tensor_create_1d function frees the input buffer after copying.
-||| TODO: thread RuntimeDType dt through this helper (and its callers like
-||| toTDP) so bulk data loading honors the type-level dtype. Currently
-||| routes to the legacy unsuffixed `prim__create1d` which is fp32 on mlx,
-||| fp64 on tape/torch — same dtype-lie as pre-RuntimeDType code.
 export
-bulkToTensor : {n : Nat} -> Vector n Double -> AnyPtr
+bulkToTensor : RuntimeDType dt => {n : Nat} -> Vector n Double -> AnyPtr
 bulkToTensor {n} (VArray elems) =
   let nI = cast {to=Int} n
       buf = prim__allocDoubles nI
       buf' = packDoubleBuf buf 0 elems
-  in prim__create1d nI buf' 0
+  in dtCreate1d {t=dt} nI buf' 0
   where
     packDoubleBuf : AnyPtr -> Int -> Vect k (Scalar Double) -> AnyPtr
     packDoubleBuf buf _ [] = buf
@@ -941,13 +937,13 @@ bulkToTensor {n} (VArray elems) =
 ||| The C tensor_create_2d function frees the input buffer after copying.
 ||| Use to stack a per-sample input batch into a single batched tensor.
 export
-bulkToTensor2d : {b, i : Nat} -> Vect b (Vector i Double) -> AnyPtr
+bulkToTensor2d : RuntimeDType dt => {b, i : Nat} -> Vect b (Vector i Double) -> AnyPtr
 bulkToTensor2d {b} {i} rows =
   let bI = cast {to=Int} b
       iI = cast {to=Int} i
       buf = prim__allocDoubles (bI * iI)
       buf' = packRows buf 0 rows
-  in prim__create2d bI iI buf' 0
+  in dtCreate2d {t=dt} bI iI buf' 0
   where
     packRow : AnyPtr -> Int -> Vect k (Scalar Double) -> AnyPtr
     packRow buf _ [] = buf
@@ -964,12 +960,12 @@ bulkToTensor2d {b} {i} rows =
 ||| Persistent tensors survive tape resets — use when data is created once
 ||| and reused across training epochs.
 export
-vectorToTensorPersistent : {n : Nat} -> Vector n Double -> AnyPtr
+vectorToTensorPersistent : RuntimeDType dt => {n : Nat} -> Vector n Double -> AnyPtr
 vectorToTensorPersistent {n} (VArray elems) =
   let nI = cast {to=Int} n
       buf = prim__allocDoubles nI
       buf' = packBuf buf 0 elems
-  in prim__createState1d nI buf'
+  in dtCreateState1d {t=dt} nI buf'
   where
     packBuf : AnyPtr -> Int -> Vect k (Scalar Double) -> AnyPtr
     packBuf buf _ [] = buf
@@ -977,8 +973,8 @@ vectorToTensorPersistent {n} (VArray elems) =
 
 ||| Convert a DataPoint with Doubles to a TensorDataPoint with persistent C tensors.
 export
-toTDP : {i, o : Nat} -> DataPoint i o Double -> TensorDataPoint i o
-toTDP dp = MkTensorDataPoint (vectorToTensorPersistent (x dp)) (vectorToTensorPersistent (y dp))
+toTDP : RuntimeDType dt => {i, o : Nat} -> DataPoint i o Double -> TensorDataPoint i o
+toTDP dp = MkTensorDataPoint (vectorToTensorPersistent {dt} (x dp)) (vectorToTensorPersistent {dt} (y dp))
 
 ||| Print detailed memory breakdown to stderr.
 export

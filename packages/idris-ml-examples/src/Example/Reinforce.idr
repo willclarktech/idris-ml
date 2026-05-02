@@ -44,7 +44,7 @@ rolloutEp : {hs : List Nat} ->
 rolloutEp _ _ _ Z acc = pure (reverse acc)
 rolloutEp _ _ [] _ acc = pure (reverse acc)
 rolloutEp model st (r :: rs) (S k) acc = do
-  let stateT = bulkToTensor (observe st)
+  let stateT = bulkToTensor {dt=ExampleDType} (observe st)
       stateV = the (TVec 4 ExampleDevice ExampleDType WithGrad) (MkTensor stateT Nothing)
   (_, predV) <- forwardVar model stateV
   let logProbsT = prim__logSoftmax predV.tensorPtr 0
@@ -124,7 +124,7 @@ rolloutEpBatched model states0 rss0 maxSteps = do
       else do
         let obsRows : Vect n (Vector 4 Double)
             obsRows = map observe sts
-            batchPtr = bulkToTensor2d obsRows
+            batchPtr = bulkToTensor2d {dt=ExampleDType} obsRows
             stateV : Tensor [n, 4] ExampleDevice ExampleDType WithGrad
             stateV = MkTensor batchPtr Nothing
         (_, predV) <- forwardVarBatch model stateV
@@ -257,7 +257,7 @@ evalEp : {hs : List Nat} ->
          Network 4 hs 2 ExampleDevice ExampleDType WithGrad -> CPState -> Nat -> Double -> IO Double
 evalEp _ _ Z acc = pure acc
 evalEp model st (S k) acc = do
-  let stateT = bulkToTensor (observe st)
+  let stateT = bulkToTensor {dt=ExampleDType} (observe st)
       stateV = the (TVec 4 ExampleDevice ExampleDType WithGrad) (MkTensor stateT Nothing)
   (_, predV) <- forwardVar model stateV
   let logitsT = predV.tensorPtr
