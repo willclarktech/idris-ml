@@ -583,7 +583,7 @@ test-examples:
 				example-transformer) extra_args="TRANSFORMER_ARGS=--epochs 5" ;; \
 				example-reinforce)   extra_args="REINFORCE_ARGS=--epochs 10" ;; \
 				example-gpt)         extra_args="GPT_ARGS=--epochs 3" ;; \
-				example-mnist)       extra_args="MNIST_ARGS=--epochs 1" ;; \
+				example-mnist)       extra_args="MNIST_ARGS=--epochs 1 --train-count 6000" ;; \
 				example-seq-classify) extra_args="SEQ_ARGS=--epochs 5" ;; \
 				example-dqn)         extra_args="DQN_ARGS=--epochs 10" ;; \
 				example-a2c)         extra_args="A2C_ARGS=--epochs 50" ;; \

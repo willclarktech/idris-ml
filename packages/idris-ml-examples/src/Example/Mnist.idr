@@ -232,9 +232,10 @@ record Config where
   seed : Bits64
   dataDir : String
   lrFind : Bool
+  trainCount : Nat   -- 0 = use full dataset
 
 defaultConfig : Config
-defaultConfig = MkConfig 0.001 5 3 42 "data/mnist" False
+defaultConfig = MkConfig 0.001 5 3 42 "data/mnist" False 0
 
 specs : List (ArgSpec Config)
 specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
@@ -242,7 +243,8 @@ specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
         , Arg "--patience" (\v, c => { patience := castNat v } c)
         , Arg "--seed" (\v, c => { seed := castBits64 v } c)
         , Arg "--data" (\v, c => { dataDir := v } c)
-        , Arg "--lr-find" (\v, c => { lrFind := (v == "1" || v == "true") } c) ]
+        , Arg "--lr-find" (\v, c => { lrFind := (v == "1" || v == "true") } c)
+        , Arg "--train-count" (\v, c => { trainCount := castNat v } c) ]
 
 
 partial
@@ -297,12 +299,19 @@ main = do
 
   let opt = nativeAdamGlobalClip cfg.lr 0.9 0.999 1.0e-8 1.0
 
-  genBatch <- mkIndexedLoader {batchSize=BatchSize} (cast trainCount) (mnistItem trainDs)
+  let effectiveCount : Int
+      effectiveCount = case cfg.trainCount of
+                         Z => trainCount
+                         n@(S _) => min trainCount (cast n)
+  when (cfg.trainCount > 0 && effectiveCount < trainCount) $
+    putStrLn $ "Train subset: " ++ show effectiveCount ++ " images (--train-count)"
+
+  genBatch <- mkIndexedLoader {batchSize=BatchSize} (cast effectiveCount) (mnistItem trainDs)
 
   -- One epoch = one full pass over the training set (PyTorch semantics).
   -- See docs/develop/reference-alignment.md "MNIST epoch semantics".
   let batchesPerEpoch : Nat
-      batchesPerEpoch = cast {to=Nat} trainCount `div` BatchSize
+      batchesPerEpoch = cast {to=Nat} effectiveCount `div` BatchSize
   putStrLn $ "Batches/epoch: " ++ show batchesPerEpoch
            ++ " (batch_size=" ++ show BatchSize ++ ")"
 

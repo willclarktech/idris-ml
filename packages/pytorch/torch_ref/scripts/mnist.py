@@ -28,6 +28,13 @@ def main() -> None:
         action="store_true",
         help="Run lr_find (LR-range test, one mini-batch per iter) and exit.",
     )
+    parser.add_argument(
+        "--train-count",
+        type=int,
+        default=0,
+        help="Cap training set to first N images (0 = use full 60K). "
+        "Used by smoke tests to keep the run sub-minute.",
+    )
     args = parser.parse_args()
 
     torch.manual_seed(args.seed)
@@ -42,7 +49,9 @@ def main() -> None:
         " -> Conv2d(16->32,k=5) -> ReLU -> Pool(2) -> Linear(512->10)"
     )
 
-    train_loader, test_loader = get_mnist_loaders(args.batch_size)
+    train_loader, test_loader = get_mnist_loaders(
+        args.batch_size, train_count=args.train_count
+    )
     model = MnistCNN()
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 

@@ -53,8 +53,12 @@ class MnistCNN(nn.Module):
 def get_mnist_loaders(
     batch_size: int = 64,
     data_dir: str = "data/mnist",
+    train_count: int = 0,
 ) -> tuple[DataLoader, DataLoader]:
-    """Load MNIST from torchvision, returns (train_loader, test_loader)."""
+    """Load MNIST from torchvision, returns (train_loader, test_loader).
+
+    `train_count`: if > 0, cap training set to first N images (used by smoke tests).
+    """
     from torchvision import datasets, transforms
 
     transform = transforms.Compose(
@@ -62,6 +66,8 @@ def get_mnist_loaders(
     )
     train = datasets.MNIST(data_dir, train=True, download=True, transform=transform)
     test = datasets.MNIST(data_dir, train=False, transform=transform)
+    if train_count > 0 and train_count < len(train):
+        train = torch.utils.data.Subset(train, range(train_count))
     train_loader = torch.utils.data.DataLoader(
         train, batch_size=batch_size, shuffle=True
     )
