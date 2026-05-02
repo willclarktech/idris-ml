@@ -470,17 +470,127 @@ not at an op deep inside the layer chain.
 
 ### Deferred for follow-up
 
-- F32 runtime implementation on MLX (smart constructors currently
-  allocate F64 buffers; the `(MlxDev MGpu) F32` type rejects the
-  bad pair statically but doesn't yet route F32 data through the C
-  side at runtime).
+- ~~F32 runtime implementation on MLX~~ — *Partially landed
+  2026-05-18 (mlx-runtime-fp64 plan).* The original plan's bullet
+  was inverted: mlx is hardcoded `mx::float32`, and what was
+  missing was actually **fp64** support for the type-level
+  `Compatible (MlxDev MCpu) F64` claim. RuntimeDType + per-dtype
+  FFI symbols + cascade through the entire layer stack now route
+  F64 to `mx::float64` at allocation. Outstanding: ~72 hardcoded
+  `mx::float32` constants in fused-op kernels and the tape-replay
+  pool produce wrong math when mixed with fp64 inputs. Tracked in
+  a separate Medium-Priority TODO row ("Audit mlx fused-op +
+  constant-pool dtype handling").
 - C-side stream selection (`MlxDev MGpu` should set the Metal stream;
   `MlxDev MCpu` should set the CPU stream — currently both forward to
   the global `MLX_DEVICE` env var).
-- F32 on tape and torch backends (the C arenas are double-only;
-  adding f32 storage is a separate workstream).
+- F32 on tape backend — the C arena is `double*` throughout; tape's
+  `_f32` symbols are abort stubs since 2026-05-18. Torch already
+  ships proper F32 via `kFloat32` (free bonus from the refactor).
 - The `Reinforce` test's pre-existing `Data.List.index : IO (Vect ...)`
   bug, surfaced (not caused) by the dtype refactor.
+
+
+## Runtime dtype dispatch landed (2026-05-18)
+
+The "type-level only" qualifier from the original rollout has been
+substantially reduced. `RuntimeDType` — a separate capability
+interface alongside `IsDType` — carries per-dtype FFI primitives;
+instances bind to per-dtype C symbols (`tensor_create_scalar_f32` vs
+`_f64`, etc.); smart constructors and the entire layer stack require
+`RuntimeDType dt =>`. End-to-end on tape and torch:
+
+- `Tensor [..] CPU F64` on tape → `tensor_create_*_f64` →
+  fp64 `double*` arena. Bit-identical loss across multiple examples
+  vs the pre-cascade behaviour.
+- `Tensor [..] CPU F64` on torch → `tensor_create_*_f64` →
+  `kFloat64` everywhere. Bit-identical to tape.
+- `Tensor [..] CPU F64` on mlx → `tensor_create_*_f64` →
+  `mx::float64` at allocation, BUT downstream fused-op kernels mix
+  fp32 constants → produces wrong math today. Phase 6 audit pending.
+- `Tensor [..] (MlxDev MGpu) F32` still rejected at compile time
+  (Metal has no fp64). The reject is the original design intent.
+
+### Design: `RuntimeDType` as a capability interface
+
+Originally, the rollout was going to use a `dtypeTag : Int` global
+enum to bridge Idris ↔ C. That was discarded — global enums
+tightly couple every backend to a registry of known dtypes, and
+adding a new dtype is a multi-file global change.
+
+The capability-interface approach instead:
+
+```idris
+interface RuntimeDType (0 t : Type) where
+  dtCreateScalar  : Double -> Int -> AnyPtr
+  dtCreate        : AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
+  ... (10 creation methods)
+```
+
+Each instance binds its own routing:
+
+```idris
+RuntimeDType F32 where
+  dtCreateScalar = prim__createScalar_f32
+  ...
+
+RuntimeDType F64 where
+  dtCreateScalar = prim__createScalar_f64
+  ...
+```
+
+New dtypes are local additions of an instance + matching C
+symbols. No central registry to extend. Backend asymmetry (tape has
+no fp32 arena) is expressed naturally: tape's `_f32` symbols are
+abort stubs, and there's no `RuntimeDType F32` instance routing to
+them — the type system + link-time errors handle it.
+
+Method names use the `dt` prefix (`dtCreateScalar` etc.) to
+disambiguate from `UserDeviceCore.primCreateScalar` which already
+dispatches on the device axis. The two interfaces are complementary.
+
+### The cascade (~25 functions, 17 files)
+
+Adding `RuntimeDType dt =>` to one smart constructor (`tparam2d`)
+cascaded through:
+
+- `Tensor.idr` smart constructors (5): `tconstScalar`, `tparam1d`,
+  `tparam2d`, `tparamScalar`, `tzeroState1d`
+- Bulk helpers (3): `bulkToTensor`, `bulkToTensor2d`,
+  `vectorToTensorPersistent` (and their `toTDP` caller)
+- Layer constructors (16): one per layer × 2 (concrete + Any
+  wrapper) for Linear/Rnn/Lstm/Gru/Conv1d/Conv2d/BatchNorm/
+  LayerNorm/Embedding/Ntm/Dnc/Transformer; plus `mkLinearWith`,
+  `mkLinearVec`, `mkBlock`, `mkBlocks`
+- Per-layer `apply*` functions (12): one per layer
+- Layer interface + composition (5): `LayerLike.applyVar` + `applyVarBatch`,
+  `applyVarAny`, `applyVarBatchAny`, `forwardVar`, `forwardVarBatch`,
+  `forwardVarTraced`
+- Training functions (7): `perPointLoss`, `perPointLossTensor`,
+  `epochVarTensorBatch`, `recurStep`, `decodeStep`, `encodeStep`,
+  `forwardTwoPhase`
+- Curriculum (3): `runChunk`, `trainStage`, `runCurriculum`
+- Example call sites: `bulkToTensor` etc. need `{dt=ExampleDType}`
+  explicit at every call (bulk-fixed via sed across 8 example files)
+
+Total commit: 19 files, ~110 lines of `RuntimeDType dt =>`
+additions + ~30 explicit `{dt=ExampleDType}` annotations at call
+sites.
+
+### Verification
+
+Cross-backend bit-identity on the fp64 backends:
+
+| Example | tape loss (2 epochs) | torch loss (2 epochs) | bit-identical |
+|---|---|---|---|
+| supervised | 1.5936567368116856 | 1.5936567368116856 | ✓ |
+| rnn | 0.6054955984956504 | 0.6054955984956504 | ✓ |
+| lstm | 0.6944339289046904 | 0.6944339289046904 | ✓ |
+
+Same `Tensor [..] CPU F64 WithGrad` Idris code → bit-identical
+output on both backends. This is the precision rollout's design
+promise delivered: the type system claim about precision is
+actually honored at runtime.
 
 
 ## Per-build-mode dtype selection (2026-05-17)

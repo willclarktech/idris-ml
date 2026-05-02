@@ -448,13 +448,22 @@ public export
 ----------------------------------------------------------------------
 -- Compatible (device, dtype) instances
 --
--- `MlxCpu` (`MlxDev MCpu`) supports both F32 and dt — the mlx CPU
--- stream can fall back to double precision. `MlxGpu` (`MlxDev MGpu`)
--- only supports F32 because Metal GPUs dropped float64 support in
--- mlx 0.31. The deliberately missing `Compatible (MlxDev MGpu) dt`
--- instance is what makes `Tensor [..] MlxGpu dt WithGrad` fail to
--- typecheck — PyTorch's runtime "Float64 not supported on Metal"
--- error lifted to compile time.
+-- `MlxCpu` (`MlxDev MCpu`) supports both F32 and F64 — mlx's CPU
+-- stream has fp64 kernel coverage (see mlx/backend/cpu/{unary,binary}.h
+-- `case float64` branches). The 2026-05-18 mlx-runtime-fp64 work
+-- routes `RuntimeDType F64` to `tensor_create_*_f64` symbols that
+-- allocate `mx::float64`; the type-level claim is honored at
+-- allocation. Outstanding: ~72 hardcoded `mx::float32` constants in
+-- fused-op kernels mix dtype with fp64 inputs and produce wrong
+-- math — being audited (see TODO row "Audit mlx fused-op + constant
+-- pool dtype handling").
+--
+-- `MlxGpu` (`MlxDev MGpu`) only supports F32 because Metal GPUs
+-- dropped float64 support in mlx 0.31. The deliberately missing
+-- `Compatible (MlxDev MGpu) F64` instance is what makes
+-- `Tensor [..] MlxGpu F64 WithGrad` fail to typecheck — PyTorch's
+-- runtime "Float64 not supported on Metal" error lifted to compile
+-- time.
 ----------------------------------------------------------------------
 
 public export
