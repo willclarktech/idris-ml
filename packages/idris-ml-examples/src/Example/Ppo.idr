@@ -227,19 +227,22 @@ normAdvs triples =
 clipScalar : Double -> Double -> Double -> Double
 clipScalar lo hi x = if x < lo then lo else if x > hi then hi else x
 
-perStepLoss : Actor -> Critic -> Variable CPU -> Double -> Double -> Double ->
+-- Per-sample mean / value Variables are extracted from the batched
+-- [B, 1] outputs via prim__select. The actor + critic forwards happen
+-- once per mini-batch in `runBatch`, not once per transition.
+perStepLoss : (meanB : AnyPtr) -> (valueB : AnyPtr) -> (rowIdx : Int) ->
+              Variable CPU -> Double -> Double -> Double ->
               (RollStep, Double, Double) -> Variable CPU
-perStepLoss actor critic logStdV clipEps entropyCoef valueCoef (step, adv, retT) =
-  let stateT    = bulkToTensor (obsTensor step.obs)
-      meanOut   = snd (forwardVarTensor actor stateT)
-      meanPtr   = prim__select meanOut 0 0
-      meanVal   = prim__item1d meanOut 0
+perStepLoss meanB valueB rowIdx logStdV clipEps entropyCoef valueCoef (step, adv, retT) =
+  let meanRow   = prim__select meanB 0 rowIdx     -- [1]
+      meanPtr   = prim__select meanRow 0 0
+      meanVal   = prim__item1d meanRow 0
       meanV     : Variable CPU
       meanV     = Var meanPtr Nothing meanVal
 
-      valueOut  = snd (forwardVarTensor critic stateT)
-      valuePtr  = prim__select valueOut 0 0
-      valueVal  = prim__item1d valueOut 0
+      valueRow  = prim__select valueB 0 rowIdx    -- [1]
+      valuePtr  = prim__select valueRow 0 0
+      valueVal  = prim__item1d valueRow 0
       valueV    : Variable CPU
       valueV    = Var valuePtr Nothing valueVal
 
@@ -367,15 +370,32 @@ prepareRollout critic cfg steps finalSt =
   in normAdvs merged
 
 
+-- Stack mini-batch obs into [B, ObsDim], do one batched actor + critic
+-- forward each, then build per-sample loss expressions by indexing into
+-- the [B, 1] mean / value tensors. Replaces O(B) per-sample
+-- `forwardVarTensor` calls with two batched calls per mini-batch.
 runBatch : NativeOptimizer -> Actor -> Critic -> Variable CPU -> Config ->
            List (RollStep, Double, Double) -> IO ()
 runBatch opt actor critic logStdV cfg batch = do
-  let lossFn : (RollStep, Double, Double) -> Variable CPU
-      lossFn = perStepLoss actor critic logStdV cfg.clipEps cfg.entropyCoef cfg.valueCoef
-      losses = map lossFn batch
-      loss   = aggregateLoss losses
+  let batchVec  = Data.Vect.fromList batch
+      n         = length batch
+      obsBatch : Vect (length batch) (Vector ObsDim Double)
+      obsBatch  = map (\(s, _, _) => obsTensor s.obs) batchVec
+      stackedT  = bulkToTensor2d obsBatch
+      meanB     = snd (forwardVarTensorBatch actor n stackedT)
+      valueB    = snd (forwardVarTensorBatch critic n stackedT)
+      losses    = enumeratedLosses meanB valueB batchVec 0
+      loss      = aggregateLoss losses
   _ <- pure (nativeTrainStep opt loss)
   pure ()
+  where
+    enumeratedLosses : (meanB : AnyPtr) -> (valueB : AnyPtr) ->
+                       Vect k (RollStep, Double, Double) -> Int ->
+                       List (Variable CPU)
+    enumeratedLosses _ _ [] _ = []
+    enumeratedLosses mB vB (t :: rest) k =
+      perStepLoss mB vB k logStdV cfg.clipEps cfg.entropyCoef cfg.valueCoef t
+        :: enumeratedLosses mB vB rest (k + 1)
 
 
 kEpochUpdate : NativeOptimizer -> Actor -> Critic -> Variable CPU -> Config ->
