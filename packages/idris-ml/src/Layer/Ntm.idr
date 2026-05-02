@@ -136,7 +136,7 @@ ntmInterpWriteIdris {n} memT weightsT addVecT =
   in prim__add kept writeAdd
 
 export
-applyNtm : {0 d : Device} -> UserDeviceTape d => {n, m, h, i, o : Nat} ->
+applyNtm : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => {n, m, h, i, o : Nat} ->
              NtmState n m h i o d dt g ->
              TVec i d dt g ->
              IO (NtmState n m h i o d dt g, TVec o d dt g)
@@ -217,7 +217,7 @@ applyNtm {n} {m} {h} {i} {o}
 ||| - initial read output:    `kaiming_uniform_((1, m))`, non-learnable,
 |||                           sampled once at construction
 export
-ntmLayer : {n, m, h, i, o : Nat} ->
+ntmLayer : RuntimeDType dt => {n, m, h, i, o : Nat} ->
              (paramPrefix : String) ->
              IO (NtmState n m h i o d dt WithGrad)
 ntmLayer pfx = do
@@ -315,7 +315,7 @@ public export
                 (map retypeGrad wa) (map retypeGrad ro))
 
 export
-ntmLayerAny : {n, m, h, i, o : Nat} ->
+ntmLayerAny : RuntimeDType dt => {n, m, h, i, o : Nat} ->
                 (paramPrefix : String) ->
                 IO (AnyLayer i o d dt WithGrad)
 ntmLayerAny pid =

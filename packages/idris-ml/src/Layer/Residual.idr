@@ -26,7 +26,7 @@ data ResidualState : Nat -> Nat -> (0 _ : Device) -> (0 _ : DType) -> (0 _ : Gra
 %default partial
 
 export
-applyResidual : {0 d : Device} -> UserDeviceTape d => {n : Nat} ->
+applyResidual : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => {n : Nat} ->
                   ResidualState n n d dt g ->
                   TVec n d dt g ->
                   IO (ResidualState n n d dt g, TVec n d dt g)

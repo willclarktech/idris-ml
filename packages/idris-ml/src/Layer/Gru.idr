@@ -40,7 +40,7 @@ record GruState (i : Nat) (o : Nat) (0 d : Device) (0 dt : DType) (0 g : GradMod
 %default partial
 
 export
-applyGru : {0 d : Device} -> UserDeviceTape d => {o : Nat} ->
+applyGru : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => {o : Nat} ->
              GruState i o d dt g ->
              TVec i d dt g ->
              IO (GruState i o d dt g, TVec o d dt g)
@@ -72,7 +72,7 @@ zeroBuf buf off n =
 ||| zero biases. Params register under `<prefix>_iw`, `<prefix>_ih_b`,
 ||| `<prefix>_hw`, `<prefix>_hh_b`.
 export
-gruLayer : {i, o : Nat} -> (paramPrefix : String) ->
+gruLayer : RuntimeDType dt => {i, o : Nat} -> (paramPrefix : String) ->
              IO (GruState i o d dt WithGrad)
 gruLayer paramPrefix = do
   let gI = cast {to=Int} (3 * o)
@@ -147,5 +147,5 @@ LayerLike GruState where
 
 ||| Wrap a `GruState` in `AnyLayer`.
 export
-gruLayerAny : {i, o : Nat} -> (paramPrefix : String) -> IO (AnyLayer i o d dt WithGrad)
+gruLayerAny : RuntimeDType dt => {i, o : Nat} -> (paramPrefix : String) -> IO (AnyLayer i o d dt WithGrad)
 gruLayerAny pid = map (MkAnyLayer GruState) (gruLayer pid)

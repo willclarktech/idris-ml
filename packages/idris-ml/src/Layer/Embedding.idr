@@ -37,7 +37,7 @@ record EmbeddingState (vocab : Nat) (embedDim : Nat) (0 d : Device) (0 dt : DTyp
 ||| token IDs encoded as doubles; output `[seqLen * embedDim]` is
 ||| the flattened embedding vectors. Wraps `prim__embedding`.
 export
-applyEmbedding : {0 d : Device} -> UserDeviceTape d => {seqLen, embedDim, vocab : Nat} ->
+applyEmbedding : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => {seqLen, embedDim, vocab : Nat} ->
                    EmbeddingState vocab embedDim d dt g ->
                    TVec seqLen d dt g ->
                    IO (TVec (seqLen * embedDim) d dt g)
@@ -62,7 +62,7 @@ packDoubles buf off (x :: rest) =
 ||| sampled from N(0, 0.02) — same init as V1 `embeddingLayer`.
 ||| Weight registers as one C param under `<prefix>_weight`.
 export
-embeddingLayer : {vocab, embedDim : Nat} -> (paramPrefix : String) ->
+embeddingLayer : RuntimeDType dt => {vocab, embedDim : Nat} -> (paramPrefix : String) ->
                    IO (EmbeddingState vocab embedDim d dt WithGrad)
 embeddingLayer paramPrefix = do
   let vI = cast {to=Int} vocab
@@ -116,7 +116,7 @@ public export
 
 ||| Wrap a fresh embedding into `AnyLayer` for a specific seqLen.
 export
-embeddingLayerAny : {vocab, embedDim, seqLen : Nat} ->
+embeddingLayerAny : RuntimeDType dt => {vocab, embedDim, seqLen : Nat} ->
                       (paramPrefix : String) ->
                       IO (AnyLayer seqLen (seqLen * embedDim) d dt WithGrad)
 embeddingLayerAny pid = do

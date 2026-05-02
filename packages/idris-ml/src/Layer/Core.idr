@@ -26,7 +26,7 @@ interface LayerLike (l : Nat -> Nat -> (0 _ : Device) -> (0 _ : DType) -> (0 _ :
   ||| critical for `withNoGrad` to correctly bracket eval-phase work.
   ||| Polymorphic in `g` so forwarding a `NoGrad` input through a
   ||| frozen layer yields a `NoGrad` output naturally.
-  applyVar : {0 d : Device} -> UserDeviceTape d => {0 g : GradMode} -> {i, o : Nat} ->
+  applyVar : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => {0 g : GradMode} -> {i, o : Nat} ->
               l i o d dt g -> Tensor [i] d dt g -> IO (l i o d dt g, Tensor [o] d dt g)
 
   ||| Auto-naming prefix (e.g. "llv2" for Linear).
@@ -44,7 +44,7 @@ interface LayerLike (l : Nat -> Nat -> (0 _ : Device) -> (0 _ : DType) -> (0 _ :
   ||| (LSTM/RNN/GRU/NTM/DNC) keep the default; batched-cell semantics
   ||| are not supported in this surface (use sequence-level batching
   ||| at the example level instead).
-  applyVarBatch : {0 d : Device} -> UserDeviceTape d => {0 g : GradMode} -> {i, o : Nat} -> {b : Nat} ->
+  applyVarBatch : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => {0 g : GradMode} -> {i, o : Nat} -> {b : Nat} ->
                    l i o d dt g -> Tensor [b, i] d dt g -> IO (l i o d dt g, Tensor [b, o] d dt g)
   applyVarBatch _ _ =
     idris_crash "applyVarBatch: layer does not support batched forward"
@@ -75,14 +75,14 @@ data AnyLayer : Nat -> Nat -> (0 _ : Device) -> (0 _ : DType) -> (0 _ : GradMode
                  l i o d dt g -> AnyLayer i o d dt g
 
 export
-applyVarAny : {0 d : Device} -> UserDeviceTape d => {0 g : GradMode} -> {i, o : Nat} ->
+applyVarAny : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => {0 g : GradMode} -> {i, o : Nat} ->
                AnyLayer i o d dt g -> Tensor [i] d dt g -> IO (AnyLayer i o d dt g, Tensor [o] d dt g)
 applyVarAny (MkAnyLayer l @{dict} layer) input = do
   (layer', out) <- applyVar @{dict} layer input
   pure (MkAnyLayer l @{dict} layer', out)
 
 export
-applyVarBatchAny : {0 d : Device} -> UserDeviceTape d => {0 g : GradMode} -> {i, o : Nat} -> {b : Nat} ->
+applyVarBatchAny : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => {0 g : GradMode} -> {i, o : Nat} -> {b : Nat} ->
                     AnyLayer i o d dt g -> Tensor [b, i] d dt g ->
                     IO (AnyLayer i o d dt g, Tensor [b, o] d dt g)
 applyVarBatchAny (MkAnyLayer l @{dict} layer) input = do
@@ -119,7 +119,7 @@ export infixr 5 ~~>
 ||| forwarding a `NoGrad` input through a frozen network yields a
 ||| `NoGrad` output naturally.
 export
-forwardVar : {0 d : Device} -> UserDeviceTape d => {0 g : GradMode} -> {i, o : Nat} -> {hs : List Nat} ->
+forwardVar : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => {0 g : GradMode} -> {i, o : Nat} -> {hs : List Nat} ->
               Network i hs o d dt g -> Tensor [i] d dt g -> IO (Network i hs o d dt g, Tensor [o] d dt g)
 forwardVar (OutputLayer l) input = do
   (l', out) <- applyVarAny l input
@@ -181,7 +181,7 @@ resetNetwork ((MkAnyLayer l @{dict} layer) ~~> rest) =
 ||| Activation / Dropout override; other layers crash via the
 ||| interface default.
 export
-forwardVarBatch : {0 d : Device} -> UserDeviceTape d => {0 g : GradMode} -> {i, o : Nat} -> {b : Nat} ->
+forwardVarBatch : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => {0 g : GradMode} -> {i, o : Nat} -> {b : Nat} ->
                    {hs : List Nat} ->
                    Network i hs o d dt g -> Tensor [b, i] d dt g ->
                    IO (Network i hs o d dt g, Tensor [b, o] d dt g)
@@ -217,7 +217,7 @@ forwardVarBatch {hs = h :: _} (l ~~> rest) input = do
 |||     epoch5:1 min=-0.234 max=0.567 mean=0.099
 |||     epoch5:out min=-0.300 max=0.700 mean=0.150  [NaN]
 export
-forwardVarTraced : {0 d : Device} -> UserDeviceTape d => {0 g : GradMode} -> {i, o : Nat} -> {hs : List Nat} ->
+forwardVarTraced : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => {0 g : GradMode} -> {i, o : Nat} -> {hs : List Nat} ->
                    (label : String) ->
                    Network i hs o d dt g -> Tensor [i] d dt g ->
                    IO (Network i hs o d dt g, Tensor [o] d dt g)

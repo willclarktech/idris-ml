@@ -49,7 +49,7 @@ record RnnState (i : Nat) (o : Nat) (0 d : Device) (0 dt : DType) (0 g : GradMod
 %default partial
 
 export
-applyRnn : {0 d : Device} -> UserDeviceTape d => {o : Nat} ->
+applyRnn : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => {o : Nat} ->
              RnnState i o d dt g ->
              TVec i d dt g ->
              IO (RnnState i o d dt g, TVec o d dt g)
@@ -88,7 +88,7 @@ zeroBuf buf off n =
 ||| Common activations: `ttanh` (default for `nn.RNN`), `trelu`,
 ||| `id` for a linear-recurrence variant.
 export
-rnnLayer : {i, o : Nat} ->
+rnnLayer : RuntimeDType dt => {i, o : Nat} ->
              (paramPrefix : String) ->
              (activation : {0 g' : GradMode} -> TVec o d dt g' -> IO (TVec o d dt g')) ->
              IO (RnnState i o d dt WithGrad)
@@ -167,6 +167,6 @@ LayerLike RnnState where
 ||| (matching PyTorch's `nn.RNN` default). Use `rnnLayer` directly
 ||| if you need a different activation.
 export
-rnnLayerAny : {0 d : Device} -> UserDeviceCore d =>
+rnnLayerAny : {0 d : Device} -> UserDeviceCore d => RuntimeDType dt =>
               {i, o : Nat} -> (paramPrefix : String) -> IO (AnyLayer i o d dt WithGrad)
 rnnLayerAny pid = map (MkAnyLayer RnnState) (rnnLayer pid ttanh)

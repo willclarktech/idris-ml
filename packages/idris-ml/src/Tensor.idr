@@ -1197,19 +1197,19 @@ ioRerun f = primIO (\w => MkIORes (f ()) w)
 ||| Create a registered learnable [o, i] parameter from a flat (row-major)
 ||| double buffer. Mirrors Linear.nameLayer's tensor path.
 export
-tparam2d : {o, i : Nat} -> (paramId : String) -> AnyPtr -> IO (Tensor [o, i] d dt WithGrad)
+tparam2d : RuntimeDType dt => {o, i : Nat} -> (paramId : String) -> AnyPtr -> IO (Tensor [o, i] d dt WithGrad)
 tparam2d {o} {i} pid buf = ioRerun (\_ =>
   let oI = cast {to=Int} o
       iI = cast {to=Int} i
-      reg = prim__paramRegister pid (prim__createParam2d oI iI buf)
+      reg = prim__paramRegister pid (dtCreateParam2d {t=dt} oI iI buf)
   in MkTensor reg (Just pid))
 
 ||| Create a registered learnable [n] parameter from a double buffer.
 export
-tparam1d : {n : Nat} -> (paramId : String) -> AnyPtr -> IO (Tensor [n] d dt WithGrad)
+tparam1d : RuntimeDType dt => {n : Nat} -> (paramId : String) -> AnyPtr -> IO (Tensor [n] d dt WithGrad)
 tparam1d {n} pid buf = ioRerun (\_ =>
   let nI = cast {to=Int} n
-      reg = prim__paramRegister pid (prim__createParam1d nI buf)
+      reg = prim__paramRegister pid (dtCreateParam1d {t=dt} nI buf)
   in MkTensor reg (Just pid))
 
 ||| Wrap an existing 1D tensor handle as a non-parameter input.
@@ -1335,9 +1335,9 @@ tlog v = ioRerun (\_ => MkTensor (primLog {d} v.tensorPtr) Nothing)
 ||| state-independent log_std). Mirrors V1's `param`. The optimizer
 ||| picks it up automatically by paramId scope.
 export
-tparamScalar : {0 d : Device} -> (paramId : String) -> (val : Double) -> IO (Tensor [] d dt WithGrad)
+tparamScalar : {0 d : Device} -> RuntimeDType dt => (paramId : String) -> (val : Double) -> IO (Tensor [] d dt WithGrad)
 tparamScalar pid val = ioRerun (\_ =>
-  let ptr = prim__createScalar val 1                  -- requires_grad=true
+  let ptr = dtCreateScalar {t=dt} val 1               -- requires_grad=true
       reg = prim__paramRegister pid ptr
   in MkTensor reg (Just pid))
 
@@ -1407,11 +1407,11 @@ tlstmGatesPair {n} combined prevCell = ioRerun (\_ =>
 ||| Use for LSTM/RNN/GRU initial hidden + cell state. Persistent =
 ||| survives tape reset.
 export
-tzeroState1d : {n : Nat} -> IO (Tensor [n] d dt g)
+tzeroState1d : RuntimeDType dt => {n : Nat} -> IO (Tensor [n] d dt g)
 tzeroState1d {n} = ioRerun (\_ =>
   let nI = cast {to=Int} n
       buf = prim__allocDoubles nI
-  in MkTensor (prim__createState1d nI buf) Nothing)
+  in MkTensor (dtCreateState1d {t=dt} nI buf) Nothing)
 
 ||| GRU cell — `nn.GRU` equation. Takes the two `[3 * n]` half-sums:
 |||   ih = W_ih @ x + b_ih

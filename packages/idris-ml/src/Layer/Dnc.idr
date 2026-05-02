@@ -218,7 +218,7 @@ mkZeroVectM (S k) m = zeroState1d m :: mkZeroVectM k m
 ----------------------------------------------------------------------
 
 export
-applyDnc : {0 d : Device} -> UserDeviceTape d => {r, n, m, h, i, o : Nat} ->
+applyDnc : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => {r, n, m, h, i, o : Nat} ->
              DncState r n m h i o d dt g ->
              TVec i d dt g ->
              IO (DncState r n m h i o d dt g, TVec o d dt g)
@@ -386,7 +386,7 @@ mkKaimingReadOuts (S k) m bound = do
 ||| - initial read outputs:   `kaiming_uniform_((R, m))`, non-learnable,
 |||                           sampled once at construction
 export
-dncLayer : {r, n, m, h, i, o : Nat} ->
+dncLayer : RuntimeDType dt => {r, n, m, h, i, o : Nat} ->
              (paramPrefix : String) ->
              IO (DncState r n m h i o d dt WithGrad)
 dncLayer pfx = do
@@ -511,7 +511,7 @@ public export
                 (map retypeGrad link) rwTs roTs)
 
 export
-dncLayerAny : {r, n, m, h, i, o : Nat} ->
+dncLayerAny : RuntimeDType dt => {r, n, m, h, i, o : Nat} ->
                 (paramPrefix : String) ->
                 IO (AnyLayer i o d dt WithGrad)
 dncLayerAny pid =

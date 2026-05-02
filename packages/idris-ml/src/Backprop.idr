@@ -89,7 +89,7 @@ sumLosses losses = do
 
 -- Per-point loss closure factored out to avoid let-block elaboration
 -- weirdness in epochVar's body.
-perPointLoss : {0 d : Device} -> UserDeviceTape d => {i, o : Nat} -> {hs : List Nat} ->
+perPointLoss : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => {i, o : Nat} -> {hs : List Nat} ->
                LossFn d dt o ->
                Network i hs o d dt WithGrad ->
                DataPoint i o Double ->
@@ -106,7 +106,7 @@ perPointLoss lossFn model dp = do
 ||| sample losses, mean-reduce, native train step. Returns the
 ||| (unchanged) network and the loss scalar.
 export
-epochVar : {0 d : Device} -> UserDeviceTape d => {i, o, n : Nat} -> {hs : List Nat} ->
+epochVar : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => {i, o, n : Nat} -> {hs : List Nat} ->
             NativeOptimizer ->
             Vect n (DataPoint i o Double) ->
             LossFn d dt o ->
@@ -121,7 +121,7 @@ epochVar opt dataPoints lossFn model = do
 
 
 -- Per-point loss for already-tensor-pre-built inputs (TensorDataPoint).
-perPointLossTensor : {0 d : Device} -> UserDeviceTape d => {i, o : Nat} -> {hs : List Nat} ->
+perPointLossTensor : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => {i, o : Nat} -> {hs : List Nat} ->
                      LossFn d dt o ->
                      Network i hs o d dt WithGrad ->
                      TensorDataPoint i o ->
@@ -134,7 +134,7 @@ perPointLossTensor lossFn model dp = do
 
 ||| Supervised epoch over already-tensor-pre-built data points.
 export
-epochVarTensor : {0 d : Device} -> UserDeviceTape d => {i, o, n : Nat} -> {hs : List Nat} ->
+epochVarTensor : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => {i, o, n : Nat} -> {hs : List Nat} ->
                   NativeOptimizer ->
                   Vect n (TensorDataPoint i o) ->
                   LossFn d dt o ->
@@ -168,7 +168,7 @@ perRowLoss lossFn predB tgtB k = do
 
 ||| Batched supervised epoch over `TensorDataPoint`s.
 export
-epochVarTensorBatch : {0 d : Device} -> UserDeviceTape d => {i, o, n : Nat} -> {hs : List Nat} ->
+epochVarTensorBatch : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => {i, o, n : Nat} -> {hs : List Nat} ->
                        NativeOptimizer ->
                        Vect n (TensorDataPoint i o) ->
                        LossFn d dt o ->
@@ -208,7 +208,7 @@ epochVarTensorBatch opt dataPoints lossFn model = do
 
 -- One step of a sequence: forward, compute loss against target,
 -- accumulate.
-recurStep : {0 d : Device} -> UserDeviceTape d => {i, o : Nat} -> {hs : List Nat} ->
+recurStep : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => {i, o : Nat} -> {hs : List Nat} ->
             LossFn d dt o ->
             (Network i hs o d dt WithGrad, Tensor [] d dt WithGrad) ->
             (Vector i Double, Vector o Double) ->
@@ -222,7 +222,7 @@ recurStep lossFn (net, accLoss) (xVec, yVec) = do
   pure (net', newAcc)
 
 -- Per-sequence loss: reset state, walk timesteps, mean-reduce.
-perSeqLoss : {0 d : Device} -> UserDeviceTape d => {i, o : Nat} -> {hs : List Nat} ->
+perSeqLoss : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => {i, o : Nat} -> {hs : List Nat} ->
              LossFn d dt o ->
              Network i hs o d dt WithGrad ->
              RecurrentDataPoint i o Double ->
@@ -250,7 +250,7 @@ perSeqLoss lossFn model dp = do
 
 ||| One recurrent epoch.
 export
-epochRecurrentVar : {0 d : Device} -> UserDeviceTape d => {i, o, n : Nat} -> {hs : List Nat} ->
+epochRecurrentVar : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => {i, o, n : Nat} -> {hs : List Nat} ->
                      NativeOptimizer ->
                      Vect n (RecurrentDataPoint i o Double) ->
                      LossFn d dt o ->
@@ -268,7 +268,7 @@ epochRecurrentVar opt dataPoints lossFn model = do
 -- Two-phase epoch (NTM/DNC pattern: encode then decode)
 ----------------------------------------------------------------------
 
-decodeStep : {0 d : Device} -> UserDeviceTape d => {i, o : Nat} -> {hs : List Nat} ->
+decodeStep : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => {i, o : Nat} -> {hs : List Nat} ->
              LossFn d dt o ->
              AnyPtr ->
              (Network i hs o d dt WithGrad, Tensor [] d dt WithGrad) ->
@@ -282,7 +282,7 @@ decodeStep lossFn zeroInPtr (net, accLoss) tgtVec = do
   newAcc <- taddScalar accLoss stepL
   pure (net', newAcc)
 
-encodeStep : {0 d : Device} -> UserDeviceTape d => {i, o : Nat} -> {hs : List Nat} ->
+encodeStep : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => {i, o : Nat} -> {hs : List Nat} ->
              Network i hs o d dt WithGrad ->
              Vector i Double ->
              IO (Network i hs o d dt WithGrad)
@@ -291,7 +291,7 @@ encodeStep net xVec = do
   (net', _) <- forwardVar net inV
   pure net'
 
-perSeqLossTwoPhase : {0 d : Device} -> UserDeviceTape d => {i, o : Nat} -> {hs : List Nat} ->
+perSeqLossTwoPhase : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => {i, o : Nat} -> {hs : List Nat} ->
                      LossFn d dt o ->
                      Network i hs o d dt WithGrad ->
                      TwoPhaseDataPoint i o Double ->
@@ -330,7 +330,7 @@ perSeqLossTwoPhase lossFn model dp = do
 
 ||| One two-phase epoch.
 export
-epochTwoPhaseVar : {0 d : Device} -> UserDeviceTape d => {i, o, n : Nat} -> {hs : List Nat} ->
+epochTwoPhaseVar : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => {i, o, n : Nat} -> {hs : List Nat} ->
                     NativeOptimizer ->
                     Vect n (TwoPhaseDataPoint i o Double) ->
                     LossFn d dt o ->
@@ -357,7 +357,7 @@ tvecToVector {n} ptr = VArray (build 0 n)
     build off (S k) = SArray (prim__item1d ptr off) :: build (off + 1) k
 
 export
-forwardTwoPhase : {0 d : Device} -> UserDeviceTape d => {i, o : Nat} -> {hs : List Nat} ->
+forwardTwoPhase : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => {i, o : Nat} -> {hs : List Nat} ->
                       Network i hs o d dt WithGrad ->
                       TwoPhaseDataPoint i o Double ->
                       IO (Network i hs o d dt WithGrad, List (Vector o Double))
