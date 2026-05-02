@@ -351,6 +351,11 @@ example-monte-carlo: install
 	cp $(LIB) build/exec/monte-carlo_app/
 	./build/exec/monte-carlo $(MONTE_CARLO_ARGS)
 
+example-frozen-lake: install
+	idris2 $(IDRIS_FLAGS) -o frozen-lake $(EXAMPLE_SRC)/Example/FrozenLake.idr
+	cp $(LIB) build/exec/frozen-lake_app/
+	./build/exec/frozen-lake $(FROZEN_LAKE_ARGS)
+
 example-dqn: install
 	idris2 $(IDRIS_FLAGS) -o dqn $(EXAMPLE_SRC)/Example/Dqn.idr
 	cp $(LIB) build/exec/dqn_app/
@@ -554,7 +559,7 @@ clean:
 # Examples run on every built backend. Keep in sync with packages/idris-ml-examples/src/Example/.
 # Excluded intentionally:
 #   Bench, Profile — no RESULT lines (covered by bench-compare / example-profile).
-EXAMPLES := example-supervised example-rnn example-lstm example-gru example-transformer example-gpt example-mnist example-seq-classify example-ntm-copy example-ntm-associative-recall example-dnc-copy example-dnc-recall example-reinforce example-q-learning example-sarsa example-monte-carlo example-dqn example-a2c example-ppo example-sac example-transfer
+EXAMPLES := example-supervised example-rnn example-lstm example-gru example-transformer example-gpt example-mnist example-seq-classify example-ntm-copy example-ntm-associative-recall example-dnc-copy example-dnc-recall example-reinforce example-q-learning example-sarsa example-monte-carlo example-frozen-lake example-dqn example-a2c example-ppo example-sac example-transfer
 BACKENDS := tape mlx torch
 
 # Crash-only smoke gate: every example × 3 backends, 3-10 epochs each,
@@ -765,7 +770,7 @@ all: check-all test-all
         check check-gym check-notebook check-examples install install-core install-gym install-notebook install-examples \
         example-supervised example-rnn example-lstm example-gru \
         example-ntm-copy example-ntm-associative-recall example-dnc-copy example-dnc-recall \
-        example-reinforce \
+        example-reinforce example-q-learning example-sarsa example-monte-carlo example-frozen-lake \
         example-gpt example-gpt-full example-mnist example-seq-classify example-transformer \
         example-transfer example-transfer-demo \
         example-bench example-profile sweep sweep-quick clean \

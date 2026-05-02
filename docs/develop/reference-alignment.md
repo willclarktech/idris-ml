@@ -182,6 +182,26 @@ n = tanh(W_in x + b_in + r * (W_hn h + b_hn))
 
 For cross-backend alignment we ship the simplified variant in **both** Idris (`tensor_gru_cell`) and PyTorch (`LinearGRUCell` in `models/rnn.py`). r is computed but unused in both. Filed under the layer-perf TODO bucket as a possible future correctness improvement; the simplified variant converges fine on the pattern task and matches across backends.
 
+### FrozenLake example added (B6, 2026-04-30)
+
+Second B6 ticket — fills the FrozenLake env coverage gap. Tabular Q-learning on the slippery 4×4 FrozenLake-v1, mirroring `Example.QLearning` (CliffWalking) with the stochastic-env handling pattern from `Example.MonteCarlo` (per-episode `(envSeed, noise)` input).
+
+**Configuration alignment**: Idris `Example.FrozenLake` and PyTorch `torch_ref/models/frozen_lake.py` use identical defaults: `alpha=0.1 gamma=0.99 epsilon=0.3 epochs=10000 seed=42`. Both implement the Gymnasium 4×4 default map exactly (intended action prob 1/3, each perpendicular 1/3, reward 1.0 at goal, 0.0 elsewhere) and use ε-greedy with first-argmax tiebreaking.
+
+**Multi-seed convergence (≥5 seeds, both backends)**, threshold `avg_return >= 0.4`:
+
+| Seed | Idris avg_return | PyTorch avg_return |
+|------|------------------|--------------------|
+| 1    | 0.68             | 0.74               |
+| 2    | 0.66             | 0.56               |
+| 3    | 0.70             | 0.75               |
+| 4    | 0.80             | 0.74               |
+| 42   | 0.74             | 0.69               |
+
+**10/10 pass**. Idris mean 0.72, PyTorch mean 0.70 — closely aligned. avg_return is the greedy success rate; even an optimal policy on slippery FrozenLake fails ~30% of episodes by slipping into holes, so the metric is success-rate-capped well below 1.0.
+
+Initial defaults (alpha=0.5 gamma=1.0 epsilon=0.1 epochs=500, mirroring CliffWalking) failed multi-seed (2/5 stuck at 0.0). Tuned epsilon up and epochs up so the agent finds the goal often enough to bootstrap learning despite slipperiness — both sides updated together per the alignment policy.
+
 ### LSTM multi-seed validation at lr=0.5 (B5, 2026-04-30)
 
 After B3 raised the LSTM default LR from 0.03 → 0.5 (lr_find recommendation, single-seed verified), B5 ran the full ≥5-seed validation at the new default on both backends. Convergence threshold: `loss < 0.05`.

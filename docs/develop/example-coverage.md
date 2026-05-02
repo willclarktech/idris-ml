@@ -45,6 +45,7 @@ be replaced with measurements as part of B3 dogfood runs.
 | Sarsa | Q-table [12, 4] | CliffWalking (tabular) | Custom SARSA | full default 1000 ep | <1 s (measured) | avg_return ≥ −120 | <1 s (measured) | |
 | QLearning | Q-table [12, 4] | CliffWalking (tabular) | Custom Q-learning | full default 1000 ep | <1 s (measured) | avg_return ≥ −120 | <1 s (measured) | |
 | MonteCarlo | Q-table [400, 2] | Blackjack (tabular) | First-visit MC | full default 100K ep | ~1 s (estimated) | win_rate ≥ 0.3 | ~1 s (estimated) | |
+| FrozenLake | Q-table [16, 4] | FrozenLake slippery 4×4 (tabular, stochastic) | Custom Q-learning | full default 10K ep | ~2 s (measured) | avg_return ≥ 0.4 | ~2 s (measured) | B6 2026-04-30; 5/5 Idris (0.66–0.80) + 5/5 PyTorch (0.56–0.75) |
 | Transfer | FC transfer cascade | Synthetic supervised tasks | Supervised | full default | TBD (measure in B3) | loss < 0.5 | ~5 s (estimated) | uses Checkpoint save/load across backends |
 | Bench | Multi-model | Internal benchmark | Mixed | n/a | n/a | n/a | ~3 s (measured) | not in test-examples |
 | Profile | Single-model | Internal benchmark | Supervised | n/a | n/a | n/a | per-epoch ms | not in test-examples |
@@ -109,7 +110,7 @@ Five of the nine shipped Gym envs have no example:
 - **MountainCarCont** (continuous) — Box action space; pairs with PPO or SAC.
 - ~~**Acrobot** (discrete)~~ — covered by Ppo (B3-fixes 2026-04-30; PPO env swap from Pendulum).
 - **Taxi** (tabular discrete) — 500-state table; pairs with Q-learning to extend the tabular suite.
-- **FrozenLake** (tabular discrete, stochastic) — slippery dynamics demonstrate stochastic-MDP handling; pairs with Q-learning or Monte Carlo.
+- ~~**FrozenLake** (tabular discrete, stochastic)~~ — covered by FrozenLake (B6 2026-04-30; tabular Q-learning on slippery 4×4 at α=0.1 γ=0.99 ε=0.3 over 10K episodes; 5/5 both backends with mean avg_return ~0.71).
 
 ### Cross-cutting gaps
 - **Synthetic regression** has only Rnn. A simple FC regression example (Supervised does classification) would round out the smallest demonstrations.

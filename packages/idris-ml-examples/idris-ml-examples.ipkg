@@ -12,6 +12,7 @@ modules = Generate
         , Example.DncAssociativeRecall
         , Example.DncCopy
         , Example.Dqn
+        , Example.FrozenLake
         , Example.Gpt
         , Example.Gru
         , Example.Lstm

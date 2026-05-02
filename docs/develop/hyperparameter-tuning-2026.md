@@ -506,3 +506,29 @@ Cross-backend ratio: **1.00× — exact agreement.** Current default 0.5 is with
 - Total elapsed time, idea → committed: ~1 hour. Most expensive subtask was discovering that `Layer/Gru.idr` shipped without `applyGeneric` (used by `evaluateRecurrent`). Filed a 30-line `applyGeneric` matching the C kernel exactly.
 - Layer-spec review found the C kernel `tensor_gru_cell` implements a **simplified GRU** (r gate computed but unused). PyTorch reference `LinearGRUCell` mirrors that variant, not `nn.GRUCell`. Documented in `reference-alignment.md`. Filed as a possible future correctness improvement, but not a blocker.
 - The B6 cost estimate "1–2 days per example" from the skip-decision audit (session 5) is **on the high side for layer gaps that mirror existing examples**: GRU was ~1 hour. Env-gap tickets (MountainCar/Taxi/FrozenLake) likely fit the 1-day estimate; layer-gaps that are pure ports of existing recurrent / FC examples are several-hour scope.
+
+### FrozenLake (tabular Q-learning on stochastic env)
+
+Second B6 ticket. Closes the FrozenLake env coverage gap and validates that the existing tabular scaffolding handles stochastic envs.
+
+Config: `alpha=0.1 gamma=0.99 epsilon=0.3 epochs=10000 seed=42`. Q-table `[16, 4]`, MaxSteps=100, slippery dynamics (intended action prob 1/3, each perpendicular 1/3). Reward 0/1 (sparse).
+
+Initial pass at `alpha=0.5 gamma=1.0 epsilon=0.1 epochs=500` (the QLearning-on-CliffWalking defaults) produced highly seed-dependent results (2/5 succeed at >0.7, 2/5 stuck at 0.0) because the sparse-reward + stochastic-env combination requires more exploration to find the goal at all. Tuned to `eps=0.3 epochs=10000` based on Gymnasium tabular Q baselines for slippery 4×4.
+
+**Multi-seed at the new defaults** (5 seeds × 2 backends), threshold `avg_return >= 0.4`:
+
+| Seed | Idris avg_return | PyTorch avg_return |
+|------|------------------|--------------------|
+| 1    | 0.68             | 0.74               |
+| 2    | 0.66             | 0.56               |
+| 3    | 0.70             | 0.75               |
+| 4    | 0.80             | 0.74               |
+| 42   | 0.74             | 0.69               |
+
+10/10 pass. Idris mean 0.72, PyTorch mean 0.70. The slip-cap on greedy success rate caps avg_return well below 1.0 (an optimal policy still slips into holes ~30% of the time on this 4×4 layout); 0.7 is a strong tabular result.
+
+`lr_find` is not applicable (tabular updates are not gradient-based; the natural sweep would be α and ε, both already at sensible values per the multi-seed evidence).
+
+Cross-backend determinism: Q-table updates are pure deterministic given the same seed sequence; both backends give identical avg_return when run from the Idris example (tape/mlx/torch all hit 0.74 at seed=42 because tabular RL doesn't exercise the autograd path).
+
+Convergence runtime: ~2 s on tape. Smoke = full convergence run (no epoch override needed).

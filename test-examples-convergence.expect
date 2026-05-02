@@ -35,6 +35,9 @@ example-dnc-recall               acc_k2       >=  0.6
 example-q-learning               avg_return   >=  -120
 example-sarsa                    avg_return   >=  -120
 example-monte-carlo              win_rate     >=  0.3
+# Slippery 4x4 FrozenLake: even an optimal policy slips into holes ~30% of
+# the time, so avg_return is success-rate-capped well below 1.0.
+example-frozen-lake              avg_return   >=  0.4
 
 # ---- RL: deep (CartPole + Acrobot + Pendulum) ----
 # CartPole: REINFORCE/A2C aim for ~500; DQN ~100+ at convergence.
