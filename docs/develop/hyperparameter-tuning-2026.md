@@ -327,6 +327,22 @@ The full `tinyshakespeare/1000` config is preserved as `make example-gpt-full` (
 
 ## B4 — Network-structure tuning (in progress, 2026-04-30)
 
+### Transformer: dModel 32 → 16 (HeadDim 8 → 4) — shipped
+
+After the Dqn negative result, tried the same B4 method on a matmul-bound example. Transformer attention scales as O(seqLen² × dModel); halving dModel cuts attention cost by 2× and projection cost by 2× too.
+
+Multi-seed at the new (dModel=16, HeadDim=4) — both backends:
+
+| Seed | Idris sort_acc | PyTorch sort_acc |
+|------|----------------|------------------|
+| 1, 2, 3, 4, 42 | 6/6 (perfect) | 6/6 (perfect) |
+
+5/5 on both backends, all at 6/6 (perfect sort accuracy). The convergence threshold is `sort_acc >= 0.8`; both backends pass with full margin.
+
+**Decision: ship.** This is the first B4 default change to land. Per-epoch wall time at dModel=16: ~25 ms on tape, comparable to the dModel=32 baseline (the synthetic sort task is small enough that overhead dominates), but the smaller model compiles faster and uses less memory — meaningful for users running the example on CI / smaller machines.
+
+NumHeads stays 4; HeadDim drops 8 → 4 to keep `NumHeads × HeadDim == dModel`.
+
 ### Dqn: hidden 64 → 32 — reverted
 
 First B4 prototype. Tried halving DQN's hidden width on CartPole (4 → 32 → 32 → 2) to see if the smaller net still converges to the existing `avg_return >= 100` threshold and saves wall time.

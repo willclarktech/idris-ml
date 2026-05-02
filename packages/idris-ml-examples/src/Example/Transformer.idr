@@ -49,13 +49,13 @@ SeqLen : Nat
 SeqLen = 2 * InputLen + 1
 
 DModel : Nat
-DModel = 32
+DModel = 16
 
 NumHeads : Nat
 NumHeads = 4
 
 HeadDim : Nat
-HeadDim = 8
+HeadDim = 4
 
 NumBlocks : Nat
 NumBlocks = 2

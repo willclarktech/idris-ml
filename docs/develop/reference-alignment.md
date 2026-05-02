@@ -127,6 +127,22 @@ After B3-fixes shrunk the GPT default to `--corpus embedded --epochs 30` (with p
 
 5/5 on both backends, all values 0.4–0.8 below the 5.0 threshold. PyTorch slightly tighter (4.20 avg) than Idris (4.46 avg), explained by PyTorch's dynamic vocab=36 on the embedded corpus vs Idris' hardcoded vocab=65 (the embedded corpus is a strict subset of the 65-char tinyshakespeare alphabet, so Idris carries 29 unused output dims). Both runs are deterministic at the same seed; the gap is fully attributable to the vocab choice, not implementation drift.
 
+### Transformer dModel 32 → 16 (B4, 2026-04-30)
+
+First B4 default change to land — Transformer's attention is matmul-bound (cost scales O(seqLen² × dModel)), so halving dModel is the natural compute win. NumHeads stays 4; HeadDim drops 8 → 4 to keep `NumHeads × HeadDim == dModel`.
+
+5-seed validation on both backends at the new dModel=16:
+
+| Seed | Idris sort_acc | PyTorch sort_acc |
+|------|----------------|------------------|
+| 1    | 6/6            | 6/6              |
+| 2    | 6/6            | 6/6              |
+| 3    | 6/6            | 6/6              |
+| 4    | 6/6            | 6/6              |
+| 42   | 6/6            | 6/6              |
+
+10/10 perfect convergence at the new defaults. Threshold `sort_acc >= 0.8` cleared with full margin. Detail entry in `hyperparameter-tuning-2026.md` "Transformer: dModel 32 → 16" section.
+
 ### LSTM multi-seed validation at lr=0.5 (B5, 2026-04-30)
 
 After B3 raised the LSTM default LR from 0.03 → 0.5 (lr_find recommendation, single-seed verified), B5 ran the full ≥5-seed validation at the new default on both backends. Convergence threshold: `loss < 0.05`.

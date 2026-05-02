@@ -28,7 +28,7 @@ be replaced with measurements as part of B3 dogfood runs.
 | Supervised | FC: 2→8→1 | XOR-style classification | Supervised | --epochs 5 | <5 s (estimated) | loss < 0.5 | ~3 s (measured) @ 1000 ep | |
 | Rnn | RNN: 1→20→1 | Sine-wave regression | Recurrent | --epochs 5 | <5 s (estimated) | loss < 0.5 | ~5 s (estimated) @ 1000 ep | |
 | Lstm | LSTM: 1→4→1 | Synthetic timeseries | Recurrent | --epochs 5 | <5 s (estimated) | loss < 0.7 | ~8 s (estimated) @ 2000 ep | |
-| Transformer | 2 blocks, 4 heads, dModel=32 | Sequence sorting | Supervised (batched) | --epochs 5 | ~5 s (estimated) | sort_acc ≥ 0.8 | ~15 s (estimated) @ 1000 ep | uses LayerNorm + Embedding + Attention |
+| Transformer | 2 blocks, 4 heads, dModel=16 (was 32, B4 2026-04-30) | Sequence sorting | Supervised (batched) | --epochs 5 | ~5 s (estimated) | sort_acc ≥ 0.8 | ~25 s (measured) @ 1000 ep, both backends 5/5 at 6/6 sort_acc | uses LayerNorm + Embedding + Attention |
 | SeqClassify | embed→Conv1D→pool→FC | Synthetic waveform classification | Supervised | --epochs 5 | ~5 s (estimated) | loss < 0.5 | ~5 s (estimated) @ 1000 ep | |
 | Mnist | LeNet (Conv2D×2 + FC) | MNIST digit classification | Supervised (full-pass) | --epochs 1 | ~2 min (estimated, full pass) | accuracy ≥ 0.85 | ~10 min (measured) @ 5 ep | uses Dropout; smoke runs 1 full pass |
 | Gpt | Transformer (2 blocks, dModel=64) | Char-LM (embedded by default) | Supervised | --epochs 3 | ~10 s (measured) | bpc < 5.0 | ~40 s (measured) @ 30 ep, embedded; full convergence (~30 min @ 1000 ep, tinyshakespeare, val_bpc < 3.5) lives in `make example-gpt-full` | B3-fixes 2026-04-30: default shrunk to embedded/30 (~30 s), warmup proportional |
