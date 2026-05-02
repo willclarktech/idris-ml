@@ -9,17 +9,18 @@ now closed) replaces those loops with one batched forward per layer per
 mini-batch using a new `tensor_linear_2d` C op + `applyVarTensorBatch`
 LayerLike method override on Linear and Activation.
 
-A2C smoke gate (5000 epochs, seed=42, RolloutLen=20):
+Single-seed (seed=42) results, tape backend:
 
-| Metric | Pre-batch | Post-batch | Change |
+| Example | Tape entries last fwd | ms/epoch | avg_return / threshold |
 |---|---|---|---|
-| Tape entries last fwd | ~80 | 12 | ~7× |
-| Wall time / epoch | ~50 ms | ~29 ms | 1.7× faster |
-| `avg_return` (eval) | within ±10 | 160 | passes >=150 threshold |
+| A2C (5000 ep, RolloutLen=20)  | 80 → 12 | ~50 → ~29 | 160 / >=150 ✓ |
+| PPO (200 ep, RolloutLen=400)  | ~80 → 13 | ~5000 → ~3800 | -1704 / >=-800 ✗ (was -1572 pre-batch — also failed; gap is RL noise + threshold is over-aggressive) |
+| SAC (5000 ep, smoke)          | ~80 → 31 | -- → ~95 | -1236 — full conv at default 30000 ep needed for -500 threshold |
 
-PPO and SAC see similar gains on their update phases. Per-sample `forwardVarTensor`
-calls during rollout are unchanged (env step depends on current action — can't be
-batched). Smoke + convergence thresholds unchanged.
+Per-sample `forwardVarTensor` calls during rollout are unchanged (env step depends
+on current action — can't be batched). PPO threshold `>=-800` is set higher than
+what the existing implementation achieves at this rollout (PyTorch ref is -1197);
+batched forward did not change that gap, just made each epoch ~25% faster.
 
 Non-RL examples are not affected: they don't use `forwardVarTensorBatch` (their
 existing tensor path is already efficient enough), and Linear / Activation still
