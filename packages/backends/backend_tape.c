@@ -318,113 +318,190 @@ typedef struct {
     int* max_indices;  /* [C * oH * oW] index into flat input per-channel */
 } MaxPool2DMeta;
 
-/* Pre-size the tape to avoid realloc during forward passes. Running multi-epoch
-   DNC workloads with a 4K initial capacity reliably SIGSEGVs because:
-     - tape_append grows via malloc+memcpy+free(old_tape)
-     - *something* holds a live reference into the freed tape region (not yet
-       pinpointed — no TapeEntry* captures in C; possibly Chez-side FFI cache
-       or a latent pointer via op_meta/inputs fields)
-     - leaking the old tape (skipping free) runs cleanly — confirms free() is
-       the trigger
-   Pre-sizing means we never free the tape, which makes the stale-reader
-   question moot. Cost: ~114 MB of virtual memory up-front; macOS lazy-commit
-   means physical RSS only grows with actual writes. Revisit once the real
-   stale reader is pinpointed — TODO. */
-#define TAPE_INIT_CAP (1 << 21)
+/* ================================================================
+   Generic typed chunked arena.
 
-static TapeEntry* tape = NULL;
-static int tape_size = 0;
-static int tape_cap = 0;
+   Append-only collection of fixed-size T elements stored as a linked
+   list of equal-capacity chunks. Append returns a pointer to the new
+   element; index lookup is O(size / chunk_capacity).
 
-static void tape_init(void) {
-    if (!tape) {
-        tape_cap = TAPE_INIT_CAP;
-        tape = calloc(tape_cap, sizeof(TapeEntry));
-        tape_size = 0;
+   Why: realloc-based growth requires free(old_buffer), and free here
+   has caused use-after-free SIGSEGVs (the long-running tape-realloc
+   bug — leaking the old tape ran cleanly, the actual stale reader was
+   never pinpointed). Chunks here are never freed or moved mid-life, so
+   any pointer returned by typed_arena_append stays valid until
+   typed_arena_reset is called explicitly.
+
+   Sister structure: ArenaChunk above is the variable-size byte-level
+   arena (used for tensor data, op_meta, etc.). This is its
+   fixed-element-size cousin for index-based collections like the tape.
+   ================================================================ */
+
+typedef struct TypedArenaChunk {
+    void* data;                       /* element_size * chunk_capacity bytes */
+    struct TypedArenaChunk* next;
+} TypedArenaChunk;
+
+typedef struct TypedArena {
+    TypedArenaChunk* head;            /* first chunk, allocated lazily */
+    TypedArenaChunk* tail;            /* chunk receiving the next append */
+    int size;                         /* total elements across all chunks */
+    int tail_count;                   /* elements written in tail (0..chunk_capacity) */
+    int chunk_capacity;               /* configured: elements per chunk */
+    size_t element_size;              /* configured: sizeof(T) */
+} TypedArena;
+
+static void* typed_arena_append(TypedArena* a) {
+    if (!a->head) {
+        a->head = malloc(sizeof(TypedArenaChunk));
+        a->head->data = calloc(a->chunk_capacity, a->element_size);
+        a->head->next = NULL;
+        a->tail = a->head;
+        a->tail_count = 0;
+    } else if (a->tail_count == a->chunk_capacity) {
+        if (a->tail->next) {
+            a->tail = a->tail->next;
+        } else {
+            TypedArenaChunk* c = malloc(sizeof(TypedArenaChunk));
+            c->data = calloc(a->chunk_capacity, a->element_size);
+            c->next = NULL;
+            a->tail->next = c;
+            a->tail = c;
+        }
+        a->tail_count = 0;
     }
+    void* p = (char*)a->tail->data + a->tail_count * a->element_size;
+    a->size++;
+    a->tail_count++;
+    return p;
 }
 
-static int tape_append(int op, Tensor* result, Tensor* arg1, Tensor* arg2, double scalar_arg) {
-    tape_init();
-    if (tape_size >= tape_cap) {
-        tape_cap *= 2;
-        tape = realloc(tape, tape_cap * sizeof(TapeEntry));
-    }
-    int idx = tape_size++;
-    memset(&tape[idx], 0, sizeof(TapeEntry));
-    tape[idx].op = op;
-    tape[idx].result = result;
-    tape[idx].arg1 = arg1;
-    tape[idx].arg2 = arg2;
-    tape[idx].scalar_arg = scalar_arg;
-    result->tape_idx = idx;
-    return idx;
+static void* typed_arena_at(TypedArena* a, int idx) {
+    int chunk_idx = idx / a->chunk_capacity;
+    int intra = idx % a->chunk_capacity;
+    TypedArenaChunk* c = a->head;
+    while (chunk_idx-- > 0 && c) c = c->next;
+    return c ? (char*)c->data + intra * a->element_size : NULL;
+}
+
+/* Resets size to 0 but keeps chunks allocated for reuse on the next
+   recording. Caller is responsible for any per-element teardown
+   (heap pointers stored in entries) BEFORE calling reset. */
+static void typed_arena_reset(TypedArena* a) {
+    a->size = 0;
+    a->tail = a->head;
+    a->tail_count = 0;
+}
+
+/* ================================================================
+   Tape — autograd Wengert list.
+
+   Implemented as a TypedArena<TapeEntry> with 64K-entry chunks
+   (~5 MB at sizeof(TapeEntry) ~ 80 bytes). Forward ops append; backward
+   walks tape entries in reverse; optimizer_step calls tape_reset which
+   tears down per-entry heap allocations and resets size to 0 without
+   freeing chunks (so the next forward reuses them — no malloc churn).
+   ================================================================ */
+
+#define TAPE_CHUNK_SIZE (1 << 16)
+
+static TypedArena tape_arena = {
+    .head = NULL, .tail = NULL, .size = 0, .tail_count = 0,
+    .chunk_capacity = TAPE_CHUNK_SIZE,
+    .element_size = sizeof(TapeEntry),
+};
+
+#define tape_size (tape_arena.size)
+
+static inline TapeEntry* tape_at(int idx) {
+    return (TapeEntry*)typed_arena_at(&tape_arena, idx);
+}
+
+static TapeEntry* tape_append(int op, Tensor* result, Tensor* arg1, Tensor* arg2, double scalar_arg) {
+    TapeEntry* e = (TapeEntry*)typed_arena_append(&tape_arena);
+    memset(e, 0, sizeof(TapeEntry));
+    e->op = op;
+    e->result = result;
+    e->arg1 = arg1;
+    e->arg2 = arg2;
+    e->scalar_arg = scalar_arg;
+    if (result) result->tape_idx = tape_arena.size - 1;
+    return e;
 }
 
 static void tape_reset(void) {
-    /* Free heap-allocated resources before clearing tape */
-    for (int i = 0; i < tape_size; i++) {
+    /* Walk chunks tearing down per-entry heap allocations before reset.
+       Each entry's op_meta and inputs were heap-allocated by the forward
+       op and must be freed before the entry is reused on the next epoch. */
+    int remaining = tape_arena.size;
+    for (TypedArenaChunk* c = tape_arena.head; c && remaining > 0; c = c->next) {
+        int n = remaining > tape_arena.chunk_capacity ? tape_arena.chunk_capacity : remaining;
+        TapeEntry* entries = (TapeEntry*)c->data;
+        for (int i = 0; i < n; i++) {
+            TapeEntry* e = &entries[i];
         /* Free OP_STACK inputs arrays */
-        if (tape[i].op == OP_STACK && tape[i].inputs) {
-            free(tape[i].inputs);
-            tape[i].inputs = NULL;
+        if (e->op == OP_STACK && e->inputs) {
+            free(e->inputs);
+            e->inputs = NULL;
         }
         /* Free OP_LAYER_NORM_2D heap arrays */
-        if (tape[i].op == OP_LAYER_NORM_2D && tape[i].op_meta) {
-            LayerNormMeta* meta = (LayerNormMeta*)tape[i].op_meta;
+        if (e->op == OP_LAYER_NORM_2D && e->op_meta) {
+            LayerNormMeta* meta = (LayerNormMeta*)e->op_meta;
             free(meta->x_hat);
             free(meta->rstd);
             meta->x_hat = NULL;
             meta->rstd = NULL;
         }
         /* Free OP_GRU_CELL gate arrays */
-        if (tape[i].op == OP_GRU_CELL && tape[i].op_meta) {
-            GruCellMeta* meta = (GruCellMeta*)tape[i].op_meta;
+        if (e->op == OP_GRU_CELL && e->op_meta) {
+            GruCellMeta* meta = (GruCellMeta*)e->op_meta;
             free(meta->zG); free(meta->rG); free(meta->nG);
             free(meta->rh);
             meta->zG = meta->rG = meta->nG = meta->rh = NULL;
         }
         /* Free OP_EMBEDDING indices */
-        if (tape[i].op == OP_EMBEDDING && tape[i].op_meta) {
-            EmbeddingMeta* meta = (EmbeddingMeta*)tape[i].op_meta;
+        if (e->op == OP_EMBEDDING && e->op_meta) {
+            EmbeddingMeta* meta = (EmbeddingMeta*)e->op_meta;
             free(meta->indices);
             meta->indices = NULL;
         }
         /* Free OP_BATCH_NORM arrays */
-        if (tape[i].op == OP_BATCH_NORM && tape[i].op_meta) {
-            BatchNormMeta* meta = (BatchNormMeta*)tape[i].op_meta;
+        if (e->op == OP_BATCH_NORM && e->op_meta) {
+            BatchNormMeta* meta = (BatchNormMeta*)e->op_meta;
             free(meta->x_hat);
             free(meta->rstd);
             meta->x_hat = NULL;
             meta->rstd = NULL;
         }
         /* Free OP_DROPOUT mask */
-        if (tape[i].op == OP_DROPOUT && tape[i].op_meta) {
-            DropoutMeta* meta = (DropoutMeta*)tape[i].op_meta;
+        if (e->op == OP_DROPOUT && e->op_meta) {
+            DropoutMeta* meta = (DropoutMeta*)e->op_meta;
             free(meta->mask);
             meta->mask = NULL;
         }
         /* Free OP_MAX_POOL1D max indices */
-        if (tape[i].op == OP_MAX_POOL1D && tape[i].op_meta) {
-            MaxPool1DMeta* meta = (MaxPool1DMeta*)tape[i].op_meta;
+        if (e->op == OP_MAX_POOL1D && e->op_meta) {
+            MaxPool1DMeta* meta = (MaxPool1DMeta*)e->op_meta;
             free(meta->max_indices);
             meta->max_indices = NULL;
         }
         /* Free OP_MAX_POOL2D max indices */
-        if (tape[i].op == OP_MAX_POOL2D && tape[i].op_meta) {
-            MaxPool2DMeta* meta = (MaxPool2DMeta*)tape[i].op_meta;
+        if (e->op == OP_MAX_POOL2D && e->op_meta) {
+            MaxPool2DMeta* meta = (MaxPool2DMeta*)e->op_meta;
             free(meta->max_indices);
             meta->max_indices = NULL;
         }
         /* Free grad arrays on non-persistent (arena) tensors.
            These are heap-allocated by ensure_grad during backward. */
-        Tensor* r = tape[i].result;
+        Tensor* r = e->result;
         if (r && !r->persistent && r->grad) {
             free(r->grad);
             r->grad = NULL;
         }
+        }
+        remaining -= n;
     }
-    tape_size = 0;
+    typed_arena_reset(&tape_arena);
     arena_reset();
 }
 
@@ -773,13 +850,13 @@ TensorHandle tensor_mv(TensorHandle hmat, TensorHandle hvec) {
     Tensor* r = make_tensor(out_data, out_shape, 1, mat->requires_grad || vec->requires_grad);
     free(out_data);
     if (r->requires_grad) {
-        int idx = tape_append(OP_MV, r, mat, vec, 0);
+        TapeEntry* e = tape_append(OP_MV, r, mat, vec, 0);
         /* Save input values for backward (input may be arena-allocated, freed before backward) */
         MvMeta* meta = arena_alloc(sizeof(MvMeta));
         meta->m = m; meta->n = n;
         meta->x_vals = arena_alloc(n * sizeof(double));
         memcpy(meta->x_vals, vec->data, n * sizeof(double));
-        tape[idx].op_meta = meta;
+        e->op_meta = meta;
     }
     return r;
 }
@@ -819,13 +896,13 @@ TensorHandle tensor_linear(TensorHandle hW, TensorHandle hx, TensorHandle hbias)
     Tensor* r = make_tensor(out_data, out_shape, 1, rg);
     free(out_data);
     if (rg) {
-        int idx = tape_append(OP_LINEAR, r, W, x, 0);
+        TapeEntry* e = tape_append(OP_LINEAR, r, W, x, 0);
         LinearMeta* meta = arena_alloc(sizeof(LinearMeta));
         meta->m = m; meta->n = n;
         meta->x_vals = arena_alloc(n * sizeof(double));
         memcpy(meta->x_vals, x->data, n * sizeof(double));
         meta->bias = bias;
-        tape[idx].op_meta = meta;
+        e->op_meta = meta;
     }
     return r;
 }
@@ -1217,8 +1294,8 @@ TensorHandle tensor_layer_norm_2d(TensorHandle h, TensorHandle hgamma,
         meta->rstd = rstd;    /* heap-allocated, freed in tape_reset */
         meta->m = m;
         meta->n = n;
-        int idx = tape_append(OP_LAYER_NORM_2D, r, t, NULL, 0);
-        tape[idx].op_meta = meta;
+        TapeEntry* e = tape_append(OP_LAYER_NORM_2D, r, t, NULL, 0);
+        e->op_meta = meta;
     } else {
         free(x_hat);
         free(rstd);
@@ -1247,11 +1324,11 @@ TensorHandle tensor_softmax(TensorHandle h, int dim) {
     }
     free(data);
     if (r->requires_grad) {
-        int idx = tape_append(OP_SOFTMAX, r, t, NULL, 0);
+        TapeEntry* e = tape_append(OP_SOFTMAX, r, t, NULL, 0);
         SoftmaxMeta* meta = arena_alloc(sizeof(SoftmaxMeta));
         meta->n = n;
         meta->out_vals = r->data;  /* r persists in arena — safe to reference */
-        tape[idx].op_meta = meta;
+        e->op_meta = meta;
     }
     return r;
 }
@@ -1417,12 +1494,12 @@ TensorHandle tensor_embedding(TensorHandle hweight, TensorHandle hindices, int n
     free(out);
 
     if (r->requires_grad) {
-        int tape_idx = tape_append(OP_EMBEDDING, r, weight, NULL, 0);
+        TapeEntry* e = tape_append(OP_EMBEDDING, r, weight, NULL, 0);
         EmbeddingMeta* meta = arena_alloc(sizeof(EmbeddingMeta));
         meta->n = n;
         meta->embedDim = embedDim;
         meta->indices = idx_copy;
-        tape[tape_idx].op_meta = meta;
+        e->op_meta = meta;
     } else {
         free(idx_copy);
     }
@@ -1485,7 +1562,7 @@ TensorHandle tensor_batch_norm(TensorHandle hinput, TensorHandle hgamma, TensorH
     free(out);
 
     if (r->requires_grad) {
-        int idx = tape_append(OP_BATCH_NORM, r, input, NULL, 0);
+        TapeEntry* e = tape_append(OP_BATCH_NORM, r, input, NULL, 0);
         BatchNormMeta* meta = arena_alloc(sizeof(BatchNormMeta));
         meta->gamma = gamma;
         meta->beta = beta;
@@ -1493,7 +1570,7 @@ TensorHandle tensor_batch_norm(TensorHandle hinput, TensorHandle hgamma, TensorH
         meta->rstd = rstd;
         meta->C = C;
         meta->spatial = spatial;
-        tape[idx].op_meta = meta;
+        e->op_meta = meta;
     } else {
         free(x_hat);
         free(rstd);
@@ -1583,11 +1660,11 @@ TensorHandle tensor_dropout(TensorHandle hinput, double p, int training, unsigne
     r->persistent = 0;
 
     if (r->requires_grad) {
-        int idx = tape_append(OP_DROPOUT, r, input, NULL, 0);
+        TapeEntry* e = tape_append(OP_DROPOUT, r, input, NULL, 0);
         DropoutMeta* meta = arena_alloc(sizeof(DropoutMeta));
         meta->mask = mask;
         meta->numel = n;
-        tape[idx].op_meta = meta;
+        e->op_meta = meta;
     } else {
         free(mask);
     }
@@ -1710,10 +1787,10 @@ TensorHandle tensor_avg_pool1d(TensorHandle hinput, int kL, int stride) {
     Tensor* r = make_tensor(out, out_shape, 2, input->requires_grad);
     free(out);
     if (r->requires_grad) {
-        int idx = tape_append(OP_AVG_POOL1D, r, input, NULL, 0);
+        TapeEntry* e = tape_append(OP_AVG_POOL1D, r, input, NULL, 0);
         AvgPool1DMeta* meta = arena_alloc(sizeof(AvgPool1DMeta));
         meta->C = C; meta->L = L; meta->kL = kL; meta->stride = stride; meta->oL = oL;
-        tape[idx].op_meta = meta;
+        e->op_meta = meta;
     }
     return r;
 }
@@ -1738,12 +1815,12 @@ TensorHandle tensor_avg_pool2d(TensorHandle hinput, int kH, int kW, int strideH,
     Tensor* r = make_tensor(out, out_shape, 3, input->requires_grad);
     free(out);
     if (r->requires_grad) {
-        int idx = tape_append(OP_AVG_POOL2D, r, input, NULL, 0);
+        TapeEntry* e = tape_append(OP_AVG_POOL2D, r, input, NULL, 0);
         AvgPool2DMeta* meta = arena_alloc(sizeof(AvgPool2DMeta));
         meta->C = C; meta->H = H; meta->W = W;
         meta->kH = kH; meta->kW = kW; meta->strH = strideH; meta->strW = strideW;
         meta->oH = oH; meta->oW = oW;
-        tape[idx].op_meta = meta;
+        e->op_meta = meta;
     }
     return r;
 }
@@ -1783,12 +1860,12 @@ TensorHandle tensor_conv1d(TensorHandle hinput, TensorHandle hkernel,
     free(out);
 
     if (r->requires_grad) {
-        int idx = tape_append(OP_CONV1D, r, input, kernel, 0);
+        TapeEntry* e = tape_append(OP_CONV1D, r, input, kernel, 0);
         Conv1DMeta* meta = arena_alloc(sizeof(Conv1DMeta));
         meta->inC = inC; meta->outC = outC; meta->L = L;
         meta->kL = kL; meta->pad = pad; meta->stride = stride; meta->oL = oL;
-        tape[idx].op_meta = meta;
-        tape[idx].inputs = (Tensor**)bias;
+        e->op_meta = meta;
+        e->inputs = (Tensor**)bias;
     }
     return r;
 }
@@ -1819,11 +1896,11 @@ TensorHandle tensor_max_pool1d(TensorHandle hinput, int kL, int stride) {
     free(out);
 
     if (r->requires_grad) {
-        int idx = tape_append(OP_MAX_POOL1D, r, input, NULL, 0);
+        TapeEntry* e = tape_append(OP_MAX_POOL1D, r, input, NULL, 0);
         MaxPool1DMeta* meta = arena_alloc(sizeof(MaxPool1DMeta));
         meta->C = C; meta->L = L; meta->kL = kL; meta->stride = stride; meta->oL = oL;
         meta->max_indices = max_idx;
-        tape[idx].op_meta = meta;
+        e->op_meta = meta;
     } else {
         free(max_idx);
     }
@@ -2044,7 +2121,7 @@ TensorHandle tensor_conv2d(TensorHandle hinput, TensorHandle hkernel,
     free(out);
 
     if (r->requires_grad) {
-        int idx = tape_append(OP_CONV2D, r, input, kernel, 0);
+        TapeEntry* e = tape_append(OP_CONV2D, r, input, kernel, 0);
         Conv2DMeta* meta = arena_alloc(sizeof(Conv2DMeta));
         meta->inC = inC; meta->outC = outC;
         meta->H = H; meta->W = W;
@@ -2052,9 +2129,9 @@ TensorHandle tensor_conv2d(TensorHandle hinput, TensorHandle hkernel,
         meta->padH = padH; meta->padW = padW;
         meta->strH = strideH; meta->strW = strideW;
         meta->oH = oH; meta->oW = oW;
-        tape[idx].op_meta = meta;
+        e->op_meta = meta;
         /* Store bias pointer in scalar_arg slot (cast) for backward */
-        tape[idx].inputs = (Tensor**)bias;  /* reuse inputs field for bias ptr */
+        e->inputs = (Tensor**)bias;  /* reuse inputs field for bias ptr */
     }
     return r;
 }
@@ -2102,14 +2179,14 @@ TensorHandle tensor_max_pool2d(TensorHandle hinput, int kH, int kW,
     free(out);
 
     if (r->requires_grad) {
-        int idx = tape_append(OP_MAX_POOL2D, r, input, NULL, 0);
+        TapeEntry* e = tape_append(OP_MAX_POOL2D, r, input, NULL, 0);
         MaxPool2DMeta* meta = arena_alloc(sizeof(MaxPool2DMeta));
         meta->C = C; meta->H = H; meta->W = W;
         meta->kH = kH; meta->kW = kW;
         meta->strH = strideH; meta->strW = strideW;
         meta->oH = oH; meta->oW = oW;
         meta->max_indices = max_idx;  /* heap-allocated, freed in tape_reset */
-        tape[idx].op_meta = meta;
+        e->op_meta = meta;
     } else {
         free(max_idx);
     }
@@ -2323,10 +2400,10 @@ TensorPair* tensor_ntm_read_head(
     pair->second = make_tensor(read_out, r_shape, 1, rg);
 
     if (rg) {
-        int idx_w = tape_append(OP_NTM_READ_HEAD, (Tensor*)pair->first, NULL, NULL, 0);
-        tape[idx_w].op_meta = meta;
-        int idx_r = tape_append(OP_NTM_READ_HEAD_READ, (Tensor*)pair->second, NULL, NULL, 0);
-        tape[idx_r].op_meta = meta;
+        TapeEntry* e_w = tape_append(OP_NTM_READ_HEAD, (Tensor*)pair->first, NULL, NULL, 0);
+        e_w->op_meta = meta;
+        TapeEntry* e_r = tape_append(OP_NTM_READ_HEAD_READ, (Tensor*)pair->second, NULL, NULL, 0);
+        e_r->op_meta = meta;
     }
 
     free(cos_sim); free(interp); free(shifted); free(focused); free(read_out);
@@ -2352,8 +2429,8 @@ TensorHandle tensor_ntm_interp_write(
     if (rg) {
         NtmInterpWriteMeta* meta = arena_alloc(sizeof(NtmInterpWriteMeta));
         meta->n = n; meta->w = w; meta->add_vector = add_vec;
-        int idx = tape_append(OP_NTM_INTERP_WRITE, r, memory, weights, 0);
-        tape[idx].op_meta = meta;
+        TapeEntry* e = tape_append(OP_NTM_INTERP_WRITE, r, memory, weights, 0);
+        e->op_meta = meta;
     }
     return r;
 }
@@ -2516,10 +2593,20 @@ void tensor_backward(TensorHandle h) {
 
     int processed = 0, skipped = 0;
 
-    /* Walk tape in reverse */
-
-    for (int i = loss->tape_idx; i >= 0; i--) {
-        TapeEntry* e = &tape[i];
+    /* Walk tape in reverse via chunk-array — same semantics as the old
+       `for (int i = loss->tape_idx; i >= 0; i--) { TapeEntry* e = &tape[i]; }`
+       but indexes the chunked tape directly so the cost stays O(N) total. */
+    int _num_chunks_b = 0;
+    for (TypedArenaChunk* _c = tape_arena.head; _c; _c = _c->next) _num_chunks_b++;
+    TypedArenaChunk** _chunks_b = malloc(_num_chunks_b * sizeof(TypedArenaChunk*));
+    { int _ci = 0; for (TypedArenaChunk* _c = tape_arena.head; _c; _c = _c->next) _chunks_b[_ci++] = _c; }
+    int _start_cidx = loss->tape_idx / TAPE_CHUNK_SIZE;
+    int _start_intra = loss->tape_idx % TAPE_CHUNK_SIZE;
+    for (int _cidx = _start_cidx; _cidx >= 0; _cidx--) {
+        TapeEntry* _entries_b = (TapeEntry*)_chunks_b[_cidx]->data;
+        int _last_intra = (_cidx == _start_cidx) ? _start_intra : TAPE_CHUNK_SIZE - 1;
+        for (int _j = _last_intra; _j >= 0; _j--) {
+        TapeEntry* e = &_entries_b[_j];
         Tensor* r = e->result;
         if (!r->grad) { skipped++; continue; }
         processed++;
@@ -3743,7 +3830,9 @@ void tensor_backward(TensorHandle h) {
             prof_backward_per_op[e->op] += _wall_ms() - t_op;
             prof_backward_count_per_op[e->op]++;
         }
-    }
+        }  /* close inner _j loop */
+    }      /* close outer _cidx loop */
+    free(_chunks_b);
     prof_backward_processed += processed;
     prof_backward_skipped += skipped;
     prof_backward_ms += _wall_ms() - t0;
@@ -3852,13 +3941,13 @@ void tensor_lstm_gates(TensorHandle combined_h, TensorHandle prev_cell_h, int o,
 
     if (rg) {
         /* Record hidden output with OP_LSTM_GATES — backward propagates d_hidden */
-        int idx_h = tape_append(OP_LSTM_GATES, (Tensor*)*out_h, combined, prev_cell, (double)o);
-        tape[idx_h].op_meta = meta;
+        TapeEntry* e_h = tape_append(OP_LSTM_GATES, (Tensor*)*out_h, combined, prev_cell, (double)o);
+        e_h->op_meta = meta;
         /* Record cell output with OP_LSTM_GATES_CELL — backward propagates d_cell.
            Both entries share the same metadata and accumulate gradients additively
            into combined->grad and prev_cell->grad. */
-        int idx_c = tape_append(OP_LSTM_GATES_CELL, (Tensor*)*out_c, combined, prev_cell, (double)o);
-        tape[idx_c].op_meta = meta;
+        TapeEntry* e_c = tape_append(OP_LSTM_GATES_CELL, (Tensor*)*out_c, combined, prev_cell, (double)o);
+        e_c->op_meta = meta;
     }
 }
 
@@ -3901,12 +3990,12 @@ TensorHandle tensor_gru_cell(TensorHandle hcombined, TensorHandle hprev, int o) 
     free(out);
 
     if (r->requires_grad) {
-        int idx = tape_append(OP_GRU_CELL, r, combined, prev, 0);
+        TapeEntry* e = tape_append(OP_GRU_CELL, r, combined, prev, 0);
         GruCellMeta* meta = arena_alloc(sizeof(GruCellMeta));
         meta->o = o;
         meta->zG = zG; meta->rG = rG; meta->nG = nG;
         meta->rh = NULL;  /* not needed for this simplified GRU */
-        tape[idx].op_meta = meta;
+        e->op_meta = meta;
     } else {
         free(zG); free(rG); free(nG);
     }
@@ -4083,9 +4172,9 @@ TensorHandle tensor_stack_from_array(TensorHandle* arr, int count, int dim) {
             if (rg_check) {
                 Tensor** inputs = malloc(count * sizeof(Tensor*));
                 for (int i = 0; i < count; i++) inputs[i] = (Tensor*)arr[i];
-                int idx = tape_append(OP_STACK, r, NULL, NULL, 0);
-                tape[idx].inputs = inputs;
-                tape[idx].input_count = count;
+                TapeEntry* e = tape_append(OP_STACK, r, NULL, NULL, 0);
+                e->inputs = inputs;
+                e->input_count = count;
             }
             free(arr);
             return r;
@@ -4107,9 +4196,9 @@ TensorHandle tensor_stack_from_array(TensorHandle* arr, int count, int dim) {
     Tensor* r = make_tensor(data, shape, 1, rg);
     free(data);
     if (rg) {
-        int idx = tape_append(OP_STACK, r, NULL, NULL, 0);
-        tape[idx].inputs = inputs;
-        tape[idx].input_count = count;
+        TapeEntry* e = tape_append(OP_STACK, r, NULL, NULL, 0);
+        e->inputs = inputs;
+        e->input_count = count;
     } else {
         free(inputs);
     }
@@ -4653,8 +4742,12 @@ void backend_memory_report(void) {
     fprintf(stderr, "=== Memory Report ===\n");
     fprintf(stderr, "  Arena: %d chunks, %zuKB capacity, %zuKB used\n",
             chunk_count, total_cap / 1024, total_used / 1024);
-    fprintf(stderr, "  Tape: %d entries (cap %d), %zuKB\n",
-            tape_size, tape_cap, (size_t)tape_cap * sizeof(TapeEntry) / 1024);
+    int tape_chunks = 0;
+    for (TypedArenaChunk* c = tape_arena.head; c; c = c->next) tape_chunks++;
+    size_t tape_cap_entries = (size_t)tape_chunks * tape_arena.chunk_capacity;
+    fprintf(stderr, "  Tape: %d entries (%d chunks × %d cap), %zuKB\n",
+            tape_size, tape_chunks, tape_arena.chunk_capacity,
+            tape_cap_entries * sizeof(TapeEntry) / 1024);
     fprintf(stderr, "  Params: %d tensors, %d elements, %zuKB grads\n",
             param_count_val, total_param_elems, param_grad_bytes / 1024);
     fprintf(stderr, "  Persistent scalars: %d (~%zuKB leaked)\n",
@@ -4663,10 +4756,10 @@ void backend_memory_report(void) {
             get_rss_mb(), get_current_rss_mb());
     fprintf(stderr, "  Expected: arena %zuKB + tape %zuKB + params %zuKB + leaked %zuKB = %zuKB\n",
             total_cap / 1024,
-            (size_t)tape_cap * sizeof(TapeEntry) / 1024,
+            tape_cap_entries * sizeof(TapeEntry) / 1024,
             (size_t)total_param_elems * sizeof(double) / 1024,
             leaked_bytes / 1024,
-            (total_cap + (size_t)tape_cap * sizeof(TapeEntry) +
+            (total_cap + tape_cap_entries * sizeof(TapeEntry) +
              (size_t)total_param_elems * sizeof(double) + leaked_bytes) / 1024);
 }
 
