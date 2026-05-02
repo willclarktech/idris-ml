@@ -24,9 +24,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y chezscheme build-essential libopenblas-dev
 
-      - name: Install Chez Scheme (macOS)
+      - name: Install Chez Scheme + coreutils (macOS)
         if: matrix.os == 'macos-latest'
-        run: brew install chezscheme
+        run: |
+          brew install chezscheme coreutils
+          # coreutils provides GNU stdbuf as `gstdbuf`; the gnubin alias
+          # dir exposes it as `stdbuf` on PATH (the Makefile uses `stdbuf
+          # -oL` to line-buffer example output for diagnostic logs).
+          echo "$(brew --prefix coreutils)/libexec/gnubin" >> $GITHUB_PATH
 
       # Idris 2 v0.8.0 built from source, cached across runs to avoid the
       # 5-10 min bootstrap on every push. Idris2's default PREFIX is

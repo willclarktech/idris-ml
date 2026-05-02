@@ -101,6 +101,14 @@ else ifeq ($(BACKEND), mlx)
     LIB := $(BUILD)/libidrisml.dylib
     BACKEND_FLAGS := -std=c++20 -O2 -shared -I$(MLX_INC) -L$(MLX_LIB) -lmlx -Wl,-rpath,$(MLX_LIB) -framework Accelerate -framework Metal -framework Foundation
     BACKEND_CC := c++
+  else
+    # MLX is Apple-only. Without an explicit $(error), BACKEND_FLAGS and
+    # BACKEND_CC stay empty, the recipe expands to ` -o $@ ...`, and GNU
+    # make's leading-`-` "ignore errors" kicks in — silently turning a
+    # broken build into success. test-examples then runs examples against
+    # a non-existent dylib and they all crash. Errror loudly instead so
+    # test-examples' backend-skip path triggers (||).
+    $(error MLX backend requires macOS; current UNAME=$(UNAME))
   endif
 else
   # Tape backend (default): custom C, no libtorch dependency
