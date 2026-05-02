@@ -101,6 +101,25 @@ jobs:
           MLX_SITE=$(python3 -c "import mlx, os; print(os.path.dirname(mlx.__file__))")
           echo "MLX_SITE=$MLX_SITE" >> $GITHUB_ENV
 
+      # Torch is Linux-only here (libtorch CPU is bigger; macOS lane already
+      # carries MLX). Cache the uv-managed venv to skip the ~2 min download
+      # on warm runs. The Makefile's LIBTORCH_PATH detection chain
+      # (Makefile:73-81) finds `packages/pytorch/.venv/bin/python3 -c
+      # "import torch ..."` automatically once the venv exists.
+      - name: Cache pytorch venv (Ubuntu)
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/cache@v4
+        with:
+          path: packages/pytorch/.venv
+          key: pytorch-venv-${{ runner.os }}-${{ hashFiles('packages/pytorch/uv.lock') }}
+
+      - name: Install torch via uv (Ubuntu)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          export PATH="$HOME/.local/bin:$PATH"
+          make ref-setup
+
       - name: Build tape backend
         run: make BACKEND=tape backend
 
