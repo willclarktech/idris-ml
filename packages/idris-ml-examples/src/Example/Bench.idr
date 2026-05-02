@@ -37,7 +37,8 @@ elapsedMs t0 t1 =
 
 
 ----------------------------------------------------------------------
--- Supervised (Linear + Softmax, same config as Supervised.idr)
+-- Supervised: Linear classifier, raw logits + BCE-with-logits loss
+-- (numerically stable; takes raw logits, no softmax in the model)
 ----------------------------------------------------------------------
 
 supervisedData : Vect 5 (DataPoint 2 3 Double)
@@ -52,18 +53,18 @@ supervisedData =
 benchSupervised : IO ()
 benchSupervised = do
   ll <- linearLayer {ty = V}
-  let model = autoName $ ll ~> OutputLayer softmaxLayer
+  let model = autoName $ OutputLayer ll
   let prepared = map (map fromDouble) supervisedData
   let opt = nativeSgd 0.03
 
   -- Warmup: 100 epochs
-  let warmModel = trainNative opt model prepared crossEntropy 100
+  let warmModel = trainNative opt model prepared binaryCrossEntropyWithLogits 100
 
   -- Benchmark: 1000 epochs
   t0 <- clockTime Monotonic
-  let trained = trainNative opt warmModel prepared crossEntropy 1000
+  let trained = trainNative opt warmModel prepared binaryCrossEntropyWithLogits 1000
   let dblModel = toDoubleNetwork (emap refreshValue trained)
-  let loss = calculateLoss crossEntropy dblModel (map (map fromDouble) supervisedData)
+  let loss = calculateLoss binaryCrossEntropyWithLogits dblModel (map (map fromDouble) supervisedData)
   t1 <- clockTime Monotonic
 
   putStrLn $ "Supervised (1000 epochs): " ++ show (elapsedMs t0 t1) ++ " ms"
