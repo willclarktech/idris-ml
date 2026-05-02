@@ -121,6 +121,26 @@ inline const mx::array& kF32_HALF() { static const mx::array* v = new mx::array(
 }
 
 /* ================================================================
+   Dtype-matching helpers
+   ================================================================
+   Every op that mixes a Python-typed scalar (eps, momentum, mask
+   value, optimizer state etc.) into an mx::array must match the
+   array's dtype, or the result silently downcasts (f64 path then
+   computes in f32 with no warning). These helpers build the scalar
+   in the *ref* array's dtype so the math stays at the type-level
+   claim. Use `zero_like(ref)` / `one_like(ref)` / `half_like(ref)`
+   for the three hot-path constants the legacy code held as f32
+   singletons. */
+namespace {
+inline mx::array scalar_like(double v, const mx::array& ref) {
+    return mx::array(v, ref.dtype());
+}
+inline mx::array zero_like(const mx::array& ref) { return scalar_like(0.0, ref); }
+inline mx::array one_like(const mx::array& ref)  { return scalar_like(1.0, ref); }
+inline mx::array half_like(const mx::array& ref) { return scalar_like(0.5, ref); }
+}
+
+/* ================================================================
    Stub macro
    ================================================================ */
 
@@ -193,11 +213,24 @@ void tensor_release_handle(void* h) {
    Idris API surface is double. These helpers convert at the boundary.
    ================================================================ */
 
-// Convert mlx float32 array to a double buffer (caller-allocated).
+// Convert an mlx array to a double buffer (caller-allocated). Branches on
+// the array's dtype: f32 sources widen per-element; f64 sources copy through.
+// Future dtypes (bf16/fp16/int*) plug in here.
 static inline void mx_to_doubles(const mx::array& a, double* out) {
     int n = (int)a.size();
-    const float* src = a.data<float>();
-    for (int i = 0; i < n; i++) out[i] = (double)src[i];
+    if (a.dtype() == mx::float64) {
+        const double* src = a.data<double>();
+        for (int i = 0; i < n; i++) out[i] = src[i];
+    } else {
+        const float* src = a.data<float>();
+        for (int i = 0; i < n; i++) out[i] = (double)src[i];
+    }
+}
+
+// Read a single element from an mlx array as a double, dtype-aware.
+static inline double mx_read_double(const mx::array& a, long idx) {
+    if (a.dtype() == mx::float64) return a.data<double>()[idx];
+    return (double)a.data<float>()[idx];
 }
 
 // Construct a float32 mx::array from a double buffer + shape.
@@ -586,6 +619,7 @@ void tensor_free(TensorHandle h) {
 double tensor_item(TensorHandle h) {
     auto t = (Tensor*)h;
     mx::eval(t->data);
+    if (t->data.dtype() == mx::float64) return t->data.item<double>();
     return (double)t->data.item<float>();
 }
 
@@ -687,11 +721,11 @@ TensorHandle tensor_gelu(TensorHandle h) {
     auto t = (Tensor*)h;
     // GELU tanh approx: x * 0.5 * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))
     auto x = t->data;
-    static const mx::array kGeluC(0.7978845608028654, mx::float32);
-    static const mx::array kGeluC3(0.044715, mx::float32);
-    static const mx::array kThree(3, mx::float32);
+    auto kGeluC  = scalar_like(0.7978845608028654, x);
+    auto kGeluC3 = scalar_like(0.044715,           x);
+    auto kThree  = scalar_like(3.0,                x);
     auto inner = mx::multiply(kGeluC, mx::add(x, mx::multiply(kGeluC3, mx::power(x, kThree))));
-    auto result = mx::multiply(mx::multiply(kF32_HALF(), x), mx::add(kF32_ONE(), mx::tanh(inner)));
+    auto result = mx::multiply(mx::multiply(half_like(x), x), mx::add(one_like(x), mx::tanh(inner)));
     auto r = new Tensor(result, t->requires_grad);
     if (t->requires_grad) tape_append(OP_GELU, r, t, nullptr, 0);
     return (TensorHandle)r;
@@ -706,7 +740,7 @@ TensorHandle tensor_tanh(TensorHandle h) {
 
 TensorHandle tensor_leaky_relu(TensorHandle h, double alpha) {
     auto t = (Tensor*)h;
-    auto alpha_arr = mx::array(alpha, mx::float32);
+    auto alpha_arr = scalar_like(alpha, t->data);
     auto result = mx::maximum(mx::multiply(alpha_arr, t->data), t->data);
     auto r = new Tensor(result, t->requires_grad);
     if (t->requires_grad) tape_append(OP_LEAKY_RELU, r, t, nullptr, alpha);
@@ -730,8 +764,8 @@ TensorHandle tensor_softplus(TensorHandle h) {
     // and the whole chain becomes NaN at the working point. The stable form
     // is correct for all x: for large positive x it reduces to x, for large
     // negative x it reduces to exp(x) ≈ 0.
-    auto result = mx::add(mx::maximum(t->data, kF32_ZERO()),
-                          mx::log(mx::add(kF32_ONE(), mx::exp(mx::negative(mx::abs(t->data))))));
+    auto result = mx::add(mx::maximum(t->data, zero_like(t->data)),
+                          mx::log(mx::add(one_like(t->data), mx::exp(mx::negative(mx::abs(t->data))))));
     auto r = new Tensor(result, t->requires_grad);
     if (t->requires_grad) tape_append(OP_SOFTPLUS, r, t, nullptr, 0);
     return (TensorHandle)r;
@@ -739,21 +773,21 @@ TensorHandle tensor_softplus(TensorHandle h) {
 
 TensorHandle tensor_add_scalar(TensorHandle h, double s) {
     auto t = (Tensor*)h;
-    auto r = new Tensor(mx::add(t->data, mx::array(s)), t->requires_grad);
+    auto r = new Tensor(mx::add(t->data, scalar_like(s, t->data)), t->requires_grad);
     if (t->requires_grad) tape_append(OP_ADD_SCALAR, r, t, nullptr, s);
     return (TensorHandle)r;
 }
 
 TensorHandle tensor_mul_scalar(TensorHandle h, double s) {
     auto t = (Tensor*)h;
-    auto r = new Tensor(mx::multiply(t->data, mx::array(s)), t->requires_grad);
+    auto r = new Tensor(mx::multiply(t->data, scalar_like(s, t->data)), t->requires_grad);
     if (t->requires_grad) tape_append(OP_MUL_SCALAR, r, t, nullptr, s);
     return (TensorHandle)r;
 }
 
 TensorHandle tensor_clamp_min(TensorHandle h, double min_val) {
     auto t = (Tensor*)h;
-    auto r = new Tensor(mx::maximum(t->data, mx::array(min_val)), t->requires_grad);
+    auto r = new Tensor(mx::maximum(t->data, scalar_like(min_val, t->data)), t->requires_grad);
     if (t->requires_grad) tape_append(OP_CLAMP_MIN, r, t, nullptr, min_val);
     return (TensorHandle)r;
 }
@@ -954,7 +988,7 @@ TensorHandle tensor_mse_loss(TensorHandle hinput, TensorHandle htarget) {
 TensorHandle tensor_cosine_similarity(TensorHandle hmemory, TensorHandle hkey, int dim) {
     // memory=[n,m], key=[m] → result=[n]
     auto mem = (Tensor*)hmemory; auto key = (Tensor*)hkey;
-    auto eps = mx::array(1.0e-8);
+    auto eps = scalar_like(1.0e-8, mem->data);
     int n = (int)mem->data.shape(0);
     int m = (int)mem->data.shape(1);
 
@@ -977,7 +1011,7 @@ TensorHandle tensor_conv1d_circular(TensorHandle hinput, TensorHandle hkernel) {
     int n = (int)inp->data.size();
     int k = (int)kern->data.size();
 
-    mx::array result = mx::zeros({n}, mx::float32);
+    mx::array result = mx::zeros({n}, inp->data.dtype());
     int half_k = k / 2;
     for (int j = 0; j < k; j++) {
         int shift = half_k - j;
@@ -1009,10 +1043,12 @@ TensorHandle tensor_batch_norm(TensorHandle hinput, TensorHandle hgamma, TensorH
 
     if (training) {
         // Update running stats (non-differentiable)
-        auto new_rm = mx::add(mx::multiply(mx::array(1.0 - momentum, mx::float32), rm->data),
-                              mx::multiply(mx::array(momentum, mx::float32), mx::squeeze(mean)));
-        auto new_rv = mx::add(mx::multiply(mx::array(1.0 - momentum, mx::float32), rv->data),
-                              mx::multiply(mx::array(momentum, mx::float32), mx::squeeze(var)));
+        auto mom      = scalar_like(momentum,       rm->data);
+        auto one_m_mo = scalar_like(1.0 - momentum, rm->data);
+        auto new_rm = mx::add(mx::multiply(one_m_mo, rm->data),
+                              mx::multiply(mom,     mx::squeeze(mean)));
+        auto new_rv = mx::add(mx::multiply(one_m_mo, rv->data),
+                              mx::multiply(mom,     mx::squeeze(var)));
         rm->data = new_rm;
         rv->data = new_rv;
         mx::eval(rm->data);
@@ -1022,7 +1058,7 @@ TensorHandle tensor_batch_norm(TensorHandle hinput, TensorHandle hgamma, TensorH
         var = mx::reshape(rv->data, {C, 1});
     }
 
-    auto rstd = mx::rsqrt(mx::add(var, mx::array(eps, mx::float32)));
+    auto rstd = mx::rsqrt(mx::add(var, scalar_like(eps, var)));
     auto x_hat = mx::multiply(mx::subtract(x, mean), rstd);
     auto g = mx::reshape(gamma->data, {C, 1});
     auto b = mx::reshape(beta->data, {C, 1});
@@ -1048,11 +1084,14 @@ TensorHandle tensor_dropout(TensorHandle hinput, double p, int training, unsigne
     if (!training || p <= 0.0) return hinput;
 
     // Generate bernoulli mask and scale by 1/(1-p)
-    // MLX random only supports float32 on Metal — generate in f32, compare, cast result to f64
+    // MLX random only supports float32 on Metal — generate in f32, compare,
+    // build a f32 mask, then cast to the input's dtype so the final multiply
+    // doesn't force a dtype promotion on `inp->data`.
     double scale = 1.0 / (1.0 - p);
     auto rnd = mx::random::uniform(kF32_ZERO(), kF32_ONE(), inp->data.shape(), mx::float32);
     auto keep = mx::greater(rnd, mx::array((float)p, mx::float32));
-    auto mask = mx::astype(mx::where(keep, mx::array(scale, mx::float32), kF32_ZERO()), mx::float32);
+    auto mask_f32 = mx::where(keep, mx::array(scale, mx::float32), kF32_ZERO());
+    auto mask = mx::astype(mask_f32, inp->data.dtype());
     auto result = mx::multiply(inp->data, mask);
 
     auto r = new Tensor(result, inp->requires_grad);
@@ -1105,7 +1144,7 @@ TensorHandle tensor_scatter_add(TensorHandle hindex, TensorHandle hsrc, int out_
     auto idx = (Tensor*)hindex;
     auto src = (Tensor*)hsrc;
     auto idx_int = mx::astype(idx->data, mx::int32);
-    auto base = mx::zeros({out_size}, mx::float32);
+    auto base = mx::zeros({out_size}, src->data.dtype());
     /* mx::scatter_add updates shape: indices.shape + base.shape[axis+1:].
        For 1D base on axis 0 that's [N, 1] (the trailing 1 is the empty
        remainder reified as a singleton). */
@@ -1157,7 +1196,7 @@ TensorHandle tensor_gru_cell(TensorHandle hih, TensorHandle hhh,
     auto z = mx::sigmoid(mx::add(ih_z, hh_z));
     auto r_gate = mx::sigmoid(mx::add(ih_r, hh_r));
     auto n = mx::tanh(mx::add(ih_n, mx::multiply(r_gate, hh_n)));
-    auto result = mx::add(mx::multiply(mx::subtract(kF32_ONE(), z), n),
+    auto result = mx::add(mx::multiply(mx::subtract(one_like(z), z), n),
                           mx::multiply(z, prev->data));
 
     bool rg = ih->requires_grad || hh->requires_grad || prev->requires_grad;
@@ -1183,29 +1222,37 @@ TensorHandle tensor_group_norm(TensorHandle hinput, TensorHandle hgamma, TensorH
     int chPerGroup = channels / numGroups;
     int groupSize = chPerGroup * spatial;
     mx::eval(inp->data); mx::eval(gamma->data); mx::eval(beta->data);
-    const float* inpD = inp->data.data<float>();
-    const float* gammaD = gamma->data.data<float>();
-    const float* betaD = beta->data.data<float>();
+    /* Stage inputs as double regardless of underlying dtype, so the CPU
+       loop is dtype-agnostic. */
+    std::vector<double> inpD_buf((size_t)n);
+    std::vector<double> gammaD_buf((size_t)channels);
+    std::vector<double> betaD_buf((size_t)channels);
+    mx_to_doubles(inp->data, inpD_buf.data());
+    mx_to_doubles(gamma->data, gammaD_buf.data());
+    mx_to_doubles(beta->data, betaD_buf.data());
+    const double* inpD = inpD_buf.data();
+    const double* gammaD = gammaD_buf.data();
+    const double* betaD = betaD_buf.data();
     double* out = (double*)calloc(n, sizeof(double));
     for (int g = 0; g < numGroups; g++) {
         double mean = 0;
         int base = g * groupSize;
-        for (int j = 0; j < groupSize; j++) mean += (double)inpD[base + j];
+        for (int j = 0; j < groupSize; j++) mean += inpD[base + j];
         mean /= groupSize;
         double var = 0;
-        for (int j = 0; j < groupSize; j++) { double d = (double)inpD[base+j] - mean; var += d*d; }
+        for (int j = 0; j < groupSize; j++) { double d = inpD[base+j] - mean; var += d*d; }
         var /= groupSize;
         double rstd = 1.0 / sqrt(var + eps);
         for (int c = 0; c < chPerGroup; c++) {
             int absC = g * chPerGroup + c;
             for (int s = 0; s < spatial; s++) {
                 int idx = absC * spatial + s;
-                double x_hat = ((double)inpD[idx] - mean) * rstd;
-                out[idx] = (double)gammaD[absC] * x_hat + (double)betaD[absC];
+                double x_hat = (inpD[idx] - mean) * rstd;
+                out[idx] = gammaD[absC] * x_hat + betaD[absC];
             }
         }
     }
-    auto result = mx_from_doubles(out, {n});
+    auto result = mx_array_from_doubles(out, {n}, inp->data.dtype());
     free(out);
     return (TensorHandle)(new Tensor(result, inp->requires_grad || gamma->requires_grad));
 }
@@ -1222,13 +1269,19 @@ TensorHandle tensor_conv_transpose1d(TensorHandle hinput, TensorHandle hkernel,
 
     // Compute on CPU via eval then manual scatter
     mx::eval(inp->data); mx::eval(ker->data);
-    const float* inpD = inp->data.data<float>();
-    const float* kerD = ker->data.data<float>();
+    std::vector<double> inpD_buf((size_t)(inC * L));
+    std::vector<double> kerD_buf((size_t)(inC * outC * kL));
+    mx_to_doubles(inp->data, inpD_buf.data());
+    mx_to_doubles(ker->data, kerD_buf.data());
+    const double* inpD = inpD_buf.data();
+    const double* kerD = kerD_buf.data();
     double* out = (double*)calloc(outC * oL, sizeof(double));
     if (bias) {
         mx::eval(bias->data);
-        const float* biasD = bias->data.data<float>();
-        for (int oc = 0; oc < outC; oc++) for (int ol = 0; ol < oL; ol++) out[oc*oL+ol] = (double)biasD[oc];
+        std::vector<double> biasD_buf((size_t)outC);
+        mx_to_doubles(bias->data, biasD_buf.data());
+        const double* biasD = biasD_buf.data();
+        for (int oc = 0; oc < outC; oc++) for (int ol = 0; ol < oL; ol++) out[oc*oL+ol] = biasD[oc];
     }
     for (int ic = 0; ic < inC; ic++)
         for (int il = 0; il < L; il++)
@@ -1236,9 +1289,9 @@ TensorHandle tensor_conv_transpose1d(TensorHandle hinput, TensorHandle hkernel,
                 for (int kl = 0; kl < kL; kl++) {
                     int ol = il*stride - pad + kl;
                     if (ol >= 0 && ol < oL)
-                        out[oc*oL+ol] += (double)inpD[ic*L+il] * (double)kerD[ic*outC*kL+oc*kL+kl];
+                        out[oc*oL+ol] += inpD[ic*L+il] * kerD[ic*outC*kL+oc*kL+kl];
                 }
-    auto result = mx_from_doubles(out, {outC, oL});
+    auto result = mx_array_from_doubles(out, {outC, oL}, inp->data.dtype());
     free(out);
     return (TensorHandle)(new Tensor(result, inp->requires_grad || ker->requires_grad));
 }
@@ -1254,13 +1307,19 @@ TensorHandle tensor_conv_transpose2d(TensorHandle hinput, TensorHandle hkernel,
     int oH = (H-1)*strideH - 2*padH + kH;
     int oW = (W-1)*strideW - 2*padW + kW;
     mx::eval(inp->data); mx::eval(ker->data);
-    const float* inpD = inp->data.data<float>();
-    const float* kerD = ker->data.data<float>();
+    std::vector<double> inpD_buf((size_t)(inC * H * W));
+    std::vector<double> kerD_buf((size_t)(inC * outC * kH * kW));
+    mx_to_doubles(inp->data, inpD_buf.data());
+    mx_to_doubles(ker->data, kerD_buf.data());
+    const double* inpD = inpD_buf.data();
+    const double* kerD = kerD_buf.data();
     double* out = (double*)calloc(outC*oH*oW, sizeof(double));
     if (bias) {
         mx::eval(bias->data);
-        const float* biasD = bias->data.data<float>();
-        for (int oc = 0; oc < outC; oc++) for (int oh = 0; oh < oH; oh++) for (int ow = 0; ow < oW; ow++) out[oc*oH*oW+oh*oW+ow] = (double)biasD[oc];
+        std::vector<double> biasD_buf((size_t)outC);
+        mx_to_doubles(bias->data, biasD_buf.data());
+        const double* biasD = biasD_buf.data();
+        for (int oc = 0; oc < outC; oc++) for (int oh = 0; oh < oH; oh++) for (int ow = 0; ow < oW; ow++) out[oc*oH*oW+oh*oW+ow] = biasD[oc];
     }
     for (int ic = 0; ic < inC; ic++)
         for (int ih = 0; ih < H; ih++)
@@ -1271,10 +1330,10 @@ TensorHandle tensor_conv_transpose2d(TensorHandle hinput, TensorHandle hkernel,
                             int oh = ih*strideH - padH + kh;
                             int ow = iw*strideW - padW + kw;
                             if (oh >= 0 && oh < oH && ow >= 0 && ow < oW)
-                                out[oc*oH*oW+oh*oW+ow] += (double)inpD[ic*H*W+ih*W+iw]
-                                    * (double)kerD[ic*outC*kH*kW+oc*kH*kW+kh*kW+kw];
+                                out[oc*oH*oW+oh*oW+ow] += inpD[ic*H*W+ih*W+iw]
+                                    * kerD[ic*outC*kH*kW+oc*kH*kW+kh*kW+kw];
                         }
-    auto result = mx_from_doubles(out, {outC, oH, oW});
+    auto result = mx_array_from_doubles(out, {outC, oH, oW}, inp->data.dtype());
     free(out);
     return (TensorHandle)(new Tensor(result, inp->requires_grad || ker->requires_grad));
 }
@@ -1316,15 +1375,16 @@ TensorHandle tensor_conv2d_grouped(TensorHandle hinput, TensorHandle hkernel,
 
 TensorHandle tensor_avg_pool1d(TensorHandle hinput, int kL, int stride) {
     auto inp = (Tensor*)hinput;
+    auto dt = inp->data.dtype();
     int C = (int)inp->data.shape(0), L = (int)inp->data.shape(1);
     int oL = (L - kL) / stride + 1;
     // Sum via strided slices, then divide by kL
-    mx::array result = mx::zeros({C, oL}, mx::float32);
+    mx::array result = mx::zeros({C, oL}, dt);
     for (int kl = 0; kl < kL; kl++) {
         auto sliced = mx::slice(inp->data, {0, kl}, {C, kl + oL * stride}, {1, stride});
         result = mx::add(result, sliced);
     }
-    result = mx::divide(result, mx::array((double)kL, mx::float32));
+    result = mx::divide(result, mx::array((double)kL, dt));
     auto r = new Tensor(result, inp->requires_grad);
     if (inp->requires_grad) tape_append(OP_AVG_POOL1D, r, inp, nullptr, (double)kL + stride * 0.001);
     return (TensorHandle)r;
@@ -1332,17 +1392,18 @@ TensorHandle tensor_avg_pool1d(TensorHandle hinput, int kL, int stride) {
 
 TensorHandle tensor_avg_pool2d(TensorHandle hinput, int kH, int kW, int strideH, int strideW) {
     auto inp = (Tensor*)hinput;
+    auto dt = inp->data.dtype();
     int C = (int)inp->data.shape(0), H = (int)inp->data.shape(1), W = (int)inp->data.shape(2);
     int oH = (H - kH) / strideH + 1;
     int oW = (W - kW) / strideW + 1;
-    mx::array result = mx::zeros({C, oH, oW}, mx::float32);
+    mx::array result = mx::zeros({C, oH, oW}, dt);
     for (int kh = 0; kh < kH; kh++)
         for (int kw = 0; kw < kW; kw++) {
             auto sliced = mx::slice(inp->data,
                 {0, kh, kw}, {C, kh + oH * strideH, kw + oW * strideW}, {1, strideH, strideW});
             result = mx::add(result, sliced);
         }
-    result = mx::divide(result, mx::array((double)(kH * kW), mx::float32));
+    result = mx::divide(result, mx::array((double)(kH * kW), dt));
     auto r = new Tensor(result, inp->requires_grad);
     if (inp->requires_grad) tape_append(OP_AVG_POOL2D, r, inp, nullptr, 0);
     return (TensorHandle)r;
@@ -1381,7 +1442,7 @@ TensorHandle tensor_max_pool1d(TensorHandle hinput, int kL, int stride) {
     int C = (int)inp->data.shape(0), L = (int)inp->data.shape(1);
     int oL = (L - kL) / stride + 1;
 
-    mx::array result = mx::full({C, oL}, -1e30, mx::float32);
+    mx::array result = mx::full({C, oL}, -1e30, inp->data.dtype());
     for (int kl = 0; kl < kL; kl++) {
         auto sliced = mx::slice(inp->data, {0, kl}, {C, kl + oL * stride}, {1, stride});
         result = mx::maximum(result, sliced);
@@ -1458,7 +1519,7 @@ TensorHandle tensor_max_pool2d(TensorHandle hinput, int kH, int kW,
     int oW = (W - kW) / strideW + 1;
 
     // Max pool via strided slicing: for each (kh,kw) offset, slice with stride and take max
-    mx::array result = mx::full({C, oH, oW}, -1e30, mx::float32);
+    mx::array result = mx::full({C, oH, oW}, -1e30, inp->data.dtype());
     for (int kh = 0; kh < kH; kh++) {
         for (int kw = 0; kw < kW; kw++) {
             auto sliced = mx::slice(inp->data,
@@ -1525,7 +1586,7 @@ TensorHandle tensor_max_pool2d_batched(TensorHandle hinput, int kH, int kW,
     int oH = (H - kH) / strideH + 1;
     int oW = (W - kW) / strideW + 1;
 
-    mx::array result = mx::full({B, C, oH, oW}, -1e30, mx::float32);
+    mx::array result = mx::full({B, C, oH, oW}, -1e30, inp->data.dtype());
     for (int kh = 0; kh < kH; kh++) {
         for (int kw = 0; kw < kW; kw++) {
             auto sliced = mx::slice(inp->data,
@@ -1773,7 +1834,7 @@ TensorHandle tensor_softmax_2d(TensorHandle h) {
 
 TensorHandle tensor_masked_fill(TensorHandle h, TensorHandle hmask, double value) {
     auto t = (Tensor*)h; auto mask = (Tensor*)hmask;
-    auto val_arr = mx::full(t->data.shape(), value, mx::float32);
+    auto val_arr = mx::full(t->data.shape(), value, t->data.dtype());
     auto r = new Tensor(mx::where(mask->data, val_arr, t->data), t->requires_grad);
     if (t->requires_grad) tape_append(OP_MASKED_FILL, r, t, mask, 0);
     return (TensorHandle)r;
@@ -1800,7 +1861,7 @@ TensorHandle tensor_layer_norm_2d(TensorHandle h, TensorHandle hgamma,
     auto mean = mx::mean(t->data, -1, true);
     auto centered = mx::subtract(t->data, mean);
     auto var = mx::mean(mx::square(centered), -1, true);
-    auto rstd = mx::rsqrt(mx::add(var, mx::array(eps)));
+    auto rstd = mx::rsqrt(mx::add(var, scalar_like(eps, var)));
     auto x_hat = mx::multiply(centered, rstd);
     auto result = mx::add(mx::multiply(gamma->data, x_hat), bias->data);
 
@@ -1936,22 +1997,22 @@ void tensor_backward(TensorHandle h) {
             case OP_SIGMOID: pool[out] = mx::sigmoid(a); break;
             case OP_TANH: pool[out] = mx::tanh(a); break;
             case OP_GELU: {
-                static const mx::array kGeluC(0.7978845608028654, mx::float32);
-                static const mx::array kGeluC3(0.044715, mx::float32);
-                static const mx::array kThree(3, mx::float32);
+                auto kGeluC  = scalar_like(0.7978845608028654, a);
+                auto kGeluC3 = scalar_like(0.044715,           a);
+                auto kThree  = scalar_like(3.0,                a);
                 auto inner = mx::multiply(kGeluC, mx::add(a, mx::multiply(kGeluC3, mx::power(a, kThree))));
-                pool[out] = mx::multiply(mx::multiply(kF32_HALF(), a), mx::add(kF32_ONE(), mx::tanh(inner)));
+                pool[out] = mx::multiply(mx::multiply(half_like(a), a), mx::add(one_like(a), mx::tanh(inner)));
                 break;
             }
             case OP_LEAKY_RELU: {
-                auto alpha = mx::array(e.scalar_arg, mx::float32);
+                auto alpha = scalar_like(e.scalar_arg, a);
                 pool[out] = mx::maximum(mx::multiply(alpha, a), a);
                 break;
             }
             case OP_SILU: pool[out] = mx::multiply(a, mx::sigmoid(a)); break;
             case OP_SOFTPLUS: {
-                pool[out] = mx::add(mx::maximum(a, kF32_ZERO()),
-                                    mx::log(mx::add(kF32_ONE(), mx::exp(mx::negative(mx::abs(a))))));
+                pool[out] = mx::add(mx::maximum(a, zero_like(a)),
+                                    mx::log(mx::add(one_like(a), mx::exp(mx::negative(mx::abs(a))))));
                 break;
             }
             case OP_TILE_2D: {
@@ -1959,9 +2020,9 @@ void tensor_backward(TensorHandle h) {
                 pool[out] = mx::tile(a, {reps[0], reps[1]});
                 break;
             }
-            case OP_ADD_SCALAR: pool[out] = mx::add(a, mx::array(e.scalar_arg)); break;
-            case OP_MUL_SCALAR: pool[out] = mx::multiply(a, mx::array(e.scalar_arg)); break;
-            case OP_CLAMP_MIN: pool[out] = mx::maximum(a, mx::array(e.scalar_arg)); break;
+            case OP_ADD_SCALAR: pool[out] = mx::add(a, scalar_like(e.scalar_arg, a)); break;
+            case OP_MUL_SCALAR: pool[out] = mx::multiply(a, scalar_like(e.scalar_arg, a)); break;
+            case OP_CLAMP_MIN: pool[out] = mx::maximum(a, scalar_like(e.scalar_arg, a)); break;
             case OP_SUM: pool[out] = mx::sum(a); break;
             case OP_MEAN: pool[out] = mx::mean(a); break;
             case OP_SUM_DIM: {
@@ -1989,7 +2050,9 @@ void tensor_backward(TensorHandle h) {
                 break;
             }
             case OP_MASKED_FILL: {
-                static const mx::array kNegInfMask(-1e9, mx::float32);
+                /* mask `b` may be bool; the fill value must match `a`'s
+                   dtype so `mx::where` doesn't force a promotion. */
+                auto kNegInfMask = scalar_like(-1e9, a);
                 pool[out] = mx::where(b, kNegInfMask, a);
                 break;
             }
@@ -2025,7 +2088,7 @@ void tensor_backward(TensorHandle h) {
                 int n = (int)a.shape(0), m = (int)a.shape(1);
                 auto key_2d = mx::reshape(b, {1, m});
                 auto dots = mx::sum(mx::multiply(a, key_2d), std::vector<int>{1});
-                auto eps = mx::array(1.0e-8);
+                auto eps = scalar_like(1.0e-8, a);
                 auto row_norms = mx::sqrt(mx::add(mx::sum(mx::square(a), std::vector<int>{1}), eps));
                 auto key_norm = mx::sqrt(mx::add(mx::sum(mx::square(b)), eps));
                 pool[out] = mx::divide(dots, mx::multiply(row_norms, key_norm));
@@ -2035,7 +2098,7 @@ void tensor_backward(TensorHandle h) {
                 // Inline circular convolution forward
                 int n = (int)a.size(), k = (int)b.size();
                 int half_k = k / 2;
-                auto result = mx::zeros({n}, mx::float32);
+                auto result = mx::zeros({n}, a.dtype());
                 for (int j = 0; j < k; j++) {
                     auto shifted = mx::roll(a, half_k - j);
                     auto kern_j = mx::take(b, mx::array(j));
@@ -2051,7 +2114,7 @@ void tensor_backward(TensorHandle h) {
                 auto mean = mx::mean(a, -1, true);
                 auto centered = mx::subtract(a, mean);
                 auto var = mx::mean(mx::square(centered), -1, true);
-                auto rstd = mx::rsqrt(mx::add(var, mx::array(meta->eps)));
+                auto rstd = mx::rsqrt(mx::add(var, scalar_like(meta->eps, var)));
                 auto x_hat = mx::multiply(centered, rstd);
                 pool[out] = mx::add(mx::multiply(gamma, x_hat), bias);
                 break;
@@ -2088,8 +2151,7 @@ void tensor_backward(TensorHandle h) {
                 auto z = mx::sigmoid(mx::add(ih_z, hh_z));
                 auto r_gate = mx::sigmoid(mx::add(ih_r, hh_r));
                 auto n = mx::tanh(mx::add(ih_n, mx::multiply(r_gate, hh_n)));
-                auto one = mx::array(1.0, mx::float32);
-                pool[out] = mx::add(mx::multiply(mx::subtract(one, z), n),
+                pool[out] = mx::add(mx::multiply(mx::subtract(one_like(z), z), n),
                                     mx::multiply(z, prev));
                 break;
             }
@@ -2105,7 +2167,7 @@ void tensor_backward(TensorHandle h) {
                 auto x = mx::reshape(a, {bm->C, bm->spatial});
                 auto mean = mx::mean(x, std::vector<int>{1}, true);
                 auto var = mx::var(x, std::vector<int>{1}, true);
-                auto rstd = mx::rsqrt(mx::add(var, mx::array(bm->eps, mx::float32)));
+                auto rstd = mx::rsqrt(mx::add(var, scalar_like(bm->eps, var)));
                 auto x_hat = mx::multiply(mx::subtract(x, mean), rstd);
                 auto g = mx::reshape(pool[bm->gamma_pool_idx], {bm->C, 1});
                 auto bt = mx::reshape(pool[bm->beta_pool_idx], {bm->C, 1});
@@ -2123,12 +2185,12 @@ void tensor_backward(TensorHandle h) {
                 int stride = (int)((e.scalar_arg - kL) * 1000 + 0.5);
                 if (stride == 0) stride = kL;
                 int oL = ((int)a.shape(1) - kL) / stride + 1;
-                mx::array res = mx::zeros({(int)a.shape(0), oL}, mx::float32);
+                mx::array res = mx::zeros({(int)a.shape(0), oL}, a.dtype());
                 for (int kl = 0; kl < kL; kl++) {
                     auto sliced = mx::slice(a, {0, kl}, {(int)a.shape(0), kl + oL*stride}, {1, stride});
                     res = mx::add(res, sliced);
                 }
-                pool[out] = mx::divide(res, mx::array((double)kL, mx::float32));
+                pool[out] = mx::divide(res, scalar_like((double)kL, a));
                 break;
             }
             case OP_AVG_POOL2D: {
@@ -2137,13 +2199,13 @@ void tensor_backward(TensorHandle h) {
                 // Default: k=2, stride=2 (most common usage)
                 int kH = 2, kW = 2, sH = 2, sW = 2;
                 int oH = (HH - kH)/sH + 1, oW = (WW - kW)/sW + 1;
-                mx::array res = mx::zeros({CC, oH, oW}, mx::float32);
+                mx::array res = mx::zeros({CC, oH, oW}, a.dtype());
                 for (int kh = 0; kh < kH; kh++)
                     for (int kw = 0; kw < kW; kw++) {
                         auto sl = mx::slice(a, {0,kh,kw}, {CC,kh+oH*sH,kw+oW*sW}, {1,sH,sW});
                         res = mx::add(res, sl);
                     }
-                pool[out] = mx::divide(res, mx::array((double)(kH*kW), mx::float32));
+                pool[out] = mx::divide(res, scalar_like((double)(kH*kW), a));
                 break;
             }
             case OP_CONV1D: {
@@ -2162,7 +2224,7 @@ void tensor_backward(TensorHandle h) {
             }
             case OP_MAX_POOL1D: {
                 auto* pm = (MaxPool1DReplayMeta*)e.meta;
-                mx::array res = mx::full({pm->C, pm->oL}, -1e30, mx::float32);
+                mx::array res = mx::full({pm->C, pm->oL}, -1e30, a.dtype());
                 for (int kl = 0; kl < pm->kL; kl++) {
                     auto sliced = mx::slice(a, {0, kl}, {pm->C, kl + pm->oL * pm->stride}, {1, pm->stride});
                     res = mx::maximum(res, sliced);
@@ -2188,7 +2250,7 @@ void tensor_backward(TensorHandle h) {
             }
             case OP_MAX_POOL2D: {
                 auto* pm = (MaxPool2DReplayMeta*)e.meta;
-                mx::array res = mx::full({pm->C, pm->oH, pm->oW}, -1e30, mx::float32);
+                mx::array res = mx::full({pm->C, pm->oH, pm->oW}, -1e30, a.dtype());
                 for (int kh = 0; kh < pm->kH; kh++) {
                     for (int kw = 0; kw < pm->kW; kw++) {
                         auto sliced = mx::slice(a,
@@ -2220,7 +2282,7 @@ void tensor_backward(TensorHandle h) {
             }
             case OP_MAX_POOL2D_BATCHED: {
                 auto* pm = (MaxPool2DBatchedReplayMeta*)e.meta;
-                mx::array res = mx::full({pm->B, pm->C, pm->oH, pm->oW}, -1e30, mx::float32);
+                mx::array res = mx::full({pm->B, pm->C, pm->oH, pm->oW}, -1e30, a.dtype());
                 for (int kh = 0; kh < pm->kH; kh++) {
                     for (int kw = 0; kw < pm->kW; kw++) {
                         auto sliced = mx::slice(a,
@@ -2250,7 +2312,7 @@ void tensor_backward(TensorHandle h) {
             case OP_SCATTER_ADD: {
                 int out_size = (int)e.scalar_arg;
                 auto idx_int = mx::astype(e.arg2->data, mx::int32);
-                auto base = mx::zeros({out_size}, mx::float32);
+                auto base = mx::zeros({out_size}, a.dtype());
                 auto updates_2d = mx::reshape(a, {(int)a.size(), 1});
                 pool[out] = mx::scatter_add(base, {idx_int}, updates_2d, std::vector<int>{0});
                 break;
@@ -2309,14 +2371,16 @@ void tensor_backward(TensorHandle h) {
                 auto contig = mx::contiguous(p.tensor->grad);
                 mx::eval(contig);
                 long n = (long)contig.size();
-                const float* gp = contig.data<float>();
+                std::vector<double> buf((size_t)n);
+                mx_to_doubles(contig, buf.data());
+                const double* gp = buf.data();
                 int nan_count = 0, inf_count = 0;
-                float maxabs = 0.0f;
+                double maxabs = 0.0;
                 for (long j = 0; j < n; j++) {
-                    float v = gp[j];
+                    double v = gp[j];
                     if (v != v) nan_count++;
-                    else if (v > 1e30f || v < -1e30f) inf_count++;
-                    else { float a = v < 0 ? -v : v; if (a > maxabs) maxabs = a; }
+                    else if (v > 1e30 || v < -1e30) inf_count++;
+                    else { double a = v < 0 ? -v : v; if (a > maxabs) maxabs = a; }
                 }
                 if (nan_count || inf_count) {
                     fprintf(stderr, "[NAN_TRAP] param[%d]=%s NaN=%d Inf=%d maxabs=%.3e (n=%ld)\n",
@@ -2351,10 +2415,12 @@ void tensor_backward(TensorHandle h) {
                     mx::eval(contig);
                     long n = (long)contig.size();
                     if (n == 0) continue;
-                    const float* dp = contig.data<float>();
+                    std::vector<double> r_buf((size_t)n);
+                    mx_to_doubles(contig, r_buf.data());
+                    const double* dp = r_buf.data();
                     int nan_count = 0;
                     for (long j = 0; j < n; j++) {
-                        float v = dp[j];
+                        double v = dp[j];
                         if (v != v) { nan_count++; }
                     }
                     if (nan_count) {
@@ -2369,11 +2435,13 @@ void tensor_backward(TensorHandle h) {
                         if (e.arg1) {
                             auto a = mx::contiguous(e.arg1->data);
                             mx::eval(a);
-                            const float* ap = a.data<float>();
-                            float amin = ap[0], amax = ap[0];
+                            std::vector<double> a_buf((size_t)a.size());
+                            mx_to_doubles(a, a_buf.data());
+                            const double* ap = a_buf.data();
+                            double amin = ap[0], amax = ap[0];
                             int anan = 0;
                             for (long j = 0; j < (long)a.size(); j++) {
-                                float v = ap[j];
+                                double v = ap[j];
                                 if (v != v) anan++;
                                 else { if (v < amin) amin = v; if (v > amax) amax = v; }
                             }
@@ -2383,11 +2451,13 @@ void tensor_backward(TensorHandle h) {
                         if (e.arg2) {
                             auto b = mx::contiguous(e.arg2->data);
                             mx::eval(b);
-                            const float* bp = b.data<float>();
-                            float bmin = bp[0], bmax = bp[0];
+                            std::vector<double> b_buf((size_t)b.size());
+                            mx_to_doubles(b, b_buf.data());
+                            const double* bp = b_buf.data();
+                            double bmin = bp[0], bmax = bp[0];
                             int bnan = 0;
                             for (long j = 0; j < (long)b.size(); j++) {
-                                float v = bp[j];
+                                double v = bp[j];
                                 if (v != v) bnan++;
                                 else { if (v < bmin) bmin = v; if (v > bmax) bmax = v; }
                             }
@@ -2419,7 +2489,7 @@ TensorHandle tensor_grad(TensorHandle h) {
 void tensor_zero_grad(TensorHandle h) {
     auto t = (Tensor*)h;
     if (t->has_grad) {
-        t->grad = mx::zeros(t->data.shape(), mx::float32);
+        t->grad = mx::zeros(t->data.shape(), t->data.dtype());
     }
 }
 
@@ -2568,7 +2638,7 @@ double param_grad_item(int idx) {
     mx::eval(t->grad);
     auto flat = mx::flatten(t->grad, mx::StreamOrDevice{});
     mx::eval(flat);
-    return (double)flat.data<float>()[0];
+    return mx_read_double(flat, 0);
 }
 
 double param_grad_item_at(int param_idx, int elem_idx) {
@@ -2578,12 +2648,13 @@ double param_grad_item_at(int param_idx, int elem_idx) {
        with broadcast strides). Force a contiguous row-major copy. */
     auto contig = mx::contiguous(t->grad);
     mx::eval(contig);
-    return (double)contig.data<float>()[elem_idx];
+    return mx_read_double(contig, elem_idx);
 }
 
 double param_grad_item_and_zero(int idx) {
     double g = param_grad_item(idx);
-    param_registry[idx].tensor->grad = mx::zeros(param_registry[idx].tensor->data.shape(), mx::float32);
+    auto t = param_registry[idx].tensor;
+    t->grad = mx::zeros(t->data.shape(), t->data.dtype());
     return g;
 }
 
@@ -2592,14 +2663,14 @@ TensorHandle param_tensor(int idx) { return (TensorHandle)param_registry[idx].te
 void param_zero_all_grads(void) {
     for (auto& p : param_registry) {
         if (p.tensor->has_grad) {
-            p.tensor->grad = mx::zeros(p.tensor->data.shape(), mx::float32);
+            p.tensor->grad = mx::zeros(p.tensor->data.shape(), p.tensor->data.dtype());
         }
     }
 }
 
 void param_subtract_delta(int idx, double delta) {
     auto t = param_registry[idx].tensor;
-    t->data = mx::subtract(t->data, mx::array(delta));
+    t->data = mx::subtract(t->data, scalar_like(delta, t->data));
 }
 
 void param_load_data(int idx, const double* data, int numel) {
@@ -2611,12 +2682,12 @@ void param_load_data(int idx, const double* data, int numel) {
                 param_registry[idx].name.c_str(), existing, numel);
         return;
     }
-    t->data = mx_from_doubles(data, shape);
+    t->data = mx_array_from_doubles(data, shape, t->data.dtype());
 }
 
 TensorHandle tensor_subtract_scalar_inplace(TensorHandle h, double val) {
     auto t = (Tensor*)h;
-    t->data = mx::subtract(t->data, mx::array(val));
+    t->data = mx::subtract(t->data, scalar_like(val, t->data));
     return h;
 }
 
@@ -2837,13 +2908,13 @@ double tensor_item_2d(TensorHandle mat, int row, int col) {
     auto flat = mx::flatten(t->data, mx::StreamOrDevice{});
     mx::eval(flat);
     int cols = t->data.shape(1);
-    return (double)flat.data<float>()[row * cols + col];
+    return mx_read_double(flat, (long)row * cols + col);
 }
 
 double tensor_item_1d(TensorHandle vec, int idx) {
     auto t = (Tensor*)vec;
     mx::eval(t->data);
-    return (double)t->data.data<float>()[idx];
+    return mx_read_double(t->data, idx);
 }
 
 /* ================================================================
@@ -2964,8 +3035,10 @@ static void _dbg_dump_param_grads_if_enabled_mlx(void) {
             mx::eval(t->grad);
             auto contig = mx::contiguous(t->grad);
             mx::eval(contig);
-            const float* gp = contig.data<float>();
-            for (long j = 0; j < n; j++) l2 += (double)gp[j] * (double)gp[j];
+            std::vector<double> gbuf((size_t)n);
+            mx_to_doubles(contig, gbuf.data());
+            const double* gp = gbuf.data();
+            for (long j = 0; j < n; j++) l2 += gp[j] * gp[j];
         }
         l2 = sqrt(l2);
         fprintf(stderr, "  [%zu] %s (n=%ld rg=%d hg=%d) grad_l2=%.6e\n",
@@ -3056,10 +3129,17 @@ static void adam_step_compile(Optimizer* opt, int np) {
     std::vector<mx::array> params_in, grads_in, ms_in, vs_in, lrs_in;
     params_in.reserve(np); grads_in.reserve(np);
     ms_in.reserve(np); vs_in.reserve(np); lrs_in.reserve(np);
+    /* Pin the compiled-step dtype to the first eligible param's dtype. The
+       traced graph mixes scalars + arrays, so all scalar inputs need to
+       match the param dtype to avoid implicit promotion baking the wrong
+       output type into the cached compile. */
+    mx::Dtype compile_dtype = mx::float32;
+    bool found_dtype = false;
     for (int i = 0; i < np; i++) {
         if (!opt_owns_param_mlx(opt, i)) continue;
         auto t = param_registry[i].tensor;
         if (!t->has_grad) continue;
+        if (!found_dtype) { compile_dtype = t->data.dtype(); found_dtype = true; }
         double lr = opt->lr;
         if (i < (int)opt->param_lr.size() && opt->param_lr[i] >= 0)
             lr = opt->param_lr[i];
@@ -3068,7 +3148,7 @@ static void adam_step_compile(Optimizer* opt, int np) {
         grads_in.push_back(t->grad);
         ms_in.push_back(opt->m_bufs[i]);
         vs_in.push_back(opt->v_bufs[i]);
-        lrs_in.push_back(mx::array(lr));
+        lrs_in.push_back(mx::array(lr, compile_dtype));
     }
     int n = (int)active_idx.size();
     if (n == 0) return;
@@ -3080,13 +3160,13 @@ static void adam_step_compile(Optimizer* opt, int np) {
     for (auto& a : lrs_in)    ins.push_back(a);
     double bc1 = 1.0 - std::pow(opt->beta1, (double)opt->t);
     double bc2 = 1.0 - std::pow(opt->beta2, (double)opt->t);
-    ins.push_back(mx::array(opt->beta1));
-    ins.push_back(mx::array(1.0 - opt->beta1));
-    ins.push_back(mx::array(opt->beta2));
-    ins.push_back(mx::array(1.0 - opt->beta2));
-    ins.push_back(mx::array(bc1));
-    ins.push_back(mx::array(bc2));
-    ins.push_back(mx::array(opt->eps));
+    ins.push_back(mx::array(opt->beta1, compile_dtype));
+    ins.push_back(mx::array(1.0 - opt->beta1, compile_dtype));
+    ins.push_back(mx::array(opt->beta2, compile_dtype));
+    ins.push_back(mx::array(1.0 - opt->beta2, compile_dtype));
+    ins.push_back(mx::array(bc1, compile_dtype));
+    ins.push_back(mx::array(bc2, compile_dtype));
+    ins.push_back(mx::array(opt->eps, compile_dtype));
 
     auto& compiled = get_adam_compiled(n);
     auto outs = compiled(ins);
@@ -3112,8 +3192,8 @@ void optimizer_step(OptimizerHandle h) {
         opt->m_bufs.clear();
         opt->v_bufs.clear();
         for (auto& p : param_registry) {
-            opt->m_bufs.push_back(mx::zeros(p.tensor->data.shape(), mx::float32));
-            opt->v_bufs.push_back(mx::zeros(p.tensor->data.shape(), mx::float32));
+            opt->m_bufs.push_back(mx::zeros(p.tensor->data.shape(), p.tensor->data.dtype()));
+            opt->v_bufs.push_back(mx::zeros(p.tensor->data.shape(), p.tensor->data.dtype()));
         }
     }
 
@@ -3143,16 +3223,29 @@ void optimizer_step(OptimizerHandle h) {
     // Hoist optimizer-state scalars out of the per-param loop. These depend on
     // opt and the current step, not on which param — re-allocating them per
     // param added one graph node per param per step for nothing.
-    auto alpha_arr   = mx::array(opt->alpha);
-    auto one_m_alpha = mx::array(1.0 - opt->alpha);
-    auto beta1_arr   = mx::array(opt->beta1);
-    auto one_m_beta1 = mx::array(1.0 - opt->beta1);
-    auto beta2_arr   = mx::array(opt->beta2);
-    auto one_m_beta2 = mx::array(1.0 - opt->beta2);
-    auto eps_arr     = mx::array(opt->eps);
-    auto momentum_a  = mx::array(opt->momentum);
-    auto bc1_arr     = mx::array(1.0 - std::pow(opt->beta1, opt->t));
-    auto bc2_arr     = mx::array(1.0 - std::pow(opt->beta2, opt->t));
+    //
+    // Build the scalars in the dtype of the first eligible param so they don't
+    // force a runtime promotion at every multiply. The common case is uniform
+    // param dtype across the registry; mixed-dtype models would rely on mlx's
+    // promotion rules at the multiply boundary (correct but slower). If you
+    // need mixed-dtype support, split the optimizer by dtype.
+    mx::Dtype opt_dtype = mx::float32;
+    for (int i = 0; i < np; i++) {
+        if (opt_owns_param_mlx(opt, i) && param_registry[i].tensor->has_grad) {
+            opt_dtype = param_registry[i].tensor->data.dtype();
+            break;
+        }
+    }
+    auto alpha_arr   = mx::array(opt->alpha, opt_dtype);
+    auto one_m_alpha = mx::array(1.0 - opt->alpha, opt_dtype);
+    auto beta1_arr   = mx::array(opt->beta1, opt_dtype);
+    auto one_m_beta1 = mx::array(1.0 - opt->beta1, opt_dtype);
+    auto beta2_arr   = mx::array(opt->beta2, opt_dtype);
+    auto one_m_beta2 = mx::array(1.0 - opt->beta2, opt_dtype);
+    auto eps_arr     = mx::array(opt->eps, opt_dtype);
+    auto momentum_a  = mx::array(opt->momentum, opt_dtype);
+    auto bc1_arr     = mx::array(1.0 - std::pow(opt->beta1, opt->t), opt_dtype);
+    auto bc2_arr     = mx::array(1.0 - std::pow(opt->beta2, opt->t), opt_dtype);
 
     for (int i = 0; i < np; i++) {
         if (!opt_owns_param_mlx(opt, i)) continue;
@@ -3171,7 +3264,7 @@ void optimizer_step(OptimizerHandle h) {
         double lr = opt->lr;
         if (i < (int)opt->param_lr.size() && opt->param_lr[i] >= 0)
             lr = opt->param_lr[i];
-        auto lr_arr = mx::array(lr);
+        auto lr_arr = scalar_like(lr, t->data);
 
         switch (opt->type) {
         case 0: // SGD
@@ -3213,7 +3306,7 @@ void optimizer_step(OptimizerHandle h) {
                 mx::divide(mx::multiply(lr_arr, mhat),
                             mx::add(mx::sqrt(vhat), eps_arr)));
             t->data = mx::subtract(t->data,
-                mx::multiply(mx::array(lr * opt->weight_decay), t->data));
+                mx::multiply(scalar_like(lr * opt->weight_decay, t->data), t->data));
             break;
         }
         default:
@@ -3244,29 +3337,37 @@ static void clip_grad_value_filtered(const std::string& prefix, double max_val) 
         auto& p = param_registry[i];
         if (!prefix.empty() && p.name.rfind(prefix, 0) != 0) continue;
         if (p.tensor->has_grad) {
-            p.tensor->grad = mx::clip(p.tensor->grad, mx::array(-max_val), mx::array(max_val));
+            auto lo = scalar_like(-max_val, p.tensor->grad);
+            auto hi = scalar_like(max_val, p.tensor->grad);
+            p.tensor->grad = mx::clip(p.tensor->grad, lo, hi);
         }
     }
 }
 
 static double clip_grad_norm_filtered(const std::string& prefix, double max_norm) {
-    mx::array total = mx::array(0.0);
+    /* Compute the squared-grad sum per-param in the param's own dtype, then
+       reduce to a double on the host. Avoids mixing dtypes in a single
+       running `total` array (param dtypes may differ across the registry). */
+    double sumsq = 0.0;
     for (size_t i = 0; i < param_registry.size(); i++) {
         auto& p = param_registry[i];
         if (!prefix.empty() && p.name.rfind(prefix, 0) != 0) continue;
         if (p.tensor->has_grad) {
-            total = mx::add(total, mx::sum(mx::square(p.tensor->grad)));
+            auto s = mx::sum(mx::square(p.tensor->grad));
+            mx::eval(s);
+            if (s.dtype() == mx::float64) sumsq += s.item<double>();
+            else sumsq += (double)s.item<float>();
         }
     }
-    mx::eval(total);
-    double norm = std::sqrt((double)total.item<float>());
+    double norm = std::sqrt(sumsq);
     if (norm > max_norm) {
         double scale = max_norm / norm;
         for (size_t i = 0; i < param_registry.size(); i++) {
             auto& p = param_registry[i];
             if (!prefix.empty() && p.name.rfind(prefix, 0) != 0) continue;
             if (p.tensor->has_grad) {
-                p.tensor->grad = mx::multiply(p.tensor->grad, mx::array(scale));
+                p.tensor->grad = mx::multiply(p.tensor->grad,
+                    scalar_like(scale, p.tensor->grad));
             }
         }
     }
@@ -3286,8 +3387,6 @@ int polyak_blend(double tau, const char* online_scope, const char* target_scope)
     if (!online_scope || !target_scope) return 0;
     std::string on_s(online_scope), tg_s(target_scope);
     int blended = 0;
-    mx::array tau_arr = mx::array(tau);
-    mx::array one_minus_tau = mx::array(1.0 - tau);
     for (size_t i = 0; i < param_registry.size(); i++) {
         const std::string& on_name = param_registry[i].name;
         if (on_name.rfind(on_s, 0) != 0) continue;
@@ -3297,6 +3396,10 @@ int polyak_blend(double tau, const char* online_scope, const char* target_scope)
             auto* on_t = param_registry[i].tensor;
             auto* tg_t = param_registry[j].tensor;
             if (on_t->data.shape() != tg_t->data.shape()) break;
+            /* Build tau scalars matching the target dtype each iteration —
+               cheap, and avoids dtype-mix UB when target params span dtypes. */
+            auto tau_arr        = scalar_like(tau,       tg_t->data);
+            auto one_minus_tau  = scalar_like(1.0 - tau, tg_t->data);
             tg_t->data = mx::add(
                 mx::multiply(one_minus_tau, tg_t->data),
                 mx::multiply(tau_arr, on_t->data));
@@ -3349,12 +3452,12 @@ void optimizer_set_m(OptimizerHandle h, int idx, const double* data) {
         opt->m_bufs.clear();
         opt->v_bufs.clear();
         for (auto& p : param_registry) {
-            opt->m_bufs.push_back(mx::zeros(p.tensor->data.shape(), mx::float32));
-            opt->v_bufs.push_back(mx::zeros(p.tensor->data.shape(), mx::float32));
+            opt->m_bufs.push_back(mx::zeros(p.tensor->data.shape(), p.tensor->data.dtype()));
+            opt->v_bufs.push_back(mx::zeros(p.tensor->data.shape(), p.tensor->data.dtype()));
         }
     }
-    auto shape = param_registry[idx].tensor->data.shape();
-    opt->m_bufs[idx] = mx_from_doubles(data, shape);
+    auto t = param_registry[idx].tensor;
+    opt->m_bufs[idx] = mx_array_from_doubles(data, t->data.shape(), t->data.dtype());
 }
 
 void optimizer_set_v(OptimizerHandle h, int idx, const double* data) {
@@ -3364,12 +3467,12 @@ void optimizer_set_v(OptimizerHandle h, int idx, const double* data) {
         opt->m_bufs.clear();
         opt->v_bufs.clear();
         for (auto& p : param_registry) {
-            opt->m_bufs.push_back(mx::zeros(p.tensor->data.shape(), mx::float32));
-            opt->v_bufs.push_back(mx::zeros(p.tensor->data.shape(), mx::float32));
+            opt->m_bufs.push_back(mx::zeros(p.tensor->data.shape(), p.tensor->data.dtype()));
+            opt->v_bufs.push_back(mx::zeros(p.tensor->data.shape(), p.tensor->data.dtype()));
         }
     }
-    auto shape = param_registry[idx].tensor->data.shape();
-    opt->v_bufs[idx] = mx_from_doubles(data, shape);
+    auto t = param_registry[idx].tensor;
+    opt->v_bufs[idx] = mx_array_from_doubles(data, t->data.shape(), t->data.dtype());
 }
 
 void optimizer_get_meta(OptimizerHandle h, double* out9) {
