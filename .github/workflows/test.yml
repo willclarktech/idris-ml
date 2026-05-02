@@ -18,11 +18,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Chez Scheme (Ubuntu)
+      - name: Install Chez Scheme + BLAS (Ubuntu)
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
-          sudo apt-get install -y chezscheme build-essential
+          sudo apt-get install -y chezscheme build-essential libopenblas-dev
 
       - name: Install Chez Scheme (macOS)
         if: matrix.os == 'macos-latest'
@@ -42,16 +42,32 @@ jobs:
       - name: Build and install Idris 2
         if: steps.idris2-cache.outputs.cache-hit != 'true'
         run: |
-          # Locate Chez Scheme. Both Ubuntu (apt) and macOS (brew) install
-          # the binary as `scheme`. Add fallbacks for /opt/homebrew/bin and
-          # /usr/local/bin in case it isn't on PATH yet (fresh brew install).
-          SCHEME="$(command -v scheme || command -v chezscheme || true)"
-          if [ -z "$SCHEME" ]; then
-            for p in /opt/homebrew/bin/scheme /usr/local/bin/scheme /usr/bin/scheme; do
-              [ -x "$p" ] && SCHEME="$p" && break
-            done
+          # Locate Chez Scheme. Binary name varies: Ubuntu `chezscheme`
+          # package installs `scheme`; brew `chezscheme` may install `scheme`,
+          # `chez-scheme`, `chez`, or be keg-only.
+          SCHEME="$(command -v scheme || command -v chez-scheme || command -v chezscheme || command -v chez || true)"
+          if [ -z "$SCHEME" ] && command -v brew >/dev/null 2>&1; then
+            BREW_PREFIX="$(brew --prefix chezscheme 2>/dev/null || true)"
+            if [ -n "$BREW_PREFIX" ] && [ -d "$BREW_PREFIX/bin" ]; then
+              echo "brew --prefix chezscheme: $BREW_PREFIX"
+              echo "Cellar bin contents:"
+              ls -la "$BREW_PREFIX/bin/" || true
+              for name in scheme chez-scheme chezscheme chez petite; do
+                if [ -x "$BREW_PREFIX/bin/$name" ]; then
+                  SCHEME="$BREW_PREFIX/bin/$name"
+                  break
+                fi
+              done
+            fi
           fi
-          [ -n "$SCHEME" ] || { echo "Chez Scheme not found on PATH or in standard locations" >&2; exit 1; }
+          if [ -z "$SCHEME" ]; then
+            echo "Chez Scheme not found. Debug info:" >&2
+            echo "PATH=$PATH" >&2
+            command -v brew >/dev/null && brew list chezscheme 2>&1 || true
+            ls /opt/homebrew/bin/ 2>&1 | grep -iE 'chez|scheme|petite' >&2 || true
+            ls /usr/local/bin/ 2>&1 | grep -iE 'chez|scheme|petite' >&2 || true
+            exit 1
+          fi
           echo "Using SCHEME=$SCHEME"
           git clone --branch v0.8.0 --depth 1 https://github.com/idris-lang/Idris2.git /tmp/Idris2
           cd /tmp/Idris2

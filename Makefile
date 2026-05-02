@@ -2,6 +2,15 @@ UNAME := $(shell uname)
 BUILD := build
 BACKEND ?= tape
 
+# Shared-library extension. macOS uses .dylib, everything else .so. Used by
+# both the active-backend symlink ($(LIB)) and the per-backend output file
+# ($(BACKEND_LIB)) so they match on every platform.
+ifeq ($(UNAME), Darwin)
+  LIB_EXT := dylib
+else
+  LIB_EXT := so
+endif
+
 # Per-example wall-clock cap for test-examples. Examples exceeding this are
 # killed and reported as timeouts. Override with `EXAMPLE_TIMEOUT=900 make ...`.
 EXAMPLE_TIMEOUT ?= 600
@@ -96,9 +105,9 @@ else
   endif
 endif
 
-# Per-backend dylib: each backend compiles to its own file.
+# Per-backend shared library: each backend compiles to its own file.
 # Switching backends = updating a symlink (instant, no recompile).
-BACKEND_LIB := $(BUILD)/libidrisml_$(BACKEND).dylib
+BACKEND_LIB := $(BUILD)/libidrisml_$(BACKEND).$(LIB_EXT)
 
 # Shared C sources (backend-agnostic: serialization, JSON, data loading)
 SHARED_OBJ := $(BUILD)/safetensors.o $(BUILD)/cJSON.o $(BUILD)/mnist.o $(BUILD)/dataloader.o
@@ -129,7 +138,7 @@ download-mnist:
 
 # Always update symlink to point to the active backend
 backend: $(BACKEND_LIB)
-	@ln -sf libidrisml_$(BACKEND).dylib $(LIB)
+	@ln -sf libidrisml_$(BACKEND).$(LIB_EXT) $(LIB)
 
 # Backend API test suite — runs against whichever backend is active
 test-backend: $(BACKENDS_DIR)/test_backend.c backend | $(BUILD)
@@ -486,7 +495,7 @@ test-notebooks: jupyter-install
 clean:
 	rm -rf $(BUILD)/ttc $(BUILD)/exec
 	rm -f $(BUILD)/.library-cache-stamp $(BUILD)/.backend_stamp
-	rm -f $(BUILD)/libidrisml*.dylib
+	rm -f $(BUILD)/libidrisml*.dylib $(BUILD)/libidrisml*.so
 	rm -rf $(BUILD)/libidrisml*.dylib.dSYM
 	rm -f $(BUILD)/*.o
 	rm -f $(BUILD)/test_backend $(BUILD)/test_backend_debug $(BUILD)/test_safetensors \
