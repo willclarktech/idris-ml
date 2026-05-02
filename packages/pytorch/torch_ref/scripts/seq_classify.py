@@ -6,11 +6,13 @@ Usage:
 
 import argparse
 import random
+import sys
 import time
 
 import torch
 
 from torch_ref.models.seq_classify import SeqClassifyCNN, evaluate, train_epoch
+from torch_ref.training.lr_finder import LrFindConfig, lr_find
 from torch_ref.training.runner import format_result
 
 
@@ -19,6 +21,11 @@ def main() -> None:
     parser.add_argument("--lr", type=float, default=0.001)
     parser.add_argument("--epochs", type=int, default=500)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
+        "--lr-find",
+        action="store_true",
+        help="Run lr_find (LR-range test) instead of training, then exit.",
+    )
     args = parser.parse_args()
 
     torch.manual_seed(args.seed)
@@ -37,6 +44,12 @@ def main() -> None:
     param_count = sum(p.numel() for p in model.parameters())
     print(f"Parameters: {param_count}")
     print()
+
+    if args.lr_find:
+        lr_find(LrFindConfig(num_iters=100), lambda: train_epoch(model, optimizer), optimizer)
+        print()
+        print("Done — re-run without --lr-find at the recommended LR.")
+        sys.exit(0)
 
     print("Training...")
     t0 = time.time()

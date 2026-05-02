@@ -89,4 +89,47 @@ This is a useful negative-result entry for the workflow: `lr_find` is a screenin
 
 ---
 
+## SeqClassify           date: 2026-04-29
+
+- **Before**: `lr=0.001 epochs=1000 patience=200 seed=42`. Conv1d(1→4,k=3) → ReLU → Pool → Conv1d(4→8,k=3) → ReLU → Pool → Dropout(0.5) → Linear(48→3) on synthetic waveform classification. Adam + global grad-norm clipping.
+- **lr_find (Idris)**: `RECOMMENDED_LR=6.4e-8` — essentially the fallback at lrMin.
+- **lr_find (PyTorch)**: `RECOMMENDED_LR=0.0423` — diverged at iter 98 with a real curve.
+- **Cross-backend agreement**: ratio = 0.0423 / 6.4e-8 ≈ 660,000×. **Wildly disagreeing — both unreliable.**
+- **Decision**: ship-as-is at lr=0.001.
+- **Why this confirms the Adam-fallback pattern**: Idris's curve was essentially flat (Adam adapted away the LR sweep) so it bailed to ~lrMin. PyTorch's Adam allowed enough loss change to detect divergence at the high end, picking up *something* but not necessarily a useful something. Either way: cross-backend agreement is broken, treat as unreliable.
+- **Commit**: n/a.
+
+---
+
+## Pattern observed across B3 so far
+
+After 5 examples (Supervised, Rnn, Lstm, Transformer, SeqClassify), the
+pattern crystallizes:
+
+| Example | Optimizer | Cross-backend | Outcome |
+|---|---|---|---|
+| Supervised | SGD | 1.20× | actionable; default already in range, ship-as-is |
+| Rnn | SGD | 380× | unreliable (1-cell architecture too small) |
+| Lstm | SGD | 1.75× | **actionable; default 0.03 → 0.5** ✓ |
+| Transformer | Adam | 1.0× (fallback) | unreliable (both bailed to lrMin) |
+| SeqClassify | Adam | 660,000× | unreliable |
+
+**SGD-based examples (3/3) produced informative results; Adam-based
+examples (2/2) produced fallback / nonsense.** The reason is that Adam
++ grad-norm clipping already adapts the effective per-parameter LR,
+flattening the lr_find loss curve.
+
+**Implication for the remaining B3 sub-tickets**: don't expect default
+changes from the Adam-based examples (Mnist, Gpt, Dqn, A2c, Ppo, Sac).
+Add the `--lr-find` flag for consistency-of-approach and document
+the result, but expect the entry to be "ship-as-is".
+
+The lr_find tool is most useful for SGD examples and least useful for
+Adam-based ones — that's a real fastai-vs-modern-optimizer story.
+Future improvement: have `lrFind` emit a warning when the recommended
+LR is within 10× of `lrMin` (likely fallback). For now, the cross-
+backend ratio is the gate.
+
+---
+
 (Future entries here — one block per example dogfooded by B3.)

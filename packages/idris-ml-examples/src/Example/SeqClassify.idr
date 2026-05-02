@@ -21,6 +21,7 @@ import DataPoint
 import Endofunctor
 import Floating
 import Generate
+import Hpo.LrFinder
 import Layer
 import Layer.Core
 import Layer.Conv
@@ -165,16 +166,18 @@ record Config where
   patience : Nat
   seed : Bits64
   accumSteps : Nat
+  lrFind : Bool
 
 defaultConfig : Config
-defaultConfig = MkConfig 0.001 1000 200 42 1
+defaultConfig = MkConfig 0.001 1000 200 42 1 False
 
 specs : List (ArgSpec Config)
 specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
         , Arg "--epochs" (\v, c => { epochs := castNat v } c)
         , Arg "--patience" (\v, c => { patience := castNat v } c)
         , Arg "--seed" (\v, c => { seed := castBits64 v } c)
-        , Arg "--accum-steps" (\v, c => { accumSteps := castNat v } c) ]
+        , Arg "--accum-steps" (\v, c => { accumSteps := castNat v } c)
+        , Arg "--lr-find" (\v, c => { lrFind := (v == "1" || v == "true") } c) ]
 
 
 partial
@@ -216,6 +219,17 @@ main = do
       genBatch = seqBatch BatchSize
 
   let trainCfg = patienceConfig cfg.epochs cfg.patience
+
+  when cfg.lrFind $ do
+    let lrCfg : LrFindConfig
+        lrCfg = { numIters := 100 } defaultLrFindConfig
+    _ <- lrFind lrCfg
+      (\m, d => let (m', loss) = epochNativeTensorPre opt d seqCE m
+                in pure (m', loss))
+      genBatch opt model
+    putStrLn ""
+    putStrLn "Done — re-run without --lr-find at the recommended LR."
+    exitSuccess
 
   let epochFn = if cfg.accumSteps > 1
         then \m, d => epochNativeTensorPreAccum opt cfg.accumSteps d seqCE m
