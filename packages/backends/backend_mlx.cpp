@@ -603,8 +603,25 @@ TensorHandle tensor_bce_with_logits(TensorHandle hinput, TensorHandle htarget) {
     // TODO: proper backward
     return (TensorHandle)r;
 }
-TensorHandle tensor_cross_entropy(TensorHandle input, TensorHandle target) { STUB(); }
-TensorHandle tensor_mse_loss(TensorHandle input, TensorHandle target) { STUB(); }
+TensorHandle tensor_cross_entropy(TensorHandle hinput, TensorHandle htarget) {
+    /* Cross-entropy with soft labels: CE = -mean(target * log_softmax(input)).
+       Decomposed into primitives so each step records its own tape entry —
+       backward flows automatically through replay-based vjp.
+
+       Matches tape backend's choice of dim=0 for log_softmax for cross-backend
+       consistency. */
+    TensorHandle ls = tensor_log_softmax(hinput, 0);
+    TensorHandle prod = tensor_mul(htarget, ls);
+    TensorHandle neg = tensor_neg(prod);
+    return tensor_mean(neg);
+}
+
+TensorHandle tensor_mse_loss(TensorHandle hinput, TensorHandle htarget) {
+    /* MSE = mean((input - target)^2). Decomposed via existing primitives. */
+    TensorHandle diff = tensor_sub(hinput, htarget);
+    TensorHandle sq = tensor_mul(diff, diff);
+    return tensor_mean(sq);
+}
 
 /* ================================================================
    NTM-specific
