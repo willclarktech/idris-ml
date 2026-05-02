@@ -102,7 +102,7 @@ loopTLinear (S k) w x b _ =
 --    Layer.Ntm / Layer.Dnc all hit). Includes record destructuring
 --    of LinearState, .weightT/.biasT extraction, etc.
 loopLinearApply : {h : Nat} -> {o : Nat} ->
-                    Nat -> LinearState h o CPU -> Tensor [h] ExampleDevice ExampleDType WithGrad ->
+                    Nat -> LinearState h o ExampleDevice -> Tensor [h] ExampleDevice ExampleDType WithGrad ->
                     Tensor [o] ExampleDevice ExampleDType WithGrad -> Tensor [o] ExampleDevice ExampleDType WithGrad
 loopLinearApply Z _ _ acc = acc
 loopLinearApply (S k) st x _ =
@@ -114,8 +114,8 @@ loopLinearApply (S k) st x _ =
 --    multiple consecutive C calls are interleaved with state
 --    record destructuring.
 loopLstmApply : {i : Nat} -> {o : Nat} ->
-                  Nat -> LstmState i o CPU -> Tensor [i] ExampleDevice ExampleDType WithGrad ->
-                  LstmState i o CPU -> LstmState i o CPU
+                  Nat -> LstmState i o ExampleDevice -> Tensor [i] ExampleDevice ExampleDType WithGrad ->
+                  LstmState i o ExampleDevice -> LstmState i o ExampleDevice
 loopLstmApply Z _ _ acc = acc
 loopLstmApply (S k) st x _ =
   let (st', _) = applyLstm st x
@@ -127,8 +127,8 @@ loopLstmApply (S k) st x _ =
 --    NTM-copy runs.
 partial
 loopNtmApply : {n : Nat} -> {m : Nat} -> {h : Nat} -> {i : Nat} -> {o : Nat} ->
-                 Nat -> NtmState n m h i o CPU -> TVec i ExampleDevice ExampleDType WithGrad ->
-                 NtmState n m h i o CPU -> NtmState n m h i o CPU
+                 Nat -> NtmState n m h i o ExampleDevice -> TVec i ExampleDevice ExampleDType WithGrad ->
+                 NtmState n m h i o ExampleDevice -> NtmState n m h i o ExampleDevice
 loopNtmApply Z _ _ acc = acc
 loopNtmApply (S k) st x _ =
   let (st', _) = applyNtm st x
@@ -207,7 +207,7 @@ main = do
       xT = MkTensor xPtr Nothing
       bT : Tensor [W] ExampleDevice ExampleDType WithGrad
       bT = MkTensor bPtr Nothing
-      lin : LinearState H W CPU
+      lin : LinearState H W ExampleDevice
       lin = MkLinear wT bT
 
   -- Warmup. Use prim__item to extract a Double from the result so

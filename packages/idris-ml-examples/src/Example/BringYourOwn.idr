@@ -17,6 +17,7 @@ module Example.BringYourOwn
 
 import Device
 import Device.Core
+import BuildConfig
 
 
 ----------------------------------------------------------------------
@@ -160,10 +161,10 @@ main = do
   putStrLn ""
   putStrLn ("(2 + 3) * 5 = " ++ show result)
   putStrLn ""
-  putStrLn "Same expression on the unified CPU backend (libidrisml)"
+  putStrLn "Same expression on the build's primary backend (libidrisml)"
   putStrLn "for contrast — no [byo] lines, because the dispatch"
-  putStrLn "goes through libidrisml's primary backend instead."
+  putStrLn "goes through whatever ExampleDevice resolves to in this build."
   putStrLn ""
-  let viaCpu = fma CPU 2.0 3.0 5.0
+  let viaPrimary = fma ExampleDevice 2.0 3.0 5.0
   putStrLn ""
-  putStrLn ("(2 + 3) * 5 on CPU = " ++ show viaCpu)
+  putStrLn ("(2 + 3) * 5 on " ++ deviceName {d = ExampleDevice} ++ " = " ++ show viaPrimary)
