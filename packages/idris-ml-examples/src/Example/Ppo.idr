@@ -11,6 +11,7 @@ import Endofunctor
 import Floating
 import Gym.ClassicControl.Pendulum
 import Gym.Env
+import Hpo.LrFinder
 import Layer
 import Math
 import RL.Gae
@@ -336,9 +337,10 @@ record Config where
   entropyCoef : Double
   valueCoef   : Double
   seed        : Bits64
+  lrFind      : Bool
 
 defaultConfig : Config
-defaultConfig = MkConfig 3.0e-4 200 0.99 0.95 0.2 10 0.0 0.5 42
+defaultConfig = MkConfig 3.0e-4 200 0.99 0.95 0.2 10 0.0 0.5 42 False
 
 specs : List (ArgSpec Config)
 specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
@@ -350,6 +352,7 @@ specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
         , Arg "--entropy" (\v, c => { entropyCoef := cast v } c)
         , Arg "--value-coef" (\v, c => { valueCoef := cast v } c)
         , Arg "--seed" (\v, c => { seed := castBits64 v } c)
+        , Arg "--lr-find" (\v, c => { lrFind := (v == "1" || v == "true") } c)
         ]
 
 record PPOState where
@@ -474,6 +477,21 @@ main = do
       opt = nativeAdamGlobalClip cfg.lr 0.9 0.999 1.0e-8 0.5
 
   putStrLn ""
+
+  -- HPO branch: --lr-find runs lr_find using one full PPO rollout per
+  -- iter (`ppoEpoch` does the rollout + K mini-batch updates). On
+  -- Pendulum, episode returns are negative, so `negate avgEp` is
+  -- *positive* — the negative-loss heuristic bug doesn't trip here.
+  -- Each iter is heavy (400 env steps + K=10 mini-batches), so use 30 iters.
+  when cfg.lrFind $ do
+    let lrCfg : LrFindConfig
+        lrCfg = { numIters := 30 } defaultLrFindConfig
+    _ <- lrFind lrCfg
+      (\s, _ => ppoEpoch opt cfg s)
+      (pure ()) opt st0
+    putStrLn ""
+    putStrLn "Done — re-run without --lr-find at the recommended LR."
+    exitSuccess
 
   let trainCfg : TrainConfig PPOState
       trainCfg = MkTrainConfig cfg.epochs 10 NoEarlyStop (const (pure [])) (\_ => pure ())

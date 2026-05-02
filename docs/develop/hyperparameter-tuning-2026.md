@@ -151,6 +151,20 @@ This is a useful negative-result entry for the workflow: `lr_find` is a screenin
 
 ---
 
+## Ppo           date: 2026-04-29
+
+- **Before**: `lr=3e-4 epochs=200 rollout=400 batch=64 gamma=0.99 lambda=0.95 clip=0.2 K=10 entropy=0.0 value-coef=0.5 seed=42`. Separate actor (3→64→64→1) + critic (3→64→64→1) MLPs + standalone learnable `log_std` parameter. Pendulum (continuous control). `nativeAdamGlobalClip` (clip=0.5).
+- **lr_find (Idris)**: `RECOMMENDED_LR=0.001743`, sweep 1e-7..10, iters=30 (each iter is one full PPO rollout = 400 env steps + K=10 mini-batch updates). **No negative-loss bug here**: Pendulum rewards are negative, so `negate avgEpReward` is positive (≈1876 at random init). Loss curve: 1876 → 1500 → 1500 (plateau) — see notes.
+- **lr_find (PyTorch)**: n/a — no PyTorch PPO script (Idris-only example currently).
+- **Cross-backend agreement**: n/a (single-backend).
+- **Why the recommendation is unreliable here**: the loss plateau at ~1500 corresponds to "policy collapses to a fixed action and gets ~−1500 episodic reward". `lr_find` can't distinguish "this LR converges fastest" from "this LR collapses the policy fastest"; both produce the same plateau. The recommendation 0.0017 (≈6× the default 3e-4) is the LR at which the policy first collapses, not the LR at which it learns. Don't update the default.
+- **Multi-seed pass rate**: not measured. Default unchanged.
+- **Decision**: ship-as-is at lr=3e-4. Pendulum is also slated for an env swap in **B3-fixes** (clipped surrogate doesn't demonstrate convergence at CPU-feasible rollout); LR retuning waits until after that.
+- **Lesson added (RL + bounded reward)**: when the loss curve plateaus at a non-trivial value (here, 1500), `lr_find` isn't measuring "best LR" — it's measuring "LR at which the optimization breaks the policy." For RL with bounded rewards this is a structural limitation of the steepest-descent heuristic, not specific to Adam.
+- **Commit**: (this commit).
+
+---
+
 ## Pattern observed across B3 so far
 
 After 5 examples (Supervised, Rnn, Lstm, Transformer, SeqClassify), the
