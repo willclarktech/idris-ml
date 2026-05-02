@@ -508,3 +508,55 @@ public export
 Compatible (MlxDev MGpu) F32 where
 
 -- DELIBERATELY NO `Compatible (MlxDev MGpu) dt` instance.
+
+
+----------------------------------------------------------------------
+-- UserDeviceTransfer instance (cross-backend transfer surface)
+--
+-- mlx routes the intra-backend hardware migration through its
+-- stream-switch mechanism rather than libtorch-style `.to()`; the
+-- existing `tensor_to_device_mlx` C symbol no-ops because mlx's
+-- arrays are device-agnostic at the metadata level (the stream tag
+-- is what drives where compute runs). The runtime stream is picked
+-- by `deviceStreamTag` on the `UserDeviceCore (MlxDev s)` instance,
+-- so an intra-backend `toDevice` (MCpu→MGpu) actually has to land
+-- back through host memory for stream-switch to be observable; we
+-- preserve the parametric implementation here for shape parity
+-- with TapeDev / TorchDev.
+----------------------------------------------------------------------
+
+%foreign "scheme:(lambda (a0 a1)  ((foreign-procedure \"tensor_to_doubles_mlx\" (void* void*) void) (vector-ref a0 1) a1) a1)"
+prim__toHostMlx : AnyPtr -> AnyPtr -> AnyPtr
+
+%foreign "C:tensor_alloc_doubles_mlx,libidrisml"
+prim__allocHostMlx : Int -> AnyPtr
+
+%foreign "C:tensor_free_doubles_mlx,libidrisml"
+prim__freeHostMlx : AnyPtr -> ()
+
+%foreign "C:tensor_alloc_ints_mlx,libidrisml"
+prim__allocIntHostMlx : Int -> AnyPtr
+
+%foreign "C:tensor_free_ints_mlx,libidrisml"
+prim__freeIntHostMlx : AnyPtr -> ()
+
+%foreign "C:tensor_write_int_return_mlx,libidrisml"
+prim__setIntHostMlx : AnyPtr -> Int -> Int -> AnyPtr
+
+%foreign "scheme:(lambda (a0 a1 a2 a3) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_mlx\" (void* void* int int) void*) a0 a1 a2 a3))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
+prim__createFromHostMlx : AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
+
+%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_to_device_mlx\" (void* string) void*) (vector-ref a0 1) a1))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
+prim__intraMigrateMlx : AnyPtr -> String -> AnyPtr
+
+public export
+{s : MlxStream} -> UserDeviceTransfer (MlxDev s) where
+  backendTag         = "mlx"
+  primToHost         = prim__toHostMlx
+  primAllocHost      = prim__allocHostMlx
+  primFreeHost       = prim__freeHostMlx
+  primAllocIntHost   = prim__allocIntHostMlx
+  primFreeIntHost    = prim__freeIntHostMlx
+  primSetIntHost     = prim__setIntHostMlx
+  primCreateFromHost = prim__createFromHostMlx
+  primIntraMigrate   = prim__intraMigrateMlx

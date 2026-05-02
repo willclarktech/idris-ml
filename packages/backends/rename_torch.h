@@ -177,6 +177,7 @@
 #define tensor_expand_mask tensor_expand_mask_torch
 #define tensor_free tensor_free_torch
 #define tensor_free_doubles tensor_free_doubles_torch
+#define tensor_free_ints tensor_free_ints_torch
 #define tensor_gather tensor_gather_torch
 #define tensor_gelu tensor_gelu_torch
 #define tensor_grad tensor_grad_torch
@@ -257,6 +258,7 @@
 #define tensor_tile_2d tensor_tile_2d_torch
 #define tensor_to_device tensor_to_device_torch
 #define tensor_to_doubles tensor_to_doubles_torch
+#define tensor_to_doubles_return tensor_to_doubles_return_torch
 #define tensor_to_floats tensor_to_floats_torch
 #define tensor_transpose_2d tensor_transpose_2d_torch
 #define tensor_transpose_last2 tensor_transpose_last2_torch

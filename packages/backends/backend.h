@@ -436,7 +436,9 @@ int          param_zero_all_grads_return(int dummy);  /* zero_all_grads(); retur
 TensorHandle tensor_write_double_return(TensorHandle buf, int off, double val); /* write; return buf */
 void*        tensor_ptr_array_set_return(void* arr, int idx, TensorHandle t); /* set; return arr */
 int*         tensor_alloc_ints(int n);                           /* alloc zero-filled int array */
+void         tensor_free_ints(int* buf);                          /* free array allocated by tensor_alloc_ints */
 int*         tensor_write_int_return(int* buf, int off, int val); /* write; return buf */
+double*      tensor_to_doubles_return(TensorHandle h, double* buf); /* tensor_to_doubles + return buf */
 int          tensor_backward_conditional(TensorHandle t); /* backward if requires_grad; return param_count */
 double       tensor_backward_return_loss(TensorHandle loss_ptr, double loss_val); /* backward if rg; return loss_val */
 double       native_train_step(OptimizerHandle opt, int clip_mode, double clip_val,

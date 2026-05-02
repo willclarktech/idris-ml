@@ -493,3 +493,55 @@ Compatible (TorchDev TCpu) F64 where
 
 public export
 {n : Nat} -> Compatible (TorchDev (TCuda n)) F64 where
+
+
+----------------------------------------------------------------------
+-- UserDeviceTransfer instance (cross-backend transfer surface)
+--
+-- The torch hardware-migrate path is the only one that does real
+-- work: `tensor_to_device_torch(handle, "mps"|"cuda:n")` migrates a
+-- libtorch tensor in place between CPU, MPS, and CUDA without
+-- allocating a fresh handle, preserving param-registry membership.
+----------------------------------------------------------------------
+
+%foreign "scheme:(lambda (a0 a1)  ((foreign-procedure \"tensor_to_doubles_torch\" (void* void*) void) (vector-ref a0 1) a1) a1)"
+prim__toHostTorch : AnyPtr -> AnyPtr -> AnyPtr
+
+%foreign "C:tensor_alloc_doubles_torch,libidrisml"
+prim__allocHostTorch : Int -> AnyPtr
+
+%foreign "C:tensor_free_doubles_torch,libidrisml"
+prim__freeHostTorch : AnyPtr -> ()
+
+%foreign "C:tensor_alloc_ints_torch,libidrisml"
+prim__allocIntHostTorch : Int -> AnyPtr
+
+%foreign "C:tensor_free_ints_torch,libidrisml"
+prim__freeIntHostTorch : AnyPtr -> ()
+
+%foreign "C:tensor_write_int_return_torch,libidrisml"
+prim__setIntHostTorch : AnyPtr -> Int -> Int -> AnyPtr
+
+||| Create from host data + auto-migrate to the target torch hw.
+||| The closure here calls the rank-generic `tensor_create_torch`
+||| (which lands on CPU by default in libtorch) then
+||| `tensor_to_device_torch(handle, "mps"|"cuda:n")` so the returned
+||| tensor is on the right hardware variant. Matches the post-create
+||| migration the existing `primCreate` does in `UserDeviceCore
+||| (TorchDev d)`.
+prim__createFromHostTorch : (d : TorchHwDev) -> AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
+prim__createFromHostTorch d dat sh rank rg =
+  prim__toDeviceTorch (prim__createTorch dat sh rank rg) (torchHwDevName d)
+
+public export
+{d : TorchHwDev} -> UserDeviceTransfer (TorchDev d) where
+  backendTag         = "torch"
+  primToHost         = prim__toHostTorch
+  primAllocHost      = prim__allocHostTorch
+  primFreeHost       = prim__freeHostTorch
+  primAllocIntHost   = prim__allocIntHostTorch
+  primFreeIntHost    = prim__freeIntHostTorch
+  primSetIntHost     = prim__setIntHostTorch
+  primCreateFromHost = prim__createFromHostTorch d
+  primIntraMigrate h hwName =
+    prim__toDeviceTorch h hwName

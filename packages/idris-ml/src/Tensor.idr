@@ -1080,20 +1080,56 @@ record Tensor (dims : Vect rank Nat) (0 d : Device) (0 dt : DType) (0 g : GradMo
   paramId   : Maybe String
 
 ||| Transfer a tensor to a different device. The one place where
-||| device types intentionally change. Wraps `prim__toDevice` with
-||| the target device's `deviceName` as the C-side tag. `paramId` is
-||| preserved (the C-side parameter registry tracks the moved
-||| handle).
+||| device types intentionally change.
 |||
-||| Phase 2.1b: the target device is now a *type* with a
-||| `UserDeviceCore` instance, not a `Device`-sum value. The instance
-||| supplies the C-side string via its `deviceName` method.
+||| Dispatches on `backendTag` equality:
+|||
+||| * Source and dest share a backend → fast intra-backend path. The
+|||   backend's `primIntraMigrate` swaps the hardware variant on the
+|||   *same* C handle (`tensor_to_device_<b>(handle, "mps"|"cuda:n")`
+|||   on torch; a stream-tag flip on mlx; a no-op on tape). Preserves
+|||   param-registry membership.
+|||
+|||  * Different backends → host round-trip. Source's `primToHost`
+|||   copies the tensor into a CPU double buffer; the shape gets
+|||   marshalled into a CPU int buffer; dest's `primCreateFromHost`
+|||   reconstructs the tensor on the target backend. Both temporary
+|||   buffers are explicitly freed via `ioRerun` so Idris-Chez can't
+|||   elide the cleanup. The destination tensor is a *fresh* C handle
+|||   on the dest backend — registry membership does NOT follow; users
+|||   transferring parameters across backends re-register on the dest
+|||   side.
+|||
+||| `paramId` is preserved on the Idris-side `Tensor` record either
+||| way; only the C-side registry differs.
 export
-toDevice : {0 d1 : Type} -> (0 d2 : Type) -> UserDeviceCore d2 =>
+toDevice : {0 d1 : Type} -> (0 d2 : Type) ->
+           UserDeviceTransfer d1 => UserDeviceTransfer d2 =>
+           {rank : Nat} -> {dims : Vect rank Nat} ->
            Tensor dims d1 dt WithGrad -> IO (Tensor dims d2 dt WithGrad)
-toDevice d2 t =
-  pure (MkTensor (prim__toDevice t.tensorPtr (deviceName {d = d2}))
-                 t.paramId)
+toDevice d2 src =
+  if backendTag {d = d1} == backendTag {d = d2}
+    then pure (MkTensor
+                (primIntraMigrate {d = d2}
+                  src.tensorPtr (deviceName {d = d2}))
+                src.paramId)
+    else do
+      let nI       = cast {to=Int} (product dims)
+      let dataBuf  = primAllocHost {d = d1} nI
+      let dataBuf' = primToHost {d = d1} src.tensorPtr dataBuf
+      let rankI    = cast {to=Int} (length dims)
+      let shapeBuf = primAllocIntHost {d = d2} rankI
+      let shapeBuf' = writeShape shapeBuf 0 dims
+      let destPtr  = primCreateFromHost {d = d2} dataBuf' shapeBuf' rankI 0
+      primIO (\w => MkIORes (primFreeIntHost {d = d2} shapeBuf') w)
+      primIO (\w => MkIORes (primFreeHost {d = d1} dataBuf') w)
+      pure (MkTensor destPtr src.paramId)
+  where
+    writeShape : AnyPtr -> Int -> Vect r Nat -> AnyPtr
+    writeShape buf _ [] = buf
+    writeShape buf off (x :: xs) =
+      let buf' = primSetIntHost {d = d2} buf off (cast {to=Int} x)
+      in writeShape buf' (off + 1) xs
 
 ||| Mark a tensor as no-grad: flips the C-side `requires_grad` flag to
 ||| false and retypes the handle as `NoGrad`. After this, downstream

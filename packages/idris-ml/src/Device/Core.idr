@@ -293,3 +293,67 @@ interface UserDeviceConv d => UserDeviceTape (0 d : Device) where
   -- Doubles array helpers ------------------------------------------
   primAllocDoubles      : Int -> AnyPtr
   primReadDouble        : AnyPtr -> Int -> Double
+
+
+----------------------------------------------------------------------
+-- UserDeviceTransfer — cross-backend tensor transfer surface
+--
+-- Backends that implement this can act as source or destination for
+-- the generic `toDevice` in `Tensor.idr`. The interface bundles
+-- everything `toDevice` needs to:
+--   (a) recognise the backend at runtime (via `backendTag`);
+--   (b) migrate a handle in place when source and dest share a
+--       backend (via `primIntraMigrate`); and
+--   (c) round-trip through host memory when they don't (via the
+--       `primToHost` / `primCreateFromHost` pair plus the host
+--       buffer-alloc helpers).
+--
+-- The five built-in backends today (tape, torch CPU/MPS/CUDA, mlx
+-- CPU/GPU) all implement this. Users adding a BYO backend that
+-- wants to plug into the generic `toDevice` machinery declare their
+-- own instance with a globally-unique `backendTag` (convention:
+-- namespace as "user/<name>" to avoid colliding with built-ins).
+----------------------------------------------------------------------
+
+||| Cross-backend transfer surface. See module-level docs above.
+public export
+interface UserDeviceCore d => UserDeviceTransfer (0 d : Device) where
+  ||| Globally unique string identifying the backend (NOT the
+  ||| hardware variant). Built-ins reserve "tape", "torch", "mlx".
+  ||| BYO backends should namespace with "user/<name>". `toDevice`
+  ||| compares tags to decide intra-vs-cross-backend path; a
+  ||| collision would route an intra fast-path through a foreign
+  ||| backend's C symbols and crash on handle type mismatch.
+  backendTag : String
+
+  ||| Read a tensor's contents into a caller-allocated host double
+  ||| buffer of `tensor_numel(handle)` slots. Returns the buffer so
+  ||| Idris-Chez can't elide the FFI; threaded downstream into
+  ||| `primCreateFromHost` on the destination backend.
+  primToHost : AnyPtr -> AnyPtr -> AnyPtr
+
+  ||| Allocate / free a host double buffer of `n` slots. Backend-
+  ||| neutral host memory (calloc/free under the hood).
+  primAllocHost : Int -> AnyPtr
+  primFreeHost  : AnyPtr -> ()
+
+  ||| Allocate / write / free a host int buffer of `n` slots. Used
+  ||| by `toDevice` to build the shape array that
+  ||| `primCreateFromHost` consumes.
+  primAllocIntHost : Int -> AnyPtr
+  primFreeIntHost  : AnyPtr -> ()
+  ||| Write `val` to `buf[idx]` and return `buf` (for threading).
+  primSetIntHost   : AnyPtr -> Int -> Int -> AnyPtr
+
+  ||| Create a tensor on this device from a host-allocated double
+  ||| buffer + int shape buffer. The (data, shape, rank, rg) tuple
+  ||| matches `tensor_create`'s ABI; the migration to this device's
+  ||| hardware variant (e.g. TMps) happens internally so the
+  ||| returned handle is on the right hw.
+  primCreateFromHost : AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
+
+  ||| Intra-backend hardware migration. Only sound when caller has
+  ||| verified shared backend via `backendTag`. Mutates the
+  ||| underlying tensor in place where the backend supports it;
+  ||| preserves param-registry membership.
+  primIntraMigrate : AnyPtr -> String -> AnyPtr

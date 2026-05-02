@@ -4412,7 +4412,11 @@ void* tensor_ptr_array_set_return(void* arr, int idx, TensorHandle t) {
     tensor_ptr_array_set((TensorHandle*)arr, idx, t); return arr;
 }
 int* tensor_alloc_ints(int n) { return (int*)calloc(n, sizeof(int)); }
+void tensor_free_ints(int* buf) { free(buf); }
 int* tensor_write_int_return(int* buf, int off, int val) { buf[off] = val; return buf; }
+double* tensor_to_doubles_return(TensorHandle h, double* buf) {
+    tensor_to_doubles(h, buf); return buf;
+}
 int tensor_backward_conditional(TensorHandle t) {
     if (tensor_requires_grad(t)) tensor_backward(t);
     return param_count();

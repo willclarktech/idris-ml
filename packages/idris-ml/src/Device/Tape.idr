@@ -433,6 +433,51 @@ UserDeviceTape TapeDev where
 
 
 ----------------------------------------------------------------------
+-- UserDeviceTransfer instance (cross-backend transfer surface)
+--
+-- Tape lives entirely on host CPU; there are no hardware variants
+-- to switch between, so `primIntraMigrate` is a literal no-op (the
+-- C-side `tensor_to_device_tape` returns the input handle as-is).
+----------------------------------------------------------------------
+
+%foreign "scheme:(lambda (a0 a1)  ((foreign-procedure \"tensor_to_doubles_tape\" (void* void*) void) (vector-ref a0 1) a1) a1)"
+prim__toHostTape : AnyPtr -> AnyPtr -> AnyPtr
+
+%foreign "C:tensor_alloc_doubles_tape,libidrisml"
+prim__allocHostTape : Int -> AnyPtr
+
+%foreign "C:tensor_free_doubles_tape,libidrisml"
+prim__freeHostTape : AnyPtr -> ()
+
+%foreign "C:tensor_alloc_ints_tape,libidrisml"
+prim__allocIntHostTape : Int -> AnyPtr
+
+%foreign "C:tensor_free_ints_tape,libidrisml"
+prim__freeIntHostTape : AnyPtr -> ()
+
+%foreign "C:tensor_write_int_return_tape,libidrisml"
+prim__setIntHostTape : AnyPtr -> Int -> Int -> AnyPtr
+
+%foreign "scheme:(lambda (a0 a1 a2 a3) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_tape\" (void* void* int int) void*) a0 a1 a2 a3))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
+prim__createFromHostTape : AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
+
+%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_to_device_tape\" (void* string) void*) (vector-ref a0 1) a1))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
+prim__intraMigrateTape : AnyPtr -> String -> AnyPtr
+
+public export
+UserDeviceTransfer TapeDev where
+  backendTag         = "tape"
+  primToHost         = prim__toHostTape
+  primAllocHost      = prim__allocHostTape
+  primFreeHost       = prim__freeHostTape
+  primAllocIntHost   = prim__allocIntHostTape
+  primFreeIntHost    = prim__freeIntHostTape
+  primSetIntHost     = prim__setIntHostTape
+  primCreateFromHost = prim__createFromHostTape
+  primIntraMigrate   = prim__intraMigrateTape
+
+
+----------------------------------------------------------------------
 -- Compatible (TapeDev, dt). Tape backend stores doubles only; F32
 -- would require a parallel `float*` arena (deferred).
 ----------------------------------------------------------------------

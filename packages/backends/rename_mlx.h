@@ -177,6 +177,7 @@
 #define tensor_expand_mask tensor_expand_mask_mlx
 #define tensor_free tensor_free_mlx
 #define tensor_free_doubles tensor_free_doubles_mlx
+#define tensor_free_ints tensor_free_ints_mlx
 #define tensor_gather tensor_gather_mlx
 #define tensor_gelu tensor_gelu_mlx
 #define tensor_grad tensor_grad_mlx
@@ -257,6 +258,7 @@
 #define tensor_tile_2d tensor_tile_2d_mlx
 #define tensor_to_device tensor_to_device_mlx
 #define tensor_to_doubles tensor_to_doubles_mlx
+#define tensor_to_doubles_return tensor_to_doubles_return_mlx
 #define tensor_to_floats tensor_to_floats_mlx
 #define tensor_transpose_2d tensor_transpose_2d_mlx
 #define tensor_transpose_last2 tensor_transpose_last2_mlx

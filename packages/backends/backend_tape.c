@@ -5841,8 +5841,17 @@ int* tensor_alloc_ints(int n) {
     return (int*)calloc(n, sizeof(int));
 }
 
+void tensor_free_ints(int* buf) {
+    free(buf);
+}
+
 int* tensor_write_int_return(int* buf, int off, int val) {
     buf[off] = val;
+    return buf;
+}
+
+double* tensor_to_doubles_return(TensorHandle h, double* buf) {
+    tensor_to_doubles(h, buf);
     return buf;
 }
 
