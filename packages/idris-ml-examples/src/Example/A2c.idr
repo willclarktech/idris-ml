@@ -11,6 +11,7 @@ import Endofunctor
 import Floating
 import Gym.ClassicControl.CartPole
 import Gym.Env
+import Hpo.LrFinder
 import Layer
 import Math
 import RL.Gae
@@ -317,11 +318,12 @@ record Config where
   entropyCoef : Double
   valueCoef   : Double
   seed        : Bits64
+  lrFind      : Bool
 
 ||| Defaults aligned with PyTorch `a2c.py`: lr=7e-4, entropy=0.01,
 ||| rollout=20, gamma=0.99, lam=0.95.
 defaultConfig : Config
-defaultConfig = MkConfig 7.0e-4 5000 0.99 0.95 0.01 0.5 42
+defaultConfig = MkConfig 7.0e-4 5000 0.99 0.95 0.01 0.5 42 False
 
 specs : List (ArgSpec Config)
 specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
@@ -331,6 +333,7 @@ specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
         , Arg "--entropy" (\v, c => { entropyCoef := cast v } c)
         , Arg "--value-coef" (\v, c => { valueCoef := cast v } c)
         , Arg "--seed" (\v, c => { seed := castBits64 v } c)
+        , Arg "--lr-find" (\v, c => { lrFind := (v == "1" || v == "true") } c)
         ]
 
 lastTerminated : List RollStep -> Bool
@@ -411,6 +414,19 @@ main = do
       opt = nativeAdamGlobalClip cfg.lr 0.9 0.999 1.0e-8 0.5
 
   putStrLn ""
+
+  -- HPO branch: --lr-find runs lr_find using episode-return-as-loss.
+  -- See hyperparameter-tuning-2026.md — same negative-loss caveat as
+  -- Reinforce/Dqn; result is informational only.
+  when cfg.lrFind $ do
+    let lrCfg : LrFindConfig
+        lrCfg = { numIters := 100 } defaultLrFindConfig
+    _ <- lrFind lrCfg
+      (\s, _ => a2cEpoch opt cfg s)
+      (pure ()) opt st0
+    putStrLn ""
+    putStrLn "Done — re-run without --lr-find at the recommended LR."
+    exitSuccess
 
   let trainCfg : TrainConfig A2CState
       trainCfg = MkTrainConfig cfg.epochs 500 NoEarlyStop (const (pure [])) (\_ => pure ())

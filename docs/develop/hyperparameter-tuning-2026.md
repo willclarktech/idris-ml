@@ -140,6 +140,17 @@ This is a useful negative-result entry for the workflow: `lr_find` is a screenin
 
 ---
 
+## A2c           date: 2026-04-29
+
+- **Before**: `lr=7e-4 epochs=5000 rollout=20 gamma=0.99 lambda=0.95 entropy=0.01 seed=42`. Separate actor (4→64→64→2) and critic (4→64→64→1) MLPs with paramId-scoped autoName. `nativeAdamGlobalClip` (clip=0.5).
+- **lr_find (Idris)**: `RECOMMENDED_LR=1e-8` — diverged at iter 1 (same negative-loss bug as Reinforce / Dqn).
+- **lr_find (PyTorch)**: n/a — no PyTorch A2C script (Idris-only example).
+- **Cross-backend agreement**: n/a (single-backend).
+- **Decision**: ship-as-is at lr=7e-4. Flag wired for API consistency.
+- **Commit**: (this commit).
+
+---
+
 ## Pattern observed across B3 so far
 
 After 5 examples (Supervised, Rnn, Lstm, Transformer, SeqClassify), the
