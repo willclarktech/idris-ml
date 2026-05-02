@@ -51,6 +51,9 @@ Configuration: N=32, M=20, H=100, R=1, lr=1e-4, nativeRmsprop (alpha=0.95, momen
 |--------|---------|-------------|-------------|------|----------|
 | 500 | tape | 69% | 59% | 9m 11s | 1102 |
 | 2,000 | tape | 77% | 60% | 34m 26s | 1033 |
+| 2,000 (2026-04-29 rerun) | tape | 76.5% | 60.7% | 57m 47s | 1733 |
+
+The 2026-04-29 rerun (post-revert) reproduces the documented `acc_short ≈ 77%` / `acc_full ≈ 60%` baseline at 2K epochs, confirming the smaller config still works as documented. The slower ms/epoch number reflects parallel CPU contention from running PyTorch's DNC recall convergence on the same machine simultaneously; the 1033 ms/epoch baseline remains the clean per-epoch reference.
 
 Convergence trajectory at batch=1 tracks PyTorch's early phase (PyTorch at epoch 500: 62%, Idris at epoch 500: 69%). Estimated full convergence: ~46K epochs (~13 hours on tape backend).
 
