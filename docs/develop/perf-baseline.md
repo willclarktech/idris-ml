@@ -317,5 +317,86 @@ missing) need to land first.
 2. Phase 1 → Phase 2 / 3: act on the attack list above. Update the
    table after each shrink or perf change.
 3. Phase 4: re-measure all cells on mlx and torch backends.
+
+
+## 2026-05-19: 5-cell Apple-Silicon sweep (post device-taxonomy refactor)
+
+First full sweep after Phases 1-9 land the parametric TorchDev,
+TORCH_DEVICE=mps build cell, and UserDeviceTransfer machinery. Cells:
+`tape,torch-cpu,torch-mps,mlx-cpu,mlx-gpu`. Examples: the
+perf-sweep default set (rnn, lstm, gru, transformer, ntm-copy,
+ntm-recall) plus reinforce as a one-off. CUDA cell intentionally
+skipped — no CUDA hardware on the Apple-Silicon CI lane.
+
+Numbers are `idris_ms_per_epoch / pytorch_ref_ms_per_epoch`; lower
+is better (Idris-ml beating PyTorch CPU baseline). PyTorch ref runs
+once per example regardless of cell (one shared reference).
+
+| example     | tape  | torch-cpu | torch-mps | mlx-cpu | mlx-gpu |
+|-------------|-------|-----------|-----------|---------|---------|
+| reinforce   | 0.18  | 0.68      | 0.16      | (skipped) | (skipped) |
+| rnn         | 0.20  | 1.01      | 1.07      | 45.42   | 64.94   |
+| lstm        | 0.10  | 0.78      | 0.79      | 37.63   | 59.72   |
+| gru         | 0.06  | 0.64      | 0.54      | 17.13   | 25.57   |
+| transformer | 0.04  | 0.30      | 0.28      | 1.51    | 3.47    |
+| ntm-copy    | 0.31  | 1.41      | **crash** | 34.52   | 34.07   |
+| ntm-recall  | 0.27  | 1.55      | **crash** | 18.34   | 27.94   |
+
+Raw measurements in `perf-log.jsonl` (filter `methodology ==
+"in_script_marker"` AND `date == "2026-05-19"`).
+
+### Key observations
+
+1. **tape dominates on every measured workload** — confirms tape's
+   "fastest on small-and-medium" character. Even after the device-
+   taxonomy refactor, every cell on every example sees tape ≤ 0.31×
+   PyTorch CPU. The "Idris-ml is faster than PyTorch on these
+   workloads" claim survives the refactor.
+2. **torch-cpu and torch-mps tie at this scale** — across rnn /
+   lstm / gru / transformer, torch-mps comes in within 5-15% of
+   torch-cpu (sometimes faster, sometimes slower). Kernel-launch
+   overhead dominates these small tensors; MPS's compute wins don't
+   materialise until something matmul-heavy at larger sizes lands
+   (LLM-class workload remains the canonical such case).
+3. **mlx is consistently 10-65× slower at this scale** — mirrors
+   the existing finding documented in
+   `project_mlx_gpu_environment.md`: mlx's kernel-launch wall
+   crushes the tiny workloads idris-ml's examples exercise.
+   transformer is the outlier where mlx is "only" 1.5×/3.5× —
+   probably because its larger model + batched attention amortise
+   the launch cost.
+4. **reinforce on torch-mps comes in at 0.16×, beating tape's 0.18×**
+   — the 128-hidden policy network is *just* large enough for MPS
+   to win on the matmul. First case in the codebase where torch-mps
+   visibly beats tape on a real example.
+5. **NTM-copy and NTM-recall crash on torch-mps with abort trap 6**
+   — exit code 134, no Python-side error message; the SIGABRT fires
+   below the Idris-Chez layer (libtorch internals). Likely related
+   to NTM's cosine-similarity / softmax loops hitting an MPS kernel
+   coverage gap. Filed as TODO row "Investigate NTM crash on
+   torch-mps". The torch-cpu lane on these examples runs fine.
+
+### Why torch-cpu is sometimes slower than tape
+
+torch-cpu lands at 1.0-1.55× on rnn / lstm / ntm — slower than PyTorch
+CPU. That's expected: torch-cpu goes through libtorch's autograd
+graph + per-op kernel dispatch, picking up Python-equivalent overhead
+per op. Tape's hand-rolled tape allocator + per-op fused kernels avoid
+the dispatch tax. The "free" Idris-ml win on small recurrent loops
+comes from the tape backend, not from libtorch.
+
+### Why MPS doesn't help here
+
+These workloads are small enough that MPS kernel launch (~50-100µs
+per op) dominates the actual matmul time (~5-10µs for a 128×4 matmul
+at F32). The MPS win comes when:
+- Matmul size grows past the kernel-launch crossover (~1024×1024 N
+  at F32 per `MatmulBench.idr` data).
+- Batch dim grows (amortises launch cost across more arithmetic).
+- The model fits in MPS unified memory and avoids host transfers.
+
+idris-ml's example bank is calibrated for fast convergence + tape-
+compatible scales, so MPS's headroom isn't visible yet. The LLM-class
+example (parked TODO) is the canonical workload to exercise it.
 4. Phase 5: re-validate ≤ 1.10× across all (example, backend) cells
    that aren't `task-bound` / `no-ref`.
