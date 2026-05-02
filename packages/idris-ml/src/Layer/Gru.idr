@@ -17,7 +17,7 @@ import Tensor
 -- Mirrors `Layer/Gru.idr`'s `applyVarTensor` path with the simplified
 -- GRU variant the C kernel implements (`tensor_gru_cell`):
 --   combined = (W_ih · x + b_ih) + (W_hh · h + b_hh)
---   h_t = `prim__gruCell` combined h_{t-1} o
+--   h_t = `primGruCell {d}` combined h_{t-1} o
 --
 -- Three gate paths (z, r, n) are computed inside the C op; the
 -- combined vector has shape [3 * o]. Static type safety via
@@ -134,13 +134,13 @@ LayerLike GruState where
     pure (MkGru iw' ihB' hw' hhB' hid')
 
   unfreezeLayer (MkGru iw ihB hw hhB hid) = do
-    primIO (prim__setRequiresGrad iw.tensorPtr 1)
-    primIO (prim__setRequiresGrad ihB.tensorPtr 1)
-    primIO (prim__setRequiresGrad hw.tensorPtr 1)
-    primIO (prim__setRequiresGrad hhB.tensorPtr 1)
+    primIO (primSetRequiresGrad {d} iw.tensorPtr 1)
+    primIO (primSetRequiresGrad {d} ihB.tensorPtr 1)
+    primIO (primSetRequiresGrad {d} hw.tensorPtr 1)
+    primIO (primSetRequiresGrad {d} hhB.tensorPtr 1)
     case hid of
       Nothing => pure ()
-      Just h  => primIO (prim__setRequiresGrad h.tensorPtr 1)
+      Just h  => primIO (primSetRequiresGrad {d} h.tensorPtr 1)
     pure (MkGru (retypeGrad iw) (retypeGrad ihB)
                 (retypeGrad hw) (retypeGrad hhB)
                 (map retypeGrad hid))

@@ -49,8 +49,8 @@ LayerLike LinearState where
     pure (MkLinear w' b')
 
   unfreezeLayer (MkLinear w b) = do
-    primIO (prim__setRequiresGrad w.tensorPtr 1)
-    primIO (prim__setRequiresGrad b.tensorPtr 1)
+    primIO (primSetRequiresGrad {d} w.tensorPtr 1)
+    primIO (primSetRequiresGrad {d} b.tensorPtr 1)
     pure (MkLinear (retypeGrad w) (retypeGrad b))
 
 

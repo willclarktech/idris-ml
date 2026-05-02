@@ -35,7 +35,7 @@ record EmbeddingState (vocab : Nat) (embedDim : Nat) (0 d : Device) (0 dt : DTyp
 
 ||| Embedding lookup forward. Indices `tokens : TVec seqLen d` are
 ||| token IDs encoded as doubles; output `[seqLen * embedDim]` is
-||| the flattened embedding vectors. Wraps `prim__embedding`.
+||| the flattened embedding vectors. Wraps `primEmbedding {d}`.
 export
 applyEmbedding : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => {seqLen, embedDim, vocab : Nat} ->
                    EmbeddingState vocab embedDim d dt g ->
@@ -44,7 +44,7 @@ applyEmbedding : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => {seqLe
 applyEmbedding {seqLen} {embedDim} (MkEmbedding w) tokens = ioRerun (\_ =>
   let nI = cast {to=Int} seqLen
       dI = cast {to=Int} embedDim
-      outPtr = prim__embedding w.tensorPtr tokens.tensorPtr nI dI
+      outPtr = primEmbedding {d} w.tensorPtr tokens.tensorPtr nI dI
   in MkTensor outPtr Nothing)
 
 
@@ -111,7 +111,7 @@ public export
     pure (MkEmbeddingWrap (MkEmbedding w'))
 
   unfreezeLayer (MkEmbeddingWrap (MkEmbedding w)) = do
-    primIO (prim__setRequiresGrad w.tensorPtr 1)
+    primIO (primSetRequiresGrad {d} w.tensorPtr 1)
     pure (MkEmbeddingWrap (MkEmbedding (retypeGrad w)))
 
 ||| Wrap a fresh embedding into `AnyLayer` for a specific seqLen.

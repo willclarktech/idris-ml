@@ -62,7 +62,7 @@ applyBatchNorm {channels} {spatialDim}
       sI = cast {to=Int} spatialDim
       tFlag : Int
       tFlag = if training then 1 else 0
-      outPtr = prim__batchNorm input.tensorPtr gamma.tensorPtr beta.tensorPtr
+      outPtr = primBatchNorm {d} input.tensorPtr gamma.tensorPtr beta.tensorPtr
                               mean.tensorPtr var.tensorPtr
                               cI sI tFlag momentum eps
   in (st, MkTensor outPtr Nothing))
@@ -138,10 +138,10 @@ public export
     pure (MkBatchNorm g' b' m' v' t mo e)
 
   unfreezeLayer (MkBatchNorm g b m v t mo e) = do
-    primIO (prim__setRequiresGrad g.tensorPtr 1)
-    primIO (prim__setRequiresGrad b.tensorPtr 1)
-    primIO (prim__setRequiresGrad m.tensorPtr 1)
-    primIO (prim__setRequiresGrad v.tensorPtr 1)
+    primIO (primSetRequiresGrad {d} g.tensorPtr 1)
+    primIO (primSetRequiresGrad {d} b.tensorPtr 1)
+    primIO (primSetRequiresGrad {d} m.tensorPtr 1)
+    primIO (primSetRequiresGrad {d} v.tensorPtr 1)
     pure (MkBatchNorm (retypeGrad g) (retypeGrad b)
                       (retypeGrad m) (retypeGrad v) t mo e)
 

@@ -71,7 +71,7 @@ data TransformerState :
     TMat seqLen dModel d dt g ->
     -- Cached causal mask `[seqLen, seqLen]` — depends only on `seqLen` (fixed
     -- at construction). Reused across blocks and forwards; for the batched
-    -- path `applyTransformerBatch` calls `prim__expandMask` once per batch
+    -- path `applyTransformerBatch` calls `primExpandMask {d}` once per batch
     -- rather than once per block.
     TMat seqLen seqLen d dt g ->
     TransformerState seqLen dModel numHeads headDim numBlocks vocabSize
@@ -126,7 +126,7 @@ writeCausalMask buf i j n =
 %default partial
 
 -- Recursive head loop — accumulates per-head projections over numHeads.
-runHeadAttn : {dModel, headDim : Nat} ->
+runHeadAttn : {0 d : Device} -> UserDeviceTape d => {dModel, headDim : Nat} ->
               Vect k (LinearState dModel headDim d dt g) ->
               Vect k (LinearState dModel headDim d dt g) ->
               Vect k (LinearState dModel headDim d dt g) ->
@@ -139,24 +139,24 @@ runHeadAttn (q :: qs) (k :: ks) (v :: vs) (op :: ops) normed mask sI hdI acc =
       kW = k.weightT.tensorPtr
       vW = v.weightT.tensorPtr
       opW = op.weightT.tensorPtr
-      qi = prim__mm normed (prim__transpose2d qW)
-      ki = prim__mm normed (prim__transpose2d kW)
-      vi = prim__mm normed (prim__transpose2d vW)
+      qi = primMm {d} normed (primTranspose2d {d} qW)
+      ki = primMm {d} normed (primTranspose2d {d} kW)
+      vi = primMm {d} normed (primTranspose2d {d} vW)
       scale = 1.0 / sqrt (cast {to=Double} hdI)
-      scores = prim__mulScalar (prim__mm qi (prim__transpose2d ki)) scale
-      masked = prim__maskedFill scores mask (-1.0e20)
-      attn = prim__softmax2d masked
-      headOut = prim__mm attn vi
-      proj = prim__mm headOut (prim__transpose2d opW)
+      scores = primMulScalar {d} (primMm {d} qi (primTranspose2d {d} ki)) scale
+      masked = primMaskedFill {d} scores mask (-1.0e20)
+      attn = primSoftmax2d {d} masked
+      headOut = primMm {d} attn vi
+      proj = primMm {d} headOut (primTranspose2d {d} opW)
       acc' = case acc of
         Nothing => proj
-        Just prev => prim__add prev proj
+        Just prev => primAdd {d} prev proj
   in runHeadAttn qs ks vs ops normed mask sI hdI (Just acc')
 
 -- Forward one block on `[seqLen, dModel]` tensor handle. The caller passes
 -- the cached causal mask AnyPtr (shared across blocks; built once on
 -- `TransformerState`).
-blockForward : {dModel, numHeads, headDim : Nat} ->
+blockForward : {0 d : Device} -> UserDeviceTape d => {dModel, numHeads, headDim : Nat} ->
                  BlockState dModel numHeads headDim d dt g ->
                  AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
 blockForward (MkBlock qs ks vs ops
@@ -165,16 +165,16 @@ blockForward (MkBlock qs ks vs ops
                           ff1 ff2) h mask sI hdI =
   let f1W = ff1.weightT.tensorPtr
       f2W = ff2.weightT.tensorPtr
-      normed1 = prim__layerNorm2d h n1g.tensorPtr n1b.tensorPtr 1.0e-5
+      normed1 = primLayerNorm2d {d} h n1g.tensorPtr n1b.tensorPtr 1.0e-5
       attnOut = runHeadAttn qs ks vs ops normed1 mask sI hdI Nothing
-      h1 = prim__add attnOut h
-      normed2 = prim__layerNorm2d h1 n2g.tensorPtr n2b.tensorPtr 1.0e-5
-      ffHidden = prim__clampMin (prim__mm normed2 (prim__transpose2d f1W)) 0.0
-      ffOut = prim__mm ffHidden (prim__transpose2d f2W)
-  in prim__add ffOut h1
+      h1 = primAdd {d} attnOut h
+      normed2 = primLayerNorm2d {d} h1 n2g.tensorPtr n2b.tensorPtr 1.0e-5
+      ffHidden = primClampMin {d} (primMm {d} normed2 (primTranspose2d {d} f1W)) 0.0
+      ffOut = primMm {d} ffHidden (primTranspose2d {d} f2W)
+  in primAdd {d} ffOut h1
 
 -- Fold over blocks.
-foldBlocks : {dModel, numHeads, headDim : Nat} ->
+foldBlocks : {0 d : Device} -> UserDeviceTape d => {dModel, numHeads, headDim : Nat} ->
                Vect k (BlockState dModel numHeads headDim d dt g) ->
                AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
 foldBlocks [] h _ _ _ = h
@@ -199,14 +199,14 @@ applyTransformer {seqLen} {dModel} {headDim} {vocabSize}
       dI = cast {to=Int} dModel
       vI = cast {to=Int} vocabSize
       hdI = cast {to=Int} headDim
-      embFlat = prim__embedding embedW.tensorPtr tokens.tensorPtr sI dI
-      embedded = prim__reshape2d embFlat sI dI
-      h0 = prim__add embedded peCached.tensorPtr
+      embFlat = primEmbedding {d} embedW.tensorPtr tokens.tensorPtr sI dI
+      embedded = primReshape2d {d} embFlat sI dI
+      h0 = primAdd {d} embedded peCached.tensorPtr
       hN = foldBlocks blocks h0 maskCached.tensorPtr sI hdI
-      normedFinal' = prim__layerNorm2d hN nfg.tensorPtr nfb.tensorPtr 1.0e-5
+      normedFinal' = primLayerNorm2d {d} hN nfg.tensorPtr nfb.tensorPtr 1.0e-5
       vpW = vocabProj.weightT.tensorPtr
-      outT = prim__mm normedFinal' (prim__transpose2d vpW)
-      outFlatPtr = prim__narrow outT 0 0 (sI * vI)
+      outT = primMm {d} normedFinal' (primTranspose2d {d} vpW)
+      outFlatPtr = primNarrow {d} outT 0 0 (sI * vI)
   in MkTensor outFlatPtr Nothing
 
 
@@ -219,9 +219,9 @@ applyTransformer {seqLen} {dModel} {headDim} {vocabSize}
 -- dModel] for fused 3D ops then reshapes back.
 
 -- Per-head batched accumulator: project Q/K/V via `bmm`, fused
--- `prim__crossAttention` (Q·K^T·scale → mask → softmax → ·V), then
+-- `primCrossAttention {d}` (Q·K^T·scale → mask → softmax → ·V), then
 -- output projection via `bmm`. Sums per-head contributions.
-batchedHeadLoop : {dModel, headDim : Nat} ->
+batchedHeadLoop : {0 d : Device} -> UserDeviceTape d => {dModel, headDim : Nat} ->
                     Vect k (LinearState dModel headDim d dt g) ->
                     Vect k (LinearState dModel headDim d dt g) ->
                     Vect k (LinearState dModel headDim d dt g) ->
@@ -234,20 +234,20 @@ batchedHeadLoop (q :: qs) (k :: ks) (v :: vs) (op :: ops) normed mask sc acc =
       kW = k.weightT.tensorPtr
       vW = v.weightT.tensorPtr
       opW = op.weightT.tensorPtr
-      qi = prim__bmm normed (prim__transpose2d qW)
-      ki = prim__bmm normed (prim__transpose2d kW)
-      vi = prim__bmm normed (prim__transpose2d vW)
-      headOut = prim__crossAttention qi ki vi mask sc
-      proj = prim__bmm headOut (prim__transpose2d opW)
+      qi = primBmm {d} normed (primTranspose2d {d} qW)
+      ki = primBmm {d} normed (primTranspose2d {d} kW)
+      vi = primBmm {d} normed (primTranspose2d {d} vW)
+      headOut = primCrossAttention {d} qi ki vi mask sc
+      proj = primBmm {d} headOut (primTranspose2d {d} opW)
       acc' = case acc of
         Nothing => proj
-        Just prev => prim__add prev proj
+        Just prev => primAdd {d} prev proj
   in batchedHeadLoop qs ks vs ops normed mask sc (Just acc')
 
 -- Batched per-block forward. The caller passes the 3D causal mask AnyPtr
--- (built once per batch by `applyTransformerBatch` via `prim__expandMask`
+-- (built once per batch by `applyTransformerBatch` via `primExpandMask {d}`
 -- on the cached 2D mask).
-batchBlockForward : {dModel, numHeads, headDim : Nat} ->
+batchBlockForward : {0 d : Device} -> UserDeviceTape d => {dModel, numHeads, headDim : Nat} ->
                       BlockState dModel numHeads headDim d dt g ->
                       AnyPtr -> AnyPtr -> Int -> Int -> Int -> AnyPtr
 batchBlockForward (MkBlock qs ks vs ops
@@ -257,19 +257,19 @@ batchBlockForward (MkBlock qs ks vs ops
   let f1W = ff1.weightT.tensorPtr
       f2W = ff2.weightT.tensorPtr
       batchSize = bsI `div` sI
-      normed1 = prim__layerNorm2d h n1g.tensorPtr n1b.tensorPtr 1.0e-5
-      normed3d = prim__reshape3d normed1 batchSize sI dI
+      normed1 = primLayerNorm2d {d} h n1g.tensorPtr n1b.tensorPtr 1.0e-5
+      normed3d = primReshape3d {d} normed1 batchSize sI dI
       scale = 1.0 / sqrt (cast {to=Double} (dI `div` cast {to=Int} numHeads))
       attnOut3d = batchedHeadLoop qs ks vs ops normed3d mask3d scale Nothing
-      attnOut = prim__reshape2d attnOut3d bsI dI
-      h1 = prim__add attnOut h
-      normed2 = prim__layerNorm2d h1 n2g.tensorPtr n2b.tensorPtr 1.0e-5
-      f1Wt = prim__transpose2d f1W
-      f2Wt = prim__transpose2d f2W
-      ffOut = prim__mm (prim__clampMin (prim__mm normed2 f1Wt) 0.0) f2Wt
-  in prim__add ffOut h1
+      attnOut = primReshape2d {d} attnOut3d bsI dI
+      h1 = primAdd {d} attnOut h
+      normed2 = primLayerNorm2d {d} h1 n2g.tensorPtr n2b.tensorPtr 1.0e-5
+      f1Wt = primTranspose2d {d} f1W
+      f2Wt = primTranspose2d {d} f2W
+      ffOut = primMm {d} (primClampMin {d} (primMm {d} normed2 f1Wt) 0.0) f2Wt
+  in primAdd {d} ffOut h1
 
-foldBlocksBatched : {dModel, numHeads, headDim : Nat} ->
+foldBlocksBatched : {0 d : Device} -> UserDeviceTape d => {dModel, numHeads, headDim : Nat} ->
                       Vect k (BlockState dModel numHeads headDim d dt g) ->
                       AnyPtr -> AnyPtr -> Int -> Int -> Int -> AnyPtr
 foldBlocksBatched [] h _ _ _ _ = h
@@ -292,6 +292,7 @@ writePEBatch dModel buf pos dim bsLen dMod sLen =
 ||| single batched output instead of List AnyPtr.
 export
 applyTransformerBatch :
+  {0 d : Device} -> UserDeviceTape d =>
   {seqLen, dModel, numHeads, headDim, numBlocks, vocabSize : Nat} ->
   {b : Nat} ->
   TransformerState seqLen dModel numHeads headDim numBlocks vocabSize
@@ -307,27 +308,27 @@ applyTransformerBatch {seqLen} {dModel} {headDim} {vocabSize} {b}
       sI = cast {to=Int} seqLen
       dI = cast {to=Int} dModel
       vI = cast {to=Int} vocabSize
-      flatTokens = prim__reshape1d tokens.tensorPtr bsI
-      embFlat = prim__embedding embedW.tensorPtr flatTokens bsI dI
-      embedded = prim__reshape2d embFlat bsI dI
+      flatTokens = primReshape1d {d} tokens.tensorPtr bsI
+      embFlat = primEmbedding {d} embedW.tensorPtr flatTokens bsI dI
+      embedded = primReshape2d {d} embFlat bsI dI
       -- Tile cached PE [seqLen, dModel] vertically `b` times to get
       -- [b*seqLen, dModel], then add directly to the flat embedded. One
       -- fused op per backend (`mx::tile` / `at::tile` / manual memcpy)
       -- replaces the earlier reshape3d → add → reshape2d dance, which
       -- regressed mlx perf on small-model shapes — see `perf-changes.md`
       -- 2026-05-15 "tile_2d" entry.
-      peTiled = prim__tile2d peCached.tensorPtr bI 1
-      h0 = prim__add embedded peTiled
+      peTiled = primTile2d {d} peCached.tensorPtr bI 1
+      h0 = primAdd {d} embedded peTiled
       -- Expand the cached 2D mask once per batch (depends on `b`, which can
       -- vary between train/eval) and thread the 3D handle through every
       -- block.
-      mask3d = prim__expandMask maskCached.tensorPtr bI
+      mask3d = primExpandMask {d} maskCached.tensorPtr bI
       hN = foldBlocksBatched blocks h0 mask3d bsI sI dI
-      normedFinal' = prim__layerNorm2d hN nfg.tensorPtr nfb.tensorPtr 1.0e-5
+      normedFinal' = primLayerNorm2d {d} hN nfg.tensorPtr nfb.tensorPtr 1.0e-5
       vpW = vocabProj.weightT.tensorPtr
-      outBatch = prim__mm normedFinal' (prim__transpose2d vpW)
+      outBatch = primMm {d} normedFinal' (primTranspose2d {d} vpW)
       -- outBatch : [b * seqLen, vocabSize]. Reshape to [b, seqLen * vocabSize].
-      outReshaped = prim__reshape2d outBatch (cast {to=Int} b) (sI * vI)
+      outReshaped = primReshape2d {d} outBatch (cast {to=Int} b) (sI * vI)
   in MkTensor outReshaped Nothing
 
 
@@ -402,7 +403,7 @@ transformerLayer {prf} paramPrefix = do
       peTV : TMat seqLen dModel d dt WithGrad
       peTV = MkTensor (prim__createState2d sI dI peBuf') Nothing
       -- Build causal mask once via the same persistent-state path as PE
-      -- (routing through `prim__createState2d`). `prim__causalMask` itself
+      -- (routing through `prim__createState2d`). `primCausalMask {d}` itself
       -- returns an arena/intermediate tensor whose memory gets clobbered by
       -- `tape_reset` and `free_intermediates` between training steps, so
       -- caching its result would dangle after the first optimizer step.
@@ -420,7 +421,7 @@ transformerLayer {prf} paramPrefix = do
 -- Vect of linear states: walk linearly via manual recursion (traverse
 -- can't be used because freezeLayer / unfreezeLayer are linear in
 -- their argument, not unrestricted).
-freezeLinearVec : {i, o : Nat} -> {0 d : Device} -> {0 g : GradMode} ->
+freezeLinearVec : {i, o : Nat} -> {0 d : Device} -> UserDeviceTape d => {0 g : GradMode} ->
                     Vect k (LinearState i o d dt g) ->
                     IO (Vect k (LinearState i o d dt NoGrad))
 freezeLinearVec [] = pure []
@@ -429,7 +430,7 @@ freezeLinearVec (l :: ls) = do
   ls' <- freezeLinearVec ls
   pure (l' :: ls')
 
-unfreezeLinearVec : {i, o : Nat} -> {0 d : Device} ->
+unfreezeLinearVec : {i, o : Nat} -> {0 d : Device} -> UserDeviceTape d =>
                       Vect k (LinearState i o d dt NoGrad) ->
                       IO (Vect k (LinearState i o d dt WithGrad))
 unfreezeLinearVec [] = pure []
@@ -438,7 +439,7 @@ unfreezeLinearVec (l :: ls) = do
   ls' <- unfreezeLinearVec ls
   pure (l' :: ls')
 
-freezeBlock : {dModel, numHeads, headDim : Nat} -> {0 d : Device} -> {0 g : GradMode} ->
+freezeBlock : {dModel, numHeads, headDim : Nat} -> {0 d : Device} -> UserDeviceTape d => {0 g : GradMode} ->
                 BlockState dModel numHeads headDim d dt g ->
                 IO (BlockState dModel numHeads headDim d dt NoGrad)
 freezeBlock (MkBlock qs ks vs ops n1 n2 ff1 ff2) = do
@@ -452,7 +453,7 @@ freezeBlock (MkBlock qs ks vs ops n1 n2 ff1 ff2) = do
   ff2' <- freezeLayer ff2
   pure (MkBlock qs' ks' vs' ops' n1' n2' ff1' ff2')
 
-unfreezeBlock : {dModel, numHeads, headDim : Nat} -> {0 d : Device} ->
+unfreezeBlock : {dModel, numHeads, headDim : Nat} -> {0 d : Device} -> UserDeviceTape d =>
                   BlockState dModel numHeads headDim d dt NoGrad ->
                   IO (BlockState dModel numHeads headDim d dt WithGrad)
 unfreezeBlock (MkBlock qs ks vs ops n1 n2 ff1 ff2) = do
@@ -466,7 +467,7 @@ unfreezeBlock (MkBlock qs ks vs ops n1 n2 ff1 ff2) = do
   ff2' <- unfreezeLayer ff2
   pure (MkBlock qs' ks' vs' ops' n1' n2' ff1' ff2')
 
-freezeBlockVec : {dModel, numHeads, headDim : Nat} -> {0 d : Device} -> {0 g : GradMode} ->
+freezeBlockVec : {dModel, numHeads, headDim : Nat} -> {0 d : Device} -> UserDeviceTape d => {0 g : GradMode} ->
                    Vect k (BlockState dModel numHeads headDim d dt g) ->
                    IO (Vect k (BlockState dModel numHeads headDim d dt NoGrad))
 freezeBlockVec [] = pure []
@@ -475,7 +476,7 @@ freezeBlockVec (b :: bs) = do
   bs' <- freezeBlockVec bs
   pure (b' :: bs')
 
-unfreezeBlockVec : {dModel, numHeads, headDim : Nat} -> {0 d : Device} ->
+unfreezeBlockVec : {dModel, numHeads, headDim : Nat} -> {0 d : Device} -> UserDeviceTape d =>
                      Vect k (BlockState dModel numHeads headDim d dt NoGrad) ->
                      IO (Vect k (BlockState dModel numHeads headDim d dt WithGrad))
 unfreezeBlockVec [] = pure []
@@ -505,7 +506,7 @@ public export
     pure (MkTransformer {prf} embedW' blocks' finalNorm' vocabProj' (retypeGrad peCached) (retypeGrad maskCached))
 
   unfreezeLayer (MkTransformer {prf} embedW blocks finalNorm vocabProj peCached maskCached) = do
-    primIO (prim__setRequiresGrad embedW.tensorPtr 1)
+    primIO (primSetRequiresGrad {d} embedW.tensorPtr 1)
     blocks'    <- unfreezeBlockVec blocks
     finalNorm' <- unfreezeLayer finalNorm
     vocabProj' <- unfreezeLayer vocabProj

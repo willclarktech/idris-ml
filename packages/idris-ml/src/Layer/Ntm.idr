@@ -93,27 +93,28 @@ zeroState2d n m =
 -- Returns (newReadAddr [n], readOutput [m]) given memory [n,m],
 -- prevWeights [n], key [m], beta [], g [], gamma [], shift [k].
 %inline
-ntmReadHeadIdris : (memT, prevWT, keyT, betaT, gT, gammaT, shiftT : AnyPtr) ->
+ntmReadHeadIdris : {0 d : Device} -> UserDeviceTape d =>
+                   (memT, prevWT, keyT, betaT, gT, gammaT, shiftT : AnyPtr) ->
                    (AnyPtr, AnyPtr)
 ntmReadHeadIdris memT prevWT keyT betaT gT gammaT shiftT =
   let -- 1. Content addressing: cosine sim per memory row vs key.
-      keyT2d        = prim__unsqueeze keyT 0           -- [1, m]
-      cosScoresT    = prim__cosineSimilarity memT keyT2d 1   -- [n]
-      scaledScoresT = prim__mul betaT cosScoresT       -- broadcast [] × [n]
-      contentWT     = prim__softmax scaledScoresT 0    -- [n]
+      keyT2d        = primUnsqueeze {d} keyT 0           -- [1, m]
+      cosScoresT    = primCosineSimilarity {d} memT keyT2d 1   -- [n]
+      scaledScoresT = primMul {d} betaT cosScoresT       -- broadcast [] × [n]
+      contentWT     = primSoftmax {d} scaledScoresT 0    -- [n]
       -- 2. Interpolation: g · content + (1 - g) · prev
-      oneMinusG     = prim__addScalar (prim__neg gT) 1.0
-      interpT       = prim__add (prim__mul gT contentWT)
-                                (prim__mul oneMinusG prevWT)
+      oneMinusG     = primAddScalar {d} (primNeg {d} gT) 1.0
+      interpT       = primAdd {d} (primMul {d} gT contentWT)
+                                (primMul {d} oneMinusG prevWT)
       -- 3. Circular shift convolution.
-      shiftedT      = prim__conv1dCircular interpT shiftT
+      shiftedT      = primConv1dCircular {d} interpT shiftT
       -- 4. Sharpening: pow(max(x, 1e-10), gamma); then normalize.
-      shiftedClampedT = prim__clampMin shiftedT 1.0e-10
-      poweredT      = prim__pow shiftedClampedT gammaT
-      normSumT      = prim__addScalar (prim__sum poweredT) 1.0e-10
-      focusedT      = prim__div poweredT normSumT
+      shiftedClampedT = primClampMin {d} shiftedT 1.0e-10
+      poweredT      = primPow {d} shiftedClampedT gammaT
+      normSumT      = primAddScalar {d} (primSum {d} poweredT) 1.0e-10
+      focusedT      = primDiv {d} poweredT normSumT
       -- 5. Read: focused [n] @ memory [n,m] -> [m]
-      readOutT      = prim__matmul focusedT memT
+      readOutT      = primMatmul {d} focusedT memT
   in (focusedT, readOutT)
 
 -- NTM interpolation write (Graves et al. 2014, §3.3, with the Collier &
@@ -127,13 +128,13 @@ ntmReadHeadIdris memT prevWT keyT betaT gT gammaT shiftT =
 --
 -- Mirrors `torch_ref/ntm/memory.py:write_memory`.
 %inline
-ntmInterpWriteIdris : {n : Nat} -> (memT, weightsT, addVecT : AnyPtr) -> AnyPtr
+ntmInterpWriteIdris : {0 d : Device} -> UserDeviceTape d => {n : Nat} -> (memT, weightsT, addVecT : AnyPtr) -> AnyPtr
 ntmInterpWriteIdris {n} memT weightsT addVecT =
-  let writeAdd = prim__outer weightsT addVecT              -- (n,m) — w[i]*a[j]
-      wCol     = prim__reshape2d weightsT (cast n) 1       -- (n,1) view of w
-      keep     = prim__addScalar (prim__neg wCol) 1.0      -- (n,1) — 1-w[i]
-      kept     = prim__mul keep memT                       -- (n,m) — (n,1)·(n,m) bcast
-  in prim__add kept writeAdd
+  let writeAdd = primOuter {d} weightsT addVecT              -- (n,m) — w[i]*a[j]
+      wCol     = primReshape2d {d} weightsT (cast n) 1       -- (n,1) view of w
+      keep     = primAddScalar {d} (primNeg {d} wCol) 1.0      -- (n,1) — 1-w[i]
+      kept     = primMul {d} keep memT                       -- (n,m) — (n,1)·(n,m) bcast
+  in primAdd {d} kept writeAdd
 
 export
 applyNtm : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => {n, m, h, i, o : Nat} ->
@@ -144,7 +145,7 @@ applyNtm {n} {m} {h} {i} {o}
            (MkNtm lstm readFc writeFc outputFc memInitT initReadOutT memT raT waT roT) input = do
   let nI = cast {to=Int} n
       mI = cast {to=Int} m
-      initMemPtr = prim__reshape2d (prim__sigmoid memInitT.tensorPtr) nI mI
+      initMemPtr = primReshape2d {d} (primSigmoid {d} memInitT.tensorPtr) nI mI
       memTPtr = case memT of
                   Just t => t.tensorPtr
                   Nothing => initMemPtr
@@ -157,7 +158,7 @@ applyNtm {n} {m} {h} {i} {o}
       roTPtr = case roT of
                  Just t => t.tensorPtr
                  Nothing => initReadOutT.tensorPtr
-      lstmInputPtr = prim__cat2 roTPtr input.tensorPtr
+      lstmInputPtr = primCat2 {d} roTPtr input.tensorPtr
       lstmInputV = the (TVec (m + i) d dt g) (MkTensor lstmInputPtr Nothing)
   -- 2. LSTM forward (IO)
   (updLstm, hiddenV) <- applyLstm lstm lstmInputV
@@ -171,27 +172,27 @@ applyNtm {n} {m} {h} {i} {o}
       ofcW = outputFc.weightT.tensorPtr
       ofcB = outputFc.biasT.tensorPtr
       skI = cast {to=Int} ShiftKernelSize
-      readResultT = prim__linear rfcW cellPtr rfcB
-      keyT = prim__narrow readResultT 0 0 mI
-      shiftT = prim__softmax (prim__narrow readResultT 0 mI skI) 0
-      betaT = prim__softplus (prim__select readResultT 0 (mI + skI))
-      gT = prim__sigmoid (prim__select readResultT 0 (mI + skI + 1))
-      gammaT = prim__addScalar (prim__softplus
-                  (prim__select readResultT 0 (mI + skI + 2))) 1.0
-      (newReadAddrT, newReadOutT) = ntmReadHeadIdris memTPtr raTPtr keyT betaT gT gammaT shiftT
-      writeResultT = prim__linear wfcW cellPtr wfcB
+      readResultT = primLinear {d} rfcW cellPtr rfcB
+      keyT = primNarrow {d} readResultT 0 0 mI
+      shiftT = primSoftmax {d} (primNarrow {d} readResultT 0 mI skI) 0
+      betaT = primSoftplus {d} (primSelect {d} readResultT 0 (mI + skI))
+      gT = primSigmoid {d} (primSelect {d} readResultT 0 (mI + skI + 1))
+      gammaT = primAddScalar {d} (primSoftplus {d}
+                  (primSelect {d} readResultT 0 (mI + skI + 2))) 1.0
+      (newReadAddrT, newReadOutT) = ntmReadHeadIdris {d} memTPtr raTPtr keyT betaT gT gammaT shiftT
+      writeResultT = primLinear {d} wfcW cellPtr wfcB
       rpw = cast {to=Int} (ReadParamWidth m)
-      wKeyT = prim__narrow writeResultT 0 0 mI
-      wShiftT = prim__softmax (prim__narrow writeResultT 0 mI skI) 0
-      wBetaT = prim__softplus (prim__select writeResultT 0 (mI + skI))
-      wGT = prim__sigmoid (prim__select writeResultT 0 (mI + skI + 1))
-      wGammaT = prim__addScalar (prim__softplus
-                   (prim__select writeResultT 0 (mI + skI + 2))) 1.0
-      (newWriteAddrT, _) = ntmReadHeadIdris memTPtr waTPtr wKeyT wBetaT wGT wGammaT wShiftT
-      addT = prim__narrow writeResultT 0 rpw mI
-      newMemT = ntmInterpWriteIdris {n} memTPtr newWriteAddrT addT
-      concatPtr = prim__cat2 hiddenV.tensorPtr newReadOutT
-      outputPtr = prim__linear ofcW concatPtr ofcB
+      wKeyT = primNarrow {d} writeResultT 0 0 mI
+      wShiftT = primSoftmax {d} (primNarrow {d} writeResultT 0 mI skI) 0
+      wBetaT = primSoftplus {d} (primSelect {d} writeResultT 0 (mI + skI))
+      wGT = primSigmoid {d} (primSelect {d} writeResultT 0 (mI + skI + 1))
+      wGammaT = primAddScalar {d} (primSoftplus {d}
+                   (primSelect {d} writeResultT 0 (mI + skI + 2))) 1.0
+      (newWriteAddrT, _) = ntmReadHeadIdris {d} memTPtr waTPtr wKeyT wBetaT wGT wGammaT wShiftT
+      addT = primNarrow {d} writeResultT 0 rpw mI
+      newMemT = ntmInterpWriteIdris {d} {n} memTPtr newWriteAddrT addT
+      concatPtr = primCat2 {d} hiddenV.tensorPtr newReadOutT
+      outputPtr = primLinear {d} ofcW concatPtr ofcB
   pure ( MkNtm updLstm readFc writeFc outputFc memInitT initReadOutT
           (Just (MkTensor newMemT Nothing))
           (Just (MkTensor newReadAddrT Nothing))
@@ -295,20 +296,20 @@ public export
     rfc'    <- unfreezeLayer rfc
     wfc'    <- unfreezeLayer wfc
     ofc'    <- unfreezeLayer ofc
-    primIO (prim__setRequiresGrad memInit.tensorPtr 1)
-    primIO (prim__setRequiresGrad iro.tensorPtr 1)
+    primIO (primSetRequiresGrad {d} memInit.tensorPtr 1)
+    primIO (primSetRequiresGrad {d} iro.tensorPtr 1)
     case mem of
       Nothing => pure ()
-      Just t  => primIO (prim__setRequiresGrad t.tensorPtr 1)
+      Just t  => primIO (primSetRequiresGrad {d} t.tensorPtr 1)
     case ra of
       Nothing => pure ()
-      Just t  => primIO (prim__setRequiresGrad t.tensorPtr 1)
+      Just t  => primIO (primSetRequiresGrad {d} t.tensorPtr 1)
     case wa of
       Nothing => pure ()
-      Just t  => primIO (prim__setRequiresGrad t.tensorPtr 1)
+      Just t  => primIO (primSetRequiresGrad {d} t.tensorPtr 1)
     case ro of
       Nothing => pure ()
-      Just t  => primIO (prim__setRequiresGrad t.tensorPtr 1)
+      Just t  => primIO (primSetRequiresGrad {d} t.tensorPtr 1)
     pure (MkNtm lstm' rfc' wfc' ofc'
                 (retypeGrad memInit) (retypeGrad iro)
                 (map retypeGrad mem) (map retypeGrad ra)

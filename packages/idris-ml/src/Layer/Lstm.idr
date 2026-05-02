@@ -164,18 +164,18 @@ LayerLike LstmState where
     pure (MkLstm iw' rw' ihB' hhB' h0' c0' hid' cell')
 
   unfreezeLayer (MkLstm iw rw ihB hhB h0 c0 hid cell) = do
-    primIO (prim__setRequiresGrad iw.tensorPtr 1)
-    primIO (prim__setRequiresGrad rw.tensorPtr 1)
-    primIO (prim__setRequiresGrad ihB.tensorPtr 1)
-    primIO (prim__setRequiresGrad hhB.tensorPtr 1)
-    primIO (prim__setRequiresGrad h0.tensorPtr 1)
-    primIO (prim__setRequiresGrad c0.tensorPtr 1)
+    primIO (primSetRequiresGrad {d} iw.tensorPtr 1)
+    primIO (primSetRequiresGrad {d} rw.tensorPtr 1)
+    primIO (primSetRequiresGrad {d} ihB.tensorPtr 1)
+    primIO (primSetRequiresGrad {d} hhB.tensorPtr 1)
+    primIO (primSetRequiresGrad {d} h0.tensorPtr 1)
+    primIO (primSetRequiresGrad {d} c0.tensorPtr 1)
     case hid of
       Nothing => pure ()
-      Just h  => primIO (prim__setRequiresGrad h.tensorPtr 1)
+      Just h  => primIO (primSetRequiresGrad {d} h.tensorPtr 1)
     case cell of
       Nothing => pure ()
-      Just c  => primIO (prim__setRequiresGrad c.tensorPtr 1)
+      Just c  => primIO (primSetRequiresGrad {d} c.tensorPtr 1)
     pure (MkLstm (retypeGrad iw) (retypeGrad rw)
                  (retypeGrad ihB) (retypeGrad hhB)
                  (retypeGrad h0) (retypeGrad c0)

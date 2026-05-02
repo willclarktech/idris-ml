@@ -74,12 +74,12 @@ applyConv2D {inC} {outC} {h} {w} {kH} {kW} {padH} {padW}
   let inCI = cast {to=Int} inC
       hI = cast {to=Int} h
       wI = cast {to=Int} w
-      inp3d = prim__reshape3d input.tensorPtr inCI hI wI
+      inp3d = primReshape3d {d} input.tensorPtr inCI hI wI
       padHI = cast {to=Int} padH
       padWI = cast {to=Int} padW
-      outT = prim__conv2d inp3d ker.tensorPtr bias.tensorPtr padHI padWI 1 1
+      outT = primConv2d {d} inp3d ker.tensorPtr bias.tensorPtr padHI padWI 1 1
       outFlat = outC * (ConvOutDim h kH padH * ConvOutDim w kW padW)
-      flatPtr = prim__reshape1d outT (cast {to=Int} outFlat)
+      flatPtr = primReshape1d {d} outT (cast {to=Int} outFlat)
   in MkTensor flatPtr Nothing
 
 -- Batched forward: input [b, inC * h * w], reshape to [b, inC, h, w] for
@@ -99,12 +99,12 @@ applyConv2DBatched {inC} {outC} {h} {w} {kH} {kW} {padH} {padW} {b}
       inCI  = cast {to=Int} inC
       hI    = cast {to=Int} h
       wI    = cast {to=Int} w
-      inp4d = prim__reshape4d input.tensorPtr bI inCI hI wI
+      inp4d = primReshape4d {d} input.tensorPtr bI inCI hI wI
       padHI = cast {to=Int} padH
       padWI = cast {to=Int} padW
-      outT  = prim__conv2dBatched inp4d ker.tensorPtr bias.tensorPtr padHI padWI 1 1
+      outT  = primConv2dBatched {d} inp4d ker.tensorPtr bias.tensorPtr padHI padWI 1 1
       outFlat = outC * (ConvOutDim h kH padH * ConvOutDim w kW padW)
-      out2d = prim__reshape2d outT bI (cast {to=Int} outFlat)
+      out2d = primReshape2d {d} outT bI (cast {to=Int} outFlat)
   in MkTensor out2d Nothing
 
 -- Pack a Vect of Doubles into a buffer.
@@ -159,8 +159,8 @@ public export
     pure (MkConv2D k' b')
 
   unfreezeLayer (MkConv2D k b) = do
-    primIO (prim__setRequiresGrad k.tensorPtr 1)
-    primIO (prim__setRequiresGrad b.tensorPtr 1)
+    primIO (primSetRequiresGrad {d} k.tensorPtr 1)
+    primIO (primSetRequiresGrad {d} b.tensorPtr 1)
     pure (MkConv2D (retypeGrad k) (retypeGrad b))
 
 export
@@ -201,10 +201,10 @@ applyConv1D : {0 d : Device} -> UserDeviceTape d => {inC, outC, len, kL, pad : N
 applyConv1D {inC} {outC} {len} {kL} {pad} (MkConv1D ker bias) input =
   let inCI = cast {to=Int} inC
       lenI = cast {to=Int} len
-      inp2d = prim__reshape2d input.tensorPtr inCI lenI
-      outT = prim__conv1d inp2d ker.tensorPtr bias.tensorPtr (cast {to=Int} pad) 1
+      inp2d = primReshape2d {d} input.tensorPtr inCI lenI
+      outT = primConv1d {d} inp2d ker.tensorPtr bias.tensorPtr (cast {to=Int} pad) 1
       outFlat = outC * ConvOutDim len kL pad
-  in MkTensor (prim__reshape1d outT (cast {to=Int} outFlat)) Nothing
+  in MkTensor (primReshape1d {d} outT (cast {to=Int} outFlat)) Nothing
 
 export
 conv1dLayer : RuntimeDType dt => {inC, outC, len, kL, pad : Nat} ->
@@ -244,8 +244,8 @@ public export
     pure (MkConv1D k' b')
 
   unfreezeLayer (MkConv1D k b) = do
-    primIO (prim__setRequiresGrad k.tensorPtr 1)
-    primIO (prim__setRequiresGrad b.tensorPtr 1)
+    primIO (primSetRequiresGrad {d} k.tensorPtr 1)
+    primIO (primSetRequiresGrad {d} b.tensorPtr 1)
     pure (MkConv1D (retypeGrad k) (retypeGrad b))
 
 export
@@ -285,11 +285,11 @@ applyMaxPool2D {c} {inH} {inW} {poolH} {poolW} {strH} {strW} _ input =
   let cI = cast {to=Int} c
       hI = cast {to=Int} inH
       wI = cast {to=Int} inW
-      inp3d = prim__reshape3d input.tensorPtr cI hI wI
-      outT = prim__maxPool2d inp3d (cast {to=Int} poolH) (cast {to=Int} poolW)
+      inp3d = primReshape3d {d} input.tensorPtr cI hI wI
+      outT = primMaxPool2d {d} inp3d (cast {to=Int} poolH) (cast {to=Int} poolW)
                                    (cast {to=Int} strH) (cast {to=Int} strW)
       outFlat = c * (PoolOutDim inH poolH strH * PoolOutDim inW poolW strW)
-  in MkTensor (prim__reshape1d outT (cast {to=Int} outFlat)) Nothing
+  in MkTensor (primReshape1d {d} outT (cast {to=Int} outFlat)) Nothing
 
 -- Batched: input [b, c * inH * inW], reshape to [b, c, inH, inW], pool,
 -- flatten back to [b, c * outH * outW].
@@ -306,11 +306,11 @@ applyMaxPool2DBatched {c} {inH} {inW} {poolH} {poolW} {strH} {strW} {b} _ input 
       cI = cast {to=Int} c
       hI = cast {to=Int} inH
       wI = cast {to=Int} inW
-      inp4d = prim__reshape4d input.tensorPtr bI cI hI wI
-      outT = prim__maxPool2dBatched inp4d (cast {to=Int} poolH) (cast {to=Int} poolW)
+      inp4d = primReshape4d {d} input.tensorPtr bI cI hI wI
+      outT = primMaxPool2dBatched {d} inp4d (cast {to=Int} poolH) (cast {to=Int} poolW)
                                           (cast {to=Int} strH) (cast {to=Int} strW)
       outFlat = c * (PoolOutDim inH poolH strH * PoolOutDim inW poolW strW)
-      out2d = prim__reshape2d outT bI (cast {to=Int} outFlat)
+      out2d = primReshape2d {d} outT bI (cast {to=Int} outFlat)
   in MkTensor out2d Nothing
 
 public export
@@ -357,11 +357,11 @@ applyAvgPool2D {c} {inH} {inW} {poolH} {poolW} {strH} {strW} _ input =
   let cI = cast {to=Int} c
       hI = cast {to=Int} inH
       wI = cast {to=Int} inW
-      inp3d = prim__reshape3d input.tensorPtr cI hI wI
-      outT = prim__avgPool2d inp3d (cast {to=Int} poolH) (cast {to=Int} poolW)
+      inp3d = primReshape3d {d} input.tensorPtr cI hI wI
+      outT = primAvgPool2d {d} inp3d (cast {to=Int} poolH) (cast {to=Int} poolW)
                                    (cast {to=Int} strH) (cast {to=Int} strW)
       outFlat = c * (PoolOutDim inH poolH strH * PoolOutDim inW poolW strW)
-  in MkTensor (prim__reshape1d outT (cast {to=Int} outFlat)) Nothing
+  in MkTensor (primReshape1d {d} outT (cast {to=Int} outFlat)) Nothing
 
 public export
 {c, inH, inW, poolH, poolW, strH, strW : Nat} ->
@@ -405,10 +405,10 @@ applyMaxPool1D : {0 d : Device} -> UserDeviceTape d => {c, len, poolK, str : Nat
 applyMaxPool1D {c} {len} {poolK} {str} _ input =
   let cI = cast {to=Int} c
       lenI = cast {to=Int} len
-      inp2d = prim__reshape2d input.tensorPtr cI lenI
-      outT = prim__maxPool1d inp2d (cast {to=Int} poolK) (cast {to=Int} str)
+      inp2d = primReshape2d {d} input.tensorPtr cI lenI
+      outT = primMaxPool1d {d} inp2d (cast {to=Int} poolK) (cast {to=Int} str)
       outFlat = c * PoolOutDim len poolK str
-  in MkTensor (prim__reshape1d outT (cast {to=Int} outFlat)) Nothing
+  in MkTensor (primReshape1d {d} outT (cast {to=Int} outFlat)) Nothing
 
 public export
 {c, len, poolK, str : Nat} ->
@@ -444,10 +444,10 @@ applyAvgPool1D : {0 d : Device} -> UserDeviceTape d => {c, len, poolK, str : Nat
 applyAvgPool1D {c} {len} {poolK} {str} _ input =
   let cI = cast {to=Int} c
       lenI = cast {to=Int} len
-      inp2d = prim__reshape2d input.tensorPtr cI lenI
-      outT = prim__avgPool1d inp2d (cast {to=Int} poolK) (cast {to=Int} str)
+      inp2d = primReshape2d {d} input.tensorPtr cI lenI
+      outT = primAvgPool1d {d} inp2d (cast {to=Int} poolK) (cast {to=Int} str)
       outFlat = c * PoolOutDim len poolK str
-  in MkTensor (prim__reshape1d outT (cast {to=Int} outFlat)) Nothing
+  in MkTensor (primReshape1d {d} outT (cast {to=Int} outFlat)) Nothing
 
 public export
 {c, len, poolK, str : Nat} ->

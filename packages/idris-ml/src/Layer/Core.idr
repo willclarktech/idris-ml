@@ -55,13 +55,13 @@ interface LayerLike (l : Nat -> Nat -> (0 _ : Device) -> (0 _ : DType) -> (0 _ :
   ||| value after the C-side flags have been mutated. Returns the
   ||| layer retyped as `NoGrad`. Optimizer steps won't update frozen
   ||| params (their gradients don't accumulate on rg=false leaves).
-  freezeLayer : {0 d : Device} -> {0 g : GradMode} -> {i, o : Nat} ->
+  freezeLayer : {0 d : Device} -> UserDeviceTape d => {0 g : GradMode} -> {i, o : Nat} ->
                 (1 _ : l i o d dt g) -> IO (l i o d dt NoGrad)
 
   ||| Inverse of `freezeLayer`. Sets `requires_grad=true` on every
   ||| parameter and retypes the layer as `WithGrad`. The result is
   ||| trainable again. Linear in input.
-  unfreezeLayer : {0 d : Device} -> {i, o : Nat} ->
+  unfreezeLayer : {0 d : Device} -> UserDeviceTape d => {i, o : Nat} ->
                   (1 _ : l i o d dt NoGrad) -> IO (l i o d dt WithGrad)
 
 
@@ -90,14 +90,14 @@ applyVarBatchAny (MkAnyLayer l @{dict} layer) input = do
   pure (MkAnyLayer l @{dict} layer', out)
 
 export
-freezeAnyLayer : {0 d : Device} -> {0 g : GradMode} -> {i, o : Nat} ->
+freezeAnyLayer : {0 d : Device} -> UserDeviceTape d => {0 g : GradMode} -> {i, o : Nat} ->
                   (1 _ : AnyLayer i o d dt g) -> IO (AnyLayer i o d dt NoGrad)
 freezeAnyLayer (MkAnyLayer l @{dict} layer) = do
   layer' <- freezeLayer @{dict} layer
   pure (MkAnyLayer l @{dict} layer')
 
 export
-unfreezeAnyLayer : {0 d : Device} -> {i, o : Nat} ->
+unfreezeAnyLayer : {0 d : Device} -> UserDeviceTape d => {i, o : Nat} ->
                     (1 _ : AnyLayer i o d dt NoGrad) -> IO (AnyLayer i o d dt WithGrad)
 unfreezeAnyLayer (MkAnyLayer l @{dict} layer) = do
   layer' <- unfreezeLayer @{dict} layer
@@ -140,7 +140,7 @@ forwardVar {hs = h :: _} (l ~~> rest) input = do
 ||| `g`) — output adopts `NoGrad` and the type system prevents feeding
 ||| it back to `runBackward` / `nativeTrainStep`.
 export
-freezeNetwork : {0 d : Device} -> {0 g : GradMode} -> {i, o : Nat} -> {hs : List Nat} ->
+freezeNetwork : {0 d : Device} -> UserDeviceTape d => {0 g : GradMode} -> {i, o : Nat} -> {hs : List Nat} ->
                  (1 _ : Network i hs o d dt g) -> IO (Network i hs o d dt NoGrad)
 freezeNetwork (OutputLayer l) = do
   l' <- freezeAnyLayer l
@@ -155,7 +155,7 @@ freezeNetwork {hs = h :: _} (l ~~> rest) = do
 ||| Use for progressive fine-tuning workflows (train head with backbone
 ||| frozen, then unfreeze backbone for joint fine-tuning).
 export
-unfreezeNetwork : {0 d : Device} -> {i, o : Nat} -> {hs : List Nat} ->
+unfreezeNetwork : {0 d : Device} -> UserDeviceTape d => {i, o : Nat} -> {hs : List Nat} ->
                    (1 _ : Network i hs o d dt NoGrad) -> IO (Network i hs o d dt WithGrad)
 unfreezeNetwork (OutputLayer l) = do
   l' <- unfreezeAnyLayer l

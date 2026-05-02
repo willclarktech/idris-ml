@@ -14,7 +14,7 @@ import Tensor
 -- Normalises along the last (only) dim of a 1D `TVec n d` input,
 -- then applies a learnable scale (gamma) + shift (beta).
 --
--- The C backend currently exposes only `prim__layerNorm2d` (operates
+-- The C backend currently exposes only `primLayerNorm2d {d}` (operates
 -- on `[B, N]` shape). For 1D input we reshape `[n]` → `[1, n]`,
 -- normalise, reshape back. ~3 tape entries per call (still much
 -- cheaper than computing mean/var/sqrt manually).
@@ -40,9 +40,9 @@ applyLayerNorm : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => {n : N
                    IO (LayerNormState n n d dt g, TVec n d dt g)
 applyLayerNorm {n} st@(MkLayerNorm gamma beta) input = ioRerun (\_ =>
   let nI = cast {to=Int} n
-      input2d = prim__reshape2d input.tensorPtr 1 nI
-      norm2d = prim__layerNorm2d input2d gamma.tensorPtr beta.tensorPtr 1.0e-5
-      norm1d = prim__reshape1d norm2d nI
+      input2d = primReshape2d {d} input.tensorPtr 1 nI
+      norm2d = primLayerNorm2d {d} input2d gamma.tensorPtr beta.tensorPtr 1.0e-5
+      norm1d = primReshape1d {d} norm2d nI
   in (st, MkTensor norm1d Nothing))
 
 
@@ -96,8 +96,8 @@ LayerLike LayerNormState where
     pure (MkLayerNorm g' b')
 
   unfreezeLayer (MkLayerNorm g b) = do
-    primIO (prim__setRequiresGrad g.tensorPtr 1)
-    primIO (prim__setRequiresGrad b.tensorPtr 1)
+    primIO (primSetRequiresGrad {d} g.tensorPtr 1)
+    primIO (primSetRequiresGrad {d} b.tensorPtr 1)
     pure (MkLayerNorm (retypeGrad g) (retypeGrad b))
 
 ||| Wrap a LayerNorm in `AnyLayer`.

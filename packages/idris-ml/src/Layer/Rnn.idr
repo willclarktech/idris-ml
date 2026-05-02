@@ -151,13 +151,13 @@ LayerLike RnnState where
     pure (MkRnn iw' rw' ihB' hhB' act prev')
 
   unfreezeLayer (MkRnn iw rw ihB hhB act prev) = do
-    primIO (prim__setRequiresGrad iw.tensorPtr 1)
-    primIO (prim__setRequiresGrad rw.tensorPtr 1)
-    primIO (prim__setRequiresGrad ihB.tensorPtr 1)
-    primIO (prim__setRequiresGrad hhB.tensorPtr 1)
+    primIO (primSetRequiresGrad {d} iw.tensorPtr 1)
+    primIO (primSetRequiresGrad {d} rw.tensorPtr 1)
+    primIO (primSetRequiresGrad {d} ihB.tensorPtr 1)
+    primIO (primSetRequiresGrad {d} hhB.tensorPtr 1)
     case prev of
       Nothing => pure ()
-      Just p  => primIO (prim__setRequiresGrad p.tensorPtr 1)
+      Just p  => primIO (primSetRequiresGrad {d} p.tensorPtr 1)
     pure (MkRnn (retypeGrad iw) (retypeGrad rw)
                 (retypeGrad ihB) (retypeGrad hhB)
                 act
