@@ -1,5 +1,30 @@
 # NTM Performance Analysis
 
+## 0. Batched Variable Forward for RL (2026-04-28)
+
+A2C / PPO / SAC update phases used to call `forwardVarTensor` once per
+transition in the mini-batch, producing O(B × layers) tape entries. The
+batched-forward refactor (TODO.md "Batched Variable forward path for RL",
+now closed) replaces those loops with one batched forward per layer per
+mini-batch using a new `tensor_linear_2d` C op + `applyVarTensorBatch`
+LayerLike method override on Linear and Activation.
+
+A2C smoke gate (5000 epochs, seed=42, RolloutLen=20):
+
+| Metric | Pre-batch | Post-batch | Change |
+|---|---|---|---|
+| Tape entries last fwd | ~80 | 12 | ~7× |
+| Wall time / epoch | ~50 ms | ~29 ms | 1.7× faster |
+| `avg_return` (eval) | within ±10 | 160 | passes >=150 threshold |
+
+PPO and SAC see similar gains on their update phases. Per-sample `forwardVarTensor`
+calls during rollout are unchanged (env step depends on current action — can't be
+batched). Smoke + convergence thresholds unchanged.
+
+Non-RL examples are not affected: they don't use `forwardVarTensorBatch` (their
+existing tensor path is already efficient enough), and Linear / Activation still
+accept the per-sample `applyVarTensor` codepath without change.
+
 ## 1. Current Performance Profile (2026-04-27, post tensor-path migration)
 
 Apples-to-apples benchmark (`make bench-compare`): identical architecture, optimizer,
