@@ -124,7 +124,10 @@ void tensor_release_handle(TensorHandle h) { (void)h; }
 /* ---------- Accessors ---------- */
 
 double tensor_item(TensorHandle h) {
-    return to_tensor(h)->item<double>();
+    // .cpu() is a no-op on CPU tensors; only MPS / CUDA tensors pay
+    // the round-trip. Readback to host memory via .item<double>()
+    // requires the tensor live on CPU.
+    return to_tensor(h)->cpu().item<double>();
 }
 
 int tensor_numel(TensorHandle h) {
@@ -140,12 +143,15 @@ int tensor_size(TensorHandle h, int dim) {
 }
 
 void tensor_to_doubles(TensorHandle h, double* out) {
-    auto t = to_tensor(h)->to(torch::kFloat64).contiguous();
+    // .cpu() before .data_ptr<>() — readback to host memory needs the
+    // tensor on CPU. F64 on MPS isn't supported at construction so the
+    // .to(kFloat64) for an MPS source goes through .cpu() first.
+    auto t = to_tensor(h)->cpu().to(torch::kFloat64).contiguous();
     std::memcpy(out, t.data_ptr<double>(), t.numel() * sizeof(double));
 }
 
 void tensor_to_floats(TensorHandle h, float* out) {
-    auto t = to_tensor(h)->to(torch::kFloat32).contiguous();
+    auto t = to_tensor(h)->cpu().to(torch::kFloat32).contiguous();
     std::memcpy(out, t.data_ptr<float>(), t.numel() * sizeof(float));
 }
 
@@ -766,7 +772,7 @@ extern "C" void _dbg_dump_lstm_traj_if_enabled_torch(void) {
         if (nm.size() >= 3 &&
             (nm.substr(nm.size()-3) == "_h0" || nm.substr(nm.size()-3) == "_c0")) {
             auto& t = *param_registry[i].tensor;
-            auto t_cpu = t.detach().to(torch::kFloat64).contiguous();
+            auto t_cpu = t.detach().cpu().to(torch::kFloat64).contiguous();
             const double* d = t_cpu.data_ptr<double>();
             int numel = (int)t.numel();
             double l2 = 0.0, mn = 1e300, mx = -1e300;
@@ -798,7 +804,7 @@ extern "C" void _dbg_dump_param_grads_if_enabled_torch(void) {
         int has_nan = 0;
         int numel = (int)pe.tensor->numel();
         if (pe.tensor->grad().defined()) {
-            auto g_cpu = pe.tensor->grad().to(torch::kFloat64).contiguous();
+            auto g_cpu = pe.tensor->grad().cpu().to(torch::kFloat64).contiguous();
             const double* g = g_cpu.data_ptr<double>();
             for (int j = 0; j < numel; j++) {
                 double v = g[j];
@@ -869,14 +875,16 @@ const char* param_name(int idx) {
 double param_grad_item(int idx) {
     auto& g = param_registry[idx].tensor->grad();
     if (!g.defined()) return 0.0;
-    return g.flatten().data_ptr<double>()[0];
+    // .cpu() before .data_ptr<>() — readback host-side requires CPU
+    // tensor. No-op on CPU params; only MPS / CUDA params pay the hop.
+    return g.cpu().flatten().data_ptr<double>()[0];
 }
 
 double param_grad_item_and_zero(int idx) {
     auto* t = param_registry[idx].tensor;
     auto& g = t->grad();
     if (!g.defined()) return 0.0;
-    double val = g.item<double>();
+    double val = g.cpu().item<double>();
     g.zero_();
     return val;
 }
@@ -908,7 +916,15 @@ void param_load_data(int idx, const double* data, int numel) {
                 entry.name.c_str(), existing, numel);
         return;
     }
-    memcpy(entry.tensor->data_ptr<double>(), data, numel * sizeof(double));
+    // Build a CPU staging tensor from host data, then .copy_() into the
+    // (possibly non-CPU) param storage. `.copy_()` handles the device
+    // hop transparently for MPS / CUDA targets and is a memcpy on CPU.
+    auto staging = torch::from_blob(
+        const_cast<double*>(data),
+        {(int64_t)numel},
+        torch::kFloat64
+    );
+    entry.tensor->view({numel}).copy_(staging);
 }
 
 TensorHandle tensor_subtract_scalar_inplace(TensorHandle h, double val) {
@@ -1192,11 +1208,11 @@ TensorHandle tensor_view_1d(TensorHandle h, int idx) {
 }
 
 double tensor_item_2d(TensorHandle h, int row, int col) {
-    return to_tensor(h)->index({row, col}).item<double>();
+    return to_tensor(h)->index({row, col}).cpu().item<double>();
 }
 
 double tensor_item_1d(TensorHandle h, int idx) {
-    return (*to_tensor(h))[idx].item<double>();
+    return (*to_tensor(h))[idx].cpu().item<double>();
 }
 
 /* ---------- Native Optimizer ---------- */
@@ -1686,7 +1702,7 @@ void optimizer_get_m(OptimizerHandle h, int idx, double* out) {
         memset(out, 0, numel * sizeof(double));
         return;
     }
-    buf = buf.contiguous().to(torch::kFloat64);
+    buf = buf.cpu().contiguous().to(torch::kFloat64);
     memcpy(out, buf.data_ptr<double>(), numel * sizeof(double));
 }
 
@@ -1708,7 +1724,7 @@ void optimizer_get_v(OptimizerHandle h, int idx, double* out) {
         memset(out, 0, numel * sizeof(double));
         return;
     }
-    buf = buf.contiguous().to(torch::kFloat64);
+    buf = buf.cpu().contiguous().to(torch::kFloat64);
     memcpy(out, buf.data_ptr<double>(), numel * sizeof(double));
 }
 
@@ -1915,13 +1931,15 @@ void backend_profile_report(void) {
 double param_grad_item_at(int param_idx, int elem_idx) {
     auto& t = *param_registry[param_idx].tensor;
     if (!t.grad().defined()) return 0.0;
-    return t.grad().data_ptr<double>()[elem_idx];
+    // .cpu() before .data_ptr<>() — host indexing requires CPU tensor.
+    return t.grad().cpu().data_ptr<double>()[elem_idx];
 }
 
 /* ---------- Debug ---------- */
 
 void tensor_print(TensorHandle h) {
-    std::cout << *to_tensor(h) << std::endl;
+    // std::cout << at::Tensor requires the tensor to live on CPU.
+    std::cout << to_tensor(h)->cpu() << std::endl;
 }
 
 /* Job 3 Phase B — mx::compile is mlx-only; torch backend always reports
