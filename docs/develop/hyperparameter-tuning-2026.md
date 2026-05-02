@@ -277,7 +277,50 @@ Same architecture (LSTM controller + DNC memory: usage allocation + temporal lin
 **Cross-cutting decisions for the suite**:
 - Cross-backend agreement gate (>2× → unreliable) is now the standard B3 entry policy. Documented in CLAUDE.md and `Hpo` tutorials.
 - B4 (network-structure tuning via the A3 sweep harness) is now the higher-headroom direction for Adam-based examples — `lr_find` won't move defaults there, but a small-network sweep may.
-- **B3 ticket is done**; remaining B3-fixes (PPO env swap, GPT default shrink) are tracked separately.
+- **B3 ticket is done**; B3-fixes (PPO env swap, GPT default shrink) shipped separately — see below.
+
+---
+
+## B3-fixes (2026-04-30)
+
+Two examples had wrong-shape problems that B3's `--lr-find` couldn't help with — they needed structural changes, not LR retuning.
+
+### PPO: env swap Pendulum → Acrobot
+
+Pendulum (continuous action, Gaussian policy) at the rollout sizes we can afford on tape (rollout=400) doesn't converge; PyTorch needs rollout=2048 (~15h on tape) to reach parity. The convergence threshold of `avg_return ≥ -800` was a partial-convergence acknowledgement, not a real demonstration. Both sides rewritten on **Acrobot** (discrete action, sparse reward, longer horizon) — the canonical "PPO clipped-surrogate demonstrates" benchmark.
+
+Configuration:
+- Architecture: separate actor (6 → 64 → 64 → 3 logits) + critic (6 → 64 → 64 → 1), tanh
+- Policy: categorical (was Gaussian)
+- Hyperparameters: `lr=3e-4, gamma=0.99, lambda=0.95, clip=0.2, K=10, batch=64, rollout=1024, entropy_coef=0.01, 100 rollouts`
+- Acrobot physics matches `Gym.ClassicControl.Acrobot` (semi-implicit Euler, 4 substeps of dt=0.05) on both Idris and PyTorch sides
+
+Multi-seed greedy eval (20 episodes per seed):
+
+| Seed | PyTorch | Idris |
+|------|---------|-------|
+| 1    | -63.0   | -63.0 |
+| 2    | -63.0   | -82.0 |
+| 3    | -75.0   | -74.0 |
+| 4    | -106.0  | — |
+| 42   | -73.0   | -94.0 |
+
+PyTorch: 5/5 converge well within solved (-63 to -106). Idris: 4/4 seeds tested converge to between -63 and -94 — comparable pass rate. Acrobot solved is ~-100, random ~-500.
+
+Convergence threshold updated from `avg_return ≥ -800` (partial) to `avg_return ≥ -150` (real, with margin). Smoke threshold updated from `≥ -2500` (Pendulum random) to `≥ -550` (Acrobot random).
+
+Side benefit: closes a coverage gap from B1 (Acrobot was one of the unused Gym envs).
+
+### GPT: default shrink to embedded/30
+
+Default `make example-gpt` was `--corpus tinyshakespeare --epochs 1000` (~30 min on tape) — too slow for a default demo. Shrunk to `--corpus embedded --epochs 30` (~40 s); the full convergence run lives at `make example-gpt-full` for users who want the canonical char-LM demonstration.
+
+Sub-changes:
+- `warmupEpochs` is now `min(100, epochs/10)` instead of always 100. Without this, 30 epochs at warmup=100 means the LR never finishes ramping up — the demo would do almost no learning.
+- Convergence threshold updated: `val_bpc < 3.5` (tinyshakespeare/1000) → `bpc < 5.0` (embedded/30). Untrained ~6.0; embedded/30 with warmup=3 reaches ~4.5 deterministically at seed=42.
+- Smoke gate (`test-examples`) override simplified: `GPT_ARGS=--epochs 3` (was `--corpus embedded --epochs 3`) since embedded is now the default.
+
+The full `tinyshakespeare/1000` config is preserved as `make example-gpt-full` (depends on `dataset-tinyshakespeare`); `val_bpc < 3.5` documented as the expected threshold there but not exercised in the convergence loop.
 
 ---
 

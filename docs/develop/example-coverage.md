@@ -31,7 +31,7 @@ be replaced with measurements as part of B3 dogfood runs.
 | Transformer | 2 blocks, 4 heads, dModel=32 | Sequence sorting | Supervised (batched) | --epochs 5 | ~5 s (estimated) | sort_acc ≥ 0.8 | ~15 s (estimated) @ 1000 ep | uses LayerNorm + Embedding + Attention |
 | SeqClassify | embed→Conv1D→pool→FC | Synthetic waveform classification | Supervised | --epochs 5 | ~5 s (estimated) | loss < 0.5 | ~5 s (estimated) @ 1000 ep | |
 | Mnist | LeNet (Conv2D×2 + FC) | MNIST digit classification | Supervised (full-pass) | --epochs 1 | ~2 min (estimated, full pass) | accuracy ≥ 0.85 | ~10 min (measured) @ 5 ep | uses Dropout; smoke runs 1 full pass |
-| Gpt | Transformer (2 blocks, dModel=64) | Char-LM (tinyshakespeare) | Supervised | --corpus embedded --epochs 3 | ~10 s (estimated) | val_bpc < 3.5 | ~30 min (measured) @ 1000 ep, full corpus | uses cosineWithWarmup manually; B3 will switch to A1's beforeEpoch hook |
+| Gpt | Transformer (2 blocks, dModel=64) | Char-LM (embedded by default) | Supervised | --epochs 3 | ~10 s (measured) | bpc < 5.0 | ~40 s (measured) @ 30 ep, embedded; full convergence (~30 min @ 1000 ep, tinyshakespeare, val_bpc < 3.5) lives in `make example-gpt-full` | B3-fixes 2026-04-30: default shrunk to embedded/30 (~30 s), warmup proportional |
 | NtmCopy | LSTM(100) + NTM(N=128, M=20) | Memory copy (seqLen 1-20) | TwoPhase BCE | --epochs 5 | ~30 s (estimated) | acc_short ≥ 0.9 | ~25 ms/ep × ≥ 50K ep ≈ many hours | |
 | NtmAssociativeRecall | LSTM(100) + NTM(N=128, M=20) | Memory recall (K=2-6) | TwoPhase BCE | --epochs 5 | ~30 s (estimated) | acc_k2 ≥ 0.8 | similar to NtmCopy | |
 | DncCopy | LSTM(100) + DNC(N=32, M=20, R=1) | Memory copy (seqLen 1-10) | TwoPhase BCE | --epochs 5 --max-len 3 --batch 1 | ~10 s (measured during DNC revert) | acc_short ≥ 0.8 | 1733 ms/ep × 2K ep ≈ 58 min (measured); est. 13 h @ 46K to full | reverted from N=128 batch=16 — see `dnc-convergence-results.md`. Layer-perf rewrite is a separate TODO entry |
@@ -39,7 +39,7 @@ be replaced with measurements as part of B3 dogfood runs.
 | Reinforce | FC: 4→128→2 | CartPole (RL) | Custom REINFORCE | --epochs 10 | ~5 s (estimated) | avg_return ≥ 150 | ~100 s (measured) @ 2000 ep / seed=42 | |
 | Dqn | FC: 4→64→64→2 | CartPole (RL) | Custom DQN | --epochs 10 | ~10 s (estimated) | avg_return ≥ 100 | ~1-3 min (estimated) @ 300 ep | |
 | A2c | FC: 4→64→64→{2,1} (split) | CartPole (RL) | Custom A2C+GAE | --epochs 50 | ~30 s (estimated) | avg_return ≥ 150 | ~29 ms/ep × 5K ep ≈ 2.5 min (measured) | aligned to PyTorch — separate actor+critic per `reference-alignment.md` |
-| Ppo | FC: 3→64→64→1 | Pendulum (RL) | Custom PPO+GAE | --epochs 5 | ~30 s (estimated) | avg_return ≥ −800 (lenient) | ~3.8 s/ep × 200 ep ≈ 13 min (measured) | **wrong-shape**: rollout=400 doesn't converge to PyTorch parity; threshold is partial-convergence. See §5 |
+| Ppo | FC: 6→64→64→3 (categorical) + 6→64→64→1 critic | Acrobot (RL, discrete) | Custom PPO+GAE | --epochs 5 | ~30 s (estimated) | avg_return ≥ −150 | ~6 s/ep × 100 ep ≈ 10 min (measured); 4/4 Idris seeds -63 to -94 | **B3-fixes 2026-04-30**: env swapped Pendulum → Acrobot (discrete); 5/5 PyTorch + 4/4 Idris seeds converge to solved band |
 | Sac | FC actor + 2× Q-nets | Pendulum (RL) | Custom SAC | --epochs 100 | ~10 s (estimated) | avg_return ≥ −500 | ~91 ms/ep × ~24K ep ≈ 36 min (measured) | uses polyak target sync |
 | Sarsa | Q-table [12, 4] | CliffWalking (tabular) | Custom SARSA | full default 1000 ep | <1 s (measured) | avg_return ≥ −120 | <1 s (measured) | |
 | QLearning | Q-table [12, 4] | CliffWalking (tabular) | Custom Q-learning | full default 1000 ep | <1 s (measured) | avg_return ≥ −120 | <1 s (measured) | |
@@ -60,7 +60,7 @@ near or above the budget:
   are ~30 s each. Borderline; each has structural reasons not to shrink
   further (NTM needs ≥ a few epochs for two-phase state to settle; A2C
   needs ≥ a few episodes for any RL signal; PPO smoke is already 5 epochs
-  × 400 rollout × K=10 ≈ 20K updates).
+  × 1024 rollout × K=10 ≈ 80K inner updates on Acrobot).
 
 All other examples sit comfortably below 30 s.
 
@@ -71,7 +71,7 @@ Empty cell = no current example.
 
 | Layer ↓ \\ Problem → | Synth-reg | Synth-cls | Synth-seq | MNIST | LM | Mem-copy | Mem-recall | RL-discrete | RL-cont | Tabular |
 |---|---|---|---|---|---|---|---|---|---|---|
-| **FC (Linear)** |  | Supervised, Transfer | SeqClassify |  |  |  |  | Reinforce, Dqn, A2c | Ppo, Sac |  |
+| **FC (Linear)** |  | Supervised, Transfer | SeqClassify |  |  |  |  | Reinforce, Dqn, A2c, Ppo | Sac |  |
 | **RNN** | Rnn |  |  |  |  |  |  |  |  |  |
 | **LSTM** |  | Lstm |  |  |  | NtmCopy, DncCopy | NtmAssociativeRecall, DncAssociativeRecall |  |  |  |
 | **GRU** |  |  |  |  |  |  |  |  |  |  |
@@ -106,7 +106,7 @@ Architecture aliases:
 Five of the nine shipped Gym envs have no example:
 - **MountainCar** (discrete) — classic exploration challenge; pairs naturally with DQN or REINFORCE.
 - **MountainCarCont** (continuous) — Box action space; pairs with PPO or SAC.
-- **Acrobot** (discrete) — sparse reward; harder than CartPole, exercises the discrete-action algorithm suite on a non-trivial env.
+- ~~**Acrobot** (discrete)~~ — covered by Ppo (B3-fixes 2026-04-30; PPO env swap from Pendulum).
 - **Taxi** (tabular discrete) — 500-state table; pairs with Q-learning to extend the tabular suite.
 - **FrozenLake** (tabular discrete, stochastic) — slippery dynamics demonstrate stochastic-MDP handling; pairs with Q-learning or Monte Carlo.
 
@@ -122,7 +122,7 @@ Multiple examples on the same architecture×problem, intentionally:
 - **NtmCopy + DncCopy** (and the matching Recall pair): same memory tasks, different memory architectures. Keep both — demonstrate the architectural progression NTM → DNC.
 - **Sarsa + QLearning on CliffWalking**: same env, on-policy vs off-policy contrast. Keep both — pedagogically valuable.
 - **Reinforce + Dqn + A2c on CartPole**: same env, three different algorithm families (policy gradient, value-based, actor-critic). Keep all three.
-- **Ppo + Sac on Pendulum**: same env, on-policy vs off-policy continuous control. Keep both.
+- **Ppo on Acrobot + Sac on Pendulum**: discrete vs continuous control, on-policy vs off-policy. Keep both.
 
 No redundancies to consolidate — each pair/triplet demonstrates a distinct
 architectural or algorithmic point, and the alignment policy means we'd be
@@ -133,16 +133,11 @@ removing valuable references for the PyTorch comparison too.
 Three examples have a problem-config mismatch that prevents convergence at
 default args even though the architecture is correct:
 
-- **Ppo on Pendulum** at `RolloutLen=400`: doesn't converge to a meaningful
-  policy. PyTorch needs `rollout=2048` (~15 hours on tape backend) to
-  reach parity. The current convergence threshold of `avg_return ≥ −800`
-  is a partial-convergence acknowledgement, not a real demonstration.
-  **B2 decision**: in B3/B6 — switch PPO to a discrete-action env where
-  the clipped-surrogate update can demonstrate convergence at a
-  CPU-feasible rollout length. Candidates: Acrobot (sparse reward,
-  exercises the discrete-action algorithm path), or CartPole at a
-  larger network/longer rollout. Keep the Pendulum config as a separate
-  convergence-only target if anyone wants to revisit.
+- ~~**Ppo on Pendulum**~~ — **resolved (B3-fixes, 2026-04-30)**: env swapped to
+  Acrobot (discrete-action). At `rollout=1024, 100 rollouts, lr=3e-4`,
+  PyTorch hits avg_return -63 to -106 across 5 seeds; Idris seed=42
+  reaches -94. Convergence threshold updated from `≥ -800`
+  (partial-convergence) to `≥ -150` (real convergence with margin).
 - **Gpt on tinyshakespeare** at 1000 epochs ≈ 30 min on tape. Too slow
   for a default `make example-gpt` invocation; smoke uses the embedded
   1.3 KB corpus at 3 epochs (~10 s) for safety. **B2 decision**:

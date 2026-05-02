@@ -92,6 +92,26 @@ PPO has the same twin-network shape (actor + critic) and originally exhibited th
 
 Both descend then oscillate/plateau in the -1200 to -1600 band — PPO at rollout=400 is genuinely starved of data, and both implementations express that. The original PyTorch reference config (`rollout=2048`) converged to -353 in the same 300 rollouts but each Idris epoch is ~20× slower than PyTorch due to per-step `forwardVarTensor` calls (Idris autograd doesn't have a batched forward path), so we've shipped the shorter rollout for tractable iteration and noted the convergence gap as a compute-speed issue rather than an implementation gap. A follow-up to batch the Variable forward path would close this.
 
+### PPO env swap: Pendulum → Acrobot (B3-fixes, 2026-04-30)
+
+The Pendulum result above (Idris -1571 vs PyTorch -1197 at the CI-sized config) was a documented partial-convergence band, not a real demonstration of PPO. Pendulum + Gaussian policy + the rollout sizes we can afford on tape never reaches a "PPO clearly works" regime. As part of B3-fixes (see `docs/develop/hyperparameter-tuning-2026.md`), both sides were rewritten on **Acrobot** — discrete-action, sparse reward, longer horizon, the canonical "PPO clipped-surrogate demonstrates" benchmark.
+
+Aligned config on both sides: `lr=3e-4, gamma=0.99, lambda=0.95, clip=0.2, K=10, batch=64, rollout=1024, entropy_coef=0.01, 100 rollouts`. Architecture: separate actor (6 → 64 → 64 → 3 logits) + critic (6 → 64 → 64 → 1) with tanh activations; categorical policy. Acrobot physics matches `Gym.ClassicControl.Acrobot` (semi-implicit Euler, 4 substeps of dt=0.05) on both sides — distinct from Gymnasium's RK4 reference but task and termination identical.
+
+Multi-seed greedy eval (20 episodes per seed), Acrobot solved is ~-100, random ~-500:
+
+| Seed | PyTorch | Idris |
+|------|---------|-------|
+| 1    | -63.0   | -63.0 |
+| 2    | -63.0   | -82.0 |
+| 3    | -75.0   | -74.0 |
+| 4    | -106.0  | — |
+| 42   | -73.0   | -94.0 |
+
+PyTorch: 5/5 converge to ≤-110 (well within solved). Idris: 4/4 seeds tested converge to between -63 and -94, all in the solved band — comparable to PyTorch's pass rate at the same config. Convergence threshold in `test-examples-convergence.expect` set to `>= -150` to accommodate seed variance with margin.
+
+The env swap also picks up Acrobot in the `docs/develop/example-coverage.md` gap list, so it's a 2-for-1: real PPO demonstration + new env coverage.
+
 ### SAC alignment
 
 PyTorch SAC and Idris SAC share:
