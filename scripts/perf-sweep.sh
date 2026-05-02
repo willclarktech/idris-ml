@@ -20,6 +20,16 @@
 #  - One PyTorch reference run per example (not per cell). On a 6-
 #    example × 4-cell sweep that's 18 saved ref runs.
 #  - mlx-gpu is a first-class cell (perf-baseline.sh has no flag for it).
+#
+# Timing methodology: per cell, build the example binary ONCE via
+# `make example-<name>` (which links the right backend dylib), then
+# time direct binary invocations — NOT make invocations. The
+# previous version timed `make example-<name>` per call, which folded
+# ~50-500 ms of make overhead (dependency check, dylib copy, fork)
+# into each measurement. On sub-ms/epoch examples (rnn/gru tape) the
+# overhead noise dominated the signal and the two-point subtraction
+# went *negative* — visible on the 2026-05-18 L60 sweep before this
+# fix.
 set -euo pipefail
 
 EXAMPLES_CSV="rnn,lstm,gru,transformer,ntm-copy,ntm-recall"
@@ -72,17 +82,46 @@ cell_to_backend_device() {
 
 now_ms() { python3 -c 'import time; print(int(time.time_ns()/1_000_000))'; }
 
-# Run one idris invocation, return wall-clock ms.
-run_idris_once() {
-  local target="$1" var="$2" n="$3" backend="$4" device="$5"
-  local t0 t1
-  t0=$(now_ms)
+# Build the example binary for a (backend, device) cell ONCE, leaving
+# ./build/exec/<name> and ./build/exec/<name>_app/libidrisml.dylib in
+# place for direct invocation. The make-driven build + dylib copy is
+# the bulk of per-call wallclock on tiny examples (rnn/gru tape are
+# sub-ms/epoch real, vs ~100-500ms of make overhead per make invocation),
+# so timing make invocations directly produced negative ms/ep on the
+# L60 sweep (2026-05-18). Calling the binary directly removes that
+# overhead from the timing path.
+#
+# The example-* make recipes don't have a "build only" mode — they
+# always run the binary at the end. We pass `<VAR>=--epochs 1 --seed N`
+# so the post-build run is cheap and effectively a warmup-we-discard.
+build_idris_binary() {
+  local target="$1" var="$2" backend="$3" device="$4"
   if [ "$backend" = "mlx" ]; then
     MLX_DEVICE="$device" BACKEND="$backend" make --no-print-directory "$target" \
-      "$var=--epochs $n --seed $SEED" >/dev/null 2>&1
+      "$var=--epochs 1 --seed $SEED" >/dev/null 2>&1 || true
   else
     BACKEND="$backend" make --no-print-directory "$target" \
-      "$var=--epochs $n --seed $SEED" >/dev/null 2>&1
+      "$var=--epochs 1 --seed $SEED" >/dev/null 2>&1 || true
+  fi
+}
+
+# Derive binary path from make target: example-rnn -> ./build/exec/rnn.
+binary_for_target() {
+  local target="$1"
+  echo "./build/exec/${target#example-}"
+}
+
+# Run one idris invocation by calling the prebuilt binary directly,
+# bypassing make. Returns wall-clock ms.
+run_idris_once() {
+  local target="$1" _var="$2" n="$3" backend="$4" device="$5"
+  local bin t0 t1
+  bin=$(binary_for_target "$target")
+  t0=$(now_ms)
+  if [ "$backend" = "mlx" ]; then
+    MLX_DEVICE="$device" "$bin" --epochs "$n" --seed "$SEED" >/dev/null 2>&1
+  else
+    "$bin" --epochs "$n" --seed "$SEED" >/dev/null 2>&1
   fi
   t1=$(now_ms)
   echo $((t1 - t0))
@@ -97,9 +136,13 @@ run_pytorch_once() {
   echo $((t1 - t0))
 }
 
-# Two-point timing: (T_long - T_short) / (N_long - N_short). Warmup first.
+# Two-point timing: (T_long - T_short) / (N_long - N_short). Build the
+# binary once for the cell (incl. backend dylib relink if switching
+# backends), then warmup + two measurements all invoke the binary
+# directly. No per-call make overhead in the timing path.
 two_point_idris() {
   local target="$1" var="$2" n_short="$3" n_long="$4" backend="$5" device="$6"
+  build_idris_binary "$target" "$var" "$backend" "$device"
   run_idris_once "$target" "$var" "$n_short" "$backend" "$device" >/dev/null # warmup
   local t_short t_long
   t_short=$(run_idris_once "$target" "$var" "$n_short" "$backend" "$device")

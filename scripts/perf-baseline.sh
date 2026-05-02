@@ -62,16 +62,32 @@ case "$EXAMPLE_KEY" in
     exit 2 ;;
 esac
 
+# Build the example binary ONCE so `run_idris` can invoke it directly
+# without paying make's per-call overhead (dependency check, dylib
+# copy, fork — ~50-500 ms variable, larger than the per-epoch signal
+# on tiny tape examples like rnn/gru). The recipe always runs the
+# binary at the end; we pass `--epochs 1` so the post-build run is
+# cheap and serves as a warmup we discard.
+build_idris_binary() {
+  BACKEND="$BACKEND" make --no-print-directory "$IDRIS_TGT" \
+    "$IDRIS_VAR=--epochs 1 --seed $SEED" >/dev/null 2>&1 || true
+}
+
+# Derive binary path from make target: example-rnn -> ./build/exec/rnn.
+binary_for_target() {
+  echo "./build/exec/${IDRIS_TGT#example-}"
+}
+
 # Run idris example with `--epochs N --seed S`, return total wall-clock in ms.
 # Uses time.time_ns() (absolute since epoch) — time.monotonic_ns() is
 # process-relative, so its value resets each `python3 -c` invocation and
 # the diff is meaningless.
 run_idris() {
   local n="$1"
-  local t0 t1
+  local bin t0 t1
+  bin=$(binary_for_target)
   t0=$(python3 -c 'import time; print(int(time.time_ns()/1_000_000))')
-  BACKEND="$BACKEND" make --no-print-directory "$IDRIS_TGT" \
-    "$IDRIS_VAR=--epochs $n --seed $SEED" >/dev/null 2>&1
+  "$bin" --epochs "$n" --seed "$SEED" >/dev/null 2>&1
   t1=$(python3 -c 'import time; print(int(time.time_ns()/1_000_000))')
   echo $((t1 - t0))
 }
@@ -87,13 +103,12 @@ run_pytorch() {
 }
 
 # Two-point timing: ms_per_epoch ≈ (T_long - T_short) / (N_long - N_short).
-# T_short captures fixed overhead (build / startup / teardown).
-#
-# Warmup pass first so that idris2 compile cache, dylib paths, etc. are
-# all warm — otherwise the first timed run pays cold-cache cost and the
-# subtraction goes negative.
+# T_short captures fixed overhead (binary startup, dylib load, idris2
+# runtime init). Build the binary once before timing; both timed
+# invocations skip make and call the binary directly.
 two_point_idris() {
   local t_short t_long
+  build_idris_binary
   run_idris "$N_SHORT" >/dev/null   # warmup
   t_short=$(run_idris "$N_SHORT")
   t_long=$(run_idris "$N_LONG")
