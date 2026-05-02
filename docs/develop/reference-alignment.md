@@ -19,7 +19,7 @@ When adding or changing an example, always update both Idris and PyTorch to matc
 | DNC Copy | Max seq length | 10 | 20 (reverted — see 2026-04-29 below) |
 | DNC Recall | Batch size | 1 | 16 (reverted — see 2026-04-29 below) |
 | DNC Recall | Memory size N | 32 | 128 (reverted — see 2026-04-29 below) |
-| LSTM | Learning rate | 0.1 | 0.03 |
+| LSTM | Learning rate | 0.1 | 0.5 (lr_find / B3 dogfood, 2026-04-29) |
 | LSTM | Seed | 123456 | 42 |
 | Supervised | Seed | 123456 | 42 |
 | RNN | Seed | 123456 | 42 |
@@ -111,6 +111,20 @@ Multi-seed greedy eval (20 episodes per seed), Acrobot solved is ~-100, random ~
 PyTorch: 5/5 converge to ≤-110 (well within solved). Idris: 4/4 seeds tested converge to between -63 and -94, all in the solved band — comparable to PyTorch's pass rate at the same config. Convergence threshold in `test-examples-convergence.expect` set to `>= -150` to accommodate seed variance with margin.
 
 The env swap also picks up Acrobot in the `docs/develop/example-coverage.md` gap list, so it's a 2-for-1: real PPO demonstration + new env coverage.
+
+### LSTM multi-seed validation at lr=0.5 (B5, 2026-04-30)
+
+After B3 raised the LSTM default LR from 0.03 → 0.5 (lr_find recommendation, single-seed verified), B5 ran the full ≥5-seed validation at the new default on both backends. Convergence threshold: `loss < 0.05`.
+
+| Seed | Idris loss | PyTorch loss |
+|------|-----------|-------------|
+| 1    | 0.00116   | 0.00150     |
+| 2    | 0.00146   | 0.00184     |
+| 3    | 0.00159   | 0.00132     |
+| 4    | 0.00116   | 0.00154     |
+| 42   | 0.00117   | 0.00163     |
+
+5/5 on both backends, all values 30-40× below the threshold. Loss medians around 0.0015 demonstrate clear convergence to a tight final loss; the lr=0.5 default is a strict upgrade over lr=0.03 (which used to plateau at ~0.7 within the same 2000-epoch budget).
 
 ### SAC alignment
 
