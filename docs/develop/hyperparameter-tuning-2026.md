@@ -325,4 +325,29 @@ The full `tinyshakespeare/1000` config is preserved as `make example-gpt-full` (
 
 ---
 
+## B4 — Network-structure tuning (in progress, 2026-04-30)
+
+### Dqn: hidden 64 → 32 — reverted
+
+First B4 prototype. Tried halving DQN's hidden width on CartPole (4 → 32 → 32 → 2) to see if the smaller net still converges to the existing `avg_return >= 100` threshold and saves wall time.
+
+Idris results at hidden=32 (5 seeds, 300 epochs each, ~6 min per run):
+
+| Seed | hidden=32 | hidden=64 (baseline) |
+|------|-----------|----------------------|
+| 1    | 126       | (not measured)       |
+| 2    | 168       | (not measured)       |
+| 3    | 200       | (not measured)       |
+| 4    | **13**    | **117**              |
+| 42   | 146       | (default — converges) |
+
+hidden=32 is a real regression for seed=4: it reaches only 13 (vs 117 at hidden=64). 4/5 vs (presumed) 5/5 — going strictly down on convergence robustness with no compensating wall-time win (the per-run time was ~6 min at both widths; matmul isn't the bottleneck on CartPole).
+
+**Decision: revert to hidden=64.**
+
+**Lesson for B4 going forward**:
+- For small networks on small environments (CartPole class), halving hidden width doesn't reduce wall time meaningfully — overhead (FFI, tape ops, env-step) dominates over matmul.
+- The headroom is in *large* networks where matmul actually scales: Transformer (dModel), NTM/DNC (memory size N), Mnist (Conv2D channels). DQN/Reinforce/A2C/PPO width tuning is unlikely to pay off given this finding.
+- Don't apply B4 by reflex; only run the grid where the matmul scale is actually a constraint.
+
 (Future entries here — one block per example dogfooded by future tunings.)
