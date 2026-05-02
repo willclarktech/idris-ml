@@ -49,7 +49,7 @@ example-taxi                     avg_return   >=  5
 # Pendulum: SAC at full convergence aims for ~-500; documented partial level.
 example-reinforce                avg_return   >=  150
 example-dqn                      avg_return   >=  100
-example-mountain-car             avg_return   >=  -180
+example-mountain-car             avg_return   >=  -160
 example-a2c                      avg_return   >=  150
 example-ppo                      avg_return   >=  -150
 example-sac                      avg_return   >=  -500

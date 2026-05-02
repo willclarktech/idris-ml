@@ -228,7 +228,7 @@ Fourth B6 ticket — fills the MountainCar env coverage gap. DQN with velocity-m
 
 **Reward shaping note**: not strictly policy-invariant in the Ng99 sense (the optimal Q is altered by the bonus), but at the chosen weight (10·|v|) the optimal trajectory is preserved — kinetic energy is the proven precursor to reaching the goal in MountainCar. The eval metric reports the *raw* return for direct comparison to standard MountainCar reporting (-200 floor, -110 reliable, -100 optimal).
 
-**Multi-seed convergence (≥5 seeds, both backends)**, threshold `avg_return >= -180`:
+**Multi-seed convergence (≥5 seeds, both backends)**, threshold `avg_return >= -160`:
 
 | Seed | Idris avg_return | PyTorch avg_return |
 |------|------------------|--------------------|
@@ -239,7 +239,7 @@ Fourth B6 ticket — fills the MountainCar env coverage gap. DQN with velocity-m
 | 42   | -152             | -110               |
 | **mean** | **-114**     | **-123**           |
 
-**10/10 pass**. Cross-backend mean delta is ~9 — within DQN seed noise. The two backends pick different "worst" seeds (Idris's seed=42 and PyTorch's seed=13) but both stay above the -180 threshold across all 5 seeds. Wall-clock: Idris tape ~17:48 / 500 episodes / seed=42 (≈2.1s/epoch); PyTorch ~85s / 500 episodes (≈12.6× faster, the standard FFI-per-step overhead seen across all RL examples on tape).
+**10/10 pass**. Cross-backend mean delta is ~9 — within DQN seed noise. The two backends pick different "worst" seeds (Idris's seed=42 and PyTorch's seed=13) but both stay above the -160 threshold across all 5 seeds. Wall-clock: Idris tape ~17:48 / 500 episodes / seed=42 (≈2.1s/epoch); PyTorch ~85s / 500 episodes (≈12.6× faster, the standard FFI-per-step overhead seen across all RL examples on tape).
 
 ### LSTM multi-seed validation at lr=0.5 (B5, 2026-04-30)
 

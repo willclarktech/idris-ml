@@ -591,7 +591,7 @@ DQN on MountainCar-v0 with velocity-magnitude reward shaping. Architecture mirro
 
 This is **not** strictly policy-invariant in the Ng99 sense (the optimal Q is altered by the shaping bonus), but at the chosen weight (10·|v|) the optimal trajectory is preserved — kinetic energy is the proven precursor to reaching the goal anyway. Position-only or potential-difference shaping would be policy-invariant but produces a sparser gradient signal.
 
-**Multi-seed evidence at threshold ≥ -180** (5 seeds × 2 backends = 10 runs):
+**Multi-seed evidence at threshold ≥ -160** (5 seeds × 2 backends = 10 runs):
 
 | seed | Idris | PyTorch |
 |---|---:|---:|
@@ -602,7 +602,7 @@ This is **not** strictly policy-invariant in the Ng99 sense (the optimal Q is al
 | 21 | -102 | -140 |
 | **mean** | **-114** | **-123** |
 
-10/10 pass. Cross-backend mean delta is ~9 — well within DQN seed noise. The two backends pick different "worst" seeds (Idris's seed=42 and PyTorch's seed=13) but both stay above the -180 threshold.
+10/10 pass. Cross-backend mean delta is ~9 — well within DQN seed noise. The two backends pick different "worst" seeds (Idris's seed=42 and PyTorch's seed=13) but both stay above the -160 threshold.
 
 **Wall-clock**:
 - Idris tape: ~17:48 / 500 episodes / seed=42 (≈2.1s/epoch)
