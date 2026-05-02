@@ -107,7 +107,7 @@ NumClasses : Nat
 NumClasses = 10
 
 BatchSize : Nat
-BatchSize = 32
+BatchSize = 64
 
 
 ----------------------------------------------------------------------
@@ -180,6 +180,46 @@ evalAccuracy model ds numImages nSamples = go model nSamples 0 0.0
 
 
 ----------------------------------------------------------------------
+-- Training helpers
+----------------------------------------------------------------------
+
+||| Run one full-pass epoch: iterate `batchesPerEpoch` mini-batches from the
+||| indexed loader, threading the model and accumulating per-batch loss.
+||| Each mini-batch invokes `epochNativeTensorPre` (forward + loss +
+||| backward + step). Returns the model and the mean per-batch loss.
+||| Mirrors PyTorch's `train_epoch` semantics (one full pass over the
+||| training set per epoch); pair with `runTrainingIO` and `dataSrc=pure ()`.
+trainOneFullPass : {hs : List Nat} ->
+                   NativeOptimizer ->
+                   IO (Vect BatchSize (TensorDataPoint InputDim NumClasses)) ->
+                   (batchesPerEpoch : Nat) ->
+                   Network InputDim hs NumClasses (Variable CPU) ->
+                   IO (Network InputDim hs NumClasses (Variable CPU), Double)
+trainOneFullPass opt genBatch n m0 = go m0 n 0.0
+  where
+    go : {hs' : List Nat} ->
+         Network InputDim hs' NumClasses (Variable CPU) -> Nat -> Double ->
+         IO (Network InputDim hs' NumClasses (Variable CPU), Double)
+    go m Z     acc = pure (m, acc / cast (natToInteger n))
+    go m (S k) acc = do
+      batch <- genBatch
+      let (m', loss) = epochNativeTensorPre opt batch mnistCE m
+      go m' k (acc + loss)
+
+||| Per-epoch metrics: test accuracy and test loss over a small eval slice.
+||| Cheap (200 forwards) so it can run every epoch.
+mnistMetrics : {hs : List Nat} ->
+               AnyPtr -> Int ->
+               Network InputDim hs NumClasses (Variable CPU) ->
+               IO (List (String, String))
+mnistMetrics testDs testCount m =
+  let evalM = setNetworkTraining False m
+      pair  = evalAccuracy evalM testDs testCount 200
+  in pure [("test_acc", show (fst pair)),
+           ("test_loss", show (snd pair))]
+
+
+----------------------------------------------------------------------
 -- Config & Main
 ----------------------------------------------------------------------
 
@@ -192,7 +232,7 @@ record Config where
   dataDir : String
 
 defaultConfig : Config
-defaultConfig = MkConfig 0.001 2000 500 42 "data/mnist"
+defaultConfig = MkConfig 0.001 5 3 42 "data/mnist"
 
 specs : List (ArgSpec Config)
 specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
@@ -256,10 +296,19 @@ main = do
 
   genBatch <- mkIndexedLoader {batchSize=BatchSize} (cast trainCount) (mnistItem trainDs)
 
-  let trainCfg = patienceConfig cfg.epochs cfg.patience
+  -- One epoch = one full pass over the training set (PyTorch semantics).
+  -- See docs/develop/reference-alignment.md "MNIST epoch semantics".
+  let batchesPerEpoch : Nat
+      batchesPerEpoch = cast {to=Nat} trainCount `div` BatchSize
+  putStrLn $ "Batches/epoch: " ++ show batchesPerEpoch
+           ++ " (batch_size=" ++ show BatchSize ++ ")"
 
-  (trained, epochsDone, finalLoss) <- runTraining
-    (\m, d => epochNativeTensorPre opt d mnistCE m) genBatch trainCfg model
+  let trainCfg = MkTrainConfig cfg.epochs 1 (Patience cfg.patience 0.001)
+                   (mnistMetrics testDs testCount)
+
+  (trained, epochsDone, finalLoss) <- runTrainingIO
+    (\m, _ => trainOneFullPass opt genBatch batchesPerEpoch m)
+    (pure ()) trainCfg model
 
   putStrLn ""
   let evalModel = setNetworkTraining False trained

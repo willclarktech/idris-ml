@@ -142,18 +142,18 @@ Verified post-fix at full default epochs:
 - seq-classify: loss 0.61 → 0.121 (PyTorch reference 0.243 at 1000 epochs)
 - MNIST: see epoch-semantics divergence below
 
-### MNIST epoch semantics — Idris/PyTorch divergence (documented, not aligned)
+### MNIST epoch semantics — Idris/PyTorch alignment (resolved)
 
-PyTorch's `train_epoch` for MNIST iterates **all batches** of the 60K-sample training set per epoch (~1875 batches at batch=64). Idris's `mkIndexedLoader` returns **one batch** per call, and `runTraining`/`epochNativeTensorPre` consumes one batch per epoch. So 100 PyTorch epochs ≈ 187,500 batches; 100 Idris "epochs" ≈ 100 batches — a 1875× compute gap masquerading as identical epoch counts. Earlier alignment work (commit `be5121e8`) reduced Idris MNIST epochs from 2000 → 100 to "match PyTorch", treating the epoch token as semantically identical when it wasn't.
+Previously, 1 Idris MNIST "epoch" = 1 mini-batch step (`mkIndexedLoader` yields one batch per call; `runTraining`/`epochNativeTensorPre` consumed one batch per epoch). PyTorch's `train_epoch` iterates **all batches** of the 60K training set per epoch. So 100 Idris epochs ≈ 100 batches, while 100 PyTorch epochs ≈ 187,500 batches — same word, ~1875× compute gap. Earlier alignment work (commit `be5121e8`) had reduced Idris MNIST epochs from 2000 → 100 on the assumption that the tokens were semantically identical, dropping accuracy 0.92 → 0.599 and breaking the convergence gate; reverted in `c94a4df` to 2000 single-batch epochs as a stopgap.
 
-**Reverted**: Idris MNIST default epochs back to **2000** (one-batch-per-epoch). At batch=32, 2000 batches achieves accuracy 0.92 on the 1K test sample (≥0.85 threshold), wall time ~3 minutes — fits comfortably in the 4h `CONVERGENCE_TIMEOUT`.
+**Refactored**: `Example/Mnist.idr` now uses `runTrainingIO` with `dataSrc=pure ()` and an inline `trainOneFullPass` helper that fetches `batchesPerEpoch = trainCount / BatchSize ≈ 937` mini-batches per logical epoch — matching PyTorch's full-pass semantics. Loss returned is the mean per-batch loss across the full pass (mirrors PyTorch's `total_loss / count`).
 
-**Not aligned**: full PyTorch-style epochs in Idris would take ~4.7 hours per convergence run (3750 batches × 100 epochs at ~90ms/batch), exceeding the convergence-target budget. A proper alignment would require either:
-1. Refactoring Idris MNIST to do PyTorch-style full-pass epochs (and reducing the epoch count to a few), or
-2. Refactoring PyTorch to do single-batch-per-epoch with epoch counts matched to Idris.
+Aligned defaults:
+- Idris: `--batch-size 64 --epochs 5 --patience 3` (≥0.85 threshold reached well before epoch 5).
+- PyTorch: `--batch-size 64 --epochs 100 --patience 500` (kept; PyTorch trains longer for the 0.99 final-quality demo using the same script).
 
-Per the alignment policy, this is a known divergence to revisit. For now, both implementations converge to comparable accuracy (Idris 0.92 / PyTorch 0.99) — but their "epoch" counts mean different things. Filed as follow-up.
+The convergence threshold (≥0.85) is unchanged in `test-examples-convergence.expect`. Wall time at 5 full-pass epochs: ≤15 minutes on tape — well inside the 4h `CONVERGENCE_TIMEOUT`. SeqClassify uses synthetic data and 1000 single-batch "epochs" already roughly match the PyTorch reference's 1000 single-batch loop (synthetic-data sampling rather than full-dataset iteration), so it stays as-is per the original TODO note.
 
 ## Status
 
-All known discrepancies resolved or documented. MNIST epoch semantics is the remaining open divergence (above).
+All known discrepancies resolved.
