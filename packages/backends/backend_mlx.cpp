@@ -144,6 +144,29 @@ inline int default_stream_tag() {
 
 #define WITH_STREAM(stream_tag) mx::StreamContext _stream_guard(stream_for_tag(stream_tag))
 
+/* Forward declarations for `_mlx_streamed` symbols that are called from
+   inside other `_mlx_streamed` bodies earlier in the file (the L60
+   composition-fix threads stream_tag through every inner call). C++
+   requires these to be declared before use; their definitions appear
+   later. */
+extern "C" {
+TensorHandle tensor_transpose_last2_mlx_streamed(TensorHandle h, int stream_tag);
+TensorHandle tensor_bmm_3x3_mlx_streamed(TensorHandle ha, TensorHandle hb, int stream_tag);
+TensorHandle tensor_masked_fill_mlx_streamed(TensorHandle h, TensorHandle hmask, double value, int stream_tag);
+TensorHandle tensor_softmax_3d_mlx_streamed(TensorHandle h, int stream_tag);
+TensorHandle tensor_reshape_mlx_streamed(TensorHandle h, int* shape, int rank, int stream_tag);
+TensorHandle tensor_narrow_mlx_streamed(TensorHandle h, int dim, int start, int len, int stream_tag);
+TensorHandle tensor_create_scalar_f32_mlx_streamed(double value, int requires_grad, int stream_tag);
+TensorHandle tensor_create_f32_mlx_streamed(double* data, int* shape, int rank, int requires_grad, int stream_tag);
+TensorHandle tensor_create_param_1d_f32_mlx_streamed(int n, double* data, int stream_tag);
+TensorHandle tensor_create_param_2d_f32_mlx_streamed(int rows, int cols, double* data, int stream_tag);
+TensorHandle tensor_create_param_3d_f32_mlx_streamed(int d0, int d1, int d2, double* data, int stream_tag);
+TensorHandle tensor_create_param_4d_f32_mlx_streamed(int d0, int d1, int d2, int d3, double* data, int stream_tag);
+TensorHandle tensor_create_state_1d_f32_mlx_streamed(int n, double* data, int stream_tag);
+TensorHandle tensor_create_state_2d_f32_mlx_streamed(int rows, int cols, double* data, int stream_tag);
+TensorHandle tensor_clone_mlx_streamed(TensorHandle h, int stream_tag);
+}
+
 /* ================================================================
    Hot-path scalar constants
    ================================================================
@@ -655,14 +678,14 @@ TensorHandle tensor_create_f64(double* data, int* shape, int rank, int requires_
 // `Tensor.idr` / `Layer/*` keep their current behaviour.
 extern "C" TensorHandle tensor_create_scalar_mlx_streamed(double value, int requires_grad, int stream_tag) {
     WITH_STREAM(stream_tag);
-    return tensor_create_scalar_f32(value, requires_grad);
+    return tensor_create_scalar_f32_mlx_streamed(value, requires_grad, stream_tag);
 }
 TensorHandle tensor_create_scalar(double value, int requires_grad) {
     return tensor_create_scalar_mlx_streamed(value, requires_grad, default_stream_tag());
 }
 extern "C" TensorHandle tensor_create_mlx_streamed(double* data, int* shape, int rank, int requires_grad, int stream_tag) {
     WITH_STREAM(stream_tag);
-    return tensor_create_f32(data, shape, rank, requires_grad);
+    return tensor_create_f32_mlx_streamed(data, shape, rank, requires_grad, stream_tag);
 }
 TensorHandle tensor_create(double* data, int* shape, int rank, int requires_grad) {
     return tensor_create_mlx_streamed(data, shape, rank, requires_grad, default_stream_tag());
@@ -1142,9 +1165,9 @@ extern "C" TensorHandle tensor_linear_mlx_streamed(TensorHandle hW, TensorHandle
        from the replay graph — when tlinear chained (one tlinear's output
        used as the next tlinear's bias), the inner branch had no path to
        the loss in the VJP and gradients on those params went to zero. */
-    TensorHandle mv_h = tensor_mv(hW, hx);
+    TensorHandle mv_h = tensor_mv_mlx_streamed(hW, hx, stream_tag);
     if (!hbias) return mv_h;
-    return tensor_add(mv_h, hbias);
+    return tensor_add_mlx_streamed(mv_h, hbias, stream_tag);
 
 }
 TensorHandle tensor_linear(TensorHandle hW, TensorHandle hx, TensorHandle hbias) {
@@ -1264,16 +1287,16 @@ extern "C" TensorHandle tensor_bce_with_logits_mlx_streamed(TensorHandle hinput,
        backward flows automatically through replay-based vjp. Without the
        decomposition, the fused result has no tape entry, `tape_idx` stays -1,
        and `tensor_backward` returns early — params never receive gradients. */
-    TensorHandle relu_x = tensor_clamp_min(hinput, 0.0);
-    TensorHandle xy = tensor_mul(hinput, htarget);
-    TensorHandle abs_x = tensor_abs(hinput);
-    TensorHandle neg_abs_x = tensor_neg(abs_x);
-    TensorHandle exp_neg = tensor_exp(neg_abs_x);
-    TensorHandle one_plus_exp = tensor_add_scalar(exp_neg, 1.0);
-    TensorHandle log_term = tensor_log(one_plus_exp);
-    TensorHandle relu_minus_xy = tensor_sub(relu_x, xy);
-    TensorHandle inner = tensor_add(relu_minus_xy, log_term);
-    return tensor_mean(inner);
+    TensorHandle relu_x = tensor_clamp_min_mlx_streamed(hinput, 0.0, stream_tag);
+    TensorHandle xy = tensor_mul_mlx_streamed(hinput, htarget, stream_tag);
+    TensorHandle abs_x = tensor_abs_mlx_streamed(hinput, stream_tag);
+    TensorHandle neg_abs_x = tensor_neg_mlx_streamed(abs_x, stream_tag);
+    TensorHandle exp_neg = tensor_exp_mlx_streamed(neg_abs_x, stream_tag);
+    TensorHandle one_plus_exp = tensor_add_scalar_mlx_streamed(exp_neg, 1.0, stream_tag);
+    TensorHandle log_term = tensor_log_mlx_streamed(one_plus_exp, stream_tag);
+    TensorHandle relu_minus_xy = tensor_sub_mlx_streamed(relu_x, xy, stream_tag);
+    TensorHandle inner = tensor_add_mlx_streamed(relu_minus_xy, log_term, stream_tag);
+    return tensor_mean_mlx_streamed(inner, stream_tag);
 
 }
 TensorHandle tensor_bce_with_logits(TensorHandle hinput, TensorHandle htarget) {
@@ -1452,12 +1475,16 @@ extern "C" TensorHandle tensor_cross_attention_mlx_streamed(TensorHandle hQ, Ten
                                     TensorHandle hmask, double scale, int stream_tag) {
     WITH_STREAM(stream_tag);
 
-    /* Compose from existing ops — MLX replay autograd handles backward */
-    TensorHandle KT = tensor_transpose_last2(hK);
-    TensorHandle scores = tensor_mul_scalar(tensor_bmm_3x3(hQ, KT), scale);
-    if (hmask) scores = tensor_masked_fill(scores, hmask, -1.0e20);
-    TensorHandle attn = tensor_softmax_3d(scores);
-    return tensor_bmm_3x3(attn, hV);
+    /* Compose from existing ops — MLX replay autograd handles backward.
+       Thread stream_tag through each inner call so the type-level device
+       stays in effect (the unsuffixed sub-op trampolines would each open
+       their own WITH_STREAM(default_stream_tag()) and clobber our scope). */
+    TensorHandle KT = tensor_transpose_last2_mlx_streamed(hK, stream_tag);
+    TensorHandle scores = tensor_mul_scalar_mlx_streamed(
+        tensor_bmm_3x3_mlx_streamed(hQ, KT, stream_tag), scale, stream_tag);
+    if (hmask) scores = tensor_masked_fill_mlx_streamed(scores, hmask, -1.0e20, stream_tag);
+    TensorHandle attn = tensor_softmax_3d_mlx_streamed(scores, stream_tag);
+    return tensor_bmm_3x3_mlx_streamed(attn, hV, stream_tag);
 
 }
 TensorHandle tensor_cross_attention(TensorHandle hQ, TensorHandle hK, TensorHandle hV,
@@ -1899,7 +1926,7 @@ TensorHandle tensor_create_param_3d_f64(int d0, int d1, int d2, double* data) {
 extern "C" TensorHandle tensor_create_param_3d_mlx_streamed(int d0, int d1, int d2, double* data, int stream_tag) {
     WITH_STREAM(stream_tag);
 
-    return tensor_create_param_3d_f32(d0, d1, d2, data);
+    return tensor_create_param_3d_f32_mlx_streamed(d0, d1, d2, data, stream_tag);
 
 }
 TensorHandle tensor_create_param_3d(int d0, int d1, int d2, double* data) {
@@ -2076,12 +2103,16 @@ TensorHandle tensor_max_pool2d_batched(TensorHandle hinput, int kH, int kW,
    Shape manipulation
    ================================================================ */
 
-TensorHandle tensor_reshape(TensorHandle h, int* shape, int rank) {
+extern "C" TensorHandle tensor_reshape_mlx_streamed(TensorHandle h, int* shape, int rank, int stream_tag) {
+    WITH_STREAM(stream_tag);
     auto t = (Tensor*)h;
     mx::Shape sh(shape, shape + rank);
     auto r = new Tensor(mx::reshape(t->data, sh), t->requires_grad);
     if (t->requires_grad) tape_append(OP_RESHAPE, r, t, nullptr, 0);
     return (TensorHandle)r;
+}
+TensorHandle tensor_reshape(TensorHandle h, int* shape, int rank) {
+    return tensor_reshape_mlx_streamed(h, shape, rank, default_stream_tag());
 }
 
 extern "C" TensorHandle tensor_unsqueeze_mlx_streamed(TensorHandle h, int dim, int stream_tag) {
@@ -2113,7 +2144,7 @@ extern "C" TensorHandle tensor_squeeze_mlx_streamed(TensorHandle h, int dim, int
     int normalized = dim < 0 ? dim + rank : dim;
     /* No-op if dim is out of range or not size 1 — matches torch's .squeeze(dim) */
     if (normalized < 0 || normalized >= rank || (int)t->data.shape(normalized) != 1) {
-        return tensor_clone(h);
+        return tensor_clone_mlx_streamed(h, stream_tag);
     }
     std::vector<int> new_shape;
     new_shape.reserve(rank - 1);
@@ -2122,7 +2153,7 @@ extern "C" TensorHandle tensor_squeeze_mlx_streamed(TensorHandle h, int dim, int
     }
     /* Reshape preserves data layout: squeeze of a size-1 dim is identity on data.
        Reuse OP_RESHAPE so backward replay reconstructs the same shape. */
-    return tensor_reshape(h, new_shape.data(), (int)new_shape.size());
+    return tensor_reshape_mlx_streamed(h, new_shape.data(), (int)new_shape.size(), stream_tag);
 
 }
 TensorHandle tensor_squeeze(TensorHandle h, int dim) {
@@ -2269,12 +2300,16 @@ TensorHandle* tensor_unbatch(TensorHandle h, int* out_count) {
     return arr;
 }
 
-TensorHandle tensor_bmm_3x3(TensorHandle ha, TensorHandle hb) {
+extern "C" TensorHandle tensor_bmm_3x3_mlx_streamed(TensorHandle ha, TensorHandle hb, int stream_tag) {
+    WITH_STREAM(stream_tag);
     auto a = (Tensor*)ha; auto b = (Tensor*)hb;
     bool rg = a->requires_grad || b->requires_grad;
     auto r = new Tensor(mx::matmul(a->data, b->data), rg);
     if (rg) tape_append(OP_BMM_3X3, r, a, b, 0);
     return (TensorHandle)r;
+}
+TensorHandle tensor_bmm_3x3(TensorHandle ha, TensorHandle hb) {
+    return tensor_bmm_3x3_mlx_streamed(ha, hb, default_stream_tag());
 }
 
 extern "C" TensorHandle tensor_softmax_3d_mlx_streamed(TensorHandle h, int stream_tag) {
@@ -2307,7 +2342,7 @@ extern "C" TensorHandle tensor_reshape_3d_mlx_streamed(TensorHandle h, int d0, i
     WITH_STREAM(stream_tag);
 
     int shape[] = {d0, d1, d2};
-    return tensor_reshape(h, shape, 3);
+    return tensor_reshape_mlx_streamed(h, shape, 3, stream_tag);
 
 }
 TensorHandle tensor_reshape_3d(TensorHandle h, int d0, int d1, int d2) {
@@ -2318,7 +2353,7 @@ extern "C" TensorHandle tensor_reshape_4d_mlx_streamed(TensorHandle h, int d0, i
     WITH_STREAM(stream_tag);
 
     int shape[] = {d0, d1, d2, d3};
-    return tensor_reshape(h, shape, 4);
+    return tensor_reshape_mlx_streamed(h, shape, 4, stream_tag);
 
 }
 TensorHandle tensor_reshape_4d(TensorHandle h, int d0, int d1, int d2, int d3) {
@@ -2461,7 +2496,7 @@ extern "C" TensorHandle tensor_reshape_2d_mlx_streamed(TensorHandle h, int rows,
     WITH_STREAM(stream_tag);
 
     int shape[] = {rows, cols};
-    return tensor_reshape(h, shape, 2);
+    return tensor_reshape_mlx_streamed(h, shape, 2, stream_tag);
 
 }
 TensorHandle tensor_reshape_2d(TensorHandle h, int rows, int cols) {
@@ -2472,7 +2507,7 @@ extern "C" TensorHandle tensor_reshape_1d_mlx_streamed(TensorHandle h, int n, in
     WITH_STREAM(stream_tag);
 
     int shape[] = {n};
-    return tensor_reshape(h, shape, 1);
+    return tensor_reshape_mlx_streamed(h, shape, 1, stream_tag);
 
 }
 TensorHandle tensor_reshape_1d(TensorHandle h, int n) {
@@ -3198,24 +3233,27 @@ void tensor_lstm_gates(TensorHandle combined, TensorHandle prev_cell, int o,
 extern "C" TensorPair* tensor_lstm_gates_pair_mlx_streamed(TensorHandle hcombined, TensorHandle hprev_cell, int o, int stream_tag) {
     WITH_STREAM(stream_tag);
 
-    // Decompose into primitives — each records its own tape entry
+    // Decompose into primitives — each records its own tape entry.
+    // Thread stream_tag through every inner call so the type-level device
+    // stays in effect (the unsuffixed sub-op trampolines would each open
+    // their own WITH_STREAM(default_stream_tag()) and clobber our scope).
     // Split combined [4*o] into 4 gates
-    TensorHandle ig_raw = tensor_narrow(hcombined, 0, 0, o);
-    TensorHandle fg_raw = tensor_narrow(hcombined, 0, o, o);
-    TensorHandle gg_raw = tensor_narrow(hcombined, 0, 2*o, o);
-    TensorHandle og_raw = tensor_narrow(hcombined, 0, 3*o, o);
+    TensorHandle ig_raw = tensor_narrow_mlx_streamed(hcombined, 0, 0, o, stream_tag);
+    TensorHandle fg_raw = tensor_narrow_mlx_streamed(hcombined, 0, o, o, stream_tag);
+    TensorHandle gg_raw = tensor_narrow_mlx_streamed(hcombined, 0, 2*o, o, stream_tag);
+    TensorHandle og_raw = tensor_narrow_mlx_streamed(hcombined, 0, 3*o, o, stream_tag);
     // Apply activations
-    TensorHandle ig = tensor_sigmoid(ig_raw);
-    TensorHandle fg = tensor_sigmoid(fg_raw);
-    TensorHandle gg = tensor_tanh(gg_raw);
-    TensorHandle og = tensor_sigmoid(og_raw);
+    TensorHandle ig = tensor_sigmoid_mlx_streamed(ig_raw, stream_tag);
+    TensorHandle fg = tensor_sigmoid_mlx_streamed(fg_raw, stream_tag);
+    TensorHandle gg = tensor_tanh_mlx_streamed(gg_raw, stream_tag);
+    TensorHandle og = tensor_sigmoid_mlx_streamed(og_raw, stream_tag);
     // c_t = f_t ⊙ c_{t-1} + i_t ⊙ g_t
-    TensorHandle fc = tensor_mul(fg, hprev_cell);
-    TensorHandle ig_gg = tensor_mul(ig, gg);
-    TensorHandle new_cell = tensor_add(fc, ig_gg);
+    TensorHandle fc = tensor_mul_mlx_streamed(fg, hprev_cell, stream_tag);
+    TensorHandle ig_gg = tensor_mul_mlx_streamed(ig, gg, stream_tag);
+    TensorHandle new_cell = tensor_add_mlx_streamed(fc, ig_gg, stream_tag);
     // h_t = o_t ⊙ tanh(c_t)
-    TensorHandle tanh_cell = tensor_tanh(new_cell);
-    TensorHandle new_hidden = tensor_mul(og, tanh_cell);
+    TensorHandle tanh_cell = tensor_tanh_mlx_streamed(new_cell, stream_tag);
+    TensorHandle new_hidden = tensor_mul_mlx_streamed(og, tanh_cell, stream_tag);
     // Return pair
     auto pair = (TensorPair*)malloc(sizeof(TensorPair));
     pair->first = new_hidden;
@@ -3526,19 +3564,19 @@ TensorHandle tensor_create_param_4d_f64(int d0, int d1, int d2, int d3, double* 
 extern "C" TensorHandle tensor_create_param_2d_mlx_streamed(int rows, int cols, double* data, int stream_tag) {
     WITH_STREAM(stream_tag);
 
-    return tensor_create_param_2d_f32(rows, cols, data);
+    return tensor_create_param_2d_f32_mlx_streamed(rows, cols, data, stream_tag);
 
 }
 TensorHandle tensor_create_param_2d(int rows, int cols, double* data) {
     return tensor_create_param_2d_mlx_streamed(rows, cols, data, default_stream_tag());
 }
 TensorHandle tensor_create_param_4d(int d0, int d1, int d2, int d3, double* data) {
-    return tensor_create_param_4d_f32(d0, d1, d2, d3, data);
+    return tensor_create_param_4d_f32_mlx_streamed(d0, d1, d2, d3, data, default_stream_tag());
 }
 extern "C" TensorHandle tensor_create_param_1d_mlx_streamed(int n, double* data, int stream_tag) {
     WITH_STREAM(stream_tag);
 
-    return tensor_create_param_1d_f32(n, data);
+    return tensor_create_param_1d_f32_mlx_streamed(n, data, stream_tag);
 
 }
 TensorHandle tensor_create_param_1d(int n, double* data) {
@@ -3609,7 +3647,7 @@ TensorHandle tensor_create_state_2d_f64(int rows, int cols, double* data) {
 extern "C" TensorHandle tensor_create_state_2d_mlx_streamed(int rows, int cols, double* data, int stream_tag) {
     WITH_STREAM(stream_tag);
 
-    return tensor_create_state_2d_f32(rows, cols, data);
+    return tensor_create_state_2d_f32_mlx_streamed(rows, cols, data, stream_tag);
 
 }
 TensorHandle tensor_create_state_2d(int rows, int cols, double* data) {
@@ -3618,7 +3656,7 @@ TensorHandle tensor_create_state_2d(int rows, int cols, double* data) {
 extern "C" TensorHandle tensor_create_state_1d_mlx_streamed(int n, double* data, int stream_tag) {
     WITH_STREAM(stream_tag);
 
-    return tensor_create_state_1d_f32(n, data);
+    return tensor_create_state_1d_f32_mlx_streamed(n, data, stream_tag);
 
 }
 TensorHandle tensor_create_state_1d(int n, double* data) {
