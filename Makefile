@@ -27,7 +27,18 @@ BACKENDS_DIR := packages/backends
 
 # Local package install prefix (writable, avoids polluting system Idris2)
 IDRIS2_LOCAL := $(CURDIR)/.idris2
+
+# Where the system idris2 was installed — needed to find contrib/base/etc.
+# when our install rules override IDRIS2_PREFIX with $(IDRIS2_LOCAL). Returns
+# empty before idris2 is on PATH (e.g. during `make backend`); harmless then.
+# Nix-built idris2 bakes its own paths so the override is also harmless there.
+SYS_IDRIS2_PREFIX := $(shell idris2 --paths 2>/dev/null | sed -n 's/.*Installation Prefix.*"\([^"]*\)".*/\1/p')
+
+ifeq ($(SYS_IDRIS2_PREFIX),)
 export IDRIS2_PACKAGE_PATH := $(IDRIS2_LOCAL)/idris2-0.8.0
+else
+export IDRIS2_PACKAGE_PATH := $(IDRIS2_LOCAL)/idris2-0.8.0:$(SYS_IDRIS2_PREFIX)/idris2-0.8.0
+endif
 
 # Idris flags for example/test builds (use installed packages)
 IDRIS_FLAGS := --source-dir $(EXAMPLE_SRC) -p contrib -p idris-ml -p idris-gym
@@ -113,16 +124,16 @@ BACKEND_LIB := $(BUILD)/libidrisml_$(BACKEND).$(LIB_EXT)
 SHARED_OBJ := $(BUILD)/safetensors.o $(BUILD)/cJSON.o $(BUILD)/mnist.o $(BUILD)/dataloader.o
 
 $(BUILD)/safetensors.o: $(BACKENDS_DIR)/safetensors.c $(BACKENDS_DIR)/backend.h $(BACKENDS_DIR)/cJSON.h | $(BUILD)
-	cc -O2 -c -o $@ $<
+	cc -O2 -fPIC -c -o $@ $<
 
 $(BUILD)/cJSON.o: $(BACKENDS_DIR)/cJSON.c $(BACKENDS_DIR)/cJSON.h | $(BUILD)
-	cc -O2 -c -o $@ $<
+	cc -O2 -fPIC -c -o $@ $<
 
 $(BUILD)/mnist.o: $(BACKENDS_DIR)/mnist.c $(BACKENDS_DIR)/backend.h | $(BUILD)
-	cc -O2 -c -o $@ $<
+	cc -O2 -fPIC -c -o $@ $<
 
 $(BUILD)/dataloader.o: $(BACKENDS_DIR)/dataloader.c | $(BUILD)
-	cc -O2 -c -o $@ $<
+	cc -O2 -fPIC -c -o $@ $<
 
 $(BACKEND_LIB): $(BACKEND_SRC) $(BACKENDS_DIR)/backend.h $(SHARED_OBJ) | $(BUILD)
 ifeq ($(BACKEND), torch)
