@@ -78,18 +78,53 @@ prim__clampMinTorch : AnyPtr -> Double -> AnyPtr
 
 
 ----------------------------------------------------------------------
--- TorchDev type + UserDeviceCore instance
+-- TorchHwDev + TorchDev type + UserDeviceCore instance
+--
+-- `TorchHwDev` enumerates the hardware variants the torch backend
+-- supports: CPU (the historical default), MPS (Apple Metal), and
+-- CUDA n (NVIDIA, indexed). Every torch-backed `Tensor` carries one
+-- of these via `TorchDev d`, so the type-system can prevent
+-- cross-device op attempts at compile time while libtorch's
+-- auto-dispatch handles intra-device routing at run time.
 ----------------------------------------------------------------------
 
 public export
-data TorchDev : Type where MkTorchDev : TorchDev
+data TorchHwDev : Type where
+  TCpu  : TorchHwDev
+  TMps  : TorchHwDev
+  TCuda : Nat -> TorchHwDev
+
+||| Maps a `TorchHwDev` to the device string libtorch's `at::Device`
+||| accepts: "cpu", "mps", or "cuda:<n>". This is what gets passed to
+||| `tensor_to_device(handle, str)` after every fresh tensor
+||| construction so the new tensor lands on the right hardware.
+public export
+torchHwDevName : TorchHwDev -> String
+torchHwDevName TCpu      = "cpu"
+torchHwDevName TMps      = "mps"
+torchHwDevName (TCuda n) = "cuda:" ++ show n
 
 public export
-UserDeviceCore TorchDev where
-  deviceName       = "torch"
+data TorchDev : TorchHwDev -> Type where MkTorchDev : TorchDev d
+
+||| FFI binding for libtorch's `tensor.to(device_str)`. Used by every
+||| `UserDeviceCore (TorchDev d)` create method to migrate fresh
+||| (CPU-allocated) tensors to the target hardware. On `TCpu` the
+||| migration is a self-move (`.to("cpu")` is a no-op for CPU tensors).
+%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_to_device_torch\" (void* string) void*) (vector-ref a0 1) a1))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
+prim__toDeviceTorch : AnyPtr -> String -> AnyPtr
+
+public export
+{d : TorchHwDev} -> UserDeviceCore (TorchDev d) where
+  deviceName       = torchHwDevName d
   deviceStreamTag  = 0
-  primCreateScalar = prim__createScalarTorch
-  primCreate       = prim__createTorch
+  -- Create primitives go through libtorch's CPU-bound construction
+  -- path (`torch::from_blob().clone()`), then migrate to the target
+  -- hardware via `tensor_to_device`. Self-move on `TCpu`.
+  primCreateScalar val rg =
+    prim__toDeviceTorch (prim__createScalarTorch val rg) (torchHwDevName d)
+  primCreate dat sh rank rg =
+    prim__toDeviceTorch (prim__createTorch dat sh rank rg) (torchHwDevName d)
   primFree         = prim__freeTorch
   primItem         = prim__itemTorch
   primItem1d       = prim__item1dTorch
@@ -217,7 +252,7 @@ prim__cumprodTorch : AnyPtr -> Int -> AnyPtr
 
 
 public export
-UserDeviceLinear TorchDev where
+{d : TorchHwDev} -> UserDeviceLinear (TorchDev d) where
   primMv             = prim__mvTorch
   primMm             = prim__mmTorch
   primMatmul         = prim__matmulTorch
@@ -307,7 +342,7 @@ prim__pairSecondTorch : AnyPtr -> AnyPtr
 
 
 public export
-UserDeviceNN TorchDev where
+{d : TorchHwDev} -> UserDeviceNN (TorchDev d) where
   primGelu             = prim__geluTorch
   primLeakyRelu        = prim__leakyReluTorch
   primSilu             = prim__siluTorch
@@ -358,7 +393,7 @@ prim__maxPool2dBatchedTorch : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
 
 
 public export
-UserDeviceConv TorchDev where
+{d : TorchHwDev} -> UserDeviceConv (TorchDev d) where
   primConv1d           = prim__conv1dTorch
   primConv1dCircular   = prim__conv1dCircularTorch
   primAvgPool1d        = prim__avgPool1dTorch
@@ -409,7 +444,7 @@ prim__readDoubleTorch : AnyPtr -> Int -> Double
 
 
 public export
-UserDeviceTape TorchDev where
+{d : TorchHwDev} -> UserDeviceTape (TorchDev d) where
   primRequiresGrad         = prim__requiresGradTorch
   primSetRequiresGrad      = prim__setRequiresGradTorch
   primNoGradBegin          = prim__noGradBeginTorch
@@ -419,20 +454,42 @@ UserDeviceTape TorchDev where
   primTensorDim            = prim__tensorDimTorch
   primTensorSizeAt         = prim__tensorSizeAtTorch
   primParamRegister        = prim__paramRegisterTorch
-  primCreateParam1d        = prim__createParam1dTorch
-  primCreateParam2d        = prim__createParam2dTorch
-  primCreateParam3d        = prim__createParam3dTorch
-  primCreateState1d        = prim__createState1dTorch
-  primCreateState2d        = prim__createState2dTorch
+  -- Param / state creation primitives go through libtorch's
+  -- CPU-bound `torch::from_blob().clone()`, so we migrate to the
+  -- target hardware before the tensor escapes the create method.
+  primCreateParam1d n dat       =
+    prim__toDeviceTorch (prim__createParam1dTorch n dat) (torchHwDevName d)
+  primCreateParam2d r c dat     =
+    prim__toDeviceTorch (prim__createParam2dTorch r c dat) (torchHwDevName d)
+  primCreateParam3d d0 d1 d2 dat =
+    prim__toDeviceTorch (prim__createParam3dTorch d0 d1 d2 dat) (torchHwDevName d)
+  primCreateState1d n dat       =
+    prim__toDeviceTorch (prim__createState1dTorch n dat) (torchHwDevName d)
+  primCreateState2d r c dat     =
+    prim__toDeviceTorch (prim__createState2dTorch r c dat) (torchHwDevName d)
   primAllocDoubles         = prim__allocDoublesTorch
   primReadDouble           = prim__readDoubleTorch
 
 
 ----------------------------------------------------------------------
--- Compatible (TorchDev, dt). The torch backend hardcodes
--- `torch::kFloat64` today; threading a runtime dtype through
--- `tensor_create*` is the F32 unlock (deferred).
+-- Compatible (TorchDev, dt).
+--
+-- F32 is admitted on every hardware variant (CPU / MPS / CUDA), F64
+-- on CPU and CUDA. **MPS + F64 is deliberately NOT compatible**:
+-- libtorch's MPS backend rejects F64 tensor *construction* outright
+-- (`Cannot convert a MPS Tensor to float64 dtype`), not just at op
+-- dispatch — so admitting the combination would let the type
+-- system mint a value the runtime can't represent. Users wanting
+-- F64-precision on MPS hardware should pin to `(TorchDev TCpu) F64`
+-- or `(TorchDev (TCuda n)) F64`. Mirrors the
+-- `Compatible (MlxDev MGpu) F64`-rejection demo for mlx.
 ----------------------------------------------------------------------
 
 public export
-Compatible TorchDev F64 where
+{d : TorchHwDev} -> Compatible (TorchDev d) F32 where
+
+public export
+Compatible (TorchDev TCpu) F64 where
+
+public export
+{n : Nat} -> Compatible (TorchDev (TCuda n)) F64 where
