@@ -476,7 +476,7 @@ main = do
   putStrLn ""
 
   let trainCfg : TrainConfig PPOState
-      trainCfg = MkTrainConfig cfg.epochs 10 NoEarlyStop (const (pure []))
+      trainCfg = MkTrainConfig cfg.epochs 10 NoEarlyStop (const (pure [])) (\_ => pure ())
   (trained, epochsDone, _) <- runTrainingIO
     (\s, _ => ppoEpoch opt cfg s)
     (pure ())

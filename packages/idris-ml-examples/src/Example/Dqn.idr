@@ -295,7 +295,7 @@ main = do
   putStrLn ""
 
   let trainCfg : TrainConfig DqnState
-      trainCfg = MkTrainConfig cfg.epochs 25 NoEarlyStop (const (pure []))
+      trainCfg = MkTrainConfig cfg.epochs 25 NoEarlyStop (const (pure [])) (\_ => pure ())
   (trained, epochsDone, _) <- runTrainingIO
     (\st, _ => do (st', ret) <- runEpisode opt st; pure (st', negate ret))
     (pure ())

@@ -563,7 +563,7 @@ main = do
   let trainCfg : TrainConfig SACState
       trainCfg = MkTrainConfig cfg.epochs 2000
                             (WindowedAvg cfg.esThreshold cfg.esWindow cfg.esPatience)
-                            (const (pure []))
+                            (const (pure [])) (\_ => pure ())
   (trained, epochsDone, _) <- runTrainingIO
     (\s, _ => sacStep q1Opt q2Opt actorOpt cfg s)
     (pure ())

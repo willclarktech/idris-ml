@@ -249,7 +249,7 @@ main = do
   putStrLn ""
 
   let trainCfg : TrainConfig MCModel
-      trainCfg = MkTrainConfig cfg.epochs 5000 NoEarlyStop (const (pure []))
+      trainCfg = MkTrainConfig cfg.epochs 5000 NoEarlyStop (const (pure [])) (\_ => pure ())
   (trained, epochsDone, _) <- runTraining
     (\m, d => epochMC cfg m d)
     genInput

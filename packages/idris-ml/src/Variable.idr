@@ -1211,6 +1211,16 @@ export
 setParamLR : NativeOptimizer -> String -> Double -> ()
 setParamLR opt name lr = prim__optimizerSetParamLR opt.handle name lr
 
+%foreign "C:optimizer_set_lr,libidrisml"
+prim__optimizerSetLrC : AnyPtr -> Double -> PrimIO ()
+
+||| Update the optimizer's base (global) learning rate. Per-parameter
+||| overrides set via `setParamLR` remain in effect; only un-overridden
+||| params pick up the new base LR. Used to apply LR schedules per epoch.
+export
+setLearningRate : NativeOptimizer -> Double -> IO ()
+setLearningRate opt lr = primIO (prim__optimizerSetLrC opt.handle lr)
+
 -- Fused native train step: zero_grad → backward → clip → step.
 -- Fused: zero_grad → backward → clip → step in single C call.
 -- Returns loss value (read before step, so not stale).

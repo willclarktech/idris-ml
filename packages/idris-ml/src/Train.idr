@@ -9,6 +9,7 @@ import System.Clock
 
 import Util
 import Variable
+import Schedule
 
 
 ----------------------------------------------------------------------
@@ -82,6 +83,10 @@ public export
 MetricsFn model = model -> IO (List (String, String))
 
 ||| Training configuration.
+|||
+||| `beforeEpoch` runs before each epoch's `epochFn`. Defaults to a no-op.
+||| Use `applySchedule` (below) to bind a `Schedule` to a `NativeOptimizer`
+||| as a beforeEpoch hook — that's how LR schedules attach to training.
 public export
 record TrainConfig (model : Type) where
   constructor MkTrainConfig
@@ -89,22 +94,32 @@ record TrainConfig (model : Type) where
   logEvery : Nat
   earlyStop : EarlyStopConfig
   metrics : MetricsFn model
+  beforeEpoch : Nat -> IO ()
 
 ||| Simple config: run N epochs, log every 100, no early stopping.
 export
 simpleConfig : Nat -> TrainConfig model
-simpleConfig n = MkTrainConfig n 100 NoEarlyStop (const (pure []))
+simpleConfig n = MkTrainConfig n 100 NoEarlyStop (const (pure [])) (\_ => pure ())
 
 ||| Config with patience-based early stopping.
 export
 patienceConfig : Nat -> Nat -> TrainConfig model
-patienceConfig epochs pat = MkTrainConfig epochs 100 (Patience pat 0.001) (const (pure []))
+patienceConfig epochs pat =
+  MkTrainConfig epochs 100 (Patience pat 0.001) (const (pure [])) (\_ => pure ())
 
 ||| Config with windowed-average early stopping.
 export
 windowedConfig : Nat -> Double -> Nat -> Nat -> TrainConfig model
 windowedConfig epochs threshold window pat =
-  MkTrainConfig epochs 100 (WindowedAvg threshold window pat) (const (pure []))
+  MkTrainConfig epochs 100 (WindowedAvg threshold window pat) (const (pure [])) (\_ => pure ())
+
+||| Bind a Schedule to a NativeOptimizer, producing a beforeEpoch hook.
+||| Per epoch, sets the optimizer's base LR to `schedule epoch`. Plug into
+||| `TrainConfig` via the `beforeEpoch` field:
+|||   `let cfg = { beforeEpoch := applySchedule sched opt } (simpleConfig 1000)`
+export
+applySchedule : Schedule -> NativeOptimizer -> Nat -> IO ()
+applySchedule sched opt ep = setLearningRate opt (sched ep)
 
 
 ----------------------------------------------------------------------
@@ -159,6 +174,7 @@ runTrainingIO {model} epochFn dataSrc cfg model0 = do
     goSimple ep m lastLoss t0 =
       if ep >= cfg.totalEpochs then pure (m, ep, lastLoss)
       else do
+        cfg.beforeEpoch ep
         d <- dataSrc
         (m', loss) <- epochFn m d
         when (shouldLog ep) $ logEpoch t0 ep loss m'
@@ -180,6 +196,7 @@ runTrainingIO {model} epochFn dataSrc cfg model0 = do
     goPatience ep m bestLoss stale t0 pat minD =
       if ep >= cfg.totalEpochs then pure (m, ep, bestLoss)
       else do
+        cfg.beforeEpoch ep
         d <- dataSrc
         (m', loss) <- epochFn m d
         when (shouldLog ep) $ logEpoch t0 ep loss m'
@@ -204,6 +221,7 @@ runTrainingIO {model} epochFn dataSrc cfg model0 = do
     goWindowed ep m iSum iCount avgs convCount t0 thresh win pat =
       if ep >= cfg.totalEpochs then pure (m, ep, 0.0)
       else do
+        cfg.beforeEpoch ep
         d <- dataSrc
         (m', loss) <- epochFn m d
         when (shouldLog ep) $ logEpoch t0 ep loss m'

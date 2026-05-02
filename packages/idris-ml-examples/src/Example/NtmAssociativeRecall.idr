@@ -142,6 +142,7 @@ main = do
 
   let trainCfg = MkTrainConfig cfg.epochs 100
                    (WindowedAvg cfg.esThreshold cfg.esWindow cfg.esPatience) evalMetrics
+                   (\_ => pure ())
 
   (trained, epochsDone, _) <- runTraining
     (\m, d => epochTwoPhaseTensor opt d m) genBatch trainCfg model

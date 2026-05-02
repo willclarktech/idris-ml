@@ -7,7 +7,8 @@ result formatting. Output is identical to the Idris Train.idr runner.
 import math
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Any
 
 
 @dataclass
@@ -23,6 +24,14 @@ class TrainConfig:
     windowed_threshold: float = 0.0
     windowed_window: int = 1000
     windowed_patience: int = 3
+    # Pre-epoch hook (mirrors Idris `beforeEpoch : Nat -> IO ()`). Receives
+    # the current epoch index. Use this to apply LR schedules manually if
+    # you don't have a `torch.optim.lr_scheduler` instance handy.
+    before_epoch: Callable[[int], None] = field(default=lambda _ep: None)
+    # Optional `torch.optim.lr_scheduler._LRScheduler` (or any object with
+    # a `.step()` method). Stepped once per epoch after `epoch_fn` runs,
+    # matching PyTorch convention.
+    lr_scheduler: Any | None = None
 
 
 def _format_elapsed(start: float) -> str:
@@ -87,7 +96,10 @@ def run_training(
     conv_count = 0
 
     for ep in range(config.total_epochs):
+        config.before_epoch(ep)
         loss = epoch_fn()
+        if config.lr_scheduler is not None:
+            config.lr_scheduler.step()
         epochs_done = ep + 1
 
         # Log progress

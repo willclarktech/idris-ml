@@ -1132,6 +1132,31 @@ void optimizer_set_param_lr(OptimizerHandle h, const char* name, double lr) {
     (void)h; (void)name; (void)lr;
 }
 
+void optimizer_set_lr(OptimizerHandle h, double lr) {
+    auto* w = static_cast<OptWrapper*>(h);
+    w->lr = lr;
+    /* Update the LR on each param group's options. The typed options
+       (SGDOptions / RMSpropOptions / AdamOptions / AdamWOptions) all
+       provide an lr() setter. Dispatch by w->type so we cast to the
+       right derived type. */
+    for (auto& g : w->opt->param_groups()) {
+        switch (w->type) {
+            case 0:
+                static_cast<torch::optim::SGDOptions&>(g.options()).lr(lr);
+                break;
+            case 1:
+                static_cast<torch::optim::RMSpropOptions&>(g.options()).lr(lr);
+                break;
+            case 2:
+                static_cast<torch::optim::AdamOptions&>(g.options()).lr(lr);
+                break;
+            case 3:
+                static_cast<torch::optim::AdamWOptions&>(g.options()).lr(lr);
+                break;
+        }
+    }
+}
+
 static void clip_grad_value_filtered(const std::string& prefix, double max_val) {
     auto params = collect_param_tensors_filtered(prefix);
     torch::nn::utils::clip_grad_value_(params, max_val);

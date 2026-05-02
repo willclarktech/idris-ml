@@ -2264,6 +2264,11 @@ void optimizer_set_param_lr(OptimizerHandle h, const char* name, double lr) {
     }
 }
 
+void optimizer_set_lr(OptimizerHandle h, double lr) {
+    auto opt = (Optimizer*)h;
+    opt->lr = lr;
+}
+
 void optimizer_step(OptimizerHandle h) {
     double t0_opt = _wall_ms_mlx();
     auto opt = (Optimizer*)h;

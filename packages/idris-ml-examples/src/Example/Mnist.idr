@@ -304,7 +304,7 @@ main = do
            ++ " (batch_size=" ++ show BatchSize ++ ")"
 
   let trainCfg = MkTrainConfig cfg.epochs 1 (Patience cfg.patience 0.001)
-                   (mnistMetrics testDs testCount)
+                   (mnistMetrics testDs testCount) (\_ => pure ())
 
   (trained, epochsDone, finalLoss) <- runTrainingIO
     (\m, _ => trainOneFullPass opt genBatch batchesPerEpoch m)

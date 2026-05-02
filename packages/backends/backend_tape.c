@@ -4629,6 +4629,11 @@ void optimizer_set_param_lr(OptimizerHandle h, const char* name, double lr) {
     }
 }
 
+void optimizer_set_lr(OptimizerHandle h, double lr) {
+    Optimizer* opt = (Optimizer*)h;
+    opt->lr = lr;
+}
+
 void optimizer_zero_grad(OptimizerHandle h) {
     (void)h;
     param_zero_all_grads();

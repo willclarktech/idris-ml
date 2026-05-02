@@ -469,11 +469,15 @@ main = do
             curEp = the Nat (cast (cast {to=Double} 0))  -- placeholder if needed
         pure [("val_bpc", show valBpc)]
 
+  let noOpHook : Nat -> IO ()
+      noOpHook _ = pure ()
+
   let trainCfg = MkTrainConfig cfg.epochs 100
                    (if cfg.patience == 0
                       then NoEarlyStop
                       else Patience cfg.patience 0.001)
                    evalMetrics
+                   noOpHook
 
   let batchFwd = transformerForwardBatch namedTfm
   let stepFn : Network InputDim [] OutputDim (Variable CPU) ->

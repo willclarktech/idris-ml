@@ -326,6 +326,10 @@ void            optimizer_free(OptimizerHandle opt);
 void            optimizer_step(OptimizerHandle opt);
 void            optimizer_zero_grad(OptimizerHandle opt);
 void            optimizer_set_param_lr(OptimizerHandle opt, const char* name, double lr);
+/* Set the optimizer's base (global) learning rate. Per-param overrides set
+ * via optimizer_set_param_lr remain in effect; only params not overridden
+ * pick up the new base lr. Used to apply LR schedules per epoch. */
+void            optimizer_set_lr(OptimizerHandle opt, double lr);
 
 /* Gradient clipping (operates on all registered params) */
 void optimizer_clip_grad_value(double max_val);

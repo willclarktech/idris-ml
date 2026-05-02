@@ -413,7 +413,7 @@ main = do
   putStrLn ""
 
   let trainCfg : TrainConfig A2CState
-      trainCfg = MkTrainConfig cfg.epochs 500 NoEarlyStop (const (pure []))
+      trainCfg = MkTrainConfig cfg.epochs 500 NoEarlyStop (const (pure [])) (\_ => pure ())
   (trained, epochsDone, _) <- runTrainingIO
     (\s, _ => a2cEpoch opt cfg s)
     (pure ())
