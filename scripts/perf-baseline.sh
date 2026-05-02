@@ -45,24 +45,27 @@ if [ -z "$EXAMPLE_KEY" ]; then
   exit 2
 fi
 
-# example-key -> (idris-make-target, idris-args-var, ref-py-module, n_short, n_long)
+# example-key -> (idris-make-target, idris-args-var, ref-py-module, n_long)
+# N_LONG is the single epoch count passed to both sides. Each side
+# emits PERF_MS_PER_EP after its training loop; the marker comes
+# from inside the training process and is already a per-epoch number.
 case "$EXAMPLE_KEY" in
-  supervised)   IDRIS_TGT=example-supervised;        IDRIS_VAR=SUPERVISED_ARGS;     REF_MOD=torch_ref.scripts.supervised;        N_SHORT=50;  N_LONG=200 ;;
-  rnn)          IDRIS_TGT=example-rnn;               IDRIS_VAR=RNN_ARGS;            REF_MOD=torch_ref.scripts.rnn;               N_SHORT=50;  N_LONG=200 ;;
-  lstm)         IDRIS_TGT=example-lstm;              IDRIS_VAR=LSTM_ARGS;           REF_MOD=torch_ref.scripts.lstm;              N_SHORT=50;  N_LONG=200 ;;
-  gru)          IDRIS_TGT=example-gru;               IDRIS_VAR=GRU_ARGS;            REF_MOD=torch_ref.scripts.gru;               N_SHORT=50;  N_LONG=200 ;;
-  transformer)  IDRIS_TGT=example-transformer;       IDRIS_VAR=TRANSFORMER_ARGS;    REF_MOD=torch_ref.scripts.transformer;       N_SHORT=50;  N_LONG=200 ;;
-  ntm-copy)     IDRIS_TGT=example-ntm-copy;          IDRIS_VAR=NTM_COPY_ARGS;       REF_MOD=torch_ref.scripts.ntm_copy;          N_SHORT=10;  N_LONG=40  ;;
-  ntm-recall)   IDRIS_TGT=example-ntm-associative-recall; IDRIS_VAR=NTM_RECALL_ARGS; REF_MOD=torch_ref.scripts.ntm_recall;       N_SHORT=10;  N_LONG=40  ;;
-  dnc-copy)     IDRIS_TGT=example-dnc-copy;          IDRIS_VAR=DNC_COPY_ARGS;       REF_MOD=torch_ref.scripts.dnc_copy;          N_SHORT=20;  N_LONG=80  ;;
-  dnc-recall)   IDRIS_TGT=example-dnc-recall;        IDRIS_VAR=DNC_RECALL_ARGS;     REF_MOD=torch_ref.scripts.dnc_recall;        N_SHORT=10;  N_LONG=40  ;;
-  reinforce)    IDRIS_TGT=example-reinforce;         IDRIS_VAR=REINFORCE_ARGS;      REF_MOD=torch_ref.scripts.reinforce;         N_SHORT=50;  N_LONG=200 ;;
-  dqn)          IDRIS_TGT=example-dqn;               IDRIS_VAR=DQN_ARGS;            REF_MOD=torch_ref.scripts.dqn;               N_SHORT=20;  N_LONG=80  ;;
-  mountain-car) IDRIS_TGT=example-mountain-car;      IDRIS_VAR=MOUNTAIN_CAR_ARGS;   REF_MOD=torch_ref.scripts.mountain_car;      N_SHORT=20;  N_LONG=80  ;;
-  mountain-car-cont) IDRIS_TGT=example-mountain-car-cont; IDRIS_VAR=MOUNTAIN_CAR_CONT_ARGS; REF_MOD=torch_ref.scripts.mountain_car_cont; N_SHORT=1100; N_LONG=2000 ;;
-  a2c)          IDRIS_TGT=example-a2c;               IDRIS_VAR=A2C_ARGS;            REF_MOD=torch_ref.scripts.a2c;               N_SHORT=50;  N_LONG=200 ;;
-  ppo)          IDRIS_TGT=example-ppo;               IDRIS_VAR=PPO_ARGS;            REF_MOD=torch_ref.scripts.ppo;               N_SHORT=10;  N_LONG=40  ;;
-  sac)          IDRIS_TGT=example-sac;               IDRIS_VAR=SAC_ARGS;            REF_MOD=torch_ref.scripts.sac;               N_SHORT=1100; N_LONG=2000 ;;
+  supervised)        IDRIS_TGT=example-supervised;             IDRIS_VAR=SUPERVISED_ARGS;        REF_MOD=torch_ref.scripts.supervised;        N_LONG=200  ;;
+  rnn)               IDRIS_TGT=example-rnn;                    IDRIS_VAR=RNN_ARGS;               REF_MOD=torch_ref.scripts.rnn;               N_LONG=200  ;;
+  lstm)              IDRIS_TGT=example-lstm;                   IDRIS_VAR=LSTM_ARGS;              REF_MOD=torch_ref.scripts.lstm;              N_LONG=200  ;;
+  gru)               IDRIS_TGT=example-gru;                    IDRIS_VAR=GRU_ARGS;               REF_MOD=torch_ref.scripts.gru;               N_LONG=200  ;;
+  transformer)       IDRIS_TGT=example-transformer;            IDRIS_VAR=TRANSFORMER_ARGS;       REF_MOD=torch_ref.scripts.transformer;       N_LONG=200  ;;
+  ntm-copy)          IDRIS_TGT=example-ntm-copy;               IDRIS_VAR=NTM_COPY_ARGS;          REF_MOD=torch_ref.scripts.ntm_copy;          N_LONG=40   ;;
+  ntm-recall)        IDRIS_TGT=example-ntm-associative-recall; IDRIS_VAR=NTM_RECALL_ARGS;        REF_MOD=torch_ref.scripts.ntm_recall;        N_LONG=40   ;;
+  dnc-copy)          IDRIS_TGT=example-dnc-copy;               IDRIS_VAR=DNC_COPY_ARGS;          REF_MOD=torch_ref.scripts.dnc_copy;          N_LONG=80   ;;
+  dnc-recall)        IDRIS_TGT=example-dnc-recall;             IDRIS_VAR=DNC_RECALL_ARGS;        REF_MOD=torch_ref.scripts.dnc_recall;        N_LONG=40   ;;
+  reinforce)         IDRIS_TGT=example-reinforce;              IDRIS_VAR=REINFORCE_ARGS;         REF_MOD=torch_ref.scripts.reinforce;         N_LONG=200  ;;
+  dqn)               IDRIS_TGT=example-dqn;                    IDRIS_VAR=DQN_ARGS;               REF_MOD=torch_ref.scripts.dqn;               N_LONG=80   ;;
+  mountain-car)      IDRIS_TGT=example-mountain-car;           IDRIS_VAR=MOUNTAIN_CAR_ARGS;      REF_MOD=torch_ref.scripts.mountain_car;      N_LONG=80   ;;
+  mountain-car-cont) IDRIS_TGT=example-mountain-car-cont;      IDRIS_VAR=MOUNTAIN_CAR_CONT_ARGS; REF_MOD=torch_ref.scripts.mountain_car_cont; N_LONG=2000 ;;
+  a2c)               IDRIS_TGT=example-a2c;                    IDRIS_VAR=A2C_ARGS;               REF_MOD=torch_ref.scripts.a2c;               N_LONG=200  ;;
+  ppo)               IDRIS_TGT=example-ppo;                    IDRIS_VAR=PPO_ARGS;               REF_MOD=torch_ref.scripts.ppo;               N_LONG=40   ;;
+  sac)               IDRIS_TGT=example-sac;                    IDRIS_VAR=SAC_ARGS;               REF_MOD=torch_ref.scripts.sac;               N_LONG=2000 ;;
   *)
     echo "unknown example-key: $EXAMPLE_KEY" >&2
     exit 2 ;;
@@ -201,6 +204,7 @@ row = {
     "ts": os.environ["ISO_TS"],
     "date": os.environ["DATE"],
     "kind": "baseline",
+    "methodology": "in_script_marker",
     "example": os.environ["EXAMPLE_KEY"],
     "backend": os.environ["BACKEND"],
     "device": os.environ["DEVICE"],

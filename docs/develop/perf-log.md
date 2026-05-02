@@ -6,13 +6,13 @@ also keeps the pre-2026-05-09 markdown-format entries below as
 historical record (in an `## Archive` section).
 
 Both `scripts/perf-run.sh` (full-convergence runs) and
-`scripts/perf-baseline.sh` (two-point ms/epoch ratios) append a
-single JSON object on its own line to `perf-log.jsonl` per
-invocation. **Append-only**; never edit or delete prior entries —
-historical numbers are regression evidence and avoid re-running
-expensive measurements. If a measurement is later determined to be
-invalid (e.g. wrong config), append a follow-up entry that says so
-rather than removing the original.
+`scripts/perf-baseline.sh` / `scripts/perf-sweep.sh` (ms/epoch
+baselines) append a single JSON object on its own line to
+`perf-log.jsonl` per invocation. **Append-only**; never edit or
+delete prior entries — historical numbers are regression evidence
+and avoid re-running expensive measurements. If a measurement is
+later determined to be invalid (e.g. wrong config), append a
+follow-up entry that says so rather than removing the original.
 
 ## JSONL schema
 
@@ -46,11 +46,42 @@ Every entry has these fields:
 
 | field | type | notes |
 |---|---|---|
-| `idris_ms_per_epoch` | float | two-point ms/epoch (Idris side) |
-| `pytorch_ms_per_epoch` | float | two-point ms/epoch (PyTorch ref) |
-| `ratio` | float | `idris_ms_per_epoch / pytorch_ms_per_epoch` |
-| `n_long` | int | the long-side epoch count used in the two-point timing |
+| `methodology` | string | `"in_script_marker"` (post-2026-05-19) or absent (pre-2026-05-19, implicitly `"two_point_wall"`). See *Methodology transition* below. |
+| `idris_ms_per_epoch` | float? | ms/epoch (Idris side). Null on crash or missing marker. |
+| `pytorch_ms_per_epoch` | float? | ms/epoch (PyTorch ref). Null on crash or missing marker. |
+| `ratio` | float? | `idris_ms_per_epoch / pytorch_ms_per_epoch`. Null when either side is unmeasured. |
+| `n_long` | int | epoch count for the timed run. For `in_script_marker`, the single run; for `two_point_wall`, the long-side of the two-point pair. |
 | `seed` | int | seed used (always 42 for the baseline script) |
+| `notes` | string? | populated on crash, missing marker, or otherwise-invalid measurement |
+
+### Methodology transition
+
+Through 2026-05-18, `perf-baseline.sh` / `perf-sweep.sh` used
+**two-point wall-clock subtraction**: `ms_per_epoch ≈ (wall(N_long) -
+wall(N_short)) / (N_long - N_short)` to remove fixed startup costs
+(Python/idris import, build, dylib load) from the per-epoch signal.
+
+This methodology collapsed on short-converging RL refs — per-epoch
+signal was below the run-to-run variance in startup costs (~50-100ms
+for `uv run python` cold-vs-warm import cache, against 10-15ms of
+training-loop signal on REINFORCE/A2C/DQN PyTorch refs). Symptoms
+in the pre-2026-05-19 entries: `pytorch_ms_per_epoch` negative or
+near-zero on RL examples; `ratio` values in the hundreds. See
+`docs/develop/perf-changes.md` 2026-05-19 entry for the full
+diagnosis.
+
+**Replaced 2026-05-19** with in-script PERF_MS_PER_EP markers. Each
+side computes ms/epoch over the training loop only and prints
+`PERF_MS_PER_EP=<float>` on its own line. The scripts grep the
+marker. Eliminates startup variance entirely.
+
+Filtering: entries with `methodology == "in_script_marker"` are
+trustworthy across all examples. Entries lacking the field are
+either pre-2026-05-19 measurements or `kind: "run"` entries (which
+don't need a methodology tag — they record exact wall-clock from
+the run itself). For short-converging RL examples, pre-transition
+PyTorch-ref numbers and ratios are unreliable; the Idris-side
+numbers are still useful for tape/torch regression tracking.
 
 ## Conventions
 
@@ -66,7 +97,15 @@ Every entry has these fields:
 jq 'select(.example == "dnc-copy" and .backend == "tape")' \
   docs/develop/perf-log.jsonl
 
-# Latest baseline ratio per (example, backend)
+# Latest *trustworthy* baseline ratio per (example, backend)
+# (filters out the pre-2026-05-19 two-point-methodology entries)
+jq -s '
+  map(select(.kind == "baseline" and .methodology == "in_script_marker"))
+  | group_by([.example, .backend])
+  | map(sort_by(.ts) | last)
+' docs/develop/perf-log.jsonl
+
+# Latest baseline ratio per (example, backend), all methodologies
 jq -s '
   map(select(.kind == "baseline"))
   | group_by([.example, .backend])

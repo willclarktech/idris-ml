@@ -49,25 +49,29 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-# example -> "make-target args-var pytorch-module N_SHORT N_LONG"
+# example -> "make-target args-var pytorch-module N_LONG"
+# N_LONG is the single epoch count passed to both sides. Each side
+# emits PERF_MS_PER_EP after its training loop; no warmup/short run
+# needed (the marker comes from inside the training process and is
+# already a per-epoch number).
 spec_for() {
   case "$1" in
-    supervised)        echo "example-supervised SUPERVISED_ARGS torch_ref.scripts.supervised 50 200" ;;
-    rnn)               echo "example-rnn RNN_ARGS torch_ref.scripts.rnn 50 200" ;;
-    lstm)              echo "example-lstm LSTM_ARGS torch_ref.scripts.lstm 50 200" ;;
-    gru)               echo "example-gru GRU_ARGS torch_ref.scripts.gru 50 200" ;;
-    transformer)       echo "example-transformer TRANSFORMER_ARGS torch_ref.scripts.transformer 50 200" ;;
-    ntm-copy)          echo "example-ntm-copy NTM_COPY_ARGS torch_ref.scripts.ntm_copy 10 40" ;;
-    ntm-recall)        echo "example-ntm-associative-recall NTM_RECALL_ARGS torch_ref.scripts.ntm_recall 10 40" ;;
-    dnc-copy)          echo "example-dnc-copy DNC_COPY_ARGS torch_ref.scripts.dnc_copy 20 80" ;;
-    dnc-recall)        echo "example-dnc-recall DNC_RECALL_ARGS torch_ref.scripts.dnc_recall 10 40" ;;
-    reinforce)         echo "example-reinforce REINFORCE_ARGS torch_ref.scripts.reinforce 50 200" ;;
-    dqn)               echo "example-dqn DQN_ARGS torch_ref.scripts.dqn 20 80" ;;
-    mountain-car)      echo "example-mountain-car MOUNTAIN_CAR_ARGS torch_ref.scripts.mountain_car 20 80" ;;
-    mountain-car-cont) echo "example-mountain-car-cont MOUNTAIN_CAR_CONT_ARGS torch_ref.scripts.mountain_car_cont 1100 2000" ;;
-    a2c)               echo "example-a2c A2C_ARGS torch_ref.scripts.a2c 50 200" ;;
-    ppo)               echo "example-ppo PPO_ARGS torch_ref.scripts.ppo 10 40" ;;
-    sac)               echo "example-sac SAC_ARGS torch_ref.scripts.sac 1100 2000" ;;
+    supervised)        echo "example-supervised SUPERVISED_ARGS torch_ref.scripts.supervised 200" ;;
+    rnn)               echo "example-rnn RNN_ARGS torch_ref.scripts.rnn 200" ;;
+    lstm)              echo "example-lstm LSTM_ARGS torch_ref.scripts.lstm 200" ;;
+    gru)               echo "example-gru GRU_ARGS torch_ref.scripts.gru 200" ;;
+    transformer)       echo "example-transformer TRANSFORMER_ARGS torch_ref.scripts.transformer 200" ;;
+    ntm-copy)          echo "example-ntm-copy NTM_COPY_ARGS torch_ref.scripts.ntm_copy 40" ;;
+    ntm-recall)        echo "example-ntm-associative-recall NTM_RECALL_ARGS torch_ref.scripts.ntm_recall 40" ;;
+    dnc-copy)          echo "example-dnc-copy DNC_COPY_ARGS torch_ref.scripts.dnc_copy 80" ;;
+    dnc-recall)        echo "example-dnc-recall DNC_RECALL_ARGS torch_ref.scripts.dnc_recall 40" ;;
+    reinforce)         echo "example-reinforce REINFORCE_ARGS torch_ref.scripts.reinforce 200" ;;
+    dqn)               echo "example-dqn DQN_ARGS torch_ref.scripts.dqn 80" ;;
+    mountain-car)      echo "example-mountain-car MOUNTAIN_CAR_ARGS torch_ref.scripts.mountain_car 80" ;;
+    mountain-car-cont) echo "example-mountain-car-cont MOUNTAIN_CAR_CONT_ARGS torch_ref.scripts.mountain_car_cont 2000" ;;
+    a2c)               echo "example-a2c A2C_ARGS torch_ref.scripts.a2c 200" ;;
+    ppo)               echo "example-ppo PPO_ARGS torch_ref.scripts.ppo 40" ;;
+    sac)               echo "example-sac SAC_ARGS torch_ref.scripts.sac 2000" ;;
     *) return 1 ;;
   esac
 }
@@ -210,6 +214,7 @@ py_crashed = py_raw in ("crashed", "missing")
 row = {
     "ts": os.environ["ISO_TS"], "date": os.environ["DATE"],
     "kind": "baseline",
+    "methodology": "in_script_marker",
     "example": os.environ["EXAMPLE"], "backend": os.environ["BACKEND"],
     "device": os.environ["DEVICE"], "commit": os.environ["COMMIT"],
     "idris_ms_per_epoch": None if idris_crashed else num(idris_raw),
@@ -242,7 +247,7 @@ IFS=, read -r -a CELLS <<<"$CELLS_CSV"
 
 for example in "${EXAMPLES[@]}"; do
   spec=$(spec_for "$example") || { echo "unknown example: $example" >&2; exit 2; }
-  read -r IDRIS_TGT IDRIS_VAR REF_MOD N_SHORT N_LONG <<<"$spec"
+  read -r IDRIS_TGT IDRIS_VAR REF_MOD N_LONG <<<"$spec"
 
   echo "[$example] pytorch ref N=$N_LONG..." >&2
   PY_MS=$(measure_pytorch "$REF_MOD" "$N_LONG")
