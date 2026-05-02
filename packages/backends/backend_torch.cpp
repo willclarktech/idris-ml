@@ -61,23 +61,33 @@ static void free_intermediates(); // defined after param_registry
 
 /* ---------- Lifecycle ---------- */
 
-TensorHandle tensor_create_scalar(double value, int requires_grad) {
-    auto t = torch::tensor(value, torch::dtype(torch::kFloat64));
+// Internal impl: creation parameterized by torch::ScalarType.
+static TensorHandle tensor_create_scalar_impl(double value, int requires_grad, torch::ScalarType dt) {
+    auto t = torch::tensor(value, torch::dtype(dt));
     if (requires_grad) t.requires_grad_(true);
-    // User-created tensors are not tracked — caller manages lifetime via
-    // tensor_free or param_register. Only computation intermediates (from
-    // tensor_add, tensor_mul, etc.) are tracked for free_intermediates().
     return from_tensor_persistent(std::move(t));
 }
 
-TensorHandle tensor_create(double* data, int* shape, int rank, int requires_grad) {
+static TensorHandle tensor_create_impl(double* data, int* shape, int rank, int requires_grad, torch::ScalarType dt) {
     std::vector<int64_t> dims(rank);
     for (int i = 0; i < rank; i++) dims[i] = shape[i];
+    // from_blob is fp64-typed (data is double*); .to(dt) casts to the target dtype.
     auto opts = torch::TensorOptions().dtype(torch::kFloat64);
     auto t = torch::from_blob(data, dims, opts).clone();
+    if (dt != torch::kFloat64) t = t.to(dt);
     if (requires_grad) t.requires_grad_(true);
     return from_tensor_persistent(std::move(t));
 }
+
+// Per-dtype exports.
+TensorHandle tensor_create_scalar_f32(double value, int requires_grad) { return tensor_create_scalar_impl(value, requires_grad, torch::kFloat32); }
+TensorHandle tensor_create_scalar_f64(double value, int requires_grad) { return tensor_create_scalar_impl(value, requires_grad, torch::kFloat64); }
+TensorHandle tensor_create_f32(double* data, int* shape, int rank, int requires_grad) { return tensor_create_impl(data, shape, rank, requires_grad, torch::kFloat32); }
+TensorHandle tensor_create_f64(double* data, int* shape, int rank, int requires_grad) { return tensor_create_impl(data, shape, rank, requires_grad, torch::kFloat64); }
+
+// Legacy unsuffixed: route to f64 (current historical behavior on torch).
+TensorHandle tensor_create_scalar(double value, int requires_grad) { return tensor_create_scalar_f64(value, requires_grad); }
+TensorHandle tensor_create(double* data, int* shape, int rank, int requires_grad) { return tensor_create_f64(data, shape, rank, requires_grad); }
 
 TensorHandle tensor_clone(TensorHandle h) {
     return from_tensor(to_tensor(h)->clone());
@@ -1083,6 +1093,68 @@ TensorHandle tensor_create_state_2d(int rows, int cols, double* data) {
 TensorHandle tensor_create_state_1d(int n, double* data) {
     auto t = torch::from_blob(data, {(int64_t)n}, torch::kFloat64).clone();
     return from_tensor_persistent(std::move(t));
+}
+
+/* ================================================================
+   Per-dtype creation variants
+   --------------------------------------------------------------
+   Torch supports F32 and F64 natively (both first-class). The _f64
+   variants are functionally identical to the existing unsuffixed
+   creators; the _f32 variants build with kFloat32 and cast the
+   double-typed input buffer down.
+   ================================================================ */
+
+static TensorHandle torch_cast_to(TensorHandle h, torch::ScalarType dt) {
+    auto t = *to_tensor(h);
+    return from_tensor_persistent(t.dtype() == dt ? t : t.to(dt));
+}
+
+/* F64 — aliases to existing unsuffixed implementations.
+   tensor_create_scalar_f64 and tensor_create_f64 are already defined
+   above via the _impl refactor, so they're omitted here. */
+TensorHandle tensor_create_1d_f64(int n, double* d, int rg)                             { return tensor_create_1d(n, d, rg); }
+TensorHandle tensor_create_2d_f64(int rows, int cols, double* d, int rg)                { return tensor_create_2d(rows, cols, d, rg); }
+TensorHandle tensor_create_param_1d_f64(int n, double* d)                               { return tensor_create_param_1d(n, d); }
+TensorHandle tensor_create_param_2d_f64(int rows, int cols, double* d)                  { return tensor_create_param_2d(rows, cols, d); }
+TensorHandle tensor_create_param_3d_f64(int d0, int d1, int d2, double* d)              { return tensor_create_param_3d(d0, d1, d2, d); }
+TensorHandle tensor_create_param_4d_f64(int d0, int d1, int d2, int d3, double* d)      { return tensor_create_param_4d(d0, d1, d2, d3, d); }
+TensorHandle tensor_create_state_1d_f64(int n, double* d)                               { return tensor_create_state_1d(n, d); }
+TensorHandle tensor_create_state_2d_f64(int rows, int cols, double* d)                  { return tensor_create_state_2d(rows, cols, d); }
+
+/* F32 — build at fp64 then cast down. Note: tensor_create_scalar_f32 and
+   tensor_create_f32 already exist (refactored in their original location
+   with _impl helpers); these wrappers cover the remaining 8 cases. */
+TensorHandle tensor_create_1d_f32(int n, double* d, int rg) {
+    auto h = tensor_create_1d(n, d, rg);
+    return torch_cast_to(h, torch::kFloat32);
+}
+TensorHandle tensor_create_2d_f32(int rows, int cols, double* d, int rg) {
+    auto h = tensor_create_2d(rows, cols, d, rg);
+    return torch_cast_to(h, torch::kFloat32);
+}
+TensorHandle tensor_create_param_1d_f32(int n, double* d) {
+    auto h = tensor_create_param_1d(n, d);
+    return torch_cast_to(h, torch::kFloat32);
+}
+TensorHandle tensor_create_param_2d_f32(int rows, int cols, double* d) {
+    auto h = tensor_create_param_2d(rows, cols, d);
+    return torch_cast_to(h, torch::kFloat32);
+}
+TensorHandle tensor_create_param_3d_f32(int d0, int d1, int d2, double* d) {
+    auto h = tensor_create_param_3d(d0, d1, d2, d);
+    return torch_cast_to(h, torch::kFloat32);
+}
+TensorHandle tensor_create_param_4d_f32(int d0, int d1, int d2, int d3, double* d) {
+    auto h = tensor_create_param_4d(d0, d1, d2, d3, d);
+    return torch_cast_to(h, torch::kFloat32);
+}
+TensorHandle tensor_create_state_1d_f32(int n, double* d) {
+    auto h = tensor_create_state_1d(n, d);
+    return torch_cast_to(h, torch::kFloat32);
+}
+TensorHandle tensor_create_state_2d_f32(int rows, int cols, double* d) {
+    auto h = tensor_create_state_2d(rows, cols, d);
+    return torch_cast_to(h, torch::kFloat32);
 }
 
 TensorHandle tensor_view_2d(TensorHandle h, int row, int col) {

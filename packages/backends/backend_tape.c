@@ -5042,6 +5042,58 @@ TensorHandle tensor_create_state_1d(int n, double* data) {
     return t;
 }
 
+/* ================================================================
+   Per-dtype creation variants
+   --------------------------------------------------------------
+   Tape's arena is fp64-only (double* throughout) — there's no fp32
+   storage path. So _f64 variants delegate to the existing
+   unsuffixed creators (current behavior), and _f32 variants are
+   abort stubs.
+
+   The abort stubs exist for link-time symbol completeness only:
+   when BACKEND=tape, the dylib needs to export every prototype
+   declared in backend.h. The Idris-side RuntimeDType F32 instance
+   is intentionally not bound to tape's _f32 symbols (Phase 4), so
+   F32-typed code can't reach these from typed Idris at all. If a
+   caller bypasses the typed surface and hits these directly, the
+   abort gives a clear diagnostic instead of silent fp32->fp64
+   demotion that would mask the bug.
+
+   When tape gains an fp32 arena (separate workstream — its own
+   TODO row), the stubs become real impls. ================================================================ */
+
+#include <stdio.h>
+
+static TensorHandle tape_f32_unsupported(const char* sym) {
+    fprintf(stderr,
+        "[tape backend] %s called but tape has no fp32 arena. "
+        "Bind your code to F64 on tape, or build with BACKEND=mlx / torch.\n",
+        sym);
+    abort();
+}
+
+TensorHandle tensor_create_scalar_f64(double v, int rg)                                 { return tensor_create_scalar(v, rg); }
+TensorHandle tensor_create_f64(double* d, int* s, int r, int rg)                        { return tensor_create(d, s, r, rg); }
+TensorHandle tensor_create_1d_f64(int n, double* d, int rg)                             { return tensor_create_1d(n, d, rg); }
+TensorHandle tensor_create_2d_f64(int rows, int cols, double* d, int rg)                { return tensor_create_2d(rows, cols, d, rg); }
+TensorHandle tensor_create_param_1d_f64(int n, double* d)                               { return tensor_create_param_1d(n, d); }
+TensorHandle tensor_create_param_2d_f64(int rows, int cols, double* d)                  { return tensor_create_param_2d(rows, cols, d); }
+TensorHandle tensor_create_param_3d_f64(int d0, int d1, int d2, double* d)              { return tensor_create_param_3d(d0, d1, d2, d); }
+TensorHandle tensor_create_param_4d_f64(int d0, int d1, int d2, int d3, double* d)      { return tensor_create_param_4d(d0, d1, d2, d3, d); }
+TensorHandle tensor_create_state_1d_f64(int n, double* d)                               { return tensor_create_state_1d(n, d); }
+TensorHandle tensor_create_state_2d_f64(int rows, int cols, double* d)                  { return tensor_create_state_2d(rows, cols, d); }
+
+TensorHandle tensor_create_scalar_f32(double v, int rg)                                 { (void)v; (void)rg; return tape_f32_unsupported("tensor_create_scalar_f32"); }
+TensorHandle tensor_create_f32(double* d, int* s, int r, int rg)                        { (void)d; (void)s; (void)r; (void)rg; return tape_f32_unsupported("tensor_create_f32"); }
+TensorHandle tensor_create_1d_f32(int n, double* d, int rg)                             { (void)n; (void)d; (void)rg; return tape_f32_unsupported("tensor_create_1d_f32"); }
+TensorHandle tensor_create_2d_f32(int rows, int cols, double* d, int rg)                { (void)rows; (void)cols; (void)d; (void)rg; return tape_f32_unsupported("tensor_create_2d_f32"); }
+TensorHandle tensor_create_param_1d_f32(int n, double* d)                               { (void)n; (void)d; return tape_f32_unsupported("tensor_create_param_1d_f32"); }
+TensorHandle tensor_create_param_2d_f32(int rows, int cols, double* d)                  { (void)rows; (void)cols; (void)d; return tape_f32_unsupported("tensor_create_param_2d_f32"); }
+TensorHandle tensor_create_param_3d_f32(int d0, int d1, int d2, double* d)              { (void)d0; (void)d1; (void)d2; (void)d; return tape_f32_unsupported("tensor_create_param_3d_f32"); }
+TensorHandle tensor_create_param_4d_f32(int d0, int d1, int d2, int d3, double* d)      { (void)d0; (void)d1; (void)d2; (void)d3; (void)d; return tape_f32_unsupported("tensor_create_param_4d_f32"); }
+TensorHandle tensor_create_state_1d_f32(int n, double* d)                               { (void)n; (void)d; return tape_f32_unsupported("tensor_create_state_1d_f32"); }
+TensorHandle tensor_create_state_2d_f32(int rows, int cols, double* d)                  { (void)rows; (void)cols; (void)d; return tape_f32_unsupported("tensor_create_state_2d_f32"); }
+
 TensorHandle tensor_view_2d(TensorHandle h, int row, int col) {
     Tensor* t = (Tensor*)h;
     int cols = t->shape[1];
