@@ -103,6 +103,7 @@ enum {
     OP_LEAKY_RELU,
     OP_SILU,
     OP_SUM_DIM,       /* sum along a single axis with optional keepdim */
+    OP_CAT_MULTI,     /* n-ary concatenate along given axis */
 };
 
 // Lightweight metadata for ops that need extra info during replay.
@@ -170,6 +171,10 @@ static void tape_reset() {
             e.meta = nullptr;
         }
         if (e.op == OP_STACK && e.meta) {
+            delete (std::vector<int>*)e.meta;
+            e.meta = nullptr;
+        }
+        if (e.op == OP_CAT_MULTI && e.meta) {
             delete (std::vector<int>*)e.meta;
             e.meta = nullptr;
         }
@@ -1215,8 +1220,47 @@ TensorHandle tensor_select(TensorHandle h, int dim, int index) {
     return (TensorHandle)r;
 }
 
-TensorHandle tensor_stack(TensorHandle* tensors, int count, int dim) { STUB(); }
-TensorHandle tensor_cat(TensorHandle* tensors, int count, int dim) { STUB(); }
+TensorHandle tensor_stack(TensorHandle* tensors, int count, int dim) {
+    /* Same shape as tensor_stack_from_array, but the caller (test_backend or
+       internal C code) retains ownership of the input handle array — we do
+       NOT free it. tensor_stack_from_array is the variant that takes
+       ownership of an Idris-allocated handle array. */
+    std::vector<mx::array> arrs;
+    bool rg = false;
+    for (int i = 0; i < count; i++) {
+        auto t = (Tensor*)tensors[i];
+        arrs.push_back(t->data);
+        if (t->requires_grad) rg = true;
+    }
+    auto r = new Tensor(mx::stack(arrs, dim), rg);
+    if (rg) {
+        int idx = tape_append(OP_STACK, r, nullptr, nullptr, (double)dim);
+        auto* indices = new std::vector<int>();
+        for (int i = 0; i < count; i++)
+            indices->push_back(((Tensor*)tensors[i])->pool_idx);
+        tape[idx].meta = (void*)indices;
+    }
+    return (TensorHandle)r;
+}
+
+TensorHandle tensor_cat(TensorHandle* tensors, int count, int dim) {
+    std::vector<mx::array> arrs;
+    bool rg = false;
+    for (int i = 0; i < count; i++) {
+        auto t = (Tensor*)tensors[i];
+        arrs.push_back(t->data);
+        if (t->requires_grad) rg = true;
+    }
+    auto r = new Tensor(mx::concatenate(arrs, dim), rg);
+    if (rg) {
+        int idx = tape_append(OP_CAT_MULTI, r, nullptr, nullptr, (double)dim);
+        auto* indices = new std::vector<int>();
+        for (int i = 0; i < count; i++)
+            indices->push_back(((Tensor*)tensors[i])->pool_idx);
+        tape[idx].meta = (void*)indices;
+    }
+    return (TensorHandle)r;
+}
 
 TensorHandle tensor_cat2(TensorHandle ha, TensorHandle hb) {
     auto a = (Tensor*)ha; auto b = (Tensor*)hb;
@@ -1251,7 +1295,10 @@ TensorHandle tensor_bmm(TensorHandle ha, TensorHandle hb) {
     if (rg) tape_append(OP_BMM, r, a, b, 0);
     return (TensorHandle)r;
 }
-TensorHandle tensor_batch(TensorHandle* handles, int count) { STUB(); }
+TensorHandle tensor_batch(TensorHandle* handles, int count) {
+    /* Batch [...] tensors -> [count, ...] = stack along new dim 0 */
+    return tensor_stack(handles, count, 0);
+}
 TensorHandle* tensor_unbatch(TensorHandle h, int* out_count) {
     auto t = (Tensor*)h;
     int B = (int)t->data.shape(0);
@@ -1515,7 +1562,16 @@ void tensor_backward(TensorHandle h) {
                 if (indices) {
                     std::vector<mx::array> arrs;
                     for (int idx : *indices) arrs.push_back(pool[idx]);
-                    pool[out] = mx::stack(arrs, 0);
+                    pool[out] = mx::stack(arrs, (int)e.scalar_arg);
+                }
+                break;
+            }
+            case OP_CAT_MULTI: {
+                auto* indices = (std::vector<int>*)e.meta;
+                if (indices) {
+                    std::vector<mx::array> arrs;
+                    for (int idx : *indices) arrs.push_back(pool[idx]);
+                    pool[out] = mx::concatenate(arrs, (int)e.scalar_arg);
                 }
                 break;
             }
@@ -1893,18 +1949,42 @@ TensorHandle tensor_stack_from_array(TensorHandle* arr, int count, int dim) {
         if (t->requires_grad) rg = true;
     }
     auto r = new Tensor(mx::stack(arrs, dim), rg);
-    // Record OP_STACK with input pool indices for replay
+    /* Record OP_STACK with scalar_arg=dim and meta=input pool indices.
+       Replay reads dim from scalar_arg so non-zero stack dims backprop correctly. */
     if (rg) {
-        int idx = tape_append(OP_STACK, r, nullptr, nullptr, (double)count);
+        int idx = tape_append(OP_STACK, r, nullptr, nullptr, (double)dim);
         auto* indices = new std::vector<int>();
         for (int i = 0; i < count; i++)
             indices->push_back(((Tensor*)arr[i])->pool_idx);
         tape[idx].meta = (void*)indices;
     }
+    /* Caller (Idris) allocates arr via prim__ptrArrayAlloc; tape and torch
+       both free it after consuming. MLX matches that convention. */
+    free(arr);
     return (TensorHandle)r;
 }
 
-TensorHandle tensor_cat_from_array(TensorHandle* arr, int count, int dim) { STUB(); }
+TensorHandle tensor_cat_from_array(TensorHandle* arr, int count, int dim) {
+    std::vector<mx::array> arrs;
+    bool rg = false;
+    for (int i = 0; i < count; i++) {
+        auto t = (Tensor*)arr[i];
+        arrs.push_back(t->data);
+        if (t->requires_grad) rg = true;
+    }
+    auto r = new Tensor(mx::concatenate(arrs, dim), rg);
+    if (rg) {
+        int idx = tape_append(OP_CAT_MULTI, r, nullptr, nullptr, (double)dim);
+        auto* indices = new std::vector<int>();
+        for (int i = 0; i < count; i++)
+            indices->push_back(((Tensor*)arr[i])->pool_idx);
+        tape[idx].meta = (void*)indices;
+    }
+    /* Match torch convention: caller passes ownership of arr (allocated via
+       tensor_ptr_array_alloc), we free it after consuming. */
+    free(arr);
+    return (TensorHandle)r;
+}
 
 /* ================================================================
    Tensor-level parameter creation

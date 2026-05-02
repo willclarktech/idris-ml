@@ -468,9 +468,24 @@ prim__ptrArraySet : AnyPtr -> Int -> AnyPtr -> AnyPtr
 %foreign "C:tensor_stack_from_array,libidrisml"
 prim__stackFromArray : AnyPtr -> Int -> Int -> AnyPtr
 
+%foreign "C:tensor_cat_from_array,libidrisml"
+export
+prim__catFromArray : AnyPtr -> Int -> Int -> AnyPtr
+
 %foreign "C:tensor_cat2,libidrisml"
 export
 prim__cat2 : AnyPtr -> AnyPtr -> AnyPtr
+
+-- N-ary cat: caller retains ownership of the handle array.
+-- See tensor_cat in backend.h.
+%foreign "C:tensor_cat,libidrisml"
+export
+prim__cat : AnyPtr -> Int -> Int -> AnyPtr
+
+-- Batch [...] tensors into [count, ...]. Equivalent to stack at dim=0.
+%foreign "C:tensor_batch,libidrisml"
+export
+prim__batch : AnyPtr -> Int -> AnyPtr
 
 %foreign "C:tensor_narrow,libidrisml"
 export

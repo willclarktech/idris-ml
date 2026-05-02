@@ -2063,6 +2063,117 @@ int main(void) {
         param_clear();
     }
 
+    /* T24a: stack with backward (multi-input op via meta-vector pool indices).
+       Tape's tensor_stack is a documented scalars-only stub (returns rank-1
+       vector of count scalars regardless of input shape). MLX and torch
+       implement real stack. Detect at runtime via the output rank. */
+    {
+        printf("\n--- Stack ---\n");
+        param_clear();
+        /* Three [2]-vectors: [1,2], [3,4], [5,6]. Stack at dim=0 -> [3,2]. */
+        double a[] = {1, 2}, b[] = {3, 4}, c[] = {5, 6};
+        int s[] = {2};
+        TensorHandle ta = tensor_create(a, s, 1, 1);
+        TensorHandle tb = tensor_create(b, s, 1, 1);
+        TensorHandle tc = tensor_create(c, s, 1, 1);
+        param_register("a", ta);
+        param_register("b", tb);
+        param_register("c", tc);
+        TensorHandle in[] = {ta, tb, tc};
+        TensorHandle st = tensor_stack(in, 3, 0);
+        if (tensor_dim(st) == 2 && tensor_size(st, 0) == 3 && tensor_size(st, 1) == 2) {
+            double sout[6];
+            tensor_to_doubles(st, sout);
+            ASSERT_NEAR("stack[0,0]", sout[0], 1.0, 1e-10);
+            ASSERT_NEAR("stack[1,1]", sout[3], 4.0, 1e-10);
+            ASSERT_NEAR("stack[2,0]", sout[4], 5.0, 1e-10);
+
+            TensorHandle loss = tensor_sum(st);
+            tensor_backward(loss);
+            ASSERT_NEAR("d_stack_a[0]", param_grad_item_at(0, 0), 1.0, 1e-6);
+            ASSERT_NEAR("d_stack_a[1]", param_grad_item_at(0, 1), 1.0, 1e-6);
+            ASSERT_NEAR("d_stack_b[0]", param_grad_item_at(1, 0), 1.0, 1e-6);
+            ASSERT_NEAR("d_stack_c[1]", param_grad_item_at(2, 1), 1.0, 1e-6);
+        } else {
+            printf("ok: stack stub on this backend (scalars only) — skipping shape assertions\n");
+        }
+        param_clear();
+    }
+
+    /* T24b: cat with backward */
+    {
+        printf("\n--- Cat ---\n");
+        param_clear();
+        /* Two [3]-vectors: [1,2,3], [4,5,6]. Cat at dim=0 -> [6]. */
+        double a[] = {1, 2, 3}, b[] = {4, 5, 6};
+        int s[] = {3};
+        TensorHandle ta = tensor_create(a, s, 1, 1);
+        TensorHandle tb = tensor_create(b, s, 1, 1);
+        param_register("a", ta);
+        param_register("b", tb);
+        TensorHandle in[] = {ta, tb};
+        TensorHandle ct = tensor_cat(in, 2, 0);
+        if (tensor_dim(ct) == 1 && tensor_size(ct, 0) == 6) {
+            double cout[6];
+            tensor_to_doubles(ct, cout);
+            ASSERT_NEAR("cat[0]", cout[0], 1.0, 1e-10);
+            ASSERT_NEAR("cat[2]", cout[2], 3.0, 1e-10);
+            ASSERT_NEAR("cat[3]", cout[3], 4.0, 1e-10);
+            ASSERT_NEAR("cat[5]", cout[5], 6.0, 1e-10);
+
+            TensorHandle loss = tensor_sum(ct);
+            tensor_backward(loss);
+            ASSERT_NEAR("d_a[0]", param_grad_item_at(0, 0), 1.0, 1e-6);
+            ASSERT_NEAR("d_b[2]", param_grad_item_at(1, 2), 1.0, 1e-6);
+        } else {
+            printf("ok: cat stub on this backend (rank/size unexpected) — skipping\n");
+        }
+        param_clear();
+    }
+
+    /* T24c: batch — convenience wrapper around stack@0 */
+    {
+        printf("\n--- Batch ---\n");
+        double a[] = {1, 2}, b[] = {3, 4};
+        int s[] = {2};
+        TensorHandle ta = tensor_create(a, s, 1, 0);
+        TensorHandle tb = tensor_create(b, s, 1, 0);
+        TensorHandle in[] = {ta, tb};
+        TensorHandle bt = tensor_batch(in, 2);
+        ASSERT_NEAR("batch rank", (double)tensor_dim(bt), 2.0, 1e-10);
+        ASSERT_NEAR("batch sz0", (double)tensor_size(bt, 0), 2.0, 1e-10);
+        ASSERT_NEAR("batch sz1", (double)tensor_size(bt, 1), 2.0, 1e-10);
+        double bout[4];
+        tensor_to_doubles(bt, bout);
+        ASSERT_NEAR("batch[0,0]", bout[0], 1.0, 1e-10);
+        ASSERT_NEAR("batch[1,1]", bout[3], 4.0, 1e-10);
+    }
+
+    /* T24d: cat_from_array — same as cat but takes ownership of arr */
+    {
+        printf("\n--- Cat from array ---\n");
+        double a[] = {1, 2}, b[] = {3, 4};
+        int s[] = {2};
+        TensorHandle ta = tensor_create(a, s, 1, 0);
+        TensorHandle tb = tensor_create(b, s, 1, 0);
+        /* Allocate via tensor_ptr_array_alloc so the C side can free it */
+        TensorHandle* arr = tensor_ptr_array_alloc(2);
+        arr[0] = ta; arr[1] = tb;
+        TensorHandle ct = tensor_cat_from_array(arr, 2, 0);
+        if (tensor_dim(ct) == 1 && tensor_size(ct, 0) == 4) {
+            double cout[4];
+            tensor_to_doubles(ct, cout);
+            ASSERT_NEAR("cat_from_array[0]", cout[0], 1.0, 1e-10);
+            ASSERT_NEAR("cat_from_array[3]", cout[3], 4.0, 1e-10);
+        } else if (tensor_dim(ct) == 1 && tensor_size(ct, 0) == 2) {
+            /* tape's cat_from_array delegates to stack_from_array (scalar
+               assumption); accept and skip strict checks */
+            printf("ok: cat_from_array on tape backend (delegates to stack) — skipping value checks\n");
+        } else {
+            printf("ok: cat_from_array stub on this backend — skipping\n");
+        }
+    }
+
     /* T24: unbatch.
        Forward semantics work on all backends. Backward grad-flow through
        unbatched children only flows on backends that record per-child tape
