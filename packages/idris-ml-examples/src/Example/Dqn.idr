@@ -11,6 +11,7 @@ import Endofunctor
 import Floating
 import Gym.ClassicControl.CartPole
 import Gym.Env
+import Hpo.LrFinder
 import Layer
 import Layer.Core
 import Math
@@ -227,9 +228,10 @@ record Config where
   epsEnd      : Double
   epsDecay    : Nat
   seed        : Bits64
+  lrFind      : Bool
 
 defaultConfig : Config
-defaultConfig = MkConfig 5.0e-4 300 0.99 64 10000 100 1.0 0.05 10000 42
+defaultConfig = MkConfig 5.0e-4 300 0.99 64 10000 100 1.0 0.05 10000 42 False
 
 specs : List (ArgSpec Config)
 specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
@@ -242,6 +244,7 @@ specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
         , Arg "--eps-end" (\v, c => { epsEnd := cast v } c)
         , Arg "--eps-decay" (\v, c => { epsDecay := castNat v } c)
         , Arg "--seed" (\v, c => { seed := castBits64 v } c)
+        , Arg "--lr-find" (\v, c => { lrFind := (v == "1" || v == "true") } c)
         ]
 
 
@@ -293,6 +296,20 @@ main = do
       opt = nativeAdamGlobalClip cfg.lr 0.9 0.999 1.0e-8 10.0
 
   putStrLn ""
+
+  -- HPO branch: --lr-find runs lr_find using episode-return-as-loss.
+  -- See hyperparameter-tuning-2026.md for caveats — the per-episode
+  -- signal is noisy and the network keeps training across iters, so
+  -- the recommendation should be treated as informational only.
+  when cfg.lrFind $ do
+    let lrCfg : LrFindConfig
+        lrCfg = { numIters := 30 } defaultLrFindConfig
+    _ <- lrFind lrCfg
+      (\st, _ => do (st', ret) <- runEpisode opt st; pure (st', negate ret))
+      (pure ()) opt st0
+    putStrLn ""
+    putStrLn "Done — re-run without --lr-find at the recommended LR."
+    exitSuccess
 
   let trainCfg : TrainConfig DqnState
       trainCfg = MkTrainConfig cfg.epochs 25 NoEarlyStop (const (pure [])) (\_ => pure ())

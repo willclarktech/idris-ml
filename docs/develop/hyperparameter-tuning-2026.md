@@ -127,6 +127,19 @@ This is a useful negative-result entry for the workflow: `lr_find` is a screenin
 
 ---
 
+## Dqn           date: 2026-04-29
+
+- **Before**: `lr=5e-4 epochs=300 gamma=0.99 batch=64 buffer=10000 target_sync=100 eps=1.0→0.05 seed=42`. MLP(4→64→64→2) Q-network on CartPole with replay buffer + target snapshot every 100 env steps. `nativeAdamGlobalClip` (clip=10).
+- **lr_find (Idris)**: `RECOMMENDED_LR=1e-8` — diverged at iter 1. Same negative-loss bug as Reinforce: episode-return-as-loss is negative (returns 12–18 → loss −18, −12), which trips the divergence check `smoothed > 4 × min` immediately. Reduced to `numIters=30` since per-iter cost (one full episode) is non-trivial; doesn't matter — bails on iter 1 either way.
+- **lr_find (PyTorch)**: n/a — no PyTorch DQN script (Idris-only example).
+- **Cross-backend agreement**: n/a (single-backend example).
+- **Multi-seed pass rate**: not measured. Default unchanged.
+- **Decision**: ship-as-is at lr=5e-4. The flag is wired for API consistency; the runtime sweep is not meaningful for episode-based RL with the current `lrFind` heuristic.
+- **Why**: `lrFind`'s divergence-check assumes non-negative monotonic loss. RL episode-return-as-loss violates both. The right fix is in the `lrFind` heuristic itself (see Reinforce entry's "two follow-up improvements"); not a tuning concern here.
+- **Commit**: (this commit).
+
+---
+
 ## Pattern observed across B3 so far
 
 After 5 examples (Supervised, Rnn, Lstm, Transformer, SeqClassify), the
