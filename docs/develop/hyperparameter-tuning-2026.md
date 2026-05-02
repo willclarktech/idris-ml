@@ -40,4 +40,21 @@ A note on the curve shape: Idris' `lr_find` shows divergence at iter ≈ 97 (lr 
 
 ---
 
+## Rnn           date: 2026-04-29
+
+- **Before**: `lr=0.03 schedule=constant epochs=2000 seed=42`. Architecture is a 1-input → 1-output `LinearRNNCell` (no hidden expansion); BCE-with-logits loss on the synthetic pattern dataset.
+- **lr_find (Idris)**: `RECOMMENDED_LR=0.5722`, sweep range 1e-7..10, iters=100, divergence at iter 99 (lr=10), seed=42.
+- **lr_find (PyTorch)**: `RECOMMENDED_LR=0.0015`, sweep range 1e-7..10, iters=100, no divergence in the swept range (loss bouncing around 0.4–10.9), seed=42.
+- **Cross-backend agreement**: ratio = 0.5722/0.0015 ≈ 380×. **Outside the 2× tolerance — both recommendations are unreliable.**
+- **Multi-seed pass rate**: not measured.
+- **Wall-clock to convergence**: ~5 s @ 2000 epochs on tape (unchanged).
+- **Decision**: ship-as-is.
+- **Why lr_find doesn't help here**: the 1-cell RNN's loss curve under this dataset is essentially flat across the LR sweep — neither backend's loss meaningfully decreases as a function of LR. fastai's "steepest descent ÷ 10" heuristic then picks a noisy local-slope feature (different one on each backend), giving wildly divergent recommendations. **General rule: when cross-backend `lr_find` disagrees by more than 2×, treat both recommendations as unreliable signal and don't change the default.**
+
+This is a useful negative-result entry for the workflow: `lr_find` is a screening tool, not a recommendation engine. The cross-backend agreement check is what catches unreliable cases like this one. B3 will look for similar disagreement on each example before changing defaults.
+
+- **Commit**: n/a (no default change).
+
+---
+
 (Future entries here — one block per example dogfooded by B3.)
