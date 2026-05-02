@@ -5,11 +5,15 @@ Usage:
 """
 
 import argparse
+import itertools
+import sys
 import time
 
 import torch
+import torch.nn.functional as F
 
 from torch_ref.models.mnist_cnn import MnistCNN, evaluate, get_mnist_loaders, train_epoch
+from torch_ref.training.lr_finder import LrFindConfig, lr_find
 from torch_ref.training.runner import format_result
 
 
@@ -19,6 +23,11 @@ def main() -> None:
     parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
+        "--lr-find",
+        action="store_true",
+        help="Run lr_find (LR-range test, one mini-batch per iter) and exit.",
+    )
     args = parser.parse_args()
 
     torch.manual_seed(args.seed)
@@ -40,6 +49,23 @@ def main() -> None:
     param_count = sum(p.numel() for p in model.parameters())
     print(f"Parameters: {param_count}")
     print()
+
+    if args.lr_find:
+        loader_iter = itertools.cycle(train_loader)
+
+        def epoch_fn() -> float:
+            inputs, targets = next(loader_iter)
+            optimizer.zero_grad()
+            logits = model(inputs)
+            loss = F.cross_entropy(logits, targets)
+            loss.backward()
+            optimizer.step()
+            return loss.item()
+
+        lr_find(LrFindConfig(num_iters=100), epoch_fn, optimizer)
+        print()
+        print("Done — re-run without --lr-find at the recommended LR.")
+        sys.exit(0)
 
     print("Training...")
     t0 = time.time()

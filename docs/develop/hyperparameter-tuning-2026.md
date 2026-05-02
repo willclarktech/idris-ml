@@ -177,6 +177,19 @@ This is a useful negative-result entry for the workflow: `lr_find` is a screenin
 
 ---
 
+## Mnist           date: 2026-04-29
+
+- **Before**: `lr=0.001 epochs=5 patience=3 seed=42`. LeNet-style CNN: Conv2d(1→16,k=5) → ReLU → Pool(2) → Conv2d(16→32,k=5) → ReLU → Pool(2) → Dropout(0.5) → Linear(512→10). `nativeAdamGlobalClip` (clip=1.0) on Idris, `torch.optim.Adam` on PyTorch. Cross-entropy loss.
+- **lr_find (Idris)**: `RECOMMENDED_LR=1e-8` — fallback to `lrMin/10`. Loss curve had a real descent (smoothed 2.7 → 0.49 around lr ≈ 0.14) before climbing again, but the EMA-smoothing flattened the negative-slope window enough that the heuristic bailed. 17 s for 100 iters at batch=64.
+- **lr_find (PyTorch)**: `RECOMMENDED_LR=0.0291`, sweep range 1e-7..10, iters=100, divergence at iter 77 (lr ≈ 0.167, loss spiked to 75). Real signal — recommends a 30× higher LR than the current default. 2.2 s for 100 iters.
+- **Cross-backend agreement**: ratio = 0.0291 / 1e-8 ≈ **2,910,000×** — wildly disagreeing. **Treat both as unreliable.**
+- **Multi-seed pass rate**: not measured. Default unchanged.
+- **Decision**: ship-as-is at lr=0.001. Cross-backend gate fails decisively (Adam-fallback × Idris/PyTorch curve-shape mismatch).
+- **Why this confirms the Adam-fallback pattern at higher resolution**: 100 mini-batches is enough signal that PyTorch's curve looks plausible (clear minimum around lr=0.13), but Idris's loss-magnitude scale (sum-reduction vs PyTorch's mean) and EMA-smoothing interaction conspire to mask the descent for the steepest-descent heuristic. Even when both backends "see" the same shape, the recommendation can diverge by 6+ orders of magnitude. The cross-backend gate (>2× → unreliable) is the right check.
+- **Commit**: (this commit).
+
+---
+
 ## Pattern observed across B3 so far
 
 After 5 examples (Supervised, Rnn, Lstm, Transformer, SeqClassify), the

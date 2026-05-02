@@ -22,6 +22,7 @@ import DataPoint
 import Endofunctor
 import Floating
 import Generate
+import Hpo.LrFinder
 import Layer
 import Layer.Core
 import Layer.Conv
@@ -230,16 +231,18 @@ record Config where
   patience : Nat
   seed : Bits64
   dataDir : String
+  lrFind : Bool
 
 defaultConfig : Config
-defaultConfig = MkConfig 0.001 5 3 42 "data/mnist"
+defaultConfig = MkConfig 0.001 5 3 42 "data/mnist" False
 
 specs : List (ArgSpec Config)
 specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
         , Arg "--epochs" (\v, c => { epochs := castNat v } c)
         , Arg "--patience" (\v, c => { patience := castNat v } c)
         , Arg "--seed" (\v, c => { seed := castBits64 v } c)
-        , Arg "--data" (\v, c => { dataDir := v } c) ]
+        , Arg "--data" (\v, c => { dataDir := v } c)
+        , Arg "--lr-find" (\v, c => { lrFind := (v == "1" || v == "true") } c) ]
 
 
 partial
@@ -302,6 +305,19 @@ main = do
       batchesPerEpoch = cast {to=Nat} trainCount `div` BatchSize
   putStrLn $ "Batches/epoch: " ++ show batchesPerEpoch
            ++ " (batch_size=" ++ show BatchSize ++ ")"
+
+  -- HPO branch: --lr-find runs lr_find using one mini-batch per iter
+  -- (not a full pass), keeping the sweep tractable on tape.
+  when cfg.lrFind $ do
+    let lrCfg : LrFindConfig
+        lrCfg = { numIters := 100 } defaultLrFindConfig
+    _ <- lrFind lrCfg
+      (\m, batch => let (m', loss) = epochNativeTensorPre opt batch mnistCE m
+                    in pure (m', loss))
+      genBatch opt model
+    putStrLn ""
+    putStrLn "Done — re-run without --lr-find at the recommended LR."
+    exitSuccess
 
   let trainCfg = MkTrainConfig cfg.epochs 1 (Patience cfg.patience 0.001)
                    (mnistMetrics testDs testCount) (\_ => pure ())
