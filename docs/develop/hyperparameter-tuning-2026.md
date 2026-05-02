@@ -343,6 +343,28 @@ Multi-seed at the new (dModel=16, HeadDim=4) — both backends:
 
 NumHeads stays 4; HeadDim drops 8 → 4 to keep `NumHeads × HeadDim == dModel`.
 
+### Mnist: Conv2D channels (16, 32) → (8, 16) — reverted
+
+Halved both Conv2D layer channels (`OutC1=16→8`, `OutC2=32→16`) on the LeNet-style architecture. Mnist's per-epoch cost is genuinely matmul-bound (full 60K-image pass), so this should yield the largest wall-time win of any B4 attempt.
+
+Wall-time effect (single-seed, seed=42):
+- Baseline (16, 32): ~10 min (documented in `example-coverage.md`)
+- Smaller (8, 16): **5m 21s — ~50% reduction**
+
+Multi-seed accuracy at the smaller channels:
+
+| Seed | accuracy |
+|------|----------|
+| 1    | 0.934    |
+| 2    | 0.876    |
+| **3** | **0.832** *(below 0.85 threshold)* |
+| 4    | 0.906    |
+| 42   | 0.911    |
+
+4/5 seeds pass; seed=3 dips to 0.832 (below the convergence threshold of 0.85). Average accuracy 0.892 with worst-case 0.832 — meaningful drop in robustness vs the baseline.
+
+**Decision: revert.** Same pattern as the Dqn experiment: a seed-specific regression at smaller capacity. The wall-time win is real (~50%), but trading 5/5 reliability for 4/5 reliability isn't worth it for a demonstration example. A different B4 strategy (depth instead of width, or smaller-but-more-FC-units) might recover the wall-time win without the robustness loss; deferred.
+
 ### Dqn: hidden 64 → 32 — reverted
 
 First B4 prototype. Tried halving DQN's hidden width on CartPole (4 → 32 → 32 → 2) to see if the smaller net still converges to the existing `avg_return >= 100` threshold and saves wall time.
