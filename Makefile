@@ -502,6 +502,20 @@ test: install
 	cp $(LIB) build/exec/test_app/
 	./build/exec/test
 
+# Multi-backend Idris tests — adds Test.Transfer (cross-backend
+# `toDevice` smoke + roundtrip) to the unit-test list. Forces
+# BACKEND=torch,tape,mlx so tape / torch / mlx C symbols are all
+# linked into one dylib — Test.Transfer references all three by
+# name through `UserDeviceTransfer` instance dispatch and would
+# crash at FFI resolution under any single-backend build. Torch
+# primary so the F32-hop's tcastUnsafe (a RuntimeDType op routed
+# via unified C names) lands on a backend that supports F32.
+test-multi:
+	$(MAKE) BACKEND=torch,tape,mlx install
+	idris2 --source-dir $(TEST_SRC) -p contrib -p idris-ml -o test-multi $(TEST_SRC)/MainMulti.idr
+	cp $(LIB) build/exec/test-multi_app/
+	./build/exec/test-multi
+
 # Idris tests for idris-gym package (pure Idris, no backend required)
 test-gym: install-gym
 	cd packages/idris-gym/test && idris2 --build test.ipkg

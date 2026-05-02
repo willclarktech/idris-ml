@@ -1120,9 +1120,22 @@ toDevice d2 src =
       let rankI    = cast {to=Int} (length dims)
       let shapeBuf = primAllocIntHost {d = d2} rankI
       let shapeBuf' = writeShape shapeBuf 0 dims
-      let destPtr  = primCreateFromHost {d = d2} dataBuf' shapeBuf' rankI 0
-      primIO (\w => MkIORes (primFreeIntHost {d = d2} shapeBuf') w)
-      primIO (\w => MkIORes (primFreeHost {d = d1} dataBuf') w)
+      -- Force primCreateFromHost via primIO so the FFI call fires
+      -- here, not deferred until destPtr is consumed.
+      destPtr <- primIO (\w =>
+        MkIORes (primCreateFromHost {d = d2} dataBuf' shapeBuf' rankI 0) w)
+      -- N.B. The host buffers (`dataBuf'`, `shapeBuf'`) leak. We
+      -- previously freed them here, but in chained cross-backend
+      -- `toDevice` calls (TapeDev → TorchDev → MlxDev → TapeDev)
+      -- the per-step `tensor_free_doubles_<b>` of the buffer was
+      -- racing the next step's reads in unclear ways and crashing
+      -- at the third hop. Backend-side `tensor_create_<b>` does
+      -- copy the buffer into its own arena/storage, so the buffers
+      -- become garbage immediately after primCreateFromHost
+      -- returns — but explicitly freeing them broke something we
+      -- haven't fully diagnosed. Leak is small (numel doubles +
+      -- rank ints per toDevice call); revisit when training-time
+      -- transfer becomes hot.
       pure (MkTensor destPtr src.paramId)
   where
     writeShape : AnyPtr -> Int -> Vect r Nat -> AnyPtr
