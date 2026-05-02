@@ -77,6 +77,9 @@ def main() -> None:
                 print(f"  Early stop at epoch {epoch} (patience={patience})")
                 break
 
+    train_elapsed = time.time() - t0
+    ms_per_ep = train_elapsed * 1000.0 / epochs_done if epochs_done > 0 else 0.0
+    print(f"PERF_MS_PER_EP={ms_per_ep:.6f}")
     accuracy = evaluate(model, 500)
     elapsed = time.time() - t0
     print(f"\nFinal accuracy (500 samples): {accuracy * 100:.1f}% ({elapsed:.1f}s)")

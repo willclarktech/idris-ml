@@ -21,6 +21,7 @@ import time
 import torch
 
 from torch_ref.models.dqn import QNetwork, ReplayBuffer, dqn_episode, evaluate
+from torch_ref.models.reinforce import make_cartpole_env
 from torch_ref.training.lr_finder import LrFindConfig, lr_find
 from torch_ref.training.runner import format_elapsed, format_result, mem_suffix
 
@@ -56,13 +57,14 @@ def main() -> None:
     target = copy.deepcopy(q)
     optimizer = torch.optim.Adam(q.parameters(), lr=args.lr)
     buffer = ReplayBuffer(args.buffer)
+    env = make_cartpole_env(args.seed)
     step_count = [0]
     print()
 
     def epoch_fn() -> float:
         """One DQN episode. Returns -episode_return (matches Idris loss)."""
         new_step, ep_return = dqn_episode(
-            q, target, optimizer, buffer, step_count[0],
+            env, q, target, optimizer, buffer, step_count[0],
             args.batch, args.gamma, args.target_sync, rng,
         )
         step_count[0] = new_step
@@ -93,6 +95,7 @@ def main() -> None:
     elapsed = time.monotonic() - t_start
     ms_per_ep = elapsed / args.epochs * 1000
     print(f"Completed in {elapsed:.0f}s ({args.epochs} episodes, {ms_per_ep:.0f}ms/episode)")
+    print(f"PERF_MS_PER_EP={ms_per_ep:.6f}")
 
     print()
     print("Eval (50 episodes, greedy):")

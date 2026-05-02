@@ -235,6 +235,7 @@ runTrainingIO {model} epochFn dataSrc cfg model0 = do
       goWindowedPercentile 0 model0 [] 0 0 tStart pct thresh win pat
   tEnd <- clockTime Monotonic
   putStrLn $ formatTimingSummary tStart tEnd epochsDone
+  putStrLn $ formatPerfMsPerEp tStart tEnd epochsDone
   putStrLn $ "Peak RSS: " ++ show (getRssMB 0) ++ " MB"
           ++ "\tCurrent RSS: " ++ show (getCurrentRssMB 0) ++ " MB"
   profileReport

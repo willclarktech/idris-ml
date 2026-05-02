@@ -26,7 +26,7 @@ from torch_ref.models.a2c import (
     compute_advantages,
     evaluate,
 )
-from torch_ref.models.reinforce import CartPoleState, observe
+from torch_ref.models.reinforce import make_cartpole_env, obs_tensor, reset_to_zero
 from torch_ref.training.lr_finder import LrFindConfig, lr_find
 from torch_ref.training.runner import format_elapsed, format_result, mem_suffix
 
@@ -65,17 +65,18 @@ def main() -> None:
     )
     print()
 
-    # Stateful epoch context: env state + running episodic return.
-    state = [CartPoleState()]
+    # Stateful epoch context: env + running observation + episodic return.
+    env = make_cartpole_env(args.seed)
+    obs_state = [reset_to_zero(env)]
     running_return = [0.0]
 
     def epoch_fn() -> float:
         """One A2C update. Returns -avg_episodic_return (matches Idris loss)."""
-        obs, actions, rewards, values, dones, new_state = collect_rollout(
-            actor, critic, state[0], args.rollout
+        obs, actions, rewards, values, dones, new_obs = collect_rollout(
+            actor, critic, env, obs_state[0], args.rollout
         )
         with torch.no_grad():
-            bootstrap_v = critic(observe(new_state))
+            bootstrap_v = critic(obs_tensor(new_obs))
             bootstrap = (
                 0.0 if dones[-1].item() > 0.5 else float(bootstrap_v.item())
             )
@@ -95,7 +96,7 @@ def main() -> None:
                 ep_returns.append(run)
                 run = 0.0
         running_return[0] = run
-        state[0] = new_state
+        obs_state[0] = new_obs
 
         last_terminated = dones[-1].item() > 0.5
         sum_rew = float(rewards.sum().item())
@@ -128,6 +129,7 @@ def main() -> None:
     elapsed = time.monotonic() - t_start
     ms_per_ep = elapsed / args.epochs * 1000
     print(f"Completed in {elapsed:.0f}s ({args.epochs} updates, {ms_per_ep:.0f}ms/update)")
+    print(f"PERF_MS_PER_EP={ms_per_ep:.6f}")
 
     print()
     print("Eval (50 episodes, greedy):")

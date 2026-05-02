@@ -21,6 +21,7 @@ from torch_ref.models.mountain_car import (
     ReplayBuffer,
     dqn_episode,
     evaluate,
+    make_mountaincar_env,
 )
 from torch_ref.training.lr_finder import LrFindConfig, lr_find
 from torch_ref.training.runner import format_elapsed, format_result, mem_suffix
@@ -63,12 +64,13 @@ def main() -> None:
     target = copy.deepcopy(q)
     optimizer = torch.optim.Adam(q.parameters(), lr=args.lr)
     buffer = ReplayBuffer(args.buffer)
+    env = make_mountaincar_env(args.seed)
     step_count = [0]
     print()
 
     def epoch_fn() -> float:
         new_step, ep_return = dqn_episode(
-            q, target, optimizer, buffer, step_count[0],
+            env, q, target, optimizer, buffer, step_count[0],
             args.batch, args.gamma, args.target_sync,
             args.eps_start, args.eps_end, args.eps_decay,
             args.shaping, rng,
@@ -95,6 +97,11 @@ def main() -> None:
                 f"  {format_elapsed(t_start)} {ep + 1}\tloss={loss_val:.6f}"
                 f"{mem_suffix()}\treturn={ep_return:.1f}\trecent_50={recent:.1f}"
             )
+
+    elapsed = time.monotonic() - t_start
+    ms_per_ep = elapsed / args.epochs * 1000
+    print(f"Completed in {elapsed:.0f}s ({args.epochs} episodes, {ms_per_ep:.0f}ms/episode)")
+    print(f"PERF_MS_PER_EP={ms_per_ep:.6f}")
 
     print()
     avg = evaluate(q)

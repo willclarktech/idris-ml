@@ -122,6 +122,11 @@ def main() -> None:
                 f"\trecent_20={sum(recent)/len(recent):.1f}"
             )
 
+    elapsed = time.monotonic() - t_start
+    ms_per_ep = elapsed / args.epochs * 1000
+    print(f"Completed in {elapsed:.0f}s ({args.epochs} steps, {ms_per_ep:.2f}ms/step)")
+    print(f"PERF_MS_PER_EP={ms_per_ep:.6f}")
+
     print()
     avg = evaluate(actor)
     print(f"Eval (20 episodes, greedy): avg_return={avg:.1f}")

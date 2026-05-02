@@ -12,7 +12,12 @@ import time
 
 import torch
 
-from torch_ref.models.reinforce import PolicyNetwork, evaluate, reinforce_epoch
+from torch_ref.models.reinforce import (
+    PolicyNetwork,
+    evaluate,
+    make_cartpole_env,
+    reinforce_epoch,
+)
 from torch_ref.training.lr_finder import LrFindConfig, lr_find
 from torch_ref.training.runner import format_elapsed, format_result, mem_suffix
 
@@ -48,12 +53,14 @@ def main() -> None:
     print(f"Parameters: {n_params}")
     print()
 
+    env = make_cartpole_env(args.seed)
+
     if args.lr_find:
         def epoch_fn() -> float:
             # `reinforce_epoch` returns (mean episodic return, policy loss).
             # `lr_find` wants a "lower is better" scalar; the Idris example
             # reports `negate avg_return` to runTraining, so we match.
-            avg_ret, _ = reinforce_epoch(policy, optimizer, args.batch, args.gamma)
+            avg_ret, _ = reinforce_epoch(env, policy, optimizer, args.batch, args.gamma)
             return -avg_ret
         lr_find(LrFindConfig(num_iters=100), epoch_fn, optimizer)
         print()
@@ -64,7 +71,7 @@ def main() -> None:
     t_start = time.monotonic()
     history: list[float] = []
     for epoch in range(args.epochs):
-        avg_return, loss_val = reinforce_epoch(policy, optimizer, args.batch, args.gamma)
+        avg_return, loss_val = reinforce_epoch(env, policy, optimizer, args.batch, args.gamma)
         history.append(avg_return)
         if epoch % 100 == 0 or epoch == args.epochs - 1:
             recent = sum(history[-100:]) / min(len(history), 100)
@@ -76,6 +83,7 @@ def main() -> None:
     elapsed = time.monotonic() - t_start
     ms_per_ep = elapsed / args.epochs * 1000
     print(f"Completed in {elapsed:.0f}s ({args.epochs} epochs, {ms_per_ep:.0f}ms/epoch)")
+    print(f"PERF_MS_PER_EP={ms_per_ep:.6f}")
 
     print()
     print("Eval (100 episodes, greedy):")

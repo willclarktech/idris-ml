@@ -224,9 +224,14 @@ def run_training(
                 else:
                     conv_count = 0
 
-    total_sec = int(time.monotonic() - t_start)
+    total_elapsed = time.monotonic() - t_start
+    total_sec = int(total_elapsed)
     dur = _format_duration(total_sec)
     ms_per = (total_sec * 1000) // epochs_done if epochs_done > 0 else 0
     print(f"Completed in {dur} ({epochs_done} epochs, {ms_per}ms/epoch)")
+    # In-script timing marker for perf-baseline.sh — float ms/epoch over
+    # the timed training loop only, no startup / eval / build overhead.
+    ms_per_ep_float = total_elapsed * 1000.0 / epochs_done if epochs_done > 0 else 0.0
+    print(f"PERF_MS_PER_EP={ms_per_ep_float:.6f}")
 
     return epochs_done, final_loss

@@ -105,6 +105,9 @@ def main() -> None:
                 print(f"  Early stop at epoch {epoch} (patience={patience})")
                 break
 
+    train_elapsed = time.time() - t0
+    ms_per_ep = train_elapsed * 1000.0 / epochs_done if epochs_done > 0 else 0.0
+    print(f"PERF_MS_PER_EP={ms_per_ep:.6f}")
     test_loss, accuracy = evaluate(model, test_loader)
     elapsed = time.time() - t0
     print(f"\nFinal: test_loss={test_loss:.6f} accuracy={accuracy * 100:.1f}% ({elapsed:.1f}s)")

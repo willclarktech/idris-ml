@@ -20,11 +20,17 @@
 #     - the per-example budget (epochs)
 #
 # Notes:
-#  - Wall-clock is total (build + run + teardown). For fair ms/epoch we
-#    do TWO runs at different epoch counts and subtract: timing(N) -
-#    timing(N/4) ≈ (3/4)*N timed epochs, removing fixed overhead. This is
-#    cheap when both runs share the same idris2 build cache.
-#  - The PyTorch side has effectively no build cost; one run per example.
+#  - Timing methodology: both sides print a `PERF_MS_PER_EP=<float>`
+#    marker after the training loop, before eval. The script greps the
+#    marker from stdout. Eliminates startup / build / eval / Python
+#    import variance from the measurement — the timer is *inside* the
+#    training process. Previous version did wall-clock two-point
+#    subtraction, which collapsed for short-converging RL refs (the
+#    signal was below the startup-variance noise floor; see
+#    `docs/develop/perf-changes.md` 2026-05-19 entry).
+#  - Each side runs once at N=$N_LONG. Marker emit-points:
+#      Idris:   `Train.runTrainingIO` → `formatPerfMsPerEp` (Util.idr)
+#      PyTorch: `runner.run_training` for non-RL refs; per-script for RL.
 #  - All idris-side runs use BACKEND=$2 from the env.
 #  - All runs use --seed 42.
 set -euo pipefail
@@ -78,66 +84,69 @@ binary_for_target() {
   echo "./build/exec/${IDRIS_TGT#example-}"
 }
 
-# Run idris example with `--epochs N --seed S`, return total wall-clock in ms.
-# Uses time.time_ns() (absolute since epoch) — time.monotonic_ns() is
-# process-relative, so its value resets each `python3 -c` invocation and
-# the diff is meaningless.
-#
-# On non-zero exit returns "CRASH:<rc>" and dumps the stderr tail to the
-# script's stderr; without this the wall-clock between launch and abort
-# gets billed as a legitimate measurement.
+# Extract `PERF_MS_PER_EP=<float>` from stdout. Returns the float as
+# text, or "missing" if no marker was printed. Both Idris (via
+# Util.formatPerfMsPerEp) and PyTorch (via runner.run_training plus
+# per-RL-script print) emit exactly one such line.
+extract_marker() {
+  local stdout_path="$1"
+  local val
+  val=$(grep -E '^PERF_MS_PER_EP=' "$stdout_path" | tail -1 | sed 's/^PERF_MS_PER_EP=//')
+  if [ -z "$val" ]; then
+    echo "missing"
+  else
+    # Normalize to 2 decimals for output; preserve full precision in JSONL.
+    python3 -c "print(round(float('$val'), 2))"
+  fi
+}
+
+# Run idris example with `--epochs N --seed S`, capture stdout, return
+# PERF_MS_PER_EP value or "crashed"/"missing".
 run_idris() {
   local n="$1"
-  local bin t0 t1 rc errlog
+  local bin rc stdout_path errlog
   bin=$(binary_for_target)
+  stdout_path=$(mktemp "${TMPDIR:-/tmp}/perf-baseline-out.XXXXXX")
   errlog=$(mktemp "${TMPDIR:-/tmp}/perf-baseline-err.XXXXXX")
   rc=0
-  t0=$(python3 -c 'import time; print(int(time.time_ns()/1_000_000))')
-  "$bin" --epochs "$n" --seed "$SEED" >/dev/null 2>"$errlog" || rc=$?
-  t1=$(python3 -c 'import time; print(int(time.time_ns()/1_000_000))')
+  "$bin" --epochs "$n" --seed "$SEED" >"$stdout_path" 2>"$errlog" || rc=$?
   if [ "$rc" -ne 0 ]; then
     echo "[CRASH] $bin (epochs=$n) exit=$rc" >&2
     tail -3 "$errlog" >&2
-    rm -f "$errlog"
-    echo "CRASH:$rc"
-  else
-    rm -f "$errlog"
-    echo $((t1 - t0))
+    rm -f "$stdout_path" "$errlog"
+    echo "crashed"
+    return 0
   fi
+  rm -f "$errlog"
+  extract_marker "$stdout_path"
+  rm -f "$stdout_path"
 }
 
 # Same for pytorch ref.
 run_pytorch() {
   local n="$1"
-  local t0 t1
-  t0=$(python3 -c 'import time; print(int(time.time_ns()/1_000_000))')
-  ( cd packages/pytorch && uv run python -m "$REF_MOD" --epochs "$n" --seed "$SEED" ) >/dev/null 2>&1
-  t1=$(python3 -c 'import time; print(int(time.time_ns()/1_000_000))')
-  echo $((t1 - t0))
+  local stdout_path rc
+  stdout_path=$(mktemp "${TMPDIR:-/tmp}/perf-baseline-out.XXXXXX")
+  rc=0
+  ( cd packages/pytorch && uv run python -m "$REF_MOD" --epochs "$n" --seed "$SEED" ) \
+    >"$stdout_path" 2>/dev/null || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    rm -f "$stdout_path"
+    echo "crashed"
+    return 0
+  fi
+  extract_marker "$stdout_path"
+  rm -f "$stdout_path"
 }
 
-# Two-point timing: ms_per_epoch ≈ (T_long - T_short) / (N_long - N_short).
-# T_short captures fixed overhead (binary startup, dylib load, idris2
-# runtime init). Build the binary once before timing; both timed
-# invocations skip make and call the binary directly.
-two_point_idris() {
-  local warmup t_short t_long
+# Single-point in-script timing. Run once at N_LONG, parse the marker.
+measure_idris() {
   build_idris_binary
-  warmup=$(run_idris "$N_SHORT")
-  if [[ "$warmup" == CRASH:* ]]; then echo "crashed"; return 0; fi
-  t_short=$(run_idris "$N_SHORT")
-  if [[ "$t_short" == CRASH:* ]]; then echo "crashed"; return 0; fi
-  t_long=$(run_idris "$N_LONG")
-  if [[ "$t_long" == CRASH:* ]]; then echo "crashed"; return 0; fi
-  python3 -c "print(round((${t_long} - ${t_short}) / (${N_LONG} - ${N_SHORT}), 2))"
+  run_idris "$N_LONG"
 }
 
-two_point_pytorch() {
-  local t_short t_long
-  run_pytorch "$N_SHORT" >/dev/null   # warmup
-  t_short=$(run_pytorch "$N_SHORT")
-  t_long=$(run_pytorch "$N_LONG")
-  python3 -c "print(round((${t_long} - ${t_short}) / (${N_LONG} - ${N_SHORT}), 2))"
+measure_pytorch() {
+  run_pytorch "$N_LONG"
 }
 
 # Capture the active commit (with +dirty marker), mirroring perf-run.sh.
@@ -148,11 +157,13 @@ if [ -n "$(git status --porcelain -- ':!docs/develop/perf-log.jsonl' 2>/dev/null
   COMMIT="${COMMIT}+dirty"
 fi
 
-echo "[perf-baseline] $EXAMPLE_KEY [$BACKEND]: idris N=$N_SHORT then $N_LONG..." >&2
-IDRIS_MS=$(two_point_idris)
-echo "[perf-baseline] $EXAMPLE_KEY: pytorch N=$N_SHORT then $N_LONG..." >&2
-PY_MS=$(two_point_pytorch)
-if [ "$IDRIS_MS" = "crashed" ]; then
+echo "[perf-baseline] $EXAMPLE_KEY [$BACKEND]: idris N=$N_LONG..." >&2
+IDRIS_MS=$(measure_idris)
+echo "[perf-baseline] $EXAMPLE_KEY: pytorch N=$N_LONG..." >&2
+PY_MS=$(measure_pytorch)
+if [ "$IDRIS_MS" = "crashed" ] || [ "$IDRIS_MS" = "missing" ]; then
+  RATIO="N/A"
+elif [ "$PY_MS" = "crashed" ] || [ "$PY_MS" = "missing" ]; then
   RATIO="N/A"
 else
   RATIO=$(python3 -c "print(round(${IDRIS_MS} / ${PY_MS}, 2) if ${PY_MS} > 0 else 'inf')")
@@ -183,7 +194,9 @@ def num(s):
     try: return float(s)
     except (ValueError, TypeError): return None
 idris_raw = os.environ["IDRIS_MS"]
-crashed = idris_raw == "crashed"
+py_raw = os.environ["PY_MS"]
+idris_crashed = idris_raw in ("crashed", "missing")
+py_crashed = py_raw in ("crashed", "missing")
 row = {
     "ts": os.environ["ISO_TS"],
     "date": os.environ["DATE"],
@@ -192,13 +205,22 @@ row = {
     "backend": os.environ["BACKEND"],
     "device": os.environ["DEVICE"],
     "commit": os.environ["COMMIT"],
-    "idris_ms_per_epoch": None if crashed else num(idris_raw),
-    "pytorch_ms_per_epoch": num(os.environ["PY_MS"]),
-    "ratio": None if crashed else num(os.environ["RATIO"]),
+    "idris_ms_per_epoch": None if idris_crashed else num(idris_raw),
+    "pytorch_ms_per_epoch": None if py_crashed else num(py_raw),
+    "ratio": None if (idris_crashed or py_crashed) else num(os.environ["RATIO"]),
     "n_long": int(os.environ["N_LONG"]),
     "seed": int(os.environ["SEED"]),
 }
-if crashed:
-    row["notes"] = "idris binary aborted during timed run"
+notes = []
+if idris_raw == "crashed":
+    notes.append("idris binary aborted during timed run")
+elif idris_raw == "missing":
+    notes.append("idris stdout had no PERF_MS_PER_EP marker")
+if py_raw == "crashed":
+    notes.append("pytorch ref aborted during timed run")
+elif py_raw == "missing":
+    notes.append("pytorch stdout had no PERF_MS_PER_EP marker")
+if notes:
+    row["notes"] = "; ".join(notes)
 print(json.dumps(row))
 PY

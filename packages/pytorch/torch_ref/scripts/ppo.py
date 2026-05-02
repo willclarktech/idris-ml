@@ -21,13 +21,15 @@ import time
 import torch
 
 from torch_ref.models.ppo import (
-    AcrobotState,
     Actor,
     Critic,
     collect_rollout,
     evaluate,
     gae,
+    make_acrobot_env,
+    obs_tensor,
     ppo_update,
+    reset_to_zero,
 )
 from torch_ref.training.lr_finder import LrFindConfig, lr_find
 from torch_ref.training.runner import format_elapsed, format_result, mem_suffix
@@ -71,18 +73,18 @@ def main() -> None:
     critic_opt = torch.optim.Adam(critic.parameters(), lr=args.lr)
     print()
 
-    state = [AcrobotState()]
+    env = make_acrobot_env(args.seed)
+    obs_state = [reset_to_zero(env)]
 
     def epoch_fn() -> float:
         """One PPO rollout + update. Returns -avg_ep_return (matches Idris)."""
-        obs_l, act_l, lp_l, rew_l, val_l, done_l, new_state, ep_rets = collect_rollout(
-            actor, critic, state[0], args.rollout, args.max_ep_len, rng,
+        obs_l, act_l, lp_l, rew_l, val_l, done_l, new_obs, ep_rets = collect_rollout(
+            actor, critic, env, obs_state[0], args.rollout, args.max_ep_len, rng,
         )
         with torch.no_grad():
-            from torch_ref.models.ppo import observe
             bootstrap = (
                 0.0 if (done_l and done_l[-1])
-                else float(critic(observe(new_state)).item())
+                else float(critic(obs_tensor(new_obs)).item())
             )
         advs, rets = gae(rew_l, val_l, done_l, bootstrap, args.gamma, args.lam)
         obs_t = torch.stack(obs_l)
@@ -95,7 +97,7 @@ def main() -> None:
             actor, critic, actor_opt, critic_opt, obs_t, act_t, lp_t, adv_t, ret_t,
             args.clip_eps, args.entropy, args.k_epochs, args.batch_size, rng,
         )
-        state[0] = new_state
+        obs_state[0] = new_obs
 
         avg_ep = sum(ep_rets) / len(ep_rets) if ep_rets else float(sum(rew_l))
         return -avg_ep  # Idris returns `negate avgEp`
@@ -127,7 +129,9 @@ def main() -> None:
 
     elapsed = time.monotonic() - t_start
     s_per_ep = elapsed / args.epochs
+    ms_per_ep = s_per_ep * 1000
     print(f"Completed in {elapsed:.0f}s ({args.epochs} rollouts, {s_per_ep:.2f}s/rollout)")
+    print(f"PERF_MS_PER_EP={ms_per_ep:.6f}")
 
     print()
     print("Eval (20 episodes, greedy):")

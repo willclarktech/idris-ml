@@ -61,6 +61,23 @@ formatTimingSummary t0 t1 epochs =
   in "Completed in " ++ dur ++ " (" ++ show epochs ++ " epochs, "
      ++ show msPerEpoch ++ "ms/epoch)"
 
+||| Float ms/epoch over the timed training loop, parsed by
+||| `scripts/perf-baseline.sh` to drive in-script timing without the
+||| two-point-subtraction methodology. Uses nanos so sub-second runs
+||| don't truncate to zero.
+export
+formatPerfMsPerEp : Clock Monotonic -> Clock Monotonic -> Nat -> String
+formatPerfMsPerEp t0 t1 epochs =
+  if epochs == 0
+    then "PERF_MS_PER_EP=0.000000"
+    else
+      let dsec  : Double; dsec  = cast (seconds t1 - seconds t0)
+          dnano : Double; dnano = cast (nanoseconds t1 - nanoseconds t0)
+          totalMs : Double; totalMs = dsec * 1000.0 + dnano / 1.0e6
+          eps : Double; eps = cast (natToInteger epochs)
+          msPerEp = totalMs / eps
+      in "PERF_MS_PER_EP=" ++ show msPerEp
+
 ||| Sigmoid for Double values.
 export
 sigD : Double -> Double
