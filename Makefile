@@ -334,7 +334,12 @@ example-transfer-demo:
 example-bench: install
 	idris2 $(IDRIS_FLAGS) -o bench $(EXAMPLE_SRC)/Example/Bench.idr
 	cp $(LIB) build/exec/bench_app/
-	./build/exec/bench
+	@# Each benchmark runs in its own process. Sharing one process across
+	@# all six accumulates allocator state that nondeterministically trips
+	@# the unresolved tape stale-reader bug (see TODO.md High Priority).
+	@for b in supervised rnn ntm ntm-copy ntm-copy-1k ntm-recall; do \
+	    ./build/exec/bench $$b || exit $$?; \
+	done
 
 $(BUILD):
 	mkdir -p $(BUILD)

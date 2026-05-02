@@ -18,8 +18,9 @@ from torch_ref.benchmark import (
     bench_supervised,
 )
 
-# Repo root is pytorch/../
-_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+# Repo root is packages/pytorch/torch_ref/compare.py -> ../../..
+# (file -> torch_ref -> pytorch -> packages -> idris-ml)
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 
 
 def parse_idris_output(output: str) -> dict[str, tuple[float, float, float]]:
@@ -52,26 +53,37 @@ def parse_idris_output(output: str) -> dict[str, tuple[float, float, float]]:
 
 
 def run_idris_bench() -> dict[str, tuple[float, float, float]] | None:
-    """Run Idris bench and parse output."""
+    """Run each Idris benchmark in its own process and aggregate results.
+
+    Sharing a single process across all six benchmarks accumulates allocator
+    state that nondeterministically trips the unresolved tape stale-reader
+    bug (see TODO.md High Priority). The Idris bench binary takes a
+    per-benchmark CLI selector for this reason.
+    """
     bench_bin = _REPO_ROOT / "build" / "exec" / "bench"
-    try:
-        result = subprocess.run(
-            [str(bench_bin)],
-            capture_output=True,
-            text=True,
-            timeout=600,
-            cwd=_REPO_ROOT,
-        )
-        if result.returncode != 0:
-            print(f"Idris bench failed: {result.stderr}", file=sys.stderr)
-            return None
-        return parse_idris_output(result.stdout)
-    except FileNotFoundError:
-        print("Idris bench not found. Run 'make bench' first.", file=sys.stderr)
+    if not bench_bin.exists():
+        print("Idris bench not found. Run 'make example-bench' first.", file=sys.stderr)
         return None
-    except subprocess.TimeoutExpired:
-        print("Idris bench timed out.", file=sys.stderr)
-        return None
+    selectors = ["supervised", "rnn", "ntm", "ntm-copy", "ntm-copy-1k", "ntm-recall"]
+    aggregate: dict[str, tuple[float, float, float]] = {}
+    for sel in selectors:
+        try:
+            result = subprocess.run(
+                [str(bench_bin), sel],
+                capture_output=True,
+                text=True,
+                timeout=600,
+                cwd=_REPO_ROOT,
+            )
+            if result.returncode != 0:
+                print(f"Idris bench {sel!r} failed: {result.stderr}", file=sys.stderr)
+                continue
+            parsed = parse_idris_output(result.stdout)
+            aggregate.update(parsed)
+        except subprocess.TimeoutExpired:
+            print(f"Idris bench {sel!r} timed out.", file=sys.stderr)
+            continue
+    return aggregate or None
 
 
 def main() -> None:

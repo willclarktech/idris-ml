@@ -1,13 +1,15 @@
-"""Supervised model: Linear(2->3) + softmax with cross-entropy loss.
+"""Supervised model: Linear(2->3) outputting raw logits, BCE-with-logits loss.
 
-Xavier uniform init, zero bias.
+Xavier uniform init, zero bias. Matches Idris Example/Bench.idr (and
+Example/Supervised.idr) — raw logits in the model, loss applies the
+log_softmax-or-sigmoid transform with numerical stability.
 """
 
 import torch
 import torch.nn as nn
 from torch import Tensor
 
-from torch_ref.training.losses import cross_entropy
+from torch_ref.training.losses import bce_with_logits
 
 
 class SupervisedModel(nn.Module):
@@ -18,7 +20,7 @@ class SupervisedModel(nn.Module):
         nn.init.zeros_(self.linear.bias)
 
     def forward(self, x: Tensor) -> Tensor:
-        return torch.softmax(self.linear(x), dim=-1)
+        return self.linear(x)
 
 
 SUPERVISED_DATA = [
@@ -42,8 +44,8 @@ def train_supervised_epoch(
     optimizer.zero_grad()
     total_loss = torch.tensor(0.0)
     for x, y in data:
-        pred = model(x)
-        total_loss = total_loss + cross_entropy(pred, y)
+        logits = model(x)
+        total_loss = total_loss + bce_with_logits(logits, y)
     loss = total_loss / len(data)
     loss.backward()
     optimizer.step()

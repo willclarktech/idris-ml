@@ -1,22 +1,47 @@
 # NTM Performance Analysis
 
-## 1. Current Performance Profile
+## 1. Current Performance Profile (2026-04-27, post tensor-path migration)
 
 Apples-to-apples benchmark (`make bench-compare`): identical architecture, optimizer,
-loss function, data format, and batch size on both sides.
+loss function, data format, and batch size on both sides. All Idris benchmarks now
+run via the **tensor path** (`epochNativeTensor` / `epochRecurrentNativeTensor` /
+`epochTwoPhaseTensor`), matching production examples. Each benchmark runs in its
+own process to avoid the unresolved tape stale-reader bug surfacing across runs.
 
 | Model | Idris (ms) | PyTorch (ms) | Ratio | Notes |
 |-------|-----------|-------------|-------|-------|
-| Supervised (1000 ep) | 90 | 242 | 0.37x | Idris 2.7x faster |
-| RNN (1000 ep) | 400 | 2212 | 0.18x | Idris 5.5x faster |
-| NTM-small (100 ep) | 438 | 1333 | 0.33x | Idris 3.0x faster (w=3, n=10, m=5, h=20, batch=5) |
-| NTM-copy (100 ep) | 14660 | 13186 | 1.11x | PyTorch 1.1x faster (w=8, n=128, m=20, h=100, batch=16) |
-| NTM-copy-1k (1000 ep) | 131236 | 214613 | 0.61x | **Idris 1.6x faster** |
+| Supervised (1000 ep) | 910 | 240 | 3.79x | PyTorch faster — small ops, FFI overhead dominates Idris |
+| RNN (1000 ep) | 9433 | 1176 | 8.02x | Same; tiny dim (1→1) keeps PyTorch's compiled eager path very cheap |
+| NTM-small (100 ep) | 1676 | 1562 | 1.07x | PyTorch slightly faster (w=3, n=10, m=5, h=20, batch=5) |
+| NTM-copy (100 ep) | 18499 | 12684 | 1.46x | PyTorch 1.5x faster (w=8, n=128, m=20, h=100, batch=16) |
+| NTM-copy-1k (1000 ep) | 216610 | 207380 | 1.04x | PyTorch 1.04x faster, essentially even |
+| NTM-recall (100 ep) | 25922 | 20207 | 1.28x | PyTorch 1.3x faster |
 
-At 100 epochs, the NTM-copy overhead comes from the optimizer step being non-trivial. At 1000 epochs,
-the per-epoch cost amortizes and Idris is 1.6x faster than PyTorch.
+NTM-copy per-epoch: Idris **~185ms** vs PyTorch **~127ms** (100 ep), **~217ms** vs **~207ms** (1000 ep).
 
-NTM-copy per-epoch: Idris **~147ms** vs PyTorch **~132ms** (100 ep), **~131ms** vs **~215ms** (1000 ep).
+### Why Idris regressed vs prior numbers (pre-migration table preserved below)
+
+The previous bench numbers (Idris 2.7x–5.5x faster on Supervised/RNN/NTM-small) ran on the
+**scalar Variable path** (`epochNative` / `epochRecurrentNative` / `epochTwoPhaseBceNative`).
+Production examples (`Example/Supervised.idr`, `Example/NtmCopy.idr`, etc.) all use the tensor
+path; the bench was misleading by exercising a code path nothing else uses. At small dim the
+scalar path is faster because each tensor op pays a fixed FFI cost regardless of size, while
+the scalar path inlines straight C arithmetic. At production scale (NTM-copy-1k, 1000 epochs)
+both paths ought to be comparable since per-call overhead amortizes — and they are.
+
+Beyond honesty, the migration was forced: at production NTM scale (CopyN=128) the scalar path
+nondeterministically crashes via the unresolved tape stale-reader bug (TODO.md High Priority).
+The tensor path sidesteps it.
+
+### Pre-migration table (2026-03 era, scalar Variable path, archived)
+
+| Model | Idris (ms) | PyTorch (ms) | Ratio | Notes |
+|-------|-----------|-------------|-------|-------|
+| Supervised (1000 ep) | 90 | 242 | 0.37x | Scalar path; Idris 2.7x faster (small dim) |
+| RNN (1000 ep) | 400 | 2212 | 0.18x | Scalar path; Idris 5.5x faster |
+| NTM-small (100 ep) | 438 | 1333 | 0.33x | Scalar path |
+| NTM-copy (100 ep) | 14660 | 13186 | 1.11x | Scalar path; ran nondeterministically |
+| NTM-copy-1k (1000 ep) | 131236 | 214613 | 0.61x | Scalar path; ran nondeterministically |
 
 Optimizations applied (from 1.38s/epoch baseline):
 - Buffer-passing for addressing chain ops (1.38s -> 1.0s)
