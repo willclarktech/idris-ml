@@ -1,21 +1,34 @@
-"""A2C (synchronous Advantage Actor-Critic) on CartPole-v0.
+"""A2C (synchronous Advantage Actor-Critic) on CartPole-v1.
 
 Aligned with `Example.A2c` (Idris). Separate actor and critic networks
 (Idris uses distinct paramId prefixes via `prefixParamId` + `emap` to
 register them in the same optimizer without name collisions). Sequential
 single-env rollouts with auto-reset, matching Idris.
+
+Reset state pinned to (0, 0, 0, 0) to mirror idris-gym's
+`Gym.ClassicControl.CartPole.reset`.
 """
 
 from __future__ import annotations
 
 import time
+from typing import TYPE_CHECKING
 
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
-from torch_ref.models.reinforce import MAX_STEPS, CartPoleState, cartpole_step, observe
+if TYPE_CHECKING:
+    import gymnasium as gym
+
+from torch_ref.models.reinforce import (
+    MAX_STEPS,
+    make_cartpole_env,
+    obs_tensor,
+    reset_to_zero,
+)
 from torch_ref.training.runner import format_elapsed, mem_suffix
 
 
@@ -44,8 +57,8 @@ class Critic(nn.Module):
 
 
 def collect_rollout(
-    actor: Actor, critic: Critic, state: CartPoleState, rollout_len: int,
-) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor, CartPoleState]:
+    actor: Actor, critic: Critic, env: gym.Env, obs_np: np.ndarray, rollout_len: int,
+) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor, np.ndarray]:
     """Single-env sequential rollout of exactly `rollout_len` steps with
     auto-reset on done. Matches Idris exactly."""
     obs_list: list[Tensor] = []
@@ -54,26 +67,31 @@ def collect_rollout(
     val_list: list[float] = []
     done_list: list[float] = []
     for _ in range(rollout_len):
-        obs = observe(state)
+        obs = obs_tensor(obs_np)
         with torch.no_grad():
             logits = actor(obs)
             value = critic(obs)
         probs = F.softmax(logits, dim=-1)
         action = int(torch.multinomial(probs, 1).item())
-        reward, next_state, done = cartpole_step(state, action)
+        next_obs_np, reward, term, trunc, _ = env.step(action)
+        done = bool(term or trunc)
         obs_list.append(obs)
         act_list.append(action)
-        rew_list.append(reward)
+        rew_list.append(float(reward))
         val_list.append(float(value.item()))
         done_list.append(1.0 if done else 0.0)
-        state = CartPoleState() if done else next_state
+        if done:
+            env.reset()
+            obs_np = reset_to_zero(env)
+        else:
+            obs_np = next_obs_np.astype(np.float64)
     return (
         torch.stack(obs_list),
         torch.tensor(act_list, dtype=torch.long),
         torch.tensor(rew_list, dtype=torch.float64),
         torch.tensor(val_list, dtype=torch.float64),
         torch.tensor(done_list, dtype=torch.float64),
-        state,
+        obs_np,
     )
 
 
@@ -132,16 +150,18 @@ def train_a2c(
     optimizer = torch.optim.Adam(
         list(actor.parameters()) + list(critic.parameters()), lr=lr,
     )
-    state = CartPoleState()
+    env = make_cartpole_env(seed)
+    env.reset()
+    obs_np = reset_to_zero(env)
     history: list[float] = []
     ep_return = 0.0
     t_start = time.monotonic()
     for update in range(total_updates):
-        obs, actions, rewards, values, dones, new_state = collect_rollout(
-            actor, critic, state, rollout_len
+        obs, actions, rewards, values, dones, obs_np = collect_rollout(
+            actor, critic, env, obs_np, rollout_len
         )
         with torch.no_grad():
-            bootstrap_v = critic(observe(new_state))
+            bootstrap_v = critic(obs_tensor(obs_np))
             bootstrap = 0.0 if dones[-1].item() > 0.5 else float(bootstrap_v.item())
         advantages, returns = compute_advantages(rewards, values, dones, bootstrap, gamma, lam)
         a2c_update(
@@ -153,7 +173,6 @@ def train_a2c(
             if dones[t].item() > 0.5:
                 history.append(ep_return)
                 ep_return = 0.0
-        state = new_state
         if (update + 1) % log_every == 0:
             recent = history[-50:] or [0.0]
             last_ep = history[-1] if history else 0.0
@@ -166,19 +185,22 @@ def train_a2c(
 
 
 def evaluate(actor: Actor, n_episodes: int = 50) -> float:
+    env = make_cartpole_env(seed=0)
     total = 0.0
     for _ in range(n_episodes):
-        state = CartPoleState()
+        env.reset()
+        obs_np = reset_to_zero(env)
         ep_return = 0.0
         for _ in range(MAX_STEPS):
-            obs = observe(state)
+            obs = obs_tensor(obs_np)
             with torch.no_grad():
                 logits = actor(obs)
             action = int(torch.argmax(logits, dim=-1).item())
-            reward, state, done = cartpole_step(state, action)
-            ep_return += reward
-            if done:
+            next_obs_np, reward, term, trunc, _ = env.step(action)
+            ep_return += float(reward)
+            if term or trunc:
                 break
+            obs_np = next_obs_np.astype(np.float64)
         total += ep_return
     return total / n_episodes
 

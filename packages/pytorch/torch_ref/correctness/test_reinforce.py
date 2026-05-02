@@ -2,7 +2,13 @@
 
 import torch
 
-from torch_ref.models.reinforce import PolicyNetwork, evaluate, reinforce_epoch, train_reinforce
+from torch_ref.models.reinforce import (
+    PolicyNetwork,
+    evaluate,
+    make_cartpole_env,
+    reinforce_epoch,
+    train_reinforce,
+)
 
 
 class TestReinforce:
@@ -11,15 +17,16 @@ class TestReinforce:
         torch.manual_seed(42)
         policy = PolicyNetwork()
         optimizer = torch.optim.Adam(policy.parameters(), lr=0.001)
+        env = make_cartpole_env(seed=42)
 
         early_returns: list[float] = []
         for _ in range(50):
-            avg_ret, _ = reinforce_epoch(policy, optimizer, batch_size=10)
+            avg_ret, _ = reinforce_epoch(env, policy, optimizer, batch_size=10)
             early_returns.append(avg_ret)
 
         late_returns: list[float] = []
         for _ in range(50):
-            avg_ret, _ = reinforce_epoch(policy, optimizer, batch_size=10)
+            avg_ret, _ = reinforce_epoch(env, policy, optimizer, batch_size=10)
             late_returns.append(avg_ret)
 
         assert sum(late_returns) / len(late_returns) > sum(early_returns) / len(early_returns)

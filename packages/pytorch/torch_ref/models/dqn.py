@@ -1,8 +1,11 @@
-"""DQN (Mnih et al. 2015) on CartPole-v0.
+"""DQN (Mnih et al. 2015) on CartPole-v1.
 
-Deep Q-Network with experience replay and a target network. Self-contained
-CartPole physics imported from `reinforce.py`. Convergence target:
-greedy-evaluation return >= 150 on CartPole in 500 episodes.
+Deep Q-Network with experience replay and a target network. Uses
+`gym.make("CartPole-v1")` via the shared helper in `reinforce.py`,
+reset state pinned to (0, 0, 0, 0) to mirror idris-gym.
+
+Convergence target: greedy-evaluation return >= 150 on CartPole in 500
+episodes.
 """
 
 from __future__ import annotations
@@ -11,18 +14,24 @@ import copy
 import random
 import time
 from collections import deque
+from typing import TYPE_CHECKING
 
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
-from torch_ref.models.reinforce import MAX_STEPS, CartPoleState, cartpole_step, observe
-from torch_ref.training.runner import format_elapsed, mem_suffix
+if TYPE_CHECKING:
+    import gymnasium as gym
 
-# ---------------------------------------------------------------------------
-# Q-network
-# ---------------------------------------------------------------------------
+from torch_ref.models.reinforce import (
+    MAX_STEPS,
+    make_cartpole_env,
+    obs_tensor,
+    reset_to_zero,
+)
+from torch_ref.training.runner import format_elapsed, mem_suffix
 
 
 class QNetwork(nn.Module):
@@ -34,11 +43,6 @@ class QNetwork(nn.Module):
 
     def forward(self, x: Tensor) -> Tensor:
         return self.fc3(F.relu(self.fc2(F.relu(self.fc1(x)))))
-
-
-# ---------------------------------------------------------------------------
-# Replay buffer
-# ---------------------------------------------------------------------------
 
 
 class ReplayBuffer:
@@ -70,11 +74,6 @@ class ReplayBuffer:
 
     def __len__(self) -> int:
         return len(self.buf)
-
-
-# ---------------------------------------------------------------------------
-# DQN
-# ---------------------------------------------------------------------------
 
 
 def eps_greedy_action(q: QNetwork, obs: Tensor, epsilon: float, rng: random.Random) -> int:
@@ -115,6 +114,7 @@ def dqn_update(
 
 
 def dqn_episode(
+    env: gym.Env,
     q: QNetwork,
     target: QNetwork,
     optimizer: torch.optim.Optimizer,
@@ -126,16 +126,19 @@ def dqn_episode(
     rng: random.Random,
 ) -> tuple[int, float]:
     """Run one episode. Returns (new_step_count, episodic_return)."""
-    state = CartPoleState()
+    env.reset()
+    obs_np = reset_to_zero(env)
     ep_return = 0.0
     for _ in range(MAX_STEPS):
-        obs = observe(state)
+        obs = obs_tensor(obs_np)
         epsilon = linear_epsilon(step_count)
         action = eps_greedy_action(q, obs, epsilon, rng)
-        reward, next_state, done = cartpole_step(state, action)
-        ep_return += reward
-        buffer.push(obs.tolist(), action, reward, observe(next_state).tolist(), done)
-        state = next_state
+        next_obs_np, reward, term, trunc, _ = env.step(action)
+        next_obs_np = next_obs_np.astype(np.float64)
+        done = bool(term or trunc)
+        ep_return += float(reward)
+        buffer.push(obs_np.tolist(), action, float(reward), next_obs_np.tolist(), done)
+        obs_np = next_obs_np
         step_count += 1
 
         if len(buffer) >= batch_size:
@@ -165,12 +168,14 @@ def train_dqn(
     target = copy.deepcopy(q)
     optimizer = torch.optim.Adam(q.parameters(), lr=lr)
     buffer = ReplayBuffer(buffer_capacity)
+    env = make_cartpole_env(seed)
     history: list[float] = []
     step_count = 0
     t_start = time.monotonic()
     for ep in range(episodes):
         step_count, ep_return = dqn_episode(
-            q, target, optimizer, buffer, step_count, batch_size, gamma, target_sync_every, rng
+            env, q, target, optimizer, buffer, step_count,
+            batch_size, gamma, target_sync_every, rng,
         )
         history.append(ep_return)
         if (ep + 1) % log_every == 0:
@@ -183,18 +188,21 @@ def train_dqn(
 
 
 def evaluate(q: QNetwork, n_episodes: int = 50) -> float:
+    env = make_cartpole_env(seed=0)
     total = 0.0
     for _ in range(n_episodes):
-        state = CartPoleState()
+        env.reset()
+        obs_np = reset_to_zero(env)
         ep_return = 0.0
         for _ in range(MAX_STEPS):
-            obs = observe(state)
+            obs = obs_tensor(obs_np)
             with torch.no_grad():
                 action = int(torch.argmax(q(obs)).item())
-            reward, state, done = cartpole_step(state, action)
-            ep_return += reward
-            if done:
+            next_obs_np, reward, term, trunc, _ = env.step(action)
+            ep_return += float(reward)
+            if term or trunc:
                 break
+            obs_np = next_obs_np.astype(np.float64)
         total += ep_return
     return total / n_episodes
 

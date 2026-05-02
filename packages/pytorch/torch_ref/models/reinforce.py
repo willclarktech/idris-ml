@@ -1,76 +1,52 @@
-"""REINFORCE (Williams 1992) on CartPole-v0.
+"""REINFORCE (Williams 1992) on CartPole-v1.
 
-Policy gradient with mean-return baseline. Self-contained CartPole physics
-matching Gymnasium's exact constants (no gymnasium dependency needed).
+Policy gradient with mean-return baseline. Uses canonical
+`gym.make("CartPole-v1")` for env physics. Reset state is pinned to
+the all-zero start `(0, 0, 0, 0)` to mirror `Gym.ClassicControl.CartPole.reset`
+on the Idris side (canonical Gymnasium randomizes each component
+~ U(-0.05, 0.05); both Idris and torch_ref pin to deterministic zero).
+
+MAX_STEPS=200 matches the CartPole-v0 episode cap (idris-gym
+`cartPoleMaxSteps`). CartPole-v1's wrapper has a 500-step cap but we
+truncate at 200 ourselves for paired-side parity.
 """
 
 from __future__ import annotations
 
-import math
 import time
-from dataclasses import dataclass
 
+import gymnasium as gym
+import numpy as np
 import torch
 import torch.nn as nn
 from torch import Tensor
 
 from torch_ref.training.runner import format_elapsed, mem_suffix
 
-# ---------------------------------------------------------------------------
-# CartPole environment (Gymnasium-compatible constants, Euler integration)
-# ---------------------------------------------------------------------------
-
-GRAVITY = 9.8
-MASSCART = 1.0
-MASSPOLE = 0.1
-TOTAL_MASS = MASSCART + MASSPOLE
-LENGTH = 0.5  # half pole length
-POLEMASS_LENGTH = MASSPOLE * LENGTH
-FORCE_MAG = 10.0
-TAU = 0.02  # integration timestep
-THETA_THRESHOLD = 12.0 * 2.0 * math.pi / 360.0  # 12 degrees
-X_THRESHOLD = 2.4
 MAX_STEPS = 200
 
 
-@dataclass
-class CartPoleState:
-    x: float = 0.0
-    x_dot: float = 0.0
-    theta: float = 0.0
-    theta_dot: float = 0.0
+def make_cartpole_env(seed: int) -> gym.Env:
+    """Create a seeded CartPole-v1 env. Reset state is pinned to all-zero
+    by `reset_to_zero` after each `env.reset()`."""
+    env = gym.make("CartPole-v1")
+    env.reset(seed=seed)
+    return env
 
 
-def cartpole_step(state: CartPoleState, action: int) -> tuple[float, CartPoleState, bool]:
-    """One step of CartPole physics. Returns (reward, next_state, done)."""
-    force = FORCE_MAG if action == 1 else -FORCE_MAG
-    cos_theta = math.cos(state.theta)
-    sin_theta = math.sin(state.theta)
+def reset_to_zero(env: gym.Env) -> np.ndarray:
+    """Pin env state to (0, 0, 0, 0) and return the corresponding obs.
 
-    temp = (force + POLEMASS_LENGTH * state.theta_dot**2 * sin_theta) / TOTAL_MASS
-    theta_acc = (GRAVITY * sin_theta - cos_theta * temp) / (
-        LENGTH * (4.0 / 3.0 - MASSPOLE * cos_theta**2 / TOTAL_MASS)
-    )
-    x_acc = temp - POLEMASS_LENGTH * theta_acc * cos_theta / TOTAL_MASS
-
-    next_state = CartPoleState(
-        x=state.x + TAU * state.x_dot,
-        x_dot=state.x_dot + TAU * x_acc,
-        theta=state.theta + TAU * state.theta_dot,
-        theta_dot=state.theta_dot + TAU * theta_acc,
-    )
-    done = abs(next_state.x) > X_THRESHOLD or abs(next_state.theta) > THETA_THRESHOLD
-    return 1.0, next_state, done
+    Uses float64 so the internal CartPole dynamics step at the same
+    precision as the policy network (and the pre-migration hand-rolled
+    env, which did the math in Python float = double).
+    """
+    env.unwrapped.state = np.zeros(4, dtype=np.float64)  # pyright: ignore[reportAttributeAccessIssue]
+    return np.zeros(4, dtype=np.float64)
 
 
-def observe(state: CartPoleState) -> Tensor:
-    """State to observation tensor."""
-    return torch.tensor([state.x, state.x_dot, state.theta, state.theta_dot], dtype=torch.float64)
-
-
-# ---------------------------------------------------------------------------
-# Policy network
-# ---------------------------------------------------------------------------
+def obs_tensor(obs: np.ndarray) -> Tensor:
+    return torch.tensor(obs, dtype=torch.float64)
 
 
 class PolicyNetwork(nn.Module):
@@ -83,32 +59,26 @@ class PolicyNetwork(nn.Module):
         return self.fc2(torch.tanh(self.fc1(x)))
 
 
-# ---------------------------------------------------------------------------
-# REINFORCE
-# ---------------------------------------------------------------------------
-
-
 def collect_episode(
-    policy: PolicyNetwork, max_steps: int = MAX_STEPS
+    env: gym.Env, policy: PolicyNetwork, max_steps: int = MAX_STEPS
 ) -> tuple[list[Tensor], list[float]]:
     """Run one episode, return (log_probs, rewards)."""
-    state = CartPoleState()
+    env.reset()
+    obs_np = reset_to_zero(env)
     log_probs: list[Tensor] = []
     rewards: list[float] = []
-
     for _ in range(max_steps):
-        obs = observe(state)
+        obs = obs_tensor(obs_np)
         logits = policy(obs)
         log_p = torch.log_softmax(logits, dim=0)
         probs = torch.exp(log_p)
         action = int(torch.multinomial(probs, 1).item())
-
         log_probs.append(log_p[action])
-        reward, state, done = cartpole_step(state, int(action))
-        rewards.append(reward)
-        if done:
+        next_obs_np, reward, term, trunc, _ = env.step(action)
+        rewards.append(float(reward))
+        if term or trunc:
             break
-
+        obs_np = next_obs_np.astype(np.float64)
     return log_probs, rewards
 
 
@@ -124,6 +94,7 @@ def discounted_returns(rewards: list[float], gamma: float = 0.99) -> list[float]
 
 
 def reinforce_epoch(
+    env: gym.Env,
     policy: PolicyNetwork,
     optimizer: torch.optim.Optimizer,
     batch_size: int = 10,
@@ -136,21 +107,15 @@ def reinforce_epoch(
     all_log_probs: list[Tensor] = []
     all_advantages: list[float] = []
     episode_returns: list[float] = []
-
     for _ in range(batch_size):
-        log_probs, rewards = collect_episode(policy)
+        log_probs, rewards = collect_episode(env, policy)
         returns = discounted_returns(rewards, gamma)
         ep_return = sum(rewards)
         episode_returns.append(ep_return)
-
         all_log_probs.extend(log_probs)
         all_advantages.extend(returns)
-
-    # Baseline: mean episodic return
     baseline = sum(episode_returns) / len(episode_returns)
     adjusted = [g - baseline for g in all_advantages]
-
-    # Policy gradient loss: -mean(log_prob * advantage)
     optimizer.zero_grad()
     loss = torch.tensor(0.0, dtype=torch.float64)
     for lp, adv in zip(all_log_probs, adjusted, strict=True):
@@ -160,7 +125,6 @@ def reinforce_epoch(
     loss.backward()
     torch.nn.utils.clip_grad_norm_(policy.parameters(), 1.0)
     optimizer.step()
-
     return sum(episode_returns) / len(episode_returns), loss_val
 
 
@@ -176,45 +140,44 @@ def train_reinforce(
     torch.manual_seed(seed)
     policy = PolicyNetwork()
     optimizer = torch.optim.Adam(policy.parameters(), lr=lr)
-
+    env = make_cartpole_env(seed)
     history: list[float] = []
     t_start = time.monotonic()
     for epoch in range(epochs):
-        avg_return, loss_val = reinforce_epoch(policy, optimizer, batch_size, gamma)
+        avg_return, loss_val = reinforce_epoch(env, policy, optimizer, batch_size, gamma)
         history.append(avg_return)
-
         if (epoch + 1) % log_every == 0:
             recent = sum(history[-100:]) / min(len(history), 100)
             print(
                 f"  {format_elapsed(t_start)} {epoch + 1}\tloss={loss_val:.6f}"
                 f"{mem_suffix()}\treturn={avg_return:.1f}\trecent_100={recent:.1f}"
             )
-
-        # Early stop if solved
         if len(history) >= 100:
             recent_avg = sum(history[-100:]) / 100
             if recent_avg >= 195.0:
                 print(f"  Solved at epoch {epoch + 1} (recent_100={recent_avg:.1f})")
                 break
-
     return policy, history
 
 
 def evaluate(policy: PolicyNetwork, n_episodes: int = 100) -> float:
     """Evaluate policy greedily (argmax). Returns mean return."""
+    env = make_cartpole_env(seed=0)
     total = 0.0
     for _ in range(n_episodes):
-        state = CartPoleState()
+        env.reset()
+        obs_np = reset_to_zero(env)
         ep_return = 0.0
         for _ in range(MAX_STEPS):
-            obs = observe(state)
+            obs = obs_tensor(obs_np)
             with torch.no_grad():
                 logits = policy(obs)
-            action = torch.argmax(logits).item()
-            reward, state, done = cartpole_step(state, int(action))
-            ep_return += reward
-            if done:
+            action = int(torch.argmax(logits).item())
+            next_obs_np, reward, term, trunc, _ = env.step(action)
+            ep_return += float(reward)
+            if term or trunc:
                 break
+            obs_np = next_obs_np.astype(np.float64)
         total += ep_return
     return total / n_episodes
 
