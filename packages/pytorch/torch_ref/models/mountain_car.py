@@ -1,10 +1,15 @@
 """DQN on MountainCar-v0 with reward shaping.
 
-Self-contained MountainCar physics matching Gymnasium's constants and the
-Idris idris-gym implementation. Sparse reward (-1/step until goal) is
-augmented with velocity-magnitude shaping `r' = r + shaping * |v'|` to
-provide a dense intermediate signal — the agent learns to build kinetic
-energy as the proven precursor to reaching the goal.
+Uses canonical `gym.make("MountainCar-v0")` for env physics. Sparse
+reward (-1/step until goal) is augmented with velocity-magnitude
+shaping `r' = r + shaping * |v'|` to provide a dense intermediate
+signal — the agent learns to build kinetic energy as the proven
+precursor to reaching the goal.
+
+Reset state pinned to (-0.5, 0.0) with float64 to mirror idris-gym's
+`Gym.ClassicControl.MountainCar.reset = MkMC (-0.5) 0.0` (canonical
+Pendulum randomizes pos ~ U(-0.6, -0.4); both Idris and torch_ref pin
+to deterministic center).
 
 Aligned with `Example.MountainCar` (Idris): same architecture (2 -> 64 ->
 64 -> 3), same defaults (lr=1e-3, gamma=0.99, batch=64, buffer=50K,
@@ -15,62 +20,38 @@ protocol (30 greedy episodes).
 from __future__ import annotations
 
 import copy
-import math
 import random
 import time
 from collections import deque
-from dataclasses import dataclass
 
+import gymnasium as gym
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
-from torch_ref.training.runner import format_elapsed, mem_suffix
 from torch import Tensor
 
-# ---------------------------------------------------------------------------
-# MountainCar environment (Gymnasium-compatible constants)
-# ---------------------------------------------------------------------------
+from torch_ref.training.runner import format_elapsed, mem_suffix
 
-MIN_POSITION = -1.2
-MAX_POSITION = 0.6
-MAX_SPEED = 0.07
-GOAL_POSITION = 0.5
-MC_FORCE = 0.001
-GRAVITY = 0.0025
-MAX_STEPS = 200
+MAX_STEPS = 200  # gymnasium MountainCar-v0 default TimeLimit
 
 
-@dataclass
-class MCState:
-    pos: float = -0.5
-    vel: float = 0.0
+def make_mountaincar_env(seed: int) -> gym.Env:
+    """Create a seeded MountainCar-v0 env. Use `reset_to_center` to pin
+    initial state after each `env.reset()`."""
+    env = gym.make("MountainCar-v0")
+    env.reset(seed=seed)
+    return env
 
 
-def mc_step(state: MCState, action: int) -> tuple[float, MCState, bool]:
-    """One MountainCar physics step. Action 0=push left, 1=no push, 2=push right.
-
-    Returns (reward, next_state, done) — done is True when the goal is reached.
-    """
-    a = float(action) - 1.0  # -1, 0, +1
-    vel = state.vel + a * MC_FORCE - math.cos(3.0 * state.pos) * GRAVITY
-    vel = max(-MAX_SPEED, min(MAX_SPEED, vel))
-    pos = state.pos + vel
-    pos = max(MIN_POSITION, min(MAX_POSITION, pos))
-    if pos == MIN_POSITION and vel < 0.0:
-        vel = 0.0
-    next_state = MCState(pos=pos, vel=vel)
-    done = pos >= GOAL_POSITION
-    return -1.0, next_state, done
+def reset_to_center(env: gym.Env) -> np.ndarray:
+    """Pin env state to (-0.5, 0.0) and return obs."""
+    env.unwrapped.state = np.array([-0.5, 0.0], dtype=np.float64)  # pyright: ignore[reportAttributeAccessIssue]
+    return np.array([-0.5, 0.0], dtype=np.float64)
 
 
-def observe(state: MCState) -> Tensor:
-    return torch.tensor([state.pos, state.vel], dtype=torch.float64)
-
-
-# ---------------------------------------------------------------------------
-# Q-network
-# ---------------------------------------------------------------------------
+def obs_tensor(obs: np.ndarray) -> Tensor:
+    return torch.tensor(obs, dtype=torch.float64)
 
 
 class QNetwork(nn.Module):
@@ -82,11 +63,6 @@ class QNetwork(nn.Module):
 
     def forward(self, x: Tensor) -> Tensor:
         return self.fc3(F.relu(self.fc2(F.relu(self.fc1(x)))))
-
-
-# ---------------------------------------------------------------------------
-# Replay buffer
-# ---------------------------------------------------------------------------
 
 
 class ReplayBuffer:
@@ -118,11 +94,6 @@ class ReplayBuffer:
 
     def __len__(self) -> int:
         return len(self.buf)
-
-
-# ---------------------------------------------------------------------------
-# DQN
-# ---------------------------------------------------------------------------
 
 
 def eps_greedy_action(q: QNetwork, obs: Tensor, epsilon: float, rng: random.Random) -> int:
@@ -163,6 +134,7 @@ def dqn_update(
 
 
 def dqn_episode(
+    env: gym.Env,
     q: QNetwork,
     target: QNetwork,
     optimizer: torch.optim.Optimizer,
@@ -177,29 +149,23 @@ def dqn_episode(
     shaping: float,
     rng: random.Random,
 ) -> tuple[int, float]:
-    """One episode. Returns (new_step_count, raw_episodic_return).
-
-    Reward used for buffer / training is the *shaped* reward (raw + shaping*|v'|).
-    The returned ep_return is the *raw* reward sum so eval metrics align with
-    standard MountainCar reporting (-200 floor, ~-110 for reliable solver).
-    """
-    state = MCState()
+    """One episode. Returns (new_step_count, raw_episodic_return)."""
+    env.reset()
+    obs_np = reset_to_center(env)
     ep_return = 0.0
     for _ in range(MAX_STEPS):
-        obs = observe(state)
+        obs = obs_tensor(obs_np)
         epsilon = linear_epsilon(step_count, eps_start, eps_end, eps_decay)
         action = eps_greedy_action(q, obs, epsilon, rng)
-        raw_reward, next_state, done = mc_step(state, action)
-        ep_return += raw_reward
-        shaped_reward = raw_reward + shaping * abs(next_state.vel)
+        next_obs_np, raw_reward, term, trunc, _ = env.step(action)
+        next_obs_np = next_obs_np.astype(np.float64)
+        done = bool(term or trunc)
+        ep_return += float(raw_reward)
+        shaped_reward = float(raw_reward) + shaping * abs(float(next_obs_np[1]))
         buffer.push(
-            obs.tolist(),
-            action,
-            shaped_reward,
-            observe(next_state).tolist(),
-            done,
+            obs_np.tolist(), action, shaped_reward, next_obs_np.tolist(), done
         )
-        state = next_state
+        obs_np = next_obs_np
         step_count += 1
 
         if len(buffer) >= batch_size:
@@ -233,12 +199,13 @@ def train_dqn(
     target = copy.deepcopy(q)
     optimizer = torch.optim.Adam(q.parameters(), lr=lr)
     buffer = ReplayBuffer(buffer_capacity)
+    env = make_mountaincar_env(seed)
     history: list[float] = []
     step_count = 0
     t_start = time.monotonic()
     for ep in range(episodes):
         step_count, ep_return = dqn_episode(
-            q, target, optimizer, buffer, step_count,
+            env, q, target, optimizer, buffer, step_count,
             batch_size, gamma, target_sync_every,
             eps_start, eps_end, eps_decay, shaping, rng,
         )
@@ -253,18 +220,21 @@ def train_dqn(
 
 
 def evaluate(q: QNetwork, n_episodes: int = 30) -> float:
+    env = make_mountaincar_env(seed=0)
     total = 0.0
     for _ in range(n_episodes):
-        state = MCState()
+        env.reset()
+        obs_np = reset_to_center(env)
         ep_return = 0.0
         for _ in range(MAX_STEPS):
-            obs = observe(state)
+            obs = obs_tensor(obs_np)
             with torch.no_grad():
                 action = int(torch.argmax(q(obs)).item())
-            reward, state, done = mc_step(state, action)
-            ep_return += reward
-            if done:
+            next_obs_np, reward, term, trunc, _ = env.step(action)
+            ep_return += float(reward)
+            if term or trunc:
                 break
+            obs_np = next_obs_np.astype(np.float64)
         total += ep_return
     return total / n_episodes
 
