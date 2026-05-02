@@ -371,6 +371,11 @@ example-mountain-car: install
 	cp $(LIB) build/exec/mountain-car_app/
 	$(STDBUF) ./build/exec/mountain-car $(MOUNTAIN_CAR_ARGS)
 
+example-mountain-car-cont: install
+	idris2 $(IDRIS_FLAGS) -o mountain-car-cont $(EXAMPLE_SRC)/Example/MountainCarCont.idr
+	cp $(LIB) build/exec/mountain-car-cont_app/
+	$(STDBUF) ./build/exec/mountain-car-cont $(MOUNTAIN_CAR_CONT_ARGS)
+
 example-a2c: install
 	idris2 $(IDRIS_FLAGS) -o a2c $(EXAMPLE_SRC)/Example/A2c.idr
 	cp $(LIB) build/exec/a2c_app/
@@ -569,7 +574,7 @@ clean:
 # Examples run on every built backend. Keep in sync with packages/idris-ml-examples/src/Example/.
 # Excluded intentionally:
 #   Bench, Profile — no RESULT lines (covered by bench-compare / example-profile).
-EXAMPLES := example-supervised example-rnn example-lstm example-gru example-transformer example-gpt example-mnist example-seq-classify example-ntm-copy example-ntm-associative-recall example-dnc-copy example-dnc-recall example-reinforce example-q-learning example-sarsa example-monte-carlo example-frozen-lake example-taxi example-dqn example-mountain-car example-a2c example-ppo example-sac example-transfer
+EXAMPLES := example-supervised example-rnn example-lstm example-gru example-transformer example-gpt example-mnist example-seq-classify example-ntm-copy example-ntm-associative-recall example-dnc-copy example-dnc-recall example-reinforce example-q-learning example-sarsa example-monte-carlo example-frozen-lake example-taxi example-dqn example-mountain-car example-mountain-car-cont example-a2c example-ppo example-sac example-transfer
 BACKENDS := tape mlx torch
 
 # Crash-only smoke gate: every example × 3 backends, 3-10 epochs each,
@@ -602,6 +607,7 @@ test-examples:
 				example-seq-classify) extra_args="SEQ_ARGS=--epochs 5" ;; \
 				example-dqn)         extra_args="DQN_ARGS=--epochs 10" ;; \
 				example-mountain-car) extra_args="MOUNTAIN_CAR_ARGS=--epochs 5" ;; \
+				example-mountain-car-cont) extra_args="MOUNTAIN_CAR_CONT_ARGS=--epochs 5" ;; \
 				example-a2c)         extra_args="A2C_ARGS=--epochs 50" ;; \
 				example-ppo)         extra_args="PPO_ARGS=--epochs 5" ;; \
 				example-sac)         extra_args="SAC_ARGS=--epochs 100" ;; \
@@ -782,7 +788,7 @@ all: check-all test-all
         example-supervised example-rnn example-lstm example-gru \
         example-ntm-copy example-ntm-associative-recall example-dnc-copy example-dnc-recall \
         example-reinforce example-q-learning example-sarsa example-monte-carlo example-frozen-lake example-taxi \
-        example-dqn example-mountain-car example-a2c example-ppo example-sac \
+        example-dqn example-mountain-car example-mountain-car-cont example-a2c example-ppo example-sac \
         example-gpt example-gpt-full example-mnist example-seq-classify example-transformer \
         example-transfer example-transfer-demo \
         example-bench example-profile sweep sweep-quick clean \

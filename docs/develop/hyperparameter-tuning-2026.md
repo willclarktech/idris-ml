@@ -613,3 +613,40 @@ The Idris/PyTorch wall-clock gap is the FFI-per-step overhead that dominates fas
 **Closes** the MountainCar B6 gap. **Remaining**: MountainCarCont (Gaussian policy on the same sparse-reward env — even harder, depends on a working MountainCar pattern + actor-critic architecture).
 
 `Example/MountainCar.idr` (Idris), `models/mountain_car.py` + `scripts/mountain_car.py` (PyTorch).
+
+### MountainCarCont (B6, shipped 2026-04-30)
+
+SAC on MountainCarContinuous-v0 with the same `|v|`-magnitude reward shaping as the discrete MountainCar example. Continuous-action sibling, fifth-of-five and the last B6 env-coverage gap.
+
+**Architecture mirrors `Example.Sac`** (Pendulum) — separate actor (2→64→64→1, mean head) and twin Q (3→64→64→1) networks, scope-prefixed paramIds (`actor_` / `q1_` / `q2_` / `q1tgt_` / `q2tgt_`), three Adam optimizers, fixed entropy α=0.2, polyak τ=0.005 every step. Default config: `lr=3e-4 gamma=0.99 alpha=0.2 batch=64 buffer=100K warmup=1000 tau=0.005 shaping=10.0 epochs=30000`. Episode length: 999 (Gymnasium default time limit).
+
+**Reward shaping**: same rule as discrete MountainCar — `r_shaped = r_raw + 10 * |v_next|` for the buffer; eval reports raw return. Without shaping, random Gaussian exploration almost never finds the goal in 999 steps. The terminal +100 plus shaping bonus produces enough signal that SAC converges within ~6-16K env steps depending on backend/seed.
+
+**Done-flag handling for truncation vs termination**: unlike the Pendulum SAC example which treats every 200-step boundary as `done=True` for buffer (Pendulum has no real terminal state), MountainCarCont distinguishes. The buffer's done flag reflects only natural termination (`Terminated` outcome → goal reached); truncation (999-step boundary) sets `done=False` so the Q-target bootstrap continues at the truncation boundary. This is the correct treatment per modern Gymnasium API.
+
+**Multi-seed evidence at threshold ≥ 85** (5 seeds × 2 backends = 10 runs):
+
+| seed | Idris | PyTorch |
+|---|---:|---:|
+| 42 | 94.86 (ES@6.4K) | 88.3 |
+| 4  | 95.29 (ES@7.8K) | 93.7 |
+| 7  | 95.37 (ES@6.7K) | 93.4 |
+| 13 | 95.35 (ES@6.1K) | 96.6 |
+| 21 | 95.47 (ES@7.6K) | 92.8 |
+| **mean** | **95.27** | **92.96** |
+
+10/10 pass. Both backends reach near-optimal (~95-96 best, optimal ~98-100). Cross-backend mean delta ~2.3.
+
+**Convergence-speed gap (Idris vs PyTorch)**: Idris breaks through to goal-reaching by step ~5-6K (ES triggers at step ~6-8K). PyTorch needs ~14-16K to break through and stays at full 30K. The asymmetry shows up at every seed, so it's not seed luck.
+
+Most likely cause: **default Linear-layer initialization differs** — Idris `linearLayer` defaults to Xavier uniform (`U(-sqrt(6/(fan_in+fan_out)), +)`); PyTorch `nn.Linear` defaults to Kaiming uniform with `a=sqrt(5)` (effectively `U(-1/sqrt(fan_in), +)`). For the actor's first layer (2→64), Kaiming gives ~2.3× larger initial weight magnitudes than Xavier. The downstream effect on a sparse-reward task with fragile initial exploration is non-trivial. Less likely contributors: Idris's Box-Muller `normalSample` vs PyTorch's `torch.randn_like`; PyTorch's `log_std` clamp to `[-5, 2]` which Idris doesn't have.
+
+The aligned-defaults policy says we use 30K (the slower side), so both backends converge in CI. Idris's WindowedAvg early-stop (window=500, patience=5, threshold=-85) terminates around step 6-8K once the policy is consistently solving, so wall-clock is similar to a 10K run. PyTorch runs full 30K — ~5 min wall-clock — since the PyTorch reference doesn't currently use the same early-stop hook.
+
+**Wall-clock**:
+- Idris tape with ES: 10:27 - 13:01 / seed (≈100ms/epoch, ES at step 6.1K-7.8K)
+- PyTorch: ~5 min / seed at full 30K
+
+**Closes** the MountainCarCont B6 gap, the last env-coverage gap from B1.
+
+`Example/MountainCarCont.idr` (Idris), `models/mountain_car_cont.py` + `scripts/mountain_car_cont.py` (PyTorch).

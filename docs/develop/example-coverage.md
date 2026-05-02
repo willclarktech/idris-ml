@@ -40,6 +40,7 @@ be replaced with measurements as part of B3 dogfood runs.
 | Reinforce | FC: 4→128→2 | CartPole (RL) | Custom REINFORCE | --epochs 10 | ~5 s (estimated) | avg_return ≥ 150 | ~100 s (measured) @ 2000 ep / seed=42 | |
 | Dqn | FC: 4→64→64→2 | CartPole (RL) | Custom DQN | --epochs 10 | ~10 s (estimated) | avg_return ≥ 100 | ~1-3 min (estimated) @ 300 ep | batched per-batch forward in batchLossBatched (commit `c7fe136`) |
 | MountainCar | FC: 2→64→64→3 | MountainCar-v0 (RL) | Custom DQN + |v|-shaping | --epochs 5 | ~5 s (measured) | avg_return ≥ −160 | ~17 min (measured) @ 500 ep | B6 2026-04-30; 5/5 Idris (-152 to -102, mean -114) + 5/5 PyTorch (-150 to -106, mean -123); shaping=10·\|v'\| as dense intermediate signal |
+| MountainCarCont | actor 2→64→64→1, twin Q 3→64→64→1 | MountainCarContinuous-v0 (RL, continuous) | Custom SAC + |v|-shaping | --epochs 5 | ~5 s (measured) | avg_return ≥ 85 | Idris ~11 min (measured, ES at ~step 6-8K); PyTorch ~5 min @ 30K | B6 2026-04-30; 5/5 Idris (94.86-95.47, mean 95.27) + 5/5 PyTorch (88.3-96.6, mean 92.96); same shaping rule as discrete MC; PyTorch needs full 30K to break through, Idris ES-terminates at ~7K |
 | A2c | FC: 4→64→64→{2,1} (split) | CartPole (RL) | Custom A2C+GAE | --epochs 50 | ~30 s (estimated) | avg_return ≥ 150 | ~29 ms/ep × 5K ep ≈ 2.5 min (measured) | aligned to PyTorch — separate actor+critic per `reference-alignment.md` |
 | Ppo | FC: 6→64→64→3 (categorical) + 6→64→64→1 critic | Acrobot (RL, discrete) | Custom PPO+GAE | --epochs 5 | ~30 s (estimated) | avg_return ≥ −150 | ~6 s/ep × 100 ep ≈ 10 min (measured); 5/6 Idris seeds -63 to -94 | **B3-fixes 2026-04-30**: env swapped Pendulum → Acrobot (discrete). PyTorch 5/5, Idris 5/6 (seed=4 reproducible bad-init collapse) |
 | Sac | FC actor + 2× Q-nets | Pendulum (RL) | Custom SAC | --epochs 100 | ~10 s (estimated) | avg_return ≥ −500 | ~91 ms/ep × ~24K ep ≈ 36 min (measured) | uses polyak target sync |
@@ -109,7 +110,7 @@ Architecture aliases:
 ### Gym envs without any example
 Five of the nine shipped Gym envs have no example:
 - ~~**MountainCar** (discrete)~~ — covered by MountainCar (B6 2026-04-30; DQN with |v|-magnitude reward shaping; 5/5 both backends, Idris -152 to -102 / PyTorch -150 to -106). Required prerequisite was the batched-forward DQN refactor (`c7fe136`).
-- **MountainCarCont** (continuous) — Box action space; pairs with PPO or SAC.
+- ~~**MountainCarCont** (continuous)~~ — covered by MountainCarCont (B6 2026-04-30; SAC with |v|-magnitude reward shaping; 5/5 both backends, Idris mean 95.27 / PyTorch mean 92.96).
 - ~~**Acrobot** (discrete)~~ — covered by Ppo (B3-fixes 2026-04-30; PPO env swap from Pendulum).
 - ~~**Taxi** (tabular discrete)~~ — covered by Taxi (B6 2026-04-30; tabular Q-learning at α=0.1 γ=0.99 ε=0.1 over 20K episodes; 5/5 both backends hit optimal +8).
 - ~~**FrozenLake** (tabular discrete, stochastic)~~ — covered by FrozenLake (B6 2026-04-30; tabular Q-learning on slippery 4×4 at α=0.1 γ=0.99 ε=0.3 over 10K episodes; 5/5 both backends with mean avg_return ~0.71).

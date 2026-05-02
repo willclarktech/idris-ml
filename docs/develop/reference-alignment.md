@@ -241,6 +241,29 @@ Fourth B6 ticket — fills the MountainCar env coverage gap. DQN with velocity-m
 
 **10/10 pass**. Cross-backend mean delta is ~9 — within DQN seed noise. The two backends pick different "worst" seeds (Idris's seed=42 and PyTorch's seed=13) but both stay above the -160 threshold across all 5 seeds. Wall-clock: Idris tape ~17:48 / 500 episodes / seed=42 (≈2.1s/epoch); PyTorch ~85s / 500 episodes (≈12.6× faster, the standard FFI-per-step overhead seen across all RL examples on tape).
 
+### MountainCarCont example added (B6, 2026-04-30)
+
+Fifth and final B6 ticket — fills the MountainCarContinuous env coverage gap. SAC with velocity-magnitude reward shaping (mirrors discrete MountainCar). Closes the env-coverage gap list from B1.
+
+**Configuration alignment**: Idris `Example.MountainCarCont` and PyTorch `torch_ref/models/mountain_car_cont.py` use identical defaults: `lr=3e-4 gamma=0.99 alpha=0.2 batch=64 buffer=100000 warmup=1000 tau=0.005 shaping=10.0 epochs=30000`. Both implement the same Gymnasium-aligned MountainCarCont physics (constants from `Gym.ClassicControl.MountainCarCont`) and the same shaping rule (`r_shaped = r_raw + 10 * |v_next|`).
+
+**Done-flag handling**: unlike Pendulum SAC (which treats every 200-step boundary as `done=True` for buffer because Pendulum has no real terminal state), MountainCarCont distinguishes natural termination (goal reached → `done=True`) from truncation (999-step boundary → `done=False` so Q-target bootstrap continues). Both backends use this correct distinction.
+
+**Multi-seed convergence (≥5 seeds, both backends)**, threshold `avg_return >= 85`:
+
+| Seed | Idris avg_return | PyTorch avg_return |
+|------|------------------|--------------------|
+| 4    | 95.29 (ES@7.8K)  | 93.7               |
+| 7    | 95.37 (ES@6.7K)  | 93.4               |
+| 13   | 95.35 (ES@6.1K)  | 96.6               |
+| 21   | 95.47 (ES@7.6K)  | 92.8               |
+| 42   | 94.86 (ES@6.4K)  | 88.3               |
+| **mean** | **95.27**    | **92.96**          |
+
+**10/10 pass**. Both backends reach near-optimal (max ~98-100 from the +100 terminal reward minus action penalty). Cross-backend mean delta is ~2.3.
+
+**Idris-vs-PyTorch convergence-speed gap**: Idris breaks through to goal-reaching by step ~5-6K and ES-terminates at ~6-8K; PyTorch needs ~14-16K to break through and runs the full 30K. The asymmetry shows up across all seeds, so it's not seed-luck. Most likely cause: default Linear-layer initialization differs (Idris uses Xavier uniform, PyTorch's `nn.Linear` uses Kaiming uniform with `a=sqrt(5)`). For the actor's first layer (2→64), Kaiming gives ~2.3× larger initial weight magnitudes than Xavier; the downstream effect on a sparse-reward task with fragile initial exploration is non-trivial. The aligned-defaults policy uses 30K (the slower side); Idris's WindowedAvg early-stop terminates as soon as the policy is consistently solving, so Idris wall-clock stays ~13 min/seed while PyTorch runs full 30K at ~5 min/seed.
+
 ### LSTM multi-seed validation at lr=0.5 (B5, 2026-04-30)
 
 After B3 raised the LSTM default LR from 0.03 → 0.5 (lr_find recommendation, single-seed verified), B5 ran the full ≥5-seed validation at the new default on both backends. Convergence threshold: `loss < 0.05`.

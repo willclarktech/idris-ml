@@ -19,6 +19,7 @@ modules = Generate
         , Example.Mnist
         , Example.MonteCarlo
         , Example.MountainCar
+        , Example.MountainCarCont
         , Example.NtmAssociativeRecall
         , Example.NtmCopy
         , Example.Ppo

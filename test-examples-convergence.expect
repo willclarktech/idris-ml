@@ -50,6 +50,7 @@ example-taxi                     avg_return   >=  5
 example-reinforce                avg_return   >=  150
 example-dqn                      avg_return   >=  100
 example-mountain-car             avg_return   >=  -160
+example-mountain-car-cont        avg_return   >=  85
 example-a2c                      avg_return   >=  150
 example-ppo                      avg_return   >=  -150
 example-sac                      avg_return   >=  -500
