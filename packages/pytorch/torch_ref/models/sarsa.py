@@ -1,4 +1,4 @@
-"""SARSA (Rummery & Niranjan 1994) on CliffWalking-v0.
+"""SARSA (Rummery & Niranjan 1994) on CliffWalking-v1.
 
 On-policy TD(0) control. Same env as Q-learning; the only difference is the
 TD target uses the next action actually selected under the current policy
@@ -12,21 +12,15 @@ from __future__ import annotations
 import random
 import time
 
+import gymnasium as gym
 import numpy as np
 
+from torch_ref.models.q_learning import MAX_STEPS, NUM_ACTIONS, NUM_STATES, eps_greedy
 from torch_ref.training.runner import format_elapsed, mem_suffix
-
-from torch_ref.models.q_learning import (
-    MAX_STEPS,
-    NUM_ACTIONS,
-    NUM_STATES,
-    CWState,
-    cw_step,
-    eps_greedy,
-)
 
 
 def sarsa_episode(
+    env: gym.Env,
     q: np.ndarray,
     alpha: float,
     gamma: float,
@@ -35,21 +29,21 @@ def sarsa_episode(
     max_steps: int = MAX_STEPS,
 ) -> float:
     """Run one episode with SARSA updates. Returns episodic return."""
-    state = CWState()
-    s = state.encode()
+    obs, _ = env.reset()
+    s = int(obs)
     action = eps_greedy(q[s], epsilon, rng)
     total_reward = 0.0
     for _ in range(max_steps):
-        reward, next_state, done = cw_step(state, action)
-        total_reward += reward
-        s_next = next_state.encode()
+        next_obs, reward, term, trunc, _ = env.step(action)
+        s_next = int(next_obs)
+        total_reward += float(reward)
+        done = bool(term or trunc)
         if done:
-            q[s, action] += alpha * (reward - q[s, action])
+            q[s, action] += alpha * (float(reward) - q[s, action])
             break
         next_action = eps_greedy(q[s_next], epsilon, rng)
-        target = reward + gamma * q[s_next, next_action]
+        target = float(reward) + gamma * q[s_next, next_action]
         q[s, action] += alpha * (target - q[s, action])
-        state = next_state
         s = s_next
         action = next_action
     return total_reward
@@ -65,11 +59,13 @@ def train_sarsa(
 ) -> tuple[np.ndarray, list[float]]:
     """Train SARSA on CliffWalking. Returns (Q-table, history)."""
     rng = random.Random(seed)
+    env = gym.make("CliffWalking-v1")
+    env.reset(seed=seed)
     q = np.zeros((NUM_STATES, NUM_ACTIONS), dtype=np.float64)
     history: list[float] = []
     t_start = time.monotonic()
     for epoch in range(epochs):
-        ret = sarsa_episode(q, alpha, gamma, epsilon, rng)
+        ret = sarsa_episode(env, q, alpha, gamma, epsilon, rng)
         history.append(ret)
         if (epoch + 1) % log_every == 0:
             recent = sum(history[-100:]) / min(len(history), 100)
@@ -82,16 +78,19 @@ def train_sarsa(
 
 def evaluate(q: np.ndarray, n_episodes: int = 100) -> float:
     """Greedy evaluation. Returns mean return."""
+    env = gym.make("CliffWalking-v1")
+    env.reset(seed=0)
     total = 0.0
     for _ in range(n_episodes):
-        state = CWState()
+        obs, _ = env.reset()
+        s = int(obs)
         ep_return = 0.0
         for _ in range(MAX_STEPS):
-            s = state.encode()
             action = int(np.argmax(q[s]))
-            reward, state, done = cw_step(state, action)
-            ep_return += reward
-            if done:
+            next_obs, reward, term, trunc, _ = env.step(action)
+            s = int(next_obs)
+            ep_return += float(reward)
+            if term or trunc:
                 break
         total += ep_return
     return total / n_episodes
