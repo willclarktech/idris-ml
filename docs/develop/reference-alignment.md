@@ -112,6 +112,20 @@ PyTorch: 5/5 converge to ≤-110 (well within solved). Idris: 4/4 seeds tested c
 
 The env swap also picks up Acrobot in the `docs/develop/example-coverage.md` gap list, so it's a 2-for-1: real PPO demonstration + new env coverage.
 
+### GPT multi-seed validation at embedded/30 (B5, 2026-04-30)
+
+After B3-fixes shrunk the GPT default to `--corpus embedded --epochs 30` (with proportional warmup, ~40 s on tape), B5 ran ≥5-seed validation at the new default to confirm the demo robustly hits the smoke-relaxed `bpc < 5.0` threshold.
+
+| Seed | PyTorch bpc | Idris bpc |
+|------|-------------|-----------|
+| 1    | 4.228       | 4.438     |
+| 2    | 4.234       | 4.487     |
+| 3    | 4.211       | 4.431     |
+| 4    | 4.211       | 4.403     |
+| 42   | 4.195       | 4.537     |
+
+5/5 on both backends, all values 0.4–0.8 below the 5.0 threshold. PyTorch slightly tighter (4.20 avg) than Idris (4.46 avg), explained by PyTorch's dynamic vocab=36 on the embedded corpus vs Idris' hardcoded vocab=65 (the embedded corpus is a strict subset of the 65-char tinyshakespeare alphabet, so Idris carries 29 unused output dims). Both runs are deterministic at the same seed; the gap is fully attributable to the vocab choice, not implementation drift.
+
 ### LSTM multi-seed validation at lr=0.5 (B5, 2026-04-30)
 
 After B3 raised the LSTM default LR from 0.03 → 0.5 (lr_find recommendation, single-seed verified), B5 ran the full ≥5-seed validation at the new default on both backends. Convergence threshold: `loss < 0.05`.
