@@ -89,6 +89,18 @@ jobs:
       - name: Verify Idris 2
         run: idris2 --version
 
+      - name: Install MLX (macOS)
+        if: matrix.os == 'macos-latest'
+        run: |
+          # MLX is Apple-only. Pip wheel ships C++ headers + libs in
+          # <site-packages>/mlx/{include,lib}. The Makefile's BACKEND=mlx
+          # rules read MLX_SITE to find them. --break-system-packages is
+          # required on Python >=3.12 (PEP 668) and is fine on ephemeral
+          # CI runners.
+          python3 -m pip install --break-system-packages mlx
+          MLX_SITE=$(python3 -c "import mlx, os; print(os.path.dirname(mlx.__file__))")
+          echo "MLX_SITE=$MLX_SITE" >> $GITHUB_ENV
+
       - name: Build tape backend
         run: make BACKEND=tape backend
 
