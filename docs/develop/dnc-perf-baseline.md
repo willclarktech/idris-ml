@@ -104,3 +104,26 @@ DNC's port has the same shape but more pieces:
 - Per-head loop in `computeReads` becomes a loop on tensor handles.
 
 Estimated implementation scope: ~300-500 lines across `Layer/Dnc.idr` (~200 LOC of new tensor helpers, ~150 LOC for `applyVarTensor`, ~30 LOC `nameLayer` init, ~20 LOC `applyVar` wrapper). No new C ops needed — every prim used by DNC already exists. Cross-backend correctness gated by re-running `make test-backend-{tape,mlx,torch}` plus a 5-seed dnc-copy convergence at default config.
+
+### Implementation pitfall observed (2026-05-02 spike, reverted)
+
+First attempt placed three recursive helpers (`computeRetentionTensor`,
+`catReadOutTensors`, `computeReadHeadsTensor`) as `where`-clause locals
+inside the `applyVarTensor` method, with `{r' : Nat}` implicit
+parameters used in `Vect r' AnyPtr` arguments. Idris2's elaborator
+hung indefinitely at `27/41: Building Layer.Dnc` (15+ minutes of
+silent CPU). Likely cause: implicit-r' interacting with the LayerLike
+instance's outer `{r : Nat}` parameter during coverage / totality
+analysis on nested `Vect (S k)` patterns.
+
+**Recommended approach for next session**: define the recursive
+helpers as **top-level functions** outside the LayerLike instance,
+with **explicit `Nat` parameters** rather than implicit. Mirrors how
+NTM's recursive helpers (`forwardReadHeadUnboundedVar` etc.) are
+structured — top-level, no inner-instance type-var interaction. Then
+`applyVarTensor` calls the top-level helpers with explicit `n`, `m`,
+`r` from its outer scope. This pattern compiles fine on NTM; it's
+the correct shape for DNC too.
+
+The export-fix for `prim__cosineSimilarity` (currently private) is
+also required — promote to `export` in `Variable.idr:147`.
