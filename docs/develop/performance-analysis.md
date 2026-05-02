@@ -15,7 +15,7 @@ Single-seed (seed=42) results, tape backend:
 |---|---|---|---|
 | A2C (5000 ep, RolloutLen=20)  | 80 → 12 | ~50 → ~29 | 160 / >=150 ✓ |
 | PPO (200 ep, RolloutLen=400)  | ~80 → 13 | ~5000 → ~3800 | -1704 / >=-800 ✗ (was -1572 pre-batch — also failed; gap is RL noise + threshold is over-aggressive) |
-| SAC (5000 ep, smoke)          | ~80 → 31 | -- → ~95 → ~47 | actorLoss batched in follow-up via new `tensor_concat_2d_axis1` op (after qLossBatch landed at 95 ms/ep, full batching brings it to 47 ms/ep on 2000-ep smoke; full default 30000-ep run validates `>=-500` threshold) |
+| SAC (30000 ep, default)       | ~80 → 31 | -- → ~117 → ~91 (per-update) | -364.58 / >=-500 ✓ (45m 57s wall-clock at seed=42) — actorLoss batched in follow-up via new `tensor_concat_2d_axis1` op |
 
 Per-sample `forwardVarTensor` calls during rollout are unchanged (env step depends
 on current action — can't be batched). PPO threshold `>=-800` is set higher than
