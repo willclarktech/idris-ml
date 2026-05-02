@@ -321,12 +321,47 @@ def scheme_type(cls):
     raise ValueError(f"Unknown classifier {cls!r}")
 
 
+def backend_tag_of(cname):
+    """Derive the backend tag for a wrap from the C function name.
+
+    `tensor_add_tape`  → "tape"
+    `tensor_add_torch` → "torch"
+    `tensor_add_mlx`   → "mlx"
+    `tensor_add`       → "primary" (unified name, link-time aliased to
+                          primary backend; the drain dispatches "primary"
+                          to the unified `tensor_release_handle` so the
+                          same alias still routes correctly).
+
+    `*_mlx_streamed` and similar variants strip the `_streamed` infix
+    first via `strip_suffix` to find the backend suffix.
+    """
+    # Streamed variants like `tensor_add_mlx_streamed` — strip the trailing
+    # `_streamed` infix first (only mlx ever carries it) so the backend
+    # suffix is at the tail of the name.
+    base = cname[:-len("_streamed")] if cname.endswith("_streamed") else cname
+    for suf, tag in (("_tape", "tape"), ("_torch", "torch"), ("_mlx", "mlx")):
+        if base.endswith(suf):
+            return tag
+    return "primary"
+
+
 def gen_scheme_wrapper(cname, arg_classes, ret_class):
     """Generate the canonical Scheme lambda body for one FFI.
 
     The output is the literal string that would appear inside the
     surrounding `%foreign "scheme:..."` declaration — i.e. `"` is
     already escaped as `\\"`.
+
+    Wrap layout (v2): a Tensor-returning wrap returns a 3-slot vector
+        `(vector 'tensor-handle-v2 <tag-string> raw_r)`
+    where tag is one of "tape", "torch", "mlx", or "primary" (for
+    unsuffixed C names that link-alias to the build's primary).
+
+    The drain function in Tensor.idr reads the tag at slot 1 and the
+    raw pointer at slot 2, then dispatches to the matching
+    `tensor_release_handle_<tag>` (or unified `tensor_release_handle`
+    for "primary"). Retain is symmetric — each wrap calls the
+    suffixed retain so refcounts land on the right backend.
     """
     n_args = len(arg_classes)
     arg_names = [f"a{i}" for i in range(n_args)]
@@ -335,18 +370,26 @@ def gen_scheme_wrapper(cname, arg_classes, ret_class):
     call_args = []
     for nm, cls in zip(arg_names, arg_classes):
         if cls == "T":
-            call_args.append(f"(vector-ref {nm} 1)")
+            # v2 layout: raw pointer lives at slot 2 (slot 0 = sentinel,
+            # slot 1 = backend tag string).
+            call_args.append(f"(vector-ref {nm} 2)")
         else:
             call_args.append(nm)
     call_args_str = " ".join(call_args)
     fp = f'(foreign-procedure \\"{cname}\\" ({fp_arg_types}) {fp_ret_type})'
 
     if ret_class == "T":
+        tag = backend_tag_of(cname)
+        retain_sym = (
+            "tensor_retain_handle"
+            if tag == "primary"
+            else f"tensor_retain_handle_{tag}"
+        )
         body = (
             f" (let ((raw_r ({fp} {call_args_str})))"
-            f" (let ((wr (vector 'tensor-handle raw_r)))"
+            f" (let ((wr (vector 'tensor-handle-v2 \\\"{tag}\\\" raw_r)))"
             f" ((top-level-value 'idris-tensor-guardian) wr)"
-            f" ((foreign-procedure \\\"tensor_retain_handle\\\" (void*) void) raw_r)"
+            f" ((foreign-procedure \\\"{retain_sym}\\\" (void*) void) raw_r)"
             f" wr))"
         )
     else:

@@ -2,7 +2,7 @@
 """
 Lint check: every Tensor-touching FFI in the wrap-handle file set must
 conform to the wrap-on-return Scheme template (see
-docs/develop/tensor-lifecycle-plan.md "FFI conventions").
+docs/develop/tensor-lifecycle.md "FFI conventions").
 
 For each `%foreign` declaration in the file set:
 
@@ -16,10 +16,20 @@ For each `%foreign` declaration in the file set:
   for the manifest's classification:
     * foreign-procedure arg/return type spec matches the classifier
       (T/R → void*, i → int, d → double, s → string, v → void).
-    * Each T arg at position i appears as `(vector-ref a<i> 1)` in the body.
-    * For T return: the body contains `(vector 'tensor-handle …)`, a call
-      to tensor_retain_handle, and registers with idris-tensor-guardian.
-    * For non-T return: the body does NOT contain `(vector 'tensor-handle …)`
+    * Each T arg at position i appears as `(vector-ref a<i> 2)` in the
+      body — wrap layout v2 keeps the raw pointer at slot 2 (slot 0
+      is the sentinel symbol, slot 1 is the backend-tag string).
+    * For T return: the body contains
+        `(vector 'tensor-handle-v2 "TAG" …)`
+      where TAG is the expected backend tag (derived from the C name's
+      suffix: `_tape` → "tape", `_torch` → "torch", `_mlx` → "mlx",
+      unsuffixed → "primary"). It also has a retain call to
+      `tensor_retain_handle_<tag>` (or unified `tensor_retain_handle`
+      when tag is "primary") and registers with idris-tensor-guardian.
+    * No body may contain the legacy v1 sentinel `'tensor-handle ` —
+      the migration to v2 is committed and stale consumers reading
+      slot 1 for a raw pointer would see a tag string instead.
+    * For non-T return: the body does NOT contain `(vector 'tensor-handle-v2 …)`
       (no spurious wrapping).
 
 Cosmetic variations (extra init blocks, whitespace) are tolerated.
@@ -38,7 +48,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 from ffi_manifest import (
     MANIFEST, SKIP, WRAP_HANDLE_FILES, ANY_FFI_RE,
-    parse_args, scheme_type, strip_suffix,
+    parse_args, scheme_type, strip_suffix, backend_tag_of,
 )
 
 # Inside a scheme body, foreign-procedure names appear as \"name\" — the
@@ -83,31 +93,59 @@ def lint_scheme_body(body, cname, manifest_args, manifest_ret):
             f"{expected_ret!r} (from manifest)"
         )
 
-    # 4. Every T arg at position i must be unwrapped via (vector-ref a<i> 1).
+    # 4. Every T arg at position i must be unwrapped via (vector-ref a<i> 2)
+    # (v2 layout: slot 2 is the raw pointer; slots 0/1 are the sentinel
+    # symbol and backend-tag string).
     for i, cls in enumerate(manifest_args):
         if cls == "T":
-            ref_re = re.compile(rf'\(vector-ref\s+a{i}\s+1\)')
+            ref_re = re.compile(rf'\(vector-ref\s+a{i}\s+2\)')
             if not ref_re.search(body):
                 issues.append(
-                    f"T arg at position {i}: missing (vector-ref a{i} 1) — "
+                    f"T arg at position {i}: missing (vector-ref a{i} 2) — "
                     f"wrapped Tensor handle must be unwrapped before "
-                    f"foreign-procedure call"
+                    f"foreign-procedure call (wrap-v2 stores raw at slot 2)"
                 )
 
+    # No body may carry the legacy v1 sentinel — any stale wrap would
+    # silently corrupt a future consumer that reads slot 1 expecting a
+    # raw pointer.
+    if re.search(r"vector\s+'tensor-handle(?!-v2)\b", body):
+        issues.append(
+            "legacy v1 wrap sentinel `'tensor-handle` detected — "
+            "every wrap must use the v2 layout "
+            "(vector 'tensor-handle-v2 \"TAG\" raw)"
+        )
+
     # 5. T return → wrap + retain + register; non-T return → no wrap.
-    has_wrap = "vector 'tensor-handle" in body
-    has_retain = "tensor_retain_handle" in body
+    has_wrap = "vector 'tensor-handle-v2" in body
+    expected_tag = backend_tag_of(cname)
+    expected_retain = (
+        "tensor_retain_handle"
+        if expected_tag == "primary"
+        else f"tensor_retain_handle_{expected_tag}"
+    )
+    has_retain = expected_retain in body
     has_guardian = "idris-tensor-guardian" in body
     if manifest_ret == "T":
         if not has_wrap:
             issues.append(
-                "T return: missing (vector 'tensor-handle raw_r) — the C "
+                "T return: missing (vector 'tensor-handle-v2 …) — the C "
                 "result must be wrapped before returning to Idris"
+            )
+        # Check the wrap carries the right backend tag.
+        tag_re = re.compile(
+            r"vector\s+'tensor-handle-v2\s+\\\"([a-zA-Z_/]+)\\\""
+        )
+        m_tag = tag_re.search(body)
+        if m_tag and m_tag.group(1) != expected_tag:
+            issues.append(
+                f"T return: wrap tag {m_tag.group(1)!r} != expected "
+                f"{expected_tag!r} (derived from C name {cname!r})"
             )
         if not has_retain:
             issues.append(
-                "T return: missing tensor_retain_handle call — the wrap "
-                "must take the first refcount bump"
+                f"T return: missing {expected_retain} call — the wrap "
+                f"must take the first refcount bump on the right backend"
             )
         if not has_guardian:
             issues.append(
@@ -118,7 +156,7 @@ def lint_scheme_body(body, cname, manifest_args, manifest_ret):
         if has_wrap:
             issues.append(
                 f"non-T return ({manifest_ret!r}): unexpected (vector "
-                f"'tensor-handle …) in body — only T returns are wrapped"
+                f"'tensor-handle-v2 …) in body — only T returns are wrapped"
             )
 
     return issues

@@ -46,20 +46,31 @@ import Util
 ||| land on the primary backend at link time, regardless of the
 ||| type-level `d`. For cross-backend transfer demos we need fresh
 ||| tensors to actually live on the *specific* dest backend.
+|||
+||| Every side-effecting step (alloc, write, create, free) goes
+||| through `primIO` so Idris-2's Chez codegen sequences them with
+||| `%World` instead of let-laziness. A naive let-chain version
+||| would get hoisted to a module-level CSE'd constant whose
+||| lambda body still references buffers allocated at module load —
+||| every subsequent call to the same constant would re-run the
+||| frees on the same pointers and trip libsystem_malloc's
+||| "pointer being freed was not allocated" abort. The same
+||| structure exists (and is tested) in `Test.Transfer.makeVec4`.
 makeVec4 : {0 d : Type} -> {0 dt : DType} ->
            UserDeviceTransfer d => Compatible d dt =>
            (Double, Double, Double, Double) ->
            IO (Tensor [4] d dt WithGrad)
 makeVec4 (a, b, c, dd) = do
-  let buf  = primAllocHost    {d} 4
-  let buf1 = prim__setDouble  buf  0 a
-  let buf2 = prim__setDouble  buf1 1 b
-  let buf3 = prim__setDouble  buf2 2 c
-  let buf4 = prim__setDouble  buf3 3 dd
-  let sh   = primAllocIntHost {d} 1
-  let sh1  = primSetIntHost   {d} sh 0 4
-  let ptr  = primCreateFromHost {d} buf4 sh1 1 1  -- rg=1 → WithGrad
-  primIO (\w => MkIORes (primFreeIntHost {d} sh1)   w)
+  buf  <- primIO (\w => MkIORes (primAllocHost   {d} 4)        w)
+  buf1 <- primIO (\w => MkIORes (prim__setDouble buf  0 a)     w)
+  buf2 <- primIO (\w => MkIORes (prim__setDouble buf1 1 b)     w)
+  buf3 <- primIO (\w => MkIORes (prim__setDouble buf2 2 c)     w)
+  buf4 <- primIO (\w => MkIORes (prim__setDouble buf3 3 dd)    w)
+  sh   <- primIO (\w => MkIORes (primAllocIntHost {d} 1)       w)
+  sh1  <- primIO (\w => MkIORes (primSetIntHost   {d} sh 0 4)  w)
+  ptr  <- primIO (\w =>
+            MkIORes (primCreateFromHost {d} buf4 sh1 1 1) w)
+  primIO (\w => MkIORes (primFreeIntHost {d} sh1)  w)
   primIO (\w => MkIORes (primFreeHost    {d} buf4) w)
   pure (MkTensor ptr Nothing)
 

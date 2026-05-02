@@ -16,24 +16,57 @@ runtime identity: the Idris-Chez compiler cannot elide the wrap
 without eliding the Tensor value itself.
 
 ```
-Idris value (AnyPtr)  ─────►  Chez vector #(tensor-handle raw)
+Idris value (AnyPtr)  ─────►  Chez vector #(tensor-handle-v2 "TAG" raw)
                                                 │
                               registered with ──┴──►  idris-tensor-guardian
                               raw is what the C code sees
+                              TAG is the backend identity ("tape"/"torch"/"mlx"/"primary")
 ```
 
-C-level Tensor lifecycle is refcount-driven (where the backend
-supports it — see "Backend asymmetry" below):
+The wrap is a 3-slot Chez vector:
 
-- Wrap creation: `+1` via `tensor_retain_handle` immediately after the
-  C-side constructor.
-- Wrap death (Chez declares it unreachable, drain pops it): `-1` via
-  `tensor_release_handle`.
+- slot 0: literal sentinel symbol `'tensor-handle-v2` — `-v2` marks
+  the current layout; a stale consumer reading slot 1 expecting a raw
+  pointer would see a string instead and crash obviously rather than
+  silently corrupt;
+- slot 1: backend tag string — `"tape"` / `"torch"` / `"mlx"` for
+  per-backend wraps in `Device/*.idr`, or `"primary"` for the
+  unsuffixed wraps in `Tensor.idr` that call link-time-aliased
+  unified C symbols (which alias to whichever backend is primary in
+  this build);
+- slot 2: the raw C tensor pointer — what `foreign-procedure` calls
+  actually consume.
+
+C-level Tensor lifecycle is refcount-driven (where the backend
+supports it — see "Backend asymmetry" below). The drain function
+in `Tensor.idr` reads slot 1, builds the symbol name
+`tensor_release_handle_<tag>` at runtime (or unified
+`tensor_release_handle` for `"primary"`), and calls it on slot 2.
+The lookup is cached per-tag in a Chez hashtable so the hot-path
+eval loop doesn't re-resolve every drained handle.
+
+- Wrap creation: `+1` via `tensor_retain_handle_<tag>` (suffixed)
+  or unified `tensor_retain_handle` (for `"primary"`) immediately
+  after the C-side constructor.
+- Wrap death (Chez declares it unreachable, drain pops it): `-1`
+  via the corresponding `tensor_release_handle_<tag>`.
 - Long-term C holders (tape entries, param registry) take their own
   retains symmetrically.
 
 When refcount hits 0, the Tensor is freed; its backing storage
 (e.g. mlx `mx::array` → Metal MTLBuffer) is reclaimed.
+
+**Why per-backend dispatch matters**: with the legacy unified-symbol
+design (pre-2026-05-19), the drain always called the link-time-
+aliased unified `tensor_release_handle` — which resolves to *one*
+backend's release (the primary). In multi-backend builds that meant
+mlx-allocated tensors had their refcount maintained by mlx's
+allocator (which does decrement) but were released through torch's
+no-op stub (when torch was primary), leaking `mx::array` storage
+permanently. At process exit, mlx's static destructors then race
+the still-live arrays against Metal teardown and SIGSEGV. The
+v2 layout's tag-based dispatch closes this — each tensor returns
+to its own backend's release.
 
 ### Why this design
 
@@ -77,36 +110,56 @@ unwrap so Idris doesn't have to know about them.
 
 ### Template
 
+For a per-backend FFI (suffixed C name `_tape` / `_torch` / `_mlx`):
+
 ```scheme
-;; Tensor -> Tensor -> Tensor
+;; Tensor -> Tensor -> Tensor  (e.g. tensor_add_torch)
 (lambda (a0 a1)
-  (let ((raw_r ((foreign-procedure "tensor_FOO" (void* void*) void*)
-                (vector-ref a0 1) (vector-ref a1 1))))
-    (let ((wr (vector 'tensor-handle raw_r)))
+  (let ((raw_r ((foreign-procedure "tensor_FOO_torch" (void* void*) void*)
+                (vector-ref a0 2) (vector-ref a1 2))))
+    (let ((wr (vector 'tensor-handle-v2 "torch" raw_r)))
       ((top-level-value 'idris-tensor-guardian) wr)
-      ((foreign-procedure "tensor_retain_handle" (void*) void) raw_r)
+      ((foreign-procedure "tensor_retain_handle_torch" (void*) void) raw_r)
       wr)))
 
-;; Tensor -> Int -> Tensor
+;; Tensor -> Int -> Tensor  (e.g. tensor_select_mlx_streamed)
 (lambda (a0 a1)
-  (let ((raw_r ((foreign-procedure "tensor_FOO" (void* int) void*)
-                (vector-ref a0 1) a1)))
-    (let ((wr (vector 'tensor-handle raw_r)))
+  (let ((raw_r ((foreign-procedure "tensor_FOO_mlx_streamed" (void* int) void*)
+                (vector-ref a0 2) a1)))
+    (let ((wr (vector 'tensor-handle-v2 "mlx" raw_r)))
       ((top-level-value 'idris-tensor-guardian) wr)
-      ((foreign-procedure "tensor_retain_handle" (void*) void) raw_r)
+      ((foreign-procedure "tensor_retain_handle_mlx" (void*) void) raw_r)
       wr)))
 
 ;; Tensor -> Double (no wrap on primitive return)
 (lambda (a0)
-  ((foreign-procedure "tensor_FOO" (void*) double) (vector-ref a0 1)))
+  ((foreign-procedure "tensor_FOO_tape" (void*) double) (vector-ref a0 2)))
+```
+
+For an unsuffixed FFI in `Tensor.idr` (link-time-aliased to primary):
+
+```scheme
+;; Tensor -> Tensor (e.g. tensor_add, aliased to primary)
+(lambda (a0 a1)
+  (let ((raw_r ((foreign-procedure "tensor_add" (void* void*) void*)
+                (vector-ref a0 2) (vector-ref a1 2))))
+    (let ((wr (vector 'tensor-handle-v2 "primary" raw_r)))
+      ((top-level-value 'idris-tensor-guardian) wr)
+      ((foreign-procedure "tensor_retain_handle" (void*) void) raw_r)
+      wr)))
 ```
 
 Rules:
 - Each Tensor argument (classifier `T`) is unwrapped via
-  `(vector-ref a<i> 1)` before being passed to the C function.
+  `(vector-ref a<i> 2)` before being passed to the C function.
 - A Tensor return (classifier `T`) is wrapped in a fresh
-  `(vector 'tensor-handle raw)`, registered with the guardian, and
-  retained — in that order.
+  `(vector 'tensor-handle-v2 "TAG" raw)`, registered with the
+  guardian, and retained — in that order — using the
+  backend-tagged retain symbol.
+- The TAG must match the C function's suffix: `_tape` → `"tape"`,
+  `_torch` → `"torch"`, `_mlx` (or `_mlx_streamed`) → `"mlx"`,
+  unsuffixed → `"primary"`. The generator's `backend_tag_of` in
+  `scripts/lifecycle/ffi_manifest.py` enforces this.
 - Raw-pointer arguments (`R`, e.g. malloc'd double buffers) and
   primitive arguments (`int`, `double`, `string`) pass through
   unchanged.
@@ -144,7 +197,9 @@ Rules:
 The guardian is a single top-level Chez object, lazily initialized.
 Drain is a single Idris-callable primitive (`drainManagedHandles`)
 that loops `(guardian)` calls until it returns `#f`, calling
-`tensor_release_handle` on each popped vector's raw pointer.
+the matching `tensor_release_handle_<tag>` on each popped vector's
+raw pointer at slot 2 (tag read from slot 1; lookup cached per-tag
+in a Chez hashtable for hot-loop drain).
 
 Drain triggers:
 - **`withNoGrad` exit** (`packages/idris-ml/src/Tensor.idr`): the

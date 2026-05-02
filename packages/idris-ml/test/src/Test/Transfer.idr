@@ -29,19 +29,29 @@ import Tensor
 ||| Create a 4-element Tensor on the destination backend using its
 ||| `UserDeviceTransfer.primCreateFromHost`. Mirrors the helper in
 ||| `Example.Transfer` so the test exercises the same code path.
+|||
+||| Every side-effecting step (alloc, write, create, free) goes
+||| through `primIO` so Idris-2's Chez codegen sequences them with
+||| `%World` instead of let-laziness. The naive let-chain version
+||| got hoisted to a module-level CSE'd constant whose lambda body
+||| references buffers allocated at module load — every subsequent
+||| call to the constant re-ran the frees on the same pointers and
+||| tripped libsystem_malloc's "pointer being freed was not
+||| allocated" abort.
 makeVec4 : {0 d : Type} -> {0 dt : DType} ->
            UserDeviceTransfer d => Compatible d dt =>
            (Double, Double, Double, Double) ->
            IO (Tensor [4] d dt WithGrad)
 makeVec4 (a, b, c, dd) = do
-  let buf  = primAllocHost    {d} 4
-  let buf1 = prim__setDouble  buf  0 a
-  let buf2 = prim__setDouble  buf1 1 b
-  let buf3 = prim__setDouble  buf2 2 c
-  let buf4 = prim__setDouble  buf3 3 dd
-  let sh   = primAllocIntHost {d} 1
-  let sh1  = primSetIntHost   {d} sh 0 4
-  let ptr  = primCreateFromHost {d} buf4 sh1 1 1
+  buf  <- primIO (\w => MkIORes (primAllocHost   {d} 4)        w)
+  buf1 <- primIO (\w => MkIORes (prim__setDouble buf  0 a)     w)
+  buf2 <- primIO (\w => MkIORes (prim__setDouble buf1 1 b)     w)
+  buf3 <- primIO (\w => MkIORes (prim__setDouble buf2 2 c)     w)
+  buf4 <- primIO (\w => MkIORes (prim__setDouble buf3 3 dd)    w)
+  sh   <- primIO (\w => MkIORes (primAllocIntHost {d} 1)       w)
+  sh1  <- primIO (\w => MkIORes (primSetIntHost   {d} sh 0 4)  w)
+  ptr  <- primIO (\w =>
+            MkIORes (primCreateFromHost {d} buf4 sh1 1 1) w)
   primIO (\w => MkIORes (primFreeIntHost {d} sh1)  w)
   primIO (\w => MkIORes (primFreeHost    {d} buf4) w)
   pure (MkTensor ptr Nothing)

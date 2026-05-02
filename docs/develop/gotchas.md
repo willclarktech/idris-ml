@@ -150,13 +150,51 @@ Idris 2 compiles zero-argument `%noinline` definitions as constants evaluated on
 
 ### Wrapped-handle ABI — new Tensor FFIs must use the wrap-on-return template
 
-Every `prim__` FFI that touches Tensor handles binds to a Scheme wrapper, not directly to a C function. The wrapper extracts the raw pointer from each Tensor arg via `(vector-ref a<i> 1)` before the C call, and (for Tensor returns) wraps the C result in a fresh Chez vector + registers it with `idris-tensor-guardian` + retains via `tensor_retain_handle`. The vector IS the Tensor's runtime identity — Idris-Chez codegen can't elide it without eliding the value itself. See `docs/develop/tensor-lifecycle.md` for the full model and `docs/develop/design-decisions.md` "Tensor lifecycle: wrapped-handle FFI ABI" for the rationale.
+Every `prim__` FFI that touches Tensor handles binds to a Scheme wrapper, not directly to a C function. The wrapper extracts the raw pointer from each Tensor arg via `(vector-ref a<i> 2)` before the C call, and (for Tensor returns) wraps the C result in a fresh Chez vector + registers it with `idris-tensor-guardian` + retains via `tensor_retain_handle_<backend>`. The vector IS the Tensor's runtime identity — Idris-Chez codegen can't elide it without eliding the value itself. See `docs/develop/tensor-lifecycle.md` for the full model and `docs/develop/design-decisions.md` "Tensor lifecycle: wrapped-handle FFI ABI" for the rationale.
 
-**For new FFIs**: add the C symbol to `scripts/lifecycle/ffi_manifest.py`'s `MANIFEST` with arg/return classifiers (`T` = wrapped Tensor handle, `R` = raw AnyPtr, `i`/`d`/`s`/`v` = primitive/void), then run `python3 scripts/lifecycle/ffi-convert-to-scheme.py <files>` (or hand-edit using its output as a template).
+**Wrap layout v2** (since 2026-05-19): the wrap is `(vector 'tensor-handle-v2 "TAG" raw_ptr)` — slot 0 is a sentinel symbol, slot 1 is the backend tag string (`"tape"` / `"torch"` / `"mlx"` for per-backend wraps in `Device/*.idr`, or `"primary"` for unsuffixed wraps in `Tensor.idr` that call the link-time-aliased unified C symbol), slot 2 is the raw pointer. Retain is symmetric: per-backend wraps call `tensor_retain_handle_<tag>` (suffixed), primary wraps call unified `tensor_retain_handle` (which aliases to primary's). The drain function in `Tensor.idr` reads slot 1, builds the matching `tensor_release_handle_<tag>` symbol name at runtime, and dispatches — *this is what makes multi-backend builds correct*. Before v2 the drain always used the link-time-aliased unified release (typically the primary's no-op), so mlx-allocated tensors leaked their refcount and tripped SIGSEGV during exit-time mlx static destructor teardown.
 
-**Do NOT** pass `tensorPtr` to non-FFI Scheme code that expects a raw pointer — on mlx it's a Chez vector. Either route through an FFI (which knows to unwrap) or write your own `(vector-ref ... 1)` extraction.
+**For new FFIs**: add the C symbol to `scripts/lifecycle/ffi_manifest.py`'s `MANIFEST` with arg/return classifiers (`T` = wrapped Tensor handle, `R` = raw AnyPtr, `i`/`d`/`s`/`v` = primitive/void), then run `python3 scripts/lifecycle/ffi-convert-to-scheme.py <files>` (or hand-edit using its output as a template). The generator derives the backend tag from the C name's suffix (`_tape`/`_torch`/`_mlx`/unsuffixed) — keep the naming convention to get the right tag.
 
-**Linter**: `make check-ffi-wrap-template` runs structural checks across all 5 wrap-handle files (Tensor.idr + Device.idr + Device/{Mlx,Tape,Torch}.idr). It catches missing conversions (raw `%foreign "C:..."` for a manifest symbol), missing `vector-ref` unwraps on T args, missing wrap/retain/guardian-register on T returns, and typespec mismatches. Wired into the CI `check-paired-defaults` preflight — violations fail the build before the long matrix burns minutes.
+**Do NOT** pass `tensorPtr` to non-FFI Scheme code that expects a raw pointer — it's a Chez vector. Either route through an FFI (which knows to unwrap) or write your own `(vector-ref ... 2)` extraction.
+
+**Linter**: `make check-ffi-wrap-template` runs structural checks across all 5 wrap-handle files (Tensor.idr + Device.idr + Device/{Mlx,Tape,Torch}.idr). It catches missing conversions (raw `%foreign "C:..."` for a manifest symbol), missing `(vector-ref a<i> 2)` unwraps on T args, missing `(vector 'tensor-handle-v2 "TAG" …)` wrap on T returns, mismatched tag (e.g. a `_torch`-suffixed C name wrapped as `"mlx"`), missing `tensor_retain_handle_<tag>` retain calls, and the legacy `'tensor-handle` sentinel anywhere (which would silently corrupt slot-1 readers expecting raw pointers). Wired into the CI `check-paired-defaults` preflight — violations fail the build before the long matrix burns minutes.
+
+### `let x = ffiCall` inside `IO do` is hoisted to a module-level constant
+
+Idris-2's Chez codegen treats `let x = expr` inside a `do` block as a pure binding. When the surrounding function's arguments are erased / fully-applied at module load, the *entire* `do` block including the let-bindings can be hoisted into a `csegen-NN` module-level constant — but the **side-effecting lambda body that follows it stays linked to the same allocated buffers**. Every call to the constant re-runs the side effects on the same memory.
+
+Concretely, this `makeVec4` form crashed with `pointer being freed was not allocated` on the second call:
+
+```idris
+makeVec4 (a, b, c, d) = do
+  let buf  = primAllocHost {d} 4          -- side effect
+  let buf1 = prim__setDouble buf 0 a      -- side effect
+  -- ... more sets
+  let sh   = primAllocIntHost {d} 1       -- side effect
+  let sh1  = primSetIntHost {d} sh 0 4
+  let ptr  = primCreateFromHost {d} buf4 sh1 1 1
+  primIO (\w => MkIORes (primFreeIntHost {d} sh1)  w)
+  primIO (\w => MkIORes (primFreeHost    {d} buf4) w)
+  pure (MkTensor ptr Nothing)
+```
+
+The generated Scheme bound `u--buf`, `u--sh`, `u--ptr`, etc. as `let` values **outside** the `(lambda (world-0) …)` that runs the frees. So `csegen-NN = makeVec4 someTypeclassDict 'erased someConstant` allocates the buffers and creates the tensor *once at module load*, and every test that called `csegen-NN ext-0` re-ran the frees on the same pointers.
+
+**Fix**: route every side-effecting step through `primIO`:
+
+```idris
+makeVec4 (a, b, c, d) = do
+  buf  <- primIO (\w => MkIORes (primAllocHost {d} 4) w)
+  buf1 <- primIO (\w => MkIORes (prim__setDouble buf 0 a) w)
+  -- ...
+  ptr  <- primIO (\w => MkIORes (primCreateFromHost {d} buf4 sh1 1 1) w)
+  primIO (\w => MkIORes (primFreeIntHost {d} sh1)  w)
+  primIO (\w => MkIORes (primFreeHost    {d} buf4) w)
+  pure (MkTensor ptr Nothing)
+```
+
+`primIO` binds the result through the `%World` token, which threads through the rest of the IO chain and prevents the let-hoisting. Now each call to the function re-runs the alloc, fill, create, free sequence cleanly. The fix lives in `packages/idris-ml/test/src/Test/Transfer.idr` and `packages/idris-ml-examples/src/Example/Transfer.idr`; the symptom is a libsystem_malloc abort on the *second* invocation of any code that follows this `let`-chain-with-side-effects pattern. Related: `feedback_typeclass_zero_arg_method_eval.md`, "Zero-arg FFI CSE trap" above.
 
 ### FFI side-effect threading
 
