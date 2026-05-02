@@ -10,6 +10,7 @@ import Test.Schedule
 import Test.Init
 import Test.Sampler
 import Test.Layer
+import Test.BatchedForward
 import Test.RL.Gae
 import Test.RL.ReplayBuffer
 
@@ -24,6 +25,7 @@ main = runAll
   , ("Init",            Test.Init.tests)
   , ("Sampler",         Test.Sampler.tests)
   , ("Layer",           Test.Layer.tests)
+  , ("BatchedForward",  Test.BatchedForward.tests)
   , ("RL.Gae",          Test.RL.Gae.tests)
   , ("RL.ReplayBuffer", Test.RL.ReplayBuffer.tests)
   ]

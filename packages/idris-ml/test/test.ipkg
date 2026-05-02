@@ -7,6 +7,7 @@ depends = contrib
 
 modules = Harness
         , Main
+        , Test.BatchedForward
         , Test.Init
         , Test.Layer
         , Test.Math
