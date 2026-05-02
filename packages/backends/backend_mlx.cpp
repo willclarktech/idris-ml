@@ -722,6 +722,24 @@ void tensor_to_doubles(TensorHandle h, double* out) {
     mx_to_doubles(t->data, out);
 }
 
+void tensor_to_floats(TensorHandle h, float* out) {
+    auto t = (Tensor*)h;
+    mx::eval(t->data);
+    int n = (int)t->data.size();
+    if (t->data.dtype() == mx::float32) {
+        const float* src = t->data.data<float>();
+        for (int i = 0; i < n; i++) out[i] = src[i];
+    } else {
+        const double* src = t->data.data<double>();
+        for (int i = 0; i < n; i++) out[i] = (float)src[i];
+    }
+}
+
+const char* tensor_dtype_name(TensorHandle h) {
+    auto t = (Tensor*)h;
+    return (t->data.dtype() == mx::float32) ? "F32" : "F64";
+}
+
 /* ================================================================
    Arithmetic
    ================================================================ */

@@ -3,7 +3,20 @@
  * Backend-agnostic: uses only backend.h public API.
  *
  * Format: [8-byte LE u64 header_size][JSON header][tensor data]
- * All tensors stored as F64 (double), row-major.
+ *
+ * Per-tensor dtype is read from the param's actual runtime dtype via
+ * `tensor_dtype_name()`; bytes are written in the matching width
+ * (F64 -> 8 bytes/elem, F32 -> 4 bytes/elem). This matches the
+ * SafeTensors convention so `safetensors.torch.load_file()` round-
+ * trips correctly when the model is later loaded from Python.
+ *
+ * Loading enforces a dtype gate by default (param_load): mismatch
+ * between the on-disk dtype and the destination param's dtype is an
+ * error. Callers wanting silent precision conversion at load time
+ * pass `allow_cast=1` to `param_load_with_policy()` — file bytes are
+ * widened to f64 (for F32 source) or read as-is (for F64), then
+ * loaded into the destination param via `param_load_data` (which
+ * narrows back to the param's actual storage dtype as needed).
  */
 
 #include "backend.h"
@@ -15,6 +28,14 @@
 
 _Static_assert(__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__,
                "SafeTensors requires little-endian platform");
+
+/* Map a SafeTensors dtype tag to bytes-per-element. Unknown -> 0. */
+static size_t dtype_byte_width(const char* name) {
+    if (!name) return 0;
+    if (strcmp(name, "F64") == 0) return 8;
+    if (strcmp(name, "F32") == 0) return 4;
+    return 0;
+}
 
 /* ================================================================
    Save
@@ -31,16 +52,28 @@ int param_save(const char* path) {
     cJSON* root = cJSON_CreateObject();
     if (!root) return -1;
 
-    /* First pass: compute data offsets */
+    /* First pass: compute per-tensor byte size (depends on dtype) +
+       running data offsets. */
     size_t data_offset = 0;
     size_t* offsets = (size_t*)calloc(n, sizeof(size_t));
     size_t* sizes = (size_t*)calloc(n, sizeof(size_t));
-    if (!offsets || !sizes) { cJSON_Delete(root); free(offsets); free(sizes); return -1; }
+    const char** dtypes = (const char**)calloc(n, sizeof(const char*));
+    if (!offsets || !sizes || !dtypes) {
+        cJSON_Delete(root); free(offsets); free(sizes); free(dtypes); return -1;
+    }
 
     for (int i = 0; i < n; i++) {
         offsets[i] = data_offset;
         TensorHandle t = param_tensor(i);
-        sizes[i] = (size_t)tensor_numel(t) * sizeof(double);
+        dtypes[i] = tensor_dtype_name(t);
+        size_t width = dtype_byte_width(dtypes[i]);
+        if (width == 0) {
+            fprintf(stderr, "param_save: unsupported dtype '%s' for '%s'\n",
+                    dtypes[i] ? dtypes[i] : "(null)", param_name(i));
+            cJSON_Delete(root); free(offsets); free(sizes); free(dtypes);
+            return -1;
+        }
+        sizes[i] = (size_t)tensor_numel(t) * width;
         data_offset += sizes[i];
     }
 
@@ -51,7 +84,7 @@ int param_save(const char* path) {
         int rank = tensor_dim(t);
 
         cJSON* entry = cJSON_CreateObject();
-        cJSON_AddStringToObject(entry, "dtype", "F64");
+        cJSON_AddStringToObject(entry, "dtype", dtypes[i]);
 
         cJSON* shape = cJSON_CreateArray();
         for (int d = 0; d < rank; d++) {
@@ -69,7 +102,7 @@ int param_save(const char* path) {
 
     char* json_str = cJSON_PrintUnformatted(root);
     cJSON_Delete(root);
-    if (!json_str) { free(offsets); free(sizes); return -1; }
+    if (!json_str) { free(offsets); free(sizes); free(dtypes); return -1; }
 
     size_t json_len = strlen(json_str);
     /* Pad to 8-byte alignment */
@@ -79,7 +112,7 @@ int param_save(const char* path) {
     FILE* f = fopen(path, "wb");
     if (!f) {
         fprintf(stderr, "param_save: cannot open '%s' for writing\n", path);
-        free(json_str); free(offsets); free(sizes);
+        free(json_str); free(offsets); free(sizes); free(dtypes);
         return -1;
     }
 
@@ -94,20 +127,29 @@ int param_save(const char* path) {
     }
     free(json_str);
 
-    /* Tensor data */
+    /* Tensor data — write in the param's actual dtype width. */
     for (int i = 0; i < n; i++) {
         TensorHandle t = param_tensor(i);
         int numel = tensor_numel(t);
-        double* buf = (double*)malloc(numel * sizeof(double));
-        if (!buf) { fclose(f); free(offsets); free(sizes); return -1; }
-        tensor_to_doubles(t, buf);
-        fwrite(buf, sizeof(double), numel, f);
-        free(buf);
+        if (strcmp(dtypes[i], "F32") == 0) {
+            float* buf = (float*)malloc((size_t)numel * sizeof(float));
+            if (!buf) { fclose(f); free(offsets); free(sizes); free(dtypes); return -1; }
+            tensor_to_floats(t, buf);
+            fwrite(buf, sizeof(float), numel, f);
+            free(buf);
+        } else {  /* F64 */
+            double* buf = (double*)malloc((size_t)numel * sizeof(double));
+            if (!buf) { fclose(f); free(offsets); free(sizes); free(dtypes); return -1; }
+            tensor_to_doubles(t, buf);
+            fwrite(buf, sizeof(double), numel, f);
+            free(buf);
+        }
     }
 
     fclose(f);
     free(offsets);
     free(sizes);
+    free(dtypes);
     return 0;
 }
 
@@ -115,7 +157,7 @@ int param_save(const char* path) {
    Load
    ================================================================ */
 
-int param_load(const char* path) {
+int param_load_with_policy(const char* path, int allow_cast) {
     FILE* f = fopen(path, "rb");
     if (!f) {
         fprintf(stderr, "param_load: cannot open '%s'\n", path);
@@ -153,6 +195,7 @@ int param_load(const char* path) {
 
     int n = param_count();
     int loaded = 0;
+    int rc = 0;
 
     /* For each tensor in the file, find matching param */
     cJSON* entry = NULL;
@@ -173,47 +216,91 @@ int param_load(const char* path) {
             continue;
         }
 
+        /* Read dtype tag — driver for the rest of the load. */
+        cJSON* dtype_node = cJSON_GetObjectItem(entry, "dtype");
+        const char* src_dtype = (dtype_node && cJSON_IsString(dtype_node)) ? dtype_node->valuestring : "F64";
+        size_t src_width = dtype_byte_width(src_dtype);
+        if (src_width == 0) {
+            fprintf(stderr, "param_load: unsupported on-disk dtype '%s' for '%s'\n",
+                    src_dtype, name);
+            rc = -1;
+            continue;
+        }
+
+        TensorHandle t = param_tensor(pidx);
+        const char* dst_dtype = tensor_dtype_name(t);
+        int dtypes_match = strcmp(src_dtype, dst_dtype) == 0;
+        if (!dtypes_match && !allow_cast) {
+            fprintf(stderr,
+                    "param_load: dtype mismatch for '%s' — on disk %s, destination %s. "
+                    "Pass allow_cast=1 to convert at load time.\n",
+                    name, src_dtype, dst_dtype);
+            rc = -1;
+            continue;
+        }
+
         /* Read data_offsets */
         cJSON* offsets = cJSON_GetObjectItem(entry, "data_offsets");
         if (!offsets || cJSON_GetArraySize(offsets) != 2) {
             fprintf(stderr, "param_load: bad data_offsets for '%s'\n", name);
+            rc = -1;
             continue;
         }
         size_t start = (size_t)cJSON_GetArrayItem(offsets, 0)->valuedouble;
         size_t end = (size_t)cJSON_GetArrayItem(offsets, 1)->valuedouble;
         size_t byte_len = end - start;
-        int numel = (int)(byte_len / sizeof(double));
+        int numel = (int)(byte_len / src_width);
 
-        /* Validate shape */
-        TensorHandle t = param_tensor(pidx);
+        /* Validate element count */
         int expected_numel = tensor_numel(t);
         if (numel != expected_numel) {
             fprintf(stderr, "param_load: size mismatch for '%s': file has %d, registry has %d\n",
                     name, numel, expected_numel);
+            rc = -1;
             continue;
         }
 
-        /* Read tensor data from file */
-        double* buf = (double*)malloc(byte_len);
-        if (!buf) continue;
+        /* Read raw bytes, then convert to doubles (the lingua franca of
+           param_load_data — destination dtype conversion happens C-side). */
+        void* raw_buf = malloc(byte_len);
+        if (!raw_buf) { rc = -1; continue; }
         fseek(f, data_start + (long)start, SEEK_SET);
-        if (fread(buf, 1, byte_len, f) != byte_len) {
+        if (fread(raw_buf, 1, byte_len, f) != byte_len) {
             fprintf(stderr, "param_load: failed to read data for '%s'\n", name);
-            free(buf);
+            free(raw_buf);
+            rc = -1;
             continue;
         }
 
-        /* Load into param */
-        param_load_data(pidx, buf, numel);
-        free(buf);
+        double* dbuf;
+        int owns_dbuf = 0;
+        if (strcmp(src_dtype, "F32") == 0) {
+            dbuf = (double*)malloc((size_t)numel * sizeof(double));
+            if (!dbuf) { free(raw_buf); rc = -1; continue; }
+            owns_dbuf = 1;
+            const float* fsrc = (const float*)raw_buf;
+            for (int i = 0; i < numel; i++) dbuf[i] = (double)fsrc[i];
+        } else {  /* F64 — already in lingua franca format */
+            dbuf = (double*)raw_buf;
+        }
+
+        param_load_data(pidx, dbuf, numel);
+        if (owns_dbuf) { free(raw_buf); free(dbuf); }
+        else { free(raw_buf); }
         loaded++;
     }
 
     cJSON_Delete(root);
     fclose(f);
 
-    fprintf(stderr, "param_load: loaded %d/%d parameters from '%s'\n", loaded, n, path);
-    return 0;
+    fprintf(stderr, "param_load: loaded %d/%d parameters from '%s'%s\n",
+            loaded, n, path,
+            (rc != 0) ? " (with errors — see above)" : "");
+    return rc;
+}
+
+int param_load(const char* path) {
+    return param_load_with_policy(path, /*allow_cast=*/0);
 }
 
 /* ================================================================

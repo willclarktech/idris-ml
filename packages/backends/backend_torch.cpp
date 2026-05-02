@@ -144,6 +144,16 @@ void tensor_to_doubles(TensorHandle h, double* out) {
     std::memcpy(out, t.data_ptr<double>(), t.numel() * sizeof(double));
 }
 
+void tensor_to_floats(TensorHandle h, float* out) {
+    auto t = to_tensor(h)->to(torch::kFloat32).contiguous();
+    std::memcpy(out, t.data_ptr<float>(), t.numel() * sizeof(float));
+}
+
+const char* tensor_dtype_name(TensorHandle h) {
+    auto st = to_tensor(h)->scalar_type();
+    return (st == torch::kFloat32) ? "F32" : "F64";
+}
+
 /* ---------- Arithmetic ---------- */
 
 TensorHandle tensor_add(TensorHandle a, TensorHandle b) {

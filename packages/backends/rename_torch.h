@@ -64,6 +64,7 @@
 #define param_grad_item_at param_grad_item_at_torch
 #define param_load param_load_torch
 #define param_load_data param_load_data_torch
+#define param_load_with_policy param_load_with_policy_torch
 #define param_name param_name_torch
 #define param_register param_register_torch
 #define param_register_return param_register_return_torch
@@ -148,6 +149,7 @@
 #define tensor_div tensor_div_torch
 #define tensor_dot tensor_dot_torch
 #define tensor_dropout tensor_dropout_torch
+#define tensor_dtype_name tensor_dtype_name_torch
 #define tensor_embedding tensor_embedding_torch
 #define tensor_exp tensor_exp_torch
 #define tensor_expand_mask tensor_expand_mask_torch
@@ -233,6 +235,7 @@
 #define tensor_tile_2d tensor_tile_2d_torch
 #define tensor_to_device tensor_to_device_torch
 #define tensor_to_doubles tensor_to_doubles_torch
+#define tensor_to_floats tensor_to_floats_torch
 #define tensor_transpose_2d tensor_transpose_2d_torch
 #define tensor_transpose_last2 tensor_transpose_last2_torch
 #define tensor_unbatch tensor_unbatch_torch

@@ -64,6 +64,7 @@
 #define param_grad_item_at param_grad_item_at_tape
 #define param_load param_load_tape
 #define param_load_data param_load_data_tape
+#define param_load_with_policy param_load_with_policy_tape
 #define param_name param_name_tape
 #define param_register param_register_tape
 #define param_register_return param_register_return_tape
@@ -148,6 +149,7 @@
 #define tensor_div tensor_div_tape
 #define tensor_dot tensor_dot_tape
 #define tensor_dropout tensor_dropout_tape
+#define tensor_dtype_name tensor_dtype_name_tape
 #define tensor_embedding tensor_embedding_tape
 #define tensor_exp tensor_exp_tape
 #define tensor_expand_mask tensor_expand_mask_tape
@@ -233,6 +235,7 @@
 #define tensor_tile_2d tensor_tile_2d_tape
 #define tensor_to_device tensor_to_device_tape
 #define tensor_to_doubles tensor_to_doubles_tape
+#define tensor_to_floats tensor_to_floats_tape
 #define tensor_transpose_2d tensor_transpose_2d_tape
 #define tensor_transpose_last2 tensor_transpose_last2_tape
 #define tensor_unbatch tensor_unbatch_tape

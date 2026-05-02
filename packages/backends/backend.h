@@ -57,6 +57,8 @@ int    tensor_numel(TensorHandle t);
 int    tensor_dim(TensorHandle t);
 int    tensor_size(TensorHandle t, int dim);
 void   tensor_to_doubles(TensorHandle t, double* out); /* flatten to buffer */
+void   tensor_to_floats(TensorHandle t, float* out);   /* flatten to f32 buffer */
+const char* tensor_dtype_name(TensorHandle t); /* "F32" | "F64" — SafeTensors-compatible string */
 
 /* ---------- Arithmetic (element-wise, return new tensor) ---------- */
 
@@ -457,8 +459,18 @@ const char* backend_name(void);
 int param_save(const char* path);
 
 /* Load params from a .safetensors file into the existing param registry.
-   Matches by name. Skips tensors not in registry. Returns 0 on success. */
+   Matches by name. Skips tensors not in registry. Returns 0 on success.
+   Strict mode: errors out if any tensor's on-disk dtype differs from
+   the destination param's dtype. Use param_load_with_policy() to opt
+   in to silent precision conversion. */
 int param_load(const char* path);
+
+/* Load params with explicit dtype-mismatch policy. allow_cast=0 is
+   strict (mismatch -> error). allow_cast=1 reads source bytes,
+   widens to doubles, then loads via param_load_data (which narrows
+   to the destination param's actual dtype as needed). Returns 0 if
+   every tensor loaded cleanly, nonzero if any entry was skipped. */
+int param_load_with_policy(const char* path, int allow_cast);
 
 /* Overwrite param tensor data in-place from a double buffer (per-backend). */
 void param_load_data(int idx, const double* data, int numel);

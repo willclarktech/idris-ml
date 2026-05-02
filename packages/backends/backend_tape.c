@@ -622,6 +622,20 @@ void tensor_to_doubles(TensorHandle h, double* out) {
     memcpy(out, t->data, t->numel * sizeof(double));
 }
 
+void tensor_to_floats(TensorHandle h, float* out) {
+    Tensor* t = (Tensor*)h;
+    for (int i = 0; i < t->numel; i++) out[i] = (float)t->data[i];
+}
+
+const char* tensor_dtype_name(TensorHandle h) {
+    (void)h;
+    /* Tape backend's arena is f64-only — no parallel f32 storage yet
+       (see L60 "F32 storage on tape backend" row). Every Tensor* here
+       is logically F64 regardless of how the typeclass dispatched
+       construction. */
+    return "F64";
+}
+
 /* ================================================================
    Scalar arithmetic (forward only — backward in tape walk)
    ================================================================ */

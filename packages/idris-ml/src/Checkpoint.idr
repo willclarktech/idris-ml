@@ -10,6 +10,9 @@ prim__paramSave : String -> PrimIO Int
 %foreign "C:param_load,libidrisml"
 prim__paramLoad : String -> PrimIO Int
 
+%foreign "C:param_load_with_policy,libidrisml"
+prim__paramLoadWithPolicy : String -> Int -> PrimIO Int
+
 %foreign "C:optimizer_save,libidrisml"
 prim__optimizerSave : AnyPtr -> String -> PrimIO Int
 
@@ -25,12 +28,31 @@ saveModel path = do
   pure (rc == 0)
 
 ||| Load parameters from a .safetensors file into the existing registry.
-||| After loading, use `emap refreshValue` on the network to update cached values.
-||| Returns True on success.
+||| Strict-dtype mode: any param whose on-disk dtype differs from the
+||| in-memory destination is an error (the load reports the offending
+||| param name to stderr and returns `False`). After loading, use
+||| `emap refreshValue` on the network to update cached values.
+|||
+||| For cross-dtype loads (e.g. an F32-saved checkpoint into an F64
+||| model), use `loadModelAllowCast` to opt in to silent precision
+||| conversion at load time.
 export
 loadModel : String -> IO Bool
 loadModel path = do
   rc <- primIO (prim__paramLoad path)
+  pure (rc == 0)
+
+||| Same as `loadModel` but routes through `param_load_with_policy`
+||| with `allow_cast=1`. On dtype mismatch, the on-disk bytes are
+||| read in their source width (F32 -> 4 bytes/elem, F64 -> 8) and
+||| widened to doubles before being loaded into the destination param
+||| (which the backend then narrows back to its actual storage dtype
+||| as needed). F32 -> F64 is lossless; F64 -> F32 incurs precision
+||| loss but is well-defined.
+export
+loadModelAllowCast : String -> IO Bool
+loadModelAllowCast path = do
+  rc <- primIO (prim__paramLoadWithPolicy path 1)
   pure (rc == 0)
 
 ||| Save optimizer state (momentum/velocity buffers) to a .safetensors file.
