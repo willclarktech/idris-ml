@@ -52,6 +52,7 @@ example-q-learning               avg_return   >=  -120
 example-sarsa                    avg_return   >=  -120
 example-monte-carlo              win_rate     >=  0.3
 example-frozen-lake              avg_return   >=  0.4
+example-taxi                     avg_return   >=  5
 
 # ---- RL: deep (safety-net at very reduced caps) ----
 # CartPole (REINFORCE/DQN/A2C) random ≈ 22; Acrobot (PPO) random ≈ -500;

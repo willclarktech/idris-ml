@@ -38,6 +38,10 @@ example-monte-carlo              win_rate     >=  0.3
 # Slippery 4x4 FrozenLake: even an optimal policy slips into holes ~30% of
 # the time, so avg_return is success-rate-capped well below 1.0.
 example-frozen-lake              avg_return   >=  0.4
+# Taxi-v3: deterministic, fixed start. Optimal trajectory is 13 actions
+# (12 steps × -1, +20 dropoff) → +8 reward. Threshold allows slight slack
+# for sub-optimal Q-tables; trained policy reliably hits 8.
+example-taxi                     avg_return   >=  5
 
 # ---- RL: deep (CartPole + Acrobot + Pendulum) ----
 # CartPole: REINFORCE/A2C aim for ~500; DQN ~100+ at convergence.

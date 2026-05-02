@@ -29,5 +29,6 @@ modules = Generate
         , Example.Sarsa
         , Example.SeqClassify
         , Example.Supervised
+        , Example.Taxi
         , Example.Transfer
         , Example.Transformer

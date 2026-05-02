@@ -202,6 +202,24 @@ Second B6 ticket — fills the FrozenLake env coverage gap. Tabular Q-learning o
 
 Initial defaults (alpha=0.5 gamma=1.0 epsilon=0.1 epochs=500, mirroring CliffWalking) failed multi-seed (2/5 stuck at 0.0). Tuned epsilon up and epochs up so the agent finds the goal often enough to bootstrap learning despite slipperiness — both sides updated together per the alignment policy.
 
+### Taxi example added (B6, 2026-04-30)
+
+Third B6 ticket — fills the Taxi env coverage gap. Tabular Q-learning on the deterministic 5×5 Taxi-v3 grid. Mirrors `Example.QLearning` (CliffWalking) line-for-line; only the env layer changed.
+
+**Configuration alignment**: Idris `Example.Taxi` and PyTorch `torch_ref/models/taxi.py` use identical defaults: `alpha=0.1 gamma=0.99 epsilon=0.1 epochs=20000 seed=42`. Both implement the same fixed-start scaffold (`defaultStart` = taxi (2,2), passenger R=0, destination B=3) and the same Gymnasium wall layout (between cols 1-2 in rows 0-1, between cols 2-3 in rows 3-4).
+
+**Multi-seed convergence (≥5 seeds, both backends)**, threshold `avg_return >= 5`:
+
+| Seed | Idris avg_return | PyTorch avg_return |
+|------|------------------|--------------------|
+| 1    | 8.0              | 8.0                |
+| 2    | 8.0              | 8.0                |
+| 3    | 8.0              | 8.0                |
+| 4    | 8.0              | 8.0                |
+| 42   | 8.0              | 8.0                |
+
+**10/10 hit optimal**. Deterministic env + fixed start = a single optimal trajectory of 13 actions (12·-1 + 20 = +8); the seed only affects ε-greedy exploration during training, and 20K episodes is sufficient on this state space (500 states × 6 actions = 3000-cell table) for every seed to converge to the optimal Q-function.
+
 ### LSTM multi-seed validation at lr=0.5 (B5, 2026-04-30)
 
 After B3 raised the LSTM default LR from 0.03 → 0.5 (lr_find recommendation, single-seed verified), B5 ran the full ≥5-seed validation at the new default on both backends. Convergence threshold: `loss < 0.05`.

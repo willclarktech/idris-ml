@@ -532,3 +532,29 @@ Initial pass at `alpha=0.5 gamma=1.0 epsilon=0.1 epochs=500` (the QLearning-on-C
 Cross-backend determinism: Q-table updates are pure deterministic given the same seed sequence; both backends give identical avg_return when run from the Idris example (tape/mlx/torch all hit 0.74 at seed=42 because tabular RL doesn't exercise the autograd path).
 
 Convergence runtime: ~2 s on tape. Smoke = full convergence run (no epoch override needed).
+
+### Taxi (tabular Q-learning on deterministic env)
+
+Third B6 ticket. Closes the Taxi env coverage gap. Tabular Q-learning on the deterministic 5×5 Taxi-v3 grid, mirroring `Example.QLearning` (CliffWalking) almost line-for-line — same fixed-start scaffolding, no slip noise needed.
+
+Config: `alpha=0.1 gamma=0.99 epsilon=0.1 epochs=20000 seed=42`. Q-table `[500, 6]` (500 states × 6 actions), MaxSteps=200, fixed start `defaultStart` (taxi at (2,2), passenger at R=0, destination B=3). Reward range: -1/step, -10 for illegal pickup/dropoff, +20 for successful dropoff at destination.
+
+The walls in the 5×5 layout (between cols 1-2 in rows 0-1; between cols 2-3 in rows 3-4) force the optimal trajectory into 13 actions (4 to reach R, 1 pickup, 7 to reach B with detours, 1 dropoff) → optimal return = 12·(-1) + 20 = **+8**.
+
+**Multi-seed convergence (≥5 seeds, both backends)**, threshold `avg_return >= 5`:
+
+| Seed | Idris avg_return | PyTorch avg_return |
+|------|------------------|--------------------|
+| 1    | 8.0              | 8.0                |
+| 2    | 8.0              | 8.0                |
+| 3    | 8.0              | 8.0                |
+| 4    | 8.0              | 8.0                |
+| 42   | 8.0              | 8.0                |
+
+**10/10 hit optimal**. Deterministic env + fixed start = single trajectory; once Q-learning converges to the optimal policy (which it does reliably under these defaults), every greedy episode replays it.
+
+`lr_find` is not applicable (tabular). The natural sweep would be α/ε; both already at sensible defaults per the multi-seed evidence.
+
+Convergence runtime: ~7 s on tape. Smoke = full convergence run (no epoch override needed). Same number on all 3 backends (tabular doesn't exercise autograd).
+
+**Calibration footnote**: Taxi was the second straight B6 ticket where the existing tabular scaffolding extended cleanly without modification — no env-API changes, no new training-loop variant. ~30 minutes idea→committed. The 1-day estimate from the audit holds for env-gap tickets that need stochastic-env wiring or reward shaping; ports onto deterministic envs that share the QLearning/CliffWalking template are sub-hour.

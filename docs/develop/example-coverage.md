@@ -46,6 +46,7 @@ be replaced with measurements as part of B3 dogfood runs.
 | QLearning | Q-table [12, 4] | CliffWalking (tabular) | Custom Q-learning | full default 1000 ep | <1 s (measured) | avg_return ≥ −120 | <1 s (measured) | |
 | MonteCarlo | Q-table [400, 2] | Blackjack (tabular) | First-visit MC | full default 100K ep | ~1 s (estimated) | win_rate ≥ 0.3 | ~1 s (estimated) | |
 | FrozenLake | Q-table [16, 4] | FrozenLake slippery 4×4 (tabular, stochastic) | Custom Q-learning | full default 10K ep | ~2 s (measured) | avg_return ≥ 0.4 | ~2 s (measured) | B6 2026-04-30; 5/5 Idris (0.66–0.80) + 5/5 PyTorch (0.56–0.75) |
+| Taxi | Q-table [500, 6] | Taxi-v3 (tabular, deterministic) | Custom Q-learning | full default 20K ep | ~7 s (measured) | avg_return ≥ 5 | ~7 s (measured) | B6 2026-04-30; 5/5 Idris + 5/5 PyTorch all hit optimal +8 |
 | Transfer | FC transfer cascade | Synthetic supervised tasks | Supervised | full default | TBD (measure in B3) | loss < 0.5 | ~5 s (estimated) | uses Checkpoint save/load across backends |
 | Bench | Multi-model | Internal benchmark | Mixed | n/a | n/a | n/a | ~3 s (measured) | not in test-examples |
 | Profile | Single-model | Internal benchmark | Supervised | n/a | n/a | n/a | per-epoch ms | not in test-examples |
@@ -109,7 +110,7 @@ Five of the nine shipped Gym envs have no example:
 - **MountainCar** (discrete) — classic exploration challenge; pairs naturally with DQN or REINFORCE.
 - **MountainCarCont** (continuous) — Box action space; pairs with PPO or SAC.
 - ~~**Acrobot** (discrete)~~ — covered by Ppo (B3-fixes 2026-04-30; PPO env swap from Pendulum).
-- **Taxi** (tabular discrete) — 500-state table; pairs with Q-learning to extend the tabular suite.
+- ~~**Taxi** (tabular discrete)~~ — covered by Taxi (B6 2026-04-30; tabular Q-learning at α=0.1 γ=0.99 ε=0.1 over 20K episodes; 5/5 both backends hit optimal +8).
 - ~~**FrozenLake** (tabular discrete, stochastic)~~ — covered by FrozenLake (B6 2026-04-30; tabular Q-learning on slippery 4×4 at α=0.1 γ=0.99 ε=0.3 over 10K episodes; 5/5 both backends with mean avg_return ~0.71).
 
 ### Cross-cutting gaps
