@@ -50,7 +50,12 @@ def main() -> None:
 
     if args.lr_find:
         def epoch_fn() -> float:
-            return reinforce_epoch(policy, optimizer, args.batch, args.gamma)
+            # `reinforce_epoch` returns mean episodic return (higher=better),
+            # but `lr_find` follows the standard "lower loss = better"
+            # convention. Negate so the cross-backend comparison with the
+            # Idris example (which already reports `negate avg_return`) is
+            # meaningful.
+            return -reinforce_epoch(policy, optimizer, args.batch, args.gamma)
         lr_find(LrFindConfig(num_iters=100), epoch_fn, optimizer)
         print()
         print("Done — re-run without --lr-find at the recommended LR.")

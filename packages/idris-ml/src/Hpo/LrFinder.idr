@@ -185,8 +185,10 @@ lrFind {model} cfg epochFn dataSrc opt model0 = do
   result <- go 0 model0 0.0 (1.0 / 0.0) []
   tEnd <- clockTime Monotonic
   putStrLn $ "lr_find done in " ++ formatElapsed tStart tEnd
-  when (isFallbackCurve (points result)) $
-    putStrLn "WARNING: fallback recommendation — no negative-slope window in the swept curve."
+  let curveFallback = isFallbackCurve (points result)
+      recBelowMin = recommendedLr result <= cfg.lrMin
+  when (curveFallback || recBelowMin) $
+    putStrLn "WARNING: fallback recommendation — no usefully-descending region in the swept curve (recommendation at or below lrMin)."
   putStrLn $ "RECOMMENDED_LR=" ++ show (recommendedLr result)
   pure result
   where

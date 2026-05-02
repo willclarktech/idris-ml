@@ -194,12 +194,13 @@ def lr_find(
     elapsed = time.monotonic() - t_start
     print(f"lr_find done in {elapsed:.2f}s")
 
-    if is_fallback_curve(points):
+    rec = recommend_from_curve(config.recommend_div, points)
+    if is_fallback_curve(points) or rec <= config.lr_min:
         print(
             "WARNING: fallback recommendation — "
-            "no negative-slope window in the swept curve."
+            "no usefully-descending region in the swept curve "
+            "(recommendation at or below lr_min)."
         )
-    rec = recommend_from_curve(config.recommend_div, points)
     print(f"RECOMMENDED_LR={rec}")
 
     return LrFindResult(points=points, recommended_lr=rec)
