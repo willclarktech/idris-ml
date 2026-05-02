@@ -210,6 +210,7 @@ record Config where
   esThreshold  : Double       -- early stop when avg(loss) < this
   esWindow     : Nat          -- avg window (epochs)
   esPatience   : Nat          -- consecutive epochs below threshold
+  lrFind       : Bool
 
 ||| Defaults aligned with `torch_ref/models/sac.py`. Early-stop matches the
 ||| `>=-500` test-examples-convergence threshold: stop when window-averaged
@@ -224,7 +225,7 @@ record Config where
 ||| the most recent 10 blocks (= ~1000 epochs ≈ 5 episodes).
 defaultConfig : Config
 defaultConfig = MkConfig 3.0e-4 30000 0.99 0.2 100000 64 1000 0.005 1.0 42
-                         500.0 1000 100
+                         500.0 1000 100 False
 
 specs : List (ArgSpec Config)
 specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
@@ -240,6 +241,7 @@ specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
         , Arg "--es-threshold" (\v, c => { esThreshold := cast v } c)
         , Arg "--es-window" (\v, c => { esWindow := castNat v } c)
         , Arg "--es-patience" (\v, c => { esPatience := castNat v } c)
+        , Arg "--lr-find" (\v, c => { lrFind := (v == "1" || v == "true") } c)
         ]
 
 
@@ -559,6 +561,16 @@ main = do
       q2Opt    = mkAdamGroup "q2_"    cfg.lr cfg.clipNorm
 
   putStrLn ""
+
+  -- HPO branch: SAC's epoch is one env step. With warmup=1000 + episode
+  -- length 200, lr_find at 30–100 iters would never reach the training
+  -- phase. Episode-return-as-loss only updates every 200 steps too.
+  -- Skip the runtime sweep; document in hyperparameter-tuning-2026.md.
+  -- The flag is wired for API consistency with the rest of the suite.
+  when cfg.lrFind $ do
+    putStrLn "lr_find skipped for SAC: per-step epochs + warmup=1000 don't fit"
+    putStrLn "the LR-range-test pattern. See docs/develop/hyperparameter-tuning-2026.md."
+    exitSuccess
 
   let trainCfg : TrainConfig SACState
       trainCfg = MkTrainConfig cfg.epochs 2000

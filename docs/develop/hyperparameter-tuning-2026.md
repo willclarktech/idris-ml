@@ -165,6 +165,18 @@ This is a useful negative-result entry for the workflow: `lr_find` is a screenin
 
 ---
 
+## Sac           date: 2026-04-29
+
+- **Before**: `lr=3e-4 steps=30000 gamma=0.99 alpha=0.2 batch=64 warmup=1000 tau=0.005 seed=42`. Three networks: actor (3→64→64→1) + Q1/Q2 (4→64→64→1), three group-scoped Adam optimizers (`actor_`, `q1_`, `q2_`), Polyak-blended target Q-nets (`q1tgt_`, `q2tgt_`). Pendulum continuous control.
+- **lr_find (Idris)**: **skipped at runtime**. SAC's "epoch" in `runTrainingIO` is a single env step, not a rollout. With `warmup=1000` + `EpisodeLen=200`, the first 1000 iters of an LR sweep would all be no-ops (warmup pre-fills the buffer; no training step yet); episode-return-as-loss only updates every 200 steps either way. lr_find at 30 or even 100 iters would never reach the training phase.
+- **lr_find (PyTorch)**: n/a — no PyTorch SAC script.
+- **Cross-backend agreement**: n/a.
+- **Decision**: ship-as-is at lr=3e-4. The `--lr-find` flag is wired (for API consistency); invoking it prints a "skipped — see docs" message.
+- **Implication for the heuristic**: SAC's structure (warmup-gated, off-policy, per-step training) is the strongest case for the future-improvement direction noted in earlier entries — `lrFind` should accept either an "epoch = N optimizer steps" or "epoch = M env steps after warmup" mode for off-policy RL. Out of scope for B3.
+- **Commit**: (this commit).
+
+---
+
 ## Pattern observed across B3 so far
 
 After 5 examples (Supervised, Rnn, Lstm, Transformer, SeqClassify), the
