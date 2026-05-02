@@ -112,13 +112,14 @@ bash scripts/sweep.sh --task copy --parallel 4 --quick  # 2000 epochs for screen
     - **Layer.Dnc** - `DncState` + DNC head ops (Graves et al. 2016: temporal link matrix, usage-based allocation, multi-head read with mode mixture). R read heads parameterized at type level
     - **Layer.Transformer** - `TransformerState` with multi-head attention, layer norm, learned embeddings, sinusoidal PE
 11. **Optimizer** - SGD, Adam, AdamW, RMSprop (Idris-side), plus `NativeOptimizer` (C-side, all backends). AdamW has decoupled weight decay. Per-parameter LR overrides via `setParamLR`
-12. **Schedule** - Learning rate schedules: `constant`, `cosineAnnealing`, `oneCycle`, `withWarmup`, `cosineWithWarmup`, `stepLR`, `exponentialLR`
-13. **Backprop** - Epoch functions: `epochNative`, `epochRecurrentNative`, `epochTwoPhaseBceNative`, `epochNativeTensorPreAccum` (gradient accumulation)
-14. **Train** - Unified training runner: `runTraining`, `TrainConfig`, `EarlyStopConfig`, `ArgSpec`/`parseArgs`, `formatResult`
-15. **Curriculum** - Multi-stage curriculum training: `Stage` record, `runCurriculum`
-16. **Debug** - Forward-pass diagnostics: `debugForward`, `debugForwardRecurrent`, `toDoubleNetwork`
-17. **Checkpoint** - SafeTensors serialization: `saveModel`/`loadModel`, `saveOptimizer`/`loadOptimizer`
-18. **Notebook.Prelude** - Re-exports all library modules via `import public` for Jupyter kernel interactive use (separate `idris-ml-notebook` package)
+12. **Schedule** - Learning rate schedules: `constant`, `cosineAnnealing`, `oneCycle`, `withWarmup`, `cosineWithWarmup`, `stepLR`, `exponentialLR`. Wired into `runTraining` via `TrainConfig.beforeEpoch` + `applySchedule sched opt` (Train.idr)
+13. **Hpo** - Hyperparameter-optimization tooling. Re-export hub for `Hpo.LrFinder` (`lrFind` LR-range test, fastai-style). See `docs/develop/hyperparameter-tuning-2026.md` for usage and dogfood results
+14. **Backprop** - Epoch functions: `epochNative`, `epochRecurrentNative`, `epochTwoPhaseBceNative`, `epochNativeTensorPreAccum` (gradient accumulation)
+15. **Train** - Unified training runner: `runTraining`, `TrainConfig`, `EarlyStopConfig`, `ArgSpec`/`parseArgs`, `formatResult`. `TrainConfig.beforeEpoch : Nat -> IO ()` per-epoch hook (use `applySchedule` to attach an LR schedule)
+16. **Curriculum** - Multi-stage curriculum training: `Stage` record, `runCurriculum`
+17. **Debug** - Forward-pass diagnostics: `debugForward`, `debugForwardRecurrent`, `toDoubleNetwork`
+18. **Checkpoint** - SafeTensors serialization: `saveModel`/`loadModel`, `saveOptimizer`/`loadOptimizer`
+19. **Notebook.Prelude** - Re-exports all library modules via `import public` for Jupyter kernel interactive use (separate `idris-ml-notebook` package)
 
 ### Jupyter notebooks
 

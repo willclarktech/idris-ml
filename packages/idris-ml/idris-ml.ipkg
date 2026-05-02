@@ -14,6 +14,7 @@ modules = Compat.Random
         , Device
         , Endofunctor
         , Floating
+        , Hpo
         , Hpo.LrFinder
         , Init
         , Layer
