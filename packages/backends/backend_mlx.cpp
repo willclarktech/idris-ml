@@ -102,6 +102,7 @@ enum {
     OP_SCATTER_ADD,   /* scatter-add along axis 0 by integer indices */
     OP_LEAKY_RELU,
     OP_SILU,
+    OP_SUM_DIM,       /* sum along a single axis with optional keepdim */
 };
 
 // Lightweight metadata for ops that need extra info during replay.
@@ -136,6 +137,11 @@ struct Conv2DReplayMeta {
 
 struct MaxPool2DReplayMeta {
     int C, H, W, kH, kW, strH, strW, oH, oW;
+};
+
+struct SumDimReplayMeta {
+    int dim;       /* normalized to non-negative at forward */
+    int keepdim;   /* 0 or 1 */
 };
 
 struct TapeEntry {
@@ -185,6 +191,10 @@ static void tape_reset() {
         }
         if (e.op == OP_MAX_POOL2D && e.meta) {
             delete (MaxPool2DReplayMeta*)e.meta;
+            e.meta = nullptr;
+        }
+        if (e.op == OP_SUM_DIM && e.meta) {
+            delete (SumDimReplayMeta*)e.meta;
             e.meta = nullptr;
         }
     }
@@ -456,7 +466,20 @@ TensorHandle tensor_sum(TensorHandle h) {
     return (TensorHandle)r;
 }
 
-TensorHandle tensor_sum_dim(TensorHandle t, int dim, int keepdim) { STUB(); }
+TensorHandle tensor_sum_dim(TensorHandle h, int dim, int keepdim) {
+    auto t = (Tensor*)h;
+    int rank = (int)t->data.ndim();
+    int normalized = dim < 0 ? dim + rank : dim;
+    auto r = new Tensor(
+        mx::sum(t->data, std::vector<int>{normalized}, keepdim != 0),
+        t->requires_grad);
+    if (t->requires_grad) {
+        int idx = tape_append(OP_SUM_DIM, r, t, nullptr, 0);
+        auto meta = new SumDimReplayMeta{normalized, keepdim != 0 ? 1 : 0};
+        tape[idx].meta = meta;
+    }
+    return (TensorHandle)r;
+}
 TensorHandle tensor_mean(TensorHandle h) {
     auto t = (Tensor*)h;
     auto r = new Tensor(mx::mean(t->data), t->requires_grad);
@@ -1167,7 +1190,23 @@ TensorHandle tensor_unsqueeze(TensorHandle h, int dim) {
     if (t->requires_grad) tape_append(OP_RESHAPE, r, t, nullptr, 0);
     return (TensorHandle)r;
 }
-TensorHandle tensor_squeeze(TensorHandle t, int dim) { STUB(); }
+TensorHandle tensor_squeeze(TensorHandle h, int dim) {
+    auto t = (Tensor*)h;
+    int rank = (int)t->data.ndim();
+    int normalized = dim < 0 ? dim + rank : dim;
+    /* No-op if dim is out of range or not size 1 — matches torch's .squeeze(dim) */
+    if (normalized < 0 || normalized >= rank || (int)t->data.shape(normalized) != 1) {
+        return tensor_clone(h);
+    }
+    std::vector<int> new_shape;
+    new_shape.reserve(rank - 1);
+    for (int i = 0; i < rank; i++) {
+        if (i != normalized) new_shape.push_back((int)t->data.shape(i));
+    }
+    /* Reshape preserves data layout: squeeze of a size-1 dim is identity on data.
+       Reuse OP_RESHAPE so backward replay reconstructs the same shape. */
+    return tensor_reshape(h, new_shape.data(), (int)new_shape.size());
+}
 
 TensorHandle tensor_select(TensorHandle h, int dim, int index) {
     auto t = (Tensor*)h;
@@ -1213,7 +1252,19 @@ TensorHandle tensor_bmm(TensorHandle ha, TensorHandle hb) {
     return (TensorHandle)r;
 }
 TensorHandle tensor_batch(TensorHandle* handles, int count) { STUB(); }
-TensorHandle* tensor_unbatch(TensorHandle h, int* out_count) { STUB(); }
+TensorHandle* tensor_unbatch(TensorHandle h, int* out_count) {
+    auto t = (Tensor*)h;
+    int B = (int)t->data.shape(0);
+    *out_count = B;
+    auto* arr = (TensorHandle*)malloc(B * sizeof(TensorHandle));
+    /* tensor_select picks dim=0 index=i and removes that dim — that is exactly
+       one slice of the unbatched output. OP_SELECT is already replayed at dim=0,
+       so backward replay reconstructs the same gathers. */
+    for (int i = 0; i < B; i++) {
+        arr[i] = tensor_select((TensorHandle)t, 0, i);
+    }
+    return arr;
+}
 
 TensorHandle tensor_bmm_3x3(TensorHandle ha, TensorHandle hb) {
     auto a = (Tensor*)ha; auto b = (Tensor*)hb;
@@ -1422,6 +1473,11 @@ void tensor_backward(TensorHandle h) {
             case OP_CLAMP_MIN: pool[out] = mx::maximum(a, mx::array(e.scalar_arg)); break;
             case OP_SUM: pool[out] = mx::sum(a); break;
             case OP_MEAN: pool[out] = mx::mean(a); break;
+            case OP_SUM_DIM: {
+                auto* sm = (SumDimReplayMeta*)e.meta;
+                pool[out] = mx::sum(a, std::vector<int>{sm->dim}, sm->keepdim != 0);
+                break;
+            }
             case OP_MM: case OP_BMM: case OP_BMM_3X3: pool[out] = mx::matmul(a, b); break;
             case OP_SOFTMAX_3D: pool[out] = mx::softmax(a, -1); break;
             case OP_TRANSPOSE_LAST2: pool[out] = mx::transpose(a, {0, 2, 1}); break;
@@ -1754,8 +1810,11 @@ double param_grad_item(int idx) {
 double param_grad_item_at(int param_idx, int elem_idx) {
     auto t = param_registry[param_idx].tensor;
     if (!t->has_grad) return 0.0;
-    mx::eval(t->grad);
-    return t->grad.data<double>()[elem_idx];
+    /* mx::vjp may return non-contiguous arrays (e.g. sum_dim grads come back
+       with broadcast strides). Force a contiguous row-major copy. */
+    auto contig = mx::contiguous(t->grad);
+    mx::eval(contig);
+    return contig.data<double>()[elem_idx];
 }
 
 double param_grad_item_and_zero(int idx) {
