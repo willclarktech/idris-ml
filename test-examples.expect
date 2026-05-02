@@ -52,12 +52,13 @@ example-sarsa                    avg_return   >=  -120
 example-monte-carlo              win_rate     >=  0.3
 
 # ---- RL: deep (safety-net at very reduced caps) ----
-# CartPole (REINFORCE/DQN/A2C) random ≈ 22; Pendulum (PPO/SAC) random ≈ -1500.
+# CartPole (REINFORCE/DQN/A2C) random ≈ 22; Acrobot (PPO) random ≈ -500;
+# Pendulum (SAC) random ≈ -1500.
 # All thresholds here are NaN/divergence catches, not convergence claims.
 example-reinforce                avg_return   >=  -100
 example-dqn                      avg_return   >=  -300
 example-a2c                      avg_return   >=  -100
-example-ppo                      avg_return   >=  -2500
+example-ppo                      avg_return   >=  -550
 example-sac                      avg_return   >=  -2500
 
 # ---- Cross-backend transfer ----

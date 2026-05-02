@@ -35,13 +35,12 @@ example-q-learning               avg_return   >=  -120
 example-sarsa                    avg_return   >=  -120
 example-monte-carlo              win_rate     >=  0.3
 
-# ---- RL: deep (CartPole + Pendulum) ----
+# ---- RL: deep (CartPole + Acrobot + Pendulum) ----
 # CartPole: REINFORCE/A2C aim for ~500; DQN ~100+ at convergence.
-# Pendulum: PPO/SAC aim for -200 to -500 at full convergence;
-# pre-smoke-collapse caps had PPO/SAC fail anyway, so thresholds are
-# documented partial-convergence levels.
+# Acrobot: PPO solves at ~-100 (near-optimal); seed=42 reaches -94.
+# Pendulum: SAC at full convergence aims for ~-500; documented partial level.
 example-reinforce                avg_return   >=  150
 example-dqn                      avg_return   >=  100
 example-a2c                      avg_return   >=  150
-example-ppo                      avg_return   >=  -800
+example-ppo                      avg_return   >=  -150
 example-sac                      avg_return   >=  -500

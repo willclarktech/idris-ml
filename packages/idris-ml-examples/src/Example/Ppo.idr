@@ -9,7 +9,7 @@ import Compat.Random
 
 import Endofunctor
 import Floating
-import Gym.ClassicControl.Pendulum
+import Gym.ClassicControl.Acrobot
 import Gym.Env
 import Hpo.LrFinder
 import Layer
@@ -24,15 +24,19 @@ import Variable
 
 
 ----------------------------------------------------------------------
--- Architecture: separate actor and critic MLPs + learnable state-
--- independent log_std (matching `torch_ref/models/ppo.py` exactly).
--- Actor:  Linear(3→64) → tanh → Linear(64→64) → tanh → Linear(64→1)  = mean
--- Critic: Linear(3→64) → tanh → Linear(64→64) → tanh → Linear(64→1)  = value
--- log_std is a standalone Variable parameter.
+-- Architecture: separate actor and critic MLPs with discrete-action
+-- (categorical) policy on Acrobot. Pendulum (continuous-action Gaussian)
+-- was the original env but didn't converge at CPU-feasible rollout
+-- sizes; Acrobot is the canonical "PPO clipped-surrogate demonstrates"
+-- benchmark — discrete actions, sparse reward, longer horizon.
 --
--- Actor and critic params are scoped via `autoNameScoped` (see A2c.idr
--- — same paramId-collision fix). Without scoping, both networks register
--- `ll0_weights` etc. and the second overwrites the first.
+-- Actor:  Linear(6→64) → tanh → Linear(64→64) → tanh → Linear(64→3)  = action logits
+-- Critic: Linear(6→64) → tanh → Linear(64→64) → tanh → Linear(64→1)  = value
+--
+-- Actor and critic params are scoped via `autoNameScoped` (paramId-
+-- collision fix; see CLAUDE.md "ParamId scoping for multi-network
+-- examples"). Without scoping, both networks register `ll0_weights`
+-- etc. and the second overwrites the first.
 ----------------------------------------------------------------------
 
 -- --- Local autoName with scope prefix -------------------------------
@@ -67,14 +71,15 @@ autoNameScoped scope net = snd (autoNameNetworkLocal scope empty net)
 
 -- --- Architecture ---------------------------------------------------
 
-ObsDim : Nat; ObsDim = 3
+ObsDim : Nat; ObsDim = 6
 Hidden : Nat; Hidden = 64
-EpisodeLen : Nat; EpisodeLen = 200
-RolloutLen : Nat; RolloutLen = 400
+NumActions : Nat; NumActions = 3
+EpisodeLen : Nat; EpisodeLen = 500   -- Acrobot defaultTimeLimit
+RolloutLen : Nat; RolloutLen = 1024
 BatchSize : Nat; BatchSize = 64
 
 Actor : Type
-Actor = Network ObsDim [Hidden, Hidden, Hidden, Hidden] 1 (Variable CPU)
+Actor = Network ObsDim [Hidden, Hidden, Hidden, Hidden] NumActions (Variable CPU)
 
 Critic : Type
 Critic = Network ObsDim [Hidden, Hidden, Hidden, Hidden] 1 (Variable CPU)
@@ -83,7 +88,7 @@ mkActor : IO Actor
 mkActor = do
   ll1 <- linearLayer {i=ObsDim} {o=Hidden}
   ll2 <- linearLayer {i=Hidden} {o=Hidden}
-  ll3 <- linearLayer {i=Hidden} {o=1}
+  ll3 <- linearLayer {i=Hidden} {o=NumActions}
   pure (autoNameScoped "actor_"
     (ll1 ~> tanhLayer ~> ll2 ~> tanhLayer ~> OutputLayer ll3))
 
@@ -95,16 +100,13 @@ mkCritic = do
   pure (autoNameScoped "critic_"
     (ll1 ~> tanhLayer ~> ll2 ~> tanhLayer ~> OutputLayer ll3))
 
-mkLogStd : Variable CPU
-mkLogStd = param "log_std" 0.0
-
 
 ----------------------------------------------------------------------
 -- Observation helpers
 ----------------------------------------------------------------------
 
-observeVec : PState -> Vect ObsDim Double
-observeVec s = pObserve s
+observeVec : AState -> Vect ObsDim Double
+observeVec s = aObserve s
 
 obsTensor : Vect ObsDim Double -> Vector ObsDim Double
 obsTensor v = VTensor (map STensor v)
@@ -117,7 +119,7 @@ obsTensor v = VTensor (map STensor v)
 record RollStep where
   constructor MkRS
   obs        : Vect ObsDim Double
-  action     : Double
+  action     : Nat
   oldLogProb : Double
   value      : Double
   reward     : Double
@@ -125,23 +127,8 @@ record RollStep where
 
 
 ----------------------------------------------------------------------
--- Gaussian policy helpers
+-- Categorical policy helpers
 ----------------------------------------------------------------------
-
-logTwoPiHalf : Double
-logTwoPiHalf = 0.5 * Prelude.log (2.0 * 3.141592653589793)
-
-gaussianLogProb : Double -> Double -> Double -> Double
-gaussianLogProb mean logStd action =
-  let std = Prelude.exp logStd
-      z = (action - mean) / std
-  in -0.5 * z * z - logStd - logTwoPiHalf
-
--- Scalar mean from actor.
-actorMean : Actor -> Vect ObsDim Double -> Double
-actorMean actor obs =
-  let outT = snd (forwardVarTensor actor (bulkToTensor (obsTensor obs)))
-  in prim__item1d outT 0
 
 -- Scalar value from critic.
 criticValue : Critic -> Vect ObsDim Double -> Double
@@ -149,40 +136,54 @@ criticValue critic obs =
   let outT = snd (forwardVarTensor critic (bulkToTensor (obsTensor obs)))
   in prim__item1d outT 0
 
-sampleActionIO : Actor -> Critic -> Variable CPU -> Vect ObsDim Double ->
-                 IO (Double, Double, Double)
-sampleActionIO actor critic logStdV obs = do
-  let mean   = actorMean actor obs
-      v      = criticValue critic obs
-      logStd = (refreshValue logStdV).value
-  eps <- normalSample
-  let std    = Prelude.exp logStd
-      action = mean + std * eps
-      lp     = gaussianLogProb mean logStd action
-  pure (action, lp, v)
+-- Sample a discrete action from the actor's categorical distribution.
+-- Returns (action, log π_old(a|s), value(s)).
+sampleActionIO : Actor -> Critic -> Vect ObsDim Double -> IO (Nat, Double, Double)
+sampleActionIO actor critic obs = do
+  let stateT  = bulkToTensor (obsTensor obs)
+      logitsT = snd (forwardVarTensor actor stateT)
+      logPT   = prim__logSoftmax logitsT 0
+      lp0     = prim__item1d logPT 0
+      lp1     = prim__item1d logPT 1
+      lp2     = prim__item1d logPT 2
+      v       = criticValue critic obs
+  u <- randomRIO (the Double 0.0, 1.0)
+  let a = categoricalSample [Prelude.exp lp0, Prelude.exp lp1, Prelude.exp lp2] u
+      lp = case a of
+             0 => lp0
+             1 => lp1
+             _ => lp2
+  pure (a, lp, v)
 
 
 ----------------------------------------------------------------------
--- Rollout: RolloutLen steps with auto-reset every EpisodeLen.
+-- Rollout: RolloutLen steps with auto-reset on natural termination
+-- and at EpisodeLen truncation.
 ----------------------------------------------------------------------
 
-rollout : Actor -> Critic -> Variable CPU -> PState -> Nat -> Nat ->
-          IO (List RollStep, PState)
-rollout _ _ _ st _ Z = pure ([], st)
-rollout actor critic logStdV st stepsLeft (S k) = do
+rollout : Actor -> Critic -> AState -> Nat -> Nat ->
+          IO (List RollStep, AState, List Double)
+rollout _ _ st _ Z = pure ([], st, [])
+rollout actor critic st stepsLeft (S k) = do
   let obs = observeVec st
-  triple <- sampleActionIO actor critic logStdV obs
+  triple <- sampleActionIO actor critic obs
   let a  = fst triple
       lp = fst (snd triple)
       v  = snd (snd triple)
-  case pStep st a of
-    (r, st', _, _) => do
-      let isBoundary = stepsLeft == 1
-          stepRec = MkRS obs a lp v r isBoundary
-          nextSt = if isBoundary then MkP 3.141592653589793 0.0 else st'
-          nextStepsLeft = if isBoundary then EpisodeLen else stepsLeft `minus` 1
-      recur <- rollout actor critic logStdV nextSt nextStepsLeft k
-      pure (stepRec :: fst recur, snd recur)
+  case aStep st a of
+    (r, st', outcome, _) => do
+      let natTerm = case outcome of
+                      Terminated => True
+                      _          => False
+          truncate = stepsLeft == 1
+          isDone = natTerm || truncate
+          stepRec = MkRS obs a lp v r isDone
+          nextSt = if isDone then MkA 0.0 0.0 0.0 0.0 else st'
+          nextStepsLeft = if isDone then EpisodeLen else stepsLeft `minus` 1
+      recur <- rollout actor critic nextSt nextStepsLeft k
+      let (stepsRest, finalSt, retsRest) = recur
+          retsCarry = if isDone then 0.0 :: retsRest else retsRest
+      pure (stepRec :: stepsRest, finalSt, retsCarry)
 
 
 ----------------------------------------------------------------------
@@ -192,7 +193,7 @@ rollout actor critic logStdV st stepsLeft (S k) = do
 bootstrapV : Critic -> Vect ObsDim Double -> Double
 bootstrapV critic obs = criticValue critic obs
 
-computeBootstrap : Critic -> List RollStep -> PState -> Double
+computeBootstrap : Critic -> List RollStep -> AState -> Double
 computeBootstrap _ [] _ = 0.0
 computeBootstrap critic steps finalSt =
   case last' steps of
@@ -222,49 +223,36 @@ normAdvs triples =
 
 
 ----------------------------------------------------------------------
--- Per-step PPO loss
+-- Per-step PPO loss (categorical policy)
 ----------------------------------------------------------------------
 
 clipScalar : Double -> Double -> Double -> Double
 clipScalar lo hi x = if x < lo then lo else if x > hi then hi else x
 
--- Per-sample mean / value Variables are extracted from the batched
--- [B, 1] outputs via prim__select. The actor + critic forwards happen
--- once per mini-batch in `runBatch`, not once per transition.
-perStepLoss : (meanB : AnyPtr) -> (valueB : AnyPtr) -> (rowIdx : Int) ->
-              Variable CPU -> Double -> Double -> Double ->
+-- Per-sample logits/value Variables are extracted from the batched
+-- [B, NumActions] / [B, 1] outputs via prim__select. The actor + critic
+-- forwards happen once per mini-batch in `runBatch`.
+perStepLoss : (logitsB : AnyPtr) -> (valueB : AnyPtr) -> (rowIdx : Int) ->
+              Double -> Double -> Double ->
               (RollStep, Double, Double) -> Variable CPU
-perStepLoss meanB valueB rowIdx logStdV clipEps entropyCoef valueCoef (step, adv, retT) =
-  let meanRow   = prim__select meanB 0 rowIdx     -- [1]
-      meanPtr   = prim__select meanRow 0 0
-      meanVal   = prim__item1d meanRow 0
-      meanV     : Variable CPU
-      meanV     = Var meanPtr Nothing meanVal
+perStepLoss logitsB valueB rowIdx clipEps entropyCoef valueCoef (step, adv, retT) =
+  let logitsRow = prim__select logitsB 0 rowIdx        -- [NumActions]
+      logPT     = prim__logSoftmax logitsRow 0
+      aIdx : Int
+      aIdx      = cast {to=Int} (cast {to=Integer} step.action)
+      selLP     = prim__select logPT 0 aIdx
+      lpVal     = case step.action of
+                    0 => prim__item1d logPT 0
+                    1 => prim__item1d logPT 1
+                    _ => prim__item1d logPT 2
+      lpNew     : Variable CPU
+      lpNew     = Var selLP Nothing lpVal
 
-      valueRow  = prim__select valueB 0 rowIdx    -- [1]
+      valueRow  = prim__select valueB 0 rowIdx          -- [1]
       valuePtr  = prim__select valueRow 0 0
       valueVal  = prim__item1d valueRow 0
       valueV    : Variable CPU
       valueV    = Var valuePtr Nothing valueVal
-
-      -- Gaussian log-prob with gradient flow through actor + logStdV:
-      --   logπ = -0.5*((a-mean)/std)^2 - logStd - 0.5*log(2π)
-      --        = -0.5*(a-mean)^2 * exp(-2*logStd) - logStd - c
-      actC      : Variable CPU
-      actC      = fromDouble step.action
-      diffM     = actC - meanV
-      halfC     : Variable CPU
-      halfC     = fromDouble 0.5
-      twoC      : Variable CPU
-      twoC      = fromDouble 2.0
-      zeroC     : Variable CPU
-      zeroC     = fromDouble 0.0
-      negTwoLs  = zeroC - twoC * logStdV
-      varInv    = exp negTwoLs
-      quadratic = halfC * diffM * diffM * varInv
-      cC        : Variable CPU
-      cC        = fromDouble logTwoPiHalf
-      lpNew     = (zeroC - quadratic) - logStdV - cC
 
       lpOldC    : Variable CPU
       lpOldC    = fromDouble step.oldLogProb
@@ -275,6 +263,11 @@ perStepLoss meanB valueB rowIdx logStdV clipEps entropyCoef valueCoef (step, adv
       ratioVal  = Prelude.exp diffLP.value
       ratioV    = exp diffLP
       surr1     = ratioV * advC
+
+      zeroC     : Variable CPU
+      zeroC     = fromDouble 0.0
+      halfC     : Variable CPU
+      halfC     = fromDouble 0.5
 
       clippedR  = clipScalar (1.0 - clipEps) (1.0 + clipEps) ratioVal
       surr2Val  = clippedR * adv
@@ -291,10 +284,27 @@ perStepLoss meanB valueB rowIdx logStdV clipEps entropyCoef valueCoef (step, adv
       valCoefC  = fromDouble valueCoef
       valueTerm = valCoefC * halfC * diffV * diffV
 
-      -- Entropy (Gaussian): H = 0.5*log(2πe) + logStd; subtract ent_coef*H.
-      entCoefC  : Variable CPU
-      entCoefC  = fromDouble entropyCoef
-      entTerm   = zeroC - entCoefC * logStdV
+      -- Entropy H(π) = -Σ p_i log p_i, built with grad-tracked Variables
+      -- so the bonus actually pulls the policy back from collapse.
+      lp0Val   = prim__item1d logPT 0
+      lp1Val   = prim__item1d logPT 1
+      lp2Val   = prim__item1d logPT 2
+      lp0V     : Variable CPU
+      lp0V     = Var (prim__select logPT 0 0) Nothing lp0Val
+      lp1V     : Variable CPU
+      lp1V     = Var (prim__select logPT 0 1) Nothing lp1Val
+      lp2V     : Variable CPU
+      lp2V     = Var (prim__select logPT 0 2) Nothing lp2Val
+      p0V      : Variable CPU
+      p0V      = exp lp0V
+      p1V      : Variable CPU
+      p1V      = exp lp1V
+      p2V      : Variable CPU
+      p2V      = exp lp2V
+      negEntV  = p0V * lp0V + p1V * lp1V + p2V * lp2V    -- = -H(π)
+      entCoefC : Variable CPU
+      entCoefC = fromDouble entropyCoef
+      entTerm  = entCoefC * negEntV
   in policyT + valueTerm + entTerm
 
 
@@ -340,7 +350,7 @@ record Config where
   lrFind      : Bool
 
 defaultConfig : Config
-defaultConfig = MkConfig 3.0e-4 200 0.99 0.95 0.2 10 0.0 0.5 42 False
+defaultConfig = MkConfig 3.0e-4 100 0.99 0.95 0.2 10 0.01 0.5 42 False
 
 specs : List (ArgSpec Config)
 specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
@@ -359,11 +369,10 @@ record PPOState where
   constructor MkPPO
   actor   : Actor
   critic  : Critic
-  logStdV : Variable CPU
-  envRef  : IORef PState
+  envRef  : IORef AState
 
 
-prepareRollout : Critic -> Config -> List RollStep -> PState ->
+prepareRollout : Critic -> Config -> List RollStep -> AState ->
                  List (RollStep, Double, Double)
 prepareRollout critic cfg steps finalSt =
   let bootstrap = computeBootstrap critic steps finalSt
@@ -375,77 +384,102 @@ prepareRollout critic cfg steps finalSt =
 
 -- Stack mini-batch obs into [B, ObsDim], do one batched actor + critic
 -- forward each, then build per-sample loss expressions by indexing into
--- the [B, 1] mean / value tensors. Replaces O(B) per-sample
+-- the [B, NumActions] / [B, 1] tensors. Replaces O(B) per-sample
 -- `forwardVarTensor` calls with two batched calls per mini-batch.
-runBatch : NativeOptimizer -> Actor -> Critic -> Variable CPU -> Config ->
+runBatch : NativeOptimizer -> Actor -> Critic -> Config ->
            List (RollStep, Double, Double) -> IO ()
-runBatch opt actor critic logStdV cfg batch = do
+runBatch opt actor critic cfg batch = do
   let batchVec  = Data.Vect.fromList batch
       n         = length batch
       obsBatch : Vect (length batch) (Vector ObsDim Double)
       obsBatch  = map (\(s, _, _) => obsTensor s.obs) batchVec
       stackedT  = bulkToTensor2d obsBatch
-      meanB     = snd (forwardVarTensorBatch actor n stackedT)
+      logitsB   = snd (forwardVarTensorBatch actor n stackedT)
       valueB    = snd (forwardVarTensorBatch critic n stackedT)
-      losses    = enumeratedLosses meanB valueB batchVec 0
+      losses    = enumeratedLosses logitsB valueB batchVec 0
       loss      = aggregateLoss losses
   _ <- pure (nativeTrainStep opt loss)
   pure ()
   where
-    enumeratedLosses : (meanB : AnyPtr) -> (valueB : AnyPtr) ->
+    enumeratedLosses : (logitsB : AnyPtr) -> (valueB : AnyPtr) ->
                        Vect k (RollStep, Double, Double) -> Int ->
                        List (Variable CPU)
     enumeratedLosses _ _ [] _ = []
-    enumeratedLosses mB vB (t :: rest) k =
-      perStepLoss mB vB k logStdV cfg.clipEps cfg.entropyCoef cfg.valueCoef t
-        :: enumeratedLosses mB vB rest (k + 1)
+    enumeratedLosses lB vB (t :: rest) k =
+      perStepLoss lB vB k cfg.clipEps cfg.entropyCoef cfg.valueCoef t
+        :: enumeratedLosses lB vB rest (k + 1)
 
 
-kEpochUpdate : NativeOptimizer -> Actor -> Critic -> Variable CPU -> Config ->
+kEpochUpdate : NativeOptimizer -> Actor -> Critic -> Config ->
                List (RollStep, Double, Double) -> Nat -> IO ()
-kEpochUpdate _ _ _ _ _ _ Z = pure ()
-kEpochUpdate opt actor critic logStdV cfg prepped (S k) = do
+kEpochUpdate _ _ _ _ _ Z = pure ()
+kEpochUpdate opt actor critic cfg prepped (S k) = do
   shuffled <- shuffleIO prepped
   let batches = chunksOf BatchSize shuffled
-  traverse_ (runBatch opt actor critic logStdV cfg) batches
-  kEpochUpdate opt actor critic logStdV cfg prepped k
+  traverse_ (runBatch opt actor critic cfg) batches
+  kEpochUpdate opt actor critic cfg prepped k
 
 
 ppoEpoch : NativeOptimizer -> Config -> PPOState -> IO (PPOState, Double)
 ppoEpoch opt cfg st = do
   startSt <- readIORef st.envRef
-  rolled  <- rollout st.actor st.critic st.logStdV startSt EpisodeLen RolloutLen
+  rolled  <- rollout st.actor st.critic startSt EpisodeLen RolloutLen
   let steps   = fst rolled
-      finalSt = snd rolled
+      finalSt = fst (snd rolled)
   writeIORef st.envRef finalSt
 
   let prepped = prepareRollout st.critic cfg steps finalSt
-  kEpochUpdate opt st.actor st.critic st.logStdV cfg prepped cfg.kEpochs
+  kEpochUpdate opt st.actor st.critic cfg prepped cfg.kEpochs
 
-  let sumRew = sum (map (\s => s.reward) steps)
-      nEp    = length (filter (\s => s.isDone) steps)
-      avgEp  = if nEp > 0 then sumRew / cast (natToInteger nEp) else sumRew
+  -- Average return over completed episodes in this rollout.
+  let episodeReturns : List Double
+      episodeReturns = computeEpisodeReturns steps
+      nEp = length episodeReturns
+      sumEp = sum episodeReturns
+      avgEp = if nEp > 0 then sumEp / cast (natToInteger nEp) else sum (map (\s => s.reward) steps)
   pure (st, negate avgEp)
+  where
+    -- Walk the rollout and split into episode segments by isDone, summing
+    -- rewards within each. Trailing partial episode (no isDone) is dropped.
+    computeEpisodeReturns : List RollStep -> List Double
+    computeEpisodeReturns = go 0.0 []
+      where
+        go : Double -> List Double -> List RollStep -> List Double
+        go _ acc [] = reverse acc
+        go run acc (s :: rest) =
+          if s.isDone
+            then go 0.0 ((run + s.reward) :: acc) rest
+            else go (run + s.reward) acc rest
 
 
 ----------------------------------------------------------------------
 -- Greedy evaluation
 ----------------------------------------------------------------------
 
-greedyAct : Actor -> Vect ObsDim Double -> Double
-greedyAct actor obs = actorMean actor obs
+greedyAct : Actor -> Vect ObsDim Double -> Nat
+greedyAct actor obs =
+  let logits = snd (forwardVarTensor actor (bulkToTensor (obsTensor obs)))
+      l0 = prim__item1d logits 0
+      l1 = prim__item1d logits 1
+      l2 = prim__item1d logits 2
+  in if l0 >= l1 && l0 >= l2 then 0
+     else if l1 >= l2 then 1
+     else 2
 
-evalEp : Actor -> PState -> Nat -> Double -> Double
+evalEp : Actor -> AState -> Nat -> Double -> Double
 evalEp _ _ Z acc = acc
 evalEp actor st (S k) acc =
   let a = greedyAct actor (observeVec st)
-  in case pStep st a of
-       (r, st', _, _) => evalEp actor st' k (acc + r)
+  in case aStep st a of
+       (r, st', outcome, _) =>
+         case outcome of
+           Terminated => acc + r
+           _          => evalEp actor st' k (acc + r)
 
 evalN : Actor -> Nat -> Double -> Double
 evalN _ Z acc = acc
 evalN actor (S k) acc =
-  evalN actor k (acc + evalEp actor (MkP 3.141592653589793 0.0) EpisodeLen 0.0)
+  evalN actor k (acc + evalEp actor (MkA 0.0 0.0 0.0 0.0) EpisodeLen 0.0)
 
 
 ----------------------------------------------------------------------
@@ -458,7 +492,7 @@ main = do
   let cfg = parseArgs defaultConfig specs (drop 1 args)
   srand cfg.seed
 
-  putStrLn "=== PPO on Pendulum (separate actor + critic + log_std) ==="
+  putStrLn "=== PPO on Acrobot (separate actor + critic, categorical policy) ==="
   putStrLn $ "Config: lr=" ++ show cfg.lr
            ++ " epochs=" ++ show cfg.epochs
            ++ " rollout=" ++ show RolloutLen
@@ -467,22 +501,22 @@ main = do
            ++ " lambda=" ++ show cfg.lam
            ++ " clip=" ++ show cfg.clipEps
            ++ " K=" ++ show cfg.kEpochs
+           ++ " entropy=" ++ show cfg.entropyCoef
            ++ " seed=" ++ show cfg.seed
 
   actor  <- mkActor
   critic <- mkCritic
-  let logStdV = mkLogStd
-  envRef <- newIORef (the PState (MkP 3.141592653589793 0.0))
-  let st0 = MkPPO actor critic logStdV envRef
+  envRef <- newIORef (the AState (MkA 0.0 0.0 0.0 0.0))
+  let st0 = MkPPO actor critic envRef
       opt = nativeAdamGlobalClip cfg.lr 0.9 0.999 1.0e-8 0.5
 
   putStrLn ""
 
   -- HPO branch: --lr-find runs lr_find using one full PPO rollout per
-  -- iter (`ppoEpoch` does the rollout + K mini-batch updates). On
-  -- Pendulum, episode returns are negative, so `negate avgEp` is
-  -- *positive* — the negative-loss heuristic bug doesn't trip here.
-  -- Each iter is heavy (400 env steps + K=10 mini-batches), so use 30 iters.
+  -- iter (`ppoEpoch` does the rollout + K mini-batch updates). Acrobot
+  -- episode returns are negative (avg_return uses negate avgEp), so the
+  -- "loss" stays positive — the negative-loss heuristic bug doesn't trip.
+  -- Each iter is heavy (1024 env steps + K=10 mini-batches), so use 30 iters.
   when cfg.lrFind $ do
     let lrCfg : LrFindConfig
         lrCfg = { numIters := 30 } defaultLrFindConfig
