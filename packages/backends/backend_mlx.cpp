@@ -851,7 +851,9 @@ extern "C" TensorHandle tensor_sigmoid_mlx_streamed(TensorHandle h, int stream_t
 TensorHandle tensor_sigmoid(TensorHandle h) {
     return tensor_sigmoid_mlx_streamed(h, default_stream_tag());
 }
-TensorHandle tensor_gelu(TensorHandle h) {
+extern "C" TensorHandle tensor_gelu_mlx_streamed(TensorHandle h, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     auto t = (Tensor*)h;
     // GELU tanh approx: x * 0.5 * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))
     auto x = t->data;
@@ -863,6 +865,10 @@ TensorHandle tensor_gelu(TensorHandle h) {
     auto r = new Tensor(result, t->requires_grad);
     if (t->requires_grad) tape_append(OP_GELU, r, t, nullptr, 0);
     return (TensorHandle)r;
+
+}
+TensorHandle tensor_gelu(TensorHandle h) {
+    return tensor_gelu_mlx_streamed(h, default_stream_tag());
 }
 
 extern "C" TensorHandle tensor_tanh_mlx_streamed(TensorHandle h, int stream_tag) {
@@ -876,24 +882,38 @@ TensorHandle tensor_tanh(TensorHandle h) {
     return tensor_tanh_mlx_streamed(h, default_stream_tag());
 }
 
-TensorHandle tensor_leaky_relu(TensorHandle h, double alpha) {
+extern "C" TensorHandle tensor_leaky_relu_mlx_streamed(TensorHandle h, double alpha, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     auto t = (Tensor*)h;
     auto alpha_arr = scalar_like(alpha, t->data);
     auto result = mx::maximum(mx::multiply(alpha_arr, t->data), t->data);
     auto r = new Tensor(result, t->requires_grad);
     if (t->requires_grad) tape_append(OP_LEAKY_RELU, r, t, nullptr, alpha);
     return (TensorHandle)r;
+
+}
+TensorHandle tensor_leaky_relu(TensorHandle h, double alpha) {
+    return tensor_leaky_relu_mlx_streamed(h, alpha, default_stream_tag());
 }
 
-TensorHandle tensor_silu(TensorHandle h) {
+extern "C" TensorHandle tensor_silu_mlx_streamed(TensorHandle h, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     auto t = (Tensor*)h;
     auto result = mx::multiply(t->data, mx::sigmoid(t->data));
     auto r = new Tensor(result, t->requires_grad);
     if (t->requires_grad) tape_append(OP_SILU, r, t, nullptr, 0);
     return (TensorHandle)r;
+
+}
+TensorHandle tensor_silu(TensorHandle h) {
+    return tensor_silu_mlx_streamed(h, default_stream_tag());
 }
 
-TensorHandle tensor_softplus(TensorHandle h) {
+extern "C" TensorHandle tensor_softplus_mlx_streamed(TensorHandle h, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     auto t = (Tensor*)h;
     // Numerically stable softplus: max(0, x) + log(1 + exp(-|x|)).
     // The naive log(1 + exp(x)) overflows in float32 for x > ~88 — and the
@@ -907,6 +927,10 @@ TensorHandle tensor_softplus(TensorHandle h) {
     auto r = new Tensor(result, t->requires_grad);
     if (t->requires_grad) tape_append(OP_SOFTPLUS, r, t, nullptr, 0);
     return (TensorHandle)r;
+
+}
+TensorHandle tensor_softplus(TensorHandle h) {
+    return tensor_softplus_mlx_streamed(h, default_stream_tag());
 }
 
 extern "C" TensorHandle tensor_add_scalar_mlx_streamed(TensorHandle h, double s, int stream_tag) {
@@ -946,14 +970,22 @@ TensorHandle tensor_clamp_min(TensorHandle h, double min_val) {
    Reduction
    ================================================================ */
 
-TensorHandle tensor_sum(TensorHandle h) {
+extern "C" TensorHandle tensor_sum_mlx_streamed(TensorHandle h, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     auto t = (Tensor*)h;
     auto r = new Tensor(mx::sum(t->data), t->requires_grad);
     if (t->requires_grad) tape_append(OP_SUM, r, t, nullptr, 0);
     return (TensorHandle)r;
+
+}
+TensorHandle tensor_sum(TensorHandle h) {
+    return tensor_sum_mlx_streamed(h, default_stream_tag());
 }
 
-TensorHandle tensor_sum_dim(TensorHandle h, int dim, int keepdim) {
+extern "C" TensorHandle tensor_sum_dim_mlx_streamed(TensorHandle h, int dim, int keepdim, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     auto t = (Tensor*)h;
     int rank = (int)t->data.ndim();
     int normalized = dim < 0 ? dim + rank : dim;
@@ -966,41 +998,71 @@ TensorHandle tensor_sum_dim(TensorHandle h, int dim, int keepdim) {
         tape[idx].meta = meta;
     }
     return (TensorHandle)r;
+
 }
-TensorHandle tensor_mean(TensorHandle h) {
+TensorHandle tensor_sum_dim(TensorHandle h, int dim, int keepdim) {
+    return tensor_sum_dim_mlx_streamed(h, dim, keepdim, default_stream_tag());
+}
+extern "C" TensorHandle tensor_mean_mlx_streamed(TensorHandle h, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     auto t = (Tensor*)h;
     auto r = new Tensor(mx::mean(t->data), t->requires_grad);
     if (t->requires_grad) tape_append(OP_MEAN, r, t, nullptr, 0);
     return (TensorHandle)r;
+
+}
+TensorHandle tensor_mean(TensorHandle h) {
+    return tensor_mean_mlx_streamed(h, default_stream_tag());
 }
 
-TensorHandle tensor_min(TensorHandle h) {
+extern "C" TensorHandle tensor_min_mlx_streamed(TensorHandle h, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     auto t = (Tensor*)h;
     auto result = mx::min(t->data);
     mx::eval(result);
     return (TensorHandle)new Tensor(result, false);
+
+}
+TensorHandle tensor_min(TensorHandle h) {
+    return tensor_min_mlx_streamed(h, default_stream_tag());
 }
 
-TensorHandle tensor_max(TensorHandle h) {
+extern "C" TensorHandle tensor_max_mlx_streamed(TensorHandle h, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     auto t = (Tensor*)h;
     auto result = mx::max(t->data);
     mx::eval(result);
     return (TensorHandle)new Tensor(result, false);
+
+}
+TensorHandle tensor_max(TensorHandle h) {
+    return tensor_max_mlx_streamed(h, default_stream_tag());
 }
 
 /* ================================================================
    Linear algebra
    ================================================================ */
 
-TensorHandle tensor_matmul(TensorHandle ha, TensorHandle hb) {
+extern "C" TensorHandle tensor_matmul_mlx_streamed(TensorHandle ha, TensorHandle hb, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     auto a = (Tensor*)ha; auto b = (Tensor*)hb;
     bool rg = a->requires_grad || b->requires_grad;
     auto r = new Tensor(mx::matmul(a->data, b->data), rg);
     if (rg) tape_append(OP_MM, r, a, b, 0);
     return (TensorHandle)r;
+
+}
+TensorHandle tensor_matmul(TensorHandle ha, TensorHandle hb) {
+    return tensor_matmul_mlx_streamed(ha, hb, default_stream_tag());
 }
 
-TensorHandle tensor_mv(TensorHandle hmat, TensorHandle hvec) {
+extern "C" TensorHandle tensor_mv_mlx_streamed(TensorHandle hmat, TensorHandle hvec, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     // mat=[m,n], vec=[n] → result=[m]
     auto mat = (Tensor*)hmat; auto vec = (Tensor*)hvec;
     int n = (int)vec->data.size();
@@ -1012,9 +1074,15 @@ TensorHandle tensor_mv(TensorHandle hmat, TensorHandle hvec) {
     auto r = new Tensor(result, rg);
     if (rg) tape_append(OP_MV, r, mat, vec, 0);
     return (TensorHandle)r;
+
+}
+TensorHandle tensor_mv(TensorHandle hmat, TensorHandle hvec) {
+    return tensor_mv_mlx_streamed(hmat, hvec, default_stream_tag());
 }
 
-TensorHandle tensor_linear(TensorHandle hW, TensorHandle hx, TensorHandle hbias) {
+extern "C" TensorHandle tensor_linear_mlx_streamed(TensorHandle hW, TensorHandle hx, TensorHandle hbias, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     /* Decompose into mv + add so the bias dependency lands on the tape.
        The previous fused form recorded only OP_MV(W,x), dropping the bias
        from the replay graph — when tlinear chained (one tlinear's output
@@ -1023,9 +1091,15 @@ TensorHandle tensor_linear(TensorHandle hW, TensorHandle hx, TensorHandle hbias)
     TensorHandle mv_h = tensor_mv(hW, hx);
     if (!hbias) return mv_h;
     return tensor_add(mv_h, hbias);
+
+}
+TensorHandle tensor_linear(TensorHandle hW, TensorHandle hx, TensorHandle hbias) {
+    return tensor_linear_mlx_streamed(hW, hx, hbias, default_stream_tag());
 }
 
-TensorHandle tensor_linear_2d(TensorHandle hW, TensorHandle hX, TensorHandle hbias) {
+extern "C" TensorHandle tensor_linear_2d_mlx_streamed(TensorHandle hW, TensorHandle hX, TensorHandle hbias, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     /* W: [o, i], X: [B, i], bias: [o] -> Y: [B, o] = X @ W^T + bias */
     auto W = (Tensor*)hW; auto X = (Tensor*)hX; auto bias = (Tensor*)hbias;
     auto WT = mx::transpose(W->data, {1, 0});
@@ -1040,9 +1114,15 @@ TensorHandle tensor_linear_2d(TensorHandle hW, TensorHandle hX, TensorHandle hbi
         tape[idx].meta = meta;
     }
     return (TensorHandle)r;
+
+}
+TensorHandle tensor_linear_2d(TensorHandle hW, TensorHandle hX, TensorHandle hbias) {
+    return tensor_linear_2d_mlx_streamed(hW, hX, hbias, default_stream_tag());
 }
 
-TensorHandle tensor_concat_2d_axis1(TensorHandle hA, TensorHandle hB) {
+extern "C" TensorHandle tensor_concat_2d_axis1_mlx_streamed(TensorHandle hA, TensorHandle hB, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     /* A: [m, n], B: [m, k] -> [m, n+k] along axis 1 */
     auto A = (Tensor*)hA; auto B = (Tensor*)hB;
     auto result = mx::concatenate({A->data, B->data}, 1);
@@ -1050,9 +1130,15 @@ TensorHandle tensor_concat_2d_axis1(TensorHandle hA, TensorHandle hB) {
     auto r = new Tensor(result, rg);
     if (rg) tape_append(OP_CONCAT_2D_AXIS1, r, A, B, 0);
     return (TensorHandle)r;
+
+}
+TensorHandle tensor_concat_2d_axis1(TensorHandle hA, TensorHandle hB) {
+    return tensor_concat_2d_axis1_mlx_streamed(hA, hB, default_stream_tag());
 }
 
-TensorHandle tensor_dot(TensorHandle ha, TensorHandle hb) {
+extern "C" TensorHandle tensor_dot_mlx_streamed(TensorHandle ha, TensorHandle hb, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     auto a = (Tensor*)ha; auto b = (Tensor*)hb;
     bool rg = a->requires_grad || b->requires_grad;
     auto r = new Tensor(mx::sum(mx::multiply(a->data, b->data)), rg);
@@ -1063,23 +1149,41 @@ TensorHandle tensor_dot(TensorHandle ha, TensorHandle hb) {
         tape_append(OP_SUM, r, prod, nullptr, 0);
     }
     return (TensorHandle)r;
+
+}
+TensorHandle tensor_dot(TensorHandle ha, TensorHandle hb) {
+    return tensor_dot_mlx_streamed(ha, hb, default_stream_tag());
 }
 
-TensorHandle tensor_outer(TensorHandle ha, TensorHandle hb) {
+extern "C" TensorHandle tensor_outer_mlx_streamed(TensorHandle ha, TensorHandle hb, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     auto a = (Tensor*)ha; auto b = (Tensor*)hb;
     bool rg = a->requires_grad || b->requires_grad;
     auto r = new Tensor(mx::outer(a->data, b->data), rg);
     if (rg) tape_append(OP_OUTER, r, a, b, 0);
     return (TensorHandle)r;
+
+}
+TensorHandle tensor_outer(TensorHandle ha, TensorHandle hb) {
+    return tensor_outer_mlx_streamed(ha, hb, default_stream_tag());
 }
 
-TensorHandle tensor_softmax(TensorHandle h, int dim) {
+extern "C" TensorHandle tensor_softmax_mlx_streamed(TensorHandle h, int dim, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     auto t = (Tensor*)h;
     auto r = new Tensor(mx::softmax(t->data, dim), t->requires_grad);
     if (t->requires_grad) tape_append(OP_SOFTMAX_2D, r, t, nullptr, 0);
     return (TensorHandle)r;
+
 }
-TensorHandle tensor_log_softmax(TensorHandle h, int dim) {
+TensorHandle tensor_softmax(TensorHandle h, int dim) {
+    return tensor_softmax_mlx_streamed(h, dim, default_stream_tag());
+}
+extern "C" TensorHandle tensor_log_softmax_mlx_streamed(TensorHandle h, int dim, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     auto t = (Tensor*)h;
     // log_softmax = x - log(sum(exp(x)))
     auto maxv = mx::max(t->data, dim, true);
@@ -1088,13 +1192,19 @@ TensorHandle tensor_log_softmax(TensorHandle h, int dim) {
     auto r = new Tensor(mx::subtract(t->data, lse), t->requires_grad);
     if (t->requires_grad) tape_append(OP_LOG_SOFTMAX_2D, r, t, nullptr, (double)dim);
     return (TensorHandle)r;
+
+}
+TensorHandle tensor_log_softmax(TensorHandle h, int dim) {
+    return tensor_log_softmax_mlx_streamed(h, dim, default_stream_tag());
 }
 
 /* ================================================================
    Loss functions
    ================================================================ */
 
-TensorHandle tensor_bce_with_logits(TensorHandle hinput, TensorHandle htarget) {
+extern "C" TensorHandle tensor_bce_with_logits_mlx_streamed(TensorHandle hinput, TensorHandle htarget, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     /* BCE with logits = mean(max(x,0) - x*y + log(1 + exp(-|x|))).
        Decomposed into primitive ops so each step records its own tape entry —
        backward flows automatically through replay-based vjp. Without the
@@ -1110,6 +1220,10 @@ TensorHandle tensor_bce_with_logits(TensorHandle hinput, TensorHandle htarget) {
     TensorHandle relu_minus_xy = tensor_sub(relu_x, xy);
     TensorHandle inner = tensor_add(relu_minus_xy, log_term);
     return tensor_mean(inner);
+
+}
+TensorHandle tensor_bce_with_logits(TensorHandle hinput, TensorHandle htarget) {
+    return tensor_bce_with_logits_mlx_streamed(hinput, htarget, default_stream_tag());
 }
 TensorHandle tensor_cross_entropy(TensorHandle hinput, TensorHandle htarget) {
     /* Cross-entropy with soft labels: CE = -mean(target * log_softmax(input)).
@@ -1135,7 +1249,9 @@ TensorHandle tensor_mse_loss(TensorHandle hinput, TensorHandle htarget) {
    NTM-specific
    ================================================================ */
 
-TensorHandle tensor_cosine_similarity(TensorHandle hmemory, TensorHandle hkey, int dim) {
+extern "C" TensorHandle tensor_cosine_similarity_mlx_streamed(TensorHandle hmemory, TensorHandle hkey, int dim, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     // memory=[n,m], key=[m] → result=[n]
     auto mem = (Tensor*)hmemory; auto key = (Tensor*)hkey;
     auto eps = scalar_like(1.0e-8, mem->data);
@@ -1153,9 +1269,15 @@ TensorHandle tensor_cosine_similarity(TensorHandle hmemory, TensorHandle hkey, i
     auto r = new Tensor(result, rg);
     if (rg) tape_append(OP_COSINE_SIM, r, mem, key, 0);
     return (TensorHandle)r;
+
+}
+TensorHandle tensor_cosine_similarity(TensorHandle hmemory, TensorHandle hkey, int dim) {
+    return tensor_cosine_similarity_mlx_streamed(hmemory, hkey, dim, default_stream_tag());
 }
 
-TensorHandle tensor_conv1d_circular(TensorHandle hinput, TensorHandle hkernel) {
+extern "C" TensorHandle tensor_conv1d_circular_mlx_streamed(TensorHandle hinput, TensorHandle hkernel, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     // Circular correlation: out[i] = sum_j input[(i-k/2+j+n)%n] * kernel[j]
     auto inp = (Tensor*)hinput; auto kern = (Tensor*)hkernel;
     int n = (int)inp->data.size();
@@ -1174,12 +1296,18 @@ TensorHandle tensor_conv1d_circular(TensorHandle hinput, TensorHandle hkernel) {
     auto r = new Tensor(result, rg);
     if (rg) tape_append(OP_CONV1D_CIRC, r, inp, kern, 0);
     return (TensorHandle)r;
+
+}
+TensorHandle tensor_conv1d_circular(TensorHandle hinput, TensorHandle hkernel) {
+    return tensor_conv1d_circular_mlx_streamed(hinput, hkernel, default_stream_tag());
 }
 
-TensorHandle tensor_batch_norm(TensorHandle hinput, TensorHandle hgamma, TensorHandle hbeta,
+extern "C" TensorHandle tensor_batch_norm_mlx_streamed(TensorHandle hinput, TensorHandle hgamma, TensorHandle hbeta,
                                TensorHandle hrunning_mean, TensorHandle hrunning_var,
                                int C, int spatial, int training,
-                               double momentum, double eps) {
+                               double momentum, double eps, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     auto inp = (Tensor*)hinput;
     auto gamma = (Tensor*)hgamma;
     auto beta = (Tensor*)hbeta;
@@ -1227,9 +1355,18 @@ TensorHandle tensor_batch_norm(TensorHandle hinput, TensorHandle hgamma, TensorH
         tape[idx].meta = meta;
     }
     return (TensorHandle)r;
+
+}
+TensorHandle tensor_batch_norm(TensorHandle hinput, TensorHandle hgamma, TensorHandle hbeta,
+                               TensorHandle hrunning_mean, TensorHandle hrunning_var,
+                               int C, int spatial, int training,
+                               double momentum, double eps) {
+    return tensor_batch_norm_mlx_streamed(hinput, hgamma, hbeta, hrunning_mean, hrunning_var, C, spatial, training, momentum, eps, default_stream_tag());
 }
 
-TensorHandle tensor_dropout(TensorHandle hinput, double p, int training, unsigned int seed) {
+extern "C" TensorHandle tensor_dropout_mlx_streamed(TensorHandle hinput, double p, int training, unsigned int seed, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     auto inp = (Tensor*)hinput;
     if (!training || p <= 0.0) return hinput;
 
@@ -1251,19 +1388,32 @@ TensorHandle tensor_dropout(TensorHandle hinput, double p, int training, unsigne
         int idx = tape_append(OP_DROPOUT, r, inp, mask_t, 0);
     }
     return (TensorHandle)r;
+
+}
+TensorHandle tensor_dropout(TensorHandle hinput, double p, int training, unsigned int seed) {
+    return tensor_dropout_mlx_streamed(hinput, p, training, seed, default_stream_tag());
 }
 
-TensorHandle tensor_cross_attention(TensorHandle hQ, TensorHandle hK, TensorHandle hV,
-                                    TensorHandle hmask, double scale) {
+extern "C" TensorHandle tensor_cross_attention_mlx_streamed(TensorHandle hQ, TensorHandle hK, TensorHandle hV,
+                                    TensorHandle hmask, double scale, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     /* Compose from existing ops — MLX replay autograd handles backward */
     TensorHandle KT = tensor_transpose_last2(hK);
     TensorHandle scores = tensor_mul_scalar(tensor_bmm_3x3(hQ, KT), scale);
     if (hmask) scores = tensor_masked_fill(scores, hmask, -1.0e20);
     TensorHandle attn = tensor_softmax_3d(scores);
     return tensor_bmm_3x3(attn, hV);
+
+}
+TensorHandle tensor_cross_attention(TensorHandle hQ, TensorHandle hK, TensorHandle hV,
+                                    TensorHandle hmask, double scale) {
+    return tensor_cross_attention_mlx_streamed(hQ, hK, hV, hmask, scale, default_stream_tag());
 }
 
-TensorHandle tensor_embedding(TensorHandle hweight, TensorHandle hindices, int n, int embedDim) {
+extern "C" TensorHandle tensor_embedding_mlx_streamed(TensorHandle hweight, TensorHandle hindices, int n, int embedDim, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     auto weight = (Tensor*)hweight;
     auto indices = (Tensor*)hindices;
     auto idx_int = mx::astype(indices->data, mx::int32);
@@ -1277,9 +1427,15 @@ TensorHandle tensor_embedding(TensorHandle hweight, TensorHandle hindices, int n
         tape_append(OP_EMBEDDING, r, weight, idx_t, (double)embedDim);
     }
     return (TensorHandle)r;
+
+}
+TensorHandle tensor_embedding(TensorHandle hweight, TensorHandle hindices, int n, int embedDim) {
+    return tensor_embedding_mlx_streamed(hweight, hindices, n, embedDim, default_stream_tag());
 }
 
-TensorHandle tensor_gather(TensorHandle hinput, TensorHandle hindex, int n) {
+extern "C" TensorHandle tensor_gather_mlx_streamed(TensorHandle hinput, TensorHandle hindex, int n, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     (void)n;
     auto inp = (Tensor*)hinput;
     auto idx = (Tensor*)hindex;
@@ -1288,9 +1444,15 @@ TensorHandle tensor_gather(TensorHandle hinput, TensorHandle hindex, int n) {
     auto r = new Tensor(result, inp->requires_grad);
     if (inp->requires_grad) tape_append(OP_GATHER, r, inp, idx, 0);
     return (TensorHandle)r;
+
+}
+TensorHandle tensor_gather(TensorHandle hinput, TensorHandle hindex, int n) {
+    return tensor_gather_mlx_streamed(hinput, hindex, n, default_stream_tag());
 }
 
-TensorHandle tensor_scatter_add(TensorHandle hindex, TensorHandle hsrc, int out_size) {
+extern "C" TensorHandle tensor_scatter_add_mlx_streamed(TensorHandle hindex, TensorHandle hsrc, int out_size, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     auto idx = (Tensor*)hindex;
     auto src = (Tensor*)hsrc;
     auto idx_int = mx::astype(idx->data, mx::int32);
@@ -1303,9 +1465,15 @@ TensorHandle tensor_scatter_add(TensorHandle hindex, TensorHandle hsrc, int out_
     auto r = new Tensor(result, src->requires_grad);
     if (src->requires_grad) tape_append(OP_SCATTER_ADD, r, src, idx, (double)out_size);
     return (TensorHandle)r;
+
+}
+TensorHandle tensor_scatter_add(TensorHandle hindex, TensorHandle hsrc, int out_size) {
+    return tensor_scatter_add_mlx_streamed(hindex, hsrc, out_size, default_stream_tag());
 }
 
-TensorHandle tensor_argsort(TensorHandle ht, int dim, int descending) {
+extern "C" TensorHandle tensor_argsort_mlx_streamed(TensorHandle ht, int dim, int descending, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     auto t = (Tensor*)ht;
     // MLX argsort returns ascending by default
     auto indices = mx::argsort(t->data, dim);
@@ -1318,9 +1486,15 @@ TensorHandle tensor_argsort(TensorHandle ht, int dim, int descending) {
     auto result = mx::astype(indices, mx::float32);
     mx::eval(result);
     return (TensorHandle)(new Tensor(result, false)); // no grad for indices
+
+}
+TensorHandle tensor_argsort(TensorHandle ht, int dim, int descending) {
+    return tensor_argsort_mlx_streamed(ht, dim, descending, default_stream_tag());
 }
 
-TensorHandle tensor_cumprod(TensorHandle ht, int dim) {
+extern "C" TensorHandle tensor_cumprod_mlx_streamed(TensorHandle ht, int dim, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     auto t = (Tensor*)ht;
     auto result = mx::cumprod(t->data, dim);
     auto r = new Tensor(result, t->requires_grad);
@@ -1328,10 +1502,16 @@ TensorHandle tensor_cumprod(TensorHandle ht, int dim) {
         tape_append(OP_CUMPROD, r, t, NULL, 0.0);
     }
     return (TensorHandle)r;
+
+}
+TensorHandle tensor_cumprod(TensorHandle ht, int dim) {
+    return tensor_cumprod_mlx_streamed(ht, dim, default_stream_tag());
 }
 
-TensorHandle tensor_gru_cell(TensorHandle hih, TensorHandle hhh,
-                              TensorHandle hprev, int o) {
+extern "C" TensorHandle tensor_gru_cell_mlx_streamed(TensorHandle hih, TensorHandle hhh,
+                              TensorHandle hprev, int o, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     /* nn.GRU equation. ih = W_ih @ x + b_ih, hh = W_hh @ h + b_hh.
        MLX replay autograd handles backward via the closure. */
     auto ih = (Tensor*)hih;
@@ -1360,6 +1540,11 @@ TensorHandle tensor_gru_cell(TensorHandle hih, TensorHandle hhh,
         tape[idx].meta = meta;
     }
     return (TensorHandle)r;
+
+}
+TensorHandle tensor_gru_cell(TensorHandle hih, TensorHandle hhh,
+                              TensorHandle hprev, int o) {
+    return tensor_gru_cell_mlx_streamed(hih, hhh, hprev, o, default_stream_tag());
 }
 
 TensorHandle tensor_group_norm(TensorHandle hinput, TensorHandle hgamma, TensorHandle hbeta,
@@ -1523,7 +1708,9 @@ TensorHandle tensor_conv2d_grouped(TensorHandle hinput, TensorHandle hkernel,
     return (TensorHandle)(new Tensor(result, inp->requires_grad || ker->requires_grad));
 }
 
-TensorHandle tensor_avg_pool1d(TensorHandle hinput, int kL, int stride) {
+extern "C" TensorHandle tensor_avg_pool1d_mlx_streamed(TensorHandle hinput, int kL, int stride, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     auto inp = (Tensor*)hinput;
     auto dt = inp->data.dtype();
     int C = (int)inp->data.shape(0), L = (int)inp->data.shape(1);
@@ -1538,9 +1725,15 @@ TensorHandle tensor_avg_pool1d(TensorHandle hinput, int kL, int stride) {
     auto r = new Tensor(result, inp->requires_grad);
     if (inp->requires_grad) tape_append(OP_AVG_POOL1D, r, inp, nullptr, (double)kL + stride * 0.001);
     return (TensorHandle)r;
+
+}
+TensorHandle tensor_avg_pool1d(TensorHandle hinput, int kL, int stride) {
+    return tensor_avg_pool1d_mlx_streamed(hinput, kL, stride, default_stream_tag());
 }
 
-TensorHandle tensor_avg_pool2d(TensorHandle hinput, int kH, int kW, int strideH, int strideW) {
+extern "C" TensorHandle tensor_avg_pool2d_mlx_streamed(TensorHandle hinput, int kH, int kW, int strideH, int strideW, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     auto inp = (Tensor*)hinput;
     auto dt = inp->data.dtype();
     int C = (int)inp->data.shape(0), H = (int)inp->data.shape(1), W = (int)inp->data.shape(2);
@@ -1557,10 +1750,16 @@ TensorHandle tensor_avg_pool2d(TensorHandle hinput, int kH, int kW, int strideH,
     auto r = new Tensor(result, inp->requires_grad);
     if (inp->requires_grad) tape_append(OP_AVG_POOL2D, r, inp, nullptr, 0);
     return (TensorHandle)r;
+
+}
+TensorHandle tensor_avg_pool2d(TensorHandle hinput, int kH, int kW, int strideH, int strideW) {
+    return tensor_avg_pool2d_mlx_streamed(hinput, kH, kW, strideH, strideW, default_stream_tag());
 }
 
-TensorHandle tensor_conv1d(TensorHandle hinput, TensorHandle hkernel,
-                           TensorHandle hbias, int pad, int stride) {
+extern "C" TensorHandle tensor_conv1d_mlx_streamed(TensorHandle hinput, TensorHandle hkernel,
+                           TensorHandle hbias, int pad, int stride, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     auto inp = (Tensor*)hinput;
     auto ker = (Tensor*)hkernel;
     Tensor* bias = hbias ? (Tensor*)hbias : nullptr;
@@ -1585,9 +1784,16 @@ TensorHandle tensor_conv1d(TensorHandle hinput, TensorHandle hkernel,
         tape[idx].meta = meta;
     }
     return (TensorHandle)r;
+
+}
+TensorHandle tensor_conv1d(TensorHandle hinput, TensorHandle hkernel,
+                           TensorHandle hbias, int pad, int stride) {
+    return tensor_conv1d_mlx_streamed(hinput, hkernel, hbias, pad, stride, default_stream_tag());
 }
 
-TensorHandle tensor_max_pool1d(TensorHandle hinput, int kL, int stride) {
+extern "C" TensorHandle tensor_max_pool1d_mlx_streamed(TensorHandle hinput, int kL, int stride, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     auto inp = (Tensor*)hinput;
     int C = (int)inp->data.shape(0), L = (int)inp->data.shape(1);
     int oL = (L - kL) / stride + 1;
@@ -1606,6 +1812,10 @@ TensorHandle tensor_max_pool1d(TensorHandle hinput, int kL, int stride) {
         tape[idx].meta = meta;
     }
     return (TensorHandle)r;
+
+}
+TensorHandle tensor_max_pool1d(TensorHandle hinput, int kL, int stride) {
+    return tensor_max_pool1d_mlx_streamed(hinput, kL, stride, default_stream_tag());
 }
 
 static TensorHandle tensor_create_param_3d_impl(int d0, int d1, int d2, double* data, mx::Dtype dt) {
@@ -1620,13 +1830,21 @@ TensorHandle tensor_create_param_3d_f32(int d0, int d1, int d2, double* data) {
 TensorHandle tensor_create_param_3d_f64(int d0, int d1, int d2, double* data) {
     return tensor_create_param_3d_impl(d0, d1, d2, data, mx::float64);
 }
-TensorHandle tensor_create_param_3d(int d0, int d1, int d2, double* data) {
+extern "C" TensorHandle tensor_create_param_3d_mlx_streamed(int d0, int d1, int d2, double* data, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     return tensor_create_param_3d_f32(d0, d1, d2, data);
+
+}
+TensorHandle tensor_create_param_3d(int d0, int d1, int d2, double* data) {
+    return tensor_create_param_3d_mlx_streamed(d0, d1, d2, data, default_stream_tag());
 }
 
-TensorHandle tensor_conv2d(TensorHandle hinput, TensorHandle hkernel,
+extern "C" TensorHandle tensor_conv2d_mlx_streamed(TensorHandle hinput, TensorHandle hkernel,
                            TensorHandle hbias, int padH, int padW,
-                           int strideH, int strideW) {
+                           int strideH, int strideW, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     auto inp = (Tensor*)hinput;   // [inC, H, W]
     auto ker = (Tensor*)hkernel;  // [outC, inC, kH, kW]
     Tensor* bias = hbias ? (Tensor*)hbias : nullptr;
@@ -1659,10 +1877,18 @@ TensorHandle tensor_conv2d(TensorHandle hinput, TensorHandle hkernel,
         tape[idx].meta = meta;
     }
     return (TensorHandle)r;
+
+}
+TensorHandle tensor_conv2d(TensorHandle hinput, TensorHandle hkernel,
+                           TensorHandle hbias, int padH, int padW,
+                           int strideH, int strideW) {
+    return tensor_conv2d_mlx_streamed(hinput, hkernel, hbias, padH, padW, strideH, strideW, default_stream_tag());
 }
 
-TensorHandle tensor_max_pool2d(TensorHandle hinput, int kH, int kW,
-                               int strideH, int strideW) {
+extern "C" TensorHandle tensor_max_pool2d_mlx_streamed(TensorHandle hinput, int kH, int kW,
+                               int strideH, int strideW, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     auto inp = (Tensor*)hinput;  // [C, H, W]
     int C = (int)inp->data.shape(0), H = (int)inp->data.shape(1), W = (int)inp->data.shape(2);
     int oH = (H - kH) / strideH + 1;
@@ -1691,11 +1917,18 @@ TensorHandle tensor_max_pool2d(TensorHandle hinput, int kH, int kW,
         tape[idx].meta = meta;
     }
     return (TensorHandle)r;
+
+}
+TensorHandle tensor_max_pool2d(TensorHandle hinput, int kH, int kW,
+                               int strideH, int strideW) {
+    return tensor_max_pool2d_mlx_streamed(hinput, kH, kW, strideH, strideW, default_stream_tag());
 }
 
-TensorHandle tensor_conv2d_batched(TensorHandle hinput, TensorHandle hkernel,
+extern "C" TensorHandle tensor_conv2d_batched_mlx_streamed(TensorHandle hinput, TensorHandle hkernel,
                                     TensorHandle hbias, int padH, int padW,
-                                    int strideH, int strideW) {
+                                    int strideH, int strideW, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     auto inp = (Tensor*)hinput;   // [B, inC, H, W]
     auto ker = (Tensor*)hkernel;  // [outC, inC, kH, kW]
     Tensor* bias = hbias ? (Tensor*)hbias : nullptr;
@@ -1726,10 +1959,18 @@ TensorHandle tensor_conv2d_batched(TensorHandle hinput, TensorHandle hkernel,
         tape[idx].meta = meta;
     }
     return (TensorHandle)r;
+
+}
+TensorHandle tensor_conv2d_batched(TensorHandle hinput, TensorHandle hkernel,
+                                    TensorHandle hbias, int padH, int padW,
+                                    int strideH, int strideW) {
+    return tensor_conv2d_batched_mlx_streamed(hinput, hkernel, hbias, padH, padW, strideH, strideW, default_stream_tag());
 }
 
-TensorHandle tensor_max_pool2d_batched(TensorHandle hinput, int kH, int kW,
-                                        int strideH, int strideW) {
+extern "C" TensorHandle tensor_max_pool2d_batched_mlx_streamed(TensorHandle hinput, int kH, int kW,
+                                        int strideH, int strideW, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     auto inp = (Tensor*)hinput;  // [B, C, H, W]
     int B = (int)inp->data.shape(0), C = (int)inp->data.shape(1);
     int H = (int)inp->data.shape(2), W = (int)inp->data.shape(3);
@@ -1758,6 +1999,11 @@ TensorHandle tensor_max_pool2d_batched(TensorHandle hinput, int kH, int kW,
         tape[idx].meta = meta;
     }
     return (TensorHandle)r;
+
+}
+TensorHandle tensor_max_pool2d_batched(TensorHandle hinput, int kH, int kW,
+                                        int strideH, int strideW) {
+    return tensor_max_pool2d_batched_mlx_streamed(hinput, kH, kW, strideH, strideW, default_stream_tag());
 }
 
 /* ================================================================
@@ -1772,7 +2018,9 @@ TensorHandle tensor_reshape(TensorHandle h, int* shape, int rank) {
     return (TensorHandle)r;
 }
 
-TensorHandle tensor_unsqueeze(TensorHandle h, int dim) {
+extern "C" TensorHandle tensor_unsqueeze_mlx_streamed(TensorHandle h, int dim, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     auto t = (Tensor*)h;
     const auto& orig = t->data.shape();
     int rank = (int)orig.size();
@@ -1786,8 +2034,14 @@ TensorHandle tensor_unsqueeze(TensorHandle h, int dim) {
     auto r = new Tensor(mx::reshape(t->data, sh), t->requires_grad);
     if (t->requires_grad) tape_append(OP_RESHAPE, r, t, nullptr, 0);
     return (TensorHandle)r;
+
 }
-TensorHandle tensor_squeeze(TensorHandle h, int dim) {
+TensorHandle tensor_unsqueeze(TensorHandle h, int dim) {
+    return tensor_unsqueeze_mlx_streamed(h, dim, default_stream_tag());
+}
+extern "C" TensorHandle tensor_squeeze_mlx_streamed(TensorHandle h, int dim, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     auto t = (Tensor*)h;
     int rank = (int)t->data.ndim();
     int normalized = dim < 0 ? dim + rank : dim;
@@ -1803,16 +2057,28 @@ TensorHandle tensor_squeeze(TensorHandle h, int dim) {
     /* Reshape preserves data layout: squeeze of a size-1 dim is identity on data.
        Reuse OP_RESHAPE so backward replay reconstructs the same shape. */
     return tensor_reshape(h, new_shape.data(), (int)new_shape.size());
+
+}
+TensorHandle tensor_squeeze(TensorHandle h, int dim) {
+    return tensor_squeeze_mlx_streamed(h, dim, default_stream_tag());
 }
 
-TensorHandle tensor_select(TensorHandle h, int dim, int index) {
+extern "C" TensorHandle tensor_select_mlx_streamed(TensorHandle h, int dim, int index, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     auto t = (Tensor*)h;
     auto r = new Tensor(mx::take(t->data, mx::array(index), dim), t->requires_grad);
     if (t->requires_grad) tape_append(OP_SELECT, r, t, nullptr, (double)index);
     return (TensorHandle)r;
+
+}
+TensorHandle tensor_select(TensorHandle h, int dim, int index) {
+    return tensor_select_mlx_streamed(h, dim, index, default_stream_tag());
 }
 
-TensorHandle tensor_stack(TensorHandle* tensors, int count, int dim) {
+extern "C" TensorHandle tensor_stack_mlx_streamed(TensorHandle* tensors, int count, int dim, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     /* Same shape as tensor_stack_from_array, but the caller (test_backend or
        internal C code) retains ownership of the input handle array — we do
        NOT free it. tensor_stack_from_array is the variant that takes
@@ -1833,9 +2099,15 @@ TensorHandle tensor_stack(TensorHandle* tensors, int count, int dim) {
         tape[idx].meta = (void*)indices;
     }
     return (TensorHandle)r;
+
+}
+TensorHandle tensor_stack(TensorHandle* tensors, int count, int dim) {
+    return tensor_stack_mlx_streamed(tensors, count, dim, default_stream_tag());
 }
 
-TensorHandle tensor_cat(TensorHandle* tensors, int count, int dim) {
+extern "C" TensorHandle tensor_cat_mlx_streamed(TensorHandle* tensors, int count, int dim, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     std::vector<mx::array> arrs;
     bool rg = false;
     for (int i = 0; i < count; i++) {
@@ -1852,17 +2124,29 @@ TensorHandle tensor_cat(TensorHandle* tensors, int count, int dim) {
         tape[idx].meta = (void*)indices;
     }
     return (TensorHandle)r;
+
+}
+TensorHandle tensor_cat(TensorHandle* tensors, int count, int dim) {
+    return tensor_cat_mlx_streamed(tensors, count, dim, default_stream_tag());
 }
 
-TensorHandle tensor_cat2(TensorHandle ha, TensorHandle hb) {
+extern "C" TensorHandle tensor_cat2_mlx_streamed(TensorHandle ha, TensorHandle hb, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     auto a = (Tensor*)ha; auto b = (Tensor*)hb;
     bool rg = a->requires_grad || b->requires_grad;
     auto r = new Tensor(mx::concatenate({a->data, b->data}, 0), rg);
     if (rg) tape_append(OP_CAT, r, a, b, (double)a->data.size());
     return (TensorHandle)r;
+
+}
+TensorHandle tensor_cat2(TensorHandle ha, TensorHandle hb) {
+    return tensor_cat2_mlx_streamed(ha, hb, default_stream_tag());
 }
 
-TensorHandle tensor_narrow(TensorHandle h, int dim, int start, int len) {
+extern "C" TensorHandle tensor_narrow_mlx_streamed(TensorHandle h, int dim, int start, int len, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     auto t = (Tensor*)h;
     // Flatten, then slice the 1D range — matches tape backend semantics
     auto flat = mx::flatten(t->data);
@@ -1870,6 +2154,10 @@ TensorHandle tensor_narrow(TensorHandle h, int dim, int start, int len) {
     auto r = new Tensor(sliced, t->requires_grad);
     if (t->requires_grad) tape_append(OP_NARROW, r, t, nullptr, (double)start);
     return (TensorHandle)r;
+
+}
+TensorHandle tensor_narrow(TensorHandle h, int dim, int start, int len) {
+    return tensor_narrow_mlx_streamed(h, dim, start, len, default_stream_tag());
 }
 
 TensorHandle tensor_mm(TensorHandle ha, TensorHandle hb) {
@@ -1880,12 +2168,18 @@ TensorHandle tensor_mm(TensorHandle ha, TensorHandle hb) {
     return (TensorHandle)r;
 }
 
-TensorHandle tensor_bmm(TensorHandle ha, TensorHandle hb) {
+extern "C" TensorHandle tensor_bmm_mlx_streamed(TensorHandle ha, TensorHandle hb, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     auto a = (Tensor*)ha; auto b = (Tensor*)hb;
     bool rg = a->requires_grad || b->requires_grad;
     auto r = new Tensor(mx::matmul(a->data, b->data), rg);
     if (rg) tape_append(OP_BMM, r, a, b, 0);
     return (TensorHandle)r;
+
+}
+TensorHandle tensor_bmm(TensorHandle ha, TensorHandle hb) {
+    return tensor_bmm_mlx_streamed(ha, hb, default_stream_tag());
 }
 TensorHandle tensor_batch(TensorHandle* handles, int count) {
     /* Batch [...] tensors -> [count, ...] = stack along new dim 0 */
@@ -1913,37 +2207,67 @@ TensorHandle tensor_bmm_3x3(TensorHandle ha, TensorHandle hb) {
     return (TensorHandle)r;
 }
 
-TensorHandle tensor_softmax_3d(TensorHandle h) {
+extern "C" TensorHandle tensor_softmax_3d_mlx_streamed(TensorHandle h, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     auto t = (Tensor*)h;
     auto r = new Tensor(mx::softmax(t->data, -1), t->requires_grad);
     if (t->requires_grad) tape_append(OP_SOFTMAX_3D, r, t, nullptr, 0);
     return (TensorHandle)r;
+
+}
+TensorHandle tensor_softmax_3d(TensorHandle h) {
+    return tensor_softmax_3d_mlx_streamed(h, default_stream_tag());
 }
 
-TensorHandle tensor_transpose_last2(TensorHandle h) {
+extern "C" TensorHandle tensor_transpose_last2_mlx_streamed(TensorHandle h, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     auto t = (Tensor*)h;
     auto r = new Tensor(mx::transpose(t->data, {0, 2, 1}), t->requires_grad);
     if (t->requires_grad) tape_append(OP_TRANSPOSE_LAST2, r, t, nullptr, 0);
     return (TensorHandle)r;
+
+}
+TensorHandle tensor_transpose_last2(TensorHandle h) {
+    return tensor_transpose_last2_mlx_streamed(h, default_stream_tag());
 }
 
-TensorHandle tensor_reshape_3d(TensorHandle h, int d0, int d1, int d2) {
+extern "C" TensorHandle tensor_reshape_3d_mlx_streamed(TensorHandle h, int d0, int d1, int d2, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     int shape[] = {d0, d1, d2};
     return tensor_reshape(h, shape, 3);
+
+}
+TensorHandle tensor_reshape_3d(TensorHandle h, int d0, int d1, int d2) {
+    return tensor_reshape_3d_mlx_streamed(h, d0, d1, d2, default_stream_tag());
 }
 
-TensorHandle tensor_reshape_4d(TensorHandle h, int d0, int d1, int d2, int d3) {
+extern "C" TensorHandle tensor_reshape_4d_mlx_streamed(TensorHandle h, int d0, int d1, int d2, int d3, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     int shape[] = {d0, d1, d2, d3};
     return tensor_reshape(h, shape, 4);
+
+}
+TensorHandle tensor_reshape_4d(TensorHandle h, int d0, int d1, int d2, int d3) {
+    return tensor_reshape_4d_mlx_streamed(h, d0, d1, d2, d3, default_stream_tag());
 }
 
-TensorHandle tensor_expand_mask(TensorHandle hmask, int B) {
+extern "C" TensorHandle tensor_expand_mask_mlx_streamed(TensorHandle hmask, int B, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     auto mask = (Tensor*)hmask;
     int m = mask->data.shape(0), n = mask->data.shape(1);
     // [m,n] → [1,m,n] → broadcast to [B,m,n]
     auto expanded = mx::broadcast_to(mx::reshape(mask->data, {1, m, n}), {B, m, n});
     auto r = new Tensor(expanded, false);
     return (TensorHandle)r;
+
+}
+TensorHandle tensor_expand_mask(TensorHandle hmask, int B) {
+    return tensor_expand_mask_mlx_streamed(hmask, B, default_stream_tag());
 }
 
 TensorHandle tensor_tile_2d(TensorHandle h, int rep0, int rep1) {
@@ -1968,29 +2292,49 @@ TensorHandle tensor_tile_2d(TensorHandle h, int rep0, int rep1) {
     return (TensorHandle)r;
 }
 
-TensorHandle tensor_transpose_2d(TensorHandle h) {
+extern "C" TensorHandle tensor_transpose_2d_mlx_streamed(TensorHandle h, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     auto t = (Tensor*)h;
     auto r = new Tensor(mx::transpose(t->data, {1, 0}), t->requires_grad);
     if (t->requires_grad) tape_append(OP_TRANSPOSE_2D, r, t, nullptr, 0);
     return (TensorHandle)r;
+
+}
+TensorHandle tensor_transpose_2d(TensorHandle h) {
+    return tensor_transpose_2d_mlx_streamed(h, default_stream_tag());
 }
 
-TensorHandle tensor_softmax_2d(TensorHandle h) {
+extern "C" TensorHandle tensor_softmax_2d_mlx_streamed(TensorHandle h, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     auto t = (Tensor*)h;
     auto r = new Tensor(mx::softmax(t->data, -1), t->requires_grad);
     if (t->requires_grad) tape_append(OP_SOFTMAX_2D, r, t, nullptr, 0);
     return (TensorHandle)r;
+
+}
+TensorHandle tensor_softmax_2d(TensorHandle h) {
+    return tensor_softmax_2d_mlx_streamed(h, default_stream_tag());
 }
 
-TensorHandle tensor_masked_fill(TensorHandle h, TensorHandle hmask, double value) {
+extern "C" TensorHandle tensor_masked_fill_mlx_streamed(TensorHandle h, TensorHandle hmask, double value, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     auto t = (Tensor*)h; auto mask = (Tensor*)hmask;
     auto val_arr = mx::full(t->data.shape(), value, t->data.dtype());
     auto r = new Tensor(mx::where(mask->data, val_arr, t->data), t->requires_grad);
     if (t->requires_grad) tape_append(OP_MASKED_FILL, r, t, mask, 0);
     return (TensorHandle)r;
+
+}
+TensorHandle tensor_masked_fill(TensorHandle h, TensorHandle hmask, double value) {
+    return tensor_masked_fill_mlx_streamed(h, hmask, value, default_stream_tag());
 }
 
-TensorHandle tensor_log_softmax_2d(TensorHandle h) {
+extern "C" TensorHandle tensor_log_softmax_2d_mlx_streamed(TensorHandle h, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     auto t = (Tensor*)h;
     // log_softmax(x) = x - log(sum(exp(x)))
     auto maxv = mx::max(t->data, -1, true);
@@ -1999,10 +2343,16 @@ TensorHandle tensor_log_softmax_2d(TensorHandle h) {
     auto r = new Tensor(mx::subtract(t->data, lse), t->requires_grad);
     if (t->requires_grad) tape_append(OP_LOG_SOFTMAX_2D, r, t, nullptr, -1.0);
     return (TensorHandle)r;
+
+}
+TensorHandle tensor_log_softmax_2d(TensorHandle h) {
+    return tensor_log_softmax_2d_mlx_streamed(h, default_stream_tag());
 }
 
-TensorHandle tensor_layer_norm_2d(TensorHandle h, TensorHandle hgamma,
-    TensorHandle hbias, double eps) {
+extern "C" TensorHandle tensor_layer_norm_2d_mlx_streamed(TensorHandle h, TensorHandle hgamma,
+    TensorHandle hbias, double eps, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     auto t = (Tensor*)h;
     auto gamma = (Tensor*)hgamma;
     auto bias = (Tensor*)hbias;
@@ -2026,11 +2376,22 @@ TensorHandle tensor_layer_norm_2d(TensorHandle h, TensorHandle hgamma,
         tape[idx].meta = meta;
     }
     return (TensorHandle)r;
+
+}
+TensorHandle tensor_layer_norm_2d(TensorHandle h, TensorHandle hgamma,
+    TensorHandle hbias, double eps) {
+    return tensor_layer_norm_2d_mlx_streamed(h, hgamma, hbias, eps, default_stream_tag());
 }
 
-TensorHandle tensor_reshape_2d(TensorHandle h, int rows, int cols) {
+extern "C" TensorHandle tensor_reshape_2d_mlx_streamed(TensorHandle h, int rows, int cols, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     int shape[] = {rows, cols};
     return tensor_reshape(h, shape, 2);
+
+}
+TensorHandle tensor_reshape_2d(TensorHandle h, int rows, int cols) {
+    return tensor_reshape_2d_mlx_streamed(h, rows, cols, default_stream_tag());
 }
 
 TensorHandle tensor_one_hot(int* tokens, int n_tokens, int vocab_size) {
@@ -2649,14 +3010,22 @@ void tensor_zero_grad(TensorHandle h) {
 }
 
 int tensor_requires_grad(TensorHandle h) { return ((Tensor*)h)->requires_grad ? 1 : 0; }
-TensorHandle tensor_detach(TensorHandle h) {
+extern "C" TensorHandle tensor_detach_mlx_streamed(TensorHandle h, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     /* Detach: clone data, requires_grad=false, no tape entry. The result is
        a leaf with no autograd linkage to the source tensor. */
     auto t = (Tensor*)h;
     return (TensorHandle)new Tensor(mx::array(t->data), false);
+
+}
+TensorHandle tensor_detach(TensorHandle h) {
+    return tensor_detach_mlx_streamed(h, default_stream_tag());
 }
 
-TensorHandle tensor_with_grad(TensorHandle h) {
+extern "C" TensorHandle tensor_with_grad_mlx_streamed(TensorHandle h, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     /* Promote a tensor into the autograd graph: clone with requires_grad=true,
        record an OP_CONST tape entry so the constant pool picks up its data
        during backward replay. Note: for the result's gradient to actually be
@@ -2665,6 +3034,10 @@ TensorHandle tensor_with_grad(TensorHandle h) {
     auto r = new Tensor(mx::array(t->data), true);
     tape_append(OP_CONST, r, nullptr, nullptr, 0);
     return (TensorHandle)r;
+
+}
+TensorHandle tensor_with_grad(TensorHandle h) {
+    return tensor_with_grad_mlx_streamed(h, default_stream_tag());
 }
 
 void tensor_set_requires_grad(TensorHandle h, int rg) {
@@ -2737,7 +3110,9 @@ void tensor_lstm_gates(TensorHandle combined, TensorHandle prev_cell, int o,
        tape_reset. The caller doesn't own it; the outputs are the standalone
        Tensor handles inside. */
 }
-TensorPair* tensor_lstm_gates_pair(TensorHandle hcombined, TensorHandle hprev_cell, int o) {
+extern "C" TensorPair* tensor_lstm_gates_pair_mlx_streamed(TensorHandle hcombined, TensorHandle hprev_cell, int o, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     // Decompose into primitives — each records its own tape entry
     // Split combined [4*o] into 4 gates
     TensorHandle ig_raw = tensor_narrow(hcombined, 0, 0, o);
@@ -2762,10 +3137,26 @@ TensorPair* tensor_lstm_gates_pair(TensorHandle hcombined, TensorHandle hprev_ce
     pair->second = new_cell;
     all_pairs.push_back(pair);
     return pair;
+
+}
+TensorPair* tensor_lstm_gates_pair(TensorHandle hcombined, TensorHandle hprev_cell, int o) {
+    return tensor_lstm_gates_pair_mlx_streamed(hcombined, hprev_cell, o, default_stream_tag());
 }
 
-TensorHandle tensor_pair_first(TensorPair* p) { return p->first; }
-TensorHandle tensor_pair_second(TensorPair* p) { return p->second; }
+extern "C" TensorHandle tensor_pair_first_mlx_streamed(TensorPair* p, int stream_tag) {
+    WITH_STREAM(stream_tag);
+ return p->first; 
+}
+TensorHandle tensor_pair_first(TensorPair* p) {
+    return tensor_pair_first_mlx_streamed(p, default_stream_tag());
+}
+extern "C" TensorHandle tensor_pair_second_mlx_streamed(TensorPair* p, int stream_tag) {
+    WITH_STREAM(stream_tag);
+ return p->second; 
+}
+TensorHandle tensor_pair_second(TensorPair* p) {
+    return tensor_pair_second_mlx_streamed(p, default_stream_tag());
+}
 void tensor_pair_free(TensorPair* p) { if (p) free(p); }
 
 /* ================================================================
@@ -2987,14 +3378,26 @@ TensorHandle tensor_create_param_4d_f64(int d0, int d1, int d2, int d3, double* 
 }
 
 // Legacy unsuffixed.
-TensorHandle tensor_create_param_2d(int rows, int cols, double* data) {
+extern "C" TensorHandle tensor_create_param_2d_mlx_streamed(int rows, int cols, double* data, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     return tensor_create_param_2d_f32(rows, cols, data);
+
+}
+TensorHandle tensor_create_param_2d(int rows, int cols, double* data) {
+    return tensor_create_param_2d_mlx_streamed(rows, cols, data, default_stream_tag());
 }
 TensorHandle tensor_create_param_4d(int d0, int d1, int d2, int d3, double* data) {
     return tensor_create_param_4d_f32(d0, d1, d2, d3, data);
 }
-TensorHandle tensor_create_param_1d(int n, double* data) {
+extern "C" TensorHandle tensor_create_param_1d_mlx_streamed(int n, double* data, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     return tensor_create_param_1d_f32(n, data);
+
+}
+TensorHandle tensor_create_param_1d(int n, double* data) {
+    return tensor_create_param_1d_mlx_streamed(n, data, default_stream_tag());
 }
 
 // State Tensors — covers both init-time permanent state (NTM mask, batch
@@ -3034,27 +3437,51 @@ TensorHandle tensor_create_state_2d_f64(int rows, int cols, double* data) {
 }
 
 // Legacy unsuffixed.
-TensorHandle tensor_create_state_2d(int rows, int cols, double* data) {
+extern "C" TensorHandle tensor_create_state_2d_mlx_streamed(int rows, int cols, double* data, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     return tensor_create_state_2d_f32(rows, cols, data);
+
+}
+TensorHandle tensor_create_state_2d(int rows, int cols, double* data) {
+    return tensor_create_state_2d_mlx_streamed(rows, cols, data, default_stream_tag());
+}
+extern "C" TensorHandle tensor_create_state_1d_mlx_streamed(int n, double* data, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
+    return tensor_create_state_1d_f32(n, data);
+
 }
 TensorHandle tensor_create_state_1d(int n, double* data) {
-    return tensor_create_state_1d_f32(n, data);
+    return tensor_create_state_1d_mlx_streamed(n, data, default_stream_tag());
 }
 
-TensorHandle tensor_view_2d(TensorHandle mat, int row, int col) {
+extern "C" TensorHandle tensor_view_2d_mlx_streamed(TensorHandle mat, int row, int col, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     auto t = (Tensor*)mat;
     // Return a scalar tensor sharing the value
     int cols = t->data.shape(1);
     auto val = mx::take(mx::flatten(t->data), mx::array(row * cols + col));
     auto r = new Tensor(val, t->requires_grad);
     return (TensorHandle)r;
+
+}
+TensorHandle tensor_view_2d(TensorHandle mat, int row, int col) {
+    return tensor_view_2d_mlx_streamed(mat, row, col, default_stream_tag());
 }
 
-TensorHandle tensor_view_1d(TensorHandle vec, int idx) {
+extern "C" TensorHandle tensor_view_1d_mlx_streamed(TensorHandle vec, int idx, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     auto t = (Tensor*)vec;
     auto val = mx::take(t->data, mx::array(idx));
     auto r = new Tensor(val, t->requires_grad);
     return (TensorHandle)r;
+
+}
+TensorHandle tensor_view_1d(TensorHandle vec, int idx) {
+    return tensor_view_1d_mlx_streamed(vec, idx, default_stream_tag());
 }
 
 double tensor_item_2d(TensorHandle mat, int row, int col) {
@@ -3076,7 +3503,9 @@ double tensor_item_1d(TensorHandle vec, int idx) {
    Causal mask
    ================================================================ */
 
-TensorHandle tensor_causal_mask(int n) {
+extern "C" TensorHandle tensor_causal_mask_mlx_streamed(int n, int stream_tag) {
+    WITH_STREAM(stream_tag);
+
     // Upper triangular: 1.0 above diagonal, 0.0 on/below
     std::vector<double> data(n * n, 0.0);
     for (int i = 0; i < n; i++)
@@ -3085,6 +3514,10 @@ TensorHandle tensor_causal_mask(int n) {
     mx::Shape sh = {n, n};
     auto t = new Tensor(mx_from_doubles(data.data(), sh), false);
     return (TensorHandle)t;
+
+}
+TensorHandle tensor_causal_mask(int n) {
+    return tensor_causal_mask_mlx_streamed(n, default_stream_tag());
 }
 
 /* ================================================================
