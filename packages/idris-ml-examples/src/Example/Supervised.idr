@@ -11,6 +11,7 @@ import DataPoint
 import Device
 import Endofunctor
 import Floating
+import Hpo.LrFinder
 import Layer
 import Math
 import Optimizer
@@ -79,14 +80,19 @@ record Config where
   lr : Double
   epochs : Nat
   seed : Bits64
+  ||| If True, run `lr_find` (LR-range test) instead of training.
+  lrFind : Bool
 
 defaultConfig : Config
-defaultConfig = MkConfig 0.03 1000 42
+defaultConfig = MkConfig 0.03 1000 42 False
 
 specs : List (ArgSpec Config)
 specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
         , Arg "--epochs" (\v, c => { epochs := castNat v } c)
-        , Arg "--seed" (\v, c => { seed := castBits64 v } c) ]
+        , Arg "--seed" (\v, c => { seed := castBits64 v } c)
+        -- Boolean flag with explicit value (parseArgs consumes flag+value
+        -- pairs uniformly). Invoke as: --lr-find 1
+        , Arg "--lr-find" (\v, c => { lrFind := (v == "1" || v == "true") } c) ]
 
 main : IO ()
 main = do
@@ -110,6 +116,20 @@ main = do
   -- Quick forward test
   let (_, testOut) = forwardVarTensor model (inputTensor (index FZ tensorData))
   putStrLn $ "Forward test: " ++ show (prim__item (prim__sum testOut))
+
+  -- HPO branch: when --lr-find 1, run lr_find (LR-range test) and exit
+  -- early. Mutates the optimizer's LR; rerun without --lr-find at the
+  -- recommended LR for actual training.
+  when cfg.lrFind $ do
+    let lrCfg : LrFindConfig
+        lrCfg = { numIters := 100 } defaultLrFindConfig
+    _ <- lrFind lrCfg
+      (\m, d => let (m', loss) = epochNativeTensorPre opt d nllLossTensor m
+                in pure (m', loss))
+      (pure tensorData) opt model
+    putStrLn ""
+    putStrLn "Done — re-run without --lr-find at the recommended LR."
+    exitSuccess
 
   (trained, epochsDone, _) <- runTraining
     (\m, d => epochNativeTensorPre opt d nllLossTensor m) (pure tensorData) (simpleConfig cfg.epochs) model
