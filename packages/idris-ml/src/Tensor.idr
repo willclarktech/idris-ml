@@ -420,17 +420,6 @@ prim__pairFirst : AnyPtr -> AnyPtr
 export
 prim__pairSecond : AnyPtr -> AnyPtr
 
--- Array-level forward ops (used by layers with consolidated weight tensors)
-||| Matrix-vector multiply on raw tensor pointers.
-export
-tensorMv : AnyPtr -> AnyPtr -> AnyPtr
-tensorMv = prim__mv
-
-||| Add two raw tensor pointers.
-export
-tensorAdd : AnyPtr -> AnyPtr -> AnyPtr
-tensorAdd = prim__add
-
 -- No-grad scope. Push/pop a counter on the C side; mirrors PyTorch's
 -- torch.no_grad(). When depth > 0, ops skip tape append on tape/mlx
 -- and torch's NoGradGuard suppresses autograd graph construction.
@@ -1465,25 +1454,27 @@ runBackward t = primIO (prim__backwardC t.tensorPtr)
 
 ||| MSE loss over a 1D prediction/target pair. Sum-reduced.
 export
-tmseLoss : {n : Nat} -> Tensor [n] d dt g -> Tensor [n] d dt g -> IO (Tensor [] d dt g)
+tmseLoss : {0 d : Device} -> UserDeviceLinear d => {n : Nat} ->
+           Tensor [n] d dt g -> Tensor [n] d dt g -> IO (Tensor [] d dt g)
 tmseLoss p t = ioRerun (\_ =>
-  let diff = prim__sub p.tensorPtr t.tensorPtr in
-  let sqDiff = prim__mul diff diff in
-  MkTensor (prim__sum sqDiff) Nothing)
+  let diff = primSub {d} p.tensorPtr t.tensorPtr in
+  let sqDiff = primMul {d} diff diff in
+  MkTensor (primSum {d} sqDiff) Nothing)
 
 ||| NLL loss against a one-hot target. Mirrors
 ||| `Example.Supervised.nllLossTensor` (divide by n to match the
 ||| reference's mean reduction).
 export
-tnllLoss : {n : Nat} -> Tensor [n] d dt g -> Tensor [n] d dt g -> IO (Tensor [] d dt g)
+tnllLoss : {0 d : Device} -> UserDeviceNN d => {n : Nat} ->
+           Tensor [n] d dt g -> Tensor [n] d dt g -> IO (Tensor [] d dt g)
 tnllLoss {n} p t = ioRerun (\_ =>
-  let logP = prim__logSoftmax p.tensorPtr 0 in
-  let prod = prim__mul logP t.tensorPtr in
-  let neg = prim__neg (prim__sum prod) in
-  MkTensor (prim__mulScalar neg (1.0 / cast n)) Nothing)
+  let logP = primLogSoftmax {d} p.tensorPtr 0 in
+  let prod = primMul {d} logP t.tensorPtr in
+  let neg = primNeg {d} (primSum {d} prod) in
+  MkTensor (primMulScalar {d} neg (1.0 / cast n)) Nothing)
 
 ||| Binary cross-entropy with logits, mean-reduced. Numerically stable
-||| (wraps `prim__bceWithLogits`). For multi-element predictions/targets
+||| (wraps `primBceWithLogits`). For multi-element predictions/targets
 ||| use `tbceLoss : Tensor [n] d dt g-> Tensor [n] d dt g-> Tensor [] d dt g`;
 ||| the C op internally averages. Polymorphic in `g`: the loss's
 ||| grad-mode matches the predictions / targets, so a no-grad eval
@@ -1491,9 +1482,10 @@ tnllLoss {n} p t = ioRerun (\_ =>
 ||| that the type system will reject if accidentally fed to
 ||| `nativeTrainStep`.
 export
-tbceLoss : {n : Nat} -> Tensor [n] d dt g -> Tensor [n] d dt g -> IO (Tensor [] d dt g)
+tbceLoss : {0 d : Device} -> UserDeviceNN d => {n : Nat} ->
+           Tensor [n] d dt g -> Tensor [n] d dt g -> IO (Tensor [] d dt g)
 tbceLoss p t = ioRerun (\_ =>
-  MkTensor (prim__bceWithLogits p.tensorPtr t.tensorPtr) Nothing)
+  MkTensor (primBceWithLogits {d} p.tensorPtr t.tensorPtr) Nothing)
 
 -- Optimizer shim ------------------------------------------------------
 
