@@ -1,8 +1,10 @@
 """SAC (Haarnoja et al. 2018) on Pendulum-v1.
 
 Stochastic tanh-squashed Gaussian actor, twin Q-networks, Polyak-averaged
-target Q-networks, fixed entropy temperature α. Self-contained Pendulum
-physics imported from `ppo.py` to stay aligned with the PPO env.
+target Q-networks, fixed entropy temperature α. Uses canonical
+`gym.make("Pendulum-v1")` for env physics — reset state is pinned to
+(theta=π, theta_dot=0) to mirror idris-gym's deterministic `MkP Pi 0.0`
+(see `docs/develop/reference-alignment.md`).
 
 Aligned with `Example.Sac` (Idris): separate actor + Q1 + Q2 networks
 registered under distinct paramId scope prefixes on the Idris side, and
@@ -17,16 +19,37 @@ import copy
 import math
 import random
 import time
+from collections import deque
 
+import gymnasium as gym
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
-from torch_ref.models.ppo import MAX_STEPS, PendulumState, observe, pendulum_step
 from torch_ref.training.runner import format_elapsed, mem_suffix
 
 MAX_ACTION = 2.0  # Pendulum torque range
+MAX_STEPS = 200  # gymnasium Pendulum-v1 default TimeLimit
+
+
+def _reset_to_pi(env: gym.Env) -> np.ndarray:
+    """Pin env state to (theta=π, theta_dot=0) and return the obs.
+
+    Canonical Pendulum-v1 randomizes the init within theta ∈ [-π, π],
+    theta_dot ∈ [-1, 1]; idris-gym uses deterministic worst-case
+    `MkP Pi 0.0`. The torch reference pins to match — eliminating
+    state-distribution differences from convergence comparisons.
+    """
+    env.unwrapped.state = np.array([math.pi, 0.0], dtype=np.float64)  # pyright: ignore[reportAttributeAccessIssue]
+    th, dth = env.unwrapped.state  # pyright: ignore[reportAttributeAccessIssue]
+    return np.array([math.cos(th), math.sin(th), dth], dtype=np.float64)
+
+
+def _obs_tensor(obs: np.ndarray) -> Tensor:
+    return torch.tensor(obs, dtype=torch.float64)
+
 
 # ---------------------------------------------------------------------------
 # Actor: tanh-squashed Gaussian policy
@@ -97,7 +120,6 @@ class QNet(nn.Module):
 
 class ReplayBuffer:
     def __init__(self, capacity: int) -> None:
-        from collections import deque
         self.buf: deque[tuple[list[float], float, float, list[float], bool]] = deque(
             maxlen=capacity
         )
@@ -189,30 +211,32 @@ def train_sac(
     q2_opt = torch.optim.Adam(q2.parameters(), lr=lr)
     buffer = ReplayBuffer(buffer_capacity)
 
+    env = gym.make("Pendulum-v1")
+    env.reset(seed=seed)
+    obs_np = _reset_to_pi(env)
     history: list[float] = []
-    state = PendulumState()
     ep_return = 0.0
-    ep_len = 0
     t_start = time.monotonic()
     for step in range(total_steps):
-        obs = observe(state)
+        obs = _obs_tensor(obs_np)
         if step < warmup_steps:
             action = rng.uniform(-MAX_ACTION, MAX_ACTION)
         else:
             with torch.no_grad():
                 a_t, _ = actor.sample(obs)
                 action = float(a_t.item())
-        reward, next_state, _ = pendulum_step(state, action)
-        ep_return += reward
-        ep_len += 1
-        done = ep_len >= MAX_STEPS
-        buffer.push(obs.tolist(), action, reward, observe(next_state).tolist(), done)
-        state = next_state
+        next_obs_np, reward, term, trunc, _ = env.step(np.array([action], dtype=np.float32))
+        next_obs_np = next_obs_np.astype(np.float64)
+        reward_f = float(reward)
+        ep_return += reward_f
+        done = bool(term or trunc)
+        buffer.push(obs_np.tolist(), action, reward_f, next_obs_np.tolist(), done)
+        obs_np = next_obs_np
         if done:
             history.append(ep_return)
             ep_return = 0.0
-            ep_len = 0
-            state = PendulumState()
+            env.reset()
+            obs_np = _reset_to_pi(env)
         if len(buffer) >= max(batch_size, warmup_steps):
             sac_update(
                 actor, q1, q2, q1_target, q2_target,
@@ -233,17 +257,23 @@ def train_sac(
 
 
 def evaluate(actor: Actor, n_episodes: int = 20) -> float:
+    env = gym.make("Pendulum-v1")
+    env.reset(seed=0)
     total = 0.0
     for _ in range(n_episodes):
-        state = PendulumState()
+        env.reset()
+        obs_np = _reset_to_pi(env)
         ep_return = 0.0
         for _ in range(MAX_STEPS):
-            obs = observe(state)
+            obs = _obs_tensor(obs_np)
             with torch.no_grad():
                 mean, _ = actor(obs)
             action = float(torch.tanh(mean).item()) * MAX_ACTION
-            reward, state, _ = pendulum_step(state, action)
-            ep_return += reward
+            obs_np, reward, term, trunc, _ = env.step(np.array([action], dtype=np.float32))
+            obs_np = obs_np.astype(np.float64)
+            ep_return += float(reward)
+            if term or trunc:
+                break
         total += ep_return
     return total / n_episodes
 

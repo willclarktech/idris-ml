@@ -477,6 +477,24 @@ For now, **Idris-on-torch is the convergence-correctness backend** for
 NTM/DNC examples; tape and mlx have a documented quality gap until
 their backward rules are audited.
 
+## Alignment Changes (2026-05-19) — SAC torch_ref migrated to gymnasium Pendulum-v1
+
+PyTorch SAC reference now uses `gym.make("Pendulum-v1")` instead of the hand-rolled `PendulumState` / `pendulum_step` (which had been imported from `ppo.py` and broke when PPO switched env to Acrobot in `0fe6998`). The migration also heals SAC's import error and is the first step of the broader `gymnasium`-adoption work in `torch_ref/` (TODO Medium row, sweep across all 11 RL examples).
+
+**Documented divergence — reset state**: canonical Gymnasium Pendulum-v1 randomizes the initial state within `theta ∈ [-π, π], theta_dot ∈ [-1, 1]`; idris-gym `Gym.ClassicControl.Pendulum.reset` is deterministic `MkP Pi 0.0` (hangs-down, worst-case inverted). The torch_ref Pendulum loop pins `env.unwrapped.state = [π, 0.0]` after each reset to mirror the Idris init. Threading a seedable RNG through `Env.reset` to randomize idris-gym is a follow-up (touches the `Env` interface — out of scope for this row).
+
+Multi-seed convergence after migration (30K env steps, eval over 10 episodes, threshold ≥ -1500):
+
+| seed | avg_return |
+|---:|---:|
+| 42 | -1458.5 |
+| 0 | -1308.5 |
+| 1 | -1175.2 |
+| 2 | -1312.0 |
+| 3 | -1020.3 |
+
+5/5 pass; mean -1255, within the same band the pre-broken `pendulum_step` reference produced. Other env constants match between idris-gym and Pendulum-v1 (`Gravity=10`, `MaxTorque=2`, `MaxSpeed=8`, `Dt=0.05`, dynamics formula, reward `-(θ_norm² + 0.1·θ̇² + 0.001·u²)`, 200-step TimeLimit), so no further alignment work is needed for Pendulum.
+
 ## Status
 
 All known discrepancies resolved (model-side); two backend-side
