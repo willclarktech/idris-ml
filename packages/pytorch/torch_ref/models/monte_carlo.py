@@ -1,53 +1,28 @@
 """First-visit MC control on Blackjack-v1.
 
 On-policy first-visit Monte Carlo with epsilon-greedy exploration and
-incremental-mean updates (Sutton & Barto chapter 5). Self-contained
-Blackjack env matching the Idris `Gym.ToyText.Blackjack` env: infinite
-deck with replacement, dealer sticks at 17, natural=False.
+incremental-mean updates (Sutton & Barto chapter 5). Uses canonical
+`gym.make("Blackjack-v1")` for env physics — Sutton & Barto rules
+(natural=False, sab=True), uniform 13-card suit (A=1/13, 2..9 each
+1/13, 10 with weight 4/13 from {10, J, Q, K}), dealer sticks at 17,
++1/-1/0 win/loss/draw reward.
+
+Aligned with idris-gym `Gym.ToyText.Blackjack` (canonical distribution
+adopted on both sides in the same commit, replacing the prior
+Ace=2/13, 10=3/13 weighting).
 """
 
 from __future__ import annotations
 
 import random
 
+import gymnasium as gym
 import numpy as np
-
-# ---------------------------------------------------------------------------
-# Blackjack environment
-# ---------------------------------------------------------------------------
-
-# Card value distribution matches Idris: 0->Ace=1; 10,11,12->J,Q,K=10; 1..9 as-is.
-# Equivalent to: draw value in 1..10 with 10 having 4x weight.
 
 NUM_ACTIONS = 2  # 0=stick, 1=hit
 # State: (player_sum in 4..21, dealer_show in 1..10, usable in {0,1})
 # idx = (ps - 4) * 20 + (ds - 1) * 2 + ua   ->  0..359
-NUM_STATES = 400  # slight overhead for safety
-
-
-def draw_card(rng: random.Random) -> int:
-    """Draw a card. Distribution matches Idris env: card 1 has weight 2/13
-    (n=0 or n=1), cards 2..9 have weight 1/13 each, card 10 has weight 3/13
-    (n=10, 11, 12). Not a realistic deck but keeps the envs in lockstep."""
-    n = rng.randrange(13)
-    if n == 0:
-        return 1  # Ace (n=0 special case)
-    if n >= 10:
-        return 10  # J, Q, K
-    return n  # 1..9
-
-
-def hand_sum(hand: list[int]) -> int:
-    total = sum(hand)
-    aces = hand.count(1)
-    while aces > 0 and total + 10 <= 21:
-        total += 10
-        aces -= 1
-    return total
-
-
-def usable_ace(hand: list[int]) -> bool:
-    return 1 in hand and sum(hand) + 10 <= 21
+NUM_STATES = 400
 
 
 def encode(player_sum: int, dealer_show: int, usable: bool) -> int:
@@ -58,59 +33,44 @@ def encode(player_sum: int, dealer_show: int, usable: bool) -> int:
 
 
 def play_hand(
-    q: np.ndarray, epsilon: float, rng: random.Random, greedy: bool = False
+    env: gym.Env,
+    q: np.ndarray,
+    epsilon: float,
+    rng: random.Random,
+    greedy: bool = False,
 ) -> tuple[list[tuple[int, int]], float]:
-    """Play one Blackjack hand. Returns (trajectory [(state_idx, action)], terminal_reward)."""
-    player = [draw_card(rng), draw_card(rng)]
-    dealer = [draw_card(rng), draw_card(rng)]
+    """Play one Blackjack hand. Returns (trajectory [(state_idx, action)],
+    terminal_reward)."""
+    obs, _ = env.reset()
     trajectory: list[tuple[int, int]] = []
     reward = 0.0
-
     while True:
-        p_sum = hand_sum(player)
-        if p_sum > 21:
-            break  # shouldn't happen on initial deal, but defensive
-        state_idx = encode(p_sum, dealer[0], usable_ace(player))
+        player_sum, dealer_show, usable = obs
+        state_idx = encode(int(player_sum), int(dealer_show), bool(usable))
         if greedy:
             action = int(np.argmax(q[state_idx]))
         elif rng.random() < epsilon:
             action = rng.randrange(NUM_ACTIONS)
         else:
             action = int(np.argmax(q[state_idx]))
-
         trajectory.append((state_idx, action))
-
-        if action == 0:  # stick
-            while hand_sum(dealer) < 17:
-                dealer.append(draw_card(rng))
-            d_sum = hand_sum(dealer)
-            p_sum = hand_sum(player)
-            if d_sum > 21 or p_sum > d_sum:
-                reward = 1.0
-            elif p_sum == d_sum:
-                reward = 0.0
-            else:
-                reward = -1.0
+        next_obs, r, term, trunc, _ = env.step(action)
+        reward = float(r)
+        if term or trunc:
             break
-        else:  # hit
-            player.append(draw_card(rng))
-            if hand_sum(player) > 21:
-                reward = -1.0
-                break
-
+        obs = next_obs
     return trajectory, reward
 
 
-# ---------------------------------------------------------------------------
-# First-visit MC control
-# ---------------------------------------------------------------------------
-
-
 def mc_episode(
-    q: np.ndarray, counts: np.ndarray, epsilon: float, rng: random.Random
+    env: gym.Env,
+    q: np.ndarray,
+    counts: np.ndarray,
+    epsilon: float,
+    rng: random.Random,
 ) -> float:
     """Run one hand, apply first-visit MC updates. Returns terminal reward."""
-    trajectory, reward = play_hand(q, epsilon, rng, greedy=False)
+    trajectory, reward = play_hand(env, q, epsilon, rng, greedy=False)
     visited: set[tuple[int, int]] = set()
     for s, a in trajectory:
         if (s, a) not in visited:
@@ -128,11 +88,13 @@ def train_mc(
 ) -> tuple[np.ndarray, list[float]]:
     """Train first-visit MC on Blackjack. Returns (Q, history)."""
     rng = random.Random(seed)
+    env = gym.make("Blackjack-v1")
+    env.reset(seed=seed)
     q = np.zeros((NUM_STATES, NUM_ACTIONS), dtype=np.float64)
     counts = np.zeros((NUM_STATES, NUM_ACTIONS), dtype=np.int64)
     history: list[float] = []
     for epoch in range(epochs):
-        reward = mc_episode(q, counts, epsilon, rng)
+        reward = mc_episode(env, q, counts, epsilon, rng)
         history.append(reward)
         if (epoch + 1) % log_every == 0:
             recent = sum(history[-1000:]) / min(len(history), 1000)
@@ -146,10 +108,12 @@ def train_mc(
 def evaluate(q: np.ndarray, n_episodes: int = 10000, seed: int = 0) -> dict[str, float]:
     """Greedy evaluation. Returns {win, draw, loss, avg_reward}."""
     rng = random.Random(seed)
+    env = gym.make("Blackjack-v1")
+    env.reset(seed=seed)
     wins = draws = losses = 0
     total_reward = 0.0
     for _ in range(n_episodes):
-        _, r = play_hand(q, 0.0, rng, greedy=True)
+        _, r = play_hand(env, q, 0.0, rng, greedy=True)
         total_reward += r
         if r > 0:
             wins += 1

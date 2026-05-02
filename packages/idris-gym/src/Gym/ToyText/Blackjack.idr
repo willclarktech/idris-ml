@@ -31,16 +31,23 @@ record BJState where
   bjSeed     : Seed
 
 
-||| Draw one card, with values 1..10 (1=Ace; 10 appears 4x from J,Q,K,10).
+||| Draw one card from a uniform 13-card suit (canonical Gymnasium
+||| Blackjack-v1 distribution). Values: 1=Ace (1/13), 2..9 (1/13 each),
+||| 10 (4/13 from 10, J, Q, K).
 drawCard : Seed -> (Nat, Seed)
 drawCard s =
   let (n, s') = nextNat s 13
   in case n of
-       0 => (1, s')    -- Ace
-       10 => (10, s')  -- Jack
-       11 => (10, s')  -- Queen
-       12 => (10, s')  -- King
-       k  => (k, s')   -- 2..9
+       0 => (1, s')       -- Ace
+       1 => (2, s')
+       2 => (3, s')
+       3 => (4, s')
+       4 => (5, s')
+       5 => (6, s')
+       6 => (7, s')
+       7 => (8, s')
+       8 => (9, s')
+       _ => (10, s')      -- 10, J, Q, K (n=9..12)
 
 sumList : List Nat -> Nat
 sumList []        = Z
