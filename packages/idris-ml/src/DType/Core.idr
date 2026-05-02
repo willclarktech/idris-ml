@@ -291,11 +291,26 @@ public export
 -- `LTEZero`/`LTESucc`/`lteRefl`. Cross-family combinations (e.g.
 -- `UpcastableTo (BFloat 16) (Float 32)`, `UpcastableTo (UInt 8) F16`)
 -- have no matching instance and therefore fail to typecheck — they
--- require an explicit `tcast` op.
+-- require an explicit `tcastUnsafe` op.
 --
 -- Used as `=>` constraint on `toDeviceAs` and `tcast`'s lossless
 -- variant. `toDevice` (same-dtype across devices) doesn't need it.
 ----------------------------------------------------------------------
+
+||| Reflexive `LTE n n` exposed as a `%hint` so auto-search resolves
+||| same-bit-width upcasts in O(1) search steps instead of recursing
+||| `LTESucc` N times. Without this hint, Idris-2's default auto-implicit
+||| search depth (~50) caps below the reflexive F64 case `LTE 64 64`,
+||| so `tcast` on a same-dtype tensor (e.g. `F64 → F64`) fails to find
+||| `UpcastableTo (Float 64) (Float 64)`. Marked `%hint` so the prelude
+||| `lteRefl`-style structural recursion is bypassed by direct
+||| reflexivity; the body still reduces to a normal `LTE` value when
+||| elaborated, but as a single function call rather than a 64-deep
+||| search tree.
+public export %hint
+upcastLteRefl : {n : Nat} -> LTE n n
+upcastLteRefl {n = 0}   = LTEZero
+upcastLteRefl {n = S k} = LTESucc (upcastLteRefl {n = k})
 
 public export
 interface UpcastableTo (0 from : Type) (0 to : Type) where

@@ -47,17 +47,22 @@ main = do
   let origVals = readBack src
   putStrLn $ "original     : " ++ showVec origVals
 
-  -- Round-trip through `tcastUnsafe` at the build's dtype. Exercises
-  -- the `dtCastFrom` typeclass dispatch + per-dtype FFI primitive
-  -- (`tensor_cast_dtype_<dt>`). The safe `tcast` surface compiles
-  -- whenever `UpcastableTo from to` resolves (lossless within-family
-  -- widening); cross-dtype validation lands once mlx/torch builds
-  -- exercise the same path with `from /= to`.
+  -- Safe cast (lossless): `UpcastableTo from to` required. The
+  -- same-dtype case is satisfied via the `upcastLteRefl` %hint in
+  -- `DType/Core.idr`, which bypasses Idris-2's auto-search depth
+  -- cap for `LTE n n` at large n (the F64 case `LTE 64 64` would
+  -- otherwise fall off the default ~50 search ceiling).
+  safe <- tcast src
+  let safeVals = readBack safe
+  putStrLn $ "tcast        : " ++ showVec safeVals
+
+  -- Unsafe cast: explicit target dtype, no `UpcastableTo` constraint.
   unsafe <- tcastUnsafe ExampleDType src
   let unsafeVals = readBack unsafe
   putStrLn $ "tcastUnsafe  : " ++ showVec unsafeVals
 
-  if origVals == unsafeVals
+  let allMatch = origVals == safeVals && origVals == unsafeVals
+  if allMatch
     then putStrLn "PASS"
     else do putStrLn "FAIL: values diverged"
             exitFailure
