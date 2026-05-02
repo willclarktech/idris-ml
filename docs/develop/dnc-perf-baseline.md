@@ -2,23 +2,28 @@
 
 ## Phase 1 result (2026-05-02, commit `cf03748`)
 
-**Tape backend: 1040 ms/epoch → 128 ms/epoch — 8.1× speedup**
+**All three backends got large speedups — torch/mlx were the worst before
+and got the biggest wins, since their FFI-per-op overhead dominated:**
 
-Exceeds the 3-4× projection (NTM-mirror baseline). The targeted DNC
-`applyVar` rewrite to a tensor-handle pipeline (no per-op
-vecStackTensor/tensorToScalars round-trips) ran cleanly on tape.
-Convergence preserved: loss at epoch 0 matches scalar baseline to
-4-decimal float precision (0.6937 vs 0.6934); loss decreases
-0.69 → 0.45 over 1000 epochs at the new path.
+| Backend | Before | After | Speedup | vs PyTorch ref (11.07 ms) |
+|---------|-------:|------:|--------:|--------------------------:|
+| tape | 1040 ms | 130 ms | **8.0×** | 11.8× (was 94×) |
+| mlx | 2260 ms | 160 ms | **14.1×** | 14.5× (was 204×) |
+| torch | 1230 ms | 130 ms | **9.5×** | 11.8× (was 111×) |
 
-Cross-backend validation (mlx, torch) and multi-seed dnc-copy
-convergence to acc_short ≥ 0.8 are deferred to follow-up commits but
-expected to produce comparable wins on mlx/torch (which had even more
-FFI overhead in the baseline).
+Tape backward walk processed 125K entries (was 2.95M = **23× fewer tape
+entries**). Smoke gate (`make test-examples`) passes with all 3 backends
+producing **bit-identical DNC results** (acc_short=0.5792708333333334 on
+all three). Phase 1 exceeds the 3-4× projection.
 
-Tape's projected dnc-copy convergence wall-clock: ~13 h → ~1.6 h
-(46K epochs × 128 ms). Likely lets us revert the 18 h CONVERGENCE_TIMEOUT
-bump.
+Loss at epoch 0 matches scalar baseline to 4-decimal float precision
+(0.6937 vs 0.6934). Loss decreases 0.69 → 0.45 over 1000 epochs at the
+new path; multi-seed convergence to acc_short ≥ 0.8 deferred to
+validation-confirmation commit.
+
+Tape's projected dnc-copy convergence wall-clock: ~13 h → ~1.7 h
+(46K epochs × 130 ms). The 18 h CONVERGENCE_TIMEOUT bump committed in
+`aa8896a` should be revertable post-validation.
 
 ---
 
