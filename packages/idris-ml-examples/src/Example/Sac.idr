@@ -191,6 +191,8 @@ record SACState where
   buffer  : ReplayBuffer ObsDim ActDim
   stepRef : IORef Nat
   envRef  : IORef PState
+  retRef  : IORef Double      -- accumulating return within current episode
+  lastEpRef : IORef Double    -- last completed episode's return (reported per epoch)
 
 
 record Config where
@@ -205,10 +207,16 @@ record Config where
   tau          : Double       -- Polyak soft-target coefficient
   clipNorm     : Double
   seed         : Bits64
+  esThreshold  : Double       -- early stop when avg(loss) < this
+  esWindow     : Nat          -- avg window (epochs)
+  esPatience   : Nat          -- consecutive epochs below threshold
 
-||| Defaults aligned with `torch_ref/models/sac.py`.
+||| Defaults aligned with `torch_ref/models/sac.py`. Early-stop matches the
+||| `>=-500` test-examples-convergence threshold: stop when window-averaged
+||| loss (= -avg_episode_return) is below 500 for 1000 consecutive epochs.
 defaultConfig : Config
 defaultConfig = MkConfig 3.0e-4 30000 0.99 0.2 100000 64 1000 0.005 1.0 42
+                         500.0 1000 1000
 
 specs : List (ArgSpec Config)
 specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
@@ -221,6 +229,9 @@ specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
         , Arg "--tau" (\v, c => { tau := cast v } c)
         , Arg "--clip" (\v, c => { clipNorm := cast v } c)
         , Arg "--seed" (\v, c => { seed := castBits64 v } c)
+        , Arg "--es-threshold" (\v, c => { esThreshold := cast v } c)
+        , Arg "--es-window" (\v, c => { esWindow := castNat v } c)
+        , Arg "--es-patience" (\v, c => { esPatience := castNat v } c)
         ]
 
 
@@ -450,6 +461,14 @@ sacStep q1Opt q2Opt actorOpt cfg st = do
       writeIORef st.envRef nextSt
       writeIORef st.stepRef (stepCount + 1)
 
+      -- Accumulate per-episode return; latch the value when the episode ends.
+      runRet <- readIORef st.retRef
+      let newRet = runRet + r
+      if isDone
+        then do writeIORef st.lastEpRef newRet
+                writeIORef st.retRef 0.0
+        else writeIORef st.retRef newRet
+
       bufSz <- bufferSize st.buffer
       _ <- if bufSz >= cfg.batchSize && stepCount >= cfg.warmupSteps
              then do
@@ -464,7 +483,11 @@ sacStep q1Opt q2Opt actorOpt cfg st = do
                    pure ()
              else pure ()
 
-      pure (st, negate r)
+      -- Report the most recent completed episode's return (negated so
+      -- "loss" decreasing means policy improving). Stays at 0 until the
+      -- first episode boundary at step EpisodeLen.
+      lastEp <- readIORef st.lastEpRef
+      pure (st, negate lastEp)
 
 
 -- --- Greedy evaluation ----------------------------------------------
@@ -516,11 +539,13 @@ main = do
   _ <- polyakBlend 1.0 "q1_" "q1tgt_"
   _ <- polyakBlend 1.0 "q2_" "q2tgt_"
 
-  buffer  <- mkBuffer {obsDim=ObsDim, actDim=ActDim} cfg.bufferCap
-  stepRef <- newIORef (the Nat 0)
-  envRef  <- newIORef (the PState (MkP 3.141592653589793 0.0))
+  buffer    <- mkBuffer {obsDim=ObsDim, actDim=ActDim} cfg.bufferCap
+  stepRef   <- newIORef (the Nat 0)
+  envRef    <- newIORef (the PState (MkP 3.141592653589793 0.0))
+  retRef    <- newIORef (the Double 0.0)
+  lastEpRef <- newIORef (the Double 0.0)
 
-  let st0 = MkSAC actor q1 q2 q1Tgt q2Tgt logStdV buffer stepRef envRef
+  let st0 = MkSAC actor q1 q2 q1Tgt q2Tgt logStdV buffer stepRef envRef retRef lastEpRef
       actorOpt = mkAdamGroup "actor_" cfg.lr cfg.clipNorm
       q1Opt    = mkAdamGroup "q1_"    cfg.lr cfg.clipNorm
       q2Opt    = mkAdamGroup "q2_"    cfg.lr cfg.clipNorm
@@ -528,7 +553,9 @@ main = do
   putStrLn ""
 
   let trainCfg : TrainConfig SACState
-      trainCfg = MkTrainConfig cfg.epochs 2000 NoEarlyStop (const (pure []))
+      trainCfg = MkTrainConfig cfg.epochs 2000
+                            (WindowedAvg cfg.esThreshold cfg.esWindow cfg.esPatience)
+                            (const (pure []))
   (trained, epochsDone, _) <- runTrainingIO
     (\s, _ => sacStep q1Opt q2Opt actorOpt cfg s)
     (pure ())
