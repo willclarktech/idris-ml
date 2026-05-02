@@ -727,29 +727,29 @@ prim__createState2d_f64 : Int -> Int -> AnyPtr -> AnyPtr
 
 public export
 RuntimeDType F32 where
-  primCreateScalar  = prim__createScalar_f32
-  primCreate        = prim__create_f32
-  primCreate1d      = prim__create1d_f32
-  primCreate2d      = prim__create2d_f32
-  primCreateParam1d = prim__createParam1d_f32
-  primCreateParam2d = prim__createParam2d_f32
-  primCreateParam3d = prim__createParam3d_f32
-  primCreateParam4d = prim__createParam4d_f32
-  primCreateState1d = prim__createState1d_f32
-  primCreateState2d = prim__createState2d_f32
+  dtCreateScalar  = prim__createScalar_f32
+  dtCreate        = prim__create_f32
+  dtCreate1d      = prim__create1d_f32
+  dtCreate2d      = prim__create2d_f32
+  dtCreateParam1d = prim__createParam1d_f32
+  dtCreateParam2d = prim__createParam2d_f32
+  dtCreateParam3d = prim__createParam3d_f32
+  dtCreateParam4d = prim__createParam4d_f32
+  dtCreateState1d = prim__createState1d_f32
+  dtCreateState2d = prim__createState2d_f32
 
 public export
 RuntimeDType F64 where
-  primCreateScalar  = prim__createScalar_f64
-  primCreate        = prim__create_f64
-  primCreate1d      = prim__create1d_f64
-  primCreate2d      = prim__create2d_f64
-  primCreateParam1d = prim__createParam1d_f64
-  primCreateParam2d = prim__createParam2d_f64
-  primCreateParam3d = prim__createParam3d_f64
-  primCreateParam4d = prim__createParam4d_f64
-  primCreateState1d = prim__createState1d_f64
-  primCreateState2d = prim__createState2d_f64
+  dtCreateScalar  = prim__createScalar_f64
+  dtCreate        = prim__create_f64
+  dtCreate1d      = prim__create1d_f64
+  dtCreate2d      = prim__create2d_f64
+  dtCreateParam1d = prim__createParam1d_f64
+  dtCreateParam2d = prim__createParam2d_f64
+  dtCreateParam3d = prim__createParam3d_f64
+  dtCreateParam4d = prim__createParam4d_f64
+  dtCreateState1d = prim__createState1d_f64
+  dtCreateState2d = prim__createState2d_f64
 
 
 ----------------------------------------------------------------------
@@ -919,6 +919,10 @@ prim__memoryReport : Int -> PrimIO Int
 
 ||| Bulk-convert a Vector of Doubles to a C tensor handle.
 ||| The C tensor_create_1d function frees the input buffer after copying.
+||| TODO: thread RuntimeDType dt through this helper (and its callers like
+||| toTDP) so bulk data loading honors the type-level dtype. Currently
+||| routes to the legacy unsuffixed `prim__create1d` which is fp32 on mlx,
+||| fp64 on tape/torch — same dtype-lie as pre-RuntimeDType code.
 export
 bulkToTensor : {n : Nat} -> Vector n Double -> AnyPtr
 bulkToTensor {n} (VArray elems) =
@@ -1291,8 +1295,8 @@ export
 ||| construct scalars via their own `UserDeviceCore.primCreateScalar`
 ||| directly. Same compromise applies to `tparamScalar` and
 ||| `freshZeroLossT`.
-tconstScalar : {0 d : Device} -> Double -> IO (Tensor [] d dt WithGrad)
-tconstScalar v = ioRerun (\_ => MkTensor (prim__createScalar v 0) Nothing)
+tconstScalar : {0 d : Device} -> RuntimeDType dt => Double -> IO (Tensor [] d dt WithGrad)
+tconstScalar v = ioRerun (\_ => MkTensor (dtCreateScalar {t=dt} v 0) Nothing)
 
 ||| Subtract two equally-shaped Tensors (autograd-tracked).
 export %inline

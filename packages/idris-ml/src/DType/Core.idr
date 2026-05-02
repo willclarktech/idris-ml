@@ -202,35 +202,37 @@ IsDType Bool where
 public export
 interface RuntimeDType (0 t : Type) where
   ||| Allocate a scalar tensor. (value, requires_grad) → handle.
-  primCreateScalar  : Double -> Int -> AnyPtr
+  ||| `dt`-prefixed to disambiguate from `UserDeviceCore.primCreateScalar`
+  ||| which dispatches on the device axis.
+  dtCreateScalar  : Double -> Int -> AnyPtr
 
   ||| Allocate a general rank-N tensor from a contiguous double buffer.
   ||| (data, shape, rank, requires_grad) → handle.
-  primCreate        : AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
+  dtCreate        : AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
 
   ||| Allocate a 1D tensor. (n, data, requires_grad) → handle.
-  primCreate1d      : Int -> AnyPtr -> Int -> AnyPtr
+  dtCreate1d      : Int -> AnyPtr -> Int -> AnyPtr
 
   ||| Allocate a 2D tensor. (rows, cols, data, requires_grad) → handle.
-  primCreate2d      : Int -> Int -> AnyPtr -> Int -> AnyPtr
+  dtCreate2d      : Int -> Int -> AnyPtr -> Int -> AnyPtr
 
   ||| Allocate + register a 1D parameter (rg=1 implicit, registered).
-  primCreateParam1d : Int -> AnyPtr -> AnyPtr
+  dtCreateParam1d : Int -> AnyPtr -> AnyPtr
 
   ||| Allocate + register a 2D parameter.
-  primCreateParam2d : Int -> Int -> AnyPtr -> AnyPtr
+  dtCreateParam2d : Int -> Int -> AnyPtr -> AnyPtr
 
   ||| Allocate + register a 3D parameter.
-  primCreateParam3d : Int -> Int -> Int -> AnyPtr -> AnyPtr
+  dtCreateParam3d : Int -> Int -> Int -> AnyPtr -> AnyPtr
 
   ||| Allocate + register a 4D parameter.
-  primCreateParam4d : Int -> Int -> Int -> Int -> AnyPtr -> AnyPtr
+  dtCreateParam4d : Int -> Int -> Int -> Int -> AnyPtr -> AnyPtr
 
   ||| Allocate a 1D per-sequence state tensor (refcounted on mlx).
-  primCreateState1d : Int -> AnyPtr -> AnyPtr
+  dtCreateState1d : Int -> AnyPtr -> AnyPtr
 
   ||| Allocate a 2D per-sequence state tensor.
-  primCreateState2d : Int -> Int -> AnyPtr -> AnyPtr
+  dtCreateState2d : Int -> Int -> AnyPtr -> AnyPtr
 
 
 ----------------------------------------------------------------------
