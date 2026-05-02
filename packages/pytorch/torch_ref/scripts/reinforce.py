@@ -7,11 +7,13 @@ Usage:
 """
 
 import argparse
+import sys
 import time
 
 import torch
 
 from torch_ref.models.reinforce import PolicyNetwork, evaluate, reinforce_epoch
+from torch_ref.training.lr_finder import LrFindConfig, lr_find
 from torch_ref.training.runner import format_result
 
 
@@ -22,6 +24,11 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--gamma", type=float, default=0.99)
     parser.add_argument("--batch", type=int, default=10)
+    parser.add_argument(
+        "--lr-find",
+        action="store_true",
+        help="Run lr_find (LR-range test) instead of training, then exit.",
+    )
     args = parser.parse_args()
 
     torch.manual_seed(args.seed)
@@ -40,6 +47,14 @@ def main() -> None:
     n_params = sum(p.numel() for p in policy.parameters())
     print(f"Parameters: {n_params}")
     print()
+
+    if args.lr_find:
+        def epoch_fn() -> float:
+            return reinforce_epoch(policy, optimizer, args.batch, args.gamma)
+        lr_find(LrFindConfig(num_iters=100), epoch_fn, optimizer)
+        print()
+        print("Done — re-run without --lr-find at the recommended LR.")
+        sys.exit(0)
 
     print("Training...")
     t0 = time.time()

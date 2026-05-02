@@ -8,6 +8,7 @@ import Compat.Random
 import Floating
 import Gym.ClassicControl.CartPole
 import Gym.Env
+import Hpo.LrFinder
 import Layer
 import Sampler
 import Tensor
@@ -158,16 +159,18 @@ record Config where
   seed : Bits64
   gamma : Double
   batchSz : Nat
+  lrFind : Bool
 
 defaultConfig : Config
-defaultConfig = MkConfig 0.001 2000 42 0.99 10
+defaultConfig = MkConfig 0.001 2000 42 0.99 10 False
 
 specs : List (ArgSpec Config)
 specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
         , Arg "--epochs" (\v, c => { epochs := castNat v } c)
         , Arg "--seed" (\v, c => { seed := castBits64 v } c)
         , Arg "--gamma" (\v, c => { gamma := cast v } c)
-        , Arg "--batch" (\v, c => { batchSz := castNat v } c) ]
+        , Arg "--batch" (\v, c => { batchSz := castNat v } c)
+        , Arg "--lr-find" (\v, c => { lrFind := (v == "1" || v == "true") } c) ]
 
 main : IO ()
 main = do
@@ -188,6 +191,17 @@ main = do
   let model = autoName $ ll1 ~> tanhLayer ~> OutputLayer ll2
   putStrLn $ "Architecture: " ++ show model
   putStrLn ""
+
+  when cfg.lrFind $ do
+    let lrCfg : LrFindConfig
+        lrCfg = { numIters := 100 } defaultLrFindConfig
+    _ <- lrFind lrCfg
+      (\m, d => let (m', loss) = epochRL opt cfg.gamma m d
+                in pure (m', loss))
+      (genBatch cfg.batchSz) opt model
+    putStrLn ""
+    putStrLn "Done — re-run without --lr-find at the recommended LR."
+    exitSuccess
 
   (trained, epochsDone, _) <- runTraining
     (\m, d => epochRL opt cfg.gamma m d) (genBatch cfg.batchSz) (simpleConfig cfg.epochs) model

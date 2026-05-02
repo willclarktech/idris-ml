@@ -113,6 +113,20 @@ This is a useful negative-result entry for the workflow: `lr_find` is a screenin
 
 ---
 
+## Reinforce           date: 2026-04-29
+
+- **Before**: `lr=0.001 epochs=2000 gamma=0.99 batch=10 seed=42`. Linear(4→128) → Tanh → Linear(128→2) policy network on CartPole. `nativeAdamGlobalClip` with grad-norm clip 1.0. Loss is `mean((baseline - return) * log_prob)`, which is **negative** when returns exceed the per-batch baseline (often the case on CartPole with returns of 20–500).
+- **lr_find (Idris)**: `RECOMMENDED_LR=1e-8` — diverged at iter 1 (after iter 0 baseline). The smoothed-loss check `smoothed > divergeFactor × minSmoothed` fails for **negative** losses: with `min = -24.6`, `4 × min = -98.4`, and any subsequent smoothed value > `-98.4` triggers divergence. Algorithmic bug in `lrFind` for negative-loss tasks — known limitation.
+- **lr_find (PyTorch)**: `RECOMMENDED_LR=1.45e-8` — positive loss (Adam stochasticity makes single-step REINFORCE losses positive on this fixture), curve oscillates 15..130 across the sweep with no clear minimum. Ran to completion at iter 99, recommendation falls back to ≈ `lrMin/10`.
+- **Cross-backend agreement**: ratio = 1.45× — *looks like* agreement, but both are fallback (within 10× of `lrMin`). Counts as the same "fallback / unreliable" bucket as Transformer (1.0×).
+- **Multi-seed pass rate**: not measured. Default unchanged.
+- **Decision**: ship-as-is at lr=0.001.
+- **Why lr_find doesn't help here**: REINFORCE with batch=10 + reward-to-go baseline is high-variance; one batch's "loss" doesn't give a usable LR signal even before the negative-loss heuristic bug bites. lr_find is designed for supervised loss curves; policy-gradient losses violate the "smaller = better, monotonic in early sweep" assumption.
+- **Two follow-up improvements implied**: (1) `lrFind` divergence-check should be sign-stable (e.g. `smoothed > min + |min|` or use `argmin` only), and (2) for RL examples, an episode-return-based "lr_find" would be more meaningful than per-batch loss.
+- **Commit**: (this commit).
+
+---
+
 ## Pattern observed across B3 so far
 
 After 5 examples (Supervised, Rnn, Lstm, Transformer, SeqClassify), the
