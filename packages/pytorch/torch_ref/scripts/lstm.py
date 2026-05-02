@@ -5,10 +5,12 @@ Same pattern task as RNN but with LSTM cell + patience early stopping.
 """
 
 import argparse
+import sys
 
 import torch
 
 from torch_ref.models.rnn import LinearLSTMCell, generate_rnn_dataset, train_lstm_epoch
+from torch_ref.training.lr_finder import LrFindConfig, lr_find
 from torch_ref.training.runner import TrainConfig, format_result, run_training
 
 
@@ -18,10 +20,15 @@ def show_seq(tensors: list[torch.Tensor]) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--lr", type=float, default=0.03)
+    parser.add_argument("--lr", type=float, default=0.5)
     parser.add_argument("--epochs", type=int, default=2000)
     parser.add_argument("--patience", type=int, default=500)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
+        "--lr-find",
+        action="store_true",
+        help="Run lr_find (LR-range test) instead of training, then exit.",
+    )
     args = parser.parse_args()
 
     torch.manual_seed(args.seed)
@@ -38,6 +45,12 @@ def main() -> None:
 
     def epoch_fn() -> float:
         return train_lstm_epoch(model, data, optimizer)
+
+    if args.lr_find:
+        lr_find(LrFindConfig(num_iters=100), epoch_fn, optimizer)
+        print()
+        print("Done — re-run without --lr-find at the recommended LR.")
+        sys.exit(0)
 
     config = TrainConfig(total_epochs=args.epochs, log_every=100, patience=args.patience)
     epochs_done, final_loss = run_training(epoch_fn, config)

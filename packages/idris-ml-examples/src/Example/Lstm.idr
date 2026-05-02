@@ -12,6 +12,7 @@ import Device
 import Endofunctor
 import Floating
 import Generate
+import Hpo.LrFinder
 import Layer
 import Math
 import Optimizer
@@ -27,15 +28,17 @@ record Config where
   epochs : Nat
   patience : Nat
   seed : Bits64
+  lrFind : Bool
 
 defaultConfig : Config
-defaultConfig = MkConfig 0.03 2000 500 42
+defaultConfig = MkConfig 0.5 2000 500 42 False
 
 specs : List (ArgSpec Config)
 specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
         , Arg "--epochs" (\v, c => { epochs := castNat v } c)
         , Arg "--patience" (\v, c => { patience := castNat v } c)
-        , Arg "--seed" (\v, c => { seed := castBits64 v } c) ]
+        , Arg "--seed" (\v, c => { seed := castBits64 v } c)
+        , Arg "--lr-find" (\v, c => { lrFind := (v == "1" || v == "true") } c) ]
 
 showSeq : List (Vector 1 Double) -> String
 showSeq xs = concatMap (\(VTensor [STensor v]) => if v >= 0.5 then "1" else "0") xs
@@ -73,6 +76,17 @@ main = do
   let model = autoName $ lstm ~> OutputLayer ll
   putStrLn $ "Architecture: " ++ show model
   putStrLn ""
+
+  when cfg.lrFind $ do
+    let lrCfg : LrFindConfig
+        lrCfg = { numIters := 100 } defaultLrFindConfig
+    _ <- lrFind lrCfg
+      (\m, d => let (m', loss) = epochRecurrentNativeTensor opt d bceLossTensor m
+                in pure (m', loss))
+      (pure (patternData 8)) opt model
+    putStrLn ""
+    putStrLn "Done — re-run without --lr-find at the recommended LR."
+    exitSuccess
 
   (trained, epochsDone, _) <- runTraining
     (\m, d => epochRecurrentNativeTensor opt d bceLossTensor m) (pure (patternData 8))

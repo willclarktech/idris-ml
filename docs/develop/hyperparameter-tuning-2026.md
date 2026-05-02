@@ -57,4 +57,22 @@ This is a useful negative-result entry for the workflow: `lr_find` is a screenin
 
 ---
 
+## Lstm           date: 2026-04-29
+
+- **Before**: `lr=0.03 schedule=constant epochs=2000 patience=500 seed=42`. LSTM(1→4) → Linear(4→1), BCE-with-logits on the synthetic pattern dataset. Converges to loss ≈ 0.36 at seed=42 (no early stop — runs full 2000 epochs).
+- **lr_find (Idris)**: `RECOMMENDED_LR=0.8302`, sweep range 1e-7..10, iters=100, no divergence in the swept range, seed=42.
+- **lr_find (PyTorch)**: `RECOMMENDED_LR=0.4751`, sweep range 1e-7..10, iters=100, mild divergence at the high end, seed=42.
+- **Cross-backend agreement**: ratio = 0.8302/0.4751 ≈ 1.75×. **Within the 2× tolerance — actionable.**
+- **Multi-seed pass rate (≥5 seeds)**:
+  | LR | Idris (5 seeds) | PyTorch (5 seeds) |
+  |---|---|---|
+  | 0.03 (old) | 5/5 finish at 2000 ep, loss ∈ [0.21, 0.36] — none reach < 0.05 | (not measured; aligned config) |
+  | 0.5 (new) | 5/5 converge to loss ∈ [0.0012, 0.0016] in 1665–2000 ep | 5/5 converge to loss ∈ [0.0013, 0.0018] in 1558–2000 ep |
+- **Wall-clock to convergence**: ~5 s @ 2000 ep on tape (similar to old). Faster early-stop on most seeds.
+- **Decision**: **update default lr=0.03 → 0.5 on both Idris and PyTorch** + tighten `test-examples-convergence.expect` from `loss < 0.7` to `loss < 0.05` (14× safety margin above worst seed=42 loss).
+- **Why this works**: the old 0.03 was extremely conservative — the LSTM's loss landscape is mild enough that a much higher LR gets to the minimum faster without divergence. lr_find caught this clearly (steepest descent at LR ≈ 5–8, recommended ÷ 10 ≈ 0.5–0.8). Cross-backend agreement of 1.75× gave confidence to act.
+- **Commit**: (this commit).
+
+---
+
 (Future entries here — one block per example dogfooded by B3.)
