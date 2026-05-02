@@ -6,8 +6,14 @@ BACKEND ?= tape
 # generation rule below — when PRIMARY=mlx and MLX_DEVICE=gpu, examples
 # spell `Tensor [..] (MlxDev MGpu) F32 WithGrad` so the type-level
 # claim matches what mlx actually runs (Metal GPU is float32-only per
-# the f32 rewrite). Any other configuration falls back to `CPU` + `F64`.
+# the f32 rewrite).
 MLX_DEVICE ?= cpu
+
+# Torch hardware selection for the BuildConfig rule. When PRIMARY=torch
+# the example types resolve to `TorchDev TCpu`/`TorchDev TMps`/
+# `TorchDev (TCuda 0)` based on this env var. TMps forces F32 (libtorch
+# rejects F64 at MPS tensor construction); TCpu and TCuda stay at F64.
+TORCH_DEVICE ?= cpu
 
 # Per-backend default seed for examples. Some examples (notably NTM-copy and
 # DNC-copy/recall — see docs/develop/gotchas.md) are highly seed-sensitive at
@@ -320,13 +326,14 @@ FORCE:
 $(BUILD)/.backend-stamp: FORCE | $(BUILD)
 	@[ "$$(cat $@ 2>/dev/null)" = "$(BACKEND)" ] || { echo "$(BACKEND)" > $@; }
 
-# Stamp + generated source for the example device/dtype selection. When
-# PRIMARY=mlx and MLX_DEVICE=gpu, examples target `(MlxDev MGpu)` + `F32`;
-# everything else stays on `CPU` + `F64`. The stamp records the active
-# tuple so the generation step only writes the source file when the
-# config actually changes (avoiding TTC churn on no-op rebuilds), mirror
-# of the .backend-stamp pattern above.
-BUILDCONFIG_KEY := $(PRIMARY):$(MLX_DEVICE)
+# Stamp + generated source for the example device/dtype selection.
+# The Selection matrix lives in BuildConfig.idr.in's module docstring;
+# this rule observes PRIMARY + MLX_DEVICE + TORCH_DEVICE and emits the
+# right (ExampleDevice, ExampleDType) into BuildConfig.idr via sed.
+# The stamp records the active tuple so the generation step only
+# writes the source file when the config actually changes (avoiding
+# TTC churn on no-op rebuilds), mirror of the .backend-stamp pattern.
+BUILDCONFIG_KEY := $(PRIMARY):$(MLX_DEVICE):$(TORCH_DEVICE)
 BUILDCONFIG_IDR := packages/idris-ml-examples/src/BuildConfig.idr
 BUILDCONFIG_IN  := packages/idris-ml-examples/src/BuildConfig.idr.in
 
@@ -334,13 +341,17 @@ $(BUILD)/.buildconfig-stamp: FORCE | $(BUILD)
 	@[ "$$(cat $@ 2>/dev/null)" = "$(BUILDCONFIG_KEY)" ] || { echo "$(BUILDCONFIG_KEY)" > $@; }
 
 $(BUILDCONFIG_IDR): $(BUILDCONFIG_IN) $(BUILD)/.buildconfig-stamp
-	@if [ "$(PRIMARY)" = "mlx" ] && [ "$(MLX_DEVICE)" = "gpu" ]; then \
-		DEVICE="MlxDev MGpu"; DTYPE="F32"; \
-	else \
-		DEVICE="CPU"; DTYPE="F64"; \
-	fi; \
+	@case "$(PRIMARY)/$(MLX_DEVICE)/$(TORCH_DEVICE)" in \
+		mlx/gpu/*)    DEVICE="MlxDev MGpu";       DTYPE="F32" ;; \
+		mlx/cpu/*)    DEVICE="MlxDev MCpu";       DTYPE="F64" ;; \
+		torch/*/mps)  DEVICE="TorchDev TMps";     DTYPE="F32" ;; \
+		torch/*/cuda) DEVICE="TorchDev (TCuda 0)"; DTYPE="F64" ;; \
+		torch/*/*)    DEVICE="TorchDev TCpu";     DTYPE="F64" ;; \
+		tape/*/*)     DEVICE="TapeDev";           DTYPE="F64" ;; \
+		*)            DEVICE="TapeDev";           DTYPE="F64" ;; \
+	esac; \
 	sed "s|@DEVICE@|$$DEVICE|g; s|@DTYPE@|$$DTYPE|g" $< > $@
-	@echo "[BuildConfig] PRIMARY=$(PRIMARY) MLX_DEVICE=$(MLX_DEVICE) → $$(awk -F' = ' '/^ExampleDevice = / { print $$2; exit }' $@) / $$(awk -F' = ' '/^ExampleDType = / { print $$2; exit }' $@)"
+	@echo "[BuildConfig] PRIMARY=$(PRIMARY) MLX_DEVICE=$(MLX_DEVICE) TORCH_DEVICE=$(TORCH_DEVICE) → $$(awk -F' = ' '/^ExampleDevice = / { print $$2; exit }' $@) / $$(awk -F' = ' '/^ExampleDType = / { print $$2; exit }' $@)"
 
 # Final link: all listed backends' .o + shared objects (primary's
 # suffix) + primary's unified-name aliases. One dylib, no symlink.

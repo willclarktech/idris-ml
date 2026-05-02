@@ -1,31 +1,44 @@
 ||| Build-time selection of the (device, dtype) pair that examples
 ||| target. Generated from this template by the Makefile rule at
-||| `Makefile`'s BUILDCONFIG_IDR target: when `PRIMARY=mlx` and
-||| `MLX_DEVICE=gpu`, examples get `(MlxDev MGpu)` + `F32`; everything
-||| else defaults to `CPU` + `F64`.
+||| `Makefile`'s BUILDCONFIG_IDR target, which observes `PRIMARY` +
+||| `MLX_DEVICE` + `TORCH_DEVICE` at build time and substitutes the
+||| chosen tags into this template via sed.
+|||
+||| Selection matrix (PRIMARY × hw-device env → ExampleDevice, ExampleDType):
+|||
+|||   tape, *                     → TapeDev,              F64
+|||   torch, TORCH_DEVICE=cpu      → TorchDev TCpu,        F64
+|||   torch, TORCH_DEVICE=mps      → TorchDev TMps,        F32
+|||   torch, TORCH_DEVICE=cuda     → TorchDev (TCuda 0),   F64
+|||   mlx, MLX_DEVICE=cpu          → MlxDev MCpu,          F64
+|||   mlx, MLX_DEVICE=gpu          → MlxDev MGpu,          F32
+|||
+||| TMps + F64 deliberately doesn't exist — libtorch rejects F64 at
+||| MPS tensor construction. mlx GPU is F32-only too (Metal dropped
+||| F64 support in mlx 0.31). All other cells stay F64 for parity
+||| with the historical references.
 |||
 ||| Idris-2 cannot drive type-level selection from a runtime env var —
-||| types are fixed at elaboration time, before `main`. The Makefile
-||| observes the env at build time and substitutes the chosen tags
-||| into this template via sed; the generated `BuildConfig.idr` is in
-||| `.gitignore`.
+||| types are fixed at elaboration time, before `main`. The generated
+||| `BuildConfig.idr` is in `.gitignore`.
 |||
 ||| Do not edit `BuildConfig.idr` directly — your changes will be
 ||| clobbered on the next build. Edit this `.in` file instead.
 module BuildConfig
 
 import public Device
+import public Device.Tape
+import public Device.Torch
 import public Device.Mlx
 
-||| Device tag examples target. `CPU` by default; `MlxDev MGpu` when
-||| building with `BACKEND=mlx MLX_DEVICE=gpu`.
+||| Device tag examples target. See the Selection matrix in the
+||| module docstring.
 public export
 ExampleDevice : Type
 ExampleDevice = @DEVICE@
 
-||| DType examples target. `F64` by default; `F32` when building with
-||| `BACKEND=mlx MLX_DEVICE=gpu` (Metal GPU dropped f64 support in
-||| mlx 0.31).
+||| DType examples target. See the Selection matrix in the module
+||| docstring.
 public export
 ExampleDType : DType
 ExampleDType = @DTYPE@
