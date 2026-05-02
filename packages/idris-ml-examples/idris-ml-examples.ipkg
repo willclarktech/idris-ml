@@ -35,5 +35,6 @@ modules = BuildConfig
         , Example.SeqClassify
         , Example.Supervised
         , Example.Taxi
+        , Example.TCastDemo
         , Example.Transfer
         , Example.Transformer

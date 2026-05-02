@@ -25,6 +25,15 @@ TensorHandle tensor_create_scalar_f64(double value, int requires_grad);
 TensorHandle tensor_create_f32(double* data, int* shape, int rank, int requires_grad);
 TensorHandle tensor_create_f64(double* data, int* shape, int rank, int requires_grad);
 
+/* Per-dtype cast primitives. The destination dtype is in the symbol
+ * name (matching the per-dtype create primitives); the source dtype
+ * is read from the handle on the C side. Returns a fresh handle whose
+ * cast op (where applicable) participates in autograd. Tape's _f32
+ * variant aborts (no fp32 arena); tape's _f64 variant handles F64 -> F64
+ * as an identity alias. mlx and torch implement both directions. */
+TensorHandle tensor_cast_dtype_f32(TensorHandle src);
+TensorHandle tensor_cast_dtype_f64(TensorHandle src);
+
 /* Legacy unsuffixed creation primitives. Currently route to whichever
  * dtype the backend has historically used (mlx → _f32, tape/torch → _f64).
  * Kept while Idris-side call sites migrate to RuntimeDType dispatch

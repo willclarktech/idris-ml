@@ -89,6 +89,16 @@ TensorHandle tensor_create_f64(double* data, int* shape, int rank, int requires_
 TensorHandle tensor_create_scalar(double value, int requires_grad) { return tensor_create_scalar_f64(value, requires_grad); }
 TensorHandle tensor_create(double* data, int* shape, int rank, int requires_grad) { return tensor_create_f64(data, shape, rank, requires_grad); }
 
+// Per-dtype cast primitives. at::Tensor::to(dtype) is autograd-traced
+// when both source and target are floating-point types, so gradients
+// flow through the cast naturally.
+TensorHandle tensor_cast_dtype_f32(TensorHandle src) {
+    return from_tensor(to_tensor(src)->to(torch::kFloat32));
+}
+TensorHandle tensor_cast_dtype_f64(TensorHandle src) {
+    return from_tensor(to_tensor(src)->to(torch::kFloat64));
+}
+
 TensorHandle tensor_clone(TensorHandle h) {
     return from_tensor(to_tensor(h)->clone());
 }

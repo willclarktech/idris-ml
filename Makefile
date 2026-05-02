@@ -572,6 +572,11 @@ example-transformer: install
 	cp $(LIB) build/exec/transformer_app/
 	./build/exec/transformer $(SEED_FLAG) $(TRANSFORMER_ARGS)
 
+example-tcast-demo: install
+	idris2 $(IDRIS_FLAGS) -o tcast-demo $(EXAMPLE_SRC)/Example/TCastDemo.idr
+	cp $(LIB) build/exec/tcast-demo_app/
+	./build/exec/tcast-demo $(TCAST_DEMO_ARGS)
+
 example-gpt: install
 	idris2 $(IDRIS_FLAGS) -o gpt $(EXAMPLE_SRC)/Example/Gpt.idr
 	cp $(LIB) build/exec/gpt_app/

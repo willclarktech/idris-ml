@@ -304,6 +304,8 @@ enum {
     OP_CONCAT_2D_AXIS1, /* [m,n] ++ [m,k] -> [m,n+k] along axis 1 */
     OP_SOFTPLUS,      /* log(1 + exp(x)), backward = sigmoid(x) */
     OP_TILE_2D,       /* [m,n] -> [m*rep0, n*rep1]; meta stores (rep0, rep1) */
+    OP_CAST_DTYPE,    /* mx::astype to target dtype; scalar_arg encodes target:
+                         0.0 = mx::float32, 1.0 = mx::float64. */
 };
 
 // Lightweight metadata for ops that need extra info during replay.
@@ -581,6 +583,22 @@ TensorHandle tensor_create_scalar(double value, int requires_grad) {
 }
 TensorHandle tensor_create(double* data, int* shape, int rank, int requires_grad) {
     return tensor_create_f32(data, shape, rank, requires_grad);
+}
+
+// Per-dtype cast primitives. mx::astype builds a new node in mlx's
+// autograd graph; the OP_CAST_DTYPE tape entry's scalar_arg encodes
+// the target dtype for replay (0.0 = f32, 1.0 = f64).
+TensorHandle tensor_cast_dtype_f32(TensorHandle h) {
+    auto t = (Tensor*)h;
+    auto r = new Tensor(mx::astype(t->data, mx::float32), t->requires_grad);
+    if (t->requires_grad) tape_append(OP_CAST_DTYPE, r, t, nullptr, 0.0);
+    return (TensorHandle)r;
+}
+TensorHandle tensor_cast_dtype_f64(TensorHandle h) {
+    auto t = (Tensor*)h;
+    auto r = new Tensor(mx::astype(t->data, mx::float64), t->requires_grad);
+    if (t->requires_grad) tape_append(OP_CAST_DTYPE, r, t, nullptr, 1.0);
+    return (TensorHandle)r;
 }
 
 TensorHandle tensor_clone(TensorHandle h) {
@@ -2018,6 +2036,11 @@ void tensor_backward(TensorHandle h) {
             case OP_TILE_2D: {
                 int* reps = (int*)e.meta;
                 pool[out] = mx::tile(a, {reps[0], reps[1]});
+                break;
+            }
+            case OP_CAST_DTYPE: {
+                mx::Dtype target = (e.scalar_arg == 0.0 ? mx::float32 : mx::float64);
+                pool[out] = mx::astype(a, target);
                 break;
             }
             case OP_ADD_SCALAR: pool[out] = mx::add(a, scalar_like(e.scalar_arg, a)); break;

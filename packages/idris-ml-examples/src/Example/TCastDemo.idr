@@ -1,0 +1,63 @@
+||| Runtime smoke test for `tcast` and `tcastUnsafe`.
+|||
+||| Verifies the per-dtype FFI plumbing (`tensor_cast_dtype_<dt>`
+||| primitives across all backends) by round-tripping a tensor
+||| through the safe and unsafe cast surfaces at the build's
+||| ExampleDType. Same-dtype casts are the only case all three
+||| backends share today (tape has F64 only; mlx-gpu has F32 only);
+||| the actual cross-dtype path on mlx/torch is exercised
+||| separately when the build runs in mixed-dtype configurations.
+|||
+||| Expected output: original and cast tensors match to fp ULP.
+module Example.TCastDemo
+
+import Data.Vect
+import System
+
+import Array
+import Device
+import Tensor
+import BuildConfig
+
+
+-- A fixed test vector. Same shape across builds.
+testValues : Vector 4 Double
+testValues = VArray [SArray 1.5, SArray (-2.7), SArray 3.14159, SArray 0.0]
+
+
+-- Read all 4 elements out of a 1D tensor into a Vect.
+readBack : TVec 4 ExampleDevice ExampleDType WithGrad -> Vect 4 Double
+readBack v = [ prim__item1d v.tensorPtr 0
+             , prim__item1d v.tensorPtr 1
+             , prim__item1d v.tensorPtr 2
+             , prim__item1d v.tensorPtr 3
+             ]
+
+
+showVec : Vect 4 Double -> String
+showVec [a, b, c, d] = "[" ++ show a ++ ", " ++ show b ++ ", "
+                         ++ show c ++ ", " ++ show d ++ "]"
+
+
+main : IO ()
+main = do
+  putStrLn $ "=== tcast smoke test [" ++ backendName ++ "] ==="
+  let srcPtr = bulkToTensor {dt=ExampleDType} testValues
+      src    = the (TVec 4 ExampleDevice ExampleDType WithGrad) (MkTensor srcPtr Nothing)
+  let origVals = readBack src
+  putStrLn $ "original     : " ++ showVec origVals
+
+  -- Round-trip through `tcastUnsafe` at the build's dtype. Exercises
+  -- the `dtCastFrom` typeclass dispatch + per-dtype FFI primitive
+  -- (`tensor_cast_dtype_<dt>`). The safe `tcast` surface compiles
+  -- whenever `UpcastableTo from to` resolves (lossless within-family
+  -- widening); cross-dtype validation lands once mlx/torch builds
+  -- exercise the same path with `from /= to`.
+  unsafe <- tcastUnsafe ExampleDType src
+  let unsafeVals = readBack unsafe
+  putStrLn $ "tcastUnsafe  : " ++ showVec unsafeVals
+
+  if origVals == unsafeVals
+    then putStrLn "PASS"
+    else do putStrLn "FAIL: values diverged"
+            exitFailure

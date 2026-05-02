@@ -5094,6 +5094,16 @@ TensorHandle tensor_create_param_4d_f32(int d0, int d1, int d2, int d3, double* 
 TensorHandle tensor_create_state_1d_f32(int n, double* d)                               { (void)n; (void)d; return tape_f32_unsupported("tensor_create_state_1d_f32"); }
 TensorHandle tensor_create_state_2d_f32(int rows, int cols, double* d)                  { (void)rows; (void)cols; (void)d; return tape_f32_unsupported("tensor_create_state_2d_f32"); }
 
+/* Per-dtype cast primitives. Tape has only an F64 arena, so the source
+ * dtype is necessarily F64 and the F64 destination is a no-op alias:
+ * values are unchanged, the FFI wrapper machinery retains the handle
+ * and Idris gets a fresh wrapper around the same C handle. Gradients
+ * flow through the source's tape entry naturally — no new tape op is
+ * appended since the operation is observationally identity. The F32
+ * destination aborts (no fp32 arena). */
+TensorHandle tensor_cast_dtype_f64(TensorHandle src)                                     { return src; }
+TensorHandle tensor_cast_dtype_f32(TensorHandle src)                                     { (void)src; return tape_f32_unsupported("tensor_cast_dtype_f32"); }
+
 TensorHandle tensor_view_2d(TensorHandle h, int row, int col) {
     Tensor* t = (Tensor*)h;
     int cols = t->shape[1];

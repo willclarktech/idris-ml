@@ -720,6 +720,17 @@ prim__createState2d_f32 : Int -> Int -> AnyPtr -> AnyPtr
 %foreign "scheme:(lambda (a0 a1 a2) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_state_2d_f64\" (int int void*) void*) a0 a1 a2))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 prim__createState2d_f64 : Int -> Int -> AnyPtr -> AnyPtr
 
+-- Per-dtype cast primitives. Backend support mirrors the create
+-- primitives: mlx/torch implement both; tape implements _f64 (no-op
+-- alias today, since the only valid source dtype is F64) and aborts
+-- on _f32. Source dtype is read from the handle on the C side.
+
+%foreign "scheme:(lambda (a0)  (let ((raw_r ((foreign-procedure \"tensor_cast_dtype_f32\" (void*) void*) (vector-ref a0 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
+prim__castDtype_f32 : AnyPtr -> AnyPtr
+
+%foreign "scheme:(lambda (a0)  (let ((raw_r ((foreign-procedure \"tensor_cast_dtype_f64\" (void*) void*) (vector-ref a0 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
+prim__castDtype_f64 : AnyPtr -> AnyPtr
+
 
 -- RuntimeDType instances — bind typeclass methods to the per-dtype C
 -- primitives. Smart constructors with `RuntimeDType dt =>` dispatch
@@ -737,6 +748,7 @@ RuntimeDType F32 where
   dtCreateParam4d = prim__createParam4d_f32
   dtCreateState1d = prim__createState1d_f32
   dtCreateState2d = prim__createState2d_f32
+  dtCastFrom      = prim__castDtype_f32
 
 public export
 RuntimeDType F64 where
@@ -750,6 +762,7 @@ RuntimeDType F64 where
   dtCreateParam4d = prim__createParam4d_f64
   dtCreateState1d = prim__createState1d_f64
   dtCreateState2d = prim__createState2d_f64
+  dtCastFrom      = prim__castDtype_f64
 
 
 ----------------------------------------------------------------------
@@ -1125,47 +1138,6 @@ retypeGrad : Tensor dims d dt g1 -> Tensor dims d dt g2
 retypeGrad (MkTensor ptr pid) = MkTensor ptr pid
 
 
-----------------------------------------------------------------------
--- Cross-dtype conversion: lossless via `UpcastableTo`, lossy via
--- explicit `tcast`.
-----------------------------------------------------------------------
-
-||| Lossless precision upcast within a single dtype family
-||| (`F32 → F64`, `Int 16 → Int 32`, `BFloat 16 → BFloat 32`, …).
-||| The `UpcastableTo from to` constraint is solved by Idris's
-||| auto-search via per-family `LTE m n` instances in `DType.Core`;
-||| narrowing casts (`F64 → F32`) and cross-family casts
-||| (`UInt 8 → F16`) have no `UpcastableTo` instance and use
-||| `tcastUnsafe` (below) instead.
-|||
-||| Runtime support is deferred — the body is a hole that will be
-||| filled when the C-side cast primitives land (`tensor_cast_dtype`).
-||| Type signature is stable; calls type-check today and will
-||| activate at runtime when the primitive arrives.
-export
-tcast : (UpcastableTo from to, IsDType from, IsDType to) =>
-        Tensor dims d from g -> IO (Tensor dims d to g)
-tcast v = ?tcast_impl
-
-||| Explicit precision/dtype cast in ANY direction, including
-||| narrowing (`F64 → F32`) and cross-family (`UInt 8 → F16`).
-||| The caller takes responsibility for any precision loss or
-||| representation change — calling `tcastUnsafe` is the explicit
-||| signal that the conversion was intentional (mirrors the
-||| `unsafePerformIO` / `believe_me` convention for primitives
-||| where the caller takes responsibility).
-|||
-||| For lossless conversions, prefer `tcast` so the compiler
-||| verifies via `UpcastableTo` that no information is lost. Use
-||| `tcastUnsafe` only when the conversion is deliberately
-||| narrowing or cross-family.
-|||
-||| Runtime support is deferred — see `tcast`.
-export
-tcastUnsafe : (0 to : DType) -> (IsDType from, IsDType to) =>
-              Tensor dims d from g -> IO (Tensor dims d to g)
-tcastUnsafe _ v = ?tcastUnsafe_impl
-
 ||| Type-level aliases for common Tensor shapes. Aliases route shape
 ||| arithmetic (e.g. `4 * o`) through a Nat-argument slot rather than
 ||| inlining inside a Vect literal — the latter triggers an Idris 2
@@ -1191,6 +1163,49 @@ TMat m n d dt g = Tensor [m, n] d dt g
 export %inline
 ioRerun : (() -> a) -> IO a
 ioRerun f = primIO (\w => MkIORes (f ()) w)
+
+----------------------------------------------------------------------
+-- Cross-dtype conversion: lossless via `UpcastableTo`, lossy via
+-- explicit `tcastUnsafe`.
+----------------------------------------------------------------------
+
+||| Lossless precision upcast within a single dtype family
+||| (`F32 → F64`, `Int 16 → Int 32`, `BFloat 16 → BFloat 32`, …).
+||| The `UpcastableTo from to` constraint is solved by Idris's
+||| auto-search via per-family `LTE m n` instances in `DType.Core`;
+||| narrowing casts (`F64 → F32`) and cross-family casts
+||| (`UInt 8 → F16`) have no `UpcastableTo` instance and use
+||| `tcastUnsafe` (below) instead.
+|||
+||| Runtime: dispatches through `RuntimeDType to`'s `dtCastFrom`
+||| method to the per-dtype `tensor_cast_dtype_<to>` C primitive.
+||| Source dtype is read from the handle on the C side; the cast
+||| op becomes a node in the autograd graph on backends that trace
+||| it (mlx/torch).
+export
+tcast : (UpcastableTo from to, IsDType from, IsDType to, RuntimeDType to) =>
+        Tensor dims d from g -> IO (Tensor dims d to g)
+tcast v = ioRerun (\_ => MkTensor (dtCastFrom {t=to} v.tensorPtr) Nothing)
+
+||| Explicit precision/dtype cast in ANY direction, including
+||| narrowing (`F64 → F32`) and cross-family (`UInt 8 → F16`).
+||| The caller takes responsibility for any precision loss or
+||| representation change — calling `tcastUnsafe` is the explicit
+||| signal that the conversion was intentional (mirrors the
+||| `unsafePerformIO` / `believe_me` convention for primitives
+||| where the caller takes responsibility).
+|||
+||| For lossless conversions, prefer `tcast` so the compiler
+||| verifies via `UpcastableTo` that no information is lost. Use
+||| `tcastUnsafe` only when the conversion is deliberately
+||| narrowing or cross-family.
+|||
+||| Runtime path is the same as `tcast` (both dispatch through
+||| `dtCastFrom`); the difference is purely the type-system gate.
+export
+tcastUnsafe : (0 to : DType) -> (IsDType from, IsDType to, RuntimeDType to) =>
+              Tensor dims d from g -> IO (Tensor dims d to g)
+tcastUnsafe to v = ioRerun (\_ => MkTensor (dtCastFrom {t=to} v.tensorPtr) Nothing)
 
 ||| Create a registered learnable [o, i] parameter from a flat (row-major)
 ||| double buffer. Mirrors Linear.nameLayer's tensor path.

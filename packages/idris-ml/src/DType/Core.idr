@@ -234,6 +234,15 @@ interface RuntimeDType (0 t : Type) where
   ||| Allocate a 2D per-sequence state tensor.
   dtCreateState2d : Int -> Int -> AnyPtr -> AnyPtr
 
+  ||| Cast a tensor's storage to this destination dtype. The C primitive
+  ||| reads the source dtype from the handle itself; this method
+  ||| dispatches on the *destination* dtype via the typeclass instance
+  ||| (matching the `dt*Create` family's "dispatch on target" pattern).
+  ||| Returns a fresh handle; the cast op becomes a node in the autograd
+  ||| graph on backends that trace it (mlx/torch). Backing primitive
+  ||| name: `tensor_cast_dtype_<dtype>` (e.g. `_f32`, `_f64`).
+  dtCastFrom : AnyPtr -> AnyPtr
+
 
 ----------------------------------------------------------------------
 -- Precision — bit-width rank for within-family upcasts

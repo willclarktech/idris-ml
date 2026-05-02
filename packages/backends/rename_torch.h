@@ -91,6 +91,8 @@
 #define tensor_bce_with_logits tensor_bce_with_logits_torch
 #define tensor_bmm tensor_bmm_torch
 #define tensor_bmm_3x3 tensor_bmm_3x3_torch
+#define tensor_cast_dtype_f32 tensor_cast_dtype_f32_torch
+#define tensor_cast_dtype_f64 tensor_cast_dtype_f64_torch
 #define tensor_cat tensor_cat_torch
 #define tensor_cat2 tensor_cat2_torch
 #define tensor_cat_from_array tensor_cat_from_array_torch
