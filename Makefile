@@ -571,46 +571,58 @@ test-examples:
 				example-dnc-copy)    extra_args="DNC_COPY_ARGS=--epochs 5 --max-len 3 --batch 1" ;; \
 				example-dnc-recall)  extra_args="DNC_RECALL_ARGS=--epochs 5 --max-items 2 --batch 1" ;; \
 			esac; \
+			t_start=$$(date +%s); \
 			if [ -n "$$extra_args" ]; then \
 				output=$$($$TIMEOUT_PREFIX $(MAKE) --no-print-directory BACKEND=$$b $$e "$$extra_args" 2>&1); rc=$$?; \
 			else \
 				output=$$($$TIMEOUT_PREFIX $(MAKE) --no-print-directory BACKEND=$$b $$e 2>&1); rc=$$?; \
 			fi; \
+			t_end=$$(date +%s); elapsed=$$((t_end - t_start)); \
+			if [ $$elapsed -lt 60 ]; then elapsed_fmt="$${elapsed}s"; \
+			elif [ $$elapsed -lt 3600 ]; then elapsed_fmt="$$((elapsed/60))m$$((elapsed%60))s"; \
+			else elapsed_fmt="$$((elapsed/3600))h$$(((elapsed%3600)/60))m"; fi; \
 			if [ $$rc -ne 0 ]; then \
 				if [ $$rc -eq 124 ]; then \
-					echo "FAIL: $$e [$$b] timed out (>$(EXAMPLE_TIMEOUT)s)"; \
+					echo "FAIL: $$e [$$b] timed out (>$(EXAMPLE_TIMEOUT)s) ($$elapsed_fmt)"; \
 				else \
-					echo "FAIL: $$e [$$b] crashed (rc=$$rc)"; \
+					echo "FAIL: $$e [$$b] crashed (rc=$$rc) ($$elapsed_fmt)"; \
 				fi; \
 				echo "$$output" | tail -40 | sed 's/^/  | /'; \
 				fail=1; continue; \
 			fi; \
 			result_line=$$(echo "$$output" | grep '^RESULT' | head -1); \
 			if [ -z "$$result_line" ]; then \
-				echo "FAIL: $$e [$$b] -- no RESULT line"; \
+				echo "FAIL: $$e [$$b] -- no RESULT line ($$elapsed_fmt)"; \
 				echo "$$output" | tail -40 | sed 's/^/  | /'; \
 				fail=1; \
 			else \
 				scripts/check-result.sh "$$e" "$$result_line" || fail=1; \
+				echo "  ($$elapsed_fmt)"; \
 			fi; \
 		done; \
 	done; \
 	if [ -z "$$skip" ]; then \
 		echo "--- example-transfer-demo (tape->mlx->torch round-trip) ---"; \
+		t_start=$$(date +%s); \
 		demo_out=$$($$TIMEOUT_PREFIX $(MAKE) --no-print-directory example-transfer-demo 2>&1); demo_rc=$$?; \
+		t_end=$$(date +%s); elapsed=$$((t_end - t_start)); \
+		if [ $$elapsed -lt 60 ]; then elapsed_fmt="$${elapsed}s"; \
+		elif [ $$elapsed -lt 3600 ]; then elapsed_fmt="$$((elapsed/60))m$$((elapsed%60))s"; \
+		else elapsed_fmt="$$((elapsed/3600))h$$(((elapsed%3600)/60))m"; fi; \
 		if [ $$demo_rc -ne 0 ]; then \
-			if [ $$demo_rc -eq 124 ]; then echo "FAIL: example-transfer-demo timed out (>$(EXAMPLE_TIMEOUT)s)"; \
-			else echo "FAIL: example-transfer-demo crashed (rc=$$demo_rc)"; fi; \
+			if [ $$demo_rc -eq 124 ]; then echo "FAIL: example-transfer-demo timed out (>$(EXAMPLE_TIMEOUT)s) ($$elapsed_fmt)"; \
+			else echo "FAIL: example-transfer-demo crashed (rc=$$demo_rc) ($$elapsed_fmt)"; fi; \
 			echo "$$demo_out" | tail -40 | sed 's/^/  | /'; \
 			fail=1; \
 		else \
 			result_line=$$(echo "$$demo_out" | grep '^RESULT' | tail -1); \
 			if [ -z "$$result_line" ]; then \
-				echo "FAIL: example-transfer-demo -- no RESULT line"; \
+				echo "FAIL: example-transfer-demo -- no RESULT line ($$elapsed_fmt)"; \
 				echo "$$demo_out" | tail -40 | sed 's/^/  | /'; \
 				fail=1; \
 			else \
 				scripts/check-result.sh "example-transfer-demo" "$$result_line" || fail=1; \
+				echo "  ($$elapsed_fmt)"; \
 			fi; \
 		fi; \
 	else \
@@ -639,23 +651,29 @@ test-examples-convergence:
 	else TIMEOUT_PREFIX=""; fi; \
 	for e in $(EXAMPLES); do \
 		echo "=== $$e ==="; \
+		t_start=$$(date +%s); \
 		output=$$($$TIMEOUT_PREFIX $(MAKE) --no-print-directory BACKEND=tape $$e 2>&1); rc=$$?; \
+		t_end=$$(date +%s); elapsed=$$((t_end - t_start)); \
+		if [ $$elapsed -lt 60 ]; then elapsed_fmt="$${elapsed}s"; \
+		elif [ $$elapsed -lt 3600 ]; then elapsed_fmt="$$((elapsed/60))m$$((elapsed%60))s"; \
+		else elapsed_fmt="$$((elapsed/3600))h$$(((elapsed%3600)/60))m"; fi; \
 		if [ $$rc -ne 0 ]; then \
 			if [ $$rc -eq 124 ]; then \
-				echo "FAIL: $$e timed out (>$(CONVERGENCE_TIMEOUT)s)"; \
+				echo "FAIL: $$e timed out (>$(CONVERGENCE_TIMEOUT)s) ($$elapsed_fmt)"; \
 			else \
-				echo "FAIL: $$e crashed (rc=$$rc)"; \
+				echo "FAIL: $$e crashed (rc=$$rc) ($$elapsed_fmt)"; \
 			fi; \
 			echo "$$output" | tail -30 | sed 's/^/  | /'; \
 			fail=1; continue; \
 		fi; \
 		result_line=$$(echo "$$output" | grep '^RESULT' | head -1); \
 		if [ -z "$$result_line" ]; then \
-			echo "FAIL: $$e -- no RESULT line"; \
+			echo "FAIL: $$e -- no RESULT line ($$elapsed_fmt)"; \
 			echo "$$output" | tail -30 | sed 's/^/  | /'; \
 			fail=1; continue; \
 		fi; \
 		scripts/check-result.sh "$$e" "$$result_line" "$(CONVERGENCE_EXPECT)" || fail=1; \
+		echo "  ($$elapsed_fmt)"; \
 	done; \
 	if [ $$fail -ne 0 ]; then echo "Some convergence runs FAILED"; exit 1; fi; \
 	echo "All convergence runs passed."
