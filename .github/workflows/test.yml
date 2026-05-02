@@ -26,12 +26,16 @@ jobs:
 
       - name: Install Chez Scheme + coreutils (macOS)
         if: matrix.os == 'macos-latest'
-        run: |
-          brew install chezscheme coreutils
-          # coreutils provides GNU stdbuf as `gstdbuf`; the gnubin alias
-          # dir exposes it as `stdbuf` on PATH (the Makefile uses `stdbuf
-          # -oL` to line-buffer example output for diagnostic logs).
-          echo "$(brew --prefix coreutils)/libexec/gnubin" >> $GITHUB_PATH
+        run: brew install chezscheme coreutils
+        # coreutils gives us gtimeout (test-examples falls back to it when
+        # `timeout` isn't on PATH — macOS doesn't ship one). We deliberately
+        # do NOT add libexec/gnubin to PATH: that would expose `stdbuf`
+        # without the `g` prefix, but brew's libstdbuf.so is built for arm64
+        # while macOS's inserted-library loader requires arm64e — every
+        # binary linking system frameworks (i.e. ours) would abort with
+        # "incompatible architecture". The Makefile's $(STDBUF) probe
+        # correctly returns empty when `stdbuf` is off PATH, so no buffering
+        # is applied on macOS CI.
 
       # Idris 2 v0.8.0 built from source, cached across runs to avoid the
       # 5-10 min bootstrap on every push. Idris2's default PREFIX is
