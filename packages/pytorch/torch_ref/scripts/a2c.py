@@ -112,10 +112,7 @@ def main() -> None:
 
         last_terminated = dones[-1].item() > 0.5
         sum_rew = float(rewards.sum().item())
-        if last_terminated and ep_returns:
-            reported = ep_returns[-1]
-        else:
-            reported = sum_rew
+        reported = ep_returns[-1] if last_terminated and ep_returns else sum_rew
         return -reported  # Idris reports `negate avg_return`
 
     if args.lr_find:

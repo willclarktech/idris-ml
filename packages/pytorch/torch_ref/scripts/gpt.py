@@ -30,7 +30,6 @@ import torch
 from torch_ref.models.gpt import (
     CORPUS_INDICES,
     VOCAB_SIZE,
-    Vocabulary,
     evaluate_bpc,
     generate_gpt_data,
     generate_text,
@@ -170,7 +169,8 @@ def main() -> None:
         val_bpc = evaluate_bpc(
             model, val_indices, SEQ_LEN, n_samples=20, vocab_size=vocab_size,
         )
-        return [("val_bpc", f"{val_bpc:.3f}"), ("lr", f"{cosine_lr(epoch_counter['i'], args.lr, args.epochs):.5f}")]
+        cur_lr = cosine_lr(epoch_counter["i"], args.lr, args.epochs)
+        return [("val_bpc", f"{val_bpc:.3f}"), ("lr", f"{cur_lr:.5f}")]
 
     config = TrainConfig(
         total_epochs=args.epochs,

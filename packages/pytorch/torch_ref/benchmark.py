@@ -18,7 +18,6 @@ import torch
 import torch.nn.functional as F
 from torch.nn.utils import clip_grad_value_
 
-from torch_ref.training.runner import get_device
 from torch_ref.data.copy_task import generate_copy_batch
 from torch_ref.data.recall_task import generate_recall_batch
 from torch_ref.models.multi_head_transformer import (
@@ -29,6 +28,7 @@ from torch_ref.models.multi_head_transformer import (
 from torch_ref.models.ntm import NtmConfig, NtmModel
 from torch_ref.models.rnn import LinearRNNCell, generate_rnn_dataset, train_rnn_epoch
 from torch_ref.models.supervised import SUPERVISED_DATA, SupervisedModel, train_supervised_epoch
+from torch_ref.training.runner import get_device
 
 
 def _peak_rss_mb() -> float:

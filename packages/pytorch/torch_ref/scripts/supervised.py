@@ -8,9 +8,19 @@ import sys
 
 import torch
 
-from torch_ref.models.supervised import _make_supervised_data, SupervisedModel, train_supervised_epoch
+from torch_ref.models.supervised import (
+    SupervisedModel,
+    _make_supervised_data,
+    train_supervised_epoch,
+)
 from torch_ref.training.lr_finder import LrFindConfig, lr_find
-from torch_ref.training.runner import TrainConfig, format_result, get_dtype, run_training, set_device
+from torch_ref.training.runner import (
+    TrainConfig,
+    format_result,
+    get_dtype,
+    run_training,
+    set_device,
+)
 
 
 def main() -> None:

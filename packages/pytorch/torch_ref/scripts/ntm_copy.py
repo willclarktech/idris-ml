@@ -16,7 +16,13 @@ from torch.nn.utils import clip_grad_value_
 from torch_ref.data.copy_task import generate_copy_batch
 from torch_ref.models.ntm import NtmConfig, NtmModel
 from torch_ref.training.lr_finder import LrFindConfig, lr_find
-from torch_ref.training.runner import TrainConfig, format_result, get_device, run_training, set_device
+from torch_ref.training.runner import (
+    TrainConfig,
+    format_result,
+    get_device,
+    run_training,
+    set_device,
+)
 
 # Architecture constants matching Idris
 W = 8

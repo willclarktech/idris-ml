@@ -74,7 +74,9 @@ def main() -> None:
         f" blocks={args.blocks} vocab={VOCAB_SIZE}"
     )
 
-    model = MultiHeadTransformer(VOCAB_SIZE, SEQ_LEN, D_MODEL, NUM_HEADS, num_blocks=args.blocks).to(args.device)
+    model = MultiHeadTransformer(
+        VOCAB_SIZE, SEQ_LEN, D_MODEL, NUM_HEADS, num_blocks=args.blocks,
+    ).to(args.device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     print(
         f"Model: Transformer<{SEQ_LEN}x{D_MODEL} h={NUM_HEADS} blocks={args.blocks} v={VOCAB_SIZE}>"
