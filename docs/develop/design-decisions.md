@@ -911,10 +911,18 @@ requires a floating dtype" (a loss on, or backprop through, a Bool/Int
 tensor) is a compile error. The constraint propagates to the 5 epoch fns
 + 3 curriculum sigs (bounded — `runTrainingIO` is unaffected, its `epochFn`
 returns a bare `Double`). The *activations* are deliberately left
-polymorphic: they route through the generic `LayerLike.applyVar`, so
-gating them needs `IsFloating` threaded alongside the existing
-`Compatible d dt` across ~76 layer/network sites — a separate sweep
-(tracked as a Medium row). `DTypePitch` demos this as a third axis.
+polymorphic, and extending the gate through the layer stack was
+**considered and declined** (2026-05-22): `LayerLike` is parameterized
+only by the layer type, so `dt` is method-quantified on `applyVar` — a
+`dt` constraint must sit on the interface method (all layers) or nowhere,
+with no instance-head trick for selectivity. And a layer's `dt` is the
+*activation* dtype, which is float in every real network, so interface
+gating would only forbid forward passes on a non-float activation (a case
+nobody hits) while the meaningful invariant (no backprop/loss on non-float)
+is already enforced at the gradient surface. The structural change that
+would matter for genuinely-mixed-dtype layers (ternary weights + float
+activations) is a param-dtype/activation-dtype split, tracked on the
+BitNet row. `DTypePitch` demos the gate as a third axis.
 
 **One-hot is dtype-aware (2026-05-22).** `tensor_one_hot` earlier emitted a
 fixed dtype (the Phase-1 F32 hardcode was a band-aid) while the Idris type
@@ -922,11 +930,13 @@ claimed the polymorphic `dt` — a lie. It now takes a `dtag` and produces
 exactly the requested dtype (0/1 is exact in every dtype, so lossless):
 torch switches `dtag → ScalarType`, mlx maps to `mx::Dtype`, tape ignores
 it (F64-only). The result type honestly equals the runtime dtype; Mnist
-dropped its `dtCastFrom` workaround. (`tensor_causal_mask` has the same
-fixed-dtype shape but is dead — `primCausalMask` is never called; the live
-mask uses `dtCreateState2d`, already dtype-aware. Other constructors with
-the same latent issue — `mnist_get_image`, `tensor_argsort` index output —
-are tracked as follow-ups.)
+dropped its `dtCastFrom` workaround. `mnist_get_image` got the same `dtag`
+treatment (2026-05-22) and dropped its own `dtCastFrom`. `tensor_causal_mask`
+had the same fixed-dtype shape but was dead (`primCausalMask` never called;
+the live mask uses `dtCreateState2d`, already dtype-aware) and was deleted.
+`tensor_argsort`'s integer index output is the remaining case — its
+type-safe fix (a typed integral-index API) is blocked on integer dtypes
+across all backends, tracked as a High-priority follow-up.
 
 Full design memo and decision log: `docs/develop/dtype-parameter.md`.
 
