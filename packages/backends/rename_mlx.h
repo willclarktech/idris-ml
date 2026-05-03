@@ -25,11 +25,8 @@
 #define backend_supports_tensor_params backend_supports_tensor_params_mlx
 #define dropout_random_seed dropout_random_seed_mlx
 #define idrisml_seq idrisml_seq_mlx
-#define mnist_count mnist_count_mlx
 #define mnist_free mnist_free_mlx
 #define mnist_get_image mnist_get_image_mlx
-#define mnist_get_label mnist_get_label_mlx
-#define mnist_load mnist_load_mlx
 #define native_train_step native_train_step_mlx
 #define optimizer_buf_count optimizer_buf_count_mlx
 #define optimizer_clip_grad_norm optimizer_clip_grad_norm_mlx

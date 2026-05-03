@@ -25,11 +25,8 @@
 #define backend_supports_tensor_params backend_supports_tensor_params_torch
 #define dropout_random_seed dropout_random_seed_torch
 #define idrisml_seq idrisml_seq_torch
-#define mnist_count mnist_count_torch
 #define mnist_free mnist_free_torch
 #define mnist_get_image mnist_get_image_torch
-#define mnist_get_label mnist_get_label_torch
-#define mnist_load mnist_load_torch
 #define native_train_step native_train_step_torch
 #define optimizer_buf_count optimizer_buf_count_torch
 #define optimizer_clip_grad_norm optimizer_clip_grad_norm_torch

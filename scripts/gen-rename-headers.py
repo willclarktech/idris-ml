@@ -69,6 +69,10 @@ def extract_symbols(header_text: str) -> list[str]:
         # Shared utilities (see packages/backends/shared_utils.c).
         "create_index_array", "shuffle_index_array", "index_array_get",
         "get_rss_mb", "get_current_rss_mb",
+        # Non-tensor MNIST helpers (also in shared_utils.c). The
+        # tensor-touching `mnist_get_image` + `mnist_free` stay
+        # per-backend.
+        "mnist_load", "mnist_count", "mnist_get_label",
     }
     return [n for n in names if n not in EXCLUDE]
 
