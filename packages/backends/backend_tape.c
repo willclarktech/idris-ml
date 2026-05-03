@@ -5362,14 +5362,18 @@ void optimizer_step(OptimizerHandle h) {
                 t->data[j] -= lr * g;
                 break;
 
-            case 1: { /* RMSprop */
+            case 1: { /* RMSprop — keep lr OUTSIDE the momentum buffer to match
+                         torch.optim.RMSprop. Folding lr into the buffer
+                         (buf = m*buf + lr*g/avg) coincides with PyTorch only at
+                         constant lr; under an LR schedule the buffer carries
+                         stale rates and diverges. */
                 opt->v[idx] = opt->alpha * opt->v[idx] + (1.0 - opt->alpha) * g * g;
-                double delta = lr * g / (sqrt(opt->v[idx]) + opt->eps);
+                double avg = sqrt(opt->v[idx]) + opt->eps;
                 if (opt->momentum > 0) {
-                    opt->m[idx] = opt->momentum * opt->m[idx] + delta;
-                    t->data[j] -= opt->m[idx];
+                    opt->m[idx] = opt->momentum * opt->m[idx] + g / avg;
+                    t->data[j] -= lr * opt->m[idx];
                 } else {
-                    t->data[j] -= delta;
+                    t->data[j] -= lr * g / avg;
                 }
                 break;
             }

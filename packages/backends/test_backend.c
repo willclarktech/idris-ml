@@ -299,6 +299,42 @@ static void test_autograd_native_sgd(void) {
     param_clear();
 }
 
+/* Distinguishes the torch.optim.RMSprop form (lr OUTSIDE the momentum
+   buffer) from the lr-inside form. At constant lr the two coincide, so
+   the test uses two steps with DIFFERENT lr (0.1 then 0.2) and
+   momentum > 0 — the only regime where they diverge. loss = w each step
+   so grad = 1.0. lr-outside lands w at 5.78224; the lr-inside bug at
+   6.68224 (verified against PyTorch). */
+static void test_rmsprop_lr_schedule(void) {
+    printf("\n--- RMSprop lr-outside-buffer (schedule alignment) ---\n");
+    param_clear();
+
+    TensorHandle w = tensor_create_scalar(10.0, 1);
+    param_register("w", w);
+
+    /* alpha=0.99, eps=1e-8, weight_decay=0, momentum=0.9 */
+    OptimizerHandle opt = optimizer_create_rmsprop(0.1, 0.99, 1e-8, 0.0, 0.9);
+
+    optimizer_zero_grad(opt);
+    TensorHandle l1 = tensor_sum(w);
+    tensor_backward(l1);
+    optimizer_step(opt);
+    tensor_free(l1);
+
+    optimizer_set_lr(opt, 0.2);
+    optimizer_zero_grad(opt);
+    TensorHandle l2 = tensor_sum(w);
+    tensor_backward(l2);
+    optimizer_step(opt);
+    tensor_free(l2);
+
+    ASSERT_NEAR("RMSprop lr-outside w after 2 steps", tensor_item(w), 5.78224, 1e-3);
+
+    optimizer_free(opt);
+    tensor_free(w);
+    param_clear();
+}
+
 /* ================================================================
    T3: Multi-dimensional tensors + linalg
    ================================================================ */
@@ -1898,6 +1934,7 @@ int main(void) {
     test_autograd_div();
     test_autograd_sqrt();
     test_autograd_native_sgd();
+    test_rmsprop_lr_schedule();
 
     /* T3 */
     test_multidim();

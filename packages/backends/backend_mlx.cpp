@@ -4087,16 +4087,19 @@ void optimizer_step(OptimizerHandle h) {
         case 0: // SGD
             t->data = mx::subtract(t->data, mx::multiply(lr_arr, g));
             break;
-        case 1: { // RMSprop
+        case 1: { // RMSprop — keep lr OUTSIDE the momentum buffer to match
+                  // torch.optim.RMSprop. Folding lr into the buffer coincides
+                  // with PyTorch only at constant lr; under an LR schedule the
+                  // buffer carries stale rates and diverges.
             opt->v_bufs[i] = mx::add(mx::multiply(alpha_arr, opt->v_bufs[i]),
                                       mx::multiply(one_m_alpha, mx::square(g)));
-            auto delta = mx::divide(mx::multiply(lr_arr, g),
-                                     mx::add(mx::sqrt(opt->v_bufs[i]), eps_arr));
+            auto avg = mx::add(mx::sqrt(opt->v_bufs[i]), eps_arr);
             if (opt->momentum > 0) {
-                opt->m_bufs[i] = mx::add(mx::multiply(momentum_a, opt->m_bufs[i]), delta);
-                t->data = mx::subtract(t->data, opt->m_bufs[i]);
+                opt->m_bufs[i] = mx::add(mx::multiply(momentum_a, opt->m_bufs[i]),
+                                          mx::divide(g, avg));
+                t->data = mx::subtract(t->data, mx::multiply(lr_arr, opt->m_bufs[i]));
             } else {
-                t->data = mx::subtract(t->data, delta);
+                t->data = mx::subtract(t->data, mx::divide(mx::multiply(lr_arr, g), avg));
             }
             break;
         }
