@@ -113,6 +113,29 @@ forceMajorGc = do
   _ <- primIO (prim__forceMajorGcC 0)
   pure ()
 
+-- Retain / release a managed handle by its wrap (tag-dispatched, mirrors
+-- the drain). The `KeepAlive` interface uses these to rescue tensors that
+-- escape a generation-scoped free: retain (rc++) before the no_grad_end
+-- sweep, release (rc--) after, so the sweep's "free block-local rc==1"
+-- step spares them. Tape/torch retains are no-op stubs, so this is free
+-- on those backends. The wrap layout (`(vector 'tensor-handle-v2 tag raw)`)
+-- is uniform across backends.
+%foreign "scheme:(lambda (wr) (let ((tag (vector-ref wr 1)) (raw (vector-ref wr 2))) (let ((sym (if (string=? tag \"primary\") \"tensor_retain_handle\" (string-append \"tensor_retain_handle_\" tag)))) ((foreign-procedure sym (void*) void) raw))) 0)"
+prim__retainHandleC : AnyPtr -> PrimIO Int
+
+%foreign "scheme:(lambda (wr) (let ((tag (vector-ref wr 1)) (raw (vector-ref wr 2))) (let ((sym (if (string=? tag \"primary\") \"tensor_release_handle\" (string-append \"tensor_release_handle_\" tag)))) ((foreign-procedure sym (void*) void) raw))) 0)"
+prim__releaseHandleC : AnyPtr -> PrimIO Int
+
+||| Bump the C-side refcount of a managed handle (by its wrap).
+export
+retainHandle : AnyPtr -> IO ()
+retainHandle wr = ignore $ primIO (prim__retainHandleC wr)
+
+||| Drop the C-side refcount of a managed handle (by its wrap).
+export
+releaseHandle : AnyPtr -> IO ()
+releaseHandle wr = ignore $ primIO (prim__releaseHandleC wr)
+
 -- Lifecycle
 --
 -- Wrapped-handle ABI (mlx): every Tensor-returning FFI's Scheme wrapper
@@ -221,6 +244,62 @@ prim__mnistGetLabel : AnyPtr -> Int -> Int
 -- Fused LSTM gates: takes combined [4*o] tensor + prev_cell [o], returns pair handle
 
 
+||| Tensors reachable from a value that must survive a generation-scoped
+||| free — specifically the *result* of a `withNoGrad` block. At the
+||| block's `primNoGradEnd`, every wrap-only (rc==1) handle created inside
+||| the block is deleted (that's what bounds the live-handle count). The
+||| result, if it holds tensors created inside the block, would be caught
+||| by that sweep; `keepAliveRetain` bumps their refcount first so they're
+||| spared, and `keepAliveRelease` drops it again afterwards.
+|||
+||| Scalars / strings are no-ops (zero overhead on the common scalar-
+||| returning eval loops). Containers recurse. Provide an instance for any
+||| custom type returned from `withNoGrad` that carries live tensors
+||| (e.g. an RL rollout buffer); otherwise its tensors get freed and a
+||| later use dangles.
+public export
+interface KeepAlive a where
+  keepAliveRetain  : a -> IO ()
+  keepAliveRelease : a -> IO ()
+
+public export
+KeepAlive () where
+  keepAliveRetain _ = pure (); keepAliveRelease _ = pure ()
+public export
+KeepAlive Double where
+  keepAliveRetain _ = pure (); keepAliveRelease _ = pure ()
+public export
+KeepAlive Int where
+  keepAliveRetain _ = pure (); keepAliveRelease _ = pure ()
+public export
+KeepAlive Integer where
+  keepAliveRetain _ = pure (); keepAliveRelease _ = pure ()
+public export
+KeepAlive Nat where
+  keepAliveRetain _ = pure (); keepAliveRelease _ = pure ()
+public export
+KeepAlive Bool where
+  keepAliveRetain _ = pure (); keepAliveRelease _ = pure ()
+public export
+KeepAlive String where
+  keepAliveRetain _ = pure (); keepAliveRelease _ = pure ()
+public export
+(KeepAlive a, KeepAlive b) => KeepAlive (a, b) where
+  keepAliveRetain (x, y)  = do keepAliveRetain x; keepAliveRetain y
+  keepAliveRelease (x, y) = do keepAliveRelease x; keepAliveRelease y
+public export
+KeepAlive a => KeepAlive (List a) where
+  keepAliveRetain  = traverse_ keepAliveRetain
+  keepAliveRelease = traverse_ keepAliveRelease
+public export
+KeepAlive a => KeepAlive (Maybe a) where
+  keepAliveRetain  = maybe (pure ()) keepAliveRetain
+  keepAliveRelease = maybe (pure ()) keepAliveRelease
+public export
+{n : Nat} -> KeepAlive a => KeepAlive (Vect n a) where
+  keepAliveRetain  = traverse_ keepAliveRetain
+  keepAliveRelease = traverse_ keepAliveRelease
+
 ||| Run an `IO` action with autograd disabled. Inside the action,
 ||| every tensor op skips tape/autograd graph construction, so the
 ||| results have no path to backward. Standard for RL rollouts and
@@ -228,6 +307,18 @@ prim__mnistGetLabel : AnyPtr -> Int -> Int
 ||| Nested calls are stacked: only the outermost begin/end pair
 ||| toggles tracking, so library code can call this without checking
 ||| whether the caller already disabled grad.
+|||
+||| On exit the backend deletes every wrap-only handle created inside
+||| the block (generation-scoped free), which is what keeps the live
+||| handle / Metal-buffer count bounded across long eval loops.
+|||
+||| **Contract:** the block's *result* must hold no live tensors created
+||| inside the block — extract them to scalars/host data (`tensorItem`,
+||| `tvecToVector`) before returning, as every eval/rollout here does. If
+||| you must return a live `Tensor` (or a struct containing one), use
+||| `withNoGradKeep`, which rescues result tensors from the sweep via
+||| `KeepAlive`. Returning a live tensor from plain `withNoGrad` will
+||| free it at the bracket exit and dangle on next use.
 |||
 ||| The no-grad scope is per-backend (tape/mlx push a counter,
 ||| torch arms a `NoGradGuard`), so it dispatches via
@@ -239,15 +330,26 @@ withNoGrad : {0 d : Device} -> UserDeviceTape d => IO a -> IO a
 withNoGrad act = do
   primIO (primNoGradBegin {d})
   result <- act
-  primIO (primNoGradEnd {d})
-  -- Eval phases (typically wrapped in `withNoGrad`) can churn through
-  -- thousands of per-sequence managed state Tensors. On mlx that drives
-  -- the Metal MTLBuffer count past the paravirtualized-Metal ceiling on
-  -- Tart / GHA macOS runners. Force a Chez major GC + drain the guardian
-  -- here so dropped state Tensors release their C-side refs immediately.
-  -- Non-mlx backends: drain is a no-op (no shadows registered).
   forceMajorGc
   _ <- drainManagedHandles
+  primIO (primNoGradEnd {d})
+  pure result
+
+||| `withNoGrad` for blocks whose result carries live tensors created
+||| inside the block (e.g. a cached embedding, an inference output kept
+||| for later use). `keepAliveRetain` bumps their refcount so the block-
+||| exit generation-scoped free spares them, then releases afterwards.
+||| The common scalar-returning eval/rollout loops use plain `withNoGrad`.
+export
+withNoGradKeep : {0 d : Device} -> UserDeviceTape d => KeepAlive a => IO a -> IO a
+withNoGradKeep act = do
+  primIO (primNoGradBegin {d})
+  result <- act
+  keepAliveRetain result
+  forceMajorGc
+  _ <- drainManagedHandles
+  primIO (primNoGradEnd {d})
+  keepAliveRelease result
   pure result
 
 ----------------------------------------------------------------------
@@ -713,6 +815,13 @@ record Tensor (dims : Vect rank Nat) (0 d : Device) (0 dt : DType) (0 g : GradMo
   constructor MkTensor
   tensorPtr : AnyPtr
   paramId   : Maybe String
+
+||| A live Tensor handle: retain/release its C-side refcount so a
+||| generation-scoped free (e.g. `withNoGrad` exit) spares it.
+public export
+KeepAlive (Tensor dims d dt g) where
+  keepAliveRetain  t = retainHandle t.tensorPtr
+  keepAliveRelease t = releaseHandle t.tensorPtr
 
 ||| Transfer a tensor to a different device. The one place where
 ||| device types intentionally change.

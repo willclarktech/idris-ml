@@ -457,6 +457,10 @@ prim__optimizerLoadTape : AnyPtr -> String -> PrimIO Int
 prim__profileResetTape : PrimIO ()
 %foreign "C:backend_profile_report_tape,libidrisml"
 prim__profileReportTape : PrimIO ()
+%foreign "C:tensor_live_count_tape,libidrisml"
+prim__liveCountTape : Int -> Int
+%foreign "C:tensor_peak_live_count_tape,libidrisml"
+prim__peakLiveCountTape : Int -> Int
 
 
 %foreign "scheme:(lambda (val rg stream dtag) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r (if (= dtag 0) ((foreign-procedure \"tensor_create_scalar_f32_streamed_tape\" (double int int) void*) val rg stream) ((foreign-procedure \"tensor_create_scalar_f64_streamed_tape\" (double int int) void*) val rg stream)))) (let ((wr (vector 'tensor-handle-v2 \"tape\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle_tape\" (void*) void) raw_r) wr)))"
@@ -534,6 +538,8 @@ UserDeviceTape TapeDev where
   primOptimizerLoad            = prim__optimizerLoadTape
   primProfileReset             = prim__profileResetTape
   primProfileReport            = prim__profileReportTape
+  primLiveCount                = prim__liveCountTape
+  primPeakLiveCount            = prim__peakLiveCountTape
 
 
 ----------------------------------------------------------------------

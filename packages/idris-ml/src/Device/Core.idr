@@ -351,6 +351,15 @@ interface UserDeviceConv d => UserDeviceTape (0 d : Device) where
   primProfileReset        : PrimIO ()
   ||| Print this backend's profile breakdown to stderr.
   primProfileReport       : PrimIO ()
+  ||| Count of live backend tensor handles (mlx: all_tensors; torch:
+  ||| intermediates; tape: tape entries). The arg is ignored — it exists
+  ||| only to defeat Idris-Chez constant-folding of the FFI call so the
+  ||| count re-reads each epoch. Pass a varying value (e.g. the epoch).
+  primLiveCount           : Int -> Int
+  ||| High-water mark of live handles since process start — the figure
+  ||| that determines whether a backend hits its handle/buffer ceiling.
+  ||| Ignored arg defeats constant-folding; pass a varying value.
+  primPeakLiveCount       : Int -> Int
 
   -- Param + state creation -----------------------------------------
   primCreateParam1d     : Int -> AnyPtr -> AnyPtr

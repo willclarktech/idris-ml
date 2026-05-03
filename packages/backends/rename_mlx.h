@@ -172,6 +172,7 @@
 #define tensor_leaky_relu tensor_leaky_relu_mlx
 #define tensor_linear tensor_linear_mlx
 #define tensor_linear_2d tensor_linear_2d_mlx
+#define tensor_live_count tensor_live_count_mlx
 #define tensor_log tensor_log_mlx
 #define tensor_log_softmax tensor_log_softmax_mlx
 #define tensor_log_softmax_2d tensor_log_softmax_2d_mlx
@@ -204,6 +205,7 @@
 #define tensor_pair_first tensor_pair_first_mlx
 #define tensor_pair_free tensor_pair_free_mlx
 #define tensor_pair_second tensor_pair_second_mlx
+#define tensor_peak_live_count tensor_peak_live_count_mlx
 #define tensor_pow tensor_pow_mlx
 #define tensor_print tensor_print_mlx
 #define tensor_release_handle tensor_release_handle_mlx

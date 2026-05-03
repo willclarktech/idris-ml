@@ -488,6 +488,10 @@ prim__optimizerLoadTorch : AnyPtr -> String -> PrimIO Int
 prim__profileResetTorch : PrimIO ()
 %foreign "C:backend_profile_report_torch,libidrisml"
 prim__profileReportTorch : PrimIO ()
+%foreign "C:tensor_live_count_torch,libidrisml"
+prim__liveCountTorch : Int -> Int
+%foreign "C:tensor_peak_live_count_torch,libidrisml"
+prim__peakLiveCountTorch : Int -> Int
 
 
 %foreign "scheme:(lambda (val rg stream dtag) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r (if (= dtag 0) ((foreign-procedure \"tensor_create_scalar_f32_streamed_torch\" (double int int) void*) val rg stream) ((foreign-procedure \"tensor_create_scalar_f64_streamed_torch\" (double int int) void*) val rg stream)))) (let ((wr (vector 'tensor-handle-v2 \"torch\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle_torch\" (void*) void) raw_r) wr)))"
@@ -573,6 +577,8 @@ public export
   primOptimizerLoad            = prim__optimizerLoadTorch
   primProfileReset             = prim__profileResetTorch
   primProfileReport            = prim__profileReportTorch
+  primLiveCount                = prim__liveCountTorch
+  primPeakLiveCount            = prim__peakLiveCountTorch
 
 
 ----------------------------------------------------------------------

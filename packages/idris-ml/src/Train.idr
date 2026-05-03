@@ -240,6 +240,8 @@ runTrainingIO {model} epochFn dataSrc cfg model0 = do
   putStrLn $ formatPerfMsPerEp tStart tEnd epochsDone
   putStrLn $ "Peak RSS: " ++ show (getRssMB 0) ++ " MB"
           ++ "\tCurrent RSS: " ++ show (getCurrentRssMB 0) ++ " MB"
+          ++ "\tLive handles: " ++ show (primLiveCount {d} (cast epochsDone))
+          ++ "\tPeak handles: " ++ show (primPeakLiveCount {d} (cast epochsDone))
   profileReport {d}
   pure result
   where
@@ -258,6 +260,7 @@ runTrainingIO {model} epochFn dataSrc cfg model0 = do
       extra <- cfg.metrics m
       let memSuffix = "\tpeak=" ++ show (getRssMB 0) ++ "MB"
                    ++ "\tcur=" ++ show (getCurrentRssMB 0) ++ "MB"
+                   ++ "\thandles=" ++ show (primLiveCount {d} (cast ep))
       putStrLn $ "  " ++ formatElapsed t0 now ++ " " ++ show ep
                ++ "\tloss=" ++ showFix 6 loss ++ memSuffix ++ fmtMetrics extra
 

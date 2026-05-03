@@ -399,6 +399,7 @@ static TypedArena tape_arena = {
 };
 
 #define tape_size (tape_arena.size)
+static long g_tape_peak = 0;  /* high-water mark of tape_size */
 
 static inline TapeEntry* tape_at(int idx) {
     return (TapeEntry*)typed_arena_at(&tape_arena, idx);
@@ -451,6 +452,7 @@ static TapeEntry* tape_append(int op, Tensor* result, Tensor* arg1, Tensor* arg2
         prof_op_t_prev = now;
     }
     TapeEntry* e = (TapeEntry*)typed_arena_append(&tape_arena);
+    if ((long)tape_size > g_tape_peak) g_tape_peak = (long)tape_size;
     memset(e, 0, sizeof(TapeEntry));
     e->op = op;
     e->result = result;
@@ -5548,6 +5550,9 @@ void backend_reset_for_eval(void) {
         tape_append(OP_CONST, t, NULL, NULL, 0);
     }
 }
+
+int tensor_live_count(int dummy) { (void)dummy; return (int)tape_size; }
+int tensor_peak_live_count(int dummy) { (void)dummy; return (int)g_tape_peak; }
 
 /* backend_memory_report and backend_supports_tensor_params removed
  * (no Idris-side callers). */

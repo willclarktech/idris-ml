@@ -227,6 +227,8 @@ static std::vector<struct Tensor*> all_tensors;
 static std::vector<TensorPair*> all_pairs;
 
 static int next_pool_idx = 0;
+static long g_mlx_create_calls_global = 0;  // monotonic Tensor-creation counter (feeds create_id)
+static long g_mlx_peak_live = 0;            // high-water mark of all_tensors.size()
 
 struct Tensor {
     mx::array data;
@@ -242,12 +244,15 @@ struct Tensor {
     // Tensor is removed from all_tensors and deleted, freeing the
     // underlying mx::array → MetalAllocator releases the MTLBuffer.
     int refcount;
+    long create_id;  // generation marker: g_mlx_create_calls_global at construction
 
     Tensor(mx::array d, bool rg = false)
         : data(std::move(d)), grad(mx::array(0.0f)), requires_grad(rg),
           has_grad(false), tape_idx(-1),
           pool_idx(next_pool_idx++), refcount(0) {
+        create_id = g_mlx_create_calls_global++;
         all_tensors.push_back(this);
+        if ((long)all_tensors.size() > g_mlx_peak_live) g_mlx_peak_live = (long)all_tensors.size();
     }
 };
 
@@ -3164,7 +3169,11 @@ void tensor_set_requires_grad(TensorHandle h, int rg) {
     ((Tensor*)h)->requires_grad = (rg != 0);
 }
 
-void tensor_no_grad_begin(void) { no_grad_depth++; }
+static long g_nograd_block_start = 0;  // create_id at outermost no_grad_begin
+void tensor_no_grad_begin(void) {
+    if (no_grad_depth == 0) g_nograd_block_start = g_mlx_create_calls_global;
+    no_grad_depth++;
+}
 void tensor_no_grad_end(void) {
     if (no_grad_depth > 0) no_grad_depth--;
     if (no_grad_depth > 0) return;  // only sweep on outermost end
@@ -3185,6 +3194,14 @@ void tensor_no_grad_end(void) {
     std::vector<Tensor*> survivors;
     survivors.reserve(all_tensors.size());
     for (auto* t : all_tensors) {
+        // Block-scoped no-grad free. Tensors created INSIDE this no_grad
+        // block (create_id >= block start) that are wrap-only (rc1) are
+        // block intermediates: the block result has been extracted to a
+        // scalar, or (via `withNoGradKeep`) retained to rc>=2. Freeing them
+        // bounds the live-handle / Metal-buffer count per bracket instead of
+        // accumulating past the paravirt-Metal ceiling. Pre-block state
+        // (lower create_id) and registry params (rc>1) are spared.
+        if (t->refcount == 1 && t->create_id >= g_nograd_block_start) { delete t; continue; }
         if (t->refcount > 0) survivors.push_back(t);
         else delete t;
     }
@@ -4411,6 +4428,8 @@ int optimizer_step_with_clip(OptimizerHandle opt, int clip_mode, double clip_val
 void* idrisml_seq(void* a, void* b) { (void)a; return b; }
 /* backend_memory_report_return removed. */
 int backend_reset_for_eval_return(int d) { backend_reset_for_eval(); return d; }
+int tensor_live_count(int dummy) { (void)dummy; return (int)all_tensors.size(); }
+int tensor_peak_live_count(int dummy) { (void)dummy; return (int)g_mlx_peak_live; }
 int backend_profile_reset_return(int d) { backend_profile_reset(); return d; }
 int backend_profile_report_return(int d) { backend_profile_report(); return d; }
 /* dropout_random_seed lives in shared_utils.c. */

@@ -71,6 +71,7 @@ static double _wall_ms_torch(void) {
 static std::vector<at::Tensor*> intermediates;
 static std::vector<TensorPair*> all_pairs;
 static bool tracking_enabled = true;
+static long g_torch_peak_live = 0;  // high-water mark of intermediates.size()
 struct _ReserveIntermediates {
     _ReserveIntermediates() { intermediates.reserve(4096); all_pairs.reserve(256); }
 };
@@ -84,7 +85,10 @@ static inline at::Tensor* to_tensor(TensorHandle h) {
 
 static inline TensorHandle from_tensor(at::Tensor t) {
     auto* p = new at::Tensor(std::move(t));
-    if (tracking_enabled) intermediates.push_back(p);
+    if (tracking_enabled) {
+        intermediates.push_back(p);
+        if ((long)intermediates.size() > g_torch_peak_live) g_torch_peak_live = (long)intermediates.size();
+    }
     return static_cast<TensorHandle>(p);
 }
 
@@ -1985,6 +1989,8 @@ int optimizer_step_with_clip(OptimizerHandle opt, int clip_mode, double clip_val
 void* idrisml_seq(void* a, void* b) { (void)a; return b; }
 /* backend_memory_report_return removed. */
 int backend_reset_for_eval_return(int d) { backend_reset_for_eval(); return d; }
+int tensor_live_count(int dummy) { (void)dummy; return (int)intermediates.size(); }
+int tensor_peak_live_count(int dummy) { (void)dummy; return (int)g_torch_peak_live; }
 int backend_profile_reset_return(int d) { backend_profile_reset(); return d; }
 int backend_profile_report_return(int d) { backend_profile_report(); return d; }
 /* dropout_random_seed lives in shared_utils.c. */
