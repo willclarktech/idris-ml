@@ -254,10 +254,26 @@ runTrainingIO {model} epochFn dataSrc cfg model0 = do
     fmtMetrics [] = ""
     fmtMetrics ((k, v) :: rest) = "\t" ++ k ++ "=" ++ v ++ fmtMetrics rest
 
+    -- Force every character of the metric strings. The strings are built
+    -- lazily from tensor reads (`show (primItem …)`, `argmaxAtPtr …`), so
+    -- this drags those reads to happen *now* — inside the withNoGrad
+    -- bracket below, before its exit drain frees the eval tensors. Without
+    -- it the thunks dangle on mlx (where the generation sweep is real, not
+    -- a no-op like tape/torch). Always returns False (sum of lengths ≥ 0).
+    forceMetrics : List (String, String) -> Bool
+    forceMetrics xs = foldl (\acc, (k, v) => acc + length k + length v) 0 xs < 0
+
     logEpoch : Clock Monotonic -> Nat -> Double -> model -> IO ()
     logEpoch t0 ep loss m = do
       now <- clockTime Monotonic
-      extra <- cfg.metrics m
+      -- Per-epoch metrics are pure evaluation: run them with autograd off
+      -- so they build no tape, and force the result strings inside the
+      -- bracket (see `forceMetrics`). A grad-mode metrics pass leaves a
+      -- live tape whose tensors the epoch-end generation sweep then frees,
+      -- crashing the next epoch on mlx (use-after-free).
+      extra <- withNoGrad {d} $ do
+                 e <- cfg.metrics m
+                 if forceMetrics e then pure e else pure e
       let memSuffix = "\tpeak=" ++ show (getRssMB 0) ++ "MB"
                    ++ "\tcur=" ++ show (getCurrentRssMB 0) ++ "MB"
                    ++ "\thandles=" ++ show (primLiveCount {d} (cast ep))
