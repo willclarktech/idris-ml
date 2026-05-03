@@ -204,7 +204,7 @@ main = do
             totalPositions = BatchSize * (SeqLen `minus` InputLen)
         pure [("sort_acc", show totalCorrect ++ "/" ++ show totalPositions)]
 
-  let trainCfg = MkTrainConfig cfg.epochs 100 (Patience cfg.patience 0.001) evalMetrics (\_ => pure ())
+  let trainCfg = mkTrainConfig cfg.epochs 100 (Patience cfg.patience 0.001) evalMetrics (\_ => pure ())
 
   when cfg.lrFind $ do
     let lrCfg : LrFindConfig

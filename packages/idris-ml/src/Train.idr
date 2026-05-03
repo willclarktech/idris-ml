@@ -12,6 +12,7 @@ import Util
 import Device
 import Tensor
 import Schedule
+import Checkpoint
 
 
 ----------------------------------------------------------------------
@@ -175,23 +176,24 @@ record TrainConfig (model : Type) where
   earlyStop : EarlyStopConfig
   metrics : MetricsFn model
   beforeEpoch : Nat -> IO ()
+  checkpoint : Maybe CheckpointPolicy
 
 ||| Simple config: run N epochs, log every 100, no early stopping.
 export
 simpleConfig : Nat -> TrainConfig model
-simpleConfig n = MkTrainConfig n 100 NoEarlyStop (const (pure [])) (\_ => pure ())
+simpleConfig n = MkTrainConfig n 100 NoEarlyStop (const (pure [])) (\_ => pure ()) Nothing
 
 ||| Config with patience-based early stopping.
 export
 patienceConfig : Nat -> Nat -> TrainConfig model
 patienceConfig epochs pat =
-  MkTrainConfig epochs 100 (Patience pat 0.001) (const (pure [])) (\_ => pure ())
+  MkTrainConfig epochs 100 (Patience pat 0.001) (const (pure [])) (\_ => pure ()) Nothing
 
 ||| Config with windowed-average early stopping.
 export
 windowedConfig : Nat -> Double -> Nat -> Nat -> TrainConfig model
 windowedConfig epochs threshold window pat =
-  MkTrainConfig epochs 100 (WindowedAvg threshold window pat) (const (pure [])) (\_ => pure ())
+  MkTrainConfig epochs 100 (WindowedAvg threshold window pat) (const (pure [])) (\_ => pure ()) Nothing
 
 ||| Config with windowed-percentile early stopping. Robust to bimodal
 ||| loss distributions (e.g. variable-length-sequence tasks where short
@@ -199,7 +201,20 @@ windowedConfig epochs threshold window pat =
 export
 windowedPercentileConfig : Nat -> Double -> Double -> Nat -> Nat -> TrainConfig model
 windowedPercentileConfig epochs pct threshold window pat =
-  MkTrainConfig epochs 100 (WindowedPercentile pct threshold window pat) (const (pure [])) (\_ => pure ())
+  MkTrainConfig epochs 100 (WindowedPercentile pct threshold window pat) (const (pure [])) (\_ => pure ()) Nothing
+
+||| Attach a checkpoint policy to a config (auto-save / keep-best /
+||| resume). Examples plug a `fileCheckpoint` policy in here.
+export
+withCheckpoint : CheckpointPolicy -> TrainConfig model -> TrainConfig model
+withCheckpoint pol cfg = { checkpoint := Just pol } cfg
+
+||| Build a TrainConfig with no checkpoint policy (the common case).
+||| Examples opt into checkpointing by wrapping with `withCheckpoint`.
+export
+mkTrainConfig : Nat -> Nat -> EarlyStopConfig -> MetricsFn model -> (Nat -> IO ()) ->
+                TrainConfig model
+mkTrainConfig e l es m b = MkTrainConfig e l es m b Nothing
 
 ||| Bind a Schedule to a NativeOptimizer, producing a beforeEpoch hook.
 ||| Per epoch, sets the optimizer's base LR to `schedule epoch`. Plug into
@@ -229,12 +244,32 @@ runTrainingIO :
 runTrainingIO {model} epochFn dataSrc cfg model0 = do
   tStart <- clockTime Monotonic
   putStrLn $ "Training... [backend=" ++ backendName {d} ++ "]"
+  bestRef <- newIORef (the Double (1.0/0.0))
+  startEp <- case cfg.checkpoint of
+    Nothing  => pure 0
+    Just pol => do
+      mst <- pol.loadState (pol.dir ++ "/last")
+      case mst of
+        Nothing => pure 0
+        Just (ep0, best0) => do
+          writeIORef bestRef best0
+          putStrLn $ "  Resuming from epoch " ++ show ep0
+                   ++ " (best=" ++ showFix 6 best0 ++ ")"
+          pure ep0
   result@(m, epochsDone, loss) <- case cfg.earlyStop of
-    NoEarlyStop => goSimple 0 model0 0.0 tStart
-    Patience pat minD => goPatience 0 model0 (1.0/0.0) 0 tStart pat minD
-    WindowedAvg thresh win pat => goWindowed 0 model0 0.0 0 [] 0 tStart thresh win pat
+    NoEarlyStop => goSimple bestRef startEp model0 0.0 tStart
+    Patience pat minD => goPatience bestRef startEp model0 (1.0/0.0) 0 tStart pat minD
+    WindowedAvg thresh win pat => goWindowed bestRef startEp model0 0.0 0 [] 0 tStart thresh win pat
     WindowedPercentile pct thresh win pat =>
-      goWindowedPercentile 0 model0 [] 0 0 tStart pct thresh win pat
+      goWindowedPercentile bestRef startEp model0 [] 0 0 tStart pct thresh win pat
+  -- Return-best: reload the best checkpoint so the returned model is
+  -- the best seen, not the last (Lightning semantics). loadState
+  -- mutates the registry in place; the model structure is unchanged.
+  finalModel <- case cfg.checkpoint of
+    Just pol => if pol.keepBest
+                  then do _ <- pol.loadState (pol.dir ++ "/best"); pure m
+                  else pure m
+    Nothing  => pure m
   tEnd <- clockTime Monotonic
   putStrLn $ formatTimingSummary tStart tEnd epochsDone
   putStrLn $ formatPerfMsPerEp tStart tEnd epochsDone
@@ -243,7 +278,7 @@ runTrainingIO {model} epochFn dataSrc cfg model0 = do
           ++ "\tLive handles: " ++ show (primLiveCount {d} (cast epochsDone))
           ++ "\tPeak handles: " ++ show (primPeakLiveCount {d} (cast epochsDone))
   profileReport {d}
-  pure result
+  pure (finalModel, epochsDone, loss)
   where
     shouldLog : Nat -> Bool
     shouldLog ep = case cfg.logEvery of
@@ -292,9 +327,37 @@ runTrainingIO {model} epochFn dataSrc cfg model0 = do
     epochEnd : IO ()
     epochEnd = primIO (primEpochEnd {d})
 
+    divisibleBy : Nat -> Nat -> Bool
+    divisibleBy _ Z     = False
+    divisibleBy n (S k) = modNatNZ n (S k) ItIsSucc == 0
+
+    -- After each completed (non-NaN) epoch: keep-best save to
+    -- `<dir>/best` if the monitored scalar improved (lower is better),
+    -- then periodic save to `<dir>/last`. `bestRef` holds the best
+    -- metric seen; the sidecar stores `S ep` as the resume point. The
+    -- save runs outside any withNoGrad bracket (it reads registry
+    -- params, rc>1, so it's sweep-safe) except the optional monitor
+    -- eval, which is bracketed.
+    postEpoch : IORef Double -> Nat -> Double -> IO ()
+    postEpoch bestRef ep loss =
+      case cfg.checkpoint of
+        Nothing  => pure ()
+        Just pol => do
+          when pol.keepBest $ do
+            cur <- case pol.monitor of
+                     Nothing => pure loss
+                     Just f  => withNoGrad {d} f
+            b <- readIORef bestRef
+            when (cur < b) $ do
+              writeIORef bestRef cur
+              ignore $ pol.saveState (pol.dir ++ "/best") (S ep) cur
+          when (divisibleBy (S ep) pol.everyN) $ do
+            b <- readIORef bestRef
+            ignore $ pol.saveState (pol.dir ++ "/last") (S ep) b
+
     -- Simple: no early stopping
-    goSimple : Nat -> model -> Double -> Clock Monotonic -> IO (model, Nat, Double)
-    goSimple ep m lastLoss t0 =
+    goSimple : IORef Double -> Nat -> model -> Double -> Clock Monotonic -> IO (model, Nat, Double)
+    goSimple bestRef ep m lastLoss t0 =
       if ep >= cfg.totalEpochs then pure (m, ep, lastLoss)
       else do
         epochBegin
@@ -307,7 +370,8 @@ runTrainingIO {model} epochFn dataSrc cfg model0 = do
           then do now <- clockTime Monotonic
                   putStrLn $ "  " ++ formatElapsed t0 now ++ " Diverged (NaN) at epoch " ++ show ep
                   pure (m', ep, loss)
-          else goSimple (S ep) m' loss t0
+          else do postEpoch bestRef ep loss
+                  goSimple bestRef (S ep) m' loss t0
 
     diverged : Clock Monotonic -> Nat -> model -> Double -> IO (model, Nat, Double)
     diverged t0 ep m loss = do
@@ -316,9 +380,9 @@ runTrainingIO {model} epochFn dataSrc cfg model0 = do
       pure (m, ep, loss)
 
     -- Patience-based early stopping
-    goPatience : Nat -> model -> Double -> Nat -> Clock Monotonic -> Nat -> Double ->
+    goPatience : IORef Double -> Nat -> model -> Double -> Nat -> Clock Monotonic -> Nat -> Double ->
                  IO (model, Nat, Double)
-    goPatience ep m bestLoss stale t0 pat minD =
+    goPatience bestRef ep m bestLoss stale t0 pat minD =
       if ep >= cfg.totalEpochs then pure (m, ep, bestLoss)
       else do
         epochBegin
@@ -330,6 +394,7 @@ runTrainingIO {model} epochFn dataSrc cfg model0 = do
         if loss /= loss
           then diverged t0 ep m' loss
           else do
+            postEpoch bestRef ep loss
             let improved = loss < bestLoss - minD
                 best' = if improved then loss else bestLoss
                 stale' : Nat
@@ -339,13 +404,13 @@ runTrainingIO {model} epochFn dataSrc cfg model0 = do
                       putStrLn $ "  " ++ formatElapsed t0 now ++ " Early stop at epoch "
                                ++ show (ep + 1) ++ " (patience=" ++ show pat ++ ")"
                       pure (m', ep + 1, loss)
-              else goPatience (S ep) m' best' stale' t0 pat minD
+              else goPatience bestRef (S ep) m' best' stale' t0 pat minD
 
     -- Windowed-average early stopping
-    goWindowed : Nat -> model -> Double -> Nat -> List Double -> Nat ->
+    goWindowed : IORef Double -> Nat -> model -> Double -> Nat -> List Double -> Nat ->
                  Clock Monotonic -> Double -> Nat -> Nat ->
                  IO (model, Nat, Double)
-    goWindowed ep m iSum iCount avgs convCount t0 thresh win pat =
+    goWindowed bestRef ep m iSum iCount avgs convCount t0 thresh win pat =
       if ep >= cfg.totalEpochs then pure (m, ep, 0.0)
       else do
         epochBegin
@@ -356,18 +421,19 @@ runTrainingIO {model} epochFn dataSrc cfg model0 = do
         epochEnd
         if loss /= loss
           then diverged t0 ep m' loss
-          else let iSum' = iSum + loss
-                   iCount' = iCount + 1
-               in if iCount' < 100
-                 then goWindowed (S ep) m' iSum' iCount' avgs convCount t0 thresh win pat
+          else postEpoch bestRef ep loss >>
+               (let iSum' = iSum + loss
+                    iCount' = iCount + 1
+                in if iCount' < 100
+                 then goWindowed bestRef (S ep) m' iSum' iCount' avgs convCount t0 thresh win pat
                  else let avg = iSum' / 100.0
                           avgs' = avg :: avgs
                           wc = max 1 (div win 100)
                       in if length avgs' < wc
-                        then goWindowed (S ep) m' 0.0 0 avgs' convCount t0 thresh win pat
+                        then goWindowed bestRef (S ep) m' 0.0 0 avgs' convCount t0 thresh win pat
                         else let windowAvg = foldl (+) 0.0 (take wc avgs') / cast wc
                              in if windowAvg >= thresh
-                               then goWindowed (S ep) m' 0.0 0 avgs' 0 t0 thresh win pat
+                               then goWindowed bestRef (S ep) m' 0.0 0 avgs' 0 t0 thresh win pat
                                else let cc = convCount + 1
                                     in if cc >= pat
                                       then do now <- clockTime Monotonic
@@ -379,7 +445,7 @@ runTrainingIO {model} epochFn dataSrc cfg model0 = do
                                               putStrLn $ "    " ++ formatElapsed t0 now
                                                        ++ " convergence " ++ show cc ++ "/" ++ show pat
                                                        ++ " (window_avg=" ++ show windowAvg ++ ")"
-                                              goWindowed (S ep) m' 0.0 0 avgs' cc t0 thresh win pat
+                                              goWindowed bestRef (S ep) m' 0.0 0 avgs' cc t0 thresh win pat)
 
     -- Windowed-percentile early stopping. Maintains a rolling window of
     -- the last `win` per-epoch losses. Every 100 epochs, sorts the window,
@@ -393,10 +459,10 @@ runTrainingIO {model} epochFn dataSrc cfg model0 = do
     -- near-zero loss long before the chunk-MEAN does. p10 of raw losses is
     -- "the easiest 10% of recent epochs" — drops below threshold once the
     -- model handles those reliably.
-    goWindowedPercentile : Nat -> model -> List Double -> Nat -> Nat ->
+    goWindowedPercentile : IORef Double -> Nat -> model -> List Double -> Nat -> Nat ->
                            Clock Monotonic -> Double -> Double -> Nat -> Nat ->
                            IO (model, Nat, Double)
-    goWindowedPercentile ep m recent epochsSinceCheck convCount t0 pct thresh win pat =
+    goWindowedPercentile bestRef ep m recent epochsSinceCheck convCount t0 pct thresh win pat =
       if ep >= cfg.totalEpochs then pure (m, ep, 0.0)
       else do
         epochBegin
@@ -407,10 +473,11 @@ runTrainingIO {model} epochFn dataSrc cfg model0 = do
         epochEnd
         if loss /= loss
           then diverged t0 ep m' loss
-          else let recent' = take win (loss :: recent)
-                   esc' = epochsSinceCheck + 1
-               in if esc' < 100 || length recent' < win
-                 then goWindowedPercentile (S ep) m' recent' esc' convCount
+          else postEpoch bestRef ep loss >>
+               (let recent' = take win (loss :: recent)
+                    esc' = epochsSinceCheck + 1
+                in if esc' < 100 || length recent' < win
+                 then goWindowedPercentile bestRef (S ep) m' recent' esc' convCount
                                             t0 pct thresh win pat
                  else let sorted = sort recent'
                           idx = min (minus win 1)
@@ -420,7 +487,7 @@ runTrainingIO {model} epochFn dataSrc cfg model0 = do
                                      (x :: _) => x
                                      [] => 0.0
                       in if pctVal >= thresh
-                        then goWindowedPercentile (S ep) m' recent' 0 0
+                        then goWindowedPercentile bestRef (S ep) m' recent' 0 0
                                                    t0 pct thresh win pat
                         else let cc = convCount + 1
                              in if cc >= pat
@@ -435,8 +502,8 @@ runTrainingIO {model} epochFn dataSrc cfg model0 = do
                                                 ++ " convergence " ++ show cc ++ "/" ++ show pat
                                                 ++ " (p" ++ show (cast {to=Int} (pct * 100.0))
                                                 ++ "_loss=" ++ show pctVal ++ ")"
-                                       goWindowedPercentile (S ep) m' recent' 0 cc
-                                                             t0 pct thresh win pat
+                                       goWindowedPercentile bestRef (S ep) m' recent' 0 cc
+                                                             t0 pct thresh win pat)
 
 
 ||| Run training with an IO-typed epoch function. After the

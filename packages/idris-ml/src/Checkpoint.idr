@@ -131,17 +131,20 @@ readTrainerState path = do
 |||
 ||| `monitor` selects the scalar to keep-best on (lower is better);
 ||| `Nothing` tracks the per-epoch training loss the loop already has.
+||| It's an `IO Double` (not `model -> IO Double`) so the policy stays
+||| free of the model type — an override closes over its own eval state,
+||| the same idiom the `metrics` callback uses.
 ||| `saveState prefix epoch best` writes the model + optimizer + sidecar
 ||| under `<prefix>.*`; `loadState prefix` restores them and returns the
 ||| `(resumeEpoch, bestMetric)` from the sidecar, or `Nothing` for a
 ||| fresh start.
 public export
-record CheckpointPolicy (model : Type) where
+record CheckpointPolicy where
   constructor MkCheckpointPolicy
   dir       : String
   everyN    : Nat
   keepBest  : Bool
-  monitor   : Maybe (model -> IO Double)
+  monitor   : Maybe (IO Double)
   saveState : String -> Nat -> Double -> IO Bool
   loadState : String -> IO (Maybe (Nat, Double))
 
@@ -172,7 +175,7 @@ loadCheckpointFiles opt pfx = do
 export
 fileCheckpoint : UserDeviceTape d =>
   (dir : String) -> (everyN : Nat) -> (keepBest : Bool) ->
-  NativeOptimizer d -> CheckpointPolicy model
+  NativeOptimizer d -> CheckpointPolicy
 fileCheckpoint dir everyN keepBest opt =
   MkCheckpointPolicy dir everyN keepBest Nothing
     (saveCheckpointFiles opt dir)

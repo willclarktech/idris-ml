@@ -171,7 +171,7 @@ main = do
     putStrLn "Done — re-run without --lr-find at the recommended LR."
     exitSuccess
 
-  let trainCfg = MkTrainConfig cfg.epochs 100
+  let trainCfg = mkTrainConfig cfg.epochs 100
                    (WindowedPercentile 0.10 cfg.esThreshold cfg.esWindow cfg.esPatience)
                    evalMetrics (\_ => pure ())
 

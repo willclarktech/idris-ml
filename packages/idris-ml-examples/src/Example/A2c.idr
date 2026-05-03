@@ -378,7 +378,7 @@ main = do
 
   metrics <- newRLMetricsState 50
   let trainCfg : TrainConfig A2CState
-      trainCfg = MkTrainConfig cfg.epochs 500 NoEarlyStop
+      trainCfg = mkTrainConfig cfg.epochs 500 NoEarlyStop
                    (\_ => readRLMetrics "recent_50" metrics) (\_ => pure ())
   (trained, epochsDone, _) <- runTrainingIO {d=ExampleDevice}
     (\s, _ => do

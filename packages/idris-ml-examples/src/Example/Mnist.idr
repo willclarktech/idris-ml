@@ -309,7 +309,7 @@ main = do
     putStrLn "Done — re-run without --lr-find at the recommended LR."
     exitSuccess
 
-  let trainCfg = MkTrainConfig cfg.epochs 1 (Patience cfg.patience 0.001)
+  let trainCfg = mkTrainConfig cfg.epochs 1 (Patience cfg.patience 0.001)
                    (mnistMetrics testDs testCount) (\_ => pure ())
 
   (trained, epochsDone, finalLoss) <- runTrainingIO {d=ExampleDevice}

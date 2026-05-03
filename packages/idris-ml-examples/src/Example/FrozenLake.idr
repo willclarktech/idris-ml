@@ -212,7 +212,7 @@ main = do
 
   metrics <- newRLMetricsState 1000
   let trainCfg : TrainConfig QTable
-      trainCfg = MkTrainConfig cfg.epochs 1000 NoEarlyStop
+      trainCfg = mkTrainConfig cfg.epochs 1000 NoEarlyStop
                    (\_ => readRLMetrics "recent_1000" metrics) (\_ => pure ())
   (trained, epochsDone, _) <- runTrainingIO {d=ExampleDevice}
     (\m, d => do

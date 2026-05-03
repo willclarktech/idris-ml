@@ -398,7 +398,7 @@ main = do
     putStrLn "See docs/develop/hyperparameter-tuning-2026.md."
     exitSuccess
 
-  let trainCfg = MkTrainConfig cfg.epochs 100
+  let trainCfg = mkTrainConfig cfg.epochs 100
                    (if cfg.patience == 0
                       then NoEarlyStop
                       else Patience cfg.patience 0.001)
