@@ -261,6 +261,7 @@ runTrainingIO {model} epochFn dataSrc cfg model0 = do
       let memSuffix = "\tpeak=" ++ show (getRssMB 0) ++ "MB"
                    ++ "\tcur=" ++ show (getCurrentRssMB 0) ++ "MB"
                    ++ "\thandles=" ++ show (primLiveCount {d} (cast ep))
+                   ++ "\tpeakhandles=" ++ show (primPeakLiveCount {d} (cast ep))
       putStrLn $ "  " ++ formatElapsed t0 now ++ " " ++ show ep
                ++ "\tloss=" ++ showFix 6 loss ++ memSuffix ++ fmtMetrics extra
 
