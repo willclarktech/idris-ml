@@ -865,6 +865,30 @@ requires_grad=True)`. The C helper `make_param_leaf` enforces
 cast-before-grad. Don't prohibit casting grad tensors in general (mixed
 precision relies on it); the invariant is specific to leaf construction.
 
+### "F64 leaks into the F32 build": prefer the dtype-aware (`dtCreate*`/`dtCastFrom`) creators
+
+On torch-mps the example dtype is F32 (baked into `BuildConfig`), but
+several C creators and ops produce or assume **F64** — fine on
+torch-cpu/tape (everything is F64) but a hard crash on MPS, which
+rejects F64 at construction. Three layers bit us on 2026-05-20:
+
+- **Idris creators**: `primCreateState2d` / `primCreateState1d` etc. are
+  F64. Use the dtype-aware `dtCreateState2d {t=ExampleDType} … (deviceStreamTag {d})`
+  / `dtCastFrom {t=ExampleDType} …` instead, which route through
+  `RuntimeDType` to pick F32/F64. (matmul-bench, mnist failures.)
+- **C ops with hardcoded accumulators**: `tensor_scatter_add` allocated
+  its output as `torch::kFloat64`; fixed to inherit `src.options()` so
+  the dtype follows the input. (dnc-copy / dnc-recall.) Audit any C op
+  that calls `torch::zeros(..., kFloat64)` for the same trap.
+
+Underlying asymmetry worth knowing: the **streamed** torch creators
+(`primCreate*Streamed`, used by `dtCreate*`/`tparam`) stay F32-on-CPU —
+they do *not* call `prim__toDeviceTorch`. Only the **non-streamed**
+creators move to MPS. So the dtype-aware path is safe; crashes happened
+only where code escaped to the non-streamed F64 path or mixed an F64
+C-op result into the F32 graph. Verified no-op on F64 builds:
+tape/torch-cpu results were bit-identical before and after each fix.
+
 ### `torch.multinomial` has no MPS kernel
 
 `torch.multinomial` calls into a CPU-only kernel for MPS tensors.
