@@ -264,15 +264,28 @@ runTrainingIO {model} epochFn dataSrc cfg model0 = do
       putStrLn $ "  " ++ formatElapsed t0 now ++ " " ++ show ep
                ++ "\tloss=" ++ showFix 6 loss ++ memSuffix ++ fmtMetrics extra
 
+    -- Per-epoch generation-scoped free. `epochBegin` marks the tensor
+    -- generation; `epochEnd` frees the epoch's wrap-only (rc==1) grad
+    -- intermediates, sparing registry params (rc>1) and pre-epoch state.
+    -- Bounds the training-side live-handle count the same way withNoGrad
+    -- bounds eval. No-op on tape/torch (no buffer ceiling). Defined here so
+    -- they capture the device `d` (the loops shadow it with `d <- dataSrc`).
+    epochBegin : IO ()
+    epochBegin = primIO (primEpochBegin {d})
+    epochEnd : IO ()
+    epochEnd = primIO (primEpochEnd {d})
+
     -- Simple: no early stopping
     goSimple : Nat -> model -> Double -> Clock Monotonic -> IO (model, Nat, Double)
     goSimple ep m lastLoss t0 =
       if ep >= cfg.totalEpochs then pure (m, ep, lastLoss)
       else do
+        epochBegin
         cfg.beforeEpoch ep
         d <- dataSrc
         (m', loss) <- epochFn m d
         when (shouldLog ep) $ logEpoch t0 ep loss m'
+        epochEnd
         if loss /= loss
           then do now <- clockTime Monotonic
                   putStrLn $ "  " ++ formatElapsed t0 now ++ " Diverged (NaN) at epoch " ++ show ep
@@ -291,10 +304,12 @@ runTrainingIO {model} epochFn dataSrc cfg model0 = do
     goPatience ep m bestLoss stale t0 pat minD =
       if ep >= cfg.totalEpochs then pure (m, ep, bestLoss)
       else do
+        epochBegin
         cfg.beforeEpoch ep
         d <- dataSrc
         (m', loss) <- epochFn m d
         when (shouldLog ep) $ logEpoch t0 ep loss m'
+        epochEnd
         if loss /= loss
           then diverged t0 ep m' loss
           else do
@@ -316,10 +331,12 @@ runTrainingIO {model} epochFn dataSrc cfg model0 = do
     goWindowed ep m iSum iCount avgs convCount t0 thresh win pat =
       if ep >= cfg.totalEpochs then pure (m, ep, 0.0)
       else do
+        epochBegin
         cfg.beforeEpoch ep
         d <- dataSrc
         (m', loss) <- epochFn m d
         when (shouldLog ep) $ logEpoch t0 ep loss m'
+        epochEnd
         if loss /= loss
           then diverged t0 ep m' loss
           else let iSum' = iSum + loss
@@ -365,10 +382,12 @@ runTrainingIO {model} epochFn dataSrc cfg model0 = do
     goWindowedPercentile ep m recent epochsSinceCheck convCount t0 pct thresh win pat =
       if ep >= cfg.totalEpochs then pure (m, ep, 0.0)
       else do
+        epochBegin
         cfg.beforeEpoch ep
         d <- dataSrc
         (m', loss) <- epochFn m d
         when (shouldLog ep) $ logEpoch t0 ep loss m'
+        epochEnd
         if loss /= loss
           then diverged t0 ep m' loss
           else let recent' = take win (loss :: recent)

@@ -252,6 +252,11 @@ void         tensor_set_requires_grad(TensorHandle t, int requires_grad);
 /* No-grad scope (for optimizer steps, inference) */
 void         tensor_no_grad_begin(void);
 void         tensor_no_grad_end(void);
+/* Per-epoch generation-scoped free for grad-mode training: epoch_begin
+ * marks the generation, epoch_end deletes wrap-only handles created since.
+ * mlx implements the free; tape/torch are no-ops (no buffer ceiling). */
+void         tensor_epoch_begin(void);
+void         tensor_epoch_end(void);
 
 /* ---------- Device ---------- */
 

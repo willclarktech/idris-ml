@@ -157,6 +157,8 @@
 #define tensor_dropout tensor_dropout_torch
 #define tensor_dtype_name tensor_dtype_name_torch
 #define tensor_embedding tensor_embedding_torch
+#define tensor_epoch_begin tensor_epoch_begin_torch
+#define tensor_epoch_end tensor_epoch_end_torch
 #define tensor_exp tensor_exp_torch
 #define tensor_expand_mask tensor_expand_mask_torch
 #define tensor_free tensor_free_torch

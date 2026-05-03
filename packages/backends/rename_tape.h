@@ -157,6 +157,8 @@
 #define tensor_dropout tensor_dropout_tape
 #define tensor_dtype_name tensor_dtype_name_tape
 #define tensor_embedding tensor_embedding_tape
+#define tensor_epoch_begin tensor_epoch_begin_tape
+#define tensor_epoch_end tensor_epoch_end_tape
 #define tensor_exp tensor_exp_tape
 #define tensor_expand_mask tensor_expand_mask_tape
 #define tensor_free tensor_free_tape

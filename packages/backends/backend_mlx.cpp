@@ -3169,6 +3169,30 @@ void tensor_set_requires_grad(TensorHandle h, int rg) {
     ((Tensor*)h)->requires_grad = (rg != 0);
 }
 
+// Generation-scoped sweep: eval pending lazy graphs, then delete every
+// wrap-only (rc==1) Tensor created at or after `block_start`. Those are
+// block/epoch-local intermediates whose results have been extracted to
+// scalars or retained (rc>=2) by KeepAlive. Registry params (rc>1) and
+// pre-generation state (lower create_id) are spared. Bounds the live
+// handle / Metal-buffer count instead of letting it accumulate past the
+// paravirt-Metal ceiling. Shared by no_grad_end and epoch_end.
+static void mlx_sweep_generation(long block_start) {
+    std::vector<mx::array> to_eval;
+    for (auto* t : all_tensors) to_eval.push_back(t->data);
+    if (!to_eval.empty()) {
+        try { mx::eval(to_eval); } catch (...) { /* best-effort */ }
+    }
+    std::vector<Tensor*> survivors;
+    survivors.reserve(all_tensors.size());
+    for (auto* t : all_tensors) {
+        if (t->refcount == 1 && t->create_id >= block_start) { delete t; continue; }
+        if (t->refcount > 0) survivors.push_back(t);
+        else delete t;
+    }
+    all_tensors = std::move(survivors);
+    try { mx::clear_cache(); } catch (...) { /* best-effort */ }
+}
+
 static long g_nograd_block_start = 0;  // create_id at outermost no_grad_begin
 void tensor_no_grad_begin(void) {
     if (no_grad_depth == 0) g_nograd_block_start = g_mlx_create_calls_global;
@@ -3177,37 +3201,15 @@ void tensor_no_grad_begin(void) {
 void tensor_no_grad_end(void) {
     if (no_grad_depth > 0) no_grad_depth--;
     if (no_grad_depth > 0) return;  // only sweep on outermost end
-
-    // Bulk-eval first so any lazy mx::array referencing soon-to-be-freed
-    // Tensors materializes; the underlying impl refcount in mlx keeps it
-    // alive past our Tensor delete.
-    std::vector<mx::array> to_eval;
-    for (auto* t : all_tensors) to_eval.push_back(t->data);
-    if (!to_eval.empty()) {
-        try { mx::eval(to_eval); } catch (...) { /* best-effort */ }
-    }
-    // Refcount-driven sweep — same logic as tape_reset. The Idris-side
-    // drainManagedHandles call in withNoGrad just before this releases
-    // Idris-wrap retains for Tensors whose let-bindings ended during
-    // the eval block, so by the time we get here their refcount has
-    // dropped to 0 and they're eligible for free.
-    std::vector<Tensor*> survivors;
-    survivors.reserve(all_tensors.size());
-    for (auto* t : all_tensors) {
-        // Block-scoped no-grad free. Tensors created INSIDE this no_grad
-        // block (create_id >= block start) that are wrap-only (rc1) are
-        // block intermediates: the block result has been extracted to a
-        // scalar, or (via `withNoGradKeep`) retained to rc>=2. Freeing them
-        // bounds the live-handle / Metal-buffer count per bracket instead of
-        // accumulating past the paravirt-Metal ceiling. Pre-block state
-        // (lower create_id) and registry params (rc>1) are spared.
-        if (t->refcount == 1 && t->create_id >= g_nograd_block_start) { delete t; continue; }
-        if (t->refcount > 0) survivors.push_back(t);
-        else delete t;
-    }
-    all_tensors = std::move(survivors);
-    try { mx::clear_cache(); } catch (...) { /* best-effort */ }
+    mlx_sweep_generation(g_nograd_block_start);
 }
+
+// Per-epoch generation-scoped free for grad-mode training. The training
+// loop marks the generation before an epoch and sweeps after, bounding
+// the grad-intermediate handle count the same way no_grad_end bounds eval.
+static long g_epoch_block_start = 0;
+void tensor_epoch_begin(void) { g_epoch_block_start = g_mlx_create_calls_global; }
+void tensor_epoch_end(void) { mlx_sweep_generation(g_epoch_block_start); }
 
 /* ================================================================
    Device

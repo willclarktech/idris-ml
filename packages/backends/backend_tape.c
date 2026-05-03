@@ -4569,6 +4569,9 @@ void tensor_set_requires_grad(TensorHandle h, int rg) {
 
 void tensor_no_grad_begin(void) { no_grad_depth++; }
 void tensor_no_grad_end(void)   { if (no_grad_depth > 0) no_grad_depth--; }
+/* No buffer ceiling on tape; per-epoch generation free is a no-op. */
+void tensor_epoch_begin(void) {}
+void tensor_epoch_end(void) {}
 
 /* ================================================================
    Device (CPU only)

@@ -157,6 +157,8 @@
 #define tensor_dropout tensor_dropout_mlx
 #define tensor_dtype_name tensor_dtype_name_mlx
 #define tensor_embedding tensor_embedding_mlx
+#define tensor_epoch_begin tensor_epoch_begin_mlx
+#define tensor_epoch_end tensor_epoch_end_mlx
 #define tensor_exp tensor_exp_mlx
 #define tensor_expand_mask tensor_expand_mask_mlx
 #define tensor_free tensor_free_mlx

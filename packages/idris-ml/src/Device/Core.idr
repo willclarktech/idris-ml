@@ -351,6 +351,12 @@ interface UserDeviceConv d => UserDeviceTape (0 d : Device) where
   primProfileReset        : PrimIO ()
   ||| Print this backend's profile breakdown to stderr.
   primProfileReport       : PrimIO ()
+  ||| Mark the start of a training epoch's tensor generation.
+  primEpochBegin          : PrimIO ()
+  ||| End the epoch generation: free wrap-only handles created since
+  ||| `primEpochBegin` (grad-mode intermediates), sparing registry params
+  ||| and pre-epoch state. mlx frees; tape/torch are no-ops.
+  primEpochEnd            : PrimIO ()
   ||| Count of live backend tensor handles (mlx: all_tensors; torch:
   ||| intermediates; tape: tape entries). The arg is ignored — it exists
   ||| only to defeat Idris-Chez constant-folding of the FFI call so the

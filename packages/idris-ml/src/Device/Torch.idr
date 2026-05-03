@@ -488,6 +488,10 @@ prim__optimizerLoadTorch : AnyPtr -> String -> PrimIO Int
 prim__profileResetTorch : PrimIO ()
 %foreign "C:backend_profile_report_torch,libidrisml"
 prim__profileReportTorch : PrimIO ()
+%foreign "C:tensor_epoch_begin_torch,libidrisml"
+prim__epochBeginTorch : PrimIO ()
+%foreign "C:tensor_epoch_end_torch,libidrisml"
+prim__epochEndTorch : PrimIO ()
 %foreign "C:tensor_live_count_torch,libidrisml"
 prim__liveCountTorch : Int -> Int
 %foreign "C:tensor_peak_live_count_torch,libidrisml"
@@ -577,6 +581,8 @@ public export
   primOptimizerLoad            = prim__optimizerLoadTorch
   primProfileReset             = prim__profileResetTorch
   primProfileReport            = prim__profileReportTorch
+  primEpochBegin               = prim__epochBeginTorch
+  primEpochEnd                 = prim__epochEndTorch
   primLiveCount                = prim__liveCountTorch
   primPeakLiveCount            = prim__peakLiveCountTorch
 

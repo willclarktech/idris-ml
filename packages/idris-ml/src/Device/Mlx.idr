@@ -502,6 +502,10 @@ prim__optimizerLoadMlx : AnyPtr -> String -> PrimIO Int
 prim__profileResetMlx : PrimIO ()
 %foreign "C:backend_profile_report_mlx,libidrisml"
 prim__profileReportMlx : PrimIO ()
+%foreign "C:tensor_epoch_begin_mlx,libidrisml"
+prim__epochBeginMlx : PrimIO ()
+%foreign "C:tensor_epoch_end_mlx,libidrisml"
+prim__epochEndMlx : PrimIO ()
 %foreign "C:tensor_live_count_mlx,libidrisml"
 prim__liveCountMlx : Int -> Int
 %foreign "C:tensor_peak_live_count_mlx,libidrisml"
@@ -583,6 +587,8 @@ public export
   primOptimizerLoad            = prim__optimizerLoadMlx
   primProfileReset             = prim__profileResetMlx
   primProfileReport            = prim__profileReportMlx
+  primEpochBegin               = prim__epochBeginMlx
+  primEpochEnd                 = prim__epochEndMlx
   primLiveCount                = prim__liveCountMlx
   primPeakLiveCount            = prim__peakLiveCountMlx
 

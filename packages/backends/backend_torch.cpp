@@ -745,6 +745,9 @@ void tensor_no_grad_end(void) {
         }
     }
 }
+/* No buffer ceiling on torch; per-epoch generation free is a no-op. */
+void tensor_epoch_begin(void) {}
+void tensor_epoch_end(void) {}
 
 /* ---------- Device ---------- */
 
