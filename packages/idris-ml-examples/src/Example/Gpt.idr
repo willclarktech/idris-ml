@@ -19,6 +19,7 @@ import System.File
 import Compat.Random
 
 import Backprop
+import Checkpoint
 import DataPoint
 import Floating
 import Generate
@@ -325,9 +326,11 @@ record Config where
   patience : Nat
   seed : Bits64
   lrFind : Bool
+  checkpointDir : String
+  checkpointEvery : Nat
 
 defaultConfig : Config
-defaultConfig = MkConfig "embedded" 0.001 30 0 42 False
+defaultConfig = MkConfig "embedded" 0.001 30 0 42 False "" 10
 
 specs : List (ArgSpec Config)
 specs = [ Arg "--corpus" (\v, c => { corpus := v } c)
@@ -335,7 +338,12 @@ specs = [ Arg "--corpus" (\v, c => { corpus := v } c)
         , Arg "--epochs" (\v, c => { epochs := castNat v } c)
         , Arg "--patience" (\v, c => { patience := castNat v } c)
         , Arg "--seed" (\v, c => { seed := castBits64 v } c)
-        , Arg "--lr-find" (\v, c => { lrFind := (v == "1" || v == "true") } c) ]
+        , Arg "--lr-find" (\v, c => { lrFind := (v == "1" || v == "true") } c)
+        -- Checkpointing: save to / auto-resume from DIR. `--resume` is an
+        -- alias for `--checkpoint-dir` (resumes if DIR/last.* is present).
+        , Arg "--checkpoint-dir" (\v, c => { checkpointDir := v } c)
+        , Arg "--resume" (\v, c => { checkpointDir := v } c)
+        , Arg "--checkpoint-every" (\v, c => { checkpointEvery := castNat v } c) ]
 
 
 partial
@@ -398,12 +406,17 @@ main = do
     putStrLn "See docs/develop/hyperparameter-tuning-2026.md."
     exitSuccess
 
-  let trainCfg = mkTrainConfig cfg.epochs 100
-                   (if cfg.patience == 0
-                      then NoEarlyStop
-                      else Patience cfg.patience 0.001)
-                   evalMetrics
-                   noOpHook
+  let trainCfgBase = mkTrainConfig cfg.epochs 100
+                       (if cfg.patience == 0
+                          then NoEarlyStop
+                          else Patience cfg.patience 0.001)
+                       evalMetrics
+                       noOpHook
+      trainCfg = case cfg.checkpointDir of
+                   "" => trainCfgBase
+                   dir => withCheckpoint
+                            (fileCheckpoint dir cfg.checkpointEvery True opt)
+                            trainCfgBase
 
   let stepFn : Network InputDim [] OutputDim ExampleDevice ExampleDType WithGrad ->
                Vect BatchSize (TensorDataPoint InputDim OutputDim) ->
