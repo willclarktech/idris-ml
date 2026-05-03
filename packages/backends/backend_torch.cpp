@@ -918,9 +918,10 @@ const char* param_name(int idx) {
 double param_grad_item(int idx) {
     auto& g = param_registry[idx].tensor->grad();
     if (!g.defined()) return 0.0;
-    // .cpu() before .data_ptr<>() — readback host-side requires CPU
-    // tensor. No-op on CPU params; only MPS / CUDA params pay the hop.
-    return g.cpu().flatten().data_ptr<double>()[0];
+    // .cpu() before .data_ptr<>() — readback host-side requires CPU tensor.
+    // .to(kFloat64) before data_ptr<double>() — an F32 grad would otherwise
+    // trip "expected scalar type Double but found Float". No-op on F64 params.
+    return g.cpu().to(torch::kFloat64).flatten().data_ptr<double>()[0];
 }
 
 double param_grad_item_and_zero(int idx) {
@@ -1950,8 +1951,9 @@ void backend_profile_report(void) {
 double param_grad_item_at(int param_idx, int elem_idx) {
     auto& t = *param_registry[param_idx].tensor;
     if (!t.grad().defined()) return 0.0;
-    // .cpu() before .data_ptr<>() — host indexing requires CPU tensor.
-    return t.grad().cpu().data_ptr<double>()[elem_idx];
+    // .cpu() + .to(kFloat64): host indexing requires a CPU tensor, and reading
+    // an F32 grad through data_ptr<double> asserts without the dtype cast.
+    return t.grad().cpu().to(torch::kFloat64).data_ptr<double>()[elem_idx];
 }
 
 /* ---------- Debug ---------- */
