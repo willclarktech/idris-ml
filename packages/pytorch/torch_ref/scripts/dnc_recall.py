@@ -4,9 +4,7 @@ Output format matches Idris example conventions.
 """
 
 import argparse
-import platform
 import random
-import resource
 import sys
 
 import torch
@@ -31,13 +29,6 @@ N, M, H = 32, 20, 100
 R = 1  # read heads
 INPUT_W = W + 2
 OUTPUT_W = W
-
-
-def _peak_rss_mb() -> int:
-    rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-    if platform.system() == "Darwin":
-        return int(rss / (1024 * 1024))
-    return int(rss / 1024)
 
 
 def _train_dnc_epoch(
@@ -157,7 +148,6 @@ def main() -> None:
         acc = _bit_accuracy(model, eval_batch)
         return [
             ("acc", f"{acc * 100:.1f}%"),
-            ("peak", f"{_peak_rss_mb()}MB"),
         ]
 
     config = TrainConfig(

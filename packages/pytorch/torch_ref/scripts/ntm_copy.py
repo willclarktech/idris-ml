@@ -4,9 +4,7 @@ Output format matches Idris Example.NtmCopy.
 """
 
 import argparse
-import platform
 import random
-import resource
 import sys
 
 import torch
@@ -29,13 +27,6 @@ W = 8
 N, M, H = 128, 20, 100
 INPUT_W = W + 1
 OUTPUT_W = W
-
-
-def _peak_rss_mb() -> int:
-    rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-    if platform.system() == "Darwin":
-        return int(rss / (1024 * 1024))
-    return int(rss / 1024)
 
 
 def _train_ntm_epoch(
@@ -150,7 +141,6 @@ def main() -> None:
         acc = _bit_accuracy(model, eval_batch)
         return [
             ("acc", f"{acc * 100:.1f}%"),
-            ("peak", f"{_peak_rss_mb()}MB"),
         ]
 
     config = TrainConfig(
