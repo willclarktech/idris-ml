@@ -76,30 +76,37 @@ Device = Type
 --   TapeDev               — tape backend (CPU only, no hardware variants)
 --   TorchDev d            — libtorch; d : TorchHwDev = TCpu | TMps | TCuda Nat
 --   MlxDev s              — mlx; s : MlxStream = MCpu | MGpu
--- Each backend also implements `UserDeviceTransfer` so the generic
--- `toDevice` works between any pair: matching backendTag → fast
--- intra-backend HW migration (libtorch's `.to()` / mlx's stream switch);
--- differing → host buffer round-trip. Users can declare their own backend
--- by adding a tag type with these interface instances and a unique
--- `backendTag` string. See docs/develop/design-decisions.md "Open `d`
--- parameter".
+-- `UserDeviceTransfer` makes the generic `toDevice` work between any
+-- pair: matching backendTag → fast intra-backend HW migration; differing
+-- → host buffer round-trip. Declare your own backend by adding a tag type
+-- with these instances + a unique `backendTag`. See design-decisions.md
+-- "Open `d` parameter".
+--
+-- Availability gating (design-decisions.md "Device-availability gating";
+-- full doc device-availability-gating.md). Two gates, each where the fact
+-- lives:
+--   • Linkage (compile-time): empty `Linked d` marker gates construction;
+--     instances emitted per build by the generated `HwConfig`, so a
+--     tape-only build can't even spell `MlxDev _`.
+--   • Hardware presence (runtime, EAFP): construction shims catch the
+--     backend's exception → NULL handle; `toDeviceChecked` / `attemptOn`
+--     lift NULL → `Left DeviceError`; `availableDevices` probes candidates.
+--     Degrades to "always Right" on tape/mlx (their construction can't fail).
 
 -- DType.Core (open dtype kind — pick a Type with an IsDType / Compatible instance)
 0 DType : Type
 DType = Type
 -- Float n / BFloat n / IntN n / UInt n / Bool are types with built-in
 -- IsDType instances. Aliases F32 = Float 32, F64 = Float 64, etc.
--- `Compatible d t` gates which (device, dtype) pairs are admissible.
--- `Compatible (MlxDev MGpu) F64` deliberately does not exist — that
--- compile-time rejection mirrors mlx 0.31's Metal-GPU F32-only constraint.
--- `Compatible (TorchDev TMps) F64` similarly does not exist — libtorch
--- rejects F64 at MPS tensor *construction*, not just dispatch. See
--- docs/develop/design-decisions.md "Open `dt` parameter".
+-- `Compatible d t` gates admissible (device, dtype) pairs at construction.
+-- `Compatible (MlxDev MGpu) F64` and `Compatible (TorchDev TMps) F64`
+-- deliberately don't exist — Metal GPU is F32-only (mlx 0.31; libtorch
+-- rejects F64 at MPS *construction*). See design-decisions.md "Open `dt`".
 
 -- Tensor.idr (autograd handle — backend-agnostic)
 record Tensor (dims : Vect rank Nat) (0 d : Device) (0 dt : DType) (0 g : GradMode) where
   constructor MkTensor
-  tensorPtr : AnyPtr      -- wrapped handle: Chez vector #(tensor-handle raw)
+  tensorPtr : AnyPtr      -- wrapped handle: Chez vector #(tensor-handle-v2 tag raw)
   paramId   : Maybe String  -- parameter name (Nothing = intermediate)
 -- Aliases TVec n d dt g / TMat m n d dt g dodge the Idris-2 type-checker hang on multiplicative-Nat shape literals
 ```
@@ -117,13 +124,13 @@ Examples don't hardcode device or dtype. They reference `ExampleDevice` / `Examp
   - `BACKEND=mlx MLX_DEVICE=cpu`          → `MlxDev MCpu`, `F64`
   - `BACKEND=mlx MLX_DEVICE=gpu`          → `MlxDev MGpu`, `F32`
 
-Idris-2 can't drive type-level selection from a runtime env var (types fix at elaboration), so the env is observed at build time and baked into `BuildConfig.idr`. Switching modes is just a different `make install` invocation — no example source edits needed.
+Idris-2 can't drive type-level selection from a runtime env var (types fix at elaboration), so the env is observed at build time and baked into `BuildConfig.idr`. Switching modes is just a different `make install` — no source edits. (Same trick generates the per-build `Linked` instances in `HwConfig.idr`.)
 
 The `LayerLike` interface (4 methods: `applyVar`, `applyVarBatch`, `layerPrefix`, `resetState`) + `AnyLayer` existential provides dynamic dispatch over layer types. `Network` chains `AnyLayer`s via `(~~>)`. Adding a new layer = one file implementing `LayerLike`, zero edits elsewhere.
 
 ### Tensor lifecycle (wrapped-handle ABI)
 
-`tensorPtr` is a Chez vector `#(tensor-handle raw)`, not a raw pointer. Every Tensor-touching `%foreign` declaration binds to a Scheme wrapper that unwraps via `(vector-ref a<i> 1)` on Tensor args and wraps + retains + registers with `idris-tensor-guardian` on Tensor returns. The wrap IS the value — Idris-Chez codegen can't elide it without eliding the Tensor. C-side refcount drives freeing on mlx; tape and torch carry no-op retain/release stubs. New FFIs go through `scripts/lifecycle/ffi_manifest.py` (manifest) + `scripts/lifecycle/ffi-convert-to-scheme.py` (converter); `make check-ffi-wrap-template` (CI preflight) enforces the template. Full model in `docs/develop/tensor-lifecycle.md`.
+`tensorPtr` is a Chez vector `#(tensor-handle-v2 tag raw)` (slot 1 = backend tag, slot 2 = raw pointer), not a raw pointer. Every Tensor-touching `%foreign` binds to a Scheme wrapper that unwraps via `(vector-ref a<i> 2)` on Tensor args and wraps + retains + registers with `idris-tensor-guardian` on Tensor returns. The wrap IS the value — Idris-Chez codegen can't elide it without eliding the Tensor. C-side refcount drives freeing on mlx; tape and torch carry no-op retain/release stubs. New FFIs go through `scripts/lifecycle/ffi_manifest.py` + `ffi-convert-to-scheme.py`; `make check-ffi-wrap-template` (CI preflight) enforces the template. Full model in `docs/develop/tensor-lifecycle.md`.
 
 ## Key Patterns
 
@@ -182,7 +189,7 @@ The codebase has **zero `believe_me`** and **zero `unsafePerformIO`**. Keep it t
 - Nat arithmetic: prefer `Tensor.splitAt` for reshape/flatten; route multiplicative shape arithmetic through `TVec`/`TMat` aliases (raw `Tensor [4 * o] d` hangs the type-checker).
 - `decEq`+`Refl` to unify a generic `{n : Nat}` with a specific value in a branch.
 - `rewrite sym prf in expr` to convert between provably-equal types.
-- Device phantom: `Tensor dims (0 d : Device)` is erased at runtime; `toDevice` is the only intentional device bridge.
+- Device phantom: `Tensor dims (0 d : Device)` is erased at runtime; `toDevice` (or `toDeviceChecked` for the EAFP-gated variant) is the only intentional device bridge.
 
 ## Workflows
 
@@ -241,5 +248,5 @@ See [`docs/develop/gotchas.md`](docs/develop/gotchas.md) for the comprehensive l
 - **Elementwise `(*)`** — `Tensor`'s `Num` uses elementwise multiply; use `(<>)` for matmul (PyTorch's `@`).
 - **Chez output buffering** — `stdout` is fully buffered when piped. Prefix long-running background commands with `stdbuf -oL`.
 - **Large Nat type-level reduction** — Idris-2 Peano Nats hang the type-checker for dims > ~1000 and choke on multiplicative shape literals. Route through `TVec`/`TMat` aliases; place identity layers (dropout, batch norm) only at smaller dims.
-- **`Data.Nat` stdlib functions are recursive at runtime too** — `Data.Nat.lte`/`divNat`/`modNatNZ` compile to recursive Peano walks even though `Nat` is `Integer` underneath. `div n 2` on `n=256` does 128 recursive `cond`/`sub1` cycles. Found 2026-05-14 in `Layer/Transformer.idr`'s `posEncVal` — `div dim 2` + `modNatNZ dim 2` were the wall bottleneck (~3.9B Nat-recursive ops/epoch on a 256-dim transformer). Workaround: cast to `Int` once inside the function, use `Int div`/`Int mod`. The `Ord_Nat` comparators (`<`, `<=`) are fine — they route through Integer compare. The named `Data.Nat.lte` is not. See `docs/develop/gotchas.md` for details.
+- **`Data.Nat` stdlib functions are recursive at runtime too** — `Data.Nat.lte`/`divNat`/`modNatNZ` compile to recursive Peano walks even though `Nat` is `Integer` underneath (`div 256 2` = 128 `cond`/`sub1` cycles). Cast to `Int` and use `Int div`/`Int mod` in hot paths; the `Ord_Nat` comparators (`<`, `<=`) are fine. Details + the `posEncVal` incident in `docs/develop/gotchas.md`.
 - **Gaussian policy entropy must be Tensor-typed** — building entropy from `prim__item1d` scalars silently zeroes the gradient (this was the V1 A2C bug).
