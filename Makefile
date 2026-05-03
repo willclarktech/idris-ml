@@ -596,6 +596,14 @@ example-tcast-demo: install
 	cp $(LIB) build/exec/tcast-demo_app/
 	./build/exec/tcast-demo $(TCAST_DEMO_ARGS)
 
+# Compile-time (device, dtype) Compatible gate demo. The example's `ok*`
+# witnesses typecheck against the real constructor across all backends;
+# main constructs on the build-selected cell, so it runs on any BACKEND.
+example-dtype-pitch: install
+	idris2 $(IDRIS_FLAGS) -o dtype-pitch $(EXAMPLE_SRC)/Example/DTypePitch.idr
+	cp $(LIB) build/exec/dtype-pitch_app/
+	./build/exec/dtype-pitch
+
 # Cross-dtype SafeTensors round-trip smoke test for L63.
 #   1. Save F32 (BACKEND=mlx MLX_DEVICE=gpu): writes a checkpoint with
 #      "dtype":"F32" headers and 4-byte-per-element data.
