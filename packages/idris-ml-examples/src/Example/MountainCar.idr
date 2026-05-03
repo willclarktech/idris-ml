@@ -191,8 +191,16 @@ trainIfReady opt st = do
       mBatch <- sampleN st.cfgBatch st.buffer
       case mBatch of
         Just batchVec => do
-          loss <- batchLossBatched st.cfgBatch st.qNet st.target st.cfgGamma batchVec
-          _ <- nativeTrainStep opt loss
+          -- Per-step generation bracket: free this replay step's grad
+          -- intermediates immediately, so the within-epoch live handle
+          -- count stays small (one DQN epoch is ~106k ops; without this it
+          -- bursts past the paravirt-Metal buffer ceiling). Params update
+          -- in-place via the registry (rc>1, spared), so the () result
+          -- needs no KeepAlive rescue.
+          withGenFree {d=ExampleDevice} $ do
+            loss <- batchLossBatched st.cfgBatch st.qNet st.target st.cfgGamma batchVec
+            _ <- nativeTrainStep opt loss
+            pure ()
           pure st
         Nothing => pure st
 

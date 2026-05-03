@@ -3204,12 +3204,18 @@ void tensor_no_grad_end(void) {
     mlx_sweep_generation(g_nograd_block_start);
 }
 
-// Per-epoch generation-scoped free for grad-mode training. The training
-// loop marks the generation before an epoch and sweeps after, bounding
-// the grad-intermediate handle count the same way no_grad_end bounds eval.
-static long g_epoch_block_start = 0;
-void tensor_epoch_begin(void) { g_epoch_block_start = g_mlx_create_calls_global; }
-void tensor_epoch_end(void) { mlx_sweep_generation(g_epoch_block_start); }
+// Generation-scoped free for grad-mode training, nestable via a marker
+// stack: the per-epoch bracket (runTrainingIO) is the outer frame and a
+// per-step `withGenFree` bracket is an inner frame. begin pushes the
+// current create_id; end pops it and frees wrap-only handles created since.
+static std::vector<long> g_gen_stack;
+void tensor_epoch_begin(void) { g_gen_stack.push_back(g_mlx_create_calls_global); }
+void tensor_epoch_end(void) {
+    if (g_gen_stack.empty()) return;
+    long start = g_gen_stack.back();
+    g_gen_stack.pop_back();
+    mlx_sweep_generation(start);
+}
 
 /* ================================================================
    Device

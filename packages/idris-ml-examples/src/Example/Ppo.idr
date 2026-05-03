@@ -136,7 +136,11 @@ rollout : Actor -> Critic -> AState -> Nat -> Nat ->
 rollout _ _ st _ Z = pure ([], st, [])
 rollout actor critic st stepsLeft (S k) = do
   let obs = observeVec st
-  triple <- sampleActionIO actor critic obs
+  -- Per-step no-grad bracket: free this step's forward intermediates
+  -- immediately. The whole rollout is RolloutLen (e.g. 1024) steps; a
+  -- single outer withNoGrad would accumulate all of them past the
+  -- paravirt-Metal ceiling. The step result is plain data (Nat/Double).
+  triple <- withNoGrad {d=ExampleDevice} (sampleActionIO actor critic obs)
   let a  = fst triple
       lp = fst (snd triple)
       v  = snd (snd triple)
@@ -322,7 +326,12 @@ prepareRollout critic cfg steps finalSt = do
 -- the [B, NumActions] / [B, 1] tensors.
 runBatch : NativeOptimizer ExampleDevice -> Actor -> Critic -> Config ->
            List (RollStep, Double, Double) -> IO ()
-runBatch opt actor critic cfg batch = do
+runBatch opt actor critic cfg batch = withGenFree {d=ExampleDevice} $ do
+  -- Per-minibatch generation bracket: free this update's grad
+  -- intermediates immediately. PPO runs K (e.g. 10) epochs × minibatches
+  -- of batched forward+loss over the whole rollout; without per-step
+  -- freeing the within-epoch handle count bursts past the paravirt-Metal
+  -- ceiling. Params update in-place via the registry (rc>1, spared).
   let batchVec = Data.Vect.fromList batch
       n = length batch
       obsBatch = the (Vect (length batch) (Vector ObsDim Double))
@@ -377,7 +386,10 @@ ppoEpoch opt cfg st = do
   -- sampling. Gradients come from kEpochUpdate's separate batched
   -- forward (PPO recomputes log-probs over the rollout for each
   -- inner epoch). No grad needed during rollout.
-  rolled  <- withNoGrad {d=ExampleDevice} (rollout st.actor st.critic startSt EpisodeLen RolloutLen)
+  -- No outer withNoGrad here: `rollout` brackets each step's forward
+  -- itself (per-step), so the live handle count stays bounded across the
+  -- full RolloutLen instead of accumulating in one giant bracket.
+  rolled  <- rollout st.actor st.critic startSt EpisodeLen RolloutLen
   let steps   = fst rolled
       finalSt = fst (snd rolled)
   writeIORef st.envRef finalSt
