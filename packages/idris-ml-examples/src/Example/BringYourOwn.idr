@@ -51,6 +51,9 @@ prim__freeBYO : AnyPtr -> ()
 %foreign "C:byo_tensor_item,libbyo"
 prim__itemBYO : AnyPtr -> Double
 
+%foreign "C:byo_tensor_item1d,libbyo"
+prim__item1dBYO : AnyPtr -> Int -> Double
+
 %foreign "C:byo_tensor_clone,libbyo"
 prim__cloneBYO : AnyPtr -> AnyPtr
 
@@ -111,10 +114,12 @@ prim__clampMinBYO : AnyPtr -> Double -> AnyPtr
 public export
 UserDeviceCore BYO where
   deviceName       = "byo"
+  deviceStreamTag  = 0      -- no stream concept (like tape/torch)
   primCreateScalar = prim__createScalarBYO
   primCreate       = prim__createBYO
   primFree         = prim__freeBYO
   primItem         = prim__itemBYO
+  primItem1d       = prim__item1dBYO
   primClone        = prim__cloneBYO
   primAdd          = prim__addBYO
   primSub          = prim__subBYO
@@ -131,6 +136,14 @@ UserDeviceCore BYO where
   primAddScalar    = prim__addScalarBYO
   primMulScalar    = prim__mulScalarBYO
   primClampMin     = prim__clampMinBYO
+
+-- A BYO author self-declares `Linked` for their device: by compiling it
+-- in, it is available by definition (the generated HwConfig only
+-- withholds instances for the built-in backends not in BACKEND). With
+-- this instance, `BYO` tensors are spellable at the Linked-gated tensor
+-- constructors too — not just the raw UserDeviceCore methods `fma` uses.
+public export
+Linked BYO where
 
 
 ----------------------------------------------------------------------

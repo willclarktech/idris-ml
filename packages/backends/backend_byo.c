@@ -57,6 +57,15 @@ double byo_tensor_item(byo_tensor t) {
     return v;
 }
 
+/* This toy backend stores only a single scalar (see byo_tensor_create),
+   so 1-D element reads collapse to that value regardless of idx. */
+double byo_tensor_item1d(byo_tensor t, int idx) {
+    (void)idx;
+    double v = t ? *t : 0.0;
+    fprintf(stderr, "[byo] tensor_item1d -> %g\n", v);
+    return v;
+}
+
 byo_tensor byo_tensor_clone(byo_tensor t) {
     fprintf(stderr, "[byo] tensor_clone\n");
     return make_scalar(t ? *t : 0.0);

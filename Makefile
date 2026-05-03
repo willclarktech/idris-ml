@@ -512,6 +512,11 @@ check-gradmode-aliasing: install
 check-examples: install
 	@for f in $(EXAMPLE_SRC)/Example/*.idr; do \
 		mod=$$(basename "$$f" .idr); \
+		case "$$mod" in \
+			Transfer|MlxStreamDemo) \
+				echo "Skipping Example.$$mod (cross-backend: names non-linked devices, so it only compiles under a multi-backend BACKEND — checked via its own target)"; \
+				continue ;; \
+		esac; \
 		slug=$$(echo "$$mod" | tr 'A-Z' 'a-z'); \
 		echo "Building Example.$$mod..."; \
 		idris2 $(IDRIS_FLAGS) -o "check-$$slug" "$$f" || exit 1; \
