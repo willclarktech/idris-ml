@@ -1007,40 +1007,32 @@ toTDP dp = MkTensorDataPoint (vectorToTensorPersistent {d} {dt} (x dp)) (vectorT
 %foreign "scheme:(lambda (a0)  ((foreign-procedure \"tensor_backward\" (void*) void) (vector-ref a0 2)))"
 prim__backwardC : AnyPtr -> PrimIO ()
 
-%foreign "C:param_zero_all_grads,libidrisml"
-prim__zeroAllGradsC : PrimIO ()
-
 -- runBackward is defined post-Tensor record below; the type-level
 -- gate (Tensor [] d dt WithGrad-> IO ()) lives there.
 
-%foreign "C:param_count,libidrisml"
-prim__paramCountC : PrimIO Int
-
-%foreign "C:param_name,libidrisml"
-prim__paramNameC : Int -> PrimIO String
-
-%foreign "C:param_grad_item_at,libidrisml"
-prim__paramGradItemAtC : Int -> Int -> PrimIO Double
+-- Registry queries dispatch through the in-scope `UserDeviceTape d`:
+-- each backend's registry is a separate TU-local table, so `{d}`
+-- selects which one is read.
 
 ||| Get parameter count (for gradient inspection).
 export
-getParamCount : IO Int
-getParamCount = primIO prim__paramCountC
+getParamCount : UserDeviceTape d => IO Int
+getParamCount = primIO (primParamCount {d})
 
 ||| Get parameter name by index.
 export
-getParamName : Int -> IO String
-getParamName i = primIO (prim__paramNameC i)
+getParamName : UserDeviceTape d => Int -> IO String
+getParamName i = primIO (primParamName {d} i)
 
 ||| Get gradient element for param i, element j.
 export
-getParamGradAt : Int -> Int -> IO Double
-getParamGradAt i j = primIO (prim__paramGradItemAtC i j)
+getParamGradAt : UserDeviceTape d => Int -> Int -> IO Double
+getParamGradAt i j = primIO (primParamGradItemAt {d} i j)
 
 ||| Zero all parameter gradients.
 export
-zeroAllGrads : IO ()
-zeroAllGrads = primIO prim__zeroAllGradsC
+zeroAllGrads : UserDeviceTape d => IO ()
+zeroAllGrads = primIO (primParamZeroAll {d})
 
 %foreign "C:backend_name,libidrisml"
 prim__backendName : String

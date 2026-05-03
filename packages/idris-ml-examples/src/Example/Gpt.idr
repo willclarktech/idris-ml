@@ -300,7 +300,7 @@ trainValSplit valFrac idx =
 
 setLRAll : NativeOptimizer -> Double -> IO ()
 setLRAll opt lr = do
-  n <- getParamCount
+  n <- getParamCount {d=ExampleDevice}
   go 0 n
   where
     go : Int -> Int -> IO ()
@@ -308,7 +308,7 @@ setLRAll opt lr = do
       if i >= n
         then pure ()
         else do
-          nm <- getParamName i
+          nm <- getParamName {d=ExampleDevice} i
           setParamLR opt nm lr
           go (i + 1) n
 

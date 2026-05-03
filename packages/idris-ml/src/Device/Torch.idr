@@ -439,6 +439,14 @@ prim__createState1dTorch : Int -> AnyPtr -> AnyPtr
 prim__createState2dTorch : Int -> Int -> AnyPtr -> AnyPtr
 %foreign "C:polyak_blend_torch,libidrisml"
 prim__polyakBlendTorch : Double -> String -> String -> PrimIO Int
+%foreign "C:param_count_torch,libidrisml"
+prim__paramCountTorch : PrimIO Int
+%foreign "C:param_name_torch,libidrisml"
+prim__paramNameTorch : Int -> PrimIO String
+%foreign "C:param_grad_item_at_torch,libidrisml"
+prim__paramGradItemAtTorch : Int -> Int -> PrimIO Double
+%foreign "C:param_zero_all_grads_torch,libidrisml"
+prim__paramZeroAllTorch : PrimIO ()
 
 
 public export
@@ -466,6 +474,10 @@ public export
   primCreateState2d r c dat     =
     prim__toDeviceTorch (prim__createState2dTorch r c dat) (torchHwDevName d)
   primPolyakBlend          = prim__polyakBlendTorch
+  primParamCount           = prim__paramCountTorch
+  primParamName            = prim__paramNameTorch
+  primParamGradItemAt      = prim__paramGradItemAtTorch
+  primParamZeroAll         = prim__paramZeroAllTorch
 
 
 ----------------------------------------------------------------------

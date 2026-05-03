@@ -291,6 +291,16 @@ interface UserDeviceConv d => UserDeviceTape (0 d : Device) where
   ||| updated.
   primPolyakBlend       : Double -> String -> String -> PrimIO Int
 
+  -- Registry queries (optimizer-side) ------------------------------
+  ||| Number of params registered in this backend's registry.
+  primParamCount        : PrimIO Int
+  ||| paramId of the `i`th registered param.
+  primParamName         : Int -> PrimIO String
+  ||| Gradient element `j` of the `i`th registered param.
+  primParamGradItemAt   : Int -> Int -> PrimIO Double
+  ||| Zero every registered param's gradient.
+  primParamZeroAll      : PrimIO ()
+
   -- Param + state creation -----------------------------------------
   primCreateParam1d     : Int -> AnyPtr -> AnyPtr
   primCreateParam2d     : Int -> Int -> AnyPtr -> AnyPtr

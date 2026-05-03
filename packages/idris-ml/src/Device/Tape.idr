@@ -408,6 +408,14 @@ prim__createState1dTape : Int -> AnyPtr -> AnyPtr
 prim__createState2dTape : Int -> Int -> AnyPtr -> AnyPtr
 %foreign "C:polyak_blend_tape,libidrisml"
 prim__polyakBlendTape : Double -> String -> String -> PrimIO Int
+%foreign "C:param_count_tape,libidrisml"
+prim__paramCountTape : PrimIO Int
+%foreign "C:param_name_tape,libidrisml"
+prim__paramNameTape : Int -> PrimIO String
+%foreign "C:param_grad_item_at_tape,libidrisml"
+prim__paramGradItemAtTape : Int -> Int -> PrimIO Double
+%foreign "C:param_zero_all_grads_tape,libidrisml"
+prim__paramZeroAllTape : PrimIO ()
 
 
 public export
@@ -427,6 +435,10 @@ UserDeviceTape TapeDev where
   primCreateState1d        = prim__createState1dTape
   primCreateState2d        = prim__createState2dTape
   primPolyakBlend          = prim__polyakBlendTape
+  primParamCount           = prim__paramCountTape
+  primParamName            = prim__paramNameTape
+  primParamGradItemAt      = prim__paramGradItemAtTape
+  primParamZeroAll         = prim__paramZeroAllTape
 
 
 ----------------------------------------------------------------------

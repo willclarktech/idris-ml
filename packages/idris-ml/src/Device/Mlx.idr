@@ -453,6 +453,14 @@ prim__createState1dMlxStreamed : Int -> AnyPtr -> Int -> AnyPtr
 prim__createState2dMlxStreamed : Int -> Int -> AnyPtr -> Int -> AnyPtr
 %foreign "C:polyak_blend_mlx,libidrisml"
 prim__polyakBlendMlx : Double -> String -> String -> PrimIO Int
+%foreign "C:param_count_mlx,libidrisml"
+prim__paramCountMlx : PrimIO Int
+%foreign "C:param_name_mlx,libidrisml"
+prim__paramNameMlx : Int -> PrimIO String
+%foreign "C:param_grad_item_at_mlx,libidrisml"
+prim__paramGradItemAtMlx : Int -> Int -> PrimIO Double
+%foreign "C:param_zero_all_grads_mlx,libidrisml"
+prim__paramZeroAllMlx : PrimIO ()
 
 
 public export
@@ -472,6 +480,10 @@ public export
   primCreateState1d a b = prim__createState1dMlxStreamed a b (streamTag s)
   primCreateState2d a b c = prim__createState2dMlxStreamed a b c (streamTag s)
   primPolyakBlend          = prim__polyakBlendMlx
+  primParamCount           = prim__paramCountMlx
+  primParamName            = prim__paramNameMlx
+  primParamGradItemAt      = prim__paramGradItemAtMlx
+  primParamZeroAll         = prim__paramZeroAllMlx
 
 
 ----------------------------------------------------------------------
