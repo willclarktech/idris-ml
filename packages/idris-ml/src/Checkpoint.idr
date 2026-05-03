@@ -5,27 +5,16 @@ module Checkpoint
 import Device
 import Tensor
 
-%foreign "C:param_save,libidrisml"
-prim__paramSave : String -> PrimIO Int
-
-%foreign "C:param_load,libidrisml"
-prim__paramLoad : String -> PrimIO Int
-
-%foreign "C:param_load_with_policy,libidrisml"
-prim__paramLoadWithPolicy : String -> Int -> PrimIO Int
-
-%foreign "C:optimizer_save,libidrisml"
-prim__optimizerSave : AnyPtr -> String -> PrimIO Int
-
-%foreign "C:optimizer_load,libidrisml"
-prim__optimizerLoad : AnyPtr -> String -> PrimIO Int
+-- SafeTensors I/O dispatches per-backend through `UserDeviceTape d`:
+-- each backend's param/optimizer registry is TU-local, so `{d}`
+-- selects which one is serialized.
 
 ||| Save all registered parameters to a .safetensors file.
 ||| Returns True on success.
 export
-saveModel : String -> IO Bool
+saveModel : UserDeviceTape d => String -> IO Bool
 saveModel path = do
-  rc <- primIO (prim__paramSave path)
+  rc <- primIO (primParamSave {d} path)
   pure (rc == 0)
 
 ||| Load parameters from a .safetensors file into the existing registry.
@@ -38,9 +27,9 @@ saveModel path = do
 ||| model), use `loadModelAllowCast` to opt in to silent precision
 ||| conversion at load time.
 export
-loadModel : String -> IO Bool
+loadModel : UserDeviceTape d => String -> IO Bool
 loadModel path = do
-  rc <- primIO (prim__paramLoad path)
+  rc <- primIO (primParamLoad {d} path)
   pure (rc == 0)
 
 ||| Same as `loadModel` but routes through `param_load_with_policy`
@@ -51,23 +40,23 @@ loadModel path = do
 ||| as needed). F32 -> F64 is lossless; F64 -> F32 incurs precision
 ||| loss but is well-defined.
 export
-loadModelAllowCast : String -> IO Bool
+loadModelAllowCast : UserDeviceTape d => String -> IO Bool
 loadModelAllowCast path = do
-  rc <- primIO (prim__paramLoadWithPolicy path 1)
+  rc <- primIO (primParamLoadWithPolicy {d} path 1)
   pure (rc == 0)
 
 ||| Save optimizer state (momentum/velocity buffers) to a .safetensors file.
 ||| Returns True on success.
 export
-saveOptimizer : {0 d : Device} -> String -> NativeOptimizer d -> IO Bool
+saveOptimizer : UserDeviceTape d => String -> NativeOptimizer d -> IO Bool
 saveOptimizer path opt = do
-  rc <- primIO (prim__optimizerSave opt.handle path)
+  rc <- primIO (primOptimizerSave {d} opt.handle path)
   pure (rc == 0)
 
 ||| Load optimizer state from a .safetensors file.
 ||| Returns True on success.
 export
-loadOptimizer : {0 d : Device} -> String -> NativeOptimizer d -> IO Bool
+loadOptimizer : UserDeviceTape d => String -> NativeOptimizer d -> IO Bool
 loadOptimizer path opt = do
-  rc <- primIO (prim__optimizerLoad opt.handle path)
+  rc <- primIO (primOptimizerLoad {d} opt.handle path)
   pure (rc == 0)

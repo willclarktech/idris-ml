@@ -463,6 +463,16 @@ prim__optimizerSetLrTorch : AnyPtr -> Double -> PrimIO ()
 prim__optimizerSetParamLrTorch : AnyPtr -> String -> Double -> PrimIO ()
 %foreign "scheme:(lambda (a0 a1 a2 a3 a4) (let ((result ((foreign-procedure \"native_train_step_torch\" (void* int double void* double) double) a0 a1 a2 (vector-ref a3 2) a4))) (collect 0) (when (top-level-bound? 'idris-drain-once) (let loop () (when ((top-level-value 'idris-drain-once)) (loop)))) result))"
 prim__nativeTrainStepTorch : AnyPtr -> Int -> Double -> AnyPtr -> Double -> Double
+%foreign "C:param_save_torch,libidrisml"
+prim__paramSaveTorch : String -> PrimIO Int
+%foreign "C:param_load_torch,libidrisml"
+prim__paramLoadTorch : String -> PrimIO Int
+%foreign "C:param_load_with_policy_torch,libidrisml"
+prim__paramLoadWithPolicyTorch : String -> Int -> PrimIO Int
+%foreign "C:optimizer_save_torch,libidrisml"
+prim__optimizerSaveTorch : AnyPtr -> String -> PrimIO Int
+%foreign "C:optimizer_load_torch,libidrisml"
+prim__optimizerLoadTorch : AnyPtr -> String -> PrimIO Int
 
 
 public export
@@ -502,6 +512,11 @@ public export
   primOptimizerSetLr           = prim__optimizerSetLrTorch
   primOptimizerSetParamLr      = prim__optimizerSetParamLrTorch
   primNativeTrainStep          = prim__nativeTrainStepTorch
+  primParamSave                = prim__paramSaveTorch
+  primParamLoad                = prim__paramLoadTorch
+  primParamLoadWithPolicy      = prim__paramLoadWithPolicyTorch
+  primOptimizerSave            = prim__optimizerSaveTorch
+  primOptimizerLoad            = prim__optimizerLoadTorch
 
 
 ----------------------------------------------------------------------

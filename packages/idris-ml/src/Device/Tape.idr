@@ -432,6 +432,16 @@ prim__optimizerSetLrTape : AnyPtr -> Double -> PrimIO ()
 prim__optimizerSetParamLrTape : AnyPtr -> String -> Double -> PrimIO ()
 %foreign "scheme:(lambda (a0 a1 a2 a3 a4) (let ((result ((foreign-procedure \"native_train_step_tape\" (void* int double void* double) double) a0 a1 a2 (vector-ref a3 2) a4))) (collect 0) (when (top-level-bound? 'idris-drain-once) (let loop () (when ((top-level-value 'idris-drain-once)) (loop)))) result))"
 prim__nativeTrainStepTape : AnyPtr -> Int -> Double -> AnyPtr -> Double -> Double
+%foreign "C:param_save_tape,libidrisml"
+prim__paramSaveTape : String -> PrimIO Int
+%foreign "C:param_load_tape,libidrisml"
+prim__paramLoadTape : String -> PrimIO Int
+%foreign "C:param_load_with_policy_tape,libidrisml"
+prim__paramLoadWithPolicyTape : String -> Int -> PrimIO Int
+%foreign "C:optimizer_save_tape,libidrisml"
+prim__optimizerSaveTape : AnyPtr -> String -> PrimIO Int
+%foreign "C:optimizer_load_tape,libidrisml"
+prim__optimizerLoadTape : AnyPtr -> String -> PrimIO Int
 
 
 public export
@@ -463,6 +473,11 @@ UserDeviceTape TapeDev where
   primOptimizerSetLr           = prim__optimizerSetLrTape
   primOptimizerSetParamLr      = prim__optimizerSetParamLrTape
   primNativeTrainStep          = prim__nativeTrainStepTape
+  primParamSave                = prim__paramSaveTape
+  primParamLoad                = prim__paramLoadTape
+  primParamLoadWithPolicy      = prim__paramLoadWithPolicyTape
+  primOptimizerSave            = prim__optimizerSaveTape
+  primOptimizerLoad            = prim__optimizerLoadTape
 
 
 ----------------------------------------------------------------------

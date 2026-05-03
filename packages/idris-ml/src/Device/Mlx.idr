@@ -477,6 +477,16 @@ prim__optimizerSetLrMlx : AnyPtr -> Double -> PrimIO ()
 prim__optimizerSetParamLrMlx : AnyPtr -> String -> Double -> PrimIO ()
 %foreign "scheme:(lambda (a0 a1 a2 a3 a4) (let ((result ((foreign-procedure \"native_train_step_mlx\" (void* int double void* double) double) a0 a1 a2 (vector-ref a3 2) a4))) (collect 0) (when (top-level-bound? 'idris-drain-once) (let loop () (when ((top-level-value 'idris-drain-once)) (loop)))) result))"
 prim__nativeTrainStepMlx : AnyPtr -> Int -> Double -> AnyPtr -> Double -> Double
+%foreign "C:param_save_mlx,libidrisml"
+prim__paramSaveMlx : String -> PrimIO Int
+%foreign "C:param_load_mlx,libidrisml"
+prim__paramLoadMlx : String -> PrimIO Int
+%foreign "C:param_load_with_policy_mlx,libidrisml"
+prim__paramLoadWithPolicyMlx : String -> Int -> PrimIO Int
+%foreign "C:optimizer_save_mlx,libidrisml"
+prim__optimizerSaveMlx : AnyPtr -> String -> PrimIO Int
+%foreign "C:optimizer_load_mlx,libidrisml"
+prim__optimizerLoadMlx : AnyPtr -> String -> PrimIO Int
 
 
 public export
@@ -508,6 +518,11 @@ public export
   primOptimizerSetLr           = prim__optimizerSetLrMlx
   primOptimizerSetParamLr      = prim__optimizerSetParamLrMlx
   primNativeTrainStep          = prim__nativeTrainStepMlx
+  primParamSave                = prim__paramSaveMlx
+  primParamLoad                = prim__paramLoadMlx
+  primParamLoadWithPolicy      = prim__paramLoadWithPolicyMlx
+  primOptimizerSave            = prim__optimizerSaveMlx
+  primOptimizerLoad            = prim__optimizerLoadMlx
 
 
 ----------------------------------------------------------------------

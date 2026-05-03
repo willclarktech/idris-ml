@@ -135,7 +135,7 @@ doTrain cfg model = do
   if cfg.savePath == ""
     then putStrLn "No --save path given; skipping save"
     else do
-      ok <- saveModel cfg.savePath
+      ok <- saveModel {d=ExampleDevice} cfg.savePath
       putStrLn $ (if ok then "Saved model to " else "FAILED to save model to ") ++ cfg.savePath
       ok2 <- saveOptimizer (optPath cfg.savePath) opt
       putStrLn $ (if ok2 then "Saved optimizer to " else "FAILED to save optimizer to ") ++ optPath cfg.savePath
@@ -147,7 +147,7 @@ doTrain cfg model = do
 
 doContinue : Config -> Network 2 [] 3 ExampleDevice ExampleDType WithGrad -> IO ()
 doContinue cfg model = do
-  ok <- loadModel cfg.loadPath
+  ok <- loadModel {d=ExampleDevice} cfg.loadPath
   putStrLn $ (if ok then "Loaded model from " else "FAILED to load from ") ++ cfg.loadPath
   let opt = nativeSgd cfg.lr
   ok2 <- loadOptimizer (optPath cfg.loadPath) opt
@@ -160,7 +160,7 @@ doContinue cfg model = do
   if cfg.savePath == ""
     then putStrLn "No --save path given; skipping save"
     else do
-      ok3 <- saveModel cfg.savePath
+      ok3 <- saveModel {d=ExampleDevice} cfg.savePath
       putStrLn $ (if ok3 then "Saved model to " else "FAILED to save model to ") ++ cfg.savePath
       ok4 <- saveOptimizer (optPath cfg.savePath) opt
       putStrLn $ (if ok4 then "Saved optimizer to " else "FAILED to save optimizer to ") ++ optPath cfg.savePath
@@ -172,7 +172,7 @@ doContinue cfg model = do
 
 doInfer : Config -> Network 2 [] 3 ExampleDevice ExampleDType WithGrad -> IO ()
 doInfer cfg model = do
-  ok <- loadModel cfg.loadPath
+  ok <- loadModel {d=ExampleDevice} cfg.loadPath
   putStrLn $ (if ok then "Loaded model from " else "FAILED to load from ") ++ cfg.loadPath
   evalLoss <- withNoGrad {d=ExampleDevice} (evalModel model)
   putStrLn $ "Eval loss: " ++ show evalLoss

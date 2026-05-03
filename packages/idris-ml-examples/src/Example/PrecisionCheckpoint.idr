@@ -119,7 +119,7 @@ doSave cfg model = do
     (simpleConfig cfg.epochs) model
   trainedLoss <- withNoGrad {d=ExampleDevice} (evalModel trained)
   putStrLn $ "Trained eval loss: " ++ show trainedLoss
-  ok <- saveModel cfg.path
+  ok <- saveModel {d=ExampleDevice} cfg.path
   putStrLn $ (if ok then "Saved to " else "FAILED to save to ") ++ cfg.path
   pure ok
 
@@ -129,8 +129,8 @@ doLoad allowCast cfg model = do
   -- Initial eval — captures the untrained / random-init baseline.
   initLoss <- withNoGrad {d=ExampleDevice} (evalModel model)
   putStrLn $ "Pre-load eval loss: " ++ show initLoss
-  ok <- if allowCast then loadModelAllowCast cfg.path
-                     else loadModel cfg.path
+  ok <- if allowCast then loadModelAllowCast {d=ExampleDevice} cfg.path
+                     else loadModel {d=ExampleDevice} cfg.path
   let label : String
       label = if allowCast then "load-cast" else "load-strict"
   putStrLn $ (if ok then "Loaded (" ++ label ++ ") from " else "FAILED to load (" ++ label ++ ") from ") ++ cfg.path

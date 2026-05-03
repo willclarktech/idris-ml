@@ -318,6 +318,18 @@ interface UserDeviceConv d => UserDeviceTape (0 d : Device) where
   ||| (optimizer handle, clip mode, clip val, loss tensor, loss val).
   primNativeTrainStep     : AnyPtr -> Int -> Double -> AnyPtr -> Double -> Double
 
+  -- SafeTensors serialization (registry + optimizer state) ---------
+  ||| Save every registered param to a .safetensors file (rc 0 = ok).
+  primParamSave           : String -> PrimIO Int
+  ||| Load params from file into the registry, strict dtype.
+  primParamLoad           : String -> PrimIO Int
+  ||| Load params with a cast policy (`allowCast` = 0/1).
+  primParamLoadWithPolicy : String -> Int -> PrimIO Int
+  ||| Save optimizer state buffers to a file.
+  primOptimizerSave       : AnyPtr -> String -> PrimIO Int
+  ||| Load optimizer state buffers from a file.
+  primOptimizerLoad       : AnyPtr -> String -> PrimIO Int
+
   -- Param + state creation -----------------------------------------
   primCreateParam1d     : Int -> AnyPtr -> AnyPtr
   primCreateParam2d     : Int -> Int -> AnyPtr -> AnyPtr
