@@ -206,7 +206,7 @@ runEpisode opt st0 = go st0 (MkCP 0 0 0 0) MaxSteps 0.0
       -- Action selection forward: no grad needed (just extracting
       -- Q values as Doubles for argmax). Loss-side forward in
       -- trainIfReady runs separately under normal grad tracking.
-      action <- withNoGrad (epsGreedyIO st.qNet obs eps)
+      action <- withNoGrad {d=ExampleDevice} (epsGreedyIO st.qNet obs eps)
       case cpStep envState action of
         (reward, envState', outcome, _) => do
           let isDone = done outcome
@@ -342,7 +342,7 @@ main = do
 
   putStrLn ""
   let nEval = the Nat 30
-  totalReturn <- withNoGrad (evalN trained.qNet nEval 0.0)
+  totalReturn <- withNoGrad {d=ExampleDevice} (evalN trained.qNet nEval 0.0)
   let avgReturn = totalReturn / cast (natToInteger nEval)
   putStrLn $ "Eval (" ++ show nEval ++ " episodes, greedy): avg_return=" ++ show avgReturn
   putStrLn ""

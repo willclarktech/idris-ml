@@ -339,7 +339,7 @@ sacStep q1Opt q2Opt actorOpt cfg st = do
 
   action <- if stepCount < cfg.warmupSteps
               then randomRIO (the Double (negate MaxAction), MaxAction)
-              else withNoGrad $ do
+              else withNoGrad {d=ExampleDevice} $ do
                 -- Rollout-phase forward: just samples an action.
                 -- Gradients come from the separate q1/q2/actor losses
                 -- below; no need to track grad here.
@@ -463,7 +463,7 @@ main = do
 
   putStrLn ""
   let nEval = the Nat 20
-  evalSum <- withNoGrad (evalN trained.actor nEval 0.0)
+  evalSum <- withNoGrad {d=ExampleDevice} (evalN trained.actor nEval 0.0)
   let avgReturn = evalSum / cast (natToInteger nEval)
   putStrLn $ "Eval (" ++ show nEval ++ " episodes, greedy): avg_return=" ++ show avgReturn
   putStrLn ""

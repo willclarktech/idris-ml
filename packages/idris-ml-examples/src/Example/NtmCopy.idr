@@ -180,7 +180,7 @@ main = do
   -- Eval doesn't need gradients; each evalOne runs in its own
   -- withNoGrad bracket so the exit drain fires per-sequence on mlx.
   let evalOne : TwoPhaseDataPoint InputW OutputW Double -> IO Double
-      evalOne dp = withNoGrad $ do
+      evalOne dp = withNoGrad {d=ExampleDevice} $ do
         (_, preds) <- forwardTwoPhase trained dp
         pure (bitAccuracy preds (targets dp))
 
@@ -194,7 +194,7 @@ main = do
   putStrLn ""
   putStrLn "Eval:"
   sampleBatch <- copyTaskBinaryBatchVect {w = W} 2 3 5
-  withNoGrad $ traverse_ (\dp => do
+  withNoGrad {d=ExampleDevice} $ traverse_ (\dp => do
     (_, preds) <- forwardTwoPhase trained dp
     putStr "  Input:  "
     putStrLn $ unwords (map showBinaryVec (encodingInputs dp))

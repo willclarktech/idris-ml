@@ -425,12 +425,12 @@ main = do
 
   putStrLn ""
   putStrLn "Generation (seed='to be or '):"
-  sample1 <- withNoGrad (generateText trained "to be or " 200 1.0)
+  sample1 <- withNoGrad {d=ExampleDevice} (generateText trained "to be or " 200 1.0)
   putStrLn $ "  " ++ show sample1
 
   putStrLn ""
   putStrLn "Generation (seed='the '):"
-  sample2 <- withNoGrad (generateText trained "the " 200 1.0)
+  sample2 <- withNoGrad {d=ExampleDevice} (generateText trained "the " 200 1.0)
   putStrLn $ "  " ++ show sample2
 
   putStrLn ""

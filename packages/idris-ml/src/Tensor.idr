@@ -451,17 +451,6 @@ prim__pairFirst : AnyPtr -> AnyPtr
 export
 prim__pairSecond : AnyPtr -> AnyPtr
 
--- No-grad scope. Push/pop a counter on the C side; mirrors PyTorch's
--- torch.no_grad(). When depth > 0, ops skip tape append on tape/mlx
--- and torch's NoGradGuard suppresses autograd graph construction.
--- PrimIO sequencing keeps the calls in order; same pattern as the
--- other side-effecting prims (prim__backwardC, prim__zeroAllGradsC).
-%foreign "C:tensor_no_grad_begin,libidrisml"
-prim__noGradBeginC : PrimIO ()
-
-%foreign "C:tensor_no_grad_end,libidrisml"
-prim__noGradEndC : PrimIO ()
-
 ||| Run an `IO` action with autograd disabled. Inside the action,
 ||| every tensor op skips tape/autograd graph construction, so the
 ||| results have no path to backward. Standard for RL rollouts and
@@ -469,12 +458,18 @@ prim__noGradEndC : PrimIO ()
 ||| Nested calls are stacked: only the outermost begin/end pair
 ||| toggles tracking, so library code can call this without checking
 ||| whether the caller already disabled grad.
+|||
+||| The no-grad scope is per-backend (tape/mlx push a counter,
+||| torch arms a `NoGradGuard`), so it dispatches via
+||| `primNoGradBegin`/`primNoGradEnd` from the in-scope
+||| `UserDeviceTape d`. `d` doesn't appear in the action type, so
+||| callers pin it explicitly (`withNoGrad {d=ExampleDevice} ...`).
 export
-withNoGrad : IO a -> IO a
+withNoGrad : {0 d : Device} -> UserDeviceTape d => IO a -> IO a
 withNoGrad act = do
-  primIO prim__noGradBeginC
+  primIO (primNoGradBegin {d})
   result <- act
-  primIO prim__noGradEndC
+  primIO (primNoGradEnd {d})
   -- Eval phases (typically wrapped in `withNoGrad`) can churn through
   -- thousands of per-sequence managed state Tensors. On mlx that drives
   -- the Metal MTLBuffer count past the paravirtualized-Metal ceiling on

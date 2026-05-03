@@ -202,7 +202,7 @@ mnistMetrics : {hs : List Nat} ->
                Network InputDim hs NumClasses ExampleDevice ExampleDType WithGrad ->
                IO (List (String, String))
 mnistMetrics testDs testCount m = do
-  pair <- withNoGrad (evalAccuracy m testDs testCount 200)
+  pair <- withNoGrad {d=ExampleDevice} (evalAccuracy m testDs testCount 200)
   pure [("test_acc", show (fst pair)),
         ("test_loss", show (snd pair))]
 
@@ -307,7 +307,7 @@ main = do
     (pure ()) trainCfg model
 
   putStrLn ""
-  finalPair <- withNoGrad (evalAccuracy trained testDs testCount 1000)
+  finalPair <- withNoGrad {d=ExampleDevice} (evalAccuracy trained testDs testCount 1000)
   let finalAcc = fst finalPair
       finalTestLoss = snd finalPair
   putStrLn $ "Final accuracy (1000 test samples): " ++ show (finalAcc * 100.0) ++ "%"

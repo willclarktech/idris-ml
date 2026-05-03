@@ -165,7 +165,7 @@ main = do
   -- forwardTwoPhase on mlx (one batch-level bracket can pile up
   -- TestSize × seq-len mlx buffers before draining).
   let evalOne : TwoPhaseDataPoint InputW OutputW Double -> IO Double
-      evalOne dp = withNoGrad $ do
+      evalOne dp = withNoGrad {d=ExampleDevice} $ do
         (_, preds) <- forwardTwoPhase trained dp
         pure (bitAccuracy preds (targets dp))
 

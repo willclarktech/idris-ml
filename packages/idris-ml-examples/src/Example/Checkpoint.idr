@@ -139,9 +139,9 @@ doTrain cfg model = do
       putStrLn $ (if ok then "Saved model to " else "FAILED to save model to ") ++ cfg.savePath
       ok2 <- saveOptimizer (optPath cfg.savePath) opt
       putStrLn $ (if ok2 then "Saved optimizer to " else "FAILED to save optimizer to ") ++ optPath cfg.savePath
-  evalLoss <- withNoGrad (evalModel trained)
+  evalLoss <- withNoGrad {d=ExampleDevice} (evalModel trained)
   putStrLn $ "Eval loss: " ++ show evalLoss
-  withNoGrad (printPredictions trained)
+  withNoGrad {d=ExampleDevice} (printPredictions trained)
   putStrLn $ formatResult [("mode", "train"), ("epochs", show epochsDone),
                             ("loss", show evalLoss), ("backend", backendName)]
 
@@ -164,9 +164,9 @@ doContinue cfg model = do
       putStrLn $ (if ok3 then "Saved model to " else "FAILED to save model to ") ++ cfg.savePath
       ok4 <- saveOptimizer (optPath cfg.savePath) opt
       putStrLn $ (if ok4 then "Saved optimizer to " else "FAILED to save optimizer to ") ++ optPath cfg.savePath
-  evalLoss <- withNoGrad (evalModel trained)
+  evalLoss <- withNoGrad {d=ExampleDevice} (evalModel trained)
   putStrLn $ "Eval loss: " ++ show evalLoss
-  withNoGrad (printPredictions trained)
+  withNoGrad {d=ExampleDevice} (printPredictions trained)
   putStrLn $ formatResult [("mode", "continue"), ("epochs", show epochsDone),
                             ("loss", show evalLoss), ("backend", backendName)]
 
@@ -174,9 +174,9 @@ doInfer : Config -> Network 2 [] 3 ExampleDevice ExampleDType WithGrad -> IO ()
 doInfer cfg model = do
   ok <- loadModel cfg.loadPath
   putStrLn $ (if ok then "Loaded model from " else "FAILED to load from ") ++ cfg.loadPath
-  evalLoss <- withNoGrad (evalModel model)
+  evalLoss <- withNoGrad {d=ExampleDevice} (evalModel model)
   putStrLn $ "Eval loss: " ++ show evalLoss
-  withNoGrad (printPredictions model)
+  withNoGrad {d=ExampleDevice} (printPredictions model)
   putStrLn $ formatResult [("mode", "infer"), ("loss", show evalLoss),
                             ("backend", backendName)]
 

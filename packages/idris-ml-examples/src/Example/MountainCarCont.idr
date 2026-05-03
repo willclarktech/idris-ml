@@ -404,7 +404,7 @@ evalEp actor st (S k) acc = do
 evalN : ActorNet -> Nat -> Double -> IO Double
 evalN _ Z acc = pure acc
 evalN actor (S k) acc = do
-  v <- withNoGrad (evalEp actor (MkMCC (-0.5) 0.0) EpisodeLen 0.0)
+  v <- withNoGrad {d=ExampleDevice} (evalEp actor (MkMCC (-0.5) 0.0) EpisodeLen 0.0)
   evalN actor k (acc + v)
 
 

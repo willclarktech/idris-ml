@@ -186,17 +186,17 @@ main = do
 
   shortBatch <- copyTaskBinaryBatchVect {w = W} TestSize 1 5
   fullBatch <- copyTaskBinaryBatchVect {w = W} TestSize 1 20
-  shortAcc <- withNoGrad $ do
+  shortAcc <- withNoGrad {d=ExampleDevice} $ do
     accs <- traverse evalOne shortBatch
     pure (foldl (+) 0.0 (toList accs) / cast TestSize)
-  fullAcc <- withNoGrad $ do
+  fullAcc <- withNoGrad {d=ExampleDevice} $ do
     accs <- traverse evalOne fullBatch
     pure (foldl (+) 0.0 (toList accs) / cast TestSize)
 
   putStrLn ""
   putStrLn "Eval:"
   sampleBatch <- copyTaskBinaryBatchVect {w = W} 2 3 5
-  withNoGrad $ traverse_ (\dp => do
+  withNoGrad {d=ExampleDevice} $ traverse_ (\dp => do
     (_, preds) <- forwardTwoPhase trained dp
     putStr "  Input:  "
     putStrLn $ unwords (map showBinaryVec (encodingInputs dp))

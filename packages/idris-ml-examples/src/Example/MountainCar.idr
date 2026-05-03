@@ -348,7 +348,7 @@ main = do
 
   putStrLn ""
   let nEval = the Nat 30
-  totalReturn <- withNoGrad (evalN trained.qNet nEval 0.0)
+  totalReturn <- withNoGrad {d=ExampleDevice} (evalN trained.qNet nEval 0.0)
   let avgReturn = totalReturn / cast (natToInteger nEval)
   putStrLn $ "Eval (" ++ show nEval ++ " episodes, greedy): avg_return=" ++ show avgReturn
   putStrLn ""

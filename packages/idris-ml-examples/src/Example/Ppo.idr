@@ -377,14 +377,14 @@ ppoEpoch opt cfg st = do
   -- sampling. Gradients come from kEpochUpdate's separate batched
   -- forward (PPO recomputes log-probs over the rollout for each
   -- inner epoch). No grad needed during rollout.
-  rolled  <- withNoGrad (rollout st.actor st.critic startSt EpisodeLen RolloutLen)
+  rolled  <- withNoGrad {d=ExampleDevice} (rollout st.actor st.critic startSt EpisodeLen RolloutLen)
   let steps   = fst rolled
       finalSt = fst (snd rolled)
   writeIORef st.envRef finalSt
 
   -- prepareRollout calls computeBootstrap which does one critic
   -- forward — also grad-free.
-  prepped <- withNoGrad (prepareRollout st.critic cfg steps finalSt)
+  prepped <- withNoGrad {d=ExampleDevice} (prepareRollout st.critic cfg steps finalSt)
   kEpochUpdate opt st.actor st.critic cfg prepped cfg.kEpochs
 
   let episodeReturns = computeEpisodeReturns steps
@@ -490,7 +490,7 @@ main = do
 
   putStrLn ""
   let nEval = the Nat 20
-  evalSum <- withNoGrad (evalN trained.actor nEval 0.0)
+  evalSum <- withNoGrad {d=ExampleDevice} (evalN trained.actor nEval 0.0)
   let avgReturn = evalSum / cast (natToInteger nEval)
   putStrLn $ "Eval (" ++ show nEval ++ " episodes, greedy): avg_return=" ++ show avgReturn
   putStrLn ""

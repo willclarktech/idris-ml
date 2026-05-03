@@ -289,14 +289,14 @@ a2cEpoch opt cfg st = do
   -- buildLoss's batched forward, so the rollout's per-step forward
   -- doesn't need autograd tracking. withNoGrad skips tape append
   -- (tape/mlx) and disables libtorch's autograd graph (torch).
-  rolled <- withNoGrad (rollout st.actor st.critic startSt RolloutLen)
+  rolled <- withNoGrad {d=ExampleDevice} (rollout st.actor st.critic startSt RolloutLen)
   let steps = fst rolled
       finalSt = snd rolled
   writeIORef st.envRef finalSt
   -- Bootstrap forward (one critic forward on finalSt) doesn't need
   -- grad either — GAE consumes the value as a Double. Pull it out
   -- of buildLoss and run inside withNoGrad like the rollout.
-  bootstrap <- withNoGrad (computeBootstrap st.critic steps finalSt)
+  bootstrap <- withNoGrad {d=ExampleDevice} (computeBootstrap st.critic steps finalSt)
   loss <- buildLoss st.actor st.critic cfg.gamma cfg.lam
                        cfg.entropyCoef cfg.valueCoef bootstrap steps
   _ <- nativeTrainStep opt loss
@@ -392,7 +392,7 @@ main = do
   let nEval = the Nat 30
   -- Greedy eval doesn't need gradients — disable autograd graph
   -- construction for the 30 × 200 forward passes.
-  evalSum <- withNoGrad (evalN trained.actor nEval 0.0)
+  evalSum <- withNoGrad {d=ExampleDevice} (evalN trained.actor nEval 0.0)
   let avgReturn = evalSum / cast (natToInteger nEval)
   putStrLn $ "Eval (" ++ show nEval ++ " episodes, greedy): avg_return=" ++ show avgReturn
   putStrLn ""

@@ -117,7 +117,7 @@ doSave cfg model = do
   (trained, _, _) <- runTraining
     (\m, d => epochVar opt d tnllLoss m) (pure dataPoints)
     (simpleConfig cfg.epochs) model
-  trainedLoss <- withNoGrad (evalModel trained)
+  trainedLoss <- withNoGrad {d=ExampleDevice} (evalModel trained)
   putStrLn $ "Trained eval loss: " ++ show trainedLoss
   ok <- saveModel cfg.path
   putStrLn $ (if ok then "Saved to " else "FAILED to save to ") ++ cfg.path
@@ -127,7 +127,7 @@ doLoad : (allowCast : Bool) -> Config ->
          Network 2 [] 3 ExampleDevice ExampleDType WithGrad -> IO Bool
 doLoad allowCast cfg model = do
   -- Initial eval — captures the untrained / random-init baseline.
-  initLoss <- withNoGrad (evalModel model)
+  initLoss <- withNoGrad {d=ExampleDevice} (evalModel model)
   putStrLn $ "Pre-load eval loss: " ++ show initLoss
   ok <- if allowCast then loadModelAllowCast cfg.path
                      else loadModel cfg.path
@@ -136,7 +136,7 @@ doLoad allowCast cfg model = do
   putStrLn $ (if ok then "Loaded (" ++ label ++ ") from " else "FAILED to load (" ++ label ++ ") from ") ++ cfg.path
   if ok
     then do
-      loadedLoss <- withNoGrad (evalModel model)
+      loadedLoss <- withNoGrad {d=ExampleDevice} (evalModel model)
       putStrLn $ "Post-load eval loss: " ++ show loadedLoss
     else pure ()
   pure ok

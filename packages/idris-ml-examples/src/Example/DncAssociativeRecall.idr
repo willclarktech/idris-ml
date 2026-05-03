@@ -172,13 +172,13 @@ main = do
   k2Batch <- recallTaskBinaryBatchVect {w = W} TestSize 2 2 SeqLen
   k4Batch <- recallTaskBinaryBatchVect {w = W} TestSize 4 4 SeqLen
   k6Batch <- recallTaskBinaryBatchVect {w = W} TestSize 6 6 SeqLen
-  k2Acc <- withNoGrad $ do
+  k2Acc <- withNoGrad {d=ExampleDevice} $ do
     accs <- traverse evalOne k2Batch
     pure (foldl (+) 0.0 (toList accs) / cast TestSize)
-  k4Acc <- withNoGrad $ do
+  k4Acc <- withNoGrad {d=ExampleDevice} $ do
     accs <- traverse evalOne k4Batch
     pure (foldl (+) 0.0 (toList accs) / cast TestSize)
-  k6Acc <- withNoGrad $ do
+  k6Acc <- withNoGrad {d=ExampleDevice} $ do
     accs <- traverse evalOne k6Batch
     pure (foldl (+) 0.0 (toList accs) / cast TestSize)
 
