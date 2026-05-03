@@ -433,7 +433,7 @@ public export
 prim__requiresGradMlx : AnyPtr -> Int
 %foreign "scheme:(lambda (a0 a1)  ((foreign-procedure \"tensor_set_requires_grad_mlx\" (void* int) void) (vector-ref a0 2) a1))"
 prim__setRequiresGradMlx : AnyPtr -> Int -> PrimIO ()
-%foreign "C:tensor_backward_mlx,libidrisml"
+%foreign "scheme:(lambda (a0)  ((foreign-procedure \"tensor_backward_mlx\" (void*) void) (vector-ref a0 2)))"
 prim__backwardMlx : AnyPtr -> PrimIO ()
 %foreign "C:tensor_no_grad_begin_mlx,libidrisml"
 prim__noGradBeginMlx : PrimIO ()
@@ -646,13 +646,13 @@ prim__toHostMlx : AnyPtr -> AnyPtr -> AnyPtr
 prim__allocHostMlx : Int -> AnyPtr
 
 %foreign "C:tensor_free_doubles,libidrisml"
-prim__freeHostMlx : AnyPtr -> ()
+prim__freeHostMlx : AnyPtr -> PrimIO ()
 
 %foreign "C:tensor_alloc_ints,libidrisml"
 prim__allocIntHostMlx : Int -> AnyPtr
 
 %foreign "C:tensor_free_ints,libidrisml"
-prim__freeIntHostMlx : AnyPtr -> ()
+prim__freeIntHostMlx : AnyPtr -> PrimIO ()
 
 %foreign "C:tensor_write_int_return,libidrisml"
 prim__setIntHostMlx : AnyPtr -> Int -> Int -> AnyPtr

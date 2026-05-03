@@ -419,7 +419,7 @@ public export
 prim__requiresGradTorch : AnyPtr -> Int
 %foreign "scheme:(lambda (a0 a1)  ((foreign-procedure \"tensor_set_requires_grad_torch\" (void* int) void) (vector-ref a0 2) a1))"
 prim__setRequiresGradTorch : AnyPtr -> Int -> PrimIO ()
-%foreign "C:tensor_backward_torch,libidrisml"
+%foreign "scheme:(lambda (a0)  ((foreign-procedure \"tensor_backward_torch\" (void*) void) (vector-ref a0 2)))"
 prim__backwardTorch : AnyPtr -> PrimIO ()
 %foreign "C:tensor_no_grad_begin_torch,libidrisml"
 prim__noGradBeginTorch : PrimIO ()
@@ -662,13 +662,13 @@ prim__toHostTorch : AnyPtr -> AnyPtr -> AnyPtr
 prim__allocHostTorch : Int -> AnyPtr
 
 %foreign "C:tensor_free_doubles,libidrisml"
-prim__freeHostTorch : AnyPtr -> ()
+prim__freeHostTorch : AnyPtr -> PrimIO ()
 
 %foreign "C:tensor_alloc_ints,libidrisml"
 prim__allocIntHostTorch : Int -> AnyPtr
 
 %foreign "C:tensor_free_ints,libidrisml"
-prim__freeIntHostTorch : AnyPtr -> ()
+prim__freeIntHostTorch : AnyPtr -> PrimIO ()
 
 %foreign "C:tensor_write_int_return,libidrisml"
 prim__setIntHostTorch : AnyPtr -> Int -> Int -> AnyPtr

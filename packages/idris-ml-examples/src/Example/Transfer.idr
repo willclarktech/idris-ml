@@ -70,8 +70,8 @@ makeVec4 (a, b, c, dd) = do
   sh1  <- primIO (\w => MkIORes (primSetIntHost   {d} sh 0 4)  w)
   ptr  <- primIO (\w =>
             MkIORes (primCreateFromHost {d} buf4 sh1 1 1) w)
-  primIO (\w => MkIORes (primFreeIntHost {d} sh1)  w)
-  primIO (\w => MkIORes (primFreeHost    {d} buf4) w)
+  primIO (primFreeIntHost {d} sh1)
+  primIO (primFreeHost    {d} buf4)
   pure (MkTensor ptr Nothing)
 
 ||| Read all four values out via the backend's `primItem1d`. Returns

@@ -388,7 +388,7 @@ UserDeviceConv TapeDev where
 prim__requiresGradTape : AnyPtr -> Int
 %foreign "scheme:(lambda (a0 a1)  ((foreign-procedure \"tensor_set_requires_grad_tape\" (void* int) void) (vector-ref a0 2) a1))"
 prim__setRequiresGradTape : AnyPtr -> Int -> PrimIO ()
-%foreign "C:tensor_backward_tape,libidrisml"
+%foreign "scheme:(lambda (a0)  ((foreign-procedure \"tensor_backward_tape\" (void*) void) (vector-ref a0 2)))"
 prim__backwardTape : AnyPtr -> PrimIO ()
 %foreign "C:tensor_no_grad_begin_tape,libidrisml"
 prim__noGradBeginTape : PrimIO ()
@@ -565,13 +565,13 @@ prim__toHostTape : AnyPtr -> AnyPtr -> AnyPtr
 prim__allocHostTape : Int -> AnyPtr
 
 %foreign "C:tensor_free_doubles,libidrisml"
-prim__freeHostTape : AnyPtr -> ()
+prim__freeHostTape : AnyPtr -> PrimIO ()
 
 %foreign "C:tensor_alloc_ints,libidrisml"
 prim__allocIntHostTape : Int -> AnyPtr
 
 %foreign "C:tensor_free_ints,libidrisml"
-prim__freeIntHostTape : AnyPtr -> ()
+prim__freeIntHostTape : AnyPtr -> PrimIO ()
 
 %foreign "C:tensor_write_int_return,libidrisml"
 prim__setIntHostTape : AnyPtr -> Int -> Int -> AnyPtr

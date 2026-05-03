@@ -498,13 +498,13 @@ interface UserDeviceCore d => UserDeviceTransfer (0 d : Device) where
   ||| Allocate / free a host double buffer of `n` slots. Backend-
   ||| neutral host memory (calloc/free under the hood).
   primAllocHost : Int -> AnyPtr
-  primFreeHost  : AnyPtr -> ()
+  primFreeHost  : AnyPtr -> PrimIO ()
 
   ||| Allocate / write / free a host int buffer of `n` slots. Used
   ||| by `toDevice` to build the shape array that
   ||| `primCreateFromHost` consumes.
   primAllocIntHost : Int -> AnyPtr
-  primFreeIntHost  : AnyPtr -> ()
+  primFreeIntHost  : AnyPtr -> PrimIO ()
   ||| Write `val` to `buf[idx]` and return `buf` (for threading).
   primSetIntHost   : AnyPtr -> Int -> Int -> AnyPtr
 
