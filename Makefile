@@ -693,6 +693,15 @@ example-precision-checkpoint:
 	@echo ""
 	@echo "All three steps passed (PrecisionCheckpoint L63 round-trip)."
 
+# Training-loop checkpoint/resume smoke test (tape backend, fast).
+# Trains gpt 10 epochs to a checkpoint dir, resumes to 20, asserts the
+# sidecar epoch + resume log + completion. Gates the Train/Checkpoint
+# integration. See scripts/test-checkpoint-resume.sh.
+test-checkpoint-resume: install
+	idris2 $(IDRIS_FLAGS) -o gpt $(EXAMPLE_SRC)/Example/Gpt.idr
+	cp $(LIB) build/exec/gpt_app/
+	bash scripts/test-checkpoint-resume.sh ./build/exec/gpt
+
 # Mlx-only: cross-stream MlxCpu F64 / MlxGpu F32 smoke test. Builds
 # under any BACKEND list that includes mlx; references MlxCpu / MlxGpu
 # directly, so won't link under tape-only or torch-only builds.
@@ -1286,7 +1295,7 @@ all: check-all test-all
         example-dqn example-mountain-car example-mountain-car-cont example-a2c example-ppo example-sac \
         example-gpt example-gpt-full example-matmul-bench example-mnist example-seq-classify example-transformer \
         ref-gpt \
-        example-transfer example-checkpoint example-checkpoint-demo \
+        example-transfer example-checkpoint example-checkpoint-demo test-checkpoint-resume \
         example-bench example-profile sweep sweep-quick clean \
         backend print-torch ref-setup ref-supervised ref-rnn ref-lstm ref-gru ref-ntm-copy \
         ref-ntm-recall ref-dnc-copy ref-dnc-recall \

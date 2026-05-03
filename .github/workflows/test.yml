@@ -220,3 +220,9 @@ jobs:
         # are fixed by the generation-scoped free (see
         # docs/develop/tensor-lifecycle.md). The whole matrix runs.
         run: make test-examples EXAMPLE_TIMEOUT=900
+
+      - name: Checkpoint resume smoke test
+        # Trains gpt 10 epochs to a checkpoint dir, resumes to 20, and
+        # asserts the sidecar epoch + resume log + completion. Gates the
+        # Train.idr / Checkpoint.idr auto-save / resume integration.
+        run: make test-checkpoint-resume
