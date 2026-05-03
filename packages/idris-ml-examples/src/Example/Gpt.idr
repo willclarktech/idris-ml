@@ -415,7 +415,7 @@ main = do
         writeIORef epochRef (S ep)
         epochVarTensorBatch opt d allPositionsCELoss m
 
-  (trained, epochsDone, finalLoss) <- runTrainingIO stepFn genBatch trainCfg model
+  (trained, epochsDone, finalLoss) <- runTrainingIO {d=ExampleDevice} stepFn genBatch trainCfg model
 
   putStrLn ""
   valBpc <- evalBPC trained valIndices valLen 50

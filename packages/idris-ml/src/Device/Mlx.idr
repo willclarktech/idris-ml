@@ -487,6 +487,10 @@ prim__paramLoadWithPolicyMlx : String -> Int -> PrimIO Int
 prim__optimizerSaveMlx : AnyPtr -> String -> PrimIO Int
 %foreign "C:optimizer_load_mlx,libidrisml"
 prim__optimizerLoadMlx : AnyPtr -> String -> PrimIO Int
+%foreign "C:backend_profile_reset_mlx,libidrisml"
+prim__profileResetMlx : PrimIO ()
+%foreign "C:backend_profile_report_mlx,libidrisml"
+prim__profileReportMlx : PrimIO ()
 
 
 public export
@@ -523,6 +527,8 @@ public export
   primParamLoadWithPolicy      = prim__paramLoadWithPolicyMlx
   primOptimizerSave            = prim__optimizerSaveMlx
   primOptimizerLoad            = prim__optimizerLoadMlx
+  primProfileReset             = prim__profileResetMlx
+  primProfileReport            = prim__profileReportMlx
 
 
 ----------------------------------------------------------------------

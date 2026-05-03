@@ -219,6 +219,7 @@ applySchedule sched opt ep = setLearningRate opt (sched ep)
 ||| a vectorised env rollout). For pure epochs, use `runTraining`.
 export
 runTrainingIO :
+  {0 d : Device} -> UserDeviceTape d => UserDeviceTransfer d =>
   {0 model : Type} -> {0 dp : Type} ->
   (epochFn : model -> dp -> IO (model, Double)) ->
   (dataSrc : IO dp) ->
@@ -227,7 +228,7 @@ runTrainingIO :
   IO (model, Nat, Double)
 runTrainingIO {model} epochFn dataSrc cfg model0 = do
   tStart <- clockTime Monotonic
-  putStrLn $ "Training... [backend=" ++ backendName ++ "]"
+  putStrLn $ "Training... [backend=" ++ backendName {d} ++ "]"
   result@(m, epochsDone, loss) <- case cfg.earlyStop of
     NoEarlyStop => goSimple 0 model0 0.0 tStart
     Patience pat minD => goPatience 0 model0 (1.0/0.0) 0 tStart pat minD
@@ -239,7 +240,7 @@ runTrainingIO {model} epochFn dataSrc cfg model0 = do
   putStrLn $ formatPerfMsPerEp tStart tEnd epochsDone
   putStrLn $ "Peak RSS: " ++ show (getRssMB 0) ++ " MB"
           ++ "\tCurrent RSS: " ++ show (getCurrentRssMB 0) ++ " MB"
-  profileReport
+  profileReport {d}
   pure result
   where
     shouldLog : Nat -> Bool
@@ -405,10 +406,11 @@ runTrainingIO {model} epochFn dataSrc cfg model0 = do
 ||| `runTrainingIO`.
 export
 runTraining :
+  {0 d : Device} -> UserDeviceTape d => UserDeviceTransfer d =>
   {0 model : Type} -> {0 dp : Type} ->
   (epochFn : model -> dp -> IO (model, Double)) ->
   (dataSrc : IO dp) ->
   TrainConfig model ->
   model ->
   IO (model, Nat, Double)
-runTraining = runTrainingIO
+runTraining = runTrainingIO {d}

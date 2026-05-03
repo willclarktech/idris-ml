@@ -442,6 +442,10 @@ prim__paramLoadWithPolicyTape : String -> Int -> PrimIO Int
 prim__optimizerSaveTape : AnyPtr -> String -> PrimIO Int
 %foreign "C:optimizer_load_tape,libidrisml"
 prim__optimizerLoadTape : AnyPtr -> String -> PrimIO Int
+%foreign "C:backend_profile_reset_tape,libidrisml"
+prim__profileResetTape : PrimIO ()
+%foreign "C:backend_profile_report_tape,libidrisml"
+prim__profileReportTape : PrimIO ()
 
 
 public export
@@ -478,6 +482,8 @@ UserDeviceTape TapeDev where
   primParamLoadWithPolicy      = prim__paramLoadWithPolicyTape
   primOptimizerSave            = prim__optimizerSaveTape
   primOptimizerLoad            = prim__optimizerLoadTape
+  primProfileReset             = prim__profileResetTape
+  primProfileReport            = prim__profileReportTape
 
 
 ----------------------------------------------------------------------

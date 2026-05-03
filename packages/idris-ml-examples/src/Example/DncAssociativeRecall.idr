@@ -161,7 +161,7 @@ main = do
                    (WindowedPercentile 0.10 cfg.esThreshold cfg.esWindow cfg.esPatience)
                    evalMetrics (\_ => pure ())
 
-  (trained, epochsDone, _) <- runTraining
+  (trained, epochsDone, _) <- runTraining {d=ExampleDevice}
     (\m, d => epochTwoPhaseVar opt d tbceLoss m) genBatch trainCfg model
 
   let evalOne : TwoPhaseDataPoint InputW OutputW Double -> IO Double

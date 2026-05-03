@@ -302,7 +302,7 @@ main = do
   let trainCfg = MkTrainConfig cfg.epochs 1 (Patience cfg.patience 0.001)
                    (mnistMetrics testDs testCount) (\_ => pure ())
 
-  (trained, epochsDone, finalLoss) <- runTrainingIO
+  (trained, epochsDone, finalLoss) <- runTrainingIO {d=ExampleDevice}
     (\m, _ => trainOneFullPass opt genBatch batchesPerEpoch m)
     (pure ()) trainCfg model
 

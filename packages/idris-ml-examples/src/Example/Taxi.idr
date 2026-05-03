@@ -12,6 +12,8 @@ import Gym.ToyText.Taxi
 import Math
 import Array
 import Train
+import Device
+import BuildConfig
 
 
 ----------------------------------------------------------------------
@@ -188,7 +190,7 @@ main = do
   putStrLn ""
 
   metrics <- newRLMetricsState 1000
-  (trained, epochsDone, _) <- runTrainingIO
+  (trained, epochsDone, _) <- runTrainingIO {d=ExampleDevice}
     (\m, d => do
        let (m', loss) = epochQLearning cfg m d
        recordReturn metrics (negate loss)

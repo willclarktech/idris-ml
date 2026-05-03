@@ -13,6 +13,8 @@ import Gym.ToyText.FrozenLake
 import Math
 import Array
 import Train
+import Device
+import BuildConfig
 
 
 ----------------------------------------------------------------------
@@ -212,7 +214,7 @@ main = do
   let trainCfg : TrainConfig QTable
       trainCfg = MkTrainConfig cfg.epochs 1000 NoEarlyStop
                    (\_ => readRLMetrics "recent_1000" metrics) (\_ => pure ())
-  (trained, epochsDone, _) <- runTrainingIO
+  (trained, epochsDone, _) <- runTrainingIO {d=ExampleDevice}
     (\m, d => do
        let (m', loss) = epochQLearning cfg m d
        recordReturn metrics (negate loss)

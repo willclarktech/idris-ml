@@ -337,7 +337,7 @@ main = do
       modelType : Type = Network 4 [128, 128] 2 ExampleDevice ExampleDType WithGrad
   (trained, epochsDone, _) <- (
     if cfg.batched
-      then runTrainingIO {dp = Vect n (List Double)}
+      then runTrainingIO {d=ExampleDevice} {dp = Vect n (List Double)}
              (\m, d => do
                 (m', loss, avgRet) <- epochRLBatched opt cfg.gamma m d
                 recordReturn metrics avgRet
@@ -346,7 +346,7 @@ main = do
              ({ metrics := \_ => readRLMetrics "recent_100" metrics }
                 (simpleConfig {model = modelType} cfg.epochs))
              model
-      else runTrainingIO {dp = List (List Double)}
+      else runTrainingIO {d=ExampleDevice} {dp = List (List Double)}
              (\m, d => do
                 (m', loss, avgRet) <- epochRL opt cfg.gamma m d
                 recordReturn metrics avgRet

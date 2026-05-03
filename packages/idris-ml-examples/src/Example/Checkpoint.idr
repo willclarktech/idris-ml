@@ -129,7 +129,7 @@ doTrain : Config -> Network 2 [] 3 ExampleDevice ExampleDType WithGrad -> IO ()
 doTrain cfg model = do
   let opt = nativeSgd cfg.lr
   putStrLn $ "Training " ++ show cfg.epochs ++ " epochs..."
-  (trained, epochsDone, _) <- runTraining
+  (trained, epochsDone, _) <- runTraining {d=ExampleDevice}
     (\m, d => epochVar opt d tnllLoss m) (pure dataPoints)
     (simpleConfig cfg.epochs) model
   if cfg.savePath == ""
@@ -143,7 +143,7 @@ doTrain cfg model = do
   putStrLn $ "Eval loss: " ++ show evalLoss
   withNoGrad {d=ExampleDevice} (printPredictions trained)
   putStrLn $ formatResult [("mode", "train"), ("epochs", show epochsDone),
-                            ("loss", show evalLoss), ("backend", backendName)]
+                            ("loss", show evalLoss), ("backend", backendName {d=ExampleDevice})]
 
 doContinue : Config -> Network 2 [] 3 ExampleDevice ExampleDType WithGrad -> IO ()
 doContinue cfg model = do
@@ -154,7 +154,7 @@ doContinue cfg model = do
   putStrLn $ (if ok2 then "Loaded optimizer from " else "FAILED to load optimizer from ")
            ++ optPath cfg.loadPath
   putStrLn $ "Training " ++ show cfg.epochs ++ " more epochs..."
-  (trained, epochsDone, _) <- runTraining
+  (trained, epochsDone, _) <- runTraining {d=ExampleDevice}
     (\m, d => epochVar opt d tnllLoss m) (pure dataPoints)
     (simpleConfig cfg.epochs) model
   if cfg.savePath == ""
@@ -168,7 +168,7 @@ doContinue cfg model = do
   putStrLn $ "Eval loss: " ++ show evalLoss
   withNoGrad {d=ExampleDevice} (printPredictions trained)
   putStrLn $ formatResult [("mode", "continue"), ("epochs", show epochsDone),
-                            ("loss", show evalLoss), ("backend", backendName)]
+                            ("loss", show evalLoss), ("backend", backendName {d=ExampleDevice})]
 
 doInfer : Config -> Network 2 [] 3 ExampleDevice ExampleDType WithGrad -> IO ()
 doInfer cfg model = do
@@ -178,7 +178,7 @@ doInfer cfg model = do
   putStrLn $ "Eval loss: " ++ show evalLoss
   withNoGrad {d=ExampleDevice} (printPredictions model)
   putStrLn $ formatResult [("mode", "infer"), ("loss", show evalLoss),
-                            ("backend", backendName)]
+                            ("backend", backendName {d=ExampleDevice})]
 
 
 ----------------------------------------------------------------------
@@ -195,7 +195,7 @@ main = do
   let model : Network 2 [] 3 ExampleDevice ExampleDType WithGrad
       model = OutputLayer llAny
 
-  putStrLn $ "=== Cross-Backend Transfer [" ++ backendName ++ "] -- "
+  putStrLn $ "=== Cross-Backend Transfer [" ++ backendName {d=ExampleDevice} ++ "] -- "
            ++ cfg.mode ++ " ==="
 
   when cfg.lrFind $ do

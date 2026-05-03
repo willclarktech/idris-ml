@@ -480,7 +480,7 @@ main = do
   let trainCfg : TrainConfig PPOState
       trainCfg = MkTrainConfig cfg.epochs 10 NoEarlyStop
                    (\_ => readRLMetrics "recent_50" metrics) (\_ => pure ())
-  (trained, epochsDone, _) <- runTrainingIO
+  (trained, epochsDone, _) <- runTrainingIO {d=ExampleDevice}
     (\s, _ => do
        (s', loss) <- ppoEpoch opt cfg s
        recordReturn metrics (negate loss)

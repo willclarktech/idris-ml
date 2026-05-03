@@ -338,7 +338,7 @@ main = do
   let trainCfg : TrainConfig DqnState
       trainCfg = MkTrainConfig cfg.epochs 50 NoEarlyStop
                    (\_ => readRLMetrics "recent_50" metrics) (\_ => pure ())
-  (trained, epochsDone, _) <- runTrainingIO
+  (trained, epochsDone, _) <- runTrainingIO {d=ExampleDevice}
     (\st, _ => do
        (st', ret) <- runEpisode opt st
        recordReturn metrics ret

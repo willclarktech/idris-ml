@@ -216,7 +216,7 @@ main = do
     putStrLn "Done — re-run without --lr-find at the recommended LR."
     exitSuccess
 
-  (trained, epochsDone, finalLoss) <- runTraining
+  (trained, epochsDone, finalLoss) <- runTraining {d=ExampleDevice}
     (\m, d => epochVarTensorBatch opt d catCELossVar m) genBatch trainCfg model
 
   -- Single-sample eval

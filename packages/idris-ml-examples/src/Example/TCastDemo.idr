@@ -41,7 +41,7 @@ showVec [a, b, c, d] = "[" ++ show a ++ ", " ++ show b ++ ", "
 
 main : IO ()
 main = do
-  putStrLn $ "=== tcast smoke test [" ++ backendName ++ "] ==="
+  putStrLn $ "=== tcast smoke test [" ++ backendName {d=ExampleDevice} ++ "] ==="
   let srcPtr = bulkToTensor {d=ExampleDevice} {dt=ExampleDType} testValues
       src    = the (TVec 4 ExampleDevice ExampleDType WithGrad) (MkTensor srcPtr Nothing)
   let origVals = readBack src

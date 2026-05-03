@@ -330,6 +330,12 @@ interface UserDeviceConv d => UserDeviceTape (0 d : Device) where
   ||| Load optimizer state buffers from a file.
   primOptimizerLoad       : AnyPtr -> String -> PrimIO Int
 
+  -- Profiling (per-backend op-timing counters) --------------------
+  ||| Reset this backend's op-timing profile counters.
+  primProfileReset        : PrimIO ()
+  ||| Print this backend's profile breakdown to stderr.
+  primProfileReport       : PrimIO ()
+
   -- Param + state creation -----------------------------------------
   primCreateParam1d     : Int -> AnyPtr -> AnyPtr
   primCreateParam2d     : Int -> Int -> AnyPtr -> AnyPtr

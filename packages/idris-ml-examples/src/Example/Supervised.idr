@@ -72,7 +72,7 @@ main = do
       model = OutputLayer llAny
   putStrLn ""
 
-  (trained, epochsDone, finalLoss) <- runTraining
+  (trained, epochsDone, finalLoss) <- runTraining {d=ExampleDevice}
     (\m, d => epochVar opt d tnllLoss m)
     (pure dataPoints)
     (simpleConfig cfg.epochs)

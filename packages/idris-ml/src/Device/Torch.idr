@@ -473,6 +473,10 @@ prim__paramLoadWithPolicyTorch : String -> Int -> PrimIO Int
 prim__optimizerSaveTorch : AnyPtr -> String -> PrimIO Int
 %foreign "C:optimizer_load_torch,libidrisml"
 prim__optimizerLoadTorch : AnyPtr -> String -> PrimIO Int
+%foreign "C:backend_profile_reset_torch,libidrisml"
+prim__profileResetTorch : PrimIO ()
+%foreign "C:backend_profile_report_torch,libidrisml"
+prim__profileReportTorch : PrimIO ()
 
 
 public export
@@ -517,6 +521,8 @@ public export
   primParamLoadWithPolicy      = prim__paramLoadWithPolicyTorch
   primOptimizerSave            = prim__optimizerSaveTorch
   primOptimizerLoad            = prim__optimizerLoadTorch
+  primProfileReset             = prim__profileResetTorch
+  primProfileReport            = prim__profileReportTorch
 
 
 ----------------------------------------------------------------------

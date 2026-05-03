@@ -380,7 +380,7 @@ main = do
   let trainCfg : TrainConfig A2CState
       trainCfg = MkTrainConfig cfg.epochs 500 NoEarlyStop
                    (\_ => readRLMetrics "recent_50" metrics) (\_ => pure ())
-  (trained, epochsDone, _) <- runTrainingIO
+  (trained, epochsDone, _) <- runTrainingIO {d=ExampleDevice}
     (\s, _ => do
        (s', loss) <- a2cEpoch opt cfg s
        recordReturn metrics (negate loss)

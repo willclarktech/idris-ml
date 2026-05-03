@@ -114,7 +114,7 @@ doSave : Config -> Network 2 [] 3 ExampleDevice ExampleDType WithGrad -> IO Bool
 doSave cfg model = do
   let opt = nativeSgd cfg.lr
   putStrLn $ "Training " ++ show cfg.epochs ++ " epochs"
-  (trained, _, _) <- runTraining
+  (trained, _, _) <- runTraining {d=ExampleDevice}
     (\m, d => epochVar opt d tnllLoss m) (pure dataPoints)
     (simpleConfig cfg.epochs) model
   trainedLoss <- withNoGrad {d=ExampleDevice} (evalModel trained)
@@ -164,7 +164,7 @@ main = do
   let model : Network 2 [] 3 ExampleDevice ExampleDType WithGrad
       model = OutputLayer llAny
 
-  putStrLn $ "=== PrecisionCheckpoint [" ++ backendName
+  putStrLn $ "=== PrecisionCheckpoint [" ++ backendName {d=ExampleDevice}
            ++ "] mode=" ++ cfg.mode ++ " ==="
 
   result <- case cfg.mode of

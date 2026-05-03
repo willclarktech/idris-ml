@@ -61,7 +61,7 @@ main = do
       model = lstmAny ~~> OutputLayer llAny
   putStrLn ""
 
-  (trained, epochsDone, finalLoss) <- runTraining
+  (trained, epochsDone, finalLoss) <- runTraining {d=ExampleDevice}
     (\m, d => epochRecurrentVar opt d tbceLoss m)
     (pure (patternData 8))
     (patienceConfig cfg.epochs cfg.patience)

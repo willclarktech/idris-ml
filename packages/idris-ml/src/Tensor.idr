@@ -869,29 +869,24 @@ export
 zeroAllGrads : UserDeviceTape d => IO ()
 zeroAllGrads = primIO (primParamZeroAll {d})
 
-%foreign "C:backend_name,libidrisml"
-prim__backendName : String
-
 ||| Get the name of the active backend ("tape", "mlx", "torch").
+||| This is the backend *family*, not the hardware variant — exactly
+||| `backendTag {d}` from `UserDeviceTransfer`. (The old C
+||| `backend_name` returned the same string; routing through the
+||| instance drops the unified-name FFI.)
 export
-backendName : String
-backendName = prim__backendName
+backendName : UserDeviceTransfer d => String
+backendName = backendTag {d}
 
-%foreign "C:backend_profile_reset,libidrisml"
-prim__profileResetC : PrimIO ()
-
-%foreign "C:backend_profile_report,libidrisml"
-prim__profileReportC : PrimIO ()
-
-||| Reset profiling counters.
+||| Reset profiling counters for backend `d`.
 export
-profileReset : IO ()
-profileReset = primIO prim__profileResetC
+profileReset : UserDeviceTape d => IO ()
+profileReset = primIO (primProfileReset {d})
 
-||| Print profiling breakdown to stderr.
+||| Print backend `d`'s profile breakdown to stderr.
 export
-profileReport : IO ()
-profileReport = primIO prim__profileReportC
+profileReport : UserDeviceTape d => IO ()
+profileReport = primIO (primProfileReport {d})
 
 ----------------------------------------------------------------------
 -- Path C P3-1 spike: rank-aware Tensor

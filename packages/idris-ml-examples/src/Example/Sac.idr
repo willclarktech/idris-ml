@@ -453,7 +453,7 @@ main = do
       trainCfg = MkTrainConfig cfg.epochs 2000
                             (WindowedAvg cfg.esThreshold cfg.esWindow cfg.esPatience)
                             (\_ => readRLMetrics "recent_20" metrics) (\_ => pure ())
-  (trained, epochsDone, _) <- runTrainingIO
+  (trained, epochsDone, _) <- runTrainingIO {d=ExampleDevice}
     (\s, _ => do
        (s', loss) <- sacStep q1Opt q2Opt actorOpt cfg s
        recordReturn metrics (negate loss)
