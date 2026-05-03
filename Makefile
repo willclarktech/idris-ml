@@ -816,11 +816,6 @@ example-profile: install
 	cp $(LIB) build/exec/profile_app/
 	./build/exec/profile
 
-example-profile-micro: install
-	idris2 $(IDRIS_FLAGS) -o profile-micro $(EXAMPLE_SRC)/Example/ProfileMicro.idr
-	cp $(LIB) build/exec/profile-micro_app/
-	./build/exec/profile-micro
-
 sweep: backend
 	bash scripts/sweep.sh --parallel 4
 
