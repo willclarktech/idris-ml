@@ -1122,18 +1122,25 @@ TensorHandle tensor_reshape_1d(TensorHandle h, int n) {
 }
 
 TensorHandle tensor_causal_mask(int n) {
-    auto t = torch::triu(torch::ones({(int64_t)n, (int64_t)n}, torch::kFloat64), 1);
+    // F32 (not F64) to mirror mlx's mx_from_doubles and avoid promoting an
+    // F32 computation to F64. 0/1 values are exact in F32, so this is
+    // lossless and bit-identical when combined with an F64 tensor.
+    auto t = torch::triu(torch::ones({(int64_t)n, (int64_t)n}, torch::kFloat32), 1);
     return from_tensor(std::move(t));
 }
 
 TensorHandle tensor_one_hot(int* tokens, int n_tokens, int vocab_size) {
     int total = n_tokens * vocab_size;
-    auto t = torch::zeros({(int64_t)total}, torch::kFloat64);
-    auto acc = t.accessor<double, 1>();
+    // F32 (not F64) to mirror mlx. A one-hot loss target carries only 0/1
+    // (exact in F32); an F32 model keeps F32, an F64 model promotes the
+    // target back to F64 losslessly. F64 here would contaminate the F32
+    // path and break torch-MPS (which rejects F64).
+    auto t = torch::zeros({(int64_t)total}, torch::kFloat32);
+    auto acc = t.accessor<float, 1>();
     for (int i = 0; i < n_tokens; i++) {
         int tok = tokens[i];
         if (tok >= 0 && tok < vocab_size)
-            acc[i * vocab_size + tok] = 1.0;
+            acc[i * vocab_size + tok] = 1.0f;
     }
     return from_tensor(std::move(t));
 }
