@@ -2,6 +2,7 @@
    Backend-agnostic: works against tape, MLX, and torch backends. */
 
 #include "backend.h"
+#include "shared_utils.h"  /* tensor_alloc_doubles / tensor_ptr_array_alloc / *_return buffer helpers — moved out of backend.h in the shared-utils split */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -167,6 +168,36 @@ static void test_autograd_basic(void) {
     tensor_free(wx); tensor_free(y);
     param_clear();
 }
+
+/* Regression: an F32 param must be an autograd leaf so its grad flows.
+   The F32 param creators once cast to float32 *after* requires_grad_, which
+   produced a non-leaf whose .grad never populated — the optimizer then read a
+   zero gradient and silently froze training (torch-mps lane, fixed 9e2886b /
+   guarded by make_param_leaf's is_leaf assert). Tape has no F32 arena, so this
+   runs on torch/mlx only. */
+#ifndef BACKEND_TAPE
+static void test_param_leaf_f32_grad_flow(void) {
+    printf("\n--- F32 param leaf: grad flows through w*x ---\n");
+    param_clear();
+
+    double wv[1] = {2.0};
+    double xv[1] = {3.0};
+    TensorHandle w = tensor_create_param_1d_f32(1, heap_copy(wv, 1));
+    param_register("w", w);
+
+    TensorHandle x = tensor_create_1d_f32(1, heap_copy(xv, 1), 0);
+    TensorHandle y = tensor_mul(w, x);   /* y = [6.0] */
+    TensorHandle loss = tensor_sum(y);   /* scalar root — mlx vjp requires shape () */
+
+    tensor_backward(loss);
+
+    /* dloss/dw = x = 3. A non-leaf w would leave grad at 0 (or abort backward). */
+    ASSERT_NEAR("grad w = x (F32 param is a leaf)", param_grad_item(0), 3.0, 1e-4);
+
+    tensor_free(w); tensor_free(x); tensor_free(y); tensor_free(loss);
+    param_clear();
+}
+#endif
 
 static void test_autograd_chain(void) {
     printf("\n--- Autograd: f = (a+b)^2 ---\n");
@@ -517,8 +548,8 @@ static void test_lstm_select_stack_chain(void) {
 
     /* STACK them back (like vecStackTensor) */
     TensorHandle* ptr_arr = tensor_ptr_array_alloc(2);
-    tensor_ptr_array_set(ptr_arr, 0, s0);
-    tensor_ptr_array_set(ptr_arr, 1, s1);
+    tensor_ptr_array_set_return(ptr_arr, 0, s0);
+    tensor_ptr_array_set_return(ptr_arr, 1, s1);
     TensorHandle stacked = tensor_stack_from_array(ptr_arr, 2, 0);
 
     printf("stacked rg=%d, numel=%d\n",
@@ -1360,7 +1391,7 @@ static void test_safetensors_roundtrip(void) {
     /* Fill via our own buffer */
     {
         double* buf = tensor_alloc_doubles(6);
-        for (int i = 0; i < 6; i++) tensor_write_double(buf, i, w_data[i]);
+        for (int i = 0; i < 6; i++) tensor_write_double_return(buf, i, w_data[i]);
         tensor_free(w);
         w = tensor_create_param_2d(2, 3, buf);
     }
@@ -1369,7 +1400,7 @@ static void test_safetensors_roundtrip(void) {
     double b_data[] = {10.0, 20.0};
     {
         double* buf = tensor_alloc_doubles(2);
-        for (int i = 0; i < 2; i++) tensor_write_double(buf, i, b_data[i]);
+        for (int i = 0; i < 2; i++) tensor_write_double_return(buf, i, b_data[i]);
         TensorHandle b = tensor_create_param_1d(2, buf);
         param_register("biases", b);
     }
@@ -1859,6 +1890,9 @@ int main(void) {
 
     /* T2 */
     test_autograd_basic();
+#ifndef BACKEND_TAPE
+    test_param_leaf_f32_grad_flow();
+#endif
     test_autograd_chain();
     test_autograd_exp();
     test_autograd_div();

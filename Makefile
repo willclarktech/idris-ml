@@ -390,9 +390,14 @@ check-ffi-wrap-template:
 check-non-io-side-effects:
 	@python3 scripts/lifecycle/check-non-io-side-effects.py
 
-# Backend API test suite — runs against whichever backend is active
-test-backend: $(BACKENDS_DIR)/test_backend.c backend | $(BUILD)
-	cc -o $(BUILD)/test_backend $(BACKENDS_DIR)/test_backend.c -DBACKEND_$(shell echo $(PRIMARY) | tr a-z A-Z) -L$(BUILD) -lidrisml -Wl,-rpath,$(BUILD) -lm
+# Backend API test suite — runs against whichever backend is active.
+# Force-include the primary's rename header (same as the backend build) so the
+# test's unified op names (tensor_create, …) resolve to the suffixed symbols
+# the single-backend dylib actually exports (tensor_create_<primary>). Shared
+# utilities (tensor_alloc_doubles, …) aren't in the rename set, so they stay
+# unified and link straight from shared_utils.o in the dylib.
+test-backend: $(BACKENDS_DIR)/test_backend.c $(BACKEND_RENAME_H) backend | $(BUILD)
+	cc -o $(BUILD)/test_backend -include $(BACKEND_RENAME_H) $(BACKENDS_DIR)/test_backend.c -DBACKEND_$(shell echo $(PRIMARY) | tr a-z A-Z) -L$(BUILD) -lidrisml -Wl,-rpath,$(BUILD) -lm
 	./$(BUILD)/test_backend
 
 # Per-backend convenience targets
