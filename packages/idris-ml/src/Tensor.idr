@@ -492,6 +492,42 @@ public export
 RuntimeDType F64 where
   dtypeTag = 1
 
+-- Inference-only dtypes (torch, 2026-05-22). Tags must match the
+-- `cond` dispatch in each backend's dtype-streamed create/cast wrapper.
+-- Only torch wires these; tape/mlx have no `Compatible` instance for
+-- them yet, so a tape/mlx program can't spell these (device, dtype) pairs.
+public export
+RuntimeDType BF16 where
+  dtypeTag = 2
+
+public export
+RuntimeDType F16 where
+  dtypeTag = 3
+
+public export
+RuntimeDType I8 where
+  dtypeTag = 4
+
+public export
+RuntimeDType I16 where
+  dtypeTag = 5
+
+public export
+RuntimeDType I32 where
+  dtypeTag = 6
+
+public export
+RuntimeDType I64 where
+  dtypeTag = 7
+
+public export
+RuntimeDType U8 where
+  dtypeTag = 8
+
+public export
+RuntimeDType Bool where
+  dtypeTag = 9
+
 -- dtCreate* free functions — device × dtype create dispatch.
 -- `d` selects the backend (via the `primCreate*Streamed` method),
 -- `t` selects the dtype (via `dtypeTag`). Both implicits are pinned

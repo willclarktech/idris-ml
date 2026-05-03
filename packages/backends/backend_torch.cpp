@@ -198,8 +198,19 @@ void tensor_to_floats(TensorHandle h, float* out) {
 }
 
 const char* tensor_dtype_name(TensorHandle h) {
-    auto st = to_tensor(h)->scalar_type();
-    return (st == torch::kFloat32) ? "F32" : "F64";
+    switch (to_tensor(h)->scalar_type()) {
+        case torch::kFloat32:  return "F32";
+        case torch::kFloat64:  return "F64";
+        case torch::kBFloat16: return "BF16";
+        case torch::kHalf:     return "F16";
+        case torch::kChar:     return "I8";
+        case torch::kShort:    return "I16";
+        case torch::kInt:      return "I32";
+        case torch::kLong:     return "I64";
+        case torch::kByte:     return "U8";
+        case torch::kBool:     return "BOOL";
+        default:               return "F64";
+    }
 }
 
 /* ---------- Arithmetic ---------- */
@@ -2138,3 +2149,60 @@ TensorHandle tensor_cast_dtype_f64_streamed(TensorHandle src, int stream_tag) {
     (void)stream_tag;
     return tensor_cast_dtype_f64(src);
 }
+
+/* ---- Inference-only dtype scaffolding (BF16, F16, Int, Bool) ----
+   Generic dtype-parameterised create/cast over the lean non-grad set
+   (scalar/create/1d/2d/cast). requires_grad is honored only for floating
+   dtypes; torch rejects autograd on integer/bool. Grad param/state
+   variants for these dtypes are deferred to the mixed-precision-training
+   row; the f32/f64 param/state wrappers above are unchanged. */
+static inline bool idrisml_is_floating_st(torch::ScalarType dt) {
+    return dt == torch::kFloat32 || dt == torch::kFloat64 ||
+           dt == torch::kBFloat16 || dt == torch::kHalf;
+}
+static TensorHandle create_scalar_dt(double v, int rg, torch::ScalarType dt) {
+    auto t = torch::tensor(v, torch::dtype(dt));
+    if (rg && idrisml_is_floating_st(dt)) t.requires_grad_(true);
+    return from_tensor_persistent(std::move(t));
+}
+static TensorHandle create_nd_dt(double* data, int* shape, int rank, int rg, torch::ScalarType dt) {
+    std::vector<int64_t> dims(rank);
+    for (int i = 0; i < rank; i++) dims[i] = shape[i];
+    auto t = torch::from_blob(data, dims, torch::kFloat64).clone();
+    if (dt != torch::kFloat64) t = t.to(dt);
+    if (rg && idrisml_is_floating_st(dt)) t.requires_grad_(true);
+    return from_tensor_persistent(std::move(t));
+}
+static TensorHandle create_1d_dt(int n, double* d, int rg, torch::ScalarType dt) {
+    auto t = torch::from_blob(d, {(int64_t)n}, torch::kFloat64).clone();
+    free(d);
+    if (dt != torch::kFloat64) t = t.to(dt);
+    if (rg && idrisml_is_floating_st(dt)) t.requires_grad_(true);
+    return from_tensor(std::move(t));
+}
+static TensorHandle create_2d_dt(int rows, int cols, double* d, int rg, torch::ScalarType dt) {
+    auto t = torch::from_blob(d, {(int64_t)rows, (int64_t)cols}, torch::kFloat64).clone();
+    free(d);
+    if (dt != torch::kFloat64) t = t.to(dt);
+    if (rg && idrisml_is_floating_st(dt)) t.requires_grad_(true);
+    return from_tensor(std::move(t));
+}
+
+// Each pasted name (e.g. tensor_create_1d_bf16_streamed) is rewritten to
+// the _torch symbol by the force-included rename_torch.h.
+#define IDRISML_DEFINE_DTYPE_STREAMED(SUF, ST) \
+TensorHandle tensor_create_scalar_##SUF##_streamed(double v, int rg, int s) { (void)s; return create_scalar_dt(v, rg, ST); } \
+TensorHandle tensor_create_##SUF##_streamed(double* data, int* shape, int rank, int rg, int s) { (void)s; return create_nd_dt(data, shape, rank, rg, ST); } \
+TensorHandle tensor_create_1d_##SUF##_streamed(int n, double* d, int rg, int s) { (void)s; return create_1d_dt(n, d, rg, ST); } \
+TensorHandle tensor_create_2d_##SUF##_streamed(int rows, int cols, double* d, int rg, int s) { (void)s; return create_2d_dt(rows, cols, d, rg, ST); } \
+TensorHandle tensor_cast_dtype_##SUF##_streamed(TensorHandle src, int s) { (void)s; return from_tensor(to_tensor(src)->to(ST)); }
+
+IDRISML_DEFINE_DTYPE_STREAMED(bf16, torch::kBFloat16)
+IDRISML_DEFINE_DTYPE_STREAMED(f16,  torch::kHalf)
+IDRISML_DEFINE_DTYPE_STREAMED(i8,   torch::kChar)
+IDRISML_DEFINE_DTYPE_STREAMED(i16,  torch::kShort)
+IDRISML_DEFINE_DTYPE_STREAMED(i32,  torch::kInt)
+IDRISML_DEFINE_DTYPE_STREAMED(i64,  torch::kLong)
+IDRISML_DEFINE_DTYPE_STREAMED(u8,   torch::kByte)
+IDRISML_DEFINE_DTYPE_STREAMED(bool, torch::kBool)
+#undef IDRISML_DEFINE_DTYPE_STREAMED

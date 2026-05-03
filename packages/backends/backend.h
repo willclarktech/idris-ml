@@ -586,6 +586,54 @@ TensorHandle tensor_create_state_2d_f64_streamed(int rows, int cols, double* dat
 TensorHandle tensor_cast_dtype_f32_streamed(TensorHandle src, int stream_tag);
 TensorHandle tensor_cast_dtype_f64_streamed(TensorHandle src, int stream_tag);
 
+/* ---- Inference-only dtype scaffolding (BF16, F16, Int, Bool) ----
+   Lean set: scalar / create(Nd) / 1d / 2d / cast, all non-grad. Wired
+   on torch (2026-05-22); tape/mlx do not define these (no Idris wrapper
+   references their _tape/_mlx variants). Grad param/state variants
+   for these dtypes are deferred to the mixed-precision-training row.
+   Declared explicitly (not via macro) so the gen-rename-headers.py
+   declaration regex picks each symbol up. */
+TensorHandle tensor_create_scalar_bf16_streamed(double value, int requires_grad, int stream_tag);
+TensorHandle tensor_create_bf16_streamed(double* data, int* shape, int rank, int requires_grad, int stream_tag);
+TensorHandle tensor_create_1d_bf16_streamed(int n, double* data, int requires_grad, int stream_tag);
+TensorHandle tensor_create_2d_bf16_streamed(int rows, int cols, double* data, int requires_grad, int stream_tag);
+TensorHandle tensor_cast_dtype_bf16_streamed(TensorHandle src, int stream_tag);
+TensorHandle tensor_create_scalar_f16_streamed(double value, int requires_grad, int stream_tag);
+TensorHandle tensor_create_f16_streamed(double* data, int* shape, int rank, int requires_grad, int stream_tag);
+TensorHandle tensor_create_1d_f16_streamed(int n, double* data, int requires_grad, int stream_tag);
+TensorHandle tensor_create_2d_f16_streamed(int rows, int cols, double* data, int requires_grad, int stream_tag);
+TensorHandle tensor_cast_dtype_f16_streamed(TensorHandle src, int stream_tag);
+TensorHandle tensor_create_scalar_i8_streamed(double value, int requires_grad, int stream_tag);
+TensorHandle tensor_create_i8_streamed(double* data, int* shape, int rank, int requires_grad, int stream_tag);
+TensorHandle tensor_create_1d_i8_streamed(int n, double* data, int requires_grad, int stream_tag);
+TensorHandle tensor_create_2d_i8_streamed(int rows, int cols, double* data, int requires_grad, int stream_tag);
+TensorHandle tensor_cast_dtype_i8_streamed(TensorHandle src, int stream_tag);
+TensorHandle tensor_create_scalar_i16_streamed(double value, int requires_grad, int stream_tag);
+TensorHandle tensor_create_i16_streamed(double* data, int* shape, int rank, int requires_grad, int stream_tag);
+TensorHandle tensor_create_1d_i16_streamed(int n, double* data, int requires_grad, int stream_tag);
+TensorHandle tensor_create_2d_i16_streamed(int rows, int cols, double* data, int requires_grad, int stream_tag);
+TensorHandle tensor_cast_dtype_i16_streamed(TensorHandle src, int stream_tag);
+TensorHandle tensor_create_scalar_i32_streamed(double value, int requires_grad, int stream_tag);
+TensorHandle tensor_create_i32_streamed(double* data, int* shape, int rank, int requires_grad, int stream_tag);
+TensorHandle tensor_create_1d_i32_streamed(int n, double* data, int requires_grad, int stream_tag);
+TensorHandle tensor_create_2d_i32_streamed(int rows, int cols, double* data, int requires_grad, int stream_tag);
+TensorHandle tensor_cast_dtype_i32_streamed(TensorHandle src, int stream_tag);
+TensorHandle tensor_create_scalar_i64_streamed(double value, int requires_grad, int stream_tag);
+TensorHandle tensor_create_i64_streamed(double* data, int* shape, int rank, int requires_grad, int stream_tag);
+TensorHandle tensor_create_1d_i64_streamed(int n, double* data, int requires_grad, int stream_tag);
+TensorHandle tensor_create_2d_i64_streamed(int rows, int cols, double* data, int requires_grad, int stream_tag);
+TensorHandle tensor_cast_dtype_i64_streamed(TensorHandle src, int stream_tag);
+TensorHandle tensor_create_scalar_u8_streamed(double value, int requires_grad, int stream_tag);
+TensorHandle tensor_create_u8_streamed(double* data, int* shape, int rank, int requires_grad, int stream_tag);
+TensorHandle tensor_create_1d_u8_streamed(int n, double* data, int requires_grad, int stream_tag);
+TensorHandle tensor_create_2d_u8_streamed(int rows, int cols, double* data, int requires_grad, int stream_tag);
+TensorHandle tensor_cast_dtype_u8_streamed(TensorHandle src, int stream_tag);
+TensorHandle tensor_create_scalar_bool_streamed(double value, int requires_grad, int stream_tag);
+TensorHandle tensor_create_bool_streamed(double* data, int* shape, int rank, int requires_grad, int stream_tag);
+TensorHandle tensor_create_1d_bool_streamed(int n, double* data, int requires_grad, int stream_tag);
+TensorHandle tensor_create_2d_bool_streamed(int rows, int cols, double* data, int requires_grad, int stream_tag);
+TensorHandle tensor_cast_dtype_bool_streamed(TensorHandle src, int stream_tag);
+
 #ifdef __cplusplus
 }
 #endif
