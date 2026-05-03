@@ -10,7 +10,9 @@ import Compat.Random
 import DataPoint
 import Math
 import Array
+import Device
 import Tensor
+import BuildConfig
 
 
 ----------------------------------------------------------------------
@@ -402,10 +404,10 @@ reversalTensorPoint i o vocabSize inputLen seqLen sepToken eosToken = do
       sI = cast {to=Int} seqLen
       vI = cast {to=Int} vocabSize
       -- Input: token indices as doubles [seqLen]
-      inT = prim__create1d sI (packTokensDouble (prim__allocDoubles sI) 0 inputToks) 0
+      inT = primCreate1d {d=ExampleDevice} sI (packTokensDouble (prim__allocDoubles sI) 0 inputToks) 0
       -- Target: one-hot [seqLen * vocabSize] for cross-entropy
       tgtIdxBuf = packTokens (prim__allocInts sI) 0 targetToks
-  pure $ MkTensorDataPoint inT (prim__oneHot tgtIdxBuf sI vI)
+  pure $ MkTensorDataPoint inT (primOneHot {d=ExampleDevice} tgtIdxBuf sI vI)
 
 ||| Generate a batch of reversal tensor data points.
 export
@@ -435,9 +437,9 @@ sortingTensorPoint i o vocabSize inputLen seqLen sepToken eosToken = do
       targetToks = Data.List.take seqLen (drop 1 fullSeq)
       sI = cast {to=Int} seqLen
       vI = cast {to=Int} vocabSize
-      inT = prim__create1d sI (packTokensDouble (prim__allocDoubles sI) 0 inputToks) 0
+      inT = primCreate1d {d=ExampleDevice} sI (packTokensDouble (prim__allocDoubles sI) 0 inputToks) 0
       tgtIdxBuf = packTokens (prim__allocInts sI) 0 targetToks
-  pure $ MkTensorDataPoint inT (prim__oneHot tgtIdxBuf sI vI)
+  pure $ MkTensorDataPoint inT (primOneHot {d=ExampleDevice} tgtIdxBuf sI vI)
 
 ||| Generate a batch of sorting tensor data points.
 export

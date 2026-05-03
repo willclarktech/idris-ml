@@ -47,9 +47,9 @@ specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
 -- Argmax on a TVec (read three values via prim__item1d).
 evalPrediction : TVec 3 ExampleDevice ExampleDType WithGrad -> Nat
 evalPrediction outV =
-  let v0 = prim__item1d outV.tensorPtr 0
-      v1 = prim__item1d outV.tensorPtr 1
-      v2 = prim__item1d outV.tensorPtr 2
+  let v0 = primItem1d {d=ExampleDevice} outV.tensorPtr 0
+      v1 = primItem1d {d=ExampleDevice} outV.tensorPtr 1
+      v2 = primItem1d {d=ExampleDevice} outV.tensorPtr 2
   in if v0 >= v1 && v0 >= v2 then 0 else if v1 >= v2 then 1 else 2
 
 %default partial
@@ -102,7 +102,7 @@ main = do
       let (VArray xs) = x dp
           buf = prim__allocDoubles 2
           buf' = packInto buf 0 xs
-      in prim__createState1d 2 buf'
+      in primCreateState1d {d=ExampleDevice} 2 buf'
       where
         packInto : AnyPtr -> Int -> Vect k (Scalar Double) -> AnyPtr
         packInto b _ [] = b

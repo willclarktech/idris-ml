@@ -102,7 +102,7 @@ evalModel model = do
             tgtV = the (TVec 3 ExampleDevice ExampleDType WithGrad) (MkTensor tgtT Nothing)
         (_, predV) <- forwardVar model inV
         lossT <- tnllLoss predV tgtV
-        pure (prim__item lossT.tensorPtr)) dataPoints
+        pure (primItem {d=ExampleDevice} lossT.tensorPtr)) dataPoints
   pure (foldl (+) 0.0 (toList losses) / 5.0)
 
 

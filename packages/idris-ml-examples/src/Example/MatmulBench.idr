@@ -26,6 +26,8 @@ import System
 import System.Clock
 
 import Tensor
+import Device
+import BuildConfig
 
 
 record Config where
@@ -53,7 +55,7 @@ buildMatrix n =
   let nI = the Int (cast n)
       buf = prim__allocDoubles (nI * nI)
       buf' = prim__setDouble buf 0 0.5
-  in prim__createState2d nI nI buf'
+  in primCreateState2d {d=ExampleDevice} nI nI buf'
 
 
 -- Elapsed milliseconds between two monotonic clock readings.
@@ -77,7 +79,7 @@ fmt2 x =
 -- scalar result of `sum` walks the graph.
 forceEval : AnyPtr -> IO ()
 forceEval h = do
-  let v = prim__item (prim__sum h)
+  let v = primItem {d=ExampleDevice} (primSum {d=ExampleDevice} h)
   ignore (pure v)
 
 
@@ -87,7 +89,7 @@ forceEval h = do
 loopMatmul : Nat -> AnyPtr -> AnyPtr -> IO ()
 loopMatmul Z _ _ = pure ()
 loopMatmul (S k) a b = do
-  let c = prim__mm a b
+  let c = primMm {d=ExampleDevice} a b
   forceEval c
   loopMatmul k a b
 
@@ -107,7 +109,7 @@ main = do
 
   -- Warmup pass — flushes any one-time backend setup (Metal pipeline
   -- cache, BLAS thread spin-up, etc.).
-  forceEval (prim__mm a b)
+  forceEval (primMm {d=ExampleDevice} a b)
 
   t0 <- clockTime Monotonic
   loopMatmul cfg.iters a b

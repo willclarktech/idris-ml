@@ -135,6 +135,15 @@ streamTag : MlxStream -> Int
 streamTag MCpu = 0
 streamTag MGpu = 1
 
+%foreign "scheme:(lambda (a0 a1 a2)  ((foreign-procedure \"tensor_item_2d_mlx\" (void* int int) double) (vector-ref a0 2) a1 a2))"
+prim__item2dMlx : AnyPtr -> Int -> Int -> Double
+%foreign "scheme:(lambda (a0 a1 a2) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_1d_mlx\" (int void* int) void*) a0 a1 a2))) (let ((wr (vector 'tensor-handle-v2 \"mlx\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle_mlx\" (void*) void) raw_r) wr)))"
+prim__create1dMlx : Int -> AnyPtr -> Int -> AnyPtr
+%foreign "scheme:(lambda (a0 a1) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"mnist_get_image_mlx\" (void* int) void*) a0 a1))) (let ((wr (vector 'tensor-handle-v2 \"mlx\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle_mlx\" (void*) void) raw_r) wr)))"
+prim__mnistGetImageMlx : AnyPtr -> Int -> AnyPtr
+%foreign "scheme:(lambda (a0 a1 a2) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_one_hot_mlx\" (void* int int) void*) a0 a1 a2))) (let ((wr (vector 'tensor-handle-v2 \"mlx\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle_mlx\" (void*) void) raw_r) wr)))"
+prim__oneHotMlx : AnyPtr -> Int -> Int -> AnyPtr
+
 public export
 {s : MlxStream} -> UserDeviceCore (MlxDev s) where
   deviceName       = case s of
@@ -507,6 +516,10 @@ public export
   primTensorDim            = prim__tensorDimMlx
   primTensorSizeAt         = prim__tensorSizeAtMlx
   primParamRegister        = prim__paramRegisterMlx
+  primItem2d               = prim__item2dMlx
+  primCreate1d             = prim__create1dMlx
+  primMnistGetImage        = prim__mnistGetImageMlx
+  primOneHot               = prim__oneHotMlx
   primCreateParam1d a b = prim__createParam1dMlxStreamed a b (streamTag s)
   primCreateParam2d a b c = prim__createParam2dMlxStreamed a b c (streamTag s)
   primCreateParam3d a b c d = prim__createParam3dMlxStreamed a b c d (streamTag s)

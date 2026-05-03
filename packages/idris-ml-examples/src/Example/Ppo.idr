@@ -107,16 +107,16 @@ criticValue : Critic -> Vect ObsDim Double -> IO Double
 criticValue critic obs = do
   let stateV = the (TVec ObsDim ExampleDevice ExampleDType WithGrad) (MkTensor (bulkToTensor {d=ExampleDevice} {dt=ExampleDType} (obsTensor obs)) Nothing)
   (_, outV) <- forwardVar critic stateV
-  pure (prim__item1d outV.tensorPtr 0)
+  pure (primItem1d {d=ExampleDevice} outV.tensorPtr 0)
 
 sampleActionIO : Actor -> Critic -> Vect ObsDim Double -> IO (Nat, Double, Double)
 sampleActionIO actor critic obs = do
   let stateV  = the (TVec ObsDim ExampleDevice ExampleDType WithGrad) (MkTensor (bulkToTensor {d=ExampleDevice} {dt=ExampleDType} (obsTensor obs)) Nothing)
   (_, logitsV) <- forwardVar actor stateV
-  let logPT   = prim__logSoftmax logitsV.tensorPtr 0
-      lp0     = prim__item1d logPT 0
-      lp1     = prim__item1d logPT 1
-      lp2     = prim__item1d logPT 2
+  let logPT   = primLogSoftmax {d=ExampleDevice} logitsV.tensorPtr 0
+      lp0     = primItem1d {d=ExampleDevice} logPT 0
+      lp1     = primItem1d {d=ExampleDevice} logPT 1
+      lp2     = primItem1d {d=ExampleDevice} logPT 2
   v <- criticValue critic obs
   u <- randomRIO (the Double 0.0, 1.0)
   let a = categoricalSample [Prelude.exp lp0, Prelude.exp lp1, Prelude.exp lp2] u
@@ -206,11 +206,11 @@ perStepLoss : {n : Nat} -> (logitsB : Tensor [n, NumActions] ExampleDevice Examp
 perStepLoss logitsB valueB rowIdx clipEps entropyCoef valueCoef (step, adv, retT) = do
   logitsRow <- trowSelect logitsB rowIdx
   let logPT = the (Tensor [NumActions] ExampleDevice ExampleDType WithGrad)
-                  (MkTensor (prim__logSoftmax logitsRow.tensorPtr 0) Nothing)
+                  (MkTensor (primLogSoftmax {d=ExampleDevice} logitsRow.tensorPtr 0) Nothing)
       aIdx : Int
       aIdx = cast {to=Int} (cast {to=Integer} step.action)
   lpNew <- telemSelect logPT aIdx
-  let lpVal = prim__item1d logPT.tensorPtr aIdx
+  let lpVal = primItem1d {d=ExampleDevice} logPT.tensorPtr aIdx
   valueRow <- trowSelect valueB rowIdx
   valueV   <- telemSelect valueRow 0
   oldLPT   <- tconstScalar step.oldLogProb
@@ -235,20 +235,20 @@ perStepLoss logitsB valueB rowIdx clipEps entropyCoef valueCoef (step, adv, retT
   p1V  <- texp lp1V
   p2V  <- texp lp2V
   let negEntV = the (Tensor [] ExampleDevice ExampleDType WithGrad)
-                    (MkTensor (prim__add
-                              (prim__add (prim__mul p0V.tensorPtr lp0V.tensorPtr)
-                                         (prim__mul p1V.tensorPtr lp1V.tensorPtr))
-                              (prim__mul p2V.tensorPtr lp2V.tensorPtr))
+                    (MkTensor (primAdd {d=ExampleDevice}
+                              (primAdd {d=ExampleDevice} (primMul {d=ExampleDevice} p0V.tensorPtr lp0V.tensorPtr)
+                                         (primMul {d=ExampleDevice} p1V.tensorPtr lp1V.tensorPtr))
+                              (primMul {d=ExampleDevice} p2V.tensorPtr lp2V.tensorPtr))
                             Nothing)
   entTerm <- tmulScalar negEntV entropyCoef
-  pure (MkTensor (prim__add (prim__add policyT.tensorPtr valueTerm.tensorPtr)
+  pure (MkTensor (primAdd {d=ExampleDevice} (primAdd {d=ExampleDevice} policyT.tensorPtr valueTerm.tensorPtr)
                        entTerm.tensorPtr) Nothing)
 
 
 meanScalarLoss : (n : Nat) -> List (Tensor [] ExampleDevice ExampleDType WithGrad) -> IO (Tensor [] ExampleDevice ExampleDType WithGrad)
 meanScalarLoss n losses = do
   zero <- tconstScalar 0.0
-  let summed = foldl (\a, b => MkTensor (prim__add a.tensorPtr b.tensorPtr) Nothing) zero losses
+  let summed = foldl (\a, b => MkTensor (primAdd {d=ExampleDevice} a.tensorPtr b.tensorPtr) Nothing) zero losses
   tmulScalar summed (1.0 / cast n)
 
 
@@ -412,9 +412,9 @@ greedyAct : Actor -> Vect ObsDim Double -> IO Nat
 greedyAct actor obs = do
   let stateV = the (TVec ObsDim ExampleDevice ExampleDType WithGrad) (MkTensor (bulkToTensor {d=ExampleDevice} {dt=ExampleDType} (obsTensor obs)) Nothing)
   (_, logits) <- forwardVar actor stateV
-  let l0 = prim__item1d logits.tensorPtr 0
-      l1 = prim__item1d logits.tensorPtr 1
-      l2 = prim__item1d logits.tensorPtr 2
+  let l0 = primItem1d {d=ExampleDevice} logits.tensorPtr 0
+      l1 = primItem1d {d=ExampleDevice} logits.tensorPtr 1
+      l2 = primItem1d {d=ExampleDevice} logits.tensorPtr 2
   pure (if l0 >= l1 && l0 >= l2 then 0
         else if l1 >= l2 then 1
         else 2)

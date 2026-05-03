@@ -72,20 +72,20 @@ BenchIters = 50000
 loopLinear : Nat -> (wp, xp, bp : AnyPtr) -> AnyPtr -> AnyPtr
 loopLinear Z _ _ _ acc = acc
 loopLinear (S k) wp xp bp _ =
-  loopLinear k wp xp bp (prim__linear wp xp bp)
+  loopLinear k wp xp bp (primLinear {d=ExampleDevice} wp xp bp)
 
 -- B) Pure prim__mv loop (no bias). For comparison with linear.
 loopMv : Nat -> (wp, xp : AnyPtr) -> AnyPtr -> AnyPtr
 loopMv Z _ _ acc = acc
 loopMv (S k) wp xp _ =
-  loopMv k wp xp (prim__mv wp xp)
+  loopMv k wp xp (primMv {d=ExampleDevice} wp xp)
 
 -- C) Pure prim__add loop on two same-shape tensors. To establish
 --    the per-call FFI floor for a 2-arg ANY simple op.
 loopAdd : Nat -> (ap, bp : AnyPtr) -> AnyPtr -> AnyPtr
 loopAdd Z _ _ acc = acc
 loopAdd (S k) ap bp _ =
-  loopAdd k ap bp (prim__add ap bp)
+  loopAdd k ap bp (primAdd {d=ExampleDevice} ap bp)
 
 -- D) tlinear loop — uses the typed wrapper which boxes/unboxes
 --    the result through MkTensor + .tensorPtr. Same FFI as loopLinear,
@@ -170,7 +170,7 @@ showUs d =
 main : IO ()
 main = do
   srand 123456
-  putStrLn "=== prim__linear / mv / add microbench ==="
+  putStrLn "=== primLinear {d=ExampleDevice} / mv / add microbench ==="
   putStrLn $ "Dim: W=" ++ show W ++ " H=" ++ show H
   putStrLn $ "Iters: warmup=" ++ show WarmupIters ++ " bench=" ++ show BenchIters
   putStrLn ""
@@ -178,12 +178,12 @@ main = do
   -- LSTM bench setup: instantiate a real LstmState (params registered).
   lstm <- lstmLayer {i = H} {o = H} "micro_lstm"
   let xLstm : Tensor [H] ExampleDevice ExampleDType WithGrad
-      xLstm = MkTensor (prim__createState1d (cast {to=Int} H) (allocFilled H 0.5)) Nothing
+      xLstm = MkTensor (primCreateState1d {d=ExampleDevice} (cast {to=Int} H) (allocFilled H 0.5)) Nothing
 
   -- NTM bench setup at NTM-copy default dims (N=128 M=20 H=100 i=9).
   ntm <- ntmLayer {n = 128, m = 20, h = 100, i = 9, o = 8} "micro_ntm"
   let xNtm : TVec 9 ExampleDevice ExampleDType WithGrad
-      xNtm = MkTensor (prim__createState1d 9 (allocFilled 9 0.5)) Nothing
+      xNtm = MkTensor (primCreateState1d {d=ExampleDevice} 9 (allocFilled 9 0.5)) Nothing
 
   -- Allocate grad-tracked PARAMS (registered in the param registry).
   -- prim__linear with grad-requires-grad inputs fires tape_append +
@@ -195,11 +195,11 @@ main = do
       bBuf = allocFilled W 0.0
       a2Buf = allocFilled W 0.7
       b2Buf = allocFilled W 0.3
-      wPtr  = primParamRegister {d=ExampleDevice} "micro_W" (prim__createParam2d wI hI wBuf)
-      xPtr  = primParamRegister {d=ExampleDevice} "micro_x" (prim__createParam1d hI xBuf)
-      bPtr  = primParamRegister {d=ExampleDevice} "micro_b" (prim__createParam1d wI bBuf)
-      a2Ptr = primParamRegister {d=ExampleDevice} "micro_a2" (prim__createParam1d wI a2Buf)
-      b2Ptr = primParamRegister {d=ExampleDevice} "micro_b2" (prim__createParam1d wI b2Buf)
+      wPtr  = primParamRegister {d=ExampleDevice} "micro_W" (primCreateParam2d {d=ExampleDevice} wI hI wBuf)
+      xPtr  = primParamRegister {d=ExampleDevice} "micro_x" (primCreateParam1d {d=ExampleDevice} hI xBuf)
+      bPtr  = primParamRegister {d=ExampleDevice} "micro_b" (primCreateParam1d {d=ExampleDevice} wI bBuf)
+      a2Ptr = primParamRegister {d=ExampleDevice} "micro_a2" (primCreateParam1d {d=ExampleDevice} wI a2Buf)
+      b2Ptr = primParamRegister {d=ExampleDevice} "micro_b2" (primCreateParam1d {d=ExampleDevice} wI b2Buf)
       -- Boxed-tensor versions for tlinear / applyVar benches.
       wT : Tensor [W, H] ExampleDevice ExampleDType WithGrad
       wT = MkTensor wPtr Nothing
@@ -214,44 +214,44 @@ main = do
   -- the compiler can't elide the FFI calls. (prim__linear returns
   -- AnyPtr, which is otherwise discarded as unused.) Using a 1d item
   -- extractor on the resulting [W] vector at index 0.
-  let warmL = prim__item1d (loopLinear WarmupIters wPtr xPtr bPtr bPtr) 0
+  let warmL = primItem1d {d=ExampleDevice} (loopLinear WarmupIters wPtr xPtr bPtr bPtr) 0
   putStrLn $ "warmup linear last[0] = " ++ show warmL
-  let warmM = prim__item1d (loopMv WarmupIters wPtr xPtr xPtr) 0
+  let warmM = primItem1d {d=ExampleDevice} (loopMv WarmupIters wPtr xPtr xPtr) 0
   putStrLn $ "warmup mv last[0]     = " ++ show warmM
-  let warmA = prim__item1d (loopAdd WarmupIters a2Ptr b2Ptr a2Ptr) 0
+  let warmA = primItem1d {d=ExampleDevice} (loopAdd WarmupIters a2Ptr b2Ptr a2Ptr) 0
   putStrLn $ "warmup add last[0]    = " ++ show warmA
 
   -- Bench: prim__linear
   t0 <- clockTime Monotonic
-  let lr = prim__item1d (loopLinear BenchIters wPtr xPtr bPtr bPtr) 0
+  let lr = primItem1d {d=ExampleDevice} (loopLinear BenchIters wPtr xPtr bPtr bPtr) 0
   t1 <- clockTime Monotonic
   let linearMs = elapsedMs t0 t1
       linearUs = linearMs * 1000.0 / cast (the Nat BenchIters)
 
   -- Bench: prim__mv
   t2 <- clockTime Monotonic
-  let mr = prim__item1d (loopMv BenchIters wPtr xPtr xPtr) 0
+  let mr = primItem1d {d=ExampleDevice} (loopMv BenchIters wPtr xPtr xPtr) 0
   t3 <- clockTime Monotonic
   let mvMs = elapsedMs t2 t3
       mvUs = mvMs * 1000.0 / cast (the Nat BenchIters)
 
   -- Bench: prim__add (on same-shape vectors of width W)
   t4 <- clockTime Monotonic
-  let ar = prim__item1d (loopAdd BenchIters a2Ptr b2Ptr a2Ptr) 0
+  let ar = primItem1d {d=ExampleDevice} (loopAdd BenchIters a2Ptr b2Ptr a2Ptr) 0
   t5 <- clockTime Monotonic
   let addMs = elapsedMs t4 t5
       addUs = addMs * 1000.0 / cast (the Nat BenchIters)
 
   -- Bench: tlinear (typed wrapper)
   t6 <- clockTime Monotonic
-  let tr = prim__item1d (loopTLinear BenchIters wT xT bT bT).tensorPtr 0
+  let tr = primItem1d {d=ExampleDevice} (loopTLinear BenchIters wT xT bT bT).tensorPtr 0
   t7 <- clockTime Monotonic
   let tlinMs = elapsedMs t6 t7
       tlinUs = tlinMs * 1000.0 / cast (the Nat BenchIters)
 
   -- Bench: Linear's applyVar (the production path)
   t8 <- clockTime Monotonic
-  let apr = prim__item1d (loopLinearApply BenchIters lin xT bT).tensorPtr 0
+  let apr = primItem1d {d=ExampleDevice} (loopLinearApply BenchIters lin xT bT).tensorPtr 0
   t9 <- clockTime Monotonic
   let applyMs = elapsedMs t8 t9
       applyUs = applyMs * 1000.0 / cast (the Nat BenchIters)
@@ -261,7 +261,7 @@ main = do
   let lstmFinal = loopLstmApply (BenchIters `div` 5) lstm xLstm lstm
   -- Force evaluation by extracting from final state's hidden tensor
   let lstmR = case lstmFinal.hiddenT of
-                Just h => prim__item1d h.tensorPtr 0
+                Just h => primItem1d {d=ExampleDevice} h.tensorPtr 0
                 Nothing => 0.0
   t11 <- clockTime Monotonic
   let lstmIters : Nat
@@ -276,7 +276,7 @@ main = do
   -- NtmState fields: lstm, readFc, writeFc, outputFc, memInitT, initReadOutT,
   -- memT, raT, waT, roT (10 total).
   let ntmR = case ntmFinal of
-               MkNtm _ _ _ _ _ _ _ _ _ (Just rOut) => prim__item1d rOut.tensorPtr 0
+               MkNtm _ _ _ _ _ _ _ _ _ (Just rOut) => primItem1d {d=ExampleDevice} rOut.tensorPtr 0
                _ => 0.0
   t13 <- clockTime Monotonic
   let ntmIters : Nat
@@ -291,11 +291,11 @@ main = do
   putStrLn $ "apply  last[0] = " ++ show apr
   putStrLn $ "lstm   last[0] = " ++ show lstmR
 
-  putStrLn $ "prim__linear: total " ++ showMs linearMs ++ " ms over "
+  putStrLn $ "primLinear {d=ExampleDevice}: total " ++ showMs linearMs ++ " ms over "
            ++ show BenchIters ++ " iters -> " ++ showUs linearUs ++ " us/call"
-  putStrLn $ "prim__mv:     total " ++ showMs mvMs ++ " ms over "
+  putStrLn $ "primMv {d=ExampleDevice}:     total " ++ showMs mvMs ++ " ms over "
            ++ show BenchIters ++ " iters -> " ++ showUs mvUs ++ " us/call"
-  putStrLn $ "prim__add:    total " ++ showMs addMs ++ " ms over "
+  putStrLn $ "primAdd {d=ExampleDevice}:    total " ++ showMs addMs ++ " ms over "
            ++ show BenchIters ++ " iters -> " ++ showUs addUs ++ " us/call"
   putStrLn $ "tlinear:      total " ++ showMs tlinMs ++ " ms over "
            ++ show BenchIters ++ " iters -> " ++ showUs tlinUs ++ " us/call"

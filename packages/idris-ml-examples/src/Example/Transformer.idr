@@ -91,16 +91,16 @@ catCELossVar predV targetV = ioRerun (\_ =>
       sI = cast {to=Int} SeqLen
       skip = cast {to=Int} InputLen
       revLen = sI - skip
-      logitsFull = prim__reshape2d predV.tensorPtr sI vsI
-      targetFull = prim__reshape2d targetV.tensorPtr sI vsI
-      logits = prim__narrow logitsFull 0 (skip * vsI) (revLen * vsI)
-      logitsR = prim__reshape2d logits revLen vsI
-      logProbs = prim__logSoftmax2d logitsR
-      tgts = prim__narrow targetFull 0 (skip * vsI) (revLen * vsI)
-      tgtsR = prim__reshape2d tgts revLen vsI
-      product = prim__mul logProbs tgtsR
-      totalSum = prim__sum product
-      loss = prim__mulScalar (prim__neg totalSum) (1.0 / cast {to=Double} revLen)
+      logitsFull = primReshape2d {d=ExampleDevice} predV.tensorPtr sI vsI
+      targetFull = primReshape2d {d=ExampleDevice} targetV.tensorPtr sI vsI
+      logits = primNarrow {d=ExampleDevice} logitsFull 0 (skip * vsI) (revLen * vsI)
+      logitsR = primReshape2d {d=ExampleDevice} logits revLen vsI
+      logProbs = primLogSoftmax2d {d=ExampleDevice} logitsR
+      tgts = primNarrow {d=ExampleDevice} targetFull 0 (skip * vsI) (revLen * vsI)
+      tgtsR = primReshape2d {d=ExampleDevice} tgts revLen vsI
+      product = primMul {d=ExampleDevice} logProbs tgtsR
+      totalSum = primSum {d=ExampleDevice} product
+      loss = primMulScalar {d=ExampleDevice} (primNeg {d=ExampleDevice} totalSum) (1.0 / cast {to=Double} revLen)
   in MkTensor loss Nothing)
 
 
@@ -122,7 +122,7 @@ argmaxAtPtr vocabSize t pos =
   let scan : Int -> Nat -> Double -> Nat
       scan k bestI bestV =
         if k >= cast {to=Int} vocabSize then bestI
-        else let v = prim__item1d t (cast pos * cast vocabSize + k)
+        else let v = primItem1d {d=ExampleDevice} t (cast pos * cast vocabSize + k)
              in if v > bestV
                   then assert_total $ scan (k + 1) (cast k) v
                   else assert_total $ scan (k + 1) bestI bestV
@@ -227,7 +227,7 @@ main = do
       inV = the (TVec InputDim ExampleDevice ExampleDType WithGrad) (MkTensor (inputTensor tdp) Nothing)
   (_, predV) <- forwardVar trained inV
   let inpT = inputTensor tdp
-      inputDecoded = map (\p => cast {to=Nat} (cast {to=Integer} (prim__item1d inpT (cast p)))) positions
+      inputDecoded = map (\p => cast {to=Nat} (cast {to=Integer} (primItem1d {d=ExampleDevice} inpT (cast p)))) positions
       targetDecoded = map (argmaxAtPtr VocabSize (targetTensor tdp)) positions
       predicted = map (argmaxAtPtr VocabSize predV.tensorPtr) positions
       sortCorrect = countMatches (drop InputLen predicted) (drop InputLen targetDecoded)

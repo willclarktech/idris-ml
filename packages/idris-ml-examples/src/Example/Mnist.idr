@@ -118,11 +118,11 @@ BatchSize = 64
 ||| Fetch a single MNIST image as a TensorDataPoint (raw tensor pointer).
 mnistItem : AnyPtr -> Nat -> IO (TensorDataPoint InputDim NumClasses)
 mnistItem ds idx = do
-  let imgT = prim__mnistGetImage ds (cast {to=Int} (natToInteger idx))
+  let imgT = primMnistGetImage {d=ExampleDevice} ds (cast {to=Int} (natToInteger idx))
       lbl = prim__mnistGetLabel ds (cast {to=Int} (natToInteger idx))
-      flatImg = prim__reshape1d imgT (cast {to=Int} InputDim)
+      flatImg = primReshape1d {d=ExampleDevice} imgT (cast {to=Int} InputDim)
       lblBuf = prim__setInt (prim__allocInts 1) 0 lbl
-      tgtT = prim__oneHot lblBuf 1 (cast {to=Int} NumClasses)
+      tgtT = primOneHot {d=ExampleDevice} lblBuf 1 (cast {to=Int} NumClasses)
   pure (MkTensorDataPoint flatImg tgtT)
 
 
@@ -140,7 +140,7 @@ evalAccuracy model ds numImages nSamples = go nSamples 0 0.0
     argmax : AnyPtr -> Double -> Int -> Int -> Int
     argmax outT best bestI idx =
       if idx >= cast {to=Int} NumClasses then bestI
-      else let v = prim__item1d outT idx
+      else let v = primItem1d {d=ExampleDevice} outT idx
            in if v > best then assert_total $ argmax outT v idx (idx + 1)
                           else assert_total $ argmax outT best bestI (idx + 1)
 
@@ -150,9 +150,9 @@ evalAccuracy model ds numImages nSamples = go nSamples 0 0.0
       in pure (cast {to=Double} (natToInteger correct) / n, totalLoss / n)
     go (S k) correct totalLoss = do
       let pos = cast {to=Int} (k * cast numImages `div` nSamples)
-          imgT = prim__mnistGetImage ds pos
+          imgT = primMnistGetImage {d=ExampleDevice} ds pos
           lbl = prim__mnistGetLabel ds pos
-          flatImg = prim__reshape1d imgT (cast {to=Int} InputDim)
+          flatImg = primReshape1d {d=ExampleDevice} imgT (cast {to=Int} InputDim)
           inV = the (TVec InputDim ExampleDevice ExampleDType WithGrad) (MkTensor flatImg Nothing)
       (_, predV) <- forwardVar model inV
       let outT = predV.tensorPtr
@@ -160,10 +160,10 @@ evalAccuracy model ds numImages nSamples = go nSamples 0 0.0
           correct' = if pred == lbl then S correct else correct
           lblBuf = prim__allocInts 1
           lblBuf' = prim__setInt lblBuf 0 lbl
-          tgtT = prim__oneHot lblBuf' 1 (cast {to=Int} NumClasses)
+          tgtT = primOneHot {d=ExampleDevice} lblBuf' 1 (cast {to=Int} NumClasses)
           tgtV = the (TVec NumClasses ExampleDevice ExampleDType WithGrad) (MkTensor tgtT Nothing)
       lossT <- tnllLoss predV tgtV
-      let lossVal = prim__item lossT.tensorPtr
+      let lossVal = primItem {d=ExampleDevice} lossT.tensorPtr
       go k correct' (totalLoss + lossVal)
 
 

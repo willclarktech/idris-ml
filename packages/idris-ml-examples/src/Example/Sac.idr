@@ -97,14 +97,14 @@ actorMean : ActorNet -> Vect ObsDim Double -> IO Double
 actorMean actor obs = do
   let stateV = the (TVec ObsDim ExampleDevice ExampleDType WithGrad) (MkTensor (bulkToTensor {d=ExampleDevice} {dt=ExampleDType} (obsTensor obs)) Nothing)
   (_, outV) <- forwardVar actor stateV
-  pure (prim__item1d outV.tensorPtr 0)
+  pure (primItem1d {d=ExampleDevice} outV.tensorPtr 0)
 
 qValue : QNet -> Vect ObsDim Double -> Double -> IO Double
 qValue q obs action = do
   let inV = the (TVec QInputDim ExampleDevice ExampleDType WithGrad)
                 (MkTensor (bulkToTensor {d=ExampleDevice} {dt=ExampleDType} (qInputTensor (qInput obs action))) Nothing)
   (_, outV) <- forwardVar q inV
-  pure (prim__item1d outV.tensorPtr 0)
+  pure (primItem1d {d=ExampleDevice} outV.tensorPtr 0)
 
 
 -- Sample a squashed Gaussian action — pure-Double, used for rollout.
@@ -112,7 +112,7 @@ sampleActionIO : ActorNet -> Tensor [] ExampleDevice ExampleDType WithGrad -> Ve
                  IO (Double, Double)
 sampleActionIO actor logStdV obs = do
   mean <- actorMean actor obs
-  let logStd = prim__item logStdV.tensorPtr
+  let logStd = primItem {d=ExampleDevice} logStdV.tensorPtr
       std = Prelude.exp logStd
   eps <- normalSample
   let u = mean + std * eps
@@ -207,7 +207,7 @@ perSampleQLoss qOutB tv k = do
 meanScalarLoss : (n : Nat) -> List (Tensor [] ExampleDevice ExampleDType WithGrad) -> IO (Tensor [] ExampleDevice ExampleDType WithGrad)
 meanScalarLoss n losses = do
   zero <- tconstScalar 0.0
-  let summed = foldl (\a, b => MkTensor (prim__add a.tensorPtr b.tensorPtr) Nothing) zero losses
+  let summed = foldl (\a, b => MkTensor (primAdd {d=ExampleDevice} a.tensorPtr b.tensorPtr) Nothing) zero losses
   tmulScalar summed (1.0 / cast n)
 
 qLossBatch : (n : Nat) -> QNet -> QNet -> QNet -> ActorNet -> Tensor [] ExampleDevice ExampleDType WithGrad ->
@@ -251,16 +251,16 @@ actorPerStepLoss : {n : Nat} ->
 actorPerStepLoss meanB uBT q1B q2B logStdV alpha rowIdx = do
   q1Row <- trowSelect q1B rowIdx
   q1S   <- telemSelect q1Row 0
-  let q1Val = prim__item1d q1Row.tensorPtr 0
+  let q1Val = primItem1d {d=ExampleDevice} q1Row.tensorPtr 0
   q2Row <- trowSelect q2B rowIdx
   q2S   <- telemSelect q2Row 0
-  let q2Val = prim__item1d q2Row.tensorPtr 0
+  let q2Val = primItem1d {d=ExampleDevice} q2Row.tensorPtr 0
       minQS = if q1Val <= q2Val then q1S else q2S
   meanRow <- trowSelect meanB rowIdx
   meanS   <- telemSelect meanRow 0
   uRow    <- trowSelect uBT rowIdx
   uS      <- telemSelect uRow 0
-  let uVal = prim__item1d uRow.tensorPtr 0
+  let uVal = primItem1d {d=ExampleDevice} uRow.tensorPtr 0
   diffM    <- tsub uS meanS
   negTwoLs <- tmulScalar logStdV (-2.0)
   varInv   <- texp negTwoLs
@@ -279,7 +279,7 @@ actorPerStepLoss meanB uBT q1B q2B logStdV alpha rowIdx = do
 actorLossBatch : (n : Nat) -> ActorNet -> QNet -> QNet -> Tensor [] ExampleDevice ExampleDType WithGrad ->
                  Double -> Vect n (Vect ObsDim Double) -> IO (Tensor [] ExampleDevice ExampleDType WithGrad)
 actorLossBatch n actor q1 q2 logStdV alpha obsBatch = do
-  let logStd = prim__item logStdV.tensorPtr
+  let logStd = primItem {d=ExampleDevice} logStdV.tensorPtr
       stdVal = Prelude.exp logStd
   epses <- traverse (\_ => normalSample) obsBatch
   let obsTensors = the (Vect n (Vector ObsDim Double)) (map obsTensor obsBatch)

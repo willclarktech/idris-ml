@@ -87,6 +87,15 @@ prim__clampMinTape : AnyPtr -> Double -> AnyPtr
 public export
 data TapeDev : Type where MkTapeDev : TapeDev
 
+%foreign "scheme:(lambda (a0 a1 a2)  ((foreign-procedure \"tensor_item_2d_tape\" (void* int int) double) (vector-ref a0 2) a1 a2))"
+prim__item2dTape : AnyPtr -> Int -> Int -> Double
+%foreign "scheme:(lambda (a0 a1 a2) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_1d_tape\" (int void* int) void*) a0 a1 a2))) (let ((wr (vector 'tensor-handle-v2 \"tape\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle_tape\" (void*) void) raw_r) wr)))"
+prim__create1dTape : Int -> AnyPtr -> Int -> AnyPtr
+%foreign "scheme:(lambda (a0 a1) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"mnist_get_image_tape\" (void* int) void*) a0 a1))) (let ((wr (vector 'tensor-handle-v2 \"tape\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle_tape\" (void*) void) raw_r) wr)))"
+prim__mnistGetImageTape : AnyPtr -> Int -> AnyPtr
+%foreign "scheme:(lambda (a0 a1 a2) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_one_hot_tape\" (void* int int) void*) a0 a1 a2))) (let ((wr (vector 'tensor-handle-v2 \"tape\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle_tape\" (void*) void) raw_r) wr)))"
+prim__oneHotTape : AnyPtr -> Int -> Int -> AnyPtr
+
 public export
 UserDeviceCore TapeDev where
   deviceName       = "tape"
@@ -462,6 +471,10 @@ UserDeviceTape TapeDev where
   primTensorDim            = prim__tensorDimTape
   primTensorSizeAt         = prim__tensorSizeAtTape
   primParamRegister        = prim__paramRegisterTape
+  primItem2d               = prim__item2dTape
+  primCreate1d             = prim__create1dTape
+  primMnistGetImage        = prim__mnistGetImageTape
+  primOneHot               = prim__oneHotTape
   primCreateParam1d        = prim__createParam1dTape
   primCreateParam2d        = prim__createParam2dTape
   primCreateParam3d        = prim__createParam3dTape

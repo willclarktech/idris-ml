@@ -47,11 +47,11 @@ rolloutEp model st (r :: rs) (S k) acc = do
   let stateT = bulkToTensor {d=ExampleDevice} {dt=ExampleDType} (observe st)
       stateV = the (TVec 4 ExampleDevice ExampleDType WithGrad) (MkTensor stateT Nothing)
   (_, predV) <- forwardVar model stateV
-  let logProbsT = prim__logSoftmax predV.tensorPtr 0
-      lp0 = prim__item1d logProbsT 0
-      lp1 = prim__item1d logProbsT 1
+  let logProbsT = primLogSoftmax {d=ExampleDevice} predV.tensorPtr 0
+      lp0 = primItem1d {d=ExampleDevice} logProbsT 0
+      lp1 = primItem1d {d=ExampleDevice} logProbsT 1
       action = categoricalSample [exp lp0, exp lp1] r
-      selLP = prim__select logProbsT 0 (cast {to=Int} action)
+      selLP = primSelect {d=ExampleDevice} logProbsT 0 (cast {to=Int} action)
       selLPVal = if action == 0 then lp0 else lp1
   case cpStep st action of
     (reward, st', outcome, _) =>
@@ -91,11 +91,11 @@ rolloutEpBatched model states0 rss0 maxSteps = do
     perEnv _         _ st []  _     acc = (st, [], True, acc)
     perEnv logProbsV i st (r :: rs) False acc =
       let logProbsT = logProbsV.tensorPtr
-          lp0       = prim__item2d logProbsT i 0
-          lp1       = prim__item2d logProbsT i 1
+          lp0       = primItem2d {d=ExampleDevice} logProbsT i 0
+          lp1       = primItem2d {d=ExampleDevice} logProbsT i 1
           action    = categoricalSample [exp lp0, exp lp1] r
-          rowPtr    = prim__select logProbsT 0 i
-          selLP     = prim__select rowPtr 0 (cast {to=Int} action)
+          rowPtr    = primSelect {d=ExampleDevice} logProbsT 0 i
+          selLP     = primSelect {d=ExampleDevice} rowPtr 0 (cast {to=Int} action)
           selLPVal  = if action == 0 then lp0 else lp1
       in case cpStep st action of
            (reward, st', outcome, _) =>
@@ -129,7 +129,7 @@ rolloutEpBatched model states0 rss0 maxSteps = do
             stateV = MkTensor batchPtr Nothing
         (_, predV) <- forwardVarBatch model stateV
         let logProbsV : Tensor [n, 2] ExampleDevice ExampleDType WithGrad
-            logProbsV = MkTensor (prim__logSoftmax2d predV.tensorPtr) Nothing
+            logProbsV = MkTensor (primLogSoftmax2d {d=ExampleDevice} predV.tensorPtr) Nothing
         case stepAllEnvs logProbsV 0 sts rss dones accs of
           (sts', rss', dones', accs') => go k sts' rss' dones' accs'
 
@@ -152,7 +152,7 @@ epStepLosses gamma baseline steps =
   let rewards = map (\(_, _, r) => r) steps
       rets = discReturns gamma rewards
   in zipWith (\(lp, _, _), gt =>
-       the (Tensor [] ExampleDevice ExampleDType WithGrad) (MkTensor (prim__mulScalar lp (baseline - gt)) Nothing))
+       the (Tensor [] ExampleDevice ExampleDType WithGrad) (MkTensor (primMulScalar {d=ExampleDevice} lp (baseline - gt)) Nothing))
      steps rets
 
 export
@@ -167,9 +167,9 @@ averageLoss [] = MkTensor (dtCreateScalar {t=ExampleDType} 0.0 0 (deviceStreamTa
 averageLoss (x :: xs) =
   let n = cast {to=Double} (1 + length xs)
       addT : Tensor [] ExampleDevice ExampleDType WithGrad -> Tensor [] ExampleDevice ExampleDType WithGrad -> Tensor [] ExampleDevice ExampleDType WithGrad
-      addT a b = MkTensor (prim__add a.tensorPtr b.tensorPtr) Nothing
+      addT a b = MkTensor (primAdd {d=ExampleDevice} a.tensorPtr b.tensorPtr) Nothing
       s = foldl addT x xs
-  in MkTensor (prim__mulScalar s.tensorPtr (1.0 / n)) Nothing
+  in MkTensor (primMulScalar {d=ExampleDevice} s.tensorPtr (1.0 / n)) Nothing
 
 computeLoss : {hs : List Nat} -> Double ->
               Network 4 hs 2 ExampleDevice ExampleDType WithGrad -> List (List Double) ->
@@ -261,7 +261,7 @@ evalEp model st (S k) acc = do
       stateV = the (TVec 4 ExampleDevice ExampleDType WithGrad) (MkTensor stateT Nothing)
   (_, predV) <- forwardVar model stateV
   let logitsT = predV.tensorPtr
-      action = if prim__item1d logitsT 0 >= prim__item1d logitsT 1 then the Nat 0 else 1
+      action = if primItem1d {d=ExampleDevice} logitsT 0 >= primItem1d {d=ExampleDevice} logitsT 1 then the Nat 0 else 1
   case cpStep st action of
     (reward, st', outcome, _) =>
       if done outcome then pure (acc + reward)

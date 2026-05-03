@@ -27,10 +27,10 @@ testValues = VArray [SArray 1.5, SArray (-2.7), SArray 3.14159, SArray 0.0]
 
 -- Read all 4 elements out of a 1D tensor into a Vect.
 readBack : TVec 4 ExampleDevice ExampleDType WithGrad -> Vect 4 Double
-readBack v = [ prim__item1d v.tensorPtr 0
-             , prim__item1d v.tensorPtr 1
-             , prim__item1d v.tensorPtr 2
-             , prim__item1d v.tensorPtr 3
+readBack v = [ primItem1d {d=ExampleDevice} v.tensorPtr 0
+             , primItem1d {d=ExampleDevice} v.tensorPtr 1
+             , primItem1d {d=ExampleDevice} v.tensorPtr 2
+             , primItem1d {d=ExampleDevice} v.tensorPtr 3
              ]
 
 

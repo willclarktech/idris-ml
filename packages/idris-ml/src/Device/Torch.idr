@@ -114,6 +114,15 @@ data TorchDev : TorchHwDev -> Type where MkTorchDev : TorchDev d
 %foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_to_device_torch\" (void* string) void*) (vector-ref a0 2) a1))) (let ((wr (vector 'tensor-handle-v2 \"torch\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle_torch\" (void*) void) raw_r) wr)))"
 prim__toDeviceTorch : AnyPtr -> String -> AnyPtr
 
+%foreign "scheme:(lambda (a0 a1 a2)  ((foreign-procedure \"tensor_item_2d_torch\" (void* int int) double) (vector-ref a0 2) a1 a2))"
+prim__item2dTorch : AnyPtr -> Int -> Int -> Double
+%foreign "scheme:(lambda (a0 a1 a2) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_1d_torch\" (int void* int) void*) a0 a1 a2))) (let ((wr (vector 'tensor-handle-v2 \"torch\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle_torch\" (void*) void) raw_r) wr)))"
+prim__create1dTorch : Int -> AnyPtr -> Int -> AnyPtr
+%foreign "scheme:(lambda (a0 a1) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"mnist_get_image_torch\" (void* int) void*) a0 a1))) (let ((wr (vector 'tensor-handle-v2 \"torch\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle_torch\" (void*) void) raw_r) wr)))"
+prim__mnistGetImageTorch : AnyPtr -> Int -> AnyPtr
+%foreign "scheme:(lambda (a0 a1 a2) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_one_hot_torch\" (void* int int) void*) a0 a1 a2))) (let ((wr (vector 'tensor-handle-v2 \"torch\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle_torch\" (void*) void) raw_r) wr)))"
+prim__oneHotTorch : AnyPtr -> Int -> Int -> AnyPtr
+
 public export
 {d : TorchHwDev} -> UserDeviceCore (TorchDev d) where
   deviceName       = torchHwDevName d
@@ -493,6 +502,10 @@ public export
   primTensorDim            = prim__tensorDimTorch
   primTensorSizeAt         = prim__tensorSizeAtTorch
   primParamRegister        = prim__paramRegisterTorch
+  primItem2d               = prim__item2dTorch
+  primCreate1d             = prim__create1dTorch
+  primMnistGetImage        = prim__mnistGetImageTorch
+  primOneHot               = prim__oneHotTorch
   -- Param / state creation primitives go through libtorch's
   -- CPU-bound `torch::from_blob().clone()`, so we migrate to the
   -- target hardware before the tensor escapes the create method.

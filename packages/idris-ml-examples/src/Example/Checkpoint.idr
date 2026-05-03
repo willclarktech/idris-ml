@@ -39,9 +39,9 @@ dataPoints =
 -- Argmax on a 1D tensor (works on logits — softmax is monotonic)
 evalPrediction : AnyPtr -> Nat
 evalPrediction outT =
-  let v0 = prim__item1d outT 0
-      v1 = prim__item1d outT 1
-      v2 = prim__item1d outT 2
+  let v0 = primItem1d {d=ExampleDevice} outT 0
+      v1 = primItem1d {d=ExampleDevice} outT 1
+      v2 = primItem1d {d=ExampleDevice} outT 2
   in if v0 >= v1 && v0 >= v2 then 0 else if v1 >= v2 then 1 else 2
 
 -- Argmax on a one-hot Vector target.
@@ -99,7 +99,7 @@ evalModel model = do
         let tgtT = bulkToTensor {d=ExampleDevice} {dt=ExampleDType} (y dp)
             tgtV = the (TVec 3 ExampleDevice ExampleDType WithGrad) (MkTensor tgtT Nothing)
         lossT <- tnllLoss predV tgtV
-        pure (prim__item lossT.tensorPtr)) dataPoints
+        pure (primItem {d=ExampleDevice} lossT.tensorPtr)) dataPoints
   pure (foldl (+) 0.0 (toList losses) / 5.0)
 
 printPredictions : Network 2 [] 3 ExampleDevice ExampleDType WithGrad -> IO ()

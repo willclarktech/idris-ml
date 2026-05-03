@@ -282,6 +282,20 @@ interface UserDeviceConv d => UserDeviceTape (0 d : Device) where
   primTensorDim         : AnyPtr -> Int
   primTensorSizeAt      : AnyPtr -> Int -> Int
 
+  -- Scalar reads / host-buffer creation / data loading ------------
+  -- (kept off `UserDeviceCore` so minimal BYO backends needn't
+  -- implement them; full backends provide them here.)
+  ||| Read element `(r, c)` from a 2-D tensor as a host Double.
+  primItem2d            : AnyPtr -> Int -> Int -> Double
+  ||| Allocate a 1-D tensor from a host buffer in the backend's
+  ||| default dtype. Args: (n, data, requires_grad).
+  primCreate1d          : Int -> AnyPtr -> Int -> AnyPtr
+  ||| Load image `idx` from an MNIST dataset handle into a tensor.
+  primMnistGetImage     : AnyPtr -> Int -> AnyPtr
+  ||| One-hot encode an int-index buffer into a [len, classes]
+  ||| matrix. Args: (index buffer, len, classes).
+  primOneHot            : AnyPtr -> Int -> Int -> AnyPtr
+
   -- Param registry (optimizer-side) --------------------------------
   primParamRegister     : String -> AnyPtr -> AnyPtr
 

@@ -76,8 +76,8 @@ greedyAction online obs = do
   let stateT = bulkToTensor {d=ExampleDevice} {dt=ExampleDType} (obsTensor obs)
       stateV = the (TVec ObsDim ExampleDevice ExampleDType WithGrad) (MkTensor stateT Nothing)
   (_, qV) <- forwardVar online stateV
-  let q0 = prim__item1d qV.tensorPtr 0
-      q1 = prim__item1d qV.tensorPtr 1
+  let q0 = primItem1d {d=ExampleDevice} qV.tensorPtr 0
+      q1 = primItem1d {d=ExampleDevice} qV.tensorPtr 1
   pure (if q0 >= q1 then 0 else 1)
 
 epsGreedyIO : QNet -> Vect ObsDim Double -> Double -> IO Nat
@@ -101,8 +101,8 @@ epsGreedyIO online obs eps = do
 -- Max over a 1D tensor pointer (read NumActions scalars, take max).
 vectorMaxPtr : AnyPtr -> Double
 vectorMaxPtr t =
-  let v0 = prim__item1d t 0
-      v1 = prim__item1d t 1
+  let v0 = primItem1d {d=ExampleDevice} t 0
+      v1 = primItem1d {d=ExampleDevice} t 1
   in if v0 >= v1 then v0 else v1
 
 computeTargetVal : QNet -> Double -> Transition ObsDim 1 -> IO Double
@@ -130,7 +130,7 @@ perSampleLoss qOutB t tv k = do
 meanScalarLoss : (n : Nat) -> List (Tensor [] ExampleDevice ExampleDType WithGrad) -> IO (Tensor [] ExampleDevice ExampleDType WithGrad)
 meanScalarLoss n losses = do
   zero <- tconstScalar 0.0
-  let summed = foldl (\a, b => MkTensor (prim__add a.tensorPtr b.tensorPtr) Nothing) zero losses
+  let summed = foldl (\a, b => MkTensor (primAdd {d=ExampleDevice} a.tensorPtr b.tensorPtr) Nothing) zero losses
   tmulScalar summed (1.0 / cast n)
 
 batchLossBatched : (n : Nat) -> QNet -> QNet -> Double ->

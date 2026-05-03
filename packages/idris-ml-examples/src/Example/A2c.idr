@@ -93,11 +93,11 @@ sampleActionIO actor critic obs = do
   let stateT  = bulkToTensor {d=ExampleDevice} {dt=ExampleDType} (obsTensor obs)
       stateV  = the (TVec ObsDim ExampleDevice ExampleDType WithGrad) (MkTensor stateT Nothing)
   (_, logitsV) <- forwardVar actor stateV
-  let logPT   = prim__logSoftmax logitsV.tensorPtr 0
-      lp0     = prim__item1d logPT 0
-      lp1     = prim__item1d logPT 1
+  let logPT   = primLogSoftmax {d=ExampleDevice} logitsV.tensorPtr 0
+      lp0     = primItem1d {d=ExampleDevice} logPT 0
+      lp1     = primItem1d {d=ExampleDevice} logPT 1
   (_, valueV) <- forwardVar critic stateV
-  let v       = prim__item1d valueV.tensorPtr 0
+  let v       = primItem1d {d=ExampleDevice} valueV.tensorPtr 0
   u <- randomRIO (the Double 0.0, 1.0)
   let a = categoricalSample [Prelude.exp lp0, Prelude.exp lp1] u
   pure (a, v)
@@ -126,7 +126,7 @@ bootstrapV : Critic -> Vect ObsDim Double -> IO Double
 bootstrapV critic obs = do
   let stateV = the (TVec ObsDim ExampleDevice ExampleDType WithGrad) (MkTensor (bulkToTensor {d=ExampleDevice} {dt=ExampleDType} (obsTensor obs)) Nothing)
   (_, valueV) <- forwardVar critic stateV
-  pure (prim__item1d valueV.tensorPtr 0)
+  pure (primItem1d {d=ExampleDevice} valueV.tensorPtr 0)
 
 computeBootstrap : Critic -> List RollStep -> CPState -> IO Double
 computeBootstrap _ [] _ = pure 0.0
@@ -168,7 +168,7 @@ perStepLoss : {n : Nat} -> (logitsB : Tensor [n, NumActions] ExampleDevice Examp
 perStepLoss logitsB valuesB rowIdx entropyCoef valueCoef (step, adv, retT) = do
   logitsRow <- trowSelect logitsB rowIdx
   let logPT = the (Tensor [NumActions] ExampleDevice ExampleDType WithGrad)
-                 (MkTensor (prim__logSoftmax logitsRow.tensorPtr 0) Nothing)
+                 (MkTensor (primLogSoftmax {d=ExampleDevice} logitsRow.tensorPtr 0) Nothing)
       aIdx : Int
       aIdx = cast {to=Int} (cast {to=Integer} step.action)
   logProbV <- telemSelect logPT aIdx
@@ -189,18 +189,18 @@ perStepLoss logitsB valuesB rowIdx entropyCoef valueCoef (step, adv, retT) = do
   p0V  <- texp lp0V
   p1V  <- texp lp1V
   let negEntV = the (Tensor [] ExampleDevice ExampleDType WithGrad) (MkTensor
-                  (prim__add (prim__mul p0V.tensorPtr lp0V.tensorPtr)
-                             (prim__mul p1V.tensorPtr lp1V.tensorPtr))
+                  (primAdd {d=ExampleDevice} (primMul {d=ExampleDevice} p0V.tensorPtr lp0V.tensorPtr)
+                             (primMul {d=ExampleDevice} p1V.tensorPtr lp1V.tensorPtr))
                   Nothing)
   entTerm <- tmulScalar negEntV entropyCoef
-  pure (MkTensor (prim__add (prim__add policyT.tensorPtr valueTerm.tensorPtr)
+  pure (MkTensor (primAdd {d=ExampleDevice} (primAdd {d=ExampleDevice} policyT.tensorPtr valueTerm.tensorPtr)
                           entTerm.tensorPtr) Nothing)
 
 
 aggregateLoss : List (Tensor [] ExampleDevice ExampleDType WithGrad) -> IO (Tensor [] ExampleDevice ExampleDType WithGrad)
 aggregateLoss losses = do
   zero <- tconstScalar 0.0
-  let summed = foldl (\a, b => MkTensor (prim__add a.tensorPtr b.tensorPtr) Nothing) zero losses
+  let summed = foldl (\a, b => MkTensor (primAdd {d=ExampleDevice} a.tensorPtr b.tensorPtr) Nothing) zero losses
       n = the Double (cast (natToInteger (length losses)))
   tmulScalar summed (1.0 / n)
 
@@ -318,8 +318,8 @@ greedyAct : Actor -> Vect ObsDim Double -> IO Nat
 greedyAct actor obs = do
   let stateV = the (TVec ObsDim ExampleDevice ExampleDType WithGrad) (MkTensor (bulkToTensor {d=ExampleDevice} {dt=ExampleDType} (obsTensor obs)) Nothing)
   (_, logits) <- forwardVar actor stateV
-  let l0 = prim__item1d logits.tensorPtr 0
-      l1 = prim__item1d logits.tensorPtr 1
+  let l0 = primItem1d {d=ExampleDevice} logits.tensorPtr 0
+      l1 = primItem1d {d=ExampleDevice} logits.tensorPtr 1
   pure (if l0 >= l1 then 0 else 1)
 
 evalEp : Actor -> CPState -> Nat -> Double -> IO Double

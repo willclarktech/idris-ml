@@ -227,9 +227,9 @@ forwardVarTraced label net input = go 0 net input
     -- the implicit-binding nest. The reductions are non-grad anyway.
     summarize : (idxLabel : String) -> AnyPtr -> IO ()
     summarize idxLabel ptr = do
-      let mn = prim__item (prim__tensorMin ptr)
-          mx = prim__item (prim__tensorMax ptr)
-          me = prim__item (prim__mean ptr)
+      let mn = primItem {d} (primTensorMin {d} ptr)
+          mx = primItem {d} (primTensorMax {d} ptr)
+          me = primItem {d} (primMean {d} ptr)
           isNaN : Double -> Bool
           isNaN x = x /= x
           tag = if isNaN mn || isNaN mx || isNaN me then "  [NaN]" else ""

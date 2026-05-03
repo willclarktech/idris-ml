@@ -143,9 +143,9 @@ gptTensorPoint corpus corpusLen = do
       targetToks = Data.List.take SeqLen (drop 1 window)
       sI = cast {to=Int} SeqLen
       vI = cast {to=Int} VocabSize
-      inT = prim__create1d sI (packDoubleBuf (prim__allocDoubles sI) 0 inputToks) 0
+      inT = primCreate1d {d=ExampleDevice} sI (packDoubleBuf (prim__allocDoubles sI) 0 inputToks) 0
       tgtIdxBuf = packIntBuf (prim__allocInts sI) 0 targetToks
-  pure $ MkTensorDataPoint inT (prim__oneHot tgtIdxBuf sI vI)
+  pure $ MkTensorDataPoint inT (primOneHot {d=ExampleDevice} tgtIdxBuf sI vI)
 
 gptBatchVect : (corpus : List Int) -> (corpusLen : Nat) -> (n : Nat) ->
                IO (Vect n (TensorDataPoint InputDim OutputDim))
@@ -167,12 +167,12 @@ allPositionsCELoss : TVec OutputDim ExampleDevice ExampleDType WithGrad -> TVec 
 allPositionsCELoss predV targetV = ioRerun (\_ =>
   let vsI = cast {to=Int} VocabSize
       sI = cast {to=Int} SeqLen
-      logitsR = prim__reshape2d predV.tensorPtr sI vsI
-      logProbs = prim__logSoftmax2d logitsR
-      tgtsR = prim__reshape2d targetV.tensorPtr sI vsI
-      product = prim__mul logProbs tgtsR
-      totalSum = prim__sum product
-      loss = prim__mulScalar (prim__neg totalSum) (1.0 / cast {to=Double} SeqLen)
+      logitsR = primReshape2d {d=ExampleDevice} predV.tensorPtr sI vsI
+      logProbs = primLogSoftmax2d {d=ExampleDevice} logitsR
+      tgtsR = primReshape2d {d=ExampleDevice} targetV.tensorPtr sI vsI
+      product = primMul {d=ExampleDevice} logProbs tgtsR
+      totalSum = primSum {d=ExampleDevice} product
+      loss = primMulScalar {d=ExampleDevice} (primNeg {d=ExampleDevice} totalSum) (1.0 / cast {to=Double} SeqLen)
   in MkTensor loss Nothing)
 
 
@@ -203,9 +203,9 @@ generateText model seed genLen temperature = do
     sampleAt outT pos =
       let vsI = cast {to=Int} VocabSize
           sI = cast {to=Int} SeqLen
-          logitsR = prim__reshape2d outT sI vsI
+          logitsR = primReshape2d {d=ExampleDevice} outT sI vsI
           posI = cast {to=Int} (natToInteger pos)
-      in map (\j => exp (prim__item2d logitsR posI (cast j) / temperature))
+      in map (\j => exp (primItem2d {d=ExampleDevice} logitsR posI (cast j) / temperature))
              vocabIdxs
 
     argmax : List Double -> Int
@@ -219,7 +219,7 @@ generateText model seed genLen temperature = do
     go _ _ Z acc = pure (reverse acc)
     go m ctx (S k) acc = do
       let sI = cast {to=Int} SeqLen
-          inT = prim__create1d sI (packDoubleBuf (prim__allocDoubles sI) 0 ctx) 0
+          inT = primCreate1d {d=ExampleDevice} sI (packDoubleBuf (prim__allocDoubles sI) 0 ctx) 0
           inV = the (TVec InputDim ExampleDevice ExampleDType WithGrad) (MkTensor inT Nothing)
       (_, predV) <- forwardVar m inV
       let unnorm = sampleAt predV.tensorPtr (minus SeqLen 1)
@@ -246,14 +246,14 @@ evalBPC model corpus corpusLen nSamples = go nSamples 0.0
           targetToks = Data.List.take SeqLen (drop 1 window)
           sI = cast {to=Int} SeqLen
           vI = cast {to=Int} VocabSize
-          inT = prim__create1d sI (packDoubleBuf (prim__allocDoubles sI) 0 inputToks) 0
+          inT = primCreate1d {d=ExampleDevice} sI (packDoubleBuf (prim__allocDoubles sI) 0 inputToks) 0
           tgtIdxBuf = packIntBuf (prim__allocInts sI) 0 targetToks
-          tgtT = prim__oneHot tgtIdxBuf sI vI
+          tgtT = primOneHot {d=ExampleDevice} tgtIdxBuf sI vI
           inV = the (TVec InputDim ExampleDevice ExampleDType WithGrad) (MkTensor inT Nothing)
           tgtV = the (TVec OutputDim ExampleDevice ExampleDType WithGrad) (MkTensor tgtT Nothing)
       (_, predV) <- forwardVar model inV
       lossT <- allPositionsCELoss predV tgtV
-      pure (prim__item lossT.tensorPtr / log 2.0)
+      pure (primItem {d=ExampleDevice} lossT.tensorPtr / log 2.0)
 
     go : Nat -> Double -> IO Double
     go Z acc = pure acc
