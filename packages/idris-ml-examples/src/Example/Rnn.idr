@@ -7,6 +7,7 @@ import System.Clock
 import Compat.Random
 
 import Backprop
+import Checkpoint
 import DataPoint
 import Device
 import Generate
@@ -26,15 +27,22 @@ record Config where
   epochs : Nat
   patience : Nat
   seed : Bits64
+  checkpointDir : String
+  checkpointEvery : Nat
 
 defaultConfig : Config
-defaultConfig = MkConfig 0.5 2000 500 42
+defaultConfig = MkConfig 0.5 2000 500 42 "" 200
 
 specs : List (ArgSpec Config)
 specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
         , Arg "--epochs" (\v, c => { epochs := castNat v } c)
         , Arg "--patience" (\v, c => { patience := castNat v } c)
         , Arg "--seed" (\v, c => { seed := castBits64 v } c)
+        -- Checkpointing: save to / auto-resume from DIR. `--resume` is an
+        -- alias for `--checkpoint-dir` (resumes if DIR/last.* is present).
+        , Arg "--checkpoint-dir" (\v, c => { checkpointDir := v } c)
+        , Arg "--resume" (\v, c => { checkpointDir := v } c)
+        , Arg "--checkpoint-every" (\v, c => { checkpointEvery := castNat v } c)
         ]
 
 %default partial
@@ -58,10 +66,17 @@ main = do
       model = rnnAny ~~> OutputLayer llAny
   putStrLn ""
 
+  let trainCfgBase = patienceConfig cfg.epochs cfg.patience
+      trainCfg = case cfg.checkpointDir of
+                   "" => trainCfgBase
+                   dir => withCheckpoint
+                            (fileCheckpoint dir cfg.checkpointEvery True opt)
+                            trainCfgBase
+
   (trained, epochsDone, finalLoss) <- runTraining {d=ExampleDevice}
     (\m, d => epochRecurrentVar opt d tbceLoss m)
     (pure (patternData 8))
-    (patienceConfig cfg.epochs cfg.patience)
+    trainCfg
     model
 
   putStrLn ""
