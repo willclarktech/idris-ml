@@ -210,12 +210,42 @@ Drain triggers:
 - **Unit tests** (`Test.ManagedHandle`): `forceMajorGc` +
   `drainManagedHandles` verify the pattern works in isolation.
 
-No mid-block drain trampoline is currently wired. Phase 5'
-investigated this and found the existing drain points keep memory
-bounded at ~49MB on the long mlx eval workloads (`ntm-copy`,
-`ntm-associative-recall`, `mountain-car-cont`) that originally
-motivated the lifecycle work. See `tensor-lifecycle-plan.md`
-Phase 5' status for the decision rationale.
+## Generation-scoped free (the drain alone was not enough)
+
+The drain-on-`withNoGrad`-exit was originally validated against **RSS**,
+which stayed flat at ~49MB on the long mlx eval workloads — and that was
+the bug. mlx no-grad tensors are tiny (scalars / short vectors), so RSS
+barely moves while the **live MTLBuffer / handle count** climbs without
+bound (>130k on `ntm-copy`). Each tensor still pins a paravirtualised-Metal
+buffer, and that allocator has a per-process buffer-count ceiling
+independent of bytes. The drain frees *nothing* in these loops: the wraps
+stay reachable from live Idris bindings, so Chez's GC never hands them to
+the guardian. **Always watch the handle count, not RSS** — it's now logged
+as `handles=` / `Peak handles` next to RSS (`tensor_live_count` /
+`tensor_peak_live_count`).
+
+The fix is a **generation-scoped free**, not GC-driven. Each Tensor carries
+a monotonic `create_id` (mlx). A "generation" brackets a region:
+`begin` records the current `create_id`; `end` deletes every wrap-only
+(`refcount == 1`) Tensor created since — block-local intermediates whose
+results were extracted to scalars (or retained to `rc>=2`). Registry params
+(`rc>1`) and pre-generation state (lower `create_id`) are spared. This
+sidesteps the GC entirely. Three brackets, coarsest to finest:
+
+- **`withNoGrad` exit** (`tensor_no_grad_end`) — frees the no-grad block's
+  intermediates. Bounds eval loops (NTM/DNC/Mnist/RL eval). The result must
+  hold no live block tensors; if it does, use `withNoGradKeep` (+ a
+  `KeepAlive` instance) to retain them past the sweep.
+- **per-epoch** (`tensor_epoch_begin/end`, wired in `runTrainingIO`) —
+  frees a training epoch's grad intermediates. Bounds gradual training
+  growth (mlx supervised: 14102 → 54 peak handles; bit-identical loss).
+- **per-step** (`withGenFree`, a grad-mode bracket, nestable inside the
+  per-epoch one via a marker stack) — for heavy RL whose *single* epoch
+  exceeds the ceiling (DQN replay step, PPO rollout/minibatch).
+  mountain-car 106k → 1007; ppo 106k → 3064.
+
+tape/torch have no buffer ceiling, so `tensor_epoch_begin/end` are no-ops
+there and behaviour is bit-identical; the mechanism is mlx-only.
 
 ## Discipline for new FFIs
 
