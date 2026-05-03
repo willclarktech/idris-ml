@@ -99,6 +99,7 @@ static inline TensorHandle from_tensor_persistent(at::Tensor t) {
 }
 
 static void free_intermediates(); // defined after param_registry
+static TensorHandle make_param_leaf(double* data, c10::IntArrayRef dims, torch::ScalarType dt); // defined near the F32 param creators
 
 /* ---------- Lifecycle ---------- */
 
@@ -589,9 +590,7 @@ TensorHandle tensor_max_pool1d(TensorHandle hinput, int kL, int stride) {
 }
 
 TensorHandle tensor_create_param_3d(int d0, int d1, int d2, double* data) {
-    auto t = torch::from_blob(data, {(int64_t)d0, (int64_t)d1, (int64_t)d2}, torch::kFloat64).clone();
-    t.requires_grad_(true);
-    return from_tensor_persistent(std::move(t));
+    return make_param_leaf(data, {(int64_t)d0, (int64_t)d1, (int64_t)d2}, torch::kFloat64);
 }
 
 TensorHandle tensor_conv2d(TensorHandle hinput, TensorHandle hkernel,
@@ -1134,21 +1133,15 @@ TensorHandle* tensor_unbatch(TensorHandle h, int* out_count) {
 /* ---------- Tensor-level parameter creation ---------- */
 
 TensorHandle tensor_create_param_2d(int rows, int cols, double* data) {
-    auto t = torch::from_blob(data, {(int64_t)rows, (int64_t)cols}, torch::kFloat64).clone();
-    t.requires_grad_(true);
-    return from_tensor_persistent(std::move(t));
+    return make_param_leaf(data, {(int64_t)rows, (int64_t)cols}, torch::kFloat64);
 }
 
 TensorHandle tensor_create_param_4d(int d0, int d1, int d2, int d3, double* data) {
-    auto t = torch::from_blob(data, {(int64_t)d0, (int64_t)d1, (int64_t)d2, (int64_t)d3}, torch::kFloat64).clone();
-    t.requires_grad_(true);
-    return from_tensor_persistent(std::move(t));
+    return make_param_leaf(data, {(int64_t)d0, (int64_t)d1, (int64_t)d2, (int64_t)d3}, torch::kFloat64);
 }
 
 TensorHandle tensor_create_param_1d(int n, double* data) {
-    auto t = torch::from_blob(data, {(int64_t)n}, torch::kFloat64).clone();
-    t.requires_grad_(true);
-    return from_tensor_persistent(std::move(t));
+    return make_param_leaf(data, {(int64_t)n}, torch::kFloat64);
 }
 
 TensorHandle tensor_create_state_2d(int rows, int cols, double* data) {
@@ -1186,6 +1179,15 @@ static TensorHandle make_param_leaf(double* data, c10::IntArrayRef dims, torch::
     auto t = torch::from_blob(data, dims, torch::kFloat64).clone();
     if (dt != torch::kFloat64) t = t.to(dt);
     t.requires_grad_(true);
+    // A parameter must be an autograd leaf or its .grad never populates and
+    // the optimizer silently no-ops (frozen training, no error). This fires
+    // immediately at the construction site if a future change reorders the
+    // cast/move after requires_grad_ on any backend build. See gotchas.md
+    // "A parameter must be cast/moved before requires_grad_".
+    TORCH_CHECK(t.is_leaf(),
+        "parameter tensor is not an autograd leaf: cast/move (.to(dtype/device)) "
+        "must precede requires_grad_, otherwise .grad never populates and the "
+        "optimizer silently freezes training");
     return from_tensor_persistent(std::move(t));
 }
 

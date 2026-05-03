@@ -837,6 +837,34 @@ the harness auto-downcasts to F32 via the `get_dtype()` switch in
 `torch_ref/training/runner.py`. F64 lanes (CPU / CUDA) keep their
 historical precision.
 
+### A parameter must be cast/moved *before* `requires_grad_`, or it's a non-leaf and never trains
+
+`.to(dtype)` (and `.to(device)`) applied to a tensor that already has
+`requires_grad=true` is a legitimate *differentiable* op — the result
+carries a `grad_fn` (`ToCopyBackward`) and is therefore a **non-leaf**.
+A non-leaf's `.grad` is never populated during `backward()`, so the
+native optimizer (which reads `param.grad()` out of the registry) sees
+a zero gradient and silently no-ops. Training freezes at the init loss
+— no error, no warning beyond a one-line "accessing .grad of a non-leaf"
+notice that floods stderr.
+
+This bit the F32 param creators: they built an F64 leaf
+(`requires_grad_(true)`) and *then* cast to F32 (`torch_cast_to`),
+yielding a non-leaf F32 param. The F64 path set `requires_grad` on the
+un-cast leaf, so F64 (tape / torch-cpu / CUDA) was unaffected; only the
+F32 lanes (torch-mps) froze. Diagnosed 2026-05-20 via the
+`example-supervised` torch-mps plateau, and it was *also* the true
+cause of the "NTM Abort trap 6" crash the TODO had filed as an "MPS
+kernel coverage gap" — with non-leaf params the MPS backward/optimizer
+path aborts rather than no-ops.
+
+**Rule (mirrors PyTorch's own `nn.Parameter`)**: a parameter is a leaf,
+so finalize its dtype and device on the plain data *first*, then flip on
+`requires_grad` last — `Parameter(data.to(dtype).to(device),
+requires_grad=True)`. The C helper `make_param_leaf` enforces
+cast-before-grad. Don't prohibit casting grad tensors in general (mixed
+precision relies on it); the invariant is specific to leaf construction.
+
 ### `torch.multinomial` has no MPS kernel
 
 `torch.multinomial` calls into a CPU-only kernel for MPS tensors.
