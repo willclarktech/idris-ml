@@ -24,6 +24,7 @@ import Layer.Core
 import Layer.Transformer
 import Math
 import Array
+import Checkpoint
 import Train
 import Util
 import Device
@@ -143,16 +144,21 @@ record Config where
   patience : Nat
   seed : Bits64
   lrFind : Bool
+  checkpointDir : String
+  checkpointEvery : Nat
 
 defaultConfig : Config
-defaultConfig = MkConfig 0.001 1000 300 42 False
+defaultConfig = MkConfig 0.001 1000 300 42 False "" 50
 
 specs : List (ArgSpec Config)
 specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
         , Arg "--epochs" (\v, c => { epochs := castNat v } c)
         , Arg "--patience" (\v, c => { patience := castNat v } c)
         , Arg "--seed" (\v, c => { seed := castBits64 v } c)
-        , Arg "--lr-find" (\v, c => { lrFind := (v == "1" || v == "true") } c) ]
+        , Arg "--lr-find" (\v, c => { lrFind := (v == "1" || v == "true") } c)
+        , Arg "--checkpoint-dir" (\v, c => { checkpointDir := v } c)
+        , Arg "--resume" (\v, c => { checkpointDir := v } c)
+        , Arg "--checkpoint-every" (\v, c => { checkpointEvery := castNat v } c) ]
 
 
 ----------------------------------------------------------------------
@@ -204,7 +210,12 @@ main = do
             totalPositions = BatchSize * (SeqLen `minus` InputLen)
         pure [("sort_acc", show totalCorrect ++ "/" ++ show totalPositions)]
 
-  let trainCfg = mkTrainConfig cfg.epochs 100 (Patience cfg.patience 0.001) evalMetrics (\_ => pure ())
+  let trainCfgBase = mkTrainConfig cfg.epochs 100 (Patience cfg.patience 0.001) evalMetrics (\_ => pure ())
+      trainCfg = case cfg.checkpointDir of
+                   "" => trainCfgBase
+                   dir => withCheckpoint
+                            (fileCheckpoint dir cfg.checkpointEvery True opt)
+                            trainCfgBase
 
   when cfg.lrFind $ do
     let lrCfg : LrFindConfig

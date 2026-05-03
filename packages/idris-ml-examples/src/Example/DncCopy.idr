@@ -14,6 +14,7 @@ import System.Clock
 import Compat.Random
 
 import Backprop
+import Checkpoint
 import DataPoint
 import Floating
 import Generate
@@ -99,9 +100,11 @@ record Config where
   maxLen : Nat
   batch : Nat
   lrFind : Bool
+  checkpointDir : String
+  checkpointEvery : Nat
 
 defaultConfig : Config
-defaultConfig = MkConfig 0.0001 10.0 0.95 1.0e-8 0.9 50000 0.01 1000 3 42 1 10 1 False
+defaultConfig = MkConfig 0.0001 10.0 0.95 1.0e-8 0.9 50000 0.01 1000 3 42 1 10 1 False "" 1000
 
 specs : List (ArgSpec Config)
 specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
@@ -117,7 +120,10 @@ specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
         , Arg "--min-len" (\v, c => { minLen := castNat v } c)
         , Arg "--max-len" (\v, c => { maxLen := castNat v } c)
         , Arg "--batch" (\v, c => { batch := castNat v } c)
-        , Arg "--lr-find" (\v, c => { lrFind := (v == "1" || v == "true") } c) ]
+        , Arg "--lr-find" (\v, c => { lrFind := (v == "1" || v == "true") } c)
+        , Arg "--checkpoint-dir" (\v, c => { checkpointDir := v } c)
+        , Arg "--resume" (\v, c => { checkpointDir := v } c)
+        , Arg "--checkpoint-every" (\v, c => { checkpointEvery := castNat v } c) ]
 
 
 ----------------------------------------------------------------------
@@ -171,9 +177,14 @@ main = do
     putStrLn "Done — re-run without --lr-find at the recommended LR."
     exitSuccess
 
-  let trainCfg = mkTrainConfig cfg.epochs 100
+  let trainCfgBase = mkTrainConfig cfg.epochs 100
                    (WindowedPercentile 0.10 cfg.esThreshold cfg.esWindow cfg.esPatience)
                    evalMetrics (\_ => pure ())
+      trainCfg = case cfg.checkpointDir of
+                   "" => trainCfgBase
+                   dir => withCheckpoint
+                            (fileCheckpoint dir cfg.checkpointEvery True opt)
+                            trainCfgBase
 
   (trained, epochsDone, _) <- runTraining {d=ExampleDevice}
     (\m, d => epochTwoPhaseVar opt d tbceLoss m) genBatch trainCfg model
