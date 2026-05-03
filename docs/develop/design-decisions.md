@@ -885,6 +885,28 @@ missing `Compatible (MlxDev MGpu) F64` instance is what makes
 dropped float64 support in mlx 0.31, and our `Compatible` table makes
 the constraint compile-time.
 
+**Inference-only dtype scaffolding on torch (2026-05-22).** Beyond
+F32/F64, the torch backend now has a runtime path for `BF16`, `F16`,
+`I8`/`I16`/`I32`/`I64`, `U8`, and `Bool` (`RuntimeDType` tags 2–9,
+`Compatible (TorchDev TCpu)` + `(TCuda n)` — MPS excluded as its
+reduced-precision/int support is version-dependent and untestable here).
+Scope is deliberately the **lean non-grad set** — create
+(scalar/Nd/1d/2d) + `cast` — wired via per-dtype C symbols
+(`tensor_create_*_<dt>_streamed`, e.g. `_bf16_`) following the existing
+`_f32`/`_f64` per-symbol convention; each dtype-streamed Scheme wrapper
+dispatches a 10-way `cond` on the dtag. The grad `param_*`/`state_*`
+create paths stay F32/F64 — torch rejects autograd on integer/bool, and
+reduced-precision *training* (BF16/F16 backward + autocast/GradScaler)
+is its own deferred row. This unblocks loading pretrained (BF16) weights
+for inference; it is not a training feature. Tape dtype parity and the
+all-backend tag-dispatch unification are separate Medium rows.
+
+Also fixed in the same effort: torch's `tensor_one_hot` /
+`tensor_causal_mask` emitted `kFloat64` regardless of the active dtype,
+which promoted an F32 computation to F64 (and would break torch-MPS,
+which rejects F64). They now emit F32 (mirroring mlx's `mx_from_doubles`)
+— bit-identical for F64 examples since 0/1 values are exact in F32.
+
 Full design memo and decision log: `docs/develop/dtype-parameter.md`.
 
 **Why a kind alias rather than a real sub-type (same answer as for
