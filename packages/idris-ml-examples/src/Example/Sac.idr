@@ -371,8 +371,8 @@ sacStep q1Opt q2Opt actorOpt cfg st = do
                  Nothing => pure ()
                  Just batch => do
                    runBatchUpdate q1Opt q2Opt actorOpt st cfg batch
-                   _ <- polyakUpdate cfg.tau "q1_" "q1tgt_"
-                   _ <- polyakUpdate cfg.tau "q2_" "q2tgt_"
+                   _ <- polyakUpdate {d=ExampleDevice} cfg.tau "q1_" "q1tgt_"
+                   _ <- polyakUpdate {d=ExampleDevice} cfg.tau "q2_" "q2tgt_"
                    pure ()
              else pure ()
 
@@ -427,8 +427,8 @@ main = do
   logStdV <- the (IO (Tensor [] ExampleDevice ExampleDType WithGrad)) (tparamScalar "actor_log_std" 0.0)
 
   -- Hard-copy online → target at init.
-  _ <- polyakUpdate 1.0 "q1_" "q1tgt_"
-  _ <- polyakUpdate 1.0 "q2_" "q2tgt_"
+  _ <- polyakUpdate {d=ExampleDevice} 1.0 "q1_" "q1tgt_"
+  _ <- polyakUpdate {d=ExampleDevice} 1.0 "q2_" "q2tgt_"
 
   buffer <- mkBuffer {obsDim=ObsDim, actDim=ActDim} cfg.bufferCap
   stepRef <- newIORef (the Nat 0)

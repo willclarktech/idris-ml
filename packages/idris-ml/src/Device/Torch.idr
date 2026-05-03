@@ -437,6 +437,8 @@ prim__createParam3dTorch : Int -> Int -> Int -> AnyPtr -> AnyPtr
 prim__createState1dTorch : Int -> AnyPtr -> AnyPtr
 %foreign "scheme:(lambda (a0 a1 a2) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_state_2d_torch\" (int int void*) void*) a0 a1 a2))) (let ((wr (vector 'tensor-handle-v2 \"torch\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle_torch\" (void*) void) raw_r) wr)))"
 prim__createState2dTorch : Int -> Int -> AnyPtr -> AnyPtr
+%foreign "C:polyak_blend_torch,libidrisml"
+prim__polyakBlendTorch : Double -> String -> String -> PrimIO Int
 
 
 public export
@@ -463,6 +465,7 @@ public export
     prim__toDeviceTorch (prim__createState1dTorch n dat) (torchHwDevName d)
   primCreateState2d r c dat     =
     prim__toDeviceTorch (prim__createState2dTorch r c dat) (torchHwDevName d)
+  primPolyakBlend          = prim__polyakBlendTorch
 
 
 ----------------------------------------------------------------------

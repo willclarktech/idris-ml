@@ -283,6 +283,14 @@ interface UserDeviceConv d => UserDeviceTape (0 d : Device) where
   -- Param registry (optimizer-side) --------------------------------
   primParamRegister     : String -> AnyPtr -> AnyPtr
 
+  ||| Polyak / EMA blend across the registry: for every pair of
+  ||| params whose paramIds share the (onlineScope, targetScope)
+  ||| pair (`<onlineScope><suffix>` and `<targetScope><suffix>`),
+  ||| set target ← (1 - τ)·target + τ·online. Per-backend because
+  ||| the registry is per-backend. Returns the count of pairs
+  ||| updated.
+  primPolyakBlend       : Double -> String -> String -> PrimIO Int
+
   -- Param + state creation -----------------------------------------
   primCreateParam1d     : Int -> AnyPtr -> AnyPtr
   primCreateParam2d     : Int -> Int -> AnyPtr -> AnyPtr

@@ -451,6 +451,8 @@ prim__createParam3dMlxStreamed : Int -> Int -> Int -> AnyPtr -> Int -> AnyPtr
 prim__createState1dMlxStreamed : Int -> AnyPtr -> Int -> AnyPtr
 %foreign "scheme:(lambda (a0 a1 a2 a3) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_state_2d_mlx_streamed\" (int int void* int) void*) a0 a1 a2 a3))) (let ((wr (vector 'tensor-handle-v2 \"mlx\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle_mlx\" (void*) void) raw_r) wr)))"
 prim__createState2dMlxStreamed : Int -> Int -> AnyPtr -> Int -> AnyPtr
+%foreign "C:polyak_blend_mlx,libidrisml"
+prim__polyakBlendMlx : Double -> String -> String -> PrimIO Int
 
 
 public export
@@ -469,6 +471,7 @@ public export
   primCreateParam3d a b c d = prim__createParam3dMlxStreamed a b c d (streamTag s)
   primCreateState1d a b = prim__createState1dMlxStreamed a b (streamTag s)
   primCreateState2d a b c = prim__createState2dMlxStreamed a b c (streamTag s)
+  primPolyakBlend          = prim__polyakBlendMlx
 
 
 ----------------------------------------------------------------------

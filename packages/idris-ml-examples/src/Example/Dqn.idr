@@ -220,7 +220,7 @@ runEpisode opt st0 = go st0 (MkCP 0 0 0 0) MaxSteps 0.0
 
           -- Hard-sync target ← online via polyak-blend with tau=1.0
           when ((stepCount + 1) `mod` st.cfgSyncEvery == 0) $ do
-            _ <- polyakUpdate 1.0 "online_" "target_"
+            _ <- polyakUpdate {d=ExampleDevice} 1.0 "online_" "target_"
             pure ()
 
           if isDone
@@ -307,7 +307,7 @@ main = do
   qNet0 <- mkQNet "online_"
   target0 <- mkQNet "target_"
   -- Initial hard sync: target ← online (tau=1.0).
-  _ <- polyakUpdate 1.0 "online_" "target_"
+  _ <- polyakUpdate {d=ExampleDevice} 1.0 "online_" "target_"
 
   buffer <- mkBuffer {obsDim = ObsDim, actDim = 1} cfg.bufferCap
   stepRef <- newIORef (the Nat 0)

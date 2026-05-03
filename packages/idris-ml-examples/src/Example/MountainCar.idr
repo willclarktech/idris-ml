@@ -223,7 +223,7 @@ runEpisode opt st0 = go st0 (MkMC (-0.5) 0.0) MaxSteps 0.0
           st' <- trainIfReady opt st
 
           when ((stepCount + 1) `mod` st.cfgSyncEvery == 0) $ do
-            _ <- polyakUpdate 1.0 "online_" "target_"
+            _ <- polyakUpdate {d=ExampleDevice} 1.0 "online_" "target_"
             pure ()
 
           if isDone
@@ -313,7 +313,7 @@ main = do
 
   qNet0 <- mkQNet "online_"
   target0 <- mkQNet "target_"
-  _ <- polyakUpdate 1.0 "online_" "target_"
+  _ <- polyakUpdate {d=ExampleDevice} 1.0 "online_" "target_"
 
   buffer <- mkBuffer {obsDim = ObsDim, actDim = 1} cfg.bufferCap
   stepRef <- newIORef (the Nat 0)

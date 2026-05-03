@@ -406,6 +406,8 @@ prim__createParam3dTape : Int -> Int -> Int -> AnyPtr -> AnyPtr
 prim__createState1dTape : Int -> AnyPtr -> AnyPtr
 %foreign "scheme:(lambda (a0 a1 a2) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_state_2d_tape\" (int int void*) void*) a0 a1 a2))) (let ((wr (vector 'tensor-handle-v2 \"tape\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle_tape\" (void*) void) raw_r) wr)))"
 prim__createState2dTape : Int -> Int -> AnyPtr -> AnyPtr
+%foreign "C:polyak_blend_tape,libidrisml"
+prim__polyakBlendTape : Double -> String -> String -> PrimIO Int
 
 
 public export
@@ -424,6 +426,7 @@ UserDeviceTape TapeDev where
   primCreateParam3d        = prim__createParam3dTape
   primCreateState1d        = prim__createState1dTape
   primCreateState2d        = prim__createState2dTape
+  primPolyakBlend          = prim__polyakBlendTape
 
 
 ----------------------------------------------------------------------

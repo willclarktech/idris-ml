@@ -809,20 +809,21 @@ prim__optimizerCreateAdam : Double -> Double -> Double -> Double -> AnyPtr
 export
 prim__optimizerCreateAdamGroup : Double -> Double -> Double -> Double -> String -> AnyPtr
 
-%foreign "C:polyak_blend,libidrisml"
-export
-prim__polyakBlend : Double -> String -> String -> PrimIO Int
-
 ||| Polyak soft update for twin-network param groups registered under
 ||| `onlineScope` vs `targetScope`: for each online param, finds the
 ||| matching target param (same suffix after scope prefix) and blends
 |||   target_data ← (1 − tau) · target_data + tau · online_data
 ||| in-place. Returns the number of param pairs blended. Used by SAC to
 ||| track target-Q networks.
+|||
+||| Per-backend: the registry storing the params lives in the backend
+||| TU, so dispatch via `primPolyakBlend` from the in-scope
+||| `UserDeviceTape d` instance.
 export
-polyakUpdate : (tau : Double) -> (onlineScope : String) -> (targetScope : String) -> IO Int
+polyakUpdate : UserDeviceTape d =>
+               (tau : Double) -> (onlineScope : String) -> (targetScope : String) -> IO Int
 polyakUpdate tau onlineScope targetScope =
-  primIO (prim__polyakBlend tau onlineScope targetScope)
+  primIO (primPolyakBlend {d} tau onlineScope targetScope)
 
 
 public export
