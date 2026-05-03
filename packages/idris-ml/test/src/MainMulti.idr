@@ -27,6 +27,7 @@ import Test.RL.ReplayBuffer
 import Test.Hpo.LrFinder
 import Test.ManagedHandle
 import Test.Transfer
+import Test.MultiDeviceRegistry
 
 main : IO ()
 main = runAll
@@ -41,4 +42,5 @@ main = runAll
   , ("Hpo.LrFinder",    Test.Hpo.LrFinder.tests)
   , ("ManagedHandle",   Test.ManagedHandle.tests)
   , ("Transfer",        Test.Transfer.tests)
+  , ("MultiDeviceRegistry", Test.MultiDeviceRegistry.tests)
   ]

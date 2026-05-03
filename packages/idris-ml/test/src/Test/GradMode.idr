@@ -17,11 +17,11 @@ import Layer
 
 weakenGradFlipsRequiresGrad : IO Bool
 weakenGradFlipsRequiresGrad = do
-  let ptr = prim__createScalar 1.0 1  -- rg=1 at construction
+  let ptr = primCreateScalar {d=TapeDev} 1.0 1  -- rg=1 at construction
   let t = the (Tensor (the (Vect 0 Nat) []) TapeDev F64 WithGrad) (MkTensor ptr Nothing)
-  let before = prim__requiresGrad t.tensorPtr
+  let before = primRequiresGrad {d=TapeDev} t.tensorPtr
   t' <- weakenGrad t
-  let after = prim__requiresGrad t'.tensorPtr
+  let after = primRequiresGrad {d=TapeDev} t'.tensorPtr
   check "weakenGrad: rg 1 -> 0" (before == 1 && after == 0)
 
 -- freezeNetwork + unfreezeNetwork round-trip on a parameter-free
