@@ -3,12 +3,10 @@
 /* */
 /* Injected via `-include` on backend_torch.cpp compile.
  * Renames each exported C symbol to `<sym>_torch` so all three
- * backends can co-exist linked into one libidrisml.(so|dylib). The
- * primary backend (first item in Makefile's BACKEND list) also gets
- * unified-name aliases via ld -alias_list / -Wl,--defsym so existing
- * Idris %foreign "C:tensor_add,libidrisml" declarations keep working
- * unchanged through Phase 1. Phase 2.x then peels each %foreign off
- * into a UserDevice instance method bound to the suffixed name. */
+ * backends can co-exist linked into one libidrisml.(so|dylib).
+ * Every Idris %foreign reaches these via the suffixed name from a
+ * per-instance UserDevice method; the former unified-name link-time
+ * alias machinery has been removed. */
 #ifndef IDRISML_RENAME_TORCH_H
 #define IDRISML_RENAME_TORCH_H
 

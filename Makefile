@@ -241,35 +241,21 @@ mlx_LDFLAGS_Linux :=
 # Final dylib path — one file, all listed backends in it, primary aliases.
 LIB := $(BUILD)/libidrisml.$(LIB_EXT)
 
-# Primary backend's rename header drives the alias step + shared-source
-# rename (shared sources are compiled per-primary because their callers
-# use unified names which only resolve to the primary's suffixed defs).
-BACKEND_RENAME_H := $(BACKENDS_DIR)/rename_$(PRIMARY).h
-
-# Primary-backend unified-name aliases. Built from the rename header
-# by extracting each `#define <unified> <suffixed>` pair and emitting
-# a linker alias. Lets Idris-side `%foreign "C:tensor_add,libidrisml"`
-# declarations keep working unchanged through Phase 1 even though the
-# defining C symbol is now suffixed. Also lets backend-agnostic shared
-# objects link against the unified names. Phase 2.x retires this alias
-# step as each %foreign moves into a per-instance UserDevice method
-# bound to the suffixed name directly.
+# Primary backend's rename header. Drives the shared-source rename:
+# `safetensors.c` and `mnist.c` are compiled once with this header so
+# their internal tensor calls resolve to the primary's suffixed defs
+# (and they export the primary's suffixed `param_save_<p>` /
+# `mnist_get_image_<p>` symbols, which the corresponding device
+# instance methods call). cJSON.c and shared_utils.c are pure-C with
+# no tensor surface, so they compile without it.
 #
-# NF==3 filter skips the rename header's include-guard `#define
-# IDRISML_RENAME_*_H` (NF=2) and any other single-arg defines.
-ifeq ($(UNAME), Darwin)
-  # macOS ld(1) takes a file of `<aliasee> <aliasname>` pairs, with
-  # leading underscores per the Mach-O symbol convention.
-  BACKEND_ALIAS_FILE := $(BUILD)/aliases_$(PRIMARY).macos.list
-  BACKEND_ALIAS_FLAGS := -Wl,-alias_list,$(BACKEND_ALIAS_FILE)
-else
-  # GNU ld takes `--defsym=<aliasname>=<aliasee>`; one flag per alias.
-  BACKEND_ALIAS_FILE :=
-  BACKEND_ALIAS_FLAGS := $(shell awk '/^\#define / && NF==3 { printf "-Wl,--defsym=%s=%s ", $$2, $$3 }' $(BACKEND_RENAME_H))
-endif
-
-$(BACKEND_ALIAS_FILE): $(BACKEND_RENAME_H) | $(BUILD)
-	@awk '/^\#define / && NF==3 { print "_"$$3" _"$$2 }' $< > $@
+# The former link-time unified-name alias machinery
+# (`-Wl,-alias_list` on macOS / `-Wl,--defsym=` on Linux) was deleted
+# once every Idris `%foreign` migrated off unified names into
+# per-instance `UserDevice*` methods bound to the suffixed symbols
+# directly. A repo-wide scan now finds zero unified-name references to
+# per-backend-renamed C symbols, so nothing needs the alias.
+BACKEND_RENAME_H := $(BACKENDS_DIR)/rename_$(PRIMARY).h
 
 # Per-backend object outputs.
 BACKEND_OBJS := $(foreach b,$(BACKEND_LIST),$(BUILD)/backend_$(b).o)
@@ -356,9 +342,10 @@ $(BUILDCONFIG_IDR): $(BUILDCONFIG_IN) $(BUILD)/.buildconfig-stamp
 	@echo "[BuildConfig] PRIMARY=$(PRIMARY) MLX_DEVICE=$(MLX_DEVICE) TORCH_DEVICE=$(TORCH_DEVICE) → $$(awk -F' = ' '/^ExampleDevice = / { print $$2; exit }' $@) / $$(awk -F' = ' '/^ExampleDType = / { print $$2; exit }' $@)"
 
 # Final link: all listed backends' .o + shared objects (primary's
-# suffix) + primary's unified-name aliases. One dylib, no symlink.
-$(LIB): $(BACKEND_OBJS) $(BACKEND_ALIAS_FILE) $(SHARED_OBJ) $(BUILD)/.backend-stamp | $(BUILD)
-	$(LINK_CC) -O2 -shared -o $@ $(BACKEND_OBJS) $(SHARED_OBJ) $(BACKEND_LDFLAGS) $(BACKEND_ALIAS_FLAGS)
+# suffix). One dylib, no symlink. Every symbol is reached by its
+# suffixed name from the per-instance UserDevice methods — no aliases.
+$(LIB): $(BACKEND_OBJS) $(SHARED_OBJ) $(BUILD)/.backend-stamp | $(BUILD)
+	$(LINK_CC) -O2 -shared -o $@ $(BACKEND_OBJS) $(SHARED_OBJ) $(BACKEND_LDFLAGS)
 
 # Download MNIST dataset
 dataset-mnist:
