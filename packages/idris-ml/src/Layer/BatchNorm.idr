@@ -46,7 +46,7 @@ data BatchNormState : (channels : Nat) -> (spatialDim : Nat) ->
 %default partial
 
 export
-applyBatchNorm : {0 d : Device} -> UserDeviceTape d => UserDeviceCore d => RuntimeDType dt => {channels, spatialDim : Nat} ->
+applyBatchNorm : {0 d : Device} -> UserDeviceTape d => UserDeviceCore d => RuntimeDType dt => Compatible d dt => {channels, spatialDim : Nat} ->
                    BatchNormState channels spatialDim
                      (channels * spatialDim)
                      (channels * spatialDim) d dt g ->
@@ -84,7 +84,7 @@ fillConst buf off n v =
 ||| Params register as `<prefix>_gamma` / `<prefix>_beta`; state
 ||| tensors are persistent C tensors (non-learnable).
 export
-batchNormLayer : UserDeviceTape d => RuntimeDType dt => {channels, spatialDim : Nat} ->
+batchNormLayer : UserDeviceTape d => RuntimeDType dt => Compatible d dt => {channels, spatialDim : Nat} ->
                    (paramPrefix : String) ->
                    IO (BatchNormState channels spatialDim
                          (channels * spatialDim)
@@ -147,7 +147,7 @@ public export
 
 ||| Wrap in `AnyLayer`.
 export
-batchNormLayerAny : UserDeviceTape d => RuntimeDType dt => {channels, spatialDim : Nat} ->
+batchNormLayerAny : UserDeviceTape d => RuntimeDType dt => Compatible d dt => {channels, spatialDim : Nat} ->
                       (paramPrefix : String) ->
                       IO (AnyLayer (channels * spatialDim) (channels * spatialDim) d dt WithGrad)
 batchNormLayerAny pid =

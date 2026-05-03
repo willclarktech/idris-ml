@@ -76,13 +76,13 @@ data NtmState :
 -- Idris-wrapped Tensor handle is alive; freed once both let go. Without
 -- this management the per-sequence state leaks unboundedly across eval-
 -- phase forwards on mlx (see docs/develop/tensor-lifecycle.md).
-zeroState1d : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => (n : Nat) -> AnyPtr
+zeroState1d : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => Compatible d dt => (n : Nat) -> AnyPtr
 zeroState1d n =
   let nI = cast {to=Int} n
       buf = prim__allocDoubles nI
   in dtCreateState1d {d} {t=dt} nI buf (deviceStreamTag {d})
 
-zeroState2d : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => (n, m : Nat) -> AnyPtr
+zeroState2d : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => Compatible d dt => (n, m : Nat) -> AnyPtr
 zeroState2d n m =
   let nI = cast {to=Int} n
       mI = cast {to=Int} m
@@ -137,7 +137,7 @@ ntmInterpWriteIdris {n} memT weightsT addVecT =
   in primAdd {d} kept writeAdd
 
 export
-applyNtm : {0 d : Device} -> UserDeviceTape d => UserDeviceCore d => RuntimeDType dt => {n, m, h, i, o : Nat} ->
+applyNtm : {0 d : Device} -> UserDeviceTape d => UserDeviceCore d => RuntimeDType dt => Compatible d dt => {n, m, h, i, o : Nat} ->
              NtmState n m h i o d dt g ->
              TVec i d dt g ->
              IO (NtmState n m h i o d dt g, TVec o d dt g)
@@ -218,7 +218,7 @@ applyNtm {n} {m} {h} {i} {o}
 ||| - initial read output:    `kaiming_uniform_((1, m))`, non-learnable,
 |||                           sampled once at construction
 export
-ntmLayer : UserDeviceTape d => RuntimeDType dt => {n, m, h, i, o : Nat} ->
+ntmLayer : UserDeviceTape d => RuntimeDType dt => Compatible d dt => {n, m, h, i, o : Nat} ->
              (paramPrefix : String) ->
              IO (NtmState n m h i o d dt WithGrad)
 ntmLayer pfx = do
@@ -316,7 +316,7 @@ public export
                 (map retypeGrad wa) (map retypeGrad ro))
 
 export
-ntmLayerAny : UserDeviceTape d => RuntimeDType dt => {n, m, h, i, o : Nat} ->
+ntmLayerAny : UserDeviceTape d => RuntimeDType dt => Compatible d dt => {n, m, h, i, o : Nat} ->
                 (paramPrefix : String) ->
                 IO (AnyLayer i o d dt WithGrad)
 ntmLayerAny pid =

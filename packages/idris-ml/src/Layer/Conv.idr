@@ -120,7 +120,7 @@ zeroBuf buf off n =
 
 ||| Build a Conv2D layer with He-normal kernel init and zero bias.
 export
-conv2dLayer : UserDeviceTape d => RuntimeDType dt => {inC, outC, h, w, kH, kW, padH, padW : Nat} ->
+conv2dLayer : UserDeviceTape d => RuntimeDType dt => Compatible d dt => {inC, outC, h, w, kH, kW, padH, padW : Nat} ->
                 (paramPrefix : String) ->
                 IO (Conv2DState inC outC h w kH kW padH padW
                                   (inC * (h * w))
@@ -164,7 +164,7 @@ public export
     pure (MkConv2D (retypeGrad k) (retypeGrad b))
 
 export
-conv2dLayerAny : UserDeviceTape d => RuntimeDType dt => {inC, outC, h, w, kH, kW, padH, padW : Nat} ->
+conv2dLayerAny : UserDeviceTape d => RuntimeDType dt => Compatible d dt => {inC, outC, h, w, kH, kW, padH, padW : Nat} ->
                    (paramPrefix : String) ->
                    IO (AnyLayer (inC * (h * w))
                                   (outC * (ConvOutDim h kH padH * ConvOutDim w kW padW))
@@ -207,7 +207,7 @@ applyConv1D {inC} {outC} {len} {kL} {pad} (MkConv1D ker bias) input =
   in MkTensor (primReshape1d {d} outT (cast {to=Int} outFlat)) Nothing
 
 export
-conv1dLayer : UserDeviceTape d => RuntimeDType dt => {inC, outC, len, kL, pad : Nat} ->
+conv1dLayer : UserDeviceTape d => RuntimeDType dt => Compatible d dt => {inC, outC, len, kL, pad : Nat} ->
                 (paramPrefix : String) ->
                 IO (Conv1DState inC outC len kL pad
                                   (inC * len)
@@ -249,7 +249,7 @@ public export
     pure (MkConv1D (retypeGrad k) (retypeGrad b))
 
 export
-conv1dLayerAny : UserDeviceTape d => RuntimeDType dt => {inC, outC, len, kL, pad : Nat} ->
+conv1dLayerAny : UserDeviceTape d => RuntimeDType dt => Compatible d dt => {inC, outC, len, kL, pad : Nat} ->
                    (paramPrefix : String) ->
                    IO (AnyLayer (inC * len) (outC * ConvOutDim len kL pad) d dt WithGrad)
 conv1dLayerAny pid =
