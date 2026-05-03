@@ -168,15 +168,30 @@ marker interface is the right shape; methods would be pure ceremony.
 
 ### Constraint on constructors, not every op
 
-`(Compatible d t, IsDType t) =>` goes on the ~15 smart constructors in
-`Tensor.idr` (`tparam1d`, `tparam2d`, `tinput*`, `tconstScalar`, etc.)
-and on `toDevice`'s destination. **Not** on every elementwise op.
+`Compatible d dt =>` rides the construction boundary: the `dtCreate*`
+family in `Tensor.idr` (the lowest-level `(d, dt) → handle` mint),
+every smart constructor that calls them (`tparam1d`, `tparam2d`,
+`tconstScalar`, `tparamScalar`, `tcast`/`tcastUnsafe`, `bulkToTensor`,
+etc.), every layer constructor (`linearLayer`, `lstmLayer`, …), and
+`toDevice`'s destination. **Not** on a plain elementwise op like
+`tadd` — once a `Tensor dims d dt g` exists, its type already carries
+`dt`; admissibility was checked when it was minted, and re-checking on
+every op would be redundant error-message noise.
 
-Reasoning: once a `Tensor dims d t g` exists, its type carries `t`.
-Every downstream op consumes that input type — admissibility was
-checked at the construction site. Putting `Compatible d t =>` on every
-op signature would be redundant noise in error messages and force
-constraint solving at every use site.
+One deliberate exception: the `LayerLike` forward path (`applyVar`,
+`applyVarBatch`, and therefore `applyVarAny` / `forwardVar` /
+`forwardVarBatch` / `forwardVarTraced`) also carries `Compatible d dt`.
+The recurrent cells (RNN/LSTM/GRU/NTM/DNC) lazily construct their
+initial zero state *inside* `applyVar` on the first step
+(`prevOut = Nothing ⇒ tzeroState1d`), so the dispatch surface mints a
+tensor and inherits the construction gate. The cell already proved
+`Compatible` when its parameters were built, so this never rejects a
+layer that constructed successfully — it just threads the same evidence
+through the forward call.
+
+Wired in 2026-05-21; before that, `Compatible` had instances but no
+constructor referenced it, so an unrepresentable `(device, dtype)`
+compiled and crashed at runtime.
 
 The error a user sees when they spell `Tensor [..] (MlxDev MGpu) F64`:
 
