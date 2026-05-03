@@ -198,6 +198,22 @@ jobs:
         # which silently no-ops" footgun.
         run: make check-gradmode-aliasing
 
+      # C backend FFI tests (test_backend.c) per available backend. These
+      # build their own backend + exercise the C autograd/optimizer/param
+      # surface directly — faster and more fundamental than the example
+      # sweep, so they run first. Per-OS: tape everywhere, torch on Ubuntu
+      # (libtorch installed via uv), mlx on macOS (MLX_SITE set above).
+      - name: Run C backend tests (tape)
+        run: make test-backend-tape
+
+      - name: Run C backend tests (torch, Ubuntu)
+        if: matrix.os == 'ubuntu-latest'
+        run: make test-backend-torch
+
+      - name: Run C backend tests (mlx, macOS)
+        if: matrix.os == 'macos-latest'
+        run: make test-backend-mlx
+
       - name: Run integration tests
         # No SKIP_EXAMPLES: the mlx allocator aborts that used to skip
         # ntm-copy / ntm-associative-recall / dnc-recall / mountain-car-cont
