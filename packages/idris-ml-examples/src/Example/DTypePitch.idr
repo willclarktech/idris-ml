@@ -1,6 +1,6 @@
-||| Demo: the two compile-time device capability gates.
+||| Demo: the three compile-time dtype/device capability gates.
 |||
-||| idris-ml has two orthogonal compile-time capabilities, each an empty
+||| idris-ml has three orthogonal compile-time capabilities, each an empty
 ||| marker interface with curated instances:
 |||
 |||   * `Compatible (0 d : Device) (0 t : DType)` — dtype admissibility.
@@ -15,6 +15,12 @@
 |||     instance, emitted by the generated `HwConfig`. A tape-only build
 |||     has no `Linked (MlxDev _)`, so naming an mlx device at a
 |||     constructor fails to typecheck. Build-dependent.
+|||
+|||   * `IsFloating (0 t : DType)` / `IsIntegral (0 t : DType)` — op-level
+|||     dtype-kind gates. Restriction at the *operation*, not just the
+|||     backend: a loss / gradient / softmax is real-valued, so the loss
+|||     fns and `runBackward`/`nativeTrainStep` carry `IsFloating dt =>`.
+|||     `Bool` is neither floating nor integral. Build-independent.
 |||
 ||| Real tensor constructors carry BOTH `Compatible d dt =>` and
 ||| `Linked d =>`, so this file isolates each axis with a witness that
@@ -88,6 +94,35 @@ okF32ToF64 = demoUpcast {from = F32} {to = F64}
 -- failF64ToF32 : () ; failF64ToF32 = demoUpcast {from = F64} {to = F32}  -- LTE 64 32
 
 
+-- Axis 3: op-level dtype-kind gates. Beyond *which dtypes a backend
+-- admits* (Compatible), some *operations* only make sense for a dtype
+-- kind: a gradient / loss / softmax is real-valued (`IsFloating`), an
+-- index is integral (`IsIntegral`). `Bool` is neither. These are
+-- build-independent (no device, no construction) — they constrain the
+-- dtype tag itself.
+
+floatingOK : IsFloating dt => ()
+floatingOK = ()
+
+integralOK : IsIntegral dt => ()
+integralOK = ()
+
+okFloatF32 : () ; okFloatF32 = floatingOK {dt = F32}
+okFloatF64 : () ; okFloatF64 = floatingOK {dt = F64}
+okFloatBF16 : () ; okFloatBF16 = floatingOK {dt = BF16}
+okIntI32 : () ; okIntI32 = integralOK {dt = I32}
+okIntU8  : () ; okIntU8  = integralOK {dt = U8}
+
+-- Uncomment any: "Can't find an implementation for IsFloating/IsIntegral …".
+-- This is the same rejection the gated ops enforce — the loss fns
+-- (`tnllLoss`/`tbceLoss`/`tmseLoss`) and the gradient surface
+-- (`runBackward`/`nativeTrainStep`) carry `IsFloating dt =>`, so a loss
+-- on, or backprop through, a `Bool`/`Int` tensor is a compile error.
+-- badFloatI32  : () ; badFloatI32  = floatingOK {dt = I32}   -- no IsFloating (IntN 32)
+-- badFloatBool : () ; badFloatBool = floatingOK {dt = Bool}  -- no IsFloating Bool
+-- badIntF32    : () ; badIntF32    = integralOK {dt = F32}   -- no IsIntegral (Float 32)
+
+
 main : IO ()
 main = do
   putStrLn "=== device capability gates ==="
@@ -95,6 +130,9 @@ main = do
   putStrLn "  TapeDev F64 | TorchDev {TCpu F64/F32, TMps F32} | MlxDev {MCpu F64/F32, MGpu F32}"
   putStrLn "  rejected: MlxDev MGpu F64 | TorchDev TMps F64"
   putStrLn "Linked (linkage) admits only this build's BACKEND."
+  putStrLn "IsFloating/IsIntegral (op kind) gate ops on the dtype tag:"
+  putStrLn "  floating: F32/F64/BF16/F16 | integral: I8/I16/I32/I64/U8 | Bool: neither"
+  putStrLn "  rejected: a loss / backprop on a Bool or Int tensor"
   putStrLn ""
   -- Real construction satisfies BOTH Compatible and Linked.
   v <- tconstScalar {d = ExampleDevice} {dt = ExampleDType} 42.0
