@@ -185,6 +185,8 @@ The only optimizer surface — `nativeSgd` / `nativeRmsprop` / `nativeAdamGlobal
 
 Backend-agnostic SafeTensors (`.safetensors`) via `Checkpoint` module: `saveModel` / `loadModel` / `saveOptimizer` / `loadOptimizer`. Python interop: PyTorch loads via `safetensors.torch.load_file()`, MLX via `mx.load()`.
 
+Training-loop integration: attach a `CheckpointPolicy` (built by `fileCheckpoint dir everyN keepBest opt`) to a `TrainConfig` via `withCheckpoint`. `runTrainingIO` then auto-saves every N epochs to `<dir>/last`, keeps the best to `<dir>/best`, resumes from `<dir>/last` if present, and reloads best at the end (return-best). Resume scalars (epoch, best metric) live in a `trainer_state.json` sidecar; safetensors stays the only on-disk format. Examples expose `--checkpoint-dir` / `--resume` / `--checkpoint-every` (gpt, transformer, ntm-copy, dnc-copy). See design-decisions.md "Training-loop checkpointing".
+
 ### Type-safety conventions
 
 The codebase has **zero `believe_me`** and **zero `unsafePerformIO`**. Keep it that way.

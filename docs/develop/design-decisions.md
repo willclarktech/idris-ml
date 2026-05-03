@@ -277,6 +277,58 @@ Training for a fixed number of epochs wastes compute when the model has already 
 
 The implementation uses a tail-recursive loop with `bestLoss` and `staleCount` accumulators rather than `foldl`, since `foldl` cannot short-circuit.
 
+## Training-loop checkpointing (auto-save / keep-best / resume)
+
+`runTrainingIO` integrates checkpointing through an optional
+`TrainConfig.checkpoint : Maybe CheckpointPolicy` (default `Nothing`,
+so existing call sites are unaffected). When set, the loop resumes from
+`<dir>/last` before the first epoch, periodically saves + keeps the best
+checkpoint after each non-NaN epoch, and reloads `<dir>/best` at the end
+so the returned model is the best seen, not the last (PyTorch Lightning
+semantics).
+
+Three decisions shaped the design:
+
+- **Single format + clean seam, no adapter abstraction.** Saves go
+  through the existing safetensors primitives only. safetensors is the
+  de-facto standard (HF Hub default, now under the PyTorch Foundation),
+  so a multi-format port/adapter would be speculative. The save/load
+  path is structured so a future format is a clean drop-in, but the
+  abstraction isn't built until a concrete need appears (filed as a Low
+  backlog row).
+
+- **Resume metadata in a `trainer_state.json` sidecar, written in pure
+  Idris — no C change.** The heavy state (params + optimizer m/v
+  buffers) already round-trips through `safetensors.c`; the only new
+  state is the scalar resume info (epoch + best metric), which rides in
+  an HF-Trainer-style sidecar written via `System.File`. This kept the
+  C ABI and `safetensors.c` untouched. (The safetensors `__metadata__`
+  free-form map was the alternative home but would have meant a C-side
+  change for marginal benefit.)
+
+- **`CheckpointPolicy` is model-agnostic.** It carries no `model` type
+  parameter; `monitor` is `Maybe (IO Double)` (an override closes over
+  its own eval state, the same idiom the `metrics` callback uses),
+  defaulting to the per-epoch training loss. An earlier
+  `monitor : Maybe (model -> IO Double)` added a second occurrence of
+  `model` to `TrainConfig`'s field types and broke `model` inference at
+  record-update call sites (e.g. Reinforce's `{ metrics := … }`).
+  Decoupling the policy from `model` removed that coupling entirely.
+
+`fileCheckpoint` builds the file-backed policy and closes over the
+`NativeOptimizer`. It needs only the optimizer, not the model value,
+because the C-side parameter registry is **global** — `saveModel`
+serializes the whole registry regardless of which model value is in
+scope. `loadModel` mutates the registry buffers in place, so a resumed /
+best-reloaded model's subsequent forward passes see the loaded weights
+with no refresh step.
+
+Out of scope (filed as follow-up backlog rows): bit-exact RNG-stream
+continuation (the sidecar stores the seed; resume re-seeds
+deterministically, so data order continues approximately, not
+bit-exactly) and loading *foreign* HuggingFace checkpoints (needs key
+remapping + bf16/f16 read).
+
 ## Composable weight initialization (Sampler + InitStrategy)
 
 Init methods define a target **variance** and the distribution shape is orthogonal. Previously these were conflated — `xavierInit` returned a uniform range limit, baking in both "Xavier variance formula" and "uniform distribution." The refactored design separates them into two composable pieces:
