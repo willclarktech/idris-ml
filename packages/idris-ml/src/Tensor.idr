@@ -126,6 +126,14 @@ prim__retainHandleC : AnyPtr -> PrimIO Int
 %foreign "scheme:(lambda (wr) (let ((tag (vector-ref wr 1)) (raw (vector-ref wr 2))) (let ((sym (if (string=? tag \"primary\") \"tensor_release_handle\" (string-append \"tensor_release_handle_\" tag)))) ((foreign-procedure sym (void*) void) raw))) 0)"
 prim__releaseHandleC : AnyPtr -> PrimIO Int
 
+-- EAFP availability gate: a device-pinned construction whose backend
+-- shim caught its own allocation/transfer exception returns a NULL raw
+-- handle (slot 2 of the wrap-v2 vector is the fixnum 0). This predicate
+-- reads slot 2 and reports null as 1, live as 0. The arg is threaded
+-- through so the Idris-Chez compiler can't CSE the call to a constant.
+%foreign "scheme:(lambda (wr) (if (eqv? (vector-ref wr 2) 0) 1 0))"
+prim__handleIsNull : AnyPtr -> Int
+
 ||| Bump the C-side refcount of a managed handle (by its wrap).
 export
 retainHandle : AnyPtr -> IO ()
@@ -917,6 +925,61 @@ toDevice d2 src =
     writeShape buf off (x :: xs) =
       let buf' = primSetIntHost {d = d2} buf off (cast {to=Int} x)
       in writeShape buf' (off + 1) xs
+
+-- EAFP availability gate (runtime hardware-presence half) ------------
+--
+-- See docs/develop/device-availability-gating.md. The compile-time
+-- `Linked` gate (Device.Core) settles "is this backend compiled in";
+-- this settles the genuinely-runtime question "is this *linked* device
+-- backed by real hardware right now" (e.g. cuda:1 on a 1-GPU box, MPS
+-- on a non-Apple host). We answer it the easier-to-ask-forgiveness way:
+-- attempt the construction; the backend's C shim wraps the alloc in
+-- try/catch and returns a NULL handle on its own exception; we lift
+-- NULL -> Left. One source of truth (the real allocation), no TOCTOU,
+-- no separate is_available probe to drift. Backends whose construction
+-- never fails (tape; mlx stream switch) simply never report Left.
+
+||| Why a device-pinned construction failed. Carries the device's
+||| human name (`deviceName {d}`) for diagnostics; the caller decides
+||| whether to skip (tests) or hard-fail with a clear message.
+public export
+data DeviceError : Type where
+  DeviceUnavailable : (device : String) -> DeviceError
+
+public export
+Show DeviceError where
+  show (DeviceUnavailable d) =
+    "device unavailable: \"" ++ d ++ "\" is linked but not backed by "
+      ++ "usable hardware on this host"
+
+||| Run a device-pinned construction action under EAFP semantics. If
+||| the backend's shim returned a NULL handle (it caught its own
+||| allocation/transfer exception), surface `Left (DeviceUnavailable
+||| (deviceName {d}))`; otherwise `Right` the tensor. This is the one
+||| primitive every checked constructor builds on — it composes with
+||| *any* existing `IO (Tensor ...)` producer (`tconstScalar`,
+||| `tparam2d`, `toDevice`, …) rather than duplicating each.
+export
+attemptOn : {0 d : Device} -> UserDeviceCore d =>
+            IO (Tensor dims d dt g) -> IO (Either DeviceError (Tensor dims d dt g))
+attemptOn act = do
+  t <- act
+  pure $ if prim__handleIsNull t.tensorPtr == 1
+           then Left (DeviceUnavailable (deviceName {d}))
+           else Right t
+
+||| `toDevice` under the EAFP gate: a move to an absent destination
+||| device surfaces as `Left DeviceError` instead of aborting deep in
+||| the backend. Wired to the same null-handle primitive as `attemptOn`.
+||| The destination construction (`primIntraMigrate` /
+||| `primCreateFromHost`) routes through the backend's guarded shim.
+export
+toDeviceChecked : {0 d1 : Type} -> (0 d2 : Type) ->
+                  UserDeviceTransfer d1 => UserDeviceTransfer d2 =>
+                  {rank : Nat} -> {dims : Vect rank Nat} ->
+                  Tensor dims d1 dt WithGrad ->
+                  IO (Either DeviceError (Tensor dims d2 dt WithGrad))
+toDeviceChecked d2 src = attemptOn {d = d2} (toDevice d2 src)
 
 ||| Mark a tensor as no-grad: flips the C-side `requires_grad` flag to
 ||| false and retypes the handle as `NoGrad`. After this, downstream
