@@ -1,8 +1,7 @@
 # Device availability gating — design exploration
 
-**Status: compile-time linkage half implemented (2026-05-21); runtime
-half settled but not built.** Tracks the TODO row "Env-driven
-hardware-availability gating for backends".
+**Status: both halves implemented (2026-05-21).** Tracks the TODO row
+"Env-driven hardware-availability gating for backends".
 
 - **Done — compile-time linkage gate.** The `Linked d` capability
   (`Device.Core`) is wired into the construction + forward path alongside
@@ -15,13 +14,34 @@ hardware-availability gating for backends".
   MlxStreamDemo) can no longer compile under a single-backend build, so
   they live outside the always-compiled examples ipkg and build only via
   their multi-backend targets.
-- **Settled, not built — runtime hardware-presence gate.** Decided as
-  **EAFP** (attempt construction, catch the backend's exception), not the
-  LBYL pre-probe an earlier draft proposed. See "The runtime gate is
-  EAFP, not LBYL" below. Needs: the C++ shim `try/catch` → null, an
-  `mkTensorOn : ... -> IO (Either DeviceError (Tensor ...))`, the
-  `DeviceError` / `SomeDevice` types, `hardwareClass`, and EAFP-based
-  `availableDevices`.
+- **Done — runtime hardware-presence gate (EAFP).** Attempt construction,
+  catch the backend's exception — not the LBYL pre-probe an earlier draft
+  proposed (see "The runtime gate is EAFP, not LBYL" below). Shipped:
+  - `tensor_to_device` in `backend_torch.cpp` now wraps `.to()` in
+    `try/catch`, returning a NULL handle on any backend exception. All
+    torch device-pinning (scalar/create/param/state/createFromHost/
+    intraMigrate) routes through this one shim, so the guard is
+    comprehensive. (tape/mlx `tensor_to_device` are `return t` — never
+    throw.)
+  - `prim__handleIsNull` (`Tensor.idr`) reads wrap-v2 slot 2; `DeviceError`
+    + `attemptOn : IO (Tensor ..) -> IO (Either DeviceError (Tensor ..))`
+    lift a null handle to `Left`. `attemptOn` composes with *any*
+    construction action, so there's no per-constructor duplication;
+    `toDeviceChecked` applies it to `toDevice`.
+  - `HardwareClass` + the opt-in `HardwareClassed` interface,
+    `SomeDevice` descriptor, and `someDevice` / `availableDevices` for
+    EAFP discovery (attempt a 1-element alloc per candidate, keep
+    survivors).
+  - On tape (and mlx stream switches) construction never fails, so the
+    gate degrades cleanly to "always `Right` / always available". The
+    null→`Left` path is exercised only on torch (CUDA/MPS absence); that
+    path is verified-by-construction here — the torch/mlx C++ can't be
+    compiled in this tape-only environment, so it relies on the CI lanes.
+- **Deferred follow-up.** A `HwConfig`-generated `builtinDevices : List
+  SomeDevice` (mirroring the generated `Linked` instances) so callers get
+  the build's candidate list for free; today the candidate list is
+  caller-supplied. `TCuda n` enumeration would bound candidates via a
+  native `cuda_device_count` before the EAFP attempts.
 
 ## Problem
 
@@ -78,11 +98,14 @@ References to an unavailable device fail to compile.
   `{n} -> Available (TorchDev (TCuda n))` (gates nothing) or a hardcoded
   bound. Also can't reflect a build moved to a different machine.
 
-**B — Runtime guard via IO smart constructor (EAFP).** Keep types open;
-route device-pinned construction through
-`mkTensorOn : ... -> IO (Either DeviceError (Tensor ...))` that *attempts*
-the construction and reports the backend's own failure as `Left`. No
-pre-probe — see "The runtime gate is EAFP, not LBYL" below for why.
+**B — Runtime guard via IO combinator (EAFP).** Keep types open; route
+device-pinned construction through
+`attemptOn : IO (Tensor ..) -> IO (Either DeviceError (Tensor ..))`
+(shipped name; the design draft called it `mkTensorOn`) that *attempts*
+the construction and reports the backend's own failure as `Left`. A
+combinator over the construction *action* composes with every existing
+smart constructor instead of duplicating each. No pre-probe — see "The
+runtime gate is EAFP, not LBYL" below for why.
 - Honest for runtime-discovered hardware; handles `TCuda` count cleanly.
 - Loses the "fails to compile" guarantee (that's the linkage half's job).
 
@@ -149,10 +172,20 @@ shared-hardware fact as runtime data instead:
 ```idris
 data HardwareClass = HostCpu | AppleGpu | Nvidia Nat | Other String
 
--- per-device method (open, so BYO backends map their own)
+-- per-device method on the opt-in `HardwareClassed` interface
+-- (open, so BYO backends map their own)
 hardwareClass : HardwareClass
 
-availableDevices : IO (List SomeDevice)   -- existential-wrapped tags
+-- shipped: a concrete discovery *descriptor*, not an existential tag.
+-- The (d, dt) is captured at `someDevice` construction (where a
+-- compatible dtype is known); the descriptor keeps only what discovery
+-- needs, so it's dtype-agnostic and existential-free.
+record SomeDevice where
+  deviceLabel : String          -- deviceName {d}
+  hwClass     : HardwareClass    -- hardwareClass {d}
+  probe       : IO Bool          -- attempt a 1-element alloc; True = usable
+
+availableDevices : List SomeDevice -> IO (List SomeDevice)
 -- Apple Silicon torch+mlx build → [TorchCpu, TorchMps, MlxCpu, MlxGpu]
 -- Linux torch-only, 2 GPUs       → [TorchCpu, TorchCuda 0, TorchCuda 1]
 ```
@@ -161,14 +194,23 @@ availableDevices : IO (List SomeDevice)   -- existential-wrapped tags
 both map to `AppleGpu`") for reporting, without ever letting their tensors
 meet. `Other String` (namespaced `user/<name>`) is the BYO escape hatch.
 
-`availableDevices` is itself built on the EAFP primitive: take the
-`Linked`-witnessed candidate list and, for each, *attempt* a tiny (1-element)
-allocation and keep the ones that don't throw. No separate `is_available`
-surface to maintain or drift — the same "attempt construction, catch the
-backend's exception" path that powers `mkTensorOn` powers discovery. (A
-backend may still expose a native fast-count like `cuda_device_count` purely
-as an optimisation to bound the candidate list before the attempts, but the
-*decision* always comes from a real allocation, never a standalone probe.)
+The descriptor form (vs an existential-wrapped device tag) was chosen
+deliberately: you can't mint more tensors from a `SomeDevice` — which is
+exactly what discovery wants, since use sites name the concrete device
+themselves. It also sidesteps the per-device dtype problem (MGpu/TMps are
+F32-only) by baking the right dtype into the `probe` at `someDevice`
+construction.
+
+`availableDevices` is itself built on the EAFP primitive: take a candidate
+list and, for each, *attempt* a tiny (1-element) allocation and keep the ones
+that don't throw. No separate `is_available` surface to maintain or drift —
+the same "attempt construction, catch the backend's exception" path that
+powers `attemptOn` powers discovery. The candidate list is caller-supplied
+today; a `HwConfig`-generated `builtinDevices` (mirroring the generated
+`Linked` instances) is the natural follow-up. (A backend may still expose a
+native fast-count like `cuda_device_count` purely as an optimisation to bound
+the candidate list before the attempts, but the *decision* always comes from
+a real allocation, never a standalone probe.)
 
 ## BYO backend story
 
@@ -200,10 +242,10 @@ instance to write and a witness to append.
   with the EAFP runtime gate it's a `Left DeviceError` the caller pattern-
   matches. Decide per call whether to skip (tests) or hard-fail with a clear
   message.
-- **(c) `toDevice` when the destination isn't on the host.** `toDevice`
-  already round-trips through host memory for cross-backend moves; the
-  destination construction (`primCreateFromHost` / `primIntraMigrate`) must
-  route through the same `try/catch` shim so a move to an absent device
-  surfaces as `Left DeviceError` instead of aborting. This means a gated
-  `toDevice` returns `IO (Either DeviceError (Tensor ...))` (or a partner
-  `toDeviceChecked`), wired to the same primitive as `mkTensorOn`.
+- **(c) `toDevice` when the destination isn't on the host.** *Resolved.*
+  `toDevice` round-trips through host memory for cross-backend moves; the
+  destination construction (`primCreateFromHost` / `primIntraMigrate`)
+  routes through torch's guarded `tensor_to_device` shim, so a move to an
+  absent device returns a NULL handle. `toDeviceChecked` wraps `toDevice`
+  in `attemptOn` and returns `IO (Either DeviceError (Tensor ...))`,
+  wired to the same `prim__handleIsNull` primitive as `attemptOn`.
