@@ -3185,7 +3185,26 @@ static void mlx_sweep_generation(long block_start) {
     std::vector<Tensor*> survivors;
     survivors.reserve(all_tensors.size());
     for (auto* t : all_tensors) {
-        if (t->refcount == 1 && t->create_id >= block_start) { delete t; continue; }
+        if (t->refcount == 1 && t->create_id >= block_start) {
+            // Wrap-only block-local intermediate. We must NOT `delete` it:
+            // rc==1 here is the Idris guardian wrap's own retain, and that
+            // wrap is still registered (un-drained — a drained wrap would
+            // have dropped this to rc==0). Its eventual drain calls
+            // tensor_release_handle on this exact pointer; freeing the
+            // object now makes that an unguarded `refcount--` on freed (and,
+            // under allocation churn, recycled) memory → malloc-freelist
+            // corruption (the intermittent F32 mlx-gpu SIGTRAP). Instead
+            // release the heavy mx::array buffers now — that reclaims the
+            // Metal MTLBuffer, which is the only thing the live-handle
+            // ceiling actually cares about — and keep the lightweight husk
+            // alive (its address pinned) until the wrap drains it to rc==0,
+            // when the branch below frees it safely.
+            t->data = mx::array(0.0f);
+            t->grad = mx::array(0.0f);
+            t->has_grad = false;
+            survivors.push_back(t);
+            continue;
+        }
         if (t->refcount > 0) survivors.push_back(t);
         else delete t;
     }

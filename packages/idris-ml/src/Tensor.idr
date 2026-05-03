@@ -59,8 +59,7 @@ import Util
 
 -- Self-init: creates the guardian and ensures libidrisml is loaded with
 -- RTLD_GLOBAL so subsequent `foreign-procedure` lookups for C symbols
--- (tensor_retain_handle, tensor_release_handle, mlx_set_gc_drain_callback)
--- succeed. The %foreign "C:..." declarations elsewhere in this file
+-- (tensor_retain_handle, tensor_release_handle) succeed. The %foreign "C:..." declarations elsewhere in this file
 -- also trigger libidrisml load on first call, but the wrapped-handle ABI
 -- shifts many FFIs to %foreign "scheme:..." with embedded
 -- foreign-procedure calls; loading the lib here removes the ordering
