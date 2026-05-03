@@ -934,3 +934,13 @@ This criterion replaces the looser "is it dead code?" framing the original audit
 
 **Revisit triggers**: if a future refactor moves the param registry to be per-backend (one MLX-side, one torch-side, etc. — would address the row 11 / row 16 architecture conversation), the methods that failed #1 above could come back. The dispatch criterion would still apply: re-add only the methods whose new per-backend implementations actually get called via the typeclass, not because "every backend should expose registry queries."
 
+### Device-availability gating: `Linked` (compile-time) + EAFP (runtime) (2026-05-21)
+
+Backend-scoping (`TapeDev` / `TorchDev d` / `MlxDev s`) says *which backend* a tensor lives on, but said nothing about *whether that backend is compiled in* or *whether the hardware exists*. A program could spell `TorchDev (TCuda 1)` on a CPU-only host, compile fine, then SIGABRT deep in libtorch. Closed in two gates, each placed where the fact actually lives (full rationale in [`device-availability-gating.md`](device-availability-gating.md)):
+
+1. **Linkage → compile-time.** `Linked d` is an empty capability marker (sibling to `Compatible (device, dtype)`), wired into the construction + forward path. Its instances are *not* hardcoded — the generated `HwConfig` module emits one per backend in `BACKEND`, so a tape-only build has no `Linked (MlxDev _)` and any constructor naming an mlx device fails to compile. Consequence: inherently-cross-backend modules (Transfer, MlxStreamDemo) can't compile under a single-backend build and live outside the always-compiled examples ipkg.
+
+2. **Hardware presence → runtime, EAFP not LBYL.** We answer "is this *linked* device backed by real hardware right now" by *attempting* the allocation and catching, not by a pre-probe. `tensor_to_device` (torch) wraps `.to()` in `try/catch` → NULL handle; `prim__handleIsNull` + `attemptOn` lift NULL → `Left DeviceError`. One source of truth (the real alloc), no TOCTOU, no `is_available` surface to drift. The fear that drove an earlier LBYL draft — "spelling `cuda:1` SIGABRTs" — was an *uncaught*, not *uncatchable*, exception; the guard makes it catchable. `HardwareClass` + `HardwareClassed` recover the cross-backend silicon commonality as runtime data (for grouping/reporting only — never unifying tensor types), and `availableDevices` runs the same EAFP probe over a candidate list.
+
+Both gates preserve the open-`d` property: a BYO backend self-declares `Linked MyDev`, gets EAFP gating for free if its construction throws on bad hardware, and maps `hardwareClass` to `Other "user/<name>"`.
+
