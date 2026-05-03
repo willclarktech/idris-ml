@@ -268,6 +268,16 @@ example-supervised: install
 	cp $(LIB) build/exec/supervised_app/
 	./build/exec/supervised $(SUPERVISED_ARGS)
 
+example-supervised-v2: install
+	idris2 $(IDRIS_FLAGS) -o supervised-v2 $(EXAMPLE_SRC)/Example/SupervisedV2.idr
+	cp $(LIB) build/exec/supervised-v2_app/
+	./build/exec/supervised-v2 $(SUPERVISED_V2_ARGS)
+
+example-bench-tvar: install
+	idris2 $(IDRIS_FLAGS) -o bench-tvar $(EXAMPLE_SRC)/Example/BenchTVar.idr
+	cp $(LIB) build/exec/bench-tvar_app/
+	./build/exec/bench-tvar $(BENCH_TVAR_ARGS)
+
 example-rnn: install
 	idris2 $(IDRIS_FLAGS) -o rnn $(EXAMPLE_SRC)/Example/Rnn.idr
 	cp $(LIB) build/exec/rnn_app/
@@ -787,7 +797,7 @@ all: check-all test-all
         test-backend-torch test-safetensors test-ntm-grad test-ntm-timestep \
         test-examples test-examples-convergence \
         check check-gym check-notebook check-examples install install-core install-gym install-notebook install-examples \
-        example-supervised example-rnn example-lstm example-gru \
+        example-supervised example-supervised-v2 example-rnn example-lstm example-gru \
         example-ntm-copy example-ntm-associative-recall example-dnc-copy example-dnc-recall \
         example-reinforce example-q-learning example-sarsa example-monte-carlo example-frozen-lake example-taxi \
         example-dqn example-mountain-car example-mountain-car-cont example-a2c example-ppo example-sac \

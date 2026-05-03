@@ -1460,3 +1460,138 @@ profileReset = primIO prim__profileResetC
 export
 profileReport : IO ()
 profileReport = primIO prim__profileReportC
+
+----------------------------------------------------------------------
+-- Path C P3-1 spike: rank-aware TVar
+----------------------------------------------------------------------
+--
+-- Today's `Variable d` is shape-erased and packed into the outer
+-- `Tensor dims (Variable d)` via Vect-of-Vect, scalarising at every
+-- op. `TVar dims d` lifts shape onto the Variable itself: one tensor
+-- handle per typed shape, no per-element packing.
+--
+-- `TVar []` is the scalar — distinguished from `TVar [n]` etc. by
+-- type. Loss naturally types as `TVar [] d`.
+--
+-- Keep `paramId`: the C-side optimizer registry is keyed on it.
+-- Drop the cached `value : Double` — read at the boundary via
+-- `tvarItem`.
+--
+-- Spike-only; lives in a parallel layer/example axis.
+
+public export
+record TVar (dims : Vect rank Nat) (0 d : Device) where
+  constructor MkTVar
+  tensorPtr : AnyPtr
+  paramId   : Maybe String
+
+-- Smart constructors --------------------------------------------------
+
+||| Create a registered learnable [o, i] parameter from a flat (row-major)
+||| double buffer. Mirrors Linear.nameLayer's tensor path.
+export
+tparam2d : {o, i : Nat} -> (paramId : String) -> AnyPtr -> TVar [o, i] d
+tparam2d {o} {i} pid buf =
+  let oI = cast {to=Int} o
+      iI = cast {to=Int} i
+      reg = prim__paramRegister pid (prim__createParam2d oI iI buf)
+  in MkTVar reg (Just pid)
+
+||| Create a registered learnable [n] parameter from a double buffer.
+export
+tparam1d : {n : Nat} -> (paramId : String) -> AnyPtr -> TVar [n] d
+tparam1d {n} pid buf =
+  let nI = cast {to=Int} n
+      reg = prim__paramRegister pid (prim__createParam1d nI buf)
+  in MkTVar reg (Just pid)
+
+||| Wrap an existing 1D tensor handle as a non-parameter input.
+export
+tinput1d : {n : Nat} -> AnyPtr -> TVar [n] d
+tinput1d t = MkTVar t Nothing
+
+||| Wrap an existing 2D tensor handle as a non-parameter input.
+export
+tinput2d : {m, n : Nat} -> AnyPtr -> TVar [m, n] d
+tinput2d t = MkTVar t Nothing
+
+-- Arithmetic / linear algebra (autograd-tracked) ----------------------
+
+||| Elementwise addition. Both operands share shape.
+export
+tadd : TVar dims d -> TVar dims d -> TVar dims d
+tadd a b = MkTVar (prim__add a.tensorPtr b.tensorPtr) Nothing
+
+||| Matrix-vector multiply: [m, n] · [n] -> [m].
+export
+tmv : TVar [m, n] d -> TVar [n] d -> TVar [m] d
+tmv w x = MkTVar (prim__mv w.tensorPtr x.tensorPtr) Nothing
+
+||| Fused batched linear: W[o,i] · X^T[b,i] + bias[o] -> [b, o].
+export
+tlinear2d : TVar [o, i] d -> TVar [b, i] d -> TVar [o] d -> TVar [b, o] d
+tlinear2d w x bias =
+  MkTVar (prim__linear2d w.tensorPtr x.tensorPtr bias.tensorPtr) Nothing
+
+-- Activations (shape-preserving, pass-through autograd) ---------------
+
+export
+ttanh : TVar dims d -> TVar dims d
+ttanh v = MkTVar (prim__tanh v.tensorPtr) Nothing
+
+export
+tsigmoid : TVar dims d -> TVar dims d
+tsigmoid v = MkTVar (prim__sigmoid v.tensorPtr) Nothing
+
+-- Bridges + scalar boundary -------------------------------------------
+
+||| Bridge a scalar `Variable d` to `TVar [] d`. Discards cached value.
+export
+tvarFromScalar : Variable d -> TVar [] d
+tvarFromScalar v = MkTVar v.tensorPtr v.paramId
+
+||| Bridge a `TVar [] d` back to a scalar `Variable d` by re-reading.
+export
+tvarToScalar : TVar [] d -> Variable d
+tvarToScalar v = Var v.tensorPtr v.paramId (prim__item v.tensorPtr)
+
+||| Read the scalar value out of a `TVar [] d`.
+export
+tvarItem : TVar [] d -> Double
+tvarItem v = prim__item v.tensorPtr
+
+-- Loss (vector targets → scalar loss) ---------------------------------
+
+||| MSE loss over a 1D prediction/target pair. Sum-reduced.
+export
+tmseLoss : {n : Nat} -> TVar [n] d -> TVar [n] d -> TVar [] d
+tmseLoss p t =
+  let diff = prim__sub p.tensorPtr t.tensorPtr in
+  let sqDiff = prim__mul diff diff in
+  MkTVar (prim__sum sqDiff) Nothing
+
+||| NLL loss against a one-hot target. Mirrors
+||| `Example.Supervised.nllLossTensor` (divide by n to match the
+||| reference's mean reduction).
+export
+tnllLoss : {n : Nat} -> TVar [n] d -> TVar [n] d -> TVar [] d
+tnllLoss {n} p t =
+  let logP = prim__logSoftmax p.tensorPtr 0 in
+  let prod = prim__mul logP t.tensorPtr in
+  let neg = prim__neg (prim__sum prod) in
+  MkTVar (prim__mulScalar neg (1.0 / cast n)) Nothing
+
+-- Optimizer shim ------------------------------------------------------
+
+||| Fused native train step on a TVar loss: zero_grad → backward →
+||| clip → step. Reads `prim__item` BEFORE the step so the returned
+||| scalar is not stale. Mirrors `nativeTrainStep`.
+export
+nativeTrainStepTVar : {d : Device} -> NativeOptimizer -> TVar [] d -> Double
+nativeTrainStepTVar opt loss =
+  let clipMode : Int
+      clipMode = case opt.clipMode of NoClip => 0; ValueClip _ => 1; NormClip _ => 2
+      clipVal  : Double
+      clipVal  = case opt.clipMode of NoClip => 0.0; ValueClip v => v; NormClip v => v
+      lossVal  = prim__item loss.tensorPtr
+  in prim__nativeTrainStep opt.handle clipMode clipVal loss.tensorPtr lossVal
