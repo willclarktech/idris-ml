@@ -23,7 +23,6 @@
 #define backend_reset_for_eval backend_reset_for_eval_mlx
 #define backend_reset_for_eval_return backend_reset_for_eval_return_mlx
 #define backend_supports_tensor_params backend_supports_tensor_params_mlx
-#define dropout_random_seed dropout_random_seed_mlx
 #define idrisml_seq idrisml_seq_mlx
 #define mnist_free mnist_free_mlx
 #define mnist_get_image mnist_get_image_mlx

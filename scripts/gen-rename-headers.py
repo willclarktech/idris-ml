@@ -79,6 +79,8 @@ def extract_symbols(header_text: str) -> list[str]:
         "tensor_write_double_return",
         "tensor_alloc_ints", "tensor_free_ints", "tensor_write_int_return",
         "tensor_ptr_array_alloc", "tensor_ptr_array_set_return",
+        # Dropout RNG (drives process-global rand()).
+        "dropout_random_seed",
     }
     return [n for n in names if n not in EXCLUDE]
 

@@ -64,6 +64,12 @@ int get_current_rss_mb(void) {
     return get_rss_mb();
 }
 
+/* --- Dropout RNG (process-global rand() driver) --- */
+
+int dropout_random_seed(int x) {
+    return rand() % (x + 1);
+}
+
 /* --- C buffer helpers (host malloc/free + element read/write) ---
  *
  * Backend-agnostic host-memory primitives. Each backend used to ship

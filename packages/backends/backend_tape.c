@@ -5875,9 +5875,7 @@ int backend_profile_report_return(int dummy) {
     return dummy;
 }
 
-int dropout_random_seed(int x) {
-    return rand() % (x + 1);
-}
+/* dropout_random_seed lives in shared_utils.c. */
 
 
 /* ---- L60 dtype-cascade stream wrappers (no-op stream on tape) ---- */

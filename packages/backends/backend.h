@@ -443,7 +443,7 @@ int          backend_memory_report_return(int dummy);
 int          backend_reset_for_eval_return(int dummy);
 int          backend_profile_reset_return(int dummy);
 int          backend_profile_report_return(int dummy);
-int          dropout_random_seed(int x);  /* random int from seed */
+/* dropout_random_seed is backend-agnostic and lives in shared_utils.h. */
 
 /* ---------- Backend Info ---------- */
 

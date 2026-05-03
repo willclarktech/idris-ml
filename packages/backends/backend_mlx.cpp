@@ -4418,7 +4418,7 @@ int backend_memory_report_return(int d) { backend_memory_report(); return d; }
 int backend_reset_for_eval_return(int d) { backend_reset_for_eval(); return d; }
 int backend_profile_reset_return(int d) { backend_profile_reset(); return d; }
 int backend_profile_report_return(int d) { backend_profile_report(); return d; }
-int dropout_random_seed(int x) { return rand() % (x + 1); }
+/* dropout_random_seed lives in shared_utils.c. */
 
 } // extern "C"
 

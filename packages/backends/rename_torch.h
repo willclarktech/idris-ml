@@ -23,7 +23,6 @@
 #define backend_reset_for_eval backend_reset_for_eval_torch
 #define backend_reset_for_eval_return backend_reset_for_eval_return_torch
 #define backend_supports_tensor_params backend_supports_tensor_params_torch
-#define dropout_random_seed dropout_random_seed_torch
 #define idrisml_seq idrisml_seq_torch
 #define mnist_free mnist_free_torch
 #define mnist_get_image mnist_get_image_torch
