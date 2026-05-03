@@ -70,8 +70,6 @@
 #define tensor_abs tensor_abs_torch
 #define tensor_add tensor_add_torch
 #define tensor_add_scalar tensor_add_scalar_torch
-#define tensor_alloc_doubles tensor_alloc_doubles_torch
-#define tensor_alloc_ints tensor_alloc_ints_torch
 #define tensor_argsort tensor_argsort_torch
 #define tensor_avg_pool1d tensor_avg_pool1d_torch
 #define tensor_avg_pool2d tensor_avg_pool2d_torch
@@ -168,8 +166,6 @@
 #define tensor_exp tensor_exp_torch
 #define tensor_expand_mask tensor_expand_mask_torch
 #define tensor_free tensor_free_torch
-#define tensor_free_doubles tensor_free_doubles_torch
-#define tensor_free_ints tensor_free_ints_torch
 #define tensor_gather tensor_gather_torch
 #define tensor_gelu tensor_gelu_torch
 #define tensor_grad tensor_grad_torch
@@ -216,10 +212,6 @@
 #define tensor_pair_second tensor_pair_second_torch
 #define tensor_pow tensor_pow_torch
 #define tensor_print tensor_print_torch
-#define tensor_ptr_array_alloc tensor_ptr_array_alloc_torch
-#define tensor_ptr_array_set tensor_ptr_array_set_torch
-#define tensor_ptr_array_set_return tensor_ptr_array_set_return_torch
-#define tensor_read_double tensor_read_double_torch
 #define tensor_release_handle tensor_release_handle_torch
 #define tensor_requires_grad tensor_requires_grad_torch
 #define tensor_reshape tensor_reshape_torch
@@ -259,9 +251,6 @@
 #define tensor_view_1d tensor_view_1d_torch
 #define tensor_view_2d tensor_view_2d_torch
 #define tensor_with_grad tensor_with_grad_torch
-#define tensor_write_double tensor_write_double_torch
-#define tensor_write_double_return tensor_write_double_return_torch
-#define tensor_write_int_return tensor_write_int_return_torch
 #define tensor_zero_grad tensor_zero_grad_torch
 
 #endif /* IDRISML_RENAME_TORCH_H */

@@ -3424,15 +3424,8 @@ TensorHandle tensor_create_2d(int rows, int cols, double* data, int requires_gra
     return tensor_create_2d_f32(rows, cols, data, requires_grad);
 }
 
-double* tensor_alloc_doubles(int n) { return (double*)calloc(n, sizeof(double)); }
-void tensor_free_doubles(double* buf) { free(buf); }
-double tensor_read_double(double* buf, int idx) { return buf[idx]; }
-void tensor_write_double(double* buf, int idx, double val) { buf[idx] = val; }
-
-TensorHandle* tensor_ptr_array_alloc(int n) {
-    return (TensorHandle*)calloc(n, sizeof(TensorHandle));
-}
-void tensor_ptr_array_set(TensorHandle* arr, int idx, TensorHandle t) { arr[idx] = t; }
+/* tensor_alloc_doubles / tensor_free_doubles / tensor_read_double /
+ * tensor_ptr_array_alloc live in shared_utils.c. */
 
 TensorHandle tensor_stack_from_array(TensorHandle* arr, int count, int dim) {
     std::vector<mx::array> arrs;
@@ -4388,15 +4381,9 @@ TensorHandle param_register_return(const char* name, TensorHandle t) {
     tensor_set_requires_grad(t, 1); param_register(name, t); return t;
 }
 int param_zero_all_grads_return(int dummy) { (void)dummy; param_zero_all_grads(); return 0; }
-TensorHandle tensor_write_double_return(TensorHandle buf, int off, double val) {
-    tensor_write_double((double*)buf, off, val); return buf;
-}
-void* tensor_ptr_array_set_return(void* arr, int idx, TensorHandle t) {
-    tensor_ptr_array_set((TensorHandle*)arr, idx, t); return arr;
-}
-int* tensor_alloc_ints(int n) { return (int*)calloc(n, sizeof(int)); }
-void tensor_free_ints(int* buf) { free(buf); }
-int* tensor_write_int_return(int* buf, int off, int val) { buf[off] = val; return buf; }
+/* tensor_write_double_return / tensor_ptr_array_set_return /
+ * tensor_alloc_ints / tensor_free_ints / tensor_write_int_return
+ * live in shared_utils.c. */
 double* tensor_to_doubles_return(TensorHandle h, double* buf) {
     tensor_to_doubles(h, buf); return buf;
 }

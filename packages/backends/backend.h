@@ -321,19 +321,15 @@ TensorHandle tensor_create_2d_f64(int rows, int cols, double* data, int requires
 TensorHandle tensor_create_1d(int n, double* data, int requires_grad);
 TensorHandle tensor_create_2d(int rows, int cols, double* data, int requires_grad);
 
-/* Allocate a C double buffer (for Scheme-side packing) */
-double* tensor_alloc_doubles(int n);
-/* Free a C double buffer (after tensor creation) */
-void tensor_free_doubles(double* buf);
-/* Read a double from a C buffer */
-double tensor_read_double(double* buf, int idx);
-/* Write a double to a C buffer */
-void tensor_write_double(double* buf, int idx, double val);
+/* Buffer helpers (tensor_alloc_doubles / tensor_read_double /
+ * tensor_write_double_return / tensor_alloc_ints / tensor_free_ints /
+ * tensor_write_int_return / tensor_ptr_array_alloc /
+ * tensor_ptr_array_set_return) are backend-agnostic and live in
+ * packages/backends/shared_utils.{c,h} with a single unified
+ * definition. */
 
 /* ---------- Tensor pointer array (for stack/cat from Idris) ---------- */
 
-TensorHandle* tensor_ptr_array_alloc(int n);
-void           tensor_ptr_array_set(TensorHandle* arr, int idx, TensorHandle t);
 TensorHandle   tensor_stack_from_array(TensorHandle* arr, int count, int dim);
 TensorHandle   tensor_cat_from_array(TensorHandle* arr, int count, int dim);
 
@@ -433,11 +429,9 @@ void backend_epoch_begin(void);  /* mark start of forward pass for timing */
 TensorHandle tensor_backward_return(TensorHandle t);  /* backward(t); return t */
 TensorHandle param_register_return(const char* name, TensorHandle t); /* set_requires_grad + register; return t */
 int          param_zero_all_grads_return(int dummy);  /* zero_all_grads(); return 0 */
-TensorHandle tensor_write_double_return(TensorHandle buf, int off, double val); /* write; return buf */
-void*        tensor_ptr_array_set_return(void* arr, int idx, TensorHandle t); /* set; return arr */
-int*         tensor_alloc_ints(int n);                           /* alloc zero-filled int array */
-void         tensor_free_ints(int* buf);                          /* free array allocated by tensor_alloc_ints */
-int*         tensor_write_int_return(int* buf, int off, int val); /* write; return buf */
+/* tensor_write_double_return / tensor_ptr_array_set_return /
+ * tensor_alloc_ints / tensor_free_ints / tensor_write_int_return
+ * are unified across backends — declared in shared_utils.h. */
 double*      tensor_to_doubles_return(TensorHandle h, double* buf); /* tensor_to_doubles + return buf */
 int          tensor_backward_conditional(TensorHandle t); /* backward if requires_grad; return param_count */
 double       tensor_backward_return_loss(TensorHandle loss_ptr, double loss_val); /* backward if rg; return loss_val */

@@ -70,8 +70,6 @@
 #define tensor_abs tensor_abs_mlx
 #define tensor_add tensor_add_mlx
 #define tensor_add_scalar tensor_add_scalar_mlx
-#define tensor_alloc_doubles tensor_alloc_doubles_mlx
-#define tensor_alloc_ints tensor_alloc_ints_mlx
 #define tensor_argsort tensor_argsort_mlx
 #define tensor_avg_pool1d tensor_avg_pool1d_mlx
 #define tensor_avg_pool2d tensor_avg_pool2d_mlx
@@ -168,8 +166,6 @@
 #define tensor_exp tensor_exp_mlx
 #define tensor_expand_mask tensor_expand_mask_mlx
 #define tensor_free tensor_free_mlx
-#define tensor_free_doubles tensor_free_doubles_mlx
-#define tensor_free_ints tensor_free_ints_mlx
 #define tensor_gather tensor_gather_mlx
 #define tensor_gelu tensor_gelu_mlx
 #define tensor_grad tensor_grad_mlx
@@ -216,10 +212,6 @@
 #define tensor_pair_second tensor_pair_second_mlx
 #define tensor_pow tensor_pow_mlx
 #define tensor_print tensor_print_mlx
-#define tensor_ptr_array_alloc tensor_ptr_array_alloc_mlx
-#define tensor_ptr_array_set tensor_ptr_array_set_mlx
-#define tensor_ptr_array_set_return tensor_ptr_array_set_return_mlx
-#define tensor_read_double tensor_read_double_mlx
 #define tensor_release_handle tensor_release_handle_mlx
 #define tensor_requires_grad tensor_requires_grad_mlx
 #define tensor_reshape tensor_reshape_mlx
@@ -259,9 +251,6 @@
 #define tensor_view_1d tensor_view_1d_mlx
 #define tensor_view_2d tensor_view_2d_mlx
 #define tensor_with_grad tensor_with_grad_mlx
-#define tensor_write_double tensor_write_double_mlx
-#define tensor_write_double_return tensor_write_double_return_mlx
-#define tensor_write_int_return tensor_write_int_return_mlx
 #define tensor_zero_grad tensor_zero_grad_mlx
 
 #endif /* IDRISML_RENAME_MLX_H */

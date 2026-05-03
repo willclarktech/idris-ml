@@ -451,10 +451,6 @@ prim__createParam3dMlxStreamed : Int -> Int -> Int -> AnyPtr -> Int -> AnyPtr
 prim__createState1dMlxStreamed : Int -> AnyPtr -> Int -> AnyPtr
 %foreign "scheme:(lambda (a0 a1 a2 a3) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_state_2d_mlx_streamed\" (int int void* int) void*) a0 a1 a2 a3))) (let ((wr (vector 'tensor-handle-v2 \"mlx\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle_mlx\" (void*) void) raw_r) wr)))"
 prim__createState2dMlxStreamed : Int -> Int -> AnyPtr -> Int -> AnyPtr
-%foreign "C:tensor_alloc_doubles_mlx,libidrisml"
-prim__allocDoublesMlx : Int -> AnyPtr
-%foreign "C:tensor_read_double_mlx,libidrisml"
-prim__readDoubleMlx : AnyPtr -> Int -> Double
 
 
 public export
@@ -473,8 +469,6 @@ public export
   primCreateParam3d a b c d = prim__createParam3dMlxStreamed a b c d (streamTag s)
   primCreateState1d a b = prim__createState1dMlxStreamed a b (streamTag s)
   primCreateState2d a b c = prim__createState2dMlxStreamed a b c (streamTag s)
-  primAllocDoubles         = prim__allocDoublesMlx
-  primReadDouble           = prim__readDoubleMlx
 
 
 ----------------------------------------------------------------------
@@ -528,19 +522,20 @@ Compatible (MlxDev MGpu) F32 where
 %foreign "scheme:(lambda (a0 a1)  ((foreign-procedure \"tensor_to_doubles_mlx\" (void* void*) void) (vector-ref a0 2) a1) a1)"
 prim__toHostMlx : AnyPtr -> AnyPtr -> AnyPtr
 
-%foreign "C:tensor_alloc_doubles_mlx,libidrisml"
+-- Host buffer helpers — unified across backends, see Device/Tape.idr.
+%foreign "C:tensor_alloc_doubles,libidrisml"
 prim__allocHostMlx : Int -> AnyPtr
 
-%foreign "C:tensor_free_doubles_mlx,libidrisml"
+%foreign "C:tensor_free_doubles,libidrisml"
 prim__freeHostMlx : AnyPtr -> ()
 
-%foreign "C:tensor_alloc_ints_mlx,libidrisml"
+%foreign "C:tensor_alloc_ints,libidrisml"
 prim__allocIntHostMlx : Int -> AnyPtr
 
-%foreign "C:tensor_free_ints_mlx,libidrisml"
+%foreign "C:tensor_free_ints,libidrisml"
 prim__freeIntHostMlx : AnyPtr -> ()
 
-%foreign "C:tensor_write_int_return_mlx,libidrisml"
+%foreign "C:tensor_write_int_return,libidrisml"
 prim__setIntHostMlx : AnyPtr -> Int -> Int -> AnyPtr
 
 %foreign "scheme:(lambda (a0 a1 a2 a3) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_mlx\" (void* void* int int) void*) a0 a1 a2 a3))) (let ((wr (vector 'tensor-handle-v2 \"mlx\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle_mlx\" (void*) void) raw_r) wr)))"

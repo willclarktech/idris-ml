@@ -4897,18 +4897,9 @@ TensorHandle tensor_reshape_1d(TensorHandle h, int n) {
     return tensor_reshape(h, shape, 1);
 }
 
-double* tensor_alloc_doubles(int n) { return calloc(n, sizeof(double)); }
-void tensor_free_doubles(double* buf) { free(buf); }
-double tensor_read_double(double* buf, int idx) { return buf[idx]; }
-void tensor_write_double(double* buf, int idx, double val) { buf[idx] = val; }
-
-TensorHandle* tensor_ptr_array_alloc(int n) {
-    return calloc(n, sizeof(TensorHandle));
-}
-
-void tensor_ptr_array_set(TensorHandle* arr, int idx, TensorHandle t) {
-    arr[idx] = t;
-}
+/* tensor_alloc_doubles / tensor_free_doubles / tensor_read_double /
+ * tensor_ptr_array_alloc live in shared_utils.c (unified across all
+ * backends; see packages/backends/shared_utils.{c,h}). */
 
 TensorHandle tensor_stack_from_array(TensorHandle* arr, int count, int dim) {
     /* Fast path: if all inputs are consecutive selects from the same parent
@@ -5811,28 +5802,9 @@ int param_zero_all_grads_return(int dummy) {
     return 0;
 }
 
-TensorHandle tensor_write_double_return(TensorHandle buf, int off, double val) {
-    tensor_write_double(buf, off, val);
-    return buf;
-}
-
-void* tensor_ptr_array_set_return(void* arr, int idx, TensorHandle t) {
-    tensor_ptr_array_set(arr, idx, t);
-    return arr;
-}
-
-int* tensor_alloc_ints(int n) {
-    return (int*)calloc(n, sizeof(int));
-}
-
-void tensor_free_ints(int* buf) {
-    free(buf);
-}
-
-int* tensor_write_int_return(int* buf, int off, int val) {
-    buf[off] = val;
-    return buf;
-}
+/* tensor_write_double_return / tensor_ptr_array_set_return /
+ * tensor_alloc_ints / tensor_free_ints / tensor_write_int_return
+ * live in shared_utils.c. */
 
 double* tensor_to_doubles_return(TensorHandle h, double* buf) {
     tensor_to_doubles(h, buf);

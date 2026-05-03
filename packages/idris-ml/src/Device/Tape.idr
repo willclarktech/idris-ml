@@ -406,10 +406,6 @@ prim__createParam3dTape : Int -> Int -> Int -> AnyPtr -> AnyPtr
 prim__createState1dTape : Int -> AnyPtr -> AnyPtr
 %foreign "scheme:(lambda (a0 a1 a2) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_state_2d_tape\" (int int void*) void*) a0 a1 a2))) (let ((wr (vector 'tensor-handle-v2 \"tape\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle_tape\" (void*) void) raw_r) wr)))"
 prim__createState2dTape : Int -> Int -> AnyPtr -> AnyPtr
-%foreign "C:tensor_alloc_doubles_tape,libidrisml"
-prim__allocDoublesTape : Int -> AnyPtr
-%foreign "C:tensor_read_double_tape,libidrisml"
-prim__readDoubleTape : AnyPtr -> Int -> Double
 
 
 public export
@@ -428,8 +424,6 @@ UserDeviceTape TapeDev where
   primCreateParam3d        = prim__createParam3dTape
   primCreateState1d        = prim__createState1dTape
   primCreateState2d        = prim__createState2dTape
-  primAllocDoubles         = prim__allocDoublesTape
-  primReadDouble           = prim__readDoubleTape
 
 
 ----------------------------------------------------------------------
@@ -443,19 +437,24 @@ UserDeviceTape TapeDev where
 %foreign "scheme:(lambda (a0 a1)  ((foreign-procedure \"tensor_to_doubles_tape\" (void* void*) void) (vector-ref a0 2) a1) a1)"
 prim__toHostTape : AnyPtr -> AnyPtr -> AnyPtr
 
-%foreign "C:tensor_alloc_doubles_tape,libidrisml"
+-- The host buffer helpers (alloc / free / write-return for doubles
+-- and ints) are byte-identical across all three backends, so they
+-- live as unified definitions in `packages/backends/shared_utils.c`.
+-- All three `UserDeviceTransfer` instances bind through the same
+-- unified C symbols here.
+%foreign "C:tensor_alloc_doubles,libidrisml"
 prim__allocHostTape : Int -> AnyPtr
 
-%foreign "C:tensor_free_doubles_tape,libidrisml"
+%foreign "C:tensor_free_doubles,libidrisml"
 prim__freeHostTape : AnyPtr -> ()
 
-%foreign "C:tensor_alloc_ints_tape,libidrisml"
+%foreign "C:tensor_alloc_ints,libidrisml"
 prim__allocIntHostTape : Int -> AnyPtr
 
-%foreign "C:tensor_free_ints_tape,libidrisml"
+%foreign "C:tensor_free_ints,libidrisml"
 prim__freeIntHostTape : AnyPtr -> ()
 
-%foreign "C:tensor_write_int_return_tape,libidrisml"
+%foreign "C:tensor_write_int_return,libidrisml"
 prim__setIntHostTape : AnyPtr -> Int -> Int -> AnyPtr
 
 %foreign "scheme:(lambda (a0 a1 a2 a3) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_tape\" (void* void* int int) void*) a0 a1 a2 a3))) (let ((wr (vector 'tensor-handle-v2 \"tape\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle_tape\" (void*) void) raw_r) wr)))"

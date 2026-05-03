@@ -73,6 +73,12 @@ def extract_symbols(header_text: str) -> list[str]:
         # tensor-touching `mnist_get_image` + `mnist_free` stay
         # per-backend.
         "mnist_load", "mnist_count", "mnist_get_label",
+        # C buffer helpers — byte-identical malloc wrappers across all
+        # three backends; consolidated into shared_utils.c.
+        "tensor_alloc_doubles", "tensor_free_doubles", "tensor_read_double",
+        "tensor_write_double_return",
+        "tensor_alloc_ints", "tensor_free_ints", "tensor_write_int_return",
+        "tensor_ptr_array_alloc", "tensor_ptr_array_set_return",
     }
     return [n for n in names if n not in EXCLUDE]
 

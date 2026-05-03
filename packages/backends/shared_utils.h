@@ -35,6 +35,24 @@ void* mnist_load(const char* images_path, const char* labels_path);
 int   mnist_count(void* handle);
 int   mnist_get_label(void* handle, int index);
 
+/* C buffer helpers (host malloc / free / element read/write).
+ * Backend-agnostic; one definition for all backends. */
+double* tensor_alloc_doubles(int n);
+void    tensor_free_doubles(double* buf);
+double  tensor_read_double(double* buf, int idx);
+void*   tensor_write_double_return(void* buf, int off, double val);
+
+int*    tensor_alloc_ints(int n);
+void    tensor_free_ints(int* buf);
+int*    tensor_write_int_return(int* buf, int off, int val);
+
+/* Tensor-pointer arrays (the Idris-side staging buffer used by
+ * stack/cat). Stores opaque void* handles; the per-backend
+ * `tensor_stack_from_array` / `tensor_cat_from_array` consumers
+ * reinterpret as TensorHandle* internally. */
+void**  tensor_ptr_array_alloc(int n);
+void*   tensor_ptr_array_set_return(void* arr, int idx, void* t);
+
 #ifdef __cplusplus
 }
 #endif

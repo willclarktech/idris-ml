@@ -64,6 +64,55 @@ int get_current_rss_mb(void) {
     return get_rss_mb();
 }
 
+/* --- C buffer helpers (host malloc/free + element read/write) ---
+ *
+ * Backend-agnostic host-memory primitives. Each backend used to ship
+ * byte-identical malloc wrappers; consolidated here per the
+ * 2026-05-20 alias-machinery teardown. The `_return` variants thread
+ * the buffer pointer through let-chains so Idris-Chez codegen can't
+ * elide the FFI call. The non-`_return` writers are inlined into the
+ * `_return` wrappers, so the bare `tensor_write_double` /
+ * `tensor_ptr_array_set` are no longer part of the C surface. */
+
+double* tensor_alloc_doubles(int n) {
+    return (double*)calloc(n, sizeof(double));
+}
+
+void tensor_free_doubles(double* buf) {
+    free(buf);
+}
+
+double tensor_read_double(double* buf, int idx) {
+    return buf[idx];
+}
+
+void* tensor_write_double_return(void* buf, int off, double val) {
+    ((double*)buf)[off] = val;
+    return buf;
+}
+
+int* tensor_alloc_ints(int n) {
+    return (int*)calloc(n, sizeof(int));
+}
+
+void tensor_free_ints(int* buf) {
+    free(buf);
+}
+
+int* tensor_write_int_return(int* buf, int off, int val) {
+    buf[off] = val;
+    return buf;
+}
+
+void** tensor_ptr_array_alloc(int n) {
+    return (void**)calloc(n, sizeof(void*));
+}
+
+void* tensor_ptr_array_set_return(void* arr, int idx, void* t) {
+    ((void**)arr)[idx] = t;
+    return arr;
+}
+
 /* --- MNIST file/dataset helpers (no tensor surface) --- */
 
 static uint32_t read_be32(FILE* f) {

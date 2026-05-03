@@ -290,10 +290,6 @@ interface UserDeviceConv d => UserDeviceTape (0 d : Device) where
   primCreateState1d     : Int -> AnyPtr -> AnyPtr
   primCreateState2d     : Int -> Int -> AnyPtr -> AnyPtr
 
-  -- Doubles array helpers ------------------------------------------
-  primAllocDoubles      : Int -> AnyPtr
-  primReadDouble        : AnyPtr -> Int -> Double
-
 
 ----------------------------------------------------------------------
 -- UserDeviceTransfer — cross-backend tensor transfer surface

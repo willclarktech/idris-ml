@@ -437,10 +437,6 @@ prim__createParam3dTorch : Int -> Int -> Int -> AnyPtr -> AnyPtr
 prim__createState1dTorch : Int -> AnyPtr -> AnyPtr
 %foreign "scheme:(lambda (a0 a1 a2) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_state_2d_torch\" (int int void*) void*) a0 a1 a2))) (let ((wr (vector 'tensor-handle-v2 \"torch\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle_torch\" (void*) void) raw_r) wr)))"
 prim__createState2dTorch : Int -> Int -> AnyPtr -> AnyPtr
-%foreign "C:tensor_alloc_doubles_torch,libidrisml"
-prim__allocDoublesTorch : Int -> AnyPtr
-%foreign "C:tensor_read_double_torch,libidrisml"
-prim__readDoubleTorch : AnyPtr -> Int -> Double
 
 
 public export
@@ -467,8 +463,6 @@ public export
     prim__toDeviceTorch (prim__createState1dTorch n dat) (torchHwDevName d)
   primCreateState2d r c dat     =
     prim__toDeviceTorch (prim__createState2dTorch r c dat) (torchHwDevName d)
-  primAllocDoubles         = prim__allocDoublesTorch
-  primReadDouble           = prim__readDoubleTorch
 
 
 ----------------------------------------------------------------------
@@ -507,19 +501,20 @@ public export
 %foreign "scheme:(lambda (a0 a1)  ((foreign-procedure \"tensor_to_doubles_torch\" (void* void*) void) (vector-ref a0 2) a1) a1)"
 prim__toHostTorch : AnyPtr -> AnyPtr -> AnyPtr
 
-%foreign "C:tensor_alloc_doubles_torch,libidrisml"
+-- Host buffer helpers — unified across backends, see Device/Tape.idr.
+%foreign "C:tensor_alloc_doubles,libidrisml"
 prim__allocHostTorch : Int -> AnyPtr
 
-%foreign "C:tensor_free_doubles_torch,libidrisml"
+%foreign "C:tensor_free_doubles,libidrisml"
 prim__freeHostTorch : AnyPtr -> ()
 
-%foreign "C:tensor_alloc_ints_torch,libidrisml"
+%foreign "C:tensor_alloc_ints,libidrisml"
 prim__allocIntHostTorch : Int -> AnyPtr
 
-%foreign "C:tensor_free_ints_torch,libidrisml"
+%foreign "C:tensor_free_ints,libidrisml"
 prim__freeIntHostTorch : AnyPtr -> ()
 
-%foreign "C:tensor_write_int_return_torch,libidrisml"
+%foreign "C:tensor_write_int_return,libidrisml"
 prim__setIntHostTorch : AnyPtr -> Int -> Int -> AnyPtr
 
 ||| Create from host data + auto-migrate to the target torch hw.
