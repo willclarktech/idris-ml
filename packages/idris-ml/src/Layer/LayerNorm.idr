@@ -66,7 +66,7 @@ fillConst buf off n v =
 ||| and beta to 0.0. Both register as C params under
 ||| `<prefix>_gamma` / `<prefix>_beta`.
 export
-layerNormLayer : UserDeviceCore d => RuntimeDType dt => {n : Nat} -> (paramPrefix : String) ->
+layerNormLayer : UserDeviceTape d => RuntimeDType dt => {n : Nat} -> (paramPrefix : String) ->
                    IO (LayerNormState n n d dt WithGrad)
 layerNormLayer paramPrefix = do
   let nI = cast {to=Int} n
@@ -76,8 +76,8 @@ layerNormLayer paramPrefix = do
       bBuf' = fillConst bBuf 0 nI 0.0
       gName = paramPrefix ++ "_gamma"
       bName = paramPrefix ++ "_beta"
-      gPtr = prim__paramRegister gName (dtCreateParam1d {t=dt} nI gBuf' (deviceStreamTag {d}))
-      bPtr = prim__paramRegister bName (dtCreateParam1d {t=dt} nI bBuf' (deviceStreamTag {d}))
+      gPtr = primParamRegister {d} gName (dtCreateParam1d {t=dt} nI gBuf' (deviceStreamTag {d}))
+      bPtr = primParamRegister {d} bName (dtCreateParam1d {t=dt} nI bBuf' (deviceStreamTag {d}))
   pure $ MkLayerNorm (MkTensor gPtr (Just gName)) (MkTensor bPtr (Just bName))
 
 
@@ -102,6 +102,6 @@ LayerLike LayerNormState where
 
 ||| Wrap a LayerNorm in `AnyLayer`.
 export
-layerNormLayerAny : UserDeviceCore d => RuntimeDType dt => {n : Nat} -> (paramPrefix : String) ->
+layerNormLayerAny : UserDeviceTape d => RuntimeDType dt => {n : Nat} -> (paramPrefix : String) ->
                       IO (AnyLayer n n d dt WithGrad)
 layerNormLayerAny pid = map (MkAnyLayer LayerNormState) (layerNormLayer pid)

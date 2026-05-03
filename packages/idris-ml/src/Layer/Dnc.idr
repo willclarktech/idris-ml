@@ -386,7 +386,7 @@ mkKaimingReadOuts (S k) m bound = do
 ||| - initial read outputs:   `kaiming_uniform_((R, m))`, non-learnable,
 |||                           sampled once at construction
 export
-dncLayer : UserDeviceCore d => RuntimeDType dt => {r, n, m, h, i, o : Nat} ->
+dncLayer : UserDeviceTape d => RuntimeDType dt => {r, n, m, h, i, o : Nat} ->
              (paramPrefix : String) ->
              IO (DncState r n m h i o d dt WithGrad)
 dncLayer pfx = do
@@ -511,7 +511,7 @@ public export
                 (map retypeGrad link) rwTs roTs)
 
 export
-dncLayerAny : UserDeviceCore d => RuntimeDType dt => {r, n, m, h, i, o : Nat} ->
+dncLayerAny : UserDeviceTape d => RuntimeDType dt => {r, n, m, h, i, o : Nat} ->
                 (paramPrefix : String) ->
                 IO (AnyLayer i o d dt WithGrad)
 dncLayerAny pid =

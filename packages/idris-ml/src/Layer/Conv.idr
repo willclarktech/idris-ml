@@ -120,7 +120,7 @@ zeroBuf buf off n =
 
 ||| Build a Conv2D layer with He-normal kernel init and zero bias.
 export
-conv2dLayer : UserDeviceCore d => RuntimeDType dt => {inC, outC, h, w, kH, kW, padH, padW : Nat} ->
+conv2dLayer : UserDeviceTape d => RuntimeDType dt => {inC, outC, h, w, kH, kW, padH, padW : Nat} ->
                 (paramPrefix : String) ->
                 IO (Conv2DState inC outC h w kH kW padH padW
                                   (inC * (h * w))
@@ -136,9 +136,9 @@ conv2dLayer paramPrefix = do
       biasBuf' = zeroBuf biasBuf 0 (cast {to=Int} outC)
       kerName = paramPrefix ++ "_kernel"
       biasName = paramPrefix ++ "_bias"
-      kerPtr = prim__paramRegister kerName
+      kerPtr = primParamRegister {d} kerName
         (dtCreateParam4d {t=dt} (cast outC) (cast inC) (cast kH) (cast kW) kerBuf' (deviceStreamTag {d}))
-      biasPtr = prim__paramRegister biasName
+      biasPtr = primParamRegister {d} biasName
         (dtCreateParam1d {t=dt} (cast outC) biasBuf' (deviceStreamTag {d}))
       kerTV : Tensor [outC, inC, kH, kW] d dt WithGrad
       kerTV = MkTensor kerPtr (Just kerName)
@@ -164,7 +164,7 @@ public export
     pure (MkConv2D (retypeGrad k) (retypeGrad b))
 
 export
-conv2dLayerAny : UserDeviceCore d => RuntimeDType dt => {inC, outC, h, w, kH, kW, padH, padW : Nat} ->
+conv2dLayerAny : UserDeviceTape d => RuntimeDType dt => {inC, outC, h, w, kH, kW, padH, padW : Nat} ->
                    (paramPrefix : String) ->
                    IO (AnyLayer (inC * (h * w))
                                   (outC * (ConvOutDim h kH padH * ConvOutDim w kW padW))
@@ -207,7 +207,7 @@ applyConv1D {inC} {outC} {len} {kL} {pad} (MkConv1D ker bias) input =
   in MkTensor (primReshape1d {d} outT (cast {to=Int} outFlat)) Nothing
 
 export
-conv1dLayer : UserDeviceCore d => RuntimeDType dt => {inC, outC, len, kL, pad : Nat} ->
+conv1dLayer : UserDeviceTape d => RuntimeDType dt => {inC, outC, len, kL, pad : Nat} ->
                 (paramPrefix : String) ->
                 IO (Conv1DState inC outC len kL pad
                                   (inC * len)
@@ -222,9 +222,9 @@ conv1dLayer paramPrefix = do
       biasBuf' = zeroBuf biasBuf 0 (cast {to=Int} outC)
       kerName = paramPrefix ++ "_kernel"
       biasName = paramPrefix ++ "_bias"
-      kerPtr = prim__paramRegister kerName
+      kerPtr = primParamRegister {d} kerName
         (dtCreateParam3d {t=dt} (cast outC) (cast inC) (cast kL) kerBuf' (deviceStreamTag {d}))
-      biasPtr = prim__paramRegister biasName
+      biasPtr = primParamRegister {d} biasName
         (dtCreateParam1d {t=dt} (cast outC) biasBuf' (deviceStreamTag {d}))
       kerTV : Tensor [outC, inC, kL] d dt WithGrad
       kerTV = MkTensor kerPtr (Just kerName)
@@ -249,7 +249,7 @@ public export
     pure (MkConv1D (retypeGrad k) (retypeGrad b))
 
 export
-conv1dLayerAny : UserDeviceCore d => RuntimeDType dt => {inC, outC, len, kL, pad : Nat} ->
+conv1dLayerAny : UserDeviceTape d => RuntimeDType dt => {inC, outC, len, kL, pad : Nat} ->
                    (paramPrefix : String) ->
                    IO (AnyLayer (inC * len) (outC * ConvOutDim len kL pad) d dt WithGrad)
 conv1dLayerAny pid =

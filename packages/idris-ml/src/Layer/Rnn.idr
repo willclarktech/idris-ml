@@ -88,7 +88,7 @@ zeroBuf buf off n =
 ||| Common activations: `ttanh` (default for `nn.RNN`), `trelu`,
 ||| `id` for a linear-recurrence variant.
 export
-rnnLayer : UserDeviceCore d => RuntimeDType dt => {i, o : Nat} ->
+rnnLayer : UserDeviceTape d => RuntimeDType dt => {i, o : Nat} ->
              (paramPrefix : String) ->
              (activation : {0 g' : GradMode} -> TVec o d dt g' -> IO (TVec o d dt g')) ->
              IO (RnnState i o d dt WithGrad)
@@ -109,10 +109,10 @@ rnnLayer paramPrefix activation = do
       rwName = paramPrefix ++ "_rw"
       ibName = paramPrefix ++ "_ib"
       hbName = paramPrefix ++ "_hb"
-      iwPtr = prim__paramRegister iwName (dtCreateParam2d {t=dt} oI iI iwBuf' (deviceStreamTag {d}))
-      rwPtr = prim__paramRegister rwName (dtCreateParam2d {t=dt} oI oI rwBuf' (deviceStreamTag {d}))
-      ibPtr = prim__paramRegister ibName (dtCreateParam1d {t=dt} oI ibBuf' (deviceStreamTag {d}))
-      hbPtr = prim__paramRegister hbName (dtCreateParam1d {t=dt} oI hbBuf' (deviceStreamTag {d}))
+      iwPtr = primParamRegister {d} iwName (dtCreateParam2d {t=dt} oI iI iwBuf' (deviceStreamTag {d}))
+      rwPtr = primParamRegister {d} rwName (dtCreateParam2d {t=dt} oI oI rwBuf' (deviceStreamTag {d}))
+      ibPtr = primParamRegister {d} ibName (dtCreateParam1d {t=dt} oI ibBuf' (deviceStreamTag {d}))
+      hbPtr = primParamRegister {d} hbName (dtCreateParam1d {t=dt} oI hbBuf' (deviceStreamTag {d}))
       iwTV : TMat o i d dt WithGrad
       iwTV = MkTensor iwPtr (Just iwName)
       rwTV : TMat o o d dt WithGrad
@@ -167,6 +167,6 @@ LayerLike RnnState where
 ||| (matching PyTorch's `nn.RNN` default). Use `rnnLayer` directly
 ||| if you need a different activation.
 export
-rnnLayerAny : {0 d : Device} -> UserDeviceCore d => RuntimeDType dt =>
+rnnLayerAny : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt =>
               {i, o : Nat} -> (paramPrefix : String) -> IO (AnyLayer i o d dt WithGrad)
 rnnLayerAny pid = map (MkAnyLayer RnnState) (rnnLayer pid ttanh)

@@ -62,7 +62,7 @@ packDoubles buf off (x :: rest) =
 ||| sampled from N(0, 0.02) — same init as V1 `embeddingLayer`.
 ||| Weight registers as one C param under `<prefix>_weight`.
 export
-embeddingLayer : UserDeviceCore d => RuntimeDType dt => {vocab, embedDim : Nat} -> (paramPrefix : String) ->
+embeddingLayer : UserDeviceTape d => RuntimeDType dt => {vocab, embedDim : Nat} -> (paramPrefix : String) ->
                    IO (EmbeddingState vocab embedDim d dt WithGrad)
 embeddingLayer paramPrefix = do
   let vI = cast {to=Int} vocab
@@ -72,7 +72,7 @@ embeddingLayer paramPrefix = do
   let buf = prim__allocDoubles (cast {to=Int} n)
       buf' = packDoubles buf 0 vals
       wName = paramPrefix ++ "_weight"
-      wPtr = prim__paramRegister wName (dtCreateParam2d {t=dt} vI eI buf' (deviceStreamTag {d}))
+      wPtr = primParamRegister {d} wName (dtCreateParam2d {t=dt} vI eI buf' (deviceStreamTag {d}))
       wTV : TMat vocab embedDim d dt WithGrad
       wTV = MkTensor wPtr (Just wName)
   pure $ MkEmbedding wTV
@@ -116,7 +116,7 @@ public export
 
 ||| Wrap a fresh embedding into `AnyLayer` for a specific seqLen.
 export
-embeddingLayerAny : UserDeviceCore d => RuntimeDType dt => {vocab, embedDim, seqLen : Nat} ->
+embeddingLayerAny : UserDeviceTape d => RuntimeDType dt => {vocab, embedDim, seqLen : Nat} ->
                       (paramPrefix : String) ->
                       IO (AnyLayer seqLen (seqLen * embedDim) d dt WithGrad)
 embeddingLayerAny pid = do

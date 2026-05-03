@@ -327,12 +327,13 @@ prim__mnistGetImage : AnyPtr -> Int -> AnyPtr
 export
 prim__mnistGetLabel : AnyPtr -> Int -> Int
 
--- Parameter registry
--- Registers a parameter: enables requires_grad and adds to the registry.
--- Returns the tensorPtr for threading (prevents dead code elimination).
-%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"param_register_return\" (string void*) void*) a0 (vector-ref a1 2)))) (let ((wr (vector 'tensor-handle-v2 \"primary\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-export
-prim__paramRegister : String -> AnyPtr -> AnyPtr
+-- Parameter registry: `primParamRegister {d}` (UserDeviceTape) is
+-- the sole entry. Each backend's instance wraps the returned handle
+-- with its OWN tag ("tape"/"torch"/"mlx") and retains via the
+-- suffixed `tensor_retain_handle_<b>`. The former unified-name
+-- `prim__paramRegister` here hardcoded the wrap tag to "primary" and
+-- bound `param_register_return` / `tensor_retain_handle` unaliased —
+-- a latent bug for non-primary backends in a multi-link build.
 
 -- In-place scalar subtract on a tensor (under no_grad). Returns tensor for threading.
 
@@ -1091,19 +1092,19 @@ tcastUnsafe to v = ioRerun (\_ => MkTensor (dtCastFrom {t=to} v.tensorPtr (devic
 ||| Create a registered learnable [o, i] parameter from a flat (row-major)
 ||| double buffer. Mirrors Linear.nameLayer's tensor path.
 export
-tparam2d : {0 d : Device} -> UserDeviceCore d => RuntimeDType dt => {o, i : Nat} -> (paramId : String) -> AnyPtr -> IO (Tensor [o, i] d dt WithGrad)
+tparam2d : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => {o, i : Nat} -> (paramId : String) -> AnyPtr -> IO (Tensor [o, i] d dt WithGrad)
 tparam2d {o} {i} pid buf = ioRerun (\_ =>
   let oI = cast {to=Int} o
       iI = cast {to=Int} i
-      reg = prim__paramRegister pid (dtCreateParam2d {t=dt} oI iI buf (deviceStreamTag {d}))
+      reg = primParamRegister {d} pid (dtCreateParam2d {t=dt} oI iI buf (deviceStreamTag {d}))
   in MkTensor reg (Just pid))
 
 ||| Create a registered learnable [n] parameter from a double buffer.
 export
-tparam1d : {0 d : Device} -> UserDeviceCore d => RuntimeDType dt => {n : Nat} -> (paramId : String) -> AnyPtr -> IO (Tensor [n] d dt WithGrad)
+tparam1d : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => {n : Nat} -> (paramId : String) -> AnyPtr -> IO (Tensor [n] d dt WithGrad)
 tparam1d {n} pid buf = ioRerun (\_ =>
   let nI = cast {to=Int} n
-      reg = prim__paramRegister pid (dtCreateParam1d {t=dt} nI buf (deviceStreamTag {d}))
+      reg = primParamRegister {d} pid (dtCreateParam1d {t=dt} nI buf (deviceStreamTag {d}))
   in MkTensor reg (Just pid))
 
 ||| Wrap an existing 1D tensor handle as a non-parameter input.
@@ -1229,10 +1230,10 @@ tlog v = ioRerun (\_ => MkTensor (primLog {d} v.tensorPtr) Nothing)
 ||| state-independent log_std). Mirrors V1's `param`. The optimizer
 ||| picks it up automatically by paramId scope.
 export
-tparamScalar : {0 d : Device} -> UserDeviceCore d => RuntimeDType dt => (paramId : String) -> (val : Double) -> IO (Tensor [] d dt WithGrad)
+tparamScalar : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => (paramId : String) -> (val : Double) -> IO (Tensor [] d dt WithGrad)
 tparamScalar pid val = ioRerun (\_ =>
   let ptr = dtCreateScalar {t=dt} val 1 (deviceStreamTag {d})    -- requires_grad=true
-      reg = prim__paramRegister pid ptr
+      reg = primParamRegister {d} pid ptr
   in MkTensor reg (Just pid))
 
 ||| Concatenate two [b, m] / [b, n] TVars along axis 1, producing

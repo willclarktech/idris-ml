@@ -218,7 +218,7 @@ applyNtm {n} {m} {h} {i} {o}
 ||| - initial read output:    `kaiming_uniform_((1, m))`, non-learnable,
 |||                           sampled once at construction
 export
-ntmLayer : UserDeviceCore d => RuntimeDType dt => {n, m, h, i, o : Nat} ->
+ntmLayer : UserDeviceTape d => RuntimeDType dt => {n, m, h, i, o : Nat} ->
              (paramPrefix : String) ->
              IO (NtmState n m h i o d dt WithGrad)
 ntmLayer pfx = do
@@ -316,7 +316,7 @@ public export
                 (map retypeGrad wa) (map retypeGrad ro))
 
 export
-ntmLayerAny : UserDeviceCore d => RuntimeDType dt => {n, m, h, i, o : Nat} ->
+ntmLayerAny : UserDeviceTape d => RuntimeDType dt => {n, m, h, i, o : Nat} ->
                 (paramPrefix : String) ->
                 IO (AnyLayer i o d dt WithGrad)
 ntmLayerAny pid =

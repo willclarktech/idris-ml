@@ -84,7 +84,7 @@ fillConst buf off n v =
 ||| Params register as `<prefix>_gamma` / `<prefix>_beta`; state
 ||| tensors are persistent C tensors (non-learnable).
 export
-batchNormLayer : UserDeviceCore d => RuntimeDType dt => {channels, spatialDim : Nat} ->
+batchNormLayer : UserDeviceTape d => RuntimeDType dt => {channels, spatialDim : Nat} ->
                    (paramPrefix : String) ->
                    IO (BatchNormState channels spatialDim
                          (channels * spatialDim)
@@ -97,8 +97,8 @@ batchNormLayer paramPrefix = do
       vBuf = fillConst (prim__allocDoubles cI) 0 cI 1.0
       gName = paramPrefix ++ "_gamma"
       bName = paramPrefix ++ "_beta"
-      gPtr = prim__paramRegister gName (dtCreateParam1d {t=dt} cI gBuf (deviceStreamTag {d}))
-      bPtr = prim__paramRegister bName (dtCreateParam1d {t=dt} cI bBuf (deviceStreamTag {d}))
+      gPtr = primParamRegister {d} gName (dtCreateParam1d {t=dt} cI gBuf (deviceStreamTag {d}))
+      bPtr = primParamRegister {d} bName (dtCreateParam1d {t=dt} cI bBuf (deviceStreamTag {d}))
       mPtr = dtCreateState1d {t=dt} cI mBuf (deviceStreamTag {d})
       vPtr = dtCreateState1d {t=dt} cI vBuf (deviceStreamTag {d})
       gTV : TVec channels d dt WithGrad
@@ -147,7 +147,7 @@ public export
 
 ||| Wrap in `AnyLayer`.
 export
-batchNormLayerAny : UserDeviceCore d => RuntimeDType dt => {channels, spatialDim : Nat} ->
+batchNormLayerAny : UserDeviceTape d => RuntimeDType dt => {channels, spatialDim : Nat} ->
                       (paramPrefix : String) ->
                       IO (AnyLayer (channels * spatialDim) (channels * spatialDim) d dt WithGrad)
 batchNormLayerAny pid =

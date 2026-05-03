@@ -195,11 +195,11 @@ main = do
       bBuf = allocFilled W 0.0
       a2Buf = allocFilled W 0.7
       b2Buf = allocFilled W 0.3
-      wPtr  = prim__paramRegister "micro_W" (prim__createParam2d wI hI wBuf)
-      xPtr  = prim__paramRegister "micro_x" (prim__createParam1d hI xBuf)
-      bPtr  = prim__paramRegister "micro_b" (prim__createParam1d wI bBuf)
-      a2Ptr = prim__paramRegister "micro_a2" (prim__createParam1d wI a2Buf)
-      b2Ptr = prim__paramRegister "micro_b2" (prim__createParam1d wI b2Buf)
+      wPtr  = primParamRegister {d=ExampleDevice} "micro_W" (prim__createParam2d wI hI wBuf)
+      xPtr  = primParamRegister {d=ExampleDevice} "micro_x" (prim__createParam1d hI xBuf)
+      bPtr  = primParamRegister {d=ExampleDevice} "micro_b" (prim__createParam1d wI bBuf)
+      a2Ptr = primParamRegister {d=ExampleDevice} "micro_a2" (prim__createParam1d wI a2Buf)
+      b2Ptr = primParamRegister {d=ExampleDevice} "micro_b2" (prim__createParam1d wI b2Buf)
       -- Boxed-tensor versions for tlinear / applyVar benches.
       wT : Tensor [W, H] ExampleDevice ExampleDType WithGrad
       wT = MkTensor wPtr Nothing

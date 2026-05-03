@@ -77,7 +77,7 @@ zeroBuf buf off n =
 ||| read FCs use Xavier(gain=1.4) + normal(std=0.01) biases). The default
 ||| `linearLayer` is `mkLinearWith ... (xavier uniform) (pure 0.0)`.
 export
-mkLinearWith : UserDeviceCore d => RuntimeDType dt => {i, o : Nat}
+mkLinearWith : UserDeviceTape d => RuntimeDType dt => {i, o : Nat}
             -> (paramPrefix : String)
             -> (weightInit : InitStrategy)
             -> (biasInit : IO Double)
@@ -102,7 +102,7 @@ mkLinearWith pfx wInit bInit = do
 ||| matching the existing `Layer/Linear.idr` naming so the optimizer
 ||| picks them up via the global registry.
 export
-linearLayer : UserDeviceCore d => RuntimeDType dt => {i, o : Nat} -> (paramPrefix : String) -> IO (LinearState i o d dt WithGrad)
+linearLayer : UserDeviceTape d => RuntimeDType dt => {i, o : Nat} -> (paramPrefix : String) -> IO (LinearState i o d dt WithGrad)
 linearLayer paramPrefix = do
   let oI = cast {to=Int} o
       iI = cast {to=Int} i
@@ -118,5 +118,5 @@ linearLayer paramPrefix = do
 
 ||| Wrap a Linear in `AnyLayer` for use in a `Network`.
 export
-linearLayerAny : UserDeviceCore d => RuntimeDType dt => {i, o : Nat} -> (paramPrefix : String) -> IO (AnyLayer i o d dt WithGrad)
+linearLayerAny : UserDeviceTape d => RuntimeDType dt => {i, o : Nat} -> (paramPrefix : String) -> IO (AnyLayer i o d dt WithGrad)
 linearLayerAny pid = map (MkAnyLayer LinearState) (linearLayer pid)

@@ -337,7 +337,7 @@ applyTransformerBatch {seqLen} {dModel} {headDim} {vocabSize} {b}
 ----------------------------------------------------------------------
 
 -- Build a Vect of n Linear layers with sequential paramId suffixes.
-mkLinearVec : UserDeviceCore d => RuntimeDType dt => {i, o : Nat} -> (n : Nat) -> String -> IO (Vect n (LinearState i o d dt WithGrad))
+mkLinearVec : UserDeviceTape d => RuntimeDType dt => {i, o : Nat} -> (n : Nat) -> String -> IO (Vect n (LinearState i o d dt WithGrad))
 mkLinearVec Z _ = pure []
 mkLinearVec (S k) pfx = do
   l <- linearLayer {i} {o} (pfx ++ show k)
@@ -345,7 +345,7 @@ mkLinearVec (S k) pfx = do
   pure (l :: rest)
 
 -- Build one transformer block.
-mkBlock : UserDeviceCore d => RuntimeDType dt => {dModel, numHeads, headDim : Nat} ->
+mkBlock : UserDeviceTape d => RuntimeDType dt => {dModel, numHeads, headDim : Nat} ->
             (paramPrefix : String) ->
             IO (BlockState dModel numHeads headDim d dt WithGrad)
 mkBlock pfx = do
@@ -359,7 +359,7 @@ mkBlock pfx = do
   f2 <- linearLayer {i = 4 * dModel} {o = dModel} (pfx ++ "_ff2")
   pure $ MkBlock qs ks vs ops n1 n2 f1 f2
 
-mkBlocks : UserDeviceCore d => RuntimeDType dt => {dModel, numHeads, headDim : Nat} ->
+mkBlocks : UserDeviceTape d => RuntimeDType dt => {dModel, numHeads, headDim : Nat} ->
              (k : Nat) -> (paramPrefix : String) ->
              IO (Vect k (BlockState dModel numHeads headDim d dt WithGrad))
 mkBlocks Z _ = pure []
@@ -373,7 +373,7 @@ mkBlocks (S k) paramPrefix = do
 ||| All params register as C params under their respective prefixes.
 export
 transformerLayer :
-  UserDeviceCore d => RuntimeDType dt =>
+  UserDeviceTape d => RuntimeDType dt =>
   {seqLen, dModel, numHeads, headDim, numBlocks, vocabSize : Nat} ->
   {auto prf : dModel = numHeads * headDim} ->
   (paramPrefix : String) ->
@@ -388,7 +388,7 @@ transformerLayer {prf} paramPrefix = do
       embBuf = prim__allocDoubles nI
       embBuf' = packDoubles embBuf 0 embedVals
       embName = paramPrefix ++ "_embed"
-      embPtr = prim__paramRegister embName (dtCreateParam2d {t=dt} vI dI embBuf' (deviceStreamTag {d}))
+      embPtr = primParamRegister {d} embName (dtCreateParam2d {t=dt} vI dI embBuf' (deviceStreamTag {d}))
       embTV : TMat vocabSize dModel d dt WithGrad
       embTV = MkTensor embPtr (Just embName)
   blks <- mkBlocks numBlocks (paramPrefix ++ "_b")
@@ -514,7 +514,7 @@ public export
 
 export
 transformerLayerAny :
-  UserDeviceCore d => RuntimeDType dt =>
+  UserDeviceTape d => RuntimeDType dt =>
   {seqLen, dModel, numHeads, headDim, numBlocks, vocabSize : Nat} ->
   {auto prf : dModel = numHeads * headDim} ->
   (paramPrefix : String) ->
