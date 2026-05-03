@@ -978,15 +978,20 @@ clean:
 # Excluded intentionally:
 #   Bench, Profile — no RESULT lines (covered by bench-compare / example-profile).
 EXAMPLES := example-supervised example-rnn example-lstm example-gru example-transformer example-gpt example-matmul-bench example-mnist example-seq-classify example-ntm-copy example-ntm-associative-recall example-dnc-copy example-dnc-recall example-reinforce example-q-learning example-sarsa example-monte-carlo example-frozen-lake example-taxi example-dqn example-mountain-car example-mountain-car-cont example-a2c example-ppo example-sac example-checkpoint
-# 4-lane matrix. `mlx-gpu` is a virtual lane that builds with
-# BACKEND=mlx MLX_DEVICE=gpu, exercising the F32-on-MlxGpu code path
-# (per BuildConfig.idr). All other lanes build at F64.
-BACKENDS := tape mlx mlx-gpu torch
+# 5-lane matrix. `mlx-gpu` (BACKEND=mlx MLX_DEVICE=gpu) and `torch-mps`
+# (BACKEND=torch TORCH_DEVICE=mps) are virtual lanes that exercise the
+# F32 code paths (per BuildConfig.idr); tape / mlx / torch build at F64.
+BACKENDS := tape mlx mlx-gpu torch torch-mps
 
-# Crash-only smoke gate: every example × 3 backends, 3-10 epochs each,
+# Crash-only smoke gate: every example × lane, 3-10 epochs each,
 # safety-net thresholds in test-examples.expect. Catches crashes / NaN /
 # divergence / missing RESULT keys; does NOT require any model to learn.
 # See docs/develop/testing.md for the full testing-layer overview.
+#
+# FAIL_FAST=1 bails on the first failure (handy for the iteration loop);
+# the default empty value runs the whole matrix so a final confirmation
+# surfaces every failure at once.
+FAIL_FAST ?=
 test-examples:
 	@fail=0; skip=""; \
 	if command -v timeout >/dev/null 2>&1; then TIMEOUT_PREFIX="timeout $(EXAMPLE_TIMEOUT)"; \
@@ -994,8 +999,9 @@ test-examples:
 	else echo "WARNING: no timeout/gtimeout binary; examples will not be time-bounded"; TIMEOUT_PREFIX=""; fi; \
 	for lane in $(BACKENDS); do \
 		case "$$lane" in \
-			mlx-gpu) b=mlx; lane_env="MLX_DEVICE=gpu"; expect_suffix=.mlx-gpu ;; \
-			*)       b=$$lane; lane_env=""; expect_suffix="" ;; \
+			mlx-gpu)   b=mlx;   lane_env="MLX_DEVICE=gpu";   expect_suffix=.mlx-gpu ;; \
+			torch-mps) b=torch; lane_env="TORCH_DEVICE=mps"; expect_suffix=.torch-mps ;; \
+			*)         b=$$lane; lane_env="";                expect_suffix="" ;; \
 		esac; \
 		backend_output=$$(env $$lane_env $(MAKE) --no-print-directory BACKEND=$$b backend 2>&1) || { \
 			echo "--- backend $$lane: build failed, skipping its examples ---"; \
@@ -1003,9 +1009,6 @@ test-examples:
 			skip="$$skip $$lane"; continue; \
 		}; \
 		for e in $(EXAMPLES); do \
-			case " $(SKIP_EXAMPLES) " in *" $$lane:$$e "*|*" $$b:$$e "*) \
-				echo "skip: $$e [$$lane] (in SKIP_EXAMPLES)"; continue ;; \
-			esac; \
 			echo "--- $$e [$$lane] ---"; \
 			extra_args=""; \
 			case "$$e" in \
@@ -1047,19 +1050,19 @@ test-examples:
 					echo "FAIL: $$e [$$lane] crashed (rc=$$rc) ($$elapsed_fmt)"; \
 				fi; \
 				echo "$$output" | tail -40 | sed 's/^/  | /'; \
-				fail=1; continue; \
+				fail=1; [ -n "$$FAIL_FAST" ] && { echo "FAIL_FAST: bail on first failure ($$e [$$lane])"; exit 1; }; continue; \
 			fi; \
 			result_line=$$(echo "$$output" | grep '^RESULT' | head -1); \
 			if [ -z "$$result_line" ]; then \
 				echo "FAIL: $$e [$$lane] -- no RESULT line ($$elapsed_fmt)"; \
 				echo "$$output" | tail -40 | sed 's/^/  | /'; \
-				fail=1; \
+				fail=1; [ -n "$$FAIL_FAST" ] && { echo "FAIL_FAST: bail on first failure ($$e [$$lane])"; exit 1; }; \
 			else \
 				expect_path="$$(dirname scripts/check-result.sh)/../test-examples.expect$$expect_suffix"; \
 				if [ -f "test-examples.expect$$expect_suffix" ]; then \
-					scripts/check-result.sh "$$e" "$$result_line" "test-examples.expect$$expect_suffix" || fail=1; \
+					scripts/check-result.sh "$$e" "$$result_line" "test-examples.expect$$expect_suffix" || { fail=1; [ -n "$$FAIL_FAST" ] && { echo "FAIL_FAST: bail ($$e [$$lane])"; exit 1; }; }; \
 				else \
-					scripts/check-result.sh "$$e" "$$result_line" || fail=1; \
+					scripts/check-result.sh "$$e" "$$result_line" || { fail=1; [ -n "$$FAIL_FAST" ] && { echo "FAIL_FAST: bail ($$e [$$lane])"; exit 1; }; }; \
 				fi; \
 				echo "  ($$elapsed_fmt)"; \
 			fi; \
