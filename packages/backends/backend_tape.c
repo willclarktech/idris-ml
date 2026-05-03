@@ -5533,8 +5533,6 @@ void optimizer_set_meta(OptimizerHandle h, const double* in9) {
    System
    ================================================================ */
 
-int backend_supports_tensor_params(void) { return 1; }
-
 /* get_rss_mb / get_current_rss_mb live in shared_utils.c (compiled
  * once, unified symbol). Local callers in this file resolve them
  * via the unsuffixed names because both symbols are in the rename
@@ -5551,50 +5549,8 @@ void backend_reset_for_eval(void) {
     }
 }
 
-void backend_memory_report(void) {
-    /* Arena stats */
-    int chunk_count = 0;
-    size_t total_cap = 0, total_used = 0;
-    for (ArenaChunk* c = arena_head; c; c = c->next) {
-        chunk_count++;
-        total_cap += c->cap;
-        total_used += c->used;
-    }
-
-    /* Param stats */
-    int total_param_elems = 0;
-    size_t param_grad_bytes = 0;
-    for (int i = 0; i < param_count_val; i++) {
-        Tensor* t = param_registry[i].tensor;
-        total_param_elems += t->numel;
-        if (t->grad) param_grad_bytes += t->numel * sizeof(double);
-    }
-
-    size_t leaked_bytes = (size_t)persistent_scalar_count * 56;  /* ~56B per scalar */
-
-    fprintf(stderr, "=== Memory Report ===\n");
-    fprintf(stderr, "  Arena: %d chunks, %zuKB capacity, %zuKB used\n",
-            chunk_count, total_cap / 1024, total_used / 1024);
-    int tape_chunks = 0;
-    for (TypedArenaChunk* c = tape_arena.head; c; c = c->next) tape_chunks++;
-    size_t tape_cap_entries = (size_t)tape_chunks * tape_arena.chunk_capacity;
-    fprintf(stderr, "  Tape: %d entries (%d chunks × %d cap), %zuKB\n",
-            tape_size, tape_chunks, tape_arena.chunk_capacity,
-            tape_cap_entries * sizeof(TapeEntry) / 1024);
-    fprintf(stderr, "  Params: %d tensors, %d elements, %zuKB grads\n",
-            param_count_val, total_param_elems, param_grad_bytes / 1024);
-    fprintf(stderr, "  Persistent scalars: %d (~%zuKB leaked)\n",
-            persistent_scalar_count, leaked_bytes / 1024);
-    fprintf(stderr, "  RSS: peak=%dMB cur=%dMB\n",
-            get_rss_mb(), get_current_rss_mb());
-    fprintf(stderr, "  Expected: arena %zuKB + tape %zuKB + params %zuKB + leaked %zuKB = %zuKB\n",
-            total_cap / 1024,
-            tape_cap_entries * sizeof(TapeEntry) / 1024,
-            (size_t)total_param_elems * sizeof(double) / 1024,
-            leaked_bytes / 1024,
-            (total_cap + tape_cap_entries * sizeof(TapeEntry) +
-             (size_t)total_param_elems * sizeof(double) + leaked_bytes) / 1024);
-}
+/* backend_memory_report and backend_supports_tensor_params removed
+ * (no Idris-side callers). */
 
 /* ================================================================
    Profiling
@@ -5849,12 +5805,6 @@ int optimizer_step_with_clip(OptimizerHandle opt, int clip_mode, double clip_val
 void* idrisml_seq(void* a, void* b) {
     (void)a;
     return b;
-}
-
-int backend_memory_report_return(int dummy) {
-    (void)dummy;
-    backend_memory_report();
-    return dummy;
 }
 
 int backend_reset_for_eval_return(int dummy) {

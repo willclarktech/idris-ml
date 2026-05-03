@@ -402,18 +402,10 @@ double optimizer_clip_grad_norm(double max_norm);  /* returns actual norm */
  * Returns the number of param pairs blended. */
 int polyak_blend(double tau, const char* online_scope, const char* target_scope);
 
-/* ---------- Backend Capabilities ---------- */
-
-/* Returns 1 if the backend supports tensor-level parameters
-   (consolidated weight tensors with views that share storage).
-   Returns 0 if the backend uses scalar-per-element parameters. */
-int backend_supports_tensor_params(void);
-
 /* ---------- System ---------- */
 
 int get_rss_mb(void);           /* peak RSS in MB (getrusage) */
 int get_current_rss_mb(void);   /* current RSS in MB (macOS mach_task_info) */
-void backend_memory_report(void); /* print detailed memory breakdown to stderr */
 void backend_reset_for_eval(void); /* reset tape + arena for clean eval forward */
 
 /* ---------- Profiling ---------- */
@@ -439,7 +431,6 @@ double       native_train_step(OptimizerHandle opt, int clip_mode, double clip_v
                                TensorHandle loss_ptr, double loss_val); /* zero+bwd+clip+step; return loss_val */
 int          optimizer_step_with_clip(OptimizerHandle opt, int clip_mode, double clip_val, int dummy); /* clip+step+zero; return 0 */
 void*        idrisml_seq(void* a, void* b); /* evaluate a, return b */
-int          backend_memory_report_return(int dummy);
 int          backend_reset_for_eval_return(int dummy);
 int          backend_profile_reset_return(int dummy);
 int          backend_profile_report_return(int dummy);

@@ -1880,10 +1880,6 @@ TensorHandle tensor_pair_first(TensorPair* p) { return p->first; }
 TensorHandle tensor_pair_second(TensorPair* p) { return p->second; }
 void tensor_pair_free(TensorPair* p) { delete p; }
 
-/* ---------- Backend Capabilities ---------- */
-
-int backend_supports_tensor_params(void) { return 1; }
-
 /* ---------- System ---------- */
 
 /* get_rss_mb / get_current_rss_mb live in shared_utils.c (compiled
@@ -1894,10 +1890,7 @@ int backend_supports_tensor_params(void) { return 1; }
 
 const char* backend_name(void) { return "torch"; }
 
-void backend_memory_report(void) {
-    fprintf(stderr, "Torch backend: peak RSS = %d MB, current RSS = %d MB\n",
-            get_rss_mb(), get_current_rss_mb());
-}
+/* backend_memory_report removed (no Idris-side callers). */
 
 void backend_reset_for_eval(void) {
     free_intermediates();
@@ -1990,7 +1983,7 @@ int optimizer_step_with_clip(OptimizerHandle opt, int clip_mode, double clip_val
     return 0;
 }
 void* idrisml_seq(void* a, void* b) { (void)a; return b; }
-int backend_memory_report_return(int d) { backend_memory_report(); return d; }
+/* backend_memory_report_return removed. */
 int backend_reset_for_eval_return(int d) { backend_reset_for_eval(); return d; }
 int backend_profile_reset_return(int d) { backend_profile_reset(); return d; }
 int backend_profile_report_return(int d) { backend_profile_report(); return d; }

@@ -4294,19 +4294,14 @@ void optimizer_set_meta(OptimizerHandle h, const double* in9) {
 }
 
 /* ================================================================
-   Backend capabilities
-   ================================================================ */
-
-int backend_supports_tensor_params(void) { return 1; }
-
-/* ================================================================
    System
    ================================================================ */
 
 /* get_rss_mb / get_current_rss_mb live in shared_utils.c (compiled
  * once, unified symbol). Both are in the rename header's EXCLUDE
  * set so the unsuffixed references resolve to the shared TU. */
-void backend_memory_report(void) { fprintf(stderr, "MLX backend: memory report not implemented\n"); }
+/* backend_memory_report / backend_supports_tensor_params removed
+ * (no Idris-side callers). */
 void backend_reset_for_eval(void) {
     tape_reset();
     for (auto& p : param_registry) {
@@ -4414,7 +4409,7 @@ int optimizer_step_with_clip(OptimizerHandle opt, int clip_mode, double clip_val
     return 0;
 }
 void* idrisml_seq(void* a, void* b) { (void)a; return b; }
-int backend_memory_report_return(int d) { backend_memory_report(); return d; }
+/* backend_memory_report_return removed. */
 int backend_reset_for_eval_return(int d) { backend_reset_for_eval(); return d; }
 int backend_profile_reset_return(int d) { backend_profile_reset(); return d; }
 int backend_profile_report_return(int d) { backend_profile_report(); return d; }

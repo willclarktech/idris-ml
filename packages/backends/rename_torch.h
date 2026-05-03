@@ -13,8 +13,6 @@
 #define IDRISML_RENAME_TORCH_H
 
 #define backend_epoch_begin backend_epoch_begin_torch
-#define backend_memory_report backend_memory_report_torch
-#define backend_memory_report_return backend_memory_report_return_torch
 #define backend_name backend_name_torch
 #define backend_profile_report backend_profile_report_torch
 #define backend_profile_report_return backend_profile_report_return_torch
@@ -22,7 +20,6 @@
 #define backend_profile_reset_return backend_profile_reset_return_torch
 #define backend_reset_for_eval backend_reset_for_eval_torch
 #define backend_reset_for_eval_return backend_reset_for_eval_return_torch
-#define backend_supports_tensor_params backend_supports_tensor_params_torch
 #define idrisml_seq idrisml_seq_torch
 #define mnist_free mnist_free_torch
 #define mnist_get_image mnist_get_image_torch

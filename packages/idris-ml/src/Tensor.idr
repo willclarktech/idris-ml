@@ -930,10 +930,6 @@ prim__nativeTrainStep : AnyPtr -> Int -> Double -> AnyPtr -> Double -> Double
 -- GC / RSS
 ----------------------------------------------------------------------
 
-%foreign "C:backend_supports_tensor_params,libidrisml"
-export
-prim__backendSupportsTensorParams : Int
-
 export
 forceGC : IO ()
 forceGC = pure ()
@@ -951,9 +947,6 @@ getRssMB _ = prim__getRssMB
 export
 getCurrentRssMB : Nat -> Int
 getCurrentRssMB _ = prim__getCurrentRssMB
-
-%foreign "C:backend_memory_report_return,libidrisml"
-prim__memoryReport : Int -> PrimIO Int
 
 
 ||| Bulk-convert a Vector of Doubles to a C tensor handle.
@@ -1014,13 +1007,6 @@ vectorToTensorPersistent {n} (VArray elems) =
 export
 toTDP : {0 d : Device} -> UserDeviceCore d => RuntimeDType dt => {i, o : Nat} -> DataPoint i o Double -> TensorDataPoint i o
 toTDP dp = MkTensorDataPoint (vectorToTensorPersistent {d} {dt} (x dp)) (vectorToTensorPersistent {d} {dt} (y dp))
-
-||| Print detailed memory breakdown to stderr.
-export
-memoryReport : IO ()
-memoryReport = do
-  _ <- primIO (prim__memoryReport 0)
-  pure ()
 
 %foreign "scheme:(lambda (a0)  ((foreign-procedure \"tensor_backward\" (void*) void) (vector-ref a0 2)))"
 prim__backwardC : AnyPtr -> PrimIO ()
