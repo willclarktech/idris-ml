@@ -605,3 +605,12 @@ UserDeviceTransfer TapeDev where
 
 public export
 Compatible TapeDev F64 where
+
+
+----------------------------------------------------------------------
+-- HardwareClass: the tape backend runs on the host CPU.
+----------------------------------------------------------------------
+
+public export
+HardwareClassed TapeDev where
+  hardwareClass = HostCpu

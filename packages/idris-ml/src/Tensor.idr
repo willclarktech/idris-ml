@@ -981,6 +981,34 @@ toDeviceChecked : {0 d1 : Type} -> (0 d2 : Type) ->
                   IO (Either DeviceError (Tensor dims d2 dt WithGrad))
 toDeviceChecked d2 src = attemptOn {d = d2} (toDevice d2 src)
 
+||| A discovered device, reduced to the facts discovery + reporting
+||| need: its human name, its physical `HardwareClass` (for grouping
+||| devices that share silicon), and a pre-baked `probe` that attempts
+||| a 1-element allocation under the EAFP gate. The concrete `(d, dt)`
+||| is captured at `someDevice` construction (where a compatible dtype
+||| is known), so this descriptor is dtype-agnostic and existential-
+||| free — you can't mint more tensors from it, which is exactly what
+||| discovery wants (use sites name the concrete device themselves).
+public export
+record SomeDevice where
+  constructor MkSomeDevice
+  deviceLabel : String
+  hwClass     : HardwareClass
+  probe       : IO Bool
+
+||| EAFP device discovery: keep the candidates whose probe succeeds.
+||| The candidate list is caller-supplied — built-ins compose a list
+||| from their `Linked`-witnessed tags, BYO backends append their own
+||| `someDevice` descriptors. The decision always comes from a real
+||| allocation, never a standalone `is_available` probe.
+export
+availableDevices : List SomeDevice -> IO (List SomeDevice)
+availableDevices [] = pure []
+availableDevices (sd :: rest) = do
+  ok    <- sd.probe
+  rest' <- availableDevices rest
+  pure $ if ok then sd :: rest' else rest'
+
 ||| Mark a tensor as no-grad: flips the C-side `requires_grad` flag to
 ||| false and retypes the handle as `NoGrad`. After this, downstream
 ||| ops on the tensor build no tape entries (per-backend semantics:
@@ -1187,6 +1215,21 @@ export
 ||| `freshZeroLossT`.
 tconstScalar : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => Linked d => Compatible d dt => Double -> IO (Tensor [] d dt WithGrad)
 tconstScalar v = ioRerun (\_ => MkTensor (dtCreateScalar {d} {t=dt} v 0 (deviceStreamTag {d})) Nothing)
+
+||| Build a `SomeDevice` candidate for a concrete `(device, dtype)`.
+||| The probe attempts a tiny scalar allocation through `attemptOn`, so
+||| a linked-but-absent device (e.g. `cuda:1` on a 1-GPU box) reports
+||| `False`; a backend whose construction never fails reports `True`.
+export
+someDevice : {0 d : Device} -> {0 dt : DType} ->
+             UserDeviceTape d => RuntimeDType dt => Linked d =>
+             Compatible d dt => HardwareClassed d => SomeDevice
+someDevice =
+  MkSomeDevice (deviceName {d}) (hardwareClass {d})
+    (do r <- attemptOn {d} (tconstScalar {d} {dt} 0.0)
+        pure $ case r of
+                 Right _ => True
+                 Left _  => False)
 
 ||| Subtract two equally-shaped Tensors (autograd-tracked).
 export %inline

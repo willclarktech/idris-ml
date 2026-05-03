@@ -66,6 +66,37 @@ interface Linked (0 d : Device) where
 
 
 ----------------------------------------------------------------------
+-- HardwareClass — physical-silicon classification (orthogonal to backend)
+--
+-- Backend-scoping (TorchDev TMps vs MlxDev MGpu) is correct: you can't
+-- mix their tensor handles even though both live on the same Apple GPU.
+-- But that scoping hides the hardware *commonality*. `HardwareClass`
+-- recovers it as runtime data — for *reporting* / grouping during
+-- discovery only. It never unifies tensor types: TMps and MGpu both map
+-- to `AppleGpu`, yet their tensors still can't meet. See
+-- `docs/develop/device-availability-gating.md`.
+----------------------------------------------------------------------
+
+public export
+data HardwareClass = HostCpu | AppleGpu | Nvidia Nat | Other String
+
+public export
+Eq HardwareClass where
+  HostCpu   == HostCpu   = True
+  AppleGpu  == AppleGpu  = True
+  Nvidia m  == Nvidia n  = m == n
+  Other a   == Other b   = a == b
+  _         == _         = False
+
+public export
+Show HardwareClass where
+  show HostCpu    = "host-cpu"
+  show AppleGpu   = "apple-gpu"
+  show (Nvidia n) = "nvidia:" ++ show n
+  show (Other s)  = s
+
+
+----------------------------------------------------------------------
 -- UserDeviceCore — lifecycle + arithmetic slice
 ----------------------------------------------------------------------
 
@@ -146,6 +177,17 @@ interface UserDeviceCore (0 d : Device) where
 ||| constraint in scope is enough to use both slices' methods. The
 ||| convention scales as later slices (`UserDeviceNN`, `Conv`,
 ||| `Tape`) layer on top.
+||| Open per-device hardware classification. Built-ins map to the
+||| obvious class (`TapeDev`/`*Cpu` → `HostCpu`, `TMps`/`MGpu` →
+||| `AppleGpu`, `TCuda n` → `Nvidia n`). BYO backends map to
+||| `Other "user/<name>"` — or a built-in class if they genuinely share
+||| silicon. Opt-in (separate from `UserDeviceCore`) so adding it costs
+||| no cascade on existing instances and BYO authors implement it only
+||| if they want discovery/grouping.
+public export
+interface UserDeviceCore d => HardwareClassed (0 d : Device) where
+  hardwareClass : HardwareClass
+
 public export
 interface UserDeviceCore d => UserDeviceLinear (0 d : Device) where
   -- Linear algebra ----------------------------------------------------

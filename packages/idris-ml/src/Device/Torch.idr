@@ -662,3 +662,15 @@ public export
   primCreateFromHost = prim__createFromHostTorch d
   primIntraMigrate h hwName =
     prim__toDeviceTorch h hwName
+
+
+----------------------------------------------------------------------
+-- HardwareClass: map each torch hw variant to its physical silicon.
+----------------------------------------------------------------------
+
+public export
+{d : TorchHwDev} -> HardwareClassed (TorchDev d) where
+  hardwareClass = case d of
+    TCpu    => HostCpu
+    TMps    => AppleGpu
+    TCuda n => Nvidia n

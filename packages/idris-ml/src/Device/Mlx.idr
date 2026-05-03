@@ -677,3 +677,14 @@ public export
   primSetIntHost     = prim__setIntHostMlx
   primCreateFromHost = prim__createFromHostMlx
   primIntraMigrate   = prim__intraMigrateMlx
+
+
+----------------------------------------------------------------------
+-- HardwareClass: mlx CPU stream is host CPU, GPU stream is Apple GPU.
+----------------------------------------------------------------------
+
+public export
+{s : MlxStream} -> HardwareClassed (MlxDev s) where
+  hardwareClass = case s of
+    MCpu => HostCpu
+    MGpu => AppleGpu
