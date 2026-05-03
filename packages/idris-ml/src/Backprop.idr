@@ -109,7 +109,7 @@ perPointLoss lossFn model dp = do
 ||| sample losses, mean-reduce, native train step. Returns the
 ||| (unchanged) network and the loss scalar.
 export
-epochVar : {0 d : Device} -> UserDeviceTape d => UserDeviceCore d => RuntimeDType dt => Linked d => Compatible d dt => {i, o, n : Nat} -> {hs : List Nat} ->
+epochVar : {0 d : Device} -> UserDeviceTape d => UserDeviceCore d => RuntimeDType dt => Linked d => Compatible d dt => IsFloating dt => {i, o, n : Nat} -> {hs : List Nat} ->
             NativeOptimizer d ->
             Vect n (DataPoint i o Double) ->
             LossFn d dt o ->
@@ -137,7 +137,7 @@ perPointLossTensor lossFn model dp = do
 
 ||| Supervised epoch over already-tensor-pre-built data points.
 export
-epochVarTensor : {0 d : Device} -> UserDeviceTape d => UserDeviceCore d => RuntimeDType dt => Linked d => Compatible d dt => {i, o, n : Nat} -> {hs : List Nat} ->
+epochVarTensor : {0 d : Device} -> UserDeviceTape d => UserDeviceCore d => RuntimeDType dt => Linked d => Compatible d dt => IsFloating dt => {i, o, n : Nat} -> {hs : List Nat} ->
                   NativeOptimizer d ->
                   Vect n (TensorDataPoint i o) ->
                   LossFn d dt o ->
@@ -173,7 +173,7 @@ perRowLoss lossFn predB tgtB k = do
 
 ||| Batched supervised epoch over `TensorDataPoint`s.
 export
-epochVarTensorBatch : {0 d : Device} -> UserDeviceTape d => UserDeviceCore d => RuntimeDType dt => Linked d => Compatible d dt => {i, o, n : Nat} -> {hs : List Nat} ->
+epochVarTensorBatch : {0 d : Device} -> UserDeviceTape d => UserDeviceCore d => RuntimeDType dt => Linked d => Compatible d dt => IsFloating dt => {i, o, n : Nat} -> {hs : List Nat} ->
                        NativeOptimizer d ->
                        Vect n (TensorDataPoint i o) ->
                        LossFn d dt o ->
@@ -255,7 +255,7 @@ perSeqLoss lossFn model dp = do
 
 ||| One recurrent epoch.
 export
-epochRecurrentVar : {0 d : Device} -> UserDeviceTape d => UserDeviceCore d => RuntimeDType dt => Linked d => Compatible d dt => {i, o, n : Nat} -> {hs : List Nat} ->
+epochRecurrentVar : {0 d : Device} -> UserDeviceTape d => UserDeviceCore d => RuntimeDType dt => Linked d => Compatible d dt => IsFloating dt => {i, o, n : Nat} -> {hs : List Nat} ->
                      NativeOptimizer d ->
                      Vect n (RecurrentDataPoint i o Double) ->
                      LossFn d dt o ->
@@ -335,7 +335,7 @@ perSeqLossTwoPhase lossFn model dp = do
 
 ||| One two-phase epoch.
 export
-epochTwoPhaseVar : {0 d : Device} -> UserDeviceTape d => UserDeviceCore d => RuntimeDType dt => Linked d => Compatible d dt => {i, o, n : Nat} -> {hs : List Nat} ->
+epochTwoPhaseVar : {0 d : Device} -> UserDeviceTape d => UserDeviceCore d => RuntimeDType dt => Linked d => Compatible d dt => IsFloating dt => {i, o, n : Nat} -> {hs : List Nat} ->
                     NativeOptimizer d ->
                     Vect n (TwoPhaseDataPoint i o Double) ->
                     LossFn d dt o ->

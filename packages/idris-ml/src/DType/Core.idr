@@ -297,6 +297,43 @@ public export
 
 
 ----------------------------------------------------------------------
+-- IsFloating / IsIntegral — op-level dtype kind gates
+--
+-- Empty capability markers (like `UpcastableTo` / `Compatible`) that
+-- classify a dtype by *kind*, used to constrain operations at the type
+-- level rather than only the backend. `IsFloating dt =>` on an op means
+-- the op only makes sense for real-valued dtypes (softmax, the
+-- activations, the losses, gradients); `IsIntegral dt =>` marks the
+-- index/count dtypes. `Bool` is deliberately neither — it's a mask
+-- dtype, not a number, so `softmax` / a loss / backprop on a `Bool`
+-- tensor is a compile error (no `IsFloating Bool` instance).
+--
+-- One polymorphic instance per family, mirroring `Precision`. There is
+-- no Idris-stdlib equivalent: `Num`/`Integral`/`Fractional` classify a
+-- *value-level* numeric type, but our dtypes are zero-quantity kind tags
+-- that are never instantiated, so a value-level instance is meaningless.
+----------------------------------------------------------------------
+
+public export
+interface IsFloating (0 t : Type) where
+
+public export
+{n : Nat} -> IsFloating (Float n) where
+
+public export
+{n : Nat} -> IsFloating (BFloat n) where
+
+public export
+interface IsIntegral (0 t : Type) where
+
+public export
+{n : Nat} -> IsIntegral (IntN n) where
+
+public export
+{n : Nat} -> IsIntegral (UInt n) where
+
+
+----------------------------------------------------------------------
 -- Compatible — (device, dtype) admissibility
 --
 -- Empty capability marker. `Compatible D T where` declares "device

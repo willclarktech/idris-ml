@@ -47,7 +47,7 @@ minDelta : Double
 minDelta = 0.001
 
 ||| Run a chunk of training epochs over fixed data.
-runChunk : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => Linked d => Compatible d dt => {i, o, n : Nat} -> {hs : List Nat} ->
+runChunk : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => Linked d => Compatible d dt => IsFloating dt => {i, o, n : Nat} -> {hs : List Nat} ->
            NativeOptimizer d -> Schedule ->
            Network i hs o d dt WithGrad ->
            Vect n (RecurrentDataPoint i o Double) ->
@@ -73,7 +73,7 @@ runChunk opt sched m ds lossFn (S k) ep bl sc = do
 ||| Train one curriculum stage. Returns
 ||| (model, totalEpochs, advanced?). `advanced=True` means the
 ||| caller should move to the next stage.
-trainStage : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => Linked d => Compatible d dt => {i, o, n : Nat} -> {hs : List Nat} ->
+trainStage : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => Linked d => Compatible d dt => IsFloating dt => {i, o, n : Nat} -> {hs : List Nat} ->
              NativeOptimizer d -> Schedule ->
              Network i hs o d dt WithGrad ->
              Stage d i o n ->
@@ -130,7 +130,7 @@ trainStage opt sched model stage lossFn chunkSz patience budget done bestLoss st
 ||| per-epoch optimizer rebuild needed).
 export
 runCurriculum :
-  {d : Device} -> UserDeviceTape d => RuntimeDType dt => Linked d => Compatible d dt =>
+  {d : Device} -> UserDeviceTape d => RuntimeDType dt => Linked d => Compatible d dt => IsFloating dt =>
   {i, o, n : Nat} -> {hs : List Nat} ->
   NativeOptimizer d ->
   Schedule ->

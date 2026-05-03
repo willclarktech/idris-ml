@@ -1413,14 +1413,14 @@ tensorItem v = primItem {d} v.tensorPtr
 ||| catches "loss computed inside `withNoGrad`, then fed to training"
 ||| — the bug class the entire `GradMode` refactor exists to prevent.
 export
-runBackward : UserDeviceTape d => Tensor [] d dt WithGrad -> IO ()
+runBackward : UserDeviceTape d => IsFloating dt => Tensor [] d dt WithGrad -> IO ()
 runBackward t = primIO (primBackward {d} t.tensorPtr)
 
 -- Loss (vector targets → scalar loss) ---------------------------------
 
 ||| MSE loss over a 1D prediction/target pair. Sum-reduced.
 export
-tmseLoss : {0 d : Device} -> UserDeviceLinear d => {n : Nat} ->
+tmseLoss : {0 d : Device} -> UserDeviceLinear d => IsFloating dt => {n : Nat} ->
            Tensor [n] d dt g -> Tensor [n] d dt g -> IO (Tensor [] d dt g)
 tmseLoss p t = ioRerun (\_ =>
   let diff = primSub {d} p.tensorPtr t.tensorPtr in
@@ -1431,7 +1431,7 @@ tmseLoss p t = ioRerun (\_ =>
 ||| `Example.Supervised.nllLossTensor` (divide by n to match the
 ||| reference's mean reduction).
 export
-tnllLoss : {0 d : Device} -> UserDeviceNN d => {n : Nat} ->
+tnllLoss : {0 d : Device} -> UserDeviceNN d => IsFloating dt => {n : Nat} ->
            Tensor [n] d dt g -> Tensor [n] d dt g -> IO (Tensor [] d dt g)
 tnllLoss {n} p t = ioRerun (\_ =>
   let logP = primLogSoftmax {d} p.tensorPtr 0 in
@@ -1448,7 +1448,7 @@ tnllLoss {n} p t = ioRerun (\_ =>
 ||| that the type system will reject if accidentally fed to
 ||| `nativeTrainStep`.
 export
-tbceLoss : {0 d : Device} -> UserDeviceNN d => {n : Nat} ->
+tbceLoss : {0 d : Device} -> UserDeviceNN d => IsFloating dt => {n : Nat} ->
            Tensor [n] d dt g -> Tensor [n] d dt g -> IO (Tensor [] d dt g)
 tbceLoss p t = ioRerun (\_ =>
   MkTensor (primBceWithLogits {d} p.tensorPtr t.tensorPtr) Nothing)
@@ -1459,7 +1459,7 @@ tbceLoss p t = ioRerun (\_ =>
 ||| clip → step. Reads `prim__item` BEFORE the step so the returned
 ||| scalar is not stale. Mirrors `nativeTrainStep`.
 export
-nativeTrainStep : {0 d : Device} -> UserDeviceTape d =>
+nativeTrainStep : {0 d : Device} -> UserDeviceTape d => IsFloating dt =>
                   NativeOptimizer d -> Tensor [] d dt WithGrad -> IO Double
 nativeTrainStep opt loss = ioRerun (\_ =>
   let clipMode : Int
