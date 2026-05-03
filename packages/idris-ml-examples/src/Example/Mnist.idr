@@ -181,7 +181,7 @@ evalAccuracy model ds numImages nSamples = go nSamples 0 0.0
 ||| sample `tensor_conv2d` calls.
 partial
 trainOneFullPass : {hs : List Nat} ->
-                   NativeOptimizer ->
+                   NativeOptimizer ExampleDevice ->
                    IO (Vect BatchSize (TensorDataPoint InputDim NumClasses)) ->
                    (batchesPerEpoch : Nat) ->
                    Network InputDim hs NumClasses ExampleDevice ExampleDType WithGrad ->

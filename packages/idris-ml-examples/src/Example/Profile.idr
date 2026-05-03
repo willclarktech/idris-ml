@@ -81,7 +81,7 @@ BatchSize = 16
 ----------------------------------------------------------------------
 
 profileEpoch :
-  NativeOptimizer ->
+  NativeOptimizer ExampleDevice ->
   Vect BatchSize (TwoPhaseDataPoint InputW OutputW Double) ->
   Network InputW [] OutputW ExampleDevice ExampleDType WithGrad ->
   Nat ->
@@ -104,7 +104,7 @@ profileEpoch opt dataPoints model epochNum = do
 ----------------------------------------------------------------------
 
 profileLoop :
-  NativeOptimizer ->
+  NativeOptimizer ExampleDevice ->
   Vect BatchSize (TwoPhaseDataPoint InputW OutputW Double) ->
   Network InputW [] OutputW ExampleDevice ExampleDType WithGrad ->
   Nat -> Nat ->

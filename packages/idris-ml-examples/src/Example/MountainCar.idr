@@ -182,7 +182,7 @@ record DqnState where
 actionToVec : Nat -> Vect 1 Double
 actionToVec a = [cast (natToInteger a)]
 
-trainIfReady : NativeOptimizer -> DqnState -> IO DqnState
+trainIfReady : NativeOptimizer ExampleDevice -> DqnState -> IO DqnState
 trainIfReady opt st = do
   bufSz <- bufferSize st.buffer
   if bufSz < st.cfgBatch
@@ -200,7 +200,7 @@ shapedReward : DqnState -> MCState -> MCState -> Double -> Double
 shapedReward st _ s' baseReward =
   baseReward + st.cfgShaping * abs s'.mcVel
 
-runEpisode : NativeOptimizer -> DqnState -> IO (DqnState, Double)
+runEpisode : NativeOptimizer ExampleDevice -> DqnState -> IO (DqnState, Double)
 runEpisode opt st0 = go st0 (MkMC (-0.5) 0.0) MaxSteps 0.0
   where
     go : DqnState -> MCState -> Nat -> Double -> IO (DqnState, Double)

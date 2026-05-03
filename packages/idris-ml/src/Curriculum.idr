@@ -48,7 +48,7 @@ minDelta = 0.001
 
 ||| Run a chunk of training epochs over fixed data.
 runChunk : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => {i, o, n : Nat} -> {hs : List Nat} ->
-           NativeOptimizer -> Schedule ->
+           NativeOptimizer d -> Schedule ->
            Network i hs o d dt WithGrad ->
            Vect n (RecurrentDataPoint i o Double) ->
            LossFn d dt o ->
@@ -74,7 +74,7 @@ runChunk opt sched m ds lossFn (S k) ep bl sc = do
 ||| (model, totalEpochs, advanced?). `advanced=True` means the
 ||| caller should move to the next stage.
 trainStage : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => {i, o, n : Nat} -> {hs : List Nat} ->
-             NativeOptimizer -> Schedule ->
+             NativeOptimizer d -> Schedule ->
              Network i hs o d dt WithGrad ->
              Stage d i o n ->
              LossFn d dt o ->
@@ -132,7 +132,7 @@ export
 runCurriculum :
   {d : Device} -> UserDeviceTape d => RuntimeDType dt =>
   {i, o, n : Nat} -> {hs : List Nat} ->
-  NativeOptimizer ->
+  NativeOptimizer d ->
   Schedule ->
   Network i hs o d dt WithGrad ->
   LossFn d dt o ->

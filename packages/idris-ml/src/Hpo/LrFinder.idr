@@ -22,6 +22,7 @@ import Data.List
 import System.Clock
 
 import Util
+import Device
 import Tensor
 
 
@@ -170,11 +171,12 @@ isFallbackCurve curve =
 |||   `RECOMMENDED_LR=<value>`
 ||| line. Plot the points externally to inspect the curve.
 export
-lrFind : {0 model : Type} -> {0 dp : Type} ->
+lrFind : {0 d : Device} -> UserDeviceTape d =>
+         {0 model : Type} -> {0 dp : Type} ->
          LrFindConfig ->
          (epochFn : model -> dp -> IO (model, Double)) ->
          (dataSrc : IO dp) ->
-         NativeOptimizer ->
+         NativeOptimizer d ->
          model ->
          IO LrFindResult
 lrFind {model} cfg epochFn dataSrc opt model0 = do

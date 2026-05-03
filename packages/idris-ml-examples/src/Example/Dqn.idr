@@ -180,7 +180,7 @@ record DqnState where
 actionToVec : Nat -> Vect 1 Double
 actionToVec a = [cast (natToInteger a)]
 
-trainIfReady : NativeOptimizer -> DqnState -> IO DqnState
+trainIfReady : NativeOptimizer ExampleDevice -> DqnState -> IO DqnState
 trainIfReady opt st = do
   bufSz <- bufferSize st.buffer
   if bufSz < st.cfgBatch
@@ -194,7 +194,7 @@ trainIfReady opt st = do
           pure st
         Nothing => pure st
 
-runEpisode : NativeOptimizer -> DqnState -> IO (DqnState, Double)
+runEpisode : NativeOptimizer ExampleDevice -> DqnState -> IO (DqnState, Double)
 runEpisode opt st0 = go st0 (MkCP 0 0 0 0) MaxSteps 0.0
   where
     go : DqnState -> CPState -> Nat -> Double -> IO (DqnState, Double)

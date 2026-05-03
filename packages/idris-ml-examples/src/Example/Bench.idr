@@ -211,14 +211,14 @@ benchNtmCopy = do
 -- NTM Copy 1K (realistic: fresh data + GC, matching real training)
 ----------------------------------------------------------------------
 
-copy1kEpoch : NativeOptimizer ->
+copy1kEpoch : NativeOptimizer ExampleDevice ->
               Network CopyInputW [] CopyOutputW ExampleDevice ExampleDType WithGrad ->
               IO (Network CopyInputW [] CopyOutputW ExampleDevice ExampleDType WithGrad, Double)
 copy1kEpoch opt m = do
   batch <- copyTaskBinaryBatchVect {w = CopyW} CopyBatch 1 20
   epochTwoPhaseVar opt batch tbceLoss m
 
-copy1kLoop : NativeOptimizer -> Nat -> Nat ->
+copy1kLoop : NativeOptimizer ExampleDevice -> Nat -> Nat ->
              Network CopyInputW [] CopyOutputW ExampleDevice ExampleDType WithGrad ->
              Double ->
              IO (Network CopyInputW [] CopyOutputW ExampleDevice ExampleDType WithGrad, Double)

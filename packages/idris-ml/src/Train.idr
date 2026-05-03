@@ -9,6 +9,7 @@ import Data.Nat
 import System.Clock
 
 import Util
+import Device
 import Tensor
 import Schedule
 
@@ -205,7 +206,7 @@ windowedPercentileConfig epochs pct threshold window pat =
 ||| `TrainConfig` via the `beforeEpoch` field:
 |||   `let cfg = { beforeEpoch := applySchedule sched opt } (simpleConfig 1000)`
 export
-applySchedule : Schedule -> NativeOptimizer -> Nat -> IO ()
+applySchedule : UserDeviceTape d => Schedule -> NativeOptimizer d -> Nat -> IO ()
 applySchedule sched opt ep = setLearningRate opt (sched ep)
 
 

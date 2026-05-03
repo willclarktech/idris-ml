@@ -2,6 +2,7 @@
 ||| Save/load registered parameters to/from .safetensors files.
 module Checkpoint
 
+import Device
 import Tensor
 
 %foreign "C:param_save,libidrisml"
@@ -58,7 +59,7 @@ loadModelAllowCast path = do
 ||| Save optimizer state (momentum/velocity buffers) to a .safetensors file.
 ||| Returns True on success.
 export
-saveOptimizer : String -> NativeOptimizer -> IO Bool
+saveOptimizer : {0 d : Device} -> String -> NativeOptimizer d -> IO Bool
 saveOptimizer path opt = do
   rc <- primIO (prim__optimizerSave opt.handle path)
   pure (rc == 0)
@@ -66,7 +67,7 @@ saveOptimizer path opt = do
 ||| Load optimizer state from a .safetensors file.
 ||| Returns True on success.
 export
-loadOptimizer : String -> NativeOptimizer -> IO Bool
+loadOptimizer : {0 d : Device} -> String -> NativeOptimizer d -> IO Bool
 loadOptimizer path opt = do
   rc <- primIO (prim__optimizerLoad opt.handle path)
   pure (rc == 0)

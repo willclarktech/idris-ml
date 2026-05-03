@@ -320,7 +320,7 @@ prepareRollout critic cfg steps finalSt = do
 -- Stack mini-batch obs into [B, ObsDim], do one batched actor + critic
 -- forward each, then build per-sample loss expressions by indexing into
 -- the [B, NumActions] / [B, 1] tensors.
-runBatch : NativeOptimizer -> Actor -> Critic -> Config ->
+runBatch : NativeOptimizer ExampleDevice -> Actor -> Critic -> Config ->
            List (RollStep, Double, Double) -> IO ()
 runBatch opt actor critic cfg batch = do
   let batchVec = Data.Vect.fromList batch
@@ -352,7 +352,7 @@ runBatch opt actor critic cfg batch = do
 -- desugaring crashes  PPO on MLX with "invalid memory reference"
 -- on the second runBatch onwards. `>>=`-style sequencing (do-block)
 -- works fine. See the module-header comment.
-runBatches : NativeOptimizer -> Actor -> Critic -> Config ->
+runBatches : NativeOptimizer ExampleDevice -> Actor -> Critic -> Config ->
              List (List (RollStep, Double, Double)) -> IO ()
 runBatches _ _ _ _ [] = pure ()
 runBatches opt actor critic cfg (b :: rest) = do
@@ -360,7 +360,7 @@ runBatches opt actor critic cfg (b :: rest) = do
   runBatches opt actor critic cfg rest
 
 
-kEpochUpdate : NativeOptimizer -> Actor -> Critic -> Config ->
+kEpochUpdate : NativeOptimizer ExampleDevice -> Actor -> Critic -> Config ->
                List (RollStep, Double, Double) -> Nat -> IO ()
 kEpochUpdate _ _ _ _ _ Z = pure ()
 kEpochUpdate opt actor critic cfg prepped (S k) = do
@@ -370,7 +370,7 @@ kEpochUpdate opt actor critic cfg prepped (S k) = do
   kEpochUpdate opt actor critic cfg prepped k
 
 
-ppoEpoch : NativeOptimizer -> Config -> PPOState -> IO (PPOState, Double)
+ppoEpoch : NativeOptimizer ExampleDevice -> Config -> PPOState -> IO (PPOState, Double)
 ppoEpoch opt cfg st = do
   startSt <- readIORef st.envRef
   -- Rollout's per-step forwards extract logits/values as Doubles for

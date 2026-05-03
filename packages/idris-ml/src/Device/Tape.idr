@@ -416,6 +416,22 @@ prim__paramNameTape : Int -> PrimIO String
 prim__paramGradItemAtTape : Int -> Int -> PrimIO Double
 %foreign "C:param_zero_all_grads_tape,libidrisml"
 prim__paramZeroAllTape : PrimIO ()
+%foreign "C:optimizer_create_sgd_tape,libidrisml"
+prim__optimizerCreateSgdTape : Double -> AnyPtr
+%foreign "C:optimizer_create_rmsprop_tape,libidrisml"
+prim__optimizerCreateRmspropTape : Double -> Double -> Double -> Double -> Double -> AnyPtr
+%foreign "C:optimizer_create_adam_tape,libidrisml"
+prim__optimizerCreateAdamTape : Double -> Double -> Double -> Double -> AnyPtr
+%foreign "C:optimizer_create_adam_group_tape,libidrisml"
+prim__optimizerCreateAdamGroupTape : Double -> Double -> Double -> Double -> String -> AnyPtr
+%foreign "C:optimizer_create_adamw_tape,libidrisml"
+prim__optimizerCreateAdamWTape : Double -> Double -> Double -> Double -> Double -> AnyPtr
+%foreign "C:optimizer_set_lr_tape,libidrisml"
+prim__optimizerSetLrTape : AnyPtr -> Double -> PrimIO ()
+%foreign "C:optimizer_set_param_lr_tape,libidrisml"
+prim__optimizerSetParamLrTape : AnyPtr -> String -> Double -> PrimIO ()
+%foreign "scheme:(lambda (a0 a1 a2 a3 a4) (let ((result ((foreign-procedure \"native_train_step_tape\" (void* int double void* double) double) a0 a1 a2 (vector-ref a3 2) a4))) (collect 0) (when (top-level-bound? 'idris-drain-once) (let loop () (when ((top-level-value 'idris-drain-once)) (loop)))) result))"
+prim__nativeTrainStepTape : AnyPtr -> Int -> Double -> AnyPtr -> Double -> Double
 
 
 public export
@@ -439,6 +455,14 @@ UserDeviceTape TapeDev where
   primParamName            = prim__paramNameTape
   primParamGradItemAt      = prim__paramGradItemAtTape
   primParamZeroAll         = prim__paramZeroAllTape
+  primOptimizerCreateSgd       = prim__optimizerCreateSgdTape
+  primOptimizerCreateRmsprop   = prim__optimizerCreateRmspropTape
+  primOptimizerCreateAdam      = prim__optimizerCreateAdamTape
+  primOptimizerCreateAdamGroup = prim__optimizerCreateAdamGroupTape
+  primOptimizerCreateAdamW     = prim__optimizerCreateAdamWTape
+  primOptimizerSetLr           = prim__optimizerSetLrTape
+  primOptimizerSetParamLr      = prim__optimizerSetParamLrTape
+  primNativeTrainStep          = prim__nativeTrainStepTape
 
 
 ----------------------------------------------------------------------

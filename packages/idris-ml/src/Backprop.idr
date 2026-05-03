@@ -110,7 +110,7 @@ perPointLoss lossFn model dp = do
 ||| (unchanged) network and the loss scalar.
 export
 epochVar : {0 d : Device} -> UserDeviceTape d => UserDeviceCore d => RuntimeDType dt => {i, o, n : Nat} -> {hs : List Nat} ->
-            NativeOptimizer ->
+            NativeOptimizer d ->
             Vect n (DataPoint i o Double) ->
             LossFn d dt o ->
             Network i hs o d dt WithGrad ->
@@ -138,7 +138,7 @@ perPointLossTensor lossFn model dp = do
 ||| Supervised epoch over already-tensor-pre-built data points.
 export
 epochVarTensor : {0 d : Device} -> UserDeviceTape d => UserDeviceCore d => RuntimeDType dt => {i, o, n : Nat} -> {hs : List Nat} ->
-                  NativeOptimizer ->
+                  NativeOptimizer d ->
                   Vect n (TensorDataPoint i o) ->
                   LossFn d dt o ->
                   Network i hs o d dt WithGrad ->
@@ -174,7 +174,7 @@ perRowLoss lossFn predB tgtB k = do
 ||| Batched supervised epoch over `TensorDataPoint`s.
 export
 epochVarTensorBatch : {0 d : Device} -> UserDeviceTape d => UserDeviceCore d => RuntimeDType dt => {i, o, n : Nat} -> {hs : List Nat} ->
-                       NativeOptimizer ->
+                       NativeOptimizer d ->
                        Vect n (TensorDataPoint i o) ->
                        LossFn d dt o ->
                        Network i hs o d dt WithGrad ->
@@ -256,7 +256,7 @@ perSeqLoss lossFn model dp = do
 ||| One recurrent epoch.
 export
 epochRecurrentVar : {0 d : Device} -> UserDeviceTape d => UserDeviceCore d => RuntimeDType dt => {i, o, n : Nat} -> {hs : List Nat} ->
-                     NativeOptimizer ->
+                     NativeOptimizer d ->
                      Vect n (RecurrentDataPoint i o Double) ->
                      LossFn d dt o ->
                      Network i hs o d dt WithGrad ->
@@ -336,7 +336,7 @@ perSeqLossTwoPhase lossFn model dp = do
 ||| One two-phase epoch.
 export
 epochTwoPhaseVar : {0 d : Device} -> UserDeviceTape d => UserDeviceCore d => RuntimeDType dt => {i, o, n : Nat} -> {hs : List Nat} ->
-                    NativeOptimizer ->
+                    NativeOptimizer d ->
                     Vect n (TwoPhaseDataPoint i o Double) ->
                     LossFn d dt o ->
                     Network i hs o d dt WithGrad ->

@@ -298,7 +298,7 @@ trainValSplit valFrac idx =
 -- LR-schedule helper: update all registered params each epoch.
 ----------------------------------------------------------------------
 
-setLRAll : NativeOptimizer -> Double -> IO ()
+setLRAll : NativeOptimizer ExampleDevice -> Double -> IO ()
 setLRAll opt lr = do
   n <- getParamCount {d=ExampleDevice}
   go 0 n

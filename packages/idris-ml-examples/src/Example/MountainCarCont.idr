@@ -311,7 +311,7 @@ actorLossBatch n actor q1 q2 logStdV alpha obsBatch = do
 
 -- --- Batch update ---------------------------------------------------
 
-runBatchUpdate : NativeOptimizer -> NativeOptimizer -> NativeOptimizer ->
+runBatchUpdate : NativeOptimizer ExampleDevice -> NativeOptimizer ExampleDevice -> NativeOptimizer ExampleDevice ->
                  SACState -> Config -> {n : Nat} ->
                  Vect n (Transition ObsDim ActDim) -> IO ()
 runBatchUpdate q1Opt q2Opt actorOpt st cfg {n} batch = do
@@ -329,7 +329,7 @@ runBatchUpdate q1Opt q2Opt actorOpt st cfg {n} batch = do
 
 -- --- Main loop ------------------------------------------------------
 
-sacStep : NativeOptimizer -> NativeOptimizer -> NativeOptimizer ->
+sacStep : NativeOptimizer ExampleDevice -> NativeOptimizer ExampleDevice -> NativeOptimizer ExampleDevice ->
           Config -> SACState -> IO (SACState, Double)
 sacStep q1Opt q2Opt actorOpt cfg st = do
   stepCount <- readIORef st.stepRef

@@ -640,19 +640,6 @@ RuntimeDType F64 where
 -- Native Optimizer
 ----------------------------------------------------------------------
 
-%foreign "C:optimizer_create_sgd,libidrisml"
-prim__optimizerCreateSgd : Double -> AnyPtr
-
-%foreign "C:optimizer_create_rmsprop,libidrisml"
-prim__optimizerCreateRmsprop : Double -> Double -> Double -> Double -> Double -> AnyPtr
-
-%foreign "C:optimizer_create_adam,libidrisml"
-prim__optimizerCreateAdam : Double -> Double -> Double -> Double -> AnyPtr
-
-%foreign "C:optimizer_create_adam_group,libidrisml"
-export
-prim__optimizerCreateAdamGroup : Double -> Double -> Double -> Double -> String -> AnyPtr
-
 ||| Polyak soft update for twin-network param groups registered under
 ||| `onlineScope` vs `targetScope`: for each online param, finds the
 ||| matching target param (same suffix after scope prefix) and blends
@@ -673,34 +660,39 @@ polyakUpdate tau onlineScope targetScope =
 public export
 data ClipMode = NoClip | ValueClip Double | NormClip Double
 
-||| Native libtorch optimizer. Single step() call updates all parameters.
+||| Native optimizer handle. Single step() call updates all
+||| parameters in the backend's registry. The `d` phantom pins the
+||| optimizer to the backend whose registry it manages — a
+||| `NativeOptimizer d` can only step a loss `Tensor [] d dt`.
 public export
-record NativeOptimizer where
+record NativeOptimizer (0 d : Device) where
   constructor MkNativeOptimizer
   handle : AnyPtr
   clipMode : ClipMode
 
 ||| Create a native SGD optimizer.
 export
-nativeSgd : Double -> NativeOptimizer
-nativeSgd lr = MkNativeOptimizer (prim__optimizerCreateSgd lr) NoClip
+nativeSgd : UserDeviceTape d => Double -> NativeOptimizer d
+nativeSgd lr = MkNativeOptimizer (primOptimizerCreateSgd {d} lr) NoClip
 
 ||| Create a native RMSprop optimizer (matches PyTorch defaults).
 export
-nativeRmsprop : (lr : Double) -> (alpha : Double) -> (eps : Double) ->
-                (clipVal : Double) -> (momentum : Double) -> NativeOptimizer
+nativeRmsprop : UserDeviceTape d =>
+                (lr : Double) -> (alpha : Double) -> (eps : Double) ->
+                (clipVal : Double) -> (momentum : Double) -> NativeOptimizer d
 nativeRmsprop lr alpha eps clipVal momentum =
   MkNativeOptimizer
-    (prim__optimizerCreateRmsprop lr alpha eps 0.0 momentum)
+    (primOptimizerCreateRmsprop {d} lr alpha eps 0.0 momentum)
     (ValueClip clipVal)
 
 ||| Create a native Adam optimizer with global norm clipping.
 export
-nativeAdamGlobalClip : (lr : Double) -> (beta1 : Double) -> (beta2 : Double) ->
-                       (eps : Double) -> (maxNorm : Double) -> NativeOptimizer
+nativeAdamGlobalClip : UserDeviceTape d =>
+                       (lr : Double) -> (beta1 : Double) -> (beta2 : Double) ->
+                       (eps : Double) -> (maxNorm : Double) -> NativeOptimizer d
 nativeAdamGlobalClip lr beta1 beta2 eps maxNorm =
   MkNativeOptimizer
-    (prim__optimizerCreateAdam lr beta1 beta2 eps)
+    (primOptimizerCreateAdam {d} lr beta1 beta2 eps)
     (NormClip maxNorm)
 
 ||| Create a native Adam optimizer that only manages params whose registry
@@ -710,45 +702,38 @@ nativeAdamGlobalClip lr beta1 beta2 eps maxNorm =
 ||| gradient leakage from one network's loss doesn't update another
 ||| network's weights (matches PyTorch's one-optimizer-per-net pattern).
 export
-nativeAdamGroup : (scope : String) ->
+nativeAdamGroup : UserDeviceTape d =>
+                  (scope : String) ->
                   (lr : Double) -> (beta1 : Double) -> (beta2 : Double) ->
-                  (eps : Double) -> (maxNorm : Double) -> NativeOptimizer
+                  (eps : Double) -> (maxNorm : Double) -> NativeOptimizer d
 nativeAdamGroup scope lr beta1 beta2 eps maxNorm =
   MkNativeOptimizer
-    (prim__optimizerCreateAdamGroup lr beta1 beta2 eps scope)
+    (primOptimizerCreateAdamGroup {d} lr beta1 beta2 eps scope)
     (NormClip maxNorm)
-
-%foreign "C:optimizer_create_adamw,libidrisml"
-prim__optimizerCreateAdamW : Double -> Double -> Double -> Double -> Double -> AnyPtr
 
 ||| Create a native AdamW optimizer (decoupled weight decay) with global norm clipping.
 export
-nativeAdamW : (lr : Double) -> (beta1 : Double) -> (beta2 : Double) ->
-              (eps : Double) -> (weightDecay : Double) -> (maxNorm : Double) -> NativeOptimizer
+nativeAdamW : UserDeviceTape d =>
+              (lr : Double) -> (beta1 : Double) -> (beta2 : Double) ->
+              (eps : Double) -> (weightDecay : Double) -> (maxNorm : Double) -> NativeOptimizer d
 nativeAdamW lr beta1 beta2 eps wd maxNorm =
   MkNativeOptimizer
-    (prim__optimizerCreateAdamW lr beta1 beta2 eps wd)
+    (primOptimizerCreateAdamW {d} lr beta1 beta2 eps wd)
     (NormClip maxNorm)
-
-%foreign "C:optimizer_set_param_lr,libidrisml"
-prim__optimizerSetParamLR : AnyPtr -> String -> Double -> PrimIO ()
 
 ||| Set a per-parameter learning rate override. Parameters matching the given
 ||| name will use this LR instead of the optimizer's base LR.
 ||| Use LR=0 to freeze a parameter. Set LR<0 to revert to base LR.
 export
-setParamLR : NativeOptimizer -> String -> Double -> IO ()
-setParamLR opt name lr = primIO (prim__optimizerSetParamLR opt.handle name lr)
-
-%foreign "C:optimizer_set_lr,libidrisml"
-prim__optimizerSetLrC : AnyPtr -> Double -> PrimIO ()
+setParamLR : UserDeviceTape d => NativeOptimizer d -> String -> Double -> IO ()
+setParamLR opt name lr = primIO (primOptimizerSetParamLr {d} opt.handle name lr)
 
 ||| Update the optimizer's base (global) learning rate. Per-parameter
 ||| overrides set via `setParamLR` remain in effect; only un-overridden
 ||| params pick up the new base LR. Used to apply LR schedules per epoch.
 export
-setLearningRate : NativeOptimizer -> Double -> IO ()
-setLearningRate opt lr = primIO (prim__optimizerSetLrC opt.handle lr)
+setLearningRate : UserDeviceTape d => NativeOptimizer d -> Double -> IO ()
+setLearningRate opt lr = primIO (primOptimizerSetLr {d} opt.handle lr)
 
 -- Fused native train step: zero_grad → backward → clip → step.
 -- Fused: zero_grad → backward → clip → step in single C call.
@@ -768,8 +753,9 @@ setLearningRate opt lr = primIO (prim__optimizerSetLrC opt.handle lr)
 -- training loops where ops bypass `tape_append` and per-op refcount
 -- bookkeeping doesn't fire — without it, the wrap-and-retain on each
 -- new Tensor keeps refcounts at >=1 indefinitely.
-%foreign "scheme:(lambda (a0 a1 a2 a3 a4) (let ((result ((foreign-procedure \"native_train_step\" (void* int double void* double) double) a0 a1 a2 (vector-ref a3 2) a4))) (collect 0) (when (top-level-bound? 'idris-drain-once) (let loop () (when ((top-level-value 'idris-drain-once)) (loop)))) result))"
-prim__nativeTrainStep : AnyPtr -> Int -> Double -> AnyPtr -> Double -> Double
+-- The fused step itself dispatches per-backend via
+-- `primNativeTrainStep {d}` (see `UserDeviceTape`); each backend's
+-- Scheme wrap carries the same GC + drain epilogue.
 
 ----------------------------------------------------------------------
 -- GC / RSS
@@ -1404,11 +1390,12 @@ tbceLoss p t = ioRerun (\_ =>
 ||| clip → step. Reads `prim__item` BEFORE the step so the returned
 ||| scalar is not stale. Mirrors `nativeTrainStep`.
 export
-nativeTrainStep : {0 d : Device} -> NativeOptimizer -> Tensor [] d dt WithGrad -> IO Double
+nativeTrainStep : {0 d : Device} -> UserDeviceTape d =>
+                  NativeOptimizer d -> Tensor [] d dt WithGrad -> IO Double
 nativeTrainStep opt loss = ioRerun (\_ =>
   let clipMode : Int
       clipMode = case opt.clipMode of NoClip => 0; ValueClip _ => 1; NormClip _ => 2
       clipVal  : Double
       clipVal  = case opt.clipMode of NoClip => 0.0; ValueClip v => v; NormClip v => v
       lossVal  = prim__item loss.tensorPtr
-  in prim__nativeTrainStep opt.handle clipMode clipVal loss.tensorPtr lossVal)
+  in primNativeTrainStep {d} opt.handle clipMode clipVal loss.tensorPtr lossVal)

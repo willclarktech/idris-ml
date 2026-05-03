@@ -281,7 +281,7 @@ lastTerminated steps = case last' steps of
   Just ls => ls.isDone
   Nothing => False
 
-a2cEpoch : NativeOptimizer -> Config -> A2CState -> IO (A2CState, Double)
+a2cEpoch : NativeOptimizer ExampleDevice -> Config -> A2CState -> IO (A2CState, Double)
 a2cEpoch opt cfg st = do
   startSt <- readIORef st.envRef
   -- Rollout-phase forward only extracts logits/values as Doubles

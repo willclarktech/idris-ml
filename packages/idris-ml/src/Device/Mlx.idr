@@ -461,6 +461,22 @@ prim__paramNameMlx : Int -> PrimIO String
 prim__paramGradItemAtMlx : Int -> Int -> PrimIO Double
 %foreign "C:param_zero_all_grads_mlx,libidrisml"
 prim__paramZeroAllMlx : PrimIO ()
+%foreign "C:optimizer_create_sgd_mlx,libidrisml"
+prim__optimizerCreateSgdMlx : Double -> AnyPtr
+%foreign "C:optimizer_create_rmsprop_mlx,libidrisml"
+prim__optimizerCreateRmspropMlx : Double -> Double -> Double -> Double -> Double -> AnyPtr
+%foreign "C:optimizer_create_adam_mlx,libidrisml"
+prim__optimizerCreateAdamMlx : Double -> Double -> Double -> Double -> AnyPtr
+%foreign "C:optimizer_create_adam_group_mlx,libidrisml"
+prim__optimizerCreateAdamGroupMlx : Double -> Double -> Double -> Double -> String -> AnyPtr
+%foreign "C:optimizer_create_adamw_mlx,libidrisml"
+prim__optimizerCreateAdamWMlx : Double -> Double -> Double -> Double -> Double -> AnyPtr
+%foreign "C:optimizer_set_lr_mlx,libidrisml"
+prim__optimizerSetLrMlx : AnyPtr -> Double -> PrimIO ()
+%foreign "C:optimizer_set_param_lr_mlx,libidrisml"
+prim__optimizerSetParamLrMlx : AnyPtr -> String -> Double -> PrimIO ()
+%foreign "scheme:(lambda (a0 a1 a2 a3 a4) (let ((result ((foreign-procedure \"native_train_step_mlx\" (void* int double void* double) double) a0 a1 a2 (vector-ref a3 2) a4))) (collect 0) (when (top-level-bound? 'idris-drain-once) (let loop () (when ((top-level-value 'idris-drain-once)) (loop)))) result))"
+prim__nativeTrainStepMlx : AnyPtr -> Int -> Double -> AnyPtr -> Double -> Double
 
 
 public export
@@ -484,6 +500,14 @@ public export
   primParamName            = prim__paramNameMlx
   primParamGradItemAt      = prim__paramGradItemAtMlx
   primParamZeroAll         = prim__paramZeroAllMlx
+  primOptimizerCreateSgd       = prim__optimizerCreateSgdMlx
+  primOptimizerCreateRmsprop   = prim__optimizerCreateRmspropMlx
+  primOptimizerCreateAdam      = prim__optimizerCreateAdamMlx
+  primOptimizerCreateAdamGroup = prim__optimizerCreateAdamGroupMlx
+  primOptimizerCreateAdamW     = prim__optimizerCreateAdamWMlx
+  primOptimizerSetLr           = prim__optimizerSetLrMlx
+  primOptimizerSetParamLr      = prim__optimizerSetParamLrMlx
+  primNativeTrainStep          = prim__nativeTrainStepMlx
 
 
 ----------------------------------------------------------------------

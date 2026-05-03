@@ -301,6 +301,23 @@ interface UserDeviceConv d => UserDeviceTape (0 d : Device) where
   ||| Zero every registered param's gradient.
   primParamZeroAll      : PrimIO ()
 
+  -- Optimizer creation + mutation ----------------------------------
+  ||| Create a backend-specific optimizer over this backend's
+  ||| registry. The returned handle is opaque and backend-bound; it
+  ||| is consumed by `primNativeTrainStep` / the LR setters below.
+  primOptimizerCreateSgd      : Double -> AnyPtr
+  primOptimizerCreateRmsprop  : Double -> Double -> Double -> Double -> Double -> AnyPtr
+  primOptimizerCreateAdam     : Double -> Double -> Double -> Double -> AnyPtr
+  primOptimizerCreateAdamGroup : Double -> Double -> Double -> Double -> String -> AnyPtr
+  primOptimizerCreateAdamW    : Double -> Double -> Double -> Double -> Double -> AnyPtr
+  ||| Set the optimizer's base LR.
+  primOptimizerSetLr      : AnyPtr -> Double -> PrimIO ()
+  ||| Set a per-parameter LR override (matched by paramId).
+  primOptimizerSetParamLr : AnyPtr -> String -> Double -> PrimIO ()
+  ||| Fused step: zero_grad → backward → clip → step. Args:
+  ||| (optimizer handle, clip mode, clip val, loss tensor, loss val).
+  primNativeTrainStep     : AnyPtr -> Int -> Double -> AnyPtr -> Double -> Double
+
   -- Param + state creation -----------------------------------------
   primCreateParam1d     : Int -> AnyPtr -> AnyPtr
   primCreateParam2d     : Int -> Int -> AnyPtr -> AnyPtr

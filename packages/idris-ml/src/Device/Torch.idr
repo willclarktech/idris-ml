@@ -447,6 +447,22 @@ prim__paramNameTorch : Int -> PrimIO String
 prim__paramGradItemAtTorch : Int -> Int -> PrimIO Double
 %foreign "C:param_zero_all_grads_torch,libidrisml"
 prim__paramZeroAllTorch : PrimIO ()
+%foreign "C:optimizer_create_sgd_torch,libidrisml"
+prim__optimizerCreateSgdTorch : Double -> AnyPtr
+%foreign "C:optimizer_create_rmsprop_torch,libidrisml"
+prim__optimizerCreateRmspropTorch : Double -> Double -> Double -> Double -> Double -> AnyPtr
+%foreign "C:optimizer_create_adam_torch,libidrisml"
+prim__optimizerCreateAdamTorch : Double -> Double -> Double -> Double -> AnyPtr
+%foreign "C:optimizer_create_adam_group_torch,libidrisml"
+prim__optimizerCreateAdamGroupTorch : Double -> Double -> Double -> Double -> String -> AnyPtr
+%foreign "C:optimizer_create_adamw_torch,libidrisml"
+prim__optimizerCreateAdamWTorch : Double -> Double -> Double -> Double -> Double -> AnyPtr
+%foreign "C:optimizer_set_lr_torch,libidrisml"
+prim__optimizerSetLrTorch : AnyPtr -> Double -> PrimIO ()
+%foreign "C:optimizer_set_param_lr_torch,libidrisml"
+prim__optimizerSetParamLrTorch : AnyPtr -> String -> Double -> PrimIO ()
+%foreign "scheme:(lambda (a0 a1 a2 a3 a4) (let ((result ((foreign-procedure \"native_train_step_torch\" (void* int double void* double) double) a0 a1 a2 (vector-ref a3 2) a4))) (collect 0) (when (top-level-bound? 'idris-drain-once) (let loop () (when ((top-level-value 'idris-drain-once)) (loop)))) result))"
+prim__nativeTrainStepTorch : AnyPtr -> Int -> Double -> AnyPtr -> Double -> Double
 
 
 public export
@@ -478,6 +494,14 @@ public export
   primParamName            = prim__paramNameTorch
   primParamGradItemAt      = prim__paramGradItemAtTorch
   primParamZeroAll         = prim__paramZeroAllTorch
+  primOptimizerCreateSgd       = prim__optimizerCreateSgdTorch
+  primOptimizerCreateRmsprop   = prim__optimizerCreateRmspropTorch
+  primOptimizerCreateAdam      = prim__optimizerCreateAdamTorch
+  primOptimizerCreateAdamGroup = prim__optimizerCreateAdamGroupTorch
+  primOptimizerCreateAdamW     = prim__optimizerCreateAdamWTorch
+  primOptimizerSetLr           = prim__optimizerSetLrTorch
+  primOptimizerSetParamLr      = prim__optimizerSetParamLrTorch
+  primNativeTrainStep          = prim__nativeTrainStepTorch
 
 
 ----------------------------------------------------------------------

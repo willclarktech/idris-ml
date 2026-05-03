@@ -200,7 +200,7 @@ computeLossBatched gamma model randomBatchV = do
 -- Training
 ----------------------------------------------------------------------
 
-epochRL : {hs : List Nat} -> NativeOptimizer -> Double ->
+epochRL : {hs : List Nat} -> NativeOptimizer ExampleDevice -> Double ->
           Network 4 hs 2 ExampleDevice ExampleDType WithGrad -> List (List Double) ->
           IO (Network 4 hs 2 ExampleDevice ExampleDType WithGrad, Double, Double)
 epochRL opt gamma model batch = do
@@ -209,7 +209,7 @@ epochRL opt gamma model batch = do
   pure (model, lossVal, avgRet)
 
 epochRLBatched : {n : Nat} -> {hs : List Nat} ->
-                 NativeOptimizer -> Double ->
+                 NativeOptimizer ExampleDevice -> Double ->
                  Network 4 hs 2 ExampleDevice ExampleDType WithGrad -> Vect n (List Double) ->
                  IO (Network 4 hs 2 ExampleDevice ExampleDType WithGrad, Double, Double)
 epochRLBatched opt gamma model batchV = do
