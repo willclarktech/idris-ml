@@ -1140,19 +1140,33 @@ TensorHandle tensor_causal_mask(int n) {
     return from_tensor(std::move(t));
 }
 
-TensorHandle tensor_one_hot(int* tokens, int n_tokens, int vocab_size) {
+TensorHandle tensor_one_hot(int* tokens, int n_tokens, int vocab_size, int dtag) {
     int total = n_tokens * vocab_size;
-    // F32 (not F64) to mirror mlx. A one-hot loss target carries only 0/1
-    // (exact in F32); an F32 model keeps F32, an F64 model promotes the
-    // target back to F64 losslessly. F64 here would contaminate the F32
-    // path and break torch-MPS (which rejects F64).
-    auto t = torch::zeros({(int64_t)total}, torch::kFloat32);
-    auto acc = t.accessor<float, 1>();
+    // Build the 0/1 pattern in F64, then cast to the requested dtype so the
+    // result honestly matches the Idris `dt` (0/1 is exact in every dtype —
+    // float or int — so the cast is lossless). An F32 model gets a real F32
+    // one-hot, an F64 model a real F64 one — no silent dtype divergence.
+    auto t = torch::zeros({(int64_t)total}, torch::kFloat64);
+    auto acc = t.accessor<double, 1>();
     for (int i = 0; i < n_tokens; i++) {
         int tok = tokens[i];
         if (tok >= 0 && tok < vocab_size)
-            acc[i * vocab_size + tok] = 1.0f;
+            acc[i * vocab_size + tok] = 1.0;
     }
+    torch::ScalarType st;
+    switch (dtag) {
+        case 1:  st = torch::kFloat64;  break;
+        case 2:  st = torch::kBFloat16; break;
+        case 3:  st = torch::kHalf;     break;
+        case 4:  st = torch::kChar;     break;
+        case 5:  st = torch::kShort;    break;
+        case 6:  st = torch::kInt;      break;
+        case 7:  st = torch::kLong;     break;
+        case 8:  st = torch::kByte;     break;
+        case 9:  st = torch::kBool;     break;
+        default: st = torch::kFloat32;  break;  /* 0 = f32 */
+    }
+    if (st != torch::kFloat64) t = t.to(st);
     return from_tensor(std::move(t));
 }
 

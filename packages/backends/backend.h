@@ -316,7 +316,10 @@ TensorHandle tensor_subtract_scalar_inplace(TensorHandle t, double val);
 /* ---------- Convenience: build tensors from scalar arrays ---------- */
 
 /* Create a 1D tensor from n doubles passed as individual args via a C array */
-TensorHandle tensor_one_hot(int* tokens, int n_tokens, int vocab_size);
+/* dtype-aware: dtag (0=f32,1=f64,2=bf16,3=f16,4=i8,5=i16,6=i32,7=i64,8=u8,9=bool)
+   selects the output dtype so the result honestly matches the Idris `dt`.
+   tape ignores dtag (F64-only). */
+TensorHandle tensor_one_hot(int* tokens, int n_tokens, int vocab_size, int dtag);
 /* Per-dtype variants — see lifecycle block comment for dispatch rules. */
 TensorHandle tensor_create_1d_f32(int n, double* data, int requires_grad);
 TensorHandle tensor_create_1d_f64(int n, double* data, int requires_grad);

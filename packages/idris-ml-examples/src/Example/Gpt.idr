@@ -146,7 +146,7 @@ gptTensorPoint corpus corpusLen = do
       vI = cast {to=Int} VocabSize
       inT = primCreate1d {d=ExampleDevice} sI (packDoubleBuf (prim__allocDoubles sI) 0 inputToks) 0
       tgtIdxBuf = packIntBuf (prim__allocInts sI) 0 targetToks
-  pure $ MkTensorDataPoint inT (primOneHot {d=ExampleDevice} tgtIdxBuf sI vI)
+  pure $ MkTensorDataPoint inT (primOneHot {d=ExampleDevice} tgtIdxBuf sI vI (dtypeTag {t=ExampleDType}))
 
 gptBatchVect : (corpus : List Int) -> (corpusLen : Nat) -> (n : Nat) ->
                IO (Vect n (TensorDataPoint InputDim OutputDim))
@@ -249,7 +249,7 @@ evalBPC model corpus corpusLen nSamples = go nSamples 0.0
           vI = cast {to=Int} VocabSize
           inT = primCreate1d {d=ExampleDevice} sI (packDoubleBuf (prim__allocDoubles sI) 0 inputToks) 0
           tgtIdxBuf = packIntBuf (prim__allocInts sI) 0 targetToks
-          tgtT = primOneHot {d=ExampleDevice} tgtIdxBuf sI vI
+          tgtT = primOneHot {d=ExampleDevice} tgtIdxBuf sI vI (dtypeTag {t=ExampleDType})
           inV = the (TVec InputDim ExampleDevice ExampleDType WithGrad) (MkTensor inT Nothing)
           tgtV = the (TVec OutputDim ExampleDevice ExampleDType WithGrad) (MkTensor tgtT Nothing)
       (_, predV) <- forwardVar model inV

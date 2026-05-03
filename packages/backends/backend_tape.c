@@ -4863,7 +4863,8 @@ TensorHandle tensor_subtract_scalar_inplace(TensorHandle h, double val) {
    tokens: array of token indices (int), n_tokens long
    vocab_size: number of classes per token
    Output: 1D tensor of length n_tokens * vocab_size */
-TensorHandle tensor_one_hot(int* tokens, int n_tokens, int vocab_size) {
+TensorHandle tensor_one_hot(int* tokens, int n_tokens, int vocab_size, int dtag) {
+    (void)dtag;  /* tape is F64-only (Compatible TapeDev admits only F64) */
     int total = n_tokens * vocab_size;
     double* data = calloc(total, sizeof(double));  /* zeros */
     for (int i = 0; i < n_tokens; i++) {

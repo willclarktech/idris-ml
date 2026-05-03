@@ -358,8 +358,10 @@ interface UserDeviceConv d => UserDeviceTape (0 d : Device) where
   ||| Load image `idx` from an MNIST dataset handle into a tensor.
   primMnistGetImage     : AnyPtr -> Int -> AnyPtr
   ||| One-hot encode an int-index buffer into a [len, classes]
-  ||| matrix. Args: (index buffer, len, classes).
-  primOneHot            : AnyPtr -> Int -> Int -> AnyPtr
+  ||| matrix in the dtype selected by the trailing `dtypeTag` (so the
+  ||| produced tensor honestly matches the Idris `dt`; 0/1 is exact in
+  ||| every dtype). Args: (index buffer, len, classes, dtypeTag).
+  primOneHot            : AnyPtr -> Int -> Int -> Int -> AnyPtr
 
   -- Param registry (optimizer-side) --------------------------------
   primParamRegister     : String -> AnyPtr -> AnyPtr

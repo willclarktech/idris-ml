@@ -407,7 +407,7 @@ reversalTensorPoint i o vocabSize inputLen seqLen sepToken eosToken = do
       inT = primCreate1d {d=ExampleDevice} sI (packTokensDouble (prim__allocDoubles sI) 0 inputToks) 0
       -- Target: one-hot [seqLen * vocabSize] for cross-entropy
       tgtIdxBuf = packTokens (prim__allocInts sI) 0 targetToks
-  pure $ MkTensorDataPoint inT (primOneHot {d=ExampleDevice} tgtIdxBuf sI vI)
+  pure $ MkTensorDataPoint inT (primOneHot {d=ExampleDevice} tgtIdxBuf sI vI (dtypeTag {t=ExampleDType}))
 
 ||| Generate a batch of reversal tensor data points.
 export
@@ -439,7 +439,7 @@ sortingTensorPoint i o vocabSize inputLen seqLen sepToken eosToken = do
       vI = cast {to=Int} vocabSize
       inT = primCreate1d {d=ExampleDevice} sI (packTokensDouble (prim__allocDoubles sI) 0 inputToks) 0
       tgtIdxBuf = packTokens (prim__allocInts sI) 0 targetToks
-  pure $ MkTensorDataPoint inT (primOneHot {d=ExampleDevice} tgtIdxBuf sI vI)
+  pure $ MkTensorDataPoint inT (primOneHot {d=ExampleDevice} tgtIdxBuf sI vI (dtypeTag {t=ExampleDType}))
 
 ||| Generate a batch of sorting tensor data points.
 export

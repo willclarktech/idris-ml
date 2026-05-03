@@ -2519,8 +2519,11 @@ TensorHandle tensor_reshape_1d(TensorHandle h, int n) {
     return tensor_reshape_1d_mlx_streamed(h, n, default_stream_tag());
 }
 
-TensorHandle tensor_one_hot(int* tokens, int n_tokens, int vocab_size) {
-    // Create one-hot encoded 1D tensor
+TensorHandle tensor_one_hot(int* tokens, int n_tokens, int vocab_size, int dtag) {
+    // Create one-hot encoded 1D tensor in the requested dtype so the result
+    // honestly matches the Idris `dt` (0/1 is exact in every dtype). mlx
+    // admits F32/F64 (Metal-F32, CPU-F64) per the Compatible table; dtag 1 =
+    // F64, all else F32.
     int total = n_tokens * vocab_size;
     std::vector<double> data(total, 0.0);
     for (int i = 0; i < n_tokens; i++) {
@@ -2529,7 +2532,8 @@ TensorHandle tensor_one_hot(int* tokens, int n_tokens, int vocab_size) {
             data[i * vocab_size + tok] = 1.0;
     }
     mx::Shape sh = {total};
-    auto t = new Tensor(mx_from_doubles(data.data(), sh), false);
+    mx::Dtype dt = (dtag == 1) ? mx::float64 : mx::float32;
+    auto t = new Tensor(mx_array_from_doubles(data.data(), sh, dt), false);
     free(tokens);
     return (TensorHandle)t;
 }

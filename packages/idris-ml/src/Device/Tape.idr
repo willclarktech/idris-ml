@@ -93,8 +93,8 @@ prim__item2dTape : AnyPtr -> Int -> Int -> Double
 prim__create1dTape : Int -> AnyPtr -> Int -> AnyPtr
 %foreign "scheme:(lambda (a0 a1) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"mnist_get_image_tape\" (void* int) void*) a0 a1))) (let ((wr (vector 'tensor-handle-v2 \"tape\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle_tape\" (void*) void) raw_r) wr)))"
 prim__mnistGetImageTape : AnyPtr -> Int -> AnyPtr
-%foreign "scheme:(lambda (a0 a1 a2) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_one_hot_tape\" (void* int int) void*) a0 a1 a2))) (let ((wr (vector 'tensor-handle-v2 \"tape\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle_tape\" (void*) void) raw_r) wr)))"
-prim__oneHotTape : AnyPtr -> Int -> Int -> AnyPtr
+%foreign "scheme:(lambda (a0 a1 a2 a3) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_one_hot_tape\" (void* int int int) void*) a0 a1 a2 a3))) (let ((wr (vector 'tensor-handle-v2 \"tape\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle_tape\" (void*) void) raw_r) wr)))"
+prim__oneHotTape : AnyPtr -> Int -> Int -> Int -> AnyPtr
 
 public export
 UserDeviceCore TapeDev where

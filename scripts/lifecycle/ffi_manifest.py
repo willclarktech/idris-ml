@@ -168,7 +168,7 @@ MANIFEST = {
     "param_tensor":                     (("i",), "T"),
 
     # Tensor constructors
-    "tensor_one_hot":                   (("R", "i", "i"), "T"),
+    "tensor_one_hot":                   (("R", "i", "i", "i"), "T"),
     "tensor_create_1d":                 (("i", "R", "i"), "T"),
     "tensor_create_2d":                 (("i", "i", "R", "i"), "T"),
     "tensor_create_param_1d":           (("i", "R"), "T"),

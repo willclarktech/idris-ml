@@ -126,9 +126,8 @@ mnistItem ds idx = do
                   (primReshape1d {d=ExampleDevice} imgT (cast {to=Int} InputDim))
                   (deviceStreamTag {d=ExampleDevice})
       lblBuf = prim__setInt (prim__allocInts 1) 0 lbl
-      tgtT = dtCastFrom {d=ExampleDevice} {t=ExampleDType}
-               (primOneHot {d=ExampleDevice} lblBuf 1 (cast {to=Int} NumClasses))
-               (deviceStreamTag {d=ExampleDevice})
+      -- one-hot now yields ExampleDType directly (dtype-aware); no cast needed.
+      tgtT = primOneHot {d=ExampleDevice} lblBuf 1 (cast {to=Int} NumClasses) (dtypeTag {t=ExampleDType})
   pure (MkTensorDataPoint flatImg tgtT)
 
 
@@ -168,9 +167,7 @@ evalAccuracy model ds numImages nSamples = go nSamples 0 0.0
           correct' = if pred == lbl then S correct else correct
           lblBuf = prim__allocInts 1
           lblBuf' = prim__setInt lblBuf 0 lbl
-          tgtT = dtCastFrom {d=ExampleDevice} {t=ExampleDType}
-                   (primOneHot {d=ExampleDevice} lblBuf' 1 (cast {to=Int} NumClasses))
-                   (deviceStreamTag {d=ExampleDevice})
+          tgtT = primOneHot {d=ExampleDevice} lblBuf' 1 (cast {to=Int} NumClasses) (dtypeTag {t=ExampleDType})
           tgtV = the (TVec NumClasses ExampleDevice ExampleDType WithGrad) (MkTensor tgtT Nothing)
       lossT <- tnllLoss predV tgtV
       let lossVal = primItem {d=ExampleDevice} lossT.tensorPtr
