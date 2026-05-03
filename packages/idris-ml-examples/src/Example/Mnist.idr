@@ -118,15 +118,12 @@ BatchSize = 64
 ||| Fetch a single MNIST image as a TensorDataPoint (raw tensor pointer).
 mnistItem : AnyPtr -> Nat -> IO (TensorDataPoint InputDim NumClasses)
 mnistItem ds idx = do
-  let imgT = primMnistGetImage {d=ExampleDevice} ds (cast {to=Int} (natToInteger idx))
+  let -- mnist_get_image / one_hot are dtype-aware: pass ExampleDType's tag so
+      -- both yield ExampleDType directly (no cast on any build).
+      imgT = primMnistGetImage {d=ExampleDevice} ds (cast {to=Int} (natToInteger idx)) (dtypeTag {t=ExampleDType})
       lbl = prim__mnistGetLabel ds (cast {to=Int} (natToInteger idx))
-      -- mnist_get_image / one_hot build F64 tensors; cast to ExampleDType so
-      -- they match the F32 params on an F32 build (no-op on F64 builds).
-      flatImg = dtCastFrom {d=ExampleDevice} {t=ExampleDType}
-                  (primReshape1d {d=ExampleDevice} imgT (cast {to=Int} InputDim))
-                  (deviceStreamTag {d=ExampleDevice})
+      flatImg = primReshape1d {d=ExampleDevice} imgT (cast {to=Int} InputDim)
       lblBuf = prim__setInt (prim__allocInts 1) 0 lbl
-      -- one-hot now yields ExampleDType directly (dtype-aware); no cast needed.
       tgtT = primOneHot {d=ExampleDevice} lblBuf 1 (cast {to=Int} NumClasses) (dtypeTag {t=ExampleDType})
   pure (MkTensorDataPoint flatImg tgtT)
 
@@ -155,11 +152,9 @@ evalAccuracy model ds numImages nSamples = go nSamples 0 0.0
       in pure (cast {to=Double} (natToInteger correct) / n, totalLoss / n)
     go (S k) correct totalLoss = do
       let pos = cast {to=Int} (k * cast numImages `div` nSamples)
-          imgT = primMnistGetImage {d=ExampleDevice} ds pos
+          imgT = primMnistGetImage {d=ExampleDevice} ds pos (dtypeTag {t=ExampleDType})
           lbl = prim__mnistGetLabel ds pos
-          flatImg = dtCastFrom {d=ExampleDevice} {t=ExampleDType}
-                      (primReshape1d {d=ExampleDevice} imgT (cast {to=Int} InputDim))
-                      (deviceStreamTag {d=ExampleDevice})
+          flatImg = primReshape1d {d=ExampleDevice} imgT (cast {to=Int} InputDim)
           inV = the (TVec InputDim ExampleDevice ExampleDType WithGrad) (MkTensor flatImg Nothing)
       (_, predV) <- forwardVar model inV
       let outT = predV.tensorPtr

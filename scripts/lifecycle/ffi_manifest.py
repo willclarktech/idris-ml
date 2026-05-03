@@ -195,7 +195,7 @@ MANIFEST = {
     "tensor_cross_attention":           (("T", "T", "T", "T", "d"), "T"),
 
     # MNIST
-    "mnist_get_image":                  (("R", "i"), "T"),
+    "mnist_get_image":                  (("R", "i", "i"), "T"),
 
     # Native train
     "native_train_step":                (("R", "i", "d", "T", "d"), "d"),
