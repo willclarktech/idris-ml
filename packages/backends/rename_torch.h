@@ -23,12 +23,8 @@
 #define backend_reset_for_eval backend_reset_for_eval_torch
 #define backend_reset_for_eval_return backend_reset_for_eval_return_torch
 #define backend_supports_tensor_params backend_supports_tensor_params_torch
-#define create_index_array create_index_array_torch
 #define dropout_random_seed dropout_random_seed_torch
-#define get_current_rss_mb get_current_rss_mb_torch
-#define get_rss_mb get_rss_mb_torch
 #define idrisml_seq idrisml_seq_torch
-#define index_array_get index_array_get_torch
 #define mnist_count mnist_count_torch
 #define mnist_free mnist_free_torch
 #define mnist_get_image mnist_get_image_torch
@@ -74,7 +70,6 @@
 #define param_zero_all_grads param_zero_all_grads_torch
 #define param_zero_all_grads_return param_zero_all_grads_return_torch
 #define polyak_blend polyak_blend_torch
-#define shuffle_index_array shuffle_index_array_torch
 #define tensor_abs tensor_abs_torch
 #define tensor_add tensor_add_torch
 #define tensor_add_scalar tensor_add_scalar_torch

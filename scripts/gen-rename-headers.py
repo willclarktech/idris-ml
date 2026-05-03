@@ -60,8 +60,16 @@ def extract_symbols(header_text: str) -> list[str]:
     text = re.sub(r"//[^\n]*", "", text)
     names = sorted({m.group("name") for m in DECL_RE.finditer(text)})
     # Drop typedefs that the regex incidentally caught (none should
-    # match the function-call pattern, but guard anyway).
-    EXCLUDE = {"TensorHandle", "TensorPair"}
+    # match the function-call pattern, but guard anyway) plus the
+    # intentionally-unified shared utilities — these live in
+    # `shared_utils.c`, are compiled without a rename header, and
+    # emerge under their unified names directly.
+    EXCLUDE = {
+        "TensorHandle", "TensorPair",
+        # Shared utilities (see packages/backends/shared_utils.c).
+        "create_index_array", "shuffle_index_array", "index_array_get",
+        "get_rss_mb", "get_current_rss_mb",
+    }
     return [n for n in names if n not in EXCLUDE]
 
 

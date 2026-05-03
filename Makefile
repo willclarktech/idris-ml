@@ -285,13 +285,15 @@ endef
 
 $(foreach b,$(BACKEND_LIST),$(eval $(call backend_compile_rule,$(b))))
 
-# Shared C sources (serialization, JSON, data loading). These call /
-# define `tensor_*`/`mnist_*`/`optimizer_*`/`param_*`/`index_array_get`
-# symbols, so they're compiled with the PRIMARY backend's rename header
-# so their cross-TU references match the primary's suffixed defs (other
-# backends' suffixed defs are reachable but not by these shared TUs).
-# cJSON is pure-C (no tensor surface) so it stays backend-agnostic.
-SHARED_OBJ := $(BUILD)/safetensors_$(PRIMARY).o $(BUILD)/cJSON.o $(BUILD)/mnist_$(PRIMARY).o $(BUILD)/dataloader_$(PRIMARY).o
+# Shared C sources (serialization, JSON, MNIST data) compiled with the
+# PRIMARY backend's rename header so their cross-TU references match
+# the primary's suffixed defs (other backends' suffixed defs are
+# reachable but not by these shared TUs). cJSON and shared_utils.c
+# are pure-C (no tensor surface) so they stay backend-agnostic — no
+# rename header. shared_utils.c hosts the `index_array_*` +
+# `get_rss_mb` symbols (intentionally unified — they don't dispatch
+# per backend).
+SHARED_OBJ := $(BUILD)/safetensors_$(PRIMARY).o $(BUILD)/cJSON.o $(BUILD)/mnist_$(PRIMARY).o $(BUILD)/shared_utils.o
 
 $(BUILD)/safetensors_$(PRIMARY).o: $(BACKENDS_DIR)/safetensors.c $(BACKENDS_DIR)/backend.h $(BACKENDS_DIR)/cJSON.h $(BACKEND_RENAME_H) | $(BUILD)
 	cc -O2 -fPIC -include $(BACKEND_RENAME_H) -c -o $@ $<
@@ -302,8 +304,8 @@ $(BUILD)/cJSON.o: $(BACKENDS_DIR)/cJSON.c $(BACKENDS_DIR)/cJSON.h | $(BUILD)
 $(BUILD)/mnist_$(PRIMARY).o: $(BACKENDS_DIR)/mnist.c $(BACKENDS_DIR)/backend.h $(BACKEND_RENAME_H) | $(BUILD)
 	cc -O2 -fPIC -include $(BACKEND_RENAME_H) -c -o $@ $<
 
-$(BUILD)/dataloader_$(PRIMARY).o: $(BACKENDS_DIR)/dataloader.c $(BACKEND_RENAME_H) | $(BUILD)
-	cc -O2 -fPIC -include $(BACKEND_RENAME_H) -c -o $@ $<
+$(BUILD)/shared_utils.o: $(BACKENDS_DIR)/shared_utils.c | $(BUILD)
+	cc -O2 -fPIC -c -o $@ $<
 
 # Final link compiler: c++ if any C++ backend (torch/mlx) is in the
 # list, else cc. Picks the right runtime libraries automatically.

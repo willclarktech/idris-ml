@@ -23,12 +23,8 @@
 #define backend_reset_for_eval backend_reset_for_eval_tape
 #define backend_reset_for_eval_return backend_reset_for_eval_return_tape
 #define backend_supports_tensor_params backend_supports_tensor_params_tape
-#define create_index_array create_index_array_tape
 #define dropout_random_seed dropout_random_seed_tape
-#define get_current_rss_mb get_current_rss_mb_tape
-#define get_rss_mb get_rss_mb_tape
 #define idrisml_seq idrisml_seq_tape
-#define index_array_get index_array_get_tape
 #define mnist_count mnist_count_tape
 #define mnist_free mnist_free_tape
 #define mnist_get_image mnist_get_image_tape
@@ -74,7 +70,6 @@
 #define param_zero_all_grads param_zero_all_grads_tape
 #define param_zero_all_grads_return param_zero_all_grads_return_tape
 #define polyak_blend polyak_blend_tape
-#define shuffle_index_array shuffle_index_array_tape
 #define tensor_abs tensor_abs_tape
 #define tensor_add tensor_add_tape
 #define tensor_add_scalar tensor_add_scalar_tape

@@ -1904,27 +1904,9 @@ int backend_supports_tensor_params(void) { return 1; }
 
 /* ---------- System ---------- */
 
-int get_rss_mb(void) {
-    struct rusage usage;
-    getrusage(RUSAGE_SELF, &usage);
-#ifdef __APPLE__
-    return (int)(usage.ru_maxrss / (1024 * 1024)); /* bytes on macOS */
-#else
-    return (int)(usage.ru_maxrss / 1024);           /* KB on Linux */
-#endif
-}
-
-int get_current_rss_mb(void) {
-#ifdef __APPLE__
-    mach_task_basic_info_data_t info;
-    mach_msg_type_number_t count = MACH_TASK_BASIC_INFO_COUNT;
-    if (task_info(mach_task_self(), MACH_TASK_BASIC_INFO,
-                  (task_info_t)&info, &count) == KERN_SUCCESS) {
-        return (int)(info.resident_size / (1024 * 1024));
-    }
-#endif
-    return get_rss_mb(); /* fallback to peak */
-}
+/* get_rss_mb / get_current_rss_mb live in shared_utils.c (compiled
+ * once, unified symbol). Both are in the rename header's EXCLUDE
+ * set so internal callers below resolve to the shared definitions. */
 
 /* ---------- Backend Info ---------- */
 

@@ -23,12 +23,8 @@
 #define backend_reset_for_eval backend_reset_for_eval_mlx
 #define backend_reset_for_eval_return backend_reset_for_eval_return_mlx
 #define backend_supports_tensor_params backend_supports_tensor_params_mlx
-#define create_index_array create_index_array_mlx
 #define dropout_random_seed dropout_random_seed_mlx
-#define get_current_rss_mb get_current_rss_mb_mlx
-#define get_rss_mb get_rss_mb_mlx
 #define idrisml_seq idrisml_seq_mlx
-#define index_array_get index_array_get_mlx
 #define mnist_count mnist_count_mlx
 #define mnist_free mnist_free_mlx
 #define mnist_get_image mnist_get_image_mlx
@@ -74,7 +70,6 @@
 #define param_zero_all_grads param_zero_all_grads_mlx
 #define param_zero_all_grads_return param_zero_all_grads_return_mlx
 #define polyak_blend polyak_blend_mlx
-#define shuffle_index_array shuffle_index_array_mlx
 #define tensor_abs tensor_abs_mlx
 #define tensor_add tensor_add_mlx
 #define tensor_add_scalar tensor_add_scalar_mlx
