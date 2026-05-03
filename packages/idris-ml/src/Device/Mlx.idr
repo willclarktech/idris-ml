@@ -427,6 +427,8 @@ public export
 prim__requiresGradMlx : AnyPtr -> Int
 %foreign "scheme:(lambda (a0 a1)  ((foreign-procedure \"tensor_set_requires_grad_mlx\" (void* int) void) (vector-ref a0 2) a1))"
 prim__setRequiresGradMlx : AnyPtr -> Int -> PrimIO ()
+%foreign "C:tensor_backward_mlx,libidrisml"
+prim__backwardMlx : AnyPtr -> PrimIO ()
 %foreign "C:tensor_no_grad_begin_mlx,libidrisml"
 prim__noGradBeginMlx : PrimIO ()
 %foreign "C:tensor_no_grad_end_mlx,libidrisml"
@@ -497,6 +499,7 @@ public export
 {s : MlxStream} -> UserDeviceTape (MlxDev s) where
   primRequiresGrad         = prim__requiresGradMlx
   primSetRequiresGrad      = prim__setRequiresGradMlx
+  primBackward             = prim__backwardMlx
   primNoGradBegin          = prim__noGradBeginMlx
   primNoGradEnd            = prim__noGradEndMlx
   primDetach a = prim__detachMlxStreamed a (streamTag s)

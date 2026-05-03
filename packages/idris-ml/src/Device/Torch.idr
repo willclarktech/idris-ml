@@ -413,6 +413,8 @@ public export
 prim__requiresGradTorch : AnyPtr -> Int
 %foreign "scheme:(lambda (a0 a1)  ((foreign-procedure \"tensor_set_requires_grad_torch\" (void* int) void) (vector-ref a0 2) a1))"
 prim__setRequiresGradTorch : AnyPtr -> Int -> PrimIO ()
+%foreign "C:tensor_backward_torch,libidrisml"
+prim__backwardTorch : AnyPtr -> PrimIO ()
 %foreign "C:tensor_no_grad_begin_torch,libidrisml"
 prim__noGradBeginTorch : PrimIO ()
 %foreign "C:tensor_no_grad_end_torch,libidrisml"
@@ -483,6 +485,7 @@ public export
 {d : TorchHwDev} -> UserDeviceTape (TorchDev d) where
   primRequiresGrad         = prim__requiresGradTorch
   primSetRequiresGrad      = prim__setRequiresGradTorch
+  primBackward             = prim__backwardTorch
   primNoGradBegin          = prim__noGradBeginTorch
   primNoGradEnd            = prim__noGradEndTorch
   primDetach               = prim__detachTorch

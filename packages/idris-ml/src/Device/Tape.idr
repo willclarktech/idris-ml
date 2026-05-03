@@ -382,6 +382,8 @@ UserDeviceConv TapeDev where
 prim__requiresGradTape : AnyPtr -> Int
 %foreign "scheme:(lambda (a0 a1)  ((foreign-procedure \"tensor_set_requires_grad_tape\" (void* int) void) (vector-ref a0 2) a1))"
 prim__setRequiresGradTape : AnyPtr -> Int -> PrimIO ()
+%foreign "C:tensor_backward_tape,libidrisml"
+prim__backwardTape : AnyPtr -> PrimIO ()
 %foreign "C:tensor_no_grad_begin_tape,libidrisml"
 prim__noGradBeginTape : PrimIO ()
 %foreign "C:tensor_no_grad_end_tape,libidrisml"
@@ -452,6 +454,7 @@ public export
 UserDeviceTape TapeDev where
   primRequiresGrad         = prim__requiresGradTape
   primSetRequiresGrad      = prim__setRequiresGradTape
+  primBackward             = prim__backwardTape
   primNoGradBegin          = prim__noGradBeginTape
   primNoGradEnd            = prim__noGradEndTape
   primDetach               = prim__detachTape

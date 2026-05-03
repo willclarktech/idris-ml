@@ -275,6 +275,8 @@ interface UserDeviceConv d => UserDeviceTape (0 d : Device) where
   primNoGradEnd         : PrimIO ()
   primDetach            : AnyPtr -> AnyPtr
   primWithGrad          : AnyPtr -> AnyPtr
+  ||| Run reverse-mode autodiff from a scalar loss tensor.
+  primBackward          : AnyPtr -> PrimIO ()
 
   -- Shape / info queries -------------------------------------------
   primTensorDim         : AnyPtr -> Int

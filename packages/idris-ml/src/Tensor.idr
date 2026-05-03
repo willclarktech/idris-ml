@@ -142,36 +142,14 @@ export prim__item : AnyPtr -> Double
 %foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_add\" (void* void*) void*) (vector-ref a0 2) (vector-ref a1 2)))) (let ((wr (vector 'tensor-handle-v2 \"primary\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export prim__add : AnyPtr -> AnyPtr -> AnyPtr
 
-%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_sub\" (void* void*) void*) (vector-ref a0 2) (vector-ref a1 2)))) (let ((wr (vector 'tensor-handle-v2 \"primary\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-export prim__sub : AnyPtr -> AnyPtr -> AnyPtr
 
 %foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_mul\" (void* void*) void*) (vector-ref a0 2) (vector-ref a1 2)))) (let ((wr (vector 'tensor-handle-v2 \"primary\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export prim__mul : AnyPtr -> AnyPtr -> AnyPtr
 
-%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_div\" (void* void*) void*) (vector-ref a0 2) (vector-ref a1 2)))) (let ((wr (vector 'tensor-handle-v2 \"primary\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-export prim__div : AnyPtr -> AnyPtr -> AnyPtr
 
 %foreign "scheme:(lambda (a0)  (let ((raw_r ((foreign-procedure \"tensor_neg\" (void*) void*) (vector-ref a0 2)))) (let ((wr (vector 'tensor-handle-v2 \"primary\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export prim__neg : AnyPtr -> AnyPtr
 
-%foreign "scheme:(lambda (a0)  (let ((raw_r ((foreign-procedure \"tensor_abs\" (void*) void*) (vector-ref a0 2)))) (let ((wr (vector 'tensor-handle-v2 \"primary\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-export prim__abs : AnyPtr -> AnyPtr
-
-%foreign "scheme:(lambda (a0)  (let ((raw_r ((foreign-procedure \"tensor_exp\" (void*) void*) (vector-ref a0 2)))) (let ((wr (vector 'tensor-handle-v2 \"primary\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-export prim__exp : AnyPtr -> AnyPtr
-
-%foreign "scheme:(lambda (a0)  (let ((raw_r ((foreign-procedure \"tensor_log\" (void*) void*) (vector-ref a0 2)))) (let ((wr (vector 'tensor-handle-v2 \"primary\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-export prim__log : AnyPtr -> AnyPtr
-
-
-%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_pow\" (void* void*) void*) (vector-ref a0 2) (vector-ref a1 2)))) (let ((wr (vector 'tensor-handle-v2 \"primary\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-export prim__pow : AnyPtr -> AnyPtr -> AnyPtr
-
-%foreign "scheme:(lambda (a0)  (let ((raw_r ((foreign-procedure \"tensor_sigmoid\" (void*) void*) (vector-ref a0 2)))) (let ((wr (vector 'tensor-handle-v2 \"primary\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-export prim__sigmoid : AnyPtr -> AnyPtr
-
-%foreign "scheme:(lambda (a0)  (let ((raw_r ((foreign-procedure \"tensor_tanh\" (void*) void*) (vector-ref a0 2)))) (let ((wr (vector 'tensor-handle-v2 \"primary\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-export prim__tanh : AnyPtr -> AnyPtr
 
 -- Linear algebra
 %foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_mv\" (void* void*) void*) (vector-ref a0 2) (vector-ref a1 2)))) (let ((wr (vector 'tensor-handle-v2 \"primary\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
@@ -183,15 +161,7 @@ export prim__mv : AnyPtr -> AnyPtr -> AnyPtr
 export prim__linear : AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr
 
 
-%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_outer\" (void* void*) void*) (vector-ref a0 2) (vector-ref a1 2)))) (let ((wr (vector 'tensor-handle-v2 \"primary\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-export prim__outer : AnyPtr -> AnyPtr -> AnyPtr
-
-%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_matmul\" (void* void*) void*) (vector-ref a0 2) (vector-ref a1 2)))) (let ((wr (vector 'tensor-handle-v2 \"primary\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-export prim__matmul : AnyPtr -> AnyPtr -> AnyPtr
-
 -- Activation
-%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_softmax\" (void* int) void*) (vector-ref a0 2) a1))) (let ((wr (vector 'tensor-handle-v2 \"primary\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-export prim__softmax : AnyPtr -> Int -> AnyPtr
 
 %foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_log_softmax\" (void* int) void*) (vector-ref a0 2) a1))) (let ((wr (vector 'tensor-handle-v2 \"primary\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export prim__logSoftmax : AnyPtr -> Int -> AnyPtr
@@ -219,42 +189,16 @@ prim__create : AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
 %foreign "scheme:(lambda (a0 a1 a2)  (let ((raw_r ((foreign-procedure \"tensor_select\" (void* int int) void*) (vector-ref a0 2) a1 a2))) (let ((wr (vector 'tensor-handle-v2 \"primary\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export prim__select : AnyPtr -> Int -> Int -> AnyPtr
 
-%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_unsqueeze\" (void* int) void*) (vector-ref a0 2) a1))) (let ((wr (vector 'tensor-handle-v2 \"primary\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-export prim__unsqueeze : AnyPtr -> Int -> AnyPtr
-
 
 %foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_mul_scalar\" (void* double) void*) (vector-ref a0 2) a1))) (let ((wr (vector 'tensor-handle-v2 \"primary\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export prim__mulScalar : AnyPtr -> Double -> AnyPtr
 
-%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_add_scalar\" (void* double) void*) (vector-ref a0 2) a1))) (let ((wr (vector 'tensor-handle-v2 \"primary\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-export prim__addScalar : AnyPtr -> Double -> AnyPtr
-
-%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_clamp_min\" (void* double) void*) (vector-ref a0 2) a1))) (let ((wr (vector 'tensor-handle-v2 \"primary\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-export prim__clampMin : AnyPtr -> Double -> AnyPtr
 
 -- NTM
-%foreign "scheme:(lambda (a0 a1 a2)  (let ((raw_r ((foreign-procedure \"tensor_cosine_similarity\" (void* void* int) void*) (vector-ref a0 2) (vector-ref a1 2) a2))) (let ((wr (vector 'tensor-handle-v2 \"primary\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-export prim__cosineSimilarity : AnyPtr -> AnyPtr -> Int -> AnyPtr
 
-%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_conv1d_circular\" (void* void*) void*) (vector-ref a0 2) (vector-ref a1 2)))) (let ((wr (vector 'tensor-handle-v2 \"primary\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-export prim__conv1dCircular : AnyPtr -> AnyPtr -> AnyPtr
-
-%foreign "scheme:(lambda (a0)  (let ((raw_r ((foreign-procedure \"tensor_gelu\" (void*) void*) (vector-ref a0 2)))) (let ((wr (vector 'tensor-handle-v2 \"primary\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-export prim__gelu : AnyPtr -> AnyPtr
-
-%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_leaky_relu\" (void* double) void*) (vector-ref a0 2) a1))) (let ((wr (vector 'tensor-handle-v2 \"primary\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-export prim__leakyRelu : AnyPtr -> Double -> AnyPtr
-
-%foreign "scheme:(lambda (a0)  (let ((raw_r ((foreign-procedure \"tensor_silu\" (void*) void*) (vector-ref a0 2)))) (let ((wr (vector 'tensor-handle-v2 \"primary\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-export prim__silu : AnyPtr -> AnyPtr
-
-%foreign "scheme:(lambda (a0)  (let ((raw_r ((foreign-procedure \"tensor_softplus\" (void*) void*) (vector-ref a0 2)))) (let ((wr (vector 'tensor-handle-v2 \"primary\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-export prim__softplus : AnyPtr -> AnyPtr
 
 -- Cross-attention: Q @ K^T * scale [+ mask] -> softmax -> @ V
 
-%foreign "scheme:(lambda (a0 a1 a2 a3)  (let ((raw_r ((foreign-procedure \"tensor_gru_cell\" (void* void* void* int) void*) (vector-ref a0 2) (vector-ref a1 2) (vector-ref a2 2) a3))) (let ((wr (vector 'tensor-handle-v2 \"primary\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-export prim__gruCell : AnyPtr -> AnyPtr -> AnyPtr -> Int -> AnyPtr
 
 -- Embedding
 
@@ -266,40 +210,17 @@ export
 prim__dropout : AnyPtr -> Double -> Int -> Int -> AnyPtr
 
 -- Shape / info queries
-%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_squeeze\" (void* int) void*) (vector-ref a0 2) a1))) (let ((wr (vector 'tensor-handle-v2 \"primary\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-export prim__squeeze : AnyPtr -> Int -> AnyPtr
 
-%foreign "scheme:(lambda (a0)  (let ((raw_r ((foreign-procedure \"tensor_clone\" (void*) void*) (vector-ref a0 2)))) (let ((wr (vector 'tensor-handle-v2 \"primary\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-export prim__clone : AnyPtr -> AnyPtr
-
-%foreign "scheme:(lambda (a0)  ((foreign-procedure \"tensor_dim\" (void*) int) (vector-ref a0 2)))"
-export prim__tensorDim : AnyPtr -> Int
-
-%foreign "scheme:(lambda (a0 a1)  ((foreign-procedure \"tensor_size\" (void* int) int) (vector-ref a0 2) a1))"
-export prim__tensorSizeAt : AnyPtr -> Int -> Int
-
-%foreign "scheme:(lambda (a0 a1 a2)  (let ((raw_r ((foreign-procedure \"tensor_sum_dim\" (void* int int) void*) (vector-ref a0 2) a1 a2))) (let ((wr (vector 'tensor-handle-v2 \"primary\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-export prim__sumDim : AnyPtr -> Int -> Int -> AnyPtr
 
 %foreign "scheme:(lambda (a0)  ((foreign-procedure \"tensor_requires_grad\" (void*) int) (vector-ref a0 2)))"
 export prim__requiresGrad : AnyPtr -> Int
 
-%foreign "scheme:(lambda (a0 a1)  ((foreign-procedure \"tensor_set_requires_grad\" (void* int) void) (vector-ref a0 2) a1))"
-export prim__setRequiresGrad : AnyPtr -> Int -> PrimIO ()
 
 -- Gather / Scatter
-%foreign "scheme:(lambda (a0 a1 a2)  (let ((raw_r ((foreign-procedure \"tensor_gather\" (void* void* int) void*) (vector-ref a0 2) (vector-ref a1 2) a2))) (let ((wr (vector 'tensor-handle-v2 \"primary\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-export prim__gather : AnyPtr -> AnyPtr -> Int -> AnyPtr
 
-%foreign "scheme:(lambda (a0 a1 a2)  (let ((raw_r ((foreign-procedure \"tensor_scatter_add\" (void* void* int) void*) (vector-ref a0 2) (vector-ref a1 2) a2))) (let ((wr (vector 'tensor-handle-v2 \"primary\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-export prim__scatterAdd : AnyPtr -> AnyPtr -> Int -> AnyPtr
 
 -- Sort / Scan
-%foreign "scheme:(lambda (a0 a1 a2)  (let ((raw_r ((foreign-procedure \"tensor_argsort\" (void* int int) void*) (vector-ref a0 2) a1 a2))) (let ((wr (vector 'tensor-handle-v2 \"primary\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-export prim__argsort : AnyPtr -> Int -> Int -> AnyPtr
 
-%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_cumprod\" (void* int) void*) (vector-ref a0 2) a1))) (let ((wr (vector 'tensor-handle-v2 \"primary\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-export prim__cumprod : AnyPtr -> Int -> AnyPtr
 
 -- Average Pooling
 
@@ -370,17 +291,7 @@ export
 prim__item1d : AnyPtr -> Int -> Double
 
 -- Fused LSTM gates: takes combined [4*o] tensor + prev_cell [o], returns pair handle
-%foreign "scheme:(lambda (a0 a1 a2)  ((foreign-procedure \"tensor_lstm_gates_pair\" (void* void* int) void*) (vector-ref a0 2) (vector-ref a1 2) a2))"
-export
-prim__lstmGatesPair : AnyPtr -> AnyPtr -> Int -> AnyPtr
 
-%foreign "scheme:(lambda (a0)  (let ((raw_r ((foreign-procedure \"tensor_pair_first\" (void*) void*) a0))) (let ((wr (vector 'tensor-handle-v2 \"primary\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-export
-prim__pairFirst : AnyPtr -> AnyPtr
-
-%foreign "scheme:(lambda (a0)  (let ((raw_r ((foreign-procedure \"tensor_pair_second\" (void*) void*) a0))) (let ((wr (vector 'tensor-handle-v2 \"primary\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-export
-prim__pairSecond : AnyPtr -> AnyPtr
 
 ||| Run an `IO` action with autograd disabled. Inside the action,
 ||| every tensor op skips tape/autograd graph construction, so the
@@ -448,18 +359,12 @@ prim__oneHot : AnyPtr -> Int -> Int -> AnyPtr
 export
 prim__create1d : Int -> AnyPtr -> Int -> AnyPtr
 
-%foreign "scheme:(lambda (a0 a1 a2 a3) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_2d\" (int int void* int) void*) a0 a1 a2 a3))) (let ((wr (vector 'tensor-handle-v2 \"primary\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-export prim__create2d : Int -> Int -> AnyPtr -> Int -> AnyPtr
 
 -- Array pointer array: stack scalar Tensor tensorPtrs to create
 -- a 1D/2D tensor that preserves the autograd graph.
 
 -- Returns the array for threading
 
-
-%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_concat_2d_axis1\" (void* void*) void*) (vector-ref a0 2) (vector-ref a1 2)))) (let ((wr (vector 'tensor-handle-v2 \"primary\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-export
-prim__concat2dAxis1 : AnyPtr -> AnyPtr -> AnyPtr
 
 -- N-ary cat: caller retains ownership of the handle array.
 -- See tensor_cat in backend.h.
@@ -840,8 +745,6 @@ export
 toTDP : {0 d : Device} -> UserDeviceCore d => RuntimeDType dt => {i, o : Nat} -> DataPoint i o Double -> TensorDataPoint i o
 toTDP dp = MkTensorDataPoint (vectorToTensorPersistent {d} {dt} (x dp)) (vectorToTensorPersistent {d} {dt} (y dp))
 
-%foreign "scheme:(lambda (a0)  ((foreign-procedure \"tensor_backward\" (void*) void) (vector-ref a0 2)))"
-prim__backwardC : AnyPtr -> PrimIO ()
 
 -- runBackward is defined post-Tensor record below; the type-level
 -- gate (Tensor [] d dt WithGrad-> IO ()) lives there.
@@ -1001,9 +904,9 @@ toDevice d2 src =
 ||| Closes the "freeze then keep using the original WithGrad type"
 ||| aliasing footgun.
 export
-weakenGrad : (1 _ : Tensor dims d dt g) -> IO (Tensor dims d dt NoGrad)
+weakenGrad : UserDeviceTape d => (1 _ : Tensor dims d dt g) -> IO (Tensor dims d dt NoGrad)
 weakenGrad (MkTensor ptr pid) = do
-  primIO (prim__setRequiresGrad ptr 0)
+  primIO (primSetRequiresGrad {d} ptr 0)
   pure (MkTensor ptr pid)
 
 ||| Pure type-level cast between grad-modes. `g` is 0-quantity in
@@ -1291,12 +1194,12 @@ tlogSoftmax1d v = ioRerun (\_ => MkTensor (primLogSoftmax {d} v.tensorPtr 0) Not
 ||| `TVec` alias avoids the type-checker hang that direct
 ||| `Tensor [4 * n] d` triggers.
 export
-tlstmGatesPair : {n : Nat} -> TVec (4 * n) d dt g -> TVec n d dt g ->
+tlstmGatesPair : UserDeviceNN d => {n : Nat} -> TVec (4 * n) d dt g -> TVec n d dt g ->
                  IO (TVec n d dt g, TVec n d dt g)
 tlstmGatesPair {n} combined prevCell = ioRerun (\_ =>
   let nI = cast {to=Int} n
-      pair = prim__lstmGatesPair combined.tensorPtr prevCell.tensorPtr nI
-  in (MkTensor (prim__pairFirst pair) Nothing, MkTensor (prim__pairSecond pair) Nothing))
+      pair = primLstmGatesPair {d} combined.tensorPtr prevCell.tensorPtr nI
+  in (MkTensor (primPairFirst {d} pair) Nothing, MkTensor (primPairSecond {d} pair) Nothing))
 
 ||| Allocate a zero-initialised persistent state Tensor of size [n].
 ||| Use for LSTM/RNN/GRU initial hidden + cell state. Persistent =
@@ -1321,17 +1224,17 @@ tzeroState1d {n} = ioRerun (\_ =>
 ||| `nn.GRU` equation so the example matches what library users
 ||| expect.
 export
-tgruCell : {n : Nat} -> TVec (3 * n) d dt g -> TVec (3 * n) d dt g -> TVec n d dt g -> IO (TVec n d dt g)
+tgruCell : UserDeviceNN d => {n : Nat} -> TVec (3 * n) d dt g -> TVec (3 * n) d dt g -> TVec n d dt g -> IO (TVec n d dt g)
 tgruCell {n} ih hh prevH = ioRerun (\_ =>
   let nI = cast {to=Int} n
-  in MkTensor (prim__gruCell ih.tensorPtr hh.tensorPtr prevH.tensorPtr nI) Nothing)
+  in MkTensor (primGruCell {d} ih.tensorPtr hh.tensorPtr prevH.tensorPtr nI) Nothing)
 
 -- Scalar boundary --------------------------------------------------
 
 ||| Read the scalar value out of a `Tensor [] d`.
 export
-tensorItem : Tensor [] d dt g -> Double
-tensorItem v = prim__item v.tensorPtr
+tensorItem : UserDeviceCore d => Tensor [] d dt g -> Double
+tensorItem v = primItem {d} v.tensorPtr
 
 ||| Run backward on a loss tensor. The loss MUST be `WithGrad` —
 ||| a `NoGrad` scalar can't have come from a path the autograd tape
@@ -1340,8 +1243,8 @@ tensorItem v = prim__item v.tensorPtr
 ||| catches "loss computed inside `withNoGrad`, then fed to training"
 ||| — the bug class the entire `GradMode` refactor exists to prevent.
 export
-runBackward : Tensor [] d dt WithGrad -> IO ()
-runBackward t = primIO (prim__backwardC t.tensorPtr)
+runBackward : UserDeviceTape d => Tensor [] d dt WithGrad -> IO ()
+runBackward t = primIO (primBackward {d} t.tensorPtr)
 
 -- Loss (vector targets → scalar loss) ---------------------------------
 
