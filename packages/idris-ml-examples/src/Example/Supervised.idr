@@ -82,9 +82,12 @@ main = do
   putStrLn "Eval:"
 
   -- Build persistent input tensors and forward through the trained model.
-  let inputs = the (Vect 5 AnyPtr) (map mkInputTensor dataPoints)
+  -- Use the dtype-aware constructor (same path training tensorizes through)
+  -- so the input matches ExampleDType — a raw F64 creator would crash on an
+  -- F32-only device (MPS rejects an F64 tensor at construction).
   traverse_ (\(idx, dp) => do
-    let inV = the (TVec 2 ExampleDevice ExampleDType WithGrad) (MkTensor (mkInputTensor dp) Nothing)
+    let inV = the (TVec 2 ExampleDevice ExampleDType WithGrad)
+                  (MkTensor (vectorToTensorPersistent {d=ExampleDevice} {dt=ExampleDType} (x dp)) Nothing)
     (_, predV) <- forwardVar trained inV
     let predClass = evalPrediction predV
         targetClass = evalPredictionTarget (y dp)
@@ -97,18 +100,6 @@ main = do
                           , ("loss", show finalLoss)
                           , ("seed", show cfg.seed) ]
   where
-    mkInputTensor : DataPoint 2 3 Double -> AnyPtr
-    mkInputTensor dp =
-      let (VArray xs) = x dp
-          buf = prim__allocDoubles 2
-          buf' = packInto buf 0 xs
-      in primCreateState1d {d=ExampleDevice} 2 buf'
-      where
-        packInto : AnyPtr -> Int -> Vect k (Scalar Double) -> AnyPtr
-        packInto b _ [] = b
-        packInto b o (SArray v :: rest) =
-          packInto (prim__setDouble b o v) (o + 1) rest
-
     evalPredictionTarget : Vector 3 Double -> Nat
     evalPredictionTarget (VArray [SArray a, SArray b, SArray c]) =
       if a >= b && a >= c then 0 else if b >= c then 1 else 2
