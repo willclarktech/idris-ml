@@ -325,6 +325,16 @@ BUILDCONFIG_KEY := $(PRIMARY):$(MLX_DEVICE):$(TORCH_DEVICE)
 BUILDCONFIG_IDR := packages/idris-ml-examples/src/BuildConfig.idr
 BUILDCONFIG_IN  := packages/idris-ml-examples/src/BuildConfig.idr.in
 
+# Generated `Linked` instances for the compiled-in backends. Unlike
+# BuildConfig (one example device/dtype cell), HwConfig emits a variable
+# number of instance blocks — one per backend in BACKEND_LIST — so the
+# recipe appends them to the .in header rather than sed-substituting.
+# Keyed on the whole BACKEND list. Lives in the core library (the Device
+# barrel re-exports it); git-ignored, regenerated each build.
+HWCONFIG_KEY := $(BACKEND)
+HWCONFIG_IDR := packages/idris-ml/src/HwConfig.idr
+HWCONFIG_IN  := packages/idris-ml/src/HwConfig.idr.in
+
 $(BUILD)/.buildconfig-stamp: FORCE | $(BUILD)
 	@[ "$$(cat $@ 2>/dev/null)" = "$(BUILDCONFIG_KEY)" ] || { echo "$(BUILDCONFIG_KEY)" > $@; }
 
@@ -340,6 +350,24 @@ $(BUILDCONFIG_IDR): $(BUILDCONFIG_IN) $(BUILD)/.buildconfig-stamp
 	esac; \
 	sed "s|@DEVICE@|$$DEVICE|g; s|@DTYPE@|$$DTYPE|g" $< > $@
 	@echo "[BuildConfig] PRIMARY=$(PRIMARY) MLX_DEVICE=$(MLX_DEVICE) TORCH_DEVICE=$(TORCH_DEVICE) → $$(awk -F' = ' '/^ExampleDevice = / { print $$2; exit }' $@) / $$(awk -F' = ' '/^ExampleDType = / { print $$2; exit }' $@)"
+
+$(BUILD)/.hwconfig-stamp: FORCE | $(BUILD)
+	@[ "$$(cat $@ 2>/dev/null)" = "$(HWCONFIG_KEY)" ] || { echo "$(HWCONFIG_KEY)" > $@; }
+
+# Emit one `Linked` instance per backend in BACKEND_LIST, appended to the
+# .in header. Per-backend linkage admits every hardware variant of that
+# backend (runtime presence is the EAFP concern, not this gate).
+$(HWCONFIG_IDR): $(HWCONFIG_IN) $(BUILD)/.hwconfig-stamp
+	@{ cat $(HWCONFIG_IN); \
+	   for b in $(BACKEND_LIST); do \
+	     case $$b in \
+	       tape)  printf 'public export\nLinked TapeDev where\n\n' ;; \
+	       torch) printf 'public export\n{hw : TorchHwDev} -> Linked (TorchDev hw) where\n\n' ;; \
+	       mlx)   printf 'public export\n{s : MlxStream} -> Linked (MlxDev s) where\n\n' ;; \
+	     esac; \
+	   done; \
+	 } > $@
+	@echo "[HwConfig] BACKEND=$(BACKEND) → Linked instances for: $(BACKEND_LIST)"
 
 # Final link: all listed backends' .o + shared objects (primary's
 # suffix). One dylib, no symlink. Every symbol is reached by its
@@ -437,7 +465,7 @@ print-torch:
 	@echo "LIB=$(LIB)"
 
 # Install core library to local prefix (needed before building examples/tests)
-install-core: backend
+install-core: backend $(HWCONFIG_IDR)
 	@cd packages/idris-ml && IDRIS2_PREFIX=$(IDRIS2_LOCAL) idris2 --install idris-ml.ipkg >/dev/null
 
 # Install gym to local prefix
@@ -456,7 +484,7 @@ install-examples: install-core install-gym $(BUILDCONFIG_IDR)
 install: install-core install-gym install-notebook install-examples build/.library-cache-stamp
 
 # Idris build (type-check core library)
-check: backend
+check: backend $(HWCONFIG_IDR)
 	cd packages/idris-ml && idris2 --build idris-ml.ipkg
 
 # Type-check gym package

@@ -30,3 +30,4 @@ import public Device.Tape
 import public Device.Torch
 import public Device.Mlx
 import public DType.Core
+import public HwConfig

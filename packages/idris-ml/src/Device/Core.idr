@@ -43,6 +43,29 @@ Device = Type
 
 
 ----------------------------------------------------------------------
+-- Linked — backend-linkage capability
+--
+-- Empty capability marker, sibling to `Compatible (device, dtype)`.
+-- `Linked d` declares "device `d`'s backend is compiled into this
+-- `libidrisml`." Instances are NOT hardcoded here — they're emitted by
+-- the generated `HwConfig` module from the build's `BACKEND` list, so a
+-- torch-only build has no `Linked (MlxDev _)` instance and `MlxDev`
+-- becomes unspellable at any constructor carrying the `Linked d =>`
+-- constraint. This is the compile-time *linkage* half of device
+-- availability; the runtime *hardware-presence* half is EAFP (attempt
+-- construction, catch the backend's exception). See
+-- `docs/develop/device-availability-gating.md`.
+--
+-- Linkage is per-backend, not per-hardware-variant: a torch build admits
+-- every `TorchDev hw` (TCpu / TMps / TCuda n) at the type level; whether
+-- the MPS chip or `cuda:n` actually exists is the runtime question.
+----------------------------------------------------------------------
+
+public export
+interface Linked (0 d : Device) where
+
+
+----------------------------------------------------------------------
 -- UserDeviceCore — lifecycle + arithmetic slice
 ----------------------------------------------------------------------
 

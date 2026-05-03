@@ -1,0 +1,31 @@
+||| Build-time `Linked` instances — one per backend compiled into this
+||| `libidrisml` (the `BACKEND` list). The header below is this
+||| `HwConfig.idr.in` template; the `Linked` instance block underneath is
+||| appended per build by the Makefile's HWCONFIG_IDR recipe.
+|||
+||| `Linked d` (declared in `Device.Core`) gates which device tags are
+||| spellable at any constructor carrying the `Linked d =>` constraint: a
+||| torch-only build emits no `Linked (MlxDev _)`, so spelling `MlxDev`
+||| at a constructor fails to typecheck. This is the compile-time
+||| *linkage* half of device availability; the runtime
+||| *hardware-presence* half is EAFP. See
+||| `docs/develop/device-availability-gating.md`.
+|||
+||| Linkage is per-backend, not per-hardware-variant: a torch build emits
+||| `{hw} -> Linked (TorchDev hw)`, admitting TCpu / TMps / TCuda n at the
+||| type level. Whether that hardware is actually present is the runtime
+||| question, answered by attempting construction (EAFP), not by this gate.
+|||
+||| The `Device` barrel re-exports this module, so `import Device` brings
+||| the build's `Linked` instances into scope.
+|||
+||| Do not edit the generated `HwConfig.idr` — it is regenerated on every
+||| build and is git-ignored. Edit this `.in` file (the header) or the
+||| Makefile HWCONFIG_IDR recipe (the instance block).
+module HwConfig
+
+import public Device.Core
+import Device.Tape
+import Device.Torch
+import Device.Mlx
+

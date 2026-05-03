@@ -1,5 +1,9 @@
 .DS_Store
 
+# Generated per-build from HwConfig.idr.in + the BACKEND list (Makefile
+# HWCONFIG_IDR rule). The template is tracked; the generated file is not.
+packages/idris-ml/src/HwConfig.idr
+
 build/
 data/
 .claude/
