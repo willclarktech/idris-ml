@@ -110,12 +110,12 @@ lstmLayer paramPrefix = do
       hbName = paramPrefix ++ "_hb"
       h0Name = paramPrefix ++ "_h0"
       c0Name = paramPrefix ++ "_c0"
-      iwPtr = primParamRegister {d} iwName (dtCreateParam2d {t=dt} gI iI iwBuf' (deviceStreamTag {d}))
-      rwPtr = primParamRegister {d} rwName (dtCreateParam2d {t=dt} gI oI rwBuf' (deviceStreamTag {d}))
-      ibPtr = primParamRegister {d} ibName (dtCreateParam1d {t=dt} gI ibBuf' (deviceStreamTag {d}))
-      hbPtr = primParamRegister {d} hbName (dtCreateParam1d {t=dt} gI hbBuf' (deviceStreamTag {d}))
-      h0Ptr = primParamRegister {d} h0Name (dtCreateParam1d {t=dt} oI h0Buf' (deviceStreamTag {d}))
-      c0Ptr = primParamRegister {d} c0Name (dtCreateParam1d {t=dt} oI c0Buf' (deviceStreamTag {d}))
+      iwPtr = primParamRegister {d} iwName (dtCreateParam2d {d} {t=dt} gI iI iwBuf' (deviceStreamTag {d}))
+      rwPtr = primParamRegister {d} rwName (dtCreateParam2d {d} {t=dt} gI oI rwBuf' (deviceStreamTag {d}))
+      ibPtr = primParamRegister {d} ibName (dtCreateParam1d {d} {t=dt} gI ibBuf' (deviceStreamTag {d}))
+      hbPtr = primParamRegister {d} hbName (dtCreateParam1d {d} {t=dt} gI hbBuf' (deviceStreamTag {d}))
+      h0Ptr = primParamRegister {d} h0Name (dtCreateParam1d {d} {t=dt} oI h0Buf' (deviceStreamTag {d}))
+      c0Ptr = primParamRegister {d} c0Name (dtCreateParam1d {d} {t=dt} oI c0Buf' (deviceStreamTag {d}))
       iwTV : TMat (4 * o) i d dt WithGrad
       iwTV = MkTensor iwPtr (Just iwName)
       rwTV : TMat (4 * o) o d dt WithGrad

@@ -72,7 +72,7 @@ embeddingLayer paramPrefix = do
   let buf = prim__allocDoubles (cast {to=Int} n)
       buf' = packDoubles buf 0 vals
       wName = paramPrefix ++ "_weight"
-      wPtr = primParamRegister {d} wName (dtCreateParam2d {t=dt} vI eI buf' (deviceStreamTag {d}))
+      wPtr = primParamRegister {d} wName (dtCreateParam2d {d} {t=dt} vI eI buf' (deviceStreamTag {d}))
       wTV : TMat vocab embedDim d dt WithGrad
       wTV = MkTensor wPtr (Just wName)
   pure $ MkEmbedding wTV

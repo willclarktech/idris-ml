@@ -163,7 +163,7 @@ sumRewards steps = foldl (\a, (_, _, r) => a + r) 0.0 steps
 -- fresh zero scalar (degenerate; runs only if the rollout produced no
 -- steps).
 averageLoss : List (Tensor [] ExampleDevice ExampleDType WithGrad) -> Tensor [] ExampleDevice ExampleDType WithGrad
-averageLoss [] = MkTensor (dtCreateScalar {t=ExampleDType} 0.0 0 (deviceStreamTag {d=ExampleDevice})) Nothing
+averageLoss [] = MkTensor (dtCreateScalar {d=ExampleDevice} {t=ExampleDType} 0.0 0 (deviceStreamTag {d=ExampleDevice})) Nothing
 averageLoss (x :: xs) =
   let n = cast {to=Double} (1 + length xs)
       addT : Tensor [] ExampleDevice ExampleDType WithGrad -> Tensor [] ExampleDevice ExampleDType WithGrad -> Tensor [] ExampleDevice ExampleDType WithGrad

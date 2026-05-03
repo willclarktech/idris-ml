@@ -459,8 +459,42 @@ prim__profileResetTape : PrimIO ()
 prim__profileReportTape : PrimIO ()
 
 
+%foreign "scheme:(lambda (val rg stream dtag) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r (if (= dtag 0) ((foreign-procedure \"tensor_create_scalar_f32_streamed_tape\" (double int int) void*) val rg stream) ((foreign-procedure \"tensor_create_scalar_f64_streamed_tape\" (double int int) void*) val rg stream)))) (let ((wr (vector 'tensor-handle-v2 \"tape\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle_tape\" (void*) void) raw_r) wr)))"
+prim__createScalarStreamedTape : Double -> Int -> Int -> Int -> AnyPtr
+%foreign "scheme:(lambda (data shape rank rg stream dtag) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r (if (= dtag 0) ((foreign-procedure \"tensor_create_f32_streamed_tape\" (void* void* int int int) void*) data shape rank rg stream) ((foreign-procedure \"tensor_create_f64_streamed_tape\" (void* void* int int int) void*) data shape rank rg stream)))) (let ((wr (vector 'tensor-handle-v2 \"tape\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle_tape\" (void*) void) raw_r) wr)))"
+prim__createStreamedTape : AnyPtr -> AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
+%foreign "scheme:(lambda (n data rg stream dtag) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r (if (= dtag 0) ((foreign-procedure \"tensor_create_1d_f32_streamed_tape\" (int void* int int) void*) n data rg stream) ((foreign-procedure \"tensor_create_1d_f64_streamed_tape\" (int void* int int) void*) n data rg stream)))) (let ((wr (vector 'tensor-handle-v2 \"tape\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle_tape\" (void*) void) raw_r) wr)))"
+prim__create1dStreamedTape : Int -> AnyPtr -> Int -> Int -> Int -> AnyPtr
+%foreign "scheme:(lambda (rows cols data rg stream dtag) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r (if (= dtag 0) ((foreign-procedure \"tensor_create_2d_f32_streamed_tape\" (int int void* int int) void*) rows cols data rg stream) ((foreign-procedure \"tensor_create_2d_f64_streamed_tape\" (int int void* int int) void*) rows cols data rg stream)))) (let ((wr (vector 'tensor-handle-v2 \"tape\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle_tape\" (void*) void) raw_r) wr)))"
+prim__create2dStreamedTape : Int -> Int -> AnyPtr -> Int -> Int -> Int -> AnyPtr
+%foreign "scheme:(lambda (n data stream dtag) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r (if (= dtag 0) ((foreign-procedure \"tensor_create_param_1d_f32_streamed_tape\" (int void* int) void*) n data stream) ((foreign-procedure \"tensor_create_param_1d_f64_streamed_tape\" (int void* int) void*) n data stream)))) (let ((wr (vector 'tensor-handle-v2 \"tape\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle_tape\" (void*) void) raw_r) wr)))"
+prim__createParam1dStreamedTape : Int -> AnyPtr -> Int -> Int -> AnyPtr
+%foreign "scheme:(lambda (rows cols data stream dtag) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r (if (= dtag 0) ((foreign-procedure \"tensor_create_param_2d_f32_streamed_tape\" (int int void* int) void*) rows cols data stream) ((foreign-procedure \"tensor_create_param_2d_f64_streamed_tape\" (int int void* int) void*) rows cols data stream)))) (let ((wr (vector 'tensor-handle-v2 \"tape\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle_tape\" (void*) void) raw_r) wr)))"
+prim__createParam2dStreamedTape : Int -> Int -> AnyPtr -> Int -> Int -> AnyPtr
+%foreign "scheme:(lambda (d0 d1 d2 data stream dtag) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r (if (= dtag 0) ((foreign-procedure \"tensor_create_param_3d_f32_streamed_tape\" (int int int void* int) void*) d0 d1 d2 data stream) ((foreign-procedure \"tensor_create_param_3d_f64_streamed_tape\" (int int int void* int) void*) d0 d1 d2 data stream)))) (let ((wr (vector 'tensor-handle-v2 \"tape\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle_tape\" (void*) void) raw_r) wr)))"
+prim__createParam3dStreamedTape : Int -> Int -> Int -> AnyPtr -> Int -> Int -> AnyPtr
+%foreign "scheme:(lambda (d0 d1 d2 d3 data stream dtag) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r (if (= dtag 0) ((foreign-procedure \"tensor_create_param_4d_f32_streamed_tape\" (int int int int void* int) void*) d0 d1 d2 d3 data stream) ((foreign-procedure \"tensor_create_param_4d_f64_streamed_tape\" (int int int int void* int) void*) d0 d1 d2 d3 data stream)))) (let ((wr (vector 'tensor-handle-v2 \"tape\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle_tape\" (void*) void) raw_r) wr)))"
+prim__createParam4dStreamedTape : Int -> Int -> Int -> Int -> AnyPtr -> Int -> Int -> AnyPtr
+%foreign "scheme:(lambda (n data stream dtag) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r (if (= dtag 0) ((foreign-procedure \"tensor_create_state_1d_f32_streamed_tape\" (int void* int) void*) n data stream) ((foreign-procedure \"tensor_create_state_1d_f64_streamed_tape\" (int void* int) void*) n data stream)))) (let ((wr (vector 'tensor-handle-v2 \"tape\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle_tape\" (void*) void) raw_r) wr)))"
+prim__createState1dStreamedTape : Int -> AnyPtr -> Int -> Int -> AnyPtr
+%foreign "scheme:(lambda (rows cols data stream dtag) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r (if (= dtag 0) ((foreign-procedure \"tensor_create_state_2d_f32_streamed_tape\" (int int void* int) void*) rows cols data stream) ((foreign-procedure \"tensor_create_state_2d_f64_streamed_tape\" (int int void* int) void*) rows cols data stream)))) (let ((wr (vector 'tensor-handle-v2 \"tape\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle_tape\" (void*) void) raw_r) wr)))"
+prim__createState2dStreamedTape : Int -> Int -> AnyPtr -> Int -> Int -> AnyPtr
+%foreign "scheme:(lambda (a0 stream dtag) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r (if (= dtag 0) ((foreign-procedure \"tensor_cast_dtype_f32_streamed_tape\" (void* int) void*) (vector-ref a0 2) stream) ((foreign-procedure \"tensor_cast_dtype_f64_streamed_tape\" (void* int) void*) (vector-ref a0 2) stream)))) (let ((wr (vector 'tensor-handle-v2 \"tape\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle_tape\" (void*) void) raw_r) wr)))"
+prim__castStreamedTape : AnyPtr -> Int -> Int -> AnyPtr
+
 public export
 UserDeviceTape TapeDev where
+  primCreateScalarStreamed        = prim__createScalarStreamedTape
+  primCreateStreamed              = prim__createStreamedTape
+  primCreate1dStreamed            = prim__create1dStreamedTape
+  primCreate2dStreamed            = prim__create2dStreamedTape
+  primCreateParam1dStreamed       = prim__createParam1dStreamedTape
+  primCreateParam2dStreamed       = prim__createParam2dStreamedTape
+  primCreateParam3dStreamed       = prim__createParam3dStreamedTape
+  primCreateParam4dStreamed       = prim__createParam4dStreamedTape
+  primCreateState1dStreamed       = prim__createState1dStreamedTape
+  primCreateState2dStreamed       = prim__createState2dStreamedTape
+  primCastStreamed                = prim__castStreamedTape
   primRequiresGrad         = prim__requiresGradTape
   primSetRequiresGrad      = prim__setRequiresGradTape
   primBackward             = prim__backwardTape

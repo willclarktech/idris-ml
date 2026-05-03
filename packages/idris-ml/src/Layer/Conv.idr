@@ -137,9 +137,9 @@ conv2dLayer paramPrefix = do
       kerName = paramPrefix ++ "_kernel"
       biasName = paramPrefix ++ "_bias"
       kerPtr = primParamRegister {d} kerName
-        (dtCreateParam4d {t=dt} (cast outC) (cast inC) (cast kH) (cast kW) kerBuf' (deviceStreamTag {d}))
+        (dtCreateParam4d {d} {t=dt} (cast outC) (cast inC) (cast kH) (cast kW) kerBuf' (deviceStreamTag {d}))
       biasPtr = primParamRegister {d} biasName
-        (dtCreateParam1d {t=dt} (cast outC) biasBuf' (deviceStreamTag {d}))
+        (dtCreateParam1d {d} {t=dt} (cast outC) biasBuf' (deviceStreamTag {d}))
       kerTV : Tensor [outC, inC, kH, kW] d dt WithGrad
       kerTV = MkTensor kerPtr (Just kerName)
       biasTV : TVec outC d dt WithGrad
@@ -223,9 +223,9 @@ conv1dLayer paramPrefix = do
       kerName = paramPrefix ++ "_kernel"
       biasName = paramPrefix ++ "_bias"
       kerPtr = primParamRegister {d} kerName
-        (dtCreateParam3d {t=dt} (cast outC) (cast inC) (cast kL) kerBuf' (deviceStreamTag {d}))
+        (dtCreateParam3d {d} {t=dt} (cast outC) (cast inC) (cast kL) kerBuf' (deviceStreamTag {d}))
       biasPtr = primParamRegister {d} biasName
-        (dtCreateParam1d {t=dt} (cast outC) biasBuf' (deviceStreamTag {d}))
+        (dtCreateParam1d {d} {t=dt} (cast outC) biasBuf' (deviceStreamTag {d}))
       kerTV : Tensor [outC, inC, kL] d dt WithGrad
       kerTV = MkTensor kerPtr (Just kerName)
       biasTV : TVec outC d dt WithGrad

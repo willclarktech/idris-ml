@@ -38,12 +38,12 @@ packDoublesIntoBuf buf off (x :: rest) =
   packDoublesIntoBuf (prim__setDouble buf off x) (off + 1) rest
 
 -- Non-persistent input/target tensor from Vector n Double.
-bulkToPersistent : {0 d : Device} -> UserDeviceCore d => RuntimeDType dt => {n : Nat} -> Vector n Double -> AnyPtr
+bulkToPersistent : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => {n : Nat} -> Vector n Double -> AnyPtr
 bulkToPersistent {n} (VArray elems) =
   let nI = cast {to=Int} n
       buf = prim__allocDoubles nI
       buf' = packScalars buf 0 elems
-  in dtCreate1d {t=dt} nI buf' 0 (deviceStreamTag {d})
+  in dtCreate1d {d} {t=dt} nI buf' 0 (deviceStreamTag {d})
   where
     packScalars : AnyPtr -> Int -> Vect k (Scalar Double) -> AnyPtr
     packScalars b _ [] = b
@@ -52,8 +52,8 @@ bulkToPersistent {n} (VArray elems) =
 
 -- Scalar Tensor holding 0.0. IO so its FFI side effect happens at
 -- sequence-time rather than at call-time.
-freshZeroLossT : {0 d : Device} -> UserDeviceCore d => RuntimeDType dt => Double -> IO (Tensor [] d dt WithGrad)
-freshZeroLossT seed = ioRerun (\_ => MkTensor (dtCreateScalar {t=dt} seed 0 (deviceStreamTag {d})) Nothing)
+freshZeroLossT : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => Double -> IO (Tensor [] d dt WithGrad)
+freshZeroLossT seed = ioRerun (\_ => MkTensor (dtCreateScalar {d} {t=dt} seed 0 (deviceStreamTag {d})) Nothing)
 
 -- Add two scalar TVars. Dispatches via `primAdd {d}` so the
 -- type-level device tag drives MLX stream selection.
@@ -69,7 +69,7 @@ scaleLoss v s = ioRerun (\_ => MkTensor (primMulScalar {d} v.tensorPtr s) Nothin
 -- Sum a list of scalar tensors starting from a fresh zero. Replaces
 -- the old `foldl taddScalar (freshZeroLossT 0.0) losses` pattern under
 -- the IO-typed surface.
-sumLosses : {0 d : Device} -> UserDeviceCore d => RuntimeDType dt =>
+sumLosses : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt =>
             List (Tensor [] d dt WithGrad) -> IO (Tensor [] d dt WithGrad)
 sumLosses losses = do
   zero <- freshZeroLossT 0.0
@@ -305,7 +305,7 @@ perSeqLossTwoPhase lossFn model dp = do
   let startNet = resetNetwork model
   encNet <- foldlIO encodeStep startNet (encodingInputs dp)
   let iI = cast {to=Int} i
-      zeroIn = dtCreate1d {t=dt} iI (prim__allocDoubles iI) 0 (deviceStreamTag {d})
+      zeroIn = dtCreate1d {d} {t=dt} iI (prim__allocDoubles iI) 0 (deviceStreamTag {d})
   zero <- freshZeroLossT 0.0
   (_, totalLoss) <- foldlIO2 (decodeStep lossFn zeroIn) (encNet, zero) (targets dp)
   let stepCount = length (targets dp)
@@ -370,7 +370,7 @@ forwardTwoPhase model dp = do
   let startNet = resetNetwork model
   encNet <- foldlIO encodeStep startNet (encodingInputs dp)
   let iI = cast {to=Int} i
-      zeroIn = dtCreate1d {t=dt} iI (prim__allocDoubles iI) 0 (deviceStreamTag {d})
+      zeroIn = dtCreate1d {d} {t=dt} iI (prim__allocDoubles iI) 0 (deviceStreamTag {d})
   foldlIO2 (decodeOnce zeroIn) (encNet, []) (targets dp)
   where
     decodeOnce : AnyPtr ->

@@ -109,10 +109,10 @@ rnnLayer paramPrefix activation = do
       rwName = paramPrefix ++ "_rw"
       ibName = paramPrefix ++ "_ib"
       hbName = paramPrefix ++ "_hb"
-      iwPtr = primParamRegister {d} iwName (dtCreateParam2d {t=dt} oI iI iwBuf' (deviceStreamTag {d}))
-      rwPtr = primParamRegister {d} rwName (dtCreateParam2d {t=dt} oI oI rwBuf' (deviceStreamTag {d}))
-      ibPtr = primParamRegister {d} ibName (dtCreateParam1d {t=dt} oI ibBuf' (deviceStreamTag {d}))
-      hbPtr = primParamRegister {d} hbName (dtCreateParam1d {t=dt} oI hbBuf' (deviceStreamTag {d}))
+      iwPtr = primParamRegister {d} iwName (dtCreateParam2d {d} {t=dt} oI iI iwBuf' (deviceStreamTag {d}))
+      rwPtr = primParamRegister {d} rwName (dtCreateParam2d {d} {t=dt} oI oI rwBuf' (deviceStreamTag {d}))
+      ibPtr = primParamRegister {d} ibName (dtCreateParam1d {d} {t=dt} oI ibBuf' (deviceStreamTag {d}))
+      hbPtr = primParamRegister {d} hbName (dtCreateParam1d {d} {t=dt} oI hbBuf' (deviceStreamTag {d}))
       iwTV : TMat o i d dt WithGrad
       iwTV = MkTensor iwPtr (Just iwName)
       rwTV : TMat o o d dt WithGrad

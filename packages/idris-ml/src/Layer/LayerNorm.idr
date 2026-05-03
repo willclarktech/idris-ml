@@ -76,8 +76,8 @@ layerNormLayer paramPrefix = do
       bBuf' = fillConst bBuf 0 nI 0.0
       gName = paramPrefix ++ "_gamma"
       bName = paramPrefix ++ "_beta"
-      gPtr = primParamRegister {d} gName (dtCreateParam1d {t=dt} nI gBuf' (deviceStreamTag {d}))
-      bPtr = primParamRegister {d} bName (dtCreateParam1d {t=dt} nI bBuf' (deviceStreamTag {d}))
+      gPtr = primParamRegister {d} gName (dtCreateParam1d {d} {t=dt} nI gBuf' (deviceStreamTag {d}))
+      bPtr = primParamRegister {d} bName (dtCreateParam1d {d} {t=dt} nI bBuf' (deviceStreamTag {d}))
   pure $ MkLayerNorm (MkTensor gPtr (Just gName)) (MkTensor bPtr (Just bName))
 
 

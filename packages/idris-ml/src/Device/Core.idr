@@ -359,6 +359,23 @@ interface UserDeviceConv d => UserDeviceTape (0 d : Device) where
   primCreateState1d     : Int -> AnyPtr -> AnyPtr
   primCreateState2d     : Int -> Int -> AnyPtr -> AnyPtr
 
+  -- dtype-streamed creation -----------------------------------------
+  -- Each takes a trailing (streamTag, dtypeTag) pair; the backend's
+  -- wrapper branches on dtypeTag (0=f32, 1=f64) to pick the right
+  -- `_f32_streamed_<b>` / `_f64_streamed_<b>` C symbol. The `dtCreate*`
+  -- free functions in `Tensor` source dtypeTag from `RuntimeDType`.
+  primCreateScalarStreamed : Double -> Int -> Int -> Int -> AnyPtr
+  primCreateStreamed       : AnyPtr -> AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
+  primCreate1dStreamed     : Int -> AnyPtr -> Int -> Int -> Int -> AnyPtr
+  primCreate2dStreamed     : Int -> Int -> AnyPtr -> Int -> Int -> Int -> AnyPtr
+  primCreateParam1dStreamed : Int -> AnyPtr -> Int -> Int -> AnyPtr
+  primCreateParam2dStreamed : Int -> Int -> AnyPtr -> Int -> Int -> AnyPtr
+  primCreateParam3dStreamed : Int -> Int -> Int -> AnyPtr -> Int -> Int -> AnyPtr
+  primCreateParam4dStreamed : Int -> Int -> Int -> Int -> AnyPtr -> Int -> Int -> AnyPtr
+  primCreateState1dStreamed : Int -> AnyPtr -> Int -> Int -> AnyPtr
+  primCreateState2dStreamed : Int -> Int -> AnyPtr -> Int -> Int -> AnyPtr
+  primCastStreamed         : AnyPtr -> Int -> Int -> AnyPtr
+
 
 ----------------------------------------------------------------------
 -- UserDeviceTransfer — cross-backend tensor transfer surface

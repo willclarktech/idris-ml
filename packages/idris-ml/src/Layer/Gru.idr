@@ -92,10 +92,10 @@ gruLayer paramPrefix = do
       hwName  = paramPrefix ++ "_hw"
       ihBName = paramPrefix ++ "_ih_b"
       hhBName = paramPrefix ++ "_hh_b"
-      iwPtr  = primParamRegister {d} iwName  (dtCreateParam2d {t=dt} gI iI iwBuf' (deviceStreamTag {d}))
-      hwPtr  = primParamRegister {d} hwName  (dtCreateParam2d {t=dt} gI oI hwBuf' (deviceStreamTag {d}))
-      ihBPtr = primParamRegister {d} ihBName (dtCreateParam1d {t=dt} gI ihBBuf' (deviceStreamTag {d}))
-      hhBPtr = primParamRegister {d} hhBName (dtCreateParam1d {t=dt} gI hhBBuf' (deviceStreamTag {d}))
+      iwPtr  = primParamRegister {d} iwName  (dtCreateParam2d {d} {t=dt} gI iI iwBuf' (deviceStreamTag {d}))
+      hwPtr  = primParamRegister {d} hwName  (dtCreateParam2d {d} {t=dt} gI oI hwBuf' (deviceStreamTag {d}))
+      ihBPtr = primParamRegister {d} ihBName (dtCreateParam1d {d} {t=dt} gI ihBBuf' (deviceStreamTag {d}))
+      hhBPtr = primParamRegister {d} hhBName (dtCreateParam1d {d} {t=dt} gI hhBBuf' (deviceStreamTag {d}))
       iwTV : TMat (3 * o) i d dt WithGrad
       iwTV = MkTensor iwPtr (Just iwName)
       hwTV : TMat (3 * o) o d dt WithGrad

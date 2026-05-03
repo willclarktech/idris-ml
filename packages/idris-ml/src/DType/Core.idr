@@ -202,52 +202,14 @@ IsDType Bool where
 
 public export
 interface RuntimeDType (0 t : Type) where
-  ||| Allocate a scalar tensor. (value, requires_grad, stream_tag) → handle.
-  ||| `dt`-prefixed to disambiguate from `UserDeviceCore.primCreateScalar`
-  ||| which dispatches on the device axis. `stream_tag` is sourced from the
-  ||| destination device's `UserDeviceCore.deviceStreamTag` so the type-
-  ||| level `(d, dt)` pair drives both allocation routing and stream
-  ||| binding. On mlx, threaded into `WITH_STREAM(...)` around the
-  ||| `mx::array` construction. On tape/torch, ignored.
-  dtCreateScalar  : Double -> Int -> Int -> AnyPtr
-
-  ||| Allocate a general rank-N tensor from a contiguous double buffer.
-  ||| (data, shape, rank, requires_grad, stream_tag) → handle.
-  dtCreate        : AnyPtr -> AnyPtr -> Int -> Int -> Int -> AnyPtr
-
-  ||| Allocate a 1D tensor. (n, data, requires_grad, stream_tag) → handle.
-  dtCreate1d      : Int -> AnyPtr -> Int -> Int -> AnyPtr
-
-  ||| Allocate a 2D tensor. (rows, cols, data, requires_grad, stream_tag) → handle.
-  dtCreate2d      : Int -> Int -> AnyPtr -> Int -> Int -> AnyPtr
-
-  ||| Allocate + register a 1D parameter (rg=1 implicit, registered).
-  dtCreateParam1d : Int -> AnyPtr -> Int -> AnyPtr
-
-  ||| Allocate + register a 2D parameter.
-  dtCreateParam2d : Int -> Int -> AnyPtr -> Int -> AnyPtr
-
-  ||| Allocate + register a 3D parameter.
-  dtCreateParam3d : Int -> Int -> Int -> AnyPtr -> Int -> AnyPtr
-
-  ||| Allocate + register a 4D parameter.
-  dtCreateParam4d : Int -> Int -> Int -> Int -> AnyPtr -> Int -> AnyPtr
-
-  ||| Allocate a 1D per-sequence state tensor (refcounted on mlx).
-  dtCreateState1d : Int -> AnyPtr -> Int -> AnyPtr
-
-  ||| Allocate a 2D per-sequence state tensor.
-  dtCreateState2d : Int -> Int -> AnyPtr -> Int -> AnyPtr
-
-  ||| Cast a tensor's storage to this destination dtype. The C primitive
-  ||| reads the source dtype from the handle itself; this method
-  ||| dispatches on the *destination* dtype via the typeclass instance
-  ||| (matching the `dt*Create` family's "dispatch on target" pattern).
-  ||| Returns a fresh handle; the cast op becomes a node in the autograd
-  ||| graph on backends that trace it (mlx/torch). `stream_tag` is sourced
-  ||| from the destination device's `deviceStreamTag` so the cast itself
-  ||| participates in stream binding.
-  dtCastFrom : AnyPtr -> Int -> AnyPtr
+  ||| Runtime selector for this dtype: `0 = f32`, `1 = f64`. The
+  ||| `dtCreate*` free functions (in `Tensor`) pass it to the
+  ||| device's `primCreate*Streamed` method, which branches on it to
+  ||| pick the `_f32_streamed_<b>` vs `_f64_streamed_<b>` C symbol.
+  ||| This is how the type-level `(d, dt)` pair drives both backend
+  ||| dispatch (via `d`) and dtype dispatch (via this tag) without a
+  ||| 2-D typeclass.
+  dtypeTag : Int
 
 
 ----------------------------------------------------------------------

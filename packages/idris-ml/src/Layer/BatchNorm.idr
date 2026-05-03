@@ -97,10 +97,10 @@ batchNormLayer paramPrefix = do
       vBuf = fillConst (prim__allocDoubles cI) 0 cI 1.0
       gName = paramPrefix ++ "_gamma"
       bName = paramPrefix ++ "_beta"
-      gPtr = primParamRegister {d} gName (dtCreateParam1d {t=dt} cI gBuf (deviceStreamTag {d}))
-      bPtr = primParamRegister {d} bName (dtCreateParam1d {t=dt} cI bBuf (deviceStreamTag {d}))
-      mPtr = dtCreateState1d {t=dt} cI mBuf (deviceStreamTag {d})
-      vPtr = dtCreateState1d {t=dt} cI vBuf (deviceStreamTag {d})
+      gPtr = primParamRegister {d} gName (dtCreateParam1d {d} {t=dt} cI gBuf (deviceStreamTag {d}))
+      bPtr = primParamRegister {d} bName (dtCreateParam1d {d} {t=dt} cI bBuf (deviceStreamTag {d}))
+      mPtr = dtCreateState1d {d} {t=dt} cI mBuf (deviceStreamTag {d})
+      vPtr = dtCreateState1d {d} {t=dt} cI vBuf (deviceStreamTag {d})
       gTV : TVec channels d dt WithGrad
       gTV = MkTensor gPtr (Just gName)
       bTV : TVec channels d dt WithGrad

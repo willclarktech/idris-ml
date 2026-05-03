@@ -388,7 +388,7 @@ transformerLayer {prf} paramPrefix = do
       embBuf = prim__allocDoubles nI
       embBuf' = packDoubles embBuf 0 embedVals
       embName = paramPrefix ++ "_embed"
-      embPtr = primParamRegister {d} embName (dtCreateParam2d {t=dt} vI dI embBuf' (deviceStreamTag {d}))
+      embPtr = primParamRegister {d} embName (dtCreateParam2d {d} {t=dt} vI dI embBuf' (deviceStreamTag {d}))
       embTV : TMat vocabSize dModel d dt WithGrad
       embTV = MkTensor embPtr (Just embName)
   blks <- mkBlocks numBlocks (paramPrefix ++ "_b")
@@ -401,7 +401,7 @@ transformerLayer {prf} paramPrefix = do
       peBuf = prim__allocDoubles (sI * dI)
       peBuf' = writePE dModel peBuf 0 0 sI dI
       peTV : TMat seqLen dModel d dt WithGrad
-      peTV = MkTensor (dtCreateState2d {t=dt} sI dI peBuf' (deviceStreamTag {d})) Nothing
+      peTV = MkTensor (dtCreateState2d {d} {t=dt} sI dI peBuf' (deviceStreamTag {d})) Nothing
       -- Build causal mask once via the same persistent-state path as PE
       -- (routing through `dtCreateState2d {t=dt}    (deviceStreamTag {d})`). `primCausalMask {d}` itself
       -- returns an arena/intermediate tensor whose memory gets clobbered by
@@ -410,7 +410,7 @@ transformerLayer {prf} paramPrefix = do
       maskBufRaw = prim__allocDoubles (sI * sI)
       maskBuf = writeCausalMask maskBufRaw 0 1 sI
       maskTV : TMat seqLen seqLen d dt WithGrad
-      maskTV = MkTensor (dtCreateState2d {t=dt} sI sI maskBuf (deviceStreamTag {d})) Nothing
+      maskTV = MkTensor (dtCreateState2d {d} {t=dt} sI sI maskBuf (deviceStreamTag {d})) Nothing
   pure $ MkTransformer {prf} embTV blks nf vp peTV maskTV
 
 

@@ -76,18 +76,18 @@ data NtmState :
 -- Idris-wrapped Tensor handle is alive; freed once both let go. Without
 -- this management the per-sequence state leaks unboundedly across eval-
 -- phase forwards on mlx (see docs/develop/tensor-lifecycle.md).
-zeroState1d : {0 d : Device} -> UserDeviceCore d => RuntimeDType dt => (n : Nat) -> AnyPtr
+zeroState1d : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => (n : Nat) -> AnyPtr
 zeroState1d n =
   let nI = cast {to=Int} n
       buf = prim__allocDoubles nI
-  in dtCreateState1d {t=dt} nI buf (deviceStreamTag {d})
+  in dtCreateState1d {d} {t=dt} nI buf (deviceStreamTag {d})
 
-zeroState2d : {0 d : Device} -> UserDeviceCore d => RuntimeDType dt => (n, m : Nat) -> AnyPtr
+zeroState2d : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => (n, m : Nat) -> AnyPtr
 zeroState2d n m =
   let nI = cast {to=Int} n
       mI = cast {to=Int} m
       buf = prim__allocDoubles (nI * mI)
-  in dtCreateState2d {t=dt} nI mI buf (deviceStreamTag {d})
+  in dtCreateState2d {d} {t=dt} nI mI buf (deviceStreamTag {d})
 
 -- NTM read head decomposition (Graves et al. 2014, §3.3).
 -- Returns (newReadAddr [n], readOutput [m]) given memory [n,m],
@@ -243,7 +243,7 @@ ntmLayer pfx = do
   let iroBuf = prim__allocDoubles mI
       iroBuf' = packDoubles iroBuf 0 iroVals
       initReadOutT : TVec m d dt WithGrad
-      initReadOutT = MkTensor (dtCreateState1d {t=dt} mI iroBuf' (deviceStreamTag {d})) Nothing
+      initReadOutT = MkTensor (dtCreateState1d {d} {t=dt} mI iroBuf' (deviceStreamTag {d})) Nothing
   -- Per-sequence runtime state starts as Nothing — applyNtm computes the
   -- actual initial memT and roT from memInitT/initReadOutT on first call.
   pure $ MkNtm lstm rfc wfc ofc memInitT initReadOutT

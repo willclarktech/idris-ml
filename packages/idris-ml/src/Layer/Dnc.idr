@@ -63,13 +63,13 @@ dncRetention onesScalar idx freeGatesT (rw :: rws) acc =
 -- per timestep, dominated DNC forward overhead at ~1k prims/step
 -- for n=32 — close to 200ms/epoch wasted on a constant). Fix moves
 -- those 1027 prims out of the hot path entirely.
-buildNonDiagMask : {0 d : Device} -> UserDeviceCore d => RuntimeDType dt => (n : Nat) -> AnyPtr
+buildNonDiagMask : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => (n : Nat) -> AnyPtr
 buildNonDiagMask n =
   let nI = cast {to=Int} n
       numElems = nI * nI
       buf = prim__allocDoubles numElems
       buf' = fillOffDiag buf 0 nI numElems
-  in dtCreateState2d {t=dt} nI nI buf' (deviceStreamTag {d})
+  in dtCreateState2d {d} {t=dt} nI nI buf' (deviceStreamTag {d})
   where
     fillOffDiag : AnyPtr -> Int -> Int -> Int -> AnyPtr
     fillOffDiag b i nn numE = if i >= numE then b else
@@ -169,46 +169,46 @@ data DncState :
 -- entries or wrapped Idris Tensors reference it, freed when both let go.
 -- See docs/develop/tensor-lifecycle.md and `Layer/Ntm.idr`'s
 -- zeroState comment.
-zeroState1d : {0 d : Device} -> UserDeviceCore d => RuntimeDType dt => (n : Nat) -> AnyPtr
+zeroState1d : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => (n : Nat) -> AnyPtr
 zeroState1d {d} {dt} n =
   let nI = cast {to=Int} n
       buf = prim__allocDoubles nI
-  in dtCreateState1d {t=dt} nI buf (deviceStreamTag {d})
+  in dtCreateState1d {d} {t=dt} nI buf (deviceStreamTag {d})
 
-constState1d : {0 d : Device} -> UserDeviceCore d => RuntimeDType dt => (n : Nat) -> Double -> AnyPtr
+constState1d : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => (n : Nat) -> Double -> AnyPtr
 constState1d n v =
   let nI = cast {to=Int} n
       buf = fillBuf (prim__allocDoubles nI) 0 nI v
-  in dtCreateState1d {t=dt} nI buf (deviceStreamTag {d})
+  in dtCreateState1d {d} {t=dt} nI buf (deviceStreamTag {d})
   where
     fillBuf : AnyPtr -> Int -> Int -> Double -> AnyPtr
     fillBuf b i n v = if i >= n then b
       else fillBuf (prim__setDouble b i v) (i + 1) n v
 
-zeroState2d : {0 d : Device} -> UserDeviceCore d => RuntimeDType dt => (a, b : Nat) -> AnyPtr
+zeroState2d : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => (a, b : Nat) -> AnyPtr
 zeroState2d a b =
   let aI = cast {to=Int} a
       bI = cast {to=Int} b
       buf = prim__allocDoubles (aI * bI)
-  in dtCreateState2d {t=dt} aI bI buf (deviceStreamTag {d})
+  in dtCreateState2d {d} {t=dt} aI bI buf (deviceStreamTag {d})
 
-constState2d : {0 d : Device} -> UserDeviceCore d => RuntimeDType dt => (a, b : Nat) -> Double -> AnyPtr
+constState2d : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => (a, b : Nat) -> Double -> AnyPtr
 constState2d a b v =
   let aI = cast {to=Int} a
       bI = cast {to=Int} b
       buf = fillBuf (prim__allocDoubles (aI * bI)) 0 (aI * bI) v
-  in dtCreateState2d {t=dt} aI bI buf (deviceStreamTag {d})
+  in dtCreateState2d {d} {t=dt} aI bI buf (deviceStreamTag {d})
   where
     fillBuf : AnyPtr -> Int -> Int -> Double -> AnyPtr
     fillBuf b i n v = if i >= n then b
       else fillBuf (prim__setDouble b i v) (i + 1) n v
 
 -- Vect r of zero-state [n] handles (for read weights and read outputs).
-mkZeroVectN : {0 d : Device} -> UserDeviceCore d => RuntimeDType dt => (r : Nat) -> Nat -> Vect r AnyPtr
+mkZeroVectN : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => (r : Nat) -> Nat -> Vect r AnyPtr
 mkZeroVectN Z _ = []
 mkZeroVectN (S k) n = zeroState1d {d} {dt} n :: mkZeroVectN {d} {dt} k n
 
-mkZeroVectM : {0 d : Device} -> UserDeviceCore d => RuntimeDType dt => (r : Nat) -> Nat -> Vect r AnyPtr
+mkZeroVectM : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => (r : Nat) -> Nat -> Vect r AnyPtr
 mkZeroVectM Z _ = []
 mkZeroVectM (S k) m = zeroState1d {d} {dt} m :: mkZeroVectM {d} {dt} k m
 
@@ -275,7 +275,7 @@ applyDnc {r} {n} {m}
       rbW = rbFc.weightT.tensorPtr; rbB = rbFc.biasT.tensorPtr
       rmW = rmFc.weightT.tensorPtr; rmB = rmFc.biasT.tensorPtr
       oW  = oFc.weightT.tensorPtr;  oB  = oFc.biasT.tensorPtr
-      onesScalar = dtCreateScalar {t=dt} 1.0 0 (deviceStreamTag {d})
+      onesScalar = dtCreateScalar {d} {t=dt} 1.0 0 (deviceStreamTag {d})
       -- 4. 11 FCs (mv+add fused into primLinear {d} — collapses two
       --    FFI hops into one per FC, ~10x FFI overhead reduction here)
       writeKeyT      = primLinear {d} wkW cellPtr wkB
@@ -363,14 +363,14 @@ applyDnc {r} {n} {m}
 -- Build r Kaiming-uniform read-output state tensors (one per read head).
 -- PyTorch default kaiming_uniform on (1, m) per head: bound = 1/sqrt(m).
 -- Sampled once at construction; non-learnable.
-mkKaimingReadOuts : {0 d : Device} -> UserDeviceCore d => RuntimeDType dt => (r : Nat) -> (m : Nat) -> Double -> IO (Vect r AnyPtr)
+mkKaimingReadOuts : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => (r : Nat) -> (m : Nat) -> Double -> IO (Vect r AnyPtr)
 mkKaimingReadOuts Z _ _ = pure []
 mkKaimingReadOuts (S k) m bound = do
   vals <- traverse (\_ => randomRIO (-bound, bound)) (Vect.replicate m ())
   let mI = cast {to=Int} m
       buf = prim__allocDoubles mI
       buf' = packDoubles buf 0 vals
-      ptr = dtCreateState1d {t=dt} mI buf' (deviceStreamTag {d})
+      ptr = dtCreateState1d {d} {t=dt} mI buf' (deviceStreamTag {d})
   rest <- mkKaimingReadOuts {d} {dt} k m bound
   pure (ptr :: rest)
 
