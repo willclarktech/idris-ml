@@ -4,7 +4,9 @@ Handles epoch loop, progress logging, early stopping, timing, and
 result formatting. Output is identical to the Idris Train.idr runner.
 """
 
+import json
 import math
+import os
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -100,6 +102,66 @@ class TrainConfig:
     # the module-level `_DEVICE` singleton at the start of run_training so
     # `get_device()` calls inside model/loop code see the right value.
     device: str = "cpu"
+    # Optional checkpoint policy (mirrors Idris TrainConfig.checkpoint).
+    # When set, run_training resumes from `<dir>/last` before the loop,
+    # periodically saves + keeps the best checkpoint after each non-NaN
+    # epoch, and reloads the best at the end (return-best semantics).
+    checkpoint: "CheckpointPolicy | None" = None
+
+
+@dataclass
+class CheckpointPolicy:
+    """File-backed checkpoint policy, parallel to Idris `CheckpointPolicy`.
+
+    Build with `file_checkpoint`. `save_state(prefix, epoch, best)` writes
+    the model + optimizer + a `trainer_state.json` sidecar under
+    `<prefix>.*`; `load_state(prefix)` restores them and returns
+    `(resume_epoch, best_metric)` or None for a fresh start. `monitor`
+    selects the keep-best scalar (lower is better); None tracks the
+    per-epoch training loss.
+    """
+
+    dir: str
+    every_n: int
+    keep_best: bool
+    save_state: Callable[[str, int, float], None]
+    load_state: Callable[[str], "tuple[int, float] | None"]
+    monitor: Callable[[], float] | None = None
+
+
+def file_checkpoint(
+    directory: str,
+    every_n: int,
+    keep_best: bool,
+    model: Any,
+    optimizer: Any,
+    monitor: Callable[[], float] | None = None,
+) -> CheckpointPolicy:
+    """Build a file-backed checkpoint policy closing over model + optimizer.
+
+    Mirrors Idris `fileCheckpoint`. Periodic saves use the `<dir>/last`
+    prefix; keep-best uses `<dir>/best`. Resume metadata rides in an
+    HF-Trainer-style `trainer_state.json` sidecar.
+    """
+    os.makedirs(directory, exist_ok=True)
+
+    def save_state(prefix: str, epoch: int, best: float) -> None:
+        torch.save(model.state_dict(), prefix + ".model.pt")
+        torch.save(optimizer.state_dict(), prefix + ".opt.pt")
+        with open(prefix + ".trainer_state.json", "w") as f:
+            json.dump({"epoch": epoch, "best": best, "timestamp": int(time.time())}, f)
+
+    def load_state(prefix: str) -> "tuple[int, float] | None":
+        sidecar = prefix + ".trainer_state.json"
+        if not os.path.exists(sidecar):
+            return None
+        with open(sidecar) as f:
+            st = json.load(f)
+        model.load_state_dict(torch.load(prefix + ".model.pt"))
+        optimizer.load_state_dict(torch.load(prefix + ".opt.pt"))
+        return int(st["epoch"]), float(st["best"])
+
+    return CheckpointPolicy(directory, every_n, keep_best, save_state, load_state, monitor)
 
 
 def format_elapsed(start: float) -> str:
@@ -171,6 +233,18 @@ def run_training(
     final_loss = 0.0
     epochs_done = 0
 
+    # Checkpoint resume: load <dir>/last before the loop, seed start epoch
+    # + best metric. `ckpt_best` is the keep-best watermark (mirrors the
+    # Idris `bestRef` IORef, separate from patience's `best_loss`).
+    ckpt = config.checkpoint
+    start_ep = 0
+    ckpt_best = math.inf
+    if ckpt is not None:
+        st = ckpt.load_state(os.path.join(ckpt.dir, "last"))
+        if st is not None:
+            start_ep, ckpt_best = st
+            print(f"  Resuming from epoch {start_ep} (best={ckpt_best:.6f})")
+
     # Windowed early-stopping state. Two flavours:
     #   - mean-of-100-epoch-chunks (existing, used by most refs)
     #   - percentile-of-raw-losses (new, mirrors Idris WindowedPercentile)
@@ -184,7 +258,7 @@ def run_training(
     epochs_since_check = 0
     conv_count = 0
 
-    for ep in range(config.total_epochs):
+    for ep in range(start_ep, config.total_epochs):
         config.before_epoch(ep)
         loss = epoch_fn()
         if config.lr_scheduler is not None:
@@ -205,6 +279,18 @@ def run_training(
             return epochs_done, loss
 
         final_loss = loss
+
+        # Checkpoint after each non-NaN epoch: keep-best to <dir>/best,
+        # then periodic to <dir>/last. The sidecar stores `ep + 1` as the
+        # resume point. Mirrors Idris `postEpoch`.
+        if ckpt is not None:
+            if ckpt.keep_best:
+                cur = ckpt.monitor() if ckpt.monitor is not None else loss
+                if cur < ckpt_best:
+                    ckpt_best = cur
+                    ckpt.save_state(os.path.join(ckpt.dir, "best"), ep + 1, cur)
+            if ckpt.every_n > 0 and (ep + 1) % ckpt.every_n == 0:
+                ckpt.save_state(os.path.join(ckpt.dir, "last"), ep + 1, ckpt_best)
 
         # Patience-based early stopping
         if config.patience > 0 and not use_windowed:
@@ -255,7 +341,7 @@ def run_training(
         if use_percentile:
             raw_window.append(loss)
             if len(raw_window) > config.windowed_window:
-                raw_window = raw_window[-config.windowed_window:]
+                raw_window = raw_window[-config.windowed_window :]
             epochs_since_check += 1
             if epochs_since_check >= 100 and len(raw_window) >= config.windowed_window:
                 epochs_since_check = 0
@@ -281,6 +367,11 @@ def run_training(
                     )
                 else:
                     conv_count = 0
+
+    # Return-best: reload the best checkpoint so the post-training model
+    # is the best seen, not the last (Lightning semantics, mirrors Idris).
+    if ckpt is not None and ckpt.keep_best:
+        ckpt.load_state(os.path.join(ckpt.dir, "best"))
 
     total_elapsed = time.monotonic() - t_start
     total_sec = int(total_elapsed)
