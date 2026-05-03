@@ -263,7 +263,6 @@ interface UserDeviceLinear d => UserDeviceNN (0 d : Device) where
   -- Masking -----------------------------------------------------------
   primMaskedFill  : AnyPtr -> AnyPtr -> Double -> AnyPtr
   primExpandMask  : AnyPtr -> Int -> AnyPtr
-  primCausalMask  : Int -> AnyPtr
 
   -- Norms / dropout ---------------------------------------------------
   primLayerNorm2d : AnyPtr -> AnyPtr -> AnyPtr -> Double -> AnyPtr

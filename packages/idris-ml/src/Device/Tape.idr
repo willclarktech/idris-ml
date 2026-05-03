@@ -293,8 +293,6 @@ prim__softmax3dTape : AnyPtr -> AnyPtr
 prim__maskedFillTape : AnyPtr -> AnyPtr -> Double -> AnyPtr
 %foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_expand_mask_tape\" (void* int) void*) (vector-ref a0 2) a1))) (let ((wr (vector 'tensor-handle-v2 \"tape\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle_tape\" (void*) void) raw_r) wr)))"
 prim__expandMaskTape : AnyPtr -> Int -> AnyPtr
-%foreign "scheme:(lambda (a0) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_causal_mask_tape\" (int) void*) a0))) (let ((wr (vector 'tensor-handle-v2 \"tape\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle_tape\" (void*) void) raw_r) wr)))"
-prim__causalMaskTape : Int -> AnyPtr
 %foreign "scheme:(lambda (a0 a1 a2 a3)  (let ((raw_r ((foreign-procedure \"tensor_layer_norm_2d_tape\" (void* void* void* double) void*) (vector-ref a0 2) (vector-ref a1 2) (vector-ref a2 2) a3))) (let ((wr (vector 'tensor-handle-v2 \"tape\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle_tape\" (void*) void) raw_r) wr)))"
 prim__layerNorm2dTape : AnyPtr -> AnyPtr -> AnyPtr -> Double -> AnyPtr
 %foreign "scheme:(lambda (a0 a1 a2 a3 a4 a5 a6 a7 a8 a9)  (let ((raw_r ((foreign-procedure \"tensor_batch_norm_tape\" (void* void* void* void* void* int int int double double) void*) (vector-ref a0 2) (vector-ref a1 2) (vector-ref a2 2) (vector-ref a3 2) (vector-ref a4 2) a5 a6 a7 a8 a9))) (let ((wr (vector 'tensor-handle-v2 \"tape\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle_tape\" (void*) void) raw_r) wr)))"
@@ -332,7 +330,6 @@ UserDeviceNN TapeDev where
   primSoftmax3d        = prim__softmax3dTape
   primMaskedFill       = prim__maskedFillTape
   primExpandMask       = prim__expandMaskTape
-  primCausalMask       = prim__causalMaskTape
   primLayerNorm2d      = prim__layerNorm2dTape
   primBatchNorm        = prim__batchNormTape
   primDropout          = prim__dropoutTape

@@ -255,7 +255,6 @@ INIT_FFI = {
     "tensor_create_state_1d",
     "tensor_create_state_2d",
     "tensor_one_hot",
-    "tensor_causal_mask",
     "mnist_get_image",
 }
 

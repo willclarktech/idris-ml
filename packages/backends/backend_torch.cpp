@@ -1132,13 +1132,6 @@ TensorHandle tensor_reshape_1d(TensorHandle h, int n) {
     return from_tensor(to_tensor(h)->reshape({(int64_t)n}));
 }
 
-TensorHandle tensor_causal_mask(int n) {
-    // F32 (not F64) to mirror mlx's mx_from_doubles and avoid promoting an
-    // F32 computation to F64. 0/1 values are exact in F32, so this is
-    // lossless and bit-identical when combined with an F64 tensor.
-    auto t = torch::triu(torch::ones({(int64_t)n, (int64_t)n}, torch::kFloat32), 1);
-    return from_tensor(std::move(t));
-}
 
 TensorHandle tensor_one_hot(int* tokens, int n_tokens, int vocab_size, int dtag) {
     int total = n_tokens * vocab_size;

@@ -403,10 +403,11 @@ transformerLayer {prf} paramPrefix = do
       peTV : TMat seqLen dModel d dt WithGrad
       peTV = MkTensor (dtCreateState2d {d} {t=dt} sI dI peBuf' (deviceStreamTag {d})) Nothing
       -- Build causal mask once via the same persistent-state path as PE
-      -- (routing through `dtCreateState2d {t=dt}    (deviceStreamTag {d})`). `primCausalMask {d}` itself
-      -- returns an arena/intermediate tensor whose memory gets clobbered by
-      -- `tape_reset` and `free_intermediates` between training steps, so
-      -- caching its result would dangle after the first optimizer step.
+      -- (routing through `dtCreateState2d {t=dt} (deviceStreamTag {d})`).
+      -- A plain create returns an arena/intermediate tensor whose memory
+      -- gets clobbered by `tape_reset` and `free_intermediates` between
+      -- training steps, so it must go through the persistent-state path or
+      -- it would dangle after the first optimizer step.
       maskBufRaw = prim__allocDoubles (sI * sI)
       maskBuf = writeCausalMask maskBufRaw 0 1 sI
       maskTV : TMat seqLen seqLen d dt WithGrad

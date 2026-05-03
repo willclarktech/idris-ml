@@ -3752,27 +3752,6 @@ double tensor_item_1d(TensorHandle vec, int idx) {
 }
 
 /* ================================================================
-   Causal mask
-   ================================================================ */
-
-extern "C" TensorHandle tensor_causal_mask_mlx_streamed(int n, int stream_tag) {
-    WITH_STREAM(stream_tag);
-
-    // Upper triangular: 1.0 above diagonal, 0.0 on/below
-    std::vector<double> data(n * n, 0.0);
-    for (int i = 0; i < n; i++)
-        for (int j = i + 1; j < n; j++)
-            data[i * n + j] = 1.0;
-    mx::Shape sh = {n, n};
-    auto t = new Tensor(mx_from_doubles(data.data(), sh), false);
-    return (TensorHandle)t;
-
-}
-TensorHandle tensor_causal_mask(int n) {
-    return tensor_causal_mask_mlx_streamed(n, default_stream_tag());
-}
-
-/* ================================================================
    Optimizer
    ================================================================ */
 

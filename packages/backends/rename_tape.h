@@ -91,7 +91,6 @@
 #define tensor_cat tensor_cat_tape
 #define tensor_cat2 tensor_cat2_tape
 #define tensor_cat_from_array tensor_cat_from_array_tape
-#define tensor_causal_mask tensor_causal_mask_tape
 #define tensor_clamp_min tensor_clamp_min_tape
 #define tensor_clone tensor_clone_tape
 #define tensor_concat_2d_axis1 tensor_concat_2d_axis1_tape
