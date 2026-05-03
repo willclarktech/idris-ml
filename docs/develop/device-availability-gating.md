@@ -1,16 +1,27 @@
 # Device availability gating — design exploration
 
-**Status: design settled, not yet implemented.** Captures the design for
-the TODO row "Env-driven hardware-availability gating for backends".
+**Status: compile-time linkage half implemented (2026-05-21); runtime
+half settled but not built.** Tracks the TODO row "Env-driven
+hardware-availability gating for backends".
 
-Two pieces of groundwork are already in place:
-- The `Compatible (device, dtype)` capability is now wired into every
-  tensor constructor (2026-05-21), so the "empty-capability-marker +
-  per-backend instances + constraint on the constructors" pattern is
-  proven in the codebase. `Linked` (below) mirrors it exactly.
-- The runtime half is settled as **EAFP** (attempt construction, catch
-  the backend's exception), not the LBYL pre-probe an earlier draft of
-  this doc proposed. See "The runtime gate is EAFP, not LBYL" below.
+- **Done — compile-time linkage gate.** The `Linked d` capability
+  (`Device.Core`) is wired into the construction + forward path alongside
+  `Compatible`, with instances emitted per build by the generated
+  `HwConfig` module (one per backend in `BACKEND`). Naming a device whose
+  backend isn't linked fails to compile — e.g. `tconstScalar {d = MlxDev
+  MGpu}` on a tape build is rejected for lack of `Linked (MlxDev MGpu)`.
+  This mirrors the `Compatible (device, dtype)` machinery (also wired
+  2026-05-21). Consequence: inherently-cross-backend modules (Transfer,
+  MlxStreamDemo) can no longer compile under a single-backend build, so
+  they live outside the always-compiled examples ipkg and build only via
+  their multi-backend targets.
+- **Settled, not built — runtime hardware-presence gate.** Decided as
+  **EAFP** (attempt construction, catch the backend's exception), not the
+  LBYL pre-probe an earlier draft proposed. See "The runtime gate is
+  EAFP, not LBYL" below. Needs: the C++ shim `try/catch` → null, an
+  `mkTensorOn : ... -> IO (Either DeviceError (Tensor ...))`, the
+  `DeviceError` / `SomeDevice` types, `hardwareClass`, and EAFP-based
+  `availableDevices`.
 
 ## Problem
 
