@@ -120,9 +120,15 @@ mnistItem : AnyPtr -> Nat -> IO (TensorDataPoint InputDim NumClasses)
 mnistItem ds idx = do
   let imgT = primMnistGetImage {d=ExampleDevice} ds (cast {to=Int} (natToInteger idx))
       lbl = prim__mnistGetLabel ds (cast {to=Int} (natToInteger idx))
-      flatImg = primReshape1d {d=ExampleDevice} imgT (cast {to=Int} InputDim)
+      -- mnist_get_image / one_hot build F64 tensors; cast to ExampleDType so
+      -- they match the F32 params on an F32 build (no-op on F64 builds).
+      flatImg = dtCastFrom {d=ExampleDevice} {t=ExampleDType}
+                  (primReshape1d {d=ExampleDevice} imgT (cast {to=Int} InputDim))
+                  (deviceStreamTag {d=ExampleDevice})
       lblBuf = prim__setInt (prim__allocInts 1) 0 lbl
-      tgtT = primOneHot {d=ExampleDevice} lblBuf 1 (cast {to=Int} NumClasses)
+      tgtT = dtCastFrom {d=ExampleDevice} {t=ExampleDType}
+               (primOneHot {d=ExampleDevice} lblBuf 1 (cast {to=Int} NumClasses))
+               (deviceStreamTag {d=ExampleDevice})
   pure (MkTensorDataPoint flatImg tgtT)
 
 
@@ -152,7 +158,9 @@ evalAccuracy model ds numImages nSamples = go nSamples 0 0.0
       let pos = cast {to=Int} (k * cast numImages `div` nSamples)
           imgT = primMnistGetImage {d=ExampleDevice} ds pos
           lbl = prim__mnistGetLabel ds pos
-          flatImg = primReshape1d {d=ExampleDevice} imgT (cast {to=Int} InputDim)
+          flatImg = dtCastFrom {d=ExampleDevice} {t=ExampleDType}
+                      (primReshape1d {d=ExampleDevice} imgT (cast {to=Int} InputDim))
+                      (deviceStreamTag {d=ExampleDevice})
           inV = the (TVec InputDim ExampleDevice ExampleDType WithGrad) (MkTensor flatImg Nothing)
       (_, predV) <- forwardVar model inV
       let outT = predV.tensorPtr
@@ -160,7 +168,9 @@ evalAccuracy model ds numImages nSamples = go nSamples 0 0.0
           correct' = if pred == lbl then S correct else correct
           lblBuf = prim__allocInts 1
           lblBuf' = prim__setInt lblBuf 0 lbl
-          tgtT = primOneHot {d=ExampleDevice} lblBuf' 1 (cast {to=Int} NumClasses)
+          tgtT = dtCastFrom {d=ExampleDevice} {t=ExampleDType}
+                   (primOneHot {d=ExampleDevice} lblBuf' 1 (cast {to=Int} NumClasses))
+                   (deviceStreamTag {d=ExampleDevice})
           tgtV = the (TVec NumClasses ExampleDevice ExampleDType WithGrad) (MkTensor tgtT Nothing)
       lossT <- tnllLoss predV tgtV
       let lossVal = primItem {d=ExampleDevice} lossT.tensorPtr

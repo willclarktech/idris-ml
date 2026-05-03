@@ -55,7 +55,7 @@ buildMatrix n =
   let nI = the Int (cast n)
       buf = prim__allocDoubles (nI * nI)
       buf' = prim__setDouble buf 0 0.5
-  in primCreateState2d {d=ExampleDevice} nI nI buf'
+  in dtCreateState2d {d=ExampleDevice} {t=ExampleDType} nI nI buf' (deviceStreamTag {d=ExampleDevice})
 
 
 -- Elapsed milliseconds between two monotonic clock readings.
