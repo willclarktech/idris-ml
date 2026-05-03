@@ -43,7 +43,7 @@ record LstmState (i : Nat) (o : Nat) (0 d : Device) (0 dt : DType) (0 g : GradMo
 ||| hidden + cell state, runs the fused gate computation, returns the
 ||| updated layer state and the new hidden output.
 export
-applyLstm : {0 d : Device} -> UserDeviceTape d => UserDeviceCore d => RuntimeDType dt => Compatible d dt => {o : Nat} ->
+applyLstm : {0 d : Device} -> UserDeviceTape d => UserDeviceCore d => RuntimeDType dt => Linked d => Compatible d dt => {o : Nat} ->
               LstmState i o d dt g ->
               TVec i d dt g ->
               IO (LstmState i o d dt g, TVec o d dt g)
@@ -84,7 +84,7 @@ zeroBuf buf off n =
 ||| `<prefix>_iw`, `<prefix>_rw`, `<prefix>_ib`, `<prefix>_hb`,
 ||| `<prefix>_h0`, `<prefix>_c0`.
 export
-lstmLayer : UserDeviceTape d => RuntimeDType dt => Compatible d dt => {i, o : Nat} -> (paramPrefix : String) ->
+lstmLayer : UserDeviceTape d => RuntimeDType dt => Linked d => Compatible d dt => {i, o : Nat} -> (paramPrefix : String) ->
               IO (LstmState i o d dt WithGrad)
 lstmLayer paramPrefix = do
   let gI = cast {to=Int} (4 * o)
@@ -183,5 +183,5 @@ LayerLike LstmState where
 
 ||| Wrap an `LstmState` in `AnyLayer`.
 export
-lstmLayerAny : UserDeviceTape d => RuntimeDType dt => Compatible d dt => {i, o : Nat} -> (paramPrefix : String) -> IO (AnyLayer i o d dt WithGrad)
+lstmLayerAny : UserDeviceTape d => RuntimeDType dt => Linked d => Compatible d dt => {i, o : Nat} -> (paramPrefix : String) -> IO (AnyLayer i o d dt WithGrad)
 lstmLayerAny pid = map (MkAnyLayer LstmState) (lstmLayer pid)

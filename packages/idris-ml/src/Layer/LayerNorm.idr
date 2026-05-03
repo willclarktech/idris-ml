@@ -34,7 +34,7 @@ data LayerNormState : Nat -> Nat -> (0 _ : Device) -> (0 _ : DType) -> (0 _ : Gr
 %default partial
 
 export
-applyLayerNorm : {0 d : Device} -> UserDeviceTape d => UserDeviceCore d => RuntimeDType dt => Compatible d dt => {n : Nat} ->
+applyLayerNorm : {0 d : Device} -> UserDeviceTape d => UserDeviceCore d => RuntimeDType dt => Linked d => Compatible d dt => {n : Nat} ->
                    LayerNormState n n d dt g ->
                    TVec n d dt g ->
                    IO (LayerNormState n n d dt g, TVec n d dt g)
@@ -66,7 +66,7 @@ fillConst buf off n v =
 ||| and beta to 0.0. Both register as C params under
 ||| `<prefix>_gamma` / `<prefix>_beta`.
 export
-layerNormLayer : UserDeviceTape d => RuntimeDType dt => Compatible d dt => {n : Nat} -> (paramPrefix : String) ->
+layerNormLayer : UserDeviceTape d => RuntimeDType dt => Linked d => Compatible d dt => {n : Nat} -> (paramPrefix : String) ->
                    IO (LayerNormState n n d dt WithGrad)
 layerNormLayer paramPrefix = do
   let nI = cast {to=Int} n
@@ -102,6 +102,6 @@ LayerLike LayerNormState where
 
 ||| Wrap a LayerNorm in `AnyLayer`.
 export
-layerNormLayerAny : UserDeviceTape d => RuntimeDType dt => Compatible d dt => {n : Nat} -> (paramPrefix : String) ->
+layerNormLayerAny : UserDeviceTape d => RuntimeDType dt => Linked d => Compatible d dt => {n : Nat} -> (paramPrefix : String) ->
                       IO (AnyLayer n n d dt WithGrad)
 layerNormLayerAny pid = map (MkAnyLayer LayerNormState) (layerNormLayer pid)

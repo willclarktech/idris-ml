@@ -63,7 +63,7 @@ dncRetention onesScalar idx freeGatesT (rw :: rws) acc =
 -- per timestep, dominated DNC forward overhead at ~1k prims/step
 -- for n=32 — close to 200ms/epoch wasted on a constant). Fix moves
 -- those 1027 prims out of the hot path entirely.
-buildNonDiagMask : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => Compatible d dt => (n : Nat) -> AnyPtr
+buildNonDiagMask : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => Linked d => Compatible d dt => (n : Nat) -> AnyPtr
 buildNonDiagMask n =
   let nI = cast {to=Int} n
       numElems = nI * nI
@@ -169,13 +169,13 @@ data DncState :
 -- entries or wrapped Idris Tensors reference it, freed when both let go.
 -- See docs/develop/tensor-lifecycle.md and `Layer/Ntm.idr`'s
 -- zeroState comment.
-zeroState1d : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => Compatible d dt => (n : Nat) -> AnyPtr
+zeroState1d : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => Linked d => Compatible d dt => (n : Nat) -> AnyPtr
 zeroState1d {d} {dt} n =
   let nI = cast {to=Int} n
       buf = prim__allocDoubles nI
   in dtCreateState1d {d} {t=dt} nI buf (deviceStreamTag {d})
 
-constState1d : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => Compatible d dt => (n : Nat) -> Double -> AnyPtr
+constState1d : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => Linked d => Compatible d dt => (n : Nat) -> Double -> AnyPtr
 constState1d n v =
   let nI = cast {to=Int} n
       buf = fillBuf (prim__allocDoubles nI) 0 nI v
@@ -185,14 +185,14 @@ constState1d n v =
     fillBuf b i n v = if i >= n then b
       else fillBuf (prim__setDouble b i v) (i + 1) n v
 
-zeroState2d : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => Compatible d dt => (a, b : Nat) -> AnyPtr
+zeroState2d : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => Linked d => Compatible d dt => (a, b : Nat) -> AnyPtr
 zeroState2d a b =
   let aI = cast {to=Int} a
       bI = cast {to=Int} b
       buf = prim__allocDoubles (aI * bI)
   in dtCreateState2d {d} {t=dt} aI bI buf (deviceStreamTag {d})
 
-constState2d : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => Compatible d dt => (a, b : Nat) -> Double -> AnyPtr
+constState2d : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => Linked d => Compatible d dt => (a, b : Nat) -> Double -> AnyPtr
 constState2d a b v =
   let aI = cast {to=Int} a
       bI = cast {to=Int} b
@@ -204,11 +204,11 @@ constState2d a b v =
       else fillBuf (prim__setDouble b i v) (i + 1) n v
 
 -- Vect r of zero-state [n] handles (for read weights and read outputs).
-mkZeroVectN : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => Compatible d dt => (r : Nat) -> Nat -> Vect r AnyPtr
+mkZeroVectN : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => Linked d => Compatible d dt => (r : Nat) -> Nat -> Vect r AnyPtr
 mkZeroVectN Z _ = []
 mkZeroVectN (S k) n = zeroState1d {d} {dt} n :: mkZeroVectN {d} {dt} k n
 
-mkZeroVectM : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => Compatible d dt => (r : Nat) -> Nat -> Vect r AnyPtr
+mkZeroVectM : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => Linked d => Compatible d dt => (r : Nat) -> Nat -> Vect r AnyPtr
 mkZeroVectM Z _ = []
 mkZeroVectM (S k) m = zeroState1d {d} {dt} m :: mkZeroVectM {d} {dt} k m
 
@@ -218,7 +218,7 @@ mkZeroVectM (S k) m = zeroState1d {d} {dt} m :: mkZeroVectM {d} {dt} k m
 ----------------------------------------------------------------------
 
 export
-applyDnc : {0 d : Device} -> UserDeviceTape d => UserDeviceCore d => RuntimeDType dt => Compatible d dt => {r, n, m, h, i, o : Nat} ->
+applyDnc : {0 d : Device} -> UserDeviceTape d => UserDeviceCore d => RuntimeDType dt => Linked d => Compatible d dt => {r, n, m, h, i, o : Nat} ->
              DncState r n m h i o d dt g ->
              TVec i d dt g ->
              IO (DncState r n m h i o d dt g, TVec o d dt g)
@@ -363,7 +363,7 @@ applyDnc {r} {n} {m}
 -- Build r Kaiming-uniform read-output state tensors (one per read head).
 -- PyTorch default kaiming_uniform on (1, m) per head: bound = 1/sqrt(m).
 -- Sampled once at construction; non-learnable.
-mkKaimingReadOuts : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => Compatible d dt => (r : Nat) -> (m : Nat) -> Double -> IO (Vect r AnyPtr)
+mkKaimingReadOuts : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => Linked d => Compatible d dt => (r : Nat) -> (m : Nat) -> Double -> IO (Vect r AnyPtr)
 mkKaimingReadOuts Z _ _ = pure []
 mkKaimingReadOuts (S k) m bound = do
   vals <- traverse (\_ => randomRIO (-bound, bound)) (Vect.replicate m ())
@@ -386,7 +386,7 @@ mkKaimingReadOuts (S k) m bound = do
 ||| - initial read outputs:   `kaiming_uniform_((R, m))`, non-learnable,
 |||                           sampled once at construction
 export
-dncLayer : UserDeviceTape d => RuntimeDType dt => Compatible d dt => {r, n, m, h, i, o : Nat} ->
+dncLayer : UserDeviceTape d => RuntimeDType dt => Linked d => Compatible d dt => {r, n, m, h, i, o : Nat} ->
              (paramPrefix : String) ->
              IO (DncState r n m h i o d dt WithGrad)
 dncLayer pfx = do
@@ -511,7 +511,7 @@ public export
                 (map retypeGrad link) rwTs roTs)
 
 export
-dncLayerAny : UserDeviceTape d => RuntimeDType dt => Compatible d dt => {r, n, m, h, i, o : Nat} ->
+dncLayerAny : UserDeviceTape d => RuntimeDType dt => Linked d => Compatible d dt => {r, n, m, h, i, o : Nat} ->
                 (paramPrefix : String) ->
                 IO (AnyLayer i o d dt WithGrad)
 dncLayerAny pid =

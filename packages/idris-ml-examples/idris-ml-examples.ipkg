@@ -19,7 +19,6 @@ modules = BuildConfig
         , Example.Gru
         , Example.Lstm
         , Example.MatmulBench
-        , Example.MlxStreamDemo
         , Example.Mnist
         , Example.MonteCarlo
         , Example.MountainCar
@@ -38,5 +37,4 @@ modules = BuildConfig
         , Example.Supervised
         , Example.Taxi
         , Example.TCastDemo
-        , Example.Transfer
         , Example.Transformer
