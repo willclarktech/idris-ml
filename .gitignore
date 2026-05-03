@@ -4,6 +4,10 @@
 # HWCONFIG_IDR rule). The template is tracked; the generated file is not.
 packages/idris-ml/src/HwConfig.idr
 
+# Generated per-build from HwDevices.idr.in + the BACKEND list (Makefile
+# HWDEVICES_IDR rule). The template is tracked; the generated file is not.
+packages/idris-ml/src/HwDevices.idr
+
 build/
 data/
 .claude/

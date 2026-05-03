@@ -90,7 +90,9 @@ Device = Type
 --     tape-only build can't even spell `MlxDev _`.
 --   • Hardware presence (runtime, EAFP): construction shims catch the
 --     backend's exception → NULL handle; `toDeviceChecked` / `attemptOn`
---     lift NULL → `Left DeviceError`; `availableDevices` probes candidates.
+--     lift NULL → `Left DeviceError`; `availableDevices builtinDevices`
+--     probes the build's candidates (`builtinDevices` is generated per
+--     build into `HwDevices.idr`, the value-level mirror of `Linked`).
 --     Degrades to "always Right" on tape/mlx (their construction can't fail).
 
 -- DType.Core (open dtype kind — pick a Type with an IsDType / Compatible instance)

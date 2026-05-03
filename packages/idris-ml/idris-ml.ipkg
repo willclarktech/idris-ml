@@ -21,6 +21,7 @@ modules = Compat.Random
         , Floating
         , GradMode
         , HwConfig
+        , HwDevices
         , Hpo
         , Hpo.LrFinder
         , Init

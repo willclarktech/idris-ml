@@ -1,0 +1,29 @@
+||| Build-time `builtinDevices` — the device-discovery candidate list for
+||| the backends compiled into this `libidrisml` (the `BACKEND` list). The
+||| header below is this `HwDevices.idr.in` template; the `builtinDevices`
+||| definition underneath is appended per build by the Makefile's
+||| HWDEVICES_IDR recipe.
+|||
+||| This is the value-level mirror of the generated `HwConfig` `Linked`
+||| instances: one `someDevice` candidate per admissible (device, dtype)
+||| cell of each linked backend. `availableDevices builtinDevices` then
+||| EAFP-probes them and keeps the ones backed by usable hardware on this
+||| host (e.g. a torch build drops `TMps` on Linux, `TCuda 0` on macOS).
+||| A tape-only build lists only `TapeDev` — spelling an mlx candidate here
+||| wouldn't typecheck (no `Linked (MlxDev _)`), which is the compile-time
+||| linkage gate doing its job. See
+||| `docs/develop/device-availability-gating.md`.
+|||
+||| `builtinDevices` can't live in `HwConfig` (the Device barrel re-exports
+||| `HwConfig`, so it sits upstream of `Tensor`, where `SomeDevice` /
+||| `someDevice` are defined). Hence a second generated module, downstream
+||| of `Tensor`, re-exported by the notebook prelude.
+|||
+||| Do not edit the generated `HwDevices.idr` — it is regenerated on every
+||| build and is git-ignored. Edit this `.in` file (the header) or the
+||| Makefile HWDEVICES_IDR recipe (the `builtinDevices` definition).
+module HwDevices
+
+import public Device
+import public Tensor
+

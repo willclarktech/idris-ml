@@ -335,6 +335,14 @@ HWCONFIG_KEY := $(BACKEND)
 HWCONFIG_IDR := packages/idris-ml/src/HwConfig.idr
 HWCONFIG_IN  := packages/idris-ml/src/HwConfig.idr.in
 
+# Generated `builtinDevices : List SomeDevice` — the value-level mirror of
+# HwConfig's `Linked` instances (one `someDevice` candidate per linked
+# backend's admissible (device, dtype) cells). Lives downstream of `Tensor`
+# (where `someDevice` is defined), unlike HwConfig which the Device barrel
+# re-exports upstream. Keyed on the BACKEND list; git-ignored, regenerated.
+HWDEVICES_IDR := packages/idris-ml/src/HwDevices.idr
+HWDEVICES_IN  := packages/idris-ml/src/HwDevices.idr.in
+
 $(BUILD)/.buildconfig-stamp: FORCE | $(BUILD)
 	@[ "$$(cat $@ 2>/dev/null)" = "$(BUILDCONFIG_KEY)" ] || { echo "$(BUILDCONFIG_KEY)" > $@; }
 
@@ -368,6 +376,28 @@ $(HWCONFIG_IDR): $(HWCONFIG_IN) $(BUILD)/.hwconfig-stamp
 	   done; \
 	 } > $@
 	@echo "[HwConfig] BACKEND=$(BACKEND) → Linked instances for: $(BACKEND_LIST)"
+
+# Emit `builtinDevices` as `[] ++ <per-backend candidate lists>`. Seeding
+# with `[]` keeps every backend fragment a uniform `++ [...]`, so a
+# tape-only build is `[] ++ [TapeDev/F64]` and the empty BACKEND case is a
+# well-typed `[]`. Each `someDevice {d} {dt}` resolves its Linked /
+# Compatible / HardwareClassed / UserDeviceTape constraints from the
+# instances brought in via `import Device` / `import Tensor`. torch lists
+# all three hw variants (TCpu/TMps/TCuda 0) — EAFP filters to what's
+# present (multi-GPU `TCuda n` enumeration via cuda_device_count is a
+# separate follow-up).
+$(HWDEVICES_IDR): $(HWDEVICES_IN) $(BUILD)/.hwconfig-stamp
+	@{ cat $(HWDEVICES_IN); \
+	   printf 'public export\nbuiltinDevices : List SomeDevice\nbuiltinDevices = []\n'; \
+	   for b in $(BACKEND_LIST); do \
+	     case $$b in \
+	       tape)  printf '  ++ [someDevice {d = TapeDev} {dt = F64}]\n' ;; \
+	       torch) printf '  ++ [ someDevice {d = TorchDev TCpu} {dt = F64}\n     , someDevice {d = TorchDev TMps} {dt = F32}\n     , someDevice {d = TorchDev (TCuda 0)} {dt = F64} ]\n' ;; \
+	       mlx)   printf '  ++ [ someDevice {d = MlxDev MCpu} {dt = F64}\n     , someDevice {d = MlxDev MGpu} {dt = F32} ]\n' ;; \
+	     esac; \
+	   done; \
+	 } > $@
+	@echo "[HwDevices] BACKEND=$(BACKEND) → builtinDevices for: $(BACKEND_LIST)"
 
 # Final link: all listed backends' .o + shared objects (primary's
 # suffix). One dylib, no symlink. Every symbol is reached by its
@@ -465,7 +495,7 @@ print-torch:
 	@echo "LIB=$(LIB)"
 
 # Install core library to local prefix (needed before building examples/tests)
-install-core: backend $(HWCONFIG_IDR)
+install-core: backend $(HWCONFIG_IDR) $(HWDEVICES_IDR)
 	@cd packages/idris-ml && IDRIS2_PREFIX=$(IDRIS2_LOCAL) idris2 --install idris-ml.ipkg >/dev/null
 
 # Install gym to local prefix
@@ -484,7 +514,7 @@ install-examples: install-core install-gym $(BUILDCONFIG_IDR)
 install: install-core install-gym install-notebook install-examples build/.library-cache-stamp
 
 # Idris build (type-check core library)
-check: backend $(HWCONFIG_IDR)
+check: backend $(HWCONFIG_IDR) $(HWDEVICES_IDR)
 	cd packages/idris-ml && idris2 --build idris-ml.ipkg
 
 # Type-check gym package

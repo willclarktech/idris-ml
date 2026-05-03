@@ -32,16 +32,28 @@
     `SomeDevice` descriptor, and `someDevice` / `availableDevices` for
     EAFP discovery (attempt a 1-element alloc per candidate, keep
     survivors).
+  - `builtinDevices : List SomeDevice` — the build's candidate list, so
+    `availableDevices builtinDevices` needs no caller-supplied list. It's
+    the value-level mirror of the generated `Linked` instances: a second
+    generated module (`HwDevices.idr` from `HwDevices.idr.in` + the
+    Makefile `HWDEVICES_IDR` recipe), emitting one `someDevice {d} {dt}`
+    per admissible cell of each linked backend. It lives *downstream* of
+    `Tensor` (where `someDevice` is defined), not in `HwConfig` (which the
+    Device barrel re-exports upstream of `Tensor`) — so it's a separate
+    generated module, re-exported by the notebook prelude. torch lists all
+    three hw variants (TCpu/TMps/TCuda 0) and EAFP filters to what's
+    present.
   - On tape (and mlx stream switches) construction never fails, so the
     gate degrades cleanly to "always `Right` / always available". The
     null→`Left` path is exercised only on torch (CUDA/MPS absence); that
     path is verified-by-construction here — the torch/mlx C++ can't be
     compiled in this tape-only environment, so it relies on the CI lanes.
-- **Deferred follow-up.** A `HwConfig`-generated `builtinDevices : List
-  SomeDevice` (mirroring the generated `Linked` instances) so callers get
-  the build's candidate list for free; today the candidate list is
-  caller-supplied. `TCuda n` enumeration would bound candidates via a
-  native `cuda_device_count` before the EAFP attempts.
+- **Deferred follow-up.** Multi-GPU `TCuda n` enumeration: `builtinDevices`
+  lists a single `TCuda 0` candidate today; enumerating `TCuda 0..k-1`
+  bounded by a native `cuda_device_count` (called at list construction,
+  before the EAFP attempts) would surface every CUDA GPU on a multi-GPU
+  box. The decision still comes from the EAFP attempt — the count only
+  bounds how many candidates to generate.
 
 ## Problem
 
@@ -205,12 +217,13 @@ construction.
 list and, for each, *attempt* a tiny (1-element) allocation and keep the ones
 that don't throw. No separate `is_available` surface to maintain or drift —
 the same "attempt construction, catch the backend's exception" path that
-powers `attemptOn` powers discovery. The candidate list is caller-supplied
-today; a `HwConfig`-generated `builtinDevices` (mirroring the generated
-`Linked` instances) is the natural follow-up. (A backend may still expose a
-native fast-count like `cuda_device_count` purely as an optimisation to bound
-the candidate list before the attempts, but the *decision* always comes from
-a real allocation, never a standalone probe.)
+powers `attemptOn` powers discovery. The candidate list comes from the
+build's generated `builtinDevices` (mirroring the generated `Linked`
+instances — see the "Done" bullet above); callers can still pass their own
+list, e.g. `builtinDevices ++ [MkSomeDevice MyDev]` for a BYO backend. (A
+backend may still expose a native fast-count like `cuda_device_count` purely
+as an optimisation to bound the candidate list before the attempts, but the
+*decision* always comes from a real allocation, never a standalone probe.)
 
 ## BYO backend story
 
