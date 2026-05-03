@@ -1175,6 +1175,20 @@ static TensorHandle torch_cast_to(TensorHandle h, torch::ScalarType dt) {
     return from_tensor_persistent(t.dtype() == dt ? t : t.to(dt));
 }
 
+/* Build a persistent grad-tracking leaf at dtype dt from a fp64 host buffer.
+   Cast-before-requires_grad is load-bearing: `.to(dt)` applied to an
+   already-requires_grad tensor yields a NON-LEAF (the ToCopy output), whose
+   .grad never populates during backward — the optimizer then reads a zero
+   gradient and silently no-ops, freezing F32 training at the init loss.
+   The F64 param creators set requires_grad on the un-cast leaf (no cast), so
+   they were unaffected; only the F32 path went cast-after-grad. */
+static TensorHandle make_param_leaf(double* data, c10::IntArrayRef dims, torch::ScalarType dt) {
+    auto t = torch::from_blob(data, dims, torch::kFloat64).clone();
+    if (dt != torch::kFloat64) t = t.to(dt);
+    t.requires_grad_(true);
+    return from_tensor_persistent(std::move(t));
+}
+
 /* F64 — aliases to existing unsuffixed implementations.
    tensor_create_scalar_f64 and tensor_create_f64 are already defined
    above via the _impl refactor, so they're omitted here. */
@@ -1191,28 +1205,30 @@ TensorHandle tensor_create_state_2d_f64(int rows, int cols, double* d)          
    tensor_create_f32 already exist (refactored in their original location
    with _impl helpers); these wrappers cover the remaining 8 cases. */
 TensorHandle tensor_create_1d_f32(int n, double* d, int rg) {
-    auto h = tensor_create_1d(n, d, rg);
-    return torch_cast_to(h, torch::kFloat32);
+    auto t = torch::from_blob(d, {(int64_t)n}, torch::kFloat64).clone();
+    free(d);
+    t = t.to(torch::kFloat32);
+    if (rg) t.requires_grad_(true);   // cast-before-grad: keep the F32 tensor a leaf
+    return from_tensor(std::move(t));
 }
 TensorHandle tensor_create_2d_f32(int rows, int cols, double* d, int rg) {
-    auto h = tensor_create_2d(rows, cols, d, rg);
-    return torch_cast_to(h, torch::kFloat32);
+    auto t = torch::from_blob(d, {(int64_t)rows, (int64_t)cols}, torch::kFloat64).clone();
+    free(d);
+    t = t.to(torch::kFloat32);
+    if (rg) t.requires_grad_(true);   // cast-before-grad: keep the F32 tensor a leaf
+    return from_tensor(std::move(t));
 }
 TensorHandle tensor_create_param_1d_f32(int n, double* d) {
-    auto h = tensor_create_param_1d(n, d);
-    return torch_cast_to(h, torch::kFloat32);
+    return make_param_leaf(d, {(int64_t)n}, torch::kFloat32);
 }
 TensorHandle tensor_create_param_2d_f32(int rows, int cols, double* d) {
-    auto h = tensor_create_param_2d(rows, cols, d);
-    return torch_cast_to(h, torch::kFloat32);
+    return make_param_leaf(d, {(int64_t)rows, (int64_t)cols}, torch::kFloat32);
 }
 TensorHandle tensor_create_param_3d_f32(int d0, int d1, int d2, double* d) {
-    auto h = tensor_create_param_3d(d0, d1, d2, d);
-    return torch_cast_to(h, torch::kFloat32);
+    return make_param_leaf(d, {(int64_t)d0, (int64_t)d1, (int64_t)d2}, torch::kFloat32);
 }
 TensorHandle tensor_create_param_4d_f32(int d0, int d1, int d2, int d3, double* d) {
-    auto h = tensor_create_param_4d(d0, d1, d2, d3, d);
-    return torch_cast_to(h, torch::kFloat32);
+    return make_param_leaf(d, {(int64_t)d0, (int64_t)d1, (int64_t)d2, (int64_t)d3}, torch::kFloat32);
 }
 TensorHandle tensor_create_state_1d_f32(int n, double* d) {
     auto h = tensor_create_state_1d(n, d);
