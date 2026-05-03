@@ -216,6 +216,12 @@ Even with the IO refactor, wrapping a 100-sequence × 20-step eval in a single o
 
 Fix: push `withNoGrad` *inside* the loop. NTM eval: `evalOne dp = withNoGrad $ do { ... }` (per-sequence). RL eval: `withNoGrad (evalEp …)` inside `evalN`'s recursive call (per-episode). Tape and torch don't need this — only mlx hits the cap — but the per-sequence pattern is cheap on both, so it lives in the example code uniformly.
 
+### Grad-mode per-epoch eval + the mlx generation sweep = use-after-free
+
+A `cfg.metrics` callback that runs `forwardVar` in grad mode (no `withNoGrad`) builds autograd-tape entries during evaluation that are never consumed or reset. On mlx the per-epoch generation sweep (`tensor_epoch_end`) then deletes `rc==1` tensors created since `epoch_begin` — including eval intermediates the lingering tape still references — so the *next* epoch dereferences freed memory. It surfaces non-deterministically as bogus mlx reshape-size aborts (`[reshape] Cannot reshape array of size N into shape …`, where N drifts run-to-run because the corruption lands at whatever op the reused slot hits first), not a clean error at the eval site. tape/torch are immune: their `tensor_epoch_end` is a no-op (no Metal buffer ceiling to bound). This bit transformer + gpt once the per-epoch generation free landed.
+
+Fix lives in the library: `Train.idr`'s `logEpoch` wraps `cfg.metrics` in `withNoGrad` so eval builds no tape, and `forceMetrics` forces the result strings *inside* that bracket (the metric strings are lazy `show (primItem …)` / `argmaxAtPtr …` thunks that would otherwise dangle when the bracket-exit drain frees the eval tensors — same lazy-FFI footgun as the per-sequence case above). Example `metrics` callbacks therefore need not (and should not) manage no-grad themselves.
+
 ### `fst`/`snd` re-evaluation trap
 
 When a function with FFI side effects returns a tuple and the caller accesses fields via separate `fst`/`snd` projections (e.g., `fst result`, `snd result`, `fst result` again), Idris 2 compiled to Chez Scheme may re-evaluate the function call for each projection instead of sharing the result. This causes FFI side effects (tape appends, buffer allocations) to execute multiple times. Fix: use `case f args of (a, b, c) => ...` to destructure in a single pattern match. This was a 3x re-evaluation bug in the NTM forward pass — the LSTM controller was called 3 times per timestep instead of once.
