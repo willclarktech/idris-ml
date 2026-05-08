@@ -22,15 +22,19 @@ modules = Compat.Random
         , Layer.Activation
         , Layer.ActivationV2
         , Layer.BatchNorm
+        , Layer.BatchNormV2
         , Layer.Conv
+        , Layer.ConvV2
         , Layer.Core
         , Layer.CoreV2
         , Layer.Dropout
         , Layer.DropoutV2
         , Layer.Embedding
+        , Layer.EmbeddingV2
         , Layer.Gru
         , Layer.GruV2
         , Layer.Residual
+        , Layer.ResidualV2
         , Layer.LayerNorm
         , Layer.LayerNormV2
         , Layer.Linear
