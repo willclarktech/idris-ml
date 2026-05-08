@@ -47,6 +47,7 @@ modules = Compat.Random
         , Layer.Rnn
         , Layer.RnnV2
         , Layer.Transformer
+        , Layer.TransformerV2
         , Math
         , Memory
         , Optimizer
