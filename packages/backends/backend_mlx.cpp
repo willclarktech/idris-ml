@@ -46,6 +46,14 @@ static void mlx_backend_init(void) {
     } else {
         mx::set_default_device(mx::Device(mx::Device::cpu));
     }
+    // Bump the allocator limit. mlx defaults this to 1.5× the Metal-reported
+    // recommended working set size; on GH Actions macOS VMs that's tiny and
+    // even the CPU stream's allocator inherits it, so heavy scalar-tensor
+    // workloads (NTM/DNC backward) abort with "[malloc] Unable to allocate
+    // N bytes". 16 GB is well above what any example needs and well below
+    // the runner's RAM. Cache limit follows.
+    mx::set_memory_limit((size_t)16 * 1024 * 1024 * 1024);
+    mx::set_cache_limit((size_t)4 * 1024 * 1024 * 1024);
 }
 
 /* ================================================================
