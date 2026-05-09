@@ -241,3 +241,15 @@ exit:    0
 wall:    11.010s (11010 ms)
 stats:   Completed in 0s (5 epochs, 0ms/epoch)
 result:  `RESULT	epochs=5	acc_short=0.4875416666666667	acc_full=0.49835609787099727	seed=42`
+
+### 2026-05-08 — INVALIDATION note for the `commit \`6068d5c+dirty\`` exit-2 entry above
+
+The 2026-05-08 entry that says `exit: 2 / wall: 6.635s` (no result, no
+completed line) is **NOT a valid measurement**. It was the first run of
+`scripts/perf-run.sh` while debugging the script; make returned 2 due
+to leftover dylib state from a prior interrupted run, not a real model
+result. After `make clean && make install` the same args produced the
+adjacent successful entry.
+
+Per the convention, leaving the original entry in place rather than
+deleting; this note marks it invalid.
