@@ -13,10 +13,51 @@ Post-migration `make bench-compare` (Idris vs PyTorch end-to-end):
 | NTM-copy-1k | 483748.0 | 234142.5 | 2.07× | 0.532779 | 0.590333 | 436 MB | 382 MB |
 | NTM-recall | 45541.7 | 24222.2 | 1.88× | 0.527668 | 0.525779 | 138 MB | 382 MB |
 
-Loss values are bit-identical to pre-migration baseline at seed=42. Path C was
-a typing refactor, not a perf refactor — the spike measurement was Linear at
-1.09× and the migration preserves that. Memory footprint is ~6× smaller than
-PyTorch's across the board (Idris doesn't carry CUDA runtime, MKL, etc.).
+Loss values are bit-identical to pre-migration baseline at seed=42 on
+the smoke gate (`make test-examples`, ≤5 epochs per example). Path C
+was a typing refactor, not a perf refactor — the spike measurement was
+Linear at 1.09× and the migration preserves that for non-NTM/DNC
+workloads. Memory footprint is ~6× smaller than PyTorch's across the
+board (Idris doesn't carry CUDA runtime, MKL, etc.).
+
+### NTM-copy regression (open)
+
+At longer runs (`make example-ntm-copy --epochs 100`), the tape
+backend shows a ~2× regression vs main:
+
+| Branch | Forward (ms/epoch) | Backward (ms/epoch) | Tape entries/epoch | acc_short@100 |
+|---|---:|---:|---:|---:|
+| main | 228 | 25 | 17,665 | 0.6417 |
+| `worktree-path-c-spike` | 488 | 25 | 13,325 | 0.7054 |
+
+Identical `libidrisml.dylib` (md5-matched), identical hardware,
+identical seed. Branch has *fewer* tape entries and identical
+backward time, so the entire 260 ms/epoch slowdown is in the
+forward-pass C-side time. Branch trains *better* numerically (acc
+0.71 vs 0.64 at the same epoch count), suggesting a different
+floating-point trajectory — but the overall per-epoch wall-time is
+worse.
+
+**Investigation summary** (commits prior to merge):
+- Idris-side `%inline` pragmas added to `tadd`/`tmv`/`tsub`/`tmul`/
+  activation wrappers — no effect on NTM-copy timing. Either the
+  Idris2 codegen was already inlining or the wrappers aren't the
+  bottleneck.
+- LSTM cell forward rewritten to use raw `prim__*` ops (V1-style)
+  bypassing the typed wrappers — no effect.
+- Memory pressure ruled out (peak RSS 49 MB on both branches).
+
+**Open hypotheses**: V2's NTM forward path emits a different op mix
+(fewer cheap `exp+add+log` triples replaced by a single
+`prim__softplus` per scalar) and per-entry C cost may differ in a
+way the current backward-only profiler can't detect. Forward
+per-op profiling needs to be added to `backend_tape.c` to attribute
+the gap.
+
+Filed in `TODO.md` as a high-priority follow-up. Does not block the
+merge — the smoke gate (5 epochs per example) is bit-identical and
+the convergence quality is at least as good — but at the default
+`--epochs 50000` the regression turns a ~3.3 h main run into ~6.8 h.
 
 The remaining Idris/PyTorch ratio is dominated by per-op orchestration cost
 (C FFI overhead × ops/epoch) rather than tensor algebra. Real wins now require

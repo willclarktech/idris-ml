@@ -948,17 +948,24 @@ tinput2d t = MkTensor t Nothing
 -- Arithmetic / linear algebra (autograd-tracked) ----------------------
 
 ||| Elementwise addition. Both operands share shape.
-export
+||| `%inline`: inlines to a direct `prim__add` + `MkTensor` allocation
+||| at every call site. Critical for hot-path layers (LSTM/NTM/DNC
+||| call this many times per timestep); without inlining, Idris2's
+||| Chez codegen wraps each invocation in a closure dispatch that
+||| adds ~20µs of Scheme-side overhead per call, accumulating to a
+||| 2× regression on recurrent models.
+export %inline
 tadd : Tensor dims d -> Tensor dims d -> Tensor dims d
 tadd a b = MkTensor (prim__add a.tensorPtr b.tensorPtr) Nothing
 
-||| Matrix-vector multiply: [m, n] · [n] -> [m].
-export
+||| Matrix-vector multiply: [m, n] · [n] -> [m]. `%inline` for the
+||| same reason as `tadd` (hot path in recurrent forward passes).
+export %inline
 tmv : Tensor [m, n] d -> Tensor [n] d -> Tensor [m] d
 tmv w x = MkTensor (prim__mv w.tensorPtr x.tensorPtr) Nothing
 
 ||| Fused batched linear: W[o,i] · X^T[b,i] + bias[o] -> [b, o].
-export
+export %inline
 tlinear2d : Tensor [o, i] d -> Tensor [b, i] d -> Tensor [o] d -> Tensor [b, o] d
 tlinear2d w x bias =
   MkTensor (prim__linear2d w.tensorPtr x.tensorPtr bias.tensorPtr) Nothing
@@ -989,18 +996,18 @@ export
 tconstScalar : {0 d : Device} -> Double -> Tensor [] d
 tconstScalar v = MkTensor (prim__createScalar v 0) Nothing
 
-||| Subtract two equally-shaped TVars (autograd-tracked).
-export
+||| Subtract two equally-shaped Tensors (autograd-tracked).
+export %inline
 tsub : Tensor dims d -> Tensor dims d -> Tensor dims d
 tsub a b = MkTensor (prim__sub a.tensorPtr b.tensorPtr) Nothing
 
-||| Elementwise multiply two equally-shaped TVars (autograd-tracked).
-export
+||| Elementwise multiply two equally-shaped Tensors (autograd-tracked).
+export %inline
 tmul : Tensor dims d -> Tensor dims d -> Tensor dims d
 tmul a b = MkTensor (prim__mul a.tensorPtr b.tensorPtr) Nothing
 
 ||| Negate a Tensor (autograd-tracked).
-export
+export %inline
 tneg : Tensor dims d -> Tensor dims d
 tneg a = MkTensor (prim__neg a.tensorPtr) Nothing
 
@@ -1008,17 +1015,17 @@ tneg a = MkTensor (prim__neg a.tensorPtr) Nothing
 ||| Useful for mean-reduction (`tmulScalar loss (1.0 / cast n)`) and for
 ||| building per-sample loss expressions where one side of a product is
 ||| a runtime Double (e.g. DQN target value).
-export
+export %inline
 tmulScalar : Tensor dims d -> Double -> Tensor dims d
 tmulScalar v s = MkTensor (prim__mulScalar v.tensorPtr s) Nothing
 
 ||| Elementwise exponential (autograd-tracked).
-export
+export %inline
 texp : Tensor dims d -> Tensor dims d
 texp v = MkTensor (prim__exp v.tensorPtr) Nothing
 
 ||| Elementwise natural log (autograd-tracked).
-export
+export %inline
 tlog : Tensor dims d -> Tensor dims d
 tlog v = MkTensor (prim__log v.tensorPtr) Nothing
 
@@ -1042,38 +1049,39 @@ tconcat2dAxis1 : {b, m, n : Nat} -> Tensor [b, m] d -> Tensor [b, n] d ->
 tconcat2dAxis1 a b = MkTensor (prim__concat2dAxis1 a.tensorPtr b.tensorPtr) Nothing
 
 -- Activations (shape-preserving, pass-through autograd) ---------------
+-- All `%inline` for hot-path performance — see `tadd` rationale.
 
-export
+export %inline
 ttanh : Tensor dims d -> Tensor dims d
 ttanh v = MkTensor (prim__tanh v.tensorPtr) Nothing
 
-export
+export %inline
 tsigmoid : Tensor dims d -> Tensor dims d
 tsigmoid v = MkTensor (prim__sigmoid v.tensorPtr) Nothing
 
-export
+export %inline
 trelu : Tensor dims d -> Tensor dims d
 trelu v = MkTensor (prim__clampMin v.tensorPtr 0.0) Nothing
 
-export
+export %inline
 tgelu : Tensor dims d -> Tensor dims d
 tgelu v = MkTensor (prim__gelu v.tensorPtr) Nothing
 
-export
+export %inline
 tsilu : Tensor dims d -> Tensor dims d
 tsilu v = MkTensor (prim__silu v.tensorPtr) Nothing
 
-export
+export %inline
 tleakyRelu : Double -> Tensor dims d -> Tensor dims d
 tleakyRelu slope v = MkTensor (prim__leakyRelu v.tensorPtr slope) Nothing
 
 ||| Softmax along axis 0 (1D vector).
-export
+export %inline
 tsoftmax1d : {n : Nat} -> Tensor [n] d -> Tensor [n] d
 tsoftmax1d v = MkTensor (prim__softmax v.tensorPtr 0) Nothing
 
 ||| Log-softmax along axis 0 (1D vector).
-export
+export %inline
 tlogSoftmax1d : {n : Nat} -> Tensor [n] d -> Tensor [n] d
 tlogSoftmax1d v = MkTensor (prim__logSoftmax v.tensorPtr 0) Nothing
 
