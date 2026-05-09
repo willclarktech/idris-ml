@@ -6,7 +6,7 @@ This is the single reference for what each test target does, what it catches, an
 
 | Command | What it does | Wall time | When |
 |---|---|---|---|
-| `make test-examples` | Smoke gate: every example × 3 backends (tape/mlx/torch), 3-10 epochs each, safety-net thresholds. Catches crashes / NaN / divergence / missing RESULT keys. | ~13 min | per-PR |
+| `make test-examples` | Smoke gate: every example × 5 lanes (tape/mlx/mlx-gpu/torch/torch-mps, where the backend builds), 3-10 epochs each, safety-net thresholds. Catches crashes / NaN / divergence / missing RESULT keys. See the expected-failure matrix below. | ~13 min+ | per-PR |
 | `make test-examples-convergence` | Convergence: every example at full default epochs, single seed=42, tape only, tight thresholds. Catches "model trains in the wrong direction" and similar correctness regressions. | hours | release validation |
 | `make example-<name>` | Run one example with full default config. The standard dev-iteration command. | varies | dev iteration |
 
@@ -21,7 +21,7 @@ From cheapest/fastest/narrowest at the bottom to broadest/slowest at the top:
                       │ test-examples-convergence │  hours · single seed · tape
                       │  (correctness regressions)│
                       ├───────────────────────────┤
-                      │      test-examples        │  ~13 min · 3 backends · smoke
+                      │      test-examples        │  ~13 min · 5 lanes · smoke
                       │     (crash-only gate)     │
                       ├───────────────────────────┤
                       │    test-ref / bench-*     │  PyTorch parity / perf
@@ -72,6 +72,37 @@ From cheapest/fastest/narrowest at the bottom to broadest/slowest at the top:
 - **Multi-seed for any example** — single seed=42 is the convergence baseline. The CLAUDE.md ≥5-seed policy is for *making convergence claims in PR descriptions / docs*, not as a CI gate. If a multi-seed regression shows up in the wild, run the per-example target manually with several seeds.
 - **PyTorch parity per example** — `bench-compare` and `ref-convergence-{copy,recall}` exist for specific examples; we don't enforce parity on every example automatically. Drift between Idris and PyTorch is captured in `docs/develop/reference-alignment.md`.
 - **GPU / CUDA convergence** — `scripts/test_cuda_colab.sh` exists for opportunistic CUDA testing on Colab; not part of `make` flow.
+
+## Expected-failure matrix (example × backend lane)
+
+`test-examples` walks five lanes — `tape`, `mlx` (CPU stream), `mlx-gpu`
+(Metal), `torch` (CPU), `torch-mps` (Metal, F32) — building each backend
+and skipping the lane if its build fails. **The default expectation is
+that every (example × lane) cell passes.** This matrix records the *known
+exceptions*, classified so a genuine regression isn't waved off as a known
+issue. The rule (per CLAUDE.md "all backends first-class"): a real bug is
+**fixed**, not added here; only environment limitations and
+not-yet-reproducible flakes live in this table.
+
+| Example | Lane | Status | Classification / cause |
+|---|---|---|---|
+| `transformer` | `mlx` (CPU) | ⚠ intermittent SIGTRAP | **Flake — P-investigate, do not mask.** Rare crash in the epoch-*transition* mlx lifecycle (per-epoch generation free / drain / sweep). Epoch-0 output is bit-identical to passing runs, so it clears epoch 0 and trips only sometimes at the boundary. Not reproducible on demand (0/38 local: seeds 99/1/2/7/42/123/5/13/21 × 5–8 epochs). Suspected mlx-on-paravirtualized-VM allocator/lifecycle instability — the same class the generation-free machinery (`docs/develop/tensor-lifecycle.md`) exists to mitigate. Observed once in a full `test-examples` run (2026-05-22). Fix when a deterministic repro appears. |
+
+Notes on lane-specific failure *classes* (so a new failure can be triaged
+fast):
+
+- **F32-only lanes (`torch-mps`, `mlx-gpu`)** surface dtype-honesty bugs
+  that the F64 lanes hide: any tensor created as F64 and fed to F32 params
+  crashes with a "double vs float" / dtype-mismatch on these lanes only.
+  torch-mps is strict (aborts); mlx-gpu often silently up/down-casts and
+  passes — so torch-mps is the canary. (Example: the `mnist_get_image`
+  F64-image regression, fixed 2026-05-22 — see CHANGELOG.)
+- **`mlx` (CPU) on long workloads** has documented Metal-allocator ceilings
+  under the paravirt VM; mitigated by the generation-scoped free but the
+  source of intermittent lifecycle crashes like the `transformer` row above.
+- **Impossible-by-design cells are not failures**: F64 on Metal
+  (`torch-mps` / `mlx-gpu`) is `Compatible`-gated, so those builds pin F32
+  and never attempt F64 — there is no cell to fail.
 
 ## When to run what
 
