@@ -3203,8 +3203,19 @@ static void mlx_sweep_generation(long block_start) {
             // ceiling actually cares about — and keep the lightweight husk
             // alive (its address pinned) until the wrap drains it to rc==0,
             // when the branch below frees it safely.
-            t->data = mx::array(0.0f);
-            t->grad = mx::array(0.0f);
+            //
+            // Assign a single process-wide empty scalar rather than a fresh
+            // `mx::array(0.0f)` per husk: mx::array is copy-on-write (a
+            // shared_ptr to its buffer), so this is a refcount bump, not an
+            // allocation, yet it still drops the husk's heavy buffer. A fresh
+            // per-husk scalar *does* allocate, and on Apple Silicon every
+            // buffer — even 4–8 bytes — routes through MetalAllocator; under
+            // the paravirt-Metal MTLBuffer ceiling (Tart/GHA VMs) those
+            // per-sweep allocations throw `[malloc] Unable to allocate N
+            // bytes` mid-training (regression from 8482788, NTM/DNC/mnist/RL).
+            static const mx::array g_husk_empty = mx::array(0.0f);
+            t->data = g_husk_empty;
+            t->grad = g_husk_empty;
             t->has_grad = false;
             survivors.push_back(t);
             continue;
