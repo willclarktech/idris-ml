@@ -63,6 +63,28 @@ struct Tensor {
 };
 
 /* ================================================================
+   Precision bridge — mlx storage is float32 (Metal GPU constraint),
+   Idris API surface is double. These helpers convert at the boundary.
+   ================================================================ */
+
+// Convert mlx float32 array to a double buffer (caller-allocated).
+static inline void mx_to_doubles(const mx::array& a, double* out) {
+    int n = (int)a.size();
+    const float* src = a.data<float>();
+    for (int i = 0; i < n; i++) out[i] = (double)src[i];
+}
+
+// Construct a float32 mx::array from a double buffer + shape.
+static inline mx::array mx_from_doubles(const double* data,
+                                        const mx::Shape& shape) {
+    int n = 1;
+    for (auto s : shape) n *= (int)s;
+    std::vector<float> tmp((size_t)n);
+    for (int i = 0; i < n; i++) tmp[i] = (float)data[i];
+    return mx::array(tmp.data(), shape, mx::float32);
+}
+
+/* ================================================================
    Tape — autograd Wengert list
    ================================================================ */
 
@@ -271,7 +293,7 @@ extern "C" {
 
 TensorHandle tensor_create_scalar(double value, int requires_grad) {
     // Explicit float64 — mx::array(double) defaults to float32
-    auto t = new Tensor(mx::array(value, mx::float64), requires_grad != 0);
+    auto t = new Tensor(mx::array(value, mx::float32), requires_grad != 0);
     if (requires_grad) tape_append(OP_CONST, t, nullptr, nullptr, 0);
     // Non-grad scalars stay non-persistent — freed by tape_reset at optimizer_step
     return (TensorHandle)t;
@@ -279,7 +301,7 @@ TensorHandle tensor_create_scalar(double value, int requires_grad) {
 
 TensorHandle tensor_create(double* data, int* shape, int rank, int requires_grad) {
     mx::Shape sh(shape, shape + rank);
-    auto t = new Tensor(mx::array(data, sh, mx::float64), requires_grad != 0);
+    auto t = new Tensor(mx_from_doubles(data, sh), requires_grad != 0);
     if (requires_grad) tape_append(OP_CONST, t, nullptr, nullptr, 0);
     // Non-grad data tensors: non-persistent, freed by tape_reset at optimizer_step
     return (TensorHandle)t;
@@ -317,7 +339,7 @@ void tensor_free(TensorHandle h) {
 double tensor_item(TensorHandle h) {
     auto t = (Tensor*)h;
     mx::eval(t->data);
-    return t->data.item<double>();
+    return (double)t->data.item<float>();
 }
 
 int tensor_numel(TensorHandle h) { return (int)((Tensor*)h)->data.size(); }
@@ -327,7 +349,7 @@ int tensor_size(TensorHandle h, int dim) { return (int)((Tensor*)h)->data.shape(
 void tensor_to_doubles(TensorHandle h, double* out) {
     auto t = (Tensor*)h;
     mx::eval(t->data);
-    memcpy(out, t->data.data<double>(), t->data.size() * sizeof(double));
+    mx_to_doubles(t->data, out);
 }
 
 /* ================================================================
@@ -418,9 +440,9 @@ TensorHandle tensor_gelu(TensorHandle h) {
     auto t = (Tensor*)h;
     // GELU tanh approx: x * 0.5 * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))
     auto x = t->data;
-    auto c = mx::array(0.7978845608028654, mx::float64);
-    auto inner = mx::multiply(c, mx::add(x, mx::multiply(mx::array(0.044715, mx::float64), mx::power(x, mx::array(3, mx::float64)))));
-    auto result = mx::multiply(mx::multiply(mx::array(0.5, mx::float64), x), mx::add(mx::array(1.0, mx::float64), mx::tanh(inner)));
+    auto c = mx::array(0.7978845608028654, mx::float32);
+    auto inner = mx::multiply(c, mx::add(x, mx::multiply(mx::array(0.044715, mx::float32), mx::power(x, mx::array(3, mx::float32)))));
+    auto result = mx::multiply(mx::multiply(mx::array(0.5, mx::float32), x), mx::add(mx::array(1.0, mx::float32), mx::tanh(inner)));
     auto r = new Tensor(result, t->requires_grad);
     if (t->requires_grad) tape_append(OP_GELU, r, t, nullptr, 0);
     return (TensorHandle)r;
@@ -435,7 +457,7 @@ TensorHandle tensor_tanh(TensorHandle h) {
 
 TensorHandle tensor_leaky_relu(TensorHandle h, double alpha) {
     auto t = (Tensor*)h;
-    auto alpha_arr = mx::array(alpha, mx::float64);
+    auto alpha_arr = mx::array(alpha, mx::float32);
     auto result = mx::maximum(mx::multiply(alpha_arr, t->data), t->data);
     auto r = new Tensor(result, t->requires_grad);
     if (t->requires_grad) tape_append(OP_LEAKY_RELU, r, t, nullptr, alpha);
@@ -453,7 +475,7 @@ TensorHandle tensor_silu(TensorHandle h) {
 TensorHandle tensor_softplus(TensorHandle h) {
     auto t = (Tensor*)h;
     // softplus(x) = log(1 + exp(x))
-    auto result = mx::log(mx::add(mx::array(1.0, mx::float64), mx::exp(t->data)));
+    auto result = mx::log(mx::add(mx::array(1.0, mx::float32), mx::exp(t->data)));
     auto r = new Tensor(result, t->requires_grad);
     if (t->requires_grad) tape_append(OP_SOFTPLUS, r, t, nullptr, 0);
     return (TensorHandle)r;
@@ -702,7 +724,7 @@ TensorHandle tensor_conv1d_circular(TensorHandle hinput, TensorHandle hkernel) {
     int n = (int)inp->data.size();
     int k = (int)kern->data.size();
 
-    mx::array result = mx::zeros({n}, mx::float64);
+    mx::array result = mx::zeros({n}, mx::float32);
     int half_k = k / 2;
     for (int j = 0; j < k; j++) {
         int shift = half_k - j;
@@ -734,10 +756,10 @@ TensorHandle tensor_batch_norm(TensorHandle hinput, TensorHandle hgamma, TensorH
 
     if (training) {
         // Update running stats (non-differentiable)
-        auto new_rm = mx::add(mx::multiply(mx::array(1.0 - momentum, mx::float64), rm->data),
-                              mx::multiply(mx::array(momentum, mx::float64), mx::squeeze(mean)));
-        auto new_rv = mx::add(mx::multiply(mx::array(1.0 - momentum, mx::float64), rv->data),
-                              mx::multiply(mx::array(momentum, mx::float64), mx::squeeze(var)));
+        auto new_rm = mx::add(mx::multiply(mx::array(1.0 - momentum, mx::float32), rm->data),
+                              mx::multiply(mx::array(momentum, mx::float32), mx::squeeze(mean)));
+        auto new_rv = mx::add(mx::multiply(mx::array(1.0 - momentum, mx::float32), rv->data),
+                              mx::multiply(mx::array(momentum, mx::float32), mx::squeeze(var)));
         rm->data = new_rm;
         rv->data = new_rv;
         mx::eval(rm->data);
@@ -747,7 +769,7 @@ TensorHandle tensor_batch_norm(TensorHandle hinput, TensorHandle hgamma, TensorH
         var = mx::reshape(rv->data, {C, 1});
     }
 
-    auto rstd = mx::rsqrt(mx::add(var, mx::array(eps, mx::float64)));
+    auto rstd = mx::rsqrt(mx::add(var, mx::array(eps, mx::float32)));
     auto x_hat = mx::multiply(mx::subtract(x, mean), rstd);
     auto g = mx::reshape(gamma->data, {C, 1});
     auto b = mx::reshape(beta->data, {C, 1});
@@ -777,7 +799,7 @@ TensorHandle tensor_dropout(TensorHandle hinput, double p, int training, unsigne
     double scale = 1.0 / (1.0 - p);
     auto rnd = mx::random::uniform(mx::array(0.0f), mx::array(1.0f), inp->data.shape(), mx::float32);
     auto keep = mx::greater(rnd, mx::array((float)p, mx::float32));
-    auto mask = mx::astype(mx::where(keep, mx::array(scale, mx::float64), mx::array(0.0, mx::float64)), mx::float64);
+    auto mask = mx::astype(mx::where(keep, mx::array(scale, mx::float32), mx::array(0.0, mx::float32)), mx::float32);
     auto result = mx::multiply(inp->data, mask);
 
     auto r = new Tensor(result, inp->requires_grad);
@@ -838,7 +860,7 @@ TensorHandle tensor_scatter_add(TensorHandle hindex, TensorHandle hsrc, int out_
     auto idx = (Tensor*)hindex;
     auto src = (Tensor*)hsrc;
     auto idx_int = mx::astype(idx->data, mx::int32);
-    auto base = mx::zeros({out_size}, mx::float64);
+    auto base = mx::zeros({out_size}, mx::float32);
     /* mx::scatter_add updates shape: indices.shape + base.shape[axis+1:].
        For 1D base on axis 0 that's [N, 1] (the trailing 1 is the empty
        remainder reified as a singleton). */
@@ -859,7 +881,7 @@ TensorHandle tensor_argsort(TensorHandle ht, int dim, int descending) {
         auto rev_idx = mx::subtract(mx::array(n - 1), mx::arange(n));
         indices = mx::take(indices, rev_idx);
     }
-    auto result = mx::astype(indices, mx::float64);
+    auto result = mx::astype(indices, mx::float32);
     mx::eval(result);
     return (TensorHandle)(new Tensor(result, false)); // no grad for indices
 }
@@ -883,7 +905,7 @@ TensorHandle tensor_gru_cell(TensorHandle hcombined, TensorHandle hprev, int o) 
     auto n_raw = mx::slice(combined->data, {2*o}, {3*o});
     auto z = mx::sigmoid(z_raw);
     auto n = mx::tanh(n_raw);
-    auto one = mx::array(1.0, mx::float64);
+    auto one = mx::array(1.0, mx::float32);
     auto result = mx::add(mx::multiply(mx::subtract(one, z), n), mx::multiply(z, prev->data));
 
     bool rg = combined->requires_grad || prev->requires_grad;
@@ -902,26 +924,29 @@ TensorHandle tensor_group_norm(TensorHandle hinput, TensorHandle hgamma, TensorH
     int chPerGroup = channels / numGroups;
     int groupSize = chPerGroup * spatial;
     mx::eval(inp->data); mx::eval(gamma->data); mx::eval(beta->data);
+    const float* inpD = inp->data.data<float>();
+    const float* gammaD = gamma->data.data<float>();
+    const float* betaD = beta->data.data<float>();
     double* out = (double*)calloc(n, sizeof(double));
     for (int g = 0; g < numGroups; g++) {
         double mean = 0;
         int base = g * groupSize;
-        for (int j = 0; j < groupSize; j++) mean += inp->data.data<double>()[base + j];
+        for (int j = 0; j < groupSize; j++) mean += (double)inpD[base + j];
         mean /= groupSize;
         double var = 0;
-        for (int j = 0; j < groupSize; j++) { double d = inp->data.data<double>()[base+j] - mean; var += d*d; }
+        for (int j = 0; j < groupSize; j++) { double d = (double)inpD[base+j] - mean; var += d*d; }
         var /= groupSize;
         double rstd = 1.0 / sqrt(var + eps);
         for (int c = 0; c < chPerGroup; c++) {
             int absC = g * chPerGroup + c;
             for (int s = 0; s < spatial; s++) {
                 int idx = absC * spatial + s;
-                double x_hat = (inp->data.data<double>()[idx] - mean) * rstd;
-                out[idx] = gamma->data.data<double>()[absC] * x_hat + beta->data.data<double>()[absC];
+                double x_hat = ((double)inpD[idx] - mean) * rstd;
+                out[idx] = (double)gammaD[absC] * x_hat + (double)betaD[absC];
             }
         }
     }
-    auto result = mx::array(out, {n}, mx::float64);
+    auto result = mx_from_doubles(out, {n});
     free(out);
     return (TensorHandle)(new Tensor(result, inp->requires_grad || gamma->requires_grad));
 }
@@ -938,17 +963,23 @@ TensorHandle tensor_conv_transpose1d(TensorHandle hinput, TensorHandle hkernel,
 
     // Compute on CPU via eval then manual scatter
     mx::eval(inp->data); mx::eval(ker->data);
+    const float* inpD = inp->data.data<float>();
+    const float* kerD = ker->data.data<float>();
     double* out = (double*)calloc(outC * oL, sizeof(double));
-    if (bias) { mx::eval(bias->data); for (int oc = 0; oc < outC; oc++) for (int ol = 0; ol < oL; ol++) out[oc*oL+ol] = bias->data.data<double>()[oc]; }
+    if (bias) {
+        mx::eval(bias->data);
+        const float* biasD = bias->data.data<float>();
+        for (int oc = 0; oc < outC; oc++) for (int ol = 0; ol < oL; ol++) out[oc*oL+ol] = (double)biasD[oc];
+    }
     for (int ic = 0; ic < inC; ic++)
         for (int il = 0; il < L; il++)
             for (int oc = 0; oc < outC; oc++)
                 for (int kl = 0; kl < kL; kl++) {
                     int ol = il*stride - pad + kl;
                     if (ol >= 0 && ol < oL)
-                        out[oc*oL+ol] += inp->data.data<double>()[ic*L+il] * ker->data.data<double>()[ic*outC*kL+oc*kL+kl];
+                        out[oc*oL+ol] += (double)inpD[ic*L+il] * (double)kerD[ic*outC*kL+oc*kL+kl];
                 }
-    auto result = mx::array(out, {outC, oL}, mx::float64);
+    auto result = mx_from_doubles(out, {outC, oL});
     free(out);
     return (TensorHandle)(new Tensor(result, inp->requires_grad || ker->requires_grad));
 }
@@ -964,8 +995,14 @@ TensorHandle tensor_conv_transpose2d(TensorHandle hinput, TensorHandle hkernel,
     int oH = (H-1)*strideH - 2*padH + kH;
     int oW = (W-1)*strideW - 2*padW + kW;
     mx::eval(inp->data); mx::eval(ker->data);
+    const float* inpD = inp->data.data<float>();
+    const float* kerD = ker->data.data<float>();
     double* out = (double*)calloc(outC*oH*oW, sizeof(double));
-    if (bias) { mx::eval(bias->data); for (int oc = 0; oc < outC; oc++) for (int oh = 0; oh < oH; oh++) for (int ow = 0; ow < oW; ow++) out[oc*oH*oW+oh*oW+ow] = bias->data.data<double>()[oc]; }
+    if (bias) {
+        mx::eval(bias->data);
+        const float* biasD = bias->data.data<float>();
+        for (int oc = 0; oc < outC; oc++) for (int oh = 0; oh < oH; oh++) for (int ow = 0; ow < oW; ow++) out[oc*oH*oW+oh*oW+ow] = (double)biasD[oc];
+    }
     for (int ic = 0; ic < inC; ic++)
         for (int ih = 0; ih < H; ih++)
             for (int iw = 0; iw < W; iw++)
@@ -975,10 +1012,10 @@ TensorHandle tensor_conv_transpose2d(TensorHandle hinput, TensorHandle hkernel,
                             int oh = ih*strideH - padH + kh;
                             int ow = iw*strideW - padW + kw;
                             if (oh >= 0 && oh < oH && ow >= 0 && ow < oW)
-                                out[oc*oH*oW+oh*oW+ow] += inp->data.data<double>()[ic*H*W+ih*W+iw]
-                                    * ker->data.data<double>()[ic*outC*kH*kW+oc*kH*kW+kh*kW+kw];
+                                out[oc*oH*oW+oh*oW+ow] += (double)inpD[ic*H*W+ih*W+iw]
+                                    * (double)kerD[ic*outC*kH*kW+oc*kH*kW+kh*kW+kw];
                         }
-    auto result = mx::array(out, {outC, oH, oW}, mx::float64);
+    auto result = mx_from_doubles(out, {outC, oH, oW});
     free(out);
     return (TensorHandle)(new Tensor(result, inp->requires_grad || ker->requires_grad));
 }
@@ -1023,12 +1060,12 @@ TensorHandle tensor_avg_pool1d(TensorHandle hinput, int kL, int stride) {
     int C = (int)inp->data.shape(0), L = (int)inp->data.shape(1);
     int oL = (L - kL) / stride + 1;
     // Sum via strided slices, then divide by kL
-    mx::array result = mx::zeros({C, oL}, mx::float64);
+    mx::array result = mx::zeros({C, oL}, mx::float32);
     for (int kl = 0; kl < kL; kl++) {
         auto sliced = mx::slice(inp->data, {0, kl}, {C, kl + oL * stride}, {1, stride});
         result = mx::add(result, sliced);
     }
-    result = mx::divide(result, mx::array((double)kL, mx::float64));
+    result = mx::divide(result, mx::array((double)kL, mx::float32));
     auto r = new Tensor(result, inp->requires_grad);
     if (inp->requires_grad) tape_append(OP_AVG_POOL1D, r, inp, nullptr, (double)kL + stride * 0.001);
     return (TensorHandle)r;
@@ -1039,14 +1076,14 @@ TensorHandle tensor_avg_pool2d(TensorHandle hinput, int kH, int kW, int strideH,
     int C = (int)inp->data.shape(0), H = (int)inp->data.shape(1), W = (int)inp->data.shape(2);
     int oH = (H - kH) / strideH + 1;
     int oW = (W - kW) / strideW + 1;
-    mx::array result = mx::zeros({C, oH, oW}, mx::float64);
+    mx::array result = mx::zeros({C, oH, oW}, mx::float32);
     for (int kh = 0; kh < kH; kh++)
         for (int kw = 0; kw < kW; kw++) {
             auto sliced = mx::slice(inp->data,
                 {0, kh, kw}, {C, kh + oH * strideH, kw + oW * strideW}, {1, strideH, strideW});
             result = mx::add(result, sliced);
         }
-    result = mx::divide(result, mx::array((double)(kH * kW), mx::float64));
+    result = mx::divide(result, mx::array((double)(kH * kW), mx::float32));
     auto r = new Tensor(result, inp->requires_grad);
     if (inp->requires_grad) tape_append(OP_AVG_POOL2D, r, inp, nullptr, 0);
     return (TensorHandle)r;
@@ -1085,7 +1122,7 @@ TensorHandle tensor_max_pool1d(TensorHandle hinput, int kL, int stride) {
     int C = (int)inp->data.shape(0), L = (int)inp->data.shape(1);
     int oL = (L - kL) / stride + 1;
 
-    mx::array result = mx::full({C, oL}, -1e30, mx::float64);
+    mx::array result = mx::full({C, oL}, -1e30, mx::float32);
     for (int kl = 0; kl < kL; kl++) {
         auto sliced = mx::slice(inp->data, {0, kl}, {C, kl + oL * stride}, {1, stride});
         result = mx::maximum(result, sliced);
@@ -1154,7 +1191,7 @@ TensorHandle tensor_max_pool2d(TensorHandle hinput, int kH, int kW,
     int oW = (W - kW) / strideW + 1;
 
     // Max pool via strided slicing: for each (kh,kw) offset, slice with stride and take max
-    mx::array result = mx::full({C, oH, oW}, -1e30, mx::float64);
+    mx::array result = mx::full({C, oH, oW}, -1e30, mx::float32);
     for (int kh = 0; kh < kH; kh++) {
         for (int kw = 0; kw < kW; kw++) {
             auto sliced = mx::slice(inp->data,
@@ -1431,7 +1468,7 @@ TensorHandle tensor_softmax_2d(TensorHandle h) {
 
 TensorHandle tensor_masked_fill(TensorHandle h, TensorHandle hmask, double value) {
     auto t = (Tensor*)h; auto mask = (Tensor*)hmask;
-    auto val_arr = mx::full(t->data.shape(), value, mx::float64);
+    auto val_arr = mx::full(t->data.shape(), value, mx::float32);
     auto r = new Tensor(mx::where(mask->data, val_arr, t->data), t->requires_grad);
     if (t->requires_grad) tape_append(OP_MASKED_FILL, r, t, mask, 0);
     return (TensorHandle)r;
@@ -1490,7 +1527,7 @@ TensorHandle tensor_one_hot(int* tokens, int n_tokens, int vocab_size) {
             data[i * vocab_size + tok] = 1.0;
     }
     mx::Shape sh = {total};
-    auto t = new Tensor(mx::array(data.data(), sh, mx::float64), false);
+    auto t = new Tensor(mx_from_doubles(data.data(), sh), false);
     free(tokens);
     return (TensorHandle)t;
 }
@@ -1570,18 +1607,18 @@ void tensor_backward(TensorHandle h) {
             case OP_SIGMOID: pool[out] = mx::sigmoid(a); break;
             case OP_TANH: pool[out] = mx::tanh(a); break;
             case OP_GELU: {
-                auto c = mx::array(0.7978845608028654, mx::float64);
-                auto inner = mx::multiply(c, mx::add(a, mx::multiply(mx::array(0.044715, mx::float64), mx::power(a, mx::array(3, mx::float64)))));
-                pool[out] = mx::multiply(mx::multiply(mx::array(0.5, mx::float64), a), mx::add(mx::array(1.0, mx::float64), mx::tanh(inner)));
+                auto c = mx::array(0.7978845608028654, mx::float32);
+                auto inner = mx::multiply(c, mx::add(a, mx::multiply(mx::array(0.044715, mx::float32), mx::power(a, mx::array(3, mx::float32)))));
+                pool[out] = mx::multiply(mx::multiply(mx::array(0.5, mx::float32), a), mx::add(mx::array(1.0, mx::float32), mx::tanh(inner)));
                 break;
             }
             case OP_LEAKY_RELU: {
-                auto alpha = mx::array(e.scalar_arg, mx::float64);
+                auto alpha = mx::array(e.scalar_arg, mx::float32);
                 pool[out] = mx::maximum(mx::multiply(alpha, a), a);
                 break;
             }
             case OP_SILU: pool[out] = mx::multiply(a, mx::sigmoid(a)); break;
-            case OP_SOFTPLUS: pool[out] = mx::log(mx::add(mx::array(1.0, mx::float64), mx::exp(a))); break;
+            case OP_SOFTPLUS: pool[out] = mx::log(mx::add(mx::array(1.0, mx::float32), mx::exp(a))); break;
             case OP_ADD_SCALAR: pool[out] = mx::add(a, mx::array(e.scalar_arg)); break;
             case OP_MUL_SCALAR: pool[out] = mx::multiply(a, mx::array(e.scalar_arg)); break;
             case OP_CLAMP_MIN: pool[out] = mx::maximum(a, mx::array(e.scalar_arg)); break;
@@ -1612,7 +1649,7 @@ void tensor_backward(TensorHandle h) {
                 break;
             }
             case OP_MASKED_FILL: {
-                pool[out] = mx::where(b, mx::array(-1e9, mx::float64), a);
+                pool[out] = mx::where(b, mx::array(-1e9, mx::float32), a);
                 break;
             }
             case OP_RESHAPE: pool[out] = mx::reshape(a, e.result->data.shape()); break;
@@ -1657,7 +1694,7 @@ void tensor_backward(TensorHandle h) {
                 // Inline circular convolution forward
                 int n = (int)a.size(), k = (int)b.size();
                 int half_k = k / 2;
-                auto result = mx::zeros({n}, mx::float64);
+                auto result = mx::zeros({n}, mx::float32);
                 for (int j = 0; j < k; j++) {
                     auto shifted = mx::roll(a, half_k - j);
                     auto kern_j = mx::take(b, mx::array(j));
@@ -1701,7 +1738,7 @@ void tensor_backward(TensorHandle h) {
                 int oo = (int)e.scalar_arg;
                 auto z = mx::sigmoid(mx::slice(a, {0}, {oo}));
                 auto n = mx::tanh(mx::slice(a, {2*oo}, {3*oo}));
-                auto one = mx::array(1.0, mx::float64);
+                auto one = mx::array(1.0, mx::float32);
                 pool[out] = mx::add(mx::multiply(mx::subtract(one, z), n), mx::multiply(z, b));
                 break;
             }
@@ -1717,7 +1754,7 @@ void tensor_backward(TensorHandle h) {
                 auto x = mx::reshape(a, {bm->C, bm->spatial});
                 auto mean = mx::mean(x, std::vector<int>{1}, true);
                 auto var = mx::var(x, std::vector<int>{1}, true);
-                auto rstd = mx::rsqrt(mx::add(var, mx::array(bm->eps, mx::float64)));
+                auto rstd = mx::rsqrt(mx::add(var, mx::array(bm->eps, mx::float32)));
                 auto x_hat = mx::multiply(mx::subtract(x, mean), rstd);
                 auto g = mx::reshape(pool[bm->gamma_pool_idx], {bm->C, 1});
                 auto bt = mx::reshape(pool[bm->beta_pool_idx], {bm->C, 1});
@@ -1735,12 +1772,12 @@ void tensor_backward(TensorHandle h) {
                 int stride = (int)((e.scalar_arg - kL) * 1000 + 0.5);
                 if (stride == 0) stride = kL;
                 int oL = ((int)a.shape(1) - kL) / stride + 1;
-                mx::array res = mx::zeros({(int)a.shape(0), oL}, mx::float64);
+                mx::array res = mx::zeros({(int)a.shape(0), oL}, mx::float32);
                 for (int kl = 0; kl < kL; kl++) {
                     auto sliced = mx::slice(a, {0, kl}, {(int)a.shape(0), kl + oL*stride}, {1, stride});
                     res = mx::add(res, sliced);
                 }
-                pool[out] = mx::divide(res, mx::array((double)kL, mx::float64));
+                pool[out] = mx::divide(res, mx::array((double)kL, mx::float32));
                 break;
             }
             case OP_AVG_POOL2D: {
@@ -1749,13 +1786,13 @@ void tensor_backward(TensorHandle h) {
                 // Default: k=2, stride=2 (most common usage)
                 int kH = 2, kW = 2, sH = 2, sW = 2;
                 int oH = (HH - kH)/sH + 1, oW = (WW - kW)/sW + 1;
-                mx::array res = mx::zeros({CC, oH, oW}, mx::float64);
+                mx::array res = mx::zeros({CC, oH, oW}, mx::float32);
                 for (int kh = 0; kh < kH; kh++)
                     for (int kw = 0; kw < kW; kw++) {
                         auto sl = mx::slice(a, {0,kh,kw}, {CC,kh+oH*sH,kw+oW*sW}, {1,sH,sW});
                         res = mx::add(res, sl);
                     }
-                pool[out] = mx::divide(res, mx::array((double)(kH*kW), mx::float64));
+                pool[out] = mx::divide(res, mx::array((double)(kH*kW), mx::float32));
                 break;
             }
             case OP_CONV1D: {
@@ -1774,7 +1811,7 @@ void tensor_backward(TensorHandle h) {
             }
             case OP_MAX_POOL1D: {
                 auto* pm = (MaxPool1DReplayMeta*)e.meta;
-                mx::array res = mx::full({pm->C, pm->oL}, -1e30, mx::float64);
+                mx::array res = mx::full({pm->C, pm->oL}, -1e30, mx::float32);
                 for (int kl = 0; kl < pm->kL; kl++) {
                     auto sliced = mx::slice(a, {0, kl}, {pm->C, kl + pm->oL * pm->stride}, {1, pm->stride});
                     res = mx::maximum(res, sliced);
@@ -1800,7 +1837,7 @@ void tensor_backward(TensorHandle h) {
             }
             case OP_MAX_POOL2D: {
                 auto* pm = (MaxPool2DReplayMeta*)e.meta;
-                mx::array res = mx::full({pm->C, pm->oH, pm->oW}, -1e30, mx::float64);
+                mx::array res = mx::full({pm->C, pm->oH, pm->oW}, -1e30, mx::float32);
                 for (int kh = 0; kh < pm->kH; kh++) {
                     for (int kw = 0; kw < pm->kW; kw++) {
                         auto sliced = mx::slice(a,
@@ -1825,7 +1862,7 @@ void tensor_backward(TensorHandle h) {
             case OP_SCATTER_ADD: {
                 int out_size = (int)e.scalar_arg;
                 auto idx_int = mx::astype(b, mx::int32);
-                auto base = mx::zeros({out_size}, mx::float64);
+                auto base = mx::zeros({out_size}, mx::float32);
                 auto updates_2d = mx::reshape(a, {(int)a.size(), 1});
                 pool[out] = mx::scatter_add(base, {idx_int}, updates_2d, std::vector<int>{0});
                 break;
@@ -1864,7 +1901,7 @@ TensorHandle tensor_grad(TensorHandle h) {
 void tensor_zero_grad(TensorHandle h) {
     auto t = (Tensor*)h;
     if (t->has_grad) {
-        t->grad = mx::zeros(t->data.shape(), mx::float64);
+        t->grad = mx::zeros(t->data.shape(), mx::float32);
     }
 }
 
@@ -1987,7 +2024,7 @@ double param_grad_item(int idx) {
     mx::eval(t->grad);
     auto flat = mx::flatten(t->grad, mx::StreamOrDevice{});
     mx::eval(flat);
-    return flat.data<double>()[0];
+    return (double)flat.data<float>()[0];
 }
 
 double param_grad_item_at(int param_idx, int elem_idx) {
@@ -1997,12 +2034,12 @@ double param_grad_item_at(int param_idx, int elem_idx) {
        with broadcast strides). Force a contiguous row-major copy. */
     auto contig = mx::contiguous(t->grad);
     mx::eval(contig);
-    return contig.data<double>()[elem_idx];
+    return (double)contig.data<float>()[elem_idx];
 }
 
 double param_grad_item_and_zero(int idx) {
     double g = param_grad_item(idx);
-    param_registry[idx].tensor->grad = mx::zeros(param_registry[idx].tensor->data.shape(), mx::float64);
+    param_registry[idx].tensor->grad = mx::zeros(param_registry[idx].tensor->data.shape(), mx::float32);
     return g;
 }
 
@@ -2011,7 +2048,7 @@ TensorHandle param_tensor(int idx) { return (TensorHandle)param_registry[idx].te
 void param_zero_all_grads(void) {
     for (auto& p : param_registry) {
         if (p.tensor->has_grad) {
-            p.tensor->grad = mx::zeros(p.tensor->data.shape(), mx::float64);
+            p.tensor->grad = mx::zeros(p.tensor->data.shape(), mx::float32);
         }
     }
 }
@@ -2030,7 +2067,7 @@ void param_load_data(int idx, const double* data, int numel) {
                 param_registry[idx].name.c_str(), existing, numel);
         return;
     }
-    t->data = mx::array(data, shape, mx::float64);
+    t->data = mx_from_doubles(data, shape);
 }
 
 TensorHandle tensor_subtract_scalar_inplace(TensorHandle h, double val) {
@@ -2179,13 +2216,13 @@ double tensor_item_2d(TensorHandle mat, int row, int col) {
     auto flat = mx::flatten(t->data, mx::StreamOrDevice{});
     mx::eval(flat);
     int cols = t->data.shape(1);
-    return flat.data<double>()[row * cols + col];
+    return (double)flat.data<float>()[row * cols + col];
 }
 
 double tensor_item_1d(TensorHandle vec, int idx) {
     auto t = (Tensor*)vec;
     mx::eval(t->data);
-    return t->data.data<double>()[idx];
+    return (double)t->data.data<float>()[idx];
 }
 
 /* ================================================================
@@ -2199,7 +2236,7 @@ TensorHandle tensor_causal_mask(int n) {
         for (int j = i + 1; j < n; j++)
             data[i * n + j] = 1.0;
     mx::Shape sh = {n, n};
-    auto t = new Tensor(mx::array(data.data(), sh, mx::float64), false);
+    auto t = new Tensor(mx_from_doubles(data.data(), sh), false);
     return (TensorHandle)t;
 }
 
@@ -2293,8 +2330,8 @@ void optimizer_step(OptimizerHandle h) {
         opt->m_bufs.clear();
         opt->v_bufs.clear();
         for (auto& p : param_registry) {
-            opt->m_bufs.push_back(mx::zeros(p.tensor->data.shape(), mx::float64));
-            opt->v_bufs.push_back(mx::zeros(p.tensor->data.shape(), mx::float64));
+            opt->m_bufs.push_back(mx::zeros(p.tensor->data.shape(), mx::float32));
+            opt->v_bufs.push_back(mx::zeros(p.tensor->data.shape(), mx::float32));
         }
     }
 
@@ -2396,7 +2433,7 @@ static double clip_grad_norm_filtered(const std::string& prefix, double max_norm
         }
     }
     mx::eval(total);
-    double norm = std::sqrt(total.item<double>());
+    double norm = std::sqrt((double)total.item<float>());
     if (norm > max_norm) {
         double scale = max_norm / norm;
         for (size_t i = 0; i < param_registry.size(); i++) {
@@ -2463,7 +2500,7 @@ void optimizer_get_m(OptimizerHandle h, int idx, double* out) {
     }
     mx::eval(opt->m_bufs[idx]);
     auto& arr = opt->m_bufs[idx];
-    memcpy(out, arr.data<double>(), arr.size() * sizeof(double));
+    mx_to_doubles(arr, out);
 }
 
 void optimizer_get_v(OptimizerHandle h, int idx, double* out) {
@@ -2475,7 +2512,7 @@ void optimizer_get_v(OptimizerHandle h, int idx, double* out) {
     }
     mx::eval(opt->v_bufs[idx]);
     auto& arr = opt->v_bufs[idx];
-    memcpy(out, arr.data<double>(), arr.size() * sizeof(double));
+    mx_to_doubles(arr, out);
 }
 
 void optimizer_set_m(OptimizerHandle h, int idx, const double* data) {
@@ -2486,12 +2523,12 @@ void optimizer_set_m(OptimizerHandle h, int idx, const double* data) {
         opt->m_bufs.clear();
         opt->v_bufs.clear();
         for (auto& p : param_registry) {
-            opt->m_bufs.push_back(mx::zeros(p.tensor->data.shape(), mx::float64));
-            opt->v_bufs.push_back(mx::zeros(p.tensor->data.shape(), mx::float64));
+            opt->m_bufs.push_back(mx::zeros(p.tensor->data.shape(), mx::float32));
+            opt->v_bufs.push_back(mx::zeros(p.tensor->data.shape(), mx::float32));
         }
     }
     auto shape = param_registry[idx].tensor->data.shape();
-    opt->m_bufs[idx] = mx::array(data, shape, mx::float64);
+    opt->m_bufs[idx] = mx_from_doubles(data, shape);
 }
 
 void optimizer_set_v(OptimizerHandle h, int idx, const double* data) {
@@ -2501,12 +2538,12 @@ void optimizer_set_v(OptimizerHandle h, int idx, const double* data) {
         opt->m_bufs.clear();
         opt->v_bufs.clear();
         for (auto& p : param_registry) {
-            opt->m_bufs.push_back(mx::zeros(p.tensor->data.shape(), mx::float64));
-            opt->v_bufs.push_back(mx::zeros(p.tensor->data.shape(), mx::float64));
+            opt->m_bufs.push_back(mx::zeros(p.tensor->data.shape(), mx::float32));
+            opt->v_bufs.push_back(mx::zeros(p.tensor->data.shape(), mx::float32));
         }
     }
     auto shape = param_registry[idx].tensor->data.shape();
-    opt->v_bufs[idx] = mx::array(data, shape, mx::float64);
+    opt->v_bufs[idx] = mx_from_doubles(data, shape);
 }
 
 void optimizer_get_meta(OptimizerHandle h, double* out9) {
