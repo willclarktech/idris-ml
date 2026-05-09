@@ -29,11 +29,10 @@ static int failures = 0;
 } while(0)
 
 #ifdef BACKEND_TORCH
-/* Inference-dtype create symbols (torch only, from backend_torch.cpp's
-   IDRISML_DEFINE_DTYPE_STREAMED macro). Not in backend.h — extern here. */
-extern TensorHandle tensor_create_1d_bf16_streamed(int n, double* d, int rg, int s);
-extern TensorHandle tensor_create_1d_f16_streamed (int n, double* d, int rg, int s);
-extern TensorHandle tensor_create_1d_i32_streamed (int n, double* d, int rg, int s);
+/* Inference-dtype create via the unified dtag-dispatch symbol (dtags from
+   the Idris RuntimeDType: F32=0, F64=1, BF16=2, F16=3, I8=4, I16=5, I32=6,
+   I64=7, U8=8, Bool=9). The per-dtype create symbols were retired in the
+   Phase 1 unification (commit 4b77f9a). */
 
 /* Save -> zero -> load round-trip for one inference dtype. `data` holds
    values that are exactly representable in the dtype, so the restored
@@ -80,15 +79,15 @@ static void run_inference_dtype_tests(void) {
 
     double* b1 = tensor_alloc_doubles(fn);
     for (int i = 0; i < fn; i++) b1[i] = fdata[i];
-    dtype_roundtrip("w_bf16", "BF16", tensor_create_1d_bf16_streamed(fn, b1, 0, 0), fdata, fn);
+    dtype_roundtrip("w_bf16", "BF16", tensor_create_1d_streamed(fn, b1, 0, 0, 2), fdata, fn);
 
     double* b2 = tensor_alloc_doubles(fn);
     for (int i = 0; i < fn; i++) b2[i] = fdata[i];
-    dtype_roundtrip("w_f16", "F16", tensor_create_1d_f16_streamed(fn, b2, 0, 0), fdata, fn);
+    dtype_roundtrip("w_f16", "F16", tensor_create_1d_streamed(fn, b2, 0, 0, 3), fdata, fn);
 
     double* b3 = tensor_alloc_doubles(in);
     for (int i = 0; i < in; i++) b3[i] = idata[i];
-    dtype_roundtrip("w_i32", "I32", tensor_create_1d_i32_streamed(in, b3, 0, 0), idata, in);
+    dtype_roundtrip("w_i32", "I32", tensor_create_1d_streamed(in, b3, 0, 0, 6), idata, in);
 }
 #endif /* BACKEND_TORCH */
 
