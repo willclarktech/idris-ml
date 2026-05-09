@@ -291,6 +291,13 @@ static void tape_reset() {
     // Free TensorPair structs
     for (auto* p : all_pairs) free(p);
     all_pairs.clear();
+    // Hand cached buffers back to the OS each epoch. Without this, mlx's
+    // cache holds onto buffers from the just-collected non-persistent
+    // tensors, and on GH Actions macOS-latest VMs the cache hits its
+    // (Metal-derived) limit fast enough to abort small allocations like
+    // `[malloc] Unable to allocate 4 bytes`. Locally on M-series the
+    // cache is fine; the call is cheap either way.
+    mx::clear_cache();
 }
 
 /* ================================================================
