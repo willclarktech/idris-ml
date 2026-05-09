@@ -6,14 +6,12 @@ import System
 import System.Clock
 import Compat.Random
 
-import Backprop
+import BackpropV2
 import DataPoint
-import Endofunctor
 import Floating
 import Generate
-import Layer
-import Math
-import Optimizer
+import Layer.CoreV2
+import Layer.NtmV2
 import Tensor
 import Util
 import Device
@@ -78,18 +76,18 @@ BatchSize = 16
 
 
 ----------------------------------------------------------------------
--- Profiled Epoch (native optimizer — single step timing)
+-- Profiled Epoch (V2 typed-surface, two-phase epoch runner)
 ----------------------------------------------------------------------
 
 profileEpoch :
   NativeOptimizer ->
   Vect BatchSize (TwoPhaseDataPoint InputW OutputW Double) ->
-  Network InputW [] OutputW (Variable CPU) ->
+  NetworkV2 InputW [] OutputW CPU ->
   Nat ->
-  IO (Network InputW [] OutputW (Variable CPU))
+  IO (NetworkV2 InputW [] OutputW CPU)
 profileEpoch opt dataPoints model epochNum = do
   t0 <- clockTime Monotonic
-  let (model', lossVal) = epochTwoPhaseTensor opt dataPoints model
+  let (model', lossVal) = epochTwoPhaseTVar opt dataPoints tbceLoss model
   t1 <- clockTime Monotonic
 
   let line = padL 5 (show epochNum)
@@ -107,9 +105,9 @@ profileEpoch opt dataPoints model epochNum = do
 profileLoop :
   NativeOptimizer ->
   Vect BatchSize (TwoPhaseDataPoint InputW OutputW Double) ->
-  Network InputW [] OutputW (Variable CPU) ->
+  NetworkV2 InputW [] OutputW CPU ->
   Nat -> Nat ->
-  IO (Network InputW [] OutputW (Variable CPU))
+  IO (NetworkV2 InputW [] OutputW CPU)
 profileLoop opt dataPoints model cur count =
   if cur >= count
     then pure model
@@ -131,9 +129,9 @@ main = do
   putStrLn $ "Batch=" ++ show BatchSize ++ " seqLen=1-20"
   putStrLn ""
 
-  -- Build NTM model (same as NtmCopy.idr: no output activation, BCE loss)
-  ntm <- ntmLayer {inputSize = InputW, outputSize = OutputW, n = N, m = M, h = H}
-  let model = autoName $ OutputLayer ntm
+  ntmAny <- ntmLayerV2Any {n = N, m = M, h = H, i = InputW, o = OutputW} "ntm"
+  let model : NetworkV2 InputW [] OutputW CPU
+      model = OutputLayerV2 ntmAny
 
   let opt = nativeRmsprop 0.0001 0.95 1.0e-8 10.0 0.9
 
@@ -160,13 +158,13 @@ main = do
   putStrLn "\nDone."
 
   where
-    -- Warmup loop using epochTwoPhaseTensor (tensor-level fast path)
-    go : Nat -> Network InputW [] OutputW (Variable CPU) ->
-         IO (Network InputW [] OutputW (Variable CPU))
+    -- Warmup loop using epochTwoPhaseTVar (V2 typed-surface fast path)
+    go : Nat -> NetworkV2 InputW [] OutputW CPU ->
+         IO (NetworkV2 InputW [] OutputW CPU)
     go 5 m = pure m
     go k m = do
       dps <- copyTaskBinaryBatchVect {w = W} BatchSize 1 20
       let opt = nativeRmsprop 0.0001 0.95 1.0e-8 10.0 0.9
-          (m', loss) = epochTwoPhaseTensor opt dps m
+          (m', loss) = epochTwoPhaseTVar opt dps tbceLoss m
       putStrLn $ "  warmup " ++ show (k + 1) ++ ": loss=" ++ show loss
       go (k + 1) m'
