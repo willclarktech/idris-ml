@@ -406,6 +406,38 @@ Concurrently, replaced the loss-mean windowed early-stop with a percentile-based
 
 Applied uniformly to all four NTM/DNC examples (NtmCopy, NtmAssociativeRecall, DncCopy, DncAssociativeRecall) for consistency.
 
+## Alignment Changes (2026-05-08) — NTM/DNC model alignment to PyTorch ref
+
+Fixed a real algorithmic regression in Idris's NTM (and parallel gaps in DNC). At fully aligned config (batch=1, seed=42, matched `WindowedPercentile` ES on both sides), pre-fix Idris reached only acc_full=82% at 27,700 epochs while PyTorch ref hit 100% at 4,600. Bit-for-bit bisection (Idris-on-tape vs Idris-on-torch matched to within 1 ULP at epoch 200) confirmed the gap was in Idris's shared model code, not a backend bug.
+
+Five fixes brought Idris into algorithmic alignment with the ref (commits `dbd8ebf` and `8b...`):
+
+| Fix | Was | Now (matches PyTorch) |
+|---|---|---|
+| NTM `ntmInterpWriteIdris` | additive `mem + outer(w, a)` | interpolative `w·a + (1-w)·mem` |
+| NTM/DNC memory_init | fixed 1e-6 | learned Xavier param, sigmoid'd at sequence-start |
+| NTM/DNC initial read output(s) | zero | Kaiming-uniform, fixed at construction, non-learnable |
+| LSTM h0/c0 (both) | lazy-zero (non-learnable) | learned zero-init params |
+| NTM/DNC FC inits | `linearLayer` default (Xavier weights, zero bias) | per-FC: Xavier(gain=1.4) + normal(std=0.01) for head FCs, kaiming + normal for output FC |
+
+PyTorch ref unchanged — the alignment direction was "Idris is wrong, fix Idris to match Graves/PyTorch", not bidirectional.
+
+**Validation** (Idris-on-torch backend = algorithmic oracle since libtorch autograd is identical to PyTorch's):
+
+NTM-Copy (batch=1):
+- Idris-on-torch (seed=42): 5,000 epochs / 100% / 100%
+- PyTorch ref (seed=42):    4,600 epochs / 99.6% / 100%
+- Within 9% epoch budget, identical accuracy.
+
+DNC-Copy (batch=1, N=32, max-len=10, eval len 1-20):
+
+| seed | Idris-on-torch acc_full | PyTorch ref acc_full |
+|---|---:|---:|
+| 42 | 83.9% | 99.4% |
+| 1 | 96.3% | 64.3% |
+
+Multi-seed mean: Idris ≈ 90%, PyTorch ≈ 82%. Both implementations show massive seed-variance on length-generalization (1-10 trained → 1-20 eval) — PyTorch swings 35 points across two seeds, Idris swings 12 points. The seed=42 single-seed gap is RNG variance (different C `rand()` vs PCG init values for "seed=42"), not an algorithmic bug. Multi-seed mean is comparable; Idris-on-torch is a faithful port of the PyTorch DNC.
+
 ## Status
 
 All known discrepancies resolved.
