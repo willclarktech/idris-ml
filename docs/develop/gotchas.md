@@ -408,7 +408,17 @@ MLX's Metal GPU computes `exp`, `sigmoid`, `tanh`, etc. in float32 even when the
 
 ### NTM convergence comparison
 
-MLX NTM converges to ~91% short / 87% full bit accuracy at epoch 15K. Tape backend converges to 100% / 98% at epoch 16K. The gap comes from the decomposed vs fused backward accumulating small numerical differences across ~50 primitive ops per timestep. MLX uses array-wide operations where a single imprecise element affects the whole gradient tensor, while tape processes elements independently.
+MLX NTM (post-`tensor_linear` bias-on-tape fix and 2026-05-08 NTM model alignment) converges on `ntm-copy` to acc_short=0.994, acc_full=0.999 at epoch 8200 with the standard ES gate (seed=42, batch=1). Comparable to PyTorch ref's 100%/100% at ~4600 epochs. The aligned model is highly seed-sensitive at moderate budgets — see "NTM-Copy convergence is highly seed-sensitive at 5K epochs" in the NTM-Specific section.
+
+### Replay-based VJP: every dependency must be on the tape
+
+The MLX backend computes gradients by replaying the forward tape inside a closure passed to `mx::vjp`. The replay reconstructs each tensor's value from its tape op's `arg1`/`arg2`/meta — it does NOT use the result tensor's `data` field. Any forward op that mutates `data` after a sub-step (e.g. `result = mx::add(result, bias->data)` after the matmul) but doesn't record the dependency on the tape will produce a replay value that differs from the actual forward, and the missing input gets zero gradient (the VJP can't see a dependency that isn't in the closure).
+
+**The bug this caught**: `tensor_linear(W, x, bias)` was recording only `OP_MV(W, x)` but adding the bias to `result.data` directly. When `tlinear` chained (one `tlinear`'s output passed as the next `tlinear`'s bias arg, e.g. `tlinear rwT h (tlinear iwT input bT)` in the LSTM combined-gates expression), the replay computed `pool[outer] = rw @ h` only — the entire inner branch (`iw`, `input`, `b`) had no path to the loss in the VJP. Gradients for every parameter on the inner branch (LSTM `iw`/`rw`/`b`, every NTM FC weight/bias in chained-FC settings) collapsed to exactly zero, and mlx training stalled at the random-baseline loss for the aligned NTM-Copy model.
+
+**Fix**: decompose `tensor_linear` into `tensor_mv` + `tensor_add` when a bias is provided, so each dependency lands on the tape. Two tape entries instead of one is the small per-call cost; correctness requires every input read by the forward to be reachable from the tape.
+
+**Diagnosing this class of bug**: the `DEBUG_PARAM_GRADS` env-var hook in `optimizer_step` (mirrors the one in `backend_tape.c`) dumps per-param grad L2 norm at the first optimizer step. Any `requires_grad=1` param with `grad_l2=0` is the smoking gun — that param is in the registry but has no path to the loss in the replay graph.
 
 ## Torch Backend (backend_torch.cpp)
 
