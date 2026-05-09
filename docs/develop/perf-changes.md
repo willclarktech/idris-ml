@@ -381,6 +381,43 @@ accuracy on tape.
 
 ----
 
+### 2026-05-09 — Tape `binop_elementwise` numpy-style 2D broadcast
+
+**Plan job**: Job 2a (phase A)
+
+**Motivation**: `binop_elementwise` previously only handled
+same-shape and scalar broadcast. Mixed shapes like `(n,1)×(n,m)`,
+`(1,m)×(n,m)`, `(m,)×(n,m)` (numpy-style row/column broadcast) fell
+into a multi-dim path that flat-indexed past the smaller operand's
+buffer — undefined behaviour for any user code or layer trying to
+use these patterns. The NTM `ntmInterpWriteIdris` workaround code
+explicitly cites the limitation: *"row-wise scalar multiplication
+(n,)·(n,m) is not supported by the tape backend's elementwise
+broadcast (which only handles numel=1 broadcast), so we materialize
+`w` row-wise via `outer(w, ones_m)`"*.
+
+**Change**: Added `compute_bcast_shape` and `compute_bcast_strides`
+helpers in `backend_tape.c`. Refactored `binop_elementwise` forward
+into three branches: same-shape vDSP fast path (unchanged), scalar
+broadcast (cleaned up), and a new general-broadcast walk that
+right-aligns ranks numpy-style and uses per-operand strides (0 on
+broadcast dims). Refactored `OP_ADD/SUB/MUL/DIV/POW` backward to
+detect broadcast via `shapes_equal(a, r)` / `shapes_equal(b, r)`
+and reduce gradients along broadcast dims via the same stride walk.
+
+**Impact**: latent OOB-read bug for users fixed. No example
+currently exercises the new path (NTM still uses the `outer(w,
+ones)` workaround — see "Future opportunities" below for why).
+Verified bit-identical forward + backward against the OLD chain on
+NTM-realistic dimensions (n=128, m=20) via a standalone C unit
+test (`/tmp/test_ntm_chain.c`, not committed). All same-shape and
+scalar-broadcast operations behave bit-exactly as before.
+
+**Outcome**: landed. The capability is now available; whether to
+remove the NTM workaround is deferred (see "Future opportunities").
+
+----
+
 ## Future opportunities (not active)
 
 Ideas surfaced during the Job 1 phase A push that we don't plan to
@@ -426,6 +463,26 @@ all examples still train.
 Pairs with the existing TODO "Bound memory usage" — if a slab is in
 place, it's natural to extend it with a memory limit.
 
+### NTM `ntmInterpWriteIdris` workaround removal
+
+After the broadcast change above, the NTM helper could simplify
+from `outer(w, ones_m)` materialisation to a `reshape(w, n, 1)` view
++ direct `(n,1)*(n,m)` broadcast mul. Tried; verified
+bit-identical single-timestep forward + backward gradients to the
+OLD chain on NTM-realistic dimensions. Reverted because the change
+shifted seed=99 (the example default) from convergent to
+non-convergent — `acc_full` drops from 0.997 (~8400 ep) to 0.716
+(10K-ep cap). Seed=42 actually converges *faster* with the
+broadcast (4400 vs ~9600 ep). This is the documented NTM seed
+sensitivity (gotchas.md: ~1/4 of seeds reach 99%+ at 5K-ep
+budgets), being tipped by ULP-level tape-order differences.
+
+If we revisit, the path is: change the example's default seed
+(paired with `torch_ref/scripts/ntm_copy.py`) to one where
+broadcast converges robustly, or accept the seed=99 regression as
+an artifact of the seed-sensitive model. Estimated savings: 1
+prim + 1 (n*m)-element allocation per NTM timestep — modest.
+
 ### Other ideas surfaced and discarded
 
 - **NTM `onesM` precompute** — tried, reverted twice (Idris CSE makes
@@ -439,3 +496,18 @@ place, it's natural to extend it with a memory limit.
   matches `nn.RNNCell` semantics post-alignment. Could revisit if/when
   larger sequence-length workloads land that would amortize the
   effort better.
+- **DNC controller stacked-FC** (Job 2a brainstorm) — replacing the
+  11 per-gate `prim__linear` calls with one stacked `(W,b)` linear +
+  11 narrows nets one EXTRA prim per timestep (11 → 12). The C-side
+  cache locality of one big GEMV vs eleven small ones is real but
+  small relative to the ~9–19 µs Idris-glue floor. Skip.
+- **Transformer transpose caching in single-seq path** (Job 2a
+  brainstorm) — `runHeadAttn` calls `prim__transpose2d` on the q/k/v/op
+  weights inside the head loop, but each iteration's q/k/v/op is the
+  *next* head's weight — the transposes are not redundant. Audit
+  conclusion: not a real opportunity.
+- **DNC `onesScalar` precompute / generic scalar-constant pool** (Job
+  2a brainstorm) — same Idris-CSE story as `onesM`. The scalar 1.0
+  constructor is folded by the compiler.
+- **`buildMatrixRows` 2D scalar round-trip** — listed in early plans;
+  already removed from the codebase. No-op.

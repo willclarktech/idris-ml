@@ -619,44 +619,151 @@ TensorHandle name(TensorHandle ha) { \
     return r; \
 }
 
-/* Element-wise binary ops: handle both scalar and multi-dim */
+/* ----------------------------------------------------------------
+   Numpy-style broadcast helpers for elementwise binary ops.
+   Used by binop_elementwise forward and OP_ADD/SUB/MUL/DIV/POW
+   backward grad-reduction.
+   ---------------------------------------------------------------- */
+
+#define MAX_BCAST_RANK 8
+
+/* True if `a`'s shape exactly matches `r`'s shape (no broadcast). */
+static int shapes_equal(Tensor* a, Tensor* r) {
+    if (a->numel != r->numel || a->rank != r->rank) return 0;
+    for (int k = 0; k < a->rank; k++) {
+        if (a->shape[k] != r->shape[k]) return 0;
+    }
+    return 1;
+}
+
+/* Compute broadcast output shape from a and b (right-aligned, numpy rules).
+   Returns 1 on success, 0 on incompatible shapes. */
+static int compute_bcast_shape(Tensor* a, Tensor* b,
+                                int* r_shape, int* r_rank, int* r_numel) {
+    int rank = a->rank > b->rank ? a->rank : b->rank;
+    if (rank > MAX_BCAST_RANK) return 0;
+    int numel = 1;
+    for (int k = rank - 1; k >= 0; k--) {
+        int ai = k - (rank - a->rank);
+        int bi = k - (rank - b->rank);
+        int sa = (ai >= 0) ? a->shape[ai] : 1;
+        int sb = (bi >= 0) ? b->shape[bi] : 1;
+        if (sa != sb && sa != 1 && sb != 1) return 0;
+        int so = sa > sb ? sa : sb;
+        r_shape[k] = so;
+        numel *= so;
+    }
+    *r_rank = rank;
+    *r_numel = numel;
+    return 1;
+}
+
+/* Compute right-aligned broadcast strides for `a` w.r.t. output shape r_shape.
+   out_strides[k] is the increment to a's flat index when output dim k advances;
+   0 means broadcast on that dim. r_rank may exceed a->rank (rank-padding). */
+static void compute_bcast_strides(Tensor* a, int r_rank, int* r_shape,
+                                   int* out_strides) {
+    int a_rank = a->rank;
+    int natural[MAX_BCAST_RANK];
+    int s = 1;
+    for (int k = a_rank - 1; k >= 0; k--) { natural[k] = s; s *= a->shape[k]; }
+    int offset = r_rank - a_rank;
+    for (int j = 0; j < r_rank; j++) {
+        int ai = j - offset;
+        if (ai < 0) {
+            out_strides[j] = 0;  /* phantom dim from rank-padding */
+        } else {
+            int sa = a->shape[ai];
+            int sr = r_shape[j];
+            out_strides[j] = (sa == 1 && sr > 1) ? 0 : natural[ai];
+        }
+    }
+}
+
+/* Element-wise binary ops: scalar, same-shape (vDSP fast path), and
+   general numpy-style broadcast (e.g. (n,1)*(n,m), (1,m)*(n,m), (m,)*(n,m)). */
 static TensorHandle binop_elementwise(TensorHandle ha, TensorHandle hb, int op_tag,
                                        double (*scalar_fn)(double, double)) {
     Tensor* a = (Tensor*)ha; Tensor* b = (Tensor*)hb;
     int rg = a->requires_grad || b->requires_grad;
+
+    /* Both scalar */
     if (a->numel == 1 && b->numel == 1) {
         Tensor* r = make_scalar(scalar_fn(a->data[0], b->data[0]), rg);
         if (rg) tape_append(op_tag, r, a, b, 0);
         return r;
     }
-    /* Multi-dim: element-wise with broadcasting */
-    int n = a->numel > b->numel ? a->numel : b->numel;
-    double* data = arena_alloc(n * sizeof(double));
-#ifdef __APPLE__
-    /* vDSP fast path: both operands same size (no broadcast) */
-    if (a->numel == b->numel && a->numel > 1) {
-        vDSP_Length vn = (vDSP_Length)n;
-        switch (op_tag) {
-            case OP_ADD: vDSP_vaddD(a->data, 1, b->data, 1, data, 1, vn); break;
-            case OP_SUB: vDSP_vsubD(b->data, 1, a->data, 1, data, 1, vn); break;
-            case OP_MUL: vDSP_vmulD(a->data, 1, b->data, 1, data, 1, vn); break;
-            case OP_DIV: vDSP_vdivD(b->data, 1, a->data, 1, data, 1, vn); break;
-            default:
-                for (int i = 0; i < n; i++) data[i] = scalar_fn(a->data[i], b->data[i]);
-                break;
+
+    /* Same shape — vDSP fast path */
+    if (a->numel == b->numel && a->rank == b->rank) {
+        int same = 1;
+        for (int k = 0; k < a->rank; k++) {
+            if (a->shape[k] != b->shape[k]) { same = 0; break; }
         }
-    } else
+        if (same) {
+            int n = a->numel;
+            double* data = arena_alloc(n * sizeof(double));
+#ifdef __APPLE__
+            vDSP_Length vn = (vDSP_Length)n;
+            switch (op_tag) {
+                case OP_ADD: vDSP_vaddD(a->data, 1, b->data, 1, data, 1, vn); break;
+                case OP_SUB: vDSP_vsubD(b->data, 1, a->data, 1, data, 1, vn); break;
+                case OP_MUL: vDSP_vmulD(a->data, 1, b->data, 1, data, 1, vn); break;
+                case OP_DIV: vDSP_vdivD(b->data, 1, a->data, 1, data, 1, vn); break;
+                default:
+                    for (int i = 0; i < n; i++) data[i] = scalar_fn(a->data[i], b->data[i]);
+                    break;
+            }
+#else
+            for (int i = 0; i < n; i++) data[i] = scalar_fn(a->data[i], b->data[i]);
 #endif
-    {
-        /* Scalar broadcast or non-Apple fallback */
-        for (int i = 0; i < n; i++) {
-            double av = a->data[a->numel == 1 ? 0 : i];
-            double bv = b->data[b->numel == 1 ? 0 : i];
-            data[i] = scalar_fn(av, bv);
+            Tensor* r = make_tensor_arena(data, n, a->shape, a->rank, rg);
+            if (rg) tape_append(op_tag, r, a, b, 0);
+            return r;
         }
     }
-    Tensor* big = a->numel >= b->numel ? a : b;
-    Tensor* r = make_tensor_arena(data, n, big->shape, big->rank, rg);
+
+    /* Scalar broadcast (one side is rank-0 / numel=1) */
+    if (a->numel == 1 || b->numel == 1) {
+        Tensor* big = (a->numel == 1) ? b : a;
+        double sv = (a->numel == 1) ? a->data[0] : b->data[0];
+        int n = big->numel;
+        double* data = arena_alloc(n * sizeof(double));
+        if (a->numel == 1) {
+            for (int i = 0; i < n; i++) data[i] = scalar_fn(sv, big->data[i]);
+        } else {
+            for (int i = 0; i < n; i++) data[i] = scalar_fn(big->data[i], sv);
+        }
+        Tensor* r = make_tensor_arena(data, n, big->shape, big->rank, rg);
+        if (rg) tape_append(op_tag, r, a, b, 0);
+        return r;
+    }
+
+    /* General broadcast */
+    int r_shape[MAX_BCAST_RANK], r_rank, r_numel;
+    if (!compute_bcast_shape(a, b, r_shape, &r_rank, &r_numel)) {
+        fprintf(stderr, "binop_elementwise: incompatible shapes\n");
+        abort();
+    }
+    int a_strides[MAX_BCAST_RANK], b_strides[MAX_BCAST_RANK];
+    compute_bcast_strides(a, r_rank, r_shape, a_strides);
+    compute_bcast_strides(b, r_rank, r_shape, b_strides);
+
+    double* data = arena_alloc(r_numel * sizeof(double));
+    int idx[MAX_BCAST_RANK] = {0};
+    for (int i = 0; i < r_numel; i++) {
+        int ai = 0, bi = 0;
+        for (int k = 0; k < r_rank; k++) {
+            ai += idx[k] * a_strides[k];
+            bi += idx[k] * b_strides[k];
+        }
+        data[i] = scalar_fn(a->data[ai], b->data[bi]);
+        for (int k = r_rank - 1; k >= 0; k--) {
+            if (++idx[k] < r_shape[k]) break;
+            idx[k] = 0;
+        }
+    }
+    Tensor* r = make_tensor_arena(data, r_numel, r_shape, r_rank, rg);
     if (rg) tape_append(op_tag, r, a, b, 0);
     return r;
 }
@@ -2490,72 +2597,165 @@ void tensor_backward(TensorHandle h) {
         switch (e->op) {
         case OP_CONST: break; /* leaf — grad already accumulated */
 
-        case OP_ADD:
-            if (a) { ensure_grad(a); ensure_grad(r);
-                for (int j = 0; j < a->numel; j++) a->grad[j] += r->grad[a->numel == 1 ? 0 : j];
-                /* broadcast: if a is scalar and r is multi-dim, sum the grads */
-                if (a->numel == 1 && r->numel > 1) { double s=0; for(int j=1;j<r->numel;j++) s+=r->grad[j]; a->grad[0]+=s; }
+        /* Elementwise-binop backward (OP_ADD/SUB/MUL/DIV/POW) — handle three
+           cases per side: same-shape (fast loop), scalar (sum-reduce), and
+           general numpy-style broadcast (walk r-positions with broadcast
+           strides, accumulating into the operand's flat index). */
+        case OP_ADD: {
+            int a_match = a && shapes_equal(a, r);
+            int b_match = b && shapes_equal(b, r);
+            if (a) ensure_grad(a);
+            if (b) ensure_grad(b);
+            ensure_grad(r);
+            if (a_match) {
+                for (int j = 0; j < a->numel; j++) a->grad[j] += r->grad[j];
+            } else if (a && a->numel == 1) {
+                double s = 0; for (int j = 0; j < r->numel; j++) s += r->grad[j];
+                a->grad[0] += s;
             }
-            if (b) { ensure_grad(b); ensure_grad(r);
-                for (int j = 0; j < b->numel; j++) b->grad[j] += r->grad[b->numel == 1 ? 0 : j];
-                if (b->numel == 1 && r->numel > 1) { double s=0; for(int j=1;j<r->numel;j++) s+=r->grad[j]; b->grad[0]+=s; }
+            if (b_match) {
+                for (int j = 0; j < b->numel; j++) b->grad[j] += r->grad[j];
+            } else if (b && b->numel == 1) {
+                double s = 0; for (int j = 0; j < r->numel; j++) s += r->grad[j];
+                b->grad[0] += s;
+            }
+            if ((a && !a_match && a->numel != 1) || (b && !b_match && b->numel != 1)) {
+                int a_str[MAX_BCAST_RANK] = {0}, b_str[MAX_BCAST_RANK] = {0};
+                int idx[MAX_BCAST_RANK] = {0};
+                if (a) compute_bcast_strides(a, r->rank, r->shape, a_str);
+                if (b) compute_bcast_strides(b, r->rank, r->shape, b_str);
+                int do_a = a && !a_match && a->numel != 1;
+                int do_b = b && !b_match && b->numel != 1;
+                for (int i = 0; i < r->numel; i++) {
+                    if (do_a) {
+                        int ai = 0;
+                        for (int k = 0; k < r->rank; k++) ai += idx[k] * a_str[k];
+                        a->grad[ai] += r->grad[i];
+                    }
+                    if (do_b) {
+                        int bi = 0;
+                        for (int k = 0; k < r->rank; k++) bi += idx[k] * b_str[k];
+                        b->grad[bi] += r->grad[i];
+                    }
+                    for (int k = r->rank - 1; k >= 0; k--) {
+                        if (++idx[k] < r->shape[k]) break; idx[k] = 0;
+                    }
+                }
             }
             break;
+        }
 
-        case OP_SUB:
-            if (a) { ensure_grad(a); ensure_grad(r);
-                for (int j = 0; j < a->numel; j++) a->grad[j] += r->grad[a->numel == 1 ? 0 : j];
-                if (a->numel == 1 && r->numel > 1) { double s=0; for(int j=1;j<r->numel;j++) s+=r->grad[j]; a->grad[0]+=s; }
+        case OP_SUB: {
+            int a_match = a && shapes_equal(a, r);
+            int b_match = b && shapes_equal(b, r);
+            if (a) ensure_grad(a);
+            if (b) ensure_grad(b);
+            ensure_grad(r);
+            if (a_match) {
+                for (int j = 0; j < a->numel; j++) a->grad[j] += r->grad[j];
+            } else if (a && a->numel == 1) {
+                double s = 0; for (int j = 0; j < r->numel; j++) s += r->grad[j];
+                a->grad[0] += s;
             }
-            if (b) { ensure_grad(b); ensure_grad(r);
-                for (int j = 0; j < b->numel; j++) b->grad[j] -= r->grad[b->numel == 1 ? 0 : j];
-                if (b->numel == 1 && r->numel > 1) { double s=0; for(int j=1;j<r->numel;j++) s-=r->grad[j]; b->grad[0]+=s; }
+            if (b_match) {
+                for (int j = 0; j < b->numel; j++) b->grad[j] -= r->grad[j];
+            } else if (b && b->numel == 1) {
+                double s = 0; for (int j = 0; j < r->numel; j++) s += r->grad[j];
+                b->grad[0] -= s;
+            }
+            if ((a && !a_match && a->numel != 1) || (b && !b_match && b->numel != 1)) {
+                int a_str[MAX_BCAST_RANK] = {0}, b_str[MAX_BCAST_RANK] = {0};
+                int idx[MAX_BCAST_RANK] = {0};
+                if (a) compute_bcast_strides(a, r->rank, r->shape, a_str);
+                if (b) compute_bcast_strides(b, r->rank, r->shape, b_str);
+                int do_a = a && !a_match && a->numel != 1;
+                int do_b = b && !b_match && b->numel != 1;
+                for (int i = 0; i < r->numel; i++) {
+                    if (do_a) {
+                        int ai = 0;
+                        for (int k = 0; k < r->rank; k++) ai += idx[k] * a_str[k];
+                        a->grad[ai] += r->grad[i];
+                    }
+                    if (do_b) {
+                        int bi = 0;
+                        for (int k = 0; k < r->rank; k++) bi += idx[k] * b_str[k];
+                        b->grad[bi] -= r->grad[i];
+                    }
+                    for (int k = r->rank - 1; k >= 0; k--) {
+                        if (++idx[k] < r->shape[k]) break; idx[k] = 0;
+                    }
+                }
             }
             break;
+        }
 
-        case OP_MUL:
-            if (a) { ensure_grad(a); ensure_grad(r);
-                if (a->numel == 1 && b->numel > 1) {
-                    double s = 0; for (int j = 0; j < b->numel; j++) s += r->grad[j] * b->data[j];
-                    a->grad[0] += s;
-                } else {
-                    for (int j = 0; j < a->numel; j++) a->grad[j] += r->grad[j] * b->data[b->numel==1?0:j];
+        case OP_MUL: {
+            int a_match = a && shapes_equal(a, r);
+            int b_match = b && shapes_equal(b, r);
+            if (a) ensure_grad(a);
+            if (b) ensure_grad(b);
+            ensure_grad(r);
+            /* Fast path: both shapes match r */
+            if (a_match && b_match) {
+                for (int j = 0; j < r->numel; j++) {
+                    a->grad[j] += r->grad[j] * b->data[j];
+                    b->grad[j] += r->grad[j] * a->data[j];
                 }
-            }
-            if (b) { ensure_grad(b); ensure_grad(r);
-                if (b->numel == 1 && a->numel > 1) {
-                    double s = 0; for (int j = 0; j < a->numel; j++) s += r->grad[j] * a->data[j];
-                    b->grad[0] += s;
-                } else {
-                    for (int j = 0; j < b->numel; j++) b->grad[j] += r->grad[j] * a->data[a->numel==1?0:j];
+            } else {
+                /* Mixed: scalar / broadcast on either side. Walk r positions. */
+                int a_str[MAX_BCAST_RANK] = {0}, b_str[MAX_BCAST_RANK] = {0};
+                int idx[MAX_BCAST_RANK] = {0};
+                if (a) compute_bcast_strides(a, r->rank, r->shape, a_str);
+                if (b) compute_bcast_strides(b, r->rank, r->shape, b_str);
+                for (int i = 0; i < r->numel; i++) {
+                    int ai = 0, bi = 0;
+                    for (int k = 0; k < r->rank; k++) {
+                        ai += idx[k] * a_str[k];
+                        bi += idx[k] * b_str[k];
+                    }
+                    if (a) a->grad[ai] += r->grad[i] * b->data[bi];
+                    if (b) b->grad[bi] += r->grad[i] * a->data[ai];
+                    for (int k = r->rank - 1; k >= 0; k--) {
+                        if (++idx[k] < r->shape[k]) break; idx[k] = 0;
+                    }
                 }
             }
             break;
+        }
 
-        case OP_DIV:
-            if (a) {
-                ensure_grad(a); ensure_grad(r);
-                if (a->numel == 1) {
-                    a->grad[0] += r->grad[0] / b->data[0];
-                } else {
-                    /* a is multi-dim, b is scalar: d(a/b)/da = 1/b for each element */
-                    for (int j = 0; j < a->numel; j++)
-                        a->grad[j] += r->grad[j] / b->data[b->numel == 1 ? 0 : j];
+        case OP_DIV: {
+            int a_match = a && shapes_equal(a, r);
+            int b_match = b && shapes_equal(b, r);
+            if (a) ensure_grad(a);
+            if (b) ensure_grad(b);
+            ensure_grad(r);
+            if (a_match && b_match) {
+                for (int j = 0; j < r->numel; j++) {
+                    double bv = b->data[j];
+                    a->grad[j] += r->grad[j] / bv;
+                    b->grad[j] -= r->grad[j] * a->data[j] / (bv * bv);
                 }
-            }
-            if (b) {
-                ensure_grad(b); ensure_grad(r);
-                if (b->numel == 1 && a->numel > 1) {
-                    /* d(a/b)/db = -sum(a_i * grad_i) / b^2 */
-                    double s = 0;
-                    for (int j = 0; j < a->numel; j++)
-                        s += r->grad[j] * a->data[j];
-                    b->grad[0] -= s / (b->data[0] * b->data[0]);
-                } else {
-                    b->grad[0] -= r->grad[0] * a->data[0] / (b->data[0] * b->data[0]);
+            } else {
+                int a_str[MAX_BCAST_RANK] = {0}, b_str[MAX_BCAST_RANK] = {0};
+                int idx[MAX_BCAST_RANK] = {0};
+                if (a) compute_bcast_strides(a, r->rank, r->shape, a_str);
+                if (b) compute_bcast_strides(b, r->rank, r->shape, b_str);
+                for (int i = 0; i < r->numel; i++) {
+                    int ai = 0, bi = 0;
+                    for (int k = 0; k < r->rank; k++) {
+                        ai += idx[k] * a_str[k];
+                        bi += idx[k] * b_str[k];
+                    }
+                    double bv = b->data[bi];
+                    if (a) a->grad[ai] += r->grad[i] / bv;
+                    if (b) b->grad[bi] -= r->grad[i] * a->data[ai] / (bv * bv);
+                    for (int k = r->rank - 1; k >= 0; k--) {
+                        if (++idx[k] < r->shape[k]) break; idx[k] = 0;
+                    }
                 }
             }
             break;
+        }
 
         case OP_NEG:
             if (a) { ensure_grad(a); for (int j = 0; j < a->numel; j++) a->grad[j] -= r->grad[j]; }
@@ -2577,35 +2777,41 @@ void tensor_backward(TensorHandle h) {
             if (a) { ensure_grad(a); for (int j = 0; j < a->numel; j++) a->grad[j] += r->grad[j] / (2.0 * r->data[j]); }
             break;
 
-        case OP_POW:
-            if (a) {
-                ensure_grad(a); ensure_grad(r);
-                if (a->numel > 1 && b->numel == 1) {
-                    /* a is [n], b is scalar: d(a^b)/da_i = b * a_i^(b-1) * grad_i */
-                    double bv = b->data[0];
-                    for (int j = 0; j < a->numel; j++) {
-                        double av = fmax(a->data[j], 1e-20); /* prevent pow(0, neg) */
-                        a->grad[j] += r->grad[j] * bv * pow(av, bv - 1.0);
-                    }
-                } else {
-                    a->grad[0] += r->grad[0] * b->data[0] * pow(fmax(a->data[0], 1e-20), b->data[0] - 1.0);
+        case OP_POW: {
+            int a_match = a && shapes_equal(a, r);
+            int b_match = b && shapes_equal(b, r);
+            if (a) ensure_grad(a);
+            if (b) ensure_grad(b);
+            ensure_grad(r);
+            if (a_match && b_match) {
+                for (int j = 0; j < r->numel; j++) {
+                    double av = fmax(a->data[j], 1e-20);
+                    double bv = b->data[j];
+                    a->grad[j] += r->grad[j] * bv * pow(av, bv - 1.0);
+                    b->grad[j] += r->grad[j] * r->data[j] * log(av);
                 }
-            }
-            if (b) {
-                ensure_grad(b); ensure_grad(r);
-                if (b->numel == 1 && a->numel > 1) {
-                    /* d(a^b)/db = sum(a_i^b * log(a_i) * grad_i) */
-                    double s = 0;
-                    for (int j = 0; j < a->numel; j++) {
-                        double av = fmax(a->data[j], 1e-20);
-                        s += r->grad[j] * r->data[j] * log(av);
+            } else {
+                int a_str[MAX_BCAST_RANK] = {0}, b_str[MAX_BCAST_RANK] = {0};
+                int idx[MAX_BCAST_RANK] = {0};
+                if (a) compute_bcast_strides(a, r->rank, r->shape, a_str);
+                if (b) compute_bcast_strides(b, r->rank, r->shape, b_str);
+                for (int i = 0; i < r->numel; i++) {
+                    int ai = 0, bi = 0;
+                    for (int k = 0; k < r->rank; k++) {
+                        ai += idx[k] * a_str[k];
+                        bi += idx[k] * b_str[k];
                     }
-                    b->grad[0] += s;
-                } else {
-                    b->grad[0] += r->grad[0] * r->data[0] * log(fmax(a->data[0], 1e-20));
+                    double av = fmax(a->data[ai], 1e-20);
+                    double bv = b->data[bi];
+                    if (a) a->grad[ai] += r->grad[i] * bv * pow(av, bv - 1.0);
+                    if (b) b->grad[bi] += r->grad[i] * r->data[i] * log(av);
+                    for (int k = r->rank - 1; k >= 0; k--) {
+                        if (++idx[k] < r->shape[k]) break; idx[k] = 0;
+                    }
                 }
             }
             break;
+        }
 
         case OP_SIGMOID: {
             if (a) { ensure_grad(a); for (int j = 0; j < a->numel; j++) { double s = r->data[j]; a->grad[j] += r->grad[j] * s * (1.0 - s); } }
