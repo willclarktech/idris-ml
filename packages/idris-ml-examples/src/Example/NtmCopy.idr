@@ -96,7 +96,7 @@ record Config where
   lrFind : Bool
 
 defaultConfig : Config
-defaultConfig = MkConfig 0.0001 10.0 0.95 1.0e-8 0.9 50000 0.01 1000 3 42 1 20 16 False
+defaultConfig = MkConfig 0.0001 10.0 0.95 1.0e-8 0.9 50000 0.01 1000 3 42 1 20 1 False
 
 specs : List (ArgSpec Config)
 specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
@@ -168,8 +168,8 @@ main = do
     exitSuccess
 
   let trainCfg = MkTrainConfig cfg.epochs 100
-                   (WindowedAvg cfg.esThreshold cfg.esWindow cfg.esPatience) evalMetrics
-                   (\_ => pure ())
+                   (WindowedPercentile 0.10 cfg.esThreshold cfg.esWindow cfg.esPatience)
+                   evalMetrics (\_ => pure ())
 
   (trained, epochsDone, _) <- runTraining
     (\m, d => epochTwoPhaseVar opt d tbceLoss m) genBatch trainCfg model

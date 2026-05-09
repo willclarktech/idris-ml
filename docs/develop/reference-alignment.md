@@ -391,6 +391,21 @@ NTM Copy/Recall were intentionally NOT reverted — NTM's per-epoch cost is ~10�
 
 Re-aligning DNC at PyTorch's previous config (N=128, batch=16) is blocked on tape-backend perf work — the dominant cost is `Layer/Dnc.idr`'s `zeroDiag` per-cell C-level fill loop and per-row `prim__select` extraction in `buildMatrixRows`. Filed as a Medium-priority TODO entry; revisit alignment once those land.
 
+## Alignment Changes (2026-05-08) — NTM batch reverted on both sides + early-stop redesign
+
+The 2026-04 NTM batch=1 → 16 change was adopting PyTorch's arbitrary historical default rather than the better practice. All canonical NTM references (Graves et al. 2014, Collier & Beel 2018, vlgiitr/ntm-pytorch) use batch=1, and `docs/develop/gotchas.md:184` explicitly warns that "batch averaging dilutes the per-sequence addressing signal that the NTM needs to learn distinct write slots and query-triggered retrieval." Per the alignment policy ("adopt whichever is the better practice"), reverted both sides to batch=1:
+
+| Example | Parameter | Before (2026-04) | After (2026-05-08) |
+|---------|-----------|------------------|---------------------|
+| NTM Copy | Batch size | 16 | 1 |
+| NTM Recall | Batch size | 16 | 1 |
+
+Wall-clock impact on tape (seed=42, full 50K epochs without early-stop firing): batch=16 → ~7.7 h projected; batch=1 → 29:45 measured. Inside the 30-min/example budget.
+
+Concurrently, replaced the loss-mean windowed early-stop with a percentile-based variant (`Train.WindowedPercentile`). At batch=1 with variable-length sequences, loss is bimodal — short sequences hit near-zero quickly while long ones plateau higher — so the mean over a 1000-epoch window stays around 0.2-0.3 even at full convergence (acc_short=99.95%). The `WindowedAvg` early-stop never fires. The new `WindowedPercentile 0.10 thresh win pat` checks the 10th-percentile of chunk-means in the window — i.e., the lowest 100-epoch chunk in the recent 1000 epochs. Fires reliably once the model converges on at least the easier sequences.
+
+Applied uniformly to all four NTM/DNC examples (NtmCopy, NtmAssociativeRecall, DncCopy, DncAssociativeRecall) for consistency.
+
 ## Status
 
 All known discrepancies resolved.

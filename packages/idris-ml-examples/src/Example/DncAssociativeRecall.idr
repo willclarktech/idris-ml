@@ -157,8 +157,8 @@ main = do
     exitSuccess
 
   let trainCfg = MkTrainConfig cfg.epochs 100
-                   (WindowedAvg cfg.esThreshold cfg.esWindow cfg.esPatience) evalMetrics
-                   (\_ => pure ())
+                   (WindowedPercentile 0.10 cfg.esThreshold cfg.esWindow cfg.esPatience)
+                   evalMetrics (\_ => pure ())
 
   (trained, epochsDone, _) <- runTraining
     (\m, d => epochTwoPhaseVar opt d tbceLoss m) genBatch trainCfg model

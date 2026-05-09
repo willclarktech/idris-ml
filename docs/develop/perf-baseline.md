@@ -43,7 +43,7 @@ These have target accuracy thresholds in
 | seq-classify | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | 30 min | unmeasured |
 | mnist | ~120000 (5 full passes ~10 min) | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | 5 epochs | ~10 min | 30 min | A |
 | gpt (embedded) | ~1000 (per epoch ≈1 s) | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | 30 epochs | ~30 s | 30 min | A |
-| ntm-copy | **559** (2026-05-07, perf-baseline.sh) | unmeasured | unmeasured | **243** (2026-05-07) | **2.3×** | unmeasured | unmeasured | 50000 | **~7.7 h** | 30 min | **C/D** |
+| ntm-copy | **38** (2026-05-08, batch=1) | unmeasured | unmeasured | unmeasured (re-baseline) | unmeasured | unmeasured | unmeasured | 50000 | **~30 min** (full no-ES); ~15-20 min expected with new percentile-ES | 30 min | **B/A** |
 | ntm-recall | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | 50000 | unmeasured | 30 min | unmeasured |
 | dnc-copy | **113** (2026-05-07) | 160 (P1 doc) | 130 (P1 doc) | **9.1** (2026-05-07) | **12.5×** | ~16× | ~13× | 46000 | **~1.5 h** | 30 min | **C/D** |
 | dnc-recall | ~4360 (pre-rewrite) | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | ≥50000 | **>10 h** | 30 min | **D** |

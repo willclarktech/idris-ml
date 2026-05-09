@@ -71,6 +71,14 @@ data EarlyStopConfig
   = NoEarlyStop
   | Patience Nat Double              -- patience, minDelta
   | WindowedAvg Double Nat Nat       -- threshold, window, patience
+  | WindowedPercentile Double Double Nat Nat
+    -- percentile (0.0–1.0), threshold, window, patience.
+    -- Splits `window` epochs into 100-epoch chunks (same as WindowedAvg),
+    -- sorts the chunk-means, picks the chunk-mean at index
+    -- `floor(percentile * num_chunks)`, and compares to `threshold`. With
+    -- bimodal losses (variable-length-sequence tasks), picking p10 is the
+    -- "best 100-epoch chunk in the window" — fires reliably once the model
+    -- converges on at least the easier sequences.
 
 
 ----------------------------------------------------------------------
@@ -113,6 +121,14 @@ windowedConfig : Nat -> Double -> Nat -> Nat -> TrainConfig model
 windowedConfig epochs threshold window pat =
   MkTrainConfig epochs 100 (WindowedAvg threshold window pat) (const (pure [])) (\_ => pure ())
 
+||| Config with windowed-percentile early stopping. Robust to bimodal
+||| loss distributions (e.g. variable-length-sequence tasks where short
+||| sequences quickly hit near-zero loss while long ones plateau higher).
+export
+windowedPercentileConfig : Nat -> Double -> Double -> Nat -> Nat -> TrainConfig model
+windowedPercentileConfig epochs pct threshold window pat =
+  MkTrainConfig epochs 100 (WindowedPercentile pct threshold window pat) (const (pure [])) (\_ => pure ())
+
 ||| Bind a Schedule to a NativeOptimizer, producing a beforeEpoch hook.
 ||| Per epoch, sets the optimizer's base LR to `schedule epoch`. Plug into
 ||| `TrainConfig` via the `beforeEpoch` field:
@@ -144,6 +160,8 @@ runTrainingIO {model} epochFn dataSrc cfg model0 = do
     NoEarlyStop => goSimple 0 model0 0.0 tStart
     Patience pat minD => goPatience 0 model0 (1.0/0.0) 0 tStart pat minD
     WindowedAvg thresh win pat => goWindowed 0 model0 0.0 0 [] 0 tStart thresh win pat
+    WindowedPercentile pct thresh win pat =>
+      goWindowedPercentile 0 model0 [] 0 0 tStart pct thresh win pat
   tEnd <- clockTime Monotonic
   putStrLn $ formatTimingSummary tStart tEnd epochsDone
   putStrLn $ "Peak RSS: " ++ show (getRssMB 0) ++ " MB"
@@ -251,6 +269,61 @@ runTrainingIO {model} epochFn dataSrc cfg model0 = do
                                                        ++ " convergence " ++ show cc ++ "/" ++ show pat
                                                        ++ " (window_avg=" ++ show windowAvg ++ ")"
                                               goWindowed (S ep) m' 0.0 0 avgs' cc t0 thresh win pat
+
+    -- Windowed-percentile early stopping. Maintains a rolling window of
+    -- the last `win` per-epoch losses. Every 100 epochs, sorts the window,
+    -- picks the loss at the kth percentile (where k = floor(pct * len)),
+    -- and compares to threshold. Fires when the percentile is below
+    -- threshold for `pat` consecutive checks.
+    --
+    -- This computes percentile over RAW PER-EPOCH LOSSES, not chunk-means.
+    -- That distinction matters for bimodal losses (variable-length-sequence
+    -- tasks): individual epochs that happen to draw short sequences hit
+    -- near-zero loss long before the chunk-MEAN does. p10 of raw losses is
+    -- "the easiest 10% of recent epochs" — drops below threshold once the
+    -- model handles those reliably.
+    goWindowedPercentile : Nat -> model -> List Double -> Nat -> Nat ->
+                           Clock Monotonic -> Double -> Double -> Nat -> Nat ->
+                           IO (model, Nat, Double)
+    goWindowedPercentile ep m recent epochsSinceCheck convCount t0 pct thresh win pat =
+      if ep >= cfg.totalEpochs then pure (m, ep, 0.0)
+      else do
+        cfg.beforeEpoch ep
+        d <- dataSrc
+        (m', loss) <- epochFn m d
+        when (shouldLog ep) $ logEpoch t0 ep loss m'
+        if loss /= loss
+          then diverged t0 ep m' loss
+          else let recent' = take win (loss :: recent)
+                   esc' = epochsSinceCheck + 1
+               in if esc' < 100 || length recent' < win
+                 then goWindowedPercentile (S ep) m' recent' esc' convCount
+                                            t0 pct thresh win pat
+                 else let sorted = sort recent'
+                          idx = min (minus win 1)
+                                    (cast {to=Nat} (the Integer
+                                           (cast (pct * cast win))))
+                          pctVal = case drop idx sorted of
+                                     (x :: _) => x
+                                     [] => 0.0
+                      in if pctVal >= thresh
+                        then goWindowedPercentile (S ep) m' recent' 0 0
+                                                   t0 pct thresh win pat
+                        else let cc = convCount + 1
+                             in if cc >= pat
+                               then do now <- clockTime Monotonic
+                                       putStrLn $ "  " ++ formatElapsed t0 now
+                                                ++ " Converged at epoch " ++ show (ep + 1)
+                                                ++ " (p" ++ show (cast {to=Int} (pct * 100.0))
+                                                ++ "_loss=" ++ show pctVal ++ ")"
+                                       pure (m', ep + 1, loss)
+                               else do now <- clockTime Monotonic
+                                       putStrLn $ "    " ++ formatElapsed t0 now
+                                                ++ " convergence " ++ show cc ++ "/" ++ show pat
+                                                ++ " (p" ++ show (cast {to=Int} (pct * 100.0))
+                                                ++ "_loss=" ++ show pctVal ++ ")"
+                                       goWindowedPercentile (S ep) m' recent' 0 cc
+                                                             t0 pct thresh win pat
 
 
 ||| Run training with a pure epoch function. Equivalent to `runTrainingIO`

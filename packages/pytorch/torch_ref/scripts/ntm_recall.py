@@ -88,7 +88,7 @@ def main() -> None:
     parser.add_argument("--clip", type=float, default=10.0)
     parser.add_argument("--epochs", type=int, default=50000)
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--batch", type=int, default=16)
+    parser.add_argument("--batch", type=int, default=1)
     parser.add_argument("--min-items", type=int, default=2)
     parser.add_argument("--max-items", type=int, default=6)
     parser.add_argument("--es-threshold", type=float, default=0.01)
