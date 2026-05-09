@@ -3913,9 +3913,8 @@ void _dbg_dump_param_grads_if_enabled(void) {
     }
 }
 
-/* Phase 1.5e diagnostic: dump h0/c0 param value trajectories. Set
-   DEBUG_LSTM_TRAJ to print h0/c0 L2 norms every N epochs (where N is the
-   value of DEBUG_LSTM_TRAJ_EVERY, default 100). */
+/* Phase 1.5e diagnostic: dump h0/c0 param value trajectories + first 3
+   element values. Set DEBUG_LSTM_TRAJ to print every N epochs. */
 static int _dbg_traj_step = 0;
 void _dbg_dump_lstm_traj_if_enabled(void) {
     if (!getenv("DEBUG_LSTM_TRAJ")) return;
@@ -3938,8 +3937,11 @@ void _dbg_dump_lstm_traj_if_enabled(void) {
                 if (v > mx) mx = v;
             }
             l2 = sqrt(l2);
-            fprintf(stderr, "[traj epoch %d] %s l2=%g min=%g max=%g\n",
-                    _dbg_traj_step, nm, l2, mn, mx);
+            fprintf(stderr, "[traj epoch %d] %s l2=%.10g min=%.10g max=%.10g | t[0..2]=%.10g, %.10g, %.10g\n",
+                    _dbg_traj_step, nm, l2, mn, mx,
+                    t->numel >= 1 ? t->data[0] : 0.0,
+                    t->numel >= 2 ? t->data[1] : 0.0,
+                    t->numel >= 3 ? t->data[2] : 0.0);
         }
     }
 }

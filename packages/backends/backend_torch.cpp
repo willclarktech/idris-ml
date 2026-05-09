@@ -549,10 +549,15 @@ TensorHandle tensor_cat(TensorHandle* tensors, int count, int dim) {
 
 /* ---------- Autograd ---------- */
 
+extern "C" void _dbg_dump_param_grads_if_enabled_torch(void);
+
 void tensor_backward(TensorHandle h) {
     double t0 = _wall_ms_torch();
     to_tensor(h)->backward();
     prof_backward_ms += _wall_ms_torch() - t0;
+    /* Phase 1.5e diagnostic: dump per-param gradient L2 norms after backward.
+       Implementation lives below the param_registry declaration. */
+    _dbg_dump_param_grads_if_enabled_torch();
 }
 
 TensorHandle tensor_grad(TensorHandle h) {
@@ -643,6 +648,71 @@ struct ParamEntry {
 };
 
 static std::vector<ParamEntry> param_registry;
+
+/* Phase 1.5e diagnostic: dump h0/c0 param value trajectories. Mirrors
+   backend_tape.c. Triggered by DEBUG_LSTM_TRAJ env var. */
+static int _dbg_traj_step_torch = 0;
+extern "C" void _dbg_dump_lstm_traj_if_enabled_torch(void) {
+    if (!getenv("DEBUG_LSTM_TRAJ")) return;
+    int every = 100;
+    const char* every_s = getenv("DEBUG_LSTM_TRAJ_EVERY");
+    if (every_s) every = atoi(every_s);
+    _dbg_traj_step_torch++;
+    if (_dbg_traj_step_torch % every != 0 && _dbg_traj_step_torch != 1) return;
+    for (size_t i = 0; i < param_registry.size(); i++) {
+        const std::string& nm = param_registry[i].name;
+        if (nm.size() >= 3 &&
+            (nm.substr(nm.size()-3) == "_h0" || nm.substr(nm.size()-3) == "_c0")) {
+            auto& t = *param_registry[i].tensor;
+            auto t_cpu = t.detach().to(torch::kFloat64).contiguous();
+            const double* d = t_cpu.data_ptr<double>();
+            int numel = (int)t.numel();
+            double l2 = 0.0, mn = 1e300, mx = -1e300;
+            for (int j = 0; j < numel; j++) {
+                double v = d[j];
+                l2 += v*v;
+                if (v < mn) mn = v;
+                if (v > mx) mx = v;
+            }
+            l2 = std::sqrt(l2);
+            fprintf(stderr, "[traj epoch %d] %s l2=%.10g min=%.10g max=%.10g | t[0..2]=%.10g, %.10g, %.10g\n",
+                    _dbg_traj_step_torch, nm.c_str(), l2, mn, mx,
+                    numel >= 1 ? d[0] : 0.0,
+                    numel >= 2 ? d[1] : 0.0,
+                    numel >= 3 ? d[2] : 0.0);
+        }
+    }
+}
+
+/* Phase 1.5e diagnostic: dump per-param gradient L2 norms after a backward
+   pass. Mirrors backend_tape.c's diagnostic for cross-backend comparison.
+   Triggered by DEBUG_PARAM_GRADS env var. */
+extern "C" void _dbg_dump_param_grads_if_enabled_torch(void) {
+    if (!getenv("DEBUG_PARAM_GRADS")) return;
+    fprintf(stderr, "=== param grads after backward (torch) ===\n");
+    for (size_t i = 0; i < param_registry.size(); i++) {
+        auto& pe = param_registry[i];
+        double l2 = 0.0;
+        int has_nan = 0;
+        int numel = (int)pe.tensor->numel();
+        if (pe.tensor->grad().defined()) {
+            auto g_cpu = pe.tensor->grad().to(torch::kFloat64).contiguous();
+            const double* g = g_cpu.data_ptr<double>();
+            for (int j = 0; j < numel; j++) {
+                double v = g[j];
+                if (std::isnan(v) || std::isinf(v)) has_nan = 1;
+                l2 += v * v;
+            }
+            l2 = std::sqrt(l2);
+            fprintf(stderr, "  %-40s numel=%-6d l2=%12.6e%s\n",
+                    pe.name.c_str(), numel, l2,
+                    has_nan ? " NAN_OR_INF!" : "");
+        } else {
+            fprintf(stderr, "  %-40s numel=%-6d NO_GRAD\n",
+                    pe.name.c_str(), numel);
+        }
+    }
+}
 
 void param_register(const char* name, TensorHandle h) {
     /* Replace if already registered under this name */
@@ -1059,6 +1129,11 @@ void optimizer_step(OptimizerHandle h) {
         }
     }
     opt->step();
+    /* Phase 1.5e: dump h0/c0 trajectory if enabled */
+    {
+        extern void _dbg_dump_lstm_traj_if_enabled_torch(void);
+        _dbg_dump_lstm_traj_if_enabled_torch();
+    }
     // Free intermediate tensors from this epoch's forward/backward
     free_intermediates();
     prof_optimizer_ms += _wall_ms_torch() - t0;
