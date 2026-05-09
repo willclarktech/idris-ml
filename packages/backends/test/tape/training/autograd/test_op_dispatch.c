@@ -21,11 +21,11 @@ static void noop_backward(TapeEntry* e) { (void)e; }
 static void other_backward(TapeEntry* e) { (void)e; }
 
 /* Pick an op tag that's NOT yet migrated to its own file (and therefore
-   has no TAPE_REGISTER_OP firing at load time). OP_TANH is a unary
-   activation slated for Phase 1c — until then its entry stays NULL,
-   so these tests can register/clear without colliding with a real
-   handler. Update this when OP_TANH migrates. */
-#define UNMIGRATED_OP OP_TANH
+   has no TAPE_REGISTER_OP firing at load time). OP_BCE_WITH_LOGITS is
+   a loss slated for Phase 1c.6 — until then its entry stays NULL, so
+   these tests can register/clear without colliding with a real handler.
+   Update this when OP_BCE_WITH_LOGITS migrates. */
+#define UNMIGRATED_OP OP_BCE_WITH_LOGITS
 
 Test(op_dispatch, unmigrated_ops_are_null) {
     /* Anything not yet migrated stays NULL — gives confidence that

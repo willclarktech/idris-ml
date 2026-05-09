@@ -371,8 +371,7 @@ TensorHandle name(TensorHandle ha) { \
     return unop_elementwise(ha, op_tag, fn64); \
 }
 /* tensor_neg/abs/exp/log/sqrt: moved to backend_tape/core/elementwise/ (Phase 1a.6). */
-TAPE_UNOP_DISPATCH(tensor_sigmoid, OP_SIGMOID, fn_sigmoid, fn_sigmoid_f32)
-TAPE_UNOP_DISPATCH(tensor_tanh,    OP_TANH,    fn_tanh_d,  fn_tanh_f32)
+/* tensor_sigmoid, tensor_tanh: moved to backend_tape/core/elementwise/ (Phase 1a.8). */
 TAPE_UNOP_DISPATCH(tensor_gelu,    OP_GELU,    fn_gelu_d,  fn_gelu_f32)
 #undef TAPE_UNOP_DISPATCH
 
@@ -427,24 +426,7 @@ TensorHandle tensor_silu(TensorHandle ha) {
     return unop_elementwise(ha, OP_SILU, fn_silu);
 }
 
-/* Softplus: log(1 + exp(x)). Numerically stable formulation for large |x|.
- * Backward: f'(x) = 1 / (1 + exp(-x)) = sigmoid(x). */
-static double fn_softplus(double x) {
-    /* For x > 30, log(1+exp(x)) ≈ x; for x < -30, ≈ exp(x); else direct */
-    if (x > 30.0) return x;
-    if (x < -30.0) return exp(x);
-    return log(1.0 + exp(x));
-}
-static float fn_softplus_f32(float x) {
-    if (x > 30.0f) return x;
-    if (x < -30.0f) return expf(x);
-    return logf(1.0f + expf(x));
-}
-TensorHandle tensor_softplus(TensorHandle ha) {
-    Tensor* a = (Tensor*)ha;
-    if (a->dtype_tag == DT_F32) return unop_elementwise_f32(ha, OP_SOFTPLUS, fn_softplus_f32);
-    return unop_elementwise(ha, OP_SOFTPLUS, fn_softplus);
-}
+/* tensor_softplus: moved to backend_tape/core/elementwise/softplus.c (Phase 1a.8). */
 
 /* F32 forward shims for the scalar-arg ops. F32 in -> F32 out via real
    F32 arena storage; backward reads grads in F64 (asymmetric pattern from
@@ -3186,21 +3168,7 @@ void tensor_backward(TensorHandle h) {
 
         /* OP_POW: moved to backend_tape/core/elementwise/pow.c (Phase 1a.7). */
 
-        case OP_SIGMOID: {
-            if (a) { ensure_grad(a); for (int j = 0; j < a->numel; j++) { double s = tape_load_d(r, j); ((double*)a->grad)[j] += ((double*)r->grad)[j] * s * (1.0 - s); } }
-            break;
-        }
-
-        case OP_TANH: {
-            if (a) { ensure_grad(a); for (int j = 0; j < a->numel; j++) { double t = tape_load_d(r, j); ((double*)a->grad)[j] += ((double*)r->grad)[j] * (1.0 - t * t); } }
-            break;
-        }
-
-        case OP_SOFTPLUS: {
-            /* d/dx softplus(x) = 1 / (1 + exp(-x)) = sigmoid(x). a->data is x. */
-            if (a) { ensure_grad(a); for (int j = 0; j < a->numel; j++) { double s = 1.0 / (1.0 + exp(-tape_load_d(a, j))); ((double*)a->grad)[j] += ((double*)r->grad)[j] * s; } }
-            break;
-        }
+        /* OP_SIGMOID/TANH/SOFTPLUS: moved to backend_tape/core/elementwise/ (Phase 1a.8). */
 
         case OP_TILE_2D: {
             /* Forward: output[i, j] = input[i mod m, j mod n]
