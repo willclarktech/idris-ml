@@ -60,13 +60,16 @@ case "$EXAMPLE_KEY" in
 esac
 
 # Run idris example with `--epochs N --seed S`, return total wall-clock in ms.
+# Uses time.time_ns() (absolute since epoch) — time.monotonic_ns() is
+# process-relative, so its value resets each `python3 -c` invocation and
+# the diff is meaningless.
 run_idris() {
   local n="$1"
   local t0 t1
-  t0=$(python3 -c 'import time; print(int(time.monotonic_ns()/1_000_000))')
+  t0=$(python3 -c 'import time; print(int(time.time_ns()/1_000_000))')
   BACKEND="$BACKEND" make --no-print-directory "$IDRIS_TGT" \
     "$IDRIS_VAR=--epochs $n --seed $SEED" >/dev/null 2>&1
-  t1=$(python3 -c 'import time; print(int(time.monotonic_ns()/1_000_000))')
+  t1=$(python3 -c 'import time; print(int(time.time_ns()/1_000_000))')
   echo $((t1 - t0))
 }
 
@@ -74,9 +77,9 @@ run_idris() {
 run_pytorch() {
   local n="$1"
   local t0 t1
-  t0=$(python3 -c 'import time; print(int(time.monotonic_ns()/1_000_000))')
+  t0=$(python3 -c 'import time; print(int(time.time_ns()/1_000_000))')
   ( cd packages/pytorch && uv run python -m "$REF_MOD" --epochs "$n" --seed "$SEED" ) >/dev/null 2>&1
-  t1=$(python3 -c 'import time; print(int(time.monotonic_ns()/1_000_000))')
+  t1=$(python3 -c 'import time; print(int(time.time_ns()/1_000_000))')
   echo $((t1 - t0))
 }
 

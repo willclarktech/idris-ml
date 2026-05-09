@@ -35,7 +35,7 @@ These have target accuracy thresholds in
 
 | Example | tape ms | mlx ms | torch ms | pytorch ms | tape ratio | mlx ratio | torch ratio | conv epochs | tape conv | budget | bucket |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| supervised | <1 (noisy) | unmeasured | unmeasured | <1 (noisy) | ≈1 | unmeasured | unmeasured | 1000 | <1 min | 30 min | A |
+| supervised | **0.27** (2026-05-07) | unmeasured | unmeasured | **0.49** (2026-05-07) | **0.55×** (faster) | unmeasured | unmeasured | 1000 | <1 min | 30 min | A |
 | rnn | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | 2000 | <1 min (est.) | 30 min | A (est.) |
 | lstm | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | 2000 | <1 min (est.) | 30 min | A (est.) |
 | gru | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | 2000 | <1 min (est.) | 30 min | A (est.) |
@@ -43,9 +43,9 @@ These have target accuracy thresholds in
 | seq-classify | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | 30 min | unmeasured |
 | mnist | ~120000 (5 full passes ~10 min) | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | 5 epochs | ~10 min | 30 min | A |
 | gpt (embedded) | ~1000 (per epoch ≈1 s) | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | 30 epochs | ~30 s | 30 min | A |
-| ntm-copy | 436 (post-Phase-1, pre-this-session re-meas.) | unmeasured | unmeasured | ~127 (bench-compare archive) | ~3.4× | unmeasured | unmeasured | 50000 | **~6 h** | 30 min | **C/D** |
+| ntm-copy | **559** (2026-05-07, perf-baseline.sh) | unmeasured | unmeasured | **243** (2026-05-07) | **2.3×** | unmeasured | unmeasured | 50000 | **~7.7 h** | 30 min | **C/D** |
 | ntm-recall | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | 50000 | unmeasured | 30 min | unmeasured |
-| dnc-copy | 97 (post-Phase-1) / 130 (dnc-perf-baseline.md) | 160 (P1 doc) | 130 (P1 doc) | 10 (N=32 batch=1) | ~10–13× | ~16× | ~13× | 46000 | **~1.2 h** | 30 min | **C/D** |
+| dnc-copy | **113** (2026-05-07) | 160 (P1 doc) | 130 (P1 doc) | **9.1** (2026-05-07) | **12.5×** | ~16× | ~13× | 46000 | **~1.5 h** | 30 min | **C/D** |
 | dnc-recall | ~4360 (pre-rewrite) | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | ≥50000 | **>10 h** | 30 min | **D** |
 
 ## RL examples (13)
@@ -78,20 +78,50 @@ Gate primarily on convergence time.
 | profile | Internal profiler — `make example-profile` runs NTM-copy with per-op profiling enabled. |
 | profile-micro | Internal microbench — see `docs/develop/ntm-dnc-perf-attribution.md`. |
 
+## Important: total convergence runtime ≠ max-epochs × ms/epoch
+
+The example configs set `--epochs N` as a **maximum**; early stopping
+(`esThreshold`/`esWindow`/`esPatience`) terminates when loss
+converges. The "tape conv" column above multiplies max-epochs ×
+ms/epoch which **overestimates** wall-clock for any example that
+early-stops. Real convergence numbers come from running to
+early-stop with `--seed 42` and recording total wall-clock + epochs
+returned in the RESULT line.
+
+Documented historical convergence runs:
+
+| Example | Config | Epochs to converge | Reference |
+|---|---|---:|---|
+| ntm-copy | seed=42 batch=1 | **9300** | `docs/develop/design-decisions.md:516` |
+| dnc-copy | seed=42 batch=16 N=128 | 4100 | `docs/develop/dnc-convergence-results.md` (PyTorch ref, since reverted) |
+| dnc-copy | seed=42 batch=1 N=32 | ~46000 (estimated) | Idris current config, ongoing |
+
+So with current ms/epoch:
+- ntm-copy at batch=1: 9300 × 559 ≈ **86 min** (over the 30-min budget,
+  but much closer than the 7.7 h max-epochs estimate)
+- ntm-copy at current batch=16 default: **unknown** (no recorded run);
+  measurement in progress (`/tmp/ntm-copy-converge.log`).
+
+The user's "NTM-copy in about half an hour" recollection lines up
+with **pre-Path-C 228 ms × 9300 ≈ 35 min**. Path C doubled ms/epoch;
+recovering that is what Phase 2 perf work targets.
+
 ## Phase 1 attack list (provisional)
 
 Based on the partial baseline above, ordered by expected wall-clock
-gain:
+gain. Bucket assignments will firm up once full-convergence runs
+land for the over-budget cells.
 
 1. **`dnc-recall` tape** (Bucket D): >10 h convergence, well over the
    30-min budget. Two-pronged: Phase 2b (DNC layer perf) + Phase 3
    (paired-side shrink — `R` reads or `maxLen` smaller).
-2. **`ntm-copy` tape** (Bucket C/D): ~6 h convergence at 436 ms/epoch.
-   Phase 2c (per-op profiler re-run post-Phase-1) + Phase 3 (`maxLen`
-   20 → 10) likely needed.
-3. **`dnc-copy` tape** (Bucket C/D): ~1.2 h at 97 ms/epoch (down from
-   1033). Still ~10× ratio. Phase 2b (zeroDiag mask, batched FCs,
-   buildMatrixRows) before considering Phase 3.
+2. **`ntm-copy` tape** (Bucket C/D candidate): 559 ms/epoch × ~9300
+   epochs = ~86 min on current code. Phase 2c (per-op profiler re-run
+   post-Phase-1) targets the ms/epoch side. Phase 3 (`maxLen` 20 → 10
+   or epoch shrink) compensates if we can't hit ~228 ms/epoch.
+3. **`dnc-copy` tape** (Bucket C/D): 113 ms/epoch, 12.5× pytorch
+   ratio. Phase 2b (zeroDiag mask, batched FCs, buildMatrixRows)
+   before Phase 3.
 4. **`ntm-recall` tape** (unmeasured but expected Bucket C/D by
    architectural similarity to NTM-copy). Run measurement first.
 5. **`sac` tape** (slightly over 30-min budget): borderline; may be
