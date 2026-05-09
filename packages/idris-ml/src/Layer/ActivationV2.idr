@@ -46,6 +46,16 @@ LayerLikeV2 ActivationStateV2 where
   applyTVar st@(MkActivationV2 ASilu)         input = (st, tsilu input)
   applyTVar st@(MkActivationV2 (ALeakyRelu s)) input = (st, tleakyRelu s input)
 
+  -- Activation primitives are shape-polymorphic (operate elementwise),
+  -- so the batched forward is identical to the single-sample form —
+  -- just typed at `TVar [b, n] d` instead of `TVar [n] d`.
+  applyTVarBatch st@(MkActivationV2 ATanh)         input = (st, ttanh input)
+  applyTVarBatch st@(MkActivationV2 ASigmoid)      input = (st, tsigmoid input)
+  applyTVarBatch st@(MkActivationV2 ARelu)         input = (st, trelu input)
+  applyTVarBatch st@(MkActivationV2 AGelu)         input = (st, tgelu input)
+  applyTVarBatch st@(MkActivationV2 ASilu)         input = (st, tsilu input)
+  applyTVarBatch st@(MkActivationV2 (ALeakyRelu s)) input = (st, tleakyRelu s input)
+
   layerPrefixV2 _ = "actV2"
 
 

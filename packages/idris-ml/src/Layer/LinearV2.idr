@@ -38,6 +38,9 @@ LayerLikeV2 LinearStateV2 where
         out = tadd pre st.biasT
     in (st, out)
 
+  applyTVarBatch st input =
+    (st, tlinear2d st.weightT input st.biasT)
+
   layerPrefixV2 _ = "llv2"
 
 

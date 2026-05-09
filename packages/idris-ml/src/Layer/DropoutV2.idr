@@ -76,6 +76,16 @@ LayerLikeV2 DropoutStateV2 where
   -- Pattern match on MkDropoutV2 unifies i = o = n, so we can pass
   -- through to applyDropoutV2 which works on the same-size form.
   applyTVar st@(MkDropoutV2 _ _) input = applyDropoutV2 st input
+
+  -- prim__dropout is rank-agnostic, so the batched form is identical
+  -- to the single-sample form — same dropout rate, fresh per-call seed.
+  applyTVarBatch st@(MkDropoutV2 p training) input =
+    if training
+      then let seed = dropoutSeed 0
+               outPtr = prim__dropout input.tensorPtr p 1 seed
+           in (st, MkTVar outPtr Nothing)
+      else (st, input)
+
   layerPrefixV2 _ = "dropV2"
 
 ||| Wrap a DropoutV2 in `AnyLayerV2`.

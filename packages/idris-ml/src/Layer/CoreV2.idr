@@ -31,6 +31,17 @@ interface LayerLikeV2 (l : Nat -> Nat -> (0 _ : Device) -> Type) where
   resetStateV2 : {0 d : Device} -> {i, o : Nat} -> l i o d -> l i o d
   resetStateV2 = id
 
+  ||| Batched tensor-level forward: `TVar [b, i] d -> TVar [b, o] d`.
+  ||| Default crashes — layers that participate in batched training
+  ||| (Linear, Activation, Dropout) MUST override. Stateful layers
+  ||| (LSTM/RNN/GRU/NTM/DNC) keep the default; batched-cell semantics
+  ||| are not supported in this surface (use sequence-level batching
+  ||| at the example level instead).
+  applyTVarBatch : {0 d : Device} -> {i, o : Nat} -> {b : Nat} ->
+                   l i o d -> TVar [b, i] d -> (l i o d, TVar [b, o] d)
+  applyTVarBatch _ _ =
+    idris_crash "applyTVarBatch: layer does not support batched forward"
+
 
 ----------------------------------------------------------------------
 -- AnyLayerV2 (existential wrapper)
@@ -46,6 +57,14 @@ applyTVarAny : {0 d : Device} -> {i, o : Nat} ->
                AnyLayerV2 i o d -> TVar [i] d -> (AnyLayerV2 i o d, TVar [o] d)
 applyTVarAny (MkAnyLayerV2 l @{dict} layer) input =
   case applyTVar @{dict} layer input of
+    (layer', out) => (MkAnyLayerV2 l @{dict} layer', out)
+
+export
+applyTVarBatchAny : {0 d : Device} -> {i, o : Nat} -> {b : Nat} ->
+                    AnyLayerV2 i o d -> TVar [b, i] d ->
+                    (AnyLayerV2 i o d, TVar [b, o] d)
+applyTVarBatchAny (MkAnyLayerV2 l @{dict} layer) input =
+  case applyTVarBatch @{dict} layer input of
     (layer', out) => (MkAnyLayerV2 l @{dict} layer', out)
 
 
@@ -83,3 +102,21 @@ resetNetworkV2 (OutputLayerV2 (MkAnyLayerV2 l @{dict} layer)) =
   OutputLayerV2 (MkAnyLayerV2 l @{dict} (resetStateV2 @{dict} layer))
 resetNetworkV2 ((MkAnyLayerV2 l @{dict} layer) ~~> rest) =
   MkAnyLayerV2 l @{dict} (resetStateV2 @{dict} layer) ~~> resetNetworkV2 rest
+
+||| Batched tensor-level forward through a NetworkV2: each layer's
+||| `applyTVarBatch` runs on the threaded `[b, _]` tensor. Linear /
+||| Activation / Dropout override; other layers crash via the
+||| interface default.
+export
+forwardTVarBatch : {0 d : Device} -> {i, o : Nat} -> {b : Nat} ->
+                   {hs : List Nat} ->
+                   NetworkV2 i hs o d -> TVar [b, i] d ->
+                   (NetworkV2 i hs o d, TVar [b, o] d)
+forwardTVarBatch (OutputLayerV2 l) input =
+  case applyTVarBatchAny l input of
+    (l', out) => (OutputLayerV2 l', out)
+forwardTVarBatch {hs = h :: _} (l ~~> rest) input =
+  case applyTVarBatchAny l input of
+    (l', mid) =>
+      case forwardTVarBatch rest mid of
+        (rest', out) => (l' ~~> rest', out)

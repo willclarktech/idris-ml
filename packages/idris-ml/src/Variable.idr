@@ -1546,6 +1546,55 @@ tlinear2d : TVar [o, i] d -> TVar [b, i] d -> TVar [o] d -> TVar [b, o] d
 tlinear2d w x bias =
   MkTVar (prim__linear2d w.tensorPtr x.tensorPtr bias.tensorPtr) Nothing
 
+-- Per-sample extraction + scalar arithmetic (used by batched RL loss
+-- builders: pluck a row from a [b, o] result, then a scalar from the
+-- row, then build (q - target)^2 etc.) ---------------------------------
+
+||| Select row `k` from a [b, n] TVar, returning the n-vector slice.
+||| Wraps `prim__select` on dim 0; preserves the autograd graph.
+export
+trowSelect : {0 d : Device} -> {b, n : Nat} ->
+             TVar [b, n] d -> Int -> TVar [n] d
+trowSelect t k = MkTVar (prim__select t.tensorPtr 0 k) Nothing
+
+||| Select element `i` from an n-vector, returning a scalar TVar.
+export
+telemSelect : {0 d : Device} -> {n : Nat} ->
+              TVar [n] d -> Int -> TVar [] d
+telemSelect t i = MkTVar (prim__select t.tensorPtr 0 i) Nothing
+
+||| Scalar TVar from a Double. Takes the value as a runtime argument
+||| so Idris/Chez does NOT memoise the FFI result as a module-level
+||| constant — same defence as `freshZeroLossT`. Non-grad: the C
+||| backend creates a non-persistent scalar that is freed by the next
+||| `tape_reset` (i.e. fine to call inside an epoch's loss builder).
+export
+tconstScalar : {0 d : Device} -> Double -> TVar [] d
+tconstScalar v = MkTVar (prim__createScalar v 0) Nothing
+
+||| Subtract two equally-shaped TVars (autograd-tracked).
+export
+tsub : TVar dims d -> TVar dims d -> TVar dims d
+tsub a b = MkTVar (prim__sub a.tensorPtr b.tensorPtr) Nothing
+
+||| Elementwise multiply two equally-shaped TVars (autograd-tracked).
+export
+tmul : TVar dims d -> TVar dims d -> TVar dims d
+tmul a b = MkTVar (prim__mul a.tensorPtr b.tensorPtr) Nothing
+
+||| Negate a TVar (autograd-tracked).
+export
+tneg : TVar dims d -> TVar dims d
+tneg a = MkTVar (prim__neg a.tensorPtr) Nothing
+
+||| Scale a TVar by a Double (broadcasts the scalar; autograd-tracked).
+||| Useful for mean-reduction (`tmulScalar loss (1.0 / cast n)`) and for
+||| building per-sample loss expressions where one side of a product is
+||| a runtime Double (e.g. DQN target value).
+export
+tmulScalar : TVar dims d -> Double -> TVar dims d
+tmulScalar v s = MkTVar (prim__mulScalar v.tensorPtr s) Nothing
+
 -- Activations (shape-preserving, pass-through autograd) ---------------
 
 export
