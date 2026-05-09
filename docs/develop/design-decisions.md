@@ -901,6 +901,31 @@ is its own deferred row. This unblocks loading pretrained (BF16) weights
 for inference; it is not a training feature. Tape dtype parity and the
 all-backend tag-dispatch unification are separate Medium rows.
 
+**bf16/f16 + integer SafeTensors I/O via the double lingua franca
+(2026-05-22).** The on-disk side of the above: `safetensors.c` now
+saves/loads bf16, f16, and the integer dtypes, not just F32/F64. The key
+decision was to route everything through the *existing* `double`
+serialization path rather than add a byte-level backend extractor. Save
+already pulls each param into doubles (`tensor_to_doubles`); load already
+reads bytes into doubles then `param_load_data` narrows to the param's
+storage dtype. So the only new code is per-dtype pack/unpack *inside
+`safetensors.c`* — bf16/f16 bit conversions (bf16 = high 16 bits of f32;
+f16 = IEEE binary16, round-to-nearest-even), integers as plain casts.
+**No backend-interface, `backend.h`, rename-header, or `ffi_manifest.py`
+change** — the dtype knowledge stays in one file, and tape/mlx (F32/F64
+only) are untouched. This is byte-exact for bf16/f16 round-trips
+(`bf16 → f64 → bf16` is identity) and every integer except **I64 above
+2^53** — a double can't represent those, and torch's `.to(kFloat64)`
+rounds before the bytes are packed, so i64 ships with that documented
+caveat (exact i64 would need a byte-level int extractor; filed as a
+Medium row). New public `registerParam` puts an arbitrary-dtype,
+possibly-NoGrad tensor into the param registry by name so `saveModel`
+serializes it — the path for inference-dtype weights and the future
+HF-checkpoint loader; `tensor_set_requires_grad` (torch) no-ops on
+non-floating dtypes since torch throws otherwise. Cross-language byte
+layout is verified by `Example.DTypeSerialize` + `verify_dtypes.py`
+(Idris writes → `safetensors.torch` reads).
+
 **Op-level dtype-kind gates (2026-05-22).** `Compatible` gates *which
 dtypes a backend admits*; two further empty markers in `DType.Core` gate
 *which dtype kind an operation accepts*: `IsFloating` (instances `Float n`,

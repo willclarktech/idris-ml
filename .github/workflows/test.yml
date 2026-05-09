@@ -214,6 +214,16 @@ jobs:
         if: matrix.os == 'macos-latest'
         run: make test-backend-mlx
 
+      - name: Run safetensors round-trip (tape)
+        # F32/F64 param + optimizer-state round-trip; runs on every OS.
+        run: make test-safetensors
+
+      - name: Run safetensors round-trip (torch, Ubuntu)
+        # Adds the bf16/f16/i32 byte-level round-trip (those dtypes exist
+        # only on torch). Gated to the libtorch lane.
+        if: matrix.os == 'ubuntu-latest'
+        run: make BACKEND=torch test-safetensors
+
       - name: Run integration tests
         # No SKIP_EXAMPLES: the mlx allocator aborts that used to skip
         # ntm-copy / ntm-associative-recall / dnc-recall / mountain-car-cont
