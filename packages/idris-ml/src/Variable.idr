@@ -1485,6 +1485,19 @@ record TVar (dims : Vect rank Nat) (0 d : Device) where
   tensorPtr : AnyPtr
   paramId   : Maybe String
 
+||| Type-level aliases for common TVar shapes. Aliases route shape
+||| arithmetic (e.g. `4 * o`) through a Nat-argument slot rather than
+||| inlining inside a Vect literal — the latter triggers an Idris 2
+||| type-checker hang on multiplicative Nat expressions.
+||| (`TVar [4 * o, i] d` hangs; `TMat (4 * o) i d` works.)
+public export
+0 TVec : Nat -> Device -> Type
+TVec n d = TVar [n] d
+
+public export
+0 TMat : Nat -> Nat -> Device -> Type
+TMat m n d = TVar [m, n] d
+
 -- Smart constructors --------------------------------------------------
 
 ||| Create a registered learnable [o, i] parameter from a flat (row-major)
@@ -1568,6 +1581,31 @@ tsoftmax1d v = MkTVar (prim__softmax v.tensorPtr 0) Nothing
 export
 tlogSoftmax1d : {n : Nat} -> TVar [n] d -> TVar [n] d
 tlogSoftmax1d v = MkTVar (prim__logSoftmax v.tensorPtr 0) Nothing
+
+||| Fused LSTM gate computation: combined gates [4 * n] + previous cell [n]
+||| → (new hidden [n], new cell [n]). Wraps `prim__lstmGatesPair`.
+|||
+||| The gate-vector size is encoded statically as `TVec (4 * n) d`
+||| (alias for `TVar [4 * n] d`). Routing the `4 * n` through the
+||| `TVec` alias avoids the type-checker hang that direct
+||| `TVar [4 * n] d` triggers.
+export
+tlstmGatesPair : {n : Nat} -> TVec (4 * n) d -> TVec n d ->
+                 (TVec n d, TVec n d)
+tlstmGatesPair {n} combined prevCell =
+  let nI = cast {to=Int} n
+      pair = prim__lstmGatesPair combined.tensorPtr prevCell.tensorPtr nI
+  in (MkTVar (prim__pairFirst pair) Nothing, MkTVar (prim__pairSecond pair) Nothing)
+
+||| Allocate a zero-initialised persistent state TVar of size [n].
+||| Use for LSTM/RNN/GRU initial hidden + cell state. Persistent =
+||| survives tape reset.
+export
+tzeroState1d : {n : Nat} -> TVar [n] d
+tzeroState1d {n} =
+  let nI = cast {to=Int} n
+      buf = prim__allocDoubles nI
+  in MkTVar (prim__createState1d nI buf) Nothing
 
 -- Bridges + scalar boundary -------------------------------------------
 

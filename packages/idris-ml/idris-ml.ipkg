@@ -32,6 +32,7 @@ modules = Compat.Random
         , Layer.Linear
         , Layer.LinearV2
         , Layer.Lstm
+        , Layer.LstmV2
         , Layer.Normalization
         , Layer.Dnc
         , Layer.Ntm

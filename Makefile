@@ -283,6 +283,11 @@ example-bench-lstm-boundary: install
 	cp $(LIB) build/exec/bench-lstm-boundary_app/
 	./build/exec/bench-lstm-boundary $(BENCH_LSTM_BOUNDARY_ARGS)
 
+example-lstm-v2-smoke: install
+	idris2 $(IDRIS_FLAGS) -o lstm-v2-smoke $(EXAMPLE_SRC)/Example/LstmV2Smoke.idr
+	cp $(LIB) build/exec/lstm-v2-smoke_app/
+	./build/exec/lstm-v2-smoke
+
 example-rnn: install
 	idris2 $(IDRIS_FLAGS) -o rnn $(EXAMPLE_SRC)/Example/Rnn.idr
 	cp $(LIB) build/exec/rnn_app/
