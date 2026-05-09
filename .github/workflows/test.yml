@@ -224,6 +224,14 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: make BACKEND=torch test-safetensors
 
+      - name: Run typed index-op round-trip (torch, Ubuntu)
+        # Verifies the typed targsort/tgather/tscatterAdd surface *resolves*
+        # on torch (Compatible d I64) and runs — the C test covers numerics,
+        # check-all is tape-only and can't resolve the I64 gate. Torch-only:
+        # an integer-dtyped index tensor exists nowhere else.
+        if: matrix.os == 'ubuntu-latest'
+        run: make example-index-ops
+
       - name: Run integration tests
         # No SKIP_EXAMPLES: the mlx allocator aborts that used to skip
         # ntm-copy / ntm-associative-recall / dnc-recall / mountain-car-cont

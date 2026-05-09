@@ -549,6 +549,9 @@ check-examples: install
 			DTypeSerialize) \
 				echo "Skipping Example.$$mod (torch-only: constructs bf16/f16/i32, no Compatible instance on tape/mlx — checked via example-dtype-serialize)"; \
 				continue ;; \
+			IndexOps) \
+				echo "Skipping Example.$$mod (torch-only: targsort returns I64, no Compatible instance on tape/mlx — checked via example-index-ops)"; \
+				continue ;; \
 		esac; \
 		slug=$$(echo "$$mod" | tr 'A-Z' 'a-z'); \
 		echo "Building Example.$$mod..."; \
@@ -677,6 +680,15 @@ example-dtype-serialize:
 	else \
 		echo "=== cross-language verify SKIPPED (pytorch venv not found) ==="; \
 	fi
+
+# Type-safe integral index API demo. Forces BACKEND=torch (an I64 index
+# tensor is Compatible only on torch-cpu/cuda), then runs the typed
+# targsort/tgather/tscatterAdd round-trip with order-sensitive readouts.
+example-index-ops:
+	$(MAKE) BACKEND=torch install >/dev/null
+	idris2 $(IDRIS_FLAGS) -o index-ops $(EXAMPLE_SRC)/Example/IndexOps.idr
+	cp $(LIB) build/exec/index-ops_app/
+	./build/exec/index-ops
 
 # Compile-time (device, dtype) Compatible gate demo. The example's `ok*`
 # witnesses typecheck against the real constructor across all backends;
