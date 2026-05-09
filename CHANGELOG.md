@@ -3,6 +3,17 @@
 Completed work, most recent first. Moved out of `TODO.md` on 2026-05-22.
 
 
+Exact I64 safetensors I/O — values above 2^53 now round-trip bit-exact (closed 2026-05-23):
+- Adds the byte-level extractor pair `tensor_to_int64(TensorHandle, int64_t*)` + `param_load_data_int64(int idx, const int64_t*, int numel)` to `backend.h`. Torch blits through `kInt64` (no double pivot); tape and mlx route through their existing `double` view (no native i64 storage, so they inherit the same 2^53 ceiling — same value as the prior lingua-franca path, no regression). Symbols regenerate under the rename machinery; no manifest changes (both are C-internal, called only from `safetensors.c`).
+- `safetensors.c` uses the new path on the I64 save branch unconditionally (the extractor is byte-exact on torch and behaviour-preserving elsewhere) and on the load branch when src == dst == I64. allow_cast=1 loads that narrow I64 → some other dtype still go through the double pivot — the destination dtype can't hold >2^53 either way.
+- RED before this commit (locally observed under `BACKEND=torch test-safetensors`):
+  - FAIL: w_i64_big: restored [0]: got 4611686018427387904, expected 4611686018427387905 (= 2^62 + 1)
+  - FAIL: w_i64_big: restored [1]: got -4611686018427387904, expected -4611686018427387905
+  - FAIL: w_i64_big: restored [2]: got 9007199254740992, expected 9007199254740993 (= 2^53 + 1)
+  - FAIL: w_i64_big: restored [3]: got -9007199254740992, expected -9007199254740993
+  The pre-save block (using the new extractor + loader directly, no file round-trip) was already byte-exact at this point, isolating the corruption to the save/load path's double pivot.
+- GREEN after: every byte pattern survives the file round-trip. Verified on all three backends (`test-safetensors` + `test-backend-{tape,torch,mlx}` all green). Closes the row that documented the `>2^53` caveat under the 2026-05-22 bf16/f16 + integer safetensors entry; the updated entry in `docs/develop/design-decisions.md` records the new byte-exact contract.
+
 Idris unit-test harness de-hardcoded from TapeDev — every backend now runs the suite (closed 2026-05-23):
 - Adds a Makefile-generated `TestConfig.idr` under the test sourcedir (template at `TestConfig.idr.in`, `.gitignore`'d output, same trick as `BuildConfig.idr` for examples + `HwConfig.idr` for Linked instances). Test buckets that touch the C surface (`Test.GradMode`, `Test.ManagedHandle`) now spell `{d=TestDevice}` instead of `{d=TapeDev}`, so `make BACKEND={tape,torch,mlx} test` resolves to the active primary backend's FFI symbols. Pure-Idris buckets (Array / Math / Init / Sampler / Schedule / RL.Gae / RL.ReplayBuffer / Hpo.LrFinder) were already backend-agnostic.
 - RED before the fix (locally observed on both lanes): `make BACKEND=torch test` and `make BACKEND=mlx test` both crashed at first FFI call with `Exception in foreign-procedure: no entry for "tensor_create_scalar_tape"` — the `{d=TapeDev}` pin resolved to a tape-suffixed symbol that didn't exist in a torch- or mlx-only dylib. GREEN after: all three backends pass the suite verbatim (local + CI gated).

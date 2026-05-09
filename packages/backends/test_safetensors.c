@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 #include <math.h>
 
 static int failures = 0;
@@ -25,6 +26,17 @@ static int failures = 0;
         failures++; \
     } else { \
         printf("ok: %s\n", msg); \
+    } \
+} while(0)
+
+#define ASSERT_I64_EQ(msg, got, expected) do { \
+    int64_t _g = (got), _e = (expected); \
+    if (_g != _e) { \
+        printf("FAIL: %s: got %lld, expected %lld\n", msg, \
+               (long long)_g, (long long)_e); \
+        failures++; \
+    } else { \
+        printf("ok: %s = %lld\n", msg, (long long)_g); \
     } \
 } while(0)
 
@@ -88,6 +100,79 @@ static void run_inference_dtype_tests(void) {
     double* b3 = tensor_alloc_doubles(in);
     for (int i = 0; i < in; i++) b3[i] = idata[i];
     dtype_roundtrip("w_i32", "I32", tensor_create_1d_streamed(in, b3, 0, 0, 6), idata, in);
+}
+
+/* >2^53 I64 round-trip — exact-i64 path test. The lingua-franca double
+   path used by save/load before this row was closed rounded any int64
+   magnitude above 2^53. The byte-level extractor + loader bypass the
+   double pivot so every i64 bit pattern survives the file write/read
+   round-trip. Test seeds via `param_load_data_int64` (byte-exact),
+   saves, zeros via the same loader, loads, reads back via
+   `tensor_to_int64`. */
+static void run_i64_exact_roundtrip(void) {
+    printf("\n--- Exact I64 safetensors round-trip (torch, >2^53) ---\n\n");
+
+    /* Mix of small + >2^53 values. 2^53 = 0x20000000000000.
+       0x4000000000000001 = 2^62 + 1 — needs all 63 mantissa+exponent
+       bits to round-trip; falls strictly outside double's 53-bit
+       precision. */
+    int64_t big_pos = (int64_t)0x4000000000000001LL;     /* 2^62 + 1 */
+    int64_t big_neg = -((int64_t)0x4000000000000001LL);  /* -(2^62 + 1) */
+    int64_t mid     = ((int64_t)1 << 53) + 1;            /* 2^53 + 1 */
+    int64_t mid_neg = -(((int64_t)1 << 53) + 1);
+    int64_t seed_i64[] = { big_pos, big_neg, mid, mid_neg,
+                           0LL, 1LL, -1LL, 42LL };
+    int n = 8;
+
+    param_clear();
+
+    /* Bootstrap an I64 tensor via the streamed creator (dtag=7); the
+       values from the double buffer are placeholders — we overwrite
+       byte-exact via param_load_data_int64 below. */
+    double* placeholder = tensor_alloc_doubles(n);
+    for (int i = 0; i < n; i++) placeholder[i] = 0.0;
+    TensorHandle h = tensor_create_1d_streamed(n, placeholder, 0, 0, /*dtag=I64*/7);
+    param_register("w_i64_big", h);
+
+    ASSERT_TRUE("w_i64_big: on-disk dtype is I64",
+                strcmp(tensor_dtype_name(param_tensor(0)), "I64") == 0);
+
+    /* Seed byte-exact via the new loader. */
+    param_load_data_int64(0, seed_i64, n);
+
+    /* Sanity: the extractor reads back the same bits. */
+    int64_t pre[8];
+    tensor_to_int64(param_tensor(0), pre);
+    for (int i = 0; i < n; i++) {
+        char msg[80];
+        snprintf(msg, sizeof(msg), "w_i64_big: pre-save [%d]", i);
+        ASSERT_I64_EQ(msg, pre[i], seed_i64[i]);
+    }
+
+    /* Round-trip through file. */
+    const char* path = "/tmp/idrisml_test_i64_exact.safetensors";
+    ASSERT_TRUE("w_i64_big: param_save returns 0", param_save(path) == 0);
+
+    /* Zero via the same loader (also exercises param_load_data_int64). */
+    int64_t zeros[8] = {0};
+    param_load_data_int64(0, zeros, n);
+    int64_t after_zero[8];
+    tensor_to_int64(param_tensor(0), after_zero);
+    ASSERT_I64_EQ("w_i64_big: zeroed pre-load", after_zero[0], 0LL);
+
+    ASSERT_TRUE("w_i64_big: param_load returns 0", param_load(path) == 0);
+
+    /* The headline assertion: every value survives bit-exactly. */
+    int64_t got[8];
+    tensor_to_int64(param_tensor(0), got);
+    for (int i = 0; i < n; i++) {
+        char msg[80];
+        snprintf(msg, sizeof(msg), "w_i64_big: restored [%d]", i);
+        ASSERT_I64_EQ(msg, got[i], seed_i64[i]);
+    }
+
+    remove(path);
+    param_clear();
 }
 #endif /* BACKEND_TORCH */
 
@@ -255,6 +340,7 @@ int main(void) {
 
 #ifdef BACKEND_TORCH
     run_inference_dtype_tests();
+    run_i64_exact_roundtrip();
 #endif
 
     printf("\n");

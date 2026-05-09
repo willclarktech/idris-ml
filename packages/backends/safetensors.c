@@ -153,9 +153,12 @@ int param_save(const char* path) {
     }
     free(json_str);
 
-    /* Tensor data — write in the param's actual dtype width. Everything
-       is pulled into a double buffer first (the lingua franca), then packed
-       into the on-disk element type. */
+    /* Tensor data — write in the param's actual dtype width. F32 and I64
+       go directly via their byte-exact extractors so values that don't
+       round-trip through `double` (F32 outside the f32 grid; I64 above
+       2^53) survive the file write. Every other dtype uses the
+       `double` lingua franca — bf16/f16 via the shared bit helpers,
+       the small ints via plain casts (exact in their ranges). */
     for (int i = 0; i < n; i++) {
         TensorHandle t = param_tensor(i);
         int numel = tensor_numel(t);
@@ -166,6 +169,18 @@ int param_save(const char* path) {
             tensor_to_floats(t, buf);
             fwrite(buf, sizeof(float), numel, f);
             free(buf);
+            continue;
+        }
+        if (strcmp(dt, "I64") == 0) {
+            /* Byte-exact path — bypasses the double pivot. Honest on
+               torch (native int64 storage); on tape/mlx the extractor
+               still rounds through the lingua-franca buffer, matching
+               the prior behaviour (no regression). */
+            int64_t* ibuf = (int64_t*)malloc((size_t)numel * sizeof(int64_t));
+            if (!ibuf) { fclose(f); free(offsets); free(sizes); free(dtypes); return -1; }
+            tensor_to_int64(t, ibuf);
+            fwrite(ibuf, sizeof(int64_t), numel, f);
+            free(ibuf);
             continue;
         }
         double* dbuf = (double*)malloc((size_t)numel * sizeof(double));
@@ -196,11 +211,6 @@ int param_save(const char* path) {
         } else if (strcmp(dt, "I32") == 0) {
             for (int e = 0; e < numel; e++) {
                 int32_t v = (int32_t)dbuf[e];
-                fwrite(&v, sizeof(v), 1, f);
-            }
-        } else if (strcmp(dt, "I64") == 0) {
-            for (int e = 0; e < numel; e++) {
-                int64_t v = (int64_t)dbuf[e];
                 fwrite(&v, sizeof(v), 1, f);
             }
         } else if (strcmp(dt, "U8") == 0) {
@@ -340,6 +350,19 @@ int param_load_with_policy(const char* path, int allow_cast) {
             fprintf(stderr, "param_load: failed to read data for '%s'\n", name);
             free(raw_buf);
             rc = -1;
+            continue;
+        }
+
+        /* Byte-exact I64 path — bypasses the double pivot so the
+           bits read off disk reach the destination tensor without
+           rounding. Only valid when src==dst==I64; an allow_cast=1
+           load that narrows I64 → some other dtype still goes
+           through the double lingua franca below (the destination
+           dtype can't preserve >2^53 anyway). */
+        if (dtypes_match && strcmp(src_dtype, "I64") == 0) {
+            param_load_data_int64(pidx, (const int64_t*)raw_buf, numel);
+            free(raw_buf);
+            loaded++;
             continue;
         }
 

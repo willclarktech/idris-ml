@@ -1018,6 +1018,39 @@ void param_load_data(int idx, const double* data, int numel) {
     entry.tensor->view({numel}).copy_(staging);
 }
 
+// Byte-exact I64 readout — bypasses the double pivot so values
+// above 2^53 survive. The `.to(kInt64)` is a no-op when the source
+// is already I64; if a caller asks for int64 readout on a non-I64
+// tensor we still narrow through torch's standard truncating cast
+// (matches the implicit cast in `tensor_to_doubles` for the same
+// case). `.cpu()` mirrors the device handling in `tensor_to_doubles`.
+void tensor_to_int64(TensorHandle h, int64_t* out) {
+    auto t = to_tensor(h)->cpu().to(torch::kInt64).contiguous();
+    std::memcpy(out, t.data_ptr<int64_t>(), t.numel() * sizeof(int64_t));
+}
+
+// Byte-exact I64 in-place loader — staging tensor is built with
+// kInt64 so the source bits travel without going through double.
+// `.copy_()` handles device + dtype conversions transparently; the
+// safetensors load path only calls us when src and dst are both
+// I64, so the .copy_ is a same-dtype memcpy in practice.
+void param_load_data_int64(int idx, const int64_t* data, int numel) {
+    torch::NoGradGuard no_grad;
+    auto& entry = param_registry[idx];
+    int existing = entry.tensor->numel();
+    if (existing != numel) {
+        fprintf(stderr, "param_load_data_int64: size mismatch for '%s': expected %d, got %d\n",
+                entry.name.c_str(), existing, numel);
+        return;
+    }
+    auto staging = torch::from_blob(
+        const_cast<int64_t*>(data),
+        {(int64_t)numel},
+        torch::kInt64
+    );
+    entry.tensor->view({numel}).copy_(staging);
+}
+
 TensorHandle tensor_subtract_scalar_inplace(TensorHandle h, double val) {
     torch::NoGradGuard no_grad;
     to_tensor(h)->sub_(val);

@@ -786,6 +786,24 @@ void tensor_to_doubles(TensorHandle h, double* out) {
     mx_to_doubles(t->data, out);
 }
 
+// Byte-level I64 readout — declared in backend.h with the byte-exact
+// contract honoured only on backends with native int64 storage. mlx
+// stores only F32/F64; integer storage round-trips through `double`,
+// inheriting the same 2^53 ceiling as the lingua-franca path.
+// Practically the safetensors I/O caller only reaches this on tensors
+// already typed I64, which mlx can't construct (Compatible MlxDev I64
+// is closed). Implemented for symbol completeness.
+void tensor_to_int64(TensorHandle h, int64_t* out) {
+    auto t = (Tensor*)h;
+    int n = (int)t->data.size();
+    double* tmp = (double*)malloc((size_t)n * sizeof(double));
+    if (!tmp) return;
+    mx::eval(t->data);
+    mx_to_doubles(t->data, tmp);
+    for (int i = 0; i < n; i++) out[i] = (int64_t)tmp[i];
+    free(tmp);
+}
+
 void tensor_to_floats(TensorHandle h, float* out) {
     auto t = (Tensor*)h;
     mx::eval(t->data);
@@ -3411,6 +3429,25 @@ void param_load_data(int idx, const double* data, int numel) {
         return;
     }
     t->data = mx_array_from_doubles(data, shape, t->data.dtype());
+}
+
+// Byte-level I64 loader — see backend.h. mlx routes through the
+// existing double-pivoted loader (no native int64 storage), so values
+// above 2^53 lose precision. Symbol completeness; no current code path
+// constructs an I64 tensor on mlx (Compatible MlxDev I64 is closed).
+void param_load_data_int64(int idx, const int64_t* data, int numel) {
+    auto t = param_registry[idx].tensor;
+    int existing = t->data.size();
+    if (existing != numel) {
+        fprintf(stderr, "param_load_data_int64: size mismatch for '%s': expected %d, got %d\n",
+                param_registry[idx].name.c_str(), existing, numel);
+        return;
+    }
+    double* tmp = (double*)malloc((size_t)numel * sizeof(double));
+    if (!tmp) return;
+    for (int i = 0; i < numel; i++) tmp[i] = (double)data[i];
+    t->data = mx_array_from_doubles(tmp, t->data.shape(), t->data.dtype());
+    free(tmp);
 }
 
 TensorHandle tensor_subtract_scalar_inplace(TensorHandle h, double val) {

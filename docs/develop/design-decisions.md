@@ -923,9 +923,20 @@ remains F32/F64 only since Metal has no half-precision/integer
 storage.) This is byte-exact for bf16/f16 round-trips
 (`bf16 → f64 → bf16` is identity) and every integer except **I64 above
 2^53** — a double can't represent those, and torch's `.to(kFloat64)`
-rounds before the bytes are packed, so i64 ships with that documented
-caveat (exact i64 would need a byte-level int extractor; filed as a
-Medium row). New public `registerParam` puts an arbitrary-dtype,
+rounds before the bytes are packed, so the original lingua-franca path
+shipped with that caveat. **Closed (2026-05-23)** via a byte-level
+extractor pair `tensor_to_int64` / `param_load_data_int64`
+(declared in `backend.h`, implemented on each backend in the natural
+way: torch blits through `kInt64`; tape/mlx route through the existing
+`double` view since they have no native i64 storage). `safetensors.c`'s
+I64 save/load branches use the new path when the on-disk and
+destination dtypes are both I64; allow_cast=1 loads that narrow I64 →
+some other dtype still go through the double pivot (the destination
+can't preserve >2^53 anyway). Test gate: `test_safetensors.c`'s
+"Exact I64 safetensors round-trip" block seeds `2^62+1`, `-(2^62+1)`,
+`2^53+1`, `-(2^53+1)` via `param_load_data_int64`, round-trips through
+the file, and asserts every bit pattern survives — runs under
+`make BACKEND=torch test-safetensors`. New public `registerParam` puts an arbitrary-dtype,
 possibly-NoGrad tensor into the param registry by name so `saveModel`
 serializes it — the path for inference-dtype weights and the future
 HF-checkpoint loader; `tensor_set_requires_grad` (torch) no-ops on

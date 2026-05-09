@@ -1,6 +1,8 @@
 #ifndef IDRISML_BACKEND_H
 #define IDRISML_BACKEND_H
 
+#include <stdint.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -477,6 +479,19 @@ int param_load_with_policy(const char* path, int allow_cast);
 
 /* Overwrite param tensor data in-place from a double buffer (per-backend). */
 void param_load_data(int idx, const double* data, int numel);
+
+/* Byte-exact I64 extractor + loader. The double lingua-franca path
+   above rounds any int64 magnitude beyond 2^53 (double has 53 bits of
+   mantissa); these two symbols bypass the double pivot so every i64
+   bit pattern survives the file round-trip when src and dst dtypes
+   are both I64. Honest only on backends with native i64 storage
+   (torch today); on tape (double-backed) and mlx (no integer
+   storage) they route through `tensor_to_doubles` / `param_load_data`
+   and inherit the same 2^53 ceiling, matching the existing rounded
+   behaviour with no regression. See `safetensors.c`'s I64 save/load
+   branches for the call sites. */
+void tensor_to_int64(TensorHandle t, int64_t* out);
+void param_load_data_int64(int idx, const int64_t* data, int numel);
 
 /* Save optimizer state to a .safetensors file. Returns 0 on success. */
 int optimizer_save(OptimizerHandle opt, const char* path);

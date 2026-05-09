@@ -766,6 +766,19 @@ void tensor_to_doubles(TensorHandle h, double* out) {
     }
 }
 
+/* Byte-level I64 readout — declared in backend.h with the byte-exact
+   contract honoured only on backends with native int64 storage. Tape
+   has no native int storage (integer dtypes ride in `double*` via the
+   lingua-franca path, rounded on store), so this is a per-element cast
+   from the dtype-uniform double view. Matches the value the safetensors
+   double path was producing pre-row-20; no regression. */
+void tensor_to_int64(TensorHandle h, int64_t* out) {
+    Tensor* t = (Tensor*)h;
+    for (int i = 0; i < t->numel; i++) {
+        out[i] = (int64_t)tape_load_d(t, i);
+    }
+}
+
 void tensor_to_floats(TensorHandle h, float* out) {
     Tensor* t = (Tensor*)h;
     if (t->dtype_tag == DT_F32) {
@@ -5912,6 +5925,23 @@ void param_load_data(int idx, const double* data, int numel) {
         return;
     }
     memcpy(t->data, data, numel * sizeof(double));
+}
+
+/* Byte-level I64 in-place loader — see backend.h. Tape's lingua-franca
+   storage routes every int64 through `tape_store_d` (narrows to float
+   on F32 storage, plain double-write otherwise). Values above 2^53
+   lose precision at this conversion, matching the existing lingua-
+   franca behaviour — no regression. */
+void param_load_data_int64(int idx, const int64_t* data, int numel) {
+    Tensor* t = param_registry[idx].tensor;
+    if (t->numel != numel) {
+        fprintf(stderr, "param_load_data_int64: size mismatch for '%s': expected %d, got %d\n",
+                param_registry[idx].name, t->numel, numel);
+        return;
+    }
+    for (int i = 0; i < numel; i++) {
+        tape_store_d(t, i, (double)data[i]);
+    }
 }
 
 TensorHandle tensor_subtract_scalar_inplace(TensorHandle h, double val) {

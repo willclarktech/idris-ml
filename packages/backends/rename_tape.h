@@ -51,6 +51,7 @@
 #define param_grad_item_at param_grad_item_at_tape
 #define param_load param_load_tape
 #define param_load_data param_load_data_tape
+#define param_load_data_int64 param_load_data_int64_tape
 #define param_load_with_policy param_load_with_policy_tape
 #define param_name param_name_tape
 #define param_register param_register_tape
@@ -230,6 +231,7 @@
 #define tensor_to_doubles tensor_to_doubles_tape
 #define tensor_to_doubles_return tensor_to_doubles_return_tape
 #define tensor_to_floats tensor_to_floats_tape
+#define tensor_to_int64 tensor_to_int64_tape
 #define tensor_transpose_2d tensor_transpose_2d_tape
 #define tensor_transpose_last2 tensor_transpose_last2_tape
 #define tensor_unbatch tensor_unbatch_tape
