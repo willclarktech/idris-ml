@@ -1,9 +1,14 @@
-"""RNN model with linear recurrence (no activation).
+"""RNN model — `nn.RNNCell`-equivalent (tanh activation, two biases).
 
-Uses a custom LinearRNNCell instead of nn.RNN because the Idris-side
-RnnLayer has no activation — it's a raw linear recurrence:
-  h' = W_ih @ x + W_hh @ h + b
-PyTorch's nn.RNN always applies tanh.
+Mirrors Idris's `Layer.Rnn`:
+  h' = activation( W_ih @ x + b_ih + W_hh @ h + b_hh )
+with `activation = tanh` (default), zero-initialised hidden state.
+
+The previous `LinearRNNCell` (no activation, single bias, learned
+initial hidden state) was a non-standard variant chosen arbitrarily;
+we've moved both Idris and the reference to the standard PyTorch
+`nn.RNNCell` shape so the example demonstrates the canonical RNN
+recipe.
 """
 
 import torch
@@ -14,27 +19,48 @@ from torch_ref.training.losses import bce_with_logits
 
 
 class LinearRNNCell(nn.Module):
-    """Linear RNN cell with no activation."""
+    """RNN cell + linear output projection (mirrors Idris example shape).
 
-    def __init__(self, input_size: int, hidden_size: int) -> None:
+    Cell equation matches PyTorch's `nn.RNNCell` (tanh activation, two
+    biases):
+      h' = tanh(W_ih @ x + b_ih + W_hh @ h + b_hh)
+
+    Plus an output projection W_out @ h + b_out, so the full forward
+    is `out = W_out @ tanh(...) + b_out`. The Idris example has the
+    same structure: `RnnLayer(1, 4) ~~> Linear(4, 1)`.
+
+    Class name kept (`LinearRNNCell`) for stable script imports; the
+    "Linear" prefix here means "with a linear output projection on
+    top", not "linear-recurrence" (which was the pre-2026-05-09
+    non-standard variant).
+    """
+
+    def __init__(self, input_size: int, hidden_size: int = 4, output_size: int = 1) -> None:
         super().__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
+        self.output_size = output_size
 
         self.weight_ih = nn.Parameter(torch.empty(hidden_size, input_size))
         self.weight_hh = nn.Parameter(torch.empty(hidden_size, hidden_size))
-        self.bias = nn.Parameter(torch.zeros(hidden_size))
-        self.hidden = nn.Parameter(torch.zeros(hidden_size))
+        self.bias_ih = nn.Parameter(torch.zeros(hidden_size))
+        self.bias_hh = nn.Parameter(torch.zeros(hidden_size))
+
+        self.weight_out = nn.Parameter(torch.empty(output_size, hidden_size))
+        self.bias_out = nn.Parameter(torch.zeros(output_size))
 
         nn.init.xavier_uniform_(self.weight_ih)
         nn.init.xavier_uniform_(self.weight_hh)
+        nn.init.xavier_uniform_(self.weight_out)
 
     def reset_state(self) -> None:
-        self._h = self.hidden.clone()
+        self._h = torch.zeros(self.hidden_size)
 
     def forward(self, x: Tensor) -> Tensor:
-        self._h = self.weight_ih @ x + self.weight_hh @ self._h + self.bias
-        return self._h
+        self._h = torch.tanh(
+            self.weight_ih @ x + self.bias_ih + self.weight_hh @ self._h + self.bias_hh
+        )
+        return self.weight_out @ self._h + self.bias_out
 
 
 class LinearLSTMCell(nn.Module):

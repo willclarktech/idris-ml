@@ -20,7 +20,7 @@ def show_seq(tensors: list[torch.Tensor]) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--lr", type=float, default=0.03)
+    parser.add_argument("--lr", type=float, default=0.5)
     parser.add_argument("--epochs", type=int, default=2000)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument(
@@ -35,9 +35,14 @@ def main() -> None:
     print("=== RNN Pattern Prediction ===")
     print(f"Config: lr={args.lr} epochs={args.epochs} seed={args.seed}")
 
-    model = LinearRNNCell(1, 1)
+    # Matches Idris Example.Rnn: RnnLayer(1, 4) ~~> Linear(4, 1).
+    # Pre-2026-05-09 the model was a 1-unit linear-recurrence (no
+    # activation) with no output projection. Aligned to the standard
+    # nn.RNNCell shape: tanh activation, two biases, hidden=4 + linear
+    # projection to 1.
+    model = LinearRNNCell(1, hidden_size=4, output_size=1)
     data = generate_rnn_dataset(8)
-    print("Architecture: OutputLayer (RnnLayer)")
+    print("Architecture: RnnCell(1, 4) -> Linear(4, 1)")
     print()
 
     optimizer = torch.optim.SGD(model.parameters(), lr=args.lr)
