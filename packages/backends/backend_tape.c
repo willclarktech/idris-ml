@@ -392,7 +392,23 @@ static inline TapeEntry* tape_at(int idx) {
     return (TapeEntry*)typed_arena_at(&tape_arena, idx);
 }
 
+/* fwd-decls: definitions are in the profiling section. */
+static double _wall_ms(void);
+extern double prof_forward_per_op[];
+extern int prof_forward_count_per_op[];
+extern double prof_op_t_prev;
+
 static TapeEntry* tape_append(int op, Tensor* result, Tensor* arg1, Tensor* arg2, double scalar_arg) {
+    /* Attribute the time since the previous tape_append (or epoch_begin)
+       to this op — covers its compute + setup. Idris-side glue between
+       ops adds small noise, but at typical 30+ µs per op the signal
+       still surfaces a 2× regression cleanly. */
+    if (prof_op_t_prev > 0 && op >= 0 && op < OP_COUNT) {
+        double now = _wall_ms();
+        prof_forward_per_op[op] += now - prof_op_t_prev;
+        prof_forward_count_per_op[op]++;
+        prof_op_t_prev = now;
+    }
     TapeEntry* e = (TapeEntry*)typed_arena_append(&tape_arena);
     memset(e, 0, sizeof(TapeEntry));
     e->op = op;
@@ -2386,6 +2402,15 @@ static double prof_epoch_start = 0; /* set by backend_epoch_begin() */
 static int prof_backward_processed = 0, prof_backward_skipped = 0;
 static double prof_backward_per_op[OP_COUNT] = {0};
 static int prof_backward_count_per_op[OP_COUNT] = {0};
+/* Per-op forward timing. Non-static so the forward declarations near
+   tape_append (which is defined earlier in the file) can refer to them. */
+double prof_forward_per_op[OP_COUNT] = {0};
+int prof_forward_count_per_op[OP_COUNT] = {0};
+/* Wall-time of the previous tape_append (or epoch_begin). The delta
+   from that moment to the next tape_append is attributed to the op
+   being recorded now — i.e. its compute + tape-append cost. Set to 0
+   to disable accumulation (e.g. during backward). */
+double prof_op_t_prev = 0;
 
 
 
@@ -2396,6 +2421,8 @@ void tensor_backward(TensorHandle h) {
         prof_forward_ms += t0 - prof_epoch_start;
         prof_epoch_start = 0;
     }
+    /* Stop per-op forward accumulation; the next epoch_begin will rearm. */
+    prof_op_t_prev = 0;
     Tensor* loss = (Tensor*)h;
     if (loss->tape_idx < 0) return;
 
@@ -4387,8 +4414,10 @@ void optimizer_step(OptimizerHandle h) {
     }
     prof_optimizer_ms += _wall_ms() - t0_opt;
     prof_epochs++;
-    /* Auto-start timing for next epoch's forward pass */
-    prof_epoch_start = _wall_ms();
+    /* Auto-start timing for next epoch's forward pass + per-op accumulator */
+    double t_next = _wall_ms();
+    prof_epoch_start = t_next;
+    prof_op_t_prev = t_next;
 }
 
 /* Internal clip-value helper scoped to params owned by `opt`. */
@@ -4590,16 +4619,21 @@ void backend_memory_report(void) {
    ================================================================ */
 
 void backend_epoch_begin(void) {
-    prof_epoch_start = _wall_ms();
+    double t = _wall_ms();
+    prof_epoch_start = t;
+    prof_op_t_prev = t;
 }
 
 void backend_profile_reset(void) {
     prof_forward_ms = prof_backward_ms = prof_optimizer_ms = 0;
     prof_forward_ops = prof_backward_ops = prof_epochs = 0;
     prof_epoch_start = 0;
+    prof_op_t_prev = 0;
     prof_backward_processed = prof_backward_skipped = 0;
     memset(prof_backward_per_op, 0, sizeof(prof_backward_per_op));
     memset(prof_backward_count_per_op, 0, sizeof(prof_backward_count_per_op));
+    memset(prof_forward_per_op, 0, sizeof(prof_forward_per_op));
+    memset(prof_forward_count_per_op, 0, sizeof(prof_forward_count_per_op));
 }
 
 static const char* op_name(int op) {
@@ -4680,6 +4714,23 @@ void backend_profile_report(void) {
         fprintf(stderr, "    %-12s %.2fms (%d calls)\n",
                 op_name(best), best_time, prof_backward_count_per_op[best]);
         prof_backward_per_op[best] = -1; /* mark as printed (will be reset on next profile_reset) */
+    }
+    /* Top-10 ops by forward time (broader than backward — more ops contribute) */
+    fprintf(stderr, "  Top forward ops:\n");
+    for (int rank = 0; rank < 10; rank++) {
+        int best = -1;
+        double best_time = 0;
+        for (int j = 0; j < OP_COUNT; j++) {
+            if (prof_forward_per_op[j] > best_time) {
+                best = j; best_time = prof_forward_per_op[j];
+            }
+        }
+        if (best < 0 || best_time < 0.001) break;
+        int n = prof_forward_count_per_op[best];
+        double per_call_us = n > 0 ? (best_time * 1000.0 / n) : 0.0;
+        fprintf(stderr, "    %-12s %.2fms (%d calls, %.2f us/call)\n",
+                op_name(best), best_time, n, per_call_us);
+        prof_forward_per_op[best] = -1; /* mark as printed */
     }
 }
 
