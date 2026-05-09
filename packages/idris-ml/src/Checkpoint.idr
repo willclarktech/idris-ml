@@ -12,14 +12,14 @@ import System.File
 import Device
 import Tensor
 
--- SafeTensors I/O dispatches per-backend through `UserDeviceTape d`:
+-- SafeTensors I/O dispatches per-backend through `UserDeviceTraining d`:
 -- each backend's param/optimizer registry is TU-local, so `{d}`
 -- selects which one is serialized.
 
 ||| Save all registered parameters to a .safetensors file.
 ||| Returns True on success.
 export
-saveModel : UserDeviceTape d => String -> IO Bool
+saveModel : UserDeviceTraining d => String -> IO Bool
 saveModel path = do
   rc <- primIO (primParamSave {d} path)
   pure (rc == 0)
@@ -35,7 +35,7 @@ saveModel path = do
 ||| model), use `loadModelAllowCast` to opt in to silent precision
 ||| conversion at load time.
 export
-loadModel : UserDeviceTape d => String -> IO Bool
+loadModel : UserDeviceTraining d => String -> IO Bool
 loadModel path = do
   rc <- primIO (primParamLoad {d} path)
   pure (rc == 0)
@@ -48,7 +48,7 @@ loadModel path = do
 ||| as needed). F32 -> F64 is lossless; F64 -> F32 incurs precision
 ||| loss but is well-defined.
 export
-loadModelAllowCast : UserDeviceTape d => String -> IO Bool
+loadModelAllowCast : UserDeviceTraining d => String -> IO Bool
 loadModelAllowCast path = do
   rc <- primIO (primParamLoadWithPolicy {d} path 1)
   pure (rc == 0)
@@ -56,7 +56,7 @@ loadModelAllowCast path = do
 ||| Save optimizer state (momentum/velocity buffers) to a .safetensors file.
 ||| Returns True on success.
 export
-saveOptimizer : UserDeviceTape d => String -> NativeOptimizer d -> IO Bool
+saveOptimizer : UserDeviceTraining d => String -> NativeOptimizer d -> IO Bool
 saveOptimizer path opt = do
   rc <- primIO (primOptimizerSave {d} opt.handle path)
   pure (rc == 0)
@@ -64,7 +64,7 @@ saveOptimizer path opt = do
 ||| Load optimizer state from a .safetensors file.
 ||| Returns True on success.
 export
-loadOptimizer : UserDeviceTape d => String -> NativeOptimizer d -> IO Bool
+loadOptimizer : UserDeviceTraining d => String -> NativeOptimizer d -> IO Bool
 loadOptimizer path opt = do
   rc <- primIO (primOptimizerLoad {d} opt.handle path)
   pure (rc == 0)
@@ -148,7 +148,7 @@ record CheckpointPolicy where
   saveState : String -> Nat -> Double -> IO Bool
   loadState : String -> IO (Maybe (Nat, Double))
 
-saveCheckpointFiles : UserDeviceTape d => NativeOptimizer d -> String -> String -> Nat -> Double -> IO Bool
+saveCheckpointFiles : UserDeviceTraining d => NativeOptimizer d -> String -> String -> Nat -> Double -> IO Bool
 saveCheckpointFiles opt dir pfx ep best = do
   _   <- createDir dir
   ok1 <- saveModel {d} (pfx ++ ".model.safetensors")
@@ -156,7 +156,7 @@ saveCheckpointFiles opt dir pfx ep best = do
   ok3 <- writeTrainerState (pfx ++ ".trainer_state.json") ep best
   pure (ok1 && ok2 && ok3)
 
-loadCheckpointFiles : UserDeviceTape d =>
+loadCheckpointFiles : UserDeviceTraining d =>
   NativeOptimizer d -> String -> IO (Maybe (Nat, Double))
 loadCheckpointFiles opt pfx = do
   st <- readTrainerState (pfx ++ ".trainer_state.json")
@@ -173,7 +173,7 @@ loadCheckpointFiles opt pfx = do
 ||| `<dir>/best` — so a periodic save never clobbers the best one.
 ||| Override `monitor` via record update to keep-best on a val metric.
 export
-fileCheckpoint : UserDeviceTape d =>
+fileCheckpoint : UserDeviceTraining d =>
   (dir : String) -> (everyN : Nat) -> (keepBest : Bool) ->
   NativeOptimizer d -> CheckpointPolicy
 fileCheckpoint dir everyN keepBest opt =

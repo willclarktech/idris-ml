@@ -126,7 +126,7 @@ writeCausalMask buf i j n =
 %default partial
 
 -- Recursive head loop — accumulates per-head projections over numHeads.
-runHeadAttn : {0 d : Device} -> UserDeviceTape d => {dModel, headDim : Nat} ->
+runHeadAttn : {0 d : Device} -> UserDeviceTraining d => {dModel, headDim : Nat} ->
               Vect k (LinearState dModel headDim d dt g) ->
               Vect k (LinearState dModel headDim d dt g) ->
               Vect k (LinearState dModel headDim d dt g) ->
@@ -156,7 +156,7 @@ runHeadAttn (q :: qs) (k :: ks) (v :: vs) (op :: ops) normed mask sI hdI acc =
 -- Forward one block on `[seqLen, dModel]` tensor handle. The caller passes
 -- the cached causal mask AnyPtr (shared across blocks; built once on
 -- `TransformerState`).
-blockForward : {0 d : Device} -> UserDeviceTape d => {dModel, numHeads, headDim : Nat} ->
+blockForward : {0 d : Device} -> UserDeviceTraining d => {dModel, numHeads, headDim : Nat} ->
                  BlockState dModel numHeads headDim d dt g ->
                  AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
 blockForward (MkBlock qs ks vs ops
@@ -174,7 +174,7 @@ blockForward (MkBlock qs ks vs ops
   in primAdd {d} ffOut h1
 
 -- Fold over blocks.
-foldBlocks : {0 d : Device} -> UserDeviceTape d => {dModel, numHeads, headDim : Nat} ->
+foldBlocks : {0 d : Device} -> UserDeviceTraining d => {dModel, numHeads, headDim : Nat} ->
                Vect k (BlockState dModel numHeads headDim d dt g) ->
                AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
 foldBlocks [] h _ _ _ = h
@@ -187,7 +187,7 @@ foldBlocks (b :: bs) h mask sI hdI =
 ----------------------------------------------------------------------
 
 export
-applyTransformer : {0 d : Device} -> UserDeviceTape d => UserDeviceCore d => RuntimeDType dt => Linked d => Compatible d dt => {seqLen, dModel, numHeads, headDim, numBlocks, vocabSize : Nat} ->
+applyTransformer : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d => RuntimeDType dt => Linked d => Compatible d dt => {seqLen, dModel, numHeads, headDim, numBlocks, vocabSize : Nat} ->
                      TransformerState seqLen dModel numHeads headDim numBlocks
                                        vocabSize seqLen (seqLen * vocabSize) d dt g ->
                      TVec seqLen d dt g ->
@@ -221,7 +221,7 @@ applyTransformer {seqLen} {dModel} {headDim} {vocabSize}
 -- Per-head batched accumulator: project Q/K/V via `bmm`, fused
 -- `primCrossAttention {d}` (Q·K^T·scale → mask → softmax → ·V), then
 -- output projection via `bmm`. Sums per-head contributions.
-batchedHeadLoop : {0 d : Device} -> UserDeviceTape d => {dModel, headDim : Nat} ->
+batchedHeadLoop : {0 d : Device} -> UserDeviceTraining d => {dModel, headDim : Nat} ->
                     Vect k (LinearState dModel headDim d dt g) ->
                     Vect k (LinearState dModel headDim d dt g) ->
                     Vect k (LinearState dModel headDim d dt g) ->
@@ -247,7 +247,7 @@ batchedHeadLoop (q :: qs) (k :: ks) (v :: vs) (op :: ops) normed mask sc acc =
 -- Batched per-block forward. The caller passes the 3D causal mask AnyPtr
 -- (built once per batch by `applyTransformerBatch` via `primExpandMask {d}`
 -- on the cached 2D mask).
-batchBlockForward : {0 d : Device} -> UserDeviceTape d => {dModel, numHeads, headDim : Nat} ->
+batchBlockForward : {0 d : Device} -> UserDeviceTraining d => {dModel, numHeads, headDim : Nat} ->
                       BlockState dModel numHeads headDim d dt g ->
                       AnyPtr -> AnyPtr -> Int -> Int -> Int -> AnyPtr
 batchBlockForward (MkBlock qs ks vs ops
@@ -269,7 +269,7 @@ batchBlockForward (MkBlock qs ks vs ops
       ffOut = primMm {d} (primClampMin {d} (primMm {d} normed2 f1Wt) 0.0) f2Wt
   in primAdd {d} ffOut h1
 
-foldBlocksBatched : {0 d : Device} -> UserDeviceTape d => {dModel, numHeads, headDim : Nat} ->
+foldBlocksBatched : {0 d : Device} -> UserDeviceTraining d => {dModel, numHeads, headDim : Nat} ->
                       Vect k (BlockState dModel numHeads headDim d dt g) ->
                       AnyPtr -> AnyPtr -> Int -> Int -> Int -> AnyPtr
 foldBlocksBatched [] h _ _ _ _ = h
@@ -292,7 +292,7 @@ writePEBatch dModel buf pos dim bsLen dMod sLen =
 ||| single batched output instead of List AnyPtr.
 export
 applyTransformerBatch :
-  {0 d : Device} -> UserDeviceTape d =>
+  {0 d : Device} -> UserDeviceTraining d =>
   {seqLen, dModel, numHeads, headDim, numBlocks, vocabSize : Nat} ->
   {b : Nat} ->
   TransformerState seqLen dModel numHeads headDim numBlocks vocabSize
@@ -337,7 +337,7 @@ applyTransformerBatch {seqLen} {dModel} {headDim} {vocabSize} {b}
 ----------------------------------------------------------------------
 
 -- Build a Vect of n Linear layers with sequential paramId suffixes.
-mkLinearVec : UserDeviceTape d => RuntimeDType dt => Linked d => Compatible d dt => {i, o : Nat} -> (n : Nat) -> String -> IO (Vect n (LinearState i o d dt WithGrad))
+mkLinearVec : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt => {i, o : Nat} -> (n : Nat) -> String -> IO (Vect n (LinearState i o d dt WithGrad))
 mkLinearVec Z _ = pure []
 mkLinearVec (S k) pfx = do
   l <- linearLayer {i} {o} (pfx ++ show k)
@@ -345,7 +345,7 @@ mkLinearVec (S k) pfx = do
   pure (l :: rest)
 
 -- Build one transformer block.
-mkBlock : UserDeviceTape d => RuntimeDType dt => Linked d => Compatible d dt => {dModel, numHeads, headDim : Nat} ->
+mkBlock : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt => {dModel, numHeads, headDim : Nat} ->
             (paramPrefix : String) ->
             IO (BlockState dModel numHeads headDim d dt WithGrad)
 mkBlock pfx = do
@@ -359,7 +359,7 @@ mkBlock pfx = do
   f2 <- linearLayer {i = 4 * dModel} {o = dModel} (pfx ++ "_ff2")
   pure $ MkBlock qs ks vs ops n1 n2 f1 f2
 
-mkBlocks : UserDeviceTape d => RuntimeDType dt => Linked d => Compatible d dt => {dModel, numHeads, headDim : Nat} ->
+mkBlocks : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt => {dModel, numHeads, headDim : Nat} ->
              (k : Nat) -> (paramPrefix : String) ->
              IO (Vect k (BlockState dModel numHeads headDim d dt WithGrad))
 mkBlocks Z _ = pure []
@@ -373,7 +373,7 @@ mkBlocks (S k) paramPrefix = do
 ||| All params register as C params under their respective prefixes.
 export
 transformerLayer :
-  UserDeviceTape d => RuntimeDType dt => Linked d => Compatible d dt =>
+  UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt =>
   {seqLen, dModel, numHeads, headDim, numBlocks, vocabSize : Nat} ->
   {auto prf : dModel = numHeads * headDim} ->
   (paramPrefix : String) ->
@@ -422,7 +422,7 @@ transformerLayer {prf} paramPrefix = do
 -- Vect of linear states: walk linearly via manual recursion (traverse
 -- can't be used because freezeLayer / unfreezeLayer are linear in
 -- their argument, not unrestricted).
-freezeLinearVec : {i, o : Nat} -> {0 d : Device} -> UserDeviceTape d => {0 g : GradMode} ->
+freezeLinearVec : {i, o : Nat} -> {0 d : Device} -> UserDeviceTraining d => {0 g : GradMode} ->
                     Vect k (LinearState i o d dt g) ->
                     IO (Vect k (LinearState i o d dt NoGrad))
 freezeLinearVec [] = pure []
@@ -431,7 +431,7 @@ freezeLinearVec (l :: ls) = do
   ls' <- freezeLinearVec ls
   pure (l' :: ls')
 
-unfreezeLinearVec : {i, o : Nat} -> {0 d : Device} -> UserDeviceTape d =>
+unfreezeLinearVec : {i, o : Nat} -> {0 d : Device} -> UserDeviceTraining d =>
                       Vect k (LinearState i o d dt NoGrad) ->
                       IO (Vect k (LinearState i o d dt WithGrad))
 unfreezeLinearVec [] = pure []
@@ -440,7 +440,7 @@ unfreezeLinearVec (l :: ls) = do
   ls' <- unfreezeLinearVec ls
   pure (l' :: ls')
 
-freezeBlock : {dModel, numHeads, headDim : Nat} -> {0 d : Device} -> UserDeviceTape d => {0 g : GradMode} ->
+freezeBlock : {dModel, numHeads, headDim : Nat} -> {0 d : Device} -> UserDeviceTraining d => {0 g : GradMode} ->
                 BlockState dModel numHeads headDim d dt g ->
                 IO (BlockState dModel numHeads headDim d dt NoGrad)
 freezeBlock (MkBlock qs ks vs ops n1 n2 ff1 ff2) = do
@@ -454,7 +454,7 @@ freezeBlock (MkBlock qs ks vs ops n1 n2 ff1 ff2) = do
   ff2' <- freezeLayer ff2
   pure (MkBlock qs' ks' vs' ops' n1' n2' ff1' ff2')
 
-unfreezeBlock : {dModel, numHeads, headDim : Nat} -> {0 d : Device} -> UserDeviceTape d =>
+unfreezeBlock : {dModel, numHeads, headDim : Nat} -> {0 d : Device} -> UserDeviceTraining d =>
                   BlockState dModel numHeads headDim d dt NoGrad ->
                   IO (BlockState dModel numHeads headDim d dt WithGrad)
 unfreezeBlock (MkBlock qs ks vs ops n1 n2 ff1 ff2) = do
@@ -468,7 +468,7 @@ unfreezeBlock (MkBlock qs ks vs ops n1 n2 ff1 ff2) = do
   ff2' <- unfreezeLayer ff2
   pure (MkBlock qs' ks' vs' ops' n1' n2' ff1' ff2')
 
-freezeBlockVec : {dModel, numHeads, headDim : Nat} -> {0 d : Device} -> UserDeviceTape d => {0 g : GradMode} ->
+freezeBlockVec : {dModel, numHeads, headDim : Nat} -> {0 d : Device} -> UserDeviceTraining d => {0 g : GradMode} ->
                    Vect k (BlockState dModel numHeads headDim d dt g) ->
                    IO (Vect k (BlockState dModel numHeads headDim d dt NoGrad))
 freezeBlockVec [] = pure []
@@ -477,7 +477,7 @@ freezeBlockVec (b :: bs) = do
   bs' <- freezeBlockVec bs
   pure (b' :: bs')
 
-unfreezeBlockVec : {dModel, numHeads, headDim : Nat} -> {0 d : Device} -> UserDeviceTape d =>
+unfreezeBlockVec : {dModel, numHeads, headDim : Nat} -> {0 d : Device} -> UserDeviceTraining d =>
                      Vect k (BlockState dModel numHeads headDim d dt NoGrad) ->
                      IO (Vect k (BlockState dModel numHeads headDim d dt WithGrad))
 unfreezeBlockVec [] = pure []
@@ -515,7 +515,7 @@ public export
 
 export
 transformerLayerAny :
-  UserDeviceTape d => RuntimeDType dt => Linked d => Compatible d dt =>
+  UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt =>
   {seqLen, dModel, numHeads, headDim, numBlocks, vocabSize : Nat} ->
   {auto prf : dModel = numHeads * headDim} ->
   (paramPrefix : String) ->

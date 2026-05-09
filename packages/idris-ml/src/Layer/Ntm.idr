@@ -76,13 +76,13 @@ data NtmState :
 -- Idris-wrapped Tensor handle is alive; freed once both let go. Without
 -- this management the per-sequence state leaks unboundedly across eval-
 -- phase forwards on mlx (see docs/develop/tensor-lifecycle.md).
-zeroState1d : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => Linked d => Compatible d dt => (n : Nat) -> AnyPtr
+zeroState1d : {0 d : Device} -> UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt => (n : Nat) -> AnyPtr
 zeroState1d n =
   let nI = cast {to=Int} n
       buf = prim__allocDoubles nI
   in dtCreateState1d {d} {t=dt} nI buf (deviceStreamTag {d})
 
-zeroState2d : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => Linked d => Compatible d dt => (n, m : Nat) -> AnyPtr
+zeroState2d : {0 d : Device} -> UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt => (n, m : Nat) -> AnyPtr
 zeroState2d n m =
   let nI = cast {to=Int} n
       mI = cast {to=Int} m
@@ -93,7 +93,7 @@ zeroState2d n m =
 -- Returns (newReadAddr [n], readOutput [m]) given memory [n,m],
 -- prevWeights [n], key [m], beta [], g [], gamma [], shift [k].
 %inline
-ntmReadHeadIdris : {0 d : Device} -> UserDeviceTape d =>
+ntmReadHeadIdris : {0 d : Device} -> UserDeviceTraining d =>
                    (memT, prevWT, keyT, betaT, gT, gammaT, shiftT : AnyPtr) ->
                    (AnyPtr, AnyPtr)
 ntmReadHeadIdris memT prevWT keyT betaT gT gammaT shiftT =
@@ -128,7 +128,7 @@ ntmReadHeadIdris memT prevWT keyT betaT gT gammaT shiftT =
 --
 -- Mirrors `torch_ref/ntm/memory.py:write_memory`.
 %inline
-ntmInterpWriteIdris : {0 d : Device} -> UserDeviceTape d => {n : Nat} -> (memT, weightsT, addVecT : AnyPtr) -> AnyPtr
+ntmInterpWriteIdris : {0 d : Device} -> UserDeviceTraining d => {n : Nat} -> (memT, weightsT, addVecT : AnyPtr) -> AnyPtr
 ntmInterpWriteIdris {n} memT weightsT addVecT =
   let writeAdd = primOuter {d} weightsT addVecT              -- (n,m) — w[i]*a[j]
       wCol     = primReshape2d {d} weightsT (cast n) 1       -- (n,1) view of w
@@ -137,7 +137,7 @@ ntmInterpWriteIdris {n} memT weightsT addVecT =
   in primAdd {d} kept writeAdd
 
 export
-applyNtm : {0 d : Device} -> UserDeviceTape d => UserDeviceCore d => RuntimeDType dt => Linked d => Compatible d dt => {n, m, h, i, o : Nat} ->
+applyNtm : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d => RuntimeDType dt => Linked d => Compatible d dt => {n, m, h, i, o : Nat} ->
              NtmState n m h i o d dt g ->
              TVec i d dt g ->
              IO (NtmState n m h i o d dt g, TVec o d dt g)
@@ -218,7 +218,7 @@ applyNtm {n} {m} {h} {i} {o}
 ||| - initial read output:    `kaiming_uniform_((1, m))`, non-learnable,
 |||                           sampled once at construction
 export
-ntmLayer : UserDeviceTape d => RuntimeDType dt => Linked d => Compatible d dt => {n, m, h, i, o : Nat} ->
+ntmLayer : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt => {n, m, h, i, o : Nat} ->
              (paramPrefix : String) ->
              IO (NtmState n m h i o d dt WithGrad)
 ntmLayer pfx = do
@@ -316,7 +316,7 @@ public export
                 (map retypeGrad wa) (map retypeGrad ro))
 
 export
-ntmLayerAny : UserDeviceTape d => RuntimeDType dt => Linked d => Compatible d dt => {n, m, h, i, o : Nat} ->
+ntmLayerAny : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt => {n, m, h, i, o : Nat} ->
                 (paramPrefix : String) ->
                 IO (AnyLayer i o d dt WithGrad)
 ntmLayerAny pid =

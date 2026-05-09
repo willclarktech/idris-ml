@@ -488,7 +488,7 @@ prim__createState2dStreamedTape : Int -> Int -> AnyPtr -> Int -> Int -> AnyPtr
 prim__castStreamedTape : AnyPtr -> Int -> Int -> AnyPtr
 
 public export
-UserDeviceTape TapeDev where
+UserDeviceTraining TapeDev where
   primCreateScalarStreamed        = prim__createScalarStreamedTape
   primCreateStreamed              = prim__createStreamedTape
   primCreate1dStreamed            = prim__create1dStreamedTape

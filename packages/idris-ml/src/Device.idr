@@ -2,7 +2,7 @@
 |||
 ||| `import Device` brings the device taxonomy into scope: the
 ||| `UserDeviceCore` / `UserDeviceLinear` / `UserDeviceNN` /
-||| `UserDeviceConv` / `UserDeviceTape` / `UserDeviceTransfer`
+||| `UserDeviceConv` / `UserDeviceTraining` / `UserDeviceTransfer`
 ||| interfaces from `Device.Core`, plus the three built-in backend
 ||| device tags from `Device.{Tape,Torch,Mlx}`, plus the DType
 ||| taxonomy from `DType.Core`.

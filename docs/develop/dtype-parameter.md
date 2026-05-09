@@ -156,7 +156,7 @@ mechanical refactor in torch), but neither is motivated by the demo.
 ### Empty `Compatible` instead of method-bearing interface
 
 The Device-opening work used five sliced interfaces (`UserDeviceCore`,
-`UserDeviceLinear`, `UserDeviceNN`, `UserDeviceConv`, `UserDeviceTape`)
+`UserDeviceLinear`, `UserDeviceNN`, `UserDeviceConv`, `UserDeviceTraining`)
 because backends legitimately implement different op subsets — a BYO
 backend without conv simply omits the `UserDeviceConv` instance and
 conv-using code refuses to typecheck against it.

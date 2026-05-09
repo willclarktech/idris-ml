@@ -102,7 +102,7 @@ Show HardwareClass where
 
 ||| Phase 2.1 interface: the ~20 ops needed for tensor lifecycle and
 ||| elementwise arithmetic. Later phases add `UserDeviceLinear`,
-||| `UserDeviceNN`, `UserDeviceConv`, `UserDeviceTape` slices.
+||| `UserDeviceNN`, `UserDeviceConv`, `UserDeviceTraining` slices.
 public export
 interface UserDeviceCore (0 d : Device) where
   ||| Human-readable device tag: "tape", "torch", "mlx", "mybackend".
@@ -307,7 +307,7 @@ interface UserDeviceNN d => UserDeviceConv (0 d : Device) where
 
 
 ----------------------------------------------------------------------
--- UserDeviceTape — autograd + param registry + IO + misc slice
+-- UserDeviceTraining — autograd + param registry + IO + misc slice
 ----------------------------------------------------------------------
 
 ||| The fifth and final slice. Closes the chain
@@ -329,9 +329,9 @@ interface UserDeviceNN d => UserDeviceConv (0 d : Device) where
 ||| seen the bindings sit unused. The methods retained below operate
 ||| on a backend-specific Tensor handle or autograd state, so they
 ||| are the dispatch surface that can grow live as layers gain
-||| `UserDeviceTape d =>` constraints.
+||| `UserDeviceTraining d =>` constraints.
 public export
-interface UserDeviceConv d => UserDeviceTape (0 d : Device) where
+interface UserDeviceConv d => UserDeviceTraining (0 d : Device) where
   -- Autograd flag --------------------------------------------------
   primRequiresGrad      : AnyPtr -> Int
   primSetRequiresGrad   : AnyPtr -> Int -> PrimIO ()

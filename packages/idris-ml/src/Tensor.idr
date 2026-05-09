@@ -227,7 +227,7 @@ prim__mnistCount : AnyPtr -> Int
 export
 prim__mnistGetLabel : AnyPtr -> Int -> Int
 
--- Parameter registry: `primParamRegister {d}` (UserDeviceTape) is
+-- Parameter registry: `primParamRegister {d}` (UserDeviceTraining) is
 -- the sole entry. Each backend's instance wraps the returned handle
 -- with its OWN tag ("tape"/"torch"/"mlx") and retains via the
 -- suffixed `tensor_retain_handle_<b>`. The former unified-name
@@ -330,10 +330,10 @@ public export
 ||| The no-grad scope is per-backend (tape/mlx push a counter,
 ||| torch arms a `NoGradGuard`), so it dispatches via
 ||| `primNoGradBegin`/`primNoGradEnd` from the in-scope
-||| `UserDeviceTape d`. `d` doesn't appear in the action type, so
+||| `UserDeviceTraining d`. `d` doesn't appear in the action type, so
 ||| callers pin it explicitly (`withNoGrad {d=ExampleDevice} ...`).
 export
-withNoGrad : {0 d : Device} -> UserDeviceTape d => IO a -> IO a
+withNoGrad : {0 d : Device} -> UserDeviceTraining d => IO a -> IO a
 withNoGrad act = do
   primIO (primNoGradBegin {d})
   result <- act
@@ -348,7 +348,7 @@ withNoGrad act = do
 ||| exit generation-scoped free spares them, then releases afterwards.
 ||| The common scalar-returning eval/rollout loops use plain `withNoGrad`.
 export
-withNoGradKeep : {0 d : Device} -> UserDeviceTape d => KeepAlive a => IO a -> IO a
+withNoGradKeep : {0 d : Device} -> UserDeviceTraining d => KeepAlive a => IO a -> IO a
 withNoGradKeep act = do
   primIO (primNoGradBegin {d})
   result <- act
@@ -369,7 +369,7 @@ withNoGradKeep act = do
 ||| tensors (retained via `KeepAlive`) are spared. Most callers pass a
 ||| scalar/`()` result, so `KeepAlive` is a no-op.
 export
-withGenFree : {0 d : Device} -> UserDeviceTape d => KeepAlive a => IO a -> IO a
+withGenFree : {0 d : Device} -> UserDeviceTraining d => KeepAlive a => IO a -> IO a
 withGenFree act = do
   primIO (primEpochBegin {d})
   result <- act
@@ -547,67 +547,67 @@ RuntimeDType BF16 where
 -- (trailing `streamTag : Int`) so existing call sites only gain `{d}`.
 
 public export
-dtCreateScalar : {0 d : Device} -> UserDeviceTape d => {0 t : Type} -> RuntimeDType t =>
+dtCreateScalar : {0 d : Device} -> UserDeviceTraining d => {0 t : Type} -> RuntimeDType t =>
                  Linked d => Compatible d t =>
                  Double -> Int -> Int -> AnyPtr
 dtCreateScalar v rg stream = primCreateScalarStreamed {d} v rg stream (dtypeTag {t})
 
 public export
-dtCreate : {0 d : Device} -> UserDeviceTape d => {0 t : Type} -> RuntimeDType t =>
+dtCreate : {0 d : Device} -> UserDeviceTraining d => {0 t : Type} -> RuntimeDType t =>
            Linked d => Compatible d t =>
            AnyPtr -> AnyPtr -> Int -> Int -> Int -> AnyPtr
 dtCreate dat sh r rg stream = primCreateStreamed {d} dat sh r rg stream (dtypeTag {t})
 
 public export
-dtCreate1d : {0 d : Device} -> UserDeviceTape d => {0 t : Type} -> RuntimeDType t =>
+dtCreate1d : {0 d : Device} -> UserDeviceTraining d => {0 t : Type} -> RuntimeDType t =>
              Linked d => Compatible d t =>
              Int -> AnyPtr -> Int -> Int -> AnyPtr
 dtCreate1d n dat rg stream = primCreate1dStreamed {d} n dat rg stream (dtypeTag {t})
 
 public export
-dtCreate2d : {0 d : Device} -> UserDeviceTape d => {0 t : Type} -> RuntimeDType t =>
+dtCreate2d : {0 d : Device} -> UserDeviceTraining d => {0 t : Type} -> RuntimeDType t =>
              Linked d => Compatible d t =>
              Int -> Int -> AnyPtr -> Int -> Int -> AnyPtr
 dtCreate2d r c dat rg stream = primCreate2dStreamed {d} r c dat rg stream (dtypeTag {t})
 
 public export
-dtCreateParam1d : {0 d : Device} -> UserDeviceTape d => {0 t : Type} -> RuntimeDType t =>
+dtCreateParam1d : {0 d : Device} -> UserDeviceTraining d => {0 t : Type} -> RuntimeDType t =>
                   Linked d => Compatible d t =>
                   Int -> AnyPtr -> Int -> AnyPtr
 dtCreateParam1d n dat stream = primCreateParam1dStreamed {d} n dat stream (dtypeTag {t})
 
 public export
-dtCreateParam2d : {0 d : Device} -> UserDeviceTape d => {0 t : Type} -> RuntimeDType t =>
+dtCreateParam2d : {0 d : Device} -> UserDeviceTraining d => {0 t : Type} -> RuntimeDType t =>
                   Linked d => Compatible d t =>
                   Int -> Int -> AnyPtr -> Int -> AnyPtr
 dtCreateParam2d r c dat stream = primCreateParam2dStreamed {d} r c dat stream (dtypeTag {t})
 
 public export
-dtCreateParam3d : {0 d : Device} -> UserDeviceTape d => {0 t : Type} -> RuntimeDType t =>
+dtCreateParam3d : {0 d : Device} -> UserDeviceTraining d => {0 t : Type} -> RuntimeDType t =>
                   Linked d => Compatible d t =>
                   Int -> Int -> Int -> AnyPtr -> Int -> AnyPtr
 dtCreateParam3d a b c dat stream = primCreateParam3dStreamed {d} a b c dat stream (dtypeTag {t})
 
 public export
-dtCreateParam4d : {0 d : Device} -> UserDeviceTape d => {0 t : Type} -> RuntimeDType t =>
+dtCreateParam4d : {0 d : Device} -> UserDeviceTraining d => {0 t : Type} -> RuntimeDType t =>
                   Linked d => Compatible d t =>
                   Int -> Int -> Int -> Int -> AnyPtr -> Int -> AnyPtr
 dtCreateParam4d a b c e dat stream = primCreateParam4dStreamed {d} a b c e dat stream (dtypeTag {t})
 
 public export
-dtCreateState1d : {0 d : Device} -> UserDeviceTape d => {0 t : Type} -> RuntimeDType t =>
+dtCreateState1d : {0 d : Device} -> UserDeviceTraining d => {0 t : Type} -> RuntimeDType t =>
                   Linked d => Compatible d t =>
                   Int -> AnyPtr -> Int -> AnyPtr
 dtCreateState1d n dat stream = primCreateState1dStreamed {d} n dat stream (dtypeTag {t})
 
 public export
-dtCreateState2d : {0 d : Device} -> UserDeviceTape d => {0 t : Type} -> RuntimeDType t =>
+dtCreateState2d : {0 d : Device} -> UserDeviceTraining d => {0 t : Type} -> RuntimeDType t =>
                   Linked d => Compatible d t =>
                   Int -> Int -> AnyPtr -> Int -> AnyPtr
 dtCreateState2d r c dat stream = primCreateState2dStreamed {d} r c dat stream (dtypeTag {t})
 
 public export
-dtCastFrom : {0 d : Device} -> UserDeviceTape d => {0 t : Type} -> RuntimeDType t =>
+dtCastFrom : {0 d : Device} -> UserDeviceTraining d => {0 t : Type} -> RuntimeDType t =>
              Linked d => Compatible d t =>
              AnyPtr -> Int -> AnyPtr
 dtCastFrom tns stream = primCastStreamed {d} tns stream (dtypeTag {t})
@@ -631,9 +631,9 @@ dtCastFrom tns stream = primCastStreamed {d} tns stream (dtypeTag {t})
 |||
 ||| Per-backend: the registry storing the params lives in the backend
 ||| TU, so dispatch via `primPolyakBlend` from the in-scope
-||| `UserDeviceTape d` instance.
+||| `UserDeviceTraining d` instance.
 export
-polyakUpdate : UserDeviceTape d =>
+polyakUpdate : UserDeviceTraining d =>
                (tau : Double) -> (onlineScope : String) -> (targetScope : String) -> IO Int
 polyakUpdate tau onlineScope targetScope =
   primIO (primPolyakBlend {d} tau onlineScope targetScope)
@@ -654,12 +654,12 @@ record NativeOptimizer (0 d : Device) where
 
 ||| Create a native SGD optimizer.
 export
-nativeSgd : UserDeviceTape d => Double -> NativeOptimizer d
+nativeSgd : UserDeviceTraining d => Double -> NativeOptimizer d
 nativeSgd lr = MkNativeOptimizer (primOptimizerCreateSgd {d} lr) NoClip
 
 ||| Create a native RMSprop optimizer (matches PyTorch defaults).
 export
-nativeRmsprop : UserDeviceTape d =>
+nativeRmsprop : UserDeviceTraining d =>
                 (lr : Double) -> (alpha : Double) -> (eps : Double) ->
                 (clipVal : Double) -> (momentum : Double) -> NativeOptimizer d
 nativeRmsprop lr alpha eps clipVal momentum =
@@ -669,7 +669,7 @@ nativeRmsprop lr alpha eps clipVal momentum =
 
 ||| Create a native Adam optimizer with global norm clipping.
 export
-nativeAdamGlobalClip : UserDeviceTape d =>
+nativeAdamGlobalClip : UserDeviceTraining d =>
                        (lr : Double) -> (beta1 : Double) -> (beta2 : Double) ->
                        (eps : Double) -> (maxNorm : Double) -> NativeOptimizer d
 nativeAdamGlobalClip lr beta1 beta2 eps maxNorm =
@@ -684,7 +684,7 @@ nativeAdamGlobalClip lr beta1 beta2 eps maxNorm =
 ||| gradient leakage from one network's loss doesn't update another
 ||| network's weights (matches PyTorch's one-optimizer-per-net pattern).
 export
-nativeAdamGroup : UserDeviceTape d =>
+nativeAdamGroup : UserDeviceTraining d =>
                   (scope : String) ->
                   (lr : Double) -> (beta1 : Double) -> (beta2 : Double) ->
                   (eps : Double) -> (maxNorm : Double) -> NativeOptimizer d
@@ -695,7 +695,7 @@ nativeAdamGroup scope lr beta1 beta2 eps maxNorm =
 
 ||| Create a native AdamW optimizer (decoupled weight decay) with global norm clipping.
 export
-nativeAdamW : UserDeviceTape d =>
+nativeAdamW : UserDeviceTraining d =>
               (lr : Double) -> (beta1 : Double) -> (beta2 : Double) ->
               (eps : Double) -> (weightDecay : Double) -> (maxNorm : Double) -> NativeOptimizer d
 nativeAdamW lr beta1 beta2 eps wd maxNorm =
@@ -707,14 +707,14 @@ nativeAdamW lr beta1 beta2 eps wd maxNorm =
 ||| name will use this LR instead of the optimizer's base LR.
 ||| Use LR=0 to freeze a parameter. Set LR<0 to revert to base LR.
 export
-setParamLR : UserDeviceTape d => NativeOptimizer d -> String -> Double -> IO ()
+setParamLR : UserDeviceTraining d => NativeOptimizer d -> String -> Double -> IO ()
 setParamLR opt name lr = primIO (primOptimizerSetParamLr {d} opt.handle name lr)
 
 ||| Update the optimizer's base (global) learning rate. Per-parameter
 ||| overrides set via `setParamLR` remain in effect; only un-overridden
 ||| params pick up the new base LR. Used to apply LR schedules per epoch.
 export
-setLearningRate : UserDeviceTape d => NativeOptimizer d -> Double -> IO ()
+setLearningRate : UserDeviceTraining d => NativeOptimizer d -> Double -> IO ()
 setLearningRate opt lr = primIO (primOptimizerSetLr {d} opt.handle lr)
 
 -- Fused native train step: zero_grad → backward → clip → step.
@@ -736,7 +736,7 @@ setLearningRate opt lr = primIO (primOptimizerSetLr {d} opt.handle lr)
 -- bookkeeping doesn't fire — without it, the wrap-and-retain on each
 -- new Tensor keeps refcounts at >=1 indefinitely.
 -- The fused step itself dispatches per-backend via
--- `primNativeTrainStep {d}` (see `UserDeviceTape`); each backend's
+-- `primNativeTrainStep {d}` (see `UserDeviceTraining`); each backend's
 -- Scheme wrap carries the same GC + drain epilogue.
 
 ----------------------------------------------------------------------
@@ -765,7 +765,7 @@ getCurrentRssMB _ = prim__getCurrentRssMB
 ||| Bulk-convert a Vector of Doubles to a C tensor handle.
 ||| The C tensor_create_1d function frees the input buffer after copying.
 export
-bulkToTensor : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => Linked d => Compatible d dt => {n : Nat} -> Vector n Double -> AnyPtr
+bulkToTensor : {0 d : Device} -> UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt => {n : Nat} -> Vector n Double -> AnyPtr
 bulkToTensor {n} (VArray elems) =
   let nI = cast {to=Int} n
       buf = prim__allocDoubles nI
@@ -782,7 +782,7 @@ bulkToTensor {n} (VArray elems) =
 ||| The C tensor_create_2d function frees the input buffer after copying.
 ||| Use to stack a per-sample input batch into a single batched tensor.
 export
-bulkToTensor2d : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => Linked d => Compatible d dt => {b, i : Nat} -> Vect b (Vector i Double) -> AnyPtr
+bulkToTensor2d : {0 d : Device} -> UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt => {b, i : Nat} -> Vect b (Vector i Double) -> AnyPtr
 bulkToTensor2d {b} {i} rows =
   let bI = cast {to=Int} b
       iI = cast {to=Int} i
@@ -805,7 +805,7 @@ bulkToTensor2d {b} {i} rows =
 ||| Persistent tensors survive tape resets — use when data is created once
 ||| and reused across training epochs.
 export
-vectorToTensorPersistent : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => Linked d => Compatible d dt => {n : Nat} -> Vector n Double -> AnyPtr
+vectorToTensorPersistent : {0 d : Device} -> UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt => {n : Nat} -> Vector n Double -> AnyPtr
 vectorToTensorPersistent {n} (VArray elems) =
   let nI = cast {to=Int} n
       buf = prim__allocDoubles nI
@@ -818,35 +818,35 @@ vectorToTensorPersistent {n} (VArray elems) =
 
 ||| Convert a DataPoint with Doubles to a TensorDataPoint with persistent C tensors.
 export
-toTDP : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => Linked d => Compatible d dt => {i, o : Nat} -> DataPoint i o Double -> TensorDataPoint i o
+toTDP : {0 d : Device} -> UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt => {i, o : Nat} -> DataPoint i o Double -> TensorDataPoint i o
 toTDP dp = MkTensorDataPoint (vectorToTensorPersistent {d} {dt} (x dp)) (vectorToTensorPersistent {d} {dt} (y dp))
 
 
 -- runBackward is defined post-Tensor record below; the type-level
 -- gate (Tensor [] d dt WithGrad-> IO ()) lives there.
 
--- Registry queries dispatch through the in-scope `UserDeviceTape d`:
+-- Registry queries dispatch through the in-scope `UserDeviceTraining d`:
 -- each backend's registry is a separate TU-local table, so `{d}`
 -- selects which one is read.
 
 ||| Get parameter count (for gradient inspection).
 export
-getParamCount : UserDeviceTape d => IO Int
+getParamCount : UserDeviceTraining d => IO Int
 getParamCount = primIO (primParamCount {d})
 
 ||| Get parameter name by index.
 export
-getParamName : UserDeviceTape d => Int -> IO String
+getParamName : UserDeviceTraining d => Int -> IO String
 getParamName i = primIO (primParamName {d} i)
 
 ||| Get gradient element for param i, element j.
 export
-getParamGradAt : UserDeviceTape d => Int -> Int -> IO Double
+getParamGradAt : UserDeviceTraining d => Int -> Int -> IO Double
 getParamGradAt i j = primIO (primParamGradItemAt {d} i j)
 
 ||| Zero all parameter gradients.
 export
-zeroAllGrads : UserDeviceTape d => IO ()
+zeroAllGrads : UserDeviceTraining d => IO ()
 zeroAllGrads = primIO (primParamZeroAll {d})
 
 ||| Get the name of the active backend ("tape", "mlx", "torch").
@@ -860,12 +860,12 @@ backendName = backendTag {d}
 
 ||| Reset profiling counters for backend `d`.
 export
-profileReset : UserDeviceTape d => IO ()
+profileReset : UserDeviceTraining d => IO ()
 profileReset = primIO (primProfileReset {d})
 
 ||| Print backend `d`'s profile breakdown to stderr.
 export
-profileReport : UserDeviceTape d => IO ()
+profileReport : UserDeviceTraining d => IO ()
 profileReport = primIO (primProfileReport {d})
 
 ----------------------------------------------------------------------
@@ -1070,7 +1070,7 @@ availableDevices (sd :: rest) = do
 ||| Closes the "freeze then keep using the original WithGrad type"
 ||| aliasing footgun.
 export
-weakenGrad : UserDeviceTape d => (1 _ : Tensor dims d dt g) -> IO (Tensor dims d dt NoGrad)
+weakenGrad : UserDeviceTraining d => (1 _ : Tensor dims d dt g) -> IO (Tensor dims d dt NoGrad)
 weakenGrad (MkTensor ptr pid) = do
   primIO (primSetRequiresGrad {d} ptr 0)
   pure (MkTensor ptr pid)
@@ -1132,7 +1132,7 @@ ioRerun f = primIO (\w => MkIORes (f ()) w)
 ||| op becomes a node in the autograd graph on backends that trace
 ||| it (mlx/torch).
 export
-tcast : {0 d : Device} -> UserDeviceTape d =>
+tcast : {0 d : Device} -> UserDeviceTraining d =>
         (UpcastableTo from to, IsDType from, IsDType to, RuntimeDType to, Compatible d to, Linked d) =>
         Tensor dims d from g -> IO (Tensor dims d to g)
 tcast v = ioRerun (\_ => MkTensor (dtCastFrom {d} {t=to} v.tensorPtr (deviceStreamTag {d})) Nothing)
@@ -1153,7 +1153,7 @@ tcast v = ioRerun (\_ => MkTensor (dtCastFrom {d} {t=to} v.tensorPtr (deviceStre
 ||| Runtime path is the same as `tcast` (both dispatch through
 ||| `dtCastFrom`); the difference is purely the type-system gate.
 export
-tcastUnsafe : {0 d : Device} -> UserDeviceTape d =>
+tcastUnsafe : {0 d : Device} -> UserDeviceTraining d =>
               (0 to : DType) -> (IsDType from, IsDType to, RuntimeDType to, Compatible d to, Linked d) =>
               Tensor dims d from g -> IO (Tensor dims d to g)
 tcastUnsafe to v = ioRerun (\_ => MkTensor (dtCastFrom {d} {t=to} v.tensorPtr (deviceStreamTag {d})) Nothing)
@@ -1161,7 +1161,7 @@ tcastUnsafe to v = ioRerun (\_ => MkTensor (dtCastFrom {d} {t=to} v.tensorPtr (d
 ||| Create a registered learnable [o, i] parameter from a flat (row-major)
 ||| double buffer. Mirrors Linear.nameLayer's tensor path.
 export
-tparam2d : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => Linked d => Compatible d dt => {o, i : Nat} -> (paramId : String) -> AnyPtr -> IO (Tensor [o, i] d dt WithGrad)
+tparam2d : {0 d : Device} -> UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt => {o, i : Nat} -> (paramId : String) -> AnyPtr -> IO (Tensor [o, i] d dt WithGrad)
 tparam2d {o} {i} pid buf = ioRerun (\_ =>
   let oI = cast {to=Int} o
       iI = cast {to=Int} i
@@ -1170,7 +1170,7 @@ tparam2d {o} {i} pid buf = ioRerun (\_ =>
 
 ||| Create a registered learnable [n] parameter from a double buffer.
 export
-tparam1d : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => Linked d => Compatible d dt => {n : Nat} -> (paramId : String) -> AnyPtr -> IO (Tensor [n] d dt WithGrad)
+tparam1d : {0 d : Device} -> UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt => {n : Nat} -> (paramId : String) -> AnyPtr -> IO (Tensor [n] d dt WithGrad)
 tparam1d {n} pid buf = ioRerun (\_ =>
   let nI = cast {to=Int} n
       reg = primParamRegister {d} pid (dtCreateParam1d {d} {t=dt} nI buf (deviceStreamTag {d}))
@@ -1184,7 +1184,7 @@ tparam1d {n} pid buf = ioRerun (\_ =>
 ||| Returns the tensor with its `paramId` set. The `reg` binding is threaded
 ||| into the result so the registration FFI fires (an unused let is dropped).
 export
-registerParam : {0 d : Device} -> UserDeviceTape d => (paramId : String) -> Tensor dims d dt g -> IO (Tensor dims d dt g)
+registerParam : {0 d : Device} -> UserDeviceTraining d => (paramId : String) -> Tensor dims d dt g -> IO (Tensor dims d dt g)
 registerParam pid t = ioRerun (\_ =>
   let reg = primParamRegister {d} pid (tensorPtr t)
   in MkTensor reg (Just pid))
@@ -1217,7 +1217,7 @@ tadd a b = ioRerun (\_ => MkTensor (primAdd {d} a.tensorPtr b.tensorPtr) Nothing
 ||| Matrix-vector multiply: [m, n] · [n] -> [m]. `%inline` for the
 ||| same reason as `tadd` (hot path in recurrent forward passes).
 export %inline
-tmv : {0 d : Device} -> UserDeviceTape d =>
+tmv : {0 d : Device} -> UserDeviceTraining d =>
       Tensor [m, n] d dt g -> Tensor [n] d dt g -> IO (Tensor [m] d dt g)
 tmv w x = ioRerun (\_ => MkTensor (primMv {d} w.tensorPtr x.tensorPtr) Nothing)
 
@@ -1226,14 +1226,14 @@ tmv w x = ioRerun (\_ => MkTensor (primMv {d} w.tensorPtr x.tensorPtr) Nothing)
 ||| eliminates the intermediate Idris-side glue. Used by Layer.Linear's
 ||| applyVar and by NTM/DNC FCs.
 export %inline
-tlinear : {0 d : Device} -> UserDeviceTape d =>
+tlinear : {0 d : Device} -> UserDeviceTraining d =>
           Tensor [o, i] d dt g -> Tensor [i] d dt g -> Tensor [o] d dt g -> IO (Tensor [o] d dt g)
 tlinear w x bias = ioRerun (\_ =>
   MkTensor (primLinear {d} w.tensorPtr x.tensorPtr bias.tensorPtr) Nothing)
 
 ||| Fused batched linear: W[o,i] · X^T[b,i] + bias[o] -> [b, o].
 export %inline
-tlinear2d : {0 d : Device} -> UserDeviceTape d =>
+tlinear2d : {0 d : Device} -> UserDeviceTraining d =>
             Tensor [o, i] d dt g -> Tensor [b, i] d dt g -> Tensor [o] d dt g -> IO (Tensor [b, o] d dt g)
 tlinear2d w x bias = ioRerun (\_ =>
   MkTensor (primLinear2d {d} w.tensorPtr x.tensorPtr bias.tensorPtr) Nothing)
@@ -1245,13 +1245,13 @@ tlinear2d w x bias = ioRerun (\_ =>
 ||| Select row `k` from a [b, n] Tensor, returning the n-vector slice.
 ||| Wraps `prim__select` on dim 0; preserves the autograd graph.
 export
-trowSelect : {0 d : Device} -> UserDeviceTape d => {b, n : Nat} ->
+trowSelect : {0 d : Device} -> UserDeviceTraining d => {b, n : Nat} ->
              Tensor [b, n] d dt g -> Int -> IO (Tensor [n] d dt g)
 trowSelect t k = ioRerun (\_ => MkTensor (primSelect {d} t.tensorPtr 0 k) Nothing)
 
 ||| Select element `i` from an n-vector, returning a scalar Tensor.
 export
-telemSelect : {0 d : Device} -> UserDeviceTape d => {n : Nat} ->
+telemSelect : {0 d : Device} -> UserDeviceTraining d => {n : Nat} ->
               Tensor [n] d dt g -> Int -> IO (Tensor [] d dt g)
 telemSelect t i = ioRerun (\_ => MkTensor (primSelect {d} t.tensorPtr 0 i) Nothing)
 
@@ -1272,7 +1272,7 @@ export
 ||| construct scalars via their own `UserDeviceCore.primCreateScalar`
 ||| directly. Same compromise applies to `tparamScalar` and
 ||| `freshZeroLossT`.
-tconstScalar : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => Linked d => Compatible d dt => Double -> IO (Tensor [] d dt WithGrad)
+tconstScalar : {0 d : Device} -> UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt => Double -> IO (Tensor [] d dt WithGrad)
 tconstScalar v = ioRerun (\_ => MkTensor (dtCreateScalar {d} {t=dt} v 0 (deviceStreamTag {d})) Nothing)
 
 ||| Build a `SomeDevice` candidate for a concrete `(device, dtype)`.
@@ -1281,7 +1281,7 @@ tconstScalar v = ioRerun (\_ => MkTensor (dtCreateScalar {d} {t=dt} v 0 (deviceS
 ||| `False`; a backend whose construction never fails reports `True`.
 export
 someDevice : {0 d : Device} -> {0 dt : DType} ->
-             UserDeviceTape d => RuntimeDType dt => Linked d =>
+             UserDeviceTraining d => RuntimeDType dt => Linked d =>
              Compatible d dt => HardwareClassed d => SomeDevice
 someDevice =
   MkSomeDevice (deviceName {d}) (hardwareClass {d})
@@ -1327,7 +1327,7 @@ tlog v = ioRerun (\_ => MkTensor (primLog {d} v.tensorPtr) Nothing)
 ||| state-independent log_std). Mirrors V1's `param`. The optimizer
 ||| picks it up automatically by paramId scope.
 export
-tparamScalar : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => Linked d => Compatible d dt => (paramId : String) -> (val : Double) -> IO (Tensor [] d dt WithGrad)
+tparamScalar : {0 d : Device} -> UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt => (paramId : String) -> (val : Double) -> IO (Tensor [] d dt WithGrad)
 tparamScalar pid val = ioRerun (\_ =>
   let ptr = dtCreateScalar {d} {t=dt} val 1 (deviceStreamTag {d})    -- requires_grad=true
       reg = primParamRegister {d} pid ptr
@@ -1338,7 +1338,7 @@ tparamScalar pid val = ioRerun (\_ =>
 ||| to build a [B, ObsDim + ActDim] Q-input from obs + reparametrized
 ||| action while preserving the autograd path through the action.
 export
-tconcat2dAxis1 : {0 d : Device} -> UserDeviceTape d => {b, m, n : Nat} ->
+tconcat2dAxis1 : {0 d : Device} -> UserDeviceTraining d => {b, m, n : Nat} ->
                  Tensor [b, m] d dt g -> Tensor [b, n] d dt g ->
                  IO (Tensor [b, m + n] d dt g)
 tconcat2dAxis1 a b = ioRerun (\_ => MkTensor (primConcat2dAxis1 {d} a.tensorPtr b.tensorPtr) Nothing)
@@ -1411,25 +1411,25 @@ trelu : {0 d : Device} -> UserDeviceCore d => Tensor dims d dt g -> IO (Tensor d
 trelu v = ioRerun (\_ => MkTensor (primClampMin {d} v.tensorPtr 0.0) Nothing)
 
 export %inline
-tgelu : {0 d : Device} -> UserDeviceTape d => Tensor dims d dt g -> IO (Tensor dims d dt g)
+tgelu : {0 d : Device} -> UserDeviceTraining d => Tensor dims d dt g -> IO (Tensor dims d dt g)
 tgelu v = ioRerun (\_ => MkTensor (primGelu {d} v.tensorPtr) Nothing)
 
 export %inline
-tsilu : {0 d : Device} -> UserDeviceTape d => Tensor dims d dt g -> IO (Tensor dims d dt g)
+tsilu : {0 d : Device} -> UserDeviceTraining d => Tensor dims d dt g -> IO (Tensor dims d dt g)
 tsilu v = ioRerun (\_ => MkTensor (primSilu {d} v.tensorPtr) Nothing)
 
 export %inline
-tleakyRelu : {0 d : Device} -> UserDeviceTape d => Double -> Tensor dims d dt g -> IO (Tensor dims d dt g)
+tleakyRelu : {0 d : Device} -> UserDeviceTraining d => Double -> Tensor dims d dt g -> IO (Tensor dims d dt g)
 tleakyRelu slope v = ioRerun (\_ => MkTensor (primLeakyRelu {d} v.tensorPtr slope) Nothing)
 
 ||| Softmax along axis 0 (1D vector).
 export %inline
-tsoftmax1d : {0 d : Device} -> UserDeviceTape d => {n : Nat} -> Tensor [n] d dt g -> IO (Tensor [n] d dt g)
+tsoftmax1d : {0 d : Device} -> UserDeviceTraining d => {n : Nat} -> Tensor [n] d dt g -> IO (Tensor [n] d dt g)
 tsoftmax1d v = ioRerun (\_ => MkTensor (primSoftmax {d} v.tensorPtr 0) Nothing)
 
 ||| Log-softmax along axis 0 (1D vector).
 export %inline
-tlogSoftmax1d : {0 d : Device} -> UserDeviceTape d => {n : Nat} -> Tensor [n] d dt g -> IO (Tensor [n] d dt g)
+tlogSoftmax1d : {0 d : Device} -> UserDeviceTraining d => {n : Nat} -> Tensor [n] d dt g -> IO (Tensor [n] d dt g)
 tlogSoftmax1d v = ioRerun (\_ => MkTensor (primLogSoftmax {d} v.tensorPtr 0) Nothing)
 
 ||| Fused LSTM gate computation: combined gates [4 * n] + previous cell [n]
@@ -1451,7 +1451,7 @@ tlstmGatesPair {n} combined prevCell = ioRerun (\_ =>
 ||| Use for LSTM/RNN/GRU initial hidden + cell state. Persistent =
 ||| survives tape reset.
 export
-tzeroState1d : {0 d : Device} -> UserDeviceTape d => RuntimeDType dt => Linked d => Compatible d dt => {n : Nat} -> IO (Tensor [n] d dt g)
+tzeroState1d : {0 d : Device} -> UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt => {n : Nat} -> IO (Tensor [n] d dt g)
 tzeroState1d {n} = ioRerun (\_ =>
   let nI = cast {to=Int} n
       buf = prim__allocDoubles nI
@@ -1489,7 +1489,7 @@ tensorItem v = primItem {d} v.tensorPtr
 ||| catches "loss computed inside `withNoGrad`, then fed to training"
 ||| — the bug class the entire `GradMode` refactor exists to prevent.
 export
-runBackward : UserDeviceTape d => IsFloating dt => Tensor [] d dt WithGrad -> IO ()
+runBackward : UserDeviceTraining d => IsFloating dt => Tensor [] d dt WithGrad -> IO ()
 runBackward t = primIO (primBackward {d} t.tensorPtr)
 
 -- Loss (vector targets → scalar loss) ---------------------------------
@@ -1535,7 +1535,7 @@ tbceLoss p t = ioRerun (\_ =>
 ||| clip → step. Reads `prim__item` BEFORE the step so the returned
 ||| scalar is not stale. Mirrors `nativeTrainStep`.
 export
-nativeTrainStep : {0 d : Device} -> UserDeviceTape d => IsFloating dt =>
+nativeTrainStep : {0 d : Device} -> UserDeviceTraining d => IsFloating dt =>
                   NativeOptimizer d -> Tensor [] d dt WithGrad -> IO Double
 nativeTrainStep opt loss = ioRerun (\_ =>
   let clipMode : Int

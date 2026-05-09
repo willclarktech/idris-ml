@@ -533,7 +533,7 @@ prim__createState2dStreamedMlx : Int -> Int -> AnyPtr -> Int -> Int -> AnyPtr
 prim__castStreamedMlx : AnyPtr -> Int -> Int -> AnyPtr
 
 public export
-{s : MlxStream} -> UserDeviceTape (MlxDev s) where
+{s : MlxStream} -> UserDeviceTraining (MlxDev s) where
   primCreateScalarStreamed        = prim__createScalarStreamedMlx
   primCreateStreamed              = prim__createStreamedMlx
   primCreate1dStreamed            = prim__create1dStreamedMlx

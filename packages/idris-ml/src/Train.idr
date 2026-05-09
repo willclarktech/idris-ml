@@ -221,7 +221,7 @@ mkTrainConfig e l es m b = MkTrainConfig e l es m b Nothing
 ||| `TrainConfig` via the `beforeEpoch` field:
 |||   `let cfg = { beforeEpoch := applySchedule sched opt } (simpleConfig 1000)`
 export
-applySchedule : UserDeviceTape d => Schedule -> NativeOptimizer d -> Nat -> IO ()
+applySchedule : UserDeviceTraining d => Schedule -> NativeOptimizer d -> Nat -> IO ()
 applySchedule sched opt ep = setLearningRate opt (sched ep)
 
 
@@ -234,7 +234,7 @@ applySchedule sched opt ep = setLearningRate opt (sched ep)
 ||| a vectorised env rollout). For pure epochs, use `runTraining`.
 export
 runTrainingIO :
-  {0 d : Device} -> UserDeviceTape d => UserDeviceTransfer d =>
+  {0 d : Device} -> UserDeviceTraining d => UserDeviceTransfer d =>
   {0 model : Type} -> {0 dp : Type} ->
   (epochFn : model -> dp -> IO (model, Double)) ->
   (dataSrc : IO dp) ->
@@ -527,7 +527,7 @@ runTrainingIO {model} epochFn dataSrc cfg model0 = do
 ||| `runTrainingIO`.
 export
 runTraining :
-  {0 d : Device} -> UserDeviceTape d => UserDeviceTransfer d =>
+  {0 d : Device} -> UserDeviceTraining d => UserDeviceTransfer d =>
   {0 model : Type} -> {0 dp : Type} ->
   (epochFn : model -> dp -> IO (model, Double)) ->
   (dataSrc : IO dp) ->

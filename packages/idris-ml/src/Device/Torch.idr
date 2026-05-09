@@ -519,7 +519,7 @@ prim__createState2dStreamedTorch : Int -> Int -> AnyPtr -> Int -> Int -> AnyPtr
 prim__castStreamedTorch : AnyPtr -> Int -> Int -> AnyPtr
 
 public export
-{d : TorchHwDev} -> UserDeviceTape (TorchDev d) where
+{d : TorchHwDev} -> UserDeviceTraining (TorchDev d) where
   primCreateScalarStreamed        = prim__createScalarStreamedTorch
   primCreateStreamed              = prim__createStreamedTorch
   primCreate1dStreamed            = prim__create1dStreamedTorch

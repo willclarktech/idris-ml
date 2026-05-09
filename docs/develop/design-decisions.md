@@ -761,7 +761,7 @@ Tracks the TODO row "Pluggable / dependent `Device` for user-supplied backends."
 **Structural choice — sliced typeclasses**. Three candidates were on the table:
 
 1. **One big interface** — single `UserDevice` typeclass with ~160 methods covering every op in `Tensor.idr`.
-2. **Sliced interfaces** — `UserDeviceCore` / `UserDeviceLinear` / `UserDeviceNN` / `UserDeviceConv` / `UserDeviceTape`, ~30 methods each. A backend that doesn't implement `UserDeviceConv` simply can't be used with conv layers, and that's a *type error*.
+2. **Sliced interfaces** — `UserDeviceCore` / `UserDeviceLinear` / `UserDeviceNN` / `UserDeviceConv` / `UserDeviceTraining`, ~30 methods each. A backend that doesn't implement `UserDeviceConv` simply can't be used with conv layers, and that's a *type error*.
 3. **Dictionary record** — a 160-field `record DeviceOps` passed explicitly. Cheaper at the typechecker; less ergonomic at call sites.
 
 Variant 2 (sliced) chosen. The "ops depend on device" pitch — which is the whole reason to open `Device` up — only lands cleanly under slicing. A `UserDeviceConv d` constraint on `convLayer` means a backend without conv support is a compile-time error at the layer's use-site, not a runtime crash from a missing method. Variant 1 conflates "any backend" with "every backend implements everything"; variant 3 loses interface coherence (methods become record fields, no implicit resolution).
