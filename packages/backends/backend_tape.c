@@ -32,7 +32,9 @@
 #include "backend_tape/tensor.h"
 #include "backend_tape/arena.h"
 #include "backend_tape/tape.h"
+#include "backend_tape/broadcast.h"
 #include "backend_tape/training/autograd/op_dispatch.h"
+#include "backend_tape/core/elementwise/_helpers.h"
 
 /* Forward decl: _wall_ms lives later in the profiling section but is
  * called from the elementwise kernel includes (line 311 area). Defined
@@ -139,10 +141,12 @@ TensorHandle name(TensorHandle ha) { \
    backward grad-reduction.
    ---------------------------------------------------------------- */
 
-#define MAX_BCAST_RANK 8
+/* Broadcast helpers — declared in backend_tape/broadcast.h; defined
+ * here (still in the monolith) but non-static so per-op files can
+ * call them. MAX_BCAST_RANK comes via the header. */
 
 /* True if `a`'s shape exactly matches `r`'s shape (no broadcast). */
-static int shapes_equal(Tensor* a, Tensor* r) {
+int shapes_equal(Tensor* a, Tensor* r) {
     if (a->numel != r->numel || a->rank != r->rank) return 0;
     for (int k = 0; k < a->rank; k++) {
         if (a->shape[k] != r->shape[k]) return 0;
@@ -152,8 +156,8 @@ static int shapes_equal(Tensor* a, Tensor* r) {
 
 /* Compute broadcast output shape from a and b (right-aligned, numpy rules).
    Returns 1 on success, 0 on incompatible shapes. */
-static int compute_bcast_shape(Tensor* a, Tensor* b,
-                                int* r_shape, int* r_rank, int* r_numel) {
+int compute_bcast_shape(Tensor* a, Tensor* b,
+                        int* r_shape, int* r_rank, int* r_numel) {
     int rank = a->rank > b->rank ? a->rank : b->rank;
     if (rank > MAX_BCAST_RANK) return 0;
     int numel = 1;
@@ -175,8 +179,8 @@ static int compute_bcast_shape(Tensor* a, Tensor* b,
 /* Compute right-aligned broadcast strides for `a` w.r.t. output shape r_shape.
    out_strides[k] is the increment to a's flat index when output dim k advances;
    0 means broadcast on that dim. r_rank may exceed a->rank (rank-padding). */
-static void compute_bcast_strides(Tensor* a, int r_rank, int* r_shape,
-                                   int* out_strides) {
+void compute_bcast_strides(Tensor* a, int r_rank, int* r_shape,
+                           int* out_strides) {
     int a_rank = a->rank;
     int natural[MAX_BCAST_RANK];
     int s = 1;
@@ -254,8 +258,8 @@ static void compute_bcast_strides(Tensor* a, int r_rank, int* r_shape,
 #undef VV_TANH
 #undef VV_FABS
 
-static TensorHandle binop_elementwise(TensorHandle ha, TensorHandle hb, int op_tag,
-                                      double (*scalar_fn)(double, double)) {
+TensorHandle binop_elementwise(TensorHandle ha, TensorHandle hb, int op_tag,
+                               double (*scalar_fn)(double, double)) {
     extern double prof_binop_inside_ms[];
     extern int prof_binop_inside_count[];
     double _b0 = _wall_ms();
@@ -267,8 +271,8 @@ static TensorHandle binop_elementwise(TensorHandle ha, TensorHandle hb, int op_t
     return r;
 }
 
-static TensorHandle binop_elementwise_f32_disp(TensorHandle ha, TensorHandle hb, int op_tag,
-                                               float (*scalar_fn)(float, float)) {
+TensorHandle binop_elementwise_f32_disp(TensorHandle ha, TensorHandle hb, int op_tag,
+                                        float (*scalar_fn)(float, float)) {
     extern double prof_binop_inside_ms[];
     extern int prof_binop_inside_count[];
     double _b0 = _wall_ms();
@@ -280,8 +284,7 @@ static TensorHandle binop_elementwise_f32_disp(TensorHandle ha, TensorHandle hb,
     return r;
 }
 
-static void tape_abort_mixed_dtype(const char* op) __attribute__((noreturn));
-static void tape_abort_mixed_dtype(const char* op) {
+void tape_abort_mixed_dtype(const char* op) {
     fprintf(stderr,
         "[tape backend] %s: mixed-dtype inputs forbidden — both operands must "
         "share a dtype_tag (cast first via tcast / tensor_cast_dtype_streamed).\n", op);
@@ -315,7 +318,7 @@ TensorHandle name(TensorHandle a, TensorHandle b) { \
     } \
     return binop_elementwise(a, b, op_tag, fn64); \
 }
-TAPE_BINOP_DISPATCH(tensor_add, OP_ADD, fn_add, fn_add_f32)
+/* tensor_add: moved to backend_tape/core/elementwise/add.c (Phase 1a.2). */
 TAPE_BINOP_DISPATCH(tensor_sub, OP_SUB, fn_sub, fn_sub_f32)
 TAPE_BINOP_DISPATCH(tensor_mul, OP_MUL, fn_mul, fn_mul_f32)
 TAPE_BINOP_DISPATCH(tensor_div, OP_DIV, fn_div, fn_div_f32)
@@ -3159,57 +3162,23 @@ void tensor_backward(TensorHandle h) {
         Tensor* a = e->arg1;
         Tensor* b = e->arg2;
 
+        /* Phase 1a.2+: try the per-op dispatch table first. Migrated
+           ops register their backward via TAPE_REGISTER_OP at file scope;
+           unmigrated ones fall through to the legacy switch below.
+           The switch shrinks each commit as ops move to backend_tape/<slice>/. */
+        TapeBackwardFn _fn = tape_dispatch_get(e->op);
+        if (_fn) { _fn(e); goto after_backward; }
+
         switch (e->op) {
         case OP_CONST: break; /* leaf — grad already accumulated */
 
-        /* Elementwise-binop backward (OP_ADD/SUB/MUL/DIV/POW) — handle three
+        /* OP_ADD: moved to backend_tape/core/elementwise/add.c (Phase 1a.2).
+           Migrated path: dispatch table at top of this loop. */
+
+        /* Elementwise-binop backward (OP_SUB/MUL/DIV/POW) — handle three
            cases per side: same-shape (fast loop), scalar (sum-reduce), and
            general numpy-style broadcast (walk r-positions with broadcast
            strides, accumulating into the operand's flat index). */
-        case OP_ADD: {
-            int a_match = a && shapes_equal(a, r);
-            int b_match = b && shapes_equal(b, r);
-            if (a) ensure_grad(a);
-            if (b) ensure_grad(b);
-            ensure_grad(r);
-            if (a_match) {
-                for (int j = 0; j < a->numel; j++) ((double*)a->grad)[j] += ((double*)r->grad)[j];
-            } else if (a && a->numel == 1) {
-                double s = 0; for (int j = 0; j < r->numel; j++) s += ((double*)r->grad)[j];
-                ((double*)a->grad)[0] += s;
-            }
-            if (b_match) {
-                for (int j = 0; j < b->numel; j++) ((double*)b->grad)[j] += ((double*)r->grad)[j];
-            } else if (b && b->numel == 1) {
-                double s = 0; for (int j = 0; j < r->numel; j++) s += ((double*)r->grad)[j];
-                ((double*)b->grad)[0] += s;
-            }
-            if ((a && !a_match && a->numel != 1) || (b && !b_match && b->numel != 1)) {
-                int a_str[MAX_BCAST_RANK] = {0}, b_str[MAX_BCAST_RANK] = {0};
-                int idx[MAX_BCAST_RANK] = {0};
-                if (a) compute_bcast_strides(a, r->rank, r->shape, a_str);
-                if (b) compute_bcast_strides(b, r->rank, r->shape, b_str);
-                int do_a = a && !a_match && a->numel != 1;
-                int do_b = b && !b_match && b->numel != 1;
-                for (int i = 0; i < r->numel; i++) {
-                    if (do_a) {
-                        int ai = 0;
-                        for (int k = 0; k < r->rank; k++) ai += idx[k] * a_str[k];
-                        ((double*)a->grad)[ai] += ((double*)r->grad)[i];
-                    }
-                    if (do_b) {
-                        int bi = 0;
-                        for (int k = 0; k < r->rank; k++) bi += idx[k] * b_str[k];
-                        ((double*)b->grad)[bi] += ((double*)r->grad)[i];
-                    }
-                    for (int k = r->rank - 1; k >= 0; k--) {
-                        if (++idx[k] < r->shape[k]) break; idx[k] = 0;
-                    }
-                }
-            }
-            break;
-        }
-
         case OP_SUB: {
             int a_match = a && shapes_equal(a, r);
             int b_match = b && shapes_equal(b, r);
@@ -4860,6 +4829,7 @@ void tensor_backward(TensorHandle h) {
 
         default: break; /* unimplemented backward */
         }
+        after_backward:
         /* Accumulate per-op timing */
         if (e->op < OP_COUNT) {
             prof_backward_per_op[e->op] += _wall_ms() - t_op;
