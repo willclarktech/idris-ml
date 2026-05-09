@@ -701,7 +701,15 @@ TensorHandle tensor_create(double* data, int* shape, int rank, int requires_grad
 
 TensorHandle tensor_clone(TensorHandle h) {
     Tensor* t = (Tensor*)h;
-    if (t->rank == 0) return make_scalar(((double*)t->data)[0], 0);
+    if (t->rank == 0) {
+        double v = tape_load_d(t, 0);
+        return (t->dtype_tag == DT_F32) ? make_scalar_f32(v, 0) : make_scalar(v, 0);
+    }
+    if (t->dtype_tag == DT_F32) {
+        float* data = arena_alloc(t->numel * sizeof(float));
+        memcpy(data, t->data, t->numel * sizeof(float));
+        return make_tensor_arena_f32(data, t->numel, t->shape, t->rank, 0);
+    }
     return make_tensor(t->data, t->shape, t->rank, 0);
 }
 
@@ -1787,28 +1795,36 @@ TensorHandle tensor_bmm_3x3(TensorHandle ha, TensorHandle hb) {
     return r;
 }
 
+/* Softmax over the last dim of a [B,m,n] tensor — F32 + F64 unified path. */
 TensorHandle tensor_softmax_3d(TensorHandle h) {
     Tensor* t = (Tensor*)h;
     int B = t->shape[0], m = t->shape[1], n = t->shape[2];
     int total_rows = B * m;
-    double* data = malloc(t->numel * sizeof(double));
-
+    int is_f32 = (t->dtype_tag == DT_F32);
+    void* data = is_f32 ? (void*)arena_alloc(t->numel * sizeof(float))
+                        : (void*)malloc(t->numel * sizeof(double));
     for (int i = 0; i < total_rows; i++) {
-        double max_val = ((double*)t->data)[i*n];
-        for (int j = 1; j < n; j++)
-            if (((double*)t->data)[i*n+j] > max_val) max_val = ((double*)t->data)[i*n+j];
+        double max_val = tape_load_d(t, i*n);
+        for (int j = 1; j < n; j++) {
+            double v = tape_load_d(t, i*n+j);
+            if (v > max_val) max_val = v;
+        }
         double sum = 0;
         for (int j = 0; j < n; j++) {
-            data[i*n+j] = exp(((double*)t->data)[i*n+j] - max_val);
-            sum += data[i*n+j];
+            double e = exp(tape_load_d(t, i*n+j) - max_val);
+            if (is_f32) ((float*)data)[i*n+j] = (float)e;
+            else        ((double*)data)[i*n+j] = e;
+            sum += e;
         }
-        for (int j = 0; j < n; j++)
-            data[i*n+j] /= sum;
+        for (int j = 0; j < n; j++) {
+            if (is_f32) ((float*)data)[i*n+j] /= (float)sum;
+            else        ((double*)data)[i*n+j] /= sum;
+        }
     }
-
     int shape[] = {B, m, n};
-    Tensor* r = make_tensor(data, shape, 3, t->requires_grad);
-    free(data);
+    Tensor* r;
+    if (is_f32) r = make_tensor_arena_f32((float*)data, t->numel, shape, 3, t->requires_grad);
+    else { r = make_tensor((double*)data, shape, 3, t->requires_grad); free(data); }
     if (t->requires_grad) tape_append(OP_SOFTMAX_3D, r, t, NULL, 0);
     return r;
 }
@@ -1816,16 +1832,25 @@ TensorHandle tensor_softmax_3d(TensorHandle h) {
 TensorHandle tensor_transpose_last2(TensorHandle h) {
     Tensor* t = (Tensor*)h;
     int B = t->shape[0], m = t->shape[1], n = t->shape[2];
-    double* data = malloc(t->numel * sizeof(double));
-
-    for (int bi = 0; bi < B; bi++)
-        for (int i = 0; i < m; i++)
-            for (int j = 0; j < n; j++)
-                data[bi*n*m + j*m + i] = ((double*)t->data)[bi*m*n + i*n + j];
-
+    int is_f32 = (t->dtype_tag == DT_F32);
     int shape[] = {B, n, m};
-    Tensor* r = make_tensor(data, shape, 3, t->requires_grad);
-    free(data);
+    Tensor* r;
+    if (is_f32) {
+        float* data = arena_alloc(t->numel * sizeof(float));
+        for (int bi = 0; bi < B; bi++)
+            for (int i = 0; i < m; i++)
+                for (int j = 0; j < n; j++)
+                    data[bi*n*m + j*m + i] = ((float*)t->data)[bi*m*n + i*n + j];
+        r = make_tensor_arena_f32(data, t->numel, shape, 3, t->requires_grad);
+    } else {
+        double* data = malloc(t->numel * sizeof(double));
+        for (int bi = 0; bi < B; bi++)
+            for (int i = 0; i < m; i++)
+                for (int j = 0; j < n; j++)
+                    data[bi*n*m + j*m + i] = ((double*)t->data)[bi*m*n + i*n + j];
+        r = make_tensor(data, shape, 3, t->requires_grad);
+        free(data);
+    }
     if (t->requires_grad) tape_append(OP_TRANSPOSE_LAST2, r, t, NULL, 0);
     return r;
 }
@@ -1843,10 +1868,14 @@ TensorHandle tensor_reshape_3d(TensorHandle h, int d0, int d1, int d2) {
 TensorHandle tensor_expand_mask(TensorHandle hmask, int B) {
     Tensor* mask = (Tensor*)hmask;
     int mn = mask->numel;
-    double* data = malloc(B * mn * sizeof(double));
-    for (int bi = 0; bi < B; bi++)
-        memcpy(data + bi * mn, mask->data, mn * sizeof(double));
     int shape[] = {B, mask->shape[0], mask->shape[1]};
+    if (mask->dtype_tag == DT_F32) {
+        float* data = arena_alloc(B * mn * sizeof(float));
+        for (int bi = 0; bi < B; bi++) memcpy(data + bi * mn, mask->data, mn * sizeof(float));
+        return make_tensor_arena_f32(data, B * mn, shape, 3, 0);
+    }
+    double* data = malloc(B * mn * sizeof(double));
+    for (int bi = 0; bi < B; bi++) memcpy(data + bi * mn, mask->data, mn * sizeof(double));
     Tensor* r = make_tensor(data, shape, 3, 0);
     free(data);
     return r;
@@ -1858,17 +1887,25 @@ TensorHandle tensor_tile_2d(TensorHandle h, int rep0, int rep1) {
     Tensor* t = (Tensor*)h;
     int m = t->shape[0], n = t->shape[1];
     int M = m * rep0, N = n * rep1;
-    double* data = malloc(M * N * sizeof(double));
-    /* output[i, j] = input[i mod m, j mod n] (tile semantics) */
-    for (int i = 0; i < M; i++) {
-        int si = i % m;
-        for (int j = 0; j < N; j++) {
-            data[i * N + j] = ((double*)t->data)[si * n + (j % n)];
-        }
-    }
     int shape[] = {M, N};
-    Tensor* r = make_tensor(data, shape, 2, t->requires_grad);
-    free(data);
+    Tensor* r;
+    if (t->dtype_tag == DT_F32) {
+        float* data = arena_alloc(M * N * sizeof(float));
+        const float* td = (const float*)t->data;
+        for (int i = 0; i < M; i++) {
+            int si = i % m;
+            for (int j = 0; j < N; j++) data[i * N + j] = td[si * n + (j % n)];
+        }
+        r = make_tensor_arena_f32(data, M * N, shape, 2, t->requires_grad);
+    } else {
+        double* data = malloc(M * N * sizeof(double));
+        for (int i = 0; i < M; i++) {
+            int si = i % m;
+            for (int j = 0; j < N; j++) data[i * N + j] = ((double*)t->data)[si * n + (j % n)];
+        }
+        r = make_tensor(data, shape, 2, t->requires_grad);
+        free(data);
+    }
     if (t->requires_grad) {
         Tile2dMeta* meta = arena_alloc(sizeof(Tile2dMeta));
         meta->m = m; meta->n = n; meta->rep0 = rep0; meta->rep1 = rep1;
@@ -1884,18 +1921,27 @@ TensorHandle tensor_batch(TensorHandle* handles, int count) {
     Tensor* first = (Tensor*)handles[0];
     int elem_size = first->numel;
     int total = count * elem_size;
-    double* data = malloc(total * sizeof(double));
-    for (int i = 0; i < count; i++) {
-        Tensor* t = (Tensor*)handles[i];
-        memcpy(data + i * elem_size, t->data, elem_size * sizeof(double));
-    }
-    /* Build shape: [count, first->shape[0], ..., first->shape[rank-1]] */
     int rank = first->rank + 1;
+    int is_f32 = (first->dtype_tag == DT_F32);
+    for (int i = 1; i < count; i++)
+        if (((Tensor*)handles[i])->dtype_tag != first->dtype_tag)
+            tape_abort_mixed_dtype("tensor_batch");
     int* shape = malloc(rank * sizeof(int));
     shape[0] = count;
     for (int i = 0; i < first->rank; i++) shape[i+1] = first->shape[i];
-    Tensor* r = make_tensor(data, shape, rank, 0);
-    free(data);
+    Tensor* r;
+    if (is_f32) {
+        float* data = arena_alloc(total * sizeof(float));
+        for (int i = 0; i < count; i++)
+            memcpy(data + i * elem_size, ((Tensor*)handles[i])->data, elem_size * sizeof(float));
+        r = make_tensor_arena_f32(data, total, shape, rank, 0);
+    } else {
+        double* data = malloc(total * sizeof(double));
+        for (int i = 0; i < count; i++)
+            memcpy(data + i * elem_size, ((Tensor*)handles[i])->data, elem_size * sizeof(double));
+        r = make_tensor(data, shape, rank, 0);
+        free(data);
+    }
     free(shape);
     return r;
 }
@@ -1908,11 +1954,12 @@ TensorHandle* tensor_unbatch(TensorHandle h, int* out_count) {
     *out_count = B;
     int elem_size = t->numel / B;
     int inner_rank = t->rank - 1;
+    size_t es = tape_elem_size(t->dtype_tag);
     TensorHandle* handles = malloc(B * sizeof(TensorHandle));
     for (int i = 0; i < B; i++) {
         Tensor* r = arena_alloc(sizeof(Tensor));
         memset(r, 0, sizeof(Tensor));
-        r->data = ((double*)t->data) + i * elem_size;  /* view into parent */
+        r->data = (char*)t->data + (size_t)(i * elem_size) * es;  /* byte-correct view */
         r->shape = arena_alloc(inner_rank * sizeof(int));
         for (int j = 0; j < inner_rank; j++) r->shape[j] = t->shape[j+1];
         r->rank = inner_rank;
@@ -1920,6 +1967,7 @@ TensorHandle* tensor_unbatch(TensorHandle h, int* out_count) {
         r->requires_grad = t->requires_grad;
         r->tape_idx = -1;
         r->persistent = 0;
+        r->dtype_tag = t->dtype_tag;
         handles[i] = (TensorHandle)r;
     }
     return handles;
@@ -1929,13 +1977,22 @@ TensorHandle* tensor_unbatch(TensorHandle h, int* out_count) {
 TensorHandle tensor_transpose_2d(TensorHandle h) {
     Tensor* t = (Tensor*)h;
     int m = t->shape[0], n = t->shape[1];
-    double* data = malloc(m * n * sizeof(double));
-    for (int i = 0; i < m; i++)
-        for (int j = 0; j < n; j++)
-            data[j*m+i] = ((double*)t->data)[i*n+j];
     int shape[] = {n, m};
-    Tensor* r = make_tensor(data, shape, 2, t->requires_grad);
-    free(data);
+    Tensor* r;
+    if (t->dtype_tag == DT_F32) {
+        float* data = arena_alloc(m * n * sizeof(float));
+        for (int i = 0; i < m; i++)
+            for (int j = 0; j < n; j++)
+                data[j*m+i] = ((float*)t->data)[i*n+j];
+        r = make_tensor_arena_f32(data, m * n, shape, 2, t->requires_grad);
+    } else {
+        double* data = malloc(m * n * sizeof(double));
+        for (int i = 0; i < m; i++)
+            for (int j = 0; j < n; j++)
+                data[j*m+i] = ((double*)t->data)[i*n+j];
+        r = make_tensor(data, shape, 2, t->requires_grad);
+        free(data);
+    }
     if (r->requires_grad) tape_append(OP_TRANSPOSE_2D, r, t, NULL, 0);
     return r;
 }
@@ -1944,21 +2001,31 @@ TensorHandle tensor_transpose_2d(TensorHandle h) {
 TensorHandle tensor_softmax_2d(TensorHandle h) {
     Tensor* t = (Tensor*)h;
     int m = t->shape[0], n = t->shape[1];
-    double* data = malloc(m * n * sizeof(double));
+    int is_f32 = (t->dtype_tag == DT_F32);
+    int shape[] = {m, n};
+    void* data = is_f32 ? (void*)arena_alloc(m * n * sizeof(float))
+                        : (void*)malloc(m * n * sizeof(double));
     for (int i = 0; i < m; i++) {
-        double max_val = ((double*)t->data)[i*n];
-        for (int j = 1; j < n; j++)
-            if (((double*)t->data)[i*n+j] > max_val) max_val = ((double*)t->data)[i*n+j];
+        double max_val = tape_load_d(t, i*n);
+        for (int j = 1; j < n; j++) {
+            double v = tape_load_d(t, i*n+j);
+            if (v > max_val) max_val = v;
+        }
         double sum_exp = 0;
         for (int j = 0; j < n; j++) {
-            data[i*n+j] = exp(((double*)t->data)[i*n+j] - max_val);
-            sum_exp += data[i*n+j];
+            double e = exp(tape_load_d(t, i*n+j) - max_val);
+            if (is_f32) ((float*)data)[i*n+j] = (float)e;
+            else        ((double*)data)[i*n+j] = e;
+            sum_exp += e;
         }
-        for (int j = 0; j < n; j++) data[i*n+j] /= sum_exp;
+        for (int j = 0; j < n; j++) {
+            if (is_f32) ((float*)data)[i*n+j] /= (float)sum_exp;
+            else        ((double*)data)[i*n+j] /= sum_exp;
+        }
     }
-    int shape[] = {m, n};
-    Tensor* r = make_tensor(data, shape, 2, t->requires_grad);
-    free(data);
+    Tensor* r;
+    if (is_f32) r = make_tensor_arena_f32((float*)data, m * n, shape, 2, t->requires_grad);
+    else { r = make_tensor((double*)data, shape, 2, t->requires_grad); free(data); }
     if (r->requires_grad) tape_append(OP_SOFTMAX_2D, r, t, NULL, 0);
     return r;
 }
@@ -1967,19 +2034,28 @@ TensorHandle tensor_softmax_2d(TensorHandle h) {
 TensorHandle tensor_log_softmax_2d(TensorHandle h) {
     Tensor* t = (Tensor*)h;
     int m = t->shape[0], n = t->shape[1];
-    double* data = malloc(m * n * sizeof(double));
-    for (int i = 0; i < m; i++) {
-        double max_val = ((double*)t->data)[i*n];
-        for (int j = 1; j < n; j++)
-            if (((double*)t->data)[i*n+j] > max_val) max_val = ((double*)t->data)[i*n+j];
-        double sum_exp = 0;
-        for (int j = 0; j < n; j++) sum_exp += exp(((double*)t->data)[i*n+j] - max_val);
-        double log_sum = log(sum_exp) + max_val;
-        for (int j = 0; j < n; j++) data[i*n+j] = ((double*)t->data)[i*n+j] - log_sum;
-    }
+    int is_f32 = (t->dtype_tag == DT_F32);
     int shape[] = {m, n};
-    Tensor* r = make_tensor(data, shape, 2, t->requires_grad);
-    free(data);
+    void* data = is_f32 ? (void*)arena_alloc(m * n * sizeof(float))
+                        : (void*)malloc(m * n * sizeof(double));
+    for (int i = 0; i < m; i++) {
+        double max_val = tape_load_d(t, i*n);
+        for (int j = 1; j < n; j++) {
+            double v = tape_load_d(t, i*n+j);
+            if (v > max_val) max_val = v;
+        }
+        double sum_exp = 0;
+        for (int j = 0; j < n; j++) sum_exp += exp(tape_load_d(t, i*n+j) - max_val);
+        double log_sum = log(sum_exp) + max_val;
+        for (int j = 0; j < n; j++) {
+            double v = tape_load_d(t, i*n+j) - log_sum;
+            if (is_f32) ((float*)data)[i*n+j] = (float)v;
+            else        ((double*)data)[i*n+j] = v;
+        }
+    }
+    Tensor* r;
+    if (is_f32) r = make_tensor_arena_f32((float*)data, m * n, shape, 2, t->requires_grad);
+    else { r = make_tensor((double*)data, shape, 2, t->requires_grad); free(data); }
     if (r->requires_grad) tape_append(OP_LOG_SOFTMAX_2D, r, t, NULL, 0);
     return r;
 }
@@ -1998,11 +2074,21 @@ TensorHandle tensor_sum_all(TensorHandle h) {
 TensorHandle tensor_masked_fill(TensorHandle h, TensorHandle hmask, double value) {
     Tensor* t = (Tensor*)h;
     Tensor* mask = (Tensor*)hmask;
-    double* data = malloc(t->numel * sizeof(double));
-    for (int i = 0; i < t->numel; i++)
-        data[i] = (((double*)mask->data)[i] != 0.0) ? value : ((double*)t->data)[i];
-    Tensor* r = make_tensor(data, t->shape, t->rank, t->requires_grad);
-    free(data);
+    int n = t->numel;
+    Tensor* r;
+    if (t->dtype_tag == DT_F32) {
+        float* data = arena_alloc(n * sizeof(float));
+        float v_f = (float)value;
+        for (int i = 0; i < n; i++)
+            data[i] = (tape_load_d(mask, i) != 0.0) ? v_f : ((float*)t->data)[i];
+        r = make_tensor_arena_f32(data, n, t->shape, t->rank, t->requires_grad);
+    } else {
+        double* data = malloc(n * sizeof(double));
+        for (int i = 0; i < n; i++)
+            data[i] = (tape_load_d(mask, i) != 0.0) ? value : ((double*)t->data)[i];
+        r = make_tensor(data, t->shape, t->rank, t->requires_grad);
+        free(data);
+    }
     if (r->requires_grad) tape_append(OP_MASKED_FILL, r, t, mask, 0);
     return r;
 }
@@ -2525,33 +2611,40 @@ TensorHandle tensor_group_norm(TensorHandle hinput, TensorHandle hgamma, TensorH
     int chPerGroup = channels / numGroups;
     int groupSize = chPerGroup * spatial;
 
-    double* out = calloc(n, sizeof(double));
+    if (input->dtype_tag != gamma->dtype_tag || input->dtype_tag != beta->dtype_tag)
+        tape_abort_mixed_dtype("tensor_group_norm");
+    int is_f32 = (input->dtype_tag == DT_F32);
+    int out_shape[] = {n};
+    void* out = is_f32 ? (void*)arena_alloc(n * sizeof(float))
+                       : (void*)calloc(n, sizeof(double));
     for (int g = 0; g < numGroups; g++) {
-        /* Compute mean and var for this group */
         double mean = 0;
         int base = g * groupSize;
-        for (int j = 0; j < groupSize; j++) mean += ((double*)input->data)[base + j];
+        for (int j = 0; j < groupSize; j++) mean += tape_load_d(input, base + j);
         mean /= groupSize;
         double var = 0;
         for (int j = 0; j < groupSize; j++) {
-            double d = ((double*)input->data)[base + j] - mean;
+            double d = tape_load_d(input, base + j) - mean;
             var += d * d;
         }
         var /= groupSize;
         double rstd = 1.0 / sqrt(var + eps);
-        /* Normalize, then scale+shift per-channel */
         for (int c = 0; c < chPerGroup; c++) {
             int absC = g * chPerGroup + c;
+            double gc = tape_load_d(gamma, absC);
+            double bc = tape_load_d(beta, absC);
             for (int s = 0; s < spatial; s++) {
                 int idx = absC * spatial + s;
-                double x_hat = (((double*)input->data)[idx] - mean) * rstd;
-                out[idx] = ((double*)gamma->data)[absC] * x_hat + ((double*)beta->data)[absC];
+                double x_hat = (tape_load_d(input, idx) - mean) * rstd;
+                double v = gc * x_hat + bc;
+                if (is_f32) ((float*)out)[idx] = (float)v;
+                else        ((double*)out)[idx] = v;
             }
         }
     }
-    int out_shape[] = {n};
-    Tensor* r = make_tensor(out, out_shape, 1, input->requires_grad || gamma->requires_grad);
-    free(out);
+    Tensor* r;
+    if (is_f32) r = make_tensor_arena_f32((float*)out, n, out_shape, 1, input->requires_grad || gamma->requires_grad);
+    else { r = make_tensor((double*)out, out_shape, 1, input->requires_grad || gamma->requires_grad); free(out); }
     /* No backward tape entry for now — torch/MLX handle it natively */
     return r;
 }
@@ -2567,19 +2660,24 @@ TensorHandle tensor_dropout(TensorHandle hinput, double p, int training, unsigne
     if (!training || p <= 0.0) return hinput;  /* eval mode or p=0: identity */
 
     double scale = 1.0 / (1.0 - p);
-    double* out = arena_alloc(n * sizeof(double));
+    int is_f32 = (input->dtype_tag == DT_F32);
+    void* out = is_f32 ? (void*)arena_alloc(n * sizeof(float))
+                       : (void*)arena_alloc(n * sizeof(double));
     double* mask = malloc(n * sizeof(double));  /* heap: survives for backward */
 
     for (int i = 0; i < n; i++) {
         /* Simple LCG per-element (fast, deterministic per seed) */
         seed = seed * 1103515245u + 12345u;
-        double r = (double)((seed >> 16) & 0x7fff) / 32767.0;
-        if (r < p) {
+        double rv = (double)((seed >> 16) & 0x7fff) / 32767.0;
+        if (rv < p) {
             mask[i] = 0.0;
-            out[i] = 0.0;
+            if (is_f32) ((float*)out)[i] = 0.0f;
+            else        ((double*)out)[i] = 0.0;
         } else {
             mask[i] = scale;
-            out[i] = ((double*)input->data)[i] * scale;
+            double v = tape_load_d(input, i) * scale;
+            if (is_f32) ((float*)out)[i] = (float)v;
+            else        ((double*)out)[i] = v;
         }
     }
 
@@ -2592,6 +2690,7 @@ TensorHandle tensor_dropout(TensorHandle hinput, double p, int training, unsigne
     r->requires_grad = input->requires_grad;
     r->tape_idx = -1;
     r->persistent = 0;
+    r->dtype_tag = input->dtype_tag;
 
     if (r->requires_grad) {
         TapeEntry* e = tape_append(OP_DROPOUT, r, input, NULL, 0);
@@ -2754,16 +2853,22 @@ TensorHandle tensor_avg_pool1d(TensorHandle hinput, int kL, int stride) {
     int C = input->shape[0], L = input->shape[1];
     int oL = (L - kL) / stride + 1;
     double scale = 1.0 / kL;
-    double* out = calloc(C * oL, sizeof(double));
+    int is_f32 = (input->dtype_tag == DT_F32);
+    int out_shape[] = {C, oL};
+    int numel = C * oL;
+    void* out = is_f32 ? (void*)arena_alloc(numel * sizeof(float))
+                       : (void*)calloc(numel, sizeof(double));
     for (int c = 0; c < C; c++)
         for (int ol = 0; ol < oL; ol++) {
             double s = 0;
-            for (int kl = 0; kl < kL; kl++) s += ((double*)input->data)[c*L + ol*stride + kl];
-            out[c*oL + ol] = s * scale;
+            for (int kl = 0; kl < kL; kl++) s += tape_load_d(input, c*L + ol*stride + kl);
+            double v = s * scale;
+            if (is_f32) ((float*)out)[c*oL + ol] = (float)v;
+            else        ((double*)out)[c*oL + ol] = v;
         }
-    int out_shape[] = {C, oL};
-    Tensor* r = make_tensor(out, out_shape, 2, input->requires_grad);
-    free(out);
+    Tensor* r;
+    if (is_f32) r = make_tensor_arena_f32((float*)out, numel, out_shape, 2, input->requires_grad);
+    else { r = make_tensor((double*)out, out_shape, 2, input->requires_grad); free(out); }
     if (r->requires_grad) {
         TapeEntry* e = tape_append(OP_AVG_POOL1D, r, input, NULL, 0);
         AvgPool1DMeta* meta = arena_alloc(sizeof(AvgPool1DMeta));
@@ -2779,19 +2884,25 @@ TensorHandle tensor_avg_pool2d(TensorHandle hinput, int kH, int kW, int strideH,
     int oH = (H - kH) / strideH + 1;
     int oW = (W - kW) / strideW + 1;
     double scale = 1.0 / (kH * kW);
-    double* out = calloc(C * oH * oW, sizeof(double));
+    int is_f32 = (input->dtype_tag == DT_F32);
+    int out_shape[] = {C, oH, oW};
+    int numel = C * oH * oW;
+    void* out = is_f32 ? (void*)arena_alloc(numel * sizeof(float))
+                       : (void*)calloc(numel, sizeof(double));
     for (int c = 0; c < C; c++)
         for (int oh = 0; oh < oH; oh++)
             for (int ow = 0; ow < oW; ow++) {
                 double s = 0;
                 for (int kh = 0; kh < kH; kh++)
                     for (int kw = 0; kw < kW; kw++)
-                        s += ((double*)input->data)[c*H*W + (oh*strideH+kh)*W + ow*strideW+kw];
-                out[c*oH*oW + oh*oW + ow] = s * scale;
+                        s += tape_load_d(input, c*H*W + (oh*strideH+kh)*W + ow*strideW+kw);
+                double v = s * scale;
+                if (is_f32) ((float*)out)[c*oH*oW + oh*oW + ow] = (float)v;
+                else        ((double*)out)[c*oH*oW + oh*oW + ow] = v;
             }
-    int out_shape[] = {C, oH, oW};
-    Tensor* r = make_tensor(out, out_shape, 3, input->requires_grad);
-    free(out);
+    Tensor* r;
+    if (is_f32) r = make_tensor_arena_f32((float*)out, numel, out_shape, 3, input->requires_grad);
+    else { r = make_tensor((double*)out, out_shape, 3, input->requires_grad); free(out); }
     if (r->requires_grad) {
         TapeEntry* e = tape_append(OP_AVG_POOL2D, r, input, NULL, 0);
         AvgPool2DMeta* meta = arena_alloc(sizeof(AvgPool2DMeta));
@@ -2813,30 +2924,34 @@ TensorHandle tensor_conv1d(TensorHandle hinput, TensorHandle hkernel,
     Tensor* input = (Tensor*)hinput;
     Tensor* kernel = (Tensor*)hkernel;
     Tensor* bias = (Tensor*)hbias;
-
+    if (input->dtype_tag != kernel->dtype_tag ||
+        (bias && bias->dtype_tag != input->dtype_tag))
+        tape_abort_mixed_dtype("tensor_conv1d");
     int inC = input->shape[0], L = input->shape[1];
     int outC = kernel->shape[0], kL = kernel->shape[2];
     int oL = (L + 2*pad - kL) / stride + 1;
-
-    double* out = calloc(outC * oL, sizeof(double));
+    int is_f32 = (input->dtype_tag == DT_F32);
+    int numel = outC * oL;
+    int out_shape[] = {outC, oL};
+    int rg = input->requires_grad || kernel->requires_grad || (bias && bias->requires_grad);
+    void* out = is_f32 ? (void*)arena_alloc(numel * sizeof(float))
+                       : (void*)calloc(numel, sizeof(double));
     for (int oc = 0; oc < outC; oc++) {
         for (int ol = 0; ol < oL; ol++) {
-            double val = bias ? ((double*)bias->data)[oc] : 0.0;
+            double val = bias ? tape_load_d(bias, oc) : 0.0;
             for (int ic = 0; ic < inC; ic++)
                 for (int kl = 0; kl < kL; kl++) {
                     int il = ol * stride - pad + kl;
                     if (il >= 0 && il < L)
-                        val += ((double*)input->data)[ic*L + il] * ((double*)kernel->data)[oc*inC*kL + ic*kL + kl];
+                        val += tape_load_d(input, ic*L + il) * tape_load_d(kernel, oc*inC*kL + ic*kL + kl);
                 }
-            out[oc*oL + ol] = val;
+            if (is_f32) ((float*)out)[oc*oL + ol] = (float)val;
+            else        ((double*)out)[oc*oL + ol] = val;
         }
     }
-
-    int out_shape[] = {outC, oL};
-    int rg = input->requires_grad || kernel->requires_grad || (bias && bias->requires_grad);
-    Tensor* r = make_tensor(out, out_shape, 2, rg);
-    free(out);
-
+    Tensor* r;
+    if (is_f32) r = make_tensor_arena_f32((float*)out, numel, out_shape, 2, rg);
+    else { r = make_tensor((double*)out, out_shape, 2, rg); free(out); }
     if (r->requires_grad) {
         TapeEntry* e = tape_append(OP_CONV1D, r, input, kernel, 0);
         Conv1DMeta* meta = arena_alloc(sizeof(Conv1DMeta));
@@ -2852,27 +2967,28 @@ TensorHandle tensor_max_pool1d(TensorHandle hinput, int kL, int stride) {
     Tensor* input = (Tensor*)hinput;
     int C = input->shape[0], L = input->shape[1];
     int oL = (L - kL) / stride + 1;
-
-    double* out = calloc(C * oL, sizeof(double));
-    int* max_idx = malloc(C * oL * sizeof(int));
-
+    int is_f32 = (input->dtype_tag == DT_F32);
+    int numel = C * oL;
+    int out_shape[] = {C, oL};
+    void* out = is_f32 ? (void*)arena_alloc(numel * sizeof(float))
+                       : (void*)calloc(numel, sizeof(double));
+    int* max_idx = malloc(numel * sizeof(int));
     for (int c = 0; c < C; c++)
         for (int ol = 0; ol < oL; ol++) {
             double best = -1e30;
             int best_idx = 0;
             for (int kl = 0; kl < kL; kl++) {
-                int il = ol * stride + kl;
-                int flat = c*L + il;
-                if (((double*)input->data)[flat] > best) { best = ((double*)input->data)[flat]; best_idx = flat; }
+                int flat = c*L + (ol * stride + kl);
+                double v = tape_load_d(input, flat);
+                if (v > best) { best = v; best_idx = flat; }
             }
-            out[c*oL + ol] = best;
+            if (is_f32) ((float*)out)[c*oL + ol] = (float)best;
+            else        ((double*)out)[c*oL + ol] = best;
             max_idx[c*oL + ol] = best_idx;
         }
-
-    int out_shape[] = {C, oL};
-    Tensor* r = make_tensor(out, out_shape, 2, input->requires_grad);
-    free(out);
-
+    Tensor* r;
+    if (is_f32) r = make_tensor_arena_f32((float*)out, numel, out_shape, 2, input->requires_grad);
+    else { r = make_tensor((double*)out, out_shape, 2, input->requires_grad); free(out); }
     if (r->requires_grad) {
         TapeEntry* e = tape_append(OP_MAX_POOL1D, r, input, NULL, 0);
         MaxPool1DMeta* meta = arena_alloc(sizeof(MaxPool1DMeta));
@@ -2912,23 +3028,39 @@ TensorHandle tensor_conv_transpose1d(TensorHandle hinput, TensorHandle hkernel,
     Tensor* input = (Tensor*)hinput;
     Tensor* kernel = (Tensor*)hkernel;
     Tensor* bias = (Tensor*)hbias;
+    if (input->dtype_tag != kernel->dtype_tag ||
+        (bias && bias->dtype_tag != input->dtype_tag))
+        tape_abort_mixed_dtype("tensor_conv_transpose1d");
     int inC = input->shape[0], L = input->shape[1];
     int outC = kernel->shape[1], kL = kernel->shape[2];
     int oL = (L - 1) * stride - 2 * pad + kL;
-    double* out = calloc(outC * oL, sizeof(double));
+    int is_f32 = (input->dtype_tag == DT_F32);
+    int numel = outC * oL;
+    int out_shape[] = {outC, oL};
+    int rg = input->requires_grad || kernel->requires_grad;
+    /* Compute in double for sum stability; narrow to float on store. */
+    double* dbl = calloc(numel, sizeof(double));
     if (bias) for (int oc = 0; oc < outC; oc++)
-        for (int ol = 0; ol < oL; ol++) out[oc*oL + ol] = ((double*)bias->data)[oc];
+        for (int ol = 0; ol < oL; ol++) dbl[oc*oL + ol] = tape_load_d(bias, oc);
     for (int ic = 0; ic < inC; ic++)
         for (int il = 0; il < L; il++)
             for (int oc = 0; oc < outC; oc++)
                 for (int kl = 0; kl < kL; kl++) {
                     int ol = il * stride - pad + kl;
                     if (ol >= 0 && ol < oL)
-                        out[oc*oL + ol] += ((double*)input->data)[ic*L + il] * ((double*)kernel->data)[ic*outC*kL + oc*kL + kl];
+                        dbl[oc*oL + ol] += tape_load_d(input, ic*L + il)
+                                         * tape_load_d(kernel, ic*outC*kL + oc*kL + kl);
                 }
-    int out_shape[] = {outC, oL};
-    Tensor* r = make_tensor(out, out_shape, 2, input->requires_grad || kernel->requires_grad);
-    free(out);
+    Tensor* r;
+    if (is_f32) {
+        float* out = arena_alloc(numel * sizeof(float));
+        for (int i = 0; i < numel; i++) out[i] = (float)dbl[i];
+        free(dbl);
+        r = make_tensor_arena_f32(out, numel, out_shape, 2, rg);
+    } else {
+        r = make_tensor(dbl, out_shape, 2, rg);
+        free(dbl);
+    }
     return r;
 }
 
@@ -2938,14 +3070,21 @@ TensorHandle tensor_conv_transpose2d(TensorHandle hinput, TensorHandle hkernel,
     Tensor* input = (Tensor*)hinput;
     Tensor* kernel = (Tensor*)hkernel;
     Tensor* bias = (Tensor*)hbias;
+    if (input->dtype_tag != kernel->dtype_tag ||
+        (bias && bias->dtype_tag != input->dtype_tag))
+        tape_abort_mixed_dtype("tensor_conv_transpose2d");
     int inC = input->shape[0], H = input->shape[1], W = input->shape[2];
     int outC = kernel->shape[1], kH = kernel->shape[2], kW = kernel->shape[3];
     int oH = (H - 1) * strideH - 2 * padH + kH;
     int oW = (W - 1) * strideW - 2 * padW + kW;
-    double* out = calloc(outC * oH * oW, sizeof(double));
+    int is_f32 = (input->dtype_tag == DT_F32);
+    int numel = outC * oH * oW;
+    int out_shape[] = {outC, oH, oW};
+    int rg = input->requires_grad || kernel->requires_grad;
+    double* dbl = calloc(numel, sizeof(double));
     if (bias) for (int oc = 0; oc < outC; oc++)
         for (int oh = 0; oh < oH; oh++)
-            for (int ow = 0; ow < oW; ow++) out[oc*oH*oW + oh*oW + ow] = ((double*)bias->data)[oc];
+            for (int ow = 0; ow < oW; ow++) dbl[oc*oH*oW + oh*oW + ow] = tape_load_d(bias, oc);
     for (int ic = 0; ic < inC; ic++)
         for (int ih = 0; ih < H; ih++)
             for (int iw = 0; iw < W; iw++)
@@ -2955,12 +3094,19 @@ TensorHandle tensor_conv_transpose2d(TensorHandle hinput, TensorHandle hkernel,
                             int oh = ih*strideH - padH + kh;
                             int ow = iw*strideW - padW + kw;
                             if (oh >= 0 && oh < oH && ow >= 0 && ow < oW)
-                                out[oc*oH*oW + oh*oW + ow] += ((double*)input->data)[ic*H*W + ih*W + iw]
-                                    * ((double*)kernel->data)[ic*outC*kH*kW + oc*kH*kW + kh*kW + kw];
+                                dbl[oc*oH*oW + oh*oW + ow] += tape_load_d(input, ic*H*W + ih*W + iw)
+                                    * tape_load_d(kernel, ic*outC*kH*kW + oc*kH*kW + kh*kW + kw);
                         }
-    int out_shape[] = {outC, oH, oW};
-    Tensor* r = make_tensor(out, out_shape, 3, input->requires_grad || kernel->requires_grad);
-    free(out);
+    Tensor* r;
+    if (is_f32) {
+        float* out = arena_alloc(numel * sizeof(float));
+        for (int i = 0; i < numel; i++) out[i] = (float)dbl[i];
+        free(dbl);
+        r = make_tensor_arena_f32(out, numel, out_shape, 3, rg);
+    } else {
+        r = make_tensor(dbl, out_shape, 3, rg);
+        free(dbl);
+    }
     return r;
 }
 
@@ -2976,6 +3122,9 @@ TensorHandle tensor_conv1d_grouped(TensorHandle hinput, TensorHandle hkernel,
     Tensor* input = (Tensor*)hinput;
     Tensor* kernel = (Tensor*)hkernel;
     Tensor* bias = (Tensor*)hbias;
+    if (input->dtype_tag != kernel->dtype_tag ||
+        (bias && bias->dtype_tag != input->dtype_tag))
+        tape_abort_mixed_dtype("tensor_conv1d_grouped");
     int inC = input->shape[0], L = input->shape[1];
     int outC = kernel->shape[0];
     int inC_g = inC / groups;
@@ -2983,27 +3132,33 @@ TensorHandle tensor_conv1d_grouped(TensorHandle hinput, TensorHandle hkernel,
     int kL = kernel->shape[2];
     int oL = (L + 2*pad - kL) / stride + 1;
     int total = outC * oL;
-    double* out = calloc(total, sizeof(double));
+    int is_f32 = (input->dtype_tag == DT_F32);
+    int out_shape[] = {outC, oL};
+    int rg = input->requires_grad || kernel->requires_grad;
+    void* out = is_f32 ? (void*)arena_alloc(total * sizeof(float))
+                       : (void*)calloc(total, sizeof(double));
     for (int g = 0; g < groups; g++) {
         for (int oc = 0; oc < outC_g; oc++) {
             int abs_oc = g * outC_g + oc;
             for (int ol = 0; ol < oL; ol++) {
-                double val = bias ? ((double*)bias->data)[abs_oc] : 0.0;
+                double val = bias ? tape_load_d(bias, abs_oc) : 0.0;
                 for (int ic = 0; ic < inC_g; ic++) {
                     int abs_ic = g * inC_g + ic;
                     for (int kl = 0; kl < kL; kl++) {
                         int il = ol * stride - pad + kl;
                         if (il >= 0 && il < L)
-                            val += ((double*)input->data)[abs_ic*L + il] * ((double*)kernel->data)[abs_oc*inC_g*kL + ic*kL + kl];
+                            val += tape_load_d(input, abs_ic*L + il)
+                                 * tape_load_d(kernel, abs_oc*inC_g*kL + ic*kL + kl);
                     }
                 }
-                out[abs_oc*oL + ol] = val;
+                if (is_f32) ((float*)out)[abs_oc*oL + ol] = (float)val;
+                else        ((double*)out)[abs_oc*oL + ol] = val;
             }
         }
     }
-    int out_shape[] = {outC, oL};
-    Tensor* r = make_tensor(out, out_shape, 2, input->requires_grad || kernel->requires_grad);
-    free(out);
+    Tensor* r;
+    if (is_f32) r = make_tensor_arena_f32((float*)out, total, out_shape, 2, rg);
+    else { r = make_tensor((double*)out, out_shape, 2, rg); free(out); }
     /* No separate backward for grouped — reuse OP_CONV1D with groups=1 per group.
        For simplicity, grouped conv on tape backend doesn't support backward yet.
        Torch and MLX backends use native grouped conv with full autograd. */
@@ -3017,6 +3172,9 @@ TensorHandle tensor_conv2d_grouped(TensorHandle hinput, TensorHandle hkernel,
     Tensor* input = (Tensor*)hinput;
     Tensor* kernel = (Tensor*)hkernel;
     Tensor* bias = (Tensor*)hbias;
+    if (input->dtype_tag != kernel->dtype_tag ||
+        (bias && bias->dtype_tag != input->dtype_tag))
+        tape_abort_mixed_dtype("tensor_conv2d_grouped");
     int inC = input->shape[0], H = input->shape[1], W = input->shape[2];
     int outC = kernel->shape[0];
     int inC_g = inC / groups;
@@ -3024,13 +3182,18 @@ TensorHandle tensor_conv2d_grouped(TensorHandle hinput, TensorHandle hkernel,
     int kH = kernel->shape[2], kW = kernel->shape[3];
     int oH = (H + 2*padH - kH) / strideH + 1;
     int oW = (W + 2*padW - kW) / strideW + 1;
-    double* out = calloc(outC * oH * oW, sizeof(double));
+    int numel = outC * oH * oW;
+    int is_f32 = (input->dtype_tag == DT_F32);
+    int out_shape[] = {outC, oH, oW};
+    int rg = input->requires_grad || kernel->requires_grad;
+    void* out = is_f32 ? (void*)arena_alloc(numel * sizeof(float))
+                       : (void*)calloc(numel, sizeof(double));
     for (int g = 0; g < groups; g++) {
         for (int oc = 0; oc < outC_g; oc++) {
             int abs_oc = g * outC_g + oc;
             for (int oh = 0; oh < oH; oh++)
                 for (int ow = 0; ow < oW; ow++) {
-                    double val = bias ? ((double*)bias->data)[abs_oc] : 0.0;
+                    double val = bias ? tape_load_d(bias, abs_oc) : 0.0;
                     for (int ic = 0; ic < inC_g; ic++) {
                         int abs_ic = g * inC_g + ic;
                         for (int kh = 0; kh < kH; kh++)
@@ -3038,17 +3201,18 @@ TensorHandle tensor_conv2d_grouped(TensorHandle hinput, TensorHandle hkernel,
                                 int ih = oh*strideH - padH + kh;
                                 int iw = ow*strideW - padW + kw;
                                 if (ih >= 0 && ih < H && iw >= 0 && iw < W)
-                                    val += ((double*)input->data)[abs_ic*H*W + ih*W + iw]
-                                         * ((double*)kernel->data)[abs_oc*inC_g*kH*kW + ic*kH*kW + kh*kW + kw];
+                                    val += tape_load_d(input, abs_ic*H*W + ih*W + iw)
+                                         * tape_load_d(kernel, abs_oc*inC_g*kH*kW + ic*kH*kW + kh*kW + kw);
                             }
                     }
-                    out[abs_oc*oH*oW + oh*oW + ow] = val;
+                    if (is_f32) ((float*)out)[abs_oc*oH*oW + oh*oW + ow] = (float)val;
+                    else        ((double*)out)[abs_oc*oH*oW + oh*oW + ow] = val;
                 }
         }
     }
-    int out_shape[] = {outC, oH, oW};
-    Tensor* r = make_tensor(out, out_shape, 3, input->requires_grad || kernel->requires_grad);
-    free(out);
+    Tensor* r;
+    if (is_f32) r = make_tensor_arena_f32((float*)out, numel, out_shape, 3, rg);
+    else { r = make_tensor((double*)out, out_shape, 3, rg); free(out); }
     return r;
 }
 
@@ -3063,40 +3227,45 @@ TensorHandle tensor_conv2d(TensorHandle hinput, TensorHandle hkernel,
     Tensor* input = (Tensor*)hinput;
     Tensor* kernel = (Tensor*)hkernel;
     Tensor* bias = (Tensor*)hbias;
-
+    if (input->dtype_tag != kernel->dtype_tag ||
+        (bias && bias->dtype_tag != input->dtype_tag))
+        tape_abort_mixed_dtype("tensor_conv2d");
     int inC = input->shape[0], H = input->shape[1], W = input->shape[2];
     int outC = kernel->shape[0], kH = kernel->shape[2], kW = kernel->shape[3];
     int oH = (H + 2*padH - kH) / strideH + 1;
     int oW = (W + 2*padW - kW) / strideW + 1;
     int out_numel = outC * oH * oW;
+    int is_f32 = (input->dtype_tag == DT_F32);
+    int out_shape[] = {outC, oH, oW};
+    int rg = input->requires_grad || kernel->requires_grad || (bias && bias->requires_grad);
 
-    double* out = calloc(out_numel, sizeof(double));
-
+    void* out = is_f32 ? (void*)arena_alloc(out_numel * sizeof(float))
+                       : (void*)calloc(out_numel, sizeof(double));
     for (int oc = 0; oc < outC; oc++) {
         for (int oh = 0; oh < oH; oh++) {
             for (int ow = 0; ow < oW; ow++) {
-                double val = bias ? ((double*)bias->data)[oc] : 0.0;
+                double val = bias ? tape_load_d(bias, oc) : 0.0;
                 for (int ic = 0; ic < inC; ic++) {
                     for (int kh = 0; kh < kH; kh++) {
                         for (int kw = 0; kw < kW; kw++) {
                             int ih = oh * strideH - padH + kh;
                             int iw = ow * strideW - padW + kw;
                             if (ih >= 0 && ih < H && iw >= 0 && iw < W) {
-                                val += ((double*)input->data)[ic*H*W + ih*W + iw]
-                                     * ((double*)kernel->data)[oc*inC*kH*kW + ic*kH*kW + kh*kW + kw];
+                                val += tape_load_d(input, ic*H*W + ih*W + iw)
+                                     * tape_load_d(kernel, oc*inC*kH*kW + ic*kH*kW + kh*kW + kw);
                             }
                         }
                     }
                 }
-                out[oc*oH*oW + oh*oW + ow] = val;
+                if (is_f32) ((float*)out)[oc*oH*oW + oh*oW + ow] = (float)val;
+                else        ((double*)out)[oc*oH*oW + oh*oW + ow] = val;
             }
         }
     }
 
-    int out_shape[] = {outC, oH, oW};
-    int rg = input->requires_grad || kernel->requires_grad || (bias && bias->requires_grad);
-    Tensor* r = make_tensor(out, out_shape, 3, rg);
-    free(out);
+    Tensor* r;
+    if (is_f32) r = make_tensor_arena_f32((float*)out, out_numel, out_shape, 3, rg);
+    else { r = make_tensor((double*)out, out_shape, 3, rg); free(out); }
 
     if (r->requires_grad) {
         TapeEntry* e = tape_append(OP_CONV2D, r, input, kernel, 0);
@@ -3195,61 +3364,88 @@ TensorHandle tensor_conv2d_batched(TensorHandle hinput, TensorHandle hkernel,
     Tensor* input = (Tensor*)hinput;
     Tensor* kernel = (Tensor*)hkernel;
     Tensor* bias = (Tensor*)hbias;
+    if (input->dtype_tag != kernel->dtype_tag ||
+        (bias && bias->dtype_tag != input->dtype_tag))
+        tape_abort_mixed_dtype("tensor_conv2d_batched");
 
     int B = input->shape[0], inC = input->shape[1];
     int H = input->shape[2], W = input->shape[3];
     int outC = kernel->shape[0], kH = kernel->shape[2], kW = kernel->shape[3];
     int oH = (H + 2*padH - kH) / strideH + 1;
     int oW = (W + 2*padW - kW) / strideW + 1;
-    int K = inC * kH * kW;
-    int M = B * oH * oW;
     int out_numel = B * outC * oH * oW;
+    int is_f32 = (input->dtype_tag == DT_F32);
+    int out_shape[] = {B, outC, oH, oW};
+    int rg = input->requires_grad || kernel->requires_grad || (bias && bias->requires_grad);
 
-    /* Build X_col [M, K] — local workspace (heap, freed at end). */
-    double* X_col = (double*)calloc((size_t)M * K, sizeof(double));
-    conv2d_im2col(input->data, B, inC, H, W, kH, kW, padH, padW,
-                  strideH, strideW, oH, oW, X_col);
-
-    /* Y_unf [M, outC] = X_col [M, K] @ W^T [K, outC]
-       W is stored row-major as [outC, K]. */
-    double* Y_unf = calloc((size_t)M * outC, sizeof(double));
+    void* out_buf;
+    if (is_f32) {
+        /* F32 path: direct 6-loop computation; im2col + cblas_sgemm is
+           future work. Loops do double arithmetic and narrow at the
+           store (numerical-stability-friendly). */
+        float* out = arena_alloc(out_numel * sizeof(float));
+        for (int b = 0; b < B; b++)
+            for (int oc = 0; oc < outC; oc++) {
+                double b_val = bias ? tape_load_d(bias, oc) : 0.0;
+                for (int oh = 0; oh < oH; oh++)
+                    for (int ow = 0; ow < oW; ow++) {
+                        double val = b_val;
+                        for (int ic = 0; ic < inC; ic++)
+                            for (int kh = 0; kh < kH; kh++)
+                                for (int kw = 0; kw < kW; kw++) {
+                                    int ih = oh*strideH - padH + kh;
+                                    int iw = ow*strideW - padW + kw;
+                                    if (ih >= 0 && ih < H && iw >= 0 && iw < W)
+                                        val += tape_load_d(input, b*inC*H*W + ic*H*W + ih*W + iw)
+                                             * tape_load_d(kernel, oc*inC*kH*kW + ic*kH*kW + kh*kW + kw);
+                                }
+                        out[((size_t)b * outC + oc) * oH * oW + oh*oW + ow] = (float)val;
+                    }
+            }
+        out_buf = out;
+    } else {
+        int K = inC * kH * kW;
+        int M = B * oH * oW;
+        double* X_col = (double*)calloc((size_t)M * K, sizeof(double));
+        conv2d_im2col(input->data, B, inC, H, W, kH, kW, padH, padW,
+                      strideH, strideW, oH, oW, X_col);
+        double* Y_unf = calloc((size_t)M * outC, sizeof(double));
 #ifdef __APPLE__
-    cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasTrans,
-                M, outC, K, 1.0,
-                X_col, K,
-                kernel->data, K,
-                0.0, Y_unf, outC);
+        cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasTrans,
+                    M, outC, K, 1.0,
+                    X_col, K,
+                    kernel->data, K,
+                    0.0, Y_unf, outC);
 #else
-    for (int m = 0; m < M; m++)
-        for (int oc = 0; oc < outC; oc++) {
-            double s = 0;
-            for (int k = 0; k < K; k++)
-                s += X_col[m*K + k] * ((double*)kernel->data)[oc*K + k];
-            Y_unf[m*outC + oc] = s;
-        }
+        for (int m = 0; m < M; m++)
+            for (int oc = 0; oc < outC; oc++) {
+                double s = 0;
+                for (int k = 0; k < K; k++)
+                    s += X_col[m*K + k] * ((double*)kernel->data)[oc*K + k];
+                Y_unf[m*outC + oc] = s;
+            }
 #endif
-
-    /* Permute Y_unf [B*oH*oW, outC] -> out [B, outC, oH, oW] + bias broadcast */
-    double* out = calloc(out_numel, sizeof(double));
-    for (int b = 0; b < B; b++) {
-        for (int oc = 0; oc < outC; oc++) {
-            double b_val = bias ? ((double*)bias->data)[oc] : 0.0;
-            double* out_chan = out + ((size_t)b * outC + oc) * oH * oW;
-            for (int oh = 0; oh < oH; oh++) {
-                for (int ow = 0; ow < oW; ow++) {
-                    int row = b * oH * oW + oh * oW + ow;
-                    out_chan[oh*oW + ow] = Y_unf[row * outC + oc] + b_val;
+        double* out = calloc(out_numel, sizeof(double));
+        for (int b = 0; b < B; b++) {
+            for (int oc = 0; oc < outC; oc++) {
+                double b_val = bias ? ((double*)bias->data)[oc] : 0.0;
+                double* out_chan = out + ((size_t)b * outC + oc) * oH * oW;
+                for (int oh = 0; oh < oH; oh++) {
+                    for (int ow = 0; ow < oW; ow++) {
+                        int row = b * oH * oW + oh * oW + ow;
+                        out_chan[oh*oW + ow] = Y_unf[row * outC + oc] + b_val;
+                    }
                 }
             }
         }
+        free(Y_unf);
+        free(X_col);
+        out_buf = out;
     }
-    free(Y_unf);
-    free(X_col);
 
-    int out_shape[] = {B, outC, oH, oW};
-    int rg = input->requires_grad || kernel->requires_grad || (bias && bias->requires_grad);
-    Tensor* r = make_tensor(out, out_shape, 4, rg);
-    free(out);
+    Tensor* r;
+    if (is_f32) r = make_tensor_arena_f32((float*)out_buf, out_numel, out_shape, 4, rg);
+    else { r = make_tensor((double*)out_buf, out_shape, 4, rg); free(out_buf); }
 
     if (r->requires_grad) {
         TapeEntry* e = tape_append(OP_CONV2D_BATCHED, r, input, kernel, 0);
@@ -3278,8 +3474,11 @@ TensorHandle tensor_max_pool2d(TensorHandle hinput, int kH, int kW,
     int oH = (H - kH) / strideH + 1;
     int oW = (W - kW) / strideW + 1;
     int out_numel = C * oH * oW;
+    int is_f32 = (input->dtype_tag == DT_F32);
+    int out_shape[] = {C, oH, oW};
 
-    double* out = calloc(out_numel, sizeof(double));
+    void* out_buf = is_f32 ? (void*)arena_alloc(out_numel * sizeof(float))
+                           : (void*)calloc(out_numel, sizeof(double));
     int* max_idx = malloc(out_numel * sizeof(int));
 
     for (int c = 0; c < C; c++) {
@@ -3292,22 +3491,21 @@ TensorHandle tensor_max_pool2d(TensorHandle hinput, int kH, int kW,
                         int ih = oh * strideH + kh;
                         int iw = ow * strideW + kw;
                         int flat = c*H*W + ih*W + iw;
-                        if (((double*)input->data)[flat] > best) {
-                            best = ((double*)input->data)[flat];
-                            best_idx = flat;
-                        }
+                        double v = tape_load_d(input, flat);
+                        if (v > best) { best = v; best_idx = flat; }
                     }
                 }
                 int out_idx = c*oH*oW + oh*oW + ow;
-                out[out_idx] = best;
+                if (is_f32) ((float*)out_buf)[out_idx] = (float)best;
+                else        ((double*)out_buf)[out_idx] = best;
                 max_idx[out_idx] = best_idx;
             }
         }
     }
 
-    int out_shape[] = {C, oH, oW};
-    Tensor* r = make_tensor(out, out_shape, 3, input->requires_grad);
-    free(out);
+    Tensor* r;
+    if (is_f32) r = make_tensor_arena_f32((float*)out_buf, out_numel, out_shape, 3, input->requires_grad);
+    else { r = make_tensor((double*)out_buf, out_shape, 3, input->requires_grad); free(out_buf); }
 
     if (r->requires_grad) {
         TapeEntry* e = tape_append(OP_MAX_POOL2D, r, input, NULL, 0);
@@ -3337,14 +3535,16 @@ TensorHandle tensor_max_pool2d_batched(TensorHandle hinput, int kH, int kW,
     int oW = (W - kW) / strideW + 1;
     int out_per_sample = C * oH * oW;
     int out_numel = B * out_per_sample;
+    int is_f32 = (input->dtype_tag == DT_F32);
+    int out_shape[] = {B, C, oH, oW};
 
-    double* out = calloc(out_numel, sizeof(double));
+    void* out_buf = is_f32 ? (void*)arena_alloc(out_numel * sizeof(float))
+                           : (void*)calloc(out_numel, sizeof(double));
     int* max_idx = malloc(out_numel * sizeof(int));
 
     for (int b = 0; b < B; b++) {
-        const double* inp_b = ((double*)input->data) + b * C * H * W;
-        double* out_b = out + b * out_per_sample;
-        int* idx_b = max_idx + b * out_per_sample;
+        int base = b * C * H * W;
+        int out_base = b * out_per_sample;
         for (int c = 0; c < C; c++) {
             for (int oh = 0; oh < oH; oh++) {
                 for (int ow = 0; ow < oW; ow++) {
@@ -3355,23 +3555,22 @@ TensorHandle tensor_max_pool2d_batched(TensorHandle hinput, int kH, int kW,
                             int ih = oh * strideH + kh;
                             int iw = ow * strideW + kw;
                             int flat = c*H*W + ih*W + iw;
-                            if (inp_b[flat] > best) {
-                                best = inp_b[flat];
-                                best_idx = b * C*H*W + flat;  /* absolute index into input.data */
-                            }
+                            double v = tape_load_d(input, base + flat);
+                            if (v > best) { best = v; best_idx = base + flat; }
                         }
                     }
                     int out_idx = c*oH*oW + oh*oW + ow;
-                    out_b[out_idx] = best;
-                    idx_b[out_idx] = best_idx;
+                    if (is_f32) ((float*)out_buf)[out_base + out_idx] = (float)best;
+                    else        ((double*)out_buf)[out_base + out_idx] = best;
+                    max_idx[out_base + out_idx] = best_idx;
                 }
             }
         }
     }
 
-    int out_shape[] = {B, C, oH, oW};
-    Tensor* r = make_tensor(out, out_shape, 4, input->requires_grad);
-    free(out);
+    Tensor* r;
+    if (is_f32) r = make_tensor_arena_f32((float*)out_buf, out_numel, out_shape, 4, input->requires_grad);
+    else { r = make_tensor((double*)out_buf, out_shape, 4, input->requires_grad); free(out_buf); }
 
     if (r->requires_grad) {
         TapeEntry* e = tape_append(OP_MAX_POOL2D_BATCHED, r, input, NULL, 0);
@@ -4283,7 +4482,8 @@ void tensor_backward(TensorHandle h) {
         }
 
         case OP_SOFTMAX_3D: {
-            /* r = softmax(a) on [B,m,n] along last dim. Same as 2D but B*m rows. */
+            /* r = softmax(a) on [B,m,n] along last dim. Same as 2D but B*m rows.
+               tape_load_d on r->data covers F64 + F32. */
             int BB = a->shape[0], mm = a->shape[1], nn = a->shape[2];
             int total_rows = BB * mm;
             ensure_grad(r);
@@ -4292,9 +4492,9 @@ void tensor_backward(TensorHandle h) {
                 for (int i = 0; i < total_rows; i++) {
                     double dot = 0;
                     for (int j = 0; j < nn; j++)
-                        dot += ((double*)r->grad)[i*nn+j] * ((double*)r->data)[i*nn+j];
+                        dot += ((double*)r->grad)[i*nn+j] * tape_load_d(r, i*nn+j);
                     for (int j = 0; j < nn; j++)
-                        ((double*)a->grad)[i*nn+j] += ((double*)r->data)[i*nn+j] * (((double*)r->grad)[i*nn+j] - dot);
+                        ((double*)a->grad)[i*nn+j] += tape_load_d(r, i*nn+j) * (((double*)r->grad)[i*nn+j] - dot);
                 }
             }
             break;
@@ -4328,8 +4528,7 @@ void tensor_backward(TensorHandle h) {
         }
 
         case OP_SOFTMAX_2D: {
-            /* Row-wise softmax backward. For each row i:
-               d_input[i,j] = sum_k (grad[i,k] * softmax[i,k] * (delta_jk - softmax[i,j])) */
+            /* Row-wise softmax backward. tape_load_d on r->data covers F64+F32. */
             int mm = r->shape[0], nn = r->shape[1];
             ensure_grad(r);
             if (a) {
@@ -4337,18 +4536,16 @@ void tensor_backward(TensorHandle h) {
                 for (int i = 0; i < mm; i++) {
                     double dot = 0;
                     for (int j = 0; j < nn; j++)
-                        dot += ((double*)r->grad)[i*nn+j] * ((double*)r->data)[i*nn+j];
+                        dot += ((double*)r->grad)[i*nn+j] * tape_load_d(r, i*nn+j);
                     for (int j = 0; j < nn; j++)
-                        ((double*)a->grad)[i*nn+j] += ((double*)r->data)[i*nn+j] * (((double*)r->grad)[i*nn+j] - dot);
+                        ((double*)a->grad)[i*nn+j] += tape_load_d(r, i*nn+j) * (((double*)r->grad)[i*nn+j] - dot);
                 }
             }
             break;
         }
 
         case OP_LOG_SOFTMAX_2D: {
-            /* Row-wise log-softmax backward.
-               d_input[i,j] = d_output[i,j] - softmax[i,j] * sum_k(d_output[i,k])
-               where softmax[i,j] = exp(output[i,j]) since output = log_softmax */
+            /* Row-wise log-softmax backward. tape_load_d on r->data covers F64+F32. */
             int mm = r->shape[0], nn = r->shape[1];
             ensure_grad(r);
             if (a) {
@@ -4358,19 +4555,20 @@ void tensor_backward(TensorHandle h) {
                     for (int j = 0; j < nn; j++)
                         sum_grad += ((double*)r->grad)[i*nn+j];
                     for (int j = 0; j < nn; j++)
-                        ((double*)a->grad)[i*nn+j] += ((double*)r->grad)[i*nn+j] - exp(((double*)r->data)[i*nn+j]) * sum_grad;
+                        ((double*)a->grad)[i*nn+j] += ((double*)r->grad)[i*nn+j] - exp(tape_load_d(r, i*nn+j)) * sum_grad;
                 }
             }
             break;
         }
 
         case OP_MASKED_FILL: {
-            /* Gradient passes through where mask is 0, zero where mask is 1 */
+            /* Gradient passes through where mask is 0, zero where mask is 1.
+               tape_load_d on mask data covers both dtypes. */
             ensure_grad(r);
             if (a) {
                 ensure_grad(a);
                 for (int j = 0; j < a->numel; j++)
-                    if (((double*)b->data)[j] == 0.0) ((double*)a->grad)[j] += ((double*)r->grad)[j];
+                    if (tape_load_d(b, j) == 0.0) ((double*)a->grad)[j] += ((double*)r->grad)[j];
             }
             break;
         }
@@ -4979,7 +5177,7 @@ void tensor_backward(TensorHandle h) {
                             for (int kl = 0; kl < kL; kl++) {
                                 int il = ol * str - pad + kl;
                                 if (il >= 0 && il < LL)
-                                    ((double*)a->grad)[ic*LL + il] += dout * ((double*)b->data)[oc*inC*kL + ic*kL + kl];
+                                    ((double*)a->grad)[ic*LL + il] += dout * tape_load_d(b, oc*inC*kL + ic*kL + kl);
                             }
                     }
             }
@@ -4992,7 +5190,7 @@ void tensor_backward(TensorHandle h) {
                             for (int ol = 0; ol < oL; ol++) {
                                 int il = ol * str - pad + kl;
                                 if (il >= 0 && il < LL)
-                                    s += ((double*)r->grad)[oc*oL + ol] * ((double*)a->data)[ic*LL + il];
+                                    s += ((double*)r->grad)[oc*oL + ol] * tape_load_d(a, ic*LL + il);
                             }
                             ((double*)b->grad)[oc*inC*kL + ic*kL + kl] += s;
                         }
@@ -5032,7 +5230,7 @@ void tensor_backward(TensorHandle h) {
             int oH = meta->oH, oW = meta->oW;
             ensure_grad(r);
 
-            /* d_input */
+            /* d_input — tape_load_d on b->data covers F32 kernels. */
             if (a && a->requires_grad) {
                 ensure_grad(a);
                 for (int oc = 0; oc < outC; oc++)
@@ -5046,12 +5244,12 @@ void tensor_backward(TensorHandle h) {
                                         int iw = ow * strideW - padW + kw;
                                         if (ih >= 0 && ih < HH && iw >= 0 && iw < WW)
                                             ((double*)a->grad)[ic*HH*WW + ih*WW + iw] +=
-                                                dout * ((double*)b->data)[oc*inC*kH*kW + ic*kH*kW + kh*kW + kw];
+                                                dout * tape_load_d(b, oc*inC*kH*kW + ic*kH*kW + kh*kW + kw);
                                     }
                         }
             }
 
-            /* d_kernel */
+            /* d_kernel — tape_load_d on a->data covers F32 inputs. */
             if (b && b->requires_grad) {
                 ensure_grad(b);
                 for (int oc = 0; oc < outC; oc++)
@@ -5065,7 +5263,7 @@ void tensor_backward(TensorHandle h) {
                                         int iw = ow * strideW - padW + kw;
                                         if (ih >= 0 && ih < HH && iw >= 0 && iw < WW)
                                             s += ((double*)r->grad)[oc*oH*oW + oh*oW + ow]
-                                               * ((double*)a->data)[ic*HH*WW + ih*WW + iw];
+                                               * tape_load_d(a, ic*HH*WW + ih*WW + iw);
                                     }
                                 ((double*)b->grad)[oc*inC*kH*kW + ic*kH*kW + kh*kW + kw] += s;
                             }
@@ -5101,13 +5299,10 @@ void tensor_backward(TensorHandle h) {
 
         case OP_CONV2D_BATCHED: {
             /* r = conv2d_batched(input [B,inC,H,W], kernel [outC,inC,kH,kW]) + bias
-               r=[B,outC,oH,oW]. Backward via im2col + cblas_dgemm:
-                   dY_unf [M, outC] = permute(r.grad, (B,outC,oH,oW) -> (B*oH*oW, outC))
-                   dW   [outC, K] = dY_unf^T [outC, M] @ X_col [M, K]   (one dgemm)
-                   dX_col [M, K]  = dY_unf [M, outC]   @ W [outC, K]    (one dgemm)
-                   dInput += col2im(dX_col)
-                   dBias[oc]  += sum_{b,oh,ow} dY_unf[b*oH*oW+oh*oW+ow, oc]
-               K = inC*kH*kW, M = B*oH*oW. */
+               r=[B,outC,oH,oW]. Backward via im2col + cblas_dgemm in F64; for F32
+               inputs the existing F64 dgemm path is reused by widening input and
+               kernel to temporary double buffers (grads are F64 anyway, so this
+               keeps the case body untouched). */
             Conv2DBatchedMeta* meta = (Conv2DBatchedMeta*)e->op_meta;
             int B = meta->B;
             int inC = meta->inC, outC = meta->outC;
@@ -5124,6 +5319,25 @@ void tensor_backward(TensorHandle h) {
             int need_dW = b && b->requires_grad;
             int need_dX = a && a->requires_grad;
             int need_dB = bias_t && bias_t->requires_grad;
+
+            /* For F32 inputs/kernel, widen to double buffers so the existing
+               cblas_dgemm + conv2d_im2col paths work unchanged. */
+            double* a_data_dbl = NULL;
+            double* b_data_dbl = NULL;
+            const void* a_data_ptr = a->data;
+            const void* b_data_ptr = b->data;
+            if (a->dtype_tag == DT_F32) {
+                size_t a_n = (size_t)B * inC * HH * WW;
+                a_data_dbl = (double*)malloc(a_n * sizeof(double));
+                for (size_t i = 0; i < a_n; i++) a_data_dbl[i] = (double)((float*)a->data)[i];
+                a_data_ptr = a_data_dbl;
+            }
+            if (b->dtype_tag == DT_F32) {
+                size_t b_n = (size_t)outC * inC * kH * kW;
+                b_data_dbl = (double*)malloc(b_n * sizeof(double));
+                for (size_t i = 0; i < b_n; i++) b_data_dbl[i] = (double)((float*)b->data)[i];
+                b_data_ptr = b_data_dbl;
+            }
 
             /* Permute dY [B, outC, oH, oW] -> dY_unf [B*oH*oW, outC] */
             double* dY_unf = (need_dW || need_dX) ?
@@ -5146,7 +5360,7 @@ void tensor_backward(TensorHandle h) {
             if (need_dW) {
                 ensure_grad(b);
                 double* X_col = (double*)calloc((size_t)M_unf * K_unf, sizeof(double));
-                conv2d_im2col(a->data, B, inC, HH, WW, kH, kW, padH, padW,
+                conv2d_im2col((const double*)a_data_ptr, B, inC, HH, WW, kH, kW, padH, padW,
                               strideH, strideW, oH, oW, X_col);
 #ifdef __APPLE__
                 cblas_dgemm(CblasRowMajor, CblasTrans, CblasNoTrans,
@@ -5174,14 +5388,14 @@ void tensor_backward(TensorHandle h) {
                 cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
                             M_unf, K_unf, outC, 1.0,
                             dY_unf, outC,
-                            b->data, K_unf,
+                            (const double*)b_data_ptr, K_unf,
                             0.0, dX_col, K_unf);
 #else
                 for (int m = 0; m < M_unf; m++)
                     for (int kk = 0; kk < K_unf; kk++) {
                         double s = 0;
                         for (int oc = 0; oc < outC; oc++)
-                            s += dY_unf[m*outC + oc] * ((double*)b->data)[oc*K_unf + kk];
+                            s += dY_unf[m*outC + oc] * ((const double*)b_data_ptr)[oc*K_unf + kk];
                         dX_col[m*K_unf + kk] = s;
                     }
 #endif
@@ -5206,6 +5420,8 @@ void tensor_backward(TensorHandle h) {
                 }
             }
             if (dY_unf) free(dY_unf);
+            if (a_data_dbl) free(a_data_dbl);
+            if (b_data_dbl) free(b_data_dbl);
             break;
         }
 
@@ -5224,14 +5440,15 @@ void tensor_backward(TensorHandle h) {
         }
 
         case OP_SCATTER_ADD: {
-            /* r[index[i]] += a[i]. Backward: d_a[i] += d_r[index[i]] (gather). */
+            /* r[index[i]] += a[i]. Backward: d_a[i] += d_r[index[i]] (gather).
+               tape_load_d on index data covers F64+F32 indices. */
             ensure_grad(r);
             if (a && a->requires_grad) {
                 ensure_grad(a);
-                Tensor* index = b;  /* b holds the index tensor */
+                Tensor* index = b;
                 int nn = a->numel;
                 for (int i = 0; i < nn; i++) {
-                    int idx = (int)((double*)index->data)[i];
+                    int idx = (int)tape_load_d(index, i);
                     if (idx >= 0 && idx < r->numel)
                         ((double*)a->grad)[i] += ((double*)r->grad)[idx];
                 }
@@ -5239,14 +5456,15 @@ void tensor_backward(TensorHandle h) {
             break;
         }
         case OP_GATHER: {
-            /* r[i] = a[index[i]]. Backward: d_a[index[i]] += d_r[i] (scatter-add). */
+            /* r[i] = a[index[i]]. Backward: d_a[index[i]] += d_r[i] (scatter-add).
+               tape_load_d on index data covers F64+F32 indices. */
             ensure_grad(r);
             if (a && a->requires_grad) {
                 ensure_grad(a);
-                Tensor* index = b;  /* b holds the index tensor */
+                Tensor* index = b;
                 int nn = (int)e->scalar_arg;
                 for (int i = 0; i < nn; i++) {
-                    int idx = (int)((double*)index->data)[i];
+                    int idx = (int)tape_load_d(index, i);
                     if (idx >= 0 && idx < a->numel)
                         ((double*)a->grad)[idx] += ((double*)r->grad)[i];
                 }
@@ -5690,7 +5908,12 @@ void param_load_data(int idx, const double* data, int numel) {
 
 TensorHandle tensor_subtract_scalar_inplace(TensorHandle h, double val) {
     Tensor* t = (Tensor*)h;
-    for (int i = 0; i < t->numel; i++) ((double*)t->data)[i] -= val;
+    if (t->dtype_tag == DT_F32) {
+        float vf = (float)val;
+        for (int i = 0; i < t->numel; i++) ((float*)t->data)[i] -= vf;
+    } else {
+        for (int i = 0; i < t->numel; i++) ((double*)t->data)[i] -= val;
+    }
     return h;
 }
 
