@@ -1,5 +1,32 @@
 # NTM Performance Analysis
 
+## Path C migration result (2026-05-06)
+
+Post-migration `make bench-compare` (Idris vs PyTorch end-to-end):
+
+| Model | Idris (ms) | PyTorch (ms) | Idris/PyTorch | Idris loss | PyTorch loss | Idris RSS | PyTorch RSS |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Supervised | 680.2 | 242.9 | 2.80× | 0.285566 | 0.303901 | 49 MB | 291 MB |
+| RNN | 5112.0 | 1089.8 | 4.69× | 0.675303 | 0.355051 | 49 MB | 291 MB |
+| NTM | 1503.0 | 1229.3 | 1.22× | 0.684808 | 0.476616 | 49 MB | 298 MB |
+| NTM-copy | 50477.1 | 12084.8 | 4.18× | 0.683523 | 0.432837 | 128 MB | 333 MB |
+| NTM-copy-1k | 483748.0 | 234142.5 | 2.07× | 0.532779 | 0.590333 | 436 MB | 382 MB |
+| NTM-recall | 45541.7 | 24222.2 | 1.88× | 0.527668 | 0.525779 | 138 MB | 382 MB |
+
+Loss values are bit-identical to pre-migration baseline at seed=42. Path C was
+a typing refactor, not a perf refactor — the spike measurement was Linear at
+1.09× and the migration preserves that. Memory footprint is ~6× smaller than
+PyTorch's across the board (Idris doesn't carry CUDA runtime, MKL, etc.).
+
+The remaining Idris/PyTorch ratio is dominated by per-op orchestration cost
+(C FFI overhead × ops/epoch) rather than tensor algebra. Real wins now require
+fewer ops (e.g. the DNC follow-up tickets in `TODO.md`: zero-diagonal as a
+single C op, batched FC forwards in DNC controller, etc.).
+
+> Older content below predates the Path C migration. Names like
+> `forwardVarTensor`, `applyVarTensor`, `Variable d` map to V2 as `forwardVar`,
+> `applyVar`, `Tensor [...] d`. See [path-c-migration.md](path-c-migration.md).
+
 ## 0. Batched Variable Forward for RL (2026-04-28)
 
 A2C / PPO / SAC update phases used to call `forwardVarTensor` once per

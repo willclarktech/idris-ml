@@ -4,6 +4,8 @@ Per-example record of what `lr_find` recommended, what we tried, and what
 we shipped. Each entry follows the same template so the suite stays
 comparable as we re-tune over time. Tickets B3 and B4 fill this in.
 
+> **Note:** This log pre-dates the Path C migration. Hyperparameters are unchanged (V2 is bit-identical at seed=42); a few V1 internals are referenced (`forwardVarTensor`, scalar Variable tape) — see [path-c-migration.md](path-c-migration.md) for V2 mappings.
+
 ## Per-example template
 
 ```

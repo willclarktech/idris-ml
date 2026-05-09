@@ -12,9 +12,9 @@ columns are filled in by B2; coverage gaps in §3 drive B6.
 ## 1. Per-example detail
 
 The training-mode column maps to the epoch function in
-`packages/idris-ml/src/Backprop.idr` (`epochNative`,
-`epochRecurrentNative`, `epochTwoPhaseBceNative`,
-`epochNativeTensorPreAccum`) or the example's own custom epoch (RL).
+`packages/idris-ml/src/Backprop.idr` (`epochVar`,
+`epochRecurrentVar`, `epochTwoPhaseVar`, `epochVarTensor`,
+`epochVarTensorBatch`) or the example's own custom epoch (RL).
 
 Smoke args come from the per-example `case` block in `Makefile`'s
 `test-examples` recipe. Smoke threshold = `test-examples.expect`,

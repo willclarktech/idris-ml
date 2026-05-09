@@ -16,26 +16,27 @@ class NTM(nn.Module):
 
 Change the memory width `m` and five layer dimensions must update in concert. A typo in any one crashes mid-training -- or worse, silently broadcasts wrong shapes into plausible-looking garbage.
 
-**idris-ml makes these compile errors.** Tensor shapes are part of the type:
+**idris-ml makes these compile errors.** Tensor shapes are part of the autograd-aware tensor type:
 
 ```idris
-data Tensor : Vect rank Nat -> Type -> Type where
-  STensor : ty -> Tensor [] ty                                    -- scalar
-  VTensor : Vect dim (Tensor dims ty) -> Tensor (dim :: dims) ty  -- n-dimensional
+record Tensor (dims : Vect rank Nat) (0 d : Device) where
+  constructor MkTensor
+  tensorPtr : AnyPtr        -- backend handle (carries autograd graph)
+  paramId   : Maybe String  -- registry key for the optimizer
 ```
 
 The network type chains layers with compile-time dimension threading:
 
 ```idris
-(~>) : AnyLayer i h ty -> Network h hs o ty -> Network i (h :: hs) o ty
+(~~>) : AnyLayer i h d -> Network h hs o d -> Network i (h :: hs) o d
 
 -- Compiles: output 10 matches input 10
-ll <- linearLayer {i=2, o=10}
-let model = ll ~> OutputLayer softmaxLayer
+ll <- linearLayerAny {i=2} {o=10} "ll0"
+let model = ll ~~> OutputLayer reluLayerAny
 
 -- Compile error: output 10 doesn't match input 5
-ll2 <- linearLayer {i=5, o=3}
-let bad = ll ~> OutputLayer ll2  -- Error: Can't unify 10 with 5
+ll2 <- linearLayerAny {i=5} {o=3} "ll1"
+let bad = ll ~~> OutputLayer ll2  -- Error: Can't unify 10 with 5
 ```
 
 NTM dimension relationships are type-level functions -- change one and the compiler tells you everywhere else that needs updating:
@@ -71,13 +72,13 @@ All examples accept `--epochs`, `--lr`, `--seed` and task-specific flags.
 
 **Interactive notebooks** — progressive tutorial from tensors to training:
 
-1. [Tensors and Types](jupyter/notebooks/01_tensors_and_types.ipynb) — shape-indexed types, the core value proposition
-2. [Building Models](jupyter/notebooks/02_building_models.ipynb) — layer composition, dimension checking
-3. [Data and Loss](jupyter/notebooks/03_data_and_loss.ipynb) — typed training data, loss functions
-4. [Training](jupyter/notebooks/04_training.ipynb) — end-to-end classifier with evaluation
-5. [Sequences](jupyter/notebooks/05_sequences.ipynb) — RNN/LSTM for time-series
-
-Coming from PyTorch? See [docs/pytorch-mapping.md](docs/pytorch-mapping.md) for concept translation.
+1. [Tensors and Types](packages/jupyter/notebooks/tutorials/01_tensors_and_types.ipynb) — shape-indexed types, the core value proposition
+2. [Building Models](packages/jupyter/notebooks/tutorials/02_building_models.ipynb) — layer composition, dimension checking
+3. [Data and Loss](packages/jupyter/notebooks/tutorials/03_data_and_loss.ipynb) — typed training data, loss functions
+4. [Training](packages/jupyter/notebooks/tutorials/04_training.ipynb) — end-to-end classifier with evaluation
+5. [Sequences](packages/jupyter/notebooks/tutorials/05_sequences.ipynb) — RNN/LSTM for time-series
+6. [Device Safety](packages/jupyter/notebooks/tutorials/06_device_safety.ipynb) — phantom Device parameter, type-safe CPU/GPU placement
+7. [Hyperparameter Optimization](packages/jupyter/notebooks/tutorials/07_hpo.ipynb) — `lr_find` and tuning workflows
 
 **Quick start** — requires [Idris 2](https://github.com/idris-lang/Idris2) (0.8.0+) and a C compiler:
 
@@ -98,10 +99,10 @@ NTM-copy runs at ~110ms/epoch on the C tape backend (Apple M-series), comparable
 ## Architecture
 
 ```
-Tensor (shape-indexed)  ->  Variable (autograd)  ->  Layer (composable)  ->  Train (runner)
-  [3,4] Double              wraps C tensor          LayerLike interface     runTraining
-  compile-time shapes       tape-based backward      Network chains layers  early stopping
-                            native optimizers        LSTM, Linear, NTM      CLI arg parsing
+Array (Vect-of-Vect)  ->  Tensor (autograd)  ->  Layer (composable)  ->  Train (runner)
+  [3,4] Double            shape + Device on value   LayerLike interface     runTraining
+  pure-Idris ops          backend C handle          Network chains layers  early stopping
+                          native optimizers         LSTM, Linear, NTM      CLI arg parsing
 ```
 
 See [CLAUDE.md](CLAUDE.md) for the full module dependency order and development guide.

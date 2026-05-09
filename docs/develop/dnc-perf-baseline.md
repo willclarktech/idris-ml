@@ -1,5 +1,7 @@
 # DNC perf baseline (P0) + Phase 1 results (P1)
 
+> **Note:** V1 internals referenced below (`forwardVarTensor`, `applyVarTensor`, scalar Variable tape) are pre-Path-C names. The Phase-1 perf numbers still hold post-migration; the names map to V2 as `forwardVar` / `applyVar` / `Tensor [...] d`. See [path-c-migration.md](path-c-migration.md).
+
 ## Phase 1 result (2026-05-02, commits `cf03748` + cellState fix)
 
 **All three backends got large speedups; torch/mlx (which had worst FFI
