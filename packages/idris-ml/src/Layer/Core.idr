@@ -1,6 +1,8 @@
 module Layer.Core
 
 import Data.Vect
+import System
+import System.File
 
 import Device
 import Tensor
@@ -120,3 +122,65 @@ forwardVarBatch {hs = h :: _} (l ~~> rest) input =
     (l', mid) =>
       case forwardVarBatch rest mid of
         (rest', out) => (l' ~~> rest', out)
+
+
+----------------------------------------------------------------------
+-- Lightweight forward tracer
+----------------------------------------------------------------------
+
+||| Walks the Network like `forwardVar`, printing each layer's output
+||| `min` / `max` / `mean` to stderr as it goes. Useful for "where
+||| did the NaN come from?" debugging without committing to a
+||| structured DebugEntry surface.
+|||
+||| The autograd graph is preserved — this just adds side-effecting
+||| reads between layer applications. The returned Tensor is the same
+||| one a plain `forwardVar` would produce. The min / max / mean
+||| reductions create non-grad-tracking tape entries that get released
+||| at the next `tape_reset`; they don't affect training numerics.
+|||
+||| Usage: swap `forwardVar` for `forwardVarTraced "epoch5"` at any
+||| call site to get per-layer trace lines. Output goes to stderr so
+||| training stdout stays clean. Lines look like:
+|||
+|||     epoch5:0 min=-0.123 max=0.456 mean=0.012
+|||     epoch5:1 min=-0.234 max=0.567 mean=0.099
+|||     epoch5:out min=-0.300 max=0.700 mean=0.150  [NaN]
+export
+forwardVarTraced : {0 d : Device} -> {i, o : Nat} -> {hs : List Nat} ->
+                   (label : String) ->
+                   Network i hs o d -> Tensor [i] d ->
+                   IO (Network i hs o d, Tensor [o] d)
+forwardVarTraced label net input = go 0 net input
+  where
+    -- Take the raw AnyPtr so we don't have to thread `d` through
+    -- the implicit-binding nest. The reductions are non-grad anyway.
+    summarize : (idxLabel : String) -> AnyPtr -> IO ()
+    summarize idxLabel ptr = do
+      let mn = prim__item (prim__tensorMin ptr)
+          mx = prim__item (prim__tensorMax ptr)
+          me = prim__item (prim__mean ptr)
+          isNaN : Double -> Bool
+          isNaN x = x /= x
+          tag = if isNaN mn || isNaN mx || isNaN me then "  [NaN]" else ""
+      ignore $ fPutStrLn stderr $
+        label ++ ":" ++ idxLabel
+          ++ " min=" ++ show mn
+          ++ " max=" ++ show mx
+          ++ " mean=" ++ show me ++ tag
+
+    go : {0 d : Device} -> {i, o : Nat} -> {hs : List Nat} ->
+         Nat ->
+         Network i hs o d -> Tensor [i] d ->
+         IO (Network i hs o d, Tensor [o] d)
+    go idx (OutputLayer l) inp =
+      case applyVarAny l inp of
+        (l', out) => do
+          summarize (show idx ++ "(out)") out.tensorPtr
+          pure (OutputLayer l', out)
+    go {hs = h :: _} idx (l ~~> rest) inp =
+      case applyVarAny l inp of
+        (l', mid) => do
+          summarize (show idx) mid.tensorPtr
+          (rest', out) <- go (idx + 1) rest mid
+          pure (l' ~~> rest', out)
