@@ -636,6 +636,25 @@ TensorHandle tensor_create_1d_bool_streamed(int n, double* data, int requires_gr
 TensorHandle tensor_create_2d_bool_streamed(int rows, int cols, double* data, int requires_grad, int stream_tag);
 TensorHandle tensor_cast_dtype_bool_streamed(TensorHandle src, int stream_tag);
 
+/* ---- Unified dtag-dispatch create/cast entry points ----
+   One symbol per shape; the trailing `int dtag` selects the RuntimeDType
+   (0=F32, 1=F64, 2=BF16, 3=F16, 4=I8, 5=I16, 6=I32, 7=I64, 8=U8, 9=Bool).
+   Supersedes the per-dtype *_streamed declarations above — those are kept
+   transitionally until the Idris Scheme wrappers flip to these, then
+   removed. Each backend switches on dtag internally: torch handles all 10,
+   mlx f32/f64 (rejects the rest), tape f64-only today. */
+TensorHandle tensor_create_scalar_streamed(double value, int requires_grad, int stream_tag, int dtag);
+TensorHandle tensor_create_streamed(double* data, int* shape, int rank, int requires_grad, int stream_tag, int dtag);
+TensorHandle tensor_create_1d_streamed(int n, double* data, int requires_grad, int stream_tag, int dtag);
+TensorHandle tensor_create_2d_streamed(int rows, int cols, double* data, int requires_grad, int stream_tag, int dtag);
+TensorHandle tensor_create_param_1d_streamed(int n, double* data, int stream_tag, int dtag);
+TensorHandle tensor_create_param_2d_streamed(int rows, int cols, double* data, int stream_tag, int dtag);
+TensorHandle tensor_create_param_3d_streamed(int d0, int d1, int d2, double* data, int stream_tag, int dtag);
+TensorHandle tensor_create_param_4d_streamed(int d0, int d1, int d2, int d3, double* data, int stream_tag, int dtag);
+TensorHandle tensor_create_state_1d_streamed(int n, double* data, int stream_tag, int dtag);
+TensorHandle tensor_create_state_2d_streamed(int rows, int cols, double* data, int stream_tag, int dtag);
+TensorHandle tensor_cast_dtype_streamed(TensorHandle src, int stream_tag, int dtag);
+
 #ifdef __cplusplus
 }
 #endif
