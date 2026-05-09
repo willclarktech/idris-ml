@@ -247,17 +247,18 @@ applyDnc {r} {n} {m}
       mI = cast {to=Int} m
       nI = cast {to=Int} n
       onesScalar = prim__createScalar 1.0 0
-      -- 4. 11 FCs
-      writeKeyT      = prim__add (prim__mv wkW cellPtr) wkB
-      writeBetaRawT  = prim__add (prim__mv wbW cellPtr) wbB
-      eraseRawT      = prim__add (prim__mv eW  cellPtr) eB
-      addVecT        = prim__add (prim__mv aW  cellPtr) aB
-      freeGatesRawT  = prim__add (prim__mv fgW cellPtr) fgB
-      allocGateRawT  = prim__add (prim__mv agW cellPtr) agB
-      writeGateRawT  = prim__add (prim__mv wgW cellPtr) wgB
-      readKeysFlatT  = prim__add (prim__mv rkW cellPtr) rkB
-      readBetasRawT  = prim__add (prim__mv rbW cellPtr) rbB
-      readModesFlatT = prim__add (prim__mv rmW cellPtr) rmB
+      -- 4. 11 FCs (mv+add fused into prim__linear — collapses two
+      --    FFI hops into one per FC, ~10x FFI overhead reduction here)
+      writeKeyT      = prim__linear wkW cellPtr wkB
+      writeBetaRawT  = prim__linear wbW cellPtr wbB
+      eraseRawT      = prim__linear eW  cellPtr eB
+      addVecT        = prim__linear aW  cellPtr aB
+      freeGatesRawT  = prim__linear fgW cellPtr fgB
+      allocGateRawT  = prim__linear agW cellPtr agB
+      writeGateRawT  = prim__linear wgW cellPtr wgB
+      readKeysFlatT  = prim__linear rkW cellPtr rkB
+      readBetasRawT  = prim__linear rbW cellPtr rbB
+      readModesFlatT = prim__linear rmW cellPtr rmB
       -- 5. Activations
       writeBetaT  = prim__softplus writeBetaRawT
       eraseVecT   = prim__sigmoid eraseRawT
@@ -311,7 +312,7 @@ applyDnc {r} {n} {m}
       -- 14. Output FC
       allNewReadsT  = catReadOuts newRoTs
       outputInputT  = prim__cat2 hiddenV.tensorPtr allNewReadsT
-      outputT       = prim__add (prim__mv oW outputInputT) oB
+      outputT       = prim__linear oW outputInputT oB
   in ( MkDnc updLstm wkFc wbFc eFc aFc fgFc agFc wgFc rkFc rbFc rmFc oFc
         (Just (MkTensor newMemT Nothing))
         (Just (MkTensor newUsageT Nothing))
