@@ -244,13 +244,25 @@ static inline Tensor* make_tensor_arena_f64(double* arena_data, int numel, int* 
     return make_tensor_arena(arena_data, numel, shape, rank, rg);
 }
 
-/* Grad allocator — dtype-aware so an F32 leaf gets an F32 grad buffer (matches
-   torch semantics: param dtype == grad dtype). Existing callers pass F64
-   tensors → 8-byte allocations, byte-identical to the prior pattern. */
+/* Grad allocator — grads stay F64 regardless of param dtype (asymmetric
+   data=F32 / grad=F64 mirrors mixed-precision practice and keeps the 67-case
+   backward switch dtype-agnostic). Optimizer step reads F64 grads and writes
+   F32 data, which forces F32 precision on the result. */
 static void ensure_grad(Tensor* t) {
     if (!t->grad) {
-        t->grad = calloc(t->numel, tape_elem_size(t->dtype_tag));
+        t->grad = calloc(t->numel, sizeof(double));
     }
+}
+
+/* Dtype-aware element load — returns t->data[i] cast to double, dispatching
+   on dtype_tag. Used by tensor_sum / non-routed forward ops that need a
+   uniform F64 view + by elementwise backward cases that read input data
+   (OP_MUL/DIV/POW/ABS/EXP/LOG/SQRT/SIGMOID/TANH) to handle F32 inputs.
+   For F64 (the common case), it's a single double load — same instruction
+   count as the prior ((double*)t->data)[i] pattern. */
+static inline double tape_load_d(const Tensor* t, int i) {
+    return (t->dtype_tag == DT_F32) ? (double)((float*)t->data)[i]
+                                    : ((double*)t->data)[i];
 }
 
 /* ================================================================
@@ -704,7 +716,7 @@ void tensor_release_handle(TensorHandle h) { (void)h; }
    ================================================================ */
 
 double tensor_item(TensorHandle h) {
-    return ((double*)((Tensor*)h)->data)[0];
+    return tape_load_d((Tensor*)h, 0);
 }
 
 int tensor_numel(TensorHandle h) {
@@ -723,12 +735,20 @@ int tensor_size(TensorHandle h, int dim) {
 
 void tensor_to_doubles(TensorHandle h, double* out) {
     Tensor* t = (Tensor*)h;
-    memcpy(out, t->data, t->numel * sizeof(double));
+    if (t->dtype_tag == DT_F32) {
+        for (int i = 0; i < t->numel; i++) out[i] = (double)((float*)t->data)[i];
+    } else {
+        memcpy(out, t->data, t->numel * sizeof(double));
+    }
 }
 
 void tensor_to_floats(TensorHandle h, float* out) {
     Tensor* t = (Tensor*)h;
-    for (int i = 0; i < t->numel; i++) out[i] = (float)((double*)t->data)[i];
+    if (t->dtype_tag == DT_F32) {
+        memcpy(out, t->data, t->numel * sizeof(float));
+    } else {
+        for (int i = 0; i < t->numel; i++) out[i] = (float)((double*)t->data)[i];
+    }
 }
 
 const char* tensor_dtype_name(TensorHandle h) {
@@ -835,6 +855,7 @@ static void compute_bcast_strides(Tensor* a, int r_rank, int* r_shape,
    The kernels (binop_elementwise_inner_f64 / unop_elementwise_f64) are
    the implementation; the wrappers below are the public entry points
    step 7 will tag-dispatch from. */
+/* F64 stamping. */
 #define SCALAR    double
 #define SFX(name) name##_f64
 #define VDSP_VADD vDSP_vaddD
@@ -847,6 +868,33 @@ static void compute_bcast_strides(Tensor* a, int r_rank, int* r_shape,
 #define VV_SQRT   vvsqrt
 #define VV_TANH   vvtanh
 #define VV_FABS   vvfabs
+#include "backend_tape_kernels.inc"
+#undef SCALAR
+#undef SFX
+#undef VDSP_VADD
+#undef VDSP_VSUB
+#undef VDSP_VMUL
+#undef VDSP_VDIV
+#undef VDSP_VNEG
+#undef VV_EXP
+#undef VV_LOG
+#undef VV_SQRT
+#undef VV_TANH
+#undef VV_FABS
+
+/* F32 stamping — uses cblas_s* / vDSP_* (no `D` suffix) / vv*f forms. */
+#define SCALAR    float
+#define SFX(name) name##_f32
+#define VDSP_VADD vDSP_vadd
+#define VDSP_VSUB vDSP_vsub
+#define VDSP_VMUL vDSP_vmul
+#define VDSP_VDIV vDSP_vdiv
+#define VDSP_VNEG vDSP_vneg
+#define VV_EXP    vvexpf
+#define VV_LOG    vvlogf
+#define VV_SQRT   vvsqrtf
+#define VV_TANH   vvtanhf
+#define VV_FABS   vvfabsf
 #include "backend_tape_kernels.inc"
 #undef SCALAR
 #undef SFX
@@ -874,17 +922,60 @@ static TensorHandle binop_elementwise(TensorHandle ha, TensorHandle hb, int op_t
     return r;
 }
 
+static TensorHandle binop_elementwise_f32_disp(TensorHandle ha, TensorHandle hb, int op_tag,
+                                               float (*scalar_fn)(float, float)) {
+    extern double prof_binop_inside_ms[];
+    extern int prof_binop_inside_count[];
+    double _b0 = _wall_ms();
+    TensorHandle r = binop_elementwise_inner_f32(ha, hb, op_tag, scalar_fn);
+    if (op_tag >= 0 && op_tag < OP_COUNT) {
+        prof_binop_inside_ms[op_tag] += _wall_ms() - _b0;
+        prof_binop_inside_count[op_tag]++;
+    }
+    return r;
+}
+
+static void tape_abort_mixed_dtype(const char* op) __attribute__((noreturn));
+static void tape_abort_mixed_dtype(const char* op) {
+    fprintf(stderr,
+        "[tape backend] %s: mixed-dtype inputs forbidden — both operands must "
+        "share a dtype_tag (cast first via tcast / tensor_cast_dtype_streamed).\n", op);
+    abort();
+}
+
 static double fn_add(double a, double b) { return a + b; }
 static double fn_sub(double a, double b) { return a - b; }
 static double fn_mul(double a, double b) { return a * b; }
 static double fn_div(double a, double b) { return a / b; }
 static double fn_pow(double a, double b) { return pow(a, b); }
 
-TensorHandle tensor_add(TensorHandle a, TensorHandle b) { return binop_elementwise(a, b, OP_ADD, fn_add); }
-TensorHandle tensor_sub(TensorHandle a, TensorHandle b) { return binop_elementwise(a, b, OP_SUB, fn_sub); }
-TensorHandle tensor_mul(TensorHandle a, TensorHandle b) { return binop_elementwise(a, b, OP_MUL, fn_mul); }
-TensorHandle tensor_div(TensorHandle a, TensorHandle b) { return binop_elementwise(a, b, OP_DIV, fn_div); }
-TensorHandle tensor_pow(TensorHandle a, TensorHandle b) { return binop_elementwise(a, b, OP_POW, fn_pow); }
+/* F32 scalar function counterparts — the F32 stamping of binop_elementwise_inner
+   expects float (*)(float, float). */
+static float fn_add_f32(float a, float b) { return a + b; }
+static float fn_sub_f32(float a, float b) { return a - b; }
+static float fn_mul_f32(float a, float b) { return a * b; }
+static float fn_div_f32(float a, float b) { return a / b; }
+static float fn_pow_f32(float a, float b) { return powf(a, b); }
+
+/* Forward dispatch: both-F32 → F32 stamping; both-F64 → F64 stamping;
+   mixed → abort. The F64 path is the default fallthrough so any inference
+   dtype that ever leaks (it shouldn't, given the Idris-side Compatible
+   gate) doesn't silently take an unintended branch. */
+#define TAPE_BINOP_DISPATCH(name, op_tag, fn64, fn32) \
+TensorHandle name(TensorHandle a, TensorHandle b) { \
+    Tensor* ta = (Tensor*)a; Tensor* tb = (Tensor*)b; \
+    if (ta->dtype_tag == DT_F32 || tb->dtype_tag == DT_F32) { \
+        if (ta->dtype_tag != tb->dtype_tag) tape_abort_mixed_dtype(#name); \
+        return binop_elementwise_f32_disp(a, b, op_tag, fn32); \
+    } \
+    return binop_elementwise(a, b, op_tag, fn64); \
+}
+TAPE_BINOP_DISPATCH(tensor_add, OP_ADD, fn_add, fn_add_f32)
+TAPE_BINOP_DISPATCH(tensor_sub, OP_SUB, fn_sub, fn_sub_f32)
+TAPE_BINOP_DISPATCH(tensor_mul, OP_MUL, fn_mul, fn_mul_f32)
+TAPE_BINOP_DISPATCH(tensor_div, OP_DIV, fn_div, fn_div_f32)
+TAPE_BINOP_DISPATCH(tensor_pow, OP_POW, fn_pow, fn_pow_f32)
+#undef TAPE_BINOP_DISPATCH
 
 /* Unary ops: support both scalar (rank 0) and multi-element tensors */
 static double fn_neg(double x) { return -x; }
@@ -892,32 +983,51 @@ static double fn_abs(double x) { return fabs(x); }
 static double fn_exp_d(double x) { return exp(x); }
 static double fn_log_d(double x) { return log(x); }
 static double fn_sqrt_d(double x) { return sqrt(x); }
-
-static TensorHandle unop_elementwise(TensorHandle ha, int op, double (*fn)(double)) {
-    /* Body lives in backend_tape_kernels.inc as unop_elementwise_f64. */
-    return unop_elementwise_f64(ha, op, fn);
-}
-
-TensorHandle tensor_neg(TensorHandle a) { return unop_elementwise(a, OP_NEG, fn_neg); }
-TensorHandle tensor_abs(TensorHandle a) { return unop_elementwise(a, OP_ABS, fn_abs); }
-TensorHandle tensor_exp(TensorHandle a) { return unop_elementwise(a, OP_EXP, fn_exp_d); }
-TensorHandle tensor_log(TensorHandle a) { return unop_elementwise(a, OP_LOG, fn_log_d); }
-TensorHandle tensor_sqrt(TensorHandle a) { return unop_elementwise(a, OP_SQRT, fn_sqrt_d); }
-
 static double fn_sigmoid(double x) { return 1.0 / (1.0 + exp(-x)); }
 static double fn_tanh_d(double x) { return tanh(x); }
-
-TensorHandle tensor_sigmoid(TensorHandle a) { return unop_elementwise(a, OP_SIGMOID, fn_sigmoid); }
-
-TensorHandle tensor_tanh(TensorHandle a) { return unop_elementwise(a, OP_TANH, fn_tanh_d); }
-
 /* GELU(x) = x * 0.5 * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3))) */
 static double fn_gelu_d(double x) {
     double c = 0.7978845608028654;  /* sqrt(2/pi) */
     double inner = c * (x + 0.044715 * x * x * x);
     return 0.5 * x * (1.0 + tanh(inner));
 }
-TensorHandle tensor_gelu(TensorHandle a) { return unop_elementwise(a, OP_GELU, fn_gelu_d); }
+/* F32 unary scalar functions — paired with unop_elementwise_f32. */
+static float fn_neg_f32(float x) { return -x; }
+static float fn_abs_f32(float x) { return fabsf(x); }
+static float fn_exp_f32(float x) { return expf(x); }
+static float fn_log_f32(float x) { return logf(x); }
+static float fn_sqrt_f32(float x) { return sqrtf(x); }
+static float fn_sigmoid_f32(float x) { return 1.0f / (1.0f + expf(-x)); }
+static float fn_tanh_f32(float x) { return tanhf(x); }
+static float fn_gelu_f32(float x) {
+    float c = 0.7978845608028654f;
+    float inner = c * (x + 0.044715f * x * x * x);
+    return 0.5f * x * (1.0f + tanhf(inner));
+}
+
+static TensorHandle unop_elementwise(TensorHandle ha, int op, double (*fn)(double)) {
+    /* Body lives in backend_tape_kernels.inc as unop_elementwise_f64. */
+    return unop_elementwise_f64(ha, op, fn);
+}
+
+/* Forward dispatch: tag-aware unop wrappers — F32 input routes to the F32
+   stamping, else falls through to F64. The F32 stamping picks up the
+   matching fn_*_f32 helper. */
+#define TAPE_UNOP_DISPATCH(name, op_tag, fn64, fn32) \
+TensorHandle name(TensorHandle ha) { \
+    Tensor* a = (Tensor*)ha; \
+    if (a->dtype_tag == DT_F32) return unop_elementwise_f32(ha, op_tag, fn32); \
+    return unop_elementwise(ha, op_tag, fn64); \
+}
+TAPE_UNOP_DISPATCH(tensor_neg,     OP_NEG,     fn_neg,     fn_neg_f32)
+TAPE_UNOP_DISPATCH(tensor_abs,     OP_ABS,     fn_abs,     fn_abs_f32)
+TAPE_UNOP_DISPATCH(tensor_exp,     OP_EXP,     fn_exp_d,   fn_exp_f32)
+TAPE_UNOP_DISPATCH(tensor_log,     OP_LOG,     fn_log_d,   fn_log_f32)
+TAPE_UNOP_DISPATCH(tensor_sqrt,    OP_SQRT,    fn_sqrt_d,  fn_sqrt_f32)
+TAPE_UNOP_DISPATCH(tensor_sigmoid, OP_SIGMOID, fn_sigmoid, fn_sigmoid_f32)
+TAPE_UNOP_DISPATCH(tensor_tanh,    OP_TANH,    fn_tanh_d,  fn_tanh_f32)
+TAPE_UNOP_DISPATCH(tensor_gelu,    OP_GELU,    fn_gelu_d,  fn_gelu_f32)
+#undef TAPE_UNOP_DISPATCH
 
 /* LeakyReLU: max(alpha*x, x). Uses scalar_arg to store alpha. */
 TensorHandle tensor_leaky_relu(TensorHandle ha, double alpha) {
@@ -1006,7 +1116,7 @@ TensorHandle tensor_clamp_min(TensorHandle ha, double min_val) {
 TensorHandle tensor_sum(TensorHandle h) {
     Tensor* t = (Tensor*)h;
     double s = 0;
-    for (int i = 0; i < t->numel; i++) s += ((double*)t->data)[i];
+    for (int i = 0; i < t->numel; i++) s += tape_load_d(t, i);
     Tensor* r = make_scalar(s, t->requires_grad);
     if (r->requires_grad) tape_append(OP_SUM, r, t, NULL, 0);
     return r;
@@ -3028,8 +3138,8 @@ void tensor_backward(TensorHandle h) {
             /* Fast path: both shapes match r */
             if (a_match && b_match) {
                 for (int j = 0; j < r->numel; j++) {
-                    ((double*)a->grad)[j] += ((double*)r->grad)[j] * ((double*)b->data)[j];
-                    ((double*)b->grad)[j] += ((double*)r->grad)[j] * ((double*)a->data)[j];
+                    ((double*)a->grad)[j] += ((double*)r->grad)[j] * tape_load_d(b, j);
+                    ((double*)b->grad)[j] += ((double*)r->grad)[j] * tape_load_d(a, j);
                 }
             } else {
                 /* Mixed: scalar / broadcast on either side. Walk r positions. */
@@ -3043,8 +3153,8 @@ void tensor_backward(TensorHandle h) {
                         ai += idx[k] * a_str[k];
                         bi += idx[k] * b_str[k];
                     }
-                    if (a) ((double*)a->grad)[ai] += ((double*)r->grad)[i] * ((double*)b->data)[bi];
-                    if (b) ((double*)b->grad)[bi] += ((double*)r->grad)[i] * ((double*)a->data)[ai];
+                    if (a) ((double*)a->grad)[ai] += ((double*)r->grad)[i] * tape_load_d(b, bi);
+                    if (b) ((double*)b->grad)[bi] += ((double*)r->grad)[i] * tape_load_d(a, ai);
                     for (int k = r->rank - 1; k >= 0; k--) {
                         if (++idx[k] < r->shape[k]) break; idx[k] = 0;
                     }
@@ -3061,9 +3171,9 @@ void tensor_backward(TensorHandle h) {
             ensure_grad(r);
             if (a_match && b_match) {
                 for (int j = 0; j < r->numel; j++) {
-                    double bv = ((double*)b->data)[j];
+                    double bv = tape_load_d(b, j);
                     ((double*)a->grad)[j] += ((double*)r->grad)[j] / bv;
-                    ((double*)b->grad)[j] -= ((double*)r->grad)[j] * ((double*)a->data)[j] / (bv * bv);
+                    ((double*)b->grad)[j] -= ((double*)r->grad)[j] * tape_load_d(a, j) / (bv * bv);
                 }
             } else {
                 int a_str[MAX_BCAST_RANK] = {0}, b_str[MAX_BCAST_RANK] = {0};
@@ -3076,9 +3186,9 @@ void tensor_backward(TensorHandle h) {
                         ai += idx[k] * a_str[k];
                         bi += idx[k] * b_str[k];
                     }
-                    double bv = ((double*)b->data)[bi];
+                    double bv = tape_load_d(b, bi);
                     if (a) ((double*)a->grad)[ai] += ((double*)r->grad)[i] / bv;
-                    if (b) ((double*)b->grad)[bi] -= ((double*)r->grad)[i] * ((double*)a->data)[ai] / (bv * bv);
+                    if (b) ((double*)b->grad)[bi] -= ((double*)r->grad)[i] * tape_load_d(a, ai) / (bv * bv);
                     for (int k = r->rank - 1; k >= 0; k--) {
                         if (++idx[k] < r->shape[k]) break; idx[k] = 0;
                     }
@@ -3092,19 +3202,19 @@ void tensor_backward(TensorHandle h) {
             break;
 
         case OP_ABS:
-            if (a) { ensure_grad(a); for (int j = 0; j < a->numel; j++) ((double*)a->grad)[j] += ((double*)r->grad)[j] * (((double*)a->data)[j] >= 0 ? 1.0 : -1.0); }
+            if (a) { ensure_grad(a); for (int j = 0; j < a->numel; j++) ((double*)a->grad)[j] += ((double*)r->grad)[j] * (tape_load_d(a, j) >= 0 ? 1.0 : -1.0); }
             break;
 
         case OP_EXP:
-            if (a) { ensure_grad(a); for (int j = 0; j < a->numel; j++) ((double*)a->grad)[j] += ((double*)r->grad)[j] * ((double*)r->data)[j]; }
+            if (a) { ensure_grad(a); for (int j = 0; j < a->numel; j++) ((double*)a->grad)[j] += ((double*)r->grad)[j] * tape_load_d(r, j); }
             break;
 
         case OP_LOG:
-            if (a) { ensure_grad(a); for (int j = 0; j < a->numel; j++) ((double*)a->grad)[j] += ((double*)r->grad)[j] / ((double*)a->data)[j]; }
+            if (a) { ensure_grad(a); for (int j = 0; j < a->numel; j++) ((double*)a->grad)[j] += ((double*)r->grad)[j] / tape_load_d(a, j); }
             break;
 
         case OP_SQRT:
-            if (a) { ensure_grad(a); for (int j = 0; j < a->numel; j++) ((double*)a->grad)[j] += ((double*)r->grad)[j] / (2.0 * ((double*)r->data)[j]); }
+            if (a) { ensure_grad(a); for (int j = 0; j < a->numel; j++) ((double*)a->grad)[j] += ((double*)r->grad)[j] / (2.0 * tape_load_d(r, j)); }
             break;
 
         case OP_POW: {
@@ -3115,10 +3225,10 @@ void tensor_backward(TensorHandle h) {
             ensure_grad(r);
             if (a_match && b_match) {
                 for (int j = 0; j < r->numel; j++) {
-                    double av = fmax(((double*)a->data)[j], 1e-20);
-                    double bv = ((double*)b->data)[j];
+                    double av = fmax(tape_load_d(a, j), 1e-20);
+                    double bv = tape_load_d(b, j);
                     ((double*)a->grad)[j] += ((double*)r->grad)[j] * bv * pow(av, bv - 1.0);
-                    ((double*)b->grad)[j] += ((double*)r->grad)[j] * ((double*)r->data)[j] * log(av);
+                    ((double*)b->grad)[j] += ((double*)r->grad)[j] * tape_load_d(r, j) * log(av);
                 }
             } else {
                 int a_str[MAX_BCAST_RANK] = {0}, b_str[MAX_BCAST_RANK] = {0};
@@ -3131,10 +3241,10 @@ void tensor_backward(TensorHandle h) {
                         ai += idx[k] * a_str[k];
                         bi += idx[k] * b_str[k];
                     }
-                    double av = fmax(((double*)a->data)[ai], 1e-20);
-                    double bv = ((double*)b->data)[bi];
+                    double av = fmax(tape_load_d(a, ai), 1e-20);
+                    double bv = tape_load_d(b, bi);
                     if (a) ((double*)a->grad)[ai] += ((double*)r->grad)[i] * bv * pow(av, bv - 1.0);
-                    if (b) ((double*)b->grad)[bi] += ((double*)r->grad)[i] * ((double*)r->data)[i] * log(av);
+                    if (b) ((double*)b->grad)[bi] += ((double*)r->grad)[i] * tape_load_d(r, i) * log(av);
                     for (int k = r->rank - 1; k >= 0; k--) {
                         if (++idx[k] < r->shape[k]) break; idx[k] = 0;
                     }
@@ -3144,18 +3254,18 @@ void tensor_backward(TensorHandle h) {
         }
 
         case OP_SIGMOID: {
-            if (a) { ensure_grad(a); for (int j = 0; j < a->numel; j++) { double s = ((double*)r->data)[j]; ((double*)a->grad)[j] += ((double*)r->grad)[j] * s * (1.0 - s); } }
+            if (a) { ensure_grad(a); for (int j = 0; j < a->numel; j++) { double s = tape_load_d(r, j); ((double*)a->grad)[j] += ((double*)r->grad)[j] * s * (1.0 - s); } }
             break;
         }
 
         case OP_TANH: {
-            if (a) { ensure_grad(a); for (int j = 0; j < a->numel; j++) { double t = ((double*)r->data)[j]; ((double*)a->grad)[j] += ((double*)r->grad)[j] * (1.0 - t * t); } }
+            if (a) { ensure_grad(a); for (int j = 0; j < a->numel; j++) { double t = tape_load_d(r, j); ((double*)a->grad)[j] += ((double*)r->grad)[j] * (1.0 - t * t); } }
             break;
         }
 
         case OP_SOFTPLUS: {
             /* d/dx softplus(x) = 1 / (1 + exp(-x)) = sigmoid(x). a->data is x. */
-            if (a) { ensure_grad(a); for (int j = 0; j < a->numel; j++) { double s = 1.0 / (1.0 + exp(-((double*)a->data)[j])); ((double*)a->grad)[j] += ((double*)r->grad)[j] * s; } }
+            if (a) { ensure_grad(a); for (int j = 0; j < a->numel; j++) { double s = 1.0 / (1.0 + exp(-tape_load_d(a, j))); ((double*)a->grad)[j] += ((double*)r->grad)[j] * s; } }
             break;
         }
 
@@ -3244,7 +3354,7 @@ void tensor_backward(TensorHandle h) {
                 ensure_grad(a);
                 double c = 0.7978845608028654;
                 for (int j = 0; j < a->numel; j++) {
-                    double x = ((double*)a->data)[j];
+                    double x = tape_load_d(a, j);
                     double inner = c * (x + 0.044715 * x * x * x);
                     double t = tanh(inner);
                     double dtdx = (1.0 - t * t) * c * (1.0 + 3.0 * 0.044715 * x * x);
@@ -5819,13 +5929,13 @@ int backend_profile_report_return(int dummy) {
 /* ---- Unified dtag-dispatch create/cast entry points ----
    One symbol per shape, dtag-keyed, superseding the per-dtype
    *_f32_streamed / *_f64_streamed wrappers. dtag 1 (F64) is the hot path —
-   plain F64 create, untouched. Every other dtag builds the tensor as F64
-   then rounds each value through the target dtype and stamps the internal
-   tag (`tape_retag_round`): tape stores non-F64 values as doubles via the
-   `double` lingua franca (storage + readout + cast, no arithmetic). Real
-   packed-float storage + F32 training kernels arrive in the Phase 3 kernel
-   refactor; the Idris `Compatible` gate keeps tape at F64 until Phase 4
-   opens the inference dtypes. */
+   plain F64 create, untouched. dtag 0 (F32) allocates real float storage
+   so the F32 elementwise kernels can read `(float*)t->data` directly.
+   Every other dtag (BF16, F16, I8/I16/I32/I64, U8, Bool) is inference-only: builds the
+   tensor as F64 then rounds each value through the target dtype, leaving
+   the storage as a double buffer (Phase 2 `tape_retag_round` lingua
+   franca). The Idris `Compatible` gate still keeps tape at F64 + F32
+   trainable; the inference dtypes wait for Phase 4 to open. */
 static TensorHandle tape_retag_round(TensorHandle h, int dtag) {
     Tensor* t = (Tensor*)h;
     int tag = tape_tag_from_dtag(dtag);
@@ -5835,54 +5945,107 @@ static TensorHandle tape_retag_round(TensorHandle h, int dtag) {
     return h;
 }
 
+/* Build a real-F32-storage arena tensor from F64 source data; the source
+   buffer is freed (matches the F64 streamed-create convention where the
+   underlying *_f64 creator owns + frees its `data` argument). */
+static TensorHandle tape_arena_f32_from_doubles(int* shape, int rank,
+                                                double* data, int rg) {
+    int numel = 1;
+    for (int i = 0; i < rank; i++) numel *= shape[i];
+    float* arena_d = arena_alloc(numel * sizeof(float));
+    for (int i = 0; i < numel; i++) arena_d[i] = (float)data[i];
+    free(data);
+    return make_tensor_arena_f32(arena_d, numel, shape, rank, rg);
+}
+
+/* Same, but persistent (malloc'd) — for params / state. tape_append is
+   called only when requires_grad; mirrors tensor_create_param_*_f64. */
+static TensorHandle tape_persistent_f32_from_doubles(int* shape, int rank,
+                                                     double* data, int rg) {
+    int numel = 1;
+    for (int i = 0; i < rank; i++) numel *= shape[i];
+    Tensor* t = calloc(1, sizeof(Tensor));
+    t->data = malloc(numel * sizeof(float));
+    for (int i = 0; i < numel; i++) ((float*)t->data)[i] = (float)data[i];
+    free(data);
+    t->shape = malloc(rank * sizeof(int));
+    memcpy(t->shape, shape, rank * sizeof(int));
+    t->rank = rank;
+    t->numel = numel;
+    t->requires_grad = rg;
+    t->tape_idx = -1;
+    t->persistent = 1;
+    t->dtype_tag = DT_F32;
+    if (rg) tape_append(OP_CONST, t, NULL, NULL, 0);
+    return t;
+}
+
 TensorHandle tensor_create_scalar_streamed(double value, int requires_grad, int stream_tag, int dtag) {
     (void)stream_tag;
     if (dtag == 1) return tensor_create_scalar_f64(value, requires_grad);
+    if (dtag == 0) return make_scalar_f32(value, requires_grad);
     return tape_retag_round(tensor_create_scalar_f64(value, requires_grad), dtag);
 }
 TensorHandle tensor_create_streamed(double* data, int* shape, int rank, int requires_grad, int stream_tag, int dtag) {
     (void)stream_tag;
     if (dtag == 1) return tensor_create_f64(data, shape, rank, requires_grad);
+    if (dtag == 0) {
+        /* tensor_create_f64 copies + then frees the input; mirror that contract.
+           We need our own free since we bypass the f64 creator. */
+        int numel = 1;
+        for (int i = 0; i < rank; i++) numel *= shape[i];
+        float* arena_d = arena_alloc(numel * sizeof(float));
+        for (int i = 0; i < numel; i++) arena_d[i] = (float)data[i];
+        return make_tensor_arena_f32(arena_d, numel, shape, rank, requires_grad);
+    }
     return tape_retag_round(tensor_create_f64(data, shape, rank, requires_grad), dtag);
 }
 TensorHandle tensor_create_1d_streamed(int n, double* data, int requires_grad, int stream_tag, int dtag) {
     (void)stream_tag;
     if (dtag == 1) return tensor_create_1d_f64(n, data, requires_grad);
+    if (dtag == 0) { int s[] = {n}; return tape_arena_f32_from_doubles(s, 1, data, requires_grad); }
     return tape_retag_round(tensor_create_1d_f64(n, data, requires_grad), dtag);
 }
 TensorHandle tensor_create_2d_streamed(int rows, int cols, double* data, int requires_grad, int stream_tag, int dtag) {
     (void)stream_tag;
     if (dtag == 1) return tensor_create_2d_f64(rows, cols, data, requires_grad);
+    if (dtag == 0) { int s[] = {rows, cols}; return tape_arena_f32_from_doubles(s, 2, data, requires_grad); }
     return tape_retag_round(tensor_create_2d_f64(rows, cols, data, requires_grad), dtag);
 }
 TensorHandle tensor_create_param_1d_streamed(int n, double* data, int stream_tag, int dtag) {
     (void)stream_tag;
     if (dtag == 1) return tensor_create_param_1d_f64(n, data);
+    if (dtag == 0) { int s[] = {n}; return tape_persistent_f32_from_doubles(s, 1, data, /*rg=*/1); }
     return tape_retag_round(tensor_create_param_1d_f64(n, data), dtag);
 }
 TensorHandle tensor_create_param_2d_streamed(int rows, int cols, double* data, int stream_tag, int dtag) {
     (void)stream_tag;
     if (dtag == 1) return tensor_create_param_2d_f64(rows, cols, data);
+    if (dtag == 0) { int s[] = {rows, cols}; return tape_persistent_f32_from_doubles(s, 2, data, /*rg=*/1); }
     return tape_retag_round(tensor_create_param_2d_f64(rows, cols, data), dtag);
 }
 TensorHandle tensor_create_param_3d_streamed(int d0, int d1, int d2, double* data, int stream_tag, int dtag) {
     (void)stream_tag;
     if (dtag == 1) return tensor_create_param_3d_f64(d0, d1, d2, data);
+    if (dtag == 0) { int s[] = {d0, d1, d2}; return tape_persistent_f32_from_doubles(s, 3, data, /*rg=*/1); }
     return tape_retag_round(tensor_create_param_3d_f64(d0, d1, d2, data), dtag);
 }
 TensorHandle tensor_create_param_4d_streamed(int d0, int d1, int d2, int d3, double* data, int stream_tag, int dtag) {
     (void)stream_tag;
     if (dtag == 1) return tensor_create_param_4d_f64(d0, d1, d2, d3, data);
+    if (dtag == 0) { int s[] = {d0, d1, d2, d3}; return tape_persistent_f32_from_doubles(s, 4, data, /*rg=*/1); }
     return tape_retag_round(tensor_create_param_4d_f64(d0, d1, d2, d3, data), dtag);
 }
 TensorHandle tensor_create_state_1d_streamed(int n, double* data, int stream_tag, int dtag) {
     (void)stream_tag;
     if (dtag == 1) return tensor_create_state_1d_f64(n, data);
+    if (dtag == 0) { int s[] = {n}; return tape_persistent_f32_from_doubles(s, 1, data, /*rg=*/0); }
     return tape_retag_round(tensor_create_state_1d_f64(n, data), dtag);
 }
 TensorHandle tensor_create_state_2d_streamed(int rows, int cols, double* data, int stream_tag, int dtag) {
     (void)stream_tag;
     if (dtag == 1) return tensor_create_state_2d_f64(rows, cols, data);
+    if (dtag == 0) { int s[] = {rows, cols}; return tape_persistent_f32_from_doubles(s, 2, data, /*rg=*/0); }
     return tape_retag_round(tensor_create_state_2d_f64(rows, cols, data), dtag);
 }
 TensorHandle tensor_cast_dtype_streamed(TensorHandle src, int stream_tag, int dtag) {
