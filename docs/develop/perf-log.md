@@ -253,3 +253,45 @@ adjacent successful entry.
 
 Per the convention, leaving the original entry in place rather than
 deleting; this note marks it invalid.
+
+### 2026-05-08 — `ntm-copy` [tape] @ `f6e628b` — `--seed 42 --batch 1 --epochs 5000 --es-threshold 0.0`
+
+exit:    0
+wall:    3m 15s (195101 ms)
+stats:   Completed in 2m 56s (5000 epochs, 35ms/epoch)
+result:  `RESULT	epochs=5000	acc_short=0.7544166666666663	acc_full=0.594306809660283	seed=42`
+
+### 2026-05-08 — `ntm-copy` [tape] @ `f6e628b+dirty` — `--seed 42 --batch 1 --epochs 5000 --es-threshold 0.0`
+
+exit:    0
+wall:    2m 38s (158960 ms)
+stats:   Completed in 2m 30s (5000 epochs, 30ms/epoch)
+result:  `RESULT	epochs=5000	acc_short=0.757645833333333	acc_full=0.610204074820948	seed=42`
+
+### 2026-05-08 — `ntm-copy` [tape] @ `f6e628b+dirty` — `--seed 42 --batch 1 --epochs 5000 --es-threshold 0.0`
+
+exit:    0
+wall:    1m 43s (103658 ms)
+stats:   Completed in 1m 36s (5000 epochs, 19ms/epoch)
+result:  `RESULT	epochs=5000	acc_short=0.9985625	acc_full=0.9916108120680491	seed=42`
+
+### 2026-05-08 — `ntm-copy` [tape] @ `f6e628b+dirty` — `--seed 42 --batch 1 --epochs 5000 --es-threshold 0.0`
+
+exit:    0
+wall:    3m 3s (183227 ms)
+stats:   Completed in 2m 44s (5000 epochs, 32ms/epoch)
+result:  `RESULT	epochs=5000	acc_short=0.7520416666666668	acc_full=0.5949439477898263	seed=42`
+
+### 2026-05-08 — `ntm-copy` [tape] @ `f6e628b+dirty` — `--seed 42 --batch 1 --epochs 5000 --es-threshold 0.0`
+
+exit:    0
+wall:    1m 49s (109156 ms)
+stats:   Completed in 1m 42s (5000 epochs, 20ms/epoch)
+result:  `RESULT	epochs=5000	acc_short=0.7530416666666665	acc_full=0.6126344269228362	seed=42`
+
+### 2026-05-08 — `ntm-copy` [tape] @ `f6e628b+dirty` — `--seed 42 --batch 1 --epochs 5000 --es-threshold 0.0`
+
+exit:    0
+wall:    1m 39s (99429 ms)
+stats:   Completed in 1m 34s (5000 epochs, 18ms/epoch)
+result:  `RESULT	epochs=5000	acc_short=0.9985625	acc_full=0.9916108120680491	seed=42`

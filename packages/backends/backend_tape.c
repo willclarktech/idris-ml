@@ -3683,6 +3683,13 @@ void tensor_backward(TensorHandle h) {
     prof_backward_skipped += skipped;
     prof_backward_ms += _wall_ms() - t0;
     prof_backward_ops += processed;
+
+    /* Phase 1.5e diagnostic: when DEBUG_PARAM_GRADS is set, dump per-param
+       gradient L2 norm to stderr. Use to identify zero/NaN/wrong-magnitude
+       grads after a single backward pass. param_registry is declared
+       further down in the file; defer to the inner function below. */
+    extern void _dbg_dump_param_grads_if_enabled(void);
+    _dbg_dump_param_grads_if_enabled();
 }
 
 TensorHandle tensor_grad(TensorHandle h) {
@@ -3880,6 +3887,62 @@ void param_register(const char* name, TensorHandle h) {
 void param_clear(void) { param_count_val = 0; }
 int param_count(void) { return param_count_val; }
 const char* param_name(int idx) { return param_registry[idx].name; }
+
+/* Phase 1.5e diagnostic: dump per-param gradient L2 norms after a backward
+   pass. Enabled by setting DEBUG_PARAM_GRADS env var. Defined here (rather
+   than inline in tensor_backward) so it can see the static param_registry. */
+void _dbg_dump_param_grads_if_enabled(void) {
+    if (!getenv("DEBUG_PARAM_GRADS")) return;
+    fprintf(stderr, "=== param grads after backward ===\n");
+    for (int i = 0; i < param_count_val; i++) {
+        Tensor* t = param_registry[i].tensor;
+        double l2 = 0.0;
+        int has_nan = 0;
+        if (t->grad) {
+            for (int j = 0; j < t->numel; j++) {
+                double g = t->grad[j];
+                if (isnan(g) || isinf(g)) has_nan = 1;
+                l2 += g * g;
+            }
+            l2 = sqrt(l2);
+        }
+        fprintf(stderr, "  %-40s numel=%-6d l2=%12.6e%s%s\n",
+                param_registry[i].name, t->numel, l2,
+                t->grad ? "" : " NO_GRAD",
+                has_nan ? " NAN_OR_INF!" : "");
+    }
+}
+
+/* Phase 1.5e diagnostic: dump h0/c0 param value trajectories. Set
+   DEBUG_LSTM_TRAJ to print h0/c0 L2 norms every N epochs (where N is the
+   value of DEBUG_LSTM_TRAJ_EVERY, default 100). */
+static int _dbg_traj_step = 0;
+void _dbg_dump_lstm_traj_if_enabled(void) {
+    if (!getenv("DEBUG_LSTM_TRAJ")) return;
+    int every = 100;
+    const char* every_s = getenv("DEBUG_LSTM_TRAJ_EVERY");
+    if (every_s) every = atoi(every_s);
+    _dbg_traj_step++;
+    if (_dbg_traj_step % every != 0 && _dbg_traj_step != 1) return;
+    for (int i = 0; i < param_count_val; i++) {
+        const char* nm = param_registry[i].name;
+        /* Match _h0 or _c0 (LSTM learned init) */
+        size_t L = strlen(nm);
+        if (L >= 3 && (strcmp(nm + L - 3, "_h0") == 0 || strcmp(nm + L - 3, "_c0") == 0)) {
+            Tensor* t = param_registry[i].tensor;
+            double l2 = 0.0, mn = 1e300, mx = -1e300;
+            for (int j = 0; j < t->numel; j++) {
+                double v = t->data[j];
+                l2 += v*v;
+                if (v < mn) mn = v;
+                if (v > mx) mx = v;
+            }
+            l2 = sqrt(l2);
+            fprintf(stderr, "[traj epoch %d] %s l2=%g min=%g max=%g\n",
+                    _dbg_traj_step, nm, l2, mn, mx);
+        }
+    }
+}
 
 double param_grad_item(int idx) {
     Tensor* t = param_registry[idx].tensor;
@@ -4349,6 +4412,19 @@ void optimizer_step(OptimizerHandle h) {
 
     for (int i = 0; i < param_count_val; i++) {
         if (!opt_owns_param(opt, i)) continue;
+        /* Phase 1.5e DIAGNOSTIC: SKIP_LSTM_INIT skips updating params whose
+           names end in _h0 or _c0 (LSTM learned initial state). Equivalent
+           to keeping them as zero state tensors. Used to localize whether
+           the convergence regression is in the gradient values being
+           applied to h0/c0 vs being elsewhere. Remove once diagnosed. */
+        if (getenv("SKIP_LSTM_INIT")) {
+            const char* nm = param_registry[i].name;
+            size_t L = strlen(nm);
+            if (L >= 3 && (strcmp(nm + L - 3, "_h0") == 0 ||
+                           strcmp(nm + L - 3, "_c0") == 0)) {
+                continue;
+            }
+        }
         Tensor* t = param_registry[i].tensor;
         if (!t->grad) continue;
         int base = param_element_offset(i);
@@ -4399,6 +4475,12 @@ void optimizer_step(OptimizerHandle h) {
             }
             }
         }
+    }
+
+    /* Phase 1.5e: dump h0/c0 trajectory if enabled */
+    {
+        extern void _dbg_dump_lstm_traj_if_enabled(void);
+        _dbg_dump_lstm_traj_if_enabled();
     }
 
     /* Snapshot tape size before reset */
