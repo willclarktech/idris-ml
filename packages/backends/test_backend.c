@@ -3926,6 +3926,58 @@ int main(void) {
                 param_clear();
             }
 
+            /* tensor_batch_norm: channels-first, training mode. Tests
+               that running_mean/running_var updates and forward output
+               match between F32 and F64 (within F32 tol). */
+            {
+                int C = 2, sp = 3;
+                int n = C * sp;
+                double xv[]  = {1.5, -0.25, 0.5, 0.25, 1.0, -0.75};
+                double gv[]  = {1.0, 0.5};
+                double bv[]  = {0.1, -0.2};
+                double rmv[] = {0.0, 0.0};
+                double rvv[] = {1.0, 1.0};
+                double y_f64[6], y_f32[6];
+
+                /* F64 reference (no grad — exercise forward + running stats only). */
+                TensorHandle x64  = tensor_create_1d_streamed(n, heap_copy(xv, n), 0, 0, 1);
+                TensorHandle g64  = tensor_create_1d_streamed(C, heap_copy(gv, C), 0, 0, 1);
+                TensorHandle b64  = tensor_create_1d_streamed(C, heap_copy(bv, C), 0, 0, 1);
+                TensorHandle rm64 = tensor_create_state_1d_streamed(C, heap_copy(rmv, C), 0, 1);
+                TensorHandle rv64 = tensor_create_state_1d_streamed(C, heap_copy(rvv, C), 0, 1);
+                TensorHandle r64  = tensor_batch_norm(x64, g64, b64, rm64, rv64, C, sp, 1, 0.1, 1e-5);
+                tensor_to_doubles(r64, y_f64);
+
+                TensorHandle x32  = tensor_create_1d_streamed(n, heap_copy(xv, n), 0, 0, 0);
+                TensorHandle g32  = tensor_create_1d_streamed(C, heap_copy(gv, C), 0, 0, 0);
+                TensorHandle b32  = tensor_create_1d_streamed(C, heap_copy(bv, C), 0, 0, 0);
+                TensorHandle rm32 = tensor_create_state_1d_streamed(C, heap_copy(rmv, C), 0, 0);
+                TensorHandle rv32 = tensor_create_state_1d_streamed(C, heap_copy(rvv, C), 0, 0);
+                TensorHandle r32  = tensor_batch_norm(x32, g32, b32, rm32, rv32, C, sp, 1, 0.1, 1e-5);
+                tensor_to_doubles(r32, y_f32);
+
+                ASSERT_TRUE("batch_norm: F32 output propagates F32 tag",
+                            strcmp(tensor_dtype_name(r32), "F32") == 0);
+                for (int i = 0; i < n; i++) {
+                    char buf[64];
+                    snprintf(buf, sizeof buf, "batch_norm: y_f32[%d] ~ y_f64", i);
+                    ASSERT_NEAR(buf, y_f32[i], y_f64[i], 1e-5);
+                }
+                /* Running stats should also be updated. */
+                double rm_f64[2], rv_f64[2], rm_f32[2], rv_f32[2];
+                tensor_to_doubles(rm64, rm_f64);
+                tensor_to_doubles(rv64, rv_f64);
+                tensor_to_doubles(rm32, rm_f32);
+                tensor_to_doubles(rv32, rv_f32);
+                for (int i = 0; i < C; i++) {
+                    char buf[64];
+                    snprintf(buf, sizeof buf, "batch_norm: running_mean_f32[%d] ~ f64", i);
+                    ASSERT_NEAR(buf, rm_f32[i], rm_f64[i], 1e-5);
+                    snprintf(buf, sizeof buf, "batch_norm: running_var_f32[%d] ~ f64", i);
+                    ASSERT_NEAR(buf, rv_f32[i], rv_f64[i], 1e-5);
+                }
+            }
+
             /* tensor_layer_norm_2d: row-wise LN with gamma/bias affine. */
             {
                 int M = 2, N = 3;

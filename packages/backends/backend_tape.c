@@ -2384,46 +2384,68 @@ TensorHandle tensor_batch_norm(TensorHandle hinput, TensorHandle hgamma, TensorH
     Tensor* beta = (Tensor*)hbeta;
     Tensor* running_mean = (Tensor*)hrunning_mean;
     Tensor* running_var = (Tensor*)hrunning_var;
+    if (input->dtype_tag != gamma->dtype_tag ||
+        input->dtype_tag != beta->dtype_tag ||
+        input->dtype_tag != running_mean->dtype_tag ||
+        input->dtype_tag != running_var->dtype_tag)
+        tape_abort_mixed_dtype("tensor_batch_norm");
     int n = C * spatial;
+    int out_shape[1] = {n};
+    int rg = input->requires_grad || gamma->requires_grad || beta->requires_grad;
+    int is_f32 = (input->dtype_tag == DT_F32);
 
-    double* out = calloc(n, sizeof(double));
+    /* Output buffer + meta caches. The caches stay double* — the existing
+       OP_BATCH_NORM backward case reads x_hat/rstd as doubles. */
+    void* out;
+    if (is_f32) out = arena_alloc(n * sizeof(float));
+    else        out = calloc(n, sizeof(double));
     double* x_hat = malloc(n * sizeof(double));
     double* rstd = malloc(C * sizeof(double));
 
     for (int c = 0; c < C; c++) {
         double mean, var;
         if (training) {
-            /* Compute mean and var from input for this channel */
             mean = 0;
-            for (int j = 0; j < spatial; j++) mean += ((double*)input->data)[c * spatial + j];
+            for (int j = 0; j < spatial; j++) mean += tape_load_d(input, c * spatial + j);
             mean /= spatial;
             var = 0;
             for (int j = 0; j < spatial; j++) {
-                double d = ((double*)input->data)[c * spatial + j] - mean;
+                double d = tape_load_d(input, c * spatial + j) - mean;
                 var += d * d;
             }
             var /= spatial;
-            /* Update running stats (in-place, no grad) */
-            ((double*)running_mean->data)[c] = (1.0 - momentum) * ((double*)running_mean->data)[c] + momentum * mean;
-            ((double*)running_var->data)[c] = (1.0 - momentum) * ((double*)running_var->data)[c] + momentum * var;
+            /* Update running stats (in-place, no grad) — tape_store_d
+               honours the running_*'s dtype_tag. */
+            double rm = tape_load_d(running_mean, c);
+            double rv = tape_load_d(running_var, c);
+            tape_store_d(running_mean, c, (1.0 - momentum) * rm + momentum * mean);
+            tape_store_d(running_var,  c, (1.0 - momentum) * rv + momentum * var);
         } else {
-            mean = ((double*)running_mean->data)[c];
-            var = ((double*)running_var->data)[c];
+            mean = tape_load_d(running_mean, c);
+            var = tape_load_d(running_var, c);
         }
 
         double rs = 1.0 / sqrt(var + eps);
         rstd[c] = rs;
+        double gc = tape_load_d(gamma, c);
+        double bc = tape_load_d(beta, c);
         for (int j = 0; j < spatial; j++) {
             int idx = c * spatial + j;
-            x_hat[idx] = (((double*)input->data)[idx] - mean) * rs;
-            out[idx] = ((double*)gamma->data)[c] * x_hat[idx] + ((double*)beta->data)[c];
+            double xh = (tape_load_d(input, idx) - mean) * rs;
+            x_hat[idx] = xh;
+            double v = gc * xh + bc;
+            if (is_f32) ((float*)out)[idx] = (float)v;
+            else        ((double*)out)[idx] = v;
         }
     }
 
-    int out_shape[1] = {n};
-    int rg = input->requires_grad || gamma->requires_grad || beta->requires_grad;
-    Tensor* r = make_tensor(out, out_shape, 1, rg);
-    free(out);
+    Tensor* r;
+    if (is_f32) {
+        r = make_tensor_arena_f32((float*)out, n, out_shape, 1, rg);
+    } else {
+        r = make_tensor((double*)out, out_shape, 1, rg);
+        free(out);
+    }
 
     if (r->requires_grad) {
         TapeEntry* e = tape_append(OP_BATCH_NORM, r, input, NULL, 0);
@@ -4785,20 +4807,21 @@ void tensor_backward(TensorHandle h) {
                     ((double*)meta->beta->grad)[c] += db;
                 }
             }
-            /* d_input */
+            /* d_input — tape_load_d on gamma->data covers F64 + F32. */
             if (a && a->requires_grad) {
                 ensure_grad(a);
                 for (int c = 0; c < CC; c++) {
+                    double gc = tape_load_d(meta->gamma, c);
                     double mean_dxhat = 0, mean_dxhat_xhat = 0;
                     for (int j = 0; j < sp; j++) {
-                        double dxh = ((double*)r->grad)[c*sp+j] * ((double*)meta->gamma->data)[c];
+                        double dxh = ((double*)r->grad)[c*sp+j] * gc;
                         mean_dxhat += dxh;
                         mean_dxhat_xhat += dxh * meta->x_hat[c*sp+j];
                     }
                     mean_dxhat /= sp;
                     mean_dxhat_xhat /= sp;
                     for (int j = 0; j < sp; j++) {
-                        double dxh = ((double*)r->grad)[c*sp+j] * ((double*)meta->gamma->data)[c];
+                        double dxh = ((double*)r->grad)[c*sp+j] * gc;
                         ((double*)a->grad)[c*sp+j] += meta->rstd[c] *
                             (dxh - mean_dxhat - meta->x_hat[c*sp+j] * mean_dxhat_xhat);
                     }
