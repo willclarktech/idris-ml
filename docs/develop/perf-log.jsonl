@@ -1,0 +1,1 @@
+{"ts": "2026-05-09T15:09:07Z", "date": "2026-05-09", "kind": "run", "example": "supervised", "backend": "tape", "commit": "f6d8378+dirty", "args": "--epochs 50 --seed 42", "exit": 0, "wall_ms": 2702, "wall_human": "2.702s", "stats": {"total_epochs": 50, "ms_per_epoch": 0.0, "wall": "0s"}, "result": {"epochs": 50, "loss": 0.3140635010700994, "seed": 42}}

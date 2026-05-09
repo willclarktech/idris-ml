@@ -121,3 +121,33 @@ PY_MS=$(two_point_pytorch)
 RATIO=$(python3 -c "print(round(${IDRIS_MS} / ${PY_MS}, 2) if ${PY_MS} > 0 else 'inf')")
 
 echo "${EXAMPLE_KEY},${BACKEND},${IDRIS_MS},${PY_MS},${RATIO},${N_LONG},${SEED},${COMMIT},"
+
+# Also append a JSONL entry to perf-log.jsonl. Tagged kind="baseline"
+# (vs perf-run.sh's default kind="convergence") so jq can filter:
+#   jq 'select(.kind=="baseline")' docs/develop/perf-log.jsonl
+LOG_PATH="docs/develop/perf-log.jsonl"
+if [ ! -e "$LOG_PATH" ]; then : > "$LOG_PATH"; fi
+ISO_TS=$(python3 -c 'from datetime import datetime, timezone; print(datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))')
+DATE=$(date +%Y-%m-%d)
+ISO_TS="$ISO_TS" DATE="$DATE" EXAMPLE_KEY="$EXAMPLE_KEY" BACKEND="$BACKEND" \
+  COMMIT="$COMMIT" IDRIS_MS="$IDRIS_MS" PY_MS="$PY_MS" RATIO="$RATIO" \
+  N_LONG="$N_LONG" SEED="$SEED" \
+  python3 <<'PY' >> "$LOG_PATH"
+import json, os
+def num(s):
+    try: return float(s)
+    except (ValueError, TypeError): return None
+print(json.dumps({
+    "ts": os.environ["ISO_TS"],
+    "date": os.environ["DATE"],
+    "kind": "baseline",
+    "example": os.environ["EXAMPLE_KEY"],
+    "backend": os.environ["BACKEND"],
+    "commit": os.environ["COMMIT"],
+    "idris_ms_per_epoch": num(os.environ["IDRIS_MS"]),
+    "pytorch_ms_per_epoch": num(os.environ["PY_MS"]),
+    "ratio": num(os.environ["RATIO"]),
+    "n_long": int(os.environ["N_LONG"]),
+    "seed": int(os.environ["SEED"]),
+}))
+PY

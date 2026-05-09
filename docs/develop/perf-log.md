@@ -1,35 +1,95 @@
-# Performance log
+# Performance log — schema and conventions
 
-**Append-only measurement log.** Each entry records one performance
-measurement with the commit hash where it was produced. **Never edit
-or delete prior entries** — historical numbers are valuable as
-regression evidence and to avoid re-running expensive measurements.
-If a measurement is later determined to be invalid (e.g. wrong
-config), add a follow-up entry that says so; don't remove the
-original.
+**The canonical data store is `docs/develop/perf-log.jsonl`.** This
+markdown file documents the schema and querying conventions; it
+also keeps the pre-2026-05-09 markdown-format entries below as
+historical record (in an `## Archive` section).
 
-When recording a new measurement, append to the bottom of the
-relevant `## <example>` section. New entries near the top of the
-file (under `## Convention reminders`) are non-data — see the
-section above the data for those.
+Both `scripts/perf-run.sh` (full-convergence runs) and
+`scripts/perf-baseline.sh` (two-point ms/epoch ratios) append a
+single JSON object on its own line to `perf-log.jsonl` per
+invocation. **Append-only**; never edit or delete prior entries —
+historical numbers are regression evidence and avoid re-running
+expensive measurements. If a measurement is later determined to be
+invalid (e.g. wrong config), append a follow-up entry that says so
+rather than removing the original.
 
----
+## JSONL schema
 
-## Convention reminders
+Every entry has these fields:
 
-- **Commit hash**: the short hash (`git rev-parse --short HEAD`) at
-  the time the measurement was produced. If uncommitted changes
-  were in the tree, append `+dirty`.
-- **Date**: ISO-8601 (YYYY-MM-DD). Use the date the measurement
-  finished, not the date you wrote it up.
-- **Config**: the full CLI args used (or the default if implicit).
-  At minimum: backend, seed, batch.
-- **Result line**: copy the example's `RESULT` line verbatim if
-  one exists. Plus wall-clock from the runtime.
-- **Multi-seed runs**: one entry per (commit × seed × backend).
-- **Caveats**: if the measurement was on a system under load, with
-  unusual cache state, or any other reason the wall-clock might
-  not be representative, note it in the entry.
+| field | type | notes |
+|---|---|---|
+| `ts` | string | ISO-8601 UTC timestamp (`2026-05-09T15:14:00Z`) |
+| `date` | string | ISO date (`2026-05-09`) |
+| `kind` | string | `"run"` (perf-run.sh) or `"baseline"` (perf-baseline.sh) |
+| `example` | string | `ntm-copy`, `dnc-recall`, `a2c`, etc. |
+| `backend` | string | `tape`, `mlx`, or `torch` |
+| `commit` | string | abbreviated git hash (`+dirty` if uncommitted changes) |
+
+**`kind: "run"`** entries also have:
+
+| field | type | notes |
+|---|---|---|
+| `args` | string | full CLI args passed to the example |
+| `exit` | int | process exit code (0 = success) |
+| `wall_ms` | int | total wall-clock in ms |
+| `wall_human` | string | human-readable wall (`1m 11s`, `643658 ms`) |
+| `converged_at_epoch` | int? | present when the run hit early-stop |
+| `diverged_at_epoch` | int? | present when training NaN'd |
+| `stats` | object? | `{total_epochs, ms_per_epoch, wall}` from "Completed in …" line |
+| `result` | object? | parsed `RESULT` line, e.g. `{epochs, acc_short, acc_full, seed}` |
+
+**`kind: "baseline"`** entries also have:
+
+| field | type | notes |
+|---|---|---|
+| `idris_ms_per_epoch` | float | two-point ms/epoch (Idris side) |
+| `pytorch_ms_per_epoch` | float | two-point ms/epoch (PyTorch ref) |
+| `ratio` | float | `idris_ms_per_epoch / pytorch_ms_per_epoch` |
+| `n_long` | int | the long-side epoch count used in the two-point timing |
+| `seed` | int | seed used (always 42 for the baseline script) |
+
+## Conventions
+
+- **Commit hash**: short hash at run time, `+dirty` if uncommitted.
+- **Multi-seed runs**: one entry per (commit × seed × backend × example).
+- **Caveats**: jot in the args string or as a follow-up entry; don't
+  silently drop an outlier.
+
+## Querying (jq cookbook)
+
+```sh
+# All runs of one cell
+jq 'select(.example == "dnc-copy" and .backend == "tape")' \
+  docs/develop/perf-log.jsonl
+
+# Latest baseline ratio per (example, backend)
+jq -s '
+  map(select(.kind == "baseline"))
+  | group_by([.example, .backend])
+  | map(sort_by(.ts) | last)
+' docs/develop/perf-log.jsonl
+
+# Wall-clock leaderboard for a single example
+jq -s '
+  map(select(.kind == "run" and .example == "dnc-recall"))
+  | sort_by(.wall_ms) | .[:5]
+' docs/develop/perf-log.jsonl
+
+# Convergence epochs across backends, latest run per backend
+jq -s '
+  map(select(.example == "ntm-copy" and (.converged_at_epoch | not | not)))
+  | group_by(.backend) | map(sort_by(.ts) | last)
+  | map({backend, commit, converged_at_epoch, wall_human})
+' docs/develop/perf-log.jsonl
+```
+
+## Archive (pre-2026-05-09 entries)
+
+Entries below are in the original markdown format and predate the
+JSONL switchover. They remain as historical record. New entries
+go to `perf-log.jsonl`; **don't add new entries here**.
 
 ---
 
@@ -444,3 +504,74 @@ wall:    42m 19s (2539456 ms)
 converged: Converged at epoch 6300 (p50_loss=0.00889734677538643)
 stats:   Completed in 2m 14s (6300 epochs, 21ms/epoch)
 result:  `RESULT	epochs=6300	acc_short=0.9665833333333333	acc_full=0.9554162412879517	seed=99`
+
+### 2026-05-09 — `dnc-copy` [tape] @ `6dde57a` — `--seed 42 --batch 1 --epochs 50000 --es-threshold 0.01`
+
+exit:    0
+wall:    1m 11s (71562 ms)
+converged: Converged at epoch 5500 (p10_loss=0.007755757543974216)
+stats:   Completed in 1m 7s (5500 epochs, 12ms/epoch)
+result:  `RESULT	epochs=5500	acc_short=0.9956250000000001	acc_full=0.932104930270323	seed=42`
+
+### 2026-05-09 — `dnc-copy` [tape] @ `6dde57a+dirty` — `--seed 42 --batch 1 --epochs 30000 --es-threshold 0.01`
+
+exit:    0
+wall:    1m 10s (70518 ms)
+converged: Converged at epoch 5500 (p10_loss=0.007755757543974216)
+stats:   Completed in 1m 7s (5500 epochs, 12ms/epoch)
+result:  `RESULT	epochs=5500	acc_short=0.9956250000000001	acc_full=0.932104930270323	seed=42`
+
+### 2026-05-09 — `dnc-copy` [torch] @ `6dde57a+dirty` — `--seed 42 --batch 1 --epochs 30000 --es-threshold 0.01`
+
+exit:    0
+wall:    59.780s (59780 ms)
+converged: Converged at epoch 3100 (p10_loss=0.0050969075849020065)
+stats:   Completed in 56s (3100 epochs, 18ms/epoch)
+result:  `RESULT	epochs=3100	acc_short=1.0	acc_full=0.9100805852644088	seed=42`
+
+### 2026-05-09 — `dnc-recall` [tape] @ `6dde57a+dirty` — `--seed 42 --batch 1 --epochs 30000 --es-threshold 0.01`
+
+exit:    0
+wall:    8m 2s (482700 ms)
+converged: Converged at epoch 20100 (p10_loss=0.009474297106862779)
+stats:   Completed in 7m 58s (20100 epochs, 23ms/epoch)
+result:  `RESULT	epochs=20100	acc_k2=1.0	acc_k4=0.9222222222222222	acc_k6=0.9083333333333332	seed=42`
+
+### 2026-05-09 — `dnc-recall` [torch] @ `26a336c+dirty` — `--seed 42 --batch 1 --epochs 30000 --es-threshold 0.01`
+
+exit:    0
+wall:    8m 22s (502152 ms)
+converged: Converged at epoch 14800 (p10_loss=0.008118813353628134)
+stats:   Completed in 8m 17s (14800 epochs, 33ms/epoch)
+result:  `RESULT	epochs=14800	acc_k2=1.0	acc_k4=0.7388888888888888	acc_k6=0.6555555555555556	seed=42`
+
+### 2026-05-09 — `ntm-copy` [tape] @ `26a336c+dirty` — `--seed 42 --batch 1 --epochs 30000 --es-threshold 0.01`
+
+exit:    0
+wall:    2m 46s (166690 ms)
+converged: Converged at epoch 9600 (p10_loss=0.005619597162917928)
+stats:   Completed in 2m 42s (9600 epochs, 16ms/epoch)
+result:  `RESULT	epochs=9600	acc_short=1.0	acc_full=0.9989820261437907	seed=42`
+
+### 2026-05-09 — `ntm-copy` [torch] @ `26a336c+dirty` — `--seed 42 --batch 1 --epochs 30000 --es-threshold 0.01`
+
+exit:    0
+wall:    2m 31s (151318 ms)
+converged: Converged at epoch 5300 (p10_loss=0.0034115108035240255)
+stats:   Completed in 2m 26s (5300 epochs, 27ms/epoch)
+result:  `RESULT	epochs=5300	acc_short=1.0	acc_full=0.99375	seed=42`
+
+### 2026-05-09 — `ntm-recall` [tape] @ `26a336c+dirty` — `--seed 42 --batch 1 --epochs 30000 --es-threshold 0.01`
+
+exit:    0
+wall:    9m 40s (580580 ms)
+stats:   Completed in 9m 33s (30000 epochs, 19ms/epoch)
+result:  `RESULT	epochs=30000	acc_k2=0.9916666666666667	acc_k4=0.9622222222222221	acc_k6=0.8577777777777779	seed=42`
+
+### 2026-05-09 — `ntm-recall` [torch] @ `f6d8378+dirty` — `--seed 42 --batch 1 --epochs 30000 --es-threshold 0.01`
+
+exit:    0
+wall:    10m 43s (643658 ms)
+converged: Converged at epoch 20000 (p10_loss=0.009346269686353154)
+stats:   Completed in 10m 34s (20000 epochs, 31ms/epoch)
+result:  `RESULT	epochs=20000	acc_k2=0.9955555555555555	acc_k4=0.9561111111111111	acc_k6=0.8894444444444445	seed=42`
