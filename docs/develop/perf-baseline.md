@@ -49,8 +49,8 @@ via `scripts/perf-baseline.sh <key> <backend>` at `--seed 42`.
 | gpt (embedded) | ~1000 (per epoch ≈1 s) | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | 30 epochs | ~30 s | 30 min | A |
 | ntm-copy | 15.63 | 21.83 | 27.83 | 11.0 | 1.42× | 1.98× | 2.58× | 5K (s99) | <2 min | 30 min | B |
 | ntm-recall | 26.10 | 14.10 | 22.87 | 12.83 | 2.03× | 1.10× | 1.78× | 50000 | unmeasured | 30 min | B |
-| dnc-copy | 80.18 | 92.08 | 71.25 | 7.22 | 11.11× | 13.01× | 9.80× | 50000 (max) | see below | 30 min | C/D |
-| dnc-recall | 180.40 | 217.67 | 202.17 | 13.67 | 13.20× | 15.25× | 14.24× | ≥50000 | **>10 h** | 30 min | **D** |
+| dnc-copy | 9.93 | 21.58 | 16.28 | 7.95 | **1.24×** | 2.68× | 2.05× | 50000 (max) | see below | 30 min | A/B |
+| dnc-recall | 24.70 | 40.00 | 34.83 | 16.30 | **1.50×** | 2.38× | 2.14× | ≥50000 | (rerun pending) | 30 min | B/C |
 
 † Supervised takes <1 ms/epoch; the two-point method's resolution
 (N_long=200 vs N_short=50) is below the build-startup noise floor.
@@ -163,6 +163,15 @@ So with current ms/epoch:
 The user's "NTM-copy in about half an hour" recollection lines up
 with **pre-Path-C 228 ms × 9300 ≈ 35 min**. Path C doubled ms/epoch;
 recovering that is what Phase 2 perf work targets.
+
+## Update 2026-05-09 (mask precompute)
+
+`Layer/Dnc.idr`'s `dncZeroDiag` was rebuilding a (1 − I) [n,n] mask
+every timestep, costing ~1027 prim FFI calls per timestep at n=32.
+Moved to a precomputed `nonDiagMaskT` field on `DncState`, built
+once in `dncLayer`. Both DNC examples moved from Bucket D into
+Bucket A/B on every backend (5–8× speedup). Numbers above already
+reflect the post-fix state.
 
 ## Phase 1 attack list (post-2026-05-09 sweep)
 
