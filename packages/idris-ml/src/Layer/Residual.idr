@@ -4,7 +4,7 @@ import Data.Vect
 
 import Device
 import Layer.Core
-import Variable
+import Tensor
 
 
 ----------------------------------------------------------------------

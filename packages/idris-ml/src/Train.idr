@@ -8,7 +8,7 @@ import Data.Nat
 import System.Clock
 
 import Util
-import Variable
+import Tensor
 import Schedule
 
 

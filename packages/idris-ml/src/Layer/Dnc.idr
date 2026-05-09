@@ -9,7 +9,7 @@ import Layer.Core
 import Layer.Linear
 import Layer.Lstm
 import Sampler
-import Variable
+import Tensor
 
 
 ----------------------------------------------------------------------
@@ -132,11 +132,11 @@ data DncState :
     LinearState h r d ->                  -- readBetasFc
     LinearState h (r * 3) d ->            -- readModesFc
     LinearState (DncOutputInput h r m) o d ->  -- outputFc
-    Maybe (Variable [n, m] d) ->                -- memT
+    Maybe (Tensor [n, m] d) ->                -- memT
     Maybe (TVec n d) ->                     -- usageT
     Maybe (TVec n d) ->                     -- writeWtT
     Maybe (TVec n d) ->                     -- precedenceT
-    Maybe (Variable [n, n] d) ->                -- linkT
+    Maybe (Tensor [n, n] d) ->                -- linkT
     Maybe (Vect r AnyPtr) ->                -- read weight tensor handles
     Maybe (Vect r AnyPtr) ->                -- read output tensor handles
     DncState r n m h i o d
@@ -225,7 +225,7 @@ applyDnc {r} {n} {m}
                    Nothing => mkZeroVectM r m
       -- 1. cat(readOuts, input) -> [r*m + i]
       lstmInputPtr = catReadOutsAndInput roTsPtrs input.tensorPtr
-      lstmInputV = the (TVec (DncControllerInput r m i) d) (MkVar lstmInputPtr Nothing)
+      lstmInputV = the (TVec (DncControllerInput r m i) d) (MkTensor lstmInputPtr Nothing)
       -- 2. LSTM forward
       (updLstm, hiddenV) = applyLstm lstm lstmInputV
       -- 3. Cell-state for FCs
@@ -313,14 +313,14 @@ applyDnc {r} {n} {m}
       outputInputT  = prim__cat2 hiddenV.tensorPtr allNewReadsT
       outputT       = prim__add (prim__mv oW outputInputT) oB
   in ( MkDnc updLstm wkFc wbFc eFc aFc fgFc agFc wgFc rkFc rbFc rmFc oFc
-        (Just (MkVar newMemT Nothing))
-        (Just (MkVar newUsageT Nothing))
-        (Just (MkVar newWriteWT Nothing))
-        (Just (MkVar newPrecT Nothing))
-        (Just (MkVar newLinkT Nothing))
+        (Just (MkTensor newMemT Nothing))
+        (Just (MkTensor newUsageT Nothing))
+        (Just (MkTensor newWriteWT Nothing))
+        (Just (MkTensor newPrecT Nothing))
+        (Just (MkTensor newLinkT Nothing))
         (Just newRwTs)
         (Just newRoTs)
-     , MkVar outputT Nothing )
+     , MkTensor outputT Nothing )
 
 
 ----------------------------------------------------------------------
@@ -347,16 +347,16 @@ dncLayer pfx = do
   rbFc <- linearLayer {i = h} {o = r}        (pfx ++ "_readBetas")
   rmFc <- linearLayer {i = h} {o = r * 3}    (pfx ++ "_readModes")
   oFc  <- linearLayer {i = DncOutputInput h r m} {o = o} (pfx ++ "_output")
-  let memTV : Variable [n, m] CPU
-      memTV = MkVar (constState2d n m 1.0e-6) Nothing
+  let memTV : Tensor [n, m] CPU
+      memTV = MkTensor (constState2d n m 1.0e-6) Nothing
       usageTV : TVec n CPU
-      usageTV = MkVar (zeroState1d n) Nothing
+      usageTV = MkTensor (zeroState1d n) Nothing
       wwTV : TVec n CPU
-      wwTV = MkVar (zeroState1d n) Nothing
+      wwTV = MkTensor (zeroState1d n) Nothing
       precTV : TVec n CPU
-      precTV = MkVar (zeroState1d n) Nothing
-      linkTV : Variable [n, n] CPU
-      linkTV = MkVar (zeroState2d n n) Nothing
+      precTV = MkTensor (zeroState1d n) Nothing
+      linkTV : Tensor [n, n] CPU
+      linkTV = MkTensor (zeroState2d n n) Nothing
   pure $ MkDnc lstm wkFc wbFc eFc aFc fgFc agFc wgFc rkFc rbFc rmFc oFc
                  (Just memTV) (Just usageTV) (Just wwTV) (Just precTV)
                  (Just linkTV) (Just (mkZeroVectN r n)) (Just (mkZeroVectM r m))
@@ -367,16 +367,16 @@ resetDncState : {r, n, m, h : Nat} ->
                   DncState r n m h i o d -> DncState r n m h i o d
 resetDncState (MkDnc lstm wkFc wbFc eFc aFc fgFc agFc wgFc rkFc rbFc rmFc oFc
                           _ _ _ _ _ _ _) =
-  let memTV : Variable [n, m] _
-      memTV = MkVar (constState2d n m 1.0e-6) Nothing
+  let memTV : Tensor [n, m] _
+      memTV = MkTensor (constState2d n m 1.0e-6) Nothing
       usageTV : TVec n _
-      usageTV = MkVar (zeroState1d n) Nothing
+      usageTV = MkTensor (zeroState1d n) Nothing
       wwTV : TVec n _
-      wwTV = MkVar (zeroState1d n) Nothing
+      wwTV = MkTensor (zeroState1d n) Nothing
       precTV : TVec n _
-      precTV = MkVar (zeroState1d n) Nothing
-      linkTV : Variable [n, n] _
-      linkTV = MkVar (zeroState2d n n) Nothing
+      precTV = MkTensor (zeroState1d n) Nothing
+      linkTV : Tensor [n, n] _
+      linkTV = MkTensor (zeroState2d n n) Nothing
   in MkDnc (resetLstmState lstm) wkFc wbFc eFc aFc fgFc agFc wgFc rkFc rbFc rmFc oFc
              (Just memTV) (Just usageTV) (Just wwTV) (Just precTV)
              (Just linkTV) (Just (mkZeroVectN r n)) (Just (mkZeroVectM r m))

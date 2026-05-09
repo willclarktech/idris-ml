@@ -7,7 +7,7 @@ import Device
 import Init
 import Layer.Core
 import Sampler
-import Variable
+import Tensor
 
 
 ----------------------------------------------------------------------
@@ -52,7 +52,7 @@ data Conv2DState :
   Nat -> Nat -> (0 _ : Device) -> Type
   where
   MkConv2D :
-    Variable [outC, inC, kH, kW] d ->                       -- kernel
+    Tensor [outC, inC, kH, kW] d ->                       -- kernel
     TVec outC d ->                                      -- bias
     Conv2DState inC outC h w kH kW padH padW
                   (inC * (h * w))
@@ -80,7 +80,7 @@ applyConv2D {inC} {outC} {h} {w} {kH} {kW} {padH} {padW}
       outT = prim__conv2d inp3d ker.tensorPtr bias.tensorPtr padHI padWI 1 1
       outFlat = outC * (ConvOutDim h kH padH * ConvOutDim w kW padW)
       flatPtr = prim__reshape1d outT (cast {to=Int} outFlat)
-  in MkVar flatPtr Nothing
+  in MkTensor flatPtr Nothing
 
 -- Pack a Vect of Doubles into a buffer.
 packDoubles : AnyPtr -> Int -> Vect k Double -> AnyPtr
@@ -115,10 +115,10 @@ conv2dLayer paramPrefix = do
         (prim__createParam4d (cast outC) (cast inC) (cast kH) (cast kW) kerBuf')
       biasPtr = prim__paramRegister biasName
         (prim__createParam1d (cast outC) biasBuf')
-      kerTV : Variable [outC, inC, kH, kW] CPU
-      kerTV = MkVar kerPtr (Just kerName)
+      kerTV : Tensor [outC, inC, kH, kW] CPU
+      kerTV = MkTensor kerPtr (Just kerName)
       biasTV : TVec outC CPU
-      biasTV = MkVar biasPtr (Just biasName)
+      biasTV = MkTensor biasPtr (Just biasName)
   pure $ MkConv2D kerTV biasTV
 
 public export
@@ -148,7 +148,7 @@ data Conv1DState :
   Nat -> Nat -> (0 _ : Device) -> Type
   where
   MkConv1D :
-    Variable [outC, inC, kL] d ->
+    Tensor [outC, inC, kL] d ->
     TVec outC d ->
     Conv1DState inC outC len kL pad
                   (inC * len)
@@ -168,7 +168,7 @@ applyConv1D {inC} {outC} {len} {kL} {pad} (MkConv1D ker bias) input =
       inp2d = prim__reshape2d input.tensorPtr inCI lenI
       outT = prim__conv1d inp2d ker.tensorPtr bias.tensorPtr (cast {to=Int} pad) 1
       outFlat = outC * ConvOutDim len kL pad
-  in MkVar (prim__reshape1d outT (cast {to=Int} outFlat)) Nothing
+  in MkTensor (prim__reshape1d outT (cast {to=Int} outFlat)) Nothing
 
 export
 conv1dLayer : {inC, outC, len, kL, pad : Nat} ->
@@ -190,10 +190,10 @@ conv1dLayer paramPrefix = do
         (prim__createParam3d (cast outC) (cast inC) (cast kL) kerBuf')
       biasPtr = prim__paramRegister biasName
         (prim__createParam1d (cast outC) biasBuf')
-      kerTV : Variable [outC, inC, kL] CPU
-      kerTV = MkVar kerPtr (Just kerName)
+      kerTV : Tensor [outC, inC, kL] CPU
+      kerTV = MkTensor kerPtr (Just kerName)
       biasTV : TVec outC CPU
-      biasTV = MkVar biasPtr (Just biasName)
+      biasTV = MkTensor biasPtr (Just biasName)
   pure $ MkConv1D kerTV biasTV
 
 public export
@@ -243,7 +243,7 @@ applyMaxPool2D {c} {inH} {inW} {poolH} {poolW} {strH} {strW} _ input =
       outT = prim__maxPool2d inp3d (cast {to=Int} poolH) (cast {to=Int} poolW)
                                    (cast {to=Int} strH) (cast {to=Int} strW)
       outFlat = c * (PoolOutDim inH poolH strH * PoolOutDim inW poolW strW)
-  in MkVar (prim__reshape1d outT (cast {to=Int} outFlat)) Nothing
+  in MkTensor (prim__reshape1d outT (cast {to=Int} outFlat)) Nothing
 
 public export
 {c, inH, inW, poolH, poolW, strH, strW : Nat} ->
@@ -288,7 +288,7 @@ applyAvgPool2D {c} {inH} {inW} {poolH} {poolW} {strH} {strW} _ input =
       outT = prim__avgPool2d inp3d (cast {to=Int} poolH) (cast {to=Int} poolW)
                                    (cast {to=Int} strH) (cast {to=Int} strW)
       outFlat = c * (PoolOutDim inH poolH strH * PoolOutDim inW poolW strW)
-  in MkVar (prim__reshape1d outT (cast {to=Int} outFlat)) Nothing
+  in MkTensor (prim__reshape1d outT (cast {to=Int} outFlat)) Nothing
 
 public export
 {c, inH, inW, poolH, poolW, strH, strW : Nat} ->
@@ -332,7 +332,7 @@ applyMaxPool1D {c} {len} {poolK} {str} _ input =
       inp2d = prim__reshape2d input.tensorPtr cI lenI
       outT = prim__maxPool1d inp2d (cast {to=Int} poolK) (cast {to=Int} str)
       outFlat = c * PoolOutDim len poolK str
-  in MkVar (prim__reshape1d outT (cast {to=Int} outFlat)) Nothing
+  in MkTensor (prim__reshape1d outT (cast {to=Int} outFlat)) Nothing
 
 public export
 {c, len, poolK, str : Nat} ->
@@ -368,7 +368,7 @@ applyAvgPool1D {c} {len} {poolK} {str} _ input =
       inp2d = prim__reshape2d input.tensorPtr cI lenI
       outT = prim__avgPool1d inp2d (cast {to=Int} poolK) (cast {to=Int} str)
       outFlat = c * PoolOutDim len poolK str
-  in MkVar (prim__reshape1d outT (cast {to=Int} outFlat)) Nothing
+  in MkTensor (prim__reshape1d outT (cast {to=Int} outFlat)) Nothing
 
 public export
 {c, len, poolK, str : Nat} ->

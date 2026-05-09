@@ -16,7 +16,7 @@ import Layer.Gru
 import Array
 import Train
 import Util
-import Variable
+import Tensor
 
 
 record Config where

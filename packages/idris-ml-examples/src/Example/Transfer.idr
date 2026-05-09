@@ -18,7 +18,7 @@ import Array
 import Train
 import Util
 import Device
-import Variable
+import Tensor
 
 ----------------------------------------------------------------------
 -- Data (same 5-point classification task as Supervised)
@@ -91,10 +91,10 @@ evalModel : Network 2 [] 3 CPU -> IO Double
 evalModel model = do
   let losses = map (\dp =>
         let inT = bulkToTensor (x dp)
-            inV = the (TVec 2 CPU) (MkVar inT Nothing)
+            inV = the (TVec 2 CPU) (MkTensor inT Nothing)
             (_, predV) = forwardVar model inV
             tgtT = bulkToTensor (y dp)
-            tgtV = the (TVec 3 CPU) (MkVar tgtT Nothing)
+            tgtV = the (TVec 3 CPU) (MkTensor tgtT Nothing)
             lossT = tnllLoss predV tgtV
         in prim__item lossT.tensorPtr) dataPoints
   pure (foldl (+) 0.0 (toList losses) / 5.0)
@@ -103,7 +103,7 @@ printPredictions : Network 2 [] 3 CPU -> IO ()
 printPredictions model = do
   traverse_ (\dp =>
     let inT = bulkToTensor (x dp)
-        inV = the (TVec 2 CPU) (MkVar inT Nothing)
+        inV = the (TVec 2 CPU) (MkTensor inT Nothing)
         (_, predV) = forwardVar model inV
         predClass = evalPrediction predV.tensorPtr
         targetClass = evalPredictionTarget (y dp)

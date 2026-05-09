@@ -6,7 +6,7 @@ import Compat.Random
 import Device
 import Layer.Core
 import Sampler
-import Variable
+import Tensor
 
 
 ----------------------------------------------------------------------
@@ -45,7 +45,7 @@ applyEmbedding {seqLen} {embedDim} (MkEmbedding w) tokens =
   let nI = cast {to=Int} seqLen
       dI = cast {to=Int} embedDim
       outPtr = prim__embedding w.tensorPtr tokens.tensorPtr nI dI
-  in MkVar outPtr Nothing
+  in MkTensor outPtr Nothing
 
 
 ----------------------------------------------------------------------
@@ -74,7 +74,7 @@ embeddingLayer paramPrefix = do
       wName = paramPrefix ++ "_weight"
       wPtr = prim__paramRegister wName (prim__createParam2d vI eI buf')
       wTV : TMat vocab embedDim CPU
-      wTV = MkVar wPtr (Just wName)
+      wTV = MkTensor wPtr (Just wName)
   pure $ MkEmbedding wTV
 
 

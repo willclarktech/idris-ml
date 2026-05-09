@@ -1,6 +1,6 @@
 -- | Device types for type-safe tensor placement.
 -- |
--- | Phantom parameter on Variable prevents mixing tensors from
+-- | Phantom parameter on Tensor prevents mixing tensors from
 -- | different devices at compile time.
 
 module Device

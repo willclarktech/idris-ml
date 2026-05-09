@@ -18,7 +18,7 @@ import Layer.Rnn
 import Array
 import Util
 import Device
-import Variable
+import Tensor
 
 
 ----------------------------------------------------------------------

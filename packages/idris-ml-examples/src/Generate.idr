@@ -10,7 +10,7 @@ import Compat.Random
 import DataPoint
 import Math
 import Array
-import Variable
+import Tensor
 
 
 ----------------------------------------------------------------------

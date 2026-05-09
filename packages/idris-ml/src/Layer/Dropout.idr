@@ -4,7 +4,7 @@ import Data.Vect
 
 import Device
 import Layer.Core
-import Variable
+import Tensor
 
 
 -- Random seed for dropout mask. Dummy arg prevents CSE — the FFI
@@ -47,7 +47,7 @@ applyDropout st@(MkDropout p training) input =
     then
       let seed = dropoutSeed 0
           outPtr = prim__dropout input.tensorPtr p 1 seed
-      in (st, MkVar outPtr Nothing)
+      in (st, MkTensor outPtr Nothing)
     else (st, input)
 
 
@@ -83,7 +83,7 @@ LayerLike DropoutState where
     if training
       then let seed = dropoutSeed 0
                outPtr = prim__dropout input.tensorPtr p 1 seed
-           in (st, MkVar outPtr Nothing)
+           in (st, MkTensor outPtr Nothing)
       else (st, input)
 
   layerPrefix _ = "drop"

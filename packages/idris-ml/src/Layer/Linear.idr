@@ -7,7 +7,7 @@ import Device
 import Init
 import Layer.Core
 import Sampler
-import Variable
+import Tensor
 
 
 ----------------------------------------------------------------------
@@ -15,14 +15,14 @@ import Variable
 ----------------------------------------------------------------------
 --
 -- Direct shape-aware tensor weights — no scalar matrix, no view
--- Variables, no `Maybe AnyPtr` dual mode. The Variable IS the weight.
+-- Variables, no `Maybe AnyPtr` dual mode. The Tensor IS the weight.
 -- Bias and weight are registered C params at construction time.
 
 public export
 record LinearState (i : Nat) (o : Nat) (0 d : Device) where
   constructor MkLinear
-  weightT : Variable [o, i] d
-  biasT   : Variable [o] d
+  weightT : Tensor [o, i] d
+  biasT   : Tensor [o] d
 
 
 ----------------------------------------------------------------------

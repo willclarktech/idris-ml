@@ -17,7 +17,7 @@ import Array
 import Train
 import Util
 import Device
-import Variable
+import Tensor
 
 
 MaxSteps : Nat; MaxSteps = cartPoleMaxSteps
@@ -41,7 +41,7 @@ rolloutEp _ _ _ Z acc = reverse acc
 rolloutEp _ _ [] _ acc = reverse acc
 rolloutEp model st (r :: rs) (S k) acc =
   let stateT = bulkToTensor (observe st)
-      stateV = the (TVec 4 CPU) (MkVar stateT Nothing)
+      stateV = the (TVec 4 CPU) (MkTensor stateT Nothing)
       (_, predV) = forwardVar model stateV
       logProbsT = prim__logSoftmax predV.tensorPtr 0
       lp0 = prim__item1d logProbsT 0
@@ -68,13 +68,13 @@ discReturns gamma rewards = reverse (go 0.0 (reverse rewards))
     go g (r :: rs) = let g' = r + gamma * g in g' :: go g' rs
 
 -- Compute per-episode step losses with advantage. Each loss is a
--- scalar `Variable [] CPU` carrying the autograd graph back to the policy.
-epStepLosses : Double -> Double -> List StepRec -> List (Variable [] CPU)
+-- scalar `Tensor [] CPU` carrying the autograd graph back to the policy.
+epStepLosses : Double -> Double -> List StepRec -> List (Tensor [] CPU)
 epStepLosses gamma baseline steps =
   let rewards = map (\(_, _, r) => r) steps
       rets = discReturns gamma rewards
   in zipWith (\(lp, _, _), gt =>
-       the (Variable [] CPU) (MkVar (prim__mulScalar lp (baseline - gt)) Nothing))
+       the (Tensor [] CPU) (MkTensor (prim__mulScalar lp (baseline - gt)) Nothing))
      steps rets
 
 sumRewards : List StepRec -> Double
@@ -83,18 +83,18 @@ sumRewards steps = foldl (\a, (_, _, r) => a + r) 0.0 steps
 -- Mean-reduce a non-empty list of scalar TVars. Empty case returns a
 -- fresh zero scalar (degenerate; runs only if the rollout produced no
 -- steps).
-averageLoss : List (Variable [] CPU) -> Variable [] CPU
-averageLoss [] = MkVar (prim__createScalar 0.0 0) Nothing
+averageLoss : List (Tensor [] CPU) -> Tensor [] CPU
+averageLoss [] = MkTensor (prim__createScalar 0.0 0) Nothing
 averageLoss (x :: xs) =
   let n = cast {to=Double} (1 + length xs)
-      addT : Variable [] CPU -> Variable [] CPU -> Variable [] CPU
-      addT a b = MkVar (prim__add a.tensorPtr b.tensorPtr) Nothing
+      addT : Tensor [] CPU -> Tensor [] CPU -> Tensor [] CPU
+      addT a b = MkTensor (prim__add a.tensorPtr b.tensorPtr) Nothing
       s = foldl addT x xs
-  in MkVar (prim__mulScalar s.tensorPtr (1.0 / n)) Nothing
+  in MkTensor (prim__mulScalar s.tensorPtr (1.0 / n)) Nothing
 
 computeLoss : {hs : List Nat} -> Double ->
               Network 4 hs 2 CPU -> List (List Double) ->
-              Variable [] CPU
+              Tensor [] CPU
 computeLoss gamma model randomBatch =
   let episodes = map (\rs => rolloutEp model (MkCP 0 0 0 0) rs MaxSteps []) randomBatch
       epReturns = map sumRewards episodes
@@ -143,7 +143,7 @@ evalEp : {hs : List Nat} ->
 evalEp _ _ Z acc = acc
 evalEp model st (S k) acc =
   let stateT = bulkToTensor (observe st)
-      stateV = the (TVec 4 CPU) (MkVar stateT Nothing)
+      stateV = the (TVec 4 CPU) (MkTensor stateT Nothing)
       (_, predV) = forwardVar model stateV
       logitsT = predV.tensorPtr
       action = if prim__item1d logitsT 0 >= prim__item1d logitsT 1 then the Nat 0 else 1

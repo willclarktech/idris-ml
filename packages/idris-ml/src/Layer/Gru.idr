@@ -7,7 +7,7 @@ import Device
 import Init
 import Layer.Core
 import Sampler
-import Variable
+import Tensor
 
 
 ----------------------------------------------------------------------
@@ -98,13 +98,13 @@ gruLayer paramPrefix = do
       ihBPtr = prim__paramRegister ihBName (prim__createParam1d gI ihBBuf')
       hhBPtr = prim__paramRegister hhBName (prim__createParam1d gI hhBBuf')
       iwTV : TMat (3 * o) i CPU
-      iwTV = MkVar iwPtr (Just iwName)
+      iwTV = MkTensor iwPtr (Just iwName)
       hwTV : TMat (3 * o) o CPU
-      hwTV = MkVar hwPtr (Just hwName)
+      hwTV = MkTensor hwPtr (Just hwName)
       ihBTV : TVec (3 * o) CPU
-      ihBTV = MkVar ihBPtr (Just ihBName)
+      ihBTV = MkTensor ihBPtr (Just ihBName)
       hhBTV : TVec (3 * o) CPU
-      hhBTV = MkVar hhBPtr (Just hhBName)
+      hhBTV = MkTensor hhBPtr (Just hhBName)
   pure $ MkGru iwTV ihBTV hwTV hhBTV Nothing
 
 ||| Reset hidden state. Lazy-allocate on next applyVar call.

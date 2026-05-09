@@ -25,7 +25,7 @@ import Array
 import Train
 import Util
 import Device
-import Variable
+import Tensor
 
 
 ----------------------------------------------------------------------

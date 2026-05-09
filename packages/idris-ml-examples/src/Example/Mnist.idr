@@ -31,7 +31,7 @@ import Array
 import Train
 import Util
 import Device
-import Variable
+import Tensor
 
 
 ----------------------------------------------------------------------
@@ -152,7 +152,7 @@ evalAccuracy model ds numImages nSamples = go nSamples 0 0.0
           imgT = prim__mnistGetImage ds pos
           lbl = prim__mnistGetLabel ds pos
           flatImg = prim__reshape1d imgT (cast {to=Int} InputDim)
-          inV = the (TVec InputDim CPU) (MkVar flatImg Nothing)
+          inV = the (TVec InputDim CPU) (MkTensor flatImg Nothing)
           (_, predV) = forwardVar model inV
           outT = predV.tensorPtr
           pred = argmax outT (-1.0e30) 0 0
@@ -160,7 +160,7 @@ evalAccuracy model ds numImages nSamples = go nSamples 0 0.0
           lblBuf = prim__allocInts 1
           lblBuf' = prim__setInt lblBuf 0 lbl
           tgtT = prim__oneHot lblBuf' 1 (cast {to=Int} NumClasses)
-          tgtV = the (TVec NumClasses CPU) (MkVar tgtT Nothing)
+          tgtV = the (TVec NumClasses CPU) (MkTensor tgtT Nothing)
           lossT = tnllLoss predV tgtV
           lossVal = prim__item lossT.tensorPtr
       in go k correct' (totalLoss + lossVal)

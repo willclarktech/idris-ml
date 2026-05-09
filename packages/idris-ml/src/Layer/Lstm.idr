@@ -7,7 +7,7 @@ import Device
 import Init
 import Layer.Core
 import Sampler
-import Variable
+import Tensor
 
 
 ----------------------------------------------------------------------
@@ -15,7 +15,7 @@ import Variable
 ----------------------------------------------------------------------
 --
 -- All shape-arithmetic flows through the `TVec` / `TMat` aliases in
--- `Variable.idr`. Direct `Variable [4 * o, ...] d` triggers an Idris 2
+-- `Tensor.idr`. Direct `Tensor [4 * o, ...] d` triggers an Idris 2
 -- type-checker hang; `TMat (4 * o) i d` works fine because the
 -- multiplication sits in a Nat-argument slot of the alias rather
 -- than inside a Vect literal.
@@ -98,11 +98,11 @@ lstmLayer paramPrefix = do
       rwPtr = prim__paramRegister rwName (prim__createParam2d gI oI rwBuf')
       bPtr  = prim__paramRegister bName  (prim__createParam1d gI bBuf')
       iwTV : TMat (4 * o) i CPU
-      iwTV = MkVar iwPtr (Just iwName)
+      iwTV = MkTensor iwPtr (Just iwName)
       rwTV : TMat (4 * o) o CPU
-      rwTV = MkVar rwPtr (Just rwName)
+      rwTV = MkTensor rwPtr (Just rwName)
       bTV : TVec (4 * o) CPU
-      bTV = MkVar bPtr (Just bName)
+      bTV = MkTensor bPtr (Just bName)
   pure $ MkLstm iwTV rwTV bTV Nothing Nothing
 
 ||| Reset hidden/cell state. Setting to `Nothing` lets `applyLstm`'s

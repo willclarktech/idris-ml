@@ -20,7 +20,7 @@ import Array
 import Train
 import Util
 import Device
-import Variable
+import Tensor
 
 
 ----------------------------------------------------------------------
@@ -104,13 +104,13 @@ record RollStep where
 
 criticValue : Critic -> Vect ObsDim Double -> Double
 criticValue critic obs =
-  let stateV = the (TVec ObsDim CPU) (MkVar (bulkToTensor (obsTensor obs)) Nothing)
+  let stateV = the (TVec ObsDim CPU) (MkTensor (bulkToTensor (obsTensor obs)) Nothing)
       outV = snd (forwardVar critic stateV)
   in prim__item1d outV.tensorPtr 0
 
 sampleActionIO : Actor -> Critic -> Vect ObsDim Double -> IO (Nat, Double, Double)
 sampleActionIO actor critic obs = do
-  let stateV  = the (TVec ObsDim CPU) (MkVar (bulkToTensor (obsTensor obs)) Nothing)
+  let stateV  = the (TVec ObsDim CPU) (MkTensor (bulkToTensor (obsTensor obs)) Nothing)
       logitsV = snd (forwardVar actor stateV)
       logPT   = prim__logSoftmax logitsV.tensorPtr 0
       lp0     = prim__item1d logPT 0
@@ -198,21 +198,21 @@ normAdvs triples =
 clipScalar : Double -> Double -> Double -> Double
 clipScalar lo hi x = if x < lo then lo else if x > hi then hi else x
 
-perStepLoss : {n : Nat} -> (logitsB : Variable [n, NumActions] CPU) ->
-              (valueB : Variable [n, 1] CPU) -> (rowIdx : Int) ->
+perStepLoss : {n : Nat} -> (logitsB : Tensor [n, NumActions] CPU) ->
+              (valueB : Tensor [n, 1] CPU) -> (rowIdx : Int) ->
               Double -> Double -> Double ->
-              (RollStep, Double, Double) -> Variable [] CPU
+              (RollStep, Double, Double) -> Tensor [] CPU
 perStepLoss logitsB valueB rowIdx clipEps entropyCoef valueCoef (step, adv, retT) =
   let logitsRow = the (TVec NumActions CPU) (trowSelect logitsB rowIdx)
-      logPT = the (Variable [NumActions] CPU)
-                  (MkVar (prim__logSoftmax logitsRow.tensorPtr 0) Nothing)
+      logPT = the (Tensor [NumActions] CPU)
+                  (MkTensor (prim__logSoftmax logitsRow.tensorPtr 0) Nothing)
       aIdx : Int
       aIdx = cast {to=Int} (cast {to=Integer} step.action)
-      lpNew = the (Variable [] CPU) (telemSelect logPT aIdx)
+      lpNew = the (Tensor [] CPU) (telemSelect logPT aIdx)
       lpVal = prim__item1d logPT.tensorPtr aIdx
 
       valueRow = the (TVec 1 CPU) (trowSelect valueB rowIdx)
-      valueV = the (Variable [] CPU) (telemSelect valueRow 0)
+      valueV = the (Tensor [] CPU) (telemSelect valueRow 0)
 
       diffLP = tsub lpNew (tconstScalar step.oldLogProb)
       ratioVal = Prelude.exp (lpVal - step.oldLogProb)
@@ -231,27 +231,27 @@ perStepLoss logitsB valueB rowIdx clipEps entropyCoef valueCoef (step, adv, retT
       diffV = tsub valueV retC
       valueTerm = tmulScalar (tmul diffV diffV) (0.5 * valueCoef)
 
-      lp0V = the (Variable [] CPU) (telemSelect logPT 0)
-      lp1V = the (Variable [] CPU) (telemSelect logPT 1)
-      lp2V = the (Variable [] CPU) (telemSelect logPT 2)
+      lp0V = the (Tensor [] CPU) (telemSelect logPT 0)
+      lp1V = the (Tensor [] CPU) (telemSelect logPT 1)
+      lp2V = the (Tensor [] CPU) (telemSelect logPT 2)
       p0V = texp lp0V
       p1V = texp lp1V
       p2V = texp lp2V
-      negEntV = the (Variable [] CPU)
-                    (MkVar (prim__add
+      negEntV = the (Tensor [] CPU)
+                    (MkTensor (prim__add
                               (prim__add (prim__mul p0V.tensorPtr lp0V.tensorPtr)
                                          (prim__mul p1V.tensorPtr lp1V.tensorPtr))
                               (prim__mul p2V.tensorPtr lp2V.tensorPtr))
                             Nothing)
       entTerm = tmulScalar negEntV entropyCoef
-  in MkVar (prim__add (prim__add policyT.tensorPtr valueTerm.tensorPtr)
+  in MkTensor (prim__add (prim__add policyT.tensorPtr valueTerm.tensorPtr)
                        entTerm.tensorPtr) Nothing
 
 
-meanScalarLoss : (n : Nat) -> List (Variable [] CPU) -> Variable [] CPU
+meanScalarLoss : (n : Nat) -> List (Tensor [] CPU) -> Tensor [] CPU
 meanScalarLoss n losses =
   let zero = tconstScalar 0.0
-      summed = foldl (\a, b => MkVar (prim__add a.tensorPtr b.tensorPtr) Nothing) zero losses
+      summed = foldl (\a, b => MkTensor (prim__add a.tensorPtr b.tensorPtr) Nothing) zero losses
   in tmulScalar summed (1.0 / cast n)
 
 
@@ -331,18 +331,18 @@ runBatch opt actor critic cfg batch = do
       obsBatch = the (Vect (length batch) (Vector ObsDim Double))
                      (map (\(s, _, _) => obsTensor s.obs) batchVec)
       stackedT = bulkToTensor2d obsBatch
-      stackedV = the (Variable [n, ObsDim] CPU) (MkVar stackedT Nothing)
+      stackedV = the (Tensor [n, ObsDim] CPU) (MkTensor stackedT Nothing)
       logitsB = snd (forwardVarBatch actor stackedV)
       valueB = snd (forwardVarBatch critic stackedV)
-      losses = the (List (Variable [] CPU)) (enumeratedLosses logitsB valueB batchVec 0)
+      losses = the (List (Tensor [] CPU)) (enumeratedLosses logitsB valueB batchVec 0)
       loss = meanScalarLoss n losses
   _ <- pure (nativeTrainStep opt loss)
   pure ()
   where
-    enumeratedLosses : {n : Nat} -> Variable [n, NumActions] CPU ->
-                       Variable [n, 1] CPU ->
+    enumeratedLosses : {n : Nat} -> Tensor [n, NumActions] CPU ->
+                       Tensor [n, 1] CPU ->
                        Vect k (RollStep, Double, Double) -> Int ->
-                       List (Variable [] CPU)
+                       List (Tensor [] CPU)
     enumeratedLosses _ _ [] _ = []
     enumeratedLosses lB vB (t :: rest) k =
       perStepLoss lB vB k cfg.clipEps cfg.entropyCoef cfg.valueCoef t
@@ -406,7 +406,7 @@ ppoEpoch opt cfg st = do
 
 greedyAct : Actor -> Vect ObsDim Double -> Nat
 greedyAct actor obs =
-  let stateV = the (TVec ObsDim CPU) (MkVar (bulkToTensor (obsTensor obs)) Nothing)
+  let stateV = the (TVec ObsDim CPU) (MkTensor (bulkToTensor (obsTensor obs)) Nothing)
       logits = snd (forwardVar actor stateV)
       l0 = prim__item1d logits.tensorPtr 0
       l1 = prim__item1d logits.tensorPtr 1

@@ -9,7 +9,7 @@ import Layer.Core
 import Layer.Linear
 import Layer.Lstm
 import Sampler
-import Variable
+import Tensor
 
 
 ----------------------------------------------------------------------
@@ -55,7 +55,7 @@ data NtmState :
     LinearState h (ReadParamWidth m) d ->
     LinearState h (WriteParamWidth m) d ->
     LinearState (h + m) o d ->
-    Maybe (Variable [n, m] d) ->                          -- memory state
+    Maybe (Tensor [n, m] d) ->                          -- memory state
     Maybe (TVec n d) ->                               -- read addr
     Maybe (TVec n d) ->                               -- write addr
     Maybe (TVec m d) ->                               -- last read output
@@ -103,7 +103,7 @@ applyNtm {n} {m} {h} {i} {o}
                  Nothing => zeroState1d m
       -- 1. cat(readOut, input) -> [m + i]
       lstmInputPtr = prim__cat2 roTPtr input.tensorPtr
-      lstmInputV = the (TVec (m + i) d) (MkVar lstmInputPtr Nothing)
+      lstmInputV = the (TVec (m + i) d) (MkTensor lstmInputPtr Nothing)
       -- 2. LSTM forward
       (updLstm, hiddenV) = applyLstm lstm lstmInputV
       -- 3. Extract cell tensor (post-LSTM cell state)
@@ -147,11 +147,11 @@ applyNtm {n} {m} {h} {i} {o}
       concatPtr = prim__cat2 hiddenV.tensorPtr newReadOutT
       outputPtr = prim__add (prim__mv ofcW concatPtr) ofcB
   in ( MkNtm updLstm readFc writeFc outputFc
-        (Just (MkVar newMemT Nothing))
-        (Just (MkVar newReadAddrT Nothing))
-        (Just (MkVar newWriteAddrT Nothing))
-        (Just (MkVar newReadOutT Nothing))
-     , MkVar outputPtr Nothing )
+        (Just (MkTensor newMemT Nothing))
+        (Just (MkTensor newReadAddrT Nothing))
+        (Just (MkTensor newWriteAddrT Nothing))
+        (Just (MkTensor newReadOutT Nothing))
+     , MkTensor outputPtr Nothing )
 
 
 ----------------------------------------------------------------------
@@ -181,14 +181,14 @@ ntmLayer pfx = do
   let nI = cast {to=Int} n
       mI = cast {to=Int} m
       memBuf = fillConst (prim__allocDoubles (nI * mI)) 0 (nI * mI) 1.0e-6
-      memT : Variable [n, m] CPU
-      memT = MkVar (prim__createState2d nI mI memBuf) Nothing
+      memT : Tensor [n, m] CPU
+      memT = MkTensor (prim__createState2d nI mI memBuf) Nothing
       raT : TVec n CPU
-      raT = MkVar (zeroState1d n) Nothing
+      raT = MkTensor (zeroState1d n) Nothing
       waT : TVec n CPU
-      waT = MkVar (zeroState1d n) Nothing
+      waT = MkTensor (zeroState1d n) Nothing
       roT : TVec m CPU
-      roT = MkVar (zeroState1d m) Nothing
+      roT = MkTensor (zeroState1d m) Nothing
   pure $ MkNtm lstm rfc wfc ofc (Just memT) (Just raT) (Just waT) (Just roT)
 
 ||| Reset NTM state to fresh persistent zero/init tensors. Use
@@ -199,14 +199,14 @@ resetNtmState (MkNtm lstm rfc wfc ofc _ _ _ _) =
   let nI = cast {to=Int} n
       mI = cast {to=Int} m
       memBuf = fillConst (prim__allocDoubles (nI * mI)) 0 (nI * mI) 1.0e-6
-      memT : Variable [n, m] _
-      memT = MkVar (prim__createState2d nI mI memBuf) Nothing
+      memT : Tensor [n, m] _
+      memT = MkTensor (prim__createState2d nI mI memBuf) Nothing
       raT : TVec n _
-      raT = MkVar (zeroState1d n) Nothing
+      raT = MkTensor (zeroState1d n) Nothing
       waT : TVec n _
-      waT = MkVar (zeroState1d n) Nothing
+      waT = MkTensor (zeroState1d n) Nothing
       roT : TVec m _
-      roT = MkVar (zeroState1d m) Nothing
+      roT = MkTensor (zeroState1d m) Nothing
   in MkNtm (resetLstmState lstm) rfc wfc ofc
              (Just memT) (Just raT) (Just waT) (Just roT)
 

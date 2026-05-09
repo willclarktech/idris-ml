@@ -10,7 +10,7 @@ import Layer.Core
 import Layer.LayerNorm
 import Layer.Linear
 import Sampler
-import Variable
+import Tensor
 
 
 ----------------------------------------------------------------------
@@ -178,7 +178,7 @@ applyTransformer {seqLen} {dModel} {headDim} {vocabSize}
       vpW = vocabProj.weightT.tensorPtr
       outT = prim__mm normedFinal' (prim__transpose2d vpW)
       outFlatPtr = prim__narrow outT 0 0 (sI * vI)
-  in MkVar outFlatPtr Nothing
+  in MkTensor outFlatPtr Nothing
 
 
 ----------------------------------------------------------------------
@@ -253,9 +253,9 @@ writePEBatch dModel buf pos dim bsLen dMod sLen =
            buf' = prim__setDouble buf (pos * dMod + dim) val
        in writePEBatch dModel buf' pos (dim + 1) bsLen dMod sLen
 
-||| Batched transformer forward: `Variable [b, seqLen] d` (token indices) →
-||| `Variable [b, seqLen * vocabSize] d` (per-position logits flattened).
-||| Mirrors V1's `transformerForwardBatch` but on Variable inputs and a
+||| Batched transformer forward: `Tensor [b, seqLen] d` (token indices) →
+||| `Tensor [b, seqLen * vocabSize] d` (per-position logits flattened).
+||| Mirrors V1's `transformerForwardBatch` but on Tensor inputs and a
 ||| single batched output instead of List AnyPtr.
 export
 applyTransformerBatch :
@@ -263,8 +263,8 @@ applyTransformerBatch :
   {b : Nat} ->
   TransformerState seqLen dModel numHeads headDim numBlocks vocabSize
                      seqLen (seqLen * vocabSize) d ->
-  Variable [b, seqLen] d ->
-  Variable [b, seqLen * vocabSize] d
+  Tensor [b, seqLen] d ->
+  Tensor [b, seqLen * vocabSize] d
 applyTransformerBatch {seqLen} {dModel} {headDim} {vocabSize} {b}
                         (MkTransformer embedW blocks (MkLayerNorm nfg nfb) vocabProj)
                         tokens =
@@ -285,7 +285,7 @@ applyTransformerBatch {seqLen} {dModel} {headDim} {vocabSize} {b}
       outBatch = prim__mm normedFinal' (prim__transpose2d vpW)
       -- outBatch : [b * seqLen, vocabSize]. Reshape to [b, seqLen * vocabSize].
       outReshaped = prim__reshape2d outBatch (cast {to=Int} b) (sI * vI)
-  in MkVar outReshaped Nothing
+  in MkTensor outReshaped Nothing
 
 
 ----------------------------------------------------------------------
@@ -351,7 +351,7 @@ transformerLayer {prf} paramPrefix = do
       embName = paramPrefix ++ "_embed"
       embPtr = prim__paramRegister embName (prim__createParam2d vI dI embBuf')
       embTV : TMat vocabSize dModel CPU
-      embTV = MkVar embPtr (Just embName)
+      embTV = MkTensor embPtr (Just embName)
   blks <- mkBlocks numBlocks (paramPrefix ++ "_b")
   nf <- layerNormLayer {n = dModel} (paramPrefix ++ "_nf")
   vp <- linearLayer {i = dModel} {o = vocabSize} (paramPrefix ++ "_vp")

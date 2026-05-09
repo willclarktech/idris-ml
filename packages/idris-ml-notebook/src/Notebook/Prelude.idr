@@ -43,4 +43,4 @@ import public Schedule
 import public Array
 import public Train
 import public Util
-import public Variable
+import public Tensor

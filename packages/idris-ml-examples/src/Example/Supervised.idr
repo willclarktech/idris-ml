@@ -14,7 +14,7 @@ import Layer.Linear
 import Array
 import Train
 import Util
-import Variable
+import Tensor
 
 
 -- f(x, y) = argmax(x - y - 10, -4x + y + 5, 2x + y - 11)
@@ -83,7 +83,7 @@ main = do
   -- Build persistent input tensors and forward through the trained model.
   let inputs = the (Vect 5 AnyPtr) (map mkInputTensor dataPoints)
   traverse_ (\(idx, dp) =>
-    let inV = the (TVec 2 CPU) (MkVar (mkInputTensor dp) Nothing)
+    let inV = the (TVec 2 CPU) (MkTensor (mkInputTensor dp) Nothing)
         (_, predV) = forwardVar trained inV
         predClass = evalPrediction predV
         targetClass = evalPredictionTarget (y dp)

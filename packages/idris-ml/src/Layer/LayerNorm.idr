@@ -4,7 +4,7 @@ import Data.Vect
 
 import Device
 import Layer.Core
-import Variable
+import Tensor
 
 
 ----------------------------------------------------------------------
@@ -43,7 +43,7 @@ applyLayerNorm {n} st@(MkLayerNorm gamma beta) input =
       input2d = prim__reshape2d input.tensorPtr 1 nI
       norm2d = prim__layerNorm2d input2d gamma.tensorPtr beta.tensorPtr 1.0e-5
       norm1d = prim__reshape1d norm2d nI
-  in (st, MkVar norm1d Nothing)
+  in (st, MkTensor norm1d Nothing)
 
 
 ----------------------------------------------------------------------
@@ -78,7 +78,7 @@ layerNormLayer paramPrefix = do
       bName = paramPrefix ++ "_beta"
       gPtr = prim__paramRegister gName (prim__createParam1d nI gBuf')
       bPtr = prim__paramRegister bName (prim__createParam1d nI bBuf')
-  pure $ MkLayerNorm (MkVar gPtr (Just gName)) (MkVar bPtr (Just bName))
+  pure $ MkLayerNorm (MkTensor gPtr (Just gName)) (MkTensor bPtr (Just bName))
 
 
 ----------------------------------------------------------------------

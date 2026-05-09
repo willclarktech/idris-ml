@@ -27,7 +27,7 @@ import Array
 import Train
 import Util
 import Device
-import Variable
+import Tensor
 
 
 ----------------------------------------------------------------------
@@ -83,8 +83,8 @@ ReversalLen = SeqLen `minus` InputLen
 
 |||  typed-surface CE loss on per-sample logits + target [seqLen *
 ||| vocabSize]. Masks the random-prefix positions so only the reversal
-||| portion contributes (V1 `reversalCE` parity, returning a Variable [] CPU).
-catCELossVar : TVec OutputDim CPU -> TVec OutputDim CPU -> Variable [] CPU
+||| portion contributes (V1 `reversalCE` parity, returning a Tensor [] CPU).
+catCELossVar : TVec OutputDim CPU -> TVec OutputDim CPU -> Tensor [] CPU
 catCELossVar predV targetV =
   let vsI = cast {to=Int} VocabSize
       sI = cast {to=Int} SeqLen
@@ -100,7 +100,7 @@ catCELossVar predV targetV =
       product = prim__mul logProbs tgtsR
       totalSum = prim__sum product
       loss = prim__mulScalar (prim__neg totalSum) (1.0 / cast {to=Double} revLen)
-  in MkVar loss Nothing
+  in MkTensor loss Nothing
 
 
 ----------------------------------------------------------------------
@@ -192,7 +192,7 @@ main = do
       evalMetrics m = do
         evalData <- sortingTensorBatchVect InputDim OutputDim VocabSize InputLen SeqLen SepToken EosToken BatchSize
         let results = map (\dp =>
-              let inV = the (TVec InputDim CPU) (MkVar (inputTensor dp) Nothing)
+              let inV = the (TVec InputDim CPU) (MkTensor (inputTensor dp) Nothing)
                   (_, predV) = forwardVar m inV
                   predicted = map (argmaxAtPtr VocabSize predV.tensorPtr) positions
                   expected = map (argmaxAtPtr VocabSize (targetTensor dp)) positions
@@ -224,7 +224,7 @@ main = do
   putStrLn "Evaluation:"
   evalRaw <- sortingTensorBatchVect InputDim OutputDim VocabSize InputLen SeqLen SepToken EosToken 1
   let tdp = index FZ evalRaw
-      inV = the (TVec InputDim CPU) (MkVar (inputTensor tdp) Nothing)
+      inV = the (TVec InputDim CPU) (MkTensor (inputTensor tdp) Nothing)
       (_, predV) = forwardVar trained inV
       inpT = inputTensor tdp
       inputDecoded = map (\p => cast {to=Nat} (cast {to=Integer} (prim__item1d inpT (cast p)))) positions

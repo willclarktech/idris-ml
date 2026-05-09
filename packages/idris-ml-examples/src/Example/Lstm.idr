@@ -16,7 +16,7 @@ import Layer.Lstm
 import Array
 import Train
 import Util
-import Variable
+import Tensor
 
 
 -- LSTM pattern-prediction example. Single LSTM(1 -> 4) -> Linear(4 -> 1)

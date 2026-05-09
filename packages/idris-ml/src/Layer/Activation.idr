@@ -4,7 +4,7 @@ import Data.Vect
 
 import Device
 import Layer.Core
-import Variable
+import Tensor
 
 
 ----------------------------------------------------------------------
@@ -12,7 +12,7 @@ import Variable
 ----------------------------------------------------------------------
 --
 -- Pure tensor-level dispatch: the activation kind is a simple tag,
--- and `applyVar` calls the matching prim__* via the Variable wrappers.
+-- and `applyVar` calls the matching prim__* via the Tensor wrappers.
 -- No scalar fallback, no `ActivationFunction` wrapping (that machinery
 -- exists for the V1 `applyGeneric` Double-evaluation path, which
 -- doesn't apply to the typed surface).
@@ -48,7 +48,7 @@ LayerLike ActivationState where
 
   -- Activation primitives are shape-polymorphic (operate elementwise),
   -- so the batched forward is identical to the single-sample form —
-  -- just typed at `Variable [b, n] d` instead of `Variable [n] d`.
+  -- just typed at `Tensor [b, n] d` instead of `Tensor [n] d`.
   applyVarBatch st@(MkActivation ATanh)         input = (st, ttanh input)
   applyVarBatch st@(MkActivation ASigmoid)      input = (st, tsigmoid input)
   applyVarBatch st@(MkActivation ARelu)         input = (st, trelu input)

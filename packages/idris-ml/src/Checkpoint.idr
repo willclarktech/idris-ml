@@ -2,7 +2,7 @@
 ||| Save/load registered parameters to/from .safetensors files.
 module Checkpoint
 
-import Variable
+import Tensor
 
 %foreign "C:param_save,libidrisml"
 prim__paramSave : String -> PrimIO Int

@@ -7,7 +7,7 @@ import Device
 import Init
 import Layer.Core
 import Sampler
-import Variable
+import Tensor
 
 
 ----------------------------------------------------------------------
@@ -90,11 +90,11 @@ rnnLayer paramPrefix = do
       rwPtr = prim__paramRegister rwName (prim__createParam2d oI oI rwBuf')
       bPtr  = prim__paramRegister bName  (prim__createParam1d oI bBuf')
       iwTV : TMat o i CPU
-      iwTV = MkVar iwPtr (Just iwName)
+      iwTV = MkTensor iwPtr (Just iwName)
       rwTV : TMat o o CPU
-      rwTV = MkVar rwPtr (Just rwName)
+      rwTV = MkTensor rwPtr (Just rwName)
       bTV : TVec o CPU
-      bTV = MkVar bPtr (Just bName)
+      bTV = MkTensor bPtr (Just bName)
   pure $ MkRnn iwTV rwTV bTV Nothing
 
 ||| Reset hidden state. Lazy-allocate on next applyVar call.

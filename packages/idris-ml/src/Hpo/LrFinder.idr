@@ -22,7 +22,7 @@ import Data.List
 import System.Clock
 
 import Util
-import Variable
+import Tensor
 
 
 ----------------------------------------------------------------------

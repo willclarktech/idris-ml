@@ -3,7 +3,7 @@ module Layer.Core
 import Data.Vect
 
 import Device
-import Variable
+import Tensor
 
 
 ----------------------------------------------------------------------
@@ -11,16 +11,16 @@ import Variable
 ----------------------------------------------------------------------
 --
 -- Parallel to `Layer.Core.LayerLike`, but operates on rank-aware
--- `Variable` directly. No Vect-of-Vect packing; no scalar boundaries
+-- `Tensor` directly. No Vect-of-Vect packing; no scalar boundaries
 -- between layers. Spike-only — only the methods needed for a
 -- single Linear + chained forward pass are present. Full
 -- migration widens this surface (toDouble, debug, batched, etc.).
 
 public export
 interface LayerLike (l : Nat -> Nat -> (0 _ : Device) -> Type) where
-  ||| Array-level forward: `Variable [i] d -> Variable [o] d`.
+  ||| Array-level forward: `Tensor [i] d -> Tensor [o] d`.
   applyVar : {0 d : Device} -> {i, o : Nat} ->
-              l i o d -> Variable [i] d -> (l i o d, Variable [o] d)
+              l i o d -> Tensor [i] d -> (l i o d, Tensor [o] d)
 
   ||| Auto-naming prefix (e.g. "llv2" for Linear).
   layerPrefix : {0 d : Device} -> {i, o : Nat} -> l i o d -> String
@@ -31,14 +31,14 @@ interface LayerLike (l : Nat -> Nat -> (0 _ : Device) -> Type) where
   resetState : {0 d : Device} -> {i, o : Nat} -> l i o d -> l i o d
   resetState = id
 
-  ||| Batched tensor-level forward: `Variable [b, i] d -> Variable [b, o] d`.
+  ||| Batched tensor-level forward: `Tensor [b, i] d -> Tensor [b, o] d`.
   ||| Default crashes — layers that participate in batched training
   ||| (Linear, Activation, Dropout) MUST override. Stateful layers
   ||| (LSTM/RNN/GRU/NTM/DNC) keep the default; batched-cell semantics
   ||| are not supported in this surface (use sequence-level batching
   ||| at the example level instead).
   applyVarBatch : {0 d : Device} -> {i, o : Nat} -> {b : Nat} ->
-                   l i o d -> Variable [b, i] d -> (l i o d, Variable [b, o] d)
+                   l i o d -> Tensor [b, i] d -> (l i o d, Tensor [b, o] d)
   applyVarBatch _ _ =
     idris_crash "applyVarBatch: layer does not support batched forward"
 
@@ -54,15 +54,15 @@ data AnyLayer : Nat -> Nat -> (0 _ : Device) -> Type where
 
 export
 applyVarAny : {0 d : Device} -> {i, o : Nat} ->
-               AnyLayer i o d -> Variable [i] d -> (AnyLayer i o d, Variable [o] d)
+               AnyLayer i o d -> Tensor [i] d -> (AnyLayer i o d, Tensor [o] d)
 applyVarAny (MkAnyLayer l @{dict} layer) input =
   case applyVar @{dict} layer input of
     (layer', out) => (MkAnyLayer l @{dict} layer', out)
 
 export
 applyVarBatchAny : {0 d : Device} -> {i, o : Nat} -> {b : Nat} ->
-                    AnyLayer i o d -> Variable [b, i] d ->
-                    (AnyLayer i o d, Variable [b, o] d)
+                    AnyLayer i o d -> Tensor [b, i] d ->
+                    (AnyLayer i o d, Tensor [b, o] d)
 applyVarBatchAny (MkAnyLayer l @{dict} layer) input =
   case applyVarBatch @{dict} layer input of
     (layer', out) => (MkAnyLayer l @{dict} layer', out)
@@ -82,7 +82,7 @@ export infixr 5 ~~>
 ||| Array-level forward through a Network.
 export
 forwardVar : {0 d : Device} -> {i, o : Nat} -> {hs : List Nat} ->
-              Network i hs o d -> Variable [i] d -> (Network i hs o d, Variable [o] d)
+              Network i hs o d -> Tensor [i] d -> (Network i hs o d, Tensor [o] d)
 forwardVar (OutputLayer l) input =
   case applyVarAny l input of
     (l', out) => (OutputLayer l', out)
@@ -110,8 +110,8 @@ resetNetwork ((MkAnyLayer l @{dict} layer) ~~> rest) =
 export
 forwardVarBatch : {0 d : Device} -> {i, o : Nat} -> {b : Nat} ->
                    {hs : List Nat} ->
-                   Network i hs o d -> Variable [b, i] d ->
-                   (Network i hs o d, Variable [b, o] d)
+                   Network i hs o d -> Tensor [b, i] d ->
+                   (Network i hs o d, Tensor [b, o] d)
 forwardVarBatch (OutputLayer l) input =
   case applyVarBatchAny l input of
     (l', out) => (OutputLayer l', out)

@@ -15,7 +15,7 @@ import Layer.Ntm
 import Array
 import Util
 import Device
-import Variable
+import Tensor
 
 
 ----------------------------------------------------------------------

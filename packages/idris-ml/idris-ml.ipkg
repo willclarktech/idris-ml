@@ -37,4 +37,4 @@ modules = Compat.Random
         , Schedule
         , Train
         , Util
-        , Variable
+        , Tensor

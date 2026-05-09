@@ -4,7 +4,7 @@ import Data.Vect
 
 import Device
 import Layer.Core
-import Variable
+import Tensor
 
 
 ----------------------------------------------------------------------
@@ -65,7 +65,7 @@ applyBatchNorm {channels} {spatialDim}
       outPtr = prim__batchNorm input.tensorPtr gamma.tensorPtr beta.tensorPtr
                               mean.tensorPtr var.tensorPtr
                               cI sI tFlag momentum eps
-  in (st, MkVar outPtr Nothing)
+  in (st, MkTensor outPtr Nothing)
 
 
 ----------------------------------------------------------------------
@@ -102,13 +102,13 @@ batchNormLayer paramPrefix = do
       mPtr = prim__createState1d cI mBuf
       vPtr = prim__createState1d cI vBuf
       gTV : TVec channels CPU
-      gTV = MkVar gPtr (Just gName)
+      gTV = MkTensor gPtr (Just gName)
       bTV : TVec channels CPU
-      bTV = MkVar bPtr (Just bName)
+      bTV = MkTensor bPtr (Just bName)
       mTV : TVec channels CPU
-      mTV = MkVar mPtr Nothing
+      mTV = MkTensor mPtr Nothing
       vTV : TVec channels CPU
-      vTV = MkVar vPtr Nothing
+      vTV = MkTensor vPtr Nothing
   pure $ MkBatchNorm gTV bTV mTV vTV True 0.1 1.0e-5
 
 ||| Toggle training/eval mode.
