@@ -93,12 +93,27 @@ jobs:
         if: matrix.os == 'macos-latest'
         run: |
           # MLX is Apple-only. Pip wheel ships C++ headers + libs in
-          # <site-packages>/mlx/{include,lib}. The Makefile's BACKEND=mlx
-          # rules read MLX_SITE to find them. --break-system-packages is
-          # required on Python >=3.12 (PEP 668) and is fine on ephemeral
-          # CI runners.
+          # the package's site-packages dir under {include,lib}. The
+          # Makefile's BACKEND=mlx rules read MLX_SITE to find them.
+          # --break-system-packages is required on Python >=3.12 (PEP 668)
+          # and is fine on ephemeral CI runners.
+          #
+          # mlx 0.31+ split into a namespace package (mlx + mlx-metal),
+          # so `mlx.__file__` is None and the C++ headers moved to the
+          # mlx-metal package. Detection tries both packages and picks
+          # whichever has the {include,lib} subdirs.
           python3 -m pip install --break-system-packages mlx
-          MLX_SITE=$(python3 -c "import mlx, os; print(os.path.dirname(mlx.__file__))")
+          MLX_SITE=$(python3 -c "
+          import importlib.util, os, sys
+          for name in ('mlx', 'mlx_metal'):
+              spec = importlib.util.find_spec(name)
+              if not spec: continue
+              path = spec.submodule_search_locations[0] if spec.submodule_search_locations \
+                  else os.path.dirname(spec.origin)
+              if os.path.isdir(os.path.join(path, 'include')):
+                  print(path); sys.exit(0)
+          sys.exit(1)
+          ")
           echo "MLX_SITE=$MLX_SITE" >> $GITHUB_ENV
 
       # Torch is Linux-only here (libtorch CPU is bigger; macOS lane already

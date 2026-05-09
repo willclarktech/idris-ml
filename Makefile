@@ -91,13 +91,26 @@ ifeq ($(BACKEND), torch)
     BACKEND_CC := c++
   else
     LIB := $(BUILD)/libidrisml.so
-    BACKEND_FLAGS := -std=c++17 -O2 -shared -fPIC -I$(TORCH_INC) -I$(TORCH_INC_API) -L$(TORCH_LIB) -ltorch -ltorch_cpu -lc10 -Wl,-rpath,$(TORCH_LIB)
+    # GNU ld defaults to --as-needed since binutils 2.x, which drops NEEDED tags
+    # for libs whose symbols aren't *directly* referenced in our object files.
+    # libidrisml.so calls torch C++ API which transitively pulls c10/torch_cpu
+    # symbols at runtime — but the linker can't see those needs at static-link
+    # time, so it strips the NEEDED tags and dlopen later trips on
+    # `undefined symbol: _ZTIN3c105ErrorE` (c10::Error RTTI).
+    # `--no-as-needed` forces NEEDED for the libtorch trio explicitly.
+    BACKEND_FLAGS := -std=c++17 -O2 -shared -fPIC -I$(TORCH_INC) -I$(TORCH_INC_API) -L$(TORCH_LIB) -Wl,--no-as-needed -ltorch -ltorch_cpu -lc10 -Wl,--as-needed -Wl,-rpath,$(TORCH_LIB)
     BACKEND_CC := c++
   endif
 else ifeq ($(BACKEND), mlx)
   # MLX backend: Apple Metal GPU via MLX C++ API
+  #
+  # Detection covers both the historical single-package mlx wheel and the
+  # 0.31+ namespace-package layout (mlx + mlx-metal). For namespace
+  # packages, `mlx.__file__` is None and the C++ headers/libs ship in the
+  # mlx-metal package's site-packages dir. Pick whichever package has the
+  # `include/` subdir (where the Makefile expects MLX_SITE/include/mlx/*.h).
   ifndef MLX_SITE
-    MLX_SITE := $(shell python3 -c "import mlx; import os; print(os.path.dirname(mlx.__file__))" 2>/dev/null)
+    MLX_SITE := $(shell python3 -c "import importlib.util as u, os; print(next((p for n in ('mlx','mlx_metal') for s in [u.find_spec(n)] if s for p in [s.submodule_search_locations[0] if s.submodule_search_locations else os.path.dirname(s.origin)] if os.path.isdir(os.path.join(p,'include'))), ''))" 2>/dev/null)
   endif
   ifeq ($(MLX_SITE),)
     MLX_SITE := $(shell nix build nixpkgs\#python3Packages.mlx --no-link --print-out-paths 2>/dev/null)/lib/python3.13/site-packages/mlx
