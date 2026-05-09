@@ -269,6 +269,54 @@ do I use an RNN cell in Idris-ml". Same shape applies to lstm/gru
 example alignment if/when we revisit them — they already use the
 nn.LSTM/GRU shape, but worth a paired-side audit.
 
+### 2026-05-09 — Align Layer.Lstm and Layer.Gru with `nn.LSTMCell` / `nn.GRUCell` — `2c34ec1`
+
+**Plan job**: Job 1 + Job 2a (cross-cutting; all backends benefit).
+
+**Motivation**: LSTM was using a single fused bias (vs `nn.LSTMCell`'s
+two: `bias_ih` + `bias_hh`). GRU's C kernel was a *simplified-GRU*
+variant that computed but ignored the `r` reset gate (vs `nn.GRU`'s
+`n = tanh(ih_n + r * hh_n)`). Same family of non-standard
+simplifications as the rnn alignment.
+
+**Change**:
+- LSTM: split bias into `ihB` + `hhB`; `applyLstm` now does 3 FFI
+  calls per timestep (vs 2 with fused bias). PyTorch ref drops its
+  Jozefowicz forget-gate-bias=1 init for symmetry with Idris (which
+  never had it). PyTorch ref now also has learned `h0`/`c0` to match
+  Idris's `LstmState` carrying them (added in Phase 1.5b).
+- GRU: kernel signature changed from `(combined, prev, o)` to
+  `(ih, hh, prev, o)`. Three backends updated: tape rewrites the
+  hand-rolled backward to handle r's grad path; mlx uses a new
+  `GruCellReplayMeta` to thread `prev`'s pool_idx into the replay
+  closure; torch's autograd handles backward through the graph.
+  `tgruCell` and `applyGru` updated; `applyGru` now does 3 FFI
+  calls (vs 4 with the explicit pre-sum tadd).
+
+**Impact** (3 samples each, post change):
+
+| Cell      | Backend | Before  | After   |
+|-----------|---------|--------:|--------:|
+| lstm      | tape    | 2.01×   | 1.32×   |
+| lstm      | torch   | 2.07×   | 2.12×   |
+| lstm      | mlx     | 3.40×   | 4.22×   |
+| gru       | tape    | 1.91×   | 1.19×   |
+| gru       | torch   | 2.70×   | 1.96×   |
+| gru       | mlx     | 5.97×   | 4.05×   |
+
+Tape and torch gru improved on ratio AND in absolute ms (gru tape
+5.25 → 4.81 ms because applyGru saves one FFI hop). lstm tape ratio
+improved partly because PyTorch ref slowed down (added h0/c0 +
+clone) and partly because lstm Idris stayed similar (the extra tadd
+hhB cost is small in absolute terms). mlx ratios moved
+inconsistently — Job 3 sub-item to investigate later.
+
+**Outcome**: landed. Together with the rnn alignment, the rnn /
+lstm / gru examples now demonstrate the canonical PyTorch shape
+that library users expect. Backend cell APIs (`tgruCell`,
+`tlstmGatesPair`) are also closer to standard ML library
+conventions.
+
 ### 2026-05-09 — DNC `dncReadHeads` link-transpose hoist — `eaab884`
 
 **Plan job**: cross-cutting (mostly tape/torch).

@@ -42,8 +42,8 @@ simplification). Two-point timing via `scripts/perf-baseline.sh <key>
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 | supervised | noisy† | noisy† | ~1 | ~0.2 | A | A | A | 1000 | <1 min | 30 min | A |
 | rnn | 5.11 | 11.60 | 7.32 | 1.66 | 3.08× | 6.59× | 4.38× | 2000 | <1 min | 30 min | C |
-| lstm | 6.02 | 11.74 | 7.89 | 2.99 | 2.01× | 3.40× | 2.07× | 2000 | <1 min | 30 min | B/C |
-| gru | 5.25 | 15.05 | 7.13 | 2.75 | 1.91× | 5.97× | 2.70× | 2000 | <1 min | 30 min | B/C |
+| lstm | 5.49 | 16.24 | 8.68 | 4.10 | 1.32× | 4.22× | 2.12× | 2000 | <1 min | 30 min | B/C |
+| gru | 4.81 | 16.67 | 8.16 | 4.10 | 1.19× | 4.05× | 1.96× | 2000 | <1 min | 30 min | A/B |
 | transformer | 25.64 | 33.21 | 31.78 | 19.54 | 1.26× | 1.73× | 1.63× | 1000 | <1 min | 30 min | B |
 | seq-classify | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | 30 min | unmeasured |
 | mnist | ~120000 (5 full passes ~10 min) | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | 5 epochs | ~10 min | 30 min | A |
