@@ -2246,3 +2246,110 @@ IDRISML_DEFINE_DTYPE_STREAMED(i64,  torch::kLong)
 IDRISML_DEFINE_DTYPE_STREAMED(u8,   torch::kByte)
 IDRISML_DEFINE_DTYPE_STREAMED(bool, torch::kBool)
 #undef IDRISML_DEFINE_DTYPE_STREAMED
+
+/* ---- Unified dtag-dispatch create/cast entry points ----
+   One symbol per shape, dtag-keyed, superseding the per-dtype
+   *_f32_streamed / *_f64_streamed / inference-dtype wrappers above. The
+   Idris-side Scheme wrappers pass the RuntimeDType tag as the trailing
+   `dtag` arg; the body switches internally. F32/F64 route to the existing
+   dedicated creators (byte-identical behavior); other dtags route through
+   the generic create_*_dt / make_param_leaf path. */
+static torch::ScalarType st_for_dtag(int dtag) {
+    switch (dtag) {
+        case 1:  return torch::kFloat64;
+        case 2:  return torch::kBFloat16;
+        case 3:  return torch::kHalf;
+        case 4:  return torch::kChar;
+        case 5:  return torch::kShort;
+        case 6:  return torch::kInt;
+        case 7:  return torch::kLong;
+        case 8:  return torch::kByte;
+        case 9:  return torch::kBool;
+        default: return torch::kFloat32;  /* 0 = f32 */
+    }
+}
+
+TensorHandle tensor_create_scalar_streamed(double v, int rg, int s, int dtag) {
+    (void)s;
+    switch (dtag) {
+        case 0:  return tensor_create_scalar_f32(v, rg);
+        case 1:  return tensor_create_scalar_f64(v, rg);
+        default: return create_scalar_dt(v, rg, st_for_dtag(dtag));
+    }
+}
+TensorHandle tensor_create_streamed(double* data, int* shape, int rank, int rg, int s, int dtag) {
+    (void)s;
+    switch (dtag) {
+        case 0:  return tensor_create_f32(data, shape, rank, rg);
+        case 1:  return tensor_create_f64(data, shape, rank, rg);
+        default: return create_nd_dt(data, shape, rank, rg, st_for_dtag(dtag));
+    }
+}
+TensorHandle tensor_create_1d_streamed(int n, double* data, int rg, int s, int dtag) {
+    (void)s;
+    switch (dtag) {
+        case 0:  return tensor_create_1d_f32(n, data, rg);
+        case 1:  return tensor_create_1d_f64(n, data, rg);
+        default: return create_1d_dt(n, data, rg, st_for_dtag(dtag));
+    }
+}
+TensorHandle tensor_create_2d_streamed(int rows, int cols, double* data, int rg, int s, int dtag) {
+    (void)s;
+    switch (dtag) {
+        case 0:  return tensor_create_2d_f32(rows, cols, data, rg);
+        case 1:  return tensor_create_2d_f64(rows, cols, data, rg);
+        default: return create_2d_dt(rows, cols, data, rg, st_for_dtag(dtag));
+    }
+}
+TensorHandle tensor_create_param_1d_streamed(int n, double* data, int s, int dtag) {
+    (void)s;
+    switch (dtag) {
+        case 0:  return tensor_create_param_1d_f32(n, data);
+        case 1:  return tensor_create_param_1d_f64(n, data);
+        default: return make_param_leaf(data, {(int64_t)n}, st_for_dtag(dtag));
+    }
+}
+TensorHandle tensor_create_param_2d_streamed(int rows, int cols, double* data, int s, int dtag) {
+    (void)s;
+    switch (dtag) {
+        case 0:  return tensor_create_param_2d_f32(rows, cols, data);
+        case 1:  return tensor_create_param_2d_f64(rows, cols, data);
+        default: return make_param_leaf(data, {(int64_t)rows, (int64_t)cols}, st_for_dtag(dtag));
+    }
+}
+TensorHandle tensor_create_param_3d_streamed(int d0, int d1, int d2, double* data, int s, int dtag) {
+    (void)s;
+    switch (dtag) {
+        case 0:  return tensor_create_param_3d_f32(d0, d1, d2, data);
+        case 1:  return tensor_create_param_3d_f64(d0, d1, d2, data);
+        default: return make_param_leaf(data, {(int64_t)d0, (int64_t)d1, (int64_t)d2}, st_for_dtag(dtag));
+    }
+}
+TensorHandle tensor_create_param_4d_streamed(int d0, int d1, int d2, int d3, double* data, int s, int dtag) {
+    (void)s;
+    switch (dtag) {
+        case 0:  return tensor_create_param_4d_f32(d0, d1, d2, d3, data);
+        case 1:  return tensor_create_param_4d_f64(d0, d1, d2, d3, data);
+        default: return make_param_leaf(data, {(int64_t)d0, (int64_t)d1, (int64_t)d2, (int64_t)d3}, st_for_dtag(dtag));
+    }
+}
+TensorHandle tensor_create_state_1d_streamed(int n, double* data, int s, int dtag) {
+    (void)s;
+    switch (dtag) {
+        case 0:  return tensor_create_state_1d_f32(n, data);
+        case 1:  return tensor_create_state_1d_f64(n, data);
+        default: return torch_cast_to(tensor_create_state_1d(n, data), st_for_dtag(dtag));
+    }
+}
+TensorHandle tensor_create_state_2d_streamed(int rows, int cols, double* data, int s, int dtag) {
+    (void)s;
+    switch (dtag) {
+        case 0:  return tensor_create_state_2d_f32(rows, cols, data);
+        case 1:  return tensor_create_state_2d_f64(rows, cols, data);
+        default: return torch_cast_to(tensor_create_state_2d(rows, cols, data), st_for_dtag(dtag));
+    }
+}
+TensorHandle tensor_cast_dtype_streamed(TensorHandle src, int s, int dtag) {
+    (void)s;
+    return from_tensor(to_tensor(src)->to(st_for_dtag(dtag)));
+}
