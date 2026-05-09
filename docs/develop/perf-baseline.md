@@ -33,24 +33,25 @@ matching cells need to be re-measured paired-side.
 These have target accuracy thresholds in
 `test-examples-convergence.expect`; full convergence runtime matters.
 
-Latest cross-backend sweep: 2026-05-09 @ commit `0e2e86a` (post Phase
-1.5e, mlx tensor_linear + softplus fixes landed). Two-point timing
-via `scripts/perf-baseline.sh <key> <backend>` at `--seed 42`.
+Latest cross-backend sweep: 2026-05-09 @ commit `6f7792a` (post DNC
+mask + retention + linkTrans fixes, torch free_intermediates
+simplification). Two-point timing via `scripts/perf-baseline.sh <key>
+<backend>` at `--seed 42`.
 
 | Example | tape ms | mlx ms | torch ms | pytorch ms | tape ratio | mlx ratio | torch ratio | conv epochs | tape conv | budget | bucket |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| supervised | noisy† | noisy† | 0.19 | 0.21 | A | A | 0.9× | 1000 | <1 min | 30 min | A |
-| rnn | 4.12 | 9.51 | 5.24 | 1.06 | 3.89× | 8.89× | 5.4× | 2000 | <1 min | 30 min | C |
-| lstm | 5.11 | 13.07 | 7.39 | 3.55 | 1.44× | 3.49× | 2.12× | 2000 | <1 min | 30 min | B/C |
-| gru | 4.93 | 11.69 | 8.07 | 2.71 | 1.82× | 3.92× | 2.75× | 2000 | <1 min | 30 min | B/C |
-| transformer | 25.86 | 33.75 | 32.87 | 19.02 | 1.36× | 1.62× | 1.57× | 1000 | <1 min | 30 min | B |
+| supervised | noisy† | noisy† | ~1 | ~0.2 | A | A | A | 1000 | <1 min | 30 min | A |
+| rnn | 3.98 | 8.07 | 5.73 | 1.04 | 3.83× | 7.99× | 5.07× | 2000 | <1 min | 30 min | C |
+| lstm | 6.02 | 11.74 | 7.89 | 2.99 | 2.01× | 3.40× | 2.07× | 2000 | <1 min | 30 min | B/C |
+| gru | 5.25 | 15.05 | 7.13 | 2.75 | 1.91× | 5.97× | 2.70× | 2000 | <1 min | 30 min | B/C |
+| transformer | 25.64 | 33.21 | 31.78 | 19.54 | 1.26× | 1.73× | 1.63× | 1000 | <1 min | 30 min | B |
 | seq-classify | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | 30 min | unmeasured |
 | mnist | ~120000 (5 full passes ~10 min) | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | 5 epochs | ~10 min | 30 min | A |
 | gpt (embedded) | ~1000 (per epoch ≈1 s) | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | 30 epochs | ~30 s | 30 min | A |
-| ntm-copy | 15.63 | 21.83 | 27.83 | 11.0 | 1.42× | 1.98× | 2.58× | 5K (s99) | <2 min | 30 min | B |
-| ntm-recall | 26.10 | 14.10 | 22.87 | 12.83 | 2.03× | 1.10× | 1.78× | 50000 | unmeasured | 30 min | B |
-| dnc-copy | 9.93 | 21.58 | 16.28 | 7.95 | **1.24×** | 2.68× | 2.05× | 50000 (max) | see below | 30 min | A/B |
-| dnc-recall | 24.70 | 40.00 | 34.83 | 16.30 | **1.50×** | 2.38× | 2.14× | ≥50000 | (rerun pending) | 30 min | B/C |
+| ntm-copy | 10.83 | 38.10 | 27.37 | 10.73 | **1.01×** | 3.53× | 2.57× | 5K (s99) | <2 min | 30 min | A/B |
+| ntm-recall | 15.63 | 8.70 | 26.60 | 12.27 | 1.35× | **0.71×** | 2.07× | 50000 | unmeasured | 30 min | A/B |
+| dnc-copy | 8.22 | 17.98 | 13.42 | 7.18 | **1.14×** | 2.50× | 1.91× | 50000 (max) | see below | 30 min | A/B |
+| dnc-recall | 18.30 | 53.80 | 30.07 | 14.20 | 1.27× | 3.96× | 2.12× | ≥50000 | (rerun pending) | 30 min | B/C |
 
 † Supervised takes <1 ms/epoch; the two-point method's resolution
 (N_long=200 vs N_short=50) is below the build-startup noise floor.
@@ -104,17 +105,17 @@ Gate primarily on convergence time. Same 2026-05-09 sweep as above.
 
 | Example | tape ms | mlx ms | torch ms | pytorch ms | tape ratio | mlx ratio | torch ratio | conv epochs | tape conv | budget | bucket |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| reinforce | 136.78 | 243.33 | 169.78 | 52.20 | 2.62× | 4.70× | 3.24× | unmeasured | unmeasured | 30 min | C† |
-| dqn | 289.73 | 391.05 | 319.17 | 11.30 | 25.64× | 34.09× | 27.40× | 300 | unmeasured | 30 min | D† |
+| reinforce | 136.69 | 264.51 | 167.41 | 53.31 | 2.56× | 5.02× | 3.08× | unmeasured | unmeasured | 30 min | C† |
+| dqn | 283.47 | 374.33 | 318.25 | 11.37 | 24.93× | 32.75× | 26.37× | 300 | unmeasured | 30 min | D† |
 | q-learning | task-bound | task-bound | task-bound | task-bound | — | — | — | unmeasured | unmeasured | 30 min | task-bound |
 | sarsa | task-bound | task-bound | task-bound | task-bound | — | — | — | unmeasured | unmeasured | 30 min | task-bound |
 | monte-carlo | task-bound | task-bound | task-bound | task-bound | — | — | — | unmeasured | unmeasured | 30 min | task-bound |
 | frozen-lake | task-bound | task-bound | task-bound | task-bound | — | — | — | unmeasured | unmeasured | 30 min | task-bound |
 | taxi | task-bound | task-bound | task-bound | task-bound | — | — | — | unmeasured | unmeasured | 30 min | task-bound |
-| mountain-car | 1853.72 | 2509.18 | 2093.38 | 59.38 | 31.22× | 42.35× | 35.51× | 500 | ~17 min (5/5) | 30 min | D† (env-bound) |
+| mountain-car | 1850.73 | 2703.57 | 2079.03 | 59.48 | 31.12× | 36.39× | 35.47× | 500 | ~17 min (5/5) | 30 min | D† (env-bound) |
 | mountain-car-cont | noisy | noisy | noisy | noisy | A | A | A | 30000 | ~11 min | 30 min | A |
-| a2c | 10.03 | 15.29 | 11.57 | 1.12 | 8.96× | 13.41× | 10.42× | 5000 | ~2.5 min | 30 min | C/D† |
-| ppo | 3269.43 | 5974.50 | 3951.67 | 143.60 | 22.77× | 41.14× | 27.32× | 100 | ~10 min | 30 min | D† (env-bound) |
+| a2c | 9.93 | 18.27 | 11.46 | 1.73 | **5.74×** | 15.22× | 10.81× | 5000 | ~2.5 min | 30 min | C† |
+| ppo | 3582.37 | 5314.90 | 4155.47 | 151.63 | 23.63× | 32.28× | 28.91× | 100 | ~10 min | 30 min | D† (env-bound) |
 | sac | no-ref | no-ref | no-ref | no-ref | — | — | — | 24000 | ~36 min | 30 min | **slightly over** |
 | transfer | n/a (composite demo) | n/a | n/a | unmeasured | — | — | — | 500+500 | unmeasured | 30 min | unmeasured |
 

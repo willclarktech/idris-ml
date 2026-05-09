@@ -149,6 +149,29 @@ first call of each epoch, reset to Nothing on `resetNtmState`),
 which would behave like the existing memT pattern and probably
 avoid the mlx interaction. Filed as future-todo, not active.
 
+**Re-attempt 2026-05-09 under priority-torch-and-tape framing** (after
+plan was updated to make tape + torch primary and mlx Job 3): hoped
+the small torch wins would justify the mlx regression as an
+acceptable tradeoff. 3 samples each on tape and torch show no
+measurable change vs pre-fix on either: ntm-copy tape ~1.42×
+(unchanged), ntm-copy torch ~2.36× (unchanged within noise), ntm-recall
+tape ~1.25× (unchanged), ntm-recall torch ~2.64× (worse but high
+variance). The "torch wins" I thought I saw on the first attempt were
+sampling noise. mlx still regresses 2× as expected. Reverted again.
+
+**Hypothesis for why no win even on tape/torch**: Idris's compiler is
+very likely CSE'ing the per-timestep `prim__addScalar (zeroState1d m)
+1.0` chain across timesteps — they have identical inputs every call,
+so the result handle is shared and the FFI calls only fire once per
+sequence anyway. If true, the precompute-into-state plan is just
+moving CSE'd work into an explicit field with no perf delta.
+
+This optimization shape (precompute a constant in the state record)
+isn't worth pursuing unless we find a constant where Idris's CSE
+doesn't fire. The DNC mask precompute (above) DID work because it
+saved hundreds of `prim__setDouble` calls in a loop, which CSE can't
+fold across the loop.
+
 ### 2026-05-09 — DNC `dncReadHeads` link-transpose hoist — `eaab884`
 
 **Plan job**: cross-cutting (mostly tape/torch).
