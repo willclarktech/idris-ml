@@ -65,6 +65,19 @@ static double* heap_copy(const double* src, int n) {
      TAPE_F32_SKIP_OPTIMIZER   (rung 4: dtype-aware optimizer step)
    F32 training is live on tape. */
 
+/* Phase 4 skip flag (tape-only inference-dtype matrix, see T31 below).
+   Today `tape_round_to_dtype` returns the input unchanged for BF16/F16
+   (Phase 2 left half-precision storage as "F64 doubles untouched" pending
+   the safetensors bit-helper lift). The bf16/f16 precision rung in T31
+   asserts that a value like 0.1 round-trips to the dtype's representable
+   neighbour (0.099609375 for bf16, 0.0999755859375 for f16). RED before
+   Phase 4 step 2 wires the shared bit helpers from `safetensors.c` into
+   `tape_round_to_dtype`. The integer + bool rungs in T31 are GREEN under
+   Phase 2 already. */
+#if defined(BACKEND_TAPE)
+#define TAPE_PHASE4_SKIP_HALF_PRECISION
+#endif
+
 /* ================================================================
    T1: Scalar tensor creation + arithmetic
    ================================================================ */
@@ -4060,6 +4073,149 @@ int main(void) {
                 param_clear();
             }
         }
+    }
+#endif
+
+    /* T31: inference-only dtype matrix (Phase 4 — tape-only).
+       Per-dtype create + dtype_name + readback + cast for the 8 dtags
+       beyond F32/F64: BF16, F16, I8, I16, I32, I64, U8, Bool. Phase 2's
+       `tape_retag_round` rounds-through-double for the int/bool dtags
+       (exact within the dtype's range) — those rungs are GREEN under
+       Phase 2 storage. bf16/f16 are RED until Phase 4 step 2 wires the
+       shared bit helpers; today `tape_round_to_dtype` returns the input
+       unchanged for both, so a value like 0.1 (not exactly representable
+       in either half precision) survives the round-trip incorrectly.
+       Gated by TAPE_PHASE4_SKIP_HALF_PRECISION at file top. */
+#if defined(BACKEND_TAPE)
+    {
+        printf("\n--- Inference dtype matrix (Phase 4) ---\n");
+
+        /* Half-precision rung — RED until step 2.
+           bf16 nearest representable for 0.1: 0x3DCC -> ~0.099609375
+           f16  nearest representable for 0.1: 0x2E66 -> ~0.0999755859375 */
+#ifndef TAPE_PHASE4_SKIP_HALF_PRECISION
+        {
+            double bv[] = {1.5, 0.1, -2.0};   /* 1.5 + -2.0 exact in both; 0.1 rounds */
+            TensorHandle bf = tensor_create_1d_streamed(3, heap_copy(bv, 3), 0, 0, 2);  /* dtag 2 = BF16 */
+            ASSERT_TRUE("BF16 dtype name", strcmp(tensor_dtype_name(bf), "BF16") == 0);
+            double bout[3];
+            tensor_to_doubles(bf, bout);
+            ASSERT_NEAR("BF16 exact: 1.5",  bout[0], 1.5,         1e-12);
+            ASSERT_NEAR("BF16 round: 0.1 -> 0.099609375", bout[1], 0.099609375, 1e-7);
+            ASSERT_NEAR("BF16 exact: -2.0", bout[2], -2.0,        1e-12);
+
+            TensorHandle hf = tensor_create_1d_streamed(3, heap_copy(bv, 3), 0, 0, 3);  /* dtag 3 = F16 */
+            ASSERT_TRUE("F16 dtype name", strcmp(tensor_dtype_name(hf), "F16") == 0);
+            double hout[3];
+            tensor_to_doubles(hf, hout);
+            ASSERT_NEAR("F16 exact: 1.5",  hout[0], 1.5,                  1e-12);
+            ASSERT_NEAR("F16 round: 0.1 -> 0.0999755859375", hout[1], 0.0999755859375, 1e-7);
+            ASSERT_NEAR("F16 exact: -2.0", hout[2], -2.0,                 1e-12);
+        }
+#else
+        printf("rung skipped: half-precision round-trip (TAPE_PHASE4_SKIP_HALF_PRECISION, Phase 4 step 2)\n");
+#endif
+
+        /* Integer dtypes — exact round-trip within range via Phase 2 rounding. */
+        {
+            /* I8: -128..127 */
+            double v8[] = {-128.0, -1.0, 0.0, 1.0, 127.0};
+            TensorHandle i8 = tensor_create_1d_streamed(5, heap_copy(v8, 5), 0, 0, 4);
+            ASSERT_TRUE("I8 dtype name", strcmp(tensor_dtype_name(i8), "I8") == 0);
+            double out8[5];
+            tensor_to_doubles(i8, out8);
+            for (int i = 0; i < 5; i++) {
+                char m[48]; snprintf(m, sizeof m, "I8 in-range[%d]", i);
+                ASSERT_NEAR(m, out8[i], v8[i], 1e-12);
+            }
+
+            /* I16: -32768..32767 */
+            double v16[] = {-32768.0, 32767.0, 0.0};
+            TensorHandle i16 = tensor_create_1d_streamed(3, heap_copy(v16, 3), 0, 0, 5);
+            ASSERT_TRUE("I16 dtype name", strcmp(tensor_dtype_name(i16), "I16") == 0);
+            double out16[3];
+            tensor_to_doubles(i16, out16);
+            for (int i = 0; i < 3; i++) {
+                char m[48]; snprintf(m, sizeof m, "I16 in-range[%d]", i);
+                ASSERT_NEAR(m, out16[i], v16[i], 1e-12);
+            }
+
+            /* I32: full 32-bit range */
+            double v32[] = {-2147483648.0, 0.0, 2147483647.0};
+            TensorHandle i32 = tensor_create_1d_streamed(3, heap_copy(v32, 3), 0, 0, 6);
+            ASSERT_TRUE("I32 dtype name", strcmp(tensor_dtype_name(i32), "I32") == 0);
+            double out32[3];
+            tensor_to_doubles(i32, out32);
+            for (int i = 0; i < 3; i++) {
+                char m[48]; snprintf(m, sizeof m, "I32 in-range[%d]", i);
+                ASSERT_NEAR(m, out32[i], v32[i], 1e-12);
+            }
+
+            /* I64: within 2^53 (documented caveat — above loses precision via double). */
+            double v64[] = {-1e15, 0.0, 1e15};
+            TensorHandle i64 = tensor_create_1d_streamed(3, heap_copy(v64, 3), 0, 0, 7);
+            ASSERT_TRUE("I64 dtype name", strcmp(tensor_dtype_name(i64), "I64") == 0);
+            double out64[3];
+            tensor_to_doubles(i64, out64);
+            for (int i = 0; i < 3; i++) {
+                char m[48]; snprintf(m, sizeof m, "I64 within 2^53[%d]", i);
+                ASSERT_NEAR(m, out64[i], v64[i], 1e-12);
+            }
+        }
+
+        /* U8 + Bool — exact via Phase 2 rounding. */
+        {
+            double vu[] = {0.0, 1.0, 128.0, 255.0};
+            TensorHandle u8 = tensor_create_1d_streamed(4, heap_copy(vu, 4), 0, 0, 8);
+            ASSERT_TRUE("U8 dtype name", strcmp(tensor_dtype_name(u8), "U8") == 0);
+            double outu[4];
+            tensor_to_doubles(u8, outu);
+            for (int i = 0; i < 4; i++) {
+                char m[48]; snprintf(m, sizeof m, "U8 in-range[%d]", i);
+                ASSERT_NEAR(m, outu[i], vu[i], 1e-12);
+            }
+
+            /* Bool: 0 -> 0, anything-nonzero -> 1. */
+            double vb[] = {0.0, 1.0, 0.5, -3.0, 0.0};
+            double xb[] = {0.0, 1.0, 1.0,  1.0, 0.0};
+            TensorHandle bo = tensor_create_1d_streamed(5, heap_copy(vb, 5), 0, 0, 9);
+            ASSERT_TRUE("Bool dtype name", strcmp(tensor_dtype_name(bo), "BOOL") == 0);
+            double outb[5];
+            tensor_to_doubles(bo, outb);
+            for (int i = 0; i < 5; i++) {
+                char m[48]; snprintf(m, sizeof m, "Bool 0/1 normalize[%d]", i);
+                ASSERT_NEAR(m, outb[i], xb[i], 1e-12);
+            }
+        }
+
+        /* Cast paths: F64 -> <dtype> -> F64 via tensor_cast_dtype_streamed. */
+        {
+            /* F64 -> U8 -> F64. -3 wraps to 253 via unsigned-char cast (documented). */
+            double cv[] = {10.0, -3.0, 7.0};
+            TensorHandle d0 = tensor_create_1d_streamed(3, heap_copy(cv, 3), 0, 0, 1);
+            TensorHandle to_u8 = tensor_cast_dtype_streamed(d0, 0, 8);
+            ASSERT_TRUE("cast F64->U8 dtype", strcmp(tensor_dtype_name(to_u8), "U8") == 0);
+            TensorHandle back = tensor_cast_dtype_streamed(to_u8, 0, 1);
+            ASSERT_TRUE("cast U8->F64 dtype", strcmp(tensor_dtype_name(back), "F64") == 0);
+            double rb[3];
+            tensor_to_doubles(back, rb);
+            ASSERT_NEAR("U8 roundtrip 10",   rb[0],  10.0, 1e-12);
+            ASSERT_NEAR("U8 roundtrip -3->253", rb[1], 253.0, 1e-12);
+            ASSERT_NEAR("U8 roundtrip 7",    rb[2],   7.0, 1e-12);
+
+            /* F64 -> Bool -> F64 */
+            double bv[] = {0.0, 5.0, -2.0};
+            TensorHandle s0 = tensor_create_1d_streamed(3, heap_copy(bv, 3), 0, 0, 1);
+            TensorHandle to_bool = tensor_cast_dtype_streamed(s0, 0, 9);
+            ASSERT_TRUE("cast F64->Bool dtype", strcmp(tensor_dtype_name(to_bool), "BOOL") == 0);
+            TensorHandle bback = tensor_cast_dtype_streamed(to_bool, 0, 1);
+            double brt[3];
+            tensor_to_doubles(bback, brt);
+            ASSERT_NEAR("Bool roundtrip 0",  brt[0], 0.0, 1e-12);
+            ASSERT_NEAR("Bool roundtrip 5",  brt[1], 1.0, 1e-12);
+            ASSERT_NEAR("Bool roundtrip -2", brt[2], 1.0, 1e-12);
+        }
+        param_clear();
     }
 #endif
 
