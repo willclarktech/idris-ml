@@ -150,3 +150,67 @@ epochRecurrentTVar opt dataPoints lossFn model =
   let totalLoss = foldl taddScalar zeroLossT seqLosses in
   let mean = scaleLoss totalLoss (1.0 / cast n) in
   (model, nativeTrainStepTVar opt mean)
+
+
+----------------------------------------------------------------------
+-- Two-phase epoch (NTM/DNC pattern: encode then decode)
+----------------------------------------------------------------------
+
+-- Forward zeros for `numSteps` (the decode phase), accumulating per-step loss.
+decodeStep : {0 d : Device} -> {i, o : Nat} -> {hs : List Nat} ->
+             LossFnV2 d o ->
+             AnyPtr ->                                    -- zero input tensor (reused)
+             (NetworkV2 i hs o d, TVar [] d) ->
+             Vector o Double ->
+             (NetworkV2 i hs o d, TVar [] d)
+decodeStep lossFn zeroInPtr (net, accLoss) tgtVec =
+  let inV = the (TVec i d) (MkTVar zeroInPtr Nothing)
+      tgtV = the (TVec o d) (MkTVar (bulkToPersistent tgtVec) Nothing)
+      (net', predV) = forwardTVar net inV
+      stepL = lossFn predV tgtV
+  in (net', taddScalar accLoss stepL)
+
+-- Encode phase: forward each input, discard output, thread state.
+encodeStep : {0 d : Device} -> {i, o : Nat} -> {hs : List Nat} ->
+             NetworkV2 i hs o d ->
+             Vector i Double ->
+             NetworkV2 i hs o d
+encodeStep net xVec =
+  let inV = the (TVec i d) (MkTVar (bulkToPersistent xVec) Nothing)
+      (net', _) = forwardTVar net inV
+  in net'
+
+-- Per-sequence two-phase loss: reset state, encode all inputs, decode
+-- with zeros for `length targets` steps, mean-reduce per-step loss.
+perSeqLossTwoPhase : {0 d : Device} -> {i, o : Nat} -> {hs : List Nat} ->
+                     LossFnV2 d o ->
+                     NetworkV2 i hs o d ->
+                     TwoPhaseDataPoint i o Double ->
+                     TVar [] d
+perSeqLossTwoPhase lossFn model dp =
+  let startNet = resetNetworkV2 model
+      encNet = foldl encodeStep startNet (encodingInputs dp)
+      iI = cast {to=Int} i
+      zeroIn = prim__createState1d iI (prim__allocDoubles iI)
+      (_, totalLoss) = foldl (decodeStep lossFn zeroIn) (encNet, zeroLossT) (targets dp)
+      stepCount = length (targets dp)
+  in if stepCount == 0
+       then totalLoss
+       else scaleLoss totalLoss (1.0 / cast stepCount)
+
+||| One two-phase epoch: encode-then-decode pattern (NTM/DNC). Per
+||| data point: reset state, walk the encoding inputs (discarding
+||| outputs), then forward zeros for each target step computing loss.
+||| Mean across sequences, native train step.
+export
+epochTwoPhaseTVar : {d : Device} -> {i, o, n : Nat} -> {hs : List Nat} ->
+                    NativeOptimizer ->
+                    Vect n (TwoPhaseDataPoint i o Double) ->
+                    LossFnV2 d o ->
+                    NetworkV2 i hs o d ->
+                    (NetworkV2 i hs o d, Double)
+epochTwoPhaseTVar opt dataPoints lossFn model =
+  let seqLosses = map (perSeqLossTwoPhase lossFn model) dataPoints in
+  let totalLoss = foldl taddScalar zeroLossT seqLosses in
+  let mean = scaleLoss totalLoss (1.0 / cast n) in
+  (model, nativeTrainStepTVar opt mean)
