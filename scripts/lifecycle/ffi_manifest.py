@@ -236,10 +236,45 @@ SKIP = {
 # So new wrappers can assume `idris-tensor-guardian` is bound; for the
 # create-scalar / create-{state,param}_*d wrappers that *might* be the
 # first to run, we add a one-shot guardian lazy-init.
-GUARDIAN_LAZY_INIT = (
+# The guardian itself — created once if absent.
+GUARDIAN_ONLY_INIT = (
     "(when (not (top-level-bound? 'idris-tensor-guardian))"
     " (set-top-level-value! 'idris-tensor-guardian (make-guardian)))"
 )
+
+# Prime the guardian *drain* helper at the same point the guardian is
+# created. `idris-drain-once` pops one dead wrap, reads the backend tag at
+# slot 1 + raw pointer at slot 2, and calls the matching
+# `tensor_release_handle_<tag>` (caching the foreign-procedure per tag).
+# This is the EXACT logic of `prim__installDrainHelperC` in Tensor.idr —
+# keep the two in sync (that one stays for the test harness). Self-guarded
+# on `idris-drain-once` so it installs once and is a cheap bound-check on
+# every later create call. Without this the drain epilogues in
+# `native_train_step_*` and `withNoGrad` are dormant (their
+# `(top-level-bound? 'idris-drain-once)` guard is false), so mlx husks
+# never reach rc==0 and leak on long grad-mode runs. See
+# docs/develop/gotchas.md "The mlx generation sweep must never delete…".
+DRAIN_ONCE_INSTALL = (
+    "(when (not (top-level-bound? 'idris-drain-once))"
+    " (when (not (top-level-bound? 'idris-release-cache))"
+    " (set-top-level-value! 'idris-release-cache (make-hashtable string-hash string=?)))"
+    " (set-top-level-value! 'idris-drain-once (lambda ()"
+    " (when (not (top-level-bound? 'idris-tensor-guardian))"
+    " (set-top-level-value! 'idris-tensor-guardian (make-guardian)))"
+    " (let ((d ((top-level-value 'idris-tensor-guardian))))"
+    " (if (not d) #f"
+    " (let ((tag (vector-ref d 1)) (raw (vector-ref d 2)) (cache (top-level-value 'idris-release-cache)))"
+    " (let ((rel (or (hashtable-ref cache tag #f)"
+    " (let ((sym (if (string=? tag \\\"primary\\\") \\\"tensor_release_handle\\\""
+    " (string-append \\\"tensor_release_handle_\\\" tag))))"
+    " (let ((fp (foreign-procedure sym (void*) void))) (hashtable-set! cache tag fp) fp)))))"
+    " (rel raw) #t)))))))"
+)
+
+# Both run on the first Tensor-creating Scheme wrapper (the create-scalar
+# / create-{state,param}_*d ones), so by the time any training/eval drain
+# point fires the guardian + drain helper are both bound.
+GUARDIAN_LAZY_INIT = GUARDIAN_ONLY_INIT + " " + DRAIN_ONCE_INSTALL
 
 # C function names whose Scheme wrapper carries the guardian-lazy-init
 # (they're the ones that can be the very first Tensor-creating call).
