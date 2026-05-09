@@ -28,6 +28,27 @@
 namespace mx = mlx::core;
 
 /* ================================================================
+   Backend init — device selection
+   ================================================================
+   Default to CPU stream. mlx 0.31 GPU (Metal) on GH Actions macOS
+   runners hits "Unable to allocate N bytes" for tiny allocations
+   under sustained load (NTM/DNC scalar-heavy backward; CI run
+   25457289084 on commit 1b8feff). Local Apple Silicon machines
+   handle GPU fine, so users can opt in via `MLX_DEVICE=gpu`.
+
+   See TODO.md "MLX backend: support CPU+f64 mode + dependent-types
+   demo" for the proper device-aware Tensor parameterization. */
+__attribute__((constructor))
+static void mlx_backend_init(void) {
+    const char* env = std::getenv("MLX_DEVICE");
+    if (env && (std::strcmp(env, "gpu") == 0 || std::strcmp(env, "metal") == 0)) {
+        mx::set_default_device(mx::Device(mx::Device::gpu));
+    } else {
+        mx::set_default_device(mx::Device(mx::Device::cpu));
+    }
+}
+
+/* ================================================================
    Stub macro
    ================================================================ */
 
