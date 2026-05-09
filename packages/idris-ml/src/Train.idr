@@ -324,8 +324,23 @@ runTrainingIO {model} epochFn dataSrc cfg model0 = do
     -- they capture the device `d` (the loops shadow it with `d <- dataSrc`).
     epochBegin : IO ()
     epochBegin = primIO (primEpochBegin {d})
+    -- On mlx, force a major GC + drain the managed-handle guardian *before*
+    -- the sweep, mirroring withNoGrad. The epoch's grad intermediates are
+    -- only reachable until the epoch fn returns, so the per-step
+    -- `(collect 0)` minor GC in `nativeTrainStep` can't collect them; here,
+    -- post-return, the major GC makes their dead wraps unreachable, drain
+    -- releases them (rc 1->0), and `primEpochEnd`'s sweep then frees the
+    -- husks via its rc==0 path. Without this the mlx husks accumulate
+    -- across epochs (the long-grad-mode handle leak). tape/torch skip it:
+    -- their release is a no-op stub and primEpochEnd is a no-op, so a
+    -- per-epoch full GC would be pure overhead.
     epochEnd : IO ()
-    epochEnd = primIO (primEpochEnd {d})
+    epochEnd = do
+      when (backendTag {d} == "mlx") $ do
+        forceMajorGc
+        _ <- drainManagedHandles
+        pure ()
+      primIO (primEpochEnd {d})
 
     divisibleBy : Nat -> Nat -> Bool
     divisibleBy _ Z     = False
