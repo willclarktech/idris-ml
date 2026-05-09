@@ -275,8 +275,15 @@ BACKEND_OBJS := $(foreach b,$(BACKEND_LIST),$(BUILD)/backend_$(b).o)
 # whenever a kernel changes. Harmless for non-tape backends — they don't
 # include this header, but the build system has no way to know which
 # per-backend source touches which `.inc` so we list it for all.
+# `backend_tape/**` files are #included from backend_tape.c during Phases
+# 1.0.1-1.0.3 (per /Users/admin/.claude/plans/modular-petting-minsky.md);
+# list them so editing them rebuilds the tape .o. Harmless for non-tape
+# backends — they don't include the directory but the build system has no
+# easy way to filter per-backend.
+BACKEND_TAPE_INCLUDES := $(wildcard $(BACKENDS_DIR)/backend_tape/*.h $(BACKENDS_DIR)/backend_tape/*.c $(BACKENDS_DIR)/backend_tape/**/*.c $(BACKENDS_DIR)/backend_tape/**/*.h)
+
 define backend_compile_rule
-$(BUILD)/backend_$(1).o: $($(1)_SRC) $(BACKENDS_DIR)/backend.h $(BACKENDS_DIR)/rename_$(1).h $(BACKENDS_DIR)/backend_tape_kernels.inc | $(BUILD)
+$(BUILD)/backend_$(1).o: $($(1)_SRC) $(BACKENDS_DIR)/backend.h $(BACKENDS_DIR)/rename_$(1).h $(BACKENDS_DIR)/backend_tape_kernels.inc $(BACKEND_TAPE_INCLUDES) | $(BUILD)
 	$($(1)_CC) -O2 -fPIC $(EXTRA_CFLAGS) $($(1)_CFLAGS) -include $(BACKENDS_DIR)/rename_$(1).h -c -o $$@ $$<
 endef
 
