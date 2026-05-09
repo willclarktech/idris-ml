@@ -4,7 +4,10 @@
 # Measure ms/epoch for an example on a given backend, plus the matching
 # PyTorch reference. Output one CSV row to stdout:
 #
-#   example,backend,idris_ms_per_epoch,pytorch_ms_per_epoch,ratio,epochs,seed,notes
+#   example,backend,idris_ms_per_epoch,pytorch_ms_per_epoch,ratio,epochs,seed,commit,notes
+#
+# `commit` is the abbreviated git hash of HEAD, with `+dirty` appended
+# if the working tree has uncommitted changes (mirrors perf-run.sh).
 #
 # Usage:
 #   scripts/perf-baseline.sh <example-key> <backend>
@@ -105,10 +108,16 @@ two_point_pytorch() {
   python3 -c "print(round((${t_long} - ${t_short}) / (${N_LONG} - ${N_SHORT}), 2))"
 }
 
+# Capture the active commit (with +dirty marker), mirroring perf-run.sh.
+COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
+  COMMIT="${COMMIT}+dirty"
+fi
+
 echo "[perf-baseline] $EXAMPLE_KEY [$BACKEND]: idris N=$N_SHORT then $N_LONG..." >&2
 IDRIS_MS=$(two_point_idris)
 echo "[perf-baseline] $EXAMPLE_KEY: pytorch N=$N_SHORT then $N_LONG..." >&2
 PY_MS=$(two_point_pytorch)
 RATIO=$(python3 -c "print(round(${IDRIS_MS} / ${PY_MS}, 2) if ${PY_MS} > 0 else 'inf')")
 
-echo "${EXAMPLE_KEY},${BACKEND},${IDRIS_MS},${PY_MS},${RATIO},${N_LONG},${SEED},"
+echo "${EXAMPLE_KEY},${BACKEND},${IDRIS_MS},${PY_MS},${RATIO},${N_LONG},${SEED},${COMMIT},"
