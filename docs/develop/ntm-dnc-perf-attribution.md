@@ -220,6 +220,59 @@ After lever 1 lands and is verified multi-seed across 3 backends,
 proceed to lever 2 (batched DNC FCs). Lever 3 follows lever 2 as
 filed in the plan.
 
+## Phase 1 result (committed 2026-05-07)
+
+Applied `prim__linear` (typed `tlinear` wrapper) systematically:
+
+| Layer | Sites | Pattern |
+|---|---:|---|
+| `Layer/Linear.idr` | 1 | `tadd (tmv W x) bias` → `tlinear W x bias` |
+| `Layer/Ntm.idr` | 3 (Phase 0) | read FC, write FC, output FC |
+| `Layer/Dnc.idr` | 11 | 10 controller FCs + output FC |
+| `Layer/Lstm.idr` | 1 | nested: `tlinear rw h (tlinear iw x bT)` (4 → 2 FFI) |
+| `Layer/Rnn.idr` | 1 | same nested pattern (4 → 2 FFI) |
+| `Layer/Gru.idr` | 2 | input-side and hidden-side gates (4 → 2 FFI) |
+
+Cross-backend smoke gate green.
+`example-ntm-copy seed=42 100 epochs acc_short=0.7053541666666666`
+unchanged (bit-identical).
+
+Wall-clock measurements (10-epoch profile, tape backend):
+
+| Benchmark | Pre-Phase-1 | Post-Phase-1 | Δ |
+|---|---:|---:|---:|
+| NTM-copy default (N=128 batch=16) | 488 ms/epoch | **436 ms/epoch** | **−11 %** |
+| DNC-copy small (N=32 batch=1) | 119 ms/epoch | **97 ms/epoch** | **−19 %** |
+
+DNC's larger relative win confirms the prior — DNC has more FC
+sites per timestep (11) than NTM (3) so the per-call overhead
+reduction compounds further.
+
+### What's still left
+
+Top forward op on NTM-copy is now `LINEAR` at **163 µs/call**, ~the
+same as MV's pre-Phase-1 167 µs/call — **the per-FFI-call overhead
+floor hasn't moved**. Phase 1 reduced *call count*, not per-call
+cost. To close the remaining 208 ms/epoch gap to the pre-Path-C
+228 ms/epoch baseline, we need either:
+
+1. **Multi-FC fusion** (Phase 2 in the plan): combine FCs that
+   share an input into a single fused linear of width
+   `sum(head_dims)` followed by narrows. NTM has 2 such FCs (read +
+   write, both reading `cellPtr`); DNC has 10. Each fusion drops
+   one LINEAR (165 µs) and adds ~k narrows (~7 µs each). Estimated
+   12–25 % more on NTM, 30–40 % more on DNC.
+
+2. **Per-call FFI overhead reduction** (deeper investigation): the
+   149 µs/MV-call glue measured in Phase 0 is Idris-side execution
+   between consecutive C calls. Refactoring the typed-record
+   surface to flatten access paths could reduce this, but at the
+   cost of giving back some of Path-C's typing wins. Holding on
+   this until Phase 2 results are in.
+
+Phase 2 next: implement multi-FC fusion in DNC (highest leverage),
+then NTM if measurements show the benefit.
+
 ## Implementation note
 
 The tape backend already had `tensor_linear` (1D fused linear) but it
