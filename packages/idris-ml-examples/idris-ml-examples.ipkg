@@ -18,8 +18,6 @@ modules = Generate
         , Example.Gpt
         , Example.Gru
         , Example.Lstm
-        , Example.LstmV2
-        , Example.LstmV2Smoke
         , Example.Mnist
         , Example.MonteCarlo
         , Example.MountainCar
@@ -35,7 +33,6 @@ modules = Generate
         , Example.Sarsa
         , Example.SeqClassify
         , Example.Supervised
-        , Example.SupervisedV2
         , Example.Taxi
         , Example.Transfer
         , Example.Transformer
