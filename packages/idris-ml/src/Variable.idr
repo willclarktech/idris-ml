@@ -1595,6 +1595,16 @@ export
 tmulScalar : TVar dims d -> Double -> TVar dims d
 tmulScalar v s = MkTVar (prim__mulScalar v.tensorPtr s) Nothing
 
+||| Elementwise exponential (autograd-tracked).
+export
+texp : TVar dims d -> TVar dims d
+texp v = MkTVar (prim__exp v.tensorPtr) Nothing
+
+||| Elementwise natural log (autograd-tracked).
+export
+tlog : TVar dims d -> TVar dims d
+tlog v = MkTVar (prim__log v.tensorPtr) Nothing
+
 -- Activations (shape-preserving, pass-through autograd) ---------------
 
 export
