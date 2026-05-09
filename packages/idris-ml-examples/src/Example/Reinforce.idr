@@ -13,7 +13,7 @@ import Layer.Activation
 import Layer.Core
 import Layer.Linear
 import Sampler
-import Tensor
+import Array
 import Train
 import Util
 import Device
@@ -23,7 +23,7 @@ import Variable
 MaxSteps : Nat; MaxSteps = cartPoleMaxSteps
 
 observe : CPState -> Vector 4 Double
-observe s = VTensor (map STensor (cpObserve s))
+observe s = VArray (map SArray (cpObserve s))
 
 
 ----------------------------------------------------------------------

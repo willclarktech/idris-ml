@@ -18,7 +18,7 @@ import Variable
 
 public export
 interface LayerLike (l : Nat -> Nat -> (0 _ : Device) -> Type) where
-  ||| Tensor-level forward: `Variable [i] d -> Variable [o] d`.
+  ||| Array-level forward: `Variable [i] d -> Variable [o] d`.
   applyVar : {0 d : Device} -> {i, o : Nat} ->
               l i o d -> Variable [i] d -> (l i o d, Variable [o] d)
 
@@ -79,7 +79,7 @@ data Network : (i : Nat) -> (hs : List Nat) -> (o : Nat) -> (0 _ : Device) -> Ty
 
 export infixr 5 ~~>
 
-||| Tensor-level forward through a Network.
+||| Array-level forward through a Network.
 export
 forwardVar : {0 d : Device} -> {i, o : Nat} -> {hs : List Nat} ->
               Network i hs o d -> Variable [i] d -> (Network i hs o d, Variable [o] d)

@@ -9,7 +9,7 @@ import Compat.Random
 import DataPoint
 import Device
 import Floating
-import Tensor
+import Array
 import Util
 
 
@@ -108,7 +108,7 @@ export prim__tensorMin : AnyPtr -> AnyPtr
 %foreign "C:tensor_max,libidrisml"
 export prim__tensorMax : AnyPtr -> AnyPtr
 
--- Tensor creation/accessors
+-- Array creation/accessors
 %foreign "C:tensor_create,libidrisml"
 prim__create : AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
 
@@ -307,7 +307,7 @@ prim__paramSubtractDelta : Int -> Double -> ()
 export
 prim__tensorSubScalarInplace : AnyPtr -> Double -> AnyPtr
 
--- Tensor-level parameter creation
+-- Array-level parameter creation
 %foreign "C:tensor_create_param_2d,libidrisml"
 export
 prim__createParam2d : Int -> Int -> AnyPtr -> AnyPtr
@@ -364,7 +364,7 @@ prim__ntmReadHead : AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> 
 export
 prim__ntmInterpWrite : AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr
 
--- Tensor-level forward ops (used by layers with consolidated weight tensors)
+-- Array-level forward ops (used by layers with consolidated weight tensors)
 ||| Matrix-vector multiply on raw tensor pointers.
 export
 tensorMv : AnyPtr -> AnyPtr -> AnyPtr
@@ -457,7 +457,7 @@ prim__create1d : Int -> AnyPtr -> Int -> AnyPtr
 %foreign "C:tensor_create_2d,libidrisml"
 export prim__create2d : Int -> Int -> AnyPtr -> Int -> AnyPtr
 
--- Tensor pointer array: stack scalar Variable tensorPtrs to create
+-- Array pointer array: stack scalar Variable tensorPtrs to create
 -- a 1D/2D tensor that preserves the autograd graph.
 %foreign "C:tensor_ptr_array_alloc,libidrisml"
 prim__ptrArrayAlloc : Int -> AnyPtr
@@ -732,7 +732,7 @@ prim__resetForEval : Int -> Int
 ||| The C tensor_create_1d function frees the input buffer after copying.
 export
 bulkToTensor : {n : Nat} -> Vector n Double -> AnyPtr
-bulkToTensor {n} (VTensor elems) =
+bulkToTensor {n} (VArray elems) =
   let nI = cast {to=Int} n
       buf = prim__allocDoubles nI
       buf' = packDoubleBuf buf 0 elems
@@ -740,7 +740,7 @@ bulkToTensor {n} (VTensor elems) =
   where
     packDoubleBuf : AnyPtr -> Int -> Vect k (Scalar Double) -> AnyPtr
     packDoubleBuf buf _ [] = buf
-    packDoubleBuf buf off (STensor v :: rest) =
+    packDoubleBuf buf off (SArray v :: rest) =
       let buf' = prim__setDouble buf off v
       in packDoubleBuf buf' (off + 1) rest
 
@@ -758,12 +758,12 @@ bulkToTensor2d {b} {i} rows =
   where
     packRow : AnyPtr -> Int -> Vect k (Scalar Double) -> AnyPtr
     packRow buf _ [] = buf
-    packRow buf off (STensor v :: rest) =
+    packRow buf off (SArray v :: rest) =
       let buf' = prim__setDouble buf off v
       in packRow buf' (off + 1) rest
     packRows : AnyPtr -> Int -> Vect k (Vector i Double) -> AnyPtr
     packRows buf _ [] = buf
-    packRows buf off (VTensor row :: rest) =
+    packRows buf off (VArray row :: rest) =
       let buf' = packRow buf off row
       in packRows buf' (off + cast {to=Int} i) rest
 
@@ -772,7 +772,7 @@ bulkToTensor2d {b} {i} rows =
 ||| and reused across training epochs.
 export
 vectorToTensorPersistent : {n : Nat} -> Vector n Double -> AnyPtr
-vectorToTensorPersistent {n} (VTensor elems) =
+vectorToTensorPersistent {n} (VArray elems) =
   let nI = cast {to=Int} n
       buf = prim__allocDoubles nI
       buf' = packBuf buf 0 elems
@@ -780,7 +780,7 @@ vectorToTensorPersistent {n} (VTensor elems) =
   where
     packBuf : AnyPtr -> Int -> Vect k (Scalar Double) -> AnyPtr
     packBuf buf _ [] = buf
-    packBuf buf off (STensor v :: rest) = packBuf (prim__setDouble buf off v) (off + 1) rest
+    packBuf buf off (SArray v :: rest) = packBuf (prim__setDouble buf off v) (off + 1) rest
 
 ||| Convert a DataPoint with Doubles to a TensorDataPoint with persistent C tensors.
 export
@@ -873,7 +873,7 @@ profileReport = primIO prim__profileReportC
 ----------------------------------------------------------------------
 --
 -- Today's `Variable d` is shape-erased and packed into the outer
--- `Tensor dims (Variable d)` via Vect-of-Vect, scalarising at every
+-- `Array dims (Variable d)` via Vect-of-Vect, scalarising at every
 -- op. `Variable dims d` lifts shape onto the Variable itself: one tensor
 -- handle per typed shape, no per-element packing.
 --

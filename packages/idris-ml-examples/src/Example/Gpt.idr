@@ -26,7 +26,7 @@ import Layer.Core
 import Layer.Transformer
 import Sampler
 import Schedule
-import Tensor
+import Array
 import Train
 import Util
 import Device

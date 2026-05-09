@@ -27,7 +27,7 @@ import Layer.Conv  -- ConvOutDim / PoolOutDim type-level helpers
 import Layer.Core
 import Layer.Dropout
 import Layer.Linear
-import Tensor
+import Array
 import Train
 import Util
 import Device

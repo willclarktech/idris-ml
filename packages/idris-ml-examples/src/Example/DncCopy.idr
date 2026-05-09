@@ -21,7 +21,7 @@ import Hpo.LrFinder
 import Layer.Core
 import Layer.Dnc
 import Math
-import Tensor
+import Array
 import Train
 import Util
 import Device
@@ -62,20 +62,20 @@ TestSize = 20
 ----------------------------------------------------------------------
 
 showBinaryVec : {w : Nat} -> Vector w Double -> String
-showBinaryVec (VTensor xs) = "[" ++ go xs ++ "]"
+showBinaryVec (VArray xs) = "[" ++ go xs ++ "]"
   where
     go : Vect k (Scalar Double) -> String
     go [] = ""
-    go [STensor x] = if x >= 0.5 then "1" else "0"
-    go (STensor x :: rest) = (if x >= 0.5 then "1" else "0") ++ "," ++ go rest
+    go [SArray x] = if x >= 0.5 then "1" else "0"
+    go (SArray x :: rest) = (if x >= 0.5 then "1" else "0") ++ "," ++ go rest
 
 showBinaryLogits : {w : Nat} -> Vector w Double -> String
-showBinaryLogits (VTensor xs) = "[" ++ go xs ++ "]"
+showBinaryLogits (VArray xs) = "[" ++ go xs ++ "]"
   where
     go : Vect k (Scalar Double) -> String
     go [] = ""
-    go [STensor x] = if sigD x >= 0.5 then "1" else "0"
-    go (STensor x :: rest) = (if sigD x >= 0.5 then "1" else "0") ++ "," ++ go rest
+    go [SArray x] = if sigD x >= 0.5 then "1" else "0"
+    go (SArray x :: rest) = (if sigD x >= 0.5 then "1" else "0") ++ "," ++ go rest
 
 
 ----------------------------------------------------------------------

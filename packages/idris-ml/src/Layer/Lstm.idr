@@ -36,7 +36,7 @@ record LstmState (i : Nat) (o : Nat) (0 d : Device) where
 
 %default partial
 
-||| Tensor-level LSTM cell forward. Reads (or zero-initialises) the
+||| Array-level LSTM cell forward. Reads (or zero-initialises) the
 ||| hidden + cell state, runs the fused gate computation, returns the
 ||| updated layer state and the new hidden output.
 export

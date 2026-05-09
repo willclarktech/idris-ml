@@ -16,7 +16,7 @@ import Layer.Core
 import Layer.Linear
 import Math
 import RL.ReplayBuffer
-import Tensor
+import Array
 import Train
 import Util
 import Device
@@ -56,7 +56,7 @@ mkQNet scope = do
 ----------------------------------------------------------------------
 
 obsTensor : Vect ObsDim Double -> Vector ObsDim Double
-obsTensor v = VTensor (map STensor v)
+obsTensor v = VArray (map SArray v)
 
 
 ----------------------------------------------------------------------

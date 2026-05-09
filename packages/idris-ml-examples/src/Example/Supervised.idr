@@ -11,7 +11,7 @@ import DataPoint
 import Device
 import Layer.Core
 import Layer.Linear
-import Tensor
+import Array
 import Train
 import Util
 import Variable
@@ -20,11 +20,11 @@ import Variable
 -- f(x, y) = argmax(x - y - 10, -4x + y + 5, 2x + y - 11)
 dataPoints : Vect 5 (DataPoint 2 3 Double)
 dataPoints =
-    [ MkDataPoint (VTensor [1.5, -2.7]) (VTensor [0, 1, 0]),
-      MkDataPoint (VTensor [-3.2, 4.1]) (VTensor [0, 1, 0]),
-      MkDataPoint (VTensor [5.7, 0]) (VTensor [0, 0, 1]),
-      MkDataPoint (VTensor [-1.3, 8.8]) (VTensor [0, 1, 0]),
-      MkDataPoint (VTensor [2.9, -1.4]) (VTensor [1, 0, 0])
+    [ MkDataPoint (VArray [1.5, -2.7]) (VArray [0, 1, 0]),
+      MkDataPoint (VArray [-3.2, 4.1]) (VArray [0, 1, 0]),
+      MkDataPoint (VArray [5.7, 0]) (VArray [0, 0, 1]),
+      MkDataPoint (VArray [-1.3, 8.8]) (VArray [0, 1, 0]),
+      MkDataPoint (VArray [2.9, -1.4]) (VArray [1, 0, 0])
     ]
 
 
@@ -98,19 +98,19 @@ main = do
   where
     mkInputTensor : DataPoint 2 3 Double -> AnyPtr
     mkInputTensor dp =
-      let (VTensor xs) = x dp
+      let (VArray xs) = x dp
           buf = prim__allocDoubles 2
           buf' = packInto buf 0 xs
       in prim__createState1d 2 buf'
       where
         packInto : AnyPtr -> Int -> Vect k (Scalar Double) -> AnyPtr
         packInto b _ [] = b
-        packInto b o (STensor v :: rest) =
+        packInto b o (SArray v :: rest) =
           packInto (prim__setDouble b o v) (o + 1) rest
 
     evalPredictionTarget : Vector 3 Double -> Nat
-    evalPredictionTarget (VTensor [STensor a, STensor b, STensor c]) =
+    evalPredictionTarget (VArray [SArray a, SArray b, SArray c]) =
       if a >= b && a >= c then 0 else if b >= c then 1 else 2
 
     showVecD : Vector 2 Double -> String
-    showVecD (VTensor [STensor a, STensor b]) = "[" ++ show a ++ ", " ++ show b ++ "]"
+    showVecD (VArray [SArray a, SArray b]) = "[" ++ show a ++ ", " ++ show b ++ "]"

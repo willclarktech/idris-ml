@@ -71,8 +71,8 @@ export
 roundBinary : Double -> Double
 roundBinary x = if sigD x >= 0.5 then 1.0 else 0.0
 
--- Note: showBinarySeq for Tensor types is in the examples since Util
--- doesn't import Tensor.
+-- Note: showBinarySeq for Array types is in the examples since Util
+-- doesn't import Array.
 
 -- Copied from https://github.com/idris-lang/Idris2/pull/2707/files#diff-ff81a71a1254f20ad8ec34869deb9ada6f744fefee2e584c03a3c32367ddb8f7R395-R405
 export

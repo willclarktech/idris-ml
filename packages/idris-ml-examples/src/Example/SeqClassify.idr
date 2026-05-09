@@ -26,7 +26,7 @@ import Layer.Conv  -- ConvOutDim / PoolOutDim type-level helpers
 import Layer.Core
 import Layer.Dropout
 import Layer.Linear
-import Tensor
+import Array
 import Train
 import Util
 import Device
@@ -114,11 +114,11 @@ genWaveformV label = do
 
 oneHotV : Int -> Vector NumClasses Double
 oneHotV label =
-  VTensor (Data.Vect.Fin.tabulate (\i => STensor
+  VArray (Data.Vect.Fin.tabulate (\i => SArray
     (if cast {to=Int} (finToInteger i) == label then 1.0 else 0.0)))
 
 waveToVector : Vect SeqLen Double -> Vector InputDim Double
-waveToVector wave = VTensor (map STensor wave)
+waveToVector wave = VArray (map SArray wave)
 
 ||| Generate one  training data point.
 seqPoint : IO (DataPoint InputDim NumClasses Double)

@@ -6,13 +6,13 @@ import Data.Vect
 import DataPoint
 import Generate
 import Harness
-import Tensor
+import Array
 
 
 ||| Get the value at position j in a vector.
 getElem : {n : Nat} -> Nat -> Vector n Double -> Double
-getElem j (VTensor elems) = case getAt j (toList elems) of
-  Just (STensor v) => v
+getElem j (VArray elems) = case getAt j (toList elems) of
+  Just (SArray v) => v
   _ => 0.0
 
 export

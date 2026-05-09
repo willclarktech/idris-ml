@@ -13,7 +13,7 @@ import Generate
 import Layer.Core
 import Layer.Linear
 import Layer.Gru
-import Tensor
+import Array
 import Train
 import Util
 import Variable

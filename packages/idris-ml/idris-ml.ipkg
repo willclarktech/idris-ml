@@ -5,6 +5,7 @@ sourcedir = "src"
 depends = contrib
 
 modules = Compat.Random
+        , Array
         , Backprop
         , Checkpoint
         , DataLoader
@@ -34,7 +35,6 @@ modules = Compat.Random
         , RL.ReplayBuffer
         , Sampler
         , Schedule
-        , Tensor
         , Train
         , Util
         , Variable

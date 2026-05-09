@@ -6,7 +6,7 @@ import Data.Vect
 import DataPoint
 import Device
 import Layer.Core
-import Tensor
+import Array
 import Variable
 
 
@@ -14,7 +14,7 @@ import Variable
 -- Backprop — typed-surface training loops for Network
 ----------------------------------------------------------------------
 --
--- Mirrors `Backprop.idr`'s `epoch*Tensor*` runners but with Variable
+-- Mirrors `Backprop.idr`'s `epoch*Array*` runners but with Variable
 -- surfaces. The two runners cover the common training shapes:
 --   - `epochVar`           : feed-forward supervised
 --   - `epochRecurrentVar`  : recurrent (sequence-to-sequence)
@@ -45,7 +45,7 @@ packDoublesIntoBuf buf off (x :: rest) =
 -- after the next epoch starts. The example crashes with "invalid
 -- memory reference" on epoch 2.
 bulkToPersistent : {n : Nat} -> Vector n Double -> AnyPtr
-bulkToPersistent {n} (VTensor elems) =
+bulkToPersistent {n} (VArray elems) =
   let nI = cast {to=Int} n
       buf = prim__allocDoubles nI
       buf' = packScalars buf 0 elems
@@ -53,7 +53,7 @@ bulkToPersistent {n} (VTensor elems) =
   where
     packScalars : AnyPtr -> Int -> Vect k (Scalar Double) -> AnyPtr
     packScalars b _ [] = b
-    packScalars b o (STensor v :: rest) =
+    packScalars b o (SArray v :: rest) =
       packScalars (prim__setDouble b o v) (o + 1) rest
 
 -- Scalar Variable holding 0.0. Takes a `Double` argument that flows through
@@ -328,11 +328,11 @@ epochTwoPhaseVar opt dataPoints lossFn model =
 -- pure Doubles for evaluation metrics like `bitAccuracy`.
 export
 tvecToVector : {n : Nat} -> AnyPtr -> Vector n Double
-tvecToVector {n} ptr = VTensor (build 0 n)
+tvecToVector {n} ptr = VArray (build 0 n)
   where
     build : Int -> (k : Nat) -> Vect k (Scalar Double)
     build _ Z = []
-    build off (S k) = STensor (prim__item1d ptr off) :: build (off + 1) k
+    build off (S k) = SArray (prim__item1d ptr off) :: build (off + 1) k
 
 -- Encode-then-decode forward pass, returning the per-step decode
 -- predictions as Doubles. Mirrors V1's `forwardTwoPhase` for eval

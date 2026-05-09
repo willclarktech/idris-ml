@@ -12,7 +12,7 @@ import Floating
 import Generate
 import Layer.Core
 import Layer.Ntm
-import Tensor
+import Array
 import Util
 import Device
 import Variable

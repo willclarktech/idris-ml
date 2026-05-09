@@ -3,7 +3,7 @@ module Math
 import Data.Vect
 
 import Floating
-import Tensor
+import Array
 
 
 ----------------------------------------------------------------------
@@ -141,24 +141,24 @@ klDivLossLog = reduceLoss (\logP, y => y * (log y - logP))
 
 export
 oneHotEncode : {n : Nat} -> Fin n -> Vector n Nat
-oneHotEncode i = VTensor $ replaceAt i 1 $ replicate n 0
+oneHotEncode i = VArray $ replaceAt i 1 $ replicate n 0
 
 export
 oneHotDecode : {n : Nat} -> Vector n Nat -> Maybe (Fin n)
-oneHotDecode (VTensor v) = findIndex (== STensor 1) v
+oneHotDecode (VArray v) = findIndex (== SArray 1) v
 
 -- TODO: Improve efficiency
 export
 argmax: Ord ty => {n : Nat} -> Vector (S n) ty -> Fin (S n)
-argmax (VTensor v@(x::xs)) =
+argmax (VArray v@(x::xs)) =
   foldl maxIndex FZ Data.Vect.Fin.range
   where
     -- current indexes v, next indexes xs
     maxIndex : Fin (S n) -> Fin n -> Fin (S n)
     maxIndex current next =
       let
-        (STensor currentValue) = Data.Vect.index current v
-        (STensor nextValue) = Data.Vect.index next xs
+        (SArray currentValue) = Data.Vect.index current v
+        (SArray nextValue) = Data.Vect.index next xs
       -- Prioritise earlier value
       in if nextValue > currentValue
         -- Need to convert from index of xs to index of v
@@ -188,7 +188,7 @@ cosineSimilarity a b = dotProduct a b / (l2Norm a * l2Norm b)
 
 export
 matrixVectorMultiply : Num ty => {n : Nat} -> Matrix m n ty -> Vector n ty -> Vector m ty
-matrixVectorMultiply (VTensor mat) vec = VTensor $ map (STensor . dotProduct vec) mat
+matrixVectorMultiply (VArray mat) vec = VArray $ map (SArray . dotProduct vec) mat
 
 export
 vectorMatrixMultiply : (Num ty) => {n : Nat} -> Vector n ty -> Matrix m n ty -> Vector m ty
@@ -203,9 +203,9 @@ vectorMatrixMultiply = flip matrixVectorMultiply
 ||| Each output[i,j] = dot(row_i of A, col_j of B).
 export
 matrixMultiply : Num ty => {m, n, k : Nat} -> Matrix m n ty -> Matrix n k ty -> Matrix m k ty
-matrixMultiply (VTensor aRows) b =
-  let VTensor bCols = transpose b  -- [k, n]
-  in VTensor $ map (\aRow => VTensor $ map (\bCol => STensor (dotProduct aRow bCol)) bCols) aRows
+matrixMultiply (VArray aRows) b =
+  let VArray bCols = transpose b  -- [k, n]
+  in VArray $ map (\aRow => VArray $ map (\bCol => SArray (dotProduct aRow bCol)) bCols) aRows
 
 ----------------------------------------------------------------------
 -- Infix Matrix Multiplication
@@ -233,36 +233,36 @@ namespace MatVec
 export
 softmaxMatrix : (FromDouble ty, Floating ty, Fractional ty, Neg ty, Ord ty) =>
                 {m, n : Nat} -> Matrix m n ty -> Matrix m n ty
-softmaxMatrix (VTensor rows) = VTensor $ map (\row => softmax row) rows
+softmaxMatrix (VArray rows) = VArray $ map (\row => softmax row) rows
 
 ||| Element-wise clamp minimum.
 export
-clampMinTensor : (Num ty, Ord ty) => ty -> Tensor dims ty -> Tensor dims ty
-clampMinTensor minVal (STensor x) = STensor (max minVal x)
-clampMinTensor minVal (VTensor xs) = VTensor (map (clampMinTensor minVal) xs)
+clampMinArray : (Num ty, Ord ty) => ty -> Array dims ty -> Array dims ty
+clampMinArray minVal (SArray x) = SArray (max minVal x)
+clampMinArray minVal (VArray xs) = VArray (map (clampMinArray minVal) xs)
 
 ||| Reshape flat vector to matrix: Vector (m * n) -> Matrix m n.
-||| Type-safe: uses Tensor.splitAt which unifies (S k)*n = n + (k*n) via Refl.
+||| Type-safe: uses Array.splitAt which unifies (S k)*n = n + (k*n) via Refl.
 export
 reshapeToMatrix : {m, n : Nat} -> Vector (m * n) ty -> Matrix m n ty
-reshapeToMatrix {m = Z} _ = VTensor []
+reshapeToMatrix {m = Z} _ = VArray []
 reshapeToMatrix {m = S k} {n} vec =
-  let (row, rest) = Tensor.splitAt n vec  -- (S k)*n = n + (k*n) by definition
-  in VTensor (row :: case reshapeToMatrix {m=k} {n} rest of VTensor rows => rows)
+  let (row, rest) = Array.splitAt n vec  -- (S k)*n = n + (k*n) by definition
+  in VArray (row :: case reshapeToMatrix {m=k} {n} rest of VArray rows => rows)
 
 ||| Flatten matrix to vector: Matrix m n -> Vector (m * n).
 ||| Type-safe: (S k)*n = n + (k*n) lets us concatenate Vects directly.
 export
 flattenMatrix : {m, n : Nat} -> Matrix m n ty -> Vector (m * n) ty
-flattenMatrix {m = Z} _ = VTensor []  -- 0 * n = 0 by definition
-flattenMatrix {m = S k} {n} (VTensor (VTensor row :: rest)) =
-  let VTensor restFlat = flattenMatrix {m=k} {n} (VTensor rest)
-  in VTensor (row ++ restFlat)  -- n + (k*n) = (S k)*n by definition
+flattenMatrix {m = Z} _ = VArray []  -- 0 * n = 0 by definition
+flattenMatrix {m = S k} {n} (VArray (VArray row :: rest)) =
+  let VArray restFlat = flattenMatrix {m=k} {n} (VArray rest)
+  in VArray (row ++ restFlat)  -- n + (k*n) = (S k)*n by definition
 
 ||| Scalar multiply each element of a matrix.
 export
 scaleMatrix : Num ty => ty -> Matrix m n ty -> Matrix m n ty
-scaleMatrix s (VTensor rows) = VTensor $ map (\row => map (* s) row) rows
+scaleMatrix s (VArray rows) = VArray $ map (\row => map (* s) row) rows
 
 ||| Apply causal mask: set upper triangle to a large negative value.
 export
@@ -271,8 +271,8 @@ causalMaskMatrix {n} mat =
   let maskVal : Fin n -> Fin n -> ty -> ty
       maskVal i j x = if finToNat j > finToNat i then fromDouble (-1.0e20) else x
       maskRow : Fin n -> Vector n ty -> Vector n ty
-      maskRow i (VTensor elems) = VTensor $ zipWith (\j, e => case e of STensor x => STensor (maskVal i j x)) Data.Vect.Fin.range elems
-  in VTensor $ zipWith (\i, row => maskRow i row) Data.Vect.Fin.range (case mat of VTensor rs => rs)
+      maskRow i (VArray elems) = VArray $ zipWith (\j, e => case e of SArray x => SArray (maskVal i j x)) Data.Vect.Fin.range elems
+  in VArray $ zipWith (\i, row => maskRow i row) Data.Vect.Fin.range (case mat of VArray rs => rs)
 
 
 ||| Row-wise layer normalization on a matrix.
@@ -282,8 +282,8 @@ export
 layerNormMatrix : (FromDouble ty, Floating ty, Fractional ty, Neg ty) =>
                   {m, n : Nat} -> Matrix m n ty -> Vector n ty -> Vector n ty -> ty
                   -> Matrix m n ty
-layerNormMatrix {m} {n} (VTensor rows) gamma beta eps =
-  VTensor $ map normRow rows
+layerNormMatrix {m} {n} (VArray rows) gamma beta eps =
+  VArray $ map normRow rows
   where
     nf : ty
     nf = fromDouble (cast (natToInteger n))
@@ -305,13 +305,13 @@ layerNormMatrix {m} {n} (VTensor rows) gamma beta eps =
 ||| Predictions are thresholded at 0.5 after sigmoid.
 export
 countBits : {w : Nat} -> Vector w Double -> Vector w Double -> (Nat, Nat)
-countBits (VTensor preds) (VTensor targets) = go preds targets 0 0
+countBits (VArray preds) (VArray targets) = go preds targets 0 0
   where
     sigD : Double -> Double
     sigD x = 1.0 / (1.0 + exp (negate x))
     go : Vect k (Scalar Double) -> Vect k (Scalar Double) -> Nat -> Nat -> (Nat, Nat)
     go [] [] c t = (c, t)
-    go (STensor p :: ps') (STensor tgt :: ts') c t =
+    go (SArray p :: ps') (SArray tgt :: ts') c t =
       let predBit = if sigD p >= 0.5 then 1.0 else 0.0
           match : Nat
           match = if predBit == tgt then 1 else 0

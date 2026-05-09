@@ -15,7 +15,7 @@ import Layer.Linear
 import Math
 import RL.ReplayBuffer
 import Sampler
-import Tensor
+import Array
 import Train
 import Util
 import Device
@@ -70,13 +70,13 @@ observeVec : PState -> Vect ObsDim Double
 observeVec s = pObserve s
 
 obsTensor : Vect ObsDim Double -> Vector ObsDim Double
-obsTensor v = VTensor (map STensor v)
+obsTensor v = VArray (map SArray v)
 
 qInput : Vect ObsDim Double -> Double -> Vect QInputDim Double
 qInput obs a = obs ++ [a]
 
 qInputTensor : Vect QInputDim Double -> Vector QInputDim Double
-qInputTensor v = VTensor (map STensor v)
+qInputTensor v = VArray (map SArray v)
 
 
 -- --- Gaussian / squash helpers --------------------------------------
@@ -235,7 +235,7 @@ qLossBatch n qOnline q1Tgt q2Tgt actor logStdV gamma alpha batch = do
 -- Build a [n, 1] non-grad Variable from a Vect of Doubles (one row each).
 buildScalarColumn : {n : Nat} -> Vect n Double -> Variable [n, 1] CPU
 buildScalarColumn {n} xs =
-  let rows = the (Vect n (Vector 1 Double)) (map (\x => VTensor [STensor x]) xs)
+  let rows = the (Vect n (Vector 1 Double)) (map (\x => VArray [SArray x]) xs)
       ptr = bulkToTensor2d rows
   in MkVar ptr Nothing
 

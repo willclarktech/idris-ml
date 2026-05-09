@@ -15,7 +15,7 @@ import Layer.Core
 import Layer.Linear
 import Layer.Ntm
 import Layer.Rnn
-import Tensor
+import Array
 import Util
 import Device
 import Variable
@@ -38,11 +38,11 @@ elapsedMs t0 t1 =
 
 supervisedData : Vect 5 (DataPoint 2 3 Double)
 supervisedData =
-  [ MkDataPoint (VTensor [1.5, -2.7]) (VTensor [0, 1, 0])
-  , MkDataPoint (VTensor [-3.2, 4.1]) (VTensor [0, 1, 0])
-  , MkDataPoint (VTensor [5.7, 0]) (VTensor [0, 0, 1])
-  , MkDataPoint (VTensor [-1.3, 8.8]) (VTensor [0, 1, 0])
-  , MkDataPoint (VTensor [2.9, -1.4]) (VTensor [1, 0, 0])
+  [ MkDataPoint (VArray [1.5, -2.7]) (VArray [0, 1, 0])
+  , MkDataPoint (VArray [-3.2, 4.1]) (VArray [0, 1, 0])
+  , MkDataPoint (VArray [5.7, 0]) (VArray [0, 0, 1])
+  , MkDataPoint (VArray [-1.3, 8.8]) (VArray [0, 1, 0])
+  , MkDataPoint (VArray [2.9, -1.4]) (VArray [1, 0, 0])
   ]
 
 benchSupervised : IO ()
@@ -85,7 +85,7 @@ rnnRawData : (n : Nat) -> Vect n (RecurrentDataPoint 1 1 Double)
 rnnRawData n = map (\(is, os) => MkRecurrentDataPoint (prep is) (prep os)) $ generateRnnDataSet {n}
   where
     prep : (ns : List Double) -> List (Vector 1 Double)
-    prep ns = map (flatten . STensor) ns
+    prep ns = map (flatten . SArray) ns
 
 benchRnn : IO ()
 benchRnn = do

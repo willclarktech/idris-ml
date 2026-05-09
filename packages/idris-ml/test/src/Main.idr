@@ -1,7 +1,7 @@
 module Main
 
 import Harness
-import Test.Tensor
+import Test.Array
 import Test.Math
 import Test.Schedule
 import Test.Init
@@ -12,7 +12,7 @@ import Test.Hpo.LrFinder
 
 main : IO ()
 main = runAll
-  [ ("Tensor",          Test.Tensor.tests)
+  [ ("Array",           Test.Array.tests)
   , ("Math",            Test.Math.tests)
   , ("Schedule",        Test.Schedule.tests)
   , ("Init",            Test.Init.tests)

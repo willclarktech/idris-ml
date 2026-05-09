@@ -20,7 +20,7 @@ import Hpo.LrFinder
 import Layer.Core
 import Layer.Ntm
 import Math
-import Tensor
+import Array
 import Train
 import Util
 import Device

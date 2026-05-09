@@ -7,6 +7,7 @@ depends = contrib
 
 modules = Harness
         , Main
+        , Test.Array
         , Test.Hpo.LrFinder
         , Test.Init
         , Test.Math
@@ -14,7 +15,6 @@ modules = Harness
         , Test.RL.ReplayBuffer
         , Test.Sampler
         , Test.Schedule
-        , Test.Tensor
 
 main = Main
 

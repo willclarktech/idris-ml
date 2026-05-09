@@ -16,7 +16,7 @@ import Layer.Linear
 import Math
 import RL.Gae
 import Sampler
-import Tensor
+import Array
 import Train
 import Util
 import Device
@@ -81,7 +81,7 @@ observeVec : AState -> Vect ObsDim Double
 observeVec s = aObserve s
 
 obsTensor : Vect ObsDim Double -> Vector ObsDim Double
-obsTensor v = VTensor (map STensor v)
+obsTensor v = VArray (map SArray v)
 
 
 ----------------------------------------------------------------------

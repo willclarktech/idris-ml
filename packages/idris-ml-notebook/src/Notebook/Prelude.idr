@@ -40,7 +40,7 @@ import public RL.Gae
 import public RL.ReplayBuffer
 import public Sampler
 import public Schedule
-import public Tensor
+import public Array
 import public Train
 import public Util
 import public Variable

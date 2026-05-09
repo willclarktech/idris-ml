@@ -16,7 +16,7 @@ import Layer.Core
 import Layer.Linear
 import Math
 import RL.ReplayBuffer
-import Tensor
+import Array
 import Train
 import Util
 import Device
@@ -57,7 +57,7 @@ observeVec : CPState -> Vect ObsDim Double
 observeVec s = cpObserve s
 
 obsTensor : Vect ObsDim Double -> Vector ObsDim Double
-obsTensor v = VTensor (map STensor v)
+obsTensor v = VArray (map SArray v)
 
 
 ----------------------------------------------------------------------
