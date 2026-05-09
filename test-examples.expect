@@ -72,3 +72,8 @@ example-sac                      avg_return   >=  -2500
 # ---- Cross-backend transfer ----
 example-transfer                 loss         <   5.0
 example-transfer-demo            loss         <   5.0
+
+# ---- F32/F64 precision + cross-backend hop ----
+# String compare via awk: overall=ok passes; anything else (FAIL / pending)
+# fails the row, surfacing precision or hop regressions explicitly.
+example-precision-demo           overall      ==  ok

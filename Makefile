@@ -1109,6 +1109,12 @@ BACKENDS := tape mlx mlx-gpu torch torch-mps
 # the default empty value runs the whole matrix so a final confirmation
 # surfaces every failure at once.
 FAIL_FAST ?=
+
+# Readiness gate for the example-precision-demo post-matrix step.
+# Added wiring-first (skipped) so CI stays green while
+# `Example/PrecisionDemo.idr` is in flight; flipped to 1 by the commit
+# that lands the example. Folds away once stable.
+PRECISION_DEMO_READY ?= 0
 test-examples:
 	@fail=0; skip=""; \
 	if command -v timeout >/dev/null 2>&1; then TIMEOUT_PREFIX="timeout $(EXAMPLE_TIMEOUT)"; \
@@ -1211,6 +1217,35 @@ test-examples:
 		fi; \
 	else \
 		echo "--- example-checkpoint-demo: skipped (requires tape+mlx+torch; skipped:$$skip) ---"; \
+	fi; \
+	if [ "$(PRECISION_DEMO_READY)" = "1" ] && [ -z "$$skip" ]; then \
+		echo "--- example-precision-demo (F32/F64 cast + cross-backend hop) ---"; \
+		t_start=$$(date +%s); \
+		pdemo_out=$$($$TIMEOUT_PREFIX $(MAKE) --no-print-directory example-precision-demo 2>&1); pdemo_rc=$$?; \
+		t_end=$$(date +%s); elapsed=$$((t_end - t_start)); \
+		if [ $$elapsed -lt 60 ]; then elapsed_fmt="$${elapsed}s"; \
+		elif [ $$elapsed -lt 3600 ]; then elapsed_fmt="$$((elapsed/60))m$$((elapsed%60))s"; \
+		else elapsed_fmt="$$((elapsed/3600))h$$(((elapsed%3600)/60))m"; fi; \
+		if [ $$pdemo_rc -ne 0 ]; then \
+			if [ $$pdemo_rc -eq 124 ]; then echo "FAIL: example-precision-demo timed out (>$(EXAMPLE_TIMEOUT)s) ($$elapsed_fmt)"; \
+			else echo "FAIL: example-precision-demo crashed (rc=$$pdemo_rc) ($$elapsed_fmt)"; fi; \
+			echo "$$pdemo_out" | tail -40 | sed 's/^/  | /'; \
+			fail=1; \
+		else \
+			result_line=$$(echo "$$pdemo_out" | grep '^RESULT' | tail -1); \
+			if [ -z "$$result_line" ]; then \
+				echo "FAIL: example-precision-demo -- no RESULT line ($$elapsed_fmt)"; \
+				echo "$$pdemo_out" | tail -40 | sed 's/^/  | /'; \
+				fail=1; \
+			else \
+				scripts/check-result.sh "example-precision-demo" "$$result_line" || fail=1; \
+				echo "  ($$elapsed_fmt)"; \
+			fi; \
+		fi; \
+	elif [ "$(PRECISION_DEMO_READY)" != "1" ]; then \
+		echo "--- example-precision-demo: skipped (PRECISION_DEMO_READY=0; example not yet landed) ---"; \
+	else \
+		echo "--- example-precision-demo: skipped (requires tape+mlx+torch; skipped:$$skip) ---"; \
 	fi; \
 	if [ -n "$$skip" ]; then echo "Skipped backends (not installed or build failed):$$skip"; fi; \
 	if [ $$fail -ne 0 ]; then echo "Some integration tests FAILED"; exit 1; fi; \
