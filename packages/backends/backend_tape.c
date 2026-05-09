@@ -835,7 +835,10 @@ TensorHandle tensor_mv(TensorHandle hmat, TensorHandle hvec) {
     Tensor* vec = (Tensor*)hvec;
     int m = mat->shape[0], n = mat->shape[1];
     int out_shape[] = {m};
-    double* out_data = calloc(m, sizeof(double));
+    /* Output goes straight into the arena — no calloc/free + memcpy
+       round-trip via make_tensor. dgemv's beta=0 means it overwrites
+       without reading, so an uninitialized arena buffer is correct. */
+    double* out_data = arena_alloc(m * sizeof(double));
 
 #ifdef __APPLE__
     cblas_dgemv(CblasRowMajor, CblasNoTrans, m, n, 1.0,
@@ -848,11 +851,10 @@ TensorHandle tensor_mv(TensorHandle hmat, TensorHandle hvec) {
     }
 #endif
 
-    Tensor* r = make_tensor(out_data, out_shape, 1, mat->requires_grad || vec->requires_grad);
-    free(out_data);
+    Tensor* r = make_tensor_arena(out_data, m, out_shape, 1,
+                                  mat->requires_grad || vec->requires_grad);
     if (r->requires_grad) {
         TapeEntry* e = tape_append(OP_MV, r, mat, vec, 0);
-        /* Save input values for backward (input may be arena-allocated, freed before backward) */
         MvMeta* meta = arena_alloc(sizeof(MvMeta));
         meta->m = m; meta->n = n;
         meta->x_vals = arena_alloc(n * sizeof(double));
@@ -945,7 +947,8 @@ TensorHandle tensor_linear(TensorHandle hW, TensorHandle hx, TensorHandle hbias)
     Tensor* bias = (Tensor*)hbias;
     int m = W->shape[0], n = W->shape[1];
     int out_shape[] = {m};
-    double* out_data = malloc(m * sizeof(double));
+    /* Arena alloc — same fast path as tensor_mv. */
+    double* out_data = arena_alloc(m * sizeof(double));
 
     /* y = W @ x */
 #ifdef __APPLE__
@@ -969,8 +972,7 @@ TensorHandle tensor_linear(TensorHandle hW, TensorHandle hx, TensorHandle hbias)
     }
 
     int rg = W->requires_grad || x->requires_grad || (bias && bias->requires_grad);
-    Tensor* r = make_tensor(out_data, out_shape, 1, rg);
-    free(out_data);
+    Tensor* r = make_tensor_arena(out_data, m, out_shape, 1, rg);
     if (rg) {
         TapeEntry* e = tape_append(OP_LINEAR, r, W, x, 0);
         LinearMeta* meta = arena_alloc(sizeof(LinearMeta));
