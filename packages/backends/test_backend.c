@@ -3453,6 +3453,113 @@ int main(void) {
                 param_clear();
             }
         }
+
+        /* Batch 2 Group F: concat / cat / stack. memcpy widths get
+           tape_elem_size-aware; tag propagated to results. Backward
+           cases (OP_CAT, OP_CONCAT_2D_AXIS1, OP_STACK) write parent
+           grads (F64) and don't read data, so they're unchanged. */
+        {
+            /* tensor_cat2: [3] ++ [2] → [5], backward splits grad. */
+            {
+                double av[] = {1.5, -0.25, 0.5};
+                double bv[] = {2.0, -1.0};
+                double out_f64[5], out_f32[5], gA_f64[3], gA_f32[3], gB_f64[2], gB_f32[2];
+
+                param_clear();
+                TensorHandle a64 = tensor_create_param_1d_streamed(3, heap_copy(av, 3), 0, 1);
+                param_register("a", a64);
+                TensorHandle b64 = tensor_create_param_1d_streamed(2, heap_copy(bv, 2), 0, 1);
+                param_register("b", b64);
+                TensorHandle r64 = tensor_cat2(a64, b64);
+                tensor_to_doubles(r64, out_f64);
+                tensor_backward(tensor_sum(r64));
+                for (int i = 0; i < 3; i++) gA_f64[i] = param_grad_item_at(0, i);
+                for (int i = 0; i < 2; i++) gB_f64[i] = param_grad_item_at(1, i);
+                param_clear();
+
+                TensorHandle a32 = tensor_create_param_1d_streamed(3, heap_copy(av, 3), 0, 0);
+                param_register("a", a32);
+                TensorHandle b32 = tensor_create_param_1d_streamed(2, heap_copy(bv, 2), 0, 0);
+                param_register("b", b32);
+                TensorHandle r32 = tensor_cat2(a32, b32);
+                tensor_to_doubles(r32, out_f32);
+                tensor_backward(tensor_sum(r32));
+                for (int i = 0; i < 3; i++) gA_f32[i] = param_grad_item_at(0, i);
+                for (int i = 0; i < 2; i++) gB_f32[i] = param_grad_item_at(1, i);
+
+                ASSERT_TRUE("cat2: F32 output propagates F32 tag",
+                            strcmp(tensor_dtype_name(r32), "F32") == 0);
+                for (int i = 0; i < 5; i++) {
+                    char m[64];
+                    snprintf(m, sizeof m, "cat2: y_f32[%d] ~ y_f64", i);
+                    ASSERT_NEAR(m, out_f32[i], out_f64[i], 1e-5);
+                }
+                for (int i = 0; i < 3; i++) {
+                    char m[64];
+                    snprintf(m, sizeof m, "cat2: a.grad_f32[%d] ~ a.grad_f64", i);
+                    ASSERT_NEAR(m, gA_f32[i], gA_f64[i], 1e-5);
+                }
+                for (int i = 0; i < 2; i++) {
+                    char m[64];
+                    snprintf(m, sizeof m, "cat2: b.grad_f32[%d] ~ b.grad_f64", i);
+                    ASSERT_NEAR(m, gB_f32[i], gB_f64[i], 1e-5);
+                }
+                param_clear();
+            }
+
+            /* tensor_concat_2d_axis1: [2,2] ++ [2,3] along axis 1 → [2,5] */
+            {
+                double av[] = {1.0, 2.0, 3.0, 4.0};   /* [2,2] */
+                double bv[] = {5.0, 6.0, 7.0, 8.0, 9.0, 10.0};   /* [2,3] */
+                double out_f64[10], out_f32[10];
+
+                TensorHandle a64 = tensor_create_2d_streamed(2, 2, heap_copy(av, 4), 0, 0, 1);
+                TensorHandle b64 = tensor_create_2d_streamed(2, 3, heap_copy(bv, 6), 0, 0, 1);
+                TensorHandle r64 = tensor_concat_2d_axis1(a64, b64);
+                tensor_to_doubles(r64, out_f64);
+
+                TensorHandle a32 = tensor_create_2d_streamed(2, 2, heap_copy(av, 4), 0, 0, 0);
+                TensorHandle b32 = tensor_create_2d_streamed(2, 3, heap_copy(bv, 6), 0, 0, 0);
+                TensorHandle r32 = tensor_concat_2d_axis1(a32, b32);
+                tensor_to_doubles(r32, out_f32);
+
+                ASSERT_TRUE("concat_2d_axis1: F32 output propagates F32 tag",
+                            strcmp(tensor_dtype_name(r32), "F32") == 0);
+                for (int i = 0; i < 10; i++) {
+                    char m[64];
+                    snprintf(m, sizeof m, "concat_2d_axis1: y_f32[%d] ~ y_f64", i);
+                    ASSERT_NEAR(m, out_f32[i], out_f64[i], 1e-5);
+                }
+            }
+
+            /* tensor_stack: stack 3 F32 scalars → F32 [3]. */
+            {
+                double s0v = 1.5, s1v = -0.25, s2v = 0.5;
+                double out_f64[3], out_f32[3];
+
+                TensorHandle s0_64 = tensor_create_scalar_streamed(s0v, 0, 0, 1);
+                TensorHandle s1_64 = tensor_create_scalar_streamed(s1v, 0, 0, 1);
+                TensorHandle s2_64 = tensor_create_scalar_streamed(s2v, 0, 0, 1);
+                TensorHandle inputs64[3] = {s0_64, s1_64, s2_64};
+                TensorHandle r64 = tensor_stack(inputs64, 3, 0);
+                tensor_to_doubles(r64, out_f64);
+
+                TensorHandle s0_32 = tensor_create_scalar_streamed(s0v, 0, 0, 0);
+                TensorHandle s1_32 = tensor_create_scalar_streamed(s1v, 0, 0, 0);
+                TensorHandle s2_32 = tensor_create_scalar_streamed(s2v, 0, 0, 0);
+                TensorHandle inputs32[3] = {s0_32, s1_32, s2_32};
+                TensorHandle r32 = tensor_stack(inputs32, 3, 0);
+                tensor_to_doubles(r32, out_f32);
+
+                ASSERT_TRUE("stack: F32 output propagates F32 tag",
+                            strcmp(tensor_dtype_name(r32), "F32") == 0);
+                for (int i = 0; i < 3; i++) {
+                    char m[64];
+                    snprintf(m, sizeof m, "stack: y_f32[%d] ~ y_f64", i);
+                    ASSERT_NEAR(m, out_f32[i], out_f64[i], 1e-5);
+                }
+            }
+        }
     }
 #endif
 

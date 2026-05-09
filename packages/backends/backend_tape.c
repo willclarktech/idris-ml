@@ -1386,16 +1386,28 @@ TensorHandle tensor_linear_2d(TensorHandle hW, TensorHandle hX, TensorHandle hbi
 TensorHandle tensor_concat_2d_axis1(TensorHandle hA, TensorHandle hB) {
     Tensor* A = (Tensor*)hA;
     Tensor* B = (Tensor*)hB;
+    if (A->dtype_tag != B->dtype_tag) tape_abort_mixed_dtype("tensor_concat_2d_axis1");
     int m = A->shape[0];
     int n = A->shape[1];
     int k = B->shape[1];
     int out_shape[] = {m, n + k};
+    int rg = A->requires_grad || B->requires_grad;
+    if (A->dtype_tag == DT_F32) {
+        /* F32 path: float-sized arena buffer + byte-correct memcpy widths. */
+        float* out_data = arena_alloc(m * (n + k) * sizeof(float));
+        for (int i = 0; i < m; i++) {
+            memcpy(out_data + i * (n + k), ((float*)A->data) + i * n, n * sizeof(float));
+            memcpy(out_data + i * (n + k) + n, ((float*)B->data) + i * k, k * sizeof(float));
+        }
+        Tensor* r = make_tensor_arena_f32(out_data, m * (n + k), out_shape, 2, rg);
+        if (rg) tape_append(OP_CONCAT_2D_AXIS1, r, A, B, (double)n);
+        return r;
+    }
     double* out_data = malloc(m * (n + k) * sizeof(double));
     for (int i = 0; i < m; i++) {
         memcpy(out_data + i * (n + k), ((double*)A->data) + i * n, n * sizeof(double));
         memcpy(out_data + i * (n + k) + n, ((double*)B->data) + i * k, k * sizeof(double));
     }
-    int rg = A->requires_grad || B->requires_grad;
     Tensor* r = make_tensor(out_data, out_shape, 2, rg);
     free(out_data);
     if (rg) tape_append(OP_CONCAT_2D_AXIS1, r, A, B, (double)n);
@@ -3110,10 +3122,21 @@ TensorHandle tensor_select(TensorHandle h, int dim, int index) {
 }
 
 TensorHandle tensor_stack(TensorHandle* tensors, int count, int dim) {
-    /* Stack scalars into a 1D vector */
-    double* data = malloc(count * sizeof(double));
-    for (int i = 0; i < count; i++) data[i] = ((double*)((Tensor*)tensors[i])->data)[0];
+    /* Stack scalars into a 1D vector. dtype follows the inputs' tag: if all
+       inputs are F32 the output is F32; if any input is F32-mixed-with-F64
+       we abort. Reads each scalar via tape_load_d so the dtype-agnostic
+       interface works for both storages. */
     int shape[] = {count};
+    int out_tag = (count > 0) ? ((Tensor*)tensors[0])->dtype_tag : DT_F64;
+    for (int i = 1; i < count; i++)
+        if (((Tensor*)tensors[i])->dtype_tag != out_tag) tape_abort_mixed_dtype("tensor_stack");
+    if (out_tag == DT_F32) {
+        float* data = arena_alloc(count * sizeof(float));
+        for (int i = 0; i < count; i++) data[i] = (float)tape_load_d((Tensor*)tensors[i], 0);
+        return make_tensor_arena_f32(data, count, shape, 1, 0);
+    }
+    double* data = malloc(count * sizeof(double));
+    for (int i = 0; i < count; i++) data[i] = tape_load_d((Tensor*)tensors[i], 0);
     Tensor* r = make_tensor(data, shape, 1, 0);
     free(data);
     return r;
@@ -3127,13 +3150,22 @@ TensorHandle tensor_cat(TensorHandle* tensors, int count, int dim) {
 TensorHandle tensor_cat2(TensorHandle ha, TensorHandle hb) {
     Tensor* a = (Tensor*)ha;
     Tensor* b = (Tensor*)hb;
+    if (a->dtype_tag != b->dtype_tag) tape_abort_mixed_dtype("tensor_cat2");
     int na = a->numel, nb = b->numel, total = na + nb;
     int rg = a->requires_grad || b->requires_grad;
+    int* shape = arena_alloc(sizeof(int));
+    shape[0] = total;
+    if (a->dtype_tag == DT_F32) {
+        float* data = arena_alloc(total * sizeof(float));
+        memcpy(data,      a->data, na * sizeof(float));
+        memcpy(data + na, b->data, nb * sizeof(float));
+        Tensor* r = make_tensor_arena_f32(data, total, shape, 1, rg);
+        if (rg) tape_append(OP_CAT, r, a, b, (double)na);
+        return r;
+    }
     double* data = arena_alloc(total * sizeof(double));
     memcpy(data, a->data, na * sizeof(double));
     memcpy(data + na, b->data, nb * sizeof(double));
-    int* shape = arena_alloc(sizeof(int));
-    shape[0] = total;
     Tensor* r = arena_alloc(sizeof(Tensor));
     memset(r, 0, sizeof(Tensor));
     r->data = data; r->shape = shape; r->rank = 1;
