@@ -43,9 +43,9 @@ These have target accuracy thresholds in
 | seq-classify | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | 30 min | unmeasured |
 | mnist | ~120000 (5 full passes ~10 min) | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | 5 epochs | ~10 min | 30 min | A |
 | gpt (embedded) | ~1000 (per epoch ≈1 s) | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | 30 epochs | ~30 s | 30 min | A |
-| ntm-copy | **38** (2026-05-08, batch=1) | unmeasured | unmeasured | unmeasured (re-baseline) | unmeasured | unmeasured | unmeasured | 50000 | **~30 min** (full no-ES); ~15-20 min expected with new percentile-ES | 30 min | **B/A** |
+| ntm-copy (post-1.5b align, seed=42) | **20** ms/ep | not learning | **34-60** ms/ep | ~40 ms/ep | ~0.5× | ✗ broken | ~1× | 5,000 (torch) / 35,500 (tape) | torch **2:48-5:05** ✓ ; tape **11:40** ⚠️ acc_full 80% (vs torch's 100%); mlx ✗ not learning | 30 min | torch ✅ A; tape ⚠️ acc-gap; mlx ❌ |
 | ntm-recall | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | 50000 | unmeasured | 30 min | unmeasured |
-| dnc-copy | **113** (2026-05-07) | 160 (P1 doc) | 130 (P1 doc) | **9.1** (2026-05-07) | **12.5×** | ~16× | ~13× | 46000 | **~1.5 h** | 30 min | **C/D** |
+| dnc-copy (post-1.5c align, seed=42) | **123** ms/ep (broken broadcast on n²) | unmeasured | **133** ms/ep | **9** ms/ep | ~14× | unmeasured | ~14× | 3,500 (torch) | torch **7:46** ✓ acc 100/84 (seed-42 RNG variance vs PyTorch 100/99 — at seed=1 Idris 100/96 vs PyTorch 100/64); tape needs broadcast fix for link-matrix update | 30 min | torch ✅ A (RNG variance); tape ❌ broken broadcast |
 | dnc-recall | ~4360 (pre-rewrite) | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | ≥50000 | **>10 h** | 30 min | **D** |
 
 ## RL examples (13)

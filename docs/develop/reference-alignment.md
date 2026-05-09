@@ -438,6 +438,47 @@ DNC-Copy (batch=1, N=32, max-len=10, eval len 1-20):
 
 Multi-seed mean: Idris ≈ 90%, PyTorch ≈ 82%. Both implementations show massive seed-variance on length-generalization (1-10 trained → 1-20 eval) — PyTorch swings 35 points across two seeds, Idris swings 12 points. The seed=42 single-seed gap is RNG variance (different C `rand()` vs PCG init values for "seed=42"), not an algorithmic bug. Multi-seed mean is comparable; Idris-on-torch is a faithful port of the PyTorch DNC.
 
+## Phase 1.5d findings (2026-05-08) — tape + mlx don't track torch on aligned NTM
+
+After landing the model alignment, ran NTM-Copy at seed=42 batch=1 on
+all three backends. Idris-on-torch matches PyTorch ref (the autograd
+oracle is libtorch in both). tape and mlx do NOT match:
+
+| Backend | epochs | acc_short | acc_full | wall-clock |
+|---|---:|---:|---:|---:|
+| Idris-on-torch | 5,000 | 100% | 100% | 2:48 – 5:05 (run-to-run variance) |
+| PyTorch ref | 4,600 | 99.6% | 100% | 3:02 |
+| Idris-on-tape | 35,500 | 95.8% | **80.5%** | 11:40 |
+| Idris-on-mlx | killed at 17K | ~50% (random level) | — | 29 min (no convergence) |
+
+Forward parity is fine — at epoch 0 tape matches torch within 36 ULPs
+(`0.7018285801505979` vs `0.7018285801506005`); mlx differs at digit 7
+because it's float32 internally. The convergence trajectory drift comes
+from **backward** differences accumulating over many epochs. The NTM
+model code is shared across backends; the divergence is in tape's
+hand-rolled backward replay rules and mlx's training pipeline, not in
+the layer code.
+
+This was likely **latent** before the alignment fix — the broken
+additive-write NTM converged to acc_full=82% on tape (similar to the
+post-alignment 80%), so tape's gradient bug was masked by the
+algorithmic regression. The fix exposes it. mlx wasn't tested on the
+aligned model before now and the failure to train is new evidence.
+
+**Filed as separate engineering projects** — backend-side investigation
+is not a model-alignment fix:
+- tape: locate which backward rule(s) for the new aligned-NTM ops
+  (sigmoid+reshape on memInit, learned LSTM h0/c0, outer-products in
+  interp write) produce drift, and fix.
+- mlx: identify why the aligned model fails to descend at all on mlx.
+  Could be backward rule, sync timing, or float32 precision compounding.
+
+For now, **Idris-on-torch is the convergence-correctness backend** for
+NTM/DNC examples; tape and mlx have a documented quality gap until
+their backward rules are audited.
+
 ## Status
 
-All known discrepancies resolved.
+All known discrepancies resolved (model-side); two backend-side
+backward-rule issues filed as follow-ups (tape gradient drift; mlx
+NTM training failure).
