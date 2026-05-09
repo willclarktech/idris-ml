@@ -15,6 +15,7 @@ modules = Compat.Random
         , Hpo
         , Hpo.LrFinder
         , Init
+        , Layer
         , Layer.Activation
         , Layer.BatchNorm
         , Layer.Conv
