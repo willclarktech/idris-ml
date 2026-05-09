@@ -959,9 +959,20 @@ dropped its `dtCastFrom` workaround. `mnist_get_image` got the same `dtag`
 treatment (2026-05-22) and dropped its own `dtCastFrom`. `tensor_causal_mask`
 had the same fixed-dtype shape but was dead (`primCausalMask` never called;
 the live mask uses `dtCreateState2d`, already dtype-aware) and was deleted.
-`tensor_argsort`'s integer index output is the remaining case — its
-type-safe fix (a typed integral-index API) is blocked on integer dtypes
-across all backends, tracked as a High-priority follow-up.
+`tensor_argsort`'s integer index output was the remaining case, **fixed
+2026-05-22** with a typed integral-index API: `targsort` returns an
+`I64`-dtyped tensor and `tgather`/`tscatterAdd` take an `IsIntegral` index,
+so "this holds indices, not reals" is in the type. Torch `tensor_argsort`
+now materializes `kLong` instead of `.to(kFloat64)` — which also kills a
+latent MPS abort (Metal has no F64) and the >2^53 precision loss; `gather`/
+`scatter_add` already coerce to `kLong`, so the untyped DNC path is
+unaffected. The surface is *torch-only by construction* (an integer tensor
+only exists where `Compatible d I64` holds — `TorchDev TCpu`/`TCuda`; Metal
+and tape/mlx store F64 only), so the rejected alternative of casting indices
+to the *input* float dtype (lossy on low-mantissa dtypes) was avoided.
+All-backend availability follows the tape/mlx integer-storage row, with no
+change needed to this surface. Demoed by `Example.IndexOps` (torch-only,
+`make example-index-ops`).
 
 Full design memo and decision log: `docs/develop/dtype-parameter.md`.
 
