@@ -782,141 +782,48 @@ static void compute_bcast_strides(Tensor* a, int r_rank, int* r_shape,
     }
 }
 
-/* Element-wise binary ops: scalar, same-shape (vDSP fast path), and
-   general numpy-style broadcast (e.g. (n,1)*(n,m), (1,m)*(n,m), (m,)*(n,m)). */
-static TensorHandle binop_elementwise_inner(TensorHandle ha, TensorHandle hb, int op_tag,
-                                       double (*scalar_fn)(double, double));
+/* Element-wise binary + unary kernel bodies live in backend_tape_kernels.inc
+   so the same source compiles for F64 and (later, step 6) F32 storage.
+   Today: single include with SCALAR=double / SFX(name)=name##_f64.
+   The kernels (binop_elementwise_inner_f64 / unop_elementwise_f64) are
+   the implementation; the wrappers below are the public entry points
+   step 7 will tag-dispatch from. */
+#define SCALAR    double
+#define SFX(name) name##_f64
+#define VDSP_VADD vDSP_vaddD
+#define VDSP_VSUB vDSP_vsubD
+#define VDSP_VMUL vDSP_vmulD
+#define VDSP_VDIV vDSP_vdivD
+#define VDSP_VNEG vDSP_vnegD
+#define VV_EXP    vvexp
+#define VV_LOG    vvlog
+#define VV_SQRT   vvsqrt
+#define VV_TANH   vvtanh
+#define VV_FABS   vvfabs
+#include "backend_tape_kernels.inc"
+#undef SCALAR
+#undef SFX
+#undef VDSP_VADD
+#undef VDSP_VSUB
+#undef VDSP_VMUL
+#undef VDSP_VDIV
+#undef VDSP_VNEG
+#undef VV_EXP
+#undef VV_LOG
+#undef VV_SQRT
+#undef VV_TANH
+#undef VV_FABS
+
 static TensorHandle binop_elementwise(TensorHandle ha, TensorHandle hb, int op_tag,
-                                       double (*scalar_fn)(double, double)) {
+                                      double (*scalar_fn)(double, double)) {
     extern double prof_binop_inside_ms[];
     extern int prof_binop_inside_count[];
     double _b0 = _wall_ms();
-    TensorHandle r = binop_elementwise_inner(ha, hb, op_tag, scalar_fn);
+    TensorHandle r = binop_elementwise_inner_f64(ha, hb, op_tag, scalar_fn);
     if (op_tag >= 0 && op_tag < OP_COUNT) {
         prof_binop_inside_ms[op_tag] += _wall_ms() - _b0;
         prof_binop_inside_count[op_tag]++;
     }
-    return r;
-}
-static TensorHandle binop_elementwise_inner(TensorHandle ha, TensorHandle hb, int op_tag,
-                                       double (*scalar_fn)(double, double)) {
-    Tensor* a = (Tensor*)ha; Tensor* b = (Tensor*)hb;
-    int rg = a->requires_grad || b->requires_grad;
-
-    /* Both scalar */
-    if (a->numel == 1 && b->numel == 1) {
-        Tensor* r = make_scalar(scalar_fn(((double*)a->data)[0], ((double*)b->data)[0]), rg);
-        if (rg) tape_append(op_tag, r, a, b, 0);
-        return r;
-    }
-
-    /* Same shape — vDSP fast path */
-    if (a->numel == b->numel && a->rank == b->rank) {
-        int same = 1;
-        for (int k = 0; k < a->rank; k++) {
-            if (a->shape[k] != b->shape[k]) { same = 0; break; }
-        }
-        if (same) {
-            int n = a->numel;
-            extern int prof_binop_path_count[];
-            prof_binop_path_count[0]++;
-            double* data = arena_alloc(n * sizeof(double));
-            /* Direct kernel-time probe (diagnostic): measure the actual
-               vDSP call separately from the tape_append attribution.
-               Compare prof_kernel_per_op vs prof_forward_per_op to see how
-               much of the "ADD bucket" is actually kernel work. */
-            extern double prof_kernel_per_op[];
-            extern int prof_kernel_count_per_op[];
-            double _k0 = _wall_ms();
-#ifdef __APPLE__
-            vDSP_Length vn = (vDSP_Length)n;
-            switch (op_tag) {
-                case OP_ADD: vDSP_vaddD(a->data, 1, b->data, 1, data, 1, vn); break;
-                case OP_SUB: vDSP_vsubD(b->data, 1, a->data, 1, data, 1, vn); break;
-                case OP_MUL: vDSP_vmulD(a->data, 1, b->data, 1, data, 1, vn); break;
-                case OP_DIV: vDSP_vdivD(b->data, 1, a->data, 1, data, 1, vn); break;
-                default:
-                    for (int i = 0; i < n; i++) data[i] = scalar_fn(((double*)a->data)[i], ((double*)b->data)[i]);
-                    break;
-            }
-#else
-            for (int i = 0; i < n; i++) data[i] = scalar_fn(((double*)a->data)[i], ((double*)b->data)[i]);
-#endif
-            if (op_tag >= 0 && op_tag < OP_COUNT) {
-                prof_kernel_per_op[op_tag] += _wall_ms() - _k0;
-                prof_kernel_count_per_op[op_tag]++;
-            }
-            Tensor* r = make_tensor_arena(data, n, a->shape, a->rank, rg);
-            if (rg) tape_append(op_tag, r, a, b, 0);
-            return r;
-        }
-    }
-
-    /* Scalar broadcast (one side is rank-0 / numel=1) */
-    if (a->numel == 1 || b->numel == 1) {
-        Tensor* big = (a->numel == 1) ? b : a;
-        double sv = (a->numel == 1) ? ((double*)a->data)[0] : ((double*)b->data)[0];
-        int n = big->numel;
-        extern int prof_binop_path_count[];
-        prof_binop_path_count[1]++;
-        double* data = arena_alloc(n * sizeof(double));
-        if (a->numel == 1) {
-            for (int i = 0; i < n; i++) data[i] = scalar_fn(sv, ((double*)big->data)[i]);
-        } else {
-            for (int i = 0; i < n; i++) data[i] = scalar_fn(((double*)big->data)[i], sv);
-        }
-        Tensor* r = make_tensor_arena(data, n, big->shape, big->rank, rg);
-        if (rg) tape_append(op_tag, r, a, b, 0);
-        return r;
-    }
-
-    /* General broadcast */
-    {
-        extern int prof_binop_path_count[];
-        extern double prof_binop_general_ms;
-        prof_binop_path_count[2]++;
-        /* Log shapes once per op_tag so we can spot which call sites
-           are taking the slow path. */
-        static int logged[OP_COUNT] = {0};
-        if (op_tag >= 0 && op_tag < OP_COUNT && !logged[op_tag]) {
-            logged[op_tag] = 1;
-            fprintf(stderr, "[tape diag] op=%d general_bcast shapes: a=[", op_tag);
-            for (int k = 0; k < a->rank; k++)
-                fprintf(stderr, "%d%s", a->shape[k], k+1<a->rank?",":"");
-            fprintf(stderr, "] b=[");
-            for (int k = 0; k < b->rank; k++)
-                fprintf(stderr, "%d%s", b->shape[k], k+1<b->rank?",":"");
-            fprintf(stderr, "]\n");
-        }
-    }
-    double _gb0 = _wall_ms();
-    int r_shape[MAX_BCAST_RANK], r_rank, r_numel;
-    if (!compute_bcast_shape(a, b, r_shape, &r_rank, &r_numel)) {
-        fprintf(stderr, "binop_elementwise: incompatible shapes\n");
-        abort();
-    }
-    int a_strides[MAX_BCAST_RANK], b_strides[MAX_BCAST_RANK];
-    compute_bcast_strides(a, r_rank, r_shape, a_strides);
-    compute_bcast_strides(b, r_rank, r_shape, b_strides);
-
-    double* data = arena_alloc(r_numel * sizeof(double));
-    int idx[MAX_BCAST_RANK] = {0};
-    for (int i = 0; i < r_numel; i++) {
-        int ai = 0, bi = 0;
-        for (int k = 0; k < r_rank; k++) {
-            ai += idx[k] * a_strides[k];
-            bi += idx[k] * b_strides[k];
-        }
-        data[i] = scalar_fn(((double*)a->data)[ai], ((double*)b->data)[bi]);
-        for (int k = r_rank - 1; k >= 0; k--) {
-            if (++idx[k] < r_shape[k]) break;
-            idx[k] = 0;
-        }
-    }
-    Tensor* r = make_tensor_arena(data, r_numel, r_shape, r_rank, rg);
-    extern double prof_binop_general_ms;
-    prof_binop_general_ms += _wall_ms() - _gb0;
-    if (rg) tape_append(op_tag, r, a, b, 0);
     return r;
 }
 
@@ -940,38 +847,8 @@ static double fn_log_d(double x) { return log(x); }
 static double fn_sqrt_d(double x) { return sqrt(x); }
 
 static TensorHandle unop_elementwise(TensorHandle ha, int op, double (*fn)(double)) {
-    Tensor* a = (Tensor*)ha;
-    if (a->numel == 1) {
-        /* Scalar path (backward rules use [0] indexing) */
-        Tensor* r = make_scalar(fn(((double*)a->data)[0]), a->requires_grad);
-        if (a->requires_grad) tape_append(op, r, a, NULL, 0);
-        return r;
-    }
-    /* Multi-element: apply fn element-wise, preserve shape */
-    int n = a->numel;
-    double* data = arena_alloc(n * sizeof(double));
-#ifdef __APPLE__
-    {
-        int vn = n;
-        int used_vdsp = 1;
-        switch (op) {
-            case OP_NEG: vDSP_vnegD(a->data, 1, data, 1, (vDSP_Length)n); break;
-            case OP_EXP: vvexp(data, a->data, &vn); break;
-            case OP_LOG: vvlog(data, a->data, &vn); break;
-            case OP_SQRT: vvsqrt(data, a->data, &vn); break;
-            case OP_TANH: vvtanh(data, a->data, &vn); break;
-            case OP_ABS: vvfabs(data, a->data, &vn); break;
-            default: used_vdsp = 0; break;
-        }
-        if (!used_vdsp)
-            for (int i = 0; i < n; i++) data[i] = fn(((double*)a->data)[i]);
-    }
-#else
-    for (int i = 0; i < n; i++) data[i] = fn(((double*)a->data)[i]);
-#endif
-    Tensor* r = make_tensor_arena(data, n, a->shape, a->rank, a->requires_grad);
-    if (a->requires_grad) tape_append(op, r, a, NULL, 0);
-    return r;
+    /* Body lives in backend_tape_kernels.inc as unop_elementwise_f64. */
+    return unop_elementwise_f64(ha, op, fn);
 }
 
 TensorHandle tensor_neg(TensorHandle a) { return unop_elementwise(a, OP_NEG, fn_neg); }
