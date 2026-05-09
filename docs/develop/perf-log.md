@@ -105,6 +105,44 @@ result:  `RESULT epochs=4600 acc_short=0.9956 acc_full=0.9999 seed=42`
 notes:   Algorithmic oracle. All Idris-on-torch convergence comparisons
          use this as the reference point.
 
+### 2026-05-08 — commit `6068d5c` (Phase 1.5d, tape seed=1 variance check)
+
+example: ntm-copy
+backend: tape
+args:    --seed 1 --batch 1
+wall:    2m 13s
+converged at epoch 5700 (p10_loss=0.007001773762984365)
+result:  `RESULT epochs=5700 acc_short=0.8421 acc_full=0.7091 seed=1`
+notes:   Tape ES fires earlier than seed=42 (5,700 vs 35,500) but to
+         WORSE accuracy (84/71 vs 96/80). Suggests p10 dipped below
+         threshold on noise — premature ES, not real convergence.
+
+### 2026-05-08 — commit `6068d5c` (PyTorch ref NTM-Copy seed=1)
+
+example: ntm-copy
+backend: pytorch_ref
+args:    --seed 1 --batch 1
+wall:    1m 58s
+converged at epoch 6600 (p10_loss=0.003023173427209258)
+result:  `RESULT epochs=6600 acc_short=1.0 acc_full=1.0 seed=1`
+notes:   PyTorch ref converges to 100/100 at seed=1 too (matching
+         seed=42's 100/100). For NTM, PyTorch is robust to seed.
+
+### 2026-05-08 — commit `6068d5c` (Idris-on-torch seed=1, **killed**)
+
+example: ntm-copy
+backend: torch
+args:    --seed 1 --batch 1
+wall:    >10 min (killed at epoch ~17,500, no convergence)
+notes:   Idris-on-torch at seed=1 doesn't converge in the same time
+         budget that PyTorch needs (1:58). Loss volatile around
+         0.3-0.6 at epoch 17K. Suggests Idris-on-torch may also have
+         seed-sensitivity that PyTorch doesn't share — possibly RNG
+         init differences (Idris C `rand()` vs torch PCG produce
+         different actual init values for "seed=1") or numeric
+         differences in the autograd path. Re-run with longer budget
+         and a more permissive ES might surface convergence.
+
 ---
 
 ## DNC-Copy
@@ -188,3 +226,18 @@ deferred until Phase 0/1 baseline sweep.)
 (deferred — task-bound or short-convergence; ratio is less meaningful
 than wall-clock budget. See `docs/develop/perf-baseline.md` for
 inherited estimates.)
+
+### 2026-05-08 — commit `6068d5c+dirty`
+
+example: ntm-copy
+backend: tape
+args:    --seed 42 --batch 1 --epochs 5
+exit:    2
+wall:    6.635s (6635 ms)
+
+### 2026-05-08 — `ntm-copy` [tape] @ `6068d5c+dirty` — `--seed 42 --batch 1 --epochs 5`
+
+exit:    0
+wall:    11.010s (11010 ms)
+stats:   Completed in 0s (5 epochs, 0ms/epoch)
+result:  `RESULT	epochs=5	acc_short=0.4875416666666667	acc_full=0.49835609787099727	seed=42`
