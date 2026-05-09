@@ -3,6 +3,26 @@
 Completed work, most recent first. Moved out of `TODO.md` on 2026-05-22.
 
 
+Kind-major RuntimeDType tag layout — wire dtag renumbered from grow-as-needed to a kind-major, precision-minor scheme (closed 2026-05-23):
+- Old layout (`F32=0, F64=1, BF16=2, F16=3, I8=4, I16=5, I32=6, I64=7, U8=8, Bool=9`) mixed lingua-franca demand with insertion order and silently meant F32 when a `dtag` was zero-initialized (the b2d6c7d mnist incident). New layout reserves `0` as invalid, groups by kind family (U=1, I=2, F=3, BF=4, TF=5, sub-byte=6-7) with 4 lanes per family for {8, 16, 32, 64}-bit variants, and leaves sub-byte slots (24-31) open for future quantization dtypes (U4/I4/NF4/ternary/MX) — those don't fit the `8 << lane` formula because their semantics aren't pure `(family, bit-width)` (NF4 has a learned mapping; MX has per-block scale metadata; ternary stores 2-bit values with {−1, 0, +1} semantics).
+- New tags: `1=Bool, 4=U8, 8/9/10/11=I8/I16/I32/I64, 13=F16, 14=F32, 15=F64, 17=BF16`. For numeric families: `bit_width = 8 << (tag & 3)`, `family = tag >> 2`. Used range 0..17 fits in u5.
+- Touched in lockstep: `Tensor.idr` (10 `RuntimeDType` instances), `DType/Core.idr` doc comment, `backend.h` reference comments + dispatch declarations, `backend_torch.cpp` (`st_for_dtag` + 10 create/cast switches + `tensor_one_hot`; `default` arm now aborts loudly on invalid dtag instead of silently returning F32), `backend_mlx.cpp` (11 create/cast switches + `tensor_one_hot`), `backend_tape.c` (`tape_tag_from_dtag` translation table → explicit switch with abort-on-invalid default; 10 `tensor_create_*_streamed` wrappers; block comment about ABI vs internal `DT_*` enum), and 154 dtag literals across `test_backend.c` + `test_safetensors.c` (deterministic rewrite via `/tmp/remap_dtags.py` — paren-depth-aware so nested calls like `heap_copy(buf, n)` aren't confused).
+- Tape's internal `DT_*` enum stays dense (`F64=0..BOOL=9`) so the hot read paths (`tape_load_d`, the 67-case backward switch) keep tight switch density; only the ABI boundary translates.
+- Wire tag isn't a persistent format — `safetensors.c` uses the string dtype name on disk — so no on-disk migration. Renumber lands as one atomic paired commit.
+- Test gate `T33: RuntimeDType tag layout (kind-major)` in `test_backend.c` — for every wired dtype, asserts that `tensor_create_scalar_streamed(1.0, 0, 0, <new_dtag>)` produces a tensor whose `tensor_dtype_name` returns the expected name; runs on torch (all 10 dtypes) + tape (all 10 via lingua-franca storage) + mlx (F32/F64 only).
+- RED before this commit (locally observed under `BACKEND=torch test-backend`, before any dispatch updates landed):
+  - `FAIL: dtag=15 resolves to F64` (got F32 — torch default fallback since 15 was out of the old 0-9 range)
+  - `FAIL: dtag=1 resolves to Bool` (got F64 — old layout had F64=1)
+  - `FAIL: dtag=4 resolves to U8` (got I8 — old layout had I8=4)
+  - `FAIL: dtag=8 resolves to I8` (got U8 — old layout had U8=8)
+  - `FAIL: dtag=9 resolves to I16` (got Bool — old layout had Bool=9)
+  - `FAIL: dtag=10 resolves to I32` (got F32 — out of old range)
+  - `FAIL: dtag=11 resolves to I64` (got F32 — out of old range)
+  - `FAIL: dtag=13 resolves to F16` (got F32 — out of old range)
+  - `FAIL: dtag=17 resolves to BF16` (got F32 — out of old range)
+- GREEN after: all 10 new (dtag → expected name) cases pass on torch + tape; F32/F64 pass on mlx. F64 path byte-identical through all examples (the supervised classifier still converges to loss 0.138 with all 4 test classes predicted correctly).
+- Verified: `test-backend-{tape,torch,mlx}` all green; `check-{rename-headers,ffi-wrap-template,non-io-side-effects}` clean; `./build/exec/test` exits 0 (109 PASS / 0 FAIL across Idris unit suite); `test-safetensors` green. Closes TODO row #21.
+
 Exact I64 safetensors I/O — values above 2^53 now round-trip bit-exact (closed 2026-05-23):
 - Adds the byte-level extractor pair `tensor_to_int64(TensorHandle, int64_t*)` + `param_load_data_int64(int idx, const int64_t*, int numel)` to `backend.h`. Torch blits through `kInt64` (no double pivot); tape and mlx route through their existing `double` view (no native i64 storage, so they inherit the same 2^53 ceiling — same value as the prior lingua-franca path, no regression). Symbols regenerate under the rename machinery; no manifest changes (both are C-internal, called only from `safetensors.c`).
 - `safetensors.c` uses the new path on the I64 save branch unconditionally (the extractor is byte-exact on torch and behaviour-preserving elsewhere) and on the load branch when src == dst == I64. allow_cast=1 loads that narrow I64 → some other dtype still go through the double pivot — the destination dtype can't hold >2^53 either way.

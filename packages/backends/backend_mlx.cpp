@@ -2540,8 +2540,10 @@ TensorHandle tensor_reshape_1d(TensorHandle h, int n) {
 TensorHandle tensor_one_hot(int* tokens, int n_tokens, int vocab_size, int dtag) {
     // Create one-hot encoded 1D tensor in the requested dtype so the result
     // honestly matches the Idris `dt` (0/1 is exact in every dtype). mlx
-    // admits F32/F64 (Metal-F32, CPU-F64) per the Compatible table; dtag 1 =
-    // F64, all else F32.
+    // admits F32/F64 only (Metal-F32, CPU-F64) per the Compatible table;
+    // under the kind-major dtag layout dtag 15 = F64, dtag 14 = F32. Any
+    // other dtag would fail the Compatible gate Idris-side; this routes to
+    // F32 as a sentinel so a stray call doesn't silently return F64.
     int total = n_tokens * vocab_size;
     std::vector<double> data(total, 0.0);
     for (int i = 0; i < n_tokens; i++) {
@@ -2550,7 +2552,7 @@ TensorHandle tensor_one_hot(int* tokens, int n_tokens, int vocab_size, int dtag)
             data[i * vocab_size + tok] = 1.0;
     }
     mx::Shape sh = {total};
-    mx::Dtype dt = (dtag == 1) ? mx::float64 : mx::float32;
+    mx::Dtype dt = (dtag == 15) ? mx::float64 : mx::float32;
     auto t = new Tensor(mx_array_from_doubles(data.data(), sh, dt), false);
     free(tokens);
     return (TensorHandle)t;
@@ -4517,78 +4519,78 @@ int backend_profile_report_return(int d) { backend_profile_report(); return d; }
 
 TensorHandle tensor_create_scalar_streamed(double value, int requires_grad, int stream_tag, int dtag) {
     switch (dtag) {
-        case 0:  return tensor_create_scalar_f32_mlx_streamed(value, requires_grad, stream_tag);
-        case 1:  return tensor_create_scalar_f64_mlx_streamed(value, requires_grad, stream_tag);
+        case 14: return tensor_create_scalar_f32_mlx_streamed(value, requires_grad, stream_tag);
+        case 15: return tensor_create_scalar_f64_mlx_streamed(value, requires_grad, stream_tag);
         default: mlx_dtype_unsupported("tensor_create_scalar_streamed", dtag);
     }
 }
 TensorHandle tensor_create_streamed(double* data, int* shape, int rank, int requires_grad, int stream_tag, int dtag) {
     switch (dtag) {
-        case 0:  return tensor_create_f32_mlx_streamed(data, shape, rank, requires_grad, stream_tag);
-        case 1:  return tensor_create_f64_mlx_streamed(data, shape, rank, requires_grad, stream_tag);
+        case 14: return tensor_create_f32_mlx_streamed(data, shape, rank, requires_grad, stream_tag);
+        case 15: return tensor_create_f64_mlx_streamed(data, shape, rank, requires_grad, stream_tag);
         default: mlx_dtype_unsupported("tensor_create_streamed", dtag);
     }
 }
 TensorHandle tensor_create_1d_streamed(int n, double* data, int requires_grad, int stream_tag, int dtag) {
     switch (dtag) {
-        case 0:  return tensor_create_1d_f32_mlx_streamed(n, data, requires_grad, stream_tag);
-        case 1:  return tensor_create_1d_f64_mlx_streamed(n, data, requires_grad, stream_tag);
+        case 14: return tensor_create_1d_f32_mlx_streamed(n, data, requires_grad, stream_tag);
+        case 15: return tensor_create_1d_f64_mlx_streamed(n, data, requires_grad, stream_tag);
         default: mlx_dtype_unsupported("tensor_create_1d_streamed", dtag);
     }
 }
 TensorHandle tensor_create_2d_streamed(int rows, int cols, double* data, int requires_grad, int stream_tag, int dtag) {
     switch (dtag) {
-        case 0:  return tensor_create_2d_f32_mlx_streamed(rows, cols, data, requires_grad, stream_tag);
-        case 1:  return tensor_create_2d_f64_mlx_streamed(rows, cols, data, requires_grad, stream_tag);
+        case 14: return tensor_create_2d_f32_mlx_streamed(rows, cols, data, requires_grad, stream_tag);
+        case 15: return tensor_create_2d_f64_mlx_streamed(rows, cols, data, requires_grad, stream_tag);
         default: mlx_dtype_unsupported("tensor_create_2d_streamed", dtag);
     }
 }
 TensorHandle tensor_create_param_1d_streamed(int n, double* data, int stream_tag, int dtag) {
     switch (dtag) {
-        case 0:  return tensor_create_param_1d_f32_mlx_streamed(n, data, stream_tag);
-        case 1:  return tensor_create_param_1d_f64_mlx_streamed(n, data, stream_tag);
+        case 14: return tensor_create_param_1d_f32_mlx_streamed(n, data, stream_tag);
+        case 15: return tensor_create_param_1d_f64_mlx_streamed(n, data, stream_tag);
         default: mlx_dtype_unsupported("tensor_create_param_1d_streamed", dtag);
     }
 }
 TensorHandle tensor_create_param_2d_streamed(int rows, int cols, double* data, int stream_tag, int dtag) {
     switch (dtag) {
-        case 0:  return tensor_create_param_2d_f32_mlx_streamed(rows, cols, data, stream_tag);
-        case 1:  return tensor_create_param_2d_f64_mlx_streamed(rows, cols, data, stream_tag);
+        case 14: return tensor_create_param_2d_f32_mlx_streamed(rows, cols, data, stream_tag);
+        case 15: return tensor_create_param_2d_f64_mlx_streamed(rows, cols, data, stream_tag);
         default: mlx_dtype_unsupported("tensor_create_param_2d_streamed", dtag);
     }
 }
 TensorHandle tensor_create_param_3d_streamed(int d0, int d1, int d2, double* data, int stream_tag, int dtag) {
     switch (dtag) {
-        case 0:  return tensor_create_param_3d_f32_mlx_streamed(d0, d1, d2, data, stream_tag);
-        case 1:  return tensor_create_param_3d_f64_mlx_streamed(d0, d1, d2, data, stream_tag);
+        case 14: return tensor_create_param_3d_f32_mlx_streamed(d0, d1, d2, data, stream_tag);
+        case 15: return tensor_create_param_3d_f64_mlx_streamed(d0, d1, d2, data, stream_tag);
         default: mlx_dtype_unsupported("tensor_create_param_3d_streamed", dtag);
     }
 }
 TensorHandle tensor_create_param_4d_streamed(int d0, int d1, int d2, int d3, double* data, int stream_tag, int dtag) {
     switch (dtag) {
-        case 0:  return tensor_create_param_4d_f32_mlx_streamed(d0, d1, d2, d3, data, stream_tag);
-        case 1:  return tensor_create_param_4d_f64_mlx_streamed(d0, d1, d2, d3, data, stream_tag);
+        case 14: return tensor_create_param_4d_f32_mlx_streamed(d0, d1, d2, d3, data, stream_tag);
+        case 15: return tensor_create_param_4d_f64_mlx_streamed(d0, d1, d2, d3, data, stream_tag);
         default: mlx_dtype_unsupported("tensor_create_param_4d_streamed", dtag);
     }
 }
 TensorHandle tensor_create_state_1d_streamed(int n, double* data, int stream_tag, int dtag) {
     switch (dtag) {
-        case 0:  return tensor_create_state_1d_f32_mlx_streamed(n, data, stream_tag);
-        case 1:  return tensor_create_state_1d_f64_mlx_streamed(n, data, stream_tag);
+        case 14: return tensor_create_state_1d_f32_mlx_streamed(n, data, stream_tag);
+        case 15: return tensor_create_state_1d_f64_mlx_streamed(n, data, stream_tag);
         default: mlx_dtype_unsupported("tensor_create_state_1d_streamed", dtag);
     }
 }
 TensorHandle tensor_create_state_2d_streamed(int rows, int cols, double* data, int stream_tag, int dtag) {
     switch (dtag) {
-        case 0:  return tensor_create_state_2d_f32_mlx_streamed(rows, cols, data, stream_tag);
-        case 1:  return tensor_create_state_2d_f64_mlx_streamed(rows, cols, data, stream_tag);
+        case 14: return tensor_create_state_2d_f32_mlx_streamed(rows, cols, data, stream_tag);
+        case 15: return tensor_create_state_2d_f64_mlx_streamed(rows, cols, data, stream_tag);
         default: mlx_dtype_unsupported("tensor_create_state_2d_streamed", dtag);
     }
 }
 TensorHandle tensor_cast_dtype_streamed(TensorHandle src, int stream_tag, int dtag) {
     switch (dtag) {
-        case 0:  return tensor_cast_dtype_f32_mlx_streamed(src, stream_tag);
-        case 1:  return tensor_cast_dtype_f64_mlx_streamed(src, stream_tag);
+        case 14: return tensor_cast_dtype_f32_mlx_streamed(src, stream_tag);
+        case 15: return tensor_cast_dtype_f64_mlx_streamed(src, stream_tag);
         default: mlx_dtype_unsupported("tensor_cast_dtype_streamed", dtag);
     }
 }

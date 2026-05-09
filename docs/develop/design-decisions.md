@@ -887,9 +887,10 @@ the constraint compile-time.
 
 **Inference-only dtype scaffolding on torch (2026-05-22).** Beyond
 F32/F64, the torch backend now has a runtime path for `BF16`, `F16`,
-`I8`/`I16`/`I32`/`I64`, `U8`, and `Bool` (`RuntimeDType` tags 2–9,
-`Compatible (TorchDev TCpu)` + `(TCuda n)` — MPS excluded as its
-reduced-precision/int support is version-dependent and untestable here).
+`I8`/`I16`/`I32`/`I64`, `U8`, and `Bool` (`Compatible (TorchDev TCpu)` +
+`(TCuda n)` — MPS excluded as its reduced-precision/int support is
+version-dependent and untestable here; `RuntimeDType` tags reordered to
+the kind-major layout on 2026-05-23, see entry below).
 Scope is deliberately the **lean non-grad set** — create
 (scalar/Nd/1d/2d) + `cast` — wired via per-dtype C symbols
 (`tensor_create_*_<dt>_streamed`, e.g. `_bf16_`) following the existing
@@ -1050,6 +1051,47 @@ intermediate dylib stayed resolvable; the unified streamed bases were
 added to `ffi_manifest.py` MANIFEST + INIT_FFI so `check-ffi-wrap-template`
 now lints the previously-exempt create/cast wrappers. See the unified
 create/cast FFI dispatch entry in `CHANGELOG.md`.
+
+**Kind-major RuntimeDType tag layout (2026-05-23).** Closes the original
+grow-as-needed integer tag (`F32=0, F64=1, BF16=2, F16=3, I8=4, I16=5,
+I32=6, I64=7, U8=8, Bool=9`) which mixed lingua-franca demand with
+insertion order and silently meant F32 when a `dtag` was zero-initialized
+(the b2d6c7d mnist incident). New layout reserves `0` as invalid (any
+backend's `default:` arm aborts loudly), groups by kind family with 4
+lanes for {8, 16, 32, 64}-bit variants, and leaves sub-byte families
+(24-31) open for future quantization dtypes:
+
+```
+0   invalid (zero-init traps)
+1   Bool
+4   U8                               (family 1 — U; 5-7 reserved for U16/U32/U64)
+8   I8     9 I16   10 I32   11 I64   (family 2 — I)
+13  F16   14 F32   15 F64            (family 3 — F; 12=F8 E4M3 reserved)
+17  BF16                              (family 4 — BF; 16/18/19 reserved for BF8/BF32/BF64)
+20-23 reserved                        (family 5 — TF: TensorFloat-32 etc.)
+24-31 reserved                        (sub-byte: U4/I4/NF4/ternary/MX — named lanes,
+                                       not arithmetic since their semantics aren't
+                                       pure `(family, bit-width)`)
+```
+
+For numeric families `bit_width = 8 << (tag & 3)`, `family = tag >> 2`.
+Compact: used tags span 0..17 (fits in u5); jump-table dispatch stays
+dense up through 17. The wire tag is purely a runtime FFI calling
+convention (safetensors uses the string dtype name on disk), so there
+is no on-disk migration; renumber lands as one atomic paired commit
+across the 10 `RuntimeDType` instances in `Tensor.idr`, the per-backend
+dispatch switches (torch's `st_for_dtag` + 11 create/cast switches +
+`tensor_one_hot`; mlx's 11 sites + `tensor_one_hot`; tape's
+`tape_tag_from_dtag` translation + 10 `_streamed` wrappers), every
+`dtag` literal in `test_backend.c` / `test_safetensors.c`, and the
+`backend.h` reference comments. Test gate `T33` in `test_backend.c`
+asserts (new dtag → expected dtype name) across all wired dtypes, on
+every backend that supports them.
+
+Tape's internal `DT_*` enum stays dense (`F64=0..BOOL=9`) so the hot
+read paths (`tape_load_d`, the 67-case backward switch) keep tight
+switch density; only the ABI boundary translates via the switch in
+`tape_tag_from_dtag`. Closes TODO row #21.
 
 Full design memo and decision log: `docs/develop/dtype-parameter.md`.
 

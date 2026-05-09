@@ -479,54 +479,65 @@ prim__setInt : AnyPtr -> Int -> Int -> AnyPtr
 -- on _f32. Source dtype is read from the handle on the C side.
 
 
--- RuntimeDType instances — just the runtime dtype tag (0=f32,
--- 1=f64). The `dtCreate*` free functions below pass it to the
--- device's `primCreate*Streamed` method, which branches to pick the
--- `_f32_streamed_<b>` / `_f64_streamed_<b>` C symbol.
-
-public export
-RuntimeDType F32 where
-  dtypeTag = 0
-
-public export
-RuntimeDType F64 where
-  dtypeTag = 1
-
--- Inference-only dtypes (torch, 2026-05-22). Tags must match the
--- `cond` dispatch in each backend's dtype-streamed create/cast wrapper.
--- Only torch wires these; tape/mlx have no `Compatible` instance for
--- them yet, so a tape/mlx program can't spell these (device, dtype) pairs.
-public export
-RuntimeDType BF16 where
-  dtypeTag = 2
-
-public export
-RuntimeDType F16 where
-  dtypeTag = 3
-
-public export
-RuntimeDType I8 where
-  dtypeTag = 4
-
-public export
-RuntimeDType I16 where
-  dtypeTag = 5
-
-public export
-RuntimeDType I32 where
-  dtypeTag = 6
-
-public export
-RuntimeDType I64 where
-  dtypeTag = 7
-
-public export
-RuntimeDType U8 where
-  dtypeTag = 8
+-- RuntimeDType instances — the runtime dtype tag passed across the
+-- Idris↔C FFI boundary. Kind-major, precision-minor layout: each kind
+-- (U/I/F/BF/TF/...) gets 4 lanes for 8/16/32/64-bit variants;
+-- bit_width = 8 << (tag & 3) for numeric families. Tag 0 is reserved
+-- as invalid so a zero-initialized dtag traps at the dispatch's
+-- `default:` arm instead of silently meaning F32. Sub-byte families
+-- (24-31) are reserved for future quantization dtypes (U4/I4/NF4/
+-- ternary/MX) — those don't fit the `8 << lane` formula and live in
+-- families with named lanes.
+--
+-- Layout (defined slots; reserved slots omitted):
+--   0  reserved (invalid; zero-init traps)
+--   1  Bool
+--   4  U8                          (family 1: U, lane 0 = 8-bit)
+--   8  I8     9  I16  10 I32  11 I64    (family 2: I)
+--   13 F16   14  F32  15 F64           (family 3: F; lane 0 / F8 reserved)
+--   17 BF16                            (family 4: BF; lanes for BF8/32/64 reserved)
+--   (family 5: TF — TF8/16/32/64 — all reserved)
+--   (families 6-7: sub-byte quant — named lanes, not arithmetic — all reserved)
 
 public export
 RuntimeDType Bool where
+  dtypeTag = 1
+
+public export
+RuntimeDType U8 where
+  dtypeTag = 4
+
+public export
+RuntimeDType I8 where
+  dtypeTag = 8
+
+public export
+RuntimeDType I16 where
   dtypeTag = 9
+
+public export
+RuntimeDType I32 where
+  dtypeTag = 10
+
+public export
+RuntimeDType I64 where
+  dtypeTag = 11
+
+public export
+RuntimeDType F16 where
+  dtypeTag = 13
+
+public export
+RuntimeDType F32 where
+  dtypeTag = 14
+
+public export
+RuntimeDType F64 where
+  dtypeTag = 15
+
+public export
+RuntimeDType BF16 where
+  dtypeTag = 17
 
 -- dtCreate* free functions — device × dtype create dispatch.
 -- `d` selects the backend (via the `primCreate*Streamed` method),

@@ -317,9 +317,10 @@ TensorHandle tensor_subtract_scalar_inplace(TensorHandle t, double val);
 /* ---------- Convenience: build tensors from scalar arrays ---------- */
 
 /* Create a 1D tensor from n doubles passed as individual args via a C array */
-/* dtype-aware: dtag (0=f32,1=f64,2=bf16,3=f16,4=i8,5=i16,6=i32,7=i64,8=u8,9=bool)
-   selects the output dtype so the result honestly matches the Idris `dt`.
-   tape ignores dtag (F64-only). */
+/* dtype-aware: dtag selects the output dtype (see "Unified dtag-dispatch"
+   block below for the kind-major layout; 1=Bool, 4=U8, 8-11=I8/I16/I32/I64,
+   13-15=F16/F32/F64, 17=BF16) so the result honestly matches the Idris `dt`.
+   tape stores all dtypes via the double lingua franca. */
 TensorHandle tensor_one_hot(int* tokens, int n_tokens, int vocab_size, int dtag);
 /* Per-dtype variants — see lifecycle block comment for dispatch rules. */
 TensorHandle tensor_create_1d_f32(int n, double* data, int requires_grad);
@@ -578,11 +579,22 @@ void tensor_print(TensorHandle t);
 
 /* ---- Unified dtag-dispatch create/cast entry points ----
    One symbol per shape; the trailing `int dtag` selects the RuntimeDType
-   (0=F32, 1=F64, 2=BF16, 3=F16, 4=I8, 5=I16, 6=I32, 7=I64, 8=U8, 9=Bool).
-   Supersedes the per-dtype *_streamed declarations above — those are kept
-   transitionally until the Idris Scheme wrappers flip to these, then
-   removed. Each backend switches on dtag internally: torch handles all 10,
-   mlx f32/f64 (rejects the rest), tape f64-only today. */
+   under the kind-major layout (closed 2026-05-23; replaces the original
+   0=F32, 1=F64, ... incremental order):
+     0  invalid (reserved; zero-init traps at backend default-arm abort)
+     1  Bool
+     4  U8                              (family 1 — U; lanes 5-7 reserved)
+     8  I8     9  I16    10 I32    11 I64    (family 2 — I)
+     13 F16   14  F32   15 F64               (family 3 — F; F8 reserved)
+     17 BF16                                  (family 4 — BF; BF8/32/64 reserved)
+     20-23   reserved                          (family 5 — TF)
+     24-31   reserved                          (sub-byte quant — U4/I4/NF4/MX/...)
+   For numeric families bit_width = 8 << (tag & 3); sub-byte slots use a
+   metadata lookup since their semantics aren't pure (family, bit-width).
+   Supersedes the per-dtype *_streamed declarations above. Each backend
+   switches on dtag internally: torch handles all 10 wired dtypes, mlx
+   f32/f64 (rejects the rest), tape stores all via the double lingua
+   franca with real F32 storage + kernels (Phase 3). */
 TensorHandle tensor_create_scalar_streamed(double value, int requires_grad, int stream_tag, int dtag);
 TensorHandle tensor_create_streamed(double* data, int* shape, int rank, int requires_grad, int stream_tag, int dtag);
 TensorHandle tensor_create_1d_streamed(int n, double* data, int requires_grad, int stream_tag, int dtag);

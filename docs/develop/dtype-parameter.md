@@ -543,43 +543,46 @@ instances bind to per-dtype C symbols (`tensor_create_scalar_f32` vs
 - `Tensor [..] (MlxDev MGpu) F32` still rejected at compile time
   (Metal has no fp64). The reject is the original design intent.
 
-### Design: `RuntimeDType` as a capability interface
+### Design: `RuntimeDType` as a runtime tag carrier
 
-Originally, the rollout was going to use a `dtypeTag : Int` global
-enum to bridge Idris ↔ C. That was discarded — global enums
-tightly couple every backend to a registry of known dtypes, and
-adding a new dtype is a multi-file global change.
+The bridge Idris ↔ C is a single `dtypeTag : Int` method on
+`RuntimeDType` (one instance per concrete dtype, e.g. `F32`/`F64`/
+`BF16`/...). The `dtCreate*` free functions in `Tensor.idr` pass
+this tag to the device's `primCreate*Streamed` method, which
+switches on it to pick the concrete C-side dtype. This is how the
+type-level `(d, dt)` pair drives both backend dispatch (via `d`) and
+dtype dispatch (via this tag) without a 2-D typeclass.
 
-The capability-interface approach instead:
+The tag uses a **kind-major layout** (closed 2026-05-23, replaced
+the original grow-as-needed `F32=0, F64=1, BF16=2, ...` scheme that
+caused the b2d6c7d zero-init footgun):
 
-```idris
-interface RuntimeDType (0 t : Type) where
-  dtCreateScalar  : Double -> Int -> AnyPtr
-  dtCreate        : AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
-  ... (10 creation methods)
+```
+0   invalid (zero-init traps loudly at every backend's default arm)
+1   Bool
+4   U8                              (family 1 — U)
+8   I8     9 I16   10 I32   11 I64  (family 2 — I)
+13  F16   14 F32   15 F64           (family 3 — F)
+17  BF16                             (family 4 — BF)
+20-23 reserved                       (family 5 — TF; TensorFloat-32)
+24-31 reserved                       (sub-byte: U4/I4/NF4/ternary/MX)
 ```
 
-Each instance binds its own routing:
+`family = tag >> 2`, `lane = tag & 3`; for numeric families
+`bit_width = 8 << lane` ∈ {8, 16, 32, 64}. Sub-byte families
+(6 + 7) use named lanes because their semantics aren't pure
+`(family, bit-width)` — NF4 has a learned mapping table, ternary is
+{−1, 0, +1}, MX has per-block scale metadata.
 
-```idris
-RuntimeDType F32 where
-  dtCreateScalar = prim__createScalar_f32
-  ...
-
-RuntimeDType F64 where
-  dtCreateScalar = prim__createScalar_f64
-  ...
-```
-
-New dtypes are local additions of an instance + matching C
-symbols. No central registry to extend. Backend asymmetry (tape has
-no fp32 arena) is expressed naturally: tape's `_f32` symbols are
-abort stubs, and there's no `RuntimeDType F32` instance routing to
-them — the type system + link-time errors handle it.
-
-Method names use the `dt` prefix (`dtCreateScalar` etc.) to
-disambiguate from `UserDeviceCore.primCreateScalar` which already
-dispatches on the device axis. The two interfaces are complementary.
+Adding a new dtype is local: one `RuntimeDType` instance for the
+Idris-side type, one `case` arm in each backend's dispatch
+(`st_for_dtag` on torch, the mlx F32/F64 fast-paths or
+`mlx_dtype_unsupported`, tape's `tape_tag_from_dtag`). Backend
+asymmetry is expressed via `Compatible d dt` — a type-level gate
+that prevents constructing `Tensor [..] (MlxDev MGpu) F64` at
+compile time. The wire tag isn't a persistent format
+(`safetensors.c` uses the string dtype name on disk), so renumbers
+land as one atomic paired commit without on-disk migration.
 
 ### The cascade (~25 functions, 17 files)
 

@@ -204,13 +204,16 @@ IsDType Bool where
 
 public export
 interface RuntimeDType (0 t : Type) where
-  ||| Runtime selector for this dtype: `0 = f32`, `1 = f64`. The
-  ||| `dtCreate*` free functions (in `Tensor`) pass it to the
-  ||| device's `primCreate*Streamed` method, which branches on it to
-  ||| pick the `_f32_streamed_<b>` vs `_f64_streamed_<b>` C symbol.
-  ||| This is how the type-level `(d, dt)` pair drives both backend
-  ||| dispatch (via `d`) and dtype dispatch (via this tag) without a
-  ||| 2-D typeclass.
+  ||| Runtime selector for this dtype, kind-major / precision-minor
+  ||| (see `Tensor.idr` for the full layout — `0` is reserved as
+  ||| invalid; defined slots are `1=Bool, 4=U8, 8/9/10/11=I8/I16/I32/I64,
+  ||| 13/14/15=F16/F32/F64, 17=BF16`; sub-byte families 24-31 are
+  ||| reserved for future quantization dtypes). The `dtCreate*` free
+  ||| functions (in `Tensor`) pass it to the device's
+  ||| `primCreate*Streamed` method, which switches on it to pick the
+  ||| concrete C-side dtype. This is how the type-level `(d, dt)`
+  ||| pair drives both backend dispatch (via `d`) and dtype dispatch
+  ||| (via this tag) without a 2-D typeclass.
   dtypeTag : Int
 
 

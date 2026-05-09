@@ -2666,8 +2666,8 @@ int main(void) {
 
     /* T20: Inference-only dtype scaffolding (torch). The unified create/cast
        symbols must produce the right ScalarType per dtag, not a silent F64.
-       torch-only: tape/mlx reject the inference dtags. dtags: BF16=2, F16=3,
-       F32=0, I32=6, Bool=9. */
+       torch-only: tape/mlx reject the inference dtags. Under the kind-major
+       dtag layout: BF16=17, F16=13, F32=14, I32=10, Bool=1. */
 #if defined(BACKEND_TORCH)
     {
         printf("\n--- Dtype scaffolding (BF16/F16/Int/Bool) ---\n");
@@ -2675,12 +2675,12 @@ int main(void) {
 
         /* BF16 create + dtype; add preserves dtype. */
         double bdata[] = {1.5, 2.25, -0.5};
-        TensorHandle bf = tensor_create_1d_streamed(3, heap_copy(bdata, 3), 0, 0, 2);
+        TensorHandle bf = tensor_create_1d_streamed(3, heap_copy(bdata, 3), 0, 0, 17);
         ASSERT_TRUE("bf16 dtype is BF16", strcmp(tensor_dtype_name(bf), "BF16") == 0);
         double bout[3];
         tensor_to_doubles(bf, bout);
         ASSERT_NEAR("bf16 value[1]", bout[1], 2.25, 1e-2);
-        TensorHandle bf2 = tensor_create_1d_streamed(3, heap_copy(bdata, 3), 0, 0, 2);
+        TensorHandle bf2 = tensor_create_1d_streamed(3, heap_copy(bdata, 3), 0, 0, 17);
         TensorHandle bsum = tensor_add(bf, bf2);
         ASSERT_TRUE("bf16 add preserves BF16", strcmp(tensor_dtype_name(bsum), "BF16") == 0);
         double bsout[3];
@@ -2689,15 +2689,15 @@ int main(void) {
 
         /* F16 create + dtype. */
         double hdata[] = {0.5, 1.25};
-        TensorHandle hf = tensor_create_1d_streamed(2, heap_copy(hdata, 2), 0, 0, 3);
+        TensorHandle hf = tensor_create_1d_streamed(2, heap_copy(hdata, 2), 0, 0, 13);
         ASSERT_TRUE("f16 dtype is F16", strcmp(tensor_dtype_name(hf), "F16") == 0);
 
         /* Cast F32 -> BF16 -> F32 round-trip. */
         double fdata[] = {1.5, 2.25};
         TensorHandle f32t = tensor_create_1d_f32(2, heap_copy(fdata, 2), 0);
-        TensorHandle to_bf = tensor_cast_dtype_streamed(f32t, 0, 2);
+        TensorHandle to_bf = tensor_cast_dtype_streamed(f32t, 0, 17);
         ASSERT_TRUE("cast to BF16", strcmp(tensor_dtype_name(to_bf), "BF16") == 0);
-        TensorHandle back_f32 = tensor_cast_dtype_streamed(to_bf, 0, 0);
+        TensorHandle back_f32 = tensor_cast_dtype_streamed(to_bf, 0, 14);
         ASSERT_TRUE("cast back to F32", strcmp(tensor_dtype_name(back_f32), "F32") == 0);
         double rt[2];
         tensor_to_doubles(back_f32, rt);
@@ -2705,7 +2705,7 @@ int main(void) {
 
         /* I32 create + dtype + read. */
         double idata[] = {1.0, 2.0, 3.0};
-        TensorHandle i32t = tensor_create_1d_streamed(3, heap_copy(idata, 3), 0, 0, 6);
+        TensorHandle i32t = tensor_create_1d_streamed(3, heap_copy(idata, 3), 0, 0, 10);
         ASSERT_TRUE("i32 dtype is I32", strcmp(tensor_dtype_name(i32t), "I32") == 0);
         double iout[3];
         tensor_to_doubles(i32t, iout);
@@ -2713,7 +2713,7 @@ int main(void) {
 
         /* Bool create + dtype + read. */
         double booldata[] = {1.0, 0.0, 1.0};
-        TensorHandle bt = tensor_create_1d_streamed(3, heap_copy(booldata, 3), 0, 0, 9);
+        TensorHandle bt = tensor_create_1d_streamed(3, heap_copy(booldata, 3), 0, 0, 1);
         ASSERT_TRUE("bool dtype is BOOL", strcmp(tensor_dtype_name(bt), "BOOL") == 0);
         double boolout[3];
         tensor_to_doubles(bt, boolout);
@@ -2723,7 +2723,7 @@ int main(void) {
         /* one-hot is dtype-aware: dtag selects the output dtype. */
         int* ohtok = (int*)malloc(2 * sizeof(int));
         ohtok[0] = 1; ohtok[1] = 0;  /* [2,3] one-hot, flattened to [6] */
-        TensorHandle oh = tensor_one_hot(ohtok, 2, 3, 6);  /* dtag 6 = I32 */
+        TensorHandle oh = tensor_one_hot(ohtok, 2, 3, 10);  /* dtag 10 = I32 */
         ASSERT_TRUE("one_hot honors dtag (I32)", strcmp(tensor_dtype_name(oh), "I32") == 0);
         double ohout[6];
         tensor_to_doubles(oh, ohout);
@@ -2749,7 +2749,7 @@ int main(void) {
 
         double* d = (double*)malloc(3 * sizeof(double));
         d[0] = 1.5; d[1] = 2.5; d[2] = 3.5;
-        TensorHandle t = tensor_create_1d_streamed(3, d, 0, 0, 1);  /* dtag 1 = F64 */
+        TensorHandle t = tensor_create_1d_streamed(3, d, 0, 0, 15);  /* dtag 15 = F64 */
         ASSERT_TRUE("unified create_1d dtag=1 -> F64",
                     strcmp(tensor_dtype_name(t), "F64") == 0);
         double out[3];
@@ -2758,7 +2758,7 @@ int main(void) {
         ASSERT_NEAR("unified create_1d[2]", out[2], 3.5, 1e-10);
 
         /* cast via the unified symbol, dtag=1 — identity on an F64 source. */
-        TensorHandle c = tensor_cast_dtype_streamed(t, 0, 1);
+        TensorHandle c = tensor_cast_dtype_streamed(t, 0, 15);
         ASSERT_TRUE("unified cast dtag=1 -> F64",
                     strcmp(tensor_dtype_name(c), "F64") == 0);
         double cout[3];
@@ -2766,14 +2766,14 @@ int main(void) {
         ASSERT_NEAR("unified cast preserves[1]", cout[1], 2.5, 1e-10);
 
         /* scalar via the unified symbol, dtag=1. */
-        TensorHandle s = tensor_create_scalar_streamed(7.0, 0, 0, 1);
+        TensorHandle s = tensor_create_scalar_streamed(7.0, 0, 0, 15);
         ASSERT_NEAR("unified scalar dtag=1", tensor_item(s), 7.0, 1e-10);
 
 #if defined(BACKEND_TORCH)
         /* torch reaches the inference dtags through the same unified symbol. */
         double* di = (double*)malloc(2 * sizeof(double));
         di[0] = 5.0; di[1] = 6.0;
-        TensorHandle ti = tensor_create_1d_streamed(2, di, 0, 0, 6);  /* dtag 6 = I32 */
+        TensorHandle ti = tensor_create_1d_streamed(2, di, 0, 0, 10);  /* dtag 10 = I32 */
         ASSERT_TRUE("unified create_1d dtag=6 -> I32",
                     strcmp(tensor_dtype_name(ti), "I32") == 0);
 #endif
@@ -2782,7 +2782,7 @@ int main(void) {
 
     /* T28: tape dtype storage scaffolding (tape-only). Tape stores non-F64
        dtypes as packed bytes via the double lingua franca: create + cast +
-       readout, no arithmetic. dtags: F32=0, BF16=2, I32=6. Until the
+       readout, no arithmetic. dtags (kind-major): F32=14, BF16=17, I32=10. Until the
        scaffolding lands, the unified create aborts for any non-F64 dtag
        (tape_dtype_unsupported) — that abort is the RED. */
 #if defined(BACKEND_TAPE)
@@ -2792,7 +2792,7 @@ int main(void) {
 
         /* F32 create + dtype + readback (value-exact: these all fit f32). */
         double fv[] = {1.5, -2.25, 3.0};
-        TensorHandle f32t = tensor_create_1d_streamed(3, heap_copy(fv, 3), 0, 0, 0);
+        TensorHandle f32t = tensor_create_1d_streamed(3, heap_copy(fv, 3), 0, 0, 14);
         ASSERT_TRUE("tape F32 dtype is F32", strcmp(tensor_dtype_name(f32t), "F32") == 0);
         double fout[3];
         tensor_to_doubles(f32t, fout);
@@ -2800,7 +2800,7 @@ int main(void) {
 
         /* I32 create + dtype + readback (integer-valued). */
         double iv[] = {1.0, 2.0, 3.0};
-        TensorHandle i32t = tensor_create_1d_streamed(3, heap_copy(iv, 3), 0, 0, 6);
+        TensorHandle i32t = tensor_create_1d_streamed(3, heap_copy(iv, 3), 0, 0, 10);
         ASSERT_TRUE("tape I32 dtype is I32", strcmp(tensor_dtype_name(i32t), "I32") == 0);
         double iout[3];
         tensor_to_doubles(i32t, iout);
@@ -2808,7 +2808,7 @@ int main(void) {
 
         /* BF16 create + dtype + readback (bf16 tolerance). */
         double bv[] = {1.5, 2.25, -0.5};
-        TensorHandle bf = tensor_create_1d_streamed(3, heap_copy(bv, 3), 0, 0, 2);
+        TensorHandle bf = tensor_create_1d_streamed(3, heap_copy(bv, 3), 0, 0, 17);
         ASSERT_TRUE("tape BF16 dtype is BF16", strcmp(tensor_dtype_name(bf), "BF16") == 0);
         double bout[3];
         tensor_to_doubles(bf, bout);
@@ -2816,10 +2816,10 @@ int main(void) {
 
         /* Cast F64 -> F32 -> F64 round-trip (value-exact for these). */
         double dv[] = {1.5, 2.25};
-        TensorHandle d0 = tensor_create_1d_streamed(2, heap_copy(dv, 2), 0, 0, 1);
-        TensorHandle to_f32 = tensor_cast_dtype_streamed(d0, 0, 0);
+        TensorHandle d0 = tensor_create_1d_streamed(2, heap_copy(dv, 2), 0, 0, 15);
+        TensorHandle to_f32 = tensor_cast_dtype_streamed(d0, 0, 14);
         ASSERT_TRUE("tape cast F64->F32", strcmp(tensor_dtype_name(to_f32), "F32") == 0);
-        TensorHandle back = tensor_cast_dtype_streamed(to_f32, 0, 1);
+        TensorHandle back = tensor_cast_dtype_streamed(to_f32, 0, 15);
         ASSERT_TRUE("tape cast F32->F64", strcmp(tensor_dtype_name(back), "F64") == 0);
         double rt[2];
         tensor_to_doubles(back, rt);
@@ -2827,8 +2827,8 @@ int main(void) {
 
         /* Cast F64 -> I32 -> F64 round-trip (integer-valued). */
         double ev[] = {4.0, 5.0, 6.0};
-        TensorHandle e0 = tensor_create_1d_streamed(3, heap_copy(ev, 3), 0, 0, 1);
-        TensorHandle to_i32 = tensor_cast_dtype_streamed(e0, 0, 6);
+        TensorHandle e0 = tensor_create_1d_streamed(3, heap_copy(ev, 3), 0, 0, 15);
+        TensorHandle to_i32 = tensor_cast_dtype_streamed(e0, 0, 10);
         ASSERT_TRUE("tape cast F64->I32", strcmp(tensor_dtype_name(to_i32), "I32") == 0);
         double iback[3];
         tensor_to_doubles(to_i32, iback);
@@ -2867,9 +2867,9 @@ int main(void) {
 
             /* F64 reference */
             param_clear();
-            TensorHandle w64 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 1);
+            TensorHandle w64 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 15);
             param_register("w", w64);
-            TensorHandle x64 = tensor_create_1d_streamed(3, heap_copy(xv, 3), 0, 0, 1);
+            TensorHandle x64 = tensor_create_1d_streamed(3, heap_copy(xv, 3), 0, 0, 15);
             TensorHandle add64 = tensor_add(w64, x64);
             TensorHandle sub64 = tensor_sub(w64, x64);
             TensorHandle y64   = tensor_mul(add64, sub64);
@@ -2879,9 +2879,9 @@ int main(void) {
             param_clear();
 
             /* F32 path: same numeric chain, F32-tagged inputs. */
-            TensorHandle w32 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 0);
+            TensorHandle w32 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 14);
             param_register("w", w32);
-            TensorHandle x32 = tensor_create_1d_streamed(3, heap_copy(xv, 3), 0, 0, 0);
+            TensorHandle x32 = tensor_create_1d_streamed(3, heap_copy(xv, 3), 0, 0, 14);
             TensorHandle add32 = tensor_add(w32, x32);
             TensorHandle sub32 = tensor_sub(w32, x32);
             TensorHandle y32   = tensor_mul(add32, sub32);
@@ -2914,18 +2914,18 @@ int main(void) {
             double gW_f64[6], gW_f32[6];
 
             param_clear();
-            TensorHandle W64 = tensor_create_param_2d_streamed(2, 3, heap_copy(Wv, 6), 0, 1);
+            TensorHandle W64 = tensor_create_param_2d_streamed(2, 3, heap_copy(Wv, 6), 0, 15);
             param_register("W", W64);
-            TensorHandle x64 = tensor_create_1d_streamed(3, heap_copy(xv, 3), 0, 0, 1);
+            TensorHandle x64 = tensor_create_1d_streamed(3, heap_copy(xv, 3), 0, 0, 15);
             TensorHandle y64 = tensor_mv(W64, x64);
             tensor_to_doubles(y64, y_f64);
             tensor_backward(tensor_sum(y64));
             for (int i = 0; i < 6; i++) gW_f64[i] = param_grad_item_at(0, i);
             param_clear();
 
-            TensorHandle W32 = tensor_create_param_2d_streamed(2, 3, heap_copy(Wv, 6), 0, 0);
+            TensorHandle W32 = tensor_create_param_2d_streamed(2, 3, heap_copy(Wv, 6), 0, 14);
             param_register("W", W32);
-            TensorHandle x32 = tensor_create_1d_streamed(3, heap_copy(xv, 3), 0, 0, 0);
+            TensorHandle x32 = tensor_create_1d_streamed(3, heap_copy(xv, 3), 0, 0, 14);
             TensorHandle y32 = tensor_mv(W32, x32);
             tensor_to_doubles(y32, y_f32);
             tensor_backward(tensor_sum(y32));
@@ -2961,24 +2961,24 @@ int main(void) {
             double g_f64[4], g_f32[4];
 
             param_clear();
-            TensorHandle w64 = tensor_create_param_1d_streamed(4, heap_copy(wv, 4), 0, 1);
+            TensorHandle w64 = tensor_create_param_1d_streamed(4, heap_copy(wv, 4), 0, 15);
             param_register("w", w64);
             TensorHandle y64 = tensor_softmax(w64, 0);
             tensor_to_doubles(y64, y_f64);
             /* Use a non-trivial loss so grad isn't analytically zero:
                L = sum(softmax(w) * c) for fixed c = [1, 2, 3, 4]. */
             double cv[] = {1.0, 2.0, 3.0, 4.0};
-            TensorHandle c64 = tensor_create_1d_streamed(4, heap_copy(cv, 4), 0, 0, 1);
+            TensorHandle c64 = tensor_create_1d_streamed(4, heap_copy(cv, 4), 0, 0, 15);
             TensorHandle wt64 = tensor_mul(y64, c64);
             tensor_backward(tensor_sum(wt64));
             for (int i = 0; i < 4; i++) g_f64[i] = param_grad_item_at(0, i);
             param_clear();
 
-            TensorHandle w32 = tensor_create_param_1d_streamed(4, heap_copy(wv, 4), 0, 0);
+            TensorHandle w32 = tensor_create_param_1d_streamed(4, heap_copy(wv, 4), 0, 14);
             param_register("w", w32);
             TensorHandle y32 = tensor_softmax(w32, 0);
             tensor_to_doubles(y32, y_f32);
-            TensorHandle c32 = tensor_create_1d_streamed(4, heap_copy(cv, 4), 0, 0, 0);
+            TensorHandle c32 = tensor_create_1d_streamed(4, heap_copy(cv, 4), 0, 0, 14);
             TensorHandle wt32 = tensor_mul(y32, c32);
             tensor_backward(tensor_sum(wt32));
             for (int i = 0; i < 4; i++) g_f32[i] = param_grad_item_at(0, i);
@@ -3010,9 +3010,9 @@ int main(void) {
             double w_f64_after[3], w_f32_after[3];
 
             param_clear();
-            TensorHandle w64 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 1);
+            TensorHandle w64 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 15);
             param_register("w", w64);
-            TensorHandle x64 = tensor_create_1d_streamed(3, heap_copy(xv, 3), 0, 0, 1);
+            TensorHandle x64 = tensor_create_1d_streamed(3, heap_copy(xv, 3), 0, 0, 15);
             TensorHandle dot64 = tensor_dot(w64, x64);    /* L = w·x */
             tensor_backward(dot64);
             OptimizerHandle opt64 = optimizer_create_sgd(0.01);
@@ -3021,9 +3021,9 @@ int main(void) {
             optimizer_free(opt64);
             param_clear();
 
-            TensorHandle w32 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 0);
+            TensorHandle w32 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 14);
             param_register("w", w32);
-            TensorHandle x32 = tensor_create_1d_streamed(3, heap_copy(xv, 3), 0, 0, 0);
+            TensorHandle x32 = tensor_create_1d_streamed(3, heap_copy(xv, 3), 0, 0, 14);
             TensorHandle dot32 = tensor_dot(w32, x32);
             tensor_backward(dot32);
             OptimizerHandle opt32 = optimizer_create_sgd(0.01);
@@ -3078,7 +3078,7 @@ int main(void) {
             {
                 /* F64 reference */
                 param_clear();
-                TensorHandle w64 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 1);
+                TensorHandle w64 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 15);
                 param_register("w", w64);
                 TensorHandle y64 = tensor_add_scalar(w64, s_add);
                 tensor_to_doubles(y64, y_f64);
@@ -3087,7 +3087,7 @@ int main(void) {
                 param_clear();
 
                 /* F32 path */
-                TensorHandle w32 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 0);
+                TensorHandle w32 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 14);
                 param_register("w", w32);
                 TensorHandle y32 = tensor_add_scalar(w32, s_add);
                 tensor_to_doubles(y32, y_f32);
@@ -3109,7 +3109,7 @@ int main(void) {
             /* mul_scalar */
             {
                 param_clear();
-                TensorHandle w64 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 1);
+                TensorHandle w64 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 15);
                 param_register("w", w64);
                 TensorHandle y64 = tensor_mul_scalar(w64, s_mul);
                 tensor_to_doubles(y64, y_f64);
@@ -3117,7 +3117,7 @@ int main(void) {
                 for (int i = 0; i < 3; i++) g_f64[i] = param_grad_item_at(0, i);
                 param_clear();
 
-                TensorHandle w32 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 0);
+                TensorHandle w32 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 14);
                 param_register("w", w32);
                 TensorHandle y32 = tensor_mul_scalar(w32, s_mul);
                 tensor_to_doubles(y32, y_f32);
@@ -3140,7 +3140,7 @@ int main(void) {
                also exercises OP_CLAMP_MIN's `tape_load_d` swap. */
             {
                 param_clear();
-                TensorHandle w64 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 1);
+                TensorHandle w64 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 15);
                 param_register("w", w64);
                 TensorHandle y64 = tensor_clamp_min(w64, s_clamp);
                 tensor_to_doubles(y64, y_f64);
@@ -3148,7 +3148,7 @@ int main(void) {
                 for (int i = 0; i < 3; i++) g_f64[i] = param_grad_item_at(0, i);
                 param_clear();
 
-                TensorHandle w32 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 0);
+                TensorHandle w32 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 14);
                 param_register("w", w32);
                 TensorHandle y32 = tensor_clamp_min(w32, s_clamp);
                 tensor_to_doubles(y32, y_f32);
@@ -3180,14 +3180,14 @@ int main(void) {
 
             #define RUN_UNARY_F32_VS_F64(label, opcall) do { \
                 param_clear(); \
-                TensorHandle w64 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 1); \
+                TensorHandle w64 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 15); \
                 param_register("w", w64); \
                 TensorHandle y64 = opcall(w64); \
                 tensor_to_doubles(y64, y_f64); \
                 tensor_backward(tensor_sum(y64)); \
                 for (int i = 0; i < 3; i++) g_f64[i] = param_grad_item_at(0, i); \
                 param_clear(); \
-                TensorHandle w32 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 0); \
+                TensorHandle w32 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 14); \
                 param_register("w", w32); \
                 TensorHandle y32 = opcall(w32); \
                 tensor_to_doubles(y32, y_f32); \
@@ -3209,7 +3209,7 @@ int main(void) {
             {
                 double alpha = 0.1;
                 param_clear();
-                TensorHandle w64 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 1);
+                TensorHandle w64 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 15);
                 param_register("w", w64);
                 TensorHandle y64 = tensor_leaky_relu(w64, alpha);
                 tensor_to_doubles(y64, y_f64);
@@ -3217,7 +3217,7 @@ int main(void) {
                 for (int i = 0; i < 3; i++) g_f64[i] = param_grad_item_at(0, i);
                 param_clear();
 
-                TensorHandle w32 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 0);
+                TensorHandle w32 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 14);
                 param_register("w", w32);
                 TensorHandle y32 = tensor_leaky_relu(w32, alpha);
                 tensor_to_doubles(y32, y_f32);
@@ -3251,7 +3251,7 @@ int main(void) {
             double y_f64[4], y_f32[4], g_f64[4], g_f32[4];
 
             param_clear();
-            TensorHandle w64 = tensor_create_param_1d_streamed(4, heap_copy(wv, 4), 0, 1);
+            TensorHandle w64 = tensor_create_param_1d_streamed(4, heap_copy(wv, 4), 0, 15);
             param_register("w", w64);
             TensorHandle y64 = tensor_log_softmax(w64, 0);
             tensor_to_doubles(y64, y_f64);
@@ -3259,7 +3259,7 @@ int main(void) {
             for (int i = 0; i < 4; i++) g_f64[i] = param_grad_item_at(0, i);
             param_clear();
 
-            TensorHandle w32 = tensor_create_param_1d_streamed(4, heap_copy(wv, 4), 0, 0);
+            TensorHandle w32 = tensor_create_param_1d_streamed(4, heap_copy(wv, 4), 0, 14);
             param_register("w", w32);
             TensorHandle y32 = tensor_log_softmax(w32, 0);
             tensor_to_doubles(y32, y_f32);
@@ -3289,7 +3289,7 @@ int main(void) {
             /* tensor_sum: forward + grad. */
             {
                 param_clear();
-                TensorHandle w64 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 1);
+                TensorHandle w64 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 15);
                 param_register("w", w64);
                 TensorHandle r64 = tensor_sum(w64);
                 v64 = tensor_item(r64);
@@ -3297,7 +3297,7 @@ int main(void) {
                 for (int i = 0; i < 3; i++) g_f64[i] = param_grad_item_at(0, i);
                 param_clear();
 
-                TensorHandle w32 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 0);
+                TensorHandle w32 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 14);
                 param_register("w", w32);
                 TensorHandle r32 = tensor_sum(w32);
                 v32 = tensor_item(r32);
@@ -3318,7 +3318,7 @@ int main(void) {
             /* tensor_mean: forward + grad. */
             {
                 param_clear();
-                TensorHandle w64 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 1);
+                TensorHandle w64 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 15);
                 param_register("w", w64);
                 TensorHandle r64 = tensor_mean(w64);
                 v64 = tensor_item(r64);
@@ -3326,7 +3326,7 @@ int main(void) {
                 for (int i = 0; i < 3; i++) g_f64[i] = param_grad_item_at(0, i);
                 param_clear();
 
-                TensorHandle w32 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 0);
+                TensorHandle w32 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 14);
                 param_register("w", w32);
                 TensorHandle r32 = tensor_mean(w32);
                 v32 = tensor_item(r32);
@@ -3347,8 +3347,8 @@ int main(void) {
             /* tensor_min / tensor_max — non-differentiable; check forward
                + tag only. param_clear keeps them out of registry. */
             {
-                TensorHandle w64 = tensor_create_1d_streamed(3, heap_copy(wv, 3), 0, 0, 1);
-                TensorHandle w32 = tensor_create_1d_streamed(3, heap_copy(wv, 3), 0, 0, 0);
+                TensorHandle w64 = tensor_create_1d_streamed(3, heap_copy(wv, 3), 0, 0, 15);
+                TensorHandle w32 = tensor_create_1d_streamed(3, heap_copy(wv, 3), 0, 0, 14);
                 ASSERT_NEAR("min: v_f32 ~ v_f64", tensor_item(tensor_min(w32)), tensor_item(tensor_min(w64)), 1e-5);
                 ASSERT_NEAR("max: v_f32 ~ v_f64", tensor_item(tensor_max(w32)), tensor_item(tensor_max(w64)), 1e-5);
                 ASSERT_TRUE("min: F32 output propagates F32 tag",
@@ -3372,11 +3372,11 @@ int main(void) {
                 double out_f64[6], out_f32[6];
                 int new_shape[] = {2, 3};
 
-                TensorHandle w64 = tensor_create_1d_streamed(6, heap_copy(rv, 6), 0, 0, 1);
+                TensorHandle w64 = tensor_create_1d_streamed(6, heap_copy(rv, 6), 0, 0, 15);
                 TensorHandle r64 = tensor_reshape(w64, new_shape, 2);
                 tensor_to_doubles(r64, out_f64);
 
-                TensorHandle w32 = tensor_create_1d_streamed(6, heap_copy(rv, 6), 0, 0, 0);
+                TensorHandle w32 = tensor_create_1d_streamed(6, heap_copy(rv, 6), 0, 0, 14);
                 TensorHandle r32 = tensor_reshape(w32, new_shape, 2);
                 tensor_to_doubles(r32, out_f32);
 
@@ -3395,7 +3395,7 @@ int main(void) {
                 double out_f64[3], out_f32[3], g_f64[5], g_f32[5];
 
                 param_clear();
-                TensorHandle w64 = tensor_create_param_1d_streamed(5, heap_copy(wv, 5), 0, 1);
+                TensorHandle w64 = tensor_create_param_1d_streamed(5, heap_copy(wv, 5), 0, 15);
                 param_register("w", w64);
                 TensorHandle r64 = tensor_narrow(w64, 0, 1, 3);
                 tensor_to_doubles(r64, out_f64);
@@ -3403,7 +3403,7 @@ int main(void) {
                 for (int i = 0; i < 5; i++) g_f64[i] = param_grad_item_at(0, i);
                 param_clear();
 
-                TensorHandle w32 = tensor_create_param_1d_streamed(5, heap_copy(wv, 5), 0, 0);
+                TensorHandle w32 = tensor_create_param_1d_streamed(5, heap_copy(wv, 5), 0, 14);
                 param_register("w", w32);
                 TensorHandle r32 = tensor_narrow(w32, 0, 1, 3);
                 tensor_to_doubles(r32, out_f32);
@@ -3431,7 +3431,7 @@ int main(void) {
                 double g_f64[5], g_f32[5];
 
                 param_clear();
-                TensorHandle w64 = tensor_create_param_1d_streamed(5, heap_copy(wv, 5), 0, 1);
+                TensorHandle w64 = tensor_create_param_1d_streamed(5, heap_copy(wv, 5), 0, 15);
                 param_register("w", w64);
                 TensorHandle r64 = tensor_select(w64, 0, 2);
                 double v64 = tensor_item(r64);
@@ -3439,7 +3439,7 @@ int main(void) {
                 for (int i = 0; i < 5; i++) g_f64[i] = param_grad_item_at(0, i);
                 param_clear();
 
-                TensorHandle w32 = tensor_create_param_1d_streamed(5, heap_copy(wv, 5), 0, 0);
+                TensorHandle w32 = tensor_create_param_1d_streamed(5, heap_copy(wv, 5), 0, 14);
                 param_register("w", w32);
                 TensorHandle r32 = tensor_select(w32, 0, 2);
                 double v32 = tensor_item(r32);
@@ -3470,9 +3470,9 @@ int main(void) {
                 double out_f64[5], out_f32[5], gA_f64[3], gA_f32[3], gB_f64[2], gB_f32[2];
 
                 param_clear();
-                TensorHandle a64 = tensor_create_param_1d_streamed(3, heap_copy(av, 3), 0, 1);
+                TensorHandle a64 = tensor_create_param_1d_streamed(3, heap_copy(av, 3), 0, 15);
                 param_register("a", a64);
-                TensorHandle b64 = tensor_create_param_1d_streamed(2, heap_copy(bv, 2), 0, 1);
+                TensorHandle b64 = tensor_create_param_1d_streamed(2, heap_copy(bv, 2), 0, 15);
                 param_register("b", b64);
                 TensorHandle r64 = tensor_cat2(a64, b64);
                 tensor_to_doubles(r64, out_f64);
@@ -3481,9 +3481,9 @@ int main(void) {
                 for (int i = 0; i < 2; i++) gB_f64[i] = param_grad_item_at(1, i);
                 param_clear();
 
-                TensorHandle a32 = tensor_create_param_1d_streamed(3, heap_copy(av, 3), 0, 0);
+                TensorHandle a32 = tensor_create_param_1d_streamed(3, heap_copy(av, 3), 0, 14);
                 param_register("a", a32);
-                TensorHandle b32 = tensor_create_param_1d_streamed(2, heap_copy(bv, 2), 0, 0);
+                TensorHandle b32 = tensor_create_param_1d_streamed(2, heap_copy(bv, 2), 0, 14);
                 param_register("b", b32);
                 TensorHandle r32 = tensor_cat2(a32, b32);
                 tensor_to_doubles(r32, out_f32);
@@ -3517,13 +3517,13 @@ int main(void) {
                 double bv[] = {5.0, 6.0, 7.0, 8.0, 9.0, 10.0};   /* [2,3] */
                 double out_f64[10], out_f32[10];
 
-                TensorHandle a64 = tensor_create_2d_streamed(2, 2, heap_copy(av, 4), 0, 0, 1);
-                TensorHandle b64 = tensor_create_2d_streamed(2, 3, heap_copy(bv, 6), 0, 0, 1);
+                TensorHandle a64 = tensor_create_2d_streamed(2, 2, heap_copy(av, 4), 0, 0, 15);
+                TensorHandle b64 = tensor_create_2d_streamed(2, 3, heap_copy(bv, 6), 0, 0, 15);
                 TensorHandle r64 = tensor_concat_2d_axis1(a64, b64);
                 tensor_to_doubles(r64, out_f64);
 
-                TensorHandle a32 = tensor_create_2d_streamed(2, 2, heap_copy(av, 4), 0, 0, 0);
-                TensorHandle b32 = tensor_create_2d_streamed(2, 3, heap_copy(bv, 6), 0, 0, 0);
+                TensorHandle a32 = tensor_create_2d_streamed(2, 2, heap_copy(av, 4), 0, 0, 14);
+                TensorHandle b32 = tensor_create_2d_streamed(2, 3, heap_copy(bv, 6), 0, 0, 14);
                 TensorHandle r32 = tensor_concat_2d_axis1(a32, b32);
                 tensor_to_doubles(r32, out_f32);
 
@@ -3541,16 +3541,16 @@ int main(void) {
                 double s0v = 1.5, s1v = -0.25, s2v = 0.5;
                 double out_f64[3], out_f32[3];
 
-                TensorHandle s0_64 = tensor_create_scalar_streamed(s0v, 0, 0, 1);
-                TensorHandle s1_64 = tensor_create_scalar_streamed(s1v, 0, 0, 1);
-                TensorHandle s2_64 = tensor_create_scalar_streamed(s2v, 0, 0, 1);
+                TensorHandle s0_64 = tensor_create_scalar_streamed(s0v, 0, 0, 15);
+                TensorHandle s1_64 = tensor_create_scalar_streamed(s1v, 0, 0, 15);
+                TensorHandle s2_64 = tensor_create_scalar_streamed(s2v, 0, 0, 15);
                 TensorHandle inputs64[3] = {s0_64, s1_64, s2_64};
                 TensorHandle r64 = tensor_stack(inputs64, 3, 0);
                 tensor_to_doubles(r64, out_f64);
 
-                TensorHandle s0_32 = tensor_create_scalar_streamed(s0v, 0, 0, 0);
-                TensorHandle s1_32 = tensor_create_scalar_streamed(s1v, 0, 0, 0);
-                TensorHandle s2_32 = tensor_create_scalar_streamed(s2v, 0, 0, 0);
+                TensorHandle s0_32 = tensor_create_scalar_streamed(s0v, 0, 0, 14);
+                TensorHandle s1_32 = tensor_create_scalar_streamed(s1v, 0, 0, 14);
+                TensorHandle s2_32 = tensor_create_scalar_streamed(s2v, 0, 0, 14);
                 TensorHandle inputs32[3] = {s0_32, s1_32, s2_32};
                 TensorHandle r32 = tensor_stack(inputs32, 3, 0);
                 tensor_to_doubles(r32, out_f32);
@@ -3575,10 +3575,10 @@ int main(void) {
 
             /* MSE — non-differentiable check (forward + tag). */
             {
-                TensorHandle p64 = tensor_create_1d_streamed(3, heap_copy(pv, 3), 0, 0, 1);
-                TensorHandle t64 = tensor_create_1d_streamed(3, heap_copy(tv, 3), 0, 0, 1);
-                TensorHandle p32 = tensor_create_1d_streamed(3, heap_copy(pv, 3), 0, 0, 0);
-                TensorHandle t32 = tensor_create_1d_streamed(3, heap_copy(tv, 3), 0, 0, 0);
+                TensorHandle p64 = tensor_create_1d_streamed(3, heap_copy(pv, 3), 0, 0, 15);
+                TensorHandle t64 = tensor_create_1d_streamed(3, heap_copy(tv, 3), 0, 0, 15);
+                TensorHandle p32 = tensor_create_1d_streamed(3, heap_copy(pv, 3), 0, 0, 14);
+                TensorHandle t32 = tensor_create_1d_streamed(3, heap_copy(tv, 3), 0, 0, 14);
                 TensorHandle r64 = tensor_mse_loss(p64, t64);
                 TensorHandle r32 = tensor_mse_loss(p32, t32);
                 ASSERT_TRUE("mse: F32 output propagates F32 tag",
@@ -3588,10 +3588,10 @@ int main(void) {
 
             /* cross_entropy — non-differentiable check; depends on log_softmax. */
             {
-                TensorHandle p64 = tensor_create_1d_streamed(3, heap_copy(pv, 3), 0, 0, 1);
-                TensorHandle t64 = tensor_create_1d_streamed(3, heap_copy(tv, 3), 0, 0, 1);
-                TensorHandle p32 = tensor_create_1d_streamed(3, heap_copy(pv, 3), 0, 0, 0);
-                TensorHandle t32 = tensor_create_1d_streamed(3, heap_copy(tv, 3), 0, 0, 0);
+                TensorHandle p64 = tensor_create_1d_streamed(3, heap_copy(pv, 3), 0, 0, 15);
+                TensorHandle t64 = tensor_create_1d_streamed(3, heap_copy(tv, 3), 0, 0, 15);
+                TensorHandle p32 = tensor_create_1d_streamed(3, heap_copy(pv, 3), 0, 0, 14);
+                TensorHandle t32 = tensor_create_1d_streamed(3, heap_copy(tv, 3), 0, 0, 14);
                 TensorHandle r64 = tensor_cross_entropy(p64, t64);
                 TensorHandle r32 = tensor_cross_entropy(p32, t32);
                 ASSERT_TRUE("cross_entropy: F32 output propagates F32 tag",
@@ -3604,18 +3604,18 @@ int main(void) {
                 double g_f64[3], g_f32[3];
 
                 param_clear();
-                TensorHandle p64 = tensor_create_param_1d_streamed(3, heap_copy(pv, 3), 0, 1);
+                TensorHandle p64 = tensor_create_param_1d_streamed(3, heap_copy(pv, 3), 0, 15);
                 param_register("p", p64);
-                TensorHandle t64 = tensor_create_1d_streamed(3, heap_copy(tv, 3), 0, 0, 1);
+                TensorHandle t64 = tensor_create_1d_streamed(3, heap_copy(tv, 3), 0, 0, 15);
                 TensorHandle r64 = tensor_bce_with_logits(p64, t64);
                 double v64 = tensor_item(r64);
                 tensor_backward(r64);
                 for (int i = 0; i < 3; i++) g_f64[i] = param_grad_item_at(0, i);
                 param_clear();
 
-                TensorHandle p32 = tensor_create_param_1d_streamed(3, heap_copy(pv, 3), 0, 0);
+                TensorHandle p32 = tensor_create_param_1d_streamed(3, heap_copy(pv, 3), 0, 14);
                 param_register("p", p32);
-                TensorHandle t32 = tensor_create_1d_streamed(3, heap_copy(tv, 3), 0, 0, 0);
+                TensorHandle t32 = tensor_create_1d_streamed(3, heap_copy(tv, 3), 0, 0, 14);
                 TensorHandle r32 = tensor_bce_with_logits(p32, t32);
                 double v32 = tensor_item(r32);
                 tensor_backward(r32);
@@ -3648,11 +3648,11 @@ int main(void) {
                 double y_f64[2], y_f32[2], gW_f64[6], gW_f32[6], gx_f64[3], gx_f32[3], gb_f64[2], gb_f32[2];
 
                 param_clear();
-                TensorHandle W64 = tensor_create_param_2d_streamed(m, n, heap_copy(Wv, m*n), 0, 1);
+                TensorHandle W64 = tensor_create_param_2d_streamed(m, n, heap_copy(Wv, m*n), 0, 15);
                 param_register("W", W64);
-                TensorHandle x64 = tensor_create_param_1d_streamed(n, heap_copy(xv, n), 0, 1);
+                TensorHandle x64 = tensor_create_param_1d_streamed(n, heap_copy(xv, n), 0, 15);
                 param_register("x", x64);
-                TensorHandle b64 = tensor_create_param_1d_streamed(m, heap_copy(bv, m), 0, 1);
+                TensorHandle b64 = tensor_create_param_1d_streamed(m, heap_copy(bv, m), 0, 15);
                 param_register("b", b64);
                 TensorHandle r64 = tensor_linear(W64, x64, b64);
                 tensor_to_doubles(r64, y_f64);
@@ -3662,11 +3662,11 @@ int main(void) {
                 for (int i = 0; i < m; i++)   gb_f64[i] = param_grad_item_at(2, i);
                 param_clear();
 
-                TensorHandle W32 = tensor_create_param_2d_streamed(m, n, heap_copy(Wv, m*n), 0, 0);
+                TensorHandle W32 = tensor_create_param_2d_streamed(m, n, heap_copy(Wv, m*n), 0, 14);
                 param_register("W", W32);
-                TensorHandle x32 = tensor_create_param_1d_streamed(n, heap_copy(xv, n), 0, 0);
+                TensorHandle x32 = tensor_create_param_1d_streamed(n, heap_copy(xv, n), 0, 14);
                 param_register("x", x32);
-                TensorHandle b32 = tensor_create_param_1d_streamed(m, heap_copy(bv, m), 0, 0);
+                TensorHandle b32 = tensor_create_param_1d_streamed(m, heap_copy(bv, m), 0, 14);
                 param_register("b", b32);
                 TensorHandle r32 = tensor_linear(W32, x32, b32);
                 tensor_to_doubles(r32, y_f32);
@@ -3708,9 +3708,9 @@ int main(void) {
                 double y_f64[2], y_f32[2], ga_f64[3], ga_f32[3], gB_f64[6], gB_f32[6];
 
                 param_clear();
-                TensorHandle a64 = tensor_create_param_1d_streamed(n, heap_copy(av, n), 0, 1);
+                TensorHandle a64 = tensor_create_param_1d_streamed(n, heap_copy(av, n), 0, 15);
                 param_register("a", a64);
-                TensorHandle B64 = tensor_create_param_2d_streamed(n, m, heap_copy(Bv, n*m), 0, 1);
+                TensorHandle B64 = tensor_create_param_2d_streamed(n, m, heap_copy(Bv, n*m), 0, 15);
                 param_register("B", B64);
                 TensorHandle r64 = tensor_matmul(a64, B64);
                 tensor_to_doubles(r64, y_f64);
@@ -3719,9 +3719,9 @@ int main(void) {
                 for (int i = 0; i < n*m; i++) gB_f64[i] = param_grad_item_at(1, i);
                 param_clear();
 
-                TensorHandle a32 = tensor_create_param_1d_streamed(n, heap_copy(av, n), 0, 0);
+                TensorHandle a32 = tensor_create_param_1d_streamed(n, heap_copy(av, n), 0, 14);
                 param_register("a", a32);
-                TensorHandle B32 = tensor_create_param_2d_streamed(n, m, heap_copy(Bv, n*m), 0, 0);
+                TensorHandle B32 = tensor_create_param_2d_streamed(n, m, heap_copy(Bv, n*m), 0, 14);
                 param_register("B", B32);
                 TensorHandle r32 = tensor_matmul(a32, B32);
                 tensor_to_doubles(r32, y_f32);
@@ -3757,9 +3757,9 @@ int main(void) {
                 double y_f64[6], y_f32[6], ga_f64[3], ga_f32[3], gb_f64[2], gb_f32[2];
 
                 param_clear();
-                TensorHandle a64 = tensor_create_param_1d_streamed(m, heap_copy(av, m), 0, 1);
+                TensorHandle a64 = tensor_create_param_1d_streamed(m, heap_copy(av, m), 0, 15);
                 param_register("a", a64);
-                TensorHandle b64 = tensor_create_param_1d_streamed(n, heap_copy(bv, n), 0, 1);
+                TensorHandle b64 = tensor_create_param_1d_streamed(n, heap_copy(bv, n), 0, 15);
                 param_register("b", b64);
                 TensorHandle r64 = tensor_outer(a64, b64);
                 tensor_to_doubles(r64, y_f64);
@@ -3768,9 +3768,9 @@ int main(void) {
                 for (int i = 0; i < n; i++) gb_f64[i] = param_grad_item_at(1, i);
                 param_clear();
 
-                TensorHandle a32 = tensor_create_param_1d_streamed(m, heap_copy(av, m), 0, 0);
+                TensorHandle a32 = tensor_create_param_1d_streamed(m, heap_copy(av, m), 0, 14);
                 param_register("a", a32);
-                TensorHandle b32 = tensor_create_param_1d_streamed(n, heap_copy(bv, n), 0, 0);
+                TensorHandle b32 = tensor_create_param_1d_streamed(n, heap_copy(bv, n), 0, 14);
                 param_register("b", b32);
                 TensorHandle r32 = tensor_outer(a32, b32);
                 tensor_to_doubles(r32, y_f32);
@@ -3806,9 +3806,9 @@ int main(void) {
                 double y_f64[4], y_f32[4], ga_f64[6], ga_f32[6], gb_f64[6], gb_f32[6];
 
                 param_clear();
-                TensorHandle a64 = tensor_create_param_2d_streamed(M, N, heap_copy(av, M*N), 0, 1);
+                TensorHandle a64 = tensor_create_param_2d_streamed(M, N, heap_copy(av, M*N), 0, 15);
                 param_register("a", a64);
-                TensorHandle b64 = tensor_create_param_2d_streamed(N, K, heap_copy(bv, N*K), 0, 1);
+                TensorHandle b64 = tensor_create_param_2d_streamed(N, K, heap_copy(bv, N*K), 0, 15);
                 param_register("b", b64);
                 TensorHandle r64 = tensor_mm(a64, b64);
                 tensor_to_doubles(r64, y_f64);
@@ -3817,9 +3817,9 @@ int main(void) {
                 for (int i = 0; i < N*K; i++) gb_f64[i] = param_grad_item_at(1, i);
                 param_clear();
 
-                TensorHandle a32 = tensor_create_param_2d_streamed(M, N, heap_copy(av, M*N), 0, 0);
+                TensorHandle a32 = tensor_create_param_2d_streamed(M, N, heap_copy(av, M*N), 0, 14);
                 param_register("a", a32);
-                TensorHandle b32 = tensor_create_param_2d_streamed(N, K, heap_copy(bv, N*K), 0, 0);
+                TensorHandle b32 = tensor_create_param_2d_streamed(N, K, heap_copy(bv, N*K), 0, 14);
                 param_register("b", b32);
                 TensorHandle r32 = tensor_mm(a32, b32);
                 tensor_to_doubles(r32, y_f32);
@@ -3856,11 +3856,11 @@ int main(void) {
                 double y_f64[4], y_f32[4], gW_f64[6], gW_f32[6], gX_f64[6], gX_f32[6], gb_f64[2], gb_f32[2];
 
                 param_clear();
-                TensorHandle W64 = tensor_create_param_2d_streamed(oo, ii, heap_copy(Wv, oo*ii), 0, 1);
+                TensorHandle W64 = tensor_create_param_2d_streamed(oo, ii, heap_copy(Wv, oo*ii), 0, 15);
                 param_register("W", W64);
-                TensorHandle X64 = tensor_create_param_2d_streamed(B, ii, heap_copy(Xv, B*ii), 0, 1);
+                TensorHandle X64 = tensor_create_param_2d_streamed(B, ii, heap_copy(Xv, B*ii), 0, 15);
                 param_register("X", X64);
-                TensorHandle b64 = tensor_create_param_1d_streamed(oo, heap_copy(bv, oo), 0, 1);
+                TensorHandle b64 = tensor_create_param_1d_streamed(oo, heap_copy(bv, oo), 0, 15);
                 param_register("b", b64);
                 TensorHandle r64 = tensor_linear_2d(W64, X64, b64);
                 tensor_to_doubles(r64, y_f64);
@@ -3870,11 +3870,11 @@ int main(void) {
                 for (int i = 0; i < oo; i++)   gb_f64[i] = param_grad_item_at(2, i);
                 param_clear();
 
-                TensorHandle W32 = tensor_create_param_2d_streamed(oo, ii, heap_copy(Wv, oo*ii), 0, 0);
+                TensorHandle W32 = tensor_create_param_2d_streamed(oo, ii, heap_copy(Wv, oo*ii), 0, 14);
                 param_register("W", W32);
-                TensorHandle X32 = tensor_create_param_2d_streamed(B, ii, heap_copy(Xv, B*ii), 0, 0);
+                TensorHandle X32 = tensor_create_param_2d_streamed(B, ii, heap_copy(Xv, B*ii), 0, 14);
                 param_register("X", X32);
-                TensorHandle b32 = tensor_create_param_1d_streamed(oo, heap_copy(bv, oo), 0, 0);
+                TensorHandle b32 = tensor_create_param_1d_streamed(oo, heap_copy(bv, oo), 0, 14);
                 param_register("b", b32);
                 TensorHandle r32 = tensor_linear_2d(W32, X32, b32);
                 tensor_to_doubles(r32, y_f32);
@@ -3901,9 +3901,9 @@ int main(void) {
                 double y_f64[8], y_f32[8], ga_f64[12], ga_f32[12], gb_f64[6], gb_f32[6];
 
                 param_clear();
-                TensorHandle a64 = tensor_create_param_3d_streamed(B, m, n, heap_copy(av, B*m*n), 0, 1);
+                TensorHandle a64 = tensor_create_param_3d_streamed(B, m, n, heap_copy(av, B*m*n), 0, 15);
                 param_register("a", a64);
-                TensorHandle b64 = tensor_create_param_2d_streamed(n, k, heap_copy(bv, n*k), 0, 1);
+                TensorHandle b64 = tensor_create_param_2d_streamed(n, k, heap_copy(bv, n*k), 0, 15);
                 param_register("b", b64);
                 TensorHandle r64 = tensor_bmm(a64, b64);
                 tensor_to_doubles(r64, y_f64);
@@ -3912,9 +3912,9 @@ int main(void) {
                 for (int i = 0; i < n*k; i++)   gb_f64[i] = param_grad_item_at(1, i);
                 param_clear();
 
-                TensorHandle a32 = tensor_create_param_3d_streamed(B, m, n, heap_copy(av, B*m*n), 0, 0);
+                TensorHandle a32 = tensor_create_param_3d_streamed(B, m, n, heap_copy(av, B*m*n), 0, 14);
                 param_register("a", a32);
-                TensorHandle b32 = tensor_create_param_2d_streamed(n, k, heap_copy(bv, n*k), 0, 0);
+                TensorHandle b32 = tensor_create_param_2d_streamed(n, k, heap_copy(bv, n*k), 0, 14);
                 param_register("b", b32);
                 TensorHandle r32 = tensor_bmm(a32, b32);
                 tensor_to_doubles(r32, y_f32);
@@ -3944,19 +3944,19 @@ int main(void) {
                 double y_f64[6], y_f32[6];
 
                 /* F64 reference (no grad — exercise forward + running stats only). */
-                TensorHandle x64  = tensor_create_1d_streamed(n, heap_copy(xv, n), 0, 0, 1);
-                TensorHandle g64  = tensor_create_1d_streamed(C, heap_copy(gv, C), 0, 0, 1);
-                TensorHandle b64  = tensor_create_1d_streamed(C, heap_copy(bv, C), 0, 0, 1);
-                TensorHandle rm64 = tensor_create_state_1d_streamed(C, heap_copy(rmv, C), 0, 1);
-                TensorHandle rv64 = tensor_create_state_1d_streamed(C, heap_copy(rvv, C), 0, 1);
+                TensorHandle x64  = tensor_create_1d_streamed(n, heap_copy(xv, n), 0, 0, 15);
+                TensorHandle g64  = tensor_create_1d_streamed(C, heap_copy(gv, C), 0, 0, 15);
+                TensorHandle b64  = tensor_create_1d_streamed(C, heap_copy(bv, C), 0, 0, 15);
+                TensorHandle rm64 = tensor_create_state_1d_streamed(C, heap_copy(rmv, C), 0, 15);
+                TensorHandle rv64 = tensor_create_state_1d_streamed(C, heap_copy(rvv, C), 0, 15);
                 TensorHandle r64  = tensor_batch_norm(x64, g64, b64, rm64, rv64, C, sp, 1, 0.1, 1e-5);
                 tensor_to_doubles(r64, y_f64);
 
-                TensorHandle x32  = tensor_create_1d_streamed(n, heap_copy(xv, n), 0, 0, 0);
-                TensorHandle g32  = tensor_create_1d_streamed(C, heap_copy(gv, C), 0, 0, 0);
-                TensorHandle b32  = tensor_create_1d_streamed(C, heap_copy(bv, C), 0, 0, 0);
-                TensorHandle rm32 = tensor_create_state_1d_streamed(C, heap_copy(rmv, C), 0, 0);
-                TensorHandle rv32 = tensor_create_state_1d_streamed(C, heap_copy(rvv, C), 0, 0);
+                TensorHandle x32  = tensor_create_1d_streamed(n, heap_copy(xv, n), 0, 0, 14);
+                TensorHandle g32  = tensor_create_1d_streamed(C, heap_copy(gv, C), 0, 0, 14);
+                TensorHandle b32  = tensor_create_1d_streamed(C, heap_copy(bv, C), 0, 0, 14);
+                TensorHandle rm32 = tensor_create_state_1d_streamed(C, heap_copy(rmv, C), 0, 14);
+                TensorHandle rv32 = tensor_create_state_1d_streamed(C, heap_copy(rvv, C), 0, 14);
                 TensorHandle r32  = tensor_batch_norm(x32, g32, b32, rm32, rv32, C, sp, 1, 0.1, 1e-5);
                 tensor_to_doubles(r32, y_f32);
 
@@ -3991,11 +3991,11 @@ int main(void) {
                 double y_f64[6], y_f32[6], gx_f64[6], gx_f32[6], gg_f64[3], gg_f32[3], gb_f64[3], gb_f32[3];
 
                 param_clear();
-                TensorHandle x64 = tensor_create_param_2d_streamed(M, N, heap_copy(xv, M*N), 0, 1);
+                TensorHandle x64 = tensor_create_param_2d_streamed(M, N, heap_copy(xv, M*N), 0, 15);
                 param_register("x", x64);
-                TensorHandle g64 = tensor_create_param_1d_streamed(N, heap_copy(gv, N), 0, 1);
+                TensorHandle g64 = tensor_create_param_1d_streamed(N, heap_copy(gv, N), 0, 15);
                 param_register("g", g64);
-                TensorHandle b64 = tensor_create_param_1d_streamed(N, heap_copy(bv, N), 0, 1);
+                TensorHandle b64 = tensor_create_param_1d_streamed(N, heap_copy(bv, N), 0, 15);
                 param_register("b", b64);
                 TensorHandle r64 = tensor_layer_norm_2d(x64, g64, b64, 1e-5);
                 tensor_to_doubles(r64, y_f64);
@@ -4005,11 +4005,11 @@ int main(void) {
                 for (int i = 0; i < N; i++)   gb_f64[i] = param_grad_item_at(2, i);
                 param_clear();
 
-                TensorHandle x32 = tensor_create_param_2d_streamed(M, N, heap_copy(xv, M*N), 0, 0);
+                TensorHandle x32 = tensor_create_param_2d_streamed(M, N, heap_copy(xv, M*N), 0, 14);
                 param_register("x", x32);
-                TensorHandle g32 = tensor_create_param_1d_streamed(N, heap_copy(gv, N), 0, 0);
+                TensorHandle g32 = tensor_create_param_1d_streamed(N, heap_copy(gv, N), 0, 14);
                 param_register("g", g32);
-                TensorHandle b32 = tensor_create_param_1d_streamed(N, heap_copy(bv, N), 0, 0);
+                TensorHandle b32 = tensor_create_param_1d_streamed(N, heap_copy(bv, N), 0, 14);
                 param_register("b", b32);
                 TensorHandle r32 = tensor_layer_norm_2d(x32, g32, b32, 1e-5);
                 tensor_to_doubles(r32, y_f32);
@@ -4035,9 +4035,9 @@ int main(void) {
                 double y_f64[8], y_f32[8], ga_f64[8], ga_f32[8], gb_f64[8], gb_f32[8];
 
                 param_clear();
-                TensorHandle a64 = tensor_create_param_3d_streamed(B, m, n, heap_copy(av, B*m*n), 0, 1);
+                TensorHandle a64 = tensor_create_param_3d_streamed(B, m, n, heap_copy(av, B*m*n), 0, 15);
                 param_register("a", a64);
-                TensorHandle b64 = tensor_create_param_3d_streamed(B, n, k, heap_copy(bv, B*n*k), 0, 1);
+                TensorHandle b64 = tensor_create_param_3d_streamed(B, n, k, heap_copy(bv, B*n*k), 0, 15);
                 param_register("b", b64);
                 TensorHandle r64 = tensor_bmm_3x3(a64, b64);
                 tensor_to_doubles(r64, y_f64);
@@ -4046,9 +4046,9 @@ int main(void) {
                 for (int i = 0; i < B*n*k; i++) gb_f64[i] = param_grad_item_at(1, i);
                 param_clear();
 
-                TensorHandle a32 = tensor_create_param_3d_streamed(B, m, n, heap_copy(av, B*m*n), 0, 0);
+                TensorHandle a32 = tensor_create_param_3d_streamed(B, m, n, heap_copy(av, B*m*n), 0, 14);
                 param_register("a", a32);
-                TensorHandle b32 = tensor_create_param_3d_streamed(B, n, k, heap_copy(bv, B*n*k), 0, 0);
+                TensorHandle b32 = tensor_create_param_3d_streamed(B, n, k, heap_copy(bv, B*n*k), 0, 14);
                 param_register("b", b32);
                 TensorHandle r32 = tensor_bmm_3x3(a32, b32);
                 tensor_to_doubles(r32, y_f32);
@@ -4086,7 +4086,7 @@ int main(void) {
            f16  nearest representable for 0.1: 0x2E66 -> ~0.0999755859375 */
         {
             double bv[] = {1.5, 0.1, -2.0};   /* 1.5 + -2.0 exact in both; 0.1 rounds */
-            TensorHandle bf = tensor_create_1d_streamed(3, heap_copy(bv, 3), 0, 0, 2);  /* dtag 2 = BF16 */
+            TensorHandle bf = tensor_create_1d_streamed(3, heap_copy(bv, 3), 0, 0, 17);  /* dtag 17 = BF16 */
             ASSERT_TRUE("BF16 dtype name", strcmp(tensor_dtype_name(bf), "BF16") == 0);
             double bout[3];
             tensor_to_doubles(bf, bout);
@@ -4094,7 +4094,7 @@ int main(void) {
             ASSERT_NEAR("BF16 round: 0.1 -> 0.10009765625", bout[1], 0.10009765625, 1e-7);
             ASSERT_NEAR("BF16 exact: -2.0", bout[2], -2.0,           1e-12);
 
-            TensorHandle hf = tensor_create_1d_streamed(3, heap_copy(bv, 3), 0, 0, 3);  /* dtag 3 = F16 */
+            TensorHandle hf = tensor_create_1d_streamed(3, heap_copy(bv, 3), 0, 0, 13);  /* dtag 13 = F16 */
             ASSERT_TRUE("F16 dtype name", strcmp(tensor_dtype_name(hf), "F16") == 0);
             double hout[3];
             tensor_to_doubles(hf, hout);
@@ -4107,7 +4107,7 @@ int main(void) {
         {
             /* I8: -128..127 */
             double v8[] = {-128.0, -1.0, 0.0, 1.0, 127.0};
-            TensorHandle i8 = tensor_create_1d_streamed(5, heap_copy(v8, 5), 0, 0, 4);
+            TensorHandle i8 = tensor_create_1d_streamed(5, heap_copy(v8, 5), 0, 0, 8);
             ASSERT_TRUE("I8 dtype name", strcmp(tensor_dtype_name(i8), "I8") == 0);
             double out8[5];
             tensor_to_doubles(i8, out8);
@@ -4118,7 +4118,7 @@ int main(void) {
 
             /* I16: -32768..32767 */
             double v16[] = {-32768.0, 32767.0, 0.0};
-            TensorHandle i16 = tensor_create_1d_streamed(3, heap_copy(v16, 3), 0, 0, 5);
+            TensorHandle i16 = tensor_create_1d_streamed(3, heap_copy(v16, 3), 0, 0, 9);
             ASSERT_TRUE("I16 dtype name", strcmp(tensor_dtype_name(i16), "I16") == 0);
             double out16[3];
             tensor_to_doubles(i16, out16);
@@ -4129,7 +4129,7 @@ int main(void) {
 
             /* I32: full 32-bit range */
             double v32[] = {-2147483648.0, 0.0, 2147483647.0};
-            TensorHandle i32 = tensor_create_1d_streamed(3, heap_copy(v32, 3), 0, 0, 6);
+            TensorHandle i32 = tensor_create_1d_streamed(3, heap_copy(v32, 3), 0, 0, 10);
             ASSERT_TRUE("I32 dtype name", strcmp(tensor_dtype_name(i32), "I32") == 0);
             double out32[3];
             tensor_to_doubles(i32, out32);
@@ -4140,7 +4140,7 @@ int main(void) {
 
             /* I64: within 2^53 (documented caveat — above loses precision via double). */
             double v64[] = {-1e15, 0.0, 1e15};
-            TensorHandle i64 = tensor_create_1d_streamed(3, heap_copy(v64, 3), 0, 0, 7);
+            TensorHandle i64 = tensor_create_1d_streamed(3, heap_copy(v64, 3), 0, 0, 11);
             ASSERT_TRUE("I64 dtype name", strcmp(tensor_dtype_name(i64), "I64") == 0);
             double out64[3];
             tensor_to_doubles(i64, out64);
@@ -4153,7 +4153,7 @@ int main(void) {
         /* U8 + Bool — exact via Phase 2 rounding. */
         {
             double vu[] = {0.0, 1.0, 128.0, 255.0};
-            TensorHandle u8 = tensor_create_1d_streamed(4, heap_copy(vu, 4), 0, 0, 8);
+            TensorHandle u8 = tensor_create_1d_streamed(4, heap_copy(vu, 4), 0, 0, 4);
             ASSERT_TRUE("U8 dtype name", strcmp(tensor_dtype_name(u8), "U8") == 0);
             double outu[4];
             tensor_to_doubles(u8, outu);
@@ -4165,7 +4165,7 @@ int main(void) {
             /* Bool: 0 -> 0, anything-nonzero -> 1. */
             double vb[] = {0.0, 1.0, 0.5, -3.0, 0.0};
             double xb[] = {0.0, 1.0, 1.0,  1.0, 0.0};
-            TensorHandle bo = tensor_create_1d_streamed(5, heap_copy(vb, 5), 0, 0, 9);
+            TensorHandle bo = tensor_create_1d_streamed(5, heap_copy(vb, 5), 0, 0, 1);
             ASSERT_TRUE("Bool dtype name", strcmp(tensor_dtype_name(bo), "BOOL") == 0);
             double outb[5];
             tensor_to_doubles(bo, outb);
@@ -4179,10 +4179,10 @@ int main(void) {
         {
             /* F64 -> U8 -> F64. -3 wraps to 253 via unsigned-char cast (documented). */
             double cv[] = {10.0, -3.0, 7.0};
-            TensorHandle d0 = tensor_create_1d_streamed(3, heap_copy(cv, 3), 0, 0, 1);
-            TensorHandle to_u8 = tensor_cast_dtype_streamed(d0, 0, 8);
+            TensorHandle d0 = tensor_create_1d_streamed(3, heap_copy(cv, 3), 0, 0, 15);
+            TensorHandle to_u8 = tensor_cast_dtype_streamed(d0, 0, 4);
             ASSERT_TRUE("cast F64->U8 dtype", strcmp(tensor_dtype_name(to_u8), "U8") == 0);
-            TensorHandle back = tensor_cast_dtype_streamed(to_u8, 0, 1);
+            TensorHandle back = tensor_cast_dtype_streamed(to_u8, 0, 15);
             ASSERT_TRUE("cast U8->F64 dtype", strcmp(tensor_dtype_name(back), "F64") == 0);
             double rb[3];
             tensor_to_doubles(back, rb);
@@ -4192,10 +4192,10 @@ int main(void) {
 
             /* F64 -> Bool -> F64 */
             double bv[] = {0.0, 5.0, -2.0};
-            TensorHandle s0 = tensor_create_1d_streamed(3, heap_copy(bv, 3), 0, 0, 1);
-            TensorHandle to_bool = tensor_cast_dtype_streamed(s0, 0, 9);
+            TensorHandle s0 = tensor_create_1d_streamed(3, heap_copy(bv, 3), 0, 0, 15);
+            TensorHandle to_bool = tensor_cast_dtype_streamed(s0, 0, 1);
             ASSERT_TRUE("cast F64->Bool dtype", strcmp(tensor_dtype_name(to_bool), "BOOL") == 0);
-            TensorHandle bback = tensor_cast_dtype_streamed(to_bool, 0, 1);
+            TensorHandle bback = tensor_cast_dtype_streamed(to_bool, 0, 15);
             double brt[3];
             tensor_to_doubles(bback, brt);
             ASSERT_NEAR("Bool roundtrip 0",  brt[0], 0.0, 1e-12);
@@ -4221,8 +4221,8 @@ int main(void) {
         /* π and √2: F32 nearest values differ from F64 source past the
            7th decimal, so the float-vs-double misread shows up clearly. */
         double pv[] = {3.14159265358979, 1.4142135623730951};
-        TensorHandle f64src = tensor_create_1d_streamed(2, heap_copy(pv, 2), 0, 0, 1);  /* dtag 1 = F64 */
-        TensorHandle f32cast = tensor_cast_dtype_streamed(f64src, 0, 0);                /* dtag 0 = F32 */
+        TensorHandle f64src = tensor_create_1d_streamed(2, heap_copy(pv, 2), 0, 0, 15);  /* dtag 15 = F64 */
+        TensorHandle f32cast = tensor_cast_dtype_streamed(f64src, 0, 14);                /* dtag 14 = F32 */
         ASSERT_TRUE("F32 cast dtype name", strcmp(tensor_dtype_name(f32cast), "F32") == 0);
 
         /* Reader paths must agree: tensor_to_doubles, tensor_item_1d, and a
@@ -4236,7 +4236,7 @@ int main(void) {
 
         /* F32 → F64 round-trip via cast: widened values match the
            F32-narrowed readout exactly (no further precision loss). */
-        TensorHandle f64back = tensor_cast_dtype_streamed(f32cast, 0, 1);
+        TensorHandle f64back = tensor_cast_dtype_streamed(f32cast, 0, 15);
         ASSERT_TRUE("F32→F64 widened dtype name", strcmp(tensor_dtype_name(f64back), "F64") == 0);
         double widened[2];
         tensor_to_doubles(f64back, widened);
@@ -4245,6 +4245,66 @@ int main(void) {
         param_clear();
     }
 #endif
+
+    /* T33: RuntimeDType tag layout (kind-major, sub-byte families).
+       Closes TODO row #21. The wire tag was a grow-as-needed integer
+       (F32=0, F64=1, BF16=2, ...) that mixed lingua-franca demand with
+       insertion order and silently meant F32 when zero-initialized. The
+       new layout reserves 0 as invalid, groups by kind (U/I/F/BF/TF)
+       with 4 lanes per family for 8/16/32/64-bit variants, and leaves
+       sub-byte families (24-31) open for future quantization dtypes
+       (U4/I4/NF4/ternary/MX). For numeric families bit_width = 8 <<
+       (tag & 3). Mapping:
+         0:invalid 1:Bool 4:U8 8:I8 9:I16 10:I32 11:I64
+         13:F16 14:F32 15:F64 17:BF16
+       Asserts that a tensor created with each new dtag carries the
+       expected live dtype name (i.e. Idris↔C dtag contract holds). */
+    {
+        printf("\n--- T33: RuntimeDType tag layout (kind-major) ---\n");
+        param_clear();
+
+        struct { int dtag; const char* name; } universal_cases[] = {
+            { 14, "F32" },
+            { 15, "F64" },
+        };
+        for (size_t i = 0; i < sizeof(universal_cases)/sizeof(universal_cases[0]); i++) {
+            TensorHandle h = tensor_create_scalar_streamed(1.0, 0, 0, universal_cases[i].dtag);
+            const char* got = tensor_dtype_name(h);
+            char label[128];
+            snprintf(label, sizeof(label), "dtag=%d expected %s got %s",
+                     universal_cases[i].dtag, universal_cases[i].name, got);
+            ASSERT_TRUE(label, strcmp(got, universal_cases[i].name) == 0);
+        }
+
+#if defined(BACKEND_TORCH) || defined(BACKEND_TAPE)
+        /* Inference dtags — torch wires every dtype; tape stores them via
+           the double lingua franca (Phase 2). mlx supports only F32/F64
+           on Metal, so its inference cases are gated above. */
+        struct { int dtag; const char* name; } inference_cases[] = {
+            { 1,  "Bool" },
+            { 4,  "U8" },
+            { 8,  "I8" },
+            { 9,  "I16" },
+            { 10, "I32" },
+            { 11, "I64" },
+            { 13, "F16" },
+            { 17, "BF16" },
+        };
+        for (size_t i = 0; i < sizeof(inference_cases)/sizeof(inference_cases[0]); i++) {
+            TensorHandle h = tensor_create_scalar_streamed(1.0, 0, 0, inference_cases[i].dtag);
+            const char* got = tensor_dtype_name(h);
+            char label[128];
+            const char* expected = inference_cases[i].name;
+            /* tape stringifies Bool as "BOOL"; torch as "Bool". Accept both. */
+            int match = (strcmp(got, expected) == 0);
+            if (!match && strcmp(expected, "Bool") == 0 && strcmp(got, "BOOL") == 0) match = 1;
+            snprintf(label, sizeof(label), "dtag=%d expected %s got %s",
+                     inference_cases[i].dtag, expected, got);
+            ASSERT_TRUE(label, match);
+        }
+#endif
+        param_clear();
+    }
 
     /* Summary */
     printf("\n");

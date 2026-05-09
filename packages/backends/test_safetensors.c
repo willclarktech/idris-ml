@@ -91,15 +91,15 @@ static void run_inference_dtype_tests(void) {
 
     double* b1 = tensor_alloc_doubles(fn);
     for (int i = 0; i < fn; i++) b1[i] = fdata[i];
-    dtype_roundtrip("w_bf16", "BF16", tensor_create_1d_streamed(fn, b1, 0, 0, 2), fdata, fn);
+    dtype_roundtrip("w_bf16", "BF16", tensor_create_1d_streamed(fn, b1, 0, 0, 17), fdata, fn);
 
     double* b2 = tensor_alloc_doubles(fn);
     for (int i = 0; i < fn; i++) b2[i] = fdata[i];
-    dtype_roundtrip("w_f16", "F16", tensor_create_1d_streamed(fn, b2, 0, 0, 3), fdata, fn);
+    dtype_roundtrip("w_f16", "F16", tensor_create_1d_streamed(fn, b2, 0, 0, 13), fdata, fn);
 
     double* b3 = tensor_alloc_doubles(in);
     for (int i = 0; i < in; i++) b3[i] = idata[i];
-    dtype_roundtrip("w_i32", "I32", tensor_create_1d_streamed(in, b3, 0, 0, 6), idata, in);
+    dtype_roundtrip("w_i32", "I32", tensor_create_1d_streamed(in, b3, 0, 0, 10), idata, in);
 }
 
 /* >2^53 I64 round-trip — exact-i64 path test. The lingua-franca double
