@@ -205,6 +205,25 @@ The codebase has **zero `believe_me`** and **zero `unsafePerformIO`**. Keep it t
 
 Commit at each step. PyTorch is the correctness oracle.
 
+### Test-driven development (cross-cutting — governs all new capability work)
+
+**Default to TDD** for any new behaviour-bearing change: a new kernel, a new dtype rung, a new layer instance, a new example, a new bug fix. Write the test first; run it; **observe it failing for the right reason** (a value mismatch, a wrong `tensor_dtype_name`, an `abort`, a NaN, a wrong gradient). A compile error or missing-symbol/link error does **not** count as red — "it links" is not "it works". If the unit is too coarse to fail-for-the-right-reason because the symbol doesn't exist yet, shrink to the smallest behavioural probe that can fail, or use the skip-flag pattern below.
+
+**Record the red** in the conversation and in the implementing commit's body (`RED before this commit: <assertion>`). This is the evidence the cycle happened; without it the step was skipped.
+
+**Reconciling TDD with build-green-per-commit + "test gates must run in CI"** (`feedback_test_gates_must_run_in_ci`): a test must never be *pushed* red. Exactly two allowed commit shapes:
+
+- **(i) skip-flag** — commit the test present-but-skipped (CI green), then the implementing commit *removes the skip* and turns it green. The red is observed locally before the skip is added. Used when the implementation lands across multiple commits (Phase 3's per-rung gradcheck ladder, Phase 5's `PRECISION_DEMO_READY=0/1` gate).
+- **(ii) paired commit** — observe red locally, then commit test + implementation together in one commit whose body records the red. Used when a skip flag would be more ceremony than the change warrants.
+
+**Test layer to use** (pick the one the change actually drives):
+- **C unit tests** (`packages/backends/test_backend.c`, `make test-backend-{tape,torch,mlx}`) — backend-side dtype/kernel/lifetime work. Add assertions under the relevant `#ifdef`; verify on **all three** backends, not just the primary (regression on the non-primary backend is the bug class this catches).
+- **F32 gradcheck oracle** (tape T29 block) — when extending F32 routing to a new kernel: paired F32-vs-F64 contract with tag-propagation + forward-tol + grad-tol asserts.
+- **Idris unit tests** (`packages/idris-ml/test`, `make test`) — typed-surface, smart-constructor, training-loop work.
+- **`.expect` example outputs** (`make test-examples`) — user-visible example behaviour. Author the fixed expected stdout first; the example is RED until step 2 writes it (gated by a `<EXAMPLE>_READY` Makefile var for the skip-flag shape).
+
+**No "linked = green"**. The Phase 1 (unified FFI dispatch) slip — entry-point commits 1.1–1.4 shipped with only compile/link coverage; the behavioural test (`600ae11`) followed days later — is the failure mode this section exists to prevent.
+
 ### Alignment policy (cross-cutting — governs all example work)
 
 **Identical defaults**: Idris examples and PyTorch references MUST use identical defaults for all hyperparameters (lr, batch size, epochs, seed, architecture, init). When a discrepancy is found, adopt the better practice in BOTH. When changing an example, always update both sides. See `docs/develop/reference-alignment.md`.
