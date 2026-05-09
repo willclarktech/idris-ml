@@ -1071,8 +1071,57 @@ static double fn_softplus(double x) {
 }
 TensorHandle tensor_softplus(TensorHandle a) { return unop_elementwise(a, OP_SOFTPLUS, fn_softplus); }
 
+/* F32 forward shims for the scalar-arg ops. F32 in -> F32 out via real
+   F32 arena storage; backward reads grads in F64 (asymmetric pattern from
+   Phase 3) and reads input data via tape_load_d in OP_CLAMP_MIN. */
+static TensorHandle tensor_add_scalar_f32(TensorHandle ha, double s) {
+    Tensor* a = (Tensor*)ha;
+    float sf = (float)s;
+    if (a->numel == 1) {
+        Tensor* r = make_scalar_f32((double)(((float*)a->data)[0] + sf), a->requires_grad);
+        if (r->requires_grad) tape_append(OP_ADD_SCALAR, r, a, NULL, s);
+        return r;
+    }
+    float* data = arena_alloc(a->numel * sizeof(float));
+    for (int i = 0; i < a->numel; i++) data[i] = ((float*)a->data)[i] + sf;
+    Tensor* r = make_tensor_arena_f32(data, a->numel, a->shape, a->rank, a->requires_grad);
+    if (r->requires_grad) tape_append(OP_ADD_SCALAR, r, a, NULL, s);
+    return r;
+}
+
+static TensorHandle tensor_mul_scalar_f32(TensorHandle ha, double s) {
+    Tensor* a = (Tensor*)ha;
+    float sf = (float)s;
+    if (a->numel == 1) {
+        Tensor* r = make_scalar_f32((double)(((float*)a->data)[0] * sf), a->requires_grad);
+        if (r->requires_grad) tape_append(OP_MUL_SCALAR, r, a, NULL, s);
+        return r;
+    }
+    float* data = arena_alloc(a->numel * sizeof(float));
+    for (int i = 0; i < a->numel; i++) data[i] = ((float*)a->data)[i] * sf;
+    Tensor* r = make_tensor_arena_f32(data, a->numel, a->shape, a->rank, a->requires_grad);
+    if (r->requires_grad) tape_append(OP_MUL_SCALAR, r, a, NULL, s);
+    return r;
+}
+
+static TensorHandle tensor_clamp_min_f32(TensorHandle ha, double min_val) {
+    Tensor* a = (Tensor*)ha;
+    int n = a->numel;
+    float mv = (float)min_val;
+    float* data = arena_alloc(n * sizeof(float));
+    for (int i = 0; i < n; i++) {
+        float v = ((float*)a->data)[i];
+        data[i] = v > mv ? v : mv;
+    }
+    Tensor* r = (n == 1) ? make_scalar_f32((double)data[0], a->requires_grad)
+                         : make_tensor_arena_f32(data, n, a->shape, a->rank, a->requires_grad);
+    if (r->requires_grad) tape_append(OP_CLAMP_MIN, r, a, NULL, min_val);
+    return r;
+}
+
 TensorHandle tensor_add_scalar(TensorHandle ha, double s) {
     Tensor* a = (Tensor*)ha;
+    if (a->dtype_tag == DT_F32) return tensor_add_scalar_f32(ha, s);
     if (a->numel == 1) {
         Tensor* r = make_scalar(((double*)a->data)[0] + s, a->requires_grad);
         if (r->requires_grad) tape_append(OP_ADD_SCALAR, r, a, NULL, s);
@@ -1088,6 +1137,7 @@ TensorHandle tensor_add_scalar(TensorHandle ha, double s) {
 
 TensorHandle tensor_mul_scalar(TensorHandle ha, double s) {
     Tensor* a = (Tensor*)ha;
+    if (a->dtype_tag == DT_F32) return tensor_mul_scalar_f32(ha, s);
     if (a->numel == 1) {
         Tensor* r = make_scalar(((double*)a->data)[0] * s, a->requires_grad);
         if (r->requires_grad) tape_append(OP_MUL_SCALAR, r, a, NULL, s);
@@ -1103,6 +1153,7 @@ TensorHandle tensor_mul_scalar(TensorHandle ha, double s) {
 
 TensorHandle tensor_clamp_min(TensorHandle ha, double min_val) {
     Tensor* a = (Tensor*)ha;
+    if (a->dtype_tag == DT_F32) return tensor_clamp_min_f32(ha, min_val);
     int n = a->numel;
     double* data = malloc(n * sizeof(double));
     for (int i = 0; i < n; i++) data[i] = fmax(((double*)a->data)[i], min_val);
@@ -3460,13 +3511,14 @@ void tensor_backward(TensorHandle h) {
             break;
 
         case OP_CLAMP_MIN: {
-            /* Gradient passes through where input > min, zero where clamped */
+            /* Gradient passes through where input > min, zero where clamped.
+               tape_load_d handles both F64 and F32 input storage. */
             double min_val = e->scalar_arg;
             if (a) {
                 ensure_grad(a);
                 ensure_grad(r);
                 for (int j = 0; j < a->numel; j++)
-                    ((double*)a->grad)[j] += (((double*)a->data)[j] > min_val) ? ((double*)r->grad)[j] : 0.0;
+                    ((double*)a->grad)[j] += (tape_load_d(a, j) > min_val) ? ((double*)r->grad)[j] : 0.0;
             }
             break;
         }

@@ -3048,6 +3048,124 @@ int main(void) {
     }
 #endif
 
+    /* T30: F32 non-elementwise coverage (Phase 3b — tape-only).
+       Same paired F32-vs-F64 contract as T29: each kernel's F32 forward
+       output must propagate the F32 tag and match the F64 reference within
+       F32 tolerance, with F32 grads matching their F64 counterparts on the
+       same input bytes. Inputs are picked to be exactly representable in
+       F32 so divergences come from kernel routing, not input rounding.
+       Each batch's natural unit is gated by its own block. */
+#if defined(BACKEND_TAPE)
+    {
+        printf("\n--- F32 non-elementwise coverage (Phase 3b) ---\n");
+
+        /* Batch 1 Group A: scalar ops. y = op(w, s); L = sum(y).
+              add_scalar:  dL/dw[i] = 1
+              mul_scalar:  dL/dw[i] = s
+              clamp_min:   dL/dw[i] = (w[i] > min ? 1 : 0)
+           tape_load_d in OP_CLAMP_MIN backward picks up F32 input data. */
+        {
+            double wv[] = {1.5, -0.25, 0.5};
+            double y_f64[3], y_f32[3];
+            double g_f64[3], g_f32[3];
+            double s_add = 0.75, s_mul = -1.5, s_clamp = 0.0;
+
+            /* add_scalar */
+            {
+                /* F64 reference */
+                param_clear();
+                TensorHandle w64 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 1);
+                param_register("w", w64);
+                TensorHandle y64 = tensor_add_scalar(w64, s_add);
+                tensor_to_doubles(y64, y_f64);
+                tensor_backward(tensor_sum(y64));
+                for (int i = 0; i < 3; i++) g_f64[i] = param_grad_item_at(0, i);
+                param_clear();
+
+                /* F32 path */
+                TensorHandle w32 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 0);
+                param_register("w", w32);
+                TensorHandle y32 = tensor_add_scalar(w32, s_add);
+                tensor_to_doubles(y32, y_f32);
+                tensor_backward(tensor_sum(y32));
+                for (int i = 0; i < 3; i++) g_f32[i] = param_grad_item_at(0, i);
+
+                ASSERT_TRUE("add_scalar: F32 output propagates F32 tag",
+                            strcmp(tensor_dtype_name(y32), "F32") == 0);
+                for (int i = 0; i < 3; i++) {
+                    char m[64];
+                    snprintf(m, sizeof m, "add_scalar: y_f32[%d] ~ y_f64", i);
+                    ASSERT_NEAR(m, y_f32[i], y_f64[i], 1e-5);
+                    snprintf(m, sizeof m, "add_scalar: w.grad_f32[%d] ~ w.grad_f64", i);
+                    ASSERT_NEAR(m, g_f32[i], g_f64[i], 1e-5);
+                }
+                param_clear();
+            }
+
+            /* mul_scalar */
+            {
+                param_clear();
+                TensorHandle w64 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 1);
+                param_register("w", w64);
+                TensorHandle y64 = tensor_mul_scalar(w64, s_mul);
+                tensor_to_doubles(y64, y_f64);
+                tensor_backward(tensor_sum(y64));
+                for (int i = 0; i < 3; i++) g_f64[i] = param_grad_item_at(0, i);
+                param_clear();
+
+                TensorHandle w32 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 0);
+                param_register("w", w32);
+                TensorHandle y32 = tensor_mul_scalar(w32, s_mul);
+                tensor_to_doubles(y32, y_f32);
+                tensor_backward(tensor_sum(y32));
+                for (int i = 0; i < 3; i++) g_f32[i] = param_grad_item_at(0, i);
+
+                ASSERT_TRUE("mul_scalar: F32 output propagates F32 tag",
+                            strcmp(tensor_dtype_name(y32), "F32") == 0);
+                for (int i = 0; i < 3; i++) {
+                    char m[64];
+                    snprintf(m, sizeof m, "mul_scalar: y_f32[%d] ~ y_f64", i);
+                    ASSERT_NEAR(m, y_f32[i], y_f64[i], 1e-5);
+                    snprintf(m, sizeof m, "mul_scalar: w.grad_f32[%d] ~ w.grad_f64", i);
+                    ASSERT_NEAR(m, g_f32[i], g_f64[i], 1e-5);
+                }
+                param_clear();
+            }
+
+            /* clamp_min — backward reads input data (sign check), so this
+               also exercises OP_CLAMP_MIN's `tape_load_d` swap. */
+            {
+                param_clear();
+                TensorHandle w64 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 1);
+                param_register("w", w64);
+                TensorHandle y64 = tensor_clamp_min(w64, s_clamp);
+                tensor_to_doubles(y64, y_f64);
+                tensor_backward(tensor_sum(y64));
+                for (int i = 0; i < 3; i++) g_f64[i] = param_grad_item_at(0, i);
+                param_clear();
+
+                TensorHandle w32 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 0);
+                param_register("w", w32);
+                TensorHandle y32 = tensor_clamp_min(w32, s_clamp);
+                tensor_to_doubles(y32, y_f32);
+                tensor_backward(tensor_sum(y32));
+                for (int i = 0; i < 3; i++) g_f32[i] = param_grad_item_at(0, i);
+
+                ASSERT_TRUE("clamp_min: F32 output propagates F32 tag",
+                            strcmp(tensor_dtype_name(y32), "F32") == 0);
+                for (int i = 0; i < 3; i++) {
+                    char m[64];
+                    snprintf(m, sizeof m, "clamp_min: y_f32[%d] ~ y_f64", i);
+                    ASSERT_NEAR(m, y_f32[i], y_f64[i], 1e-5);
+                    snprintf(m, sizeof m, "clamp_min: w.grad_f32[%d] ~ w.grad_f64", i);
+                    ASSERT_NEAR(m, g_f32[i], g_f64[i], 1e-5);
+                }
+                param_clear();
+            }
+        }
+    }
+#endif
+
     /* Summary */
     printf("\n");
     if (failures == 0) {
