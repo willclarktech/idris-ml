@@ -86,13 +86,16 @@ dncZeroDiag : AnyPtr -> AnyPtr -> AnyPtr
 dncZeroDiag maskPtr matT = prim__mul matT maskPtr
 
 -- Per-head read processing for r heads.
+-- `linkTransT` is the transposed link matrix, computed ONCE by the
+-- caller and threaded in — used to be `prim__transpose2d linkT` per
+-- head, R redundant FFI calls on a head-invariant value.
 dncReadHeads : {k : Nat} -> Int -> Vect k AnyPtr ->
-                  AnyPtr -> AnyPtr ->
+                  AnyPtr -> AnyPtr -> AnyPtr ->
                   AnyPtr -> AnyPtr -> AnyPtr ->
                   Int ->
                   (Vect k AnyPtr, Vect k AnyPtr)
-dncReadHeads _ [] _ _ _ _ _ _ = ([], [])
-dncReadHeads idx (prevRw :: restRws) linkT memT keysT betasT modesT mI =
+dncReadHeads _ [] _ _ _ _ _ _ _ = ([], [])
+dncReadHeads idx (prevRw :: restRws) linkT linkTransT memT keysT betasT modesT mI =
   let headKeyT      = prim__narrow keysT 0 (idx * mI) mI
       headBetaPtr   = prim__select betasT 0 idx
       headBetaT     = prim__softplus headBetaPtr
@@ -102,7 +105,6 @@ dncReadHeads idx (prevRw :: restRws) linkT memT keysT betasT modesT mI =
       scaledScoresT = prim__mul headBetaT cosScoresT
       contentRwT    = prim__softmax scaledScoresT 0
       forwardT      = prim__matmul linkT prevRw
-      linkTransT    = prim__transpose2d linkT
       backwardT     = prim__matmul linkTransT prevRw
       pi0           = prim__select headModesT 0 0
       pi1           = prim__select headModesT 0 1
@@ -115,7 +117,8 @@ dncReadHeads idx (prevRw :: restRws) linkT memT keysT betasT modesT mI =
       rwNormSumT    = prim__addScalar (prim__sum rwClampedT) 1.0e-10
       rwT           = prim__div rwClampedT rwNormSumT
       roT           = prim__matmul rwT memT
-      (restRws', restRos') = dncReadHeads (idx + 1) restRws linkT memT keysT betasT modesT mI
+      (restRws', restRos') =
+        dncReadHeads (idx + 1) restRws linkT linkTransT memT keysT betasT modesT mI
   in (rwT :: restRws', roT :: restRos')
 
 
@@ -328,8 +331,10 @@ applyDnc {r} {n} {m}
       wSumT         = prim__sum newWriteWT
       oneMinusWSumT = prim__sub onesScalar wSumT
       newPrecT      = prim__add (prim__mul oneMinusWSumT precTPtr) newWriteWT
-      -- 13. Read heads
-      (newRwTs, newRoTs) = dncReadHeads 0 rwTsPtrs newLinkT newMemT
+      -- 13. Read heads. Compute the link transpose ONCE outside the
+      -- per-head recursion (was being computed R times — head-invariant).
+      newLinkTransT = prim__transpose2d newLinkT
+      (newRwTs, newRoTs) = dncReadHeads 0 rwTsPtrs newLinkT newLinkTransT newMemT
                               readKeysFlatT readBetasRawT readModesFlatT mI
       -- 14. Output FC
       allNewReadsT  = catReadOuts newRoTs
