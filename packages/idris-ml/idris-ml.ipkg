@@ -43,6 +43,7 @@ modules = Compat.Random
         , Layer.LstmV2
         , Layer.Normalization
         , Layer.Dnc
+        , Layer.DncV2
         , Layer.Ntm
         , Layer.NtmV2
         , Layer.Rnn
