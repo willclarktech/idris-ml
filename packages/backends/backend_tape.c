@@ -4723,7 +4723,7 @@ void tensor_backward(TensorHandle h) {
                     double d_cell = d_h * lm->oG[j] * (1.0 - tanhC * tanhC);
 
                     /* d_fGate = d_cell * prevCell */
-                    double d_fG = d_cell * (b ? ((double*)b->data)[j] : 0);
+                    double d_fG = d_cell * (b ? tape_load_d(b, j) : 0);
                     /* d_iGate = d_cell * gG */
                     double d_iG = d_cell * lm->gG[j];
                     /* d_gGate = d_cell * iG */
@@ -4756,7 +4756,7 @@ void tensor_backward(TensorHandle h) {
                     double d_cell = ((double*)r->grad)[j];
 
                     /* d_fGate = d_cell * prevCell */
-                    double d_fG = d_cell * (b ? ((double*)b->data)[j] : 0);
+                    double d_fG = d_cell * (b ? tape_load_d(b, j) : 0);
                     /* d_iGate = d_cell * gG */
                     double d_iG = d_cell * lm->gG[j];
                     /* d_gGate = d_cell * iG */
@@ -5379,11 +5379,14 @@ void tensor_lstm_gates(TensorHandle combined_h, TensorHandle prev_cell_h, int o,
 {
     Tensor* combined = (Tensor*)combined_h;
     Tensor* prev_cell = (Tensor*)prev_cell_h;
+    if (combined->dtype_tag != prev_cell->dtype_tag)
+        tape_abort_mixed_dtype("tensor_lstm_gates");
     int rg = combined->requires_grad || prev_cell->requires_grad;
-    double* out_hidden = calloc(o, sizeof(double));
-    double* out_cell = calloc(o, sizeof(double));
+    int shape[] = {o};
+    int is_f32 = (combined->dtype_tag == DT_F32);
 
-    /* Save gate activations for backward */
+    /* Save gate activations for backward — cache stays double* for both
+       dtypes (the backward accumulates into F64 grads). */
     LstmGatesMeta* meta = NULL;
     if (rg) {
         meta = arena_alloc(sizeof(LstmGatesMeta));
@@ -5395,25 +5398,46 @@ void tensor_lstm_gates(TensorHandle combined_h, TensorHandle prev_cell_h, int o,
         meta->new_cell = arena_alloc(o * sizeof(double));
     }
 
-    for (int j = 0; j < o; j++) {
-        double ig = 1.0 / (1.0 + exp(-((double*)combined->data)[j]));
-        double fg = 1.0 / (1.0 + exp(-((double*)combined->data)[o+j]));
-        double gg = tanh(((double*)combined->data)[2*o+j]);
-        double og = 1.0 / (1.0 + exp(-((double*)combined->data)[3*o+j]));
-        out_cell[j] = fg * ((double*)prev_cell->data)[j] + ig * gg;
-        out_hidden[j] = og * tanh(out_cell[j]);
-        if (meta) {
-            meta->iG[j] = ig; meta->fG[j] = fg;
-            meta->gG[j] = gg; meta->oG[j] = og;
-            meta->new_cell[j] = out_cell[j];
+    if (is_f32) {
+        float* out_hidden = arena_alloc(o * sizeof(float));
+        float* out_cell   = arena_alloc(o * sizeof(float));
+        for (int j = 0; j < o; j++) {
+            double ig = 1.0 / (1.0 + exp(-tape_load_d(combined, j)));
+            double fg = 1.0 / (1.0 + exp(-tape_load_d(combined, o+j)));
+            double gg = tanh(tape_load_d(combined, 2*o+j));
+            double og = 1.0 / (1.0 + exp(-tape_load_d(combined, 3*o+j)));
+            double cell_v = fg * tape_load_d(prev_cell, j) + ig * gg;
+            out_cell[j] = (float)cell_v;
+            out_hidden[j] = (float)(og * tanh(cell_v));
+            if (meta) {
+                meta->iG[j] = ig; meta->fG[j] = fg;
+                meta->gG[j] = gg; meta->oG[j] = og;
+                meta->new_cell[j] = cell_v;
+            }
         }
+        *out_h = make_tensor_arena_f32(out_hidden, o, shape, 1, rg);
+        *out_c = make_tensor_arena_f32(out_cell,   o, shape, 1, rg);
+    } else {
+        double* out_hidden = calloc(o, sizeof(double));
+        double* out_cell = calloc(o, sizeof(double));
+        for (int j = 0; j < o; j++) {
+            double ig = 1.0 / (1.0 + exp(-((double*)combined->data)[j]));
+            double fg = 1.0 / (1.0 + exp(-((double*)combined->data)[o+j]));
+            double gg = tanh(((double*)combined->data)[2*o+j]);
+            double og = 1.0 / (1.0 + exp(-((double*)combined->data)[3*o+j]));
+            out_cell[j] = fg * ((double*)prev_cell->data)[j] + ig * gg;
+            out_hidden[j] = og * tanh(out_cell[j]);
+            if (meta) {
+                meta->iG[j] = ig; meta->fG[j] = fg;
+                meta->gG[j] = gg; meta->oG[j] = og;
+                meta->new_cell[j] = out_cell[j];
+            }
+        }
+        *out_h = make_tensor(out_hidden, shape, 1, rg);
+        *out_c = make_tensor(out_cell, shape, 1, rg);
+        free(out_hidden);
+        free(out_cell);
     }
-
-    int shape[] = {o};
-    *out_h = make_tensor(out_hidden, shape, 1, rg);
-    *out_c = make_tensor(out_cell, shape, 1, rg);
-    free(out_hidden);
-    free(out_cell);
 
     if (rg) {
         /* Record hidden output with OP_LSTM_GATES — backward propagates d_hidden */
