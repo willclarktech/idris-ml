@@ -73,7 +73,7 @@ export prim__tanh : AnyPtr -> AnyPtr
 
 -- Linear algebra
 %foreign "C:tensor_mv,libidrisml"
-prim__mv : AnyPtr -> AnyPtr -> AnyPtr
+export prim__mv : AnyPtr -> AnyPtr -> AnyPtr
 
 %foreign "C:tensor_dot,libidrisml"
 prim__dot : AnyPtr -> AnyPtr -> AnyPtr

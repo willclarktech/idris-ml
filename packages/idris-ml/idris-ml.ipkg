@@ -44,6 +44,7 @@ modules = Compat.Random
         , Layer.Normalization
         , Layer.Dnc
         , Layer.Ntm
+        , Layer.NtmV2
         , Layer.Rnn
         , Layer.RnnV2
         , Layer.Transformer
