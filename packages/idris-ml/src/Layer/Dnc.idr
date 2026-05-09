@@ -48,12 +48,14 @@ catReadOuts (h :: t) = catRest h t
     catRest acc (h' :: rest) = catRest (prim__cat2 acc h') rest
 
 -- Compute prod_j (1 - free_gate_j * prev_read_w_j) over r heads.
-dncRetention : {k : Nat} -> Int -> AnyPtr -> Vect k AnyPtr -> AnyPtr -> AnyPtr
-dncRetention _ _ [] acc = acc
-dncRetention idx freeGatesT (rw :: rws) acc =
+-- `onesScalar` is the precomputed scalar 1.0 (passed in to avoid
+-- one prim__createScalar call per recursion).
+dncRetention : {k : Nat} -> AnyPtr -> Int -> AnyPtr -> Vect k AnyPtr -> AnyPtr -> AnyPtr
+dncRetention _ _ _ [] acc = acc
+dncRetention onesScalar idx freeGatesT (rw :: rws) acc =
   let fg = prim__select freeGatesT 0 idx
-      factor = prim__sub (prim__createScalar 1.0 0) (prim__mul fg rw)
-  in dncRetention (idx + 1) freeGatesT rws (prim__mul acc factor)
+      factor = prim__sub onesScalar (prim__mul fg rw)
+  in dncRetention onesScalar (idx + 1) freeGatesT rws (prim__mul acc factor)
 
 -- Build a [n,n] non-diagonal mask once (1 off-diagonal, 0 on-diagonal).
 -- Stored persistently in DncState; reused every timestep instead of
@@ -287,7 +289,7 @@ applyDnc {r} {n} {m}
       writeGateT  = prim__sigmoid writeGateRawT
       -- 6. Usage update
       writeUsageT = prim__sub (prim__add usageTPtr wwTPtr) (prim__mul usageTPtr wwTPtr)
-      retentionT  = dncRetention 0 freeGatesT rwTsPtrs onesScalar
+      retentionT  = dncRetention onesScalar 0 freeGatesT rwTsPtrs onesScalar
       retClampedT = prim__clampMin retentionT 1.0e-10
       newUsageT   = prim__mul writeUsageT retClampedT
       -- 7. Allocation
