@@ -152,10 +152,16 @@ main = do
             ++ "    Loss"
   putStrLn header
 
+  -- Reset C-side profile counters before the timed window
+  profileReset
+
   -- Profile: 10 epochs with timing
   finalModel <- profileLoop opt dataPoints warmModel 0 10
 
-  putStrLn "\nDone."
+  putStrLn ""
+  -- Backend per-op profile (top forward + backward) to stderr
+  profileReport
+  putStrLn "Done."
 
   where
     -- Warmup loop using epochTwoPhaseVar ( typed-surface fast path)
