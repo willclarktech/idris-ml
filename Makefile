@@ -494,6 +494,32 @@ test-backend-mlx:
 test-backend-torch:
 	$(MAKE) BACKEND=torch test-backend
 
+# Criterion-driven test suite (per-test process isolation + JUnit XML).
+# Today only ships a smoke test (test_criterion_smoke.c) verifying the
+# framework links and runs. Phase 1 (per /Users/admin/.claude/plans/modular-petting-minsky.md)
+# migrates the per-op suites into packages/backends/test/<backend>/...,
+# which this target will discover and link.
+#
+# Criterion is provided by nix (nixpkgs `criterion` + `criterion.dev`).
+# Include / lib paths derived from the user nix-profile; an explicit
+# CRITERION_PREFIX= overrides for non-nix environments.
+CRITERION_PREFIX ?= $(HOME)/.nix-profile
+CRITERION_CFLAGS := -I$(CRITERION_PREFIX)/include
+CRITERION_LDFLAGS := -L$(CRITERION_PREFIX)/lib -lcriterion -Wl,-rpath,$(CRITERION_PREFIX)/lib
+
+test-backend-criterion: $(BACKENDS_DIR)/test_criterion_smoke.c $(BACKEND_RENAME_H) backend | $(BUILD)
+	cc -o $(BUILD)/test_criterion_smoke -include $(BACKEND_RENAME_H) $(BACKENDS_DIR)/test_criterion_smoke.c -DBACKEND_$(shell echo $(PRIMARY) | tr a-z A-Z) $(CRITERION_CFLAGS) -L$(BUILD) -lidrisml -Wl,-rpath,$(BUILD) $(CRITERION_LDFLAGS) -lm
+	./$(BUILD)/test_criterion_smoke --xml=$(BUILD)/test-criterion-$(PRIMARY).xml
+
+test-backend-criterion-tape:
+	$(MAKE) BACKEND=tape test-backend-criterion
+
+test-backend-criterion-mlx:
+	$(MAKE) BACKEND=mlx test-backend-criterion
+
+test-backend-criterion-torch:
+	$(MAKE) BACKEND=torch test-backend-criterion
+
 # Specialized C test suites
 test-safetensors: $(BACKENDS_DIR)/test_safetensors.c $(BACKEND_RENAME_H) backend | $(BUILD)
 	cc -o $(BUILD)/test_safetensors -include $(BACKEND_RENAME_H) $(BACKENDS_DIR)/test_safetensors.c -DBACKEND_$(shell echo $(PRIMARY) | tr a-z A-Z) -L$(BUILD) -lidrisml -Wl,-rpath,$(BUILD) -lm
