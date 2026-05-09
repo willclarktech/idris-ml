@@ -42,70 +42,14 @@ double _wall_ms(void);
 
 
 /* ================================================================
-   Lifecycle
+   Lifecycle — Phase 1a.1: extracted to backend_tape/core/lifecycle/
+   {create_scalar,create,clone,free,item}.c
    ================================================================ */
-
-static int persistent_scalar_count = 0;
-
-TensorHandle tensor_create_scalar(double value, int requires_grad) {
-    /* Always heap-allocate: these are returned to Idris and may be cached
-       in Variables across epochs (surviving arena_reset). The per-epoch leak
-       from training data tensors (~15KB/epoch) is acceptable. */
-    persistent_scalar_count++;
-    Tensor* t = calloc(1, sizeof(Tensor));
-    t->data = malloc(sizeof(double));
-    ((double*)t->data)[0] = value;
-    t->rank = 0; t->numel = 1;
-    t->requires_grad = requires_grad;
-    t->tape_idx = -1;
-    t->persistent = 1;
-    if (requires_grad) tape_append(OP_CONST, t, NULL, NULL, 0);
-    return t;
-}
-
-TensorHandle tensor_create(double* data, int* shape, int rank, int requires_grad) {
-    Tensor* t = make_tensor(data, shape, rank, requires_grad);
-    if (requires_grad) {
-        tape_append(OP_CONST, t, NULL, NULL, 0);
-    }
-    return t;
-}
-
-TensorHandle tensor_clone(TensorHandle h) {
-    Tensor* t = (Tensor*)h;
-    if (t->rank == 0) {
-        double v = tape_load_d(t, 0);
-        return (t->dtype_tag == DT_F32) ? make_scalar_f32(v, 0) : make_scalar(v, 0);
-    }
-    if (t->dtype_tag == DT_F32) {
-        float* data = arena_alloc(t->numel * sizeof(float));
-        memcpy(data, t->data, t->numel * sizeof(float));
-        return make_tensor_arena_f32(data, t->numel, t->shape, t->rank, 0);
-    }
-    return make_tensor(t->data, t->shape, t->rank, 0);
-}
-
-void tensor_free(TensorHandle h) {
-    /* Note: we don't actually free during a tape lifetime since the tape
-       holds non-owning pointers. In practice, tensors live until tape_reset.
-       For now, this is a no-op to avoid use-after-free. */
-    (void)h;
-}
-
-/* Refcount API — currently a no-op on the tape backend. The arena lifecycle
- * (tape_reset clears the whole arena at once) doesn't yet participate in
- * per-tensor refcount tracking. Phase 2.4 wires it in. Stubs exist so the
- * multi-link build resolves these symbols across all backends. */
-void tensor_retain_handle(TensorHandle h) { (void)h; }
-void tensor_release_handle(TensorHandle h) { (void)h; }
 
 /* ================================================================
    Accessors
    ================================================================ */
 
-double tensor_item(TensorHandle h) {
-    return tape_load_d((Tensor*)h, 0);
-}
 
 int tensor_numel(TensorHandle h) {
     return ((Tensor*)h)->numel;
