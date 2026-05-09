@@ -146,6 +146,65 @@ epochTVarTensor opt dataPoints lossFn model =
   (model, nativeTrainStepTVar opt mean)
 
 
+-- Concatenate a vector of per-sample [k] tensors into a single [n, k]
+-- tensor via repeated `prim__cat2`. Mirrors V1 `transformerForwardBatch`'s
+-- `catAll`. Used by `epochTVarTensorBatch` to stack inputs and targets
+-- for a single batched forward pass.
+catAllTensors : List AnyPtr -> AnyPtr
+catAllTensors [] = idris_crash "catAllTensors: empty list"
+catAllTensors [x] = x
+catAllTensors (x :: y :: rest) = catAllTensors (prim__cat2 x y :: rest)
+
+-- Per-sample loss for batched-forward shape: forward once, then
+-- extract per-row predictions, build per-sample loss against per-row
+-- targets, mean-reduce.
+perRowLoss : {0 d : Device} -> {n, o : Nat} ->
+             LossFnV2 d o ->
+             TVar [n, o] d ->                         -- batched predictions
+             TVar [n, o] d ->                         -- batched targets
+             Int ->                                    -- row index
+             TVar [] d
+perRowLoss lossFn predB tgtB k =
+  let predRow = the (TVec o d) (trowSelect predB k)
+      tgtRow = the (TVec o d) (trowSelect tgtB k)
+  in lossFn predRow tgtRow
+
+||| Batched supervised epoch over `TensorDataPoint`s: stacks per-sample
+||| inputs and targets into [n, i] / [n, o], runs ONE `forwardTVarBatch`,
+||| extracts per-row predictions, builds per-sample loss, mean-reduces.
+||| Mirrors V1 `epochNativeTensorBatch` for layers that benefit from a
+||| single batched forward (notably TransformerV2).
+export
+epochTVarTensorBatch : {d : Device} -> {i, o, n : Nat} -> {hs : List Nat} ->
+                       NativeOptimizer ->
+                       Vect n (TensorDataPoint i o) ->
+                       LossFnV2 d o ->
+                       NetworkV2 i hs o d ->
+                       (NetworkV2 i hs o d, Double)
+epochTVarTensorBatch opt dataPoints lossFn model =
+  let inputs = toList (map inputTensor dataPoints)
+      targets = toList (map targetTensor dataPoints)
+      stackedIn = catAllTensors inputs
+      stackedTgt = catAllTensors targets
+      iI = cast {to=Int} i
+      oI = cast {to=Int} o
+      nI = cast {to=Int} n
+      stackedInReshaped = prim__reshape2d stackedIn nI iI
+      stackedTgtReshaped = prim__reshape2d stackedTgt nI oI
+      inV = the (TVar [n, i] d) (MkTVar stackedInReshaped Nothing)
+      tgtV = the (TVar [n, o] d) (MkTVar stackedTgtReshaped Nothing)
+      (_, predB) = forwardTVarBatch model inV
+      losses = the (List (TVar [] d)) (go predB tgtV 0 n)
+      totalLoss = foldl taddScalar (freshZeroLossT 0.0) losses
+      mean = scaleLoss totalLoss (1.0 / cast n)
+  in (model, nativeTrainStepTVar opt mean)
+  where
+    go : TVar [n, o] d -> TVar [n, o] d -> Int -> Nat -> List (TVar [] d)
+    go _ _ _ Z = []
+    go predB tgtV k (S rest) =
+      perRowLoss lossFn predB tgtV k :: go predB tgtV (k + 1) rest
+
+
 ----------------------------------------------------------------------
 -- Recurrent epoch (sequence per data point)
 ----------------------------------------------------------------------

@@ -182,6 +182,113 @@ applyTransformerV2 {seqLen} {dModel} {headDim} {vocabSize}
 
 
 ----------------------------------------------------------------------
+-- Batched per-block forward (mirrors V1 `batchBlockForward`)
+----------------------------------------------------------------------
+--
+-- Operates on a flat [B*seqLen, dModel] handle. LayerNorm + FFN are
+-- shape-agnostic in the leading dim; attention reshapes to [B, seqLen,
+-- dModel] for fused 3D ops then reshapes back.
+
+-- Per-head batched accumulator: project Q/K/V via `bmm`, fused
+-- `prim__crossAttention` (Q·K^T·scale → mask → softmax → ·V), then
+-- output projection via `bmm`. Sums per-head contributions.
+batchedHeadLoopV2 : {dModel, headDim : Nat} ->
+                    Vect k (LinearStateV2 dModel headDim d) ->
+                    Vect k (LinearStateV2 dModel headDim d) ->
+                    Vect k (LinearStateV2 dModel headDim d) ->
+                    Vect k (LinearStateV2 headDim dModel d) ->
+                    AnyPtr -> AnyPtr -> Double -> Maybe AnyPtr -> AnyPtr
+batchedHeadLoopV2 [] [] [] [] _ _ _ (Just acc) = acc
+batchedHeadLoopV2 [] [] [] [] normed _ _ Nothing = normed
+batchedHeadLoopV2 (q :: qs) (k :: ks) (v :: vs) (op :: ops) normed mask sc acc =
+  let qW = q.weightT.tensorPtr
+      kW = k.weightT.tensorPtr
+      vW = v.weightT.tensorPtr
+      opW = op.weightT.tensorPtr
+      qi = prim__bmm normed (prim__transpose2d qW)
+      ki = prim__bmm normed (prim__transpose2d kW)
+      vi = prim__bmm normed (prim__transpose2d vW)
+      headOut = prim__crossAttention qi ki vi mask sc
+      proj = prim__bmm headOut (prim__transpose2d opW)
+      acc' = case acc of
+        Nothing => proj
+        Just prev => prim__add prev proj
+  in batchedHeadLoopV2 qs ks vs ops normed mask sc (Just acc')
+
+batchBlockForwardV2 : {dModel, numHeads, headDim : Nat} ->
+                      BlockStateV2 dModel numHeads headDim d ->
+                      AnyPtr -> Int -> Int -> Int -> AnyPtr
+batchBlockForwardV2 (MkBlockV2 qs ks vs ops
+                                (MkLayerNormV2 n1g n1b)
+                                (MkLayerNormV2 n2g n2b)
+                                ff1 ff2) h bsI sI dI =
+  let f1W = ff1.weightT.tensorPtr
+      f2W = ff2.weightT.tensorPtr
+      batchSize = bsI `div` sI
+      normed1 = prim__layerNorm2d h n1g.tensorPtr n1b.tensorPtr 1.0e-5
+      normed3d = prim__reshape3d normed1 batchSize sI dI
+      mask3d = prim__expandMask (prim__causalMask sI) batchSize
+      scale = 1.0 / sqrt (cast {to=Double} (dI `div` cast {to=Int} numHeads))
+      attnOut3d = batchedHeadLoopV2 qs ks vs ops normed3d mask3d scale Nothing
+      attnOut = prim__reshape2d attnOut3d bsI dI
+      h1 = prim__add attnOut h
+      normed2 = prim__layerNorm2d h1 n2g.tensorPtr n2b.tensorPtr 1.0e-5
+      ffOut = prim__ffnRelu normed2 (prim__transpose2d f1W) (prim__transpose2d f2W)
+  in prim__add ffOut h1
+
+foldBlocksBatchedV2 : {dModel, numHeads, headDim : Nat} ->
+                      Vect k (BlockStateV2 dModel numHeads headDim d) ->
+                      AnyPtr -> Int -> Int -> Int -> AnyPtr
+foldBlocksBatchedV2 [] h _ _ _ = h
+foldBlocksBatchedV2 (b :: bs) h bsI sI dI =
+  foldBlocksBatchedV2 bs (batchBlockForwardV2 b h bsI sI dI) bsI sI dI
+
+-- Write positional encoding for B*seqLen rows (PE repeated per sample).
+writePEBatch : (dModel : Nat) -> AnyPtr -> Int -> Int -> Int -> Int -> Int -> AnyPtr
+writePEBatch dModel buf pos dim bsLen dMod sLen =
+  if pos >= bsLen then buf
+  else if dim >= dMod then writePEBatch dModel buf (pos + 1) 0 bsLen dMod sLen
+  else let origPos = pos `mod` sLen
+           val = posEncVal dModel (cast origPos) (cast dim)
+           buf' = prim__setDouble buf (pos * dMod + dim) val
+       in writePEBatch dModel buf' pos (dim + 1) bsLen dMod sLen
+
+||| Batched transformer forward: `TVar [b, seqLen] d` (token indices) →
+||| `TVar [b, seqLen * vocabSize] d` (per-position logits flattened).
+||| Mirrors V1's `transformerForwardBatch` but on TVar inputs and a
+||| single batched output instead of List AnyPtr.
+export
+applyTransformerV2Batch :
+  {seqLen, dModel, numHeads, headDim, numBlocks, vocabSize : Nat} ->
+  {b : Nat} ->
+  TransformerStateV2 seqLen dModel numHeads headDim numBlocks vocabSize
+                     seqLen (seqLen * vocabSize) d ->
+  TVar [b, seqLen] d ->
+  TVar [b, seqLen * vocabSize] d
+applyTransformerV2Batch {seqLen} {dModel} {headDim} {vocabSize} {b}
+                        (MkTransformerV2 embedW blocks (MkLayerNormV2 nfg nfb) vocabProj)
+                        tokens =
+  let bsI = cast {to=Int} (b * seqLen)
+      sI = cast {to=Int} seqLen
+      dI = cast {to=Int} dModel
+      vI = cast {to=Int} vocabSize
+      flatTokens = prim__reshape1d tokens.tensorPtr bsI
+      embFlat = prim__embedding embedW.tensorPtr flatTokens bsI dI
+      embedded = prim__reshape2d embFlat bsI dI
+      peBuf = prim__allocDoubles (bsI * dI)
+      peBuf' = writePEBatch dModel peBuf 0 0 bsI dI sI
+      peT = prim__createState2d bsI dI peBuf'
+      h0 = prim__add embedded peT
+      hN = foldBlocksBatchedV2 blocks h0 bsI sI dI
+      normedFinal' = prim__layerNorm2d hN nfg.tensorPtr nfb.tensorPtr 1.0e-5
+      vpW = vocabProj.weightT.tensorPtr
+      outBatch = prim__mm normedFinal' (prim__transpose2d vpW)
+      -- outBatch : [b * seqLen, vocabSize]. Reshape to [b, seqLen * vocabSize].
+      outReshaped = prim__reshape2d outBatch (cast {to=Int} b) (sI * vI)
+  in MkTVar outReshaped Nothing
+
+
+----------------------------------------------------------------------
 -- Constructors
 ----------------------------------------------------------------------
 
@@ -259,6 +366,8 @@ public export
 {seqLen, dModel, numHeads, headDim, numBlocks, vocabSize : Nat} ->
   LayerLikeV2 (TransformerStateV2 seqLen dModel numHeads headDim numBlocks vocabSize) where
   applyTVar st@(MkTransformerV2 _ _ _ _) input = (st, applyTransformerV2 st input)
+  applyTVarBatch st@(MkTransformerV2 _ _ _ _) input =
+    (st, applyTransformerV2Batch st input)
   layerPrefixV2 _ = "tfmV2"
 
 export
