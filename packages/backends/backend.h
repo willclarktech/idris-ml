@@ -427,9 +427,6 @@ TensorHandle tensor_create_param_4d(int d0, int d1, int d2, int d3, double* data
 TensorHandle tensor_cross_attention(TensorHandle Q, TensorHandle K, TensorHandle V,
                                     TensorHandle mask, double scale);
 
-/* Fused FFN with ReLU: out = relu(x @ W1) @ W2. x [m,n], W1 [n,h], W2 [h,k]. */
-TensorHandle tensor_ffn_relu(TensorHandle x, TensorHandle W1, TensorHandle W2);
-
 /* ---------- Embedding ---------- */
 
 /* Embedding lookup: weight [vocabSize, embedDim], indices [n] (double-valued ints).

@@ -1553,12 +1553,6 @@ TensorHandle tensor_cross_attention(TensorHandle hQ, TensorHandle hK, TensorHand
     return tensor_bmm_3x3(attn, hV);
 }
 
-TensorHandle tensor_ffn_relu(TensorHandle hx, TensorHandle hW1, TensorHandle hW2) {
-    /* Compose: out = relu(x @ W1) @ W2 */
-    TensorHandle hidden = tensor_clamp_min(tensor_mm(hx, hW1), 0.0);
-    return tensor_mm(hidden, hW2);
-}
-
 /* ================================================================
    Embedding: row gather from weight matrix
    weight [vocabSize, embedDim], indices [n] -> output [n * embedDim]

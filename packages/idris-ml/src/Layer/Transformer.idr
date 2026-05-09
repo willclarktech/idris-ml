@@ -233,7 +233,9 @@ batchBlockForward (MkBlock qs ks vs ops
       attnOut = prim__reshape2d attnOut3d bsI dI
       h1 = prim__add attnOut h
       normed2 = prim__layerNorm2d h1 n2g.tensorPtr n2b.tensorPtr 1.0e-5
-      ffOut = prim__ffnRelu normed2 (prim__transpose2d f1W) (prim__transpose2d f2W)
+      f1Wt = prim__transpose2d f1W
+      f2Wt = prim__transpose2d f2W
+      ffOut = prim__mm (prim__clampMin (prim__mm normed2 f1Wt) 0.0) f2Wt
   in prim__add ffOut h1
 
 foldBlocksBatched : {dModel, numHeads, headDim : Nat} ->
