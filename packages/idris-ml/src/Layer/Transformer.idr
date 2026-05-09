@@ -326,12 +326,6 @@ mkBlocks (S k) paramPrefix = do
   rest <- mkBlocks k (paramPrefix ++ "_n")
   pure (blk :: rest)
 
--- Pack a Vect of Doubles into a buffer.
-packDoubles : AnyPtr -> Int -> Vect k Double -> AnyPtr
-packDoubles buf _ [] = buf
-packDoubles buf off (x :: rest) =
-  packDoubles (prim__setDouble buf off x) (off + 1) rest
-
 ||| Build a Transformer with Xavier-uniform embedding init, He-init
 ||| linears (via Linear's default), and standard LayerNorm init.
 ||| All params register as C params under their respective prefixes.

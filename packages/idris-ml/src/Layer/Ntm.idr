@@ -220,40 +220,6 @@ applyNtm {n} {m} {h} {i} {o}
 -- Constructor
 ----------------------------------------------------------------------
 
--- Pack a Vect of Doubles into a pre-allocated buffer at offset.
--- (Duplicated from Linear.idr so we don't have to make it public there.)
-packDoubles : AnyPtr -> Int -> Vect k Double -> AnyPtr
-packDoubles buf _ [] = buf
-packDoubles buf off (x :: rest) =
-  packDoubles (prim__setDouble buf off x) (off + 1) rest
-
--- Build a LinearState with custom weight + bias init strategies.
--- Mirrors PyTorch's per-FC init customization.
-mkLinearWith : {i, o : Nat}
-            -> (paramPrefix : String)
-            -> (weightInit : InitStrategy)
-            -> (biasInit : IO Double)
-            -> IO (LinearState i o CPU)
-mkLinearWith pfx wInit bInit = do
-  let oI = cast {to=Int} o
-      iI = cast {to=Int} i
-      wCount = o * i
-  weightVals <- traverse (\_ => wInit i o) (Vect.replicate wCount ())
-  biasVals <- traverse (\_ => bInit) (Vect.replicate o ())
-  let wBuf = prim__allocDoubles (cast wCount)
-      wBuf' = packDoubles wBuf 0 weightVals
-      bBuf = prim__allocDoubles oI
-      bBuf' = packDoubles bBuf 0 biasVals
-  pure $ MkLinear
-    (tparam2d (pfx ++ "_weights") wBuf')
-    (tparam1d (pfx ++ "_biases") bBuf')
-
--- PyTorch's default kaiming_uniform_(tensor) bound is 1/sqrt(fan_in)
--- (= a=sqrt(5), nonlinearity='leaky_relu', mode='fan_in'). In variance
--- terms: var = 1/(3*fan_in) for the uniform sampler.
-ptKaimingDefault : Sampler -> InitStrategy
-ptKaimingDefault sampler fanIn _ = sampler (1.0 / (3.0 * cast fanIn))
-
 ||| Build an `NtmState n m h inputSize outputSize CPU` matching the
 ||| PyTorch reference's `NTMLayer.__init__` (`torch_ref/ntm/layer.py`)
 ||| line-for-line. All inits mirror PyTorch's `nn.init` calls:

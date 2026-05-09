@@ -46,7 +46,9 @@ LayerLike LinearState where
 -- Constructor
 ----------------------------------------------------------------------
 
--- Pack a Vect of Doubles into a pre-allocated buffer at offset.
+||| Pack a Vect of Doubles into a pre-allocated buffer at offset.
+||| Exported so other layer modules can reuse the same packing logic.
+export
 packDoubles : AnyPtr -> Int -> Vect k Double -> AnyPtr
 packDoubles buf _ [] = buf
 packDoubles buf off (x :: rest) =
@@ -57,6 +59,30 @@ zeroBuf : AnyPtr -> Int -> Int -> AnyPtr
 zeroBuf buf _ 0 = buf
 zeroBuf buf off n =
   zeroBuf (prim__setDouble buf off 0.0) (off + 1) (n - 1)
+
+||| Build a `LinearState i o CPU` with custom weight + bias init
+||| strategies. Mirrors PyTorch's per-FC init customization (e.g. NTM's
+||| read FCs use Xavier(gain=1.4) + normal(std=0.01) biases). The default
+||| `linearLayer` is `mkLinearWith ... (xavier uniform) (pure 0.0)`.
+export
+mkLinearWith : {i, o : Nat}
+            -> (paramPrefix : String)
+            -> (weightInit : InitStrategy)
+            -> (biasInit : IO Double)
+            -> IO (LinearState i o CPU)
+mkLinearWith pfx wInit bInit = do
+  let oI = cast {to=Int} o
+      iI = cast {to=Int} i
+      wCount = o * i
+  weightVals <- traverse (\_ => wInit i o) (Vect.replicate wCount ())
+  biasVals <- traverse (\_ => bInit) (Vect.replicate o ())
+  let wBuf = prim__allocDoubles (cast wCount)
+      wBuf' = packDoubles wBuf 0 weightVals
+      bBuf = prim__allocDoubles oI
+      bBuf' = packDoubles bBuf 0 biasVals
+  pure $ MkLinear
+    (tparam2d (pfx ++ "_weights") wBuf')
+    (tparam1d (pfx ++ "_biases") bBuf')
 
 ||| Build a `LinearState i o CPU` with Xavier-uniform weights and
 ||| zero bias. Weights and biases are allocated as registered C

@@ -132,6 +132,8 @@ data DncState :
     LinearState h r d ->                  -- readBetasFc
     LinearState h (r * 3) d ->            -- readModesFc
     LinearState (DncOutputInput h r m) o d ->  -- outputFc
+    TVec (m * n) d ->                          -- memInit (LEARNED, raw flat)
+    Vect r AnyPtr ->                          -- initReadOuts (Kaiming, NON-learned)
     Maybe (Tensor [n, m] d) ->                -- memT
     Maybe (TVec n d) ->                     -- usageT
     Maybe (TVec n d) ->                     -- writeWtT
@@ -201,10 +203,16 @@ applyDnc : {r, n, m, h, i, o : Nat} ->
              (DncState r n m h i o d, TVec o d)
 applyDnc {r} {n} {m}
            (MkDnc lstm wkFc wbFc eFc aFc fgFc agFc wgFc rkFc rbFc rmFc oFc
+                    memInitT initReadOutsT
                     memT usageT wwT precT linkT rwTs roTs) input =
-  let memTPtr = case memT of
+  let nI = cast {to=Int} n
+      mI = cast {to=Int} m
+      -- Initial memory at sequence start: sigmoid(memInit).reshape(n, m).
+      -- Mirrors `torch_ref/dnc/layer.py:111`. Gradient flows back to memInitT.
+      initMemPtr = prim__reshape2d (prim__sigmoid memInitT.tensorPtr) nI mI
+      memTPtr = case memT of
                   Just t => t.tensorPtr
-                  Nothing => constState2d n m 1.0e-6
+                  Nothing => initMemPtr
       usageTPtr = case usageT of
                     Just t => t.tensorPtr
                     Nothing => zeroState1d n
@@ -220,9 +228,11 @@ applyDnc {r} {n} {m}
       rwTsPtrs = the (Vect r AnyPtr) $ case rwTs of
                    Just ts => ts
                    Nothing => mkZeroVectN r n
+      -- Initial read outputs: Kaiming-uniform samples, fixed at construction.
+      -- Mirrors `torch_ref/dnc/layer.py:104, 117`.
       roTsPtrs = the (Vect r AnyPtr) $ case roTs of
                    Just ts => ts
-                   Nothing => mkZeroVectM r m
+                   Nothing => initReadOutsT
       -- 1. cat(readOuts, input) -> [r*m + i]
       lstmInputPtr = catReadOutsAndInput roTsPtrs input.tensorPtr
       lstmInputV = the (TVec (DncControllerInput r m i) d) (MkTensor lstmInputPtr Nothing)
@@ -244,8 +254,6 @@ applyDnc {r} {n} {m}
       rbW = rbFc.weightT.tensorPtr; rbB = rbFc.biasT.tensorPtr
       rmW = rmFc.weightT.tensorPtr; rmB = rmFc.biasT.tensorPtr
       oW  = oFc.weightT.tensorPtr;  oB  = oFc.biasT.tensorPtr
-      mI = cast {to=Int} m
-      nI = cast {to=Int} n
       onesScalar = prim__createScalar 1.0 0
       -- 4. 11 FCs (mv+add fused into prim__linear — collapses two
       --    FFI hops into one per FC, ~10x FFI overhead reduction here)
@@ -314,6 +322,7 @@ applyDnc {r} {n} {m}
       outputInputT  = prim__cat2 hiddenV.tensorPtr allNewReadsT
       outputT       = prim__linear oW outputInputT oB
   in ( MkDnc updLstm wkFc wbFc eFc aFc fgFc agFc wgFc rkFc rbFc rmFc oFc
+        memInitT initReadOutsT
         (Just (MkTensor newMemT Nothing))
         (Just (MkTensor newUsageT Nothing))
         (Just (MkTensor newWriteWT Nothing))
@@ -328,59 +337,88 @@ applyDnc {r} {n} {m}
 -- Constructor
 ----------------------------------------------------------------------
 
-||| Build a `DncState r n m h i o CPU` with default init: LSTM
-||| controller + 11 FCs (Xavier via Linear), memory init to 1e-6,
-||| addresses/usage/precedence/link/reads zero. State persistent.
+-- Build r Kaiming-uniform read-output state tensors (one per read head).
+-- PyTorch default kaiming_uniform on (1, m) per head: bound = 1/sqrt(m).
+-- Sampled once at construction; non-learnable.
+mkKaimingReadOuts : (r : Nat) -> (m : Nat) -> Double -> IO (Vect r AnyPtr)
+mkKaimingReadOuts Z _ _ = pure []
+mkKaimingReadOuts (S k) m bound = do
+  vals <- traverse (\_ => randomRIO (-bound, bound)) (Vect.replicate m ())
+  let mI = cast {to=Int} m
+      buf = prim__allocDoubles mI
+      buf' = packDoubles buf 0 vals
+      ptr = prim__createState1d mI buf'
+  rest <- mkKaimingReadOuts k m bound
+  pure (ptr :: rest)
+
+||| Build a `DncState r n m h i o CPU` matching the PyTorch reference's
+||| `DNCLayer.__init__` (`torch_ref/dnc/layer.py`) line-for-line:
+|||
+||| - LSTM controller:        Idris's `lstmLayer` (now with learned h0/c0)
+||| - all 10 head FC weights: `xavier_uniform_(gain=1.4)`
+||| - output FC weight:       `kaiming_uniform_` (PyTorch default ≈ LeCun)
+||| - all FC biases:          `normal_(std=0.01)`
+||| - memory_init param:      `xavier_uniform_(view(n, m))`, sigmoid'd at
+|||                           sequence-start in `applyDnc`
+||| - initial read outputs:   `kaiming_uniform_((R, m))`, non-learnable,
+|||                           sampled once at construction
 export
 dncLayer : {r, n, m, h, i, o : Nat} ->
              (paramPrefix : String) ->
              IO (DncState r n m h i o CPU)
 dncLayer pfx = do
   lstm <- lstmLayer {i = DncControllerInput r m i} {o = h} (pfx ++ "_lstm")
-  wkFc <- linearLayer {i = h} {o = m}        (pfx ++ "_writeKey")
-  wbFc <- linearLayer {i = h} {o = 1}        (pfx ++ "_writeBeta")
-  eFc  <- linearLayer {i = h} {o = m}        (pfx ++ "_erase")
-  aFc  <- linearLayer {i = h} {o = m}        (pfx ++ "_add")
-  fgFc <- linearLayer {i = h} {o = r}        (pfx ++ "_freeGates")
-  agFc <- linearLayer {i = h} {o = 1}        (pfx ++ "_allocGate")
-  wgFc <- linearLayer {i = h} {o = 1}        (pfx ++ "_writeGate")
-  rkFc <- linearLayer {i = h} {o = r * m}    (pfx ++ "_readKeys")
-  rbFc <- linearLayer {i = h} {o = r}        (pfx ++ "_readBetas")
-  rmFc <- linearLayer {i = h} {o = r * 3}    (pfx ++ "_readModes")
-  oFc  <- linearLayer {i = DncOutputInput h r m} {o = o} (pfx ++ "_output")
-  let memTV : Tensor [n, m] CPU
-      memTV = MkTensor (constState2d n m 1.0e-6) Nothing
-      usageTV : TVec n CPU
-      usageTV = MkTensor (zeroState1d n) Nothing
-      wwTV : TVec n CPU
-      wwTV = MkTensor (zeroState1d n) Nothing
-      precTV : TVec n CPU
-      precTV = MkTensor (zeroState1d n) Nothing
-      linkTV : Tensor [n, n] CPU
-      linkTV = MkTensor (zeroState2d n n) Nothing
+  -- 10 head FCs: xavier_uniform(gain=1.4) weights, normal(std=0.01) biases
+  wkFc <- mkLinearWith {i = h} {o = m}     (pfx ++ "_writeKey")
+            (xavierGain 1.4 uniform) (normal 0.0001)
+  wbFc <- mkLinearWith {i = h} {o = 1}     (pfx ++ "_writeBeta")
+            (xavierGain 1.4 uniform) (normal 0.0001)
+  eFc  <- mkLinearWith {i = h} {o = m}     (pfx ++ "_erase")
+            (xavierGain 1.4 uniform) (normal 0.0001)
+  aFc  <- mkLinearWith {i = h} {o = m}     (pfx ++ "_add")
+            (xavierGain 1.4 uniform) (normal 0.0001)
+  fgFc <- mkLinearWith {i = h} {o = r}     (pfx ++ "_freeGates")
+            (xavierGain 1.4 uniform) (normal 0.0001)
+  agFc <- mkLinearWith {i = h} {o = 1}     (pfx ++ "_allocGate")
+            (xavierGain 1.4 uniform) (normal 0.0001)
+  wgFc <- mkLinearWith {i = h} {o = 1}     (pfx ++ "_writeGate")
+            (xavierGain 1.4 uniform) (normal 0.0001)
+  rkFc <- mkLinearWith {i = h} {o = r * m} (pfx ++ "_readKeys")
+            (xavierGain 1.4 uniform) (normal 0.0001)
+  rbFc <- mkLinearWith {i = h} {o = r}     (pfx ++ "_readBetas")
+            (xavierGain 1.4 uniform) (normal 0.0001)
+  rmFc <- mkLinearWith {i = h} {o = r * 3} (pfx ++ "_readModes")
+            (xavierGain 1.4 uniform) (normal 0.0001)
+  -- Output FC: kaiming_uniform default (LeCun), normal(std=0.01) bias
+  oFc  <- mkLinearWith {i = DncOutputInput h r m} {o = o}
+            (pfx ++ "_output") (ptKaimingDefault uniform) (normal 0.0001)
+  -- memoryInit: shape (n, m) Xavier — fan_in=m, fan_out=n.
+  let mnI = cast {to=Int} (m * n)
+  memInitVals <- traverse (\_ => xavier uniform m n) (Vect.replicate (m * n) ())
+  let miBuf = prim__allocDoubles mnI
+      miBuf' = packDoubles miBuf 0 memInitVals
+      memInitT : TVec (m * n) CPU
+      memInitT = tparam1d (pfx ++ "_memoryInit") miBuf'
+  -- initialReadOuts: PyTorch default kaiming_uniform on (R, m), bound=1/sqrt(m)
+  let iroBound = 1.0 / prim__doubleSqrt (cast m)
+  initReadOutsT <- mkKaimingReadOuts r m iroBound
+  -- Per-sequence runtime state starts as Nothing — applyDnc computes the
+  -- actual initial memT and roTs from memInitT/initReadOutsT on first call.
   pure $ MkDnc lstm wkFc wbFc eFc aFc fgFc agFc wgFc rkFc rbFc rmFc oFc
-                 (Just memTV) (Just usageTV) (Just wwTV) (Just precTV)
-                 (Just linkTV) (Just (mkZeroVectN r n)) (Just (mkZeroVectM r m))
+                memInitT initReadOutsT
+                Nothing Nothing Nothing Nothing Nothing Nothing Nothing
 
-||| Reset DNC state to fresh persistent zero/init tensors.
+||| Reset DNC state between sequences. Keeps the learned `memInitT` and
+||| Kaiming-fixed `initReadOutsT`; clears per-sequence runtime state so
+||| the next `applyDnc` re-derives initial memory + read outputs.
 export
 resetDncState : {r, n, m, h : Nat} ->
                   DncState r n m h i o d -> DncState r n m h i o d
 resetDncState (MkDnc lstm wkFc wbFc eFc aFc fgFc agFc wgFc rkFc rbFc rmFc oFc
-                          _ _ _ _ _ _ _) =
-  let memTV : Tensor [n, m] _
-      memTV = MkTensor (constState2d n m 1.0e-6) Nothing
-      usageTV : TVec n _
-      usageTV = MkTensor (zeroState1d n) Nothing
-      wwTV : TVec n _
-      wwTV = MkTensor (zeroState1d n) Nothing
-      precTV : TVec n _
-      precTV = MkTensor (zeroState1d n) Nothing
-      linkTV : Tensor [n, n] _
-      linkTV = MkTensor (zeroState2d n n) Nothing
-  in MkDnc (resetLstmState lstm) wkFc wbFc eFc aFc fgFc agFc wgFc rkFc rbFc rmFc oFc
-             (Just memTV) (Just usageTV) (Just wwTV) (Just precTV)
-             (Just linkTV) (Just (mkZeroVectN r n)) (Just (mkZeroVectM r m))
+                          memInitT initReadOutsT _ _ _ _ _ _ _) =
+  MkDnc (resetLstmState lstm) wkFc wbFc eFc aFc fgFc agFc wgFc rkFc rbFc rmFc oFc
+        memInitT initReadOutsT
+        Nothing Nothing Nothing Nothing Nothing Nothing Nothing
 
 
 ----------------------------------------------------------------------
@@ -390,7 +428,7 @@ resetDncState (MkDnc lstm wkFc wbFc eFc aFc fgFc agFc wgFc rkFc rbFc rmFc oFc
 public export
 {r, n, m, h : Nat} ->
   LayerLike (DncState r n m h) where
-  applyVar st@(MkDnc _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _) input =
+  applyVar st@(MkDnc _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _) input =
     applyDnc st input
   layerPrefix _ = "dnc"
   resetState st = resetDncState st
