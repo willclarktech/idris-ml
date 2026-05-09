@@ -55,22 +55,33 @@ dncRetention idx freeGatesT (rw :: rws) acc =
       factor = prim__sub (prim__createScalar 1.0 0) (prim__mul fg rw)
   in dncRetention (idx + 1) freeGatesT rws (prim__mul acc factor)
 
--- Zero the diagonal of a [n,n] matrix.
-dncZeroDiag : Int -> AnyPtr -> AnyPtr
-dncZeroDiag nI matT =
-  let numElems = nI * nI
+-- Build a [n,n] non-diagonal mask once (1 off-diagonal, 0 on-diagonal).
+-- Stored persistently in DncState; reused every timestep instead of
+-- being rebuilt in `dncZeroDiag` (was 1 + n*n + 1 prim FFI calls
+-- per timestep, dominated DNC forward overhead at ~1k prims/step
+-- for n=32 — close to 200ms/epoch wasted on a constant). Fix moves
+-- those 1027 prims out of the hot path entirely.
+buildNonDiagMask : (n : Nat) -> AnyPtr
+buildNonDiagMask n =
+  let nI = cast {to=Int} n
+      numElems = nI * nI
       buf = prim__allocDoubles numElems
-      buf' = fillMaskOffDiag buf 0 nI numElems
-      maskT = prim__create2d nI nI buf' 0
-  in prim__mul matT maskT
+      buf' = fillOffDiag buf 0 nI numElems
+  in prim__createState2d nI nI buf'
   where
-    fillMaskOffDiag : AnyPtr -> Int -> Int -> Int -> AnyPtr
-    fillMaskOffDiag b i nn numE = if i >= numE then b else
+    fillOffDiag : AnyPtr -> Int -> Int -> Int -> AnyPtr
+    fillOffDiag b i nn numE = if i >= numE then b else
       let row = i `div` nn
           col = i `mod` nn
           val = if row == col then 0.0 else 1.0
           b' = prim__setDouble b i val
-      in fillMaskOffDiag b' (i + 1) nn numE
+      in fillOffDiag b' (i + 1) nn numE
+
+-- Zero the diagonal of a [n,n] matrix using a precomputed mask.
+-- The mask is built once at DncState construction (`buildNonDiagMask`)
+-- and stored in the state; this is now just the multiply.
+dncZeroDiag : AnyPtr -> AnyPtr -> AnyPtr
+dncZeroDiag maskPtr matT = prim__mul matT maskPtr
 
 -- Per-head read processing for r heads.
 dncReadHeads : {k : Nat} -> Int -> Vect k AnyPtr ->
@@ -134,6 +145,7 @@ data DncState :
     LinearState (DncOutputInput h r m) o d ->  -- outputFc
     TVec (m * n) d ->                          -- memInit (LEARNED, raw flat)
     Vect r AnyPtr ->                          -- initReadOuts (Kaiming, NON-learned)
+    AnyPtr ->                                 -- nonDiagMask: [n,n] (1 - I), precomputed once
     Maybe (Tensor [n, m] d) ->                -- memT
     Maybe (TVec n d) ->                     -- usageT
     Maybe (TVec n d) ->                     -- writeWtT
@@ -203,7 +215,7 @@ applyDnc : {r, n, m, h, i, o : Nat} ->
              (DncState r n m h i o d, TVec o d)
 applyDnc {r} {n} {m}
            (MkDnc lstm wkFc wbFc eFc aFc fgFc agFc wgFc rkFc rbFc rmFc oFc
-                    memInitT initReadOutsT
+                    memInitT initReadOutsT nonDiagMaskT
                     memT usageT wwT precT linkT rwTs roTs) input =
   let nI = cast {to=Int} n
       mI = cast {to=Int} m
@@ -309,7 +321,7 @@ applyDnc {r} {n} {m}
       decayT        = prim__sub (prim__sub onesScalar wiT) wjT
       decayClampT   = prim__clampMin decayT 0.0
       newLinkRawT   = prim__add (prim__mul decayClampT linkTPtr) (prim__mul wiT pjT)
-      newLinkT      = prim__clampMin (dncZeroDiag nI newLinkRawT) 0.0
+      newLinkT      = prim__clampMin (dncZeroDiag nonDiagMaskT newLinkRawT) 0.0
       -- 12. Precedence update
       wSumT         = prim__sum newWriteWT
       oneMinusWSumT = prim__sub onesScalar wSumT
@@ -322,7 +334,7 @@ applyDnc {r} {n} {m}
       outputInputT  = prim__cat2 hiddenV.tensorPtr allNewReadsT
       outputT       = prim__linear oW outputInputT oB
   in ( MkDnc updLstm wkFc wbFc eFc aFc fgFc agFc wgFc rkFc rbFc rmFc oFc
-        memInitT initReadOutsT
+        memInitT initReadOutsT nonDiagMaskT
         (Just (MkTensor newMemT Nothing))
         (Just (MkTensor newUsageT Nothing))
         (Just (MkTensor newWriteWT Nothing))
@@ -402,10 +414,14 @@ dncLayer pfx = do
   -- initialReadOuts: PyTorch default kaiming_uniform on (R, m), bound=1/sqrt(m)
   let iroBound = 1.0 / prim__doubleSqrt (cast m)
   initReadOutsT <- mkKaimingReadOuts r m iroBound
+  -- nonDiagMask: [n,n] (1 - I), built once and reused every timestep
+  -- inside the link-matrix update. Saves ~1 + n*n + 1 prim FFI calls
+  -- per step.
+  let nonDiagMaskT = buildNonDiagMask n
   -- Per-sequence runtime state starts as Nothing — applyDnc computes the
   -- actual initial memT and roTs from memInitT/initReadOutsT on first call.
   pure $ MkDnc lstm wkFc wbFc eFc aFc fgFc agFc wgFc rkFc rbFc rmFc oFc
-                memInitT initReadOutsT
+                memInitT initReadOutsT nonDiagMaskT
                 Nothing Nothing Nothing Nothing Nothing Nothing Nothing
 
 ||| Reset DNC state between sequences. Keeps the learned `memInitT` and
@@ -415,9 +431,9 @@ export
 resetDncState : {r, n, m, h : Nat} ->
                   DncState r n m h i o d -> DncState r n m h i o d
 resetDncState (MkDnc lstm wkFc wbFc eFc aFc fgFc agFc wgFc rkFc rbFc rmFc oFc
-                          memInitT initReadOutsT _ _ _ _ _ _ _) =
+                          memInitT initReadOutsT nonDiagMaskT _ _ _ _ _ _ _) =
   MkDnc (resetLstmState lstm) wkFc wbFc eFc aFc fgFc agFc wgFc rkFc rbFc rmFc oFc
-        memInitT initReadOutsT
+        memInitT initReadOutsT nonDiagMaskT
         Nothing Nothing Nothing Nothing Nothing Nothing Nothing
 
 
@@ -428,7 +444,7 @@ resetDncState (MkDnc lstm wkFc wbFc eFc aFc fgFc agFc wgFc rkFc rbFc rmFc oFc
 public export
 {r, n, m, h : Nat} ->
   LayerLike (DncState r n m h) where
-  applyVar st@(MkDnc _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _) input =
+  applyVar st@(MkDnc _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _) input =
     applyDnc st input
   layerPrefix _ = "dnc"
   resetState st = resetDncState st
