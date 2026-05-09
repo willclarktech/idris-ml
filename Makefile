@@ -529,8 +529,14 @@ CRITERION_LDFLAGS := -L$(CRITERION_PREFIX)/lib -lcriterion -Wl,-rpath,$(CRITERIO
 # CRITERION_FLAGS are prepended so they take precedence if duplicated.
 CRITERION_FLAGS ?=
 
-test-backend-criterion: $(BACKENDS_DIR)/test_criterion_smoke.c $(BACKEND_RENAME_H) backend | $(BUILD)
-	cc -o $(BUILD)/test_criterion_smoke $(EXTRA_CFLAGS) -include $(BACKEND_RENAME_H) $(BACKENDS_DIR)/test_criterion_smoke.c -DBACKEND_$(shell echo $(PRIMARY) | tr a-z A-Z) $(CRITERION_CFLAGS) -L$(BUILD) -lidrisml -Wl,-rpath,$(BUILD) $(EXTRA_LDFLAGS) $(CRITERION_LDFLAGS) -lm
+# Discover backend-specific Criterion suites under packages/backends/test/<primary>/.
+# Per-op test files emerge here during Phase 1a-1d (one per op, mirroring
+# the source tree at backend_<primary>/<slice>/<subcat>/<op>.c).
+CRITERION_BACKEND_TEST_SRCS := $(shell find $(BACKENDS_DIR)/test/$(PRIMARY) -name '*.c' 2>/dev/null)
+CRITERION_TEST_SRCS := $(BACKENDS_DIR)/test_criterion_smoke.c $(CRITERION_BACKEND_TEST_SRCS)
+
+test-backend-criterion: $(CRITERION_TEST_SRCS) $(BACKEND_RENAME_H) backend | $(BUILD)
+	cc -o $(BUILD)/test_criterion_smoke $(EXTRA_CFLAGS) -include $(BACKEND_RENAME_H) $(CRITERION_TEST_SRCS) -DBACKEND_$(shell echo $(PRIMARY) | tr a-z A-Z) $(CRITERION_CFLAGS) -L$(BUILD) -lidrisml -Wl,-rpath,$(BUILD) $(EXTRA_LDFLAGS) $(CRITERION_LDFLAGS) -lm
 	./$(BUILD)/test_criterion_smoke $(CRITERION_FLAGS) --xml=$(BUILD)/test-criterion-$(PRIMARY).xml
 
 test-backend-criterion-tape:

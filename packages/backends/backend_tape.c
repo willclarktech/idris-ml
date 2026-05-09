@@ -41,6 +41,15 @@
 #include "backend_tape/tape.h"
 #include "backend_tape/tape.c"
 
+/* ================================================================
+   Per-op backward dispatch table (Phase 1.0.3: introduced, unused).
+   Each op's source file will TAPE_REGISTER_OP(OP_<X>, backward_fn)
+   at load time. The monolithic switch in tensor_backward is retained
+   for now; Phase 1g flips dispatch to the table.
+   ================================================================ */
+#include "backend_tape/training/autograd/op_dispatch.h"
+#include "backend_tape/training/autograd/op_dispatch.c"
+
 
 /* ================================================================
    Lifecycle
