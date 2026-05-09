@@ -47,7 +47,8 @@ applyRnn {o} st input =
   let p = case st.prevOutT of
             Just po => po
             Nothing => tzeroState1d {n = o}
-      out = tadd (tadd (tmv st.iwT input) (tmv st.rwT p)) st.bT
+      -- Same nested-tlinear pattern as LSTM — 2 FFI calls vs 4.
+      out = tlinear st.rwT p (tlinear st.iwT input st.bT)
   in ({ prevOutT := Just out } st, out)
 
 

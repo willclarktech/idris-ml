@@ -48,8 +48,10 @@ applyGru {o} st input =
   let h = case st.hiddenT of
             Just h => h
             Nothing => tzeroState1d {n = o}
-      ihPart = tadd (tmv st.iwT input) st.ihB
-      hhPart = tadd (tmv st.hwT h) st.hhB
+      -- Fused mv+add via tlinear; combine the two parts via the inner
+      -- tlinear's bias slot to save one final tadd FFI hop.
+      ihPart = tlinear st.iwT input st.ihB
+      hhPart = tlinear st.hwT h st.hhB
       combined = tadd ihPart hhPart
       newH = tgruCell {n = o} combined h
   in ({ hiddenT := Just newH } st, newH)

@@ -51,7 +51,13 @@ applyLstm {o} st input =
       c = case st.cellT of
             Just c => c
             Nothing => tzeroState1d {n = o}
-      combined = tadd (tadd (tmv st.iwT input) (tmv st.rwT h)) st.bT
+      -- Gates: iw@input + rw@h + bT. Two prim__linear calls (each
+      -- folds an mv + an add) — 2 FFI calls vs the prior 4 (mv, mv,
+      -- add, add). The inner linear adds bT; the outer linear adds
+      -- the inner result. OP_LINEAR's backward routes its grad back
+      -- through the bias slot generically, so the inner-linear
+      -- intermediate's gradient flows correctly back to bT.
+      combined = tlinear st.rwT h (tlinear st.iwT input st.bT)
       (newH, newC) = tlstmGatesPair {n = o} combined c
       st' = { hiddenT := Just newH, cellT := Just newC } st
   in (st', newH)
