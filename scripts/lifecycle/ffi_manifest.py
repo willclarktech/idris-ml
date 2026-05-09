@@ -206,6 +206,24 @@ MANIFEST = {
     # idrisml_seq: void* → void*. Sequencing helper for ordering side-effecting
     # FFIs; both args are opaque, neither is a wrapped Tensor handle.
     "idrisml_seq":                      (("R", "R"), "R"),
+
+    # Unified dtag create/cast (streamed). One symbol per shape; the trailing
+    # `i` is the RuntimeDType tag (dtag), the one before it is the stream tag.
+    # Supersede the per-dtype *_f32/_f64_streamed wrappers (which were never
+    # in the manifest, hence lint-exempt). The Idris wrappers stay hand-written
+    # (they thread dtag + lifecycle), but are now manifest-known so the
+    # wrap-template lint validates their signature + wrap/retain invariants.
+    "tensor_create_scalar_streamed":    (("d", "i", "i", "i"), "T"),
+    "tensor_create_streamed":           (("R", "R", "i", "i", "i", "i"), "T"),
+    "tensor_create_1d_streamed":        (("i", "R", "i", "i", "i"), "T"),
+    "tensor_create_2d_streamed":        (("i", "i", "R", "i", "i", "i"), "T"),
+    "tensor_create_param_1d_streamed":  (("i", "R", "i", "i"), "T"),
+    "tensor_create_param_2d_streamed":  (("i", "i", "R", "i", "i"), "T"),
+    "tensor_create_param_3d_streamed":  (("i", "i", "i", "R", "i", "i"), "T"),
+    "tensor_create_param_4d_streamed":  (("i", "i", "i", "i", "R", "i", "i"), "T"),
+    "tensor_create_state_1d_streamed":  (("i", "R", "i", "i"), "T"),
+    "tensor_create_state_2d_streamed":  (("i", "i", "R", "i", "i"), "T"),
+    "tensor_cast_dtype_streamed":       (("T", "i", "i"), "T"),
 }
 
 # C function names to LEAVE AS-IS (don't convert).
@@ -291,6 +309,19 @@ INIT_FFI = {
     "tensor_create_state_2d",
     "tensor_one_hot",
     "mnist_get_image",
+    # Unified dtag create/cast wrappers — each can be the first
+    # Tensor-creating call, so they carry the guardian lazy-init.
+    "tensor_create_scalar_streamed",
+    "tensor_create_streamed",
+    "tensor_create_1d_streamed",
+    "tensor_create_2d_streamed",
+    "tensor_create_param_1d_streamed",
+    "tensor_create_param_2d_streamed",
+    "tensor_create_param_3d_streamed",
+    "tensor_create_param_4d_streamed",
+    "tensor_create_state_1d_streamed",
+    "tensor_create_state_2d_streamed",
+    "tensor_cast_dtype_streamed",
 }
 
 
