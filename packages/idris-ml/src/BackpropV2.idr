@@ -226,3 +226,44 @@ epochTwoPhaseTVar opt dataPoints lossFn model =
   let totalLoss = foldl taddScalar (freshZeroLossT 0.0) seqLosses in
   let mean = scaleLoss totalLoss (1.0 / cast n) in
   (model, nativeTrainStepTVar opt mean)
+
+
+----------------------------------------------------------------------
+-- Two-phase eval helpers (no autograd consumption)
+----------------------------------------------------------------------
+
+-- Read the elements of a 1D tensor pointer back into a Vector.
+-- Used by `forwardTwoPhaseTVar` to convert per-step predictions to
+-- pure Doubles for evaluation metrics like `bitAccuracy`.
+export
+tvecToVector : {n : Nat} -> AnyPtr -> Vector n Double
+tvecToVector {n} ptr = VTensor (build 0 n)
+  where
+    build : Int -> (k : Nat) -> Vect k (Scalar Double)
+    build _ Z = []
+    build off (S k) = STensor (prim__item1d ptr off) :: build (off + 1) k
+
+-- Encode-then-decode forward pass, returning the per-step decode
+-- predictions as Doubles. Mirrors V1's `forwardTwoPhase` for eval
+-- purposes; tape entries from each forward accumulate (no train_step
+-- is called) but do not affect correctness — only memory growth on
+-- long eval runs.
+export
+forwardTwoPhaseTVar : {d : Device} -> {i, o : Nat} -> {hs : List Nat} ->
+                      NetworkV2 i hs o d ->
+                      TwoPhaseDataPoint i o Double ->
+                      (NetworkV2 i hs o d, List (Vector o Double))
+forwardTwoPhaseTVar model dp =
+  let startNet = resetNetworkV2 model
+      encNet = foldl encodeStep startNet (encodingInputs dp)
+      iI = cast {to=Int} i
+      zeroIn = prim__create1d iI (prim__allocDoubles iI) 0
+      decodeOnce : (NetworkV2 i hs o d, List (Vector o Double)) ->
+                   Vector o Double ->
+                   (NetworkV2 i hs o d, List (Vector o Double))
+      decodeOnce (net, preds) _ =
+        let inV = the (TVec i d) (MkTVar zeroIn Nothing)
+            (net', predV) = forwardTVar net inV
+            predVec = the (Vector o Double) (tvecToVector {n = o} predV.tensorPtr)
+        in (net', preds ++ [predVec])
+  in foldl decodeOnce (encNet, []) (targets dp)
