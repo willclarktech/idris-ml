@@ -511,10 +511,20 @@ test-backend-torch:
 CRITERION_PREFIX ?= $(HOME)/.nix-profile
 CRITERION_CFLAGS := -I$(CRITERION_PREFIX)/include
 CRITERION_LDFLAGS := -L$(CRITERION_PREFIX)/lib -lcriterion -Wl,-rpath,$(CRITERION_PREFIX)/lib
+# Runtime flags forwarded to the criterion binary on the command line.
+# Examples:
+#   CRITERION_FLAGS='--filter=smoke/hello'         # run one test
+#   CRITERION_FLAGS='--verbose'                    # per-assertion log
+#   CRITERION_FLAGS='-j1 --no-early-exit'          # disable forking (debugger-friendly)
+#   CRITERION_FLAGS='--xml=foo.xml --tap=foo.tap'  # multi-format reports
+# `--xml=build/test-criterion-<b>.xml` is appended by the recipe so JUnit
+# output always lands at a predictable path for CI; user-supplied
+# CRITERION_FLAGS are prepended so they take precedence if duplicated.
+CRITERION_FLAGS ?=
 
 test-backend-criterion: $(BACKENDS_DIR)/test_criterion_smoke.c $(BACKEND_RENAME_H) backend | $(BUILD)
 	cc -o $(BUILD)/test_criterion_smoke $(EXTRA_CFLAGS) -include $(BACKEND_RENAME_H) $(BACKENDS_DIR)/test_criterion_smoke.c -DBACKEND_$(shell echo $(PRIMARY) | tr a-z A-Z) $(CRITERION_CFLAGS) -L$(BUILD) -lidrisml -Wl,-rpath,$(BUILD) $(EXTRA_LDFLAGS) $(CRITERION_LDFLAGS) -lm
-	./$(BUILD)/test_criterion_smoke --xml=$(BUILD)/test-criterion-$(PRIMARY).xml
+	./$(BUILD)/test_criterion_smoke $(CRITERION_FLAGS) --xml=$(BUILD)/test-criterion-$(PRIMARY).xml
 
 test-backend-criterion-tape:
 	$(MAKE) BACKEND=tape test-backend-criterion
