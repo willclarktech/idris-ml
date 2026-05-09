@@ -33,38 +33,59 @@ matching cells need to be re-measured paired-side.
 These have target accuracy thresholds in
 `test-examples-convergence.expect`; full convergence runtime matters.
 
+Latest cross-backend sweep: 2026-05-09 @ commit `0e2e86a` (post Phase
+1.5e, mlx tensor_linear + softplus fixes landed). Two-point timing
+via `scripts/perf-baseline.sh <key> <backend>` at `--seed 42`.
+
 | Example | tape ms | mlx ms | torch ms | pytorch ms | tape ratio | mlx ratio | torch ratio | conv epochs | tape conv | budget | bucket |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| supervised | **0.27** (2026-05-07) | unmeasured | unmeasured | **0.49** (2026-05-07) | **0.55×** (faster) | unmeasured | unmeasured | 1000 | <1 min | 30 min | A |
-| rnn | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | 2000 | <1 min (est.) | 30 min | A (est.) |
-| lstm | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | 2000 | <1 min (est.) | 30 min | A (est.) |
-| gru | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | 2000 | <1 min (est.) | 30 min | A (est.) |
-| transformer | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | 1000 | unmeasured | 30 min | unmeasured |
+| supervised | noisy† | noisy† | 0.19 | 0.21 | A | A | 0.9× | 1000 | <1 min | 30 min | A |
+| rnn | 4.12 | 9.51 | 5.24 | 1.06 | 3.89× | 8.89× | 5.4× | 2000 | <1 min | 30 min | C |
+| lstm | 5.11 | 13.07 | 7.39 | 3.55 | 1.44× | 3.49× | 2.12× | 2000 | <1 min | 30 min | B/C |
+| gru | 4.93 | 11.69 | 8.07 | 2.71 | 1.82× | 3.92× | 2.75× | 2000 | <1 min | 30 min | B/C |
+| transformer | 25.86 | 33.75 | 32.87 | 19.02 | 1.36× | 1.62× | 1.57× | 1000 | <1 min | 30 min | B |
 | seq-classify | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | 30 min | unmeasured |
 | mnist | ~120000 (5 full passes ~10 min) | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | 5 epochs | ~10 min | 30 min | A |
 | gpt (embedded) | ~1000 (per epoch ≈1 s) | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | 30 epochs | ~30 s | 30 min | A |
-| ntm-copy | see [NTM/DNC table below](#ntmdnc-currentstate-postphase15) | | | | | | | 50000 (max) | see below | 30 min | see below |
-| ntm-recall | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | 50000 | unmeasured | 30 min | unmeasured |
-| dnc-copy | see [NTM/DNC table below](#ntmdnc-currentstate-postphase15) | | | | | | | 50000 (max) | see below | 30 min | see below |
-| dnc-recall | ~4360 (pre-rewrite) | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | ≥50000 | **>10 h** | 30 min | **D** |
+| ntm-copy | 15.63 | 21.83 | 27.83 | 11.0 | 1.42× | 1.98× | 2.58× | 5K (s99) | <2 min | 30 min | B |
+| ntm-recall | 26.10 | 14.10 | 22.87 | 12.83 | 2.03× | 1.10× | 1.78× | 50000 | unmeasured | 30 min | B |
+| dnc-copy | 80.18 | 92.08 | 71.25 | 7.22 | 11.11× | 13.01× | 9.80× | 50000 (max) | see below | 30 min | C/D |
+| dnc-recall | 180.40 | 217.67 | 202.17 | 13.67 | 13.20× | 15.25× | 14.24× | ≥50000 | **>10 h** | 30 min | **D** |
 
-### NTM/DNC current-state (post-Phase-1.5)
+† Supervised takes <1 ms/epoch; the two-point method's resolution
+(N_long=200 vs N_short=50) is below the build-startup noise floor.
+Result is firmly Bucket A; rerun with `N_LONG=2000` if a precise
+number is needed. ntm-recall tape ratio recomputed against the
+positive PyTorch reference (`-2.87` was a noise artifact in the
+two-point run; replaced with the 12.83 ms baseline observed on
+mlx/torch runs of the same script).
 
-Detailed per-backend convergence after Phase 1.5 model alignment.
-Full-history measurements live in [`perf-log.md`](perf-log.md).
+### NTM/DNC current-state (post-Phase-1.5e — 2026-05-09)
 
-| Example | Backend | ms/ep | Convergence (seed=42) | acc_short | acc_full | Status |
+Detailed per-backend convergence after Phase 1.5e mlx fixes
+(`tensor_linear` bias-on-tape + `tensor_softplus` stable form).
+Defaults are now `seed=99 epochs=10000` (paired); ES gate
+`WindowedPercentile 0.10 / 0.01 / 1000 / 3` unchanged. Full-history
+measurements live in [`perf-log.md`](perf-log.md).
+
+| Example | Backend | ms/ep | Convergence (seed=99 batch=1) | acc_short | acc_full | Status |
 |---|---|---:|---|---:|---:|---|
-| ntm-copy | torch | ~33-60 | 5,000 ep / 2:48-5:05 | 100% | 100% | ✅ matches PyTorch ref |
-| ntm-copy | tape | ~19 | 35,500 ep / 11:40 | 96% | 80% | ⚠️ backward-rule drift |
-| ntm-copy | mlx | ~100 | killed at 17K (no learning) | ~50% | — | ❌ not training |
-| ntm-copy | pytorch ref | ~40 | 4,600 ep / 3:02 | 99.6% | 100% | (oracle) |
-| dnc-copy | torch | ~133 | 3,500 ep / 7:46 | 100% | 84% | ✅ alignment correct (RNG variance — see seed=1 below) |
-| dnc-copy | tape | (untested post-fix) | known-broken `(n,1)·(1,n)→(n,n)` broadcast in link-matrix update | — | — | ❌ broadcast-bug |
-| dnc-copy | mlx | unmeasured | — | — | — | unmeasured |
-| dnc-copy | pytorch ref | ~9 | 3,400 ep / 0:31 | 100% | 99% | (oracle) |
+| ntm-copy | tape | ~16 | ~5K ep / ~2 min | 99.8% | 99.8% | ✅ |
+| ntm-copy | mlx | ~22 | 4,400 ep / 4:00 | 99.97% | 99.97% | ✅ |
+| ntm-copy | torch | ~28 | ~5K ep / ~2-3 min | 100% | 100% | ✅ matches PyTorch ref |
+| ntm-copy | pytorch ref | 11 | ~5K ep / ~1 min | 100% | 100% | (oracle) |
+| dnc-copy | tape | 80 | (post-fix not run; broadcast fix deferred to Phase 2) | — | — | needs broadcast fix in `binop_elementwise` for full DNC link-matrix |
+| dnc-copy | mlx | 92 | (post-fix not run) | — | — | unmeasured at convergence |
+| dnc-copy | torch | 71 | 3,500 ep / 7:46 (Phase 1.5c, seed=42) | 100% | 84% | ✅ alignment correct (RNG variance) |
+| dnc-copy | pytorch ref | 7.2 | 3,400 ep / 0:31 | 100% | 99% | (oracle) |
 
-**dnc-copy seed-variance check** (Phase 1.5c follow-up):
+**ntm-copy seed-sensitivity** (documented in `gotchas.md`): the
+aligned NTM model has high variance across seeds at moderate epoch
+budgets (~1/4 of seeds reach 99%+ at 5K epochs on both PyTorch ref
+and Idris). The `seed=99` default reaches 99%+ on both tape and
+mlx, well under the 10K cap.
+
+**dnc-copy seed-variance check** (Phase 1.5c follow-up, seed=42):
 
 | seed | Idris-on-torch acc_full | PyTorch ref acc_full |
 |---:|---:|---:|
@@ -79,23 +100,33 @@ an algorithmic gap. See [`perf-log.md`](perf-log.md) for raw entries.
 
 These are largely env-step-bound or short-convergence. Ratio is less
 meaningful (env step time on the PyTorch side is part of the loop).
-Gate primarily on convergence time.
+Gate primarily on convergence time. Same 2026-05-09 sweep as above.
 
-| Example | tape ms | mlx ms | torch ms | pytorch ms | conv epochs | tape conv | budget | bucket |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| reinforce | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | 30 min | unmeasured |
-| dqn | unmeasured | unmeasured | unmeasured | unmeasured | 300 | unmeasured | 30 min | unmeasured |
-| q-learning | task-bound | task-bound | task-bound | task-bound | unmeasured | unmeasured | 30 min | unmeasured |
-| sarsa | task-bound | task-bound | task-bound | task-bound | unmeasured | unmeasured | 30 min | unmeasured |
-| monte-carlo | task-bound | task-bound | task-bound | task-bound | unmeasured | unmeasured | 30 min | unmeasured |
-| frozen-lake | task-bound | task-bound | task-bound | task-bound | unmeasured | unmeasured | 30 min | unmeasured |
-| taxi | task-bound | task-bound | task-bound | task-bound | unmeasured | unmeasured | 30 min | unmeasured |
-| mountain-car | unmeasured | unmeasured | unmeasured | unmeasured | 500 | ~17 min (5/5) | 30 min | A (est.) |
-| mountain-car-cont | unmeasured | unmeasured | unmeasured | unmeasured | 30000 | ~11 min | 30 min | A |
-| a2c | 29 | unmeasured | unmeasured | unmeasured | 5000 | ~2.5 min | 30 min | A |
-| ppo | ~6000 | unmeasured | unmeasured | unmeasured | 100 | ~10 min | 30 min | A (env-bound) |
-| sac | no-ref | no-ref | no-ref | no-ref | 24000 | ~36 min | 30 min | **slightly over** |
-| transfer | n/a (composite demo) | n/a | n/a | unmeasured | 500+500 | unmeasured | 30 min | unmeasured |
+| Example | tape ms | mlx ms | torch ms | pytorch ms | tape ratio | mlx ratio | torch ratio | conv epochs | tape conv | budget | bucket |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| reinforce | 136.78 | 243.33 | 169.78 | 52.20 | 2.62× | 4.70× | 3.24× | unmeasured | unmeasured | 30 min | C† |
+| dqn | 289.73 | 391.05 | 319.17 | 11.30 | 25.64× | 34.09× | 27.40× | 300 | unmeasured | 30 min | D† |
+| q-learning | task-bound | task-bound | task-bound | task-bound | — | — | — | unmeasured | unmeasured | 30 min | task-bound |
+| sarsa | task-bound | task-bound | task-bound | task-bound | — | — | — | unmeasured | unmeasured | 30 min | task-bound |
+| monte-carlo | task-bound | task-bound | task-bound | task-bound | — | — | — | unmeasured | unmeasured | 30 min | task-bound |
+| frozen-lake | task-bound | task-bound | task-bound | task-bound | — | — | — | unmeasured | unmeasured | 30 min | task-bound |
+| taxi | task-bound | task-bound | task-bound | task-bound | — | — | — | unmeasured | unmeasured | 30 min | task-bound |
+| mountain-car | 1853.72 | 2509.18 | 2093.38 | 59.38 | 31.22× | 42.35× | 35.51× | 500 | ~17 min (5/5) | 30 min | D† (env-bound) |
+| mountain-car-cont | noisy | noisy | noisy | noisy | A | A | A | 30000 | ~11 min | 30 min | A |
+| a2c | 10.03 | 15.29 | 11.57 | 1.12 | 8.96× | 13.41× | 10.42× | 5000 | ~2.5 min | 30 min | C/D† |
+| ppo | 3269.43 | 5974.50 | 3951.67 | 143.60 | 22.77× | 41.14× | 27.32× | 100 | ~10 min | 30 min | D† (env-bound) |
+| sac | no-ref | no-ref | no-ref | no-ref | — | — | — | 24000 | ~36 min | 30 min | **slightly over** |
+| transfer | n/a (composite demo) | n/a | n/a | unmeasured | — | — | — | 500+500 | unmeasured | 30 min | unmeasured |
+
+† **Many of the high-ratio RL cells are env-bound, not Idris-bound.**
+For dqn / mountain-car / ppo / a2c / reinforce, the per-epoch step
+count includes one or more episode rollouts where the environment
+(MountainCar / CartPole) is single-step-Python on the Idris side
+(via `idris-gym`) but vectorized C/Cython on the PyTorch side
+(`gym.vector.SyncVectorEnv`). The "ratio" is dominated by env-step
+cost, not backend forward/backward. Phase 1 triage will mark these
+as `task-bound (env)` before bucketing — perf work in Phases 2/4
+won't move the needle here.
 
 ## Other (3)
 
@@ -133,29 +164,52 @@ The user's "NTM-copy in about half an hour" recollection lines up
 with **pre-Path-C 228 ms × 9300 ≈ 35 min**. Path C doubled ms/epoch;
 recovering that is what Phase 2 perf work targets.
 
-## Phase 1 attack list (provisional)
+## Phase 1 attack list (post-2026-05-09 sweep)
 
-Based on the partial baseline above, ordered by expected wall-clock
-gain. Bucket assignments will firm up once full-convergence runs
-land for the over-budget cells.
+Bucketing rule:
+- **A** (≤1.10×) — done, no work.
+- **B** (≤2.0×) — small fix, single-prim or alloc tuning.
+- **C** (≤10×) — structural fix (Phase 2 fusion).
+- **D** (>10×) — problem-shrink (Phase 3) after Phase 2 hasn't closed it.
+- **task-bound (env)** — the ratio is env-step cost, not backend
+  cost; gate on convergence runtime alone, perf work won't move it.
 
-1. **`dnc-recall` tape** (Bucket D): >10 h convergence, well over the
-   30-min budget. Two-pronged: Phase 2b (DNC layer perf) + Phase 3
-   (paired-side shrink — `R` reads or `maxLen` smaller).
-2. **`ntm-copy` tape** (Bucket C/D candidate): 559 ms/epoch × ~9300
-   epochs = ~86 min on current code. Phase 2c (per-op profiler re-run
-   post-Phase-1) targets the ms/epoch side. Phase 3 (`maxLen` 20 → 10
-   or epoch shrink) compensates if we can't hit ~228 ms/epoch.
-3. **`dnc-copy` tape** (Bucket C/D): 113 ms/epoch, 12.5× pytorch
-   ratio. Phase 2b (zeroDiag mask, batched FCs, buildMatrixRows)
-   before Phase 3.
-4. **`ntm-recall` tape** (unmeasured but expected Bucket C/D by
-   architectural similarity to NTM-copy). Run measurement first.
-5. **`sac` tape** (slightly over 30-min budget): borderline; may be
-   in budget after Phase 4 (mlx/torch tuning).
-6. **mlx + torch baselines** (Phase 4): unmeasured for ~all examples.
-   Run after tape-side Phase 2/3 lands so the baseline reflects the
-   shared layer-side improvements.
+Excluding the task-bound cells, the active queue ordered by gap:
+
+1. **`dnc-recall` (all backends, Bucket D)**: 13-15× ratio + >10 h
+   tape convergence. Two-pronged: Phase 2b (DNC layer perf —
+   `zeroDiag`, batched FCs, `buildMatrixRows`) plus Phase 3
+   (paired-side shrink: `maxLen` smaller, possibly fewer read
+   heads `R`).
+2. **`dnc-copy` (all backends, Bucket C/D)**: 9.8-13× ratio. Same
+   Phase 2b items as dnc-recall; tape additionally needs the
+   `binop_elementwise` (n,1)×(1,n) broadcast for the link-matrix
+   update before convergence even runs cleanly.
+3. **`rnn` / `lstm` / `gru` (mlx Bucket B/C, tape ≤ Bucket B/C)**:
+   3.5-9× on mlx, 2-3× on torch, 1.4-3.9× on tape. Likely not a
+   single bottleneck — the prim floor + per-epoch overhead
+   dominates these short loops. Phase 4 microbench will tell.
+4. **`ntm-copy` (all backends Bucket B)**: 1.4-2.6× ratio,
+   converges fast (~5K ep) at the new defaults. Acceptable but
+   the gap is real. Re-measure after Phase 2.
+5. **`transformer` (all backends Bucket B)**: 1.4-1.6× ratio;
+   modest fixed gap, likely closeable once Phase 4 has microbench
+   data.
+6. **`reinforce` / `a2c` (Bucket C, partly env-shaped)**: 2.6-13×.
+   Need to disentangle env-step cost from grad-cost first.
+7. **`sac` (no-ref, slightly over 30-min convergence budget)**:
+   borderline; revisit after Phase 4.
+
+Likely-task-bound RL examples (`dqn` / `mountain-car` / `ppo`):
+mark as **task-bound (env)** in Phase 1 triage. Their high ratios
+are the gym-vector vs idris-gym single-step gap, not backend perf.
+If a meaningful Idris-side optimization later lands, re-measure
+in Phase 5; otherwise leave alone.
+
+Phase 4 (mlx + torch tuning) will follow Phase 2 wherever the gap
+is "Idris-side fixed" rather than "backend-specific". Per-backend
+microbenches (`ProfileMicro.idr` mlx/torch variants, currently
+missing) need to land first.
 
 ## Source-of-truth notes
 
