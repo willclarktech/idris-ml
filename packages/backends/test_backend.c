@@ -60,8 +60,8 @@ static double* heap_copy(const double* src, int n) {
    (optimizer_step writes raw F64 back to param->data without re-rounding). */
 #if defined(BACKEND_TAPE)
 /* TAPE_F32_SKIP_ELEMENTWISE removed (Phase 3 rung 1: F32 elementwise live).
-   TAPE_F32_SKIP_MATMUL removed (Phase 3 rung 2: F32 tensor_mv live). */
-#define TAPE_F32_SKIP_NORM
+   TAPE_F32_SKIP_MATMUL removed (Phase 3 rung 2: F32 tensor_mv live).
+   TAPE_F32_SKIP_NORM removed (Phase 3 rung 3: F32 tensor_softmax live). */
 #define TAPE_F32_SKIP_OPTIMIZER
 #endif
 
