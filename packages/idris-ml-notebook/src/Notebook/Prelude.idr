@@ -14,6 +14,7 @@ import public System.Random
 
 import public Backprop
 import public Checkpoint
+import public Curriculum
 import public DataLoader
 import public DataPoint
 import public Device

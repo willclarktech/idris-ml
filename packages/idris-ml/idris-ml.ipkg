@@ -8,6 +8,7 @@ modules = Compat.Random
         , Array
         , Backprop
         , Checkpoint
+        , Curriculum
         , DataLoader
         , DataPoint
         , Device
