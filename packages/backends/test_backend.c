@@ -3237,6 +3237,122 @@ int main(void) {
 
             #undef RUN_UNARY_F32_VS_F64
         }
+
+        /* Batch 1 Group C: tensor_log_softmax. Same shape as softmax (rung 3)
+           but the backward case reads r->data for the d/dx exp(output) factor —
+           OP_LOG_SOFTMAX gets a tape_load_d swap. Loss is sum(log_softmax(w))
+           directly (no auxiliary tensor) so the chain stays within one dtype. */
+        {
+            double wv[] = {0.25, -0.5, 1.0, 0.75};
+            double y_f64[4], y_f32[4], g_f64[4], g_f32[4];
+
+            param_clear();
+            TensorHandle w64 = tensor_create_param_1d_streamed(4, heap_copy(wv, 4), 0, 1);
+            param_register("w", w64);
+            TensorHandle y64 = tensor_log_softmax(w64, 0);
+            tensor_to_doubles(y64, y_f64);
+            tensor_backward(tensor_sum(y64));
+            for (int i = 0; i < 4; i++) g_f64[i] = param_grad_item_at(0, i);
+            param_clear();
+
+            TensorHandle w32 = tensor_create_param_1d_streamed(4, heap_copy(wv, 4), 0, 0);
+            param_register("w", w32);
+            TensorHandle y32 = tensor_log_softmax(w32, 0);
+            tensor_to_doubles(y32, y_f32);
+            tensor_backward(tensor_sum(y32));
+            for (int i = 0; i < 4; i++) g_f32[i] = param_grad_item_at(0, i);
+
+            ASSERT_TRUE("log_softmax: F32 output propagates F32 tag",
+                        strcmp(tensor_dtype_name(y32), "F32") == 0);
+            for (int i = 0; i < 4; i++) {
+                char m[64];
+                snprintf(m, sizeof m, "log_softmax: y_f32[%d] ~ y_f64", i);
+                ASSERT_NEAR(m, y_f32[i], y_f64[i], 1e-5);
+                snprintf(m, sizeof m, "log_softmax: w.grad_f32[%d] ~ w.grad_f64", i);
+                ASSERT_NEAR(m, g_f32[i], g_f64[i], 1e-5);
+            }
+            param_clear();
+        }
+
+        /* Batch 1 Group D: reductions. tensor_sum already routes via
+           tape_load_d (Phase 3); rest get F32 scalar outputs + tape_load_d
+           for input reads. tensor_min / tensor_max are non-differentiable
+           so only forward + tag are checked. */
+        {
+            double wv[] = {1.5, -0.25, 0.5};
+            double v64, v32, g_f64[3], g_f32[3];
+
+            /* tensor_sum: forward + grad. */
+            {
+                param_clear();
+                TensorHandle w64 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 1);
+                param_register("w", w64);
+                TensorHandle r64 = tensor_sum(w64);
+                v64 = tensor_item(r64);
+                tensor_backward(r64);
+                for (int i = 0; i < 3; i++) g_f64[i] = param_grad_item_at(0, i);
+                param_clear();
+
+                TensorHandle w32 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 0);
+                param_register("w", w32);
+                TensorHandle r32 = tensor_sum(w32);
+                v32 = tensor_item(r32);
+                tensor_backward(r32);
+                for (int i = 0; i < 3; i++) g_f32[i] = param_grad_item_at(0, i);
+
+                ASSERT_TRUE("sum: F32 output propagates F32 tag",
+                            strcmp(tensor_dtype_name(r32), "F32") == 0);
+                ASSERT_NEAR("sum: v_f32 ~ v_f64", v32, v64, 1e-5);
+                for (int i = 0; i < 3; i++) {
+                    char m[64];
+                    snprintf(m, sizeof m, "sum: w.grad_f32[%d] ~ w.grad_f64", i);
+                    ASSERT_NEAR(m, g_f32[i], g_f64[i], 1e-5);
+                }
+                param_clear();
+            }
+
+            /* tensor_mean: forward + grad. */
+            {
+                param_clear();
+                TensorHandle w64 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 1);
+                param_register("w", w64);
+                TensorHandle r64 = tensor_mean(w64);
+                v64 = tensor_item(r64);
+                tensor_backward(r64);
+                for (int i = 0; i < 3; i++) g_f64[i] = param_grad_item_at(0, i);
+                param_clear();
+
+                TensorHandle w32 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 0);
+                param_register("w", w32);
+                TensorHandle r32 = tensor_mean(w32);
+                v32 = tensor_item(r32);
+                tensor_backward(r32);
+                for (int i = 0; i < 3; i++) g_f32[i] = param_grad_item_at(0, i);
+
+                ASSERT_TRUE("mean: F32 output propagates F32 tag",
+                            strcmp(tensor_dtype_name(r32), "F32") == 0);
+                ASSERT_NEAR("mean: v_f32 ~ v_f64", v32, v64, 1e-5);
+                for (int i = 0; i < 3; i++) {
+                    char m[64];
+                    snprintf(m, sizeof m, "mean: w.grad_f32[%d] ~ w.grad_f64", i);
+                    ASSERT_NEAR(m, g_f32[i], g_f64[i], 1e-5);
+                }
+                param_clear();
+            }
+
+            /* tensor_min / tensor_max — non-differentiable; check forward
+               + tag only. param_clear keeps them out of registry. */
+            {
+                TensorHandle w64 = tensor_create_1d_streamed(3, heap_copy(wv, 3), 0, 0, 1);
+                TensorHandle w32 = tensor_create_1d_streamed(3, heap_copy(wv, 3), 0, 0, 0);
+                ASSERT_NEAR("min: v_f32 ~ v_f64", tensor_item(tensor_min(w32)), tensor_item(tensor_min(w64)), 1e-5);
+                ASSERT_NEAR("max: v_f32 ~ v_f64", tensor_item(tensor_max(w32)), tensor_item(tensor_max(w64)), 1e-5);
+                ASSERT_TRUE("min: F32 output propagates F32 tag",
+                            strcmp(tensor_dtype_name(tensor_min(w32)), "F32") == 0);
+                ASSERT_TRUE("max: F32 output propagates F32 tag",
+                            strcmp(tensor_dtype_name(tensor_max(w32)), "F32") == 0);
+            }
+        }
     }
 #endif
 

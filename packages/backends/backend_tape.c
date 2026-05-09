@@ -1208,11 +1208,16 @@ TensorHandle tensor_clamp_min(TensorHandle ha, double min_val) {
    Reduction
    ================================================================ */
 
+/* Reductions — dtype-aware scalar output. tape_load_d covers the data read;
+   the dtype-matched make_scalar / make_scalar_f32 sets the result tag.
+   Backward (OP_SUM, OP_MEAN) only writes input grads (always F64) and
+   doesn't read input data, so the existing cases work for both dtypes. */
 TensorHandle tensor_sum(TensorHandle h) {
     Tensor* t = (Tensor*)h;
     double s = 0;
     for (int i = 0; i < t->numel; i++) s += tape_load_d(t, i);
-    Tensor* r = make_scalar(s, t->requires_grad);
+    Tensor* r = (t->dtype_tag == DT_F32) ? make_scalar_f32(s, t->requires_grad)
+                                         : make_scalar(s, t->requires_grad);
     if (r->requires_grad) tape_append(OP_SUM, r, t, NULL, 0);
     return r;
 }
@@ -1225,24 +1230,26 @@ TensorHandle tensor_sum_dim(TensorHandle h, int dim, int keepdim) {
 TensorHandle tensor_mean(TensorHandle h) {
     Tensor* t = (Tensor*)h;
     double s = 0;
-    for (int i = 0; i < t->numel; i++) s += ((double*)t->data)[i];
-    Tensor* r = make_scalar(s / t->numel, t->requires_grad);
+    for (int i = 0; i < t->numel; i++) s += tape_load_d(t, i);
+    double mean_val = s / t->numel;
+    Tensor* r = (t->dtype_tag == DT_F32) ? make_scalar_f32(mean_val, t->requires_grad)
+                                         : make_scalar(mean_val, t->requires_grad);
     if (r->requires_grad) tape_append(OP_MEAN, r, t, NULL, 0);
     return r;
 }
 
 TensorHandle tensor_min(TensorHandle h) {
     Tensor* t = (Tensor*)h;
-    double m = ((double*)t->data)[0];
-    for (int i = 1; i < t->numel; i++) if (((double*)t->data)[i] < m) m = ((double*)t->data)[i];
-    return make_scalar(m, 0);  /* non-differentiable reduction */
+    double m = tape_load_d(t, 0);
+    for (int i = 1; i < t->numel; i++) { double v = tape_load_d(t, i); if (v < m) m = v; }
+    return (t->dtype_tag == DT_F32) ? make_scalar_f32(m, 0) : make_scalar(m, 0);  /* non-differentiable */
 }
 
 TensorHandle tensor_max(TensorHandle h) {
     Tensor* t = (Tensor*)h;
-    double m = ((double*)t->data)[0];
-    for (int i = 1; i < t->numel; i++) if (((double*)t->data)[i] > m) m = ((double*)t->data)[i];
-    return make_scalar(m, 0);  /* non-differentiable reduction */
+    double m = tape_load_d(t, 0);
+    for (int i = 1; i < t->numel; i++) { double v = tape_load_d(t, i); if (v > m) m = v; }
+    return (t->dtype_tag == DT_F32) ? make_scalar_f32(m, 0) : make_scalar(m, 0);  /* non-differentiable */
 }
 
 /* ================================================================
@@ -1923,8 +1930,33 @@ TensorHandle tensor_softmax(TensorHandle h, int dim) {
     return r;
 }
 
+/* F32 stamping of tensor_log_softmax — same stable max-subtract formulation
+   as the F64 path but in single precision; output via make_*_f32. */
+static TensorHandle tensor_log_softmax_f32(TensorHandle h, int dim) {
+    (void)dim;
+    Tensor* t = (Tensor*)h;
+    int n = t->numel;
+    float* td = (float*)t->data;
+    float max_val = td[0];
+    for (int i = 1; i < n; i++) if (td[i] > max_val) max_val = td[i];
+    float sum = 0;
+    for (int i = 0; i < n; i++) sum += expf(td[i] - max_val);
+    float log_sum = logf(sum) + max_val;
+    Tensor* r;
+    if (t->rank == 0) {
+        r = make_scalar_f32((double)(td[0] - log_sum), t->requires_grad);
+    } else {
+        float* arena_d = arena_alloc(n * sizeof(float));
+        for (int i = 0; i < n; i++) arena_d[i] = td[i] - log_sum;
+        r = make_tensor_arena_f32(arena_d, n, t->shape, t->rank, t->requires_grad);
+    }
+    if (r->requires_grad) tape_append(OP_LOG_SOFTMAX, r, t, NULL, 0);
+    return r;
+}
+
 TensorHandle tensor_log_softmax(TensorHandle h, int dim) {
     Tensor* t = (Tensor*)h;
+    if (t->dtype_tag == DT_F32) return tensor_log_softmax_f32(h, dim);
     int n = t->numel;
     double* data = malloc(n * sizeof(double));
     double max_val = ((double*)t->data)[0];
@@ -4174,7 +4206,8 @@ void tensor_backward(TensorHandle h) {
         }
 
         case OP_LOG_SOFTMAX: {
-            /* log-softmax backward (1D): d_input[j] = grad[j] - exp(output[j]) * sum(grad) */
+            /* log-softmax backward (1D): d_input[j] = grad[j] - exp(output[j]) * sum(grad).
+               tape_load_d handles both F64 and F32 r->data. */
             if (a) {
                 ensure_grad(a);
                 ensure_grad(r);
@@ -4182,7 +4215,7 @@ void tensor_backward(TensorHandle h) {
                 double sum_grad = 0;
                 for (int j = 0; j < n_ls; j++) sum_grad += ((double*)r->grad)[j];
                 for (int j = 0; j < n_ls; j++)
-                    ((double*)a->grad)[j] += ((double*)r->grad)[j] - exp(((double*)r->data)[j]) * sum_grad;
+                    ((double*)a->grad)[j] += ((double*)r->grad)[j] - exp(tape_load_d(r, j)) * sum_grad;
             }
             break;
         }
