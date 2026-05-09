@@ -220,6 +220,55 @@ expect `withNoGrad` to exist, just like PyTorch users expect
 `torch.no_grad()`. Future opportunity: also wrap `bootstrapV` and
 the eval phase, plus other examples' eval paths.
 
+### 2026-05-09 — Align Layer.Rnn with `nn.RNNCell` — `f402354`
+
+**Plan job**: Job 1 / Job 2a (both — the layer change benefits all
+backends), with paired-side update.
+
+**Motivation**: pre-existing `Layer.Rnn` was a non-standard
+linear-recurrence (no activation, single bias) chosen arbitrarily
+when the example was first written. PyTorch's `nn.RNN` doesn't have
+a "no activation" mode, so the matching reference (`torch_ref/models/
+rnn.py`) had to use a hand-written `LinearRNNCell` with `hidden_size=1`,
+no projection, and matching no-activation semantics. Two consequences:
+the example didn't demonstrate the canonical RNN shape that library
+users expect, and the perf ratio comparison was unfair (PyTorch ref
+was doing strictly less work — no projection, no tanh — so the ratio
+was inflated).
+
+**Change**: realign both sides to `nn.RNNCell`'s shape:
+- Idris `Layer.Rnn` gets two biases (`ihB`, `hhB`) and a generic
+  `activation : TVec o d -> TVec o d` field (more flexible than
+  `nn.RNN`'s tanh/relu enum — pass any unary tensor function).
+- `rnnLayerAny` defaults activation to `ttanh`, matching `nn.RNN`'s
+  default.
+- PyTorch ref's `LinearRNNCell` rewritten to match `nn.RNNCell`
+  (tanh, two biases) plus the output projection the Idris model has
+  on top. Defaults `hidden_size=4 / output_size=1` to match Idris.
+- Initial hidden state on both sides: zero (matches `nn.RNNCell`
+  default; previously was a learned `nn.Parameter` on PyTorch side).
+- LR default 0.03 → 0.5 on PyTorch ref (matches Idris example default).
+
+**Impact** (3 samples each, post change):
+
+| Backend | Before  | After   |
+|---------|--------:|--------:|
+| tape    | 3.83×   | 3.08×   |
+| torch   | 5.07×   | 4.38×   |
+| mlx     | 7.99×   | 6.59×   |
+
+The ratio shrinkage is partly a methodological correction — the
+previous PyTorch ref was doing strictly less work, so its ms/epoch
+was artificially small. The new comparison is fair (both sides
+implement the same model). All three backends produce bit-identical
+loss curves on the new model (e.g. loss=0.005914 at ep 100).
+
+**Outcome**: landed. The example is now a canonical small-RNN
+demonstration matching what a library user expects to see for "how
+do I use an RNN cell in Idris-ml". Same shape applies to lstm/gru
+example alignment if/when we revisit them — they already use the
+nn.LSTM/GRU shape, but worth a paired-side audit.
+
 ### 2026-05-09 — DNC `dncReadHeads` link-transpose hoist — `eaab884`
 
 **Plan job**: cross-cutting (mostly tape/torch).

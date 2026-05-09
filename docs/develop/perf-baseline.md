@@ -41,7 +41,7 @@ simplification). Two-point timing via `scripts/perf-baseline.sh <key>
 | Example | tape ms | mlx ms | torch ms | pytorch ms | tape ratio | mlx ratio | torch ratio | conv epochs | tape conv | budget | bucket |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 | supervised | noisy† | noisy† | ~1 | ~0.2 | A | A | A | 1000 | <1 min | 30 min | A |
-| rnn | 3.98 | 8.07 | 5.73 | 1.04 | 3.83× | 7.99× | 5.07× | 2000 | <1 min | 30 min | C |
+| rnn | 5.11 | 11.60 | 7.32 | 1.66 | 3.08× | 6.59× | 4.38× | 2000 | <1 min | 30 min | C |
 | lstm | 6.02 | 11.74 | 7.89 | 2.99 | 2.01× | 3.40× | 2.07× | 2000 | <1 min | 30 min | B/C |
 | gru | 5.25 | 15.05 | 7.13 | 2.75 | 1.91× | 5.97× | 2.70× | 2000 | <1 min | 30 min | B/C |
 | transformer | 25.64 | 33.21 | 31.78 | 19.54 | 1.26× | 1.73× | 1.63× | 1000 | <1 min | 30 min | B |
