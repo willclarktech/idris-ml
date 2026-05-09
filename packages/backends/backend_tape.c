@@ -1414,12 +1414,60 @@ TensorHandle tensor_concat_2d_axis1(TensorHandle hA, TensorHandle hB) {
     return r;
 }
 
+/* F32 stamping of tensor_linear. F32 mat/vec/bias → F32 output via
+   cblas_sgemv + vDSP_vadd. Meta caches x_vals as double* (converted on
+   store) so the existing backward case can read it uniformly. */
+static TensorHandle tensor_linear_f32(TensorHandle hW, TensorHandle hx, TensorHandle hbias) {
+    Tensor* W = (Tensor*)hW;
+    Tensor* x = (Tensor*)hx;
+    Tensor* bias = (Tensor*)hbias;
+    int m = W->shape[0], n = W->shape[1];
+    int out_shape[] = {m};
+    float* out_data = arena_alloc(m * sizeof(float));
+#ifdef __APPLE__
+    cblas_sgemv(CblasRowMajor, CblasNoTrans, m, n, 1.0f,
+                (const float*)W->data, n, (const float*)x->data, 1,
+                0.0f, out_data, 1);
+#else
+    for (int i = 0; i < m; i++) {
+        float s = 0;
+        for (int j = 0; j < n; j++) s += ((float*)W->data)[i*n+j] * ((float*)x->data)[j];
+        out_data[i] = s;
+    }
+#endif
+    if (bias) {
+#ifdef __APPLE__
+        vDSP_vadd(out_data, 1, (const float*)bias->data, 1, out_data, 1, (vDSP_Length)m);
+#else
+        for (int i = 0; i < m; i++) out_data[i] += ((float*)bias->data)[i];
+#endif
+    }
+    int rg = W->requires_grad || x->requires_grad || (bias && bias->requires_grad);
+    Tensor* r = make_tensor_arena_f32(out_data, m, out_shape, 1, rg);
+    if (rg) {
+        TapeEntry* e = tape_append(OP_LINEAR, r, W, x, 0);
+        LinearMeta* meta = arena_alloc(sizeof(LinearMeta));
+        meta->m = m; meta->n = n;
+        meta->x_vals = arena_alloc(n * sizeof(double));
+        for (int j = 0; j < n; j++) meta->x_vals[j] = (double)((float*)x->data)[j];
+        meta->bias = bias;
+        e->op_meta = meta;
+    }
+    return r;
+}
+
 /* Fused linear: y = W @ x + bias. Single allocation, single tape entry.
    W: [m, n], x: [n], bias: [m] (or NULL). Result: [m]. */
 TensorHandle tensor_linear(TensorHandle hW, TensorHandle hx, TensorHandle hbias) {
     Tensor* W = (Tensor*)hW;
     Tensor* x = (Tensor*)hx;
     Tensor* bias = (Tensor*)hbias;
+    if (W->dtype_tag == DT_F32 || x->dtype_tag == DT_F32 ||
+        (bias && bias->dtype_tag == DT_F32)) {
+        if (W->dtype_tag != x->dtype_tag ||
+            (bias && bias->dtype_tag != W->dtype_tag)) tape_abort_mixed_dtype("tensor_linear");
+        return tensor_linear_f32(hW, hx, hbias);
+    }
     int m = W->shape[0], n = W->shape[1];
     int out_shape[] = {m};
     /* Arena alloc — same fast path as tensor_mv. */
@@ -4175,7 +4223,9 @@ void tensor_backward(TensorHandle h) {
         }
 
         case OP_LINEAR: {
-            /* y = W @ x + bias.  dW = grad . x^T (rank-1), dx = W^T @ grad, dbias = grad */
+            /* y = W @ x + bias.  dW = grad . x^T (rank-1), dx = W^T @ grad, dbias = grad.
+               BLAS paths require double* W.data; F32 matrices fall back to plain
+               loops (grad always F64; x_vals cached as double* at forward time). */
             LinearMeta* lm = (LinearMeta*)e->op_meta;
             int m_l = lm->m, n_l = lm->n;
             double* x_vals_l = lm->x_vals;
@@ -4183,30 +4233,45 @@ void tensor_backward(TensorHandle h) {
             /* a = W [m,n] */
             if (a->requires_grad) {
                 ensure_grad(a);
+                if (a->dtype_tag == DT_F32) {
+                    for (int ii = 0; ii < m_l; ii++)
+                        for (int jj = 0; jj < n_l; jj++)
+                            ((double*)a->grad)[ii*n_l+jj] += ((double*)r->grad)[ii] * x_vals_l[jj];
+                } else {
 #ifdef __APPLE__
-                cblas_dger(CblasRowMajor, m_l, n_l, 1.0,
-                           r->grad, 1, x_vals_l, 1,
-                           a->grad, n_l);
+                    cblas_dger(CblasRowMajor, m_l, n_l, 1.0,
+                               r->grad, 1, x_vals_l, 1,
+                               a->grad, n_l);
 #else
-                for (int ii = 0; ii < m_l; ii++)
-                    for (int jj = 0; jj < n_l; jj++)
-                        ((double*)a->grad)[ii*n_l+jj] += ((double*)r->grad)[ii] * x_vals_l[jj];
+                    for (int ii = 0; ii < m_l; ii++)
+                        for (int jj = 0; jj < n_l; jj++)
+                            ((double*)a->grad)[ii*n_l+jj] += ((double*)r->grad)[ii] * x_vals_l[jj];
 #endif
+                }
             }
             /* b = x [n] */
             if (b && b->requires_grad) {
                 ensure_grad(b);
+                if (a->dtype_tag == DT_F32) {
+                    for (int jj = 0; jj < n_l; jj++) {
+                        double s = 0;
+                        for (int ii = 0; ii < m_l; ii++)
+                            s += tape_load_d(a, ii*n_l+jj) * ((double*)r->grad)[ii];
+                        ((double*)b->grad)[jj] += s;
+                    }
+                } else {
 #ifdef __APPLE__
-                cblas_dgemv(CblasRowMajor, CblasTrans, m_l, n_l, 1.0,
-                            a->data, n_l, r->grad, 1,
-                            1.0, b->grad, 1);
+                    cblas_dgemv(CblasRowMajor, CblasTrans, m_l, n_l, 1.0,
+                                a->data, n_l, r->grad, 1,
+                                1.0, b->grad, 1);
 #else
-                for (int jj = 0; jj < n_l; jj++) {
-                    double s = 0;
-                    for (int ii = 0; ii < m_l; ii++) s += ((double*)a->data)[ii*n_l+jj] * ((double*)r->grad)[ii];
-                    ((double*)b->grad)[jj] += s;
-                }
+                    for (int jj = 0; jj < n_l; jj++) {
+                        double s = 0;
+                        for (int ii = 0; ii < m_l; ii++) s += ((double*)a->data)[ii*n_l+jj] * ((double*)r->grad)[ii];
+                        ((double*)b->grad)[jj] += s;
+                    }
 #endif
+                }
             }
             /* bias */
             if (lm->bias && lm->bias->requires_grad) {

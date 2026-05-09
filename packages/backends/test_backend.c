@@ -3628,6 +3628,74 @@ int main(void) {
                 param_clear();
             }
         }
+
+        /* Batch 4: BLAS-heavy linalg. Each kernel uses cblas_s* on F32 and
+           the LinearMeta-style double* x_vals cache (convert on store) so
+           the existing backward case body works for both dtypes. Where
+           BLAS would need a double* matrix, the F32 backward falls back to
+           plain loops via tape_load_d. */
+        {
+            /* tensor_linear: W [m,n] @ x [n] + b [m] -> [m] */
+            {
+                int m = 2, n = 3;
+                double Wv[]  = {1.0, 0.5, -0.25, 0.75, -0.5, 0.25};
+                double xv[]  = {0.5, -1.0, 0.25};
+                double bv[]  = {0.125, -0.25};
+                double y_f64[2], y_f32[2], gW_f64[6], gW_f32[6], gx_f64[3], gx_f32[3], gb_f64[2], gb_f32[2];
+
+                param_clear();
+                TensorHandle W64 = tensor_create_param_2d_streamed(m, n, heap_copy(Wv, m*n), 0, 1);
+                param_register("W", W64);
+                TensorHandle x64 = tensor_create_param_1d_streamed(n, heap_copy(xv, n), 0, 1);
+                param_register("x", x64);
+                TensorHandle b64 = tensor_create_param_1d_streamed(m, heap_copy(bv, m), 0, 1);
+                param_register("b", b64);
+                TensorHandle r64 = tensor_linear(W64, x64, b64);
+                tensor_to_doubles(r64, y_f64);
+                tensor_backward(tensor_sum(r64));
+                for (int i = 0; i < m*n; i++) gW_f64[i] = param_grad_item_at(0, i);
+                for (int i = 0; i < n; i++)   gx_f64[i] = param_grad_item_at(1, i);
+                for (int i = 0; i < m; i++)   gb_f64[i] = param_grad_item_at(2, i);
+                param_clear();
+
+                TensorHandle W32 = tensor_create_param_2d_streamed(m, n, heap_copy(Wv, m*n), 0, 0);
+                param_register("W", W32);
+                TensorHandle x32 = tensor_create_param_1d_streamed(n, heap_copy(xv, n), 0, 0);
+                param_register("x", x32);
+                TensorHandle b32 = tensor_create_param_1d_streamed(m, heap_copy(bv, m), 0, 0);
+                param_register("b", b32);
+                TensorHandle r32 = tensor_linear(W32, x32, b32);
+                tensor_to_doubles(r32, y_f32);
+                tensor_backward(tensor_sum(r32));
+                for (int i = 0; i < m*n; i++) gW_f32[i] = param_grad_item_at(0, i);
+                for (int i = 0; i < n; i++)   gx_f32[i] = param_grad_item_at(1, i);
+                for (int i = 0; i < m; i++)   gb_f32[i] = param_grad_item_at(2, i);
+
+                ASSERT_TRUE("linear: F32 output propagates F32 tag",
+                            strcmp(tensor_dtype_name(r32), "F32") == 0);
+                for (int i = 0; i < m; i++) {
+                    char buf[64];
+                    snprintf(buf, sizeof buf, "linear: y_f32[%d] ~ y_f64", i);
+                    ASSERT_NEAR(buf, y_f32[i], y_f64[i], 1e-5);
+                }
+                for (int i = 0; i < m*n; i++) {
+                    char buf[64];
+                    snprintf(buf, sizeof buf, "linear: W.grad_f32[%d] ~ W.grad_f64", i);
+                    ASSERT_NEAR(buf, gW_f32[i], gW_f64[i], 1e-5);
+                }
+                for (int i = 0; i < n; i++) {
+                    char buf[64];
+                    snprintf(buf, sizeof buf, "linear: x.grad_f32[%d] ~ x.grad_f64", i);
+                    ASSERT_NEAR(buf, gx_f32[i], gx_f64[i], 1e-5);
+                }
+                for (int i = 0; i < m; i++) {
+                    char buf[64];
+                    snprintf(buf, sizeof buf, "linear: b.grad_f32[%d] ~ b.grad_f64", i);
+                    ASSERT_NEAR(buf, gb_f32[i], gb_f64[i], 1e-5);
+                }
+                param_clear();
+            }
+        }
     }
 #endif
 
