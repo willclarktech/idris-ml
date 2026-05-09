@@ -268,11 +268,6 @@ example-supervised: install
 	cp $(LIB) build/exec/supervised_app/
 	./build/exec/supervised $(SUPERVISED_ARGS)
 
-example-supervised-v2: install
-	idris2 $(IDRIS_FLAGS) -o supervised-v2 $(EXAMPLE_SRC)/Example/SupervisedV2.idr
-	cp $(LIB) build/exec/supervised-v2_app/
-	./build/exec/supervised-v2 $(SUPERVISED_V2_ARGS)
-
 example-bench-tvar: install
 	idris2 $(IDRIS_FLAGS) -o bench-tvar $(EXAMPLE_SRC)/Example/BenchTVar.idr
 	cp $(LIB) build/exec/bench-tvar_app/
@@ -282,16 +277,6 @@ example-bench-lstm-boundary: install
 	idris2 $(IDRIS_FLAGS) -o bench-lstm-boundary $(EXAMPLE_SRC)/Example/BenchLstmBoundary.idr
 	cp $(LIB) build/exec/bench-lstm-boundary_app/
 	./build/exec/bench-lstm-boundary $(BENCH_LSTM_BOUNDARY_ARGS)
-
-example-lstm-v2-smoke: install
-	idris2 $(IDRIS_FLAGS) -o lstm-v2-smoke $(EXAMPLE_SRC)/Example/LstmV2Smoke.idr
-	cp $(LIB) build/exec/lstm-v2-smoke_app/
-	./build/exec/lstm-v2-smoke
-
-example-lstm-v2: install
-	idris2 $(IDRIS_FLAGS) -o lstm-v2 $(EXAMPLE_SRC)/Example/LstmV2.idr
-	cp $(LIB) build/exec/lstm-v2_app/
-	./build/exec/lstm-v2 $(LSTM_V2_ARGS)
 
 example-rnn: install
 	idris2 $(IDRIS_FLAGS) -o rnn $(EXAMPLE_SRC)/Example/Rnn.idr
@@ -812,7 +797,7 @@ all: check-all test-all
         test-backend-torch test-safetensors test-ntm-grad test-ntm-timestep \
         test-examples test-examples-convergence \
         check check-gym check-notebook check-examples install install-core install-gym install-notebook install-examples \
-        example-supervised example-supervised-v2 example-rnn example-lstm example-gru \
+        example-supervised example-rnn example-lstm example-gru \
         example-ntm-copy example-ntm-associative-recall example-dnc-copy example-dnc-recall \
         example-reinforce example-q-learning example-sarsa example-monte-carlo example-frozen-lake example-taxi \
         example-dqn example-mountain-car example-mountain-car-cont example-a2c example-ppo example-sac \
