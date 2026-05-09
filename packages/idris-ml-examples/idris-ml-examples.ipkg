@@ -18,6 +18,7 @@ modules = Generate
         , Example.Gpt
         , Example.Gru
         , Example.Lstm
+        , Example.LstmV2
         , Example.LstmV2Smoke
         , Example.Mnist
         , Example.MonteCarlo

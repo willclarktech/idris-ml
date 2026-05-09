@@ -5,6 +5,7 @@ import Data.Vect
 import Compat.Random
 import Device
 import Init
+import Layer.CoreV2
 import Sampler
 import Variable
 
@@ -108,3 +109,19 @@ lstmLayerV2 paramPrefix = do
 export
 resetLstmStateV2 : LstmStateV2 i o d -> LstmStateV2 i o d
 resetLstmStateV2 = { hiddenT := Nothing, cellT := Nothing }
+
+
+----------------------------------------------------------------------
+-- LayerLikeV2 instance — lets LstmV2 chain in `NetworkV2` via `~~>`
+----------------------------------------------------------------------
+
+public export
+LayerLikeV2 LstmStateV2 where
+  applyTVar = applyLstmV2
+  layerPrefixV2 _ = "lstmV2"
+  resetStateV2 = resetLstmStateV2
+
+||| Wrap an `LstmStateV2` in `AnyLayerV2`.
+export
+lstmLayerV2Any : {i, o : Nat} -> (paramPrefix : String) -> IO (AnyLayerV2 i o CPU)
+lstmLayerV2Any pid = map (MkAnyLayerV2 LstmStateV2) (lstmLayerV2 pid)

@@ -26,6 +26,11 @@ interface LayerLikeV2 (l : Nat -> Nat -> (0 _ : Device) -> Type) where
   layerPrefixV2 : {0 d : Device} -> {i, o : Nat} -> l i o d -> String
   layerPrefixV2 _ = ""
 
+  ||| Reset per-sequence state (recurrent layers override; default = id).
+  ||| Used by `resetNetworkV2` between sequences in recurrent training.
+  resetStateV2 : {0 d : Device} -> {i, o : Nat} -> l i o d -> l i o d
+  resetStateV2 = id
+
 
 ----------------------------------------------------------------------
 -- AnyLayerV2 (existential wrapper)
@@ -67,3 +72,14 @@ forwardTVar {hs = h :: _} (l ~~> rest) input =
     (l', mid) =>
       case forwardTVar rest mid of
         (rest', out) => (l' ~~> rest', out)
+
+||| Reset per-sequence state on every layer in the network. Use
+||| between training sequences for recurrent layers (LstmV2, RnnV2,
+||| GruV2). Stateless layers' default `resetStateV2` is identity.
+export
+resetNetworkV2 : {0 d : Device} -> {i, o : Nat} -> {hs : List Nat} ->
+                 NetworkV2 i hs o d -> NetworkV2 i hs o d
+resetNetworkV2 (OutputLayerV2 (MkAnyLayerV2 l @{dict} layer)) =
+  OutputLayerV2 (MkAnyLayerV2 l @{dict} (resetStateV2 @{dict} layer))
+resetNetworkV2 ((MkAnyLayerV2 l @{dict} layer) ~~> rest) =
+  MkAnyLayerV2 l @{dict} (resetStateV2 @{dict} layer) ~~> resetNetworkV2 rest

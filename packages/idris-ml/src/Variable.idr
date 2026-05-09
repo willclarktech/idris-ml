@@ -1607,6 +1607,15 @@ tzeroState1d {n} =
       buf = prim__allocDoubles nI
   in MkTVar (prim__createState1d nI buf) Nothing
 
+||| Fused GRU cell: combined gates [3 * n] + previous hidden [n] →
+||| new hidden [n]. Wraps `prim__gruCell`. The gate-vector size is
+||| encoded statically as `TVec (3 * n) d` via the alias.
+export
+tgruCell : {n : Nat} -> TVec (3 * n) d -> TVec n d -> TVec n d
+tgruCell {n} combined prevH =
+  let nI = cast {to=Int} n
+  in MkTVar (prim__gruCell combined.tensorPtr prevH.tensorPtr nI) Nothing
+
 -- Bridges + scalar boundary -------------------------------------------
 
 ||| Bridge a scalar `Variable d` to `TVar [] d`. Discards cached value.
@@ -1644,6 +1653,15 @@ tnllLoss {n} p t =
   let prod = prim__mul logP t.tensorPtr in
   let neg = prim__neg (prim__sum prod) in
   MkTVar (prim__mulScalar neg (1.0 / cast n)) Nothing
+
+||| Binary cross-entropy with logits, mean-reduced. Numerically stable
+||| (wraps `prim__bceWithLogits`). For multi-element predictions/targets
+||| use `tbceLoss : TVec n d -> TVec n d -> TVar [] d`; the C op
+||| internally averages.
+export
+tbceLoss : {n : Nat} -> TVec n d -> TVec n d -> TVar [] d
+tbceLoss p t =
+  MkTVar (prim__bceWithLogits p.tensorPtr t.tensorPtr) Nothing
 
 -- Optimizer shim ------------------------------------------------------
 
