@@ -546,6 +546,9 @@ check-examples: install
 			Transfer|MlxStreamDemo) \
 				echo "Skipping Example.$$mod (cross-backend: names non-linked devices, so it only compiles under a multi-backend BACKEND — checked via its own target)"; \
 				continue ;; \
+			DTypeSerialize) \
+				echo "Skipping Example.$$mod (torch-only: constructs bf16/f16/i32, no Compatible instance on tape/mlx — checked via example-dtype-serialize)"; \
+				continue ;; \
 		esac; \
 		slug=$$(echo "$$mod" | tr 'A-Z' 'a-z'); \
 		echo "Building Example.$$mod..."; \
