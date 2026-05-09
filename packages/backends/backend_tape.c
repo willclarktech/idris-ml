@@ -2359,19 +2359,29 @@ TensorHandle tensor_embedding(TensorHandle hweight, TensorHandle hindices, int n
     Tensor* weight = (Tensor*)hweight;
     Tensor* indices = (Tensor*)hindices;
     int out_numel = n * embedDim;
-
-    double* out = calloc(out_numel, sizeof(double));
-    int* idx_copy = malloc(n * sizeof(int));
-
-    for (int i = 0; i < n; i++) {
-        int idx = (int)((double*)indices->data)[i];
-        idx_copy[i] = idx;
-        memcpy(out + i * embedDim, ((double*)weight->data) + idx * embedDim, embedDim * sizeof(double));
-    }
-
     int out_shape[] = {out_numel};
-    Tensor* r = make_tensor(out, out_shape, 1, weight->requires_grad);
-    free(out);
+    int* idx_copy = malloc(n * sizeof(int));
+    /* Indices are typed as F64 by the existing call sites — read via
+       tape_load_d so an F32-tagged indices tensor (rare) also works. */
+    Tensor* r;
+    if (weight->dtype_tag == DT_F32) {
+        float* out = arena_alloc(out_numel * sizeof(float));
+        for (int i = 0; i < n; i++) {
+            int idx = (int)tape_load_d(indices, i);
+            idx_copy[i] = idx;
+            memcpy(out + i * embedDim, ((float*)weight->data) + idx * embedDim, embedDim * sizeof(float));
+        }
+        r = make_tensor_arena_f32(out, out_numel, out_shape, 1, weight->requires_grad);
+    } else {
+        double* out = calloc(out_numel, sizeof(double));
+        for (int i = 0; i < n; i++) {
+            int idx = (int)tape_load_d(indices, i);
+            idx_copy[i] = idx;
+            memcpy(out + i * embedDim, ((double*)weight->data) + idx * embedDim, embedDim * sizeof(double));
+        }
+        r = make_tensor(out, out_shape, 1, weight->requires_grad);
+        free(out);
+    }
 
     if (r->requires_grad) {
         TapeEntry* e = tape_append(OP_EMBEDDING, r, weight, NULL, 0);
@@ -2580,39 +2590,55 @@ TensorHandle tensor_dropout(TensorHandle hinput, double p, int training, unsigne
 TensorHandle tensor_gather(TensorHandle hinput, TensorHandle hindex, int n) {
     Tensor* input = (Tensor*)hinput;
     Tensor* index = (Tensor*)hindex;
-    double* out = calloc(n, sizeof(double));
-    for (int i = 0; i < n; i++) {
-        int idx = (int)((double*)index->data)[i];
-        out[i] = ((double*)input->data)[idx];
-    }
     int shape[] = {n};
-    Tensor* r = make_tensor(out, shape, 1, input->requires_grad);
-    free(out);
+    Tensor* r;
+    if (input->dtype_tag == DT_F32) {
+        float* out = arena_alloc(n * sizeof(float));
+        for (int i = 0; i < n; i++) {
+            int idx = (int)tape_load_d(index, i);
+            out[i] = ((float*)input->data)[idx];
+        }
+        r = make_tensor_arena_f32(out, n, shape, 1, input->requires_grad);
+    } else {
+        double* out = calloc(n, sizeof(double));
+        for (int i = 0; i < n; i++) {
+            int idx = (int)tape_load_d(index, i);
+            out[i] = ((double*)input->data)[idx];
+        }
+        r = make_tensor(out, shape, 1, input->requires_grad);
+        free(out);
+    }
     /* Record tape entry: backward scatters grad back to input positions.
        index stored as arg2 (non-grad integer tensor). */
-    if (r->requires_grad) {
-        tape_append(OP_GATHER, r, input, index, (double)n);
-    }
+    if (r->requires_grad) tape_append(OP_GATHER, r, input, index, (double)n);
     return r;
 }
 
 TensorHandle tensor_scatter_add(TensorHandle hindex, TensorHandle hsrc, int out_size) {
     Tensor* index = (Tensor*)hindex;
     Tensor* src = (Tensor*)hsrc;
-    double* out = calloc(out_size, sizeof(double));
-    for (int i = 0; i < src->numel; i++) {
-        int idx = (int)((double*)index->data)[i];
-        if (idx >= 0 && idx < out_size)
-            out[idx] += ((double*)src->data)[i];
-    }
     int shape[] = {out_size};
-    Tensor* r = make_tensor(out, shape, 1, src->requires_grad);
-    free(out);
-    /* Record tape entry: backward gathers grad back to src positions.
-       index stored as arg2 (non-grad integer tensor), src as arg1. */
-    if (r->requires_grad) {
-        tape_append(OP_SCATTER_ADD, r, src, index, (double)out_size);
+    Tensor* r;
+    if (src->dtype_tag == DT_F32) {
+        float* out = arena_alloc(out_size * sizeof(float));
+        for (int i = 0; i < out_size; i++) out[i] = 0.0f;
+        for (int i = 0; i < src->numel; i++) {
+            int idx = (int)tape_load_d(index, i);
+            if (idx >= 0 && idx < out_size)
+                out[idx] += ((float*)src->data)[i];
+        }
+        r = make_tensor_arena_f32(out, out_size, shape, 1, src->requires_grad);
+    } else {
+        double* out = calloc(out_size, sizeof(double));
+        for (int i = 0; i < src->numel; i++) {
+            int idx = (int)tape_load_d(index, i);
+            if (idx >= 0 && idx < out_size)
+                out[idx] += ((double*)src->data)[i];
+        }
+        r = make_tensor(out, shape, 1, src->requires_grad);
+        free(out);
     }
+    if (r->requires_grad) tape_append(OP_SCATTER_ADD, r, src, index, (double)out_size);
     return r;
 }
 
@@ -2633,20 +2659,45 @@ static int argsort_cmp_desc(const void* a, const void* b) {
     return (db > da) - (db < da);
 }
 
+/* F32 argsort comparator — sorts indices into a float* by value. */
+static const float* argsort_data_ptr_f32;
+static int argsort_cmp_asc_f32(const void* a, const void* b) {
+    int ia = *(const int*)a, ib = *(const int*)b;
+    float da = argsort_data_ptr_f32[ia], db = argsort_data_ptr_f32[ib];
+    return (da > db) - (da < db);
+}
+static int argsort_cmp_desc_f32(const void* a, const void* b) {
+    int ia = *(const int*)a, ib = *(const int*)b;
+    float da = argsort_data_ptr_f32[ia], db = argsort_data_ptr_f32[ib];
+    return (db > da) - (db < da);
+}
+
 TensorHandle tensor_argsort(TensorHandle ht, int dim, int descending) {
     (void)dim; /* only 1D supported */
     Tensor* t = (Tensor*)ht;
     int n = t->numel;
     int* indices = malloc(n * sizeof(int));
     for (int i = 0; i < n; i++) indices[i] = i;
-    argsort_data_ptr = t->data;
-    qsort(indices, n, sizeof(int), descending ? argsort_cmp_desc : argsort_cmp_asc);
-    double* out = malloc(n * sizeof(double));
-    for (int i = 0; i < n; i++) out[i] = (double)indices[i];
-    free(indices);
+    if (t->dtype_tag == DT_F32) {
+        argsort_data_ptr_f32 = (const float*)t->data;
+        qsort(indices, n, sizeof(int), descending ? argsort_cmp_desc_f32 : argsort_cmp_asc_f32);
+    } else {
+        argsort_data_ptr = t->data;
+        qsort(indices, n, sizeof(int), descending ? argsort_cmp_desc : argsort_cmp_asc);
+    }
     int shape[] = {n};
-    Tensor* r = make_tensor(out, shape, 1, 0); /* integer indices: no grad */
-    free(out);
+    Tensor* r;
+    if (t->dtype_tag == DT_F32) {
+        float* out = arena_alloc(n * sizeof(float));
+        for (int i = 0; i < n; i++) out[i] = (float)indices[i];
+        r = make_tensor_arena_f32(out, n, shape, 1, 0);
+    } else {
+        double* out = malloc(n * sizeof(double));
+        for (int i = 0; i < n; i++) out[i] = (double)indices[i];
+        r = make_tensor(out, shape, 1, 0);
+        free(out);
+    }
+    free(indices);
     return r;
 }
 
@@ -2654,18 +2705,21 @@ TensorHandle tensor_cumprod(TensorHandle ht, int dim) {
     (void)dim; /* only 1D supported */
     Tensor* t = (Tensor*)ht;
     int n = t->numel;
-    double* out = malloc(n * sizeof(double));
-    double prod = 1.0;
-    for (int i = 0; i < n; i++) {
-        prod *= ((double*)t->data)[i];
-        out[i] = prod;
-    }
     int shape[] = {n};
-    Tensor* r = make_tensor(out, shape, 1, t->requires_grad);
-    free(out);
-    if (r->requires_grad) {
-        tape_append(OP_CUMPROD, r, t, NULL, 0);
+    Tensor* r;
+    if (t->dtype_tag == DT_F32) {
+        float* out = arena_alloc(n * sizeof(float));
+        float prod = 1.0f;
+        for (int i = 0; i < n; i++) { prod *= ((float*)t->data)[i]; out[i] = prod; }
+        r = make_tensor_arena_f32(out, n, shape, 1, t->requires_grad);
+    } else {
+        double* out = malloc(n * sizeof(double));
+        double prod = 1.0;
+        for (int i = 0; i < n; i++) { prod *= ((double*)t->data)[i]; out[i] = prod; }
+        r = make_tensor(out, shape, 1, t->requires_grad);
+        free(out);
     }
+    if (r->requires_grad) tape_append(OP_CUMPROD, r, t, NULL, 0);
     return r;
 }
 
@@ -5180,7 +5234,8 @@ void tensor_backward(TensorHandle h) {
         case OP_CUMPROD: {
             /* r[i] = prod(a[0..i]). Backward:
                d_a[i] = sum_{j>=i} d_r[j] * r[j] / a[i]
-               When a[i] == 0: use exclusive prefix recomputation. */
+               When a[i] == 0: use exclusive prefix recomputation.
+               tape_load_d on a->data + r->data covers both F32 and F64. */
             ensure_grad(r);
             if (a && a->requires_grad) {
                 ensure_grad(a);
@@ -5188,16 +5243,17 @@ void tensor_backward(TensorHandle h) {
                 /* Safe backward: compute d_a[i] by accumulating from the right */
                 double suffix_sum = 0.0;
                 for (int i = n - 1; i >= 0; i--) {
-                    suffix_sum += ((double*)r->grad)[i] * ((double*)r->data)[i];
-                    if (fabs(((double*)a->data)[i]) > 1e-30) {
-                        ((double*)a->grad)[i] += suffix_sum / ((double*)a->data)[i];
+                    suffix_sum += ((double*)r->grad)[i] * tape_load_d(r, i);
+                    double ai = tape_load_d(a, i);
+                    if (fabs(ai) > 1e-30) {
+                        ((double*)a->grad)[i] += suffix_sum / ai;
                     } else {
                         /* a[i] == 0: recompute without a[i] */
                         double partial = 0.0;
                         for (int j = i; j < n; j++) {
                             double prod_excl = 1.0;
                             for (int k = 0; k <= j; k++) {
-                                if (k != i) prod_excl *= ((double*)a->data)[k];
+                                if (k != i) prod_excl *= tape_load_d(a, k);
                             }
                             partial += ((double*)r->grad)[j] * prod_excl;
                         }
