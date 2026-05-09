@@ -43,10 +43,37 @@ These have target accuracy thresholds in
 | seq-classify | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | 30 min | unmeasured |
 | mnist | ~120000 (5 full passes ~10 min) | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | 5 epochs | ~10 min | 30 min | A |
 | gpt (embedded) | ~1000 (per epoch ≈1 s) | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | 30 epochs | ~30 s | 30 min | A |
-| ntm-copy (post-1.5b align, seed=42) | **20** ms/ep | not learning | **34-60** ms/ep | ~40 ms/ep | ~0.5× | ✗ broken | ~1× | 5,000 (torch) / 35,500 (tape) | torch **2:48-5:05** ✓ ; tape **11:40** ⚠️ acc_full 80% (vs torch's 100%); mlx ✗ not learning | 30 min | torch ✅ A; tape ⚠️ acc-gap; mlx ❌ |
+| ntm-copy | see [NTM/DNC table below](#ntmdnc-currentstate-postphase15) | | | | | | | 50000 (max) | see below | 30 min | see below |
 | ntm-recall | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | 50000 | unmeasured | 30 min | unmeasured |
-| dnc-copy (post-1.5c align, seed=42) | **123** ms/ep (broken broadcast on n²) | unmeasured | **133** ms/ep | **9** ms/ep | ~14× | unmeasured | ~14× | 3,500 (torch) | torch **7:46** ✓ acc 100/84 (seed-42 RNG variance vs PyTorch 100/99 — at seed=1 Idris 100/96 vs PyTorch 100/64); tape needs broadcast fix for link-matrix update | 30 min | torch ✅ A (RNG variance); tape ❌ broken broadcast |
+| dnc-copy | see [NTM/DNC table below](#ntmdnc-currentstate-postphase15) | | | | | | | 50000 (max) | see below | 30 min | see below |
 | dnc-recall | ~4360 (pre-rewrite) | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | unmeasured | ≥50000 | **>10 h** | 30 min | **D** |
+
+### NTM/DNC current-state (post-Phase-1.5)
+
+Detailed per-backend convergence after Phase 1.5 model alignment.
+Full-history measurements live in [`perf-log.md`](perf-log.md).
+
+| Example | Backend | ms/ep | Convergence (seed=42) | acc_short | acc_full | Status |
+|---|---|---:|---|---:|---:|---|
+| ntm-copy | torch | ~33-60 | 5,000 ep / 2:48-5:05 | 100% | 100% | ✅ matches PyTorch ref |
+| ntm-copy | tape | ~19 | 35,500 ep / 11:40 | 96% | 80% | ⚠️ backward-rule drift |
+| ntm-copy | mlx | ~100 | killed at 17K (no learning) | ~50% | — | ❌ not training |
+| ntm-copy | pytorch ref | ~40 | 4,600 ep / 3:02 | 99.6% | 100% | (oracle) |
+| dnc-copy | torch | ~133 | 3,500 ep / 7:46 | 100% | 84% | ✅ alignment correct (RNG variance — see seed=1 below) |
+| dnc-copy | tape | (untested post-fix) | known-broken `(n,1)·(1,n)→(n,n)` broadcast in link-matrix update | — | — | ❌ broadcast-bug |
+| dnc-copy | mlx | unmeasured | — | — | — | unmeasured |
+| dnc-copy | pytorch ref | ~9 | 3,400 ep / 0:31 | 100% | 99% | (oracle) |
+
+**dnc-copy seed-variance check** (Phase 1.5c follow-up):
+
+| seed | Idris-on-torch acc_full | PyTorch ref acc_full |
+|---:|---:|---:|
+| 42 | 84% | 99% |
+| 1 | 96% | 64% |
+
+Wide seed-variance on length-generalization (35-pt PyTorch spread,
+12-pt Idris spread). Multi-seed mean is comparable. Confirmed not
+an algorithmic gap. See [`perf-log.md`](perf-log.md) for raw entries.
 
 ## RL examples (13)
 
