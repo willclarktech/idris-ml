@@ -379,7 +379,9 @@ main = do
 
   putStrLn ""
   let nEval = the Nat 30
-      avgReturn = evalN trained.actor nEval 0.0 / cast (natToInteger nEval)
+  -- Greedy eval doesn't need gradients — disable autograd graph
+  -- construction for the 30 × 200 forward passes.
+  avgReturn <- withNoGrad (pure (evalN trained.actor nEval 0.0 / cast (natToInteger nEval)))
   putStrLn $ "Eval (" ++ show nEval ++ " episodes, greedy): avg_return=" ++ show avgReturn
   putStrLn ""
   putStrLn $ formatResult [("avg_return", show avgReturn),

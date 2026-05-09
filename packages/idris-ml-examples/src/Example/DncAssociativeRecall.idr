@@ -169,12 +169,13 @@ main = do
         let (_, preds) = forwardTwoPhase trained dp
         in bitAccuracy preds (targets dp)
 
+  -- Eval doesn't need gradients; wrap forwardTwoPhase batches.
   k2Batch <- recallTaskBinaryBatchVect {w = W} TestSize 2 2 SeqLen
   k4Batch <- recallTaskBinaryBatchVect {w = W} TestSize 4 4 SeqLen
   k6Batch <- recallTaskBinaryBatchVect {w = W} TestSize 6 6 SeqLen
-  let k2Acc = foldl (+) 0.0 (toList (map evalOne k2Batch)) / cast TestSize
-  let k4Acc = foldl (+) 0.0 (toList (map evalOne k4Batch)) / cast TestSize
-  let k6Acc = foldl (+) 0.0 (toList (map evalOne k6Batch)) / cast TestSize
+  k2Acc <- withNoGrad (pure (foldl (+) 0.0 (toList (map evalOne k2Batch)) / cast TestSize))
+  k4Acc <- withNoGrad (pure (foldl (+) 0.0 (toList (map evalOne k4Batch)) / cast TestSize))
+  k6Acc <- withNoGrad (pure (foldl (+) 0.0 (toList (map evalOne k6Batch)) / cast TestSize))
 
   putStrLn ""
   putStrLn "Eval:"

@@ -183,15 +183,16 @@ main = do
         let (_, preds) = forwardTwoPhase trained dp
         in bitAccuracy preds (targets dp)
 
+  -- Eval doesn't need gradients; wrap forwardTwoPhase batches.
   shortBatch <- copyTaskBinaryBatchVect {w = W} TestSize 1 5
   fullBatch <- copyTaskBinaryBatchVect {w = W} TestSize 1 20
-  let shortAcc = foldl (+) 0.0 (toList (map evalOne shortBatch)) / cast TestSize
-  let fullAcc = foldl (+) 0.0 (toList (map evalOne fullBatch)) / cast TestSize
+  shortAcc <- withNoGrad (pure (foldl (+) 0.0 (toList (map evalOne shortBatch)) / cast TestSize))
+  fullAcc <- withNoGrad (pure (foldl (+) 0.0 (toList (map evalOne fullBatch)) / cast TestSize))
 
   putStrLn ""
   putStrLn "Eval:"
   sampleBatch <- copyTaskBinaryBatchVect {w = W} 2 3 5
-  traverse_ (\dp =>
+  withNoGrad $ traverse_ (\dp =>
     let (_, preds) = forwardTwoPhase trained dp
     in do putStr "  Input:  "
           putStrLn $ unwords (map showBinaryVec (encodingInputs dp))
