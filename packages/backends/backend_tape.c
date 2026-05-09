@@ -2015,7 +2015,53 @@ TensorHandle tensor_layer_norm_2d(TensorHandle h, TensorHandle hgamma,
     Tensor* t = (Tensor*)h;
     Tensor* gamma = (Tensor*)hgamma;
     Tensor* bias = (Tensor*)hbias;
+    if (t->dtype_tag != gamma->dtype_tag || t->dtype_tag != bias->dtype_tag)
+        tape_abort_mixed_dtype("tensor_layer_norm_2d");
     int m = t->shape[0], n = t->shape[1];
+    int shape[] = {m, n};
+    int rg = t->requires_grad || gamma->requires_grad || bias->requires_grad;
+
+    if (t->dtype_tag == DT_F32) {
+        /* F32 path. Meta caches (x_hat, rstd) stay double* so the existing
+           backward case body works for both dtypes; convert on store. */
+        float* data = arena_alloc(m * n * sizeof(float));
+        double* x_hat = malloc(m * n * sizeof(double));
+        double* rstd = malloc(m * sizeof(double));
+        const float* td = (const float*)t->data;
+        const float* gd = (const float*)gamma->data;
+        const float* bd = (const float*)bias->data;
+        for (int i = 0; i < m; i++) {
+            double mean = 0;
+            for (int j = 0; j < n; j++) mean += td[i*n+j];
+            mean /= n;
+            double var = 0;
+            for (int j = 0; j < n; j++) {
+                double d = td[i*n+j] - mean;
+                var += d * d;
+            }
+            var /= n;
+            double inv_std = 1.0 / sqrt(var + eps);
+            rstd[i] = inv_std;
+            for (int j = 0; j < n; j++) {
+                double xh = (td[i*n+j] - mean) * inv_std;
+                x_hat[i*n+j] = xh;
+                data[i*n+j] = (float)(gd[j] * xh + bd[j]);
+            }
+        }
+        Tensor* r = make_tensor_arena_f32(data, m * n, shape, 2, rg);
+        if (rg) {
+            LayerNormMeta* meta = arena_alloc(sizeof(LayerNormMeta));
+            meta->gamma = gamma; meta->bias = bias;
+            meta->x_hat = x_hat; meta->rstd = rstd;
+            meta->m = m; meta->n = n;
+            TapeEntry* e = tape_append(OP_LAYER_NORM_2D, r, t, NULL, 0);
+            e->op_meta = meta;
+        } else {
+            free(x_hat); free(rstd);
+        }
+        return r;
+    }
+
     double* data = malloc(m * n * sizeof(double));
     double* x_hat = malloc(m * n * sizeof(double));
     double* rstd = malloc(m * sizeof(double));
@@ -2039,8 +2085,6 @@ TensorHandle tensor_layer_norm_2d(TensorHandle h, TensorHandle hgamma,
             data[i*n+j] = ((double*)gamma->data)[j] * x_hat[i*n+j] + ((double*)bias->data)[j];
         }
     }
-    int shape[] = {m, n};
-    int rg = t->requires_grad || gamma->requires_grad || bias->requires_grad;
     Tensor* r = make_tensor(data, shape, 2, rg);
     free(data);
     if (rg) {
@@ -4243,7 +4287,7 @@ void tensor_backward(TensorHandle h) {
                     ((double*)meta->bias->grad)[j] += db;
                 }
             }
-            /* d_input */
+            /* d_input — tape_load_d on gamma->data covers F64 + F32. */
             if (a && a->requires_grad) {
                 ensure_grad(a);
                 for (int i = 0; i < mm; i++) {
@@ -4251,14 +4295,14 @@ void tensor_backward(TensorHandle h) {
                     double mean_dxhat = 0;
                     double mean_dxhat_xhat = 0;
                     for (int j = 0; j < nn; j++) {
-                        double dxh = ((double*)r->grad)[i*nn+j] * ((double*)meta->gamma->data)[j];
+                        double dxh = ((double*)r->grad)[i*nn+j] * tape_load_d(meta->gamma, j);
                         mean_dxhat += dxh;
                         mean_dxhat_xhat += dxh * meta->x_hat[i*nn+j];
                     }
                     mean_dxhat /= nn;
                     mean_dxhat_xhat /= nn;
                     for (int j = 0; j < nn; j++) {
-                        double dxh = ((double*)r->grad)[i*nn+j] * ((double*)meta->gamma->data)[j];
+                        double dxh = ((double*)r->grad)[i*nn+j] * tape_load_d(meta->gamma, j);
                         ((double*)a->grad)[i*nn+j] += meta->rstd[i] *
                             (dxh - mean_dxhat - meta->x_hat[i*nn+j] * mean_dxhat_xhat);
                     }

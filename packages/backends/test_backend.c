@@ -3926,6 +3926,51 @@ int main(void) {
                 param_clear();
             }
 
+            /* tensor_layer_norm_2d: row-wise LN with gamma/bias affine. */
+            {
+                int M = 2, N = 3;
+                double xv[]  = {1.5, -0.25, 0.5, 0.25, 1.0, -0.75};
+                double gv[]  = {1.0, 0.5, 0.25};
+                double bv[]  = {0.1, -0.2, 0.3};
+                double y_f64[6], y_f32[6], gx_f64[6], gx_f32[6], gg_f64[3], gg_f32[3], gb_f64[3], gb_f32[3];
+
+                param_clear();
+                TensorHandle x64 = tensor_create_param_2d_streamed(M, N, heap_copy(xv, M*N), 0, 1);
+                param_register("x", x64);
+                TensorHandle g64 = tensor_create_param_1d_streamed(N, heap_copy(gv, N), 0, 1);
+                param_register("g", g64);
+                TensorHandle b64 = tensor_create_param_1d_streamed(N, heap_copy(bv, N), 0, 1);
+                param_register("b", b64);
+                TensorHandle r64 = tensor_layer_norm_2d(x64, g64, b64, 1e-5);
+                tensor_to_doubles(r64, y_f64);
+                tensor_backward(tensor_sum(r64));
+                for (int i = 0; i < M*N; i++) gx_f64[i] = param_grad_item_at(0, i);
+                for (int i = 0; i < N; i++)   gg_f64[i] = param_grad_item_at(1, i);
+                for (int i = 0; i < N; i++)   gb_f64[i] = param_grad_item_at(2, i);
+                param_clear();
+
+                TensorHandle x32 = tensor_create_param_2d_streamed(M, N, heap_copy(xv, M*N), 0, 0);
+                param_register("x", x32);
+                TensorHandle g32 = tensor_create_param_1d_streamed(N, heap_copy(gv, N), 0, 0);
+                param_register("g", g32);
+                TensorHandle b32 = tensor_create_param_1d_streamed(N, heap_copy(bv, N), 0, 0);
+                param_register("b", b32);
+                TensorHandle r32 = tensor_layer_norm_2d(x32, g32, b32, 1e-5);
+                tensor_to_doubles(r32, y_f32);
+                tensor_backward(tensor_sum(r32));
+                for (int i = 0; i < M*N; i++) gx_f32[i] = param_grad_item_at(0, i);
+                for (int i = 0; i < N; i++)   gg_f32[i] = param_grad_item_at(1, i);
+                for (int i = 0; i < N; i++)   gb_f32[i] = param_grad_item_at(2, i);
+
+                ASSERT_TRUE("layer_norm_2d: F32 output propagates F32 tag",
+                            strcmp(tensor_dtype_name(r32), "F32") == 0);
+                for (int i = 0; i < M*N; i++) { char buf[64]; snprintf(buf, sizeof buf, "layer_norm_2d: y_f32[%d]", i); ASSERT_NEAR(buf, y_f32[i], y_f64[i], 1e-5); }
+                for (int i = 0; i < M*N; i++) { char buf[64]; snprintf(buf, sizeof buf, "layer_norm_2d: x.grad_f32[%d]", i); ASSERT_NEAR(buf, gx_f32[i], gx_f64[i], 1e-5); }
+                for (int i = 0; i < N; i++) { char buf[64]; snprintf(buf, sizeof buf, "layer_norm_2d: g.grad_f32[%d]", i); ASSERT_NEAR(buf, gg_f32[i], gg_f64[i], 1e-5); }
+                for (int i = 0; i < N; i++) { char buf[64]; snprintf(buf, sizeof buf, "layer_norm_2d: b.grad_f32[%d]", i); ASSERT_NEAR(buf, gb_f32[i], gb_f64[i], 1e-5); }
+                param_clear();
+            }
+
             /* tensor_bmm_3x3: [B,m,n] x [B,n,k] -> [B,m,k], per-batch b */
             {
                 int B = 2, m = 2, n = 2, k = 2;
