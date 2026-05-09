@@ -265,6 +265,14 @@ static inline double tape_load_d(const Tensor* t, int i) {
                                     : ((double*)t->data)[i];
 }
 
+/* Dtype-aware element store — write `v` into t->data[i], narrowing to
+   float when the tensor is F32-tagged. Used by the optimizer step's
+   writeback so F32 params stay F32-exact after every update. */
+static inline void tape_store_d(Tensor* t, int i, double v) {
+    if (t->dtype_tag == DT_F32) ((float*)t->data)[i] = (float)v;
+    else                        ((double*)t->data)[i] = v;
+}
+
 /* ================================================================
    Tape
    ================================================================ */
@@ -1349,9 +1357,12 @@ TensorHandle tensor_linear(TensorHandle hW, TensorHandle hx, TensorHandle hbias)
 TensorHandle tensor_dot(TensorHandle ha, TensorHandle hb) {
     Tensor* a = (Tensor*)ha;
     Tensor* b = (Tensor*)hb;
+    if (a->dtype_tag != b->dtype_tag) tape_abort_mixed_dtype("tensor_dot");
     double s = 0;
-    for (int i = 0; i < a->numel; i++) s += ((double*)a->data)[i] * ((double*)b->data)[i];
-    Tensor* r = make_scalar(s, a->requires_grad || b->requires_grad);
+    /* tape_load_d handles both F64 and F32 storage uniformly. */
+    for (int i = 0; i < a->numel; i++) s += tape_load_d(a, i) * tape_load_d(b, i);
+    int rg = a->requires_grad || b->requires_grad;
+    Tensor* r = (a->dtype_tag == DT_F32) ? make_scalar_f32(s, rg) : make_scalar(s, rg);
     if (r->requires_grad) tape_append(OP_DOT, r, a, b, 0);
     return r;
 }
@@ -3518,20 +3529,21 @@ void tensor_backward(TensorHandle h) {
             break;
 
         case OP_DOT:
-            /* d(dot(a,b))/da = b, d(dot(a,b))/db = a (element-wise) */
+            /* d(dot(a,b))/da = b, d(dot(a,b))/db = a (element-wise).
+               tape_load_d covers both F64 and F32 data storage. */
             if (a && a->numel > 1) {
                 ensure_grad(a);
-                for (int j = 0; j < a->numel; j++) ((double*)a->grad)[j] += ((double*)r->grad)[0] * ((double*)b->data)[j];
+                for (int j = 0; j < a->numel; j++) ((double*)a->grad)[j] += ((double*)r->grad)[0] * tape_load_d(b, j);
             } else if (a) {
                 ensure_grad(a);
-                ((double*)a->grad)[0] += ((double*)r->grad)[0] * ((double*)b->data)[0];
+                ((double*)a->grad)[0] += ((double*)r->grad)[0] * tape_load_d(b, 0);
             }
             if (b && b->numel > 1) {
                 ensure_grad(b);
-                for (int j = 0; j < b->numel; j++) ((double*)b->grad)[j] += ((double*)r->grad)[0] * ((double*)a->data)[j];
+                for (int j = 0; j < b->numel; j++) ((double*)b->grad)[j] += ((double*)r->grad)[0] * tape_load_d(a, j);
             } else if (b) {
                 ensure_grad(b);
-                ((double*)b->grad)[0] += ((double*)r->grad)[0] * ((double*)a->data)[0];
+                ((double*)b->grad)[0] += ((double*)r->grad)[0] * tape_load_d(a, 0);
             }
             break;
 
@@ -5532,9 +5544,14 @@ void optimizer_step(OptimizerHandle h) {
             double g = ((double*)t->grad)[j];
             int idx = base + j;  /* per-element index into optimizer buffers */
 
+            /* Dtype-aware reads + writes so F32 params take f32-precision
+               updates (asserted by the rung-4 F32-exactness check). Moment
+               buffers (opt->m / opt->v) stay F64 — standard mixed-precision
+               practice and lets the F64 numerics path stay byte-identical. */
+            double w = tape_load_d(t, j);
             switch (opt->type) {
             case 0: /* SGD */
-                ((double*)t->data)[j] -= lr * g;
+                tape_store_d(t, j, w - lr * g);
                 break;
 
             case 1: { /* RMSprop — keep lr OUTSIDE the momentum buffer to match
@@ -5546,9 +5563,9 @@ void optimizer_step(OptimizerHandle h) {
                 double avg = sqrt(opt->v[idx]) + opt->eps;
                 if (opt->momentum > 0) {
                     opt->m[idx] = opt->momentum * opt->m[idx] + g / avg;
-                    ((double*)t->data)[j] -= lr * opt->m[idx];
+                    tape_store_d(t, j, w - lr * opt->m[idx]);
                 } else {
-                    ((double*)t->data)[j] -= lr * g / avg;
+                    tape_store_d(t, j, w - lr * g / avg);
                 }
                 break;
             }
@@ -5558,7 +5575,7 @@ void optimizer_step(OptimizerHandle h) {
                 opt->v[idx] = opt->beta2 * opt->v[idx] + (1.0 - opt->beta2) * g * g;
                 double mhat = opt->m[idx] / (1.0 - pow(opt->beta1, opt->t));
                 double vhat = opt->v[idx] / (1.0 - pow(opt->beta2, opt->t));
-                ((double*)t->data)[j] -= lr * mhat / (sqrt(vhat) + opt->eps);
+                tape_store_d(t, j, w - lr * mhat / (sqrt(vhat) + opt->eps));
                 break;
             }
 
@@ -5567,8 +5584,8 @@ void optimizer_step(OptimizerHandle h) {
                 opt->v[idx] = opt->beta2 * opt->v[idx] + (1.0 - opt->beta2) * g * g;
                 double mhat = opt->m[idx] / (1.0 - pow(opt->beta1, opt->t));
                 double vhat = opt->v[idx] / (1.0 - pow(opt->beta2, opt->t));
-                ((double*)t->data)[j] -= lr * mhat / (sqrt(vhat) + opt->eps);
-                ((double*)t->data)[j] -= lr * opt->weight_decay * ((double*)t->data)[j];
+                double w1 = w - lr * mhat / (sqrt(vhat) + opt->eps);
+                tape_store_d(t, j, w1 - lr * opt->weight_decay * w1);
                 break;
             }
             }

@@ -58,12 +58,12 @@ static double* heap_copy(const double* src, int n) {
    make_tensor_arena zero-inits dtype_tag to DT_F64, so kernel outputs don't
    inherit input tags) and three "w_f32[i] is F32-exact after step"
    (optimizer_step writes raw F64 back to param->data without re-rounding). */
-#if defined(BACKEND_TAPE)
-/* TAPE_F32_SKIP_ELEMENTWISE removed (Phase 3 rung 1: F32 elementwise live).
-   TAPE_F32_SKIP_MATMUL removed (Phase 3 rung 2: F32 tensor_mv live).
-   TAPE_F32_SKIP_NORM removed (Phase 3 rung 3: F32 tensor_softmax live). */
-#define TAPE_F32_SKIP_OPTIMIZER
-#endif
+/* All Phase 3 rungs landed — flags retired:
+     TAPE_F32_SKIP_ELEMENTWISE (rung 1: F32 elementwise)
+     TAPE_F32_SKIP_MATMUL      (rung 2: F32 tensor_mv)
+     TAPE_F32_SKIP_NORM        (rung 3: F32 tensor_softmax)
+     TAPE_F32_SKIP_OPTIMIZER   (rung 4: dtype-aware optimizer step)
+   F32 training is live on tape. */
 
 /* ================================================================
    T1: Scalar tensor creation + arithmetic
