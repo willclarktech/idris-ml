@@ -361,3 +361,11 @@ wall:    13m 51s (831718 ms)
 converged: Converged at epoch 9300 (p10_loss=0.008000670932233334)
 stats:   Completed in 13m 44s (9300 epochs, 88ms/epoch)
 result:  `RESULT	epochs=9300	acc_short=0.979375	acc_full=0.9939276960784313	seed=7`
+
+### 2026-05-08 — `ntm-copy` [mlx] @ `11e38f0+dirty` — `--seed 99 --batch 1 --epochs 30000 --es-threshold 0.01`
+
+exit:    0
+wall:    4m 34s (274546 ms)
+converged: Converged at epoch 4400 (p10_loss=0.005980806890875101)
+stats:   Completed in 4m 28s (4400 epochs, 60ms/epoch)
+result:  `RESULT	epochs=4400	acc_short=0.9997499999999999	acc_full=0.9996747344771242	seed=99`

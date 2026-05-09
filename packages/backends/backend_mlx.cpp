@@ -509,8 +509,17 @@ TensorHandle tensor_silu(TensorHandle h) {
 
 TensorHandle tensor_softplus(TensorHandle h) {
     auto t = (Tensor*)h;
-    // softplus(x) = log(1 + exp(x))
-    auto result = mx::log(mx::add(mx::array(1.0, mx::float32), mx::exp(t->data)));
+    // Numerically stable softplus: max(0, x) + log(1 + exp(-|x|)).
+    // The naive log(1 + exp(x)) overflows in float32 for x > ~88 — and the
+    // NTM addressing path multiplies softplus(x) by cosine_sim and feeds
+    // softmax, so an overflow there silently produces ±inf inputs to softmax
+    // and the whole chain becomes NaN at the working point. The stable form
+    // is correct for all x: for large positive x it reduces to x, for large
+    // negative x it reduces to exp(x) ≈ 0.
+    auto zero = mx::array(0.0f, mx::float32);
+    auto one  = mx::array(1.0f, mx::float32);
+    auto result = mx::add(mx::maximum(t->data, zero),
+                          mx::log(mx::add(one, mx::exp(mx::negative(mx::abs(t->data))))));
     auto r = new Tensor(result, t->requires_grad);
     if (t->requires_grad) tape_append(OP_SOFTPLUS, r, t, nullptr, 0);
     return (TensorHandle)r;
@@ -1588,7 +1597,13 @@ void tensor_backward(TensorHandle h) {
                 break;
             }
             case OP_SILU: pool[out] = mx::multiply(a, mx::sigmoid(a)); break;
-            case OP_SOFTPLUS: pool[out] = mx::log(mx::add(mx::array(1.0, mx::float32), mx::exp(a))); break;
+            case OP_SOFTPLUS: {
+                auto zero_sp = mx::array(0.0f, mx::float32);
+                auto one_sp = mx::array(1.0f, mx::float32);
+                pool[out] = mx::add(mx::maximum(a, zero_sp),
+                                    mx::log(mx::add(one_sp, mx::exp(mx::negative(mx::abs(a))))));
+                break;
+            }
             case OP_ADD_SCALAR: pool[out] = mx::add(a, mx::array(e.scalar_arg)); break;
             case OP_MUL_SCALAR: pool[out] = mx::multiply(a, mx::array(e.scalar_arg)); break;
             case OP_CLAMP_MIN: pool[out] = mx::maximum(a, mx::array(e.scalar_arg)); break;
@@ -1851,6 +1866,115 @@ void tensor_backward(TensorHandle h) {
         param_registry[i].tensor->grad = grads[i];
         param_registry[i].tensor->has_grad = true;
     }
+
+    // Optional NaN trap — fires only when DEBUG_NAN_TRAP=1 in the env.
+    // Walks every param grad on first appearance of NaN/Inf and logs the
+    // offending param name. Useful to localise gradient blow-up at the
+    // peaked-attention working point in NTM/DNC training.
+    {
+        static int reported = 0;
+        const char* env = getenv("DEBUG_NAN_TRAP");
+        if (env && env[0] == '1' && !reported) {
+            int any_nan = 0;
+            for (int i = 0; i < (int)param_registry.size(); i++) {
+                auto& p = param_registry[i];
+                auto contig = mx::contiguous(p.tensor->grad);
+                mx::eval(contig);
+                long n = (long)contig.size();
+                const float* gp = contig.data<float>();
+                int nan_count = 0, inf_count = 0;
+                float maxabs = 0.0f;
+                for (long j = 0; j < n; j++) {
+                    float v = gp[j];
+                    if (v != v) nan_count++;
+                    else if (v > 1e30f || v < -1e30f) inf_count++;
+                    else { float a = v < 0 ? -v : v; if (a > maxabs) maxabs = a; }
+                }
+                if (nan_count || inf_count) {
+                    fprintf(stderr, "[NAN_TRAP] param[%d]=%s NaN=%d Inf=%d maxabs=%.3e (n=%ld)\n",
+                            i, p.name.c_str(), nan_count, inf_count, maxabs, n);
+                    any_nan = 1;
+                }
+            }
+            // If any param grad is bad, walk the forward tape and find the
+            // first NaN-producing op. result->data already holds the actual
+            // forward value, so we just check those in tape order.
+            if (any_nan) {
+                static const char* OP_NAMES[] = {
+                    "CONST", "ADD", "SUB", "MUL", "DIV", "NEG", "EXP", "LOG", "SQRT",
+                    "SIGMOID", "TANH", "ADD_SCALAR", "MUL_SCALAR", "CLAMP_MIN",
+                    "SUM", "MEAN", "MM", "BMM", "TRANSPOSE_2D", "SOFTMAX_2D",
+                    "LOG_SOFTMAX_2D", "MASKED_FILL", "LAYER_NORM_2D", "RESHAPE",
+                    "NARROW", "CAT", "POW", "ABS", "STACK", "OUTER", "COSINE_SIM",
+                    "CONV1D_CIRC", "MV", "SELECT", "BMM_3X3", "SOFTMAX_3D",
+                    "TRANSPOSE_LAST2", "GELU", "GRU_CELL", "EMBEDDING", "BATCH_NORM",
+                    "DROPOUT", "AVG_POOL1D", "AVG_POOL2D", "CONV1D", "MAX_POOL1D",
+                    "CONV2D", "MAX_POOL2D", "CUMPROD", "GATHER", "SCATTER_ADD",
+                    "LEAKY_RELU", "SILU", "SUM_DIM", "CAT_MULTI", "LINEAR_2D",
+                    "CONCAT_2D_AXIS1", "SOFTPLUS",
+                };
+                int n_names = sizeof(OP_NAMES) / sizeof(OP_NAMES[0]);
+                fprintf(stderr, "[NAN_TRAP] scanning forward tape (size=%d) for first NaN op...\n",
+                        (int)tape.size());
+                for (int i = 0; i < (int)tape.size(); i++) {
+                    auto& e = tape[i];
+                    if (!e.result) continue;
+                    auto contig = mx::contiguous(e.result->data);
+                    mx::eval(contig);
+                    long n = (long)contig.size();
+                    if (n == 0) continue;
+                    const float* dp = contig.data<float>();
+                    int nan_count = 0;
+                    for (long j = 0; j < n; j++) {
+                        float v = dp[j];
+                        if (v != v) { nan_count++; }
+                    }
+                    if (nan_count) {
+                        const char* opn = (e.op >= 0 && e.op < n_names)
+                            ? OP_NAMES[e.op] : "UNKNOWN";
+                        fprintf(stderr, "[NAN_TRAP] first NaN at tape[%d] op=%s (id=%d) result.size=%ld nan_count=%d arg1.op=%d arg2.op=%d\n",
+                                i, opn, e.op, n, nan_count,
+                                e.arg1 ? (int)tape[e.arg1->tape_idx].op : -1,
+                                e.arg2 ? (int)tape[e.arg2->tape_idx].op : -1);
+                        // Sample arg1/arg2 values to spot inputs that are
+                        // already large/small.
+                        if (e.arg1) {
+                            auto a = mx::contiguous(e.arg1->data);
+                            mx::eval(a);
+                            const float* ap = a.data<float>();
+                            float amin = ap[0], amax = ap[0];
+                            int anan = 0;
+                            for (long j = 0; j < (long)a.size(); j++) {
+                                float v = ap[j];
+                                if (v != v) anan++;
+                                else { if (v < amin) amin = v; if (v > amax) amax = v; }
+                            }
+                            fprintf(stderr, "[NAN_TRAP]   arg1 size=%ld nan=%d range=[%.3e, %.3e]\n",
+                                    (long)a.size(), anan, amin, amax);
+                        }
+                        if (e.arg2) {
+                            auto b = mx::contiguous(e.arg2->data);
+                            mx::eval(b);
+                            const float* bp = b.data<float>();
+                            float bmin = bp[0], bmax = bp[0];
+                            int bnan = 0;
+                            for (long j = 0; j < (long)b.size(); j++) {
+                                float v = bp[j];
+                                if (v != v) bnan++;
+                                else { if (v < bmin) bmin = v; if (v > bmax) bmax = v; }
+                            }
+                            fprintf(stderr, "[NAN_TRAP]   arg2 size=%ld nan=%d range=[%.3e, %.3e]\n",
+                                    (long)b.size(), bnan, bmin, bmax);
+                        }
+                        reported = 1;
+                        break;
+                    }
+                }
+            }
+            if (reported) fflush(stderr);
+        }
+    }
+
     prof_backward_ms_mlx += _wall_ms_mlx() - t0_bwd;
 }
 
