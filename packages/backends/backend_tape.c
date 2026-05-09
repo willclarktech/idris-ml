@@ -48,11 +48,15 @@ typedef struct {
     int dtype_tag;      /* internal DT_* tag; 0 = DT_F64 (default for zeroed structs) */
 } Tensor;
 
-/* Byte size of one element of the given internal DT_* tag. Default DT_F64
-   matches existing F64-only behavior (8 bytes); the other rungs are scaffolding
-   for Phase 3+ real packed storage. Today every storage path is still F64-only
-   (Phase 2 stores non-F64 dtypes as F64 doubles rounded through the dtype's
-   precision), so this helper is exercised only by the F64 path. */
+/* Byte size of one element of the given internal DT_* tag. F32 ships as a
+   real training dtype (dedicated 4-byte float storage, `tape_load_d` and
+   `tape_store_d` element accessors, X-macro stamped kernels); F64 is the
+   default and the lingua-franca path. The 8 inference dtypes (BF16, F16,
+   I8, I16, I32, I64, U8, Bool) store packed bytes via the `double` lingua
+   franca on first construct, so `tape_round_to_dtype` clamps incoming
+   doubles into the dtype's representable precision and the per-element
+   byte width here matches the ABI on-disk width. Branches on `dtype_tag`
+   in hot read paths route through `tape_load_d`. */
 static size_t tape_elem_size(int tag) {
     switch (tag) {
         case DT_F64:                                return sizeof(double);
@@ -5930,7 +5934,12 @@ TensorHandle tensor_subtract_scalar_inplace(TensorHandle h, double val) {
    vocab_size: number of classes per token
    Output: 1D tensor of length n_tokens * vocab_size */
 TensorHandle tensor_one_hot(int* tokens, int n_tokens, int vocab_size, int dtag) {
-    (void)dtag;  /* tape is F64-only (Compatible TapeDev admits only F64) */
+    (void)dtag;  /* one-hot's 0/1 image fits losslessly in every dtype; today
+                    the live callers (Mnist / Gpt / Transformer) hit the F64
+                    path, so the dtag is currently a no-op here — when a
+                    non-F64 caller appears, route through tape_round_to_dtype
+                    + the dtag-keyed arena allocators added in the parity
+                    work. */
     int total = n_tokens * vocab_size;
     double* data = calloc(total, sizeof(double));  /* zeros */
     for (int i = 0; i < n_tokens; i++) {
@@ -6125,24 +6134,29 @@ TensorHandle tensor_create_state_1d(int n, double* data) {
 }
 
 /* ================================================================
-   Per-dtype creation variants
+   Per-dtype creation variants (legacy, pre-unified-dispatch)
    --------------------------------------------------------------
-   Tape's arena is fp64-only (double* throughout) — there's no fp32
-   storage path. So _f64 variants delegate to the existing
-   unsuffixed creators (current behavior), and _f32 variants are
-   abort stubs.
+   These per-dtype `_f32` / `_f64` symbols predate the unified
+   `tensor_create_<shape>_streamed(..., int dtag)` entry points that
+   landed with the FFI tag-dispatch unification (2026-05-22). The
+   typed Idris surface now routes through the unified streamed
+   symbols exclusively; these per-dtype variants are kept only for
+   `backend.h` ABI completeness across the multi-link dylib (every
+   backend must export every prototype declared in backend.h).
 
-   The abort stubs exist for link-time symbol completeness only:
-   when BACKEND=tape, the dylib needs to export every prototype
-   declared in backend.h. The Idris-side RuntimeDType F32 instance
-   is intentionally not bound to tape's _f32 symbols (Phase 4), so
-   F32-typed code can't reach these from typed Idris at all. If a
-   caller bypasses the typed surface and hits these directly, the
-   abort gives a clear diagnostic instead of silent fp32->fp64
-   demotion that would mask the bug.
-
-   When tape gains an fp32 arena (separate workstream — its own
-   TODO row), the stubs become real impls. ================================================================ */
+   The _f64 variants delegate to the unsuffixed F64 creators —
+   identity, F64 is the lingua-franca path. The _f32 variants are
+   left as abort stubs here even though tape now has *real* F32
+   storage via `tape_arena_f32_from_doubles` /
+   `tape_persistent_f32_from_doubles` (used by the unified streamed
+   path); no caller reaches the legacy `_f32` symbols any more
+   (`grep tensor_create_.*_f32` in `packages/idris-ml*` /
+   `packages/idris-ml-examples` finds zero hits), so the abort
+   diagnostic is reachable only via direct C linkage. Cleaning them
+   out is a separate ABI rewrite (paired with row 21 RuntimeDType
+   reorder); the abort gives a clear diagnostic if anything ever
+   does.
+   ================================================================ */
 
 #include <stdio.h>
 
@@ -6176,13 +6190,18 @@ TensorHandle tensor_create_param_4d_f32(int d0, int d1, int d2, int d3, double* 
 TensorHandle tensor_create_state_1d_f32(int n, double* d)                               { (void)n; (void)d; return tape_f32_unsupported("tensor_create_state_1d_f32"); }
 TensorHandle tensor_create_state_2d_f32(int rows, int cols, double* d)                  { (void)rows; (void)cols; (void)d; return tape_f32_unsupported("tensor_create_state_2d_f32"); }
 
-/* Per-dtype cast primitives. Tape has only an F64 arena, so the source
- * dtype is necessarily F64 and the F64 destination is a no-op alias:
- * values are unchanged, the FFI wrapper machinery retains the handle
- * and Idris gets a fresh wrapper around the same C handle. Gradients
- * flow through the source's tape entry naturally — no new tape op is
- * appended since the operation is observationally identity. The F32
- * destination aborts (no fp32 arena). */
+/* Per-dtype cast primitives (legacy, pre-unified-dispatch).
+ * The live cast path is `tensor_cast_dtype_streamed(src, stream_tag, dtag)`
+ * which handles every dtag with the matching real storage (F32 → real
+ * `float*` arena; F64 identity; the 8 inference dtypes via
+ * `tape_retag_round` + the lingua franca). These per-dtype `_f64` / `_f32`
+ * symbols are kept only for backend.h ABI completeness in the multi-link
+ * dylib; the typed Idris surface no longer reaches them. F64 is an alias
+ * (the FFI wrapper retains the handle and Idris gets a fresh wrapper
+ * around the same C handle; gradients flow through the source's tape entry
+ * — no new tape op is appended since the operation is observationally
+ * identity). F32 aborts here; reach the real F32 cast path via
+ * `tensor_cast_dtype_streamed(src, _, 0)`. */
 TensorHandle tensor_cast_dtype_f64(TensorHandle src)                                     { return src; }
 TensorHandle tensor_cast_dtype_f32(TensorHandle src)                                     { (void)src; return tape_f32_unsupported("tensor_cast_dtype_f32"); }
 

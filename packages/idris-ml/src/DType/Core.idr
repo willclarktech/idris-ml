@@ -191,9 +191,11 @@ IsDType Bool where
 --
 -- Unlike `IsDType` (polymorphic across `Float n` etc.), `RuntimeDType`
 -- instances are concrete-per-dtype: only dtypes with a working C
--- runtime declare them. Backend asymmetry (e.g. tape has no fp32
--- arena) is expressed by which per-dtype C symbols exist — link-time
--- error if you try to use an unsupported (backend, dtype) pair.
+-- runtime declare them. Backend asymmetry (e.g. mlx Metal has no F64,
+-- no half-precision, no integer storage) is expressed by which
+-- `Compatible d dt` pairs hold — the unified dtag-dispatch create
+-- symbols are present on every backend, but the per-backend body
+-- aborts on unsupported dtags as defence-in-depth.
 --
 -- Method signatures mirror the existing top-level `prim__create*`
 -- bindings in `Tensor.idr`; instances are defined where those

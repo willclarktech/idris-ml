@@ -499,9 +499,26 @@ not at an op deep inside the layer chain.
 - C-side stream selection (`MlxDev MGpu` should set the Metal stream;
   `MlxDev MCpu` should set the CPU stream — currently both forward to
   the global `MLX_DEVICE` env var).
-- F32 on tape backend — the C arena is `double*` throughout; tape's
-  `_f32` symbols are abort stubs since 2026-05-18. Torch already
-  ships proper F32 via `kFloat32` (free bonus from the refactor).
+- ~~F32 on tape backend — the C arena is `double*` throughout;
+  tape's `_f32` symbols are abort stubs since 2026-05-18.~~ —
+  **landed 2026-05-23**. Tape now ships F32 as a real training
+  dtype: dedicated `float*` storage (`tape_arena_f32_from_doubles` /
+  `tape_persistent_f32_from_doubles`), `tape_load_d` / `tape_store_d`
+  dtype-aware element accessors, and a `.inc`-stamped F32 elementwise
+  kernel pair (`SCALAR=double` for F64, `SCALAR=float` for F32). The
+  per-rung gradcheck oracle ladder (T29) — elementwise / matmul /
+  softmax / optimizer step — is GREEN, and Phase 3b extended F32
+  routing to every remaining public `tensor_*` (scalars / reshape /
+  losses / BLAS-heavy linalg / norm+conv+pool / lookups / recurrent
+  cells). Asymmetric `data=F32` / `grad=F64` design choice: the
+  67-case backward switch stays dtype-agnostic for grad reads/writes;
+  only data reads in ~12 backward cases that touch input data needed
+  `tape_load_d`. Inference-only dtypes (BF16/F16/I8/I16/I32/I64/U8/Bool)
+  ship via the `double` lingua franca in `tape_round_to_dtype` with
+  half-precision routed through the bit helpers lifted from
+  `safetensors.c` into `shared_utils.{c,h}`. `Compatible TapeDev <dt>`
+  is open for all 10 dtypes. See the "Tape dtype parity" entry in
+  `CHANGELOG.md`.
 - The `Reinforce` test's pre-existing `Data.List.index : IO (Vect ...)`
   bug, surfaced (not caused) by the dtype refactor.
 

@@ -898,8 +898,10 @@ dispatches a 10-way `cond` on the dtag. The grad `param_*`/`state_*`
 create paths stay F32/F64 — torch rejects autograd on integer/bool, and
 reduced-precision *training* (BF16/F16 backward + autocast/GradScaler)
 is its own deferred row. This unblocks loading pretrained (BF16) weights
-for inference; it is not a training feature. Tape dtype parity and the
-all-backend tag-dispatch unification are separate Medium rows.
+for inference; it is not a training feature. Tape dtype parity (F32 as a
+real training dtype + the 8 inference dtypes via the lingua franca) and
+the all-backend unified tag-dispatch landed shortly after — see the
+"Tape dtype parity" and "Unified FFI create/cast dispatch" entries below.
 
 **bf16/f16 + integer SafeTensors I/O via the double lingua franca
 (2026-05-22).** The on-disk side of the above: `safetensors.c` now
@@ -912,8 +914,13 @@ storage dtype. So the only new code is per-dtype pack/unpack *inside
 `safetensors.c`* — bf16/f16 bit conversions (bf16 = high 16 bits of f32;
 f16 = IEEE binary16, round-to-nearest-even), integers as plain casts.
 **No backend-interface, `backend.h`, rename-header, or `ffi_manifest.py`
-change** — the dtype knowledge stays in one file, and tape/mlx (F32/F64
-only) are untouched. This is byte-exact for bf16/f16 round-trips
+change** — the dtype knowledge stays in one file. (Tape later gained
+its own in-process bf16/f16/integer storage via the lingua-franca path
+in `tape_round_to_dtype` — see the tape-dtype-parity entry below — and
+both `safetensors.c` and `tape_round_to_dtype`'s DT_BF16/DT_F16 arms
+now share the bit helpers lifted into `shared_utils.{c,h}`; mlx
+remains F32/F64 only since Metal has no half-precision/integer
+storage.) This is byte-exact for bf16/f16 round-trips
 (`bf16 → f64 → bf16` is identity) and every integer except **I64 above
 2^53** — a double can't represent those, and torch's `.to(kFloat64)`
 rounds before the bytes are packed, so i64 ships with that documented
@@ -954,7 +961,10 @@ fixed dtype (the Phase-1 F32 hardcode was a band-aid) while the Idris type
 claimed the polymorphic `dt` — a lie. It now takes a `dtag` and produces
 exactly the requested dtype (0/1 is exact in every dtype, so lossless):
 torch switches `dtag → ScalarType`, mlx maps to `mx::Dtype`, tape ignores
-it (F64-only). The result type honestly equals the runtime dtype; Mnist
+it because the one-hot pattern is currently exercised only on the F64
+path (tape's per-dtype storage landed later — the parity entry below
+covers the eventual `tensor_one_hot` route, but the existing F64 callers
+are untouched). The result type honestly equals the runtime dtype; Mnist
 dropped its `dtCastFrom` workaround. `mnist_get_image` got the same `dtag`
 treatment (2026-05-22) and dropped its own `dtCastFrom`. `tensor_causal_mask`
 had the same fixed-dtype shape but was dead (`primCausalMask` never called;
@@ -968,11 +978,67 @@ latent MPS abort (Metal has no F64) and the >2^53 precision loss; `gather`/
 `scatter_add` already coerce to `kLong`, so the untyped DNC path is
 unaffected. The surface is *torch-only by construction* (an integer tensor
 only exists where `Compatible d I64` holds — `TorchDev TCpu`/`TCuda`; Metal
-and tape/mlx store F64 only), so the rejected alternative of casting indices
-to the *input* float dtype (lossy on low-mantissa dtypes) was avoided.
-All-backend availability follows the tape/mlx integer-storage row, with no
-change needed to this surface. Demoed by `Example.IndexOps` (torch-only,
+has no F64/int and mlx stores F32/F64 only; tape has the integer dtypes
+as inference-only storage via the lingua franca, but no integer
+*kernels*, so a typed `I64` index handle is still torch-shaped in
+practice), so the rejected alternative of casting indices to the *input*
+float dtype (lossy on low-mantissa dtypes) was avoided.
+All-backend availability follows the tape/mlx integer-*kernel* row, with
+no change needed to this surface. Demoed by `Example.IndexOps` (torch-only,
 `make example-index-ops`).
+
+**Tape dtype parity (2026-05-23).** The tape backend is no longer
+F64-only. F32 ships as a real training dtype — dedicated 4-byte-per-elem
+`float*` storage (`tape_arena_f32_from_doubles` /
+`tape_persistent_f32_from_doubles`), `tape_load_d` / `tape_store_d`
+dtype-aware element accessors that branch on the per-tensor `dtype_tag`,
+and a `backend_tape_kernels.inc` X-macro that stamps the elementwise
+binop + unop bodies once for F64 (`SCALAR=double`) and once for F32
+(`SCALAR=float`). The four-rung gradcheck oracle (T29: elementwise /
+`tensor_mv` + OP_MV / softmax / optimizer-step) is GREEN, and the
+per-rung pattern (paired RED→GREEN commits, no `.inc` extension) was
+extended to every remaining public `tensor_*` — scalars, reshape /
+concat / select / view, losses (MSE/CE/BCE/NLL), BLAS-heavy linalg
+(`cblas_s{gemm,gemv,ger}` for matmul / linear / bmm / outer / vecmat),
+norm + conv + pool, lookups (embedding / gather / scatter / argsort /
+cumprod), and recurrent cells (LSTM / GRU / cosine_sim). End state:
+every public `tensor_*` accepts F32 input without abort. **Asymmetric
+`data = F32` / `grad = F64`** is a deliberate scope choice — lets the
+entire 67-case backward switch stay dtype-agnostic for grad reads/writes
+(`((double*)t->grad)[i]` everywhere); only data *reads* in the ~12
+backward cases that touch input data needed `tape_load_d`. The torch
+invariant "param dtype == grad dtype" is **not** preserved on tape;
+mixed-precision (BF16/F16 trainable + GradScaler/autocast) is filed as
+a separate row. The 8 inference-only dtypes (BF16/F16/I8/I16/I32/I64/U8/
+Bool) ship via the `double` lingua franca in `tape_round_to_dtype`,
+with bf16/f16 routed through the bit helpers lifted from `safetensors.c`
+into `shared_utils.{c,h}` so on-disk I/O and in-process casts share one
+rounding implementation. `Compatible TapeDev <dt>` is now open Idris-side
+for all 10 dtypes; T29 gradcheck ladder + T31 inference matrix + T32
+cast-storage alignment unit blocks gate the contract. Demoed by
+`Example.PrecisionDemo` across all three backends (`make
+example-precision-demo`). Closes the "Broaden tape backend dtype storage
+beyond F64" and "Runtime cross-device + safe-vs-unsafe precision demo"
+rows; see the corresponding `CHANGELOG.md` entry.
+
+**Unified FFI create/cast dispatch (2026-05-22).** Companion to the
+above: one `tensor_create_<shape>_streamed(..., int dtag)` + one
+`tensor_cast_dtype_streamed` per shape per backend, with internal
+dtag switching. Replaces the previous per-dtype symbol explosion
+(one C symbol + `cond` arm per dtype per shape per backend); a new
+dtype is now a switch arm, not a symbol fan-out. backend.h went
+290 → 228 exported symbols. Per-backend dispatch: torch handles all
+10 dtags; mlx handles F32/F64 and aborts the rest via
+`mlx_dtype_unsupported` (Metal has no half/int storage); tape handles
+every dtag for which `Compatible TapeDev <dt>` is open (i.e. all of
+them, after the parity work above). The `Compatible` gate already
+prevents unreachable dtags at construction; the per-backend aborts are
+defence-in-depth. Landed additively (entry points → backend.h decls +
+rename headers → wrapper flip → delete superseded) so every
+intermediate dylib stayed resolvable; the unified streamed bases were
+added to `ffi_manifest.py` MANIFEST + INIT_FFI so `check-ffi-wrap-template`
+now lints the previously-exempt create/cast wrappers. See the unified
+create/cast FFI dispatch entry in `CHANGELOG.md`.
 
 Full design memo and decision log: `docs/develop/dtype-parameter.md`.
 
