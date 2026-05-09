@@ -12,6 +12,7 @@
 #include <string.h>
 #include <math.h>
 #include <stdio.h>
+#include <stdint.h>
 
 #ifdef __APPLE__
 #include <Accelerate/Accelerate.h>
@@ -35,16 +36,34 @@
 enum { DT_F64 = 0, DT_F32, DT_BF16, DT_F16, DT_I8, DT_I16, DT_I32, DT_I64, DT_U8, DT_BOOL };
 
 typedef struct {
-    double* data;       /* owned, heap-allocated */
+    void* data;         /* owned, heap-allocated; element type per dtype_tag */
     int* shape;         /* owned, heap-allocated (NULL for scalar) */
     int rank;           /* 0 = scalar, 1 = vector, 2 = matrix */
     int numel;
     int requires_grad;
     int tape_idx;       /* index into tape (-1 if not tracked) */
-    double* grad;       /* gradient storage (same shape as data), NULL if not allocated */
+    void* grad;         /* gradient storage (same shape/dtype as data), NULL if not allocated */
     int persistent;     /* 1 = param tensor (malloc'd), 0 = intermediate (arena) */
     int dtype_tag;      /* internal DT_* tag; 0 = DT_F64 (default for zeroed structs) */
 } Tensor;
+
+/* Byte size of one element of the given internal DT_* tag. Default DT_F64
+   matches existing F64-only behavior (8 bytes); the other rungs are scaffolding
+   for Phase 3+ real packed storage. Today every storage path is still F64-only
+   (Phase 2 stores non-F64 dtypes as F64 doubles rounded through the dtype's
+   precision), so this helper is exercised only by the F64 path. */
+static size_t tape_elem_size(int tag) {
+    switch (tag) {
+        case DT_F64:                                return sizeof(double);
+        case DT_F32:                                return sizeof(float);
+        case DT_BF16: case DT_F16:                  return sizeof(uint16_t);
+        case DT_I8:   case DT_U8:   case DT_BOOL:   return sizeof(int8_t);
+        case DT_I16:                                return sizeof(int16_t);
+        case DT_I32:                                return sizeof(int32_t);
+        case DT_I64:                                return sizeof(int64_t);
+        default:                                    return sizeof(double);
+    }
+}
 
 /* ABI RuntimeDType tag (F32=0,F64=1,BF16=2,F16=3,I8=4,I16=5,I32=6,I64=7,U8=8,
    Bool=9) → internal DT_* tag (F64=0). */
@@ -404,7 +423,7 @@ static void* typed_arena_at(TypedArena* a, int idx) {
     int intra = idx % a->chunk_capacity;
     TypedArenaChunk* c = a->head;
     while (chunk_idx-- > 0 && c) c = c->next;
-    return c ? (char*)c->data + intra * a->element_size : NULL;
+    return c ? (char*)((double*)c->data) + intra * a->element_size : NULL;
 }
 
 /* Resets size to 0 but keeps chunks allocated for reuse on the next
@@ -596,7 +615,7 @@ TensorHandle tensor_create_scalar(double value, int requires_grad) {
     persistent_scalar_count++;
     Tensor* t = calloc(1, sizeof(Tensor));
     t->data = malloc(sizeof(double));
-    t->data[0] = value;
+    ((double*)t->data)[0] = value;
     t->rank = 0; t->numel = 1;
     t->requires_grad = requires_grad;
     t->tape_idx = -1;
@@ -615,7 +634,7 @@ TensorHandle tensor_create(double* data, int* shape, int rank, int requires_grad
 
 TensorHandle tensor_clone(TensorHandle h) {
     Tensor* t = (Tensor*)h;
-    if (t->rank == 0) return make_scalar(t->data[0], 0);
+    if (t->rank == 0) return make_scalar(((double*)t->data)[0], 0);
     return make_tensor(t->data, t->shape, t->rank, 0);
 }
 
@@ -638,7 +657,7 @@ void tensor_release_handle(TensorHandle h) { (void)h; }
    ================================================================ */
 
 double tensor_item(TensorHandle h) {
-    return ((Tensor*)h)->data[0];
+    return ((double*)((Tensor*)h)->data)[0];
 }
 
 int tensor_numel(TensorHandle h) {
@@ -662,7 +681,7 @@ void tensor_to_doubles(TensorHandle h, double* out) {
 
 void tensor_to_floats(TensorHandle h, float* out) {
     Tensor* t = (Tensor*)h;
-    for (int i = 0; i < t->numel; i++) out[i] = (float)t->data[i];
+    for (int i = 0; i < t->numel; i++) out[i] = (float)((double*)t->data)[i];
 }
 
 const char* tensor_dtype_name(TensorHandle h) {
@@ -786,7 +805,7 @@ static TensorHandle binop_elementwise_inner(TensorHandle ha, TensorHandle hb, in
 
     /* Both scalar */
     if (a->numel == 1 && b->numel == 1) {
-        Tensor* r = make_scalar(scalar_fn(a->data[0], b->data[0]), rg);
+        Tensor* r = make_scalar(scalar_fn(((double*)a->data)[0], ((double*)b->data)[0]), rg);
         if (rg) tape_append(op_tag, r, a, b, 0);
         return r;
     }
@@ -817,11 +836,11 @@ static TensorHandle binop_elementwise_inner(TensorHandle ha, TensorHandle hb, in
                 case OP_MUL: vDSP_vmulD(a->data, 1, b->data, 1, data, 1, vn); break;
                 case OP_DIV: vDSP_vdivD(b->data, 1, a->data, 1, data, 1, vn); break;
                 default:
-                    for (int i = 0; i < n; i++) data[i] = scalar_fn(a->data[i], b->data[i]);
+                    for (int i = 0; i < n; i++) data[i] = scalar_fn(((double*)a->data)[i], ((double*)b->data)[i]);
                     break;
             }
 #else
-            for (int i = 0; i < n; i++) data[i] = scalar_fn(a->data[i], b->data[i]);
+            for (int i = 0; i < n; i++) data[i] = scalar_fn(((double*)a->data)[i], ((double*)b->data)[i]);
 #endif
             if (op_tag >= 0 && op_tag < OP_COUNT) {
                 prof_kernel_per_op[op_tag] += _wall_ms() - _k0;
@@ -836,15 +855,15 @@ static TensorHandle binop_elementwise_inner(TensorHandle ha, TensorHandle hb, in
     /* Scalar broadcast (one side is rank-0 / numel=1) */
     if (a->numel == 1 || b->numel == 1) {
         Tensor* big = (a->numel == 1) ? b : a;
-        double sv = (a->numel == 1) ? a->data[0] : b->data[0];
+        double sv = (a->numel == 1) ? ((double*)a->data)[0] : ((double*)b->data)[0];
         int n = big->numel;
         extern int prof_binop_path_count[];
         prof_binop_path_count[1]++;
         double* data = arena_alloc(n * sizeof(double));
         if (a->numel == 1) {
-            for (int i = 0; i < n; i++) data[i] = scalar_fn(sv, big->data[i]);
+            for (int i = 0; i < n; i++) data[i] = scalar_fn(sv, ((double*)big->data)[i]);
         } else {
-            for (int i = 0; i < n; i++) data[i] = scalar_fn(big->data[i], sv);
+            for (int i = 0; i < n; i++) data[i] = scalar_fn(((double*)big->data)[i], sv);
         }
         Tensor* r = make_tensor_arena(data, n, big->shape, big->rank, rg);
         if (rg) tape_append(op_tag, r, a, b, 0);
@@ -888,7 +907,7 @@ static TensorHandle binop_elementwise_inner(TensorHandle ha, TensorHandle hb, in
             ai += idx[k] * a_strides[k];
             bi += idx[k] * b_strides[k];
         }
-        data[i] = scalar_fn(a->data[ai], b->data[bi]);
+        data[i] = scalar_fn(((double*)a->data)[ai], ((double*)b->data)[bi]);
         for (int k = r_rank - 1; k >= 0; k--) {
             if (++idx[k] < r_shape[k]) break;
             idx[k] = 0;
@@ -924,7 +943,7 @@ static TensorHandle unop_elementwise(TensorHandle ha, int op, double (*fn)(doubl
     Tensor* a = (Tensor*)ha;
     if (a->numel == 1) {
         /* Scalar path (backward rules use [0] indexing) */
-        Tensor* r = make_scalar(fn(a->data[0]), a->requires_grad);
+        Tensor* r = make_scalar(fn(((double*)a->data)[0]), a->requires_grad);
         if (a->requires_grad) tape_append(op, r, a, NULL, 0);
         return r;
     }
@@ -945,10 +964,10 @@ static TensorHandle unop_elementwise(TensorHandle ha, int op, double (*fn)(doubl
             default: used_vdsp = 0; break;
         }
         if (!used_vdsp)
-            for (int i = 0; i < n; i++) data[i] = fn(a->data[i]);
+            for (int i = 0; i < n; i++) data[i] = fn(((double*)a->data)[i]);
     }
 #else
-    for (int i = 0; i < n; i++) data[i] = fn(a->data[i]);
+    for (int i = 0; i < n; i++) data[i] = fn(((double*)a->data)[i]);
 #endif
     Tensor* r = make_tensor_arena(data, n, a->shape, a->rank, a->requires_grad);
     if (a->requires_grad) tape_append(op, r, a, NULL, 0);
@@ -980,14 +999,14 @@ TensorHandle tensor_gelu(TensorHandle a) { return unop_elementwise(a, OP_GELU, f
 TensorHandle tensor_leaky_relu(TensorHandle ha, double alpha) {
     Tensor* a = (Tensor*)ha;
     if (a->numel == 1) {
-        double x = a->data[0];
+        double x = ((double*)a->data)[0];
         Tensor* r = make_scalar(x >= 0 ? x : alpha * x, a->requires_grad);
         if (a->requires_grad) tape_append(OP_LEAKY_RELU, r, a, NULL, alpha);
         return r;
     }
     double* data = malloc(a->numel * sizeof(double));
     for (int i = 0; i < a->numel; i++) {
-        double x = a->data[i];
+        double x = ((double*)a->data)[i];
         data[i] = x >= 0 ? x : alpha * x;
     }
     Tensor* r = make_tensor(data, a->shape, a->rank, a->requires_grad);
@@ -1013,13 +1032,13 @@ TensorHandle tensor_softplus(TensorHandle a) { return unop_elementwise(a, OP_SOF
 TensorHandle tensor_add_scalar(TensorHandle ha, double s) {
     Tensor* a = (Tensor*)ha;
     if (a->numel == 1) {
-        Tensor* r = make_scalar(a->data[0] + s, a->requires_grad);
+        Tensor* r = make_scalar(((double*)a->data)[0] + s, a->requires_grad);
         if (r->requires_grad) tape_append(OP_ADD_SCALAR, r, a, NULL, s);
         return r;
     }
     /* Multi-element: add scalar to each element */
     double* data = arena_alloc(a->numel * sizeof(double));
-    for (int i = 0; i < a->numel; i++) data[i] = a->data[i] + s;
+    for (int i = 0; i < a->numel; i++) data[i] = ((double*)a->data)[i] + s;
     Tensor* r = make_tensor(data, a->shape, a->rank, a->requires_grad);
     if (r->requires_grad) tape_append(OP_ADD_SCALAR, r, a, NULL, s);
     return r;
@@ -1028,13 +1047,13 @@ TensorHandle tensor_add_scalar(TensorHandle ha, double s) {
 TensorHandle tensor_mul_scalar(TensorHandle ha, double s) {
     Tensor* a = (Tensor*)ha;
     if (a->numel == 1) {
-        Tensor* r = make_scalar(a->data[0] * s, a->requires_grad);
+        Tensor* r = make_scalar(((double*)a->data)[0] * s, a->requires_grad);
         if (r->requires_grad) tape_append(OP_MUL_SCALAR, r, a, NULL, s);
         return r;
     }
     /* Multi-element: multiply each element by scalar */
     double* data = arena_alloc(a->numel * sizeof(double));
-    for (int i = 0; i < a->numel; i++) data[i] = a->data[i] * s;
+    for (int i = 0; i < a->numel; i++) data[i] = ((double*)a->data)[i] * s;
     Tensor* r = make_tensor(data, a->shape, a->rank, a->requires_grad);
     if (r->requires_grad) tape_append(OP_MUL_SCALAR, r, a, NULL, s);
     return r;
@@ -1044,7 +1063,7 @@ TensorHandle tensor_clamp_min(TensorHandle ha, double min_val) {
     Tensor* a = (Tensor*)ha;
     int n = a->numel;
     double* data = malloc(n * sizeof(double));
-    for (int i = 0; i < n; i++) data[i] = fmax(a->data[i], min_val);
+    for (int i = 0; i < n; i++) data[i] = fmax(((double*)a->data)[i], min_val);
     Tensor* r;
     if (n == 1) {
         r = make_scalar(data[0], a->requires_grad);
@@ -1063,7 +1082,7 @@ TensorHandle tensor_clamp_min(TensorHandle ha, double min_val) {
 TensorHandle tensor_sum(TensorHandle h) {
     Tensor* t = (Tensor*)h;
     double s = 0;
-    for (int i = 0; i < t->numel; i++) s += t->data[i];
+    for (int i = 0; i < t->numel; i++) s += ((double*)t->data)[i];
     Tensor* r = make_scalar(s, t->requires_grad);
     if (r->requires_grad) tape_append(OP_SUM, r, t, NULL, 0);
     return r;
@@ -1077,7 +1096,7 @@ TensorHandle tensor_sum_dim(TensorHandle h, int dim, int keepdim) {
 TensorHandle tensor_mean(TensorHandle h) {
     Tensor* t = (Tensor*)h;
     double s = 0;
-    for (int i = 0; i < t->numel; i++) s += t->data[i];
+    for (int i = 0; i < t->numel; i++) s += ((double*)t->data)[i];
     Tensor* r = make_scalar(s / t->numel, t->requires_grad);
     if (r->requires_grad) tape_append(OP_MEAN, r, t, NULL, 0);
     return r;
@@ -1085,15 +1104,15 @@ TensorHandle tensor_mean(TensorHandle h) {
 
 TensorHandle tensor_min(TensorHandle h) {
     Tensor* t = (Tensor*)h;
-    double m = t->data[0];
-    for (int i = 1; i < t->numel; i++) if (t->data[i] < m) m = t->data[i];
+    double m = ((double*)t->data)[0];
+    for (int i = 1; i < t->numel; i++) if (((double*)t->data)[i] < m) m = ((double*)t->data)[i];
     return make_scalar(m, 0);  /* non-differentiable reduction */
 }
 
 TensorHandle tensor_max(TensorHandle h) {
     Tensor* t = (Tensor*)h;
-    double m = t->data[0];
-    for (int i = 1; i < t->numel; i++) if (t->data[i] > m) m = t->data[i];
+    double m = ((double*)t->data)[0];
+    for (int i = 1; i < t->numel; i++) if (((double*)t->data)[i] > m) m = ((double*)t->data)[i];
     return make_scalar(m, 0);  /* non-differentiable reduction */
 }
 
@@ -1117,7 +1136,7 @@ TensorHandle tensor_mv(TensorHandle hmat, TensorHandle hvec) {
 #else
     for (int i = 0; i < m; i++) {
         double s = 0;
-        for (int j = 0; j < n; j++) s += mat->data[i*n+j] * vec->data[j];
+        for (int j = 0; j < n; j++) s += ((double*)mat->data)[i*n+j] * ((double*)vec->data)[j];
         out_data[i] = s;
     }
 #endif
@@ -1157,7 +1176,7 @@ TensorHandle tensor_linear_2d(TensorHandle hW, TensorHandle hX, TensorHandle hbi
     for (int b = 0; b < BB; b++) {
         for (int o = 0; o < oo; o++) {
             double s = 0;
-            for (int j = 0; j < ii; j++) s += X->data[b*ii+j] * W->data[o*ii+j];
+            for (int j = 0; j < ii; j++) s += ((double*)X->data)[b*ii+j] * ((double*)W->data)[o*ii+j];
             out_data[b*oo+o] = s;
         }
     }
@@ -1169,7 +1188,7 @@ TensorHandle tensor_linear_2d(TensorHandle hW, TensorHandle hX, TensorHandle hbi
 #ifdef __APPLE__
             vDSP_vaddD(out_data + b*oo, 1, bias->data, 1, out_data + b*oo, 1, (vDSP_Length)oo);
 #else
-            for (int o = 0; o < oo; o++) out_data[b*oo+o] += bias->data[o];
+            for (int o = 0; o < oo; o++) out_data[b*oo+o] += ((double*)bias->data)[o];
 #endif
         }
     }
@@ -1200,8 +1219,8 @@ TensorHandle tensor_concat_2d_axis1(TensorHandle hA, TensorHandle hB) {
     int out_shape[] = {m, n + k};
     double* out_data = malloc(m * (n + k) * sizeof(double));
     for (int i = 0; i < m; i++) {
-        memcpy(out_data + i * (n + k), A->data + i * n, n * sizeof(double));
-        memcpy(out_data + i * (n + k) + n, B->data + i * k, k * sizeof(double));
+        memcpy(out_data + i * (n + k), ((double*)A->data) + i * n, n * sizeof(double));
+        memcpy(out_data + i * (n + k) + n, ((double*)B->data) + i * k, k * sizeof(double));
     }
     int rg = A->requires_grad || B->requires_grad;
     Tensor* r = make_tensor(out_data, out_shape, 2, rg);
@@ -1228,7 +1247,7 @@ TensorHandle tensor_linear(TensorHandle hW, TensorHandle hx, TensorHandle hbias)
 #else
     for (int i = 0; i < m; i++) {
         double s = 0;
-        for (int j = 0; j < n; j++) s += W->data[i*n+j] * x->data[j];
+        for (int j = 0; j < n; j++) s += ((double*)W->data)[i*n+j] * ((double*)x->data)[j];
         out_data[i] = s;
     }
 #endif
@@ -1238,7 +1257,7 @@ TensorHandle tensor_linear(TensorHandle hW, TensorHandle hx, TensorHandle hbias)
 #ifdef __APPLE__
         vDSP_vaddD(out_data, 1, bias->data, 1, out_data, 1, (vDSP_Length)m);
 #else
-        for (int i = 0; i < m; i++) out_data[i] += bias->data[i];
+        for (int i = 0; i < m; i++) out_data[i] += ((double*)bias->data)[i];
 #endif
     }
 
@@ -1260,7 +1279,7 @@ TensorHandle tensor_dot(TensorHandle ha, TensorHandle hb) {
     Tensor* a = (Tensor*)ha;
     Tensor* b = (Tensor*)hb;
     double s = 0;
-    for (int i = 0; i < a->numel; i++) s += a->data[i] * b->data[i];
+    for (int i = 0; i < a->numel; i++) s += ((double*)a->data)[i] * ((double*)b->data)[i];
     Tensor* r = make_scalar(s, a->requires_grad || b->requires_grad);
     if (r->requires_grad) tape_append(OP_DOT, r, a, b, 0);
     return r;
@@ -1277,7 +1296,7 @@ TensorHandle tensor_matmul(TensorHandle ha, TensorHandle hb) {
         double* out_data = calloc(m, sizeof(double));
         for (int j = 0; j < m; j++) {
             double s = 0;
-            for (int i = 0; i < n; i++) s += a->data[i] * b->data[i*m+j];
+            for (int i = 0; i < n; i++) s += ((double*)a->data)[i] * ((double*)b->data)[i*m+j];
             out_data[j] = s;
         }
         Tensor* r = make_tensor(out_data, out_shape, 1, a->requires_grad || b->requires_grad);
@@ -1298,7 +1317,7 @@ TensorHandle tensor_outer(TensorHandle ha, TensorHandle hb) {
     double* data = malloc(m * n * sizeof(double));
     for (int i = 0; i < m; i++)
         for (int j = 0; j < n; j++)
-            data[i*n+j] = a->data[i] * b->data[j];
+            data[i*n+j] = ((double*)a->data)[i] * ((double*)b->data)[j];
     Tensor* r = make_tensor(data, shape, 2, a->requires_grad || b->requires_grad);
     free(data);
     if (r->requires_grad) tape_append(OP_OUTER, r, a, b, 0);
@@ -1320,7 +1339,7 @@ TensorHandle tensor_mm(TensorHandle ha, TensorHandle hb) {
     for (int i = 0; i < m; i++)
         for (int j = 0; j < k; j++) {
             double s = 0;
-            for (int p = 0; p < n; p++) s += a->data[i*n+p] * b->data[p*k+j];
+            for (int p = 0; p < n; p++) s += ((double*)a->data)[i*n+p] * ((double*)b->data)[p*k+j];
             data[i*k+j] = s;
         }
 #endif
@@ -1345,7 +1364,7 @@ TensorHandle tensor_bmm(TensorHandle ha, TensorHandle hb) {
 #ifdef __APPLE__
         cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
                     m, k, n, 1.0,
-                    a->data + bi * m * n, n,
+                    ((double*)a->data) + bi * m * n, n,
                     b->data, k,
                     0.0, data + bi * m * k, k);
 #else
@@ -1353,7 +1372,7 @@ TensorHandle tensor_bmm(TensorHandle ha, TensorHandle hb) {
             for (int j = 0; j < k; j++) {
                 double s = 0;
                 for (int p = 0; p < n; p++)
-                    s += a->data[bi*m*n + i*n+p] * b->data[p*k+j];
+                    s += ((double*)a->data)[bi*m*n + i*n+p] * ((double*)b->data)[p*k+j];
                 data[bi*m*k + i*k+j] = s;
             }
 #endif
@@ -1377,15 +1396,15 @@ TensorHandle tensor_bmm_3x3(TensorHandle ha, TensorHandle hb) {
 #ifdef __APPLE__
         cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
                     m, k, n, 1.0,
-                    a->data + bi * m * n, n,
-                    b->data + bi * n * k, k,
+                    ((double*)a->data) + bi * m * n, n,
+                    ((double*)b->data) + bi * n * k, k,
                     0.0, data + bi * m * k, k);
 #else
         for (int i = 0; i < m; i++)
             for (int j = 0; j < k; j++) {
                 double s = 0;
                 for (int p = 0; p < n; p++)
-                    s += a->data[bi*m*n + i*n+p] * b->data[bi*n*k + p*k+j];
+                    s += ((double*)a->data)[bi*m*n + i*n+p] * ((double*)b->data)[bi*n*k + p*k+j];
                 data[bi*m*k + i*k+j] = s;
             }
 #endif
@@ -1405,12 +1424,12 @@ TensorHandle tensor_softmax_3d(TensorHandle h) {
     double* data = malloc(t->numel * sizeof(double));
 
     for (int i = 0; i < total_rows; i++) {
-        double max_val = t->data[i*n];
+        double max_val = ((double*)t->data)[i*n];
         for (int j = 1; j < n; j++)
-            if (t->data[i*n+j] > max_val) max_val = t->data[i*n+j];
+            if (((double*)t->data)[i*n+j] > max_val) max_val = ((double*)t->data)[i*n+j];
         double sum = 0;
         for (int j = 0; j < n; j++) {
-            data[i*n+j] = exp(t->data[i*n+j] - max_val);
+            data[i*n+j] = exp(((double*)t->data)[i*n+j] - max_val);
             sum += data[i*n+j];
         }
         for (int j = 0; j < n; j++)
@@ -1432,7 +1451,7 @@ TensorHandle tensor_transpose_last2(TensorHandle h) {
     for (int bi = 0; bi < B; bi++)
         for (int i = 0; i < m; i++)
             for (int j = 0; j < n; j++)
-                data[bi*n*m + j*m + i] = t->data[bi*m*n + i*n + j];
+                data[bi*n*m + j*m + i] = ((double*)t->data)[bi*m*n + i*n + j];
 
     int shape[] = {B, n, m};
     Tensor* r = make_tensor(data, shape, 3, t->requires_grad);
@@ -1474,7 +1493,7 @@ TensorHandle tensor_tile_2d(TensorHandle h, int rep0, int rep1) {
     for (int i = 0; i < M; i++) {
         int si = i % m;
         for (int j = 0; j < N; j++) {
-            data[i * N + j] = t->data[si * n + (j % n)];
+            data[i * N + j] = ((double*)t->data)[si * n + (j % n)];
         }
     }
     int shape[] = {M, N};
@@ -1523,7 +1542,7 @@ TensorHandle* tensor_unbatch(TensorHandle h, int* out_count) {
     for (int i = 0; i < B; i++) {
         Tensor* r = arena_alloc(sizeof(Tensor));
         memset(r, 0, sizeof(Tensor));
-        r->data = t->data + i * elem_size;  /* view into parent */
+        r->data = ((double*)t->data) + i * elem_size;  /* view into parent */
         r->shape = arena_alloc(inner_rank * sizeof(int));
         for (int j = 0; j < inner_rank; j++) r->shape[j] = t->shape[j+1];
         r->rank = inner_rank;
@@ -1543,7 +1562,7 @@ TensorHandle tensor_transpose_2d(TensorHandle h) {
     double* data = malloc(m * n * sizeof(double));
     for (int i = 0; i < m; i++)
         for (int j = 0; j < n; j++)
-            data[j*m+i] = t->data[i*n+j];
+            data[j*m+i] = ((double*)t->data)[i*n+j];
     int shape[] = {n, m};
     Tensor* r = make_tensor(data, shape, 2, t->requires_grad);
     free(data);
@@ -1557,12 +1576,12 @@ TensorHandle tensor_softmax_2d(TensorHandle h) {
     int m = t->shape[0], n = t->shape[1];
     double* data = malloc(m * n * sizeof(double));
     for (int i = 0; i < m; i++) {
-        double max_val = t->data[i*n];
+        double max_val = ((double*)t->data)[i*n];
         for (int j = 1; j < n; j++)
-            if (t->data[i*n+j] > max_val) max_val = t->data[i*n+j];
+            if (((double*)t->data)[i*n+j] > max_val) max_val = ((double*)t->data)[i*n+j];
         double sum_exp = 0;
         for (int j = 0; j < n; j++) {
-            data[i*n+j] = exp(t->data[i*n+j] - max_val);
+            data[i*n+j] = exp(((double*)t->data)[i*n+j] - max_val);
             sum_exp += data[i*n+j];
         }
         for (int j = 0; j < n; j++) data[i*n+j] /= sum_exp;
@@ -1580,13 +1599,13 @@ TensorHandle tensor_log_softmax_2d(TensorHandle h) {
     int m = t->shape[0], n = t->shape[1];
     double* data = malloc(m * n * sizeof(double));
     for (int i = 0; i < m; i++) {
-        double max_val = t->data[i*n];
+        double max_val = ((double*)t->data)[i*n];
         for (int j = 1; j < n; j++)
-            if (t->data[i*n+j] > max_val) max_val = t->data[i*n+j];
+            if (((double*)t->data)[i*n+j] > max_val) max_val = ((double*)t->data)[i*n+j];
         double sum_exp = 0;
-        for (int j = 0; j < n; j++) sum_exp += exp(t->data[i*n+j] - max_val);
+        for (int j = 0; j < n; j++) sum_exp += exp(((double*)t->data)[i*n+j] - max_val);
         double log_sum = log(sum_exp) + max_val;
-        for (int j = 0; j < n; j++) data[i*n+j] = t->data[i*n+j] - log_sum;
+        for (int j = 0; j < n; j++) data[i*n+j] = ((double*)t->data)[i*n+j] - log_sum;
     }
     int shape[] = {m, n};
     Tensor* r = make_tensor(data, shape, 2, t->requires_grad);
@@ -1611,7 +1630,7 @@ TensorHandle tensor_masked_fill(TensorHandle h, TensorHandle hmask, double value
     Tensor* mask = (Tensor*)hmask;
     double* data = malloc(t->numel * sizeof(double));
     for (int i = 0; i < t->numel; i++)
-        data[i] = (mask->data[i] != 0.0) ? value : t->data[i];
+        data[i] = (((double*)mask->data)[i] != 0.0) ? value : ((double*)t->data)[i];
     Tensor* r = make_tensor(data, t->shape, t->rank, t->requires_grad);
     free(data);
     if (r->requires_grad) tape_append(OP_MASKED_FILL, r, t, mask, 0);
@@ -1633,12 +1652,12 @@ TensorHandle tensor_layer_norm_2d(TensorHandle h, TensorHandle hgamma,
     for (int i = 0; i < m; i++) {
         /* Compute mean */
         double mean = 0;
-        for (int j = 0; j < n; j++) mean += t->data[i*n+j];
+        for (int j = 0; j < n; j++) mean += ((double*)t->data)[i*n+j];
         mean /= n;
         /* Compute variance */
         double var = 0;
         for (int j = 0; j < n; j++) {
-            double d = t->data[i*n+j] - mean;
+            double d = ((double*)t->data)[i*n+j] - mean;
             var += d * d;
         }
         var /= n;
@@ -1646,8 +1665,8 @@ TensorHandle tensor_layer_norm_2d(TensorHandle h, TensorHandle hgamma,
         rstd[i] = inv_std;
         /* Normalize and apply affine */
         for (int j = 0; j < n; j++) {
-            x_hat[i*n+j] = (t->data[i*n+j] - mean) * inv_std;
-            data[i*n+j] = gamma->data[j] * x_hat[i*n+j] + bias->data[j];
+            x_hat[i*n+j] = (((double*)t->data)[i*n+j] - mean) * inv_std;
+            data[i*n+j] = ((double*)gamma->data)[j] * x_hat[i*n+j] + ((double*)bias->data)[j];
         }
     }
     int shape[] = {m, n};
@@ -1680,10 +1699,10 @@ TensorHandle tensor_softmax(TensorHandle h, int dim) {
     Tensor* t = (Tensor*)h;
     int n = t->numel;
     double* data = malloc(n * sizeof(double));
-    double max_val = t->data[0];
-    for (int i = 1; i < n; i++) if (t->data[i] > max_val) max_val = t->data[i];
+    double max_val = ((double*)t->data)[0];
+    for (int i = 1; i < n; i++) if (((double*)t->data)[i] > max_val) max_val = ((double*)t->data)[i];
     double sum = 0;
-    for (int i = 0; i < n; i++) { data[i] = exp(t->data[i] - max_val); sum += data[i]; }
+    for (int i = 0; i < n; i++) { data[i] = exp(((double*)t->data)[i] - max_val); sum += data[i]; }
     for (int i = 0; i < n; i++) data[i] /= sum;
     Tensor* r;
     if (t->rank == 0) {
@@ -1706,12 +1725,12 @@ TensorHandle tensor_log_softmax(TensorHandle h, int dim) {
     Tensor* t = (Tensor*)h;
     int n = t->numel;
     double* data = malloc(n * sizeof(double));
-    double max_val = t->data[0];
-    for (int i = 1; i < n; i++) if (t->data[i] > max_val) max_val = t->data[i];
+    double max_val = ((double*)t->data)[0];
+    for (int i = 1; i < n; i++) if (((double*)t->data)[i] > max_val) max_val = ((double*)t->data)[i];
     double sum = 0;
-    for (int i = 0; i < n; i++) sum += exp(t->data[i] - max_val);
+    for (int i = 0; i < n; i++) sum += exp(((double*)t->data)[i] - max_val);
     double log_sum = log(sum) + max_val;
-    for (int i = 0; i < n; i++) data[i] = t->data[i] - log_sum;
+    for (int i = 0; i < n; i++) data[i] = ((double*)t->data)[i] - log_sum;
     Tensor* r;
     if (t->rank == 0) {
         r = make_scalar(data[0], t->requires_grad);
@@ -1733,7 +1752,7 @@ TensorHandle tensor_bce_with_logits(TensorHandle hinput, TensorHandle htarget) {
     int n = input->numel;
     double loss = 0;
     for (int i = 0; i < n; i++) {
-        double p = input->data[i], y = target->data[i];
+        double p = ((double*)input->data)[i], y = ((double*)target->data)[i];
         double max_p = p > 0 ? p : 0;
         loss += max_p - p * y + log(1.0 + exp(-fabs(p)));
     }
@@ -1749,7 +1768,7 @@ TensorHandle tensor_cross_entropy(TensorHandle hinput, TensorHandle htarget) {
     Tensor* lsT = (Tensor*)ls;
     Tensor* target = (Tensor*)htarget;
     double loss = 0;
-    for (int i = 0; i < lsT->numel; i++) loss -= target->data[i] * lsT->data[i];
+    for (int i = 0; i < lsT->numel; i++) loss -= ((double*)target->data)[i] * ((double*)lsT->data)[i];
     loss /= lsT->numel;
     return make_scalar(loss, 0); /* simplified, no grad */
 }
@@ -1759,7 +1778,7 @@ TensorHandle tensor_mse_loss(TensorHandle hinput, TensorHandle htarget) {
     Tensor* target = (Tensor*)htarget;
     double loss = 0;
     for (int i = 0; i < input->numel; i++) {
-        double d = input->data[i] - target->data[i];
+        double d = ((double*)input->data)[i] - ((double*)target->data)[i];
         loss += d * d;
     }
     return make_scalar(loss / input->numel, 0);
@@ -1784,8 +1803,8 @@ TensorHandle tensor_cosine_similarity(TensorHandle ha, TensorHandle hb, int dim)
         for (int i = 0; i < n; i++) {
             double dot = 0, anorm = 0;
             for (int j = 0; j < w; j++) {
-                dot += a->data[i*w+j] * brow[j];
-                anorm += a->data[i*w+j] * a->data[i*w+j];
+                dot += ((double*)a->data)[i*w+j] * brow[j];
+                anorm += ((double*)a->data)[i*w+j] * ((double*)a->data)[i*w+j];
             }
             anorm = sqrt(anorm) + 1e-8;
             out[i] = dot / (anorm * bnorm);
@@ -1807,7 +1826,7 @@ TensorHandle tensor_conv1d_circular(TensorHandle hinput, TensorHandle hkernel) {
         double s = 0;
         for (int j = 0; j < k; j++) {
             int idx = (i - pad + j + n) % n;
-            s += input->data[idx] * kernel->data[k - 1 - j];
+            s += ((double*)input->data)[idx] * ((double*)kernel->data)[k - 1 - j];
         }
         out[i] = s;
     }
@@ -1847,9 +1866,9 @@ TensorHandle tensor_embedding(TensorHandle hweight, TensorHandle hindices, int n
     int* idx_copy = malloc(n * sizeof(int));
 
     for (int i = 0; i < n; i++) {
-        int idx = (int)indices->data[i];
+        int idx = (int)((double*)indices->data)[i];
         idx_copy[i] = idx;
-        memcpy(out + i * embedDim, weight->data + idx * embedDim, embedDim * sizeof(double));
+        memcpy(out + i * embedDim, ((double*)weight->data) + idx * embedDim, embedDim * sizeof(double));
     }
 
     int out_shape[] = {out_numel};
@@ -1894,28 +1913,28 @@ TensorHandle tensor_batch_norm(TensorHandle hinput, TensorHandle hgamma, TensorH
         if (training) {
             /* Compute mean and var from input for this channel */
             mean = 0;
-            for (int j = 0; j < spatial; j++) mean += input->data[c * spatial + j];
+            for (int j = 0; j < spatial; j++) mean += ((double*)input->data)[c * spatial + j];
             mean /= spatial;
             var = 0;
             for (int j = 0; j < spatial; j++) {
-                double d = input->data[c * spatial + j] - mean;
+                double d = ((double*)input->data)[c * spatial + j] - mean;
                 var += d * d;
             }
             var /= spatial;
             /* Update running stats (in-place, no grad) */
-            running_mean->data[c] = (1.0 - momentum) * running_mean->data[c] + momentum * mean;
-            running_var->data[c] = (1.0 - momentum) * running_var->data[c] + momentum * var;
+            ((double*)running_mean->data)[c] = (1.0 - momentum) * ((double*)running_mean->data)[c] + momentum * mean;
+            ((double*)running_var->data)[c] = (1.0 - momentum) * ((double*)running_var->data)[c] + momentum * var;
         } else {
-            mean = running_mean->data[c];
-            var = running_var->data[c];
+            mean = ((double*)running_mean->data)[c];
+            var = ((double*)running_var->data)[c];
         }
 
         double rs = 1.0 / sqrt(var + eps);
         rstd[c] = rs;
         for (int j = 0; j < spatial; j++) {
             int idx = c * spatial + j;
-            x_hat[idx] = (input->data[idx] - mean) * rs;
-            out[idx] = gamma->data[c] * x_hat[idx] + beta->data[c];
+            x_hat[idx] = (((double*)input->data)[idx] - mean) * rs;
+            out[idx] = ((double*)gamma->data)[c] * x_hat[idx] + ((double*)beta->data)[c];
         }
     }
 
@@ -1959,11 +1978,11 @@ TensorHandle tensor_group_norm(TensorHandle hinput, TensorHandle hgamma, TensorH
         /* Compute mean and var for this group */
         double mean = 0;
         int base = g * groupSize;
-        for (int j = 0; j < groupSize; j++) mean += input->data[base + j];
+        for (int j = 0; j < groupSize; j++) mean += ((double*)input->data)[base + j];
         mean /= groupSize;
         double var = 0;
         for (int j = 0; j < groupSize; j++) {
-            double d = input->data[base + j] - mean;
+            double d = ((double*)input->data)[base + j] - mean;
             var += d * d;
         }
         var /= groupSize;
@@ -1973,8 +1992,8 @@ TensorHandle tensor_group_norm(TensorHandle hinput, TensorHandle hgamma, TensorH
             int absC = g * chPerGroup + c;
             for (int s = 0; s < spatial; s++) {
                 int idx = absC * spatial + s;
-                double x_hat = (input->data[idx] - mean) * rstd;
-                out[idx] = gamma->data[absC] * x_hat + beta->data[absC];
+                double x_hat = (((double*)input->data)[idx] - mean) * rstd;
+                out[idx] = ((double*)gamma->data)[absC] * x_hat + ((double*)beta->data)[absC];
             }
         }
     }
@@ -2008,7 +2027,7 @@ TensorHandle tensor_dropout(TensorHandle hinput, double p, int training, unsigne
             out[i] = 0.0;
         } else {
             mask[i] = scale;
-            out[i] = input->data[i] * scale;
+            out[i] = ((double*)input->data)[i] * scale;
         }
     }
 
@@ -2043,8 +2062,8 @@ TensorHandle tensor_gather(TensorHandle hinput, TensorHandle hindex, int n) {
     Tensor* index = (Tensor*)hindex;
     double* out = calloc(n, sizeof(double));
     for (int i = 0; i < n; i++) {
-        int idx = (int)index->data[i];
-        out[i] = input->data[idx];
+        int idx = (int)((double*)index->data)[i];
+        out[i] = ((double*)input->data)[idx];
     }
     int shape[] = {n};
     Tensor* r = make_tensor(out, shape, 1, input->requires_grad);
@@ -2062,9 +2081,9 @@ TensorHandle tensor_scatter_add(TensorHandle hindex, TensorHandle hsrc, int out_
     Tensor* src = (Tensor*)hsrc;
     double* out = calloc(out_size, sizeof(double));
     for (int i = 0; i < src->numel; i++) {
-        int idx = (int)index->data[i];
+        int idx = (int)((double*)index->data)[i];
         if (idx >= 0 && idx < out_size)
-            out[idx] += src->data[i];
+            out[idx] += ((double*)src->data)[i];
     }
     int shape[] = {out_size};
     Tensor* r = make_tensor(out, shape, 1, src->requires_grad);
@@ -2118,7 +2137,7 @@ TensorHandle tensor_cumprod(TensorHandle ht, int dim) {
     double* out = malloc(n * sizeof(double));
     double prod = 1.0;
     for (int i = 0; i < n; i++) {
-        prod *= t->data[i];
+        prod *= ((double*)t->data)[i];
         out[i] = prod;
     }
     int shape[] = {n};
@@ -2143,7 +2162,7 @@ TensorHandle tensor_avg_pool1d(TensorHandle hinput, int kL, int stride) {
     for (int c = 0; c < C; c++)
         for (int ol = 0; ol < oL; ol++) {
             double s = 0;
-            for (int kl = 0; kl < kL; kl++) s += input->data[c*L + ol*stride + kl];
+            for (int kl = 0; kl < kL; kl++) s += ((double*)input->data)[c*L + ol*stride + kl];
             out[c*oL + ol] = s * scale;
         }
     int out_shape[] = {C, oL};
@@ -2171,7 +2190,7 @@ TensorHandle tensor_avg_pool2d(TensorHandle hinput, int kH, int kW, int strideH,
                 double s = 0;
                 for (int kh = 0; kh < kH; kh++)
                     for (int kw = 0; kw < kW; kw++)
-                        s += input->data[c*H*W + (oh*strideH+kh)*W + ow*strideW+kw];
+                        s += ((double*)input->data)[c*H*W + (oh*strideH+kh)*W + ow*strideW+kw];
                 out[c*oH*oW + oh*oW + ow] = s * scale;
             }
     int out_shape[] = {C, oH, oW};
@@ -2206,12 +2225,12 @@ TensorHandle tensor_conv1d(TensorHandle hinput, TensorHandle hkernel,
     double* out = calloc(outC * oL, sizeof(double));
     for (int oc = 0; oc < outC; oc++) {
         for (int ol = 0; ol < oL; ol++) {
-            double val = bias ? bias->data[oc] : 0.0;
+            double val = bias ? ((double*)bias->data)[oc] : 0.0;
             for (int ic = 0; ic < inC; ic++)
                 for (int kl = 0; kl < kL; kl++) {
                     int il = ol * stride - pad + kl;
                     if (il >= 0 && il < L)
-                        val += input->data[ic*L + il] * kernel->data[oc*inC*kL + ic*kL + kl];
+                        val += ((double*)input->data)[ic*L + il] * ((double*)kernel->data)[oc*inC*kL + ic*kL + kl];
                 }
             out[oc*oL + ol] = val;
         }
@@ -2248,7 +2267,7 @@ TensorHandle tensor_max_pool1d(TensorHandle hinput, int kL, int stride) {
             for (int kl = 0; kl < kL; kl++) {
                 int il = ol * stride + kl;
                 int flat = c*L + il;
-                if (input->data[flat] > best) { best = input->data[flat]; best_idx = flat; }
+                if (((double*)input->data)[flat] > best) { best = ((double*)input->data)[flat]; best_idx = flat; }
             }
             out[c*oL + ol] = best;
             max_idx[c*oL + ol] = best_idx;
@@ -2302,14 +2321,14 @@ TensorHandle tensor_conv_transpose1d(TensorHandle hinput, TensorHandle hkernel,
     int oL = (L - 1) * stride - 2 * pad + kL;
     double* out = calloc(outC * oL, sizeof(double));
     if (bias) for (int oc = 0; oc < outC; oc++)
-        for (int ol = 0; ol < oL; ol++) out[oc*oL + ol] = bias->data[oc];
+        for (int ol = 0; ol < oL; ol++) out[oc*oL + ol] = ((double*)bias->data)[oc];
     for (int ic = 0; ic < inC; ic++)
         for (int il = 0; il < L; il++)
             for (int oc = 0; oc < outC; oc++)
                 for (int kl = 0; kl < kL; kl++) {
                     int ol = il * stride - pad + kl;
                     if (ol >= 0 && ol < oL)
-                        out[oc*oL + ol] += input->data[ic*L + il] * kernel->data[ic*outC*kL + oc*kL + kl];
+                        out[oc*oL + ol] += ((double*)input->data)[ic*L + il] * ((double*)kernel->data)[ic*outC*kL + oc*kL + kl];
                 }
     int out_shape[] = {outC, oL};
     Tensor* r = make_tensor(out, out_shape, 2, input->requires_grad || kernel->requires_grad);
@@ -2330,7 +2349,7 @@ TensorHandle tensor_conv_transpose2d(TensorHandle hinput, TensorHandle hkernel,
     double* out = calloc(outC * oH * oW, sizeof(double));
     if (bias) for (int oc = 0; oc < outC; oc++)
         for (int oh = 0; oh < oH; oh++)
-            for (int ow = 0; ow < oW; ow++) out[oc*oH*oW + oh*oW + ow] = bias->data[oc];
+            for (int ow = 0; ow < oW; ow++) out[oc*oH*oW + oh*oW + ow] = ((double*)bias->data)[oc];
     for (int ic = 0; ic < inC; ic++)
         for (int ih = 0; ih < H; ih++)
             for (int iw = 0; iw < W; iw++)
@@ -2340,8 +2359,8 @@ TensorHandle tensor_conv_transpose2d(TensorHandle hinput, TensorHandle hkernel,
                             int oh = ih*strideH - padH + kh;
                             int ow = iw*strideW - padW + kw;
                             if (oh >= 0 && oh < oH && ow >= 0 && ow < oW)
-                                out[oc*oH*oW + oh*oW + ow] += input->data[ic*H*W + ih*W + iw]
-                                    * kernel->data[ic*outC*kH*kW + oc*kH*kW + kh*kW + kw];
+                                out[oc*oH*oW + oh*oW + ow] += ((double*)input->data)[ic*H*W + ih*W + iw]
+                                    * ((double*)kernel->data)[ic*outC*kH*kW + oc*kH*kW + kh*kW + kw];
                         }
     int out_shape[] = {outC, oH, oW};
     Tensor* r = make_tensor(out, out_shape, 3, input->requires_grad || kernel->requires_grad);
@@ -2373,13 +2392,13 @@ TensorHandle tensor_conv1d_grouped(TensorHandle hinput, TensorHandle hkernel,
         for (int oc = 0; oc < outC_g; oc++) {
             int abs_oc = g * outC_g + oc;
             for (int ol = 0; ol < oL; ol++) {
-                double val = bias ? bias->data[abs_oc] : 0.0;
+                double val = bias ? ((double*)bias->data)[abs_oc] : 0.0;
                 for (int ic = 0; ic < inC_g; ic++) {
                     int abs_ic = g * inC_g + ic;
                     for (int kl = 0; kl < kL; kl++) {
                         int il = ol * stride - pad + kl;
                         if (il >= 0 && il < L)
-                            val += input->data[abs_ic*L + il] * kernel->data[abs_oc*inC_g*kL + ic*kL + kl];
+                            val += ((double*)input->data)[abs_ic*L + il] * ((double*)kernel->data)[abs_oc*inC_g*kL + ic*kL + kl];
                     }
                 }
                 out[abs_oc*oL + ol] = val;
@@ -2415,7 +2434,7 @@ TensorHandle tensor_conv2d_grouped(TensorHandle hinput, TensorHandle hkernel,
             int abs_oc = g * outC_g + oc;
             for (int oh = 0; oh < oH; oh++)
                 for (int ow = 0; ow < oW; ow++) {
-                    double val = bias ? bias->data[abs_oc] : 0.0;
+                    double val = bias ? ((double*)bias->data)[abs_oc] : 0.0;
                     for (int ic = 0; ic < inC_g; ic++) {
                         int abs_ic = g * inC_g + ic;
                         for (int kh = 0; kh < kH; kh++)
@@ -2423,8 +2442,8 @@ TensorHandle tensor_conv2d_grouped(TensorHandle hinput, TensorHandle hkernel,
                                 int ih = oh*strideH - padH + kh;
                                 int iw = ow*strideW - padW + kw;
                                 if (ih >= 0 && ih < H && iw >= 0 && iw < W)
-                                    val += input->data[abs_ic*H*W + ih*W + iw]
-                                         * kernel->data[abs_oc*inC_g*kH*kW + ic*kH*kW + kh*kW + kw];
+                                    val += ((double*)input->data)[abs_ic*H*W + ih*W + iw]
+                                         * ((double*)kernel->data)[abs_oc*inC_g*kH*kW + ic*kH*kW + kh*kW + kw];
                             }
                     }
                     out[abs_oc*oH*oW + oh*oW + ow] = val;
@@ -2460,15 +2479,15 @@ TensorHandle tensor_conv2d(TensorHandle hinput, TensorHandle hkernel,
     for (int oc = 0; oc < outC; oc++) {
         for (int oh = 0; oh < oH; oh++) {
             for (int ow = 0; ow < oW; ow++) {
-                double val = bias ? bias->data[oc] : 0.0;
+                double val = bias ? ((double*)bias->data)[oc] : 0.0;
                 for (int ic = 0; ic < inC; ic++) {
                     for (int kh = 0; kh < kH; kh++) {
                         for (int kw = 0; kw < kW; kw++) {
                             int ih = oh * strideH - padH + kh;
                             int iw = ow * strideW - padW + kw;
                             if (ih >= 0 && ih < H && iw >= 0 && iw < W) {
-                                val += input->data[ic*H*W + ih*W + iw]
-                                     * kernel->data[oc*inC*kH*kW + ic*kH*kW + kh*kW + kw];
+                                val += ((double*)input->data)[ic*H*W + ih*W + iw]
+                                     * ((double*)kernel->data)[oc*inC*kH*kW + ic*kH*kW + kh*kW + kw];
                             }
                         }
                     }
@@ -2609,7 +2628,7 @@ TensorHandle tensor_conv2d_batched(TensorHandle hinput, TensorHandle hkernel,
         for (int oc = 0; oc < outC; oc++) {
             double s = 0;
             for (int k = 0; k < K; k++)
-                s += X_col[m*K + k] * kernel->data[oc*K + k];
+                s += X_col[m*K + k] * ((double*)kernel->data)[oc*K + k];
             Y_unf[m*outC + oc] = s;
         }
 #endif
@@ -2618,7 +2637,7 @@ TensorHandle tensor_conv2d_batched(TensorHandle hinput, TensorHandle hkernel,
     double* out = calloc(out_numel, sizeof(double));
     for (int b = 0; b < B; b++) {
         for (int oc = 0; oc < outC; oc++) {
-            double b_val = bias ? bias->data[oc] : 0.0;
+            double b_val = bias ? ((double*)bias->data)[oc] : 0.0;
             double* out_chan = out + ((size_t)b * outC + oc) * oH * oW;
             for (int oh = 0; oh < oH; oh++) {
                 for (int ow = 0; ow < oW; ow++) {
@@ -2677,8 +2696,8 @@ TensorHandle tensor_max_pool2d(TensorHandle hinput, int kH, int kW,
                         int ih = oh * strideH + kh;
                         int iw = ow * strideW + kw;
                         int flat = c*H*W + ih*W + iw;
-                        if (input->data[flat] > best) {
-                            best = input->data[flat];
+                        if (((double*)input->data)[flat] > best) {
+                            best = ((double*)input->data)[flat];
                             best_idx = flat;
                         }
                     }
@@ -2727,7 +2746,7 @@ TensorHandle tensor_max_pool2d_batched(TensorHandle hinput, int kH, int kW,
     int* max_idx = malloc(out_numel * sizeof(int));
 
     for (int b = 0; b < B; b++) {
-        const double* inp_b = input->data + b * C * H * W;
+        const double* inp_b = ((double*)input->data) + b * C * H * W;
         double* out_b = out + b * out_per_sample;
         int* idx_b = max_idx + b * out_per_sample;
         for (int c = 0; c < C; c++) {
@@ -2815,7 +2834,7 @@ TensorHandle tensor_select(TensorHandle h, int dim, int index) {
     if (t->rank == 1) {
         Tensor* v = arena_alloc(sizeof(Tensor));
         memset(v, 0, sizeof(Tensor));
-        v->data = &t->data[index];
+        v->data = &((double*)t->data)[index];
         v->shape = NULL;
         v->rank = 0;
         v->numel = 1;
@@ -2830,7 +2849,7 @@ TensorHandle tensor_select(TensorHandle h, int dim, int index) {
         /* Row selection: share data with parent */
         Tensor* r = arena_alloc(sizeof(Tensor));
         memset(r, 0, sizeof(Tensor));
-        r->data = t->data + index * cols;
+        r->data = ((double*)t->data) + index * cols;
         r->shape = arena_alloc(sizeof(int));
         r->shape[0] = cols;
         r->rank = 1;
@@ -2841,13 +2860,13 @@ TensorHandle tensor_select(TensorHandle h, int dim, int index) {
         if (r->requires_grad) tape_append(OP_SELECT, r, t, NULL, (double)index);
         return r;
     }
-    return make_scalar(t->data[index], t->requires_grad);
+    return make_scalar(((double*)t->data)[index], t->requires_grad);
 }
 
 TensorHandle tensor_stack(TensorHandle* tensors, int count, int dim) {
     /* Stack scalars into a 1D vector */
     double* data = malloc(count * sizeof(double));
-    for (int i = 0; i < count; i++) data[i] = ((Tensor*)tensors[i])->data[0];
+    for (int i = 0; i < count; i++) data[i] = ((double*)((Tensor*)tensors[i])->data)[0];
     int shape[] = {count};
     Tensor* r = make_tensor(data, shape, 1, 0);
     free(data);
@@ -2884,7 +2903,7 @@ TensorHandle tensor_narrow(TensorHandle h, int dim, int start, int len) {
     Tensor* t = (Tensor*)h;
     Tensor* r = arena_alloc(sizeof(Tensor));
     memset(r, 0, sizeof(Tensor));
-    r->data = t->data + start;
+    r->data = ((double*)t->data) + start;
     r->shape = arena_alloc(sizeof(int));
     r->shape[0] = len;
     r->rank = 1; r->numel = len;
@@ -2955,7 +2974,7 @@ void tensor_backward(TensorHandle h) {
 
     /* Initialize loss gradient to 1.0 */
     ensure_grad(loss);
-    loss->grad[0] = 1.0;
+    ((double*)loss->grad)[0] = 1.0;
 
     int processed = 0, skipped = 0;
 
@@ -2995,16 +3014,16 @@ void tensor_backward(TensorHandle h) {
             if (b) ensure_grad(b);
             ensure_grad(r);
             if (a_match) {
-                for (int j = 0; j < a->numel; j++) a->grad[j] += r->grad[j];
+                for (int j = 0; j < a->numel; j++) ((double*)a->grad)[j] += ((double*)r->grad)[j];
             } else if (a && a->numel == 1) {
-                double s = 0; for (int j = 0; j < r->numel; j++) s += r->grad[j];
-                a->grad[0] += s;
+                double s = 0; for (int j = 0; j < r->numel; j++) s += ((double*)r->grad)[j];
+                ((double*)a->grad)[0] += s;
             }
             if (b_match) {
-                for (int j = 0; j < b->numel; j++) b->grad[j] += r->grad[j];
+                for (int j = 0; j < b->numel; j++) ((double*)b->grad)[j] += ((double*)r->grad)[j];
             } else if (b && b->numel == 1) {
-                double s = 0; for (int j = 0; j < r->numel; j++) s += r->grad[j];
-                b->grad[0] += s;
+                double s = 0; for (int j = 0; j < r->numel; j++) s += ((double*)r->grad)[j];
+                ((double*)b->grad)[0] += s;
             }
             if ((a && !a_match && a->numel != 1) || (b && !b_match && b->numel != 1)) {
                 int a_str[MAX_BCAST_RANK] = {0}, b_str[MAX_BCAST_RANK] = {0};
@@ -3017,12 +3036,12 @@ void tensor_backward(TensorHandle h) {
                     if (do_a) {
                         int ai = 0;
                         for (int k = 0; k < r->rank; k++) ai += idx[k] * a_str[k];
-                        a->grad[ai] += r->grad[i];
+                        ((double*)a->grad)[ai] += ((double*)r->grad)[i];
                     }
                     if (do_b) {
                         int bi = 0;
                         for (int k = 0; k < r->rank; k++) bi += idx[k] * b_str[k];
-                        b->grad[bi] += r->grad[i];
+                        ((double*)b->grad)[bi] += ((double*)r->grad)[i];
                     }
                     for (int k = r->rank - 1; k >= 0; k--) {
                         if (++idx[k] < r->shape[k]) break; idx[k] = 0;
@@ -3039,16 +3058,16 @@ void tensor_backward(TensorHandle h) {
             if (b) ensure_grad(b);
             ensure_grad(r);
             if (a_match) {
-                for (int j = 0; j < a->numel; j++) a->grad[j] += r->grad[j];
+                for (int j = 0; j < a->numel; j++) ((double*)a->grad)[j] += ((double*)r->grad)[j];
             } else if (a && a->numel == 1) {
-                double s = 0; for (int j = 0; j < r->numel; j++) s += r->grad[j];
-                a->grad[0] += s;
+                double s = 0; for (int j = 0; j < r->numel; j++) s += ((double*)r->grad)[j];
+                ((double*)a->grad)[0] += s;
             }
             if (b_match) {
-                for (int j = 0; j < b->numel; j++) b->grad[j] -= r->grad[j];
+                for (int j = 0; j < b->numel; j++) ((double*)b->grad)[j] -= ((double*)r->grad)[j];
             } else if (b && b->numel == 1) {
-                double s = 0; for (int j = 0; j < r->numel; j++) s += r->grad[j];
-                b->grad[0] -= s;
+                double s = 0; for (int j = 0; j < r->numel; j++) s += ((double*)r->grad)[j];
+                ((double*)b->grad)[0] -= s;
             }
             if ((a && !a_match && a->numel != 1) || (b && !b_match && b->numel != 1)) {
                 int a_str[MAX_BCAST_RANK] = {0}, b_str[MAX_BCAST_RANK] = {0};
@@ -3061,12 +3080,12 @@ void tensor_backward(TensorHandle h) {
                     if (do_a) {
                         int ai = 0;
                         for (int k = 0; k < r->rank; k++) ai += idx[k] * a_str[k];
-                        a->grad[ai] += r->grad[i];
+                        ((double*)a->grad)[ai] += ((double*)r->grad)[i];
                     }
                     if (do_b) {
                         int bi = 0;
                         for (int k = 0; k < r->rank; k++) bi += idx[k] * b_str[k];
-                        b->grad[bi] -= r->grad[i];
+                        ((double*)b->grad)[bi] -= ((double*)r->grad)[i];
                     }
                     for (int k = r->rank - 1; k >= 0; k--) {
                         if (++idx[k] < r->shape[k]) break; idx[k] = 0;
@@ -3085,8 +3104,8 @@ void tensor_backward(TensorHandle h) {
             /* Fast path: both shapes match r */
             if (a_match && b_match) {
                 for (int j = 0; j < r->numel; j++) {
-                    a->grad[j] += r->grad[j] * b->data[j];
-                    b->grad[j] += r->grad[j] * a->data[j];
+                    ((double*)a->grad)[j] += ((double*)r->grad)[j] * ((double*)b->data)[j];
+                    ((double*)b->grad)[j] += ((double*)r->grad)[j] * ((double*)a->data)[j];
                 }
             } else {
                 /* Mixed: scalar / broadcast on either side. Walk r positions. */
@@ -3100,8 +3119,8 @@ void tensor_backward(TensorHandle h) {
                         ai += idx[k] * a_str[k];
                         bi += idx[k] * b_str[k];
                     }
-                    if (a) a->grad[ai] += r->grad[i] * b->data[bi];
-                    if (b) b->grad[bi] += r->grad[i] * a->data[ai];
+                    if (a) ((double*)a->grad)[ai] += ((double*)r->grad)[i] * ((double*)b->data)[bi];
+                    if (b) ((double*)b->grad)[bi] += ((double*)r->grad)[i] * ((double*)a->data)[ai];
                     for (int k = r->rank - 1; k >= 0; k--) {
                         if (++idx[k] < r->shape[k]) break; idx[k] = 0;
                     }
@@ -3118,9 +3137,9 @@ void tensor_backward(TensorHandle h) {
             ensure_grad(r);
             if (a_match && b_match) {
                 for (int j = 0; j < r->numel; j++) {
-                    double bv = b->data[j];
-                    a->grad[j] += r->grad[j] / bv;
-                    b->grad[j] -= r->grad[j] * a->data[j] / (bv * bv);
+                    double bv = ((double*)b->data)[j];
+                    ((double*)a->grad)[j] += ((double*)r->grad)[j] / bv;
+                    ((double*)b->grad)[j] -= ((double*)r->grad)[j] * ((double*)a->data)[j] / (bv * bv);
                 }
             } else {
                 int a_str[MAX_BCAST_RANK] = {0}, b_str[MAX_BCAST_RANK] = {0};
@@ -3133,9 +3152,9 @@ void tensor_backward(TensorHandle h) {
                         ai += idx[k] * a_str[k];
                         bi += idx[k] * b_str[k];
                     }
-                    double bv = b->data[bi];
-                    if (a) a->grad[ai] += r->grad[i] / bv;
-                    if (b) b->grad[bi] -= r->grad[i] * a->data[ai] / (bv * bv);
+                    double bv = ((double*)b->data)[bi];
+                    if (a) ((double*)a->grad)[ai] += ((double*)r->grad)[i] / bv;
+                    if (b) ((double*)b->grad)[bi] -= ((double*)r->grad)[i] * ((double*)a->data)[ai] / (bv * bv);
                     for (int k = r->rank - 1; k >= 0; k--) {
                         if (++idx[k] < r->shape[k]) break; idx[k] = 0;
                     }
@@ -3145,23 +3164,23 @@ void tensor_backward(TensorHandle h) {
         }
 
         case OP_NEG:
-            if (a) { ensure_grad(a); for (int j = 0; j < a->numel; j++) a->grad[j] -= r->grad[j]; }
+            if (a) { ensure_grad(a); for (int j = 0; j < a->numel; j++) ((double*)a->grad)[j] -= ((double*)r->grad)[j]; }
             break;
 
         case OP_ABS:
-            if (a) { ensure_grad(a); for (int j = 0; j < a->numel; j++) a->grad[j] += r->grad[j] * (a->data[j] >= 0 ? 1.0 : -1.0); }
+            if (a) { ensure_grad(a); for (int j = 0; j < a->numel; j++) ((double*)a->grad)[j] += ((double*)r->grad)[j] * (((double*)a->data)[j] >= 0 ? 1.0 : -1.0); }
             break;
 
         case OP_EXP:
-            if (a) { ensure_grad(a); for (int j = 0; j < a->numel; j++) a->grad[j] += r->grad[j] * r->data[j]; }
+            if (a) { ensure_grad(a); for (int j = 0; j < a->numel; j++) ((double*)a->grad)[j] += ((double*)r->grad)[j] * ((double*)r->data)[j]; }
             break;
 
         case OP_LOG:
-            if (a) { ensure_grad(a); for (int j = 0; j < a->numel; j++) a->grad[j] += r->grad[j] / a->data[j]; }
+            if (a) { ensure_grad(a); for (int j = 0; j < a->numel; j++) ((double*)a->grad)[j] += ((double*)r->grad)[j] / ((double*)a->data)[j]; }
             break;
 
         case OP_SQRT:
-            if (a) { ensure_grad(a); for (int j = 0; j < a->numel; j++) a->grad[j] += r->grad[j] / (2.0 * r->data[j]); }
+            if (a) { ensure_grad(a); for (int j = 0; j < a->numel; j++) ((double*)a->grad)[j] += ((double*)r->grad)[j] / (2.0 * ((double*)r->data)[j]); }
             break;
 
         case OP_POW: {
@@ -3172,10 +3191,10 @@ void tensor_backward(TensorHandle h) {
             ensure_grad(r);
             if (a_match && b_match) {
                 for (int j = 0; j < r->numel; j++) {
-                    double av = fmax(a->data[j], 1e-20);
-                    double bv = b->data[j];
-                    a->grad[j] += r->grad[j] * bv * pow(av, bv - 1.0);
-                    b->grad[j] += r->grad[j] * r->data[j] * log(av);
+                    double av = fmax(((double*)a->data)[j], 1e-20);
+                    double bv = ((double*)b->data)[j];
+                    ((double*)a->grad)[j] += ((double*)r->grad)[j] * bv * pow(av, bv - 1.0);
+                    ((double*)b->grad)[j] += ((double*)r->grad)[j] * ((double*)r->data)[j] * log(av);
                 }
             } else {
                 int a_str[MAX_BCAST_RANK] = {0}, b_str[MAX_BCAST_RANK] = {0};
@@ -3188,10 +3207,10 @@ void tensor_backward(TensorHandle h) {
                         ai += idx[k] * a_str[k];
                         bi += idx[k] * b_str[k];
                     }
-                    double av = fmax(a->data[ai], 1e-20);
-                    double bv = b->data[bi];
-                    if (a) a->grad[ai] += r->grad[i] * bv * pow(av, bv - 1.0);
-                    if (b) b->grad[bi] += r->grad[i] * r->data[i] * log(av);
+                    double av = fmax(((double*)a->data)[ai], 1e-20);
+                    double bv = ((double*)b->data)[bi];
+                    if (a) ((double*)a->grad)[ai] += ((double*)r->grad)[i] * bv * pow(av, bv - 1.0);
+                    if (b) ((double*)b->grad)[bi] += ((double*)r->grad)[i] * ((double*)r->data)[i] * log(av);
                     for (int k = r->rank - 1; k >= 0; k--) {
                         if (++idx[k] < r->shape[k]) break; idx[k] = 0;
                     }
@@ -3201,18 +3220,18 @@ void tensor_backward(TensorHandle h) {
         }
 
         case OP_SIGMOID: {
-            if (a) { ensure_grad(a); for (int j = 0; j < a->numel; j++) { double s = r->data[j]; a->grad[j] += r->grad[j] * s * (1.0 - s); } }
+            if (a) { ensure_grad(a); for (int j = 0; j < a->numel; j++) { double s = ((double*)r->data)[j]; ((double*)a->grad)[j] += ((double*)r->grad)[j] * s * (1.0 - s); } }
             break;
         }
 
         case OP_TANH: {
-            if (a) { ensure_grad(a); for (int j = 0; j < a->numel; j++) { double t = r->data[j]; a->grad[j] += r->grad[j] * (1.0 - t * t); } }
+            if (a) { ensure_grad(a); for (int j = 0; j < a->numel; j++) { double t = ((double*)r->data)[j]; ((double*)a->grad)[j] += ((double*)r->grad)[j] * (1.0 - t * t); } }
             break;
         }
 
         case OP_SOFTPLUS: {
             /* d/dx softplus(x) = 1 / (1 + exp(-x)) = sigmoid(x). a->data is x. */
-            if (a) { ensure_grad(a); for (int j = 0; j < a->numel; j++) { double s = 1.0 / (1.0 + exp(-a->data[j])); a->grad[j] += r->grad[j] * s; } }
+            if (a) { ensure_grad(a); for (int j = 0; j < a->numel; j++) { double s = 1.0 / (1.0 + exp(-((double*)a->data)[j])); ((double*)a->grad)[j] += ((double*)r->grad)[j] * s; } }
             break;
         }
 
@@ -3231,10 +3250,10 @@ void tensor_backward(TensorHandle h) {
                         double s = 0.0;
                         for (int r0 = 0; r0 < rep0; r0++) {
                             for (int c0 = 0; c0 < rep1; c0++) {
-                                s += r->grad[(r0 * m + si) * N + (c0 * n + sj)];
+                                s += ((double*)r->grad)[(r0 * m + si) * N + (c0 * n + sj)];
                             }
                         }
-                        a->grad[si * n + sj] += s;
+                        ((double*)a->grad)[si * n + sj] += s;
                     }
                 }
             }
@@ -3263,13 +3282,13 @@ void tensor_backward(TensorHandle h) {
             Tensor* prev = meta->prev;
             ensure_grad(r);
             for (int i = 0; i < oo; i++) {
-                double dh = r->grad[i];
+                double dh = ((double*)r->grad)[i];
                 double zv = meta->zG[i];
                 double rv = meta->rG[i];
                 double nv = meta->nG[i];
-                double hh_n_i = hh->data[2*oo + i];
+                double hh_n_i = ((double*)hh->data)[2*oo + i];
 
-                double d_z_raw = dh * (prev->data[i] - nv) * zv * (1.0 - zv);
+                double d_z_raw = dh * (((double*)prev->data)[i] - nv) * zv * (1.0 - zv);
                 double d_n_pre = dh * (1.0 - zv) * (1.0 - nv * nv);
                 double d_r     = d_n_pre * hh_n_i;
                 double d_r_raw = d_r * rv * (1.0 - rv);
@@ -3277,19 +3296,19 @@ void tensor_backward(TensorHandle h) {
 
                 if (ih && ih->requires_grad) {
                     ensure_grad(ih);
-                    ih->grad[i]        += d_z_raw;
-                    ih->grad[oo + i]   += d_r_raw;
-                    ih->grad[2*oo + i] += d_n_pre;   /* d_ih_n = d_n_pre */
+                    ((double*)ih->grad)[i]        += d_z_raw;
+                    ((double*)ih->grad)[oo + i]   += d_r_raw;
+                    ((double*)ih->grad)[2*oo + i] += d_n_pre;   /* d_ih_n = d_n_pre */
                 }
                 if (hh && hh->requires_grad) {
                     ensure_grad(hh);
-                    hh->grad[i]        += d_z_raw;
-                    hh->grad[oo + i]   += d_r_raw;
-                    hh->grad[2*oo + i] += d_hh_n;
+                    ((double*)hh->grad)[i]        += d_z_raw;
+                    ((double*)hh->grad)[oo + i]   += d_r_raw;
+                    ((double*)hh->grad)[2*oo + i] += d_hh_n;
                 }
                 if (prev && prev->requires_grad) {
                     ensure_grad(prev);
-                    prev->grad[i] += dh * zv;
+                    ((double*)prev->grad)[i] += dh * zv;
                 }
             }
             break;
@@ -3301,11 +3320,11 @@ void tensor_backward(TensorHandle h) {
                 ensure_grad(a);
                 double c = 0.7978845608028654;
                 for (int j = 0; j < a->numel; j++) {
-                    double x = a->data[j];
+                    double x = ((double*)a->data)[j];
                     double inner = c * (x + 0.044715 * x * x * x);
                     double t = tanh(inner);
                     double dtdx = (1.0 - t * t) * c * (1.0 + 3.0 * 0.044715 * x * x);
-                    a->grad[j] += r->grad[j] * (0.5 * (1.0 + t) + 0.5 * x * dtdx);
+                    ((double*)a->grad)[j] += ((double*)r->grad)[j] * (0.5 * (1.0 + t) + 0.5 * x * dtdx);
                 }
             }
             break;
@@ -3314,14 +3333,14 @@ void tensor_backward(TensorHandle h) {
         case OP_ADD_SCALAR:
             if (a) {
                 ensure_grad(a); ensure_grad(r);
-                for (int j = 0; j < a->numel; j++) a->grad[j] += r->grad[j];
+                for (int j = 0; j < a->numel; j++) ((double*)a->grad)[j] += ((double*)r->grad)[j];
             }
             break;
 
         case OP_MUL_SCALAR:
             if (a) {
                 ensure_grad(a); ensure_grad(r);
-                for (int j = 0; j < a->numel; j++) a->grad[j] += r->grad[j] * e->scalar_arg;
+                for (int j = 0; j < a->numel; j++) ((double*)a->grad)[j] += ((double*)r->grad)[j] * e->scalar_arg;
             }
             break;
 
@@ -3332,7 +3351,7 @@ void tensor_backward(TensorHandle h) {
                 ensure_grad(a);
                 ensure_grad(r);
                 for (int j = 0; j < a->numel; j++)
-                    a->grad[j] += (a->data[j] > min_val) ? r->grad[j] : 0.0;
+                    ((double*)a->grad)[j] += (((double*)a->data)[j] > min_val) ? ((double*)r->grad)[j] : 0.0;
             }
             break;
         }
@@ -3345,12 +3364,12 @@ void tensor_backward(TensorHandle h) {
                 ensure_grad(r);
                 if (r->numel == 1) {
                     /* Scalar select from vector */
-                    a->grad[sel_idx] += r->grad[0];
+                    ((double*)a->grad)[sel_idx] += ((double*)r->grad)[0];
                 } else {
                     /* Row select from matrix */
                     int cols = r->numel;
                     for (int j = 0; j < cols; j++)
-                        a->grad[sel_idx * cols + j] += r->grad[j];
+                        ((double*)a->grad)[sel_idx * cols + j] += ((double*)r->grad)[j];
                 }
             }
             break;
@@ -3361,7 +3380,7 @@ void tensor_backward(TensorHandle h) {
             if (a) {
                 ensure_grad(a);
                 ensure_grad(r);
-                for (int j = 0; j < a->numel; j++) a->grad[j] += r->grad[j];
+                for (int j = 0; j < a->numel; j++) ((double*)a->grad)[j] += ((double*)r->grad)[j];
             }
             break;
 
@@ -3373,7 +3392,7 @@ void tensor_backward(TensorHandle h) {
                     if (inp->requires_grad) {
                         ensure_grad(inp);
                         ensure_grad(r);
-                        inp->grad[0] += r->grad[j];
+                        ((double*)inp->grad)[0] += ((double*)r->grad)[j];
                     }
                 }
             }
@@ -3382,7 +3401,7 @@ void tensor_backward(TensorHandle h) {
         case OP_SUM:
             if (a) {
                 ensure_grad(a);
-                for (int j = 0; j < a->numel; j++) a->grad[j] += r->grad[0];
+                for (int j = 0; j < a->numel; j++) ((double*)a->grad)[j] += ((double*)r->grad)[0];
             }
             break;
 
@@ -3390,7 +3409,7 @@ void tensor_backward(TensorHandle h) {
             if (a) {
                 ensure_grad(a);
                 double scale = 1.0 / a->numel;
-                for (int j = 0; j < a->numel; j++) a->grad[j] += r->grad[0] * scale;
+                for (int j = 0; j < a->numel; j++) ((double*)a->grad)[j] += ((double*)r->grad)[0] * scale;
             }
             break;
 
@@ -3398,17 +3417,17 @@ void tensor_backward(TensorHandle h) {
             /* d(dot(a,b))/da = b, d(dot(a,b))/db = a (element-wise) */
             if (a && a->numel > 1) {
                 ensure_grad(a);
-                for (int j = 0; j < a->numel; j++) a->grad[j] += r->grad[0] * b->data[j];
+                for (int j = 0; j < a->numel; j++) ((double*)a->grad)[j] += ((double*)r->grad)[0] * ((double*)b->data)[j];
             } else if (a) {
                 ensure_grad(a);
-                a->grad[0] += r->grad[0] * b->data[0];
+                ((double*)a->grad)[0] += ((double*)r->grad)[0] * ((double*)b->data)[0];
             }
             if (b && b->numel > 1) {
                 ensure_grad(b);
-                for (int j = 0; j < b->numel; j++) b->grad[j] += r->grad[0] * a->data[j];
+                for (int j = 0; j < b->numel; j++) ((double*)b->grad)[j] += ((double*)r->grad)[0] * ((double*)a->data)[j];
             } else if (b) {
                 ensure_grad(b);
-                b->grad[0] += r->grad[0] * a->data[0];
+                ((double*)b->grad)[0] += ((double*)r->grad)[0] * ((double*)a->data)[0];
             }
             break;
 
@@ -3422,8 +3441,8 @@ void tensor_backward(TensorHandle h) {
                 ensure_grad(a);
                 for (int i = 0; i < n_vm; i++) {
                     double s = 0;
-                    for (int j = 0; j < m_vm; j++) s += r->grad[j] * b->data[i*m_vm+j];
-                    a->grad[i] += s;
+                    for (int j = 0; j < m_vm; j++) s += ((double*)r->grad)[j] * ((double*)b->data)[i*m_vm+j];
+                    ((double*)a->grad)[i] += s;
                 }
             }
             if (b) {
@@ -3431,7 +3450,7 @@ void tensor_backward(TensorHandle h) {
                 ensure_grad(b);
                 for (int i = 0; i < n_vm; i++)
                     for (int j = 0; j < m_vm; j++)
-                        b->grad[i*m_vm+j] += r->grad[j] * a->data[i];
+                        ((double*)b->grad)[i*m_vm+j] += ((double*)r->grad)[j] * ((double*)a->data)[i];
             }
             break;
         }
@@ -3442,11 +3461,11 @@ void tensor_backward(TensorHandle h) {
             ensure_grad(r);
             if (a) {
                 ensure_grad(a);
-                for (int j = 0; j < a->numel; j++) a->grad[j] += r->grad[j];
+                for (int j = 0; j < a->numel; j++) ((double*)a->grad)[j] += ((double*)r->grad)[j];
             }
             if (b) {
                 ensure_grad(b);
-                for (int j = 0; j < b->numel; j++) b->grad[j] += r->grad[split + j];
+                for (int j = 0; j < b->numel; j++) ((double*)b->grad)[j] += ((double*)r->grad)[split + j];
             }
             break;
         }
@@ -3457,7 +3476,7 @@ void tensor_backward(TensorHandle h) {
             ensure_grad(r);
             if (a) {
                 ensure_grad(a);
-                for (int j = 0; j < r->numel; j++) a->grad[start + j] += r->grad[j];
+                for (int j = 0; j < r->numel; j++) ((double*)a->grad)[start + j] += ((double*)r->grad)[j];
             }
             break;
         }
@@ -3479,8 +3498,8 @@ void tensor_backward(TensorHandle h) {
                 for (int i = 0; i < mm; i++)
                     for (int j = 0; j < nn; j++) {
                         double s = 0;
-                        for (int p = 0; p < kk; p++) s += r->grad[i*kk+p] * b->data[j*kk+p];
-                        a->grad[i*nn+j] += s;
+                        for (int p = 0; p < kk; p++) s += ((double*)r->grad)[i*kk+p] * ((double*)b->data)[j*kk+p];
+                        ((double*)a->grad)[i*nn+j] += s;
                     }
 #endif
             }
@@ -3496,8 +3515,8 @@ void tensor_backward(TensorHandle h) {
                 for (int j = 0; j < nn; j++)
                     for (int p = 0; p < kk; p++) {
                         double s = 0;
-                        for (int i = 0; i < mm; i++) s += a->data[i*nn+j] * r->grad[i*kk+p];
-                        b->grad[j*kk+p] += s;
+                        for (int i = 0; i < mm; i++) s += ((double*)a->data)[i*nn+j] * ((double*)r->grad)[i*kk+p];
+                        ((double*)b->grad)[j*kk+p] += s;
                     }
 #endif
             }
@@ -3524,8 +3543,8 @@ void tensor_backward(TensorHandle h) {
                         for (int j = 0; j < nn; j++) {
                             double s = 0;
                             for (int p = 0; p < kk; p++)
-                                s += r->grad[bi*mm*kk + i*kk+p] * b->data[j*kk+p];
-                            a->grad[bi*mm*nn + i*nn+j] += s;
+                                s += ((double*)r->grad)[bi*mm*kk + i*kk+p] * ((double*)b->data)[j*kk+p];
+                            ((double*)a->grad)[bi*mm*nn + i*nn+j] += s;
                         }
 #endif
             }
@@ -3543,8 +3562,8 @@ void tensor_backward(TensorHandle h) {
                         for (int p = 0; p < kk; p++) {
                             double s = 0;
                             for (int i = 0; i < mm; i++)
-                                s += a->data[bi*mm*nn + i*nn+j] * r->grad[bi*mm*kk + i*kk+p];
-                            b->grad[j*kk+p] += s;
+                                s += ((double*)a->data)[bi*mm*nn + i*nn+j] * ((double*)r->grad)[bi*mm*kk + i*kk+p];
+                            ((double*)b->grad)[j*kk+p] += s;
                         }
 #endif
             }
@@ -3563,8 +3582,8 @@ void tensor_backward(TensorHandle h) {
                         for (int j = 0; j < nn; j++) {
                             double s = 0;
                             for (int p = 0; p < kk; p++)
-                                s += r->grad[bi*mm*kk + i*kk+p] * b->data[bi*nn*kk + j*kk+p];
-                            a->grad[bi*mm*nn + i*nn+j] += s;
+                                s += ((double*)r->grad)[bi*mm*kk + i*kk+p] * ((double*)b->data)[bi*nn*kk + j*kk+p];
+                            ((double*)a->grad)[bi*mm*nn + i*nn+j] += s;
                         }
             }
             if (b && b->requires_grad) {
@@ -3574,8 +3593,8 @@ void tensor_backward(TensorHandle h) {
                         for (int p = 0; p < kk; p++) {
                             double s = 0;
                             for (int i = 0; i < mm; i++)
-                                s += a->data[bi*mm*nn + i*nn+j] * r->grad[bi*mm*kk + i*kk+p];
-                            b->grad[bi*nn*kk + j*kk+p] += s;
+                                s += ((double*)a->data)[bi*mm*nn + i*nn+j] * ((double*)r->grad)[bi*mm*kk + i*kk+p];
+                            ((double*)b->grad)[bi*nn*kk + j*kk+p] += s;
                         }
             }
             break;
@@ -3591,9 +3610,9 @@ void tensor_backward(TensorHandle h) {
                 for (int i = 0; i < total_rows; i++) {
                     double dot = 0;
                     for (int j = 0; j < nn; j++)
-                        dot += r->grad[i*nn+j] * r->data[i*nn+j];
+                        dot += ((double*)r->grad)[i*nn+j] * ((double*)r->data)[i*nn+j];
                     for (int j = 0; j < nn; j++)
-                        a->grad[i*nn+j] += r->data[i*nn+j] * (r->grad[i*nn+j] - dot);
+                        ((double*)a->grad)[i*nn+j] += ((double*)r->data)[i*nn+j] * (((double*)r->grad)[i*nn+j] - dot);
                 }
             }
             break;
@@ -3608,7 +3627,7 @@ void tensor_backward(TensorHandle h) {
                 for (int bi = 0; bi < BB; bi++)
                     for (int i = 0; i < mm; i++)
                         for (int j = 0; j < nn; j++)
-                            a->grad[bi*mm*nn + i*nn+j] += r->grad[bi*nn*mm + j*mm+i];
+                            ((double*)a->grad)[bi*mm*nn + i*nn+j] += ((double*)r->grad)[bi*nn*mm + j*mm+i];
             }
             break;
         }
@@ -3621,7 +3640,7 @@ void tensor_backward(TensorHandle h) {
                 ensure_grad(a);
                 for (int i = 0; i < mm; i++)
                     for (int j = 0; j < nn; j++)
-                        a->grad[i*nn+j] += r->grad[j*mm+i];
+                        ((double*)a->grad)[i*nn+j] += ((double*)r->grad)[j*mm+i];
             }
             break;
         }
@@ -3636,9 +3655,9 @@ void tensor_backward(TensorHandle h) {
                 for (int i = 0; i < mm; i++) {
                     double dot = 0;
                     for (int j = 0; j < nn; j++)
-                        dot += r->grad[i*nn+j] * r->data[i*nn+j];
+                        dot += ((double*)r->grad)[i*nn+j] * ((double*)r->data)[i*nn+j];
                     for (int j = 0; j < nn; j++)
-                        a->grad[i*nn+j] += r->data[i*nn+j] * (r->grad[i*nn+j] - dot);
+                        ((double*)a->grad)[i*nn+j] += ((double*)r->data)[i*nn+j] * (((double*)r->grad)[i*nn+j] - dot);
                 }
             }
             break;
@@ -3655,9 +3674,9 @@ void tensor_backward(TensorHandle h) {
                 for (int i = 0; i < mm; i++) {
                     double sum_grad = 0;
                     for (int j = 0; j < nn; j++)
-                        sum_grad += r->grad[i*nn+j];
+                        sum_grad += ((double*)r->grad)[i*nn+j];
                     for (int j = 0; j < nn; j++)
-                        a->grad[i*nn+j] += r->grad[i*nn+j] - exp(r->data[i*nn+j]) * sum_grad;
+                        ((double*)a->grad)[i*nn+j] += ((double*)r->grad)[i*nn+j] - exp(((double*)r->data)[i*nn+j]) * sum_grad;
                 }
             }
             break;
@@ -3669,7 +3688,7 @@ void tensor_backward(TensorHandle h) {
             if (a) {
                 ensure_grad(a);
                 for (int j = 0; j < a->numel; j++)
-                    if (b->data[j] == 0.0) a->grad[j] += r->grad[j];
+                    if (((double*)b->data)[j] == 0.0) ((double*)a->grad)[j] += ((double*)r->grad)[j];
             }
             break;
         }
@@ -3688,16 +3707,16 @@ void tensor_backward(TensorHandle h) {
                 ensure_grad(meta->gamma);
                 for (int j = 0; j < nn; j++) {
                     double dg = 0;
-                    for (int i = 0; i < mm; i++) dg += r->grad[i*nn+j] * meta->x_hat[i*nn+j];
-                    meta->gamma->grad[j] += dg;
+                    for (int i = 0; i < mm; i++) dg += ((double*)r->grad)[i*nn+j] * meta->x_hat[i*nn+j];
+                    ((double*)meta->gamma->grad)[j] += dg;
                 }
             }
             if (meta->bias && meta->bias->requires_grad) {
                 ensure_grad(meta->bias);
                 for (int j = 0; j < nn; j++) {
                     double db = 0;
-                    for (int i = 0; i < mm; i++) db += r->grad[i*nn+j];
-                    meta->bias->grad[j] += db;
+                    for (int i = 0; i < mm; i++) db += ((double*)r->grad)[i*nn+j];
+                    ((double*)meta->bias->grad)[j] += db;
                 }
             }
             /* d_input */
@@ -3708,15 +3727,15 @@ void tensor_backward(TensorHandle h) {
                     double mean_dxhat = 0;
                     double mean_dxhat_xhat = 0;
                     for (int j = 0; j < nn; j++) {
-                        double dxh = r->grad[i*nn+j] * meta->gamma->data[j];
+                        double dxh = ((double*)r->grad)[i*nn+j] * ((double*)meta->gamma->data)[j];
                         mean_dxhat += dxh;
                         mean_dxhat_xhat += dxh * meta->x_hat[i*nn+j];
                     }
                     mean_dxhat /= nn;
                     mean_dxhat_xhat /= nn;
                     for (int j = 0; j < nn; j++) {
-                        double dxh = r->grad[i*nn+j] * meta->gamma->data[j];
-                        a->grad[i*nn+j] += meta->rstd[i] *
+                        double dxh = ((double*)r->grad)[i*nn+j] * ((double*)meta->gamma->data)[j];
+                        ((double*)a->grad)[i*nn+j] += meta->rstd[i] *
                             (dxh - mean_dxhat - meta->x_hat[i*nn+j] * mean_dxhat_xhat);
                     }
                 }
@@ -3741,7 +3760,7 @@ void tensor_backward(TensorHandle h) {
 #else
                 for (int ii = 0; ii < m_mv; ii++)
                     for (int jj = 0; jj < n_mv; jj++)
-                        a->grad[ii*n_mv+jj] += r->grad[ii] * x_vals[jj];
+                        ((double*)a->grad)[ii*n_mv+jj] += ((double*)r->grad)[ii] * x_vals[jj];
 #endif
             }
             if (b && b->requires_grad) {
@@ -3754,8 +3773,8 @@ void tensor_backward(TensorHandle h) {
 #else
                 for (int jj = 0; jj < n_mv; jj++) {
                     double s = 0;
-                    for (int ii = 0; ii < m_mv; ii++) s += a->data[ii*n_mv+jj] * r->grad[ii];
-                    b->grad[jj] += s;
+                    for (int ii = 0; ii < m_mv; ii++) s += ((double*)a->data)[ii*n_mv+jj] * ((double*)r->grad)[ii];
+                    ((double*)b->grad)[jj] += s;
                 }
 #endif
             }
@@ -3764,8 +3783,8 @@ void tensor_backward(TensorHandle h) {
 
         case OP_CONCAT_2D_AXIS1: {
             /* r[m, n+k] = concat(A[m,n], B[m,k]) along axis 1.
-               dA[i,j]   += r->grad[i*(n+k) + j] for j<n
-               dB[i,j-n] += r->grad[i*(n+k) + j] for j>=n */
+               dA[i,j]   += ((double*)r->grad)[i*(n+k) + j] for j<n
+               dB[i,j-n] += ((double*)r->grad)[i*(n+k) + j] for j>=n */
             int m_c = a->shape[0];
             int n_c = (int)e->scalar_arg;
             int k_c = b->shape[1];
@@ -3774,13 +3793,13 @@ void tensor_backward(TensorHandle h) {
                 ensure_grad(a);
                 for (int i = 0; i < m_c; i++)
                     for (int j = 0; j < n_c; j++)
-                        a->grad[i*n_c + j] += r->grad[i*(n_c + k_c) + j];
+                        ((double*)a->grad)[i*n_c + j] += ((double*)r->grad)[i*(n_c + k_c) + j];
             }
             if (b->requires_grad) {
                 ensure_grad(b);
                 for (int i = 0; i < m_c; i++)
                     for (int j = 0; j < k_c; j++)
-                        b->grad[i*k_c + j] += r->grad[i*(n_c + k_c) + (n_c + j)];
+                        ((double*)b->grad)[i*k_c + j] += ((double*)r->grad)[i*(n_c + k_c) + (n_c + j)];
             }
             break;
         }
@@ -3808,8 +3827,8 @@ void tensor_backward(TensorHandle h) {
                     for (int jj = 0; jj < i2; jj++) {
                         double s = 0;
                         for (int bb = 0; bb < B2; bb++)
-                            s += r->grad[bb*o2+oo] * x_vals_2[bb*i2+jj];
-                        a->grad[oo*i2+jj] += s;
+                            s += ((double*)r->grad)[bb*o2+oo] * x_vals_2[bb*i2+jj];
+                        ((double*)a->grad)[oo*i2+jj] += s;
                     }
 #endif
             }
@@ -3827,8 +3846,8 @@ void tensor_backward(TensorHandle h) {
                     for (int jj = 0; jj < i2; jj++) {
                         double s = 0;
                         for (int oo = 0; oo < o2; oo++)
-                            s += r->grad[bb*o2+oo] * a->data[oo*i2+jj];
-                        b->grad[bb*i2+jj] += s;
+                            s += ((double*)r->grad)[bb*o2+oo] * ((double*)a->data)[oo*i2+jj];
+                        ((double*)b->grad)[bb*i2+jj] += s;
                     }
 #endif
             }
@@ -3837,8 +3856,8 @@ void tensor_backward(TensorHandle h) {
                 ensure_grad(lm2->bias);
                 for (int oo = 0; oo < o2; oo++) {
                     double s = 0;
-                    for (int bb = 0; bb < B2; bb++) s += r->grad[bb*o2+oo];
-                    lm2->bias->grad[oo] += s;
+                    for (int bb = 0; bb < B2; bb++) s += ((double*)r->grad)[bb*o2+oo];
+                    ((double*)lm2->bias->grad)[oo] += s;
                 }
             }
             break;
@@ -3860,7 +3879,7 @@ void tensor_backward(TensorHandle h) {
 #else
                 for (int ii = 0; ii < m_l; ii++)
                     for (int jj = 0; jj < n_l; jj++)
-                        a->grad[ii*n_l+jj] += r->grad[ii] * x_vals_l[jj];
+                        ((double*)a->grad)[ii*n_l+jj] += ((double*)r->grad)[ii] * x_vals_l[jj];
 #endif
             }
             /* b = x [n] */
@@ -3873,8 +3892,8 @@ void tensor_backward(TensorHandle h) {
 #else
                 for (int jj = 0; jj < n_l; jj++) {
                     double s = 0;
-                    for (int ii = 0; ii < m_l; ii++) s += a->data[ii*n_l+jj] * r->grad[ii];
-                    b->grad[jj] += s;
+                    for (int ii = 0; ii < m_l; ii++) s += ((double*)a->data)[ii*n_l+jj] * ((double*)r->grad)[ii];
+                    ((double*)b->grad)[jj] += s;
                 }
 #endif
             }
@@ -3882,7 +3901,7 @@ void tensor_backward(TensorHandle h) {
             if (lm->bias && lm->bias->requires_grad) {
                 ensure_grad(lm->bias);
                 for (int ii = 0; ii < m_l; ii++)
-                    lm->bias->grad[ii] += r->grad[ii];
+                    ((double*)lm->bias->grad)[ii] += ((double*)r->grad)[ii];
             }
             break;
         }
@@ -3896,8 +3915,8 @@ void tensor_backward(TensorHandle h) {
                 ensure_grad(r);
                 for (int ii = 0; ii < m_out; ii++) {
                     double s = 0;
-                    for (int jj = 0; jj < n_out; jj++) s += r->grad[ii*n_out+jj] * b->data[jj];
-                    a->grad[ii] += s;
+                    for (int jj = 0; jj < n_out; jj++) s += ((double*)r->grad)[ii*n_out+jj] * ((double*)b->data)[jj];
+                    ((double*)a->grad)[ii] += s;
                 }
             }
             if (b->requires_grad) {
@@ -3905,8 +3924,8 @@ void tensor_backward(TensorHandle h) {
                 ensure_grad(r);
                 for (int jj = 0; jj < n_out; jj++) {
                     double s = 0;
-                    for (int ii = 0; ii < m_out; ii++) s += r->grad[ii*n_out+jj] * a->data[ii];
-                    b->grad[jj] += s;
+                    for (int ii = 0; ii < m_out; ii++) s += ((double*)r->grad)[ii*n_out+jj] * ((double*)a->data)[ii];
+                    ((double*)b->grad)[jj] += s;
                 }
             }
             break;
@@ -3922,9 +3941,9 @@ void tensor_backward(TensorHandle h) {
                     double s = 0;
                     for (int jj = 0; jj < n_sm; jj++) {
                         double delta = (ii == jj) ? 1.0 : 0.0;
-                        s += r->grad[jj] * r->data[jj] * (delta - r->data[ii]);
+                        s += ((double*)r->grad)[jj] * ((double*)r->data)[jj] * (delta - ((double*)r->data)[ii]);
                     }
-                    a->grad[ii] += s;
+                    ((double*)a->grad)[ii] += s;
                 }
             }
             break;
@@ -3937,9 +3956,9 @@ void tensor_backward(TensorHandle h) {
                 ensure_grad(r);
                 int n_ls = r->numel;
                 double sum_grad = 0;
-                for (int j = 0; j < n_ls; j++) sum_grad += r->grad[j];
+                for (int j = 0; j < n_ls; j++) sum_grad += ((double*)r->grad)[j];
                 for (int j = 0; j < n_ls; j++)
-                    a->grad[j] += r->grad[j] - exp(r->data[j]) * sum_grad;
+                    ((double*)a->grad)[j] += ((double*)r->grad)[j] - exp(((double*)r->data)[j]) * sum_grad;
             }
             break;
         }
@@ -3950,8 +3969,8 @@ void tensor_backward(TensorHandle h) {
                 ensure_grad(a);
                 int n_bce = a->numel;
                 for (int j = 0; j < n_bce; j++) {
-                    double sig = 1.0 / (1.0 + exp(-a->data[j]));
-                    a->grad[j] += r->grad[0] * (sig - b->data[j]) / n_bce;
+                    double sig = 1.0 / (1.0 + exp(-((double*)a->data)[j]));
+                    ((double*)a->grad)[j] += ((double*)r->grad)[0] * (sig - ((double*)b->data)[j]) / n_bce;
                 }
             }
             break;
@@ -3971,7 +3990,7 @@ void tensor_backward(TensorHandle h) {
                 if (b) ensure_grad(b);  /* prev_cell [o] */
 
                 for (int j = 0; j < o_lstm; j++) {
-                    double d_h = r->grad[j];
+                    double d_h = ((double*)r->grad)[j];
                     double tanhC = tanh(lm->new_cell[j]);
 
                     /* d_oGate = d_h * tanh(cell) */
@@ -3980,19 +3999,19 @@ void tensor_backward(TensorHandle h) {
                     double d_cell = d_h * lm->oG[j] * (1.0 - tanhC * tanhC);
 
                     /* d_fGate = d_cell * prevCell */
-                    double d_fG = d_cell * (b ? b->data[j] : 0);
+                    double d_fG = d_cell * (b ? ((double*)b->data)[j] : 0);
                     /* d_iGate = d_cell * gG */
                     double d_iG = d_cell * lm->gG[j];
                     /* d_gGate = d_cell * iG */
                     double d_gG = d_cell * lm->iG[j];
                     /* d_prevCell = d_cell * fG */
-                    if (b) b->grad[j] += d_cell * lm->fG[j];
+                    if (b) ((double*)b->grad)[j] += d_cell * lm->fG[j];
 
                     /* Activation derivatives → combined gradient */
-                    a->grad[j]          += d_iG * lm->iG[j] * (1.0 - lm->iG[j]);  /* sigmoid' */
-                    a->grad[o_lstm + j]  += d_fG * lm->fG[j] * (1.0 - lm->fG[j]);
-                    a->grad[2*o_lstm + j] += d_gG * (1.0 - lm->gG[j] * lm->gG[j]);  /* tanh' */
-                    a->grad[3*o_lstm + j] += d_oG * lm->oG[j] * (1.0 - lm->oG[j]);
+                    ((double*)a->grad)[j]          += d_iG * lm->iG[j] * (1.0 - lm->iG[j]);  /* sigmoid' */
+                    ((double*)a->grad)[o_lstm + j]  += d_fG * lm->fG[j] * (1.0 - lm->fG[j]);
+                    ((double*)a->grad)[2*o_lstm + j] += d_gG * (1.0 - lm->gG[j] * lm->gG[j]);  /* tanh' */
+                    ((double*)a->grad)[3*o_lstm + j] += d_oG * lm->oG[j] * (1.0 - lm->oG[j]);
                 }
             }
             break;
@@ -4010,21 +4029,21 @@ void tensor_backward(TensorHandle h) {
                 if (b) ensure_grad(b);  /* prev_cell [o] */
 
                 for (int j = 0; j < o_lstm; j++) {
-                    double d_cell = r->grad[j];
+                    double d_cell = ((double*)r->grad)[j];
 
                     /* d_fGate = d_cell * prevCell */
-                    double d_fG = d_cell * (b ? b->data[j] : 0);
+                    double d_fG = d_cell * (b ? ((double*)b->data)[j] : 0);
                     /* d_iGate = d_cell * gG */
                     double d_iG = d_cell * lm->gG[j];
                     /* d_gGate = d_cell * iG */
                     double d_gG = d_cell * lm->iG[j];
                     /* d_prevCell = d_cell * fG */
-                    if (b) b->grad[j] += d_cell * lm->fG[j];
+                    if (b) ((double*)b->grad)[j] += d_cell * lm->fG[j];
 
                     /* Activation derivatives → combined gradient (additive with OP_LSTM_GATES) */
-                    a->grad[j]            += d_iG * lm->iG[j] * (1.0 - lm->iG[j]);
-                    a->grad[o_lstm + j]    += d_fG * lm->fG[j] * (1.0 - lm->fG[j]);
-                    a->grad[2*o_lstm + j]  += d_gG * (1.0 - lm->gG[j] * lm->gG[j]);
+                    ((double*)a->grad)[j]            += d_iG * lm->iG[j] * (1.0 - lm->iG[j]);
+                    ((double*)a->grad)[o_lstm + j]    += d_fG * lm->fG[j] * (1.0 - lm->fG[j]);
+                    ((double*)a->grad)[2*o_lstm + j]  += d_gG * (1.0 - lm->gG[j] * lm->gG[j]);
                     /* No output gate gradient from cell path (oG only affects hidden) */
                 }
             }
@@ -4043,12 +4062,12 @@ void tensor_backward(TensorHandle h) {
                 ensure_grad(a); ensure_grad(r);
                 for (int ii = 0; ii < n_cs; ii++) {
                     double anorm2 = 0;
-                    for (int j = 0; j < w_cs; j++) anorm2 += a->data[ii*w_cs+j] * a->data[ii*w_cs+j];
+                    for (int j = 0; j < w_cs; j++) anorm2 += ((double*)a->data)[ii*w_cs+j] * ((double*)a->data)[ii*w_cs+j];
                     double anorm = sqrt(anorm2) + 1e-8;
-                    double cos_val = r->data[ii];
-                    double g = r->grad[ii];
+                    double cos_val = ((double*)r->data)[ii];
+                    double g = ((double*)r->grad)[ii];
                     for (int j = 0; j < w_cs; j++) {
-                        a->grad[ii*w_cs+j] += g * (brow[j] / (anorm * bnorm) - cos_val * a->data[ii*w_cs+j] / (anorm2 + 1e-10));
+                        ((double*)a->grad)[ii*w_cs+j] += g * (brow[j] / (anorm * bnorm) - cos_val * ((double*)a->data)[ii*w_cs+j] / (anorm2 + 1e-10));
                     }
                 }
 
@@ -4056,12 +4075,12 @@ void tensor_backward(TensorHandle h) {
                     ensure_grad(b);
                     for (int ii = 0; ii < n_cs; ii++) {
                         double anorm2 = 0;
-                        for (int j = 0; j < w_cs; j++) anorm2 += a->data[ii*w_cs+j] * a->data[ii*w_cs+j];
+                        for (int j = 0; j < w_cs; j++) anorm2 += ((double*)a->data)[ii*w_cs+j] * ((double*)a->data)[ii*w_cs+j];
                         double anorm = sqrt(anorm2) + 1e-8;
-                        double cos_val = r->data[ii];
-                        double g = r->grad[ii];
+                        double cos_val = ((double*)r->data)[ii];
+                        double g = ((double*)r->grad)[ii];
                         for (int j = 0; j < w_cs; j++) {
-                            b->grad[j] += g * (a->data[ii*w_cs+j] / (anorm * bnorm) - cos_val * brow[j] / (bnorm2 + 1e-10));
+                            ((double*)b->grad)[j] += g * (((double*)a->data)[ii*w_cs+j] / (anorm * bnorm) - cos_val * brow[j] / (bnorm2 + 1e-10));
                         }
                     }
                 }
@@ -4078,7 +4097,7 @@ void tensor_backward(TensorHandle h) {
                 for (int ii = 0; ii < n_cv; ii++) {
                     for (int j = 0; j < k_cv; j++) {
                         int idx = (ii - pad_cv + j + n_cv) % n_cv;
-                        a->grad[idx] += r->grad[ii] * b->data[k_cv - 1 - j];
+                        ((double*)a->grad)[idx] += ((double*)r->grad)[ii] * ((double*)b->data)[k_cv - 1 - j];
                     }
                 }
             }
@@ -4087,7 +4106,7 @@ void tensor_backward(TensorHandle h) {
                 for (int ii = 0; ii < n_cv; ii++) {
                     for (int j = 0; j < k_cv; j++) {
                         int idx = (ii - pad_cv + j + n_cv) % n_cv;
-                        b->grad[k_cv - 1 - j] += r->grad[ii] * a->data[idx];
+                        ((double*)b->grad)[k_cv - 1 - j] += ((double*)r->grad)[ii] * ((double*)a->data)[idx];
                     }
                 }
             }
@@ -4103,7 +4122,7 @@ void tensor_backward(TensorHandle h) {
                 for (int i = 0; i < meta->n; i++) {
                     int idx = meta->indices[i];
                     for (int j = 0; j < meta->embedDim; j++)
-                        a->grad[idx * meta->embedDim + j] += r->grad[i * meta->embedDim + j];
+                        ((double*)a->grad)[idx * meta->embedDim + j] += ((double*)r->grad)[i * meta->embedDim + j];
                 }
             }
             break;
@@ -4122,16 +4141,16 @@ void tensor_backward(TensorHandle h) {
                 ensure_grad(meta->gamma);
                 for (int c = 0; c < CC; c++) {
                     double dg = 0;
-                    for (int j = 0; j < sp; j++) dg += r->grad[c*sp+j] * meta->x_hat[c*sp+j];
-                    meta->gamma->grad[c] += dg;
+                    for (int j = 0; j < sp; j++) dg += ((double*)r->grad)[c*sp+j] * meta->x_hat[c*sp+j];
+                    ((double*)meta->gamma->grad)[c] += dg;
                 }
             }
             if (meta->beta->requires_grad) {
                 ensure_grad(meta->beta);
                 for (int c = 0; c < CC; c++) {
                     double db = 0;
-                    for (int j = 0; j < sp; j++) db += r->grad[c*sp+j];
-                    meta->beta->grad[c] += db;
+                    for (int j = 0; j < sp; j++) db += ((double*)r->grad)[c*sp+j];
+                    ((double*)meta->beta->grad)[c] += db;
                 }
             }
             /* d_input */
@@ -4140,15 +4159,15 @@ void tensor_backward(TensorHandle h) {
                 for (int c = 0; c < CC; c++) {
                     double mean_dxhat = 0, mean_dxhat_xhat = 0;
                     for (int j = 0; j < sp; j++) {
-                        double dxh = r->grad[c*sp+j] * meta->gamma->data[c];
+                        double dxh = ((double*)r->grad)[c*sp+j] * ((double*)meta->gamma->data)[c];
                         mean_dxhat += dxh;
                         mean_dxhat_xhat += dxh * meta->x_hat[c*sp+j];
                     }
                     mean_dxhat /= sp;
                     mean_dxhat_xhat /= sp;
                     for (int j = 0; j < sp; j++) {
-                        double dxh = r->grad[c*sp+j] * meta->gamma->data[c];
-                        a->grad[c*sp+j] += meta->rstd[c] *
+                        double dxh = ((double*)r->grad)[c*sp+j] * ((double*)meta->gamma->data)[c];
+                        ((double*)a->grad)[c*sp+j] += meta->rstd[c] *
                             (dxh - mean_dxhat - meta->x_hat[c*sp+j] * mean_dxhat_xhat);
                     }
                 }
@@ -4163,7 +4182,7 @@ void tensor_backward(TensorHandle h) {
             if (a && a->requires_grad) {
                 ensure_grad(a);
                 for (int j = 0; j < meta->numel; j++)
-                    a->grad[j] += r->grad[j] * meta->mask[j];
+                    ((double*)a->grad)[j] += ((double*)r->grad)[j] * meta->mask[j];
             }
             break;
         }
@@ -4177,7 +4196,7 @@ void tensor_backward(TensorHandle h) {
                 for (int c = 0; c < meta->C; c++)
                     for (int ol = 0; ol < meta->oL; ol++)
                         for (int kl = 0; kl < meta->kL; kl++)
-                            a->grad[c*meta->L + ol*meta->stride + kl] += r->grad[c*meta->oL + ol] * scale;
+                            ((double*)a->grad)[c*meta->L + ol*meta->stride + kl] += ((double*)r->grad)[c*meta->oL + ol] * scale;
             }
             break;
         }
@@ -4193,8 +4212,8 @@ void tensor_backward(TensorHandle h) {
                         for (int ow = 0; ow < meta->oW; ow++)
                             for (int kh = 0; kh < meta->kH; kh++)
                                 for (int kw = 0; kw < meta->kW; kw++)
-                                    a->grad[c*meta->H*meta->W + (oh*meta->strH+kh)*meta->W + ow*meta->strW+kw]
-                                        += r->grad[c*meta->oH*meta->oW + oh*meta->oW + ow] * scale;
+                                    ((double*)a->grad)[c*meta->H*meta->W + (oh*meta->strH+kh)*meta->W + ow*meta->strW+kw]
+                                        += ((double*)r->grad)[c*meta->oH*meta->oW + oh*meta->oW + ow] * scale;
             }
             break;
         }
@@ -4208,12 +4227,12 @@ void tensor_backward(TensorHandle h) {
                 ensure_grad(a);
                 for (int oc = 0; oc < outC; oc++)
                     for (int ol = 0; ol < oL; ol++) {
-                        double dout = r->grad[oc*oL + ol];
+                        double dout = ((double*)r->grad)[oc*oL + ol];
                         for (int ic = 0; ic < inC; ic++)
                             for (int kl = 0; kl < kL; kl++) {
                                 int il = ol * str - pad + kl;
                                 if (il >= 0 && il < LL)
-                                    a->grad[ic*LL + il] += dout * b->data[oc*inC*kL + ic*kL + kl];
+                                    ((double*)a->grad)[ic*LL + il] += dout * ((double*)b->data)[oc*inC*kL + ic*kL + kl];
                             }
                     }
             }
@@ -4226,9 +4245,9 @@ void tensor_backward(TensorHandle h) {
                             for (int ol = 0; ol < oL; ol++) {
                                 int il = ol * str - pad + kl;
                                 if (il >= 0 && il < LL)
-                                    s += r->grad[oc*oL + ol] * a->data[ic*LL + il];
+                                    s += ((double*)r->grad)[oc*oL + ol] * ((double*)a->data)[ic*LL + il];
                             }
-                            b->grad[oc*inC*kL + ic*kL + kl] += s;
+                            ((double*)b->grad)[oc*inC*kL + ic*kL + kl] += s;
                         }
             }
             Tensor* bias_t = (Tensor*)e->inputs;
@@ -4236,8 +4255,8 @@ void tensor_backward(TensorHandle h) {
                 ensure_grad(bias_t);
                 for (int oc = 0; oc < outC; oc++) {
                     double s = 0;
-                    for (int ol = 0; ol < oL; ol++) s += r->grad[oc*oL + ol];
-                    bias_t->grad[oc] += s;
+                    for (int ol = 0; ol < oL; ol++) s += ((double*)r->grad)[oc*oL + ol];
+                    ((double*)bias_t->grad)[oc] += s;
                 }
             }
             break;
@@ -4250,7 +4269,7 @@ void tensor_backward(TensorHandle h) {
                 ensure_grad(a);
                 int out_numel = meta->C * meta->oL;
                 for (int i = 0; i < out_numel; i++)
-                    a->grad[meta->max_indices[i]] += r->grad[i];
+                    ((double*)a->grad)[meta->max_indices[i]] += ((double*)r->grad)[i];
             }
             break;
         }
@@ -4272,15 +4291,15 @@ void tensor_backward(TensorHandle h) {
                 for (int oc = 0; oc < outC; oc++)
                     for (int oh = 0; oh < oH; oh++)
                         for (int ow = 0; ow < oW; ow++) {
-                            double dout = r->grad[oc*oH*oW + oh*oW + ow];
+                            double dout = ((double*)r->grad)[oc*oH*oW + oh*oW + ow];
                             for (int ic = 0; ic < inC; ic++)
                                 for (int kh = 0; kh < kH; kh++)
                                     for (int kw = 0; kw < kW; kw++) {
                                         int ih = oh * strideH - padH + kh;
                                         int iw = ow * strideW - padW + kw;
                                         if (ih >= 0 && ih < HH && iw >= 0 && iw < WW)
-                                            a->grad[ic*HH*WW + ih*WW + iw] +=
-                                                dout * b->data[oc*inC*kH*kW + ic*kH*kW + kh*kW + kw];
+                                            ((double*)a->grad)[ic*HH*WW + ih*WW + iw] +=
+                                                dout * ((double*)b->data)[oc*inC*kH*kW + ic*kH*kW + kh*kW + kw];
                                     }
                         }
             }
@@ -4298,10 +4317,10 @@ void tensor_backward(TensorHandle h) {
                                         int ih = oh * strideH - padH + kh;
                                         int iw = ow * strideW - padW + kw;
                                         if (ih >= 0 && ih < HH && iw >= 0 && iw < WW)
-                                            s += r->grad[oc*oH*oW + oh*oW + ow]
-                                               * a->data[ic*HH*WW + ih*WW + iw];
+                                            s += ((double*)r->grad)[oc*oH*oW + oh*oW + ow]
+                                               * ((double*)a->data)[ic*HH*WW + ih*WW + iw];
                                     }
-                                b->grad[oc*inC*kH*kW + ic*kH*kW + kh*kW + kw] += s;
+                                ((double*)b->grad)[oc*inC*kH*kW + ic*kH*kW + kh*kW + kw] += s;
                             }
             }
 
@@ -4313,8 +4332,8 @@ void tensor_backward(TensorHandle h) {
                     double s = 0;
                     for (int oh = 0; oh < oH; oh++)
                         for (int ow = 0; ow < oW; ow++)
-                            s += r->grad[oc*oH*oW + oh*oW + ow];
-                    bias_t->grad[oc] += s;
+                            s += ((double*)r->grad)[oc*oH*oW + oh*oW + ow];
+                    ((double*)bias_t->grad)[oc] += s;
                 }
             }
             break;
@@ -4328,7 +4347,7 @@ void tensor_backward(TensorHandle h) {
                 ensure_grad(a);
                 int out_numel = meta->C * meta->oH * meta->oW;
                 for (int i = 0; i < out_numel; i++)
-                    a->grad[meta->max_indices[i]] += r->grad[i];
+                    ((double*)a->grad)[meta->max_indices[i]] += ((double*)r->grad)[i];
             }
             break;
         }
@@ -4364,7 +4383,7 @@ void tensor_backward(TensorHandle h) {
                 (double*)calloc((size_t)M_unf * outC, sizeof(double)) : NULL;
             if (dY_unf) {
                 for (int bb = 0; bb < B; bb++) {
-                    const double* dout_b = r->grad + (size_t)bb * out_per_sample;
+                    const double* dout_b = ((double*)r->grad) + (size_t)bb * out_per_sample;
                     for (int oc = 0; oc < outC; oc++) {
                         for (int oh = 0; oh < oH; oh++) {
                             for (int ow = 0; ow < oW; ow++) {
@@ -4394,7 +4413,7 @@ void tensor_backward(TensorHandle h) {
                         double s = 0;
                         for (int m = 0; m < M_unf; m++)
                             s += dY_unf[m*outC + oc] * X_col[m*K_unf + kk];
-                        b->grad[oc*K_unf + kk] += s;
+                        ((double*)b->grad)[oc*K_unf + kk] += s;
                     }
 #endif
                 free(X_col);
@@ -4415,7 +4434,7 @@ void tensor_backward(TensorHandle h) {
                     for (int kk = 0; kk < K_unf; kk++) {
                         double s = 0;
                         for (int oc = 0; oc < outC; oc++)
-                            s += dY_unf[m*outC + oc] * b->data[oc*K_unf + kk];
+                            s += dY_unf[m*outC + oc] * ((double*)b->data)[oc*K_unf + kk];
                         dX_col[m*K_unf + kk] = s;
                     }
 #endif
@@ -4431,12 +4450,12 @@ void tensor_backward(TensorHandle h) {
                 for (int oc = 0; oc < outC; oc++) {
                     double s = 0;
                     for (int bb = 0; bb < B; bb++) {
-                        const double* dout_b = r->grad + (size_t)bb * out_per_sample;
+                        const double* dout_b = ((double*)r->grad) + (size_t)bb * out_per_sample;
                         for (int oh = 0; oh < oH; oh++)
                             for (int ow = 0; ow < oW; ow++)
                                 s += dout_b[oc*oH*oW + oh*oW + ow];
                     }
-                    bias_t->grad[oc] += s;
+                    ((double*)bias_t->grad)[oc] += s;
                 }
             }
             if (dY_unf) free(dY_unf);
@@ -4452,7 +4471,7 @@ void tensor_backward(TensorHandle h) {
                 ensure_grad(a);
                 int out_numel = meta->B * meta->C * meta->oH * meta->oW;
                 for (int i = 0; i < out_numel; i++)
-                    a->grad[meta->max_indices[i]] += r->grad[i];
+                    ((double*)a->grad)[meta->max_indices[i]] += ((double*)r->grad)[i];
             }
             break;
         }
@@ -4465,9 +4484,9 @@ void tensor_backward(TensorHandle h) {
                 Tensor* index = b;  /* b holds the index tensor */
                 int nn = a->numel;
                 for (int i = 0; i < nn; i++) {
-                    int idx = (int)index->data[i];
+                    int idx = (int)((double*)index->data)[i];
                     if (idx >= 0 && idx < r->numel)
-                        a->grad[i] += r->grad[idx];
+                        ((double*)a->grad)[i] += ((double*)r->grad)[idx];
                 }
             }
             break;
@@ -4480,9 +4499,9 @@ void tensor_backward(TensorHandle h) {
                 Tensor* index = b;  /* b holds the index tensor */
                 int nn = (int)e->scalar_arg;
                 for (int i = 0; i < nn; i++) {
-                    int idx = (int)index->data[i];
+                    int idx = (int)((double*)index->data)[i];
                     if (idx >= 0 && idx < a->numel)
-                        a->grad[idx] += r->grad[i];
+                        ((double*)a->grad)[idx] += ((double*)r->grad)[i];
                 }
             }
             break;
@@ -4498,20 +4517,20 @@ void tensor_backward(TensorHandle h) {
                 /* Safe backward: compute d_a[i] by accumulating from the right */
                 double suffix_sum = 0.0;
                 for (int i = n - 1; i >= 0; i--) {
-                    suffix_sum += r->grad[i] * r->data[i];
-                    if (fabs(a->data[i]) > 1e-30) {
-                        a->grad[i] += suffix_sum / a->data[i];
+                    suffix_sum += ((double*)r->grad)[i] * ((double*)r->data)[i];
+                    if (fabs(((double*)a->data)[i]) > 1e-30) {
+                        ((double*)a->grad)[i] += suffix_sum / ((double*)a->data)[i];
                     } else {
                         /* a[i] == 0: recompute without a[i] */
                         double partial = 0.0;
                         for (int j = i; j < n; j++) {
                             double prod_excl = 1.0;
                             for (int k = 0; k <= j; k++) {
-                                if (k != i) prod_excl *= a->data[k];
+                                if (k != i) prod_excl *= ((double*)a->data)[k];
                             }
-                            partial += r->grad[j] * prod_excl;
+                            partial += ((double*)r->grad)[j] * prod_excl;
                         }
-                        a->grad[i] += partial;
+                        ((double*)a->grad)[i] += partial;
                     }
                 }
             }
@@ -4524,7 +4543,7 @@ void tensor_backward(TensorHandle h) {
             if (a) {
                 ensure_grad(a);
                 for (int j = 0; j < a->numel; j++)
-                    a->grad[j] += r->grad[j] * (a->data[j] >= 0 ? 1.0 : alpha);
+                    ((double*)a->grad)[j] += ((double*)r->grad)[j] * (((double*)a->data)[j] >= 0 ? 1.0 : alpha);
             }
             break;
         }
@@ -4533,9 +4552,9 @@ void tensor_backward(TensorHandle h) {
             if (a) {
                 ensure_grad(a);
                 for (int j = 0; j < a->numel; j++) {
-                    double x = a->data[j];
+                    double x = ((double*)a->data)[j];
                     double s = 1.0 / (1.0 + exp(-x));
-                    a->grad[j] += r->grad[j] * s * (1.0 + x * (1.0 - s));
+                    ((double*)a->grad)[j] += ((double*)r->grad)[j] * s * (1.0 + x * (1.0 - s));
                 }
             }
             break;
@@ -4567,7 +4586,7 @@ void tensor_backward(TensorHandle h) {
 TensorHandle tensor_grad(TensorHandle h) {
     Tensor* t = (Tensor*)h;
     if (!t->grad) return NULL;
-    return make_scalar(t->grad[0], 0);
+    return make_scalar(((double*)t->grad)[0], 0);
 }
 
 void tensor_zero_grad(TensorHandle h) {
@@ -4585,7 +4604,7 @@ TensorHandle tensor_detach(TensorHandle h) {
 
 TensorHandle tensor_with_grad(TensorHandle h) {
     Tensor* t = (Tensor*)h;
-    Tensor* r = make_scalar(t->data[0], 1);
+    Tensor* r = make_scalar(((double*)t->data)[0], 1);
     tape_append(OP_CONST, r, NULL, NULL, 0);
     return r;
 }
@@ -4648,11 +4667,11 @@ void tensor_lstm_gates(TensorHandle combined_h, TensorHandle prev_cell_h, int o,
     }
 
     for (int j = 0; j < o; j++) {
-        double ig = 1.0 / (1.0 + exp(-combined->data[j]));
-        double fg = 1.0 / (1.0 + exp(-combined->data[o+j]));
-        double gg = tanh(combined->data[2*o+j]);
-        double og = 1.0 / (1.0 + exp(-combined->data[3*o+j]));
-        out_cell[j] = fg * prev_cell->data[j] + ig * gg;
+        double ig = 1.0 / (1.0 + exp(-((double*)combined->data)[j]));
+        double fg = 1.0 / (1.0 + exp(-((double*)combined->data)[o+j]));
+        double gg = tanh(((double*)combined->data)[2*o+j]);
+        double og = 1.0 / (1.0 + exp(-((double*)combined->data)[3*o+j]));
+        out_cell[j] = fg * ((double*)prev_cell->data)[j] + ig * gg;
         out_hidden[j] = og * tanh(out_cell[j]);
         if (meta) {
             meta->iG[j] = ig; meta->fG[j] = fg;
@@ -4719,10 +4738,10 @@ TensorHandle tensor_gru_cell(TensorHandle hih, TensorHandle hhh, TensorHandle hp
     double* out = calloc(o, sizeof(double));
 
     for (int i = 0; i < o; i++) {
-        zG[i] = 1.0 / (1.0 + exp(-(ih->data[i] + hh->data[i])));            /* z */
-        rG[i] = 1.0 / (1.0 + exp(-(ih->data[o + i] + hh->data[o + i])));    /* r */
-        nG[i] = tanh(ih->data[2*o + i] + rG[i] * hh->data[2*o + i]);        /* n */
-        out[i] = (1.0 - zG[i]) * nG[i] + zG[i] * prev->data[i];             /* h' */
+        zG[i] = 1.0 / (1.0 + exp(-(((double*)ih->data)[i] + ((double*)hh->data)[i])));            /* z */
+        rG[i] = 1.0 / (1.0 + exp(-(((double*)ih->data)[o + i] + ((double*)hh->data)[o + i])));    /* r */
+        nG[i] = tanh(((double*)ih->data)[2*o + i] + rG[i] * ((double*)hh->data)[2*o + i]);        /* n */
+        out[i] = (1.0 - zG[i]) * nG[i] + zG[i] * ((double*)prev->data)[i];             /* h' */
     }
 
     int shape[] = {o};
@@ -4790,7 +4809,7 @@ void _dbg_dump_param_grads_if_enabled(void) {
         int has_nan = 0;
         if (t->grad) {
             for (int j = 0; j < t->numel; j++) {
-                double g = t->grad[j];
+                double g = ((double*)t->grad)[j];
                 if (isnan(g) || isinf(g)) has_nan = 1;
                 l2 += g * g;
             }
@@ -4821,7 +4840,7 @@ void _dbg_dump_lstm_traj_if_enabled(void) {
             Tensor* t = param_registry[i].tensor;
             double l2 = 0.0, mn = 1e300, mx = -1e300;
             for (int j = 0; j < t->numel; j++) {
-                double v = t->data[j];
+                double v = ((double*)t->data)[j];
                 l2 += v*v;
                 if (v < mn) mn = v;
                 if (v > mx) mx = v;
@@ -4829,9 +4848,9 @@ void _dbg_dump_lstm_traj_if_enabled(void) {
             l2 = sqrt(l2);
             fprintf(stderr, "[traj epoch %d] %s l2=%.10g min=%.10g max=%.10g | t[0..2]=%.10g, %.10g, %.10g\n",
                     _dbg_traj_step, nm, l2, mn, mx,
-                    t->numel >= 1 ? t->data[0] : 0.0,
-                    t->numel >= 2 ? t->data[1] : 0.0,
-                    t->numel >= 3 ? t->data[2] : 0.0);
+                    t->numel >= 1 ? ((double*)t->data)[0] : 0.0,
+                    t->numel >= 2 ? ((double*)t->data)[1] : 0.0,
+                    t->numel >= 3 ? ((double*)t->data)[2] : 0.0);
         }
     }
 }
@@ -4839,20 +4858,20 @@ void _dbg_dump_lstm_traj_if_enabled(void) {
 double param_grad_item(int idx) {
     Tensor* t = param_registry[idx].tensor;
     if (!t->grad) return 0.0;
-    return t->grad[0];
+    return ((double*)t->grad)[0];
 }
 
 double param_grad_item_at(int param_idx, int elem_idx) {
     Tensor* t = param_registry[param_idx].tensor;
     if (!t->grad || elem_idx >= t->numel) return 0.0;
-    return t->grad[elem_idx];
+    return ((double*)t->grad)[elem_idx];
 }
 
 double param_grad_item_and_zero(int idx) {
     Tensor* t = param_registry[idx].tensor;
     if (!t->grad) return 0.0;
-    double v = t->grad[0];
-    t->grad[0] = 0.0;
+    double v = ((double*)t->grad)[0];
+    ((double*)t->grad)[0] = 0.0;
     return v;
 }
 
@@ -4867,7 +4886,7 @@ void param_zero_all_grads(void) {
 
 void param_subtract_delta(int idx, double delta) {
     Tensor* t = param_registry[idx].tensor;
-    t->data[0] -= delta;
+    ((double*)t->data)[0] -= delta;
 }
 
 void param_load_data(int idx, const double* data, int numel) {
@@ -4882,7 +4901,7 @@ void param_load_data(int idx, const double* data, int numel) {
 
 TensorHandle tensor_subtract_scalar_inplace(TensorHandle h, double val) {
     Tensor* t = (Tensor*)h;
-    for (int i = 0; i < t->numel; i++) t->data[i] -= val;
+    for (int i = 0; i < t->numel; i++) ((double*)t->data)[i] -= val;
     return h;
 }
 
@@ -4965,7 +4984,7 @@ TensorHandle tensor_stack_from_array(TensorHandle* arr, int count, int dim) {
             r->requires_grad = rg_check;
             r->persistent = 0;
             /* Still record OP_STACK with input pointers for backward.
-               STACK backward distributes r->grad[i] to inputs[i]->grad[0].
+               STACK backward distributes ((double*)r->grad)[i] to inputs[i]->grad[0].
                The inputs are SELECT views, so their grad flows to the parent. */
             if (rg_check) {
                 Tensor** inputs = malloc(count * sizeof(Tensor*));
@@ -4985,7 +5004,7 @@ TensorHandle tensor_stack_from_array(TensorHandle* arr, int count, int dim) {
     Tensor** inputs = malloc(count * sizeof(Tensor*));
     for (int i = 0; i < count; i++) {
         Tensor* t = (Tensor*)arr[i];
-        data[i] = t->data[0];
+        data[i] = ((double*)t->data)[0];
         inputs[i] = t;
         if (t->requires_grad) rg = 1;
     }
@@ -5155,7 +5174,7 @@ TensorHandle tensor_view_2d(TensorHandle h, int row, int col) {
     Tensor* t = (Tensor*)h;
     int cols = t->shape[1];
     Tensor* v = calloc(1, sizeof(Tensor));
-    v->data = &t->data[row * cols + col];
+    v->data = &((double*)t->data)[row * cols + col];
     v->shape = NULL;
     v->rank = 0;
     v->numel = 1;
@@ -5168,7 +5187,7 @@ TensorHandle tensor_view_2d(TensorHandle h, int row, int col) {
 TensorHandle tensor_view_1d(TensorHandle h, int idx) {
     Tensor* t = (Tensor*)h;
     Tensor* v = calloc(1, sizeof(Tensor));
-    v->data = &t->data[idx];
+    v->data = &((double*)t->data)[idx];
     v->shape = NULL;
     v->rank = 0;
     v->numel = 1;
@@ -5180,11 +5199,11 @@ TensorHandle tensor_view_1d(TensorHandle h, int idx) {
 
 double tensor_item_2d(TensorHandle h, int row, int col) {
     Tensor* t = (Tensor*)h;
-    return t->data[row * t->shape[1] + col];
+    return ((double*)t->data)[row * t->shape[1] + col];
 }
 
 double tensor_item_1d(TensorHandle h, int idx) {
-    return ((Tensor*)h)->data[idx];
+    return ((double*)((Tensor*)h)->data)[idx];
 }
 
 /* ================================================================
@@ -5302,7 +5321,7 @@ int polyak_blend(double tau, const char* online_scope, const char* target_scope)
             Tensor* tg_t = param_registry[j].tensor;
             if (on_t->numel != tg_t->numel) break;
             for (int k = 0; k < on_t->numel; k++) {
-                tg_t->data[k] = one_minus_tau * tg_t->data[k] + tau * on_t->data[k];
+                ((double*)tg_t->data)[k] = one_minus_tau * ((double*)tg_t->data)[k] + tau * ((double*)on_t->data)[k];
             }
             blended++;
             break;
@@ -5386,12 +5405,12 @@ void optimizer_step(OptimizerHandle h) {
             lr = opt->param_lr[i];
 
         for (int j = 0; j < t->numel; j++) {
-            double g = t->grad[j];
+            double g = ((double*)t->grad)[j];
             int idx = base + j;  /* per-element index into optimizer buffers */
 
             switch (opt->type) {
             case 0: /* SGD */
-                t->data[j] -= lr * g;
+                ((double*)t->data)[j] -= lr * g;
                 break;
 
             case 1: { /* RMSprop — keep lr OUTSIDE the momentum buffer to match
@@ -5403,9 +5422,9 @@ void optimizer_step(OptimizerHandle h) {
                 double avg = sqrt(opt->v[idx]) + opt->eps;
                 if (opt->momentum > 0) {
                     opt->m[idx] = opt->momentum * opt->m[idx] + g / avg;
-                    t->data[j] -= lr * opt->m[idx];
+                    ((double*)t->data)[j] -= lr * opt->m[idx];
                 } else {
-                    t->data[j] -= lr * g / avg;
+                    ((double*)t->data)[j] -= lr * g / avg;
                 }
                 break;
             }
@@ -5415,7 +5434,7 @@ void optimizer_step(OptimizerHandle h) {
                 opt->v[idx] = opt->beta2 * opt->v[idx] + (1.0 - opt->beta2) * g * g;
                 double mhat = opt->m[idx] / (1.0 - pow(opt->beta1, opt->t));
                 double vhat = opt->v[idx] / (1.0 - pow(opt->beta2, opt->t));
-                t->data[j] -= lr * mhat / (sqrt(vhat) + opt->eps);
+                ((double*)t->data)[j] -= lr * mhat / (sqrt(vhat) + opt->eps);
                 break;
             }
 
@@ -5424,8 +5443,8 @@ void optimizer_step(OptimizerHandle h) {
                 opt->v[idx] = opt->beta2 * opt->v[idx] + (1.0 - opt->beta2) * g * g;
                 double mhat = opt->m[idx] / (1.0 - pow(opt->beta1, opt->t));
                 double vhat = opt->v[idx] / (1.0 - pow(opt->beta2, opt->t));
-                t->data[j] -= lr * mhat / (sqrt(vhat) + opt->eps);
-                t->data[j] -= lr * opt->weight_decay * t->data[j];
+                ((double*)t->data)[j] -= lr * mhat / (sqrt(vhat) + opt->eps);
+                ((double*)t->data)[j] -= lr * opt->weight_decay * ((double*)t->data)[j];
                 break;
             }
             }
@@ -5466,8 +5485,8 @@ static void clip_grad_value_opt(Optimizer* opt, double max_val) {
         Tensor* t = param_registry[i].tensor;
         if (!t->grad) continue;
         for (int j = 0; j < t->numel; j++) {
-            if (t->grad[j] > max_val) t->grad[j] = max_val;
-            if (t->grad[j] < -max_val) t->grad[j] = -max_val;
+            if (((double*)t->grad)[j] > max_val) ((double*)t->grad)[j] = max_val;
+            if (((double*)t->grad)[j] < -max_val) ((double*)t->grad)[j] = -max_val;
         }
     }
 }
@@ -5479,7 +5498,7 @@ static double clip_grad_norm_opt(Optimizer* opt, double max_norm) {
         if (opt && !opt_owns_param(opt, i)) continue;
         Tensor* t = param_registry[i].tensor;
         if (!t->grad) continue;
-        for (int j = 0; j < t->numel; j++) total += t->grad[j] * t->grad[j];
+        for (int j = 0; j < t->numel; j++) total += ((double*)t->grad)[j] * ((double*)t->grad)[j];
     }
     double norm = sqrt(total);
     if (norm > max_norm) {
@@ -5488,7 +5507,7 @@ static double clip_grad_norm_opt(Optimizer* opt, double max_norm) {
             if (opt && !opt_owns_param(opt, i)) continue;
             Tensor* t = param_registry[i].tensor;
             if (!t->grad) continue;
-            for (int j = 0; j < t->numel; j++) t->grad[j] *= scale;
+            for (int j = 0; j < t->numel; j++) ((double*)t->grad)[j] *= scale;
         }
     }
     return norm;
@@ -5770,12 +5789,12 @@ void tensor_mlx_compile_reset_stats(void) { }
 void tensor_print(TensorHandle h) {
     Tensor* t = (Tensor*)h;
     if (t->rank == 0) {
-        printf("%.6f\n", t->data[0]);
+        printf("%.6f\n", ((double*)t->data)[0]);
     } else {
         printf("[");
         for (int i = 0; i < t->numel; i++) {
             if (i > 0) printf(", ");
-            printf("%.6f", t->data[i]);
+            printf("%.6f", ((double*)t->data)[i]);
         }
         printf("]\n");
     }
@@ -5887,7 +5906,7 @@ static TensorHandle tape_retag_round(TensorHandle h, int dtag) {
     Tensor* t = (Tensor*)h;
     int tag = tape_tag_from_dtag(dtag);
     for (int i = 0; i < t->numel; i++)
-        t->data[i] = tape_round_to_dtype(t->data[i], tag);
+        ((double*)t->data)[i] = tape_round_to_dtype(((double*)t->data)[i], tag);
     t->dtype_tag = tag;
     return h;
 }
@@ -5952,7 +5971,7 @@ TensorHandle tensor_cast_dtype_streamed(TensorHandle src, int stream_tag, int dt
     if (tag == DT_F64 && s->dtype_tag == DT_F64) return tensor_cast_dtype_f64(src);
     /* Otherwise: a fresh non-grad tensor cloning src's values, rounded into the
        target dtype. (Inference / precision-demo casts are NoGrad.) */
-    TensorHandle h = (s->rank == 0) ? make_scalar(s->data[0], 0)
+    TensorHandle h = (s->rank == 0) ? make_scalar(((double*)s->data)[0], 0)
                                     : (TensorHandle)make_tensor(s->data, s->shape, s->rank, 0);
     return tape_retag_round(h, dtag);
 }
