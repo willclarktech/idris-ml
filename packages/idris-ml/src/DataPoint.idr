@@ -2,7 +2,7 @@ module DataPoint
 
 import Data.Vect
 
-import Tensor
+import Array
 
 
 public export

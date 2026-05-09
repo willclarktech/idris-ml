@@ -5,14 +5,13 @@ sourcedir = "src"
 depends = contrib
 
 modules = Compat.Random
+        , Array
         , Backprop
         , Checkpoint
         , Curriculum
         , DataLoader
         , DataPoint
-        , Debug
         , Device
-        , Endofunctor
         , Floating
         , Hpo
         , Hpo.LrFinder
@@ -29,19 +28,15 @@ modules = Compat.Random
         , Layer.LayerNorm
         , Layer.Linear
         , Layer.Lstm
-        , Layer.Normalization
         , Layer.Dnc
         , Layer.Ntm
         , Layer.Rnn
         , Layer.Transformer
         , Math
-        , Memory
-        , Optimizer
         , RL.Gae
         , RL.ReplayBuffer
         , Sampler
         , Schedule
-        , Tensor
         , Train
         , Util
-        , Variable
+        , Tensor

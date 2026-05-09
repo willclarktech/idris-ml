@@ -3,96 +3,95 @@ module Layer.LayerNorm
 import Data.Vect
 
 import Device
-import Endofunctor
-import Floating
 import Layer.Core
-import Layer.Linear
 import Tensor
-import Variable
 
 
 ----------------------------------------------------------------------
--- Layer Norm State
+-- LayerNorm — typed-surface layer normalisation (Path C)
 ----------------------------------------------------------------------
+--
+-- Normalises along the last (only) dim of a 1D `TVec n d` input,
+-- then applies a learnable scale (gamma) + shift (beta).
+--
+-- The C backend currently exposes only `prim__layerNorm2d` (operates
+-- on `[B, N]` shape). For 1D input we reshape `[n]` → `[1, n]`,
+-- normalise, reshape back. ~3 tape entries per call (still much
+-- cheaper than computing mean/var/sqrt manually).
+--
+-- GADT shape `i = o = n` lets the layer fit `LayerLike`'s arity
+-- (mirrors Dropout's pattern).
 
-||| Layer normalization with learnable scale (gamma) and shift (beta).
-||| Not a standalone LayerLike — used as a sub-component of transformers.
 public export
-record LayerNormState (dim : Nat) (ty : Type) where
-  constructor MkLayerNorm
-  gamma : Vector dim ty         -- scale (init: all 1.0)
-  beta : Vector dim ty          -- shift (init: all 0.0)
-  gammaTensor : Maybe AnyPtr    -- consolidated tensor for C path
-  betaTensor : Maybe AnyPtr
+data LayerNormState : Nat -> Nat -> (0 _ : Device) -> Type where
+  MkLayerNorm : TVec n d -> TVec n d -> LayerNormState n n d
 
 
 ----------------------------------------------------------------------
--- Construction
+-- Forward
 ----------------------------------------------------------------------
 
+%default partial
+
 export
-mkLayerNorm : {dim : Nat} -> (Num ty, FromDouble ty) => IO (LayerNormState dim ty)
-mkLayerNorm {dim} = do
-  let gammaVec = replicate dim (STensor (fromDouble 1.0))
-      betaVec  = replicate dim (STensor (fromDouble 0.0))
-  pure $ MkLayerNorm (VTensor gammaVec) (VTensor betaVec) Nothing Nothing
+applyLayerNorm : {n : Nat} ->
+                   LayerNormState n n d ->
+                   TVec n d ->
+                   (LayerNormState n n d, TVec n d)
+applyLayerNorm {n} st@(MkLayerNorm gamma beta) input =
+  let nI = cast {to=Int} n
+      input2d = prim__reshape2d input.tensorPtr 1 nI
+      norm2d = prim__layerNorm2d input2d gamma.tensorPtr beta.tensorPtr 1.0e-5
+      norm1d = prim__reshape1d norm2d nI
+  in (st, MkTensor norm1d Nothing)
 
 
 ----------------------------------------------------------------------
--- Sub-component operations (parallel to LayerLike methods)
+-- Constructor
 ----------------------------------------------------------------------
 
-export
-emapLayerNorm : (ty -> ty) -> LayerNormState dim ty -> LayerNormState dim ty
-emapLayerNorm f (MkLayerNorm g b gt bt) = MkLayerNorm (map f g) (map f b) gt bt
+-- Pack a Vect of Doubles into a buffer.
+packDoubles : AnyPtr -> Int -> Vect k Double -> AnyPtr
+packDoubles buf _ [] = buf
+packDoubles buf off (x :: rest) =
+  packDoubles (prim__setDouble buf off x) (off + 1) rest
 
-export
-nameLayerNorm : {d : Device} -> {dim : Nat} -> String -> LayerNormState dim (Variable d) -> LayerNormState dim (Variable d)
-nameLayerNorm {dim} prefx (MkLayerNorm gamma beta _ _) =
-  if prim__backendSupportsTensorParams == 1
-    then
-      let dI = cast {to=Int} dim
-          (VTensor gElems) = gamma
-          gBuf = prim__allocDoubles dI
-          gBuf' = packScalarValues gBuf 0 gElems
-          gammaT = prim__paramRegister (prefx ++ "_gamma") (prim__createParam1d dI gBuf')
-          (VTensor bElems) = beta
-          bBuf = prim__allocDoubles dI
-          bBuf' = packScalarValues bBuf 0 bElems
-          betaT = prim__paramRegister (prefx ++ "_beta") (prim__createParam1d dI bBuf')
-      in MkLayerNorm (VTensor $ buildViewVector (prefx ++ "_g") gammaT 0 dim)
-                     (VTensor $ buildViewVector (prefx ++ "_b") betaT 0 dim)
-                     (Just gammaT) (Just betaT)
-    else MkLayerNorm gamma beta Nothing Nothing
+-- Fill a buffer with a constant value.
+fillConst : AnyPtr -> Int -> Int -> Double -> AnyPtr
+fillConst buf _ 0 _ = buf
+fillConst buf off n v =
+  fillConst (prim__setDouble buf off v) (off + 1) (n - 1) v
 
+||| Build a `LayerNormState n n CPU` with gamma initialised to 1.0
+||| and beta to 0.0. Both register as C params under
+||| `<prefix>_gamma` / `<prefix>_beta`.
 export
-toDoubleLayerNorm : {d : Device} -> {dim : Nat} -> LayerNormState dim (Variable d) -> LayerNormState dim Double
-toDoubleLayerNorm {dim} (MkLayerNorm _ _ (Just gt) (Just bt)) =
-  let gVec = VTensor $ map (\i => STensor (prim__item1d gt (cast (finToNat i))))
-                           (Data.Vect.Fin.range {len=dim})
-      bVec = VTensor $ map (\i => STensor (prim__item1d bt (cast (finToNat i))))
-                           (Data.Vect.Fin.range {len=dim})
-  in MkLayerNorm gVec bVec Nothing Nothing
-toDoubleLayerNorm (MkLayerNorm g b _ _) =
-  MkLayerNorm (map (\v => case v of Var _ _ x => x) g)
-              (map (\v => case v of Var _ _ x => x) b)
-              Nothing Nothing
+layerNormLayer : {n : Nat} -> (paramPrefix : String) ->
+                   IO (LayerNormState n n CPU)
+layerNormLayer paramPrefix = do
+  let nI = cast {to=Int} n
+      gBuf = prim__allocDoubles nI
+      gBuf' = fillConst gBuf 0 nI 1.0
+      bBuf = prim__allocDoubles nI
+      bBuf' = fillConst bBuf 0 nI 0.0
+      gName = paramPrefix ++ "_gamma"
+      bName = paramPrefix ++ "_beta"
+      gPtr = prim__paramRegister gName (prim__createParam1d nI gBuf')
+      bPtr = prim__paramRegister bName (prim__createParam1d nI bBuf')
+  pure $ MkLayerNorm (MkTensor gPtr (Just gName)) (MkTensor bPtr (Just bName))
 
-export
-getLayerNormParamIds : {d : Device} -> LayerNormState dim (Variable d) -> List String
-getLayerNormParamIds (MkLayerNorm (VTensor gElems) (VTensor bElems) _ _) =
-  let getIds : Vect k (Scalar (Variable d)) -> List String
-      getIds [] = []
-      getIds (STensor (Var _ (Just pid) _) :: rest) = pid :: getIds rest
-      getIds (_ :: rest) = getIds rest
-  in getIds gElems ++ getIds bElems
 
-||| Extract the gamma AnyPtr handle.
-export
-extractGammaTensor : {d : Device} -> LayerNormState dim (Variable d) -> Maybe AnyPtr
-extractGammaTensor st = st.gammaTensor
+----------------------------------------------------------------------
+-- LayerLike instance
+----------------------------------------------------------------------
 
-||| Extract the beta AnyPtr handle.
+public export
+LayerLike LayerNormState where
+  applyVar st@(MkLayerNorm _ _) input = applyLayerNorm st input
+  layerPrefix _ = "ln"
+
+||| Wrap a LayerNorm in `AnyLayer`.
 export
-extractBetaTensor : {d : Device} -> LayerNormState dim (Variable d) -> Maybe AnyPtr
-extractBetaTensor st = st.betaTensor
+layerNormLayerAny : {n : Nat} -> (paramPrefix : String) ->
+                      IO (AnyLayer n n CPU)
+layerNormLayerAny pid = map (MkAnyLayer LayerNormState) (layerNormLayer pid)

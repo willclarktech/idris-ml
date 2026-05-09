@@ -1,158 +1,118 @@
 module Layer.Rnn
 
 import Data.Vect
-import Data.Zippable
 
+import Compat.Random
 import Device
-import Floating
 import Init
 import Layer.Core
-import Layer.Linear
-import Math
+import Sampler
 import Tensor
-import Util
-import Variable
 
 
 ----------------------------------------------------------------------
--- RNN State
+-- Rnn — typed-surface vanilla RNN cell (Path C)
 ----------------------------------------------------------------------
+--
+-- Mirrors `Layer/Rnn.idr`'s `applyVarTensor` path:
+--   h_t = (W_ih · x_t) + (W_hh · h_{t-1}) + b
+--
+-- No activation in the cell; chain a `tanhLayer` (or other) after
+-- if needed. Matches V1 behaviour.
+--
+-- Uses `TMat` / `TVec` aliases for consistency with `Lstm` even
+-- though shape arithmetic isn't needed here (no `4 *`).
 
 public export
-record RnnState (inputSize : Nat) (outputSize : Nat) (ty : Type) where
+record RnnState (i : Nat) (o : Nat) (0 d : Device) where
   constructor MkRnn
-  inputWeights : Matrix outputSize inputSize ty
-  recurrentWeights : Matrix outputSize outputSize ty
-  bias : Vector outputSize ty
-  previousOutput : Vector outputSize ty
-  -- Consolidated tensor handles (set by nameLayer)
-  iwTensor : Maybe AnyPtr
-  rwTensor : Maybe AnyPtr
-  biasTensor : Maybe AnyPtr
-  prevOutTensor : Maybe AnyPtr
+  iwT : TMat o i d         -- W_ih [o, i]
+  rwT : TMat o o d         -- W_hh [o, o]
+  bT  : TVec o d           -- bias [o]
+  prevOutT : Maybe (TVec o d)
 
 
 ----------------------------------------------------------------------
--- LayerLike Instance
+-- Forward
 ----------------------------------------------------------------------
 
 %default partial
+
 export
+applyRnn : {o : Nat} ->
+             RnnState i o d ->
+             TVec i d ->
+             (RnnState i o d, TVec o d)
+applyRnn {o} st input =
+  let p = case st.prevOutT of
+            Just po => po
+            Nothing => tzeroState1d {n = o}
+      out = tadd (tadd (tmv st.iwT input) (tmv st.rwT p)) st.bT
+  in ({ prevOutT := Just out } st, out)
+
+
+----------------------------------------------------------------------
+-- Constructor
+----------------------------------------------------------------------
+
+packDoubles : AnyPtr -> Int -> Vect k Double -> AnyPtr
+packDoubles buf _ [] = buf
+packDoubles buf off (x :: rest) =
+  packDoubles (prim__setDouble buf off x) (off + 1) rest
+
+zeroBuf : AnyPtr -> Int -> Int -> AnyPtr
+zeroBuf buf _ 0 = buf
+zeroBuf buf off n =
+  zeroBuf (prim__setDouble buf off 0.0) (off + 1) (n - 1)
+
+||| Build an `RnnState i o CPU` with Xavier-uniform weights and
+||| zero bias. State starts as Nothing; first `applyRnn` call
+||| zero-initialises it. Params register under `<prefix>_iw`,
+||| `<prefix>_rw`, `<prefix>_b`.
+export
+rnnLayer : {i, o : Nat} -> (paramPrefix : String) ->
+             IO (RnnState i o CPU)
+rnnLayer paramPrefix = do
+  let oI = cast {to=Int} o
+      iI = cast {to=Int} i
+  iwVals <- traverse (\_ => xavier uniform i o) (Vect.replicate (o * i) ())
+  rwVals <- traverse (\_ => xavier uniform o o) (Vect.replicate (o * o) ())
+  let iwBuf = prim__allocDoubles (oI * iI)
+      iwBuf' = packDoubles iwBuf 0 iwVals
+      rwBuf = prim__allocDoubles (oI * oI)
+      rwBuf' = packDoubles rwBuf 0 rwVals
+      bBuf = prim__allocDoubles oI
+      bBuf' = zeroBuf bBuf 0 oI
+      iwName = paramPrefix ++ "_iw"
+      rwName = paramPrefix ++ "_rw"
+      bName  = paramPrefix ++ "_b"
+      iwPtr = prim__paramRegister iwName (prim__createParam2d oI iI iwBuf')
+      rwPtr = prim__paramRegister rwName (prim__createParam2d oI oI rwBuf')
+      bPtr  = prim__paramRegister bName  (prim__createParam1d oI bBuf')
+      iwTV : TMat o i CPU
+      iwTV = MkTensor iwPtr (Just iwName)
+      rwTV : TMat o o CPU
+      rwTV = MkTensor rwPtr (Just rwName)
+      bTV : TVec o CPU
+      bTV = MkTensor bPtr (Just bName)
+  pure $ MkRnn iwTV rwTV bTV Nothing
+
+||| Reset hidden state. Lazy-allocate on next applyVar call.
+export
+resetRnnState : {o : Nat} -> {0 d : Device} -> RnnState i o d -> RnnState i o d
+resetRnnState st = { prevOutT := Nothing } st
+
+
+----------------------------------------------------------------------
+-- LayerLike instance
+----------------------------------------------------------------------
+
+public export
 LayerLike RnnState where
-  applyGeneric (MkRnn iw rw b po _ _ _ _) xs =
-    let output = matrixVectorMultiply iw xs + matrixVectorMultiply rw po + b
-    in (MkRnn iw rw b output Nothing Nothing Nothing Nothing, output)
-
-  applyVar {d} st@(MkRnn iw rw b po _ _ _ _) xs =
-    let output = matrixVectorMultiplyVar iw xs + matrixVectorMultiplyVar rw po + b
-    in ({ previousOutput := output, prevOutTensor := Nothing } st, output)
-
-  applyVarTensor {d} {i} {o} st inputT =
-    case (iwTensor st, rwTensor st, biasTensor st) of
-      (Just iwT, Just rwT, Just bT) =>
-        let poT = case prevOutTensor st of
-              Just pt => pt
-              Nothing => -- First call: persistent zero state (survives tape resets)
-                let buf = prim__allocDoubles (cast {to=Int} o)
-                in prim__createState1d (cast {to=Int} o) buf
-            resultT = tensorAdd (tensorAdd (tensorMv iwT inputT) (tensorMv rwT poT)) bT
-        in ({ prevOutTensor := Just resultT } st, resultT)
-      _ => idris_crash "Rnn: weight tensors not initialized (call autoName first)"
-
-  emapLayer f (MkRnn iw rw b po iwt rwt bt pot) =
-    MkRnn (map f iw) (map f rw) (map f b) (map f po) iwt rwt bt pot
-
-  showLayer {i} {o} _ = "Rnn<" ++ show i ++ ":" ++ show o ++ ">"
-
-  nameLayer {d} {i} {o} prefx (MkRnn iw rw b po _ _ _ _) =
-    if prim__backendSupportsTensorParams == 1
-      then
-        let oI = cast {to=Int} o
-            iI = cast {to=Int} i
-            -- Input weights [o, i]
-            (VTensor iwRows) = iw
-            iwBuf = prim__allocDoubles (oI * iI)
-            iwBuf' = packMatrixValues iwBuf 0 {n=i} iwRows
-            iwT = prim__paramRegister (prefx ++ "_iw") (prim__createParam2d oI iI iwBuf')
-            -- Recurrent weights [o, o]
-            (VTensor rwRows) = rw
-            rwBuf = prim__allocDoubles (oI * oI)
-            rwBuf' = packMatrixValues rwBuf 0 {n=o} rwRows
-            rwT = prim__paramRegister (prefx ++ "_rw") (prim__createParam2d oI oI rwBuf')
-            -- Bias [o]
-            (VTensor bElems) = b
-            bBuf = prim__allocDoubles oI
-            bBuf' = packScalarValues bBuf 0 bElems
-            bT = prim__paramRegister (prefx ++ "_bias") (prim__createParam1d oI bBuf')
-        in MkRnn (VTensor $ buildViewMatrix (prefx ++ "_iw") iwT 0 0 o i)
-                 (VTensor $ buildViewMatrix (prefx ++ "_rw") rwT 0 0 o o)
-                 (VTensor $ buildViewVector (prefx ++ "_bias") bT 0 o)
-                 po (Just iwT) (Just rwT) (Just bT) Nothing
-      else
-        let np = nameParam . (prefx ++ "_" ++)
-            namedIW = zipWith (np "inputWeight") enumerate iw
-            namedRW = zipWith (np "recurrentWeight") enumerate rw
-            namedBias = zipWith (np "bias") enumerate b
-        in MkRnn namedIW namedRW namedBias po Nothing Nothing Nothing Nothing
-
+  applyVar = applyRnn
   layerPrefix _ = "rnn"
 
-  toDoubleLayer {d} {i} {o} (MkRnn iw rw b po iwT rwT bT _) =
-    case (iwT, rwT, bT) of
-      (Just iwTensor, Just rwTensor, Just biasTensor) =>
-        let wIW = buildDoubleMatrix iwTensor 0 o i
-            wRW = buildDoubleMatrix rwTensor 0 o o
-            wBias = buildDoubleVector biasTensor 0 o
-        in MkRnn (VTensor wIW) (VTensor wRW) (VTensor wBias) (map value po) Nothing Nothing Nothing Nothing
-      _ => MkRnn (map value iw) (map value rw) (map value b) (map value po) Nothing Nothing Nothing Nothing
-    where
-      buildDoubleRow : AnyPtr -> Int -> Int -> (k : Nat) -> Vect k (Scalar Double)
-      buildDoubleRow _ _ _ Z = []
-      buildDoubleRow mat row col (S k) =
-        STensor (prim__item2d mat row col) :: buildDoubleRow mat row (col + 1) k
-
-      buildDoubleMatrix : AnyPtr -> Int -> (rows : Nat) -> (cols : Nat) -> Vect rows (Vector cols Double)
-      buildDoubleMatrix _ _ Z _ = []
-      buildDoubleMatrix mat row (S r) cols =
-        VTensor (buildDoubleRow mat row 0 cols) :: buildDoubleMatrix mat (row + 1) r cols
-
-      buildDoubleVector : AnyPtr -> Int -> (k : Nat) -> Vect k (Scalar Double)
-      buildDoubleVector _ _ Z = []
-      buildDoubleVector vec idx (S k) =
-        STensor (prim__item1d vec idx) :: buildDoubleVector vec (idx + 1) k
-
-  resetState {d} st = { previousOutput := zeros, prevOutTensor := Nothing } st
-
-  debugApply {i} {o} st@(MkRnn _ _ _ po _ _ _ _) inp =
-    let (updated, out) = applyGeneric st inp
-    in (updated, out, MkDebugEntry ("Rnn<" ++ show i ++ ":" ++ show o ++ ">")
-         [("hidden", showVec po)])
-    where
-      showVec : {n : Nat} -> Vector n Double -> String
-      showVec (VTensor xs) = "[" ++ go xs ++ "]"
-        where
-          go : Vect k (Tensor [] Double) -> String
-          go [] = ""
-          go [STensor x] = show x
-          go (STensor x :: rest) = show x ++ " " ++ go rest
-
-  getParamIds {d} (MkRnn iw rw b _ _ _ _ _) = tensorIds iw ++ tensorIds rw ++ tensorIds b
-    where
-      tensorIds : {dims : Vect rank Nat} -> Tensor dims (Variable d) -> List String
-      tensorIds = mapMaybe paramId . toList
-
-
-----------------------------------------------------------------------
--- Constructors
-----------------------------------------------------------------------
-
+||| Wrap an `RnnState` in `AnyLayer`.
 export
-rnnLayerWith : {i, o : Nat} -> (Num ty, FromDouble ty) => InitStrategy -> IO (AnyLayer i o ty)
-rnnLayerWith initFn = do
-  iw <- traverse (\_ => map fromDouble (initFn i o)) (the (Matrix o i ty) zeros)
-  rw <- traverse (\_ => map fromDouble (initFn o o)) (the (Matrix o o ty) zeros)
-  pure $ MkAnyLayer RnnState $ MkRnn iw rw zeros zeros Nothing Nothing Nothing Nothing
-
-export
-rnnLayer : {i, o : Nat} -> (Num ty, FromDouble ty) => IO (AnyLayer i o ty)
-rnnLayer = rnnLayerWith (xavier uniform)
+rnnLayerAny : {i, o : Nat} -> (paramPrefix : String) -> IO (AnyLayer i o CPU)
+rnnLayerAny pid = map (MkAnyLayer RnnState) (rnnLayer pid)

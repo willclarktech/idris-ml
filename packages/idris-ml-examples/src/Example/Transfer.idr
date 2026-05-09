@@ -11,16 +11,14 @@ import Compat.Random
 import Backprop
 import Checkpoint
 import DataPoint
-import Endofunctor
 import Hpo.LrFinder
-import Layer
-import Math
-import Optimizer
-import Tensor
+import Layer.Core
+import Layer.Linear
+import Array
 import Train
 import Util
 import Device
-import Variable
+import Tensor
 
 ----------------------------------------------------------------------
 -- Data (same 5-point classification task as Supervised)
@@ -28,44 +26,26 @@ import Variable
 
 dataPoints : Vect 5 (DataPoint 2 3 Double)
 dataPoints =
-    [ MkDataPoint (VTensor [1.5, -2.7]) (VTensor [0, 1, 0]),
-      MkDataPoint (VTensor [-3.2, 4.1]) (VTensor [0, 1, 0]),
-      MkDataPoint (VTensor [5.7, 0]) (VTensor [0, 0, 1]),
-      MkDataPoint (VTensor [-1.3, 8.8]) (VTensor [0, 1, 0]),
-      MkDataPoint (VTensor [2.9, -1.4]) (VTensor [1, 0, 0])
+    [ MkDataPoint (VArray [1.5, -2.7]) (VArray [0, 1, 0]),
+      MkDataPoint (VArray [-3.2, 4.1]) (VArray [0, 1, 0]),
+      MkDataPoint (VArray [5.7, 0]) (VArray [0, 0, 1]),
+      MkDataPoint (VArray [-1.3, 8.8]) (VArray [0, 1, 0]),
+      MkDataPoint (VArray [2.9, -1.4]) (VArray [1, 0, 0])
     ]
 
-bulkToTensorPersistent : {n : Nat} -> Vector n Double -> AnyPtr
-bulkToTensorPersistent {n} (VTensor elems) =
-  let nI = cast {to=Int} n
-      buf = prim__allocDoubles nI
-      buf' = packDoubleBuf buf 0 elems
-  in prim__createState1d nI buf'
-  where
-    packDoubleBuf : AnyPtr -> Int -> Vect k (Scalar Double) -> AnyPtr
-    packDoubleBuf buf _ [] = buf
-    packDoubleBuf buf off (STensor v :: rest) =
-      let buf' = prim__setDouble buf off v
-      in packDoubleBuf buf' (off + 1) rest
-
-toTensorDP : DataPoint 2 3 Double -> TensorDataPoint 2 3
-toTensorDP dp = MkTensorDataPoint (bulkToTensorPersistent (x dp)) (bulkToTensorPersistent (y dp))
-
-nllLossTensor : LossFnTensor CPU
-nllLossTensor predT targetT =
-  let logP = prim__logSoftmax predT 0
-      product = prim__mul logP targetT
-      totalSum = prim__sum product
-      loss = prim__mulScalar (prim__neg totalSum) (1.0 / 3.0)
-      val = prim__item loss
-  in Var loss Nothing val
-
+-- Argmax on a 1D tensor (works on logits — softmax is monotonic)
 evalPrediction : AnyPtr -> Nat
 evalPrediction outT =
   let v0 = prim__item1d outT 0
       v1 = prim__item1d outT 1
       v2 = prim__item1d outT 2
   in if v0 >= v1 && v0 >= v2 then 0 else if v1 >= v2 then 1 else 2
+
+-- Argmax on a one-hot Vector target.
+evalPredictionTarget : Vector 3 Double -> Nat
+evalPredictionTarget (VArray [SArray a, SArray b, SArray c]) =
+  if a >= b && a >= c then 0 else if b >= c then 1 else 2
+
 
 ----------------------------------------------------------------------
 -- Config
@@ -101,49 +81,54 @@ optPath path =
       base = pack (take (length chars `minus` length suffix) chars)
   in base ++ ".optimizer.safetensors"
 
+
 ----------------------------------------------------------------------
 -- Eval helper
 ----------------------------------------------------------------------
 
-evalModel : Network 2 [] 3 (Variable CPU) -> IO Double
+-- Forward each datapoint, compute NLL loss as a Double, average.
+evalModel : Network 2 [] 3 CPU -> IO Double
 evalModel model = do
-  let freshDPs = map toTensorDP dataPoints
-      losses = map (\dp =>
-        let (_, outT) = forwardVarTensor model (inputTensor dp)
-            loss = nllLossTensor outT (targetTensor dp)
-        in prim__item loss.tensorPtr) freshDPs
+  let losses = map (\dp =>
+        let inT = bulkToTensor (x dp)
+            inV = the (TVec 2 CPU) (MkTensor inT Nothing)
+            (_, predV) = forwardVar model inV
+            tgtT = bulkToTensor (y dp)
+            tgtV = the (TVec 3 CPU) (MkTensor tgtT Nothing)
+            lossT = tnllLoss predV tgtV
+        in prim__item lossT.tensorPtr) dataPoints
   pure (foldl (+) 0.0 (toList losses) / 5.0)
 
-printPredictions : Network 2 [] 3 (Variable CPU) -> IO ()
+printPredictions : Network 2 [] 3 CPU -> IO ()
 printPredictions model = do
-  let freshDPs = map toTensorDP dataPoints
-  traverse_ (\(dp, orig) =>
-    let (_, outT) = forwardVarTensor model (inputTensor dp)
-        predClass = evalPrediction outT
-        targetClass = evalPrediction (targetTensor dp)
+  traverse_ (\dp =>
+    let inT = bulkToTensor (x dp)
+        inV = the (TVec 2 CPU) (MkTensor inT Nothing)
+        (_, predV) = forwardVar model inV
+        predClass = evalPrediction predV.tensorPtr
+        targetClass = evalPredictionTarget (y dp)
         showVec : {k : Nat} -> Vector k Double -> String
-        showVec (VTensor xs) = "[" ++ go xs ++ "]"
+        showVec (VArray xs) = "[" ++ go xs ++ "]"
           where go : Vect j (Scalar Double) -> String
                 go [] = ""
-                go [STensor v] = show v
-                go (STensor v :: rest) = show v ++ ", " ++ go rest
-    in putStrLn $ "  " ++ showVec (x orig) ++ " -> class " ++ show predClass
+                go [SArray v] = show v
+                go (SArray v :: rest) = show v ++ ", " ++ go rest
+    in putStrLn $ "  " ++ showVec (x dp) ++ " -> class " ++ show predClass
                 ++ (if targetClass == predClass then " ok" else " WRONG"))
-    (zip freshDPs dataPoints)
+    (toList dataPoints)
+
 
 ----------------------------------------------------------------------
 -- Modes
 ----------------------------------------------------------------------
 
-doTrain : Config -> Network 2 [] 3 (Variable CPU) -> IO ()
+doTrain : Config -> Network 2 [] 3 CPU -> IO ()
 doTrain cfg model = do
   let opt = nativeSgd cfg.lr
-      tensorData = map toTensorDP dataPoints
   putStrLn $ "Training " ++ show cfg.epochs ++ " epochs..."
   (trained, epochsDone, _) <- runTraining
-    (\m, d => epochNativeTensorPre opt d nllLossTensor m) (pure tensorData)
+    (\m, d => epochVar opt d tnllLoss m) (pure dataPoints)
     (simpleConfig cfg.epochs) model
-  -- Save (only if --save was given)
   if cfg.savePath == ""
     then putStrLn "No --save path given; skipping save"
     else do
@@ -151,31 +136,24 @@ doTrain cfg model = do
       putStrLn $ (if ok then "Saved model to " else "FAILED to save model to ") ++ cfg.savePath
       ok2 <- saveOptimizer (optPath cfg.savePath) opt
       putStrLn $ (if ok2 then "Saved optimizer to " else "FAILED to save optimizer to ") ++ optPath cfg.savePath
-  -- Eval
   evalLoss <- evalModel trained
   putStrLn $ "Eval loss: " ++ show evalLoss
   printPredictions trained
   putStrLn $ formatResult [("mode", "train"), ("epochs", show epochsDone),
                             ("loss", show evalLoss), ("backend", backendName)]
 
-doContinue : Config -> Network 2 [] 3 (Variable CPU) -> IO ()
+doContinue : Config -> Network 2 [] 3 CPU -> IO ()
 doContinue cfg model = do
-  -- Load model
   ok <- loadModel cfg.loadPath
   putStrLn $ (if ok then "Loaded model from " else "FAILED to load from ") ++ cfg.loadPath
-  let model' = emap refreshValue model
-  -- Load optimizer
   let opt = nativeSgd cfg.lr
   ok2 <- loadOptimizer (optPath cfg.loadPath) opt
   putStrLn $ (if ok2 then "Loaded optimizer from " else "FAILED to load optimizer from ")
            ++ optPath cfg.loadPath
-  -- Continue training
-  let tensorData = map toTensorDP dataPoints
   putStrLn $ "Training " ++ show cfg.epochs ++ " more epochs..."
   (trained, epochsDone, _) <- runTraining
-    (\m, d => epochNativeTensorPre opt d nllLossTensor m) (pure tensorData)
-    (simpleConfig cfg.epochs) model'
-  -- Save (only if --save was given)
+    (\m, d => epochVar opt d tnllLoss m) (pure dataPoints)
+    (simpleConfig cfg.epochs) model
   if cfg.savePath == ""
     then putStrLn "No --save path given; skipping save"
     else do
@@ -183,23 +161,22 @@ doContinue cfg model = do
       putStrLn $ (if ok3 then "Saved model to " else "FAILED to save model to ") ++ cfg.savePath
       ok4 <- saveOptimizer (optPath cfg.savePath) opt
       putStrLn $ (if ok4 then "Saved optimizer to " else "FAILED to save optimizer to ") ++ optPath cfg.savePath
-  -- Eval
   evalLoss <- evalModel trained
   putStrLn $ "Eval loss: " ++ show evalLoss
   printPredictions trained
   putStrLn $ formatResult [("mode", "continue"), ("epochs", show epochsDone),
                             ("loss", show evalLoss), ("backend", backendName)]
 
-doInfer : Config -> Network 2 [] 3 (Variable CPU) -> IO ()
+doInfer : Config -> Network 2 [] 3 CPU -> IO ()
 doInfer cfg model = do
   ok <- loadModel cfg.loadPath
   putStrLn $ (if ok then "Loaded model from " else "FAILED to load from ") ++ cfg.loadPath
-  let model' = emap refreshValue model
-  evalLoss <- evalModel model'
+  evalLoss <- evalModel model
   putStrLn $ "Eval loss: " ++ show evalLoss
-  printPredictions model'
+  printPredictions model
   putStrLn $ formatResult [("mode", "infer"), ("loss", show evalLoss),
                             ("backend", backendName)]
+
 
 ----------------------------------------------------------------------
 -- Main
@@ -211,24 +188,21 @@ main = do
   let cfg = parseArgs defaultConfig specs (drop 1 args)
   srand cfg.seed
 
-  ll <- linearLayer
-  let model = autoName $ OutputLayer ll
+  llAny <- linearLayerAny {i=2} {o=3} "ll"
+  let model : Network 2 [] 3 CPU
+      model = OutputLayer llAny
 
   putStrLn $ "=== Cross-Backend Transfer [" ++ backendName ++ "] -- "
            ++ cfg.mode ++ " ==="
 
-  -- HPO branch: --lr-find runs lr_find on Transfer's training setup
-  -- (same dataset/model/loss as Supervised), independently of the mode.
-  -- Result matches Supervised's lr_find — see hyperparameter-tuning-2026.md.
   when cfg.lrFind $ do
     let opt = nativeSgd cfg.lr
-        tensorData = map toTensorDP dataPoints
     let lrCfg : LrFindConfig
         lrCfg = { numIters := 100 } defaultLrFindConfig
     _ <- lrFind lrCfg
-      (\m, d => let (m', loss) = epochNativeTensorPre opt d nllLossTensor m
+      (\m, d => let (m', loss) = epochVar opt d tnllLoss m
                 in pure (m', loss))
-      (pure tensorData) opt model
+      (pure dataPoints) opt model
     putStrLn ""
     putStrLn "Done — re-run without --lr-find at the recommended LR."
     exitSuccess

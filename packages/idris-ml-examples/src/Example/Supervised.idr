@@ -9,90 +9,49 @@ import Compat.Random
 import Backprop
 import DataPoint
 import Device
-import Endofunctor
-import Floating
-import Hpo.LrFinder
-import Layer
-import Math
-import Optimizer
-import Tensor
+import Layer.Core
+import Layer.Linear
+import Array
 import Train
 import Util
-import Variable
+import Tensor
 
 
 -- f(x, y) = argmax(x - y - 10, -4x + y + 5, 2x + y - 11)
 dataPoints : Vect 5 (DataPoint 2 3 Double)
 dataPoints =
-    [ MkDataPoint (VTensor [1.5, -2.7]) (VTensor [0, 1, 0]),
-      MkDataPoint (VTensor [-3.2, 4.1]) (VTensor [0, 1, 0]),
-      MkDataPoint (VTensor [5.7, 0]) (VTensor [0, 0, 1]),
-      MkDataPoint (VTensor [-1.3, 8.8]) (VTensor [0, 1, 0]),
-      MkDataPoint (VTensor [2.9, -1.4]) (VTensor [1, 0, 0])
+    [ MkDataPoint (VArray [1.5, -2.7]) (VArray [0, 1, 0]),
+      MkDataPoint (VArray [-3.2, 4.1]) (VArray [0, 1, 0]),
+      MkDataPoint (VArray [5.7, 0]) (VArray [0, 0, 1]),
+      MkDataPoint (VArray [-1.3, 8.8]) (VArray [0, 1, 0]),
+      MkDataPoint (VArray [2.9, -1.4]) (VArray [1, 0, 0])
     ]
 
--- Convert static DataPoint Double to persistent TensorDataPoint.
--- Uses prim__createState1d (persistent, survives tape resets) because
--- this data is reused across epochs via `pure tensorData`.
-bulkToTensorPersistent : {n : Nat} -> Vector n Double -> AnyPtr
-bulkToTensorPersistent {n} (VTensor elems) =
-  let nI = cast {to=Int} n
-      buf = prim__allocDoubles nI
-      buf' = packDoubleBuf buf 0 elems
-  in prim__createState1d nI buf'
-  where
-    packDoubleBuf : AnyPtr -> Int -> Vect k (Scalar Double) -> AnyPtr
-    packDoubleBuf buf _ [] = buf
-    packDoubleBuf buf off (STensor v :: rest) =
-      let buf' = prim__setDouble buf off v
-      in packDoubleBuf buf' (off + 1) rest
-
-toTensorDP : DataPoint 2 3 Double -> TensorDataPoint 2 3
-toTensorDP dp = MkTensorDataPoint (bulkToTensorPersistent (x dp)) (bulkToTensorPersistent (y dp))
-
--- Simplest possible tensor loss: just sum the predictions (for debugging)
-debugLoss : LossFnTensor CPU
-debugLoss predT targetT =
-  let loss = prim__sum predT
-      val = prim__item loss
-  in Var loss Nothing val
-
--- Tensor-level NLL loss: -sum(target * logSoftmax(logits)) / n
-nllLossTensor : LossFnTensor CPU
-nllLossTensor predT targetT =
-  let logP = prim__logSoftmax predT 0
-      product = prim__mul logP targetT
-      totalSum = prim__sum product
-      loss = prim__mulScalar (prim__neg totalSum) (1.0 / 3.0)
-      val = prim__item loss
-  in Var loss Nothing val
-
--- Argmax on a 1D tensor (works on logits — softmax is monotonic)
-evalPrediction : AnyPtr -> Nat
-evalPrediction outT =
-  let v0 = prim__item1d outT 0
-      v1 = prim__item1d outT 1
-      v2 = prim__item1d outT 2
-  in if v0 >= v1 && v0 >= v2 then 0 else if v1 >= v2 then 1 else 2
 
 record Config where
   constructor MkConfig
   lr : Double
   epochs : Nat
   seed : Bits64
-  ||| If True, run `lr_find` (LR-range test) instead of training.
-  lrFind : Bool
 
 defaultConfig : Config
-defaultConfig = MkConfig 0.03 1000 42 False
+defaultConfig = MkConfig 0.03 1000 42
 
 specs : List (ArgSpec Config)
 specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
         , Arg "--epochs" (\v, c => { epochs := castNat v } c)
-        , Arg "--seed" (\v, c => { seed := castBits64 v } c)
-        -- Boolean flag with explicit value (parseArgs consumes flag+value
-        -- pairs uniformly). Invoke as: --lr-find 1
-        , Arg "--lr-find" (\v, c => { lrFind := (v == "1" || v == "true") } c) ]
+        , Arg "--seed" (\v, c => { seed := castBits64 v } c) ]
+
+
+-- Argmax on a TVec (read three values via prim__item1d).
+evalPrediction : TVec 3 CPU -> Nat
+evalPrediction outV =
+  let v0 = prim__item1d outV.tensorPtr 0
+      v1 = prim__item1d outV.tensorPtr 1
+      v2 = prim__item1d outV.tensorPtr 2
+  in if v0 >= v1 && v0 >= v2 then 0 else if v1 >= v2 then 1 else 2
+
+%default partial
 
 main : IO ()
 main = do
@@ -102,63 +61,56 @@ main = do
   srand cfg.seed
 
   let opt = nativeSgd cfg.lr
-  let tensorData = map toTensorDP dataPoints
 
   putStrLn "=== Supervised Classification ==="
   putStrLn $ "Config: lr=" ++ show cfg.lr ++ " epochs=" ++ show cfg.epochs
            ++ " seed=" ++ show cfg.seed
 
-  ll <- linearLayer
-  let model = autoName $ OutputLayer ll
-  putStrLn $ "Architecture: " ++ show model
+  llAny <- linearLayerAny {i = 2} {o = 3} "ll"
+  let model : Network 2 [] 3 CPU
+      model = OutputLayer llAny
   putStrLn ""
 
-  -- Quick forward test
-  let (_, testOut) = forwardVarTensor model (inputTensor (index FZ tensorData))
-  putStrLn $ "Forward test: " ++ show (prim__item (prim__sum testOut))
+  (trained, epochsDone, finalLoss) <- runTraining
+    (\m, d => epochVar opt d tnllLoss m)
+    (pure dataPoints)
+    (simpleConfig cfg.epochs)
+    model
 
-  -- HPO branch: when --lr-find 1, run lr_find (LR-range test) and exit
-  -- early. Mutates the optimizer's LR; rerun without --lr-find at the
-  -- recommended LR for actual training.
-  when cfg.lrFind $ do
-    let lrCfg : LrFindConfig
-        lrCfg = { numIters := 100 } defaultLrFindConfig
-    _ <- lrFind lrCfg
-      (\m, d => let (m', loss) = epochNativeTensorPre opt d nllLossTensor m
-                in pure (m', loss))
-      (pure tensorData) opt model
-    putStrLn ""
-    putStrLn "Done — re-run without --lr-find at the recommended LR."
-    exitSuccess
-
-  (trained, epochsDone, _) <- runTraining
-    (\m, d => epochNativeTensorPre opt d nllLossTensor m) (pure tensorData) (simpleConfig cfg.epochs) model
-
-  -- Eval: create fresh tensor data (training reset freed arena)
   putStrLn ""
   putStrLn "Eval:"
-  let freshEvalDPs = map toTensorDP dataPoints  -- fresh tensors after tape reset
-      evalLosses = map (\dp =>
-        let (_, outT) = forwardVarTensor trained (inputTensor dp)
-            loss = nllLossTensor outT (targetTensor dp)
-        in prim__item loss.tensorPtr) freshEvalDPs
-      evalLoss = foldl (+) 0.0 (toList evalLosses) / 5.0
-  putStrLn $ "  Loss: " ++ show evalLoss
 
-  traverse_ (\(dp, orig) =>
-    let (_, outT) = forwardVarTensor trained (inputTensor dp)
-        predClass = evalPrediction outT
-        targetClass = evalPrediction (targetTensor dp)
-        showVec : {k : Nat} -> Vector k Double -> String
-        showVec (VTensor xs) = "[" ++ go xs ++ "]"
-          where go : Vect j (Scalar Double) -> String
-                go [] = ""
-                go [STensor v] = show v
-                go (STensor v :: rest) = show v ++ ", " ++ go rest
-    in putStrLn $ "  " ++ showVec (x orig) ++ " -> class " ++ show predClass
-                ++ (if targetClass == predClass then " ok" else " WRONG"))
-    (zip freshEvalDPs dataPoints)
+  -- Build persistent input tensors and forward through the trained model.
+  let inputs = the (Vect 5 AnyPtr) (map mkInputTensor dataPoints)
+  traverse_ (\(idx, dp) =>
+    let inV = the (TVec 2 CPU) (MkTensor (mkInputTensor dp) Nothing)
+        (_, predV) = forwardVar trained inV
+        predClass = evalPrediction predV
+        targetClass = evalPredictionTarget (y dp)
+        ok = if targetClass == predClass then " ok" else " WRONG"
+    in putStrLn $ "  " ++ showVecD (x dp) ++ " -> class " ++ show predClass ++ ok)
+    (zip Fin.range dataPoints)
 
   putStrLn ""
-  putStrLn $ formatResult [("epochs", show epochsDone), ("loss", show evalLoss),
-                            ("seed", show cfg.seed)]
+  putStrLn $ formatResult [ ("epochs", show epochsDone)
+                          , ("loss", show finalLoss)
+                          , ("seed", show cfg.seed) ]
+  where
+    mkInputTensor : DataPoint 2 3 Double -> AnyPtr
+    mkInputTensor dp =
+      let (VArray xs) = x dp
+          buf = prim__allocDoubles 2
+          buf' = packInto buf 0 xs
+      in prim__createState1d 2 buf'
+      where
+        packInto : AnyPtr -> Int -> Vect k (Scalar Double) -> AnyPtr
+        packInto b _ [] = b
+        packInto b o (SArray v :: rest) =
+          packInto (prim__setDouble b o v) (o + 1) rest
+
+    evalPredictionTarget : Vector 3 Double -> Nat
+    evalPredictionTarget (VArray [SArray a, SArray b, SArray c]) =
+      if a >= b && a >= c then 0 else if b >= c then 1 else 2
+
+    showVecD : Vector 2 Double -> String
+    showVecD (VArray [SArray a, SArray b]) = "[" ++ show a ++ ", " ++ show b ++ "]"

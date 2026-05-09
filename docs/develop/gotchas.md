@@ -2,6 +2,14 @@
 
 Comprehensive reference for all known pitfalls in the idris-ml codebase. Organized into four categories. See also [design-decisions.md](design-decisions.md) for rationale behind key choices.
 
+> **Note: Path C migration deleted several V1-era gotchas.**
+> The V1 entries below referencing `Variable d` (shape-erased), `nameLayer`/`autoName`, `applyDeltas`,
+> `toDoubleNetwork`, `Endofunctor.emap`, `DenseOptimizer`, `NtmMemBuf`, `WeightBuf`, scalar-tape
+> internals, and the V1 `LayerLike` interface are **no longer applicable** post-migration. They are
+> preserved as historical context — see [path-c-migration.md](path-c-migration.md) for what
+> superseded them. Top-of-file sections (Idris 2 / Chez Scheme traps, Training & Numerics, NTM /
+> DNC / MLX-specific gotchas) remain accurate for V2 code.
+
 ## Idris 2 / Chez Scheme Traps
 
 These are compiler/runtime pitfalls that produce confusing errors or silent misbehavior.
@@ -105,24 +113,15 @@ Stdout is fully buffered when redirected to file/pipe (e.g. background tasks). U
 
 Gradient flow, numerical stability, and training patterns.
 
-### `paramId` requirement / autoName
+### `paramId` is required for gradient flow
 
-Variables without a `paramId` (i.e., `Nothing`) are invisible to gradient collection and won't receive updates. Use `autoName` (preferred) or `nameParams`/`nameNetworkParams` before training. `autoName` assigns type-based prefixes with per-type counters (`ll0`, `ll1`, `rnn0`, `lstm0`, `ntm0`, ...) and scopes NTM sub-layer names under their parent (`ntm0_lstm0_`, `ntm0_readFc_ll0_`), preventing the collision bug in `nameNetworkParams`. `setParamId` writes to both the Variable record and the tape's pid vector.
-
-### Double `nameLayer` creates stale handles
-
-Calling `nameLayer` on a layer state, then wrapping it in `autoName $ OutputLayer (MkAnyLayer ...)`, names the state TWICE. Each `nameLayer` call creates new consolidated parameter tensors via `prim__paramRegister`. The first set becomes stale — the optimizer only updates the second set (from `autoName`). If you hold a reference to the pre-`autoName` state (e.g., for a batched forward function), it reads stale weights and the model won't converge.
-
-Fix: either use `autoName` alone (let it call `nameLayer` internally), or call `nameLayer` once and skip `autoName`. If you need both a `Network` and a direct state reference, name once and share:
+`Tensor`s without a `paramId` (i.e., `Nothing`) are invisible to the C-side optimizer and won't receive updates. Always pass a paramPrefix to `*LayerAny` constructors:
 
 ```idris
-let namedTfm = nameLayer "tfm0" tfm
-    model = OutputLayer (MkAnyLayer ... namedTfm)  -- no autoName
+ll <- linearLayerAny {i=2} {o=3} "ll0"   -- registers "ll0_weights" + "ll0_bias"
 ```
 
-### Tape generation staleness
-
-After `collectGrads` resets the tape (gen++), Variables from the previous epoch are stale. `ensureOnTape` detects this via generation mismatch and re-registers with current `.value`. Same stale Variable used N times creates N Const entries — gradients accumulate correctly via `mergeWith (+)` on paramId.
+For multi-network examples (A2C / PPO / SAC), pick distinct paramId prefixes per network (`"actor_"`, `"critic_"`, `"q1_"`, `"q1tgt_"`, ...) and create per-network optimizers via `nativeAdamGroup "actor_" ...`. The V1 "double `nameLayer` creates stale handles" bug class is structurally impossible in V2 since each layer is named exactly once, at construction.
 
 ### `logSoftmax` + `nllLoss`
 

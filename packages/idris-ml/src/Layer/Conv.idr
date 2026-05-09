@@ -1,39 +1,24 @@
--- | Conv2D layer with type-safe spatial dimensions.
--- |
--- | Input: flat [inC * h * w], internally reshaped to [inC, h, w].
--- | Output: flat [outC * oH * oW] where oH = h + 2*padH - kH + 1 (stride=1).
--- | Kernel: [outC, inC, kH, kW], bias: [outC].
--- |
--- | Carries erased proofs linking flat dimensions to spatial params,
--- | following the TransformerState pattern.
-
 module Layer.Conv
 
 import Data.Vect
 
+import Compat.Random
 import Device
-import Endofunctor
-import Floating
 import Init
 import Layer.Core
-import Layer.Linear
-import Math
+import Sampler
 import Tensor
-import Util
-import Variable
 
 
 ----------------------------------------------------------------------
--- Type-level dimension functions
+-- Type-level conv/pool output-dimension helpers
 ----------------------------------------------------------------------
 
-||| Output spatial dimension for stride=1 convolution.
 ||| ConvOutDim inDim kernel pad = inDim + 2*pad - kernel + 1
 public export
 ConvOutDim : Nat -> Nat -> Nat -> Nat
 ConvOutDim inDim kernel pad = ((inDim + 2 * pad) `minus` kernel) + 1
 
-||| Output spatial dimension for pooling.
 ||| PoolOutDim inDim kernel stride = (inDim - kernel) / stride + 1
 public export
 PoolOutDim : Nat -> Nat -> Nat -> Nat
@@ -41,381 +26,358 @@ PoolOutDim inDim kernel stride = div (inDim `minus` kernel) stride + 1
 
 
 ----------------------------------------------------------------------
--- Conv2D State
+-- Conv — typed-surface conv + pool layers (Path C)
+----------------------------------------------------------------------
+--
+-- Six layers in one file (matches the V1 `Layer/Conv.idr` shape):
+--   - Conv2D / Conv1D  (learnable kernel + bias)
+--   - MaxPool2D / MaxPool1D (no params)
+--   - AvgPool2D / AvgPool1D (no params)
+--
+-- All take flattened input shape `[c * spatial]` and produce
+-- flattened output `[outC * spatialOut]`. The forward path reshapes
+-- to `[c, spatial]` (1D) or `[c, h, w]` (2D), calls the C op, then
+-- flattens. Type-level `i / o` indices are computed with V1's
+-- `ConvOutDim` / `PoolOutDim` helpers.
+
+
+----------------------------------------------------------------------
+-- Conv2D
 ----------------------------------------------------------------------
 
-||| Conv2D layer state. Extra spatial params are fixed at construction;
-||| inputSize and outputSize are the flat dimensions for the Network chain.
 public export
-record Conv2DState (inC : Nat) (outC : Nat) (h : Nat) (w : Nat)
-                   (kH : Nat) (kW : Nat) (padH : Nat) (padW : Nat)
-                   (inputSize : Nat) (outputSize : Nat) (ty : Type) where
-  constructor MkConv2D
-  0 inputPrf  : inputSize = inC * (h * w)
-  0 outputPrf : outputSize = outC * (ConvOutDim h kH padH * ConvOutDim w kW padW)
-  kernelFlat  : Vector (outC * inC * kH * kW) ty
-  bias        : Vector outC ty
-  kernelTensor : Maybe AnyPtr
-  biasTensor   : Maybe AnyPtr
-
-
-----------------------------------------------------------------------
--- LayerLike Instance
-----------------------------------------------------------------------
+data Conv2DState :
+  (inC : Nat) -> (outC : Nat) -> (h : Nat) -> (w : Nat) ->
+  (kH : Nat) -> (kW : Nat) -> (padH : Nat) -> (padW : Nat) ->
+  Nat -> Nat -> (0 _ : Device) -> Type
+  where
+  MkConv2D :
+    Tensor [outC, inC, kH, kW] d ->                       -- kernel
+    TVec outC d ->                                      -- bias
+    Conv2DState inC outC h w kH kW padH padW
+                  (inC * (h * w))
+                  (outC * (ConvOutDim h kH padH * ConvOutDim w kW padW))
+                  d
 
 %default partial
+
 export
-{inC, outC, h, w, kH, kW, padH, padW : Nat} ->
-  LayerLike (Conv2DState inC outC h w kH kW padH padW) where
+applyConv2D : {inC, outC, h, w, kH, kW, padH, padW : Nat} ->
+                Conv2DState inC outC h w kH kW padH padW
+                              (inC * (h * w))
+                              (outC * (ConvOutDim h kH padH * ConvOutDim w kW padW))
+                              d ->
+                TVec (inC * (h * w)) d ->
+                TVec (outC * (ConvOutDim h kH padH * ConvOutDim w kW padW)) d
+applyConv2D {inC} {outC} {h} {w} {kH} {kW} {padH} {padW}
+              (MkConv2D ker bias) input =
+  let inCI = cast {to=Int} inC
+      hI = cast {to=Int} h
+      wI = cast {to=Int} w
+      inp3d = prim__reshape3d input.tensorPtr inCI hI wI
+      padHI = cast {to=Int} padH
+      padWI = cast {to=Int} padW
+      outT = prim__conv2d inp3d ker.tensorPtr bias.tensorPtr padHI padWI 1 1
+      outFlat = outC * (ConvOutDim h kH padH * ConvOutDim w kW padW)
+      flatPtr = prim__reshape1d outT (cast {to=Int} outFlat)
+  in MkTensor flatPtr Nothing
 
-  applyGeneric _ _ = idris_crash "Conv2D: generic forward not implemented (use tensor path)"
+-- Pack a Vect of Doubles into a buffer.
+packDoubles : AnyPtr -> Int -> Vect k Double -> AnyPtr
+packDoubles buf _ [] = buf
+packDoubles buf off (x :: rest) =
+  packDoubles (prim__setDouble buf off x) (off + 1) rest
 
-  applyVar {d} _ _ = idris_crash "Conv2D: scalar Variable forward not implemented (use tensor path)"
+zeroBuf : AnyPtr -> Int -> Int -> AnyPtr
+zeroBuf buf _ 0 = buf
+zeroBuf buf off n =
+  zeroBuf (prim__setDouble buf off 0.0) (off + 1) (n - 1)
 
-  applyVarTensor {d} {i} {o} st inputT =
-    case (st.kernelTensor, st.biasTensor) of
-      (Just kerT, Just biasT) =>
-        let hI  = cast {to=Int} h
-            wI  = cast {to=Int} w
-            inCI = cast {to=Int} inC
-            inp3d = prim__reshape3d inputT inCI hI wI
-            padHI = cast {to=Int} padH
-            padWI = cast {to=Int} padW
-            outT = prim__conv2d inp3d kerT biasT padHI padWI 1 1
-            -- Flatten output [outC, oH, oW] -> [outC * oH * oW]
-            oI = cast {to=Int} o
-            flatOut = prim__reshape1d outT oI
-        in (st, flatOut)
-      _ => idris_crash "Conv2D: weight tensors not initialized (call autoName first)"
-
-  emapLayer f (MkConv2D ip op k b kt bt) = MkConv2D ip op (map f k) (map f b) kt bt
-
-  showLayer _ = "Conv2D<" ++ show inC ++ "->" ++ show outC
-             ++ " k=" ++ show kH ++ "x" ++ show kW ++ ">"
-
-  nameLayer {d} {i} {o} prefx (MkConv2D ip op kernelFlat bias _ _) =
-    if prim__backendSupportsTensorParams == 1
-      then
-        let kerI = cast {to=Int} (outC * inC * kH * kW)
-            kerBuf = prim__allocDoubles kerI
-            (VTensor kerElems) = kernelFlat
-            kerBuf' = packScalarValues kerBuf 0 kerElems
-            kerT = prim__paramRegister (prefx ++ "_kernel")
-                     (prim__createParam4d (cast outC) (cast inC) (cast kH) (cast kW) kerBuf')
-            biasI = cast {to=Int} outC
-            biasBuf = prim__allocDoubles biasI
-            (VTensor biasElems) = bias
-            biasBuf' = packScalarValues biasBuf 0 biasElems
-            biasT = prim__paramRegister (prefx ++ "_bias")
-                      (prim__createParam1d biasI biasBuf')
-        in MkConv2D ip op kernelFlat bias (Just kerT) (Just biasT)
-      else idris_crash "Conv2D: scalar path not supported"
-
-  layerPrefix _ = "conv"
-
-  toDoubleLayer {d} (MkConv2D ip op k b _ _) =
-    MkConv2D ip op (map value k) (map value b) Nothing Nothing
-
-  debugApply st inp =
-    let (updated, out) = applyGeneric st inp
-    in (updated, out, MkDebugEntry "Conv2D" [])
-
-
-----------------------------------------------------------------------
--- Constructor
-----------------------------------------------------------------------
-
-||| Create a Conv2D layer with He initialization.
-||| Returns AnyLayer (inC*h*w) (outC*oH*oW) ty.
+||| Build a Conv2D layer with He-normal kernel init and zero bias.
 export
 conv2dLayer : {inC, outC, h, w, kH, kW, padH, padW : Nat} ->
-              (Num ty, FromDouble ty) =>
-              IO (AnyLayer (inC * (h * w))
-                           (outC * (ConvOutDim h kH padH * ConvOutDim w kW padW))
-                           ty)
-conv2dLayer = do
-  kernelVals <- traverse (\_ => map fromDouble (he normal (inC * kH * kW) outC))
-                         (the (Vector (outC * inC * kH * kW) ty) zeros)
-  let biasVals = the (Vector outC ty) zeros
-  pure $ MkAnyLayer (Conv2DState inC outC h w kH kW padH padW)
-    (MkConv2D Refl Refl kernelVals biasVals Nothing Nothing)
+                (paramPrefix : String) ->
+                IO (Conv2DState inC outC h w kH kW padH padW
+                                  (inC * (h * w))
+                                  (outC * (ConvOutDim h kH padH * ConvOutDim w kW padW))
+                                  CPU)
+conv2dLayer paramPrefix = do
+  let kerCount = outC * inC * kH * kW
+  kerVals <- traverse (\_ => he normal (inC * kH * kW) outC)
+                      (Vect.replicate kerCount ())
+  let kerBuf = prim__allocDoubles (cast {to=Int} kerCount)
+      kerBuf' = packDoubles kerBuf 0 kerVals
+      biasBuf = prim__allocDoubles (cast {to=Int} outC)
+      biasBuf' = zeroBuf biasBuf 0 (cast {to=Int} outC)
+      kerName = paramPrefix ++ "_kernel"
+      biasName = paramPrefix ++ "_bias"
+      kerPtr = prim__paramRegister kerName
+        (prim__createParam4d (cast outC) (cast inC) (cast kH) (cast kW) kerBuf')
+      biasPtr = prim__paramRegister biasName
+        (prim__createParam1d (cast outC) biasBuf')
+      kerTV : Tensor [outC, inC, kH, kW] CPU
+      kerTV = MkTensor kerPtr (Just kerName)
+      biasTV : TVec outC CPU
+      biasTV = MkTensor biasPtr (Just biasName)
+  pure $ MkConv2D kerTV biasTV
 
-
-----------------------------------------------------------------------
--- MaxPool2D State
-----------------------------------------------------------------------
-
-||| MaxPool2D layer state. No learnable parameters.
 public export
-record MaxPool2DState (c : Nat) (inH : Nat) (inW : Nat)
-                      (poolH : Nat) (poolW : Nat) (strH : Nat) (strW : Nat)
-                      (inputSize : Nat) (outputSize : Nat) (ty : Type) where
-  constructor MkMaxPool2D
-  0 inputPrf  : inputSize = c * (inH * inW)
-  0 outputPrf : outputSize = c * (PoolOutDim inH poolH strH * PoolOutDim inW poolW strW)
-
-
-----------------------------------------------------------------------
--- MaxPool2D LayerLike Instance
-----------------------------------------------------------------------
+{inC, outC, h, w, kH, kW, padH, padW : Nat} ->
+  LayerLike (Conv2DState inC outC h w kH kW padH padW) where
+  applyVar st@(MkConv2D _ _) input = (st, applyConv2D st input)
+  layerPrefix _ = "conv"
 
 export
-{c, inH, inW, poolH, poolW, strH, strW : Nat} ->
-  LayerLike (MaxPool2DState c inH inW poolH poolW strH strW) where
-
-  applyGeneric _ _ = idris_crash "MaxPool2D: generic forward not implemented"
-  applyVar {d} _ _ = idris_crash "MaxPool2D: scalar forward not implemented"
-
-  applyVarTensor {d} {i} {o} st inputT =
-    let cI  = cast {to=Int} c
-        hI  = cast {to=Int} inH
-        wI  = cast {to=Int} inW
-        inp3d = prim__reshape3d inputT cI hI wI
-        outT = prim__maxPool2d inp3d (cast {to=Int} poolH) (cast {to=Int} poolW)
-                                     (cast {to=Int} strH) (cast {to=Int} strW)
-        oI = cast {to=Int} o
-        flatOut = prim__reshape1d outT oI
-    in (st, flatOut)
-
-  emapLayer _ st = st
-  showLayer _ = "MaxPool2D<k=" ++ show poolH ++ " s=" ++ show strH ++ ">"
-  nameLayer {d} _ st = st
-  layerPrefix _ = "pool"
-  toDoubleLayer {d} (MkMaxPool2D ip op) = MkMaxPool2D ip op
-
-  debugApply st inp =
-    let (updated, out) = applyGeneric st inp
-    in (updated, out, MkDebugEntry "MaxPool2D" [])
+conv2dLayerAny : {inC, outC, h, w, kH, kW, padH, padW : Nat} ->
+                   (paramPrefix : String) ->
+                   IO (AnyLayer (inC * (h * w))
+                                  (outC * (ConvOutDim h kH padH * ConvOutDim w kW padW))
+                                  CPU)
+conv2dLayerAny pid =
+  map (MkAnyLayer (Conv2DState inC outC h w kH kW padH padW))
+      (conv2dLayer {inC} {outC} {h} {w} {kH} {kW} {padH} {padW} pid)
 
 
 ----------------------------------------------------------------------
--- MaxPool2D Constructor
-----------------------------------------------------------------------
-
-||| Create a MaxPool2D layer.
-export
-maxPool2dLayer : {c, inH, inW, poolH, poolW, strH, strW : Nat} ->
-                 AnyLayer (c * (inH * inW))
-                          (c * (PoolOutDim inH poolH strH * PoolOutDim inW poolW strW))
-                          ty
-maxPool2dLayer = MkAnyLayer (MaxPool2DState c inH inW poolH poolW strH strW)
-                  (MkMaxPool2D Refl Refl)
-
-
-----------------------------------------------------------------------
--- Conv1D State
+-- Conv1D
 ----------------------------------------------------------------------
 
 public export
-record Conv1DState (inC : Nat) (outC : Nat) (len : Nat)
-                   (kL : Nat) (pad : Nat)
-                   (inputSize : Nat) (outputSize : Nat) (ty : Type) where
-  constructor MkConv1D
-  0 inputPrf  : inputSize = inC * len
-  0 outputPrf : outputSize = outC * (ConvOutDim len kL pad)
-  kernelFlat  : Vector (outC * inC * kL) ty
-  bias        : Vector outC ty
-  kernelTensor : Maybe AnyPtr
-  biasTensor   : Maybe AnyPtr
-
-
-----------------------------------------------------------------------
--- Conv1D LayerLike Instance
-----------------------------------------------------------------------
+data Conv1DState :
+  (inC : Nat) -> (outC : Nat) -> (len : Nat) -> (kL : Nat) -> (pad : Nat) ->
+  Nat -> Nat -> (0 _ : Device) -> Type
+  where
+  MkConv1D :
+    Tensor [outC, inC, kL] d ->
+    TVec outC d ->
+    Conv1DState inC outC len kL pad
+                  (inC * len)
+                  (outC * ConvOutDim len kL pad)
+                  d
 
 export
-{inC, outC, len, kL, pad : Nat} ->
-  LayerLike (Conv1DState inC outC len kL pad) where
-
-  applyGeneric _ _ = idris_crash "Conv1D: use tensor path"
-  applyVar {d} _ _ = idris_crash "Conv1D: use tensor path"
-
-  applyVarTensor {d} {i} {o} st inputT =
-    case (st.kernelTensor, st.biasTensor) of
-      (Just kerT, Just biasT) =>
-        let inCI = cast {to=Int} inC
-            lenI = cast {to=Int} len
-            inp2d = prim__reshape2d inputT inCI lenI
-            padI = cast {to=Int} pad
-            outT = prim__conv1d inp2d kerT biasT padI 1
-            oI = cast {to=Int} o
-            flatOut = prim__reshape1d outT oI
-        in (st, flatOut)
-      _ => idris_crash "Conv1D: weight tensors not initialized"
-
-  emapLayer f (MkConv1D ip op k b kt bt) = MkConv1D ip op (map f k) (map f b) kt bt
-  showLayer _ = "Conv1D<" ++ show inC ++ "->" ++ show outC ++ " k=" ++ show kL ++ ">"
-
-  nameLayer {d} {i} {o} prefx (MkConv1D ip op kernelFlat bias _ _) =
-    if prim__backendSupportsTensorParams == 1
-      then
-        let kerI = cast {to=Int} (outC * inC * kL)
-            kerBuf = prim__allocDoubles kerI
-            (VTensor kerElems) = kernelFlat
-            kerBuf' = packScalarValues kerBuf 0 kerElems
-            kerT = prim__paramRegister (prefx ++ "_kernel")
-                     (prim__createParam3d (cast outC) (cast inC) (cast kL) kerBuf')
-            biasI = cast {to=Int} outC
-            biasBuf = prim__allocDoubles biasI
-            (VTensor biasElems) = bias
-            biasBuf' = packScalarValues biasBuf 0 biasElems
-            biasT = prim__paramRegister (prefx ++ "_bias")
-                      (prim__createParam1d biasI biasBuf')
-        in MkConv1D ip op kernelFlat bias (Just kerT) (Just biasT)
-      else idris_crash "Conv1D: scalar path not supported"
-
-  layerPrefix _ = "conv1d"
-  toDoubleLayer {d} (MkConv1D ip op k b _ _) =
-    MkConv1D ip op (map value k) (map value b) Nothing Nothing
-  debugApply _ _ = idris_crash "Conv1D: use tensor path"
-
-
-----------------------------------------------------------------------
--- Conv1D Constructor
-----------------------------------------------------------------------
+applyConv1D : {inC, outC, len, kL, pad : Nat} ->
+                Conv1DState inC outC len kL pad
+                              (inC * len)
+                              (outC * ConvOutDim len kL pad) d ->
+                TVec (inC * len) d ->
+                TVec (outC * ConvOutDim len kL pad) d
+applyConv1D {inC} {outC} {len} {kL} {pad} (MkConv1D ker bias) input =
+  let inCI = cast {to=Int} inC
+      lenI = cast {to=Int} len
+      inp2d = prim__reshape2d input.tensorPtr inCI lenI
+      outT = prim__conv1d inp2d ker.tensorPtr bias.tensorPtr (cast {to=Int} pad) 1
+      outFlat = outC * ConvOutDim len kL pad
+  in MkTensor (prim__reshape1d outT (cast {to=Int} outFlat)) Nothing
 
 export
 conv1dLayer : {inC, outC, len, kL, pad : Nat} ->
-              (Num ty, FromDouble ty) =>
-              IO (AnyLayer (inC * len)
-                           (outC * (ConvOutDim len kL pad))
-                           ty)
-conv1dLayer = do
-  kernelVals <- traverse (\_ => map fromDouble (he normal (inC * kL) outC))
-                         (the (Vector (outC * inC * kL) ty) zeros)
-  let biasVals = the (Vector outC ty) zeros
-  pure $ MkAnyLayer (Conv1DState inC outC len kL pad)
-    (MkConv1D Refl Refl kernelVals biasVals Nothing Nothing)
+                (paramPrefix : String) ->
+                IO (Conv1DState inC outC len kL pad
+                                  (inC * len)
+                                  (outC * ConvOutDim len kL pad) CPU)
+conv1dLayer paramPrefix = do
+  let kerCount = outC * inC * kL
+  kerVals <- traverse (\_ => he normal (inC * kL) outC)
+                      (Vect.replicate kerCount ())
+  let kerBuf = prim__allocDoubles (cast {to=Int} kerCount)
+      kerBuf' = packDoubles kerBuf 0 kerVals
+      biasBuf = prim__allocDoubles (cast {to=Int} outC)
+      biasBuf' = zeroBuf biasBuf 0 (cast {to=Int} outC)
+      kerName = paramPrefix ++ "_kernel"
+      biasName = paramPrefix ++ "_bias"
+      kerPtr = prim__paramRegister kerName
+        (prim__createParam3d (cast outC) (cast inC) (cast kL) kerBuf')
+      biasPtr = prim__paramRegister biasName
+        (prim__createParam1d (cast outC) biasBuf')
+      kerTV : Tensor [outC, inC, kL] CPU
+      kerTV = MkTensor kerPtr (Just kerName)
+      biasTV : TVec outC CPU
+      biasTV = MkTensor biasPtr (Just biasName)
+  pure $ MkConv1D kerTV biasTV
+
+public export
+{inC, outC, len, kL, pad : Nat} ->
+  LayerLike (Conv1DState inC outC len kL pad) where
+  applyVar st@(MkConv1D _ _) input = (st, applyConv1D st input)
+  layerPrefix _ = "conv1d"
+
+export
+conv1dLayerAny : {inC, outC, len, kL, pad : Nat} ->
+                   (paramPrefix : String) ->
+                   IO (AnyLayer (inC * len) (outC * ConvOutDim len kL pad) CPU)
+conv1dLayerAny pid =
+  map (MkAnyLayer (Conv1DState inC outC len kL pad))
+      (conv1dLayer {inC} {outC} {len} {kL} {pad} pid)
 
 
 ----------------------------------------------------------------------
--- MaxPool1D State
+-- MaxPool2D / AvgPool2D (no learnable params)
 ----------------------------------------------------------------------
 
 public export
-record MaxPool1DState (c : Nat) (len : Nat) (poolK : Nat) (str : Nat)
-                      (inputSize : Nat) (outputSize : Nat) (ty : Type) where
-  constructor MkMaxPool1D
-  0 inputPrf  : inputSize = c * len
-  0 outputPrf : outputSize = c * (PoolOutDim len poolK str)
-
-
-----------------------------------------------------------------------
--- MaxPool1D LayerLike Instance
-----------------------------------------------------------------------
-
-export
-{c, len, poolK, str : Nat} ->
-  LayerLike (MaxPool1DState c len poolK str) where
-
-  applyGeneric _ _ = idris_crash "MaxPool1D: use tensor path"
-  applyVar {d} _ _ = idris_crash "MaxPool1D: use tensor path"
-
-  applyVarTensor {d} {i} {o} st inputT =
-    let cI = cast {to=Int} c
-        lenI = cast {to=Int} len
-        inp2d = prim__reshape2d inputT cI lenI
-        outT = prim__maxPool1d inp2d (cast {to=Int} poolK) (cast {to=Int} str)
-        oI = cast {to=Int} o
-        flatOut = prim__reshape1d outT oI
-    in (st, flatOut)
-
-  emapLayer _ st = st
-  showLayer _ = "MaxPool1D<k=" ++ show poolK ++ " s=" ++ show str ++ ">"
-  nameLayer {d} _ st = st
-  layerPrefix _ = "pool1d"
-  toDoubleLayer {d} (MkMaxPool1D ip op) = MkMaxPool1D ip op
-  debugApply _ _ = idris_crash "MaxPool1D: use tensor path"
-
-
-----------------------------------------------------------------------
--- MaxPool1D Constructor
-----------------------------------------------------------------------
+data MaxPool2DState :
+  (c : Nat) -> (inH : Nat) -> (inW : Nat) ->
+  (poolH : Nat) -> (poolW : Nat) -> (strH : Nat) -> (strW : Nat) ->
+  Nat -> Nat -> (0 _ : Device) -> Type
+  where
+  MkMaxPool2D :
+    MaxPool2DState c inH inW poolH poolW strH strW
+                     (c * (inH * inW))
+                     (c * (PoolOutDim inH poolH strH * PoolOutDim inW poolW strW))
+                     d
 
 export
-maxPool1dLayer : {c, len, poolK, str : Nat} ->
-                 AnyLayer (c * len)
-                          (c * (PoolOutDim len poolK str))
-                          ty
-maxPool1dLayer = MkAnyLayer (MaxPool1DState c len poolK str)
-                  (MkMaxPool1D Refl Refl)
-
-
-----------------------------------------------------------------------
--- AvgPool2D State (same type structure as MaxPool2D)
-----------------------------------------------------------------------
+applyMaxPool2D : {c, inH, inW, poolH, poolW, strH, strW : Nat} ->
+                   MaxPool2DState c inH inW poolH poolW strH strW
+                                    (c * (inH * inW))
+                                    (c * (PoolOutDim inH poolH strH * PoolOutDim inW poolW strW))
+                                    d ->
+                   TVec (c * (inH * inW)) d ->
+                   TVec (c * (PoolOutDim inH poolH strH * PoolOutDim inW poolW strW)) d
+applyMaxPool2D {c} {inH} {inW} {poolH} {poolW} {strH} {strW} _ input =
+  let cI = cast {to=Int} c
+      hI = cast {to=Int} inH
+      wI = cast {to=Int} inW
+      inp3d = prim__reshape3d input.tensorPtr cI hI wI
+      outT = prim__maxPool2d inp3d (cast {to=Int} poolH) (cast {to=Int} poolW)
+                                   (cast {to=Int} strH) (cast {to=Int} strW)
+      outFlat = c * (PoolOutDim inH poolH strH * PoolOutDim inW poolW strW)
+  in MkTensor (prim__reshape1d outT (cast {to=Int} outFlat)) Nothing
 
 public export
-record AvgPool2DState (c : Nat) (inH : Nat) (inW : Nat)
-                      (poolH : Nat) (poolW : Nat) (strH : Nat) (strW : Nat)
-                      (inputSize : Nat) (outputSize : Nat) (ty : Type) where
-  constructor MkAvgPool2D
-  0 inputPrf  : inputSize = c * (inH * inW)
-  0 outputPrf : outputSize = c * (PoolOutDim inH poolH strH * PoolOutDim inW poolW strW)
+{c, inH, inW, poolH, poolW, strH, strW : Nat} ->
+  LayerLike (MaxPool2DState c inH inW poolH poolW strH strW) where
+  applyVar st@MkMaxPool2D input = (st, applyMaxPool2D st input)
+  layerPrefix _ = "maxpool2d"
 
 export
+maxPool2dLayer : {c, inH, inW, poolH, poolW, strH, strW : Nat} ->
+                   AnyLayer (c * (inH * inW))
+                              (c * (PoolOutDim inH poolH strH * PoolOutDim inW poolW strW))
+                              d
+maxPool2dLayer =
+  MkAnyLayer (MaxPool2DState c inH inW poolH poolW strH strW)
+               MkMaxPool2D
+
+public export
+data AvgPool2DState :
+  (c : Nat) -> (inH : Nat) -> (inW : Nat) ->
+  (poolH : Nat) -> (poolW : Nat) -> (strH : Nat) -> (strW : Nat) ->
+  Nat -> Nat -> (0 _ : Device) -> Type
+  where
+  MkAvgPool2D :
+    AvgPool2DState c inH inW poolH poolW strH strW
+                     (c * (inH * inW))
+                     (c * (PoolOutDim inH poolH strH * PoolOutDim inW poolW strW))
+                     d
+
+export
+applyAvgPool2D : {c, inH, inW, poolH, poolW, strH, strW : Nat} ->
+                   AvgPool2DState c inH inW poolH poolW strH strW
+                                    (c * (inH * inW))
+                                    (c * (PoolOutDim inH poolH strH * PoolOutDim inW poolW strW))
+                                    d ->
+                   TVec (c * (inH * inW)) d ->
+                   TVec (c * (PoolOutDim inH poolH strH * PoolOutDim inW poolW strW)) d
+applyAvgPool2D {c} {inH} {inW} {poolH} {poolW} {strH} {strW} _ input =
+  let cI = cast {to=Int} c
+      hI = cast {to=Int} inH
+      wI = cast {to=Int} inW
+      inp3d = prim__reshape3d input.tensorPtr cI hI wI
+      outT = prim__avgPool2d inp3d (cast {to=Int} poolH) (cast {to=Int} poolW)
+                                   (cast {to=Int} strH) (cast {to=Int} strW)
+      outFlat = c * (PoolOutDim inH poolH strH * PoolOutDim inW poolW strW)
+  in MkTensor (prim__reshape1d outT (cast {to=Int} outFlat)) Nothing
+
+public export
 {c, inH, inW, poolH, poolW, strH, strW : Nat} ->
   LayerLike (AvgPool2DState c inH inW poolH poolW strH strW) where
-  applyGeneric _ _ = idris_crash "AvgPool2D: use tensor path"
-  applyVar {d} _ _ = idris_crash "AvgPool2D: use tensor path"
-  applyVarTensor {d} {i} {o} st inputT =
-    let cI = cast {to=Int} c
-        hI = cast {to=Int} inH
-        wI = cast {to=Int} inW
-        inp3d = prim__reshape3d inputT cI hI wI
-        outT = prim__avgPool2d inp3d (cast poolH) (cast poolW) (cast strH) (cast strW)
-        oI = cast {to=Int} o
-    in (st, prim__reshape1d outT oI)
-  emapLayer _ st = st
-  showLayer _ = "AvgPool2D<k=" ++ show poolH ++ " s=" ++ show strH ++ ">"
-  nameLayer {d} _ st = st
-  layerPrefix _ = "avgpool"
-  toDoubleLayer {d} (MkAvgPool2D ip op) = MkAvgPool2D ip op
-  debugApply _ _ = idris_crash "AvgPool2D: use tensor path"
+  applyVar st@MkAvgPool2D input = (st, applyAvgPool2D st input)
+  layerPrefix _ = "avgpool2d"
 
 export
 avgPool2dLayer : {c, inH, inW, poolH, poolW, strH, strW : Nat} ->
-                 AnyLayer (c * (inH * inW))
-                          (c * (PoolOutDim inH poolH strH * PoolOutDim inW poolW strW))
-                          ty
-avgPool2dLayer = MkAnyLayer (AvgPool2DState c inH inW poolH poolW strH strW)
-                  (MkAvgPool2D Refl Refl)
+                   AnyLayer (c * (inH * inW))
+                              (c * (PoolOutDim inH poolH strH * PoolOutDim inW poolW strW))
+                              d
+avgPool2dLayer =
+  MkAnyLayer (AvgPool2DState c inH inW poolH poolW strH strW)
+               MkAvgPool2D
 
 
 ----------------------------------------------------------------------
--- AvgPool1D State
+-- MaxPool1D / AvgPool1D
 ----------------------------------------------------------------------
 
 public export
-record AvgPool1DState (c : Nat) (len : Nat) (poolK : Nat) (str : Nat)
-                      (inputSize : Nat) (outputSize : Nat) (ty : Type) where
-  constructor MkAvgPool1D
-  0 inputPrf  : inputSize = c * len
-  0 outputPrf : outputSize = c * (PoolOutDim len poolK str)
+data MaxPool1DState :
+  (c : Nat) -> (len : Nat) -> (poolK : Nat) -> (str : Nat) ->
+  Nat -> Nat -> (0 _ : Device) -> Type
+  where
+  MkMaxPool1D :
+    MaxPool1DState c len poolK str
+                     (c * len)
+                     (c * PoolOutDim len poolK str) d
 
 export
+applyMaxPool1D : {c, len, poolK, str : Nat} ->
+                   MaxPool1DState c len poolK str
+                                    (c * len) (c * PoolOutDim len poolK str) d ->
+                   TVec (c * len) d ->
+                   TVec (c * PoolOutDim len poolK str) d
+applyMaxPool1D {c} {len} {poolK} {str} _ input =
+  let cI = cast {to=Int} c
+      lenI = cast {to=Int} len
+      inp2d = prim__reshape2d input.tensorPtr cI lenI
+      outT = prim__maxPool1d inp2d (cast {to=Int} poolK) (cast {to=Int} str)
+      outFlat = c * PoolOutDim len poolK str
+  in MkTensor (prim__reshape1d outT (cast {to=Int} outFlat)) Nothing
+
+public export
+{c, len, poolK, str : Nat} ->
+  LayerLike (MaxPool1DState c len poolK str) where
+  applyVar st@MkMaxPool1D input = (st, applyMaxPool1D st input)
+  layerPrefix _ = "maxpool1d"
+
+export
+maxPool1dLayer : {c, len, poolK, str : Nat} ->
+                   AnyLayer (c * len) (c * PoolOutDim len poolK str) d
+maxPool1dLayer =
+  MkAnyLayer (MaxPool1DState c len poolK str) MkMaxPool1D
+
+public export
+data AvgPool1DState :
+  (c : Nat) -> (len : Nat) -> (poolK : Nat) -> (str : Nat) ->
+  Nat -> Nat -> (0 _ : Device) -> Type
+  where
+  MkAvgPool1D :
+    AvgPool1DState c len poolK str
+                     (c * len)
+                     (c * PoolOutDim len poolK str) d
+
+export
+applyAvgPool1D : {c, len, poolK, str : Nat} ->
+                   AvgPool1DState c len poolK str
+                                    (c * len) (c * PoolOutDim len poolK str) d ->
+                   TVec (c * len) d ->
+                   TVec (c * PoolOutDim len poolK str) d
+applyAvgPool1D {c} {len} {poolK} {str} _ input =
+  let cI = cast {to=Int} c
+      lenI = cast {to=Int} len
+      inp2d = prim__reshape2d input.tensorPtr cI lenI
+      outT = prim__avgPool1d inp2d (cast {to=Int} poolK) (cast {to=Int} str)
+      outFlat = c * PoolOutDim len poolK str
+  in MkTensor (prim__reshape1d outT (cast {to=Int} outFlat)) Nothing
+
+public export
 {c, len, poolK, str : Nat} ->
   LayerLike (AvgPool1DState c len poolK str) where
-  applyGeneric _ _ = idris_crash "AvgPool1D: use tensor path"
-  applyVar {d} _ _ = idris_crash "AvgPool1D: use tensor path"
-  applyVarTensor {d} {i} {o} st inputT =
-    let cI = cast {to=Int} c
-        lenI = cast {to=Int} len
-        inp2d = prim__reshape2d inputT cI lenI
-        outT = prim__avgPool1d inp2d (cast poolK) (cast str)
-        oI = cast {to=Int} o
-    in (st, prim__reshape1d outT oI)
-  emapLayer _ st = st
-  showLayer _ = "AvgPool1D<k=" ++ show poolK ++ " s=" ++ show str ++ ">"
-  nameLayer {d} _ st = st
+  applyVar st@MkAvgPool1D input = (st, applyAvgPool1D st input)
   layerPrefix _ = "avgpool1d"
-  toDoubleLayer {d} (MkAvgPool1D ip op) = MkAvgPool1D ip op
-  debugApply _ _ = idris_crash "AvgPool1D: use tensor path"
 
 export
 avgPool1dLayer : {c, len, poolK, str : Nat} ->
-                 AnyLayer (c * len)
-                          (c * (PoolOutDim len poolK str))
-                          ty
-avgPool1dLayer = MkAnyLayer (AvgPool1DState c len poolK str)
-                  (MkAvgPool1D Refl Refl)
+                   AnyLayer (c * len) (c * PoolOutDim len poolK str) d
+avgPool1dLayer =
+  MkAnyLayer (AvgPool1DState c len poolK str) MkAvgPool1D

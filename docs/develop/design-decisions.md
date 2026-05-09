@@ -2,6 +2,19 @@
 
 See [ntm.md](ntm.md) for NTM-specific design decisions (head parameters, memory operations, addressing, diagnostics, convergence).
 
+> **Note: Path C migration superseded the autograd-value design.**
+> Many sections below describe V1's `Variable d` (shape-erased) and the
+> machinery that supported it: per-element packing, `autoName`,
+> `applyDeltas`, `toDoubleNetwork`, the V1 13-method `LayerLike`. As of
+> the Path C migration (commits `fa7ed54` … `0dc8d70`), the autograd
+> value is `Tensor (dims : Vect rank Nat) (0 d : Device)` with shape on
+> the value, the structural Vect-of-Vect type was renamed to `Array`,
+> and most V1 scaffolding is gone (`autoName` / `nameLayer` /
+> `applyDeltas` / `toDoubleNetwork` / `Endofunctor.emap` / pure-Idris
+> `Optimizer`). See [path-c-migration.md](path-c-migration.md) for the
+> mapping. Historical sections below are preserved as design context;
+> they no longer describe current code.
+
 ## Gym (Gymnasium-parity RL API)
 
 The `idris-gym` package provides a pure-Idris reimplementation of Gymnasium's core API. Feature-complete for pure-math envs (Classic Control + Toy Text); deferred for envs that need physics engines or ROM emulators (Box2D, MuJoCo, Atari).

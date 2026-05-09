@@ -10,7 +10,7 @@ import Compat.Random
 import Gym.Env
 import Gym.ToyText.CliffWalking
 import Math
-import Tensor
+import Array
 import Train
 
 
@@ -24,28 +24,28 @@ MaxSteps : Nat; MaxSteps = 100
 
 
 ----------------------------------------------------------------------
--- Q-table as a Tensor
+-- Q-table as a Array
 ----------------------------------------------------------------------
 
 QTable : Type
-QTable = Tensor [NumStates, NumActions] Double
+QTable = Array [NumStates, NumActions] Double
 
 zeroQ : QTable
 zeroQ = replicate {dims = [NumStates, NumActions]} 0.0
 
 qGet : Fin NumStates -> Fin NumActions -> QTable -> Double
 qGet i j q =
-  let STensor v = index j (index i q)
+  let SArray v = index j (index i q)
   in v
 
 qRowAt : Fin NumStates -> QTable -> Vector NumActions Double
 qRowAt i q = index i q
 
 qSet : Fin NumStates -> Fin NumActions -> Double -> QTable -> QTable
-qSet i j v (VTensor rows) =
-  let (VTensor cells) = Data.Vect.index i rows
-      newRow = VTensor (Data.Vect.replaceAt j (STensor v) cells)
-  in VTensor (Data.Vect.replaceAt i newRow rows)
+qSet i j v (VArray rows) =
+  let (VArray cells) = Data.Vect.index i rows
+      newRow = VArray (Data.Vect.replaceAt j (SArray v) cells)
+  in VArray (Data.Vect.replaceAt i newRow rows)
 
 
 ----------------------------------------------------------------------
@@ -69,7 +69,7 @@ toActionFin n = case natToFin n NumActions of
 
 rowMax : Vector NumActions Double -> Double
 rowMax qr =
-  let STensor v = index (argmax qr) qr
+  let SArray v = index (argmax qr) qr
   in v
 
 epsGreedy : Double -> Vector NumActions Double -> Double -> Double -> Fin NumActions

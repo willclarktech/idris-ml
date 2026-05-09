@@ -9,8 +9,8 @@ import Compat.Random
 
 import DataPoint
 import Math
+import Array
 import Tensor
-import Variable
 
 
 ----------------------------------------------------------------------
@@ -201,21 +201,21 @@ associativeRecallTask = MkSequenceTask "associative-recall" $ \len => do
 
 ||| Generate a random binary vector (each element 0.0 or 1.0).
 randomBinaryVector : {w : Nat} -> IO (Vector w Double)
-randomBinaryVector {w = Z} = pure (VTensor [])
+randomBinaryVector {w = Z} = pure (VArray [])
 randomBinaryVector {w = S k} = do
   bits <- traverse (\_ => do
     b <- randomRIO (the Int32 0, 1)
     pure (if b == 1 then 1.0 else 0.0)) (replicate (S k) ())
-  pure (VTensor (map STensor bits))
+  pure (VArray (map SArray bits))
 
 ||| Make a vector with a 1.0 at the specified position and 0.0 elsewhere.
 ||| Position is from the end: 0 = last channel, 1 = second-to-last, etc.
 makeDelimiter : {w : Nat} -> (channelFromEnd : Nat) -> Vector w Double
 makeDelimiter {w} pos =
-  let go : (n : Nat) -> Vect n (Tensor [] Double)
+  let go : (n : Nat) -> Vect n (Array [] Double)
       go Z = []
-      go (S k) = (if k == pos then STensor 1.0 else STensor 0.0) :: go k
-  in VTensor (go w)
+      go (S k) = (if k == pos then SArray 1.0 else SArray 0.0) :: go k
+  in VArray (go w)
 
 
 ----------------------------------------------------------------------
@@ -224,11 +224,11 @@ makeDelimiter {w} pos =
 
 ||| Append one element to a vector: Vector w -> Vector (S w).
 ||| Channel ordering: original elements first, new element last.
-appendElem : {w : Nat} -> Tensor [] Double -> Vector w Double -> Vector (S w) Double
-appendElem {w = Z} e (VTensor []) = VTensor [e]
-appendElem {w = S k} e (VTensor (x :: xs)) =
-  let (VTensor rest) = appendElem e (VTensor xs)
-  in VTensor (x :: rest)
+appendElem : {w : Nat} -> Array [] Double -> Vector w Double -> Vector (S w) Double
+appendElem {w = Z} e (VArray []) = VArray [e]
+appendElem {w = S k} e (VArray (x :: xs)) =
+  let (VArray rest) = appendElem e (VArray xs)
+  in VArray (x :: rest)
 
 ||| Generate n random binary vectors of width w.
 genBinaryRows : {w : Nat} -> (n : Nat) -> IO (List (Vector w Double))
@@ -246,7 +246,7 @@ export
 copyTaskBinary : {w : Nat} -> (seqLen : Nat) -> IO (TwoPhaseDataPoint (S w) w Double)
 copyTaskBinary {w} seqLen = do
   dataRows <- genBinaryRows {w} seqLen
-  let inputRows = map (appendElem (STensor 0.0)) dataRows
+  let inputRows = map (appendElem (SArray 0.0)) dataRows
       delimiter = makeDelimiter {w = S w} 0
   pure $ MkTwoPhaseDataPoint (inputRows ++ [delimiter]) dataRows
 
@@ -279,7 +279,7 @@ copyTaskBinaryBatchVect (S k) minLen maxLen = do
 
 ||| Pad a data vector with two zero channels: [data, 0, 0] -> Vector (S (S w)).
 padData2 : {w : Nat} -> Vector w Double -> Vector (S (S w)) Double
-padData2 = appendElem (STensor 0.0) . appendElem (STensor 0.0)
+padData2 = appendElem (SArray 0.0) . appendElem (SArray 0.0)
 
 ||| Generate a list of items, each item is seqLen binary vectors.
 genItems : {w : Nat} -> (numItems, seqLen : Nat) -> IO (List (List (Vector w Double)))
@@ -355,10 +355,10 @@ reversalPoint vocabSize inputLen seqLen sepToken eosToken = do
       targetFlat = concatMap oneHot targetToks
       toVect : (n : Nat) -> List Double -> Vect n (Scalar Double)
       toVect Z _ = []
-      toVect (S k) [] = STensor 0.0 :: toVect k []
-      toVect (S k) (x :: xs) = STensor x :: toVect k xs
-  pure $ MkDataPoint (VTensor (toVect inputDim inputFlat))
-                     (VTensor (toVect outputDim targetFlat))
+      toVect (S k) [] = SArray 0.0 :: toVect k []
+      toVect (S k) (x :: xs) = SArray x :: toVect k xs
+  pure $ MkDataPoint (VArray (toVect inputDim inputFlat))
+                     (VArray (toVect outputDim targetFlat))
 
 ||| Generate a batch of reversal data points as a Vect.
 export
@@ -462,7 +462,7 @@ generatePatternSeq len =
   in (take len infinitePattern, take len (drop 1 infinitePattern))
 
 prepScalars : List Double -> List (Vector 1 Double)
-prepScalars ns = map (flatten . STensor) ns
+prepScalars ns = map (flatten . SArray) ns
 
 ||| Generate repeating pattern data: input = pattern, output = next element.
 ||| Pattern is [0,1,0,0,1,0,...]. Used by RNN and LSTM examples.

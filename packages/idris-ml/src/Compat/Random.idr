@@ -49,4 +49,4 @@ Random Int32 where
     let range = cast {to=Int} (cast {to=Integer} hi - cast {to=Integer} lo + 1)
     pure (cast (cast {to=Int} lo + (r `mod` range)))
 
--- Note: Vect Random instance is defined in Tensor.idr (avoids orphan overlap)
+-- Note: Vect Random instance is defined in Array.idr (avoids orphan overlap)

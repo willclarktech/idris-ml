@@ -11,7 +11,7 @@ import Gym.Env
 import Gym.Rng
 import Gym.ToyText.Blackjack
 import Math
-import Tensor
+import Array
 import Train
 
 
@@ -35,10 +35,10 @@ MaxSteps : Nat; MaxSteps = 10
 ----------------------------------------------------------------------
 
 QTable : Type
-QTable = Tensor [NumStates, NumActions] Double
+QTable = Array [NumStates, NumActions] Double
 
 CountTable : Type
-CountTable = Tensor [NumStates, NumActions] Double
+CountTable = Array [NumStates, NumActions] Double
 
 MCModel : Type
 MCModel = (QTable, CountTable)
@@ -49,20 +49,20 @@ zeroModel =
    replicate {dims = [NumStates, NumActions]} 0.0)
 
 
-tGet : Fin NumStates -> Fin NumActions -> Tensor [NumStates, NumActions] Double -> Double
+tGet : Fin NumStates -> Fin NumActions -> Array [NumStates, NumActions] Double -> Double
 tGet i j t =
-  let STensor v = index j (index i t)
+  let SArray v = index j (index i t)
   in v
 
-tRow : Fin NumStates -> Tensor [NumStates, NumActions] Double -> Vector NumActions Double
+tRow : Fin NumStates -> Array [NumStates, NumActions] Double -> Vector NumActions Double
 tRow i t = index i t
 
 tSet : Fin NumStates -> Fin NumActions -> Double ->
-       Tensor [NumStates, NumActions] Double -> Tensor [NumStates, NumActions] Double
-tSet i j v (VTensor rows) =
-  let (VTensor cells) = Data.Vect.index i rows
-      newRow = VTensor (Data.Vect.replaceAt j (STensor v) cells)
-  in VTensor (Data.Vect.replaceAt i newRow rows)
+       Array [NumStates, NumActions] Double -> Array [NumStates, NumActions] Double
+tSet i j v (VArray rows) =
+  let (VArray cells) = Data.Vect.index i rows
+      newRow = VArray (Data.Vect.replaceAt j (SArray v) cells)
+  in VArray (Data.Vect.replaceAt i newRow rows)
 
 
 ----------------------------------------------------------------------

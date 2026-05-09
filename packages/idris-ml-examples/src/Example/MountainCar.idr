@@ -7,20 +7,20 @@ import Data.IORef
 import System
 import Compat.Random
 
-import Endofunctor
 import Floating
 import Gym.ClassicControl.MountainCar
 import Gym.Env
 import Hpo.LrFinder
-import Layer
+import Layer.Activation
 import Layer.Core
+import Layer.Linear
 import Math
 import RL.ReplayBuffer
-import Tensor
+import Array
 import Train
 import Util
 import Device
-import Variable
+import Tensor
 
 
 ----------------------------------------------------------------------
@@ -30,11 +30,9 @@ import Variable
 -- Random exploration almost never reaches the goal in 200 steps, so DQN
 -- can't learn from raw reward alone. We add velocity-magnitude shaping
 -- (|v| * shapingScale) as a dense intermediate signal that nudges the
--- agent toward building energy. Not policy-invariant in the strict
--- Ng99 sense (alters Q*) but the optimal trajectory is preserved at the
--- shapingScale chosen.
+-- agent toward building energy.
 --
--- Architecture: MLP 2 -> 64 -> 64 -> 3.
+-- Architecture: MLP 2 -> 64 -> 64 -> 64 -> 64 -> 3 (two relu blocks).
 ----------------------------------------------------------------------
 
 ObsDim : Nat; ObsDim = 2
@@ -43,17 +41,14 @@ NumActions : Nat; NumActions = 3
 MaxSteps : Nat; MaxSteps = 200
 
 QNet : Type
-QNet = Network ObsDim [Hidden, Hidden, Hidden, Hidden] NumActions (Variable CPU)
+QNet = Network ObsDim [Hidden, Hidden, Hidden, Hidden] NumActions CPU
 
-QNetDouble : Type
-QNetDouble = Network ObsDim [Hidden, Hidden, Hidden, Hidden] NumActions Double
-
-mkQNet : IO QNet
-mkQNet = do
-  ll1 <- linearLayer {i=ObsDim} {o=Hidden}
-  ll2 <- linearLayer {i=Hidden} {o=Hidden}
-  ll3 <- linearLayer {i=Hidden} {o=NumActions}
-  pure (autoName (ll1 ~> reluLayer ~> ll2 ~> reluLayer ~> OutputLayer ll3))
+mkQNet : (scope : String) -> IO QNet
+mkQNet scope = do
+  ll1 <- linearLayerAny {i=ObsDim} {o=Hidden}     (scope ++ "ll1")
+  ll2 <- linearLayerAny {i=Hidden} {o=Hidden}     (scope ++ "ll2")
+  ll3 <- linearLayerAny {i=Hidden} {o=NumActions} (scope ++ "ll3")
+  pure (ll1 ~~> reluLayerAny ~~> ll2 ~~> reluLayerAny ~~> OutputLayer ll3)
 
 
 ----------------------------------------------------------------------
@@ -61,20 +56,7 @@ mkQNet = do
 ----------------------------------------------------------------------
 
 obsTensor : Vect ObsDim Double -> Vector ObsDim Double
-obsTensor v = VTensor (map STensor v)
-
-
-----------------------------------------------------------------------
--- Target network snapshot
-----------------------------------------------------------------------
-
-snapshotTarget : QNet -> QNetDouble
-snapshotTarget online = toDoubleNetwork (emap refreshValue online)
-
-vectorMax : Vector NumActions Double -> Double
-vectorMax qr =
-  let STensor v = index (argmax qr) qr
-  in v
+obsTensor v = VArray (map SArray v)
 
 
 ----------------------------------------------------------------------
@@ -89,10 +71,11 @@ epsilonAt step start end decaySteps =
 greedyAction : QNet -> Vect ObsDim Double -> Nat
 greedyAction online obs =
   let stateT = bulkToTensor (obsTensor obs)
-      qT = snd (forwardVarTensor online stateT)
-      q0 = prim__item1d qT 0
-      q1 = prim__item1d qT 1
-      q2 = prim__item1d qT 2
+      stateV = the (TVec ObsDim CPU) (MkTensor stateT Nothing)
+      (_, qV) = forwardVar online stateV
+      q0 = prim__item1d qV.tensorPtr 0
+      q1 = prim__item1d qV.tensorPtr 1
+      q2 = prim__item1d qV.tensorPtr 2
   in if q0 >= q1 && q0 >= q2 then 0
      else if q1 >= q2 then 1
      else 2
@@ -113,44 +96,61 @@ epsGreedyIO online obs eps = do
 -- Batched DQN loss (mirrors Example.Dqn).
 ----------------------------------------------------------------------
 
-computeTargetVal : QNetDouble -> Double -> Transition ObsDim 1 -> Double
-computeTargetVal tgt gamma t =
-  let qNextD = snd (forward tgt (obsTensor t.nextObs))
-      nextMaxVal = vectorMax qNextD
-      bootstrap  = if t.done then 0.0 else gamma * nextMaxVal
+vectorMaxPtr : AnyPtr -> Double
+vectorMaxPtr t =
+  let v0 = prim__item1d t 0
+      v1 = prim__item1d t 1
+      v2 = prim__item1d t 2
+  in if v0 >= v1 && v0 >= v2 then v0
+     else if v1 >= v2 then v1
+     else v2
+
+computeTargetVal : QNet -> Double -> Transition ObsDim 1 -> Double
+computeTargetVal target gamma t =
+  let stateT = bulkToTensor (obsTensor t.nextObs)
+      stateV = the (TVec ObsDim CPU) (MkTensor stateT Nothing)
+      (_, qV) = forwardVar target stateV
+      nextMax = vectorMaxPtr qV.tensorPtr
+      bootstrap = if t.done then 0.0 else gamma * nextMax
   in t.reward + bootstrap
 
 actionIdx : Vect 1 Double -> Int
 actionIdx [a] = cast {to=Int} (cast {to=Integer} a)
 
-perSampleLosses : (qOutB : AnyPtr) -> Vect k (Transition ObsDim 1) ->
-                  Vect k Double -> Int -> List (Variable CPU)
-perSampleLosses _ [] [] _ = []
-perSampleLosses qOutB (t :: tRest) (tv :: tvRest) k =
-  let aIdx    = actionIdx t.action
-      qRow    = prim__select qOutB 0 k
-      qVal    = prim__item1d qRow aIdx
-      qV      : Variable CPU
-      qV      = Var (prim__select qRow 0 aIdx) Nothing qVal
-      targetC : Variable CPU
-      targetC = fromDouble tv
-      diff    = qV - targetC
-  in (diff * diff) :: perSampleLosses qOutB tRest tvRest (k + 1)
+perSampleLoss : {n : Nat} -> (qOutB : Tensor [n, NumActions] CPU) ->
+                Transition ObsDim 1 -> Double -> Int -> Tensor [] CPU
+perSampleLoss qOutB t tv k =
+  let aIdx = actionIdx t.action
+      qRow = the (TVec NumActions CPU) (trowSelect qOutB k)
+      qScalar = the (Tensor [] CPU) (telemSelect qRow aIdx)
+      targetT = the (Tensor [] CPU) (tconstScalar tv)
+      diff = the (Tensor [] CPU) (tsub qScalar targetT)
+  in tmul diff diff
 
-batchLossBatched : (n : Nat) -> QNet -> QNetDouble -> Double ->
-                   Vect n (Transition ObsDim 1) -> Variable CPU
+meanScalarLoss : (n : Nat) -> List (Tensor [] CPU) -> Tensor [] CPU
+meanScalarLoss n losses =
+  let zero = tconstScalar 0.0
+      summed = foldl (\a, b => MkTensor (prim__add a.tensorPtr b.tensorPtr) Nothing) zero losses
+  in tmulScalar summed (1.0 / cast n)
+
+batchLossBatched : (n : Nat) -> QNet -> QNet -> Double ->
+                   Vect n (Transition ObsDim 1) -> Tensor [] CPU
 batchLossBatched n online target gamma batch =
-  let targetVals : Vect n Double
-      targetVals = map (computeTargetVal target gamma) batch
-      obsTensors : Vect n (Vector ObsDim Double)
+  let targetVals = the (Vect n Double) (map (computeTargetVal target gamma) batch)
       obsTensors = map (\t => obsTensor t.obs) batch
-      obsBT      = bulkToTensor2d obsTensors
-      qOutB      = snd (forwardVarTensorBatch online n obsBT)
-      losses     = perSampleLosses qOutB batch targetVals 0
-      n_d        = the Double (cast (natToInteger n))
-      sumV       = foldl (+) (the (Variable CPU) (fromDouble 0.0)) losses
-      nV         = the (Variable CPU) (fromDouble n_d)
-  in sumV / nV
+      obsBT = bulkToTensor2d obsTensors
+      obsBV = the (Tensor [n, ObsDim] CPU) (MkTensor obsBT Nothing)
+      qOutB = snd (forwardVarBatch online obsBV)
+      losses = the (List (Tensor [] CPU)) (go qOutB (toList batch) (toList targetVals) 0)
+  in meanScalarLoss n losses
+  where
+    go : {n : Nat} -> Tensor [n, NumActions] CPU ->
+         List (Transition ObsDim 1) ->
+         List Double -> Int -> List (Tensor [] CPU)
+    go _ [] _ _ = []
+    go _ _ [] _ = []
+    go qOutB (t :: tRest) (tv :: tvRest) k =
+      perSampleLoss qOutB t tv k :: go qOutB tRest tvRest (k + 1)
 
 
 ----------------------------------------------------------------------
@@ -160,7 +160,7 @@ batchLossBatched n online target gamma batch =
 record DqnState where
   constructor MkDqnState
   qNet      : QNet
-  target    : QNetDouble
+  target    : QNet
   buffer    : ReplayBuffer ObsDim 1
   stepRef   : IORef Nat
   cfgEpsStart : Double
@@ -193,9 +193,6 @@ trainIfReady opt st = do
           pure st
         Nothing => pure st
 
--- Reward shaping: add shapingScale * |vel'| to the env reward. Encourages
--- the agent to build kinetic energy, which is the proven intermediate
--- behavior for MountainCar.
 shapedReward : DqnState -> MCState -> MCState -> Double -> Double
 shapedReward st _ s' baseReward =
   baseReward + st.cfgShaping * abs s'.mcVel
@@ -218,19 +215,17 @@ runEpisode opt st0 = go st0 (MkMC (-0.5) 0.0) MaxSteps 0.0
               trans = MkTransition obs (actionToVec action) shaped nextObs isDone
           push st.buffer trans
           writeIORef st.stepRef (stepCount + 1)
-          -- Track the *raw* (unshaped) return so the eval metric is comparable
-          -- to standard MountainCar reporting.
           let ret' = ret + rawReward
 
           st' <- trainIfReady opt st
 
-          let synced : DqnState
-              synced = { target := snapshotTarget st'.qNet } st'
-          let st'' = if (stepCount + 1) `mod` st.cfgSyncEvery == 0 then synced else st'
+          when ((stepCount + 1) `mod` st.cfgSyncEvery == 0) $ do
+            _ <- polyakUpdate 1.0 "online_" "target_"
+            pure ()
 
           if isDone
-            then pure (st'', ret')
-            else go st'' envState' steps ret'
+            then pure (st', ret')
+            else go st' envState' steps ret'
 
 
 ----------------------------------------------------------------------
@@ -311,14 +306,16 @@ main = do
            ++ " shaping=" ++ show cfg.shaping
            ++ " seed=" ++ show cfg.seed
 
-  qNet0 <- mkQNet
-  let target0 = snapshotTarget qNet0
+  qNet0 <- mkQNet "online_"
+  target0 <- mkQNet "target_"
+  _ <- polyakUpdate 1.0 "online_" "target_"
+
   buffer <- mkBuffer {obsDim = ObsDim, actDim = 1} cfg.bufferCap
   stepRef <- newIORef (the Nat 0)
   let st0 = MkDqnState qNet0 target0 buffer stepRef
                        cfg.epsStart cfg.epsEnd cfg.epsDecay
                        cfg.targetSync cfg.batchSize cfg.gamma cfg.shaping
-      opt = nativeAdamGlobalClip cfg.lr 0.9 0.999 1.0e-8 10.0
+      opt = nativeAdamGroup "online_" cfg.lr 0.9 0.999 1.0e-8 10.0
 
   putStrLn ""
 

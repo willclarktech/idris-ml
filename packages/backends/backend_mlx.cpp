@@ -636,19 +636,21 @@ TensorHandle tensor_log_softmax(TensorHandle h, int dim) {
    ================================================================ */
 
 TensorHandle tensor_bce_with_logits(TensorHandle hinput, TensorHandle htarget) {
-    auto inp = (Tensor*)hinput; auto tgt = (Tensor*)htarget;
-    // BCE with logits: max(x,0) - x*y + log(1+exp(-|x|))
-    auto x = inp->data; auto y = tgt->data;
-    auto relu_x = mx::maximum(x, mx::array(0.0));
-    auto abs_x = mx::abs(x);
-    auto result = mx::mean(mx::add(mx::subtract(relu_x, mx::multiply(x, y)),
-                                    mx::log(mx::add(mx::array(1.0), mx::exp(mx::negative(abs_x))))));
-    bool rg = inp->requires_grad;
-    auto r = new Tensor(result, rg);
-    // For backward: d/dx = sigmoid(x) - y, averaged
-    // Record as opaque for now — use OP_MUL as placeholder
-    // TODO: proper backward
-    return (TensorHandle)r;
+    /* BCE with logits = mean(max(x,0) - x*y + log(1 + exp(-|x|))).
+       Decomposed into primitive ops so each step records its own tape entry —
+       backward flows automatically through replay-based vjp. Without the
+       decomposition, the fused result has no tape entry, `tape_idx` stays -1,
+       and `tensor_backward` returns early — params never receive gradients. */
+    TensorHandle relu_x = tensor_clamp_min(hinput, 0.0);
+    TensorHandle xy = tensor_mul(hinput, htarget);
+    TensorHandle abs_x = tensor_abs(hinput);
+    TensorHandle neg_abs_x = tensor_neg(abs_x);
+    TensorHandle exp_neg = tensor_exp(neg_abs_x);
+    TensorHandle one_plus_exp = tensor_add_scalar(exp_neg, 1.0);
+    TensorHandle log_term = tensor_log(one_plus_exp);
+    TensorHandle relu_minus_xy = tensor_sub(relu_x, xy);
+    TensorHandle inner = tensor_add(relu_minus_xy, log_term);
+    return tensor_mean(inner);
 }
 TensorHandle tensor_cross_entropy(TensorHandle hinput, TensorHandle htarget) {
     /* Cross-entropy with soft labels: CE = -mean(target * log_softmax(input)).

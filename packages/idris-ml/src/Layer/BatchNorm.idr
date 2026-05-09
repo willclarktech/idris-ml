@@ -1,136 +1,141 @@
--- | Batch normalization layer (instance norm when batch=1).
--- |
--- | Per-channel normalization across spatial dimensions.
--- | Input treated as [channels, spatialDim]. Normalizes each channel.
--- | gamma/beta are learnable. Running mean/var are state tensors.
--- | Training: use input stats, update running stats.
--- | Eval: use running stats.
-
 module Layer.BatchNorm
 
 import Data.Vect
 
 import Device
-import Endofunctor
-import Floating
-import Init
 import Layer.Core
-import Layer.Linear
 import Tensor
-import Util
-import Variable
 
 
 ----------------------------------------------------------------------
--- BatchNorm State
+-- BatchNorm — typed-surface batch normalization (Path C)
 ----------------------------------------------------------------------
+--
+-- Per-channel normalization across spatial dim. Input treated as
+-- `[channels, spatialDim]` flattened to `[channels * spatialDim]`.
+-- Two learnable params (`gammaT`, `betaT` — both `[channels]`); two
+-- persistent state tensors (running mean and var).
+--
+-- Training: use input stats, update running stats.
+-- Eval: use running stats.
+--
+-- GADT pins `i = o = channels * spatialDim` so the layer fits
+-- `LayerLike`'s `Nat -> Nat -> Device -> Type` arity (same trick
+-- as Dropout / LayerNorm / EmbeddingWrap).
 
 public export
-record BatchNormState (channels : Nat) (spatialDim : Nat)
-                      (inputSize : Nat) (outputSize : Nat) (ty : Type) where
-  constructor MkBatchNorm
-  0 inputPrf  : inputSize = channels * spatialDim
-  0 outputPrf : outputSize = channels * spatialDim
-  gamma : Vector channels ty
-  beta : Vector channels ty
-  training : Bool
-  momentum : Double
-  eps : Double
-  gammaTensor : Maybe AnyPtr
-  betaTensor : Maybe AnyPtr
-  meanTensor : Maybe AnyPtr   -- persistent state (running mean)
-  varTensor : Maybe AnyPtr    -- persistent state (running var)
+data BatchNormState : (channels : Nat) -> (spatialDim : Nat) ->
+                        Nat -> Nat -> (0 _ : Device) -> Type where
+  MkBatchNorm :
+    TVec channels d ->          -- gamma (learnable)
+    TVec channels d ->          -- beta (learnable)
+    TVec channels d ->          -- running mean (state)
+    TVec channels d ->          -- running var (state)
+    (training : Bool) ->
+    (momentum : Double) ->
+    (eps : Double) ->
+    BatchNormState channels spatialDim
+                     (channels * spatialDim)
+                     (channels * spatialDim) d
 
 
 ----------------------------------------------------------------------
--- LayerLike Instance
+-- Forward
 ----------------------------------------------------------------------
 
 %default partial
+
 export
-{channels, spatialDim : Nat} ->
-  LayerLike (BatchNormState channels spatialDim) where
-
-  applyGeneric _ _ = idris_crash "BatchNorm: use tensor path"
-  applyVar {d} _ _ = idris_crash "BatchNorm: use tensor path"
-
-  applyVarTensor {d} {i} {o} st inputT =
-    case (st.gammaTensor, st.betaTensor, st.meanTensor, st.varTensor) of
-      (Just gT, Just bT, Just mT, Just vT) =>
-        let cI = cast {to=Int} channels
-            sI = cast {to=Int} spatialDim
-            tFlag : Int
-            tFlag = if st.training then 1 else 0
-            outT = prim__batchNorm inputT gT bT mT vT cI sI tFlag st.momentum st.eps
-        in (st, outT)
-      _ => idris_crash "BatchNorm: tensors not initialized (call autoName first)"
-
-  emapLayer f (MkBatchNorm ip op g b t m e gt bt mt vt) =
-    MkBatchNorm ip op (map f g) (map f b) t m e gt bt mt vt
-
-  showLayer _ = "BatchNorm<" ++ show channels ++ ">"
-
-  nameLayer {d} {i} {o} prefx (MkBatchNorm ip op gamma beta t m e _ _ _ _) =
-    if prim__backendSupportsTensorParams == 1
-      then
-        let cI = cast {to=Int} channels
-            sI = cast {to=Int} spatialDim
-            -- Gamma (learnable)
-            gBuf = prim__allocDoubles cI
-            (VTensor gElems) = gamma
-            gBuf' = packScalarValues gBuf 0 gElems
-            gT = prim__paramRegister (prefx ++ "_gamma")
-                   (prim__createParam1d cI gBuf')
-            -- Beta (learnable)
-            bBuf = prim__allocDoubles cI
-            (VTensor bElems) = beta
-            bBuf' = packScalarValues bBuf 0 bElems
-            bT = prim__paramRegister (prefx ++ "_beta")
-                   (prim__createParam1d cI bBuf')
-            -- Running mean (state, non-learnable)
-            mBuf = prim__allocDoubles cI
-            mBuf' = packZeros mBuf 0 cI
-            mT = prim__createState1d cI mBuf'
-            -- Running var (state, init to 1.0)
-            vBuf = prim__allocDoubles cI
-            vBuf' = packOnes vBuf 0 cI
-            vT = prim__createState1d cI vBuf'
-        in MkBatchNorm ip op gamma beta t m e (Just gT) (Just bT) (Just mT) (Just vT)
-      else idris_crash "BatchNorm: scalar path not supported"
-    where
-      packZeros : AnyPtr -> Int -> Int -> AnyPtr
-      packZeros buf idx n = if idx >= n then buf
-        else packZeros (prim__setDouble buf idx 0.0) (idx + 1) n
-
-      packOnes : AnyPtr -> Int -> Int -> AnyPtr
-      packOnes buf idx n = if idx >= n then buf
-        else packOnes (prim__setDouble buf idx 1.0) (idx + 1) n
-
-  layerPrefix _ = "bn"
-
-  toDoubleLayer {d} (MkBatchNorm ip op g b _ m e _ _ _ _) =
-    MkBatchNorm ip op (map value g) (map value b) False m e Nothing Nothing Nothing Nothing
-
-  setTraining mode (MkBatchNorm ip op g b _ m e gt bt mt vt) =
-    MkBatchNorm ip op g b mode m e gt bt mt vt
-
-  debugApply _ _ = idris_crash "BatchNorm: use tensor path"
+applyBatchNorm : {channels, spatialDim : Nat} ->
+                   BatchNormState channels spatialDim
+                     (channels * spatialDim)
+                     (channels * spatialDim) d ->
+                   TVec (channels * spatialDim) d ->
+                   ( BatchNormState channels spatialDim
+                       (channels * spatialDim)
+                       (channels * spatialDim) d
+                   , TVec (channels * spatialDim) d )
+applyBatchNorm {channels} {spatialDim}
+                 st@(MkBatchNorm gamma beta mean var training momentum eps)
+                 input =
+  let cI = cast {to=Int} channels
+      sI = cast {to=Int} spatialDim
+      tFlag : Int
+      tFlag = if training then 1 else 0
+      outPtr = prim__batchNorm input.tensorPtr gamma.tensorPtr beta.tensorPtr
+                              mean.tensorPtr var.tensorPtr
+                              cI sI tFlag momentum eps
+  in (st, MkTensor outPtr Nothing)
 
 
 ----------------------------------------------------------------------
 -- Constructor
 ----------------------------------------------------------------------
 
-||| Create a batch norm layer for the given number of channels.
-||| Gamma initialized to 1, beta to 0.
+-- Fill a buffer with a constant value.
+fillConst : AnyPtr -> Int -> Int -> Double -> AnyPtr
+fillConst buf _ 0 _ = buf
+fillConst buf off n v =
+  fillConst (prim__setDouble buf off v) (off + 1) (n - 1) v
+
+||| Build a BatchNorm layer. Gamma initialised to 1.0, beta to 0.0,
+||| running mean to 0.0, running var to 1.0. Defaults: momentum=0.1,
+||| eps=1e-5. Starts in training mode (use `setTraining` to switch).
+||| Params register as `<prefix>_gamma` / `<prefix>_beta`; state
+||| tensors are persistent C tensors (non-learnable).
 export
 batchNormLayer : {channels, spatialDim : Nat} ->
-                 (Num ty, FromDouble ty) =>
-                 IO (AnyLayer (channels * spatialDim)
-                              (channels * spatialDim) ty)
-batchNormLayer = do
-  let gammaVals = the (Vector channels ty) (map (const (fromDouble 1.0)) zeros)
-      betaVals = the (Vector channels ty) zeros
-  pure $ MkAnyLayer (BatchNormState channels spatialDim)
-    (MkBatchNorm Refl Refl gammaVals betaVals True 0.1 1.0e-5
-                 Nothing Nothing Nothing Nothing)
+                   (paramPrefix : String) ->
+                   IO (BatchNormState channels spatialDim
+                         (channels * spatialDim)
+                         (channels * spatialDim) CPU)
+batchNormLayer paramPrefix = do
+  let cI = cast {to=Int} channels
+      gBuf = fillConst (prim__allocDoubles cI) 0 cI 1.0
+      bBuf = fillConst (prim__allocDoubles cI) 0 cI 0.0
+      mBuf = fillConst (prim__allocDoubles cI) 0 cI 0.0
+      vBuf = fillConst (prim__allocDoubles cI) 0 cI 1.0
+      gName = paramPrefix ++ "_gamma"
+      bName = paramPrefix ++ "_beta"
+      gPtr = prim__paramRegister gName (prim__createParam1d cI gBuf)
+      bPtr = prim__paramRegister bName (prim__createParam1d cI bBuf)
+      mPtr = prim__createState1d cI mBuf
+      vPtr = prim__createState1d cI vBuf
+      gTV : TVec channels CPU
+      gTV = MkTensor gPtr (Just gName)
+      bTV : TVec channels CPU
+      bTV = MkTensor bPtr (Just bName)
+      mTV : TVec channels CPU
+      mTV = MkTensor mPtr Nothing
+      vTV : TVec channels CPU
+      vTV = MkTensor vPtr Nothing
+  pure $ MkBatchNorm gTV bTV mTV vTV True 0.1 1.0e-5
+
+||| Toggle training/eval mode.
+export
+setBatchNormTraining : Bool ->
+  BatchNormState channels spatialDim i o d ->
+  BatchNormState channels spatialDim i o d
+setBatchNormTraining mode (MkBatchNorm g b m v _ mom eps) =
+  MkBatchNorm g b m v mode mom eps
+
+
+----------------------------------------------------------------------
+-- LayerLike instance
+----------------------------------------------------------------------
+
+public export
+{channels, spatialDim : Nat} ->
+  LayerLike (BatchNormState channels spatialDim) where
+  applyVar st@(MkBatchNorm _ _ _ _ _ _ _) input = applyBatchNorm st input
+  layerPrefix _ = "bn"
+
+||| Wrap in `AnyLayer`.
+export
+batchNormLayerAny : {channels, spatialDim : Nat} ->
+                      (paramPrefix : String) ->
+                      IO (AnyLayer (channels * spatialDim)
+                                     (channels * spatialDim) CPU)
+batchNormLayerAny pid =
+  map (MkAnyLayer (BatchNormState channels spatialDim))
+      (batchNormLayer {channels} {spatialDim} pid)

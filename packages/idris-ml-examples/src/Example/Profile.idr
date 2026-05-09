@@ -8,16 +8,14 @@ import Compat.Random
 
 import Backprop
 import DataPoint
-import Endofunctor
 import Floating
 import Generate
-import Layer
-import Math
-import Optimizer
-import Tensor
+import Layer.Core
+import Layer.Ntm
+import Array
 import Util
 import Device
-import Variable
+import Tensor
 
 
 ----------------------------------------------------------------------
@@ -78,18 +76,18 @@ BatchSize = 16
 
 
 ----------------------------------------------------------------------
--- Profiled Epoch (native optimizer — single step timing)
+-- Profiled Epoch ( typed-surface, two-phase epoch runner)
 ----------------------------------------------------------------------
 
 profileEpoch :
   NativeOptimizer ->
-  Vect BatchSize (TwoPhaseDataPoint InputW OutputW (Variable CPU)) ->
-  Network InputW [] OutputW (Variable CPU) ->
+  Vect BatchSize (TwoPhaseDataPoint InputW OutputW Double) ->
+  Network InputW [] OutputW CPU ->
   Nat ->
-  IO (Network InputW [] OutputW (Variable CPU))
+  IO (Network InputW [] OutputW CPU)
 profileEpoch opt dataPoints model epochNum = do
   t0 <- clockTime Monotonic
-  let (model', lossVal) = epochTwoPhaseBceNative opt dataPoints model
+  let (model', lossVal) = epochTwoPhaseVar opt dataPoints tbceLoss model
   t1 <- clockTime Monotonic
 
   let line = padL 5 (show epochNum)
@@ -106,10 +104,10 @@ profileEpoch opt dataPoints model epochNum = do
 
 profileLoop :
   NativeOptimizer ->
-  Vect BatchSize (TwoPhaseDataPoint InputW OutputW (Variable CPU)) ->
-  Network InputW [] OutputW (Variable CPU) ->
+  Vect BatchSize (TwoPhaseDataPoint InputW OutputW Double) ->
+  Network InputW [] OutputW CPU ->
   Nat -> Nat ->
-  IO (Network InputW [] OutputW (Variable CPU))
+  IO (Network InputW [] OutputW CPU)
 profileLoop opt dataPoints model cur count =
   if cur >= count
     then pure model
@@ -131,16 +129,15 @@ main = do
   putStrLn $ "Batch=" ++ show BatchSize ++ " seqLen=1-20"
   putStrLn ""
 
-  -- Build NTM model (same as NtmCopy.idr: no output activation, BCE loss)
-  ntm <- ntmLayer {inputSize = InputW, outputSize = OutputW, n = N, m = M, h = H}
-  let model = autoName $ OutputLayer ntm
+  ntmAny <- ntmLayerAny {n = N, m = M, h = H, i = InputW, o = OutputW} "ntm"
+  let model : Network InputW [] OutputW CPU
+      model = OutputLayer ntmAny
 
   let opt = nativeRmsprop 0.0001 0.95 1.0e-8 10.0 0.9
 
   -- Generate a fixed batch for consistent profiling
   tGen0 <- clockTime Monotonic
-  batch <- copyTaskBinaryBatchVect {w = W} BatchSize 1 20
-  let dataPoints = map (map fromDouble) batch
+  dataPoints <- copyTaskBinaryBatchVect {w = W} BatchSize 1 20
   tGen1 <- clockTime Monotonic
   putStrLn $ "Data generation: " ++ showMs (elapsedMs tGen0 tGen1) ++ " ms"
   putStrLn ""
@@ -161,14 +158,13 @@ main = do
   putStrLn "\nDone."
 
   where
-    -- Warmup loop using epochTwoPhaseBceNative
-    go : Nat -> Network InputW [] OutputW (Variable CPU) ->
-         IO (Network InputW [] OutputW (Variable CPU))
+    -- Warmup loop using epochTwoPhaseVar ( typed-surface fast path)
+    go : Nat -> Network InputW [] OutputW CPU ->
+         IO (Network InputW [] OutputW CPU)
     go 5 m = pure m
     go k m = do
-      batch <- copyTaskBinaryBatchVect {w = W} BatchSize 1 20
-      let dps = map (map fromDouble) batch
-          opt = nativeRmsprop 0.0001 0.95 1.0e-8 10.0 0.9
-          (m', loss) = epochTwoPhaseBceNative opt dps m
+      dps <- copyTaskBinaryBatchVect {w = W} BatchSize 1 20
+      let opt = nativeRmsprop 0.0001 0.95 1.0e-8 10.0 0.9
+          (m', loss) = epochTwoPhaseVar opt dps tbceLoss m
       putStrLn $ "  warmup " ++ show (k + 1) ++ ": loss=" ++ show loss
       go (k + 1) m'

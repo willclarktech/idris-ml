@@ -7,20 +7,20 @@ import Data.IORef
 import System
 import Compat.Random
 
-import Endofunctor
 import Floating
 import Gym.ClassicControl.CartPole
 import Gym.Env
 import Hpo.LrFinder
-import Layer
+import Layer.Activation
 import Layer.Core
+import Layer.Linear
 import Math
 import RL.ReplayBuffer
-import Tensor
+import Array
 import Train
 import Util
 import Device
-import Variable
+import Tensor
 
 
 ----------------------------------------------------------------------
@@ -32,20 +32,21 @@ Hidden : Nat; Hidden = 64
 NumActions : Nat; NumActions = 2
 MaxSteps : Nat; MaxSteps = cartPoleMaxSteps
 
--- Intermediate shape after `linear ~> relu` is [64, 64, 64, 64] after two
--- such blocks followed by an output layer (Linear 64 -> 2).
+-- Two `linear ~~> relu` blocks followed by `OutputLayer Linear` give
+-- hidden dims [Hidden, Hidden, Hidden, Hidden].
 QNet : Type
-QNet = Network ObsDim [Hidden, Hidden, Hidden, Hidden] NumActions (Variable CPU)
+QNet = Network ObsDim [Hidden, Hidden, Hidden, Hidden] NumActions CPU
 
-QNetDouble : Type
-QNetDouble = Network ObsDim [Hidden, Hidden, Hidden, Hidden] NumActions Double
-
-mkQNet : IO QNet
-mkQNet = do
-  ll1 <- linearLayer {i=ObsDim} {o=Hidden}
-  ll2 <- linearLayer {i=Hidden} {o=Hidden}
-  ll3 <- linearLayer {i=Hidden} {o=NumActions}
-  pure (autoName (ll1 ~> reluLayer ~> ll2 ~> reluLayer ~> OutputLayer ll3))
+||| Build a Q-network with all params registered under `<scope>...`.
+||| Reuse the same architecture for online and target nets, scoped
+||| under e.g. "online_" / "target_" so `polyakUpdate` can match
+||| online↔target params by suffix.
+mkQNet : (scope : String) -> IO QNet
+mkQNet scope = do
+  ll1 <- linearLayerAny {i=ObsDim} {o=Hidden}     (scope ++ "ll1")
+  ll2 <- linearLayerAny {i=Hidden} {o=Hidden}     (scope ++ "ll2")
+  ll3 <- linearLayerAny {i=Hidden} {o=NumActions} (scope ++ "ll3")
+  pure (ll1 ~~> reluLayerAny ~~> ll2 ~~> reluLayerAny ~~> OutputLayer ll3)
 
 
 ----------------------------------------------------------------------
@@ -55,25 +56,8 @@ mkQNet = do
 observeVec : CPState -> Vect ObsDim Double
 observeVec s = cpObserve s
 
--- Convert a plain Vect to the shape-indexed Vector (Tensor [n]) used by
--- the forward / bulkToTensor APIs.
 obsTensor : Vect ObsDim Double -> Vector ObsDim Double
-obsTensor v = VTensor (map STensor v)
-
-
-----------------------------------------------------------------------
--- Target network snapshot: frozen Double-valued copy of the online net.
--- Sync = refresh online weights, then copy to Double.
-----------------------------------------------------------------------
-
-snapshotTarget : QNet -> QNetDouble
-snapshotTarget online = toDoubleNetwork (emap refreshValue online)
-
--- Max over a Vector NumActions Double
-vectorMax : Vector NumActions Double -> Double
-vectorMax qr =
-  let STensor v = index (argmax qr) qr
-  in v
+obsTensor v = VArray (map SArray v)
 
 
 ----------------------------------------------------------------------
@@ -89,9 +73,10 @@ epsilonAt step start end decaySteps =
 greedyAction : QNet -> Vect ObsDim Double -> Nat
 greedyAction online obs =
   let stateT = bulkToTensor (obsTensor obs)
-      qT = snd (forwardVarTensor online stateT)
-      q0 = prim__item1d qT 0
-      q1 = prim__item1d qT 1
+      stateV = the (TVec ObsDim CPU) (MkTensor stateT Nothing)
+      (_, qV) = forwardVar online stateV
+      q0 = prim__item1d qV.tensorPtr 0
+      q1 = prim__item1d qV.tensorPtr 1
   in if q0 >= q1 then 0 else 1
 
 epsGreedyIO : QNet -> Vect ObsDim Double -> Double -> IO Nat
@@ -105,55 +90,72 @@ epsGreedyIO online obs eps = do
 
 
 ----------------------------------------------------------------------
--- DQN loss (batched). Target Q uses the Double snapshot (pure Idris,
--- no FFI per scalar — kept per-sample). Online Q is batched: one
--- [B, ObsDim] forward replaces B per-sample forwards. For 200-step
--- episodes × batch=64, this is ~64× fewer tape entries per train step
--- (B=64 forward calls collapse to 1).
+-- DQN loss (batched). Online Q is batched: one [B, ObsDim] forward
+-- replaces B per-sample forwards. Target Q is forwarded per-sample
+-- (single forwardVar on the target Network) and read back as a
+-- Double — no autograd chain into the target's params, since the
+-- optimizer is scoped to "online_" only.
 ----------------------------------------------------------------------
 
-computeTargetVal : QNetDouble -> Double -> Transition ObsDim 1 -> Double
-computeTargetVal tgt gamma t =
-  let qNextD = snd (forward tgt (obsTensor t.nextObs))
-      nextMaxVal = vectorMax qNextD
-      bootstrap  = if t.done then 0.0 else gamma * nextMaxVal
+-- Max over a 1D tensor pointer (read NumActions scalars, take max).
+vectorMaxPtr : AnyPtr -> Double
+vectorMaxPtr t =
+  let v0 = prim__item1d t 0
+      v1 = prim__item1d t 1
+  in if v0 >= v1 then v0 else v1
+
+computeTargetVal : QNet -> Double -> Transition ObsDim 1 -> Double
+computeTargetVal target gamma t =
+  let stateT = bulkToTensor (obsTensor t.nextObs)
+      stateV = the (TVec ObsDim CPU) (MkTensor stateT Nothing)
+      (_, qV) = forwardVar target stateV
+      nextMax = vectorMaxPtr qV.tensorPtr
+      bootstrap = if t.done then 0.0 else gamma * nextMax
   in t.reward + bootstrap
 
 actionIdx : Vect 1 Double -> Int
 actionIdx [a] = cast {to=Int} (cast {to=Integer} a)
 
--- Build per-sample (Q(s,a) - target)^2 Variables by indexing into the
--- [B, NumActions] online output. Mirrors SAC's qLossBatch pattern
--- (Example/Sac.idr): select row k, then column aIdx[k], wrap as Var to
--- preserve autograd, subtract Double target, square.
-perSampleLosses : (qOutB : AnyPtr) -> Vect k (Transition ObsDim 1) ->
-                  Vect k Double -> Int -> List (Variable CPU)
-perSampleLosses _ [] [] _ = []
-perSampleLosses qOutB (t :: tRest) (tv :: tvRest) k =
-  let aIdx    = actionIdx t.action
-      qRow    = prim__select qOutB 0 k
-      qVal    = prim__item1d qRow aIdx
-      qV      : Variable CPU
-      qV      = Var (prim__select qRow 0 aIdx) Nothing qVal
-      targetC : Variable CPU
-      targetC = fromDouble tv
-      diff    = qV - targetC
-  in (diff * diff) :: perSampleLosses qOutB tRest tvRest (k + 1)
+-- Build (Q(s,a) - target)^2 per sample. `qOutB : Tensor [n, NumActions]`,
+-- `targetVals` are Doubles (no grad). Per-sample loss is
+-- (q_select - target)^2 — a Tensor [] CPU expression that flows back
+-- into the online net's weights.
+perSampleLoss : {n : Nat} -> (qOutB : Tensor [n, NumActions] CPU) ->
+                Transition ObsDim 1 -> Double -> Int -> Tensor [] CPU
+perSampleLoss qOutB t tv k =
+  let aIdx = actionIdx t.action
+      qRow = the (TVec NumActions CPU) (trowSelect qOutB k)
+      qScalar = the (Tensor [] CPU) (telemSelect qRow aIdx)
+      targetT = the (Tensor [] CPU) (tconstScalar tv)
+      diff = the (Tensor [] CPU) (tsub qScalar targetT)
+  in tmul diff diff
 
-batchLossBatched : (n : Nat) -> QNet -> QNetDouble -> Double ->
-                   Vect n (Transition ObsDim 1) -> Variable CPU
+-- Mean-reduce a list of scalar Tensor losses. Mirrors Backprop's
+-- foldl-with-fresh-zero pattern.
+meanScalarLoss : (n : Nat) -> List (Tensor [] CPU) -> Tensor [] CPU
+meanScalarLoss n losses =
+  let zero = tconstScalar 0.0
+      summed = foldl (\a, b => MkTensor (prim__add a.tensorPtr b.tensorPtr) Nothing) zero losses
+  in tmulScalar summed (1.0 / cast n)
+
+batchLossBatched : (n : Nat) -> QNet -> QNet -> Double ->
+                   Vect n (Transition ObsDim 1) -> Tensor [] CPU
 batchLossBatched n online target gamma batch =
-  let targetVals : Vect n Double
-      targetVals = map (computeTargetVal target gamma) batch
-      obsTensors : Vect n (Vector ObsDim Double)
+  let targetVals = the (Vect n Double) (map (computeTargetVal target gamma) batch)
       obsTensors = map (\t => obsTensor t.obs) batch
-      obsBT      = bulkToTensor2d obsTensors                         -- [B, ObsDim]
-      qOutB      = snd (forwardVarTensorBatch online n obsBT)         -- [B, NumActions]
-      losses     = perSampleLosses qOutB batch targetVals 0
-      n_d        = the Double (cast (natToInteger n))
-      sumV       = foldl (+) (the (Variable CPU) (fromDouble 0.0)) losses
-      nV         = the (Variable CPU) (fromDouble n_d)
-  in sumV / nV
+      obsBT = bulkToTensor2d obsTensors
+      obsBV = the (Tensor [n, ObsDim] CPU) (MkTensor obsBT Nothing)
+      qOutB = snd (forwardVarBatch online obsBV)
+      losses = the (List (Tensor [] CPU)) (go qOutB (toList batch) (toList targetVals) 0)
+  in meanScalarLoss n losses
+  where
+    go : {n : Nat} -> Tensor [n, NumActions] CPU ->
+         List (Transition ObsDim 1) ->
+         List Double -> Int -> List (Tensor [] CPU)
+    go _ [] _ _ = []
+    go _ _ [] _ = []
+    go qOutB (t :: tRest) (tv :: tvRest) k =
+      perSampleLoss qOutB t tv k :: go qOutB tRest tvRest (k + 1)
 
 
 ----------------------------------------------------------------------
@@ -163,9 +165,9 @@ batchLossBatched n online target gamma batch =
 record DqnState where
   constructor MkDqnState
   qNet      : QNet
-  target    : QNetDouble
+  target    : QNet
   buffer    : ReplayBuffer ObsDim 1
-  stepRef   : IORef Nat     -- total env steps (for epsilon decay + target sync)
+  stepRef   : IORef Nat
   cfgEpsStart : Double
   cfgEpsEnd   : Double
   cfgEpsDecay : Nat
@@ -178,7 +180,6 @@ record DqnState where
 -- Episode rollout with DQN updates
 ----------------------------------------------------------------------
 
--- actionToVec converts a Nat action to a 1-vector for buffer storage.
 actionToVec : Nat -> Vect 1 Double
 actionToVec a = [cast (natToInteger a)]
 
@@ -215,17 +216,16 @@ runEpisode opt st0 = go st0 (MkCP 0 0 0 0) MaxSteps 0.0
           writeIORef st.stepRef (stepCount + 1)
           let ret' = ret + reward
 
-          -- Train if buffer has enough samples
           st' <- trainIfReady opt st
 
-          -- Sync target net on schedule
-          let synced : DqnState
-              synced = { target := snapshotTarget st'.qNet } st'
-          let st'' = if (stepCount + 1) `mod` st.cfgSyncEvery == 0 then synced else st'
+          -- Hard-sync target ← online via polyak-blend with tau=1.0
+          when ((stepCount + 1) `mod` st.cfgSyncEvery == 0) $ do
+            _ <- polyakUpdate 1.0 "online_" "target_"
+            pure ()
 
           if isDone
-            then pure (st'', ret')
-            else go st'' envState' steps ret'
+            then pure (st', ret')
+            else go st' envState' steps ret'
 
 
 ----------------------------------------------------------------------
@@ -235,7 +235,7 @@ runEpisode opt st0 = go st0 (MkCP 0 0 0 0) MaxSteps 0.0
 record Config where
   constructor MkConfig
   lr          : Double
-  epochs      : Nat     -- episodes
+  epochs      : Nat
   gamma       : Double
   batchSize   : Nat
   bufferCap   : Nat
@@ -302,21 +302,20 @@ main = do
            ++ " eps=" ++ show cfg.epsStart ++ "→" ++ show cfg.epsEnd
            ++ " seed=" ++ show cfg.seed
 
-  qNet0 <- mkQNet
-  let target0 = snapshotTarget qNet0
+  qNet0 <- mkQNet "online_"
+  target0 <- mkQNet "target_"
+  -- Initial hard sync: target ← online (tau=1.0).
+  _ <- polyakUpdate 1.0 "online_" "target_"
+
   buffer <- mkBuffer {obsDim = ObsDim, actDim = 1} cfg.bufferCap
   stepRef <- newIORef (the Nat 0)
   let st0 = MkDqnState qNet0 target0 buffer stepRef
                        cfg.epsStart cfg.epsEnd cfg.epsDecay
                        cfg.targetSync cfg.batchSize cfg.gamma
-      opt = nativeAdamGlobalClip cfg.lr 0.9 0.999 1.0e-8 10.0
+      opt = nativeAdamGroup "online_" cfg.lr 0.9 0.999 1.0e-8 10.0
 
   putStrLn ""
 
-  -- HPO branch: --lr-find runs lr_find using episode-return-as-loss.
-  -- See hyperparameter-tuning-2026.md for caveats — the per-episode
-  -- signal is noisy and the network keeps training across iters, so
-  -- the recommendation should be treated as informational only.
   when cfg.lrFind $ do
     let lrCfg : LrFindConfig
         lrCfg = { numIters := 30 } defaultLrFindConfig

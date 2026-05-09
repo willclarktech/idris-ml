@@ -1,159 +1,128 @@
--- | GRU (Gated Recurrent Unit) layer.
--- |
--- | 2-gate recurrent: reset (r), update (z), candidate (n).
--- | Lighter than LSTM (no cell state, 3*o gates vs 4*o).
--- |
--- | Input: i, Output: o (hidden size), recurrent state: hidden [o].
-
 module Layer.Gru
 
-import Data.Nat
 import Data.Vect
 
+import Compat.Random
 import Device
-import Endofunctor
-import Floating
 import Init
 import Layer.Core
-import Layer.Linear
-import Math
+import Sampler
 import Tensor
-import Util
-import Variable
 
 
 ----------------------------------------------------------------------
--- Gate splitting (mirrors Lstm.lstmSplitGates)
+-- Gru — typed-surface GRU cell (Path C)
 ----------------------------------------------------------------------
-
-coerceLastGate : {o : Nat} -> Vector (o + 0) ty -> Vector o ty
-coerceLastGate {o} v = rewrite sym (plusZeroRightNeutral o) in v
-
-||| Split the combined GRU gate vector into (z, r, n) gates. Order
-||| matches the C kernel `tensor_gru_cell` (z first, r second, n
-||| third). Note: the simplified GRU variant computes r but does NOT
-||| use it to mask n — see `applyGeneric`.
-export
-gruSplitGates :
-    {o : Nat} -> Vector (3 * o) ty
-    -> (Vector o ty, Vector o ty, Vector o ty)
-gruSplitGates {o} combined =
-  let s1 = Tensor.splitAt o combined
-      s2 = Tensor.splitAt o (snd s1)
-  in (fst s1, fst s2, coerceLastGate (snd s2))
-
-
-----------------------------------------------------------------------
--- GRU State
-----------------------------------------------------------------------
+--
+-- Mirrors `Layer/Gru.idr`'s `applyVarTensor` path with the simplified
+-- GRU variant the C kernel implements (`tensor_gru_cell`):
+--   combined = (W_ih · x + b_ih) + (W_hh · h + b_hh)
+--   h_t = `prim__gruCell` combined h_{t-1} o
+--
+-- Three gate paths (z, r, n) are computed inside the C op; the
+-- combined vector has shape [3 * o]. Static type safety via
+-- `TMat (3 * o) ...` and `TVec (3 * o) ...` aliases.
 
 public export
-record GruState (inputSize : Nat) (outputSize : Nat) (ty : Type) where
+record GruState (i : Nat) (o : Nat) (0 d : Device) where
   constructor MkGru
-  wIH : LinearState inputSize (3 * outputSize) ty    -- input -> gates
-  wHH : LinearState outputSize (3 * outputSize) ty   -- hidden -> gates
-  hidden : Vector outputSize ty                        -- recurrent state
-  hiddenTensor : Maybe AnyPtr
+  iwT : TMat (3 * o) i d         -- W_ih [3*o, i]
+  ihB : TVec (3 * o) d           -- b_ih [3*o]
+  hwT : TMat (3 * o) o d         -- W_hh [3*o, o]
+  hhB : TVec (3 * o) d           -- b_hh [3*o]
+  hiddenT : Maybe (TVec o d)
 
 
 ----------------------------------------------------------------------
--- LayerLike Instance
+-- Forward
 ----------------------------------------------------------------------
 
 %default partial
+
 export
-LayerLike GruState where
-  -- Pure-Double forward path used by `evaluateRecurrent` /
-  -- `calculateLossRecurrent` after `toDoubleNetwork`. Mirrors the C
-  -- kernel `tensor_gru_cell` exactly: simplified GRU variant where r
-  -- is computed but NOT used to mask n.
-  applyGeneric {o} (MkGru wih whh h _) xs =
-    let ihPart = matrixVectorMultiply (wih.weights) xs + (wih.bias)
-        hhPart = matrixVectorMultiply (whh.weights) h  + (whh.bias)
-        combined = ihPart + hhPart
-        gates = gruSplitGates {o} combined
-        zGate = fst gates
-        nGate = snd (snd gates)  -- r (= fst (snd gates)) intentionally unused
-        z = map sig zGate
-        n = map tanh nGate
-        ones = map (const (fromDouble 1.0)) (the (Vector o ty) zeros)
-        newH = (ones - z) * n + z * h
-    in (MkGru wih whh newH Nothing, newH)
-    where
-      sig : ty -> ty
-      sig x = 1 / (1 + exp (-x))
-
-  applyVar {d} {i} {o} st xs =
-    let (VTensor xElems) = xs
-        inputT = vecStackTensor {n=i} xElems
-        (st', outT) = applyVarTensor st inputT
-    in (st', VTensor $ tensorToScalars outT 0 o)
-
-  applyVarTensor {d} {i} {o} st inputT =
-    case (extractWeightTensor (wIH st), extractBiasTensor (wIH st),
-          extractWeightTensor (wHH st), extractBiasTensor (wHH st),
-          st.hiddenTensor) of
-      (Just wihW, Just wihB, Just whhW, Just whhB, Just hT) =>
-        let oI = cast {to=Int} o
-            -- gates = W_ih @ x + b_ih + W_hh @ h + b_hh
-            ihPart = tensorAdd (tensorMv wihW inputT) wihB
-            hhPart = tensorAdd (tensorMv whhW hT) whhB
-            combined = tensorAdd ihPart hhPart
-            -- GRU cell: z,r,n gates -> new hidden
-            newH = prim__gruCell combined hT oI
-        in ({ hiddenTensor := Just newH } st, newH)
-      _ => idris_crash "GRU: weight tensors not initialized"
-
-  emapLayer f (MkGru wih whh h ht) =
-    MkGru (emapLayer f wih) (emapLayer f whh) (map f h) ht
-
-  showLayer {i} {o} _ = "GRU<" ++ show i ++ ":" ++ show o ++ ">"
-
-  nameLayer {d} {i} {o} pfx (MkGru wih whh h _) =
-    let wih' = nameLayer (pfx ++ "_wih") wih
-        whh' = nameLayer (pfx ++ "_whh") whh
-        oI = cast {to=Int} o
-        hBuf = prim__allocDoubles oI
-        hBuf' = packScalarVals hBuf 0 h
-        hT = prim__createState1d oI hBuf'
-    in MkGru wih' whh' h (Just hT)
-    where
-      packScalarVals : AnyPtr -> Int -> Vector n (Variable d) -> AnyPtr
-      packScalarVals buf _ (VTensor []) = buf
-      packScalarVals buf idx (VTensor (STensor v :: rest)) =
-        packScalarVals (prim__setDouble buf idx v.value) (idx + 1) (VTensor rest)
-
-  layerPrefix _ = "gru"
-
-  toDoubleLayer {d} (MkGru wih whh h _) =
-    MkGru (toDoubleLayer wih) (toDoubleLayer whh) (map value h) Nothing
-
-  resetState {d} {o} (MkGru wih whh h ht) =
-    case ht of
-      Just t =>
-        let oI = cast {to=Int} o
-            buf = prim__allocDoubles oI
-            buf' = packZeros buf 0 oI
-            newHT = prim__createState1d oI buf'
-        in MkGru wih whh h (Just newHT)
-      Nothing => MkGru wih whh h Nothing
-    where
-      packZeros : AnyPtr -> Int -> Int -> AnyPtr
-      packZeros buf idx n = if idx >= n then buf
-        else packZeros (prim__setDouble buf idx 0.0) (idx + 1) n
-
-  debugApply _ _ = idris_crash "GRU: use tensor path"
+applyGru : {o : Nat} ->
+             GruState i o d ->
+             TVec i d ->
+             (GruState i o d, TVec o d)
+applyGru {o} st input =
+  let h = case st.hiddenT of
+            Just h => h
+            Nothing => tzeroState1d {n = o}
+      ihPart = tadd (tmv st.iwT input) st.ihB
+      hhPart = tadd (tmv st.hwT h) st.hhB
+      combined = tadd ihPart hhPart
+      newH = tgruCell {n = o} combined h
+  in ({ hiddenT := Just newH } st, newH)
 
 
 ----------------------------------------------------------------------
 -- Constructor
 ----------------------------------------------------------------------
 
-||| Create a GRU layer with Xavier initialization.
+packDoubles : AnyPtr -> Int -> Vect k Double -> AnyPtr
+packDoubles buf _ [] = buf
+packDoubles buf off (x :: rest) =
+  packDoubles (prim__setDouble buf off x) (off + 1) rest
+
+zeroBuf : AnyPtr -> Int -> Int -> AnyPtr
+zeroBuf buf _ 0 = buf
+zeroBuf buf off n =
+  zeroBuf (prim__setDouble buf off 0.0) (off + 1) (n - 1)
+
+||| Build a `GruState i o CPU` with Xavier-uniform weights and
+||| zero biases. Params register under `<prefix>_iw`, `<prefix>_ih_b`,
+||| `<prefix>_hw`, `<prefix>_hh_b`.
 export
-gruLayer : {i, o : Nat} -> (Num ty, FromDouble ty) => IO (AnyLayer i o ty)
-gruLayer = do
-  wih <- mkLinear {i, o = 3 * o}
-  whh <- mkLinear {i = o, o = 3 * o}
-  let h = the (Vector o ty) zeros
-  pure $ MkAnyLayer GruState (MkGru wih whh h Nothing)
+gruLayer : {i, o : Nat} -> (paramPrefix : String) ->
+             IO (GruState i o CPU)
+gruLayer paramPrefix = do
+  let gI = cast {to=Int} (3 * o)
+      iI = cast {to=Int} i
+      oI = cast {to=Int} o
+  iwVals <- traverse (\_ => xavier uniform i (3 * o)) (Vect.replicate (3 * o * i) ())
+  hwVals <- traverse (\_ => xavier uniform o (3 * o)) (Vect.replicate (3 * o * o) ())
+  let iwBuf = prim__allocDoubles (gI * iI)
+      iwBuf' = packDoubles iwBuf 0 iwVals
+      hwBuf = prim__allocDoubles (gI * oI)
+      hwBuf' = packDoubles hwBuf 0 hwVals
+      ihBBuf = prim__allocDoubles gI
+      ihBBuf' = zeroBuf ihBBuf 0 gI
+      hhBBuf = prim__allocDoubles gI
+      hhBBuf' = zeroBuf hhBBuf 0 gI
+      iwName  = paramPrefix ++ "_iw"
+      hwName  = paramPrefix ++ "_hw"
+      ihBName = paramPrefix ++ "_ih_b"
+      hhBName = paramPrefix ++ "_hh_b"
+      iwPtr  = prim__paramRegister iwName  (prim__createParam2d gI iI iwBuf')
+      hwPtr  = prim__paramRegister hwName  (prim__createParam2d gI oI hwBuf')
+      ihBPtr = prim__paramRegister ihBName (prim__createParam1d gI ihBBuf')
+      hhBPtr = prim__paramRegister hhBName (prim__createParam1d gI hhBBuf')
+      iwTV : TMat (3 * o) i CPU
+      iwTV = MkTensor iwPtr (Just iwName)
+      hwTV : TMat (3 * o) o CPU
+      hwTV = MkTensor hwPtr (Just hwName)
+      ihBTV : TVec (3 * o) CPU
+      ihBTV = MkTensor ihBPtr (Just ihBName)
+      hhBTV : TVec (3 * o) CPU
+      hhBTV = MkTensor hhBPtr (Just hhBName)
+  pure $ MkGru iwTV ihBTV hwTV hhBTV Nothing
+
+||| Reset hidden state. Lazy-allocate on next applyVar call.
+export
+resetGruState : {o : Nat} -> {0 d : Device} -> GruState i o d -> GruState i o d
+resetGruState st = { hiddenT := Nothing } st
+
+
+----------------------------------------------------------------------
+-- LayerLike instance
+----------------------------------------------------------------------
+
+public export
+LayerLike GruState where
+  applyVar = applyGru
+  layerPrefix _ = "gru"
+
+||| Wrap a `GruState` in `AnyLayer`.
+export
+gruLayerAny : {i, o : Nat} -> (paramPrefix : String) -> IO (AnyLayer i o CPU)
+gruLayerAny pid = map (MkAnyLayer GruState) (gruLayer pid)
