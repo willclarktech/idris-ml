@@ -318,8 +318,7 @@ TensorHandle name(TensorHandle a, TensorHandle b) { \
     } \
     return binop_elementwise(a, b, op_tag, fn64); \
 }
-/* tensor_add, tensor_sub, tensor_mul, tensor_div: moved to backend_tape/core/elementwise/ (Phase 1a.2-5). */
-TAPE_BINOP_DISPATCH(tensor_pow, OP_POW, fn_pow, fn_pow_f32)
+/* tensor_add, tensor_sub, tensor_mul, tensor_div, tensor_pow: moved to backend_tape/core/elementwise/ (Phase 1a.2-7). */
 #undef TAPE_BINOP_DISPATCH
 
 /* Unary ops: support both scalar (rank 0) and multi-element tensors */
@@ -3185,41 +3184,7 @@ void tensor_backward(TensorHandle h) {
 
         /* OP_NEG/ABS/EXP/LOG/SQRT: moved to backend_tape/core/elementwise/ (Phase 1a.6). */
 
-        case OP_POW: {
-            int a_match = a && shapes_equal(a, r);
-            int b_match = b && shapes_equal(b, r);
-            if (a) ensure_grad(a);
-            if (b) ensure_grad(b);
-            ensure_grad(r);
-            if (a_match && b_match) {
-                for (int j = 0; j < r->numel; j++) {
-                    double av = fmax(tape_load_d(a, j), 1e-20);
-                    double bv = tape_load_d(b, j);
-                    ((double*)a->grad)[j] += ((double*)r->grad)[j] * bv * pow(av, bv - 1.0);
-                    ((double*)b->grad)[j] += ((double*)r->grad)[j] * tape_load_d(r, j) * log(av);
-                }
-            } else {
-                int a_str[MAX_BCAST_RANK] = {0}, b_str[MAX_BCAST_RANK] = {0};
-                int idx[MAX_BCAST_RANK] = {0};
-                if (a) compute_bcast_strides(a, r->rank, r->shape, a_str);
-                if (b) compute_bcast_strides(b, r->rank, r->shape, b_str);
-                for (int i = 0; i < r->numel; i++) {
-                    int ai = 0, bi = 0;
-                    for (int k = 0; k < r->rank; k++) {
-                        ai += idx[k] * a_str[k];
-                        bi += idx[k] * b_str[k];
-                    }
-                    double av = fmax(tape_load_d(a, ai), 1e-20);
-                    double bv = tape_load_d(b, bi);
-                    if (a) ((double*)a->grad)[ai] += ((double*)r->grad)[i] * bv * pow(av, bv - 1.0);
-                    if (b) ((double*)b->grad)[bi] += ((double*)r->grad)[i] * tape_load_d(r, i) * log(av);
-                    for (int k = r->rank - 1; k >= 0; k--) {
-                        if (++idx[k] < r->shape[k]) break; idx[k] = 0;
-                    }
-                }
-            }
-            break;
-        }
+        /* OP_POW: moved to backend_tape/core/elementwise/pow.c (Phase 1a.7). */
 
         case OP_SIGMOID: {
             if (a) { ensure_grad(a); for (int j = 0; j < a->numel; j++) { double s = tape_load_d(r, j); ((double*)a->grad)[j] += ((double*)r->grad)[j] * s * (1.0 - s); } }
