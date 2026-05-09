@@ -1605,6 +1605,25 @@ export
 tlog : TVar dims d -> TVar dims d
 tlog v = MkTVar (prim__log v.tensorPtr) Nothing
 
+||| Create a registered learnable scalar parameter (e.g. SAC's
+||| state-independent log_std). Mirrors V1's `param`. The optimizer
+||| picks it up automatically by paramId scope.
+export
+tparamScalar : {0 d : Device} -> (paramId : String) -> (val : Double) -> TVar [] d
+tparamScalar pid val =
+  let ptr = prim__createScalar val 1                  -- requires_grad=true
+      reg = prim__paramRegister pid ptr
+  in MkTVar reg (Just pid)
+
+||| Concatenate two [b, m] / [b, n] TVars along axis 1, producing
+||| [b, m + n]. Wraps `prim__concat2dAxis1`. Used by SAC's actor loss
+||| to build a [B, ObsDim + ActDim] Q-input from obs + reparametrized
+||| action while preserving the autograd path through the action.
+export
+tconcat2dAxis1 : {b, m, n : Nat} -> TVar [b, m] d -> TVar [b, n] d ->
+                 TVar [b, m + n] d
+tconcat2dAxis1 a b = MkTVar (prim__concat2dAxis1 a.tensorPtr b.tensorPtr) Nothing
+
 -- Activations (shape-preserving, pass-through autograd) ---------------
 
 export
