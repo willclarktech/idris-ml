@@ -2,6 +2,11 @@ UNAME := $(shell uname)
 BUILD := build
 BACKEND ?= tape
 
+# Per-build flag injection (Phase 0.4 coverage; future use for sanitizers,
+# debug builds, etc.). Threaded through every compile + link site below.
+EXTRA_CFLAGS  ?=
+EXTRA_LDFLAGS ?=
+
 # MLX stream selection at runtime, also consumed by the BuildConfig
 # generation rule below — when PRIMARY=mlx and MLX_DEVICE=gpu, examples
 # spell `Tensor [..] (MlxDev MGpu) F32 WithGrad` so the type-level
@@ -272,7 +277,7 @@ BACKEND_OBJS := $(foreach b,$(BACKEND_LIST),$(BUILD)/backend_$(b).o)
 # per-backend source touches which `.inc` so we list it for all.
 define backend_compile_rule
 $(BUILD)/backend_$(1).o: $($(1)_SRC) $(BACKENDS_DIR)/backend.h $(BACKENDS_DIR)/rename_$(1).h $(BACKENDS_DIR)/backend_tape_kernels.inc | $(BUILD)
-	$($(1)_CC) -O2 -fPIC $($(1)_CFLAGS) -include $(BACKENDS_DIR)/rename_$(1).h -c -o $$@ $$<
+	$($(1)_CC) -O2 -fPIC $(EXTRA_CFLAGS) $($(1)_CFLAGS) -include $(BACKENDS_DIR)/rename_$(1).h -c -o $$@ $$<
 endef
 
 $(foreach b,$(BACKEND_LIST),$(eval $(call backend_compile_rule,$(b))))
@@ -288,16 +293,16 @@ $(foreach b,$(BACKEND_LIST),$(eval $(call backend_compile_rule,$(b))))
 SHARED_OBJ := $(BUILD)/safetensors_$(PRIMARY).o $(BUILD)/cJSON.o $(BUILD)/mnist_$(PRIMARY).o $(BUILD)/shared_utils.o
 
 $(BUILD)/safetensors_$(PRIMARY).o: $(BACKENDS_DIR)/safetensors.c $(BACKENDS_DIR)/backend.h $(BACKENDS_DIR)/cJSON.h $(BACKEND_RENAME_H) | $(BUILD)
-	cc -O2 -fPIC -include $(BACKEND_RENAME_H) -c -o $@ $<
+	cc -O2 -fPIC $(EXTRA_CFLAGS) -include $(BACKEND_RENAME_H) -c -o $@ $<
 
 $(BUILD)/cJSON.o: $(BACKENDS_DIR)/cJSON.c $(BACKENDS_DIR)/cJSON.h | $(BUILD)
-	cc -O2 -fPIC -c -o $@ $<
+	cc -O2 -fPIC $(EXTRA_CFLAGS) -c -o $@ $<
 
 $(BUILD)/mnist_$(PRIMARY).o: $(BACKENDS_DIR)/mnist.c $(BACKENDS_DIR)/backend.h $(BACKEND_RENAME_H) | $(BUILD)
-	cc -O2 -fPIC -include $(BACKEND_RENAME_H) -c -o $@ $<
+	cc -O2 -fPIC $(EXTRA_CFLAGS) -include $(BACKEND_RENAME_H) -c -o $@ $<
 
 $(BUILD)/shared_utils.o: $(BACKENDS_DIR)/shared_utils.c $(BACKENDS_DIR)/shared_utils.h | $(BUILD)
-	cc -O2 -fPIC -c -o $@ $<
+	cc -O2 -fPIC $(EXTRA_CFLAGS) -c -o $@ $<
 
 # Final link compiler: c++ if any C++ backend (torch/mlx) is in the
 # list, else cc. Picks the right runtime libraries automatically.
@@ -429,7 +434,7 @@ $(HWDEVICES_IDR): $(HWDEVICES_IN) $(BUILD)/.hwconfig-stamp
 # suffix). One dylib, no symlink. Every symbol is reached by its
 # suffixed name from the per-instance UserDevice methods — no aliases.
 $(LIB): $(BACKEND_OBJS) $(SHARED_OBJ) $(BUILD)/.backend-stamp | $(BUILD)
-	$(LINK_CC) -O2 -shared -o $@ $(BACKEND_OBJS) $(SHARED_OBJ) $(BACKEND_LDFLAGS)
+	$(LINK_CC) -O2 -shared $(EXTRA_LDFLAGS) -o $@ $(BACKEND_OBJS) $(SHARED_OBJ) $(BACKEND_LDFLAGS)
 
 # Download MNIST dataset
 dataset-mnist:
@@ -481,7 +486,7 @@ check-non-io-side-effects:
 # utilities (tensor_alloc_doubles, …) aren't in the rename set, so they stay
 # unified and link straight from shared_utils.o in the dylib.
 test-backend: $(BACKENDS_DIR)/test_backend.c $(BACKEND_RENAME_H) backend | $(BUILD)
-	cc -o $(BUILD)/test_backend -include $(BACKEND_RENAME_H) $(BACKENDS_DIR)/test_backend.c -DBACKEND_$(shell echo $(PRIMARY) | tr a-z A-Z) -L$(BUILD) -lidrisml -Wl,-rpath,$(BUILD) -lm
+	cc -o $(BUILD)/test_backend $(EXTRA_CFLAGS) -include $(BACKEND_RENAME_H) $(BACKENDS_DIR)/test_backend.c -DBACKEND_$(shell echo $(PRIMARY) | tr a-z A-Z) -L$(BUILD) -lidrisml -Wl,-rpath,$(BUILD) $(EXTRA_LDFLAGS) -lm
 	./$(BUILD)/test_backend
 
 # Per-backend convenience targets
@@ -508,7 +513,7 @@ CRITERION_CFLAGS := -I$(CRITERION_PREFIX)/include
 CRITERION_LDFLAGS := -L$(CRITERION_PREFIX)/lib -lcriterion -Wl,-rpath,$(CRITERION_PREFIX)/lib
 
 test-backend-criterion: $(BACKENDS_DIR)/test_criterion_smoke.c $(BACKEND_RENAME_H) backend | $(BUILD)
-	cc -o $(BUILD)/test_criterion_smoke -include $(BACKEND_RENAME_H) $(BACKENDS_DIR)/test_criterion_smoke.c -DBACKEND_$(shell echo $(PRIMARY) | tr a-z A-Z) $(CRITERION_CFLAGS) -L$(BUILD) -lidrisml -Wl,-rpath,$(BUILD) $(CRITERION_LDFLAGS) -lm
+	cc -o $(BUILD)/test_criterion_smoke $(EXTRA_CFLAGS) -include $(BACKEND_RENAME_H) $(BACKENDS_DIR)/test_criterion_smoke.c -DBACKEND_$(shell echo $(PRIMARY) | tr a-z A-Z) $(CRITERION_CFLAGS) -L$(BUILD) -lidrisml -Wl,-rpath,$(BUILD) $(EXTRA_LDFLAGS) $(CRITERION_LDFLAGS) -lm
 	./$(BUILD)/test_criterion_smoke --xml=$(BUILD)/test-criterion-$(PRIMARY).xml
 
 test-backend-criterion-tape:
@@ -519,6 +524,63 @@ test-backend-criterion-mlx:
 
 test-backend-criterion-torch:
 	$(MAKE) BACKEND=torch test-backend-criterion
+
+# Coverage build. Recompiles backend + test binaries with
+# `-fprofile-instr-generate -fcoverage-mapping` into build-cov/ (separate
+# from build/ so a coverage run doesn't pollute the normal dylib + vice
+# versa). Runs both test_backend and test_criterion_smoke with
+# LLVM_PROFILE_FILE pointing to build-cov/profraw/, merges via
+# llvm-profdata, then emits `llvm-cov report` + HTML via
+# `llvm-cov show -format=html`.
+#
+# Report-only — no CI gate yet. The HTML artifact lives at
+# build-cov/html-<b>/index.html.
+COV_BUILD := build-cov
+COV_CFLAGS := -fprofile-instr-generate -fcoverage-mapping -O0 -g
+COV_LDFLAGS := -fprofile-instr-generate
+
+coverage-backend:
+	$(MAKE) BUILD=$(COV_BUILD) \
+	  EXTRA_CFLAGS="$(COV_CFLAGS)" \
+	  EXTRA_LDFLAGS="$(COV_LDFLAGS)" \
+	  BACKEND=$(BACKEND) \
+	  $(COV_BUILD)/test_backend $(COV_BUILD)/test_criterion_smoke
+	@mkdir -p $(COV_BUILD)/profraw
+	@rm -f $(COV_BUILD)/profraw/*.profraw
+	LLVM_PROFILE_FILE='$(COV_BUILD)/profraw/test_backend_%p_%m.profraw' \
+	  ./$(COV_BUILD)/test_backend > /dev/null
+	LLVM_PROFILE_FILE='$(COV_BUILD)/profraw/test_criterion_%p_%m.profraw' \
+	  ./$(COV_BUILD)/test_criterion_smoke --xml=$(COV_BUILD)/test-criterion-$(PRIMARY).xml > /dev/null
+	xcrun llvm-profdata merge -sparse $(COV_BUILD)/profraw/*.profraw -o $(COV_BUILD)/$(PRIMARY).profdata
+	@echo ""
+	@echo "=== Coverage report ($(PRIMARY)) ==="
+	xcrun llvm-cov report $(COV_BUILD)/libidrisml.$(LIB_EXT) -instr-profile=$(COV_BUILD)/$(PRIMARY).profdata -ignore-filename-regex='($(BACKENDS_DIR)/(cJSON|safetensors|shared_utils|mnist))|(/(usr|nix|opt|Library|System|\.venv)/)|(\.cache/)'
+	@rm -rf $(COV_BUILD)/html-$(PRIMARY)
+	xcrun llvm-cov show $(COV_BUILD)/libidrisml.$(LIB_EXT) -instr-profile=$(COV_BUILD)/$(PRIMARY).profdata -format=html -output-dir=$(COV_BUILD)/html-$(PRIMARY) -ignore-filename-regex='($(BACKENDS_DIR)/(cJSON|safetensors|shared_utils|mnist))|(/(usr|nix|opt|Library|System|\.venv)/)|(\.cache/)'
+	@echo ""
+	@echo "Coverage HTML: file://$(PWD)/$(COV_BUILD)/html-$(PRIMARY)/index.html"
+
+# Targets to build the binaries with coverage flags (the test-backend /
+# test-backend-criterion targets also run them; we want build-only so
+# the coverage target can set LLVM_PROFILE_FILE before running). These
+# match the recipe of their non-COV_BUILD counterparts.
+$(COV_BUILD)/test_backend: $(BACKENDS_DIR)/test_backend.c $(BACKEND_RENAME_H) $(LIB) | $(COV_BUILD)
+	cc -o $@ $(EXTRA_CFLAGS) -include $(BACKEND_RENAME_H) $(BACKENDS_DIR)/test_backend.c -DBACKEND_$(shell echo $(PRIMARY) | tr a-z A-Z) -L$(BUILD) -lidrisml -Wl,-rpath,$(PWD)/$(BUILD) $(EXTRA_LDFLAGS) -lm
+
+$(COV_BUILD)/test_criterion_smoke: $(BACKENDS_DIR)/test_criterion_smoke.c $(BACKEND_RENAME_H) $(LIB) | $(COV_BUILD)
+	cc -o $@ $(EXTRA_CFLAGS) -include $(BACKEND_RENAME_H) $(BACKENDS_DIR)/test_criterion_smoke.c -DBACKEND_$(shell echo $(PRIMARY) | tr a-z A-Z) $(CRITERION_CFLAGS) -L$(BUILD) -lidrisml -Wl,-rpath,$(PWD)/$(BUILD) $(EXTRA_LDFLAGS) $(CRITERION_LDFLAGS) -lm
+
+$(COV_BUILD):
+	mkdir -p $@
+
+coverage-backend-tape:
+	$(MAKE) BACKEND=tape coverage-backend
+
+coverage-backend-mlx:
+	$(MAKE) BACKEND=mlx coverage-backend
+
+coverage-backend-torch:
+	$(MAKE) BACKEND=torch coverage-backend
 
 # Specialized C test suites
 test-safetensors: $(BACKENDS_DIR)/test_safetensors.c $(BACKEND_RENAME_H) backend | $(BUILD)
