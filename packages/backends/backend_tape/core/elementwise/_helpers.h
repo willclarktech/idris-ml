@@ -20,6 +20,12 @@ TensorHandle binop_elementwise(TensorHandle ha, TensorHandle hb, int op_tag,
 TensorHandle binop_elementwise_f32_disp(TensorHandle ha, TensorHandle hb, int op_tag,
                                         float (*scalar_fn)(float, float));
 
+TensorHandle unop_elementwise(TensorHandle ha, int op_tag,
+                              double (*scalar_fn)(double));
+
+TensorHandle unop_elementwise_f32_disp(TensorHandle ha, int op_tag,
+                                       float (*scalar_fn)(float));
+
 void tape_abort_mixed_dtype(const char* op) __attribute__((noreturn));
 
 #endif /* IDRISML_BACKEND_TAPE_ELEMENTWISE_HELPERS_H */

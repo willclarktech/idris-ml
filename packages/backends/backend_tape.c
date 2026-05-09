@@ -350,9 +350,16 @@ static float fn_gelu_f32(float x) {
     return 0.5f * x * (1.0f + tanhf(inner));
 }
 
-static TensorHandle unop_elementwise(TensorHandle ha, int op, double (*fn)(double)) {
+TensorHandle unop_elementwise(TensorHandle ha, int op, double (*fn)(double)) {
     /* Body lives in backend_tape_kernels.inc as unop_elementwise_f64. */
     return unop_elementwise_f64(ha, op, fn);
+}
+
+/* Symmetric F32 dispatch wrapper (mirror of binop_elementwise_f32_disp).
+ * unop_elementwise_f32 itself is static (in the .inc stamping); this
+ * non-static wrapper exposes it to per-op files in core/elementwise/. */
+TensorHandle unop_elementwise_f32_disp(TensorHandle ha, int op_tag, float (*fn)(float)) {
+    return unop_elementwise_f32(ha, op_tag, fn);
 }
 
 /* Forward dispatch: tag-aware unop wrappers — F32 input routes to the F32
@@ -364,11 +371,7 @@ TensorHandle name(TensorHandle ha) { \
     if (a->dtype_tag == DT_F32) return unop_elementwise_f32(ha, op_tag, fn32); \
     return unop_elementwise(ha, op_tag, fn64); \
 }
-TAPE_UNOP_DISPATCH(tensor_neg,     OP_NEG,     fn_neg,     fn_neg_f32)
-TAPE_UNOP_DISPATCH(tensor_abs,     OP_ABS,     fn_abs,     fn_abs_f32)
-TAPE_UNOP_DISPATCH(tensor_exp,     OP_EXP,     fn_exp_d,   fn_exp_f32)
-TAPE_UNOP_DISPATCH(tensor_log,     OP_LOG,     fn_log_d,   fn_log_f32)
-TAPE_UNOP_DISPATCH(tensor_sqrt,    OP_SQRT,    fn_sqrt_d,  fn_sqrt_f32)
+/* tensor_neg/abs/exp/log/sqrt: moved to backend_tape/core/elementwise/ (Phase 1a.6). */
 TAPE_UNOP_DISPATCH(tensor_sigmoid, OP_SIGMOID, fn_sigmoid, fn_sigmoid_f32)
 TAPE_UNOP_DISPATCH(tensor_tanh,    OP_TANH,    fn_tanh_d,  fn_tanh_f32)
 TAPE_UNOP_DISPATCH(tensor_gelu,    OP_GELU,    fn_gelu_d,  fn_gelu_f32)
@@ -3180,25 +3183,7 @@ void tensor_backward(TensorHandle h) {
 
         /* OP_DIV: moved to backend_tape/core/elementwise/div.c (Phase 1a.5). */
 
-        case OP_NEG:
-            if (a) { ensure_grad(a); for (int j = 0; j < a->numel; j++) ((double*)a->grad)[j] -= ((double*)r->grad)[j]; }
-            break;
-
-        case OP_ABS:
-            if (a) { ensure_grad(a); for (int j = 0; j < a->numel; j++) ((double*)a->grad)[j] += ((double*)r->grad)[j] * (tape_load_d(a, j) >= 0 ? 1.0 : -1.0); }
-            break;
-
-        case OP_EXP:
-            if (a) { ensure_grad(a); for (int j = 0; j < a->numel; j++) ((double*)a->grad)[j] += ((double*)r->grad)[j] * tape_load_d(r, j); }
-            break;
-
-        case OP_LOG:
-            if (a) { ensure_grad(a); for (int j = 0; j < a->numel; j++) ((double*)a->grad)[j] += ((double*)r->grad)[j] / tape_load_d(a, j); }
-            break;
-
-        case OP_SQRT:
-            if (a) { ensure_grad(a); for (int j = 0; j < a->numel; j++) ((double*)a->grad)[j] += ((double*)r->grad)[j] / (2.0 * tape_load_d(r, j)); }
-            break;
+        /* OP_NEG/ABS/EXP/LOG/SQRT: moved to backend_tape/core/elementwise/ (Phase 1a.6). */
 
         case OP_POW: {
             int a_match = a && shapes_equal(a, r);
