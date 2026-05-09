@@ -295,3 +295,38 @@ exit:    0
 wall:    1m 39s (99429 ms)
 stats:   Completed in 1m 34s (5000 epochs, 18ms/epoch)
 result:  `RESULT	epochs=5000	acc_short=0.9985625	acc_full=0.9916108120680491	seed=42`
+
+### 2026-05-08 — `ntm-copy` [tape] @ `f96c798` — `--seed 7 --batch 1 --epochs 5000 --es-threshold 0.0`
+
+exit:    0
+wall:    1m 44s (104458 ms)
+stats:   Completed in 1m 37s (5000 epochs, 19ms/epoch)
+result:  `RESULT	epochs=5000	acc_short=0.8222916666666669	acc_full=0.7384260855404914	seed=7`
+
+### 2026-05-08 — `ntm-copy` [tape] @ `f96c798+dirty` — `--seed 99 --batch 1 --epochs 5000 --es-threshold 0.0`
+
+exit:    0
+wall:    2m 39s (159069 ms)
+stats:   Completed in 2m 33s (5000 epochs, 30ms/epoch)
+result:  `RESULT	epochs=5000	acc_short=0.9981874999999999	acc_full=0.997890777243912	seed=99`
+
+### 2026-05-08 — `ntm-copy` [tape] @ `f96c798+dirty` — `--seed 123 --batch 1 --epochs 5000 --es-threshold 0.0`
+
+exit:    0
+wall:    1m 47s (107732 ms)
+stats:   Completed in 1m 41s (5000 epochs, 20ms/epoch)
+result:  `RESULT	epochs=5000	acc_short=0.7492708333333331	acc_full=0.6188554234024918	seed=123`
+
+### 2026-05-08 — `ntm-copy` [mlx] @ `f96c798+dirty` — `--seed 99 --batch 1 --epochs 1000 --es-threshold 0.0`
+
+exit:    0
+wall:    59.746s (59746 ms)
+stats:   Completed in 50s (1000 epochs, 50ms/epoch)
+result:  `RESULT	epochs=1000	acc_short=0.4742083333333334	acc_full=0.48806552435567524	seed=99`
+
+### 2026-05-08 — `ntm-copy` [mlx] @ `f96c798+dirty` — `--seed 99 --batch 1 --epochs 5000 --es-threshold 0.0`
+
+exit:    0
+wall:    5m 46s (346512 ms)
+stats:   Completed in 5m 39s (5000 epochs, 67ms/epoch)
+result:  `RESULT	epochs=5000	acc_short=0.4967916666666666	acc_full=0.49314633203913405	seed=99`

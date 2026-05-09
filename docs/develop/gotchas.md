@@ -203,6 +203,21 @@ NTM examples (copy/recall) use windowed-average convergence checking instead of 
 
 Previously `applyLayerVar` clamped raw NTM controller output to [-20, 20] via `clampVar`. Removed to match PyTorch reference which has no output clamping. The LSTM controller + RMSprop + value clip ±10 provide sufficient stability without artificial clamping.
 
+### NTM-Copy convergence is highly seed-sensitive at 5K epochs
+
+The aligned NTM-Copy model has high variance in convergence rate across seeds at moderate epoch counts. Both the PyTorch reference and the Idris tape backend show ~1/4 pass rate at 5K epochs (only specific seeds hit 99%+ accuracy at that budget). This is the model itself, not a backend bug.
+
+Measurements at seed=42/7/99/123, batch=1, 5K epochs, threshold-disabled (`acc_short / acc_full`):
+
+| Seed | tape         | PyTorch ref     |
+|------|-------------:|----------------:|
+| 42   | 75% / 59%    | **100% / 100%** |
+| 7    | 82% / 74%    | 74% / 60%       |
+| 99   | **99.8% / 99.8%** | 76% / 57%  |
+| 123  | 75% / 62%    | 72% / 60%       |
+
+Implication: don't read a single-seed under-budget run as a backend bug. Compare the same seed against PyTorch ref before concluding anything. Final convergence (e.g. 25K+ epochs with `WindowedPercentile` early-stop) is the right gate; 5K epoch snapshots are too noisy. The ≥4/5 multi-seed pass rate gate in the convergence plan should be applied at full convergence budgets, not at fixed-epoch checkpoints.
+
 ## Architecture & Infrastructure
 
 C kernels, buffer systems, optimizer internals, and the layer system.
