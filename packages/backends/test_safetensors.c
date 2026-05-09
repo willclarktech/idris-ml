@@ -1,6 +1,7 @@
 /* Standalone test for SafeTensors serialization round-trip */
 
 #include "backend.h"
+#include "shared_utils.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -27,6 +28,70 @@ static int failures = 0;
     } \
 } while(0)
 
+#ifdef BACKEND_TORCH
+/* Inference-dtype create symbols (torch only, from backend_torch.cpp's
+   IDRISML_DEFINE_DTYPE_STREAMED macro). Not in backend.h — extern here. */
+extern TensorHandle tensor_create_1d_bf16_streamed(int n, double* d, int rg, int s);
+extern TensorHandle tensor_create_1d_f16_streamed (int n, double* d, int rg, int s);
+extern TensorHandle tensor_create_1d_i32_streamed (int n, double* d, int rg, int s);
+
+/* Save -> zero -> load round-trip for one inference dtype. `data` holds
+   values that are exactly representable in the dtype, so the restored
+   values must match bit-for-bit (the create call already quantized). */
+static void dtype_roundtrip(const char* label, const char* expect_dtype,
+                            TensorHandle h, double* data, int n) {
+    char msg[80];
+    param_clear();
+    param_register(label, h);
+
+    snprintf(msg, sizeof(msg), "%s: on-disk dtype is %s", label, expect_dtype);
+    ASSERT_TRUE(msg, strcmp(tensor_dtype_name(param_tensor(0)), expect_dtype) == 0);
+
+    const char* path = "/tmp/idrisml_test_dtype.safetensors";
+    snprintf(msg, sizeof(msg), "%s: param_save returns 0", label);
+    ASSERT_TRUE(msg, param_save(path) == 0);
+
+    double* zeros = (double*)calloc(n, sizeof(double));
+    param_load_data(0, zeros, n);
+    free(zeros);
+
+    snprintf(msg, sizeof(msg), "%s: param_load returns 0", label);
+    ASSERT_TRUE(msg, param_load(path) == 0);
+
+    double* got = (double*)malloc(n * sizeof(double));
+    tensor_to_doubles(param_tensor(0), got);
+    for (int i = 0; i < n; i++) {
+        snprintf(msg, sizeof(msg), "%s: restored [%d]", label, i);
+        ASSERT_NEAR(msg, got[i], data[i], 1e-9);
+    }
+    free(got);
+    remove(path);
+    param_clear();
+}
+
+static void run_inference_dtype_tests(void) {
+    printf("\n--- Inference-dtype safetensors round-trip (torch) ---\n\n");
+    /* Exactly representable in bf16/f16/i32: small ints + simple binary
+       fractions (1.5 = 1.1b, 256 = 2^8, -0.5 = -2^-1). */
+    double fdata[] = {1.0, -2.0, 1.5, 256.0, -0.5, 0.0};
+    int    fn = 6;
+    double idata[] = {1.0, -2.0, 3.0, 1000.0, -42.0, 0.0};
+    int    in = 6;
+
+    double* b1 = tensor_alloc_doubles(fn);
+    for (int i = 0; i < fn; i++) b1[i] = fdata[i];
+    dtype_roundtrip("w_bf16", "BF16", tensor_create_1d_bf16_streamed(fn, b1, 0, 0), fdata, fn);
+
+    double* b2 = tensor_alloc_doubles(fn);
+    for (int i = 0; i < fn; i++) b2[i] = fdata[i];
+    dtype_roundtrip("w_f16", "F16", tensor_create_1d_f16_streamed(fn, b2, 0, 0), fdata, fn);
+
+    double* b3 = tensor_alloc_doubles(in);
+    for (int i = 0; i < in; i++) b3[i] = idata[i];
+    dtype_roundtrip("w_i32", "I32", tensor_create_1d_i32_streamed(in, b3, 0, 0), idata, in);
+}
+#endif /* BACKEND_TORCH */
+
 int main(void) {
     printf("--- SafeTensors round-trip test ---\n\n");
     param_clear();
@@ -34,14 +99,14 @@ int main(void) {
     /* Create a 2D param [2, 3] */
     double w_data[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
     double* w_buf = tensor_alloc_doubles(6);
-    for (int i = 0; i < 6; i++) tensor_write_double(w_buf, i, w_data[i]);
+    for (int i = 0; i < 6; i++) w_buf[i] = w_data[i];
     TensorHandle w = tensor_create_param_2d(2, 3, w_buf);
     param_register("weights", w);
 
     /* Create a 1D param [2] */
     double b_data[] = {10.0, 20.0};
     double* b_buf = tensor_alloc_doubles(2);
-    for (int i = 0; i < 2; i++) tensor_write_double(b_buf, i, b_data[i]);
+    for (int i = 0; i < 2; i++) b_buf[i] = b_data[i];
     TensorHandle b = tensor_create_param_1d(2, b_buf);
     param_register("biases", b);
 
@@ -128,11 +193,13 @@ int main(void) {
     /* First, we need gradients. Set them manually by doing backward. */
     /* For simplicity, just set up a simple loss and backward */
     {
-        TensorHandle loss = tensor_dot(param_tensor(0), param_tensor(0)); /* sum of squares */
+        /* sum(w*w) — sum-of-squares, portable across backends (torch's
+           tensor_dot requires 1-D, and param 0 is 2-D [2,3]). */
+        TensorHandle loss = tensor_sum(tensor_mul(param_tensor(0), param_tensor(0)));
         tensor_backward(loss);
         optimizer_step(opt);
 
-        loss = tensor_dot(param_tensor(0), param_tensor(0));
+        loss = tensor_sum(tensor_mul(param_tensor(0), param_tensor(0)));
         tensor_backward(loss);
         optimizer_step(opt);
     }
@@ -186,6 +253,10 @@ int main(void) {
     optimizer_free(opt);
     optimizer_free(opt2);
     param_clear();
+
+#ifdef BACKEND_TORCH
+    run_inference_dtype_tests();
+#endif
 
     printf("\n");
     if (failures == 0) {

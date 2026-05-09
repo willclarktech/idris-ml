@@ -469,8 +469,8 @@ test-backend-torch:
 	$(MAKE) BACKEND=torch test-backend
 
 # Specialized C test suites
-test-safetensors: $(BACKENDS_DIR)/test_safetensors.c backend | $(BUILD)
-	cc -o $(BUILD)/test_safetensors $(BACKENDS_DIR)/test_safetensors.c -L$(BUILD) -lidrisml -Wl,-rpath,$(BUILD) -lm
+test-safetensors: $(BACKENDS_DIR)/test_safetensors.c $(BACKEND_RENAME_H) backend | $(BUILD)
+	cc -o $(BUILD)/test_safetensors -include $(BACKEND_RENAME_H) $(BACKENDS_DIR)/test_safetensors.c -DBACKEND_$(shell echo $(PRIMARY) | tr a-z A-Z) -L$(BUILD) -lidrisml -Wl,-rpath,$(BUILD) -lm
 	./$(BUILD)/test_safetensors
 
 test-ntm-grad: $(BACKENDS_DIR)/test_ntm_grad.c backend | $(BUILD)
