@@ -3695,6 +3695,153 @@ int main(void) {
                 }
                 param_clear();
             }
+
+            /* tensor_matmul (1D × 2D = OP_VECMAT) */
+            {
+                int n = 3, m = 2;
+                double av[] = {1.5, -0.25, 0.5};
+                double Bv[] = {1.0, -1.0, 0.5, 2.0, -0.5, 0.25};   /* [3, 2] */
+                double y_f64[2], y_f32[2], ga_f64[3], ga_f32[3], gB_f64[6], gB_f32[6];
+
+                param_clear();
+                TensorHandle a64 = tensor_create_param_1d_streamed(n, heap_copy(av, n), 0, 1);
+                param_register("a", a64);
+                TensorHandle B64 = tensor_create_param_2d_streamed(n, m, heap_copy(Bv, n*m), 0, 1);
+                param_register("B", B64);
+                TensorHandle r64 = tensor_matmul(a64, B64);
+                tensor_to_doubles(r64, y_f64);
+                tensor_backward(tensor_sum(r64));
+                for (int i = 0; i < n; i++)   ga_f64[i] = param_grad_item_at(0, i);
+                for (int i = 0; i < n*m; i++) gB_f64[i] = param_grad_item_at(1, i);
+                param_clear();
+
+                TensorHandle a32 = tensor_create_param_1d_streamed(n, heap_copy(av, n), 0, 0);
+                param_register("a", a32);
+                TensorHandle B32 = tensor_create_param_2d_streamed(n, m, heap_copy(Bv, n*m), 0, 0);
+                param_register("B", B32);
+                TensorHandle r32 = tensor_matmul(a32, B32);
+                tensor_to_doubles(r32, y_f32);
+                tensor_backward(tensor_sum(r32));
+                for (int i = 0; i < n; i++)   ga_f32[i] = param_grad_item_at(0, i);
+                for (int i = 0; i < n*m; i++) gB_f32[i] = param_grad_item_at(1, i);
+
+                ASSERT_TRUE("matmul1D2D: F32 output propagates F32 tag",
+                            strcmp(tensor_dtype_name(r32), "F32") == 0);
+                for (int i = 0; i < m; i++) {
+                    char buf[64];
+                    snprintf(buf, sizeof buf, "matmul1D2D: y_f32[%d] ~ y_f64", i);
+                    ASSERT_NEAR(buf, y_f32[i], y_f64[i], 1e-5);
+                }
+                for (int i = 0; i < n; i++) {
+                    char buf[64];
+                    snprintf(buf, sizeof buf, "matmul1D2D: a.grad_f32[%d] ~ a.grad_f64", i);
+                    ASSERT_NEAR(buf, ga_f32[i], ga_f64[i], 1e-5);
+                }
+                for (int i = 0; i < n*m; i++) {
+                    char buf[64];
+                    snprintf(buf, sizeof buf, "matmul1D2D: B.grad_f32[%d] ~ B.grad_f64", i);
+                    ASSERT_NEAR(buf, gB_f32[i], gB_f64[i], 1e-5);
+                }
+                param_clear();
+            }
+
+            /* tensor_outer */
+            {
+                int m = 3, n = 2;
+                double av[] = {1.5, -0.25, 0.5};
+                double bv[] = {2.0, -1.0};
+                double y_f64[6], y_f32[6], ga_f64[3], ga_f32[3], gb_f64[2], gb_f32[2];
+
+                param_clear();
+                TensorHandle a64 = tensor_create_param_1d_streamed(m, heap_copy(av, m), 0, 1);
+                param_register("a", a64);
+                TensorHandle b64 = tensor_create_param_1d_streamed(n, heap_copy(bv, n), 0, 1);
+                param_register("b", b64);
+                TensorHandle r64 = tensor_outer(a64, b64);
+                tensor_to_doubles(r64, y_f64);
+                tensor_backward(tensor_sum(r64));
+                for (int i = 0; i < m; i++) ga_f64[i] = param_grad_item_at(0, i);
+                for (int i = 0; i < n; i++) gb_f64[i] = param_grad_item_at(1, i);
+                param_clear();
+
+                TensorHandle a32 = tensor_create_param_1d_streamed(m, heap_copy(av, m), 0, 0);
+                param_register("a", a32);
+                TensorHandle b32 = tensor_create_param_1d_streamed(n, heap_copy(bv, n), 0, 0);
+                param_register("b", b32);
+                TensorHandle r32 = tensor_outer(a32, b32);
+                tensor_to_doubles(r32, y_f32);
+                tensor_backward(tensor_sum(r32));
+                for (int i = 0; i < m; i++) ga_f32[i] = param_grad_item_at(0, i);
+                for (int i = 0; i < n; i++) gb_f32[i] = param_grad_item_at(1, i);
+
+                ASSERT_TRUE("outer: F32 output propagates F32 tag",
+                            strcmp(tensor_dtype_name(r32), "F32") == 0);
+                for (int i = 0; i < m*n; i++) {
+                    char buf[64];
+                    snprintf(buf, sizeof buf, "outer: y_f32[%d] ~ y_f64", i);
+                    ASSERT_NEAR(buf, y_f32[i], y_f64[i], 1e-5);
+                }
+                for (int i = 0; i < m; i++) {
+                    char buf[64];
+                    snprintf(buf, sizeof buf, "outer: a.grad_f32[%d] ~ a.grad_f64", i);
+                    ASSERT_NEAR(buf, ga_f32[i], ga_f64[i], 1e-5);
+                }
+                for (int i = 0; i < n; i++) {
+                    char buf[64];
+                    snprintf(buf, sizeof buf, "outer: b.grad_f32[%d] ~ b.grad_f64", i);
+                    ASSERT_NEAR(buf, gb_f32[i], gb_f64[i], 1e-5);
+                }
+                param_clear();
+            }
+
+            /* tensor_mm: [2,3] @ [3,2] -> [2,2] */
+            {
+                int M = 2, N = 3, K = 2;
+                double av[] = {1.0, 0.5, -0.25, 0.75, -0.5, 0.25};  /* [2,3] */
+                double bv[] = {0.5, -1.0, 0.25, 2.0, -0.5, 0.5};    /* [3,2] */
+                double y_f64[4], y_f32[4], ga_f64[6], ga_f32[6], gb_f64[6], gb_f32[6];
+
+                param_clear();
+                TensorHandle a64 = tensor_create_param_2d_streamed(M, N, heap_copy(av, M*N), 0, 1);
+                param_register("a", a64);
+                TensorHandle b64 = tensor_create_param_2d_streamed(N, K, heap_copy(bv, N*K), 0, 1);
+                param_register("b", b64);
+                TensorHandle r64 = tensor_mm(a64, b64);
+                tensor_to_doubles(r64, y_f64);
+                tensor_backward(tensor_sum(r64));
+                for (int i = 0; i < M*N; i++) ga_f64[i] = param_grad_item_at(0, i);
+                for (int i = 0; i < N*K; i++) gb_f64[i] = param_grad_item_at(1, i);
+                param_clear();
+
+                TensorHandle a32 = tensor_create_param_2d_streamed(M, N, heap_copy(av, M*N), 0, 0);
+                param_register("a", a32);
+                TensorHandle b32 = tensor_create_param_2d_streamed(N, K, heap_copy(bv, N*K), 0, 0);
+                param_register("b", b32);
+                TensorHandle r32 = tensor_mm(a32, b32);
+                tensor_to_doubles(r32, y_f32);
+                tensor_backward(tensor_sum(r32));
+                for (int i = 0; i < M*N; i++) ga_f32[i] = param_grad_item_at(0, i);
+                for (int i = 0; i < N*K; i++) gb_f32[i] = param_grad_item_at(1, i);
+
+                ASSERT_TRUE("mm: F32 output propagates F32 tag",
+                            strcmp(tensor_dtype_name(r32), "F32") == 0);
+                for (int i = 0; i < M*K; i++) {
+                    char buf[64];
+                    snprintf(buf, sizeof buf, "mm: y_f32[%d] ~ y_f64", i);
+                    ASSERT_NEAR(buf, y_f32[i], y_f64[i], 1e-5);
+                }
+                for (int i = 0; i < M*N; i++) {
+                    char buf[64];
+                    snprintf(buf, sizeof buf, "mm: a.grad_f32[%d] ~ a.grad_f64", i);
+                    ASSERT_NEAR(buf, ga_f32[i], ga_f64[i], 1e-5);
+                }
+                for (int i = 0; i < N*K; i++) {
+                    char buf[64];
+                    snprintf(buf, sizeof buf, "mm: b.grad_f32[%d] ~ b.grad_f64", i);
+                    ASSERT_NEAR(buf, gb_f32[i], gb_f64[i], 1e-5);
+                }
+                param_clear();
+            }
         }
     }
 #endif

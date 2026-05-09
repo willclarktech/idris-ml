@@ -1526,9 +1526,22 @@ TensorHandle tensor_matmul(TensorHandle ha, TensorHandle hb) {
     Tensor* b = (Tensor*)hb;
     /* 1D x 2D = mv transpose, or delegate based on ranks */
     if (a->rank == 1 && b->rank == 2) {
+        if (a->dtype_tag != b->dtype_tag) tape_abort_mixed_dtype("tensor_matmul");
         /* [n] x [n,m] = [m] — row vector × matrix */
         int n = a->numel, m = b->shape[1];
         int out_shape[] = {m};
+        if (a->dtype_tag == DT_F32) {
+            float* out_data = arena_alloc(m * sizeof(float));
+            for (int j = 0; j < m; j++) {
+                float s = 0;
+                for (int i = 0; i < n; i++) s += ((float*)a->data)[i] * ((float*)b->data)[i*m+j];
+                out_data[j] = s;
+            }
+            Tensor* r = make_tensor_arena_f32(out_data, m, out_shape, 1,
+                                              a->requires_grad || b->requires_grad);
+            if (r->requires_grad) tape_append(OP_VECMAT, r, a, b, 0);
+            return r;
+        }
         double* out_data = calloc(m, sizeof(double));
         for (int j = 0; j < m; j++) {
             double s = 0;
@@ -1548,13 +1561,24 @@ TensorHandle tensor_matmul(TensorHandle ha, TensorHandle hb) {
 TensorHandle tensor_outer(TensorHandle ha, TensorHandle hb) {
     Tensor* a = (Tensor*)ha;
     Tensor* b = (Tensor*)hb;
+    if (a->dtype_tag != b->dtype_tag) tape_abort_mixed_dtype("tensor_outer");
     int m = a->numel, n = b->numel;
     int shape[] = {m, n};
+    int rg = a->requires_grad || b->requires_grad;
+    if (a->dtype_tag == DT_F32) {
+        float* data = arena_alloc(m * n * sizeof(float));
+        for (int i = 0; i < m; i++)
+            for (int j = 0; j < n; j++)
+                data[i*n+j] = ((float*)a->data)[i] * ((float*)b->data)[j];
+        Tensor* r = make_tensor_arena_f32(data, m * n, shape, 2, rg);
+        if (r->requires_grad) tape_append(OP_OUTER, r, a, b, 0);
+        return r;
+    }
     double* data = malloc(m * n * sizeof(double));
     for (int i = 0; i < m; i++)
         for (int j = 0; j < n; j++)
             data[i*n+j] = ((double*)a->data)[i] * ((double*)b->data)[j];
-    Tensor* r = make_tensor(data, shape, 2, a->requires_grad || b->requires_grad);
+    Tensor* r = make_tensor(data, shape, 2, rg);
     free(data);
     if (r->requires_grad) tape_append(OP_OUTER, r, a, b, 0);
     return r;
@@ -1564,8 +1588,29 @@ TensorHandle tensor_outer(TensorHandle ha, TensorHandle hb) {
 TensorHandle tensor_mm(TensorHandle ha, TensorHandle hb) {
     Tensor* a = (Tensor*)ha;
     Tensor* b = (Tensor*)hb;
+    if (a->dtype_tag != b->dtype_tag) tape_abort_mixed_dtype("tensor_mm");
     int m = a->shape[0], n = a->shape[1], k = b->shape[1];
     int rg = a->requires_grad || b->requires_grad;
+    int shape[] = {m, k};
+    if (a->dtype_tag == DT_F32) {
+        float* data = arena_alloc(m * k * sizeof(float));
+#ifdef __APPLE__
+        cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
+                    m, k, n, 1.0f,
+                    (const float*)a->data, n, (const float*)b->data, k,
+                    0.0f, data, k);
+#else
+        for (int i = 0; i < m; i++)
+            for (int j = 0; j < k; j++) {
+                float s = 0;
+                for (int p = 0; p < n; p++) s += ((float*)a->data)[i*n+p] * ((float*)b->data)[p*k+j];
+                data[i*k+j] = s;
+            }
+#endif
+        Tensor* r = make_tensor_arena_f32(data, m * k, shape, 2, rg);
+        if (rg) tape_append(OP_MM, r, a, b, 0);
+        return r;
+    }
     double* data = calloc(m * k, sizeof(double));
 
 #ifdef __APPLE__
@@ -1580,7 +1625,6 @@ TensorHandle tensor_mm(TensorHandle ha, TensorHandle hb) {
         }
 #endif
 
-    int shape[] = {m, k};
     Tensor* r = make_tensor(data, shape, 2, rg);
     free(data);
     if (rg) tape_append(OP_MM, r, a, b, 0);
@@ -3773,7 +3817,8 @@ void tensor_backward(TensorHandle h) {
             break;
 
         case OP_VECMAT: {
-            /* r[j] = sum_i a[i] * b[i*m+j], where a=[n], b=[n,m], r=[m] */
+            /* r[j] = sum_i a[i] * b[i*m+j], where a=[n], b=[n,m], r=[m].
+               tape_load_d covers both F64 and F32 input storage. */
             int n_vm = a->numel;
             int m_vm = r->numel;
             ensure_grad(r);
@@ -3782,16 +3827,18 @@ void tensor_backward(TensorHandle h) {
                 ensure_grad(a);
                 for (int i = 0; i < n_vm; i++) {
                     double s = 0;
-                    for (int j = 0; j < m_vm; j++) s += ((double*)r->grad)[j] * ((double*)b->data)[i*m_vm+j];
+                    for (int j = 0; j < m_vm; j++) s += ((double*)r->grad)[j] * tape_load_d(b, i*m_vm+j);
                     ((double*)a->grad)[i] += s;
                 }
             }
             if (b) {
                 /* d_b[i*m+j] = r_grad[j] * a[i] */
                 ensure_grad(b);
-                for (int i = 0; i < n_vm; i++)
+                for (int i = 0; i < n_vm; i++) {
+                    double a_i = tape_load_d(a, i);
                     for (int j = 0; j < m_vm; j++)
-                        ((double*)b->grad)[i*m_vm+j] += ((double*)r->grad)[j] * ((double*)a->data)[i];
+                        ((double*)b->grad)[i*m_vm+j] += ((double*)r->grad)[j] * a_i;
+                }
             }
             break;
         }
@@ -3824,42 +3871,63 @@ void tensor_backward(TensorHandle h) {
 
         case OP_MM: {
             /* r = a @ b where a=[m,n], b=[n,k], r=[m,k]
-               d_a = grad @ b^T, d_b = a^T @ grad. beta=1.0 accumulates. */
+               d_a = grad @ b^T, d_b = a^T @ grad. beta=1.0 accumulates.
+               BLAS paths assume double* matrices; F32 inputs fall back to
+               plain loops via tape_load_d (grad always F64). */
             int mm = a->shape[0], nn = a->shape[1], kk = r->shape[1];
+            int is_f32 = (a->dtype_tag == DT_F32);
             ensure_grad(r);
             if (a && a->requires_grad) {
                 ensure_grad(a);
+                if (is_f32) {
+                    for (int i = 0; i < mm; i++)
+                        for (int j = 0; j < nn; j++) {
+                            double s = 0;
+                            for (int p = 0; p < kk; p++) s += ((double*)r->grad)[i*kk+p] * tape_load_d(b, j*kk+p);
+                            ((double*)a->grad)[i*nn+j] += s;
+                        }
+                } else {
 #ifdef __APPLE__
-                /* d_a [m,n] = grad [m,k] @ b^T [k,n] */
-                cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasTrans,
-                            mm, nn, kk, 1.0,
-                            r->grad, kk, b->data, kk,
-                            1.0, a->grad, nn);
+                    /* d_a [m,n] = grad [m,k] @ b^T [k,n] */
+                    cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasTrans,
+                                mm, nn, kk, 1.0,
+                                r->grad, kk, b->data, kk,
+                                1.0, a->grad, nn);
 #else
-                for (int i = 0; i < mm; i++)
-                    for (int j = 0; j < nn; j++) {
-                        double s = 0;
-                        for (int p = 0; p < kk; p++) s += ((double*)r->grad)[i*kk+p] * ((double*)b->data)[j*kk+p];
-                        ((double*)a->grad)[i*nn+j] += s;
-                    }
+                    for (int i = 0; i < mm; i++)
+                        for (int j = 0; j < nn; j++) {
+                            double s = 0;
+                            for (int p = 0; p < kk; p++) s += ((double*)r->grad)[i*kk+p] * ((double*)b->data)[j*kk+p];
+                            ((double*)a->grad)[i*nn+j] += s;
+                        }
 #endif
+                }
             }
             if (b && b->requires_grad) {
                 ensure_grad(b);
+                if (is_f32) {
+                    for (int j = 0; j < nn; j++)
+                        for (int p = 0; p < kk; p++) {
+                            double s = 0;
+                            for (int i = 0; i < mm; i++) s += tape_load_d(a, i*nn+j) * ((double*)r->grad)[i*kk+p];
+                            ((double*)b->grad)[j*kk+p] += s;
+                        }
+                } else {
 #ifdef __APPLE__
-                /* d_b [n,k] = a^T [n,m] @ grad [m,k] */
-                cblas_dgemm(CblasRowMajor, CblasTrans, CblasNoTrans,
-                            nn, kk, mm, 1.0,
-                            a->data, nn, r->grad, kk,
-                            1.0, b->grad, kk);
+                    /* d_b [n,k] = a^T [n,m] @ grad [m,k] */
+                    cblas_dgemm(CblasRowMajor, CblasTrans, CblasNoTrans,
+                                nn, kk, mm, 1.0,
+                                a->data, nn, r->grad, kk,
+                                1.0, b->grad, kk);
 #else
-                for (int j = 0; j < nn; j++)
-                    for (int p = 0; p < kk; p++) {
-                        double s = 0;
-                        for (int i = 0; i < mm; i++) s += ((double*)a->data)[i*nn+j] * ((double*)r->grad)[i*kk+p];
-                        ((double*)b->grad)[j*kk+p] += s;
-                    }
+                    for (int j = 0; j < nn; j++)
+                        for (int p = 0; p < kk; p++) {
+                            double s = 0;
+                            for (int i = 0; i < mm; i++) s += ((double*)a->data)[i*nn+j] * ((double*)r->grad)[i*kk+p];
+                            ((double*)b->grad)[j*kk+p] += s;
+                        }
 #endif
+                }
             }
             break;
         }
@@ -4283,15 +4351,16 @@ void tensor_backward(TensorHandle h) {
         }
 
         case OP_OUTER: {
-            /* d(outer(a,b))/da[i] = sum_j(grad[i,j] * b[j]) */
-            /* d(outer(a,b))/db[j] = sum_i(grad[i,j] * a[i]) */
+            /* d(outer(a,b))/da[i] = sum_j(grad[i,j] * b[j])
+               d(outer(a,b))/db[j] = sum_i(grad[i,j] * a[i])
+               tape_load_d handles both F64 and F32 storage. */
             int m_out = a->numel, n_out = b->numel;
             if (a->requires_grad) {
                 ensure_grad(a);
                 ensure_grad(r);
                 for (int ii = 0; ii < m_out; ii++) {
                     double s = 0;
-                    for (int jj = 0; jj < n_out; jj++) s += ((double*)r->grad)[ii*n_out+jj] * ((double*)b->data)[jj];
+                    for (int jj = 0; jj < n_out; jj++) s += ((double*)r->grad)[ii*n_out+jj] * tape_load_d(b, jj);
                     ((double*)a->grad)[ii] += s;
                 }
             }
@@ -4300,7 +4369,7 @@ void tensor_backward(TensorHandle h) {
                 ensure_grad(r);
                 for (int jj = 0; jj < n_out; jj++) {
                     double s = 0;
-                    for (int ii = 0; ii < m_out; ii++) s += ((double*)r->grad)[ii*n_out+jj] * ((double*)a->data)[ii];
+                    for (int ii = 0; ii < m_out; ii++) s += ((double*)r->grad)[ii*n_out+jj] * tape_load_d(a, ii);
                     ((double*)b->grad)[jj] += s;
                 }
             }
