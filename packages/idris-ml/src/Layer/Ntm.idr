@@ -56,6 +56,8 @@ data NtmState :
     LinearState h (ReadParamWidth m) d ->
     LinearState h (WriteParamWidth m) d ->
     LinearState (h + m) o d ->
+    TVec (m * n) d ->                          -- memoryInit (LEARNED, raw flat)
+    TVec m d ->                                -- initialReadOut (Kaiming, NON-learned)
     Maybe (Tensor [n, m] d) ->                          -- memory state
     Maybe (TVec n d) ->                               -- read addr
     Maybe (TVec n d) ->                               -- write addr
@@ -110,14 +112,33 @@ ntmReadHeadIdris memT prevWT keyT betaT gT gammaT shiftT =
       readOutT      = prim__matmul focusedT memT
   in (focusedT, readOutT)
 
--- NTM interpolated write (Graves et al. 2014, §3.3).
--- memory' = memory + outer(weights, addVector). The Graves erase term
--- is omitted to match the existing C `tensor_ntm_interp_write` (which
--- has only ever implemented add, not erase).
+-- NTM interpolation write (Graves et al. 2014, §3.3, with the Collier &
+-- Beel 2018 single-vector simplification: no separate erase vector — the
+-- write weight itself controls how much old memory to keep).
+--
+--   memory' = w·addVec + (1-w)·memory
+--
+-- Each row i of memory' is `w[i]*addVec + (1-w[i])*memory[i]`. Bounded
+-- by construction: a row never grows beyond max(memory[i], addVec).
+--
+-- The previous implementation was an additive update
+-- (`memory + outer(w, addVec)`), which converges to a strictly worse
+-- minimum (acc_full ~82% vs PyTorch ref's 100% on copy seed=42 batch=1).
+-- Mirrors `torch_ref/ntm/memory.py:write_memory`.
+--
+-- Implementation: row-wise scalar multiplication (n,)·(n,m) is not
+-- supported by the tape backend's elementwise broadcast (which only
+-- handles numel=1 broadcast), so we materialize `w` row-wise via
+-- `outer(w, ones_m)` and do same-shape elementwise mul.
 %inline
-ntmInterpWriteIdris : (memT, weightsT, addVecT : AnyPtr) -> AnyPtr
-ntmInterpWriteIdris memT weightsT addVecT =
-  prim__add memT (prim__outer weightsT addVecT)
+ntmInterpWriteIdris : {m : Nat} -> (memT, weightsT, addVecT : AnyPtr) -> AnyPtr
+ntmInterpWriteIdris {m} memT weightsT addVecT =
+  let onesM    = prim__addScalar (zeroState1d m) 1.0       -- (m,) all-ones
+      writeAdd = prim__outer weightsT addVecT              -- (n,m) — w[i]*a[j]
+      wRow     = prim__outer weightsT onesM                -- (n,m) — w[i] broadcast over j
+      keep     = prim__addScalar (prim__neg wRow) 1.0      -- (n,m) — 1-w[i]
+      kept     = prim__mul keep memT                       -- (n,m) — (1-w[i])*mem[i,j]
+  in prim__add kept writeAdd
 
 export
 applyNtm : {n, m, h, i, o : Nat} ->
@@ -125,19 +146,27 @@ applyNtm : {n, m, h, i, o : Nat} ->
              TVec i d ->
              (NtmState n m h i o d, TVec o d)
 applyNtm {n} {m} {h} {i} {o}
-           (MkNtm lstm readFc writeFc outputFc memT raT waT roT) input =
-  let memTPtr = case memT of
+           (MkNtm lstm readFc writeFc outputFc memInitT initReadOutT memT raT waT roT) input =
+  let nI = cast {to=Int} n
+      mI = cast {to=Int} m
+      -- Initial memory at sequence start: sigmoid(memoryInit).reshape(n, m).
+      -- Mirrors `torch_ref/ntm/layer.py:96`. Gradient flows through sigmoid+
+      -- reshape back to the registered memInitT parameter.
+      initMemPtr = prim__reshape2d (prim__sigmoid memInitT.tensorPtr) nI mI
+      memTPtr = case memT of
                   Just t => t.tensorPtr
-                  Nothing => zeroState2d n m
+                  Nothing => initMemPtr
       raTPtr = case raT of
                  Just t => t.tensorPtr
                  Nothing => zeroState1d n
       waTPtr = case waT of
                  Just t => t.tensorPtr
                  Nothing => zeroState1d n
+      -- Initial read output at sequence start: fixed Kaiming-uniform sample,
+      -- non-learnable. Mirrors `torch_ref/ntm/layer.py:84-86, 102`.
       roTPtr = case roT of
                  Just t => t.tensorPtr
-                 Nothing => zeroState1d m
+                 Nothing => initReadOutT.tensorPtr
       -- 1. cat(readOut, input) -> [m + i]
       lstmInputPtr = prim__cat2 roTPtr input.tensorPtr
       lstmInputV = the (TVec (m + i) d) (MkTensor lstmInputPtr Nothing)
@@ -154,7 +183,6 @@ applyNtm {n} {m} {h} {i} {o}
       wfcB = writeFc.biasT.tensorPtr
       ofcW = outputFc.weightT.tensorPtr
       ofcB = outputFc.biasT.tensorPtr
-      mI = cast {to=Int} m
       skI = cast {to=Int} ShiftKernelSize
       -- 4. Read FC: cell -> [ReadParamWidth m]
       readResultT = prim__linear rfcW cellPtr rfcB
@@ -176,11 +204,11 @@ applyNtm {n} {m} {h} {i} {o}
                    (prim__select writeResultT 0 (mI + skI + 2))) 1.0
       (newWriteAddrT, _) = ntmReadHeadIdris memTPtr waTPtr wKeyT wBetaT wGT wGammaT wShiftT
       addT = prim__narrow writeResultT 0 rpw mI
-      newMemT = ntmInterpWriteIdris memTPtr newWriteAddrT addT
+      newMemT = ntmInterpWriteIdris {m} memTPtr newWriteAddrT addT
       -- 6. Output FC: cat(hidden, readOut) -> [o]
       concatPtr = prim__cat2 hiddenV.tensorPtr newReadOutT
       outputPtr = prim__linear ofcW concatPtr ofcB
-  in ( MkNtm updLstm readFc writeFc outputFc
+  in ( MkNtm updLstm readFc writeFc outputFc memInitT initReadOutT
         (Just (MkTensor newMemT Nothing))
         (Just (MkTensor newReadAddrT Nothing))
         (Just (MkTensor newWriteAddrT Nothing))
@@ -192,57 +220,93 @@ applyNtm {n} {m} {h} {i} {o}
 -- Constructor
 ----------------------------------------------------------------------
 
--- Memory init: small constant (1e-6) per V1 NTM convention (Collier
--- & Beel 2018 — improves stability vs zero init).
-fillConst : AnyPtr -> Int -> Int -> Double -> AnyPtr
-fillConst buf _ 0 _ = buf
-fillConst buf off i v =
-  fillConst (prim__setDouble buf off v) (off + 1) (i - 1) v
+-- Pack a Vect of Doubles into a pre-allocated buffer at offset.
+-- (Duplicated from Linear.idr so we don't have to make it public there.)
+packDoubles : AnyPtr -> Int -> Vect k Double -> AnyPtr
+packDoubles buf _ [] = buf
+packDoubles buf off (x :: rest) =
+  packDoubles (prim__setDouble buf off x) (off + 1) rest
 
-||| Build an `NtmState n m h inputSize outputSize CPU` with default
-||| init: LSTM weights via Xavier (Lstm default), FC layers Xavier
-||| (Linear default), memory init to 1e-6 across [n,m], all
-||| addresses and read output zero. State tensors are persistent.
+-- Build a LinearState with custom weight + bias init strategies.
+-- Mirrors PyTorch's per-FC init customization.
+mkLinearWith : {i, o : Nat}
+            -> (paramPrefix : String)
+            -> (weightInit : InitStrategy)
+            -> (biasInit : IO Double)
+            -> IO (LinearState i o CPU)
+mkLinearWith pfx wInit bInit = do
+  let oI = cast {to=Int} o
+      iI = cast {to=Int} i
+      wCount = o * i
+  weightVals <- traverse (\_ => wInit i o) (Vect.replicate wCount ())
+  biasVals <- traverse (\_ => bInit) (Vect.replicate o ())
+  let wBuf = prim__allocDoubles (cast wCount)
+      wBuf' = packDoubles wBuf 0 weightVals
+      bBuf = prim__allocDoubles oI
+      bBuf' = packDoubles bBuf 0 biasVals
+  pure $ MkLinear
+    (tparam2d (pfx ++ "_weights") wBuf')
+    (tparam1d (pfx ++ "_biases") bBuf')
+
+-- PyTorch's default kaiming_uniform_(tensor) bound is 1/sqrt(fan_in)
+-- (= a=sqrt(5), nonlinearity='leaky_relu', mode='fan_in'). In variance
+-- terms: var = 1/(3*fan_in) for the uniform sampler.
+ptKaimingDefault : Sampler -> InitStrategy
+ptKaimingDefault sampler fanIn _ = sampler (1.0 / (3.0 * cast fanIn))
+
+||| Build an `NtmState n m h inputSize outputSize CPU` matching the
+||| PyTorch reference's `NTMLayer.__init__` (`torch_ref/ntm/layer.py`)
+||| line-for-line. All inits mirror PyTorch's `nn.init` calls:
+|||
+||| - LSTM controller:        Idris's `lstmLayer` default (LSTMCell default)
+||| - read/write FC weights:  `xavier_uniform_(gain=1.4)`
+||| - output FC weight:       `kaiming_uniform_` (PyTorch default ≈ LeCun)
+||| - all FC biases:          `normal_(std=0.01)`
+||| - memory_init param:      `xavier_uniform_(view(n, m))`, sigmoid'd at
+|||                           sequence-start in `applyNtm`
+||| - initial read output:    `kaiming_uniform_((1, m))`, non-learnable,
+|||                           sampled once at construction
 export
 ntmLayer : {n, m, h, i, o : Nat} ->
              (paramPrefix : String) ->
              IO (NtmState n m h i o CPU)
 ntmLayer pfx = do
   lstm <- lstmLayer {i = m + i} {o = h} (pfx ++ "_lstm")
-  rfc  <- linearLayer {i = h} {o = ReadParamWidth m} (pfx ++ "_readFc")
-  wfc  <- linearLayer {i = h} {o = WriteParamWidth m} (pfx ++ "_writeFc")
-  ofc  <- linearLayer {i = h + m} {o = o} (pfx ++ "_outputFc")
-  let nI = cast {to=Int} n
-      mI = cast {to=Int} m
-      memBuf = fillConst (prim__allocDoubles (nI * mI)) 0 (nI * mI) 1.0e-6
-      memT : Tensor [n, m] CPU
-      memT = MkTensor (prim__createState2d nI mI memBuf) Nothing
-      raT : TVec n CPU
-      raT = MkTensor (zeroState1d n) Nothing
-      waT : TVec n CPU
-      waT = MkTensor (zeroState1d n) Nothing
-      roT : TVec m CPU
-      roT = MkTensor (zeroState1d m) Nothing
-  pure $ MkNtm lstm rfc wfc ofc (Just memT) (Just raT) (Just waT) (Just roT)
+  rfc  <- mkLinearWith {i = h} {o = ReadParamWidth m}
+            (pfx ++ "_readFc")  (xavierGain 1.4 uniform) (normal 0.0001)
+  wfc  <- mkLinearWith {i = h} {o = WriteParamWidth m}
+            (pfx ++ "_writeFc") (xavierGain 1.4 uniform) (normal 0.0001)
+  ofc  <- mkLinearWith {i = h + m} {o = o}
+            (pfx ++ "_outputFc") (ptKaimingDefault uniform) (normal 0.0001)
+  -- memoryInit: shape (n, m) Xavier — fan_in=m, fan_out=n.
+  let mnI = cast {to=Int} (m * n)
+      mI  = cast {to=Int} m
+  memInitVals <- traverse (\_ => xavier uniform m n) (Vect.replicate (m * n) ())
+  let miBuf = prim__allocDoubles mnI
+      miBuf' = packDoubles miBuf 0 memInitVals
+      memInitT : TVec (m * n) CPU
+      memInitT = tparam1d (pfx ++ "_memoryInit") miBuf'
+  -- initialReadOut: PyTorch default kaiming_uniform on (1, m) — fan_in=m.
+  -- Sampled once, non-learnable (state tensor handle).
+  let iroBound = 1.0 / prim__doubleSqrt (cast m)
+  iroVals <- traverse (\_ => randomRIO (-iroBound, iroBound)) (Vect.replicate m ())
+  let iroBuf = prim__allocDoubles mI
+      iroBuf' = packDoubles iroBuf 0 iroVals
+      initReadOutT : TVec m CPU
+      initReadOutT = MkTensor (prim__createState1d mI iroBuf') Nothing
+  -- Per-sequence runtime state starts as Nothing — applyNtm computes the
+  -- actual initial memT and roT from memInitT/initReadOutT on first call.
+  pure $ MkNtm lstm rfc wfc ofc memInitT initReadOutT
+                Nothing Nothing Nothing Nothing
 
-||| Reset NTM state to fresh persistent zero/init tensors. Use
-||| between training sequences (memory + addresses are not learned).
+||| Reset NTM state between sequences. Keeps the learned `memInitT` /
+||| Kaiming-fixed `initReadOutT` parameters; clears per-sequence runtime
+||| state so the next `applyNtm` re-derives initial memory + read output.
 export
 resetNtmState : {n, m, h : Nat} -> NtmState n m h i o d -> NtmState n m h i o d
-resetNtmState (MkNtm lstm rfc wfc ofc _ _ _ _) =
-  let nI = cast {to=Int} n
-      mI = cast {to=Int} m
-      memBuf = fillConst (prim__allocDoubles (nI * mI)) 0 (nI * mI) 1.0e-6
-      memT : Tensor [n, m] _
-      memT = MkTensor (prim__createState2d nI mI memBuf) Nothing
-      raT : TVec n _
-      raT = MkTensor (zeroState1d n) Nothing
-      waT : TVec n _
-      waT = MkTensor (zeroState1d n) Nothing
-      roT : TVec m _
-      roT = MkTensor (zeroState1d m) Nothing
-  in MkNtm (resetLstmState lstm) rfc wfc ofc
-             (Just memT) (Just raT) (Just waT) (Just roT)
+resetNtmState (MkNtm lstm rfc wfc ofc memInitT initReadOutT _ _ _ _) =
+  MkNtm (resetLstmState lstm) rfc wfc ofc memInitT initReadOutT
+        Nothing Nothing Nothing Nothing
 
 
 ----------------------------------------------------------------------
@@ -252,7 +316,7 @@ resetNtmState (MkNtm lstm rfc wfc ofc _ _ _ _) =
 public export
 {n, m, h : Nat} ->
   LayerLike (NtmState n m h) where
-  applyVar st@(MkNtm _ _ _ _ _ _ _ _) input = applyNtm st input
+  applyVar st@(MkNtm _ _ _ _ _ _ _ _ _ _) input = applyNtm st input
   layerPrefix _ = "ntm"
   resetState st = resetNtmState st
 

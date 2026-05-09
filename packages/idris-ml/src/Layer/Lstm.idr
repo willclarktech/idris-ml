@@ -26,6 +26,8 @@ record LstmState (i : Nat) (o : Nat) (0 d : Device) where
   iwT : TMat (4 * o) i d
   rwT : TMat (4 * o) o d
   bT  : TVec (4 * o) d
+  h0T : TVec o d              -- learned initial hidden state (zero-init)
+  c0T : TVec o d              -- learned initial cell state (zero-init)
   hiddenT : Maybe (TVec o d)
   cellT   : Maybe (TVec o d)
 
@@ -47,10 +49,10 @@ applyLstm : {o : Nat} ->
 applyLstm {o} st input =
   let h = case st.hiddenT of
             Just h => h
-            Nothing => tzeroState1d {n = o}
+            Nothing => st.h0T
       c = case st.cellT of
             Just c => c
-            Nothing => tzeroState1d {n = o}
+            Nothing => st.c0T
       -- Gates: iw@input + rw@h + bT. Two prim__linear calls (each
       -- folds an mv + an add) — 2 FFI calls vs the prior 4 (mv, mv,
       -- add, add). The inner linear adds bT; the outer linear adds
@@ -97,19 +99,31 @@ lstmLayer paramPrefix = do
       rwBuf' = packDoubles rwBuf 0 rwVals
       bBuf = prim__allocDoubles gI
       bBuf' = zeroBuf bBuf 0 gI
+      h0Buf = prim__allocDoubles oI
+      h0Buf' = zeroBuf h0Buf 0 oI
+      c0Buf = prim__allocDoubles oI
+      c0Buf' = zeroBuf c0Buf 0 oI
       iwName = paramPrefix ++ "_iw"
       rwName = paramPrefix ++ "_rw"
       bName  = paramPrefix ++ "_b"
+      h0Name = paramPrefix ++ "_h0"
+      c0Name = paramPrefix ++ "_c0"
       iwPtr = prim__paramRegister iwName (prim__createParam2d gI iI iwBuf')
       rwPtr = prim__paramRegister rwName (prim__createParam2d gI oI rwBuf')
       bPtr  = prim__paramRegister bName  (prim__createParam1d gI bBuf')
+      h0Ptr = prim__paramRegister h0Name (prim__createParam1d oI h0Buf')
+      c0Ptr = prim__paramRegister c0Name (prim__createParam1d oI c0Buf')
       iwTV : TMat (4 * o) i CPU
       iwTV = MkTensor iwPtr (Just iwName)
       rwTV : TMat (4 * o) o CPU
       rwTV = MkTensor rwPtr (Just rwName)
       bTV : TVec (4 * o) CPU
       bTV = MkTensor bPtr (Just bName)
-  pure $ MkLstm iwTV rwTV bTV Nothing Nothing
+      h0TV : TVec o CPU
+      h0TV = MkTensor h0Ptr (Just h0Name)
+      c0TV : TVec o CPU
+      c0TV = MkTensor c0Ptr (Just c0Name)
+  pure $ MkLstm iwTV rwTV bTV h0TV c0TV Nothing Nothing
 
 ||| Reset hidden/cell state. Setting to `Nothing` lets `applyLstm`'s
 ||| first call lazy-allocate fresh persistent zero buffers — mirrors
