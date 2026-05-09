@@ -3842,6 +3842,126 @@ int main(void) {
                 }
                 param_clear();
             }
+
+            /* tensor_linear_2d: Y[B,o] = X[B,i] @ W[o,i]^T + bias[o] */
+            {
+                int B = 2, ii = 3, oo = 2;
+                double Xv[] = {0.5, -1.0, 0.25, 0.75, -0.5, 1.0};   /* [2,3] */
+                double Wv[] = {1.0, 0.5, -0.25, 0.75, -0.5, 0.25};   /* [2,3] */
+                double bv[] = {0.125, -0.25};                         /* [2]   */
+                double y_f64[4], y_f32[4], gW_f64[6], gW_f32[6], gX_f64[6], gX_f32[6], gb_f64[2], gb_f32[2];
+
+                param_clear();
+                TensorHandle W64 = tensor_create_param_2d_streamed(oo, ii, heap_copy(Wv, oo*ii), 0, 1);
+                param_register("W", W64);
+                TensorHandle X64 = tensor_create_param_2d_streamed(B, ii, heap_copy(Xv, B*ii), 0, 1);
+                param_register("X", X64);
+                TensorHandle b64 = tensor_create_param_1d_streamed(oo, heap_copy(bv, oo), 0, 1);
+                param_register("b", b64);
+                TensorHandle r64 = tensor_linear_2d(W64, X64, b64);
+                tensor_to_doubles(r64, y_f64);
+                tensor_backward(tensor_sum(r64));
+                for (int i = 0; i < oo*ii; i++) gW_f64[i] = param_grad_item_at(0, i);
+                for (int i = 0; i < B*ii; i++) gX_f64[i] = param_grad_item_at(1, i);
+                for (int i = 0; i < oo; i++)   gb_f64[i] = param_grad_item_at(2, i);
+                param_clear();
+
+                TensorHandle W32 = tensor_create_param_2d_streamed(oo, ii, heap_copy(Wv, oo*ii), 0, 0);
+                param_register("W", W32);
+                TensorHandle X32 = tensor_create_param_2d_streamed(B, ii, heap_copy(Xv, B*ii), 0, 0);
+                param_register("X", X32);
+                TensorHandle b32 = tensor_create_param_1d_streamed(oo, heap_copy(bv, oo), 0, 0);
+                param_register("b", b32);
+                TensorHandle r32 = tensor_linear_2d(W32, X32, b32);
+                tensor_to_doubles(r32, y_f32);
+                tensor_backward(tensor_sum(r32));
+                for (int i = 0; i < oo*ii; i++) gW_f32[i] = param_grad_item_at(0, i);
+                for (int i = 0; i < B*ii; i++) gX_f32[i] = param_grad_item_at(1, i);
+                for (int i = 0; i < oo; i++)   gb_f32[i] = param_grad_item_at(2, i);
+
+                ASSERT_TRUE("linear_2d: F32 output propagates F32 tag",
+                            strcmp(tensor_dtype_name(r32), "F32") == 0);
+                for (int i = 0; i < B*oo; i++) { char buf[64]; snprintf(buf, sizeof buf, "linear_2d: y_f32[%d] ~ y_f64", i); ASSERT_NEAR(buf, y_f32[i], y_f64[i], 1e-5); }
+                for (int i = 0; i < oo*ii; i++) { char buf[64]; snprintf(buf, sizeof buf, "linear_2d: W.grad_f32[%d]", i); ASSERT_NEAR(buf, gW_f32[i], gW_f64[i], 1e-5); }
+                for (int i = 0; i < B*ii; i++) { char buf[64]; snprintf(buf, sizeof buf, "linear_2d: X.grad_f32[%d]", i); ASSERT_NEAR(buf, gX_f32[i], gX_f64[i], 1e-5); }
+                for (int i = 0; i < oo; i++) { char buf[64]; snprintf(buf, sizeof buf, "linear_2d: b.grad_f32[%d]", i); ASSERT_NEAR(buf, gb_f32[i], gb_f64[i], 1e-5); }
+                param_clear();
+            }
+
+            /* tensor_bmm: [B,m,n] x [n,k] -> [B,m,k], b shared across batch */
+            {
+                int B = 2, m = 2, n = 3, k = 2;
+                double av[12] = {1.0, 0.5, -0.25, 0.75, -0.5, 0.25,
+                                 0.5, -1.0, 1.0,   0.25, 0.5, -0.5};   /* [2,2,3] */
+                double bv[6]  = {0.5, -1.0, 0.25, 2.0, -0.5, 0.5};     /* [3,2]   */
+                double y_f64[8], y_f32[8], ga_f64[12], ga_f32[12], gb_f64[6], gb_f32[6];
+
+                param_clear();
+                TensorHandle a64 = tensor_create_param_3d_streamed(B, m, n, heap_copy(av, B*m*n), 0, 1);
+                param_register("a", a64);
+                TensorHandle b64 = tensor_create_param_2d_streamed(n, k, heap_copy(bv, n*k), 0, 1);
+                param_register("b", b64);
+                TensorHandle r64 = tensor_bmm(a64, b64);
+                tensor_to_doubles(r64, y_f64);
+                tensor_backward(tensor_sum(r64));
+                for (int i = 0; i < B*m*n; i++) ga_f64[i] = param_grad_item_at(0, i);
+                for (int i = 0; i < n*k; i++)   gb_f64[i] = param_grad_item_at(1, i);
+                param_clear();
+
+                TensorHandle a32 = tensor_create_param_3d_streamed(B, m, n, heap_copy(av, B*m*n), 0, 0);
+                param_register("a", a32);
+                TensorHandle b32 = tensor_create_param_2d_streamed(n, k, heap_copy(bv, n*k), 0, 0);
+                param_register("b", b32);
+                TensorHandle r32 = tensor_bmm(a32, b32);
+                tensor_to_doubles(r32, y_f32);
+                tensor_backward(tensor_sum(r32));
+                for (int i = 0; i < B*m*n; i++) ga_f32[i] = param_grad_item_at(0, i);
+                for (int i = 0; i < n*k; i++)   gb_f32[i] = param_grad_item_at(1, i);
+
+                ASSERT_TRUE("bmm: F32 output propagates F32 tag",
+                            strcmp(tensor_dtype_name(r32), "F32") == 0);
+                for (int i = 0; i < B*m*k; i++) { char buf[64]; snprintf(buf, sizeof buf, "bmm: y_f32[%d]", i); ASSERT_NEAR(buf, y_f32[i], y_f64[i], 1e-5); }
+                for (int i = 0; i < B*m*n; i++) { char buf[64]; snprintf(buf, sizeof buf, "bmm: a.grad_f32[%d]", i); ASSERT_NEAR(buf, ga_f32[i], ga_f64[i], 1e-5); }
+                for (int i = 0; i < n*k; i++) { char buf[64]; snprintf(buf, sizeof buf, "bmm: b.grad_f32[%d]", i); ASSERT_NEAR(buf, gb_f32[i], gb_f64[i], 1e-5); }
+                param_clear();
+            }
+
+            /* tensor_bmm_3x3: [B,m,n] x [B,n,k] -> [B,m,k], per-batch b */
+            {
+                int B = 2, m = 2, n = 2, k = 2;
+                double av[8] = {1.0, 0.5, -0.25, 0.75, -0.5, 0.25, 0.5, -1.0};   /* [2,2,2] */
+                double bv[8] = {0.5, -1.0, 0.25, 2.0, -0.5, 0.5, 1.0, -0.25};    /* [2,2,2] */
+                double y_f64[8], y_f32[8], ga_f64[8], ga_f32[8], gb_f64[8], gb_f32[8];
+
+                param_clear();
+                TensorHandle a64 = tensor_create_param_3d_streamed(B, m, n, heap_copy(av, B*m*n), 0, 1);
+                param_register("a", a64);
+                TensorHandle b64 = tensor_create_param_3d_streamed(B, n, k, heap_copy(bv, B*n*k), 0, 1);
+                param_register("b", b64);
+                TensorHandle r64 = tensor_bmm_3x3(a64, b64);
+                tensor_to_doubles(r64, y_f64);
+                tensor_backward(tensor_sum(r64));
+                for (int i = 0; i < B*m*n; i++) ga_f64[i] = param_grad_item_at(0, i);
+                for (int i = 0; i < B*n*k; i++) gb_f64[i] = param_grad_item_at(1, i);
+                param_clear();
+
+                TensorHandle a32 = tensor_create_param_3d_streamed(B, m, n, heap_copy(av, B*m*n), 0, 0);
+                param_register("a", a32);
+                TensorHandle b32 = tensor_create_param_3d_streamed(B, n, k, heap_copy(bv, B*n*k), 0, 0);
+                param_register("b", b32);
+                TensorHandle r32 = tensor_bmm_3x3(a32, b32);
+                tensor_to_doubles(r32, y_f32);
+                tensor_backward(tensor_sum(r32));
+                for (int i = 0; i < B*m*n; i++) ga_f32[i] = param_grad_item_at(0, i);
+                for (int i = 0; i < B*n*k; i++) gb_f32[i] = param_grad_item_at(1, i);
+
+                ASSERT_TRUE("bmm_3x3: F32 output propagates F32 tag",
+                            strcmp(tensor_dtype_name(r32), "F32") == 0);
+                for (int i = 0; i < B*m*k; i++) { char buf[64]; snprintf(buf, sizeof buf, "bmm_3x3: y_f32[%d]", i); ASSERT_NEAR(buf, y_f32[i], y_f64[i], 1e-5); }
+                for (int i = 0; i < B*m*n; i++) { char buf[64]; snprintf(buf, sizeof buf, "bmm_3x3: a.grad_f32[%d]", i); ASSERT_NEAR(buf, ga_f32[i], ga_f64[i], 1e-5); }
+                for (int i = 0; i < B*n*k; i++) { char buf[64]; snprintf(buf, sizeof buf, "bmm_3x3: b.grad_f32[%d]", i); ASSERT_NEAR(buf, gb_f32[i], gb_f64[i], 1e-5); }
+                param_clear();
+            }
         }
     }
 #endif

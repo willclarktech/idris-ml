@@ -1333,9 +1333,52 @@ TensorHandle tensor_linear_2d(TensorHandle hW, TensorHandle hX, TensorHandle hbi
     Tensor* W = (Tensor*)hW;
     Tensor* X = (Tensor*)hX;
     Tensor* bias = (Tensor*)hbias;
+    if (W->dtype_tag != X->dtype_tag ||
+        (bias && bias->dtype_tag != W->dtype_tag)) tape_abort_mixed_dtype("tensor_linear_2d");
     int oo = W->shape[0], ii = W->shape[1];
     int BB = X->shape[0];
     int out_shape[] = {BB, oo};
+    int rg = W->requires_grad || X->requires_grad || (bias && bias->requires_grad);
+
+    if (W->dtype_tag == DT_F32) {
+        float* out_data = arena_alloc(BB * oo * sizeof(float));
+#ifdef __APPLE__
+        cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasTrans,
+                    BB, oo, ii, 1.0f,
+                    (const float*)X->data, ii,
+                    (const float*)W->data, ii,
+                    0.0f, out_data, oo);
+#else
+        for (int b = 0; b < BB; b++) {
+            for (int o = 0; o < oo; o++) {
+                float s = 0;
+                for (int j = 0; j < ii; j++) s += ((float*)X->data)[b*ii+j] * ((float*)W->data)[o*ii+j];
+                out_data[b*oo+o] = s;
+            }
+        }
+#endif
+        if (bias) {
+            for (int b = 0; b < BB; b++) {
+#ifdef __APPLE__
+                vDSP_vadd(out_data + b*oo, 1, (const float*)bias->data, 1, out_data + b*oo, 1, (vDSP_Length)oo);
+#else
+                for (int o = 0; o < oo; o++) out_data[b*oo+o] += ((float*)bias->data)[o];
+#endif
+            }
+        }
+        Tensor* r = make_tensor_arena_f32(out_data, BB * oo, out_shape, 2, rg);
+        if (rg) {
+            TapeEntry* e = tape_append(OP_LINEAR_2D, r, W, X, 0);
+            Linear2dMeta* meta = arena_alloc(sizeof(Linear2dMeta));
+            meta->B = BB; meta->i = ii; meta->o = oo;
+            meta->x_vals = arena_alloc(BB * ii * sizeof(double));
+            for (int j = 0; j < BB * ii; j++) meta->x_vals[j] = (double)((float*)X->data)[j];
+            meta->bias = bias;
+            e->op_meta = meta;
+        }
+        return r;
+    }
+
     double* out_data = malloc(BB * oo * sizeof(double));
 
     /* Y = X @ W^T : [B,i] @ [i,o] -> [B,o]. Use dgemm with B=W transposed. */
@@ -1366,7 +1409,6 @@ TensorHandle tensor_linear_2d(TensorHandle hW, TensorHandle hX, TensorHandle hbi
         }
     }
 
-    int rg = W->requires_grad || X->requires_grad || (bias && bias->requires_grad);
     Tensor* r = make_tensor(out_data, out_shape, 2, rg);
     free(out_data);
     if (rg) {
@@ -1636,8 +1678,33 @@ TensorHandle tensor_mm(TensorHandle ha, TensorHandle hb) {
 TensorHandle tensor_bmm(TensorHandle ha, TensorHandle hb) {
     Tensor* a = (Tensor*)ha;
     Tensor* b = (Tensor*)hb;
+    if (a->dtype_tag != b->dtype_tag) tape_abort_mixed_dtype("tensor_bmm");
     int B = a->shape[0], m = a->shape[1], n = a->shape[2], k = b->shape[1];
     int rg = a->requires_grad || b->requires_grad;
+    int shape[] = {B, m, k};
+    if (a->dtype_tag == DT_F32) {
+        float* data = arena_alloc(B * m * k * sizeof(float));
+        for (int bi = 0; bi < B; bi++) {
+#ifdef __APPLE__
+            cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
+                        m, k, n, 1.0f,
+                        ((const float*)a->data) + bi * m * n, n,
+                        (const float*)b->data, k,
+                        0.0f, data + bi * m * k, k);
+#else
+            for (int i = 0; i < m; i++)
+                for (int j = 0; j < k; j++) {
+                    float s = 0;
+                    for (int p = 0; p < n; p++)
+                        s += ((float*)a->data)[bi*m*n + i*n+p] * ((float*)b->data)[p*k+j];
+                    data[bi*m*k + i*k+j] = s;
+                }
+#endif
+        }
+        Tensor* r = make_tensor_arena_f32(data, B * m * k, shape, 3, rg);
+        if (rg) tape_append(OP_BMM, r, a, b, 0);
+        return r;
+    }
     double* data = calloc(B * m * k, sizeof(double));
 
     for (int bi = 0; bi < B; bi++) {
@@ -1658,7 +1725,6 @@ TensorHandle tensor_bmm(TensorHandle ha, TensorHandle hb) {
 #endif
     }
 
-    int shape[] = {B, m, k};
     Tensor* r = make_tensor(data, shape, 3, rg);
     free(data);
     if (rg) tape_append(OP_BMM, r, a, b, 0);
@@ -1668,8 +1734,33 @@ TensorHandle tensor_bmm(TensorHandle ha, TensorHandle hb) {
 TensorHandle tensor_bmm_3x3(TensorHandle ha, TensorHandle hb) {
     Tensor* a = (Tensor*)ha;
     Tensor* b = (Tensor*)hb;
+    if (a->dtype_tag != b->dtype_tag) tape_abort_mixed_dtype("tensor_bmm_3x3");
     int B = a->shape[0], m = a->shape[1], n = a->shape[2], k = b->shape[2];
     int rg = a->requires_grad || b->requires_grad;
+    int shape[] = {B, m, k};
+    if (a->dtype_tag == DT_F32) {
+        float* data = arena_alloc(B * m * k * sizeof(float));
+        for (int bi = 0; bi < B; bi++) {
+#ifdef __APPLE__
+            cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
+                        m, k, n, 1.0f,
+                        ((const float*)a->data) + bi * m * n, n,
+                        ((const float*)b->data) + bi * n * k, k,
+                        0.0f, data + bi * m * k, k);
+#else
+            for (int i = 0; i < m; i++)
+                for (int j = 0; j < k; j++) {
+                    float s = 0;
+                    for (int p = 0; p < n; p++)
+                        s += ((float*)a->data)[bi*m*n + i*n+p] * ((float*)b->data)[bi*n*k + p*k+j];
+                    data[bi*m*k + i*k+j] = s;
+                }
+#endif
+        }
+        Tensor* r = make_tensor_arena_f32(data, B * m * k, shape, 3, rg);
+        if (rg) tape_append(OP_BMM_3X3, r, a, b, 0);
+        return r;
+    }
     double* data = calloc(B * m * k, sizeof(double));
 
     for (int bi = 0; bi < B; bi++) {
@@ -1690,7 +1781,6 @@ TensorHandle tensor_bmm_3x3(TensorHandle ha, TensorHandle hb) {
 #endif
     }
 
-    int shape[] = {B, m, k};
     Tensor* r = make_tensor(data, shape, 3, rg);
     free(data);
     if (rg) tape_append(OP_BMM_3X3, r, a, b, 0);
@@ -3935,11 +4025,24 @@ void tensor_backward(TensorHandle h) {
         case OP_BMM: {
             /* r = a @ b where a=[B,m,n], b=[n,k], r=[B,m,k]
                d_a[bi] = grad[bi] @ b^T, d_b = sum_bi a[bi]^T @ grad[bi].
-               b is shared across batch, so collapse [B,m,*] to [B*m,*] for d_b. */
+               b is shared across batch, so collapse [B,m,*] to [B*m,*] for d_b.
+               BLAS paths assume double* matrices; F32 inputs fall back to
+               plain loops via tape_load_d (grad always F64). */
             int BB = a->shape[0], mm = a->shape[1], nn = a->shape[2], kk = b->shape[1];
+            int is_f32 = (a->dtype_tag == DT_F32);
             ensure_grad(r);
             if (a && a->requires_grad) {
                 ensure_grad(a);
+                if (is_f32) {
+                    for (int bi = 0; bi < BB; bi++)
+                        for (int i = 0; i < mm; i++)
+                            for (int j = 0; j < nn; j++) {
+                                double s = 0;
+                                for (int p = 0; p < kk; p++)
+                                    s += ((double*)r->grad)[bi*mm*kk + i*kk+p] * tape_load_d(b, j*kk+p);
+                                ((double*)a->grad)[bi*mm*nn + i*nn+j] += s;
+                            }
+                } else
 #ifdef __APPLE__
                 /* d_a [B*m, n] = grad [B*m, k] @ b^T [k, n] — one big dgemm */
                 cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasTrans,
@@ -3959,6 +4062,16 @@ void tensor_backward(TensorHandle h) {
             }
             if (b && b->requires_grad) {
                 ensure_grad(b);
+                if (is_f32) {
+                    for (int bi = 0; bi < BB; bi++)
+                        for (int j = 0; j < nn; j++)
+                            for (int p = 0; p < kk; p++) {
+                                double s = 0;
+                                for (int i = 0; i < mm; i++)
+                                    s += tape_load_d(a, bi*mm*nn + i*nn+j) * ((double*)r->grad)[bi*mm*kk + i*kk+p];
+                                ((double*)b->grad)[j*kk+p] += s;
+                            }
+                } else
 #ifdef __APPLE__
                 /* d_b [n,k] = a^T [n, B*m] @ grad [B*m, k] — single dgemm */
                 cblas_dgemm(CblasRowMajor, CblasTrans, CblasNoTrans,
@@ -3975,13 +4088,15 @@ void tensor_backward(TensorHandle h) {
                             ((double*)b->grad)[j*kk+p] += s;
                         }
 #endif
+                ;
             }
             break;
         }
 
         case OP_BMM_3X3: {
             /* r = a @ b where a=[B,m,n], b=[B,n,k], r=[B,m,k]
-               d_a[bi] = grad[bi] @ b[bi]^T, d_b[bi] = a[bi]^T @ grad[bi] */
+               d_a[bi] = grad[bi] @ b[bi]^T, d_b[bi] = a[bi]^T @ grad[bi].
+               Uses plain loops in both dtypes; tape_load_d covers F32 reads. */
             int BB = a->shape[0], mm = a->shape[1], nn = a->shape[2], kk = b->shape[2];
             ensure_grad(r);
             if (a && a->requires_grad) {
@@ -3991,7 +4106,7 @@ void tensor_backward(TensorHandle h) {
                         for (int j = 0; j < nn; j++) {
                             double s = 0;
                             for (int p = 0; p < kk; p++)
-                                s += ((double*)r->grad)[bi*mm*kk + i*kk+p] * ((double*)b->data)[bi*nn*kk + j*kk+p];
+                                s += ((double*)r->grad)[bi*mm*kk + i*kk+p] * tape_load_d(b, bi*nn*kk + j*kk+p);
                             ((double*)a->grad)[bi*mm*nn + i*nn+j] += s;
                         }
             }
@@ -4002,7 +4117,7 @@ void tensor_backward(TensorHandle h) {
                         for (int p = 0; p < kk; p++) {
                             double s = 0;
                             for (int i = 0; i < mm; i++)
-                                s += ((double*)a->data)[bi*mm*nn + i*nn+j] * ((double*)r->grad)[bi*mm*kk + i*kk+p];
+                                s += tape_load_d(a, bi*mm*nn + i*nn+j) * ((double*)r->grad)[bi*mm*kk + i*kk+p];
                             ((double*)b->grad)[bi*nn*kk + j*kk+p] += s;
                         }
             }
@@ -4235,48 +4350,72 @@ void tensor_backward(TensorHandle h) {
             /* Y[B,o] = X[B,i] @ W[o,i]^T + bias[o].
                dW[o,i]   = dY^T [o,B] @ X [B,i]    (== dY^T @ X)
                dX[B,i]   = dY [B,o] @ W [o,i]
-               dbias[o]  = sum_b dY[b,o] */
+               dbias[o]  = sum_b dY[b,o]
+               BLAS paths require double* W.data; F32 W falls back to plain
+               loops via tape_load_d (grad always F64; x_vals cached as
+               double* at forward time). */
             Linear2dMeta* lm2 = (Linear2dMeta*)e->op_meta;
             int B2 = lm2->B, i2 = lm2->i, o2 = lm2->o;
             double* x_vals_2 = lm2->x_vals;
+            int is_f32 = (a->dtype_tag == DT_F32);
             ensure_grad(r);
             /* a = W [o,i] */
             if (a->requires_grad) {
                 ensure_grad(a);
+                if (is_f32) {
+                    for (int oo = 0; oo < o2; oo++)
+                        for (int jj = 0; jj < i2; jj++) {
+                            double s = 0;
+                            for (int bb = 0; bb < B2; bb++)
+                                s += ((double*)r->grad)[bb*o2+oo] * x_vals_2[bb*i2+jj];
+                            ((double*)a->grad)[oo*i2+jj] += s;
+                        }
+                } else {
 #ifdef __APPLE__
-                /* dW [o,i] = dY^T [o,B] @ X [B,i] */
-                cblas_dgemm(CblasRowMajor, CblasTrans, CblasNoTrans,
-                            o2, i2, B2, 1.0,
-                            r->grad, o2, x_vals_2, i2,
-                            1.0, a->grad, i2);
+                    /* dW [o,i] = dY^T [o,B] @ X [B,i] */
+                    cblas_dgemm(CblasRowMajor, CblasTrans, CblasNoTrans,
+                                o2, i2, B2, 1.0,
+                                r->grad, o2, x_vals_2, i2,
+                                1.0, a->grad, i2);
 #else
-                for (int oo = 0; oo < o2; oo++)
-                    for (int jj = 0; jj < i2; jj++) {
-                        double s = 0;
-                        for (int bb = 0; bb < B2; bb++)
-                            s += ((double*)r->grad)[bb*o2+oo] * x_vals_2[bb*i2+jj];
-                        ((double*)a->grad)[oo*i2+jj] += s;
-                    }
+                    for (int oo = 0; oo < o2; oo++)
+                        for (int jj = 0; jj < i2; jj++) {
+                            double s = 0;
+                            for (int bb = 0; bb < B2; bb++)
+                                s += ((double*)r->grad)[bb*o2+oo] * x_vals_2[bb*i2+jj];
+                            ((double*)a->grad)[oo*i2+jj] += s;
+                        }
 #endif
+                }
             }
             /* b = X [B,i] */
             if (b && b->requires_grad) {
                 ensure_grad(b);
+                if (is_f32) {
+                    for (int bb = 0; bb < B2; bb++)
+                        for (int jj = 0; jj < i2; jj++) {
+                            double s = 0;
+                            for (int oo = 0; oo < o2; oo++)
+                                s += ((double*)r->grad)[bb*o2+oo] * tape_load_d(a, oo*i2+jj);
+                            ((double*)b->grad)[bb*i2+jj] += s;
+                        }
+                } else {
 #ifdef __APPLE__
-                /* dX [B,i] = dY [B,o] @ W [o,i] */
-                cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
-                            B2, i2, o2, 1.0,
-                            r->grad, o2, a->data, i2,
-                            1.0, b->grad, i2);
+                    /* dX [B,i] = dY [B,o] @ W [o,i] */
+                    cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
+                                B2, i2, o2, 1.0,
+                                r->grad, o2, a->data, i2,
+                                1.0, b->grad, i2);
 #else
-                for (int bb = 0; bb < B2; bb++)
-                    for (int jj = 0; jj < i2; jj++) {
-                        double s = 0;
-                        for (int oo = 0; oo < o2; oo++)
-                            s += ((double*)r->grad)[bb*o2+oo] * ((double*)a->data)[oo*i2+jj];
-                        ((double*)b->grad)[bb*i2+jj] += s;
-                    }
+                    for (int bb = 0; bb < B2; bb++)
+                        for (int jj = 0; jj < i2; jj++) {
+                            double s = 0;
+                            for (int oo = 0; oo < o2; oo++)
+                                s += ((double*)r->grad)[bb*o2+oo] * ((double*)a->data)[oo*i2+jj];
+                            ((double*)b->grad)[bb*i2+jj] += s;
+                        }
 #endif
+                }
             }
             /* bias [o] */
             if (lm2->bias && lm2->bias->requires_grad) {
