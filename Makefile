@@ -851,6 +851,16 @@ example-transfer:
 	cp $(LIB) build/exec/transfer_app/
 	./build/exec/transfer $(TRANSFER_ARGS)
 
+# F32/F64 precision artifact + cross-backend hop demo. References
+# TapeDev/TorchDev/MlxDev directly, so it needs all three backends
+# linked (same as `example-transfer`). Unblocked by tape's F32 storage
+# + kernel coverage — every cell is first-class for both precisions.
+example-precision-demo:
+	$(MAKE) BACKEND=tape,torch,mlx install
+	idris2 $(IDRIS_FLAGS) -o precision-demo $(EXAMPLE_SRC)/Example/PrecisionDemo.idr
+	cp $(LIB) build/exec/precision-demo_app/
+	./build/exec/precision-demo $(PRECISION_DEMO_ARGS)
+
 # SafeTensors checkpoint demo (formerly the Example/Transfer.idr
 # content). Per-phase BACKEND= invocation; `example-checkpoint-demo`
 # drives the tape→mlx→torch on-disk round-trip via three calls.
@@ -1111,10 +1121,10 @@ BACKENDS := tape mlx mlx-gpu torch torch-mps
 FAIL_FAST ?=
 
 # Readiness gate for the example-precision-demo post-matrix step.
-# Added wiring-first (skipped) so CI stays green while
-# `Example/PrecisionDemo.idr` is in flight; flipped to 1 by the commit
-# that lands the example. Folds away once stable.
-PRECISION_DEMO_READY ?= 0
+# Defaults on; flip to 0 only when temporarily skipping the demo
+# (e.g. while debugging the multi-backend hop). Folds away once
+# the demo has lived through a few stable CI runs.
+PRECISION_DEMO_READY ?= 1
 test-examples:
 	@fail=0; skip=""; \
 	if command -v timeout >/dev/null 2>&1; then TIMEOUT_PREFIX="timeout $(EXAMPLE_TIMEOUT)"; \
