@@ -9,7 +9,9 @@ import Floating
 import Gym.ClassicControl.CartPole
 import Gym.Env
 import Hpo.LrFinder
-import Layer
+import Layer.ActivationV2
+import Layer.CoreV2
+import Layer.LinearV2
 import Sampler
 import Tensor
 import Train
@@ -33,14 +35,15 @@ StepRec : Type
 StepRec = (AnyPtr, Double, Double)
 
 rolloutEp : {hs : List Nat} ->
-            Network 4 hs 2 (Variable CPU) -> CPState -> List Double -> Nat ->
+            NetworkV2 4 hs 2 CPU -> CPState -> List Double -> Nat ->
             List StepRec -> List StepRec
 rolloutEp _ _ _ Z acc = reverse acc
 rolloutEp _ _ [] _ acc = reverse acc
 rolloutEp model st (r :: rs) (S k) acc =
   let stateT = bulkToTensor (observe st)
-      pair = forwardVarTensor model stateT
-      logProbsT = prim__logSoftmax (snd pair) 0
+      stateV = the (TVec 4 CPU) (MkTVar stateT Nothing)
+      (_, predV) = forwardTVar model stateV
+      logProbsT = prim__logSoftmax predV.tensorPtr 0
       lp0 = prim__item1d logProbsT 0
       lp1 = prim__item1d logProbsT 1
       action = categoricalSample [exp lp0, exp lp1] r
@@ -64,35 +67,41 @@ discReturns gamma rewards = reverse (go 0.0 (reverse rewards))
     go _ [] = []
     go g (r :: rs) = let g' = r + gamma * g in g' :: go g' rs
 
--- Compute per-episode step losses with advantage
-epStepLosses : Double -> Double -> List StepRec -> List (Variable CPU)
+-- Compute per-episode step losses with advantage. Each loss is a
+-- scalar `TVar [] CPU` carrying the autograd graph back to the policy.
+epStepLosses : Double -> Double -> List StepRec -> List (TVar [] CPU)
 epStepLosses gamma baseline steps =
   let rewards = map (\(_, _, r) => r) steps
       rets = discReturns gamma rewards
-  in zipWith (\(lp, lpVal, _), gt =>
-       Var (prim__mulScalar lp (baseline - gt)) Nothing (lpVal * (baseline - gt)))
+  in zipWith (\(lp, _, _), gt =>
+       the (TVar [] CPU) (MkTVar (prim__mulScalar lp (baseline - gt)) Nothing))
      steps rets
 
 sumRewards : List StepRec -> Double
 sumRewards steps = foldl (\a, (_, _, r) => a + r) 0.0 steps
 
-averageLoss : List (Variable CPU) -> Variable CPU
-averageLoss losses =
-  let n = fromDouble (cast (natToInteger (length losses)))
-      s = foldl (+) (fromDouble 0.0) losses
-  in s / n
+-- Mean-reduce a non-empty list of scalar TVars. Empty case returns a
+-- fresh zero scalar (degenerate; runs only if the rollout produced no
+-- steps).
+averageLoss : List (TVar [] CPU) -> TVar [] CPU
+averageLoss [] = MkTVar (prim__createScalar 0.0 0) Nothing
+averageLoss (x :: xs) =
+  let n = cast {to=Double} (1 + length xs)
+      addT : TVar [] CPU -> TVar [] CPU -> TVar [] CPU
+      addT a b = MkTVar (prim__add a.tensorPtr b.tensorPtr) Nothing
+      s = foldl addT x xs
+  in MkTVar (prim__mulScalar s.tensorPtr (1.0 / n)) Nothing
 
 computeLoss : {hs : List Nat} -> Double ->
-              Network 4 hs 2 (Variable CPU) -> List (List Double) ->
-              Variable CPU
+              NetworkV2 4 hs 2 CPU -> List (List Double) ->
+              TVar [] CPU
 computeLoss gamma model randomBatch =
   let episodes = map (\rs => rolloutEp model (MkCP 0 0 0 0) rs MaxSteps []) randomBatch
       epReturns = map sumRewards episodes
       nEp = cast {to=Double} (natToInteger (length epReturns))
       baseline = foldl (+) 0.0 epReturns / nEp
       stepLosses = concatMap (epStepLosses gamma baseline) episodes
-      avg = averageLoss stepLosses
-  in Var avg.tensorPtr Nothing (negate baseline)
+  in averageLoss stepLosses
 
 
 ----------------------------------------------------------------------
@@ -100,11 +109,11 @@ computeLoss gamma model randomBatch =
 ----------------------------------------------------------------------
 
 epochRL : {hs : List Nat} -> NativeOptimizer -> Double ->
-          Network 4 hs 2 (Variable CPU) -> List (List Double) ->
-          (Network 4 hs 2 (Variable CPU), Double)
+          NetworkV2 4 hs 2 CPU -> List (List Double) ->
+          (NetworkV2 4 hs 2 CPU, Double)
 epochRL opt gamma model batch =
   let loss = computeLoss gamma model batch
-      lossVal = nativeTrainStep opt loss
+      lossVal = nativeTrainStepTVar opt loss
   in (model, lossVal)
 
 genBatch : Nat -> IO (List (List Double))
@@ -130,19 +139,20 @@ genBatch batchSz = go batchSz
 ----------------------------------------------------------------------
 
 evalEp : {hs : List Nat} ->
-         Network 4 hs 2 (Variable CPU) -> CPState -> Nat -> Double -> Double
+         NetworkV2 4 hs 2 CPU -> CPState -> Nat -> Double -> Double
 evalEp _ _ Z acc = acc
 evalEp model st (S k) acc =
   let stateT = bulkToTensor (observe st)
-      pair = forwardVarTensor model stateT
-      logitsT = snd pair
+      stateV = the (TVec 4 CPU) (MkTVar stateT Nothing)
+      (_, predV) = forwardTVar model stateV
+      logitsT = predV.tensorPtr
       action = if prim__item1d logitsT 0 >= prim__item1d logitsT 1 then the Nat 0 else 1
   in case cpStep st action of
        (reward, st', outcome, _) =>
          if done outcome then acc + reward
          else evalEp model st' k (acc + reward)
 
-evalN : {hs : List Nat} -> Network 4 hs 2 (Variable CPU) -> Nat -> Double -> Double
+evalN : {hs : List Nat} -> NetworkV2 4 hs 2 CPU -> Nat -> Double -> Double
 evalN _ Z acc = acc
 evalN model (S k) acc =
   evalN model k (acc + evalEp model (MkCP 0 0 0 0) MaxSteps 0.0)
@@ -186,10 +196,10 @@ main = do
            ++ " gamma=" ++ show cfg.gamma ++ " batch=" ++ show cfg.batchSz
            ++ " seed=" ++ show cfg.seed
 
-  ll1 <- linearLayer {i=4} {o=128}
-  ll2 <- linearLayer {i=128} {o=2}
-  let model = autoName $ ll1 ~> tanhLayer ~> OutputLayer ll2
-  putStrLn $ "Architecture: " ++ show model
+  ll1Any <- linearLayerV2Any {i=4} {o=128} "ll1"
+  ll2Any <- linearLayerV2Any {i=128} {o=2} "ll2"
+  let model : NetworkV2 4 [128, 128] 2 CPU
+      model = ll1Any ~~> tanhLayerV2Any ~~> OutputLayerV2 ll2Any
   putStrLn ""
 
   when cfg.lrFind $ do
