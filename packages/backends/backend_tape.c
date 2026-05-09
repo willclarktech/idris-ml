@@ -4966,8 +4966,13 @@ static const char* op_name(int op) {
         "BMM", "BMM_3X3", "SM_3D", "TRANS_L2",
         "GELU", "GRU", "EMBED", "BATCH_NORM", "DROPOUT",
         "AVGP1D", "AVGP2D", "CONV1D", "MAXP1D", "CONV2D", "MAXP2D",
-        "CUMPROD", "GATHER", "SCATTER_ADD", "LEAKY_RELU", "SILU"
+        "CUMPROD", "GATHER", "SCATTER_ADD", "LEAKY_RELU", "SILU",
+        "LINEAR_2D", "CONCAT_2D", "SOFTPLUS"
     };
+    /* Compile-time check: names[] must cover every op tag.
+       Add to BOTH this list and the enum when introducing new ops. */
+    _Static_assert(sizeof(names)/sizeof(names[0]) == OP_COUNT,
+                   "op_name names[] out of sync with OP_COUNT — add new ops here");
     if (op >= 0 && op < OP_COUNT) return names[op];
     return "???";
 }
