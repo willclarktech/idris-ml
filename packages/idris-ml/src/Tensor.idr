@@ -892,6 +892,16 @@ record Tensor (dims : Vect rank Nat) (0 d : Device) where
   tensorPtr : AnyPtr
   paramId   : Maybe String
 
+||| Transfer a tensor to a different device. The one place where
+||| device types intentionally change. Wraps `prim__toDevice`; the
+||| resulting tensor handle is on `d2`. `paramId` is preserved (the
+||| C-side parameter registry tracks the moved handle).
+export
+toDevice : (d2 : Device) -> Tensor dims d1 -> IO (Tensor dims d2)
+toDevice d2 t =
+  pure (MkTensor (prim__toDevice t.tensorPtr (deviceToString d2))
+                 t.paramId)
+
 ||| Type-level aliases for common Tensor shapes. Aliases route shape
 ||| arithmetic (e.g. `4 * o`) through a Nat-argument slot rather than
 ||| inlining inside a Vect literal — the latter triggers an Idris 2
