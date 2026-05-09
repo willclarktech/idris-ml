@@ -56,9 +56,15 @@ bulkToPersistent {n} (VTensor elems) =
     packScalars b o (STensor v :: rest) =
       packScalars (prim__setDouble b o v) (o + 1) rest
 
--- Scalar TVar holding 0.0.
-zeroLossT : {0 d : Device} -> TVar [] d
-zeroLossT = MkTVar (prim__createScalar 0.0 0) Nothing
+-- Scalar TVar holding 0.0. Takes a `Double` argument that flows through
+-- to the FFI call so the Idris/Chez compiler does not memoise the FFI
+-- result as a module-level constant. (A zero-arg top-level def whose body
+-- is `prim__createScalar 0.0 0` is evaluated ONCE at module load and
+-- cached — the cached AnyPtr is non-persistent and is freed by the first
+-- `tape_reset` at optimizer step, leaving every subsequent epoch reading
+-- a dangling pointer. MLX surfaces this as `invalid memory reference`.)
+freshZeroLossT : {0 d : Device} -> Double -> TVar [] d
+freshZeroLossT seed = MkTVar (prim__createScalar seed 0) Nothing
 
 -- Add two scalar TVars (bypasses the implicit-resolution overhead of
 -- the polymorphic `tadd`).
@@ -103,7 +109,7 @@ epochTVar : {d : Device} -> {i, o, n : Nat} -> {hs : List Nat} ->
             (NetworkV2 i hs o d, Double)
 epochTVar opt dataPoints lossFn model =
   let losses = map (perPointLoss lossFn model) dataPoints in
-  let totalLoss = foldl taddScalar zeroLossT losses in
+  let totalLoss = foldl taddScalar (freshZeroLossT 0.0) losses in
   let mean = scaleLoss totalLoss (1.0 / cast n) in
   (model, nativeTrainStepTVar opt mean)
 
@@ -135,7 +141,7 @@ perSeqLoss : {0 d : Device} -> {i, o : Nat} -> {hs : List Nat} ->
 perSeqLoss lossFn model dp =
   let pairs = zip (xs dp) (ys dp)
       startNet = resetNetworkV2 model
-      (_, totalLoss) = foldl (recurStep lossFn) (startNet, zeroLossT) pairs
+      (_, totalLoss) = foldl (recurStep lossFn) (startNet, freshZeroLossT 0.0) pairs
       stepCount = length pairs
   in if stepCount == 0
        then totalLoss
@@ -153,7 +159,7 @@ epochRecurrentTVar : {d : Device} -> {i, o, n : Nat} -> {hs : List Nat} ->
                      (NetworkV2 i hs o d, Double)
 epochRecurrentTVar opt dataPoints lossFn model =
   let seqLosses = map (perSeqLoss lossFn model) dataPoints in
-  let totalLoss = foldl taddScalar zeroLossT seqLosses in
+  let totalLoss = foldl taddScalar (freshZeroLossT 0.0) seqLosses in
   let mean = scaleLoss totalLoss (1.0 / cast n) in
   (model, nativeTrainStepTVar opt mean)
 
@@ -198,7 +204,7 @@ perSeqLossTwoPhase lossFn model dp =
       encNet = foldl encodeStep startNet (encodingInputs dp)
       iI = cast {to=Int} i
       zeroIn = prim__create1d iI (prim__allocDoubles iI) 0
-      (_, totalLoss) = foldl (decodeStep lossFn zeroIn) (encNet, zeroLossT) (targets dp)
+      (_, totalLoss) = foldl (decodeStep lossFn zeroIn) (encNet, freshZeroLossT 0.0) (targets dp)
       stepCount = length (targets dp)
   in if stepCount == 0
        then totalLoss
@@ -217,6 +223,6 @@ epochTwoPhaseTVar : {d : Device} -> {i, o, n : Nat} -> {hs : List Nat} ->
                     (NetworkV2 i hs o d, Double)
 epochTwoPhaseTVar opt dataPoints lossFn model =
   let seqLosses = map (perSeqLossTwoPhase lossFn model) dataPoints in
-  let totalLoss = foldl taddScalar zeroLossT seqLosses in
+  let totalLoss = foldl taddScalar (freshZeroLossT 0.0) seqLosses in
   let mean = scaleLoss totalLoss (1.0 / cast n) in
   (model, nativeTrainStepTVar opt mean)
