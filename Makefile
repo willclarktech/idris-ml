@@ -349,6 +349,13 @@ HWCONFIG_IN  := packages/idris-ml/src/HwConfig.idr.in
 HWDEVICES_IDR := packages/idris-ml/src/HwDevices.idr
 HWDEVICES_IN  := packages/idris-ml/src/HwDevices.idr.in
 
+# Generated `TestDevice` / `TestDType` for the Idris unit test suite. Same
+# template trick as BuildConfig (one cell, sed-substituted from the active
+# PRIMARY × hw-device envs); lives in the test sourcedir because the test
+# ipkg can't import idris-ml-examples' BuildConfig. Keyed on the same tuple.
+TESTCONFIG_IDR := packages/idris-ml/test/src/TestConfig.idr
+TESTCONFIG_IN  := packages/idris-ml/test/src/TestConfig.idr.in
+
 $(BUILD)/.buildconfig-stamp: FORCE | $(BUILD)
 	@[ "$$(cat $@ 2>/dev/null)" = "$(BUILDCONFIG_KEY)" ] || { echo "$(BUILDCONFIG_KEY)" > $@; }
 
@@ -364,6 +371,19 @@ $(BUILDCONFIG_IDR): $(BUILDCONFIG_IN) $(BUILD)/.buildconfig-stamp
 	esac; \
 	sed "s|@DEVICE@|$$DEVICE|g; s|@DTYPE@|$$DTYPE|g" $< > $@
 	@echo "[BuildConfig] PRIMARY=$(PRIMARY) MLX_DEVICE=$(MLX_DEVICE) TORCH_DEVICE=$(TORCH_DEVICE) → $$(awk -F' = ' '/^ExampleDevice = / { print $$2; exit }' $@) / $$(awk -F' = ' '/^ExampleDType = / { print $$2; exit }' $@)"
+
+$(TESTCONFIG_IDR): $(TESTCONFIG_IN) $(BUILD)/.buildconfig-stamp
+	@case "$(PRIMARY)/$(MLX_DEVICE)/$(TORCH_DEVICE)" in \
+		mlx/gpu/*)    DEVICE="MlxDev MGpu";       DTYPE="F32" ;; \
+		mlx/cpu/*)    DEVICE="MlxDev MCpu";       DTYPE="F64" ;; \
+		torch/*/mps)  DEVICE="TorchDev TMps";     DTYPE="F32" ;; \
+		torch/*/cuda) DEVICE="TorchDev (TCuda 0)"; DTYPE="F64" ;; \
+		torch/*/*)    DEVICE="TorchDev TCpu";     DTYPE="F64" ;; \
+		tape/*/*)     DEVICE="TapeDev";           DTYPE="F64" ;; \
+		*)            DEVICE="TapeDev";           DTYPE="F64" ;; \
+	esac; \
+	sed "s|@DEVICE@|$$DEVICE|g; s|@DTYPE@|$$DTYPE|g" $< > $@
+	@echo "[TestConfig] PRIMARY=$(PRIMARY) MLX_DEVICE=$(MLX_DEVICE) TORCH_DEVICE=$(TORCH_DEVICE) → $$(awk -F' = ' '/^TestDevice = / { print $$2; exit }' $@) / $$(awk -F' = ' '/^TestDType = / { print $$2; exit }' $@)"
 
 $(BUILD)/.hwconfig-stamp: FORCE | $(BUILD)
 	@[ "$$(cat $@ 2>/dev/null)" = "$(HWCONFIG_KEY)" ] || { echo "$(HWCONFIG_KEY)" > $@; }
@@ -566,7 +586,7 @@ check-examples: install
 	@echo "All examples type-check."
 
 # Idris tests
-test: install
+test: install $(TESTCONFIG_IDR)
 	idris2 --source-dir $(TEST_SRC) -p contrib -p idris-ml -o test $(TEST_SRC)/Main.idr
 	cp $(LIB) build/exec/test_app/
 	./build/exec/test
@@ -579,7 +599,7 @@ test: install
 # crash at FFI resolution under any single-backend build. Torch
 # primary so the F32-hop's tcastUnsafe (a RuntimeDType op routed
 # via unified C names) lands on a backend that supports F32.
-test-multi:
+test-multi: $(TESTCONFIG_IDR)
 	$(MAKE) BACKEND=torch,tape,mlx install
 	idris2 --source-dir $(TEST_SRC) -p contrib -p idris-ml -o test-multi $(TEST_SRC)/MainMulti.idr
 	cp $(LIB) build/exec/test-multi_app/

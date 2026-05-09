@@ -52,8 +52,8 @@ makeVec4 (a, b, c, dd) = do
   sh1  <- primIO (\w => MkIORes (primSetIntHost   {d} sh 0 4)  w)
   ptr  <- primIO (\w =>
             MkIORes (primCreateFromHost {d} buf4 sh1 1 1) w)
-  primIO (\w => MkIORes (primFreeIntHost {d} sh1)  w)
-  primIO (\w => MkIORes (primFreeHost    {d} buf4) w)
+  _ <- primIO (\w => MkIORes (primFreeIntHost {d} sh1)  w)
+  _ <- primIO (\w => MkIORes (primFreeHost    {d} buf4) w)
   pure (MkTensor ptr Nothing)
 
 read4 : {0 d : Type} -> {0 dt : DType} -> UserDeviceCore d =>

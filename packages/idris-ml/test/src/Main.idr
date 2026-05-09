@@ -13,13 +13,13 @@ import Test.Hpo.LrFinder
 import Test.ManagedHandle
 -- NOTE: Test.Transfer (UserDeviceTransfer / toDevice smoke) lives in
 -- the source tree but isn't wired into this default `tests` list:
--- the test file is hardcoded to one backend (TapeDev), so linking
--- under any other BACKEND fails at FFI resolution (no
--- `tensor_to_device_tape` symbol in a torch/mlx-only dylib). The
--- other test buckets above route through unified-name C symbols
--- (aliased to the build's primary at link time) so they avoid this.
--- To run the Transfer smoke specifically, use a tape build.
--- Multi-backend cross-transfer tests remain a parked TODO.
+-- it deliberately references TapeDev / TorchDev / MlxDev by name to
+-- exercise cross-backend hops, so it crashes under any single-backend
+-- build. The other buckets above use `{d=TestDevice}` (resolved at
+-- build time from the active PRIMARY via the Makefile-generated
+-- TestConfig.idr — same trick as BuildConfig for the examples), so
+-- `make BACKEND=<b> test` works on every backend. Run the multi-
+-- backend cross-transfer suite via `make test-multi`.
 
 main : IO ()
 main = runAll

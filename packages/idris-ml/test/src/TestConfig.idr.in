@@ -1,0 +1,48 @@
+||| Build-time selection of the (device, dtype) pair the Idris unit
+||| test suite targets. Generated from this template by the Makefile
+||| rule at `Makefile`'s TESTCONFIG_IDR target — observes `PRIMARY`
+||| (and the MLX_DEVICE / TORCH_DEVICE envs for hardware-variant
+||| selection) and substitutes the chosen tags into this template via
+||| sed. Same trick as the example-side `BuildConfig.idr` and per-build
+||| `HwConfig.idr`; the test ipkg can't import either of those (they
+||| live in `idris-ml-examples` / generated downstream of `Tensor`),
+||| so the test sourcedir gets its own copy.
+|||
+||| Selection matrix (PRIMARY × hw-device env → TestDevice, TestDType):
+|||
+|||   tape, *                     → TapeDev,              F64
+|||   torch, TORCH_DEVICE=cpu      → TorchDev TCpu,        F64
+|||   torch, TORCH_DEVICE=mps      → TorchDev TMps,        F32
+|||   torch, TORCH_DEVICE=cuda     → TorchDev (TCuda 0),   F64
+|||   mlx, MLX_DEVICE=cpu          → MlxDev MCpu,          F64
+|||   mlx, MLX_DEVICE=gpu          → MlxDev MGpu,          F32
+|||
+||| Pre-existing unit tests (GradMode / ManagedHandle / …) used to pin
+||| `{d=TapeDev}` directly; that bound them to a tape-linked dylib and
+||| made `make BACKEND=torch test` / `BACKEND=mlx test` fail at FFI
+||| resolution with `no entry for "tensor_create_scalar_tape"`. Tests
+||| now spell `{d=TestDevice}` and resolve to the active primary at
+||| build time.
+|||
+||| Idris-2 cannot drive type-level selection from a runtime env var —
+||| types are fixed at elaboration. The generated `TestConfig.idr` is
+||| in `.gitignore`. Do not edit the generated file directly; edit
+||| this `.in` template instead.
+module TestConfig
+
+import public Device
+import public Device.Tape
+import public Device.Torch
+import public Device.Mlx
+
+||| Device tag the unit tests target. See the Selection matrix in the
+||| module docstring.
+public export
+TestDevice : Type
+TestDevice = @DEVICE@
+
+||| DType tag the unit tests target. See the Selection matrix in the
+||| module docstring.
+public export
+TestDType : DType
+TestDType = @DTYPE@

@@ -206,17 +206,51 @@ jobs:
       - name: Run C backend tests (tape)
         run: make test-backend-tape
 
+      - name: Run Idris unit suite (tape)
+        # Idris-side smart-constructor / LayerLike / Tensor-lifecycle suite
+        # against the tape primary. The test buckets that touch the C
+        # surface (GradMode, ManagedHandle) use `{d=TestDevice}` which the
+        # Makefile-generated `TestConfig.idr` resolves to TapeDev here, so
+        # FFI calls land on tape-suffixed C symbols.
+        run: make BACKEND=tape test
+
       - name: Run C backend tests (torch, Ubuntu)
         if: matrix.os == 'ubuntu-latest'
         run: make test-backend-torch
+
+      - name: Run Idris unit suite (torch, Ubuntu)
+        # Same suite as the tape lane but with TestDevice = TorchDev TCpu.
+        # Catches Idris-side regressions that a tape-only run would miss
+        # (broken torch Scheme wrapper, drift in `UserDeviceTransfer`
+        # instances, etc.).
+        if: matrix.os == 'ubuntu-latest'
+        run: make BACKEND=torch test
 
       - name: Run C backend tests (mlx, macOS)
         if: matrix.os == 'macos-latest'
         run: make test-backend-mlx
 
+      - name: Run Idris unit suite (mlx, macOS)
+        # Same suite as tape/torch but with TestDevice = MlxDev MCpu.
+        # Catches mlx Scheme-wrapper drift, lazy-eval / handle-lifetime
+        # regressions in the test-managed-handle suite under Metal.
+        if: matrix.os == 'macos-latest'
+        run: make BACKEND=mlx test
+
+      - name: Run multi-backend Idris suite (macOS)
+        # Adds Test.Transfer (cross-backend `toDevice` smoke) +
+        # Test.MultiDeviceRegistry (registry isolation invariant) on
+        # top of the per-backend buckets. Forces BACKEND=torch,tape,mlx
+        # so all three sets of C symbols are linked — only feasible on
+        # the macOS lane (Ubuntu has no mlx).
+        if: matrix.os == 'macos-latest'
+        run: make test-multi
+
       - name: Run safetensors round-trip (tape)
         # F32/F64 param + optimizer-state round-trip; runs on every OS.
-        run: make test-safetensors
+        # Re-installs the tape dylib so subsequent steps that expect
+        # tape symbols (test-examples default lane) see them.
+        run: make BACKEND=tape test-safetensors
 
       - name: Run safetensors round-trip (torch, Ubuntu)
         # Adds the bf16/f16/i32 byte-level round-trip (those dtypes exist
