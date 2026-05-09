@@ -14,6 +14,7 @@ modules = BuildConfig
         , Example.DncCopy
         , Example.Dqn
         , Example.DTypePitch
+        , Example.DTypeSerialize
         , Example.FrozenLake
         , Example.Gpt
         , Example.Gru

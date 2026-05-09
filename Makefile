@@ -659,6 +659,22 @@ example-tcast-demo: install
 	cp $(LIB) build/exec/tcast-demo_app/
 	./build/exec/tcast-demo $(TCAST_DEMO_ARGS)
 
+# Cross-language dtype serialization demo. Forces BACKEND=torch (bf16/f16/
+# int are Compatible only on torch), writes a multi-dtype .safetensors from
+# Idris, then verifies the byte layout via the reference safetensors.torch
+# reader (Python). Verifier is skipped if the pytorch venv is absent.
+example-dtype-serialize:
+	$(MAKE) BACKEND=torch install >/dev/null
+	idris2 $(IDRIS_FLAGS) -o dtype-serialize $(EXAMPLE_SRC)/Example/DTypeSerialize.idr
+	cp $(LIB) build/exec/dtype-serialize_app/
+	./build/exec/dtype-serialize /tmp/idrisml-dtypes.safetensors
+	@if [ -x packages/pytorch/.venv/bin/python3 ]; then \
+		echo "=== cross-language verify (safetensors.torch) ==="; \
+		packages/pytorch/.venv/bin/python3 packages/idris-ml-examples/scripts/verify_dtypes.py /tmp/idrisml-dtypes.safetensors; \
+	else \
+		echo "=== cross-language verify SKIPPED (pytorch venv not found) ==="; \
+	fi
+
 # Compile-time (device, dtype) Compatible gate demo. The example's `ok*`
 # witnesses typecheck against the real constructor across all backends;
 # main constructs on the build-selected cell, so it runs on any BACKEND.
