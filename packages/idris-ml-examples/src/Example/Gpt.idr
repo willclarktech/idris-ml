@@ -18,15 +18,12 @@ import System
 import System.File
 import Compat.Random
 
-import Backprop
+import BackpropV2
 import DataPoint
-import Endofunctor
 import Floating
 import Generate
-import Layer
-import Layer.Core
-import Layer.Transformer
-import Math
+import Layer.CoreV2
+import Layer.TransformerV2
 import Sampler
 import Schedule
 import Tensor
@@ -40,10 +37,6 @@ import Variable
 -- Configuration
 ----------------------------------------------------------------------
 
-||| Vocabulary size — fixed at compile time at the size of the
-||| tinyshakespeare 65-char vocab. Both the embedded smoke corpus and the
-||| convergence-run tinyshakespeare corpus share this vocabulary; the
-||| embedded corpus uses a subset of the same character indices.
 VocabSize : Nat
 VocabSize = 65
 
@@ -76,12 +69,6 @@ OutputDim = SeqLen * VocabSize
 -- Corpus & Tokenization
 ----------------------------------------------------------------------
 
--- Shakespeare — "All the world's a stage" + Hamlet soliloquy
-||| Embedded smoke-gate corpus: a 1342-char Shakespeare excerpt. Used by
-||| `--corpus embedded` (the default for the smoke gate's quick wiring
-||| test). Convergence runs use `--corpus tinyshakespeare` which loads
-||| the canonical ~1.1 MB benchmark file from
-||| data/tinyshakespeare/input.txt.
 embeddedCorpus : String
 embeddedCorpus = "all the world's a stage, and all the men and women merely players; "
   ++ "they have their exits and their entrances, and one man in his time "
@@ -105,98 +92,62 @@ embeddedCorpus = "all the world's a stage, and all the men and women merely play
   ++ "of death what dreams may come, when we have shuffled off this mortal "
   ++ "coil, must give us pause."
 
-||| The 65 distinct characters in the tinyshakespeare corpus, in the same
-||| order nanoGPT uses (sorted by codepoint). The smoke-gate embedded
-||| corpus is a strict subset of these characters, so this single vocab
-||| serves both paths.
-||| Indices: \n=0, space=1, !=2, $=3, &=4, '=5, ,=6, -=7, .=8, 3=9,
-||| :=10, ;=11, ?=12, A-Z=13..38, a-z=39..64.
 vocabChars : String
 vocabChars = "\n !$&',-.3:;?ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 
-||| Map character to token index. Unknown chars → space (id 1).
-||| Linear scan over 65 chars; ~negligible cost vs the model forward.
 charToIdx : Char -> Int
 charToIdx c = go (unpack vocabChars) 0
   where
     go : List Char -> Int -> Int
     go [] _ = 1  -- unknown -> space
-    go (x :: xs) i = if x == c then i else go xs (i + 1)
+    go (h :: rest) i =
+      if h == c then i else go rest (i + 1)
 
-||| Map token index back to character. Out-of-range → space.
 idxToChar : Int -> Char
 idxToChar i =
-  case strIndex vocabChars i of
-    Just c => c
-    Nothing => ' '
-  where
-    strIndex : String -> Int -> Maybe Char
-    strIndex s n =
-      let chars = unpack s
-          k = integerToNat (cast n)
-      in case drop k chars of
-           [] => Nothing
-           (c :: _) => Just c
+  let n = the Nat (cast i)
+      chars = unpack vocabChars
+      go : List Char -> Nat -> Char
+      go [] _ = ' '
+      go (c :: _) Z = c
+      go (_ :: rest) (S k) = go rest k
+  in go chars n
 
 
 ----------------------------------------------------------------------
--- Helpers
+-- Data generation
 ----------------------------------------------------------------------
 
-||| Pack a list of Ints into a C int buffer.
-packIntBuf : AnyPtr -> Int -> List Int -> AnyPtr
-packIntBuf buf _ [] = buf
-packIntBuf buf off (tok :: rest) =
-  let buf' = prim__setInt buf off tok
-  in packIntBuf buf' (off + 1) rest
+listSlice : List a -> Nat -> Nat -> List a
+listSlice xs start n = Data.List.take n (drop start xs)
 
-||| Pack a list of Ints as Doubles into a C double buffer.
 packDoubleBuf : AnyPtr -> Int -> List Int -> AnyPtr
 packDoubleBuf buf _ [] = buf
-packDoubleBuf buf off (tok :: rest) =
-  packDoubleBuf (prim__setDouble buf off (cast {to=Double} tok)) (off + 1) rest
+packDoubleBuf buf off (x :: xs) =
+  packDoubleBuf (prim__setDouble buf off (cast x)) (off + 1) xs
 
+packIntBuf : AnyPtr -> Int -> List Int -> AnyPtr
+packIntBuf buf _ [] = buf
+packIntBuf buf off (x :: xs) =
+  packIntBuf (prim__setInt buf off x) (off + 1) xs
 
-----------------------------------------------------------------------
--- Data Generation
-----------------------------------------------------------------------
-
-||| List indexing (0-based).
-listIdx : List a -> Nat -> Maybe a
-listIdx [] _ = Nothing
-listIdx (x :: _) Z = Just x
-listIdx (_ :: xs) (S k) = listIdx xs k
-
-||| Extract a slice [start, start+len) from a list.
-listSlice : List a -> Nat -> Nat -> List a
-listSlice xs start len = Data.List.take len (drop start xs)
-
-||| Generate one GPT data point: random sliding window from `corpus`.
-||| `corpus` is the (already-encoded) list of token indices; `corpusLen`
-||| is its length. Both are passed in so that callers can feed train or
-||| val sub-corpora rather than always sampling from the full text.
-||| Input = tokens[0..SeqLen-1], Target = tokens[1..SeqLen], both one-hot.
-gptTensorPoint :
-  (corpus : List Int) -> (corpusLen : Nat) ->
-  IO (TensorDataPoint InputDim OutputDim)
+gptTensorPoint : (corpus : List Int) -> (corpusLen : Nat) ->
+                 IO (TensorDataPoint InputDim OutputDim)
 gptTensorPoint corpus corpusLen = do
   let maxStart = minus corpusLen (SeqLen + 1)
-  start <- randomInt 0 maxStart
-  let window = listSlice corpus start (SeqLen + 1)
+  startN <- randomInt 0 (cast maxStart)
+  let start = the Nat (cast startN)
+      window = listSlice corpus start (SeqLen + 1)
       inputToks = Data.List.take SeqLen window
       targetToks = Data.List.take SeqLen (drop 1 window)
       sI = cast {to=Int} SeqLen
       vI = cast {to=Int} VocabSize
-      -- Input: token indices as doubles [seqLen]
       inT = prim__create1d sI (packDoubleBuf (prim__allocDoubles sI) 0 inputToks) 0
-      -- Target: still one-hot [seqLen * vocabSize] for cross-entropy
       tgtIdxBuf = packIntBuf (prim__allocInts sI) 0 targetToks
   pure $ MkTensorDataPoint inT (prim__oneHot tgtIdxBuf sI vI)
 
-||| Generate a batch of GPT data points from `corpus`.
-gptBatchVect :
-  (corpus : List Int) -> (corpusLen : Nat) ->
-  (n : Nat) -> IO (Vect n (TensorDataPoint InputDim OutputDim))
+gptBatchVect : (corpus : List Int) -> (corpusLen : Nat) -> (n : Nat) ->
+               IO (Vect n (TensorDataPoint InputDim OutputDim))
 gptBatchVect _ _ Z = pure []
 gptBatchVect corpus corpusLen (S k) = do
   dp <- gptTensorPoint corpus corpusLen
@@ -205,41 +156,37 @@ gptBatchVect corpus corpusLen (S k) = do
 
 
 ----------------------------------------------------------------------
--- Loss: Cross-entropy on all positions
+-- Loss: Cross-entropy on all positions (V2 typed-surface)
 ----------------------------------------------------------------------
 
 ||| Categorical cross-entropy on ALL positions (standard LM loss).
-allPositionsCE : LossFnTensor CPU
-allPositionsCE predT targetT =
+||| Operates on a flat [SeqLen * VocabSize] TVar; reshapes to
+||| [SeqLen, VocabSize] and computes mean NLL across positions.
+allPositionsCETVar : TVec OutputDim CPU -> TVec OutputDim CPU -> TVar [] CPU
+allPositionsCETVar predV targetV =
   let vsI = cast {to=Int} VocabSize
       sI = cast {to=Int} SeqLen
-      logitsR = prim__reshape2d predT sI vsI
+      logitsR = prim__reshape2d predV.tensorPtr sI vsI
       logProbs = prim__logSoftmax2d logitsR
-      tgtsR = prim__reshape2d targetT sI vsI
+      tgtsR = prim__reshape2d targetV.tensorPtr sI vsI
       product = prim__mul logProbs tgtsR
       totalSum = prim__sum product
       loss = prim__mulScalar (prim__neg totalSum) (1.0 / cast {to=Double} SeqLen)
-      val = prim__item loss
-  in Var loss Nothing val
+  in MkTVar loss Nothing
 
 
 ----------------------------------------------------------------------
--- Autoregressive Generation
+-- Autoregressive Generation (single-sample forward)
 ----------------------------------------------------------------------
 
-||| Generate text autoregressively from a seed string.
-||| Returns seed ++ generated characters.
-generateText : {hs : List Nat} ->
-               Network InputDim hs OutputDim (Variable CPU) ->
+generateText : NetworkV2 InputDim [] OutputDim CPU ->
                String -> Nat -> Double -> String
 generateText model seed genLen temperature =
   let seedIdxs = map charToIdx (unpack seed)
       padLen = minus SeqLen (length seedIdxs)
-      -- Left-pad with space (id 1 in the 65-char vocab) to fill SeqLen
       context = replicate padLen (the Int 1) ++ Data.List.take SeqLen seedIdxs
   in seed ++ pack (go model context genLen [])
   where
-    -- Enumerate all 65 vocab indices for argmax over logits.
     vocabIdxs : List Nat
     vocabIdxs = [ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9
                 ,10,11,12,13,14,15,16,17,18,19
@@ -250,7 +197,6 @@ generateText model seed genLen temperature =
                 ,60,61,62,63,64
                 ]
 
-    ||| Extract logits at a given position, apply temperature, return unnormalized probs.
     sampleAt : AnyPtr -> Nat -> List Double
     sampleAt outT pos =
       let vsI = cast {to=Int} VocabSize
@@ -262,20 +208,19 @@ generateText model seed genLen temperature =
 
     argmax : List Double -> Int
     argmax probs =
-      fst (foldl (\(bi,bv), (i,v) => if v > bv then (i,v) else (bi,bv))
+      fst (foldl (\(bi, bv), (i, v) => if v > bv then (i, v) else (bi, bv))
            (the (Int, Double) (0, -1.0e10))
            (zip (map cast vocabIdxs) probs))
 
-    go : {hs' : List Nat} -> Network InputDim hs' OutputDim (Variable CPU) ->
+    go : NetworkV2 InputDim [] OutputDim CPU ->
          List Int -> Nat -> List Char -> List Char
     go _ _ Z acc = reverse acc
     go m ctx (S k) acc =
       let sI = cast {to=Int} SeqLen
-          vI = cast {to=Int} VocabSize
           inT = prim__create1d sI (packDoubleBuf (prim__allocDoubles sI) 0 ctx) 0
-          fwdPair = forwardVarTensor m inT
-          outT = snd fwdPair
-          unnorm = sampleAt outT (minus SeqLen 1)
+          inV = the (TVec InputDim CPU) (MkTVar inT Nothing)
+          (_, predV) = forwardTVar m inV
+          unnorm = sampleAt predV.tensorPtr (minus SeqLen 1)
           totSum = foldl (+) 0.0 unnorm
           probs = map (/ totSum) unnorm
           bestIdx = argmax probs
@@ -285,21 +230,15 @@ generateText model seed genLen temperature =
 
 
 ----------------------------------------------------------------------
--- Evaluation
+-- Evaluation: bits-per-character on a held-out corpus slice
 ----------------------------------------------------------------------
 
-||| Evaluate bits per character over `corpus` at evenly-spaced windows.
-||| Pass the (held-out) val sub-corpus to compute val_bpc, or the train
-||| sub-corpus to compute train_bpc.
-evalBPC : {hs : List Nat} ->
-          Network InputDim hs OutputDim (Variable CPU) ->
-          (corpus : List Int) -> (corpusLen : Nat) ->
-          (nSamples : Nat) -> Double
-evalBPC model corpus corpusLen nSamples = go model nSamples 0.0
+evalBPC : NetworkV2 InputDim [] OutputDim CPU ->
+          (corpus : List Int) -> (corpusLen : Nat) -> (nSamples : Nat) -> Double
+evalBPC model corpus corpusLen nSamples = go nSamples 0.0
   where
-    singleBPC : {hs' : List Nat} ->
-                Network InputDim hs' OutputDim (Variable CPU) -> Nat -> Double
-    singleBPC m start =
+    singleBPC : Nat -> Double
+    singleBPC start =
       let window = listSlice corpus start (SeqLen + 1)
           inputToks = Data.List.take SeqLen window
           targetToks = Data.List.take SeqLen (drop 1 window)
@@ -308,34 +247,28 @@ evalBPC model corpus corpusLen nSamples = go model nSamples 0.0
           inT = prim__create1d sI (packDoubleBuf (prim__allocDoubles sI) 0 inputToks) 0
           tgtIdxBuf = packIntBuf (prim__allocInts sI) 0 targetToks
           tgtT = prim__oneHot tgtIdxBuf sI vI
-          fwdPair = forwardVarTensor m inT
-          outT = snd fwdPair
-          loss = allPositionsCE outT tgtT
-      in loss.value / log 2.0
+          inV = the (TVec InputDim CPU) (MkTVar inT Nothing)
+          tgtV = the (TVec OutputDim CPU) (MkTVar tgtT Nothing)
+          (_, predV) = forwardTVar model inV
+          lossT = allPositionsCETVar predV tgtV
+      in prim__item lossT.tensorPtr / log 2.0
 
-    go : {hs' : List Nat} ->
-         Network InputDim hs' OutputDim (Variable CPU) -> Nat -> Double -> Double
-    go _ Z acc = acc
-    go m (S k) acc =
+    go : Nat -> Double -> Double
+    go Z acc = acc
+    go (S k) acc =
       let maxStart = minus corpusLen (SeqLen + 1)
-          -- Deterministic eval positions: evenly spaced
           pos = div (k * maxStart) nSamples
-          bpc = singleBPC m pos
-      in go m k (acc + bpc / cast {to=Double} (natToInteger nSamples))
+          bpc = singleBPC pos
+      in go k (acc + bpc / cast {to=Double} (natToInteger nSamples))
 
 
 ----------------------------------------------------------------------
 -- Corpus loading + train/val split
 ----------------------------------------------------------------------
 
-||| Path to the tinyshakespeare benchmark file. Run `make
-||| dataset-tinyshakespeare` to populate it.
 tinyshakespearePath : String
 tinyshakespearePath = "data/tinyshakespeare/input.txt"
 
-||| Load a corpus by name. "embedded" returns the small smoke-gate
-||| corpus; "tinyshakespeare" reads the canonical benchmark file.
-||| Falls back to embedded with a warning if the file is missing.
 loadCorpusText : String -> IO String
 loadCorpusText "embedded" = pure embeddedCorpus
 loadCorpusText "tinyshakespeare" = do
@@ -351,9 +284,7 @@ loadCorpusText other = do
   putStrLn $ "WARNING: unknown corpus '" ++ other ++ "'; using embedded."
   pure embeddedCorpus
 
-||| Deterministic 90/10 split: last `valFrac` fraction of indices is val.
-trainValSplit : (valFrac : Double) -> List Int ->
-                (List Int, List Int)
+trainValSplit : (valFrac : Double) -> List Int -> (List Int, List Int)
 trainValSplit valFrac idx =
   let n = length idx
       nVal = the Nat (cast (cast {to=Double} (natToInteger n) * valFrac))
@@ -365,11 +296,6 @@ trainValSplit valFrac idx =
 -- LR-schedule helper: update all registered params each epoch.
 ----------------------------------------------------------------------
 
-||| Update LR for every registered parameter — invoked once per epoch from
-||| the training loop. Iterates the param registry and calls `setParamLR`
-||| (which the optimizer reads on its next step). The wrapping `pure`
-||| forces evaluation of the side-effecting setParamLR call inside IO,
-||| matching the existing `polyakUpdate` pattern in Variable.idr.
 setLRAll : NativeOptimizer -> Double -> IO ()
 setLRAll opt lr = do
   n <- getParamCount
@@ -391,18 +317,13 @@ setLRAll opt lr = do
 
 record Config where
   constructor MkConfig
-  corpus : String       -- "tinyshakespeare" or "embedded"
+  corpus : String
   lr : Double
   epochs : Nat
-  patience : Nat        -- 0 = disabled (rely on cosine LR for annealing)
+  patience : Nat
   seed : Bits64
   lrFind : Bool
 
-||| Defaults: embedded corpus + 30 epochs for a ~30s smoke-friendly demo.
-||| The convergence run lives in `make example-gpt-full` (or pass
-||| `--corpus tinyshakespeare --epochs 1000` directly), which uses the
-||| nanoGPT-aligned recipe (cosine LR + 100-epoch warmup) to hit
-||| `val_bpc < 3.5` on the held-out 10% split.
 defaultConfig : Config
 defaultConfig = MkConfig "embedded" 0.001 30 0 42 False
 
@@ -423,17 +344,13 @@ main = do
 
   srand cfg.seed
 
-  -- nanoGPT-aligned optimizer recipe: AdamW β1=0.9 β2=0.99 wd=0.1
-  -- + cosine LR with linear warmup (set per-epoch via setLRAll).
-  -- Last param is the global grad-norm clip = 1.0.
   let opt = nativeAdamW cfg.lr 0.9 0.99 1.0e-8 0.1 1.0
 
-  -- ---- Corpus + train/val split ----
   corpusText <- loadCorpusText cfg.corpus
   let allIndices = map charToIdx (unpack corpusText)
       (trainIndices, valIndices) =
         if cfg.corpus == "embedded"
-          then (allIndices, allIndices)   -- smoke path: same set; val == train
+          then (allIndices, allIndices)
           else trainValSplit 0.1 allIndices
       trainLen = length trainIndices
       valLen = length valIndices
@@ -448,19 +365,14 @@ main = do
   putStrLn $ "Corpus: " ++ show (length allIndices) ++ " chars"
            ++ " (train=" ++ show trainLen ++ ", val=" ++ show valLen ++ ")"
 
-  tfm <- mkTransformer {seqLen=SeqLen, dModel=DModel, numHeads=NumHeads,
-                         headDim=HeadDim, numBlocks=NumBlocks, vocabSize=VocabSize}
-  let namedTfm = nameLayer "tfm0" tfm
-      model = OutputLayer (MkAnyLayer
-        (TransformerState SeqLen DModel NumHeads HeadDim NumBlocks VocabSize) namedTfm)
-  putStrLn $ "Model: " ++ show model
+  tfmAny <- transformerLayerV2Any
+              {seqLen=SeqLen, dModel=DModel, numHeads=NumHeads,
+               headDim=HeadDim, numBlocks=NumBlocks, vocabSize=VocabSize}
+              "tfm0"
+  let model : NetworkV2 InputDim [] OutputDim CPU
+      model = OutputLayerV2 tfmAny
   putStrLn ""
 
-  -- ---- LR schedule (cosineWithWarmup) + epoch counter ----
-  -- Linear warmup → cosine decay from cfg.lr to cfg.lr * 0.1.
-  -- Matches nanoGPT/train_shakespeare_char.py at full epochs (warmup=100,
-  -- epochs=1000); for the embedded smoke demo (epochs=30) we cap warmup
-  -- at epochs/10 so the LR actually ramps within the run.
   let warmupEpochs : Nat = min 100 (div cfg.epochs 10)
       minLR : Double = cfg.lr * 0.1
       schedule : Schedule = cosineWithWarmup cfg.lr minLR warmupEpochs cfg.epochs
@@ -469,21 +381,14 @@ main = do
   let genBatch : IO (Vect BatchSize (TensorDataPoint InputDim OutputDim))
       genBatch = gptBatchVect trainIndices trainLen BatchSize
 
-  let evalMetrics : Network InputDim [] OutputDim (Variable CPU) -> IO (List (String, String))
+  let evalMetrics : NetworkV2 InputDim [] OutputDim CPU -> IO (List (String, String))
       evalMetrics m = do
         let valBpc = evalBPC m valIndices valLen 20
-            curEp = the Nat (cast (cast {to=Double} 0))  -- placeholder if needed
         pure [("val_bpc", show valBpc)]
 
   let noOpHook : Nat -> IO ()
       noOpHook _ = pure ()
 
-  -- HPO branch: GPT uses per-param LR overrides via setLRAll (cosine LR
-  -- + warmup), which take precedence over the optimizer's group-level LR
-  -- that lrFind would set. Combined with the per-batch transformer-
-  -- forward cost (~seconds per iter), the runtime sweep is skipped.
-  -- Document in hyperparameter-tuning-2026.md. Flag wired for API
-  -- consistency.
   when cfg.lrFind $ do
     putStrLn "lr_find skipped for GPT: per-param LR schedule (cosine + warmup)"
     putStrLn "conflicts with lrFind's group-level setting; transformer-forward"
@@ -498,20 +403,18 @@ main = do
                    evalMetrics
                    noOpHook
 
-  let batchFwd = transformerForwardBatch namedTfm
-  let stepFn : Network InputDim [] OutputDim (Variable CPU) ->
+  let stepFn : NetworkV2 InputDim [] OutputDim CPU ->
                Vect BatchSize (TensorDataPoint InputDim OutputDim) ->
-               IO (Network InputDim [] OutputDim (Variable CPU), Double)
+               IO (NetworkV2 InputDim [] OutputDim CPU, Double)
       stepFn m d = do
         ep <- readIORef epochRef
         let lr = schedule ep
         setLRAll opt lr
         writeIORef epochRef (S ep)
-        pure (epochNativeTensorBatch opt d batchFwd allPositionsCE m)
+        pure (epochTVarTensorBatch opt d allPositionsCETVar m)
 
   (trained, epochsDone, finalLoss) <- runTrainingIO stepFn genBatch trainCfg model
 
-  -- ---- Final eval: held-out val_bpc plus train_bpc for diagnostics ----
   putStrLn ""
   let valBpc = evalBPC trained valIndices valLen 50
       trainBpc = evalBPC trained trainIndices trainLen 50
@@ -529,8 +432,6 @@ main = do
   putStrLn $ "  " ++ show sample2
 
   putStrLn ""
-  -- RESULT key: val_bpc on tinyshakespeare (held-out), bpc on embedded
-  -- (train-corpus is the only set available for the smoke gate).
   let metricKey = if cfg.corpus == "embedded" then "bpc" else "val_bpc"
   putStrLn $ formatResult [(metricKey, show valBpc),
                             ("epochs", show epochsDone),
