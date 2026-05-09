@@ -6,17 +6,29 @@
  *
  * Per-tensor dtype is read from the param's actual runtime dtype via
  * `tensor_dtype_name()`; bytes are written in the matching width
- * (F64 -> 8 bytes/elem, F32 -> 4 bytes/elem). This matches the
- * SafeTensors convention so `safetensors.torch.load_file()` round-
- * trips correctly when the model is later loaded from Python.
+ * (F64 -> 8, F32 -> 4, BF16/F16 -> 2, I8/U8/BOOL -> 1, I16 -> 2,
+ * I32 -> 4, I64 -> 8). This matches the SafeTensors convention so
+ * `safetensors.torch.load_file()` round-trips correctly when the model
+ * is later loaded from Python.
+ *
+ * Everything moves through a `double` lingua franca: save pulls each
+ * param into doubles (`tensor_to_doubles`), then packs them into the
+ * on-disk element type; load reads the on-disk bytes into doubles, then
+ * `param_load_data` narrows back to the param's storage dtype. This keeps
+ * all dtype knowledge here — no backend-interface changes — and is
+ * byte-exact for bf16/f16 round-trips (bf16 -> f64 -> bf16 is identity)
+ * and for every integer type except I64 above 2^53 (a double can't hold
+ * those exactly; torch's .to(kFloat64) rounds before we ever see the
+ * bytes). I64 weights are otherwise rare; the exact path would need a new
+ * backend int64 extractor.
  *
  * Loading enforces a dtype gate by default (param_load): mismatch
  * between the on-disk dtype and the destination param's dtype is an
  * error. Callers wanting silent precision conversion at load time
  * pass `allow_cast=1` to `param_load_with_policy()` — file bytes are
- * widened to f64 (for F32 source) or read as-is (for F64), then
- * loaded into the destination param via `param_load_data` (which
- * narrows back to the param's actual storage dtype as needed).
+ * read into doubles regardless of source dtype, then loaded into the
+ * destination param via `param_load_data` (which narrows back to the
+ * param's actual storage dtype as needed).
  */
 
 #include "backend.h"
@@ -29,12 +41,109 @@
 _Static_assert(__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__,
                "SafeTensors requires little-endian platform");
 
-/* Map a SafeTensors dtype tag to bytes-per-element. Unknown -> 0. */
+/* Map a SafeTensors dtype name to bytes-per-element. Unknown -> 0. */
 static size_t dtype_byte_width(const char* name) {
     if (!name) return 0;
-    if (strcmp(name, "F64") == 0) return 8;
-    if (strcmp(name, "F32") == 0) return 4;
+    if (strcmp(name, "F64")  == 0) return 8;
+    if (strcmp(name, "F32")  == 0) return 4;
+    if (strcmp(name, "BF16") == 0) return 2;
+    if (strcmp(name, "F16")  == 0) return 2;
+    if (strcmp(name, "I8")   == 0) return 1;
+    if (strcmp(name, "I16")  == 0) return 2;
+    if (strcmp(name, "I32")  == 0) return 4;
+    if (strcmp(name, "I64")  == 0) return 8;
+    if (strcmp(name, "U8")   == 0) return 1;
+    if (strcmp(name, "BOOL") == 0) return 1;
     return 0;
+}
+
+/* ----------------------------------------------------------------------
+   bf16 / f16 <-> double bit conversions
+
+   bf16 is the high 16 bits of an IEEE-754 binary32. f16 is IEEE-754
+   binary16. Both go through `float` then widen/narrow to `double`. These
+   are the only dtypes that aren't a plain integral cast; everything moves
+   through the `double` lingua franca above.
+   ---------------------------------------------------------------------- */
+
+static double bf16_bits_to_double(uint16_t h) {
+    uint32_t bits = (uint32_t)h << 16;  /* bf16 occupies the f32 high half */
+    float f;
+    memcpy(&f, &bits, sizeof(f));
+    return (double)f;
+}
+
+static uint16_t double_to_bf16_bits(double d) {
+    float f = (float)d;
+    uint32_t bits;
+    memcpy(&bits, &f, sizeof(bits));
+    /* NaN: keep it quiet and non-zero so it survives the round-trip. */
+    if ((bits & 0x7f800000u) == 0x7f800000u && (bits & 0x007fffffu) != 0u)
+        return (uint16_t)((bits >> 16) | 0x0040u);
+    /* Round to nearest, ties to even on the dropped low 16 bits. */
+    uint32_t rounding_bias = 0x00007fffu + ((bits >> 16) & 1u);
+    bits += rounding_bias;
+    return (uint16_t)(bits >> 16);
+}
+
+static double f16_bits_to_double(uint16_t h) {
+    uint32_t sign = (uint32_t)(h & 0x8000u) << 16;
+    uint32_t exp  = (h >> 10) & 0x1fu;
+    uint32_t mant = h & 0x3ffu;
+    uint32_t bits;
+    if (exp == 0) {
+        if (mant == 0) {
+            bits = sign;                       /* +/- zero */
+        } else {
+            /* Subnormal: normalize into f32. */
+            exp = 1;
+            while ((mant & 0x400u) == 0) { mant <<= 1; exp--; }
+            mant &= 0x3ffu;
+            bits = sign | ((exp + (127 - 15)) << 23) | (mant << 13);
+        }
+    } else if (exp == 0x1fu) {
+        bits = sign | 0x7f800000u | (mant << 13);  /* Inf / NaN */
+    } else {
+        bits = sign | ((exp + (127 - 15)) << 23) | (mant << 13);
+    }
+    float f;
+    memcpy(&f, &bits, sizeof(f));
+    return (double)f;
+}
+
+static uint16_t double_to_f16_bits(double d) {
+    float f = (float)d;
+    uint32_t bits;
+    memcpy(&bits, &f, sizeof(bits));
+    uint32_t sign = (bits >> 16) & 0x8000u;
+    int32_t  exp  = (int32_t)((bits >> 23) & 0xffu) - 127 + 15;  /* rebias */
+    uint32_t mant = bits & 0x7fffffu;
+
+    if (((bits >> 23) & 0xffu) == 0xffu) {            /* Inf / NaN */
+        if (mant) return (uint16_t)(sign | 0x7e00u);  /* quiet NaN */
+        return (uint16_t)(sign | 0x7c00u);            /* Inf */
+    }
+    if (exp >= 0x1f) return (uint16_t)(sign | 0x7c00u);   /* overflow -> Inf */
+    if (exp <= 0) {
+        if (exp < -10) return (uint16_t)sign;             /* underflow -> 0 */
+        /* Subnormal: add implicit leading 1, shift, round to nearest even. */
+        mant |= 0x800000u;
+        uint32_t shift = (uint32_t)(14 - exp);
+        uint32_t halfm = mant >> shift;
+        uint32_t rem   = mant & ((1u << shift) - 1u);
+        uint32_t half  = 1u << (shift - 1);
+        if (rem > half || (rem == half && (halfm & 1u))) halfm++;
+        return (uint16_t)(sign | halfm);
+    }
+    /* Normal: round mantissa to 10 bits, nearest, ties to even. */
+    uint32_t halfm = mant >> 13;
+    uint32_t rem   = mant & 0x1fffu;
+    if (rem > 0x1000u || (rem == 0x1000u && (halfm & 1u))) {
+        halfm++;
+        if (halfm == 0x400u) { halfm = 0; exp++; }     /* mantissa carry */
+        if (exp >= 0x1f) return (uint16_t)(sign | 0x7c00u);
+    }
+    return (uint16_t)(sign | ((uint32_t)exp << 10) | halfm);
 }
 
 /* ================================================================
@@ -127,23 +236,68 @@ int param_save(const char* path) {
     }
     free(json_str);
 
-    /* Tensor data — write in the param's actual dtype width. */
+    /* Tensor data — write in the param's actual dtype width. Everything
+       is pulled into a double buffer first (the lingua franca), then packed
+       into the on-disk element type. */
     for (int i = 0; i < n; i++) {
         TensorHandle t = param_tensor(i);
         int numel = tensor_numel(t);
-        if (strcmp(dtypes[i], "F32") == 0) {
+        const char* dt = dtypes[i];
+        if (strcmp(dt, "F32") == 0) {
             float* buf = (float*)malloc((size_t)numel * sizeof(float));
             if (!buf) { fclose(f); free(offsets); free(sizes); free(dtypes); return -1; }
             tensor_to_floats(t, buf);
             fwrite(buf, sizeof(float), numel, f);
             free(buf);
-        } else {  /* F64 */
-            double* buf = (double*)malloc((size_t)numel * sizeof(double));
-            if (!buf) { fclose(f); free(offsets); free(sizes); free(dtypes); return -1; }
-            tensor_to_doubles(t, buf);
-            fwrite(buf, sizeof(double), numel, f);
-            free(buf);
+            continue;
         }
+        double* dbuf = (double*)malloc((size_t)numel * sizeof(double));
+        if (!dbuf) { fclose(f); free(offsets); free(sizes); free(dtypes); return -1; }
+        tensor_to_doubles(t, dbuf);
+        if (strcmp(dt, "F64") == 0) {
+            fwrite(dbuf, sizeof(double), numel, f);
+        } else if (strcmp(dt, "BF16") == 0) {
+            for (int e = 0; e < numel; e++) {
+                uint16_t v = double_to_bf16_bits(dbuf[e]);
+                fwrite(&v, sizeof(v), 1, f);
+            }
+        } else if (strcmp(dt, "F16") == 0) {
+            for (int e = 0; e < numel; e++) {
+                uint16_t v = double_to_f16_bits(dbuf[e]);
+                fwrite(&v, sizeof(v), 1, f);
+            }
+        } else if (strcmp(dt, "I8") == 0) {
+            for (int e = 0; e < numel; e++) {
+                int8_t v = (int8_t)dbuf[e];
+                fwrite(&v, sizeof(v), 1, f);
+            }
+        } else if (strcmp(dt, "I16") == 0) {
+            for (int e = 0; e < numel; e++) {
+                int16_t v = (int16_t)dbuf[e];
+                fwrite(&v, sizeof(v), 1, f);
+            }
+        } else if (strcmp(dt, "I32") == 0) {
+            for (int e = 0; e < numel; e++) {
+                int32_t v = (int32_t)dbuf[e];
+                fwrite(&v, sizeof(v), 1, f);
+            }
+        } else if (strcmp(dt, "I64") == 0) {
+            for (int e = 0; e < numel; e++) {
+                int64_t v = (int64_t)dbuf[e];
+                fwrite(&v, sizeof(v), 1, f);
+            }
+        } else if (strcmp(dt, "U8") == 0) {
+            for (int e = 0; e < numel; e++) {
+                uint8_t v = (uint8_t)dbuf[e];
+                fwrite(&v, sizeof(v), 1, f);
+            }
+        } else { /* BOOL */
+            for (int e = 0; e < numel; e++) {
+                uint8_t v = (dbuf[e] != 0.0) ? 1 : 0;
+                fwrite(&v, sizeof(v), 1, f);
+            }
+        }
+        free(dbuf);
     }
 
     fclose(f);
@@ -274,14 +428,40 @@ int param_load_with_policy(const char* path, int allow_cast) {
 
         double* dbuf;
         int owns_dbuf = 0;
-        if (strcmp(src_dtype, "F32") == 0) {
+        if (strcmp(src_dtype, "F64") == 0) {  /* already lingua franca */
+            dbuf = (double*)raw_buf;
+        } else {
             dbuf = (double*)malloc((size_t)numel * sizeof(double));
             if (!dbuf) { free(raw_buf); rc = -1; continue; }
             owns_dbuf = 1;
-            const float* fsrc = (const float*)raw_buf;
-            for (int i = 0; i < numel; i++) dbuf[i] = (double)fsrc[i];
-        } else {  /* F64 — already in lingua franca format */
-            dbuf = (double*)raw_buf;
+            if (strcmp(src_dtype, "F32") == 0) {
+                const float* s = (const float*)raw_buf;
+                for (int i = 0; i < numel; i++) dbuf[i] = (double)s[i];
+            } else if (strcmp(src_dtype, "BF16") == 0) {
+                const uint16_t* s = (const uint16_t*)raw_buf;
+                for (int i = 0; i < numel; i++) dbuf[i] = bf16_bits_to_double(s[i]);
+            } else if (strcmp(src_dtype, "F16") == 0) {
+                const uint16_t* s = (const uint16_t*)raw_buf;
+                for (int i = 0; i < numel; i++) dbuf[i] = f16_bits_to_double(s[i]);
+            } else if (strcmp(src_dtype, "I8") == 0) {
+                const int8_t* s = (const int8_t*)raw_buf;
+                for (int i = 0; i < numel; i++) dbuf[i] = (double)s[i];
+            } else if (strcmp(src_dtype, "I16") == 0) {
+                const int16_t* s = (const int16_t*)raw_buf;
+                for (int i = 0; i < numel; i++) dbuf[i] = (double)s[i];
+            } else if (strcmp(src_dtype, "I32") == 0) {
+                const int32_t* s = (const int32_t*)raw_buf;
+                for (int i = 0; i < numel; i++) dbuf[i] = (double)s[i];
+            } else if (strcmp(src_dtype, "I64") == 0) {
+                const int64_t* s = (const int64_t*)raw_buf;
+                for (int i = 0; i < numel; i++) dbuf[i] = (double)s[i];
+            } else if (strcmp(src_dtype, "U8") == 0) {
+                const uint8_t* s = (const uint8_t*)raw_buf;
+                for (int i = 0; i < numel; i++) dbuf[i] = (double)s[i];
+            } else {  /* BOOL */
+                const uint8_t* s = (const uint8_t*)raw_buf;
+                for (int i = 0; i < numel; i++) dbuf[i] = (s[i] != 0) ? 1.0 : 0.0;
+            }
         }
 
         param_load_data(pidx, dbuf, numel);
