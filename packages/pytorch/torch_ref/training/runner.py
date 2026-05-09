@@ -24,6 +24,12 @@ class TrainConfig:
     windowed_threshold: float = 0.0
     windowed_window: int = 1000
     windowed_patience: int = 3
+    # Windowed-percentile early stopping (mirrors Idris `WindowedPercentile`).
+    # When > 0, replaces the windowed-mean check with a percentile of the
+    # last `windowed_window` raw per-epoch losses. Required for bimodal-loss
+    # tasks (variable-length-sequence training) where the mean over a
+    # window stays high even after convergence on easy sequences.
+    windowed_percentile: float = 0.0
     # Pre-epoch hook (mirrors Idris `beforeEpoch : Nat -> IO ()`). Receives
     # the current epoch index. Use this to apply LR schedules manually if
     # you don't have a `torch.optim.lr_scheduler` instance handy.
@@ -88,11 +94,17 @@ def run_training(
     final_loss = 0.0
     epochs_done = 0
 
-    # Windowed-average state
+    # Windowed early-stopping state. Two flavours:
+    #   - mean-of-100-epoch-chunks (existing, used by most refs)
+    #   - percentile-of-raw-losses (new, mirrors Idris WindowedPercentile)
     use_windowed = config.windowed_threshold > 0
+    use_percentile = use_windowed and config.windowed_percentile > 0
     interval_sum = 0.0
     interval_count = 0
     avgs: list[float] = []
+    # Rolling window of raw per-epoch losses for percentile mode.
+    raw_window: list[float] = []
+    epochs_since_check = 0
     conv_count = 0
 
     for ep in range(config.total_epochs):
@@ -128,8 +140,8 @@ def run_training(
                 )
                 break
 
-        # Windowed-average early stopping
-        if use_windowed:
+        # Windowed-average early stopping (mean over 100-epoch chunks)
+        if use_windowed and not use_percentile:
             interval_sum += loss
             interval_count += 1
             if interval_count >= 100:
@@ -155,6 +167,40 @@ def run_training(
                         )
                     else:
                         conv_count = 0
+
+        # Windowed-percentile early stopping (kth percentile of raw losses).
+        # Mirrors Idris `goWindowedPercentile` exactly: keep the last `win`
+        # raw losses, sort every 100 epochs once the window is full, pick
+        # idx = min(win-1, floor(pct * win)), compare to threshold.
+        if use_percentile:
+            raw_window.append(loss)
+            if len(raw_window) > config.windowed_window:
+                raw_window = raw_window[-config.windowed_window:]
+            epochs_since_check += 1
+            if epochs_since_check >= 100 and len(raw_window) >= config.windowed_window:
+                epochs_since_check = 0
+                sorted_w = sorted(raw_window)
+                idx = min(
+                    config.windowed_window - 1,
+                    int(config.windowed_percentile * config.windowed_window),
+                )
+                pct_val = sorted_w[idx]
+                pct_label = f"p{int(config.windowed_percentile * 100)}_loss"
+                if pct_val < config.windowed_threshold:
+                    conv_count += 1
+                    if conv_count >= config.windowed_patience:
+                        print(
+                            f"  {_format_elapsed(t_start)} Converged at epoch {epochs_done}"
+                            f" ({pct_label}={pct_val})"
+                        )
+                        break
+                    print(
+                        f"    {_format_elapsed(t_start)} convergence"
+                        f" {conv_count}/{config.windowed_patience}"
+                        f" ({pct_label}={pct_val})"
+                    )
+                else:
+                    conv_count = 0
 
     total_sec = int(time.monotonic() - t_start)
     dur = _format_duration(total_sec)

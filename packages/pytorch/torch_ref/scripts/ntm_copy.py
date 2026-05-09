@@ -144,6 +144,7 @@ def main() -> None:
         windowed_threshold=args.es_threshold,
         windowed_window=args.es_window,
         windowed_patience=args.es_patience,
+        windowed_percentile=0.10,
     )
     epochs_done, _ = run_training(epoch_fn, config, metrics_fn)
 
