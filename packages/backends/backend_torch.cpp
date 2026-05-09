@@ -481,7 +481,13 @@ TensorHandle tensor_scatter_add(TensorHandle hindex, TensorHandle hsrc, int out_
 
 TensorHandle tensor_argsort(TensorHandle ht, int dim, int descending) {
     auto& t = *to_tensor(ht);
-    auto result = torch::argsort(t, dim, (bool)descending).to(torch::kFloat64);
+    /* argsort produces indices — keep them in their natural integer dtype
+       (kLong/I64), not a float. This is what the type-safe `targsort` Idris
+       surface returns (Tensor _ d I64), and it sidesteps two latent bugs the
+       old `.to(kFloat64)` had: precision loss above 2^53 indices, and an
+       MPS abort (Metal has no F64). gather/scatter_add coerce the index to
+       kLong internally, so the untyped DNC path is unaffected. */
+    auto result = torch::argsort(t, dim, (bool)descending).to(torch::kLong);
     return from_tensor(result);
 }
 

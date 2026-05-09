@@ -1332,6 +1332,58 @@ tconcat2dAxis1 : {0 d : Device} -> UserDeviceTape d => {b, m, n : Nat} ->
                  IO (Tensor [b, m + n] d dt g)
 tconcat2dAxis1 a b = ioRerun (\_ => MkTensor (primConcat2dAxis1 {d} a.tensorPtr b.tensorPtr) Nothing)
 
+----------------------------------------------------------------------
+-- Type-safe integral index API — argsort / gather / scatterAdd
+--
+-- The C `tensor_argsort` (torch) materializes its sort permutation in an
+-- *integer* dtype (kLong/I64), and `gather`/`scatter_add` consume integral
+-- indices. These wrappers lift that into the type: `targsort` returns an
+-- `I64`-dtyped tensor, `tgather`/`tscatterAdd` require an `IsIntegral`
+-- index, so "this tensor holds indices, not reals" is checked at compile
+-- time rather than papered over by a float round-trip.
+--
+-- Torch-only by construction: an integer-dtyped tensor only exists where
+-- `Compatible d I64` holds (TorchDev TCpu / TCuda — Metal has no F64/int
+-- gating, tape/mlx store F64 only). Calling these on tape/mlx is a type
+-- error, not a runtime dtype mismatch. The untyped `primArgsort` /
+-- `primGather` / `primScatterAdd` stay available for the F64 DNC path,
+-- which runs on every backend and can't spell an integral index.
+----------------------------------------------------------------------
+
+||| Argument-sort: the permutation that sorts `t` along `axis`, returned as
+||| an `I64` index tensor (the type captures "these are indices"). Set
+||| `descending` for largest-first. Not autograd-tracked (indices have no
+||| gradient), hence `NoGrad`.
+export %inline
+targsort : {0 d : Device} -> UserDeviceLinear d => Compatible d I64 =>
+           (axis : Nat) -> (descending : Bool) ->
+           Tensor dims d dt g -> IO (Tensor dims d I64 NoGrad)
+targsort axis descending t = ioRerun (\_ =>
+  MkTensor (primArgsort {d} t.tensorPtr (cast axis) (if descending then 1 else 0)) Nothing)
+
+||| Gather rows of `src` along axis 0 at the given integral indices
+||| (torch `index_select`). `IsIntegral idt` rejects a float "index"
+||| tensor. Differentiable w.r.t. `src`, so the result carries `src`'s
+||| grad mode.
+export %inline
+tgather : {0 d : Device} -> UserDeviceLinear d => IsIntegral idt =>
+          {m, n : Nat} -> {0 r : Nat} -> {0 rest : Vect r Nat} ->
+          Tensor (m :: rest) d dt g -> Tensor [n] d idt NoGrad ->
+          IO (Tensor (n :: rest) d dt g)
+tgather src idx = ioRerun (\_ =>
+  MkTensor (primGather {d} src.tensorPtr idx.tensorPtr (cast n)) Nothing)
+
+||| Scatter-add `src` into a fresh `[outSize]` zero vector at the given
+||| integral indices along axis 0 (torch `scatter_add_`). `IsIntegral idt`
+||| rejects a float "index" tensor. Differentiable w.r.t. `src`.
+export %inline
+tscatterAdd : {0 d : Device} -> UserDeviceLinear d => IsIntegral idt =>
+              {n : Nat} -> (outSize : Nat) ->
+              Tensor [n] d idt NoGrad -> Tensor [n] d dt g ->
+              IO (Tensor [outSize] d dt g)
+tscatterAdd outSize idx src = ioRerun (\_ =>
+  MkTensor (primScatterAdd {d} idx.tensorPtr src.tensorPtr (cast outSize)) Nothing)
+
 -- Activations (shape-preserving, pass-through autograd) ---------------
 -- All `%inline` for hot-path performance — see `tadd` rationale.
 

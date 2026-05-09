@@ -2087,6 +2087,14 @@ int main(void) {
         ASSERT_NEAR("argsort[1]", idx_out[1], 3.0, 1e-10);
         ASSERT_NEAR("argsort[2]", idx_out[2], 2.0, 1e-10);
         ASSERT_NEAR("argsort[3]", idx_out[3], 0.0, 1e-10);
+#if defined(BACKEND_TORCH)
+        /* Type-safety guard: argsort must materialize *integer* indices, not
+           a float dtype. The typed `targsort` Idris surface returns I64; this
+           pins the C contract it rests on. tape/mlx store F64 by design (no
+           integer Compatible instance), so this is torch-gated. */
+        ASSERT_TRUE("argsort result is integral (I64)",
+                    strcmp(tensor_dtype_name(sorted_idx), "I64") == 0);
+#endif
 
         /* Argsort descending */
         TensorHandle sorted_desc = tensor_argsort(t, 0, 1); /* descending */
