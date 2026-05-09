@@ -114,6 +114,38 @@ epochTVar opt dataPoints lossFn model =
   (model, nativeTrainStepTVar opt mean)
 
 
+-- Per-point loss for already-tensor-pre-built inputs (TensorDataPoint).
+-- Used by examples whose data pipeline already produces tensor pointers
+-- (e.g. MNIST loaded via prim__mnistGetImage).
+perPointLossTensor : {0 d : Device} -> {i, o : Nat} -> {hs : List Nat} ->
+                     LossFnV2 d o ->
+                     NetworkV2 i hs o d ->
+                     TensorDataPoint i o ->
+                     TVar [] d
+perPointLossTensor lossFn model dp =
+  let inV = the (TVec i d) (MkTVar (inputTensor dp) Nothing)
+      tgtV = the (TVec o d) (MkTVar (targetTensor dp) Nothing)
+      (_, predV) = forwardTVar model inV
+  in lossFn predV tgtV
+
+||| Supervised epoch over already-tensor-pre-built data points (mirrors
+||| V1 `epochNativeTensorPre`). Use when the data pipeline produces
+||| tensor pointers directly (MNIST, on-disk indexed loaders) and you
+||| do not want to round-trip through `Vector ... Double`.
+export
+epochTVarTensor : {d : Device} -> {i, o, n : Nat} -> {hs : List Nat} ->
+                  NativeOptimizer ->
+                  Vect n (TensorDataPoint i o) ->
+                  LossFnV2 d o ->
+                  NetworkV2 i hs o d ->
+                  (NetworkV2 i hs o d, Double)
+epochTVarTensor opt dataPoints lossFn model =
+  let losses = map (perPointLossTensor lossFn model) dataPoints in
+  let totalLoss = foldl taddScalar (freshZeroLossT 0.0) losses in
+  let mean = scaleLoss totalLoss (1.0 / cast n) in
+  (model, nativeTrainStepTVar opt mean)
+
+
 ----------------------------------------------------------------------
 -- Recurrent epoch (sequence per data point)
 ----------------------------------------------------------------------
