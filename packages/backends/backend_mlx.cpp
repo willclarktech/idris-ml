@@ -213,7 +213,20 @@ struct TapeEntry {
 
 static std::vector<TapeEntry> tape;
 
+/* When > 0, tape_append is a no-op and the result is marked
+   requires_grad=false so downstream ops don't propagate grad through
+   it. Mirrors PyTorch's torch.no_grad(); see tape backend's matching
+   no_grad_depth. */
+static int no_grad_depth = 0;
+
 static int tape_append(int op, Tensor* result, Tensor* arg1, Tensor* arg2, double scalar_arg) {
+    if (no_grad_depth > 0) {
+        if (result) {
+            result->requires_grad = false;
+            result->tape_idx = -1;
+        }
+        return -1;
+    }
     int idx = (int)tape.size();
     tape.push_back({op, result, arg1, arg2, scalar_arg, nullptr});
     result->tape_idx = idx;
@@ -2018,8 +2031,8 @@ void tensor_set_requires_grad(TensorHandle h, int rg) {
     ((Tensor*)h)->requires_grad = (rg != 0);
 }
 
-void tensor_no_grad_begin(void) {}
-void tensor_no_grad_end(void) {}
+void tensor_no_grad_begin(void) { no_grad_depth++; }
+void tensor_no_grad_end(void)   { if (no_grad_depth > 0) no_grad_depth--; }
 
 /* ================================================================
    Device

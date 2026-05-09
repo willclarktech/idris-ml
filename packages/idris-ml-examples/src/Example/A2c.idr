@@ -283,7 +283,12 @@ lastTerminated steps = case last' steps of
 a2cEpoch : NativeOptimizer -> Config -> A2CState -> IO (A2CState, Double)
 a2cEpoch opt cfg st = do
   startSt <- readIORef st.envRef
-  rolled <- rollout st.actor st.critic startSt RolloutLen
+  -- Rollout-phase forward only extracts logits/values as Doubles
+  -- (for sampling + bootstrap). The grad path is rebuilt fresh in
+  -- buildLoss's batched forward, so the rollout's per-step forward
+  -- doesn't need autograd tracking. withNoGrad skips tape append
+  -- (tape/mlx) and disables libtorch's autograd graph (torch).
+  rolled <- withNoGrad (rollout st.actor st.critic startSt RolloutLen)
   let steps = fst rolled
       finalSt = snd rolled
   writeIORef st.envRef finalSt

@@ -599,21 +599,25 @@ void tensor_set_requires_grad(TensorHandle h, int requires_grad) {
     to_tensor(h)->requires_grad_(requires_grad != 0);
 }
 
-/* No-grad scope */
-static thread_local bool no_grad_active = false;
+/* No-grad scope. Counter (not bool) so nested withNoGrad scopes
+   nest correctly — only the outermost begin creates the guard,
+   only the outermost end releases it. */
+static thread_local int no_grad_depth = 0;
 static thread_local std::unique_ptr<torch::NoGradGuard> no_grad_guard;
 
 void tensor_no_grad_begin(void) {
-    if (!no_grad_active) {
+    if (no_grad_depth == 0) {
         no_grad_guard = std::make_unique<torch::NoGradGuard>();
-        no_grad_active = true;
     }
+    no_grad_depth++;
 }
 
 void tensor_no_grad_end(void) {
-    if (no_grad_active) {
-        no_grad_guard.reset();
-        no_grad_active = false;
+    if (no_grad_depth > 0) {
+        no_grad_depth--;
+        if (no_grad_depth == 0) {
+            no_grad_guard.reset();
+        }
     }
 }
 

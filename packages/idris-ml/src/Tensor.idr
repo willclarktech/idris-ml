@@ -365,12 +365,31 @@ export
 tensorAdd : AnyPtr -> AnyPtr -> AnyPtr
 tensorAdd = prim__add
 
--- No-grad scope
+-- No-grad scope. Push/pop a counter on the C side; mirrors PyTorch's
+-- torch.no_grad(). When depth > 0, ops skip tape append on tape/mlx
+-- and torch's NoGradGuard suppresses autograd graph construction.
+-- PrimIO sequencing keeps the calls in order; same pattern as the
+-- other side-effecting prims (prim__backwardC, prim__zeroAllGradsC).
 %foreign "C:tensor_no_grad_begin,libidrisml"
-prim__noGradBegin : ()
+prim__noGradBeginC : PrimIO ()
 
 %foreign "C:tensor_no_grad_end,libidrisml"
-prim__noGradEnd : ()
+prim__noGradEndC : PrimIO ()
+
+||| Run an `IO` action with autograd disabled. Inside the action,
+||| every tensor op skips tape/autograd graph construction, so the
+||| results have no path to backward. Standard for RL rollouts and
+||| any inference pass. Mirrors PyTorch's `with torch.no_grad():`.
+||| Nested calls are stacked: only the outermost begin/end pair
+||| toggles tracking, so library code can call this without checking
+||| whether the caller already disabled grad.
+export
+withNoGrad : IO a -> IO a
+withNoGrad act = do
+  primIO prim__noGradBeginC
+  result <- act
+  primIO prim__noGradEndC
+  pure result
 
 -- LSTM
 %foreign "C:tensor_lstm_cell,libidrisml"

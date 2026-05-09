@@ -398,7 +398,36 @@ extern double prof_forward_per_op[];
 extern int prof_forward_count_per_op[];
 extern double prof_op_t_prev;
 
+/* When > 0, tape_append is a no-op and any tensor created inside is
+   marked requires_grad=0. Used by withNoGrad: rollouts, evals, any
+   forward that doesn't need gradients. Counter (not bool) so nested
+   withNoGrad scopes nest correctly. Mirrors PyTorch's torch.no_grad().
+   The previous tensor_no_grad_begin/end were stubs; now wired up. */
+static int no_grad_depth = 0;
+/* Dummy tape entry returned by tape_append in no_grad mode. Many
+   callers do `e = tape_append(...); e->op_meta = ...;` — they need
+   a valid (non-null) pointer to write to. We give them this static
+   buffer; the writes are scratch and never read (the result tensor
+   has tape_idx=-1 so backward never reaches it). */
+static TapeEntry _no_grad_dummy_entry;
+
 static TapeEntry* tape_append(int op, Tensor* result, Tensor* arg1, Tensor* arg2, double scalar_arg) {
+    /* Inside withNoGrad: skip the tape entry entirely and mark the
+       result as not grad-tracked, so downstream ops don't propagate
+       grad through it. Saves both forward overhead (no entry) and
+       backward overhead (fewer entries to walk). */
+    if (no_grad_depth > 0) {
+        if (result) {
+            result->requires_grad = 0;
+            result->tape_idx = -1;
+        }
+        /* Return a writable dummy so callers that do
+              e = tape_append(...); e->op_meta = ...;
+           don't crash. The result has tape_idx=-1 so backward never
+           dereferences this entry — the writes are scratch. */
+        memset(&_no_grad_dummy_entry, 0, sizeof(_no_grad_dummy_entry));
+        return &_no_grad_dummy_entry;
+    }
     /* Attribute the time since the previous tape_append (or epoch_begin)
        to this op — covers its compute + setup. Idris-side glue between
        ops adds small noise, but at typical 30+ µs per op the signal
@@ -3726,8 +3755,8 @@ void tensor_set_requires_grad(TensorHandle h, int rg) {
     }
 }
 
-void tensor_no_grad_begin(void) { /* no-op for tape backend */ }
-void tensor_no_grad_end(void) { }
+void tensor_no_grad_begin(void) { no_grad_depth++; }
+void tensor_no_grad_end(void)   { if (no_grad_depth > 0) no_grad_depth--; }
 
 /* ================================================================
    Device (CPU only)
