@@ -9,6 +9,10 @@
 |||
 ||| bf16/f16/int are `Compatible` only on torch, so this builds under
 ||| `BACKEND=torch` only (see the `example-dtype-serialize` Makefile target).
+||| It is deliberately NOT listed in `idris-ml-examples.ipkg`: that package
+||| is built on every backend, and this module constructs `BF16`/`F16`/`I32`
+||| in `main` (no `Compatible TapeDev (BFloat 16)` etc.). The Makefile target
+||| compiles it standalone instead.
 module Example.DTypeSerialize
 
 import Data.Vect
