@@ -610,17 +610,14 @@ TensorHandle tensor_mv(TensorHandle hmat, TensorHandle hvec) {
 }
 
 TensorHandle tensor_linear(TensorHandle hW, TensorHandle hx, TensorHandle hbias) {
-    auto W = (Tensor*)hW; auto x = (Tensor*)hx; auto bias = (Tensor*)hbias;
-    int n = (int)x->data.size();
-    int m_size = (int)W->data.shape(0);
-    auto vec_col = mx::reshape(x->data, {n, 1});
-    auto result_col = mx::matmul(W->data, vec_col);
-    auto result = mx::reshape(result_col, {m_size});
-    if (bias) result = mx::add(result, bias->data);
-    bool rg = W->requires_grad || x->requires_grad || (bias && bias->requires_grad);
-    auto r = new Tensor(result, rg);
-    if (rg) tape_append(OP_MV, r, W, x, 0);  /* reuse OP_MV for replay-based backward */
-    return (TensorHandle)r;
+    /* Decompose into mv + add so the bias dependency lands on the tape.
+       The previous fused form recorded only OP_MV(W,x), dropping the bias
+       from the replay graph — when tlinear chained (one tlinear's output
+       used as the next tlinear's bias), the inner branch had no path to
+       the loss in the VJP and gradients on those params went to zero. */
+    TensorHandle mv_h = tensor_mv(hW, hx);
+    if (!hbias) return mv_h;
+    return tensor_add(mv_h, hbias);
 }
 
 TensorHandle tensor_linear_2d(TensorHandle hW, TensorHandle hX, TensorHandle hbias) {
@@ -2288,11 +2285,46 @@ void optimizer_set_lr(OptimizerHandle h, double lr) {
     opt->lr = lr;
 }
 
+static void _dbg_dump_param_grads_if_enabled_mlx(void) {
+    static int dumped = 0;
+    static int max_dumps = -1;
+    if (max_dumps < 0) {
+        const char* mx_env = getenv("DEBUG_PARAM_GRADS_MAX");
+        max_dumps = mx_env ? atoi(mx_env) : 1;
+    }
+    const char* env = getenv("DEBUG_PARAM_GRADS");
+    if (!env || env[0] != '1') return;
+    if (dumped >= max_dumps) return;
+    dumped++;
+    fprintf(stderr, "[DEBUG_PARAM_GRADS_MLX] dump #%d (np=%d):\n",
+            dumped, (int)param_registry.size());
+    for (size_t i = 0; i < param_registry.size(); i++) {
+        auto& p = param_registry[i];
+        auto t = p.tensor;
+        long n = (long)t->data.size();
+        double l2 = 0.0;
+        int has_grad = t->has_grad ? 1 : 0;
+        int rg = t->requires_grad ? 1 : 0;
+        if (t->has_grad) {
+            mx::eval(t->grad);
+            auto contig = mx::contiguous(t->grad);
+            mx::eval(contig);
+            const float* gp = contig.data<float>();
+            for (long j = 0; j < n; j++) l2 += (double)gp[j] * (double)gp[j];
+        }
+        l2 = sqrt(l2);
+        fprintf(stderr, "  [%zu] %s (n=%ld rg=%d hg=%d) grad_l2=%.6e\n",
+                i, p.name.c_str(), n, rg, has_grad, l2);
+    }
+    fflush(stderr);
+}
+
 void optimizer_step(OptimizerHandle h) {
     double t0_opt = _wall_ms_mlx();
     auto opt = (Optimizer*)h;
     opt->t++;
     int np = (int)param_registry.size();
+    _dbg_dump_param_grads_if_enabled_mlx();
 
     // Ensure optimizer buffers
     if ((int)opt->m_bufs.size() != np) {

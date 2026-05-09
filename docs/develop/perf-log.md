@@ -330,3 +330,10 @@ exit:    0
 wall:    5m 46s (346512 ms)
 stats:   Completed in 5m 39s (5000 epochs, 67ms/epoch)
 result:  `RESULT	epochs=5000	acc_short=0.4967916666666666	acc_full=0.49314633203913405	seed=99`
+
+### 2026-05-08 — `ntm-copy` [mlx] @ `f96c798+dirty` — `--seed 42 --batch 1 --epochs 5000 --es-threshold 0.0`
+
+exit:    0
+wall:    6m 35s (395821 ms)
+stats:   Completed in 6m 27s (5000 epochs, 77ms/epoch)
+result:  `RESULT	epochs=5000	acc_short=0.8058749999999998	acc_full=0.707252760907608	seed=42`
