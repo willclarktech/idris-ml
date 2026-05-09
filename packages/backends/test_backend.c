@@ -3560,6 +3560,74 @@ int main(void) {
                 }
             }
         }
+
+        /* Batch 3: losses. tensor_mse_loss + tensor_cross_entropy are non-
+           differentiable (just scalar output, no tape entry). BCE-with-
+           logits records OP_BCE_WITH_LOGITS so backward gets data reads
+           swapped to tape_load_d. */
+        {
+            double pv[] = {0.5, -1.0, 1.5};      /* logits / input */
+            double tv[] = {1.0, 0.0, 1.0};       /* targets */
+
+            /* MSE — non-differentiable check (forward + tag). */
+            {
+                TensorHandle p64 = tensor_create_1d_streamed(3, heap_copy(pv, 3), 0, 0, 1);
+                TensorHandle t64 = tensor_create_1d_streamed(3, heap_copy(tv, 3), 0, 0, 1);
+                TensorHandle p32 = tensor_create_1d_streamed(3, heap_copy(pv, 3), 0, 0, 0);
+                TensorHandle t32 = tensor_create_1d_streamed(3, heap_copy(tv, 3), 0, 0, 0);
+                TensorHandle r64 = tensor_mse_loss(p64, t64);
+                TensorHandle r32 = tensor_mse_loss(p32, t32);
+                ASSERT_TRUE("mse: F32 output propagates F32 tag",
+                            strcmp(tensor_dtype_name(r32), "F32") == 0);
+                ASSERT_NEAR("mse: v_f32 ~ v_f64", tensor_item(r32), tensor_item(r64), 1e-5);
+            }
+
+            /* cross_entropy — non-differentiable check; depends on log_softmax. */
+            {
+                TensorHandle p64 = tensor_create_1d_streamed(3, heap_copy(pv, 3), 0, 0, 1);
+                TensorHandle t64 = tensor_create_1d_streamed(3, heap_copy(tv, 3), 0, 0, 1);
+                TensorHandle p32 = tensor_create_1d_streamed(3, heap_copy(pv, 3), 0, 0, 0);
+                TensorHandle t32 = tensor_create_1d_streamed(3, heap_copy(tv, 3), 0, 0, 0);
+                TensorHandle r64 = tensor_cross_entropy(p64, t64);
+                TensorHandle r32 = tensor_cross_entropy(p32, t32);
+                ASSERT_TRUE("cross_entropy: F32 output propagates F32 tag",
+                            strcmp(tensor_dtype_name(r32), "F32") == 0);
+                ASSERT_NEAR("cross_entropy: v_f32 ~ v_f64", tensor_item(r32), tensor_item(r64), 1e-5);
+            }
+
+            /* bce_with_logits — differentiable; forward + grad both checked. */
+            {
+                double g_f64[3], g_f32[3];
+
+                param_clear();
+                TensorHandle p64 = tensor_create_param_1d_streamed(3, heap_copy(pv, 3), 0, 1);
+                param_register("p", p64);
+                TensorHandle t64 = tensor_create_1d_streamed(3, heap_copy(tv, 3), 0, 0, 1);
+                TensorHandle r64 = tensor_bce_with_logits(p64, t64);
+                double v64 = tensor_item(r64);
+                tensor_backward(r64);
+                for (int i = 0; i < 3; i++) g_f64[i] = param_grad_item_at(0, i);
+                param_clear();
+
+                TensorHandle p32 = tensor_create_param_1d_streamed(3, heap_copy(pv, 3), 0, 0);
+                param_register("p", p32);
+                TensorHandle t32 = tensor_create_1d_streamed(3, heap_copy(tv, 3), 0, 0, 0);
+                TensorHandle r32 = tensor_bce_with_logits(p32, t32);
+                double v32 = tensor_item(r32);
+                tensor_backward(r32);
+                for (int i = 0; i < 3; i++) g_f32[i] = param_grad_item_at(0, i);
+
+                ASSERT_TRUE("bce_with_logits: F32 output propagates F32 tag",
+                            strcmp(tensor_dtype_name(r32), "F32") == 0);
+                ASSERT_NEAR("bce_with_logits: v_f32 ~ v_f64", v32, v64, 1e-5);
+                for (int i = 0; i < 3; i++) {
+                    char m[64];
+                    snprintf(m, sizeof m, "bce_with_logits: p.grad_f32[%d] ~ p.grad_f64", i);
+                    ASSERT_NEAR(m, g_f32[i], g_f64[i], 1e-5);
+                }
+                param_clear();
+            }
+        }
     }
 #endif
 

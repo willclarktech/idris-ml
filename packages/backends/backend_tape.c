@@ -1992,42 +1992,52 @@ TensorHandle tensor_log_softmax(TensorHandle h, int dim) {
    Loss functions
    ================================================================ */
 
+/* Loss kernels — dtype-aware reads via tape_load_d so F32 inputs are
+   honoured; output is an F32 scalar when inputs are F32, else F64. Mixed
+   dtype between input and target is rejected. */
 TensorHandle tensor_bce_with_logits(TensorHandle hinput, TensorHandle htarget) {
     Tensor* input = (Tensor*)hinput;
     Tensor* target = (Tensor*)htarget;
+    if (input->dtype_tag != target->dtype_tag) tape_abort_mixed_dtype("tensor_bce_with_logits");
     int n = input->numel;
     double loss = 0;
     for (int i = 0; i < n; i++) {
-        double p = ((double*)input->data)[i], y = ((double*)target->data)[i];
+        double p = tape_load_d(input, i), y = tape_load_d(target, i);
         double max_p = p > 0 ? p : 0;
         loss += max_p - p * y + log(1.0 + exp(-fabs(p)));
     }
     loss /= n;
-    Tensor* r = make_scalar(loss, input->requires_grad);
+    Tensor* r = (input->dtype_tag == DT_F32)
+                  ? make_scalar_f32(loss, input->requires_grad)
+                  : make_scalar(loss, input->requires_grad);
     if (r->requires_grad) tape_append(OP_BCE_WITH_LOGITS, r, input, target, 0);
     return r;
 }
 
 TensorHandle tensor_cross_entropy(TensorHandle hinput, TensorHandle htarget) {
     /* Simplified: compute -sum(target * log_softmax(input)) / n */
+    Tensor* input = (Tensor*)hinput;
+    Tensor* target = (Tensor*)htarget;
+    if (input->dtype_tag != target->dtype_tag) tape_abort_mixed_dtype("tensor_cross_entropy");
     TensorHandle ls = tensor_log_softmax(hinput, 0);
     Tensor* lsT = (Tensor*)ls;
-    Tensor* target = (Tensor*)htarget;
     double loss = 0;
-    for (int i = 0; i < lsT->numel; i++) loss -= ((double*)target->data)[i] * ((double*)lsT->data)[i];
+    for (int i = 0; i < lsT->numel; i++) loss -= tape_load_d(target, i) * tape_load_d(lsT, i);
     loss /= lsT->numel;
-    return make_scalar(loss, 0); /* simplified, no grad */
+    return (input->dtype_tag == DT_F32) ? make_scalar_f32(loss, 0) : make_scalar(loss, 0);
 }
 
 TensorHandle tensor_mse_loss(TensorHandle hinput, TensorHandle htarget) {
     Tensor* input = (Tensor*)hinput;
     Tensor* target = (Tensor*)htarget;
+    if (input->dtype_tag != target->dtype_tag) tape_abort_mixed_dtype("tensor_mse_loss");
     double loss = 0;
     for (int i = 0; i < input->numel; i++) {
-        double d = ((double*)input->data)[i] - ((double*)target->data)[i];
+        double d = tape_load_d(input, i) - tape_load_d(target, i);
         loss += d * d;
     }
-    return make_scalar(loss / input->numel, 0);
+    double mean = loss / input->numel;
+    return (input->dtype_tag == DT_F32) ? make_scalar_f32(mean, 0) : make_scalar(mean, 0);
 }
 
 /* ================================================================
@@ -4268,13 +4278,14 @@ void tensor_backward(TensorHandle h) {
         }
 
         case OP_BCE_WITH_LOGITS: {
-            /* d/dp_i = (1/n) * (sigmoid(p_i) - y_i) */
+            /* d/dp_i = (1/n) * (sigmoid(p_i) - y_i).
+               tape_load_d covers both F64 and F32 input/target storage. */
             if (a) {
                 ensure_grad(a);
                 int n_bce = a->numel;
                 for (int j = 0; j < n_bce; j++) {
-                    double sig = 1.0 / (1.0 + exp(-((double*)a->data)[j]));
-                    ((double*)a->grad)[j] += ((double*)r->grad)[0] * (sig - ((double*)b->data)[j]) / n_bce;
+                    double sig = 1.0 / (1.0 + exp(-tape_load_d(a, j)));
+                    ((double*)a->grad)[j] += ((double*)r->grad)[0] * (sig - tape_load_d(b, j)) / n_bce;
                 }
             }
             break;
