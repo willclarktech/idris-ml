@@ -24,6 +24,16 @@
    Tensor representation
    ================================================================ */
 
+/* Internal tape dtype tags. Deliberately **F64 = 0** (NOT the cross-language
+   RuntimeDType ABI, where F32=0/F64=1) so that every memset/calloc-zeroed
+   Tensor defaults to F64 without touching the ~27 constructors. The ABI dtag
+   is mapped to/from this internal tag only at the create/cast boundary via
+   `tape_tag_from_dtag`. Non-F64 tape tensors are inference/storage-only in
+   Phase 2 — their values live in `data` as doubles rounded through the dtype's
+   precision (the `double` lingua franca); real packed-float storage + F32
+   training kernels arrive in the Phase 3 kernel refactor. */
+enum { DT_F64 = 0, DT_F32, DT_BF16, DT_F16, DT_I8, DT_I16, DT_I32, DT_I64, DT_U8, DT_BOOL };
+
 typedef struct {
     double* data;       /* owned, heap-allocated */
     int* shape;         /* owned, heap-allocated (NULL for scalar) */
@@ -33,7 +43,33 @@ typedef struct {
     int tape_idx;       /* index into tape (-1 if not tracked) */
     double* grad;       /* gradient storage (same shape as data), NULL if not allocated */
     int persistent;     /* 1 = param tensor (malloc'd), 0 = intermediate (arena) */
+    int dtype_tag;      /* internal DT_* tag; 0 = DT_F64 (default for zeroed structs) */
 } Tensor;
+
+/* ABI RuntimeDType tag (F32=0,F64=1,BF16=2,F16=3,I8=4,I16=5,I32=6,I64=7,U8=8,
+   Bool=9) → internal DT_* tag (F64=0). */
+static int tape_tag_from_dtag(int dtag) {
+    static const int m[] = { DT_F32, DT_F64, DT_BF16, DT_F16, DT_I8,
+                             DT_I16, DT_I32, DT_I64, DT_U8, DT_BOOL };
+    return (dtag >= 0 && dtag < 10) ? m[dtag] : DT_F64;
+}
+
+/* Round a value through the internal dtype's representable precision, staying
+   in `double` (the lingua-franca storage). F32 + the integer/bool dtypes round
+   honestly via plain casts; BF16/F16 are stored untouched in Phase 2 and gain
+   real rounding in Phase 4 (the lifted safetensors bit helpers). */
+static double tape_round_to_dtype(double v, int tag) {
+    switch (tag) {
+        case DT_F32: return (double)(float)v;
+        case DT_I8:  return (double)(signed char)(long long)v;
+        case DT_I16: return (double)(short)(long long)v;
+        case DT_I32: return (double)(int)(long long)v;
+        case DT_I64: return (double)(long long)v;
+        case DT_U8:  return (double)(unsigned char)(long long)v;
+        case DT_BOOL: return v != 0.0 ? 1.0 : 0.0;
+        default:     return v;  /* DT_F64, DT_BF16, DT_F16 */
+    }
+}
 
 /* ================================================================
    Arena allocator — bump-pointer for intermediate tensors.
@@ -630,12 +666,18 @@ void tensor_to_floats(TensorHandle h, float* out) {
 }
 
 const char* tensor_dtype_name(TensorHandle h) {
-    (void)h;
-    /* Tape backend's arena is f64-only — no parallel f32 storage yet
-       (see L60 "F32 storage on tape backend" row). Every Tensor* here
-       is logically F64 regardless of how the typeclass dispatched
-       construction. */
-    return "F64";
+    switch (((Tensor*)h)->dtype_tag) {
+        case DT_F32:  return "F32";
+        case DT_BF16: return "BF16";
+        case DT_F16:  return "F16";
+        case DT_I8:   return "I8";
+        case DT_I16:  return "I16";
+        case DT_I32:  return "I32";
+        case DT_I64:  return "I64";
+        case DT_U8:   return "U8";
+        case DT_BOOL: return "BOOL";
+        default:      return "F64";  /* DT_F64 */
+    }
 }
 
 /* ================================================================
@@ -5833,71 +5875,84 @@ int backend_profile_report_return(int dummy) {
 
 /* ---- Unified dtag-dispatch create/cast entry points ----
    One symbol per shape, dtag-keyed, superseding the per-dtype
-   *_f32_streamed / *_f64_streamed wrappers above. Tape's arena is
-   F64-only today (dtag 1); every other dtag aborts via
-   tape_dtype_unsupported. Phase 2+ replaces the abort with real
-   non-F64 storage. The Idris `Compatible TapeDev F64` gate already
-   prevents non-F64 dtags reaching tape; the abort is a backstop. */
-static TensorHandle tape_dtype_unsupported(const char* sym, int dtag) {
-    fprintf(stderr,
-        "[tape backend] %s called with dtag=%d but tape stores F64 only "
-        "(dtag 1). Bind your code to F64 on tape, or build with "
-        "BACKEND=mlx / torch.\n", sym, dtag);
-    abort();
+   *_f32_streamed / *_f64_streamed wrappers. dtag 1 (F64) is the hot path —
+   plain F64 create, untouched. Every other dtag builds the tensor as F64
+   then rounds each value through the target dtype and stamps the internal
+   tag (`tape_retag_round`): tape stores non-F64 values as doubles via the
+   `double` lingua franca (storage + readout + cast, no arithmetic). Real
+   packed-float storage + F32 training kernels arrive in the Phase 3 kernel
+   refactor; the Idris `Compatible` gate keeps tape at F64 until Phase 4
+   opens the inference dtypes. */
+static TensorHandle tape_retag_round(TensorHandle h, int dtag) {
+    Tensor* t = (Tensor*)h;
+    int tag = tape_tag_from_dtag(dtag);
+    for (int i = 0; i < t->numel; i++)
+        t->data[i] = tape_round_to_dtype(t->data[i], tag);
+    t->dtype_tag = tag;
+    return h;
 }
 
 TensorHandle tensor_create_scalar_streamed(double value, int requires_grad, int stream_tag, int dtag) {
     (void)stream_tag;
     if (dtag == 1) return tensor_create_scalar_f64(value, requires_grad);
-    return tape_dtype_unsupported("tensor_create_scalar_streamed", dtag);
+    return tape_retag_round(tensor_create_scalar_f64(value, requires_grad), dtag);
 }
 TensorHandle tensor_create_streamed(double* data, int* shape, int rank, int requires_grad, int stream_tag, int dtag) {
     (void)stream_tag;
     if (dtag == 1) return tensor_create_f64(data, shape, rank, requires_grad);
-    return tape_dtype_unsupported("tensor_create_streamed", dtag);
+    return tape_retag_round(tensor_create_f64(data, shape, rank, requires_grad), dtag);
 }
 TensorHandle tensor_create_1d_streamed(int n, double* data, int requires_grad, int stream_tag, int dtag) {
     (void)stream_tag;
     if (dtag == 1) return tensor_create_1d_f64(n, data, requires_grad);
-    return tape_dtype_unsupported("tensor_create_1d_streamed", dtag);
+    return tape_retag_round(tensor_create_1d_f64(n, data, requires_grad), dtag);
 }
 TensorHandle tensor_create_2d_streamed(int rows, int cols, double* data, int requires_grad, int stream_tag, int dtag) {
     (void)stream_tag;
     if (dtag == 1) return tensor_create_2d_f64(rows, cols, data, requires_grad);
-    return tape_dtype_unsupported("tensor_create_2d_streamed", dtag);
+    return tape_retag_round(tensor_create_2d_f64(rows, cols, data, requires_grad), dtag);
 }
 TensorHandle tensor_create_param_1d_streamed(int n, double* data, int stream_tag, int dtag) {
     (void)stream_tag;
     if (dtag == 1) return tensor_create_param_1d_f64(n, data);
-    return tape_dtype_unsupported("tensor_create_param_1d_streamed", dtag);
+    return tape_retag_round(tensor_create_param_1d_f64(n, data), dtag);
 }
 TensorHandle tensor_create_param_2d_streamed(int rows, int cols, double* data, int stream_tag, int dtag) {
     (void)stream_tag;
     if (dtag == 1) return tensor_create_param_2d_f64(rows, cols, data);
-    return tape_dtype_unsupported("tensor_create_param_2d_streamed", dtag);
+    return tape_retag_round(tensor_create_param_2d_f64(rows, cols, data), dtag);
 }
 TensorHandle tensor_create_param_3d_streamed(int d0, int d1, int d2, double* data, int stream_tag, int dtag) {
     (void)stream_tag;
     if (dtag == 1) return tensor_create_param_3d_f64(d0, d1, d2, data);
-    return tape_dtype_unsupported("tensor_create_param_3d_streamed", dtag);
+    return tape_retag_round(tensor_create_param_3d_f64(d0, d1, d2, data), dtag);
 }
 TensorHandle tensor_create_param_4d_streamed(int d0, int d1, int d2, int d3, double* data, int stream_tag, int dtag) {
     (void)stream_tag;
     if (dtag == 1) return tensor_create_param_4d_f64(d0, d1, d2, d3, data);
-    return tape_dtype_unsupported("tensor_create_param_4d_streamed", dtag);
+    return tape_retag_round(tensor_create_param_4d_f64(d0, d1, d2, d3, data), dtag);
 }
 TensorHandle tensor_create_state_1d_streamed(int n, double* data, int stream_tag, int dtag) {
     (void)stream_tag;
     if (dtag == 1) return tensor_create_state_1d_f64(n, data);
-    return tape_dtype_unsupported("tensor_create_state_1d_streamed", dtag);
+    return tape_retag_round(tensor_create_state_1d_f64(n, data), dtag);
 }
 TensorHandle tensor_create_state_2d_streamed(int rows, int cols, double* data, int stream_tag, int dtag) {
     (void)stream_tag;
     if (dtag == 1) return tensor_create_state_2d_f64(rows, cols, data);
-    return tape_dtype_unsupported("tensor_create_state_2d_streamed", dtag);
+    return tape_retag_round(tensor_create_state_2d_f64(rows, cols, data), dtag);
 }
 TensorHandle tensor_cast_dtype_streamed(TensorHandle src, int stream_tag, int dtag) {
     (void)stream_tag;
-    if (dtag == 1) return tensor_cast_dtype_f64(src);
-    return tape_dtype_unsupported("tensor_cast_dtype_streamed", dtag);
+    Tensor* s = (Tensor*)src;
+    int tag = tape_tag_from_dtag(dtag);
+    /* F64 → F64 stays observational identity (preserves autograd-through-cast).
+       The shortcut applies only when the *source* is already F64 — casting a
+       non-F64 source up to F64 must still produce a fresh F64-tagged tensor. */
+    if (tag == DT_F64 && s->dtype_tag == DT_F64) return tensor_cast_dtype_f64(src);
+    /* Otherwise: a fresh non-grad tensor cloning src's values, rounded into the
+       target dtype. (Inference / precision-demo casts are NoGrad.) */
+    TensorHandle h = (s->rank == 0) ? make_scalar(s->data[0], 0)
+                                    : (TensorHandle)make_tensor(s->data, s->shape, s->rank, 0);
+    return tape_retag_round(h, dtag);
 }

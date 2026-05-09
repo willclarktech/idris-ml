@@ -2762,6 +2762,64 @@ int main(void) {
         param_clear();
     }
 
+    /* T28: tape dtype storage scaffolding (tape-only). Tape stores non-F64
+       dtypes as packed bytes via the double lingua franca: create + cast +
+       readout, no arithmetic. dtags: F32=0, BF16=2, I32=6. Until the
+       scaffolding lands, the unified create aborts for any non-F64 dtag
+       (tape_dtype_unsupported) — that abort is the RED. */
+#if defined(BACKEND_TAPE)
+    {
+        printf("\n--- Tape dtype storage (F32/BF16/I32) ---\n");
+        param_clear();
+
+        /* F32 create + dtype + readback (value-exact: these all fit f32). */
+        double fv[] = {1.5, -2.25, 3.0};
+        TensorHandle f32t = tensor_create_1d_streamed(3, heap_copy(fv, 3), 0, 0, 0);
+        ASSERT_TRUE("tape F32 dtype is F32", strcmp(tensor_dtype_name(f32t), "F32") == 0);
+        double fout[3];
+        tensor_to_doubles(f32t, fout);
+        ASSERT_NEAR("tape F32 readback[1]", fout[1], -2.25, 1e-6);
+
+        /* I32 create + dtype + readback (integer-valued). */
+        double iv[] = {1.0, 2.0, 3.0};
+        TensorHandle i32t = tensor_create_1d_streamed(3, heap_copy(iv, 3), 0, 0, 6);
+        ASSERT_TRUE("tape I32 dtype is I32", strcmp(tensor_dtype_name(i32t), "I32") == 0);
+        double iout[3];
+        tensor_to_doubles(i32t, iout);
+        ASSERT_NEAR("tape I32 readback[2]", iout[2], 3.0, 1e-10);
+
+        /* BF16 create + dtype + readback (bf16 tolerance). */
+        double bv[] = {1.5, 2.25, -0.5};
+        TensorHandle bf = tensor_create_1d_streamed(3, heap_copy(bv, 3), 0, 0, 2);
+        ASSERT_TRUE("tape BF16 dtype is BF16", strcmp(tensor_dtype_name(bf), "BF16") == 0);
+        double bout[3];
+        tensor_to_doubles(bf, bout);
+        ASSERT_NEAR("tape BF16 readback[0]", bout[0], 1.5, 1e-2);
+
+        /* Cast F64 -> F32 -> F64 round-trip (value-exact for these). */
+        double dv[] = {1.5, 2.25};
+        TensorHandle d0 = tensor_create_1d_streamed(2, heap_copy(dv, 2), 0, 0, 1);
+        TensorHandle to_f32 = tensor_cast_dtype_streamed(d0, 0, 0);
+        ASSERT_TRUE("tape cast F64->F32", strcmp(tensor_dtype_name(to_f32), "F32") == 0);
+        TensorHandle back = tensor_cast_dtype_streamed(to_f32, 0, 1);
+        ASSERT_TRUE("tape cast F32->F64", strcmp(tensor_dtype_name(back), "F64") == 0);
+        double rt[2];
+        tensor_to_doubles(back, rt);
+        ASSERT_NEAR("tape F32 roundtrip[0]", rt[0], 1.5, 1e-6);
+
+        /* Cast F64 -> I32 -> F64 round-trip (integer-valued). */
+        double ev[] = {4.0, 5.0, 6.0};
+        TensorHandle e0 = tensor_create_1d_streamed(3, heap_copy(ev, 3), 0, 0, 1);
+        TensorHandle to_i32 = tensor_cast_dtype_streamed(e0, 0, 6);
+        ASSERT_TRUE("tape cast F64->I32", strcmp(tensor_dtype_name(to_i32), "I32") == 0);
+        double iback[3];
+        tensor_to_doubles(to_i32, iback);
+        ASSERT_NEAR("tape I32 cast readback[1]", iback[1], 5.0, 1e-10);
+
+        param_clear();
+    }
+#endif
+
     /* Summary */
     printf("\n");
     if (failures == 0) {
