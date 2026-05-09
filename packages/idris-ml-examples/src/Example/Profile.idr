@@ -83,13 +83,13 @@ BatchSize = 16
 
 profileEpoch :
   NativeOptimizer ->
-  Vect BatchSize (TwoPhaseDataPoint InputW OutputW (Variable CPU)) ->
+  Vect BatchSize (TwoPhaseDataPoint InputW OutputW Double) ->
   Network InputW [] OutputW (Variable CPU) ->
   Nat ->
   IO (Network InputW [] OutputW (Variable CPU))
 profileEpoch opt dataPoints model epochNum = do
   t0 <- clockTime Monotonic
-  let (model', lossVal) = epochTwoPhaseBceNative opt dataPoints model
+  let (model', lossVal) = epochTwoPhaseTensor opt dataPoints model
   t1 <- clockTime Monotonic
 
   let line = padL 5 (show epochNum)
@@ -106,7 +106,7 @@ profileEpoch opt dataPoints model epochNum = do
 
 profileLoop :
   NativeOptimizer ->
-  Vect BatchSize (TwoPhaseDataPoint InputW OutputW (Variable CPU)) ->
+  Vect BatchSize (TwoPhaseDataPoint InputW OutputW Double) ->
   Network InputW [] OutputW (Variable CPU) ->
   Nat -> Nat ->
   IO (Network InputW [] OutputW (Variable CPU))
@@ -139,8 +139,7 @@ main = do
 
   -- Generate a fixed batch for consistent profiling
   tGen0 <- clockTime Monotonic
-  batch <- copyTaskBinaryBatchVect {w = W} BatchSize 1 20
-  let dataPoints = map (map fromDouble) batch
+  dataPoints <- copyTaskBinaryBatchVect {w = W} BatchSize 1 20
   tGen1 <- clockTime Monotonic
   putStrLn $ "Data generation: " ++ showMs (elapsedMs tGen0 tGen1) ++ " ms"
   putStrLn ""
@@ -161,14 +160,13 @@ main = do
   putStrLn "\nDone."
 
   where
-    -- Warmup loop using epochTwoPhaseBceNative
+    -- Warmup loop using epochTwoPhaseTensor (tensor-level fast path)
     go : Nat -> Network InputW [] OutputW (Variable CPU) ->
          IO (Network InputW [] OutputW (Variable CPU))
     go 5 m = pure m
     go k m = do
-      batch <- copyTaskBinaryBatchVect {w = W} BatchSize 1 20
-      let dps = map (map fromDouble) batch
-          opt = nativeRmsprop 0.0001 0.95 1.0e-8 10.0 0.9
-          (m', loss) = epochTwoPhaseBceNative opt dps m
+      dps <- copyTaskBinaryBatchVect {w = W} BatchSize 1 20
+      let opt = nativeRmsprop 0.0001 0.95 1.0e-8 10.0 0.9
+          (m', loss) = epochTwoPhaseTensor opt dps m
       putStrLn $ "  warmup " ++ show (k + 1) ++ ": loss=" ++ show loss
       go (k + 1) m'
