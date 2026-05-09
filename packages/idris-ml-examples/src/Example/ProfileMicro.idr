@@ -272,8 +272,10 @@ main = do
   t12 <- clockTime Monotonic
   let ntmFinal = loopNtmApply (BenchIters `div` 50) ntm xNtm ntm
   -- Force eval by reading from a state field. Match constructor positionally.
+  -- NtmState fields: lstm, readFc, writeFc, outputFc, memInitT, initReadOutT,
+  -- memT, raT, waT, roT (10 total).
   let ntmR = case ntmFinal of
-               MkNtm _ _ _ _ _ _ _ (Just rOut) => prim__item1d rOut.tensorPtr 0
+               MkNtm _ _ _ _ _ _ _ _ _ (Just rOut) => prim__item1d rOut.tensorPtr 0
                _ => 0.0
   t13 <- clockTime Monotonic
   let ntmIters : Nat
