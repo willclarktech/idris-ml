@@ -1,17 +1,17 @@
-module Layer.GruV2
+module Layer.Gru
 
 import Data.Vect
 
 import Compat.Random
 import Device
 import Init
-import Layer.CoreV2
+import Layer.Core
 import Sampler
 import Variable
 
 
 ----------------------------------------------------------------------
--- GruV2 — typed-surface GRU cell (Path C)
+-- Gru — typed-surface GRU cell (Path C)
 ----------------------------------------------------------------------
 --
 -- Mirrors `Layer/Gru.idr`'s `applyVarTensor` path with the simplified
@@ -24,8 +24,8 @@ import Variable
 -- `TMat (3 * o) ...` and `TVec (3 * o) ...` aliases.
 
 public export
-record GruStateV2 (i : Nat) (o : Nat) (0 d : Device) where
-  constructor MkGruV2
+record GruState (i : Nat) (o : Nat) (0 d : Device) where
+  constructor MkGru
   iwT : TMat (3 * o) i d         -- W_ih [3*o, i]
   ihB : TVec (3 * o) d           -- b_ih [3*o]
   hwT : TMat (3 * o) o d         -- W_hh [3*o, o]
@@ -40,11 +40,11 @@ record GruStateV2 (i : Nat) (o : Nat) (0 d : Device) where
 %default partial
 
 export
-applyGruV2 : {o : Nat} ->
-             GruStateV2 i o d ->
+applyGru : {o : Nat} ->
+             GruState i o d ->
              TVec i d ->
-             (GruStateV2 i o d, TVec o d)
-applyGruV2 {o} st input =
+             (GruState i o d, TVec o d)
+applyGru {o} st input =
   let h = case st.hiddenT of
             Just h => h
             Nothing => tzeroState1d {n = o}
@@ -69,13 +69,13 @@ zeroBuf buf _ 0 = buf
 zeroBuf buf off n =
   zeroBuf (prim__setDouble buf off 0.0) (off + 1) (n - 1)
 
-||| Build a `GruStateV2 i o CPU` with Xavier-uniform weights and
+||| Build a `GruState i o CPU` with Xavier-uniform weights and
 ||| zero biases. Params register under `<prefix>_iw`, `<prefix>_ih_b`,
 ||| `<prefix>_hw`, `<prefix>_hh_b`.
 export
-gruLayerV2 : {i, o : Nat} -> (paramPrefix : String) ->
-             IO (GruStateV2 i o CPU)
-gruLayerV2 paramPrefix = do
+gruLayer : {i, o : Nat} -> (paramPrefix : String) ->
+             IO (GruState i o CPU)
+gruLayer paramPrefix = do
   let gI = cast {to=Int} (3 * o)
       iI = cast {to=Int} i
       oI = cast {to=Int} o
@@ -98,31 +98,31 @@ gruLayerV2 paramPrefix = do
       ihBPtr = prim__paramRegister ihBName (prim__createParam1d gI ihBBuf')
       hhBPtr = prim__paramRegister hhBName (prim__createParam1d gI hhBBuf')
       iwTV : TMat (3 * o) i CPU
-      iwTV = MkTVar iwPtr (Just iwName)
+      iwTV = MkVar iwPtr (Just iwName)
       hwTV : TMat (3 * o) o CPU
-      hwTV = MkTVar hwPtr (Just hwName)
+      hwTV = MkVar hwPtr (Just hwName)
       ihBTV : TVec (3 * o) CPU
-      ihBTV = MkTVar ihBPtr (Just ihBName)
+      ihBTV = MkVar ihBPtr (Just ihBName)
       hhBTV : TVec (3 * o) CPU
-      hhBTV = MkTVar hhBPtr (Just hhBName)
-  pure $ MkGruV2 iwTV ihBTV hwTV hhBTV Nothing
+      hhBTV = MkVar hhBPtr (Just hhBName)
+  pure $ MkGru iwTV ihBTV hwTV hhBTV Nothing
 
-||| Reset hidden state. Lazy-allocate on next applyTVar call.
+||| Reset hidden state. Lazy-allocate on next applyVar call.
 export
-resetGruStateV2 : {o : Nat} -> {0 d : Device} -> GruStateV2 i o d -> GruStateV2 i o d
-resetGruStateV2 st = { hiddenT := Nothing } st
+resetGruState : {o : Nat} -> {0 d : Device} -> GruState i o d -> GruState i o d
+resetGruState st = { hiddenT := Nothing } st
 
 
 ----------------------------------------------------------------------
--- LayerLikeV2 instance
+-- LayerLike instance
 ----------------------------------------------------------------------
 
 public export
-LayerLikeV2 GruStateV2 where
-  applyTVar = applyGruV2
-  layerPrefixV2 _ = "gruV2"
+LayerLike GruState where
+  applyVar = applyGru
+  layerPrefix _ = "gru"
 
-||| Wrap a `GruStateV2` in `AnyLayerV2`.
+||| Wrap a `GruState` in `AnyLayer`.
 export
-gruLayerV2Any : {i, o : Nat} -> (paramPrefix : String) -> IO (AnyLayerV2 i o CPU)
-gruLayerV2Any pid = map (MkAnyLayerV2 GruStateV2) (gruLayerV2 pid)
+gruLayerAny : {i, o : Nat} -> (paramPrefix : String) -> IO (AnyLayer i o CPU)
+gruLayerAny pid = map (MkAnyLayer GruState) (gruLayer pid)

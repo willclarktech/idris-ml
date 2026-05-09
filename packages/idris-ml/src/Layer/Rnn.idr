@@ -1,31 +1,31 @@
-module Layer.RnnV2
+module Layer.Rnn
 
 import Data.Vect
 
 import Compat.Random
 import Device
 import Init
-import Layer.CoreV2
+import Layer.Core
 import Sampler
 import Variable
 
 
 ----------------------------------------------------------------------
--- RnnV2 — typed-surface vanilla RNN cell (Path C)
+-- Rnn — typed-surface vanilla RNN cell (Path C)
 ----------------------------------------------------------------------
 --
 -- Mirrors `Layer/Rnn.idr`'s `applyVarTensor` path:
 --   h_t = (W_ih · x_t) + (W_hh · h_{t-1}) + b
 --
--- No activation in the cell; chain a `tanhLayerV2` (or other) after
+-- No activation in the cell; chain a `tanhLayer` (or other) after
 -- if needed. Matches V1 behaviour.
 --
--- Uses `TMat` / `TVec` aliases for consistency with `LstmV2` even
+-- Uses `TMat` / `TVec` aliases for consistency with `Lstm` even
 -- though shape arithmetic isn't needed here (no `4 *`).
 
 public export
-record RnnStateV2 (i : Nat) (o : Nat) (0 d : Device) where
-  constructor MkRnnV2
+record RnnState (i : Nat) (o : Nat) (0 d : Device) where
+  constructor MkRnn
   iwT : TMat o i d         -- W_ih [o, i]
   rwT : TMat o o d         -- W_hh [o, o]
   bT  : TVec o d           -- bias [o]
@@ -39,11 +39,11 @@ record RnnStateV2 (i : Nat) (o : Nat) (0 d : Device) where
 %default partial
 
 export
-applyRnnV2 : {o : Nat} ->
-             RnnStateV2 i o d ->
+applyRnn : {o : Nat} ->
+             RnnState i o d ->
              TVec i d ->
-             (RnnStateV2 i o d, TVec o d)
-applyRnnV2 {o} st input =
+             (RnnState i o d, TVec o d)
+applyRnn {o} st input =
   let p = case st.prevOutT of
             Just po => po
             Nothing => tzeroState1d {n = o}
@@ -65,14 +65,14 @@ zeroBuf buf _ 0 = buf
 zeroBuf buf off n =
   zeroBuf (prim__setDouble buf off 0.0) (off + 1) (n - 1)
 
-||| Build an `RnnStateV2 i o CPU` with Xavier-uniform weights and
-||| zero bias. State starts as Nothing; first `applyRnnV2` call
+||| Build an `RnnState i o CPU` with Xavier-uniform weights and
+||| zero bias. State starts as Nothing; first `applyRnn` call
 ||| zero-initialises it. Params register under `<prefix>_iw`,
 ||| `<prefix>_rw`, `<prefix>_b`.
 export
-rnnLayerV2 : {i, o : Nat} -> (paramPrefix : String) ->
-             IO (RnnStateV2 i o CPU)
-rnnLayerV2 paramPrefix = do
+rnnLayer : {i, o : Nat} -> (paramPrefix : String) ->
+             IO (RnnState i o CPU)
+rnnLayer paramPrefix = do
   let oI = cast {to=Int} o
       iI = cast {to=Int} i
   iwVals <- traverse (\_ => xavier uniform i o) (Vect.replicate (o * i) ())
@@ -90,29 +90,29 @@ rnnLayerV2 paramPrefix = do
       rwPtr = prim__paramRegister rwName (prim__createParam2d oI oI rwBuf')
       bPtr  = prim__paramRegister bName  (prim__createParam1d oI bBuf')
       iwTV : TMat o i CPU
-      iwTV = MkTVar iwPtr (Just iwName)
+      iwTV = MkVar iwPtr (Just iwName)
       rwTV : TMat o o CPU
-      rwTV = MkTVar rwPtr (Just rwName)
+      rwTV = MkVar rwPtr (Just rwName)
       bTV : TVec o CPU
-      bTV = MkTVar bPtr (Just bName)
-  pure $ MkRnnV2 iwTV rwTV bTV Nothing
+      bTV = MkVar bPtr (Just bName)
+  pure $ MkRnn iwTV rwTV bTV Nothing
 
-||| Reset hidden state. Lazy-allocate on next applyTVar call.
+||| Reset hidden state. Lazy-allocate on next applyVar call.
 export
-resetRnnStateV2 : {o : Nat} -> {0 d : Device} -> RnnStateV2 i o d -> RnnStateV2 i o d
-resetRnnStateV2 st = { prevOutT := Nothing } st
+resetRnnState : {o : Nat} -> {0 d : Device} -> RnnState i o d -> RnnState i o d
+resetRnnState st = { prevOutT := Nothing } st
 
 
 ----------------------------------------------------------------------
--- LayerLikeV2 instance
+-- LayerLike instance
 ----------------------------------------------------------------------
 
 public export
-LayerLikeV2 RnnStateV2 where
-  applyTVar = applyRnnV2
-  layerPrefixV2 _ = "rnnV2"
+LayerLike RnnState where
+  applyVar = applyRnn
+  layerPrefix _ = "rnn"
 
-||| Wrap an `RnnStateV2` in `AnyLayerV2`.
+||| Wrap an `RnnState` in `AnyLayer`.
 export
-rnnLayerV2Any : {i, o : Nat} -> (paramPrefix : String) -> IO (AnyLayerV2 i o CPU)
-rnnLayerV2Any pid = map (MkAnyLayerV2 RnnStateV2) (rnnLayerV2 pid)
+rnnLayerAny : {i, o : Nat} -> (paramPrefix : String) -> IO (AnyLayer i o CPU)
+rnnLayerAny pid = map (MkAnyLayer RnnState) (rnnLayer pid)

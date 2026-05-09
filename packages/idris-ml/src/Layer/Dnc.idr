@@ -1,13 +1,13 @@
-module Layer.DncV2
+module Layer.Dnc
 
 import Data.Vect
 
 import Compat.Random
 import Device
 import Init
-import Layer.CoreV2
-import Layer.LinearV2
-import Layer.LstmV2
+import Layer.Core
+import Layer.Linear
+import Layer.Lstm
 import Sampler
 import Variable
 
@@ -31,33 +31,33 @@ DncOutputInput h r m = h + r * m
 ----------------------------------------------------------------------
 
 -- Concat read-output tensors followed by the input tensor.
-catReadOutsAndInputTV2 : {k : Nat} -> Vect k AnyPtr -> AnyPtr -> AnyPtr
-catReadOutsAndInputTV2 [] inp = inp
-catReadOutsAndInputTV2 (ro :: rest) inp =
-  prim__cat2 ro (catReadOutsAndInputTV2 rest inp)
+catReadOutsAndInput : {k : Nat} -> Vect k AnyPtr -> AnyPtr -> AnyPtr
+catReadOutsAndInput [] inp = inp
+catReadOutsAndInput (ro :: rest) inp =
+  prim__cat2 ro (catReadOutsAndInput rest inp)
 
 -- Concat r read-output tensors. Crashes on r=0.
 %default partial
 
-catReadOutsTV2 : {k : Nat} -> Vect k AnyPtr -> AnyPtr
-catReadOutsTV2 [] = idris_crash "DncV2: catReadOutsTV2 r=0"
-catReadOutsTV2 (h :: t) = catRest h t
+catReadOuts : {k : Nat} -> Vect k AnyPtr -> AnyPtr
+catReadOuts [] = idris_crash "Dnc: catReadOuts r=0"
+catReadOuts (h :: t) = catRest h t
   where
     catRest : AnyPtr -> {k' : Nat} -> Vect k' AnyPtr -> AnyPtr
     catRest acc [] = acc
     catRest acc (h' :: rest) = catRest (prim__cat2 acc h') rest
 
 -- Compute prod_j (1 - free_gate_j * prev_read_w_j) over r heads.
-dncRetentionTV2 : {k : Nat} -> Int -> AnyPtr -> Vect k AnyPtr -> AnyPtr -> AnyPtr
-dncRetentionTV2 _ _ [] acc = acc
-dncRetentionTV2 idx freeGatesT (rw :: rws) acc =
+dncRetention : {k : Nat} -> Int -> AnyPtr -> Vect k AnyPtr -> AnyPtr -> AnyPtr
+dncRetention _ _ [] acc = acc
+dncRetention idx freeGatesT (rw :: rws) acc =
   let fg = prim__select freeGatesT 0 idx
       factor = prim__sub (prim__createScalar 1.0 0) (prim__mul fg rw)
-  in dncRetentionTV2 (idx + 1) freeGatesT rws (prim__mul acc factor)
+  in dncRetention (idx + 1) freeGatesT rws (prim__mul acc factor)
 
 -- Zero the diagonal of a [n,n] matrix.
-dncZeroDiagTV2 : Int -> AnyPtr -> AnyPtr
-dncZeroDiagTV2 nI matT =
+dncZeroDiag : Int -> AnyPtr -> AnyPtr
+dncZeroDiag nI matT =
   let numElems = nI * nI
       buf = prim__allocDoubles numElems
       buf' = fillMaskOffDiag buf 0 nI numElems
@@ -73,13 +73,13 @@ dncZeroDiagTV2 nI matT =
       in fillMaskOffDiag b' (i + 1) nn numE
 
 -- Per-head read processing for r heads.
-dncReadHeadsTV2 : {k : Nat} -> Int -> Vect k AnyPtr ->
+dncReadHeads : {k : Nat} -> Int -> Vect k AnyPtr ->
                   AnyPtr -> AnyPtr ->
                   AnyPtr -> AnyPtr -> AnyPtr ->
                   Int ->
                   (Vect k AnyPtr, Vect k AnyPtr)
-dncReadHeadsTV2 _ [] _ _ _ _ _ _ = ([], [])
-dncReadHeadsTV2 idx (prevRw :: restRws) linkT memT keysT betasT modesT mI =
+dncReadHeads _ [] _ _ _ _ _ _ = ([], [])
+dncReadHeads idx (prevRw :: restRws) linkT memT keysT betasT modesT mI =
   let headKeyT      = prim__narrow keysT 0 (idx * mI) mI
       headBetaPtr   = prim__select betasT 0 idx
       headBetaT     = prim__softplus headBetaPtr
@@ -102,12 +102,12 @@ dncReadHeadsTV2 idx (prevRw :: restRws) linkT memT keysT betasT modesT mI =
       rwNormSumT    = prim__addScalar (prim__sum rwClampedT) 1.0e-10
       rwT           = prim__div rwClampedT rwNormSumT
       roT           = prim__matmul rwT memT
-      (restRws', restRos') = dncReadHeadsTV2 (idx + 1) restRws linkT memT keysT betasT modesT mI
+      (restRws', restRos') = dncReadHeads (idx + 1) restRws linkT memT keysT betasT modesT mI
   in (rwT :: restRws', roT :: restRos')
 
 
 ----------------------------------------------------------------------
--- DncStateV2 — typed-surface DNC (Path C)
+-- DncState — typed-surface DNC (Path C)
 ----------------------------------------------------------------------
 --
 -- Mirrors V1 `Layer/Dnc.idr`'s `applyVarTensor`. 11 FCs + LSTM
@@ -115,31 +115,31 @@ dncReadHeadsTV2 idx (prevRw :: restRws) linkT memT keysT betasT modesT mI =
 -- precedence, link, R read weights, R read outputs).
 
 public export
-data DncStateV2 :
+data DncState :
   (r : Nat) -> (n : Nat) -> (m : Nat) -> (h : Nat) ->
   Nat -> Nat -> (0 _ : Device) -> Type
   where
-  MkDncV2 :
-    LstmStateV2 (DncControllerInput r m i) h d ->
-    LinearStateV2 h m d ->                  -- writeKeyFc
-    LinearStateV2 h 1 d ->                  -- writeBetaFc
-    LinearStateV2 h m d ->                  -- eraseFc
-    LinearStateV2 h m d ->                  -- addFc
-    LinearStateV2 h r d ->                  -- freeGatesFc
-    LinearStateV2 h 1 d ->                  -- allocGateFc
-    LinearStateV2 h 1 d ->                  -- writeGateFc
-    LinearStateV2 h (r * m) d ->            -- readKeysFc
-    LinearStateV2 h r d ->                  -- readBetasFc
-    LinearStateV2 h (r * 3) d ->            -- readModesFc
-    LinearStateV2 (DncOutputInput h r m) o d ->  -- outputFc
-    Maybe (TVar [n, m] d) ->                -- memT
+  MkDnc :
+    LstmState (DncControllerInput r m i) h d ->
+    LinearState h m d ->                  -- writeKeyFc
+    LinearState h 1 d ->                  -- writeBetaFc
+    LinearState h m d ->                  -- eraseFc
+    LinearState h m d ->                  -- addFc
+    LinearState h r d ->                  -- freeGatesFc
+    LinearState h 1 d ->                  -- allocGateFc
+    LinearState h 1 d ->                  -- writeGateFc
+    LinearState h (r * m) d ->            -- readKeysFc
+    LinearState h r d ->                  -- readBetasFc
+    LinearState h (r * 3) d ->            -- readModesFc
+    LinearState (DncOutputInput h r m) o d ->  -- outputFc
+    Maybe (Variable [n, m] d) ->                -- memT
     Maybe (TVec n d) ->                     -- usageT
     Maybe (TVec n d) ->                     -- writeWtT
     Maybe (TVec n d) ->                     -- precedenceT
-    Maybe (TVar [n, n] d) ->                -- linkT
+    Maybe (Variable [n, n] d) ->                -- linkT
     Maybe (Vect r AnyPtr) ->                -- read weight tensor handles
     Maybe (Vect r AnyPtr) ->                -- read output tensor handles
-    DncStateV2 r n m h i o d
+    DncState r n m h i o d
 
 
 ----------------------------------------------------------------------
@@ -195,12 +195,12 @@ mkZeroVectM (S k) m = zeroState1d m :: mkZeroVectM k m
 ----------------------------------------------------------------------
 
 export
-applyDncV2 : {r, n, m, h, i, o : Nat} ->
-             DncStateV2 r n m h i o d ->
+applyDnc : {r, n, m, h, i, o : Nat} ->
+             DncState r n m h i o d ->
              TVec i d ->
-             (DncStateV2 r n m h i o d, TVec o d)
-applyDncV2 {r} {n} {m}
-           (MkDncV2 lstm wkFc wbFc eFc aFc fgFc agFc wgFc rkFc rbFc rmFc oFc
+             (DncState r n m h i o d, TVec o d)
+applyDnc {r} {n} {m}
+           (MkDnc lstm wkFc wbFc eFc aFc fgFc agFc wgFc rkFc rbFc rmFc oFc
                     memT usageT wwT precT linkT rwTs roTs) input =
   let memTPtr = case memT of
                   Just t => t.tensorPtr
@@ -224,14 +224,14 @@ applyDncV2 {r} {n} {m}
                    Just ts => ts
                    Nothing => mkZeroVectM r m
       -- 1. cat(readOuts, input) -> [r*m + i]
-      lstmInputPtr = catReadOutsAndInputTV2 roTsPtrs input.tensorPtr
-      lstmInputV = the (TVec (DncControllerInput r m i) d) (MkTVar lstmInputPtr Nothing)
+      lstmInputPtr = catReadOutsAndInput roTsPtrs input.tensorPtr
+      lstmInputV = the (TVec (DncControllerInput r m i) d) (MkVar lstmInputPtr Nothing)
       -- 2. LSTM forward
-      (updLstm, hiddenV) = applyLstmV2 lstm lstmInputV
+      (updLstm, hiddenV) = applyLstm lstm lstmInputV
       -- 3. Cell-state for FCs
       cellPtr = case updLstm.cellT of
                   Just c => c.tensorPtr
-                  Nothing => idris_crash "DncV2: cell tensor missing post-LSTM"
+                  Nothing => idris_crash "Dnc: cell tensor missing post-LSTM"
       -- Sub-layer weight handles
       wkW = wkFc.weightT.tensorPtr; wkB = wkFc.biasT.tensorPtr
       wbW = wbFc.weightT.tensorPtr; wbB = wbFc.biasT.tensorPtr
@@ -266,7 +266,7 @@ applyDncV2 {r} {n} {m}
       writeGateT  = prim__sigmoid writeGateRawT
       -- 6. Usage update
       writeUsageT = prim__sub (prim__add usageTPtr wwTPtr) (prim__mul usageTPtr wwTPtr)
-      retentionT  = dncRetentionTV2 0 freeGatesT rwTsPtrs onesScalar
+      retentionT  = dncRetention 0 freeGatesT rwTsPtrs onesScalar
       retClampedT = prim__clampMin retentionT 1.0e-10
       newUsageT   = prim__mul writeUsageT retClampedT
       -- 7. Allocation
@@ -300,103 +300,103 @@ applyDncV2 {r} {n} {m}
       decayT        = prim__sub (prim__sub onesScalar wiT) wjT
       decayClampT   = prim__clampMin decayT 0.0
       newLinkRawT   = prim__add (prim__mul decayClampT linkTPtr) (prim__mul wiT pjT)
-      newLinkT      = prim__clampMin (dncZeroDiagTV2 nI newLinkRawT) 0.0
+      newLinkT      = prim__clampMin (dncZeroDiag nI newLinkRawT) 0.0
       -- 12. Precedence update
       wSumT         = prim__sum newWriteWT
       oneMinusWSumT = prim__sub onesScalar wSumT
       newPrecT      = prim__add (prim__mul oneMinusWSumT precTPtr) newWriteWT
       -- 13. Read heads
-      (newRwTs, newRoTs) = dncReadHeadsTV2 0 rwTsPtrs newLinkT newMemT
+      (newRwTs, newRoTs) = dncReadHeads 0 rwTsPtrs newLinkT newMemT
                               readKeysFlatT readBetasRawT readModesFlatT mI
       -- 14. Output FC
-      allNewReadsT  = catReadOutsTV2 newRoTs
+      allNewReadsT  = catReadOuts newRoTs
       outputInputT  = prim__cat2 hiddenV.tensorPtr allNewReadsT
       outputT       = prim__add (prim__mv oW outputInputT) oB
-  in ( MkDncV2 updLstm wkFc wbFc eFc aFc fgFc agFc wgFc rkFc rbFc rmFc oFc
-        (Just (MkTVar newMemT Nothing))
-        (Just (MkTVar newUsageT Nothing))
-        (Just (MkTVar newWriteWT Nothing))
-        (Just (MkTVar newPrecT Nothing))
-        (Just (MkTVar newLinkT Nothing))
+  in ( MkDnc updLstm wkFc wbFc eFc aFc fgFc agFc wgFc rkFc rbFc rmFc oFc
+        (Just (MkVar newMemT Nothing))
+        (Just (MkVar newUsageT Nothing))
+        (Just (MkVar newWriteWT Nothing))
+        (Just (MkVar newPrecT Nothing))
+        (Just (MkVar newLinkT Nothing))
         (Just newRwTs)
         (Just newRoTs)
-     , MkTVar outputT Nothing )
+     , MkVar outputT Nothing )
 
 
 ----------------------------------------------------------------------
 -- Constructor
 ----------------------------------------------------------------------
 
-||| Build a `DncStateV2 r n m h i o CPU` with default init: LSTM
-||| controller + 11 FCs (Xavier via LinearV2), memory init to 1e-6,
+||| Build a `DncState r n m h i o CPU` with default init: LSTM
+||| controller + 11 FCs (Xavier via Linear), memory init to 1e-6,
 ||| addresses/usage/precedence/link/reads zero. State persistent.
 export
-dncLayerV2 : {r, n, m, h, i, o : Nat} ->
+dncLayer : {r, n, m, h, i, o : Nat} ->
              (paramPrefix : String) ->
-             IO (DncStateV2 r n m h i o CPU)
-dncLayerV2 pfx = do
-  lstm <- lstmLayerV2 {i = DncControllerInput r m i} {o = h} (pfx ++ "_lstm")
-  wkFc <- linearLayerV2 {i = h} {o = m}        (pfx ++ "_writeKey")
-  wbFc <- linearLayerV2 {i = h} {o = 1}        (pfx ++ "_writeBeta")
-  eFc  <- linearLayerV2 {i = h} {o = m}        (pfx ++ "_erase")
-  aFc  <- linearLayerV2 {i = h} {o = m}        (pfx ++ "_add")
-  fgFc <- linearLayerV2 {i = h} {o = r}        (pfx ++ "_freeGates")
-  agFc <- linearLayerV2 {i = h} {o = 1}        (pfx ++ "_allocGate")
-  wgFc <- linearLayerV2 {i = h} {o = 1}        (pfx ++ "_writeGate")
-  rkFc <- linearLayerV2 {i = h} {o = r * m}    (pfx ++ "_readKeys")
-  rbFc <- linearLayerV2 {i = h} {o = r}        (pfx ++ "_readBetas")
-  rmFc <- linearLayerV2 {i = h} {o = r * 3}    (pfx ++ "_readModes")
-  oFc  <- linearLayerV2 {i = DncOutputInput h r m} {o = o} (pfx ++ "_output")
-  let memTV : TVar [n, m] CPU
-      memTV = MkTVar (constState2d n m 1.0e-6) Nothing
+             IO (DncState r n m h i o CPU)
+dncLayer pfx = do
+  lstm <- lstmLayer {i = DncControllerInput r m i} {o = h} (pfx ++ "_lstm")
+  wkFc <- linearLayer {i = h} {o = m}        (pfx ++ "_writeKey")
+  wbFc <- linearLayer {i = h} {o = 1}        (pfx ++ "_writeBeta")
+  eFc  <- linearLayer {i = h} {o = m}        (pfx ++ "_erase")
+  aFc  <- linearLayer {i = h} {o = m}        (pfx ++ "_add")
+  fgFc <- linearLayer {i = h} {o = r}        (pfx ++ "_freeGates")
+  agFc <- linearLayer {i = h} {o = 1}        (pfx ++ "_allocGate")
+  wgFc <- linearLayer {i = h} {o = 1}        (pfx ++ "_writeGate")
+  rkFc <- linearLayer {i = h} {o = r * m}    (pfx ++ "_readKeys")
+  rbFc <- linearLayer {i = h} {o = r}        (pfx ++ "_readBetas")
+  rmFc <- linearLayer {i = h} {o = r * 3}    (pfx ++ "_readModes")
+  oFc  <- linearLayer {i = DncOutputInput h r m} {o = o} (pfx ++ "_output")
+  let memTV : Variable [n, m] CPU
+      memTV = MkVar (constState2d n m 1.0e-6) Nothing
       usageTV : TVec n CPU
-      usageTV = MkTVar (zeroState1d n) Nothing
+      usageTV = MkVar (zeroState1d n) Nothing
       wwTV : TVec n CPU
-      wwTV = MkTVar (zeroState1d n) Nothing
+      wwTV = MkVar (zeroState1d n) Nothing
       precTV : TVec n CPU
-      precTV = MkTVar (zeroState1d n) Nothing
-      linkTV : TVar [n, n] CPU
-      linkTV = MkTVar (zeroState2d n n) Nothing
-  pure $ MkDncV2 lstm wkFc wbFc eFc aFc fgFc agFc wgFc rkFc rbFc rmFc oFc
+      precTV = MkVar (zeroState1d n) Nothing
+      linkTV : Variable [n, n] CPU
+      linkTV = MkVar (zeroState2d n n) Nothing
+  pure $ MkDnc lstm wkFc wbFc eFc aFc fgFc agFc wgFc rkFc rbFc rmFc oFc
                  (Just memTV) (Just usageTV) (Just wwTV) (Just precTV)
                  (Just linkTV) (Just (mkZeroVectN r n)) (Just (mkZeroVectM r m))
 
 ||| Reset DNC state to fresh persistent zero/init tensors.
 export
-resetDncStateV2 : {r, n, m, h : Nat} ->
-                  DncStateV2 r n m h i o d -> DncStateV2 r n m h i o d
-resetDncStateV2 (MkDncV2 lstm wkFc wbFc eFc aFc fgFc agFc wgFc rkFc rbFc rmFc oFc
+resetDncState : {r, n, m, h : Nat} ->
+                  DncState r n m h i o d -> DncState r n m h i o d
+resetDncState (MkDnc lstm wkFc wbFc eFc aFc fgFc agFc wgFc rkFc rbFc rmFc oFc
                           _ _ _ _ _ _ _) =
-  let memTV : TVar [n, m] _
-      memTV = MkTVar (constState2d n m 1.0e-6) Nothing
+  let memTV : Variable [n, m] _
+      memTV = MkVar (constState2d n m 1.0e-6) Nothing
       usageTV : TVec n _
-      usageTV = MkTVar (zeroState1d n) Nothing
+      usageTV = MkVar (zeroState1d n) Nothing
       wwTV : TVec n _
-      wwTV = MkTVar (zeroState1d n) Nothing
+      wwTV = MkVar (zeroState1d n) Nothing
       precTV : TVec n _
-      precTV = MkTVar (zeroState1d n) Nothing
-      linkTV : TVar [n, n] _
-      linkTV = MkTVar (zeroState2d n n) Nothing
-  in MkDncV2 (resetLstmStateV2 lstm) wkFc wbFc eFc aFc fgFc agFc wgFc rkFc rbFc rmFc oFc
+      precTV = MkVar (zeroState1d n) Nothing
+      linkTV : Variable [n, n] _
+      linkTV = MkVar (zeroState2d n n) Nothing
+  in MkDnc (resetLstmState lstm) wkFc wbFc eFc aFc fgFc agFc wgFc rkFc rbFc rmFc oFc
              (Just memTV) (Just usageTV) (Just wwTV) (Just precTV)
              (Just linkTV) (Just (mkZeroVectN r n)) (Just (mkZeroVectM r m))
 
 
 ----------------------------------------------------------------------
--- LayerLikeV2 instance
+-- LayerLike instance
 ----------------------------------------------------------------------
 
 public export
 {r, n, m, h : Nat} ->
-  LayerLikeV2 (DncStateV2 r n m h) where
-  applyTVar st@(MkDncV2 _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _) input =
-    applyDncV2 st input
-  layerPrefixV2 _ = "dncV2"
-  resetStateV2 st = resetDncStateV2 st
+  LayerLike (DncState r n m h) where
+  applyVar st@(MkDnc _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _) input =
+    applyDnc st input
+  layerPrefix _ = "dnc"
+  resetState st = resetDncState st
 
 export
-dncLayerV2Any : {r, n, m, h, i, o : Nat} ->
+dncLayerAny : {r, n, m, h, i, o : Nat} ->
                 (paramPrefix : String) ->
-                IO (AnyLayerV2 i o CPU)
-dncLayerV2Any pid =
-  map (MkAnyLayerV2 (DncStateV2 r n m h)) (dncLayerV2 {r} {n} {m} {h} {i} {o} pid)
+                IO (AnyLayer i o CPU)
+dncLayerAny pid =
+  map (MkAnyLayer (DncState r n m h)) (dncLayer {r} {n} {m} {h} {i} {o} pid)

@@ -16,16 +16,16 @@ import Data.Vect
 import System
 import Compat.Random
 
-import BackpropV2
+import Backprop
 import DataPoint
 import Floating
 import Generate
 import Hpo.LrFinder
-import Layer.ActivationV2
-import Layer.ConvV2  -- ConvOutDim / PoolOutDim type-level helpers
-import Layer.CoreV2
-import Layer.DropoutV2
-import Layer.LinearV2
+import Layer.Activation
+import Layer.Conv  -- ConvOutDim / PoolOutDim type-level helpers
+import Layer.Core
+import Layer.Dropout
+import Layer.Linear
 import Tensor
 import Train
 import Util
@@ -120,7 +120,7 @@ oneHotV label =
 waveToVector : Vect SeqLen Double -> Vector InputDim Double
 waveToVector wave = VTensor (map STensor wave)
 
-||| Generate one V2 training data point.
+||| Generate one  training data point.
 seqPoint : IO (DataPoint InputDim NumClasses Double)
 seqPoint = do
   labelN <- randomInt 0 2
@@ -172,17 +172,17 @@ main = do
            ++ " patience=" ++ show cfg.patience ++ " seed=" ++ show cfg.seed
   putStrLn "Architecture: Conv1d(1->4,k=3) -> ReLU -> Pool(2) -> Conv1d(4->8,k=3) -> ReLU -> Pool(2) -> Dropout(0.5) -> Linear(48->3)"
 
-  conv1Any <- conv1dLayerV2Any {inC=InC, outC=C1, len=SeqLen, kL=K, pad=0} "conv1"
-  conv2Any <- conv1dLayerV2Any {inC=C1, outC=C2, len=Pool1Out, kL=K, pad=0} "conv2"
-  fcAny <- linearLayerV2Any {i=AfterPool2, o=NumClasses} "fc"
+  conv1Any <- conv1dLayerAny {inC=InC, outC=C1, len=SeqLen, kL=K, pad=0} "conv1"
+  conv2Any <- conv1dLayerAny {inC=C1, outC=C2, len=Pool1Out, kL=K, pad=0} "conv2"
+  fcAny <- linearLayerAny {i=AfterPool2, o=NumClasses} "fc"
   let model = conv1Any
-            ~~> reluLayerV2Any
-            ~~> maxPool1dLayerV2 {c=C1, len=Conv1Out, poolK=2, str=2}
+            ~~> reluLayerAny
+            ~~> maxPool1dLayer {c=C1, len=Conv1Out, poolK=2, str=2}
             ~~> conv2Any
-            ~~> reluLayerV2Any
-            ~~> maxPool1dLayerV2 {c=C2, len=Conv2Out, poolK=2, str=2}
-            ~~> dropoutLayerV2Any 0.5
-            ~~> OutputLayerV2 fcAny
+            ~~> reluLayerAny
+            ~~> maxPool1dLayer {c=C2, len=Conv2Out, poolK=2, str=2}
+            ~~> dropoutLayerAny 0.5
+            ~~> OutputLayer fcAny
   putStrLn ""
 
   let opt = nativeAdamGlobalClip cfg.lr 0.9 0.999 1.0e-8 1.0
@@ -196,7 +196,7 @@ main = do
     let lrCfg : LrFindConfig
         lrCfg = { numIters := 100 } defaultLrFindConfig
     _ <- lrFind lrCfg
-      (\m, d => let (m', loss) = epochTVar opt d tnllLoss m
+      (\m, d => let (m', loss) = epochVar opt d tnllLoss m
                 in pure (m', loss))
       genBatch opt model
     putStrLn ""
@@ -204,7 +204,7 @@ main = do
     exitSuccess
 
   (trained, epochsDone, finalLoss) <- runTraining
-    (\m, d => epochTVar opt d tnllLoss m) genBatch trainCfg model
+    (\m, d => epochVar opt d tnllLoss m) genBatch trainCfg model
 
   putStrLn ""
   putStrLn $ formatResult [("loss", show finalLoss),

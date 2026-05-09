@@ -1,34 +1,34 @@
-module Layer.DropoutV2
+module Layer.Dropout
 
 import Data.Vect
 
 import Device
-import Layer.CoreV2
+import Layer.Core
 import Variable
 
 
 -- Random seed for dropout mask. Dummy arg prevents CSE — the FFI
 -- binding is shared with the V1 dropout layer (declared there but we
--- don't import that module to keep V1/V2 paths independent).
+-- don't import that module to keep V1/ paths independent).
 %foreign "C:dropout_random_seed,libidrisml"
 dropoutSeed : Int -> Int
 
 
 ----------------------------------------------------------------------
--- DropoutV2 — typed-surface dropout (Path C)
+-- Dropout — typed-surface dropout (Path C)
 ----------------------------------------------------------------------
 --
 -- Inverted dropout: training mode zeros elements with probability p
 -- and scales survivors by 1/(1-p); eval mode is identity. Toggle
--- via `setTrainingV2`. No learnable params, so no `nameLayer` work.
+-- via `setTraining`. No learnable params, so no `nameLayer` work.
 --
 -- Parameterised by both input and output sizes (with `i = n` and
--- `o = n` enforced by the constructor) so the type fits LayerLikeV2's
+-- `o = n` enforced by the constructor) so the type fits LayerLike's
 -- `Nat -> Nat -> Device -> Type` arity.
 
 public export
-data DropoutStateV2 : Nat -> Nat -> (0 _ : Device) -> Type where
-  MkDropoutV2 : (p : Double) -> (training : Bool) -> DropoutStateV2 n n d
+data DropoutState : Nat -> Nat -> (0 _ : Device) -> Type where
+  MkDropout : (p : Double) -> (training : Bool) -> DropoutState n n d
 
 
 ----------------------------------------------------------------------
@@ -38,16 +38,16 @@ data DropoutStateV2 : Nat -> Nat -> (0 _ : Device) -> Type where
 %default partial
 
 export
-applyDropoutV2 : {n : Nat} ->
-                 DropoutStateV2 n n d ->
+applyDropout : {n : Nat} ->
+                 DropoutState n n d ->
                  TVec n d ->
-                 (DropoutStateV2 n n d, TVec n d)
-applyDropoutV2 st@(MkDropoutV2 p training) input =
+                 (DropoutState n n d, TVec n d)
+applyDropout st@(MkDropout p training) input =
   if training
     then
       let seed = dropoutSeed 0
           outPtr = prim__dropout input.tensorPtr p 1 seed
-      in (st, MkTVar outPtr Nothing)
+      in (st, MkVar outPtr Nothing)
     else (st, input)
 
 
@@ -55,40 +55,40 @@ applyDropoutV2 st@(MkDropoutV2 p training) input =
 -- Constructor
 ----------------------------------------------------------------------
 
-||| Create a DropoutV2 with given drop probability. Starts in training
-||| mode; flip to eval via `setTrainingV2 False`.
+||| Create a Dropout with given drop probability. Starts in training
+||| mode; flip to eval via `setTraining False`.
 export
-dropoutLayerV2 : {n : Nat} -> (p : Double) -> DropoutStateV2 n n d
-dropoutLayerV2 p = MkDropoutV2 p True
+dropoutLayer : {n : Nat} -> (p : Double) -> DropoutState n n d
+dropoutLayer p = MkDropout p True
 
 ||| Toggle training/eval mode.
 export
-setTrainingV2 : Bool -> DropoutStateV2 n n d -> DropoutStateV2 n n d
-setTrainingV2 mode (MkDropoutV2 p _) = MkDropoutV2 p mode
+setTraining : Bool -> DropoutState n n d -> DropoutState n n d
+setTraining mode (MkDropout p _) = MkDropout p mode
 
 
 ----------------------------------------------------------------------
--- LayerLikeV2 instance
+-- LayerLike instance
 ----------------------------------------------------------------------
 
 public export
-LayerLikeV2 DropoutStateV2 where
-  -- Pattern match on MkDropoutV2 unifies i = o = n, so we can pass
-  -- through to applyDropoutV2 which works on the same-size form.
-  applyTVar st@(MkDropoutV2 _ _) input = applyDropoutV2 st input
+LayerLike DropoutState where
+  -- Pattern match on MkDropout unifies i = o = n, so we can pass
+  -- through to applyDropout which works on the same-size form.
+  applyVar st@(MkDropout _ _) input = applyDropout st input
 
   -- prim__dropout is rank-agnostic, so the batched form is identical
   -- to the single-sample form — same dropout rate, fresh per-call seed.
-  applyTVarBatch st@(MkDropoutV2 p training) input =
+  applyVarBatch st@(MkDropout p training) input =
     if training
       then let seed = dropoutSeed 0
                outPtr = prim__dropout input.tensorPtr p 1 seed
-           in (st, MkTVar outPtr Nothing)
+           in (st, MkVar outPtr Nothing)
       else (st, input)
 
-  layerPrefixV2 _ = "dropV2"
+  layerPrefix _ = "drop"
 
-||| Wrap a DropoutV2 in `AnyLayerV2`.
+||| Wrap a Dropout in `AnyLayer`.
 export
-dropoutLayerV2Any : {n : Nat} -> (p : Double) -> AnyLayerV2 n n d
-dropoutLayerV2Any p = MkAnyLayerV2 DropoutStateV2 (dropoutLayerV2 p)
+dropoutLayerAny : {n : Nat} -> (p : Double) -> AnyLayer n n d
+dropoutLayerAny p = MkAnyLayer DropoutState (dropoutLayer p)

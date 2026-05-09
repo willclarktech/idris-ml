@@ -16,17 +16,17 @@ import Decidable.Equality
 import System
 import Compat.Random
 
-import BackpropV2
+import Backprop
 import DataLoader
 import DataPoint
 import Floating
 import Generate
 import Hpo.LrFinder
-import Layer.ActivationV2
-import Layer.ConvV2  -- ConvOutDim / PoolOutDim type-level helpers
-import Layer.CoreV2
-import Layer.DropoutV2
-import Layer.LinearV2
+import Layer.Activation
+import Layer.Conv  -- ConvOutDim / PoolOutDim type-level helpers
+import Layer.Core
+import Layer.Dropout
+import Layer.Linear
 import Tensor
 import Train
 import Util
@@ -130,9 +130,9 @@ mnistItem ds idx = do
 ----------------------------------------------------------------------
 
 ||| Evaluate accuracy on nSamples random test images by forwarding each
-||| image through the V2 model and arg-maxing the logits.
+||| image through the  model and arg-maxing the logits.
 evalAccuracy : {hs : List Nat} ->
-               NetworkV2 InputDim hs NumClasses CPU ->
+               Network InputDim hs NumClasses CPU ->
                AnyPtr -> Int -> Nat -> (Double, Double)
 evalAccuracy model ds numImages nSamples = go nSamples 0 0.0
   where
@@ -152,15 +152,15 @@ evalAccuracy model ds numImages nSamples = go nSamples 0 0.0
           imgT = prim__mnistGetImage ds pos
           lbl = prim__mnistGetLabel ds pos
           flatImg = prim__reshape1d imgT (cast {to=Int} InputDim)
-          inV = the (TVec InputDim CPU) (MkTVar flatImg Nothing)
-          (_, predV) = forwardTVar model inV
+          inV = the (TVec InputDim CPU) (MkVar flatImg Nothing)
+          (_, predV) = forwardVar model inV
           outT = predV.tensorPtr
           pred = argmax outT (-1.0e30) 0 0
           correct' = if pred == lbl then S correct else correct
           lblBuf = prim__allocInts 1
           lblBuf' = prim__setInt lblBuf 0 lbl
           tgtT = prim__oneHot lblBuf' 1 (cast {to=Int} NumClasses)
-          tgtV = the (TVec NumClasses CPU) (MkTVar tgtT Nothing)
+          tgtV = the (TVec NumClasses CPU) (MkVar tgtT Nothing)
           lossT = tnllLoss predV tgtV
           lossVal = prim__item lossT.tensorPtr
       in go k correct' (totalLoss + lossVal)
@@ -173,28 +173,28 @@ evalAccuracy model ds numImages nSamples = go nSamples 0 0.0
 ||| One epoch = one full pass over the training set (PyTorch semantics).
 ||| Threads the model and accumulates per-batch loss across all
 ||| `batchesPerEpoch` mini-batches drawn from the indexed loader.
-||| Each mini-batch invokes `epochTVarTensor` (forward + loss + backward
+||| Each mini-batch invokes `epochVarTensor` (forward + loss + backward
 ||| + step). Returns the model and the mean per-batch loss.
 trainOneFullPass : {hs : List Nat} ->
                    NativeOptimizer ->
                    IO (Vect BatchSize (TensorDataPoint InputDim NumClasses)) ->
                    (batchesPerEpoch : Nat) ->
-                   NetworkV2 InputDim hs NumClasses CPU ->
-                   IO (NetworkV2 InputDim hs NumClasses CPU, Double)
+                   Network InputDim hs NumClasses CPU ->
+                   IO (Network InputDim hs NumClasses CPU, Double)
 trainOneFullPass opt genBatch n m0 = go m0 n 0.0
   where
-    go : NetworkV2 InputDim hs NumClasses CPU -> Nat -> Double ->
-         IO (NetworkV2 InputDim hs NumClasses CPU, Double)
+    go : Network InputDim hs NumClasses CPU -> Nat -> Double ->
+         IO (Network InputDim hs NumClasses CPU, Double)
     go m Z     acc = pure (m, acc / cast (natToInteger n))
     go m (S k) acc = do
       batch <- genBatch
-      let (m', loss) = epochTVarTensor opt batch tnllLoss m
+      let (m', loss) = epochVarTensor opt batch tnllLoss m
       go m' k (acc + loss)
 
 ||| Per-epoch metrics: test accuracy and test loss over a small eval slice.
 mnistMetrics : {hs : List Nat} ->
                AnyPtr -> Int ->
-               NetworkV2 InputDim hs NumClasses CPU ->
+               Network InputDim hs NumClasses CPU ->
                IO (List (String, String))
 mnistMetrics testDs testCount m =
   let pair = evalAccuracy m testDs testCount 200
@@ -253,19 +253,19 @@ main = do
       testCount = prim__mnistCount testDs
   putStrLn $ "Train: " ++ show trainCount ++ " images, Test: " ++ show testCount ++ " images"
 
-  -- Build V2 model
-  conv1Any <- conv2dLayerV2Any {inC=InC, outC=OutC1, h=ImgH, w=ImgW, kH=KH, kW=KW, padH=0, padW=0} "conv1"
-  conv2Any <- conv2dLayerV2Any {inC=OutC1, outC=OutC2, h=Pool1OutH, w=Pool1OutW, kH=KH, kW=KW, padH=0, padW=0} "conv2"
-  fcAny <- linearLayerV2Any {i=AfterPool2, o=NumClasses} "fc"
+  -- Build  model
+  conv1Any <- conv2dLayerAny {inC=InC, outC=OutC1, h=ImgH, w=ImgW, kH=KH, kW=KW, padH=0, padW=0} "conv1"
+  conv2Any <- conv2dLayerAny {inC=OutC1, outC=OutC2, h=Pool1OutH, w=Pool1OutW, kH=KH, kW=KW, padH=0, padW=0} "conv2"
+  fcAny <- linearLayerAny {i=AfterPool2, o=NumClasses} "fc"
 
   let model = conv1Any
-            ~~> reluLayerV2Any
-            ~~> maxPool2dLayerV2 {c=OutC1, inH=Conv1OutH, inW=Conv1OutW, poolH=2, poolW=2, strH=2, strW=2}
+            ~~> reluLayerAny
+            ~~> maxPool2dLayer {c=OutC1, inH=Conv1OutH, inW=Conv1OutW, poolH=2, poolW=2, strH=2, strW=2}
             ~~> conv2Any
-            ~~> reluLayerV2Any
-            ~~> maxPool2dLayerV2 {c=OutC2, inH=Conv2OutH, inW=Conv2OutW, poolH=2, poolW=2, strH=2, strW=2}
-            ~~> dropoutLayerV2Any 0.5
-            ~~> OutputLayerV2 fcAny
+            ~~> reluLayerAny
+            ~~> maxPool2dLayer {c=OutC2, inH=Conv2OutH, inW=Conv2OutW, poolH=2, poolW=2, strH=2, strW=2}
+            ~~> dropoutLayerAny 0.5
+            ~~> OutputLayer fcAny
   putStrLn ""
 
   let opt = nativeAdamGlobalClip cfg.lr 0.9 0.999 1.0e-8 1.0
@@ -288,7 +288,7 @@ main = do
     let lrCfg : LrFindConfig
         lrCfg = { numIters := 100 } defaultLrFindConfig
     _ <- lrFind lrCfg
-      (\m, batch => let (m', loss) = epochTVarTensor opt batch tnllLoss m
+      (\m, batch => let (m', loss) = epochVarTensor opt batch tnllLoss m
                     in pure (m', loss))
       genBatch opt model
     putStrLn ""

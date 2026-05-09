@@ -8,12 +8,12 @@ import Data.Vect
 import System
 import Compat.Random
 
-import BackpropV2
+import Backprop
 import Checkpoint
 import DataPoint
 import Hpo.LrFinder
-import Layer.CoreV2
-import Layer.LinearV2
+import Layer.Core
+import Layer.Linear
 import Tensor
 import Train
 import Util
@@ -87,24 +87,24 @@ optPath path =
 ----------------------------------------------------------------------
 
 -- Forward each datapoint, compute NLL loss as a Double, average.
-evalModel : NetworkV2 2 [] 3 CPU -> IO Double
+evalModel : Network 2 [] 3 CPU -> IO Double
 evalModel model = do
   let losses = map (\dp =>
         let inT = bulkToTensor (x dp)
-            inV = the (TVec 2 CPU) (MkTVar inT Nothing)
-            (_, predV) = forwardTVar model inV
+            inV = the (TVec 2 CPU) (MkVar inT Nothing)
+            (_, predV) = forwardVar model inV
             tgtT = bulkToTensor (y dp)
-            tgtV = the (TVec 3 CPU) (MkTVar tgtT Nothing)
+            tgtV = the (TVec 3 CPU) (MkVar tgtT Nothing)
             lossT = tnllLoss predV tgtV
         in prim__item lossT.tensorPtr) dataPoints
   pure (foldl (+) 0.0 (toList losses) / 5.0)
 
-printPredictions : NetworkV2 2 [] 3 CPU -> IO ()
+printPredictions : Network 2 [] 3 CPU -> IO ()
 printPredictions model = do
   traverse_ (\dp =>
     let inT = bulkToTensor (x dp)
-        inV = the (TVec 2 CPU) (MkTVar inT Nothing)
-        (_, predV) = forwardTVar model inV
+        inV = the (TVec 2 CPU) (MkVar inT Nothing)
+        (_, predV) = forwardVar model inV
         predClass = evalPrediction predV.tensorPtr
         targetClass = evalPredictionTarget (y dp)
         showVec : {k : Nat} -> Vector k Double -> String
@@ -122,12 +122,12 @@ printPredictions model = do
 -- Modes
 ----------------------------------------------------------------------
 
-doTrain : Config -> NetworkV2 2 [] 3 CPU -> IO ()
+doTrain : Config -> Network 2 [] 3 CPU -> IO ()
 doTrain cfg model = do
   let opt = nativeSgd cfg.lr
   putStrLn $ "Training " ++ show cfg.epochs ++ " epochs..."
   (trained, epochsDone, _) <- runTraining
-    (\m, d => epochTVar opt d tnllLoss m) (pure dataPoints)
+    (\m, d => epochVar opt d tnllLoss m) (pure dataPoints)
     (simpleConfig cfg.epochs) model
   if cfg.savePath == ""
     then putStrLn "No --save path given; skipping save"
@@ -142,7 +142,7 @@ doTrain cfg model = do
   putStrLn $ formatResult [("mode", "train"), ("epochs", show epochsDone),
                             ("loss", show evalLoss), ("backend", backendName)]
 
-doContinue : Config -> NetworkV2 2 [] 3 CPU -> IO ()
+doContinue : Config -> Network 2 [] 3 CPU -> IO ()
 doContinue cfg model = do
   ok <- loadModel cfg.loadPath
   putStrLn $ (if ok then "Loaded model from " else "FAILED to load from ") ++ cfg.loadPath
@@ -152,7 +152,7 @@ doContinue cfg model = do
            ++ optPath cfg.loadPath
   putStrLn $ "Training " ++ show cfg.epochs ++ " more epochs..."
   (trained, epochsDone, _) <- runTraining
-    (\m, d => epochTVar opt d tnllLoss m) (pure dataPoints)
+    (\m, d => epochVar opt d tnllLoss m) (pure dataPoints)
     (simpleConfig cfg.epochs) model
   if cfg.savePath == ""
     then putStrLn "No --save path given; skipping save"
@@ -167,7 +167,7 @@ doContinue cfg model = do
   putStrLn $ formatResult [("mode", "continue"), ("epochs", show epochsDone),
                             ("loss", show evalLoss), ("backend", backendName)]
 
-doInfer : Config -> NetworkV2 2 [] 3 CPU -> IO ()
+doInfer : Config -> Network 2 [] 3 CPU -> IO ()
 doInfer cfg model = do
   ok <- loadModel cfg.loadPath
   putStrLn $ (if ok then "Loaded model from " else "FAILED to load from ") ++ cfg.loadPath
@@ -188,9 +188,9 @@ main = do
   let cfg = parseArgs defaultConfig specs (drop 1 args)
   srand cfg.seed
 
-  llAny <- linearLayerV2Any {i=2} {o=3} "ll"
-  let model : NetworkV2 2 [] 3 CPU
-      model = OutputLayerV2 llAny
+  llAny <- linearLayerAny {i=2} {o=3} "ll"
+  let model : Network 2 [] 3 CPU
+      model = OutputLayer llAny
 
   putStrLn $ "=== Cross-Backend Transfer [" ++ backendName ++ "] -- "
            ++ cfg.mode ++ " ==="
@@ -200,7 +200,7 @@ main = do
     let lrCfg : LrFindConfig
         lrCfg = { numIters := 100 } defaultLrFindConfig
     _ <- lrFind lrCfg
-      (\m, d => let (m', loss) = epochTVar opt d tnllLoss m
+      (\m, d => let (m', loss) = epochVar opt d tnllLoss m
                 in pure (m', loss))
       (pure dataPoints) opt model
     putStrLn ""

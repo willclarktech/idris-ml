@@ -1,13 +1,13 @@
-module Layer.NtmV2
+module Layer.Ntm
 
 import Data.Vect
 
 import Compat.Random
 import Device
 import Init
-import Layer.CoreV2
-import Layer.LinearV2
-import Layer.LstmV2
+import Layer.Core
+import Layer.Linear
+import Layer.Lstm
 import Sampler
 import Variable
 
@@ -30,7 +30,7 @@ WriteParamWidth m = ReadParamWidth m + m
 
 
 ----------------------------------------------------------------------
--- NtmStateV2 — typed-surface NTM controller (Path C)
+-- NtmState — typed-surface NTM controller (Path C)
 ----------------------------------------------------------------------
 --
 -- Mirrors V1 `Layer/Ntm.idr`'s `applyVarTensor` path. The LSTM
@@ -39,27 +39,27 @@ WriteParamWidth m = ReadParamWidth m + m
 -- `prim__ntmReadHead` / `prim__ntmInterpWrite` handle addressing.
 --
 -- Architecture:
---   inputSize -> LstmV2(m+inputSize, h) -> readFc/writeFc/outputFc
+--   inputSize -> Lstm(m+inputSize, h) -> readFc/writeFc/outputFc
 --                                       -> Memory[n,m] -> outputSize
 --
 -- State (memT, readAddrT, writeAddrT, readOutT) is persistent C
--- tensor handles, reset between sequences via `resetNtmStateV2`.
+-- tensor handles, reset between sequences via `resetNtmState`.
 
 public export
-data NtmStateV2 :
+data NtmState :
   (n : Nat) -> (m : Nat) -> (h : Nat) ->
   Nat -> Nat -> (0 _ : Device) -> Type
   where
-  MkNtmV2 :
-    LstmStateV2 (m + i) h d ->
-    LinearStateV2 h (ReadParamWidth m) d ->
-    LinearStateV2 h (WriteParamWidth m) d ->
-    LinearStateV2 (h + m) o d ->
-    Maybe (TVar [n, m] d) ->                          -- memory state
+  MkNtm :
+    LstmState (m + i) h d ->
+    LinearState h (ReadParamWidth m) d ->
+    LinearState h (WriteParamWidth m) d ->
+    LinearState (h + m) o d ->
+    Maybe (Variable [n, m] d) ->                          -- memory state
     Maybe (TVec n d) ->                               -- read addr
     Maybe (TVec n d) ->                               -- write addr
     Maybe (TVec m d) ->                               -- last read output
-    NtmStateV2 n m h i o d
+    NtmState n m h i o d
 
 
 ----------------------------------------------------------------------
@@ -83,12 +83,12 @@ zeroState2d n m =
   in prim__createState2d nI mI buf
 
 export
-applyNtmV2 : {n, m, h, i, o : Nat} ->
-             NtmStateV2 n m h i o d ->
+applyNtm : {n, m, h, i, o : Nat} ->
+             NtmState n m h i o d ->
              TVec i d ->
-             (NtmStateV2 n m h i o d, TVec o d)
-applyNtmV2 {n} {m} {h} {i} {o}
-           (MkNtmV2 lstm readFc writeFc outputFc memT raT waT roT) input =
+             (NtmState n m h i o d, TVec o d)
+applyNtm {n} {m} {h} {i} {o}
+           (MkNtm lstm readFc writeFc outputFc memT raT waT roT) input =
   let memTPtr = case memT of
                   Just t => t.tensorPtr
                   Nothing => zeroState2d n m
@@ -103,13 +103,13 @@ applyNtmV2 {n} {m} {h} {i} {o}
                  Nothing => zeroState1d m
       -- 1. cat(readOut, input) -> [m + i]
       lstmInputPtr = prim__cat2 roTPtr input.tensorPtr
-      lstmInputV = the (TVec (m + i) d) (MkTVar lstmInputPtr Nothing)
+      lstmInputV = the (TVec (m + i) d) (MkVar lstmInputPtr Nothing)
       -- 2. LSTM forward
-      (updLstm, hiddenV) = applyLstmV2 lstm lstmInputV
+      (updLstm, hiddenV) = applyLstm lstm lstmInputV
       -- 3. Extract cell tensor (post-LSTM cell state)
       cellPtr = case updLstm.cellT of
                   Just c => c.tensorPtr
-                  Nothing => idris_crash "NtmV2: cell tensor missing post-LSTM"
+                  Nothing => idris_crash "Ntm: cell tensor missing post-LSTM"
       -- Sub-layer weight tensor handles
       rfcW = readFc.weightT.tensorPtr
       rfcB = readFc.biasT.tensorPtr
@@ -146,12 +146,12 @@ applyNtmV2 {n} {m} {h} {i} {o}
       -- 6. Output FC: cat(hidden, readOut) -> [o]
       concatPtr = prim__cat2 hiddenV.tensorPtr newReadOutT
       outputPtr = prim__add (prim__mv ofcW concatPtr) ofcB
-  in ( MkNtmV2 updLstm readFc writeFc outputFc
-        (Just (MkTVar newMemT Nothing))
-        (Just (MkTVar newReadAddrT Nothing))
-        (Just (MkTVar newWriteAddrT Nothing))
-        (Just (MkTVar newReadOutT Nothing))
-     , MkTVar outputPtr Nothing )
+  in ( MkNtm updLstm readFc writeFc outputFc
+        (Just (MkVar newMemT Nothing))
+        (Just (MkVar newReadAddrT Nothing))
+        (Just (MkVar newWriteAddrT Nothing))
+        (Just (MkVar newReadOutT Nothing))
+     , MkVar outputPtr Nothing )
 
 
 ----------------------------------------------------------------------
@@ -165,66 +165,66 @@ fillConst buf _ 0 _ = buf
 fillConst buf off i v =
   fillConst (prim__setDouble buf off v) (off + 1) (i - 1) v
 
-||| Build an `NtmStateV2 n m h inputSize outputSize CPU` with default
-||| init: LSTM weights via Xavier (LstmV2 default), FC layers Xavier
-||| (LinearV2 default), memory init to 1e-6 across [n,m], all
+||| Build an `NtmState n m h inputSize outputSize CPU` with default
+||| init: LSTM weights via Xavier (Lstm default), FC layers Xavier
+||| (Linear default), memory init to 1e-6 across [n,m], all
 ||| addresses and read output zero. State tensors are persistent.
 export
-ntmLayerV2 : {n, m, h, i, o : Nat} ->
+ntmLayer : {n, m, h, i, o : Nat} ->
              (paramPrefix : String) ->
-             IO (NtmStateV2 n m h i o CPU)
-ntmLayerV2 pfx = do
-  lstm <- lstmLayerV2 {i = m + i} {o = h} (pfx ++ "_lstm")
-  rfc  <- linearLayerV2 {i = h} {o = ReadParamWidth m} (pfx ++ "_readFc")
-  wfc  <- linearLayerV2 {i = h} {o = WriteParamWidth m} (pfx ++ "_writeFc")
-  ofc  <- linearLayerV2 {i = h + m} {o = o} (pfx ++ "_outputFc")
+             IO (NtmState n m h i o CPU)
+ntmLayer pfx = do
+  lstm <- lstmLayer {i = m + i} {o = h} (pfx ++ "_lstm")
+  rfc  <- linearLayer {i = h} {o = ReadParamWidth m} (pfx ++ "_readFc")
+  wfc  <- linearLayer {i = h} {o = WriteParamWidth m} (pfx ++ "_writeFc")
+  ofc  <- linearLayer {i = h + m} {o = o} (pfx ++ "_outputFc")
   let nI = cast {to=Int} n
       mI = cast {to=Int} m
       memBuf = fillConst (prim__allocDoubles (nI * mI)) 0 (nI * mI) 1.0e-6
-      memT : TVar [n, m] CPU
-      memT = MkTVar (prim__createState2d nI mI memBuf) Nothing
+      memT : Variable [n, m] CPU
+      memT = MkVar (prim__createState2d nI mI memBuf) Nothing
       raT : TVec n CPU
-      raT = MkTVar (zeroState1d n) Nothing
+      raT = MkVar (zeroState1d n) Nothing
       waT : TVec n CPU
-      waT = MkTVar (zeroState1d n) Nothing
+      waT = MkVar (zeroState1d n) Nothing
       roT : TVec m CPU
-      roT = MkTVar (zeroState1d m) Nothing
-  pure $ MkNtmV2 lstm rfc wfc ofc (Just memT) (Just raT) (Just waT) (Just roT)
+      roT = MkVar (zeroState1d m) Nothing
+  pure $ MkNtm lstm rfc wfc ofc (Just memT) (Just raT) (Just waT) (Just roT)
 
 ||| Reset NTM state to fresh persistent zero/init tensors. Use
 ||| between training sequences (memory + addresses are not learned).
 export
-resetNtmStateV2 : {n, m, h : Nat} -> NtmStateV2 n m h i o d -> NtmStateV2 n m h i o d
-resetNtmStateV2 (MkNtmV2 lstm rfc wfc ofc _ _ _ _) =
+resetNtmState : {n, m, h : Nat} -> NtmState n m h i o d -> NtmState n m h i o d
+resetNtmState (MkNtm lstm rfc wfc ofc _ _ _ _) =
   let nI = cast {to=Int} n
       mI = cast {to=Int} m
       memBuf = fillConst (prim__allocDoubles (nI * mI)) 0 (nI * mI) 1.0e-6
-      memT : TVar [n, m] _
-      memT = MkTVar (prim__createState2d nI mI memBuf) Nothing
+      memT : Variable [n, m] _
+      memT = MkVar (prim__createState2d nI mI memBuf) Nothing
       raT : TVec n _
-      raT = MkTVar (zeroState1d n) Nothing
+      raT = MkVar (zeroState1d n) Nothing
       waT : TVec n _
-      waT = MkTVar (zeroState1d n) Nothing
+      waT = MkVar (zeroState1d n) Nothing
       roT : TVec m _
-      roT = MkTVar (zeroState1d m) Nothing
-  in MkNtmV2 (resetLstmStateV2 lstm) rfc wfc ofc
+      roT = MkVar (zeroState1d m) Nothing
+  in MkNtm (resetLstmState lstm) rfc wfc ofc
              (Just memT) (Just raT) (Just waT) (Just roT)
 
 
 ----------------------------------------------------------------------
--- LayerLikeV2 instance
+-- LayerLike instance
 ----------------------------------------------------------------------
 
 public export
 {n, m, h : Nat} ->
-  LayerLikeV2 (NtmStateV2 n m h) where
-  applyTVar st@(MkNtmV2 _ _ _ _ _ _ _ _) input = applyNtmV2 st input
-  layerPrefixV2 _ = "ntmV2"
-  resetStateV2 st = resetNtmStateV2 st
+  LayerLike (NtmState n m h) where
+  applyVar st@(MkNtm _ _ _ _ _ _ _ _) input = applyNtm st input
+  layerPrefix _ = "ntm"
+  resetState st = resetNtmState st
 
 export
-ntmLayerV2Any : {n, m, h, i, o : Nat} ->
+ntmLayerAny : {n, m, h, i, o : Nat} ->
                 (paramPrefix : String) ->
-                IO (AnyLayerV2 i o CPU)
-ntmLayerV2Any pid =
-  map (MkAnyLayerV2 (NtmStateV2 n m h)) (ntmLayerV2 {n} {m} {h} {i} {o} pid)
+                IO (AnyLayer i o CPU)
+ntmLayerAny pid =
+  map (MkAnyLayer (NtmState n m h)) (ntmLayer {n} {m} {h} {i} {o} pid)

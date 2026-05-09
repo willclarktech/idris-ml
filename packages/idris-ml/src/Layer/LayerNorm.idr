@@ -1,14 +1,14 @@
-module Layer.LayerNormV2
+module Layer.LayerNorm
 
 import Data.Vect
 
 import Device
-import Layer.CoreV2
+import Layer.Core
 import Variable
 
 
 ----------------------------------------------------------------------
--- LayerNormV2 — typed-surface layer normalisation (Path C)
+-- LayerNorm — typed-surface layer normalisation (Path C)
 ----------------------------------------------------------------------
 --
 -- Normalises along the last (only) dim of a 1D `TVec n d` input,
@@ -19,12 +19,12 @@ import Variable
 -- normalise, reshape back. ~3 tape entries per call (still much
 -- cheaper than computing mean/var/sqrt manually).
 --
--- GADT shape `i = o = n` lets the layer fit `LayerLikeV2`'s arity
--- (mirrors DropoutV2's pattern).
+-- GADT shape `i = o = n` lets the layer fit `LayerLike`'s arity
+-- (mirrors Dropout's pattern).
 
 public export
-data LayerNormStateV2 : Nat -> Nat -> (0 _ : Device) -> Type where
-  MkLayerNormV2 : TVec n d -> TVec n d -> LayerNormStateV2 n n d
+data LayerNormState : Nat -> Nat -> (0 _ : Device) -> Type where
+  MkLayerNorm : TVec n d -> TVec n d -> LayerNormState n n d
 
 
 ----------------------------------------------------------------------
@@ -34,16 +34,16 @@ data LayerNormStateV2 : Nat -> Nat -> (0 _ : Device) -> Type where
 %default partial
 
 export
-applyLayerNormV2 : {n : Nat} ->
-                   LayerNormStateV2 n n d ->
+applyLayerNorm : {n : Nat} ->
+                   LayerNormState n n d ->
                    TVec n d ->
-                   (LayerNormStateV2 n n d, TVec n d)
-applyLayerNormV2 {n} st@(MkLayerNormV2 gamma beta) input =
+                   (LayerNormState n n d, TVec n d)
+applyLayerNorm {n} st@(MkLayerNorm gamma beta) input =
   let nI = cast {to=Int} n
       input2d = prim__reshape2d input.tensorPtr 1 nI
       norm2d = prim__layerNorm2d input2d gamma.tensorPtr beta.tensorPtr 1.0e-5
       norm1d = prim__reshape1d norm2d nI
-  in (st, MkTVar norm1d Nothing)
+  in (st, MkVar norm1d Nothing)
 
 
 ----------------------------------------------------------------------
@@ -62,13 +62,13 @@ fillConst buf _ 0 _ = buf
 fillConst buf off n v =
   fillConst (prim__setDouble buf off v) (off + 1) (n - 1) v
 
-||| Build a `LayerNormStateV2 n n CPU` with gamma initialised to 1.0
+||| Build a `LayerNormState n n CPU` with gamma initialised to 1.0
 ||| and beta to 0.0. Both register as C params under
 ||| `<prefix>_gamma` / `<prefix>_beta`.
 export
-layerNormLayerV2 : {n : Nat} -> (paramPrefix : String) ->
-                   IO (LayerNormStateV2 n n CPU)
-layerNormLayerV2 paramPrefix = do
+layerNormLayer : {n : Nat} -> (paramPrefix : String) ->
+                   IO (LayerNormState n n CPU)
+layerNormLayer paramPrefix = do
   let nI = cast {to=Int} n
       gBuf = prim__allocDoubles nI
       gBuf' = fillConst gBuf 0 nI 1.0
@@ -78,20 +78,20 @@ layerNormLayerV2 paramPrefix = do
       bName = paramPrefix ++ "_beta"
       gPtr = prim__paramRegister gName (prim__createParam1d nI gBuf')
       bPtr = prim__paramRegister bName (prim__createParam1d nI bBuf')
-  pure $ MkLayerNormV2 (MkTVar gPtr (Just gName)) (MkTVar bPtr (Just bName))
+  pure $ MkLayerNorm (MkVar gPtr (Just gName)) (MkVar bPtr (Just bName))
 
 
 ----------------------------------------------------------------------
--- LayerLikeV2 instance
+-- LayerLike instance
 ----------------------------------------------------------------------
 
 public export
-LayerLikeV2 LayerNormStateV2 where
-  applyTVar st@(MkLayerNormV2 _ _) input = applyLayerNormV2 st input
-  layerPrefixV2 _ = "lnV2"
+LayerLike LayerNormState where
+  applyVar st@(MkLayerNorm _ _) input = applyLayerNorm st input
+  layerPrefix _ = "ln"
 
-||| Wrap a LayerNormV2 in `AnyLayerV2`.
+||| Wrap a LayerNorm in `AnyLayer`.
 export
-layerNormLayerV2Any : {n : Nat} -> (paramPrefix : String) ->
-                      IO (AnyLayerV2 n n CPU)
-layerNormLayerV2Any pid = map (MkAnyLayerV2 LayerNormStateV2) (layerNormLayerV2 pid)
+layerNormLayerAny : {n : Nat} -> (paramPrefix : String) ->
+                      IO (AnyLayer n n CPU)
+layerNormLayerAny pid = map (MkAnyLayer LayerNormState) (layerNormLayer pid)

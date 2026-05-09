@@ -10,9 +10,9 @@ import Floating
 import Gym.ClassicControl.Acrobot
 import Gym.Env
 import Hpo.LrFinder
-import Layer.ActivationV2
-import Layer.CoreV2
-import Layer.LinearV2
+import Layer.Activation
+import Layer.Core
+import Layer.Linear
 import Math
 import RL.Gae
 import Sampler
@@ -40,7 +40,7 @@ import Variable
 -- defined as `foldr ((*>) . f) (pure ())`) crashes on the MLX backend
 -- with "invalid memory reference" the second runBatch invocation
 -- onward. The Idris-side `*>` for IO unrolls into something that
--- interacts poorly with V2's tape-tracked intermediates after a
+-- interacts poorly with 's tape-tracked intermediates after a
 -- tape_reset. Workaround: iterate via a do-block recursive helper
 -- (`runBatches`), which desugars to `>>=` and works cleanly.
 ----------------------------------------------------------------------
@@ -53,24 +53,24 @@ RolloutLen : Nat; RolloutLen = 1024
 BatchSize : Nat; BatchSize = 64
 
 Actor : Type
-Actor = NetworkV2 ObsDim [Hidden, Hidden, Hidden, Hidden] NumActions CPU
+Actor = Network ObsDim [Hidden, Hidden, Hidden, Hidden] NumActions CPU
 
 Critic : Type
-Critic = NetworkV2 ObsDim [Hidden, Hidden, Hidden, Hidden] 1 CPU
+Critic = Network ObsDim [Hidden, Hidden, Hidden, Hidden] 1 CPU
 
 mkActor : IO Actor
 mkActor = do
-  ll1 <- linearLayerV2Any {i=ObsDim} {o=Hidden}     "actor_ll1"
-  ll2 <- linearLayerV2Any {i=Hidden} {o=Hidden}     "actor_ll2"
-  ll3 <- linearLayerV2Any {i=Hidden} {o=NumActions} "actor_ll3"
-  pure (ll1 ~~> tanhLayerV2Any ~~> ll2 ~~> tanhLayerV2Any ~~> OutputLayerV2 ll3)
+  ll1 <- linearLayerAny {i=ObsDim} {o=Hidden}     "actor_ll1"
+  ll2 <- linearLayerAny {i=Hidden} {o=Hidden}     "actor_ll2"
+  ll3 <- linearLayerAny {i=Hidden} {o=NumActions} "actor_ll3"
+  pure (ll1 ~~> tanhLayerAny ~~> ll2 ~~> tanhLayerAny ~~> OutputLayer ll3)
 
 mkCritic : IO Critic
 mkCritic = do
-  ll1 <- linearLayerV2Any {i=ObsDim} {o=Hidden} "critic_ll1"
-  ll2 <- linearLayerV2Any {i=Hidden} {o=Hidden} "critic_ll2"
-  ll3 <- linearLayerV2Any {i=Hidden} {o=1}      "critic_ll3"
-  pure (ll1 ~~> tanhLayerV2Any ~~> ll2 ~~> tanhLayerV2Any ~~> OutputLayerV2 ll3)
+  ll1 <- linearLayerAny {i=ObsDim} {o=Hidden} "critic_ll1"
+  ll2 <- linearLayerAny {i=Hidden} {o=Hidden} "critic_ll2"
+  ll3 <- linearLayerAny {i=Hidden} {o=1}      "critic_ll3"
+  pure (ll1 ~~> tanhLayerAny ~~> ll2 ~~> tanhLayerAny ~~> OutputLayer ll3)
 
 
 ----------------------------------------------------------------------
@@ -104,14 +104,14 @@ record RollStep where
 
 criticValue : Critic -> Vect ObsDim Double -> Double
 criticValue critic obs =
-  let stateV = the (TVec ObsDim CPU) (MkTVar (bulkToTensor (obsTensor obs)) Nothing)
-      outV = snd (forwardTVar critic stateV)
+  let stateV = the (TVec ObsDim CPU) (MkVar (bulkToTensor (obsTensor obs)) Nothing)
+      outV = snd (forwardVar critic stateV)
   in prim__item1d outV.tensorPtr 0
 
 sampleActionIO : Actor -> Critic -> Vect ObsDim Double -> IO (Nat, Double, Double)
 sampleActionIO actor critic obs = do
-  let stateV  = the (TVec ObsDim CPU) (MkTVar (bulkToTensor (obsTensor obs)) Nothing)
-      logitsV = snd (forwardTVar actor stateV)
+  let stateV  = the (TVec ObsDim CPU) (MkVar (bulkToTensor (obsTensor obs)) Nothing)
+      logitsV = snd (forwardVar actor stateV)
       logPT   = prim__logSoftmax logitsV.tensorPtr 0
       lp0     = prim__item1d logPT 0
       lp1     = prim__item1d logPT 1
@@ -192,27 +192,27 @@ normAdvs triples =
 
 
 ----------------------------------------------------------------------
--- Per-step PPO loss (categorical policy, V2 typed-surface)
+-- Per-step PPO loss (categorical policy,  typed-surface)
 ----------------------------------------------------------------------
 
 clipScalar : Double -> Double -> Double -> Double
 clipScalar lo hi x = if x < lo then lo else if x > hi then hi else x
 
-perStepLoss : {n : Nat} -> (logitsB : TVar [n, NumActions] CPU) ->
-              (valueB : TVar [n, 1] CPU) -> (rowIdx : Int) ->
+perStepLoss : {n : Nat} -> (logitsB : Variable [n, NumActions] CPU) ->
+              (valueB : Variable [n, 1] CPU) -> (rowIdx : Int) ->
               Double -> Double -> Double ->
-              (RollStep, Double, Double) -> TVar [] CPU
+              (RollStep, Double, Double) -> Variable [] CPU
 perStepLoss logitsB valueB rowIdx clipEps entropyCoef valueCoef (step, adv, retT) =
   let logitsRow = the (TVec NumActions CPU) (trowSelect logitsB rowIdx)
-      logPT = the (TVar [NumActions] CPU)
-                  (MkTVar (prim__logSoftmax logitsRow.tensorPtr 0) Nothing)
+      logPT = the (Variable [NumActions] CPU)
+                  (MkVar (prim__logSoftmax logitsRow.tensorPtr 0) Nothing)
       aIdx : Int
       aIdx = cast {to=Int} (cast {to=Integer} step.action)
-      lpNew = the (TVar [] CPU) (telemSelect logPT aIdx)
+      lpNew = the (Variable [] CPU) (telemSelect logPT aIdx)
       lpVal = prim__item1d logPT.tensorPtr aIdx
 
       valueRow = the (TVec 1 CPU) (trowSelect valueB rowIdx)
-      valueV = the (TVar [] CPU) (telemSelect valueRow 0)
+      valueV = the (Variable [] CPU) (telemSelect valueRow 0)
 
       diffLP = tsub lpNew (tconstScalar step.oldLogProb)
       ratioVal = Prelude.exp (lpVal - step.oldLogProb)
@@ -231,27 +231,27 @@ perStepLoss logitsB valueB rowIdx clipEps entropyCoef valueCoef (step, adv, retT
       diffV = tsub valueV retC
       valueTerm = tmulScalar (tmul diffV diffV) (0.5 * valueCoef)
 
-      lp0V = the (TVar [] CPU) (telemSelect logPT 0)
-      lp1V = the (TVar [] CPU) (telemSelect logPT 1)
-      lp2V = the (TVar [] CPU) (telemSelect logPT 2)
+      lp0V = the (Variable [] CPU) (telemSelect logPT 0)
+      lp1V = the (Variable [] CPU) (telemSelect logPT 1)
+      lp2V = the (Variable [] CPU) (telemSelect logPT 2)
       p0V = texp lp0V
       p1V = texp lp1V
       p2V = texp lp2V
-      negEntV = the (TVar [] CPU)
-                    (MkTVar (prim__add
+      negEntV = the (Variable [] CPU)
+                    (MkVar (prim__add
                               (prim__add (prim__mul p0V.tensorPtr lp0V.tensorPtr)
                                          (prim__mul p1V.tensorPtr lp1V.tensorPtr))
                               (prim__mul p2V.tensorPtr lp2V.tensorPtr))
                             Nothing)
       entTerm = tmulScalar negEntV entropyCoef
-  in MkTVar (prim__add (prim__add policyT.tensorPtr valueTerm.tensorPtr)
+  in MkVar (prim__add (prim__add policyT.tensorPtr valueTerm.tensorPtr)
                        entTerm.tensorPtr) Nothing
 
 
-meanScalarLoss : (n : Nat) -> List (TVar [] CPU) -> TVar [] CPU
+meanScalarLoss : (n : Nat) -> List (Variable [] CPU) -> Variable [] CPU
 meanScalarLoss n losses =
   let zero = tconstScalar 0.0
-      summed = foldl (\a, b => MkTVar (prim__add a.tensorPtr b.tensorPtr) Nothing) zero losses
+      summed = foldl (\a, b => MkVar (prim__add a.tensorPtr b.tensorPtr) Nothing) zero losses
   in tmulScalar summed (1.0 / cast n)
 
 
@@ -331,18 +331,18 @@ runBatch opt actor critic cfg batch = do
       obsBatch = the (Vect (length batch) (Vector ObsDim Double))
                      (map (\(s, _, _) => obsTensor s.obs) batchVec)
       stackedT = bulkToTensor2d obsBatch
-      stackedV = the (TVar [n, ObsDim] CPU) (MkTVar stackedT Nothing)
-      logitsB = snd (forwardTVarBatch actor stackedV)
-      valueB = snd (forwardTVarBatch critic stackedV)
-      losses = the (List (TVar [] CPU)) (enumeratedLosses logitsB valueB batchVec 0)
+      stackedV = the (Variable [n, ObsDim] CPU) (MkVar stackedT Nothing)
+      logitsB = snd (forwardVarBatch actor stackedV)
+      valueB = snd (forwardVarBatch critic stackedV)
+      losses = the (List (Variable [] CPU)) (enumeratedLosses logitsB valueB batchVec 0)
       loss = meanScalarLoss n losses
-  _ <- pure (nativeTrainStepTVar opt loss)
+  _ <- pure (nativeTrainStep opt loss)
   pure ()
   where
-    enumeratedLosses : {n : Nat} -> TVar [n, NumActions] CPU ->
-                       TVar [n, 1] CPU ->
+    enumeratedLosses : {n : Nat} -> Variable [n, NumActions] CPU ->
+                       Variable [n, 1] CPU ->
                        Vect k (RollStep, Double, Double) -> Int ->
-                       List (TVar [] CPU)
+                       List (Variable [] CPU)
     enumeratedLosses _ _ [] _ = []
     enumeratedLosses lB vB (t :: rest) k =
       perStepLoss lB vB k cfg.clipEps cfg.entropyCoef cfg.valueCoef t
@@ -351,7 +351,7 @@ runBatch opt actor critic cfg batch = do
 
 -- Iterate runBatch over a list of mini-batches via do-block recursion.
 -- ⚠ Do NOT use `traverse_` here: its `foldr ((*>) . f) (pure ())`
--- desugaring crashes V2 PPO on MLX with "invalid memory reference"
+-- desugaring crashes  PPO on MLX with "invalid memory reference"
 -- on the second runBatch onwards. `>>=`-style sequencing (do-block)
 -- works fine. See the module-header comment.
 runBatches : NativeOptimizer -> Actor -> Critic -> Config ->
@@ -406,8 +406,8 @@ ppoEpoch opt cfg st = do
 
 greedyAct : Actor -> Vect ObsDim Double -> Nat
 greedyAct actor obs =
-  let stateV = the (TVec ObsDim CPU) (MkTVar (bulkToTensor (obsTensor obs)) Nothing)
-      logits = snd (forwardTVar actor stateV)
+  let stateV = the (TVec ObsDim CPU) (MkVar (bulkToTensor (obsTensor obs)) Nothing)
+      logits = snd (forwardVar actor stateV)
       l0 = prim__item1d logits.tensorPtr 0
       l1 = prim__item1d logits.tensorPtr 1
       l2 = prim__item1d logits.tensorPtr 2

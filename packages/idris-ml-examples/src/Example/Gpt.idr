@@ -18,12 +18,12 @@ import System
 import System.File
 import Compat.Random
 
-import BackpropV2
+import Backprop
 import DataPoint
 import Floating
 import Generate
-import Layer.CoreV2
-import Layer.TransformerV2
+import Layer.Core
+import Layer.Transformer
 import Sampler
 import Schedule
 import Tensor
@@ -156,14 +156,14 @@ gptBatchVect corpus corpusLen (S k) = do
 
 
 ----------------------------------------------------------------------
--- Loss: Cross-entropy on all positions (V2 typed-surface)
+-- Loss: Cross-entropy on all positions ( typed-surface)
 ----------------------------------------------------------------------
 
 ||| Categorical cross-entropy on ALL positions (standard LM loss).
-||| Operates on a flat [SeqLen * VocabSize] TVar; reshapes to
+||| Operates on a flat [SeqLen * VocabSize] Variable; reshapes to
 ||| [SeqLen, VocabSize] and computes mean NLL across positions.
-allPositionsCETVar : TVec OutputDim CPU -> TVec OutputDim CPU -> TVar [] CPU
-allPositionsCETVar predV targetV =
+allPositionsCELoss : TVec OutputDim CPU -> TVec OutputDim CPU -> Variable [] CPU
+allPositionsCELoss predV targetV =
   let vsI = cast {to=Int} VocabSize
       sI = cast {to=Int} SeqLen
       logitsR = prim__reshape2d predV.tensorPtr sI vsI
@@ -172,14 +172,14 @@ allPositionsCETVar predV targetV =
       product = prim__mul logProbs tgtsR
       totalSum = prim__sum product
       loss = prim__mulScalar (prim__neg totalSum) (1.0 / cast {to=Double} SeqLen)
-  in MkTVar loss Nothing
+  in MkVar loss Nothing
 
 
 ----------------------------------------------------------------------
 -- Autoregressive Generation (single-sample forward)
 ----------------------------------------------------------------------
 
-generateText : NetworkV2 InputDim [] OutputDim CPU ->
+generateText : Network InputDim [] OutputDim CPU ->
                String -> Nat -> Double -> String
 generateText model seed genLen temperature =
   let seedIdxs = map charToIdx (unpack seed)
@@ -212,14 +212,14 @@ generateText model seed genLen temperature =
            (the (Int, Double) (0, -1.0e10))
            (zip (map cast vocabIdxs) probs))
 
-    go : NetworkV2 InputDim [] OutputDim CPU ->
+    go : Network InputDim [] OutputDim CPU ->
          List Int -> Nat -> List Char -> List Char
     go _ _ Z acc = reverse acc
     go m ctx (S k) acc =
       let sI = cast {to=Int} SeqLen
           inT = prim__create1d sI (packDoubleBuf (prim__allocDoubles sI) 0 ctx) 0
-          inV = the (TVec InputDim CPU) (MkTVar inT Nothing)
-          (_, predV) = forwardTVar m inV
+          inV = the (TVec InputDim CPU) (MkVar inT Nothing)
+          (_, predV) = forwardVar m inV
           unnorm = sampleAt predV.tensorPtr (minus SeqLen 1)
           totSum = foldl (+) 0.0 unnorm
           probs = map (/ totSum) unnorm
@@ -233,7 +233,7 @@ generateText model seed genLen temperature =
 -- Evaluation: bits-per-character on a held-out corpus slice
 ----------------------------------------------------------------------
 
-evalBPC : NetworkV2 InputDim [] OutputDim CPU ->
+evalBPC : Network InputDim [] OutputDim CPU ->
           (corpus : List Int) -> (corpusLen : Nat) -> (nSamples : Nat) -> Double
 evalBPC model corpus corpusLen nSamples = go nSamples 0.0
   where
@@ -247,10 +247,10 @@ evalBPC model corpus corpusLen nSamples = go nSamples 0.0
           inT = prim__create1d sI (packDoubleBuf (prim__allocDoubles sI) 0 inputToks) 0
           tgtIdxBuf = packIntBuf (prim__allocInts sI) 0 targetToks
           tgtT = prim__oneHot tgtIdxBuf sI vI
-          inV = the (TVec InputDim CPU) (MkTVar inT Nothing)
-          tgtV = the (TVec OutputDim CPU) (MkTVar tgtT Nothing)
-          (_, predV) = forwardTVar model inV
-          lossT = allPositionsCETVar predV tgtV
+          inV = the (TVec InputDim CPU) (MkVar inT Nothing)
+          tgtV = the (TVec OutputDim CPU) (MkVar tgtT Nothing)
+          (_, predV) = forwardVar model inV
+          lossT = allPositionsCELoss predV tgtV
       in prim__item lossT.tensorPtr / log 2.0
 
     go : Nat -> Double -> Double
@@ -365,12 +365,12 @@ main = do
   putStrLn $ "Corpus: " ++ show (length allIndices) ++ " chars"
            ++ " (train=" ++ show trainLen ++ ", val=" ++ show valLen ++ ")"
 
-  tfmAny <- transformerLayerV2Any
+  tfmAny <- transformerLayerAny
               {seqLen=SeqLen, dModel=DModel, numHeads=NumHeads,
                headDim=HeadDim, numBlocks=NumBlocks, vocabSize=VocabSize}
               "tfm0"
-  let model : NetworkV2 InputDim [] OutputDim CPU
-      model = OutputLayerV2 tfmAny
+  let model : Network InputDim [] OutputDim CPU
+      model = OutputLayer tfmAny
   putStrLn ""
 
   let warmupEpochs : Nat = min 100 (div cfg.epochs 10)
@@ -381,7 +381,7 @@ main = do
   let genBatch : IO (Vect BatchSize (TensorDataPoint InputDim OutputDim))
       genBatch = gptBatchVect trainIndices trainLen BatchSize
 
-  let evalMetrics : NetworkV2 InputDim [] OutputDim CPU -> IO (List (String, String))
+  let evalMetrics : Network InputDim [] OutputDim CPU -> IO (List (String, String))
       evalMetrics m = do
         let valBpc = evalBPC m valIndices valLen 20
         pure [("val_bpc", show valBpc)]
@@ -403,15 +403,15 @@ main = do
                    evalMetrics
                    noOpHook
 
-  let stepFn : NetworkV2 InputDim [] OutputDim CPU ->
+  let stepFn : Network InputDim [] OutputDim CPU ->
                Vect BatchSize (TensorDataPoint InputDim OutputDim) ->
-               IO (NetworkV2 InputDim [] OutputDim CPU, Double)
+               IO (Network InputDim [] OutputDim CPU, Double)
       stepFn m d = do
         ep <- readIORef epochRef
         let lr = schedule ep
         setLRAll opt lr
         writeIORef epochRef (S ep)
-        pure (epochTVarTensorBatch opt d allPositionsCETVar m)
+        pure (epochVarTensorBatch opt d allPositionsCELoss m)
 
   (trained, epochsDone, finalLoss) <- runTrainingIO stepFn genBatch trainCfg model
 

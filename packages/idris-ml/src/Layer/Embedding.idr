@@ -1,29 +1,29 @@
-module Layer.EmbeddingV2
+module Layer.Embedding
 
 import Data.Vect
 
 import Compat.Random
 import Device
-import Layer.CoreV2
+import Layer.Core
 import Sampler
 import Variable
 
 
 ----------------------------------------------------------------------
--- EmbeddingV2 — typed-surface lookup table (Path C)
+-- Embedding — typed-surface lookup table (Path C)
 ----------------------------------------------------------------------
 --
 -- Maps a `[seqLen]` tensor of token indices (encoded as doubles) to a
 -- flattened `[seqLen * embedDim]` tensor of embedding vectors. The
 -- vocab × embedDim weight is a learnable param.
 --
--- Provided as a standalone op + a `LayerLikeV2` adapter that fits a
+-- Provided as a standalone op + a `LayerLike` adapter that fits a
 -- specific (seqLen, embedDim) pair into the `Nat -> Nat -> Device ->
 -- Type` interface.
 
 public export
-record EmbeddingStateV2 (vocab : Nat) (embedDim : Nat) (0 d : Device) where
-  constructor MkEmbeddingV2
+record EmbeddingState (vocab : Nat) (embedDim : Nat) (0 d : Device) where
+  constructor MkEmbedding
   weightT : TMat vocab embedDim d
 
 
@@ -37,15 +37,15 @@ record EmbeddingStateV2 (vocab : Nat) (embedDim : Nat) (0 d : Device) where
 ||| token IDs encoded as doubles; output `[seqLen * embedDim]` is
 ||| the flattened embedding vectors. Wraps `prim__embedding`.
 export
-applyEmbeddingV2 : {seqLen, embedDim, vocab : Nat} ->
-                   EmbeddingStateV2 vocab embedDim d ->
+applyEmbedding : {seqLen, embedDim, vocab : Nat} ->
+                   EmbeddingState vocab embedDim d ->
                    TVec seqLen d ->
                    TVec (seqLen * embedDim) d
-applyEmbeddingV2 {seqLen} {embedDim} (MkEmbeddingV2 w) tokens =
+applyEmbedding {seqLen} {embedDim} (MkEmbedding w) tokens =
   let nI = cast {to=Int} seqLen
       dI = cast {to=Int} embedDim
       outPtr = prim__embedding w.tensorPtr tokens.tensorPtr nI dI
-  in MkTVar outPtr Nothing
+  in MkVar outPtr Nothing
 
 
 ----------------------------------------------------------------------
@@ -58,13 +58,13 @@ packDoubles buf _ [] = buf
 packDoubles buf off (x :: rest) =
   packDoubles (prim__setDouble buf off x) (off + 1) rest
 
-||| Build an `EmbeddingStateV2 vocab embedDim CPU` with weights
+||| Build an `EmbeddingState vocab embedDim CPU` with weights
 ||| sampled from N(0, 0.02) — same init as V1 `embeddingLayer`.
 ||| Weight registers as one C param under `<prefix>_weight`.
 export
-embeddingLayerV2 : {vocab, embedDim : Nat} -> (paramPrefix : String) ->
-                   IO (EmbeddingStateV2 vocab embedDim CPU)
-embeddingLayerV2 paramPrefix = do
+embeddingLayer : {vocab, embedDim : Nat} -> (paramPrefix : String) ->
+                   IO (EmbeddingState vocab embedDim CPU)
+embeddingLayer paramPrefix = do
   let vI = cast {to=Int} vocab
       eI = cast {to=Int} embedDim
       n = vocab * embedDim
@@ -74,42 +74,42 @@ embeddingLayerV2 paramPrefix = do
       wName = paramPrefix ++ "_weight"
       wPtr = prim__paramRegister wName (prim__createParam2d vI eI buf')
       wTV : TMat vocab embedDim CPU
-      wTV = MkTVar wPtr (Just wName)
-  pure $ MkEmbeddingV2 wTV
+      wTV = MkVar wPtr (Just wName)
+  pure $ MkEmbedding wTV
 
 
 ----------------------------------------------------------------------
--- LayerLikeV2 adapter (specific seqLen × embedDim)
+-- LayerLike adapter (specific seqLen × embedDim)
 ----------------------------------------------------------------------
 --
--- `LayerLikeV2` requires `(l : Nat -> Nat -> Device -> Type)`. To fit
+-- `LayerLike` requires `(l : Nat -> Nat -> Device -> Type)`. To fit
 -- Embedding (which has 3 Nat params), we wrap it for a specific
 -- (vocab, embedDim) pair. The seqLen is the input dim; output is
 -- `seqLen * embedDim`.
 --
--- The `EmbeddingV2Wrap vocab embedDim seqLen out d` GADT pattern
+-- The `EmbeddingWrap vocab embedDim seqLen out d` GADT pattern
 -- pins `out = seqLen * embedDim`, so the constructor enforces the
--- shape relationship and `LayerLikeV2`'s `i / o` interpretation
+-- shape relationship and `LayerLike`'s `i / o` interpretation
 -- gives `i = seqLen, o = seqLen * embedDim`.
 
 public export
-data EmbeddingV2Wrap : (vocab : Nat) -> (embedDim : Nat) ->
+data EmbeddingWrap : (vocab : Nat) -> (embedDim : Nat) ->
                       Nat -> Nat -> (0 _ : Device) -> Type where
-  MkEmbeddingV2Wrap : EmbeddingStateV2 vocab embedDim d ->
-                     EmbeddingV2Wrap vocab embedDim seqLen (seqLen * embedDim) d
+  MkEmbeddingWrap : EmbeddingState vocab embedDim d ->
+                     EmbeddingWrap vocab embedDim seqLen (seqLen * embedDim) d
 
 public export
 {vocab, embedDim : Nat} ->
-  LayerLikeV2 (EmbeddingV2Wrap vocab embedDim) where
-  applyTVar (MkEmbeddingV2Wrap st) input =
-    (MkEmbeddingV2Wrap st, applyEmbeddingV2 st input)
-  layerPrefixV2 _ = "embV2"
+  LayerLike (EmbeddingWrap vocab embedDim) where
+  applyVar (MkEmbeddingWrap st) input =
+    (MkEmbeddingWrap st, applyEmbedding st input)
+  layerPrefix _ = "emb"
 
-||| Wrap a fresh embedding into `AnyLayerV2` for a specific seqLen.
+||| Wrap a fresh embedding into `AnyLayer` for a specific seqLen.
 export
-embeddingLayerV2Any : {vocab, embedDim, seqLen : Nat} ->
+embeddingLayerAny : {vocab, embedDim, seqLen : Nat} ->
                       (paramPrefix : String) ->
-                      IO (AnyLayerV2 seqLen (seqLen * embedDim) CPU)
-embeddingLayerV2Any pid = do
-  st <- embeddingLayerV2 {vocab} {embedDim} pid
-  pure $ MkAnyLayerV2 (EmbeddingV2Wrap vocab embedDim) (MkEmbeddingV2Wrap st)
+                      IO (AnyLayer seqLen (seqLen * embedDim) CPU)
+embeddingLayerAny pid = do
+  st <- embeddingLayer {vocab} {embedDim} pid
+  pure $ MkAnyLayer (EmbeddingWrap vocab embedDim) (MkEmbeddingWrap st)

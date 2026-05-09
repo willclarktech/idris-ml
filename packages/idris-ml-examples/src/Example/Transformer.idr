@@ -15,13 +15,13 @@ import Decidable.Equality
 import System
 import Compat.Random
 
-import BackpropV2
+import Backprop
 import DataPoint
 import Floating
 import Generate
 import Hpo.LrFinder
-import Layer.CoreV2
-import Layer.TransformerV2
+import Layer.Core
+import Layer.Transformer
 import Math
 import Tensor
 import Train
@@ -81,11 +81,11 @@ BatchSize = 16
 ReversalLen : Nat
 ReversalLen = SeqLen `minus` InputLen
 
-||| V2 typed-surface CE loss on per-sample logits + target [seqLen *
+|||  typed-surface CE loss on per-sample logits + target [seqLen *
 ||| vocabSize]. Masks the random-prefix positions so only the reversal
-||| portion contributes (V1 `reversalCE` parity, returning a TVar [] CPU).
-catCELossTVar : TVec OutputDim CPU -> TVec OutputDim CPU -> TVar [] CPU
-catCELossTVar predV targetV =
+||| portion contributes (V1 `reversalCE` parity, returning a Variable [] CPU).
+catCELossVar : TVec OutputDim CPU -> TVec OutputDim CPU -> Variable [] CPU
+catCELossVar predV targetV =
   let vsI = cast {to=Int} VocabSize
       sI = cast {to=Int} SeqLen
       skip = cast {to=Int} InputLen
@@ -100,7 +100,7 @@ catCELossTVar predV targetV =
       product = prim__mul logProbs tgtsR
       totalSum = prim__sum product
       loss = prim__mulScalar (prim__neg totalSum) (1.0 / cast {to=Double} revLen)
-  in MkTVar loss Nothing
+  in MkVar loss Nothing
 
 
 ----------------------------------------------------------------------
@@ -176,24 +176,24 @@ main = do
            ++ " heads=" ++ show NumHeads ++ " headDim=" ++ show HeadDim
            ++ " blocks=" ++ show NumBlocks ++ " vocab=" ++ show VocabSize
 
-  tfmAny <- transformerLayerV2Any
+  tfmAny <- transformerLayerAny
               {seqLen=SeqLen, dModel=DModel, numHeads=NumHeads,
                headDim=HeadDim, numBlocks=NumBlocks, vocabSize=VocabSize}
               "tfm0"
-  let model : NetworkV2 InputDim [] OutputDim CPU
-      model = OutputLayerV2 tfmAny
+  let model : Network InputDim [] OutputDim CPU
+      model = OutputLayer tfmAny
   putStrLn ""
 
   let genBatch : IO (Vect BatchSize (TensorDataPoint InputDim OutputDim))
       genBatch = sortingTensorBatchVect InputDim OutputDim VocabSize InputLen SeqLen SepToken EosToken BatchSize
 
-  -- Per-epoch metrics: accuracy on a fresh eval batch via single-sample forwardTVar.
-  let evalMetrics : NetworkV2 InputDim [] OutputDim CPU -> IO (List (String, String))
+  -- Per-epoch metrics: accuracy on a fresh eval batch via single-sample forwardVar.
+  let evalMetrics : Network InputDim [] OutputDim CPU -> IO (List (String, String))
       evalMetrics m = do
         evalData <- sortingTensorBatchVect InputDim OutputDim VocabSize InputLen SeqLen SepToken EosToken BatchSize
         let results = map (\dp =>
-              let inV = the (TVec InputDim CPU) (MkTVar (inputTensor dp) Nothing)
-                  (_, predV) = forwardTVar m inV
+              let inV = the (TVec InputDim CPU) (MkVar (inputTensor dp) Nothing)
+                  (_, predV) = forwardVar m inV
                   predicted = map (argmaxAtPtr VocabSize predV.tensorPtr) positions
                   expected = map (argmaxAtPtr VocabSize (targetTensor dp)) positions
                   sortPred = drop InputLen predicted
@@ -209,7 +209,7 @@ main = do
     let lrCfg : LrFindConfig
         lrCfg = { numIters := 100 } defaultLrFindConfig
     _ <- lrFind lrCfg
-      (\m, d => let (m', loss) = epochTVarTensorBatch opt d catCELossTVar m
+      (\m, d => let (m', loss) = epochVarTensorBatch opt d catCELossVar m
                 in pure (m', loss))
       genBatch opt model
     putStrLn ""
@@ -217,15 +217,15 @@ main = do
     exitSuccess
 
   (trained, epochsDone, finalLoss) <- runTraining
-    (\m, d => epochTVarTensorBatch opt d catCELossTVar m) genBatch trainCfg model
+    (\m, d => epochVarTensorBatch opt d catCELossVar m) genBatch trainCfg model
 
   -- Single-sample eval
   putStrLn ""
   putStrLn "Evaluation:"
   evalRaw <- sortingTensorBatchVect InputDim OutputDim VocabSize InputLen SeqLen SepToken EosToken 1
   let tdp = index FZ evalRaw
-      inV = the (TVec InputDim CPU) (MkTVar (inputTensor tdp) Nothing)
-      (_, predV) = forwardTVar trained inV
+      inV = the (TVec InputDim CPU) (MkVar (inputTensor tdp) Nothing)
+      (_, predV) = forwardVar trained inV
       inpT = inputTensor tdp
       inputDecoded = map (\p => cast {to=Nat} (cast {to=Integer} (prim__item1d inpT (cast p)))) positions
       targetDecoded = map (argmaxAtPtr VocabSize (targetTensor tdp)) positions

@@ -6,13 +6,13 @@ import System
 import System.Clock
 import Compat.Random
 
-import BackpropV2
+import Backprop
 import DataPoint
 import Device
 import Generate
-import Layer.CoreV2
-import Layer.LinearV2
-import Layer.LstmV2
+import Layer.Core
+import Layer.Linear
+import Layer.Lstm
 import Tensor
 import Train
 import Util
@@ -54,14 +54,14 @@ main = do
   putStrLn $ "Config: lr=" ++ show cfg.lr ++ " epochs=" ++ show cfg.epochs
            ++ " patience=" ++ show cfg.patience ++ " seed=" ++ show cfg.seed
 
-  lstmAny <- lstmLayerV2Any {i = 1} {o = 4} "lstm"
-  llAny <- linearLayerV2Any {i = 4} {o = 1} "ll"
-  let model : NetworkV2 1 [4] 1 CPU
-      model = lstmAny ~~> OutputLayerV2 llAny
+  lstmAny <- lstmLayerAny {i = 1} {o = 4} "lstm"
+  llAny <- linearLayerAny {i = 4} {o = 1} "ll"
+  let model : Network 1 [4] 1 CPU
+      model = lstmAny ~~> OutputLayer llAny
   putStrLn ""
 
   (trained, epochsDone, finalLoss) <- runTraining
-    (\m, d => epochRecurrentTVar opt d tbceLoss m)
+    (\m, d => epochRecurrentVar opt d tbceLoss m)
     (pure (patternData 8))
     (patienceConfig cfg.epochs cfg.patience)
     model

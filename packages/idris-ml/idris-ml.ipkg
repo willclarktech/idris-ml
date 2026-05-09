@@ -5,7 +5,7 @@ sourcedir = "src"
 depends = contrib
 
 modules = Compat.Random
-        , BackpropV2
+        , Backprop
         , Checkpoint
         , DataLoader
         , DataPoint
@@ -14,21 +14,21 @@ modules = Compat.Random
         , Hpo
         , Hpo.LrFinder
         , Init
-        , Layer.ActivationV2
-        , Layer.BatchNormV2
-        , Layer.ConvV2
-        , Layer.CoreV2
-        , Layer.DropoutV2
-        , Layer.EmbeddingV2
-        , Layer.GruV2
-        , Layer.ResidualV2
-        , Layer.LayerNormV2
-        , Layer.LinearV2
-        , Layer.LstmV2
-        , Layer.DncV2
-        , Layer.NtmV2
-        , Layer.RnnV2
-        , Layer.TransformerV2
+        , Layer.Activation
+        , Layer.BatchNorm
+        , Layer.Conv
+        , Layer.Core
+        , Layer.Dropout
+        , Layer.Embedding
+        , Layer.Gru
+        , Layer.Residual
+        , Layer.LayerNorm
+        , Layer.Linear
+        , Layer.Lstm
+        , Layer.Dnc
+        , Layer.Ntm
+        , Layer.Rnn
+        , Layer.Transformer
         , Math
         , RL.Gae
         , RL.ReplayBuffer

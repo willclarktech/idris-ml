@@ -12,13 +12,13 @@ import System
 import System.Clock
 import Compat.Random
 
-import BackpropV2
+import Backprop
 import DataPoint
 import Floating
 import Generate
 import Hpo.LrFinder
-import Layer.CoreV2
-import Layer.NtmV2
+import Layer.Core
+import Layer.Ntm
 import Math
 import Tensor
 import Train
@@ -135,9 +135,9 @@ main = do
            ++ " seqLen=" ++ show cfg.minLen ++ "-" ++ show cfg.maxLen
   putStrLn $ "Architecture: N=" ++ show N ++ " M=" ++ show M ++ " H=" ++ show H
 
-  ntmAny <- ntmLayerV2Any {n = N, m = M, h = H, i = InputW, o = OutputW} "ntm"
-  let model : NetworkV2 InputW [] OutputW CPU
-      model = OutputLayerV2 ntmAny
+  ntmAny <- ntmLayerAny {n = N, m = M, h = H, i = InputW, o = OutputW} "ntm"
+  let model : Network InputW [] OutputW CPU
+      model = OutputLayer ntmAny
   putStrLn ""
 
   let opt = nativeRmsprop cfg.lr cfg.alpha cfg.eps cfg.clipVal cfg.momentum
@@ -147,11 +147,11 @@ main = do
       genBatch = copyTaskBinaryBatchVect {w = W} cfg.batch cfg.minLen cfg.maxLen
 
   -- Metrics: bit accuracy + memory (computed at each log step)
-  let evalMetrics : NetworkV2 InputW [] OutputW CPU -> IO (List (String, String))
+  let evalMetrics : Network InputW [] OutputW CPU -> IO (List (String, String))
       evalMetrics m = do
         evalBatch <- copyTaskBinaryBatchVect {w = W} 10 1 20
         let avgAcc = foldl (+) 0.0
-              (toList (map (\dp => let (_, preds) = forwardTwoPhaseTVar m dp
+              (toList (map (\dp => let (_, preds) = forwardTwoPhase m dp
                                    in bitAccuracy preds (targets dp)) evalBatch)) / 10.0
         pure [ ("acc", show (avgAcc * 100.0) ++ "%") ]
 
@@ -160,7 +160,7 @@ main = do
     let lrCfg : LrFindConfig
         lrCfg = { numIters := 100 } defaultLrFindConfig
     _ <- lrFind lrCfg
-      (\m, d => let (m', loss) = epochTwoPhaseTVar opt d tbceLoss m
+      (\m, d => let (m', loss) = epochTwoPhaseVar opt d tbceLoss m
                 in pure (m', loss))
       genBatch opt model
     putStrLn ""
@@ -172,13 +172,13 @@ main = do
                    (\_ => pure ())
 
   (trained, epochsDone, _) <- runTraining
-    (\m, d => epochTwoPhaseTVar opt d tbceLoss m) genBatch trainCfg model
+    (\m, d => epochTwoPhaseVar opt d tbceLoss m) genBatch trainCfg model
 
-  -- Evaluation: forwardTwoPhaseTVar produces per-step Vector predictions
-  -- directly from the trained V2 model (no Double-network bridge).
+  -- Evaluation: forwardTwoPhase produces per-step Vector predictions
+  -- directly from the trained  model (no Double-network bridge).
   let evalOne : TwoPhaseDataPoint InputW OutputW Double -> Double
       evalOne dp =
-        let (_, preds) = forwardTwoPhaseTVar trained dp
+        let (_, preds) = forwardTwoPhase trained dp
         in bitAccuracy preds (targets dp)
 
   shortBatch <- copyTaskBinaryBatchVect {w = W} TestSize 1 5
@@ -190,7 +190,7 @@ main = do
   putStrLn "Eval:"
   sampleBatch <- copyTaskBinaryBatchVect {w = W} 2 3 5
   traverse_ (\dp =>
-    let (_, preds) = forwardTwoPhaseTVar trained dp
+    let (_, preds) = forwardTwoPhase trained dp
     in do putStr "  Input:  "
           putStrLn $ unwords (map showBinaryVec (encodingInputs dp))
           putStr "  Target: "

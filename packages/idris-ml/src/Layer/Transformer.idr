@@ -1,4 +1,4 @@
-module Layer.TransformerV2
+module Layer.Transformer
 
 import Data.Vect
 import Decidable.Equality
@@ -6,15 +6,15 @@ import Decidable.Equality
 import Compat.Random
 import Device
 import Init
-import Layer.CoreV2
-import Layer.LayerNormV2
-import Layer.LinearV2
+import Layer.Core
+import Layer.LayerNorm
+import Layer.Linear
 import Sampler
 import Variable
 
 
 ----------------------------------------------------------------------
--- TransformerV2 — typed-surface multi-block transformer (Path C)
+-- Transformer — typed-surface multi-block transformer (Path C)
 ----------------------------------------------------------------------
 --
 -- Pre-LN architecture, learned token embedding, sinusoidal PE,
@@ -31,40 +31,40 @@ import Variable
 
 
 ----------------------------------------------------------------------
--- BlockStateV2
+-- BlockState
 ----------------------------------------------------------------------
 
 public export
-record BlockStateV2 (dModel : Nat) (numHeads : Nat) (headDim : Nat)
+record BlockState (dModel : Nat) (numHeads : Nat) (headDim : Nat)
                     (0 d : Device) where
-  constructor MkBlockV2
-  queryWs   : Vect numHeads (LinearStateV2 dModel headDim d)
-  keyWs     : Vect numHeads (LinearStateV2 dModel headDim d)
-  valueWs   : Vect numHeads (LinearStateV2 dModel headDim d)
-  outProjWs : Vect numHeads (LinearStateV2 headDim dModel d)
-  norm1     : LayerNormStateV2 dModel dModel d
-  norm2     : LayerNormStateV2 dModel dModel d
-  ff1       : LinearStateV2 dModel (4 * dModel) d
-  ff2       : LinearStateV2 (4 * dModel) dModel d
+  constructor MkBlock
+  queryWs   : Vect numHeads (LinearState dModel headDim d)
+  keyWs     : Vect numHeads (LinearState dModel headDim d)
+  valueWs   : Vect numHeads (LinearState dModel headDim d)
+  outProjWs : Vect numHeads (LinearState headDim dModel d)
+  norm1     : LayerNormState dModel dModel d
+  norm2     : LayerNormState dModel dModel d
+  ff1       : LinearState dModel (4 * dModel) d
+  ff2       : LinearState (4 * dModel) dModel d
 
 
 ----------------------------------------------------------------------
--- TransformerStateV2
+-- TransformerState
 ----------------------------------------------------------------------
 
 public export
-data TransformerStateV2 :
+data TransformerState :
   (seqLen : Nat) -> (dModel : Nat) -> (numHeads : Nat) ->
   (headDim : Nat) -> (numBlocks : Nat) -> (vocabSize : Nat) ->
   Nat -> Nat -> (0 _ : Device) -> Type
   where
-  MkTransformerV2 :
+  MkTransformer :
     {0 prf : dModel = numHeads * headDim} ->
     TMat vocabSize dModel d ->                        -- token embedding
-    Vect numBlocks (BlockStateV2 dModel numHeads headDim d) ->
-    LayerNormStateV2 dModel dModel d ->                -- final norm
-    LinearStateV2 dModel vocabSize d ->                -- output projection
-    TransformerStateV2 seqLen dModel numHeads headDim numBlocks vocabSize
+    Vect numBlocks (BlockState dModel numHeads headDim d) ->
+    LayerNormState dModel dModel d ->                -- final norm
+    LinearState dModel vocabSize d ->                -- output projection
+    TransformerState seqLen dModel numHeads headDim numBlocks vocabSize
                        seqLen (seqLen * vocabSize) d
 
 
@@ -97,10 +97,10 @@ writePE dModel buf pos dim sLen dMod =
 
 -- Recursive head loop — accumulates per-head projections over numHeads.
 runHeadAttn : {dModel, headDim : Nat} ->
-              Vect k (LinearStateV2 dModel headDim d) ->
-              Vect k (LinearStateV2 dModel headDim d) ->
-              Vect k (LinearStateV2 dModel headDim d) ->
-              Vect k (LinearStateV2 headDim dModel d) ->
+              Vect k (LinearState dModel headDim d) ->
+              Vect k (LinearState dModel headDim d) ->
+              Vect k (LinearState dModel headDim d) ->
+              Vect k (LinearState headDim dModel d) ->
               AnyPtr -> Int -> Int -> Maybe AnyPtr -> AnyPtr
 runHeadAttn [] [] [] [] _ _ _ (Just acc) = acc
 runHeadAttn [] [] [] [] normed _ _ Nothing = normed
@@ -125,12 +125,12 @@ runHeadAttn (q :: qs) (k :: ks) (v :: vs) (op :: ops) normed sI hdI acc =
   in runHeadAttn qs ks vs ops normed sI hdI (Just acc')
 
 -- Forward one block on `[seqLen, dModel]` tensor handle.
-blockForwardV2 : {dModel, numHeads, headDim : Nat} ->
-                 BlockStateV2 dModel numHeads headDim d ->
+blockForward : {dModel, numHeads, headDim : Nat} ->
+                 BlockState dModel numHeads headDim d ->
                  AnyPtr -> Int -> Int -> AnyPtr
-blockForwardV2 (MkBlockV2 qs ks vs ops
-                          (MkLayerNormV2 n1g n1b)
-                          (MkLayerNormV2 n2g n2b)
+blockForward (MkBlock qs ks vs ops
+                          (MkLayerNorm n1g n1b)
+                          (MkLayerNorm n2g n2b)
                           ff1 ff2) h sI hdI =
   let f1W = ff1.weightT.tensorPtr
       f2W = ff2.weightT.tensorPtr
@@ -143,12 +143,12 @@ blockForwardV2 (MkBlockV2 qs ks vs ops
   in prim__add ffOut h1
 
 -- Fold over blocks.
-foldBlocksV2 : {dModel, numHeads, headDim : Nat} ->
-               Vect k (BlockStateV2 dModel numHeads headDim d) ->
+foldBlocks : {dModel, numHeads, headDim : Nat} ->
+               Vect k (BlockState dModel numHeads headDim d) ->
                AnyPtr -> Int -> Int -> AnyPtr
-foldBlocksV2 [] h _ _ = h
-foldBlocksV2 (b :: bs) h sI hdI =
-  foldBlocksV2 bs (blockForwardV2 b h sI hdI) sI hdI
+foldBlocks [] h _ _ = h
+foldBlocks (b :: bs) h sI hdI =
+  foldBlocks bs (blockForward b h sI hdI) sI hdI
 
 
 ----------------------------------------------------------------------
@@ -156,13 +156,13 @@ foldBlocksV2 (b :: bs) h sI hdI =
 ----------------------------------------------------------------------
 
 export
-applyTransformerV2 : {seqLen, dModel, numHeads, headDim, numBlocks, vocabSize : Nat} ->
-                     TransformerStateV2 seqLen dModel numHeads headDim numBlocks
+applyTransformer : {seqLen, dModel, numHeads, headDim, numBlocks, vocabSize : Nat} ->
+                     TransformerState seqLen dModel numHeads headDim numBlocks
                                        vocabSize seqLen (seqLen * vocabSize) d ->
                      TVec seqLen d ->
                      TVec (seqLen * vocabSize) d
-applyTransformerV2 {seqLen} {dModel} {headDim} {vocabSize}
-                   (MkTransformerV2 embedW blocks (MkLayerNormV2 nfg nfb) vocabProj) tokens =
+applyTransformer {seqLen} {dModel} {headDim} {vocabSize}
+                   (MkTransformer embedW blocks (MkLayerNorm nfg nfb) vocabProj) tokens =
   let sI = cast {to=Int} seqLen
       dI = cast {to=Int} dModel
       vI = cast {to=Int} vocabSize
@@ -173,12 +173,12 @@ applyTransformerV2 {seqLen} {dModel} {headDim} {vocabSize}
       peBuf' = writePE dModel peBuf 0 0 sI dI
       peT = prim__createState2d sI dI peBuf'
       h0 = prim__add embedded peT
-      hN = foldBlocksV2 blocks h0 sI hdI
+      hN = foldBlocks blocks h0 sI hdI
       normedFinal' = prim__layerNorm2d hN nfg.tensorPtr nfb.tensorPtr 1.0e-5
       vpW = vocabProj.weightT.tensorPtr
       outT = prim__mm normedFinal' (prim__transpose2d vpW)
       outFlatPtr = prim__narrow outT 0 0 (sI * vI)
-  in MkTVar outFlatPtr Nothing
+  in MkVar outFlatPtr Nothing
 
 
 ----------------------------------------------------------------------
@@ -192,15 +192,15 @@ applyTransformerV2 {seqLen} {dModel} {headDim} {vocabSize}
 -- Per-head batched accumulator: project Q/K/V via `bmm`, fused
 -- `prim__crossAttention` (Q·K^T·scale → mask → softmax → ·V), then
 -- output projection via `bmm`. Sums per-head contributions.
-batchedHeadLoopV2 : {dModel, headDim : Nat} ->
-                    Vect k (LinearStateV2 dModel headDim d) ->
-                    Vect k (LinearStateV2 dModel headDim d) ->
-                    Vect k (LinearStateV2 dModel headDim d) ->
-                    Vect k (LinearStateV2 headDim dModel d) ->
+batchedHeadLoop : {dModel, headDim : Nat} ->
+                    Vect k (LinearState dModel headDim d) ->
+                    Vect k (LinearState dModel headDim d) ->
+                    Vect k (LinearState dModel headDim d) ->
+                    Vect k (LinearState headDim dModel d) ->
                     AnyPtr -> AnyPtr -> Double -> Maybe AnyPtr -> AnyPtr
-batchedHeadLoopV2 [] [] [] [] _ _ _ (Just acc) = acc
-batchedHeadLoopV2 [] [] [] [] normed _ _ Nothing = normed
-batchedHeadLoopV2 (q :: qs) (k :: ks) (v :: vs) (op :: ops) normed mask sc acc =
+batchedHeadLoop [] [] [] [] _ _ _ (Just acc) = acc
+batchedHeadLoop [] [] [] [] normed _ _ Nothing = normed
+batchedHeadLoop (q :: qs) (k :: ks) (v :: vs) (op :: ops) normed mask sc acc =
   let qW = q.weightT.tensorPtr
       kW = k.weightT.tensorPtr
       vW = v.weightT.tensorPtr
@@ -213,14 +213,14 @@ batchedHeadLoopV2 (q :: qs) (k :: ks) (v :: vs) (op :: ops) normed mask sc acc =
       acc' = case acc of
         Nothing => proj
         Just prev => prim__add prev proj
-  in batchedHeadLoopV2 qs ks vs ops normed mask sc (Just acc')
+  in batchedHeadLoop qs ks vs ops normed mask sc (Just acc')
 
-batchBlockForwardV2 : {dModel, numHeads, headDim : Nat} ->
-                      BlockStateV2 dModel numHeads headDim d ->
+batchBlockForward : {dModel, numHeads, headDim : Nat} ->
+                      BlockState dModel numHeads headDim d ->
                       AnyPtr -> Int -> Int -> Int -> AnyPtr
-batchBlockForwardV2 (MkBlockV2 qs ks vs ops
-                                (MkLayerNormV2 n1g n1b)
-                                (MkLayerNormV2 n2g n2b)
+batchBlockForward (MkBlock qs ks vs ops
+                                (MkLayerNorm n1g n1b)
+                                (MkLayerNorm n2g n2b)
                                 ff1 ff2) h bsI sI dI =
   let f1W = ff1.weightT.tensorPtr
       f2W = ff2.weightT.tensorPtr
@@ -229,19 +229,19 @@ batchBlockForwardV2 (MkBlockV2 qs ks vs ops
       normed3d = prim__reshape3d normed1 batchSize sI dI
       mask3d = prim__expandMask (prim__causalMask sI) batchSize
       scale = 1.0 / sqrt (cast {to=Double} (dI `div` cast {to=Int} numHeads))
-      attnOut3d = batchedHeadLoopV2 qs ks vs ops normed3d mask3d scale Nothing
+      attnOut3d = batchedHeadLoop qs ks vs ops normed3d mask3d scale Nothing
       attnOut = prim__reshape2d attnOut3d bsI dI
       h1 = prim__add attnOut h
       normed2 = prim__layerNorm2d h1 n2g.tensorPtr n2b.tensorPtr 1.0e-5
       ffOut = prim__ffnRelu normed2 (prim__transpose2d f1W) (prim__transpose2d f2W)
   in prim__add ffOut h1
 
-foldBlocksBatchedV2 : {dModel, numHeads, headDim : Nat} ->
-                      Vect k (BlockStateV2 dModel numHeads headDim d) ->
+foldBlocksBatched : {dModel, numHeads, headDim : Nat} ->
+                      Vect k (BlockState dModel numHeads headDim d) ->
                       AnyPtr -> Int -> Int -> Int -> AnyPtr
-foldBlocksBatchedV2 [] h _ _ _ = h
-foldBlocksBatchedV2 (b :: bs) h bsI sI dI =
-  foldBlocksBatchedV2 bs (batchBlockForwardV2 b h bsI sI dI) bsI sI dI
+foldBlocksBatched [] h _ _ _ = h
+foldBlocksBatched (b :: bs) h bsI sI dI =
+  foldBlocksBatched bs (batchBlockForward b h bsI sI dI) bsI sI dI
 
 -- Write positional encoding for B*seqLen rows (PE repeated per sample).
 writePEBatch : (dModel : Nat) -> AnyPtr -> Int -> Int -> Int -> Int -> Int -> AnyPtr
@@ -253,20 +253,20 @@ writePEBatch dModel buf pos dim bsLen dMod sLen =
            buf' = prim__setDouble buf (pos * dMod + dim) val
        in writePEBatch dModel buf' pos (dim + 1) bsLen dMod sLen
 
-||| Batched transformer forward: `TVar [b, seqLen] d` (token indices) →
-||| `TVar [b, seqLen * vocabSize] d` (per-position logits flattened).
-||| Mirrors V1's `transformerForwardBatch` but on TVar inputs and a
+||| Batched transformer forward: `Variable [b, seqLen] d` (token indices) →
+||| `Variable [b, seqLen * vocabSize] d` (per-position logits flattened).
+||| Mirrors V1's `transformerForwardBatch` but on Variable inputs and a
 ||| single batched output instead of List AnyPtr.
 export
-applyTransformerV2Batch :
+applyTransformerBatch :
   {seqLen, dModel, numHeads, headDim, numBlocks, vocabSize : Nat} ->
   {b : Nat} ->
-  TransformerStateV2 seqLen dModel numHeads headDim numBlocks vocabSize
+  TransformerState seqLen dModel numHeads headDim numBlocks vocabSize
                      seqLen (seqLen * vocabSize) d ->
-  TVar [b, seqLen] d ->
-  TVar [b, seqLen * vocabSize] d
-applyTransformerV2Batch {seqLen} {dModel} {headDim} {vocabSize} {b}
-                        (MkTransformerV2 embedW blocks (MkLayerNormV2 nfg nfb) vocabProj)
+  Variable [b, seqLen] d ->
+  Variable [b, seqLen * vocabSize] d
+applyTransformerBatch {seqLen} {dModel} {headDim} {vocabSize} {b}
+                        (MkTransformer embedW blocks (MkLayerNorm nfg nfb) vocabProj)
                         tokens =
   let bsI = cast {to=Int} (b * seqLen)
       sI = cast {to=Int} seqLen
@@ -279,49 +279,49 @@ applyTransformerV2Batch {seqLen} {dModel} {headDim} {vocabSize} {b}
       peBuf' = writePEBatch dModel peBuf 0 0 bsI dI sI
       peT = prim__createState2d bsI dI peBuf'
       h0 = prim__add embedded peT
-      hN = foldBlocksBatchedV2 blocks h0 bsI sI dI
+      hN = foldBlocksBatched blocks h0 bsI sI dI
       normedFinal' = prim__layerNorm2d hN nfg.tensorPtr nfb.tensorPtr 1.0e-5
       vpW = vocabProj.weightT.tensorPtr
       outBatch = prim__mm normedFinal' (prim__transpose2d vpW)
       -- outBatch : [b * seqLen, vocabSize]. Reshape to [b, seqLen * vocabSize].
       outReshaped = prim__reshape2d outBatch (cast {to=Int} b) (sI * vI)
-  in MkTVar outReshaped Nothing
+  in MkVar outReshaped Nothing
 
 
 ----------------------------------------------------------------------
 -- Constructors
 ----------------------------------------------------------------------
 
--- Build a Vect of n LinearV2 layers with sequential paramId suffixes.
-mkLinearVecV2 : {i, o : Nat} -> (n : Nat) -> String -> IO (Vect n (LinearStateV2 i o CPU))
-mkLinearVecV2 Z _ = pure []
-mkLinearVecV2 (S k) pfx = do
-  l <- linearLayerV2 {i} {o} (pfx ++ show k)
-  rest <- mkLinearVecV2 k pfx
+-- Build a Vect of n Linear layers with sequential paramId suffixes.
+mkLinearVec : {i, o : Nat} -> (n : Nat) -> String -> IO (Vect n (LinearState i o CPU))
+mkLinearVec Z _ = pure []
+mkLinearVec (S k) pfx = do
+  l <- linearLayer {i} {o} (pfx ++ show k)
+  rest <- mkLinearVec k pfx
   pure (l :: rest)
 
 -- Build one transformer block.
-mkBlockV2 : {dModel, numHeads, headDim : Nat} ->
+mkBlock : {dModel, numHeads, headDim : Nat} ->
             (paramPrefix : String) ->
-            IO (BlockStateV2 dModel numHeads headDim CPU)
-mkBlockV2 pfx = do
-  qs <- mkLinearVecV2 {i = dModel} {o = headDim} numHeads (pfx ++ "_q")
-  ks <- mkLinearVecV2 {i = dModel} {o = headDim} numHeads (pfx ++ "_k")
-  vs <- mkLinearVecV2 {i = dModel} {o = headDim} numHeads (pfx ++ "_v")
-  ops <- mkLinearVecV2 {i = headDim} {o = dModel} numHeads (pfx ++ "_o")
-  n1 <- layerNormLayerV2 {n = dModel} (pfx ++ "_n1")
-  n2 <- layerNormLayerV2 {n = dModel} (pfx ++ "_n2")
-  f1 <- linearLayerV2 {i = dModel} {o = 4 * dModel} (pfx ++ "_ff1")
-  f2 <- linearLayerV2 {i = 4 * dModel} {o = dModel} (pfx ++ "_ff2")
-  pure $ MkBlockV2 qs ks vs ops n1 n2 f1 f2
+            IO (BlockState dModel numHeads headDim CPU)
+mkBlock pfx = do
+  qs <- mkLinearVec {i = dModel} {o = headDim} numHeads (pfx ++ "_q")
+  ks <- mkLinearVec {i = dModel} {o = headDim} numHeads (pfx ++ "_k")
+  vs <- mkLinearVec {i = dModel} {o = headDim} numHeads (pfx ++ "_v")
+  ops <- mkLinearVec {i = headDim} {o = dModel} numHeads (pfx ++ "_o")
+  n1 <- layerNormLayer {n = dModel} (pfx ++ "_n1")
+  n2 <- layerNormLayer {n = dModel} (pfx ++ "_n2")
+  f1 <- linearLayer {i = dModel} {o = 4 * dModel} (pfx ++ "_ff1")
+  f2 <- linearLayer {i = 4 * dModel} {o = dModel} (pfx ++ "_ff2")
+  pure $ MkBlock qs ks vs ops n1 n2 f1 f2
 
-mkBlocksV2 : {dModel, numHeads, headDim : Nat} ->
+mkBlocks : {dModel, numHeads, headDim : Nat} ->
              (k : Nat) -> (paramPrefix : String) ->
-             IO (Vect k (BlockStateV2 dModel numHeads headDim CPU))
-mkBlocksV2 Z _ = pure []
-mkBlocksV2 (S k) paramPrefix = do
-  blk <- mkBlockV2 paramPrefix
-  rest <- mkBlocksV2 k (paramPrefix ++ "_n")
+             IO (Vect k (BlockState dModel numHeads headDim CPU))
+mkBlocks Z _ = pure []
+mkBlocks (S k) paramPrefix = do
+  blk <- mkBlock paramPrefix
+  rest <- mkBlocks k (paramPrefix ++ "_n")
   pure (blk :: rest)
 
 -- Pack a Vect of Doubles into a buffer.
@@ -330,17 +330,17 @@ packDoubles buf _ [] = buf
 packDoubles buf off (x :: rest) =
   packDoubles (prim__setDouble buf off x) (off + 1) rest
 
-||| Build a TransformerV2 with Xavier-uniform embedding init, He-init
-||| linears (via LinearV2's default), and standard LayerNorm init.
+||| Build a Transformer with Xavier-uniform embedding init, He-init
+||| linears (via Linear's default), and standard LayerNorm init.
 ||| All params register as C params under their respective prefixes.
 export
-transformerLayerV2 :
+transformerLayer :
   {seqLen, dModel, numHeads, headDim, numBlocks, vocabSize : Nat} ->
   {auto prf : dModel = numHeads * headDim} ->
   (paramPrefix : String) ->
-  IO (TransformerStateV2 seqLen dModel numHeads headDim numBlocks vocabSize
+  IO (TransformerState seqLen dModel numHeads headDim numBlocks vocabSize
                          seqLen (seqLen * vocabSize) CPU)
-transformerLayerV2 {prf} paramPrefix = do
+transformerLayer {prf} paramPrefix = do
   let n = vocabSize * dModel
   embedVals <- traverse (\_ => xavier uniform vocabSize dModel) (Vect.replicate n ())
   let nI = cast {to=Int} n
@@ -351,31 +351,31 @@ transformerLayerV2 {prf} paramPrefix = do
       embName = paramPrefix ++ "_embed"
       embPtr = prim__paramRegister embName (prim__createParam2d vI dI embBuf')
       embTV : TMat vocabSize dModel CPU
-      embTV = MkTVar embPtr (Just embName)
-  blks <- mkBlocksV2 numBlocks (paramPrefix ++ "_b")
-  nf <- layerNormLayerV2 {n = dModel} (paramPrefix ++ "_nf")
-  vp <- linearLayerV2 {i = dModel} {o = vocabSize} (paramPrefix ++ "_vp")
-  pure $ MkTransformerV2 {prf} embTV blks nf vp
+      embTV = MkVar embPtr (Just embName)
+  blks <- mkBlocks numBlocks (paramPrefix ++ "_b")
+  nf <- layerNormLayer {n = dModel} (paramPrefix ++ "_nf")
+  vp <- linearLayer {i = dModel} {o = vocabSize} (paramPrefix ++ "_vp")
+  pure $ MkTransformer {prf} embTV blks nf vp
 
 
 ----------------------------------------------------------------------
--- LayerLikeV2 instance
+-- LayerLike instance
 ----------------------------------------------------------------------
 
 public export
 {seqLen, dModel, numHeads, headDim, numBlocks, vocabSize : Nat} ->
-  LayerLikeV2 (TransformerStateV2 seqLen dModel numHeads headDim numBlocks vocabSize) where
-  applyTVar st@(MkTransformerV2 _ _ _ _) input = (st, applyTransformerV2 st input)
-  applyTVarBatch st@(MkTransformerV2 _ _ _ _) input =
-    (st, applyTransformerV2Batch st input)
-  layerPrefixV2 _ = "tfmV2"
+  LayerLike (TransformerState seqLen dModel numHeads headDim numBlocks vocabSize) where
+  applyVar st@(MkTransformer _ _ _ _) input = (st, applyTransformer st input)
+  applyVarBatch st@(MkTransformer _ _ _ _) input =
+    (st, applyTransformerBatch st input)
+  layerPrefix _ = "tfm"
 
 export
-transformerLayerV2Any :
+transformerLayerAny :
   {seqLen, dModel, numHeads, headDim, numBlocks, vocabSize : Nat} ->
   {auto prf : dModel = numHeads * headDim} ->
   (paramPrefix : String) ->
-  IO (AnyLayerV2 seqLen (seqLen * vocabSize) CPU)
-transformerLayerV2Any {prf} pid =
-  map (MkAnyLayerV2 (TransformerStateV2 seqLen dModel numHeads headDim numBlocks vocabSize))
-      (transformerLayerV2 {prf} pid)
+  IO (AnyLayer seqLen (seqLen * vocabSize) CPU)
+transformerLayerAny {prf} pid =
+  map (MkAnyLayer (TransformerState seqLen dModel numHeads headDim numBlocks vocabSize))
+      (transformerLayer {prf} pid)

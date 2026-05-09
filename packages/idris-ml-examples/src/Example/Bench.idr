@@ -7,14 +7,14 @@ import System
 import System.Clock
 import Compat.Random
 
-import BackpropV2
+import Backprop
 import DataPoint
 import Floating
 import Generate
-import Layer.CoreV2
-import Layer.LinearV2
-import Layer.NtmV2
-import Layer.RnnV2
+import Layer.Core
+import Layer.Linear
+import Layer.Ntm
+import Layer.Rnn
 import Tensor
 import Util
 import Device
@@ -47,20 +47,20 @@ supervisedData =
 
 benchSupervised : IO ()
 benchSupervised = do
-  llAny <- linearLayerV2Any {i=2} {o=3} "ll"
-  let model : NetworkV2 2 [] 3 CPU
-      model = OutputLayerV2 llAny
+  llAny <- linearLayerAny {i=2} {o=3} "ll"
+  let model : Network 2 [] 3 CPU
+      model = OutputLayer llAny
   let opt = nativeSgd 0.03
 
   -- Warmup: 100 epochs
   let (warmModel, _) = foldl
-        (\(m, _), _ => epochTVar opt supervisedData tbceLoss m)
+        (\(m, _), _ => epochVar opt supervisedData tbceLoss m)
         (model, 0.0) [1..100]
 
   -- Benchmark: 1000 epochs
   t0 <- clockTime Monotonic
   let (_, finalLoss) = foldl
-        (\(m, _), _ => epochTVar opt supervisedData tbceLoss m)
+        (\(m, _), _ => epochVar opt supervisedData tbceLoss m)
         (warmModel, 0.0) [1..1000]
   t1 <- clockTime Monotonic
 
@@ -89,21 +89,21 @@ rnnRawData n = map (\(is, os) => MkRecurrentDataPoint (prep is) (prep os)) $ gen
 
 benchRnn : IO ()
 benchRnn = do
-  rnnAny <- rnnLayerV2Any {i=1} {o=1} "rnn"
-  let model : NetworkV2 1 [] 1 CPU
-      model = OutputLayerV2 rnnAny
+  rnnAny <- rnnLayerAny {i=1} {o=1} "rnn"
+  let model : Network 1 [] 1 CPU
+      model = OutputLayer rnnAny
   let dataPoints = rnnRawData 8
   let opt = nativeSgd 0.03
 
   -- Warmup: 100 epochs
   let (warmModel, _) = foldl
-        (\(m, _), _ => epochRecurrentTVar opt dataPoints tbceLoss m)
+        (\(m, _), _ => epochRecurrentVar opt dataPoints tbceLoss m)
         (model, 0.0) [1..100]
 
   -- Benchmark: 1000 epochs
   t0 <- clockTime Monotonic
   let (_, finalLoss) = foldl
-        (\(m, _), _ => epochRecurrentTVar opt dataPoints tbceLoss m)
+        (\(m, _), _ => epochRecurrentVar opt dataPoints tbceLoss m)
         (warmModel, 0.0) [1..1000]
   t1 <- clockTime Monotonic
 
@@ -139,25 +139,25 @@ BenchBatch = 5
 
 benchNtm : IO ()
 benchNtm = do
-  ntmAny <- ntmLayerV2Any {i=BenchInputW, o=BenchOutputW, n=BenchN, m=BenchM, h=BenchH} "ntm"
-  let model : NetworkV2 BenchInputW [] BenchOutputW CPU
-      model = OutputLayerV2 ntmAny
+  ntmAny <- ntmLayerAny {i=BenchInputW, o=BenchOutputW, n=BenchN, m=BenchM, h=BenchH} "ntm"
+  let model : Network BenchInputW [] BenchOutputW CPU
+      model = OutputLayer ntmAny
 
-  -- Generate fixed training data (raw Doubles; epochTwoPhaseTVar converts internally)
+  -- Generate fixed training data (raw Doubles; epochTwoPhaseVar converts internally)
   batch <- copyTaskBinaryBatchVect {w = BenchW} BenchBatch 2 4
   let opt = nativeRmsprop 0.0001 0.95 1.0e-8 10.0 0.0
 
   -- Warmup: 10 epochs
   let (warmModel, _) = foldl
         (\(m, _), _ =>
-          epochTwoPhaseTVar opt batch tbceLoss m)
+          epochTwoPhaseVar opt batch tbceLoss m)
         (model, 0.0) [1..10]
 
   -- Benchmark: 100 epochs
   t0 <- clockTime Monotonic
   let (_, benchLoss) = foldl
         (\(m, _), _ =>
-          epochTwoPhaseTVar opt batch tbceLoss m)
+          epochTwoPhaseVar opt batch tbceLoss m)
         (warmModel, 0.0) [1..100]
   t1 <- clockTime Monotonic
 
@@ -193,9 +193,9 @@ CopyBatch = 16
 
 benchNtmCopy : IO ()
 benchNtmCopy = do
-  ntmAny <- ntmLayerV2Any {i=CopyInputW, o=CopyOutputW, n=CopyN, m=CopyM, h=CopyH} "ntm"
-  let model : NetworkV2 CopyInputW [] CopyOutputW CPU
-      model = OutputLayerV2 ntmAny
+  ntmAny <- ntmLayerAny {i=CopyInputW, o=CopyOutputW, n=CopyN, m=CopyM, h=CopyH} "ntm"
+  let model : Network CopyInputW [] CopyOutputW CPU
+      model = OutputLayer ntmAny
 
   batch <- copyTaskBinaryBatchVect {w = CopyW} CopyBatch 1 20
   let opt = nativeRmsprop 0.0001 0.95 1.0e-8 10.0 0.0
@@ -203,14 +203,14 @@ benchNtmCopy = do
   -- Warmup: 10 epochs
   let (warmModel, _) = foldl
         (\(m, _), _ =>
-          epochTwoPhaseTVar opt batch tbceLoss m)
+          epochTwoPhaseVar opt batch tbceLoss m)
         (model, 0.0) [1..10]
 
   -- Benchmark: 100 epochs
   t0 <- clockTime Monotonic
   let (_, benchLoss) = foldl
         (\(m, _), _ =>
-          epochTwoPhaseTVar opt batch tbceLoss m)
+          epochTwoPhaseVar opt batch tbceLoss m)
         (warmModel, 0.0) [1..100]
   t1 <- clockTime Monotonic
 
@@ -224,17 +224,17 @@ benchNtmCopy = do
 ----------------------------------------------------------------------
 
 copy1kEpoch : NativeOptimizer ->
-              NetworkV2 CopyInputW [] CopyOutputW CPU ->
-              IO (NetworkV2 CopyInputW [] CopyOutputW CPU, Double)
+              Network CopyInputW [] CopyOutputW CPU ->
+              IO (Network CopyInputW [] CopyOutputW CPU, Double)
 copy1kEpoch opt m = do
   batch <- copyTaskBinaryBatchVect {w = CopyW} CopyBatch 1 20
-  let res = epochTwoPhaseTVar opt batch tbceLoss m
+  let res = epochTwoPhaseVar opt batch tbceLoss m
   pure res
 
 copy1kLoop : NativeOptimizer -> Nat -> Nat ->
-             NetworkV2 CopyInputW [] CopyOutputW CPU ->
+             Network CopyInputW [] CopyOutputW CPU ->
              Double ->
-             IO (NetworkV2 CopyInputW [] CopyOutputW CPU, Double)
+             IO (Network CopyInputW [] CopyOutputW CPU, Double)
 copy1kLoop opt numEpochs remaining m loss =
   if remaining == 0 then pure (m, loss)
   else do
@@ -245,9 +245,9 @@ copy1kLoop opt numEpochs remaining m loss =
 
 benchNtmCopy1k : IO ()
 benchNtmCopy1k = do
-  ntmAny <- ntmLayerV2Any {i=CopyInputW, o=CopyOutputW, n=CopyN, m=CopyM, h=CopyH} "ntm"
-  let model : NetworkV2 CopyInputW [] CopyOutputW CPU
-      model = OutputLayerV2 ntmAny
+  ntmAny <- ntmLayerAny {i=CopyInputW, o=CopyOutputW, n=CopyN, m=CopyM, h=CopyH} "ntm"
+  let model : Network CopyInputW [] CopyOutputW CPU
+      model = OutputLayer ntmAny
   let opt = nativeRmsprop 0.0001 0.95 1.0e-8 10.0 0.9
 
   -- Warmup: 10 epochs (fresh data + GC)
@@ -291,9 +291,9 @@ RecallBatch = 16
 
 benchNtmRecall : IO ()
 benchNtmRecall = do
-  ntmAny <- ntmLayerV2Any {i=RecallInputW, o=RecallOutputW, n=RecallN, m=RecallM, h=RecallH} "ntm"
-  let model : NetworkV2 RecallInputW [] RecallOutputW CPU
-      model = OutputLayerV2 ntmAny
+  ntmAny <- ntmLayerAny {i=RecallInputW, o=RecallOutputW, n=RecallN, m=RecallM, h=RecallH} "ntm"
+  let model : Network RecallInputW [] RecallOutputW CPU
+      model = OutputLayer ntmAny
 
   batch <- recallTaskBinaryBatchVect {w = RecallW} RecallBatch 2 6 3
   let opt = nativeRmsprop 0.0001 0.95 1.0e-8 10.0 0.9
@@ -301,14 +301,14 @@ benchNtmRecall = do
   -- Warmup: 10 epochs
   let (warmModel, _) = foldl
         (\(m, _), _ =>
-          epochTwoPhaseTVar opt batch tbceLoss m)
+          epochTwoPhaseVar opt batch tbceLoss m)
         (model, 0.0) [1..10]
 
   -- Benchmark: 100 epochs
   t0 <- clockTime Monotonic
   let (_, benchLoss) = foldl
         (\(m, _), _ =>
-          epochTwoPhaseTVar opt batch tbceLoss m)
+          epochTwoPhaseVar opt batch tbceLoss m)
         (warmModel, 0.0) [1..100]
   t1 <- clockTime Monotonic
 

@@ -9,9 +9,9 @@ import Compat.Random
 import Floating
 import Gym.ClassicControl.Pendulum
 import Gym.Env
-import Layer.ActivationV2
-import Layer.CoreV2
-import Layer.LinearV2
+import Layer.Activation
+import Layer.Core
+import Layer.Linear
 import Math
 import RL.ReplayBuffer
 import Sampler
@@ -27,7 +27,7 @@ import Variable
 --   Actor : Linear(3,64) → ReLU → Linear(64,64) → ReLU → Linear(64,1) = mean
 --   Q1/Q2 : Linear(4,64) → ReLU → Linear(64,64) → ReLU → Linear(64,1) = value
 --           (input is obs ++ action)
---   log_std : standalone learnable TVar [] CPU under "actor_log_std".
+--   log_std : standalone learnable Variable [] CPU under "actor_log_std".
 --   Target Q nets: same architecture, scoped "q1tgt_" / "q2tgt_". No
 --                  optimizer owns them; they move via polyak soft update.
 ----------------------------------------------------------------------
@@ -43,25 +43,25 @@ MaxAction : Double; MaxAction = 2.0
 -- --- Architectures --------------------------------------------------
 
 ActorNet : Type
-ActorNet = NetworkV2 ObsDim [Hidden, Hidden, Hidden, Hidden] 1 CPU
+ActorNet = Network ObsDim [Hidden, Hidden, Hidden, Hidden] 1 CPU
 
 QNet : Type
-QNet = NetworkV2 QInputDim [Hidden, Hidden, Hidden, Hidden] 1 CPU
+QNet = Network QInputDim [Hidden, Hidden, Hidden, Hidden] 1 CPU
 
 
 mkActor : IO ActorNet
 mkActor = do
-  ll1 <- linearLayerV2Any {i=ObsDim} {o=Hidden} "actor_ll1"
-  ll2 <- linearLayerV2Any {i=Hidden} {o=Hidden} "actor_ll2"
-  ll3 <- linearLayerV2Any {i=Hidden} {o=1}      "actor_ll3"
-  pure (ll1 ~~> reluLayerV2Any ~~> ll2 ~~> reluLayerV2Any ~~> OutputLayerV2 ll3)
+  ll1 <- linearLayerAny {i=ObsDim} {o=Hidden} "actor_ll1"
+  ll2 <- linearLayerAny {i=Hidden} {o=Hidden} "actor_ll2"
+  ll3 <- linearLayerAny {i=Hidden} {o=1}      "actor_ll3"
+  pure (ll1 ~~> reluLayerAny ~~> ll2 ~~> reluLayerAny ~~> OutputLayer ll3)
 
 mkQ : (scope : String) -> IO QNet
 mkQ scope = do
-  ll1 <- linearLayerV2Any {i=QInputDim} {o=Hidden} (scope ++ "ll1")
-  ll2 <- linearLayerV2Any {i=Hidden} {o=Hidden}    (scope ++ "ll2")
-  ll3 <- linearLayerV2Any {i=Hidden} {o=1}         (scope ++ "ll3")
-  pure (ll1 ~~> reluLayerV2Any ~~> ll2 ~~> reluLayerV2Any ~~> OutputLayerV2 ll3)
+  ll1 <- linearLayerAny {i=QInputDim} {o=Hidden} (scope ++ "ll1")
+  ll2 <- linearLayerAny {i=Hidden} {o=Hidden}    (scope ++ "ll2")
+  ll3 <- linearLayerAny {i=Hidden} {o=1}         (scope ++ "ll3")
+  pure (ll1 ~~> reluLayerAny ~~> ll2 ~~> reluLayerAny ~~> OutputLayer ll3)
 
 
 -- --- Observation helpers --------------------------------------------
@@ -94,20 +94,20 @@ squashCorrection u =
 
 actorMean : ActorNet -> Vect ObsDim Double -> Double
 actorMean actor obs =
-  let stateV = the (TVec ObsDim CPU) (MkTVar (bulkToTensor (obsTensor obs)) Nothing)
-      outV = snd (forwardTVar actor stateV)
+  let stateV = the (TVec ObsDim CPU) (MkVar (bulkToTensor (obsTensor obs)) Nothing)
+      outV = snd (forwardVar actor stateV)
   in prim__item1d outV.tensorPtr 0
 
 qValue : QNet -> Vect ObsDim Double -> Double -> Double
 qValue q obs action =
   let inV = the (TVec QInputDim CPU)
-                (MkTVar (bulkToTensor (qInputTensor (qInput obs action))) Nothing)
-      outV = snd (forwardTVar q inV)
+                (MkVar (bulkToTensor (qInputTensor (qInput obs action))) Nothing)
+      outV = snd (forwardVar q inV)
   in prim__item1d outV.tensorPtr 0
 
 
 -- Sample a squashed Gaussian action — pure-Double, used for rollout.
-sampleActionIO : ActorNet -> TVar [] CPU -> Vect ObsDim Double ->
+sampleActionIO : ActorNet -> Variable [] CPU -> Vect ObsDim Double ->
                  IO (Double, Double)
 sampleActionIO actor logStdV obs = do
   let mean = actorMean actor obs
@@ -130,7 +130,7 @@ record SACState where
   q2      : QNet
   q1Tgt   : QNet
   q2Tgt   : QNet
-  logStdV : TVar [] CPU
+  logStdV : Variable [] CPU
   buffer  : ReplayBuffer ObsDim ActDim
   stepRef : IORef Nat
   envRef  : IORef PState
@@ -179,7 +179,7 @@ specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
 
 -- --- Q-network loss (batched) ---------------------------------------
 
-computeTargetVal : QNet -> QNet -> ActorNet -> TVar [] CPU ->
+computeTargetVal : QNet -> QNet -> ActorNet -> Variable [] CPU ->
                    Double -> Double -> Transition ObsDim ActDim -> IO Double
 computeTargetVal q1Tgt q2Tgt actor logStdV gamma alpha t = do
   nextPair <- sampleActionIO actor logStdV t.nextObs
@@ -194,37 +194,37 @@ computeTargetVal q1Tgt q2Tgt actor logStdV gamma alpha t = do
 -- Per-sample MSE loss for a [B, 1] Q-output indexed by row k against
 -- a Double target. Mirrors Dqn's perSampleLoss but with a single
 -- Q-column (action dim is fixed at the input).
-perSampleQLoss : {n : Nat} -> (qOutB : TVar [n, 1] CPU) -> Double ->
-                 Int -> TVar [] CPU
+perSampleQLoss : {n : Nat} -> (qOutB : Variable [n, 1] CPU) -> Double ->
+                 Int -> Variable [] CPU
 perSampleQLoss qOutB tv k =
   let qRow = the (TVec 1 CPU) (trowSelect qOutB k)
-      qScalar = the (TVar [] CPU) (telemSelect qRow 0)
-      targetT = the (TVar [] CPU) (tconstScalar tv)
-      diff = the (TVar [] CPU) (tsub qScalar targetT)
+      qScalar = the (Variable [] CPU) (telemSelect qRow 0)
+      targetT = the (Variable [] CPU) (tconstScalar tv)
+      diff = the (Variable [] CPU) (tsub qScalar targetT)
   in tmul diff diff
 
-meanScalarLoss : (n : Nat) -> List (TVar [] CPU) -> TVar [] CPU
+meanScalarLoss : (n : Nat) -> List (Variable [] CPU) -> Variable [] CPU
 meanScalarLoss n losses =
   let zero = tconstScalar 0.0
-      summed = foldl (\a, b => MkTVar (prim__add a.tensorPtr b.tensorPtr) Nothing) zero losses
+      summed = foldl (\a, b => MkVar (prim__add a.tensorPtr b.tensorPtr) Nothing) zero losses
   in tmulScalar summed (1.0 / cast n)
 
-qLossBatch : (n : Nat) -> QNet -> QNet -> QNet -> ActorNet -> TVar [] CPU ->
+qLossBatch : (n : Nat) -> QNet -> QNet -> QNet -> ActorNet -> Variable [] CPU ->
              Double -> Double -> Vect n (Transition ObsDim ActDim) ->
-             IO (TVar [] CPU)
+             IO (Variable [] CPU)
 qLossBatch n qOnline q1Tgt q2Tgt actor logStdV gamma alpha batch = do
   targetVals <- traverse (computeTargetVal q1Tgt q2Tgt actor logStdV gamma alpha) batch
   let qInputs = the (Vect n (Vector QInputDim Double))
                     (map (\t => qInputTensor (qInput t.obs (oneAct t.action))) batch)
       qInputBT = bulkToTensor2d qInputs
-      qInputV = the (TVar [n, QInputDim] CPU) (MkTVar qInputBT Nothing)
-      qOutB = snd (forwardTVarBatch qOnline qInputV)
-      losses = the (List (TVar [] CPU)) (go qOutB (toList targetVals) 0)
+      qInputV = the (Variable [n, QInputDim] CPU) (MkVar qInputBT Nothing)
+      qOutB = snd (forwardVarBatch qOnline qInputV)
+      losses = the (List (Variable [] CPU)) (go qOutB (toList targetVals) 0)
   pure (meanScalarLoss n losses)
   where
     oneAct : Vect ActDim Double -> Double
     oneAct [a] = a
-    go : {n : Nat} -> TVar [n, 1] CPU -> List Double -> Int -> List (TVar [] CPU)
+    go : {n : Nat} -> Variable [n, 1] CPU -> List Double -> Int -> List (Variable [] CPU)
     go _ [] _ = []
     go qOutB (tv :: rest) k =
       perSampleQLoss qOutB tv k :: go qOutB rest (k + 1)
@@ -232,36 +232,36 @@ qLossBatch n qOnline q1Tgt q2Tgt actor logStdV gamma alpha batch = do
 
 -- --- Actor loss with reparameterization -----------------------------
 
--- Build a [n, 1] non-grad TVar from a Vect of Doubles (one row each).
-buildScalarColumn : {n : Nat} -> Vect n Double -> TVar [n, 1] CPU
+-- Build a [n, 1] non-grad Variable from a Vect of Doubles (one row each).
+buildScalarColumn : {n : Nat} -> Vect n Double -> Variable [n, 1] CPU
 buildScalarColumn {n} xs =
   let rows = the (Vect n (Vector 1 Double)) (map (\x => VTensor [STensor x]) xs)
       ptr = bulkToTensor2d rows
-  in MkTVar ptr Nothing
+  in MkVar ptr Nothing
 
 -- Per-sample reparameterized loss. Indexes into the [n, 1] mean / u /
 -- q1 / q2 batched outputs and builds the grad-tracked
 -- alpha · log_prob - min(Q1, Q2) expression.
 actorPerStepLoss : {n : Nat} ->
-                   TVar [n, 1] CPU -> TVar [n, 1] CPU ->
-                   TVar [n, 1] CPU -> TVar [n, 1] CPU ->
-                   TVar [] CPU -> Double ->
+                   Variable [n, 1] CPU -> Variable [n, 1] CPU ->
+                   Variable [n, 1] CPU -> Variable [n, 1] CPU ->
+                   Variable [] CPU -> Double ->
                    Int ->
-                   TVar [] CPU
+                   Variable [] CPU
 actorPerStepLoss meanB uBT q1B q2B logStdV alpha rowIdx =
   let q1Row = the (TVec 1 CPU) (trowSelect q1B rowIdx)
-      q1S = the (TVar [] CPU) (telemSelect q1Row 0)
+      q1S = the (Variable [] CPU) (telemSelect q1Row 0)
       q1Val = prim__item1d q1Row.tensorPtr 0
       q2Row = the (TVec 1 CPU) (trowSelect q2B rowIdx)
-      q2S = the (TVar [] CPU) (telemSelect q2Row 0)
+      q2S = the (Variable [] CPU) (telemSelect q2Row 0)
       q2Val = prim__item1d q2Row.tensorPtr 0
       minQS = if q1Val <= q2Val then q1S else q2S
 
       meanRow = the (TVec 1 CPU) (trowSelect meanB rowIdx)
-      meanS = the (TVar [] CPU) (telemSelect meanRow 0)
+      meanS = the (Variable [] CPU) (telemSelect meanRow 0)
 
       uRow = the (TVec 1 CPU) (trowSelect uBT rowIdx)
-      uS = the (TVar [] CPU) (telemSelect uRow 0)
+      uS = the (Variable [] CPU) (telemSelect uRow 0)
       uVal = prim__item1d uRow.tensorPtr 0
 
       diffM = tsub uS meanS
@@ -277,31 +277,31 @@ actorPerStepLoss meanB uBT q1B q2B logStdV alpha rowIdx =
       alphaLogP = tmulScalar lpV alpha
   in tsub alphaLogP minQS
 
-actorLossBatch : (n : Nat) -> ActorNet -> QNet -> QNet -> TVar [] CPU ->
-                 Double -> Vect n (Vect ObsDim Double) -> IO (TVar [] CPU)
+actorLossBatch : (n : Nat) -> ActorNet -> QNet -> QNet -> Variable [] CPU ->
+                 Double -> Vect n (Vect ObsDim Double) -> IO (Variable [] CPU)
 actorLossBatch n actor q1 q2 logStdV alpha obsBatch = do
   let logStd = prim__item logStdV.tensorPtr
       stdVal = Prelude.exp logStd
   epses <- traverse (\_ => normalSample) obsBatch
   let obsTensors = the (Vect n (Vector ObsDim Double)) (map obsTensor obsBatch)
       obsBT = bulkToTensor2d obsTensors
-      obsBV = the (TVar [n, ObsDim] CPU) (MkTVar obsBT Nothing)
-      meanB = snd (forwardTVarBatch actor obsBV)             -- [n, 1] grad
+      obsBV = the (Variable [n, ObsDim] CPU) (MkVar obsBT Nothing)
+      meanB = snd (forwardVarBatch actor obsBV)             -- [n, 1] grad
       epsScales = map (\e => stdVal * e) epses
       epsBV = buildScalarColumn epsScales                     -- [n, 1] non-grad
       uBT = tadd meanB epsBV                                  -- [n, 1] grad
       aSquashedBT = ttanh uBT                                 -- [n, 1] grad
       aReparamBT = tmulScalar aSquashedBT MaxAction           -- [n, 1] grad
       qInputBT = tconcat2dAxis1 obsBV aReparamBT              -- [n, 4] grad
-      q1B = snd (forwardTVarBatch q1 qInputBT)                -- [n, 1] grad
-      q2B = snd (forwardTVarBatch q2 qInputBT)                -- [n, 1] grad
-      losses = the (List (TVar [] CPU)) (go meanB uBT q1B q2B (toList epses) 0)
+      q1B = snd (forwardVarBatch q1 qInputBT)                -- [n, 1] grad
+      q2B = snd (forwardVarBatch q2 qInputBT)                -- [n, 1] grad
+      losses = the (List (Variable [] CPU)) (go meanB uBT q1B q2B (toList epses) 0)
   pure (meanScalarLoss n losses)
   where
     go : {n : Nat} ->
-         TVar [n, 1] CPU -> TVar [n, 1] CPU ->
-         TVar [n, 1] CPU -> TVar [n, 1] CPU ->
-         List Double -> Int -> List (TVar [] CPU)
+         Variable [n, 1] CPU -> Variable [n, 1] CPU ->
+         Variable [n, 1] CPU -> Variable [n, 1] CPU ->
+         List Double -> Int -> List (Variable [] CPU)
     go _ _ _ _ [] _ = []
     go meanB uBT q1B q2B (_ :: rest) k =
       actorPerStepLoss meanB uBT q1B q2B logStdV alpha k
@@ -316,15 +316,15 @@ runBatchUpdate : NativeOptimizer -> NativeOptimizer -> NativeOptimizer ->
 runBatchUpdate q1Opt q2Opt actorOpt st cfg {n} batch = do
   q1LossV <- qLossBatch n st.q1 st.q1Tgt st.q2Tgt st.actor st.logStdV
                         cfg.gamma cfg.alpha batch
-  _ <- pure (nativeTrainStepTVar q1Opt q1LossV)
+  _ <- pure (nativeTrainStep q1Opt q1LossV)
 
   q2LossV <- qLossBatch n st.q2 st.q1Tgt st.q2Tgt st.actor st.logStdV
                         cfg.gamma cfg.alpha batch
-  _ <- pure (nativeTrainStepTVar q2Opt q2LossV)
+  _ <- pure (nativeTrainStep q2Opt q2LossV)
 
   let obsVec = the (Vect n (Vect ObsDim Double)) (map (\t => t.obs) batch)
   aLossV <- actorLossBatch n st.actor st.q1 st.q2 st.logStdV cfg.alpha obsVec
-  _ <- pure (nativeTrainStepTVar actorOpt aLossV)
+  _ <- pure (nativeTrainStep actorOpt aLossV)
   pure ()
 
 
@@ -420,7 +420,7 @@ main = do
   q2 <- mkQ "q2_"
   q1Tgt <- mkQ "q1tgt_"
   q2Tgt <- mkQ "q2tgt_"
-  let logStdV = the (TVar [] CPU) (tparamScalar "actor_log_std" 0.0)
+  let logStdV = the (Variable [] CPU) (tparamScalar "actor_log_std" 0.0)
 
   -- Hard-copy online → target at init.
   _ <- polyakUpdate 1.0 "q1_" "q1tgt_"

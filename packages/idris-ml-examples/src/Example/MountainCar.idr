@@ -11,9 +11,9 @@ import Floating
 import Gym.ClassicControl.MountainCar
 import Gym.Env
 import Hpo.LrFinder
-import Layer.ActivationV2
-import Layer.CoreV2
-import Layer.LinearV2
+import Layer.Activation
+import Layer.Core
+import Layer.Linear
 import Math
 import RL.ReplayBuffer
 import Tensor
@@ -41,14 +41,14 @@ NumActions : Nat; NumActions = 3
 MaxSteps : Nat; MaxSteps = 200
 
 QNet : Type
-QNet = NetworkV2 ObsDim [Hidden, Hidden, Hidden, Hidden] NumActions CPU
+QNet = Network ObsDim [Hidden, Hidden, Hidden, Hidden] NumActions CPU
 
 mkQNet : (scope : String) -> IO QNet
 mkQNet scope = do
-  ll1 <- linearLayerV2Any {i=ObsDim} {o=Hidden}     (scope ++ "ll1")
-  ll2 <- linearLayerV2Any {i=Hidden} {o=Hidden}     (scope ++ "ll2")
-  ll3 <- linearLayerV2Any {i=Hidden} {o=NumActions} (scope ++ "ll3")
-  pure (ll1 ~~> reluLayerV2Any ~~> ll2 ~~> reluLayerV2Any ~~> OutputLayerV2 ll3)
+  ll1 <- linearLayerAny {i=ObsDim} {o=Hidden}     (scope ++ "ll1")
+  ll2 <- linearLayerAny {i=Hidden} {o=Hidden}     (scope ++ "ll2")
+  ll3 <- linearLayerAny {i=Hidden} {o=NumActions} (scope ++ "ll3")
+  pure (ll1 ~~> reluLayerAny ~~> ll2 ~~> reluLayerAny ~~> OutputLayer ll3)
 
 
 ----------------------------------------------------------------------
@@ -71,8 +71,8 @@ epsilonAt step start end decaySteps =
 greedyAction : QNet -> Vect ObsDim Double -> Nat
 greedyAction online obs =
   let stateT = bulkToTensor (obsTensor obs)
-      stateV = the (TVec ObsDim CPU) (MkTVar stateT Nothing)
-      (_, qV) = forwardTVar online stateV
+      stateV = the (TVec ObsDim CPU) (MkVar stateT Nothing)
+      (_, qV) = forwardVar online stateV
       q0 = prim__item1d qV.tensorPtr 0
       q1 = prim__item1d qV.tensorPtr 1
       q2 = prim__item1d qV.tensorPtr 2
@@ -108,8 +108,8 @@ vectorMaxPtr t =
 computeTargetVal : QNet -> Double -> Transition ObsDim 1 -> Double
 computeTargetVal target gamma t =
   let stateT = bulkToTensor (obsTensor t.nextObs)
-      stateV = the (TVec ObsDim CPU) (MkTVar stateT Nothing)
-      (_, qV) = forwardTVar target stateV
+      stateV = the (TVec ObsDim CPU) (MkVar stateT Nothing)
+      (_, qV) = forwardVar target stateV
       nextMax = vectorMaxPtr qV.tensorPtr
       bootstrap = if t.done then 0.0 else gamma * nextMax
   in t.reward + bootstrap
@@ -117,36 +117,36 @@ computeTargetVal target gamma t =
 actionIdx : Vect 1 Double -> Int
 actionIdx [a] = cast {to=Int} (cast {to=Integer} a)
 
-perSampleLoss : {n : Nat} -> (qOutB : TVar [n, NumActions] CPU) ->
-                Transition ObsDim 1 -> Double -> Int -> TVar [] CPU
+perSampleLoss : {n : Nat} -> (qOutB : Variable [n, NumActions] CPU) ->
+                Transition ObsDim 1 -> Double -> Int -> Variable [] CPU
 perSampleLoss qOutB t tv k =
   let aIdx = actionIdx t.action
       qRow = the (TVec NumActions CPU) (trowSelect qOutB k)
-      qScalar = the (TVar [] CPU) (telemSelect qRow aIdx)
-      targetT = the (TVar [] CPU) (tconstScalar tv)
-      diff = the (TVar [] CPU) (tsub qScalar targetT)
+      qScalar = the (Variable [] CPU) (telemSelect qRow aIdx)
+      targetT = the (Variable [] CPU) (tconstScalar tv)
+      diff = the (Variable [] CPU) (tsub qScalar targetT)
   in tmul diff diff
 
-meanScalarLoss : (n : Nat) -> List (TVar [] CPU) -> TVar [] CPU
+meanScalarLoss : (n : Nat) -> List (Variable [] CPU) -> Variable [] CPU
 meanScalarLoss n losses =
   let zero = tconstScalar 0.0
-      summed = foldl (\a, b => MkTVar (prim__add a.tensorPtr b.tensorPtr) Nothing) zero losses
+      summed = foldl (\a, b => MkVar (prim__add a.tensorPtr b.tensorPtr) Nothing) zero losses
   in tmulScalar summed (1.0 / cast n)
 
 batchLossBatched : (n : Nat) -> QNet -> QNet -> Double ->
-                   Vect n (Transition ObsDim 1) -> TVar [] CPU
+                   Vect n (Transition ObsDim 1) -> Variable [] CPU
 batchLossBatched n online target gamma batch =
   let targetVals = the (Vect n Double) (map (computeTargetVal target gamma) batch)
       obsTensors = map (\t => obsTensor t.obs) batch
       obsBT = bulkToTensor2d obsTensors
-      obsBV = the (TVar [n, ObsDim] CPU) (MkTVar obsBT Nothing)
-      qOutB = snd (forwardTVarBatch online obsBV)
-      losses = the (List (TVar [] CPU)) (go qOutB (toList batch) (toList targetVals) 0)
+      obsBV = the (Variable [n, ObsDim] CPU) (MkVar obsBT Nothing)
+      qOutB = snd (forwardVarBatch online obsBV)
+      losses = the (List (Variable [] CPU)) (go qOutB (toList batch) (toList targetVals) 0)
   in meanScalarLoss n losses
   where
-    go : {n : Nat} -> TVar [n, NumActions] CPU ->
+    go : {n : Nat} -> Variable [n, NumActions] CPU ->
          List (Transition ObsDim 1) ->
-         List Double -> Int -> List (TVar [] CPU)
+         List Double -> Int -> List (Variable [] CPU)
     go _ [] _ _ = []
     go _ _ [] _ = []
     go qOutB (t :: tRest) (tv :: tvRest) k =
@@ -189,7 +189,7 @@ trainIfReady opt st = do
       case mBatch of
         Just batchVec => do
           let loss = batchLossBatched st.cfgBatch st.qNet st.target st.cfgGamma batchVec
-          _ <- pure (nativeTrainStepTVar opt loss)
+          _ <- pure (nativeTrainStep opt loss)
           pure st
         Nothing => pure st
 

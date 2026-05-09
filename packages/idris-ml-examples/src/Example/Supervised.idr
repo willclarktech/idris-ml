@@ -6,11 +6,11 @@ import System
 import System.Clock
 import Compat.Random
 
-import BackpropV2
+import Backprop
 import DataPoint
 import Device
-import Layer.CoreV2
-import Layer.LinearV2
+import Layer.Core
+import Layer.Linear
 import Tensor
 import Train
 import Util
@@ -66,13 +66,13 @@ main = do
   putStrLn $ "Config: lr=" ++ show cfg.lr ++ " epochs=" ++ show cfg.epochs
            ++ " seed=" ++ show cfg.seed
 
-  llAny <- linearLayerV2Any {i = 2} {o = 3} "ll"
-  let model : NetworkV2 2 [] 3 CPU
-      model = OutputLayerV2 llAny
+  llAny <- linearLayerAny {i = 2} {o = 3} "ll"
+  let model : Network 2 [] 3 CPU
+      model = OutputLayer llAny
   putStrLn ""
 
   (trained, epochsDone, finalLoss) <- runTraining
-    (\m, d => epochTVar opt d tnllLoss m)
+    (\m, d => epochVar opt d tnllLoss m)
     (pure dataPoints)
     (simpleConfig cfg.epochs)
     model
@@ -83,8 +83,8 @@ main = do
   -- Build persistent input tensors and forward through the trained model.
   let inputs = the (Vect 5 AnyPtr) (map mkInputTensor dataPoints)
   traverse_ (\(idx, dp) =>
-    let inV = the (TVec 2 CPU) (MkTVar (mkInputTensor dp) Nothing)
-        (_, predV) = forwardTVar trained inV
+    let inV = the (TVec 2 CPU) (MkVar (mkInputTensor dp) Nothing)
+        (_, predV) = forwardVar trained inV
         predClass = evalPrediction predV
         targetClass = evalPredictionTarget (y dp)
         ok = if targetClass == predClass then " ok" else " WRONG"

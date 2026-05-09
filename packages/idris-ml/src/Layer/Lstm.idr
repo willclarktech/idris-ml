@@ -1,28 +1,28 @@
-module Layer.LstmV2
+module Layer.Lstm
 
 import Data.Vect
 
 import Compat.Random
 import Device
 import Init
-import Layer.CoreV2
+import Layer.Core
 import Sampler
 import Variable
 
 
 ----------------------------------------------------------------------
--- LstmV2 — typed-surface LSTM cell (Path C)
+-- Lstm — typed-surface LSTM cell (Path C)
 ----------------------------------------------------------------------
 --
 -- All shape-arithmetic flows through the `TVec` / `TMat` aliases in
--- `Variable.idr`. Direct `TVar [4 * o, ...] d` triggers an Idris 2
+-- `Variable.idr`. Direct `Variable [4 * o, ...] d` triggers an Idris 2
 -- type-checker hang; `TMat (4 * o) i d` works fine because the
 -- multiplication sits in a Nat-argument slot of the alias rather
 -- than inside a Vect literal.
 
 public export
-record LstmStateV2 (i : Nat) (o : Nat) (0 d : Device) where
-  constructor MkLstmV2
+record LstmState (i : Nat) (o : Nat) (0 d : Device) where
+  constructor MkLstm
   iwT : TMat (4 * o) i d
   rwT : TMat (4 * o) o d
   bT  : TVec (4 * o) d
@@ -40,11 +40,11 @@ record LstmStateV2 (i : Nat) (o : Nat) (0 d : Device) where
 ||| hidden + cell state, runs the fused gate computation, returns the
 ||| updated layer state and the new hidden output.
 export
-applyLstmV2 : {o : Nat} ->
-              LstmStateV2 i o d ->
+applyLstm : {o : Nat} ->
+              LstmState i o d ->
               TVec i d ->
-              (LstmStateV2 i o d, TVec o d)
-applyLstmV2 {o} st input =
+              (LstmState i o d, TVec o d)
+applyLstm {o} st input =
   let h = case st.hiddenT of
             Just h => h
             Nothing => tzeroState1d {n = o}
@@ -73,13 +73,13 @@ zeroBuf buf _ 0 = buf
 zeroBuf buf off n =
   zeroBuf (prim__setDouble buf off 0.0) (off + 1) (n - 1)
 
-||| Build an `LstmStateV2 i o CPU` with Xavier-uniform weight init,
+||| Build an `LstmState i o CPU` with Xavier-uniform weight init,
 ||| zero bias, and Nothing hidden/cell state. Weights register as C
 ||| params under `<prefix>_iw`, `<prefix>_rw`, `<prefix>_b`.
 export
-lstmLayerV2 : {i, o : Nat} -> (paramPrefix : String) ->
-              IO (LstmStateV2 i o CPU)
-lstmLayerV2 paramPrefix = do
+lstmLayer : {i, o : Nat} -> (paramPrefix : String) ->
+              IO (LstmState i o CPU)
+lstmLayer paramPrefix = do
   let gI = cast {to=Int} (4 * o)
       iI = cast {to=Int} i
       oI = cast {to=Int} o
@@ -98,32 +98,32 @@ lstmLayerV2 paramPrefix = do
       rwPtr = prim__paramRegister rwName (prim__createParam2d gI oI rwBuf')
       bPtr  = prim__paramRegister bName  (prim__createParam1d gI bBuf')
       iwTV : TMat (4 * o) i CPU
-      iwTV = MkTVar iwPtr (Just iwName)
+      iwTV = MkVar iwPtr (Just iwName)
       rwTV : TMat (4 * o) o CPU
-      rwTV = MkTVar rwPtr (Just rwName)
+      rwTV = MkVar rwPtr (Just rwName)
       bTV : TVec (4 * o) CPU
-      bTV = MkTVar bPtr (Just bName)
-  pure $ MkLstmV2 iwTV rwTV bTV Nothing Nothing
+      bTV = MkVar bPtr (Just bName)
+  pure $ MkLstm iwTV rwTV bTV Nothing Nothing
 
-||| Reset hidden/cell state. Setting to `Nothing` lets `applyLstmV2`'s
+||| Reset hidden/cell state. Setting to `Nothing` lets `applyLstm`'s
 ||| first call lazy-allocate fresh persistent zero buffers — mirrors
 ||| V1's `resetState`, where MLX trains correctly via this lazy path.
 export
-resetLstmStateV2 : {o : Nat} -> {0 d : Device} -> LstmStateV2 i o d -> LstmStateV2 i o d
-resetLstmStateV2 st = { hiddenT := Nothing, cellT := Nothing } st
+resetLstmState : {o : Nat} -> {0 d : Device} -> LstmState i o d -> LstmState i o d
+resetLstmState st = { hiddenT := Nothing, cellT := Nothing } st
 
 
 ----------------------------------------------------------------------
--- LayerLikeV2 instance — lets LstmV2 chain in `NetworkV2` via `~~>`
+-- LayerLike instance — lets Lstm chain in `Network` via `~~>`
 ----------------------------------------------------------------------
 
 public export
-LayerLikeV2 LstmStateV2 where
-  applyTVar = applyLstmV2
-  layerPrefixV2 _ = "lstmV2"
-  resetStateV2 = resetLstmStateV2
+LayerLike LstmState where
+  applyVar = applyLstm
+  layerPrefix _ = "lstm"
+  resetState = resetLstmState
 
-||| Wrap an `LstmStateV2` in `AnyLayerV2`.
+||| Wrap an `LstmState` in `AnyLayer`.
 export
-lstmLayerV2Any : {i, o : Nat} -> (paramPrefix : String) -> IO (AnyLayerV2 i o CPU)
-lstmLayerV2Any pid = map (MkAnyLayerV2 LstmStateV2) (lstmLayerV2 pid)
+lstmLayerAny : {i, o : Nat} -> (paramPrefix : String) -> IO (AnyLayer i o CPU)
+lstmLayerAny pid = map (MkAnyLayer LstmState) (lstmLayer pid)
