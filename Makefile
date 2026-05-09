@@ -262,8 +262,22 @@ LIB := $(BUILD)/libidrisml.$(LIB_EXT)
 # per-backend-renamed C symbols, so nothing needs the alias.
 BACKEND_RENAME_H := $(BACKENDS_DIR)/rename_$(PRIMARY).h
 
+# backend_tape/** modular sources (Phase 1.0.4: per-TU compile).
+# Each .c compiles to its own .o; backend_tape.c links against them
+# via the headers and the dylib link step.
+BACKEND_TAPE_HEADERS := $(shell find $(BACKENDS_DIR)/backend_tape -name '*.h' 2>/dev/null)
+BACKEND_TAPE_SRCS    := $(shell find $(BACKENDS_DIR)/backend_tape -name '*.c' 2>/dev/null)
+BACKEND_TAPE_OBJS    := $(patsubst $(BACKENDS_DIR)/backend_tape/%.c,$(BUILD)/backend_tape/%.o,$(BACKEND_TAPE_SRCS))
+
 # Per-backend object outputs.
 BACKEND_OBJS := $(foreach b,$(BACKEND_LIST),$(BUILD)/backend_$(b).o)
+
+# Add per-TU tape modular .o files when tape is in BACKEND_LIST
+# (Phase 1.0.4 — they ship the implementations of backend_tape/* the
+# monolithic backend_tape.c now extern-references).
+ifneq ($(filter tape,$(BACKEND_LIST)),)
+  BACKEND_OBJS += $(BACKEND_TAPE_OBJS)
+endif
 
 # Per-backend compile template — generates a rule for each backend's
 # backend_<b>.o file. Each backend uses its own CC + CFLAGS + rename
@@ -275,15 +289,18 @@ BACKEND_OBJS := $(foreach b,$(BACKEND_LIST),$(BUILD)/backend_$(b).o)
 # whenever a kernel changes. Harmless for non-tape backends — they don't
 # include this header, but the build system has no way to know which
 # per-backend source touches which `.inc` so we list it for all.
-# `backend_tape/**` files are #included from backend_tape.c during Phases
-# 1.0.1-1.0.3 (per /Users/admin/.claude/plans/modular-petting-minsky.md);
-# list them so editing them rebuilds the tape .o. Harmless for non-tape
-# backends — they don't include the directory but the build system has no
-# easy way to filter per-backend.
-BACKEND_TAPE_INCLUDES := $(wildcard $(BACKENDS_DIR)/backend_tape/*.h $(BACKENDS_DIR)/backend_tape/*.c $(BACKENDS_DIR)/backend_tape/**/*.c $(BACKENDS_DIR)/backend_tape/**/*.h)
+
+# Per-TU compile for backend_tape/**/*.c. Force-includes the rename
+# header (matches backend_tape.c's invocation in backend_compile_rule).
+# Compile only when tape is in BACKEND_LIST — torch / mlx don't need
+# tape's internals, and their builds would needlessly compile + link
+# the tape TUs otherwise.
+$(BUILD)/backend_tape/%.o: $(BACKENDS_DIR)/backend_tape/%.c $(BACKEND_TAPE_HEADERS) $(BACKENDS_DIR)/rename_tape.h | $(BUILD)
+	@mkdir -p $(dir $@)
+	cc -O2 -fPIC $(EXTRA_CFLAGS) $(tape_CFLAGS) -include $(BACKENDS_DIR)/rename_tape.h -c -o $@ $<
 
 define backend_compile_rule
-$(BUILD)/backend_$(1).o: $($(1)_SRC) $(BACKENDS_DIR)/backend.h $(BACKENDS_DIR)/rename_$(1).h $(BACKENDS_DIR)/backend_tape_kernels.inc $(BACKEND_TAPE_INCLUDES) | $(BUILD)
+$(BUILD)/backend_$(1).o: $($(1)_SRC) $(BACKENDS_DIR)/backend.h $(BACKENDS_DIR)/rename_$(1).h $(BACKENDS_DIR)/backend_tape_kernels.inc $(BACKEND_TAPE_HEADERS) | $(BUILD)
 	$($(1)_CC) -O2 -fPIC $(EXTRA_CFLAGS) $($(1)_CFLAGS) -include $(BACKENDS_DIR)/rename_$(1).h -c -o $$@ $$<
 endef
 

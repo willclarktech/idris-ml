@@ -1,21 +1,15 @@
 /* backend_tape/tensor.c — element-size + ABI<->internal dtype-tag
  * translation + lingua-franca rounding helpers.
  *
- * Phase 1.0.1 (per /Users/admin/.claude/plans/modular-petting-minsky.md).
- * Currently #included from backend_tape.c (single-TU build); will be
- * compiled as its own TU once Phase 1.0.4 splits the Makefile rule.
+ * Phase 1.0.4: standalone TU compiled into backend_tape_tensor.o.
  */
 
-/* Byte size of one element of the given internal DT_* tag. F32 ships as a
-   real training dtype (dedicated 4-byte float storage, `tape_load_d` and
-   `tape_store_d` element accessors, X-macro stamped kernels); F64 is the
-   default and the lingua-franca path. The 8 inference dtypes (BF16, F16,
-   I8, I16, I32, I64, U8, Bool) store packed bytes via the `double` lingua
-   franca on first construct, so `tape_round_to_dtype` clamps incoming
-   doubles into the dtype's representable precision and the per-element
-   byte width here matches the ABI on-disk width. Branches on `dtype_tag`
-   in hot read paths route through `tape_load_d`. */
-static size_t tape_elem_size(int tag) {
+#include <stdio.h>
+#include <stdlib.h>
+#include "tensor.h"
+#include "../shared_utils.h"   /* bf16/f16 bit-conv helpers */
+
+size_t tape_elem_size(int tag) {
     switch (tag) {
         case DT_F64:                                return sizeof(double);
         case DT_F32:                                return sizeof(float);
@@ -28,14 +22,7 @@ static size_t tape_elem_size(int tag) {
     }
 }
 
-/* ABI RuntimeDType tag (kind-major layout, closed 2026-05-23: 1=Bool, 4=U8,
-   8-11=I8/I16/I32/I64, 13-15=F16/F32/F64, 17=BF16; 0 reserved; sub-byte
-   families 24-31 reserved) -> internal DT_* tag (F64=0). The internal enum
-   stays dense (0..9) for hot-path switch density (`tape_load_d`,
-   `tape_store_d`, the 67-case backward switch) — only this boundary
-   translates. Unknown dtags abort loudly via tape_dtype_unsupported
-   rather than silently falling back to F64. */
-static int tape_tag_from_dtag(int dtag) {
+int tape_tag_from_dtag(int dtag) {
     switch (dtag) {
         case 1:  return DT_BOOL;
         case 4:  return DT_U8;
@@ -55,12 +42,7 @@ static int tape_tag_from_dtag(int dtag) {
     }
 }
 
-/* Round a value through the internal dtype's representable precision, staying
-   in `double` (the lingua-franca storage). F32 + the integer/bool dtypes round
-   honestly via plain casts; BF16/F16 round through the shared bit helpers
-   lifted from safetensors.c — same round-to-nearest-even semantics on disk
-   and in tape inference tensors. DT_F64 is identity. */
-static double tape_round_to_dtype(double v, int tag) {
+double tape_round_to_dtype(double v, int tag) {
     switch (tag) {
         case DT_F32:  return (double)(float)v;
         case DT_BF16: return bf16_bits_to_double(double_to_bf16_bits(v));

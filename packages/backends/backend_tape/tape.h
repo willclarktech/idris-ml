@@ -165,4 +165,50 @@ typedef struct {
     int* max_indices;  /* [B * C * oH * oW] flat-input index per (b, c, oh, ow) */
 } MaxPool2DBatchedMeta;
 
+/* TypedArena: fixed-element-size linked-list arena. Backend the tape
+ * is built on. Structure exposed here (rather than opaque) so the
+ * `tape_size` macro below resolves at every call site without an
+ * accessor function. */
+typedef struct TypedArenaChunk {
+    void* data;
+    struct TypedArenaChunk* next;
+} TypedArenaChunk;
+
+typedef struct TypedArena {
+    TypedArenaChunk* head;
+    TypedArenaChunk* tail;
+    int size;
+    int tail_count;
+    int chunk_capacity;
+    size_t element_size;
+} TypedArena;
+
+/* The tape's per-chunk element capacity. Backward (still in
+ * backend_tape.c at this phase) uses this to walk chunks by index. */
+#define TAPE_CHUNK_SIZE (1 << 16)
+
+/* The tape itself — globally shared, defined in tape.c. */
+extern TypedArena tape_arena;
+
+/* Convenience for read-heavy call sites in backward / profiling. */
+#define tape_size (tape_arena.size)
+
+/* Tape operations (Phase 1.0.4: now extern, was static). */
+
+/* Append a forward-op entry; returns the new TapeEntry (or a writable
+ * scratch buffer if we're inside withNoGrad and result is non-grad-tracked). */
+TapeEntry* tape_append(int op, Tensor* result, Tensor* arg1, Tensor* arg2, double scalar_arg);
+
+/* Tear down per-entry heap allocations (op_meta, inputs, grad arrays
+ * on non-persistent tensors) and reset tape size to 0. Keeps chunks
+ * allocated for reuse. Also calls arena_reset. */
+void tape_reset(void);
+
+/* Look up tape entry by index (used by tensor_backward). */
+TapeEntry* tape_at(int idx);
+
+/* Globals exposed for backward / optimizer / no_grad. */
+extern long g_tape_peak;
+extern int no_grad_depth;
+
 #endif /* IDRISML_BACKEND_TAPE_TAPE_H */

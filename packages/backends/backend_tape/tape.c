@@ -1,43 +1,19 @@
-/* backend_tape/tape.c — TypedArena<TapeEntry> + tape_append/reset +
- * the no_grad mechanism.
+/* backend_tape/tape.c — TypedArena<TapeEntry> machinery + tape_append/
+ * tape_reset + no_grad mechanism.
  *
- * Phase 1.0.2 (per /Users/admin/.claude/plans/modular-petting-minsky.md).
- * Currently #included from backend_tape.c (single-TU build); will become
- * its own TU in Phase 1.0.4.
+ * Phase 1.0.4: standalone TU compiled into backend_tape_tape.o.
  */
 
-/* ================================================================
-   Generic typed chunked arena.
+#include <stdlib.h>
+#include <string.h>
+#include "tape.h"
+#include "arena.h"  /* arena_reset (called from tape_reset) */
 
-   Append-only collection of fixed-size T elements stored as a linked
-   list of equal-capacity chunks. Append returns a pointer to the new
-   element; index lookup is O(size / chunk_capacity).
-
-   Why: realloc-based growth requires free(old_buffer), and free here
-   has caused use-after-free SIGSEGVs (the long-running tape-realloc
-   bug — leaking the old tape ran cleanly, the actual stale reader was
-   never pinpointed). Chunks here are never freed or moved mid-life, so
-   any pointer returned by typed_arena_append stays valid until
-   typed_arena_reset is called explicitly.
-
-   Sister structure: ArenaChunk in arena.c is the variable-size byte-level
-   arena (used for tensor data, op_meta, etc.). This is its
-   fixed-element-size cousin for index-based collections like the tape.
-   ================================================================ */
-
-typedef struct TypedArenaChunk {
-    void* data;                       /* element_size * chunk_capacity bytes */
-    struct TypedArenaChunk* next;
-} TypedArenaChunk;
-
-typedef struct TypedArena {
-    TypedArenaChunk* head;            /* first chunk, allocated lazily */
-    TypedArenaChunk* tail;            /* chunk receiving the next append */
-    int size;                         /* total elements across all chunks */
-    int tail_count;                   /* elements written in tail (0..chunk_capacity) */
-    int chunk_capacity;               /* configured: elements per chunk */
-    size_t element_size;              /* configured: sizeof(T) */
-} TypedArena;
+/* ----------------------------------------------------------------
+ * TypedArena<T> — fixed-element-size linked-list arena. Struct is
+ * declared in tape.h so backward / profiling can read tape_size
+ * via the macro without an accessor function call.
+ * ---------------------------------------------------------------- */
 
 static void* typed_arena_append(TypedArena* a) {
     if (!a->head) {
@@ -72,42 +48,36 @@ static void* typed_arena_at(TypedArena* a, int idx) {
     return c ? (char*)((double*)c->data) + intra * a->element_size : NULL;
 }
 
-/* Resets size to 0 but keeps chunks allocated for reuse on the next
-   recording. Caller is responsible for any per-element teardown
-   (heap pointers stored in entries) BEFORE calling reset. */
 static void typed_arena_reset(TypedArena* a) {
     a->size = 0;
     a->tail = a->head;
     a->tail_count = 0;
 }
 
-/* ================================================================
-   Tape — autograd Wengert list.
-
-   Implemented as a TypedArena<TapeEntry> with 64K-entry chunks
-   (~5 MB at sizeof(TapeEntry) ~ 80 bytes). Forward ops append; backward
-   walks tape entries in reverse; optimizer_step calls tape_reset which
-   tears down per-entry heap allocations and resets size to 0 without
-   freeing chunks (so the next forward reuses them — no malloc churn).
-   ================================================================ */
+/* ----------------------------------------------------------------
+ * Tape state. The 64K-entry chunk capacity gives ~5 MB at
+ * sizeof(TapeEntry) ~ 80 bytes — large enough to hold one epoch of
+ * a transformer-sized workload without ever growing.
+ * ---------------------------------------------------------------- */
 
 #define TAPE_CHUNK_SIZE (1 << 16)
 
-static TypedArena tape_arena = {
+TypedArena tape_arena = {
     .head = NULL, .tail = NULL, .size = 0, .tail_count = 0,
     .chunk_capacity = TAPE_CHUNK_SIZE,
     .element_size = sizeof(TapeEntry),
 };
 
-#define tape_size (tape_arena.size)
-static long g_tape_peak = 0;  /* high-water mark of tape_size */
+long g_tape_peak = 0;
 
-static inline TapeEntry* tape_at(int idx) {
+TapeEntry* tape_at(int idx) {
     return (TapeEntry*)typed_arena_at(&tape_arena, idx);
 }
 
-/* fwd-decls: definitions are in the profiling section. */
-static double _wall_ms(void);
+/* Forward declaration: _wall_ms is defined in the profiling section of
+ * backend_tape.c (still monolithic at this phase). The profiling
+ * globals it touches are also defined there. */
+extern double _wall_ms(void);
 extern double prof_forward_per_op[];
 extern int prof_forward_count_per_op[];
 extern double prof_op_t_prev;
@@ -117,7 +87,8 @@ extern double prof_op_t_prev;
    forward that doesn't need gradients. Counter (not bool) so nested
    withNoGrad scopes nest correctly. Mirrors PyTorch's torch.no_grad().
    The previous tensor_no_grad_begin/end were stubs; now wired up. */
-static int no_grad_depth = 0;
+int no_grad_depth = 0;
+
 /* Dummy tape entry returned by tape_append in no_grad mode. Many
    callers do `e = tape_append(...); e->op_meta = ...;` — they need
    a valid (non-null) pointer to write to. We give them this static
@@ -125,7 +96,7 @@ static int no_grad_depth = 0;
    has tape_idx=-1 so backward never reaches it). */
 static TapeEntry _no_grad_dummy_entry;
 
-static TapeEntry* tape_append(int op, Tensor* result, Tensor* arg1, Tensor* arg2, double scalar_arg) {
+TapeEntry* tape_append(int op, Tensor* result, Tensor* arg1, Tensor* arg2, double scalar_arg) {
     /* Inside withNoGrad: skip the tape entry entirely and mark the
        result as not grad-tracked, so downstream ops don't propagate
        grad through it. Saves both forward overhead (no entry) and
@@ -164,7 +135,7 @@ static TapeEntry* tape_append(int op, Tensor* result, Tensor* arg1, Tensor* arg2
     return e;
 }
 
-static void tape_reset(void) {
+void tape_reset(void) {
     /* Walk chunks tearing down per-entry heap allocations before reset.
        Each entry's op_meta and inputs were heap-allocated by the forward
        op and must be freed before the entry is reused on the next epoch. */

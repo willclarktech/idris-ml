@@ -24,31 +24,21 @@
 
 
 /* ================================================================
-   Tensor representation + arena allocator
-   Phase 1.0.1: extracted to backend_tape/{tensor.h,tensor.c,arena.c}.
-   Currently #included; Phase 1.0.4 will switch to per-TU compile.
+   Tape backend modular includes (Phase 1.0.4: per-TU compile).
+   Implementations live in backend_tape subdirs — compiled as separate
+   TUs and linked into libidrisml. Headers below give backend_tape.c
+   the type defs + extern decls it needs to reference them.
    ================================================================ */
 #include "backend_tape/tensor.h"
-#include "backend_tape/tensor.c"
-#include "backend_tape/arena.c"
-
-
-/* ================================================================
-   Tape — autograd Wengert list + TypedArena machinery.
-   Phase 1.0.2: extracted to backend_tape/{tape.h,tape.c}.
-   Currently #included; Phase 1.0.4 will switch to per-TU compile.
-   ================================================================ */
+#include "backend_tape/arena.h"
 #include "backend_tape/tape.h"
-#include "backend_tape/tape.c"
-
-/* ================================================================
-   Per-op backward dispatch table (Phase 1.0.3: introduced, unused).
-   Each op's source file will TAPE_REGISTER_OP(OP_<X>, backward_fn)
-   at load time. The monolithic switch in tensor_backward is retained
-   for now; Phase 1g flips dispatch to the table.
-   ================================================================ */
 #include "backend_tape/training/autograd/op_dispatch.h"
-#include "backend_tape/training/autograd/op_dispatch.c"
+
+/* Forward decl: _wall_ms lives later in the profiling section but is
+ * called from the elementwise kernel includes (line 311 area). Defined
+ * non-static so tape.c (and any future profiling-using TU) can extern
+ * it via tape.h. */
+double _wall_ms(void);
 
 
 /* ================================================================
@@ -3145,7 +3135,7 @@ TensorHandle tensor_narrow(TensorHandle h, int dim, int start, int len) {
 
 /* Forward declarations for profiling */
 #include <sys/time.h>
-static double _wall_ms(void) {
+double _wall_ms(void) {  /* non-static so tape.c can extern it */
     struct timeval tv;
     gettimeofday(&tv, NULL);
     return tv.tv_sec * 1000.0 + tv.tv_usec / 1000.0;

@@ -1,10 +1,9 @@
-/* backend_tape/tensor.h — Tensor struct + internal dtype tags.
+/* backend_tape/tensor.h — Tensor struct + internal dtype tags +
+ * element-size / tag-translation / rounding helpers.
  *
- * Phase 1.0.1 (per /Users/admin/.claude/plans/modular-petting-minsky.md).
- * Extracted from backend_tape.c lines 25-120. Currently included only
- * via backend_tape.c (single-TU build); in Phase 1.0.4 this header
- * will be force-included into every backend_tape TU when the
- * Makefile switches to per-TU compile.
+ * Phase 1.0.4 (per /Users/admin/.claude/plans/modular-petting-minsky.md):
+ * now a proper public header (multi-TU compile). Function definitions
+ * live in tensor.c.
  */
 
 #ifndef IDRISML_BACKEND_TAPE_TENSOR_H
@@ -36,5 +35,15 @@ typedef struct {
     int persistent;     /* 1 = param tensor (malloc'd), 0 = intermediate (arena) */
     int dtype_tag;      /* internal DT_* tag; 0 = DT_F64 (default for zeroed structs) */
 } Tensor;
+
+/* Byte size of one element of the given internal DT_* tag. */
+size_t tape_elem_size(int tag);
+
+/* ABI RuntimeDType tag -> internal DT_* tag. Unknown dtags abort loudly. */
+int tape_tag_from_dtag(int dtag);
+
+/* Round a value through the internal dtype's representable precision,
+   staying in `double` (the lingua-franca storage). */
+double tape_round_to_dtype(double v, int tag);
 
 #endif /* IDRISML_BACKEND_TAPE_TENSOR_H */
