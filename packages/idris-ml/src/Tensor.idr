@@ -75,6 +75,11 @@ export prim__tanh : AnyPtr -> AnyPtr
 %foreign "C:tensor_mv,libidrisml"
 export prim__mv : AnyPtr -> AnyPtr -> AnyPtr
 
+-- Fused 1D linear: y = W @ x + bias. Eliminates the per-call FFI
+-- overhead of separate prim__mv + prim__add.
+%foreign "C:tensor_linear,libidrisml"
+export prim__linear : AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr
+
 %foreign "C:tensor_dot,libidrisml"
 prim__dot : AnyPtr -> AnyPtr -> AnyPtr
 

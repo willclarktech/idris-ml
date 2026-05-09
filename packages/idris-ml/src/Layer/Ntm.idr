@@ -157,7 +157,7 @@ applyNtm {n} {m} {h} {i} {o}
       mI = cast {to=Int} m
       skI = cast {to=Int} ShiftKernelSize
       -- 4. Read FC: cell -> [ReadParamWidth m]
-      readResultT = prim__add (prim__mv rfcW cellPtr) rfcB
+      readResultT = prim__linear rfcW cellPtr rfcB
       keyT = prim__narrow readResultT 0 0 mI
       shiftT = prim__softmax (prim__narrow readResultT 0 mI skI) 0
       betaT = prim__softplus (prim__select readResultT 0 (mI + skI))
@@ -166,7 +166,7 @@ applyNtm {n} {m} {h} {i} {o}
                   (prim__select readResultT 0 (mI + skI + 2))) 1.0
       (newReadAddrT, newReadOutT) = ntmReadHeadIdris memTPtr raTPtr keyT betaT gT gammaT shiftT
       -- 5. Write FC: cell -> [WriteParamWidth m]
-      writeResultT = prim__add (prim__mv wfcW cellPtr) wfcB
+      writeResultT = prim__linear wfcW cellPtr wfcB
       rpw = cast {to=Int} (ReadParamWidth m)
       wKeyT = prim__narrow writeResultT 0 0 mI
       wShiftT = prim__softmax (prim__narrow writeResultT 0 mI skI) 0
@@ -179,7 +179,7 @@ applyNtm {n} {m} {h} {i} {o}
       newMemT = ntmInterpWriteIdris memTPtr newWriteAddrT addT
       -- 6. Output FC: cat(hidden, readOut) -> [o]
       concatPtr = prim__cat2 hiddenV.tensorPtr newReadOutT
-      outputPtr = prim__add (prim__mv ofcW concatPtr) ofcB
+      outputPtr = prim__linear ofcW concatPtr ofcB
   in ( MkNtm updLstm readFc writeFc outputFc
         (Just (MkTensor newMemT Nothing))
         (Just (MkTensor newReadAddrT Nothing))
