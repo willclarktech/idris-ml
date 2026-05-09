@@ -318,8 +318,7 @@ TensorHandle name(TensorHandle a, TensorHandle b) { \
     } \
     return binop_elementwise(a, b, op_tag, fn64); \
 }
-/* tensor_add, tensor_sub: moved to backend_tape/core/elementwise/ (Phase 1a.2/3). */
-TAPE_BINOP_DISPATCH(tensor_mul, OP_MUL, fn_mul, fn_mul_f32)
+/* tensor_add, tensor_sub, tensor_mul: moved to backend_tape/core/elementwise/ (Phase 1a.2-4). */
 TAPE_BINOP_DISPATCH(tensor_div, OP_DIV, fn_div, fn_div_f32)
 TAPE_BINOP_DISPATCH(tensor_pow, OP_POW, fn_pow, fn_pow_f32)
 #undef TAPE_BINOP_DISPATCH
@@ -3178,39 +3177,7 @@ void tensor_backward(TensorHandle h) {
            cases per side: same-shape (fast loop), scalar (sum-reduce), and
            general numpy-style broadcast (walk r-positions with broadcast
            strides, accumulating into the operand's flat index). */
-        case OP_MUL: {
-            int a_match = a && shapes_equal(a, r);
-            int b_match = b && shapes_equal(b, r);
-            if (a) ensure_grad(a);
-            if (b) ensure_grad(b);
-            ensure_grad(r);
-            /* Fast path: both shapes match r */
-            if (a_match && b_match) {
-                for (int j = 0; j < r->numel; j++) {
-                    ((double*)a->grad)[j] += ((double*)r->grad)[j] * tape_load_d(b, j);
-                    ((double*)b->grad)[j] += ((double*)r->grad)[j] * tape_load_d(a, j);
-                }
-            } else {
-                /* Mixed: scalar / broadcast on either side. Walk r positions. */
-                int a_str[MAX_BCAST_RANK] = {0}, b_str[MAX_BCAST_RANK] = {0};
-                int idx[MAX_BCAST_RANK] = {0};
-                if (a) compute_bcast_strides(a, r->rank, r->shape, a_str);
-                if (b) compute_bcast_strides(b, r->rank, r->shape, b_str);
-                for (int i = 0; i < r->numel; i++) {
-                    int ai = 0, bi = 0;
-                    for (int k = 0; k < r->rank; k++) {
-                        ai += idx[k] * a_str[k];
-                        bi += idx[k] * b_str[k];
-                    }
-                    if (a) ((double*)a->grad)[ai] += ((double*)r->grad)[i] * tape_load_d(b, bi);
-                    if (b) ((double*)b->grad)[bi] += ((double*)r->grad)[i] * tape_load_d(a, ai);
-                    for (int k = r->rank - 1; k >= 0; k--) {
-                        if (++idx[k] < r->shape[k]) break; idx[k] = 0;
-                    }
-                }
-            }
-            break;
-        }
+        /* OP_MUL: moved to backend_tape/core/elementwise/mul.c (Phase 1a.4). */
 
         case OP_DIV: {
             int a_match = a && shapes_equal(a, r);
