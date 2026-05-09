@@ -25,10 +25,18 @@ static double _wall_ms_torch(void) {
 
 /* ---------- Intermediate tensor tracking ---------- */
 
-// Track all non-persistent tensors so we can free them at optimizer_step
+// Track all non-persistent tensors so we can free them at optimizer_step.
+// Reserved up-front to a typical-DNC working-set size to avoid per-epoch
+// vector-grow churn (DNC-class workloads push ~3K intermediates/epoch).
+// Param tensors go via from_tensor_persistent and are never tracked here,
+// so free_intermediates can bulk-delete without filtering.
 static std::vector<at::Tensor*> intermediates;
 static std::vector<TensorPair*> all_pairs;
 static bool tracking_enabled = true;
+struct _ReserveIntermediates {
+    _ReserveIntermediates() { intermediates.reserve(4096); all_pairs.reserve(256); }
+};
+static _ReserveIntermediates _reserve_intermediates_instance;
 
 /* ---------- Helpers ---------- */
 
@@ -734,11 +742,15 @@ void param_clear(void) {
 }
 
 static void free_intermediates() {
-    std::unordered_set<at::Tensor*> param_set;
-    for (auto& entry : param_registry) param_set.insert(entry.tensor);
+    // Params are always created via from_tensor_persistent and are never
+    // tracked in `intermediates`, so we can bulk-delete here without
+    // filtering. (Previous version built an unordered_set<at::Tensor*>
+    // from param_registry per call as a safety net — that was a hot-path
+    // hash build for ~thousands of intermediates on DNC-class workloads.)
     freed_by_cleanup.clear();
+    freed_by_cleanup.reserve(intermediates.size());
     for (auto* p : intermediates) {
-        if (p && param_set.find(p) == param_set.end()) {
+        if (p) {
             freed_by_cleanup.insert(p);
             delete p;
         }
