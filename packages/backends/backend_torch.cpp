@@ -1326,6 +1326,11 @@ struct OptWrapper {
     torch::optim::Optimizer* opt;
     std::string prefix;  // empty = manages all params; else only params whose
                           // registry name starts with `prefix` (SAC multi-opt)
+    int64_t pending_step = 0;  // step count restored by optimizer_set_meta,
+                                // stamped onto per-param state when it is first
+                                // created (lazily, in optimizer_set_m/_v) — the
+                                // step lives inside Adam/RMSprop ParamState,
+                                // which doesn't exist on a freshly-loaded opt.
 };
 
 static std::vector<at::Tensor> collect_param_tensors_filtered(const std::string& prefix) {
@@ -1827,11 +1832,17 @@ void optimizer_set_m(OptimizerHandle h, int idx, const double* data) {
     if (!key) return;
     auto tensor = torch::from_blob((void*)data, {(int64_t)numel}, torch::kFloat64).clone();
     tensor = tensor.reshape(param_registry[idx].tensor->sizes());
-    /* Ensure state entry exists */
+    /* Ensure state entry exists, stamping the restored step on creation. */
     if (w->opt->state().count(key) == 0) {
-        if (w->type == 2) w->opt->state()[key] = std::make_unique<torch::optim::AdamParamState>();
-        else if (w->type == 1) w->opt->state()[key] = std::make_unique<torch::optim::RMSpropParamState>();
-        else return;
+        if (w->type == 2) {
+            auto st = std::make_unique<torch::optim::AdamParamState>();
+            st->step(w->pending_step);
+            w->opt->state()[key] = std::move(st);
+        } else if (w->type == 1) {
+            auto st = std::make_unique<torch::optim::RMSpropParamState>();
+            st->step(w->pending_step);
+            w->opt->state()[key] = std::move(st);
+        } else return;
     }
     auto& state = *w->opt->state().at(key);
     if (w->type == 2) {
@@ -1849,9 +1860,15 @@ void optimizer_set_v(OptimizerHandle h, int idx, const double* data) {
     auto tensor = torch::from_blob((void*)data, {(int64_t)numel}, torch::kFloat64).clone();
     tensor = tensor.reshape(param_registry[idx].tensor->sizes());
     if (w->opt->state().count(key) == 0) {
-        if (w->type == 2) w->opt->state()[key] = std::make_unique<torch::optim::AdamParamState>();
-        else if (w->type == 1) w->opt->state()[key] = std::make_unique<torch::optim::RMSpropParamState>();
-        else return;
+        if (w->type == 2) {
+            auto st = std::make_unique<torch::optim::AdamParamState>();
+            st->step(w->pending_step);
+            w->opt->state()[key] = std::move(st);
+        } else if (w->type == 1) {
+            auto st = std::make_unique<torch::optim::RMSpropParamState>();
+            st->step(w->pending_step);
+            w->opt->state()[key] = std::move(st);
+        } else return;
     }
     auto& state = *w->opt->state().at(key);
     if (w->type == 2) {
@@ -1897,8 +1914,10 @@ void optimizer_set_meta(OptimizerHandle h, const double* in9) {
     w->alpha = in9[5];
     w->weight_decay = in9[6];
     w->momentum = in9[7];
-    /* Step count: set on all param states */
+    /* Step count: set on all existing param states, and stash for any
+       states created later (optimizer_set_m/_v during load run after this). */
     int64_t step = (int64_t)in9[8];
+    w->pending_step = step;
     if (!w->opt->param_groups().empty()) {
         for (auto& p : w->opt->param_groups()[0].params()) {
             auto key = p.unsafeGetTensorImpl();
