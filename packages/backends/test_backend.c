@@ -51,6 +51,20 @@ static double* heap_copy(const double* src, int n) {
     } \
 } while(0)
 
+/* Phase 3 ladder skip flags (tape-only F32 gradcheck oracle, see T29 below).
+   Each rung's impl commit in plan Phase 3 (steps 7-10) drops the matching flag.
+   Authored after observing six REDs on a no-skip run of T29 against the Phase 2
+   tape: three "F32 output propagates F32 tag" (elementwise/matmul/softmax —
+   make_tensor_arena zero-inits dtype_tag to DT_F64, so kernel outputs don't
+   inherit input tags) and three "w_f32[i] is F32-exact after step"
+   (optimizer_step writes raw F64 back to param->data without re-rounding). */
+#if defined(BACKEND_TAPE)
+#define TAPE_F32_SKIP_ELEMENTWISE
+#define TAPE_F32_SKIP_MATMUL
+#define TAPE_F32_SKIP_NORM
+#define TAPE_F32_SKIP_OPTIMIZER
+#endif
+
 /* ================================================================
    T1: Scalar tensor creation + arithmetic
    ================================================================ */
@@ -2817,6 +2831,220 @@ int main(void) {
         ASSERT_NEAR("tape I32 cast readback[1]", iback[1], 5.0, 1e-10);
 
         param_clear();
+    }
+#endif
+
+    /* T29: F32 gradcheck oracle vs F64 (tape-only).
+       Contract for the Phase 3 X-macro instantiation: for each op family
+       below, F32 forward output + parameter .grad must match the F64
+       reference within F32 tolerance, AND the result must carry the
+       F32 dtype tag through the chain. Each rung corresponds to one
+       impl commit in plan Phase 3 (step 7 elementwise, step 8 matmul,
+       step 9 softmax, step 10 optimizer). The rungs are gated by
+       TAPE_F32_SKIP_<rung> macros defined at file top; the impl commit
+       for each step drops its skip flag.
+
+       Inputs are picked to be exactly representable in F32 so the F32
+       and F64 input bit patterns are identical at create time — any
+       divergence the rung reports is from the kernel chain or the
+       output-tag propagation, not from input rounding. */
+#if defined(BACKEND_TAPE)
+    {
+        printf("\n--- F32 gradcheck oracle vs F64 ---\n");
+
+        /* Rung 1: scalar + elementwise. y = (w + x) * (w - x); L = sum(y).
+           Analytic: dL/dw = 2*w. Chains through add/sub/mul + sum. */
+#ifndef TAPE_F32_SKIP_ELEMENTWISE
+        {
+            double wv[] = {1.5, -0.25, 0.5};
+            double xv[] = {0.5,  0.75, -1.0};
+            double y_f64[3], y_f32[3];
+            double g_f64[3], g_f32[3];
+
+            /* F64 reference */
+            param_clear();
+            TensorHandle w64 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 1);
+            param_register("w", w64);
+            TensorHandle x64 = tensor_create_1d_streamed(3, heap_copy(xv, 3), 0, 0, 1);
+            TensorHandle add64 = tensor_add(w64, x64);
+            TensorHandle sub64 = tensor_sub(w64, x64);
+            TensorHandle y64   = tensor_mul(add64, sub64);
+            tensor_to_doubles(y64, y_f64);
+            tensor_backward(tensor_sum(y64));
+            for (int i = 0; i < 3; i++) g_f64[i] = param_grad_item_at(0, i);
+            param_clear();
+
+            /* F32 path: same numeric chain, F32-tagged inputs. */
+            TensorHandle w32 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 0);
+            param_register("w", w32);
+            TensorHandle x32 = tensor_create_1d_streamed(3, heap_copy(xv, 3), 0, 0, 0);
+            TensorHandle add32 = tensor_add(w32, x32);
+            TensorHandle sub32 = tensor_sub(w32, x32);
+            TensorHandle y32   = tensor_mul(add32, sub32);
+            tensor_to_doubles(y32, y_f32);
+            tensor_backward(tensor_sum(y32));
+            for (int i = 0; i < 3; i++) g_f32[i] = param_grad_item_at(0, i);
+
+            ASSERT_TRUE("elementwise: F32 output propagates F32 tag",
+                        strcmp(tensor_dtype_name(y32), "F32") == 0);
+            for (int i = 0; i < 3; i++) {
+                char m[64];
+                snprintf(m, sizeof m, "elementwise: y_f32[%d] ~ y_f64", i);
+                ASSERT_NEAR(m, y_f32[i], y_f64[i], 1e-5);
+                snprintf(m, sizeof m, "elementwise: w.grad_f32[%d] ~ w.grad_f64", i);
+                ASSERT_NEAR(m, g_f32[i], g_f64[i], 1e-5);
+            }
+            param_clear();
+        }
+#else
+        printf("rung skipped: elementwise (TAPE_F32_SKIP_ELEMENTWISE, Phase 3 step 7)\n");
+#endif
+
+        /* Rung 2: matmul / linear / reductions. y = W @ x; L = sum(y).
+           Analytic: dL/dW[i,j] = x[j], dL/dx[j] = sum_i W[i,j]. */
+#ifndef TAPE_F32_SKIP_MATMUL
+        {
+            double Wv[] = {1.0, 0.5, -0.25, 0.75, -0.5, 0.25};   /* [2,3] */
+            double xv[] = {0.5, -1.0, 0.25};                      /* [3]   */
+            double y_f64[2], y_f32[2];
+            double gW_f64[6], gW_f32[6];
+
+            param_clear();
+            TensorHandle W64 = tensor_create_param_2d_streamed(2, 3, heap_copy(Wv, 6), 0, 1);
+            param_register("W", W64);
+            TensorHandle x64 = tensor_create_1d_streamed(3, heap_copy(xv, 3), 0, 0, 1);
+            TensorHandle y64 = tensor_mv(W64, x64);
+            tensor_to_doubles(y64, y_f64);
+            tensor_backward(tensor_sum(y64));
+            for (int i = 0; i < 6; i++) gW_f64[i] = param_grad_item_at(0, i);
+            param_clear();
+
+            TensorHandle W32 = tensor_create_param_2d_streamed(2, 3, heap_copy(Wv, 6), 0, 0);
+            param_register("W", W32);
+            TensorHandle x32 = tensor_create_1d_streamed(3, heap_copy(xv, 3), 0, 0, 0);
+            TensorHandle y32 = tensor_mv(W32, x32);
+            tensor_to_doubles(y32, y_f32);
+            tensor_backward(tensor_sum(y32));
+            for (int i = 0; i < 6; i++) gW_f32[i] = param_grad_item_at(0, i);
+
+            ASSERT_TRUE("matmul: F32 output propagates F32 tag",
+                        strcmp(tensor_dtype_name(y32), "F32") == 0);
+            for (int i = 0; i < 2; i++) {
+                char m[64];
+                snprintf(m, sizeof m, "matmul: y_f32[%d] ~ y_f64", i);
+                ASSERT_NEAR(m, y_f32[i], y_f64[i], 1e-5);
+            }
+            for (int i = 0; i < 6; i++) {
+                char m[64];
+                snprintf(m, sizeof m, "matmul: W.grad_f32[%d] ~ W.grad_f64", i);
+                ASSERT_NEAR(m, gW_f32[i], gW_f64[i], 1e-5);
+            }
+            param_clear();
+        }
+#else
+        printf("rung skipped: matmul (TAPE_F32_SKIP_MATMUL, Phase 3 step 8)\n");
+#endif
+
+        /* Rung 3: softmax / norm / rnn / conv. softmax forward+backward
+           on a 1D logits vector; L = sum(softmax(w)). Analytic for
+           softmax-then-sum: dL/dw = 0 (sum of softmax is 1, derivative
+           is 0), but we exercise the chain numerically — F32 must match
+           F64 within tol and propagate the tag. */
+#ifndef TAPE_F32_SKIP_NORM
+        {
+            double wv[] = {0.25, -0.5, 1.0, 0.75};
+            double y_f64[4], y_f32[4];
+            double g_f64[4], g_f32[4];
+
+            param_clear();
+            TensorHandle w64 = tensor_create_param_1d_streamed(4, heap_copy(wv, 4), 0, 1);
+            param_register("w", w64);
+            TensorHandle y64 = tensor_softmax(w64, 0);
+            tensor_to_doubles(y64, y_f64);
+            /* Use a non-trivial loss so grad isn't analytically zero:
+               L = sum(softmax(w) * c) for fixed c = [1, 2, 3, 4]. */
+            double cv[] = {1.0, 2.0, 3.0, 4.0};
+            TensorHandle c64 = tensor_create_1d_streamed(4, heap_copy(cv, 4), 0, 0, 1);
+            TensorHandle wt64 = tensor_mul(y64, c64);
+            tensor_backward(tensor_sum(wt64));
+            for (int i = 0; i < 4; i++) g_f64[i] = param_grad_item_at(0, i);
+            param_clear();
+
+            TensorHandle w32 = tensor_create_param_1d_streamed(4, heap_copy(wv, 4), 0, 0);
+            param_register("w", w32);
+            TensorHandle y32 = tensor_softmax(w32, 0);
+            tensor_to_doubles(y32, y_f32);
+            TensorHandle c32 = tensor_create_1d_streamed(4, heap_copy(cv, 4), 0, 0, 0);
+            TensorHandle wt32 = tensor_mul(y32, c32);
+            tensor_backward(tensor_sum(wt32));
+            for (int i = 0; i < 4; i++) g_f32[i] = param_grad_item_at(0, i);
+
+            ASSERT_TRUE("softmax: F32 output propagates F32 tag",
+                        strcmp(tensor_dtype_name(y32), "F32") == 0);
+            for (int i = 0; i < 4; i++) {
+                char m[64];
+                snprintf(m, sizeof m, "softmax: y_f32[%d] ~ y_f64", i);
+                ASSERT_NEAR(m, y_f32[i], y_f64[i], 1e-5);
+                snprintf(m, sizeof m, "softmax: w.grad_f32[%d] ~ w.grad_f64", i);
+                ASSERT_NEAR(m, g_f32[i], g_f64[i], 1e-5);
+            }
+            param_clear();
+        }
+#else
+        printf("rung skipped: softmax/norm (TAPE_F32_SKIP_NORM, Phase 3 step 9)\n");
+#endif
+
+        /* Rung 4: optimizer step. One SGD step on an F32 param vs F64
+           param with identical lr and (post-backward) grad. The F32
+           param's data must (a) keep its F32 tag, and (b) round to
+           F32 precision after the step (assert data[i] is bit-exact
+           under (double)(float)data[i] cast). */
+#ifndef TAPE_F32_SKIP_OPTIMIZER
+        {
+            double wv[] = {0.5, 1.5, -0.25};
+            double xv[] = {1.0/3.0, -2.0/7.0, 5.0/11.0};   /* irrational in F32 */
+            double w_f64_after[3], w_f32_after[3];
+
+            param_clear();
+            TensorHandle w64 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 1);
+            param_register("w", w64);
+            TensorHandle x64 = tensor_create_1d_streamed(3, heap_copy(xv, 3), 0, 0, 1);
+            TensorHandle dot64 = tensor_dot(w64, x64);    /* L = w·x */
+            tensor_backward(dot64);
+            OptimizerHandle opt64 = optimizer_create_sgd(0.01);
+            optimizer_step(opt64);
+            tensor_to_doubles(w64, w_f64_after);
+            optimizer_free(opt64);
+            param_clear();
+
+            TensorHandle w32 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 0);
+            param_register("w", w32);
+            TensorHandle x32 = tensor_create_1d_streamed(3, heap_copy(xv, 3), 0, 0, 0);
+            TensorHandle dot32 = tensor_dot(w32, x32);
+            tensor_backward(dot32);
+            OptimizerHandle opt32 = optimizer_create_sgd(0.01);
+            optimizer_step(opt32);
+            tensor_to_doubles(w32, w_f32_after);
+            optimizer_free(opt32);
+
+            ASSERT_TRUE("optimizer: F32 param keeps F32 tag after step",
+                        strcmp(tensor_dtype_name(w32), "F32") == 0);
+            for (int i = 0; i < 3; i++) {
+                char m[64];
+                snprintf(m, sizeof m, "optimizer: w_f32[%d] ~ w_f64 after step", i);
+                ASSERT_NEAR(m, w_f32_after[i], w_f64_after[i], 1e-5);
+                /* F32-exact: under real F32 storage, the updated value
+                   is representable as float — round-trip through float
+                   is bit-identical. Today's lingua-franca writes a raw
+                   F64 result back, so this fires RED. */
+                snprintf(m, sizeof m, "optimizer: w_f32[%d] is F32-exact after step", i);
+                ASSERT_TRUE(m, w_f32_after[i] == (double)(float)w_f32_after[i]);
+            }
+            param_clear();
+        }
+#else
+        printf("rung skipped: optimizer (TAPE_F32_SKIP_OPTIMIZER, Phase 3 step 10)\n");
+#endif
     }
 #endif
 
