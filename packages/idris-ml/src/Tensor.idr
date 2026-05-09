@@ -1165,6 +1165,19 @@ tparam1d {n} pid buf = ioRerun (\_ =>
       reg = primParamRegister {d} pid (dtCreateParam1d {d} {t=dt} nI buf (deviceStreamTag {d}))
   in MkTensor reg (Just pid))
 
+||| Register an already-constructed tensor (any dtype, grad or not) in the
+||| param registry under `paramId`, so checkpointing (`saveModel`) includes
+||| it. This is the path for serializing inference-dtype tensors (bf16/f16/
+||| int) that aren't learnable params — and the hook the future
+||| HuggingFace-checkpoint loader needs (register loaded weights by name).
+||| Returns the tensor with its `paramId` set. The `reg` binding is threaded
+||| into the result so the registration FFI fires (an unused let is dropped).
+export
+registerParam : {0 d : Device} -> UserDeviceTape d => (paramId : String) -> Tensor dims d dt g -> IO (Tensor dims d dt g)
+registerParam pid t = ioRerun (\_ =>
+  let reg = primParamRegister {d} pid (tensorPtr t)
+  in MkTensor reg (Just pid))
+
 ||| Wrap an existing 1D tensor handle as a non-parameter input.
 ||| Pure — no FFI side effect, just record construction.
 export

@@ -733,8 +733,16 @@ TensorHandle tensor_with_grad(TensorHandle h) {
     return from_tensor(std::move(t));
 }
 
+static inline bool idrisml_is_floating_st(torch::ScalarType dt);  /* defined below */
+
 void tensor_set_requires_grad(TensorHandle h, int requires_grad) {
-    to_tensor(h)->requires_grad_(requires_grad != 0);
+    auto t = to_tensor(h);
+    /* torch throws if you request grad on a non-floating tensor. Inference
+       dtypes (int/bool) can be registered (e.g. via registerParam, for
+       serialization) but can't carry gradients — silently leave grad off
+       rather than abort. */
+    if (requires_grad && !idrisml_is_floating_st(t->scalar_type())) return;
+    t->requires_grad_(requires_grad != 0);
 }
 
 /* No-grad scope. Counter (not bool) so nested withNoGrad scopes
