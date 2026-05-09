@@ -9,8 +9,6 @@ depends = contrib
 modules = Generate
         , Example.A2c
         , Example.Bench
-        , Example.BenchLstmBoundary
-        , Example.BenchTVar
         , Example.DncAssociativeRecall
         , Example.DncCopy
         , Example.Dqn

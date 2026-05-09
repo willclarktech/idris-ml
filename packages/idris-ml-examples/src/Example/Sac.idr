@@ -246,9 +246,9 @@ actorPerStepLoss : {n : Nat} ->
                    TVar [n, 1] CPU -> TVar [n, 1] CPU ->
                    TVar [n, 1] CPU -> TVar [n, 1] CPU ->
                    TVar [] CPU -> Double ->
-                   Int -> Variable CPU ->
+                   Int ->
                    TVar [] CPU
-actorPerStepLoss meanB uBT q1B q2B logStdV alpha rowIdx _ =
+actorPerStepLoss meanB uBT q1B q2B logStdV alpha rowIdx =
   let q1Row = the (TVec 1 CPU) (trowSelect q1B rowIdx)
       q1S = the (TVar [] CPU) (telemSelect q1Row 0)
       q1Val = prim__item1d q1Row.tensorPtr 0
@@ -277,10 +277,6 @@ actorPerStepLoss meanB uBT q1B q2B logStdV alpha rowIdx _ =
       alphaLogP = tmulScalar lpV alpha
   in tsub alphaLogP minQS
 
--- Note: the second-to-last param is a placeholder Variable for ABI
--- compatibility with V1's enumeratedLosses (we no longer use the eps
--- value at the per-step level; the Idris-side normalSample produces
--- the eps which is used to assemble the buildScalarColumn input).
 actorLossBatch : (n : Nat) -> ActorNet -> QNet -> QNet -> TVar [] CPU ->
                  Double -> Vect n (Vect ObsDim Double) -> IO (TVar [] CPU)
 actorLossBatch n actor q1 q2 logStdV alpha obsBatch = do
@@ -302,17 +298,13 @@ actorLossBatch n actor q1 q2 logStdV alpha obsBatch = do
       losses = the (List (TVar [] CPU)) (go meanB uBT q1B q2B (toList epses) 0)
   pure (meanScalarLoss n losses)
   where
-    -- A placeholder Variable threaded through actorPerStepLoss; we no
-    -- longer use eps at the per-step level (eps is baked into uBT).
-    placeholder : Variable CPU
-    placeholder = Var (prim__createScalar 0.0 0) Nothing 0.0
     go : {n : Nat} ->
          TVar [n, 1] CPU -> TVar [n, 1] CPU ->
          TVar [n, 1] CPU -> TVar [n, 1] CPU ->
          List Double -> Int -> List (TVar [] CPU)
     go _ _ _ _ [] _ = []
     go meanB uBT q1B q2B (_ :: rest) k =
-      actorPerStepLoss meanB uBT q1B q2B logStdV alpha k placeholder
+      actorPerStepLoss meanB uBT q1B q2B logStdV alpha k
         :: go meanB uBT q1B q2B rest (k + 1)
 
 

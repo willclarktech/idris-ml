@@ -268,16 +268,6 @@ example-supervised: install
 	cp $(LIB) build/exec/supervised_app/
 	./build/exec/supervised $(SUPERVISED_ARGS)
 
-example-bench-tvar: install
-	idris2 $(IDRIS_FLAGS) -o bench-tvar $(EXAMPLE_SRC)/Example/BenchTVar.idr
-	cp $(LIB) build/exec/bench-tvar_app/
-	./build/exec/bench-tvar $(BENCH_TVAR_ARGS)
-
-example-bench-lstm-boundary: install
-	idris2 $(IDRIS_FLAGS) -o bench-lstm-boundary $(EXAMPLE_SRC)/Example/BenchLstmBoundary.idr
-	cp $(LIB) build/exec/bench-lstm-boundary_app/
-	./build/exec/bench-lstm-boundary $(BENCH_LSTM_BOUNDARY_ARGS)
-
 example-rnn: install
 	idris2 $(IDRIS_FLAGS) -o rnn $(EXAMPLE_SRC)/Example/Rnn.idr
 	cp $(LIB) build/exec/rnn_app/

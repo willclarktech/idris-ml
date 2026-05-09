@@ -23,8 +23,7 @@ import Floating
 import Generate
 import Hpo.LrFinder
 import Layer.ActivationV2
-import Layer.Conv  -- ConvOutDim / PoolOutDim type-level helpers
-import Layer.ConvV2
+import Layer.ConvV2  -- ConvOutDim / PoolOutDim type-level helpers
 import Layer.CoreV2
 import Layer.DropoutV2
 import Layer.LinearV2

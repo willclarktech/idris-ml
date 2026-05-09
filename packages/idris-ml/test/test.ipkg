@@ -7,19 +7,14 @@ depends = contrib
 
 modules = Harness
         , Main
-        , Test.BatchedForward
         , Test.Hpo.LrFinder
         , Test.Init
-        , Test.Layer
         , Test.Math
-        , Test.Memory
-        , Test.Optimizer
         , Test.RL.Gae
         , Test.RL.ReplayBuffer
         , Test.Sampler
         , Test.Schedule
         , Test.Tensor
-        , Test.Variable
 
 main = Main
 

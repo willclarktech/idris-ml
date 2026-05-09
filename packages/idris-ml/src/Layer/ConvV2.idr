@@ -6,9 +6,23 @@ import Compat.Random
 import Device
 import Init
 import Layer.CoreV2
-import Layer.Conv  -- reuse `ConvOutDim` and `PoolOutDim` from V1
 import Sampler
 import Variable
+
+
+----------------------------------------------------------------------
+-- Type-level conv/pool output-dimension helpers
+----------------------------------------------------------------------
+
+||| ConvOutDim inDim kernel pad = inDim + 2*pad - kernel + 1
+public export
+ConvOutDim : Nat -> Nat -> Nat -> Nat
+ConvOutDim inDim kernel pad = ((inDim + 2 * pad) `minus` kernel) + 1
+
+||| PoolOutDim inDim kernel stride = (inDim - kernel) / stride + 1
+public export
+PoolOutDim : Nat -> Nat -> Nat -> Nat
+PoolOutDim inDim kernel stride = div (inDim `minus` kernel) stride + 1
 
 
 ----------------------------------------------------------------------
