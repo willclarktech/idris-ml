@@ -596,12 +596,17 @@ UserDeviceTransfer TapeDev where
 
 
 ----------------------------------------------------------------------
--- Compatible (TapeDev, dt). Tape backend supports real F32 storage +
--- trainable F32 kernels for the elementwise / matmul / softmax /
--- optimizer-step families (Phase 3 of `docs/develop/` dtype-parameter
--- narrative). Other ops (conv, RNN, embedding, etc.) abort on F32
--- input via tape_abort_mixed_dtype until they're routed in a future
--- pass; F64 stays the daily-driver dtype.
+-- Compatible (TapeDev, dt).
+--
+-- F64 + F32 are trainable: every public `tensor_*` kernel routes F32
+-- through `tape_load_d` / `make_tensor_arena_f32` after Phase 3 + 3b.
+-- The inference-only dtypes (BF16/F16/I8/I16/I32/I64/U8/Bool) store
+-- packed bytes via the `double` lingua franca in `tape_round_to_dtype`
+-- + the lifted bf16/f16 bit helpers (Phase 4 step 2); they never enter
+-- a kernel that does arithmetic, only create/cast/readout. The
+-- I64-magnitudes-above-2^53 caveat applies to tape's lingua-franca
+-- path the same way it applies to safetensors I/O (documented, not
+-- fixed).
 ----------------------------------------------------------------------
 
 public export
@@ -609,6 +614,24 @@ Compatible TapeDev F64 where
 
 public export
 Compatible TapeDev F32 where
+
+-- Inference-only dtypes — storage + cast + readout, never trainable.
+public export
+Compatible TapeDev BF16 where
+public export
+Compatible TapeDev F16 where
+public export
+Compatible TapeDev I8 where
+public export
+Compatible TapeDev I16 where
+public export
+Compatible TapeDev I32 where
+public export
+Compatible TapeDev I64 where
+public export
+Compatible TapeDev U8 where
+public export
+Compatible TapeDev Bool where
 
 
 ----------------------------------------------------------------------
