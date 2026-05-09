@@ -172,6 +172,54 @@ doesn't fire. The DNC mask precompute (above) DID work because it
 saved hundreds of `prim__setDouble` calls in a loop, which CSE can't
 fold across the loop.
 
+### 2026-05-09 — `withNoGrad` + a2c rollout — `452eb7e`
+
+**Plan job**: Job 1 (torch wrapper overhead) + Job 2a (tape).
+
+**Motivation**: PyTorch's `torch.no_grad()` suppresses autograd graph
+construction for forward passes whose results aren't backprop'd —
+the standard pattern for RL rollouts, evaluation, anything that just
+wants the forward result. Our a2c rollout was running 480+ prim ops
+per epoch under autograd tracking only to extract Doubles for sampling
++ bootstrap; the gradient came from `buildLoss`'s own batched forward.
+All 480 ops were wasted graph construction.
+
+**Change**: wired up the existing-but-stubbed `tensor_no_grad_begin/end`
+in `backend_tape.c`, `backend_mlx.cpp`, `backend_torch.cpp` with a
+nesting counter (matches PyTorch's nestable `torch.no_grad()`).
+
+- tape: `tape_append` becomes a no-op when `no_grad_depth > 0`;
+  results marked `requires_grad=0` so downstream doesn't propagate.
+  Returns a writable static dummy entry so callers that do
+  `e->op_meta = ...` don't null-deref.
+- torch: nests a `torch::NoGradGuard` while depth > 0.
+- mlx: `tape_append` skipped + result `requires_grad=false` so the
+  VJP-replay closure doesn't track these ops.
+
+Idris API: `withNoGrad : IO a -> IO a` in `Tensor.idr`. Uses primIO
+sequencing on begin/end (same pattern as `prim__backwardC`).
+
+Wired up in `Example.A2c.a2cEpoch`: rollout phase wrapped in
+`withNoGrad`.
+
+**Impact** (3 samples each at default config):
+
+| Backend | Pre   | Post  | Note |
+|---------|------:|------:|------|
+| tape    | 9.93× | 8.66× | tape entries 600+ → 12, backward 5ms → 0.2ms |
+| torch   | 10.81× | 9.26× | autograd graph saved on rollout |
+| mlx     | 15.22× | 13.04× | fewer VJP constants |
+
+Wins are smaller than hoped because the per-call Chez FFI floor
+(~9 µs/call) dominates per-prim cost on these examples; no_grad
+saves a portion of that, not the dispatch itself.
+
+**Outcome**: landed. Useful as a library feature even where the perf
+delta is small — anyone writing RL or eval code in Idris-ml would
+expect `withNoGrad` to exist, just like PyTorch users expect
+`torch.no_grad()`. Future opportunity: also wrap `bootstrapV` and
+the eval phase, plus other examples' eval paths.
+
 ### 2026-05-09 — DNC `dncReadHeads` link-transpose hoist — `eaab884`
 
 **Plan job**: cross-cutting (mostly tape/torch).
