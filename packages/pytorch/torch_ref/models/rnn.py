@@ -64,9 +64,18 @@ class LinearRNNCell(nn.Module):
 
 
 class LinearLSTMCell(nn.Module):
-    """LSTM cell with linear output projection.
+    """LSTM cell with learned initial state + linear output projection.
 
-    Matches Idris LSTM example: LSTM(1, hidden) -> Linear(hidden, 1).
+    Wraps nn.LSTMCell (two biases as standard) plus learned h0/c0
+    parameters and an output projection. Matches Idris LstmState
+    which carries learned h0/c0 (added in Phase 1.5b for NTM/DNC
+    alignment; reused here for the standalone LSTM example so all
+    callers see the same shape).
+
+    Pre-2026-05-09 there was no forget-gate-bias=1.0 init in this
+    cell because the Idris side didn't have it either; we drop the
+    Jozefowicz default to keep the example aligned with what
+    Layer.Lstm produces.
     """
 
     def __init__(self, input_size: int, hidden_size: int, output_size: int) -> None:
@@ -74,20 +83,20 @@ class LinearLSTMCell(nn.Module):
         self.hidden_size = hidden_size
         self.lstm = nn.LSTMCell(input_size, hidden_size)
         self.output_proj = nn.Linear(hidden_size, output_size)
+        # Learned initial hidden + cell state (matches Idris LstmState).
+        self.h0 = nn.Parameter(torch.zeros(hidden_size))
+        self.c0 = nn.Parameter(torch.zeros(hidden_size))
 
         nn.init.xavier_uniform_(self.lstm.weight_ih)
         nn.init.xavier_uniform_(self.lstm.weight_hh)
-        # Forget gate bias = 1.0 (Jozefowicz et al. 2015, helps gradient flow)
         nn.init.zeros_(self.lstm.bias_ih)
         nn.init.zeros_(self.lstm.bias_hh)
-        with torch.no_grad():
-            self.lstm.bias_ih[hidden_size : 2 * hidden_size].fill_(1.0)
         nn.init.xavier_uniform_(self.output_proj.weight)
         nn.init.zeros_(self.output_proj.bias)
 
     def reset_state(self) -> None:
-        self._h = torch.zeros(self.hidden_size)
-        self._c = torch.zeros(self.hidden_size)
+        self._h = self.h0.clone()
+        self._c = self.c0.clone()
 
     def forward(self, x: Tensor) -> Tensor:
         # LSTMCell expects (batch, input_size), add batch dim
@@ -101,21 +110,20 @@ class LinearLSTMCell(nn.Module):
 
 
 class LinearGRUCell(nn.Module):
-    """GRU cell with linear output projection.
+    """GRU cell + linear output projection (mirrors Idris example shape).
 
-    Matches the simplified-GRU variant implemented in
-    `packages/backends/backend_{tape,mlx,torch}.c{,pp}` (`tensor_gru_cell`):
-    z and n gates are used; r is computed but NOT used to mask n.
-    This deviates from PyTorch's standard `nn.GRUCell` (where r masks
-    the hidden contribution to n) — kept for cross-backend alignment
-    with the Idris-side C kernel.
-
-    Equations:
-        combined = W_ih @ x + b_ih + W_hh @ h + b_hh   (size 3*o)
-        z = sigmoid(combined[0:o])
-        r = sigmoid(combined[o:2o])           # computed, not used
-        n = tanh(combined[2o:3o])
+    Cell equation matches PyTorch's `nn.GRUCell` (the standard GRU):
+        ih = W_ih @ x + b_ih           (size 3*o)
+        hh = W_hh @ h + b_hh           (size 3*o)
+        z = sigmoid(ih_z + hh_z)
+        r = sigmoid(ih_r + hh_r)
+        n = tanh(ih_n + r * hh_n)
         h' = (1 - z) * n + z * h
+    Plus an output projection W_out @ h + b_out.
+
+    Pre-2026-05-09 this was a "simplified GRU" where r was computed
+    but not used — non-standard, kept for parity with a C kernel that
+    also ignored r. Both sides now use the standard `nn.GRU` equation.
     """
 
     def __init__(self, input_size: int, hidden_size: int, output_size: int) -> None:
@@ -137,11 +145,12 @@ class LinearGRUCell(nn.Module):
         self._h = torch.zeros(self.hidden_size)
 
     def forward(self, x: Tensor) -> Tensor:
-        combined = self.weight_ih @ x + self.bias_ih + self.weight_hh @ self._h + self.bias_hh
+        ih = self.weight_ih @ x + self.bias_ih
+        hh = self.weight_hh @ self._h + self.bias_hh
         o = self.hidden_size
-        z = torch.sigmoid(combined[0:o])
-        # r = torch.sigmoid(combined[o:2*o])  # simplified GRU: r unused
-        n = torch.tanh(combined[2 * o : 3 * o])
+        z = torch.sigmoid(ih[0:o] + hh[0:o])
+        r = torch.sigmoid(ih[o:2 * o] + hh[o:2 * o])
+        n = torch.tanh(ih[2 * o : 3 * o] + r * hh[2 * o : 3 * o])
         self._h = (1.0 - z) * n + z * self._h
         return self.output_proj(self._h)
 

@@ -172,7 +172,7 @@ export
 prim__crossAttention : AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> Double -> AnyPtr
 
 %foreign "C:tensor_gru_cell,libidrisml"
-export prim__gruCell : AnyPtr -> AnyPtr -> Int -> AnyPtr
+export prim__gruCell : AnyPtr -> AnyPtr -> AnyPtr -> Int -> AnyPtr
 
 -- Embedding
 %foreign "C:tensor_embedding,libidrisml"
@@ -1128,14 +1128,23 @@ tzeroState1d {n} =
       buf = prim__allocDoubles nI
   in MkTensor (prim__createState1d nI buf) Nothing
 
-||| Fused GRU cell: combined gates [3 * n] + previous hidden [n] →
-||| new hidden [n]. Wraps `prim__gruCell`. The gate-vector size is
-||| encoded statically as `TVec (3 * n) d` via the alias.
+||| GRU cell — `nn.GRU` equation. Takes the two `[3 * n]` half-sums:
+|||   ih = W_ih @ x + b_ih
+|||   hh = W_hh @ h + b_hh
+||| (computed by the caller via `tlinear`) plus the previous hidden
+||| state. Internally:
+|||   z = sigmoid(ih_z + hh_z),  r = sigmoid(ih_r + hh_r)
+|||   n = tanh(ih_n + r * hh_n)
+|||   h' = (1 - z) * n + z * prev
+||| Pre-2026-05-09 this took a single fused `combined = ih + hh`
+||| and ignored r (simplified GRU); aligned to the standard
+||| `nn.GRU` equation so the example matches what library users
+||| expect.
 export
-tgruCell : {n : Nat} -> TVec (3 * n) d -> TVec n d -> TVec n d
-tgruCell {n} combined prevH =
+tgruCell : {n : Nat} -> TVec (3 * n) d -> TVec (3 * n) d -> TVec n d -> TVec n d
+tgruCell {n} ih hh prevH =
   let nI = cast {to=Int} n
-  in MkTensor (prim__gruCell combined.tensorPtr prevH.tensorPtr nI) Nothing
+  in MkTensor (prim__gruCell ih.tensorPtr hh.tensorPtr prevH.tensorPtr nI) Nothing
 
 -- Scalar boundary --------------------------------------------------
 

@@ -381,12 +381,16 @@ TensorHandle tensor_cumprod(TensorHandle ht, int dim) {
     return from_tensor(result);
 }
 
-TensorHandle tensor_gru_cell(TensorHandle hcombined, TensorHandle hprev, int o) {
-    auto& combined = *to_tensor(hcombined);
+TensorHandle tensor_gru_cell(TensorHandle hih, TensorHandle hhh,
+                              TensorHandle hprev, int o) {
+    /* nn.GRU equation. ih = W_ih @ x + b_ih, hh = W_hh @ h + b_hh.
+       libtorch's autograd handles backward via the graph. */
+    auto& ih = *to_tensor(hih);
+    auto& hh = *to_tensor(hhh);
     auto& prev = *to_tensor(hprev);
-    auto z = torch::sigmoid(combined.slice(0, 0, o));
-    auto r = torch::sigmoid(combined.slice(0, o, 2*o));
-    auto n = torch::tanh(combined.slice(0, 2*o, 3*o));
+    auto z = torch::sigmoid(ih.slice(0, 0, o) + hh.slice(0, 0, o));
+    auto r = torch::sigmoid(ih.slice(0, o, 2*o) + hh.slice(0, o, 2*o));
+    auto n = torch::tanh(ih.slice(0, 2*o, 3*o) + r * hh.slice(0, 2*o, 3*o));
     auto h_new = (1.0 - z) * n + z * prev;
     return from_tensor(h_new);
 }

@@ -211,9 +211,15 @@ const char*  tensor_device(TensorHandle t);
 
 /* ---------- GRU ---------- */
 
-/* GRU cell: combined = W @ [h, x] + bias ([3*o] tensor: z, r, n gates).
+/* GRU cell — nn.GRU equation. Takes the two [3*o] half-sums
+     ih = W_ih @ x + b_ih, hh = W_hh @ h + b_hh
+   and the previous hidden state. Computes:
+     z = sigmoid(ih_z + hh_z), r = sigmoid(ih_r + hh_r)
+     n = tanh(ih_n + r * hh_n)
+     h' = (1 - z) * n + z * prev
    Returns new hidden state [o]. */
-TensorHandle tensor_gru_cell(TensorHandle combined, TensorHandle prev_hidden, int o);
+TensorHandle tensor_gru_cell(TensorHandle ih, TensorHandle hh,
+                              TensorHandle prev_hidden, int o);
 
 /* ---------- LSTM ---------- */
 

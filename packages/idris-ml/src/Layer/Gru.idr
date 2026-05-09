@@ -48,12 +48,13 @@ applyGru {o} st input =
   let h = case st.hiddenT of
             Just h => h
             Nothing => tzeroState1d {n = o}
-      -- Fused mv+add via tlinear; combine the two parts via the inner
-      -- tlinear's bias slot to save one final tadd FFI hop.
-      ihPart = tlinear st.iwT input st.ihB
-      hhPart = tlinear st.hwT h st.hhB
-      combined = tadd ihPart hhPart
-      newH = tgruCell {n = o} combined h
+      -- nn.GRU equation. tgruCell takes ih and hh separately because
+      -- the n-gate uses r * hh_n (the r mask cannot be applied after
+      -- summing ih + hh). Three FFI calls (vs four with the prior
+      -- tadd-combine + simplified-no-r kernel).
+      ihPart = tlinear st.iwT input st.ihB    -- W_ih @ x + b_ih
+      hhPart = tlinear st.hwT h st.hhB        -- W_hh @ h + b_hh
+      newH = tgruCell {n = o} ihPart hhPart h
   in ({ hiddenT := Just newH } st, newH)
 
 

@@ -246,7 +246,7 @@ typedef struct {
 typedef struct {
     int o;
     double* zG; double* rG; double* nG;  /* activated gate values [o] each */
-    double* rh;  /* r * prev_hidden [o] */
+    Tensor* prev;                         /* prev hidden state [o] (for backward) */
 } GruCellMeta;
 
 typedef struct {
@@ -472,12 +472,14 @@ static void tape_reset(void) {
             meta->x_hat = NULL;
             meta->rstd = NULL;
         }
-        /* Free OP_GRU_CELL gate arrays */
+        /* Free OP_GRU_CELL gate arrays. `prev` is a Tensor* owned by
+           the caller (typically a per-sequence state handle); we don't
+           own it. */
         if (e->op == OP_GRU_CELL && e->op_meta) {
             GruCellMeta* meta = (GruCellMeta*)e->op_meta;
             free(meta->zG); free(meta->rG); free(meta->nG);
-            free(meta->rh);
-            meta->zG = meta->rG = meta->nG = meta->rh = NULL;
+            meta->zG = meta->rG = meta->nG = NULL;
+            meta->prev = NULL;
         }
         /* Free OP_EMBEDDING indices */
         if (e->op == OP_EMBEDDING && e->op_meta) {
@@ -2622,28 +2624,55 @@ void tensor_backward(TensorHandle h) {
         }
 
         case OP_GRU_CELL: {
-            /* h' = (1-z)*n + z*prev
-               d_combined[i]     (z_raw) = dh' * (prev[i] - n[i]) * z[i] * (1-z[i])
-               d_combined[o+i]   (r_raw) = 0 (simplified: r already folded into n_raw)
-               d_combined[2o+i]  (n_raw) = dh' * (1-z[i]) * (1-n[i]^2)
-               d_prev[i] = dh' * z[i] */
+            /* nn.GRU backward. arg1 = ih, arg2 = hh, prev in meta.
+                 z = sigmoid(ih_z + hh_z),  r = sigmoid(ih_r + hh_r)
+                 n = tanh(ih_n + r * hh_n)
+                 h' = (1-z) * n + z * prev
+               Gradient flows:
+                 d_z       = dh' * (prev - n)
+                 d_z_raw   = d_z * z * (1-z)        (goes to ih_z and hh_z)
+                 d_n       = dh' * (1-z)
+                 d_n_pre   = d_n * (1-n*n)          (where n_pre = ih_n + r*hh_n)
+                 d_ih_n    = d_n_pre
+                 d_(r*hh_n)= d_n_pre   →  d_r = d_n_pre * hh_n
+                                          d_hh_n = d_n_pre * r
+                 d_r_raw   = d_r * r * (1-r)        (goes to ih_r and hh_r)
+                 d_prev    = dh' * z                                              */
             GruCellMeta* meta = (GruCellMeta*)e->op_meta;
             int oo = meta->o;
+            Tensor* ih = a;
+            Tensor* hh = b;
+            Tensor* prev = meta->prev;
             ensure_grad(r);
-            if (a && a->requires_grad) {
-                ensure_grad(a);
-                for (int i = 0; i < oo; i++) {
-                    double dh = r->grad[i];
-                    double z = meta->zG[i], n = meta->nG[i];
-                    a->grad[i]      += dh * (b->data[i] - n) * z * (1.0 - z);  /* d_z_raw */
-                    /* d_r_raw: simplified model doesn't backprop through r separately */
-                    a->grad[2*oo+i] += dh * (1.0 - z) * (1.0 - n * n);          /* d_n_raw */
+            for (int i = 0; i < oo; i++) {
+                double dh = r->grad[i];
+                double zv = meta->zG[i];
+                double rv = meta->rG[i];
+                double nv = meta->nG[i];
+                double hh_n_i = hh->data[2*oo + i];
+
+                double d_z_raw = dh * (prev->data[i] - nv) * zv * (1.0 - zv);
+                double d_n_pre = dh * (1.0 - zv) * (1.0 - nv * nv);
+                double d_r     = d_n_pre * hh_n_i;
+                double d_r_raw = d_r * rv * (1.0 - rv);
+                double d_hh_n  = d_n_pre * rv;
+
+                if (ih && ih->requires_grad) {
+                    ensure_grad(ih);
+                    ih->grad[i]        += d_z_raw;
+                    ih->grad[oo + i]   += d_r_raw;
+                    ih->grad[2*oo + i] += d_n_pre;   /* d_ih_n = d_n_pre */
                 }
-            }
-            if (b && b->requires_grad) {
-                ensure_grad(b);
-                for (int i = 0; i < oo; i++)
-                    b->grad[i] += r->grad[i] * meta->zG[i];  /* d_prev */
+                if (hh && hh->requires_grad) {
+                    ensure_grad(hh);
+                    hh->grad[i]        += d_z_raw;
+                    hh->grad[oo + i]   += d_r_raw;
+                    hh->grad[2*oo + i] += d_hh_n;
+                }
+                if (prev && prev->requires_grad) {
+                    ensure_grad(prev);
+                    prev->grad[i] += dh * zv;
+                }
             }
             break;
         }
@@ -3851,8 +3880,20 @@ void tensor_pair_free(TensorPair* p) { free(p); }
    h' = (1-z)*n + z*prev_hidden
    ================================================================ */
 
-TensorHandle tensor_gru_cell(TensorHandle hcombined, TensorHandle hprev, int o) {
-    Tensor* combined = (Tensor*)hcombined;
+TensorHandle tensor_gru_cell(TensorHandle hih, TensorHandle hhh, TensorHandle hprev, int o) {
+    /* Standard nn.GRU equation. Takes ih = W_ih @ x + b_ih and
+       hh = W_hh @ h + b_hh as separate [3*o] vectors (caller's
+       responsibility to compute the two halves).
+         z = sigmoid(ih_z + hh_z)
+         r = sigmoid(ih_r + hh_r)
+         n = tanh(ih_n + r * hh_n)
+         h' = (1 - z) * n + z * prev
+       Pre-2026-05-09 this kernel took a single combined = ih + hh
+       and ignored r (simplified GRU); aligned to the standard
+       nn.GRU equation so the example matches what library users
+       expect. */
+    Tensor* ih = (Tensor*)hih;
+    Tensor* hh = (Tensor*)hhh;
     Tensor* prev = (Tensor*)hprev;
 
     double* zG = malloc(o * sizeof(double));
@@ -3861,22 +3902,25 @@ TensorHandle tensor_gru_cell(TensorHandle hcombined, TensorHandle hprev, int o) 
     double* out = calloc(o, sizeof(double));
 
     for (int i = 0; i < o; i++) {
-        zG[i] = 1.0 / (1.0 + exp(-combined->data[i]));           /* z = sigmoid */
-        rG[i] = 1.0 / (1.0 + exp(-combined->data[o + i]));       /* r = sigmoid */
-        nG[i] = tanh(combined->data[2*o + i]);                     /* n = tanh */
-        out[i] = (1.0 - zG[i]) * nG[i] + zG[i] * prev->data[i]; /* h' */
+        zG[i] = 1.0 / (1.0 + exp(-(ih->data[i] + hh->data[i])));            /* z */
+        rG[i] = 1.0 / (1.0 + exp(-(ih->data[o + i] + hh->data[o + i])));    /* r */
+        nG[i] = tanh(ih->data[2*o + i] + rG[i] * hh->data[2*o + i]);        /* n */
+        out[i] = (1.0 - zG[i]) * nG[i] + zG[i] * prev->data[i];             /* h' */
     }
 
     int shape[] = {o};
-    Tensor* r = make_tensor(out, shape, 1, combined->requires_grad || prev->requires_grad);
+    int rg = ih->requires_grad || hh->requires_grad || prev->requires_grad;
+    Tensor* r = make_tensor(out, shape, 1, rg);
     free(out);
 
     if (r->requires_grad) {
-        TapeEntry* e = tape_append(OP_GRU_CELL, r, combined, prev, 0);
+        /* arg1=ih, arg2=hh, prev kept in op_meta (3rd input doesn't fit
+           in TapeEntry's two-arg slot). */
+        TapeEntry* e = tape_append(OP_GRU_CELL, r, ih, hh, 0);
         GruCellMeta* meta = arena_alloc(sizeof(GruCellMeta));
         meta->o = o;
         meta->zG = zG; meta->rG = rG; meta->nG = nG;
-        meta->rh = NULL;  /* not needed for this simplified GRU */
+        meta->prev = prev;
         e->op_meta = meta;
     } else {
         free(zG); free(rG); free(nG);

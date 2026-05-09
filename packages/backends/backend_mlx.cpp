@@ -202,6 +202,11 @@ struct SumDimReplayMeta {
     int keepdim;   /* 0 or 1 */
 };
 
+struct GruCellReplayMeta {
+    int o;
+    int prev_pool_idx;  /* prev hidden state — 3rd input, doesn't fit in arg1/arg2 */
+};
+
 struct TapeEntry {
     int op;
     Tensor* result;
@@ -238,6 +243,10 @@ static void tape_reset() {
     for (auto& e : tape) {
         if (e.op == OP_LAYER_NORM_2D && e.meta) {
             delete (LayerNormReplayMeta*)e.meta;
+            e.meta = nullptr;
+        }
+        if (e.op == OP_GRU_CELL && e.meta) {
+            delete (GruCellReplayMeta*)e.meta;
             e.meta = nullptr;
         }
         if (e.op == OP_STACK && e.meta) {
@@ -944,21 +953,36 @@ TensorHandle tensor_cumprod(TensorHandle ht, int dim) {
     return (TensorHandle)r;
 }
 
-TensorHandle tensor_gru_cell(TensorHandle hcombined, TensorHandle hprev, int o) {
-    auto combined = (Tensor*)hcombined;
+TensorHandle tensor_gru_cell(TensorHandle hih, TensorHandle hhh,
+                              TensorHandle hprev, int o) {
+    /* nn.GRU equation. ih = W_ih @ x + b_ih, hh = W_hh @ h + b_hh.
+       MLX replay autograd handles backward via the closure. */
+    auto ih = (Tensor*)hih;
+    auto hh = (Tensor*)hhh;
     auto prev = (Tensor*)hprev;
-    // Decompose into primitives — MLX replay autograd handles backward
-    auto z_raw = mx::slice(combined->data, {0}, {o});
-    auto r_raw = mx::slice(combined->data, {o}, {2*o});
-    auto n_raw = mx::slice(combined->data, {2*o}, {3*o});
-    auto z = mx::sigmoid(z_raw);
-    auto n = mx::tanh(n_raw);
+    auto ih_z = mx::slice(ih->data, {0}, {o});
+    auto ih_r = mx::slice(ih->data, {o}, {2*o});
+    auto ih_n = mx::slice(ih->data, {2*o}, {3*o});
+    auto hh_z = mx::slice(hh->data, {0}, {o});
+    auto hh_r = mx::slice(hh->data, {o}, {2*o});
+    auto hh_n = mx::slice(hh->data, {2*o}, {3*o});
+    auto z = mx::sigmoid(mx::add(ih_z, hh_z));
+    auto r_gate = mx::sigmoid(mx::add(ih_r, hh_r));
+    auto n = mx::tanh(mx::add(ih_n, mx::multiply(r_gate, hh_n)));
     auto one = mx::array(1.0, mx::float32);
-    auto result = mx::add(mx::multiply(mx::subtract(one, z), n), mx::multiply(z, prev->data));
+    auto result = mx::add(mx::multiply(mx::subtract(one, z), n),
+                          mx::multiply(z, prev->data));
 
-    bool rg = combined->requires_grad || prev->requires_grad;
+    bool rg = ih->requires_grad || hh->requires_grad || prev->requires_grad;
     auto r = new Tensor(result, rg);
-    if (rg) tape_append(OP_GRU_CELL, r, combined, prev, (double)o);
+    if (rg) {
+        /* arg1=ih, arg2=hh; prev (3rd input) goes in op_meta. */
+        int idx = tape_append(OP_GRU_CELL, r, ih, hh, 0);
+        auto meta = new GruCellReplayMeta();
+        meta->o = o;
+        meta->prev_pool_idx = prev->pool_idx;
+        tape[idx].meta = meta;
+    }
     return (TensorHandle)r;
 }
 
@@ -1729,11 +1753,25 @@ void tensor_backward(TensorHandle h) {
                 break;
             }
             case OP_GRU_CELL: {
-                int oo = (int)e.scalar_arg;
-                auto z = mx::sigmoid(mx::slice(a, {0}, {oo}));
-                auto n = mx::tanh(mx::slice(a, {2*oo}, {3*oo}));
+                /* nn.GRU: a=ih, b=hh, prev via meta->prev_pool_idx.
+                     z = sigmoid(ih_z + hh_z), r = sigmoid(ih_r + hh_r)
+                     n = tanh(ih_n + r * hh_n)
+                     h' = (1-z)*n + z*prev                                 */
+                auto meta = (GruCellReplayMeta*)e.meta;
+                int oo = meta->o;
+                auto prev = pool[meta->prev_pool_idx];
+                auto ih_z = mx::slice(a, {0}, {oo});
+                auto ih_r = mx::slice(a, {oo}, {2*oo});
+                auto ih_n = mx::slice(a, {2*oo}, {3*oo});
+                auto hh_z = mx::slice(b, {0}, {oo});
+                auto hh_r = mx::slice(b, {oo}, {2*oo});
+                auto hh_n = mx::slice(b, {2*oo}, {3*oo});
+                auto z = mx::sigmoid(mx::add(ih_z, hh_z));
+                auto r_gate = mx::sigmoid(mx::add(ih_r, hh_r));
+                auto n = mx::tanh(mx::add(ih_n, mx::multiply(r_gate, hh_n)));
                 auto one = mx::array(1.0, mx::float32);
-                pool[out] = mx::add(mx::multiply(mx::subtract(one, z), n), mx::multiply(z, b));
+                pool[out] = mx::add(mx::multiply(mx::subtract(one, z), n),
+                                    mx::multiply(z, prev));
                 break;
             }
             case OP_EMBEDDING: {
