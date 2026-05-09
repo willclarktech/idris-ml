@@ -606,6 +606,9 @@ test-examples:
 			skip="$$skip $$b"; continue; \
 		}; \
 		for e in $(EXAMPLES); do \
+			case " $(SKIP_EXAMPLES) " in *" $$b:$$e "*) \
+				echo "skip: $$e [$$b] (in SKIP_EXAMPLES)"; continue ;; \
+			esac; \
 			echo "--- $$e [$$b] ---"; \
 			extra_args=""; \
 			case "$$e" in \

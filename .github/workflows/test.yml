@@ -142,4 +142,15 @@ jobs:
         run: make install
 
       - name: Run integration tests
-        run: make test-examples EXAMPLE_TIMEOUT=900
+        # SKIP_EXAMPLES: 4 mlx examples that hit an mlx 0.31 allocator
+        # regression specific to GH Actions macOS-latest VMs (works fine
+        # on real M-series Macs locally — `[malloc] Unable to allocate
+        # N bytes` for tiny N under sustained scalar-tensor allocation).
+        # All 4 still get coverage on tape and torch lanes. Drop the
+        # skip when mlx ships a fix; tracked in TODO.md.
+        run: |
+          make test-examples EXAMPLE_TIMEOUT=900 SKIP_EXAMPLES="\
+            mlx:example-ntm-copy \
+            mlx:example-ntm-associative-recall \
+            mlx:example-dnc-recall \
+            mlx:example-mountain-car-cont"
