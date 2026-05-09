@@ -63,7 +63,7 @@ export prim__log : AnyPtr -> AnyPtr
 prim__sqrt : AnyPtr -> AnyPtr
 
 %foreign "C:tensor_pow,libidrisml"
-prim__pow : AnyPtr -> AnyPtr -> AnyPtr
+export prim__pow : AnyPtr -> AnyPtr -> AnyPtr
 
 %foreign "C:tensor_sigmoid,libidrisml"
 export prim__sigmoid : AnyPtr -> AnyPtr
@@ -147,7 +147,7 @@ export prim__clampMin : AnyPtr -> Double -> AnyPtr
 export prim__cosineSimilarity : AnyPtr -> AnyPtr -> Int -> AnyPtr
 
 %foreign "C:tensor_conv1d_circular,libidrisml"
-prim__conv1dCircular : AnyPtr -> AnyPtr -> AnyPtr
+export prim__conv1dCircular : AnyPtr -> AnyPtr -> AnyPtr
 
 %foreign "C:tensor_gelu,libidrisml"
 export prim__gelu : AnyPtr -> AnyPtr
@@ -348,16 +348,6 @@ prim__pairFirst : AnyPtr -> AnyPtr
 %foreign "C:tensor_pair_second,libidrisml"
 export
 prim__pairSecond : AnyPtr -> AnyPtr
-
--- Fused NTM read head: entire addressing pipeline in one C call
-%foreign "C:tensor_ntm_read_head,libidrisml"
-export
-prim__ntmReadHead : AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr
-
--- NTM interpolation write: memory + outer(weights, add)
-%foreign "C:tensor_ntm_interp_write,libidrisml"
-export
-prim__ntmInterpWrite : AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr
 
 -- Array-level forward ops (used by layers with consolidated weight tensors)
 ||| Matrix-vector multiply on raw tensor pointers.

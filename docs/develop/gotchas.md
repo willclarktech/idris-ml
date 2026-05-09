@@ -307,13 +307,15 @@ These gotchas apply to the C tape backend (`BACKEND=tape`), which implements `ba
 
 RMSprop/Adam velocity and momentum buffers must be sized by total parameter ELEMENTS, not total parameter count. A [400,29] weight matrix needs 11,600 velocity slots, not 1. Index via `param_element_offset(i) + j`. SGD is unaffected (no buffers).
 
-### Fused ops require backward rules
+### Fused ops require backward rules — and prefer not to add them at all
 
-Any fused C operation that sets `requires_grad=1` on its output MUST also append tape entries and implement backward cases. Without a backward rule, the gradient chain breaks silently — the op's result gets gradient but it's never propagated to inputs. The NTM fused ops (`tensor_ntm_read_head`, `tensor_ntm_interp_write`) were originally forward-only; backward rules were added for OP_NTM_READ_HEAD, OP_NTM_READ_HEAD_READ, and OP_NTM_INTERP_WRITE.
+Any fused C operation that sets `requires_grad=1` on its output MUST also append tape entries and implement backward cases. Without a backward rule, the gradient chain breaks silently — the op's result gets gradient but it's never propagated to inputs.
+
+The corollary: **don't add architecture-specific fused C ops in the first place.** A `tensor_*` op should be something a PyTorch user would expect at the FFI surface (`F.cosine_similarity`, `nn.LSTMCell`, etc.). Per-paper fusions like NTM's read-head pipeline belong in Idris, composed from primitives. The previous `tensor_ntm_read_head` / `tensor_ntm_interp_write` fusion was rolled back; NTM now composes its addressing in `Layer/Ntm.idr` like DNC always did.
 
 ### NTM state is not a parameter
 
-NTM memory, readAddr, writeAddr, readOutput are per-sequence state, NOT learned parameters. Do NOT register them with `prim__paramRegister` — the optimizer will corrupt them with gradient updates. Use `tensor_create_state_2d`/`tensor_create_state_1d` (persistent, `requires_grad=0`, no param registration). The fused addressing ops still propagate gradients to the key, beta, g, gamma, shift inputs (which DO come from FC layers with `requires_grad=1`).
+NTM memory, readAddr, writeAddr, readOutput are per-sequence state, NOT learned parameters. Do NOT register them with `prim__paramRegister` — the optimizer will corrupt them with gradient updates. Use `tensor_create_state_2d`/`tensor_create_state_1d` (persistent, `requires_grad=0`, no param registration). The decomposed addressing primitives still propagate gradients to the key, beta, g, gamma, shift inputs (which DO come from FC layers with `requires_grad=1`).
 
 ### `tensor_matmul` vector-matrix backward
 

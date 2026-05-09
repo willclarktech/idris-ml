@@ -86,7 +86,7 @@ Extends NTM (Graves et al. 2016). Key design choices:
 
 1. **Separate FC layers per parameter group** — cleaner than one massive FC + slicing. Each FC (writeKeyFc, eraseFc, freeGatesFc, etc.) gets its own named parameters. Matches the paper's "interface vector" decomposition.
 
-2. **Decomposed ops, not fused** — DNC addressing ops (allocation, link update, mode mixture) are composed from existing tensor primitives. No fused C ops needed (unlike NTM's `tensor_ntm_read_head`). Two new primitives added: `tensor_argsort` (integer indices, non-differentiable) and `tensor_cumprod` (differentiable with backward rule).
+2. **Decomposed ops, not fused** — DNC addressing ops (allocation, link update, mode mixture) are composed from existing tensor primitives. NTM's `tensor_ntm_read_head` / `tensor_ntm_interp_write` were the same shape and have since been removed too — both architectures now compose their addressing entirely in Idris from generic primitives. Two new primitives added: `tensor_argsort` (integer indices, non-differentiable) and `tensor_cumprod` (differentiable with backward rule).
 
 3. **Erase+add write** — DNC uses `M' = M * (1 - outer(w, e)) + outer(w, a)` with separate erase and add vectors. More expressive than NTM's interpolation write. Matches the paper.
 
@@ -557,25 +557,15 @@ This is a runtime-queryable capability, not a compile-time flag, so the same com
 | GPU support | No | Metal | CUDA/MPS |
 | Dependencies | 0 | ~50MB MLX | ~2GB libtorch |
 
-### Decomposed vs fused NTM ops
+### Decomposed NTM addressing — no fused ops
 
-The tape backend uses fused ops (`tensor_ntm_read_head`, `tensor_ntm_interp_write`) with hand-written backward rules that compute gradients in a numerically stable way. The MLX backend decomposes these into ~15 primitive ops (cosine_sim, softmax, mul, div, conv1d_circular, etc.), each with its own backward rule.
+NTM's read-head pipeline (cosine_sim → softmax → interpolate → circular shift → sharpen → read) is composed in Idris from generic primitives. Earlier versions had a fused `tensor_ntm_read_head` C op with hand-rolled backward; that was removed in 2026-05-07 (commit `<this commit>`) on the principle that paper-specific fusions don't belong at the FFI layer. PyTorch users wouldn't expect a `tensor_ntm_*` op at the boundary; they'd expect to compose it themselves from the standard primitives. NTM and DNC now follow the same pattern.
 
-Trade-offs:
-- **Fused (tape)**: Better numerical stability (single backward formula avoids catastrophic cancellation in normalization), simpler gradient chain, but hard to port to new backends
-- **Decomposed (MLX)**: Each primitive is independently tested and reusable, but the composed backward accumulates precision errors. Required a fused `OP_NORMALIZE` for the attention normalization step to prevent NaN divergence. Result: 91% vs 100% accuracy gap
+### NTM numerical stability: epsilon clamping
 
-### NTM numerical stability: epsilon clamping and fused normalize
+The sharpening step computes `pow(weights, gamma) / sum(pow(weights, gamma))`. After circular shift convolution, weights can become negative or zero. `pow(negative, gamma)` = NaN when gamma is non-integer. The Idris addressing wraps the shift output in `prim__clampMin shifted 1.0e-10` before raising to gamma. Normalization adds `1.0e-10` to the denominator to avoid divide-by-zero when all weights collapse to zero.
 
-The NTM addressing pipeline computes `pow(weights, gamma) / sum(pow(weights, gamma))` for focus/sharpening. After circular shift convolution, weights can become negative or zero. `pow(negative, gamma)` = NaN when gamma is non-integer. All backends clamp to `1e-10` before pow.
-
-The normalization `x / sum(x)` backward is numerically sensitive: the decomposed `d/d(numer) = grad/denom` and `d/d(denom) = -grad*numer/denom²` are huge near-cancelling terms. The tape backend's fused formula `d_x[i] = (d_r[i] - dot(d_r, r)) / (sum(x) + eps)` avoids this. The MLX backend uses a fused `OP_NORMALIZE` op for the same reason — without it, NaN diverges at epoch ~12K.
-
-Fix: add `tensor_clamp_min` to `backend.h` and use in `focusVar` before `prim__pow`. Both backends must implement this. The torch backend already had the clamp in its fused path but needs it in the standalone `tensor_clamp_min` function too.
-
-The old Scheme backend avoided this issue through buffer-passing: addressing weights stayed in C buffers where the NTM-specific C ops applied the clamping internally. The new architecture's scalar path bypasses those C ops.
-
-**Update (2026-04-02)**: Adding `tensor_clamp_min` to `focusVar` and `shiftVar` prevents forward-pass NaN. However, backward-pass NaN persists at NTM scale (128 memory slots × 20 width). Root cause: multiple compound ops (`tensor_cosine_similarity`, `tensor_conv1d_circular`) needed tape entries for backward. Added `OP_COSINE_SIM` and `OP_CONV1D_CIRC` backward rules. Also fixed multi-dim backward for `OP_POW` and `OP_DIV`, and `tensor_unsqueeze` to use `tensor_reshape` for tape continuity. Individual ops pass C tests in isolation. **The full NTM addressing chain also passes at N=128, W=20 in a standalone C test** (test_ntm_grad.c — 5 epochs with RMSprop, all gradients finite). **Root cause found (2026-04-02)**: `tensor_mul_scalar` and `tensor_add_scalar` only read `data[0]`, treating vector inputs as scalars. The NTM's `interpolateVar` passes N-element stacked vectors through `prim__mulScalar`. The old scalar-only code created 1-element tensors; downstream `conv1d` read out-of-bounds memory → NaN. Fix: both functions now handle multi-element tensors. NTM trains correctly on the tape backend (loss=0.6935, matching libtorch).
+The decomposed normalization `x / (sum(x) + eps)` backward goes through generic `prim__div` and `prim__sum` rules. Earlier work suspected catastrophic cancellation in this path (and added a fused `OP_NORMALIZE`/numerically-stable backward in the tape op for it), but the decomposed Idris path produces bit-identical numerics on tape and converges identically to within floating-point noise on mlx/torch. The fused workaround turned out to be unnecessary once forward-pass NaN sources (un-clamped pow) and stale `tensor_mul_scalar` / `tensor_add_scalar` multi-dim backward bugs were fixed. Both have been corrected upstream; no special normalization op is needed.
 
 ### Tape backend performance: optimization roadmap
 
@@ -609,7 +599,7 @@ Four bugs prevented convergence on the tape backend:
 
 4. **Optimizer per-element buffers**: RMSprop/Adam allocated one velocity/momentum slot per param tensor instead of per element. A [400,29] weight matrix had all 11,600 elements sharing one `v[]` slot — the last element's `g²` overwrote all previous. Fix: size buffers by total element count, index by `param_offset + element_j`.
 
-Also removed fused NTM C ops (`tensor_ntm_read_head`, `tensor_ntm_interp_write`) from the tensor path since they lack backward rules in the tape backend. The individual Variable-level addressing ops (which use `OP_COSINE_SIM`, `OP_SOFTMAX`, `OP_CONV1D_CIRC`, `OP_POW`, `OP_VECMAT` etc.) are used instead.
+Also removed fused NTM C ops (`tensor_ntm_read_head`, `tensor_ntm_interp_write`) — they were re-added at one point with hand-rolled backward rules but were finally removed for good in 2026-05-07 as part of a cleanup of architecture-specific fusions from the cross-backend FFI surface (see "Decomposed NTM addressing — no fused ops" above). NTM addressing is now composed entirely from generic primitives: `prim__cosineSimilarity`, `prim__softmax`, `prim__conv1dCircular`, `prim__pow`, `prim__matmul`, etc.
 
 Result: LSTM converges (0.714 → 0.048 in 5k epochs, ~1.5 min). NTM-copy with short sequences (1-5) reaches 83.5% accuracy in 2k epochs (~40 min). NTM per-epoch is ~1.3s (short) / ~3.5s (full) — ~10-30x slower than the old fused-C backend. Performance optimization is the next priority.
 

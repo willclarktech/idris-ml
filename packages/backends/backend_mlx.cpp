@@ -133,7 +133,6 @@ enum {
     OP_COSINE_SIM, OP_CONV1D_CIRC,
     OP_MV,
     OP_SELECT,
-    OP_NORMALIZE,
     OP_BMM_3X3,
     OP_SOFTMAX_3D,
     OP_TRANSPOSE_LAST2,
@@ -1245,62 +1244,6 @@ TensorHandle tensor_max_pool2d(TensorHandle hinput, int kH, int kW,
     return (TensorHandle)r;
 }
 
-// Fused normalize: r[i] = a[i] / (sum(a) + eps)
-// Numerically stable backward avoids catastrophic cancellation from separate div/sum ops.
-static TensorHandle tensor_normalize_1d(TensorHandle h) {
-    auto t = (Tensor*)h;
-    auto S = mx::add(mx::sum(t->data), mx::array(1e-10));
-    auto r = new Tensor(mx::divide(t->data, S), t->requires_grad);
-    if (t->requires_grad) tape_append(OP_NORMALIZE, r, t, nullptr, 0);
-    return (TensorHandle)r;
-}
-
-TensorPair* tensor_ntm_read_head(TensorHandle hmemory, TensorHandle hprev_weights,
-    TensorHandle hkey, TensorHandle hbeta, TensorHandle hg,
-    TensorHandle hgamma, TensorHandle hshift_kernel) {
-    // Decompose the 7-step read head pipeline using existing tensor_* functions
-    // This way each sub-op records its own tape entry for backward.
-
-    // 1. Content addressing: cosine_sim * beta → softmax
-    TensorHandle cos_sim = tensor_cosine_similarity(hmemory, hkey, 0);
-    TensorHandle scaled = tensor_mul(cos_sim, hbeta);
-    TensorHandle content_weights = tensor_softmax(scaled, 0);
-
-    // 2. Interpolation: g * content + (1-g) * prev
-    TensorHandle one = tensor_create_scalar(1.0, 0);
-    TensorHandle one_minus_g = tensor_sub(one, hg);
-    TensorHandle g_content = tensor_mul(hg, content_weights);
-    TensorHandle omg_prev = tensor_mul(one_minus_g, hprev_weights);
-    TensorHandle interp = tensor_add(g_content, omg_prev);
-
-    // 3. Circular shift
-    TensorHandle shifted = tensor_conv1d_circular(interp, hshift_kernel);
-
-    // 4. Clamp + power sharpen + normalize
-    TensorHandle clamped = tensor_clamp_min(shifted, 1.0e-10);
-    TensorHandle powered = tensor_pow(clamped, hgamma);
-    TensorHandle focused = tensor_normalize_1d(powered);
-
-    // 5. Read from memory: focused @ memory → [m]
-    // Use tensor_mv for proper backward handling (MV handles 1D vectors correctly)
-    // focused is [n], memory^T is [m, n], so mv(memory^T, focused) → [m]
-    TensorHandle memT_transposed = tensor_transpose_2d(hmemory);
-    TensorHandle read_result = tensor_mv(memT_transposed, focused);
-
-    auto pair = (TensorPair*)malloc(sizeof(TensorPair));
-    pair->first = focused;
-    pair->second = read_result;
-    all_pairs.push_back(pair);
-    return pair;
-}
-
-TensorHandle tensor_ntm_interp_write(TensorHandle hmemory, TensorHandle hweights,
-    TensorHandle hadd_vector) {
-    // memory_new = memory + outer(weights, add_vector)
-    TensorHandle outer_prod = tensor_outer(hweights, hadd_vector);
-    return tensor_add(hmemory, outer_prod);
-}
-
 /* ================================================================
    Shape manipulation
    ================================================================ */
@@ -1731,10 +1674,6 @@ void tensor_backward(TensorHandle h) {
                     result = mx::add(result, mx::multiply(shifted, kern_j));
                 }
                 pool[out] = result;
-                break;
-            }
-            case OP_NORMALIZE: {
-                pool[out] = mx::divide(a, mx::add(mx::sum(a), mx::array(1e-10)));
                 break;
             }
             case OP_LAYER_NORM_2D: {

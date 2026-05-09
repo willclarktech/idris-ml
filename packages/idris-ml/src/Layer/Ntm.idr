@@ -35,8 +35,9 @@ WriteParamWidth m = ReadParamWidth m + m
 --
 -- Mirrors V1 `Layer/Ntm.idr`'s `applyVarTensor` path. The LSTM
 -- controller ingests `cat(readOutput, input)`; its cell state feeds
--- read/write FCs which produce head parameters; the fused C ops
--- `prim__ntmReadHead` / `prim__ntmInterpWrite` handle addressing.
+-- read/write FCs which produce head parameters; addressing is
+-- composed from generic Tensor primitives via `ntmReadHeadIdris`
+-- / `ntmInterpWriteIdris` below.
 --
 -- Architecture:
 --   inputSize -> Lstm(m+inputSize, h) -> readFc/writeFc/outputFc
@@ -81,6 +82,42 @@ zeroState2d n m =
       mI = cast {to=Int} m
       buf = prim__allocDoubles (nI * mI)
   in prim__createState2d nI mI buf
+
+-- NTM read head decomposition (Graves et al. 2014, §3.3).
+-- Returns (newReadAddr [n], readOutput [m]) given memory [n,m],
+-- prevWeights [n], key [m], beta [], g [], gamma [], shift [k].
+%inline
+ntmReadHeadIdris : (memT, prevWT, keyT, betaT, gT, gammaT, shiftT : AnyPtr) ->
+                   (AnyPtr, AnyPtr)
+ntmReadHeadIdris memT prevWT keyT betaT gT gammaT shiftT =
+  let -- 1. Content addressing: cosine sim per memory row vs key.
+      keyT2d        = prim__unsqueeze keyT 0           -- [1, m]
+      cosScoresT    = prim__cosineSimilarity memT keyT2d 1   -- [n]
+      scaledScoresT = prim__mul betaT cosScoresT       -- broadcast [] × [n]
+      contentWT     = prim__softmax scaledScoresT 0    -- [n]
+      -- 2. Interpolation: g · content + (1 - g) · prev
+      oneMinusG     = prim__addScalar (prim__neg gT) 1.0
+      interpT       = prim__add (prim__mul gT contentWT)
+                                (prim__mul oneMinusG prevWT)
+      -- 3. Circular shift convolution.
+      shiftedT      = prim__conv1dCircular interpT shiftT
+      -- 4. Sharpening: pow(max(x, 1e-10), gamma); then normalize.
+      shiftedClampedT = prim__clampMin shiftedT 1.0e-10
+      poweredT      = prim__pow shiftedClampedT gammaT
+      normSumT      = prim__addScalar (prim__sum poweredT) 1.0e-10
+      focusedT      = prim__div poweredT normSumT
+      -- 5. Read: focused [n] @ memory [n,m] -> [m]
+      readOutT      = prim__matmul focusedT memT
+  in (focusedT, readOutT)
+
+-- NTM interpolated write (Graves et al. 2014, §3.3).
+-- memory' = memory + outer(weights, addVector). The Graves erase term
+-- is omitted to match the existing C `tensor_ntm_interp_write` (which
+-- has only ever implemented add, not erase).
+%inline
+ntmInterpWriteIdris : (memT, weightsT, addVecT : AnyPtr) -> AnyPtr
+ntmInterpWriteIdris memT weightsT addVecT =
+  prim__add memT (prim__outer weightsT addVecT)
 
 export
 applyNtm : {n, m, h, i, o : Nat} ->
@@ -127,9 +164,7 @@ applyNtm {n} {m} {h} {i} {o}
       gT = prim__sigmoid (prim__select readResultT 0 (mI + skI + 1))
       gammaT = prim__addScalar (prim__softplus
                   (prim__select readResultT 0 (mI + skI + 2))) 1.0
-      readPair = prim__ntmReadHead memTPtr raTPtr keyT betaT gT gammaT shiftT
-      newReadAddrT = prim__pairFirst readPair
-      newReadOutT = prim__pairSecond readPair
+      (newReadAddrT, newReadOutT) = ntmReadHeadIdris memTPtr raTPtr keyT betaT gT gammaT shiftT
       -- 5. Write FC: cell -> [WriteParamWidth m]
       writeResultT = prim__add (prim__mv wfcW cellPtr) wfcB
       rpw = cast {to=Int} (ReadParamWidth m)
@@ -139,10 +174,9 @@ applyNtm {n} {m} {h} {i} {o}
       wGT = prim__sigmoid (prim__select writeResultT 0 (mI + skI + 1))
       wGammaT = prim__addScalar (prim__softplus
                    (prim__select writeResultT 0 (mI + skI + 2))) 1.0
-      writePair = prim__ntmReadHead memTPtr waTPtr wKeyT wBetaT wGT wGammaT wShiftT
-      newWriteAddrT = prim__pairFirst writePair
+      (newWriteAddrT, _) = ntmReadHeadIdris memTPtr waTPtr wKeyT wBetaT wGT wGammaT wShiftT
       addT = prim__narrow writeResultT 0 rpw mI
-      newMemT = prim__ntmInterpWrite memTPtr newWriteAddrT addT
+      newMemT = ntmInterpWriteIdris memTPtr newWriteAddrT addT
       -- 6. Output FC: cat(hidden, readOut) -> [o]
       concatPtr = prim__cat2 hiddenV.tensorPtr newReadOutT
       outputPtr = prim__add (prim__mv ofcW concatPtr) ofcB
