@@ -318,8 +318,7 @@ TensorHandle name(TensorHandle a, TensorHandle b) { \
     } \
     return binop_elementwise(a, b, op_tag, fn64); \
 }
-/* tensor_add: moved to backend_tape/core/elementwise/add.c (Phase 1a.2). */
-TAPE_BINOP_DISPATCH(tensor_sub, OP_SUB, fn_sub, fn_sub_f32)
+/* tensor_add, tensor_sub: moved to backend_tape/core/elementwise/ (Phase 1a.2/3). */
 TAPE_BINOP_DISPATCH(tensor_mul, OP_MUL, fn_mul, fn_mul_f32)
 TAPE_BINOP_DISPATCH(tensor_div, OP_DIV, fn_div, fn_div_f32)
 TAPE_BINOP_DISPATCH(tensor_pow, OP_POW, fn_pow, fn_pow_f32)
@@ -3172,57 +3171,13 @@ void tensor_backward(TensorHandle h) {
         switch (e->op) {
         case OP_CONST: break; /* leaf — grad already accumulated */
 
-        /* OP_ADD: moved to backend_tape/core/elementwise/add.c (Phase 1a.2).
+        /* OP_ADD, OP_SUB: moved to backend_tape/core/elementwise/ (Phase 1a.2/3).
            Migrated path: dispatch table at top of this loop. */
 
-        /* Elementwise-binop backward (OP_SUB/MUL/DIV/POW) — handle three
+        /* Elementwise-binop backward (OP_MUL/DIV/POW) — handle three
            cases per side: same-shape (fast loop), scalar (sum-reduce), and
            general numpy-style broadcast (walk r-positions with broadcast
            strides, accumulating into the operand's flat index). */
-        case OP_SUB: {
-            int a_match = a && shapes_equal(a, r);
-            int b_match = b && shapes_equal(b, r);
-            if (a) ensure_grad(a);
-            if (b) ensure_grad(b);
-            ensure_grad(r);
-            if (a_match) {
-                for (int j = 0; j < a->numel; j++) ((double*)a->grad)[j] += ((double*)r->grad)[j];
-            } else if (a && a->numel == 1) {
-                double s = 0; for (int j = 0; j < r->numel; j++) s += ((double*)r->grad)[j];
-                ((double*)a->grad)[0] += s;
-            }
-            if (b_match) {
-                for (int j = 0; j < b->numel; j++) ((double*)b->grad)[j] -= ((double*)r->grad)[j];
-            } else if (b && b->numel == 1) {
-                double s = 0; for (int j = 0; j < r->numel; j++) s += ((double*)r->grad)[j];
-                ((double*)b->grad)[0] -= s;
-            }
-            if ((a && !a_match && a->numel != 1) || (b && !b_match && b->numel != 1)) {
-                int a_str[MAX_BCAST_RANK] = {0}, b_str[MAX_BCAST_RANK] = {0};
-                int idx[MAX_BCAST_RANK] = {0};
-                if (a) compute_bcast_strides(a, r->rank, r->shape, a_str);
-                if (b) compute_bcast_strides(b, r->rank, r->shape, b_str);
-                int do_a = a && !a_match && a->numel != 1;
-                int do_b = b && !b_match && b->numel != 1;
-                for (int i = 0; i < r->numel; i++) {
-                    if (do_a) {
-                        int ai = 0;
-                        for (int k = 0; k < r->rank; k++) ai += idx[k] * a_str[k];
-                        ((double*)a->grad)[ai] += ((double*)r->grad)[i];
-                    }
-                    if (do_b) {
-                        int bi = 0;
-                        for (int k = 0; k < r->rank; k++) bi += idx[k] * b_str[k];
-                        ((double*)b->grad)[bi] -= ((double*)r->grad)[i];
-                    }
-                    for (int k = r->rank - 1; k >= 0; k--) {
-                        if (++idx[k] < r->shape[k]) break; idx[k] = 0;
-                    }
-                }
-            }
-            break;
-        }
-
         case OP_MUL: {
             int a_match = a && shapes_equal(a, r);
             int b_match = b && shapes_equal(b, r);
