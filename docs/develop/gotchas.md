@@ -420,6 +420,14 @@ The MLX backend computes gradients by replaying the forward tape inside a closur
 
 **Diagnosing this class of bug**: the `DEBUG_PARAM_GRADS` env-var hook in `optimizer_step` (mirrors the one in `backend_tape.c`) dumps per-param grad L2 norm at the first optimizer step. Any `requires_grad=1` param with `grad_l2=0` is the smoking gun — that param is in the registry but has no path to the loss in the replay graph.
 
+### Softplus must use the numerically stable form in float32
+
+`softplus(x) = log(1 + exp(x))` overflows in float32 for x > ~88 (where `exp(x) > 3.4e38`). Use the stable form `softplus(x) = max(0, x) + log(1 + exp(-|x|))` instead — it gives the same answer everywhere, reduces to `x` for large positive x and to `exp(x)` for large negative x, and never overflows.
+
+The bug this caught: NTM content addressing computes `betaT = softplus(scalar)` for the sharpening factor, then `softmax(betaT * cos_sim)`. With the naive softplus, once the controller drove `scalar` past ~88 (mid-training, model already at 94% accuracy), `betaT` jumped to `+inf`, the multiply produced `±inf` softmax inputs, and the whole content-addressing path NaN'd the loss in a single epoch. Tape uses a branch-on-magnitude form; torch uses `torch::softplus` (stable). Only mlx had the naive form.
+
+**Diagnosing it**: `DEBUG_NAN_TRAP=1` in `tensor_backward` walks the forward tape on first appearance of NaN/Inf in any param grad, prints the first NaN-producing op and its args' value ranges. Found this one in one shot: `first NaN at tape[2165] op=SOFTMAX_2D` with arg1 (a MUL output) range `[-inf, +inf]`.
+
 ## Torch Backend (backend_torch.cpp)
 
 ### View tensors must be persistent
