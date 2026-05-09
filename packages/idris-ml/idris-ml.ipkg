@@ -32,6 +32,7 @@ modules = Compat.Random
         , Layer.GruV2
         , Layer.Residual
         , Layer.LayerNorm
+        , Layer.LayerNormV2
         , Layer.Linear
         , Layer.LinearV2
         , Layer.Lstm
