@@ -56,6 +56,18 @@ int*    tensor_write_int_return(int* buf, int off, int val);
 void**  tensor_ptr_array_alloc(int n);
 void*   tensor_ptr_array_set_return(void* arr, int idx, void* t);
 
+/* bf16 / f16 <-> double bit conversions.
+ *
+ * bf16 is the high 16 bits of an IEEE-754 binary32. f16 is IEEE-754 binary16.
+ * Both go through `float` then widen/narrow to `double`. Used by
+ * safetensors.c (on-disk half-precision I/O) and backend_tape.c
+ * (Phase 4 `tape_round_to_dtype` for DT_BF16 / DT_F16). Backend-agnostic
+ * so they live here, one definition for the dylib. */
+double   bf16_bits_to_double(uint16_t h);
+uint16_t double_to_bf16_bits(double d);
+double   f16_bits_to_double(uint16_t h);
+uint16_t double_to_f16_bits(double d);
+
 #ifdef __cplusplus
 }
 #endif

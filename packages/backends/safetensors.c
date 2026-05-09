@@ -33,6 +33,7 @@
 
 #include "backend.h"
 #include "cJSON.h"
+#include "shared_utils.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -57,94 +58,10 @@ static size_t dtype_byte_width(const char* name) {
     return 0;
 }
 
-/* ----------------------------------------------------------------------
-   bf16 / f16 <-> double bit conversions
-
-   bf16 is the high 16 bits of an IEEE-754 binary32. f16 is IEEE-754
-   binary16. Both go through `float` then widen/narrow to `double`. These
-   are the only dtypes that aren't a plain integral cast; everything moves
-   through the `double` lingua franca above.
-   ---------------------------------------------------------------------- */
-
-static double bf16_bits_to_double(uint16_t h) {
-    uint32_t bits = (uint32_t)h << 16;  /* bf16 occupies the f32 high half */
-    float f;
-    memcpy(&f, &bits, sizeof(f));
-    return (double)f;
-}
-
-static uint16_t double_to_bf16_bits(double d) {
-    float f = (float)d;
-    uint32_t bits;
-    memcpy(&bits, &f, sizeof(bits));
-    /* NaN: keep it quiet and non-zero so it survives the round-trip. */
-    if ((bits & 0x7f800000u) == 0x7f800000u && (bits & 0x007fffffu) != 0u)
-        return (uint16_t)((bits >> 16) | 0x0040u);
-    /* Round to nearest, ties to even on the dropped low 16 bits. */
-    uint32_t rounding_bias = 0x00007fffu + ((bits >> 16) & 1u);
-    bits += rounding_bias;
-    return (uint16_t)(bits >> 16);
-}
-
-static double f16_bits_to_double(uint16_t h) {
-    uint32_t sign = (uint32_t)(h & 0x8000u) << 16;
-    uint32_t exp  = (h >> 10) & 0x1fu;
-    uint32_t mant = h & 0x3ffu;
-    uint32_t bits;
-    if (exp == 0) {
-        if (mant == 0) {
-            bits = sign;                       /* +/- zero */
-        } else {
-            /* Subnormal: normalize into f32. */
-            exp = 1;
-            while ((mant & 0x400u) == 0) { mant <<= 1; exp--; }
-            mant &= 0x3ffu;
-            bits = sign | ((exp + (127 - 15)) << 23) | (mant << 13);
-        }
-    } else if (exp == 0x1fu) {
-        bits = sign | 0x7f800000u | (mant << 13);  /* Inf / NaN */
-    } else {
-        bits = sign | ((exp + (127 - 15)) << 23) | (mant << 13);
-    }
-    float f;
-    memcpy(&f, &bits, sizeof(f));
-    return (double)f;
-}
-
-static uint16_t double_to_f16_bits(double d) {
-    float f = (float)d;
-    uint32_t bits;
-    memcpy(&bits, &f, sizeof(bits));
-    uint32_t sign = (bits >> 16) & 0x8000u;
-    int32_t  exp  = (int32_t)((bits >> 23) & 0xffu) - 127 + 15;  /* rebias */
-    uint32_t mant = bits & 0x7fffffu;
-
-    if (((bits >> 23) & 0xffu) == 0xffu) {            /* Inf / NaN */
-        if (mant) return (uint16_t)(sign | 0x7e00u);  /* quiet NaN */
-        return (uint16_t)(sign | 0x7c00u);            /* Inf */
-    }
-    if (exp >= 0x1f) return (uint16_t)(sign | 0x7c00u);   /* overflow -> Inf */
-    if (exp <= 0) {
-        if (exp < -10) return (uint16_t)sign;             /* underflow -> 0 */
-        /* Subnormal: add implicit leading 1, shift, round to nearest even. */
-        mant |= 0x800000u;
-        uint32_t shift = (uint32_t)(14 - exp);
-        uint32_t halfm = mant >> shift;
-        uint32_t rem   = mant & ((1u << shift) - 1u);
-        uint32_t half  = 1u << (shift - 1);
-        if (rem > half || (rem == half && (halfm & 1u))) halfm++;
-        return (uint16_t)(sign | halfm);
-    }
-    /* Normal: round mantissa to 10 bits, nearest, ties to even. */
-    uint32_t halfm = mant >> 13;
-    uint32_t rem   = mant & 0x1fffu;
-    if (rem > 0x1000u || (rem == 0x1000u && (halfm & 1u))) {
-        halfm++;
-        if (halfm == 0x400u) { halfm = 0; exp++; }     /* mantissa carry */
-        if (exp >= 0x1f) return (uint16_t)(sign | 0x7c00u);
-    }
-    return (uint16_t)(sign | ((uint32_t)exp << 10) | halfm);
-}
+/* bf16/f16 <-> double helpers live in shared_utils (lifted there for
+   Phase 4 — backend_tape.c's tape_round_to_dtype now shares the same
+   precision-accurate round-trip). Declarations come from
+   "shared_utils.h" included above. */
 
 /* ================================================================
    Save

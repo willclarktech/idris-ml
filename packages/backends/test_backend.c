@@ -65,18 +65,9 @@ static double* heap_copy(const double* src, int n) {
      TAPE_F32_SKIP_OPTIMIZER   (rung 4: dtype-aware optimizer step)
    F32 training is live on tape. */
 
-/* Phase 4 skip flag (tape-only inference-dtype matrix, see T31 below).
-   Today `tape_round_to_dtype` returns the input unchanged for BF16/F16
-   (Phase 2 left half-precision storage as "F64 doubles untouched" pending
-   the safetensors bit-helper lift). The bf16/f16 precision rung in T31
-   asserts that a value like 0.1 round-trips to the dtype's representable
-   neighbour (0.099609375 for bf16, 0.0999755859375 for f16). RED before
-   Phase 4 step 2 wires the shared bit helpers from `safetensors.c` into
-   `tape_round_to_dtype`. The integer + bool rungs in T31 are GREEN under
-   Phase 2 already. */
-#if defined(BACKEND_TAPE)
-#define TAPE_PHASE4_SKIP_HALF_PRECISION
-#endif
+/* Phase 4 skip flag retired:
+     TAPE_PHASE4_SKIP_HALF_PRECISION  — bf16/f16 round-trip via shared bit
+                                        helpers wired through tape_round_to_dtype. */
 
 /* ================================================================
    T1: Scalar tensor creation + arithmetic
@@ -4090,19 +4081,18 @@ int main(void) {
     {
         printf("\n--- Inference dtype matrix (Phase 4) ---\n");
 
-        /* Half-precision rung — RED until step 2.
-           bf16 nearest representable for 0.1: 0x3DCC -> ~0.099609375
+        /* Half-precision rung.
+           bf16 nearest representable for 0.1: 0x3DCD -> ~0.10009765625
            f16  nearest representable for 0.1: 0x2E66 -> ~0.0999755859375 */
-#ifndef TAPE_PHASE4_SKIP_HALF_PRECISION
         {
             double bv[] = {1.5, 0.1, -2.0};   /* 1.5 + -2.0 exact in both; 0.1 rounds */
             TensorHandle bf = tensor_create_1d_streamed(3, heap_copy(bv, 3), 0, 0, 2);  /* dtag 2 = BF16 */
             ASSERT_TRUE("BF16 dtype name", strcmp(tensor_dtype_name(bf), "BF16") == 0);
             double bout[3];
             tensor_to_doubles(bf, bout);
-            ASSERT_NEAR("BF16 exact: 1.5",  bout[0], 1.5,         1e-12);
-            ASSERT_NEAR("BF16 round: 0.1 -> 0.099609375", bout[1], 0.099609375, 1e-7);
-            ASSERT_NEAR("BF16 exact: -2.0", bout[2], -2.0,        1e-12);
+            ASSERT_NEAR("BF16 exact: 1.5",  bout[0], 1.5,            1e-12);
+            ASSERT_NEAR("BF16 round: 0.1 -> 0.10009765625", bout[1], 0.10009765625, 1e-7);
+            ASSERT_NEAR("BF16 exact: -2.0", bout[2], -2.0,           1e-12);
 
             TensorHandle hf = tensor_create_1d_streamed(3, heap_copy(bv, 3), 0, 0, 3);  /* dtag 3 = F16 */
             ASSERT_TRUE("F16 dtype name", strcmp(tensor_dtype_name(hf), "F16") == 0);
@@ -4112,9 +4102,6 @@ int main(void) {
             ASSERT_NEAR("F16 round: 0.1 -> 0.0999755859375", hout[1], 0.0999755859375, 1e-7);
             ASSERT_NEAR("F16 exact: -2.0", hout[2], -2.0,                 1e-12);
         }
-#else
-        printf("rung skipped: half-precision round-trip (TAPE_PHASE4_SKIP_HALF_PRECISION, Phase 4 step 2)\n");
-#endif
 
         /* Integer dtypes — exact round-trip within range via Phase 2 rounding. */
         {

@@ -296,7 +296,7 @@ $(BUILD)/cJSON.o: $(BACKENDS_DIR)/cJSON.c $(BACKENDS_DIR)/cJSON.h | $(BUILD)
 $(BUILD)/mnist_$(PRIMARY).o: $(BACKENDS_DIR)/mnist.c $(BACKENDS_DIR)/backend.h $(BACKEND_RENAME_H) | $(BUILD)
 	cc -O2 -fPIC -include $(BACKEND_RENAME_H) -c -o $@ $<
 
-$(BUILD)/shared_utils.o: $(BACKENDS_DIR)/shared_utils.c | $(BUILD)
+$(BUILD)/shared_utils.o: $(BACKENDS_DIR)/shared_utils.c $(BACKENDS_DIR)/shared_utils.h | $(BUILD)
 	cc -O2 -fPIC -c -o $@ $<
 
 # Final link compiler: c++ if any C++ backend (torch/mlx) is in the

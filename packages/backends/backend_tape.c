@@ -8,6 +8,7 @@
  */
 
 #include "backend.h"
+#include "shared_utils.h"  /* bf16/f16 bit-conv helpers (Phase 4 round-trip) */
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
@@ -75,18 +76,21 @@ static int tape_tag_from_dtag(int dtag) {
 
 /* Round a value through the internal dtype's representable precision, staying
    in `double` (the lingua-franca storage). F32 + the integer/bool dtypes round
-   honestly via plain casts; BF16/F16 are stored untouched in Phase 2 and gain
-   real rounding in Phase 4 (the lifted safetensors bit helpers). */
+   honestly via plain casts; BF16/F16 round through the shared bit helpers
+   lifted from safetensors.c — same round-to-nearest-even semantics on disk
+   and in tape inference tensors. DT_F64 is identity. */
 static double tape_round_to_dtype(double v, int tag) {
     switch (tag) {
-        case DT_F32: return (double)(float)v;
-        case DT_I8:  return (double)(signed char)(long long)v;
-        case DT_I16: return (double)(short)(long long)v;
-        case DT_I32: return (double)(int)(long long)v;
-        case DT_I64: return (double)(long long)v;
-        case DT_U8:  return (double)(unsigned char)(long long)v;
+        case DT_F32:  return (double)(float)v;
+        case DT_BF16: return bf16_bits_to_double(double_to_bf16_bits(v));
+        case DT_F16:  return f16_bits_to_double(double_to_f16_bits(v));
+        case DT_I8:   return (double)(signed char)(long long)v;
+        case DT_I16:  return (double)(short)(long long)v;
+        case DT_I32:  return (double)(int)(long long)v;
+        case DT_I64:  return (double)(long long)v;
+        case DT_U8:   return (double)(unsigned char)(long long)v;
         case DT_BOOL: return v != 0.0 ? 1.0 : 0.0;
-        default:     return v;  /* DT_F64, DT_BF16, DT_F16 */
+        default:      return v;  /* DT_F64 */
     }
 }
 
