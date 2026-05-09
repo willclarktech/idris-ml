@@ -34,9 +34,7 @@ record LinearState (i : Nat) (o : Nat) (0 d : Device) where
 public export
 LayerLike LinearState where
   applyVar st input =
-    let pre = tmv st.weightT input
-        out = tadd pre st.biasT
-    in (st, out)
+    (st, tlinear st.weightT input st.biasT)
 
   applyVarBatch st input =
     (st, tlinear2d st.weightT input st.biasT)

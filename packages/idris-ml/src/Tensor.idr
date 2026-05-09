@@ -954,6 +954,15 @@ export %inline
 tmv : Tensor [m, n] d -> Tensor [n] d -> Tensor [m] d
 tmv w x = MkTensor (prim__mv w.tensorPtr x.tensorPtr) Nothing
 
+||| Fused 1D linear: y = W[m,n] · x[n] + bias[m]. One C call instead
+||| of `tadd (tmv W x) bias` — collapses two FFI hops into one and
+||| eliminates the intermediate Idris-side glue. Used by Layer.Linear's
+||| applyVar and by NTM/DNC FCs.
+export %inline
+tlinear : Tensor [o, i] d -> Tensor [i] d -> Tensor [o] d -> Tensor [o] d
+tlinear w x bias =
+  MkTensor (prim__linear w.tensorPtr x.tensorPtr bias.tensorPtr) Nothing
+
 ||| Fused batched linear: W[o,i] · X^T[b,i] + bias[o] -> [b, o].
 export %inline
 tlinear2d : Tensor [o, i] d -> Tensor [b, i] d -> Tensor [o] d -> Tensor [b, o] d
