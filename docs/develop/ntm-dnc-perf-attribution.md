@@ -253,25 +253,77 @@ reduction compounds further.
 Top forward op on NTM-copy is now `LINEAR` at **163 µs/call**, ~the
 same as MV's pre-Phase-1 167 µs/call — **the per-FFI-call overhead
 floor hasn't moved**. Phase 1 reduced *call count*, not per-call
-cost. To close the remaining 208 ms/epoch gap to the pre-Path-C
-228 ms/epoch baseline, we need either:
+cost.
 
-1. **Multi-FC fusion** (Phase 2 in the plan): combine FCs that
-   share an input into a single fused linear of width
-   `sum(head_dims)` followed by narrows. NTM has 2 such FCs (read +
-   write, both reading `cellPtr`); DNC has 10. Each fusion drops
-   one LINEAR (165 µs) and adds ~k narrows (~7 µs each). Estimated
-   12–25 % more on NTM, 30–40 % more on DNC.
+## Phase 2a (NTM read+write FC fusion) — abandoned
 
-2. **Per-call FFI overhead reduction** (deeper investigation): the
-   149 µs/MV-call glue measured in Phase 0 is Idris-side execution
-   between consecutive C calls. Refactoring the typed-record
-   surface to flatten access paths could reduce this, but at the
-   cost of giving back some of Path-C's typing wins. Holding on
-   this until Phase 2 results are in.
+Tried fusing NTM's read FC + write FC into a single
+`prim__linear` of combined width `ReadParamWidth m +
+WriteParamWidth m` followed by 2 narrows. Math is identical;
+seed=42 numerics bit-identical (preserved via per-half xavier
+draws in original RNG order).
 
-Phase 2 next: implement multi-FC fusion in DNC (highest leverage),
-then NTM if measurements show the benefit.
+**Result: ~5 % regression** (448 → 473 ms/epoch tape, 3-run avg).
+
+Hypothesis test failed. The Idris-side glue between two
+*consecutive* `prim__linear` calls in the NTM forward (read FC →
+narrows → write FC, both consuming `cellPtr`) turns out to be
+small enough that:
+
+- Saving = 1 fewer `prim__linear` (~30 µs of glue + 1 µs body)
+- Cost  = 2 added `prim__narrow` (~16 µs total) + ~50 µs added
+  per-call cost on the now-bigger fused matrix (`[72, 100]` vs the
+  separate `[26, 100]` + `[46, 100]`).
+
+Net loss. The fusion is reverted.
+
+**Lesson**: per-FFI-call overhead reduction works for ops that
+weren't *already* consecutive (Phase 1's `mv + add → linear` —
+two different functions with two different Idris-side wrappers).
+It does NOT work for ops that are already syntactically adjacent
+in Idris (two consecutive `prim__linear` calls share the same
+call-site overhead pattern; fusing them doesn't remove glue
+that wasn't there).
+
+## Phase 2b (DNC 10-FC fusion) — not attempted
+
+The same dynamic likely applies to DNC's 10 consecutive controller
+FCs. The per-call savings would be small (each FC's glue is
+already the "second consecutive call" pattern), and the added
+narrow cost would offset most of it. Risk of regression matches
+NTM Phase 2a. Skipped until a more targeted measurement justifies
+it.
+
+## What's left to try (next session)
+
+1. **Per-call FFI overhead reduction** (deeper investigation). The
+   149 µs/MV-call glue measured in Phase 0 is Idris-side
+   execution between consecutive C calls. Concrete spike ideas:
+   - Profile what specific Idris-side machinery is between two
+     `prim__linear` calls — record-field accesses? Maybe-case
+     extraction? Chez foreign-call dispatch? Write a microbench
+     that calls `prim__linear` in a tight loop with no Idris
+     work between calls — if that's still 165 µs/call, the cost
+     is in the FFI dispatch itself; if it's <20 µs/call, the
+     cost is in the calling code's record machinery.
+   - Investigate if Idris-2 codegen could emit a "batched FFI"
+     mode where multiple consecutive prim__ calls share the
+     foreign-call setup.
+
+2. **Architecturally fused C ops for the recurrent path**. A
+   `tensor_lstm_cell_with_linears(W_ih, W_hh, x, h, b)` that does
+   the entire LSTM cell forward in one C call would eliminate 2
+   FFI calls per timestep at the lowest level. PyTorch's
+   `nn.LSTMCell` does exactly this, so it's a reasonable
+   "PyTorch convert would expect this" primitive. (See the
+   architecture-specific-fused-ops doc for the criterion.)
+
+3. **Accept the ~10 % win and move on**. The pre-Path-C 228
+   ms/epoch baseline used the scalar-Variable path which we
+   explicitly traded away for type safety in the migration.
+   Recovering it without giving up Path C is structurally hard.
+   The 11 % wall-clock reduction from Phase 0+1 plus the cleaner
+   per-op profiler infrastructure is a defensible deliverable.
 
 ## Implementation note
 
