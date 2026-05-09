@@ -19,6 +19,7 @@ modules = Compat.Random
         , Init
         , Layer
         , Layer.Activation
+        , Layer.ActivationV2
         , Layer.BatchNorm
         , Layer.Conv
         , Layer.Core

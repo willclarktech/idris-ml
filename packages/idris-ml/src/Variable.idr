@@ -1543,6 +1543,32 @@ export
 tsigmoid : TVar dims d -> TVar dims d
 tsigmoid v = MkTVar (prim__sigmoid v.tensorPtr) Nothing
 
+export
+trelu : TVar dims d -> TVar dims d
+trelu v = MkTVar (prim__clampMin v.tensorPtr 0.0) Nothing
+
+export
+tgelu : TVar dims d -> TVar dims d
+tgelu v = MkTVar (prim__gelu v.tensorPtr) Nothing
+
+export
+tsilu : TVar dims d -> TVar dims d
+tsilu v = MkTVar (prim__silu v.tensorPtr) Nothing
+
+export
+tleakyRelu : Double -> TVar dims d -> TVar dims d
+tleakyRelu slope v = MkTVar (prim__leakyRelu v.tensorPtr slope) Nothing
+
+||| Softmax along axis 0 (1D vector).
+export
+tsoftmax1d : {n : Nat} -> TVar [n] d -> TVar [n] d
+tsoftmax1d v = MkTVar (prim__softmax v.tensorPtr 0) Nothing
+
+||| Log-softmax along axis 0 (1D vector).
+export
+tlogSoftmax1d : {n : Nat} -> TVar [n] d -> TVar [n] d
+tlogSoftmax1d v = MkTVar (prim__logSoftmax v.tensorPtr 0) Nothing
+
 -- Bridges + scalar boundary -------------------------------------------
 
 ||| Bridge a scalar `Variable d` to `TVar [] d`. Discards cached value.
