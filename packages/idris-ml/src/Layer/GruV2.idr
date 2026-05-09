@@ -107,10 +107,13 @@ gruLayerV2 paramPrefix = do
       hhBTV = MkTVar hhBPtr (Just hhBName)
   pure $ MkGruV2 iwTV ihBTV hwTV hhBTV Nothing
 
-||| Reset hidden state to fresh zero-tensor.
+||| Reset hidden state to fresh persistent zero-tensor.
 export
-resetGruStateV2 : GruStateV2 i o d -> GruStateV2 i o d
-resetGruStateV2 = { hiddenT := Nothing }
+resetGruStateV2 : {o : Nat} -> {0 d : Device} -> GruStateV2 i o d -> GruStateV2 i o d
+resetGruStateV2 {o} {d} st =
+  let oI = cast {to=Int} o
+      newH = the (TVec o d) (MkTVar (prim__createState1d oI (prim__allocDoubles oI)) Nothing)
+  in { hiddenT := Just newH } st
 
 
 ----------------------------------------------------------------------

@@ -97,10 +97,13 @@ rnnLayerV2 paramPrefix = do
       bTV = MkTVar bPtr (Just bName)
   pure $ MkRnnV2 iwTV rwTV bTV Nothing
 
-||| Reset hidden state to fresh zero-tensor.
+||| Reset hidden state to fresh persistent zero-tensor.
 export
-resetRnnStateV2 : RnnStateV2 i o d -> RnnStateV2 i o d
-resetRnnStateV2 = { prevOutT := Nothing }
+resetRnnStateV2 : {o : Nat} -> {0 d : Device} -> RnnStateV2 i o d -> RnnStateV2 i o d
+resetRnnStateV2 {o} {d} st =
+  let oI = cast {to=Int} o
+      newPo = the (TVec o d) (MkTVar (prim__createState1d oI (prim__allocDoubles oI)) Nothing)
+  in { prevOutT := Just newPo } st
 
 
 ----------------------------------------------------------------------

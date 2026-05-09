@@ -363,7 +363,7 @@ dncLayerV2 pfx = do
 
 ||| Reset DNC state to fresh persistent zero/init tensors.
 export
-resetDncStateV2 : {r, n, m : Nat} ->
+resetDncStateV2 : {r, n, m, h : Nat} ->
                   DncStateV2 r n m h i o d -> DncStateV2 r n m h i o d
 resetDncStateV2 (MkDncV2 lstm wkFc wbFc eFc aFc fgFc agFc wgFc rkFc rbFc rmFc oFc
                           _ _ _ _ _ _ _) =

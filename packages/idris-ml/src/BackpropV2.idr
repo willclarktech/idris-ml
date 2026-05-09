@@ -37,13 +37,19 @@ packDoublesIntoBuf buf _ [] = buf
 packDoublesIntoBuf buf off (x :: rest) =
   packDoublesIntoBuf (prim__setDouble buf off x) (off + 1) rest
 
--- Persistent (survives tape resets) tensor from Vector n Double.
+-- Non-persistent input/target tensor from Vector n Double.
+-- Mirrors V1's `Variable.bulkToTensor` (uses `prim__create1d nI buf' 0`,
+-- not `prim__createState1d`). MLX requires non-grad tensors to be
+-- non-persistent — `prim__createState1d` marks them persistent and
+-- the lazy graphs that reference them survive tape_reset and dangle
+-- after the next epoch starts. The example crashes with "invalid
+-- memory reference" on epoch 2.
 bulkToPersistent : {n : Nat} -> Vector n Double -> AnyPtr
 bulkToPersistent {n} (VTensor elems) =
   let nI = cast {to=Int} n
       buf = prim__allocDoubles nI
       buf' = packScalars buf 0 elems
-  in prim__createState1d nI buf'
+  in prim__create1d nI buf' 0
   where
     packScalars : AnyPtr -> Int -> Vect k (Scalar Double) -> AnyPtr
     packScalars b _ [] = b
@@ -191,7 +197,7 @@ perSeqLossTwoPhase lossFn model dp =
   let startNet = resetNetworkV2 model
       encNet = foldl encodeStep startNet (encodingInputs dp)
       iI = cast {to=Int} i
-      zeroIn = prim__createState1d iI (prim__allocDoubles iI)
+      zeroIn = prim__create1d iI (prim__allocDoubles iI) 0
       (_, totalLoss) = foldl (decodeStep lossFn zeroIn) (encNet, zeroLossT) (targets dp)
       stepCount = length (targets dp)
   in if stepCount == 0

@@ -105,10 +105,20 @@ lstmLayerV2 paramPrefix = do
       bTV = MkTVar bPtr (Just bName)
   pure $ MkLstmV2 iwTV rwTV bTV Nothing Nothing
 
-||| Reset hidden/cell state to fresh zero-tensors.
+||| Reset hidden/cell state to fresh persistent zero-tensors.
+||| Mirrors V1's `resetState` pattern (Layer/Lstm.idr): allocate
+||| fresh persistent tensors at reset rather than setting to Nothing
+||| and lazy-allocating on next call. The lazy form leaves stale
+||| (already-freed by mlx tape_reset) pointers in the state until
+||| the next applyTVar reaches them, which crashes mlx with an
+||| invalid memory reference.
 export
-resetLstmStateV2 : LstmStateV2 i o d -> LstmStateV2 i o d
-resetLstmStateV2 = { hiddenT := Nothing, cellT := Nothing }
+resetLstmStateV2 : {o : Nat} -> {0 d : Device} -> LstmStateV2 i o d -> LstmStateV2 i o d
+resetLstmStateV2 {o} {d} st =
+  let oI = cast {to=Int} o
+      newH = the (TVec o d) (MkTVar (prim__createState1d oI (prim__allocDoubles oI)) Nothing)
+      newC = the (TVec o d) (MkTVar (prim__createState1d oI (prim__allocDoubles oI)) Nothing)
+  in { hiddenT := Just newH, cellT := Just newC } st
 
 
 ----------------------------------------------------------------------

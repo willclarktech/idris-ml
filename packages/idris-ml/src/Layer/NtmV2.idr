@@ -194,7 +194,7 @@ ntmLayerV2 pfx = do
 ||| Reset NTM state to fresh persistent zero/init tensors. Use
 ||| between training sequences (memory + addresses are not learned).
 export
-resetNtmStateV2 : {n, m : Nat} -> NtmStateV2 n m h i o d -> NtmStateV2 n m h i o d
+resetNtmStateV2 : {n, m, h : Nat} -> NtmStateV2 n m h i o d -> NtmStateV2 n m h i o d
 resetNtmStateV2 (MkNtmV2 lstm rfc wfc ofc _ _ _ _) =
   let nI = cast {to=Int} n
       mI = cast {to=Int} m
