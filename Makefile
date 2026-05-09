@@ -264,8 +264,14 @@ BACKEND_OBJS := $(foreach b,$(BACKEND_LIST),$(BUILD)/backend_$(b).o)
 # backend_<b>.o file. Each backend uses its own CC + CFLAGS + rename
 # header; the union of all per-backend LDFLAGS gets passed to the
 # final link.
+# `backend_tape_kernels.inc` (Phase 3 X-macro kernel file) is included by
+# backend_tape.c. List it here so editing the .inc rebuilds the .o; without
+# this, make trusts mtime on the .c alone and silently ships a stale dylib
+# whenever a kernel changes. Harmless for non-tape backends — they don't
+# include this header, but the build system has no way to know which
+# per-backend source touches which `.inc` so we list it for all.
 define backend_compile_rule
-$(BUILD)/backend_$(1).o: $($(1)_SRC) $(BACKENDS_DIR)/backend.h $(BACKENDS_DIR)/rename_$(1).h | $(BUILD)
+$(BUILD)/backend_$(1).o: $($(1)_SRC) $(BACKENDS_DIR)/backend.h $(BACKENDS_DIR)/rename_$(1).h $(BACKENDS_DIR)/backend_tape_kernels.inc | $(BUILD)
 	$($(1)_CC) -O2 -fPIC $($(1)_CFLAGS) -include $(BACKENDS_DIR)/rename_$(1).h -c -o $$@ $$<
 endef
 

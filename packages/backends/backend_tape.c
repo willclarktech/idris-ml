@@ -1037,9 +1037,31 @@ TAPE_UNOP_DISPATCH(tensor_tanh,    OP_TANH,    fn_tanh_d,  fn_tanh_f32)
 TAPE_UNOP_DISPATCH(tensor_gelu,    OP_GELU,    fn_gelu_d,  fn_gelu_f32)
 #undef TAPE_UNOP_DISPATCH
 
-/* LeakyReLU: max(alpha*x, x). Uses scalar_arg to store alpha. */
+/* LeakyReLU: max(alpha*x, x). Uses scalar_arg to store alpha. F32 forward
+   uses real F32 arena storage; backward (OP_LEAKY_RELU) reads a->data via
+   tape_load_d so both dtypes share the same case body. */
+static TensorHandle tensor_leaky_relu_f32(TensorHandle ha, double alpha) {
+    Tensor* a = (Tensor*)ha;
+    float af = (float)alpha;
+    if (a->numel == 1) {
+        float x = ((float*)a->data)[0];
+        Tensor* r = make_scalar_f32((double)(x >= 0 ? x : af * x), a->requires_grad);
+        if (a->requires_grad) tape_append(OP_LEAKY_RELU, r, a, NULL, alpha);
+        return r;
+    }
+    float* data = arena_alloc(a->numel * sizeof(float));
+    for (int i = 0; i < a->numel; i++) {
+        float x = ((float*)a->data)[i];
+        data[i] = x >= 0 ? x : af * x;
+    }
+    Tensor* r = make_tensor_arena_f32(data, a->numel, a->shape, a->rank, a->requires_grad);
+    if (a->requires_grad) tape_append(OP_LEAKY_RELU, r, a, NULL, alpha);
+    return r;
+}
+
 TensorHandle tensor_leaky_relu(TensorHandle ha, double alpha) {
     Tensor* a = (Tensor*)ha;
+    if (a->dtype_tag == DT_F32) return tensor_leaky_relu_f32(ha, alpha);
     if (a->numel == 1) {
         double x = ((double*)a->data)[0];
         Tensor* r = make_scalar(x >= 0 ? x : alpha * x, a->requires_grad);
@@ -1059,7 +1081,12 @@ TensorHandle tensor_leaky_relu(TensorHandle ha, double alpha) {
 
 /* SiLU / Swish: x * sigmoid(x) */
 static double fn_silu(double x) { return x / (1.0 + exp(-x)); }
-TensorHandle tensor_silu(TensorHandle a) { return unop_elementwise(a, OP_SILU, fn_silu); }
+static float  fn_silu_f32(float x) { return x / (1.0f + expf(-x)); }
+TensorHandle tensor_silu(TensorHandle ha) {
+    Tensor* a = (Tensor*)ha;
+    if (a->dtype_tag == DT_F32) return unop_elementwise_f32(ha, OP_SILU, fn_silu_f32);
+    return unop_elementwise(ha, OP_SILU, fn_silu);
+}
 
 /* Softplus: log(1 + exp(x)). Numerically stable formulation for large |x|.
  * Backward: f'(x) = 1 / (1 + exp(-x)) = sigmoid(x). */
@@ -1069,7 +1096,16 @@ static double fn_softplus(double x) {
     if (x < -30.0) return exp(x);
     return log(1.0 + exp(x));
 }
-TensorHandle tensor_softplus(TensorHandle a) { return unop_elementwise(a, OP_SOFTPLUS, fn_softplus); }
+static float fn_softplus_f32(float x) {
+    if (x > 30.0f) return x;
+    if (x < -30.0f) return expf(x);
+    return logf(1.0f + expf(x));
+}
+TensorHandle tensor_softplus(TensorHandle ha) {
+    Tensor* a = (Tensor*)ha;
+    if (a->dtype_tag == DT_F32) return unop_elementwise_f32(ha, OP_SOFTPLUS, fn_softplus_f32);
+    return unop_elementwise(ha, OP_SOFTPLUS, fn_softplus);
+}
 
 /* F32 forward shims for the scalar-arg ops. F32 in -> F32 out via real
    F32 arena storage; backward reads grads in F64 (asymmetric pattern from
@@ -4726,21 +4762,23 @@ void tensor_backward(TensorHandle h) {
         }
 
         case OP_LEAKY_RELU: {
-            /* d/dx leaky_relu = 1 if x >= 0, alpha otherwise */
+            /* d/dx leaky_relu = 1 if x >= 0, alpha otherwise.
+               tape_load_d covers both F64 and F32 input storage. */
             double alpha = e->scalar_arg;
             if (a) {
                 ensure_grad(a);
                 for (int j = 0; j < a->numel; j++)
-                    ((double*)a->grad)[j] += ((double*)r->grad)[j] * (((double*)a->data)[j] >= 0 ? 1.0 : alpha);
+                    ((double*)a->grad)[j] += ((double*)r->grad)[j] * (tape_load_d(a, j) >= 0 ? 1.0 : alpha);
             }
             break;
         }
         case OP_SILU: {
-            /* d/dx silu(x) = sigmoid(x) * (1 + x * (1 - sigmoid(x))) */
+            /* d/dx silu(x) = sigmoid(x) * (1 + x * (1 - sigmoid(x))).
+               tape_load_d covers both F64 and F32 input storage. */
             if (a) {
                 ensure_grad(a);
                 for (int j = 0; j < a->numel; j++) {
-                    double x = ((double*)a->data)[j];
+                    double x = tape_load_d(a, j);
                     double s = 1.0 / (1.0 + exp(-x));
                     ((double*)a->grad)[j] += ((double*)r->grad)[j] * s * (1.0 + x * (1.0 - s));
                 }

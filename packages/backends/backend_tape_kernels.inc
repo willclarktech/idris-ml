@@ -88,7 +88,7 @@ static TensorHandle SFX(binop_elementwise_inner)(TensorHandle ha, TensorHandle h
         } else {
             for (int i = 0; i < n; i++) data[i] = scalar_fn(big_d[i], sv);
         }
-        Tensor* r = make_tensor_arena((double*)data, n, big->shape, big->rank, rg);
+        Tensor* r = SFX(make_tensor_arena)(data, n, big->shape, big->rank, rg);
         if (rg) tape_append(op_tag, r, a, b, 0);
         return r;
     }
@@ -135,7 +135,7 @@ static TensorHandle SFX(binop_elementwise_inner)(TensorHandle ha, TensorHandle h
             idx[k] = 0;
         }
     }
-    Tensor* r = make_tensor_arena((double*)data, r_numel, r_shape, r_rank, rg);
+    Tensor* r = SFX(make_tensor_arena)(data, r_numel, r_shape, r_rank, rg);
     extern double prof_binop_general_ms;
     prof_binop_general_ms += _wall_ms() - _gb0;
     if (rg) tape_append(op_tag, r, a, b, 0);
@@ -173,7 +173,7 @@ static TensorHandle SFX(unop_elementwise)(TensorHandle ha, int op, SCALAR (*fn)(
 #else
     for (int i = 0; i < n; i++) data[i] = fn(a_d[i]);
 #endif
-    Tensor* r = make_tensor_arena((double*)data, n, a->shape, a->rank, a->requires_grad);
+    Tensor* r = SFX(make_tensor_arena)(data, n, a->shape, a->rank, a->requires_grad);
     if (a->requires_grad) tape_append(op, r, a, NULL, 0);
     return r;
 }

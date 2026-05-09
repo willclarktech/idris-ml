@@ -3163,6 +3163,80 @@ int main(void) {
                 param_clear();
             }
         }
+
+        /* Batch 1 Group B: extra unary activations. y = act(w); L = sum(y).
+           Exercises tape_load_d in OP_LEAKY_RELU / OP_SILU backward (both
+           read a->data for the derivative). tensor_silu and tensor_softplus
+           previously single-dispatched through unop_elementwise; both move
+           onto the TAPE_UNOP_DISPATCH macro with paired fn_*_f32 helpers. */
+        {
+            double wv[] = {0.5, -1.0, 1.5};
+            double y_f64[3], y_f32[3];
+            double g_f64[3], g_f32[3];
+
+            #define RUN_UNARY_F32_VS_F64(label, opcall) do { \
+                param_clear(); \
+                TensorHandle w64 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 1); \
+                param_register("w", w64); \
+                TensorHandle y64 = opcall(w64); \
+                tensor_to_doubles(y64, y_f64); \
+                tensor_backward(tensor_sum(y64)); \
+                for (int i = 0; i < 3; i++) g_f64[i] = param_grad_item_at(0, i); \
+                param_clear(); \
+                TensorHandle w32 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 0); \
+                param_register("w", w32); \
+                TensorHandle y32 = opcall(w32); \
+                tensor_to_doubles(y32, y_f32); \
+                tensor_backward(tensor_sum(y32)); \
+                for (int i = 0; i < 3; i++) g_f32[i] = param_grad_item_at(0, i); \
+                ASSERT_TRUE(label ": F32 output propagates F32 tag", \
+                            strcmp(tensor_dtype_name(y32), "F32") == 0); \
+                for (int i = 0; i < 3; i++) { \
+                    char m[64]; \
+                    snprintf(m, sizeof m, label ": y_f32[%d] ~ y_f64", i); \
+                    ASSERT_NEAR(m, y_f32[i], y_f64[i], 1e-5); \
+                    snprintf(m, sizeof m, label ": w.grad_f32[%d] ~ w.grad_f64", i); \
+                    ASSERT_NEAR(m, g_f32[i], g_f64[i], 1e-5); \
+                } \
+                param_clear(); \
+            } while(0)
+
+            /* leaky_relu — has its own alpha-arg dispatcher (not unop_elementwise). */
+            {
+                double alpha = 0.1;
+                param_clear();
+                TensorHandle w64 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 1);
+                param_register("w", w64);
+                TensorHandle y64 = tensor_leaky_relu(w64, alpha);
+                tensor_to_doubles(y64, y_f64);
+                tensor_backward(tensor_sum(y64));
+                for (int i = 0; i < 3; i++) g_f64[i] = param_grad_item_at(0, i);
+                param_clear();
+
+                TensorHandle w32 = tensor_create_param_1d_streamed(3, heap_copy(wv, 3), 0, 0);
+                param_register("w", w32);
+                TensorHandle y32 = tensor_leaky_relu(w32, alpha);
+                tensor_to_doubles(y32, y_f32);
+                tensor_backward(tensor_sum(y32));
+                for (int i = 0; i < 3; i++) g_f32[i] = param_grad_item_at(0, i);
+
+                ASSERT_TRUE("leaky_relu: F32 output propagates F32 tag",
+                            strcmp(tensor_dtype_name(y32), "F32") == 0);
+                for (int i = 0; i < 3; i++) {
+                    char m[64];
+                    snprintf(m, sizeof m, "leaky_relu: y_f32[%d] ~ y_f64", i);
+                    ASSERT_NEAR(m, y_f32[i], y_f64[i], 1e-5);
+                    snprintf(m, sizeof m, "leaky_relu: w.grad_f32[%d] ~ w.grad_f64", i);
+                    ASSERT_NEAR(m, g_f32[i], g_f64[i], 1e-5);
+                }
+                param_clear();
+            }
+
+            RUN_UNARY_F32_VS_F64("silu",     tensor_silu);
+            RUN_UNARY_F32_VS_F64("softplus", tensor_softplus);
+
+            #undef RUN_UNARY_F32_VS_F64
+        }
     }
 #endif
 
