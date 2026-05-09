@@ -596,12 +596,19 @@ UserDeviceTransfer TapeDev where
 
 
 ----------------------------------------------------------------------
--- Compatible (TapeDev, dt). Tape backend stores doubles only; F32
--- would require a parallel `float*` arena (deferred).
+-- Compatible (TapeDev, dt). Tape backend supports real F32 storage +
+-- trainable F32 kernels for the elementwise / matmul / softmax /
+-- optimizer-step families (Phase 3 of `docs/develop/` dtype-parameter
+-- narrative). Other ops (conv, RNN, embedding, etc.) abort on F32
+-- input via tape_abort_mixed_dtype until they're routed in a future
+-- pass; F64 stays the daily-driver dtype.
 ----------------------------------------------------------------------
 
 public export
 Compatible TapeDev F64 where
+
+public export
+Compatible TapeDev F32 where
 
 
 ----------------------------------------------------------------------
