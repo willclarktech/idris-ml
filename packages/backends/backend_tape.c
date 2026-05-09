@@ -2271,28 +2271,50 @@ TensorHandle tensor_mse_loss(TensorHandle hinput, TensorHandle htarget) {
    ================================================================ */
 
 TensorHandle tensor_cosine_similarity(TensorHandle ha, TensorHandle hb, int dim) {
-    /* Simplified: compute row-wise cosine sim of a [n,w] vs b [1,w] */
+    /* Simplified: compute row-wise cosine sim of a [n,w] vs b [1,w].
+       tape_load_d reads cover both F64 and F32 storage; we compute in
+       double for numerical stability and narrow to float on output if F32. */
     Tensor* a = (Tensor*)ha;
     Tensor* b = (Tensor*)hb;
     if (a->rank == 2 && b->rank == 2) {
+        if (a->dtype_tag != b->dtype_tag) tape_abort_mixed_dtype("tensor_cosine_similarity");
         int n = a->shape[0], w = a->shape[1];
         int out_shape[] = {n};
-        double* out = calloc(n, sizeof(double));
-        double* brow = b->data; /* [1, w] -> just use first row */
-        double bnorm = 0;
-        for (int j = 0; j < w; j++) bnorm += brow[j] * brow[j];
-        bnorm = sqrt(bnorm) + 1e-8;
-        for (int i = 0; i < n; i++) {
-            double dot = 0, anorm = 0;
-            for (int j = 0; j < w; j++) {
-                dot += ((double*)a->data)[i*w+j] * brow[j];
-                anorm += ((double*)a->data)[i*w+j] * ((double*)a->data)[i*w+j];
+        int rg = a->requires_grad || b->requires_grad;
+        double bnorm2 = 0;
+        for (int j = 0; j < w; j++) { double v = tape_load_d(b, j); bnorm2 += v * v; }
+        double bnorm = sqrt(bnorm2) + 1e-8;
+        Tensor* r;
+        if (a->dtype_tag == DT_F32) {
+            float* out = arena_alloc(n * sizeof(float));
+            for (int i = 0; i < n; i++) {
+                double dot = 0, anorm2 = 0;
+                for (int j = 0; j < w; j++) {
+                    double av = tape_load_d(a, i*w+j);
+                    double bv = tape_load_d(b, j);
+                    dot += av * bv;
+                    anorm2 += av * av;
+                }
+                double anorm = sqrt(anorm2) + 1e-8;
+                out[i] = (float)(dot / (anorm * bnorm));
             }
-            anorm = sqrt(anorm) + 1e-8;
-            out[i] = dot / (anorm * bnorm);
+            r = make_tensor_arena_f32(out, n, out_shape, 1, rg);
+        } else {
+            double* out = calloc(n, sizeof(double));
+            for (int i = 0; i < n; i++) {
+                double dot = 0, anorm2 = 0;
+                for (int j = 0; j < w; j++) {
+                    double av = ((double*)a->data)[i*w+j];
+                    double bv = ((double*)b->data)[j];
+                    dot += av * bv;
+                    anorm2 += av * av;
+                }
+                double anorm = sqrt(anorm2) + 1e-8;
+                out[i] = dot / (anorm * bnorm);
+            }
+            r = make_tensor(out, out_shape, 1, rg);
+            free(out);
         }
-        Tensor* r = make_tensor(out, out_shape, 1, a->requires_grad || b->requires_grad);
-        free(out);
         if (r->requires_grad) tape_append(OP_COSINE_SIM, r, a, b, 0);
         return r;
     }
@@ -3895,9 +3917,9 @@ void tensor_backward(TensorHandle h) {
                 double zv = meta->zG[i];
                 double rv = meta->rG[i];
                 double nv = meta->nG[i];
-                double hh_n_i = ((double*)hh->data)[2*oo + i];
+                double hh_n_i = tape_load_d(hh, 2*oo + i);
 
-                double d_z_raw = dh * (((double*)prev->data)[i] - nv) * zv * (1.0 - zv);
+                double d_z_raw = dh * (tape_load_d(prev, i) - nv) * zv * (1.0 - zv);
                 double d_n_pre = dh * (1.0 - zv) * (1.0 - nv * nv);
                 double d_r     = d_n_pre * hh_n_i;
                 double d_r_raw = d_r * rv * (1.0 - rv);
@@ -4778,20 +4800,20 @@ void tensor_backward(TensorHandle h) {
             /* Cosine similarity backward: a=[n,w] matrix, b=[1,w] key (unsqueezed) */
             if (a && a->rank == 2 && b && b->rank == 2) {
                 int n_cs = a->shape[0], w_cs = a->shape[1];
-                double* brow = b->data;
+                /* tape_load_d covers both F32 and F64. */
                 double bnorm2 = 0;
-                for (int j = 0; j < w_cs; j++) bnorm2 += brow[j] * brow[j];
+                for (int j = 0; j < w_cs; j++) { double v = tape_load_d(b, j); bnorm2 += v * v; }
                 double bnorm = sqrt(bnorm2) + 1e-8;
 
                 ensure_grad(a); ensure_grad(r);
                 for (int ii = 0; ii < n_cs; ii++) {
                     double anorm2 = 0;
-                    for (int j = 0; j < w_cs; j++) anorm2 += ((double*)a->data)[ii*w_cs+j] * ((double*)a->data)[ii*w_cs+j];
+                    for (int j = 0; j < w_cs; j++) { double v = tape_load_d(a, ii*w_cs+j); anorm2 += v * v; }
                     double anorm = sqrt(anorm2) + 1e-8;
-                    double cos_val = ((double*)r->data)[ii];
+                    double cos_val = tape_load_d(r, ii);
                     double g = ((double*)r->grad)[ii];
                     for (int j = 0; j < w_cs; j++) {
-                        ((double*)a->grad)[ii*w_cs+j] += g * (brow[j] / (anorm * bnorm) - cos_val * ((double*)a->data)[ii*w_cs+j] / (anorm2 + 1e-10));
+                        ((double*)a->grad)[ii*w_cs+j] += g * (tape_load_d(b, j) / (anorm * bnorm) - cos_val * tape_load_d(a, ii*w_cs+j) / (anorm2 + 1e-10));
                     }
                 }
 
@@ -4799,12 +4821,12 @@ void tensor_backward(TensorHandle h) {
                     ensure_grad(b);
                     for (int ii = 0; ii < n_cs; ii++) {
                         double anorm2 = 0;
-                        for (int j = 0; j < w_cs; j++) anorm2 += ((double*)a->data)[ii*w_cs+j] * ((double*)a->data)[ii*w_cs+j];
+                        for (int j = 0; j < w_cs; j++) { double v = tape_load_d(a, ii*w_cs+j); anorm2 += v * v; }
                         double anorm = sqrt(anorm2) + 1e-8;
-                        double cos_val = ((double*)r->data)[ii];
+                        double cos_val = tape_load_d(r, ii);
                         double g = ((double*)r->grad)[ii];
                         for (int j = 0; j < w_cs; j++) {
-                            ((double*)b->grad)[j] += g * (((double*)a->data)[ii*w_cs+j] / (anorm * bnorm) - cos_val * brow[j] / (bnorm2 + 1e-10));
+                            ((double*)b->grad)[j] += g * (tape_load_d(a, ii*w_cs+j) / (anorm * bnorm) - cos_val * tape_load_d(b, j) / (bnorm2 + 1e-10));
                         }
                     }
                 }
@@ -5484,27 +5506,41 @@ TensorHandle tensor_gru_cell(TensorHandle hih, TensorHandle hhh, TensorHandle hp
     Tensor* ih = (Tensor*)hih;
     Tensor* hh = (Tensor*)hhh;
     Tensor* prev = (Tensor*)hprev;
+    if (ih->dtype_tag != hh->dtype_tag || ih->dtype_tag != prev->dtype_tag)
+        tape_abort_mixed_dtype("tensor_gru_cell");
+    int shape[] = {o};
+    int rg = ih->requires_grad || hh->requires_grad || prev->requires_grad;
+    int is_f32 = (ih->dtype_tag == DT_F32);
 
+    /* Meta caches (zG/rG/nG) stay double* — backward writes F64 grads. */
     double* zG = malloc(o * sizeof(double));
     double* rG = malloc(o * sizeof(double));
     double* nG = malloc(o * sizeof(double));
-    double* out = calloc(o, sizeof(double));
 
-    for (int i = 0; i < o; i++) {
-        zG[i] = 1.0 / (1.0 + exp(-(((double*)ih->data)[i] + ((double*)hh->data)[i])));            /* z */
-        rG[i] = 1.0 / (1.0 + exp(-(((double*)ih->data)[o + i] + ((double*)hh->data)[o + i])));    /* r */
-        nG[i] = tanh(((double*)ih->data)[2*o + i] + rG[i] * ((double*)hh->data)[2*o + i]);        /* n */
-        out[i] = (1.0 - zG[i]) * nG[i] + zG[i] * ((double*)prev->data)[i];             /* h' */
+    Tensor* r;
+    if (is_f32) {
+        float* out = arena_alloc(o * sizeof(float));
+        for (int i = 0; i < o; i++) {
+            zG[i] = 1.0 / (1.0 + exp(-(tape_load_d(ih, i) + tape_load_d(hh, i))));
+            rG[i] = 1.0 / (1.0 + exp(-(tape_load_d(ih, o+i) + tape_load_d(hh, o+i))));
+            nG[i] = tanh(tape_load_d(ih, 2*o+i) + rG[i] * tape_load_d(hh, 2*o+i));
+            double h = (1.0 - zG[i]) * nG[i] + zG[i] * tape_load_d(prev, i);
+            out[i] = (float)h;
+        }
+        r = make_tensor_arena_f32(out, o, shape, 1, rg);
+    } else {
+        double* out = calloc(o, sizeof(double));
+        for (int i = 0; i < o; i++) {
+            zG[i] = 1.0 / (1.0 + exp(-(((double*)ih->data)[i] + ((double*)hh->data)[i])));
+            rG[i] = 1.0 / (1.0 + exp(-(((double*)ih->data)[o + i] + ((double*)hh->data)[o + i])));
+            nG[i] = tanh(((double*)ih->data)[2*o + i] + rG[i] * ((double*)hh->data)[2*o + i]);
+            out[i] = (1.0 - zG[i]) * nG[i] + zG[i] * ((double*)prev->data)[i];
+        }
+        r = make_tensor(out, shape, 1, rg);
+        free(out);
     }
 
-    int shape[] = {o};
-    int rg = ih->requires_grad || hh->requires_grad || prev->requires_grad;
-    Tensor* r = make_tensor(out, shape, 1, rg);
-    free(out);
-
     if (r->requires_grad) {
-        /* arg1=ih, arg2=hh, prev kept in op_meta (3rd input doesn't fit
-           in TapeEntry's two-arg slot). */
         TapeEntry* e = tape_append(OP_GRU_CELL, r, ih, hh, 0);
         GruCellMeta* meta = arena_alloc(sizeof(GruCellMeta));
         meta->o = o;
