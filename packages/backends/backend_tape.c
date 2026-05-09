@@ -3032,7 +3032,10 @@ TensorHandle tensor_max_pool2d_batched(TensorHandle hinput, int kH, int kW,
 
 TensorHandle tensor_reshape(TensorHandle h, int* shape, int rank) {
     Tensor* t = (Tensor*)h;
-    /* Create a new tensor with different shape but shared data (arena-allocated) */
+    /* Create a new tensor with different shape but shared data (arena-allocated).
+       Propagate dtype_tag so an F32 reshape stays F32-tagged — without this
+       the zero-init dtype_tag (=DT_F64) makes the view misinterpret F32
+       storage as doubles. Data is shared (same pointer), no stride change. */
     Tensor* r = arena_alloc(sizeof(Tensor));
     memset(r, 0, sizeof(Tensor));
     r->data = t->data;  /* shared */
@@ -3043,6 +3046,7 @@ TensorHandle tensor_reshape(TensorHandle h, int* shape, int rank) {
     r->requires_grad = t->requires_grad;
     r->tape_idx = -1;
     r->grad = NULL;
+    r->dtype_tag = t->dtype_tag;
     if (r->requires_grad) tape_append(OP_RESHAPE, r, t, NULL, 0);
     return r;
 }
@@ -3065,16 +3069,20 @@ TensorHandle tensor_select(TensorHandle h, int dim, int index) {
     /* Scalar: select(scalar, 0, 0) is identity — return the tensor directly
        to preserve tape connectivity (the scalar already has a tape entry). */
     if (t->rank == 0) return h;
+    /* Element width for the shared-storage stride; tape_elem_size honours the
+       parent's dtype_tag so F32 selects step 4 bytes, F64 selects step 8. */
+    size_t es = tape_elem_size(t->dtype_tag);
     if (t->rank == 1) {
         Tensor* v = arena_alloc(sizeof(Tensor));
         memset(v, 0, sizeof(Tensor));
-        v->data = &((double*)t->data)[index];
+        v->data = (char*)t->data + (size_t)index * es;
         v->shape = NULL;
         v->rank = 0;
         v->numel = 1;
         v->requires_grad = t->requires_grad;
         v->tape_idx = -1;
         v->grad = NULL;
+        v->dtype_tag = t->dtype_tag;
         /* Record OP_SELECT so backward propagates grad to parent[index] */
         if (v->requires_grad) tape_append(OP_SELECT, v, t, NULL, (double)index);
         return v;
@@ -3083,7 +3091,7 @@ TensorHandle tensor_select(TensorHandle h, int dim, int index) {
         /* Row selection: share data with parent */
         Tensor* r = arena_alloc(sizeof(Tensor));
         memset(r, 0, sizeof(Tensor));
-        r->data = ((double*)t->data) + index * cols;
+        r->data = (char*)t->data + (size_t)(index * cols) * es;
         r->shape = arena_alloc(sizeof(int));
         r->shape[0] = cols;
         r->rank = 1;
@@ -3091,10 +3099,14 @@ TensorHandle tensor_select(TensorHandle h, int dim, int index) {
         r->requires_grad = t->requires_grad;
         r->tape_idx = -1;
         r->grad = NULL;
+        r->dtype_tag = t->dtype_tag;
         if (r->requires_grad) tape_append(OP_SELECT, r, t, NULL, (double)index);
         return r;
     }
-    return make_scalar(((double*)t->data)[index], t->requires_grad);
+    /* Fallback: high-rank select returns a fresh scalar with the correct dtype. */
+    double v = tape_load_d(t, index);
+    return (t->dtype_tag == DT_F32) ? make_scalar_f32(v, t->requires_grad)
+                                    : make_scalar(v, t->requires_grad);
 }
 
 TensorHandle tensor_stack(TensorHandle* tensors, int count, int dim) {
@@ -3137,12 +3149,15 @@ TensorHandle tensor_narrow(TensorHandle h, int dim, int start, int len) {
     Tensor* t = (Tensor*)h;
     Tensor* r = arena_alloc(sizeof(Tensor));
     memset(r, 0, sizeof(Tensor));
-    r->data = ((double*)t->data) + start;
+    /* Byte-correct offset honours the parent's element width, so an F32
+       narrow steps 4 bytes per index rather than 8. */
+    r->data = (char*)t->data + (size_t)start * tape_elem_size(t->dtype_tag);
     r->shape = arena_alloc(sizeof(int));
     r->shape[0] = len;
     r->rank = 1; r->numel = len;
     r->requires_grad = t->requires_grad;
     r->tape_idx = -1;
+    r->dtype_tag = t->dtype_tag;
     /* OP_NARROW: scatter gradient back to parent at offset */
     if (r->requires_grad) tape_append(OP_NARROW, r, t, NULL, (double)start);
     return r;

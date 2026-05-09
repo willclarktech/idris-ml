@@ -3353,6 +3353,106 @@ int main(void) {
                             strcmp(tensor_dtype_name(tensor_max(w32)), "F32") == 0);
             }
         }
+
+        /* Batch 2 Group E: view ops (reshape, narrow, select).
+           These share storage with the parent so the F32 dispatch is mostly
+           tag propagation + correct pointer stride (char* + tape_elem_size
+           rather than implicit double* arithmetic). Backward writes parent
+           grad (F64 by Phase 3 design) so the OP_<X> cases stay unchanged. */
+        {
+            double wv[] = {1.5, -0.25, 0.5, 2.0, -1.0};
+
+            /* tensor_reshape: 1D [6] → 2D [2,3], values preserved. */
+            {
+                double rv[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
+                double out_f64[6], out_f32[6];
+                int new_shape[] = {2, 3};
+
+                TensorHandle w64 = tensor_create_1d_streamed(6, heap_copy(rv, 6), 0, 0, 1);
+                TensorHandle r64 = tensor_reshape(w64, new_shape, 2);
+                tensor_to_doubles(r64, out_f64);
+
+                TensorHandle w32 = tensor_create_1d_streamed(6, heap_copy(rv, 6), 0, 0, 0);
+                TensorHandle r32 = tensor_reshape(w32, new_shape, 2);
+                tensor_to_doubles(r32, out_f32);
+
+                ASSERT_TRUE("reshape: F32 output propagates F32 tag",
+                            strcmp(tensor_dtype_name(r32), "F32") == 0);
+                for (int i = 0; i < 6; i++) {
+                    char m[64];
+                    snprintf(m, sizeof m, "reshape: y_f32[%d] ~ y_f64", i);
+                    ASSERT_NEAR(m, out_f32[i], out_f64[i], 1e-5);
+                }
+            }
+
+            /* tensor_narrow: [5] → [3] at start=1. Backward scatters grad
+               back to parent[start..start+len]. */
+            {
+                double out_f64[3], out_f32[3], g_f64[5], g_f32[5];
+
+                param_clear();
+                TensorHandle w64 = tensor_create_param_1d_streamed(5, heap_copy(wv, 5), 0, 1);
+                param_register("w", w64);
+                TensorHandle r64 = tensor_narrow(w64, 0, 1, 3);
+                tensor_to_doubles(r64, out_f64);
+                tensor_backward(tensor_sum(r64));
+                for (int i = 0; i < 5; i++) g_f64[i] = param_grad_item_at(0, i);
+                param_clear();
+
+                TensorHandle w32 = tensor_create_param_1d_streamed(5, heap_copy(wv, 5), 0, 0);
+                param_register("w", w32);
+                TensorHandle r32 = tensor_narrow(w32, 0, 1, 3);
+                tensor_to_doubles(r32, out_f32);
+                tensor_backward(tensor_sum(r32));
+                for (int i = 0; i < 5; i++) g_f32[i] = param_grad_item_at(0, i);
+
+                ASSERT_TRUE("narrow: F32 output propagates F32 tag",
+                            strcmp(tensor_dtype_name(r32), "F32") == 0);
+                for (int i = 0; i < 3; i++) {
+                    char m[64];
+                    snprintf(m, sizeof m, "narrow: y_f32[%d] ~ y_f64", i);
+                    ASSERT_NEAR(m, out_f32[i], out_f64[i], 1e-5);
+                }
+                for (int i = 0; i < 5; i++) {
+                    char m[64];
+                    snprintf(m, sizeof m, "narrow: w.grad_f32[%d] ~ w.grad_f64", i);
+                    ASSERT_NEAR(m, g_f32[i], g_f64[i], 1e-5);
+                }
+                param_clear();
+            }
+
+            /* tensor_select: rank-1 [5] → scalar at index 2. Backward
+               adds grad to parent[index]. */
+            {
+                double g_f64[5], g_f32[5];
+
+                param_clear();
+                TensorHandle w64 = tensor_create_param_1d_streamed(5, heap_copy(wv, 5), 0, 1);
+                param_register("w", w64);
+                TensorHandle r64 = tensor_select(w64, 0, 2);
+                double v64 = tensor_item(r64);
+                tensor_backward(r64);
+                for (int i = 0; i < 5; i++) g_f64[i] = param_grad_item_at(0, i);
+                param_clear();
+
+                TensorHandle w32 = tensor_create_param_1d_streamed(5, heap_copy(wv, 5), 0, 0);
+                param_register("w", w32);
+                TensorHandle r32 = tensor_select(w32, 0, 2);
+                double v32 = tensor_item(r32);
+                tensor_backward(r32);
+                for (int i = 0; i < 5; i++) g_f32[i] = param_grad_item_at(0, i);
+
+                ASSERT_TRUE("select: F32 output propagates F32 tag",
+                            strcmp(tensor_dtype_name(r32), "F32") == 0);
+                ASSERT_NEAR("select: v_f32 ~ v_f64", v32, v64, 1e-5);
+                for (int i = 0; i < 5; i++) {
+                    char m[64];
+                    snprintf(m, sizeof m, "select: w.grad_f32[%d] ~ w.grad_f64", i);
+                    ASSERT_NEAR(m, g_f32[i], g_f64[i], 1e-5);
+                }
+                param_clear();
+            }
+        }
     }
 #endif
 
