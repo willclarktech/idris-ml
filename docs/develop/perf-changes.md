@@ -148,3 +148,31 @@ re-attempted with a Maybe-cached lazy-init approach (build on
 first call of each epoch, reset to Nothing on `resetNtmState`),
 which would behave like the existing memT pattern and probably
 avoid the mlx interaction. Filed as future-todo, not active.
+
+### 2026-05-09 — DNC `dncReadHeads` link-transpose hoist — `eaab884`
+
+**Plan job**: cross-cutting (mostly tape/torch).
+
+**Motivation**: `dncReadHeads` recursed once per read head, calling
+`prim__transpose2d linkT` inside each recursion. `linkT` is shared
+across heads — the transpose is head-invariant.
+
+**Change**: compute `linkTransT = prim__transpose2d newLinkT` once
+in `applyDnc` and thread it into `dncReadHeads` as an extra
+argument. Removes R-1 redundant FFI calls per timestep on a
+head-invariant value.
+
+**Impact** (3 samples each, post `b209ab1`):
+
+| Example    | Backend | Before  | After   | Note         |
+|------------|---------|--------:|--------:|--------------|
+| dnc-copy   | tape    | ~1.25×  | ~1.25×  | noise        |
+| dnc-copy   | torch   | ~2.05×  | ~2.14×  | noise        |
+| dnc-recall | tape    | ~1.50×  | ~1.32×  | small win    |
+| dnc-recall | torch   | ~2.14×  | ~1.91×  | small win    |
+
+Theoretical savings: R-1 = 3 FFI calls × 40 timesteps × 9 µs ≈
+1 ms/epoch. Within measurement noise on dnc-copy (small absolute
+ms/epoch) but visible on dnc-recall.
+
+**Outcome**: landed.
