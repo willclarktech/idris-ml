@@ -12,15 +12,14 @@ import System
 import System.Clock
 import Compat.Random
 
-import Backprop
+import BackpropV2
 import DataPoint
-import Endofunctor
 import Floating
 import Generate
 import Hpo.LrFinder
-import Layer
+import Layer.CoreV2
+import Layer.NtmV2
 import Math
-import Optimizer
 import Tensor
 import Train
 import Util
@@ -122,9 +121,9 @@ main = do
            ++ " seqLen=" ++ show SeqLen
   putStrLn $ "Architecture: N=" ++ show N ++ " M=" ++ show M ++ " H=" ++ show H
 
-  ntm <- ntmLayer {inputSize = InputW, outputSize = OutputW, n = N, m = M, h = H}
-  let model = autoName $ OutputLayer ntm
-  putStrLn $ "Model: " ++ show model
+  ntmAny <- ntmLayerV2Any {n = N, m = M, h = H, i = InputW, o = OutputW} "ntm"
+  let model : NetworkV2 InputW [] OutputW CPU
+      model = OutputLayerV2 ntmAny
   putStrLn ""
 
   let opt = nativeRmsprop cfg.lr cfg.alpha cfg.eps cfg.clipVal cfg.momentum
@@ -134,21 +133,19 @@ main = do
       genBatch = recallTaskBinaryBatchVect {w = W} cfg.batch cfg.minItems cfg.maxItems SeqLen
 
   -- Metrics: bit accuracy + memory
-  let evalMetrics : Network InputW [] OutputW (Variable CPU) -> IO (List (String, String))
+  let evalMetrics : NetworkV2 InputW [] OutputW CPU -> IO (List (String, String))
       evalMetrics m = do
-        let dblM = toDoubleNetwork (emap refreshValue m)
         evalBatch <- recallTaskBinaryBatchVect {w = W} 10 cfg.minItems cfg.maxItems SeqLen
         let avgAcc = foldl (+) 0.0
-              (toList (map (\dp => let (_, preds) = forwardTwoPhase dblM dp
+              (toList (map (\dp => let (_, preds) = forwardTwoPhaseTVar m dp
                                    in bitAccuracy preds (targets dp)) evalBatch)) / 10.0
         pure [ ("acc", show (avgAcc * 100.0) ++ "%") ]
 
-  -- HPO branch: see NtmCopy.idr — same wiring, sigmoid+BCE, no negative-loss bug.
   when cfg.lrFind $ do
     let lrCfg : LrFindConfig
         lrCfg = { numIters := 100 } defaultLrFindConfig
     _ <- lrFind lrCfg
-      (\m, d => let (m', loss) = epochTwoPhaseTensor opt d m
+      (\m, d => let (m', loss) = epochTwoPhaseTVar opt d tbceLoss m
                 in pure (m', loss))
       genBatch opt model
     putStrLn ""
@@ -160,14 +157,12 @@ main = do
                    (\_ => pure ())
 
   (trained, epochsDone, _) <- runTraining
-    (\m, d => epochTwoPhaseTensor opt d m) genBatch trainCfg model
+    (\m, d => epochTwoPhaseTVar opt d tbceLoss m) genBatch trainCfg model
 
   -- Evaluation
-  let dblModel = toDoubleNetwork (emap refreshValue trained)
-
   let evalOne : TwoPhaseDataPoint InputW OutputW Double -> Double
       evalOne dp =
-        let (_, preds) = forwardTwoPhase dblModel dp
+        let (_, preds) = forwardTwoPhaseTVar trained dp
         in bitAccuracy preds (targets dp)
 
   k2Batch <- recallTaskBinaryBatchVect {w = W} TestSize 2 2 SeqLen
