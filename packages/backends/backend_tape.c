@@ -1154,9 +1154,46 @@ TensorHandle tensor_max(TensorHandle h) {
    Linear algebra
    ================================================================ */
 
+/* F32 stamping of tensor_mv. F64 grads are kept (asymmetric), so the
+   backward case still reads a double* x_vals cache — we convert from
+   the F32 vec on store. Output uses make_tensor_arena_f32 + tags F32. */
+static TensorHandle tensor_mv_f32(TensorHandle hmat, TensorHandle hvec) {
+    Tensor* mat = (Tensor*)hmat;
+    Tensor* vec = (Tensor*)hvec;
+    int m = mat->shape[0], n = mat->shape[1];
+    int out_shape[] = {m};
+    float* out_data = arena_alloc(m * sizeof(float));
+#ifdef __APPLE__
+    cblas_sgemv(CblasRowMajor, CblasNoTrans, m, n, 1.0f,
+                (const float*)mat->data, n, (const float*)vec->data, 1,
+                0.0f, out_data, 1);
+#else
+    for (int i = 0; i < m; i++) {
+        float s = 0;
+        for (int j = 0; j < n; j++) s += ((float*)mat->data)[i*n+j] * ((float*)vec->data)[j];
+        out_data[i] = s;
+    }
+#endif
+    Tensor* r = make_tensor_arena_f32(out_data, m, out_shape, 1,
+                                      mat->requires_grad || vec->requires_grad);
+    if (r->requires_grad) {
+        TapeEntry* e = tape_append(OP_MV, r, mat, vec, 0);
+        MvMeta* meta = arena_alloc(sizeof(MvMeta));
+        meta->m = m; meta->n = n;
+        meta->x_vals = arena_alloc(n * sizeof(double));
+        for (int j = 0; j < n; j++) meta->x_vals[j] = (double)((float*)vec->data)[j];
+        e->op_meta = meta;
+    }
+    return r;
+}
+
 TensorHandle tensor_mv(TensorHandle hmat, TensorHandle hvec) {
     Tensor* mat = (Tensor*)hmat;
     Tensor* vec = (Tensor*)hvec;
+    if (mat->dtype_tag == DT_F32 || vec->dtype_tag == DT_F32) {
+        if (mat->dtype_tag != vec->dtype_tag) tape_abort_mixed_dtype("tensor_mv");
+        return tensor_mv_f32(hmat, hvec);
+    }
     int m = mat->shape[0], n = mat->shape[1];
     int out_shape[] = {m};
     /* Output goes straight into the arena — no calloc/free + memcpy
@@ -3778,7 +3815,10 @@ void tensor_backward(TensorHandle h) {
         }
 
         case OP_MV: {
-            /* d(Ax)/dA = grad . x^T (rank-1 update), d(Ax)/dx = A^T @ grad */
+            /* d(Ax)/dA = grad . x^T (rank-1 update), d(Ax)/dx = A^T @ grad.
+               BLAS paths assume F64 storage on `a`; an F32 mat falls back
+               to the plain double-precision loop via tape_load_d so grad
+               (always F64) accumulates the correctly-precise updates. */
             MvMeta* meta = (MvMeta*)e->op_meta;
             int m_mv = meta ? meta->m : a->shape[0];
             int n_mv = meta ? meta->n : a->shape[1];
@@ -3786,31 +3826,46 @@ void tensor_backward(TensorHandle h) {
             ensure_grad(r);
             if (a->requires_grad) {
                 ensure_grad(a);
+                if (a->dtype_tag == DT_F32) {
+                    for (int ii = 0; ii < m_mv; ii++)
+                        for (int jj = 0; jj < n_mv; jj++)
+                            ((double*)a->grad)[ii*n_mv+jj] += ((double*)r->grad)[ii] * x_vals[jj];
+                } else {
 #ifdef __APPLE__
-                /* A.grad [m,n] += grad [m] * x^T [n] — rank-1 outer product */
-                cblas_dger(CblasRowMajor, m_mv, n_mv, 1.0,
-                           r->grad, 1, x_vals, 1,
-                           a->grad, n_mv);
+                    /* A.grad [m,n] += grad [m] * x^T [n] — rank-1 outer product */
+                    cblas_dger(CblasRowMajor, m_mv, n_mv, 1.0,
+                               r->grad, 1, x_vals, 1,
+                               a->grad, n_mv);
 #else
-                for (int ii = 0; ii < m_mv; ii++)
-                    for (int jj = 0; jj < n_mv; jj++)
-                        ((double*)a->grad)[ii*n_mv+jj] += ((double*)r->grad)[ii] * x_vals[jj];
+                    for (int ii = 0; ii < m_mv; ii++)
+                        for (int jj = 0; jj < n_mv; jj++)
+                            ((double*)a->grad)[ii*n_mv+jj] += ((double*)r->grad)[ii] * x_vals[jj];
 #endif
+                }
             }
             if (b && b->requires_grad) {
                 ensure_grad(b);
+                if (a->dtype_tag == DT_F32) {
+                    /* x.grad [n] += A^T [n,m] @ grad [m], read A as F32 */
+                    for (int jj = 0; jj < n_mv; jj++) {
+                        double s = 0;
+                        for (int ii = 0; ii < m_mv; ii++)
+                            s += tape_load_d(a, ii*n_mv+jj) * ((double*)r->grad)[ii];
+                        ((double*)b->grad)[jj] += s;
+                    }
+                } else {
 #ifdef __APPLE__
-                /* x.grad [n] += A^T [n,m] @ grad [m] */
-                cblas_dgemv(CblasRowMajor, CblasTrans, m_mv, n_mv, 1.0,
-                            a->data, n_mv, r->grad, 1,
-                            1.0, b->grad, 1);
+                    cblas_dgemv(CblasRowMajor, CblasTrans, m_mv, n_mv, 1.0,
+                                a->data, n_mv, r->grad, 1,
+                                1.0, b->grad, 1);
 #else
-                for (int jj = 0; jj < n_mv; jj++) {
-                    double s = 0;
-                    for (int ii = 0; ii < m_mv; ii++) s += ((double*)a->data)[ii*n_mv+jj] * ((double*)r->grad)[ii];
-                    ((double*)b->grad)[jj] += s;
-                }
+                    for (int jj = 0; jj < n_mv; jj++) {
+                        double s = 0;
+                        for (int ii = 0; ii < m_mv; ii++) s += ((double*)a->data)[ii*n_mv+jj] * ((double*)r->grad)[ii];
+                        ((double*)b->grad)[jj] += s;
+                    }
 #endif
+                }
             }
             break;
         }

@@ -59,10 +59,8 @@ static double* heap_copy(const double* src, int n) {
    inherit input tags) and three "w_f32[i] is F32-exact after step"
    (optimizer_step writes raw F64 back to param->data without re-rounding). */
 #if defined(BACKEND_TAPE)
-/* TAPE_F32_SKIP_ELEMENTWISE removed — Phase 3 rung 1 lands the F32 elementwise
-   path (real F32 storage + F32 kernels + tag-dispatch in tensor_{add,sub,mul,
-   div,pow,neg,abs,exp,log,sqrt,sigmoid,tanh,gelu}). */
-#define TAPE_F32_SKIP_MATMUL
+/* TAPE_F32_SKIP_ELEMENTWISE removed (Phase 3 rung 1: F32 elementwise live).
+   TAPE_F32_SKIP_MATMUL removed (Phase 3 rung 2: F32 tensor_mv live). */
 #define TAPE_F32_SKIP_NORM
 #define TAPE_F32_SKIP_OPTIMIZER
 #endif
