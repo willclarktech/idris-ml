@@ -5920,3 +5920,74 @@ TensorHandle tensor_cast_dtype_f64_streamed(TensorHandle src, int stream_tag) {
     (void)stream_tag;
     return tensor_cast_dtype_f64(src);
 }
+
+/* ---- Unified dtag-dispatch create/cast entry points ----
+   One symbol per shape, dtag-keyed, superseding the per-dtype
+   *_f32_streamed / *_f64_streamed wrappers above. Tape's arena is
+   F64-only today (dtag 1); every other dtag aborts via
+   tape_dtype_unsupported. Phase 2+ replaces the abort with real
+   non-F64 storage. The Idris `Compatible TapeDev F64` gate already
+   prevents non-F64 dtags reaching tape; the abort is a backstop. */
+static TensorHandle tape_dtype_unsupported(const char* sym, int dtag) {
+    fprintf(stderr,
+        "[tape backend] %s called with dtag=%d but tape stores F64 only "
+        "(dtag 1). Bind your code to F64 on tape, or build with "
+        "BACKEND=mlx / torch.\n", sym, dtag);
+    abort();
+}
+
+TensorHandle tensor_create_scalar_streamed(double value, int requires_grad, int stream_tag, int dtag) {
+    (void)stream_tag;
+    if (dtag == 1) return tensor_create_scalar_f64(value, requires_grad);
+    return tape_dtype_unsupported("tensor_create_scalar_streamed", dtag);
+}
+TensorHandle tensor_create_streamed(double* data, int* shape, int rank, int requires_grad, int stream_tag, int dtag) {
+    (void)stream_tag;
+    if (dtag == 1) return tensor_create_f64(data, shape, rank, requires_grad);
+    return tape_dtype_unsupported("tensor_create_streamed", dtag);
+}
+TensorHandle tensor_create_1d_streamed(int n, double* data, int requires_grad, int stream_tag, int dtag) {
+    (void)stream_tag;
+    if (dtag == 1) return tensor_create_1d_f64(n, data, requires_grad);
+    return tape_dtype_unsupported("tensor_create_1d_streamed", dtag);
+}
+TensorHandle tensor_create_2d_streamed(int rows, int cols, double* data, int requires_grad, int stream_tag, int dtag) {
+    (void)stream_tag;
+    if (dtag == 1) return tensor_create_2d_f64(rows, cols, data, requires_grad);
+    return tape_dtype_unsupported("tensor_create_2d_streamed", dtag);
+}
+TensorHandle tensor_create_param_1d_streamed(int n, double* data, int stream_tag, int dtag) {
+    (void)stream_tag;
+    if (dtag == 1) return tensor_create_param_1d_f64(n, data);
+    return tape_dtype_unsupported("tensor_create_param_1d_streamed", dtag);
+}
+TensorHandle tensor_create_param_2d_streamed(int rows, int cols, double* data, int stream_tag, int dtag) {
+    (void)stream_tag;
+    if (dtag == 1) return tensor_create_param_2d_f64(rows, cols, data);
+    return tape_dtype_unsupported("tensor_create_param_2d_streamed", dtag);
+}
+TensorHandle tensor_create_param_3d_streamed(int d0, int d1, int d2, double* data, int stream_tag, int dtag) {
+    (void)stream_tag;
+    if (dtag == 1) return tensor_create_param_3d_f64(d0, d1, d2, data);
+    return tape_dtype_unsupported("tensor_create_param_3d_streamed", dtag);
+}
+TensorHandle tensor_create_param_4d_streamed(int d0, int d1, int d2, int d3, double* data, int stream_tag, int dtag) {
+    (void)stream_tag;
+    if (dtag == 1) return tensor_create_param_4d_f64(d0, d1, d2, d3, data);
+    return tape_dtype_unsupported("tensor_create_param_4d_streamed", dtag);
+}
+TensorHandle tensor_create_state_1d_streamed(int n, double* data, int stream_tag, int dtag) {
+    (void)stream_tag;
+    if (dtag == 1) return tensor_create_state_1d_f64(n, data);
+    return tape_dtype_unsupported("tensor_create_state_1d_streamed", dtag);
+}
+TensorHandle tensor_create_state_2d_streamed(int rows, int cols, double* data, int stream_tag, int dtag) {
+    (void)stream_tag;
+    if (dtag == 1) return tensor_create_state_2d_f64(rows, cols, data);
+    return tape_dtype_unsupported("tensor_create_state_2d_streamed", dtag);
+}
+TensorHandle tensor_cast_dtype_streamed(TensorHandle src, int stream_tag, int dtag) {
+    (void)stream_tag;
+    if (dtag == 1) return tensor_cast_dtype_f64(src);
+    return tape_dtype_unsupported("tensor_cast_dtype_streamed", dtag);
+}
