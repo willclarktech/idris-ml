@@ -200,9 +200,56 @@ static Tensor* make_tensor_arena(double* arena_data, int numel, int* shape, int 
     return t;
 }
 
+/* F32 storage primitives — mirror the F64 versions but allocate float buffers
+   and tag the tensor DT_F32. Used by the F32 stamping of the kernel .inc
+   (rung 1 onwards). Caller passes the value as `double` for convenience; the
+   constructor narrows once. */
+static Tensor* make_scalar_f32(double val, int requires_grad) {
+    Tensor* t = arena_alloc(sizeof(Tensor));
+    memset(t, 0, sizeof(Tensor));
+    float* d = arena_alloc(sizeof(float));
+    d[0] = (float)val;
+    t->data = d;
+    t->shape = NULL;
+    t->rank = 0;
+    t->numel = 1;
+    t->requires_grad = requires_grad;
+    t->tape_idx = -1;
+    t->grad = NULL;
+    t->persistent = 0;
+    t->dtype_tag = DT_F32;
+    return t;
+}
+static Tensor* make_tensor_arena_f32(float* arena_data, int numel, int* shape, int rank, int requires_grad) {
+    Tensor* t = arena_alloc(sizeof(Tensor));
+    memset(t, 0, sizeof(Tensor));
+    t->data = arena_data;
+    t->shape = arena_alloc(rank * sizeof(int));
+    memcpy(t->shape, shape, rank * sizeof(int));
+    t->rank = rank;
+    t->numel = numel;
+    t->requires_grad = requires_grad;
+    t->tape_idx = -1;
+    t->grad = NULL;
+    t->persistent = 0;
+    t->dtype_tag = DT_F32;
+    return t;
+}
+
+/* SFX(make_scalar)/SFX(make_tensor_arena) aliases the .inc resolves through.
+   The F64 alias just forwards to the existing functions (they default to
+   DT_F64 via zeroed structs). */
+static inline Tensor* make_scalar_f64(double val, int rg) { return make_scalar(val, rg); }
+static inline Tensor* make_tensor_arena_f64(double* arena_data, int numel, int* shape, int rank, int rg) {
+    return make_tensor_arena(arena_data, numel, shape, rank, rg);
+}
+
+/* Grad allocator — dtype-aware so an F32 leaf gets an F32 grad buffer (matches
+   torch semantics: param dtype == grad dtype). Existing callers pass F64
+   tensors → 8-byte allocations, byte-identical to the prior pattern. */
 static void ensure_grad(Tensor* t) {
     if (!t->grad) {
-        t->grad = calloc(t->numel, sizeof(double));
+        t->grad = calloc(t->numel, tape_elem_size(t->dtype_tag));
     }
 }
 

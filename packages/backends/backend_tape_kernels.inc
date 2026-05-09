@@ -29,7 +29,7 @@ static TensorHandle SFX(binop_elementwise_inner)(TensorHandle ha, TensorHandle h
 
     /* Both scalar */
     if (a->numel == 1 && b->numel == 1) {
-        Tensor* r = make_scalar((double)scalar_fn(a_d[0], b_d[0]), rg);
+        Tensor* r = SFX(make_scalar)((double)scalar_fn(a_d[0], b_d[0]), rg);
         if (rg) tape_append(op_tag, r, a, b, 0);
         return r;
     }
@@ -68,7 +68,7 @@ static TensorHandle SFX(binop_elementwise_inner)(TensorHandle ha, TensorHandle h
                 prof_kernel_per_op[op_tag] += _wall_ms() - _k0;
                 prof_kernel_count_per_op[op_tag]++;
             }
-            Tensor* r = make_tensor_arena((double*)data, n, a->shape, a->rank, rg);
+            Tensor* r = SFX(make_tensor_arena)(data, n, a->shape, a->rank, rg);
             if (rg) tape_append(op_tag, r, a, b, 0);
             return r;
         }
@@ -147,7 +147,7 @@ static TensorHandle SFX(unop_elementwise)(TensorHandle ha, int op, SCALAR (*fn)(
     SCALAR* a_d = (SCALAR*)a->data;
     if (a->numel == 1) {
         /* Scalar path (backward rules use [0] indexing) */
-        Tensor* r = make_scalar((double)fn(a_d[0]), a->requires_grad);
+        Tensor* r = SFX(make_scalar)((double)fn(a_d[0]), a->requires_grad);
         if (a->requires_grad) tape_append(op, r, a, NULL, 0);
         return r;
     }
