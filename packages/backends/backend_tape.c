@@ -6215,11 +6215,11 @@ TensorHandle tensor_view_1d(TensorHandle h, int idx) {
 
 double tensor_item_2d(TensorHandle h, int row, int col) {
     Tensor* t = (Tensor*)h;
-    return ((double*)t->data)[row * t->shape[1] + col];
+    return tape_load_d(t, row * t->shape[1] + col);
 }
 
 double tensor_item_1d(TensorHandle h, int idx) {
-    return ((double*)((Tensor*)h)->data)[idx];
+    return tape_load_d((Tensor*)h, idx);
 }
 
 /* ================================================================
@@ -7043,9 +7043,32 @@ TensorHandle tensor_cast_dtype_streamed(TensorHandle src, int stream_tag, int dt
        The shortcut applies only when the *source* is already F64 — casting a
        non-F64 source up to F64 must still produce a fresh F64-tagged tensor. */
     if (tag == DT_F64 && s->dtype_tag == DT_F64) return tensor_cast_dtype_f64(src);
+    /* F32 target: real F32 storage (4 bytes/elem), matching the Phase 3
+       streamed-create path. Skipping this and falling through to
+       tape_retag_round would produce a lingua-franca F32 (double storage,
+       DT_F32 tag) — internally consistent for tensor_item_1d (reads as
+       double*) but garbage for tensor_to_doubles / tape_load_d / the F32
+       kernels (all assume 4-byte-per-elem float storage). tape_load_d on
+       the read side normalizes real-F32 vs lingua-franca sources. */
+    if (tag == DT_F32) {
+        if (s->rank == 0) {
+            double v = tape_load_d(s, 0);
+            return make_scalar_f32(v, 0);
+        }
+        float* arena_d = arena_alloc(s->numel * sizeof(float));
+        for (int i = 0; i < s->numel; i++) arena_d[i] = (float)tape_load_d(s, i);
+        return make_tensor_arena_f32(arena_d, s->numel, s->shape, s->rank, 0);
+    }
     /* Otherwise: a fresh non-grad tensor cloning src's values, rounded into the
-       target dtype. (Inference / precision-demo casts are NoGrad.) */
-    TensorHandle h = (s->rank == 0) ? make_scalar(((double*)s->data)[0], 0)
-                                    : (TensorHandle)make_tensor(s->data, s->shape, s->rank, 0);
-    return tape_retag_round(h, dtag);
+       target dtype. (Inference / precision-demo casts are NoGrad.) Source is
+       read via tape_load_d so a real-F32 source casts correctly into the
+       lingua-franca target. */
+    if (s->rank == 0) {
+        double v = tape_load_d(s, 0);
+        return tape_retag_round(make_scalar(v, 0), dtag);
+    }
+    double* arena_d = arena_alloc(s->numel * sizeof(double));
+    for (int i = 0; i < s->numel; i++) arena_d[i] = tape_load_d(s, i);
+    Tensor* t = make_tensor_arena(arena_d, s->numel, s->shape, s->rank, 0);
+    return tape_retag_round((TensorHandle)t, dtag);
 }

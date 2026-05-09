@@ -4206,6 +4206,46 @@ int main(void) {
     }
 #endif
 
+    /* T32: F32 cast → tensor_to_doubles + tensor_item_1d agree on storage
+       layout. Before the 2026-05-23 fix, tensor_cast_dtype_streamed for
+       dtag=0 routed through tape_retag_round (lingua-franca double storage
+       + DT_F32 tag), but tensor_to_doubles reads F32-tagged tensors as
+       float* — so the cast→to_doubles round-trip returned garbage for any
+       value whose float and double representations differ. This block
+       pins down the alignment: cast to F32 must produce real float
+       storage that tensor_to_doubles, tape_load_d, and the F32 kernels
+       can all read with the same element width. */
+#if defined(BACKEND_TAPE)
+    {
+        printf("\n--- F32 cast storage alignment (T32) ---\n");
+        /* π and √2: F32 nearest values differ from F64 source past the
+           7th decimal, so the float-vs-double misread shows up clearly. */
+        double pv[] = {3.14159265358979, 1.4142135623730951};
+        TensorHandle f64src = tensor_create_1d_streamed(2, heap_copy(pv, 2), 0, 0, 1);  /* dtag 1 = F64 */
+        TensorHandle f32cast = tensor_cast_dtype_streamed(f64src, 0, 0);                /* dtag 0 = F32 */
+        ASSERT_TRUE("F32 cast dtype name", strcmp(tensor_dtype_name(f32cast), "F32") == 0);
+
+        /* Reader paths must agree: tensor_to_doubles, tensor_item_1d, and a
+           direct (float*) read all see the same F32-narrowed values. */
+        double via_to_doubles[2];
+        tensor_to_doubles(f32cast, via_to_doubles);
+        ASSERT_NEAR("F32 cast→to_doubles[0]",  via_to_doubles[0], 3.1415927410125732, 1e-12);
+        ASSERT_NEAR("F32 cast→to_doubles[1]",  via_to_doubles[1], 1.4142135381698608, 1e-12);
+        ASSERT_NEAR("F32 cast→item_1d[0]",     tensor_item_1d(f32cast, 0), 3.1415927410125732, 1e-12);
+        ASSERT_NEAR("F32 cast→item_1d[1]",     tensor_item_1d(f32cast, 1), 1.4142135381698608, 1e-12);
+
+        /* F32 → F64 round-trip via cast: widened values match the
+           F32-narrowed readout exactly (no further precision loss). */
+        TensorHandle f64back = tensor_cast_dtype_streamed(f32cast, 0, 1);
+        ASSERT_TRUE("F32→F64 widened dtype name", strcmp(tensor_dtype_name(f64back), "F64") == 0);
+        double widened[2];
+        tensor_to_doubles(f64back, widened);
+        ASSERT_NEAR("F32→F64 widened[0]", widened[0], 3.1415927410125732, 1e-12);
+        ASSERT_NEAR("F32→F64 widened[1]", widened[1], 1.4142135381698608, 1e-12);
+        param_clear();
+    }
+#endif
+
     /* Summary */
     printf("\n");
     if (failures == 0) {
