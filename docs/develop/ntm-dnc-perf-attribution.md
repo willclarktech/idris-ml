@@ -294,36 +294,99 @@ narrow cost would offset most of it. Risk of regression matches
 NTM Phase 2a. Skipped until a more targeted measurement justifies
 it.
 
+## Microbench-based investigation (committed in this session)
+
+Built `Example.ProfileMicro` (run via `make example-profile-micro`)
+that calls primitives in tight Idris loops with minimal surrounding
+work. **The 165 µs/LINEAR attribution from the C profiler is an
+artifact, not a real per-FFI-call cost.**
+
+Tight-loop per-call cost (NTM-copy default H=100, with grad-tracked
+params so tape_append fires every call):
+
+| Bench | Per-call | Notes |
+|---|---:|---|
+| `prim__add` (1d, W=26) | 7 µs | Floor for any 2-arg primitive |
+| `prim__mv` (W=26, H=100) | 9 µs | + cblas_dgemv on a small matrix |
+| `prim__linear` (mv+add fused) | 10 µs | Slightly larger 3-arg FFI |
+| `tlinear` (typed wrapper) | 10 µs | No overhead from typed surface |
+| `Layer.Linear` `applyVar` | 10 µs | LinearState record extract free |
+| `applyLstm` (2 linear + 1 lstm_gates_pair) | 59 µs | ~20 µs per internal prim |
+| `applyNtm` at default dims (n=128 m=20 h=100) | 574 µs | ~30 prims internally → ~19 µs/prim |
+
+So **per-prim cost averaged across a real layer's internal
+sequence is ~19 µs**, comprising:
+- ~10 µs FFI dispatch + tape_append + arena alloc + LinearMeta
+- ~9 µs of Idris-side glue per prim (let bindings, record
+  destructuring, the MkTensor wrap/unwrap dance, etc.)
+
+The C profiler's "163 µs/LINEAR" is an **attribution artifact** of
+the time-between-tape_appends model: it sums up *all* Idris work
+between two consecutive tape_appends and credits it to whichever
+op's tape_append closes the interval. When LINEARs sit at major
+code-path boundaries (after LSTM cell extraction, after read-head
+logic, after concat-output-prep), they get credited with a huge
+chunk of glue from many other ops that don't themselves fire a
+tape_append.
+
+This has a sharp implication for the Phase 1+2 fusion strategy:
+**fusion only helps if it removes a FULL prim__ call's worth of
+work** (~19 µs). It doesn't reduce per-call cost — it reduces call
+count.
+
+Phase 1 (mv + add → linear) saved 19 µs per fused pair (one fewer
+prim) — real win. Phase 2a (two consecutive prim__linears → one
+prim__linear + 2 narrows) saved one prim (19 µs) but added two
+narrow prims (~40 µs combined) — net regression. Confirmed.
+
 ## What's left to try (next session)
 
-1. **Per-call FFI overhead reduction** (deeper investigation). The
-   149 µs/MV-call glue measured in Phase 0 is Idris-side
-   execution between consecutive C calls. Concrete spike ideas:
-   - Profile what specific Idris-side machinery is between two
-     `prim__linear` calls — record-field accesses? Maybe-case
-     extraction? Chez foreign-call dispatch? Write a microbench
-     that calls `prim__linear` in a tight loop with no Idris
-     work between calls — if that's still 165 µs/call, the cost
-     is in the FFI dispatch itself; if it's <20 µs/call, the
-     cost is in the calling code's record machinery.
-   - Investigate if Idris-2 codegen could emit a "batched FFI"
-     mode where multiple consecutive prim__ calls share the
-     foreign-call setup.
+1. **Reduce the number of prims per applyNtm**. The ~30 prims/
+   timestep is the dominant cost. Each prim is ~19 µs total, so
+   eliminating any one prim saves ~19 µs/timestep. Multi-FC
+   fusion failed because the added narrow prims cost more than
+   the saved linear. Better targets:
 
-2. **Architecturally fused C ops for the recurrent path**. A
-   `tensor_lstm_cell_with_linears(W_ih, W_hh, x, h, b)` that does
-   the entire LSTM cell forward in one C call would eliminate 2
-   FFI calls per timestep at the lowest level. PyTorch's
-   `nn.LSTMCell` does exactly this, so it's a reasonable
-   "PyTorch convert would expect this" primitive. (See the
-   architecture-specific-fused-ops doc for the criterion.)
+   - Fuse `cosine_similarity + mul + softmax` (the content
+     addressing chain in `ntmReadHeadIdris`) into one C op.
+     Saves 2 prims per call to ntmReadHeadIdris; called twice
+     per applyNtm → 4 prims saved per timestep → ~76 µs/timestep
+     ≈ 25 ms/epoch saved. PyTorch convert would not have an
+     exact equivalent but `F.softmax(beta * F.cosine_similarity)`
+     is a recognisable enough pattern.
 
-3. **Accept the ~10 % win and move on**. The pre-Path-C 228
-   ms/epoch baseline used the scalar-Variable path which we
-   explicitly traded away for type safety in the migration.
-   Recovering it without giving up Path C is structurally hard.
-   The 11 % wall-clock reduction from Phase 0+1 plus the cleaner
-   per-op profiler infrastructure is a defensible deliverable.
+   - Fuse `pow + sum + div` (sharpening + normalize at end of
+     `ntmReadHeadIdris`) into a single sharpening op. Saves
+     ~2 prims per call, ~38 µs/timestep ≈ 13 ms/epoch.
+
+   - Both of these are NTM-specific. Per the
+     architecture-specific-fused-ops principle, only worth doing
+     if a PyTorch convert would expect them. They're sub-paper-
+     specific (used in NTM, MANN, DNC, sparse-attention) so it's
+     borderline. Decision deferred.
+
+2. **Reduce the per-prim Idris-side glue cost** (~9 µs/prim).
+   This is harder — it's the cost of the typed surface itself
+   (record wrap/unwrap, let-bindings). Options:
+   - Idris codegen improvements (upstream)
+   - Replacing typed Tensor wrappers with raw AnyPtr in hot paths
+     — explicitly trades back Path-C's type safety. Last resort.
+
+3. **Accept the ~11 % Phase 0+1 win**. The pre-Path-C 228 ms/
+   epoch baseline used the scalar-Variable path which we
+   traded away for type safety. Recovering it without giving up
+   Path C requires fusion of NTM-architecture-specific patterns
+   (see option 1) — which is the same kind of architecture-
+   specific fused C op we just removed.
+
+   Conclusion this session: **the per-FFI-call overhead has a
+   floor of ~19 µs that's hard to reduce further without
+   architecture-specific fusion or codegen-level work**. This is
+   a structural limit of the current typed-surface design, not a
+   bug.
+
+The microbench infrastructure (`Example.ProfileMicro`) is committed
+so future sessions can re-test these floors quickly.
 
 ## Implementation note
 
