@@ -344,3 +344,98 @@ Theoretical savings: R-1 = 3 FFI calls × 40 timesteps × 9 µs ≈
 ms/epoch) but visible on dnc-recall.
 
 **Outcome**: landed.
+
+### 2026-05-09 — `withNoGrad` for RL rollouts + a2c bootstrap — `6e39337`
+
+**Plan job**: Job 1 (torch) + Job 2a (tape).
+
+**Motivation**: completing the `withNoGrad` pattern across the four RL
+examples that have a "rollout (no grad needed) + separate batched
+loss-step (grad needed)" structure: dqn, ppo, sac (a2c was already
+done). Plus pulling a2c's `computeBootstrap` out of `buildLoss` so
+the single critic forward on `finalSt` runs in `withNoGrad` too —
+the value is consumed as a Double by GAE, no grad path.
+
+**Change**:
+- a2c: refactor `buildLoss` to take precomputed `bootstrap : Double`
+  as a parameter; compute it in `a2cEpoch` inside `withNoGrad`.
+- dqn: wrap `epsGreedyIO` at the action-selection point in
+  `runEpisode.go`.
+- ppo: wrap `rollout` and `prepareRollout` (which calls
+  `computeBootstrap`).
+- sac: wrap the post-warmup `sampleActionIO` in `sacStep`.
+
+Reinforce intentionally NOT wrapped: its rollout's per-step forward
+log-probs ARE used in the gradient (single-forward-per-step structure,
+no separate batched forward in the loss). Wrapping would break
+training.
+
+**Impact**: per-prim Chez FFI floor still dominates these examples,
+so the savings are modest in absolute ms/epoch (~0.5–2 ms/epoch in
+each). The bigger win is correctness: rollout phases no longer hold
+references to stale autograd graph nodes that get freed at the next
+`optimizer_step` anyway.
+
+**Outcome**: landed. Verified all four examples train to the expected
+accuracy on tape.
+
+----
+
+## Future opportunities (not active)
+
+Ideas surfaced during the Job 1 phase A push that we don't plan to
+do right now but might be worth picking up later. Listed here rather
+than in `TODO.md` because they're optimization candidates with a
+specific cost / benefit profile, not "should-have" features.
+
+### Pre-allocated obs buffer + `tensor_write_data_inplace` for RL
+
+For RL examples (CartPole / Acrobot / etc.), every rollout step calls
+`bulkToTensor obs` which is 6 prim FFI calls (alloc + 4 setDouble +
+create) for the 4-element CartPole observation. Pre-allocating a
+persistent obs tensor at episode-start and using a new
+`tensor_write_data_inplace` primitive (PyTorch's `tensor.copy_(other)`
+shape) to overwrite the values would drop this to ~2 prims.
+
+Estimated savings: ~0.5–1 ms/epoch on a2c (20 rollout steps × 4 prims
+saved × 9 µs ≈ 0.7 ms). Modest. Mostly worth it as a library feature —
+`tensor.copy_` is something users would expect to exist.
+
+Effort: ~half day. New primitive on each backend + Idris binding +
+caller-side rewrite at a couple of sites.
+
+### Slab allocator for `at::Tensor*` on torch backend
+
+Each `from_tensor` in `backend_torch.cpp` does `new at::Tensor(std::move(t))`
+— ~1 µs per call from system malloc. For DNC-class workloads (~3K
+intermediates per epoch) that's ~3 ms/epoch, plus the matching
+`delete` costs at `free_intermediates`. A bump-allocator that
+allocates `at::Tensor` slots into a pre-sized arena and resets the
+pointer at `free_intermediates` would be O(1).
+
+Estimated savings: 1–3 ms/epoch on DNC-class workloads on torch.
+Modest. Code-complexity tradeoff: bump arena needs alignment care
+and we'd lose stable pointers (any caller stashing an `at::Tensor*`
+across `free_intermediates` would break — though current callers
+don't seem to do this).
+
+Effort: ~1 day. New allocator + integration with the existing
+`intermediates` vector + `free_intermediates` cleanup path. Test that
+all examples still train.
+
+Pairs with the existing TODO "Bound memory usage" — if a slab is in
+place, it's natural to extend it with a memory limit.
+
+### Other ideas surfaced and discarded
+
+- **NTM `onesM` precompute** — tried, reverted twice (Idris CSE makes
+  the precompute redundant). See entry above.
+- **Batched recurrent sequence forward** (Idea B from the Job 1
+  brainstorm) — substantial multi-day implementation per backend
+  (would need to write the timestep loop in C on tape and mlx; torch
+  could delegate to `torch::nn::functional::rnn_tanh`). Estimated
+  savings on rnn torch: 1–2 ms/epoch. Cost-benefit didn't favour it
+  given the modest perf delta and that the rnn example already
+  matches `nn.RNNCell` semantics post-alignment. Could revisit if/when
+  larger sequence-length workloads land that would amortize the
+  effort better.
