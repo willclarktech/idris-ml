@@ -339,7 +339,10 @@ sacStep q1Opt q2Opt actorOpt cfg st = do
 
   action <- if stepCount < cfg.warmupSteps
               then randomRIO (the Double (negate MaxAction), MaxAction)
-              else do
+              else withNoGrad $ do
+                -- Rollout-phase forward: just samples an action.
+                -- Gradients come from the separate q1/q2/actor losses
+                -- below; no need to track grad here.
                 pair <- sampleActionIO st.actor st.logStdV obs
                 pure (fst pair)
 

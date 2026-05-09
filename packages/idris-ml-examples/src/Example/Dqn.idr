@@ -206,7 +206,10 @@ runEpisode opt st0 = go st0 (MkCP 0 0 0 0) MaxSteps 0.0
       stepCount <- readIORef st.stepRef
       let obs = observeVec envState
           eps = epsilonAt stepCount st.cfgEpsStart st.cfgEpsEnd st.cfgEpsDecay
-      action <- epsGreedyIO st.qNet obs eps
+      -- Action selection forward: no grad needed (just extracting
+      -- Q values as Doubles for argmax). Loss-side forward in
+      -- trainIfReady runs separately under normal grad tracking.
+      action <- withNoGrad (epsGreedyIO st.qNet obs eps)
       case cpStep envState action of
         (reward, envState', outcome, _) => do
           let isDone = done outcome

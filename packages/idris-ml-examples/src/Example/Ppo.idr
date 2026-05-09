@@ -375,12 +375,18 @@ kEpochUpdate opt actor critic cfg prepped (S k) = do
 ppoEpoch : NativeOptimizer -> Config -> PPOState -> IO (PPOState, Double)
 ppoEpoch opt cfg st = do
   startSt <- readIORef st.envRef
-  rolled  <- rollout st.actor st.critic startSt EpisodeLen RolloutLen
+  -- Rollout's per-step forwards extract logits/values as Doubles for
+  -- sampling. Gradients come from kEpochUpdate's separate batched
+  -- forward (PPO recomputes log-probs over the rollout for each
+  -- inner epoch). No grad needed during rollout.
+  rolled  <- withNoGrad (rollout st.actor st.critic startSt EpisodeLen RolloutLen)
   let steps   = fst rolled
       finalSt = fst (snd rolled)
   writeIORef st.envRef finalSt
 
-  let prepped = prepareRollout st.critic cfg steps finalSt
+  -- prepareRollout calls computeBootstrap which does one critic
+  -- forward — also grad-free.
+  prepped <- withNoGrad (pure (prepareRollout st.critic cfg steps finalSt))
   kEpochUpdate opt st.actor st.critic cfg prepped cfg.kEpochs
 
   let episodeReturns = computeEpisodeReturns steps

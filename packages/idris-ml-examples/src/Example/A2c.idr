@@ -211,11 +211,13 @@ aggregateLoss losses =
 -- Pair each rollout step (after GAE + advantage normalization) with its
 -- batch row index, then build one batched actor + critic forward and
 -- index into the resulting [B, NumActions] / [B, 1] tensors per-sample.
+-- Caller supplies `bootstrap` precomputed (intended to be done in
+-- withNoGrad — the bootstrap forward through critic doesn't need grad
+-- tracking, the value is just a Double consumed by GAE).
 buildLoss : Actor -> Critic -> Double -> Double -> Double -> Double ->
-            List RollStep -> CPState -> Tensor [] CPU
-buildLoss actor critic gamma lam entropyCoef valueCoef steps finalSt =
-  let bootstrap = computeBootstrap critic steps finalSt
-      triples = map stepTriple steps
+            Double -> List RollStep -> Tensor [] CPU
+buildLoss actor critic gamma lam entropyCoef valueCoef bootstrap steps =
+  let triples = map stepTriple steps
       gaeOut = gae gamma lam bootstrap triples
       merged = map flattenTriple (zip steps gaeOut)
       normalized = normAdvs merged
@@ -292,8 +294,12 @@ a2cEpoch opt cfg st = do
   let steps = fst rolled
       finalSt = snd rolled
   writeIORef st.envRef finalSt
+  -- Bootstrap forward (one critic forward on finalSt) doesn't need
+  -- grad either — GAE consumes the value as a Double. Pull it out
+  -- of buildLoss and run inside withNoGrad like the rollout.
+  bootstrap <- withNoGrad (pure (computeBootstrap st.critic steps finalSt))
   let loss = buildLoss st.actor st.critic cfg.gamma cfg.lam
-                       cfg.entropyCoef cfg.valueCoef steps finalSt
+                       cfg.entropyCoef cfg.valueCoef bootstrap steps
   _ <- pure (nativeTrainStep opt loss)
 
   let sumRew = sum (map (\s => s.reward) steps)
