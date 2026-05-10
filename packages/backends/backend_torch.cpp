@@ -1241,7 +1241,12 @@ double tensor_item_2d(TensorHandle h, int row, int col) {
 }
 
 double tensor_item_1d(TensorHandle h, int idx) {
-    return (*to_tensor(h))[idx].cpu().item<double>();
+    /* Flat-buffer semantics matching tape (tape_load_d) and mlx
+       (mx_read_double on the flattened data buffer): `idx` is a flat
+       offset into the data layout, not a first-dim index. Required so
+       Idris's `tvecToVector` (Backprop.idr) and backend-agnostic tests
+       read the i-th underlying scalar regardless of tensor rank. */
+    return to_tensor(h)->flatten()[idx].cpu().item<double>();
 }
 
 /* ---------- Native Optimizer ---------- */

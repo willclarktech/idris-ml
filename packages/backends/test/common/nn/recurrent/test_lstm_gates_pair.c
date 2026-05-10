@@ -19,6 +19,7 @@
 #include <criterion/criterion.h>
 #include <math.h>
 #include "../../../../backend.h"
+#include "../../test_helpers.h"
 
 Test(tape_nn_recurrent_lstm_gates_pair, backward_grads_both_arms) {
     param_clear();
@@ -43,8 +44,8 @@ Test(tape_nn_recurrent_lstm_gates_pair, backward_grads_both_arms) {
        h    = o * tanh(cell) = 0.5 * tanh(0.5) */
     double cell_v = 0.5;
     double tanhC  = tanh(0.5);
-    cr_assert_float_eq(tensor_item_1d(cell, 0), 0.5, 1e-12);
-    cr_assert_float_eq(tensor_item_1d(h, 0),    0.5 * tanhC, 1e-12);
+    cr_assert_float_eq(tensor_item_1d(cell, 0), 0.5, TEST_TOL_TIGHT);
+    cr_assert_float_eq(tensor_item_1d(h, 0),    0.5 * tanhC, TEST_TOL_TIGHT);
 
     /* dh = dcell = 1 (loss = sum(h) + sum(cell)) */
     TensorHandle loss = tensor_add(tensor_sum(h), tensor_sum(cell));
@@ -69,10 +70,10 @@ Test(tape_nn_recurrent_lstm_gates_pair, backward_grads_both_arms) {
     double d_prev  = d_cell_net * 0.5;              /* d_cell * fG */
 
     /* combined layout: [i_raw, f_raw, g_raw, o_raw], param 0 */
-    cr_assert_float_eq(param_grad_item_at(0, 0), d_i_raw, 1e-12, "i_raw");
-    cr_assert_float_eq(param_grad_item_at(0, 1), d_f_raw, 1e-12, "f_raw");
-    cr_assert_float_eq(param_grad_item_at(0, 2), d_g_raw, 1e-12, "g_raw");
-    cr_assert_float_eq(param_grad_item_at(0, 3), d_o_raw, 1e-12, "o_raw");
+    cr_assert_float_eq(param_grad_item_at(0, 0), d_i_raw, TEST_TOL_TIGHT, "i_raw");
+    cr_assert_float_eq(param_grad_item_at(0, 1), d_f_raw, TEST_TOL_TIGHT, "f_raw");
+    cr_assert_float_eq(param_grad_item_at(0, 2), d_g_raw, TEST_TOL_TIGHT, "g_raw");
+    cr_assert_float_eq(param_grad_item_at(0, 3), d_o_raw, TEST_TOL_TIGHT, "o_raw");
     /* prev_cell, param 1 */
-    cr_assert_float_eq(param_grad_item_at(1, 0), d_prev, 1e-12, "prev");
+    cr_assert_float_eq(param_grad_item_at(1, 0), d_prev, TEST_TOL_TIGHT, "prev");
 }
