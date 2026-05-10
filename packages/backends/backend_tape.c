@@ -2812,18 +2812,7 @@ TensorHandle tensor_max_pool2d_batched(TensorHandle hinput, int kH, int kW,
 
 /* tensor_reshape: moved to backend_tape/linear/shape/reshape.c (Phase 1b.1.b). */
 
-TensorHandle tensor_unsqueeze(TensorHandle h, int dim) {
-    Tensor* t = (Tensor*)h;
-    if (t->rank == 1) {
-        int shape[] = {1, t->numel};
-        return tensor_reshape(h, shape, 2);  /* shares data + records OP_RESHAPE */
-    }
-    return tensor_clone(h);
-}
-
-TensorHandle tensor_squeeze(TensorHandle h, int dim) {
-    return tensor_clone(h); /* simplified */
-}
+/* tensor_unsqueeze, tensor_squeeze: moved to backend_tape/linear/shape/ (Phase 1b.1.d). */
 
 /* tensor_select: moved to backend_tape/linear/shape/select.c (Phase 1b.1). */
 
@@ -5089,32 +5078,7 @@ TensorHandle tensor_create_state_2d_f32(int rows, int cols, double* d)          
 TensorHandle tensor_cast_dtype_f64(TensorHandle src)                                     { return src; }
 TensorHandle tensor_cast_dtype_f32(TensorHandle src)                                     { (void)src; return tape_f32_unsupported("tensor_cast_dtype_f32"); }
 
-TensorHandle tensor_view_2d(TensorHandle h, int row, int col) {
-    Tensor* t = (Tensor*)h;
-    int cols = t->shape[1];
-    Tensor* v = calloc(1, sizeof(Tensor));
-    v->data = &((double*)t->data)[row * cols + col];
-    v->shape = NULL;
-    v->rank = 0;
-    v->numel = 1;
-    v->requires_grad = 0;
-    v->tape_idx = -1;
-    v->grad = NULL;
-    return v;
-}
-
-TensorHandle tensor_view_1d(TensorHandle h, int idx) {
-    Tensor* t = (Tensor*)h;
-    Tensor* v = calloc(1, sizeof(Tensor));
-    v->data = &((double*)t->data)[idx];
-    v->shape = NULL;
-    v->rank = 0;
-    v->numel = 1;
-    v->requires_grad = 0;
-    v->tape_idx = -1;
-    v->grad = NULL;
-    return v;
-}
+/* tensor_view_2d, tensor_view_1d: moved to backend_tape/linear/shape/ (Phase 1b.1.d). */
 
 double tensor_item_2d(TensorHandle h, int row, int col) {
     Tensor* t = (Tensor*)h;
