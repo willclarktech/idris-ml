@@ -222,13 +222,9 @@ const char* tensor_dtype_name(TensorHandle h) {
 /* tensor_neg / tensor_abs / tensor_exp / tensor_log / tensor_sqrt /
    tensor_pow extracted to backend_torch/core/elementwise/. */
 
-TensorHandle tensor_sigmoid(TensorHandle h) {
-    return from_tensor(torch::sigmoid(*to_tensor(h)));
-}
-
-TensorHandle tensor_tanh(TensorHandle h) {
-    return from_tensor(torch::tanh(*to_tensor(h)));
-}
+/* tensor_sigmoid / tensor_tanh / tensor_softplus extracted to
+   backend_torch/core/elementwise/. gelu / leaky_relu / silu remain
+   below pending 6c (nn/activation/). */
 
 TensorHandle tensor_gelu(TensorHandle h) {
     return from_tensor(torch::gelu(*to_tensor(h)));
@@ -240,10 +236,6 @@ TensorHandle tensor_leaky_relu(TensorHandle h, double alpha) {
 
 TensorHandle tensor_silu(TensorHandle h) {
     return from_tensor(torch::silu(*to_tensor(h)));
-}
-
-TensorHandle tensor_softplus(TensorHandle h) {
-    return from_tensor(torch::softplus(*to_tensor(h)));
 }
 
 TensorHandle tensor_add_scalar(TensorHandle h, double s) {
