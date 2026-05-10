@@ -605,10 +605,15 @@ CRITERION_LDFLAGS := -L$(CRITERION_PREFIX)/lib -lcriterion -Wl,-rpath,$(CRITERIO
 # CRITERION_FLAGS are prepended so they take precedence if duplicated.
 CRITERION_FLAGS ?=
 
-# Discover backend-specific Criterion suites under packages/backends/test/<primary>/.
-# Per-op test files emerge here during Phase 1a-1d (one per op, mirroring
-# the source tree at backend_<primary>/<slice>/<subcat>/<op>.c).
-CRITERION_BACKEND_TEST_SRCS := $(shell find $(BACKENDS_DIR)/test/$(PRIMARY) -name '*.c' 2>/dev/null)
+# Discover Criterion suites. Two locations:
+#  - packages/backends/test/common/  — backend-agnostic per-op tests
+#    (forward + backward correctness via the public backend.h FFI;
+#    runs against any backend's dylib).
+#  - packages/backends/test/<primary>/  — backend-specific tests that
+#    touch internals (e.g. tape's OP_* dispatch table) or assert
+#    port-struct slot populations specific to that backend's adapter.
+CRITERION_BACKEND_TEST_SRCS := $(shell find $(BACKENDS_DIR)/test/common -name '*.c' 2>/dev/null) \
+                               $(shell find $(BACKENDS_DIR)/test/$(PRIMARY) -name '*.c' 2>/dev/null)
 CRITERION_TEST_SRCS := $(BACKENDS_DIR)/test_criterion_smoke.c $(CRITERION_BACKEND_TEST_SRCS)
 
 test-backend-criterion: $(CRITERION_TEST_SRCS) $(BACKEND_RENAME_H) backend | $(BUILD)
