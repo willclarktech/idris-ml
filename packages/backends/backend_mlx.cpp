@@ -4384,25 +4384,17 @@ void tensor_mlx_compile_reset_stats(void) { g_compile_invocations = 0; }
 
 /* ---------- Portable FFI helpers ---------- */
 
-TensorHandle tensor_backward_return(TensorHandle t) { tensor_backward(t); return t; }
-TensorHandle param_register_return(const char* name, TensorHandle t) {
-    tensor_set_requires_grad(t, 1); param_register(name, t); return t;
-}
-int param_zero_all_grads_return(int dummy) { (void)dummy; param_zero_all_grads(); return 0; }
-/* tensor_write_double_return / tensor_ptr_array_set_return /
- * tensor_alloc_ints / tensor_free_ints / tensor_write_int_return
- * live in shared_utils.c. */
-double* tensor_to_doubles_return(TensorHandle h, double* buf) {
-    tensor_to_doubles(h, buf); return buf;
-}
-int tensor_backward_conditional(TensorHandle t) {
-    if (tensor_requires_grad(t)) tensor_backward(t);
-    return param_count();
-}
-double tensor_backward_return_loss(TensorHandle loss_ptr, double loss_val) {
-    if (tensor_requires_grad(loss_ptr)) tensor_backward(loss_ptr);
-    return loss_val;
-}
+/* The 10 *_return / idrisml_seq helpers (tensor_backward_return,
+   param_register_return, param_zero_all_grads_return,
+   tensor_to_doubles_return, tensor_backward_conditional,
+   tensor_backward_return_loss, idrisml_seq,
+   backend_reset_for_eval_return, backend_profile_reset_return,
+   backend_profile_report_return) live in shared/training/ffi_shims.c
+   — see the matching deletion in backend_torch.cpp. native_train_step
+   + optimizer_step_with_clip stay in-file: they use Optimizer-internal
+   prefix-scoped clip variants (clip_grad_*_filtered) that the shared
+   trampolines don't carry. */
+
 double native_train_step(OptimizerHandle opt, int clip_mode, double clip_val,
                          TensorHandle loss_ptr, double loss_val) {
     auto* o = (Optimizer*)opt;
@@ -4421,13 +4413,8 @@ int optimizer_step_with_clip(OptimizerHandle opt, int clip_mode, double clip_val
     optimizer_step(opt); optimizer_zero_grad(opt);
     return 0;
 }
-void* idrisml_seq(void* a, void* b) { (void)a; return b; }
-/* backend_memory_report_return removed. */
-int backend_reset_for_eval_return(int d) { backend_reset_for_eval(); return d; }
 int tensor_live_count(int dummy) { (void)dummy; return (int)all_tensors.size(); }
 int tensor_peak_live_count(int dummy) { (void)dummy; return (int)g_mlx_peak_live; }
-int backend_profile_reset_return(int d) { backend_profile_reset(); return d; }
-int backend_profile_report_return(int d) { backend_profile_report(); return d; }
 /* dropout_random_seed lives in shared_utils.c. */
 
 } // extern "C"

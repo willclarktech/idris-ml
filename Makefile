@@ -286,7 +286,7 @@ SHARED_TRAINING_SRCS    := $(shell find $(BACKENDS_DIR)/shared -name '*.c' 2>/de
 # backends actually being linked.
 SHARED_BACKENDS_param_registry := tape torch mlx
 SHARED_BACKENDS_optimizer      := tape
-SHARED_BACKENDS_ffi_shims      := tape torch
+SHARED_BACKENDS_ffi_shims      := tape torch mlx
 SHARED_BACKENDS_dtype_streamed := tape torch
 SHARED_BACKENDS_profiler       :=
 # Union (used to gate the adapter compile only — not the per-TU compile).
