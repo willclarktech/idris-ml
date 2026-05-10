@@ -43,10 +43,16 @@ static int        param_count_val = 0;
 void param_register(const char* name, TensorHandle h) {
     /* Replace if exists (idempotent re-registration is intentional —
        safetensors load + the per-epoch tape reset both re-register
-       under existing names). */
+       under existing names). The retain/release pair lets backends
+       with refcount lifecycle (mlx) keep their params anchored against
+       sweeps that walk all_tensors; tape and torch ship no-op
+       retain/release in backend.h. */
     for (int i = 0; i < param_count_val; i++) {
         if (strcmp(param_registry_arr[i].name, name) == 0) {
+            void* old = param_registry_arr[i].tensor;
             param_registry_arr[i].tensor = (void*)h;
+            tensor_retain_handle((TensorHandle)h);
+            tensor_release_handle((TensorHandle)old);
             return;
         }
     }
@@ -55,10 +61,16 @@ void param_register(const char* name, TensorHandle h) {
         param_registry_arr[param_count_val].name[255] = '\0';
         param_registry_arr[param_count_val].tensor    = (void*)h;
         param_count_val++;
+        tensor_retain_handle((TensorHandle)h);
     }
 }
 
-void         param_clear(void)        { param_count_val = 0; }
+void param_clear(void) {
+    for (int i = 0; i < param_count_val; i++) {
+        tensor_release_handle((TensorHandle)param_registry_arr[i].tensor);
+    }
+    param_count_val = 0;
+}
 int          param_count(void)        { return param_count_val; }
 const char*  param_name(int i)        { return param_registry_arr[i].name; }
 TensorHandle param_tensor(int i)      { return (TensorHandle)param_registry_arr[i].tensor; }

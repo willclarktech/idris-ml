@@ -596,12 +596,8 @@ static void tape_reset() {
    Parameter registry
    ================================================================ */
 
-struct ParamEntry {
-    std::string name;
-    Tensor* tensor;
-};
-
-static std::vector<ParamEntry> param_registry;
+/* The parameter registry surface lives in shared/training/param_registry.c —
+   see the deletion comment further down in this file for the rationale. */
 
 /* Profiling counters */
 static double prof_backward_ms_mlx = 0, prof_optimizer_ms_mlx = 0;
@@ -3365,95 +3361,15 @@ TensorHandle tensor_pair_second(TensorPair* p) {
 void tensor_pair_free(TensorPair* p) { if (p) free(p); }
 
 /* ================================================================
-   Parameter registry
-   ================================================================ */
+   Parameter registry — surface lifted into shared/training/param_registry.c.
 
-void param_register(const char* name, TensorHandle h) {
-    auto t = (Tensor*)h;
-    t->requires_grad = true;
-    tensor_retain_internal(t);  // registry holds a refcount
-    param_registry.push_back({std::string(name), t});
-}
-
-void param_clear(void) {
-    for (auto& e : param_registry) tensor_release_internal(e.tensor);
-    param_registry.clear();
-    tape_reset();
-}
-int param_count(void) { return (int)param_registry.size(); }
-const char* param_name(int idx) { return param_registry[idx].name.c_str(); }
-
-double param_grad_item(int idx) {
-    auto t = param_registry[idx].tensor;
-    if (!t->has_grad) return 0.0;
-    mx::eval(t->grad);
-    auto flat = mx::flatten(t->grad, mx::StreamOrDevice{});
-    mx::eval(flat);
-    return mx_read_double(flat, 0);
-}
-
-double param_grad_item_at(int param_idx, int elem_idx) {
-    auto t = param_registry[param_idx].tensor;
-    if (!t->has_grad) return 0.0;
-    /* mx::vjp may return non-contiguous arrays (e.g. sum_dim grads come back
-       with broadcast strides). Force a contiguous row-major copy. */
-    auto contig = mx::contiguous(t->grad);
-    mx::eval(contig);
-    return mx_read_double(contig, elem_idx);
-}
-
-double param_grad_item_and_zero(int idx) {
-    double g = param_grad_item(idx);
-    auto t = param_registry[idx].tensor;
-    t->grad = mx::zeros(t->data.shape(), t->data.dtype());
-    return g;
-}
-
-TensorHandle param_tensor(int idx) { return (TensorHandle)param_registry[idx].tensor; }
-
-void param_zero_all_grads(void) {
-    for (auto& p : param_registry) {
-        if (p.tensor->has_grad) {
-            p.tensor->grad = mx::zeros(p.tensor->data.shape(), p.tensor->data.dtype());
-        }
-    }
-}
-
-void param_subtract_delta(int idx, double delta) {
-    auto t = param_registry[idx].tensor;
-    t->data = mx::subtract(t->data, scalar_like(delta, t->data));
-}
-
-void param_load_data(int idx, const double* data, int numel) {
-    auto t = param_registry[idx].tensor;
-    auto shape = t->data.shape();
-    int existing = t->data.size();
-    if (existing != numel) {
-        fprintf(stderr, "param_load_data: size mismatch for '%s': expected %d, got %d\n",
-                param_registry[idx].name.c_str(), existing, numel);
-        return;
-    }
-    t->data = mx_array_from_doubles(data, shape, t->data.dtype());
-}
-
-// Byte-level I64 loader — see backend.h. mlx routes through the
-// existing double-pivoted loader (no native int64 storage), so values
-// above 2^53 lose precision. Symbol completeness; no current code path
-// constructs an I64 tensor on mlx (Compatible MlxDev I64 is closed).
-void param_load_data_int64(int idx, const int64_t* data, int numel) {
-    auto t = param_registry[idx].tensor;
-    int existing = t->data.size();
-    if (existing != numel) {
-        fprintf(stderr, "param_load_data_int64: size mismatch for '%s': expected %d, got %d\n",
-                param_registry[idx].name.c_str(), existing, numel);
-        return;
-    }
-    double* tmp = (double*)malloc((size_t)numel * sizeof(double));
-    if (!tmp) return;
-    for (int i = 0; i < numel; i++) tmp[i] = (double)data[i];
-    t->data = mx_array_from_doubles(tmp, t->data.shape(), t->data.dtype());
-    free(tmp);
-}
+   Routes through `g_active_port_mlx` for per-tensor accesses (numel,
+   grad-read/write, zero, bulk load). The shared registry's
+   tensor_retain/release wrap each register/clear so mlx's refcount
+   lifecycle (where the registry contributes +1 to keep params alive
+   against the all_tensors sweep) is preserved. The shared param_clear
+   no longer triggers tape_reset — that's covered by optimizer_step
+   and backend_reset_for_eval. */
 
 TensorHandle tensor_subtract_scalar_inplace(TensorHandle h, double val) {
     auto t = (Tensor*)h;
@@ -4611,3 +4527,142 @@ TensorHandle tensor_cast_dtype_streamed(TensorHandle src, int stream_tag, int dt
         default: mlx_dtype_unsupported("tensor_cast_dtype_streamed", dtag);
     }
 }
+
+/* ---------- Shared training port adapter ----------
+ *
+ * Provides the per-tensor accessors that shared/training/param_registry.c
+ * uses to talk to mlx (numel / has_grad / grad read+write / zero / data
+ * read+write / bulk doubles+int64 loaders) plus tensor_retain/release
+ * for the refcount lifecycle the shared registry keeps anchored. Other
+ * port slots stay nullptr until mlx opts into the matching shared TUs
+ * (optimizer_*, dtag-streamed creators, ffi_shims). */
+
+#include "shared/training/port.h"
+
+static int mlx_port_tensor_numel(void* h) {
+    return (int)((Tensor*)h)->data.size();
+}
+
+static int mlx_port_tensor_requires_grad(void* h) {
+    return ((Tensor*)h)->requires_grad ? 1 : 0;
+}
+
+static int mlx_port_tensor_has_grad(void* h) {
+    return ((Tensor*)h)->has_grad ? 1 : 0;
+}
+
+static double mlx_port_grad_read(void* h, int i) {
+    auto* t = (Tensor*)h;
+    if (!t->has_grad) return 0.0;
+    /* mx::vjp may return non-contiguous arrays; force contiguous read. */
+    auto contig = mx::contiguous(t->grad);
+    mx::eval(contig);
+    return mx_read_double(contig, i);
+}
+
+static void mlx_port_grad_write(void* h, int i, double v) {
+    auto* t = (Tensor*)h;
+    if (!t->has_grad) return;
+    /* Realize grad host-side, mutate element, push back. mlx arrays are
+       immutable, so writing one element requires rebuilding via
+       mx_array_from_doubles. Param-registry callers hit this rarely
+       (only param_subtract_delta / param_grad_item_and_zero on scalar
+       params), so per-call allocate is acceptable. */
+    auto contig = mx::contiguous(t->grad);
+    mx::eval(contig);
+    int n = (int)contig.size();
+    double* buf = (double*)malloc((size_t)n * sizeof(double));
+    for (int k = 0; k < n; k++) buf[k] = mx_read_double(contig, k);
+    buf[i] = v;
+    t->grad = mx_array_from_doubles(buf, t->grad.shape(), t->grad.dtype());
+    free(buf);
+}
+
+static void mlx_port_zero_grad(void* h) {
+    auto* t = (Tensor*)h;
+    if (t->has_grad) {
+        t->grad = mx::zeros(t->data.shape(), t->data.dtype());
+    }
+}
+
+static double mlx_port_data_read(void* h, int i) {
+    auto* t = (Tensor*)h;
+    auto contig = mx::contiguous(t->data);
+    mx::eval(contig);
+    return mx_read_double(contig, i);
+}
+
+static void mlx_port_data_write(void* h, int i, double v) {
+    auto* t = (Tensor*)h;
+    auto contig = mx::contiguous(t->data);
+    mx::eval(contig);
+    int n = (int)contig.size();
+    double* buf = (double*)malloc((size_t)n * sizeof(double));
+    for (int k = 0; k < n; k++) buf[k] = mx_read_double(contig, k);
+    buf[i] = v;
+    t->data = mx_array_from_doubles(buf, t->data.shape(), t->data.dtype());
+    free(buf);
+}
+
+static void mlx_port_load_doubles(void* h, const double* src, int n) {
+    auto* t = (Tensor*)h;
+    (void)n;  /* shape already determines size; caller validates against numel */
+    t->data = mx_array_from_doubles(src, t->data.shape(), t->data.dtype());
+}
+
+static void mlx_port_load_int64(void* h, const int64_t* src, int n) {
+    auto* t = (Tensor*)h;
+    /* No native I64 storage on mlx — pivot through double. Matches the
+       lossy I64 behavior the previous in-file param_load_data_int64
+       documented (values above 2^53 lose precision). */
+    double* tmp = (double*)malloc((size_t)n * sizeof(double));
+    for (int k = 0; k < n; k++) tmp[k] = (double)src[k];
+    t->data = mx_array_from_doubles(tmp, t->data.shape(), t->data.dtype());
+    free(tmp);
+}
+
+const BackendPort g_active_port = {
+    /* Tensor introspection + per-element + bulk grad/data ops. */
+    .tensor_numel              = mlx_port_tensor_numel,
+    .tensor_requires_grad      = mlx_port_tensor_requires_grad,
+    .tensor_has_grad           = mlx_port_tensor_has_grad,
+    .data_read                 = mlx_port_data_read,
+    .data_write                = mlx_port_data_write,
+    .grad_read                 = mlx_port_grad_read,
+    .grad_write                = mlx_port_grad_write,
+    .zero_grad                 = mlx_port_zero_grad,
+    .load_doubles              = mlx_port_load_doubles,
+    .load_int64                = mlx_port_load_int64,
+    /* Remaining slots wait on mlx joining the corresponding shared TUs.
+       Order matches port.h's struct declaration order (C++ ISO-required
+       for designated init). */
+    .backward                  = nullptr,
+    .optimizer_create_sgd      = nullptr,
+    .optimizer_create_rmsprop  = nullptr,
+    .optimizer_create_adam     = nullptr,
+    .optimizer_create_adam_group = nullptr,
+    .optimizer_create_adamw    = nullptr,
+    .optimizer_free            = nullptr,
+    .optimizer_set_lr          = nullptr,
+    .optimizer_set_param_lr    = nullptr,
+    .optimizer_step            = nullptr,
+    .optimizer_buf_count       = nullptr,
+    .optimizer_get_m           = nullptr,
+    .optimizer_get_v           = nullptr,
+    .optimizer_set_m           = nullptr,
+    .optimizer_set_v           = nullptr,
+    .optimizer_get_meta        = nullptr,
+    .optimizer_set_meta        = nullptr,
+    .wall_ms                   = nullptr,
+    .create_scalar             = nullptr,
+    .create                    = nullptr,
+    .create_1d                 = nullptr,
+    .create_2d                 = nullptr,
+    .create_param_1d           = nullptr,
+    .create_param_2d           = nullptr,
+    .create_param_3d           = nullptr,
+    .create_param_4d           = nullptr,
+    .create_state_1d           = nullptr,
+    .create_state_2d           = nullptr,
+    .cast_dtype                = nullptr,
+};
