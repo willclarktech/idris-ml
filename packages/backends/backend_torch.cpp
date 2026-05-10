@@ -216,21 +216,8 @@ const char* tensor_dtype_name(TensorHandle h) {
 
 /* ---------- Arithmetic ---------- */
 
-TensorHandle tensor_add(TensorHandle a, TensorHandle b) {
-    return from_tensor(torch::add(*to_tensor(a), *to_tensor(b)));
-}
-
-TensorHandle tensor_sub(TensorHandle a, TensorHandle b) {
-    return from_tensor(torch::sub(*to_tensor(a), *to_tensor(b)));
-}
-
-TensorHandle tensor_mul(TensorHandle a, TensorHandle b) {
-    return from_tensor(torch::mul(*to_tensor(a), *to_tensor(b)));
-}
-
-TensorHandle tensor_div(TensorHandle a, TensorHandle b) {
-    return from_tensor(torch::div(*to_tensor(a), *to_tensor(b)));
-}
+/* tensor_add / tensor_sub / tensor_mul / tensor_div extracted to
+   backend_torch/core/elementwise/{add,sub,mul,div}.cpp. */
 
 TensorHandle tensor_neg(TensorHandle h) {
     return from_tensor(torch::neg(*to_tensor(h)));
