@@ -16,6 +16,15 @@
  * Pairs with `packages/idris-ml-examples/src/Example/BringYourOwn.idr`
  * and the "Custom devices: user-supplied backends" section of
  * docs/grad-mode-and-device-typing.md.
+ *
+ * Scope note: this file is deliberately the *minimum* — UserDeviceCore
+ * only, no training surface, no shared-port adoption. A backend that
+ * wants gradient descent + optimizer state + safetensors load/save
+ * follows the path documented in `packages/backends/README.md`
+ * ("Adding a new backend"): implement the FFI surface in backend.h,
+ * expose a `g_active_port_<name>` BackendPort struct, opt the backend
+ * into the relevant SHARED_BACKENDS_<tu> Makefile lists. See
+ * backend_tape, backend_torch, backend_mlx for working examples.
  */
 
 #include <stdio.h>
