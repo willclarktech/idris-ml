@@ -160,6 +160,7 @@ const BackendPort g_active_port = {
   .load_int64           = tape_load_int64,
   .backward             = tape_adapter_backward,
   .epoch_boundary       = tape_adapter_epoch_boundary,
+  .optimizer_step       = NULL,   /* tape uses the default shared per-element loop */
   .wall_ms              = tape_adapter_wall_ms,
   .create_scalar        = tape_port_create_scalar,
   .create               = tape_port_create,

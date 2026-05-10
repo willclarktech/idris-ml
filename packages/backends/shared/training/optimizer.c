@@ -35,47 +35,29 @@
 #include <stdlib.h>
 #include <string.h>
 #include "port.h"
+#include "optimizer.h"
 #include "../../backend.h"
 
-typedef struct {
-    double lr;
-    int    type;            /* 0=SGD, 1=RMSprop, 2=Adam, 3=AdamW */
-    double alpha, eps, weight_decay, momentum;
-    double beta1, beta2;
-    double* v;              /* second moment (RMSprop/Adam) */
-    double* m;              /* first moment (Adam) / momentum buffer (RMSprop) */
-    int    t;               /* step count */
-    int    allocated;
-    double* param_lr;       /* per-param LR overrides; NULL = use opt->lr for all */
-    int    param_lr_count;
-    char   prefix[128];     /* param-name prefix filter (empty = manages all) */
-} Optimizer;
-
-/* Tape-specific knob — see optimizer_step. Lives at file scope so each
-   per-element loop pays one getenv on entry. */
-
-static int opt_owns_param(Optimizer* opt, int i) {
+int opt_owns_param(Optimizer* opt, int i) {
     if (opt->prefix[0] == '\0') return 1;
     return strncmp(param_name(i), opt->prefix, strlen(opt->prefix)) == 0;
 }
 
-/* Sum of numel over all registered params. Used to size per-element
-   m/v buffers; offsets are computed via param_element_offset. */
-static int param_total_elements(void) {
+int param_total_elements(void) {
     int total = 0;
     for (int i = 0; i < param_count(); i++)
         total += g_active_port.tensor_numel(param_tensor(i));
     return total;
 }
 
-static int param_element_offset(int param_idx) {
+int param_element_offset(int param_idx) {
     int off = 0;
     for (int i = 0; i < param_idx; i++)
         off += g_active_port.tensor_numel(param_tensor(i));
     return off;
 }
 
-static void optimizer_ensure_buffers(Optimizer* opt) {
+void optimizer_ensure_buffers(Optimizer* opt) {
     if (opt->allocated) return;
     int n = param_total_elements();
     opt->v = calloc(n, sizeof(double));
@@ -200,10 +182,19 @@ int polyak_blend(double tau, const char* online_scope, const char* target_scope)
 }
 
 /* ----------------------------------------------------------------------
-   The optimizer step. Per-param, per-element math; F64 byte-identical
-   with the legacy monolithic loop (operations + ordering preserved).
+   The optimizer step. Per-param, per-element math (the default flat-
+   buffer path that tape uses byte-identically). Backends whose native
+   math doesn't match this loop (libtorch's `at::_foreach_adam` fused
+   primitives; mlx's vectorized in-graph updates) set
+   `g_active_port.optimizer_step` to a custom function and bypass the
+   default entirely.
    ---------------------------------------------------------------------- */
-void optimizer_step(OptimizerHandle h) {
+
+/* Default per-element flat-buffer step. F64 byte-identical with the
+   legacy monolithic loop (operations + ordering preserved). Backends
+   that adopt this path leave port.optimizer_step = NULL and rely on
+   port.epoch_boundary for any post-step backend hygiene. */
+static void shared_optimizer_step_default(OptimizerHandle h) {
     double t0_opt = g_active_port.wall_ms();
     Optimizer* opt = (Optimizer*)h;
     optimizer_ensure_buffers(opt);
@@ -284,6 +275,18 @@ void optimizer_step(OptimizerHandle h) {
     /* Adapter-supplied epoch hygiene: dumps, tape_reset + param re-
        registration on tape, prof_optimizer_ms accounting, epoch++. */
     g_active_port.epoch_boundary(t0_opt);
+}
+
+void optimizer_step(OptimizerHandle h) {
+    if (g_active_port.optimizer_step) {
+        /* Backend-supplied step (e.g. torch's libtorch foreach Adam,
+           mlx's vectorized update). Override is responsible for all
+           backend hygiene — port.epoch_boundary is NOT called on this
+           path; the override does whatever its native autograd needs. */
+        g_active_port.optimizer_step(h);
+        return;
+    }
+    shared_optimizer_step_default(h);
 }
 
 /* ----------------------------------------------------------------------

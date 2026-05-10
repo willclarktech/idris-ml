@@ -72,18 +72,31 @@ typedef struct BackendPort {
   void   (*backward)(void* loss);
 
   /* ----------------------------------------------------------------------
-     Epoch boundary. Called by the optimizer at the end of `step()`.
-     `step_start_ms` is the wall-clock reading at the start of step()
-     so the adapter can credit (per-param loop + post-step hygiene)
-     to its `prof_optimizer_ms` accumulator.
+     Epoch boundary — called by the DEFAULT shared optimizer at the
+     end of `optimizer_step()` (i.e. when `optimizer_step` is NULL
+     and the per-element flat-buffer loop ran). `step_start_ms` is
+     the wall-clock at start of step() so the adapter can credit
+     (per-param loop + post-step hygiene) to its `prof_optimizer_ms`.
 
      Tape: dumps DEBUG_LSTM_TRAJ if enabled → tape_reset() →
        re-register every param on the fresh tape (so their grads
        stay reachable after the reset) → bump prof epoch counters.
-     Torch/mlx (future): no Wengert list to reset; the adapter just
-       bumps profile counters and zero-grads via their own API.
+     Adapters that override `optimizer_step` don't see this callback —
+     they're responsible for their own epoch hygiene.
      ---------------------------------------------------------------------- */
   void   (*epoch_boundary)(double step_start_ms);
+
+  /* ----------------------------------------------------------------------
+     Optional optimizer-step override. NULL = use the shared default
+     per-element flat-buffer loop (tape's case). Set to a backend-
+     supplied function when the backend's native math doesn't match
+     the shared loop — e.g. libtorch's `at::_foreach_adam` fused
+     multi-tensor primitives in torch, or mlx's vectorized in-graph
+     update. The override sees the full Optimizer struct (defined in
+     shared/training/optimizer.h) and is responsible for ALL backend
+     hygiene (intermediate cleanup, prof_* updates, etc.).
+     ---------------------------------------------------------------------- */
+  void   (*optimizer_step)(void* opt_handle);
 
   /* ----------------------------------------------------------------------
      Wall clock for profiler. Returns milliseconds since some epoch
