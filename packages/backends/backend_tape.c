@@ -936,12 +936,12 @@ double _wall_ms(void) {  /* non-static so tape.c can extern it */
     gettimeofday(&tv, NULL);
     return tv.tv_sec * 1000.0 + tv.tv_usec / 1000.0;
 }
-static double prof_forward_ms = 0, prof_backward_ms = 0, prof_optimizer_ms = 0;
-static int prof_forward_ops = 0, prof_backward_ops = 0, prof_epochs = 0;
-static double prof_epoch_start = 0; /* set by backend_epoch_begin() */
-static int prof_backward_processed = 0, prof_backward_skipped = 0;
-static double prof_backward_per_op[OP_COUNT] = {0};
-static int prof_backward_count_per_op[OP_COUNT] = {0};
+double prof_forward_ms = 0, prof_backward_ms = 0, prof_optimizer_ms = 0;
+int prof_forward_ops = 0, prof_backward_ops = 0, prof_epochs = 0;
+double prof_epoch_start = 0; /* set by backend_epoch_begin() */
+int prof_backward_processed = 0, prof_backward_skipped = 0;
+double prof_backward_per_op[OP_COUNT] = {0};
+int prof_backward_count_per_op[OP_COUNT] = {0};
 /* Per-op forward timing. Non-static so the forward declarations near
    tape_append (which is defined earlier in the file) can refer to them. */
 double prof_forward_per_op[OP_COUNT] = {0};
@@ -971,72 +971,7 @@ double prof_op_t_prev = 0;
 
 
 
-void tensor_backward(TensorHandle h) {
-    double t0 = _wall_ms();
-    /* Attribute time since epoch_begin to forward */
-    if (prof_epoch_start > 0) {
-        prof_forward_ms += t0 - prof_epoch_start;
-        prof_epoch_start = 0;
-    }
-    /* Stop per-op forward accumulation; the next epoch_begin will rearm. */
-    prof_op_t_prev = 0;
-    Tensor* loss = (Tensor*)h;
-    if (loss->tape_idx < 0) return;
-
-    /* Initialize loss gradient to 1.0 */
-    ensure_grad(loss);
-    ((double*)loss->grad)[0] = 1.0;
-
-    int processed = 0, skipped = 0;
-
-    /* Walk tape in reverse via chunk-array — same semantics as the old
-       `for (int i = loss->tape_idx; i >= 0; i--) { TapeEntry* e = &tape[i]; }`
-       but indexes the chunked tape directly so the cost stays O(N) total. */
-    int _num_chunks_b = 0;
-    for (TypedArenaChunk* _c = tape_arena.head; _c; _c = _c->next) _num_chunks_b++;
-    TypedArenaChunk** _chunks_b = malloc(_num_chunks_b * sizeof(TypedArenaChunk*));
-    { int _ci = 0; for (TypedArenaChunk* _c = tape_arena.head; _c; _c = _c->next) _chunks_b[_ci++] = _c; }
-    int _start_cidx = loss->tape_idx / TAPE_CHUNK_SIZE;
-    int _start_intra = loss->tape_idx % TAPE_CHUNK_SIZE;
-    for (int _cidx = _start_cidx; _cidx >= 0; _cidx--) {
-        TapeEntry* _entries_b = (TapeEntry*)_chunks_b[_cidx]->data;
-        int _last_intra = (_cidx == _start_cidx) ? _start_intra : TAPE_CHUNK_SIZE - 1;
-        for (int _j = _last_intra; _j >= 0; _j--) {
-        TapeEntry* e = &_entries_b[_j];
-        Tensor* r = e->result;
-        if (!r->grad) { skipped++; continue; }
-        processed++;
-        double t_op = _wall_ms();
-
-        Tensor* a = e->arg1;
-        Tensor* b = e->arg2;
-
-        /* Every OP_* now resolves through the dispatch table (populated
-           by each op's TAPE_REGISTER_OP at load time). OP_CONST is the
-           one exception: a leaf marker with no backward semantics — its
-           tape entries fall straight through the `if (!_fn)` skip. */
-        TapeBackwardFn _fn = tape_dispatch_get(e->op);
-        if (_fn) _fn(e);
-        /* Accumulate per-op timing */
-        if (e->op < OP_COUNT) {
-            prof_backward_per_op[e->op] += _wall_ms() - t_op;
-            prof_backward_count_per_op[e->op]++;
-        }
-        }  /* close inner _j loop */
-    }      /* close outer _cidx loop */
-    free(_chunks_b);
-    prof_backward_processed += processed;
-    prof_backward_skipped += skipped;
-    prof_backward_ms += _wall_ms() - t0;
-    prof_backward_ops += processed;
-
-    /* Phase 1.5e diagnostic: when DEBUG_PARAM_GRADS is set, dump per-param
-       gradient L2 norm to stderr. Use to identify zero/NaN/wrong-magnitude
-       grads after a single backward pass. param_registry is declared
-       further down in the file; defer to the inner function below. */
-    extern void _dbg_dump_param_grads_if_enabled(void);
-    _dbg_dump_param_grads_if_enabled();
-}
+/* tensor_backward: moved to backend_tape/training/autograd/backward.c (Phase 1e.2). */
 
 /* autograd helpers (tensor_grad, _zero_grad, _requires_grad,
    _set_requires_grad, _detach, _with_grad, _no_grad_*, _epoch_*) and
