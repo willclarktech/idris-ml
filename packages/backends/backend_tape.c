@@ -372,59 +372,15 @@ TensorHandle name(TensorHandle ha) { \
 }
 /* tensor_neg/abs/exp/log/sqrt: moved to backend_tape/core/elementwise/ (Phase 1a.6). */
 /* tensor_sigmoid, tensor_tanh: moved to backend_tape/core/elementwise/ (Phase 1a.8). */
-TAPE_UNOP_DISPATCH(tensor_gelu,    OP_GELU,    fn_gelu_d,  fn_gelu_f32)
 #undef TAPE_UNOP_DISPATCH
+/* tensor_gelu: moved to backend_tape/nn/activation/gelu.c (Phase 1c.2). */
 
 /* LeakyReLU: max(alpha*x, x). Uses scalar_arg to store alpha. F32 forward
    uses real F32 arena storage; backward (OP_LEAKY_RELU) reads a->data via
    tape_load_d so both dtypes share the same case body. */
-static TensorHandle tensor_leaky_relu_f32(TensorHandle ha, double alpha) {
-    Tensor* a = (Tensor*)ha;
-    float af = (float)alpha;
-    if (a->numel == 1) {
-        float x = ((float*)a->data)[0];
-        Tensor* r = make_scalar_f32((double)(x >= 0 ? x : af * x), a->requires_grad);
-        if (a->requires_grad) tape_append(OP_LEAKY_RELU, r, a, NULL, alpha);
-        return r;
-    }
-    float* data = arena_alloc(a->numel * sizeof(float));
-    for (int i = 0; i < a->numel; i++) {
-        float x = ((float*)a->data)[i];
-        data[i] = x >= 0 ? x : af * x;
-    }
-    Tensor* r = make_tensor_arena_f32(data, a->numel, a->shape, a->rank, a->requires_grad);
-    if (a->requires_grad) tape_append(OP_LEAKY_RELU, r, a, NULL, alpha);
-    return r;
-}
+/* tensor_leaky_relu_f32: moved to backend_tape/nn/activation/leaky_relu.c (Phase 1c.2). */
 
-TensorHandle tensor_leaky_relu(TensorHandle ha, double alpha) {
-    Tensor* a = (Tensor*)ha;
-    if (a->dtype_tag == DT_F32) return tensor_leaky_relu_f32(ha, alpha);
-    if (a->numel == 1) {
-        double x = ((double*)a->data)[0];
-        Tensor* r = make_scalar(x >= 0 ? x : alpha * x, a->requires_grad);
-        if (a->requires_grad) tape_append(OP_LEAKY_RELU, r, a, NULL, alpha);
-        return r;
-    }
-    double* data = malloc(a->numel * sizeof(double));
-    for (int i = 0; i < a->numel; i++) {
-        double x = ((double*)a->data)[i];
-        data[i] = x >= 0 ? x : alpha * x;
-    }
-    Tensor* r = make_tensor(data, a->shape, a->rank, a->requires_grad);
-    free(data);
-    if (a->requires_grad) tape_append(OP_LEAKY_RELU, r, a, NULL, alpha);
-    return r;
-}
-
-/* SiLU / Swish: x * sigmoid(x) */
-static double fn_silu(double x) { return x / (1.0 + exp(-x)); }
-static float  fn_silu_f32(float x) { return x / (1.0f + expf(-x)); }
-TensorHandle tensor_silu(TensorHandle ha) {
-    Tensor* a = (Tensor*)ha;
-    if (a->dtype_tag == DT_F32) return unop_elementwise_f32(ha, OP_SILU, fn_silu_f32);
-    return unop_elementwise(ha, OP_SILU, fn_silu);
-}
+/* tensor_leaky_relu, tensor_silu: moved to backend_tape/nn/activation/ (Phase 1c.2). */
 
 /* tensor_softplus: moved to backend_tape/core/elementwise/softplus.c (Phase 1a.8). */
 
@@ -2050,21 +2006,7 @@ void tensor_backward(TensorHandle h) {
             break;
         }
 
-        case OP_GELU: {
-            /* d_gelu/dx = 0.5*(1+tanh(inner)) + 0.5*x*(1-tanh^2)*c*(1+3*0.044715*x^2) */
-            if (a) {
-                ensure_grad(a);
-                double c = 0.7978845608028654;
-                for (int j = 0; j < a->numel; j++) {
-                    double x = tape_load_d(a, j);
-                    double inner = c * (x + 0.044715 * x * x * x);
-                    double t = tanh(inner);
-                    double dtdx = (1.0 - t * t) * c * (1.0 + 3.0 * 0.044715 * x * x);
-                    ((double*)a->grad)[j] += ((double*)r->grad)[j] * (0.5 * (1.0 + t) + 0.5 * x * dtdx);
-                }
-            }
-            break;
-        }
+        /* OP_GELU: moved to backend_tape/nn/activation/gelu.c (Phase 1c.2). */
 
         /* OP_ADD_SCALAR/MUL_SCALAR/CLAMP_MIN: moved to backend_tape/core/scalar/ (Phase 1a.9). */
 
@@ -2717,30 +2659,7 @@ void tensor_backward(TensorHandle h) {
         /* OP_GATHER: moved to backend_tape/linear/index/gather.c (Phase 1b.7). */
         /* OP_CUMPROD: moved to backend_tape/linear/sort/cumprod.c (Phase 1b.8.b). */
 
-        case OP_LEAKY_RELU: {
-            /* d/dx leaky_relu = 1 if x >= 0, alpha otherwise.
-               tape_load_d covers both F64 and F32 input storage. */
-            double alpha = e->scalar_arg;
-            if (a) {
-                ensure_grad(a);
-                for (int j = 0; j < a->numel; j++)
-                    ((double*)a->grad)[j] += ((double*)r->grad)[j] * (tape_load_d(a, j) >= 0 ? 1.0 : alpha);
-            }
-            break;
-        }
-        case OP_SILU: {
-            /* d/dx silu(x) = sigmoid(x) * (1 + x * (1 - sigmoid(x))).
-               tape_load_d covers both F64 and F32 input storage. */
-            if (a) {
-                ensure_grad(a);
-                for (int j = 0; j < a->numel; j++) {
-                    double x = tape_load_d(a, j);
-                    double s = 1.0 / (1.0 + exp(-x));
-                    ((double*)a->grad)[j] += ((double*)r->grad)[j] * s * (1.0 + x * (1.0 - s));
-                }
-            }
-            break;
-        }
+        /* OP_LEAKY_RELU, OP_SILU: moved to backend_tape/nn/activation/ (Phase 1c.2). */
 
         default: break; /* unimplemented backward */
         }
