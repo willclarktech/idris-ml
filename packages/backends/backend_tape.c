@@ -477,38 +477,7 @@ TensorHandle tensor_silu(TensorHandle ha) {
 /* tensor_bmm, tensor_bmm_3x3: moved to backend_tape/linear/linalg/ (Phase 1b.6). */
 
 /* Softmax over the last dim of a [B,m,n] tensor — F32 + F64 unified path. */
-TensorHandle tensor_softmax_3d(TensorHandle h) {
-    Tensor* t = (Tensor*)h;
-    int B = t->shape[0], m = t->shape[1], n = t->shape[2];
-    int total_rows = B * m;
-    int is_f32 = (t->dtype_tag == DT_F32);
-    void* data = is_f32 ? (void*)arena_alloc(t->numel * sizeof(float))
-                        : (void*)malloc(t->numel * sizeof(double));
-    for (int i = 0; i < total_rows; i++) {
-        double max_val = tape_load_d(t, i*n);
-        for (int j = 1; j < n; j++) {
-            double v = tape_load_d(t, i*n+j);
-            if (v > max_val) max_val = v;
-        }
-        double sum = 0;
-        for (int j = 0; j < n; j++) {
-            double e = exp(tape_load_d(t, i*n+j) - max_val);
-            if (is_f32) ((float*)data)[i*n+j] = (float)e;
-            else        ((double*)data)[i*n+j] = e;
-            sum += e;
-        }
-        for (int j = 0; j < n; j++) {
-            if (is_f32) ((float*)data)[i*n+j] /= (float)sum;
-            else        ((double*)data)[i*n+j] /= sum;
-        }
-    }
-    int shape[] = {B, m, n};
-    Tensor* r;
-    if (is_f32) r = make_tensor_arena_f32((float*)data, t->numel, shape, 3, t->requires_grad);
-    else { r = make_tensor((double*)data, shape, 3, t->requires_grad); free(data); }
-    if (t->requires_grad) tape_append(OP_SOFTMAX_3D, r, t, NULL, 0);
-    return r;
-}
+/* tensor_softmax_3d: moved to backend_tape/nn/softmax/softmax_3d.c (Phase 1c.1). */
 
 /* tensor_transpose_last2: moved to backend_tape/linear/linalg/transpose_last2.c (Phase 1b.6). */
 
@@ -593,67 +562,7 @@ TensorHandle* tensor_unbatch(TensorHandle h, int* out_count) {
 /* tensor_transpose_2d: moved to backend_tape/linear/linalg/transpose_2d.c (Phase 1b.6). */
 
 /* Row-wise softmax on 2D tensor: [m,n] -> [m,n], each row sums to 1 */
-TensorHandle tensor_softmax_2d(TensorHandle h) {
-    Tensor* t = (Tensor*)h;
-    int m = t->shape[0], n = t->shape[1];
-    int is_f32 = (t->dtype_tag == DT_F32);
-    int shape[] = {m, n};
-    void* data = is_f32 ? (void*)arena_alloc(m * n * sizeof(float))
-                        : (void*)malloc(m * n * sizeof(double));
-    for (int i = 0; i < m; i++) {
-        double max_val = tape_load_d(t, i*n);
-        for (int j = 1; j < n; j++) {
-            double v = tape_load_d(t, i*n+j);
-            if (v > max_val) max_val = v;
-        }
-        double sum_exp = 0;
-        for (int j = 0; j < n; j++) {
-            double e = exp(tape_load_d(t, i*n+j) - max_val);
-            if (is_f32) ((float*)data)[i*n+j] = (float)e;
-            else        ((double*)data)[i*n+j] = e;
-            sum_exp += e;
-        }
-        for (int j = 0; j < n; j++) {
-            if (is_f32) ((float*)data)[i*n+j] /= (float)sum_exp;
-            else        ((double*)data)[i*n+j] /= sum_exp;
-        }
-    }
-    Tensor* r;
-    if (is_f32) r = make_tensor_arena_f32((float*)data, m * n, shape, 2, t->requires_grad);
-    else { r = make_tensor((double*)data, shape, 2, t->requires_grad); free(data); }
-    if (r->requires_grad) tape_append(OP_SOFTMAX_2D, r, t, NULL, 0);
-    return r;
-}
-
-/* Row-wise log-softmax on 2D tensor: [m,n] -> [m,n] */
-TensorHandle tensor_log_softmax_2d(TensorHandle h) {
-    Tensor* t = (Tensor*)h;
-    int m = t->shape[0], n = t->shape[1];
-    int is_f32 = (t->dtype_tag == DT_F32);
-    int shape[] = {m, n};
-    void* data = is_f32 ? (void*)arena_alloc(m * n * sizeof(float))
-                        : (void*)malloc(m * n * sizeof(double));
-    for (int i = 0; i < m; i++) {
-        double max_val = tape_load_d(t, i*n);
-        for (int j = 1; j < n; j++) {
-            double v = tape_load_d(t, i*n+j);
-            if (v > max_val) max_val = v;
-        }
-        double sum_exp = 0;
-        for (int j = 0; j < n; j++) sum_exp += exp(tape_load_d(t, i*n+j) - max_val);
-        double log_sum = log(sum_exp) + max_val;
-        for (int j = 0; j < n; j++) {
-            double v = tape_load_d(t, i*n+j) - log_sum;
-            if (is_f32) ((float*)data)[i*n+j] = (float)v;
-            else        ((double*)data)[i*n+j] = v;
-        }
-    }
-    Tensor* r;
-    if (is_f32) r = make_tensor_arena_f32((float*)data, m * n, shape, 2, t->requires_grad);
-    else { r = make_tensor((double*)data, shape, 2, t->requires_grad); free(data); }
-    if (r->requires_grad) tape_append(OP_LOG_SOFTMAX_2D, r, t, NULL, 0);
-    return r;
-}
+/* tensor_softmax_2d, tensor_log_softmax_2d: moved to backend_tape/nn/softmax/ (Phase 1c.1). */
 
 /* Element-wise multiply for multi-element tensors (same shape) */
 TensorHandle tensor_mul_elementwise(TensorHandle ha, TensorHandle hb) {
@@ -791,109 +700,8 @@ TensorHandle tensor_layer_norm_2d(TensorHandle h, TensorHandle hgamma,
    ================================================================ */
 
 /* F32 stamping of tensor_softmax. Stable formulation (subtract max). */
-static TensorHandle tensor_softmax_f32(TensorHandle h, int dim) {
-    (void)dim;
-    Tensor* t = (Tensor*)h;
-    int n = t->numel;
-    float* td = (float*)t->data;
-    float* data = malloc(n * sizeof(float));
-    float max_val = td[0];
-    for (int i = 1; i < n; i++) if (td[i] > max_val) max_val = td[i];
-    float sum = 0;
-    for (int i = 0; i < n; i++) { data[i] = expf(td[i] - max_val); sum += data[i]; }
-    for (int i = 0; i < n; i++) data[i] /= sum;
-    Tensor* r;
-    if (t->rank == 0) {
-        r = make_scalar_f32((double)data[0], t->requires_grad);
-    } else {
-        /* Build into arena (the F32 storage path used by make_tensor_arena_f32). */
-        float* arena_d = arena_alloc(n * sizeof(float));
-        memcpy(arena_d, data, n * sizeof(float));
-        r = make_tensor_arena_f32(arena_d, n, t->shape, t->rank, t->requires_grad);
-    }
-    free(data);
-    if (r->requires_grad) {
-        TapeEntry* e = tape_append(OP_SOFTMAX, r, t, NULL, 0);
-        SoftmaxMeta* meta = arena_alloc(sizeof(SoftmaxMeta));
-        meta->n = n;
-        meta->out_vals = NULL;  /* OP_SOFTMAX backward reads r->data via tape_load_d */
-        e->op_meta = meta;
-    }
-    return r;
-}
-
-TensorHandle tensor_softmax(TensorHandle h, int dim) {
-    Tensor* t = (Tensor*)h;
-    if (t->dtype_tag == DT_F32) return tensor_softmax_f32(h, dim);
-    int n = t->numel;
-    double* data = malloc(n * sizeof(double));
-    double max_val = ((double*)t->data)[0];
-    for (int i = 1; i < n; i++) if (((double*)t->data)[i] > max_val) max_val = ((double*)t->data)[i];
-    double sum = 0;
-    for (int i = 0; i < n; i++) { data[i] = exp(((double*)t->data)[i] - max_val); sum += data[i]; }
-    for (int i = 0; i < n; i++) data[i] /= sum;
-    Tensor* r;
-    if (t->rank == 0) {
-        r = make_scalar(data[0], t->requires_grad);
-    } else {
-        r = make_tensor(data, t->shape, t->rank, t->requires_grad);
-    }
-    free(data);
-    if (r->requires_grad) {
-        TapeEntry* e = tape_append(OP_SOFTMAX, r, t, NULL, 0);
-        SoftmaxMeta* meta = arena_alloc(sizeof(SoftmaxMeta));
-        meta->n = n;
-        meta->out_vals = r->data;  /* r persists in arena — safe to reference */
-        e->op_meta = meta;
-    }
-    return r;
-}
-
-/* F32 stamping of tensor_log_softmax — same stable max-subtract formulation
-   as the F64 path but in single precision; output via make_*_f32. */
-static TensorHandle tensor_log_softmax_f32(TensorHandle h, int dim) {
-    (void)dim;
-    Tensor* t = (Tensor*)h;
-    int n = t->numel;
-    float* td = (float*)t->data;
-    float max_val = td[0];
-    for (int i = 1; i < n; i++) if (td[i] > max_val) max_val = td[i];
-    float sum = 0;
-    for (int i = 0; i < n; i++) sum += expf(td[i] - max_val);
-    float log_sum = logf(sum) + max_val;
-    Tensor* r;
-    if (t->rank == 0) {
-        r = make_scalar_f32((double)(td[0] - log_sum), t->requires_grad);
-    } else {
-        float* arena_d = arena_alloc(n * sizeof(float));
-        for (int i = 0; i < n; i++) arena_d[i] = td[i] - log_sum;
-        r = make_tensor_arena_f32(arena_d, n, t->shape, t->rank, t->requires_grad);
-    }
-    if (r->requires_grad) tape_append(OP_LOG_SOFTMAX, r, t, NULL, 0);
-    return r;
-}
-
-TensorHandle tensor_log_softmax(TensorHandle h, int dim) {
-    Tensor* t = (Tensor*)h;
-    if (t->dtype_tag == DT_F32) return tensor_log_softmax_f32(h, dim);
-    int n = t->numel;
-    double* data = malloc(n * sizeof(double));
-    double max_val = ((double*)t->data)[0];
-    for (int i = 1; i < n; i++) if (((double*)t->data)[i] > max_val) max_val = ((double*)t->data)[i];
-    double sum = 0;
-    for (int i = 0; i < n; i++) sum += exp(((double*)t->data)[i] - max_val);
-    double log_sum = log(sum) + max_val;
-    for (int i = 0; i < n; i++) data[i] = ((double*)t->data)[i] - log_sum;
-    Tensor* r;
-    if (t->rank == 0) {
-        r = make_scalar(data[0], t->requires_grad);
-    } else {
-        r = make_tensor(data, t->shape, t->rank, t->requires_grad);
-    }
-    free(data);
-    if (r->requires_grad) tape_append(OP_LOG_SOFTMAX, r, t, NULL, 0);
-    return r;
-}
+/* tensor_softmax, tensor_log_softmax (+ _f32 helpers): moved to
+ * backend_tape/nn/softmax/ (Phase 1c.1). */
 
 /* ================================================================
    Loss functions
@@ -2292,60 +2100,11 @@ void tensor_backward(TensorHandle h) {
 
         /* OP_BMM, OP_BMM_3X3: moved to backend_tape/linear/linalg/ (Phase 1b.6). */
 
-        case OP_SOFTMAX_3D: {
-            /* r = softmax(a) on [B,m,n] along last dim. Same as 2D but B*m rows.
-               tape_load_d on r->data covers F64 + F32. */
-            int BB = a->shape[0], mm = a->shape[1], nn = a->shape[2];
-            int total_rows = BB * mm;
-            ensure_grad(r);
-            if (a) {
-                ensure_grad(a);
-                for (int i = 0; i < total_rows; i++) {
-                    double dot = 0;
-                    for (int j = 0; j < nn; j++)
-                        dot += ((double*)r->grad)[i*nn+j] * tape_load_d(r, i*nn+j);
-                    for (int j = 0; j < nn; j++)
-                        ((double*)a->grad)[i*nn+j] += tape_load_d(r, i*nn+j) * (((double*)r->grad)[i*nn+j] - dot);
-                }
-            }
-            break;
-        }
+        /* OP_SOFTMAX_3D: moved to backend_tape/nn/softmax/softmax_3d.c (Phase 1c.1). */
 
         /* OP_TRANSPOSE_LAST2, OP_TRANSPOSE_2D: moved to backend_tape/linear/linalg/ (Phase 1b.6). */
 
-        case OP_SOFTMAX_2D: {
-            /* Row-wise softmax backward. tape_load_d on r->data covers F64+F32. */
-            int mm = r->shape[0], nn = r->shape[1];
-            ensure_grad(r);
-            if (a) {
-                ensure_grad(a);
-                for (int i = 0; i < mm; i++) {
-                    double dot = 0;
-                    for (int j = 0; j < nn; j++)
-                        dot += ((double*)r->grad)[i*nn+j] * tape_load_d(r, i*nn+j);
-                    for (int j = 0; j < nn; j++)
-                        ((double*)a->grad)[i*nn+j] += tape_load_d(r, i*nn+j) * (((double*)r->grad)[i*nn+j] - dot);
-                }
-            }
-            break;
-        }
-
-        case OP_LOG_SOFTMAX_2D: {
-            /* Row-wise log-softmax backward. tape_load_d on r->data covers F64+F32. */
-            int mm = r->shape[0], nn = r->shape[1];
-            ensure_grad(r);
-            if (a) {
-                ensure_grad(a);
-                for (int i = 0; i < mm; i++) {
-                    double sum_grad = 0;
-                    for (int j = 0; j < nn; j++)
-                        sum_grad += ((double*)r->grad)[i*nn+j];
-                    for (int j = 0; j < nn; j++)
-                        ((double*)a->grad)[i*nn+j] += ((double*)r->grad)[i*nn+j] - exp(tape_load_d(r, i*nn+j)) * sum_grad;
-                }
-            }
-            break;
-        }
+        /* OP_SOFTMAX_2D, OP_LOG_SOFTMAX_2D: moved to backend_tape/nn/softmax/ (Phase 1c.1). */
 
         case OP_MASKED_FILL: {
             /* Gradient passes through where mask is 0, zero where mask is 1.
@@ -2419,40 +2178,7 @@ void tensor_backward(TensorHandle h) {
 
         /* OP_OUTER: moved to backend_tape/linear/linalg/outer.c (Phase 1b.4). */
 
-        case OP_SOFTMAX: {
-            /* Softmax backward: d/dx_i = sum_j(grad_j * sm_j * (delta_ij - sm_i)).
-               tape_load_d handles both F64 and F32 r->data. */
-            if (a) {
-                ensure_grad(a);
-                ensure_grad(r);
-                int n_sm = r->numel;
-                for (int ii = 0; ii < n_sm; ii++) {
-                    double sm_i = tape_load_d(r, ii);
-                    double s = 0;
-                    for (int jj = 0; jj < n_sm; jj++) {
-                        double delta = (ii == jj) ? 1.0 : 0.0;
-                        s += ((double*)r->grad)[jj] * tape_load_d(r, jj) * (delta - sm_i);
-                    }
-                    ((double*)a->grad)[ii] += s;
-                }
-            }
-            break;
-        }
-
-        case OP_LOG_SOFTMAX: {
-            /* log-softmax backward (1D): d_input[j] = grad[j] - exp(output[j]) * sum(grad).
-               tape_load_d handles both F64 and F32 r->data. */
-            if (a) {
-                ensure_grad(a);
-                ensure_grad(r);
-                int n_ls = r->numel;
-                double sum_grad = 0;
-                for (int j = 0; j < n_ls; j++) sum_grad += ((double*)r->grad)[j];
-                for (int j = 0; j < n_ls; j++)
-                    ((double*)a->grad)[j] += ((double*)r->grad)[j] - exp(tape_load_d(r, j)) * sum_grad;
-            }
-            break;
-        }
+        /* OP_SOFTMAX, OP_LOG_SOFTMAX: moved to backend_tape/nn/softmax/ (Phase 1c.1). */
 
         case OP_BCE_WITH_LOGITS: {
             /* d/dp_i = (1/n) * (sigmoid(p_i) - y_i).
