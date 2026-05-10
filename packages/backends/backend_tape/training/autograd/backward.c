@@ -1,14 +1,14 @@
 /* training/autograd/backward.c — tape-walk backward driver.
  *
- * Phase 1e.2. The single entry point that runs the reverse-mode
+ * The single entry point that runs the reverse-mode
  * autodiff loop. Every per-op backward function is registered via
  * TAPE_REGISTER_OP at load time; this loop walks the tape in reverse
  * (via the chunked TypedArena) and calls the dispatch-table entry
  * for each. OP_CONST tape entries fall through (no backward).
  *
  * Profiling globals (prof_forward_ms, prof_backward_*, prof_epoch_start,
- * prof_op_t_prev) live in backend_tape.c for now; Phase 1e.5 will lift
- * them to a dedicated profiling.c.
+ * prof_op_t_prev) live in backend_tape.c for now; a subsequent lift
+ * will move them to a dedicated profiling.c.
  */
 
 #include <stdlib.h>
@@ -20,7 +20,7 @@
 #include "../../../backend.h"
 
 /* From the still-monolithic profiling cluster in backend_tape.c — these
-   extern decls go away when profiling lifts in 1e.5. */
+   extern decls go away when profiling lifts to its own TU. */
 extern double _wall_ms(void);
 extern double prof_forward_ms, prof_backward_ms;
 extern int    prof_backward_ops, prof_backward_processed, prof_backward_skipped;

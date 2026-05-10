@@ -1,9 +1,8 @@
 /* backend_tape/tensor.h — Tensor struct + internal dtype tags +
  * element-size / tag-translation / rounding helpers.
  *
- * Phase 1.0.4 (per /Users/admin/.claude/plans/modular-petting-minsky.md):
- * now a proper public header (multi-TU compile). Function definitions
- * live in tensor.c.
+ * Public header for multi-TU compile. Function definitions live in
+ * tensor.c.
  */
 
 #ifndef IDRISML_BACKEND_TAPE_TENSOR_H
@@ -20,7 +19,7 @@
    mapped to/from this internal tag only at the create/cast boundary via
    `tape_tag_from_dtag`. Non-F64 tape tensors are inference/storage-only
    except F32 — F32 has real 4-byte float storage + autograd kernels
-   (Phase 3); the rest store doubles rounded through the dtype's precision
+  ; the rest store doubles rounded through the dtype's precision
    (the `double` lingua franca). */
 enum { DT_F64 = 0, DT_F32, DT_BF16, DT_F16, DT_I8, DT_I16, DT_I32, DT_I64, DT_U8, DT_BOOL };
 

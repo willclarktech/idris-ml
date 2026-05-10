@@ -1,6 +1,6 @@
 /* nn/activation/gelu.c — GELU (tanh approximation) (forward + backward).
  *
- * Phase 1c.2. Forward via unop_elementwise dispatch (kernel in monolith's
+ * Forward via unop_elementwise dispatch (kernel in monolith's
  * .inc file references fn_gelu_d / fn_gelu_f32). Forward gets a thin
  * wrapper here; backward computes the tanh-approx derivative.
  */

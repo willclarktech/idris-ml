@@ -1,6 +1,6 @@
 /* conv/conv2d_batched.c — batched 2D convolution (forward + backward).
  *
- * Phase 1d.2.e. Input [B, inC, H, W], kernel [outC, inC, kH, kW], bias
+ * Input [B, inC, H, W], kernel [outC, inC, kH, kW], bias
  * [outC] or NULL. Output [B, outC, oH, oW].
  *
  * Forward uses the standard im2col + cblas_dgemm decomposition:

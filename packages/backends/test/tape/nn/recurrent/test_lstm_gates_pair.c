@@ -1,4 +1,4 @@
-/* Criterion suite for tape `tensor_lstm_gates_pair` (Phase 1c.7.d).
+/* Criterion suite for tape `tensor_lstm_gates_pair`.
  *
  * Tape entries:
  *   OP_LSTM_GATES      — hidden output → backward propagates d_h
@@ -10,7 +10,7 @@
  * arms, so withholding either TAPE_REGISTER_OP zeroes a portion of
  * the expected grad and the asserts fire.
  *
- * RED before Phase 1c.7.d enable: with TAPE_REGISTER_OPs withheld
+ * RED before the per-op cutover: with TAPE_REGISTER_OPs withheld
  * and the monolith arms stripped, the dispatch table has no entries
  * for either OP_LSTM_GATES or OP_LSTM_GATES_CELL, so backward leaves
  * all combined/prev grads at zero → first cr_assert_float_eq fails.

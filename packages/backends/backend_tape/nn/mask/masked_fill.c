@@ -1,6 +1,6 @@
 /* nn/mask/masked_fill.c — masked_fill (forward + backward).
  *
- * Phase 1c.3. Forward: r[i] = mask[i] != 0 ? value : t[i].
+ * Forward: r[i] = mask[i] != 0 ? value : t[i].
  * Backward: gradient passes through where mask is 0, zero elsewhere.
  */
 

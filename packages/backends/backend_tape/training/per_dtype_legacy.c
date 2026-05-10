@@ -1,6 +1,6 @@
 /* training/per_dtype_legacy.c — per-dtype creator aliases (pre-streamed).
  *
- * Phase 1e.11. These per-dtype `_f32` / `_f64` symbols predate the
+ * These per-dtype `_f32` / `_f64` symbols predate the
  * unified `tensor_create_<shape>_streamed(..., int dtag)` entry points
  * that landed with the FFI tag-dispatch unification (2026-05-22). The
  * typed Idris surface routes through the unified streamed symbols

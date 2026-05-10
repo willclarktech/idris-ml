@@ -1,6 +1,6 @@
 /* backend_tape/broadcast.c — numpy-style broadcasting helpers.
  *
- * Phase 1e.10. Implementations of the three functions declared in
+ * Implementations of the three functions declared in
  * broadcast.h. Used by elementwise backward kernels (and a few
  * reduction ones) to walk an output's flat index back into each
  * operand's flat index given right-aligned broadcast strides.

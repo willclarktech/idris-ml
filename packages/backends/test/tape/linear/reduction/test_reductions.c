@@ -1,4 +1,4 @@
-/* Criterion suite for tape reductions (Phase 1b.3).
+/* Criterion suite for tape reductions.
  * Covers sum, mean, sum_dim, tensor_min, tensor_max. */
 
 #include <criterion/criterion.h>

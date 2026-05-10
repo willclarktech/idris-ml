@@ -1,6 +1,6 @@
 /* linear/linalg/mv.c — matrix-vector multiply (forward + backward).
  *
- * Phase 1b.4.b. r = mat @ vec where mat=[m,n], vec=[n], r=[m].
+ * r = mat @ vec where mat=[m,n], vec=[n], r=[m].
  * Uses BLAS sgemv/dgemv on Apple Accelerate. Caches x_vals (vec
  * snapshot) in MvMeta as double* for the backward (which always
  * reads in F64, even when mat is F32-tagged).

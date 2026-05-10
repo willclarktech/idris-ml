@@ -1,6 +1,6 @@
 /* core/elementwise/sigmoid.c — sigmoid (forward + backward).
  *
- * Phase 1a.8. d sigmoid(x)/dx = sigmoid(x) * (1 - sigmoid(x))
+ * d sigmoid(x)/dx = sigmoid(x) * (1 - sigmoid(x))
  *                            = r * (1 - r).
  */
 

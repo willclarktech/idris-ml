@@ -1,4 +1,4 @@
-/* Criterion suite for tape `tensor_mul` (Phase 1a.4). */
+/* Criterion suite for tape `tensor_mul`. */
 
 #include <criterion/criterion.h>
 #include "../../../../backend.h"

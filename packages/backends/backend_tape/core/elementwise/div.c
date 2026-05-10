@@ -1,6 +1,6 @@
 /* core/elementwise/div.c — element-wise division (forward + backward).
  *
- * Phase 1a.5. d(a/b)/da = 1/b, d(a/b)/db = -a/b^2.
+ * d(a/b)/da = 1/b, d(a/b)/db = -a/b^2.
  * **F64 BIT-EXACT RISK**: division ordering must be preserved verbatim
  * (load bv once per element, then `/= bv` and `/(bv*bv)`). Don't
  * refactor to fewer divisions — different round-to-nearest sequences

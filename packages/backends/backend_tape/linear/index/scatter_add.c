@@ -1,6 +1,6 @@
 /* linear/index/scatter_add.c — scatter-add by index (forward + backward).
  *
- * Phase 1b.7.b. Forward: r[index[i]] += src[i]. Backward (gather):
+ * Forward: r[index[i]] += src[i]. Backward (gather):
  * d_src[i] += d_r[index[i]]. Index stored as arg2.
  */
 

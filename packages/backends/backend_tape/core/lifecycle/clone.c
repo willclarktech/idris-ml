@@ -1,6 +1,6 @@
 /* core/lifecycle/clone.c — Deep-copy a tensor (new handle, same data).
  *
- * Phase 1a.1. Dtype-aware: F32 clones honour the float storage,
+ * Dtype-aware: F32 clones honour the float storage,
  * non-F32 (DT_F64 + lingua-franca inference dtypes) copy double-wide.
  * The clone is arena-allocated + does NOT requires_grad (a fresh
  * autograd node would need its own tape_append; callers requesting

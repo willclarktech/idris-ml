@@ -1,6 +1,6 @@
 /* nn/norm/dropout.c — inverted dropout (forward + backward).
  *
- * Phase 1c.4. Forward: in training, zero with probability p and scale
+ * Forward: in training, zero with probability p and scale
  * survivors by 1/(1-p); eval / p=0 returns input identity. Backward
  * applies the same mask. Mask is heap-allocated (survives tape_reset
  * lifecycle by living on tape entry's op_meta).

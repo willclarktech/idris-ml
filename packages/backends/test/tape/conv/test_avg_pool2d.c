@@ -1,4 +1,4 @@
-/* Criterion suite for tape `tensor_avg_pool2d` (Phase 1d.2.a).
+/* Criterion suite for tape `tensor_avg_pool2d`.
  *
  * input [1, 2, 2] = [[1,2],[3,4]], kH=kW=2, strideH=strideW=1 → oH=oW=1.
  * Forward: out[0,0,0] = (1+2+3+4)/4 = 2.5

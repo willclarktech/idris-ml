@@ -1,6 +1,6 @@
 /* nn/mask/expand_mask.c — broadcast a 2D mask across a batch dim.
  *
- * Phase 1c.3 (mechanical). Non-differentiable; the result has
+ * Non-differentiable; the result has
  * requires_grad=0 regardless of input.
  */
 

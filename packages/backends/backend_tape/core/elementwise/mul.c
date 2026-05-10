@@ -1,6 +1,6 @@
 /* core/elementwise/mul.c — element-wise multiplication (forward + backward).
  *
- * Phase 1a.4. d(a*b)/da = b, d(a*b)/db = a. Inputs are read through
+ * d(a*b)/da = b, d(a*b)/db = a. Inputs are read through
  * tape_load_d so F32 operands work without a separate stamping.
  */
 

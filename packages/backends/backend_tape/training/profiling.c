@@ -1,6 +1,6 @@
 /* training/profiling.c — wall-time accounting and per-op timing buckets.
  *
- * Phase 1e.7. _wall_ms (gettimeofday-based monotonic-ish), all the
+ * _wall_ms (gettimeofday-based monotonic-ish), all the
  * prof_* globals (forward/backward/optimizer wall time, per-op buckets
  * for forward & backward, kernel-direct buckets, binop-path classifiers)
  * plus the public profile entry points:

@@ -1,4 +1,4 @@
-/* Criterion suite for tape `tensor_conv2d_batched` (Phase 1d.2.e).
+/* Criterion suite for tape `tensor_conv2d_batched`.
  *
  * input [B=1, inC=1, H=2, W=2] = [[1,2],[3,4]] (single sample),
  * kernel [outC=1, inC=1, kH=2, kW=2] = [[1,1],[1,1]], no bias, pad=0, stride=1.

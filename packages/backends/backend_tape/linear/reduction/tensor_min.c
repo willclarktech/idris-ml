@@ -1,6 +1,6 @@
 /* linear/reduction/tensor_min.c — minimum element reducing to a scalar.
  *
- * Phase 1b.3. Non-differentiable: result has requires_grad=0, no
+ * Non-differentiable: result has requires_grad=0, no
  * tape_append. (A differentiable version would put grad at the
  * argmin position; idris-ml today doesn't backprop through min/max.)
  */

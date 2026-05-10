@@ -1,4 +1,4 @@
-/* Criterion suite for tape `tensor_max_pool1d` (Phase 1d.1.b).
+/* Criterion suite for tape `tensor_max_pool1d`.
  *
  * input [1, 4] = [3, 1, 4, 2], kL=2, stride=2 → out = [3, 4] (wins at idx 0, 2).
  * Backward: d_in[winner_idx] += d_out, others = 0.

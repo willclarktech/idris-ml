@@ -1,6 +1,6 @@
 /* core/elementwise/neg.c — unary negation (forward + backward).
  *
- * Phase 1a.6. d(-x)/dx = -1.
+ * d(-x)/dx = -1.
  */
 
 #include <math.h>

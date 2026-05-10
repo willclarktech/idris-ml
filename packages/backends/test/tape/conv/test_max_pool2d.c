@@ -1,4 +1,4 @@
-/* Criterion suite for tape `tensor_max_pool2d` (Phase 1d.2.b).
+/* Criterion suite for tape `tensor_max_pool2d`.
  *
  * input [1, 2, 2] = [[1,2],[3,4]], kH=kW=2, strideH=strideW=1 → oH=oW=1.
  * Forward: out=[4] (max). Backward sum-loss: d_in[3]=1, others 0.

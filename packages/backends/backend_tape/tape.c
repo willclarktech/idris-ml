@@ -1,7 +1,7 @@
 /* backend_tape/tape.c — TypedArena<TapeEntry> machinery + tape_append/
  * tape_reset + no_grad mechanism.
  *
- * Phase 1.0.4: standalone TU compiled into backend_tape_tape.o.
+ * Standalone TU compiled into backend_tape_tape.o.
  */
 
 #include <stdlib.h>
@@ -75,8 +75,8 @@ TapeEntry* tape_at(int idx) {
 }
 
 /* Forward declaration: _wall_ms is defined in the profiling section of
- * backend_tape.c (still monolithic at this phase). The profiling
- * globals it touches are also defined there. */
+ * backend_tape.c (still monolithic for now). The profiling globals it
+ * touches are also defined there. */
 extern double _wall_ms(void);
 extern double prof_forward_per_op[];
 extern int prof_forward_count_per_op[];

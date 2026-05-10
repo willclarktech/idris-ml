@@ -1,6 +1,6 @@
 /* nn/attention/cross_attention.c — Q @ K^T * scale [+ mask] -> softmax -> @ V.
  *
- * Phase 1c.5. Composed from existing ops (transpose_last2, mul_scalar,
+ * Composed from existing ops (transpose_last2, mul_scalar,
  * bmm_3x3, masked_fill, softmax_3d). Backward is handled per-op by
  * the tape entries from each step — no dedicated OP for cross_attention,
  * so no backward arm to migrate.

@@ -1,7 +1,6 @@
 /* core/elementwise/_helpers.h — dispatch wrappers + abort helper used
  * by every elementwise op file (add/sub/mul/...).
  *
- * Phase 1a.2 extraction (per /Users/admin/.claude/plans/modular-petting-minsky.md).
  * The X-macro stamped binop_elementwise_inner_{f32,f64} (in the .inc
  * file included from backend_tape.c) drive the actual kernels;
  * binop_elementwise / binop_elementwise_f32_disp wrap them with

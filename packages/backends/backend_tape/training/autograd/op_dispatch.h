@@ -1,17 +1,16 @@
 /* backend_tape/training/autograd/op_dispatch.h — per-op backward
  * function dispatch table.
  *
- * Phase 1.0.3 (per /Users/admin/.claude/plans/modular-petting-minsky.md).
- * The table itself is unused at this commit — the monolithic
- * `tensor_backward()` switch is retained. Phase 1a-1d uses
- * `TAPE_REGISTER_OP(op, fn)` (defined here) inside each op's source
- * file to populate `g_tape_backward[op]` at load time via a constructor.
- * Once every op-tag has a registered handler, Phase 1g flips
- * `tensor_backward()` to dispatch through the table and the 1848-line
- * switch disappears.
+ * The table was initially unused — the monolithic `tensor_backward()`
+ * switch was retained while the per-op migration ran. The migration
+ * uses `TAPE_REGISTER_OP(op, fn)` (defined here) inside each op's
+ * source file to populate `g_tape_backward[op]` at load time via a
+ * constructor. Once every op-tag had a registered handler, the
+ * dispatch-table cutover flipped `tensor_backward()` to dispatch
+ * through the table and the 1848-line switch disappeared.
  *
- * Currently #included from backend_tape.c (single-TU build); Phase
- * 1.0.4 makes it a public header for per-TU compile.
+ * Originally #included from backend_tape.c (single-TU build); the
+ * per-TU compile rule makes it a public header.
  */
 
 #ifndef IDRISML_BACKEND_TAPE_OP_DISPATCH_H

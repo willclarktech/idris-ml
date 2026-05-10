@@ -1,6 +1,6 @@
 /* core/elementwise/_dispatch.c — elementwise kernel stamping + wrappers.
  *
- * Phase 1e.10. The X-macro `_kernels.inc` is included twice (F64 + F32)
+ * The X-macro `_kernels.inc` is included twice (F64 + F32)
  * to stamp two sets of static `*_inner_{f32,f64}` kernels. The four
  * public wrappers (binop_elementwise, binop_elementwise_f32_disp,
  * unop_elementwise, unop_elementwise_f32_disp) bridge per-op files to

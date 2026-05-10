@@ -1,4 +1,4 @@
-/* Criterion suite for tape `tensor_pow` (Phase 1a.7). */
+/* Criterion suite for tape `tensor_pow`. */
 
 #include <criterion/criterion.h>
 #include <math.h>

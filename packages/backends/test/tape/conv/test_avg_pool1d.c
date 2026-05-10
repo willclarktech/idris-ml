@@ -1,10 +1,10 @@
-/* Criterion suite for tape `tensor_avg_pool1d` (Phase 1d.1.a).
+/* Criterion suite for tape `tensor_avg_pool1d`.
  *
  * input [1, 4] = [1, 2, 3, 4], kL=2, stride=2 → output [1, 2] = [1.5, 3.5].
  * Backward: d_input[i] = d_out[i/2] / 2 (each input contributes to one
  * pool window with scale 1/kL = 0.5).
  *
- * RED before Phase 1d.1.a TAPE_REGISTER_OP enable: dispatch table NULL
+ * RED before the per-op TAPE_REGISTER_OP enable: dispatch table NULL
  * for OP_AVG_POOL1D → backward leaves input grad at zero → assertions
  * fire with all expected 0.5 vs actual 0.
  */

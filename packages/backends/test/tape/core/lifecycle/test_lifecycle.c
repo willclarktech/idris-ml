@@ -1,4 +1,4 @@
-/* Criterion suite for tape core/lifecycle ops (Phase 1a.1).
+/* Criterion suite for tape core/lifecycle ops.
  *
  * Covers: tensor_create_scalar, tensor_create, tensor_clone,
  *         tensor_free, tensor_item.

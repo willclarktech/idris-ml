@@ -1,4 +1,4 @@
-/* Criterion suite for tape `tensor_dot` + `tensor_outer` (Phase 1b.4). */
+/* Criterion suite for tape `tensor_dot` + `tensor_outer`. */
 
 #include <criterion/criterion.h>
 #include "../../../../backend.h"

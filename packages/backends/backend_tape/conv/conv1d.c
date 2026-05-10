@@ -1,6 +1,6 @@
 /* conv/conv1d.c — 1D convolution (forward + backward).
  *
- * Phase 1d.1.d. Input [inC, L], kernel [outC, inC, kL], bias [outC]
+ * Input [inC, L], kernel [outC, inC, kL], bias [outC]
  * or NULL. Output [outC, oL] with oL = (L + 2*pad - kL)/stride + 1.
  *
  *   out[oc, ol] = bias[oc] + sum_{ic,kl} input[ic, ol*stride - pad + kl]

@@ -1,6 +1,6 @@
 /* linear/shape/view_2d.c — non-grad view of element [row, col] in a 2D tensor.
  *
- * Phase 1b.1.d (mechanical bundle). Read-only handle pointing into
+ * Read-only handle pointing into
  * parent's storage. No tape_append.
  */
 

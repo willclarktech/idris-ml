@@ -1,6 +1,6 @@
 /* nn/loss/cross_entropy.c — forward-only cross-entropy.
  *
- * Phase 1e.8.a (forward-only). loss = -mean(target * log_softmax(input)).
+ * loss = -mean(target * log_softmax(input)).
  * No backward tape entry — callers typically pair the libtorch/MLX
  * native autograd or hand-roll a log-softmax + nllLoss chain that
  * already records a tape entry for each step.

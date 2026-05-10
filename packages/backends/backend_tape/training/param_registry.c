@@ -1,12 +1,13 @@
 /* training/param_registry.c — global parameter registry.
  *
- * Phase 1e.5. The optimizer surface (registered learnable tensors) plus
+ * The optimizer surface (registered learnable tensors) plus
  * the DEBUG_PARAM_GRADS / DEBUG_LSTM_TRAJ diagnostics that walk it.
  *
- * Phase 2 will lift the bulk of this into shared/training/param_registry.c
- * behind an adapter so torch/mlx share the same registry implementation;
- * the tape-local variant stays here as the reference and so the diagnostic
- * functions can keep direct access to the static array.
+ * The shared-port lift will move the bulk of this into
+ * shared/training/param_registry.c behind an adapter so torch/mlx
+ * share the same registry implementation; the tape-local variant
+ * stays here as the reference and so the diagnostic functions can
+ * keep direct access to the static array.
  */
 
 #include <stdio.h>

@@ -1,6 +1,6 @@
 /* linear/linalg/transpose_2d.c — 2D transpose (forward + backward).
  *
- * Phase 1b.6. r = a^T where a=[m,n], r=[n,m]. Backward: transpose back.
+ * r = a^T where a=[m,n], r=[n,m]. Backward: transpose back.
  */
 
 #include <stdlib.h>

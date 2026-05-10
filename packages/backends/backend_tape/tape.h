@@ -1,10 +1,9 @@
 /* backend_tape/tape.h — OP_* enum + TapeEntry + per-op meta structs.
  *
- * Phase 1.0.2 (per /Users/admin/.claude/plans/modular-petting-minsky.md).
  * Public surface of the tape data structure: anything an op file needs to
  * reference (its meta layout, the OP_* tag it appends with).
  *
- * Per-op meta structs currently co-located here. Phase 1c+1d will move
+ * Per-op meta structs currently co-located here. Subsequent commits will move
  * each into its op's source file (e.g. LstmGatesMeta → backend_tape/nn/
  * recurrent/lstm_gates_pair.c).
  */
@@ -14,8 +13,8 @@
 
 #include "tensor.h"
 
-/* Operation tags. OP_COUNT is the sentinel; the op-dispatch table introduced
-   in Phase 1.0.3 sizes itself by this. */
+/* Operation tags. OP_COUNT is the sentinel; the op-dispatch table sizes
+   itself by this. */
 enum {
     OP_CONST = 0,
     OP_ADD, OP_SUB, OP_MUL, OP_DIV,
@@ -189,7 +188,7 @@ typedef struct TypedArena {
 } TypedArena;
 
 /* The tape's per-chunk element capacity. Backward (still in
- * backend_tape.c at this phase) uses this to walk chunks by index. */
+ * backend_tape.c for now) uses this to walk chunks by index. */
 #define TAPE_CHUNK_SIZE (1 << 16)
 
 /* The tape itself — globally shared, defined in tape.c. */
@@ -198,7 +197,7 @@ extern TypedArena tape_arena;
 /* Convenience for read-heavy call sites in backward / profiling. */
 #define tape_size (tape_arena.size)
 
-/* Tape operations (Phase 1.0.4: now extern, was static). */
+/* Tape operations (now extern, was static). */
 
 /* Append a forward-op entry; returns the new TapeEntry (or a writable
  * scratch buffer if we're inside withNoGrad and result is non-grad-tracked). */

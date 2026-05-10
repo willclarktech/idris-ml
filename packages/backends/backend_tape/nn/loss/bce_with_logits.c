@@ -1,6 +1,6 @@
 /* nn/loss/bce_with_logits.c — binary cross-entropy with logits.
  *
- * Phase 1c.6. Stable formulation: max(p,0) - p*y + log(1+exp(-|p|)).
+ * Stable formulation: max(p,0) - p*y + log(1+exp(-|p|)).
  * Backward: d_input[i] = (sigmoid(p_i) - y_i) / n.
  */
 

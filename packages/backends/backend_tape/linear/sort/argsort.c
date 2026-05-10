@@ -1,6 +1,6 @@
 /* linear/sort/argsort.c — argsort (forward only — non-differentiable).
  *
- * Phase 1b.8.a. Sorts indices by tensor values; result has
+ * Sorts indices by tensor values; result has
  * requires_grad=0. F32 and F64 each use a dedicated comparator with
  * a TU-local data pointer.
  */

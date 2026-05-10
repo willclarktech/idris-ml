@@ -1,6 +1,6 @@
 /* conv/avg_pool1d.c — 1D average pooling (forward + backward).
  *
- * Phase 1d.1.a. Input [C, L], output [C, oL] with oL = (L-kL)/stride+1.
+ * Input [C, L], output [C, oL] with oL = (L-kL)/stride+1.
  * Forward: out[c, ol] = mean(input[c, ol*stride .. ol*stride+kL-1]).
  * Backward: gradient = 1/kL spread across the kL contributing positions.
  *

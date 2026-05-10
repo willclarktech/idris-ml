@@ -1,6 +1,6 @@
 /* training/param_create.c — persistent tensor creation for params + state.
  *
- * Phase 1e.3. tensor_create_param_{1,2,3,4}d and tensor_create_state_{1,2}d.
+ * tensor_create_param_{1,2,3,4}d and tensor_create_state_{1,2}d.
  * Param tensors are persistent (survive arena resets) with requires_grad=1;
  * state tensors are persistent with requires_grad=0 (used for non-learnable
  * NTM/DNC memory and RNN hidden states).

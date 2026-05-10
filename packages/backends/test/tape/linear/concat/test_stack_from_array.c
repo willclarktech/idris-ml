@@ -1,4 +1,4 @@
-/* Criterion suite for tape `tensor_stack_from_array` (Phase 1d.2.f).
+/* Criterion suite for tape `tensor_stack_from_array`.
  *
  * Stacks N scalar tensors into a length-N vector. Backward distributes
  * the upstream vector grad elementwise back to each constituent scalar's

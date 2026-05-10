@@ -1,6 +1,6 @@
 /* nn/softmax/softmax.c — softmax (forward + backward).
  *
- * Phase 1c.1. Stable max-subtract formulation. F32 + F64 paths.
+ * Stable max-subtract formulation. F32 + F64 paths.
  * Backward: d_x_i = sum_j(d_r_j * sm_j * (delta_ij - sm_i)).
  */
 

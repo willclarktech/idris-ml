@@ -1,6 +1,6 @@
 /* linear/linalg/dot.c — vector dot product (forward + backward).
  *
- * Phase 1b.4. r = sum_i a[i] * b[i] (scalar). d(r)/da = b, d(r)/db = a.
+ * r = sum_i a[i] * b[i] (scalar). d(r)/da = b, d(r)/db = a.
  * tape_load_d handles both F32 and F64 input storage.
  */
 

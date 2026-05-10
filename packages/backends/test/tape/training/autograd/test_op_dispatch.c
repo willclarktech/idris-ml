@@ -1,4 +1,4 @@
-/* Criterion suite for the tape op-dispatch table (Phase 1.0.3).
+/* Criterion suite for the tape op-dispatch table.
  *
  * Verifies the dispatch-table mechanism that the per-op TAPE_REGISTER_OP
  * constructors populate:
@@ -7,7 +7,7 @@
  *   - tape_register_op / tape_dispatch_get round-trip.
  *   - Out-of-range queries return NULL (no abort, no UB).
  *
- * Phase 1d closeout (after every OP_* migrated to its own file) flipped
+ * The closeout pass (after every OP_* migrated to its own file) flipped
  * this from "test unmigrated slots stay NULL" to "test OP_CONST stays
  * NULL" — OP_CONST is the only op whose backward semantics are "no-op"
  * by design, so its slot is permanently NULL even after full migration.

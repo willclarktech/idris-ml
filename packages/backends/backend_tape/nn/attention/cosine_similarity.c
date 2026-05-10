@@ -1,7 +1,7 @@
 /* nn/attention/cosine_similarity.c — row-wise cosine sim a[n,w] vs b[1,w]
  * (forward + backward).
  *
- * Phase 1c.5. tape_load_d on both inputs covers F32 + F64. Compute
+ * tape_load_d on both inputs covers F32 + F64. Compute
  * in double for numerical stability; narrow to float on output if F32.
  * Bias 1e-8 added to norms to avoid division-by-zero.
  */

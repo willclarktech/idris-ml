@@ -1,6 +1,6 @@
 /* core/lifecycle/item.c — Read a 0-rank tensor's scalar value.
  *
- * Phase 1a.1. Dtype-aware via tape_load_d (handles F32 + F64;
+ * Dtype-aware via tape_load_d (handles F32 + F64;
  * lingua-franca inference dtypes pass through their stored double).
  */
 

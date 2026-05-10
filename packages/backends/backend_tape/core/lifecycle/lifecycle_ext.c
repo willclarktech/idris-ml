@@ -1,6 +1,6 @@
 /* core/lifecycle/lifecycle_ext.c — shape-fixed creation + slicing helpers.
  *
- * Phase 1e.11 (cleanup). The thin shape-fixed wrappers around
+ * The thin shape-fixed wrappers around
  * tensor_create / tensor_reshape that the Idris FFI uses:
  *   - tensor_create_1d / tensor_create_2d (with caller-owned data free)
  *   - tensor_reshape_1d / tensor_reshape_2d

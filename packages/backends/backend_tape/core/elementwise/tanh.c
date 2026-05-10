@@ -1,6 +1,6 @@
 /* core/elementwise/tanh.c — hyperbolic tangent (forward + backward).
  *
- * Phase 1a.8. d tanh(x)/dx = 1 - tanh(x)^2 = 1 - r^2.
+ * d tanh(x)/dx = 1 - tanh(x)^2 = 1 - r^2.
  */
 
 #include <math.h>

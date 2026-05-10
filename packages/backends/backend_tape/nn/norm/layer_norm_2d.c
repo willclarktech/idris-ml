@@ -1,6 +1,6 @@
 /* nn/norm/layer_norm_2d.c — row-wise layer norm (forward + backward).
  *
- * Phase 1c.4. F64 BIT-EXACT RISK — accumulation order preserved
+ * F64 BIT-EXACT RISK — accumulation order preserved
  * verbatim. F32 + F64 paths. x_hat + rstd cached in LayerNormMeta
  * (always double*) so backward reads uniformly.
  */

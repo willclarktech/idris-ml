@@ -1,6 +1,6 @@
 /* linear/shape/unsqueeze.c — insert a size-1 dimension.
  *
- * Phase 1b.1.d (mechanical bundle). For rank-1 input, delegates to
+ * For rank-1 input, delegates to
  * tensor_reshape which both shares storage and emits an OP_RESHAPE
  * tape entry (so backward flows via reshape's grad-passthrough).
  * For other ranks the simplified semantics return a clone — proper

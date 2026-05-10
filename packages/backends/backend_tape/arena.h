@@ -1,7 +1,7 @@
 /* backend_tape/arena.h — bump-pointer arena + make_tensor variants +
  * ensure_grad + dtype-aware element load/store.
  *
- * Phase 1.0.4: standalone header (multi-TU compile). Function
+ * Standalone header (multi-TU compile). Function
  * definitions live in arena.c; hot-path single-line accessors
  * (tape_load_d, tape_store_d) are `static inline` here so the
  * compiler can inline them at every call site without LTO.

@@ -1,4 +1,4 @@
-/* Criterion suite for tape `tensor_gru_cell` (Phase 1c.7.c).
+/* Criterion suite for tape `tensor_gru_cell`.
  *
  * nn.GRU equations:
  *   z = sigmoid(ih_z + hh_z)
@@ -16,7 +16,7 @@
  *   d_r_raw = d_r * r * (1-r)         → ih_r and hh_r
  *   d_prev = dh' * z
  *
- * The RED before Phase 1c.7.c's TAPE_REGISTER_OP enable: with the
+ * The RED before the per-op TAPE_REGISTER_OP enable: with the
  * monolith arm stripped and the new file's TAPE_REGISTER_OP withheld,
  * the dispatch table has no entry for OP_GRU_CELL, so backward leaves
  * the inputs' grads at zero — every grad assert below fails.

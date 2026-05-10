@@ -1,9 +1,9 @@
 /* linear/concat/stack.c — stack of scalar tensors into a 1D vector.
  *
- * Phase 1b.2.a (initial) + Phase 1d.2.f (OP_STACK backward arm and
- * tensor_stack_from_array migration). The OP_STACK tape entry's
- * backward distributes the upstream vector gradient elementwise to
- * each constituent scalar input's grad[0].
+ * The OP_STACK tape entry's backward distributes the upstream vector
+ * gradient elementwise to each constituent scalar input's grad[0].
+ * The grad-bearing variant (tensor_stack_from_array) was extracted
+ * alongside the per-op file migration.
  *
  * tensor_stack (no-grad fast wrapper) and tensor_stack_from_array
  * (grad-bearing variant) share the same OP_STACK tag — the no-grad

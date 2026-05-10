@@ -1,6 +1,6 @@
 /* linear/index/gather.c — gather elements by index (forward + backward).
  *
- * Phase 1b.7. Forward: r[i] = input[index[i]] for i in 0..n-1.
+ * Forward: r[i] = input[index[i]] for i in 0..n-1.
  * Backward (scatter-add): d_input[index[i]] += d_r[i].
  * Index stored as arg2 (non-grad integer tensor).
  */

@@ -1,4 +1,4 @@
-/* Criterion suite for tape `tensor_cumprod` (Phase 1b.8.b). */
+/* Criterion suite for tape `tensor_cumprod`. */
 
 #include <criterion/criterion.h>
 #include "../../../../backend.h"

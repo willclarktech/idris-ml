@@ -1,8 +1,8 @@
 /* linear/linalg/matmul.c — rank-dispatching matrix product.
  *
- * Phase 1b.5. Forward delegates by ranks:
+ * Forward delegates by ranks:
  *   1D x 2D -> OP_VECMAT path here (row vector × matrix)
- *   2D x 1D -> tensor_mv (separate file, Phase 1b.4.b)
+ *   2D x 1D -> tensor_mv
  *   else    -> elementwise mul fallback (legacy compat)
  *
  * OP_VECMAT backward is co-located here even though it could

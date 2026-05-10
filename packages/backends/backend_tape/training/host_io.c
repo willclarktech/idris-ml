@@ -1,6 +1,6 @@
 /* training/host_io.c — host-side tensor inspection.
  *
- * Phase 1e.4. Shape queries (tensor_numel/dim/size), host readout
+ * Shape queries (tensor_numel/dim/size), host readout
  * (tensor_to_doubles/floats/int64), and the dtype-name accessor.
  *
  * tensor_to_int64 follows the byte-level I64 readout contract from

@@ -1,6 +1,6 @@
 /* core/scalar/mul_scalar.c — element-wise mul-scalar (forward + backward).
  *
- * Phase 1a.9. d(x*s)/dx = s. Scalar arg stored in tape entry's
+ * d(x*s)/dx = s. Scalar arg stored in tape entry's
  * scalar_arg slot and used in backward.
  */
 

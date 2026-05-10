@@ -1,6 +1,6 @@
 /* core/scalar/clamp_min.c — element-wise clamp_min (forward + backward).
  *
- * Phase 1a.9. Forward: r[i] = max(x[i], min_val). Backward: gradient
+ * Forward: r[i] = max(x[i], min_val). Backward: gradient
  * passes through where x > min_val, zero where clamped.
  */
 

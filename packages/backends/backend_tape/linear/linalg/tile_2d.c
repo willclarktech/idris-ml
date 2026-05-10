@@ -1,11 +1,11 @@
 /* linear/linalg/tile_2d.c — tile a 2D tensor along both axes.
  *
- * Phase 1b.6. Forward: output[i, j] = input[i mod m, j mod n] over
+ * Forward: output[i, j] = input[i mod m, j mod n] over
  * shape [m*rep0, n*rep1]. Backward: sum grads from each tile into
  * the corresponding source element.
  *
  * Tile2dMeta lives here (TU-local) since this is the only op that
- * uses it. Phase 1c+ may move per-op meta structs to per-op files
+ * uses it. Subsequent commits may move per-op meta structs to per-op files
  * as a general rule; tile_2d is already there.
  */
 

@@ -1,6 +1,6 @@
 /* core/elementwise/softplus.c — softplus log(1+exp(x)) (forward + backward).
  *
- * Phase 1a.8. Numerically-stable forward: x for x>30, exp(x) for x<-30,
+ * Numerically-stable forward: x for x>30, exp(x) for x<-30,
  * else log(1+exp(x)). d softplus(x)/dx = sigmoid(x) = 1/(1+exp(-x)).
  */
 

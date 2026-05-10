@@ -1,6 +1,6 @@
 /* core/scalar/add_scalar.c — element-wise add-scalar (forward + backward).
  *
- * Phase 1a.9. d(x+s)/dx = 1. Scalar arg stored in tape entry's
+ * d(x+s)/dx = 1. Scalar arg stored in tape entry's
  * scalar_arg slot (unused in backward — derivative doesn't depend
  * on the constant). F32 path uses a real float arena buffer.
  */

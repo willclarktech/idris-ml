@@ -1,6 +1,6 @@
 /* linear/linalg/linear_2d.c — fused batched linear (forward + backward).
  *
- * Phase 1b.5. F64 BIT-EXACT RISK — cblas_dgemm arg order & transpose
+ * F64 BIT-EXACT RISK — cblas_dgemm arg order & transpose
  * flags. Y[B,o] = X[B,i] @ W[o,i]^T + bias[o]. Caches X as double* in
  * Linear2dMeta. Backward:
  *   dW    = dY^T @ X

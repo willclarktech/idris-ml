@@ -1,6 +1,6 @@
 /* nn/norm/batch_norm.c — per-channel batch norm (forward + backward).
  *
- * Phase 1c.4. F64 BIT-EXACT RISK — running mean/var accumulation
+ * F64 BIT-EXACT RISK — running mean/var accumulation
  * ordering preserved. Training mode updates running stats in-place
  * via tape_store_d. Eval mode reads running stats only.
  */

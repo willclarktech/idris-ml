@@ -1,6 +1,6 @@
 /* linear/shape/view_1d.c — non-grad view of element [idx] in a 1D tensor.
  *
- * Phase 1b.1.d (mechanical bundle). Read-only handle pointing into
+ * Read-only handle pointing into
  * parent's storage. No tape_append (the consumer is an FFI readback,
  * not part of the autograd graph).
  */

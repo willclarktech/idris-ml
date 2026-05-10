@@ -1,14 +1,14 @@
 /* core/elementwise/add.c — element-wise addition (forward + backward).
  *
- * Phase 1a.2 (per /Users/admin/.claude/plans/modular-petting-minsky.md).
  * First per-op extraction with a real backward. Forward dispatches
  * F32/F64 via binop_elementwise / binop_elementwise_f32_disp (the
- * X-macro stamped kernels live in backend_tape.c for now; Phase 1g
- * moves the .inc to this directory). Backward extracted from the
- * monolith's `case OP_ADD:` arm (was at backend_tape.c lines
- * 3169-3211 pre-extraction) and registered into the global dispatch
- * table via TAPE_REGISTER_OP at file scope — Phase 1.0.3 introduced
- * the table; this is the first op to populate it.
+ * X-macro stamped kernels live in backend_tape.c for now; the
+ * per-TU compile rule moves the .inc to this directory). Backward
+ * extracted from the monolith's `case OP_ADD:` arm (was at
+ * backend_tape.c lines 3169-3211 pre-extraction) and registered into
+ * the global dispatch table via TAPE_REGISTER_OP at file scope — the
+ * dispatch-table machinery introduced the table; this is the first
+ * op to populate it.
  */
 
 #include <string.h>

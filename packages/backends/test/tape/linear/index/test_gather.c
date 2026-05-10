@@ -1,4 +1,4 @@
-/* Criterion suite for tape `tensor_gather` (Phase 1b.7). */
+/* Criterion suite for tape `tensor_gather`. */
 
 #include <criterion/criterion.h>
 #include "../../../../backend.h"

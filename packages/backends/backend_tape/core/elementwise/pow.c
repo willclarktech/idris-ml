@@ -1,6 +1,6 @@
 /* core/elementwise/pow.c — element-wise power (forward + backward).
  *
- * Phase 1a.7. d(a^b)/da = b * a^(b-1); d(a^b)/db = log(a) * a^b = log(a) * r.
+ * d(a^b)/da = b * a^(b-1); d(a^b)/db = log(a) * a^b = log(a) * r.
  * Floors a at 1e-20 inside backward to avoid log(0) / pow(0, b-1) blow-ups
  * (forward still produces 0 from pow(0, k) for k>0; the gradient just
  * approximates).

@@ -1,7 +1,7 @@
 /* backend_tape/tensor.c — element-size + ABI<->internal dtype-tag
  * translation + lingua-franca rounding helpers.
  *
- * Phase 1.0.4: standalone TU compiled into backend_tape_tensor.o.
+ * Standalone TU compiled into backend_tape_tensor.o.
  */
 
 #include <stdio.h>

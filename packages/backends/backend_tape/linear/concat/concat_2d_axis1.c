@@ -1,6 +1,6 @@
 /* linear/concat/concat_2d_axis1.c — 2D concat along axis 1.
  *
- * Phase 1b.2.c. Forward: A[m,n] ++ B[m,k] -> R[m, n+k] interleaved
+ * Forward: A[m,n] ++ B[m,k] -> R[m, n+k] interleaved
  * row-by-row. dtype-aware (F32 + F64). scalar_arg stores n (the
  * split point along axis 1).
  *

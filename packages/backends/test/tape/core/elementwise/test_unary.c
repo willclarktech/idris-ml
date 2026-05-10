@@ -1,4 +1,4 @@
-/* Criterion suite for tape unary elementwise ops (Phase 1a.6).
+/* Criterion suite for tape unary elementwise ops.
  * Covers neg, abs, exp, log, sqrt. */
 
 #include <criterion/criterion.h>

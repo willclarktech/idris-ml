@@ -1,4 +1,4 @@
-/* Criterion suite for tape `tensor_conv1d_circular` (Phase 1d.1.c).
+/* Criterion suite for tape `tensor_conv1d_circular`.
  *
  * input [3] = [1, 2, 3], kernel [3] = [0.1, 0.2, 0.3] (k=3, pad=1).
  *   out[i] = sum_j in[(i-1+j+3) % 3] * k[2-j]

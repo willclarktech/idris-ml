@@ -1,6 +1,6 @@
 /* linear/reduction/mean.c — arithmetic mean reducing to a scalar.
  *
- * Phase 1b.3. Forward: scalar = (sum_i t[i]) / numel. Backward: each
+ * Forward: scalar = (sum_i t[i]) / numel. Backward: each
  * input element receives grad * (1/numel).
  */
 

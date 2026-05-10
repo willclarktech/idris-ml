@@ -1,6 +1,6 @@
 /* core/elementwise/sqrt.c — element-wise square root (forward + backward).
  *
- * Phase 1a.6. d(sqrt(x))/dx = 1 / (2 * sqrt(x)) = 1 / (2 * r).
+ * d(sqrt(x))/dx = 1 / (2 * sqrt(x)) = 1 / (2 * r).
  */
 
 #include <math.h>

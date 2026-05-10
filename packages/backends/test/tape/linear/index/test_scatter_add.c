@@ -1,4 +1,4 @@
-/* Criterion suite for tape `tensor_scatter_add` (Phase 1b.7.b). */
+/* Criterion suite for tape `tensor_scatter_add`. */
 
 #include <criterion/criterion.h>
 #include "../../../../backend.h"

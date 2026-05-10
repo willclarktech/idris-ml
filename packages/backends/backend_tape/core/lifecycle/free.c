@@ -1,6 +1,6 @@
 /* core/lifecycle/free.c — Tensor lifecycle teardown.
  *
- * Phase 1a.1. tensor_free is a no-op on tape: the tape holds non-owning
+ * tensor_free is a no-op on tape: the tape holds non-owning
  * pointers into arena memory, so freeing per-tensor while the tape is
  * still live would invalidate them. Real teardown happens in bulk at
  * tape_reset / arena_reset (per epoch).

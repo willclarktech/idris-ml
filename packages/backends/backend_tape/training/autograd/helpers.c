@@ -1,6 +1,6 @@
 /* training/autograd/helpers.c — thin autograd-surface helpers.
  *
- * Phase 1e.1. Bundles the small, self-contained autograd helpers that
+ * Bundles the small, self-contained autograd helpers that
  * the `UserDeviceTraining` interface exposes:
  *   - tensor_grad, tensor_zero_grad
  *   - tensor_requires_grad, tensor_set_requires_grad
@@ -10,7 +10,7 @@
  *   - tensor_to_device / tensor_device (cpu-only on tape)
  *
  * tensor_backward (the big switch-driver) is the only autograd surface
- * that stays elsewhere; it moves in 1e.2.
+ * that lives elsewhere — see backward.c.
  *
  * no_grad_depth is owned by tape.c (extern declared in tape.h).
  */

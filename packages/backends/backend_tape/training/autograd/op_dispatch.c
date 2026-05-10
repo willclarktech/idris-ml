@@ -1,8 +1,7 @@
 /* backend_tape/training/autograd/op_dispatch.c — per-op backward
  * function dispatch table.
  *
- * Phase 1.0.3: introduced.
- * Phase 1.0.4: standalone TU.
+ * Standalone TU.
  */
 
 #include <stdio.h>

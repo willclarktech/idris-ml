@@ -1,6 +1,6 @@
 /* linear/linalg/mm.c — matrix-matrix multiply (forward + backward).
  *
- * Phase 1b.5. F64 BIT-EXACT RISK — cblas_dgemm arg order, leading
+ * F64 BIT-EXACT RISK — cblas_dgemm arg order, leading
  * dimensions must remain verbatim. Forward: r = a @ b where a=[m,n],
  * b=[n,k], r=[m,k]. Backward: d_a = grad @ b^T; d_b = a^T @ grad.
  * F32 inputs fall back to plain loops via tape_load_d (grad always F64).

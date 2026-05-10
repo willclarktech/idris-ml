@@ -1,6 +1,6 @@
 /* nn/loss/mse_loss.c — forward-only MSE.
  *
- * Phase 1e.8.a. loss = mean((input - target)^2). No backward — see
+ * loss = mean((input - target)^2). No backward — see
  * the cross-entropy companion file for the same rationale.
  */
 

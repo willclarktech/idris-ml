@@ -1,6 +1,6 @@
 /* conv/max_pool1d.c — 1D max pooling (forward + backward).
  *
- * Phase 1d.1.b. Input [C, L], output [C, oL] with oL = (L-kL)/stride+1.
+ * Input [C, L], output [C, oL] with oL = (L-kL)/stride+1.
  * Forward: out[c, ol] = max(input[c, ol*stride..ol*stride+kL-1]); cache
  * the winning flat-input index per output for backward.
  * Backward: route d_out scalar to the winning input slot (subgradient).

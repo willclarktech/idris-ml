@@ -1,6 +1,6 @@
 /* core/elementwise/exp.c — element-wise exponential (forward + backward).
  *
- * Phase 1a.6. d(exp(x))/dx = exp(x) = r (the forward output).
+ * d(exp(x))/dx = exp(x) = r (the forward output).
  */
 
 #include <math.h>

@@ -1,7 +1,7 @@
 /* backend_tape/broadcast.h — numpy-style broadcasting helpers used
  * across elementwise backward kernels (and a few reduction ones).
  *
- * Phase 1a.2: extracted as extern from backend_tape.c lines 142-194.
+ * Extracted as extern from backend_tape.c lines 142-194.
  * Each per-op file that needs broadcast routing includes this header.
  */
 

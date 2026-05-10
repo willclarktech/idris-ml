@@ -1,6 +1,6 @@
 /* linear/linalg/bmm_3x3.c — fully-batched matmul (3-rank by 3-rank).
  *
- * Phase 1b.6. r[bi] = a[bi] @ b[bi]; a=[B,m,n], b=[B,n,k], r=[B,m,k].
+ * r[bi] = a[bi] @ b[bi]; a=[B,m,n], b=[B,n,k], r=[B,m,k].
  * No shared operand. Backward uses plain loops with tape_load_d.
  */
 

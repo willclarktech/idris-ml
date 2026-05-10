@@ -1,4 +1,4 @@
-/* Criterion suite for tape `tensor_cat2` (Phase 1b.2.b). */
+/* Criterion suite for tape `tensor_cat2`. */
 
 #include <criterion/criterion.h>
 #include "../../../../backend.h"

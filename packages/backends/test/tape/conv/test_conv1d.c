@@ -1,4 +1,4 @@
-/* Criterion suite for tape `tensor_conv1d` (Phase 1d.1.d).
+/* Criterion suite for tape `tensor_conv1d`.
  *
  * input [1, 4] = [1, 2, 3, 4], kernel [1, 1, 2] = [0.5, 0.5], bias=NULL,
  * pad=0, stride=1 → oL = (4 + 0 - 2)/1 + 1 = 3.

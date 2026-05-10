@@ -1,6 +1,6 @@
 /* nn/recurrent/lstm_gates_pair.c — LSTM gates kernel + tape recording.
  *
- * Phase 1c.7.d. F64 BIT-EXACT RISK — sigmoid/tanh composition order
+ * F64 BIT-EXACT RISK — sigmoid/tanh composition order
  * preserved verbatim. The forward emits TWO tape entries (one
  * OP_LSTM_GATES for hidden output, one OP_LSTM_GATES_CELL for cell
  * output), both sharing the same LstmGatesMeta cache. The cell

@@ -1,6 +1,6 @@
 /* conv/max_pool2d.c — 2D max pooling (forward + backward).
  *
- * Phase 1d.2.b. Input [C, H, W], output [C, oH, oW]. MaxPool2DMeta
+ * Input [C, H, W], output [C, oH, oW]. MaxPool2DMeta
  * carries max_indices (heap-allocated, freed by tape_reset).
  */
 

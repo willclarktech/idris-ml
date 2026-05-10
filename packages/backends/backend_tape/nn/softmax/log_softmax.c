@@ -1,6 +1,6 @@
 /* nn/softmax/log_softmax.c — 1D log-softmax (forward + backward).
  *
- * Phase 1c.1. Stable max-subtract. F32 + F64 paths.
+ * Stable max-subtract. F32 + F64 paths.
  * Backward: d_x[j] = grad[j] - exp(r[j]) * sum(grad).
  */
 

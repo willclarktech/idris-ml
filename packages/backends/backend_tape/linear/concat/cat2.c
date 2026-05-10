@@ -1,6 +1,6 @@
 /* linear/concat/cat2.c — concatenate two 1D tensors.
  *
- * Phase 1b.2.b. Forward: [a] ++ [b] -> [a+b]. dtype-aware copy. Stores
+ * Forward: [a] ++ [b] -> [a+b]. dtype-aware copy. Stores
  * a as arg1, b as arg2, scalar_arg = split point (na). Backward:
  * grad[0..na) -> a's grad; grad[na..) -> b's grad.
  */

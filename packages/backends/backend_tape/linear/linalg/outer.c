@@ -1,6 +1,6 @@
 /* linear/linalg/outer.c — outer product of two vectors (forward + backward).
  *
- * Phase 1b.4. r[i,j] = a[i] * b[j].
+ * r[i,j] = a[i] * b[j].
  * Backward: d_a[i] = sum_j grad[i,j] * b[j]; d_b[j] = sum_i grad[i,j] * a[i].
  */
 

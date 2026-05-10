@@ -1,6 +1,6 @@
 /* linear/reduction/sum.c — element-wise sum reducing to a scalar.
  *
- * Phase 1b.3. Forward: scalar = sum_i t[i]. Backward: grad of every
+ * Forward: scalar = sum_i t[i]. Backward: grad of every
  * input element += grad of result (the scalar grad broadcasts to all
  * input positions).
  */

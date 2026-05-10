@@ -1,6 +1,6 @@
 /* nn/recurrent/pair_helpers.c — TensorPair accessor/release helpers.
  *
- * Phase 1c.7.b (mechanical). The `tensor_lstm_gates_pair` forward
+ * The `tensor_lstm_gates_pair` forward
  * returns a `TensorPair*` (arena-allocated), and Idris unpacks it via
  * these three thin accessors. They carry no autograd state — the
  * gradient flows through the LSTM_GATES / LSTM_GATES_CELL tape

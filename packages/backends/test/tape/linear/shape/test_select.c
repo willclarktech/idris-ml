@@ -1,4 +1,4 @@
-/* Criterion suite for tape `tensor_select` (Phase 1b.1). */
+/* Criterion suite for tape `tensor_select`. */
 
 #include <criterion/criterion.h>
 #include "../../../../backend.h"

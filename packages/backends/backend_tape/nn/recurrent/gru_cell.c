@@ -1,6 +1,6 @@
 /* nn/recurrent/gru_cell.c — nn.GRU cell (forward + backward).
  *
- * Phase 1c.7.c. F64 BIT-EXACT RISK — sigmoid/tanh composition order
+ * F64 BIT-EXACT RISK — sigmoid/tanh composition order
  * preserved verbatim. Takes ih = W_ih @ x + b_ih and hh = W_hh @ h + b_hh
  * as separate [3*o] vectors (caller computes the two halves).
  *

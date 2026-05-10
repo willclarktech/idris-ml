@@ -1,6 +1,6 @@
 /* conv/conv1d_circular.c — circular 1D convolution (forward + backward).
  *
- * Phase 1d.1.c. Used by NTM's content-addressing rotation step.
+ * Used by NTM's content-addressing rotation step.
  * Input length n, kernel length k, pad=k/2. Wrap-around indexing
  * (the (i - pad + j + n) % n in both forward and backward).
  *

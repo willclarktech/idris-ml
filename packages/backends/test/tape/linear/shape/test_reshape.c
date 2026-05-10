@@ -1,4 +1,4 @@
-/* Criterion suite for tape `tensor_reshape` (Phase 1b.1.b). */
+/* Criterion suite for tape `tensor_reshape`. */
 
 #include <criterion/criterion.h>
 #include "../../../../backend.h"

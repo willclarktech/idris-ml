@@ -1,6 +1,6 @@
 /* linear/shape/narrow.c — view into a slice of a 1D tensor.
  *
- * Phase 1b.1.c. Forward: t[start..start+len) as a shared-storage view
+ * Forward: t[start..start+len) as a shared-storage view
  * with byte-correct offset (tape_elem_size honours dtype_tag).
  * Backward: scatter grad back to parent at offset.
  */

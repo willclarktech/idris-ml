@@ -1,4 +1,4 @@
-/* Criterion suite for tape `tensor_concat_2d_axis1` (Phase 1b.2.c). */
+/* Criterion suite for tape `tensor_concat_2d_axis1`. */
 
 #include <criterion/criterion.h>
 #include "../../../../backend.h"

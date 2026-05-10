@@ -1,4 +1,4 @@
-/* Criterion suite for tape `tensor_add` (Phase 1a.2).
+/* Criterion suite for tape `tensor_add`.
  *
  * First per-op extraction with a real backward — exercises both
  * forward correctness and the dispatch-table-driven backward

@@ -1,6 +1,6 @@
 /* nn/activation/silu.c — SiLU/Swish (forward + backward).
  *
- * Phase 1c.2. Forward: x * sigmoid(x).
+ * Forward: x * sigmoid(x).
  * Backward: sigmoid(x) * (1 + x * (1 - sigmoid(x))).
  */
 

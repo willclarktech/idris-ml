@@ -1,6 +1,6 @@
 /* linear/shape/reshape.c — tensor_reshape (forward + backward).
  *
- * Phase 1b.1.b. Forward: same data buffer (shared, arena-allocated
+ * Forward: same data buffer (shared, arena-allocated
  * header), new shape metadata. Propagates dtype_tag so an F32 reshape
  * stays F32-tagged. Backward: gradient passes through unchanged
  * (numel is identical between input and output).

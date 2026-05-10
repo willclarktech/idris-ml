@@ -1,6 +1,6 @@
 /* conv/avg_pool2d.c — 2D average pooling (forward + backward).
  *
- * Phase 1d.2.a. Input [C, H, W], output [C, oH, oW] with oH/oW the
+ * Input [C, H, W], output [C, oH, oW] with oH/oW the
  * usual valid-window formula. AvgPool2DMeta stays in tape.h.
  */
 

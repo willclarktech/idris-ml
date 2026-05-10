@@ -1,6 +1,6 @@
 /* conv/max_pool2d_batched.c — batched 2D max pooling (forward + backward).
  *
- * Phase 1d.2.c. Input [B, C, H, W], output [B, C, oH, oW]. max_indices
+ * Input [B, C, H, W], output [B, C, oH, oW]. max_indices
  * are absolute into input->data (computed as base + flat per sample),
  * so the backward scatter works the same as the per-sample case.
  * MaxPool2DBatchedMeta stays in tape.h (max_indices freed by tape_reset).

@@ -1,6 +1,6 @@
 /* nn/activation/leaky_relu.c — leaky-relu (forward + backward).
  *
- * Phase 1c.2. Forward: max(alpha*x, x) (alpha stored in scalar_arg).
+ * Forward: max(alpha*x, x) (alpha stored in scalar_arg).
  * Backward: d_x = 1 (x >= 0) or alpha (x < 0). tape_load_d covers F32+F64.
  */
 

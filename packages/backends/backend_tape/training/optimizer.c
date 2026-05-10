@@ -1,7 +1,7 @@
 /* training/optimizer.c — SGD / RMSprop / Adam / AdamW + grad clipping
  *                         + Polyak soft update + serialization accessors.
  *
- * Phase 1e.6. The full optimizer surface lives here. State is a single
+ * The full optimizer surface lives here. State is a single
  * flat per-element buffer (opt->v, opt->m) sized by
  * sum_i tensor_numel(param_i); offsets are computed by walking
  * param_count() in order.
@@ -15,8 +15,9 @@
  * Idris surface. They live here so the (clip → step) pair is one
  * file's concern.
  *
- * Phase 2 will lift the bulk of this into shared/training/optimizer.c
- * behind an adapter so torch/mlx share the loop structure.
+ * The shared-port lift will move the bulk of this into
+ * shared/training/optimizer.c behind an adapter so torch/mlx share
+ * the loop structure.
  */
 
 #include <math.h>
@@ -42,7 +43,7 @@ typedef struct {
     char prefix[128];      /* param-name prefix filter (empty = manages all) */
 } Optimizer;
 
-/* Profiling globals (in backend_tape.c until Phase 1e.7) */
+/* Profiling globals */
 extern double prof_optimizer_ms;
 extern int    prof_forward_ops;
 extern int    prof_epochs;

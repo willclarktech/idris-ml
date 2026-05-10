@@ -1,6 +1,5 @@
 /* core/lifecycle/create_scalar.c — Allocate a 0-rank tensor with a value.
  *
- * Phase 1a.1 (per /Users/admin/.claude/plans/modular-petting-minsky.md).
  * Always heap-allocated (persistent=1): scalars returned to Idris may
  * survive arena_reset (cached in Variables across epochs). The
  * per-epoch leak from training-data tensors (~15KB/epoch) is accepted.

@@ -1,6 +1,6 @@
 /* linear/reduction/tensor_max.c — maximum element reducing to a scalar.
  *
- * Phase 1b.3. Non-differentiable (see tensor_min for rationale).
+ * Non-differentiable (see tensor_min for rationale).
  */
 
 #include "../../tensor.h"

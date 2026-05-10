@@ -1,4 +1,4 @@
-/* Criterion suite for tape `tensor_conv2d` (Phase 1d.2.d).
+/* Criterion suite for tape `tensor_conv2d`.
  *
  * input [1, 2, 2] = [[1,2],[3,4]], kernel [1, 1, 2, 2] = [[1,1],[1,1]],
  * bias=NULL, pad=0, stride=1 → oH=oW=1.

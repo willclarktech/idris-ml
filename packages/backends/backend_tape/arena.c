@@ -2,7 +2,7 @@
  * variants + ensure_grad. Hot-path single-line load/store inlined via
  * arena.h (static inline).
  *
- * Phase 1.0.4: standalone TU compiled into backend_tape_arena.o.
+ * Standalone TU compiled into backend_tape_arena.o.
  *
  * Intermediate tensors live in the arena (reset in bulk at
  * optimizer_step). Params use regular malloc.

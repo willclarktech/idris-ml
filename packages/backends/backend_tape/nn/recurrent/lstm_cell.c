@@ -1,6 +1,6 @@
 /* nn/recurrent/lstm_cell.c — torch-style nn.LSTMCell stub (forward only).
  *
- * Phase 1c.7.a (mechanical). Current Idris code uses
+ * Current Idris code uses
  * `tensor_lstm_gates_pair` for the LSTM forward, so this entry point
  * is a passthrough that returns clones of (hx, cx). Retained for ABI
  * compatibility with the backend.h declaration.

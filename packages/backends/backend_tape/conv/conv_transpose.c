@@ -1,6 +1,6 @@
 /* conv/conv_transpose.c — transposed (fractional-stride) 1D / 2D conv.
  *
- * Phase 1e.8 (mechanical, forward-only). No backward — these are
+ * No backward — these are
  * non-autograd ops on tape (parity with the API surface; mlx/torch
  * keep their native autograd). Used by the encoder/decoder example
  * surfaces that don't drive backward through them.

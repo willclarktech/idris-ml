@@ -1,6 +1,6 @@
 /* linear/linalg/bmm.c — batched matrix-matrix multiply (shared b).
  *
- * Phase 1b.6. r[bi] = a[bi] @ b where a=[B,m,n], b=[n,k], r=[B,m,k].
+ * r[bi] = a[bi] @ b where a=[B,m,n], b=[n,k], r=[B,m,k].
  * b is shared across the batch. F64 bit-exact via cblas_dgemm.
  * Backward collapses [B,m,*] to [B*m,*] for the shared d_b update.
  */

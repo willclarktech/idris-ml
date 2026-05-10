@@ -1,6 +1,6 @@
 /* linear/linalg/linear.c — fused linear (W @ x + bias) (forward + backward).
  *
- * Phase 1b.5. F64 BIT-EXACT RISK — cblas_dgemv arg order. Caches x_vals
+ * F64 BIT-EXACT RISK — cblas_dgemv arg order. Caches x_vals
  * in LinearMeta (double*) and a bias Tensor* pointer. Backward:
  *   dW    = grad * x^T  (cblas_dger rank-1; or F32 plain loop)
  *   dx    = W^T @ grad  (cblas_dgemv transposed; or F32 tape_load_d loop)

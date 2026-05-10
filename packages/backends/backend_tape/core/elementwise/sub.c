@@ -1,6 +1,6 @@
 /* core/elementwise/sub.c — element-wise subtraction (forward + backward).
  *
- * Phase 1a.3. d(a-b)/da = 1, d(a-b)/db = -1 (sign-flipped from add).
+ * d(a-b)/da = 1, d(a-b)/db = -1 (sign-flipped from add).
  */
 
 #include <string.h>

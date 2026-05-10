@@ -1,6 +1,6 @@
 /* nn/norm/group_norm.c — group normalization (forward only).
  *
- * Phase 1e.8.a (forward-only). Input treated as a flat 1D buffer of
+ * Input treated as a flat 1D buffer of
  * length channels * spatial; output preserves the same shape. No
  * backward tape entry — torch/MLX handle group norm natively.
  *

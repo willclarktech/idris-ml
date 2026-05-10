@@ -1,6 +1,6 @@
 /* conv/conv2d.c — single-sample 2D convolution (forward + backward).
  *
- * Phase 1d.2.d. Input [inC, H, W], kernel [outC, inC, kH, kW], optional
+ * Input [inC, H, W], kernel [outC, inC, kH, kW], optional
  * bias [outC]. Output [outC, oH, oW] with the usual valid-window formula
  * (oH = (H + 2*padH - kH)/strideH + 1, similarly for oW).
  *

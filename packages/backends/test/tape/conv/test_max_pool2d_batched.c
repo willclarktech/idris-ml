@@ -1,4 +1,4 @@
-/* Criterion suite for tape `tensor_max_pool2d_batched` (Phase 1d.2.c).
+/* Criterion suite for tape `tensor_max_pool2d_batched`.
  *
  * input [B=2, C=1, H=2, W=2] = [[[1,2],[3,4]], [[8,7],[6,5]]], k=2 s=1.
  * Forward winners: [4, 8]. Backward sum-loss: d_in winner positions = 1.

@@ -1,6 +1,6 @@
 /* core/elementwise/log.c — element-wise natural log (forward + backward).
  *
- * Phase 1a.6. d(log(x))/dx = 1/x (undefined for x<=0; we trust callers).
+ * d(log(x))/dx = 1/x (undefined for x<=0; we trust callers).
  */
 
 #include <math.h>

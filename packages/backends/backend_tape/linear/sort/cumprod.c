@@ -1,6 +1,6 @@
 /* linear/sort/cumprod.c — cumulative product along dim 0 (1D only).
  *
- * Phase 1b.8.b. Forward: r[i] = prod(a[0..i]). Backward (safe form,
+ * Forward: r[i] = prod(a[0..i]). Backward (safe form,
  * handles a[i] == 0):
  *   d_a[i] = (sum_{j>=i} d_r[j] * r[j]) / a[i]   when |a[i]| > 1e-30
  *   else exclusive-product recompute over the suffix.

@@ -1,6 +1,6 @@
 /* conv/conv_grouped.c — grouped 1D / 2D convolution (forward only).
  *
- * Phase 1e.8. Forward delegates to ungrouped tensor_conv1d /
+ * Forward delegates to ungrouped tensor_conv1d /
  * tensor_conv2d when groups=1. For groups>1, hand-rolled per-group
  * loops — no separate backward; grouped conv on tape doesn't support
  * autograd (mlx/torch use native grouped conv with full autograd).

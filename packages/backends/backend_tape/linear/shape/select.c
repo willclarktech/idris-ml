@@ -1,6 +1,6 @@
 /* linear/shape/select.c — tensor_select (forward + backward).
  *
- * Phase 1b.1. Forward selects an element from a vector (rank-1 ->
+ * Forward selects an element from a vector (rank-1 ->
  * scalar) or a row from a matrix (rank-2 dim=0 -> vector). Backward
  * scatters grad back into the parent at the selected index/row.
  *

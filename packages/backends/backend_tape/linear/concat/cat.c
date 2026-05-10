@@ -1,6 +1,6 @@
 /* linear/concat/cat.c — concatenate (simplified: delegates to stack).
  *
- * Phase 1b.2.a (mechanical). Today's semantics: identical to
+ * Today's semantics: identical to
  * tensor_stack for scalar inputs (covers idris-ml's actual usage —
  * the more general N-dim cat surfaces are tensor_cat2 (1D) and
  * tensor_concat_2d_axis1 (2D) in separate files).

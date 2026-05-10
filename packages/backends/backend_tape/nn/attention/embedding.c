@@ -1,6 +1,6 @@
 /* nn/attention/embedding.c — embedding (forward + backward).
  *
- * Phase 1c.5. Row gather from weight matrix; backward scatters grad
+ * Row gather from weight matrix; backward scatters grad
  * rows back. EmbeddingMeta caches indices (heap-allocated, freed in
  * tape_reset).
  */

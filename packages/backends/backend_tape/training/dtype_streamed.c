@@ -1,6 +1,6 @@
 /* training/dtype_streamed.c — dtag-streamed creation + cast wrappers.
  *
- * Phase 1e.9. The unified FFI dispatch surface that landed on
+ * The unified FFI dispatch surface that landed on
  * 2026-05-22: `tensor_create_<shape>_streamed(..., int dtag)` takes
  * a runtime dtype tag and routes to the appropriate concrete storage
  * (F64 lingua franca, real F32 arena/persistent, or one of the

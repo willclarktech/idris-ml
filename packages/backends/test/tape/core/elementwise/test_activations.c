@@ -1,4 +1,4 @@
-/* Criterion suite for tape elementwise activations (Phase 1a.8).
+/* Criterion suite for tape elementwise activations.
  * Covers sigmoid, tanh, softplus. */
 
 #include <criterion/criterion.h>

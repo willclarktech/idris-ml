@@ -1,6 +1,6 @@
 /* training/shims.c — small system/debug/FFI shims.
  *
- * Phase 1e.11 closeout. Collects everything that wasn't worth its own
+ * Collects everything that wasn't worth its own
  * file: the per-eval reset, live-count probes, mlx_compile no-op
  * accessors (tape backend never compiles), tensor_print debug
  * helper, the *_return RefC-compat wrappers, and the

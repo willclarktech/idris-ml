@@ -1,6 +1,6 @@
 /* linear/linalg/transpose_last2.c — transpose last two dims of a 3D tensor.
  *
- * Phase 1b.6. a=[B,m,n] -> r=[B,n,m]. Backward: transpose back.
+ * a=[B,m,n] -> r=[B,n,m]. Backward: transpose back.
  */
 
 #include <stdlib.h>

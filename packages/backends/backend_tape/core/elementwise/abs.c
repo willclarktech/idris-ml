@@ -1,6 +1,6 @@
 /* core/elementwise/abs.c — element-wise absolute value (forward + backward).
  *
- * Phase 1a.6. d|x|/dx = sign(x) (discontinuous at 0; we pick +1 for x=0).
+ * d|x|/dx = sign(x) (discontinuous at 0; we pick +1 for x=0).
  */
 
 #include <math.h>
