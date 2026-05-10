@@ -21,11 +21,10 @@ static void noop_backward(TapeEntry* e) { (void)e; }
 static void other_backward(TapeEntry* e) { (void)e; }
 
 /* Pick an op tag that's NOT yet migrated to its own file (and therefore
-   has no TAPE_REGISTER_OP firing at load time). OP_CONV2D is the
-   first 2D conv op slated for Phase 1d.2 — until then its entry
-   stays NULL, so these tests can register/clear without colliding
-   with a real handler. Update this when OP_CONV2D migrates. */
-#define UNMIGRATED_OP OP_CONV2D
+   has no TAPE_REGISTER_OP firing at load time). OP_CONV2D_BATCHED is
+   slated for Phase 1d.2.e — until then its entry stays NULL. Update
+   when OP_CONV2D_BATCHED migrates. */
+#define UNMIGRATED_OP OP_CONV2D_BATCHED
 
 Test(op_dispatch, unmigrated_ops_are_null) {
     /* Anything not yet migrated stays NULL — gives confidence that
