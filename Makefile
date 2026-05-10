@@ -806,11 +806,24 @@ test-idris: install $(TESTCONFIG_IDR)
 # crash at FFI resolution under any single-backend build. Torch
 # primary so the F32-hop's tcastUnsafe (a RuntimeDType op routed
 # via unified C names) lands on a backend that supports F32.
+#
+# After the Idris cross-backend test runs, each backend's Criterion
+# suite is re-invoked. Each sub-`make` relinks libidrisml.dylib for
+# that backend's primary (the same single-backend dylib `make
+# BACKEND=<b> install` would produce) — so Criterion validates the
+# *single-backend* lane for each one, not the multi-link dylib.
+# That's the regression bar we actually want here: the multi-link
+# dylib is exercised by Test.Transfer above; the Criterion suites
+# exercise the same op-level behaviour each lane would ship to
+# users.
 test-multi: $(TESTCONFIG_IDR)
 	$(MAKE) BACKEND=torch,tape,mlx install
 	idris2 --source-dir $(TEST_SRC) -p contrib -p idris-ml -o test-multi $(TEST_SRC)/MainMulti.idr
 	cp $(LIB) build/exec/test-multi_app/
 	./build/exec/test-multi
+	$(MAKE) BACKEND=tape test-backend-criterion
+	$(MAKE) BACKEND=torch test-backend-criterion
+	$(MAKE) BACKEND=mlx test-backend-criterion
 
 # Idris tests for idris-gym package (pure Idris, no backend required)
 test-gym: install-gym
