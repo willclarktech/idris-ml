@@ -2270,9 +2270,7 @@ TensorPair* tensor_lstm_gates_pair(TensorHandle combined, TensorHandle prev_cell
     return p;
 }
 
-TensorHandle tensor_pair_first(TensorPair* p) { return p->first; }
-TensorHandle tensor_pair_second(TensorPair* p) { return p->second; }
-void tensor_pair_free(TensorPair* p) { free(p); }
+/* tensor_pair_first/second/free: moved to backend_tape/nn/recurrent/pair_helpers.c (Phase 1c.7.b). */
 
 /* ================================================================
    GRU Cell
