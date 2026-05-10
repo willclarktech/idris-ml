@@ -2079,88 +2079,85 @@ static torch::ScalarType st_for_dtag(int dtag) {
     }
 }
 
-TensorHandle tensor_create_scalar_streamed(double v, int rg, int s, int dtag) {
-    (void)s;
+/* Per-shape dtag dispatchers bound into the port struct below. Renamed
+   from `tensor_create_*_streamed` (FFI-named) — the shared
+   shared/training/dtype_streamed.c TU now provides the FFI surface
+   via port trampolines that strip the (mlx-only) stream_tag and call
+   into these. F32/F64 route to the dedicated dtype creators
+   (byte-identical with the previous in-file path); other dtags route
+   through the generic create_*_dt / make_param_leaf / torch_cast_to
+   path. */
+static TensorHandle torch_create_scalar_dtag(double v, int rg, int dtag) {
     switch (dtag) {
         case 14: return tensor_create_scalar_f32(v, rg);
         case 15: return tensor_create_scalar_f64(v, rg);
         default: return create_scalar_dt(v, rg, st_for_dtag(dtag));
     }
 }
-TensorHandle tensor_create_streamed(double* data, int* shape, int rank, int rg, int s, int dtag) {
-    (void)s;
+static TensorHandle torch_create_dtag(double* data, int* shape, int rank, int rg, int dtag) {
     switch (dtag) {
         case 14: return tensor_create_f32(data, shape, rank, rg);
         case 15: return tensor_create_f64(data, shape, rank, rg);
         default: return create_nd_dt(data, shape, rank, rg, st_for_dtag(dtag));
     }
 }
-TensorHandle tensor_create_1d_streamed(int n, double* data, int rg, int s, int dtag) {
-    (void)s;
+static TensorHandle torch_create_1d_dtag(int n, double* data, int rg, int dtag) {
     switch (dtag) {
         case 14: return tensor_create_1d_f32(n, data, rg);
         case 15: return tensor_create_1d_f64(n, data, rg);
         default: return create_1d_dt(n, data, rg, st_for_dtag(dtag));
     }
 }
-TensorHandle tensor_create_2d_streamed(int rows, int cols, double* data, int rg, int s, int dtag) {
-    (void)s;
+static TensorHandle torch_create_2d_dtag(int rows, int cols, double* data, int rg, int dtag) {
     switch (dtag) {
         case 14: return tensor_create_2d_f32(rows, cols, data, rg);
         case 15: return tensor_create_2d_f64(rows, cols, data, rg);
         default: return create_2d_dt(rows, cols, data, rg, st_for_dtag(dtag));
     }
 }
-TensorHandle tensor_create_param_1d_streamed(int n, double* data, int s, int dtag) {
-    (void)s;
+static TensorHandle torch_create_param_1d_dtag(int n, double* data, int dtag) {
     switch (dtag) {
         case 14: return tensor_create_param_1d_f32(n, data);
         case 15: return tensor_create_param_1d_f64(n, data);
         default: return make_param_leaf(data, {(int64_t)n}, st_for_dtag(dtag));
     }
 }
-TensorHandle tensor_create_param_2d_streamed(int rows, int cols, double* data, int s, int dtag) {
-    (void)s;
+static TensorHandle torch_create_param_2d_dtag(int rows, int cols, double* data, int dtag) {
     switch (dtag) {
         case 14: return tensor_create_param_2d_f32(rows, cols, data);
         case 15: return tensor_create_param_2d_f64(rows, cols, data);
         default: return make_param_leaf(data, {(int64_t)rows, (int64_t)cols}, st_for_dtag(dtag));
     }
 }
-TensorHandle tensor_create_param_3d_streamed(int d0, int d1, int d2, double* data, int s, int dtag) {
-    (void)s;
+static TensorHandle torch_create_param_3d_dtag(int d0, int d1, int d2, double* data, int dtag) {
     switch (dtag) {
         case 14: return tensor_create_param_3d_f32(d0, d1, d2, data);
         case 15: return tensor_create_param_3d_f64(d0, d1, d2, data);
         default: return make_param_leaf(data, {(int64_t)d0, (int64_t)d1, (int64_t)d2}, st_for_dtag(dtag));
     }
 }
-TensorHandle tensor_create_param_4d_streamed(int d0, int d1, int d2, int d3, double* data, int s, int dtag) {
-    (void)s;
+static TensorHandle torch_create_param_4d_dtag(int d0, int d1, int d2, int d3, double* data, int dtag) {
     switch (dtag) {
         case 14: return tensor_create_param_4d_f32(d0, d1, d2, d3, data);
         case 15: return tensor_create_param_4d_f64(d0, d1, d2, d3, data);
         default: return make_param_leaf(data, {(int64_t)d0, (int64_t)d1, (int64_t)d2, (int64_t)d3}, st_for_dtag(dtag));
     }
 }
-TensorHandle tensor_create_state_1d_streamed(int n, double* data, int s, int dtag) {
-    (void)s;
+static TensorHandle torch_create_state_1d_dtag(int n, double* data, int dtag) {
     switch (dtag) {
         case 14: return tensor_create_state_1d_f32(n, data);
         case 15: return tensor_create_state_1d_f64(n, data);
         default: return torch_cast_to(tensor_create_state_1d(n, data), st_for_dtag(dtag));
     }
 }
-TensorHandle tensor_create_state_2d_streamed(int rows, int cols, double* data, int s, int dtag) {
-    (void)s;
+static TensorHandle torch_create_state_2d_dtag(int rows, int cols, double* data, int dtag) {
     switch (dtag) {
         case 14: return tensor_create_state_2d_f32(rows, cols, data);
         case 15: return tensor_create_state_2d_f64(rows, cols, data);
         default: return torch_cast_to(tensor_create_state_2d(rows, cols, data), st_for_dtag(dtag));
     }
 }
-TensorHandle tensor_cast_dtype_streamed(TensorHandle src, int s, int dtag) {
-    (void)s;
+static TensorHandle torch_cast_dtype_dtag(TensorHandle src, int dtag) {
     return from_tensor(to_tensor(src)->to(st_for_dtag(dtag)));
 }
 
@@ -2180,6 +2177,22 @@ TensorHandle tensor_cast_dtype_streamed(TensorHandle src, int s, int dtag) {
  * run, so the fast path covers ~all live use. */
 
 #include "shared/training/port.h"
+
+/* Port-typed (void*) trampolines for the dtag creators. The internal
+   torch_create_*_dtag helpers above return TensorHandle (which is
+   void* at the C level — but C++ enforces the cast at the function-
+   pointer-init site). */
+static void* torch_port_create_scalar(double v, int rg, int dtag)                                 { return torch_create_scalar_dtag(v, rg, dtag); }
+static void* torch_port_create(double* d, int* s, int r, int rg, int dtag)                        { return torch_create_dtag(d, s, r, rg, dtag); }
+static void* torch_port_create_1d(int n, double* d, int rg, int dtag)                             { return torch_create_1d_dtag(n, d, rg, dtag); }
+static void* torch_port_create_2d(int rows, int cols, double* d, int rg, int dtag)                { return torch_create_2d_dtag(rows, cols, d, rg, dtag); }
+static void* torch_port_create_param_1d(int n, double* d, int dtag)                               { return torch_create_param_1d_dtag(n, d, dtag); }
+static void* torch_port_create_param_2d(int rows, int cols, double* d, int dtag)                  { return torch_create_param_2d_dtag(rows, cols, d, dtag); }
+static void* torch_port_create_param_3d(int d0, int d1, int d2, double* d, int dtag)              { return torch_create_param_3d_dtag(d0, d1, d2, d, dtag); }
+static void* torch_port_create_param_4d(int d0, int d1, int d2, int d3, double* d, int dtag)      { return torch_create_param_4d_dtag(d0, d1, d2, d3, d, dtag); }
+static void* torch_port_create_state_1d(int n, double* d, int dtag)                               { return torch_create_state_1d_dtag(n, d, dtag); }
+static void* torch_port_create_state_2d(int rows, int cols, double* d, int dtag)                  { return torch_create_state_2d_dtag(rows, cols, d, dtag); }
+static void* torch_port_cast_dtype(void* src, int dtag)                                            { return torch_cast_dtype_dtag((TensorHandle)src, dtag); }
 
 static int torch_port_tensor_numel(void* h) {
     return (int)to_tensor(h)->numel();
@@ -2289,15 +2302,17 @@ const BackendPort g_active_port = {
     .optimizer_get_meta        = nullptr,
     .optimizer_set_meta        = nullptr,
     .wall_ms                   = nullptr,
-    .create_scalar             = nullptr,
-    .create                    = nullptr,
-    .create_1d                 = nullptr,
-    .create_2d                 = nullptr,
-    .create_param_1d           = nullptr,
-    .create_param_2d           = nullptr,
-    .create_param_3d           = nullptr,
-    .create_param_4d           = nullptr,
-    .create_state_1d           = nullptr,
-    .create_state_2d           = nullptr,
-    .cast_dtype                = nullptr,
+    /* Dtag-streamed creators: torch supplies its libtorch-backed
+       dtag dispatchers via the torch_port_create_* shims above. */
+    .create_scalar             = torch_port_create_scalar,
+    .create                    = torch_port_create,
+    .create_1d                 = torch_port_create_1d,
+    .create_2d                 = torch_port_create_2d,
+    .create_param_1d           = torch_port_create_param_1d,
+    .create_param_2d           = torch_port_create_param_2d,
+    .create_param_3d           = torch_port_create_param_3d,
+    .create_param_4d           = torch_port_create_param_4d,
+    .create_state_1d           = torch_port_create_state_1d,
+    .create_state_2d           = torch_port_create_state_2d,
+    .cast_dtype                = torch_port_cast_dtype,
 };

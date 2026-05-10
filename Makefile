@@ -287,7 +287,7 @@ SHARED_TRAINING_SRCS    := $(shell find $(BACKENDS_DIR)/shared -name '*.c' 2>/de
 SHARED_BACKENDS_param_registry := tape torch
 SHARED_BACKENDS_optimizer      := tape
 SHARED_BACKENDS_ffi_shims      := tape torch
-SHARED_BACKENDS_dtype_streamed := tape
+SHARED_BACKENDS_dtype_streamed := tape torch
 SHARED_BACKENDS_profiler       :=
 # Union (used to gate the adapter compile only — not the per-TU compile).
 TRAINING_ADAPTER_BACKENDS := $(sort $(SHARED_BACKENDS_param_registry) \
