@@ -3,7 +3,7 @@
 #include <criterion/criterion.h>
 #include "../../../../backend.h"
 
-Test(tape_linear_index_scatter_add, forward_accumulates) {
+Test(linear_index_scatter_add, forward_accumulates) {
     /* index = [0, 1, 0, 2], src = [10, 20, 30, 40], out_size = 3
        r[0] = 10 + 30 = 40, r[1] = 20, r[2] = 40 */
     double ixd[] = {0.0, 1.0, 0.0, 2.0};
@@ -20,7 +20,7 @@ Test(tape_linear_index_scatter_add, forward_accumulates) {
     cr_assert_float_eq(out[2], 40.0, 1e-12);
 }
 
-Test(tape_linear_index_scatter_add, backward_gathers_grad) {
+Test(linear_index_scatter_add, backward_gathers_grad) {
     /* Same setup. loss = sum(r) -> d_src[i] = d_r[index[i]] = 1 for any valid idx. */
     param_clear();
     double ixd[] = {0.0, 1.0, 0.0, 2.0};

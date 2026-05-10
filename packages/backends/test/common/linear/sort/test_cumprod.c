@@ -3,7 +3,7 @@
 #include <criterion/criterion.h>
 #include "../../../../backend.h"
 
-Test(tape_linear_sort_cumprod, forward) {
+Test(linear_sort_cumprod, forward) {
     double d[] = {2.0, 3.0, 4.0};
     int s[] = {3};
     TensorHandle t = tensor_create(d, s, 1, 0);
@@ -15,7 +15,7 @@ Test(tape_linear_sort_cumprod, forward) {
     cr_assert_float_eq(out[2], 24.0, 1e-12);
 }
 
-Test(tape_linear_sort_cumprod, backward_simple) {
+Test(linear_sort_cumprod, backward_simple) {
     /* a = [2, 3, 4]; r = [2, 6, 24]; loss = sum(r) = 32
        d_a[0] = (d_r[0]*r[0] + d_r[1]*r[1] + d_r[2]*r[2]) / a[0]
               = (2 + 6 + 24) / 2 = 16

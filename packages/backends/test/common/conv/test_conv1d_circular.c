@@ -25,7 +25,7 @@
    [1.3, 1.0, 1.3]; backward is correct. Likely an off-by-one in
    mlx's circular kernel rotation. Tracked in TODO.md "mlx
    conv1d_circular forward output". */
-Test(tape_conv_conv1d_circular, forward_and_backward, .disabled = SKIP_ON_MLX) {
+Test(conv_conv1d_circular, forward_and_backward, .disabled = SKIP_ON_MLX) {
     param_clear();
     double in_data[3] = {1.0, 2.0, 3.0};
     double k_data[3]  = {0.1, 0.2, 0.3};

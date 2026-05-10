@@ -3,14 +3,14 @@
 #include <criterion/criterion.h>
 #include "../../../../backend.h"
 
-Test(tape_core_elementwise_div, forward_scalar) {
+Test(core_elementwise_div, forward_scalar) {
     TensorHandle a = tensor_create_scalar(10.0, 0);
     TensorHandle b = tensor_create_scalar(4.0, 0);
     TensorHandle c = tensor_div(a, b);
     cr_assert_float_eq(tensor_item(c), 2.5, 1e-12);
 }
 
-Test(tape_core_elementwise_div, backward_scalar) {
+Test(core_elementwise_div, backward_scalar) {
     /* c = a/b; dc/da = 1/b, dc/db = -a/b^2 */
     param_clear();
     TensorHandle a = tensor_create_scalar(10.0, 1);
@@ -25,7 +25,7 @@ Test(tape_core_elementwise_div, backward_scalar) {
         "d(a/b)/db should be -a/b^2=-0.625 (got %.6f)", param_grad_item_at(1, 0));
 }
 
-Test(tape_core_elementwise_div, backward_vector) {
+Test(core_elementwise_div, backward_vector) {
     param_clear();
     double ad[] = {6.0, 12.0};
     double bd[] = {2.0, 4.0};

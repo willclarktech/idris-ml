@@ -5,14 +5,14 @@
 #include "../../../../backend.h"
 #include "../../test_helpers.h"
 
-Test(tape_core_elementwise_pow, forward_scalar) {
+Test(core_elementwise_pow, forward_scalar) {
     TensorHandle a = tensor_create_scalar(2.0, 0);
     TensorHandle b = tensor_create_scalar(3.0, 0);
     TensorHandle c = tensor_pow(a, b);
     cr_assert_float_eq(tensor_item(c), 8.0, TEST_TOL_TIGHT);
 }
 
-Test(tape_core_elementwise_pow, backward_scalar) {
+Test(core_elementwise_pow, backward_scalar) {
     /* c = a^b; dc/da = b*a^(b-1) = 3*2^2 = 12
                 dc/db = log(a)*a^b = ln(2)*8 */
     param_clear();

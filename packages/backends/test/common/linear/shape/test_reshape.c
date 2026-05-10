@@ -3,7 +3,7 @@
 #include <criterion/criterion.h>
 #include "../../../../backend.h"
 
-Test(tape_linear_shape_reshape, forward_2x3_to_3x2) {
+Test(linear_shape_reshape, forward_2x3_to_3x2) {
     double d[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
     int s_in[]  = {2, 3};
     int s_out[] = {3, 2};
@@ -19,7 +19,7 @@ Test(tape_linear_shape_reshape, forward_2x3_to_3x2) {
     for (int i = 0; i < 6; i++) cr_assert_float_eq(out[i], d[i], 1e-12);
 }
 
-Test(tape_linear_shape_reshape, backward_passthrough) {
+Test(linear_shape_reshape, backward_passthrough) {
     /* Forward reshape + sum to scalar — grad should be 1.0 at every position. */
     param_clear();
     double d[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};

@@ -21,7 +21,7 @@
 #include <criterion/criterion.h>
 #include "../../../backend.h"
 
-Test(tape_conv_conv1d, forward_and_backward) {
+Test(conv_conv1d, forward_and_backward) {
     param_clear();
     double in_data[4] = {1.0, 2.0, 3.0, 4.0};
     double k_data[2]  = {0.5, 0.5};

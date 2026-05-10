@@ -6,7 +6,7 @@
 #include "../../../../backend.h"
 #include "../../test_helpers.h"
 
-Test(tape_core_elementwise_neg, forward_backward) {
+Test(core_elementwise_neg, forward_backward) {
     param_clear();
     TensorHandle a = tensor_create_scalar(7.0, 1);
     param_register("a", a);
@@ -17,7 +17,7 @@ Test(tape_core_elementwise_neg, forward_backward) {
         "d(-x)/dx should be -1 (got %.6f)", param_grad_item_at(0, 0));
 }
 
-Test(tape_core_elementwise_abs, forward_backward_pos_neg) {
+Test(core_elementwise_abs, forward_backward_pos_neg) {
     param_clear();
     TensorHandle a = tensor_create_scalar(-3.0, 1);
     param_register("a", a);
@@ -28,7 +28,7 @@ Test(tape_core_elementwise_abs, forward_backward_pos_neg) {
         "d|x|/dx at x=-3 should be -1 (got %.6f)", param_grad_item_at(0, 0));
 }
 
-Test(tape_core_elementwise_exp, forward_backward) {
+Test(core_elementwise_exp, forward_backward) {
     param_clear();
     TensorHandle a = tensor_create_scalar(1.0, 1);
     param_register("a", a);
@@ -40,7 +40,7 @@ Test(tape_core_elementwise_exp, forward_backward) {
         "d(exp(x))/dx at x=1 should be e (got %.6f)", param_grad_item_at(0, 0));
 }
 
-Test(tape_core_elementwise_log, forward_backward) {
+Test(core_elementwise_log, forward_backward) {
     param_clear();
     TensorHandle a = tensor_create_scalar(2.0, 1);
     param_register("a", a);
@@ -52,7 +52,7 @@ Test(tape_core_elementwise_log, forward_backward) {
         "d(log(x))/dx at x=2 should be 0.5 (got %.6f)", param_grad_item_at(0, 0));
 }
 
-Test(tape_core_elementwise_sqrt, forward_backward) {
+Test(core_elementwise_sqrt, forward_backward) {
     param_clear();
     TensorHandle a = tensor_create_scalar(4.0, 1);
     param_register("a", a);

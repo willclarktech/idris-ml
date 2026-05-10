@@ -3,7 +3,7 @@
 #include <criterion/criterion.h>
 #include "../../../../backend.h"
 
-Test(tape_linear_shape_narrow, forward_slice) {
+Test(linear_shape_narrow, forward_slice) {
     double d[] = {10.0, 20.0, 30.0, 40.0, 50.0};
     int s[] = {5};
     TensorHandle v = tensor_create(d, s, 1, 0);
@@ -15,7 +15,7 @@ Test(tape_linear_shape_narrow, forward_slice) {
     cr_assert_float_eq(out[2], 40.0, 1e-12);
 }
 
-Test(tape_linear_shape_narrow, backward_scatters_to_offset) {
+Test(linear_shape_narrow, backward_scatters_to_offset) {
     /* narrow [v0..v4], 1..4 -> [v1, v2, v3]; sum -> backward should
        set parent's grad to [0, 1, 1, 1, 0]. */
     param_clear();

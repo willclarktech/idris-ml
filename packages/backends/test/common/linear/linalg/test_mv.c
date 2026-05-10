@@ -3,7 +3,7 @@
 #include <criterion/criterion.h>
 #include "../../../../backend.h"
 
-Test(tape_linear_linalg_mv, forward_2x3_times_3vec) {
+Test(linear_linalg_mv, forward_2x3_times_3vec) {
     /* M = [[1, 2, 3], [4, 5, 6]], v = [1, 1, 1]; M @ v = [6, 15] */
     double md[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
     double vd[] = {1.0, 1.0, 1.0};
@@ -19,7 +19,7 @@ Test(tape_linear_linalg_mv, forward_2x3_times_3vec) {
     cr_assert_float_eq(out[1], 15.0, 1e-12);
 }
 
-Test(tape_linear_linalg_mv, backward_mat_and_vec) {
+Test(linear_linalg_mv, backward_mat_and_vec) {
     /* r = M @ v; loss = sum(r). dM[i,j] = v[j]; dv[j] = sum_i M[i,j]. */
     param_clear();
     double md[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};

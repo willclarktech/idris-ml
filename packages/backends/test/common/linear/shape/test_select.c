@@ -3,7 +3,7 @@
 #include <criterion/criterion.h>
 #include "../../../../backend.h"
 
-Test(tape_linear_shape_select, forward_vector_element) {
+Test(linear_shape_select, forward_vector_element) {
     double d[] = {10.0, 20.0, 30.0, 40.0};
     int s[] = {4};
     TensorHandle v = tensor_create(d, s, 1, 0);
@@ -11,7 +11,7 @@ Test(tape_linear_shape_select, forward_vector_element) {
     cr_assert_float_eq(tensor_item(e), 30.0, 1e-12);
 }
 
-Test(tape_linear_shape_select, backward_scatters_to_index) {
+Test(linear_shape_select, backward_scatters_to_index) {
     /* Vector [a0, a1, a2, a3]; select index 1; backward should put 1.0
        at a's grad[1] and 0.0 elsewhere. */
     param_clear();

@@ -16,14 +16,14 @@
 #include <criterion/criterion.h>
 #include "../../../../backend.h"
 
-Test(tape_core_elementwise_add, forward_scalar_scalar) {
+Test(core_elementwise_add, forward_scalar_scalar) {
     TensorHandle a = tensor_create_scalar(3.0, 1);
     TensorHandle b = tensor_create_scalar(4.0, 1);
     TensorHandle c = tensor_add(a, b);
     cr_assert_float_eq(tensor_item(c), 7.0, 1e-12);
 }
 
-Test(tape_core_elementwise_add, forward_vector_vector_same_shape) {
+Test(core_elementwise_add, forward_vector_vector_same_shape) {
     double ad[] = {1.0, 2.0, 3.0};
     double bd[] = {10.0, 20.0, 30.0};
     int s[] = {3};
@@ -37,7 +37,7 @@ Test(tape_core_elementwise_add, forward_vector_vector_same_shape) {
     cr_assert_float_eq(out[2], 33.0, 1e-12);
 }
 
-Test(tape_core_elementwise_add, backward_scalar_grads_both_one) {
+Test(core_elementwise_add, backward_scalar_grads_both_one) {
     /* c = a + b; dc/da = dc/db = 1 (sum) */
     param_clear();
     TensorHandle a = tensor_create_scalar(3.0, 1);
@@ -52,7 +52,7 @@ Test(tape_core_elementwise_add, backward_scalar_grads_both_one) {
         "d(a+b)/db should be 1.0 (got %.6f)", param_grad_item_at(1, 0));
 }
 
-Test(tape_core_elementwise_add, backward_vector_vector_same_shape) {
+Test(core_elementwise_add, backward_vector_vector_same_shape) {
     /* c = a + b; reduce to scalar via sum; dscalar/d_each_input = 1 */
     param_clear();
     double ad[] = {1.0, 2.0, 3.0};
@@ -76,7 +76,7 @@ Test(tape_core_elementwise_add, backward_vector_vector_same_shape) {
     }
 }
 
-Test(tape_core_elementwise_add, backward_scalar_plus_vector_broadcast) {
+Test(core_elementwise_add, backward_scalar_plus_vector_broadcast) {
     /* c = scalar + vector; d_scalar = sum(d_c), d_vector[i] = d_c[i].
        After loss = sum(c), d_c[i] = 1.0, so d_scalar = numel(c), d_vector[i] = 1. */
     param_clear();

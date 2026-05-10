@@ -11,7 +11,7 @@
 #include <criterion/criterion.h>
 #include "../../../backend.h"
 
-Test(tape_conv_max_pool2d_batched, forward_and_backward) {
+Test(conv_max_pool2d_batched, forward_and_backward) {
     param_clear();
     double in_data[8] = {1.0, 2.0, 3.0, 4.0,  8.0, 7.0, 6.0, 5.0};
     int sh[4] = {2, 1, 2, 2};

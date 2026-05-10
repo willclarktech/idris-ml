@@ -12,7 +12,7 @@
 #include <stdlib.h>
 #include "../../../../backend.h"
 
-Test(tape_linear_concat_stack_from_array, backward_distributes) {
+Test(linear_concat_stack_from_array, backward_distributes) {
     param_clear();
     TensorHandle a = tensor_create_scalar(1.0, 1);
     TensorHandle b = tensor_create_scalar(2.0, 1);

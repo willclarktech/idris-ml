@@ -4,7 +4,7 @@
 #include <criterion/criterion.h>
 #include "../../../../backend.h"
 
-Test(tape_linear_reduction_sum, forward_backward) {
+Test(linear_reduction_sum, forward_backward) {
     param_clear();
     double d[] = {1.0, 2.0, 3.0, 4.0};
     int s[] = {4};
@@ -18,7 +18,7 @@ Test(tape_linear_reduction_sum, forward_backward) {
             "sum grad[%d] should be 1 (got %.6f)", i, param_grad_item_at(0, i));
 }
 
-Test(tape_linear_reduction_mean, forward_backward) {
+Test(linear_reduction_mean, forward_backward) {
     param_clear();
     double d[] = {1.0, 2.0, 3.0, 4.0};
     int s[] = {4};
@@ -33,7 +33,7 @@ Test(tape_linear_reduction_mean, forward_backward) {
             "mean grad[%d] should be 0.25 (got %.6f)", i, param_grad_item_at(0, i));
 }
 
-Test(tape_linear_reduction_min, forward) {
+Test(linear_reduction_min, forward) {
     double d[] = {3.0, -1.0, 5.0, 2.0};
     int s[] = {4};
     TensorHandle t = tensor_create(d, s, 1, 0);
@@ -41,7 +41,7 @@ Test(tape_linear_reduction_min, forward) {
     cr_assert_float_eq(tensor_item(r), -1.0, 1e-12);
 }
 
-Test(tape_linear_reduction_max, forward) {
+Test(linear_reduction_max, forward) {
     double d[] = {3.0, -1.0, 5.0, 2.0};
     int s[] = {4};
     TensorHandle t = tensor_create(d, s, 1, 0);

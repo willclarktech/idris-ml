@@ -3,7 +3,7 @@
 #include <criterion/criterion.h>
 #include "../../../../backend.h"
 
-Test(tape_linear_linalg_dot, forward_backward) {
+Test(linear_linalg_dot, forward_backward) {
     /* a·b = 1*4 + 2*5 + 3*6 = 32; d/da = b, d/db = a */
     param_clear();
     double ad[] = {1.0, 2.0, 3.0};
@@ -24,7 +24,7 @@ Test(tape_linear_linalg_dot, forward_backward) {
     }
 }
 
-Test(tape_linear_linalg_outer, forward_backward) {
+Test(linear_linalg_outer, forward_backward) {
     /* outer([1, 2], [3, 4, 5]) = [[3, 4, 5], [6, 8, 10]]
        loss = sum -> d_a[i] = sum_j b[j]; d_b[j] = sum_i a[i] */
     param_clear();

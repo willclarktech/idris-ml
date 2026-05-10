@@ -3,14 +3,14 @@
 #include <criterion/criterion.h>
 #include "../../../../backend.h"
 
-Test(tape_core_elementwise_sub, forward_scalar) {
+Test(core_elementwise_sub, forward_scalar) {
     TensorHandle a = tensor_create_scalar(10.0, 0);
     TensorHandle b = tensor_create_scalar(3.0, 0);
     TensorHandle c = tensor_sub(a, b);
     cr_assert_float_eq(tensor_item(c), 7.0, 1e-12);
 }
 
-Test(tape_core_elementwise_sub, forward_vector) {
+Test(core_elementwise_sub, forward_vector) {
     double ad[] = {10.0, 20.0, 30.0};
     double bd[] = {1.0, 2.0, 3.0};
     int s[] = {3};
@@ -24,7 +24,7 @@ Test(tape_core_elementwise_sub, forward_vector) {
     cr_assert_float_eq(out[2], 27.0, 1e-12);
 }
 
-Test(tape_core_elementwise_sub, backward_scalar_grads_signs) {
+Test(core_elementwise_sub, backward_scalar_grads_signs) {
     /* c = a - b; dc/da = +1, dc/db = -1 */
     param_clear();
     TensorHandle a = tensor_create_scalar(10.0, 1);
@@ -39,7 +39,7 @@ Test(tape_core_elementwise_sub, backward_scalar_grads_signs) {
         "d(a-b)/db should be -1.0 (got %.6f)", param_grad_item_at(1, 0));
 }
 
-Test(tape_core_elementwise_sub, backward_vector_signs) {
+Test(core_elementwise_sub, backward_vector_signs) {
     param_clear();
     double ad[] = {5.0, 6.0, 7.0};
     double bd[] = {1.0, 2.0, 3.0};

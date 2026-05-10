@@ -9,7 +9,7 @@
 #include <criterion/criterion.h>
 #include "../../../backend.h"
 
-Test(tape_conv_max_pool1d, forward_and_backward) {
+Test(conv_max_pool1d, forward_and_backward) {
     param_clear();
     double in_data[4] = {3.0, 1.0, 4.0, 2.0};
     int sh[2] = {1, 4};

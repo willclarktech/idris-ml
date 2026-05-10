@@ -12,7 +12,7 @@
 #include <criterion/criterion.h>
 #include "../../../backend.h"
 
-Test(tape_conv_avg_pool1d, forward_and_backward) {
+Test(conv_avg_pool1d, forward_and_backward) {
     param_clear();
     double in_data[4] = {1.0, 2.0, 3.0, 4.0};
     int sh[2] = {1, 4};

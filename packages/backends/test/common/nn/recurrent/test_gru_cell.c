@@ -29,7 +29,7 @@
 /* Drives a length-1 GRU cell with hand-rolled inputs so each gate
    activation falls in a closed-form range, then sums the hidden
    output → dh' = 1, exercises every grad path. */
-Test(tape_nn_recurrent_gru_cell, backward_grads) {
+Test(nn_recurrent_gru_cell, backward_grads) {
     param_clear();
     int o = 1;
     /* ih = [z=0, r=0, n=0], hh = [z=0, r=0, n=0], prev=[1.0] */

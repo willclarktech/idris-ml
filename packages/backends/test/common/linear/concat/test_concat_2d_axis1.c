@@ -3,7 +3,7 @@
 #include <criterion/criterion.h>
 #include "../../../../backend.h"
 
-Test(tape_linear_concat_concat_2d_axis1, forward_2x2_with_2x3) {
+Test(linear_concat_concat_2d_axis1, forward_2x2_with_2x3) {
     /* A = [[1, 2], [3, 4]],  B = [[10, 20, 30], [40, 50, 60]]
        R = [[1, 2, 10, 20, 30], [3, 4, 40, 50, 60]] */
     double ad[] = {1.0, 2.0, 3.0, 4.0};
@@ -22,7 +22,7 @@ Test(tape_linear_concat_concat_2d_axis1, forward_2x2_with_2x3) {
     for (int i = 0; i < 10; i++) cr_assert_float_eq(out[i], expected[i], 1e-12);
 }
 
-Test(tape_linear_concat_concat_2d_axis1, backward_splits_columnwise) {
+Test(linear_concat_concat_2d_axis1, backward_splits_columnwise) {
     /* sum(concat(A, B)) -> d_A is all 1s shape (2,2); d_B is all 1s shape (2,3). */
     param_clear();
     double ad[] = {1.0, 2.0, 3.0, 4.0};

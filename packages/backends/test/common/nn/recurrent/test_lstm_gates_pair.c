@@ -21,7 +21,7 @@
 #include "../../../../backend.h"
 #include "../../test_helpers.h"
 
-Test(tape_nn_recurrent_lstm_gates_pair, backward_grads_both_arms) {
+Test(nn_recurrent_lstm_gates_pair, backward_grads_both_arms) {
     param_clear();
     int o = 1;
     /* combined raws = [0, 0, 0, 0] → i = f = g_sigmoid_eq = o = 0.5,

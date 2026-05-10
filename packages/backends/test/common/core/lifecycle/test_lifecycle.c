@@ -9,7 +9,7 @@
 #include <criterion/criterion.h>
 #include "../../../../backend.h"
 
-Test(tape_core_lifecycle, create_scalar_then_item) {
+Test(core_lifecycle, create_scalar_then_item) {
     TensorHandle s = tensor_create_scalar(6.0, 0);
     cr_assert_float_eq(tensor_item(s), 6.0, 1e-12,
         "tensor_item should round-trip the value passed to tensor_create_scalar");
@@ -17,7 +17,7 @@ Test(tape_core_lifecycle, create_scalar_then_item) {
     cr_assert_eq(tensor_dim(s), 0);
 }
 
-Test(tape_core_lifecycle, create_scalar_requires_grad_flag) {
+Test(core_lifecycle, create_scalar_requires_grad_flag) {
     /* requires_grad threads through to the tensor; the scalar with
        requires_grad=1 should hold its grad slot ready. We don't read
        a grad here (no backward), just that the surface accepts the flag
@@ -28,7 +28,7 @@ Test(tape_core_lifecycle, create_scalar_requires_grad_flag) {
     cr_assert_float_eq(tensor_item(s_nograd), 2.5, 1e-12);
 }
 
-Test(tape_core_lifecycle, create_vector) {
+Test(core_lifecycle, create_vector) {
     double data[] = {1.0, 2.0, 3.0};
     int shape[] = {3};
     TensorHandle v = tensor_create(data, shape, 1, 0);
@@ -42,7 +42,7 @@ Test(tape_core_lifecycle, create_vector) {
     cr_assert_float_eq(out[2], 3.0, 1e-12);
 }
 
-Test(tape_core_lifecycle, create_matrix) {
+Test(core_lifecycle, create_matrix) {
     double data[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
     int shape[] = {2, 3};
     TensorHandle m = tensor_create(data, shape, 2, 0);
@@ -52,7 +52,7 @@ Test(tape_core_lifecycle, create_matrix) {
     cr_assert_eq(tensor_size(m, 1), 3);
 }
 
-Test(tape_core_lifecycle, clone_scalar) {
+Test(core_lifecycle, clone_scalar) {
     TensorHandle a = tensor_create_scalar(7.0, 0);
     TensorHandle b = tensor_clone(a);
     cr_assert_float_eq(tensor_item(b), 7.0, 1e-12,
@@ -63,7 +63,7 @@ Test(tape_core_lifecycle, clone_scalar) {
     cr_assert_neq((void*)a, (void*)b, "clone must be a new handle");
 }
 
-Test(tape_core_lifecycle, clone_vector) {
+Test(core_lifecycle, clone_vector) {
     double data[] = {10.0, 20.0, 30.0};
     int shape[] = {3};
     TensorHandle a = tensor_create(data, shape, 1, 0);
@@ -76,7 +76,7 @@ Test(tape_core_lifecycle, clone_vector) {
     cr_assert_neq((void*)a, (void*)b);
 }
 
-Test(tape_core_lifecycle, free_is_safe_noop) {
+Test(core_lifecycle, free_is_safe_noop) {
     /* tensor_free is a no-op on tape (arena lifecycle owns teardown).
        Verify it doesn't crash; subsequent use should still work since
        the tape holds the underlying pointer alive until tape_reset. */
@@ -88,7 +88,7 @@ Test(tape_core_lifecycle, free_is_safe_noop) {
     cr_assert(1);
 }
 
-Test(tape_core_lifecycle, retain_release_handle_noop) {
+Test(core_lifecycle, retain_release_handle_noop) {
     /* ABI parity stubs — should not crash for any handle, including
        NULL (mlx-equivalent does refcount and would crash on NULL). */
     TensorHandle s = tensor_create_scalar(42.0, 0);

@@ -3,7 +3,7 @@
 #include <criterion/criterion.h>
 #include "../../../../backend.h"
 
-Test(tape_linear_concat_cat2, forward_two_vectors) {
+Test(linear_concat_cat2, forward_two_vectors) {
     double ad[] = {1.0, 2.0, 3.0};
     double bd[] = {4.0, 5.0};
     int sa[] = {3};
@@ -21,7 +21,7 @@ Test(tape_linear_concat_cat2, forward_two_vectors) {
     cr_assert_float_eq(out[4], 5.0, 1e-12);
 }
 
-Test(tape_linear_concat_cat2, backward_splits_grad) {
+Test(linear_concat_cat2, backward_splits_grad) {
     /* c = cat2(a, b); loss = sum(c). d_a[i] = 1, d_b[j] = 1. */
     param_clear();
     double ad[] = {1.0, 2.0, 3.0};

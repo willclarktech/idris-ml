@@ -3,7 +3,7 @@
 #include <criterion/criterion.h>
 #include "../../../../backend.h"
 
-Test(tape_linear_index_gather, forward_with_index) {
+Test(linear_index_gather, forward_with_index) {
     /* input = [10, 20, 30, 40], index = [3, 1, 0] -> [40, 20, 10] */
     double id[] = {10.0, 20.0, 30.0, 40.0};
     double ixd[] = {3.0, 1.0, 0.0};
@@ -19,7 +19,7 @@ Test(tape_linear_index_gather, forward_with_index) {
     cr_assert_float_eq(out[2], 10.0, 1e-12);
 }
 
-Test(tape_linear_index_gather, backward_scatters_grad) {
+Test(linear_index_gather, backward_scatters_grad) {
     /* gather with index [3, 1, 0]; sum -> d_input scattered to [3,1,0]. */
     param_clear();
     double id[] = {10.0, 20.0, 30.0, 40.0};
