@@ -711,18 +711,7 @@ TensorHandle tensor_linear(TensorHandle hW, TensorHandle hx, TensorHandle hbias)
     return r;
 }
 
-TensorHandle tensor_dot(TensorHandle ha, TensorHandle hb) {
-    Tensor* a = (Tensor*)ha;
-    Tensor* b = (Tensor*)hb;
-    if (a->dtype_tag != b->dtype_tag) tape_abort_mixed_dtype("tensor_dot");
-    double s = 0;
-    /* tape_load_d handles both F64 and F32 storage uniformly. */
-    for (int i = 0; i < a->numel; i++) s += tape_load_d(a, i) * tape_load_d(b, i);
-    int rg = a->requires_grad || b->requires_grad;
-    Tensor* r = (a->dtype_tag == DT_F32) ? make_scalar_f32(s, rg) : make_scalar(s, rg);
-    if (r->requires_grad) tape_append(OP_DOT, r, a, b, 0);
-    return r;
-}
+/* tensor_dot: moved to backend_tape/linear/linalg/dot.c (Phase 1b.4). */
 
 TensorHandle tensor_matmul(TensorHandle ha, TensorHandle hb) {
     Tensor* a = (Tensor*)ha;
@@ -761,31 +750,7 @@ TensorHandle tensor_matmul(TensorHandle ha, TensorHandle hb) {
     return tensor_mul(ha, hb);
 }
 
-TensorHandle tensor_outer(TensorHandle ha, TensorHandle hb) {
-    Tensor* a = (Tensor*)ha;
-    Tensor* b = (Tensor*)hb;
-    if (a->dtype_tag != b->dtype_tag) tape_abort_mixed_dtype("tensor_outer");
-    int m = a->numel, n = b->numel;
-    int shape[] = {m, n};
-    int rg = a->requires_grad || b->requires_grad;
-    if (a->dtype_tag == DT_F32) {
-        float* data = arena_alloc(m * n * sizeof(float));
-        for (int i = 0; i < m; i++)
-            for (int j = 0; j < n; j++)
-                data[i*n+j] = ((float*)a->data)[i] * ((float*)b->data)[j];
-        Tensor* r = make_tensor_arena_f32(data, m * n, shape, 2, rg);
-        if (r->requires_grad) tape_append(OP_OUTER, r, a, b, 0);
-        return r;
-    }
-    double* data = malloc(m * n * sizeof(double));
-    for (int i = 0; i < m; i++)
-        for (int j = 0; j < n; j++)
-            data[i*n+j] = ((double*)a->data)[i] * ((double*)b->data)[j];
-    Tensor* r = make_tensor(data, shape, 2, rg);
-    free(data);
-    if (r->requires_grad) tape_append(OP_OUTER, r, a, b, 0);
-    return r;
-}
+/* tensor_outer: moved to backend_tape/linear/linalg/outer.c (Phase 1b.4). */
 
 /* Matrix-matrix multiply: [m,n] x [n,k] -> [m,k] */
 TensorHandle tensor_mm(TensorHandle ha, TensorHandle hb) {
@@ -2986,24 +2951,7 @@ void tensor_backward(TensorHandle h) {
 
         /* OP_SUM, OP_MEAN: moved to backend_tape/linear/reduction/ (Phase 1b.3). */
 
-        case OP_DOT:
-            /* d(dot(a,b))/da = b, d(dot(a,b))/db = a (element-wise).
-               tape_load_d covers both F64 and F32 data storage. */
-            if (a && a->numel > 1) {
-                ensure_grad(a);
-                for (int j = 0; j < a->numel; j++) ((double*)a->grad)[j] += ((double*)r->grad)[0] * tape_load_d(b, j);
-            } else if (a) {
-                ensure_grad(a);
-                ((double*)a->grad)[0] += ((double*)r->grad)[0] * tape_load_d(b, 0);
-            }
-            if (b && b->numel > 1) {
-                ensure_grad(b);
-                for (int j = 0; j < b->numel; j++) ((double*)b->grad)[j] += ((double*)r->grad)[0] * tape_load_d(a, j);
-            } else if (b) {
-                ensure_grad(b);
-                ((double*)b->grad)[0] += ((double*)r->grad)[0] * tape_load_d(a, 0);
-            }
-            break;
+        /* OP_DOT: moved to backend_tape/linear/linalg/dot.c (Phase 1b.4). */
 
         case OP_VECMAT: {
             /* r[j] = sum_i a[i] * b[i*m+j], where a=[n], b=[n,m], r=[m].
@@ -3544,31 +3492,7 @@ void tensor_backward(TensorHandle h) {
             break;
         }
 
-        case OP_OUTER: {
-            /* d(outer(a,b))/da[i] = sum_j(grad[i,j] * b[j])
-               d(outer(a,b))/db[j] = sum_i(grad[i,j] * a[i])
-               tape_load_d handles both F64 and F32 storage. */
-            int m_out = a->numel, n_out = b->numel;
-            if (a->requires_grad) {
-                ensure_grad(a);
-                ensure_grad(r);
-                for (int ii = 0; ii < m_out; ii++) {
-                    double s = 0;
-                    for (int jj = 0; jj < n_out; jj++) s += ((double*)r->grad)[ii*n_out+jj] * tape_load_d(b, jj);
-                    ((double*)a->grad)[ii] += s;
-                }
-            }
-            if (b->requires_grad) {
-                ensure_grad(b);
-                ensure_grad(r);
-                for (int jj = 0; jj < n_out; jj++) {
-                    double s = 0;
-                    for (int ii = 0; ii < m_out; ii++) s += ((double*)r->grad)[ii*n_out+jj] * tape_load_d(a, ii);
-                    ((double*)b->grad)[jj] += s;
-                }
-            }
-            break;
-        }
+        /* OP_OUTER: moved to backend_tape/linear/linalg/outer.c (Phase 1b.4). */
 
         case OP_SOFTMAX: {
             /* Softmax backward: d/dx_i = sum_j(grad_j * sm_j * (delta_ij - sm_i)).
