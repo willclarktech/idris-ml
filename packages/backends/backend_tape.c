@@ -1148,70 +1148,7 @@ TensorHandle tensor_conv2d_batched(TensorHandle hinput, TensorHandle hkernel,
 
 /* tensor_max_pool2d: moved to backend_tape/conv/max_pool2d.c (Phase 1d.2.b). */
 
-/* ================================================================
-   Batched MaxPool2D: input [B, C, H, W] -> [B, C, oH, oW]
-   ================================================================ */
-
-TensorHandle tensor_max_pool2d_batched(TensorHandle hinput, int kH, int kW,
-                                        int strideH, int strideW) {
-    Tensor* input = (Tensor*)hinput;
-    int B = input->shape[0], C = input->shape[1];
-    int H = input->shape[2], W = input->shape[3];
-    int oH = (H - kH) / strideH + 1;
-    int oW = (W - kW) / strideW + 1;
-    int out_per_sample = C * oH * oW;
-    int out_numel = B * out_per_sample;
-    int is_f32 = (input->dtype_tag == DT_F32);
-    int out_shape[] = {B, C, oH, oW};
-
-    void* out_buf = is_f32 ? (void*)arena_alloc(out_numel * sizeof(float))
-                           : (void*)calloc(out_numel, sizeof(double));
-    int* max_idx = malloc(out_numel * sizeof(int));
-
-    for (int b = 0; b < B; b++) {
-        int base = b * C * H * W;
-        int out_base = b * out_per_sample;
-        for (int c = 0; c < C; c++) {
-            for (int oh = 0; oh < oH; oh++) {
-                for (int ow = 0; ow < oW; ow++) {
-                    double best = -1e30;
-                    int best_idx = 0;
-                    for (int kh = 0; kh < kH; kh++) {
-                        for (int kw = 0; kw < kW; kw++) {
-                            int ih = oh * strideH + kh;
-                            int iw = ow * strideW + kw;
-                            int flat = c*H*W + ih*W + iw;
-                            double v = tape_load_d(input, base + flat);
-                            if (v > best) { best = v; best_idx = base + flat; }
-                        }
-                    }
-                    int out_idx = c*oH*oW + oh*oW + ow;
-                    if (is_f32) ((float*)out_buf)[out_base + out_idx] = (float)best;
-                    else        ((double*)out_buf)[out_base + out_idx] = best;
-                    max_idx[out_base + out_idx] = best_idx;
-                }
-            }
-        }
-    }
-
-    Tensor* r;
-    if (is_f32) r = make_tensor_arena_f32((float*)out_buf, out_numel, out_shape, 4, input->requires_grad);
-    else { r = make_tensor((double*)out_buf, out_shape, 4, input->requires_grad); free(out_buf); }
-
-    if (r->requires_grad) {
-        TapeEntry* e = tape_append(OP_MAX_POOL2D_BATCHED, r, input, NULL, 0);
-        MaxPool2DBatchedMeta* meta = arena_alloc(sizeof(MaxPool2DBatchedMeta));
-        meta->B = B; meta->C = C; meta->H = H; meta->W = W;
-        meta->kH = kH; meta->kW = kW;
-        meta->strH = strideH; meta->strW = strideW;
-        meta->oH = oH; meta->oW = oW;
-        meta->max_indices = max_idx;
-        e->op_meta = meta;
-    } else {
-        free(max_idx);
-    }
-    return r;
-}
+/* tensor_max_pool2d_batched: moved to backend_tape/conv/max_pool2d_batched.c (Phase 1d.2.c). */
 
 /* ================================================================
    Shape manipulation
@@ -1621,19 +1558,7 @@ void tensor_backward(TensorHandle h) {
             break;
         }
 
-        case OP_MAX_POOL2D_BATCHED: {
-            /* r = max_pool2d_batched(a=input [B,C,H,W]). max_indices are absolute
-               into a->data, so direct scatter works the same as the per-sample case. */
-            MaxPool2DBatchedMeta* meta = (MaxPool2DBatchedMeta*)e->op_meta;
-            ensure_grad(r);
-            if (a && a->requires_grad) {
-                ensure_grad(a);
-                int out_numel = meta->B * meta->C * meta->oH * meta->oW;
-                for (int i = 0; i < out_numel; i++)
-                    ((double*)a->grad)[meta->max_indices[i]] += ((double*)r->grad)[i];
-            }
-            break;
-        }
+        /* OP_MAX_POOL2D_BATCHED: moved to backend_tape/conv/max_pool2d_batched.c (Phase 1d.2.c). */
 
         /* OP_SCATTER_ADD: moved to backend_tape/linear/index/scatter_add.c (Phase 1b.7.b). */
         /* OP_GATHER: moved to backend_tape/linear/index/gather.c (Phase 1b.7). */
