@@ -1146,60 +1146,7 @@ TensorHandle tensor_conv2d_batched(TensorHandle hinput, TensorHandle hkernel,
    MaxPool2D: input [C, H, W] -> [C, oH, oW]
    ================================================================ */
 
-TensorHandle tensor_max_pool2d(TensorHandle hinput, int kH, int kW,
-                               int strideH, int strideW) {
-    Tensor* input = (Tensor*)hinput;
-    int C = input->shape[0], H = input->shape[1], W = input->shape[2];
-    int oH = (H - kH) / strideH + 1;
-    int oW = (W - kW) / strideW + 1;
-    int out_numel = C * oH * oW;
-    int is_f32 = (input->dtype_tag == DT_F32);
-    int out_shape[] = {C, oH, oW};
-
-    void* out_buf = is_f32 ? (void*)arena_alloc(out_numel * sizeof(float))
-                           : (void*)calloc(out_numel, sizeof(double));
-    int* max_idx = malloc(out_numel * sizeof(int));
-
-    for (int c = 0; c < C; c++) {
-        for (int oh = 0; oh < oH; oh++) {
-            for (int ow = 0; ow < oW; ow++) {
-                double best = -1e30;
-                int best_idx = 0;
-                for (int kh = 0; kh < kH; kh++) {
-                    for (int kw = 0; kw < kW; kw++) {
-                        int ih = oh * strideH + kh;
-                        int iw = ow * strideW + kw;
-                        int flat = c*H*W + ih*W + iw;
-                        double v = tape_load_d(input, flat);
-                        if (v > best) { best = v; best_idx = flat; }
-                    }
-                }
-                int out_idx = c*oH*oW + oh*oW + ow;
-                if (is_f32) ((float*)out_buf)[out_idx] = (float)best;
-                else        ((double*)out_buf)[out_idx] = best;
-                max_idx[out_idx] = best_idx;
-            }
-        }
-    }
-
-    Tensor* r;
-    if (is_f32) r = make_tensor_arena_f32((float*)out_buf, out_numel, out_shape, 3, input->requires_grad);
-    else { r = make_tensor((double*)out_buf, out_shape, 3, input->requires_grad); free(out_buf); }
-
-    if (r->requires_grad) {
-        TapeEntry* e = tape_append(OP_MAX_POOL2D, r, input, NULL, 0);
-        MaxPool2DMeta* meta = arena_alloc(sizeof(MaxPool2DMeta));
-        meta->C = C; meta->H = H; meta->W = W;
-        meta->kH = kH; meta->kW = kW;
-        meta->strH = strideH; meta->strW = strideW;
-        meta->oH = oH; meta->oW = oW;
-        meta->max_indices = max_idx;  /* heap-allocated, freed in tape_reset */
-        e->op_meta = meta;
-    } else {
-        free(max_idx);
-    }
-    return r;
-}
+/* tensor_max_pool2d: moved to backend_tape/conv/max_pool2d.c (Phase 1d.2.b). */
 
 /* ================================================================
    Batched MaxPool2D: input [B, C, H, W] -> [B, C, oH, oW]
@@ -1544,18 +1491,7 @@ void tensor_backward(TensorHandle h) {
             break;
         }
 
-        case OP_MAX_POOL2D: {
-            /* r = max_pool2d(a=input). Gradient flows only to max positions. */
-            MaxPool2DMeta* meta = (MaxPool2DMeta*)e->op_meta;
-            ensure_grad(r);
-            if (a && a->requires_grad) {
-                ensure_grad(a);
-                int out_numel = meta->C * meta->oH * meta->oW;
-                for (int i = 0; i < out_numel; i++)
-                    ((double*)a->grad)[meta->max_indices[i]] += ((double*)r->grad)[i];
-            }
-            break;
-        }
+        /* OP_MAX_POOL2D: moved to backend_tape/conv/max_pool2d.c (Phase 1d.2.b). */
 
         case OP_CONV2D_BATCHED: {
             /* r = conv2d_batched(input [B,inC,H,W], kernel [outC,inC,kH,kW]) + bias
