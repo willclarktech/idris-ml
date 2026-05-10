@@ -36,6 +36,35 @@ extern double prof_op_t_prev;
 /* From training/diagnostics.c — DEBUG_LSTM_TRAJ pre-reset dump. */
 extern void _dbg_dump_lstm_traj_if_enabled(void);
 
+/* From training/dtype_dispatch.c — dtag-streamed creators / cast. */
+extern TensorHandle tape_create_scalar_dtag(double v, int rg, int dtag);
+extern TensorHandle tape_create_dtag(double* data, int* shape, int rank, int rg, int dtag);
+extern TensorHandle tape_create_1d_dtag(int n, double* data, int rg, int dtag);
+extern TensorHandle tape_create_2d_dtag(int rows, int cols, double* data, int rg, int dtag);
+extern TensorHandle tape_create_param_1d_dtag(int n, double* data, int dtag);
+extern TensorHandle tape_create_param_2d_dtag(int rows, int cols, double* data, int dtag);
+extern TensorHandle tape_create_param_3d_dtag(int d0, int d1, int d2, double* data, int dtag);
+extern TensorHandle tape_create_param_4d_dtag(int d0, int d1, int d2, int d3, double* data, int dtag);
+extern TensorHandle tape_create_state_1d_dtag(int n, double* data, int dtag);
+extern TensorHandle tape_create_state_2d_dtag(int rows, int cols, double* data, int dtag);
+extern TensorHandle tape_cast_dtype_dtag(TensorHandle src, int dtag);
+
+/* Port methods erase TensorHandle to void* for shared-side opacity. The
+   tape adapter binds the void*-returning thunks below as the function
+   pointers — TensorHandle is `void*` in backend.h anyway, so no work
+   is done at the cast boundary. */
+static void* tape_port_create_scalar(double v, int rg, int dtag)                                 { return tape_create_scalar_dtag(v, rg, dtag); }
+static void* tape_port_create(double* d, int* s, int r, int rg, int dtag)                        { return tape_create_dtag(d, s, r, rg, dtag); }
+static void* tape_port_create_1d(int n, double* d, int rg, int dtag)                             { return tape_create_1d_dtag(n, d, rg, dtag); }
+static void* tape_port_create_2d(int rows, int cols, double* d, int rg, int dtag)                { return tape_create_2d_dtag(rows, cols, d, rg, dtag); }
+static void* tape_port_create_param_1d(int n, double* d, int dtag)                               { return tape_create_param_1d_dtag(n, d, dtag); }
+static void* tape_port_create_param_2d(int rows, int cols, double* d, int dtag)                  { return tape_create_param_2d_dtag(rows, cols, d, dtag); }
+static void* tape_port_create_param_3d(int d0, int d1, int d2, double* d, int dtag)              { return tape_create_param_3d_dtag(d0, d1, d2, d, dtag); }
+static void* tape_port_create_param_4d(int d0, int d1, int d2, int d3, double* d, int dtag)      { return tape_create_param_4d_dtag(d0, d1, d2, d3, d, dtag); }
+static void* tape_port_create_state_1d(int n, double* d, int dtag)                               { return tape_create_state_1d_dtag(n, d, dtag); }
+static void* tape_port_create_state_2d(int rows, int cols, double* d, int dtag)                  { return tape_create_state_2d_dtag(rows, cols, d, dtag); }
+static void* tape_port_cast_dtype(void* src, int dtag)                                            { return tape_cast_dtype_dtag((TensorHandle)src, dtag); }
+
 /* ----------------------------------------------------------------------
    Tensor introspection.
    ---------------------------------------------------------------------- */
@@ -132,4 +161,15 @@ const BackendPort g_active_port = {
   .backward             = tape_adapter_backward,
   .epoch_boundary       = tape_adapter_epoch_boundary,
   .wall_ms              = tape_adapter_wall_ms,
+  .create_scalar        = tape_port_create_scalar,
+  .create               = tape_port_create,
+  .create_1d            = tape_port_create_1d,
+  .create_2d            = tape_port_create_2d,
+  .create_param_1d      = tape_port_create_param_1d,
+  .create_param_2d      = tape_port_create_param_2d,
+  .create_param_3d      = tape_port_create_param_3d,
+  .create_param_4d      = tape_port_create_param_4d,
+  .create_state_1d      = tape_port_create_state_1d,
+  .create_state_2d      = tape_port_create_state_2d,
+  .cast_dtype           = tape_port_cast_dtype,
 };

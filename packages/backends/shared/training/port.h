@@ -91,6 +91,28 @@ typedef struct BackendPort {
      gettimeofday-based implementation today.
      ---------------------------------------------------------------------- */
   double (*wall_ms)(void);
+
+  /* ----------------------------------------------------------------------
+     Dtag-dispatched create / cast surface. Each method takes the
+     same arguments as the corresponding `tensor_create_*_streamed`
+     FFI wrapper minus the `stream_tag` (an mlx-only knob the shared
+     wrappers absorb at the boundary). The adapter picks the right
+     backend storage variant (F64 lingua franca, real F32 storage,
+     or lingua-franca-rounded for the other dtags) based on `dtag`.
+     `data` buffer ownership matches the underlying creator (tape
+     copies + frees; torch/mlx wrap their own storage).
+     ---------------------------------------------------------------------- */
+  void* (*create_scalar)(double v, int rg, int dtag);
+  void* (*create)(double* data, int* shape, int rank, int rg, int dtag);
+  void* (*create_1d)(int n, double* data, int rg, int dtag);
+  void* (*create_2d)(int rows, int cols, double* data, int rg, int dtag);
+  void* (*create_param_1d)(int n, double* data, int dtag);
+  void* (*create_param_2d)(int rows, int cols, double* data, int dtag);
+  void* (*create_param_3d)(int d0, int d1, int d2, double* data, int dtag);
+  void* (*create_param_4d)(int d0, int d1, int d2, int d3, double* data, int dtag);
+  void* (*create_state_1d)(int n, double* data, int dtag);
+  void* (*create_state_2d)(int rows, int cols, double* data, int dtag);
+  void* (*cast_dtype)(void* src, int dtag);
 } BackendPort;
 
 /* Each backend defines exactly one instance with internal linkage at
