@@ -770,7 +770,22 @@ check-examples: install
 	@echo "All examples type-check."
 
 # Idris tests
-test: install $(TESTCONFIG_IDR)
+# `make test` (default target for the active backend) runs the fast
+# cross-test bundle: Idris unit tests + per-op Criterion C suite +
+# safetensors round-trip. Anything that takes more than a few seconds
+# per backend belongs in `test-all` instead (examples sweep,
+# multi-backend, jupyter, torch_ref, etc.).
+#
+# CI lanes have the same shape — each backend matrix lane runs
+# `make BACKEND=<b> test-backend` (legacy test_backend.c, retired
+# under Phase 5.4) + `make BACKEND=<b> test` (this umbrella).
+test: test-idris test-backend-criterion test-safetensors
+
+# Idris-side unit suite against the active backend. Buckets that
+# touch the C surface (GradMode, ManagedHandle, Tensor lifecycle)
+# resolve through `{d=TestDevice}` which the Makefile-generated
+# `TestConfig.idr` pins to the active backend.
+test-idris: install $(TESTCONFIG_IDR)
 	idris2 --source-dir $(TEST_SRC) -p contrib -p idris-ml -o test $(TEST_SRC)/Main.idr
 	cp $(LIB) build/exec/test_app/
 	./build/exec/test
@@ -1516,7 +1531,7 @@ test-examples-convergence:
 # Run everything: Idris unit tests, C backend tests, specialized tests,
 # integration tests, PyTorch reference tests (if available)
 test-all:
-	@echo "=== Idris unit tests ==="
+	@echo "=== Fast cross-test bundle (Idris + Criterion + safetensors) ==="
 	$(MAKE) test
 	@echo ""
 	@echo "=== Gym unit tests ==="
