@@ -1,10 +1,13 @@
-/* training/shims.c — small system/debug/FFI shims.
+/* backend_tape/training/shims.c — tape-specific system/debug shims.
  *
- * Collects everything that wasn't worth its own
- * file: the per-eval reset, live-count probes, mlx_compile no-op
- * accessors (tape backend never compiles), tensor_print debug
- * helper, the *_return RefC-compat wrappers, and the
- * idrisml_seq passthrough.
+ * What stays here: per-eval reset (tape_reset + param re-registration
+ * on the fresh tape), live-count probes that read tape_size / g_tape_peak
+ * directly, the constant `backend_name()` answer, the mlx_compile no-op
+ * accessors (mx::compile is mlx-only — every other backend reports
+ * disabled), and tensor_print's tape-specific F64-direct dump.
+ *
+ * The backend-agnostic `*_return` FFI wrappers + idrisml_seq live in
+ * shared/training/ffi_shims.c.
  */
 
 #include <stdio.h>
@@ -51,68 +54,6 @@ void tensor_print(TensorHandle h) {
         }
         printf("]\n");
     }
-}
-
-/* Portable FFI helpers (for RefC compatibility). Idris-side bindings
- * route side-effect-only operations through *_return shims so they
- * return a value the typed FFI can consume — `let _ = x` is dropped by
- * the compiler. */
-
-TensorHandle tensor_backward_return(TensorHandle t) {
-    tensor_backward(t);
-    return t;
-}
-
-TensorHandle param_register_return(const char* name, TensorHandle t) {
-    tensor_set_requires_grad(t, 1);
-    param_register(name, t);
-    return t;
-}
-
-int param_zero_all_grads_return(int dummy) {
-    (void)dummy;
-    param_zero_all_grads();
-    return 0;
-}
-
-double* tensor_to_doubles_return(TensorHandle h, double* buf) {
-    tensor_to_doubles(h, buf);
-    return buf;
-}
-
-int tensor_backward_conditional(TensorHandle t) {
-    if (tensor_requires_grad(t))
-        tensor_backward(t);
-    return param_count();
-}
-
-double tensor_backward_return_loss(TensorHandle loss_ptr, double loss_val) {
-    if (tensor_requires_grad(loss_ptr))
-        tensor_backward(loss_ptr);
-    return loss_val;
-}
-
-void* idrisml_seq(void* a, void* b) {
-    (void)a;
-    return b;
-}
-
-int backend_reset_for_eval_return(int dummy) {
-    (void)dummy;
-    backend_reset_for_eval();
-    return dummy;
-}
-
-int backend_profile_reset_return(int dummy) {
-    (void)dummy;
-    backend_profile_reset();
-    return dummy;
-}
-
-int backend_profile_report_return(int dummy) {
-    (void)dummy;
-    backend_profile_report();
-    return dummy;
 }
 
 /* dropout_random_seed lives in shared_utils.c. */
