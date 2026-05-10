@@ -12,17 +12,15 @@
 
 #include <stdio.h>
 #include <string.h>
-#include <sys/time.h>
 #include "../arena.h"
 #include "../tape.h"
 #include "../tensor.h"
 #include "../../backend.h"
 
-double _wall_ms(void) {
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-    return tv.tv_sec * 1000.0 + tv.tv_usec / 1000.0;
-}
+/* _wall_ms lives in shared/training/profiler.c — same gettimeofday-
+   based monotonic-ish reading every backend uses. The extern decl
+   keeps existing usages here unchanged. */
+extern double _wall_ms(void);
 
 double prof_forward_ms = 0, prof_backward_ms = 0, prof_optimizer_ms = 0;
 int    prof_forward_ops = 0, prof_backward_ops = 0, prof_epochs = 0;
