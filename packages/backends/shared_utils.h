@@ -38,6 +38,12 @@ int   mnist_get_label(void* handle, int index);
 /* Dropout RNG — drives the process-global rand(). */
 int dropout_random_seed(int x);
 
+/* Wall-clock provider — gettimeofday-based monotonic-ish millisecond
+   reading. Single unified definition (compile-once, no per-backend
+   rename) so multi-link builds avoid duplicate-symbol collisions
+   when several backends route through the shared training port. */
+double _wall_ms(void);
+
 /* C buffer helpers (host malloc / free / element read/write).
  * Backend-agnostic; one definition for all backends. */
 double* tensor_alloc_doubles(int n);

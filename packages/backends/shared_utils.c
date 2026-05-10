@@ -10,10 +10,19 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/resource.h>
+#include <sys/time.h>
 
 #ifdef __APPLE__
 #include <mach/mach.h>
 #endif
+
+/* --- Wall clock --- */
+
+double _wall_ms(void) {
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return tv.tv_sec * 1000.0 + tv.tv_usec / 1000.0;
+}
 
 /* --- Index-array helpers (DataLoader) --- */
 
