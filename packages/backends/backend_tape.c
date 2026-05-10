@@ -680,21 +680,7 @@ TensorHandle tensor_group_norm(TensorHandle hinput, TensorHandle hgamma, TensorH
 
 /* tensor_max_pool1d: moved to backend_tape/conv/max_pool1d.c (Phase 1d.1.b). */
 
-TensorHandle tensor_create_param_3d(int d0, int d1, int d2, double* data) {
-    int numel = d0 * d1 * d2;
-    Tensor* t = calloc(1, sizeof(Tensor));
-    t->data = malloc(numel * sizeof(double));
-    memcpy(t->data, data, numel * sizeof(double));
-    free(data);
-    t->shape = malloc(3 * sizeof(int));
-    t->shape[0] = d0; t->shape[1] = d1; t->shape[2] = d2;
-    t->rank = 3; t->numel = numel;
-    t->requires_grad = 1;
-    t->tape_idx = -1;
-    t->persistent = 1;
-    tape_append(OP_CONST, t, NULL, NULL, 0);
-    return t;
-}
+/* tensor_create_param_3d: moved to backend_tape/training/param_create.c (Phase 1e.3). */
 
 /* ================================================================
    Transposed Convolution
@@ -1212,87 +1198,8 @@ TensorHandle tensor_reshape_1d(TensorHandle h, int n) {
 /* tensor_stack_from_array + tensor_cat_from_array: moved to
    backend_tape/linear/concat/stack.c (Phase 1d.2.f). */
 
-/* ================================================================
-   Tensor-level parameter creation
-   ================================================================ */
-
-TensorHandle tensor_create_param_2d(int rows, int cols, double* data) {
-    /* Param tensors use regular malloc — persist across arena resets */
-    int numel = rows * cols;
-    Tensor* t = calloc(1, sizeof(Tensor));
-    t->data = malloc(numel * sizeof(double));
-    memcpy(t->data, data, numel * sizeof(double));
-    free(data);  /* free the input buffer (caller used tensor_alloc_doubles) */
-    t->shape = malloc(2 * sizeof(int));
-    t->shape[0] = rows; t->shape[1] = cols;
-    t->rank = 2; t->numel = numel;
-    t->requires_grad = 1;
-    t->tape_idx = -1;
-    t->persistent = 1;
-    tape_append(OP_CONST, t, NULL, NULL, 0);
-    return t;
-}
-
-TensorHandle tensor_create_param_4d(int d0, int d1, int d2, int d3, double* data) {
-    int numel = d0 * d1 * d2 * d3;
-    Tensor* t = calloc(1, sizeof(Tensor));
-    t->data = malloc(numel * sizeof(double));
-    memcpy(t->data, data, numel * sizeof(double));
-    free(data);
-    t->shape = malloc(4 * sizeof(int));
-    t->shape[0] = d0; t->shape[1] = d1; t->shape[2] = d2; t->shape[3] = d3;
-    t->rank = 4; t->numel = numel;
-    t->requires_grad = 1;
-    t->tape_idx = -1;
-    t->persistent = 1;
-    tape_append(OP_CONST, t, NULL, NULL, 0);
-    return t;
-}
-
-TensorHandle tensor_create_param_1d(int n, double* data) {
-    Tensor* t = calloc(1, sizeof(Tensor));
-    t->data = malloc(n * sizeof(double));
-    memcpy(t->data, data, n * sizeof(double));
-    free(data);
-    t->shape = malloc(sizeof(int));
-    t->shape[0] = n;
-    t->rank = 1; t->numel = n;
-    t->requires_grad = 1;
-    t->tape_idx = -1;
-    t->persistent = 1;
-    tape_append(OP_CONST, t, NULL, NULL, 0);
-    return t;
-}
-
-/* Persistent tensors WITHOUT requires_grad — for non-learnable NTM state */
-TensorHandle tensor_create_state_2d(int rows, int cols, double* data) {
-    int numel = rows * cols;
-    Tensor* t = calloc(1, sizeof(Tensor));
-    t->data = malloc(numel * sizeof(double));
-    memcpy(t->data, data, numel * sizeof(double));
-    free(data);
-    t->shape = malloc(2 * sizeof(int));
-    t->shape[0] = rows; t->shape[1] = cols;
-    t->rank = 2; t->numel = numel;
-    t->requires_grad = 0;
-    t->tape_idx = -1;
-    t->persistent = 1;
-    return t;
-}
-
-TensorHandle tensor_create_state_1d(int n, double* data) {
-    Tensor* t = calloc(1, sizeof(Tensor));
-    t->data = malloc(n * sizeof(double));
-    memcpy(t->data, data, n * sizeof(double));
-    free(data);
-    t->shape = malloc(sizeof(int));
-    t->shape[0] = n;
-    t->rank = 1; t->numel = n;
-    t->requires_grad = 0;
-    t->tape_idx = -1;
-    t->persistent = 1;
-    return t;
-}
+/* tensor_create_param_{1,2,3,4}d and tensor_create_state_{1,2}d:
+   moved to backend_tape/training/param_create.c (Phase 1e.3). */
 
 /* ================================================================
    Per-dtype creation variants (legacy, pre-unified-dispatch)
