@@ -838,17 +838,11 @@ void tensor_lstm_cell(
     *out_c = from_tensor(new_c);
 }
 
-/* ---------- Parameter Registry ---------- */
+/* ---------- Diagnostics ---------- */
 
-struct ParamEntry {
-    std::string name;
-    at::Tensor* tensor;   /* non-owning: the Variable still owns the at::Tensor */
-};
-
-static std::vector<ParamEntry> param_registry;
-
-/* Phase 1.5e diagnostic: dump h0/c0 param value trajectories. Mirrors
-   backend_tape.c. Triggered by DEBUG_LSTM_TRAJ env var. */
+/* DEBUG_LSTM_TRAJ: dump h0/c0 param value trajectories. Mirrors the
+   tape backend's diagnostic so a cross-backend convergence regression
+   on RNN init can be localized. Walks the shared param registry. */
 static int _dbg_traj_step_torch = 0;
 extern "C" void _dbg_dump_lstm_traj_if_enabled_torch(void) {
     if (!getenv("DEBUG_LSTM_TRAJ")) return;
@@ -882,9 +876,8 @@ extern "C" void _dbg_dump_lstm_traj_if_enabled_torch(void) {
     }
 }
 
-/* Phase 1.5e diagnostic: dump per-param gradient L2 norms after a backward
-   pass. Mirrors backend_tape.c's diagnostic for cross-backend comparison.
-   Triggered by DEBUG_PARAM_GRADS env var. */
+/* DEBUG_PARAM_GRADS: dump per-param gradient L2 norms after a backward
+   pass. Mirrors backend_tape.c's diagnostic for cross-backend comparison. */
 extern "C" void _dbg_dump_param_grads_if_enabled_torch(void) {
     if (!getenv("DEBUG_PARAM_GRADS")) return;
     fprintf(stderr, "=== param grads after backward (torch) ===\n");
@@ -913,24 +906,14 @@ extern "C" void _dbg_dump_param_grads_if_enabled_torch(void) {
     }
 }
 
-void param_register(const char* name, TensorHandle h) {
-    /* Replace if already registered under this name */
-    for (auto& entry : param_registry) {
-        if (entry.name == name) {
-            entry.tensor = to_tensor(h);
-            return;
-        }
-    }
-    param_registry.push_back({name, to_tensor(h)});
-}
-
-void param_clear(void) {
-    param_registry.clear();
-    intermediates.clear();
-    for (auto* p : all_pairs) delete p;
-    all_pairs.clear();
-    freed_by_cleanup.clear();
-}
+/* The param-registry surface (param_register / param_count / param_name
+   / param_tensor / param_grad_item* / param_zero_all_grads /
+   param_subtract_delta / param_load_data / param_load_data_int64) lives
+   in shared/training/param_registry.c and is opted in via the
+   SHARED_BACKENDS_param_registry Makefile list. Torch supplies the
+   per-tensor accessors (tensor_numel / tensor_has_grad / grad_read /
+   grad_write / zero_grad / data_read / data_write / load_doubles /
+   load_int64) through its port adapter at the bottom of this file. */
 
 static void free_intermediates() {
     // Params are always created via from_tensor_persistent and are never
@@ -952,73 +935,6 @@ static void free_intermediates() {
     all_pairs.clear();
 }
 
-int param_count(void) {
-    return static_cast<int>(param_registry.size());
-}
-
-static thread_local std::string param_name_buf;
-
-const char* param_name(int idx) {
-    param_name_buf = param_registry[idx].name;
-    return param_name_buf.c_str();
-}
-
-double param_grad_item(int idx) {
-    auto& g = param_registry[idx].tensor->grad();
-    if (!g.defined()) return 0.0;
-    // .cpu() before .data_ptr<>() — readback host-side requires CPU tensor.
-    // .to(kFloat64) before data_ptr<double>() — an F32 grad would otherwise
-    // trip "expected scalar type Double but found Float". No-op on F64 params.
-    return g.cpu().to(torch::kFloat64).flatten().data_ptr<double>()[0];
-}
-
-double param_grad_item_and_zero(int idx) {
-    auto* t = param_registry[idx].tensor;
-    auto& g = t->grad();
-    if (!g.defined()) return 0.0;
-    double val = g.cpu().item<double>();
-    g.zero_();
-    return val;
-}
-
-TensorHandle param_tensor(int idx) {
-    return static_cast<TensorHandle>(param_registry[idx].tensor);
-}
-
-void param_zero_all_grads(void) {
-    for (auto& entry : param_registry) {
-        if (entry.tensor->grad().defined()) {
-            entry.tensor->grad().zero_();
-        }
-    }
-}
-
-void param_subtract_delta(int idx, double delta) {
-    torch::NoGradGuard no_grad;
-    auto& entry = param_registry[idx];
-    entry.tensor->sub_(delta);
-}
-
-void param_load_data(int idx, const double* data, int numel) {
-    torch::NoGradGuard no_grad;
-    auto& entry = param_registry[idx];
-    int existing = entry.tensor->numel();
-    if (existing != numel) {
-        fprintf(stderr, "param_load_data: size mismatch for '%s': expected %d, got %d\n",
-                entry.name.c_str(), existing, numel);
-        return;
-    }
-    // Build a CPU staging tensor from host data, then .copy_() into the
-    // (possibly non-CPU) param storage. `.copy_()` handles the device
-    // hop transparently for MPS / CUDA targets and is a memcpy on CPU.
-    auto staging = torch::from_blob(
-        const_cast<double*>(data),
-        {(int64_t)numel},
-        torch::kFloat64
-    );
-    entry.tensor->view({numel}).copy_(staging);
-}
-
 // Byte-exact I64 readout — bypasses the double pivot so values
 // above 2^53 survive. The `.to(kInt64)` is a no-op when the source
 // is already I64; if a caller asks for int64 readout on a non-I64
@@ -1028,28 +944,6 @@ void param_load_data(int idx, const double* data, int numel) {
 void tensor_to_int64(TensorHandle h, int64_t* out) {
     auto t = to_tensor(h)->cpu().to(torch::kInt64).contiguous();
     std::memcpy(out, t.data_ptr<int64_t>(), t.numel() * sizeof(int64_t));
-}
-
-// Byte-exact I64 in-place loader — staging tensor is built with
-// kInt64 so the source bits travel without going through double.
-// `.copy_()` handles device + dtype conversions transparently; the
-// safetensors load path only calls us when src and dst are both
-// I64, so the .copy_ is a same-dtype memcpy in practice.
-void param_load_data_int64(int idx, const int64_t* data, int numel) {
-    torch::NoGradGuard no_grad;
-    auto& entry = param_registry[idx];
-    int existing = entry.tensor->numel();
-    if (existing != numel) {
-        fprintf(stderr, "param_load_data_int64: size mismatch for '%s': expected %d, got %d\n",
-                entry.name.c_str(), existing, numel);
-        return;
-    }
-    auto staging = torch::from_blob(
-        const_cast<int64_t*>(data),
-        {(int64_t)numel},
-        torch::kInt64
-    );
-    entry.tensor->view({numel}).copy_(staging);
 }
 
 TensorHandle tensor_subtract_scalar_inplace(TensorHandle h, double val) {
@@ -2062,13 +1956,7 @@ void backend_profile_report(void) {
             total, prof_epochs > 0 ? total / prof_epochs : 0);
 }
 
-double param_grad_item_at(int param_idx, int elem_idx) {
-    auto& t = *(at::Tensor*)param_tensor(param_idx);
-    if (!t.grad().defined()) return 0.0;
-    // .cpu() + .to(kFloat64): host indexing requires a CPU tensor, and reading
-    // an F32 grad through data_ptr<double> asserts without the dtype cast.
-    return t.grad().cpu().to(torch::kFloat64).data_ptr<double>()[elem_idx];
-}
+/* param_grad_item_at lives in shared/training/param_registry.c. */
 
 /* ---------- Debug ---------- */
 
@@ -2284,3 +2172,141 @@ TensorHandle tensor_cast_dtype_streamed(TensorHandle src, int s, int dtag) {
     (void)s;
     return from_tensor(to_tensor(src)->to(st_for_dtag(dtag)));
 }
+
+/* ---------- Shared training port adapter ----------
+ *
+ * Provides the per-tensor accessors that shared/training/param_registry.c
+ * uses to talk to libtorch (numel / has_grad / grad read+write / zero /
+ * data read+write / bulk doubles+int64 loaders). Other port slots stay
+ * NULL until torch opts into the matching shared TUs (optimizer_*,
+ * dtag-streamed creators, ffi_shims) — the shared trampolines never call
+ * them because torch is excluded from those SHARED_BACKENDS_<tu> lists.
+ *
+ * Hot-path note: for F64/F32 contiguous CPU tensors, the element
+ * accessors hit `data_ptr<>()` directly (one load); other dtype / device
+ * combos route through the slow `.flatten().index({i}).cpu().item<>()`
+ * path. Param storage is always contiguous + same device throughout a
+ * run, so the fast path covers ~all live use. */
+
+#include "shared/training/port.h"
+
+static int torch_port_tensor_numel(void* h) {
+    return (int)to_tensor(h)->numel();
+}
+
+static int torch_port_tensor_requires_grad(void* h) {
+    return to_tensor(h)->requires_grad() ? 1 : 0;
+}
+
+static int torch_port_tensor_has_grad(void* h) {
+    return to_tensor(h)->mutable_grad().defined() ? 1 : 0;
+}
+
+static double torch_port_grad_read(void* h, int i) {
+    auto* t = to_tensor(h);
+    auto& g = t->mutable_grad();
+    if (!g.defined()) return 0.0;
+    if (g.is_cpu() && g.is_contiguous()) {
+        if (g.dtype() == torch::kFloat64) return ((double*)g.data_ptr())[i];
+        if (g.dtype() == torch::kFloat32) return (double)((float*)g.data_ptr())[i];
+    }
+    return g.flatten().index({i}).cpu().item<double>();
+}
+
+static void torch_port_grad_write(void* h, int i, double v) {
+    auto* t = to_tensor(h);
+    auto& g = t->mutable_grad();
+    if (!g.defined()) return;
+    if (g.is_cpu() && g.is_contiguous()) {
+        if (g.dtype() == torch::kFloat64) { ((double*)g.data_ptr())[i] = v; return; }
+        if (g.dtype() == torch::kFloat32) { ((float*)g.data_ptr())[i] = (float)v; return; }
+    }
+    g.flatten().index_put_({i}, v);
+}
+
+static void torch_port_zero_grad(void* h) {
+    auto& g = to_tensor(h)->mutable_grad();
+    if (g.defined()) g.zero_();
+}
+
+static double torch_port_data_read(void* h, int i) {
+    auto* t = to_tensor(h);
+    if (t->is_cpu() && t->is_contiguous()) {
+        if (t->dtype() == torch::kFloat64) return ((double*)t->data_ptr())[i];
+        if (t->dtype() == torch::kFloat32) return (double)((float*)t->data_ptr())[i];
+    }
+    return t->flatten().index({i}).cpu().item<double>();
+}
+
+static void torch_port_data_write(void* h, int i, double v) {
+    auto* t = to_tensor(h);
+    if (t->is_cpu() && t->is_contiguous()) {
+        if (t->dtype() == torch::kFloat64) { ((double*)t->data_ptr())[i] = v; return; }
+        if (t->dtype() == torch::kFloat32) { ((float*)t->data_ptr())[i] = (float)v; return; }
+    }
+    torch::NoGradGuard no_grad;
+    t->flatten().index_put_({i}, v);
+}
+
+static void torch_port_load_doubles(void* h, const double* src, int n) {
+    torch::NoGradGuard no_grad;
+    auto* t = to_tensor(h);
+    auto staging = torch::from_blob(const_cast<double*>(src), {(int64_t)n}, torch::kFloat64);
+    t->view({n}).copy_(staging);
+}
+
+static void torch_port_load_int64(void* h, const int64_t* src, int n) {
+    torch::NoGradGuard no_grad;
+    auto* t = to_tensor(h);
+    auto staging = torch::from_blob(const_cast<int64_t*>(src), {(int64_t)n}, torch::kInt64);
+    t->view({n}).copy_(staging);
+}
+
+const BackendPort g_active_port = {
+    /* Tensor introspection + per-element access + bulk grad/data ops:
+       supplied by the torch port shims above. */
+    .tensor_numel              = torch_port_tensor_numel,
+    .tensor_requires_grad      = torch_port_tensor_requires_grad,
+    .tensor_has_grad           = torch_port_tensor_has_grad,
+    .data_read                 = torch_port_data_read,
+    .data_write                = torch_port_data_write,
+    .grad_read                 = torch_port_grad_read,
+    .grad_write                = torch_port_grad_write,
+    .zero_grad                 = torch_port_zero_grad,
+    .load_doubles              = torch_port_load_doubles,
+    .load_int64                = torch_port_load_int64,
+    /* Slots whose shared TUs torch hasn't opted into yet — see the
+       SHARED_BACKENDS_<tu> lists in the Makefile. These stay nullptr
+       until torch's adapter ships their bindings AND the shared TU
+       gets compiled for torch. Ordering matches port.h's struct
+       declaration order (C++ ISO-required for designated init). */
+    .backward                  = nullptr,
+    .optimizer_create_sgd      = nullptr,
+    .optimizer_create_rmsprop  = nullptr,
+    .optimizer_create_adam     = nullptr,
+    .optimizer_create_adam_group = nullptr,
+    .optimizer_create_adamw    = nullptr,
+    .optimizer_free            = nullptr,
+    .optimizer_set_lr          = nullptr,
+    .optimizer_set_param_lr    = nullptr,
+    .optimizer_step            = nullptr,
+    .optimizer_buf_count       = nullptr,
+    .optimizer_get_m           = nullptr,
+    .optimizer_get_v           = nullptr,
+    .optimizer_set_m           = nullptr,
+    .optimizer_set_v           = nullptr,
+    .optimizer_get_meta        = nullptr,
+    .optimizer_set_meta        = nullptr,
+    .wall_ms                   = nullptr,
+    .create_scalar             = nullptr,
+    .create                    = nullptr,
+    .create_1d                 = nullptr,
+    .create_2d                 = nullptr,
+    .create_param_1d           = nullptr,
+    .create_param_2d           = nullptr,
+    .create_param_3d           = nullptr,
+    .create_param_4d           = nullptr,
+    .create_state_1d           = nullptr,
+    .create_state_2d           = nullptr,
+    .cast_dtype                = nullptr,
+};

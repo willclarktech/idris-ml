@@ -284,7 +284,7 @@ SHARED_TRAINING_SRCS    := $(shell find $(BACKENDS_DIR)/shared -name '*.c' 2>/de
 # migrate — e.g. torch joins param_registry first, then ffi_shims, etc.
 # Each list intersects with BACKEND_LIST so the build only considers
 # backends actually being linked.
-SHARED_BACKENDS_param_registry := tape
+SHARED_BACKENDS_param_registry := tape torch
 SHARED_BACKENDS_optimizer      := tape
 SHARED_BACKENDS_ffi_shims      := tape
 SHARED_BACKENDS_dtype_streamed := tape
