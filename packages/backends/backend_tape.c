@@ -5233,9 +5233,7 @@ double tensor_item_2d(TensorHandle h, int row, int col) {
     return tape_load_d(t, row * t->shape[1] + col);
 }
 
-double tensor_item_1d(TensorHandle h, int idx) {
-    return tape_load_d((Tensor*)h, idx);
-}
+/* tensor_item_1d: moved to backend_tape/core/lifecycle/item1d.c (Phase 1a.10). */
 
 /* ================================================================
    Native Optimizer
