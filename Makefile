@@ -269,12 +269,22 @@ BACKEND_TAPE_HEADERS := $(shell find $(BACKENDS_DIR)/backend_tape -name '*.h' 2>
 BACKEND_TAPE_SRCS    := $(shell find $(BACKENDS_DIR)/backend_tape -name '*.c' 2>/dev/null)
 BACKEND_TAPE_OBJS    := $(patsubst $(BACKENDS_DIR)/backend_tape/%.c,$(BUILD)/backend_tape/%.o,$(BACKEND_TAPE_SRCS))
 
-# shared/training/** headers (Phase 2.1: port.h interface). backend
+# shared/training/** sources + headers (the shared-port lift). Backend
 # adapters under backend_<b>/training/adapter.<c|cpp> #include the
 # shared header via relative path; per-TU compile picks the dependency
 # up via the implicit include scan, but list the headers explicitly so
 # changes to the port surface re-build dependent .o files.
 SHARED_TRAINING_HEADERS := $(shell find $(BACKENDS_DIR)/shared -name '*.h' 2>/dev/null)
+SHARED_TRAINING_SRCS    := $(shell find $(BACKENDS_DIR)/shared -name '*.c' 2>/dev/null)
+
+# List of backends that ship a training adapter. The shared/training/*.c
+# TUs compile once per backend in this list with that backend's rename
+# header, so multi-link gets distinct `<sym>_<b>` exports (e.g.
+# `param_register_tape`). Backends not in this list still use their
+# monolithic in-file param_registry/optimizer/etc. — they migrate onto
+# the shared port one at a time as their adapters land.
+TRAINING_ADAPTER_BACKENDS := tape
+SHARED_TRAINING_LIST       := $(filter $(TRAINING_ADAPTER_BACKENDS),$(BACKEND_LIST))
 
 # Per-backend object outputs.
 BACKEND_OBJS := $(foreach b,$(BACKEND_LIST),$(BUILD)/backend_$(b).o)
@@ -305,6 +315,21 @@ endif
 $(BUILD)/backend_tape/%.o: $(BACKENDS_DIR)/backend_tape/%.c $(BACKEND_TAPE_HEADERS) $(SHARED_TRAINING_HEADERS) $(BACKENDS_DIR)/rename_tape.h | $(BUILD)
 	@mkdir -p $(dir $@)
 	cc -O2 -fPIC $(EXTRA_CFLAGS) $(tape_CFLAGS) -include $(BACKENDS_DIR)/rename_tape.h -c -o $@ $<
+
+# Per-backend compile rule for shared/training/*.c. One .o per backend
+# with that backend's rename header (so `param_register` becomes
+# `param_register_<b>` and multi-link doesn't collide). Output lives at
+# build/shared_training_<b>/<file>.o.
+define shared_training_compile_rule
+$(BUILD)/shared_training_$(1)/%.o: $(BACKENDS_DIR)/shared/training/%.c $(SHARED_TRAINING_HEADERS) $(BACKENDS_DIR)/backend.h $(BACKENDS_DIR)/rename_$(1).h | $(BUILD)
+	@mkdir -p $$(dir $$@)
+	$($(1)_CC) -O2 -fPIC $$(EXTRA_CFLAGS) $($(1)_CFLAGS) -include $(BACKENDS_DIR)/rename_$(1).h -c -o $$@ $$<
+
+SHARED_TRAINING_OBJS_$(1) := $$(patsubst $(BACKENDS_DIR)/shared/training/%.c,$(BUILD)/shared_training_$(1)/%.o,$(SHARED_TRAINING_SRCS))
+BACKEND_OBJS              += $$(SHARED_TRAINING_OBJS_$(1))
+endef
+
+$(foreach b,$(SHARED_TRAINING_LIST),$(eval $(call shared_training_compile_rule,$(b))))
 
 define backend_compile_rule
 $(BUILD)/backend_$(1).o: $($(1)_SRC) $(BACKENDS_DIR)/backend.h $(BACKENDS_DIR)/rename_$(1).h $(BACKEND_TAPE_HEADERS) | $(BUILD)

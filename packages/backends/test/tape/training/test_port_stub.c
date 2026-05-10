@@ -31,8 +31,11 @@ Test(shared_training, port_struct_populated) {
 }
 
 Test(shared_training, stub_aborts_on_use, .signal = SIGABRT) {
-    /* tensor_numel is representative — every stub aborts the same way.
-       The expected SIGABRT delivery is what Criterion's `.signal`
-       annotation gates the test on. */
-    (void)g_active_port.tensor_numel(NULL);
+    /* Pick a slot still on the abort-stub path so the test stays valid
+       as the adapter fills in. `backward` / `epoch_boundary` / `wall_ms`
+       are still unimplemented — their shared consumers (optimizer,
+       backward driver, profiler) have not been lifted yet, so the
+       stubs remain in place. Swap targets if/when one of these
+       acquires its real implementation. */
+    g_active_port.epoch_boundary();
 }
