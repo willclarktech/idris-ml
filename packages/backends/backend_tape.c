@@ -539,24 +539,7 @@ TensorHandle tensor_sum_all(TensorHandle h) {
 /* Loss kernels — dtype-aware reads via tape_load_d so F32 inputs are
    honoured; output is an F32 scalar when inputs are F32, else F64. Mixed
    dtype between input and target is rejected. */
-TensorHandle tensor_bce_with_logits(TensorHandle hinput, TensorHandle htarget) {
-    Tensor* input = (Tensor*)hinput;
-    Tensor* target = (Tensor*)htarget;
-    if (input->dtype_tag != target->dtype_tag) tape_abort_mixed_dtype("tensor_bce_with_logits");
-    int n = input->numel;
-    double loss = 0;
-    for (int i = 0; i < n; i++) {
-        double p = tape_load_d(input, i), y = tape_load_d(target, i);
-        double max_p = p > 0 ? p : 0;
-        loss += max_p - p * y + log(1.0 + exp(-fabs(p)));
-    }
-    loss /= n;
-    Tensor* r = (input->dtype_tag == DT_F32)
-                  ? make_scalar_f32(loss, input->requires_grad)
-                  : make_scalar(loss, input->requires_grad);
-    if (r->requires_grad) tape_append(OP_BCE_WITH_LOGITS, r, input, target, 0);
-    return r;
-}
+/* tensor_bce_with_logits: moved to backend_tape/nn/loss/bce_with_logits.c (Phase 1c.6). */
 
 TensorHandle tensor_cross_entropy(TensorHandle hinput, TensorHandle htarget) {
     /* Simplified: compute -sum(target * log_softmax(input)) / n */
@@ -1705,19 +1688,7 @@ void tensor_backward(TensorHandle h) {
 
         /* OP_SOFTMAX, OP_LOG_SOFTMAX: moved to backend_tape/nn/softmax/ (Phase 1c.1). */
 
-        case OP_BCE_WITH_LOGITS: {
-            /* d/dp_i = (1/n) * (sigmoid(p_i) - y_i).
-               tape_load_d covers both F64 and F32 input/target storage. */
-            if (a) {
-                ensure_grad(a);
-                int n_bce = a->numel;
-                for (int j = 0; j < n_bce; j++) {
-                    double sig = 1.0 / (1.0 + exp(-tape_load_d(a, j)));
-                    ((double*)a->grad)[j] += ((double*)r->grad)[0] * (sig - tape_load_d(b, j)) / n_bce;
-                }
-            }
-            break;
-        }
+        /* OP_BCE_WITH_LOGITS: moved to backend_tape/nn/loss/bce_with_logits.c (Phase 1c.6). */
 
         case OP_LSTM_GATES: {
             /* LSTM gates backward: propagate from hidden output to combined + prev_cell.
