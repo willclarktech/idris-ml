@@ -588,56 +588,7 @@ TensorHandle tensor_mse_loss(TensorHandle hinput, TensorHandle htarget) {
    NTM-specific compositions
    ================================================================ */
 
-TensorHandle tensor_cosine_similarity(TensorHandle ha, TensorHandle hb, int dim) {
-    /* Simplified: compute row-wise cosine sim of a [n,w] vs b [1,w].
-       tape_load_d reads cover both F64 and F32 storage; we compute in
-       double for numerical stability and narrow to float on output if F32. */
-    Tensor* a = (Tensor*)ha;
-    Tensor* b = (Tensor*)hb;
-    if (a->rank == 2 && b->rank == 2) {
-        if (a->dtype_tag != b->dtype_tag) tape_abort_mixed_dtype("tensor_cosine_similarity");
-        int n = a->shape[0], w = a->shape[1];
-        int out_shape[] = {n};
-        int rg = a->requires_grad || b->requires_grad;
-        double bnorm2 = 0;
-        for (int j = 0; j < w; j++) { double v = tape_load_d(b, j); bnorm2 += v * v; }
-        double bnorm = sqrt(bnorm2) + 1e-8;
-        Tensor* r;
-        if (a->dtype_tag == DT_F32) {
-            float* out = arena_alloc(n * sizeof(float));
-            for (int i = 0; i < n; i++) {
-                double dot = 0, anorm2 = 0;
-                for (int j = 0; j < w; j++) {
-                    double av = tape_load_d(a, i*w+j);
-                    double bv = tape_load_d(b, j);
-                    dot += av * bv;
-                    anorm2 += av * av;
-                }
-                double anorm = sqrt(anorm2) + 1e-8;
-                out[i] = (float)(dot / (anorm * bnorm));
-            }
-            r = make_tensor_arena_f32(out, n, out_shape, 1, rg);
-        } else {
-            double* out = calloc(n, sizeof(double));
-            for (int i = 0; i < n; i++) {
-                double dot = 0, anorm2 = 0;
-                for (int j = 0; j < w; j++) {
-                    double av = ((double*)a->data)[i*w+j];
-                    double bv = ((double*)b->data)[j];
-                    dot += av * bv;
-                    anorm2 += av * av;
-                }
-                double anorm = sqrt(anorm2) + 1e-8;
-                out[i] = dot / (anorm * bnorm);
-            }
-            r = make_tensor(out, out_shape, 1, rg);
-            free(out);
-        }
-        if (r->requires_grad) tape_append(OP_COSINE_SIM, r, a, b, 0);
-        return r;
-    }
-    return make_scalar(0, 0); /* fallback */
-}
+/* tensor_cosine_similarity: moved to backend_tape/nn/attention/cosine_similarity.c (Phase 1c.5). */
 
 TensorHandle tensor_conv1d_circular(TensorHandle hinput, TensorHandle hkernel) {
     Tensor* input = (Tensor*)hinput;
@@ -680,61 +631,14 @@ TensorHandle tensor_conv1d_circular(TensorHandle hinput, TensorHandle hkernel) {
    Q [B,seqQ,d], K [B,seqK,d], V [B,seqK,d] -> [B,seqQ,d]
    ================================================================ */
 
-TensorHandle tensor_cross_attention(TensorHandle hQ, TensorHandle hK, TensorHandle hV,
-                                    TensorHandle hmask, double scale) {
-    /* Compose from existing ops — backward handled by tape of individual ops */
-    TensorHandle KT = tensor_transpose_last2(hK);
-    TensorHandle scores = tensor_mul_scalar(tensor_bmm_3x3(hQ, KT), scale);
-    if (hmask) scores = tensor_masked_fill(scores, hmask, -1.0e20);
-    TensorHandle attn = tensor_softmax_3d(scores);
-    return tensor_bmm_3x3(attn, hV);
-}
+/* tensor_cross_attention: moved to backend_tape/nn/attention/cross_attention.c (Phase 1c.5). */
 
 /* ================================================================
    Embedding: row gather from weight matrix
    weight [vocabSize, embedDim], indices [n] -> output [n * embedDim]
    ================================================================ */
 
-TensorHandle tensor_embedding(TensorHandle hweight, TensorHandle hindices, int n, int embedDim) {
-    Tensor* weight = (Tensor*)hweight;
-    Tensor* indices = (Tensor*)hindices;
-    int out_numel = n * embedDim;
-    int out_shape[] = {out_numel};
-    int* idx_copy = malloc(n * sizeof(int));
-    /* Indices are typed as F64 by the existing call sites — read via
-       tape_load_d so an F32-tagged indices tensor (rare) also works. */
-    Tensor* r;
-    if (weight->dtype_tag == DT_F32) {
-        float* out = arena_alloc(out_numel * sizeof(float));
-        for (int i = 0; i < n; i++) {
-            int idx = (int)tape_load_d(indices, i);
-            idx_copy[i] = idx;
-            memcpy(out + i * embedDim, ((float*)weight->data) + idx * embedDim, embedDim * sizeof(float));
-        }
-        r = make_tensor_arena_f32(out, out_numel, out_shape, 1, weight->requires_grad);
-    } else {
-        double* out = calloc(out_numel, sizeof(double));
-        for (int i = 0; i < n; i++) {
-            int idx = (int)tape_load_d(indices, i);
-            idx_copy[i] = idx;
-            memcpy(out + i * embedDim, ((double*)weight->data) + idx * embedDim, embedDim * sizeof(double));
-        }
-        r = make_tensor(out, out_shape, 1, weight->requires_grad);
-        free(out);
-    }
-
-    if (r->requires_grad) {
-        TapeEntry* e = tape_append(OP_EMBEDDING, r, weight, NULL, 0);
-        EmbeddingMeta* meta = arena_alloc(sizeof(EmbeddingMeta));
-        meta->n = n;
-        meta->embedDim = embedDim;
-        meta->indices = idx_copy;
-        e->op_meta = meta;
-    } else {
-        free(idx_copy);
-    }
-    return r;
-}
+/* tensor_embedding: moved to backend_tape/nn/attention/embedding.c (Phase 1c.5). */
 
 /* ================================================================
    Batch Normalization: per-channel, across spatial dims
@@ -1889,43 +1793,7 @@ void tensor_backward(TensorHandle h) {
             break;
         }
 
-        case OP_COSINE_SIM: {
-            /* Cosine similarity backward: a=[n,w] matrix, b=[1,w] key (unsqueezed) */
-            if (a && a->rank == 2 && b && b->rank == 2) {
-                int n_cs = a->shape[0], w_cs = a->shape[1];
-                /* tape_load_d covers both F32 and F64. */
-                double bnorm2 = 0;
-                for (int j = 0; j < w_cs; j++) { double v = tape_load_d(b, j); bnorm2 += v * v; }
-                double bnorm = sqrt(bnorm2) + 1e-8;
-
-                ensure_grad(a); ensure_grad(r);
-                for (int ii = 0; ii < n_cs; ii++) {
-                    double anorm2 = 0;
-                    for (int j = 0; j < w_cs; j++) { double v = tape_load_d(a, ii*w_cs+j); anorm2 += v * v; }
-                    double anorm = sqrt(anorm2) + 1e-8;
-                    double cos_val = tape_load_d(r, ii);
-                    double g = ((double*)r->grad)[ii];
-                    for (int j = 0; j < w_cs; j++) {
-                        ((double*)a->grad)[ii*w_cs+j] += g * (tape_load_d(b, j) / (anorm * bnorm) - cos_val * tape_load_d(a, ii*w_cs+j) / (anorm2 + 1e-10));
-                    }
-                }
-
-                if (b->requires_grad) {
-                    ensure_grad(b);
-                    for (int ii = 0; ii < n_cs; ii++) {
-                        double anorm2 = 0;
-                        for (int j = 0; j < w_cs; j++) { double v = tape_load_d(a, ii*w_cs+j); anorm2 += v * v; }
-                        double anorm = sqrt(anorm2) + 1e-8;
-                        double cos_val = tape_load_d(r, ii);
-                        double g = ((double*)r->grad)[ii];
-                        for (int j = 0; j < w_cs; j++) {
-                            ((double*)b->grad)[j] += g * (tape_load_d(a, ii*w_cs+j) / (anorm * bnorm) - cos_val * tape_load_d(b, j) / (bnorm2 + 1e-10));
-                        }
-                    }
-                }
-            }
-            break;
-        }
+/* OP_COSINE_SIM: moved to backend_tape/nn/attention/cosine_similarity.c (Phase 1c.5). */
 
         case OP_CONV1D_CIRC: {
             /* Circular convolution backward — tape_load_d covers F64 + F32 reads. */
@@ -1952,20 +1820,7 @@ void tensor_backward(TensorHandle h) {
             break;
         }
 
-        case OP_EMBEDDING: {
-            /* Scatter grad rows back to weight matrix */
-            EmbeddingMeta* meta = (EmbeddingMeta*)e->op_meta;
-            ensure_grad(r);
-            if (a && a->requires_grad) {
-                ensure_grad(a);
-                for (int i = 0; i < meta->n; i++) {
-                    int idx = meta->indices[i];
-                    for (int j = 0; j < meta->embedDim; j++)
-                        ((double*)a->grad)[idx * meta->embedDim + j] += ((double*)r->grad)[i * meta->embedDim + j];
-                }
-            }
-            break;
-        }
+/* OP_EMBEDDING: moved to backend_tape/nn/attention/embedding.c (Phase 1c.5). */
 
 /* OP_BATCH_NORM: moved to backend_tape/nn/norm/batch_norm.c (Phase 1c.4). */
 
