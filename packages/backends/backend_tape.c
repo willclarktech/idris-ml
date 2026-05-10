@@ -2816,30 +2816,7 @@ TensorHandle tensor_max_pool2d_batched(TensorHandle hinput, int kH, int kW,
 
 /* tensor_select: moved to backend_tape/linear/shape/select.c (Phase 1b.1). */
 
-TensorHandle tensor_stack(TensorHandle* tensors, int count, int dim) {
-    /* Stack scalars into a 1D vector. dtype follows the inputs' tag: if all
-       inputs are F32 the output is F32; if any input is F32-mixed-with-F64
-       we abort. Reads each scalar via tape_load_d so the dtype-agnostic
-       interface works for both storages. */
-    int shape[] = {count};
-    int out_tag = (count > 0) ? ((Tensor*)tensors[0])->dtype_tag : DT_F64;
-    for (int i = 1; i < count; i++)
-        if (((Tensor*)tensors[i])->dtype_tag != out_tag) tape_abort_mixed_dtype("tensor_stack");
-    if (out_tag == DT_F32) {
-        float* data = arena_alloc(count * sizeof(float));
-        for (int i = 0; i < count; i++) data[i] = (float)tape_load_d((Tensor*)tensors[i], 0);
-        return make_tensor_arena_f32(data, count, shape, 1, 0);
-    }
-    double* data = malloc(count * sizeof(double));
-    for (int i = 0; i < count; i++) data[i] = tape_load_d((Tensor*)tensors[i], 0);
-    Tensor* r = make_tensor(data, shape, 1, 0);
-    free(data);
-    return r;
-}
-
-TensorHandle tensor_cat(TensorHandle* tensors, int count, int dim) {
-    return tensor_stack(tensors, count, dim); /* simplified: scalar-only */
-}
+/* tensor_stack, tensor_cat: moved to backend_tape/linear/concat/ (Phase 1b.2.a). */
 
 /* Concatenate two 1D tensors: [a] ++ [b] -> [a+b] */
 TensorHandle tensor_cat2(TensorHandle ha, TensorHandle hb) {
