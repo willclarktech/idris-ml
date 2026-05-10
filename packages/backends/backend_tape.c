@@ -484,31 +484,8 @@ TensorHandle tensor_sum_all(TensorHandle h) {
    dtype between input and target is rejected. */
 /* tensor_bce_with_logits: moved to backend_tape/nn/loss/bce_with_logits.c (Phase 1c.6). */
 
-TensorHandle tensor_cross_entropy(TensorHandle hinput, TensorHandle htarget) {
-    /* Simplified: compute -sum(target * log_softmax(input)) / n */
-    Tensor* input = (Tensor*)hinput;
-    Tensor* target = (Tensor*)htarget;
-    if (input->dtype_tag != target->dtype_tag) tape_abort_mixed_dtype("tensor_cross_entropy");
-    TensorHandle ls = tensor_log_softmax(hinput, 0);
-    Tensor* lsT = (Tensor*)ls;
-    double loss = 0;
-    for (int i = 0; i < lsT->numel; i++) loss -= tape_load_d(target, i) * tape_load_d(lsT, i);
-    loss /= lsT->numel;
-    return (input->dtype_tag == DT_F32) ? make_scalar_f32(loss, 0) : make_scalar(loss, 0);
-}
-
-TensorHandle tensor_mse_loss(TensorHandle hinput, TensorHandle htarget) {
-    Tensor* input = (Tensor*)hinput;
-    Tensor* target = (Tensor*)htarget;
-    if (input->dtype_tag != target->dtype_tag) tape_abort_mixed_dtype("tensor_mse_loss");
-    double loss = 0;
-    for (int i = 0; i < input->numel; i++) {
-        double d = tape_load_d(input, i) - tape_load_d(target, i);
-        loss += d * d;
-    }
-    double mean = loss / input->numel;
-    return (input->dtype_tag == DT_F32) ? make_scalar_f32(mean, 0) : make_scalar(mean, 0);
-}
+/* tensor_cross_entropy: moved to backend_tape/nn/loss/cross_entropy.c (Phase 1e.8.a). */
+/* tensor_mse_loss:      moved to backend_tape/nn/loss/mse_loss.c      (Phase 1e.8.a). */
 
 /* ================================================================
    NTM-specific compositions
@@ -543,52 +520,7 @@ TensorHandle tensor_mse_loss(TensorHandle hinput, TensorHandle htarget) {
    Group Normalization: normalize within channel groups
    ================================================================ */
 
-TensorHandle tensor_group_norm(TensorHandle hinput, TensorHandle hgamma, TensorHandle hbeta,
-                               int numGroups, int channels, int spatial, double eps) {
-    Tensor* input = (Tensor*)hinput;
-    Tensor* gamma = (Tensor*)hgamma;
-    Tensor* beta = (Tensor*)hbeta;
-    int n = channels * spatial;
-    int chPerGroup = channels / numGroups;
-    int groupSize = chPerGroup * spatial;
-
-    if (input->dtype_tag != gamma->dtype_tag || input->dtype_tag != beta->dtype_tag)
-        tape_abort_mixed_dtype("tensor_group_norm");
-    int is_f32 = (input->dtype_tag == DT_F32);
-    int out_shape[] = {n};
-    void* out = is_f32 ? (void*)arena_alloc(n * sizeof(float))
-                       : (void*)calloc(n, sizeof(double));
-    for (int g = 0; g < numGroups; g++) {
-        double mean = 0;
-        int base = g * groupSize;
-        for (int j = 0; j < groupSize; j++) mean += tape_load_d(input, base + j);
-        mean /= groupSize;
-        double var = 0;
-        for (int j = 0; j < groupSize; j++) {
-            double d = tape_load_d(input, base + j) - mean;
-            var += d * d;
-        }
-        var /= groupSize;
-        double rstd = 1.0 / sqrt(var + eps);
-        for (int c = 0; c < chPerGroup; c++) {
-            int absC = g * chPerGroup + c;
-            double gc = tape_load_d(gamma, absC);
-            double bc = tape_load_d(beta, absC);
-            for (int s = 0; s < spatial; s++) {
-                int idx = absC * spatial + s;
-                double x_hat = (tape_load_d(input, idx) - mean) * rstd;
-                double v = gc * x_hat + bc;
-                if (is_f32) ((float*)out)[idx] = (float)v;
-                else        ((double*)out)[idx] = v;
-            }
-        }
-    }
-    Tensor* r;
-    if (is_f32) r = make_tensor_arena_f32((float*)out, n, out_shape, 1, input->requires_grad || gamma->requires_grad);
-    else { r = make_tensor((double*)out, out_shape, 1, input->requires_grad || gamma->requires_grad); free(out); }
-    /* No backward tape entry for now — torch/MLX handle it natively */
-    return r;
-}
+/* tensor_group_norm: moved to backend_tape/nn/norm/group_norm.c (Phase 1e.8.a). */
 
 /* ================================================================
    Dropout: inverted dropout with mask
