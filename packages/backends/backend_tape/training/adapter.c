@@ -18,17 +18,23 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <string.h>
+#include "../tape.h"
 #include "../tensor.h"
 #include "../arena.h"
 #include "../../shared/training/port.h"
+#include "../../backend.h"
 
-#define TAPE_ADAPTER_STUB(name) \
-  do { \
-    fprintf(stderr, \
-      "tape adapter stub: " #name \
-      " invoked before its shared-port implementation landed — aborting.\n"); \
-    abort(); \
-  } while (0)
+/* From training/profiling.c — tape-internal accumulators that the
+   adapter's epoch_boundary updates. */
+extern double _wall_ms(void);
+extern double prof_optimizer_ms;
+extern int    prof_forward_ops;
+extern int    prof_epochs;
+extern double prof_epoch_start;
+extern double prof_op_t_prev;
+
+/* From training/diagnostics.c — DEBUG_LSTM_TRAJ pre-reset dump. */
+extern void _dbg_dump_lstm_traj_if_enabled(void);
 
 /* ----------------------------------------------------------------------
    Tensor introspection.
@@ -70,12 +76,47 @@ static void tape_load_int64(void* h, const int64_t* src, int n) {
 }
 
 /* ----------------------------------------------------------------------
-   Slots whose shared consumer has not been lifted yet stay as abort
-   stubs so any premature wiring fails loudly.
+   Backward driver. Delegates to tape's tensor_backward, which walks the
+   Wengert list in reverse via the op-dispatch table.
    ---------------------------------------------------------------------- */
-static void   stub_backward(void* loss)        { (void)loss; TAPE_ADAPTER_STUB(backward); }
-static void   stub_epoch_boundary(void)        { TAPE_ADAPTER_STUB(epoch_boundary); }
-static double stub_wall_ms(void)               { TAPE_ADAPTER_STUB(wall_ms); }
+static void tape_adapter_backward(void* loss) { tensor_backward((TensorHandle)loss); }
+
+/* ----------------------------------------------------------------------
+   Wall-clock provider for the shared profiler / optimizer. _wall_ms
+   is gettimeofday-based and shared by every prof_* accumulator.
+   ---------------------------------------------------------------------- */
+static double tape_adapter_wall_ms(void) { return _wall_ms(); }
+
+/* ----------------------------------------------------------------------
+   Epoch boundary. Called by the shared optimizer at the end of step().
+   Sequence intentionally matches the monolithic optimizer_step tail
+   verbatim — F64 byte-identical depends on:
+     1. DEBUG_LSTM_TRAJ dump BEFORE tape_reset (it reads param data
+        values, which survive reset, but dumping pre-reset matches
+        the legacy step order so the dump's epoch index is unchanged).
+     2. prof_forward_ops snapshotted from tape_size BEFORE reset.
+     3. tape_reset then re-register each param via OP_CONST so its
+        tape_idx is valid for the next forward pass.
+     4. prof_optimizer_ms += elapsed (covers per-param loop + this
+        hygiene; matches legacy).
+     5. prof_epochs++ and restart epoch + per-op timers.
+   ---------------------------------------------------------------------- */
+static void tape_adapter_epoch_boundary(double t0_opt_start) {
+    _dbg_dump_lstm_traj_if_enabled();
+    prof_forward_ops = tape_size;
+    tape_reset();
+    for (int j = 0; j < param_count(); j++) {
+        Tensor* t = (Tensor*)param_tensor(j);
+        t->tape_idx = -1;
+        if (t->grad) memset(t->grad, 0, t->numel * sizeof(double));
+        tape_append(OP_CONST, t, NULL, NULL, 0);
+    }
+    prof_optimizer_ms += _wall_ms() - t0_opt_start;
+    prof_epochs++;
+    double t_next = _wall_ms();
+    prof_epoch_start = t_next;
+    prof_op_t_prev = t_next;
+}
 
 const BackendPort g_active_port = {
   .tensor_numel         = tape_tensor_numel,
@@ -88,7 +129,7 @@ const BackendPort g_active_port = {
   .zero_grad            = tape_zero_grad,
   .load_doubles         = tape_load_doubles,
   .load_int64           = tape_load_int64,
-  .backward             = stub_backward,
-  .epoch_boundary       = stub_epoch_boundary,
-  .wall_ms              = stub_wall_ms,
+  .backward             = tape_adapter_backward,
+  .epoch_boundary       = tape_adapter_epoch_boundary,
+  .wall_ms              = tape_adapter_wall_ms,
 };

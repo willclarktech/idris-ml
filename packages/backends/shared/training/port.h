@@ -72,12 +72,18 @@ typedef struct BackendPort {
   void   (*backward)(void* loss);
 
   /* ----------------------------------------------------------------------
-     Epoch boundary. Tape: tape_reset() + re-register params on the
-     fresh tape (so their grads stay reachable). Torch/mlx: no-op —
-     their autograd doesn't carry a persistent Wengert list between
-     epochs.
+     Epoch boundary. Called by the optimizer at the end of `step()`.
+     `step_start_ms` is the wall-clock reading at the start of step()
+     so the adapter can credit (per-param loop + post-step hygiene)
+     to its `prof_optimizer_ms` accumulator.
+
+     Tape: dumps DEBUG_LSTM_TRAJ if enabled → tape_reset() →
+       re-register every param on the fresh tape (so their grads
+       stay reachable after the reset) → bump prof epoch counters.
+     Torch/mlx (future): no Wengert list to reset; the adapter just
+       bumps profile counters and zero-grads via their own API.
      ---------------------------------------------------------------------- */
-  void   (*epoch_boundary)(void);
+  void   (*epoch_boundary)(double step_start_ms);
 
   /* ----------------------------------------------------------------------
      Wall clock for profiler. Returns milliseconds since some epoch
