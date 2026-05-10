@@ -2810,26 +2810,7 @@ TensorHandle tensor_max_pool2d_batched(TensorHandle hinput, int kH, int kW,
    Shape manipulation
    ================================================================ */
 
-TensorHandle tensor_reshape(TensorHandle h, int* shape, int rank) {
-    Tensor* t = (Tensor*)h;
-    /* Create a new tensor with different shape but shared data (arena-allocated).
-       Propagate dtype_tag so an F32 reshape stays F32-tagged — without this
-       the zero-init dtype_tag (=DT_F64) makes the view misinterpret F32
-       storage as doubles. Data is shared (same pointer), no stride change. */
-    Tensor* r = arena_alloc(sizeof(Tensor));
-    memset(r, 0, sizeof(Tensor));
-    r->data = t->data;  /* shared */
-    r->shape = arena_alloc(rank * sizeof(int));
-    memcpy(r->shape, shape, rank * sizeof(int));
-    r->rank = rank;
-    r->numel = t->numel;
-    r->requires_grad = t->requires_grad;
-    r->tape_idx = -1;
-    r->grad = NULL;
-    r->dtype_tag = t->dtype_tag;
-    if (r->requires_grad) tape_append(OP_RESHAPE, r, t, NULL, 0);
-    return r;
-}
+/* tensor_reshape: moved to backend_tape/linear/shape/reshape.c (Phase 1b.1.b). */
 
 TensorHandle tensor_unsqueeze(TensorHandle h, int dim) {
     Tensor* t = (Tensor*)h;
@@ -3132,14 +3113,7 @@ void tensor_backward(TensorHandle h) {
 
         /* OP_SELECT: moved to backend_tape/linear/shape/select.c (Phase 1b.1). */
 
-        case OP_RESHAPE:
-            /* Reshape is a view — gradient passes through unchanged */
-            if (a) {
-                ensure_grad(a);
-                ensure_grad(r);
-                for (int j = 0; j < a->numel; j++) ((double*)a->grad)[j] += ((double*)r->grad)[j];
-            }
-            break;
+        /* OP_RESHAPE: moved to backend_tape/linear/shape/reshape.c (Phase 1b.1.b). */
 
         case OP_STACK:
             /* Distribute gradient from stacked tensor back to constituent scalars */
