@@ -1311,32 +1311,7 @@ TensorHandle tensor_dropout(TensorHandle hinput, double p, int training, unsigne
    Gather / Scatter
    ================================================================ */
 
-TensorHandle tensor_gather(TensorHandle hinput, TensorHandle hindex, int n) {
-    Tensor* input = (Tensor*)hinput;
-    Tensor* index = (Tensor*)hindex;
-    int shape[] = {n};
-    Tensor* r;
-    if (input->dtype_tag == DT_F32) {
-        float* out = arena_alloc(n * sizeof(float));
-        for (int i = 0; i < n; i++) {
-            int idx = (int)tape_load_d(index, i);
-            out[i] = ((float*)input->data)[idx];
-        }
-        r = make_tensor_arena_f32(out, n, shape, 1, input->requires_grad);
-    } else {
-        double* out = calloc(n, sizeof(double));
-        for (int i = 0; i < n; i++) {
-            int idx = (int)tape_load_d(index, i);
-            out[i] = ((double*)input->data)[idx];
-        }
-        r = make_tensor(out, shape, 1, input->requires_grad);
-        free(out);
-    }
-    /* Record tape entry: backward scatters grad back to input positions.
-       index stored as arg2 (non-grad integer tensor). */
-    if (r->requires_grad) tape_append(OP_GATHER, r, input, index, (double)n);
-    return r;
-}
+/* tensor_gather: moved to backend_tape/linear/index/gather.c (Phase 1b.7). */
 
 TensorHandle tensor_scatter_add(TensorHandle hindex, TensorHandle hsrc, int out_size) {
     Tensor* index = (Tensor*)hindex;
@@ -3136,22 +3111,7 @@ void tensor_backward(TensorHandle h) {
             }
             break;
         }
-        case OP_GATHER: {
-            /* r[i] = a[index[i]]. Backward: d_a[index[i]] += d_r[i] (scatter-add).
-               tape_load_d on index data covers F64+F32 indices. */
-            ensure_grad(r);
-            if (a && a->requires_grad) {
-                ensure_grad(a);
-                Tensor* index = b;
-                int nn = (int)e->scalar_arg;
-                for (int i = 0; i < nn; i++) {
-                    int idx = (int)tape_load_d(index, i);
-                    if (idx >= 0 && idx < a->numel)
-                        ((double*)a->grad)[idx] += ((double*)r->grad)[i];
-                }
-            }
-            break;
-        }
+        /* OP_GATHER: moved to backend_tape/linear/index/gather.c (Phase 1b.7). */
         case OP_CUMPROD: {
             /* r[i] = prod(a[0..i]). Backward:
                d_a[i] = sum_{j>=i} d_r[j] * r[j] / a[i]
