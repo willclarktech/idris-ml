@@ -439,21 +439,7 @@ TensorHandle name(TensorHandle ha) { \
 
 /* tensor_reshape_4d, tensor_reshape_3d: moved to backend_tape/linear/shape/ (Phase 1b.9). */
 
-TensorHandle tensor_expand_mask(TensorHandle hmask, int B) {
-    Tensor* mask = (Tensor*)hmask;
-    int mn = mask->numel;
-    int shape[] = {B, mask->shape[0], mask->shape[1]};
-    if (mask->dtype_tag == DT_F32) {
-        float* data = arena_alloc(B * mn * sizeof(float));
-        for (int bi = 0; bi < B; bi++) memcpy(data + bi * mn, mask->data, mn * sizeof(float));
-        return make_tensor_arena_f32(data, B * mn, shape, 3, 0);
-    }
-    double* data = malloc(B * mn * sizeof(double));
-    for (int bi = 0; bi < B; bi++) memcpy(data + bi * mn, mask->data, mn * sizeof(double));
-    Tensor* r = make_tensor(data, shape, 3, 0);
-    free(data);
-    return r;
-}
+/* tensor_expand_mask: moved to backend_tape/nn/mask/expand_mask.c (Phase 1c.3). */
 
 /* tensor_tile_2d + Tile2dMeta: moved to backend_tape/linear/linalg/tile_2d.c (Phase 1b.6). */
 
@@ -531,27 +517,7 @@ TensorHandle tensor_sum_all(TensorHandle h) {
 }
 
 /* Masked fill: replace positions where mask[i]=1 with value */
-TensorHandle tensor_masked_fill(TensorHandle h, TensorHandle hmask, double value) {
-    Tensor* t = (Tensor*)h;
-    Tensor* mask = (Tensor*)hmask;
-    int n = t->numel;
-    Tensor* r;
-    if (t->dtype_tag == DT_F32) {
-        float* data = arena_alloc(n * sizeof(float));
-        float v_f = (float)value;
-        for (int i = 0; i < n; i++)
-            data[i] = (tape_load_d(mask, i) != 0.0) ? v_f : ((float*)t->data)[i];
-        r = make_tensor_arena_f32(data, n, t->shape, t->rank, t->requires_grad);
-    } else {
-        double* data = malloc(n * sizeof(double));
-        for (int i = 0; i < n; i++)
-            data[i] = (tape_load_d(mask, i) != 0.0) ? value : ((double*)t->data)[i];
-        r = make_tensor(data, t->shape, t->rank, t->requires_grad);
-        free(data);
-    }
-    if (r->requires_grad) tape_append(OP_MASKED_FILL, r, t, mask, 0);
-    return r;
-}
+/* tensor_masked_fill: moved to backend_tape/nn/mask/masked_fill.c (Phase 1c.3). */
 
 
 /* Row-wise layer normalization on 2D tensor: y[i,j] = gamma[j] * x_hat[i,j] + beta[j]
@@ -2048,17 +2014,7 @@ void tensor_backward(TensorHandle h) {
 
         /* OP_SOFTMAX_2D, OP_LOG_SOFTMAX_2D: moved to backend_tape/nn/softmax/ (Phase 1c.1). */
 
-        case OP_MASKED_FILL: {
-            /* Gradient passes through where mask is 0, zero where mask is 1.
-               tape_load_d on mask data covers both dtypes. */
-            ensure_grad(r);
-            if (a) {
-                ensure_grad(a);
-                for (int j = 0; j < a->numel; j++)
-                    if (tape_load_d(b, j) == 0.0) ((double*)a->grad)[j] += ((double*)r->grad)[j];
-            }
-            break;
-        }
+        /* OP_MASKED_FILL: moved to backend_tape/nn/mask/masked_fill.c (Phase 1c.3). */
 
         case OP_LAYER_NORM_2D: {
             /* Row-wise layer norm backward.
