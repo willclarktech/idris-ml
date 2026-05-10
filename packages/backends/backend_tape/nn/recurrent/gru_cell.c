@@ -37,11 +37,9 @@
 
 extern void tape_abort_mixed_dtype(const char* op) __attribute__((noreturn));
 
-typedef struct {
-    int o;
-    double* zG; double* rG; double* nG;  /* activated gate values [o] each */
-    Tensor* prev;                         /* prev hidden state [o] (for backward) */
-} GruCellMetaLocal;
+/* GruCellMeta typedef lives in tape.h — kept there because tape_reset
+   in tape.c calls free() on zG/rG/nG when finalizing OP_GRU_CELL tape
+   entries. Layout shared by definition. */
 
 TensorHandle tensor_gru_cell(TensorHandle hih, TensorHandle hhh, TensorHandle hprev, int o) {
     Tensor* ih = (Tensor*)hih;
@@ -83,7 +81,7 @@ TensorHandle tensor_gru_cell(TensorHandle hih, TensorHandle hhh, TensorHandle hp
 
     if (r->requires_grad) {
         TapeEntry* e = tape_append(OP_GRU_CELL, r, ih, hh, 0);
-        GruCellMetaLocal* meta = arena_alloc(sizeof(GruCellMetaLocal));
+        GruCellMeta* meta = arena_alloc(sizeof(GruCellMeta));
         meta->o = o;
         meta->zG = zG; meta->rG = rG; meta->nG = nG;
         meta->prev = prev;
@@ -95,7 +93,7 @@ TensorHandle tensor_gru_cell(TensorHandle hih, TensorHandle hhh, TensorHandle hp
 }
 
 static void tape_backward_gru_cell(TapeEntry* e) {
-    GruCellMetaLocal* meta = (GruCellMetaLocal*)e->op_meta;
+    GruCellMeta* meta = (GruCellMeta*)e->op_meta;
     int oo = meta->o;
     Tensor* ih   = e->arg1;
     Tensor* hh   = e->arg2;

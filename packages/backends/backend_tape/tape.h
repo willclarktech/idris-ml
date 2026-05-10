@@ -86,9 +86,12 @@ typedef struct { int m, n; double* x_vals; } MvMeta;
 typedef struct { int m, n; double* x_vals; Tensor* bias; } LinearMeta;
 typedef struct { int B, i, o; double* x_vals; Tensor* bias; } Linear2dMeta;
 typedef struct { int n; double* out_vals; } SoftmaxMeta;
+/* LstmGatesMeta: layout shared with nn/recurrent/lstm_gates_pair.c.
+   Kept here because tape_reset in tape.c calls free() on iG/fG/gG/oG/
+   new_cell when finalizing OP_LSTM_GATES tape entries. */
 typedef struct {
     int o;
-    double* iG; double* fG; double* gG; double* oG;  /* activated gate values */
+    double* iG; double* fG; double* gG; double* oG;
     double* new_cell;
 } LstmGatesMeta;
 typedef struct {
@@ -106,10 +109,12 @@ typedef struct {
     int m, n;
 } LayerNormMeta;
 
+/* GruCellMeta: layout shared with nn/recurrent/gru_cell.c.
+   Kept here because tape_reset in tape.c frees zG/rG/nG. */
 typedef struct {
     int o;
-    double* zG; double* rG; double* nG;  /* activated gate values [o] each */
-    Tensor* prev;                         /* prev hidden state [o] (for backward) */
+    double* zG; double* rG; double* nG;
+    Tensor* prev;
 } GruCellMeta;
 
 typedef struct {

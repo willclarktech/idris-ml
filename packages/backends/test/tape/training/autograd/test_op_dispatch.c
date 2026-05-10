@@ -21,11 +21,11 @@ static void noop_backward(TapeEntry* e) { (void)e; }
 static void other_backward(TapeEntry* e) { (void)e; }
 
 /* Pick an op tag that's NOT yet migrated to its own file (and therefore
-   has no TAPE_REGISTER_OP firing at load time). OP_LSTM_GATES is the
-   next recurrent op slated for Phase 1c.7.d — until then its entry
-   stays NULL, so these tests can register/clear without colliding with
-   a real handler. Update this when OP_LSTM_GATES migrates. */
-#define UNMIGRATED_OP OP_LSTM_GATES
+   has no TAPE_REGISTER_OP firing at load time). OP_CONV1D is the
+   first conv op slated for Phase 1d.1 — until then its entry stays
+   NULL, so these tests can register/clear without colliding with a
+   real handler. Update this when OP_CONV1D migrates. */
+#define UNMIGRATED_OP OP_CONV1D
 
 Test(op_dispatch, unmigrated_ops_are_null) {
     /* Anything not yet migrated stays NULL — gives confidence that
