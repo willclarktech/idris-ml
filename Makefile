@@ -269,6 +269,13 @@ BACKEND_TAPE_HEADERS := $(shell find $(BACKENDS_DIR)/backend_tape -name '*.h' 2>
 BACKEND_TAPE_SRCS    := $(shell find $(BACKENDS_DIR)/backend_tape -name '*.c' 2>/dev/null)
 BACKEND_TAPE_OBJS    := $(patsubst $(BACKENDS_DIR)/backend_tape/%.c,$(BUILD)/backend_tape/%.o,$(BACKEND_TAPE_SRCS))
 
+# shared/training/** headers (Phase 2.1: port.h interface). backend
+# adapters under backend_<b>/training/adapter.<c|cpp> #include the
+# shared header via relative path; per-TU compile picks the dependency
+# up via the implicit include scan, but list the headers explicitly so
+# changes to the port surface re-build dependent .o files.
+SHARED_TRAINING_HEADERS := $(shell find $(BACKENDS_DIR)/shared -name '*.h' 2>/dev/null)
+
 # Per-backend object outputs.
 BACKEND_OBJS := $(foreach b,$(BACKEND_LIST),$(BUILD)/backend_$(b).o)
 
@@ -295,7 +302,7 @@ endif
 # Compile only when tape is in BACKEND_LIST — torch / mlx don't need
 # tape's internals, and their builds would needlessly compile + link
 # the tape TUs otherwise.
-$(BUILD)/backend_tape/%.o: $(BACKENDS_DIR)/backend_tape/%.c $(BACKEND_TAPE_HEADERS) $(BACKENDS_DIR)/rename_tape.h | $(BUILD)
+$(BUILD)/backend_tape/%.o: $(BACKENDS_DIR)/backend_tape/%.c $(BACKEND_TAPE_HEADERS) $(SHARED_TRAINING_HEADERS) $(BACKENDS_DIR)/rename_tape.h | $(BUILD)
 	@mkdir -p $(dir $@)
 	cc -O2 -fPIC $(EXTRA_CFLAGS) $(tape_CFLAGS) -include $(BACKENDS_DIR)/rename_tape.h -c -o $@ $<
 
