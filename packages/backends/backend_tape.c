@@ -2882,24 +2882,7 @@ TensorHandle tensor_cat2(TensorHandle ha, TensorHandle hb) {
     return r;
 }
 
-/* View into a slice of a 1D tensor: t[start..start+len) */
-TensorHandle tensor_narrow(TensorHandle h, int dim, int start, int len) {
-    Tensor* t = (Tensor*)h;
-    Tensor* r = arena_alloc(sizeof(Tensor));
-    memset(r, 0, sizeof(Tensor));
-    /* Byte-correct offset honours the parent's element width, so an F32
-       narrow steps 4 bytes per index rather than 8. */
-    r->data = (char*)t->data + (size_t)start * tape_elem_size(t->dtype_tag);
-    r->shape = arena_alloc(sizeof(int));
-    r->shape[0] = len;
-    r->rank = 1; r->numel = len;
-    r->requires_grad = t->requires_grad;
-    r->tape_idx = -1;
-    r->dtype_tag = t->dtype_tag;
-    /* OP_NARROW: scatter gradient back to parent at offset */
-    if (r->requires_grad) tape_append(OP_NARROW, r, t, NULL, (double)start);
-    return r;
-}
+/* tensor_narrow: moved to backend_tape/linear/shape/narrow.c (Phase 1b.1.c). */
 
 /* ================================================================
    Autograd — backward pass
@@ -3205,16 +3188,7 @@ void tensor_backward(TensorHandle h) {
             break;
         }
 
-        case OP_NARROW: {
-            /* r = parent[start..start+len), scatter grad back */
-            int start = (int)e->scalar_arg;
-            ensure_grad(r);
-            if (a) {
-                ensure_grad(a);
-                for (int j = 0; j < r->numel; j++) ((double*)a->grad)[start + j] += ((double*)r->grad)[j];
-            }
-            break;
-        }
+        /* OP_NARROW: moved to backend_tape/linear/shape/narrow.c (Phase 1b.1.c). */
 
         case OP_MM: {
             /* r = a @ b where a=[m,n], b=[n,k], r=[m,k]
