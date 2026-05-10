@@ -2818,35 +2818,7 @@ TensorHandle tensor_max_pool2d_batched(TensorHandle hinput, int kH, int kW,
 
 /* tensor_stack, tensor_cat: moved to backend_tape/linear/concat/ (Phase 1b.2.a). */
 
-/* Concatenate two 1D tensors: [a] ++ [b] -> [a+b] */
-TensorHandle tensor_cat2(TensorHandle ha, TensorHandle hb) {
-    Tensor* a = (Tensor*)ha;
-    Tensor* b = (Tensor*)hb;
-    if (a->dtype_tag != b->dtype_tag) tape_abort_mixed_dtype("tensor_cat2");
-    int na = a->numel, nb = b->numel, total = na + nb;
-    int rg = a->requires_grad || b->requires_grad;
-    int* shape = arena_alloc(sizeof(int));
-    shape[0] = total;
-    if (a->dtype_tag == DT_F32) {
-        float* data = arena_alloc(total * sizeof(float));
-        memcpy(data,      a->data, na * sizeof(float));
-        memcpy(data + na, b->data, nb * sizeof(float));
-        Tensor* r = make_tensor_arena_f32(data, total, shape, 1, rg);
-        if (rg) tape_append(OP_CAT, r, a, b, (double)na);
-        return r;
-    }
-    double* data = arena_alloc(total * sizeof(double));
-    memcpy(data, a->data, na * sizeof(double));
-    memcpy(data + na, b->data, nb * sizeof(double));
-    Tensor* r = arena_alloc(sizeof(Tensor));
-    memset(r, 0, sizeof(Tensor));
-    r->data = data; r->shape = shape; r->rank = 1;
-    r->numel = total; r->requires_grad = rg;
-    r->tape_idx = -1;
-    /* OP_CAT stores a as arg1, b as arg2. scalar_arg = split point (na) */
-    if (rg) tape_append(OP_CAT, r, a, b, (double)na);
-    return r;
-}
+/* tensor_cat2: moved to backend_tape/linear/concat/cat2.c (Phase 1b.2.b). */
 
 /* tensor_narrow: moved to backend_tape/linear/shape/narrow.c (Phase 1b.1.c). */
 
@@ -3139,20 +3111,7 @@ void tensor_backward(TensorHandle h) {
             break;
         }
 
-        case OP_CAT: {
-            /* r = cat(a, b), split at scalar_arg */
-            int split = (int)e->scalar_arg;
-            ensure_grad(r);
-            if (a) {
-                ensure_grad(a);
-                for (int j = 0; j < a->numel; j++) ((double*)a->grad)[j] += ((double*)r->grad)[j];
-            }
-            if (b) {
-                ensure_grad(b);
-                for (int j = 0; j < b->numel; j++) ((double*)b->grad)[j] += ((double*)r->grad)[split + j];
-            }
-            break;
-        }
+        /* OP_CAT: moved to backend_tape/linear/concat/cat2.c (Phase 1b.2.b). */
 
         /* OP_NARROW: moved to backend_tape/linear/shape/narrow.c (Phase 1b.1.c). */
 
