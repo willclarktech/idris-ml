@@ -439,45 +439,8 @@ TensorHandle tensor_silu(TensorHandle ha) {
    the dtype-matched make_scalar / make_scalar_f32 sets the result tag.
    Backward (OP_SUM, OP_MEAN) only writes input grads (always F64) and
    doesn't read input data, so the existing cases work for both dtypes. */
-TensorHandle tensor_sum(TensorHandle h) {
-    Tensor* t = (Tensor*)h;
-    double s = 0;
-    for (int i = 0; i < t->numel; i++) s += tape_load_d(t, i);
-    Tensor* r = (t->dtype_tag == DT_F32) ? make_scalar_f32(s, t->requires_grad)
-                                         : make_scalar(s, t->requires_grad);
-    if (r->requires_grad) tape_append(OP_SUM, r, t, NULL, 0);
-    return r;
-}
-
-TensorHandle tensor_sum_dim(TensorHandle h, int dim, int keepdim) {
-    /* Simplified: only support full sum for now */
-    return tensor_sum(h);
-}
-
-TensorHandle tensor_mean(TensorHandle h) {
-    Tensor* t = (Tensor*)h;
-    double s = 0;
-    for (int i = 0; i < t->numel; i++) s += tape_load_d(t, i);
-    double mean_val = s / t->numel;
-    Tensor* r = (t->dtype_tag == DT_F32) ? make_scalar_f32(mean_val, t->requires_grad)
-                                         : make_scalar(mean_val, t->requires_grad);
-    if (r->requires_grad) tape_append(OP_MEAN, r, t, NULL, 0);
-    return r;
-}
-
-TensorHandle tensor_min(TensorHandle h) {
-    Tensor* t = (Tensor*)h;
-    double m = tape_load_d(t, 0);
-    for (int i = 1; i < t->numel; i++) { double v = tape_load_d(t, i); if (v < m) m = v; }
-    return (t->dtype_tag == DT_F32) ? make_scalar_f32(m, 0) : make_scalar(m, 0);  /* non-differentiable */
-}
-
-TensorHandle tensor_max(TensorHandle h) {
-    Tensor* t = (Tensor*)h;
-    double m = tape_load_d(t, 0);
-    for (int i = 1; i < t->numel; i++) { double v = tape_load_d(t, i); if (v > m) m = v; }
-    return (t->dtype_tag == DT_F32) ? make_scalar_f32(m, 0) : make_scalar(m, 0);  /* non-differentiable */
-}
+/* tensor_sum, tensor_sum_dim, tensor_mean, tensor_min, tensor_max:
+ * moved to backend_tape/linear/reduction/ (Phase 1b.3). */
 
 /* ================================================================
    Linear algebra
@@ -3021,20 +2984,7 @@ void tensor_backward(TensorHandle h) {
             }
             break;
 
-        case OP_SUM:
-            if (a) {
-                ensure_grad(a);
-                for (int j = 0; j < a->numel; j++) ((double*)a->grad)[j] += ((double*)r->grad)[0];
-            }
-            break;
-
-        case OP_MEAN:
-            if (a) {
-                ensure_grad(a);
-                double scale = 1.0 / a->numel;
-                for (int j = 0; j < a->numel; j++) ((double*)a->grad)[j] += ((double*)r->grad)[0] * scale;
-            }
-            break;
+        /* OP_SUM, OP_MEAN: moved to backend_tape/linear/reduction/ (Phase 1b.3). */
 
         case OP_DOT:
             /* d(dot(a,b))/da = b, d(dot(a,b))/db = a (element-wise).
