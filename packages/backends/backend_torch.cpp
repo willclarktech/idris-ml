@@ -857,11 +857,11 @@ extern "C" void _dbg_dump_lstm_traj_if_enabled_torch(void) {
     if (every_s) every = atoi(every_s);
     _dbg_traj_step_torch++;
     if (_dbg_traj_step_torch % every != 0 && _dbg_traj_step_torch != 1) return;
-    for (size_t i = 0; i < param_registry.size(); i++) {
-        const std::string& nm = param_registry[i].name;
+    for (int i = 0; i < param_count(); i++) {
+        std::string nm(param_name(i));
         if (nm.size() >= 3 &&
             (nm.substr(nm.size()-3) == "_h0" || nm.substr(nm.size()-3) == "_c0")) {
-            auto& t = *param_registry[i].tensor;
+            auto& t = *(at::Tensor*)param_tensor(i);
             auto t_cpu = t.detach().cpu().to(torch::kFloat64).contiguous();
             const double* d = t_cpu.data_ptr<double>();
             int numel = (int)t.numel();
@@ -888,13 +888,14 @@ extern "C" void _dbg_dump_lstm_traj_if_enabled_torch(void) {
 extern "C" void _dbg_dump_param_grads_if_enabled_torch(void) {
     if (!getenv("DEBUG_PARAM_GRADS")) return;
     fprintf(stderr, "=== param grads after backward (torch) ===\n");
-    for (size_t i = 0; i < param_registry.size(); i++) {
-        auto& pe = param_registry[i];
+    for (int i = 0; i < param_count(); i++) {
+        std::string name(param_name(i));
+        auto* tensor = (at::Tensor*)param_tensor(i);
         double l2 = 0.0;
         int has_nan = 0;
-        int numel = (int)pe.tensor->numel();
-        if (pe.tensor->grad().defined()) {
-            auto g_cpu = pe.tensor->grad().cpu().to(torch::kFloat64).contiguous();
+        int numel = (int)tensor->numel();
+        if (tensor->grad().defined()) {
+            auto g_cpu = tensor->grad().cpu().to(torch::kFloat64).contiguous();
             const double* g = g_cpu.data_ptr<double>();
             for (int j = 0; j < numel; j++) {
                 double v = g[j];
@@ -903,11 +904,11 @@ extern "C" void _dbg_dump_param_grads_if_enabled_torch(void) {
             }
             l2 = std::sqrt(l2);
             fprintf(stderr, "  %-40s numel=%-6d l2=%12.6e%s\n",
-                    pe.name.c_str(), numel, l2,
+                    name.c_str(), numel, l2,
                     has_nan ? " NAN_OR_INF!" : "");
         } else {
             fprintf(stderr, "  %-40s numel=%-6d NO_GRAD\n",
-                    pe.name.c_str(), numel);
+                    name.c_str(), numel);
         }
     }
 }
@@ -1354,9 +1355,10 @@ double tensor_item_1d(TensorHandle h, int idx) {
 /* Helper: collect all param_registry tensors into a vector */
 static std::vector<at::Tensor> collect_param_tensors() {
     std::vector<at::Tensor> params;
-    params.reserve(param_registry.size());
-    for (auto& entry : param_registry) {
-        params.push_back(*entry.tensor);
+    params.reserve((size_t)param_count());
+    for (int i_ = 0; i_ < param_count(); i_++) {
+        auto* tensor = (at::Tensor*)param_tensor(i_);
+        params.push_back(*tensor);
     }
     return params;
 }
@@ -1377,14 +1379,15 @@ struct OptWrapper {
 
 static std::vector<at::Tensor> collect_param_tensors_filtered(const std::string& prefix) {
     std::vector<at::Tensor> params;
-    params.reserve(param_registry.size());
-    for (auto& entry : param_registry) {
+    params.reserve((size_t)param_count());
+    for (int i_ = 0; i_ < param_count(); i_++) {
+        auto* tensor = (at::Tensor*)param_tensor(i_);
         if (prefix.empty()) {
-            params.push_back(*entry.tensor);
+            params.push_back(*tensor);
         } else {
-            std::string name(entry.name);
+            std::string name(param_name(i_));
             if (name.rfind(prefix, 0) == 0) {
-                params.push_back(*entry.tensor);
+                params.push_back(*tensor);
             }
         }
     }
@@ -1789,14 +1792,14 @@ int polyak_blend(double tau, const char* online_scope, const char* target_scope)
     std::string on_s(online_scope), tg_s(target_scope);
     int blended = 0;
     torch::NoGradGuard no_grad;
-    for (size_t i = 0; i < param_registry.size(); i++) {
-        const std::string& on_name = param_registry[i].name;
+    for (int i = 0; i < param_count(); i++) {
+        std::string on_name(param_name(i));
         if (on_name.rfind(on_s, 0) != 0) continue;
         std::string tgt_name = tg_s + on_name.substr(on_s.size());
-        for (size_t j = 0; j < param_registry.size(); j++) {
-            if (param_registry[j].name != tgt_name) continue;
-            at::Tensor& on_t = *param_registry[i].tensor;
-            at::Tensor& tg_t = *param_registry[j].tensor;
+        for (int j = 0; j < param_count(); j++) {
+            if (std::string(param_name(j)) != tgt_name) continue;
+            at::Tensor& on_t = *(at::Tensor*)param_tensor(i);
+            at::Tensor& tg_t = *(at::Tensor*)param_tensor(j);
             if (!on_t.sizes().equals(tg_t.sizes())) break;
             tg_t.mul_(1.0 - tau).add_(on_t, tau);
             blended++;
@@ -1819,12 +1822,12 @@ static void* param_state_key(torch::optim::Optimizer* opt, int idx) {
 
 int optimizer_buf_count(OptimizerHandle h) {
     (void)h;
-    return (int)param_registry.size();
+    return (int)param_count();
 }
 
 void optimizer_get_m(OptimizerHandle h, int idx, double* out) {
     auto* w = static_cast<OptWrapper*>(h);
-    int numel = (int)param_registry[idx].tensor->numel();
+    int numel = (int)((at::Tensor*)param_tensor(idx))->numel();
     auto key = param_state_key(w->opt, idx);
     if (!key || w->opt->state().count(key) == 0) {
         memset(out, 0, numel * sizeof(double));
@@ -1836,7 +1839,7 @@ void optimizer_get_m(OptimizerHandle h, int idx, double* out) {
         buf = static_cast<torch::optim::AdamParamState&>(state).exp_avg();
     } else if (w->type == 1) { /* RMSprop */
         auto& rms = static_cast<torch::optim::RMSpropParamState&>(state);
-        buf = rms.momentum_buffer().defined() ? rms.momentum_buffer() : at::zeros_like(*param_registry[idx].tensor);
+        buf = rms.momentum_buffer().defined() ? rms.momentum_buffer() : at::zeros_like(*(at::Tensor*)param_tensor(idx));
     } else {
         memset(out, 0, numel * sizeof(double));
         return;
@@ -1847,7 +1850,7 @@ void optimizer_get_m(OptimizerHandle h, int idx, double* out) {
 
 void optimizer_get_v(OptimizerHandle h, int idx, double* out) {
     auto* w = static_cast<OptWrapper*>(h);
-    int numel = (int)param_registry[idx].tensor->numel();
+    int numel = (int)((at::Tensor*)param_tensor(idx))->numel();
     auto key = param_state_key(w->opt, idx);
     if (!key || w->opt->state().count(key) == 0) {
         memset(out, 0, numel * sizeof(double));
@@ -1869,11 +1872,12 @@ void optimizer_get_v(OptimizerHandle h, int idx, double* out) {
 
 void optimizer_set_m(OptimizerHandle h, int idx, const double* data) {
     auto* w = static_cast<OptWrapper*>(h);
-    int numel = (int)param_registry[idx].tensor->numel();
+    auto* param_t = (at::Tensor*)param_tensor(idx);
+    int numel = (int)param_t->numel();
     auto key = param_state_key(w->opt, idx);
     if (!key) return;
     auto tensor = torch::from_blob((void*)data, {(int64_t)numel}, torch::kFloat64).clone();
-    tensor = tensor.reshape(param_registry[idx].tensor->sizes());
+    tensor = tensor.reshape(param_t->sizes());
     /* Ensure state entry exists, stamping the restored step on creation. */
     if (w->opt->state().count(key) == 0) {
         if (w->type == 2) {
@@ -1896,11 +1900,12 @@ void optimizer_set_m(OptimizerHandle h, int idx, const double* data) {
 
 void optimizer_set_v(OptimizerHandle h, int idx, const double* data) {
     auto* w = static_cast<OptWrapper*>(h);
-    int numel = (int)param_registry[idx].tensor->numel();
+    auto* param_t = (at::Tensor*)param_tensor(idx);
+    int numel = (int)param_t->numel();
     auto key = param_state_key(w->opt, idx);
     if (!key) return;
     auto tensor = torch::from_blob((void*)data, {(int64_t)numel}, torch::kFloat64).clone();
-    tensor = tensor.reshape(param_registry[idx].tensor->sizes());
+    tensor = tensor.reshape(param_t->sizes());
     if (w->opt->state().count(key) == 0) {
         if (w->type == 2) {
             auto st = std::make_unique<torch::optim::AdamParamState>();
@@ -2028,9 +2033,10 @@ const char* backend_name(void) { return "torch"; }
 
 void backend_reset_for_eval(void) {
     free_intermediates();
-    for (auto& entry : param_registry) {
-        if (entry.tensor->grad().defined())
-            entry.tensor->grad().zero_();
+    for (int i_ = 0; i_ < param_count(); i_++) {
+        auto* tensor = (at::Tensor*)param_tensor(i_);
+        if (tensor->grad().defined())
+            tensor->grad().zero_();
     }
 }
 
@@ -2044,7 +2050,7 @@ void backend_profile_reset(void) {
 void backend_profile_report(void) {
     fprintf(stderr, "=== Profile Report (torch backend) ===\n");
     fprintf(stderr, "  Epochs: %d\n", prof_epochs);
-    fprintf(stderr, "  Params: %d tensors\n", (int)param_registry.size());
+    fprintf(stderr, "  Params: %d tensors\n", (int)param_count());
     fprintf(stderr, "  Backward:  %.1fms total (%.1fms/epoch)\n",
             prof_backward_ms, prof_epochs > 0 ? prof_backward_ms / prof_epochs : 0);
     fprintf(stderr, "  Optimizer: %.1fms total (%.1fms/epoch)\n",
@@ -2057,7 +2063,7 @@ void backend_profile_report(void) {
 }
 
 double param_grad_item_at(int param_idx, int elem_idx) {
-    auto& t = *param_registry[param_idx].tensor;
+    auto& t = *(at::Tensor*)param_tensor(param_idx);
     if (!t.grad().defined()) return 0.0;
     // .cpu() + .to(kFloat64): host indexing requires a CPU tensor, and reading
     // an F32 grad through data_ptr<double> asserts without the dtype cast.
