@@ -522,100 +522,7 @@ TensorHandle tensor_sum_all(TensorHandle h) {
 
 /* Row-wise layer normalization on 2D tensor: y[i,j] = gamma[j] * x_hat[i,j] + beta[j]
    where x_hat[i,j] = (x[i,j] - mean_i) / sqrt(var_i + eps) */
-TensorHandle tensor_layer_norm_2d(TensorHandle h, TensorHandle hgamma,
-                                   TensorHandle hbias, double eps) {
-    Tensor* t = (Tensor*)h;
-    Tensor* gamma = (Tensor*)hgamma;
-    Tensor* bias = (Tensor*)hbias;
-    if (t->dtype_tag != gamma->dtype_tag || t->dtype_tag != bias->dtype_tag)
-        tape_abort_mixed_dtype("tensor_layer_norm_2d");
-    int m = t->shape[0], n = t->shape[1];
-    int shape[] = {m, n};
-    int rg = t->requires_grad || gamma->requires_grad || bias->requires_grad;
-
-    if (t->dtype_tag == DT_F32) {
-        /* F32 path. Meta caches (x_hat, rstd) stay double* so the existing
-           backward case body works for both dtypes; convert on store. */
-        float* data = arena_alloc(m * n * sizeof(float));
-        double* x_hat = malloc(m * n * sizeof(double));
-        double* rstd = malloc(m * sizeof(double));
-        const float* td = (const float*)t->data;
-        const float* gd = (const float*)gamma->data;
-        const float* bd = (const float*)bias->data;
-        for (int i = 0; i < m; i++) {
-            double mean = 0;
-            for (int j = 0; j < n; j++) mean += td[i*n+j];
-            mean /= n;
-            double var = 0;
-            for (int j = 0; j < n; j++) {
-                double d = td[i*n+j] - mean;
-                var += d * d;
-            }
-            var /= n;
-            double inv_std = 1.0 / sqrt(var + eps);
-            rstd[i] = inv_std;
-            for (int j = 0; j < n; j++) {
-                double xh = (td[i*n+j] - mean) * inv_std;
-                x_hat[i*n+j] = xh;
-                data[i*n+j] = (float)(gd[j] * xh + bd[j]);
-            }
-        }
-        Tensor* r = make_tensor_arena_f32(data, m * n, shape, 2, rg);
-        if (rg) {
-            LayerNormMeta* meta = arena_alloc(sizeof(LayerNormMeta));
-            meta->gamma = gamma; meta->bias = bias;
-            meta->x_hat = x_hat; meta->rstd = rstd;
-            meta->m = m; meta->n = n;
-            TapeEntry* e = tape_append(OP_LAYER_NORM_2D, r, t, NULL, 0);
-            e->op_meta = meta;
-        } else {
-            free(x_hat); free(rstd);
-        }
-        return r;
-    }
-
-    double* data = malloc(m * n * sizeof(double));
-    double* x_hat = malloc(m * n * sizeof(double));
-    double* rstd = malloc(m * sizeof(double));
-    for (int i = 0; i < m; i++) {
-        /* Compute mean */
-        double mean = 0;
-        for (int j = 0; j < n; j++) mean += ((double*)t->data)[i*n+j];
-        mean /= n;
-        /* Compute variance */
-        double var = 0;
-        for (int j = 0; j < n; j++) {
-            double d = ((double*)t->data)[i*n+j] - mean;
-            var += d * d;
-        }
-        var /= n;
-        double inv_std = 1.0 / sqrt(var + eps);
-        rstd[i] = inv_std;
-        /* Normalize and apply affine */
-        for (int j = 0; j < n; j++) {
-            x_hat[i*n+j] = (((double*)t->data)[i*n+j] - mean) * inv_std;
-            data[i*n+j] = ((double*)gamma->data)[j] * x_hat[i*n+j] + ((double*)bias->data)[j];
-        }
-    }
-    Tensor* r = make_tensor(data, shape, 2, rg);
-    free(data);
-    if (rg) {
-        /* Store x_hat and rstd in persistent (heap) arrays since arena resets */
-        LayerNormMeta* meta = arena_alloc(sizeof(LayerNormMeta));
-        meta->gamma = gamma;
-        meta->bias = bias;
-        meta->x_hat = x_hat;  /* heap-allocated, freed in tape_reset */
-        meta->rstd = rstd;    /* heap-allocated, freed in tape_reset */
-        meta->m = m;
-        meta->n = n;
-        TapeEntry* e = tape_append(OP_LAYER_NORM_2D, r, t, NULL, 0);
-        e->op_meta = meta;
-    } else {
-        free(x_hat);
-        free(rstd);
-    }
-    return r;
-}
+/* tensor_layer_norm_2d: moved to backend_tape/nn/norm/layer_norm_2d.c (Phase 1c.4). */
 
 /* ================================================================
    Activation / normalization
@@ -834,94 +741,7 @@ TensorHandle tensor_embedding(TensorHandle hweight, TensorHandle hindices, int n
    Input treated as [C, spatial]. Normalizes each channel independently.
    ================================================================ */
 
-TensorHandle tensor_batch_norm(TensorHandle hinput, TensorHandle hgamma, TensorHandle hbeta,
-                               TensorHandle hrunning_mean, TensorHandle hrunning_var,
-                               int C, int spatial, int training,
-                               double momentum, double eps) {
-    Tensor* input = (Tensor*)hinput;
-    Tensor* gamma = (Tensor*)hgamma;
-    Tensor* beta = (Tensor*)hbeta;
-    Tensor* running_mean = (Tensor*)hrunning_mean;
-    Tensor* running_var = (Tensor*)hrunning_var;
-    if (input->dtype_tag != gamma->dtype_tag ||
-        input->dtype_tag != beta->dtype_tag ||
-        input->dtype_tag != running_mean->dtype_tag ||
-        input->dtype_tag != running_var->dtype_tag)
-        tape_abort_mixed_dtype("tensor_batch_norm");
-    int n = C * spatial;
-    int out_shape[1] = {n};
-    int rg = input->requires_grad || gamma->requires_grad || beta->requires_grad;
-    int is_f32 = (input->dtype_tag == DT_F32);
-
-    /* Output buffer + meta caches. The caches stay double* — the existing
-       OP_BATCH_NORM backward case reads x_hat/rstd as doubles. */
-    void* out;
-    if (is_f32) out = arena_alloc(n * sizeof(float));
-    else        out = calloc(n, sizeof(double));
-    double* x_hat = malloc(n * sizeof(double));
-    double* rstd = malloc(C * sizeof(double));
-
-    for (int c = 0; c < C; c++) {
-        double mean, var;
-        if (training) {
-            mean = 0;
-            for (int j = 0; j < spatial; j++) mean += tape_load_d(input, c * spatial + j);
-            mean /= spatial;
-            var = 0;
-            for (int j = 0; j < spatial; j++) {
-                double d = tape_load_d(input, c * spatial + j) - mean;
-                var += d * d;
-            }
-            var /= spatial;
-            /* Update running stats (in-place, no grad) — tape_store_d
-               honours the running_*'s dtype_tag. */
-            double rm = tape_load_d(running_mean, c);
-            double rv = tape_load_d(running_var, c);
-            tape_store_d(running_mean, c, (1.0 - momentum) * rm + momentum * mean);
-            tape_store_d(running_var,  c, (1.0 - momentum) * rv + momentum * var);
-        } else {
-            mean = tape_load_d(running_mean, c);
-            var = tape_load_d(running_var, c);
-        }
-
-        double rs = 1.0 / sqrt(var + eps);
-        rstd[c] = rs;
-        double gc = tape_load_d(gamma, c);
-        double bc = tape_load_d(beta, c);
-        for (int j = 0; j < spatial; j++) {
-            int idx = c * spatial + j;
-            double xh = (tape_load_d(input, idx) - mean) * rs;
-            x_hat[idx] = xh;
-            double v = gc * xh + bc;
-            if (is_f32) ((float*)out)[idx] = (float)v;
-            else        ((double*)out)[idx] = v;
-        }
-    }
-
-    Tensor* r;
-    if (is_f32) {
-        r = make_tensor_arena_f32((float*)out, n, out_shape, 1, rg);
-    } else {
-        r = make_tensor((double*)out, out_shape, 1, rg);
-        free(out);
-    }
-
-    if (r->requires_grad) {
-        TapeEntry* e = tape_append(OP_BATCH_NORM, r, input, NULL, 0);
-        BatchNormMeta* meta = arena_alloc(sizeof(BatchNormMeta));
-        meta->gamma = gamma;
-        meta->beta = beta;
-        meta->x_hat = x_hat;
-        meta->rstd = rstd;
-        meta->C = C;
-        meta->spatial = spatial;
-        e->op_meta = meta;
-    } else {
-        free(x_hat);
-        free(rstd);
-    }
-    return r;
-}
+/* tensor_batch_norm: moved to backend_tape/nn/norm/batch_norm.c (Phase 1c.4). */
 
 /* ================================================================
    Group Normalization: normalize within channel groups
@@ -978,56 +798,7 @@ TensorHandle tensor_group_norm(TensorHandle hinput, TensorHandle hgamma, TensorH
    Dropout: inverted dropout with mask
    ================================================================ */
 
-TensorHandle tensor_dropout(TensorHandle hinput, double p, int training, unsigned int seed) {
-    Tensor* input = (Tensor*)hinput;
-    int n = input->numel;
-
-    if (!training || p <= 0.0) return hinput;  /* eval mode or p=0: identity */
-
-    double scale = 1.0 / (1.0 - p);
-    int is_f32 = (input->dtype_tag == DT_F32);
-    void* out = is_f32 ? (void*)arena_alloc(n * sizeof(float))
-                       : (void*)arena_alloc(n * sizeof(double));
-    double* mask = malloc(n * sizeof(double));  /* heap: survives for backward */
-
-    for (int i = 0; i < n; i++) {
-        /* Simple LCG per-element (fast, deterministic per seed) */
-        seed = seed * 1103515245u + 12345u;
-        double rv = (double)((seed >> 16) & 0x7fff) / 32767.0;
-        if (rv < p) {
-            mask[i] = 0.0;
-            if (is_f32) ((float*)out)[i] = 0.0f;
-            else        ((double*)out)[i] = 0.0;
-        } else {
-            mask[i] = scale;
-            double v = tape_load_d(input, i) * scale;
-            if (is_f32) ((float*)out)[i] = (float)v;
-            else        ((double*)out)[i] = v;
-        }
-    }
-
-    Tensor* r = arena_alloc(sizeof(Tensor));
-    memset(r, 0, sizeof(Tensor));
-    r->data = out;
-    r->shape = input->shape;  /* share shape (same dims) */
-    r->rank = input->rank;
-    r->numel = n;
-    r->requires_grad = input->requires_grad;
-    r->tape_idx = -1;
-    r->persistent = 0;
-    r->dtype_tag = input->dtype_tag;
-
-    if (r->requires_grad) {
-        TapeEntry* e = tape_append(OP_DROPOUT, r, input, NULL, 0);
-        DropoutMeta* meta = arena_alloc(sizeof(DropoutMeta));
-        meta->mask = mask;
-        meta->numel = n;
-        e->op_meta = meta;
-    } else {
-        free(mask);
-    }
-    return r;
-}
+/* tensor_dropout: moved to backend_tape/nn/norm/dropout.c (Phase 1c.4). */
 
 /* ================================================================
    Gather / Scatter
@@ -2016,55 +1787,7 @@ void tensor_backward(TensorHandle h) {
 
         /* OP_MASKED_FILL: moved to backend_tape/nn/mask/masked_fill.c (Phase 1c.3). */
 
-        case OP_LAYER_NORM_2D: {
-            /* Row-wise layer norm backward.
-               y = gamma * x_hat + beta, x_hat = (x - mean) / std
-               d_gamma[j] = sum_i dy[i,j] * x_hat[i,j]
-               d_beta[j]  = sum_i dy[i,j]
-               dx = (1/std) * (dy*gamma - mean(dy*gamma) - x_hat * mean(dy*gamma*x_hat)) */
-            LayerNormMeta* meta = (LayerNormMeta*)e->op_meta;
-            int mm = meta->m, nn = meta->n;
-            ensure_grad(r);
-            /* d_gamma and d_beta */
-            if (meta->gamma && meta->gamma->requires_grad) {
-                ensure_grad(meta->gamma);
-                for (int j = 0; j < nn; j++) {
-                    double dg = 0;
-                    for (int i = 0; i < mm; i++) dg += ((double*)r->grad)[i*nn+j] * meta->x_hat[i*nn+j];
-                    ((double*)meta->gamma->grad)[j] += dg;
-                }
-            }
-            if (meta->bias && meta->bias->requires_grad) {
-                ensure_grad(meta->bias);
-                for (int j = 0; j < nn; j++) {
-                    double db = 0;
-                    for (int i = 0; i < mm; i++) db += ((double*)r->grad)[i*nn+j];
-                    ((double*)meta->bias->grad)[j] += db;
-                }
-            }
-            /* d_input — tape_load_d on gamma->data covers F64 + F32. */
-            if (a && a->requires_grad) {
-                ensure_grad(a);
-                for (int i = 0; i < mm; i++) {
-                    /* dx_hat = dy * gamma */
-                    double mean_dxhat = 0;
-                    double mean_dxhat_xhat = 0;
-                    for (int j = 0; j < nn; j++) {
-                        double dxh = ((double*)r->grad)[i*nn+j] * tape_load_d(meta->gamma, j);
-                        mean_dxhat += dxh;
-                        mean_dxhat_xhat += dxh * meta->x_hat[i*nn+j];
-                    }
-                    mean_dxhat /= nn;
-                    mean_dxhat_xhat /= nn;
-                    for (int j = 0; j < nn; j++) {
-                        double dxh = ((double*)r->grad)[i*nn+j] * tape_load_d(meta->gamma, j);
-                        ((double*)a->grad)[i*nn+j] += meta->rstd[i] *
-                            (dxh - mean_dxhat - meta->x_hat[i*nn+j] * mean_dxhat_xhat);
-                    }
-                }
-            }
-            break;
-        }
+/* OP_LAYER_NORM_2D: moved to backend_tape/nn/norm/layer_norm_2d.c (Phase 1c.4). */
 
         /* OP_MV: moved to backend_tape/linear/linalg/mv.c (Phase 1b.4.b). */
 
@@ -2244,65 +1967,9 @@ void tensor_backward(TensorHandle h) {
             break;
         }
 
-        case OP_BATCH_NORM: {
-            /* y = gamma * x_hat + beta where x_hat = (x - mean) / std
-               d_gamma[c] = sum_j dy[c,j] * x_hat[c,j]
-               d_beta[c]  = sum_j dy[c,j]
-               dx = rstd * (dy*gamma - mean(dy*gamma) - x_hat * mean(dy*gamma*x_hat)) */
-            BatchNormMeta* meta = (BatchNormMeta*)e->op_meta;
-            int CC = meta->C, sp = meta->spatial;
-            ensure_grad(r);
-            /* d_gamma and d_beta */
-            if (meta->gamma->requires_grad) {
-                ensure_grad(meta->gamma);
-                for (int c = 0; c < CC; c++) {
-                    double dg = 0;
-                    for (int j = 0; j < sp; j++) dg += ((double*)r->grad)[c*sp+j] * meta->x_hat[c*sp+j];
-                    ((double*)meta->gamma->grad)[c] += dg;
-                }
-            }
-            if (meta->beta->requires_grad) {
-                ensure_grad(meta->beta);
-                for (int c = 0; c < CC; c++) {
-                    double db = 0;
-                    for (int j = 0; j < sp; j++) db += ((double*)r->grad)[c*sp+j];
-                    ((double*)meta->beta->grad)[c] += db;
-                }
-            }
-            /* d_input — tape_load_d on gamma->data covers F64 + F32. */
-            if (a && a->requires_grad) {
-                ensure_grad(a);
-                for (int c = 0; c < CC; c++) {
-                    double gc = tape_load_d(meta->gamma, c);
-                    double mean_dxhat = 0, mean_dxhat_xhat = 0;
-                    for (int j = 0; j < sp; j++) {
-                        double dxh = ((double*)r->grad)[c*sp+j] * gc;
-                        mean_dxhat += dxh;
-                        mean_dxhat_xhat += dxh * meta->x_hat[c*sp+j];
-                    }
-                    mean_dxhat /= sp;
-                    mean_dxhat_xhat /= sp;
-                    for (int j = 0; j < sp; j++) {
-                        double dxh = ((double*)r->grad)[c*sp+j] * gc;
-                        ((double*)a->grad)[c*sp+j] += meta->rstd[c] *
-                            (dxh - mean_dxhat - meta->x_hat[c*sp+j] * mean_dxhat_xhat);
-                    }
-                }
-            }
-            break;
-        }
+/* OP_BATCH_NORM: moved to backend_tape/nn/norm/batch_norm.c (Phase 1c.4). */
 
-        case OP_DROPOUT: {
-            /* Gradient passes through the same mask used in forward */
-            DropoutMeta* meta = (DropoutMeta*)e->op_meta;
-            ensure_grad(r);
-            if (a && a->requires_grad) {
-                ensure_grad(a);
-                for (int j = 0; j < meta->numel; j++)
-                    ((double*)a->grad)[j] += ((double*)r->grad)[j] * meta->mask[j];
-            }
-            break;
-        }
+/* OP_DROPOUT: moved to backend_tape/nn/norm/dropout.c (Phase 1c.4). */
 
         case OP_AVG_POOL1D: {
             AvgPool1DMeta* meta = (AvgPool1DMeta*)e->op_meta;
