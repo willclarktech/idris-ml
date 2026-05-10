@@ -2185,16 +2185,7 @@ const char* tensor_device(TensorHandle t) { return "cpu"; }
    LSTM
    ================================================================ */
 
-void tensor_lstm_cell(
-    TensorHandle input, TensorHandle hx, TensorHandle cx,
-    TensorHandle w_ih, TensorHandle w_hh,
-    TensorHandle b_ih, TensorHandle b_hh,
-    TensorHandle* out_h, TensorHandle* out_c)
-{
-    /* Stub — not used in current Idris code (uses tensor_lstm_gates_pair) */
-    *out_h = tensor_clone(hx);
-    *out_c = tensor_clone(cx);
-}
+/* tensor_lstm_cell: moved to backend_tape/nn/recurrent/lstm_cell.c (Phase 1c.7.a). */
 
 void tensor_lstm_gates(TensorHandle combined_h, TensorHandle prev_cell_h, int o,
                        TensorHandle* out_h, TensorHandle* out_c)
