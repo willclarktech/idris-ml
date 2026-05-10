@@ -198,21 +198,14 @@ jobs:
         # which silently no-ops" footgun.
         run: make check-gradmode-aliasing
 
-      # C backend FFI tests (test_backend.c) per available backend. These
-      # build their own backend + exercise the C autograd/optimizer/param
-      # surface directly — faster and more fundamental than the example
-      # sweep, so they run first. Per-OS: tape everywhere, torch on Ubuntu
-      # (libtorch installed via uv), mlx on macOS (MLX_SITE set above).
-      - name: Run C backend tests (tape)
-        run: make test-backend-tape
-
+      # C backend FFI tests per available backend, via the Criterion
+      # harness under `packages/backends/test/`. Per-OS: tape everywhere,
+      # torch on Ubuntu (libtorch installed via uv), mlx on macOS
+      # (MLX_SITE set above). The legacy `test_backend.c` monolith was
+      # retired with the Criterion port — every assertion lives under
+      # `test/common/test_legacy_backend.c` for now, slated for a
+      # per-op file split during the structural Phase 6 work.
       - name: Run Criterion suite (tape)
-        # Process-isolated per-op Criterion tests. Today's coverage is
-        # tape-focused (~80 tests under packages/backends/test/tape/);
-        # torch + mlx grow theirs as test_backend.c gets retired. The
-        # legacy test-backend-tape above stays in parallel as the
-        # regression bar until check-criterion-coverage.py confirms the
-        # mirror is complete.
         run: make BACKEND=tape test-backend-criterion
 
       - name: Run Idris unit suite (tape)
@@ -222,10 +215,6 @@ jobs:
         # Makefile-generated `TestConfig.idr` resolves to TapeDev here, so
         # FFI calls land on tape-suffixed C symbols.
         run: make BACKEND=tape test
-
-      - name: Run C backend tests (torch, Ubuntu)
-        if: matrix.os == 'ubuntu-latest'
-        run: make test-backend-torch
 
       - name: Run Criterion suite (torch, Ubuntu)
         if: matrix.os == 'ubuntu-latest'
@@ -238,10 +227,6 @@ jobs:
         # instances, etc.).
         if: matrix.os == 'ubuntu-latest'
         run: make BACKEND=torch test
-
-      - name: Run C backend tests (mlx, macOS)
-        if: matrix.os == 'macos-latest'
-        run: make test-backend-mlx
 
       - name: Run Criterion suite (mlx, macOS)
         if: matrix.os == 'macos-latest'

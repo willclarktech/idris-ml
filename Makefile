@@ -562,26 +562,6 @@ check-ffi-wrap-template:
 check-non-io-side-effects:
 	@python3 scripts/lifecycle/check-non-io-side-effects.py
 
-# Backend API test suite — runs against whichever backend is active.
-# Force-include the primary's rename header (same as the backend build) so the
-# test's unified op names (tensor_create, …) resolve to the suffixed symbols
-# the single-backend dylib actually exports (tensor_create_<primary>). Shared
-# utilities (tensor_alloc_doubles, …) aren't in the rename set, so they stay
-# unified and link straight from shared_utils.o in the dylib.
-test-backend: $(BACKENDS_DIR)/test_backend.c $(BACKEND_RENAME_H) backend | $(BUILD)
-	cc -o $(BUILD)/test_backend $(EXTRA_CFLAGS) -include $(BACKEND_RENAME_H) $(BACKENDS_DIR)/test_backend.c -DBACKEND_$(shell echo $(PRIMARY) | tr a-z A-Z) -L$(BUILD) -lidrisml -Wl,-rpath,$(BUILD) $(EXTRA_LDFLAGS) -lm
-	./$(BUILD)/test_backend
-
-# Per-backend convenience targets
-test-backend-tape:
-	$(MAKE) BACKEND=tape test-backend
-
-test-backend-mlx:
-	$(MAKE) BACKEND=mlx test-backend
-
-test-backend-torch:
-	$(MAKE) BACKEND=torch test-backend
-
 # Criterion-driven test suite (per-test process isolation + JUnit XML).
 # Today only ships a smoke test (test_criterion_smoke.c) verifying the
 # framework links and runs. Phase 1 (per /Users/admin/.claude/plans/modular-petting-minsky.md)
@@ -629,13 +609,12 @@ test-backend-criterion-mlx:
 test-backend-criterion-torch:
 	$(MAKE) BACKEND=torch test-backend-criterion
 
-# Coverage build. Recompiles backend + test binaries with
+# Coverage build. Recompiles backend + test binary with
 # `-fprofile-instr-generate -fcoverage-mapping` into build-cov/ (separate
 # from build/ so a coverage run doesn't pollute the normal dylib + vice
-# versa). Runs both test_backend and test_criterion_smoke with
-# LLVM_PROFILE_FILE pointing to build-cov/profraw/, merges via
-# llvm-profdata, then emits `llvm-cov report` + HTML via
-# `llvm-cov show -format=html`.
+# versa). Runs the full Criterion suite with LLVM_PROFILE_FILE pointing
+# to build-cov/profraw/, merges via llvm-profdata, then emits
+# `llvm-cov report` + HTML via `llvm-cov show -format=html`.
 #
 # Report-only — no CI gate yet. The HTML artifact lives at
 # build-cov/html-<b>/index.html.
@@ -648,11 +627,9 @@ coverage-backend:
 	  EXTRA_CFLAGS="$(COV_CFLAGS)" \
 	  EXTRA_LDFLAGS="$(COV_LDFLAGS)" \
 	  BACKEND=$(BACKEND) \
-	  $(COV_BUILD)/test_backend $(COV_BUILD)/test_criterion_smoke
+	  $(COV_BUILD)/test_criterion_smoke
 	@mkdir -p $(COV_BUILD)/profraw
 	@rm -f $(COV_BUILD)/profraw/*.profraw
-	LLVM_PROFILE_FILE='$(COV_BUILD)/profraw/test_backend_%p_%m.profraw' \
-	  ./$(COV_BUILD)/test_backend > /dev/null
 	LLVM_PROFILE_FILE='$(COV_BUILD)/profraw/test_criterion_%p_%m.profraw' \
 	  ./$(COV_BUILD)/test_criterion_smoke --xml=$(COV_BUILD)/test-criterion-$(PRIMARY).xml > /dev/null
 	xcrun llvm-profdata merge -sparse $(COV_BUILD)/profraw/*.profraw -o $(COV_BUILD)/$(PRIMARY).profdata
@@ -664,15 +641,12 @@ coverage-backend:
 	@echo ""
 	@echo "Coverage HTML: file://$(PWD)/$(COV_BUILD)/html-$(PRIMARY)/index.html"
 
-# Targets to build the binaries with coverage flags (the test-backend /
-# test-backend-criterion targets also run them; we want build-only so
-# the coverage target can set LLVM_PROFILE_FILE before running). These
-# match the recipe of their non-COV_BUILD counterparts.
-$(COV_BUILD)/test_backend: $(BACKENDS_DIR)/test_backend.c $(BACKEND_RENAME_H) $(LIB) | $(COV_BUILD)
-	cc -o $@ $(EXTRA_CFLAGS) -include $(BACKEND_RENAME_H) $(BACKENDS_DIR)/test_backend.c -DBACKEND_$(shell echo $(PRIMARY) | tr a-z A-Z) -L$(BUILD) -lidrisml -Wl,-rpath,$(PWD)/$(BUILD) $(EXTRA_LDFLAGS) -lm
-
-$(COV_BUILD)/test_criterion_smoke: $(BACKENDS_DIR)/test_criterion_smoke.c $(BACKEND_RENAME_H) $(LIB) | $(COV_BUILD)
-	cc -o $@ $(EXTRA_CFLAGS) -include $(BACKEND_RENAME_H) $(BACKENDS_DIR)/test_criterion_smoke.c -DBACKEND_$(shell echo $(PRIMARY) | tr a-z A-Z) $(CRITERION_CFLAGS) -L$(BUILD) -lidrisml -Wl,-rpath,$(PWD)/$(BUILD) $(EXTRA_LDFLAGS) $(CRITERION_LDFLAGS) -lm
+# Build-only the criterion suite with coverage flags so the
+# coverage-backend recipe can set LLVM_PROFILE_FILE before running.
+# Matches the test-backend-criterion build recipe — link the full
+# discovered suite, not just the smoke shell.
+$(COV_BUILD)/test_criterion_smoke: $(CRITERION_TEST_SRCS) $(BACKEND_RENAME_H) $(LIB) | $(COV_BUILD)
+	cc -o $@ $(EXTRA_CFLAGS) -include $(BACKEND_RENAME_H) $(CRITERION_TEST_SRCS) -DBACKEND_$(shell echo $(PRIMARY) | tr a-z A-Z) $(CRITERION_CFLAGS) -L$(BUILD) -lidrisml -Wl,-rpath,$(PWD)/$(BUILD) $(EXTRA_LDFLAGS) $(CRITERION_LDFLAGS) -lm
 
 $(COV_BUILD):
 	mkdir -p $@
@@ -785,8 +759,10 @@ check-examples: install
 # multi-backend, jupyter, torch_ref, etc.).
 #
 # CI lanes have the same shape — each backend matrix lane runs
-# `make BACKEND=<b> test-backend` (legacy test_backend.c, retired
-# under Phase 5.4) + `make BACKEND=<b> test` (this umbrella).
+# `make BACKEND=<b> test-backend-criterion` + `make BACKEND=<b> test`
+# (this umbrella). The Criterion suite under `packages/backends/test/`
+# replaced the legacy monolithic `test_backend.c` harness; see the
+# CHANGELOG entry for the migration.
 test: test-idris test-backend-criterion test-safetensors
 
 # Idris-side unit suite against the active backend. Buckets that
@@ -1563,8 +1539,8 @@ test-all:
 	@echo ""
 	@echo "=== C backend tests ==="
 	@for b in tape mlx torch; do \
-		echo "--- test-backend [$$b] ---"; \
-		$(MAKE) BACKEND=$$b test-backend 2>&1 && echo "" || echo "FAILED or SKIPPED: $$b"; \
+		echo "--- test-backend-criterion [$$b] ---"; \
+		$(MAKE) BACKEND=$$b test-backend-criterion 2>&1 && echo "" || echo "FAILED or SKIPPED: $$b"; \
 	done
 	@echo "=== Specialized C tests ==="
 	$(MAKE) BACKEND=tape test-safetensors
@@ -1607,8 +1583,9 @@ check-all: check check-gym check-notebook check-examples
 # Verify everything: check-all + run all tests
 all: check-all test-all
 
-.PHONY: all check-all all-backends test test-gym test-examples-unit test-all dataset-mnist dataset-tinyshakespeare test-backend test-backend-tape test-backend-mlx \
-        test-backend-torch test-safetensors test-ntm-grad test-ntm-timestep \
+.PHONY: all check-all all-backends test test-gym test-examples-unit test-all dataset-mnist dataset-tinyshakespeare \
+        test-backend-criterion test-backend-criterion-tape test-backend-criterion-mlx test-backend-criterion-torch \
+        test-safetensors test-ntm-grad test-ntm-timestep \
         test-examples test-examples-convergence \
         check check-gym check-notebook check-examples install install-core install-gym install-notebook install-examples \
         example-supervised example-rnn example-lstm example-gru \
