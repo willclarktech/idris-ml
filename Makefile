@@ -283,12 +283,12 @@ endif
 # backend_<b>.o file. Each backend uses its own CC + CFLAGS + rename
 # header; the union of all per-backend LDFLAGS gets passed to the
 # final link.
-# `backend_tape_kernels.inc` (Phase 3 X-macro kernel file) is included by
-# backend_tape.c. List it here so editing the .inc rebuilds the .o; without
-# this, make trusts mtime on the .c alone and silently ships a stale dylib
-# whenever a kernel changes. Harmless for non-tape backends — they don't
-# include this header, but the build system has no way to know which
-# per-backend source touches which `.inc` so we list it for all.
+# `core/elementwise/_kernels.inc` (the X-macro stamped elementwise kernel
+# bodies) is included twice by `core/elementwise/_dispatch.c` (once for
+# F64, once for F32). The per-TU compile rule below picks it up via the
+# implicit include scan; no explicit dependency needed since BACKEND_TAPE_HEADERS
+# covers the `backend_tape/**` headers and the per-TU rule re-walks the
+# include graph.
 
 # Per-TU compile for backend_tape/**/*.c. Force-includes the rename
 # header (matches backend_tape.c's invocation in backend_compile_rule).
@@ -300,7 +300,7 @@ $(BUILD)/backend_tape/%.o: $(BACKENDS_DIR)/backend_tape/%.c $(BACKEND_TAPE_HEADE
 	cc -O2 -fPIC $(EXTRA_CFLAGS) $(tape_CFLAGS) -include $(BACKENDS_DIR)/rename_tape.h -c -o $@ $<
 
 define backend_compile_rule
-$(BUILD)/backend_$(1).o: $($(1)_SRC) $(BACKENDS_DIR)/backend.h $(BACKENDS_DIR)/rename_$(1).h $(BACKENDS_DIR)/backend_tape_kernels.inc $(BACKEND_TAPE_HEADERS) | $(BUILD)
+$(BUILD)/backend_$(1).o: $($(1)_SRC) $(BACKENDS_DIR)/backend.h $(BACKENDS_DIR)/rename_$(1).h $(BACKEND_TAPE_HEADERS) | $(BUILD)
 	$($(1)_CC) -O2 -fPIC $(EXTRA_CFLAGS) $($(1)_CFLAGS) -include $(BACKENDS_DIR)/rename_$(1).h -c -o $$@ $$<
 endef
 
