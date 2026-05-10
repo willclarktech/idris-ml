@@ -474,117 +474,7 @@ TensorHandle tensor_silu(TensorHandle ha) {
 
 /* Batched matrix-matrix multiply: [B,m,n] x [n,k] -> [B,m,k]
    Weight matrix b is shared across all batch elements. */
-TensorHandle tensor_bmm(TensorHandle ha, TensorHandle hb) {
-    Tensor* a = (Tensor*)ha;
-    Tensor* b = (Tensor*)hb;
-    if (a->dtype_tag != b->dtype_tag) tape_abort_mixed_dtype("tensor_bmm");
-    int B = a->shape[0], m = a->shape[1], n = a->shape[2], k = b->shape[1];
-    int rg = a->requires_grad || b->requires_grad;
-    int shape[] = {B, m, k};
-    if (a->dtype_tag == DT_F32) {
-        float* data = arena_alloc(B * m * k * sizeof(float));
-        for (int bi = 0; bi < B; bi++) {
-#ifdef __APPLE__
-            cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
-                        m, k, n, 1.0f,
-                        ((const float*)a->data) + bi * m * n, n,
-                        (const float*)b->data, k,
-                        0.0f, data + bi * m * k, k);
-#else
-            for (int i = 0; i < m; i++)
-                for (int j = 0; j < k; j++) {
-                    float s = 0;
-                    for (int p = 0; p < n; p++)
-                        s += ((float*)a->data)[bi*m*n + i*n+p] * ((float*)b->data)[p*k+j];
-                    data[bi*m*k + i*k+j] = s;
-                }
-#endif
-        }
-        Tensor* r = make_tensor_arena_f32(data, B * m * k, shape, 3, rg);
-        if (rg) tape_append(OP_BMM, r, a, b, 0);
-        return r;
-    }
-    double* data = calloc(B * m * k, sizeof(double));
-
-    for (int bi = 0; bi < B; bi++) {
-#ifdef __APPLE__
-        cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
-                    m, k, n, 1.0,
-                    ((double*)a->data) + bi * m * n, n,
-                    b->data, k,
-                    0.0, data + bi * m * k, k);
-#else
-        for (int i = 0; i < m; i++)
-            for (int j = 0; j < k; j++) {
-                double s = 0;
-                for (int p = 0; p < n; p++)
-                    s += ((double*)a->data)[bi*m*n + i*n+p] * ((double*)b->data)[p*k+j];
-                data[bi*m*k + i*k+j] = s;
-            }
-#endif
-    }
-
-    Tensor* r = make_tensor(data, shape, 3, rg);
-    free(data);
-    if (rg) tape_append(OP_BMM, r, a, b, 0);
-    return r;
-}
-
-TensorHandle tensor_bmm_3x3(TensorHandle ha, TensorHandle hb) {
-    Tensor* a = (Tensor*)ha;
-    Tensor* b = (Tensor*)hb;
-    if (a->dtype_tag != b->dtype_tag) tape_abort_mixed_dtype("tensor_bmm_3x3");
-    int B = a->shape[0], m = a->shape[1], n = a->shape[2], k = b->shape[2];
-    int rg = a->requires_grad || b->requires_grad;
-    int shape[] = {B, m, k};
-    if (a->dtype_tag == DT_F32) {
-        float* data = arena_alloc(B * m * k * sizeof(float));
-        for (int bi = 0; bi < B; bi++) {
-#ifdef __APPLE__
-            cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
-                        m, k, n, 1.0f,
-                        ((const float*)a->data) + bi * m * n, n,
-                        ((const float*)b->data) + bi * n * k, k,
-                        0.0f, data + bi * m * k, k);
-#else
-            for (int i = 0; i < m; i++)
-                for (int j = 0; j < k; j++) {
-                    float s = 0;
-                    for (int p = 0; p < n; p++)
-                        s += ((float*)a->data)[bi*m*n + i*n+p] * ((float*)b->data)[bi*n*k + p*k+j];
-                    data[bi*m*k + i*k+j] = s;
-                }
-#endif
-        }
-        Tensor* r = make_tensor_arena_f32(data, B * m * k, shape, 3, rg);
-        if (rg) tape_append(OP_BMM_3X3, r, a, b, 0);
-        return r;
-    }
-    double* data = calloc(B * m * k, sizeof(double));
-
-    for (int bi = 0; bi < B; bi++) {
-#ifdef __APPLE__
-        cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
-                    m, k, n, 1.0,
-                    ((double*)a->data) + bi * m * n, n,
-                    ((double*)b->data) + bi * n * k, k,
-                    0.0, data + bi * m * k, k);
-#else
-        for (int i = 0; i < m; i++)
-            for (int j = 0; j < k; j++) {
-                double s = 0;
-                for (int p = 0; p < n; p++)
-                    s += ((double*)a->data)[bi*m*n + i*n+p] * ((double*)b->data)[bi*n*k + p*k+j];
-                data[bi*m*k + i*k+j] = s;
-            }
-#endif
-    }
-
-    Tensor* r = make_tensor(data, shape, 3, rg);
-    free(data);
-    if (rg) tape_append(OP_BMM_3X3, r, a, b, 0);
-    return r;
-}
+/* tensor_bmm, tensor_bmm_3x3: moved to backend_tape/linear/linalg/ (Phase 1b.6). */
 
 /* Softmax over the last dim of a [B,m,n] tensor — F32 + F64 unified path. */
 TensorHandle tensor_softmax_3d(TensorHandle h) {
@@ -620,31 +510,7 @@ TensorHandle tensor_softmax_3d(TensorHandle h) {
     return r;
 }
 
-TensorHandle tensor_transpose_last2(TensorHandle h) {
-    Tensor* t = (Tensor*)h;
-    int B = t->shape[0], m = t->shape[1], n = t->shape[2];
-    int is_f32 = (t->dtype_tag == DT_F32);
-    int shape[] = {B, n, m};
-    Tensor* r;
-    if (is_f32) {
-        float* data = arena_alloc(t->numel * sizeof(float));
-        for (int bi = 0; bi < B; bi++)
-            for (int i = 0; i < m; i++)
-                for (int j = 0; j < n; j++)
-                    data[bi*n*m + j*m + i] = ((float*)t->data)[bi*m*n + i*n + j];
-        r = make_tensor_arena_f32(data, t->numel, shape, 3, t->requires_grad);
-    } else {
-        double* data = malloc(t->numel * sizeof(double));
-        for (int bi = 0; bi < B; bi++)
-            for (int i = 0; i < m; i++)
-                for (int j = 0; j < n; j++)
-                    data[bi*n*m + j*m + i] = ((double*)t->data)[bi*m*n + i*n + j];
-        r = make_tensor(data, shape, 3, t->requires_grad);
-        free(data);
-    }
-    if (t->requires_grad) tape_append(OP_TRANSPOSE_LAST2, r, t, NULL, 0);
-    return r;
-}
+/* tensor_transpose_last2: moved to backend_tape/linear/linalg/transpose_last2.c (Phase 1b.6). */
 
 TensorHandle tensor_reshape_4d(TensorHandle h, int d0, int d1, int d2, int d3) {
     int shape[] = {d0, d1, d2, d3};
@@ -672,39 +538,7 @@ TensorHandle tensor_expand_mask(TensorHandle hmask, int B) {
     return r;
 }
 
-typedef struct { int m, n, rep0, rep1; } Tile2dMeta;
-
-TensorHandle tensor_tile_2d(TensorHandle h, int rep0, int rep1) {
-    Tensor* t = (Tensor*)h;
-    int m = t->shape[0], n = t->shape[1];
-    int M = m * rep0, N = n * rep1;
-    int shape[] = {M, N};
-    Tensor* r;
-    if (t->dtype_tag == DT_F32) {
-        float* data = arena_alloc(M * N * sizeof(float));
-        const float* td = (const float*)t->data;
-        for (int i = 0; i < M; i++) {
-            int si = i % m;
-            for (int j = 0; j < N; j++) data[i * N + j] = td[si * n + (j % n)];
-        }
-        r = make_tensor_arena_f32(data, M * N, shape, 2, t->requires_grad);
-    } else {
-        double* data = malloc(M * N * sizeof(double));
-        for (int i = 0; i < M; i++) {
-            int si = i % m;
-            for (int j = 0; j < N; j++) data[i * N + j] = ((double*)t->data)[si * n + (j % n)];
-        }
-        r = make_tensor(data, shape, 2, t->requires_grad);
-        free(data);
-    }
-    if (t->requires_grad) {
-        Tile2dMeta* meta = arena_alloc(sizeof(Tile2dMeta));
-        meta->m = m; meta->n = n; meta->rep0 = rep0; meta->rep1 = rep1;
-        TapeEntry* e = tape_append(OP_TILE_2D, r, t, NULL, 0);
-        e->op_meta = meta;
-    }
-    return r;
-}
+/* tensor_tile_2d + Tile2dMeta: moved to backend_tape/linear/linalg/tile_2d.c (Phase 1b.6). */
 
 /* Stack B tensors of shape [m, n] into [B, m, n].
    All tensors must have the same shape. No gradient tracking (data tensors). */
@@ -764,29 +598,7 @@ TensorHandle* tensor_unbatch(TensorHandle h, int* out_count) {
     return handles;
 }
 
-/* Transpose 2D tensor: [m,n] -> [n,m] */
-TensorHandle tensor_transpose_2d(TensorHandle h) {
-    Tensor* t = (Tensor*)h;
-    int m = t->shape[0], n = t->shape[1];
-    int shape[] = {n, m};
-    Tensor* r;
-    if (t->dtype_tag == DT_F32) {
-        float* data = arena_alloc(m * n * sizeof(float));
-        for (int i = 0; i < m; i++)
-            for (int j = 0; j < n; j++)
-                data[j*m+i] = ((float*)t->data)[i*n+j];
-        r = make_tensor_arena_f32(data, m * n, shape, 2, t->requires_grad);
-    } else {
-        double* data = malloc(m * n * sizeof(double));
-        for (int i = 0; i < m; i++)
-            for (int j = 0; j < n; j++)
-                data[j*m+i] = ((double*)t->data)[i*n+j];
-        r = make_tensor(data, shape, 2, t->requires_grad);
-        free(data);
-    }
-    if (r->requires_grad) tape_append(OP_TRANSPOSE_2D, r, t, NULL, 0);
-    return r;
-}
+/* tensor_transpose_2d: moved to backend_tape/linear/linalg/transpose_2d.c (Phase 1b.6). */
 
 /* Row-wise softmax on 2D tensor: [m,n] -> [m,n], each row sums to 1 */
 TensorHandle tensor_softmax_2d(TensorHandle h) {
@@ -2507,30 +2319,7 @@ void tensor_backward(TensorHandle h) {
 
         /* OP_SIGMOID/TANH/SOFTPLUS: moved to backend_tape/core/elementwise/ (Phase 1a.8). */
 
-        case OP_TILE_2D: {
-            /* Forward: output[i, j] = input[i mod m, j mod n]
-               Backward: grad to input[si, sj] = sum over r0, c0 of
-                         grad_output[r0*m + si, c0*n + sj] */
-            if (a) {
-                ensure_grad(a);
-                Tile2dMeta* meta = (Tile2dMeta*)e->op_meta;
-                int m = meta->m, n = meta->n;
-                int rep0 = meta->rep0, rep1 = meta->rep1;
-                int N = n * rep1;
-                for (int si = 0; si < m; si++) {
-                    for (int sj = 0; sj < n; sj++) {
-                        double s = 0.0;
-                        for (int r0 = 0; r0 < rep0; r0++) {
-                            for (int c0 = 0; c0 < rep1; c0++) {
-                                s += ((double*)r->grad)[(r0 * m + si) * N + (c0 * n + sj)];
-                            }
-                        }
-                        ((double*)a->grad)[si * n + sj] += s;
-                    }
-                }
-            }
-            break;
-        }
+        /* OP_TILE_2D: moved to backend_tape/linear/linalg/tile_2d.c (Phase 1b.6). */
 
         case OP_GRU_CELL: {
             /* nn.GRU backward. arg1 = ih, arg2 = hh, prev in meta.
@@ -2634,107 +2423,7 @@ void tensor_backward(TensorHandle h) {
 
         /* OP_MM: moved to backend_tape/linear/linalg/mm.c (Phase 1b.5). */
 
-        case OP_BMM: {
-            /* r = a @ b where a=[B,m,n], b=[n,k], r=[B,m,k]
-               d_a[bi] = grad[bi] @ b^T, d_b = sum_bi a[bi]^T @ grad[bi].
-               b is shared across batch, so collapse [B,m,*] to [B*m,*] for d_b.
-               BLAS paths assume double* matrices; F32 inputs fall back to
-               plain loops via tape_load_d (grad always F64). */
-            int BB = a->shape[0], mm = a->shape[1], nn = a->shape[2], kk = b->shape[1];
-            int is_f32 = (a->dtype_tag == DT_F32);
-            ensure_grad(r);
-            if (a && a->requires_grad) {
-                ensure_grad(a);
-                if (is_f32) {
-                    for (int bi = 0; bi < BB; bi++)
-                        for (int i = 0; i < mm; i++)
-                            for (int j = 0; j < nn; j++) {
-                                double s = 0;
-                                for (int p = 0; p < kk; p++)
-                                    s += ((double*)r->grad)[bi*mm*kk + i*kk+p] * tape_load_d(b, j*kk+p);
-                                ((double*)a->grad)[bi*mm*nn + i*nn+j] += s;
-                            }
-                } else
-#ifdef __APPLE__
-                /* d_a [B*m, n] = grad [B*m, k] @ b^T [k, n] — one big dgemm */
-                cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasTrans,
-                            BB * mm, nn, kk, 1.0,
-                            r->grad, kk, b->data, kk,
-                            1.0, a->grad, nn);
-#else
-                for (int bi = 0; bi < BB; bi++)
-                    for (int i = 0; i < mm; i++)
-                        for (int j = 0; j < nn; j++) {
-                            double s = 0;
-                            for (int p = 0; p < kk; p++)
-                                s += ((double*)r->grad)[bi*mm*kk + i*kk+p] * ((double*)b->data)[j*kk+p];
-                            ((double*)a->grad)[bi*mm*nn + i*nn+j] += s;
-                        }
-#endif
-            }
-            if (b && b->requires_grad) {
-                ensure_grad(b);
-                if (is_f32) {
-                    for (int bi = 0; bi < BB; bi++)
-                        for (int j = 0; j < nn; j++)
-                            for (int p = 0; p < kk; p++) {
-                                double s = 0;
-                                for (int i = 0; i < mm; i++)
-                                    s += tape_load_d(a, bi*mm*nn + i*nn+j) * ((double*)r->grad)[bi*mm*kk + i*kk+p];
-                                ((double*)b->grad)[j*kk+p] += s;
-                            }
-                } else
-#ifdef __APPLE__
-                /* d_b [n,k] = a^T [n, B*m] @ grad [B*m, k] — single dgemm */
-                cblas_dgemm(CblasRowMajor, CblasTrans, CblasNoTrans,
-                            nn, kk, BB * mm, 1.0,
-                            a->data, nn, r->grad, kk,
-                            1.0, b->grad, kk);
-#else
-                for (int bi = 0; bi < BB; bi++)
-                    for (int j = 0; j < nn; j++)
-                        for (int p = 0; p < kk; p++) {
-                            double s = 0;
-                            for (int i = 0; i < mm; i++)
-                                s += ((double*)a->data)[bi*mm*nn + i*nn+j] * ((double*)r->grad)[bi*mm*kk + i*kk+p];
-                            ((double*)b->grad)[j*kk+p] += s;
-                        }
-#endif
-                ;
-            }
-            break;
-        }
-
-        case OP_BMM_3X3: {
-            /* r = a @ b where a=[B,m,n], b=[B,n,k], r=[B,m,k]
-               d_a[bi] = grad[bi] @ b[bi]^T, d_b[bi] = a[bi]^T @ grad[bi].
-               Uses plain loops in both dtypes; tape_load_d covers F32 reads. */
-            int BB = a->shape[0], mm = a->shape[1], nn = a->shape[2], kk = b->shape[2];
-            ensure_grad(r);
-            if (a && a->requires_grad) {
-                ensure_grad(a);
-                for (int bi = 0; bi < BB; bi++)
-                    for (int i = 0; i < mm; i++)
-                        for (int j = 0; j < nn; j++) {
-                            double s = 0;
-                            for (int p = 0; p < kk; p++)
-                                s += ((double*)r->grad)[bi*mm*kk + i*kk+p] * tape_load_d(b, bi*nn*kk + j*kk+p);
-                            ((double*)a->grad)[bi*mm*nn + i*nn+j] += s;
-                        }
-            }
-            if (b && b->requires_grad) {
-                ensure_grad(b);
-                for (int bi = 0; bi < BB; bi++)
-                    for (int j = 0; j < nn; j++)
-                        for (int p = 0; p < kk; p++) {
-                            double s = 0;
-                            for (int i = 0; i < mm; i++)
-                                s += tape_load_d(a, bi*mm*nn + i*nn+j) * ((double*)r->grad)[bi*mm*kk + i*kk+p];
-                            ((double*)b->grad)[bi*nn*kk + j*kk+p] += s;
-                        }
-            }
-            break;
-        }
+        /* OP_BMM, OP_BMM_3X3: moved to backend_tape/linear/linalg/ (Phase 1b.6). */
 
         case OP_SOFTMAX_3D: {
             /* r = softmax(a) on [B,m,n] along last dim. Same as 2D but B*m rows.
@@ -2755,32 +2444,7 @@ void tensor_backward(TensorHandle h) {
             break;
         }
 
-        case OP_TRANSPOSE_LAST2: {
-            /* r = transpose_last2(a) where a=[B,m,n], r=[B,n,m]. Transpose grad back. */
-            int BB = a->shape[0], mm = a->shape[1], nn = a->shape[2];
-            ensure_grad(r);
-            if (a) {
-                ensure_grad(a);
-                for (int bi = 0; bi < BB; bi++)
-                    for (int i = 0; i < mm; i++)
-                        for (int j = 0; j < nn; j++)
-                            ((double*)a->grad)[bi*mm*nn + i*nn+j] += ((double*)r->grad)[bi*nn*mm + j*mm+i];
-            }
-            break;
-        }
-
-        case OP_TRANSPOSE_2D: {
-            /* r = a^T where a=[m,n], r=[n,m]. Gradient: transpose back. */
-            int mm = a->shape[0], nn = a->shape[1];
-            ensure_grad(r);
-            if (a) {
-                ensure_grad(a);
-                for (int i = 0; i < mm; i++)
-                    for (int j = 0; j < nn; j++)
-                        ((double*)a->grad)[i*nn+j] += ((double*)r->grad)[j*mm+i];
-            }
-            break;
-        }
+        /* OP_TRANSPOSE_LAST2, OP_TRANSPOSE_2D: moved to backend_tape/linear/linalg/ (Phase 1b.6). */
 
         case OP_SOFTMAX_2D: {
             /* Row-wise softmax backward. tape_load_d on r->data covers F64+F32. */
