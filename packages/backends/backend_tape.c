@@ -1011,134 +1011,12 @@ void tensor_backward(TensorHandle h) {
         Tensor* a = e->arg1;
         Tensor* b = e->arg2;
 
-        /* Phase 1a.2+: try the per-op dispatch table first. Migrated
-           ops register their backward via TAPE_REGISTER_OP at file scope;
-           unmigrated ones fall through to the legacy switch below.
-           The switch shrinks each commit as ops move to backend_tape/<slice>/. */
+        /* Every OP_* now resolves through the dispatch table (populated
+           by each op's TAPE_REGISTER_OP at load time). OP_CONST is the
+           one exception: a leaf marker with no backward semantics — its
+           tape entries fall straight through the `if (!_fn)` skip. */
         TapeBackwardFn _fn = tape_dispatch_get(e->op);
-        if (_fn) { _fn(e); goto after_backward; }
-
-        switch (e->op) {
-        case OP_CONST: break; /* leaf — grad already accumulated */
-
-        /* OP_ADD, OP_SUB: moved to backend_tape/core/elementwise/ (Phase 1a.2/3).
-           Migrated path: dispatch table at top of this loop. */
-
-        /* Elementwise-binop backward (OP_MUL/DIV/POW) — handle three
-           cases per side: same-shape (fast loop), scalar (sum-reduce), and
-           general numpy-style broadcast (walk r-positions with broadcast
-           strides, accumulating into the operand's flat index). */
-        /* OP_MUL: moved to backend_tape/core/elementwise/mul.c (Phase 1a.4). */
-
-        /* OP_DIV: moved to backend_tape/core/elementwise/div.c (Phase 1a.5). */
-
-        /* OP_NEG/ABS/EXP/LOG/SQRT: moved to backend_tape/core/elementwise/ (Phase 1a.6). */
-
-        /* OP_POW: moved to backend_tape/core/elementwise/pow.c (Phase 1a.7). */
-
-        /* OP_SIGMOID/TANH/SOFTPLUS: moved to backend_tape/core/elementwise/ (Phase 1a.8). */
-
-        /* OP_TILE_2D: moved to backend_tape/linear/linalg/tile_2d.c (Phase 1b.6). */
-
-        /* OP_GRU_CELL: moved to backend_tape/nn/recurrent/gru_cell.c (Phase 1c.7.c). */
-
-        /* OP_GELU: moved to backend_tape/nn/activation/gelu.c (Phase 1c.2). */
-
-        /* OP_ADD_SCALAR/MUL_SCALAR/CLAMP_MIN: moved to backend_tape/core/scalar/ (Phase 1a.9). */
-
-        /* OP_SELECT: moved to backend_tape/linear/shape/select.c (Phase 1b.1). */
-
-        /* OP_RESHAPE: moved to backend_tape/linear/shape/reshape.c (Phase 1b.1.b). */
-
-        case OP_STACK:
-            /* Distribute gradient from stacked tensor back to constituent scalars */
-            if (e->inputs) {
-                for (int j = 0; j < e->input_count; j++) {
-                    Tensor* inp = e->inputs[j];
-                    if (inp->requires_grad) {
-                        ensure_grad(inp);
-                        ensure_grad(r);
-                        ((double*)inp->grad)[0] += ((double*)r->grad)[j];
-                    }
-                }
-            }
-            break;
-
-        /* OP_SUM, OP_MEAN: moved to backend_tape/linear/reduction/ (Phase 1b.3). */
-
-        /* OP_DOT: moved to backend_tape/linear/linalg/dot.c (Phase 1b.4). */
-
-        /* OP_VECMAT: moved to backend_tape/linear/linalg/matmul.c (Phase 1b.5). */
-
-        /* OP_CAT: moved to backend_tape/linear/concat/cat2.c (Phase 1b.2.b). */
-
-        /* OP_NARROW: moved to backend_tape/linear/shape/narrow.c (Phase 1b.1.c). */
-
-        /* OP_MM: moved to backend_tape/linear/linalg/mm.c (Phase 1b.5). */
-
-        /* OP_BMM, OP_BMM_3X3: moved to backend_tape/linear/linalg/ (Phase 1b.6). */
-
-        /* OP_SOFTMAX_3D: moved to backend_tape/nn/softmax/softmax_3d.c (Phase 1c.1). */
-
-        /* OP_TRANSPOSE_LAST2, OP_TRANSPOSE_2D: moved to backend_tape/linear/linalg/ (Phase 1b.6). */
-
-        /* OP_SOFTMAX_2D, OP_LOG_SOFTMAX_2D: moved to backend_tape/nn/softmax/ (Phase 1c.1). */
-
-        /* OP_MASKED_FILL: moved to backend_tape/nn/mask/masked_fill.c (Phase 1c.3). */
-
-/* OP_LAYER_NORM_2D: moved to backend_tape/nn/norm/layer_norm_2d.c (Phase 1c.4). */
-
-        /* OP_MV: moved to backend_tape/linear/linalg/mv.c (Phase 1b.4.b). */
-
-        /* OP_CONCAT_2D_AXIS1: moved to backend_tape/linear/concat/concat_2d_axis1.c (Phase 1b.2.c). */
-
-        /* OP_LINEAR_2D: moved to backend_tape/linear/linalg/linear_2d.c (Phase 1b.5). */
-
-        /* OP_LINEAR: moved to backend_tape/linear/linalg/linear.c (Phase 1b.5). */
-
-        /* OP_OUTER: moved to backend_tape/linear/linalg/outer.c (Phase 1b.4). */
-
-        /* OP_SOFTMAX, OP_LOG_SOFTMAX: moved to backend_tape/nn/softmax/ (Phase 1c.1). */
-
-        /* OP_BCE_WITH_LOGITS: moved to backend_tape/nn/loss/bce_with_logits.c (Phase 1c.6). */
-
-        /* OP_LSTM_GATES, OP_LSTM_GATES_CELL: moved to backend_tape/nn/recurrent/lstm_gates_pair.c (Phase 1c.7.d). */
-
-/* OP_COSINE_SIM: moved to backend_tape/nn/attention/cosine_similarity.c (Phase 1c.5). */
-
-        /* OP_CONV1D_CIRC: moved to backend_tape/conv/conv1d_circular.c (Phase 1d.1.c). */
-
-/* OP_EMBEDDING: moved to backend_tape/nn/attention/embedding.c (Phase 1c.5). */
-
-/* OP_BATCH_NORM: moved to backend_tape/nn/norm/batch_norm.c (Phase 1c.4). */
-
-/* OP_DROPOUT: moved to backend_tape/nn/norm/dropout.c (Phase 1c.4). */
-
-        /* OP_AVG_POOL1D: moved to backend_tape/conv/avg_pool1d.c (Phase 1d.1.a). */
-
-        /* OP_AVG_POOL2D: moved to backend_tape/conv/avg_pool2d.c (Phase 1d.2.a). */
-
-        /* OP_CONV1D: moved to backend_tape/conv/conv1d.c (Phase 1d.1.d). */
-
-        /* OP_MAX_POOL1D: moved to backend_tape/conv/max_pool1d.c (Phase 1d.1.b). */
-
-        /* OP_CONV2D: moved to backend_tape/conv/conv2d.c (Phase 1d.2.d). */
-
-        /* OP_MAX_POOL2D: moved to backend_tape/conv/max_pool2d.c (Phase 1d.2.b). */
-
-        /* OP_CONV2D_BATCHED: moved to backend_tape/conv/conv2d_batched.c (Phase 1d.2.e). */
-
-        /* OP_MAX_POOL2D_BATCHED: moved to backend_tape/conv/max_pool2d_batched.c (Phase 1d.2.c). */
-
-        /* OP_SCATTER_ADD: moved to backend_tape/linear/index/scatter_add.c (Phase 1b.7.b). */
-        /* OP_GATHER: moved to backend_tape/linear/index/gather.c (Phase 1b.7). */
-        /* OP_CUMPROD: moved to backend_tape/linear/sort/cumprod.c (Phase 1b.8.b). */
-
-        /* OP_LEAKY_RELU, OP_SILU: moved to backend_tape/nn/activation/ (Phase 1c.2). */
-
-        default: break; /* unimplemented backward */
-        }
-        after_backward:
+        if (_fn) _fn(e);
         /* Accumulate per-op timing */
         if (e->op < OP_COUNT) {
             prof_backward_per_op[e->op] += _wall_ms() - t_op;
@@ -1438,74 +1316,8 @@ TensorHandle tensor_reshape_1d(TensorHandle h, int n) {
  * tensor_ptr_array_alloc live in shared_utils.c (unified across all
  * backends; see packages/backends/shared_utils.{c,h}). */
 
-TensorHandle tensor_stack_from_array(TensorHandle* arr, int count, int dim) {
-    /* Fast path: if all inputs are consecutive selects from the same parent
-       tensor (data pointers are contiguous), skip the copy and return a
-       tensor that shares the parent's data. This eliminates the repack
-       cost when tensorToScalars → vecStackTensor round-trips. */
-    if (count > 0) {
-        Tensor* first = (Tensor*)arr[0];
-        double* base = first->data;
-        int consecutive = 1;
-        int rg_check = first->requires_grad;
-        for (int i = 1; i < count; i++) {
-            Tensor* t = (Tensor*)arr[i];
-            if (t->data != base + i) { consecutive = 0; break; }
-            if (t->requires_grad) rg_check = 1;
-        }
-        if (consecutive) { 
-            /* Create a tensor that shares the parent's data buffer (no copy) */
-            Tensor* r = arena_alloc(sizeof(Tensor));
-            memset(r, 0, sizeof(Tensor));
-            r->data = base;  /* shared with parent */
-            r->shape = arena_alloc(sizeof(int));
-            r->shape[0] = count;
-            r->rank = 1;
-            r->numel = count;
-            r->requires_grad = rg_check;
-            r->persistent = 0;
-            /* Still record OP_STACK with input pointers for backward.
-               STACK backward distributes ((double*)r->grad)[i] to inputs[i]->grad[0].
-               The inputs are SELECT views, so their grad flows to the parent. */
-            if (rg_check) {
-                Tensor** inputs = malloc(count * sizeof(Tensor*));
-                for (int i = 0; i < count; i++) inputs[i] = (Tensor*)arr[i];
-                TapeEntry* e = tape_append(OP_STACK, r, NULL, NULL, 0);
-                e->inputs = inputs;
-                e->input_count = count;
-            }
-            free(arr);
-            return r;
-        }
-    }
-
-    /* Slow path: copy values and create new tensor */
-    double* data = malloc(count * sizeof(double));
-    int rg = 0;
-    Tensor** inputs = malloc(count * sizeof(Tensor*));
-    for (int i = 0; i < count; i++) {
-        Tensor* t = (Tensor*)arr[i];
-        data[i] = ((double*)t->data)[0];
-        inputs[i] = t;
-        if (t->requires_grad) rg = 1;
-    }
-    free(arr);
-    int shape[] = {count};
-    Tensor* r = make_tensor(data, shape, 1, rg);
-    free(data);
-    if (rg) {
-        TapeEntry* e = tape_append(OP_STACK, r, NULL, NULL, 0);
-        e->inputs = inputs;
-        e->input_count = count;
-    } else {
-        free(inputs);
-    }
-    return r;
-}
-
-TensorHandle tensor_cat_from_array(TensorHandle* arr, int count, int dim) {
-    return tensor_stack_from_array(arr, count, dim);
-}
+/* tensor_stack_from_array + tensor_cat_from_array: moved to
+   backend_tape/linear/concat/stack.c (Phase 1d.2.f). */
 
 /* ================================================================
    Tensor-level parameter creation
