@@ -1,4 +1,5 @@
 #include "backend.h"
+#include "backend_torch/tensor.h"
 
 #include <ATen/ATen.h>
 #include <torch/torch.h>
@@ -79,11 +80,11 @@ static _ReserveIntermediates _reserve_intermediates_instance;
 
 /* ---------- Helpers ---------- */
 
-static inline at::Tensor* to_tensor(TensorHandle h) {
-    return static_cast<at::Tensor*>(h);
-}
-
-static inline TensorHandle from_tensor(at::Tensor t) {
+// to_tensor lives inline in backend_torch/tensor.h (the modular tree
+// header). from_tensor / from_tensor_persistent are declared there too,
+// but defined here so they retain visibility over the monolith-private
+// `intermediates` / `tracking_enabled` / `g_torch_peak_live` globals.
+TensorHandle from_tensor(at::Tensor t) {
     auto* p = new at::Tensor(std::move(t));
     if (tracking_enabled) {
         intermediates.push_back(p);
@@ -93,7 +94,7 @@ static inline TensorHandle from_tensor(at::Tensor t) {
 }
 
 // Persistent variant: not tracked for cleanup (survives optimizer_step)
-static inline TensorHandle from_tensor_persistent(at::Tensor t) {
+TensorHandle from_tensor_persistent(at::Tensor t) {
     auto* p = new at::Tensor(std::move(t));
     return static_cast<TensorHandle>(p);
 }
