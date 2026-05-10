@@ -206,6 +206,15 @@ jobs:
       - name: Run C backend tests (tape)
         run: make test-backend-tape
 
+      - name: Run Criterion suite (tape)
+        # Process-isolated per-op Criterion tests. Today's coverage is
+        # tape-focused (~80 tests under packages/backends/test/tape/);
+        # torch + mlx grow theirs as test_backend.c gets retired. The
+        # legacy test-backend-tape above stays in parallel as the
+        # regression bar until check-criterion-coverage.py confirms the
+        # mirror is complete.
+        run: make BACKEND=tape test-backend-criterion
+
       - name: Run Idris unit suite (tape)
         # Idris-side smart-constructor / LayerLike / Tensor-lifecycle suite
         # against the tape primary. The test buckets that touch the C
@@ -218,6 +227,10 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: make test-backend-torch
 
+      - name: Run Criterion suite (torch, Ubuntu)
+        if: matrix.os == 'ubuntu-latest'
+        run: make BACKEND=torch test-backend-criterion
+
       - name: Run Idris unit suite (torch, Ubuntu)
         # Same suite as the tape lane but with TestDevice = TorchDev TCpu.
         # Catches Idris-side regressions that a tape-only run would miss
@@ -229,6 +242,10 @@ jobs:
       - name: Run C backend tests (mlx, macOS)
         if: matrix.os == 'macos-latest'
         run: make test-backend-mlx
+
+      - name: Run Criterion suite (mlx, macOS)
+        if: matrix.os == 'macos-latest'
+        run: make BACKEND=mlx test-backend-criterion
 
       - name: Run Idris unit suite (mlx, macOS)
         # Same suite as tape/torch but with TestDevice = MlxDev MCpu.
@@ -278,3 +295,108 @@ jobs:
         # asserts the sidecar epoch + resume log + completion. Gates the
         # Train.idr / Checkpoint.idr auto-save / resume integration.
         run: make test-checkpoint-resume
+
+      - name: Upload Criterion JUnit XML artifacts
+        # Always uploads, even on test failure, so the GitHub Actions UI
+        # can render per-test results from the JUnit XML. Each Criterion
+        # invocation writes build/test-criterion-<b>.xml; this collects
+        # all three (per matrix lane: tape always, torch on ubuntu, mlx
+        # on macOS).
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: criterion-junit-${{ matrix.os }}
+          path: build/test-criterion-*.xml
+          if-no-files-found: warn
+
+  # Coverage matrix — advisory only. Builds with
+  # -fprofile-instr-generate -fcoverage-mapping, runs the test binaries,
+  # merges the .profraw via llvm-profdata, emits HTML + text reports
+  # under build-cov/html-<b>/. No CI gate; report-only. Gated to
+  # workflow_dispatch (manual trigger via `gh workflow run`) because
+  # coverage rebuilds with -O0 -g add ~5-10 min per backend lane and
+  # the report is for local inspection rather than per-PR signal.
+  coverage:
+    name: coverage (${{ matrix.backend }} on ${{ matrix.os }})
+    if: github.event_name == 'workflow_dispatch'
+    needs: check-paired-defaults
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { backend: tape,  os: ubuntu-latest }
+          - { backend: torch, os: ubuntu-latest }
+          - { backend: mlx,   os: macos-latest  }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Chez Scheme + BLAS (Ubuntu)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y chezscheme build-essential libopenblas-dev llvm
+
+      - name: Install Chez Scheme + LLVM (macOS)
+        if: matrix.os == 'macos-latest'
+        run: brew install chezscheme coreutils llvm
+
+      - name: Cache Idris 2
+        id: idris2-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.idris2
+          key: idris2-v0.8.0-${{ matrix.os }}-v2
+
+      - name: Build and install Idris 2
+        if: steps.idris2-cache.outputs.cache-hit != 'true'
+        run: |
+          SCHEME="$(command -v scheme || command -v chez-scheme || command -v chezscheme || command -v chez || true)"
+          git clone --branch v0.8.0 --depth 1 https://github.com/idris-lang/Idris2.git /tmp/Idris2
+          cd /tmp/Idris2
+          make bootstrap SCHEME="$SCHEME"
+          make install
+
+      - name: Add Idris 2 to PATH
+        run: echo "$HOME/.idris2/bin" >> $GITHUB_PATH
+
+      - name: Install backend-specific deps (mlx)
+        if: matrix.backend == 'mlx'
+        run: |
+          python3 -m pip install --break-system-packages mlx
+          MLX_SITE=$(python3 -c "
+          import importlib.util, os, sys
+          for name in ('mlx', 'mlx_metal'):
+              spec = importlib.util.find_spec(name)
+              if not spec: continue
+              path = spec.submodule_search_locations[0] if spec.submodule_search_locations \
+                  else os.path.dirname(spec.origin)
+              if os.path.isdir(os.path.join(path, 'include')):
+                  print(path); sys.exit(0)
+          sys.exit(1)
+          ")
+          echo "MLX_SITE=$MLX_SITE" >> $GITHUB_ENV
+
+      - name: Install backend-specific deps (torch)
+        if: matrix.backend == 'torch'
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          export PATH="$HOME/.local/bin:$PATH"
+          make ref-setup
+
+      - name: Run coverage build
+        # `make coverage-backend-<b>` recompiles the dylib + test binaries
+        # with -fprofile-instr-generate -fcoverage-mapping, executes them
+        # under LLVM_PROFILE_FILE, merges via llvm-profdata, and emits
+        # the HTML report under build-cov/html-<b>/.
+        run: make BACKEND=${{ matrix.backend }} coverage-backend
+
+      - name: Upload coverage HTML
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-html-${{ matrix.backend }}
+          path: build-cov/html-${{ matrix.backend }}/
+          if-no-files-found: warn
