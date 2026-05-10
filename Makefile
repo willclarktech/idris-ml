@@ -128,7 +128,9 @@ PRIMARY := $(firstword $(BACKEND_LIST))
 # `<b>_CFLAGS` adds whatever else that backend's compile needs
 # (include paths, C++ std). `<b>_LDFLAGS_<UNAME>` is per-platform.
 
-tape_SRC := $(BACKENDS_DIR)/backend_tape.c
+# Tape has no monolithic backend_tape.{c,cpp} — every TU lives under
+# backend_tape/. The per-backend compile rule's foreach skips tape;
+# its .o objects come from BACKEND_TAPE_OBJS instead.
 tape_CC := cc
 # ACCELERATE_NEW_LAPACK is a compile-time #define (gates BLAS API
 # version); the framework flag is link-time.
@@ -262,9 +264,9 @@ LIB := $(BUILD)/libidrisml.$(LIB_EXT)
 # per-backend-renamed C symbols, so nothing needs the alias.
 BACKEND_RENAME_H := $(BACKENDS_DIR)/rename_$(PRIMARY).h
 
-# backend_tape/** modular sources (Phase 1.0.4: per-TU compile).
-# Each .c compiles to its own .o; backend_tape.c links against them
-# via the headers and the dylib link step.
+# backend_tape/** modular sources. Each .c compiles to its own .o
+# via the per-TU rule below; the dylib link picks them all up
+# directly (tape has no monolithic backend_tape.{c,cpp} TU).
 BACKEND_TAPE_HEADERS := $(shell find $(BACKENDS_DIR)/backend_tape -name '*.h' 2>/dev/null)
 BACKEND_TAPE_SRCS    := $(shell find $(BACKENDS_DIR)/backend_tape -name '*.c' 2>/dev/null)
 BACKEND_TAPE_OBJS    := $(patsubst $(BACKENDS_DIR)/backend_tape/%.c,$(BUILD)/backend_tape/%.o,$(BACKEND_TAPE_SRCS))
@@ -295,12 +297,13 @@ TRAINING_ADAPTER_BACKENDS := $(sort $(SHARED_BACKENDS_param_registry) \
                                     $(SHARED_BACKENDS_ffi_shims) \
                                     $(SHARED_BACKENDS_dtype_streamed))
 
-# Per-backend object outputs.
-BACKEND_OBJS := $(foreach b,$(BACKEND_LIST),$(BUILD)/backend_$(b).o)
+# Per-backend object outputs. Tape skipped — its TUs live under
+# backend_tape/ and are pulled in via BACKEND_TAPE_OBJS below.
+BACKEND_OBJS := $(foreach b,$(filter-out tape,$(BACKEND_LIST)),$(BUILD)/backend_$(b).o)
 
-# Add per-TU tape modular .o files when tape is in BACKEND_LIST
-# (Phase 1.0.4 — they ship the implementations of backend_tape/* the
-# monolithic backend_tape.c now extern-references).
+# Add per-TU tape modular .o files when tape is in BACKEND_LIST.
+# Tape's entire implementation lives in backend_tape/ — there's no
+# `backend_tape.c` monolith to compile.
 ifneq ($(filter tape,$(BACKEND_LIST)),)
   BACKEND_OBJS += $(BACKEND_TAPE_OBJS)
 endif
@@ -317,10 +320,10 @@ endif
 # include graph.
 
 # Per-TU compile for backend_tape/**/*.c. Force-includes the rename
-# header (matches backend_tape.c's invocation in backend_compile_rule).
-# Compile only when tape is in BACKEND_LIST — torch / mlx don't need
-# tape's internals, and their builds would needlessly compile + link
-# the tape TUs otherwise.
+# header so every symbol gets the tape suffix at link time. Compile
+# only when tape is in BACKEND_LIST — torch / mlx don't need tape's
+# internals, and their builds would needlessly compile + link the
+# tape TUs otherwise.
 $(BUILD)/backend_tape/%.o: $(BACKENDS_DIR)/backend_tape/%.c $(BACKEND_TAPE_HEADERS) $(SHARED_TRAINING_HEADERS) $(BACKENDS_DIR)/rename_tape.h | $(BUILD)
 	@mkdir -p $(dir $@)
 	cc -O2 -fPIC $(EXTRA_CFLAGS) $(tape_CFLAGS) -include $(BACKENDS_DIR)/rename_tape.h -c -o $@ $<
@@ -356,11 +359,11 @@ $(foreach b,$(SHARED_BACKENDS_ffi_shims),$(eval $(call add_shared_training_obj,f
 $(foreach b,$(SHARED_BACKENDS_dtype_streamed),$(eval $(call add_shared_training_obj,dtype_streamed,$(b))))
 
 define backend_compile_rule
-$(BUILD)/backend_$(1).o: $($(1)_SRC) $(BACKENDS_DIR)/backend.h $(BACKENDS_DIR)/rename_$(1).h $(BACKEND_TAPE_HEADERS) | $(BUILD)
+$(BUILD)/backend_$(1).o: $($(1)_SRC) $(BACKENDS_DIR)/backend.h $(BACKENDS_DIR)/rename_$(1).h $(BACKEND_TAPE_HEADERS) $(SHARED_TRAINING_HEADERS) | $(BUILD)
 	$($(1)_CC) -O2 -fPIC $(EXTRA_CFLAGS) $($(1)_CFLAGS) -include $(BACKENDS_DIR)/rename_$(1).h -c -o $$@ $$<
 endef
 
-$(foreach b,$(BACKEND_LIST),$(eval $(call backend_compile_rule,$(b))))
+$(foreach b,$(filter-out tape,$(BACKEND_LIST)),$(eval $(call backend_compile_rule,$(b))))
 
 # Shared C sources (serialization, JSON, MNIST data) compiled with the
 # PRIMARY backend's rename header so their cross-TU references match
