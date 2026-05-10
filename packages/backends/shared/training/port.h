@@ -71,32 +71,53 @@ typedef struct BackendPort {
      ---------------------------------------------------------------------- */
   void   (*backward)(void* loss);
 
-  /* ----------------------------------------------------------------------
-     Epoch boundary — called by the DEFAULT shared optimizer at the
-     end of `optimizer_step()` (i.e. when `optimizer_step` is NULL
-     and the per-element flat-buffer loop ran). `step_start_ms` is
-     the wall-clock at start of step() so the adapter can credit
-     (per-param loop + post-step hygiene) to its `prof_optimizer_ms`.
-
-     Tape: dumps DEBUG_LSTM_TRAJ if enabled → tape_reset() →
-       re-register every param on the fresh tape (so their grads
-       stay reachable after the reset) → bump prof epoch counters.
-     Adapters that override `optimizer_step` don't see this callback —
-     they're responsible for their own epoch hygiene.
-     ---------------------------------------------------------------------- */
-  void   (*epoch_boundary)(double step_start_ms);
 
   /* ----------------------------------------------------------------------
-     Optional optimizer-step override. NULL = use the shared default
-     per-element flat-buffer loop (tape's case). Set to a backend-
-     supplied function when the backend's native math doesn't match
-     the shared loop — e.g. libtorch's `at::_foreach_adam` fused
-     multi-tensor primitives in torch, or mlx's vectorized in-graph
-     update. The override sees the full Optimizer struct (defined in
-     shared/training/optimizer.h) and is responsible for ALL backend
-     hygiene (intermediate cleanup, prof_* updates, etc.).
+     Optimizer surface. Each backend defines its own optimizer struct
+     and supplies all of these (tape: flat-buffer Optimizer struct +
+     per-element SGD/RMSprop/Adam/AdamW math; torch: libtorch
+     OptWrapper wrapping torch::optim::Adam + at::_foreach_adam math;
+     mlx: TBD). The shared/training/optimizer.c file provides tiny
+     trampolines from the FFI-named entry points (`optimizer_create_*`,
+     etc.) to these port methods.
+
+     The shared file still owns the cross-cutting helpers that don't
+     touch optimizer state: `optimizer_zero_grad` (delegates to
+     param_zero_all_grads), `polyak_blend` and `optimizer_clip_*`
+     (per-element via the port's grad/data accessors),
+     `native_train_step` / `optimizer_step_with_clip` (high-level
+     wrappers that compose zero_grad/backward/clip/step).
      ---------------------------------------------------------------------- */
-  void   (*optimizer_step)(void* opt_handle);
+
+  /* Constructors — each returns a backend-owned struct cast to void*. */
+  void* (*optimizer_create_sgd)(double lr);
+  void* (*optimizer_create_rmsprop)(double lr, double alpha, double eps,
+                                     double weight_decay, double momentum);
+  void* (*optimizer_create_adam)(double lr, double beta1, double beta2, double eps);
+  void* (*optimizer_create_adam_group)(double lr, double beta1, double beta2,
+                                        double eps, const char* prefix);
+  void* (*optimizer_create_adamw)(double lr, double beta1, double beta2, double eps,
+                                   double weight_decay);
+
+  /* Lifecycle / setters. */
+  void  (*optimizer_free)(void* opt);
+  void  (*optimizer_set_lr)(void* opt, double lr);
+  void  (*optimizer_set_param_lr)(void* opt, const char* name, double lr);
+
+  /* Per-step math. Adapter is responsible for ALL backend hygiene
+     (intermediate cleanup, prof_* updates, tape_reset where applicable). */
+  void  (*optimizer_step)(void* opt);
+
+  /* Serialization — flat-buffer m/v access + 9-double meta vector
+     (type, lr, β1, β2, eps, alpha, weight_decay, momentum, t).
+     Out-buffers are caller-allocated. */
+  int   (*optimizer_buf_count)(void* opt);
+  void  (*optimizer_get_m)(void* opt, int idx, double* out);
+  void  (*optimizer_get_v)(void* opt, int idx, double* out);
+  void  (*optimizer_set_m)(void* opt, int idx, const double* in);
+  void  (*optimizer_set_v)(void* opt, int idx, const double* in);
+  void  (*optimizer_get_meta)(void* opt, double* out9);
+  void  (*optimizer_set_meta)(void* opt, const double* in9);
 
   /* ----------------------------------------------------------------------
      Wall clock for profiler. Returns milliseconds since some epoch
