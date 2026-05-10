@@ -918,157 +918,9 @@ double prof_op_t_prev = 0;
 
 /* tensor_gru_cell: moved to backend_tape/nn/recurrent/gru_cell.c (Phase 1c.7.c). */
 
-/* ================================================================
-   Parameter Registry
-   ================================================================ */
-
-typedef struct {
-    char name[256];
-    Tensor* tensor;
-} ParamEntry;
-
-#define MAX_PARAMS 65536
-static ParamEntry param_registry[MAX_PARAMS];
-static int param_count_val = 0;
-
-void param_register(const char* name, TensorHandle h) {
-    Tensor* t = (Tensor*)h;
-    /* Replace if exists */
-    for (int i = 0; i < param_count_val; i++) {
-        if (strcmp(param_registry[i].name, name) == 0) {
-            param_registry[i].tensor = t;
-            return;
-        }
-    }
-    if (param_count_val < MAX_PARAMS) {
-        strncpy(param_registry[param_count_val].name, name, 255);
-        param_registry[param_count_val].tensor = t;
-        param_count_val++;
-    }
-}
-
-void param_clear(void) { param_count_val = 0; }
-int param_count(void) { return param_count_val; }
-const char* param_name(int idx) { return param_registry[idx].name; }
-
-/* Phase 1.5e diagnostic: dump per-param gradient L2 norms after a backward
-   pass. Enabled by setting DEBUG_PARAM_GRADS env var. Defined here (rather
-   than inline in tensor_backward) so it can see the static param_registry. */
-void _dbg_dump_param_grads_if_enabled(void) {
-    if (!getenv("DEBUG_PARAM_GRADS")) return;
-    fprintf(stderr, "=== param grads after backward ===\n");
-    for (int i = 0; i < param_count_val; i++) {
-        Tensor* t = param_registry[i].tensor;
-        double l2 = 0.0;
-        int has_nan = 0;
-        if (t->grad) {
-            for (int j = 0; j < t->numel; j++) {
-                double g = ((double*)t->grad)[j];
-                if (isnan(g) || isinf(g)) has_nan = 1;
-                l2 += g * g;
-            }
-            l2 = sqrt(l2);
-        }
-        fprintf(stderr, "  %-40s numel=%-6d l2=%12.6e%s%s\n",
-                param_registry[i].name, t->numel, l2,
-                t->grad ? "" : " NO_GRAD",
-                has_nan ? " NAN_OR_INF!" : "");
-    }
-}
-
-/* Phase 1.5e diagnostic: dump h0/c0 param value trajectories + first 3
-   element values. Set DEBUG_LSTM_TRAJ to print every N epochs. */
-static int _dbg_traj_step = 0;
-void _dbg_dump_lstm_traj_if_enabled(void) {
-    if (!getenv("DEBUG_LSTM_TRAJ")) return;
-    int every = 100;
-    const char* every_s = getenv("DEBUG_LSTM_TRAJ_EVERY");
-    if (every_s) every = atoi(every_s);
-    _dbg_traj_step++;
-    if (_dbg_traj_step % every != 0 && _dbg_traj_step != 1) return;
-    for (int i = 0; i < param_count_val; i++) {
-        const char* nm = param_registry[i].name;
-        /* Match _h0 or _c0 (LSTM learned init) */
-        size_t L = strlen(nm);
-        if (L >= 3 && (strcmp(nm + L - 3, "_h0") == 0 || strcmp(nm + L - 3, "_c0") == 0)) {
-            Tensor* t = param_registry[i].tensor;
-            double l2 = 0.0, mn = 1e300, mx = -1e300;
-            for (int j = 0; j < t->numel; j++) {
-                double v = ((double*)t->data)[j];
-                l2 += v*v;
-                if (v < mn) mn = v;
-                if (v > mx) mx = v;
-            }
-            l2 = sqrt(l2);
-            fprintf(stderr, "[traj epoch %d] %s l2=%.10g min=%.10g max=%.10g | t[0..2]=%.10g, %.10g, %.10g\n",
-                    _dbg_traj_step, nm, l2, mn, mx,
-                    t->numel >= 1 ? ((double*)t->data)[0] : 0.0,
-                    t->numel >= 2 ? ((double*)t->data)[1] : 0.0,
-                    t->numel >= 3 ? ((double*)t->data)[2] : 0.0);
-        }
-    }
-}
-
-double param_grad_item(int idx) {
-    Tensor* t = param_registry[idx].tensor;
-    if (!t->grad) return 0.0;
-    return ((double*)t->grad)[0];
-}
-
-double param_grad_item_at(int param_idx, int elem_idx) {
-    Tensor* t = param_registry[param_idx].tensor;
-    if (!t->grad || elem_idx >= t->numel) return 0.0;
-    return ((double*)t->grad)[elem_idx];
-}
-
-double param_grad_item_and_zero(int idx) {
-    Tensor* t = param_registry[idx].tensor;
-    if (!t->grad) return 0.0;
-    double v = ((double*)t->grad)[0];
-    ((double*)t->grad)[0] = 0.0;
-    return v;
-}
-
-TensorHandle param_tensor(int idx) { return param_registry[idx].tensor; }
-
-void param_zero_all_grads(void) {
-    for (int i = 0; i < param_count_val; i++) {
-        Tensor* t = param_registry[i].tensor;
-        if (t->grad) memset(t->grad, 0, t->numel * sizeof(double));
-    }
-}
-
-void param_subtract_delta(int idx, double delta) {
-    Tensor* t = param_registry[idx].tensor;
-    ((double*)t->data)[0] -= delta;
-}
-
-void param_load_data(int idx, const double* data, int numel) {
-    Tensor* t = param_registry[idx].tensor;
-    if (t->numel != numel) {
-        fprintf(stderr, "param_load_data: size mismatch for '%s': expected %d, got %d\n",
-                param_registry[idx].name, t->numel, numel);
-        return;
-    }
-    memcpy(t->data, data, numel * sizeof(double));
-}
-
-/* Byte-level I64 in-place loader — see backend.h. Tape's lingua-franca
-   storage routes every int64 through `tape_store_d` (narrows to float
-   on F32 storage, plain double-write otherwise). Values above 2^53
-   lose precision at this conversion, matching the existing lingua-
-   franca behaviour — no regression. */
-void param_load_data_int64(int idx, const int64_t* data, int numel) {
-    Tensor* t = param_registry[idx].tensor;
-    if (t->numel != numel) {
-        fprintf(stderr, "param_load_data_int64: size mismatch for '%s': expected %d, got %d\n",
-                param_registry[idx].name, t->numel, numel);
-        return;
-    }
-    for (int i = 0; i < numel; i++) {
-        tape_store_d(t, i, (double)data[i]);
-    }
-}
+/* Parameter Registry and the DEBUG_PARAM_GRADS / DEBUG_LSTM_TRAJ
+   diagnostics: moved to backend_tape/training/param_registry.c
+   (Phase 1e.5). */
 
 TensorHandle tensor_subtract_scalar_inplace(TensorHandle h, double val) {
     Tensor* t = (Tensor*)h;
@@ -1246,14 +1098,14 @@ typedef struct {
 /* Returns 1 if param[i]'s name starts with opt->prefix (or prefix is empty). */
 static int opt_owns_param(Optimizer* opt, int i) {
     if (opt->prefix[0] == '\0') return 1;
-    return strncmp(param_registry[i].name, opt->prefix, strlen(opt->prefix)) == 0;
+    return strncmp(param_name(i), opt->prefix, strlen(opt->prefix)) == 0;
 }
 
 /* Compute total number of elements across all params (for per-element optimizer buffers) */
 static int param_total_elements(void) {
     int total = 0;
-    for (int i = 0; i < param_count_val; i++)
-        total += param_registry[i].tensor->numel;
+    for (int i = 0; i < param_count(); i++)
+        total += ((Tensor*)param_tensor(i))->numel;
     return total;
 }
 
@@ -1261,7 +1113,7 @@ static int param_total_elements(void) {
 static int param_element_offset(int param_idx) {
     int off = 0;
     for (int i = 0; i < param_idx; i++)
-        off += param_registry[i].tensor->numel;
+        off += ((Tensor*)param_tensor(i))->numel;
     return off;
 }
 
@@ -1324,8 +1176,8 @@ int polyak_blend(double tau, const char* online_scope, const char* target_scope)
     size_t tg_len = strlen(target_scope);
     int blended = 0;
     double one_minus_tau = 1.0 - tau;
-    for (int i = 0; i < param_count_val; i++) {
-        const char* on_name = param_registry[i].name;
+    for (int i = 0; i < param_count(); i++) {
+        const char* on_name = param_name(i);
         if (strncmp(on_name, online_scope, on_len) != 0) continue;
         /* Build target name: target_scope ++ (on_name + on_len). */
         char tgt_name[256];
@@ -1334,10 +1186,10 @@ int polyak_blend(double tau, const char* online_scope, const char* target_scope)
         memcpy(tgt_name, target_scope, tg_len);
         memcpy(tgt_name + tg_len, on_name + on_len, suffix_len + 1);
         /* Find target param. */
-        for (int j = 0; j < param_count_val; j++) {
-            if (strcmp(param_registry[j].name, tgt_name) != 0) continue;
-            Tensor* on_t = param_registry[i].tensor;
-            Tensor* tg_t = param_registry[j].tensor;
+        for (int j = 0; j < param_count(); j++) {
+            if (strcmp(param_name(j), tgt_name) != 0) continue;
+            Tensor* on_t = (Tensor*)param_tensor(i);
+            Tensor* tg_t = (Tensor*)param_tensor(j);
             if (on_t->numel != tg_t->numel) break;
             for (int k = 0; k < on_t->numel; k++) {
                 ((double*)tg_t->data)[k] = one_minus_tau * ((double*)tg_t->data)[k] + tau * ((double*)on_t->data)[k];
@@ -1366,8 +1218,8 @@ void optimizer_free(OptimizerHandle h) {
 void optimizer_set_param_lr(OptimizerHandle h, const char* name, double lr) {
     Optimizer* opt = (Optimizer*)h;
     /* Ensure param_lr array is large enough */
-    if (opt->param_lr == NULL || opt->param_lr_count < param_count_val) {
-        int new_count = param_count_val > 64 ? param_count_val : 64;
+    if (opt->param_lr == NULL || opt->param_lr_count < param_count()) {
+        int new_count = param_count() > 64 ? param_count() : 64;
         double* new_lr = realloc(opt->param_lr, new_count * sizeof(double));
         /* Initialize new entries to -1 (sentinel: use base LR) */
         for (int i = opt->param_lr_count; i < new_count; i++) new_lr[i] = -1.0;
@@ -1375,8 +1227,8 @@ void optimizer_set_param_lr(OptimizerHandle h, const char* name, double lr) {
         opt->param_lr_count = new_count;
     }
     /* Find param by name and set its LR */
-    for (int i = 0; i < param_count_val; i++) {
-        if (strcmp(param_registry[i].name, name) == 0) {
+    for (int i = 0; i < param_count(); i++) {
+        if (strcmp(param_name(i), name) == 0) {
             opt->param_lr[i] = lr;
             return;
         }
@@ -1399,7 +1251,7 @@ void optimizer_step(OptimizerHandle h) {
     optimizer_ensure_buffers(opt);
     opt->t++;
 
-    for (int i = 0; i < param_count_val; i++) {
+    for (int i = 0; i < param_count(); i++) {
         if (!opt_owns_param(opt, i)) continue;
         /* Phase 1.5e DIAGNOSTIC: SKIP_LSTM_INIT skips updating params whose
            names end in _h0 or _c0 (LSTM learned initial state). Equivalent
@@ -1407,14 +1259,14 @@ void optimizer_step(OptimizerHandle h) {
            the convergence regression is in the gradient values being
            applied to h0/c0 vs being elsewhere. Remove once diagnosed. */
         if (getenv("SKIP_LSTM_INIT")) {
-            const char* nm = param_registry[i].name;
+            const char* nm = param_name(i);
             size_t L = strlen(nm);
             if (L >= 3 && (strcmp(nm + L - 3, "_h0") == 0 ||
                            strcmp(nm + L - 3, "_c0") == 0)) {
                 continue;
             }
         }
-        Tensor* t = param_registry[i].tensor;
+        Tensor* t = (Tensor*)param_tensor(i);
         if (!t->grad) continue;
         int base = param_element_offset(i);
 
@@ -1488,8 +1340,8 @@ void optimizer_step(OptimizerHandle h) {
        Ephemeral tensors (select results, intermediates) are not re-registered.
        They will be recreated in the next forward pass. */
     tape_reset();
-    for (int j = 0; j < param_count_val; j++) {
-        Tensor* t = param_registry[j].tensor;
+    for (int j = 0; j < param_count(); j++) {
+        Tensor* t = (Tensor*)param_tensor(j);
         t->tape_idx = -1;
         if (t->grad) memset(t->grad, 0, t->numel * sizeof(double));
         tape_append(OP_CONST, t, NULL, NULL, 0);
@@ -1504,9 +1356,9 @@ void optimizer_step(OptimizerHandle h) {
 
 /* Internal clip-value helper scoped to params owned by `opt`. */
 static void clip_grad_value_opt(Optimizer* opt, double max_val) {
-    for (int i = 0; i < param_count_val; i++) {
+    for (int i = 0; i < param_count(); i++) {
         if (opt && !opt_owns_param(opt, i)) continue;
-        Tensor* t = param_registry[i].tensor;
+        Tensor* t = (Tensor*)param_tensor(i);
         if (!t->grad) continue;
         for (int j = 0; j < t->numel; j++) {
             if (((double*)t->grad)[j] > max_val) ((double*)t->grad)[j] = max_val;
@@ -1518,18 +1370,18 @@ static void clip_grad_value_opt(Optimizer* opt, double max_val) {
 /* Internal clip-norm helper scoped to params owned by `opt`. */
 static double clip_grad_norm_opt(Optimizer* opt, double max_norm) {
     double total = 0;
-    for (int i = 0; i < param_count_val; i++) {
+    for (int i = 0; i < param_count(); i++) {
         if (opt && !opt_owns_param(opt, i)) continue;
-        Tensor* t = param_registry[i].tensor;
+        Tensor* t = (Tensor*)param_tensor(i);
         if (!t->grad) continue;
         for (int j = 0; j < t->numel; j++) total += ((double*)t->grad)[j] * ((double*)t->grad)[j];
     }
     double norm = sqrt(total);
     if (norm > max_norm) {
         double scale = max_norm / norm;
-        for (int i = 0; i < param_count_val; i++) {
+        for (int i = 0; i < param_count(); i++) {
             if (opt && !opt_owns_param(opt, i)) continue;
-            Tensor* t = param_registry[i].tensor;
+            Tensor* t = (Tensor*)param_tensor(i);
             if (!t->grad) continue;
             for (int j = 0; j < t->numel; j++) ((double*)t->grad)[j] *= scale;
         }
@@ -1552,22 +1404,22 @@ double optimizer_clip_grad_norm(double max_norm) {
 
 int optimizer_buf_count(OptimizerHandle h) {
     (void)h;
-    return param_count_val;
+    return param_count();
 }
 
 void optimizer_get_m(OptimizerHandle h, int idx, double* out) {
     Optimizer* opt = (Optimizer*)h;
-    if (!opt->allocated) { memset(out, 0, param_registry[idx].tensor->numel * sizeof(double)); return; }
+    if (!opt->allocated) { memset(out, 0, ((Tensor*)param_tensor(idx))->numel * sizeof(double)); return; }
     int offset = param_element_offset(idx);
-    int numel = param_registry[idx].tensor->numel;
+    int numel = ((Tensor*)param_tensor(idx))->numel;
     memcpy(out, opt->m + offset, numel * sizeof(double));
 }
 
 void optimizer_get_v(OptimizerHandle h, int idx, double* out) {
     Optimizer* opt = (Optimizer*)h;
-    if (!opt->allocated) { memset(out, 0, param_registry[idx].tensor->numel * sizeof(double)); return; }
+    if (!opt->allocated) { memset(out, 0, ((Tensor*)param_tensor(idx))->numel * sizeof(double)); return; }
     int offset = param_element_offset(idx);
-    int numel = param_registry[idx].tensor->numel;
+    int numel = ((Tensor*)param_tensor(idx))->numel;
     memcpy(out, opt->v + offset, numel * sizeof(double));
 }
 
@@ -1575,7 +1427,7 @@ void optimizer_set_m(OptimizerHandle h, int idx, const double* data) {
     Optimizer* opt = (Optimizer*)h;
     optimizer_ensure_buffers(opt);
     int offset = param_element_offset(idx);
-    int numel = param_registry[idx].tensor->numel;
+    int numel = ((Tensor*)param_tensor(idx))->numel;
     memcpy(opt->m + offset, data, numel * sizeof(double));
 }
 
@@ -1583,7 +1435,7 @@ void optimizer_set_v(OptimizerHandle h, int idx, const double* data) {
     Optimizer* opt = (Optimizer*)h;
     optimizer_ensure_buffers(opt);
     int offset = param_element_offset(idx);
-    int numel = param_registry[idx].tensor->numel;
+    int numel = ((Tensor*)param_tensor(idx))->numel;
     memcpy(opt->v + offset, data, numel * sizeof(double));
 }
 
@@ -1625,8 +1477,8 @@ void optimizer_set_meta(OptimizerHandle h, const double* in9) {
 void backend_reset_for_eval(void) {
     tape_reset();
     /* Re-register params so they have valid tape indices */
-    for (int j = 0; j < param_count_val; j++) {
-        Tensor* t = param_registry[j].tensor;
+    for (int j = 0; j < param_count(); j++) {
+        Tensor* t = (Tensor*)param_tensor(j);
         t->tape_idx = -1;
         if (t->grad) memset(t->grad, 0, t->numel * sizeof(double));
         tape_append(OP_CONST, t, NULL, NULL, 0);
@@ -1702,7 +1554,7 @@ void backend_profile_report(void) {
     fprintf(stderr, "  Epochs: %d\n", prof_epochs);
     fprintf(stderr, "  Tape entries (last fwd): %d\n", tape_size);
     fprintf(stderr, "  Params: %d tensors, %d elements\n",
-            param_count_val, ({int n=0; for(int i=0;i<param_count_val;i++) n+=param_registry[i].tensor->numel; n;}));
+            param_count(), ({int n=0; for(int i=0;i<param_count();i++) n+=((Tensor*)param_tensor(i))->numel; n;}));
     fprintf(stderr, "  Forward:   %.1fms total (%.1fms/epoch)\n",
             prof_forward_ms, prof_epochs > 0 ? prof_forward_ms / prof_epochs : 0);
     fprintf(stderr, "  Backward:  %.1fms total (%.1fms/epoch)\n",
