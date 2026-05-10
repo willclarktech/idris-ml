@@ -199,16 +199,20 @@ double native_train_step(OptimizerHandle opt, int clip_mode, double clip_val,
     optimizer_zero_grad(opt);
     if (g_active_port.tensor_requires_grad((void*)loss_ptr))
         g_active_port.backward((void*)loss_ptr);
-    if      (clip_mode == 1) optimizer_clip_grad_value(clip_val);
-    else if (clip_mode == 2) optimizer_clip_grad_norm(clip_val);
+    /* Use the prefix-scoped clip variants so multi-optimizer training
+       (SAC's actor / q1 / q2) clips only this optimizer's owned params.
+       Single-optimizer cases (empty prefix) walk every registered
+       param — same effective result as the global clip. */
+    if      (clip_mode == 1) g_active_port.optimizer_clip_grad_value_filtered((void*)opt, clip_val);
+    else if (clip_mode == 2) g_active_port.optimizer_clip_grad_norm_filtered((void*)opt, clip_val);
     optimizer_step(opt);
     return loss_val;
 }
 
 int optimizer_step_with_clip(OptimizerHandle opt, int clip_mode, double clip_val, int dummy) {
     (void)dummy;
-    if      (clip_mode == 1) optimizer_clip_grad_value(clip_val);
-    else if (clip_mode == 2) optimizer_clip_grad_norm(clip_val);
+    if      (clip_mode == 1) g_active_port.optimizer_clip_grad_value_filtered((void*)opt, clip_val);
+    else if (clip_mode == 2) g_active_port.optimizer_clip_grad_norm_filtered((void*)opt, clip_val);
     optimizer_step(opt);
     optimizer_zero_grad(opt);
     return 0;

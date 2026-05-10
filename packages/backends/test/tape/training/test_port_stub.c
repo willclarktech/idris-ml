@@ -43,6 +43,8 @@ Test(shared_training, port_struct_populated) {
     cr_assert_not_null(g_active_port.optimizer_set_lr);
     cr_assert_not_null(g_active_port.optimizer_set_param_lr);
     cr_assert_not_null(g_active_port.optimizer_step);
+    cr_assert_not_null(g_active_port.optimizer_clip_grad_value_filtered);
+    cr_assert_not_null(g_active_port.optimizer_clip_grad_norm_filtered);
     cr_assert_not_null(g_active_port.optimizer_buf_count);
     cr_assert_not_null(g_active_port.optimizer_get_m);
     cr_assert_not_null(g_active_port.optimizer_get_v);

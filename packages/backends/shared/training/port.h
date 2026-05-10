@@ -108,6 +108,17 @@ typedef struct BackendPort {
      (intermediate cleanup, prof_* updates, tape_reset where applicable). */
   void  (*optimizer_step)(void* opt);
 
+  /* Prefix-scoped grad clipping. Each backend's Optimizer holds the
+     prefix that scopes which params it owns (SAC's multi-optimizer
+     setup: actor_/q1_/q2_/etc.); these methods clip only the owned
+     params. Distinct from the global `optimizer_clip_grad_value` /
+     `optimizer_clip_grad_norm` exported as FFI from
+     shared/training/optimizer.c. `native_train_step` and
+     `optimizer_step_with_clip` route through these so multi-optimizer
+     training (SAC etc.) preserves the scoping. */
+  void   (*optimizer_clip_grad_value_filtered)(void* opt, double max_val);
+  double (*optimizer_clip_grad_norm_filtered)(void* opt, double max_norm);
+
   /* Serialization — flat-buffer m/v access + 9-double meta vector
      (type, lr, β1, β2, eps, alpha, weight_decay, momentum, t).
      Out-buffers are caller-allocated. */

@@ -319,3 +319,48 @@ void tape_optimizer_set_meta(void* h, const double* in9) {
     opt->momentum = in9[7];
     opt->t = (int)in9[8];
 }
+
+/* ----------------------------------------------------------------------
+   Prefix-scoped grad clipping. Walks only the params this optimizer
+   owns (opt->prefix == ""  means "every registered param"). Used by
+   SAC's multi-optimizer training to keep each opt's clip from
+   touching other opts' params.
+   ---------------------------------------------------------------------- */
+
+void tape_optimizer_clip_grad_value_filtered(void* h, double max_val) {
+    TapeOptimizer* opt = (TapeOptimizer*)h;
+    for (int i = 0; i < param_count(); i++) {
+        if (!opt_owns_param(opt, i)) continue;
+        Tensor* t = (Tensor*)param_tensor(i);
+        if (!t->grad) continue;
+        for (int j = 0; j < t->numel; j++) {
+            double v = ((double*)t->grad)[j];
+            if      (v >  max_val) ((double*)t->grad)[j] =  max_val;
+            else if (v < -max_val) ((double*)t->grad)[j] = -max_val;
+        }
+    }
+}
+
+double tape_optimizer_clip_grad_norm_filtered(void* h, double max_norm) {
+    TapeOptimizer* opt = (TapeOptimizer*)h;
+    double total = 0;
+    for (int i = 0; i < param_count(); i++) {
+        if (!opt_owns_param(opt, i)) continue;
+        Tensor* t = (Tensor*)param_tensor(i);
+        if (!t->grad) continue;
+        for (int j = 0; j < t->numel; j++)
+            total += ((double*)t->grad)[j] * ((double*)t->grad)[j];
+    }
+    double norm = sqrt(total);
+    if (norm > max_norm) {
+        double scale = max_norm / norm;
+        for (int i = 0; i < param_count(); i++) {
+            if (!opt_owns_param(opt, i)) continue;
+            Tensor* t = (Tensor*)param_tensor(i);
+            if (!t->grad) continue;
+            for (int j = 0; j < t->numel; j++)
+                ((double*)t->grad)[j] *= scale;
+        }
+    }
+    return norm;
+}

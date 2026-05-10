@@ -118,6 +118,8 @@ extern void  tape_optimizer_free(void* opt);
 extern void  tape_optimizer_set_lr(void* opt, double lr);
 extern void  tape_optimizer_set_param_lr(void* opt, const char* name, double lr);
 extern void  tape_optimizer_step(void* opt);
+extern void   tape_optimizer_clip_grad_value_filtered(void* opt, double max_val);
+extern double tape_optimizer_clip_grad_norm_filtered(void* opt, double max_norm);
 extern int   tape_optimizer_buf_count(void* opt);
 extern void  tape_optimizer_get_m(void* opt, int idx, double* out);
 extern void  tape_optimizer_get_v(void* opt, int idx, double* out);
@@ -159,6 +161,8 @@ const BackendPort g_active_port = {
   .optimizer_set_lr          = tape_optimizer_set_lr,
   .optimizer_set_param_lr    = tape_optimizer_set_param_lr,
   .optimizer_step            = tape_optimizer_step,
+  .optimizer_clip_grad_value_filtered = tape_optimizer_clip_grad_value_filtered,
+  .optimizer_clip_grad_norm_filtered  = tape_optimizer_clip_grad_norm_filtered,
   .optimizer_buf_count       = tape_optimizer_buf_count,
   .optimizer_get_m           = tape_optimizer_get_m,
   .optimizer_get_v           = tape_optimizer_get_v,
