@@ -121,23 +121,14 @@ ntmReadHeadIdris memT prevWT keyT betaT gT gammaT shiftT =
 -- Each row i of memory' is `w[i]*addVec + (1-w[i])*memory[i]`. Bounded
 -- by construction: a row never grows beyond max(memory[i], addVec).
 --
--- The previous implementation was an additive update
--- (`memory + outer(w, addVec)`), which converges to a strictly worse
--- minimum (acc_full ~82% vs PyTorch ref's 100% on copy seed=42 batch=1).
 -- Mirrors `torch_ref/ntm/memory.py:write_memory`.
---
--- Implementation: row-wise scalar multiplication (n,)·(n,m) is not
--- supported by the tape backend's elementwise broadcast (which only
--- handles numel=1 broadcast), so we materialize `w` row-wise via
--- `outer(w, ones_m)` and do same-shape elementwise mul.
 %inline
-ntmInterpWriteIdris : {m : Nat} -> (memT, weightsT, addVecT : AnyPtr) -> AnyPtr
-ntmInterpWriteIdris {m} memT weightsT addVecT =
-  let onesM    = prim__addScalar (zeroState1d m) 1.0       -- (m,) all-ones
-      writeAdd = prim__outer weightsT addVecT              -- (n,m) — w[i]*a[j]
-      wRow     = prim__outer weightsT onesM                -- (n,m) — w[i] broadcast over j
-      keep     = prim__addScalar (prim__neg wRow) 1.0      -- (n,m) — 1-w[i]
-      kept     = prim__mul keep memT                       -- (n,m) — (1-w[i])*mem[i,j]
+ntmInterpWriteIdris : {n : Nat} -> (memT, weightsT, addVecT : AnyPtr) -> AnyPtr
+ntmInterpWriteIdris {n} memT weightsT addVecT =
+  let writeAdd = prim__outer weightsT addVecT              -- (n,m) — w[i]*a[j]
+      wCol     = prim__reshape2d weightsT (cast n) 1       -- (n,1) view of w
+      keep     = prim__addScalar (prim__neg wCol) 1.0      -- (n,1) — 1-w[i]
+      kept     = prim__mul keep memT                       -- (n,m) — (n,1)·(n,m) bcast
   in prim__add kept writeAdd
 
 export
@@ -204,7 +195,7 @@ applyNtm {n} {m} {h} {i} {o}
                    (prim__select writeResultT 0 (mI + skI + 2))) 1.0
       (newWriteAddrT, _) = ntmReadHeadIdris memTPtr waTPtr wKeyT wBetaT wGT wGammaT wShiftT
       addT = prim__narrow writeResultT 0 rpw mI
-      newMemT = ntmInterpWriteIdris {m} memTPtr newWriteAddrT addT
+      newMemT = ntmInterpWriteIdris {n} memTPtr newWriteAddrT addT
       -- 6. Output FC: cat(hidden, readOut) -> [o]
       concatPtr = prim__cat2 hiddenV.tensorPtr newReadOutT
       outputPtr = prim__linear ofcW concatPtr ofcB

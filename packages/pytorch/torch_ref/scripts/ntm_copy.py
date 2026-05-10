@@ -90,7 +90,7 @@ def main() -> None:
     parser.add_argument("--lr", type=float, default=0.0001)
     parser.add_argument("--clip", type=float, default=10.0)
     parser.add_argument("--epochs", type=int, default=10000)
-    parser.add_argument("--seed", type=int, default=99)
+    parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--batch", type=int, default=1)
     parser.add_argument("--min-len", type=int, default=1)
     parser.add_argument("--max-len", type=int, default=20)

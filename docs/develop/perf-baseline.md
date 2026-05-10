@@ -65,7 +65,9 @@ mlx/torch runs of the same script).
 
 Detailed per-backend convergence after Phase 1.5e mlx fixes
 (`tensor_linear` bias-on-tape + `tensor_softplus` stable form).
-Defaults are now `seed=99 epochs=10000` (paired); ES gate
+Defaults are now per-backend after the 2026-05-10 broadcast
+adoption in `Layer/Ntm.idr`: `Makefile` picks `--seed 42` for
+tape/torch and `--seed 99` for mlx, `epochs=10000`, ES gate
 `WindowedPercentile 0.10 / 0.01 / 1000 / 3` unchanged. Full-history
 measurements live in [`perf-log.md`](perf-log.md).
 
@@ -83,8 +85,10 @@ measurements live in [`perf-log.md`](perf-log.md).
 **ntm-copy seed-sensitivity** (documented in `gotchas.md`): the
 aligned NTM model has high variance across seeds at moderate epoch
 budgets (~1/4 of seeds reach 99%+ at 5K epochs on both PyTorch ref
-and Idris). The `seed=99` default reaches 99%+ on both tape and
-mlx, well under the 10K cap.
+and Idris). The Makefile picks the seed that converges with
+broadcast per backend: seed=42 for tape (~4400 ep) and torch
+(~5300 ep); seed=99 for mlx (~4400 ep, matches pre-broadcast
+4400 ep / 99.97% baseline).
 
 **dnc-copy seed-variance check** (Phase 1.5c follow-up, seed=42):
 

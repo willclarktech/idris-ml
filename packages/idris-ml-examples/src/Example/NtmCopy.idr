@@ -96,7 +96,7 @@ record Config where
   lrFind : Bool
 
 defaultConfig : Config
-defaultConfig = MkConfig 0.0001 10.0 0.95 1.0e-8 0.9 10000 0.01 1000 3 99 1 20 1 False
+defaultConfig = MkConfig 0.0001 10.0 0.95 1.0e-8 0.9 10000 0.01 1000 3 42 1 20 1 False
 
 specs : List (ArgSpec Config)
 specs = [ Arg "--lr" (\v, c => { lr := cast v } c)

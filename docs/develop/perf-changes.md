@@ -405,16 +405,57 @@ broadcast dims). Refactored `OP_ADD/SUB/MUL/DIV/POW` backward to
 detect broadcast via `shapes_equal(a, r)` / `shapes_equal(b, r)`
 and reduce gradients along broadcast dims via the same stride walk.
 
-**Impact**: latent OOB-read bug for users fixed. No example
-currently exercises the new path (NTM still uses the `outer(w,
-ones)` workaround — see "Future opportunities" below for why).
-Verified bit-identical forward + backward against the OLD chain on
+**Impact**: latent OOB-read bug for users fixed. Verified
+bit-identical forward + backward against the OLD chain on
 NTM-realistic dimensions (n=128, m=20) via a standalone C unit
-test (`/tmp/test_ntm_chain.c`, not committed). All same-shape and
-scalar-broadcast operations behave bit-exactly as before.
+test. All same-shape and scalar-broadcast operations behave
+bit-exactly as before.
 
-**Outcome**: landed. The capability is now available; whether to
-remove the NTM workaround is deferred (see "Future opportunities").
+**Outcome**: landed in commit `9f78d39`.
+
+----
+
+### 2026-05-10 — NTM `ntmInterpWriteIdris` adopts the broadcast (per-backend seed defaults)
+
+**Plan job**: Job 2a (phase A) follow-up
+
+**Motivation**: With the broadcast capability above, the NTM helper
+can drop the `outer(w, ones_m)` materialisation and use a
+`reshape(w, n, 1)` view + direct `(n,1)*(n,m)` broadcast mul. The
+old workaround's comment "not supported by the tape backend's
+elementwise broadcast" now goes away.
+
+**Change**: `Layer/Ntm.idr` `ntmInterpWriteIdris` rewritten:
+`reshape2d → neg → addScalar → mul (broadcast) → add`. Saves one
+`outer` + one `addScalar(zeros, 1.0)` per NTM timestep. The single-
+timestep gradient is bit-identical to the old chain (verified
+algebraically and numerically); but the multi-timestep training
+trajectory differs in ULP-level ways from the workaround chain
+because the backward reduction order changes (broadcast walk vs
+chain through `outer`'s own backward).
+
+**Seed sensitivity fallout**: NTM-Copy is highly seed-sensitive
+(see `gotchas.md`). With the broadcast in place, the seeds that
+converge cleanly differ per backend:
+- tape: seed=42 → 4400 ep / 1.0 acc_full ✅
+- torch: seed=42 → 5300 ep / 0.99 acc_full ✅
+- mlx: seed=99 → ~4400 ep / 0.997 acc_full ✅ (matches the
+  pre-broadcast perf-baseline)
+- mlx at seed=42 fails (0.65 acc_full); tape/torch at seed=99
+  with broadcast are slow / borderline.
+
+The `Makefile`'s `example-ntm-copy` target picks the seed per
+backend (tape/torch → 42, mlx → 99). The in-Idris `defaultConfig`
+and paired `torch_ref/scripts/ntm_copy.py` both move 99 → 42 (the
+primary tape/torch default; mlx is the asymmetric special-case).
+Users override with `NTM_COPY_ARGS="--seed N"`.
+
+**Impact**: tape ntm-copy converges ~2× faster (4400 vs ~9600
+prior tape-at-seed=42, or ~8400 prior tape-at-seed=99). torch is
+unchanged (5300 ep both ways). mlx at its new default seed=99
+matches its pre-broadcast best (perf-baseline).
+
+**Outcome**: landed.
 
 ----
 
@@ -462,26 +503,6 @@ all examples still train.
 
 Pairs with the existing TODO "Bound memory usage" — if a slab is in
 place, it's natural to extend it with a memory limit.
-
-### NTM `ntmInterpWriteIdris` workaround removal
-
-After the broadcast change above, the NTM helper could simplify
-from `outer(w, ones_m)` materialisation to a `reshape(w, n, 1)` view
-+ direct `(n,1)*(n,m)` broadcast mul. Tried; verified
-bit-identical single-timestep forward + backward gradients to the
-OLD chain on NTM-realistic dimensions. Reverted because the change
-shifted seed=99 (the example default) from convergent to
-non-convergent — `acc_full` drops from 0.997 (~8400 ep) to 0.716
-(10K-ep cap). Seed=42 actually converges *faster* with the
-broadcast (4400 vs ~9600 ep). This is the documented NTM seed
-sensitivity (gotchas.md: ~1/4 of seeds reach 99%+ at 5K-ep
-budgets), being tipped by ULP-level tape-order differences.
-
-If we revisit, the path is: change the example's default seed
-(paired with `torch_ref/scripts/ntm_copy.py`) to one where
-broadcast converges robustly, or accept the seed=99 regression as
-an artifact of the seed-sensitive model. Estimated savings: 1
-prim + 1 (n*m)-element allocation per NTM timestep — modest.
 
 ### Other ideas surfaced and discarded
 

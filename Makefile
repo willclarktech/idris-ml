@@ -2,6 +2,23 @@ UNAME := $(shell uname)
 BUILD := build
 BACKEND ?= tape
 
+# Per-backend default seed for examples. Some examples (notably NTM-copy and
+# DNC-copy/recall — see docs/develop/gotchas.md) are highly seed-sensitive at
+# moderate epoch budgets, and a seed that converges cleanly on one backend can
+# stall on another due to ULP-level numerical differences in the gradient
+# computation. The seed picked here is the one that converges with the
+# current backend's tape-order on convergence-expected examples; users
+# override per-example via the example's <FOO>_ARGS variable, e.g.
+# `make example-ntm-copy NTM_COPY_ARGS="--seed N"`. Non-seed-sensitive
+# examples (supervised, rnn/lstm/gru, transformer, etc.) work at either
+# default; the unified per-backend value keeps the surface predictable.
+ifeq ($(BACKEND),mlx)
+  EXAMPLE_DEFAULT_SEED := 99
+else
+  EXAMPLE_DEFAULT_SEED := 42
+endif
+SEED_FLAG := --seed $(EXAMPLE_DEFAULT_SEED)
+
 # Shared-library extension. macOS uses .dylib, everything else .so. Used by
 # both the active-backend symlink ($(LIB)) and the per-backend output file
 # ($(BACKEND_LIB)) so they match on every platform.
@@ -279,52 +296,52 @@ test-examples-unit: install-examples
 example-supervised: install
 	idris2 $(IDRIS_FLAGS) -o supervised $(EXAMPLE_SRC)/Example/Supervised.idr
 	cp $(LIB) build/exec/supervised_app/
-	./build/exec/supervised $(SUPERVISED_ARGS)
+	./build/exec/supervised $(SEED_FLAG) $(SUPERVISED_ARGS)
 
 example-rnn: install
 	idris2 $(IDRIS_FLAGS) -o rnn $(EXAMPLE_SRC)/Example/Rnn.idr
 	cp $(LIB) build/exec/rnn_app/
-	./build/exec/rnn $(RNN_ARGS)
+	./build/exec/rnn $(SEED_FLAG) $(RNN_ARGS)
 
 example-lstm: install
 	idris2 $(IDRIS_FLAGS) -o lstm $(EXAMPLE_SRC)/Example/Lstm.idr
 	cp $(LIB) build/exec/lstm_app/
-	./build/exec/lstm $(LSTM_ARGS)
+	./build/exec/lstm $(SEED_FLAG) $(LSTM_ARGS)
 
 example-gru: install
 	idris2 $(IDRIS_FLAGS) -o gru $(EXAMPLE_SRC)/Example/Gru.idr
 	cp $(LIB) build/exec/gru_app/
-	./build/exec/gru $(GRU_ARGS)
+	./build/exec/gru $(SEED_FLAG) $(GRU_ARGS)
 
 example-ntm-copy: install
 	idris2 $(IDRIS_FLAGS) -o ntm-copy $(EXAMPLE_SRC)/Example/NtmCopy.idr
 	cp $(LIB) build/exec/ntm-copy_app/
-	$(STDBUF) ./build/exec/ntm-copy $(NTM_COPY_ARGS)
+	$(STDBUF) ./build/exec/ntm-copy $(SEED_FLAG) $(NTM_COPY_ARGS)
 
 example-ntm-associative-recall: install
 	idris2 $(IDRIS_FLAGS) -o ntm-associative-recall $(EXAMPLE_SRC)/Example/NtmAssociativeRecall.idr
 	cp $(LIB) build/exec/ntm-associative-recall_app/
-	$(STDBUF) ./build/exec/ntm-associative-recall $(NTM_RECALL_ARGS)
+	$(STDBUF) ./build/exec/ntm-associative-recall $(SEED_FLAG) $(NTM_RECALL_ARGS)
 
 example-dnc-copy: install
 	idris2 $(IDRIS_FLAGS) -o dnc-copy $(EXAMPLE_SRC)/Example/DncCopy.idr
 	cp $(LIB) build/exec/dnc-copy_app/
-	$(STDBUF) ./build/exec/dnc-copy $(DNC_COPY_ARGS)
+	$(STDBUF) ./build/exec/dnc-copy $(SEED_FLAG) $(DNC_COPY_ARGS)
 
 example-dnc-recall: install
 	idris2 $(IDRIS_FLAGS) -o dnc-recall $(EXAMPLE_SRC)/Example/DncAssociativeRecall.idr
 	cp $(LIB) build/exec/dnc-recall_app/
-	$(STDBUF) ./build/exec/dnc-recall $(DNC_RECALL_ARGS)
+	$(STDBUF) ./build/exec/dnc-recall $(SEED_FLAG) $(DNC_RECALL_ARGS)
 
 example-transformer: install
 	idris2 $(IDRIS_FLAGS) -o transformer $(EXAMPLE_SRC)/Example/Transformer.idr
 	cp $(LIB) build/exec/transformer_app/
-	./build/exec/transformer $(TRANSFORMER_ARGS)
+	./build/exec/transformer $(SEED_FLAG) $(TRANSFORMER_ARGS)
 
 example-gpt: install
 	idris2 $(IDRIS_FLAGS) -o gpt $(EXAMPLE_SRC)/Example/Gpt.idr
 	cp $(LIB) build/exec/gpt_app/
-	$(STDBUF) ./build/exec/gpt $(GPT_ARGS)
+	$(STDBUF) ./build/exec/gpt $(SEED_FLAG) $(GPT_ARGS)
 
 # Full-corpus convergence run (~hours on tape). Default `make example-gpt`
 # is a ~30s embedded-corpus demo; this target is the real char-LM
@@ -332,82 +349,82 @@ example-gpt: install
 example-gpt-full: install dataset-tinyshakespeare
 	idris2 $(IDRIS_FLAGS) -o gpt $(EXAMPLE_SRC)/Example/Gpt.idr
 	cp $(LIB) build/exec/gpt_app/
-	$(STDBUF) ./build/exec/gpt --corpus tinyshakespeare --epochs 1000 $(GPT_ARGS)
+	$(STDBUF) ./build/exec/gpt $(SEED_FLAG) --corpus tinyshakespeare --epochs 1000 $(GPT_ARGS)
 
 example-mnist: install dataset-mnist
 	idris2 $(IDRIS_FLAGS) -o mnist $(EXAMPLE_SRC)/Example/Mnist.idr
 	cp $(LIB) build/exec/mnist_app/
-	$(STDBUF) ./build/exec/mnist $(MNIST_ARGS)
+	$(STDBUF) ./build/exec/mnist $(SEED_FLAG) $(MNIST_ARGS)
 
 example-seq-classify: install
 	idris2 $(IDRIS_FLAGS) -o seq-classify $(EXAMPLE_SRC)/Example/SeqClassify.idr
 	cp $(LIB) build/exec/seq-classify_app/
-	$(STDBUF) ./build/exec/seq-classify $(SEQ_ARGS)
+	$(STDBUF) ./build/exec/seq-classify $(SEED_FLAG) $(SEQ_ARGS)
 
 example-reinforce: install
 	idris2 $(IDRIS_FLAGS) -o reinforce $(EXAMPLE_SRC)/Example/Reinforce.idr
 	cp $(LIB) build/exec/reinforce_app/
-	./build/exec/reinforce $(REINFORCE_ARGS)
+	./build/exec/reinforce $(SEED_FLAG) $(REINFORCE_ARGS)
 
 example-q-learning: install
 	idris2 $(IDRIS_FLAGS) -o q-learning $(EXAMPLE_SRC)/Example/QLearning.idr
 	cp $(LIB) build/exec/q-learning_app/
-	./build/exec/q-learning $(Q_LEARNING_ARGS)
+	./build/exec/q-learning $(SEED_FLAG) $(Q_LEARNING_ARGS)
 
 example-sarsa: install
 	idris2 $(IDRIS_FLAGS) -o sarsa $(EXAMPLE_SRC)/Example/Sarsa.idr
 	cp $(LIB) build/exec/sarsa_app/
-	./build/exec/sarsa $(SARSA_ARGS)
+	./build/exec/sarsa $(SEED_FLAG) $(SARSA_ARGS)
 
 example-monte-carlo: install
 	idris2 $(IDRIS_FLAGS) -o monte-carlo $(EXAMPLE_SRC)/Example/MonteCarlo.idr
 	cp $(LIB) build/exec/monte-carlo_app/
-	./build/exec/monte-carlo $(MONTE_CARLO_ARGS)
+	./build/exec/monte-carlo $(SEED_FLAG) $(MONTE_CARLO_ARGS)
 
 example-frozen-lake: install
 	idris2 $(IDRIS_FLAGS) -o frozen-lake $(EXAMPLE_SRC)/Example/FrozenLake.idr
 	cp $(LIB) build/exec/frozen-lake_app/
-	./build/exec/frozen-lake $(FROZEN_LAKE_ARGS)
+	./build/exec/frozen-lake $(SEED_FLAG) $(FROZEN_LAKE_ARGS)
 
 example-taxi: install
 	idris2 $(IDRIS_FLAGS) -o taxi $(EXAMPLE_SRC)/Example/Taxi.idr
 	cp $(LIB) build/exec/taxi_app/
-	./build/exec/taxi $(TAXI_ARGS)
+	./build/exec/taxi $(SEED_FLAG) $(TAXI_ARGS)
 
 example-dqn: install
 	idris2 $(IDRIS_FLAGS) -o dqn $(EXAMPLE_SRC)/Example/Dqn.idr
 	cp $(LIB) build/exec/dqn_app/
-	$(STDBUF) ./build/exec/dqn $(DQN_ARGS)
+	$(STDBUF) ./build/exec/dqn $(SEED_FLAG) $(DQN_ARGS)
 
 example-mountain-car: install
 	idris2 $(IDRIS_FLAGS) -o mountain-car $(EXAMPLE_SRC)/Example/MountainCar.idr
 	cp $(LIB) build/exec/mountain-car_app/
-	$(STDBUF) ./build/exec/mountain-car $(MOUNTAIN_CAR_ARGS)
+	$(STDBUF) ./build/exec/mountain-car $(SEED_FLAG) $(MOUNTAIN_CAR_ARGS)
 
 example-mountain-car-cont: install
 	idris2 $(IDRIS_FLAGS) -o mountain-car-cont $(EXAMPLE_SRC)/Example/MountainCarCont.idr
 	cp $(LIB) build/exec/mountain-car-cont_app/
-	$(STDBUF) ./build/exec/mountain-car-cont $(MOUNTAIN_CAR_CONT_ARGS)
+	$(STDBUF) ./build/exec/mountain-car-cont $(SEED_FLAG) $(MOUNTAIN_CAR_CONT_ARGS)
 
 example-a2c: install
 	idris2 $(IDRIS_FLAGS) -o a2c $(EXAMPLE_SRC)/Example/A2c.idr
 	cp $(LIB) build/exec/a2c_app/
-	$(STDBUF) ./build/exec/a2c $(A2C_ARGS)
+	$(STDBUF) ./build/exec/a2c $(SEED_FLAG) $(A2C_ARGS)
 
 example-ppo: install
 	idris2 $(IDRIS_FLAGS) -o ppo $(EXAMPLE_SRC)/Example/Ppo.idr
 	cp $(LIB) build/exec/ppo_app/
-	$(STDBUF) ./build/exec/ppo $(PPO_ARGS)
+	$(STDBUF) ./build/exec/ppo $(SEED_FLAG) $(PPO_ARGS)
 
 example-sac: install
 	idris2 $(IDRIS_FLAGS) -o sac $(EXAMPLE_SRC)/Example/Sac.idr
 	cp $(LIB) build/exec/sac_app/
-	$(STDBUF) ./build/exec/sac $(SAC_ARGS)
+	$(STDBUF) ./build/exec/sac $(SEED_FLAG) $(SAC_ARGS)
 
 example-transfer: install
 	idris2 $(IDRIS_FLAGS) -o transfer $(EXAMPLE_SRC)/Example/Transfer.idr
 	cp $(LIB) build/exec/transfer_app/
-	./build/exec/transfer $(TRANSFER_ARGS)
+	./build/exec/transfer $(SEED_FLAG) $(TRANSFER_ARGS)
 
 example-transfer-demo:
 	@echo "=== Phase 1: Train on tape ==="

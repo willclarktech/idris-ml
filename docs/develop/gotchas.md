@@ -218,6 +218,26 @@ Measurements at seed=42/7/99/123, batch=1, 5K epochs, threshold-disabled (`acc_s
 
 Implication: don't read a single-seed under-budget run as a backend bug. Compare the same seed against PyTorch ref before concluding anything. Final convergence (e.g. 25K+ epochs with `WindowedPercentile` early-stop) is the right gate; 5K epoch snapshots are too noisy. The ≥4/5 multi-seed pass rate gate in the convergence plan should be applied at full convergence budgets, not at fixed-epoch checkpoints.
 
+### NTM-Copy default seed is per-backend after broadcast adoption
+
+The `Layer/Ntm.idr` `ntmInterpWriteIdris` helper now uses the tape backend's
+numpy-style 2D broadcast (`(n,1)*(n,m)`) directly instead of materialising
+`outer(w, ones_m)`. The change is bit-identical at single-timestep
+mathematically, but multi-timestep training trajectories diverge in
+ULP-level ways from the workaround chain (different reduction order in
+backward sums). Combined with NTM-Copy's seed sensitivity, this flips
+which seeds converge per backend:
+
+| Seed | tape (broadcast) | torch (broadcast) | mlx (broadcast) |
+|------|---|---|---|
+| 42   | ✅ ~4400 ep / 1.0 | ✅ ~5300 ep / 0.99 | ❌ ~9000 ep / 0.65 |
+| 99   | ⚠️ 30K-cap / 0.97 | ⚠️ slow            | ✅ ~4400 ep / 0.997 |
+
+The `Makefile` `example-ntm-copy` target now defaults `--seed 42` for tape
+and torch, `--seed 99` for mlx. Override with `NTM_COPY_ARGS="--seed N"`.
+The in-Idris `defaultConfig` and the paired `torch_ref/scripts/ntm_copy.py`
+default both stay at seed=42 (matches the primary tape/torch path).
+
 ## Architecture & Infrastructure
 
 C kernels, buffer systems, optimizer internals, and the layer system.
