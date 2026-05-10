@@ -219,29 +219,8 @@ const char* tensor_dtype_name(TensorHandle h) {
 /* tensor_add / tensor_sub / tensor_mul / tensor_div extracted to
    backend_torch/core/elementwise/{add,sub,mul,div}.cpp. */
 
-TensorHandle tensor_neg(TensorHandle h) {
-    return from_tensor(torch::neg(*to_tensor(h)));
-}
-
-TensorHandle tensor_abs(TensorHandle h) {
-    return from_tensor(torch::abs(*to_tensor(h)));
-}
-
-TensorHandle tensor_exp(TensorHandle h) {
-    return from_tensor(torch::exp(*to_tensor(h)));
-}
-
-TensorHandle tensor_log(TensorHandle h) {
-    return from_tensor(torch::log(*to_tensor(h)));
-}
-
-TensorHandle tensor_sqrt(TensorHandle h) {
-    return from_tensor(torch::sqrt(*to_tensor(h)));
-}
-
-TensorHandle tensor_pow(TensorHandle base, TensorHandle exp) {
-    return from_tensor(torch::pow(*to_tensor(base), *to_tensor(exp)));
-}
+/* tensor_neg / tensor_abs / tensor_exp / tensor_log / tensor_sqrt /
+   tensor_pow extracted to backend_torch/core/elementwise/. */
 
 TensorHandle tensor_sigmoid(TensorHandle h) {
     return from_tensor(torch::sigmoid(*to_tensor(h)));
