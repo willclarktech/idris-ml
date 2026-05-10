@@ -739,8 +739,8 @@ extern "C" void tensor_free_mlx_streamed(TensorHandle h, int stream_tag) {
     if (!h) return;
     auto t = (Tensor*)h;
     // Skip registered params — they're managed by param_clear.
-    for (auto& p : param_registry) {
-        if (p.tensor == t) return;
+    for (int i_ = 0; i_ < param_count(); i_++) {
+        if ((Tensor*)param_tensor(i_) == t) return;
     }
     // Refcount-driven world (since commit 7eab36c): forcing `delete t` here
     // leaves dangling Tensor* pointers in tape entries that still reference
@@ -2580,9 +2580,10 @@ void tensor_backward(TensorHandle h) {
     // Collect param pool indices and arrays
     std::vector<int> param_pool_indices;
     std::vector<mx::array> param_arrays;
-    for (auto& p : param_registry) {
-        param_pool_indices.push_back(p.tensor->pool_idx);
-        param_arrays.push_back(p.tensor->data);
+    for (int i_ = 0; i_ < param_count(); i_++) {
+        auto* tensor = (Tensor*)param_tensor(i_);
+        param_pool_indices.push_back(tensor->pool_idx);
+        param_arrays.push_back(tensor->data);
     }
     if (param_arrays.empty()) return;
 
@@ -3017,9 +3018,10 @@ void tensor_backward(TensorHandle h) {
         grads.erase(grads.begin() + n_params, grads.end());
 
     // Distribute gradients to parameter tensors
-    for (int i = 0; i < (int)param_registry.size(); i++) {
-        param_registry[i].tensor->grad = grads[i];
-        param_registry[i].tensor->has_grad = true;
+    for (int i = 0; i < param_count(); i++) {
+        auto* tensor = (Tensor*)param_tensor(i);
+        tensor->grad = grads[i];
+        tensor->has_grad = true;
     }
 
     // Optional NaN trap — fires only when DEBUG_NAN_TRAP=1 in the env.
@@ -3031,9 +3033,10 @@ void tensor_backward(TensorHandle h) {
         const char* env = getenv("DEBUG_NAN_TRAP");
         if (env && env[0] == '1' && !reported) {
             int any_nan = 0;
-            for (int i = 0; i < (int)param_registry.size(); i++) {
-                auto& p = param_registry[i];
-                auto contig = mx::contiguous(p.tensor->grad);
+            for (int i = 0; i < param_count(); i++) {
+                const char* p_name = param_name(i);
+                auto* p_tensor = (Tensor*)param_tensor(i);
+                auto contig = mx::contiguous(p_tensor->grad);
                 mx::eval(contig);
                 long n = (long)contig.size();
                 std::vector<double> buf((size_t)n);
@@ -3049,7 +3052,7 @@ void tensor_backward(TensorHandle h) {
                 }
                 if (nan_count || inf_count) {
                     fprintf(stderr, "[NAN_TRAP] param[%d]=%s NaN=%d Inf=%d maxabs=%.3e (n=%ld)\n",
-                            i, p.name.c_str(), nan_count, inf_count, maxabs, n);
+                            i, p_name, nan_count, inf_count, maxabs, n);
                     any_nan = 1;
                 }
             }
@@ -3820,7 +3823,7 @@ struct Optimizer {
 /* Returns true if param[i]'s name starts with opt->prefix (or prefix is empty). */
 static bool opt_owns_param_mlx(Optimizer* opt, int i) {
     if (opt->prefix.empty()) return true;
-    return param_registry[i].name.rfind(opt->prefix, 0) == 0;
+    return std::string(param_name(i)).rfind(opt->prefix, 0) == 0;
 }
 
 OptimizerHandle optimizer_create_sgd(double lr) {
@@ -3864,11 +3867,11 @@ void optimizer_zero_grad(OptimizerHandle h) { param_zero_all_grads(); }
 
 void optimizer_set_param_lr(OptimizerHandle h, const char* name, double lr) {
     auto opt = (Optimizer*)h;
-    int np = (int)param_registry.size();
+    int np = param_count();
     if ((int)opt->param_lr.size() < np)
         opt->param_lr.resize(np, -1.0);
     for (int i = 0; i < np; i++) {
-        if (strcmp(param_registry[i].name.c_str(), name) == 0) {
+        if (strcmp(param_name(i), name) == 0) {
             opt->param_lr[i] = lr;
             return;
         }
@@ -3892,10 +3895,10 @@ static void _dbg_dump_param_grads_if_enabled_mlx(void) {
     if (dumped >= max_dumps) return;
     dumped++;
     fprintf(stderr, "[DEBUG_PARAM_GRADS_MLX] dump #%d (np=%d):\n",
-            dumped, (int)param_registry.size());
-    for (size_t i = 0; i < param_registry.size(); i++) {
-        auto& p = param_registry[i];
-        auto t = p.tensor;
+            dumped, param_count());
+    for (int i = 0; i < param_count(); i++) {
+        const char* p_name = param_name(i);
+        auto t = (Tensor*)param_tensor(i);
         long n = (long)t->data.size();
         double l2 = 0.0;
         int has_grad = t->has_grad ? 1 : 0;
@@ -3910,8 +3913,8 @@ static void _dbg_dump_param_grads_if_enabled_mlx(void) {
             for (long j = 0; j < n; j++) l2 += gp[j] * gp[j];
         }
         l2 = sqrt(l2);
-        fprintf(stderr, "  [%zu] %s (n=%ld rg=%d hg=%d) grad_l2=%.6e\n",
-                i, p.name.c_str(), n, rg, has_grad, l2);
+        fprintf(stderr, "  [%d] %s (n=%ld rg=%d hg=%d) grad_l2=%.6e\n",
+                i, p_name, n, rg, has_grad, l2);
     }
     fflush(stderr);
 }
@@ -4006,7 +4009,7 @@ static void adam_step_compile(Optimizer* opt, int np) {
     bool found_dtype = false;
     for (int i = 0; i < np; i++) {
         if (!opt_owns_param_mlx(opt, i)) continue;
-        auto t = param_registry[i].tensor;
+        auto t = (Tensor*)param_tensor(i);
         if (!t->has_grad) continue;
         if (!found_dtype) { compile_dtype = t->data.dtype(); found_dtype = true; }
         double lr = opt->lr;
@@ -4043,7 +4046,7 @@ static void adam_step_compile(Optimizer* opt, int np) {
     /* Distribute results back to param_registry / optimizer state. */
     for (int i = 0; i < n; i++) {
         int idx = active_idx[i];
-        param_registry[idx].tensor->data = outs[i];
+        ((Tensor*)param_tensor(idx))->data = outs[i];
         opt->m_bufs[idx] = outs[n + i];
         opt->v_bufs[idx] = outs[2*n + i];
     }
@@ -4053,16 +4056,17 @@ void optimizer_step(OptimizerHandle h) {
     double t0_opt = _wall_ms_mlx();
     auto opt = (Optimizer*)h;
     opt->t++;
-    int np = (int)param_registry.size();
+    int np = param_count();
     _dbg_dump_param_grads_if_enabled_mlx();
 
     // Ensure optimizer buffers
     if ((int)opt->m_bufs.size() != np) {
         opt->m_bufs.clear();
         opt->v_bufs.clear();
-        for (auto& p : param_registry) {
-            opt->m_bufs.push_back(mx::zeros(p.tensor->data.shape(), p.tensor->data.dtype()));
-            opt->v_bufs.push_back(mx::zeros(p.tensor->data.shape(), p.tensor->data.dtype()));
+        for (int i_ = 0; i_ < param_count(); i_++) {
+            auto* p_tensor = (Tensor*)param_tensor(i_);
+            opt->m_bufs.push_back(mx::zeros(p_tensor->data.shape(), p_tensor->data.dtype()));
+            opt->v_bufs.push_back(mx::zeros(p_tensor->data.shape(), p_tensor->data.dtype()));
         }
     }
 
@@ -4074,13 +4078,16 @@ void optimizer_step(OptimizerHandle h) {
         adam_step_compile(opt, np);
         prof_optimizer_math_ms_mlx += _wall_ms_mlx() - tm0;
         std::vector<mx::array> to_eval;
-        for (auto& p : param_registry) to_eval.push_back(p.tensor->data);
+        for (int i_ = 0; i_ < param_count(); i_++) {
+            to_eval.push_back(((Tensor*)param_tensor(i_))->data);
+        }
         mx::eval(to_eval);
         tape_reset();
-        for (auto& p : param_registry) {
-            p.tensor->tape_idx = -1;
-            p.tensor->has_grad = false;
-            tape_append(OP_CONST, p.tensor, nullptr, nullptr, 0);
+        for (int i_ = 0; i_ < param_count(); i_++) {
+            auto* p_tensor = (Tensor*)param_tensor(i_);
+            p_tensor->tape_idx = -1;
+            p_tensor->has_grad = false;
+            tape_append(OP_CONST, p_tensor, nullptr, nullptr, 0);
         }
         prof_optimizer_ms_mlx += _wall_ms_mlx() - t0_opt;
         prof_epochs_mlx++;
@@ -4100,8 +4107,9 @@ void optimizer_step(OptimizerHandle h) {
     // need mixed-dtype support, split the optimizer by dtype.
     mx::Dtype opt_dtype = mx::float32;
     for (int i = 0; i < np; i++) {
-        if (opt_owns_param_mlx(opt, i) && param_registry[i].tensor->has_grad) {
-            opt_dtype = param_registry[i].tensor->data.dtype();
+        auto* p_tensor = (Tensor*)param_tensor(i);
+        if (opt_owns_param_mlx(opt, i) && p_tensor->has_grad) {
+            opt_dtype = p_tensor->data.dtype();
             break;
         }
     }
@@ -4118,7 +4126,7 @@ void optimizer_step(OptimizerHandle h) {
 
     for (int i = 0; i < np; i++) {
         if (!opt_owns_param_mlx(opt, i)) continue;
-        auto t = param_registry[i].tensor;
+        auto t = (Tensor*)param_tensor(i);
         if (!t->has_grad) continue;
 
         /* Don't eval(t->grad) here — that's a per-param sync (293 params
@@ -4189,15 +4197,18 @@ void optimizer_step(OptimizerHandle h) {
 
     // Eval all updated params
     std::vector<mx::array> to_eval;
-    for (auto& p : param_registry) to_eval.push_back(p.tensor->data);
+    for (int i_ = 0; i_ < param_count(); i_++) {
+        to_eval.push_back(((Tensor*)param_tensor(i_))->data);
+    }
     mx::eval(to_eval);
 
     // Reset tape
     tape_reset();
-    for (auto& p : param_registry) {
-        p.tensor->tape_idx = -1;
-        p.tensor->has_grad = false;
-        tape_append(OP_CONST, p.tensor, nullptr, nullptr, 0);
+    for (int i_ = 0; i_ < param_count(); i_++) {
+        auto* p_tensor = (Tensor*)param_tensor(i_);
+        p_tensor->tape_idx = -1;
+        p_tensor->has_grad = false;
+        tape_append(OP_CONST, p_tensor, nullptr, nullptr, 0);
     }
     prof_optimizer_ms_mlx += _wall_ms_mlx() - t0_opt;
     prof_epochs_mlx++;
@@ -4205,13 +4216,14 @@ void optimizer_step(OptimizerHandle h) {
 
 /* Internal: clip grads for params matching prefix (empty prefix = all). */
 static void clip_grad_value_filtered(const std::string& prefix, double max_val) {
-    for (size_t i = 0; i < param_registry.size(); i++) {
-        auto& p = param_registry[i];
-        if (!prefix.empty() && p.name.rfind(prefix, 0) != 0) continue;
-        if (p.tensor->has_grad) {
-            auto lo = scalar_like(-max_val, p.tensor->grad);
-            auto hi = scalar_like(max_val, p.tensor->grad);
-            p.tensor->grad = mx::clip(p.tensor->grad, lo, hi);
+    for (int i = 0; i < param_count(); i++) {
+        std::string p_name = param_name(i);
+        auto* p_tensor = (Tensor*)param_tensor(i);
+        if (!prefix.empty() && p_name.rfind(prefix, 0) != 0) continue;
+        if (p_tensor->has_grad) {
+            auto lo = scalar_like(-max_val, p_tensor->grad);
+            auto hi = scalar_like(max_val, p_tensor->grad);
+            p_tensor->grad = mx::clip(p_tensor->grad, lo, hi);
         }
     }
 }
@@ -4221,11 +4233,12 @@ static double clip_grad_norm_filtered(const std::string& prefix, double max_norm
        reduce to a double on the host. Avoids mixing dtypes in a single
        running `total` array (param dtypes may differ across the registry). */
     double sumsq = 0.0;
-    for (size_t i = 0; i < param_registry.size(); i++) {
-        auto& p = param_registry[i];
-        if (!prefix.empty() && p.name.rfind(prefix, 0) != 0) continue;
-        if (p.tensor->has_grad) {
-            auto s = mx::sum(mx::square(p.tensor->grad));
+    for (int i = 0; i < param_count(); i++) {
+        std::string p_name = param_name(i);
+        auto* p_tensor = (Tensor*)param_tensor(i);
+        if (!prefix.empty() && p_name.rfind(prefix, 0) != 0) continue;
+        if (p_tensor->has_grad) {
+            auto s = mx::sum(mx::square(p_tensor->grad));
             mx::eval(s);
             if (s.dtype() == mx::float64) sumsq += s.item<double>();
             else sumsq += (double)s.item<float>();
@@ -4234,12 +4247,13 @@ static double clip_grad_norm_filtered(const std::string& prefix, double max_norm
     double norm = std::sqrt(sumsq);
     if (norm > max_norm) {
         double scale = max_norm / norm;
-        for (size_t i = 0; i < param_registry.size(); i++) {
-            auto& p = param_registry[i];
-            if (!prefix.empty() && p.name.rfind(prefix, 0) != 0) continue;
-            if (p.tensor->has_grad) {
-                p.tensor->grad = mx::multiply(p.tensor->grad,
-                    scalar_like(scale, p.tensor->grad));
+        for (int i = 0; i < param_count(); i++) {
+            std::string p_name = param_name(i);
+            auto* p_tensor = (Tensor*)param_tensor(i);
+            if (!prefix.empty() && p_name.rfind(prefix, 0) != 0) continue;
+            if (p_tensor->has_grad) {
+                p_tensor->grad = mx::multiply(p_tensor->grad,
+                    scalar_like(scale, p_tensor->grad));
             }
         }
     }
@@ -4259,14 +4273,14 @@ int polyak_blend(double tau, const char* online_scope, const char* target_scope)
     if (!online_scope || !target_scope) return 0;
     std::string on_s(online_scope), tg_s(target_scope);
     int blended = 0;
-    for (size_t i = 0; i < param_registry.size(); i++) {
-        const std::string& on_name = param_registry[i].name;
+    for (int i = 0; i < param_count(); i++) {
+        std::string on_name = param_name(i);
         if (on_name.rfind(on_s, 0) != 0) continue;
         std::string tgt_name = tg_s + on_name.substr(on_s.size());
-        for (size_t j = 0; j < param_registry.size(); j++) {
-            if (param_registry[j].name != tgt_name) continue;
-            auto* on_t = param_registry[i].tensor;
-            auto* tg_t = param_registry[j].tensor;
+        for (int j = 0; j < param_count(); j++) {
+            if (std::string(param_name(j)) != tgt_name) continue;
+            auto* on_t = (Tensor*)param_tensor(i);
+            auto* tg_t = (Tensor*)param_tensor(j);
             if (on_t->data.shape() != tg_t->data.shape()) break;
             /* Build tau scalars matching the target dtype each iteration —
                cheap, and avoids dtype-mix UB when target params span dtypes. */
@@ -4289,13 +4303,13 @@ int polyak_blend(double tau, const char* online_scope, const char* target_scope)
 
 int optimizer_buf_count(OptimizerHandle h) {
     (void)h;
-    return (int)param_registry.size();
+    return param_count();
 }
 
 void optimizer_get_m(OptimizerHandle h, int idx, double* out) {
     auto opt = (Optimizer*)h;
     if (idx >= (int)opt->m_bufs.size()) {
-        int n = param_registry[idx].tensor->data.size();
+        int n = ((Tensor*)param_tensor(idx))->data.size();
         memset(out, 0, n * sizeof(double));
         return;
     }
@@ -4307,7 +4321,7 @@ void optimizer_get_m(OptimizerHandle h, int idx, double* out) {
 void optimizer_get_v(OptimizerHandle h, int idx, double* out) {
     auto opt = (Optimizer*)h;
     if (idx >= (int)opt->v_bufs.size()) {
-        int n = param_registry[idx].tensor->data.size();
+        int n = ((Tensor*)param_tensor(idx))->data.size();
         memset(out, 0, n * sizeof(double));
         return;
     }
@@ -4319,31 +4333,33 @@ void optimizer_get_v(OptimizerHandle h, int idx, double* out) {
 void optimizer_set_m(OptimizerHandle h, int idx, const double* data) {
     auto opt = (Optimizer*)h;
     // Ensure buffers exist
-    int np = (int)param_registry.size();
+    int np = param_count();
     if ((int)opt->m_bufs.size() != np) {
         opt->m_bufs.clear();
         opt->v_bufs.clear();
-        for (auto& p : param_registry) {
-            opt->m_bufs.push_back(mx::zeros(p.tensor->data.shape(), p.tensor->data.dtype()));
-            opt->v_bufs.push_back(mx::zeros(p.tensor->data.shape(), p.tensor->data.dtype()));
+        for (int i_ = 0; i_ < param_count(); i_++) {
+            auto* p_tensor = (Tensor*)param_tensor(i_);
+            opt->m_bufs.push_back(mx::zeros(p_tensor->data.shape(), p_tensor->data.dtype()));
+            opt->v_bufs.push_back(mx::zeros(p_tensor->data.shape(), p_tensor->data.dtype()));
         }
     }
-    auto t = param_registry[idx].tensor;
+    auto t = (Tensor*)param_tensor(idx);
     opt->m_bufs[idx] = mx_array_from_doubles(data, t->data.shape(), t->data.dtype());
 }
 
 void optimizer_set_v(OptimizerHandle h, int idx, const double* data) {
     auto opt = (Optimizer*)h;
-    int np = (int)param_registry.size();
+    int np = param_count();
     if ((int)opt->v_bufs.size() != np) {
         opt->m_bufs.clear();
         opt->v_bufs.clear();
-        for (auto& p : param_registry) {
-            opt->m_bufs.push_back(mx::zeros(p.tensor->data.shape(), p.tensor->data.dtype()));
-            opt->v_bufs.push_back(mx::zeros(p.tensor->data.shape(), p.tensor->data.dtype()));
+        for (int i_ = 0; i_ < param_count(); i_++) {
+            auto* p_tensor = (Tensor*)param_tensor(i_);
+            opt->m_bufs.push_back(mx::zeros(p_tensor->data.shape(), p_tensor->data.dtype()));
+            opt->v_bufs.push_back(mx::zeros(p_tensor->data.shape(), p_tensor->data.dtype()));
         }
     }
-    auto t = param_registry[idx].tensor;
+    auto t = (Tensor*)param_tensor(idx);
     opt->v_bufs[idx] = mx_array_from_doubles(data, t->data.shape(), t->data.dtype());
 }
 
@@ -4384,10 +4400,11 @@ void optimizer_set_meta(OptimizerHandle h, const double* in9) {
  * (no Idris-side callers). */
 void backend_reset_for_eval(void) {
     tape_reset();
-    for (auto& p : param_registry) {
-        p.tensor->tape_idx = -1;
-        p.tensor->has_grad = false;
-        tape_append(OP_CONST, p.tensor, nullptr, nullptr, 0);
+    for (int i_ = 0; i_ < param_count(); i_++) {
+        auto* p_tensor = (Tensor*)param_tensor(i_);
+        p_tensor->tape_idx = -1;
+        p_tensor->has_grad = false;
+        tape_append(OP_CONST, p_tensor, nullptr, nullptr, 0);
     }
 }
 void backend_epoch_begin(void) { /* no-op for MLX: profiling is backward+optimizer only */ }
@@ -4402,7 +4419,7 @@ void backend_profile_reset(void) {
 void backend_profile_report(void) {
     fprintf(stderr, "=== Profile Report (MLX backend) ===\n");
     fprintf(stderr, "  Epochs: %d\n", prof_epochs_mlx);
-    fprintf(stderr, "  Params: %d tensors\n", (int)param_registry.size());
+    fprintf(stderr, "  Params: %d tensors\n", param_count());
     fprintf(stderr, "  Backward:  %.1fms total (%.1fms/epoch)\n",
             prof_backward_ms_mlx, prof_epochs_mlx > 0 ? prof_backward_ms_mlx / prof_epochs_mlx : 0);
     fprintf(stderr, "  Optimizer: %.1fms total (%.1fms/epoch)\n",
