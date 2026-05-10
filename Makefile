@@ -271,6 +271,19 @@ BACKEND_TAPE_HEADERS := $(shell find $(BACKENDS_DIR)/backend_tape -name '*.h' 2>
 BACKEND_TAPE_SRCS    := $(shell find $(BACKENDS_DIR)/backend_tape -name '*.c' 2>/dev/null)
 BACKEND_TAPE_OBJS    := $(patsubst $(BACKENDS_DIR)/backend_tape/%.c,$(BUILD)/backend_tape/%.o,$(BACKEND_TAPE_SRCS))
 
+# backend_torch/** and backend_mlx/** modular sources. Each .cpp compiles
+# to its own .o via the per-TU rule below; the monolithic
+# backend_<b>.cpp keeps shrinking as ops migrate into the tree. Both
+# trees grow incrementally during Phase 6 — empty tree on day zero is
+# fine (find returns nothing, OBJS is empty, link sees only the monolith).
+BACKEND_TORCH_HEADERS := $(shell find $(BACKENDS_DIR)/backend_torch -name '*.h' 2>/dev/null)
+BACKEND_TORCH_SRCS    := $(shell find $(BACKENDS_DIR)/backend_torch -name '*.cpp' 2>/dev/null)
+BACKEND_TORCH_OBJS    := $(patsubst $(BACKENDS_DIR)/backend_torch/%.cpp,$(BUILD)/backend_torch/%.o,$(BACKEND_TORCH_SRCS))
+
+BACKEND_MLX_HEADERS := $(shell find $(BACKENDS_DIR)/backend_mlx -name '*.h' 2>/dev/null)
+BACKEND_MLX_SRCS    := $(shell find $(BACKENDS_DIR)/backend_mlx -name '*.cpp' 2>/dev/null)
+BACKEND_MLX_OBJS    := $(patsubst $(BACKENDS_DIR)/backend_mlx/%.cpp,$(BUILD)/backend_mlx/%.o,$(BACKEND_MLX_SRCS))
+
 # shared/training/** sources + headers (the shared-port lift). Backend
 # adapters under backend_<b>/training/adapter.<c|cpp> #include the
 # shared header via relative path; per-TU compile picks the dependency
@@ -308,6 +321,17 @@ ifneq ($(filter tape,$(BACKEND_LIST)),)
   BACKEND_OBJS += $(BACKEND_TAPE_OBJS)
 endif
 
+# Add per-TU torch + mlx modular .o files when each backend is in
+# BACKEND_LIST. Their monolithic `backend_<b>.cpp` still ships (the
+# per-backend compile rule below produces `backend_<b>.o`); these
+# modular .o objects link alongside it. Empty OBJS lists are harmless.
+ifneq ($(filter torch,$(BACKEND_LIST)),)
+  BACKEND_OBJS += $(BACKEND_TORCH_OBJS)
+endif
+ifneq ($(filter mlx,$(BACKEND_LIST)),)
+  BACKEND_OBJS += $(BACKEND_MLX_OBJS)
+endif
+
 # Per-backend compile template — generates a rule for each backend's
 # backend_<b>.o file. Each backend uses its own CC + CFLAGS + rename
 # header; the union of all per-backend LDFLAGS gets passed to the
@@ -327,6 +351,19 @@ endif
 $(BUILD)/backend_tape/%.o: $(BACKENDS_DIR)/backend_tape/%.c $(BACKEND_TAPE_HEADERS) $(SHARED_TRAINING_HEADERS) $(BACKENDS_DIR)/rename_tape.h | $(BUILD)
 	@mkdir -p $(dir $@)
 	cc -O2 -fPIC $(EXTRA_CFLAGS) $(tape_CFLAGS) -include $(BACKENDS_DIR)/rename_tape.h -c -o $@ $<
+
+# Per-TU compile for backend_torch/**/*.cpp and backend_mlx/**/*.cpp.
+# Mirrors tape's pattern but uses each backend's C++ compiler + CFLAGS
+# (incl. libtorch / mlx include paths). Force-includes the rename
+# header so every symbol gets the backend suffix at link time. Rules
+# defined unconditionally (only fire if BACKEND_<b>_OBJS pulls them in).
+$(BUILD)/backend_torch/%.o: $(BACKENDS_DIR)/backend_torch/%.cpp $(BACKEND_TORCH_HEADERS) $(SHARED_TRAINING_HEADERS) $(BACKENDS_DIR)/rename_torch.h | $(BUILD)
+	@mkdir -p $(dir $@)
+	$(torch_CC) -O2 -fPIC $(EXTRA_CFLAGS) $(torch_CFLAGS) -include $(BACKENDS_DIR)/rename_torch.h -c -o $@ $<
+
+$(BUILD)/backend_mlx/%.o: $(BACKENDS_DIR)/backend_mlx/%.cpp $(BACKEND_MLX_HEADERS) $(SHARED_TRAINING_HEADERS) $(BACKENDS_DIR)/rename_mlx.h | $(BUILD)
+	@mkdir -p $(dir $@)
+	$(mlx_CC) -O2 -fPIC $(EXTRA_CFLAGS) $(mlx_CFLAGS) -include $(BACKENDS_DIR)/rename_mlx.h -c -o $@ $<
 
 # Per-backend compile rule for shared/training/*.c. One .o per (backend,
 # TU) pair with that backend's rename header (so `param_register`
@@ -359,7 +396,7 @@ $(foreach b,$(SHARED_BACKENDS_ffi_shims),$(eval $(call add_shared_training_obj,f
 $(foreach b,$(SHARED_BACKENDS_dtype_streamed),$(eval $(call add_shared_training_obj,dtype_streamed,$(b))))
 
 define backend_compile_rule
-$(BUILD)/backend_$(1).o: $($(1)_SRC) $(BACKENDS_DIR)/backend.h $(BACKENDS_DIR)/rename_$(1).h $(BACKEND_TAPE_HEADERS) $(SHARED_TRAINING_HEADERS) | $(BUILD)
+$(BUILD)/backend_$(1).o: $($(1)_SRC) $(BACKENDS_DIR)/backend.h $(BACKENDS_DIR)/rename_$(1).h $(BACKEND_TAPE_HEADERS) $(BACKEND_TORCH_HEADERS) $(BACKEND_MLX_HEADERS) $(SHARED_TRAINING_HEADERS) | $(BUILD)
 	$($(1)_CC) -O2 -fPIC $(EXTRA_CFLAGS) $($(1)_CFLAGS) -include $(BACKENDS_DIR)/rename_$(1).h -c -o $$@ $$<
 endef
 
