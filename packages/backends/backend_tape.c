@@ -573,41 +573,7 @@ TensorHandle tensor_mse_loss(TensorHandle hinput, TensorHandle htarget) {
 
 /* tensor_cosine_similarity: moved to backend_tape/nn/attention/cosine_similarity.c (Phase 1c.5). */
 
-TensorHandle tensor_conv1d_circular(TensorHandle hinput, TensorHandle hkernel) {
-    Tensor* input = (Tensor*)hinput;
-    Tensor* kernel = (Tensor*)hkernel;
-    if (input->dtype_tag != kernel->dtype_tag) tape_abort_mixed_dtype("tensor_conv1d_circular");
-    int n = input->numel, k = kernel->numel, pad = k / 2;
-    int shape[] = {n};
-    int rg = input->requires_grad || kernel->requires_grad;
-    if (input->dtype_tag == DT_F32) {
-        float* out = arena_alloc(n * sizeof(float));
-        for (int i = 0; i < n; i++) {
-            float s = 0;
-            for (int j = 0; j < k; j++) {
-                int idx = (i - pad + j + n) % n;
-                s += ((float*)input->data)[idx] * ((float*)kernel->data)[k - 1 - j];
-            }
-            out[i] = s;
-        }
-        Tensor* r = make_tensor_arena_f32(out, n, shape, 1, rg);
-        if (r->requires_grad) tape_append(OP_CONV1D_CIRC, r, input, kernel, 0);
-        return r;
-    }
-    double* out = calloc(n, sizeof(double));
-    for (int i = 0; i < n; i++) {
-        double s = 0;
-        for (int j = 0; j < k; j++) {
-            int idx = (i - pad + j + n) % n;
-            s += ((double*)input->data)[idx] * ((double*)kernel->data)[k - 1 - j];
-        }
-        out[i] = s;
-    }
-    Tensor* r = make_tensor(out, shape, 1, rg);
-    free(out);
-    if (r->requires_grad) tape_append(OP_CONV1D_CIRC, r, input, kernel, 0);
-    return r;
-}
+/* tensor_conv1d_circular: moved to backend_tape/conv/conv1d_circular.c (Phase 1d.1.c). */
 
 /* ================================================================
    Cross-Attention: Q @ K^T * scale [+ mask] -> softmax -> @ V
@@ -1578,30 +1544,7 @@ void tensor_backward(TensorHandle h) {
 
 /* OP_COSINE_SIM: moved to backend_tape/nn/attention/cosine_similarity.c (Phase 1c.5). */
 
-        case OP_CONV1D_CIRC: {
-            /* Circular convolution backward — tape_load_d covers F64 + F32 reads. */
-            int n_cv = a->numel, k_cv = b->numel, pad_cv = k_cv / 2;
-            ensure_grad(r);
-            if (a->requires_grad) {
-                ensure_grad(a);
-                for (int ii = 0; ii < n_cv; ii++) {
-                    for (int j = 0; j < k_cv; j++) {
-                        int idx = (ii - pad_cv + j + n_cv) % n_cv;
-                        ((double*)a->grad)[idx] += ((double*)r->grad)[ii] * tape_load_d(b, k_cv - 1 - j);
-                    }
-                }
-            }
-            if (b->requires_grad) {
-                ensure_grad(b);
-                for (int ii = 0; ii < n_cv; ii++) {
-                    for (int j = 0; j < k_cv; j++) {
-                        int idx = (ii - pad_cv + j + n_cv) % n_cv;
-                        ((double*)b->grad)[k_cv - 1 - j] += ((double*)r->grad)[ii] * tape_load_d(a, idx);
-                    }
-                }
-            }
-            break;
-        }
+        /* OP_CONV1D_CIRC: moved to backend_tape/conv/conv1d_circular.c (Phase 1d.1.c). */
 
 /* OP_EMBEDDING: moved to backend_tape/nn/attention/embedding.c (Phase 1c.5). */
 
