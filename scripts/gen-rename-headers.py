@@ -32,6 +32,18 @@ OUT_DIR = REPO_ROOT / "packages" / "backends"
 
 BACKENDS = ("tape", "torch", "mlx")
 
+# Additional exported symbols not declared as functions in backend.h.
+# These are extern variables / non-function exports that still need
+# per-backend renaming to avoid multi-link collisions. The function-only
+# DECL_RE above doesn't pick them up, so they're listed here.
+EXTRA_EXPORTS = (
+    # Shared training port struct — each backend's training adapter
+    # defines its own `g_active_port`; the rename header maps the
+    # unsuffixed name in shared/training/*.c TUs to the per-backend
+    # symbol so multi-link gets distinct instances.
+    "g_active_port",
+)
+
 # Match C function declarations. Permissive: any sequence of
 # `(const)? <identifier>` words optionally followed by `*`s, plus
 # trailing whitespace, then the function name + `(`. Skips macros /
@@ -123,8 +135,12 @@ def main() -> int:
 
     header_text = BACKEND_H.read_text()
     symbols = extract_symbols(header_text)
+    # Merge in the manual EXTRA_EXPORTS (variables / non-function exports
+    # that the function-only regex doesn't catch). Sort the union so the
+    # output stays stable across regenerations.
+    symbols = sorted(set(symbols) | set(EXTRA_EXPORTS))
 
-    print(f"Extracted {len(symbols)} exported symbols from backend.h")
+    print(f"Extracted {len(symbols)} exported symbols ({len(EXTRA_EXPORTS)} extra)")
 
     drift = False
     for backend in BACKENDS:

@@ -18,6 +18,7 @@
 #define backend_profile_reset_return backend_profile_reset_return_tape
 #define backend_reset_for_eval backend_reset_for_eval_tape
 #define backend_reset_for_eval_return backend_reset_for_eval_return_tape
+#define g_active_port g_active_port_tape
 #define idrisml_seq idrisml_seq_tape
 #define mnist_free mnist_free_tape
 #define mnist_get_image mnist_get_image_tape

@@ -18,6 +18,7 @@
 #define backend_profile_reset_return backend_profile_reset_return_mlx
 #define backend_reset_for_eval backend_reset_for_eval_mlx
 #define backend_reset_for_eval_return backend_reset_for_eval_return_mlx
+#define g_active_port g_active_port_mlx
 #define idrisml_seq idrisml_seq_mlx
 #define mnist_free mnist_free_mlx
 #define mnist_get_image mnist_get_image_mlx
