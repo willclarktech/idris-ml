@@ -101,8 +101,18 @@ enum that reuses the existing parameter machinery.
 ## Custom devices: user-supplied backends
 
 `Device` is an open kind — any type with a `UserDeviceCore` instance
-can sit in `Tensor`'s `d` slot. A complete custom backend looks
-like:
+can sit in `Tensor`'s `d` slot.
+
+A worked example ships in the repo: `packages/backends/backend_byo.c`
+is a ~100-line stub backend that exports `byo_tensor_add`,
+`byo_tensor_item`, etc. and logs each call to stderr;
+`packages/idris-ml-examples/src/Example/BringYourOwn.idr` is the
+Idris-side recipe that wraps it. Run it with `make
+example-bring-your-own` — you'll see the stderr `[byo] ...` lines
+fire as ops dispatch through your instance, alongside the same
+expression evaluated on the built-in `CPU` instance for contrast.
+
+A complete custom backend looks like:
 
 ```idris
 module MyBackend

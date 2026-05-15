@@ -441,6 +441,20 @@ example-gru: install
 	cp $(LIB) build/exec/gru_app/
 	./build/exec/gru $(SEED_FLAG) $(GRU_ARGS)
 
+# BringYourOwn — worked example of a user-supplied backend. Builds
+# libbyo.dylib alongside the active libidrisml so the example app
+# can dlopen both: the BYO instance dispatches to `byo_*` symbols
+# in libbyo, and the built-in CPU instance dispatches to unified
+# names in libidrisml. See packages/backends/backend_byo.c +
+# Example/BringYourOwn.idr.
+$(BUILD)/libbyo.$(LIB_EXT): $(BACKENDS_DIR)/backend_byo.c | $(BUILD)
+	cc -O2 -shared -fPIC -o $@ $<
+
+example-bring-your-own: install $(BUILD)/libbyo.$(LIB_EXT)
+	idris2 $(IDRIS_FLAGS) -o bring-your-own $(EXAMPLE_SRC)/Example/BringYourOwn.idr
+	cp $(LIB) $(BUILD)/libbyo.$(LIB_EXT) build/exec/bring-your-own_app/
+	./build/exec/bring-your-own
+
 example-ntm-copy: install
 	idris2 $(IDRIS_FLAGS) -o ntm-copy $(EXAMPLE_SRC)/Example/NtmCopy.idr
 	cp $(LIB) build/exec/ntm-copy_app/
