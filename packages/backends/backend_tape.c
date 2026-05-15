@@ -3052,39 +3052,61 @@ void tensor_backward(TensorHandle h) {
 
         case OP_MM: {
             /* r = a @ b where a=[m,n], b=[n,k], r=[m,k]
-               d_a = grad @ b^T, d_b = a^T @ grad */
+               d_a = grad @ b^T, d_b = a^T @ grad. beta=1.0 accumulates. */
             int mm = a->shape[0], nn = a->shape[1], kk = r->shape[1];
             ensure_grad(r);
             if (a && a->requires_grad) {
                 ensure_grad(a);
-                /* d_a[i,j] = sum_p grad[i,p] * b[j,p] (grad @ b^T) */
+#ifdef __APPLE__
+                /* d_a [m,n] = grad [m,k] @ b^T [k,n] */
+                cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasTrans,
+                            mm, nn, kk, 1.0,
+                            r->grad, kk, b->data, kk,
+                            1.0, a->grad, nn);
+#else
                 for (int i = 0; i < mm; i++)
                     for (int j = 0; j < nn; j++) {
                         double s = 0;
                         for (int p = 0; p < kk; p++) s += r->grad[i*kk+p] * b->data[j*kk+p];
                         a->grad[i*nn+j] += s;
                     }
+#endif
             }
             if (b && b->requires_grad) {
                 ensure_grad(b);
-                /* d_b[j,p] = sum_i a[i,j] * grad[i,p] (a^T @ grad) */
+#ifdef __APPLE__
+                /* d_b [n,k] = a^T [n,m] @ grad [m,k] */
+                cblas_dgemm(CblasRowMajor, CblasTrans, CblasNoTrans,
+                            nn, kk, mm, 1.0,
+                            a->data, nn, r->grad, kk,
+                            1.0, b->grad, kk);
+#else
                 for (int j = 0; j < nn; j++)
                     for (int p = 0; p < kk; p++) {
                         double s = 0;
                         for (int i = 0; i < mm; i++) s += a->data[i*nn+j] * r->grad[i*kk+p];
                         b->grad[j*kk+p] += s;
                     }
+#endif
             }
             break;
         }
 
         case OP_BMM: {
             /* r = a @ b where a=[B,m,n], b=[n,k], r=[B,m,k]
-               d_a[bi] = grad[bi] @ b^T, d_b = sum_bi a[bi]^T @ grad[bi] */
+               d_a[bi] = grad[bi] @ b^T, d_b = sum_bi a[bi]^T @ grad[bi].
+               b is shared across batch, so collapse [B,m,*] to [B*m,*] for d_b. */
             int BB = a->shape[0], mm = a->shape[1], nn = a->shape[2], kk = b->shape[1];
             ensure_grad(r);
             if (a && a->requires_grad) {
                 ensure_grad(a);
+#ifdef __APPLE__
+                /* d_a [B*m, n] = grad [B*m, k] @ b^T [k, n] — one big dgemm */
+                cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasTrans,
+                            BB * mm, nn, kk, 1.0,
+                            r->grad, kk, b->data, kk,
+                            1.0, a->grad, nn);
+#else
                 for (int bi = 0; bi < BB; bi++)
                     for (int i = 0; i < mm; i++)
                         for (int j = 0; j < nn; j++) {
@@ -3093,10 +3115,17 @@ void tensor_backward(TensorHandle h) {
                                 s += r->grad[bi*mm*kk + i*kk+p] * b->data[j*kk+p];
                             a->grad[bi*mm*nn + i*nn+j] += s;
                         }
+#endif
             }
             if (b && b->requires_grad) {
                 ensure_grad(b);
-                /* Accumulate across all batch elements */
+#ifdef __APPLE__
+                /* d_b [n,k] = a^T [n, B*m] @ grad [B*m, k] — single dgemm */
+                cblas_dgemm(CblasRowMajor, CblasTrans, CblasNoTrans,
+                            nn, kk, BB * mm, 1.0,
+                            a->data, nn, r->grad, kk,
+                            1.0, b->grad, kk);
+#else
                 for (int bi = 0; bi < BB; bi++)
                     for (int j = 0; j < nn; j++)
                         for (int p = 0; p < kk; p++) {
@@ -3105,6 +3134,7 @@ void tensor_backward(TensorHandle h) {
                                 s += a->data[bi*mm*nn + i*nn+j] * r->grad[bi*mm*kk + i*kk+p];
                             b->grad[j*kk+p] += s;
                         }
+#endif
             }
             break;
         }
@@ -3283,7 +3313,7 @@ void tensor_backward(TensorHandle h) {
         }
 
         case OP_MV: {
-            /* d(Ax)/dA[i,j] = grad[i] * x[j], d(Ax)/dx[j] = sum_i A[i,j] * grad[i] */
+            /* d(Ax)/dA = grad . x^T (rank-1 update), d(Ax)/dx = A^T @ grad */
             MvMeta* meta = (MvMeta*)e->op_meta;
             int m_mv = meta ? meta->m : a->shape[0];
             int n_mv = meta ? meta->n : a->shape[1];
@@ -3291,17 +3321,31 @@ void tensor_backward(TensorHandle h) {
             ensure_grad(r);
             if (a->requires_grad) {
                 ensure_grad(a);
+#ifdef __APPLE__
+                /* A.grad [m,n] += grad [m] * x^T [n] — rank-1 outer product */
+                cblas_dger(CblasRowMajor, m_mv, n_mv, 1.0,
+                           r->grad, 1, x_vals, 1,
+                           a->grad, n_mv);
+#else
                 for (int ii = 0; ii < m_mv; ii++)
                     for (int jj = 0; jj < n_mv; jj++)
                         a->grad[ii*n_mv+jj] += r->grad[ii] * x_vals[jj];
+#endif
             }
             if (b && b->requires_grad) {
                 ensure_grad(b);
+#ifdef __APPLE__
+                /* x.grad [n] += A^T [n,m] @ grad [m] */
+                cblas_dgemv(CblasRowMajor, CblasTrans, m_mv, n_mv, 1.0,
+                            a->data, n_mv, r->grad, 1,
+                            1.0, b->grad, 1);
+#else
                 for (int jj = 0; jj < n_mv; jj++) {
                     double s = 0;
                     for (int ii = 0; ii < m_mv; ii++) s += a->data[ii*n_mv+jj] * r->grad[ii];
                     b->grad[jj] += s;
                 }
+#endif
             }
             break;
         }
@@ -3331,8 +3375,8 @@ void tensor_backward(TensorHandle h) {
 
         case OP_LINEAR_2D: {
             /* Y[B,o] = X[B,i] @ W[o,i]^T + bias[o].
-               dW[o,i]   = sum_b dY[b,o] * X[b,i]   (== dY^T @ X)
-               dX[B,i]   = dY[B,o] @ W[o,i]
+               dW[o,i]   = dY^T [o,B] @ X [B,i]    (== dY^T @ X)
+               dX[B,i]   = dY [B,o] @ W [o,i]
                dbias[o]  = sum_b dY[b,o] */
             Linear2dMeta* lm2 = (Linear2dMeta*)e->op_meta;
             int B2 = lm2->B, i2 = lm2->i, o2 = lm2->o;
@@ -3341,6 +3385,13 @@ void tensor_backward(TensorHandle h) {
             /* a = W [o,i] */
             if (a->requires_grad) {
                 ensure_grad(a);
+#ifdef __APPLE__
+                /* dW [o,i] = dY^T [o,B] @ X [B,i] */
+                cblas_dgemm(CblasRowMajor, CblasTrans, CblasNoTrans,
+                            o2, i2, B2, 1.0,
+                            r->grad, o2, x_vals_2, i2,
+                            1.0, a->grad, i2);
+#else
                 for (int oo = 0; oo < o2; oo++)
                     for (int jj = 0; jj < i2; jj++) {
                         double s = 0;
@@ -3348,10 +3399,18 @@ void tensor_backward(TensorHandle h) {
                             s += r->grad[bb*o2+oo] * x_vals_2[bb*i2+jj];
                         a->grad[oo*i2+jj] += s;
                     }
+#endif
             }
             /* b = X [B,i] */
             if (b && b->requires_grad) {
                 ensure_grad(b);
+#ifdef __APPLE__
+                /* dX [B,i] = dY [B,o] @ W [o,i] */
+                cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
+                            B2, i2, o2, 1.0,
+                            r->grad, o2, a->data, i2,
+                            1.0, b->grad, i2);
+#else
                 for (int bb = 0; bb < B2; bb++)
                     for (int jj = 0; jj < i2; jj++) {
                         double s = 0;
@@ -3359,6 +3418,7 @@ void tensor_backward(TensorHandle h) {
                             s += r->grad[bb*o2+oo] * a->data[oo*i2+jj];
                         b->grad[bb*i2+jj] += s;
                     }
+#endif
             }
             /* bias [o] */
             if (lm2->bias && lm2->bias->requires_grad) {
@@ -3373,26 +3433,38 @@ void tensor_backward(TensorHandle h) {
         }
 
         case OP_LINEAR: {
-            /* y = W @ x + bias.  grad_W[i,j] = grad[i]*x[j], grad_x[j] = sum_i W[i,j]*grad[i], grad_bias = grad */
+            /* y = W @ x + bias.  dW = grad . x^T (rank-1), dx = W^T @ grad, dbias = grad */
             LinearMeta* lm = (LinearMeta*)e->op_meta;
             int m_l = lm->m, n_l = lm->n;
             double* x_vals_l = lm->x_vals;
             ensure_grad(r);
-            /* a = W */
+            /* a = W [m,n] */
             if (a->requires_grad) {
                 ensure_grad(a);
+#ifdef __APPLE__
+                cblas_dger(CblasRowMajor, m_l, n_l, 1.0,
+                           r->grad, 1, x_vals_l, 1,
+                           a->grad, n_l);
+#else
                 for (int ii = 0; ii < m_l; ii++)
                     for (int jj = 0; jj < n_l; jj++)
                         a->grad[ii*n_l+jj] += r->grad[ii] * x_vals_l[jj];
+#endif
             }
-            /* b = x */
+            /* b = x [n] */
             if (b && b->requires_grad) {
                 ensure_grad(b);
+#ifdef __APPLE__
+                cblas_dgemv(CblasRowMajor, CblasTrans, m_l, n_l, 1.0,
+                            a->data, n_l, r->grad, 1,
+                            1.0, b->grad, 1);
+#else
                 for (int jj = 0; jj < n_l; jj++) {
                     double s = 0;
                     for (int ii = 0; ii < m_l; ii++) s += a->data[ii*n_l+jj] * r->grad[ii];
                     b->grad[jj] += s;
                 }
+#endif
             }
             /* bias */
             if (lm->bias && lm->bias->requires_grad) {
