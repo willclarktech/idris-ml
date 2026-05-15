@@ -313,3 +313,40 @@ UserDeviceNN MlxDev where
   primLstmGatesPair    = prim__lstmGatesPairMlx
   primPairFirst        = prim__pairFirstMlx
   primPairSecond       = prim__pairSecondMlx
+
+
+----------------------------------------------------------------------
+-- Conv-slice FFI bindings (mlx-suffixed)
+----------------------------------------------------------------------
+
+%foreign "C:tensor_conv1d_mlx,libidrisml"
+prim__conv1dMlx : AnyPtr -> AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
+%foreign "C:tensor_conv1d_circular_mlx,libidrisml"
+prim__conv1dCircularMlx : AnyPtr -> AnyPtr -> AnyPtr
+%foreign "C:tensor_avg_pool1d_mlx,libidrisml"
+prim__avgPool1dMlx : AnyPtr -> Int -> Int -> AnyPtr
+%foreign "C:tensor_max_pool1d_mlx,libidrisml"
+prim__maxPool1dMlx : AnyPtr -> Int -> Int -> AnyPtr
+%foreign "C:tensor_conv2d_mlx,libidrisml"
+prim__conv2dMlx : AnyPtr -> AnyPtr -> AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
+%foreign "C:tensor_conv2d_batched_mlx,libidrisml"
+prim__conv2dBatchedMlx : AnyPtr -> AnyPtr -> AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
+%foreign "C:tensor_avg_pool2d_mlx,libidrisml"
+prim__avgPool2dMlx : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
+%foreign "C:tensor_max_pool2d_mlx,libidrisml"
+prim__maxPool2dMlx : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
+%foreign "C:tensor_max_pool2d_batched_mlx,libidrisml"
+prim__maxPool2dBatchedMlx : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
+
+
+public export
+UserDeviceConv MlxDev where
+  primConv1d           = prim__conv1dMlx
+  primConv1dCircular   = prim__conv1dCircularMlx
+  primAvgPool1d        = prim__avgPool1dMlx
+  primMaxPool1d        = prim__maxPool1dMlx
+  primConv2d           = prim__conv2dMlx
+  primConv2dBatched    = prim__conv2dBatchedMlx
+  primAvgPool2d        = prim__avgPool2dMlx
+  primMaxPool2d        = prim__maxPool2dMlx
+  primMaxPool2dBatched = prim__maxPool2dBatchedMlx

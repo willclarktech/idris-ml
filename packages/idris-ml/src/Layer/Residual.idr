@@ -26,7 +26,7 @@ data ResidualState : Nat -> Nat -> (0 _ : Device) -> (0 _ : GradMode) -> Type wh
 %default partial
 
 export
-applyResidual : {0 d : Device} -> UserDeviceNN d => {n : Nat} ->
+applyResidual : {0 d : Device} -> UserDeviceConv d => {n : Nat} ->
                   ResidualState n n d g ->
                   TVec n d g ->
                   (ResidualState n n d g, TVec n d g)

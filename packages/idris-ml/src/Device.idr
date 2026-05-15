@@ -525,3 +525,63 @@ UserDeviceNN MPS where
   primLstmGatesPair    = prim__lstmGatesPairUnified
   primPairFirst        = prim__pairFirstUnified
   primPairSecond       = prim__pairSecondUnified
+
+
+----------------------------------------------------------------------
+-- UserDeviceConv — unified-name FFI bindings + 3 instances.
+----------------------------------------------------------------------
+
+%foreign "C:tensor_conv1d,libidrisml"
+prim__conv1dUnified : AnyPtr -> AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
+%foreign "C:tensor_conv1d_circular,libidrisml"
+prim__conv1dCircularUnified : AnyPtr -> AnyPtr -> AnyPtr
+%foreign "C:tensor_avg_pool1d,libidrisml"
+prim__avgPool1dUnified : AnyPtr -> Int -> Int -> AnyPtr
+%foreign "C:tensor_max_pool1d,libidrisml"
+prim__maxPool1dUnified : AnyPtr -> Int -> Int -> AnyPtr
+%foreign "C:tensor_conv2d,libidrisml"
+prim__conv2dUnified : AnyPtr -> AnyPtr -> AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
+%foreign "C:tensor_conv2d_batched,libidrisml"
+prim__conv2dBatchedUnified : AnyPtr -> AnyPtr -> AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
+%foreign "C:tensor_avg_pool2d,libidrisml"
+prim__avgPool2dUnified : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
+%foreign "C:tensor_max_pool2d,libidrisml"
+prim__maxPool2dUnified : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
+%foreign "C:tensor_max_pool2d_batched,libidrisml"
+prim__maxPool2dBatchedUnified : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
+
+public export
+UserDeviceConv CPU where
+  primConv1d           = prim__conv1dUnified
+  primConv1dCircular   = prim__conv1dCircularUnified
+  primAvgPool1d        = prim__avgPool1dUnified
+  primMaxPool1d        = prim__maxPool1dUnified
+  primConv2d           = prim__conv2dUnified
+  primConv2dBatched    = prim__conv2dBatchedUnified
+  primAvgPool2d        = prim__avgPool2dUnified
+  primMaxPool2d        = prim__maxPool2dUnified
+  primMaxPool2dBatched = prim__maxPool2dBatchedUnified
+
+public export
+{n : Nat} -> UserDeviceConv (CUDA n) where
+  primConv1d           = prim__conv1dUnified
+  primConv1dCircular   = prim__conv1dCircularUnified
+  primAvgPool1d        = prim__avgPool1dUnified
+  primMaxPool1d        = prim__maxPool1dUnified
+  primConv2d           = prim__conv2dUnified
+  primConv2dBatched    = prim__conv2dBatchedUnified
+  primAvgPool2d        = prim__avgPool2dUnified
+  primMaxPool2d        = prim__maxPool2dUnified
+  primMaxPool2dBatched = prim__maxPool2dBatchedUnified
+
+public export
+UserDeviceConv MPS where
+  primConv1d           = prim__conv1dUnified
+  primConv1dCircular   = prim__conv1dCircularUnified
+  primAvgPool1d        = prim__avgPool1dUnified
+  primMaxPool1d        = prim__maxPool1dUnified
+  primConv2d           = prim__conv2dUnified
+  primConv2dBatched    = prim__conv2dBatchedUnified
+  primAvgPool2d        = prim__avgPool2dUnified
+  primMaxPool2d        = prim__maxPool2dUnified
+  primMaxPool2dBatched = prim__maxPool2dBatchedUnified

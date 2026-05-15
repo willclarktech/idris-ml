@@ -23,7 +23,7 @@ interface LayerLike (l : Nat -> Nat -> (0 _ : Device) -> (0 _ : GradMode) -> Typ
   ||| Array-level forward: `Tensor [i] d g -> Tensor [o] d g`.
   ||| Polymorphic in `g` so forwarding a `NoGrad` input through a
   ||| frozen layer yields a `NoGrad` output naturally.
-  applyVar : {0 d : Device} -> UserDeviceNN d => {0 g : GradMode} -> {i, o : Nat} ->
+  applyVar : {0 d : Device} -> UserDeviceConv d => {0 g : GradMode} -> {i, o : Nat} ->
               l i o d g -> Tensor [i] d g -> (l i o d g, Tensor [o] d g)
 
   ||| Auto-naming prefix (e.g. "llv2" for Linear).
@@ -41,7 +41,7 @@ interface LayerLike (l : Nat -> Nat -> (0 _ : Device) -> (0 _ : GradMode) -> Typ
   ||| (LSTM/RNN/GRU/NTM/DNC) keep the default; batched-cell semantics
   ||| are not supported in this surface (use sequence-level batching
   ||| at the example level instead).
-  applyVarBatch : {0 d : Device} -> UserDeviceNN d => {0 g : GradMode} -> {i, o : Nat} -> {b : Nat} ->
+  applyVarBatch : {0 d : Device} -> UserDeviceConv d => {0 g : GradMode} -> {i, o : Nat} -> {b : Nat} ->
                    l i o d g -> Tensor [b, i] d g -> (l i o d g, Tensor [b, o] d g)
   applyVarBatch _ _ =
     idris_crash "applyVarBatch: layer does not support batched forward"
@@ -72,14 +72,14 @@ data AnyLayer : Nat -> Nat -> (0 _ : Device) -> (0 _ : GradMode) -> Type where
                  l i o d g -> AnyLayer i o d g
 
 export
-applyVarAny : {0 d : Device} -> UserDeviceNN d => {0 g : GradMode} -> {i, o : Nat} ->
+applyVarAny : {0 d : Device} -> UserDeviceConv d => {0 g : GradMode} -> {i, o : Nat} ->
                AnyLayer i o d g -> Tensor [i] d g -> (AnyLayer i o d g, Tensor [o] d g)
 applyVarAny (MkAnyLayer l @{dict} layer) input =
   case applyVar @{dict} layer input of
     (layer', out) => (MkAnyLayer l @{dict} layer', out)
 
 export
-applyVarBatchAny : {0 d : Device} -> UserDeviceNN d => {0 g : GradMode} -> {i, o : Nat} -> {b : Nat} ->
+applyVarBatchAny : {0 d : Device} -> UserDeviceConv d => {0 g : GradMode} -> {i, o : Nat} -> {b : Nat} ->
                     AnyLayer i o d g -> Tensor [b, i] d g ->
                     (AnyLayer i o d g, Tensor [b, o] d g)
 applyVarBatchAny (MkAnyLayer l @{dict} layer) input =
@@ -116,7 +116,7 @@ export infixr 5 ~~>
 ||| forwarding a `NoGrad` input through a frozen network yields a
 ||| `NoGrad` output naturally.
 export
-forwardVar : {0 d : Device} -> UserDeviceNN d => {0 g : GradMode} -> {i, o : Nat} -> {hs : List Nat} ->
+forwardVar : {0 d : Device} -> UserDeviceConv d => {0 g : GradMode} -> {i, o : Nat} -> {hs : List Nat} ->
               Network i hs o d g -> Tensor [i] d g -> (Network i hs o d g, Tensor [o] d g)
 forwardVar (OutputLayer l) input =
   case applyVarAny l input of
@@ -179,7 +179,7 @@ resetNetwork ((MkAnyLayer l @{dict} layer) ~~> rest) =
 ||| Activation / Dropout override; other layers crash via the
 ||| interface default.
 export
-forwardVarBatch : {0 d : Device} -> UserDeviceNN d => {0 g : GradMode} -> {i, o : Nat} -> {b : Nat} ->
+forwardVarBatch : {0 d : Device} -> UserDeviceConv d => {0 g : GradMode} -> {i, o : Nat} -> {b : Nat} ->
                    {hs : List Nat} ->
                    Network i hs o d g -> Tensor [b, i] d g ->
                    (Network i hs o d g, Tensor [b, o] d g)
@@ -216,7 +216,7 @@ forwardVarBatch {hs = h :: _} (l ~~> rest) input =
 |||     epoch5:1 min=-0.234 max=0.567 mean=0.099
 |||     epoch5:out min=-0.300 max=0.700 mean=0.150  [NaN]
 export
-forwardVarTraced : {0 d : Device} -> UserDeviceNN d => {0 g : GradMode} -> {i, o : Nat} -> {hs : List Nat} ->
+forwardVarTraced : {0 d : Device} -> UserDeviceConv d => {0 g : GradMode} -> {i, o : Nat} -> {hs : List Nat} ->
                    (label : String) ->
                    Network i hs o d g -> Tensor [i] d g ->
                    IO (Network i hs o d g, Tensor [o] d g)
@@ -238,7 +238,7 @@ forwardVarTraced label net input = go 0 net input
           ++ " max=" ++ show mx
           ++ " mean=" ++ show me ++ tag
 
-    go : {0 d : Device} -> UserDeviceNN d => {0 g : GradMode} -> {i, o : Nat} -> {hs : List Nat} ->
+    go : {0 d : Device} -> UserDeviceConv d => {0 g : GradMode} -> {i, o : Nat} -> {hs : List Nat} ->
          Nat ->
          Network i hs o d g -> Tensor [i] d g ->
          IO (Network i hs o d g, Tensor [o] d g)

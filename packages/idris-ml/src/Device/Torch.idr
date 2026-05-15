@@ -313,3 +313,40 @@ UserDeviceNN TorchDev where
   primLstmGatesPair    = prim__lstmGatesPairTorch
   primPairFirst        = prim__pairFirstTorch
   primPairSecond       = prim__pairSecondTorch
+
+
+----------------------------------------------------------------------
+-- Conv-slice FFI bindings (torch-suffixed)
+----------------------------------------------------------------------
+
+%foreign "C:tensor_conv1d_torch,libidrisml"
+prim__conv1dTorch : AnyPtr -> AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
+%foreign "C:tensor_conv1d_circular_torch,libidrisml"
+prim__conv1dCircularTorch : AnyPtr -> AnyPtr -> AnyPtr
+%foreign "C:tensor_avg_pool1d_torch,libidrisml"
+prim__avgPool1dTorch : AnyPtr -> Int -> Int -> AnyPtr
+%foreign "C:tensor_max_pool1d_torch,libidrisml"
+prim__maxPool1dTorch : AnyPtr -> Int -> Int -> AnyPtr
+%foreign "C:tensor_conv2d_torch,libidrisml"
+prim__conv2dTorch : AnyPtr -> AnyPtr -> AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
+%foreign "C:tensor_conv2d_batched_torch,libidrisml"
+prim__conv2dBatchedTorch : AnyPtr -> AnyPtr -> AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
+%foreign "C:tensor_avg_pool2d_torch,libidrisml"
+prim__avgPool2dTorch : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
+%foreign "C:tensor_max_pool2d_torch,libidrisml"
+prim__maxPool2dTorch : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
+%foreign "C:tensor_max_pool2d_batched_torch,libidrisml"
+prim__maxPool2dBatchedTorch : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
+
+
+public export
+UserDeviceConv TorchDev where
+  primConv1d           = prim__conv1dTorch
+  primConv1dCircular   = prim__conv1dCircularTorch
+  primAvgPool1d        = prim__avgPool1dTorch
+  primMaxPool1d        = prim__maxPool1dTorch
+  primConv2d           = prim__conv2dTorch
+  primConv2dBatched    = prim__conv2dBatchedTorch
+  primAvgPool2d        = prim__avgPool2dTorch
+  primMaxPool2d        = prim__maxPool2dTorch
+  primMaxPool2dBatched = prim__maxPool2dBatchedTorch

@@ -84,7 +84,7 @@ scaleLoss v s = MkTensor (prim__mulScalar v.tensorPtr s) Nothing
 
 -- Per-point loss closure factored out to avoid let-block elaboration
 -- weirdness in epochVar's body.
-perPointLoss : {0 d : Device} -> UserDeviceNN d => {i, o : Nat} -> {hs : List Nat} ->
+perPointLoss : {0 d : Device} -> UserDeviceConv d => {i, o : Nat} -> {hs : List Nat} ->
                LossFn d o ->
                Network i hs o d WithGrad ->
                DataPoint i o Double ->
@@ -101,7 +101,7 @@ perPointLoss lossFn model dp =
 ||| sample losses, mean-reduce, native train step. Returns the
 ||| (unchanged) network and the loss scalar.
 export
-epochVar : {0 d : Device} -> UserDeviceNN d => {i, o, n : Nat} -> {hs : List Nat} ->
+epochVar : {0 d : Device} -> UserDeviceConv d => {i, o, n : Nat} -> {hs : List Nat} ->
             NativeOptimizer ->
             Vect n (DataPoint i o Double) ->
             LossFn d o ->
@@ -117,7 +117,7 @@ epochVar opt dataPoints lossFn model =
 -- Per-point loss for already-tensor-pre-built inputs (TensorDataPoint).
 -- Used by examples whose data pipeline already produces tensor pointers
 -- (e.g. MNIST loaded via prim__mnistGetImage).
-perPointLossTensor : {0 d : Device} -> UserDeviceNN d => {i, o : Nat} -> {hs : List Nat} ->
+perPointLossTensor : {0 d : Device} -> UserDeviceConv d => {i, o : Nat} -> {hs : List Nat} ->
                      LossFn d o ->
                      Network i hs o d WithGrad ->
                      TensorDataPoint i o ->
@@ -133,7 +133,7 @@ perPointLossTensor lossFn model dp =
 ||| tensor pointers directly (MNIST, on-disk indexed loaders) and you
 ||| do not want to round-trip through `Vector ... Double`.
 export
-epochVarTensor : {0 d : Device} -> UserDeviceNN d => {i, o, n : Nat} -> {hs : List Nat} ->
+epochVarTensor : {0 d : Device} -> UserDeviceConv d => {i, o, n : Nat} -> {hs : List Nat} ->
                   NativeOptimizer ->
                   Vect n (TensorDataPoint i o) ->
                   LossFn d o ->
@@ -158,7 +158,7 @@ catAllTensors (x :: y :: rest) = catAllTensors (prim__cat2 x y :: rest)
 -- Per-sample loss for batched-forward shape: forward once, then
 -- extract per-row predictions, build per-sample loss against per-row
 -- targets, mean-reduce.
-perRowLoss : {0 d : Device} -> UserDeviceNN d => {n, o : Nat} ->
+perRowLoss : {0 d : Device} -> UserDeviceConv d => {n, o : Nat} ->
              LossFn d o ->
              Tensor [n, o] d WithGrad ->                         -- batched predictions
              Tensor [n, o] d WithGrad ->                         -- batched targets
@@ -175,7 +175,7 @@ perRowLoss lossFn predB tgtB k =
 ||| Mirrors V1 `epochNativeTensorBatch` for layers that benefit from a
 ||| single batched forward (notably Transformer).
 export
-epochVarTensorBatch : {0 d : Device} -> UserDeviceNN d => {i, o, n : Nat} -> {hs : List Nat} ->
+epochVarTensorBatch : {0 d : Device} -> UserDeviceConv d => {i, o, n : Nat} -> {hs : List Nat} ->
                        NativeOptimizer ->
                        Vect n (TensorDataPoint i o) ->
                        LossFn d o ->
@@ -211,7 +211,7 @@ epochVarTensorBatch opt dataPoints lossFn model =
 
 -- One step of a sequence: forward, compute loss against target,
 -- accumulate.
-recurStep : {0 d : Device} -> UserDeviceNN d => {i, o : Nat} -> {hs : List Nat} ->
+recurStep : {0 d : Device} -> UserDeviceConv d => {i, o : Nat} -> {hs : List Nat} ->
             LossFn d o ->
             (Network i hs o d WithGrad, Tensor [] d WithGrad) ->
             (Vector i Double, Vector o Double) ->
@@ -224,7 +224,7 @@ recurStep lossFn (net, accLoss) (xVec, yVec) =
   in (net', taddScalar accLoss stepL)
 
 -- Per-sequence loss: reset state, walk timesteps, mean-reduce.
-perSeqLoss : {0 d : Device} -> UserDeviceNN d => {i, o : Nat} -> {hs : List Nat} ->
+perSeqLoss : {0 d : Device} -> UserDeviceConv d => {i, o : Nat} -> {hs : List Nat} ->
              LossFn d o ->
              Network i hs o d WithGrad ->
              RecurrentDataPoint i o Double ->
@@ -242,7 +242,7 @@ perSeqLoss lossFn model dp =
 ||| sequence, mean per-step loss, mean across sequences, native train
 ||| step. Returns the (unchanged) network and the loss scalar.
 export
-epochRecurrentVar : {0 d : Device} -> UserDeviceNN d => {i, o, n : Nat} -> {hs : List Nat} ->
+epochRecurrentVar : {0 d : Device} -> UserDeviceConv d => {i, o, n : Nat} -> {hs : List Nat} ->
                      NativeOptimizer ->
                      Vect n (RecurrentDataPoint i o Double) ->
                      LossFn d o ->
@@ -260,7 +260,7 @@ epochRecurrentVar opt dataPoints lossFn model =
 ----------------------------------------------------------------------
 
 -- Forward zeros for `numSteps` (the decode phase), accumulating per-step loss.
-decodeStep : {0 d : Device} -> UserDeviceNN d => {i, o : Nat} -> {hs : List Nat} ->
+decodeStep : {0 d : Device} -> UserDeviceConv d => {i, o : Nat} -> {hs : List Nat} ->
              LossFn d o ->
              AnyPtr ->                                    -- zero input tensor (reused)
              (Network i hs o d WithGrad, Tensor [] d WithGrad) ->
@@ -274,7 +274,7 @@ decodeStep lossFn zeroInPtr (net, accLoss) tgtVec =
   in (net', taddScalar accLoss stepL)
 
 -- Encode phase: forward each input, discard output, thread state.
-encodeStep : {0 d : Device} -> UserDeviceNN d => {i, o : Nat} -> {hs : List Nat} ->
+encodeStep : {0 d : Device} -> UserDeviceConv d => {i, o : Nat} -> {hs : List Nat} ->
              Network i hs o d WithGrad ->
              Vector i Double ->
              Network i hs o d WithGrad
@@ -285,7 +285,7 @@ encodeStep net xVec =
 
 -- Per-sequence two-phase loss: reset state, encode all inputs, decode
 -- with zeros for `length targets` steps, mean-reduce per-step loss.
-perSeqLossTwoPhase : {0 d : Device} -> UserDeviceNN d => {i, o : Nat} -> {hs : List Nat} ->
+perSeqLossTwoPhase : {0 d : Device} -> UserDeviceConv d => {i, o : Nat} -> {hs : List Nat} ->
                      LossFn d o ->
                      Network i hs o d WithGrad ->
                      TwoPhaseDataPoint i o Double ->
@@ -306,7 +306,7 @@ perSeqLossTwoPhase lossFn model dp =
 ||| outputs), then forward zeros for each target step computing loss.
 ||| Mean across sequences, native train step.
 export
-epochTwoPhaseVar : {0 d : Device} -> UserDeviceNN d => {i, o, n : Nat} -> {hs : List Nat} ->
+epochTwoPhaseVar : {0 d : Device} -> UserDeviceConv d => {i, o, n : Nat} -> {hs : List Nat} ->
                     NativeOptimizer ->
                     Vect n (TwoPhaseDataPoint i o Double) ->
                     LossFn d o ->
@@ -340,7 +340,7 @@ tvecToVector {n} ptr = VArray (build 0 n)
 -- is called) but do not affect correctness — only memory growth on
 -- long eval runs.
 export
-forwardTwoPhase : {0 d : Device} -> UserDeviceNN d => {i, o : Nat} -> {hs : List Nat} ->
+forwardTwoPhase : {0 d : Device} -> UserDeviceConv d => {i, o : Nat} -> {hs : List Nat} ->
                       Network i hs o d WithGrad ->
                       TwoPhaseDataPoint i o Double ->
                       (Network i hs o d WithGrad, List (Vector o Double))

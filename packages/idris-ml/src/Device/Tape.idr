@@ -317,3 +317,40 @@ UserDeviceNN TapeDev where
   primLstmGatesPair    = prim__lstmGatesPairTape
   primPairFirst        = prim__pairFirstTape
   primPairSecond       = prim__pairSecondTape
+
+
+----------------------------------------------------------------------
+-- Conv-slice FFI bindings (tape-suffixed)
+----------------------------------------------------------------------
+
+%foreign "C:tensor_conv1d_tape,libidrisml"
+prim__conv1dTape : AnyPtr -> AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
+%foreign "C:tensor_conv1d_circular_tape,libidrisml"
+prim__conv1dCircularTape : AnyPtr -> AnyPtr -> AnyPtr
+%foreign "C:tensor_avg_pool1d_tape,libidrisml"
+prim__avgPool1dTape : AnyPtr -> Int -> Int -> AnyPtr
+%foreign "C:tensor_max_pool1d_tape,libidrisml"
+prim__maxPool1dTape : AnyPtr -> Int -> Int -> AnyPtr
+%foreign "C:tensor_conv2d_tape,libidrisml"
+prim__conv2dTape : AnyPtr -> AnyPtr -> AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
+%foreign "C:tensor_conv2d_batched_tape,libidrisml"
+prim__conv2dBatchedTape : AnyPtr -> AnyPtr -> AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
+%foreign "C:tensor_avg_pool2d_tape,libidrisml"
+prim__avgPool2dTape : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
+%foreign "C:tensor_max_pool2d_tape,libidrisml"
+prim__maxPool2dTape : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
+%foreign "C:tensor_max_pool2d_batched_tape,libidrisml"
+prim__maxPool2dBatchedTape : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
+
+
+public export
+UserDeviceConv TapeDev where
+  primConv1d           = prim__conv1dTape
+  primConv1dCircular   = prim__conv1dCircularTape
+  primAvgPool1d        = prim__avgPool1dTape
+  primMaxPool1d        = prim__maxPool1dTape
+  primConv2d           = prim__conv2dTape
+  primConv2dBatched    = prim__conv2dBatchedTape
+  primAvgPool2d        = prim__avgPool2dTape
+  primMaxPool2d        = prim__maxPool2dTape
+  primMaxPool2dBatched = prim__maxPool2dBatchedTape

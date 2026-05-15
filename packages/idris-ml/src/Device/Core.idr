@@ -202,3 +202,24 @@ interface UserDeviceLinear d => UserDeviceNN (0 d : Device) where
   primLstmGatesPair  : AnyPtr -> AnyPtr -> Int -> AnyPtr
   primPairFirst      : AnyPtr -> AnyPtr
   primPairSecond     : AnyPtr -> AnyPtr
+
+
+----------------------------------------------------------------------
+-- UserDeviceConv — convolution + pooling slice
+----------------------------------------------------------------------
+
+||| The fourth slice. Covers 1D and 2D convolution + pooling (~9
+||| ops). Subclass of `UserDeviceNN` (transitively Linear + Core).
+public export
+interface UserDeviceNN d => UserDeviceConv (0 d : Device) where
+  -- 1D conv + pool
+  primConv1d         : AnyPtr -> AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
+  primConv1dCircular : AnyPtr -> AnyPtr -> AnyPtr
+  primAvgPool1d      : AnyPtr -> Int -> Int -> AnyPtr
+  primMaxPool1d      : AnyPtr -> Int -> Int -> AnyPtr
+  -- 2D conv + pool
+  primConv2d         : AnyPtr -> AnyPtr -> AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
+  primConv2dBatched  : AnyPtr -> AnyPtr -> AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
+  primAvgPool2d      : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
+  primMaxPool2d      : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
+  primMaxPool2dBatched : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr

@@ -46,7 +46,7 @@ data BatchNormState : (channels : Nat) -> (spatialDim : Nat) ->
 %default partial
 
 export
-applyBatchNorm : {0 d : Device} -> UserDeviceNN d => {channels, spatialDim : Nat} ->
+applyBatchNorm : {0 d : Device} -> UserDeviceConv d => {channels, spatialDim : Nat} ->
                    BatchNormState channels spatialDim
                      (channels * spatialDim)
                      (channels * spatialDim) d g ->
