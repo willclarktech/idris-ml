@@ -65,6 +65,39 @@ Idris 2 represents `Nat` as Peano numbers at the type level — `2304` becomes `
 
 **Root cause:** Idris 2 lacks opaque/machine-backed type-level naturals (like GHC's `TypeLits`). This is the single largest practical limitation for type-safe tensor shapes at scale. See the Idris 2 issue tracker for discussion.
 
+### `Data.Nat` stdlib functions compile to recursive Peano walks at runtime
+
+`Nat` is stored as a GMP `Integer` at runtime (`%builtin Natural`) — checking equality and adding 1 is O(1). But the stdlib `Data.Nat` functions are *defined* by pattern matching on `Z` / `S k` constructors, so the Chez codegen emits recursive decrement code regardless of the underlying representation. Functions affected: `Data.Nat.lte`, `gte`, `lt`, `gt`, `compare`, `divNat`, `modNatNZ`, `divCeilNZ`, and anything that calls them.
+
+For `divNat n 2` with `n = 256`, this means **128 recursive `(cond ((equal? arg-0 0) ...) (else (let ((e-0 (- arg-0 1))) (divNat e-0 ...))))` calls**, plus an `lte` call per iteration that itself recurses. A single `posEncVal` call with `dim ∈ [0, 256)` doing `div dim 2` + `modNatNZ dim 2` ran ~400 Nat-recursive operations.
+
+**Found 2026-05-14** in `Layer/Transformer.idr`'s positional encoding (`posEncVal`). 32K `posEncVal` calls per forward × 32 forwards/epoch × ~400 Nat ops each = **3.9 billion `Data.Nat.lte`/`divC-39`/`modC-39` calls per epoch** on GptLarge. Came out as the headline hotspot in a Chez source-level profile (`docs/develop/chez-profiling.md`). Cost: ~8 of 9 wall seconds per epoch, depending on backend.
+
+**Workaround** — cast to `Int` once at the function entry, use `Int div`/`Int mod` thereafter. Single CPU instructions:
+
+```idris
+posEncVal : Nat -> Nat -> Nat -> Double
+posEncVal dModel pos dim =
+  let dimI = the Int (cast dim)              -- O(1): just unwraps Integer
+      i = cast {to=Double} (dimI `div` 2)    -- single Int div, not Nat recursion
+  in if (dimI `mod` 2) == 0 then sin ... else cos ...
+```
+
+Keep the public `Nat` interface — the cast is essentially free. Bit-identical numerics across all backends.
+
+**Comparison gotcha — fast vs slow Nat comparisons**:
+
+```idris
+(<) : Nat -> Nat -> Bool       -- Ord_Nat instance — Integer compare, FAST
+Data.Nat.lte : Nat -> Nat -> Bool   -- recursive Peano walk, SLOW
+```
+
+The Ord-instance comparators (`<`, `<=`, etc.) route through `compare_Ord_Integer`, which is one CPU instruction. The explicit `Data.Nat.lte` / `lt` / `gte` / `gt` functions don't. Use the operators, not the named functions.
+
+**When to care:** any code that does `Nat` arithmetic (div/mod especially) inside a hot loop. Shape arithmetic in layer forward passes is the canonical case. ML-style inner loops touch this every time they index by position, head, channel, etc. — audit with the chez profile recipe (`docs/develop/chez-profiling.md`) if a wall-time hotspot is unexplained.
+
+**Upstream:** the cleaner fix is in the Idris 2 stdlib — define `Data.Nat.divNat` etc. as `fromInteger (cast n `div` cast m)` directly, which preserves the type and proof obligations but compiles to a single GMP `div`. File-level rewrite of ~8 stdlib helpers. Not yet attempted.
+
 ### Tensor Foldable reversal
 
 The `foldr` instance for `Tensor` processes elements in reversed order (head into accumulator first). `toList` produces elements backwards. Use direct `Vect` traversal instead when element order matters (e.g., packing into C buffers, extracting prediction values for argmax).
