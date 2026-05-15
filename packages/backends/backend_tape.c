@@ -206,6 +206,7 @@ enum {
     OP_LINEAR_2D,     /* [B,o] = [B,i] @ [o,i]^T + [o] (batched fused linear) */
     OP_CONCAT_2D_AXIS1, /* [m,n] ++ [m,k] -> [m,n+k] along axis 1 */
     OP_SOFTPLUS,      /* log(1 + exp(x)), backward = sigmoid(x) */
+    OP_TILE_2D,       /* [m,n] -> [m*rep0, n*rep1]; reps in scalar_arg via 2 int fields */
     OP_COUNT          /* sentinel — must be last */
 };
 
@@ -1394,6 +1395,32 @@ TensorHandle tensor_expand_mask(TensorHandle hmask, int B) {
     int shape[] = {B, mask->shape[0], mask->shape[1]};
     Tensor* r = make_tensor(data, shape, 3, 0);
     free(data);
+    return r;
+}
+
+typedef struct { int m, n, rep0, rep1; } Tile2dMeta;
+
+TensorHandle tensor_tile_2d(TensorHandle h, int rep0, int rep1) {
+    Tensor* t = (Tensor*)h;
+    int m = t->shape[0], n = t->shape[1];
+    int M = m * rep0, N = n * rep1;
+    double* data = malloc(M * N * sizeof(double));
+    /* output[i, j] = input[i mod m, j mod n] (tile semantics) */
+    for (int i = 0; i < M; i++) {
+        int si = i % m;
+        for (int j = 0; j < N; j++) {
+            data[i * N + j] = t->data[si * n + (j % n)];
+        }
+    }
+    int shape[] = {M, N};
+    Tensor* r = make_tensor(data, shape, 2, t->requires_grad);
+    free(data);
+    if (t->requires_grad) {
+        Tile2dMeta* meta = arena_alloc(sizeof(Tile2dMeta));
+        meta->m = m; meta->n = n; meta->rep0 = rep0; meta->rep1 = rep1;
+        TapeEntry* e = tape_append(OP_TILE_2D, r, t, NULL, 0);
+        e->op_meta = meta;
+    }
     return r;
 }
 
@@ -3132,6 +3159,31 @@ void tensor_backward(TensorHandle h) {
         case OP_SOFTPLUS: {
             /* d/dx softplus(x) = 1 / (1 + exp(-x)) = sigmoid(x). a->data is x. */
             if (a) { ensure_grad(a); for (int j = 0; j < a->numel; j++) { double s = 1.0 / (1.0 + exp(-a->data[j])); a->grad[j] += r->grad[j] * s; } }
+            break;
+        }
+
+        case OP_TILE_2D: {
+            /* Forward: output[i, j] = input[i mod m, j mod n]
+               Backward: grad to input[si, sj] = sum over r0, c0 of
+                         grad_output[r0*m + si, c0*n + sj] */
+            if (a) {
+                ensure_grad(a);
+                Tile2dMeta* meta = (Tile2dMeta*)e->op_meta;
+                int m = meta->m, n = meta->n;
+                int rep0 = meta->rep0, rep1 = meta->rep1;
+                int N = n * rep1;
+                for (int si = 0; si < m; si++) {
+                    for (int sj = 0; sj < n; sj++) {
+                        double s = 0.0;
+                        for (int r0 = 0; r0 < rep0; r0++) {
+                            for (int c0 = 0; c0 < rep1; c0++) {
+                                s += r->grad[(r0 * m + si) * N + (c0 * n + sj)];
+                            }
+                        }
+                        a->grad[si * n + sj] += s;
+                    }
+                }
+            }
             break;
         }
 
@@ -5529,7 +5581,7 @@ static const char* op_name(int op) {
         "GELU", "GRU", "EMBED", "BATCH_NORM", "DROPOUT",
         "AVGP1D", "AVGP2D", "CONV1D", "MAXP1D", "CONV2D", "CONV2D_B", "MAXP2D", "MAXP2D_B",
         "CUMPROD", "GATHER", "SCATTER_ADD", "LEAKY_RELU", "SILU",
-        "LINEAR_2D", "CONCAT_2D", "SOFTPLUS"
+        "LINEAR_2D", "CONCAT_2D", "SOFTPLUS", "TILE_2D"
     };
     /* Compile-time check: names[] must cover every op tag.
        Add to BOTH this list and the enum when introducing new ops. */

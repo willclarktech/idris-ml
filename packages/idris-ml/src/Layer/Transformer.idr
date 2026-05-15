@@ -291,13 +291,14 @@ applyTransformerBatch {seqLen} {dModel} {headDim} {vocabSize} {b}
       flatTokens = prim__reshape1d tokens.tensorPtr bsI
       embFlat = prim__embedding embedW.tensorPtr flatTokens bsI dI
       embedded = prim__reshape2d embFlat bsI dI
-      -- Broadcast-add cached PE [seqLen, dModel] across the batch dim:
-      -- reshape to [b, seqLen, dModel], add (PE broadcasts on leading dim),
-      -- reshape back to [b*seqLen, dModel]. Backends auto-broadcast in the
-      -- backward replay too (mlx::vjp / torch autograd handle broadcast).
-      embedded3d = prim__reshape3d embedded bI sI dI
-      h0_3d = prim__add embedded3d peCached.tensorPtr
-      h0 = prim__reshape2d h0_3d bsI dI
+      -- Tile cached PE [seqLen, dModel] vertically `b` times to get
+      -- [b*seqLen, dModel], then add directly to the flat embedded. One
+      -- fused op per backend (`mx::tile` / `at::tile` / manual memcpy)
+      -- replaces the earlier reshape3d → add → reshape2d dance, which
+      -- regressed mlx perf on small-model shapes — see `perf-changes.md`
+      -- 2026-05-15 "tile_2d" entry.
+      peTiled = prim__tile2d peCached.tensorPtr bI 1
+      h0 = prim__add embedded peTiled
       hN = foldBlocksBatched blocks h0 bsI sI dI
       normedFinal' = prim__layerNorm2d hN nfg.tensorPtr nfb.tensorPtr 1.0e-5
       vpW = vocabProj.weightT.tensorPtr

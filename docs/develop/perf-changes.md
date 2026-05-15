@@ -1782,3 +1782,74 @@ the magnitude is much smaller. Worth a follow-up commit, not load-bearing.
 **No commit attached to this audit** — pure documentation. The findings
 land here for future reference. The causal-mask follow-up gets its own
 TODO row.
+
+### 2026-05-15 — `prim__tile2d` primitive across all 3 backends — `<commit>`
+
+**Plan job**: investigate the mlx transformer small-model regression
+flagged 2026-05-14 (33.21 → 37-40 ms/ep, ratio 1.73× → 1.95×). The
+prior commit's `applyTransformerBatch` uses
+`reshape3d → add → reshape2d` (3 mlx ops) to broadcast the cached
+`[seqLen, dModel]` PE onto the flat `[b*seqLen, dModel]` embedded
+tensor. Hypothesis: the 2 extra reshape ops cost more than the saved
+`writePE` recompute at this scale; a `tile` primitive that does
+`[seqLen, dModel] → [b*seqLen, dModel]` in one op should fix it.
+
+**Change**: new `tensor_tile_2d(t, rep0, rep1) -> [m*rep0, n*rep1]`
+exported across all 3 backends:
+
+- **mlx**: `mx::tile(t->data, {rep0, rep1})`. Eagerly `mx::eval` the
+  result when the input is non-grad (cached PE case) so `mx::vjp`
+  sees a leaf and doesn't trace back through tile in backward.
+- **torch**: `to_tensor(h)->repeat({rep0, rep1})`. libtorch autograd
+  handles the backward automatically.
+- **tape**: manual `memcpy`-based forward loop + new `OP_TILE_2D`
+  backward that sums grad over the tiled dims back to input shape.
+
+`prim__tile2d` exposed in `Tensor.idr` with `Nat -> Int -> Int` cast
+at the call site to keep the existing convention.
+`applyTransformerBatch` now does `peTiled = prim__tile2d
+peCached.tensorPtr bI 1; h0 = prim__add embedded peTiled` instead of
+the reshape dance.
+
+**Impact** — `scripts/perf-baseline.sh transformer <backend>`,
+two-point timing:
+
+| Backend | Pre-tile_2d (reshape) | Post-tile_2d | Δ |
+|---|---:|---:|---:|
+| tape  | 5.21 ms (0.27×) | 6.4 ms (0.31×) | within VM noise |
+| **mlx**   | 39.53 / 37.16 ms (1.95-1.98×) | **37.09 ms (1.89×)** | unchanged within noise |
+| **torch** | 13.1 ms (0.65×) | **9.95 ms (0.5×)** | **−24%, clean win** |
+
+`gpt-large` on mlx: 400 ms/ep, bit-identical val_bpc
+`4.746685288232547` — the 22× speedup is preserved.
+
+**The mlx finding**: the small-model "regression" is NOT the reshape
+ops as we hypothesised. Swapping `reshape3d + add + reshape2d` for
+`tile + add` (one fewer mlx graph node, eagerly materialized) didn't
+move the ratio. The actual cost is **fundamental**: carrying the
+cached PE tensor on `TransformerState` adds it to the forward's
+constants pool every step, which `mx::vjp` processes during the
+backward replay. On dModel=16 with 30-tape-entry forwards, this fixed
+overhead is 12-20% of wall. On dModel=256 (gpt-large) it's a tiny
+fraction.
+
+**Acceptable trade**: 12-20% absolute slowdown on a tiny demo trades
+for 22× speedup on the real model. The TODO row is downgraded from
+"fix" to "investigate" and deprioritised. Further surgery would
+require per-batch-size cached tiled PE (complex with variable `b`
+across train/eval) or a heuristic skip-cache for small models (ugly).
+
+**`tile_2d` is a net win regardless**: clean new primitive across 3
+backends (useful for future broadcasting patterns: NTM/DNC head
+replication, conv kernel tiling, etc.), torch transformer −24%, tape
+within noise, mlx within noise. Cleanest cross-backend addition since
+the `OP_LSTM_GATES_CELL` cell-output fused op.
+
+**Cross-references**:
+- `perf-log.jsonl` entries timestamped 2026-05-15T00:42, 00:43, 00:46,
+  00:48 (transformer × {mlx, gpt-large, tape, torch})
+- The TODO row "Transformer: investigate residual mlx small-model
+  overhead (1.89×)" captures the remaining unfixed nuance
+- The chez-profile recipe (`docs/develop/chez-profiling.md`) was the
+  tool that produced the 22× win; not used for this follow-up since
+  the cost is on the mlx C side, not the Idris side

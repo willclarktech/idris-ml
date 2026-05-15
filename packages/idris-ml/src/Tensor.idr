@@ -475,6 +475,12 @@ prim__reshape4d : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
 export
 prim__expandMask : AnyPtr -> Int -> AnyPtr
 
+||| Tile a 2D tensor: `[m, n] -> [m*rep0, n*rep1]`. Element `(i, j)` in the
+||| output equals element `(i mod m, j mod n)` in the input.
+%foreign "C:tensor_tile_2d,libidrisml"
+export
+prim__tile2d : AnyPtr -> Int -> Int -> AnyPtr
+
 %foreign "C:tensor_create_1d,libidrisml"
 export
 prim__create1d : Int -> AnyPtr -> Int -> AnyPtr

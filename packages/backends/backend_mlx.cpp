@@ -176,6 +176,7 @@ enum {
     OP_LINEAR_2D,     /* Y = X @ W^T + bias, shapes [B,o]=[B,i]@[o,i]^T+[o] */
     OP_CONCAT_2D_AXIS1, /* [m,n] ++ [m,k] -> [m,n+k] along axis 1 */
     OP_SOFTPLUS,      /* log(1 + exp(x)), backward = sigmoid(x) */
+    OP_TILE_2D,       /* [m,n] -> [m*rep0, n*rep1]; meta stores (rep0, rep1) */
 };
 
 // Lightweight metadata for ops that need extra info during replay.
@@ -290,6 +291,10 @@ static void tape_reset() {
         }
         if (e.op == OP_CAT_MULTI && e.meta) {
             delete (std::vector<int>*)e.meta;
+            e.meta = nullptr;
+        }
+        if (e.op == OP_TILE_2D && e.meta) {
+            std::free(e.meta);
             e.meta = nullptr;
         }
         if (e.op == OP_BATCH_NORM && e.meta) {
@@ -1584,6 +1589,28 @@ TensorHandle tensor_expand_mask(TensorHandle hmask, int B) {
     return (TensorHandle)r;
 }
 
+TensorHandle tensor_tile_2d(TensorHandle h, int rep0, int rep1) {
+    auto t = (Tensor*)h;
+    auto tiled = mx::tile(t->data, {rep0, rep1});
+    /* When the input is non-grad (e.g. cached positional encoding), the
+       tile is a constant from the autograd POV — eagerly materialize so
+       mx::vjp sees a leaf and doesn't trace back through the tile op
+       (which adds latency on each backward call, costing 10-15% wall on
+       small-model shapes). For grad inputs, leave lazy so the tape
+       replay can reconstruct the graph. */
+    if (!t->requires_grad) {
+        mx::eval(tiled);
+    }
+    auto r = new Tensor(tiled, t->requires_grad);
+    if (t->requires_grad) {
+        int* meta = (int*)std::malloc(sizeof(int) * 2);
+        meta[0] = rep0; meta[1] = rep1;
+        int idx = tape_append(OP_TILE_2D, r, t, nullptr, 0);
+        if (idx >= 0) tape[idx].meta = meta; else std::free(meta);
+    }
+    return (TensorHandle)r;
+}
+
 TensorHandle tensor_transpose_2d(TensorHandle h) {
     auto t = (Tensor*)h;
     auto r = new Tensor(mx::transpose(t->data, {1, 0}), t->requires_grad);
@@ -1773,6 +1800,11 @@ void tensor_backward(TensorHandle h) {
             case OP_SOFTPLUS: {
                 pool[out] = mx::add(mx::maximum(a, kF32_ZERO()),
                                     mx::log(mx::add(kF32_ONE(), mx::exp(mx::negative(mx::abs(a))))));
+                break;
+            }
+            case OP_TILE_2D: {
+                int* reps = (int*)e.meta;
+                pool[out] = mx::tile(a, {reps[0], reps[1]});
                 break;
             }
             case OP_ADD_SCALAR: pool[out] = mx::add(a, mx::array(e.scalar_arg)); break;

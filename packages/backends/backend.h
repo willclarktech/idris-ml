@@ -199,6 +199,7 @@ TensorHandle tensor_reshape_3d(TensorHandle t, int d0, int d1, int d2);
 TensorHandle tensor_reshape_4d(TensorHandle t, int d0, int d1, int d2, int d3);
 TensorHandle tensor_expand_mask(TensorHandle mask, int B);     /* [m,n] -> [B,m,n] */
 TensorHandle tensor_causal_mask(int n);
+TensorHandle tensor_tile_2d(TensorHandle t, int rep0, int rep1); /* [m,n] -> [m*rep0, n*rep1] */
 
 /* ---------- Autograd ---------- */
 

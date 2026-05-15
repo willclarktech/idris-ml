@@ -953,6 +953,10 @@ TensorHandle tensor_expand_mask(TensorHandle hmask, int B) {
     return from_tensor(to_tensor(hmask)->unsqueeze(0).expand({(int64_t)B, -1, -1}).contiguous());
 }
 
+TensorHandle tensor_tile_2d(TensorHandle h, int rep0, int rep1) {
+    return from_tensor(to_tensor(h)->repeat({(int64_t)rep0, (int64_t)rep1}));
+}
+
 TensorHandle tensor_transpose_2d(TensorHandle h) {
     return from_tensor(to_tensor(h)->t().contiguous());
 }
