@@ -223,3 +223,61 @@ interface UserDeviceNN d => UserDeviceConv (0 d : Device) where
   primAvgPool2d      : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
   primMaxPool2d      : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
   primMaxPool2dBatched : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
+
+
+----------------------------------------------------------------------
+-- UserDeviceTape — autograd + param registry + IO + misc slice
+----------------------------------------------------------------------
+
+||| The fifth and final slice. Closes the chain
+||| `Core <- Linear <- NN <- Conv <- Tape`. Covers autograd
+||| (requiresGrad, noGradBegin/End, detach, withGrad), the param
+||| registry that the optimizer reads from, param + state allocation,
+||| and small IO helpers (allocDoubles, readDouble, writeDouble,
+||| print, seq).
+public export
+interface UserDeviceConv d => UserDeviceTape (0 d : Device) where
+  -- Autograd flag --------------------------------------------------
+  primRequiresGrad      : AnyPtr -> Int
+  primSetRequiresGrad   : AnyPtr -> Int -> PrimIO ()
+  primNoGradBegin       : PrimIO ()
+  primNoGradEnd         : PrimIO ()
+  primDetach            : AnyPtr -> AnyPtr
+  primWithGrad          : AnyPtr -> AnyPtr
+
+  -- Shape / info queries -------------------------------------------
+  primTensorDim         : AnyPtr -> Int
+  primTensorSizeAt      : AnyPtr -> Int -> Int
+
+  -- Param registry (optimizer-side) --------------------------------
+  --
+  -- Note: `primParamClear` is intentionally `PrimIO ()` (not bare
+  -- `()`). A zero-arg method of unit type gets eagerly evaluated at
+  -- instance-dictionary construction time and would silently call
+  -- `param_clear` every time `UserDeviceTape d =>` is brought into
+  -- scope — wiping the param registry mid-training. `PrimIO ()` is a
+  -- thunk; the side effect only fires when `primIO` runs it.
+  primParamRegister     : String -> AnyPtr -> AnyPtr
+  primParamClear        : PrimIO ()
+  primParamCount        : () -> Int
+  primParamName         : Int -> String
+  primParamGradItem     : Int -> Double
+  primParamGradItemAt   : Int -> Int -> Double
+  primParamGradItemAndZero : Int -> Double
+  primParamZeroAllGrads : Int -> Int
+  primParamSubtractDelta : Int -> Double -> ()
+
+  -- Param + state creation -----------------------------------------
+  primCreateParam1d     : Int -> AnyPtr -> AnyPtr
+  primCreateParam2d     : Int -> Int -> AnyPtr -> AnyPtr
+  primCreateParam3d     : Int -> Int -> Int -> AnyPtr -> AnyPtr
+  primCreateState1d     : Int -> AnyPtr -> AnyPtr
+  primCreateState2d     : Int -> Int -> AnyPtr -> AnyPtr
+
+  -- Doubles array helpers ------------------------------------------
+  primAllocDoubles      : Int -> AnyPtr
+  primReadDouble        : AnyPtr -> Int -> Double
+  primWriteDouble       : AnyPtr -> Int -> Double -> ()
+
+  -- Misc -----------------------------------------------------------
+  primPrint             : AnyPtr -> ()

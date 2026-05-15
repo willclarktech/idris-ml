@@ -354,3 +354,92 @@ UserDeviceConv TapeDev where
   primAvgPool2d        = prim__avgPool2dTape
   primMaxPool2d        = prim__maxPool2dTape
   primMaxPool2dBatched = prim__maxPool2dBatchedTape
+
+
+----------------------------------------------------------------------
+-- Tape-slice FFI bindings (tape-suffixed)
+----------------------------------------------------------------------
+
+%foreign "C:tensor_requires_grad_tape,libidrisml"
+prim__requiresGradTape : AnyPtr -> Int
+%foreign "C:tensor_set_requires_grad_tape,libidrisml"
+prim__setRequiresGradTape : AnyPtr -> Int -> PrimIO ()
+%foreign "C:tensor_no_grad_begin_tape,libidrisml"
+prim__noGradBeginTape : PrimIO ()
+%foreign "C:tensor_no_grad_end_tape,libidrisml"
+prim__noGradEndTape : PrimIO ()
+%foreign "C:tensor_detach_tape,libidrisml"
+prim__detachTape : AnyPtr -> AnyPtr
+%foreign "C:tensor_with_grad_tape,libidrisml"
+prim__withGradTape : AnyPtr -> AnyPtr
+%foreign "C:tensor_dim_tape,libidrisml"
+prim__tensorDimTape : AnyPtr -> Int
+%foreign "C:tensor_size_tape,libidrisml"
+prim__tensorSizeAtTape : AnyPtr -> Int -> Int
+%foreign "C:param_register_return_tape,libidrisml"
+prim__paramRegisterTape : String -> AnyPtr -> AnyPtr
+%foreign "C:param_clear_tape,libidrisml"
+prim__paramClearTape : PrimIO ()
+%foreign "C:param_count_tape,libidrisml"
+prim__paramCountTape : Int
+%foreign "C:param_name_tape,libidrisml"
+prim__paramNameTape : Int -> String
+%foreign "C:param_grad_item_tape,libidrisml"
+prim__paramGradItemTape : Int -> Double
+%foreign "C:param_grad_item_at_tape,libidrisml"
+prim__paramGradItemAtTape : Int -> Int -> Double
+%foreign "C:param_grad_item_and_zero_tape,libidrisml"
+prim__paramGradItemAndZeroTape : Int -> Double
+%foreign "C:param_zero_all_grads_return_tape,libidrisml"
+prim__paramZeroAllGradsTape : Int -> Int
+%foreign "C:param_subtract_delta_tape,libidrisml"
+prim__paramSubtractDeltaTape : Int -> Double -> ()
+%foreign "C:tensor_create_param_1d_tape,libidrisml"
+prim__createParam1dTape : Int -> AnyPtr -> AnyPtr
+%foreign "C:tensor_create_param_2d_tape,libidrisml"
+prim__createParam2dTape : Int -> Int -> AnyPtr -> AnyPtr
+%foreign "C:tensor_create_param_3d_tape,libidrisml"
+prim__createParam3dTape : Int -> Int -> Int -> AnyPtr -> AnyPtr
+%foreign "C:tensor_create_state_1d_tape,libidrisml"
+prim__createState1dTape : Int -> AnyPtr -> AnyPtr
+%foreign "C:tensor_create_state_2d_tape,libidrisml"
+prim__createState2dTape : Int -> Int -> AnyPtr -> AnyPtr
+%foreign "C:tensor_alloc_doubles_tape,libidrisml"
+prim__allocDoublesTape : Int -> AnyPtr
+%foreign "C:tensor_read_double_tape,libidrisml"
+prim__readDoubleTape : AnyPtr -> Int -> Double
+%foreign "C:tensor_write_double_tape,libidrisml"
+prim__writeDoubleTape : AnyPtr -> Int -> Double -> ()
+%foreign "C:tensor_print_tape,libidrisml"
+prim__printTape : AnyPtr -> ()
+
+
+public export
+UserDeviceTape TapeDev where
+  primRequiresGrad         = prim__requiresGradTape
+  primSetRequiresGrad      = prim__setRequiresGradTape
+  primNoGradBegin          = prim__noGradBeginTape
+  primNoGradEnd            = prim__noGradEndTape
+  primDetach               = prim__detachTape
+  primWithGrad             = prim__withGradTape
+  primTensorDim            = prim__tensorDimTape
+  primTensorSizeAt         = prim__tensorSizeAtTape
+  primParamRegister        = prim__paramRegisterTape
+  primParamClear        = prim__paramClearTape
+
+  primParamCount _         = prim__paramCountTape
+  primParamName            = prim__paramNameTape
+  primParamGradItem        = prim__paramGradItemTape
+  primParamGradItemAt      = prim__paramGradItemAtTape
+  primParamGradItemAndZero = prim__paramGradItemAndZeroTape
+  primParamZeroAllGrads    = prim__paramZeroAllGradsTape
+  primParamSubtractDelta   = prim__paramSubtractDeltaTape
+  primCreateParam1d        = prim__createParam1dTape
+  primCreateParam2d        = prim__createParam2dTape
+  primCreateParam3d        = prim__createParam3dTape
+  primCreateState1d        = prim__createState1dTape
+  primCreateState2d        = prim__createState2dTape
+  primAllocDoubles         = prim__allocDoublesTape
+  primReadDouble           = prim__readDoubleTape
+  primWriteDouble          = prim__writeDoubleTape
+  primPrint                = prim__printTape

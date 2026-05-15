@@ -585,3 +585,151 @@ UserDeviceConv MPS where
   primAvgPool2d        = prim__avgPool2dUnified
   primMaxPool2d        = prim__maxPool2dUnified
   primMaxPool2dBatched = prim__maxPool2dBatchedUnified
+
+
+----------------------------------------------------------------------
+-- UserDeviceTape — unified-name FFI bindings + 3 instances.
+----------------------------------------------------------------------
+
+%foreign "C:tensor_requires_grad,libidrisml"
+prim__requiresGradUnified : AnyPtr -> Int
+%foreign "C:tensor_set_requires_grad,libidrisml"
+prim__setRequiresGradUnified : AnyPtr -> Int -> PrimIO ()
+%foreign "C:tensor_no_grad_begin,libidrisml"
+prim__noGradBeginUnified : PrimIO ()
+%foreign "C:tensor_no_grad_end,libidrisml"
+prim__noGradEndUnified : PrimIO ()
+%foreign "C:tensor_detach,libidrisml"
+prim__detachUnified : AnyPtr -> AnyPtr
+%foreign "C:tensor_with_grad,libidrisml"
+prim__withGradUnified : AnyPtr -> AnyPtr
+%foreign "C:tensor_dim,libidrisml"
+prim__tensorDimUnified : AnyPtr -> Int
+%foreign "C:tensor_size,libidrisml"
+prim__tensorSizeAtUnified : AnyPtr -> Int -> Int
+%foreign "C:param_register_return,libidrisml"
+prim__paramRegisterUnified : String -> AnyPtr -> AnyPtr
+%foreign "C:param_clear,libidrisml"
+prim__paramClearUnified : PrimIO ()
+%foreign "C:param_count,libidrisml"
+prim__paramCountUnified : Int
+%foreign "C:param_name,libidrisml"
+prim__paramNameUnified : Int -> String
+%foreign "C:param_grad_item,libidrisml"
+prim__paramGradItemUnified : Int -> Double
+%foreign "C:param_grad_item_at,libidrisml"
+prim__paramGradItemAtUnified : Int -> Int -> Double
+%foreign "C:param_grad_item_and_zero,libidrisml"
+prim__paramGradItemAndZeroUnified : Int -> Double
+%foreign "C:param_zero_all_grads_return,libidrisml"
+prim__paramZeroAllGradsUnified : Int -> Int
+%foreign "C:param_subtract_delta,libidrisml"
+prim__paramSubtractDeltaUnified : Int -> Double -> ()
+%foreign "C:tensor_create_param_1d,libidrisml"
+prim__createParam1dUnified : Int -> AnyPtr -> AnyPtr
+%foreign "C:tensor_create_param_2d,libidrisml"
+prim__createParam2dUnified : Int -> Int -> AnyPtr -> AnyPtr
+%foreign "C:tensor_create_param_3d,libidrisml"
+prim__createParam3dUnified : Int -> Int -> Int -> AnyPtr -> AnyPtr
+%foreign "C:tensor_create_state_1d,libidrisml"
+prim__createState1dUnified : Int -> AnyPtr -> AnyPtr
+%foreign "C:tensor_create_state_2d,libidrisml"
+prim__createState2dUnified : Int -> Int -> AnyPtr -> AnyPtr
+%foreign "C:tensor_alloc_doubles,libidrisml"
+prim__allocDoublesUnified : Int -> AnyPtr
+%foreign "C:tensor_read_double,libidrisml"
+prim__readDoubleUnified : AnyPtr -> Int -> Double
+%foreign "C:tensor_write_double,libidrisml"
+prim__writeDoubleUnified : AnyPtr -> Int -> Double -> ()
+%foreign "C:tensor_print,libidrisml"
+prim__printUnified : AnyPtr -> ()
+
+public export
+UserDeviceTape CPU where
+  primRequiresGrad         = prim__requiresGradUnified
+  primSetRequiresGrad      = prim__setRequiresGradUnified
+  primNoGradBegin          = prim__noGradBeginUnified
+  primNoGradEnd            = prim__noGradEndUnified
+  primDetach               = prim__detachUnified
+  primWithGrad             = prim__withGradUnified
+  primTensorDim            = prim__tensorDimUnified
+  primTensorSizeAt         = prim__tensorSizeAtUnified
+  primParamRegister        = prim__paramRegisterUnified
+  primParamClear        = prim__paramClearUnified
+
+  primParamCount _         = prim__paramCountUnified
+  primParamName            = prim__paramNameUnified
+  primParamGradItem        = prim__paramGradItemUnified
+  primParamGradItemAt      = prim__paramGradItemAtUnified
+  primParamGradItemAndZero = prim__paramGradItemAndZeroUnified
+  primParamZeroAllGrads    = prim__paramZeroAllGradsUnified
+  primParamSubtractDelta   = prim__paramSubtractDeltaUnified
+  primCreateParam1d        = prim__createParam1dUnified
+  primCreateParam2d        = prim__createParam2dUnified
+  primCreateParam3d        = prim__createParam3dUnified
+  primCreateState1d        = prim__createState1dUnified
+  primCreateState2d        = prim__createState2dUnified
+  primAllocDoubles         = prim__allocDoublesUnified
+  primReadDouble           = prim__readDoubleUnified
+  primWriteDouble          = prim__writeDoubleUnified
+  primPrint                = prim__printUnified
+
+public export
+{n : Nat} -> UserDeviceTape (CUDA n) where
+  primRequiresGrad         = prim__requiresGradUnified
+  primSetRequiresGrad      = prim__setRequiresGradUnified
+  primNoGradBegin          = prim__noGradBeginUnified
+  primNoGradEnd            = prim__noGradEndUnified
+  primDetach               = prim__detachUnified
+  primWithGrad             = prim__withGradUnified
+  primTensorDim            = prim__tensorDimUnified
+  primTensorSizeAt         = prim__tensorSizeAtUnified
+  primParamRegister        = prim__paramRegisterUnified
+  primParamClear        = prim__paramClearUnified
+
+  primParamCount _         = prim__paramCountUnified
+  primParamName            = prim__paramNameUnified
+  primParamGradItem        = prim__paramGradItemUnified
+  primParamGradItemAt      = prim__paramGradItemAtUnified
+  primParamGradItemAndZero = prim__paramGradItemAndZeroUnified
+  primParamZeroAllGrads    = prim__paramZeroAllGradsUnified
+  primParamSubtractDelta   = prim__paramSubtractDeltaUnified
+  primCreateParam1d        = prim__createParam1dUnified
+  primCreateParam2d        = prim__createParam2dUnified
+  primCreateParam3d        = prim__createParam3dUnified
+  primCreateState1d        = prim__createState1dUnified
+  primCreateState2d        = prim__createState2dUnified
+  primAllocDoubles         = prim__allocDoublesUnified
+  primReadDouble           = prim__readDoubleUnified
+  primWriteDouble          = prim__writeDoubleUnified
+  primPrint                = prim__printUnified
+
+public export
+UserDeviceTape MPS where
+  primRequiresGrad         = prim__requiresGradUnified
+  primSetRequiresGrad      = prim__setRequiresGradUnified
+  primNoGradBegin          = prim__noGradBeginUnified
+  primNoGradEnd            = prim__noGradEndUnified
+  primDetach               = prim__detachUnified
+  primWithGrad             = prim__withGradUnified
+  primTensorDim            = prim__tensorDimUnified
+  primTensorSizeAt         = prim__tensorSizeAtUnified
+  primParamRegister        = prim__paramRegisterUnified
+  primParamClear        = prim__paramClearUnified
+
+  primParamCount _         = prim__paramCountUnified
+  primParamName            = prim__paramNameUnified
+  primParamGradItem        = prim__paramGradItemUnified
+  primParamGradItemAt      = prim__paramGradItemAtUnified
+  primParamGradItemAndZero = prim__paramGradItemAndZeroUnified
+  primParamZeroAllGrads    = prim__paramZeroAllGradsUnified
+  primParamSubtractDelta   = prim__paramSubtractDeltaUnified
+  primCreateParam1d        = prim__createParam1dUnified
+  primCreateParam2d        = prim__createParam2dUnified
+  primCreateParam3d        = prim__createParam3dUnified
+  primCreateState1d        = prim__createState1dUnified
+  primCreateState2d        = prim__createState2dUnified
+  primAllocDoubles         = prim__allocDoublesUnified
+  primReadDouble           = prim__readDoubleUnified
+  primWriteDouble          = prim__writeDoubleUnified
+  primPrint                = prim__printUnified

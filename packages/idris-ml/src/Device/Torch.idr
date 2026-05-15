@@ -350,3 +350,92 @@ UserDeviceConv TorchDev where
   primAvgPool2d        = prim__avgPool2dTorch
   primMaxPool2d        = prim__maxPool2dTorch
   primMaxPool2dBatched = prim__maxPool2dBatchedTorch
+
+
+----------------------------------------------------------------------
+-- Tape-slice FFI bindings (torch-suffixed)
+----------------------------------------------------------------------
+
+%foreign "C:tensor_requires_grad_torch,libidrisml"
+prim__requiresGradTorch : AnyPtr -> Int
+%foreign "C:tensor_set_requires_grad_torch,libidrisml"
+prim__setRequiresGradTorch : AnyPtr -> Int -> PrimIO ()
+%foreign "C:tensor_no_grad_begin_torch,libidrisml"
+prim__noGradBeginTorch : PrimIO ()
+%foreign "C:tensor_no_grad_end_torch,libidrisml"
+prim__noGradEndTorch : PrimIO ()
+%foreign "C:tensor_detach_torch,libidrisml"
+prim__detachTorch : AnyPtr -> AnyPtr
+%foreign "C:tensor_with_grad_torch,libidrisml"
+prim__withGradTorch : AnyPtr -> AnyPtr
+%foreign "C:tensor_dim_torch,libidrisml"
+prim__tensorDimTorch : AnyPtr -> Int
+%foreign "C:tensor_size_torch,libidrisml"
+prim__tensorSizeAtTorch : AnyPtr -> Int -> Int
+%foreign "C:param_register_return_torch,libidrisml"
+prim__paramRegisterTorch : String -> AnyPtr -> AnyPtr
+%foreign "C:param_clear_torch,libidrisml"
+prim__paramClearTorch : PrimIO ()
+%foreign "C:param_count_torch,libidrisml"
+prim__paramCountTorch : Int
+%foreign "C:param_name_torch,libidrisml"
+prim__paramNameTorch : Int -> String
+%foreign "C:param_grad_item_torch,libidrisml"
+prim__paramGradItemTorch : Int -> Double
+%foreign "C:param_grad_item_at_torch,libidrisml"
+prim__paramGradItemAtTorch : Int -> Int -> Double
+%foreign "C:param_grad_item_and_zero_torch,libidrisml"
+prim__paramGradItemAndZeroTorch : Int -> Double
+%foreign "C:param_zero_all_grads_return_torch,libidrisml"
+prim__paramZeroAllGradsTorch : Int -> Int
+%foreign "C:param_subtract_delta_torch,libidrisml"
+prim__paramSubtractDeltaTorch : Int -> Double -> ()
+%foreign "C:tensor_create_param_1d_torch,libidrisml"
+prim__createParam1dTorch : Int -> AnyPtr -> AnyPtr
+%foreign "C:tensor_create_param_2d_torch,libidrisml"
+prim__createParam2dTorch : Int -> Int -> AnyPtr -> AnyPtr
+%foreign "C:tensor_create_param_3d_torch,libidrisml"
+prim__createParam3dTorch : Int -> Int -> Int -> AnyPtr -> AnyPtr
+%foreign "C:tensor_create_state_1d_torch,libidrisml"
+prim__createState1dTorch : Int -> AnyPtr -> AnyPtr
+%foreign "C:tensor_create_state_2d_torch,libidrisml"
+prim__createState2dTorch : Int -> Int -> AnyPtr -> AnyPtr
+%foreign "C:tensor_alloc_doubles_torch,libidrisml"
+prim__allocDoublesTorch : Int -> AnyPtr
+%foreign "C:tensor_read_double_torch,libidrisml"
+prim__readDoubleTorch : AnyPtr -> Int -> Double
+%foreign "C:tensor_write_double_torch,libidrisml"
+prim__writeDoubleTorch : AnyPtr -> Int -> Double -> ()
+%foreign "C:tensor_print_torch,libidrisml"
+prim__printTorch : AnyPtr -> ()
+
+
+public export
+UserDeviceTape TorchDev where
+  primRequiresGrad         = prim__requiresGradTorch
+  primSetRequiresGrad      = prim__setRequiresGradTorch
+  primNoGradBegin          = prim__noGradBeginTorch
+  primNoGradEnd            = prim__noGradEndTorch
+  primDetach               = prim__detachTorch
+  primWithGrad             = prim__withGradTorch
+  primTensorDim            = prim__tensorDimTorch
+  primTensorSizeAt         = prim__tensorSizeAtTorch
+  primParamRegister        = prim__paramRegisterTorch
+  primParamClear        = prim__paramClearTorch
+
+  primParamCount _         = prim__paramCountTorch
+  primParamName            = prim__paramNameTorch
+  primParamGradItem        = prim__paramGradItemTorch
+  primParamGradItemAt      = prim__paramGradItemAtTorch
+  primParamGradItemAndZero = prim__paramGradItemAndZeroTorch
+  primParamZeroAllGrads    = prim__paramZeroAllGradsTorch
+  primParamSubtractDelta   = prim__paramSubtractDeltaTorch
+  primCreateParam1d        = prim__createParam1dTorch
+  primCreateParam2d        = prim__createParam2dTorch
+  primCreateParam3d        = prim__createParam3dTorch
+  primCreateState1d        = prim__createState1dTorch
+  primCreateState2d        = prim__createState2dTorch
+  primAllocDoubles         = prim__allocDoublesTorch
+  primReadDouble           = prim__readDoubleTorch
+  primWriteDouble          = prim__writeDoubleTorch
+  primPrint                = prim__printTorch

@@ -350,3 +350,92 @@ UserDeviceConv MlxDev where
   primAvgPool2d        = prim__avgPool2dMlx
   primMaxPool2d        = prim__maxPool2dMlx
   primMaxPool2dBatched = prim__maxPool2dBatchedMlx
+
+
+----------------------------------------------------------------------
+-- Tape-slice FFI bindings (mlx-suffixed)
+----------------------------------------------------------------------
+
+%foreign "C:tensor_requires_grad_mlx,libidrisml"
+prim__requiresGradMlx : AnyPtr -> Int
+%foreign "C:tensor_set_requires_grad_mlx,libidrisml"
+prim__setRequiresGradMlx : AnyPtr -> Int -> PrimIO ()
+%foreign "C:tensor_no_grad_begin_mlx,libidrisml"
+prim__noGradBeginMlx : PrimIO ()
+%foreign "C:tensor_no_grad_end_mlx,libidrisml"
+prim__noGradEndMlx : PrimIO ()
+%foreign "C:tensor_detach_mlx,libidrisml"
+prim__detachMlx : AnyPtr -> AnyPtr
+%foreign "C:tensor_with_grad_mlx,libidrisml"
+prim__withGradMlx : AnyPtr -> AnyPtr
+%foreign "C:tensor_dim_mlx,libidrisml"
+prim__tensorDimMlx : AnyPtr -> Int
+%foreign "C:tensor_size_mlx,libidrisml"
+prim__tensorSizeAtMlx : AnyPtr -> Int -> Int
+%foreign "C:param_register_return_mlx,libidrisml"
+prim__paramRegisterMlx : String -> AnyPtr -> AnyPtr
+%foreign "C:param_clear_mlx,libidrisml"
+prim__paramClearMlx : PrimIO ()
+%foreign "C:param_count_mlx,libidrisml"
+prim__paramCountMlx : Int
+%foreign "C:param_name_mlx,libidrisml"
+prim__paramNameMlx : Int -> String
+%foreign "C:param_grad_item_mlx,libidrisml"
+prim__paramGradItemMlx : Int -> Double
+%foreign "C:param_grad_item_at_mlx,libidrisml"
+prim__paramGradItemAtMlx : Int -> Int -> Double
+%foreign "C:param_grad_item_and_zero_mlx,libidrisml"
+prim__paramGradItemAndZeroMlx : Int -> Double
+%foreign "C:param_zero_all_grads_return_mlx,libidrisml"
+prim__paramZeroAllGradsMlx : Int -> Int
+%foreign "C:param_subtract_delta_mlx,libidrisml"
+prim__paramSubtractDeltaMlx : Int -> Double -> ()
+%foreign "C:tensor_create_param_1d_mlx,libidrisml"
+prim__createParam1dMlx : Int -> AnyPtr -> AnyPtr
+%foreign "C:tensor_create_param_2d_mlx,libidrisml"
+prim__createParam2dMlx : Int -> Int -> AnyPtr -> AnyPtr
+%foreign "C:tensor_create_param_3d_mlx,libidrisml"
+prim__createParam3dMlx : Int -> Int -> Int -> AnyPtr -> AnyPtr
+%foreign "C:tensor_create_state_1d_mlx,libidrisml"
+prim__createState1dMlx : Int -> AnyPtr -> AnyPtr
+%foreign "C:tensor_create_state_2d_mlx,libidrisml"
+prim__createState2dMlx : Int -> Int -> AnyPtr -> AnyPtr
+%foreign "C:tensor_alloc_doubles_mlx,libidrisml"
+prim__allocDoublesMlx : Int -> AnyPtr
+%foreign "C:tensor_read_double_mlx,libidrisml"
+prim__readDoubleMlx : AnyPtr -> Int -> Double
+%foreign "C:tensor_write_double_mlx,libidrisml"
+prim__writeDoubleMlx : AnyPtr -> Int -> Double -> ()
+%foreign "C:tensor_print_mlx,libidrisml"
+prim__printMlx : AnyPtr -> ()
+
+
+public export
+UserDeviceTape MlxDev where
+  primRequiresGrad         = prim__requiresGradMlx
+  primSetRequiresGrad      = prim__setRequiresGradMlx
+  primNoGradBegin          = prim__noGradBeginMlx
+  primNoGradEnd            = prim__noGradEndMlx
+  primDetach               = prim__detachMlx
+  primWithGrad             = prim__withGradMlx
+  primTensorDim            = prim__tensorDimMlx
+  primTensorSizeAt         = prim__tensorSizeAtMlx
+  primParamRegister        = prim__paramRegisterMlx
+  primParamClear        = prim__paramClearMlx
+
+  primParamCount _         = prim__paramCountMlx
+  primParamName            = prim__paramNameMlx
+  primParamGradItem        = prim__paramGradItemMlx
+  primParamGradItemAt      = prim__paramGradItemAtMlx
+  primParamGradItemAndZero = prim__paramGradItemAndZeroMlx
+  primParamZeroAllGrads    = prim__paramZeroAllGradsMlx
+  primParamSubtractDelta   = prim__paramSubtractDeltaMlx
+  primCreateParam1d        = prim__createParam1dMlx
+  primCreateParam2d        = prim__createParam2dMlx
+  primCreateParam3d        = prim__createParam3dMlx
+  primCreateState1d        = prim__createState1dMlx
+  primCreateState2d        = prim__createState2dMlx
+  primAllocDoubles         = prim__allocDoublesMlx
+  primReadDouble           = prim__readDoubleMlx
+  primWriteDouble          = prim__writeDoubleMlx
+  primPrint                = prim__printMlx
