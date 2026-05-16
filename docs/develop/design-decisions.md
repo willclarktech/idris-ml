@@ -735,3 +735,24 @@ Best-of-4 delta is +0.42s (+5.7%), well under the 20% acceptance threshold. Outl
 - `packages/idris-ml/src/Device/ProtoWide.idr` — sliced 150-stub typechecker exerciser (commit `8fb7fec`).
 - Both files are deletable scaffolding; Phase 2.1 absorbs the real interface into `Tensor.idr` directly.
 
+**Phase 0d — multi-link feasibility check (2026-05-13)**:
+
+Question: can `libidrisml_tape.dylib` / `libidrisml_torch.dylib` / `libidrisml_mlx.dylib` co-exist linked into one binary, so the build no longer needs the `BACKEND=...` symlink dance? The three dylibs today export 144 overlapping `tensor_*` symbol names (`nm -gj` confirms exact-name collision on add/sub/mul/matmul/conv/...), so linking them as-is fails by definition.
+
+Two compile-time symbol-rename strategies verified end-to-end with toy translation units that define a colliding `tensor_add` / `tensor_mul`:
+
+1. **`-D` flag macros**: `cc -Dtensor_add=tensor_add_tape -c …` → `_tensor_add_tape` in the resulting `.o`. Linker accepts both `.o` files into one `.dylib`; `nm -gj` shows both renamed symbols exported, no collision. (Verified 2026-05-13.)
+2. **`-include rename_<backend>.h` header**: a single per-backend header full of `#define tensor_add tensor_add_tape` lines, prepended via `-include`. Same outcome. Preferable for the real refactor — 144 `-D` flags would be unmaintainable on the compile line.
+
+**Decision: multi-link via per-backend `-include rename_<backend>.h`.** Phase 1 will add `packages/backends/rename_{tape,torch,mlx}.h`, each defining every `tensor_*` / `backend_*` / `param_*` / `mnist_*` symbol with the backend suffix; the Makefile injects the matching header via `-include` on each backend's compile command. After this:
+- Build artifact: one `libidrisml.(so|dylib)` containing the listed backends' renamed symbols.
+- `BACKEND` becomes a comma-separated list (`tape`, `tape,torch`, `tape,torch,mlx`, `torch` …).
+- Symlink dance gone.
+
+**Outstanding Phase 1 risks** the rename experiment does NOT resolve:
+- **libtorch + mlx internal-symbol collisions** — both libraries link their own dependency chains (libtorch's ATen/c10, mlx's runtime). Some of these libraries may *themselves* export overlapping symbol names. Won't show until both are linked into one dylib on a real build. Mitigation: if collisions appear, use `-fvisibility=hidden` + `__attribute__((visibility("default")))` on our entry points to suppress propagation of internal symbols.
+- **Static-init order across backends** — each backend has C++ global constructors (tape arena init, libtorch's autograd-thread bootstrap, mlx's stream init). One dylib means they all run at load time; conflicts (e.g. two backends grabbing the same TLS slot) would show up as load-time crashes. Mitigation: defer global init via lazy-init functions called from `backend_name_<backend>` instead of at `__attribute__((constructor))` time.
+- **Per-platform conditionals** — mlx is Apple-only. Linux builds default to `BACKEND=tape,torch`; macOS to `tape,torch,mlx`. The Makefile already conditionalises on `$(UNAME)`, so this is a small extension.
+
+None of these block the Phase 1 design — they're implementation risks to surface during Phase 1, not Phase 0 stoppers.
+
