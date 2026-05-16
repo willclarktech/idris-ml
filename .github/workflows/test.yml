@@ -4,6 +4,18 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Manual trigger to opt into the macOS lane on demand. The default
+  # matrix is Ubuntu-only because macos-latest is billed 10× the
+  # standard rate (and produces rate-limit notification noise on every
+  # PR). Run macOS via the Actions UI / `gh workflow run test.yml -f
+  # include_macos=true` when touching the macOS-specific build paths
+  # (mlx backend, libtorch macOS lane, brew chezscheme detection, etc.).
+  workflow_dispatch:
+    inputs:
+      include_macos:
+        description: 'Include macos-latest in the matrix (10× billable)'
+        type: boolean
+        default: false
 
 jobs:
   # Fast preflight: catches drift between Idris example defaults and the
@@ -25,7 +37,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        # macOS is opt-in via `workflow_dispatch -f include_macos=true`
+        # to avoid the 10× billable cost on every PR. See the
+        # workflow_dispatch input above.
+        os: ${{ fromJSON((github.event_name == 'workflow_dispatch' && inputs.include_macos) && '["ubuntu-latest", "macos-latest"]' || '["ubuntu-latest"]') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
 
