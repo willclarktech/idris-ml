@@ -358,6 +358,50 @@ Open follow-up: build a GPU-friendly example (filed in `TODO.md`
 Medium Priority) to settle whether GPU compile is unambiguously
 the right default.
 
+### Follow-up update (2026-05-14): GptLarge measured, GPU still loses
+
+Built `Example.GptLarge` (dModel=256, heads=8, headDim=32, blocks=4,
+seq=128, batch=32; 3.17 M params) — significantly bigger than anything
+in the prior matrix — and ran the 6-cell perf grid at 10 epochs:
+
+| backend           | wall ms/ep | C-total ms/ep |
+|-------------------|-----------:|--------------:|
+| tape              |       9700 |          8830 |
+| torch             |       9500 |          1080 |
+| mlx CPU eager     |       8500 |            34 |
+| mlx CPU compile   |       8800 |            33 |
+| mlx GPU eager     |      10200 |           276 |
+| mlx GPU compile   |     ~10000 |           254 |
+
+**GPU still loses to CPU stream at this scale.** Even with `mx::compile`
+on, GPU's C-time (254 ms/ep) is 7-8× the CPU stream's (33 ms/ep).
+Compile on CPU is a wash (within noise). Compile on GPU shaves 8% off
+C-time but doesn't close the CPU/GPU gap.
+
+The full breakdown:
+- `Backward`: only 11 ms/ep on GPU — backward pass is fast, no issue
+- `Optimizer`: **243-265 ms/ep on GPU**, vs 20 ms/ep on torch / 54 ms/ep
+  on tape — this dominates GPU C-time
+
+Diagnosis: GptLarge registers 293 parameter tensors. The optimizer
+step launches a separate Metal kernel for each one. At ~1 ms of
+kernel-launch wall per param, that's ~250 ms/ep — exactly what we
+measure. PyTorch's `torch.optim.AdamW` uses fused multi-tensor kernels
+(`_foreach_addcmul_`, `_foreach_add_`, etc.) precisely to amortize
+this; our backend does each param eagerly.
+
+**Conclusion**: closing the "is GPU+compile the right default?" open
+question with "no, not at any example scale we currently ship". Default
+stays `MLX_DEVICE=cpu`. To make GPU the right default, the path
+forward is a fused `nativeAdamW`-class optimizer step on the mlx
+backend — filed as a new TODO row "Fused multi-tensor optimizer kernel
+on mlx (and torch) backends" alongside this finding.
+
+Wall ms/ep is similar across all backends (~9-10 s/ep) — that's
+Idris-side / Chez overhead, which is being investigated separately
+(see the TODO row "Fix tape per-tape-entry Idris/Chez overhead"; the
+same overhead affects mlx wall-time on this hardware).
+
 ## Sources
 
 - [mlx compile.h](https://github.com/ml-explore/mlx/blob/main/mlx/compile.h)
