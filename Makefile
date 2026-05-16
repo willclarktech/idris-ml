@@ -152,26 +152,28 @@ torch_LDFLAGS_Linux := -L$(TORCH_LIB) -Wl,--no-as-needed -ltorch -ltorch_cpu -lc
 
 # MLX detection — only when mlx is in BACKEND_LIST; Apple-only.
 #
+# mlx is declared as a darwin-only dependency of `idris-ml-torch-ref`
+# (`packages/pytorch/pyproject.toml`). The canonical install lives in
+# that project's uv-managed venv. To set up:
+#
+#   cd packages/pytorch && uv sync     # installs mlx into .venv on macOS
+#
 # Resolution order, picks the first install that has both
 # `include/mlx/mlx.h` AND a Metal-capable runtime. Metal capability is
 # detected by the presence of `lib/mlx.metallib` — the precompiled
 # Metal kernel library. mlx installs without it (e.g. nixpkgs'
-# `python3Packages.mlx`, which is built with `MLX_BUILD_METAL=false`)
-# silently fail at runtime with "Cannot set gpu device without gpu
-# backend". We don't auto-pick those — including not auto-pulling
-# nixpkgs as a fallback, since the build side effect materialises mlx
-# in the nix store regardless of any `home-manager` / `nix-darwin`
-# uninstall.
+# `python3Packages.mlx`, built with `MLX_BUILD_METAL=false`) silently
+# fail at runtime with "Cannot set gpu device without gpu backend",
+# so we won't auto-pick those.
 #
-#   1. $MLX_SITE if you set it explicitly (no validation; you asked
-#      for this exact path)
-#   2. $UV_CACHE_DIR (or default ~/.cache/uv) — pip-installed via uv
-#   3. Project virtualenv at packages/pytorch/.venv
-#   4. Any importable `mlx` reachable from python3 (system, conda, etc.)
+#   1. $MLX_SITE if you set it explicitly (no validation)
+#   2. Project venv at `packages/pytorch/.venv/.../mlx` (canonical)
+#   3. $UV_CACHE_DIR (or `~/.cache/uv`) — any uv-installed mlx anywhere
+#   4. Any importable `mlx` reachable from python3 (conda, system, etc.)
 #
-# If none of these turn up a Metal-capable install, error with
-# explicit "install mlx via uv pip" instructions. No silent
-# fallthrough.
+# No silent fallback to `nix build nixpkgs#python3Packages.mlx`: that
+# side-effects mlx into the nix store regardless of any
+# `home-manager` / `nix-darwin` uninstall, and ships a CPU-only build.
 ifneq ($(filter mlx,$(BACKEND_LIST)),)
   ifneq ($(UNAME), Darwin)
     $(error MLX backend requires macOS; current UNAME=$(UNAME))
@@ -183,28 +185,29 @@ ifneq ($(filter mlx,$(BACKEND_LIST)),)
   _mlx_validate = $(if $(and $(wildcard $1/include/mlx/mlx.h),$(wildcard $1/lib/mlx.metallib)),$1,)
 
   ifndef MLX_SITE
-    # (2) Search the uv pip cache for a Metal-capable install. uv stores
-    # under archive-v0/<hash>/mlx; we accept the first hit.
+    # (2) Project venv. Canonical — declared via packages/pytorch/pyproject.toml.
+    MLX_SITE := $(call _mlx_validate,$(wildcard packages/pytorch/.venv/lib/python*/site-packages/mlx))
+  endif
+  ifeq ($(MLX_SITE),)
+    # (3) uv global archive cache. Picks up `uv pip install mlx` even
+    # outside the project venv, e.g. for one-off use elsewhere.
     _mlx_uv := $(shell find "$${UV_CACHE_DIR:-$$HOME/.cache/uv}" -path "*/mlx/lib/mlx.metallib" -type f 2>/dev/null | head -n 1)
     MLX_SITE := $(if $(_mlx_uv),$(patsubst %/lib/mlx.metallib,%,$(_mlx_uv)),)
   endif
   ifeq ($(MLX_SITE),)
-    # (3) Project venv.
-    MLX_SITE := $(call _mlx_validate,$(wildcard packages/pytorch/.venv/lib/python*/site-packages/mlx))
-  endif
-  ifeq ($(MLX_SITE),)
-    # (4) Anything importable from python3 (will pick up conda / system
-    # site-packages installs that aren't in the uv cache).
+    # (4) Anything importable from python3 (conda / system site-packages).
     _mlx_py := $(shell python3 -c "import importlib.util as u, os; s=u.find_spec('mlx'); print(s.submodule_search_locations[0] if s and s.submodule_search_locations else '')" 2>/dev/null)
     MLX_SITE := $(call _mlx_validate,$(_mlx_py))
   endif
 
   ifeq ($(MLX_SITE),)
-    $(error No Metal-capable mlx install found. Run `cd packages/pytorch && uv pip install mlx`, or set MLX_SITE=<path/to/mlx> where the path contains both include/mlx/mlx.h and lib/mlx.metallib. The nixpkgs python3Packages.mlx is CPU-only and intentionally not used here — it silently breaks MLX_DEVICE=gpu and re-materialises in the nix store on every build.)
+    $(error No Metal-capable mlx install found. Run `cd packages/pytorch && uv sync` to install the declared mlx dependency into the project venv, or set MLX_SITE=<path/to/mlx> where the path contains both include/mlx/mlx.h and lib/mlx.metallib.)
   endif
 
-  MLX_INC := $(MLX_SITE)/include
-  MLX_LIB := $(MLX_SITE)/lib
+  # Absolute paths so `-Wl,-rpath,$(MLX_LIB)` works regardless of the
+  # CWD at runtime (the matmul-bench wrapper chdir's into build/exec/...).
+  MLX_INC := $(abspath $(MLX_SITE)/include)
+  MLX_LIB := $(abspath $(MLX_SITE)/lib)
 endif
 
 mlx_SRC := $(BACKENDS_DIR)/backend_mlx.cpp
@@ -786,9 +789,17 @@ test-cuda:
 	bash scripts/test_cuda_colab.sh
 
 # Jupyter kernel (venv in packages/jupyter/.venv)
-# Use nix Python if available (3.12+), fall back to system python3
-NIX_PYTHON := $(shell nix build nixpkgs\#python3 --no-link --print-out-paths 2>/dev/null)/bin/python3
-VENV_PYTHON := $(shell [ -x "$(NIX_PYTHON)" ] && echo "$(NIX_PYTHON)" || echo python3)
+# Apple-bundled /usr/bin/python3 is 3.9 (too old for our deps), so we
+# prefer a managed 3.12+. Resolution order:
+#   1. uv-managed python, if uv is installed (most projects on this
+#      codebase already have it via the pyproject/uv.lock pattern)
+#   2. system `python3` on $PATH — falls back loudly if it's < 3.12
+#
+# Deliberately not falling back to `nix build nixpkgs#python3`: that
+# materialises python3 in the nix store on every build regardless of
+# user config (same pattern as the removed mlx fallback above).
+UV_PYTHON := $(shell uv python find 2>/dev/null)
+VENV_PYTHON := $(shell [ -x "$(UV_PYTHON)" ] && echo "$(UV_PYTHON)" || echo python3)
 JUPYTER_VENV := packages/jupyter/.venv
 JUPYTER_PIP := $(JUPYTER_VENV)/bin/pip
 JUPYTER_PYTHON := $(JUPYTER_VENV)/bin/python3

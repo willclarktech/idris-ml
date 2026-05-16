@@ -8,6 +8,12 @@ dependencies = [
     "numpy>=1.24",
     "safetensors>=0.7.0",
     "psutil>=7.0",
+    # mlx for the MLX backend C++ bindings (used at build time by the
+    # idris-ml Makefile, not by the torch reference scripts themselves).
+    # Darwin-only — mlx ships Metal kernels and doesn't build on Linux.
+    # `uv sync` installs into packages/pytorch/.venv/lib/python*/site-packages/mlx
+    # on macOS; the Makefile's MLX_SITE resolution finds it there.
+    "mlx>=0.31; sys_platform == 'darwin'",
 ]
 
 [dependency-groups]
