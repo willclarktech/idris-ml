@@ -200,28 +200,6 @@ TensorHandle tensor_silu(TensorHandle h) {
  * backend_torch/nn/loss/. cosine_similarity lives in
  * backend_torch/nn/attention/. */
 
-TensorHandle tensor_conv1d_circular(TensorHandle input, TensorHandle kernel) {
-    /* Circular convolution for NTM shift operation.
-       input: [N], kernel: [K]
-       Pad input circularly, then do 1D convolution. */
-    auto& inp = *to_tensor(input);
-    auto& ker = *to_tensor(kernel);
-
-    int64_t n = inp.size(0);
-    int64_t k = ker.size(0);
-    int64_t pad = k / 2;
-
-    /* Circular padding: concat [tail, input, head] */
-    auto padded = torch::cat({inp.slice(0, n - pad, n), inp, inp.slice(0, 0, pad)});
-
-    /* Reshape for conv1d: [batch=1, channels=1, length] */
-    auto inp_3d = padded.reshape({1, 1, -1});
-    auto ker_3d = ker.flip(0).reshape({1, 1, -1});
-
-    auto out = torch::conv1d(inp_3d, ker_3d);
-    return from_tensor(out.reshape({n}));
-}
-
 /* Norm ops (batch_norm, group_norm, dropout, layer_norm_2d) live in
  * backend_torch/nn/norm/. Attention ops (cross_attention, embedding,
  * cosine_similarity) live in backend_torch/nn/attention/. Recurrent
@@ -229,152 +207,14 @@ TensorHandle tensor_conv1d_circular(TensorHandle input, TensorHandle kernel) {
  * backend_torch/nn/recurrent/. */
 
 /* Index ops (gather, scatter_add) live in backend_torch/linear/index/.
- * Sort ops (argsort, cumprod) live in backend_torch/linear/sort/. */
-
-TensorHandle tensor_conv_transpose1d(TensorHandle hinput, TensorHandle hkernel,
-                                     TensorHandle hbias, int pad, int stride) {
-    auto& inp = *to_tensor(hinput);
-    auto& ker = *to_tensor(hkernel);
-    auto inp_3d = inp.unsqueeze(0);
-    at::Tensor bias_t;
-    if (hbias) bias_t = *to_tensor(hbias);
-    auto out = hbias
-        ? torch::conv_transpose1d(inp_3d, ker, bias_t, {stride}, {pad})
-        : torch::conv_transpose1d(inp_3d, ker, {}, {stride}, {pad});
-    return from_tensor(out.squeeze(0));
-}
-
-TensorHandle tensor_conv_transpose2d(TensorHandle hinput, TensorHandle hkernel,
-                                     TensorHandle hbias, int padH, int padW,
-                                     int strideH, int strideW) {
-    auto& inp = *to_tensor(hinput);
-    auto& ker = *to_tensor(hkernel);
-    auto inp_4d = inp.unsqueeze(0);
-    at::Tensor bias_t;
-    if (hbias) bias_t = *to_tensor(hbias);
-    auto out = hbias
-        ? torch::conv_transpose2d(inp_4d, ker, bias_t, {strideH, strideW}, {padH, padW})
-        : torch::conv_transpose2d(inp_4d, ker, {}, {strideH, strideW}, {padH, padW});
-    return from_tensor(out.squeeze(0));
-}
-
-TensorHandle tensor_conv1d_grouped(TensorHandle hinput, TensorHandle hkernel,
-                                   TensorHandle hbias, int pad, int stride, int groups) {
-    auto& inp = *to_tensor(hinput);
-    auto& ker = *to_tensor(hkernel);
-    auto inp_3d = inp.unsqueeze(0);
-    at::Tensor bias_t;
-    if (hbias) bias_t = *to_tensor(hbias);
-    auto out = hbias
-        ? torch::conv1d(inp_3d, ker, bias_t, {stride}, {pad}, /*dilation=*/{1}, groups)
-        : torch::conv1d(inp_3d, ker, {}, {stride}, {pad}, {1}, groups);
-    return from_tensor(out.squeeze(0));
-}
-
-TensorHandle tensor_conv2d_grouped(TensorHandle hinput, TensorHandle hkernel,
-                                   TensorHandle hbias, int padH, int padW,
-                                   int strideH, int strideW, int groups) {
-    auto& inp = *to_tensor(hinput);
-    auto& ker = *to_tensor(hkernel);
-    auto inp_4d = inp.unsqueeze(0);
-    at::Tensor bias_t;
-    if (hbias) bias_t = *to_tensor(hbias);
-    auto out = hbias
-        ? torch::conv2d(inp_4d, ker, bias_t, {strideH, strideW}, {padH, padW}, {1, 1}, groups)
-        : torch::conv2d(inp_4d, ker, {}, {strideH, strideW}, {padH, padW}, {1, 1}, groups);
-    return from_tensor(out.squeeze(0));
-}
-
-TensorHandle tensor_avg_pool1d(TensorHandle hinput, int kL, int stride) {
-    auto& inp = *to_tensor(hinput);
-    auto inp_3d = inp.unsqueeze(0);
-    auto out = torch::avg_pool1d(inp_3d, {kL}, {stride});
-    return from_tensor(out.squeeze(0));
-}
-
-TensorHandle tensor_avg_pool2d(TensorHandle hinput, int kH, int kW, int strideH, int strideW) {
-    auto& inp = *to_tensor(hinput);
-    auto inp_4d = inp.unsqueeze(0);
-    auto out = torch::avg_pool2d(inp_4d, {kH, kW}, {strideH, strideW});
-    return from_tensor(out.squeeze(0));
-}
-
-TensorHandle tensor_conv1d(TensorHandle hinput, TensorHandle hkernel,
-                           TensorHandle hbias, int pad, int stride) {
-    auto& inp = *to_tensor(hinput);
-    auto& ker = *to_tensor(hkernel);
-    auto inp_3d = inp.unsqueeze(0);
-    at::Tensor bias_t;
-    if (hbias) bias_t = *to_tensor(hbias);
-    auto out = hbias
-        ? torch::conv1d(inp_3d, ker, bias_t, /*stride=*/{stride}, /*padding=*/{pad})
-        : torch::conv1d(inp_3d, ker, /*bias=*/{}, /*stride=*/{stride}, /*padding=*/{pad});
-    return from_tensor(out.squeeze(0));
-}
-
-TensorHandle tensor_max_pool1d(TensorHandle hinput, int kL, int stride) {
-    auto& inp = *to_tensor(hinput);
-    auto inp_3d = inp.unsqueeze(0);
-    auto out = torch::max_pool1d(inp_3d, {kL}, {stride});
-    return from_tensor(out.squeeze(0));
-}
+ * Sort ops (argsort, cumprod) live in backend_torch/linear/sort/.
+ *
+ * Conv / pool ops (conv1d/2d + circular + transpose + grouped +
+ * max_pool1d/2d[_batched] + avg_pool1d/2d) live in
+ * backend_torch/conv/. */
 
 TensorHandle tensor_create_param_3d(int d0, int d1, int d2, double* data) {
     return make_param_leaf(data, {(int64_t)d0, (int64_t)d1, (int64_t)d2}, torch::kFloat64);
-}
-
-TensorHandle tensor_conv2d(TensorHandle hinput, TensorHandle hkernel,
-                           TensorHandle hbias, int padH, int padW,
-                           int strideH, int strideW) {
-    auto& inp = *to_tensor(hinput);   /* [inC, H, W] */
-    auto& ker = *to_tensor(hkernel);  /* [outC, inC, kH, kW] */
-
-    /* torch::conv2d expects [N, C, H, W] — add batch dim */
-    auto inp_4d = inp.unsqueeze(0);
-    at::Tensor bias_t;
-    if (hbias) bias_t = *to_tensor(hbias);
-
-    auto out = hbias
-        ? torch::conv2d(inp_4d, ker, bias_t,
-              /*stride=*/{strideH, strideW}, /*padding=*/{padH, padW})
-        : torch::conv2d(inp_4d, ker, /*bias=*/{},
-              /*stride=*/{strideH, strideW}, /*padding=*/{padH, padW});
-
-    return from_tensor(out.squeeze(0));  /* remove batch dim */
-}
-
-TensorHandle tensor_max_pool2d(TensorHandle hinput, int kH, int kW,
-                               int strideH, int strideW) {
-    auto& inp = *to_tensor(hinput);  /* [C, H, W] */
-    auto inp_4d = inp.unsqueeze(0);  /* [1, C, H, W] */
-    auto out = torch::max_pool2d(inp_4d, {kH, kW}, {strideH, strideW});
-    return from_tensor(out.squeeze(0));
-}
-
-/* Batched conv2d — takes [B, inC, H, W] directly, returns [B, outC, oH, oW].
-   torch::conv2d is already batch-native; the unsqueeze/squeeze dance in
-   tensor_conv2d above is just for the per-sample API. */
-TensorHandle tensor_conv2d_batched(TensorHandle hinput, TensorHandle hkernel,
-                                    TensorHandle hbias, int padH, int padW,
-                                    int strideH, int strideW) {
-    auto& inp = *to_tensor(hinput);   /* [B, inC, H, W] */
-    auto& ker = *to_tensor(hkernel);  /* [outC, inC, kH, kW] */
-    at::Tensor bias_t;
-    if (hbias) bias_t = *to_tensor(hbias);
-    auto out = hbias
-        ? torch::conv2d(inp, ker, bias_t,
-              /*stride=*/{strideH, strideW}, /*padding=*/{padH, padW})
-        : torch::conv2d(inp, ker, /*bias=*/{},
-              /*stride=*/{strideH, strideW}, /*padding=*/{padH, padW});
-    return from_tensor(out);
-}
-
-/* Batched max-pool2d — takes [B, C, H, W] directly, returns [B, C, oH, oW]. */
-TensorHandle tensor_max_pool2d_batched(TensorHandle hinput, int kH, int kW,
-                                        int strideH, int strideW) {
-    auto& inp = *to_tensor(hinput);  /* [B, C, H, W] */
-    auto out = torch::max_pool2d(inp, {kH, kW}, {strideH, strideW});
-    return from_tensor(out);
 }
 
 /* Shape ops live in backend_torch/linear/shape/.
