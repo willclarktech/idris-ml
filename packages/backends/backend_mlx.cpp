@@ -57,6 +57,21 @@ static void mlx_backend_init(void) {
 }
 
 /* ================================================================
+   Hot-path scalar constants
+   ================================================================
+   Lazy-init via Meyers' singletons so they pick up whatever default
+   device is configured by mlx_backend_init. Sharing a constant
+   across calls is safe — mlx arrays are immutable from an op's
+   perspective; ops produce new arrays rather than mutating inputs.
+   Avoid using these as the rhs of mx::outer or similar ops where
+   persistent operands hit a documented slow path (see gotchas.md). */
+namespace {
+inline const mx::array& kF32_ZERO() { static const mx::array v(0.0f, mx::float32); return v; }
+inline const mx::array& kF32_ONE()  { static const mx::array v(1.0f, mx::float32); return v; }
+inline const mx::array& kF32_HALF() { static const mx::array v(0.5f, mx::float32); return v; }
+}
+
+/* ================================================================
    Stub macro
    ================================================================ */
 
@@ -517,9 +532,11 @@ TensorHandle tensor_gelu(TensorHandle h) {
     auto t = (Tensor*)h;
     // GELU tanh approx: x * 0.5 * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))
     auto x = t->data;
-    auto c = mx::array(0.7978845608028654, mx::float32);
-    auto inner = mx::multiply(c, mx::add(x, mx::multiply(mx::array(0.044715, mx::float32), mx::power(x, mx::array(3, mx::float32)))));
-    auto result = mx::multiply(mx::multiply(mx::array(0.5, mx::float32), x), mx::add(mx::array(1.0, mx::float32), mx::tanh(inner)));
+    static const mx::array kGeluC(0.7978845608028654, mx::float32);
+    static const mx::array kGeluC3(0.044715, mx::float32);
+    static const mx::array kThree(3, mx::float32);
+    auto inner = mx::multiply(kGeluC, mx::add(x, mx::multiply(kGeluC3, mx::power(x, kThree))));
+    auto result = mx::multiply(mx::multiply(kF32_HALF(), x), mx::add(kF32_ONE(), mx::tanh(inner)));
     auto r = new Tensor(result, t->requires_grad);
     if (t->requires_grad) tape_append(OP_GELU, r, t, nullptr, 0);
     return (TensorHandle)r;
@@ -558,10 +575,8 @@ TensorHandle tensor_softplus(TensorHandle h) {
     // and the whole chain becomes NaN at the working point. The stable form
     // is correct for all x: for large positive x it reduces to x, for large
     // negative x it reduces to exp(x) ≈ 0.
-    auto zero = mx::array(0.0f, mx::float32);
-    auto one  = mx::array(1.0f, mx::float32);
-    auto result = mx::add(mx::maximum(t->data, zero),
-                          mx::log(mx::add(one, mx::exp(mx::negative(mx::abs(t->data))))));
+    auto result = mx::add(mx::maximum(t->data, kF32_ZERO()),
+                          mx::log(mx::add(kF32_ONE(), mx::exp(mx::negative(mx::abs(t->data))))));
     auto r = new Tensor(result, t->requires_grad);
     if (t->requires_grad) tape_append(OP_SOFTPLUS, r, t, nullptr, 0);
     return (TensorHandle)r;
@@ -880,9 +895,9 @@ TensorHandle tensor_dropout(TensorHandle hinput, double p, int training, unsigne
     // Generate bernoulli mask and scale by 1/(1-p)
     // MLX random only supports float32 on Metal — generate in f32, compare, cast result to f64
     double scale = 1.0 / (1.0 - p);
-    auto rnd = mx::random::uniform(mx::array(0.0f), mx::array(1.0f), inp->data.shape(), mx::float32);
+    auto rnd = mx::random::uniform(kF32_ZERO(), kF32_ONE(), inp->data.shape(), mx::float32);
     auto keep = mx::greater(rnd, mx::array((float)p, mx::float32));
-    auto mask = mx::astype(mx::where(keep, mx::array(scale, mx::float32), mx::array(0.0, mx::float32)), mx::float32);
+    auto mask = mx::astype(mx::where(keep, mx::array(scale, mx::float32), kF32_ZERO()), mx::float32);
     auto result = mx::multiply(inp->data, mask);
 
     auto r = new Tensor(result, inp->requires_grad);
@@ -989,8 +1004,7 @@ TensorHandle tensor_gru_cell(TensorHandle hih, TensorHandle hhh,
     auto z = mx::sigmoid(mx::add(ih_z, hh_z));
     auto r_gate = mx::sigmoid(mx::add(ih_r, hh_r));
     auto n = mx::tanh(mx::add(ih_n, mx::multiply(r_gate, hh_n)));
-    auto one = mx::array(1.0, mx::float32);
-    auto result = mx::add(mx::multiply(mx::subtract(one, z), n),
+    auto result = mx::add(mx::multiply(mx::subtract(kF32_ONE(), z), n),
                           mx::multiply(z, prev->data));
 
     bool rg = ih->requires_grad || hh->requires_grad || prev->requires_grad;
