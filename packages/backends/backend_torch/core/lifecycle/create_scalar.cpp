@@ -4,11 +4,18 @@
  * (routes to f64, current historical behaviour). The dtype is selected
  * by a torch::ScalarType built locally; the result is constructed as a
  * persistent tensor (not tracked in the intermediates vector — survives
- * optimizer_step). */
+ * optimizer_step). Migrates to `g_torch_target_device` (set at dylib
+ * load from TORCH_DEVICE) so torch-mps / torch-cuda builds land scalars
+ * on the right hardware — without this the streamed-path scalars
+ * silently stayed on CPU regardless of TORCH_DEVICE. requires_grad set
+ * AFTER cast+move so the result is a leaf. */
 #include "../../tensor.h"
+
+extern c10::Device g_torch_target_device;
 
 static TensorHandle tensor_create_scalar_impl(double value, int requires_grad, torch::ScalarType dt) {
     auto t = torch::tensor(value, torch::dtype(dt));
+    if (g_torch_target_device != at::kCPU) t = t.to(g_torch_target_device);
     if (requires_grad) t.requires_grad_(true);
     return from_tensor_persistent(std::move(t));
 }

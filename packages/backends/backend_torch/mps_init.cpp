@@ -1,23 +1,51 @@
-/* MPS eager-init — torch.
+/* MPS eager-init — torch + process-wide target-device pin.
  *
- * libtorch lazily initializes its MPS allocator + Metal command queue on
- * the first tensor that touches MPS. In multi-backend builds where cross-
- * backend tensor transfers run early (test-multi's Transfer suite), that
- * lazy init races macOS work-queue threads (MTLDevice setup, MPS
- * allocator pool ramp-up) and sporadically aborts the process with
- * SIGSEGV inside libtorch's `at::native::mps::*` paths. We saw this
- * empirically: re-ordering tests so an intra-torch CPU→MPS migration
- * runs FIRST dropped the crash rate from 100% to ~3%. Forcing the
- * init at dylib-load time (here) closes the window entirely — by the
- * time any Idris-side code calls `tensor_to_device_torch(h, "mps")`,
- * the MPS subsystem is already warm.
+ * Two co-located dylib-load surfaces:
  *
- * Cost: one MPS tensor alloc+dealloc at process start (microseconds).
- * Skipped if torch wasn't built with MPS support or if no MPS device
- * is available on this host (Linux CI, non-Apple-Silicon Mac).
+ * 1. MPS eager-init. libtorch lazily initializes its MPS allocator +
+ *    Metal command queue on the first tensor that touches MPS. In
+ *    multi-backend builds where cross-backend tensor transfers run
+ *    early (test-multi's Transfer suite), that lazy init races macOS
+ *    work-queue threads (MTLDevice setup, MPS allocator pool ramp-up)
+ *    and sporadically aborts the process with SIGSEGV inside
+ *    libtorch's `at::native::mps::*` paths. Forcing the init at
+ *    dylib-load time closes the window entirely. Cost: one MPS tensor
+ *    alloc+dealloc at process start (microseconds). Skipped if torch
+ *    wasn't built with MPS support or if no MPS device is available.
+ *
+ * 2. Process-wide target-device pin (`g_torch_target_device`). The
+ *    streamed creation path (`tensor_create_*_streamed` → dtag
+ *    dispatchers → `tensor_create_*_{f32,f64}` / `make_param_leaf`)
+ *    has no per-call device argument; before this constructor landed,
+ *    every streamed-created tensor stayed on CPU regardless of
+ *    `TORCH_DEVICE`, silently degrading `BACKEND=torch TORCH_DEVICE=mps`
+ *    to CPU-resident layer params + inputs. We observe `TORCH_DEVICE`
+ *    once at dylib load and stash the resolved `c10::Device` in a
+ *    process-wide variable; the creators consult it when staging the
+ *    cast+move pair. Mirrors the legacy `prim__toDeviceTorch` wrap on
+ *    `UserDeviceCore.primCreate*` and the `UserDeviceTraining`
+ *    non-streamed `primCreate{Param,State}*` methods, but in C so the
+ *    streamed path gets the same treatment without an FFI signature
+ *    change.
+ *
+ *    Resolution order: env `TORCH_DEVICE` (string: "cpu" / "mps" /
+ *    "cuda" / "cuda:N") → if unavailable on this host (e.g. mps with
+ *    no MPS, cuda:N out of range), libtorch's `.to()` throws at the
+ *    first create — the Idris EAFP gate (toDeviceChecked /
+ *    builtinDevices probe) surfaces that as `Left DeviceError`. If
+ *    `TORCH_DEVICE` is unset we leave the default at `at::kCPU`.
  */
 #include <torch/torch.h>
 #include <ATen/ATen.h>
+#include <cstdlib>
+#include <cstring>
+#include <string>
+
+/* Process-wide pin observed by the streamed-path creators in
+   dtype_dispatch.cpp. Set once at dylib load from `TORCH_DEVICE`; never
+   mutated afterwards. Default `at::kCPU` keeps the no-env path identical
+   to the pre-existing behaviour. */
+c10::Device g_torch_target_device = at::kCPU;
 
 __attribute__((constructor))
 static void torch_mps_eager_init(void) {
@@ -38,4 +66,20 @@ static void torch_mps_eager_init(void) {
         // shouldn't prevent dylib load. Subsequent Idris-side MPS use
         // will surface the real error.
     }
+}
+
+__attribute__((constructor))
+static void torch_target_device_init(void) {
+    const char* env = std::getenv("TORCH_DEVICE");
+    if (!env || *env == '\0') return;            // leave at kCPU
+    if (std::strcmp(env, "cpu") == 0) {
+        g_torch_target_device = at::kCPU;
+    } else if (std::strcmp(env, "mps") == 0) {
+        g_torch_target_device = at::Device(at::DeviceType::MPS);
+    } else if (std::strncmp(env, "cuda", 4) == 0) {
+        // accepts "cuda" or "cuda:N"
+        g_torch_target_device = at::Device(std::string(env));
+    }
+    // Unknown strings fall through silently — the first .to() will throw
+    // and the EAFP gate surfaces it.
 }

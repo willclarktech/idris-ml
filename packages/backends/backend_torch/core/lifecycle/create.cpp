@@ -3,19 +3,29 @@
  * Per-dtype creators (`_f32` / `_f64`) plus the legacy unsuffixed entry
  * (routes to f64). The static impl uses libtorch's from_blob (zero-copy
  * view over the caller's buffer) and .clone() so the tensor owns its
- * storage. .to(dt) casts to the target dtype when not f64. Result is
- * persistent — survives optimizer_step. */
+ * storage. Cast + device migration are combined into a single .to(opts)
+ * call when either differs from F64-on-CPU — keeps the leaf transition
+ * atomic (cast/move-before-requires_grad). Migrates to
+ * `g_torch_target_device` (set at dylib load from TORCH_DEVICE) so
+ * torch-mps / torch-cuda builds land tensors on the right hardware. */
 #include "../../tensor.h"
 
 #include <vector>
+
+extern c10::Device g_torch_target_device;
 
 static TensorHandle tensor_create_impl(double* data, int* shape, int rank,
                                        int requires_grad, torch::ScalarType dt) {
     std::vector<int64_t> dims(rank);
     for (int i = 0; i < rank; i++) dims[i] = shape[i];
-    auto opts = torch::TensorOptions().dtype(torch::kFloat64);
-    auto t = torch::from_blob(data, dims, opts).clone();
-    if (dt != torch::kFloat64) t = t.to(dt);
+    auto opts0 = torch::TensorOptions().dtype(torch::kFloat64);
+    auto t = torch::from_blob(data, dims, opts0).clone();
+    bool need_cast = dt != torch::kFloat64;
+    bool need_move = g_torch_target_device != at::kCPU;
+    if (need_cast || need_move) {
+        auto opts = torch::TensorOptions().dtype(dt).device(g_torch_target_device);
+        t = t.to(opts);
+    }
     if (requires_grad) t.requires_grad_(true);
     return from_tensor_persistent(std::move(t));
 }
