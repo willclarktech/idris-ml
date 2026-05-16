@@ -303,35 +303,46 @@ trailing `n_consts` entries.
 
 ### Results
 
-| example | CPU eager | CPU compile | Δ | GPU eager | GPU compile | Δ |
-|---|---:|---:|---:|---:|---:|---:|
-| supervised 1000 ep | 1.57 s | 1.10 s | **−30%** | 5.69 s | 5.73 s | +0.7% |
-| lstm 50 ep | 5.12 s | 3.73 s | **−27%** | 13.94 s | 16.23 s | +16% |
-| lstm 200 ep | — | — | — | 46.01 s | 47.21 s | +2.6% |
-| mnist 1 ep / 1000 ex | 1:45.6 | 1:36.8 | **−8%** | 2:09.7 | 2:03.1 | **−5%** |
-| rnn (early stop) | bit-identical loss/epochs | | | | | |
-| gru (early stop) | bit-identical loss/epochs | | | | | |
-| transformer | bit-identical sort_acc=6/6 | | | | | |
+**Important measurement caveat**: the first round of comparisons
+were ad-hoc `time make ...` wrappers that bounced around the VM
+noise envelope (±15-20% per `feedback_vm_perf_noise`). The
+canonical numbers below are from `scripts/perf-run.sh` logged to
+`perf-log.jsonl` (commit `1abc206`+); back-fill on 2026-05-12
+showed most ad-hoc CPU deltas collapsed within noise. Treat the
+ad-hoc column as background; the perf-run.sh column is what
+ships.
 
-### Reading
+| example | path | CPU eager (s) | CPU compile (s) | CPU Δ | GPU eager (s) | GPU compile (s) | GPU Δ |
+|---|---|---:|---:|---:|---:|---:|---:|
+| supervised 1000 ep | ad-hoc `time make` | 1.57 | 1.10 | −30% | 5.69 | 5.73 | +0.7% |
+| supervised 1000 ep | perf-run.sh | 8.56 | 8.52 | −0.5% (noise) | 13.98 | 12.20 | −13% (borderline) |
+| lstm 50 ep | ad-hoc | 5.12 | 3.73 | −27% | 13.94 | 16.23 | +16% |
+| lstm 50 ep | perf-run.sh | 9.64 | 9.32 | −3% (noise) | 12.79 | 13.09 | +2% (noise) |
+| lstm 200 ep | ad-hoc | — | — | — | 46.01 | 47.21 | +2.6% (noise) |
+| lstm 200 ep | perf-run.sh | — | — | — | 44.24 | 45.15 | +2% (noise) |
+| mnist 1 ep / 1000 ex | ad-hoc | 105.6 | 96.8 | −8% | 129.7 | 123.1 | −5% |
+| mnist 1 ep / 1000 ex | perf-run.sh | 93.0 | 103.6 | +11% (borderline regression) | 128.9 | 131.5 | +2% (noise) |
+| rnn defaults | perf-run.sh | 143.6 | 143.3 | −0.2% (noise) | — | — | — |
+| gru defaults | perf-run.sh | 163.0 | 168.9 | +3.6% (noise) | — | — | — |
+| transformer defaults | perf-run.sh | 110.8 | 119.7 | +8% (noise) | — | — | — |
 
-- **CPU compile is a consistent win** (8-30%) across all measured
-  fixed-architecture examples. mlx's lazy graph + auto-cache on
-  `std::function` targets does the heavy lifting; explicit
-  `detail::compile` fun_id caching not needed at this scale.
-- **GPU compile breaks roughly even** at our example sizes
-  (range +2.6% to −5%). The 50-ep LSTM regression of +16%
-  shrank to +2.6% at 200 ep — confirming the gap is
-  compile-overhead-not-yet-amortized rather than a fundamental
-  problem with the integration. With a GPU-friendly workload
-  (TODO: filed) the win would be unambiguous.
-- **Correctness is solid**: bit-identical convergence on
-  supervised, rnn, lstm, gru, transformer, lstm-GPU; ULP-level
-  drift on mnist-CPU (compile reorders Conv2D backward fp
-  accumulation, within float32 noise — models converge
-  equivalently to the same accuracy).
-- **No regression of the eager path** verified across all five
+### Reading (revised after the perf-run.sh back-fill)
+
+- **MLX_COMPILE is roughly a wash at our example scales**, on both
+  CPU and GPU. The earlier ad-hoc "consistent 8-30% CPU win" claim
+  was VM noise — confirmed by the perf-run.sh back-fill where every
+  CPU cell except mnist landed within the ±15-20% noise envelope,
+  and mnist swung from −8% (ad-hoc) to +11% (logged). Both are
+  noise.
+- **Correctness is solid**: bit-identical convergence on supervised,
+  rnn, lstm, gru, transformer (CPU and GPU); ULP-level drift on
+  mnist-CPU (compile reorders Conv2D backward fp accumulation,
+  within float32 noise — accuracy preserved).
+- **No regression of the eager path** verified across all
   per-example smoke pairs.
+- **The earlier overclaim is a lesson on the VM noise feedback
+  memory**: I should have repeat-measured before reporting deltas
+  in the ±15-20% range. Logged it back honestly.
 
 ### Decision
 
