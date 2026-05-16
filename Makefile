@@ -286,6 +286,16 @@ test-gym: install-gym
 	cd packages/idris-gym/test && idris2 --build test.ipkg
 	$(STDBUF) ./packages/idris-gym/test/build/exec/idris-gym-test
 
+# Microbench for idris-gym hot paths (RNG, Blackjack obs, env step+observe).
+# Pure Idris, no backend dependency. Useful for Job 4-style env-side
+# perf experiments where single-run RL training is too noisy.
+#
+# Pass bench names (rng, blackjack, pendulum, acrobot, taxi, cliffwalking)
+# to run a subset, e.g. `make bench-gym BENCH_ARGS=rng`. Default runs all.
+bench-gym: install-gym
+	cd packages/idris-gym/test && idris2 --build bench.ipkg
+	$(STDBUF) ./packages/idris-gym/test/build/exec/idris-gym-bench $(BENCH_ARGS)
+
 # Unit tests for idris-ml-examples (runs moved Test.Generate)
 test-examples-unit: install-examples
 	cd packages/idris-ml-examples/test && idris2 --build test.ipkg

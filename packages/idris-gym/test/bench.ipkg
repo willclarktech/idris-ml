@@ -1,0 +1,11 @@
+package idris-gym-bench
+
+sourcedir = "src"
+
+depends = contrib
+        , idris-gym
+
+modules = Bench
+
+main = Bench
+executable = idris-gym-bench
