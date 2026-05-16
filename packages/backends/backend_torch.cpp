@@ -62,52 +62,10 @@ TensorHandle from_tensor_persistent(at::Tensor t) {
    set + free_intermediates() impl live in
    backend_torch/training/intermediates.cpp. */
 
-/* ---------- Accessors ---------- */
-
-/* tensor_item / tensor_item_1d / tensor_item_2d extracted to
-   backend_torch/core/lifecycle/. tensor_item_1d / item_2d definitions
-   that lived below are also gone. */
-
-int tensor_numel(TensorHandle h) {
-    return static_cast<int>(to_tensor(h)->numel());
-}
-
-int tensor_dim(TensorHandle h) {
-    return static_cast<int>(to_tensor(h)->dim());
-}
-
-int tensor_size(TensorHandle h, int dim) {
-    return static_cast<int>(to_tensor(h)->size(dim));
-}
-
-void tensor_to_doubles(TensorHandle h, double* out) {
-    // .cpu() before .data_ptr<>() — readback to host memory needs the
-    // tensor on CPU. F64 on MPS isn't supported at construction so the
-    // .to(kFloat64) for an MPS source goes through .cpu() first.
-    auto t = to_tensor(h)->cpu().to(torch::kFloat64).contiguous();
-    std::memcpy(out, t.data_ptr<double>(), t.numel() * sizeof(double));
-}
-
-void tensor_to_floats(TensorHandle h, float* out) {
-    auto t = to_tensor(h)->cpu().to(torch::kFloat32).contiguous();
-    std::memcpy(out, t.data_ptr<float>(), t.numel() * sizeof(float));
-}
-
-const char* tensor_dtype_name(TensorHandle h) {
-    switch (to_tensor(h)->scalar_type()) {
-        case torch::kFloat32:  return "F32";
-        case torch::kFloat64:  return "F64";
-        case torch::kBFloat16: return "BF16";
-        case torch::kHalf:     return "F16";
-        case torch::kChar:     return "I8";
-        case torch::kShort:    return "I16";
-        case torch::kInt:      return "I32";
-        case torch::kLong:     return "I64";
-        case torch::kByte:     return "U8";
-        case torch::kBool:     return "BOOL";
-        default:               return "F64";
-    }
-}
+/* Accessors (numel / dim / size / to_doubles / to_floats / to_int64 /
+ * dtype_name) live in backend_torch/core/lifecycle/accessors.cpp.
+ * tensor_item / tensor_item_1d / tensor_item_2d live in their own
+ * core/lifecycle/ TUs. */
 
 /* ---------- Arithmetic ---------- */
 
@@ -177,16 +135,7 @@ extern "C" void _dbg_dump_param_grads_if_enabled_torch(void);
    grad_write / zero_grad / data_read / data_write / load_doubles /
    load_int64) through its port adapter at the bottom of this file. */
 
-// Byte-exact I64 readout — bypasses the double pivot so values
-// above 2^53 survive. The `.to(kInt64)` is a no-op when the source
-// is already I64; if a caller asks for int64 readout on a non-I64
-// tensor we still narrow through torch's standard truncating cast
-// (matches the implicit cast in `tensor_to_doubles` for the same
-// case). `.cpu()` mirrors the device handling in `tensor_to_doubles`.
-void tensor_to_int64(TensorHandle h, int64_t* out) {
-    auto t = to_tensor(h)->cpu().to(torch::kInt64).contiguous();
-    std::memcpy(out, t.data_ptr<int64_t>(), t.numel() * sizeof(int64_t));
-}
+/* tensor_to_int64 lives in backend_torch/core/lifecycle/accessors.cpp. */
 
 /* tensor_subtract_scalar_inplace lives in
    backend_torch/training/ntm_specific.cpp. */
