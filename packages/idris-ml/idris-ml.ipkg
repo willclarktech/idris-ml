@@ -12,8 +12,10 @@ modules = Compat.Random
         , DataLoader
         , DataPoint
         , Device
-        , Device.Proto
-        , Device.ProtoWide
+        , Device.Core
+        , Device.Mlx
+        , Device.Tape
+        , Device.Torch
         , Floating
         , GradMode
         , Hpo
