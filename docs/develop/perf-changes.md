@@ -1683,3 +1683,75 @@ overhead.
   / `modNatNZ` are used per-step): `Layer/Transformer.idr:81` (this
   finding) and `Train.idr:246` (eval-every-N-epochs, called per epoch
   not per step, so negligible)
+
+### 2026-05-14 — Transformer: cache PE + Int arith in posEncVal → 22× GptLarge speedup — `<commit>`
+
+**Plan job**: Path B Fix 1 + Fix 2. Implementation of the two fixes
+proposed in the immediately-preceding `perf-changes.md` entry
+("Chez source profile localises 7.6 ms-per-op cost..."):
+
+1. **Fix A — cache positional encoding** on `TransformerState`. New
+   field `peCached : TMat seqLen dModel d g`, built once in
+   `transformerLayer`, reused by `applyTransformer` (direct add) and
+   `applyTransformerBatch` (reshape-to-3D, broadcast-add, reshape-back).
+   `freezeLayer` / `unfreezeLayer` thread it through unchanged.
+
+2. **Fix B — `Int` arithmetic in `posEncVal`**. Keeps the public
+   `Nat -> Nat -> Nat -> Double` signature (per the discussion: "can
+   we maybe get some of the benefits of the Nat interface by casting
+   internally to Int?"), casts `dim` to `Int` once at the function
+   entry, then uses `Int div`/`Int mod` for the parity / half-index
+   computation. Avoids the recursive Peano walks even on the one-time
+   PE construction.
+
+**Impact** — GptLarge dModel=256, 5 epochs, A/B vs the 9000 ms/ep
+baseline:
+
+| Backend / Device | Wall before | Wall after | Speedup | val_bpc match |
+|---|---:|---:|---:|---|
+| mlx CPU          | 9000 ms/ep  | **400 ms/ep**  | **22.5×** | bit-identical (4.746685288232547) |
+| mlx GPU          | 9200 ms/ep  | **400 ms/ep**  | **23×**   | ~1e-7 fp32 noise (4.746686877352244) |
+| torch CPU        | 9400 ms/ep  | **600 ms/ep**  | **15.7×** | bit-identical (4.746685288232547) |
+| tape             | 11600 ms/ep | **1600 ms/ep** | **7.3×**  | ~3e-7 noise (4.746688438790350) |
+
+The wall reductions correspond to: (Fix A) eliminating ~1M
+`posEncVal` calls per epoch — these were rebuilding the PE tensor on
+every forward pass — and (Fix B) eliminating the recursive Peano
+walks inside each `posEncVal` call. Together: ~3.9 billion Nat-recursive
+operations/epoch removed. Idris-2 unit tests (`make test`) still green.
+
+**Architecture audit motivated by this finding**:
+
+The same anti-pattern (recursive Nat arithmetic in inner loops or
+per-step recomputation of deterministic state) likely exists
+elsewhere. Candidate audit targets, by likely impact:
+
+- **NTM / DNC content-based addressing** (`Layer/Ntm.idr`,
+  `Layer/Dnc.idr`) — cosine-similarity over the memory matrix could
+  have `Nat` indexing in inner loops. NTM examples are listed at
+  9.8-14.2× PyTorch ratio (`perf-baseline.md`), some fraction of
+  which may be this class of bug
+- **Convolution kernel index computations** (`Layer/Conv.idr`) —
+  similar profile risk
+- **RNN / LSTM / GRU per-step indexing** (`Layer/Rnn.idr`,
+  `Layer/Lstm.idr`, `Layer/Gru.idr`) — less likely since the cell
+  body is mostly delegated to fused C ops, but the per-step Vect
+  walk over time-steps could hide Nat ops
+- **LayerNorm / BatchNorm per-feature loops** — less likely, mostly
+  fused C
+- **Any per-batch loop that walks shape-derived Nat values** —
+  inspect via the Chez profile recipe (`compile-profile 'source`)
+
+**Process change**: bake a `make profile-<example>` target into the
+Makefile that uses the `compile-profile 'source` recipe to produce
+a per-source-line execution heatmap. The 20-minute setup is now
+zero-minute, and the next "where does the wall go?" question gets
+answered immediately.
+
+**Cross-references**:
+- `perf-log.jsonl` entries timestamped 2026-05-14T18:52 (post-Fix-B
+  mlx CPU 7400 ms/ep — Fix B alone) and 2026-05-14T18:57 (post-Fix-A+B
+  on mlx CPU 400, mlx GPU 400, torch 600, tape 1600)
+- The Chez profile recipe (commands: `compile-profile 'source` +
+  `profile-dump-html` after main) — write up as
+  `docs/develop/chez-profiling.md` in a follow-up

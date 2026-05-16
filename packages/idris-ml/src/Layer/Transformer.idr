@@ -64,6 +64,11 @@ data TransformerState :
     Vect numBlocks (BlockState dModel numHeads headDim d g) ->
     LayerNormState dModel dModel d g ->                -- final norm
     LinearState dModel vocabSize d g ->                -- output projection
+    -- Cached positional encoding `[seqLen, dModel]` — sinusoidal, shape-only,
+    -- non-learnable. Built once at construction; forward passes reuse it
+    -- instead of recomputing via `writePE` (which was the 1B-Nat-ops/epoch
+    -- bottleneck per the 2026-05-14 profile diagnostic in perf-changes.md).
+    TMat seqLen dModel d g ->
     TransformerState seqLen dModel numHeads headDim numBlocks vocabSize
                        seqLen (seqLen * vocabSize) d g
 
@@ -72,13 +77,24 @@ data TransformerState :
 -- Sinusoidal Positional Encoding (matches V1)
 ----------------------------------------------------------------------
 
+||| Cast `Nat` args to `Int` internally before doing `div`/`mod`. The stdlib
+||| `Data.Nat.divNat` / `modNatNZ` compile to recursive Peano walks
+||| (`Data.Nat.lte` / `divC-39` / `modC-39`) — even with `Nat` stored as
+||| `Integer` at runtime, the pattern-match-on-`S k`-defined functions
+||| still recursively decrement. Profile showed 3.9B such operations per
+||| epoch on GptLarge just from this call site
+||| (`docs/develop/perf-changes.md` 2026-05-14 entry). Plain `Int div`/`Int
+||| mod` compile to single CPU instructions. We keep the `Nat` interface
+||| (call sites pass shape-derived `Nat` values directly) and pay the
+||| cast once.
 posEncVal : Nat -> Nat -> Nat -> Double
 posEncVal dModel pos dim =
-  let p = cast {to=Double} pos
-      i = cast {to=Double} (div dim 2)
+  let dimI = the Int (cast dim)
+      p = cast {to=Double} pos
+      i = cast {to=Double} (dimI `div` 2)
       dm = cast {to=Double} dModel
       angle = p / pow 10000.0 (2.0 * i / dm)
-  in if modNatNZ dim 2 ItIsSucc == 0 then sin angle else cos angle
+  in if (dimI `mod` 2) == 0 then sin angle else cos angle
 
 writePE : (dModel : Nat) -> AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
 writePE dModel buf pos dim sLen dMod =
@@ -162,17 +178,14 @@ applyTransformer : {0 d : Device} -> UserDeviceTape d => {seqLen, dModel, numHea
                      TVec seqLen d g ->
                      TVec (seqLen * vocabSize) d g
 applyTransformer {seqLen} {dModel} {headDim} {vocabSize}
-                   (MkTransformer embedW blocks (MkLayerNorm nfg nfb) vocabProj) tokens =
+                   (MkTransformer embedW blocks (MkLayerNorm nfg nfb) vocabProj peCached) tokens =
   let sI = cast {to=Int} seqLen
       dI = cast {to=Int} dModel
       vI = cast {to=Int} vocabSize
       hdI = cast {to=Int} headDim
       embFlat = prim__embedding embedW.tensorPtr tokens.tensorPtr sI dI
       embedded = prim__reshape2d embFlat sI dI
-      peBuf = prim__allocDoubles (sI * dI)
-      peBuf' = writePE dModel peBuf 0 0 sI dI
-      peT = prim__createState2d sI dI peBuf'
-      h0 = prim__add embedded peT
+      h0 = prim__add embedded peCached.tensorPtr
       hN = foldBlocks blocks h0 sI hdI
       normedFinal' = prim__layerNorm2d hN nfg.tensorPtr nfb.tensorPtr 1.0e-5
       vpW = vocabProj.weightT.tensorPtr
@@ -268,19 +281,23 @@ applyTransformerBatch :
   Tensor [b, seqLen] d g ->
   Tensor [b, seqLen * vocabSize] d g
 applyTransformerBatch {seqLen} {dModel} {headDim} {vocabSize} {b}
-                        (MkTransformer embedW blocks (MkLayerNorm nfg nfb) vocabProj)
+                        (MkTransformer embedW blocks (MkLayerNorm nfg nfb) vocabProj peCached)
                         tokens =
-  let bsI = cast {to=Int} (b * seqLen)
+  let bI = cast {to=Int} b
+      bsI = cast {to=Int} (b * seqLen)
       sI = cast {to=Int} seqLen
       dI = cast {to=Int} dModel
       vI = cast {to=Int} vocabSize
       flatTokens = prim__reshape1d tokens.tensorPtr bsI
       embFlat = prim__embedding embedW.tensorPtr flatTokens bsI dI
       embedded = prim__reshape2d embFlat bsI dI
-      peBuf = prim__allocDoubles (bsI * dI)
-      peBuf' = writePEBatch dModel peBuf 0 0 bsI dI sI
-      peT = prim__createState2d bsI dI peBuf'
-      h0 = prim__add embedded peT
+      -- Broadcast-add cached PE [seqLen, dModel] across the batch dim:
+      -- reshape to [b, seqLen, dModel], add (PE broadcasts on leading dim),
+      -- reshape back to [b*seqLen, dModel]. Backends auto-broadcast in the
+      -- backward replay too (mlx::vjp / torch autograd handle broadcast).
+      embedded3d = prim__reshape3d embedded bI sI dI
+      h0_3d = prim__add embedded3d peCached.tensorPtr
+      h0 = prim__reshape2d h0_3d bsI dI
       hN = foldBlocksBatched blocks h0 bsI sI dI
       normedFinal' = prim__layerNorm2d hN nfg.tensorPtr nfb.tensorPtr 1.0e-5
       vpW = vocabProj.weightT.tensorPtr
@@ -351,7 +368,15 @@ transformerLayer {prf} paramPrefix = do
   blks <- mkBlocks numBlocks (paramPrefix ++ "_b")
   nf <- layerNormLayer {n = dModel} (paramPrefix ++ "_nf")
   vp <- linearLayer {i = dModel} {o = vocabSize} (paramPrefix ++ "_vp")
-  pure $ MkTransformer {prf} embTV blks nf vp
+  -- Build sinusoidal positional encoding once. Forward passes reuse this
+  -- cached tensor instead of running writePE every step (which was the
+  -- 1M-posEncVal-calls/epoch bottleneck per the 2026-05-14 profile).
+  let sI = cast {to=Int} seqLen
+      peBuf = prim__allocDoubles (sI * dI)
+      peBuf' = writePE dModel peBuf 0 0 sI dI
+      peTV : TMat seqLen dModel CPU WithGrad
+      peTV = MkTensor (prim__createState2d sI dI peBuf') Nothing
+  pure $ MkTransformer {prf} embTV blks nf vp peTV
 
 
 ----------------------------------------------------------------------
@@ -433,24 +458,24 @@ unfreezeBlockVec (b :: bs) = do
 public export
 {seqLen, dModel, numHeads, headDim, numBlocks, vocabSize : Nat} ->
   LayerLike (TransformerState seqLen dModel numHeads headDim numBlocks vocabSize) where
-  applyVar st@(MkTransformer _ _ _ _) input = (st, applyTransformer st input)
-  applyVarBatch st@(MkTransformer _ _ _ _) input =
+  applyVar st@(MkTransformer _ _ _ _ _) input = (st, applyTransformer st input)
+  applyVarBatch st@(MkTransformer _ _ _ _ _) input =
     (st, applyTransformerBatch st input)
   layerPrefix _ = "tfm"
 
-  freezeLayer (MkTransformer {prf} embedW blocks finalNorm vocabProj) = do
+  freezeLayer (MkTransformer {prf} embedW blocks finalNorm vocabProj peCached) = do
     embedW'    <- weakenGrad embedW
     blocks'    <- freezeBlockVec blocks
     finalNorm' <- freezeLayer finalNorm
     vocabProj' <- freezeLayer vocabProj
-    pure (MkTransformer {prf} embedW' blocks' finalNorm' vocabProj')
+    pure (MkTransformer {prf} embedW' blocks' finalNorm' vocabProj' (retypeGrad peCached))
 
-  unfreezeLayer (MkTransformer {prf} embedW blocks finalNorm vocabProj) = do
+  unfreezeLayer (MkTransformer {prf} embedW blocks finalNorm vocabProj peCached) = do
     primIO (prim__setRequiresGrad embedW.tensorPtr 1)
     blocks'    <- unfreezeBlockVec blocks
     finalNorm' <- unfreezeLayer finalNorm
     vocabProj' <- unfreezeLayer vocabProj
-    pure (MkTransformer {prf} (retypeGrad embedW) blocks' finalNorm' vocabProj')
+    pure (MkTransformer {prf} (retypeGrad embedW) blocks' finalNorm' vocabProj' (retypeGrad peCached))
 
 export
 transformerLayerAny :
