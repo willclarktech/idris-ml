@@ -977,9 +977,29 @@ profileReport = primIO prim__profileReportC
 
 public export
 record Tensor (dims : Vect rank Nat) (0 d : Device) (0 g : GradMode) where
-  constructor MkTensor
-  tensorPtr : AnyPtr
-  paramId   : Maybe String
+  -- `MkTensorRaw` is the data constructor; `MkTensor` (below) is the
+  -- smart-constructor function that should be used by all callers. It
+  -- additionally registers the pointer with the Chez guardian so the
+  -- C-side Tensor* is released when the Idris-level Tensor record goes
+  -- out of scope. See docs/develop/tensor-lifecycle-spike.md.
+  constructor MkTensorRaw
+  tensorPtr     : AnyPtr
+  paramId       : Maybe String
+  -- Shadow: a Chez vector wrapping tensorPtr, registered with the
+  -- guardian. The shadow is kept alive as long as this Tensor record
+  -- is alive. When the Tensor record becomes GC-unreachable, the
+  -- shadow becomes unreachable, the guardian's drain pops it, and
+  -- tensor_release_handle is called on tensorPtr.
+  managedShadow : AnyPtr
+
+||| Smart constructor: wraps `ptr` with managed-handle lifecycle so the
+||| C-side Tensor* is released automatically when this record becomes
+||| unreachable on the Idris side. Replaces direct use of `MkTensorRaw`
+||| at call sites — those continue to write `MkTensor x y`, which now
+||| calls this function instead of the raw record constructor.
+public export
+MkTensor : AnyPtr -> Maybe String -> Tensor dims d g
+MkTensor ptr pid = MkTensorRaw ptr pid (prim__wrapHandle ptr)
 
 ||| Transfer a tensor to a different device. The one place where
 ||| device types intentionally change. Wraps `prim__toDevice` with
@@ -1013,7 +1033,7 @@ toDevice d2 t =
 ||| aliasing footgun.
 export
 weakenGrad : (1 _ : Tensor dims d g) -> IO (Tensor dims d NoGrad)
-weakenGrad (MkTensor ptr pid) = do
+weakenGrad (MkTensorRaw ptr pid _) = do
   primIO (prim__setRequiresGrad ptr 0)
   pure (MkTensor ptr pid)
 
@@ -1026,7 +1046,7 @@ weakenGrad (MkTensor ptr pid) = do
 ||| flag, use `weakenGrad`.
 export
 retypeGrad : Tensor dims d g1 -> Tensor dims d g2
-retypeGrad (MkTensor ptr pid) = MkTensor ptr pid
+retypeGrad (MkTensorRaw ptr pid _) = MkTensor ptr pid
 
 ||| Type-level aliases for common Tensor shapes. Aliases route shape
 ||| arithmetic (e.g. `4 * o`) through a Nat-argument slot rather than
