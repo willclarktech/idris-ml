@@ -39,24 +39,24 @@ StepRec = (AnyPtr, Double, Double)
 export
 rolloutEp : {hs : List Nat} ->
             Network 4 hs 2 CPU WithGrad -> CPState -> List Double -> Nat ->
-            List StepRec -> List StepRec
-rolloutEp _ _ _ Z acc = reverse acc
-rolloutEp _ _ [] _ acc = reverse acc
-rolloutEp model st (r :: rs) (S k) acc =
+            List StepRec -> IO (List StepRec)
+rolloutEp _ _ _ Z acc = pure (reverse acc)
+rolloutEp _ _ [] _ acc = pure (reverse acc)
+rolloutEp model st (r :: rs) (S k) acc = do
   let stateT = bulkToTensor (observe st)
       stateV = the (TVec 4 CPU WithGrad) (MkTensor stateT Nothing)
-      (_, predV) = forwardVar model stateV
-      logProbsT = prim__logSoftmax predV.tensorPtr 0
+  (_, predV) <- forwardVar model stateV
+  let logProbsT = prim__logSoftmax predV.tensorPtr 0
       lp0 = prim__item1d logProbsT 0
       lp1 = prim__item1d logProbsT 1
       action = categoricalSample [exp lp0, exp lp1] r
       selLP = prim__select logProbsT 0 (cast {to=Int} action)
       selLPVal = if action == 0 then lp0 else lp1
-  in case cpStep st action of
-       (reward, st', outcome, _) =>
-         let acc' = (selLP, selLPVal, reward) :: acc
-         in if done outcome then reverse acc'
-            else rolloutEp model st' rs k acc'
+  case cpStep st action of
+    (reward, st', outcome, _) =>
+      let acc' = (selLP, selLPVal, reward) :: acc
+      in if done outcome then pure (reverse acc')
+         else rolloutEp model st' rs k acc'
 
 
 ||| Run N parallel episodes with one batched policy forward per
@@ -75,9 +75,10 @@ rolloutEpBatched : {n : Nat} -> {hs : List Nat} ->
                    Vect n CPState ->
                    Vect n (List Double) ->
                    Nat ->
-                   Vect n (List StepRec)
-rolloutEpBatched model states0 rss0 maxSteps =
-  map reverse (go maxSteps states0 rss0 (replicate n False) (replicate n []))
+                   IO (Vect n (List StepRec))
+rolloutEpBatched model states0 rss0 maxSteps = do
+  result <- go maxSteps states0 rss0 (replicate n False) (replicate n [])
+  pure (map reverse result)
   where
     -- Per-env action selection + env step, given the batched log-prob
     -- tensor and this env's integer index. Frozen (done) envs and
@@ -115,22 +116,21 @@ rolloutEpBatched model states0 rss0 maxSteps =
     go : Nat ->
          Vect n CPState -> Vect n (List Double) -> Vect n Bool ->
          Vect n (List StepRec) ->
-         Vect n (List StepRec)
-    go Z _ _ _ accs = accs
+         IO (Vect n (List StepRec))
+    go Z _ _ _ accs = pure accs
     go (S k) sts rss dones accs =
-      if all id (toList dones) then accs
-      else
+      if all id (toList dones) then pure accs
+      else do
         let obsRows : Vect n (Vector 4 Double)
             obsRows = map observe sts
             batchPtr = bulkToTensor2d obsRows
             stateV : Tensor [n, 4] CPU WithGrad
             stateV = MkTensor batchPtr Nothing
-            predV : Tensor [n, 2] CPU WithGrad
-            predV = snd (forwardVarBatch model stateV)
-            logProbsV : Tensor [n, 2] CPU WithGrad
+        (_, predV) <- forwardVarBatch model stateV
+        let logProbsV : Tensor [n, 2] CPU WithGrad
             logProbsV = MkTensor (prim__logSoftmax2d predV.tensorPtr) Nothing
-        in case stepAllEnvs logProbsV 0 sts rss dones accs of
-             (sts', rss', dones', accs') => go k sts' rss' dones' accs'
+        case stepAllEnvs logProbsV 0 sts rss dones accs of
+          (sts', rss', dones', accs') => go k sts' rss' dones' accs'
 
 
 ----------------------------------------------------------------------
@@ -172,32 +172,27 @@ averageLoss (x :: xs) =
 
 computeLoss : {hs : List Nat} -> Double ->
               Network 4 hs 2 CPU WithGrad -> List (List Double) ->
-              (Tensor [] CPU WithGrad, Double)
-computeLoss gamma model randomBatch =
-  let episodes = map (\rs => rolloutEp model (MkCP 0 0 0 0) rs MaxSteps []) randomBatch
-      epReturns = map sumRewards episodes
-      nEp = cast {to=Double} (natToInteger (length epReturns))
+              IO (Tensor [] CPU WithGrad, Double)
+computeLoss gamma model randomBatch = do
+  episodes <- traverse (\rs => rolloutEp model (MkCP 0 0 0 0) rs MaxSteps []) randomBatch
+  let epReturns = map sumRewards episodes
+      nEp = cast {to=Double} (natToInteger (List.length epReturns))
       baseline = foldl (+) 0.0 epReturns / nEp
       stepLosses = concatMap (epStepLosses gamma baseline) episodes
-  in (averageLoss stepLosses, baseline)
+  pure (averageLoss stepLosses, baseline)
 
-||| Batched-rollout variant. Same loss math; the only difference is
-||| how the per-step logProbs are obtained — one batched forward over
-||| `Tensor [n, 4]` per timestep instead of N sequential single-env
-||| forwards. Gradients flow back through the same shape of graph
-||| (one batched forward op per timestep instead of N separate ops).
 computeLossBatched : {n : Nat} -> {hs : List Nat} -> Double ->
                      Network 4 hs 2 CPU WithGrad -> Vect n (List Double) ->
-                     (Tensor [] CPU WithGrad, Double)
-computeLossBatched gamma model randomBatchV =
+                     IO (Tensor [] CPU WithGrad, Double)
+computeLossBatched gamma model randomBatchV = do
   let initStates : Vect n CPState = replicate n (MkCP 0 0 0 0)
-      epsV  = rolloutEpBatched model initStates randomBatchV MaxSteps
-      eps   = toList epsV
+  epsV  <- rolloutEpBatched model initStates randomBatchV MaxSteps
+  let eps   = toList epsV
       epReturns = map sumRewards eps
-      nEp = cast {to=Double} (natToInteger (length epReturns))
+      nEp = cast {to=Double} (natToInteger (List.length epReturns))
       baseline = foldl (+) 0.0 epReturns / nEp
       stepLosses = concatMap (epStepLosses gamma baseline) eps
-  in (averageLoss stepLosses, baseline)
+  pure (averageLoss stepLosses, baseline)
 
 
 ----------------------------------------------------------------------
@@ -206,20 +201,20 @@ computeLossBatched gamma model randomBatchV =
 
 epochRL : {hs : List Nat} -> NativeOptimizer -> Double ->
           Network 4 hs 2 CPU WithGrad -> List (List Double) ->
-          (Network 4 hs 2 CPU WithGrad, Double, Double)
-epochRL opt gamma model batch =
-  let (loss, avgRet) = computeLoss gamma model batch
-      lossVal = nativeTrainStep opt loss
-  in (model, lossVal, avgRet)
+          IO (Network 4 hs 2 CPU WithGrad, Double, Double)
+epochRL opt gamma model batch = do
+  (loss, avgRet) <- computeLoss gamma model batch
+  lossVal <- nativeTrainStep opt loss
+  pure (model, lossVal, avgRet)
 
 epochRLBatched : {n : Nat} -> {hs : List Nat} ->
                  NativeOptimizer -> Double ->
                  Network 4 hs 2 CPU WithGrad -> Vect n (List Double) ->
-                 (Network 4 hs 2 CPU WithGrad, Double, Double)
-epochRLBatched opt gamma model batchV =
-  let (loss, avgRet) = computeLossBatched gamma model batchV
-      lossVal = nativeTrainStep opt loss
-  in (model, lossVal, avgRet)
+                 IO (Network 4 hs 2 CPU WithGrad, Double, Double)
+epochRLBatched opt gamma model batchV = do
+  (loss, avgRet) <- computeLossBatched gamma model batchV
+  lossVal <- nativeTrainStep opt loss
+  pure (model, lossVal, avgRet)
 
 genBatch : Nat -> IO (List (List Double))
 genBatch batchSz = go batchSz
@@ -258,23 +253,24 @@ genBatchV (S k) = do
 ----------------------------------------------------------------------
 
 evalEp : {hs : List Nat} ->
-         Network 4 hs 2 CPU WithGrad -> CPState -> Nat -> Double -> Double
-evalEp _ _ Z acc = acc
-evalEp model st (S k) acc =
+         Network 4 hs 2 CPU WithGrad -> CPState -> Nat -> Double -> IO Double
+evalEp _ _ Z acc = pure acc
+evalEp model st (S k) acc = do
   let stateT = bulkToTensor (observe st)
       stateV = the (TVec 4 CPU WithGrad) (MkTensor stateT Nothing)
-      (_, predV) = forwardVar model stateV
-      logitsT = predV.tensorPtr
+  (_, predV) <- forwardVar model stateV
+  let logitsT = predV.tensorPtr
       action = if prim__item1d logitsT 0 >= prim__item1d logitsT 1 then the Nat 0 else 1
-  in case cpStep st action of
-       (reward, st', outcome, _) =>
-         if done outcome then acc + reward
-         else evalEp model st' k (acc + reward)
+  case cpStep st action of
+    (reward, st', outcome, _) =>
+      if done outcome then pure (acc + reward)
+      else evalEp model st' k (acc + reward)
 
-evalN : {hs : List Nat} -> Network 4 hs 2 CPU WithGrad -> Nat -> Double -> Double
-evalN _ Z acc = acc
-evalN model (S k) acc =
-  evalN model k (acc + evalEp model (MkCP 0 0 0 0) MaxSteps 0.0)
+evalN : {hs : List Nat} -> Network 4 hs 2 CPU WithGrad -> Nat -> Double -> IO Double
+evalN _ Z acc = pure acc
+evalN model (S k) acc = do
+  v <- evalEp model (MkCP 0 0 0 0) MaxSteps 0.0
+  evalN model k (acc + v)
 
 
 ----------------------------------------------------------------------
@@ -327,8 +323,9 @@ main = do
     let lrCfg : LrFindConfig
         lrCfg = { numIters := 100 } defaultLrFindConfig
     _ <- lrFind lrCfg
-      (\m, d => let (m', loss, _) = epochRL opt cfg.gamma m d
-                in pure (m', loss))
+      (\m, d => do
+         (m', loss, _) <- epochRL opt cfg.gamma m d
+         pure (m', loss))
       (genBatch cfg.batchSz) opt model
     putStrLn ""
     putStrLn "Done — re-run without --lr-find at the recommended LR."
@@ -341,7 +338,7 @@ main = do
     if cfg.batched
       then runTrainingIO {dp = Vect n (List Double)}
              (\m, d => do
-                let (m', loss, avgRet) = epochRLBatched opt cfg.gamma m d
+                (m', loss, avgRet) <- epochRLBatched opt cfg.gamma m d
                 recordReturn metrics avgRet
                 pure (m', loss))
              (genBatchV n)
@@ -350,7 +347,7 @@ main = do
              model
       else runTrainingIO {dp = List (List Double)}
              (\m, d => do
-                let (m', loss, avgRet) = epochRL opt cfg.gamma m d
+                (m', loss, avgRet) <- epochRL opt cfg.gamma m d
                 recordReturn metrics avgRet
                 pure (m', loss))
              (genBatch cfg.batchSz)
@@ -361,8 +358,8 @@ main = do
   putStrLn ""
   putStrLn "Eval (100 episodes, greedy):"
   let nEval = the Nat 100
-      totalReturn = evalN trained nEval 0.0
-      avgReturn = totalReturn / cast (natToInteger nEval)
+  totalReturn <- evalN trained nEval 0.0
+  let avgReturn = totalReturn / cast (natToInteger nEval)
   putStrLn $ "  avg_return=" ++ show avgReturn
 
   putStrLn ""

@@ -136,17 +136,17 @@ main = do
   let evalMetrics : Network InputW [] OutputW CPU WithGrad -> IO (List (String, String))
       evalMetrics m = do
         evalBatch <- recallTaskBinaryBatchVect {w = W} 10 cfg.minItems cfg.maxItems SeqLen
-        let avgAcc = foldl (+) 0.0
-              (toList (map (\dp => let (_, preds) = forwardTwoPhase m dp
-                                   in bitAccuracy preds (targets dp)) evalBatch)) / 10.0
+        accs <- traverse (\dp => do
+                  (_, preds) <- forwardTwoPhase m dp
+                  pure (bitAccuracy preds (targets dp))) evalBatch
+        let avgAcc = foldl (+) 0.0 (toList accs) / 10.0
         pure [ ("acc", show (avgAcc * 100.0) ++ "%") ]
 
   when cfg.lrFind $ do
     let lrCfg : LrFindConfig
         lrCfg = { numIters := 100 } defaultLrFindConfig
     _ <- lrFind lrCfg
-      (\m, d => let (m', loss) = epochTwoPhaseVar opt d tbceLoss m
-                in pure (m', loss))
+      (\m, d => epochTwoPhaseVar opt d tbceLoss m)
       genBatch opt model
     putStrLn ""
     putStrLn "Done — re-run without --lr-find at the recommended LR."
@@ -160,18 +160,23 @@ main = do
     (\m, d => epochTwoPhaseVar opt d tbceLoss m) genBatch trainCfg model
 
   -- Evaluation
-  let evalOne : TwoPhaseDataPoint InputW OutputW Double -> Double
-      evalOne dp =
-        let (_, preds) = forwardTwoPhase trained dp
-        in bitAccuracy preds (targets dp)
+  let evalOne : TwoPhaseDataPoint InputW OutputW Double -> IO Double
+      evalOne dp = do
+        (_, preds) <- forwardTwoPhase trained dp
+        pure (bitAccuracy preds (targets dp))
 
-  -- Eval doesn't need gradients; wrap forwardTwoPhase batches.
   k2Batch <- recallTaskBinaryBatchVect {w = W} TestSize 2 2 SeqLen
   k4Batch <- recallTaskBinaryBatchVect {w = W} TestSize 4 4 SeqLen
   k6Batch <- recallTaskBinaryBatchVect {w = W} TestSize 6 6 SeqLen
-  k2Acc <- withNoGrad (pure (foldl (+) 0.0 (toList (map evalOne k2Batch)) / cast TestSize))
-  k4Acc <- withNoGrad (pure (foldl (+) 0.0 (toList (map evalOne k4Batch)) / cast TestSize))
-  k6Acc <- withNoGrad (pure (foldl (+) 0.0 (toList (map evalOne k6Batch)) / cast TestSize))
+  k2Acc <- withNoGrad $ do
+    accs <- traverse evalOne k2Batch
+    pure (foldl (+) 0.0 (toList accs) / cast TestSize)
+  k4Acc <- withNoGrad $ do
+    accs <- traverse evalOne k4Batch
+    pure (foldl (+) 0.0 (toList accs) / cast TestSize)
+  k6Acc <- withNoGrad $ do
+    accs <- traverse evalOne k6Batch
+    pure (foldl (+) 0.0 (toList accs) / cast TestSize)
 
   putStrLn ""
   putStrLn "Eval:"

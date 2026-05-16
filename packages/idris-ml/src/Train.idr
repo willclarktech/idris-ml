@@ -397,14 +397,16 @@ runTrainingIO {model} epochFn dataSrc cfg model0 = do
                                                              t0 pct thresh win pat
 
 
-||| Run training with a pure epoch function. Equivalent to `runTrainingIO`
-||| with the epoch wrapped in `pure`.
+||| Run training with an IO-typed epoch function. After the
+||| smart-constructor IO refactor, epochVar / epochVarTensor etc. all
+||| return `IO (model, Double)`, so this is now a thin alias for
+||| `runTrainingIO`.
 export
 runTraining :
   {0 model : Type} -> {0 dp : Type} ->
-  (epochFn : model -> dp -> (model, Double)) ->
+  (epochFn : model -> dp -> IO (model, Double)) ->
   (dataSrc : IO dp) ->
   TrainConfig model ->
   model ->
   IO (model, Nat, Double)
-runTraining epochFn = runTrainingIO (\m, d => pure (epochFn m d))
+runTraining = runTrainingIO

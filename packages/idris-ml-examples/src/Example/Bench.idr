@@ -31,6 +31,13 @@ elapsedMs t0 t1 =
       ns = cast {to=Double} (nanoseconds t1 - nanoseconds t0)
   in s * 1000.0 + ns / 1000000.0
 
+-- IO fold for the warm/bench epoch loops below.
+repeatEpoch : Nat -> (m -> IO (m, Double)) -> m -> Double -> IO (m, Double)
+repeatEpoch Z _ m loss = pure (m, loss)
+repeatEpoch (S k) step m _ = do
+  (m', loss') <- step m
+  repeatEpoch k step m' loss'
+
 
 ----------------------------------------------------------------------
 -- Supervised: Linear classifier, raw logits + BCE-with-logits loss
@@ -53,15 +60,11 @@ benchSupervised = do
   let opt = nativeSgd 0.03
 
   -- Warmup: 100 epochs
-  let (warmModel, _) = foldl
-        (\(m, _), _ => epochVar opt supervisedData tbceLoss m)
-        (model, 0.0) [1..100]
+  (warmModel, _) <- repeatEpoch 100 (\m => epochVar opt supervisedData tbceLoss m) model 0.0
 
   -- Benchmark: 1000 epochs
   t0 <- clockTime Monotonic
-  let (_, finalLoss) = foldl
-        (\(m, _), _ => epochVar opt supervisedData tbceLoss m)
-        (warmModel, 0.0) [1..1000]
+  (_, finalLoss) <- repeatEpoch 1000 (\m => epochVar opt supervisedData tbceLoss m) warmModel 0.0
   t1 <- clockTime Monotonic
 
   putStrLn $ "Supervised (1000 epochs): " ++ show (elapsedMs t0 t1) ++ " ms"
@@ -96,15 +99,11 @@ benchRnn = do
   let opt = nativeSgd 0.03
 
   -- Warmup: 100 epochs
-  let (warmModel, _) = foldl
-        (\(m, _), _ => epochRecurrentVar opt dataPoints tbceLoss m)
-        (model, 0.0) [1..100]
+  (warmModel, _) <- repeatEpoch 100 (\m => epochRecurrentVar opt dataPoints tbceLoss m) model 0.0
 
   -- Benchmark: 1000 epochs
   t0 <- clockTime Monotonic
-  let (_, finalLoss) = foldl
-        (\(m, _), _ => epochRecurrentVar opt dataPoints tbceLoss m)
-        (warmModel, 0.0) [1..1000]
+  (_, finalLoss) <- repeatEpoch 1000 (\m => epochRecurrentVar opt dataPoints tbceLoss m) warmModel 0.0
   t1 <- clockTime Monotonic
 
   putStrLn $ "RNN (1000 epochs):        " ++ show (elapsedMs t0 t1) ++ " ms"
@@ -148,17 +147,11 @@ benchNtm = do
   let opt = nativeRmsprop 0.0001 0.95 1.0e-8 10.0 0.0
 
   -- Warmup: 10 epochs
-  let (warmModel, _) = foldl
-        (\(m, _), _ =>
-          epochTwoPhaseVar opt batch tbceLoss m)
-        (model, 0.0) [1..10]
+  (warmModel, _) <- repeatEpoch 10 (\m => epochTwoPhaseVar opt batch tbceLoss m) model 0.0
 
   -- Benchmark: 100 epochs
   t0 <- clockTime Monotonic
-  let (_, benchLoss) = foldl
-        (\(m, _), _ =>
-          epochTwoPhaseVar opt batch tbceLoss m)
-        (warmModel, 0.0) [1..100]
+  (_, benchLoss) <- repeatEpoch 100 (\m => epochTwoPhaseVar opt batch tbceLoss m) warmModel 0.0
   t1 <- clockTime Monotonic
 
   putStrLn $ "NTM (100 epochs):         " ++ show (elapsedMs t0 t1) ++ " ms"
@@ -201,17 +194,11 @@ benchNtmCopy = do
   let opt = nativeRmsprop 0.0001 0.95 1.0e-8 10.0 0.0
 
   -- Warmup: 10 epochs
-  let (warmModel, _) = foldl
-        (\(m, _), _ =>
-          epochTwoPhaseVar opt batch tbceLoss m)
-        (model, 0.0) [1..10]
+  (warmModel, _) <- repeatEpoch 10 (\m => epochTwoPhaseVar opt batch tbceLoss m) model 0.0
 
   -- Benchmark: 100 epochs
   t0 <- clockTime Monotonic
-  let (_, benchLoss) = foldl
-        (\(m, _), _ =>
-          epochTwoPhaseVar opt batch tbceLoss m)
-        (warmModel, 0.0) [1..100]
+  (_, benchLoss) <- repeatEpoch 100 (\m => epochTwoPhaseVar opt batch tbceLoss m) warmModel 0.0
   t1 <- clockTime Monotonic
 
   putStrLn $ "NTM-copy (100 epochs):    " ++ show (elapsedMs t0 t1) ++ " ms"
@@ -228,8 +215,7 @@ copy1kEpoch : NativeOptimizer ->
               IO (Network CopyInputW [] CopyOutputW CPU WithGrad, Double)
 copy1kEpoch opt m = do
   batch <- copyTaskBinaryBatchVect {w = CopyW} CopyBatch 1 20
-  let res = epochTwoPhaseVar opt batch tbceLoss m
-  pure res
+  epochTwoPhaseVar opt batch tbceLoss m
 
 copy1kLoop : NativeOptimizer -> Nat -> Nat ->
              Network CopyInputW [] CopyOutputW CPU WithGrad ->
@@ -299,17 +285,11 @@ benchNtmRecall = do
   let opt = nativeRmsprop 0.0001 0.95 1.0e-8 10.0 0.9
 
   -- Warmup: 10 epochs
-  let (warmModel, _) = foldl
-        (\(m, _), _ =>
-          epochTwoPhaseVar opt batch tbceLoss m)
-        (model, 0.0) [1..10]
+  (warmModel, _) <- repeatEpoch 10 (\m => epochTwoPhaseVar opt batch tbceLoss m) model 0.0
 
   -- Benchmark: 100 epochs
   t0 <- clockTime Monotonic
-  let (_, benchLoss) = foldl
-        (\(m, _), _ =>
-          epochTwoPhaseVar opt batch tbceLoss m)
-        (warmModel, 0.0) [1..100]
+  (_, benchLoss) <- repeatEpoch 100 (\m => epochTwoPhaseVar opt batch tbceLoss m) warmModel 0.0
   t1 <- clockTime Monotonic
 
   putStrLn $ "NTM-recall (100 epochs):  " ++ show (elapsedMs t0 t1) ++ " ms"

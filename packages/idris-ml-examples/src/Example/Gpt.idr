@@ -162,8 +162,8 @@ gptBatchVect corpus corpusLen (S k) = do
 ||| Categorical cross-entropy on ALL positions (standard LM loss).
 ||| Operates on a flat [SeqLen * VocabSize] Tensor; reshapes to
 ||| [SeqLen, VocabSize] and computes mean NLL across positions.
-allPositionsCELoss : TVec OutputDim CPU WithGrad -> TVec OutputDim CPU WithGrad -> Tensor [] CPU WithGrad
-allPositionsCELoss predV targetV =
+allPositionsCELoss : TVec OutputDim CPU WithGrad -> TVec OutputDim CPU WithGrad -> IO (Tensor [] CPU WithGrad)
+allPositionsCELoss predV targetV = ioRerun (\_ =>
   let vsI = cast {to=Int} VocabSize
       sI = cast {to=Int} SeqLen
       logitsR = prim__reshape2d predV.tensorPtr sI vsI
@@ -172,7 +172,7 @@ allPositionsCELoss predV targetV =
       product = prim__mul logProbs tgtsR
       totalSum = prim__sum product
       loss = prim__mulScalar (prim__neg totalSum) (1.0 / cast {to=Double} SeqLen)
-  in MkTensor loss Nothing
+  in MkTensor loss Nothing)
 
 
 ----------------------------------------------------------------------
@@ -180,12 +180,13 @@ allPositionsCELoss predV targetV =
 ----------------------------------------------------------------------
 
 generateText : Network InputDim [] OutputDim CPU WithGrad ->
-               String -> Nat -> Double -> String
-generateText model seed genLen temperature =
+               String -> Nat -> Double -> IO String
+generateText model seed genLen temperature = do
   let seedIdxs = map charToIdx (unpack seed)
       padLen = minus SeqLen (length seedIdxs)
       context = replicate padLen (the Int 1) ++ Data.List.take SeqLen seedIdxs
-  in seed ++ pack (go model context genLen [])
+  chars <- go model context genLen []
+  pure (seed ++ pack chars)
   where
     vocabIdxs : List Nat
     vocabIdxs = [ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9
@@ -213,20 +214,20 @@ generateText model seed genLen temperature =
            (zip (map cast vocabIdxs) probs))
 
     go : Network InputDim [] OutputDim CPU WithGrad ->
-         List Int -> Nat -> List Char -> List Char
-    go _ _ Z acc = reverse acc
-    go m ctx (S k) acc =
+         List Int -> Nat -> List Char -> IO (List Char)
+    go _ _ Z acc = pure (reverse acc)
+    go m ctx (S k) acc = do
       let sI = cast {to=Int} SeqLen
           inT = prim__create1d sI (packDoubleBuf (prim__allocDoubles sI) 0 ctx) 0
           inV = the (TVec InputDim CPU WithGrad) (MkTensor inT Nothing)
-          (_, predV) = forwardVar m inV
-          unnorm = sampleAt predV.tensorPtr (minus SeqLen 1)
+      (_, predV) <- forwardVar m inV
+      let unnorm = sampleAt predV.tensorPtr (minus SeqLen 1)
           totSum = foldl (+) 0.0 unnorm
           probs = map (/ totSum) unnorm
           bestIdx = argmax probs
           ch = idxToChar bestIdx
           ctx' = drop 1 ctx ++ [bestIdx]
-      in go m ctx' k (ch :: acc)
+      go m ctx' k (ch :: acc)
 
 
 ----------------------------------------------------------------------
@@ -234,11 +235,11 @@ generateText model seed genLen temperature =
 ----------------------------------------------------------------------
 
 evalBPC : Network InputDim [] OutputDim CPU WithGrad ->
-          (corpus : List Int) -> (corpusLen : Nat) -> (nSamples : Nat) -> Double
+          (corpus : List Int) -> (corpusLen : Nat) -> (nSamples : Nat) -> IO Double
 evalBPC model corpus corpusLen nSamples = go nSamples 0.0
   where
-    singleBPC : Nat -> Double
-    singleBPC start =
+    singleBPC : Nat -> IO Double
+    singleBPC start = do
       let window = listSlice corpus start (SeqLen + 1)
           inputToks = Data.List.take SeqLen window
           targetToks = Data.List.take SeqLen (drop 1 window)
@@ -249,17 +250,17 @@ evalBPC model corpus corpusLen nSamples = go nSamples 0.0
           tgtT = prim__oneHot tgtIdxBuf sI vI
           inV = the (TVec InputDim CPU WithGrad) (MkTensor inT Nothing)
           tgtV = the (TVec OutputDim CPU WithGrad) (MkTensor tgtT Nothing)
-          (_, predV) = forwardVar model inV
-          lossT = allPositionsCELoss predV tgtV
-      in prim__item lossT.tensorPtr / log 2.0
+      (_, predV) <- forwardVar model inV
+      lossT <- allPositionsCELoss predV tgtV
+      pure (prim__item lossT.tensorPtr / log 2.0)
 
-    go : Nat -> Double -> Double
-    go Z acc = acc
-    go (S k) acc =
+    go : Nat -> Double -> IO Double
+    go Z acc = pure acc
+    go (S k) acc = do
       let maxStart = minus corpusLen (SeqLen + 1)
           pos = div (k * maxStart) nSamples
-          bpc = singleBPC pos
-      in go k (acc + bpc / cast {to=Double} (natToInteger nSamples))
+      bpc <- singleBPC pos
+      go k (acc + bpc / cast {to=Double} (natToInteger nSamples))
 
 
 ----------------------------------------------------------------------
@@ -383,7 +384,7 @@ main = do
 
   let evalMetrics : Network InputDim [] OutputDim CPU WithGrad -> IO (List (String, String))
       evalMetrics m = do
-        let valBpc = evalBPC m valIndices valLen 20
+        valBpc <- evalBPC m valIndices valLen 20
         pure [("val_bpc", show valBpc)]
 
   let noOpHook : Nat -> IO ()
@@ -411,24 +412,24 @@ main = do
         let lr = schedule ep
         setLRAll opt lr
         writeIORef epochRef (S ep)
-        pure (epochVarTensorBatch opt d allPositionsCELoss m)
+        epochVarTensorBatch opt d allPositionsCELoss m
 
   (trained, epochsDone, finalLoss) <- runTrainingIO stepFn genBatch trainCfg model
 
   putStrLn ""
-  let valBpc = evalBPC trained valIndices valLen 50
-      trainBpc = evalBPC trained trainIndices trainLen 50
+  valBpc <- evalBPC trained valIndices valLen 50
+  trainBpc <- evalBPC trained trainIndices trainLen 50
   putStrLn $ "Final val_bpc: " ++ show valBpc
           ++ "  (train_bpc: " ++ show trainBpc ++ ")"
 
   putStrLn ""
   putStrLn "Generation (seed='to be or '):"
-  let sample1 = generateText trained "to be or " 200 1.0
+  sample1 <- withNoGrad (generateText trained "to be or " 200 1.0)
   putStrLn $ "  " ++ show sample1
 
   putStrLn ""
   putStrLn "Generation (seed='the '):"
-  let sample2 = generateText trained "the " 200 1.0
+  sample2 <- withNoGrad (generateText trained "the " 200 1.0)
   putStrLn $ "  " ++ show sample2
 
   putStrLn ""

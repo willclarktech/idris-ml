@@ -68,17 +68,17 @@ epsilonAt step start end decaySteps =
   let frac = min (cast (natToInteger step) / cast (natToInteger decaySteps)) 1.0
   in start + frac * (end - start)
 
-greedyAction : QNet -> Vect ObsDim Double -> Nat
-greedyAction online obs =
+greedyAction : QNet -> Vect ObsDim Double -> IO Nat
+greedyAction online obs = do
   let stateT = bulkToTensor (obsTensor obs)
       stateV = the (TVec ObsDim CPU WithGrad) (MkTensor stateT Nothing)
-      (_, qV) = forwardVar online stateV
-      q0 = prim__item1d qV.tensorPtr 0
+  (_, qV) <- forwardVar online stateV
+  let q0 = prim__item1d qV.tensorPtr 0
       q1 = prim__item1d qV.tensorPtr 1
       q2 = prim__item1d qV.tensorPtr 2
-  in if q0 >= q1 && q0 >= q2 then 0
-     else if q1 >= q2 then 1
-     else 2
+  pure (if q0 >= q1 && q0 >= q2 then 0
+        else if q1 >= q2 then 1
+        else 2)
 
 epsGreedyIO : QNet -> Vect ObsDim Double -> Double -> IO Nat
 epsGreedyIO online obs eps = do
@@ -89,7 +89,7 @@ epsGreedyIO online obs eps = do
       pure (if u2 < (1.0 / 3.0) then 0
             else if u2 < (2.0 / 3.0) then 1
             else 2)
-    else pure (greedyAction online obs)
+    else greedyAction online obs
 
 
 ----------------------------------------------------------------------
@@ -105,52 +105,54 @@ vectorMaxPtr t =
      else if v1 >= v2 then v1
      else v2
 
-computeTargetVal : QNet -> Double -> Transition ObsDim 1 -> Double
-computeTargetVal target gamma t =
+computeTargetVal : QNet -> Double -> Transition ObsDim 1 -> IO Double
+computeTargetVal target gamma t = do
   let stateT = bulkToTensor (obsTensor t.nextObs)
       stateV = the (TVec ObsDim CPU WithGrad) (MkTensor stateT Nothing)
-      (_, qV) = forwardVar target stateV
-      nextMax = vectorMaxPtr qV.tensorPtr
+  (_, qV) <- forwardVar target stateV
+  let nextMax = vectorMaxPtr qV.tensorPtr
       bootstrap = if t.done then 0.0 else gamma * nextMax
-  in t.reward + bootstrap
+  pure (t.reward + bootstrap)
 
 actionIdx : Vect 1 Double -> Int
 actionIdx [a] = cast {to=Int} (cast {to=Integer} a)
 
 perSampleLoss : {n : Nat} -> (qOutB : Tensor [n, NumActions] CPU WithGrad) ->
-                Transition ObsDim 1 -> Double -> Int -> Tensor [] CPU WithGrad
-perSampleLoss qOutB t tv k =
+                Transition ObsDim 1 -> Double -> Int -> IO (Tensor [] CPU WithGrad)
+perSampleLoss qOutB t tv k = do
   let aIdx = actionIdx t.action
-      qRow = the (TVec NumActions CPU WithGrad) (trowSelect qOutB k)
-      qScalar = the (Tensor [] CPU WithGrad) (telemSelect qRow aIdx)
-      targetT = the (Tensor [] CPU WithGrad) (tconstScalar tv)
-      diff = the (Tensor [] CPU WithGrad) (tsub qScalar targetT)
-  in tmul diff diff
+  qRow    <- trowSelect qOutB k
+  qScalar <- telemSelect qRow aIdx
+  targetT <- tconstScalar tv
+  diff    <- tsub qScalar targetT
+  tmul diff diff
 
-meanScalarLoss : (n : Nat) -> List (Tensor [] CPU WithGrad) -> Tensor [] CPU WithGrad
-meanScalarLoss n losses =
-  let zero = tconstScalar 0.0
-      summed = foldl (\a, b => MkTensor (prim__add a.tensorPtr b.tensorPtr) Nothing) zero losses
-  in tmulScalar summed (1.0 / cast n)
+meanScalarLoss : (n : Nat) -> List (Tensor [] CPU WithGrad) -> IO (Tensor [] CPU WithGrad)
+meanScalarLoss n losses = do
+  zero <- tconstScalar 0.0
+  let summed = foldl (\a, b => MkTensor (prim__add a.tensorPtr b.tensorPtr) Nothing) zero losses
+  tmulScalar summed (1.0 / cast n)
 
 batchLossBatched : (n : Nat) -> QNet -> QNet -> Double ->
-                   Vect n (Transition ObsDim 1) -> Tensor [] CPU WithGrad
-batchLossBatched n online target gamma batch =
-  let targetVals = the (Vect n Double) (map (computeTargetVal target gamma) batch)
-      obsTensors = map (\t => obsTensor t.obs) batch
+                   Vect n (Transition ObsDim 1) -> IO (Tensor [] CPU WithGrad)
+batchLossBatched n online target gamma batch = do
+  targetVals <- traverse (computeTargetVal target gamma) batch
+  let obsTensors = map (\t => obsTensor t.obs) batch
       obsBT = bulkToTensor2d obsTensors
       obsBV = the (Tensor [n, ObsDim] CPU WithGrad) (MkTensor obsBT Nothing)
-      qOutB = snd (forwardVarBatch online obsBV)
-      losses = the (List (Tensor [] CPU WithGrad)) (go qOutB (toList batch) (toList targetVals) 0)
-  in meanScalarLoss n losses
+  (_, qOutB) <- forwardVarBatch online obsBV
+  losses <- go qOutB (toList batch) (toList targetVals) 0
+  meanScalarLoss n losses
   where
     go : {n : Nat} -> Tensor [n, NumActions] CPU WithGrad ->
          List (Transition ObsDim 1) ->
-         List Double -> Int -> List (Tensor [] CPU WithGrad)
-    go _ [] _ _ = []
-    go _ _ [] _ = []
-    go qOutB (t :: tRest) (tv :: tvRest) k =
-      perSampleLoss qOutB t tv k :: go qOutB tRest tvRest (k + 1)
+         List Double -> Int -> IO (List (Tensor [] CPU WithGrad))
+    go _ [] _ _ = pure []
+    go _ _ [] _ = pure []
+    go qOutB (t :: tRest) (tv :: tvRest) k = do
+      l <- perSampleLoss qOutB t tv k
+      ls <- go qOutB tRest tvRest (k + 1)
+      pure (l :: ls)
 
 
 ----------------------------------------------------------------------
@@ -188,8 +190,8 @@ trainIfReady opt st = do
       mBatch <- sampleN st.cfgBatch st.buffer
       case mBatch of
         Just batchVec => do
-          let loss = batchLossBatched st.cfgBatch st.qNet st.target st.cfgGamma batchVec
-          _ <- pure (nativeTrainStep opt loss)
+          loss <- batchLossBatched st.cfgBatch st.qNet st.target st.cfgGamma batchVec
+          _ <- nativeTrainStep opt loss
           pure st
         Nothing => pure st
 
@@ -271,18 +273,20 @@ specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
 -- Greedy evaluation (raw reward, no shaping).
 ----------------------------------------------------------------------
 
-evalEp : QNet -> MCState -> Nat -> Double -> Double
-evalEp _ _ Z acc = acc
-evalEp q st (S k) acc =
-  let action = greedyAction q (mcObserve st)
-  in case mcStep st action of
-       (reward, st', outcome, _) =>
-         if done outcome then acc + reward
-         else evalEp q st' k (acc + reward)
+evalEp : QNet -> MCState -> Nat -> Double -> IO Double
+evalEp _ _ Z acc = pure acc
+evalEp q st (S k) acc = do
+  action <- greedyAction q (mcObserve st)
+  case mcStep st action of
+    (reward, st', outcome, _) =>
+      if done outcome then pure (acc + reward)
+      else evalEp q st' k (acc + reward)
 
-evalN : QNet -> Nat -> Double -> Double
-evalN _ Z acc = acc
-evalN q (S k) acc = evalN q k (acc + evalEp q (MkMC (-0.5) 0.0) MaxSteps 0.0)
+evalN : QNet -> Nat -> Double -> IO Double
+evalN _ Z acc = pure acc
+evalN q (S k) acc = do
+  ep <- evalEp q (MkMC (-0.5) 0.0) MaxSteps 0.0
+  evalN q k (acc + ep)
 
 
 ----------------------------------------------------------------------
@@ -343,8 +347,8 @@ main = do
 
   putStrLn ""
   let nEval = the Nat 30
-      totalReturn = evalN trained.qNet nEval 0.0
-      avgReturn = totalReturn / cast (natToInteger nEval)
+  totalReturn <- withNoGrad (evalN trained.qNet nEval 0.0)
+  let avgReturn = totalReturn / cast (natToInteger nEval)
   putStrLn $ "Eval (" ++ show nEval ++ " episodes, greedy): avg_return=" ++ show avgReturn
   putStrLn ""
   putStrLn $ formatResult [("avg_return", show avgReturn),

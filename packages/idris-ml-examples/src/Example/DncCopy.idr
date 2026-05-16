@@ -154,17 +154,17 @@ main = do
   let evalMetrics : Network InputW [] OutputW CPU WithGrad -> IO (List (String, String))
       evalMetrics m = do
         evalBatch <- copyTaskBinaryBatchVect {w = W} 10 1 20
-        let avgAcc = foldl (+) 0.0
-              (toList (map (\dp => let (_, preds) = forwardTwoPhase m dp
-                                   in bitAccuracy preds (targets dp)) evalBatch)) / 10.0
+        accs <- traverse (\dp => do
+                  (_, preds) <- forwardTwoPhase m dp
+                  pure (bitAccuracy preds (targets dp))) evalBatch
+        let avgAcc = foldl (+) 0.0 (toList accs) / 10.0
         pure [ ("acc", show (avgAcc * 100.0) ++ "%") ]
 
   when cfg.lrFind $ do
     let lrCfg : LrFindConfig
         lrCfg = { numIters := 100 } defaultLrFindConfig
     _ <- lrFind lrCfg
-      (\m, d => let (m', loss) = epochTwoPhaseVar opt d tbceLoss m
-                in pure (m', loss))
+      (\m, d => epochTwoPhaseVar opt d tbceLoss m)
       genBatch opt model
     putStrLn ""
     putStrLn "Done — re-run without --lr-find at the recommended LR."
@@ -178,29 +178,32 @@ main = do
     (\m, d => epochTwoPhaseVar opt d tbceLoss m) genBatch trainCfg model
 
   -- Evaluation
-  let evalOne : TwoPhaseDataPoint InputW OutputW Double -> Double
-      evalOne dp =
-        let (_, preds) = forwardTwoPhase trained dp
-        in bitAccuracy preds (targets dp)
+  let evalOne : TwoPhaseDataPoint InputW OutputW Double -> IO Double
+      evalOne dp = do
+        (_, preds) <- forwardTwoPhase trained dp
+        pure (bitAccuracy preds (targets dp))
 
-  -- Eval doesn't need gradients; wrap forwardTwoPhase batches.
   shortBatch <- copyTaskBinaryBatchVect {w = W} TestSize 1 5
   fullBatch <- copyTaskBinaryBatchVect {w = W} TestSize 1 20
-  shortAcc <- withNoGrad (pure (foldl (+) 0.0 (toList (map evalOne shortBatch)) / cast TestSize))
-  fullAcc <- withNoGrad (pure (foldl (+) 0.0 (toList (map evalOne fullBatch)) / cast TestSize))
+  shortAcc <- withNoGrad $ do
+    accs <- traverse evalOne shortBatch
+    pure (foldl (+) 0.0 (toList accs) / cast TestSize)
+  fullAcc <- withNoGrad $ do
+    accs <- traverse evalOne fullBatch
+    pure (foldl (+) 0.0 (toList accs) / cast TestSize)
 
   putStrLn ""
   putStrLn "Eval:"
   sampleBatch <- copyTaskBinaryBatchVect {w = W} 2 3 5
-  withNoGrad $ traverse_ (\dp =>
-    let (_, preds) = forwardTwoPhase trained dp
-    in do putStr "  Input:  "
-          putStrLn $ unwords (map showBinaryVec (encodingInputs dp))
-          putStr "  Target: "
-          putStrLn $ unwords (map showBinaryVec (targets dp))
-          putStr "  Output: "
-          putStrLn $ unwords (map showBinaryLogits preds)
-          putStrLn "") (toList sampleBatch)
+  withNoGrad $ traverse_ (\dp => do
+    (_, preds) <- forwardTwoPhase trained dp
+    putStr "  Input:  "
+    putStrLn $ unwords (map showBinaryVec (encodingInputs dp))
+    putStr "  Target: "
+    putStrLn $ unwords (map showBinaryVec (targets dp))
+    putStr "  Output: "
+    putStrLn $ unwords (map showBinaryLogits preds)
+    putStrLn "") (toList sampleBatch)
 
   putStrLn $ "  Short (len 1-5):  " ++ show (shortAcc * 100.0) ++ "% bit accuracy"
   putStrLn $ "  Full  (len 1-20): " ++ show (fullAcc * 100.0) ++ "% bit accuracy"

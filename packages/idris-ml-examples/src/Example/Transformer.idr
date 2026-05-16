@@ -84,8 +84,8 @@ ReversalLen = SeqLen `minus` InputLen
 |||  typed-surface CE loss on per-sample logits + target [seqLen *
 ||| vocabSize]. Masks the random-prefix positions so only the reversal
 ||| portion contributes (V1 `reversalCE` parity, returning a Tensor [] CPU).
-catCELossVar : TVec OutputDim CPU WithGrad -> TVec OutputDim CPU WithGrad -> Tensor [] CPU WithGrad
-catCELossVar predV targetV =
+catCELossVar : TVec OutputDim CPU WithGrad -> TVec OutputDim CPU WithGrad -> IO (Tensor [] CPU WithGrad)
+catCELossVar predV targetV = ioRerun (\_ =>
   let vsI = cast {to=Int} VocabSize
       sI = cast {to=Int} SeqLen
       skip = cast {to=Int} InputLen
@@ -100,7 +100,7 @@ catCELossVar predV targetV =
       product = prim__mul logProbs tgtsR
       totalSum = prim__sum product
       loss = prim__mulScalar (prim__neg totalSum) (1.0 / cast {to=Double} revLen)
-  in MkTensor loss Nothing
+  in MkTensor loss Nothing)
 
 
 ----------------------------------------------------------------------
@@ -191,15 +191,15 @@ main = do
   let evalMetrics : Network InputDim [] OutputDim CPU WithGrad -> IO (List (String, String))
       evalMetrics m = do
         evalData <- sortingTensorBatchVect InputDim OutputDim VocabSize InputLen SeqLen SepToken EosToken BatchSize
-        let results = map (\dp =>
+        results <- traverse (\dp => do
               let inV = the (TVec InputDim CPU WithGrad) (MkTensor (inputTensor dp) Nothing)
-                  (_, predV) = forwardVar m inV
-                  predicted = map (argmaxAtPtr VocabSize predV.tensorPtr) positions
+              (_, predV) <- forwardVar m inV
+              let predicted = map (argmaxAtPtr VocabSize predV.tensorPtr) positions
                   expected = map (argmaxAtPtr VocabSize (targetTensor dp)) positions
                   sortPred = drop InputLen predicted
                   sortExp = drop InputLen expected
-              in countMatches sortPred sortExp) evalData
-            totalCorrect = foldl (+) 0 (toList results)
+              pure (countMatches sortPred sortExp)) evalData
+        let totalCorrect = foldl (+) 0 (toList results)
             totalPositions = BatchSize * (SeqLen `minus` InputLen)
         pure [("sort_acc", show totalCorrect ++ "/" ++ show totalPositions)]
 
@@ -209,8 +209,7 @@ main = do
     let lrCfg : LrFindConfig
         lrCfg = { numIters := 100 } defaultLrFindConfig
     _ <- lrFind lrCfg
-      (\m, d => let (m', loss) = epochVarTensorBatch opt d catCELossVar m
-                in pure (m', loss))
+      (\m, d => epochVarTensorBatch opt d catCELossVar m)
       genBatch opt model
     putStrLn ""
     putStrLn "Done — re-run without --lr-find at the recommended LR."
@@ -225,8 +224,8 @@ main = do
   evalRaw <- sortingTensorBatchVect InputDim OutputDim VocabSize InputLen SeqLen SepToken EosToken 1
   let tdp = index FZ evalRaw
       inV = the (TVec InputDim CPU WithGrad) (MkTensor (inputTensor tdp) Nothing)
-      (_, predV) = forwardVar trained inV
-      inpT = inputTensor tdp
+  (_, predV) <- forwardVar trained inV
+  let inpT = inputTensor tdp
       inputDecoded = map (\p => cast {to=Nat} (cast {to=Integer} (prim__item1d inpT (cast p)))) positions
       targetDecoded = map (argmaxAtPtr VocabSize (targetTensor tdp)) positions
       predicted = map (argmaxAtPtr VocabSize predV.tensorPtr) positions

@@ -196,8 +196,7 @@ main = do
     let lrCfg : LrFindConfig
         lrCfg = { numIters := 100 } defaultLrFindConfig
     _ <- lrFind lrCfg
-      (\m, d => let (m', loss) = epochVar opt d tnllLoss m
-                in pure (m', loss))
+      (\m, d => epochVar opt d tnllLoss m)
       genBatch opt model
     putStrLn ""
     putStrLn "Done — re-run without --lr-find at the recommended LR."

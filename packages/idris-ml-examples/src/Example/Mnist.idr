@@ -133,7 +133,7 @@ mnistItem ds idx = do
 ||| image through the  model and arg-maxing the logits.
 evalAccuracy : {hs : List Nat} ->
                Network InputDim hs NumClasses CPU WithGrad ->
-               AnyPtr -> Int -> Nat -> (Double, Double)
+               AnyPtr -> Int -> Nat -> IO (Double, Double)
 evalAccuracy model ds numImages nSamples = go nSamples 0 0.0
   where
     argmax : AnyPtr -> Double -> Int -> Int -> Int
@@ -143,27 +143,27 @@ evalAccuracy model ds numImages nSamples = go nSamples 0 0.0
            in if v > best then assert_total $ argmax outT v idx (idx + 1)
                           else assert_total $ argmax outT best bestI (idx + 1)
 
-    go : Nat -> Nat -> Double -> (Double, Double)
+    go : Nat -> Nat -> Double -> IO (Double, Double)
     go Z correct totalLoss =
       let n = cast {to=Double} (natToInteger nSamples)
-      in (cast {to=Double} (natToInteger correct) / n, totalLoss / n)
-    go (S k) correct totalLoss =
+      in pure (cast {to=Double} (natToInteger correct) / n, totalLoss / n)
+    go (S k) correct totalLoss = do
       let pos = cast {to=Int} (k * cast numImages `div` nSamples)
           imgT = prim__mnistGetImage ds pos
           lbl = prim__mnistGetLabel ds pos
           flatImg = prim__reshape1d imgT (cast {to=Int} InputDim)
           inV = the (TVec InputDim CPU WithGrad) (MkTensor flatImg Nothing)
-          (_, predV) = forwardVar model inV
-          outT = predV.tensorPtr
+      (_, predV) <- forwardVar model inV
+      let outT = predV.tensorPtr
           pred = argmax outT (-1.0e30) 0 0
           correct' = if pred == lbl then S correct else correct
           lblBuf = prim__allocInts 1
           lblBuf' = prim__setInt lblBuf 0 lbl
           tgtT = prim__oneHot lblBuf' 1 (cast {to=Int} NumClasses)
           tgtV = the (TVec NumClasses CPU WithGrad) (MkTensor tgtT Nothing)
-          lossT = tnllLoss predV tgtV
-          lossVal = prim__item lossT.tensorPtr
-      in go k correct' (totalLoss + lossVal)
+      lossT <- tnllLoss predV tgtV
+      let lossVal = prim__item lossT.tensorPtr
+      go k correct' (totalLoss + lossVal)
 
 
 ----------------------------------------------------------------------
@@ -192,7 +192,7 @@ trainOneFullPass opt genBatch n m0 = go m0 n 0.0
     go m Z     acc = pure (m, acc / cast (natToInteger n))
     go m (S k) acc = do
       batch <- genBatch
-      let (m', loss) = epochVarTensorBatch opt batch tnllLoss m
+      (m', loss) <- epochVarTensorBatch opt batch tnllLoss m
       go m' k (acc + loss)
 
 ||| Per-epoch metrics: test accuracy and test loss over a small eval slice.
@@ -200,10 +200,10 @@ mnistMetrics : {hs : List Nat} ->
                AnyPtr -> Int ->
                Network InputDim hs NumClasses CPU WithGrad ->
                IO (List (String, String))
-mnistMetrics testDs testCount m =
-  let pair = evalAccuracy m testDs testCount 200
-  in pure [("test_acc", show (fst pair)),
-           ("test_loss", show (snd pair))]
+mnistMetrics testDs testCount m = do
+  pair <- evalAccuracy m testDs testCount 200
+  pure [("test_acc", show (fst pair)),
+        ("test_loss", show (snd pair))]
 
 
 ----------------------------------------------------------------------
@@ -292,8 +292,7 @@ main = do
     let lrCfg : LrFindConfig
         lrCfg = { numIters := 100 } defaultLrFindConfig
     _ <- lrFind lrCfg
-      (\m, batch => let (m', loss) = epochVarTensorBatch opt batch tnllLoss m
-                    in pure (m', loss))
+      (\m, batch => epochVarTensorBatch opt batch tnllLoss m)
       genBatch opt model
     putStrLn ""
     putStrLn "Done — re-run without --lr-find at the recommended LR."
@@ -307,8 +306,8 @@ main = do
     (pure ()) trainCfg model
 
   putStrLn ""
-  let finalPair = evalAccuracy trained testDs testCount 1000
-      finalAcc = fst finalPair
+  finalPair <- evalAccuracy trained testDs testCount 1000
+  let finalAcc = fst finalPair
       finalTestLoss = snd finalPair
   putStrLn $ "Final accuracy (1000 test samples): " ++ show (finalAcc * 100.0) ++ "%"
   putStrLn $ "Final test loss: " ++ show finalTestLoss

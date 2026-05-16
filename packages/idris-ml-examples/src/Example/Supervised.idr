@@ -82,13 +82,13 @@ main = do
 
   -- Build persistent input tensors and forward through the trained model.
   let inputs = the (Vect 5 AnyPtr) (map mkInputTensor dataPoints)
-  traverse_ (\(idx, dp) =>
+  traverse_ (\(idx, dp) => do
     let inV = the (TVec 2 CPU WithGrad) (MkTensor (mkInputTensor dp) Nothing)
-        (_, predV) = forwardVar trained inV
-        predClass = evalPrediction predV
+    (_, predV) <- forwardVar trained inV
+    let predClass = evalPrediction predV
         targetClass = evalPredictionTarget (y dp)
         ok = if targetClass == predClass then " ok" else " WRONG"
-    in putStrLn $ "  " ++ showVecD (x dp) ++ " -> class " ++ show predClass ++ ok)
+    putStrLn $ "  " ++ showVecD (x dp) ++ " -> class " ++ show predClass ++ ok)
     (zip Fin.range dataPoints)
 
   putStrLn ""

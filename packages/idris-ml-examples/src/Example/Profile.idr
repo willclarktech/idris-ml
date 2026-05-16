@@ -87,7 +87,7 @@ profileEpoch :
   IO (Network InputW [] OutputW CPU WithGrad)
 profileEpoch opt dataPoints model epochNum = do
   t0 <- clockTime Monotonic
-  let (model', lossVal) = epochTwoPhaseVar opt dataPoints tbceLoss model
+  (model', lossVal) <- epochTwoPhaseVar opt dataPoints tbceLoss model
   t1 <- clockTime Monotonic
 
   let line = padL 5 (show epochNum)
@@ -171,6 +171,6 @@ main = do
     go k m = do
       dps <- copyTaskBinaryBatchVect {w = W} BatchSize 1 20
       let opt = nativeRmsprop 0.0001 0.95 1.0e-8 10.0 0.9
-          (m', loss) = epochTwoPhaseVar opt dps tbceLoss m
+      (m', loss) <- epochTwoPhaseVar opt dps tbceLoss m
       putStrLn $ "  warmup " ++ show (k + 1) ++ ": loss=" ++ show loss
       go (k + 1) m'

@@ -89,23 +89,23 @@ optPath path =
 -- Forward each datapoint, compute NLL loss as a Double, average.
 evalModel : Network 2 [] 3 CPU WithGrad -> IO Double
 evalModel model = do
-  let losses = map (\dp =>
+  losses <- traverse (\dp => do
         let inT = bulkToTensor (x dp)
             inV = the (TVec 2 CPU WithGrad) (MkTensor inT Nothing)
-            (_, predV) = forwardVar model inV
-            tgtT = bulkToTensor (y dp)
+        (_, predV) <- forwardVar model inV
+        let tgtT = bulkToTensor (y dp)
             tgtV = the (TVec 3 CPU WithGrad) (MkTensor tgtT Nothing)
-            lossT = tnllLoss predV tgtV
-        in prim__item lossT.tensorPtr) dataPoints
+        lossT <- tnllLoss predV tgtV
+        pure (prim__item lossT.tensorPtr)) dataPoints
   pure (foldl (+) 0.0 (toList losses) / 5.0)
 
 printPredictions : Network 2 [] 3 CPU WithGrad -> IO ()
 printPredictions model = do
-  traverse_ (\dp =>
+  traverse_ (\dp => do
     let inT = bulkToTensor (x dp)
         inV = the (TVec 2 CPU WithGrad) (MkTensor inT Nothing)
-        (_, predV) = forwardVar model inV
-        predClass = evalPrediction predV.tensorPtr
+    (_, predV) <- forwardVar model inV
+    let predClass = evalPrediction predV.tensorPtr
         targetClass = evalPredictionTarget (y dp)
         showVec : {k : Nat} -> Vector k Double -> String
         showVec (VArray xs) = "[" ++ go xs ++ "]"
@@ -113,7 +113,7 @@ printPredictions model = do
                 go [] = ""
                 go [SArray v] = show v
                 go (SArray v :: rest) = show v ++ ", " ++ go rest
-    in putStrLn $ "  " ++ showVec (x dp) ++ " -> class " ++ show predClass
+    putStrLn $ "  " ++ showVec (x dp) ++ " -> class " ++ show predClass
                 ++ (if targetClass == predClass then " ok" else " WRONG"))
     (toList dataPoints)
 
@@ -200,8 +200,7 @@ main = do
     let lrCfg : LrFindConfig
         lrCfg = { numIters := 100 } defaultLrFindConfig
     _ <- lrFind lrCfg
-      (\m, d => let (m', loss) = epochVar opt d tnllLoss m
-                in pure (m', loss))
+      (\m, d => epochVar opt d tnllLoss m)
       (pure dataPoints) opt model
     putStrLn ""
     putStrLn "Done — re-run without --lr-find at the recommended LR."

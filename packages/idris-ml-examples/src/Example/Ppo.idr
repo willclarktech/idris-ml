@@ -102,21 +102,21 @@ record RollStep where
 -- Categorical policy helpers
 ----------------------------------------------------------------------
 
-criticValue : Critic -> Vect ObsDim Double -> Double
-criticValue critic obs =
+criticValue : Critic -> Vect ObsDim Double -> IO Double
+criticValue critic obs = do
   let stateV = the (TVec ObsDim CPU WithGrad) (MkTensor (bulkToTensor (obsTensor obs)) Nothing)
-      outV = snd (forwardVar critic stateV)
-  in prim__item1d outV.tensorPtr 0
+  (_, outV) <- forwardVar critic stateV
+  pure (prim__item1d outV.tensorPtr 0)
 
 sampleActionIO : Actor -> Critic -> Vect ObsDim Double -> IO (Nat, Double, Double)
 sampleActionIO actor critic obs = do
   let stateV  = the (TVec ObsDim CPU WithGrad) (MkTensor (bulkToTensor (obsTensor obs)) Nothing)
-      logitsV = snd (forwardVar actor stateV)
-      logPT   = prim__logSoftmax logitsV.tensorPtr 0
+  (_, logitsV) <- forwardVar actor stateV
+  let logPT   = prim__logSoftmax logitsV.tensorPtr 0
       lp0     = prim__item1d logPT 0
       lp1     = prim__item1d logPT 1
       lp2     = prim__item1d logPT 2
-      v       = criticValue critic obs
+  v <- criticValue critic obs
   u <- randomRIO (the Double 0.0, 1.0)
   let a = categoricalSample [Prelude.exp lp0, Prelude.exp lp1, Prelude.exp lp2] u
       lp = case a of
@@ -159,15 +159,15 @@ rollout actor critic st stepsLeft (S k) = do
 -- GAE + advantage normalization
 ----------------------------------------------------------------------
 
-bootstrapV : Critic -> Vect ObsDim Double -> Double
+bootstrapV : Critic -> Vect ObsDim Double -> IO Double
 bootstrapV critic obs = criticValue critic obs
 
-computeBootstrap : Critic -> List RollStep -> AState -> Double
-computeBootstrap _ [] _ = 0.0
+computeBootstrap : Critic -> List RollStep -> AState -> IO Double
+computeBootstrap _ [] _ = pure 0.0
 computeBootstrap critic steps finalSt =
   case last' steps of
-    Nothing => 0.0
-    Just ls => if ls.isDone then 0.0 else bootstrapV critic (observeVec finalSt)
+    Nothing => pure 0.0
+    Just ls => if ls.isDone then pure 0.0 else bootstrapV critic (observeVec finalSt)
 
 stepTriple : RollStep -> (Double, Double, Bool)
 stepTriple s = (s.reward, s.value, s.isDone)
@@ -201,58 +201,54 @@ clipScalar lo hi x = if x < lo then lo else if x > hi then hi else x
 perStepLoss : {n : Nat} -> (logitsB : Tensor [n, NumActions] CPU WithGrad) ->
               (valueB : Tensor [n, 1] CPU WithGrad) -> (rowIdx : Int) ->
               Double -> Double -> Double ->
-              (RollStep, Double, Double) -> Tensor [] CPU WithGrad
-perStepLoss logitsB valueB rowIdx clipEps entropyCoef valueCoef (step, adv, retT) =
-  let logitsRow = the (TVec NumActions CPU WithGrad) (trowSelect logitsB rowIdx)
-      logPT = the (Tensor [NumActions] CPU WithGrad)
+              (RollStep, Double, Double) -> IO (Tensor [] CPU WithGrad)
+perStepLoss logitsB valueB rowIdx clipEps entropyCoef valueCoef (step, adv, retT) = do
+  logitsRow <- trowSelect logitsB rowIdx
+  let logPT = the (Tensor [NumActions] CPU WithGrad)
                   (MkTensor (prim__logSoftmax logitsRow.tensorPtr 0) Nothing)
       aIdx : Int
       aIdx = cast {to=Int} (cast {to=Integer} step.action)
-      lpNew = the (Tensor [] CPU WithGrad) (telemSelect logPT aIdx)
-      lpVal = prim__item1d logPT.tensorPtr aIdx
-
-      valueRow = the (TVec 1 CPU WithGrad) (trowSelect valueB rowIdx)
-      valueV = the (Tensor [] CPU WithGrad) (telemSelect valueRow 0)
-
-      diffLP = tsub lpNew (tconstScalar step.oldLogProb)
-      ratioVal = Prelude.exp (lpVal - step.oldLogProb)
-      ratioV = texp diffLP
-
-      surr1 = tmulScalar ratioV adv
-      surr1Val = ratioVal * adv
+  lpNew <- telemSelect logPT aIdx
+  let lpVal = prim__item1d logPT.tensorPtr aIdx
+  valueRow <- trowSelect valueB rowIdx
+  valueV   <- telemSelect valueRow 0
+  oldLPT   <- tconstScalar step.oldLogProb
+  diffLP   <- tsub lpNew oldLPT
+  let ratioVal = Prelude.exp (lpVal - step.oldLogProb)
+  ratioV   <- texp diffLP
+  surr1    <- tmulScalar ratioV adv
+  let surr1Val = ratioVal * adv
       clipped = clipScalar (1.0 - clipEps) (1.0 + clipEps) ratioVal
       surr2Val = clipped * adv
-
-      policyT = if surr1Val <= surr2Val
-                  then tneg surr1
-                  else tconstScalar (negate surr2Val)
-
-      retC = tconstScalar retT
-      diffV = tsub valueV retC
-      valueTerm = tmulScalar (tmul diffV diffV) (0.5 * valueCoef)
-
-      lp0V = the (Tensor [] CPU WithGrad) (telemSelect logPT 0)
-      lp1V = the (Tensor [] CPU WithGrad) (telemSelect logPT 1)
-      lp2V = the (Tensor [] CPU WithGrad) (telemSelect logPT 2)
-      p0V = texp lp0V
-      p1V = texp lp1V
-      p2V = texp lp2V
-      negEntV = the (Tensor [] CPU WithGrad)
+  policyT <- if surr1Val <= surr2Val
+               then tneg surr1
+               else tconstScalar (negate surr2Val)
+  retC      <- tconstScalar retT
+  diffV     <- tsub valueV retC
+  diffVsq   <- tmul diffV diffV
+  valueTerm <- tmulScalar diffVsq (0.5 * valueCoef)
+  lp0V <- telemSelect logPT 0
+  lp1V <- telemSelect logPT 1
+  lp2V <- telemSelect logPT 2
+  p0V  <- texp lp0V
+  p1V  <- texp lp1V
+  p2V  <- texp lp2V
+  let negEntV = the (Tensor [] CPU WithGrad)
                     (MkTensor (prim__add
                               (prim__add (prim__mul p0V.tensorPtr lp0V.tensorPtr)
                                          (prim__mul p1V.tensorPtr lp1V.tensorPtr))
                               (prim__mul p2V.tensorPtr lp2V.tensorPtr))
                             Nothing)
-      entTerm = tmulScalar negEntV entropyCoef
-  in MkTensor (prim__add (prim__add policyT.tensorPtr valueTerm.tensorPtr)
-                       entTerm.tensorPtr) Nothing
+  entTerm <- tmulScalar negEntV entropyCoef
+  pure (MkTensor (prim__add (prim__add policyT.tensorPtr valueTerm.tensorPtr)
+                       entTerm.tensorPtr) Nothing)
 
 
-meanScalarLoss : (n : Nat) -> List (Tensor [] CPU WithGrad) -> Tensor [] CPU WithGrad
-meanScalarLoss n losses =
-  let zero = tconstScalar 0.0
-      summed = foldl (\a, b => MkTensor (prim__add a.tensorPtr b.tensorPtr) Nothing) zero losses
-  in tmulScalar summed (1.0 / cast n)
+meanScalarLoss : (n : Nat) -> List (Tensor [] CPU WithGrad) -> IO (Tensor [] CPU WithGrad)
+meanScalarLoss n losses = do
+  zero <- tconstScalar 0.0
+  let summed = foldl (\a, b => MkTensor (prim__add a.tensorPtr b.tensorPtr) Nothing) zero losses
+  tmulScalar summed (1.0 / cast n)
 
 
 ----------------------------------------------------------------------
@@ -311,13 +307,13 @@ record PPOState where
 
 
 prepareRollout : Critic -> Config -> List RollStep -> AState ->
-                 List (RollStep, Double, Double)
-prepareRollout critic cfg steps finalSt =
-  let bootstrap = computeBootstrap critic steps finalSt
-      triples   = map stepTriple steps
+                 IO (List (RollStep, Double, Double))
+prepareRollout critic cfg steps finalSt = do
+  bootstrap <- computeBootstrap critic steps finalSt
+  let triples   = map stepTriple steps
       gaeOut    = gae cfg.gamma cfg.lam bootstrap triples
       merged    = map flattenTriple (zip steps gaeOut)
-  in normAdvs merged
+  pure (normAdvs merged)
 
 
 -- Stack mini-batch obs into [B, ObsDim], do one batched actor + critic
@@ -332,21 +328,22 @@ runBatch opt actor critic cfg batch = do
                      (map (\(s, _, _) => obsTensor s.obs) batchVec)
       stackedT = bulkToTensor2d obsBatch
       stackedV = the (Tensor [n, ObsDim] CPU WithGrad) (MkTensor stackedT Nothing)
-      logitsB = snd (forwardVarBatch actor stackedV)
-      valueB = snd (forwardVarBatch critic stackedV)
-      losses = the (List (Tensor [] CPU WithGrad)) (enumeratedLosses logitsB valueB batchVec 0)
-      loss = meanScalarLoss n losses
-  _ <- pure (nativeTrainStep opt loss)
+  (_, logitsB) <- forwardVarBatch actor stackedV
+  (_, valueB)  <- forwardVarBatch critic stackedV
+  losses <- enumeratedLosses logitsB valueB batchVec 0
+  loss <- meanScalarLoss n losses
+  _ <- nativeTrainStep opt loss
   pure ()
   where
     enumeratedLosses : {n : Nat} -> Tensor [n, NumActions] CPU WithGrad ->
                        Tensor [n, 1] CPU WithGrad ->
                        Vect k (RollStep, Double, Double) -> Int ->
-                       List (Tensor [] CPU WithGrad)
-    enumeratedLosses _ _ [] _ = []
-    enumeratedLosses lB vB (t :: rest) k =
-      perStepLoss lB vB k cfg.clipEps cfg.entropyCoef cfg.valueCoef t
-        :: enumeratedLosses lB vB rest (k + 1)
+                       IO (List (Tensor [] CPU WithGrad))
+    enumeratedLosses _ _ [] _ = pure []
+    enumeratedLosses lB vB (t :: rest) k = do
+      l  <- perStepLoss lB vB k cfg.clipEps cfg.entropyCoef cfg.valueCoef t
+      ls <- enumeratedLosses lB vB rest (k + 1)
+      pure (l :: ls)
 
 
 -- Iterate runBatch over a list of mini-batches via do-block recursion.
@@ -386,7 +383,7 @@ ppoEpoch opt cfg st = do
 
   -- prepareRollout calls computeBootstrap which does one critic
   -- forward — also grad-free.
-  prepped <- withNoGrad (pure (prepareRollout st.critic cfg steps finalSt))
+  prepped <- withNoGrad (prepareRollout st.critic cfg steps finalSt)
   kEpochUpdate opt st.actor st.critic cfg prepped cfg.kEpochs
 
   let episodeReturns = computeEpisodeReturns steps
@@ -410,31 +407,32 @@ ppoEpoch opt cfg st = do
 -- Greedy evaluation
 ----------------------------------------------------------------------
 
-greedyAct : Actor -> Vect ObsDim Double -> Nat
-greedyAct actor obs =
+greedyAct : Actor -> Vect ObsDim Double -> IO Nat
+greedyAct actor obs = do
   let stateV = the (TVec ObsDim CPU WithGrad) (MkTensor (bulkToTensor (obsTensor obs)) Nothing)
-      logits = snd (forwardVar actor stateV)
-      l0 = prim__item1d logits.tensorPtr 0
+  (_, logits) <- forwardVar actor stateV
+  let l0 = prim__item1d logits.tensorPtr 0
       l1 = prim__item1d logits.tensorPtr 1
       l2 = prim__item1d logits.tensorPtr 2
-  in if l0 >= l1 && l0 >= l2 then 0
-     else if l1 >= l2 then 1
-     else 2
+  pure (if l0 >= l1 && l0 >= l2 then 0
+        else if l1 >= l2 then 1
+        else 2)
 
-evalEp : Actor -> AState -> Nat -> Double -> Double
-evalEp _ _ Z acc = acc
-evalEp actor st (S k) acc =
-  let a = greedyAct actor (observeVec st)
-  in case aStep st a of
-       (r, st', outcome, _) =>
-         case outcome of
-           Terminated => acc + r
-           _          => evalEp actor st' k (acc + r)
+evalEp : Actor -> AState -> Nat -> Double -> IO Double
+evalEp _ _ Z acc = pure acc
+evalEp actor st (S k) acc = do
+  a <- greedyAct actor (observeVec st)
+  case aStep st a of
+    (r, st', outcome, _) =>
+      case outcome of
+        Terminated => pure (acc + r)
+        _          => evalEp actor st' k (acc + r)
 
-evalN : Actor -> Nat -> Double -> Double
-evalN _ Z acc = acc
-evalN actor (S k) acc =
-  evalN actor k (acc + evalEp actor (MkA 0.0 0.0 0.0 0.0) EpisodeLen 0.0)
+evalN : Actor -> Nat -> Double -> IO Double
+evalN _ Z acc = pure acc
+evalN actor (S k) acc = do
+  v <- evalEp actor (MkA 0.0 0.0 0.0 0.0) EpisodeLen 0.0
+  evalN actor k (acc + v)
 
 
 ----------------------------------------------------------------------
@@ -491,7 +489,8 @@ main = do
 
   putStrLn ""
   let nEval = the Nat 20
-      avgReturn = evalN trained.actor nEval 0.0 / cast (natToInteger nEval)
+  evalSum <- evalN trained.actor nEval 0.0
+  let avgReturn = evalSum / cast (natToInteger nEval)
   putStrLn $ "Eval (" ++ show nEval ++ " episodes, greedy): avg_return=" ++ show avgReturn
   putStrLn ""
   putStrLn $ formatResult [("avg_return", show avgReturn),
