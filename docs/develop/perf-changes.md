@@ -1964,12 +1964,7 @@ longer load-bearing; deferred behind the cadence-tuning task until
 a workload actually needs it. The cleaner Phase 5' deliverable is
 "the original motivation is gone."
 
-**New follow-up**: ntm-copy at ~450 epochs trips a
-`Exception: invalid memory reference. Some debugging context lost`
-mid-run, not the post-main static-destructor abort. Either a
-long-tail FFI lifecycle bug or coincidence with the known
-post-main mlx VM issue happening earlier than usual. Tracked as
-task #88; separate from the drain-cadence question.
+**Resolved (commit `e337512`)**: both the ntm-copy:mlx ~450-epoch UAF and the ppo:tape mid-run UAF are gone. The IO refactor (`forwardVar` / `applyVar` / Tensor smart constructors all `IO`-typed) made `withNoGrad` actually bracket eval-during-training, which means eval forwards no longer append to the live training tape and can't leave stale handles for the next epoch to dereference. Verification: ntm-copy:mlx 500 epochs ran clean (`epochs=500 acc_short=0.6350`); ppo:tape ran to completion (`epochs=100 avg_return=-78.0`). Tasks #88 and #89 closed.
 
 **Cross-references**:
 - `perf-log.jsonl` `kind=baseline` entries timestamped 2026-05-16
