@@ -1,6 +1,8 @@
 /* tensor_conv1d_circular for the mlx backend.
  *
- * Circular correlation: out[i] = sum_j input[(i - k/2 + j + n) % n] * kernel[j].
+ * Circular convolution: out[i] = sum_j input[(i - k/2 + j + n) % n] * kernel[k-1-j].
+ * Note the reversed kernel index — this is convolution, not correlation, matching
+ * tape's reference at backend_tape/conv/conv1d_circular.c.
  * mlx has no native circular conv1d — built from per-shift roll + multiply +
  * accumulate. OP_CONV1D_CIRC replay reproduces the rolls. */
 #include "../tensor.h"
@@ -18,7 +20,7 @@ extern "C" TensorHandle tensor_conv1d_circular_mlx_streamed(TensorHandle hinput,
     for (int j = 0; j < k; j++) {
         int shift = half_k - j;
         auto shifted = mx::roll(inp->data, shift);
-        auto kern_j = mx::take(kern->data, mx::array(j));
+        auto kern_j = mx::take(kern->data, mx::array(k - 1 - j));
         result = mx::add(result, mx::multiply(shifted, kern_j));
     }
 

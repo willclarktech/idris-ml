@@ -21,11 +21,7 @@
 #include "../../../backend.h"
 #include "../test_helpers.h"
 
-/* mlx: forward output is wrong — observed [1.1, 1.4, 1.1] instead of
-   [1.3, 1.0, 1.3]; backward is correct. Likely an off-by-one in
-   mlx's circular kernel rotation. Tracked in TODO.md "mlx
-   conv1d_circular forward output". */
-Test(conv_conv1d_circular, forward_and_backward, .disabled = SKIP_ON_MLX) {
+Test(conv_conv1d_circular, forward_and_backward) {
     param_clear();
     double in_data[3] = {1.0, 2.0, 3.0};
     double k_data[3]  = {0.1, 0.2, 0.3};

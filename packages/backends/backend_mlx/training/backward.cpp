@@ -228,13 +228,14 @@ void tensor_backward(TensorHandle h) {
                 break;
             }
             case OP_CONV1D_CIRC: {
-                // Inline circular convolution forward
+                // Inline circular convolution forward (kernel reversed — see
+                // backend_mlx/conv/conv1d_circular.cpp for the index derivation)
                 int n = (int)a.size(), k = (int)b.size();
                 int half_k = k / 2;
                 auto result = mx::zeros({n}, a.dtype());
                 for (int j = 0; j < k; j++) {
                     auto shifted = mx::roll(a, half_k - j);
-                    auto kern_j = mx::take(b, mx::array(j));
+                    auto kern_j = mx::take(b, mx::array(k - 1 - j));
                     result = mx::add(result, mx::multiply(shifted, kern_j));
                 }
                 pool[out] = result;
