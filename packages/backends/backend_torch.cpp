@@ -212,11 +212,6 @@ TensorHandle tensor_linear_2d(TensorHandle W, TensorHandle X, TensorHandle bias)
     return from_tensor(result);
 }
 
-TensorHandle tensor_concat_2d_axis1(TensorHandle A, TensorHandle B) {
-    /* A: [m, n], B: [m, k] -> [m, n+k] along axis 1 */
-    return from_tensor(torch::cat({*to_tensor(A), *to_tensor(B)}, 1));
-}
-
 TensorHandle tensor_dot(TensorHandle a, TensorHandle b) {
     return from_tensor(torch::dot(*to_tensor(a), *to_tensor(b)));
 }
@@ -818,21 +813,8 @@ TensorHandle tensor_create_2d(int rows, int cols, double* data, int requires_gra
 /* tensor_alloc_doubles / tensor_free_doubles / tensor_read_double /
  * tensor_ptr_array_alloc live in shared_utils.c. */
 
-/* ---------- Tensor pointer array ---------- */
-
-TensorHandle tensor_stack_from_array(TensorHandle* arr, int count, int dim) {
-    std::vector<at::Tensor> vec(count);
-    for (int i = 0; i < count; i++) vec[i] = *to_tensor(arr[i]);
-    free(arr);
-    return from_tensor(torch::stack(vec, dim));
-}
-
-TensorHandle tensor_cat_from_array(TensorHandle* arr, int count, int dim) {
-    std::vector<at::Tensor> vec(count);
-    for (int i = 0; i < count; i++) vec[i] = *to_tensor(arr[i]);
-    free(arr);
-    return from_tensor(torch::cat(vec, dim));
-}
+/* tensor_stack_from_array / tensor_cat_from_array live in
+ * backend_torch/linear/concat/{stack,cat}.cpp. */
 
 /* ---------- Convenience shape ops (added for tensor path) ---------- */
 
@@ -888,10 +870,6 @@ TensorHandle tensor_layer_norm_2d(TensorHandle input, TensorHandle gamma,
     auto& t = *to_tensor(input);
     int64_t n = t.size(-1);
     return from_tensor(torch::layer_norm(t, {n}, *to_tensor(gamma), *to_tensor(bias), eps));
-}
-
-TensorHandle tensor_cat2(TensorHandle a, TensorHandle b) {
-    return from_tensor(torch::cat({*to_tensor(a), *to_tensor(b)}, 0));
 }
 
 
