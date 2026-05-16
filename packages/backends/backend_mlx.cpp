@@ -1703,16 +1703,28 @@ void tensor_backward(TensorHandle h) {
     int loss_pool_idx = loss->pool_idx;
     int loss_tape_idx = loss->tape_idx;
     auto tape_ref = &tape;
-    auto constants_ref = &constants;
+
+    // Job 3 Phase B — explicit-inputs forward. The closure takes
+    // [params..., constants...] so that mx::compile (if enabled) does
+    // NOT bake per-batch constant values into the compiled graph at
+    // trace time. The eager path uses the same closure to keep both
+    // paths in lockstep; vjp returns grads for all inputs, but only
+    // the leading n_params are written back to param tensors.
+    int n_params = (int)param_arrays.size();
+    int n_consts = (int)constants.size();
+    std::vector<int> constants_pool_indices;
+    constants_pool_indices.reserve(n_consts);
+    for (auto& [idx, arr] : constants) constants_pool_indices.push_back(idx);
 
     // Replay forward pass inside mlx::vjp
     int pool_size = next_pool_idx;
-    auto forward_fn = [&](const std::vector<mx::array>& params) -> mx::array {
-        // Pool: flat vector indexed by pool_idx. Initialize with placeholder.
+    auto forward_fn = [&](const std::vector<mx::array>& xs) -> mx::array {
+        // xs[0..n_params) = params, xs[n_params..n_params+n_consts) = constants
         std::vector<mx::array> pool(pool_size, kF32_ZERO());
-        for (auto& [idx, arr] : *constants_ref) pool[idx] = arr;
-        for (int i = 0; i < (int)params.size(); i++)
-            pool[param_pool_indices[i]] = params[i];
+        for (int i = 0; i < n_params; i++)
+            pool[param_pool_indices[i]] = xs[i];
+        for (int i = 0; i < n_consts; i++)
+            pool[constants_pool_indices[i]] = xs[n_params + i];
 
         for (int i = 0; i <= loss_tape_idx; i++) {
             auto& e = (*tape_ref)[i];
@@ -2051,21 +2063,32 @@ void tensor_backward(TensorHandle h) {
     };
 
     // Compute gradients via MLX native autograd (vjp with unit cotangent)
-    auto forward_vec = [&](const std::vector<mx::array>& params) -> std::vector<mx::array> {
-        return {forward_fn(params)};
+    auto forward_vec = [&](const std::vector<mx::array>& xs) -> std::vector<mx::array> {
+        return {forward_fn(xs)};
     };
 
-    // Job 3 Phase B — compile-enabled path. At Stage 2 this is just an
-    // observable branch around the same eager vjp call; real mx::compile
-    // wiring lands in subsequent stages.
+    // Build the [params..., constants...] inputs vector
+    std::vector<mx::array> all_inputs;
+    all_inputs.reserve(n_params + n_consts);
+    for (auto& p : param_arrays) all_inputs.push_back(p);
+    for (auto& [idx, arr] : constants) all_inputs.push_back(arr);
+
+    // Job 3 Phase B — compile-enabled path. Stage 4 wires mx::compile
+    // for real. The compile call is the public C++ overload; until we
+    // add caching (Stage 5+), it recompiles every backward.
     std::pair<std::vector<mx::array>, std::vector<mx::array>> vjp_result;
     if (tensor_mlx_compile_enabled()) {
         g_compile_invocations++;
-        vjp_result = mx::vjp(forward_vec, param_arrays, {mx::array(1.0f)});
+        auto compiled = mx::compile(forward_vec);
+        vjp_result = mx::vjp(compiled, all_inputs, {mx::array(1.0f)});
     } else {
-        vjp_result = mx::vjp(forward_vec, param_arrays, {mx::array(1.0f)});
+        vjp_result = mx::vjp(forward_vec, all_inputs, {mx::array(1.0f)});
     }
+    // vjp returned grads for [params..., constants...]; truncate to params.
+    // mx::array has no default ctor, so erase the tail rather than resize.
     auto& grads = vjp_result.second;
+    if ((int)grads.size() > n_params)
+        grads.erase(grads.begin() + n_params, grads.end());
 
     // Distribute gradients to parameter tensors
     for (int i = 0; i < (int)param_registry.size(); i++) {
