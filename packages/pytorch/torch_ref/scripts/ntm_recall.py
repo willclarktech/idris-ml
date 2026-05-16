@@ -86,7 +86,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--lr", type=float, default=0.0001)
     parser.add_argument("--clip", type=float, default=10.0)
-    parser.add_argument("--epochs", type=int, default=50000)
+    parser.add_argument("--epochs", type=int, default=30000)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--batch", type=int, default=1)
     parser.add_argument("--min-items", type=int, default=2)
