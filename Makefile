@@ -493,6 +493,20 @@ example-gpt-full: install dataset-tinyshakespeare
 	cp $(LIB) build/exec/gpt_app/
 	$(STDBUF) ./build/exec/gpt $(SEED_FLAG) --corpus tinyshakespeare --epochs 1000 $(GPT_ARGS)
 
+# GPU-shaped GPT variant: dModel=256, heads=8, blocks=4, seq=128, batch=32.
+# Per-step compute is matmul-dominated so mlx GPU + compile is the
+# unambiguously right backend choice (the default GPT config sits on the
+# wrong side of mlx's kernel-launch wall — see docs/develop/mlx-survey.md).
+example-gpt-large: install
+	idris2 $(IDRIS_FLAGS) -o gpt-large $(EXAMPLE_SRC)/Example/GptLarge.idr
+	cp $(LIB) build/exec/gpt-large_app/
+	$(STDBUF) ./build/exec/gpt-large $(SEED_FLAG) $(GPT_LARGE_ARGS)
+
+example-gpt-large-full: install dataset-tinyshakespeare
+	idris2 $(IDRIS_FLAGS) -o gpt-large $(EXAMPLE_SRC)/Example/GptLarge.idr
+	cp $(LIB) build/exec/gpt-large_app/
+	$(STDBUF) ./build/exec/gpt-large $(SEED_FLAG) --corpus tinyshakespeare --epochs 1000 $(GPT_LARGE_ARGS)
+
 example-mnist: install dataset-mnist
 	idris2 $(IDRIS_FLAGS) -o mnist $(EXAMPLE_SRC)/Example/Mnist.idr
 	cp $(LIB) build/exec/mnist_app/
@@ -798,7 +812,7 @@ clean:
 # Examples run on every built backend. Keep in sync with packages/idris-ml-examples/src/Example/.
 # Excluded intentionally:
 #   Bench, Profile — no RESULT lines (covered by bench-compare / example-profile).
-EXAMPLES := example-supervised example-rnn example-lstm example-gru example-transformer example-gpt example-mnist example-seq-classify example-ntm-copy example-ntm-associative-recall example-dnc-copy example-dnc-recall example-reinforce example-q-learning example-sarsa example-monte-carlo example-frozen-lake example-taxi example-dqn example-mountain-car example-mountain-car-cont example-a2c example-ppo example-sac example-transfer
+EXAMPLES := example-supervised example-rnn example-lstm example-gru example-transformer example-gpt example-gpt-large example-mnist example-seq-classify example-ntm-copy example-ntm-associative-recall example-dnc-copy example-dnc-recall example-reinforce example-q-learning example-sarsa example-monte-carlo example-frozen-lake example-taxi example-dqn example-mountain-car example-mountain-car-cont example-a2c example-ppo example-sac example-transfer
 BACKENDS := tape mlx torch
 
 # Crash-only smoke gate: every example × 3 backends, 3-10 epochs each,
@@ -830,6 +844,7 @@ test-examples:
 				example-transformer) extra_args="TRANSFORMER_ARGS=--epochs 5" ;; \
 				example-reinforce)   extra_args="REINFORCE_ARGS=--epochs 10" ;; \
 				example-gpt)         extra_args="GPT_ARGS=--epochs 3" ;; \
+				example-gpt-large)   extra_args="GPT_LARGE_ARGS=--epochs 3" ;; \
 				example-mnist)       extra_args="MNIST_ARGS=--epochs 1 --train-count 6000" ;; \
 				example-seq-classify) extra_args="SEQ_ARGS=--epochs 5" ;; \
 				example-dqn)         extra_args="DQN_ARGS=--epochs 10" ;; \
@@ -1018,7 +1033,7 @@ all: check-all test-all
         example-ntm-copy example-ntm-associative-recall example-dnc-copy example-dnc-recall \
         example-reinforce example-q-learning example-sarsa example-monte-carlo example-frozen-lake example-taxi \
         example-dqn example-mountain-car example-mountain-car-cont example-a2c example-ppo example-sac \
-        example-gpt example-gpt-full example-mnist example-seq-classify example-transformer \
+        example-gpt example-gpt-full example-gpt-large example-gpt-large-full example-mnist example-seq-classify example-transformer \
         ref-gpt ref-gpt-large \
         example-transfer example-transfer-demo \
         example-bench example-profile sweep sweep-quick clean \

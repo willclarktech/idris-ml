@@ -359,7 +359,7 @@ main = do
       trainLen = length trainIndices
       valLen = length valIndices
 
-  putStrLn "=== GPT: Character-Level Language Model ==="
+  putStrLn "=== GPT-Large: Character-Level Language Model ==="
   putStrLn $ "Config: corpus=" ++ cfg.corpus
            ++ " lr=" ++ show cfg.lr ++ " epochs=" ++ show cfg.epochs
            ++ " patience=" ++ show cfg.patience ++ " seed=" ++ show cfg.seed
@@ -372,7 +372,7 @@ main = do
   tfmAny <- transformerLayerAny
               {seqLen=SeqLen, dModel=DModel, numHeads=NumHeads,
                headDim=HeadDim, numBlocks=NumBlocks, vocabSize=VocabSize}
-              "tfm0"
+              "tfmL0"
   let model : Network InputDim [] OutputDim CPU WithGrad
       model = OutputLayer tfmAny
   putStrLn ""
@@ -385,10 +385,14 @@ main = do
   let genBatch : IO (Vect BatchSize (TensorDataPoint InputDim OutputDim))
       genBatch = gptBatchVect trainIndices trainLen BatchSize
 
+  -- Skip the periodic val_bpc tick at GptLarge's scale. The smaller `Gpt`
+  -- example evaluates val_bpc in the per-epoch hook, but here each
+  -- forward builds enough tape state that an unfreed inference pass
+  -- corrupts memory at the next training step. The final eval below
+  -- runs inside `withNoGrad` and prints + flushes inline, so the FFI
+  -- chain forces before the no-grad scope closes.
   let evalMetrics : Network InputDim [] OutputDim CPU WithGrad -> IO (List (String, String))
-      evalMetrics m = do
-        let valBpc = evalBPC m valIndices valLen 20
-        pure [("val_bpc", show valBpc)]
+      evalMetrics _ = pure []
 
   let noOpHook : Nat -> IO ()
       noOpHook _ = pure ()
@@ -419,24 +423,32 @@ main = do
 
   (trained, epochsDone, finalLoss) <- runTrainingIO stepFn genBatch trainCfg model
 
-  putStrLn ""
-  let valBpc = evalBPC trained valIndices valLen 50
-      trainBpc = evalBPC trained trainIndices trainLen 50
-  putStrLn $ "Final val_bpc: " ++ show valBpc
-          ++ "  (train_bpc: " ++ show trainBpc ++ ")"
+  -- Post-training eval + generation: all pure-inference, so the whole
+  -- block runs inside `withNoGrad` to avoid the tape-arena-overflow
+  -- crash. Each `putStrLn $ ... show ...` line forces its Double/String
+  -- argument strictly through stdout, so the FFI chain fires inside the
+  -- no-grad scope. Generation length is 50 (vs Gpt's 200) — at
+  -- H=256/seq=128 the per-forward state is large enough that a
+  -- 200-char autoregressive loop still hits the runtime memory ceiling.
+  withNoGrad $ do
+    let valBpc   = evalBPC trained valIndices valLen 50
+    putStrLn ""
+    putStrLn $ "Final val_bpc: " ++ show valBpc
+    let trainBpc = evalBPC trained trainIndices trainLen 50
+    putStrLn $ "(train_bpc: " ++ show trainBpc ++ ")"
 
-  putStrLn ""
-  putStrLn "Generation (seed='to be or '):"
-  let sample1 = generateText trained "to be or " 200 1.0
-  putStrLn $ "  " ++ show sample1
+    let sample1 = generateText trained "to be or " 50 1.0
+    putStrLn ""
+    putStrLn "Generation (seed='to be or '):"
+    putStrLn $ "  " ++ show sample1
 
-  putStrLn ""
-  putStrLn "Generation (seed='the '):"
-  let sample2 = generateText trained "the " 200 1.0
-  putStrLn $ "  " ++ show sample2
+    let sample2 = generateText trained "the " 50 1.0
+    putStrLn ""
+    putStrLn "Generation (seed='the '):"
+    putStrLn $ "  " ++ show sample2
 
-  putStrLn ""
-  let metricKey = if cfg.corpus == "embedded" then "bpc" else "val_bpc"
-  putStrLn $ formatResult [(metricKey, show valBpc),
-                            ("epochs", show epochsDone),
-                            ("seed", show cfg.seed)]
+    putStrLn ""
+    let metricKey = if cfg.corpus == "embedded" then "bpc" else "val_bpc"
+    putStrLn $ formatResult [(metricKey, show valBpc),
+                              ("epochs", show epochsDone),
+                              ("seed", show cfg.seed)]

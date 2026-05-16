@@ -35,6 +35,7 @@ example-gru                      loss         <   5.0
 
 # ---- Smoke (a few epochs): safety-net thresholds ----
 example-gpt                      bpc          <   20.0
+example-gpt-large                bpc          <   20.0
 example-mnist                    accuracy     >=  0.05
 example-seq-classify             loss         <   10.0
 
