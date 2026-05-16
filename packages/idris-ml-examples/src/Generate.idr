@@ -403,8 +403,12 @@ reversalTensorPoint i o vocabSize inputLen seqLen sepToken eosToken = do
       targetToks = Data.List.take seqLen (drop 1 fullSeq)
       sI = cast {to=Int} seqLen
       vI = cast {to=Int} vocabSize
-      -- Input: token indices as doubles [seqLen]
-      inT = primCreate1d {d=ExampleDevice} sI (packTokensDouble (prim__allocDoubles sI) 0 inputToks) 0
+      -- Input: token indices as doubles [seqLen]. Routed through the
+      -- dtype-aware creator so mlx-gpu (F32-only) doesn't get an F64
+      -- buffer pushed onto a Metal stream (which mlx aborts with
+      -- "float64 is not supported on the GPU"). dtypeTag {t=ExampleDType}
+      -- pins the on-device storage to the build's dtype.
+      inT = dtCreate1d {d=ExampleDevice} {t=ExampleDType} sI (packTokensDouble (prim__allocDoubles sI) 0 inputToks) 0 (deviceStreamTag {d=ExampleDevice})
       -- Target: one-hot [seqLen * vocabSize] for cross-entropy
       tgtIdxBuf = packTokens (prim__allocInts sI) 0 targetToks
   pure $ MkTensorDataPoint inT (primOneHot {d=ExampleDevice} tgtIdxBuf sI vI (dtypeTag {t=ExampleDType}))
@@ -437,7 +441,8 @@ sortingTensorPoint i o vocabSize inputLen seqLen sepToken eosToken = do
       targetToks = Data.List.take seqLen (drop 1 fullSeq)
       sI = cast {to=Int} seqLen
       vI = cast {to=Int} vocabSize
-      inT = primCreate1d {d=ExampleDevice} sI (packTokensDouble (prim__allocDoubles sI) 0 inputToks) 0
+      -- See reversalTensorPoint for the dtype rationale.
+      inT = dtCreate1d {d=ExampleDevice} {t=ExampleDType} sI (packTokensDouble (prim__allocDoubles sI) 0 inputToks) 0 (deviceStreamTag {d=ExampleDevice})
       tgtIdxBuf = packTokens (prim__allocInts sI) 0 targetToks
   pure $ MkTensorDataPoint inT (primOneHot {d=ExampleDevice} tgtIdxBuf sI vI (dtypeTag {t=ExampleDType}))
 

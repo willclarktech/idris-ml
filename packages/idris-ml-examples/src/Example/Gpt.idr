@@ -144,7 +144,7 @@ gptTensorPoint corpus corpusLen = do
       targetToks = Data.List.take SeqLen (drop 1 window)
       sI = cast {to=Int} SeqLen
       vI = cast {to=Int} VocabSize
-      inT = primCreate1d {d=ExampleDevice} sI (packDoubleBuf (prim__allocDoubles sI) 0 inputToks) 0
+      inT = dtCreate1d {d=ExampleDevice} {t=ExampleDType} sI (packDoubleBuf (prim__allocDoubles sI) 0 inputToks) 0 (deviceStreamTag {d=ExampleDevice})
       tgtIdxBuf = packIntBuf (prim__allocInts sI) 0 targetToks
   pure $ MkTensorDataPoint inT (primOneHot {d=ExampleDevice} tgtIdxBuf sI vI (dtypeTag {t=ExampleDType}))
 
@@ -220,7 +220,7 @@ generateText model seed genLen temperature = do
     go _ _ Z acc = pure (reverse acc)
     go m ctx (S k) acc = do
       let sI = cast {to=Int} SeqLen
-          inT = primCreate1d {d=ExampleDevice} sI (packDoubleBuf (prim__allocDoubles sI) 0 ctx) 0
+          inT = dtCreate1d {d=ExampleDevice} {t=ExampleDType} sI (packDoubleBuf (prim__allocDoubles sI) 0 ctx) 0 (deviceStreamTag {d=ExampleDevice})
           inV = the (TVec InputDim ExampleDevice ExampleDType WithGrad) (MkTensor inT Nothing)
       (_, predV) <- forwardVar m inV
       let unnorm = sampleAt predV.tensorPtr (minus SeqLen 1)
@@ -247,7 +247,7 @@ evalBPC model corpus corpusLen nSamples = go nSamples 0.0
           targetToks = Data.List.take SeqLen (drop 1 window)
           sI = cast {to=Int} SeqLen
           vI = cast {to=Int} VocabSize
-          inT = primCreate1d {d=ExampleDevice} sI (packDoubleBuf (prim__allocDoubles sI) 0 inputToks) 0
+          inT = dtCreate1d {d=ExampleDevice} {t=ExampleDType} sI (packDoubleBuf (prim__allocDoubles sI) 0 inputToks) 0 (deviceStreamTag {d=ExampleDevice})
           tgtIdxBuf = packIntBuf (prim__allocInts sI) 0 targetToks
           tgtT = primOneHot {d=ExampleDevice} tgtIdxBuf sI vI (dtypeTag {t=ExampleDType})
           inV = the (TVec InputDim ExampleDevice ExampleDType WithGrad) (MkTensor inT Nothing)
