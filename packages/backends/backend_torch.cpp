@@ -369,11 +369,8 @@ void tensor_to_int64(TensorHandle h, int64_t* out) {
     std::memcpy(out, t.data_ptr<int64_t>(), t.numel() * sizeof(int64_t));
 }
 
-TensorHandle tensor_subtract_scalar_inplace(TensorHandle h, double val) {
-    torch::NoGradGuard no_grad;
-    to_tensor(h)->sub_(val);
-    return h;
-}
+/* tensor_subtract_scalar_inplace lives in
+   backend_torch/training/ntm_specific.cpp. */
 
 /* ---------- Convenience ---------- */
 
@@ -1186,26 +1183,7 @@ void optimizer_set_meta(OptimizerHandle h, const double* in9) {
     }
 }
 
-void tensor_lstm_gates(
-    TensorHandle combined_h, TensorHandle prev_cell_h, int o,
-    TensorHandle* out_h, TensorHandle* out_c)
-{
-    auto& combined = *to_tensor(combined_h);
-    auto& prev_cell = *to_tensor(prev_cell_h);
-
-    /* Split combined [4*o] into 4 gates of [o] */
-    auto chunks = combined.split(o);
-    auto i_gate = torch::sigmoid(chunks[0]);
-    auto f_gate = torch::sigmoid(chunks[1]);
-    auto g_gate = torch::tanh(chunks[2]);
-    auto o_gate = torch::sigmoid(chunks[3]);
-
-    auto new_cell = f_gate * prev_cell + i_gate * g_gate;
-    auto new_hidden = o_gate * torch::tanh(new_cell);
-
-    *out_h = from_tensor(std::move(new_hidden));
-    *out_c = from_tensor(std::move(new_cell));
-}
+/* tensor_lstm_gates lives in backend_torch/training/ntm_specific.cpp. */
 
 TensorPair* tensor_lstm_gates_pair(TensorHandle combined_h, TensorHandle prev_cell_h, int o) {
     auto& combined = *to_tensor(combined_h);
