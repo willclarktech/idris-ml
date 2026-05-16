@@ -38,6 +38,25 @@ mask + retention + linkTrans fixes, torch free_intermediates
 simplification). Two-point timing via `scripts/perf-baseline.sh <key>
 <backend>` at `--seed 42`.
 
+> **Partial re-measurement 2026-05-14 @ commit `8d0d368`** (post
+> Transformer PE-caching fix, see `perf-changes.md`). The transformer
+> row is now stale across all backends. Fresh numbers from
+> `scripts/perf-baseline.sh`:
+>
+> | Example | tape ms | mlx ms | torch ms | pytorch ms | tape ratio | mlx ratio | torch ratio |
+> |---|---:|---:|---:|---:|---:|---:|---:|
+> | transformer (post-fix) | **5.21** | 39.53 | **13.1** | 20.31 | **0.27× (3.7× faster than ref)** | **1.95× (mild regression)** | **0.65× (1.5× faster than ref)** |
+>
+> tape and torch are now **faster than the PyTorch reference**. mlx
+> regressed slightly from 1.73× → 1.95× on this small-model config
+> (dModel=16, blocks=2) — probable cause: the
+> `reshape3d → add → reshape2d` dance in `applyTransformerBatch`
+> adds graph-build overhead that exceeds the saved PE recompute at
+> this scale. On the larger `gpt-large` (dModel=256), the same fix
+> gave a 22× wall reduction on every backend. To do: localise and
+> fix the mlx small-model regression. The pre-2026-05-14 transformer
+> row below is retained for historical context but is stale.
+
 | Example | tape ms | mlx ms | torch ms | pytorch ms | tape ratio | mlx ratio | torch ratio | conv epochs | tape conv | budget | bucket |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 | supervised | noisy† | noisy† | ~1 | ~0.2 | A | A | A | 1000 | <1 min | 30 min | A |
