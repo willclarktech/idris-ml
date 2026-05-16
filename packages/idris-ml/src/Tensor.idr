@@ -1021,23 +1021,26 @@ tadd a b = MkTensor (primAdd {d} a.tensorPtr b.tensorPtr) Nothing
 ||| Matrix-vector multiply: [m, n] · [n] -> [m]. `%inline` for the
 ||| same reason as `tadd` (hot path in recurrent forward passes).
 export %inline
-tmv : Tensor [m, n] d g -> Tensor [n] d g -> Tensor [m] d g
-tmv w x = MkTensor (prim__mv w.tensorPtr x.tensorPtr) Nothing
+tmv : {0 d : Device} -> UserDeviceLinear d =>
+      Tensor [m, n] d g -> Tensor [n] d g -> Tensor [m] d g
+tmv w x = MkTensor (primMv {d} w.tensorPtr x.tensorPtr) Nothing
 
 ||| Fused 1D linear: y = W[m,n] · x[n] + bias[m]. One C call instead
 ||| of `tadd (tmv W x) bias` — collapses two FFI hops into one and
 ||| eliminates the intermediate Idris-side glue. Used by Layer.Linear's
 ||| applyVar and by NTM/DNC FCs.
 export %inline
-tlinear : Tensor [o, i] d g -> Tensor [i] d g -> Tensor [o] d g -> Tensor [o] d g
+tlinear : {0 d : Device} -> UserDeviceLinear d =>
+          Tensor [o, i] d g -> Tensor [i] d g -> Tensor [o] d g -> Tensor [o] d g
 tlinear w x bias =
-  MkTensor (prim__linear w.tensorPtr x.tensorPtr bias.tensorPtr) Nothing
+  MkTensor (primLinear {d} w.tensorPtr x.tensorPtr bias.tensorPtr) Nothing
 
 ||| Fused batched linear: W[o,i] · X^T[b,i] + bias[o] -> [b, o].
 export %inline
-tlinear2d : Tensor [o, i] d g -> Tensor [b, i] d g -> Tensor [o] d g -> Tensor [b, o] d g
+tlinear2d : {0 d : Device} -> UserDeviceLinear d =>
+            Tensor [o, i] d g -> Tensor [b, i] d g -> Tensor [o] d g -> Tensor [b, o] d g
 tlinear2d w x bias =
-  MkTensor (prim__linear2d w.tensorPtr x.tensorPtr bias.tensorPtr) Nothing
+  MkTensor (primLinear2d {d} w.tensorPtr x.tensorPtr bias.tensorPtr) Nothing
 
 -- Per-sample extraction + scalar arithmetic (used by batched RL loss
 -- builders: pluck a row from a [b, o] result, then a scalar from the
@@ -1046,15 +1049,15 @@ tlinear2d w x bias =
 ||| Select row `k` from a [b, n] Tensor, returning the n-vector slice.
 ||| Wraps `prim__select` on dim 0; preserves the autograd graph.
 export
-trowSelect : {0 d : Device} -> {b, n : Nat} ->
+trowSelect : {0 d : Device} -> UserDeviceLinear d => {b, n : Nat} ->
              Tensor [b, n] d g -> Int -> Tensor [n] d g
-trowSelect t k = MkTensor (prim__select t.tensorPtr 0 k) Nothing
+trowSelect t k = MkTensor (primSelect {d} t.tensorPtr 0 k) Nothing
 
 ||| Select element `i` from an n-vector, returning a scalar Tensor.
 export
-telemSelect : {0 d : Device} -> {n : Nat} ->
+telemSelect : {0 d : Device} -> UserDeviceLinear d => {n : Nat} ->
               Tensor [n] d g -> Int -> Tensor [] d g
-telemSelect t i = MkTensor (prim__select t.tensorPtr 0 i) Nothing
+telemSelect t i = MkTensor (primSelect {d} t.tensorPtr 0 i) Nothing
 
 ||| Scalar Tensor from a Double. Takes the value as a runtime argument
 ||| so Idris/Chez does NOT memoise the FFI result as a module-level
@@ -1124,9 +1127,10 @@ tparamScalar pid val =
 ||| to build a [B, ObsDim + ActDim] Q-input from obs + reparametrized
 ||| action while preserving the autograd path through the action.
 export
-tconcat2dAxis1 : {b, m, n : Nat} -> Tensor [b, m] d g -> Tensor [b, n] d g ->
+tconcat2dAxis1 : {0 d : Device} -> UserDeviceLinear d => {b, m, n : Nat} ->
+                 Tensor [b, m] d g -> Tensor [b, n] d g ->
                  Tensor [b, m + n] d g
-tconcat2dAxis1 a b = MkTensor (prim__concat2dAxis1 a.tensorPtr b.tensorPtr) Nothing
+tconcat2dAxis1 a b = MkTensor (primConcat2dAxis1 {d} a.tensorPtr b.tensorPtr) Nothing
 
 -- Activations (shape-preserving, pass-through autograd) ---------------
 -- All `%inline` for hot-path performance — see `tadd` rationale.

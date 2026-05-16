@@ -92,3 +92,64 @@ interface UserDeviceCore (0 d : Device) where
   primAddScalar : AnyPtr -> Double -> AnyPtr
   primMulScalar : AnyPtr -> Double -> AnyPtr
   primClampMin  : AnyPtr -> Double -> AnyPtr
+
+
+----------------------------------------------------------------------
+-- UserDeviceLinear — matmul + reductions + reshape + indexing slice
+----------------------------------------------------------------------
+
+||| The second slice. Covers linear algebra (mv, matmul, linear,
+||| dot, outer, bmm), reductions (sum, mean, min, max, sumDim),
+||| reshape / select (view, reshape, select, unsqueeze, squeeze,
+||| stack, narrow, transpose), indexing (gather, scatter_add), and
+||| sort/scan (argsort, cumprod). ~30 ops.
+|||
+||| Subclass of `UserDeviceCore`: an implementer also provides
+||| lifecycle + arithmetic ops, so a single `UserDeviceLinear d =>`
+||| constraint in scope is enough to use both slices' methods. The
+||| convention scales as later slices (`UserDeviceNN`, `Conv`,
+||| `Tape`) layer on top.
+public export
+interface UserDeviceCore d => UserDeviceLinear (0 d : Device) where
+  -- Linear algebra ----------------------------------------------------
+  primMv          : AnyPtr -> AnyPtr -> AnyPtr
+  primMatmul      : AnyPtr -> AnyPtr -> AnyPtr
+  primLinear      : AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr
+  primDot         : AnyPtr -> AnyPtr -> AnyPtr
+  primOuter       : AnyPtr -> AnyPtr -> AnyPtr
+  primBmm         : AnyPtr -> AnyPtr -> AnyPtr
+  primLinear2d    : AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr
+
+  -- Reductions --------------------------------------------------------
+  primSum         : AnyPtr -> AnyPtr
+  primMean        : AnyPtr -> AnyPtr
+  primTensorMin   : AnyPtr -> AnyPtr
+  primTensorMax   : AnyPtr -> AnyPtr
+  primSumDim      : AnyPtr -> Int -> Int -> AnyPtr
+
+  -- Shape / view / reshape -------------------------------------------
+  primSelect      : AnyPtr -> Int -> Int -> AnyPtr
+  primUnsqueeze   : AnyPtr -> Int -> AnyPtr
+  primSqueeze     : AnyPtr -> Int -> AnyPtr
+  primStack       : AnyPtr -> Int -> Int -> AnyPtr
+  primView1d      : AnyPtr -> Int -> AnyPtr
+  primView2d      : AnyPtr -> Int -> Int -> AnyPtr
+  primReshape2d   : AnyPtr -> Int -> Int -> AnyPtr
+  primReshape3d   : AnyPtr -> Int -> Int -> Int -> AnyPtr
+  primReshape4d   : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
+  primNarrow      : AnyPtr -> Int -> Int -> Int -> AnyPtr
+  primTransposeLast2 : AnyPtr -> AnyPtr
+  primTranspose2d : AnyPtr -> AnyPtr
+
+  -- Concatenation -----------------------------------------------------
+  primCat         : AnyPtr -> Int -> Int -> AnyPtr
+  primCat2        : AnyPtr -> AnyPtr -> AnyPtr
+  primConcat2dAxis1 : AnyPtr -> AnyPtr -> AnyPtr
+
+  -- Indexing ----------------------------------------------------------
+  primGather      : AnyPtr -> AnyPtr -> Int -> AnyPtr
+  primScatterAdd  : AnyPtr -> AnyPtr -> Int -> AnyPtr
+
+  -- Sort / scan -------------------------------------------------------
+  primArgsort     : AnyPtr -> Int -> Int -> AnyPtr
+  primCumprod    : AnyPtr -> Int -> AnyPtr

@@ -106,3 +106,135 @@ UserDeviceCore TapeDev where
   primAddScalar    = prim__addScalarTape
   primMulScalar    = prim__mulScalarTape
   primClampMin     = prim__clampMinTape
+
+----------------------------------------------------------------------
+-- Linear-slice FFI bindings (tape-suffixed)
+----------------------------------------------------------------------
+
+%foreign "C:tensor_mv_tape,libidrisml"
+prim__mvTape : AnyPtr -> AnyPtr -> AnyPtr
+
+%foreign "C:tensor_matmul_tape,libidrisml"
+prim__matmulTape : AnyPtr -> AnyPtr -> AnyPtr
+
+%foreign "C:tensor_linear_tape,libidrisml"
+prim__linearTape : AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr
+
+%foreign "C:tensor_dot_tape,libidrisml"
+prim__dotTape : AnyPtr -> AnyPtr -> AnyPtr
+
+%foreign "C:tensor_outer_tape,libidrisml"
+prim__outerTape : AnyPtr -> AnyPtr -> AnyPtr
+
+%foreign "C:tensor_bmm_tape,libidrisml"
+prim__bmmTape : AnyPtr -> AnyPtr -> AnyPtr
+
+%foreign "C:tensor_linear_2d_tape,libidrisml"
+prim__linear2dTape : AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr
+
+%foreign "C:tensor_sum_tape,libidrisml"
+prim__sumTape : AnyPtr -> AnyPtr
+
+%foreign "C:tensor_mean_tape,libidrisml"
+prim__meanTape : AnyPtr -> AnyPtr
+
+%foreign "C:tensor_min_tape,libidrisml"
+prim__tensorMinTape : AnyPtr -> AnyPtr
+
+%foreign "C:tensor_max_tape,libidrisml"
+prim__tensorMaxTape : AnyPtr -> AnyPtr
+
+%foreign "C:tensor_sum_dim_tape,libidrisml"
+prim__sumDimTape : AnyPtr -> Int -> Int -> AnyPtr
+
+%foreign "C:tensor_select_tape,libidrisml"
+prim__selectTape : AnyPtr -> Int -> Int -> AnyPtr
+
+%foreign "C:tensor_unsqueeze_tape,libidrisml"
+prim__unsqueezeTape : AnyPtr -> Int -> AnyPtr
+
+%foreign "C:tensor_squeeze_tape,libidrisml"
+prim__squeezeTape : AnyPtr -> Int -> AnyPtr
+
+%foreign "C:tensor_stack_tape,libidrisml"
+prim__stackTape : AnyPtr -> Int -> Int -> AnyPtr
+
+%foreign "C:tensor_view_1d_tape,libidrisml"
+prim__view1dTape : AnyPtr -> Int -> AnyPtr
+
+%foreign "C:tensor_view_2d_tape,libidrisml"
+prim__view2dTape : AnyPtr -> Int -> Int -> AnyPtr
+
+%foreign "C:tensor_reshape_2d_tape,libidrisml"
+prim__reshape2dTape : AnyPtr -> Int -> Int -> AnyPtr
+
+%foreign "C:tensor_reshape_3d_tape,libidrisml"
+prim__reshape3dTape : AnyPtr -> Int -> Int -> Int -> AnyPtr
+
+%foreign "C:tensor_reshape_4d_tape,libidrisml"
+prim__reshape4dTape : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
+
+%foreign "C:tensor_narrow_tape,libidrisml"
+prim__narrowTape : AnyPtr -> Int -> Int -> Int -> AnyPtr
+
+%foreign "C:tensor_transpose_last2_tape,libidrisml"
+prim__transposeLast2Tape : AnyPtr -> AnyPtr
+
+%foreign "C:tensor_transpose_2d_tape,libidrisml"
+prim__transpose2dTape : AnyPtr -> AnyPtr
+
+%foreign "C:tensor_cat_tape,libidrisml"
+prim__catTape : AnyPtr -> Int -> Int -> AnyPtr
+
+%foreign "C:tensor_cat2_tape,libidrisml"
+prim__cat2Tape : AnyPtr -> AnyPtr -> AnyPtr
+
+%foreign "C:tensor_concat_2d_axis1_tape,libidrisml"
+prim__concat2dAxis1Tape : AnyPtr -> AnyPtr -> AnyPtr
+
+%foreign "C:tensor_gather_tape,libidrisml"
+prim__gatherTape : AnyPtr -> AnyPtr -> Int -> AnyPtr
+
+%foreign "C:tensor_scatter_add_tape,libidrisml"
+prim__scatterAddTape : AnyPtr -> AnyPtr -> Int -> AnyPtr
+
+%foreign "C:tensor_argsort_tape,libidrisml"
+prim__argsortTape : AnyPtr -> Int -> Int -> AnyPtr
+
+%foreign "C:tensor_cumprod_tape,libidrisml"
+prim__cumprodTape : AnyPtr -> Int -> AnyPtr
+
+
+public export
+UserDeviceLinear TapeDev where
+  primMv             = prim__mvTape
+  primMatmul         = prim__matmulTape
+  primLinear         = prim__linearTape
+  primDot            = prim__dotTape
+  primOuter          = prim__outerTape
+  primBmm            = prim__bmmTape
+  primLinear2d       = prim__linear2dTape
+  primSum            = prim__sumTape
+  primMean           = prim__meanTape
+  primTensorMin      = prim__tensorMinTape
+  primTensorMax      = prim__tensorMaxTape
+  primSumDim         = prim__sumDimTape
+  primSelect         = prim__selectTape
+  primUnsqueeze      = prim__unsqueezeTape
+  primSqueeze        = prim__squeezeTape
+  primStack          = prim__stackTape
+  primView1d         = prim__view1dTape
+  primView2d         = prim__view2dTape
+  primReshape2d      = prim__reshape2dTape
+  primReshape3d      = prim__reshape3dTape
+  primReshape4d      = prim__reshape4dTape
+  primNarrow         = prim__narrowTape
+  primTransposeLast2 = prim__transposeLast2Tape
+  primTranspose2d    = prim__transpose2dTape
+  primCat            = prim__catTape
+  primCat2           = prim__cat2Tape
+  primConcat2dAxis1  = prim__concat2dAxis1Tape
+  primGather         = prim__gatherTape
+  primScatterAdd     = prim__scatterAddTape
+  primArgsort        = prim__argsortTape
+  primCumprod        = prim__cumprodTape

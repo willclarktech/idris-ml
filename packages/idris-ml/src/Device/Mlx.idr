@@ -103,3 +103,134 @@ UserDeviceCore MlxDev where
   primAddScalar    = prim__addScalarMlx
   primMulScalar    = prim__mulScalarMlx
   primClampMin     = prim__clampMinMlx
+----------------------------------------------------------------------
+-- Linear-slice FFI bindings (mlx-suffixed)
+----------------------------------------------------------------------
+
+%foreign "C:tensor_mv_mlx,libidrisml"
+prim__mvMlx : AnyPtr -> AnyPtr -> AnyPtr
+
+%foreign "C:tensor_matmul_mlx,libidrisml"
+prim__matmulMlx : AnyPtr -> AnyPtr -> AnyPtr
+
+%foreign "C:tensor_linear_mlx,libidrisml"
+prim__linearMlx : AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr
+
+%foreign "C:tensor_dot_mlx,libidrisml"
+prim__dotMlx : AnyPtr -> AnyPtr -> AnyPtr
+
+%foreign "C:tensor_outer_mlx,libidrisml"
+prim__outerMlx : AnyPtr -> AnyPtr -> AnyPtr
+
+%foreign "C:tensor_bmm_mlx,libidrisml"
+prim__bmmMlx : AnyPtr -> AnyPtr -> AnyPtr
+
+%foreign "C:tensor_linear_2d_mlx,libidrisml"
+prim__linear2dMlx : AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr
+
+%foreign "C:tensor_sum_mlx,libidrisml"
+prim__sumMlx : AnyPtr -> AnyPtr
+
+%foreign "C:tensor_mean_mlx,libidrisml"
+prim__meanMlx : AnyPtr -> AnyPtr
+
+%foreign "C:tensor_min_mlx,libidrisml"
+prim__tensorMinMlx : AnyPtr -> AnyPtr
+
+%foreign "C:tensor_max_mlx,libidrisml"
+prim__tensorMaxMlx : AnyPtr -> AnyPtr
+
+%foreign "C:tensor_sum_dim_mlx,libidrisml"
+prim__sumDimMlx : AnyPtr -> Int -> Int -> AnyPtr
+
+%foreign "C:tensor_select_mlx,libidrisml"
+prim__selectMlx : AnyPtr -> Int -> Int -> AnyPtr
+
+%foreign "C:tensor_unsqueeze_mlx,libidrisml"
+prim__unsqueezeMlx : AnyPtr -> Int -> AnyPtr
+
+%foreign "C:tensor_squeeze_mlx,libidrisml"
+prim__squeezeMlx : AnyPtr -> Int -> AnyPtr
+
+%foreign "C:tensor_stack_mlx,libidrisml"
+prim__stackMlx : AnyPtr -> Int -> Int -> AnyPtr
+
+%foreign "C:tensor_view_1d_mlx,libidrisml"
+prim__view1dMlx : AnyPtr -> Int -> AnyPtr
+
+%foreign "C:tensor_view_2d_mlx,libidrisml"
+prim__view2dMlx : AnyPtr -> Int -> Int -> AnyPtr
+
+%foreign "C:tensor_reshape_2d_mlx,libidrisml"
+prim__reshape2dMlx : AnyPtr -> Int -> Int -> AnyPtr
+
+%foreign "C:tensor_reshape_3d_mlx,libidrisml"
+prim__reshape3dMlx : AnyPtr -> Int -> Int -> Int -> AnyPtr
+
+%foreign "C:tensor_reshape_4d_mlx,libidrisml"
+prim__reshape4dMlx : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
+
+%foreign "C:tensor_narrow_mlx,libidrisml"
+prim__narrowMlx : AnyPtr -> Int -> Int -> Int -> AnyPtr
+
+%foreign "C:tensor_transpose_last2_mlx,libidrisml"
+prim__transposeLast2Mlx : AnyPtr -> AnyPtr
+
+%foreign "C:tensor_transpose_2d_mlx,libidrisml"
+prim__transpose2dMlx : AnyPtr -> AnyPtr
+
+%foreign "C:tensor_cat_mlx,libidrisml"
+prim__catMlx : AnyPtr -> Int -> Int -> AnyPtr
+
+%foreign "C:tensor_cat2_mlx,libidrisml"
+prim__cat2Mlx : AnyPtr -> AnyPtr -> AnyPtr
+
+%foreign "C:tensor_concat_2d_axis1_mlx,libidrisml"
+prim__concat2dAxis1Mlx : AnyPtr -> AnyPtr -> AnyPtr
+
+%foreign "C:tensor_gather_mlx,libidrisml"
+prim__gatherMlx : AnyPtr -> AnyPtr -> Int -> AnyPtr
+
+%foreign "C:tensor_scatter_add_mlx,libidrisml"
+prim__scatterAddMlx : AnyPtr -> AnyPtr -> Int -> AnyPtr
+
+%foreign "C:tensor_argsort_mlx,libidrisml"
+prim__argsortMlx : AnyPtr -> Int -> Int -> AnyPtr
+
+%foreign "C:tensor_cumprod_mlx,libidrisml"
+prim__cumprodMlx : AnyPtr -> Int -> AnyPtr
+
+
+public export
+UserDeviceLinear MlxDev where
+  primMv             = prim__mvMlx
+  primMatmul         = prim__matmulMlx
+  primLinear         = prim__linearMlx
+  primDot            = prim__dotMlx
+  primOuter          = prim__outerMlx
+  primBmm            = prim__bmmMlx
+  primLinear2d       = prim__linear2dMlx
+  primSum            = prim__sumMlx
+  primMean           = prim__meanMlx
+  primTensorMin      = prim__tensorMinMlx
+  primTensorMax      = prim__tensorMaxMlx
+  primSumDim         = prim__sumDimMlx
+  primSelect         = prim__selectMlx
+  primUnsqueeze      = prim__unsqueezeMlx
+  primSqueeze        = prim__squeezeMlx
+  primStack          = prim__stackMlx
+  primView1d         = prim__view1dMlx
+  primView2d         = prim__view2dMlx
+  primReshape2d      = prim__reshape2dMlx
+  primReshape3d      = prim__reshape3dMlx
+  primReshape4d      = prim__reshape4dMlx
+  primNarrow         = prim__narrowMlx
+  primTransposeLast2 = prim__transposeLast2Mlx
+  primTranspose2d    = prim__transpose2dMlx
+  primCat            = prim__catMlx
+  primCat2           = prim__cat2Mlx
+  primConcat2dAxis1  = prim__concat2dAxis1Mlx
+  primGather         = prim__gatherMlx
+  primScatterAdd     = prim__scatterAddMlx
+  primArgsort        = prim__argsortMlx
+  primCumprod        = prim__cumprodMlx

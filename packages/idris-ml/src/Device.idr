@@ -223,3 +223,175 @@ UserDeviceCore MPS where
   primAddScalar    = prim__addScalarUnified
   primMulScalar    = prim__mulScalarUnified
   primClampMin     = prim__clampMinUnified
+
+
+----------------------------------------------------------------------
+-- UserDeviceLinear instances (Phase 2.2). All three default tags
+-- forward through unified-name FFI symbols, just like UserDeviceCore.
+----------------------------------------------------------------------
+
+%foreign "C:tensor_mv,libidrisml"
+prim__mvUnified : AnyPtr -> AnyPtr -> AnyPtr
+%foreign "C:tensor_matmul,libidrisml"
+prim__matmulUnified : AnyPtr -> AnyPtr -> AnyPtr
+%foreign "C:tensor_linear,libidrisml"
+prim__linearUnified : AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr
+%foreign "C:tensor_dot,libidrisml"
+prim__dotUnified : AnyPtr -> AnyPtr -> AnyPtr
+%foreign "C:tensor_outer,libidrisml"
+prim__outerUnified : AnyPtr -> AnyPtr -> AnyPtr
+%foreign "C:tensor_bmm,libidrisml"
+prim__bmmUnified : AnyPtr -> AnyPtr -> AnyPtr
+%foreign "C:tensor_linear_2d,libidrisml"
+prim__linear2dUnified : AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr
+%foreign "C:tensor_sum,libidrisml"
+prim__sumUnified : AnyPtr -> AnyPtr
+%foreign "C:tensor_mean,libidrisml"
+prim__meanUnified : AnyPtr -> AnyPtr
+%foreign "C:tensor_min,libidrisml"
+prim__tensorMinUnified : AnyPtr -> AnyPtr
+%foreign "C:tensor_max,libidrisml"
+prim__tensorMaxUnified : AnyPtr -> AnyPtr
+%foreign "C:tensor_sum_dim,libidrisml"
+prim__sumDimUnified : AnyPtr -> Int -> Int -> AnyPtr
+%foreign "C:tensor_select,libidrisml"
+prim__selectUnified : AnyPtr -> Int -> Int -> AnyPtr
+%foreign "C:tensor_unsqueeze,libidrisml"
+prim__unsqueezeUnified : AnyPtr -> Int -> AnyPtr
+%foreign "C:tensor_squeeze,libidrisml"
+prim__squeezeUnified : AnyPtr -> Int -> AnyPtr
+%foreign "C:tensor_stack,libidrisml"
+prim__stackUnified : AnyPtr -> Int -> Int -> AnyPtr
+%foreign "C:tensor_view_1d,libidrisml"
+prim__view1dUnified : AnyPtr -> Int -> AnyPtr
+%foreign "C:tensor_view_2d,libidrisml"
+prim__view2dUnified : AnyPtr -> Int -> Int -> AnyPtr
+%foreign "C:tensor_reshape_2d,libidrisml"
+prim__reshape2dUnified : AnyPtr -> Int -> Int -> AnyPtr
+%foreign "C:tensor_reshape_3d,libidrisml"
+prim__reshape3dUnified : AnyPtr -> Int -> Int -> Int -> AnyPtr
+%foreign "C:tensor_reshape_4d,libidrisml"
+prim__reshape4dUnified : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
+%foreign "C:tensor_narrow,libidrisml"
+prim__narrowUnified : AnyPtr -> Int -> Int -> Int -> AnyPtr
+%foreign "C:tensor_transpose_last2,libidrisml"
+prim__transposeLast2Unified : AnyPtr -> AnyPtr
+%foreign "C:tensor_transpose_2d,libidrisml"
+prim__transpose2dUnified : AnyPtr -> AnyPtr
+%foreign "C:tensor_cat,libidrisml"
+prim__catUnified : AnyPtr -> Int -> Int -> AnyPtr
+%foreign "C:tensor_cat2,libidrisml"
+prim__cat2Unified : AnyPtr -> AnyPtr -> AnyPtr
+%foreign "C:tensor_concat_2d_axis1,libidrisml"
+prim__concat2dAxis1Unified : AnyPtr -> AnyPtr -> AnyPtr
+%foreign "C:tensor_gather,libidrisml"
+prim__gatherUnified : AnyPtr -> AnyPtr -> Int -> AnyPtr
+%foreign "C:tensor_scatter_add,libidrisml"
+prim__scatterAddUnified : AnyPtr -> AnyPtr -> Int -> AnyPtr
+%foreign "C:tensor_argsort,libidrisml"
+prim__argsortUnified : AnyPtr -> Int -> Int -> AnyPtr
+%foreign "C:tensor_cumprod,libidrisml"
+prim__cumprodUnified : AnyPtr -> Int -> AnyPtr
+
+
+public export
+UserDeviceLinear CPU where
+  primMv = prim__mvUnified
+  primMatmul = prim__matmulUnified
+  primLinear = prim__linearUnified
+  primDot = prim__dotUnified
+  primOuter = prim__outerUnified
+  primBmm = prim__bmmUnified
+  primLinear2d = prim__linear2dUnified
+  primSum = prim__sumUnified
+  primMean = prim__meanUnified
+  primTensorMin = prim__tensorMinUnified
+  primTensorMax = prim__tensorMaxUnified
+  primSumDim = prim__sumDimUnified
+  primSelect = prim__selectUnified
+  primUnsqueeze = prim__unsqueezeUnified
+  primSqueeze = prim__squeezeUnified
+  primStack = prim__stackUnified
+  primView1d = prim__view1dUnified
+  primView2d = prim__view2dUnified
+  primReshape2d = prim__reshape2dUnified
+  primReshape3d = prim__reshape3dUnified
+  primReshape4d = prim__reshape4dUnified
+  primNarrow = prim__narrowUnified
+  primTransposeLast2 = prim__transposeLast2Unified
+  primTranspose2d = prim__transpose2dUnified
+  primCat = prim__catUnified
+  primCat2 = prim__cat2Unified
+  primConcat2dAxis1 = prim__concat2dAxis1Unified
+  primGather = prim__gatherUnified
+  primScatterAdd = prim__scatterAddUnified
+  primArgsort = prim__argsortUnified
+  primCumprod = prim__cumprodUnified
+
+public export
+{n : Nat} -> UserDeviceLinear (CUDA n) where
+  primMv = prim__mvUnified
+  primMatmul = prim__matmulUnified
+  primLinear = prim__linearUnified
+  primDot = prim__dotUnified
+  primOuter = prim__outerUnified
+  primBmm = prim__bmmUnified
+  primLinear2d = prim__linear2dUnified
+  primSum = prim__sumUnified
+  primMean = prim__meanUnified
+  primTensorMin = prim__tensorMinUnified
+  primTensorMax = prim__tensorMaxUnified
+  primSumDim = prim__sumDimUnified
+  primSelect = prim__selectUnified
+  primUnsqueeze = prim__unsqueezeUnified
+  primSqueeze = prim__squeezeUnified
+  primStack = prim__stackUnified
+  primView1d = prim__view1dUnified
+  primView2d = prim__view2dUnified
+  primReshape2d = prim__reshape2dUnified
+  primReshape3d = prim__reshape3dUnified
+  primReshape4d = prim__reshape4dUnified
+  primNarrow = prim__narrowUnified
+  primTransposeLast2 = prim__transposeLast2Unified
+  primTranspose2d = prim__transpose2dUnified
+  primCat = prim__catUnified
+  primCat2 = prim__cat2Unified
+  primConcat2dAxis1 = prim__concat2dAxis1Unified
+  primGather = prim__gatherUnified
+  primScatterAdd = prim__scatterAddUnified
+  primArgsort = prim__argsortUnified
+  primCumprod = prim__cumprodUnified
+
+public export
+UserDeviceLinear MPS where
+  primMv = prim__mvUnified
+  primMatmul = prim__matmulUnified
+  primLinear = prim__linearUnified
+  primDot = prim__dotUnified
+  primOuter = prim__outerUnified
+  primBmm = prim__bmmUnified
+  primLinear2d = prim__linear2dUnified
+  primSum = prim__sumUnified
+  primMean = prim__meanUnified
+  primTensorMin = prim__tensorMinUnified
+  primTensorMax = prim__tensorMaxUnified
+  primSumDim = prim__sumDimUnified
+  primSelect = prim__selectUnified
+  primUnsqueeze = prim__unsqueezeUnified
+  primSqueeze = prim__squeezeUnified
+  primStack = prim__stackUnified
+  primView1d = prim__view1dUnified
+  primView2d = prim__view2dUnified
+  primReshape2d = prim__reshape2dUnified
+  primReshape3d = prim__reshape3dUnified
+  primReshape4d = prim__reshape4dUnified
+  primNarrow = prim__narrowUnified
+  primTransposeLast2 = prim__transposeLast2Unified
+  primTranspose2d = prim__transpose2dUnified
+  primCat = prim__catUnified
+  primCat2 = prim__cat2Unified
+  primConcat2dAxis1 = prim__concat2dAxis1Unified
+  primGather = prim__gatherUnified
+  primScatterAdd = prim__scatterAddUnified
+  primArgsort = prim__argsortUnified
+  primCumprod = prim__cumprodUnified
