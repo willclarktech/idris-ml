@@ -699,7 +699,21 @@ static void compute_bcast_strides(Tensor* a, int r_rank, int* r_shape,
 
 /* Element-wise binary ops: scalar, same-shape (vDSP fast path), and
    general numpy-style broadcast (e.g. (n,1)*(n,m), (1,m)*(n,m), (m,)*(n,m)). */
+static TensorHandle binop_elementwise_inner(TensorHandle ha, TensorHandle hb, int op_tag,
+                                       double (*scalar_fn)(double, double));
 static TensorHandle binop_elementwise(TensorHandle ha, TensorHandle hb, int op_tag,
+                                       double (*scalar_fn)(double, double)) {
+    extern double prof_binop_inside_ms[];
+    extern int prof_binop_inside_count[];
+    double _b0 = _wall_ms();
+    TensorHandle r = binop_elementwise_inner(ha, hb, op_tag, scalar_fn);
+    if (op_tag >= 0 && op_tag < OP_COUNT) {
+        prof_binop_inside_ms[op_tag] += _wall_ms() - _b0;
+        prof_binop_inside_count[op_tag]++;
+    }
+    return r;
+}
+static TensorHandle binop_elementwise_inner(TensorHandle ha, TensorHandle hb, int op_tag,
                                        double (*scalar_fn)(double, double)) {
     Tensor* a = (Tensor*)ha; Tensor* b = (Tensor*)hb;
     int rg = a->requires_grad || b->requires_grad;
@@ -719,7 +733,16 @@ static TensorHandle binop_elementwise(TensorHandle ha, TensorHandle hb, int op_t
         }
         if (same) {
             int n = a->numel;
+            extern int prof_binop_path_count[];
+            prof_binop_path_count[0]++;
             double* data = arena_alloc(n * sizeof(double));
+            /* Direct kernel-time probe (diagnostic): measure the actual
+               vDSP call separately from the tape_append attribution.
+               Compare prof_kernel_per_op vs prof_forward_per_op to see how
+               much of the "ADD bucket" is actually kernel work. */
+            extern double prof_kernel_per_op[];
+            extern int prof_kernel_count_per_op[];
+            double _k0 = _wall_ms();
 #ifdef __APPLE__
             vDSP_Length vn = (vDSP_Length)n;
             switch (op_tag) {
@@ -734,6 +757,10 @@ static TensorHandle binop_elementwise(TensorHandle ha, TensorHandle hb, int op_t
 #else
             for (int i = 0; i < n; i++) data[i] = scalar_fn(a->data[i], b->data[i]);
 #endif
+            if (op_tag >= 0 && op_tag < OP_COUNT) {
+                prof_kernel_per_op[op_tag] += _wall_ms() - _k0;
+                prof_kernel_count_per_op[op_tag]++;
+            }
             Tensor* r = make_tensor_arena(data, n, a->shape, a->rank, rg);
             if (rg) tape_append(op_tag, r, a, b, 0);
             return r;
@@ -745,6 +772,8 @@ static TensorHandle binop_elementwise(TensorHandle ha, TensorHandle hb, int op_t
         Tensor* big = (a->numel == 1) ? b : a;
         double sv = (a->numel == 1) ? a->data[0] : b->data[0];
         int n = big->numel;
+        extern int prof_binop_path_count[];
+        prof_binop_path_count[1]++;
         double* data = arena_alloc(n * sizeof(double));
         if (a->numel == 1) {
             for (int i = 0; i < n; i++) data[i] = scalar_fn(sv, big->data[i]);
@@ -757,6 +786,25 @@ static TensorHandle binop_elementwise(TensorHandle ha, TensorHandle hb, int op_t
     }
 
     /* General broadcast */
+    {
+        extern int prof_binop_path_count[];
+        extern double prof_binop_general_ms;
+        prof_binop_path_count[2]++;
+        /* Log shapes once per op_tag so we can spot which call sites
+           are taking the slow path. */
+        static int logged[OP_COUNT] = {0};
+        if (op_tag >= 0 && op_tag < OP_COUNT && !logged[op_tag]) {
+            logged[op_tag] = 1;
+            fprintf(stderr, "[tape diag] op=%d general_bcast shapes: a=[", op_tag);
+            for (int k = 0; k < a->rank; k++)
+                fprintf(stderr, "%d%s", a->shape[k], k+1<a->rank?",":"");
+            fprintf(stderr, "] b=[");
+            for (int k = 0; k < b->rank; k++)
+                fprintf(stderr, "%d%s", b->shape[k], k+1<b->rank?",":"");
+            fprintf(stderr, "]\n");
+        }
+    }
+    double _gb0 = _wall_ms();
     int r_shape[MAX_BCAST_RANK], r_rank, r_numel;
     if (!compute_bcast_shape(a, b, r_shape, &r_rank, &r_numel)) {
         fprintf(stderr, "binop_elementwise: incompatible shapes\n");
@@ -781,6 +829,8 @@ static TensorHandle binop_elementwise(TensorHandle ha, TensorHandle hb, int op_t
         }
     }
     Tensor* r = make_tensor_arena(data, r_numel, r_shape, r_rank, rg);
+    extern double prof_binop_general_ms;
+    prof_binop_general_ms += _wall_ms() - _gb0;
     if (rg) tape_append(op_tag, r, a, b, 0);
     return r;
 }
@@ -2785,6 +2835,23 @@ static int prof_backward_count_per_op[OP_COUNT] = {0};
    tape_append (which is defined earlier in the file) can refer to them. */
 double prof_forward_per_op[OP_COUNT] = {0};
 int prof_forward_count_per_op[OP_COUNT] = {0};
+/* Direct kernel-only timer — only OP_ADD/SUB/MUL/DIV's vDSP path
+   populates it today, for diagnosing the "ADD bucket dominates
+   forward" attribution. Compare prof_kernel_per_op[OP_ADD] vs
+   prof_forward_per_op[OP_ADD] to see how much of the bucket is
+   actual kernel time versus inter-op leakage. */
+double prof_kernel_per_op[OP_COUNT] = {0};
+int prof_kernel_count_per_op[OP_COUNT] = {0};
+/* Path-classification counters for binop_elementwise — [fast vDSP,
+   scalar bcast, general bcast]. Diagnostic for the
+   "ADD bucket dominates forward" investigation. */
+int prof_binop_path_count[3] = {0};
+double prof_binop_general_ms = 0;
+/* Full-function (entry-to-exit) timer for binop_elementwise. Compare
+   with prof_forward_per_op to see how much of the attributed bucket
+   is actually inside our function vs leaked from somewhere else. */
+double prof_binop_inside_ms[OP_COUNT] = {0};
+int prof_binop_inside_count[OP_COUNT] = {0};
 /* Wall-time of the previous tape_append (or epoch_begin). The delta
    from that moment to the next tape_append is attributed to the op
    being recorded now — i.e. its compute + tape-append cost. Set to 0
@@ -5434,6 +5501,12 @@ void backend_profile_reset(void) {
     memset(prof_backward_count_per_op, 0, sizeof(prof_backward_count_per_op));
     memset(prof_forward_per_op, 0, sizeof(prof_forward_per_op));
     memset(prof_forward_count_per_op, 0, sizeof(prof_forward_count_per_op));
+    memset(prof_kernel_per_op, 0, sizeof(prof_kernel_per_op));
+    memset(prof_kernel_count_per_op, 0, sizeof(prof_kernel_count_per_op));
+    memset(prof_binop_inside_ms, 0, sizeof(prof_binop_inside_ms));
+    memset(prof_binop_inside_count, 0, sizeof(prof_binop_inside_count));
+    memset(prof_binop_path_count, 0, sizeof(prof_binop_path_count));
+    prof_binop_general_ms = 0;
 }
 
 static const char* op_name(int op) {
@@ -5531,6 +5604,39 @@ void backend_profile_report(void) {
         fprintf(stderr, "    %-12s %.2fms (%d calls, %.2f us/call)\n",
                 op_name(best), best_time, n, per_call_us);
         prof_forward_per_op[best] = -1; /* mark as printed */
+    }
+    /* Kernel-only timer (elementwise vDSP path only, today). Shows the
+       actual kernel time independent of the tape_append attribution. */
+    int any_kernel = 0;
+    for (int j = 0; j < OP_COUNT; j++) {
+        if (prof_kernel_count_per_op[j] > 0) { any_kernel = 1; break; }
+    }
+    if (any_kernel) {
+        fprintf(stderr, "  Direct-kernel timing (subset of ops):\n");
+        for (int j = 0; j < OP_COUNT; j++) {
+            int n = prof_kernel_count_per_op[j];
+            if (n == 0) continue;
+            double per_call_us = prof_kernel_per_op[j] * 1000.0 / n;
+            fprintf(stderr, "    %-12s %.2fms (%d calls, %.2f us/call) [kernel only]\n",
+                    op_name(j), prof_kernel_per_op[j], n, per_call_us);
+        }
+    }
+    fprintf(stderr, "  binop_elementwise paths: fast=%d scalar_bcast=%d general_bcast=%d  general_bcast_total=%.2fms\n",
+            prof_binop_path_count[0], prof_binop_path_count[1],
+            prof_binop_path_count[2], prof_binop_general_ms);
+    int any_inside = 0;
+    for (int j = 0; j < OP_COUNT; j++) {
+        if (prof_binop_inside_count[j] > 0) { any_inside = 1; break; }
+    }
+    if (any_inside) {
+        fprintf(stderr, "  binop_elementwise inside (entry-to-exit):\n");
+        for (int j = 0; j < OP_COUNT; j++) {
+            int n = prof_binop_inside_count[j];
+            if (n == 0) continue;
+            double per_call_us = prof_binop_inside_ms[j] * 1000.0 / n;
+            fprintf(stderr, "    %-12s %.2fms (%d calls, %.2f us/call) [in-function]\n",
+                    op_name(j), prof_binop_inside_ms[j], n, per_call_us);
+        }
     }
 }
 

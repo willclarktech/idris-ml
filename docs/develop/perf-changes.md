@@ -48,6 +48,69 @@ is still useful (saves someone trying it again).
 
 ## Entries
 
+### 2026-05-14 — Tape profiler diagnostic: ADD bucket is misattribution — `<commit>`
+
+**Plan job**: cross-cutting (tooling — the tape profiler is the source of
+truth for every per-op investigation, and it was misleading us).
+
+**Motivation**: `example-gpt-large` on tape showed "ADD" as 95% of
+forward C-time (117 ms/call × 138 calls = 16.2 s/ep). The smaller
+`example-gpt` showed the same shape: ADD 8.3 ms/call. Pulled the
+thread — vDSP\_vaddD on a [128, 256] tensor should be ~50 µs, not 117
+ms. Hypothesis: the per-op timer in `tape_append` attributes inter-op
+wall time to the op being recorded *now*, so any Idris-side glue
+between ops gets pinned to whichever op happens to close the chain.
+ADDs are residual closes in the transformer — they collect the leakage.
+
+**Change**: added three diagnostic timers to `backend_tape.c`'s
+`binop_elementwise`:
+- direct-kernel timer wrapping just the `vDSP_vaddD` call
+- in-function timer wrapping entry-to-exit of the whole
+  `binop_elementwise` (split via a thin wrapper +
+  `binop_elementwise_inner`)
+- path-classification counter (fast / scalar\_bcast / general\_bcast)
+  plus a per-op-tag log of the first general\_bcast shape seen
+
+Backed by storage `prof_kernel_per_op`, `prof_kernel_count_per_op`,
+`prof_binop_inside_ms`, `prof_binop_inside_count`,
+`prof_binop_path_count`, `prof_binop_general_ms`. Reset alongside the
+other profile arrays in `backend_profile_reset`. Surfaced in
+`backend_profile_print` as new sections after the existing top-N
+forward ops.
+
+**Impact**: this is a diagnostic-only change — zero perf delta, just
+ground truth. Re-ran `example-gpt-large` and `example-gpt` on tape:
+
+| metric                       | small Gpt | GptLarge | unit       |
+|------------------------------|----------:|---------:|------------|
+| ADD bucket (attributed)      |      2661 |    16783 | ms / 3 ep  |
+| ADD in-function              |       3.3 |     44.8 | ms / 3 ep  |
+| ADD kernel (vDSP only)       |       3.5 |     44.3 | ms / 3 ep  |
+| bucket / in-function ratio   |    **813×** | **374×** | leakage    |
+| per-tape-entry leakage       |      0.33 |     0.59 | ms / entry |
+| binop\_elementwise fast path |    100%   |   100%   |            |
+
+All ADDs took the vDSP fast path (zero general broadcast). Kernel
+time and in-function time agree within instrument noise (kernel is a
+strict subset). Real ADD work per epoch is ~15 ms — three orders of
+magnitude smaller than the bucket headline.
+
+**Outcome**: landed (diagnostic only). The real bottleneck on tape
+forward at GptLarge scale is **~0.6 ms/tape-entry of Idris-side / Chez
+overhead between FFI calls**, which the profiler currently
+misattributes to whichever op is recorded next. At 293 entries/forward
+× 32-sample batch × per-entry overhead, this dominates the C-total
+wallclock. Likely suspects: Chez foreign-procedure dispatch, GC
+pressure from per-step Idris-side allocation, or
+`UserDeviceCore`-class typeclass-dispatch cost compounding per op
+(see the gotcha "Typeclass methods of unit type fire eagerly"). Real
+fix needs a separate investigation — at minimum the per-op timer
+should record kernel-internal time so attribution stops lying.
+
+**Cross-references**:
+- `perf-log.jsonl` 2026-05-14 entries tagged `[diagnostic]`
+- `Example.GptLarge` first commits — the workload that surfaced this
+
 ### 2026-05-09 — DNC `dncZeroDiag` mask precompute — `20f4dab`
 
 **Plan job**: cross-cutting (helps Job 1 + Job 2a + Job 2b
