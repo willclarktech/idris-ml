@@ -205,6 +205,15 @@ jobs:
       # retired with the Criterion port — every assertion lives under
       # `test/common/test_legacy_backend.c` for now, slated for a
       # per-op file split during the structural Phase 6 work.
+      - name: Run coverage gap probe (advisory)
+        # Static probe: parses OP_* enums from backend_<b>/tape.h and
+        # extern "C" decls from backend.h, cross-references against
+        # test/. Writes CSVs to build/coverage-gap-{ops,symbols}.csv.
+        # Exit code is advisory today (0 even on gaps); coverage-policy.md
+        # flips this to gating once W3+W4 close. See
+        # docs/develop/coverage-policy.md for the three-axis target.
+        run: make coverage-gap-probe
+
       - name: Run Criterion suite (tape)
         run: make BACKEND=tape test-backend-criterion
 
