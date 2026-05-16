@@ -23,6 +23,9 @@ def main() -> None:
     parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--patience", type=int, default=3,
+                        help="Paired with Idris Mnist.idr Patience early-stop "
+                             "(default 3, threshold 0.001)")
     parser.add_argument(
         "--lr-find",
         action="store_true",
@@ -80,7 +83,7 @@ def main() -> None:
     t0 = time.time()
     best_loss = float("inf")
     stale = 0
-    patience = 500
+    patience = args.patience
     epochs_done = 0
     for epoch in range(1, args.epochs + 1):
         loss = train_epoch(model, train_loader, optimizer)
