@@ -11,6 +11,7 @@
 #include "../../tape.h"
 #include "../../stream.h"
 #include "../../precision.h"
+#include "../../training/autograd/op_dispatch.h"
 
 extern "C" TensorHandle tensor_softplus_mlx_streamed(TensorHandle h, int stream_tag) {
     WITH_STREAM(stream_tag);
@@ -25,3 +26,17 @@ extern "C" TensorHandle tensor_softplus_mlx_streamed(TensorHandle h, int stream_
 extern "C" TensorHandle tensor_softplus(TensorHandle h) {
     return tensor_softplus_mlx_streamed(h, default_stream_tag());
 }
+
+static void mlx_replay_softplus(std::vector<mx::array>& pool, TapeEntry& e) {
+    int out = e.result->pool_idx;
+    [[maybe_unused]] auto a = e.arg1 ? pool[e.arg1->pool_idx] : kF32_ZERO();
+    [[maybe_unused]] auto b = e.arg2 ? pool[e.arg2->pool_idx] : kF32_ZERO();
+    // Smooth form log(1 + exp(a)) — differentiable everywhere
+                    // (d/dx = sigmoid(a)). The numerically-stable composite
+                    // max(0,a) + log(1+exp(-|a|)) used in the forward kernel
+                    // can't be used here: mx::vjp returns subgradient 0 for the
+                    // non-differentiable kink at a=0 in mx::maximum, which would
+                    // give a wrong d/dx softplus(0) = 0 instead of 0.5.
+                    pool[out] = mx::log(mx::add(one_like(a), mx::exp(a)));
+}
+MLX_REGISTER_REPLAY(OP_SOFTPLUS, mlx_replay_softplus)

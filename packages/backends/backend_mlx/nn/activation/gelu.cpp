@@ -6,6 +6,7 @@
 #include "../../tape.h"
 #include "../../stream.h"
 #include "../../precision.h"
+#include "../../training/autograd/op_dispatch.h"
 
 extern "C" TensorHandle tensor_gelu_mlx_streamed(TensorHandle h, int stream_tag) {
     WITH_STREAM(stream_tag);
@@ -24,3 +25,15 @@ extern "C" TensorHandle tensor_gelu_mlx_streamed(TensorHandle h, int stream_tag)
 extern "C" TensorHandle tensor_gelu(TensorHandle h) {
     return tensor_gelu_mlx_streamed(h, default_stream_tag());
 }
+
+static void mlx_replay_gelu(std::vector<mx::array>& pool, TapeEntry& e) {
+    int out = e.result->pool_idx;
+    [[maybe_unused]] auto a = e.arg1 ? pool[e.arg1->pool_idx] : kF32_ZERO();
+    [[maybe_unused]] auto b = e.arg2 ? pool[e.arg2->pool_idx] : kF32_ZERO();
+    auto kGeluC  = scalar_like(0.7978845608028654, a);
+                    auto kGeluC3 = scalar_like(0.044715,           a);
+                    auto kThree  = scalar_like(3.0,                a);
+                    auto inner = mx::multiply(kGeluC, mx::add(a, mx::multiply(kGeluC3, mx::power(a, kThree))));
+                    pool[out] = mx::multiply(mx::multiply(half_like(a), a), mx::add(one_like(a), mx::tanh(inner)));
+}
+MLX_REGISTER_REPLAY(OP_GELU, mlx_replay_gelu)

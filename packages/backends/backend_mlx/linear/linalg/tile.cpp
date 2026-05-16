@@ -7,6 +7,8 @@
 #include "../../tensor.h"
 #include "../../tape.h"
 #include "../../stream.h"
+#include "../../training/autograd/op_dispatch.h"
+#include "../../precision.h"
 
 extern "C" TensorHandle tensor_tile_2d_mlx_streamed(TensorHandle h, int rep0, int rep1, int stream_tag) {
     WITH_STREAM(stream_tag);
@@ -28,3 +30,12 @@ extern "C" TensorHandle tensor_tile_2d_mlx_streamed(TensorHandle h, int rep0, in
 extern "C" TensorHandle tensor_tile_2d(TensorHandle h, int rep0, int rep1) {
     return tensor_tile_2d_mlx_streamed(h, rep0, rep1, default_stream_tag());
 }
+
+static void mlx_replay_tile_2d(std::vector<mx::array>& pool, TapeEntry& e) {
+    int out = e.result->pool_idx;
+    [[maybe_unused]] auto a = e.arg1 ? pool[e.arg1->pool_idx] : kF32_ZERO();
+    [[maybe_unused]] auto b = e.arg2 ? pool[e.arg2->pool_idx] : kF32_ZERO();
+    int* reps = (int*)e.meta;
+                    pool[out] = mx::tile(a, {reps[0], reps[1]});
+}
+MLX_REGISTER_REPLAY(OP_TILE_2D, mlx_replay_tile_2d)

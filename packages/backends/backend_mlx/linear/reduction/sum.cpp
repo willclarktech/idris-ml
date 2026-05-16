@@ -6,6 +6,8 @@
 #include "../../tensor.h"
 #include "../../tape.h"
 #include "../../stream.h"
+#include "../../training/autograd/op_dispatch.h"
+#include "../../precision.h"
 
 extern "C" TensorHandle tensor_sum_mlx_streamed(TensorHandle h, int stream_tag) {
     WITH_STREAM(stream_tag);
@@ -38,3 +40,20 @@ extern "C" TensorHandle tensor_sum_dim_mlx_streamed(TensorHandle h, int dim, int
 extern "C" TensorHandle tensor_sum_dim(TensorHandle h, int dim, int keepdim) {
     return tensor_sum_dim_mlx_streamed(h, dim, keepdim, default_stream_tag());
 }
+
+static void mlx_replay_sum(std::vector<mx::array>& pool, TapeEntry& e) {
+    int out = e.result->pool_idx;
+    [[maybe_unused]] auto a = e.arg1 ? pool[e.arg1->pool_idx] : kF32_ZERO();
+    [[maybe_unused]] auto b = e.arg2 ? pool[e.arg2->pool_idx] : kF32_ZERO();
+    pool[out] = mx::sum(a);
+}
+MLX_REGISTER_REPLAY(OP_SUM, mlx_replay_sum)
+
+static void mlx_replay_sum_dim(std::vector<mx::array>& pool, TapeEntry& e) {
+    int out = e.result->pool_idx;
+    [[maybe_unused]] auto a = e.arg1 ? pool[e.arg1->pool_idx] : kF32_ZERO();
+    [[maybe_unused]] auto b = e.arg2 ? pool[e.arg2->pool_idx] : kF32_ZERO();
+    auto* sm = (SumDimReplayMeta*)e.meta;
+                    pool[out] = mx::sum(a, std::vector<int>{sm->dim}, sm->keepdim != 0);
+}
+MLX_REGISTER_REPLAY(OP_SUM_DIM, mlx_replay_sum_dim)

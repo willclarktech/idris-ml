@@ -6,6 +6,8 @@
 #include "../tensor.h"
 #include "../tape.h"
 #include "../stream.h"
+#include "../training/autograd/op_dispatch.h"
+#include "../precision.h"
 
 extern "C" TensorHandle tensor_avg_pool1d_mlx_streamed(TensorHandle hinput, int kL, int stride, int stream_tag) {
     WITH_STREAM(stream_tag);
@@ -27,3 +29,21 @@ extern "C" TensorHandle tensor_avg_pool1d_mlx_streamed(TensorHandle hinput, int 
 extern "C" TensorHandle tensor_avg_pool1d(TensorHandle hinput, int kL, int stride) {
     return tensor_avg_pool1d_mlx_streamed(hinput, kL, stride, default_stream_tag());
 }
+
+static void mlx_replay_avg_pool1d(std::vector<mx::array>& pool, TapeEntry& e) {
+    int out = e.result->pool_idx;
+    [[maybe_unused]] auto a = e.arg1 ? pool[e.arg1->pool_idx] : kF32_ZERO();
+    [[maybe_unused]] auto b = e.arg2 ? pool[e.arg2->pool_idx] : kF32_ZERO();
+    // scalar_arg encodes kL + stride*0.001
+                    int kL = (int)e.scalar_arg;
+                    int stride = (int)((e.scalar_arg - kL) * 1000 + 0.5);
+                    if (stride == 0) stride = kL;
+                    int oL = ((int)a.shape(1) - kL) / stride + 1;
+                    mx::array res = mx::zeros({(int)a.shape(0), oL}, a.dtype());
+                    for (int kl = 0; kl < kL; kl++) {
+                        auto sliced = mx::slice(a, {0, kl}, {(int)a.shape(0), kl + oL*stride}, {1, stride});
+                        res = mx::add(res, sliced);
+                    }
+                    pool[out] = mx::divide(res, scalar_like((double)kL, a));
+}
+MLX_REGISTER_REPLAY(OP_AVG_POOL1D, mlx_replay_avg_pool1d)

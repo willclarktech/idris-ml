@@ -7,6 +7,8 @@
 #include "../tensor.h"
 #include "../tape.h"
 #include "../stream.h"
+#include "../training/autograd/op_dispatch.h"
+#include "../precision.h"
 
 extern "C" TensorHandle tensor_conv2d_mlx_streamed(TensorHandle hinput, TensorHandle hkernel,
                                                    TensorHandle hbias, int padH, int padW,
@@ -84,3 +86,44 @@ extern "C" TensorHandle tensor_conv2d_batched(TensorHandle hinput, TensorHandle 
                                               int strideH, int strideW) {
     return tensor_conv2d_batched_mlx_streamed(hinput, hkernel, hbias, padH, padW, strideH, strideW, default_stream_tag());
 }
+
+static void mlx_replay_conv2d(std::vector<mx::array>& pool, TapeEntry& e) {
+    int out = e.result->pool_idx;
+    [[maybe_unused]] auto a = e.arg1 ? pool[e.arg1->pool_idx] : kF32_ZERO();
+    [[maybe_unused]] auto b = e.arg2 ? pool[e.arg2->pool_idx] : kF32_ZERO();
+    auto* cm = (Conv2DReplayMeta*)e.meta;
+                    int inC = cm->inC, HH = cm->H, WW = cm->W;
+                    auto inp_hwc = mx::transpose(a, {1, 2, 0});
+                    auto inp_nhwc = mx::reshape(inp_hwc, {1, HH, WW, inC});
+                    auto ker_mlx = mx::transpose(b, {0, 2, 3, 1});
+                    auto cv = mx::conv2d(inp_nhwc, ker_mlx,
+                                         {cm->strH, cm->strW}, {cm->padH, cm->padW});
+                    auto cv_sq = mx::squeeze(cv, 0);
+                    auto cv_out = mx::transpose(cv_sq, {2, 0, 1});
+                    if (cm->bias_pool_idx >= 0) {
+                        cv_out = mx::add(cv_out, mx::reshape(pool[cm->bias_pool_idx], {-1, 1, 1}));
+                    }
+                    pool[out] = cv_out;
+}
+MLX_REGISTER_REPLAY(OP_CONV2D, mlx_replay_conv2d)
+
+static void mlx_replay_conv2d_batched(std::vector<mx::array>& pool, TapeEntry& e) {
+    int out = e.result->pool_idx;
+    [[maybe_unused]] auto a = e.arg1 ? pool[e.arg1->pool_idx] : kF32_ZERO();
+    [[maybe_unused]] auto b = e.arg2 ? pool[e.arg2->pool_idx] : kF32_ZERO();
+    auto* cm = (Conv2DBatchedReplayMeta*)e.meta;
+                    int B = cm->B, inC = cm->inC, HH = cm->H, WW = cm->W;
+                    (void)inC; (void)HH; (void)WW;  // dimensions inferred from shape
+                    auto inp_nhwc = mx::transpose(a, {0, 2, 3, 1});
+                    auto ker_mlx  = mx::transpose(b, {0, 2, 3, 1});
+                    auto cv = mx::conv2d(inp_nhwc, ker_mlx,
+                                         {cm->strH, cm->strW}, {cm->padH, cm->padW});
+                    auto cv_out = mx::transpose(cv, {0, 3, 1, 2});
+                    if (cm->bias_pool_idx >= 0) {
+                        cv_out = mx::add(cv_out,
+                                         mx::reshape(pool[cm->bias_pool_idx], {1, -1, 1, 1}));
+                    }
+                    (void)B;
+                    pool[out] = cv_out;
+}
+MLX_REGISTER_REPLAY(OP_CONV2D_BATCHED, mlx_replay_conv2d_batched)

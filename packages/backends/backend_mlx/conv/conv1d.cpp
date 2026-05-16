@@ -7,6 +7,8 @@
 #include "../tensor.h"
 #include "../tape.h"
 #include "../stream.h"
+#include "../training/autograd/op_dispatch.h"
+#include "../precision.h"
 
 extern "C" TensorHandle tensor_conv1d_mlx_streamed(TensorHandle hinput, TensorHandle hkernel,
                                                    TensorHandle hbias, int pad, int stride, int stream_tag) {
@@ -40,3 +42,21 @@ extern "C" TensorHandle tensor_conv1d(TensorHandle hinput, TensorHandle hkernel,
                                       TensorHandle hbias, int pad, int stride) {
     return tensor_conv1d_mlx_streamed(hinput, hkernel, hbias, pad, stride, default_stream_tag());
 }
+
+static void mlx_replay_conv1d(std::vector<mx::array>& pool, TapeEntry& e) {
+    int out = e.result->pool_idx;
+    [[maybe_unused]] auto a = e.arg1 ? pool[e.arg1->pool_idx] : kF32_ZERO();
+    [[maybe_unused]] auto b = e.arg2 ? pool[e.arg2->pool_idx] : kF32_ZERO();
+    auto* cm = (Conv1DReplayMeta*)e.meta;
+                    int inC = cm->inC, LL = cm->L;
+                    auto inp_lc = mx::transpose(a, {1, 0});
+                    auto inp_nlc = mx::reshape(inp_lc, {1, LL, inC});
+                    auto ker_mlx = mx::transpose(b, {0, 2, 1});
+                    auto cv = mx::conv1d(inp_nlc, ker_mlx, cm->stride, cm->pad);
+                    auto cv_sq = mx::squeeze(cv, 0);
+                    auto cv_out = mx::transpose(cv_sq, {1, 0});
+                    if (cm->bias_pool_idx >= 0)
+                        cv_out = mx::add(cv_out, mx::reshape(pool[cm->bias_pool_idx], {-1, 1}));
+                    pool[out] = cv_out;
+}
+MLX_REGISTER_REPLAY(OP_CONV1D, mlx_replay_conv1d)

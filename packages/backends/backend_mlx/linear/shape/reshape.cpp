@@ -6,6 +6,8 @@
 #include "../../tensor.h"
 #include "../../tape.h"
 #include "../../stream.h"
+#include "../../training/autograd/op_dispatch.h"
+#include "../../precision.h"
 
 extern "C" TensorHandle tensor_reshape_mlx_streamed(TensorHandle h, int* shape, int rank, int stream_tag) {
     WITH_STREAM(stream_tag);
@@ -55,3 +57,11 @@ extern "C" TensorHandle tensor_reshape_4d_mlx_streamed(TensorHandle h, int d0, i
 extern "C" TensorHandle tensor_reshape_4d(TensorHandle h, int d0, int d1, int d2, int d3) {
     return tensor_reshape_4d_mlx_streamed(h, d0, d1, d2, d3, default_stream_tag());
 }
+
+static void mlx_replay_reshape(std::vector<mx::array>& pool, TapeEntry& e) {
+    int out = e.result->pool_idx;
+    [[maybe_unused]] auto a = e.arg1 ? pool[e.arg1->pool_idx] : kF32_ZERO();
+    [[maybe_unused]] auto b = e.arg2 ? pool[e.arg2->pool_idx] : kF32_ZERO();
+    pool[out] = mx::reshape(a, e.result->data.shape());
+}
+MLX_REGISTER_REPLAY(OP_RESHAPE, mlx_replay_reshape)

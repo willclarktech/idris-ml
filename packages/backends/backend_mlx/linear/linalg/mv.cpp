@@ -7,6 +7,8 @@
 #include "../../tensor.h"
 #include "../../tape.h"
 #include "../../stream.h"
+#include "../../training/autograd/op_dispatch.h"
+#include "../../precision.h"
 
 extern "C" TensorHandle tensor_mv_mlx_streamed(TensorHandle hmat, TensorHandle hvec, int stream_tag) {
     WITH_STREAM(stream_tag);
@@ -25,3 +27,12 @@ extern "C" TensorHandle tensor_mv_mlx_streamed(TensorHandle hmat, TensorHandle h
 extern "C" TensorHandle tensor_mv(TensorHandle hmat, TensorHandle hvec) {
     return tensor_mv_mlx_streamed(hmat, hvec, default_stream_tag());
 }
+
+static void mlx_replay_mv(std::vector<mx::array>& pool, TapeEntry& e) {
+    int out = e.result->pool_idx;
+    [[maybe_unused]] auto a = e.arg1 ? pool[e.arg1->pool_idx] : kF32_ZERO();
+    [[maybe_unused]] auto b = e.arg2 ? pool[e.arg2->pool_idx] : kF32_ZERO();
+    auto col = mx::reshape(b, {(int)b.size(), 1});
+                    pool[out] = mx::reshape(mx::matmul(a, col), {(int)a.shape(0)});
+}
+MLX_REGISTER_REPLAY(OP_MV, mlx_replay_mv)

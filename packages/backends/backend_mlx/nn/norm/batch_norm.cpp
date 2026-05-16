@@ -9,6 +9,7 @@
 #include "../../tape.h"
 #include "../../stream.h"
 #include "../../precision.h"
+#include "../../training/autograd/op_dispatch.h"
 
 extern "C" TensorHandle tensor_batch_norm_mlx_streamed(TensorHandle hinput, TensorHandle hgamma, TensorHandle hbeta,
                                                        TensorHandle hrunning_mean, TensorHandle hrunning_var,
@@ -69,3 +70,19 @@ extern "C" TensorHandle tensor_batch_norm(TensorHandle hinput, TensorHandle hgam
     return tensor_batch_norm_mlx_streamed(hinput, hgamma, hbeta, hrunning_mean, hrunning_var,
                                           C, spatial, training, momentum, eps, default_stream_tag());
 }
+
+static void mlx_replay_batch_norm(std::vector<mx::array>& pool, TapeEntry& e) {
+    int out = e.result->pool_idx;
+    [[maybe_unused]] auto a = e.arg1 ? pool[e.arg1->pool_idx] : kF32_ZERO();
+    [[maybe_unused]] auto b = e.arg2 ? pool[e.arg2->pool_idx] : kF32_ZERO();
+    auto* bm = (BatchNormReplayMeta*)e.meta;
+                    auto x = mx::reshape(a, {bm->C, bm->spatial});
+                    auto mean = mx::mean(x, std::vector<int>{1}, true);
+                    auto var = mx::var(x, std::vector<int>{1}, true);
+                    auto rstd = mx::rsqrt(mx::add(var, scalar_like(bm->eps, var)));
+                    auto x_hat = mx::multiply(mx::subtract(x, mean), rstd);
+                    auto g = mx::reshape(pool[bm->gamma_pool_idx], {bm->C, 1});
+                    auto bt = mx::reshape(pool[bm->beta_pool_idx], {bm->C, 1});
+                    pool[out] = mx::flatten(mx::add(mx::multiply(g, x_hat), bt));
+}
+MLX_REGISTER_REPLAY(OP_BATCH_NORM, mlx_replay_batch_norm)

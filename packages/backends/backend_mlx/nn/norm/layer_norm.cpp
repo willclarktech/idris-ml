@@ -7,6 +7,7 @@
 #include "../../tape.h"
 #include "../../stream.h"
 #include "../../precision.h"
+#include "../../training/autograd/op_dispatch.h"
 
 extern "C" TensorHandle tensor_layer_norm_2d_mlx_streamed(TensorHandle h, TensorHandle hgamma,
                                                           TensorHandle hbias, double eps, int stream_tag) {
@@ -39,3 +40,19 @@ extern "C" TensorHandle tensor_layer_norm_2d(TensorHandle h, TensorHandle hgamma
                                              TensorHandle hbias, double eps) {
     return tensor_layer_norm_2d_mlx_streamed(h, hgamma, hbias, eps, default_stream_tag());
 }
+
+static void mlx_replay_layer_norm_2d(std::vector<mx::array>& pool, TapeEntry& e) {
+    int out = e.result->pool_idx;
+    [[maybe_unused]] auto a = e.arg1 ? pool[e.arg1->pool_idx] : kF32_ZERO();
+    [[maybe_unused]] auto b = e.arg2 ? pool[e.arg2->pool_idx] : kF32_ZERO();
+    auto meta = (LayerNormReplayMeta*)e.meta;
+                    auto gamma = pool[meta->gamma_pool_idx];
+                    auto bias = pool[meta->bias_pool_idx];
+                    auto mean = mx::mean(a, -1, true);
+                    auto centered = mx::subtract(a, mean);
+                    auto var = mx::mean(mx::square(centered), -1, true);
+                    auto rstd = mx::rsqrt(mx::add(var, scalar_like(meta->eps, var)));
+                    auto x_hat = mx::multiply(centered, rstd);
+                    pool[out] = mx::add(mx::multiply(gamma, x_hat), bias);
+}
+MLX_REGISTER_REPLAY(OP_LAYER_NORM_2D, mlx_replay_layer_norm_2d)

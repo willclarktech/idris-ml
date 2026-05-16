@@ -8,6 +8,8 @@
 #include "../tensor.h"
 #include "../tape.h"
 #include "../stream.h"
+#include "../training/autograd/op_dispatch.h"
+#include "../precision.h"
 
 extern "C" TensorHandle tensor_conv1d_circular_mlx_streamed(TensorHandle hinput, TensorHandle hkernel, int stream_tag) {
     WITH_STREAM(stream_tag);
@@ -33,3 +35,21 @@ extern "C" TensorHandle tensor_conv1d_circular_mlx_streamed(TensorHandle hinput,
 extern "C" TensorHandle tensor_conv1d_circular(TensorHandle hinput, TensorHandle hkernel) {
     return tensor_conv1d_circular_mlx_streamed(hinput, hkernel, default_stream_tag());
 }
+
+static void mlx_replay_conv1d_circ(std::vector<mx::array>& pool, TapeEntry& e) {
+    int out = e.result->pool_idx;
+    [[maybe_unused]] auto a = e.arg1 ? pool[e.arg1->pool_idx] : kF32_ZERO();
+    [[maybe_unused]] auto b = e.arg2 ? pool[e.arg2->pool_idx] : kF32_ZERO();
+    // Inline circular convolution forward (kernel reversed — see
+                    // backend_mlx/conv/conv1d_circular.cpp for the index derivation)
+                    int n = (int)a.size(), k = (int)b.size();
+                    int half_k = k / 2;
+                    auto result = mx::zeros({n}, a.dtype());
+                    for (int j = 0; j < k; j++) {
+                        auto shifted = mx::roll(a, half_k - j);
+                        auto kern_j = mx::take(b, mx::array(k - 1 - j));
+                        result = mx::add(result, mx::multiply(shifted, kern_j));
+                    }
+                    pool[out] = result;
+}
+MLX_REGISTER_REPLAY(OP_CONV1D_CIRC, mlx_replay_conv1d_circ)

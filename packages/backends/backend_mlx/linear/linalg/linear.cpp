@@ -11,6 +11,8 @@
 #include "../../tensor.h"
 #include "../../tape.h"
 #include "../../stream.h"
+#include "../../training/autograd/op_dispatch.h"
+#include "../../precision.h"
 
 extern "C" TensorHandle tensor_mv_mlx_streamed(TensorHandle hmat, TensorHandle hvec, int stream_tag);
 extern "C" TensorHandle tensor_add_mlx_streamed(TensorHandle ha, TensorHandle hb, int stream_tag);
@@ -46,3 +48,17 @@ extern "C" TensorHandle tensor_linear_2d_mlx_streamed(TensorHandle hW, TensorHan
 extern "C" TensorHandle tensor_linear_2d(TensorHandle hW, TensorHandle hX, TensorHandle hbias) {
     return tensor_linear_2d_mlx_streamed(hW, hX, hbias, default_stream_tag());
 }
+
+static void mlx_replay_linear_2d(std::vector<mx::array>& pool, TapeEntry& e) {
+    int out = e.result->pool_idx;
+    [[maybe_unused]] auto a = e.arg1 ? pool[e.arg1->pool_idx] : kF32_ZERO();
+    [[maybe_unused]] auto b = e.arg2 ? pool[e.arg2->pool_idx] : kF32_ZERO();
+    /* a = X [B,i], b = W [o,i]. Y = X @ W^T + bias */
+                    auto meta = (LinearReplayMeta*)e.meta;
+                    auto WT = mx::transpose(b, {1, 0});
+                    auto y = mx::matmul(a, WT);
+                    if (meta && meta->bias_pool_idx >= 0)
+                        y = mx::add(y, pool[meta->bias_pool_idx]);
+                    pool[out] = y;
+}
+MLX_REGISTER_REPLAY(OP_LINEAR_2D, mlx_replay_linear_2d)

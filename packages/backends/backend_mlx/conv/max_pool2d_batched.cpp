@@ -5,6 +5,8 @@
 #include "../tensor.h"
 #include "../tape.h"
 #include "../stream.h"
+#include "../training/autograd/op_dispatch.h"
+#include "../precision.h"
 
 extern "C" TensorHandle tensor_max_pool2d_batched_mlx_streamed(TensorHandle hinput, int kH, int kW,
                                                                int strideH, int strideW, int stream_tag) {
@@ -43,3 +45,22 @@ extern "C" TensorHandle tensor_max_pool2d_batched(TensorHandle hinput, int kH, i
                                                   int strideH, int strideW) {
     return tensor_max_pool2d_batched_mlx_streamed(hinput, kH, kW, strideH, strideW, default_stream_tag());
 }
+
+static void mlx_replay_max_pool2d_batched(std::vector<mx::array>& pool, TapeEntry& e) {
+    int out = e.result->pool_idx;
+    [[maybe_unused]] auto a = e.arg1 ? pool[e.arg1->pool_idx] : kF32_ZERO();
+    [[maybe_unused]] auto b = e.arg2 ? pool[e.arg2->pool_idx] : kF32_ZERO();
+    auto* pm = (MaxPool2DBatchedReplayMeta*)e.meta;
+                    mx::array res = mx::full({pm->B, pm->C, pm->oH, pm->oW}, -1e30, a.dtype());
+                    for (int kh = 0; kh < pm->kH; kh++) {
+                        for (int kw = 0; kw < pm->kW; kw++) {
+                            auto sliced = mx::slice(a,
+                                {0, 0, kh, kw},
+                                {pm->B, pm->C, kh + pm->oH * pm->strH, kw + pm->oW * pm->strW},
+                                {1, 1, pm->strH, pm->strW});
+                            res = mx::maximum(res, sliced);
+                        }
+                    }
+                    pool[out] = res;
+}
+MLX_REGISTER_REPLAY(OP_MAX_POOL2D_BATCHED, mlx_replay_max_pool2d_batched)

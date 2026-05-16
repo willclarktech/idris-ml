@@ -6,6 +6,8 @@
 #include "../../tensor.h"
 #include "../../tape.h"
 #include "../../stream.h"
+#include "../../training/autograd/op_dispatch.h"
+#include "../../precision.h"
 
 static TensorHandle stack_impl(TensorHandle* tensors, int count, int dim) {
     std::vector<mx::array> arrs;
@@ -40,3 +42,16 @@ extern "C" TensorHandle tensor_stack_from_array(TensorHandle* arr, int count, in
     free(arr);
     return r;
 }
+
+static void mlx_replay_stack(std::vector<mx::array>& pool, TapeEntry& e) {
+    int out = e.result->pool_idx;
+    [[maybe_unused]] auto a = e.arg1 ? pool[e.arg1->pool_idx] : kF32_ZERO();
+    [[maybe_unused]] auto b = e.arg2 ? pool[e.arg2->pool_idx] : kF32_ZERO();
+    auto* indices = (std::vector<int>*)e.meta;
+                    if (indices) {
+                        std::vector<mx::array> arrs;
+                        for (int idx : *indices) arrs.push_back(pool[idx]);
+                        pool[out] = mx::stack(arrs, (int)e.scalar_arg);
+                    }
+}
+MLX_REGISTER_REPLAY(OP_STACK, mlx_replay_stack)

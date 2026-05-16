@@ -6,6 +6,8 @@
 #include "../../tensor.h"
 #include "../../tape.h"
 #include "../../stream.h"
+#include "../../training/autograd/op_dispatch.h"
+#include "../../precision.h"
 
 extern "C" TensorHandle tensor_log_softmax_mlx_streamed(TensorHandle h, int dim, int stream_tag) {
     WITH_STREAM(stream_tag);
@@ -36,3 +38,15 @@ extern "C" TensorHandle tensor_log_softmax_2d_mlx_streamed(TensorHandle h, int s
 extern "C" TensorHandle tensor_log_softmax_2d(TensorHandle h) {
     return tensor_log_softmax_2d_mlx_streamed(h, default_stream_tag());
 }
+
+static void mlx_replay_log_softmax_2d(std::vector<mx::array>& pool, TapeEntry& e) {
+    int out = e.result->pool_idx;
+    [[maybe_unused]] auto a = e.arg1 ? pool[e.arg1->pool_idx] : kF32_ZERO();
+    [[maybe_unused]] auto b = e.arg2 ? pool[e.arg2->pool_idx] : kF32_ZERO();
+    int dim = (int)e.scalar_arg;  // stored by forward (0 for 1D, -1 for 2D)
+                    auto maxv = mx::max(a, dim, true);
+                    auto shifted = mx::subtract(a, maxv);
+                    auto lse = mx::add(mx::log(mx::sum(mx::exp(shifted), dim, true)), maxv);
+                    pool[out] = mx::subtract(a, lse);
+}
+MLX_REGISTER_REPLAY(OP_LOG_SOFTMAX_2D, mlx_replay_log_softmax_2d)

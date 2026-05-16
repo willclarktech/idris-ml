@@ -2,6 +2,8 @@
 #include "../../tensor.h"
 #include "../../tape.h"
 #include "../../stream.h"
+#include "../../training/autograd/op_dispatch.h"
+#include "../../precision.h"
 
 static TensorHandle cat_impl(TensorHandle* tensors, int count, int dim) {
     std::vector<mx::array> arrs;
@@ -52,3 +54,24 @@ extern "C" TensorHandle tensor_cat2_mlx_streamed(TensorHandle ha, TensorHandle h
 extern "C" TensorHandle tensor_cat2(TensorHandle ha, TensorHandle hb) {
     return tensor_cat2_mlx_streamed(ha, hb, default_stream_tag());
 }
+
+static void mlx_replay_cat(std::vector<mx::array>& pool, TapeEntry& e) {
+    int out = e.result->pool_idx;
+    [[maybe_unused]] auto a = e.arg1 ? pool[e.arg1->pool_idx] : kF32_ZERO();
+    [[maybe_unused]] auto b = e.arg2 ? pool[e.arg2->pool_idx] : kF32_ZERO();
+    pool[out] = mx::concatenate({a, b}, 0);
+}
+MLX_REGISTER_REPLAY(OP_CAT, mlx_replay_cat)
+
+static void mlx_replay_cat_multi(std::vector<mx::array>& pool, TapeEntry& e) {
+    int out = e.result->pool_idx;
+    [[maybe_unused]] auto a = e.arg1 ? pool[e.arg1->pool_idx] : kF32_ZERO();
+    [[maybe_unused]] auto b = e.arg2 ? pool[e.arg2->pool_idx] : kF32_ZERO();
+    auto* indices = (std::vector<int>*)e.meta;
+                    if (indices) {
+                        std::vector<mx::array> arrs;
+                        for (int idx : *indices) arrs.push_back(pool[idx]);
+                        pool[out] = mx::concatenate(arrs, (int)e.scalar_arg);
+                    }
+}
+MLX_REGISTER_REPLAY(OP_CAT_MULTI, mlx_replay_cat_multi)
