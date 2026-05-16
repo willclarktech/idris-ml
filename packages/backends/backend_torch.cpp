@@ -108,9 +108,7 @@ TensorHandle from_tensor_persistent(at::Tensor t) {
  * max_pool1d/2d[_batched] + avg_pool1d/2d) live in
  * backend_torch/conv/. */
 
-TensorHandle tensor_create_param_3d(int d0, int d1, int d2, double* data) {
-    return make_param_leaf(data, {(int64_t)d0, (int64_t)d1, (int64_t)d2}, torch::kFloat64);
-}
+/* tensor_create_param_3d lives in backend_torch/core/lifecycle/create_param_state.cpp. */
 
 /* Shape ops live in backend_torch/linear/shape/.
  * Stack / cat live in backend_torch/linear/concat/. */
@@ -140,26 +138,13 @@ extern "C" void _dbg_dump_param_grads_if_enabled_torch(void);
 /* tensor_subtract_scalar_inplace lives in
    backend_torch/training/ntm_specific.cpp. */
 
-/* ---------- Convenience ---------- */
-
-TensorHandle tensor_create_1d(int n, double* data, int requires_grad) {
-    auto t = torch::from_blob(data, {(int64_t)n}, torch::kFloat64).clone();
-    free(data);
-    if (requires_grad) t.requires_grad_(true);
-    return from_tensor(std::move(t));
-}
-
-TensorHandle tensor_create_2d(int rows, int cols, double* data, int requires_grad) {
-    auto t = torch::from_blob(data, {(int64_t)rows, (int64_t)cols}, torch::kFloat64).clone();
-    free(data);
-    if (requires_grad) t.requires_grad_(true);
-    return from_tensor(std::move(t));
-}
-
-/* tensor_alloc_doubles / tensor_free_doubles / tensor_read_double /
- * tensor_ptr_array_alloc live in shared_utils.c. */
-
-/* tensor_stack_from_array / tensor_cat_from_array live in
+/* tensor_create_1d + tensor_create_2d (F64 base) live in
+ * backend_torch/core/lifecycle/create_param_state.cpp.
+ *
+ * tensor_alloc_doubles / tensor_free_doubles / tensor_read_double /
+ * tensor_ptr_array_alloc live in shared_utils.c.
+ *
+ * tensor_stack_from_array / tensor_cat_from_array live in
  * backend_torch/linear/concat/{stack,cat}.cpp. */
 
 
@@ -169,79 +154,12 @@ TensorHandle tensor_create_2d(int rows, int cols, double* data, int requires_gra
    calls st_for_dtag via the dtype_dispatch.h declaration (included
    above). */
 
-TensorHandle tensor_one_hot(int* tokens, int n_tokens, int vocab_size, int dtag) {
-    int total = n_tokens * vocab_size;
-    // Build the 0/1 pattern in F64, then cast to the requested dtype so the
-    // result honestly matches the Idris `dt` (0/1 is exact in every dtype —
-    // float or int — so the cast is lossless). An F32 model gets a real F32
-    // one-hot, an F64 model a real F64 one — no silent dtype divergence.
-    auto t = torch::zeros({(int64_t)total}, torch::kFloat64);
-    auto acc = t.accessor<double, 1>();
-    for (int i = 0; i < n_tokens; i++) {
-        int tok = tokens[i];
-        if (tok >= 0 && tok < vocab_size)
-            acc[i * vocab_size + tok] = 1.0;
-    }
-    /* Delegate to st_for_dtag for the kind-major dtag layout; invalid
-       dtags abort there. F64 is the build dtype above, so skip the cast
-       only when the requested output dtype is already F64. */
-    torch::ScalarType st = st_for_dtag(dtag);
-    if (st != torch::kFloat64) t = t.to(st);
-    return from_tensor(std::move(t));
-}
-
-TensorHandle tensor_batch(TensorHandle* handles, int count) {
-    std::vector<at::Tensor> vec(count);
-    for (int i = 0; i < count; i++) vec[i] = *to_tensor(handles[i]);
-    return from_tensor(torch::stack(vec));
-}
-
-TensorHandle* tensor_unbatch(TensorHandle h, int* out_count) {
-    auto tensors = to_tensor(h)->unbind(0);
-    *out_count = (int)tensors.size();
-    auto* arr = (TensorHandle*)malloc(*out_count * sizeof(TensorHandle));
-    for (int i = 0; i < *out_count; i++)
-        arr[i] = from_tensor(tensors[i].contiguous());
-    return arr;
-}
-
-/* ---------- Tensor-level parameter creation ---------- */
-
-TensorHandle tensor_create_param_2d(int rows, int cols, double* data) {
-    return make_param_leaf(data, {(int64_t)rows, (int64_t)cols}, torch::kFloat64);
-}
-
-TensorHandle tensor_create_param_4d(int d0, int d1, int d2, int d3, double* data) {
-    return make_param_leaf(data, {(int64_t)d0, (int64_t)d1, (int64_t)d2, (int64_t)d3}, torch::kFloat64);
-}
-
-TensorHandle tensor_create_param_1d(int n, double* data) {
-    return make_param_leaf(data, {(int64_t)n}, torch::kFloat64);
-}
-
-TensorHandle tensor_create_state_2d(int rows, int cols, double* data) {
-    auto t = torch::from_blob(data, {(int64_t)rows, (int64_t)cols}, torch::kFloat64).clone();
-    return from_tensor_persistent(std::move(t));
-}
-
-TensorHandle tensor_create_state_1d(int n, double* data) {
-    auto t = torch::from_blob(data, {(int64_t)n}, torch::kFloat64).clone();
-    return from_tensor_persistent(std::move(t));
-}
-
-/* Per-dtype creation variants (F32/F64 explicit-suffix wrappers +
- * make_param_leaf + torch_cast_to) live in
+/* tensor_one_hot + tensor_batch + tensor_unbatch live in
+ * backend_torch/core/lifecycle/batch.cpp.
+ * tensor_create_{1d,2d}, tensor_create_param_{1,2,3,4}d, tensor_create_state_{1,2}d,
+ * tensor_view_{1d,2d} live in backend_torch/core/lifecycle/create_param_state.cpp.
+ * Per-dtype F32 variants + dtag dispatchers live in
  * backend_torch/training/dtype_dispatch.cpp. */
-
-TensorHandle tensor_view_2d(TensorHandle h, int row, int col) {
-    /* Returns a 0-dim view that shares storage with the parent tensor.
-       Must be persistent — views into param tensors survive free_intermediates. */
-    return from_tensor_persistent(to_tensor(h)->select(0, row).select(0, col));
-}
-
-TensorHandle tensor_view_1d(TensorHandle h, int idx) {
-    return from_tensor_persistent(to_tensor(h)->select(0, idx));
-}
 
 /* tensor_item_1d / tensor_item_2d extracted to
    backend_torch/core/lifecycle/. */
