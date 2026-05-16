@@ -780,3 +780,37 @@ So in practice, the worst a non-device `d` can do is type-check uselessly. The u
 
 **Revisit triggers**: open if users in the wild file confusing "no `UserDeviceCore X` instance" errors traced back to a typo like `Tensor [4] Bool`, OR if we ever want to define library code that's polymorphic in `d` without `UserDeviceCore d` available (currently impossible — every op needs it, so every polymorphic-in-`d` site naturally has it). Option 2 (`IsDevice`) is the cheapest sharper variant; option 3 is the heaviest if we want compile-time rejection at declaration sites.
 
+## Tensor lifecycle: wrapped-handle FFI ABI
+
+**Problem**: a refcount-driven Tensor lifecycle needs every holder of a Tensor pointer to retain on acquisition and release on drop. The Idris side's natural holder is the `Tensor` record's `tensorPtr` field. Earlier attempts (`is_state`-only refcount, wrap-everywhere via `prim__wrapHandle` in `MkTensor`, per-FFI `RetainGuard`) all foundered on the same root cause: **the Tensor record's "owner identity" (a parallel Chez guardian shadow registered by `prim__wrapHandle`) lives separately from the `tensorPtr` field's value**. Idris-Chez's codegen does live-range narrowing on let-bound records — when a record's only use is `.tensorPtr` extraction, the record (and its shadow) can be elided while the raw pointer survives. The shadow goes to the guardian's dead queue, drain releases the Tensor, and the in-flight raw pointer becomes dangling.
+
+**Decision**: under wrapped-handle ABI on mlx, every Tensor-touching `%foreign` primitive is bound to a Scheme wrapper instead of directly to a C function. The wrapper:
+
+- For a Tensor-arg: extracts the raw pointer via `(vector-ref wt 1)` before calling the C function.
+- For a Tensor-return: allocates a fresh Chez vector `(vector 'tensor-handle raw_r)`, registers it with `idris-tensor-guardian`, retains via `tensor_retain_handle`, returns the vector.
+
+The Chez vector IS the Tensor's Idris-level identity. The `Tensor` record's `tensorPtr` field stores the vector, not the raw pointer. `MkTensor` no longer wraps separately — the wrap is already done by the FFI. The compiler can't elide the wrap without eliding the value, because they're the same value.
+
+**Three properties that make this work**:
+
+1. **Foreign calls in Chez aren't interrupted by GC.** While C code runs in a `foreign-procedure` invocation, Chez's GC can't fire. So C-side code can safely dereference the raw pointer extracted from the wrap; no concurrent free is possible.
+2. **The wrap is a heap-allocated Chez object.** Its live range is tracked by Chez's normal liveness analysis on let-bindings and function arguments — the same mechanism the compiler is allowed to optimise, but only via reachability, not via field-projection elision. The vector can't be reduced to "just the raw pointer" except through an explicit `vector-ref` call inside the FFI wrapper.
+3. **The guardian gives us an Idris-liveness signal.** When the wrap becomes unreachable from Idris-level bindings (Chez decides this), the guardian queues it. A drain pass (called from `withNoGrad`'s exit + periodically from inside no_grad `tape_append` via a foreign-callable trampoline) pops the dead queue and releases C-side retains. Refcount → 0 → Tensor freed → `mx::array` destroyed → MTLBuffer recycled.
+
+**Trade-offs**:
+
+- **Allocation cost.** Each FFI now allocates a Chez vector. For ~5K FFIs/epoch that's 5K small vectors — negligible compared to mx::array allocations on the C side, but worth measuring.
+- **Library load timing.** `foreign-procedure` looks up symbols via dlsym in already-loaded libraries. If the first FFI invocation is a `%foreign "scheme:..."` (no implicit library-load hint), `libidrisml` may not be loaded yet. Mitigation: `initManagedHandles` explicitly calls `load-shared-object "libidrisml.dylib"` at first guardian creation, and each converted Scheme primitive does the same load check as a fallback.
+- **Per-FFI mechanical churn.** ~165 Tensor-touching FFIs each need their Scheme glue rewritten. Mechanical, lintable, but real work.
+- **Cross-backend symmetry.** The ABI applies on mlx; on tape/torch primary builds, the wrappers still execute (allocate a vector, register with guardian) but `tensor_retain_handle` is a no-op stub, so the lifecycle is inert. Slight overhead on tape/torch (one vector per FFI) without lifecycle benefit. Acceptable until tape/torch want refcount-driven freeing for their own reasons.
+
+**Options considered**:
+
+1. **`prim__wrapHandle` in `MkTensor`** — the dormant Phase 2.2 design. Failed on codegen elision (see above).
+2. **Per-FFI `RetainGuard` (C++ RAII on the C side)** — explored in a session. Failed because a guard's retain-then-release cycle frees Tensors that had refcount=0 entering the FFI, breaking the caller's raw-pointer alias.
+3. **Wrapped-handle ABI** *(chosen)* — the wrap is the value. Verified end-to-end on Phase 0' with 4 FFIs (`prim__createScalar`, `prim__item`, `prim__requiresGrad`, `prim__setRequiresGrad`) and the `Test.ManagedHandle` unit tests. Drain reclaims 50 dropped wraps after forced major GC.
+
+**Revisit triggers**: a future Idris-Chez codegen change that enables actual GC interruption of foreign calls would invalidate property #1 and require re-thinking. If Chez ever exposes a clean way for Idris to inject true module-init code, the per-primitive lib-load fallback could be retired. If the per-FFI allocation cost shows up materially in perf measurement, consider stack-allocating the vector for short-lived intermediates (Chez doesn't expose this, but a future ABI change could).
+
+Plan + phased rollout: `docs/develop/tensor-lifecycle-plan.md`.
+

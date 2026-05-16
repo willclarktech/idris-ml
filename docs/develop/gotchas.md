@@ -118,6 +118,16 @@ This caused a subtle bug in the Transformer example where `toList` reversed pred
 
 Idris 2 compiles zero-argument `%noinline` definitions as constants evaluated once at load time. `tapeGeneration` must take a dummy argument (the tape index) passed through to `prim__tapeGen` to prevent the Chez backend from caching the result. This also applies to any other FFI wrapper reading mutable state. Even making it `foo _ = expr` doesn't help — the argument must be passed THROUGH to the FFI call: `foo dummy = cast (prim__ffi (cast dummy))`.
 
+### Wrapped-handle ABI on mlx — new Tensor FFIs must use the wrap-on-return template
+
+On mlx (and any future backend that opts in), every `prim__` FFI that returns a Tensor handle binds to a Scheme wrapper, not directly to a C function. The wrapper allocates a Chez vector wrapping the raw pointer, registers it with `idris-tensor-guardian`, and retains via `tensor_retain_handle`. Every FFI consuming a Tensor handle starts its Scheme glue with `(vector-ref wt 1)` to extract the raw pointer. The Chez vector IS the Tensor's runtime identity — Idris-Chez can't elide it without eliding the value itself. See `docs/develop/design-decisions.md` "Tensor lifecycle: wrapped-handle FFI ABI."
+
+**For new FFIs**: copy the template from an existing one (`prim__createScalar` for a Tensor-returning, `prim__item` for a primitive-returning, `prim__requiresGrad` for an Int-returning). Each Scheme wrapper also includes a one-time `(load-shared-object "libidrisml.dylib")` guard to ensure `foreign-procedure` can resolve C symbols regardless of which FFI fires first.
+
+**Do NOT** pass `tensorPtr` to non-FFI Scheme code that expects a raw pointer — on mlx it's a Chez vector. Either route through an FFI (which knows to unwrap) or write your own `(vector-ref ... 1)` extraction.
+
+**Linter**: `make check-ffi-wrap-template` (once landed) flags FFIs that don't follow the template. Until then, treat the pattern as a hand-checked convention.
+
 ### FFI side-effect threading
 
 `let _ = ffiCall` is dropped by the compiler since the result is unused. FFI functions with side effects must return a value that is used in subsequent computation. `prim__gradAdd` returns the handle (`AnyPtr`), enabling handle threading through the backward pass. Dense optimizer steps use `prim__seq result st.v` to force evaluation: `let result = prim__rmspropVcStep ... in { v := prim__seq result st.v } st`. Without this, the optimizer call is silently eliminated and raw gradients are applied as deltas (lr/clip/momentum have zero effect).
