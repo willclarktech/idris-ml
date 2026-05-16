@@ -1483,7 +1483,7 @@ Test(legacy_backend, safetensors_roundtrip) {
    monolithic harness sidestepped via prior-test warm-up). Mark as
    `.disabled = 1` here and document in TODO.md; rerun once tape's view-
    chain semantics are revisited. */
-Test(legacy_backend, tensor_view, .disabled = 1) {
+Test(legacy_backend, tensor_view) {
     param_clear();
     double wdata[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
     int wshape[] = {2, 3};
@@ -1502,7 +1502,11 @@ Test(legacy_backend, tensor_view, .disabled = 1) {
     optimizer_zero_grad(sgd);
     tensor_backward(wsum);
     optimizer_step(sgd);
-    /* After step: wmat[0,1] should be 2.0 - 1.0*1.0 = 1.0 */
+    /* After step: wmat[0,1] should be 2.0 - 1.0*1.0 = 1.0. Re-creating the
+       chain via fresh tensor_selects regression-tests the arena_alloc /
+       parent-aliasing fix in tape's select.c (a post-optimizer-step arena
+       reset can rewind to wmat's own struct address; the snapshot in
+       tensor_select prevents the aliasing memset from corrupting it). */
     ASSERT_NEAR("parent updated", tensor_item(tensor_select(tensor_select(wmat, 0, 0), 0, 1)), 1.0, 1e-10);
 
     optimizer_free(sgd);
