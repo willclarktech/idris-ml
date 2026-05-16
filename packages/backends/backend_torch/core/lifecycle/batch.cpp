@@ -35,10 +35,14 @@ extern "C" TensorHandle tensor_one_hot(int* tokens, int n_tokens, int vocab_size
     /* Delegate to st_for_dtag for the kind-major dtag layout; invalid
        dtags abort there. */
     torch::ScalarType st = st_for_dtag(dtag);
+    // Effective target degrades to CPU on (MPS, F64) — Metal rejects F64.
+    c10::Device target = (g_torch_target_device.type() == c10::DeviceType::MPS
+                          && st == torch::kFloat64) ? at::kCPU
+                                                    : g_torch_target_device;
     bool need_cast = st != torch::kFloat64;
-    bool need_move = g_torch_target_device != at::kCPU;
+    bool need_move = target != at::kCPU;
     if (need_cast || need_move) {
-        auto opts = torch::TensorOptions().dtype(st).device(g_torch_target_device);
+        auto opts = torch::TensorOptions().dtype(st).device(target);
         t = t.to(opts);
     }
     return from_tensor(std::move(t));

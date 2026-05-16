@@ -15,7 +15,11 @@ extern c10::Device g_torch_target_device;
 
 static TensorHandle tensor_create_scalar_impl(double value, int requires_grad, torch::ScalarType dt) {
     auto t = torch::tensor(value, torch::dtype(dt));
-    if (g_torch_target_device != at::kCPU) t = t.to(g_torch_target_device);
+    // Effective target degrades to CPU on (MPS, F64) — Metal rejects F64.
+    c10::Device target = (g_torch_target_device.type() == c10::DeviceType::MPS
+                          && dt == torch::kFloat64) ? at::kCPU
+                                                    : g_torch_target_device;
+    if (target != at::kCPU) t = t.to(target);
     if (requires_grad) t.requires_grad_(true);
     return from_tensor_persistent(std::move(t));
 }

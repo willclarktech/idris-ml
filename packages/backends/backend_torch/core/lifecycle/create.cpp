@@ -20,10 +20,17 @@ static TensorHandle tensor_create_impl(double* data, int* shape, int rank,
     for (int i = 0; i < rank; i++) dims[i] = shape[i];
     auto opts0 = torch::TensorOptions().dtype(torch::kFloat64);
     auto t = torch::from_blob(data, dims, opts0).clone();
+    // Effective target degrades to CPU on (MPS, F64) — Metal rejects F64
+    // at construction. Lets Transfer.idr explicitly create F64-on-CPU even
+    // under a `TORCH_DEVICE=mps` build, then migrate later with the typed
+    // `toDevice` (which gates on `Compatible`).
+    c10::Device target = (g_torch_target_device.type() == c10::DeviceType::MPS
+                          && dt == torch::kFloat64) ? at::kCPU
+                                                    : g_torch_target_device;
     bool need_cast = dt != torch::kFloat64;
-    bool need_move = g_torch_target_device != at::kCPU;
+    bool need_move = target != at::kCPU;
     if (need_cast || need_move) {
-        auto opts = torch::TensorOptions().dtype(dt).device(g_torch_target_device);
+        auto opts = torch::TensorOptions().dtype(dt).device(target);
         t = t.to(opts);
     }
     if (requires_grad) t.requires_grad_(true);

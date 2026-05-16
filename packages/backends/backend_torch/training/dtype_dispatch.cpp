@@ -41,11 +41,30 @@ extern "C" TensorHandle tensor_create_2d(int rows, int cols, double* data, int r
    no-env path identical to the historical behaviour. */
 extern c10::Device g_torch_target_device;
 
+/* Effective target device for a tensor of the given dtype. Falls back to
+   CPU when the global target can't hold the dtype (Metal's hard limit:
+   MPS rejects F64 at construction time, so a `t.to(F64, MPS)` aborts
+   the whole process). This lets `TORCH_DEVICE=mps` builds still create
+   F64 tensors on CPU when callers ask for `TorchDev TCpu / F64`
+   explicitly (Transfer.idr's cross-backend hop chain, etc.) — they'll
+   migrate to MPS later via the typed `toDevice` API if needed, gated by
+   `Compatible (TorchDev TMps) F64` which deliberately doesn't exist. */
+static inline c10::Device torch_effective_device(torch::ScalarType dt) {
+    if (g_torch_target_device.type() == c10::DeviceType::MPS &&
+        dt == torch::kFloat64) {
+        return at::kCPU;
+    }
+    return g_torch_target_device;
+}
+
 /* Migrate `t` to the active target device IF it differs from `t.device()`.
    Stays in-place when the device matches (the common case for CPU builds);
-   issues a single .to(device) op when migrating. */
+   issues a single .to(device) op when migrating. Uses
+   `torch_effective_device` so a hostile (target, dtype) pair degrades to
+   CPU instead of aborting. */
 static inline at::Tensor torch_migrate_to_target(at::Tensor t) {
-    return t.device() == g_torch_target_device ? t : t.to(g_torch_target_device);
+    auto target = torch_effective_device(t.scalar_type());
+    return t.device() == target ? t : t.to(target);
 }
 
 /* ---- Floating-dtype predicate ----
@@ -107,10 +126,11 @@ TensorHandle torch_cast_to(TensorHandle h, torch::ScalarType dt) {
    the F64-CPU source, we skip the .to() entirely (no-op fast path). */
 TensorHandle make_param_leaf(double* data, c10::IntArrayRef dims, torch::ScalarType dt) {
     auto t = torch::from_blob(data, dims, torch::kFloat64).clone();
-    bool need_cast   = dt != torch::kFloat64;
-    bool need_move   = g_torch_target_device != at::kCPU;
+    c10::Device target = torch_effective_device(dt);
+    bool need_cast = dt != torch::kFloat64;
+    bool need_move = target != at::kCPU;
     if (need_cast || need_move) {
-        auto opts = torch::TensorOptions().dtype(dt).device(g_torch_target_device);
+        auto opts = torch::TensorOptions().dtype(dt).device(target);
         t = t.to(opts);
     }
     t.requires_grad_(true);
