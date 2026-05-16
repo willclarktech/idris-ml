@@ -132,7 +132,7 @@ ntmInterpWriteIdris {n} memT weightsT addVecT =
   in prim__add kept writeAdd
 
 export
-applyNtm : {n, m, h, i, o : Nat} ->
+applyNtm : {0 d : Type} -> UserDeviceCore d => {n, m, h, i, o : Nat} ->
              NtmState n m h i o d g ->
              TVec i d g ->
              (NtmState n m h i o d g, TVec o d g)

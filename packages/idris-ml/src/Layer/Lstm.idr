@@ -43,7 +43,7 @@ record LstmState (i : Nat) (o : Nat) (0 d : Type) (0 g : GradMode) where
 ||| hidden + cell state, runs the fused gate computation, returns the
 ||| updated layer state and the new hidden output.
 export
-applyLstm : {o : Nat} ->
+applyLstm : {0 d : Type} -> UserDeviceCore d => {o : Nat} ->
               LstmState i o d g ->
               TVec i d g ->
               (LstmState i o d g, TVec o d g)

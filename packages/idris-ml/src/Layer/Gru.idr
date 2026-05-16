@@ -40,7 +40,7 @@ record GruState (i : Nat) (o : Nat) (0 d : Type) (0 g : GradMode) where
 %default partial
 
 export
-applyGru : {o : Nat} ->
+applyGru : {0 d : Type} -> UserDeviceCore d => {o : Nat} ->
              GruState i o d g ->
              TVec i d g ->
              (GruState i o d g, TVec o d g)

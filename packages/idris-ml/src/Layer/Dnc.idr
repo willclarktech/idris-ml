@@ -214,7 +214,7 @@ mkZeroVectM (S k) m = zeroState1d m :: mkZeroVectM k m
 ----------------------------------------------------------------------
 
 export
-applyDnc : {r, n, m, h, i, o : Nat} ->
+applyDnc : {0 d : Type} -> UserDeviceCore d => {r, n, m, h, i, o : Nat} ->
              DncState r n m h i o d g ->
              TVec i d g ->
              (DncState r n m h i o d g, TVec o d g)

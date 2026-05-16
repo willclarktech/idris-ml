@@ -156,7 +156,7 @@ foldBlocks (b :: bs) h sI hdI =
 ----------------------------------------------------------------------
 
 export
-applyTransformer : {seqLen, dModel, numHeads, headDim, numBlocks, vocabSize : Nat} ->
+applyTransformer : {0 d : Type} -> UserDeviceCore d => {seqLen, dModel, numHeads, headDim, numBlocks, vocabSize : Nat} ->
                      TransformerState seqLen dModel numHeads headDim numBlocks
                                        vocabSize seqLen (seqLen * vocabSize) d g ->
                      TVec seqLen d g ->

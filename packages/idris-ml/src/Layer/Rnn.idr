@@ -49,7 +49,7 @@ record RnnState (i : Nat) (o : Nat) (0 d : Type) (0 g : GradMode) where
 %default partial
 
 export
-applyRnn : {o : Nat} ->
+applyRnn : {0 d : Type} -> UserDeviceCore d => {o : Nat} ->
              RnnState i o d g ->
              TVec i d g ->
              (RnnState i o d g, TVec o d g)

@@ -37,7 +37,7 @@ record EmbeddingState (vocab : Nat) (embedDim : Nat) (0 d : Type) (0 g : GradMod
 ||| token IDs encoded as doubles; output `[seqLen * embedDim]` is
 ||| the flattened embedding vectors. Wraps `prim__embedding`.
 export
-applyEmbedding : {seqLen, embedDim, vocab : Nat} ->
+applyEmbedding : {0 d : Type} -> UserDeviceCore d => {seqLen, embedDim, vocab : Nat} ->
                    EmbeddingState vocab embedDim d g ->
                    TVec seqLen d g ->
                    TVec (seqLen * embedDim) d g

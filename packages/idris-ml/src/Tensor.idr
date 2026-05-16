@@ -1015,8 +1015,8 @@ tinput2d t = MkTensor t Nothing
 ||| adds ~20µs of Scheme-side overhead per call, accumulating to a
 ||| 2× regression on recurrent models.
 export %inline
-tadd : Tensor dims d g -> Tensor dims d g -> Tensor dims d g
-tadd a b = MkTensor (prim__add a.tensorPtr b.tensorPtr) Nothing
+tadd : {0 d : Type} -> UserDeviceCore d => Tensor dims d g -> Tensor dims d g -> Tensor dims d g
+tadd a b = MkTensor (primAdd {d} a.tensorPtr b.tensorPtr) Nothing
 
 ||| Matrix-vector multiply: [m, n] · [n] -> [m]. `%inline` for the
 ||| same reason as `tadd` (hot path in recurrent forward passes).
@@ -1062,41 +1062,52 @@ telemSelect t i = MkTensor (prim__select t.tensorPtr 0 i) Nothing
 ||| backend creates a non-persistent scalar that is freed by the next
 ||| `tape_reset` (i.e. fine to call inside an epoch's loss builder).
 export
+||| Note: keeps the unified `prim__createScalar` (Phase 1 alias to
+||| the primary backend) rather than dispatching via
+||| `UserDeviceCore.primCreateScalar`. The op has no Tensor input, so
+||| `d` would need to be inferred from the result's use-site and Idris
+||| 2's bidirectional inference doesn't reliably push the instance
+||| constraint through every call site that just lets-binds the
+||| result. For built-in devices this matches the previous behavior
+||| (alias to primary); for user-supplied devices, users should
+||| construct scalars via their own `UserDeviceCore.primCreateScalar`
+||| directly. Same compromise applies to `tparamScalar` and
+||| `freshZeroLossT`.
 tconstScalar : {0 d : Type} -> Double -> Tensor [] d WithGrad
 tconstScalar v = MkTensor (prim__createScalar v 0) Nothing
 
 ||| Subtract two equally-shaped Tensors (autograd-tracked).
 export %inline
-tsub : Tensor dims d g -> Tensor dims d g -> Tensor dims d g
-tsub a b = MkTensor (prim__sub a.tensorPtr b.tensorPtr) Nothing
+tsub : {0 d : Type} -> UserDeviceCore d => Tensor dims d g -> Tensor dims d g -> Tensor dims d g
+tsub a b = MkTensor (primSub {d} a.tensorPtr b.tensorPtr) Nothing
 
 ||| Elementwise multiply two equally-shaped Tensors (autograd-tracked).
 export %inline
-tmul : Tensor dims d g -> Tensor dims d g -> Tensor dims d g
-tmul a b = MkTensor (prim__mul a.tensorPtr b.tensorPtr) Nothing
+tmul : {0 d : Type} -> UserDeviceCore d => Tensor dims d g -> Tensor dims d g -> Tensor dims d g
+tmul a b = MkTensor (primMul {d} a.tensorPtr b.tensorPtr) Nothing
 
 ||| Negate a Tensor (autograd-tracked).
 export %inline
-tneg : Tensor dims d g -> Tensor dims d g
-tneg a = MkTensor (prim__neg a.tensorPtr) Nothing
+tneg : {0 d : Type} -> UserDeviceCore d => Tensor dims d g -> Tensor dims d g
+tneg a = MkTensor (primNeg {d} a.tensorPtr) Nothing
 
 ||| Scale a Tensor by a Double (broadcasts the scalar; autograd-tracked).
 ||| Useful for mean-reduction (`tmulScalar loss (1.0 / cast n)`) and for
 ||| building per-sample loss expressions where one side of a product is
 ||| a runtime Double (e.g. DQN target value).
 export %inline
-tmulScalar : Tensor dims d g -> Double -> Tensor dims d g
-tmulScalar v s = MkTensor (prim__mulScalar v.tensorPtr s) Nothing
+tmulScalar : {0 d : Type} -> UserDeviceCore d => Tensor dims d g -> Double -> Tensor dims d g
+tmulScalar v s = MkTensor (primMulScalar {d} v.tensorPtr s) Nothing
 
 ||| Elementwise exponential (autograd-tracked).
 export %inline
-texp : Tensor dims d g -> Tensor dims d g
-texp v = MkTensor (prim__exp v.tensorPtr) Nothing
+texp : {0 d : Type} -> UserDeviceCore d => Tensor dims d g -> Tensor dims d g
+texp v = MkTensor (primExp {d} v.tensorPtr) Nothing
 
 ||| Elementwise natural log (autograd-tracked).
 export %inline
-tlog : Tensor dims d g -> Tensor dims d g
-tlog v = MkTensor (prim__log v.tensorPtr) Nothing
+tlog : {0 d : Type} -> UserDeviceCore d => Tensor dims d g -> Tensor dims d g
+tlog v = MkTensor (primLog {d} v.tensorPtr) Nothing
 
 ||| Create a registered learnable scalar parameter (e.g. SAC's
 ||| state-independent log_std). Mirrors V1's `param`. The optimizer
@@ -1121,16 +1132,16 @@ tconcat2dAxis1 a b = MkTensor (prim__concat2dAxis1 a.tensorPtr b.tensorPtr) Noth
 -- All `%inline` for hot-path performance — see `tadd` rationale.
 
 export %inline
-ttanh : Tensor dims d g -> Tensor dims d g
-ttanh v = MkTensor (prim__tanh v.tensorPtr) Nothing
+ttanh : {0 d : Type} -> UserDeviceCore d => Tensor dims d g -> Tensor dims d g
+ttanh v = MkTensor (primTanh {d} v.tensorPtr) Nothing
 
 export %inline
-tsigmoid : Tensor dims d g -> Tensor dims d g
-tsigmoid v = MkTensor (prim__sigmoid v.tensorPtr) Nothing
+tsigmoid : {0 d : Type} -> UserDeviceCore d => Tensor dims d g -> Tensor dims d g
+tsigmoid v = MkTensor (primSigmoid {d} v.tensorPtr) Nothing
 
 export %inline
-trelu : Tensor dims d g -> Tensor dims d g
-trelu v = MkTensor (prim__clampMin v.tensorPtr 0.0) Nothing
+trelu : {0 d : Type} -> UserDeviceCore d => Tensor dims d g -> Tensor dims d g
+trelu v = MkTensor (primClampMin {d} v.tensorPtr 0.0) Nothing
 
 export %inline
 tgelu : Tensor dims d g -> Tensor dims d g

@@ -34,7 +34,7 @@ data LayerNormState : Nat -> Nat -> (0 _ : Type) -> (0 _ : GradMode) -> Type whe
 %default partial
 
 export
-applyLayerNorm : {n : Nat} ->
+applyLayerNorm : {0 d : Type} -> UserDeviceCore d => {n : Nat} ->
                    LayerNormState n n d g ->
                    TVec n d g ->
                    (LayerNormState n n d g, TVec n d g)
