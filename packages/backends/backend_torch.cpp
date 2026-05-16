@@ -189,36 +189,9 @@ TensorHandle tensor_silu(TensorHandle h) {
 
 /* Reduction ops live in backend_torch/linear/reduction/ */
 
-/* ---------- Linear algebra ---------- */
-
-TensorHandle tensor_matmul(TensorHandle a, TensorHandle b) {
-    return from_tensor(torch::matmul(*to_tensor(a), *to_tensor(b)));
-}
-
-TensorHandle tensor_mv(TensorHandle mat, TensorHandle vec) {
-    return from_tensor(torch::mv(*to_tensor(mat), *to_tensor(vec)));
-}
-
-TensorHandle tensor_linear(TensorHandle W, TensorHandle x, TensorHandle bias) {
-    auto result = torch::mv(*to_tensor(W), *to_tensor(x));
-    if (bias) result = result + *to_tensor(bias);
-    return from_tensor(result);
-}
-
-TensorHandle tensor_linear_2d(TensorHandle W, TensorHandle X, TensorHandle bias) {
-    /* X: [B, i], W: [o, i], bias: [o] -> Y: [B, o] = X @ W^T + bias */
-    auto result = torch::nn::functional::linear(*to_tensor(X), *to_tensor(W),
-                                                bias ? *to_tensor(bias) : torch::Tensor{});
-    return from_tensor(result);
-}
-
-TensorHandle tensor_dot(TensorHandle a, TensorHandle b) {
-    return from_tensor(torch::dot(*to_tensor(a), *to_tensor(b)));
-}
-
-TensorHandle tensor_outer(TensorHandle a, TensorHandle b) {
-    return from_tensor(torch::outer(*to_tensor(a), *to_tensor(b)));
-}
+/* Linear algebra (matmul, mv, mm, linear, linear_2d, dot, outer, bmm,
+ * bmm_3x3, transpose_2d, transpose_last2, tile_2d) lives in
+ * backend_torch/linear/linalg/. */
 
 /* ---------- Activation / normalization ---------- */
 
@@ -782,42 +755,12 @@ TensorHandle tensor_create_2d(int rows, int cols, double* data, int requires_gra
 /* tensor_stack_from_array / tensor_cat_from_array live in
  * backend_torch/linear/concat/{stack,cat}.cpp. */
 
-/* ---------- Convenience shape ops (added for tensor path) ---------- */
-
-TensorHandle tensor_mm(TensorHandle a, TensorHandle b) {
-    return from_tensor(torch::mm(*to_tensor(a), *to_tensor(b)));
-}
-
-TensorHandle tensor_bmm(TensorHandle a, TensorHandle b) {
-    // a=[B,m,n], b=[n,k] (shared weight) → [B,m,k]
-    auto& ta = *to_tensor(a);
-    auto& tb = *to_tensor(b);
-    int B = ta.size(0);
-    std::vector<at::Tensor> results;
-    for (int i = 0; i < B; i++)
-        results.push_back(torch::mm(ta[i], tb));
-    return from_tensor(torch::stack(results));
-}
-
-TensorHandle tensor_bmm_3x3(TensorHandle a, TensorHandle b) {
-    return from_tensor(torch::bmm(*to_tensor(a), *to_tensor(b)));
-}
 
 TensorHandle tensor_softmax_3d(TensorHandle h) {
     return from_tensor(torch::softmax(*to_tensor(h), -1));
 }
 
-TensorHandle tensor_transpose_last2(TensorHandle h) {
-    return from_tensor(to_tensor(h)->transpose(-2, -1).contiguous());
-}
 
-TensorHandle tensor_tile_2d(TensorHandle h, int rep0, int rep1) {
-    return from_tensor(to_tensor(h)->repeat({(int64_t)rep0, (int64_t)rep1}));
-}
-
-TensorHandle tensor_transpose_2d(TensorHandle h) {
-    return from_tensor(to_tensor(h)->t().contiguous());
-}
 
 TensorHandle tensor_softmax_2d(TensorHandle h) {
     return from_tensor(torch::softmax(*to_tensor(h), -1));
