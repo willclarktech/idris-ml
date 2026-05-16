@@ -587,7 +587,62 @@ naive code), not the FFI count — file follow-up for an im2col +
 97.3% in 3 epochs (down from 98.4% per-sample) — the now-familiar
 NTM-style ULP-shift seed-sensitivity reappearing on tape.
 
-**Outcome**: landed. Job 1 reopened-phase-A closed.
+**Outcome**: landed. Job 1 reopened-phase-A first half done; tape
+im2col follow-up below closes the second half.
+
+----
+
+### 2026-05-11 — Tape Conv2D: im2col + cblas_dgemm forward + backward — `67f4b42`
+
+**Plan job**: Job 1 (reopened — tape Conv2D follow-up)
+
+**Motivation**: After the batched-Conv2D / MaxPool2D layer wiring
+closed the idris-torch wrapper gap on MNIST (4.0× → 1.68×), the
+tape backend was *unchanged* per-epoch (~176 s) because its hand-
+rolled triple-nested conv kernel did the same FLOPs in either
+shape. The standard high-performance conv decomposition is im2col
++ GEMM: unfold each output window into a row of a `[B·oH·oW,
+inC·kH·kW]` matrix, then one big `cblas_dgemm` against the
+flattened weight matrix replaces the nested loop. We already wired
+`cblas_dgemm` for matmul backward in Job 2b; the same dependency
+pays off again here.
+
+**Change**: rewrote `tensor_conv2d_batched` (forward) and the
+`OP_CONV2D_BATCHED` backward in `backend_tape.c` to use im2col +
+cblas:
+
+Forward:
+- `X_col [M, K] = unfold(input)` where `M = B·oH·oW`, `K = inC·kH·kW`
+- `Y_unf [M, outC] = X_col @ W^T` — one `cblas_dgemm(NoTrans, Trans)`
+- permute `Y_unf` to `out [B, outC, oH, oW]` + bias broadcast
+
+Backward:
+- `dY_unf [M, outC] = permute(r.grad)`
+- `dW [outC, K] = dY_unf^T @ X_col` — one `cblas_dgemm(Trans, NoTrans)`
+- `dX_col [M, K] = dY_unf @ W` — one `cblas_dgemm(NoTrans, NoTrans)`
+- `dInput += col2im(dX_col)`
+- bias gradient via direct sum
+
+Workspace buffers (X_col, Y_unf, dY_unf, dX_col) are heap-allocated
+via `calloc`/`free` per call rather than arena-allocated — an
+earlier arena-allocated version produced "invalid memory reference"
+crashes between epochs (likely interaction with eval's accumulated
+tape entries holding pointers across the arena state change). The
+`calloc` path is robust and the per-batch malloc cost is dwarfed by
+the dgemm.
+
+**Impact** (MNIST full 60K, seed=42, 3 epochs):
+
+| Variant | per-epoch | wall | acc | vs PyTorch ref (12.5 s/ep) |
+|---|---:|---:|---:|---:|
+| pre-batched | 175 s | 8m 45s | 0.984 | 14.0× |
+| batched, naive kernel | 176 s | 8m 49s | 0.973 | 14.1× |
+| **batched, im2col + cblas** | **20 s** | **1m 51s** | **0.973** | **1.62×** |
+
+**8.6× tape speedup**. All three backends now within ~2× of
+PyTorch ref on MNIST: torch 1.68×, mlx 2.08×, tape 1.62×.
+
+**Outcome**: landed. Job 1 reopened-phase-A fully closed.
 
 ----
 
