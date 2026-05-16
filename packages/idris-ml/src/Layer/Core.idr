@@ -94,6 +94,24 @@ forwardVar {hs = h :: _} (l ~~> rest) input =
       case forwardVar rest mid of
         (rest', out) => (l' ~~> rest', out)
 
+||| Mark a Network as no-grad at the type level. Pure cast — the
+||| `g` parameter is 0-quantity, so the runtime value is byte-identical;
+||| only the static promise changes. After `freezeNetwork`, the network
+||| can't be passed to `runBackward` / `nativeTrainStep` (once Phase 4
+||| lands).
+|||
+||| Asymmetric with `weakenGrad` (which DOES flip the C-side
+||| `requires_grad` flag): `Network` is opaque from Idris (the
+||| `LayerLike` interface doesn't expose individual params) and the
+||| C-side param registry is process-global. A per-network runtime
+||| freeze would either freeze every network in the process or require
+||| a structural change to `LayerLike` / the registry. Both are deferred.
+||| For runtime tape gating, combine `freezeNetwork` with a `withNoGrad`
+||| block around the inference path.
+export
+freezeNetwork : Network i hs o d g -> Network i hs o d NoGrad
+freezeNetwork = believe_me
+
 ||| Reset per-sequence state on every layer in the network. Use
 ||| between training sequences for recurrent layers (Lstm, Rnn,
 ||| Gru). Stateless layers' default `resetState` is identity.

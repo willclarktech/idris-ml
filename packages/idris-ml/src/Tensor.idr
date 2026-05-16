@@ -209,6 +209,9 @@ export prim__sumDim : AnyPtr -> Int -> Int -> AnyPtr
 %foreign "C:tensor_requires_grad,libidrisml"
 export prim__requiresGrad : AnyPtr -> Int
 
+%foreign "C:tensor_set_requires_grad,libidrisml"
+export prim__setRequiresGrad : AnyPtr -> Int -> PrimIO ()
+
 -- Gather / Scatter
 %foreign "C:tensor_gather,libidrisml"
 export prim__gather : AnyPtr -> AnyPtr -> Int -> AnyPtr
@@ -923,6 +926,24 @@ toDevice : (d2 : Device) -> Tensor dims d1 WithGrad -> IO (Tensor dims d2 WithGr
 toDevice d2 t =
   pure (MkTensor (prim__toDevice t.tensorPtr (deviceToString d2))
                  t.paramId)
+
+||| Mark a tensor as no-grad: flips the C-side `requires_grad` flag to
+||| false and retypes the handle as `NoGrad`. After this, downstream
+||| ops on the tensor build no tape entries (per-backend semantics:
+||| tape sets the field, torch calls `set_requires_grad_(false)`, mlx
+||| sets the bool). For parameter tensors this effectively freezes
+||| them — gradients no longer flow back to update their value. For
+||| activation tensors it's harmless (they aren't graph leaves).
+||| Mirrors PyTorch's `tensor.requires_grad_(False)`.
+|||
+||| Use this when you want a static "I won't backward through this"
+||| promise: the resulting type prevents passing the tensor to
+||| `runBackward` / `nativeTrainStep` (once Phase 4 lands).
+export
+weakenGrad : Tensor dims d g -> IO (Tensor dims d NoGrad)
+weakenGrad t = do
+  primIO (prim__setRequiresGrad t.tensorPtr 0)
+  pure (MkTensor t.tensorPtr t.paramId)
 
 ||| Type-level aliases for common Tensor shapes. Aliases route shape
 ||| arithmetic (e.g. `4 * o`) through a Nat-argument slot rather than
