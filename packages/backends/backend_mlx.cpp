@@ -408,17 +408,9 @@ static void tape_reset() {
 /* The parameter registry surface lives in shared/training/param_registry.c —
    see the deletion comment further down in this file for the rationale. */
 
-/* Profiling counters */
-static double prof_backward_ms_mlx = 0, prof_optimizer_ms_mlx = 0;
-static double prof_optimizer_math_ms_mlx = 0;
-static int prof_epochs_mlx = 0;
-/* prof_tape_appends_mlx is declared earlier (before tape_append uses it). */
-
-static double _wall_ms_mlx(void) {
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-    return tv.tv_sec * 1000.0 + tv.tv_usec / 1000.0;
-}
+/* Profiling counters + _wall_ms_mlx live in
+   backend_mlx/training/profiling.{h,cpp}. */
+#include "backend_mlx/training/profiling.h"
 
 /* Lifecycle ops (tensor_create_scalar* / tensor_create* /
    tensor_cast_dtype_* / tensor_clone / tensor_free) extracted to
@@ -2288,33 +2280,8 @@ void backend_reset_for_eval(void) {
         tape_append(OP_CONST, p_tensor, nullptr, nullptr, 0);
     }
 }
-void backend_epoch_begin(void) { /* no-op for MLX: profiling is backward+optimizer only */ }
-
-void backend_profile_reset(void) {
-    prof_backward_ms_mlx = prof_optimizer_ms_mlx = 0;
-    prof_optimizer_math_ms_mlx = 0;
-    prof_epochs_mlx = 0;
-    prof_tape_appends_mlx = 0;
-}
-
-void backend_profile_report(void) {
-    fprintf(stderr, "=== Profile Report (MLX backend) ===\n");
-    fprintf(stderr, "  Epochs: %d\n", prof_epochs_mlx);
-    fprintf(stderr, "  Params: %d tensors\n", param_count());
-    fprintf(stderr, "  Backward:  %.1fms total (%.1fms/epoch)\n",
-            prof_backward_ms_mlx, prof_epochs_mlx > 0 ? prof_backward_ms_mlx / prof_epochs_mlx : 0);
-    fprintf(stderr, "  Optimizer: %.1fms total (%.1fms/epoch)\n",
-            prof_optimizer_ms_mlx, prof_epochs_mlx > 0 ? prof_optimizer_ms_mlx / prof_epochs_mlx : 0);
-    fprintf(stderr, "    of which math: %.1fms total (%.1fms/epoch)\n",
-            prof_optimizer_math_ms_mlx,
-            prof_epochs_mlx > 0 ? prof_optimizer_math_ms_mlx / prof_epochs_mlx : 0);
-    double total = prof_backward_ms_mlx + prof_optimizer_ms_mlx;
-    fprintf(stderr, "  C total:   %.1fms total (%.1fms/epoch)\n",
-            total, prof_epochs_mlx > 0 ? total / prof_epochs_mlx : 0);
-    fprintf(stderr, "  Forward tape_appends (grad-tracked ops): %ld total (%.0f/epoch)\n",
-            prof_tape_appends_mlx,
-            prof_epochs_mlx > 0 ? (double)prof_tape_appends_mlx / prof_epochs_mlx : 0);
-}
+/* backend_epoch_begin / backend_profile_reset / backend_profile_report
+   live in backend_mlx/training/profiling.cpp. */
 
 /* ================================================================
    Debug
