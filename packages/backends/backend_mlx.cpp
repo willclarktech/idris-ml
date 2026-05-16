@@ -1703,7 +1703,7 @@ void tensor_backward(TensorHandle h) {
     int pool_size = next_pool_idx;
     auto forward_fn = [&](const std::vector<mx::array>& params) -> mx::array {
         // Pool: flat vector indexed by pool_idx. Initialize with placeholder.
-        std::vector<mx::array> pool(pool_size, mx::array(0.0f));
+        std::vector<mx::array> pool(pool_size, kF32_ZERO());
         for (auto& [idx, arr] : *constants_ref) pool[idx] = arr;
         for (int i = 0; i < (int)params.size(); i++)
             pool[param_pool_indices[i]] = params[i];
