@@ -1,44 +1,42 @@
-# Type-level grad-mode and device — what does it actually require?
+# Type-level guarantees: shape, device, grad-mode
+
+idris-ml encodes properties of tensors at the type level: their
+shape, the device they live on, and (optionally) whether they carry
+gradients. The compiler rejects programs that mix CPU and CUDA
+tensors, that try to multiply matrices with mismatched inner
+dimensions, or that call `backward` on a tensor that wasn't being
+tracked.
+
+These three guarantees look similar on the surface. They aren't —
+they sit at different levels of the type-system hierarchy. This doc
+explains where each one fits, what Python's static type system could
+in principle do here, and which guarantees genuinely need
+dependent types.
 
 ## TL;DR
 
-Both **grad-mode** and **device restriction** are closed-sum phantom
-enumerations. Encoding them at the type level does **not** strictly
-require dependent types. Python's static type system (`Generic[…]` +
-`Literal[…]` + `@overload`) is, in principle, expressive enough to
-reject `loss.backward()` after `with torch.no_grad():` and to reject
-mixing CPU and CUDA tensors.
+- **Shape safety** requires dependent types. Python can't express
+  it (no type-level arithmetic over `Literal[N]`).
+- **Device safety** and **grad-mode safety** are *phantom-type
+  enums* — finite, closed sets carried as type parameters. They
+  don't need dependent types. Python could express them with
+  `Generic[…]` + `Literal[…]` + `@overload`, and pyright/mypy would
+  enforce them. PyTorch chose not to for ergonomic reasons, not
+  type-system reasons.
 
-The reason PyTorch doesn't do this isn't a type-system limitation —
-it's an ergonomics + ecosystem choice (overload explosion, no HKT, no
-type families, `with`-block scoping doesn't narrow variable types in
-mainstream Python checkers).
+The interesting payoff of dependent types here isn't that they're
+the *only* way to track grad-mode or device. It's that once the
+compiler is already computing on shapes, the same machinery
+applies uniformly to grad-mode, device, and precision — no extra
+language features, no overload tables.
 
-What **does** require dependent types in idris-ml is **shape
-arithmetic**: `matmul : Tensor [m, k] -> Tensor [k, n] -> Tensor
-[m, n]`, `Conv2D` output-dim formulas, length-indexed vectors / `Fin
-n` bounds. Python's `Literal[N]` can't do arithmetic on type-level
-naturals.
-
-So the right framing for the library pitch:
-
-- **Shape safety** — load-bearing dependent-types demo (Python can't).
-- **Grad-mode safety**, **device safety**, **precision safety** —
-  *idiomatic in Idris because the same machinery handles them
-  uniformly*, but expressible in any sufficiently rich phantom-type
-  system. Python could in principle; PyTorch didn't.
-
-This doesn't weaken the idris-ml story — it sharpens it. Two of the
-four type-parameter ideas (`(dims, device, grad_mode, precision)`)
-ride on dependent types' *uniformity* rather than their *power*.
-
-## What's a "phantom-type enum" vs. a "dependent type"?
+## Phantom-type enums vs. dependent types
 
 **Phantom-type enum**: a type parameter whose value is drawn from a
 fixed, finite set known at the type system level. The parameter
 appears in types but isn't used in the runtime representation. The
-classic example is `Maybe a` parameterised over a finite set of
-states (`Open`, `Closed`) for a file handle.
+classic example is a file handle parameterised over a finite set of
+states:
 
 ```idris
 data State = Open | Closed
@@ -51,9 +49,10 @@ closeFile : Handle Open -> Handle Closed
 ```
 
 This works in Haskell with `DataKinds`. It works in Rust with
-zero-sized phantom types (`PhantomData<State>`). It works in TypeScript
-with branded types. **It works in Python** with `Generic[State]` +
-`Literal["open"] | Literal["closed"]`, modulo overload tedium.
+zero-sized phantom types (`PhantomData<State>`). It works in
+TypeScript with branded types. It works in Python with
+`Generic[State]` + `Literal["open"] | Literal["closed"]`, modulo
+some overload tedium.
 
 **Dependent type**: a type parameter that depends on a *value* drawn
 from an open, potentially-infinite set, *and* on which the type
@@ -64,41 +63,49 @@ matmul : Tensor [m, k] d -> Tensor [k, n] d -> Tensor [m, n] d
 ```
 
 Here `m`, `k`, `n` are arbitrary `Nat`s and the type system has to
-unify `k` across the two arguments. This is **not** a phantom enum —
-the set of possible `Nat`s is infinite, and the type checker computes
-on them (e.g. `Conv2D : Tensor [_, _, w, _] -> Tensor [_, _,
-(w - k) `div` s + 1, _]`).
+unify `k` across the two arguments. The set of possible `Nat`s is
+infinite, and the type checker computes on them (e.g. `Conv2D`'s
+output dimension is `(w - k) `div` s + 1`).
 
 The litmus test: can you write down all the possible type-level
 parameter values on a single page? If yes, phantom enum. If no
 (naturals, lists, trees, …), dependent type.
 
-## idris-ml's four `Tensor` type parameters, by this lens
+## How idris-ml uses each
 
-Current and proposed:
+The current tensor type is
 
-| Parameter | Status | Phantom-enum? | Dependent? |
-|---|---|---|---|
-| `dims : Vect rank Nat` | shipped | no — infinite | **yes** |
-| `d : Device` | shipped | **yes** — `CPU \| CUDA n \| MPS` * | mostly no |
-| `g : GradMode` | proposed | **yes** — `WithGrad \| NoGrad` | no |
-| `p : Precision` | proposed | **yes** — `F32 \| F64 \| BF16 \| F16` | no |
+```idris
+Tensor (dims : Vect rank Nat) (0 d : Device)
+```
 
-\* `CUDA n` carries a `Nat` device index, which is technically
-value-indexed. But practically you target at most 8 devices, so this
-is `Fin 8` in disguise — a finite enumeration, not arithmetic. Drop
-the `Nat` for `CUDA0 \| CUDA1 \| …` and `Device` is a flat
-4–12-element enum.
+- `dims` is genuinely dependent — `Nat`-valued, arithmetic happens
+  during type checking. This is where `matmul`-shape-safety and
+  conv-output-dim safety come from.
+- `Device = CPU | CUDA Nat | MPS` is a phantom-type enum.
+  Technically `CUDA n` is value-indexed, but in practice it's
+  `Fin 8`-shaped (you address a handful of devices, not arbitrary
+  naturals). It could equally have been `CPU | CUDA0 | CUDA1 | …`
+  — a flat enum.
 
-So out of the four, only `dims` is genuinely dependent. The rest are
-phantom enums.
+Natural extensions in the same style:
 
-## What this looks like in Python
+- A grad-mode parameter `g : GradMode` with `GradMode = WithGrad |
+  NoGrad`, so the compiler can reject `backward` on tensors that
+  weren't tracked.
+- A precision parameter `p : Precision` with `Precision = F32 |
+  F64 | BF16 | F16`, so mixed-precision boundaries are explicit
+  and enforced.
 
-The bit the user asked about. Here are sketches showing each is
-*expressible*, then the practical sticking points.
+Both are phantom-type enums — finite, closed sets. They don't add
+dependent-type power; they reuse the existing parameter machinery.
 
-### Grad-mode in Python
+## What this would look like in Python
+
+Pyright + recent typing extensions are expressive enough to model
+both device and grad-mode.
+
+### Grad-mode
 
 ```python
 from typing import Generic, Literal, TypeVar, overload
@@ -121,14 +128,14 @@ def add(x: Tensor[S, D, G], y: Tensor[S, D, WithGrad]) -> Tensor[S, D, WithGrad]
 def add(x: Tensor[S, D, NoGrad], y: Tensor[S, D, NoGrad]) -> Tensor[S, D, NoGrad]: ...
 
 def backward(loss: Tensor[Literal[()], D, WithGrad]) -> None: ...
-# Calling backward(t) where t: Tensor[..., NoGrad] is now a type error.
+# Calling backward(t) where t: Tensor[..., NoGrad] is a type error.
 ```
 
 This compiles in pyright and rejects `backward(no_grad_tensor)`. The
 join across `(WithGrad, NoGrad)` is hand-encoded as overload rows
 instead of a type-level function, but it works.
 
-### Device in Python
+### Device
 
 Same shape, different enum:
 
@@ -145,20 +152,20 @@ def add(x: Tensor[S, Dev, G], y: Tensor[S, Dev, G]) -> Tensor[S, Dev, G]: ...
 #                  ^^^         ^^^   same Dev required — cross-device add rejected
 ```
 
-`Tensor[…, "cpu"] + Tensor[…, "cuda:0"]` is now a type error. Again,
-this is just phantom-type discipline; no dependent types.
+`Tensor[…, "cpu"] + Tensor[…, "cuda:0"]` is now a type error.
+Phantom-type discipline; no dependent types involved.
 
 ## Why PyTorch doesn't do this
 
 The capability is there in the type system. The reasons PyTorch
-ships untyped (in this sense) are practical:
+ships without it are practical:
 
-1. **Overload explosion.** Each binary op needs `|G| × |G|` overloads
-   for grad-mode alone. Add `|D| × |D|` for device, `|P| × |P|` for
-   precision, and a top-level Tensor op needs ~64–256 overload rows.
-   Idris collapses these to one signature via type-level functions
-   (`Join`, type families). Python has no type families. PEP 696
-   (TypeVar defaults) doesn't help here.
+1. **Overload explosion.** Each binary op needs `|G| × |G|`
+   overloads for grad-mode alone. Add `|D| × |D|` for device,
+   `|P| × |P|` for precision, and a top-level Tensor op needs
+   ~64–256 overload rows. Idris collapses these to one signature
+   via type-level functions (`Join`, type families). Python has no
+   type families. PEP 696 (TypeVar defaults) doesn't help here.
 
 2. **No higher-kinded types.** A polymorphic `join : G -> G -> G`
    over the grad-mode lattice can't be expressed in Python's type
@@ -166,81 +173,59 @@ ships untyped (in this sense) are practical:
 
 3. **`with`-block scoping doesn't narrow types.** `with no_grad():`
    in Python is a runtime context manager; pyright and mypy don't
-   know that variables bound inside the block should be retyped from
-   `Tensor[…, WithGrad]` to `Tensor[…, NoGrad]`. You'd need a
+   know that variables bound inside the block should be retyped
+   from `Tensor[…, WithGrad]` to `Tensor[…, NoGrad]`. You'd need a
    different idiom — e.g. `ng = no_grad(); y = ng.lift(x).add(…)`
    where `ng.lift` returns a `Tensor[…, NoGrad]`. That's a real
-   ergonomic regression for end users.
+   ergonomic regression.
 
-4. **Backwards compatibility.** Adding two type parameters to
+4. **Backwards compatibility.** Adding type parameters to
    `torch.Tensor` is a 10+ year migration for the ecosystem. The
    library has 100k+ public-facing call sites in user code; any
    incremental rollout has to default the new params back to
    "anything", which defeats the point.
 
-5. **`torchtyping` / PEP 646 already exist for shapes.** When PyTorch
-   users want type safety, they reach for shape annotations first.
-   Grad-mode + device statics are seen as a smaller win.
+5. **`torchtyping` / PEP 646 already exist for shapes.** When
+   PyTorch users want type safety, they reach for shape annotations
+   first. Grad-mode and device statics are seen as a smaller win.
 
 None of these are *type-system* obstacles. They're real but
 contingent.
 
-## Where dependent types actually buy us something Python can't have
+## Where dependent types are actually required
 
-Three classes of guarantee:
+Three classes of guarantee that Python's type system can't reach:
 
 1. **Shape arithmetic.** `matmul`, `conv2d` output dims, `reshape`
    `dims.prod` invariants, broadcast-shape unification. Python's
-   `Literal[N]` doesn't support type-level addition or multiplication
-   in mainstream checkers. PEP 646 `TypeVarTuple` handles
-   *variadic shapes* but not arithmetic over them.
+   `Literal[N]` doesn't support type-level addition or
+   multiplication in mainstream checkers. PEP 646 `TypeVarTuple`
+   handles *variadic shapes* but not arithmetic over them.
 
-2. **Indexed values.** `Fin n` for in-bounds indices, `Vect n a` for
-   length-indexed lists. Python has no equivalent — you fall back to
-   `list[int]` with runtime bounds checks.
+2. **Indexed values.** `Fin n` for in-bounds indices, `Vect n a`
+   for length-indexed lists. Python falls back to `list[int]` with
+   runtime bounds checks.
 
 3. **Proofs as values.** "These two shapes are equal", "this tape
-   has no requires-grad parameters", etc., as first-class evidence
-   that ops can demand. Python has nothing here.
+   has no requires-grad parameters", and similar evidence that ops
+   can demand as a typed argument. Python has nothing here.
 
-In idris-ml, (1) is the load-bearing demo. (2) and (3) are present
-but secondary.
+(1) is the load-bearing demo in idris-ml. (2) and (3) show up in
+supporting machinery — `Fin` indices into a memory matrix, equality
+proofs for `reshape`.
 
-## How the four-parameter Tensor pitch should be framed
+## In practice
 
-Today: `Tensor (dims : Vect rank Nat) (0 d : Device)`.
-After all four TODOs: `Tensor (dims : Vect rank Nat) (0 d : Device)
-(0 g : GradMode) (0 p : Precision)`.
+If you're coming from PyTorch, the user-visible difference is that
+four properties — shape, device, grad-mode, precision — *could*
+each be enforced by the compiler instead of checked at runtime. In
+PyTorch only shape is checked, and only dynamically; in idris-ml
+shape is checked statically, and the others are natural extensions
+of the same machinery.
 
-The pitch isn't "you need dependent types to track grad-mode" —
-that's false, Python could. The honest pitch is:
-
-> **Dependent types make uniform type-system discipline cheap.** Once
-> the compiler is computing on shapes, it's free to also compute on
-> grad-mode, device, and precision. The same `Join` machinery handles
-> all four. In Python you'd need overload tables, branded literals,
-> and giving up `with`-block scoping. In Idris it's four type
-> parameters with no extra machinery — and the runtime tag fields
-> (`requires_grad`, `device_str`, `dtype`) become statically redundant.
-
-This is also the right way to motivate the device-as-interface TODO
-(open the closed `Device` sum into a typeclass for user-supplied
-backends). That one *does* lean harder on dependent types — "what
-operations are available depends on which device value you pick" is
-a textbook value-determines-type story — but it's value-determines-
-*interface-instance*, which Haskell could also do with type classes.
-The dependent-types value is still mostly uniformity, not raw power.
-
-## Bottom line
-
-Grad-mode and device tracking at the type level are
-**medium-effort uniformity wins**, not proof-of-concept
-dependent-types showcases. They're worth doing because:
-
-- the runtime `requires_grad` flag and the runtime `device` string
-  become statically redundant;
-- accidental cross-device / post-no-grad bugs become unrepresentable;
-- the API is uniform with the shape parameter that's already there.
-
-But they shouldn't be sold as "this is what dependent types unlock."
-The shape-safety story is the load-bearing one. Keep that distinct.
+The one that *requires* dependent types is shape. The others come
+along for free because the machinery is already there. That's the
+honest distinction: dependent types aren't the only path to
+grad-mode or device safety, but they are the only path to shape
+safety, and they make uniform discipline across all four cheap
+enough to be idiomatic.
