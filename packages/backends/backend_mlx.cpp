@@ -492,56 +492,9 @@ const char* tensor_dtype_name(TensorHandle h) {
 
 /* tensor_neg / abs / exp / log / sqrt / pow / sigmoid extracted to
    backend_mlx/core/elementwise/. */
-extern "C" TensorHandle tensor_gelu_mlx_streamed(TensorHandle h, int stream_tag) {
-    WITH_STREAM(stream_tag);
-
-    auto t = (Tensor*)h;
-    // GELU tanh approx: x * 0.5 * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))
-    auto x = t->data;
-    auto kGeluC  = scalar_like(0.7978845608028654, x);
-    auto kGeluC3 = scalar_like(0.044715,           x);
-    auto kThree  = scalar_like(3.0,                x);
-    auto inner = mx::multiply(kGeluC, mx::add(x, mx::multiply(kGeluC3, mx::power(x, kThree))));
-    auto result = mx::multiply(mx::multiply(half_like(x), x), mx::add(one_like(x), mx::tanh(inner)));
-    auto r = new Tensor(result, t->requires_grad);
-    if (t->requires_grad) tape_append(OP_GELU, r, t, nullptr, 0);
-    return (TensorHandle)r;
-
-}
-TensorHandle tensor_gelu(TensorHandle h) {
-    return tensor_gelu_mlx_streamed(h, default_stream_tag());
-}
-
-/* tensor_tanh extracted to backend_mlx/core/elementwise/tanh.cpp. */
-
-extern "C" TensorHandle tensor_leaky_relu_mlx_streamed(TensorHandle h, double alpha, int stream_tag) {
-    WITH_STREAM(stream_tag);
-
-    auto t = (Tensor*)h;
-    auto alpha_arr = scalar_like(alpha, t->data);
-    auto result = mx::maximum(mx::multiply(alpha_arr, t->data), t->data);
-    auto r = new Tensor(result, t->requires_grad);
-    if (t->requires_grad) tape_append(OP_LEAKY_RELU, r, t, nullptr, alpha);
-    return (TensorHandle)r;
-
-}
-TensorHandle tensor_leaky_relu(TensorHandle h, double alpha) {
-    return tensor_leaky_relu_mlx_streamed(h, alpha, default_stream_tag());
-}
-
-extern "C" TensorHandle tensor_silu_mlx_streamed(TensorHandle h, int stream_tag) {
-    WITH_STREAM(stream_tag);
-
-    auto t = (Tensor*)h;
-    auto result = mx::multiply(t->data, mx::sigmoid(t->data));
-    auto r = new Tensor(result, t->requires_grad);
-    if (t->requires_grad) tape_append(OP_SILU, r, t, nullptr, 0);
-    return (TensorHandle)r;
-
-}
-TensorHandle tensor_silu(TensorHandle h) {
-    return tensor_silu_mlx_streamed(h, default_stream_tag());
-}
+/* tensor_gelu / tensor_leaky_relu / tensor_silu live in
+   backend_mlx/nn/activation/. tensor_tanh lives in
+   backend_mlx/core/elementwise/tanh.cpp. */
 
 /* tensor_softplus extracted to backend_mlx/core/elementwise/softplus.cpp.
    tensor_add_scalar / tensor_mul_scalar / tensor_clamp_min extracted to

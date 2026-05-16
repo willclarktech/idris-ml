@@ -149,20 +149,8 @@ const char* tensor_dtype_name(TensorHandle h) {
    tensor_pow extracted to backend_torch/core/elementwise/. */
 
 /* tensor_sigmoid / tensor_tanh / tensor_softplus extracted to
-   backend_torch/core/elementwise/. gelu / leaky_relu / silu remain
-   below pending 6c (nn/activation/). */
-
-TensorHandle tensor_gelu(TensorHandle h) {
-    return from_tensor(torch::gelu(*to_tensor(h)));
-}
-
-TensorHandle tensor_leaky_relu(TensorHandle h, double alpha) {
-    return from_tensor(torch::leaky_relu(*to_tensor(h), alpha));
-}
-
-TensorHandle tensor_silu(TensorHandle h) {
-    return from_tensor(torch::silu(*to_tensor(h)));
-}
+   backend_torch/core/elementwise/. tensor_gelu / tensor_leaky_relu /
+   tensor_silu live in backend_torch/nn/activation/. */
 
 /* tensor_add_scalar / tensor_mul_scalar / tensor_clamp_min extracted
    to backend_torch/core/scalar/. */
