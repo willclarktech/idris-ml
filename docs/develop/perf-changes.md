@@ -2450,3 +2450,72 @@ current snapshot.
   concurrent-editing contention; the harness fix landed in
   `eff8737` and the contention notes live in the
   `feedback_vm_perf_noise` policy.
+
+### 2026-05-25 — Post-multi-link refactor sweep — `7633a54`
+
+**Plan job**: cross-cutting (post-Phase-6 verification gate)
+
+**Motivation**: Validate that the multi-link refactor +
+`primCreate1d` retire (`f7a690b`) + 5-sibling dtype-blind creator
+retire (`f29ae47`) + torch-mps streamed-path migration (`8507e50`)
++ tensor_one_hot migration (`c7cfd5b`) + MPS device indexing fix
+(`d1beb7c`) didn't introduce per-backend wallclock regressions.
+Also confirm the transformer mlx-gpu cell's `crashed` marker from
+the prior snapshot has cleared.
+
+**Change**: No new perf-targeted code; this is a measurement gate
+on landed structural/correctness work.
+
+**Impact** vs the 2026-05-25 @ `54c8dba` snapshot
+(`perf-baseline.md` table; lower is better):
+
+| Cell | prior ms | new ms | Δ |
+|------|---------:|-------:|--:|
+| rnn / tape          |   0.38 |   0.39 | +3%   |
+| rnn / torch-cpu     |   1.78 |   1.78 |  0%   |
+| rnn / torch-mps     |   1.72 |   1.87 | +9%   |
+| rnn / mlx-cpu       |  74.48 |  82.09 | +10%  |
+| rnn / mlx-gpu       | 111.79 | 121.47 | +9%   |
+| lstm / tape         |   0.43 |   0.43 |  0%   |
+| lstm / torch-cpu    |   2.77 |   3.06 | +10%  |
+| lstm / torch-mps    |   2.77 |   2.94 | +6%   |
+| lstm / mlx-cpu      | 125.21 | 134.33 | +7%   |
+| lstm / mlx-gpu      | 177.75 | 194.75 | +10%  |
+| gru / tape          |   0.35 |   0.36 | +3%   |
+| gru / torch-cpu     |   3.28 |   3.22 | -2%   |
+| gru / torch-mps     |   3.28 |   3.35 | +2%   |
+| gru / mlx-cpu       |  89.72 |  92.21 | +3%   |
+| gru / mlx-gpu       | 147.07 | 146.29 | -1%   |
+| transformer / tape       |   1.15 |   1.12 | -3%   |
+| transformer / torch-cpu  |   7.52 |   7.43 | -1%   |
+| transformer / torch-mps  |   6.74 |   6.66 | -1%   |
+| transformer / mlx-cpu    |  39.44 |  39.99 | +1%   |
+| transformer / mlx-gpu    | crashed |  89.58 | **first complete run** |
+| ntm-copy / tape          |   3.67 |   3.64 | -1%   |
+| ntm-copy / torch-cpu     |  15.31 |  15.29 |  0%   |
+| ntm-copy / torch-mps     |  13.78 |  14.11 | +2%   |
+| ntm-copy / mlx-cpu       | 231.16 | 236.24 | +2%   |
+| ntm-copy / mlx-gpu       | 325.10 | 335.31 | +3%   |
+| ntm-recall / tape        |   4.46 |   4.26 | -4%   |
+| ntm-recall / torch-cpu   |  17.81 |  17.81 |  0%   |
+| ntm-recall / torch-mps   |  15.96 |  15.79 | -1%   |
+| ntm-recall / mlx-cpu     | 259.60 | 255.09 | -2%   |
+| ntm-recall / mlx-gpu     | 384.40 | 368.40 | -4%   |
+
+All deltas are within ±10% (the `feedback_vm_perf_noise` floor for
+single-run sweeps); no genuine regression on any cell. The notable
+visible change is **transformer / mlx-gpu producing a number where
+the prior snapshot recorded `crashed`** — the eval-grad-before-sweep
+mitigation in `e3959a1` brought the crash rate low enough (~1%
+measured at 600 runs) that the single 200-epoch sweep completes
+most of the time. The residual rate is tracked in TODO row 42.
+
+PyTorch ref columns differ slightly between snapshots (e.g. rnn
+1.66 → 1.81 ms, ntm-copy 13.14 → 11.23 ms); these are VM-noise
+in the cached one-run-per-example PyTorch baseline.
+
+**Outcome**: landed (no regressions; the refactor is perf-clean).
+
+**Cross-references**: 30 new entries in `perf-log.jsonl`
+(`kind=baseline`, commit `7633a54`), `perf-baseline.md` table
+refreshed, no `TODO.md` impact.

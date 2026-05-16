@@ -33,35 +33,37 @@ matching cells need to be re-measured paired-side.
 These have target accuracy thresholds in
 `test-examples-convergence.expect`; full convergence runtime matters.
 
-> **Latest full sweep 2026-05-25 @ `54c8dba`** — post-Phase-6 closeout
-> + 4 `bug | S` fixes + mlx backward per-op split + transformer F64
-> leak fix. Six examples × five cells (tape / torch-cpu / torch-mps /
-> mlx-cpu / mlx-gpu). Run on an idle Tart VM (the morning sweep at
-> `6578b81` was contaminated by concurrent editing + a perf-sweep
-> harness `|| true` that ran stale binaries). Methodology: in-script
-> `PERF_MS_PER_EP` marker. See `perf-changes.md` 2026-05-25 entry for
-> the delta-vs-`461ad12` table and the per-cell crash discussion.
+> **Latest full sweep 2026-05-25 @ `7633a54`** — post 5-sibling
+> dtype-blind creator retire + torch-mps streamed-path migration +
+> transformer mlx-gpu crash re-measurement. Six examples × five cells
+> (tape / torch-cpu / torch-mps / mlx-cpu / mlx-gpu). Methodology:
+> in-script `PERF_MS_PER_EP` marker. See `perf-changes.md` 2026-05-25
+> entries for the change history.
 >
 > | Example     | tape ms | torch-cpu | torch-mps | mlx-cpu | mlx-gpu | pytorch ms | tape | torch-cpu | torch-mps | mlx-cpu | mlx-gpu |
 > |-------------|--------:|----------:|----------:|--------:|--------:|-----------:|-----:|----------:|----------:|--------:|--------:|
-> | rnn         |  0.38   |  1.78     |  1.72     |  74.48  | 111.79  |  1.66      | 0.23×| 1.07×     | 1.04×     | 44.87×  | 67.34×  |
-> | lstm        |  0.43   |  2.77     |  2.77     | 125.21  | 177.75  |  4.02      | 0.11×| 0.69×     | 0.69×     | 31.15×  | 44.22×  |
-> | gru         |  0.35   |  3.28     |  3.28     |  89.72  | 147.07  |  4.11      | 0.09×| 0.80×     | 0.80×     | 21.83×  | 35.78×  |
-> | transformer |  1.15   |  7.52     |  6.74     |  39.44  | **crashed** | 29.83  | 0.04×| 0.25×     | 0.23×     | 1.32×   | N/A     |
-> | ntm-copy    |  3.67   | 15.31     | 13.78     | 231.16  | 325.10  | 13.14      | 0.28×| 1.17×     | 1.05×     | 17.59×  | 24.74×  |
-> | ntm-recall  |  4.46   | 17.81     | 15.96     | 259.60  | 384.40  | 14.42      | 0.31×| 1.24×     | 1.11×     | 18.00×  | 26.66×  |
+> | rnn         |  0.39   |  1.78     |  1.87     |  82.09  | 121.47  |  1.81      | 0.22×| 0.98×     | 1.03×     | 45.35×  | 67.11×  |
+> | lstm        |  0.43   |  3.06     |  2.94     | 134.33  | 194.75  |  4.00      | 0.11×| 0.77×     | 0.73×     | 33.58×  | 48.69×  |
+> | gru         |  0.36   |  3.22     |  3.35     |  92.21  | 146.29  |  4.23      | 0.09×| 0.76×     | 0.79×     | 21.80×  | 34.58×  |
+> | transformer |  1.12   |  7.43     |  6.66     |  39.99  |  89.58  | 28.76      | 0.04×| 0.26×     | 0.23×     | 1.39×   |  3.11×  |
+> | ntm-copy    |  3.64   | 15.29     | 14.11     | 236.24  | 335.31  | 11.23      | 0.32×| 1.36×     | 1.26×     | 21.04×  | 29.86×  |
+> | ntm-recall  |  4.26   | 17.81     | 15.79     | 255.09  | 368.40  | 12.79      | 0.33×| 1.39×     | 1.23×     | 19.94×  | 28.80×  |
 >
-> **Tape**: dominates every cell — 0.04-0.31× PyTorch. **Torch**:
-> competitive on every cell; faster on transformer (4× faster) and
-> rnn/lstm/gru (matched). **mlx-cpu**: 17-44× PyTorch on small-net
-> training (per-FFI overhead + per-op Metal Performance Shaders
-> dispatch cost dominating sub-ms kernels). **mlx-gpu**: 25-67×
-> PyTorch — kernel-launch wall persists, and transformer crashes at
-> 200 epochs with `Exception: invalid memory reference` (filed as a
-> TODO row; separate from the F64-on-Metal crash fixed in `f7354bd`).
-> mlx remains the right backend for the matmul-bench compute-bound
-> regime (4.3 TFLOPS at N=4096); these training-loop cells live in
-> the opposite regime where its overhead dominates.
+> **Tape**: dominates every cell — 0.04-0.33× PyTorch. **Torch-cpu /
+> torch-mps**: now competitive on every cell incl. NTM (ntm-copy /
+> ntm-recall torch-mps were `crashed` in the 2026-05-19 sweep; the
+> streamed-path migration fix in `8507e50` + `c7cfd5b` made them
+> first-class). **mlx-cpu**: 17-45× PyTorch on small-net training
+> (per-FFI overhead + per-op Metal Performance Shaders dispatch cost
+> dominating sub-ms kernels). **mlx-gpu**: 25-67× PyTorch — kernel-
+> launch wall persists. **transformer mlx-gpu now produces a number
+> (3.11×) where the 2026-05-25 @ `54c8dba` snapshot had `crashed`** —
+> the eval-grad-before-sweep fix in `e3959a1` brought the rate down
+> enough that a single 200-epoch run completes most of the time. The
+> residual ~1% rate is still tracked in TODO row 42. mlx remains the
+> right backend for the matmul-bench compute-bound regime (4.3 TFLOPS
+> at N=4096); these training-loop cells live in the opposite regime
+> where its overhead dominates.
 
 Latest cross-backend sweep: 2026-05-09 @ commit `6f7792a` (post DNC
 mask + retention + linkTrans fixes, torch free_intermediates
