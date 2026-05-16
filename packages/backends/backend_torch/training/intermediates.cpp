@@ -47,3 +47,23 @@ void free_intermediates(void) {
 
 extern "C" int tensor_live_count(int dummy) { (void)dummy; return (int)intermediates_torch.size(); }
 extern "C" int tensor_peak_live_count(int dummy) { (void)dummy; return (int)g_torch_peak_live_intermediates; }
+
+// `from_tensor` / `from_tensor_persistent` live here so they remain
+// co-located with the intermediates list they push into. Declared in
+// backend_torch/tensor.h; called from every per-op .cpp that builds a
+// new at::Tensor.
+TensorHandle from_tensor(at::Tensor t) {
+    auto* p = new at::Tensor(std::move(t));
+    if (tracking_enabled_torch) {
+        intermediates_torch.push_back(p);
+        if ((long)intermediates_torch.size() > g_torch_peak_live_intermediates)
+            g_torch_peak_live_intermediates = (long)intermediates_torch.size();
+    }
+    return static_cast<TensorHandle>(p);
+}
+
+// Persistent variant: not tracked for cleanup (survives optimizer_step).
+TensorHandle from_tensor_persistent(at::Tensor t) {
+    auto* p = new at::Tensor(std::move(t));
+    return static_cast<TensorHandle>(p);
+}
