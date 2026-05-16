@@ -180,38 +180,12 @@ extern "C" void _dbg_dump_param_grads_if_enabled_torch(void);
  * once, unified symbol). Both are in the rename header's EXCLUDE
  * set so internal callers below resolve to the shared definitions. */
 
-/* ---------- Backend Info ---------- */
-
-const char* backend_name(void) { return "torch"; }
-
-/* backend_memory_report removed (no Idris-side callers). */
-
-void backend_reset_for_eval(void) {
-    free_intermediates();
-    for (int i_ = 0; i_ < param_count(); i_++) {
-        auto* tensor = (at::Tensor*)param_tensor(i_);
-        if (tensor->grad().defined())
-            tensor->grad().zero_();
-    }
-}
-
-/* backend_epoch_begin / backend_profile_reset / backend_profile_report
-   live in backend_torch/training/profiling.cpp. */
-
-/* param_grad_item_at lives in shared/training/param_registry.c. */
-
-/* ---------- Debug ---------- */
-
-void tensor_print(TensorHandle h) {
-    // std::cout << at::Tensor requires the tensor to live on CPU.
-    std::cout << to_tensor(h)->cpu() << std::endl;
-}
-
-/* Job 3 Phase B — mx::compile is mlx-only; torch backend always reports
-   disabled regardless of MLX_COMPILE env var. */
-int  tensor_mlx_compile_enabled(void) { return 0; }
-int  tensor_mlx_compile_invocations(void) { return 0; }
-void tensor_mlx_compile_reset_stats(void) { }
+/* Backend meta (backend_name + backend_reset_for_eval + tensor_print +
+ * tensor_mlx_compile_enabled / invocations / reset_stats stubs) lives
+ * in backend_torch/core/backend_meta.cpp.
+ * backend_epoch_begin / backend_profile_reset / backend_profile_report
+ * live in backend_torch/training/profiling.cpp.
+ * param_grad_item_at lives in shared/training/param_registry.c. */
 
 /* ---------- Portable FFI helpers ---------- */
 

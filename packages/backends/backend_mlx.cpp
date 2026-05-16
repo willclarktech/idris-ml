@@ -36,71 +36,8 @@
 #include "backend_mlx/precision.h"
 /* `namespace mx = mlx::core;` is provided by backend_mlx/tensor.h. */
 
-/* ================================================================
-   Backend init — device selection
-   ================================================================
-   Default to CPU stream. mlx 0.31 GPU (Metal) on GH Actions macOS
-   runners hits "Unable to allocate N bytes" for tiny allocations
-   under sustained load (NTM/DNC scalar-heavy backward; CI run
-   25457289084 on commit 1b8feff). Local Apple Silicon machines
-   handle GPU fine, so users can opt in via `MLX_DEVICE=gpu`.
-
-   See TODO.md "MLX backend: support CPU+f64 mode + dependent-types
-   demo" for the proper device-aware Tensor parameterization. */
-// Apple Virtualization VMs (Tart, GHA macOS runners) hit
-// `std::runtime_error: [malloc] Unable to allocate N bytes` (tiny N, 4–512)
-// during process *shutdown* on scalar-heavy workloads (NTM/DNC, SAC
-// actor). Training completes cleanly and the profile report prints; the
-// failure is in mlx-internal static destructors racing against the Metal
-// device teardown. Synchronising + clearing caches before destructors
-// fire (via atexit, which runs before destructors) doesn't help — the
-// throwing destructor is inside mlx itself.
-//
-// Fix: gate `std::terminate` to swallow post-main exceptions. A flag set
-// by atexit distinguishes "after main returned" from "during training" —
-// real exceptions during training still abort normally.
-static bool g_mlx_past_main = false;
-static std::terminate_handler g_prev_terminate_handler = nullptr;
-
-static void mlx_set_past_main(void) { g_mlx_past_main = true; }
-
-static void mlx_terminate_handler(void) {
-    if (g_mlx_past_main) {
-        // Process already exited cleanly; this is a destructor-order
-        // crash we can't fix without a libmlx-upstream change. Exit 0.
-        _exit(0);
-    }
-    if (g_prev_terminate_handler) g_prev_terminate_handler();
-    std::abort();
-}
-
-__attribute__((constructor))
-static void mlx_backend_init(void) {
-    const char* env = std::getenv("MLX_DEVICE");
-    if (env && (std::strcmp(env, "gpu") == 0 || std::strcmp(env, "metal") == 0)) {
-        mx::set_default_device(mx::Device(mx::Device::gpu));
-    } else {
-        mx::set_default_device(mx::Device(mx::Device::cpu));
-    }
-    // Bump the allocator limit. mlx defaults this to 1.5× the Metal-reported
-    // recommended working set size; on GH Actions macOS VMs that's tiny and
-    // even the CPU stream's allocator inherits it, so heavy scalar-tensor
-    // workloads (NTM/DNC backward) abort with "[malloc] Unable to allocate
-    // N bytes". 16 GB is well above what any example needs and well below
-    // the runner's RAM. Cache limit follows.
-    // Leave memory_limit / cache_limit at mlx's defaults. The
-    // "[malloc] Unable to allocate N bytes" failure on Apple
-    // Virtualization VMs (Tart, GHA macOS) is *not* hit because of an
-    // mlx limit — it's MetalAllocator throwing when paravirtualized
-    // Metal refuses a new MTLBuffer (per-process resource limit, not
-    // bytes). Stack trace confirms: throw originates in
-    // MetalAllocator::malloc even when MLX_DEVICE=cpu, because on
-    // Apple Silicon mlx routes all buffer allocations through Metal
-    // (unified memory). The real fix is keeping live MTLBuffer count
-    // low; see the refcount-driven Tensor lifecycle work.
-    g_prev_terminate_handler = std::set_terminate(mlx_terminate_handler);
-    std::atexit(mlx_set_past_main);
-}
+/* Backend init constructor (mlx_backend_init + std::terminate gate) lives
+ * in backend_mlx/init.cpp. */
 
 /* ================================================================
    Per-call stream selection
@@ -212,48 +149,10 @@ TensorHandle tensor_create_state_2d_f32_mlx_streamed(int rows, int cols, double*
     abort(); \
 } while(0)
 
-/* ================================================================
-   Tensor representation
-   ================================================================ */
-
-/* Tensor struct + tracking globals + retain/release helpers are
-   declared in backend_mlx/tensor.h (included above). The canonical
-   definitions live here so the symbols have one home for the link.
-   Per-op .cpp files in the modular tree see them via the header. */
-
-std::vector<Tensor*> all_tensors;
-std::vector<TensorPair*> all_pairs;
-int next_pool_idx = 0;
-long g_mlx_create_calls_global = 0;  /* monotonic Tensor-creation counter (feeds create_id) */
-long g_mlx_peak_live = 0;            /* high-water mark of all_tensors.size() */
-
-Tensor::Tensor(mx::array d, bool rg)
-    : data(std::move(d)), grad(mx::array(0.0f)), requires_grad(rg),
-      has_grad(false), tape_idx(-1),
-      pool_idx(next_pool_idx++), refcount(0) {
-    create_id = g_mlx_create_calls_global++;
-    all_tensors.push_back(this);
-    if ((long)all_tensors.size() > g_mlx_peak_live) g_mlx_peak_live = (long)all_tensors.size();
-}
-
-void tensor_retain_internal(Tensor* t) {
-    if (t) t->refcount++;
-}
-
-void tensor_release_internal(Tensor* t) {
-    if (t && t->refcount > 0) t->refcount--;
-}
-
-// C-exported retain/release for FFI consumers (Idris-side managed handles,
-// Scheme guardian-drain callbacks).
-extern "C" {
-void tensor_retain_handle(void* h) {
-    tensor_retain_internal(reinterpret_cast<Tensor*>(h));
-}
-void tensor_release_handle(void* h) {
-    tensor_release_internal(reinterpret_cast<Tensor*>(h));
-}
-}  // extern "C"
+/* Tensor lifecycle core (the four tracking globals + Tensor::Tensor
+ * ctor + tensor_retain_internal / tensor_release_internal +
+ * tensor_retain_handle / tensor_release_handle) lives in
+ * backend_mlx/core/lifecycle/lifecycle_core.cpp. */
 
 /* Precision bridge — mx_to_doubles / mx_read_double / mx_from_doubles /
    mx_array_from_doubles + scalar_like + zero/one/half_like all live in
@@ -343,50 +242,11 @@ TensorHandle tensor_view_1d(TensorHandle vec, int idx) {
  * set so the unsuffixed references resolve to the shared TU. */
 /* backend_memory_report / backend_supports_tensor_params removed
  * (no Idris-side callers). */
-void backend_reset_for_eval(void) {
-    tape_reset();
-    for (int i_ = 0; i_ < param_count(); i_++) {
-        auto* p_tensor = (Tensor*)param_tensor(i_);
-        p_tensor->tape_idx = -1;
-        p_tensor->has_grad = false;
-        tape_append(OP_CONST, p_tensor, nullptr, nullptr, 0);
-    }
-}
-/* backend_epoch_begin / backend_profile_reset / backend_profile_report
-   live in backend_mlx/training/profiling.cpp. */
-
-/* ================================================================
-   Debug
-   ================================================================ */
-
-const char* backend_name(void) { return "mlx"; }
-
-void tensor_print(TensorHandle h) {
-    auto t = (Tensor*)h;
-    mx::eval(t->data);
-    std::cout << t->data << std::endl;
-}
-
-/* ================================================================
-   MLX compile integration (Job 3 Phase B)
-   ================================================================ */
-
-int tensor_mlx_compile_enabled(void) {
-    const char* v = std::getenv("MLX_COMPILE");
-    if (!v) return 0;
-    if (v[0] == '1' && v[1] == '\0') return 1;
-    if (std::strcmp(v, "true") == 0) return 1;
-    if (std::strcmp(v, "yes") == 0) return 1;
-    return 0;
-}
-
-/* Counter g_compile_invocations — incremented on each cached
-   mx::compile trace by training/backward.cpp + training/optimizer.cpp.
-   Non-static so those TUs can extern it. Getter/setter exposed here as
-   part of the public FFI surface. */
-int g_compile_invocations = 0;
-int  tensor_mlx_compile_invocations(void) { return g_compile_invocations; }
-void tensor_mlx_compile_reset_stats(void) { g_compile_invocations = 0; }
+/* Backend meta (backend_name + backend_reset_for_eval + tensor_print +
+ * tensor_mlx_compile_enabled / invocations / reset_stats +
+ * g_compile_invocations) lives in backend_mlx/core/backend_meta.cpp.
+ * backend_epoch_begin / backend_profile_reset / backend_profile_report
+ * live in backend_mlx/training/profiling.cpp. */
 
 } // extern "C"
 
