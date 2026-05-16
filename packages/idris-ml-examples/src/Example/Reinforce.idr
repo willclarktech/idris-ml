@@ -181,6 +181,24 @@ computeLoss gamma model randomBatch =
       stepLosses = concatMap (epStepLosses gamma baseline) episodes
   in averageLoss stepLosses
 
+||| Batched-rollout variant. Same loss math; the only difference is
+||| how the per-step logProbs are obtained — one batched forward over
+||| `Tensor [n, 4]` per timestep instead of N sequential single-env
+||| forwards. Gradients flow back through the same shape of graph
+||| (one batched forward op per timestep instead of N separate ops).
+computeLossBatched : {n : Nat} -> {hs : List Nat} -> Double ->
+                     Network 4 hs 2 CPU -> Vect n (List Double) ->
+                     Tensor [] CPU
+computeLossBatched gamma model randomBatchV =
+  let initStates : Vect n CPState = replicate n (MkCP 0 0 0 0)
+      epsV  = rolloutEpBatched model initStates randomBatchV MaxSteps
+      eps   = toList epsV
+      epReturns = map sumRewards eps
+      nEp = cast {to=Double} (natToInteger (length epReturns))
+      baseline = foldl (+) 0.0 epReturns / nEp
+      stepLosses = concatMap (epStepLosses gamma baseline) eps
+  in averageLoss stepLosses
+
 
 ----------------------------------------------------------------------
 -- Training
@@ -191,6 +209,15 @@ epochRL : {hs : List Nat} -> NativeOptimizer -> Double ->
           (Network 4 hs 2 CPU, Double)
 epochRL opt gamma model batch =
   let loss = computeLoss gamma model batch
+      lossVal = nativeTrainStep opt loss
+  in (model, lossVal)
+
+epochRLBatched : {n : Nat} -> {hs : List Nat} ->
+                 NativeOptimizer -> Double ->
+                 Network 4 hs 2 CPU -> Vect n (List Double) ->
+                 (Network 4 hs 2 CPU, Double)
+epochRLBatched opt gamma model batchV =
+  let loss = computeLossBatched gamma model batchV
       lossVal = nativeTrainStep opt loss
   in (model, lossVal)
 
@@ -210,6 +237,20 @@ genBatch batchSz = go batchSz
       ep <- genN MaxSteps
       rest <- go k
       pure (ep :: rest)
+
+genBatchV : (n : Nat) -> IO (Vect n (List Double))
+genBatchV Z = pure []
+genBatchV (S k) = do
+  ep <- go MaxSteps
+  rest <- genBatchV k
+  pure (ep :: rest)
+  where
+    go : Nat -> IO (List Double)
+    go Z = pure []
+    go (S k') = do
+      r <- randomRIO (the Double 0.0, 1.0)
+      rs <- go k'
+      pure (r :: rs)
 
 
 ----------------------------------------------------------------------
@@ -248,9 +289,10 @@ record Config where
   gamma : Double
   batchSz : Nat
   lrFind : Bool
+  batched : Bool  -- Job 4 Phase B: use batched policy forward per timestep
 
 defaultConfig : Config
-defaultConfig = MkConfig 0.001 2000 42 0.99 10 False
+defaultConfig = MkConfig 0.001 2000 42 0.99 10 False False
 
 specs : List (ArgSpec Config)
 specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
@@ -258,7 +300,8 @@ specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
         , Arg "--seed" (\v, c => { seed := castBits64 v } c)
         , Arg "--gamma" (\v, c => { gamma := cast v } c)
         , Arg "--batch" (\v, c => { batchSz := castNat v } c)
-        , Arg "--lr-find" (\v, c => { lrFind := (v == "1" || v == "true") } c) ]
+        , Arg "--lr-find" (\v, c => { lrFind := (v == "1" || v == "true") } c)
+        , Arg "--batched" (\v, c => { batched := (v == "1" || v == "true") } c) ]
 
 main : IO ()
 main = do
@@ -291,8 +334,17 @@ main = do
     putStrLn "Done — re-run without --lr-find at the recommended LR."
     exitSuccess
 
-  (trained, epochsDone, _) <- runTraining
-    (\m, d => epochRL opt cfg.gamma m d) (genBatch cfg.batchSz) (simpleConfig cfg.epochs) model
+  let n : Nat = cfg.batchSz
+  (trained, epochsDone, _) <- (
+    if cfg.batched
+      then runTraining {dp = Vect n (List Double)}
+             (\m, d => epochRLBatched opt cfg.gamma m d)
+             (genBatchV n)
+             (simpleConfig cfg.epochs) model
+      else runTraining {dp = List (List Double)}
+             (\m, d => epochRL opt cfg.gamma m d)
+             (genBatch cfg.batchSz)
+             (simpleConfig cfg.epochs) model)
 
   putStrLn ""
   putStrLn "Eval (100 episodes, greedy):"
