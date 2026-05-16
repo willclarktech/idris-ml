@@ -140,9 +140,14 @@ struct TapeEntry {
    tape_append (and never directly). */
 extern std::vector<TapeEntry> tape;
 
-/* no_grad_depth is private to backend_mlx.cpp (TU-local static). The
-   gating is enforced inside tape_append, so per-op TUs only need to
-   call tape_append and never touch the depth directly. */
+/* no_grad_depth_mlx — incremented at tensor_no_grad_begin, decremented at
+   tensor_no_grad_end. The gating is enforced inside tape_append, so
+   per-op TUs only need to call tape_append and never touch the depth
+   directly. Definition lives in backend_mlx/training/autograd.cpp
+   (co-located with the begin/end functions that mutate it). The `_mlx`
+   suffix dodges a tri-link collision with tape's same-named non-static
+   global. */
+extern int no_grad_depth_mlx;
 
 /* Diagnostic: count of FFI ops appended this epoch. tape_append fires
    once per grad-requiring op in the forward pass. Counts grad-tracked
