@@ -96,6 +96,37 @@ Extends NTM (Graves et al. 2016). Key design choices:
 
 6. **Numerical stability via clamping** — DNC's multi-timestep state (link matrix, usage, addressing weights) requires six clamping points to prevent forward-pass explosion: link decay clamped to [0, inf) when write weights sum > 1, link entries clamped non-negative, allocation usage clamped to [1e-6, inf) before cumprod (prevents backward gradient explosion via division), retention clamped to [1e-10, inf), read weights clamped and renormalized after mode mixture. Without clamping, NaN occurs at seqLen >= 4. NTM uses the same pattern (`focusVar` clamps weights before pow/division). Weight projection (`projectWeights`) in syncBuffers prevents addressing weight drift across gradient updates.
 
+## Type-level grad-mode
+
+PyTorch's silent footgun: a loss tensor that came from inside `with torch.no_grad():` has no `grad_fn`; `loss.backward()` either raises a `RuntimeError` or silently does nothing depending on the path. We turn this into a compile error.
+
+**Approach**: 0-quantity phantom parameter `g : GradMode` on `Tensor` and `Network` — `Tensor (dims : Vect rank Nat) (0 d : Device) (0 g : GradMode)` with `GradMode = WithGrad | NoGrad`. Erased at runtime; static-only.
+
+**Key decisions**:
+1. **State records polymorphic in `g`.** Every layer's state (Linear, Lstm, Rnn, Gru, Ntm, Dnc, BatchNorm, …) carries `(0 g : GradMode)` and its param fields are typed at the same `g`. This eliminates the `believe_me` requirement that an earlier attempt — keeping state at hardcoded WithGrad while threading `g` through forwards — would have forced at every layer-impl call site.
+2. **Function-valued fields use their own polymorphic `g'`.** `RnnState.activation` is `{0 g' : GradMode} -> TVec o d g' -> TVec o d g'`. Standard activations (`ttanh`, `trelu`, etc.) are already polymorphic post-Phase-3, so they store at the polymorphic field type and apply at whatever `g` the state happens to be at.
+3. **No `believe_me` in user-facing surface.** Coercion between gs is one internal helper, `retypeGrad : Tensor dims d g1 -> Tensor dims d g2`, defined as pure destructure-reconstruct via the polymorphic `MkTensor` constructor. Because `g` is 0-quantity the runtime is identical and Idris's type-checker accepts the cast directly — no type-system bypass.
+4. **`weakenGrad` couples Idris-side type with C-side flag.** Flips `requires_grad` in C and retypes the handle as `NoGrad`. The runtime promise and the static promise stay in sync.
+5. **Linear consumption on `weakenGrad` / `freezeNetwork` / `unfreezeNetwork`.** Closes the aliasing footgun: after the call, the original Idris reference is consumed at compile time. You can't accidentally keep using the WithGrad-typed name once its C-side flag has been mutated.
+6. **No public `strengthenGrad`.** Setting rg=true on an unregistered tensor flips the flag but the optimizer can't update it — a footgun without legitimate use. Unfreezing goes through `unfreezeNetwork` / `unfreezeLayer`, which only walks registered params; the per-tensor primitive isn't exposed.
+7. **`nativeTrainStep` / `runBackward` gated on `WithGrad`.** Sets the load-bearing safety: the bug class "loss computed in `withNoGrad`, fed to training" becomes a compile error. CI gate `make check-gradmode-gate` asserts the negative test still fails.
+8. **`forwardVar` polymorphic in `g`.** A `NoGrad` input produces a `NoGrad` output naturally. `freezeNetwork` is usable end-to-end — frozen networks remain forwardable, just not trainable.
+9. **`Network` constructors polymorphic in `g`, no requirement on whole-network freezing being all-or-nothing.** Coarse approximation for transfer learning is fine for the current example set; per-parameter or per-sub-network freezing is filed as future work.
+
+**Alternatives explored and discarded**:
+- *Asymmetric `tlinear` sig* (`Tensor d WithGrad -> Tensor d g -> Tensor d WithGrad -> Tensor d g`) — works for `Linear.applyVar` but breaks `Rnn`'s accumulator pattern where the bias slot holds a `g`-typed running sum, not a parameter.
+- *Hardcoded-WithGrad state records + `believe_me` casts in every layer impl* — works but undermines the "type system enforces it" claim with ~40 unaudited `believe_me`s.
+- *`mx::compile`-style type-level enable/disable scopes* — Idris 2 doesn't have ambient effects of this shape; would require either threading explicit witnesses or higher-rank polymorphism. State polymorphism turned out simpler.
+
+**Scope**: ~35 files touched, ~930 lines. Two CI gates (`check-gradmode-gate`, `check-gradmode-aliasing`) lock the design against regression.
+
+**Perf impact** (measured `9b1cdb8` → `05a976a` on this VM):
+- Clean idris-ml build: 6.25s → 7.85s (+25%, +1.6s absolute).
+- Clean examples build: 21.78s → 24.41s (+12%, +2.6s absolute). The extra unification work from the 4th type parameter explains it; still small in absolute terms.
+- Runtime: supervised / rnn / lstm wall-clock all within ±6% of pre-refactor — within the documented VM noise floor. Bit-identical loss values. No measurable runtime regression.
+
+See `docs/grad-mode-and-device-typing.md` for the user-facing explainer.
+
 ## Type-safe device placement
 
 PyTorch's most common footgun: model on CPU, data on GPU, runtime crash. Idris 2's dependent types solve this at compile time.

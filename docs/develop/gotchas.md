@@ -109,6 +109,87 @@ Stdout is fully buffered when redirected to file/pipe (e.g. background tasks). U
 
 `build/libidrisml.dylib` must exist before running any example. Build with `make build/libidrisml.dylib`. The library is loaded by the generated Chez Scheme code at startup. Idris 2 copies the dylib to `build/exec/<name>_app/` at compile time — the Makefile targets also copy it explicitly to ensure the latest version is used. When building manually (not via `make`), you must copy the dylib to the app dir after rebuilding: `cp build/libidrisml.dylib build/exec/<name>_app/`.
 
+### Linear-quantity arguments are consumed by field projections
+
+If you write `f : (1 _ : T) -> IO U` where `T` is a record, the body must use the argument exactly once. Idiomatic field-access syntax inside the body **counts as a use per projection** — `t.foo` and `t.bar` consume `t` twice, fails linearity. Solution: pattern-match-destructure the argument at the binder so each field is a separate ω-quantity binding:
+
+```idris
+-- FAILS: two uses of linear `t`
+weakenGrad t = do
+  primIO (prim__setRequiresGrad t.tensorPtr 0)
+  pure (MkTensor t.tensorPtr t.paramId)
+
+-- OK: ptr and pid are ω-bindings, can be used multiple times
+weakenGrad (MkTensor ptr pid) = do
+  primIO (prim__setRequiresGrad ptr 0)
+  pure (MkTensor ptr pid)
+```
+
+This trapped `weakenGrad` and every layer's `unfreezeLayer` impl during the GradMode refactor.
+
+### `traverse` doesn't compose with linear functions
+
+`traverse : (Traversable t, Applicative f) => (a -> f b) -> t a -> f (t b)` declares its function argument at unrestricted (ω) quantity. A linear function `(1 _ : a) -> f b` doesn't unify with that type — you get "Mismatch between: (1 _ : T) -> IO U and ?a -> ?f ?b" at the `traverse` call site.
+
+For `Maybe (Tensor ... NoGrad)`, `Vect k (Tensor ... NoGrad)`, etc., you have to write manual recursion that destructures the constructor and applies the linear function inline:
+
+```idris
+prev' <- case prev of
+  Nothing => pure Nothing
+  Just p  => Just <$> weakenGrad p
+
+-- For Vect, manual recursion:
+freezeLinearVec : Vect k (LinearState i o d g) -> IO (Vect k (LinearState i o d NoGrad))
+freezeLinearVec [] = pure []
+freezeLinearVec (l :: ls) = do
+  l' <- freezeLayer l
+  ls' <- freezeLinearVec ls
+  pure (l' :: ls')
+```
+
+Verbose but unavoidable until / unless Idris ships a `LinearTraversable` interface.
+
+### Polymorphic record-field types let you cast 0-quantity parameters without `believe_me`
+
+For a record like `Tensor (dims : Vect rank Nat) (0 d : Device) (0 g : GradMode)` where `g` is 0-quantity (erased), the auto-generated constructor `MkTensor` is polymorphic in `g`:
+
+```
+MkTensor : {0 dims : Vect rank Nat} -> {0 d : Device} -> {0 g : GradMode} ->
+           AnyPtr -> Maybe String -> Tensor dims d g
+```
+
+Destructure-then-reconstruct gives a **fully type-checked cast** between values at different `g`:
+
+```idris
+retypeGrad : Tensor dims d g1 -> Tensor dims d g2
+retypeGrad (MkTensor ptr pid) = MkTensor ptr pid
+```
+
+No `believe_me`. The constructor accepts any `g`, the destructure binds `ptr`/`pid` at the run-time-relevant fields (unrestricted ω), and the reconstruction picks the new `g` from the expected return type. Runtime is identity (same `tensorPtr`, same `paramId`). The technique generalizes to any record where the type parameters you want to cast are 0-quantity.
+
+### Polymorphic function fields in records require explicit higher-rank syntax
+
+When a record stores a function value (e.g. `RnnState.activation`) that needs to operate at any `g`, the field type itself must be polymorphic — *not* the record's `g`. Concretely:
+
+```idris
+-- Field is at the record's g; activation fixed once at construction
+record RnnState (i o : Nat) (0 d : Device) (0 g : GradMode) where
+  ...
+  activation : TVec o d g -> TVec o d g     -- ❌ fixed
+  ...
+```
+
+vs.
+
+```idris
+record RnnState (i o : Nat) (0 d : Device) (0 g : GradMode) where
+  ...
+  activation : {0 g' : GradMode} -> TVec o d g' -> TVec o d g'  -- ✓ usable at any g
+  ...
+```
+
+The fixed-`g` version forces `activation` to be specialized at construction, so after `freezeLayer` retypes the state to `NoGrad`, the stored activation function no longer matches. The polymorphic-`g'` version transports unchanged — standard activations like `ttanh` are already polymorphic post-Phase-3, so they unify with this field type automatically.
+
 ## Training & Numerics
 
 Gradient flow, numerical stability, and training patterns.

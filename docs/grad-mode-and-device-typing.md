@@ -226,12 +226,15 @@ direct analogue of PyTorch's `with torch.no_grad():` and is what you
 want around inference / RL rollout / eval forward passes for perf.
 The types of tensors created inside the block don't change.
 
-**`weakenGrad : Tensor dims d g -> IO (Tensor dims d NoGrad)`** —
+**`weakenGrad : (1 _ : Tensor dims d g) -> IO (Tensor dims d NoGrad)`** —
 type-level cast that also flips the C-side `requires_grad` flag.
 After this, the tensor's *type* says `NoGrad`; passing it to
 `runBackward` or `nativeTrainStep` is a compile error. The mechanism
 is per-tensor (not block-scoped), so it survives across `IO`
-boundaries.
+boundaries. The `(1 _ : ...)` quantity means the input is consumed
+linearly — the original WithGrad-typed reference can't be used
+after the call (the runtime flag has changed under it, so reuse
+would be a type lie).
 
 The two are independent: `withNoGrad` is the perf knob,
 `weakenGrad` is the static safety knob. Use both for the strongest
@@ -267,6 +270,78 @@ PyTorch's equivalent of this mistake — computing a loss inside
 at runtime with `RuntimeError: element 0 of tensors does not require
 grad and does not have a grad_fn`. Idris-ml fails at compile time
 instead.
+
+## Freezing networks for transfer learning
+
+For the "load pretrained backbone, train only the new head" workflow,
+idris-ml provides two more linear operations on Networks:
+
+**`freezeNetwork : (1 _ : Network i hs o d g) -> IO (Network i hs o d NoGrad)`** —
+walks every parameter in the network, flips its C-side
+`requires_grad` to false, and retypes the result as `NoGrad`. Frozen
+params don't get updated by `optimizer.step()` (their gradient
+buffers stay at zero) and the type system prevents accidentally
+training the network end-to-end.
+
+**`unfreezeNetwork : (1 _ : Network i hs o d NoGrad) -> IO (Network i hs o d WithGrad)`** —
+the inverse. Used for *progressive fine-tuning*: train head first
+with backbone frozen, then unfreeze the backbone for joint
+fine-tuning at a lower learning rate.
+
+```idris
+-- Transfer learning sketch:
+backbone <- buildPretrained ...                          -- WithGrad
+backboneFrozen <- freezeNetwork backbone                 -- NoGrad
+head     <- buildHead ...                                -- WithGrad
+-- ... compose backboneFrozen and head into a combined network,
+-- train only head's params (optimizer skips frozen ones)
+...
+
+-- Later: unfreeze for joint fine-tuning.
+backbone'    <- unfreezeNetwork backboneFrozen           -- WithGrad
+-- backboneFrozen is consumed; you can only use `backbone'` now.
+```
+
+Both ops are linear in their input. After calling `freezeNetwork
+backbone`, the name `backbone` is consumed and any further use is
+a compile error. This closes the aliasing footgun ("freeze the
+network, then accidentally train via the original variable, which
+silently no-ops because the C-side flags are flipped") that PyTorch
+users have to remember to avoid.
+
+### `forwardVar` works on frozen networks
+
+The forward functions are polymorphic in the grad-mode parameter,
+so a frozen network is fully usable for inference:
+
+```idris
+let (_, pred) = forwardVar backboneFrozen input
+--                          ^^^^^^^^^^^^^^^
+--                          Network ... NoGrad
+-- pred : Tensor [o] d NoGrad — type-tracked through the forward
+```
+
+The `NoGrad` propagates naturally through the result, and `pred`
+can't be fed to `nativeTrainStep` (Phase 4 gate). No need to
+`weakenGrad` after the call.
+
+### How this compares to PyTorch
+
+PyTorch's equivalent is `for p in model.parameters(): p.requires_grad =
+False`. The capability is the same; the safety guarantees differ:
+
+| | PyTorch | idris-ml |
+|---|---|---|
+| Whole-model freeze | `for p in ...: p.requires_grad = False` | `freezeNetwork` |
+| Unfreeze | same with `True` | `unfreezeNetwork` |
+| Compile-time rejection of "trained via the original ref after freeze" | no | yes (linear types) |
+| Compile-time rejection of `NoGrad` loss in training | no | yes (Phase 4 gate) |
+| Per-parameter freeze (mixed trainable/frozen within one module) | yes | not yet — whole-network only |
+
+idris-ml matches PyTorch's freeze/unfreeze ergonomics and adds two
+compile-time safety nets PyTorch users live without. Per-parameter
+freezing (for fancier fine-tuning strategies) is filed as future
+work.
 
 ## Big picture
 
