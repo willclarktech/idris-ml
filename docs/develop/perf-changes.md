@@ -868,6 +868,98 @@ runtime. Phase B's mlx-projects survey should now include `mlx`'s
 own `mx::compile` / `mx::value_and_grad` JIT path as a primary
 target rather than incidental side-reading.
 
+### 2026-05-11 — idris-gym source-review Phase A (Job 4) — null result
+
+**Plan job**: Job 4 Phase A (idris-gym env-side wins, no
+vectorization restructure).
+
+**Motivation**: RL examples ratio at 20-40× PyTorch ref because
+env-step time dominates. Before tackling vectorization (Phase B),
+audit `packages/idris-gym/` for per-step waste that's cheap to
+fix — same Phase A pattern that worked for Jobs 1/2a/3.
+
+**Method**: source review surfaced 5 candidates. Per the
+measure-then-hypothesize-then-change discipline, built a
+microbench (`make bench-gym`, see commit message for harness
+notes) targeting each candidate's hot path, measured baseline,
+formed a quantitative hypothesis, implemented, re-measured.
+
+**Baseline** (M4 Pro VM, ns/call, ±5% across runs):
+
+| Function | ns/call |
+|---|---:|
+| `Rng.nextDouble` | 140 |
+| `Blackjack.bjObserve` | 55 |
+| `Pendulum step+observe` | 70 |
+| `Acrobot step+observe` | 645 |
+| `Taxi step` | 22 |
+| `CliffWalking step` | 20 |
+
+**Experiments**:
+
+*#3 `Rng.nextDouble`: replace `cast {to=Double} (cast {to=Integer}
+top53)` with the direct `cast {to=Double} top53`.* Hypothesis:
+the explicit Integer intermediate allocates a GMP bignum per
+call; direct prim should cut 30-60% off the function. **Result**:
+138 → 139 ns/call (within noise). Hypothesis falsified — either
+Idris codegen already fuses the chain, or the cost is elsewhere
+(likely splitMix64's two bignum multiplications against the
+0x9E37… and 0xBF58… constants, which fall outside the Chez
+fixnum range and allocate per multiply). Reverted.
+
+*#5 `Blackjack.bjObserve`: replace the double-traversal handSum +
+usableAce with a one-pass `handStats` that returns (raw_sum,
+ace_count); `bjObserve` calls it once instead of four traversals
+across handSum + usableAce.* Hypothesis: ~50% reduction in
+bjObserve, from 55 → ~28 ns/call. **Result**: 55 → 56 ns/call
+(within noise). Hypothesis falsified. Idris's `length . filter`
+and `foldr (+) Z` paths are already fast enough on tiny lists
+(2-4 cards) that the duplicate work is below the measurable
+floor. Reverted.
+
+*#4 Taxi/CliffWalking Nat↔Integer round-trips.* Did not
+implement — baseline measurement settled it directly: Taxi step
+is 22 ns/call and CliffWalking step is 20 ns/call. The
+`cast {to=Integer} (n : Nat)` calls cited as wasteful are
+compiled by Idris's BigInt-Nat optimization to a no-op (`Nat` is
+already stored as `Integer` at runtime); there's no chain to
+shorten. Confirmed not a win.
+
+*#1 Acrobot trig caching.* Did not implement — the savings
+ceiling is 1 redundant `cos(th1)` between the termination check
+and `aObserve` (~15 ns of the 645 ns step+observe = 2.3%).
+Capturing more trig values would require either adding cached
+fields to `AState` (which `eulerStep` also constructs with
+meaningless values for the cache — ugly API change) or splitting
+into separate `AState` / `AStateObs` types (bigger refactor than
+Phase A allows). Skipped pending Phase B or a willingness to
+make the structural change for a single-digit-% win.
+
+*#2 Pendulum trig caching.* Did not implement — initial source-
+review analysis was wrong. `pStep` computes `sin(s.pTheta)` on
+the *current* angle (used for dynamics); `pObserve` later
+computes `cos/sin(s'.pTheta)` on the *new* angle after the step.
+These are different inputs, so no redundancy to remove. The
+agent's source-review hypothesis was incorrect.
+
+**Outcome**: zero idris-gym source changes land from Phase A.
+What lands instead:
+
+- `make bench-gym` microbench tool (`packages/idris-gym/test/bench.ipkg`
+  + `Bench.idr`). Useful for any future per-call optimization
+  experiments on the env code; baseline numbers documented in the
+  commit message.
+- Two reusable Idris bench-authoring lessons (in the same commit
+  message): defeat CSE by varying input per iteration; avoid
+  Peano-Nat counters above ~100k iterations or BigInt allocation
+  compounds.
+- Confirmation that env-side per-call work is already tight at
+  the source level; the 20-40× ratio against PyTorch ref is
+  attributable to single-step-vs-vectorized-env architecture, not
+  to local source waste. **Phase B (vectorization) is now the
+  unambiguous next lever** rather than something we were doing
+  "after the obvious wins."
+
 ----
 
 ## Future opportunities (not active)
