@@ -160,14 +160,23 @@ TensorHandle tensor_softmax_3d_mlx_streamed(TensorHandle h, int stream_tag);
 TensorHandle tensor_reshape_mlx_streamed(TensorHandle h, int* shape, int rank, int stream_tag);
 TensorHandle tensor_narrow_mlx_streamed(TensorHandle h, int dim, int start, int len, int stream_tag);
 TensorHandle tensor_create_scalar_f32_mlx_streamed(double value, int requires_grad, int stream_tag);
+TensorHandle tensor_create_scalar_f64_mlx_streamed(double value, int requires_grad, int stream_tag);
+TensorHandle tensor_create_scalar_mlx_streamed(double value, int requires_grad, int stream_tag);
 TensorHandle tensor_create_f32_mlx_streamed(double* data, int* shape, int rank, int requires_grad, int stream_tag);
+TensorHandle tensor_create_f64_mlx_streamed(double* data, int* shape, int rank, int requires_grad, int stream_tag);
+TensorHandle tensor_create_mlx_streamed(double* data, int* shape, int rank, int requires_grad, int stream_tag);
+TensorHandle tensor_cast_dtype_f32_mlx_streamed(TensorHandle h, int stream_tag);
+TensorHandle tensor_cast_dtype_f64_mlx_streamed(TensorHandle h, int stream_tag);
+TensorHandle tensor_clone_mlx_streamed(TensorHandle h, int stream_tag);
+double       tensor_item_mlx_streamed(TensorHandle h, int stream_tag);
+double       tensor_item_1d_mlx_streamed(TensorHandle vec, int idx, int stream_tag);
+void         tensor_free_mlx_streamed(TensorHandle h, int stream_tag);
 TensorHandle tensor_create_param_1d_f32_mlx_streamed(int n, double* data, int stream_tag);
 TensorHandle tensor_create_param_2d_f32_mlx_streamed(int rows, int cols, double* data, int stream_tag);
 TensorHandle tensor_create_param_3d_f32_mlx_streamed(int d0, int d1, int d2, double* data, int stream_tag);
 TensorHandle tensor_create_param_4d_f32_mlx_streamed(int d0, int d1, int d2, int d3, double* data, int stream_tag);
 TensorHandle tensor_create_state_1d_f32_mlx_streamed(int n, double* data, int stream_tag);
 TensorHandle tensor_create_state_2d_f32_mlx_streamed(int rows, int cols, double* data, int stream_tag);
-TensorHandle tensor_clone_mlx_streamed(TensorHandle h, int stream_tag);
 }
 
 /* ================================================================
@@ -412,166 +421,30 @@ static double _wall_ms_mlx(void) {
     return tv.tv_sec * 1000.0 + tv.tv_usec / 1000.0;
 }
 
-/* ================================================================
-   Lifecycle
-   ================================================================ */
+/* Lifecycle ops (tensor_create_scalar* / tensor_create* /
+   tensor_cast_dtype_* / tensor_clone / tensor_free) extracted to
+   backend_mlx/core/lifecycle/. Internal callers reach the _mlx_streamed
+   variants via the forward-decl block earlier in this file.
 
-extern "C" {
-
-// Internal impl: creation parameterized by dtype.
-static TensorHandle tensor_create_scalar_impl(double value, int requires_grad, mx::Dtype dt) {
-    auto t = new Tensor(mx::array(value, dt), requires_grad != 0);
-    if (requires_grad) tape_append(OP_CONST, t, nullptr, nullptr, 0);
-    // Non-grad scalars stay non-persistent — freed by tape_reset at optimizer_step
-    return (TensorHandle)t;
-}
+   `tensor_create_impl` stays here too — duplicated as a TU-local
+   static helper because the monolith's remaining param/state creators
+   (tensor_create_param_* etc., not yet extracted) call it directly.
+   Phase 6f will retire this once those creators move. */
 
 static TensorHandle tensor_create_impl(double* data, int* shape, int rank, int requires_grad, mx::Dtype dt) {
     mx::Shape sh(shape, shape + rank);
     auto t = new Tensor(mx_array_from_doubles(data, sh, dt), requires_grad != 0);
     if (requires_grad) tape_append(OP_CONST, t, nullptr, nullptr, 0);
-    // Non-grad data tensors: non-persistent, freed by tape_reset at optimizer_step
     return (TensorHandle)t;
 }
 
-// Per-dtype exports.
-extern "C" TensorHandle tensor_create_scalar_f32_mlx_streamed(double value, int requires_grad, int stream_tag) {
-    WITH_STREAM(stream_tag);
-
-    return tensor_create_scalar_impl(value, requires_grad, mx::float32);
-
-}
-TensorHandle tensor_create_scalar_f32(double value, int requires_grad) {
-    return tensor_create_scalar_f32_mlx_streamed(value, requires_grad, default_stream_tag());
-}
-extern "C" TensorHandle tensor_create_scalar_f64_mlx_streamed(double value, int requires_grad, int stream_tag) {
-    WITH_STREAM(stream_tag);
-
-    return tensor_create_scalar_impl(value, requires_grad, mx::float64);
-
-}
-TensorHandle tensor_create_scalar_f64(double value, int requires_grad) {
-    return tensor_create_scalar_f64_mlx_streamed(value, requires_grad, default_stream_tag());
-}
-extern "C" TensorHandle tensor_create_f32_mlx_streamed(double* data, int* shape, int rank, int requires_grad, int stream_tag) {
-    WITH_STREAM(stream_tag);
-
-    return tensor_create_impl(data, shape, rank, requires_grad, mx::float32);
-
-}
-TensorHandle tensor_create_f32(double* data, int* shape, int rank, int requires_grad) {
-    return tensor_create_f32_mlx_streamed(data, shape, rank, requires_grad, default_stream_tag());
-}
-extern "C" TensorHandle tensor_create_f64_mlx_streamed(double* data, int* shape, int rank, int requires_grad, int stream_tag) {
-    WITH_STREAM(stream_tag);
-
-    return tensor_create_impl(data, shape, rank, requires_grad, mx::float64);
-
-}
-TensorHandle tensor_create_f64(double* data, int* shape, int rank, int requires_grad) {
-    return tensor_create_f64_mlx_streamed(data, shape, rank, requires_grad, default_stream_tag());
-}
-
-// Legacy unsuffixed: route to fp32 (current historical behavior on mlx).
-// Both have streamed counterparts (`*_mlx_streamed`) used by
-// `UserDeviceCore (MlxDev s)` to honour the type-level stream tag;
-// the unstreamed entry points trampoline to them with the global
-// default tag so smart constructors / direct prim__ callers in
-// `Tensor.idr` / `Layer/*` keep their current behaviour.
-extern "C" TensorHandle tensor_create_scalar_mlx_streamed(double value, int requires_grad, int stream_tag) {
-    WITH_STREAM(stream_tag);
-    return tensor_create_scalar_f32_mlx_streamed(value, requires_grad, stream_tag);
-}
-TensorHandle tensor_create_scalar(double value, int requires_grad) {
-    return tensor_create_scalar_mlx_streamed(value, requires_grad, default_stream_tag());
-}
-extern "C" TensorHandle tensor_create_mlx_streamed(double* data, int* shape, int rank, int requires_grad, int stream_tag) {
-    WITH_STREAM(stream_tag);
-    return tensor_create_f32_mlx_streamed(data, shape, rank, requires_grad, stream_tag);
-}
-TensorHandle tensor_create(double* data, int* shape, int rank, int requires_grad) {
-    return tensor_create_mlx_streamed(data, shape, rank, requires_grad, default_stream_tag());
-}
-
-// Per-dtype cast primitives. mx::astype builds a new node in mlx's
-// autograd graph; the OP_CAST_DTYPE tape entry's scalar_arg encodes
-// the target dtype for replay (0.0 = f32, 1.0 = f64).
-extern "C" TensorHandle tensor_cast_dtype_f32_mlx_streamed(TensorHandle h, int stream_tag) {
-    WITH_STREAM(stream_tag);
-
-    auto t = (Tensor*)h;
-    auto r = new Tensor(mx::astype(t->data, mx::float32), t->requires_grad);
-    if (t->requires_grad) tape_append(OP_CAST_DTYPE, r, t, nullptr, 0.0);
-    return (TensorHandle)r;
-
-}
-TensorHandle tensor_cast_dtype_f32(TensorHandle h) {
-    return tensor_cast_dtype_f32_mlx_streamed(h, default_stream_tag());
-}
-extern "C" TensorHandle tensor_cast_dtype_f64_mlx_streamed(TensorHandle h, int stream_tag) {
-    WITH_STREAM(stream_tag);
-
-    auto t = (Tensor*)h;
-    auto r = new Tensor(mx::astype(t->data, mx::float64), t->requires_grad);
-    if (t->requires_grad) tape_append(OP_CAST_DTYPE, r, t, nullptr, 1.0);
-    return (TensorHandle)r;
-
-}
-TensorHandle tensor_cast_dtype_f64(TensorHandle h) {
-    return tensor_cast_dtype_f64_mlx_streamed(h, default_stream_tag());
-}
-
-extern "C" TensorHandle tensor_clone_mlx_streamed(TensorHandle h, int stream_tag) {
-    WITH_STREAM(stream_tag);
-    auto t = (Tensor*)h;
-    auto c = new Tensor(mx::array(t->data), false);
-    return (TensorHandle)c;
-}
-TensorHandle tensor_clone(TensorHandle h) {
-    return tensor_clone_mlx_streamed(h, default_stream_tag());
-}
-
-extern "C" void tensor_free_mlx_streamed(TensorHandle h, int stream_tag) {
-    (void)stream_tag;  // no kernel — pure C-side bookkeeping
-    if (!h) return;
-    auto t = (Tensor*)h;
-    // Skip registered params — they're managed by param_clear.
-    for (int i_ = 0; i_ < param_count(); i_++) {
-        if ((Tensor*)param_tensor(i_) == t) return;
-    }
-    // Refcount-driven world (since commit 7eab36c): forcing `delete t` here
-    // leaves dangling Tensor* pointers in tape entries that still reference
-    // this result/arg, and the next tape_reset crashes when it walks the
-    // tape to release retains. Instead drop the caller's implicit hold;
-    // the tape's own retains (set by tape_append on result/arg1/arg2) keep
-    // the Tensor alive until tape_reset releases them and sweeps refcount=0.
-    //
-    // We must also defend against the caller passing a handle that was
-    // already swept by a prior tape_reset (common when optimizer_step
-    // ran between the user's create and their free): touching `t` would
-    // be use-after-free. Probe all_tensors first; skip if absent.
-    for (auto* alive : all_tensors) {
-        if (alive == t) { tensor_release_internal(t); return; }
-    }
-}
-void tensor_free(TensorHandle h) {
-    tensor_free_mlx_streamed(h, default_stream_tag());
-}
+extern "C" {
 
 /* ================================================================
    Accessors
    ================================================================ */
 
-extern "C" double tensor_item_mlx_streamed(TensorHandle h, int stream_tag) {
-    WITH_STREAM(stream_tag);
-    auto t = (Tensor*)h;
-    mx::eval(t->data);
-    if (t->data.dtype() == mx::float64) return t->data.item<double>();
-    return (double)t->data.item<float>();
-}
-double tensor_item(TensorHandle h) {
-    return tensor_item_mlx_streamed(h, default_stream_tag());
-}
+/* tensor_item extracted to backend_mlx/core/lifecycle/item.cpp. */
 
 int tensor_numel(TensorHandle h) { return (int)((Tensor*)h)->data.size(); }
 int tensor_dim(TensorHandle h) { return (int)((Tensor*)h)->data.ndim(); }
@@ -3322,24 +3195,8 @@ TensorHandle tensor_view_1d(TensorHandle vec, int idx) {
     return tensor_view_1d_mlx_streamed(vec, idx, default_stream_tag());
 }
 
-double tensor_item_2d(TensorHandle mat, int row, int col) {
-    auto t = (Tensor*)mat;
-    // Flatten to contiguous for correct indexing on non-contiguous views (e.g. transpose)
-    auto flat = mx::flatten(t->data, mx::StreamOrDevice{});
-    mx::eval(flat);
-    int cols = t->data.shape(1);
-    return mx_read_double(flat, (long)row * cols + col);
-}
-
-extern "C" double tensor_item_1d_mlx_streamed(TensorHandle vec, int idx, int stream_tag) {
-    WITH_STREAM(stream_tag);
-    auto t = (Tensor*)vec;
-    mx::eval(t->data);
-    return mx_read_double(t->data, idx);
-}
-double tensor_item_1d(TensorHandle vec, int idx) {
-    return tensor_item_1d_mlx_streamed(vec, idx, default_stream_tag());
-}
+/* tensor_item_1d / tensor_item_2d extracted to
+   backend_mlx/core/lifecycle/. */
 
 /* ================================================================
    Optimizer
