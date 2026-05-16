@@ -2708,7 +2708,12 @@ void optimizer_step(OptimizerHandle h) {
         auto t = param_registry[i].tensor;
         if (!t->has_grad) continue;
 
-        mx::eval(t->grad);
+        /* Don't eval(t->grad) here — that's a per-param sync (293 params
+           x ~1 ms kernel-launch wall = ~250 ms/ep on GPU; see the
+           2026-05-14 GptLarge Phase 3 entry in perf-changes.md). The
+           ops below take lazy mx::array inputs happily; the trailing
+           mx::eval(to_eval) past the loop walks the dependency graph
+           and pulls grads into the same batch as the param updates. */
         auto g = t->grad;
 
         /* Per-param LR: use override if set, otherwise base LR */
