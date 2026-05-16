@@ -82,11 +82,43 @@ The `foreign-procedure` call inside drain resolves `tensor_release_handle` from 
 
 Call `prim__initManagedHandles` once at startup (or lazy-init on first wrap). Call `prim__drainManagedHandles + prim__forceMajorGc` at `tensor_no_grad_end` (replacing the current C-side sweep) and at every Nth FFI in heavy loops.
 
-## Phase 2.3 — Bulk-wrap FFI returns
+## Phase 2.3 — Bulk-wrap FFI returns (MUST be atomic)
 
-For every `%foreign "C:..."` in `Tensor.idr` returning `AnyPtr` (~164 of them): rename to `prim__fooRaw`, add Idris-side wrapper `prim__foo = (\args => prim__wrap (prim__fooRaw (unwrapEach args)))`. Signatures stay `AnyPtr -> ... -> AnyPtr` because wrap/unwrap is transparent at the type level.
+**Critical finding from a partial-refactor attempt**: refactoring a single FFI is NOT safe. Tested `prim__createScalar` + `prim__item` alone — crashed with "Exception: invalid memory reference" because downstream FFIs that still expect raw pointers receive Chez-vector-wrapped handles instead and dereference them as raw `void*`.
 
-Pattern is uniform → script with `sed`/`awk`. Tricky bit: per-input unwrap (need to detect `AnyPtr` args vs `Double`/`Int` args).
+**Therefore the refactor must touch all 165 `%foreign "C:..."` declarations in `Tensor.idr` in one commit**, OR isolate the wrapped surface behind a strict type-level boundary that prevents mixing. The latter is cleaner but a much bigger refactor.
+
+### Atomic-bulk-wrap plan
+
+For every `%foreign "C:..."` in `Tensor.idr` matching the pattern `prim__X : ... -> AnyPtr` or `prim__X : ... -> AnyPtr -> ...`:
+
+1. Rename the `%foreign` declaration's symbol to `prim__XRaw`.
+2. Add an Idris-side wrapper `prim__X args = prim__wrapHandle (prim__XRaw (prim__unwrapHandle a1) (prim__unwrapHandle a2) ...)` — wrapping the return, unwrapping each AnyPtr input.
+3. Signatures stay the same on the outside (`AnyPtr -> ... -> AnyPtr`); wrap/unwrap is transparent at the type level.
+
+### Edge cases
+
+- **AnyPtr inputs, non-AnyPtr return** (e.g. `prim__item : AnyPtr -> Double`): unwrap inputs, no wrap on output.
+- **Mixed args** (e.g. `prim__addScalar : AnyPtr -> Double -> AnyPtr`): unwrap only the AnyPtr arg; pass Double through.
+- **TensorPair returns**: the C-side TensorPair contains two raw pointers. We need a Scheme-side variant of `prim__wrapHandle` that wraps both. Likely a separate `prim__wrapHandlePair` primitive.
+- **`prim__free` / `prim__deviceTo` / etc**: these don't return Tensor handles; leave alone.
+- **Index-style FFIs** (e.g. `prim__numel : AnyPtr -> Int`, `prim__size : AnyPtr -> Int -> Int`): unwrap input, return Int.
+
+### Scripting approach
+
+Write `scripts/bulk-wrap-ffi.py`:
+1. Parse `Tensor.idr` for `%foreign "C:..."` blocks. Each block is the `%foreign` line + the next non-comment line (the type declaration).
+2. Identify which args are `AnyPtr` and whether return is `AnyPtr` (or contains `AnyPtr`).
+3. Generate the renamed-raw version + the Idris wrapper.
+4. Emit the rewritten file. Diff-review and commit atomically.
+
+Alternative: write the transformation as a careful manual edit, FFI block by FFI block. Tedious but tractable (~3-4h of focused work).
+
+### Phase 2.3 validation
+
+After bulk wrap, run the full test suite + `bash /tmp/mlx_baseline.sh`. Two outcomes expected:
+- All previously-passing examples still pass (refactor is semantics-preserving with no functional change beyond when freeing happens).
+- The 3 previously-failing mlx examples (ntm-copy, ntm-recall, mountain-car-cont) need additional integration: explicit `forceMajorGc + drainManagedHandles` at strategic points (no_grad_end, periodically). Phase 2.3 lands the wrapping; Phase 2.3.5 wires the drain triggers.
 
 ## Phase 2.4 — Tape + torch backends
 
