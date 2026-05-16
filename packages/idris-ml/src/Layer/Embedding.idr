@@ -22,7 +22,7 @@ import Tensor
 -- Type` interface.
 
 public export
-record EmbeddingState (vocab : Nat) (embedDim : Nat) (0 d : Type) (0 g : GradMode) where
+record EmbeddingState (vocab : Nat) (embedDim : Nat) (0 d : Device) (0 g : GradMode) where
   constructor MkEmbedding
   weightT : TMat vocab embedDim d g
 
@@ -37,7 +37,7 @@ record EmbeddingState (vocab : Nat) (embedDim : Nat) (0 d : Type) (0 g : GradMod
 ||| token IDs encoded as doubles; output `[seqLen * embedDim]` is
 ||| the flattened embedding vectors. Wraps `prim__embedding`.
 export
-applyEmbedding : {0 d : Type} -> UserDeviceCore d => {seqLen, embedDim, vocab : Nat} ->
+applyEmbedding : {0 d : Device} -> UserDeviceCore d => {seqLen, embedDim, vocab : Nat} ->
                    EmbeddingState vocab embedDim d g ->
                    TVec seqLen d g ->
                    TVec (seqLen * embedDim) d g
@@ -94,7 +94,7 @@ embeddingLayer paramPrefix = do
 
 public export
 data EmbeddingWrap : (vocab : Nat) -> (embedDim : Nat) ->
-                      Nat -> Nat -> (0 _ : Type) -> (0 _ : GradMode) -> Type where
+                      Nat -> Nat -> (0 _ : Device) -> (0 _ : GradMode) -> Type where
   MkEmbeddingWrap : EmbeddingState vocab embedDim d g ->
                      EmbeddingWrap vocab embedDim seqLen (seqLen * embedDim) d g
 

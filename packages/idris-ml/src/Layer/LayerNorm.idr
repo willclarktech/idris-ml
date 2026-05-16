@@ -23,7 +23,7 @@ import Tensor
 -- (mirrors Dropout's pattern).
 
 public export
-data LayerNormState : Nat -> Nat -> (0 _ : Type) -> (0 _ : GradMode) -> Type where
+data LayerNormState : Nat -> Nat -> (0 _ : Device) -> (0 _ : GradMode) -> Type where
   MkLayerNorm : TVec n d g -> TVec n d g -> LayerNormState n n d g
 
 
@@ -34,7 +34,7 @@ data LayerNormState : Nat -> Nat -> (0 _ : Type) -> (0 _ : GradMode) -> Type whe
 %default partial
 
 export
-applyLayerNorm : {0 d : Type} -> UserDeviceCore d => {n : Nat} ->
+applyLayerNorm : {0 d : Device} -> UserDeviceCore d => {n : Nat} ->
                    LayerNormState n n d g ->
                    TVec n d g ->
                    (LayerNormState n n d g, TVec n d g)

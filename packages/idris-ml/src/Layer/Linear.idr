@@ -19,7 +19,7 @@ import Tensor
 -- Bias and weight are registered C params at construction time.
 
 public export
-record LinearState (i : Nat) (o : Nat) (0 d : Type) (0 g : GradMode) where
+record LinearState (i : Nat) (o : Nat) (0 d : Device) (0 g : GradMode) where
   constructor MkLinear
   weightT : Tensor [o, i] d g
   biasT   : Tensor [o] d g

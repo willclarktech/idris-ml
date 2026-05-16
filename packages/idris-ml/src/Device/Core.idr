@@ -22,6 +22,27 @@ module Device.Core
 
 
 ----------------------------------------------------------------------
+-- `Device` kind alias
+--
+-- `Device` is a 0-quantity alias for `Type`. Tensor's `d` phantom is
+-- declared as `(0 d : Device)`, which is exactly `(0 d : Type)`
+-- underneath but reads as "d is a device tag" at every kind-binder
+-- site. No type-system enforcement: nothing stops a caller writing
+-- `Tensor [4] Bool`. But construction (`primCreate*`) and operations
+-- (`tadd` etc.) both require `UserDeviceCore d =>`, so non-device
+-- `d`s can be declared but never inhabited or operated on.
+--
+-- See `docs/develop/design-decisions.md` "Open `d` kind: why
+-- `Device = Type` instead of a real sub-kind" for the alternatives
+-- considered and why we kept it open.
+----------------------------------------------------------------------
+
+public export
+0 Device : Type
+Device = Type
+
+
+----------------------------------------------------------------------
 -- UserDeviceCore — lifecycle + arithmetic slice
 ----------------------------------------------------------------------
 
@@ -29,7 +50,7 @@ module Device.Core
 ||| elementwise arithmetic. Later phases add `UserDeviceLinear`,
 ||| `UserDeviceNN`, `UserDeviceConv`, `UserDeviceTape` slices.
 public export
-interface UserDeviceCore (0 d : Type) where
+interface UserDeviceCore (0 d : Device) where
   ||| Human-readable device tag: "tape", "torch", "mlx", "mybackend".
   ||| Used in logs and `Show Device`-style stringification.
   deviceName : String

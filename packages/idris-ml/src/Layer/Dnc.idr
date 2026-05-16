@@ -133,7 +133,7 @@ dncReadHeads idx (prevRw :: restRws) linkT linkTransT memT keysT betasT modesT m
 public export
 data DncState :
   (r : Nat) -> (n : Nat) -> (m : Nat) -> (h : Nat) ->
-  Nat -> Nat -> (0 _ : Type) -> (0 _ : GradMode) -> Type
+  Nat -> Nat -> (0 _ : Device) -> (0 _ : GradMode) -> Type
   where
   MkDnc :
     LstmState (DncControllerInput r m i) h d g ->
@@ -214,7 +214,7 @@ mkZeroVectM (S k) m = zeroState1d m :: mkZeroVectM k m
 ----------------------------------------------------------------------
 
 export
-applyDnc : {0 d : Type} -> UserDeviceCore d => {r, n, m, h, i, o : Nat} ->
+applyDnc : {0 d : Device} -> UserDeviceCore d => {r, n, m, h, i, o : Nat} ->
              DncState r n m h i o d g ->
              TVec i d g ->
              (DncState r n m h i o d g, TVec o d g)

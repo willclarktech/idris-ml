@@ -27,7 +27,7 @@ dropoutSeed : Int -> Int
 -- `Nat -> Nat -> Device -> Type` arity.
 
 public export
-data DropoutState : Nat -> Nat -> (0 _ : Type) -> (0 _ : GradMode) -> Type where
+data DropoutState : Nat -> Nat -> (0 _ : Device) -> (0 _ : GradMode) -> Type where
   MkDropout : (p : Double) -> (training : Bool) -> DropoutState n n d g
 
 
@@ -38,7 +38,7 @@ data DropoutState : Nat -> Nat -> (0 _ : Type) -> (0 _ : GradMode) -> Type where
 %default partial
 
 export
-applyDropout : {0 d : Type} -> UserDeviceCore d => {n : Nat} ->
+applyDropout : {0 d : Device} -> UserDeviceCore d => {n : Nat} ->
                  DropoutState n n d g ->
                  TVec n d g ->
                  (DropoutState n n d g, TVec n d g)

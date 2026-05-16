@@ -15,7 +15,7 @@ import Tensor
 -- and output dim. GADT enforces `i = o = n`.
 
 public export
-data ResidualState : Nat -> Nat -> (0 _ : Type) -> (0 _ : GradMode) -> Type where
+data ResidualState : Nat -> Nat -> (0 _ : Device) -> (0 _ : GradMode) -> Type where
   MkResidual : AnyLayer n n d g -> ResidualState n n d g
 
 
@@ -26,7 +26,7 @@ data ResidualState : Nat -> Nat -> (0 _ : Type) -> (0 _ : GradMode) -> Type wher
 %default partial
 
 export
-applyResidual : {0 d : Type} -> UserDeviceCore d => {n : Nat} ->
+applyResidual : {0 d : Device} -> UserDeviceCore d => {n : Nat} ->
                   ResidualState n n d g ->
                   TVec n d g ->
                   (ResidualState n n d g, TVec n d g)

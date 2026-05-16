@@ -789,3 +789,30 @@ Verified combinations on macOS (Apple Silicon, libtorch 2.x via uv venv, mlx 0.3
 
 Phase 2.1 (Move `Tensor.idr`'s lifecycle + arithmetic FFI into `UserDeviceCore` instance methods) is unblocked.
 
+### Open `d` parameter: why `Device = Type` instead of a real sub-type (2026-05-13)
+
+Phase 2.1b opened the `d` parameter on `Tensor` from the closed sum `Device = CPU | CUDA Nat | MPS` to the unrestricted `Type`. After landing, the worry surfaced: `Tensor [4] Bool` now type-checks at the record level. The kind-of-binder (in Haskell terms) is unrestricted; from a documentation perspective `Tensor [4] Bool` looks like a valid type.
+
+(Aside on terminology — Idris 2 doesn't have a separate "kind" sort the way Haskell does. `Type` is a value of `Type` (with universe stratification behind the scenes). What Haskell calls "the kind of `d`" is in Idris just "the type at which `d` is bound." Outside this document we'll keep saying "kind" for everyone's sanity, but strictly it's a Haskell-ism.)
+
+**Current safety profile**:
+- *Construction* is closed: every Tensor-producing path goes through one of the `UserDeviceCore` methods (`primCreateScalar`, `primCreate`, etc.). No `UserDeviceCore` instance for `Bool` ⇒ no way to inhabit `Tensor [4] Bool`.
+- *Operations* are closed: `tadd`, `tsub`, …, `forwardVar`, `applyVar` all carry `UserDeviceCore d =>`. No instance ⇒ no operation typechecks.
+- *Declaration* is open: `the (Tensor [4] Bool) ...` type-checks; you just can't construct the value or call any op on it. It's a phantom that can't be made real.
+
+So in practice, the worst a non-device `d` can do is type-check uselessly. The user gets a "no `UserDeviceCore Bool` instance" error at the first attempt to use the tensor — which is a clear-enough signal, just one step later than "no `Bool` as a device."
+
+**Options considered**:
+
+1. **Documentation-only `Device` kind alias** *(chosen, this commit)*: `0 Device : Type; Device = Type`. Every kind-binder reads `(0 d : Device)` instead of `(0 d : Type)`. Same kind at runtime, but the call-site documentation says "this is a device tag." No type-system enforcement. ~Zero cost.
+
+2. **Empty marker interface `IsDevice`** *(deferred)*: Empty interface implemented for each device type. `Tensor`'s `d` stays at `Type`, but every Tensor-producing function takes `IsDevice d =>`. Pushes the error one step earlier than "no `UserDeviceCore` instance"; user gets "no `IsDevice` instance" at type-checking the declaration. Cost: one interface declaration + per-built-in impl + the constraint threaded through alongside `UserDeviceCore`. Mostly redundant with `UserDeviceCore` (any device that supports any op already implements `UserDeviceCore`).
+
+3. **Hard kind restriction on the record** *(deferred)*: Either constrain `Tensor`'s record params (Idris 2 doesn't support auto-implicit constraints on record params directly) or make `MkTensor` private and add a smart constructor requiring `UserDeviceCore d`. Real restriction. Cost: every `MkTensor` call site in the codebase (~50 places in `Tensor.idr` + smart constructors throughout) needs updating; the existential `AnyLayer` wrapping breaks because you can't smuggle the constraint through it cleanly.
+
+4. **Closed-sum GADT wrapping any device type** *(deferred)*: A `DeviceTag` data type with `MkDeviceTag : (0 d : Type) -> UserDeviceCore d => DeviceTag`. `Tensor` parameterised on `DeviceTag` values. Loses the "user can declare their own type" simplicity (they have to wrap it in `MkDeviceTag`).
+
+**Why option 1 now**: the practical risk of `Tensor [4] Bool` is bounded — nothing can be done with it. The kind alias gives every kind-binder site a meaningful name without forcing constraint propagation through the record or smart-constructor changes. If we later want sharper errors at the declaration site, option 2 (IsDevice marker) is the natural next step and can be added without breaking the Phase 2.1c interface plumbing.
+
+**Revisit triggers**: open if users in the wild file confusing "no `UserDeviceCore X` instance" errors traced back to a typo like `Tensor [4] Bool`, OR if we ever want to define library code that's polymorphic in `d` without `UserDeviceCore d` available (currently impossible — every op needs it, so every polymorphic-in-`d` site naturally has it). Option 2 (`IsDevice`) is the cheapest sharper variant; option 3 is the heaviest if we want compile-time rejection at declaration sites.
+

@@ -24,7 +24,7 @@ import Tensor
 -- `TMat (3 * o) ...` and `TVec (3 * o) ...` aliases.
 
 public export
-record GruState (i : Nat) (o : Nat) (0 d : Type) (0 g : GradMode) where
+record GruState (i : Nat) (o : Nat) (0 d : Device) (0 g : GradMode) where
   constructor MkGru
   iwT : TMat (3 * o) i d g         -- W_ih [3*o, i]
   ihB : TVec (3 * o) d g           -- b_ih [3*o]
@@ -40,7 +40,7 @@ record GruState (i : Nat) (o : Nat) (0 d : Type) (0 g : GradMode) where
 %default partial
 
 export
-applyGru : {0 d : Type} -> UserDeviceCore d => {o : Nat} ->
+applyGru : {0 d : Device} -> UserDeviceCore d => {o : Nat} ->
              GruState i o d g ->
              TVec i d g ->
              (GruState i o d g, TVec o d g)
@@ -112,7 +112,7 @@ gruLayer paramPrefix = do
 
 ||| Reset hidden state. Lazy-allocate on next applyVar call.
 export
-resetGruState : {o : Nat} -> {0 d : Type} -> {0 g : GradMode} -> GruState i o d g -> GruState i o d g
+resetGruState : {o : Nat} -> {0 d : Device} -> {0 g : GradMode} -> GruState i o d g -> GruState i o d g
 resetGruState st = { hiddenT := Nothing } st
 
 

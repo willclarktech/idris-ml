@@ -36,7 +36,7 @@ import Tensor
 
 public export
 record BlockState (dModel : Nat) (numHeads : Nat) (headDim : Nat)
-                    (0 d : Type) (0 g : GradMode) where
+                    (0 d : Device) (0 g : GradMode) where
   constructor MkBlock
   queryWs   : Vect numHeads (LinearState dModel headDim d g)
   keyWs     : Vect numHeads (LinearState dModel headDim d g)
@@ -56,7 +56,7 @@ public export
 data TransformerState :
   (seqLen : Nat) -> (dModel : Nat) -> (numHeads : Nat) ->
   (headDim : Nat) -> (numBlocks : Nat) -> (vocabSize : Nat) ->
-  Nat -> Nat -> (0 _ : Type) -> (0 _ : GradMode) -> Type
+  Nat -> Nat -> (0 _ : Device) -> (0 _ : GradMode) -> Type
   where
   MkTransformer :
     {0 prf : dModel = numHeads * headDim} ->
@@ -156,7 +156,7 @@ foldBlocks (b :: bs) h sI hdI =
 ----------------------------------------------------------------------
 
 export
-applyTransformer : {0 d : Type} -> UserDeviceCore d => {seqLen, dModel, numHeads, headDim, numBlocks, vocabSize : Nat} ->
+applyTransformer : {0 d : Device} -> UserDeviceCore d => {seqLen, dModel, numHeads, headDim, numBlocks, vocabSize : Nat} ->
                      TransformerState seqLen dModel numHeads headDim numBlocks
                                        vocabSize seqLen (seqLen * vocabSize) d g ->
                      TVec seqLen d g ->
@@ -361,7 +361,7 @@ transformerLayer {prf} paramPrefix = do
 -- Vect of linear states: walk linearly via manual recursion (traverse
 -- can't be used because freezeLayer / unfreezeLayer are linear in
 -- their argument, not unrestricted).
-freezeLinearVec : {i, o : Nat} -> {0 d : Type} -> {0 g : GradMode} ->
+freezeLinearVec : {i, o : Nat} -> {0 d : Device} -> {0 g : GradMode} ->
                     Vect k (LinearState i o d g) ->
                     IO (Vect k (LinearState i o d NoGrad))
 freezeLinearVec [] = pure []
@@ -370,7 +370,7 @@ freezeLinearVec (l :: ls) = do
   ls' <- freezeLinearVec ls
   pure (l' :: ls')
 
-unfreezeLinearVec : {i, o : Nat} -> {0 d : Type} ->
+unfreezeLinearVec : {i, o : Nat} -> {0 d : Device} ->
                       Vect k (LinearState i o d NoGrad) ->
                       IO (Vect k (LinearState i o d WithGrad))
 unfreezeLinearVec [] = pure []
@@ -379,7 +379,7 @@ unfreezeLinearVec (l :: ls) = do
   ls' <- unfreezeLinearVec ls
   pure (l' :: ls')
 
-freezeBlock : {dModel, numHeads, headDim : Nat} -> {0 d : Type} -> {0 g : GradMode} ->
+freezeBlock : {dModel, numHeads, headDim : Nat} -> {0 d : Device} -> {0 g : GradMode} ->
                 BlockState dModel numHeads headDim d g ->
                 IO (BlockState dModel numHeads headDim d NoGrad)
 freezeBlock (MkBlock qs ks vs ops n1 n2 ff1 ff2) = do
@@ -393,7 +393,7 @@ freezeBlock (MkBlock qs ks vs ops n1 n2 ff1 ff2) = do
   ff2' <- freezeLayer ff2
   pure (MkBlock qs' ks' vs' ops' n1' n2' ff1' ff2')
 
-unfreezeBlock : {dModel, numHeads, headDim : Nat} -> {0 d : Type} ->
+unfreezeBlock : {dModel, numHeads, headDim : Nat} -> {0 d : Device} ->
                   BlockState dModel numHeads headDim d NoGrad ->
                   IO (BlockState dModel numHeads headDim d WithGrad)
 unfreezeBlock (MkBlock qs ks vs ops n1 n2 ff1 ff2) = do
@@ -407,7 +407,7 @@ unfreezeBlock (MkBlock qs ks vs ops n1 n2 ff1 ff2) = do
   ff2' <- unfreezeLayer ff2
   pure (MkBlock qs' ks' vs' ops' n1' n2' ff1' ff2')
 
-freezeBlockVec : {dModel, numHeads, headDim : Nat} -> {0 d : Type} -> {0 g : GradMode} ->
+freezeBlockVec : {dModel, numHeads, headDim : Nat} -> {0 d : Device} -> {0 g : GradMode} ->
                    Vect k (BlockState dModel numHeads headDim d g) ->
                    IO (Vect k (BlockState dModel numHeads headDim d NoGrad))
 freezeBlockVec [] = pure []
@@ -416,7 +416,7 @@ freezeBlockVec (b :: bs) = do
   bs' <- freezeBlockVec bs
   pure (b' :: bs')
 
-unfreezeBlockVec : {dModel, numHeads, headDim : Nat} -> {0 d : Type} ->
+unfreezeBlockVec : {dModel, numHeads, headDim : Nat} -> {0 d : Device} ->
                      Vect k (BlockState dModel numHeads headDim d NoGrad) ->
                      IO (Vect k (BlockState dModel numHeads headDim d WithGrad))
 unfreezeBlockVec [] = pure []

@@ -32,7 +32,7 @@ import Tensor
 -- though shape arithmetic isn't needed here (no `4 *`).
 
 public export
-record RnnState (i : Nat) (o : Nat) (0 d : Type) (0 g : GradMode) where
+record RnnState (i : Nat) (o : Nat) (0 d : Device) (0 g : GradMode) where
   constructor MkRnn
   iwT : TMat o i d g         -- W_ih [o, i]
   rwT : TMat o o d g         -- W_hh [o, o]
@@ -49,7 +49,7 @@ record RnnState (i : Nat) (o : Nat) (0 d : Type) (0 g : GradMode) where
 %default partial
 
 export
-applyRnn : {0 d : Type} -> UserDeviceCore d => {o : Nat} ->
+applyRnn : {0 d : Device} -> UserDeviceCore d => {o : Nat} ->
              RnnState i o d g ->
              TVec i d g ->
              (RnnState i o d g, TVec o d g)
@@ -128,7 +128,7 @@ rnnLayer paramPrefix activation = do
 
 ||| Reset hidden state. Lazy-allocate on next applyVar call.
 export
-resetRnnState : {o : Nat} -> {0 d : Type} -> {0 g : GradMode} -> RnnState i o d g -> RnnState i o d g
+resetRnnState : {o : Nat} -> {0 d : Device} -> {0 g : GradMode} -> RnnState i o d g -> RnnState i o d g
 resetRnnState st = { prevOutT := Nothing } st
 
 

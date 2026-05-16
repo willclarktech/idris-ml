@@ -21,7 +21,7 @@ import Tensor
 -- than inside a Vect literal.
 
 public export
-record LstmState (i : Nat) (o : Nat) (0 d : Type) (0 g : GradMode) where
+record LstmState (i : Nat) (o : Nat) (0 d : Device) (0 g : GradMode) where
   constructor MkLstm
   iwT : TMat (4 * o) i d g
   rwT : TMat (4 * o) o d g
@@ -43,7 +43,7 @@ record LstmState (i : Nat) (o : Nat) (0 d : Type) (0 g : GradMode) where
 ||| hidden + cell state, runs the fused gate computation, returns the
 ||| updated layer state and the new hidden output.
 export
-applyLstm : {0 d : Type} -> UserDeviceCore d => {o : Nat} ->
+applyLstm : {0 d : Device} -> UserDeviceCore d => {o : Nat} ->
               LstmState i o d g ->
               TVec i d g ->
               (LstmState i o d g, TVec o d g)
@@ -141,7 +141,7 @@ lstmLayer paramPrefix = do
 ||| first call lazy-allocate fresh persistent zero buffers — mirrors
 ||| V1's `resetState`, where MLX trains correctly via this lazy path.
 export
-resetLstmState : {o : Nat} -> {0 d : Type} -> {0 g : GradMode} -> LstmState i o d g -> LstmState i o d g
+resetLstmState : {o : Nat} -> {0 d : Device} -> {0 g : GradMode} -> LstmState i o d g -> LstmState i o d g
 resetLstmState st = { hiddenT := Nothing, cellT := Nothing } st
 
 

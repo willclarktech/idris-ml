@@ -910,7 +910,7 @@ profileReport = primIO prim__profileReportC
 -- Spike-only; lives in a parallel layer/example axis.
 
 public export
-record Tensor (dims : Vect rank Nat) (0 d : Type) (0 g : GradMode) where
+record Tensor (dims : Vect rank Nat) (0 d : Device) (0 g : GradMode) where
   constructor MkTensor
   tensorPtr : AnyPtr
   paramId   : Maybe String
@@ -968,11 +968,11 @@ retypeGrad (MkTensor ptr pid) = MkTensor ptr pid
 ||| type-checker hang on multiplicative Nat expressions.
 ||| (`Tensor [4 * o, i] d` hangs; `TMat (4 * o) i d` works.)
 public export
-0 TVec : Nat -> Type -> GradMode -> Type
+0 TVec : Nat -> Device -> GradMode -> Type
 TVec n d g = Tensor [n] d g
 
 public export
-0 TMat : Nat -> Nat -> Type -> GradMode -> Type
+0 TMat : Nat -> Nat -> Device -> GradMode -> Type
 TMat m n d g = Tensor [m, n] d g
 
 -- Smart constructors --------------------------------------------------
@@ -1015,7 +1015,7 @@ tinput2d t = MkTensor t Nothing
 ||| adds ~20µs of Scheme-side overhead per call, accumulating to a
 ||| 2× regression on recurrent models.
 export %inline
-tadd : {0 d : Type} -> UserDeviceCore d => Tensor dims d g -> Tensor dims d g -> Tensor dims d g
+tadd : {0 d : Device} -> UserDeviceCore d => Tensor dims d g -> Tensor dims d g -> Tensor dims d g
 tadd a b = MkTensor (primAdd {d} a.tensorPtr b.tensorPtr) Nothing
 
 ||| Matrix-vector multiply: [m, n] · [n] -> [m]. `%inline` for the
@@ -1046,13 +1046,13 @@ tlinear2d w x bias =
 ||| Select row `k` from a [b, n] Tensor, returning the n-vector slice.
 ||| Wraps `prim__select` on dim 0; preserves the autograd graph.
 export
-trowSelect : {0 d : Type} -> {b, n : Nat} ->
+trowSelect : {0 d : Device} -> {b, n : Nat} ->
              Tensor [b, n] d g -> Int -> Tensor [n] d g
 trowSelect t k = MkTensor (prim__select t.tensorPtr 0 k) Nothing
 
 ||| Select element `i` from an n-vector, returning a scalar Tensor.
 export
-telemSelect : {0 d : Type} -> {n : Nat} ->
+telemSelect : {0 d : Device} -> {n : Nat} ->
               Tensor [n] d g -> Int -> Tensor [] d g
 telemSelect t i = MkTensor (prim__select t.tensorPtr 0 i) Nothing
 
@@ -1073,22 +1073,22 @@ export
 ||| construct scalars via their own `UserDeviceCore.primCreateScalar`
 ||| directly. Same compromise applies to `tparamScalar` and
 ||| `freshZeroLossT`.
-tconstScalar : {0 d : Type} -> Double -> Tensor [] d WithGrad
+tconstScalar : {0 d : Device} -> Double -> Tensor [] d WithGrad
 tconstScalar v = MkTensor (prim__createScalar v 0) Nothing
 
 ||| Subtract two equally-shaped Tensors (autograd-tracked).
 export %inline
-tsub : {0 d : Type} -> UserDeviceCore d => Tensor dims d g -> Tensor dims d g -> Tensor dims d g
+tsub : {0 d : Device} -> UserDeviceCore d => Tensor dims d g -> Tensor dims d g -> Tensor dims d g
 tsub a b = MkTensor (primSub {d} a.tensorPtr b.tensorPtr) Nothing
 
 ||| Elementwise multiply two equally-shaped Tensors (autograd-tracked).
 export %inline
-tmul : {0 d : Type} -> UserDeviceCore d => Tensor dims d g -> Tensor dims d g -> Tensor dims d g
+tmul : {0 d : Device} -> UserDeviceCore d => Tensor dims d g -> Tensor dims d g -> Tensor dims d g
 tmul a b = MkTensor (primMul {d} a.tensorPtr b.tensorPtr) Nothing
 
 ||| Negate a Tensor (autograd-tracked).
 export %inline
-tneg : {0 d : Type} -> UserDeviceCore d => Tensor dims d g -> Tensor dims d g
+tneg : {0 d : Device} -> UserDeviceCore d => Tensor dims d g -> Tensor dims d g
 tneg a = MkTensor (primNeg {d} a.tensorPtr) Nothing
 
 ||| Scale a Tensor by a Double (broadcasts the scalar; autograd-tracked).
@@ -1096,24 +1096,24 @@ tneg a = MkTensor (primNeg {d} a.tensorPtr) Nothing
 ||| building per-sample loss expressions where one side of a product is
 ||| a runtime Double (e.g. DQN target value).
 export %inline
-tmulScalar : {0 d : Type} -> UserDeviceCore d => Tensor dims d g -> Double -> Tensor dims d g
+tmulScalar : {0 d : Device} -> UserDeviceCore d => Tensor dims d g -> Double -> Tensor dims d g
 tmulScalar v s = MkTensor (primMulScalar {d} v.tensorPtr s) Nothing
 
 ||| Elementwise exponential (autograd-tracked).
 export %inline
-texp : {0 d : Type} -> UserDeviceCore d => Tensor dims d g -> Tensor dims d g
+texp : {0 d : Device} -> UserDeviceCore d => Tensor dims d g -> Tensor dims d g
 texp v = MkTensor (primExp {d} v.tensorPtr) Nothing
 
 ||| Elementwise natural log (autograd-tracked).
 export %inline
-tlog : {0 d : Type} -> UserDeviceCore d => Tensor dims d g -> Tensor dims d g
+tlog : {0 d : Device} -> UserDeviceCore d => Tensor dims d g -> Tensor dims d g
 tlog v = MkTensor (primLog {d} v.tensorPtr) Nothing
 
 ||| Create a registered learnable scalar parameter (e.g. SAC's
 ||| state-independent log_std). Mirrors V1's `param`. The optimizer
 ||| picks it up automatically by paramId scope.
 export
-tparamScalar : {0 d : Type} -> (paramId : String) -> (val : Double) -> Tensor [] d WithGrad
+tparamScalar : {0 d : Device} -> (paramId : String) -> (val : Double) -> Tensor [] d WithGrad
 tparamScalar pid val =
   let ptr = prim__createScalar val 1                  -- requires_grad=true
       reg = prim__paramRegister pid ptr
@@ -1132,15 +1132,15 @@ tconcat2dAxis1 a b = MkTensor (prim__concat2dAxis1 a.tensorPtr b.tensorPtr) Noth
 -- All `%inline` for hot-path performance — see `tadd` rationale.
 
 export %inline
-ttanh : {0 d : Type} -> UserDeviceCore d => Tensor dims d g -> Tensor dims d g
+ttanh : {0 d : Device} -> UserDeviceCore d => Tensor dims d g -> Tensor dims d g
 ttanh v = MkTensor (primTanh {d} v.tensorPtr) Nothing
 
 export %inline
-tsigmoid : {0 d : Type} -> UserDeviceCore d => Tensor dims d g -> Tensor dims d g
+tsigmoid : {0 d : Device} -> UserDeviceCore d => Tensor dims d g -> Tensor dims d g
 tsigmoid v = MkTensor (primSigmoid {d} v.tensorPtr) Nothing
 
 export %inline
-trelu : {0 d : Type} -> UserDeviceCore d => Tensor dims d g -> Tensor dims d g
+trelu : {0 d : Device} -> UserDeviceCore d => Tensor dims d g -> Tensor dims d g
 trelu v = MkTensor (primClampMin {d} v.tensorPtr 0.0) Nothing
 
 export %inline
@@ -1265,7 +1265,7 @@ tbceLoss p t =
 ||| clip → step. Reads `prim__item` BEFORE the step so the returned
 ||| scalar is not stale. Mirrors `nativeTrainStep`.
 export
-nativeTrainStep : {0 d : Type} -> NativeOptimizer -> Tensor [] d WithGrad -> Double
+nativeTrainStep : {0 d : Device} -> NativeOptimizer -> Tensor [] d WithGrad -> Double
 nativeTrainStep opt loss =
   let clipMode : Int
       clipMode = case opt.clipMode of NoClip => 0; ValueClip _ => 1; NormClip _ => 2

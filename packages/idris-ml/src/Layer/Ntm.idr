@@ -49,7 +49,7 @@ WriteParamWidth m = ReadParamWidth m + m
 public export
 data NtmState :
   (n : Nat) -> (m : Nat) -> (h : Nat) ->
-  Nat -> Nat -> (0 _ : Type) -> (0 _ : GradMode) -> Type
+  Nat -> Nat -> (0 _ : Device) -> (0 _ : GradMode) -> Type
   where
   MkNtm :
     LstmState (m + i) h d g ->
@@ -132,7 +132,7 @@ ntmInterpWriteIdris {n} memT weightsT addVecT =
   in prim__add kept writeAdd
 
 export
-applyNtm : {0 d : Type} -> UserDeviceCore d => {n, m, h, i, o : Nat} ->
+applyNtm : {0 d : Device} -> UserDeviceCore d => {n, m, h, i, o : Nat} ->
              NtmState n m h i o d g ->
              TVec i d g ->
              (NtmState n m h i o d g, TVec o d g)

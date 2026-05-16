@@ -49,7 +49,7 @@ public export
 data Conv2DState :
   (inC : Nat) -> (outC : Nat) -> (h : Nat) -> (w : Nat) ->
   (kH : Nat) -> (kW : Nat) -> (padH : Nat) -> (padW : Nat) ->
-  Nat -> Nat -> (0 _ : Type) -> (0 _ : GradMode) -> Type
+  Nat -> Nat -> (0 _ : Device) -> (0 _ : GradMode) -> Type
   where
   MkConv2D :
     Tensor [outC, inC, kH, kW] d g ->                       -- kernel
@@ -62,7 +62,7 @@ data Conv2DState :
 %default partial
 
 export
-applyConv2D : {0 d : Type} -> UserDeviceCore d => {inC, outC, h, w, kH, kW, padH, padW : Nat} ->
+applyConv2D : {0 d : Device} -> UserDeviceCore d => {inC, outC, h, w, kH, kW, padH, padW : Nat} ->
                 Conv2DState inC outC h w kH kW padH padW
                               (inC * (h * w))
                               (outC * (ConvOutDim h kH padH * ConvOutDim w kW padW))
@@ -86,7 +86,7 @@ applyConv2D {inC} {outC} {h} {w} {kH} {kW} {padH} {padW}
 -- the batched primitive, then flatten back. One conv2d call per batched
 -- forward (vs B single-sample calls in `applyConv2D`).
 export
-applyConv2DBatched : {0 d : Type} -> UserDeviceCore d => {inC, outC, h, w, kH, kW, padH, padW : Nat} -> {b : Nat} ->
+applyConv2DBatched : {0 d : Device} -> UserDeviceCore d => {inC, outC, h, w, kH, kW, padH, padW : Nat} -> {b : Nat} ->
                        Conv2DState inC outC h w kH kW padH padW
                                      (inC * (h * w))
                                      (outC * (ConvOutDim h kH padH * ConvOutDim w kW padW))
@@ -181,7 +181,7 @@ conv2dLayerAny pid =
 public export
 data Conv1DState :
   (inC : Nat) -> (outC : Nat) -> (len : Nat) -> (kL : Nat) -> (pad : Nat) ->
-  Nat -> Nat -> (0 _ : Type) -> (0 _ : GradMode) -> Type
+  Nat -> Nat -> (0 _ : Device) -> (0 _ : GradMode) -> Type
   where
   MkConv1D :
     Tensor [outC, inC, kL] d g ->
@@ -192,7 +192,7 @@ data Conv1DState :
                   d g
 
 export
-applyConv1D : {0 d : Type} -> UserDeviceCore d => {inC, outC, len, kL, pad : Nat} ->
+applyConv1D : {0 d : Device} -> UserDeviceCore d => {inC, outC, len, kL, pad : Nat} ->
                 Conv1DState inC outC len kL pad
                               (inC * len)
                               (outC * ConvOutDim len kL pad) d g ->
@@ -265,7 +265,7 @@ public export
 data MaxPool2DState :
   (c : Nat) -> (inH : Nat) -> (inW : Nat) ->
   (poolH : Nat) -> (poolW : Nat) -> (strH : Nat) -> (strW : Nat) ->
-  Nat -> Nat -> (0 _ : Type) -> (0 _ : GradMode) -> Type
+  Nat -> Nat -> (0 _ : Device) -> (0 _ : GradMode) -> Type
   where
   MkMaxPool2D :
     MaxPool2DState c inH inW poolH poolW strH strW
@@ -274,7 +274,7 @@ data MaxPool2DState :
                      d g
 
 export
-applyMaxPool2D : {0 d : Type} -> UserDeviceCore d => {c, inH, inW, poolH, poolW, strH, strW : Nat} ->
+applyMaxPool2D : {0 d : Device} -> UserDeviceCore d => {c, inH, inW, poolH, poolW, strH, strW : Nat} ->
                    MaxPool2DState c inH inW poolH poolW strH strW
                                     (c * (inH * inW))
                                     (c * (PoolOutDim inH poolH strH * PoolOutDim inW poolW strW))
@@ -294,7 +294,7 @@ applyMaxPool2D {c} {inH} {inW} {poolH} {poolW} {strH} {strW} _ input =
 -- Batched: input [b, c * inH * inW], reshape to [b, c, inH, inW], pool,
 -- flatten back to [b, c * outH * outW].
 export
-applyMaxPool2DBatched : {0 d : Type} -> UserDeviceCore d => {c, inH, inW, poolH, poolW, strH, strW : Nat} -> {b : Nat} ->
+applyMaxPool2DBatched : {0 d : Device} -> UserDeviceCore d => {c, inH, inW, poolH, poolW, strH, strW : Nat} -> {b : Nat} ->
                           MaxPool2DState c inH inW poolH poolW strH strW
                                            (c * (inH * inW))
                                            (c * (PoolOutDim inH poolH strH * PoolOutDim inW poolW strW))
@@ -337,7 +337,7 @@ public export
 data AvgPool2DState :
   (c : Nat) -> (inH : Nat) -> (inW : Nat) ->
   (poolH : Nat) -> (poolW : Nat) -> (strH : Nat) -> (strW : Nat) ->
-  Nat -> Nat -> (0 _ : Type) -> (0 _ : GradMode) -> Type
+  Nat -> Nat -> (0 _ : Device) -> (0 _ : GradMode) -> Type
   where
   MkAvgPool2D :
     AvgPool2DState c inH inW poolH poolW strH strW
@@ -346,7 +346,7 @@ data AvgPool2DState :
                      d g
 
 export
-applyAvgPool2D : {0 d : Type} -> UserDeviceCore d => {c, inH, inW, poolH, poolW, strH, strW : Nat} ->
+applyAvgPool2D : {0 d : Device} -> UserDeviceCore d => {c, inH, inW, poolH, poolW, strH, strW : Nat} ->
                    AvgPool2DState c inH inW poolH poolW strH strW
                                     (c * (inH * inW))
                                     (c * (PoolOutDim inH poolH strH * PoolOutDim inW poolW strW))
@@ -389,7 +389,7 @@ avgPool2dLayer =
 public export
 data MaxPool1DState :
   (c : Nat) -> (len : Nat) -> (poolK : Nat) -> (str : Nat) ->
-  Nat -> Nat -> (0 _ : Type) -> (0 _ : GradMode) -> Type
+  Nat -> Nat -> (0 _ : Device) -> (0 _ : GradMode) -> Type
   where
   MkMaxPool1D :
     MaxPool1DState c len poolK str
@@ -397,7 +397,7 @@ data MaxPool1DState :
                      (c * PoolOutDim len poolK str) d g
 
 export
-applyMaxPool1D : {0 d : Type} -> UserDeviceCore d => {c, len, poolK, str : Nat} ->
+applyMaxPool1D : {0 d : Device} -> UserDeviceCore d => {c, len, poolK, str : Nat} ->
                    MaxPool1DState c len poolK str
                                     (c * len) (c * PoolOutDim len poolK str) d g ->
                    TVec (c * len) d g ->
@@ -428,7 +428,7 @@ maxPool1dLayer =
 public export
 data AvgPool1DState :
   (c : Nat) -> (len : Nat) -> (poolK : Nat) -> (str : Nat) ->
-  Nat -> Nat -> (0 _ : Type) -> (0 _ : GradMode) -> Type
+  Nat -> Nat -> (0 _ : Device) -> (0 _ : GradMode) -> Type
   where
   MkAvgPool1D :
     AvgPool1DState c len poolK str
@@ -436,7 +436,7 @@ data AvgPool1DState :
                      (c * PoolOutDim len poolK str) d g
 
 export
-applyAvgPool1D : {0 d : Type} -> UserDeviceCore d => {c, len, poolK, str : Nat} ->
+applyAvgPool1D : {0 d : Device} -> UserDeviceCore d => {c, len, poolK, str : Nat} ->
                    AvgPool1DState c len poolK str
                                     (c * len) (c * PoolOutDim len poolK str) d g ->
                    TVec (c * len) d g ->
