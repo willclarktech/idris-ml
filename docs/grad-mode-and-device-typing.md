@@ -76,29 +76,125 @@ parameter values on a single page? If yes, phantom enum. If no
 The current tensor type is
 
 ```idris
-Tensor (dims : Vect rank Nat) (0 d : Device)
+Tensor (dims : Vect rank Nat) (0 d : Device) (0 g : GradMode)
 ```
 
 - `dims` is genuinely dependent — `Nat`-valued, arithmetic happens
   during type checking. This is where `matmul`-shape-safety and
   conv-output-dim safety come from.
-- `Device = CPU | CUDA Nat | MPS` is a phantom-type enum.
-  Technically `CUDA n` is value-indexed, but in practice it's
-  `Fin 8`-shaped (you address a handful of devices, not arbitrary
-  naturals). It could equally have been `CPU | CUDA0 | CUDA1 | …`
-  — a flat enum.
-
-Natural extensions in the same style:
-
-- A grad-mode parameter `g : GradMode` with `GradMode = WithGrad |
-  NoGrad`, so the compiler can reject `backward` on tensors that
+- `0 d : Device` is the device tag. `Device` is a 0-quantity alias
+  for `Type`, so any type with a `UserDeviceCore` instance can be
+  used. The built-ins `CPU`, `CUDA n`, `MPS` are types whose
+  instances forward to the active C backend; users can declare
+  their own device type and instance (see "Custom devices" below).
+- `0 g : GradMode` with `GradMode = WithGrad | NoGrad` is a real
+  closed enum — the compiler rejects `backward` on tensors that
   weren't tracked.
-- A precision parameter `p : Precision` with `Precision = F32 |
-  F64 | BF16 | F16`, so mixed-precision boundaries are explicit
-  and enforced.
 
-Both are phantom-type enums — finite, closed sets. They don't add
-dependent-type power; they reuse the existing parameter machinery.
+The device parameter started life as a closed sum
+(`Device = CPU | CUDA Nat | MPS`) and got opened up to admit
+user-supplied backends — see "Custom devices" below. A precision
+parameter `p : Precision` with `Precision = F32 | F64 | BF16 | F16`
+is a natural next extension in the same style; it's a phantom-type
+enum that reuses the existing parameter machinery.
+
+## Custom devices: user-supplied backends
+
+`Device` is an open kind — any type with a `UserDeviceCore` instance
+can sit in `Tensor`'s `d` slot. A complete custom backend looks
+like:
+
+```idris
+module MyBackend
+
+import Device.Core
+
+-- 1. Declare a type to tag tensors that live on this backend.
+public export
+data MyDev : Type where MD : MyDev
+
+-- 2. Bind your dylib's C symbols via %foreign.
+%foreign "C:my_tensor_add,libmybackend"
+prim__addMine : AnyPtr -> AnyPtr -> AnyPtr
+
+%foreign "C:my_tensor_create_scalar,libmybackend"
+prim__scalarMine : Double -> Int -> AnyPtr
+
+%foreign "C:my_tensor_item,libmybackend"
+prim__itemMine : AnyPtr -> Double
+-- ... 17 more for the full lifecycle + arithmetic slice
+
+-- 3. Implement the UserDeviceCore instance.
+public export
+UserDeviceCore MyDev where
+  deviceName       = "mybackend"
+  primCreateScalar = prim__scalarMine
+  primAdd          = prim__addMine
+  primItem         = prim__itemMine
+  -- ... all UserDeviceCore methods
+```
+
+Now `Tensor [4] MyDev` is a valid type, every op (`tadd`, `tmul`,
+`forwardVar` …) dispatches to your `MyDev` instance, and you can
+transfer between built-in and user-supplied devices via `toDevice`.
+
+### Parameterized devices
+
+Your device type can carry type parameters. CUDA's device index is
+the canonical example:
+
+```idris
+data CUDA : Nat -> Type where MkCUDA : (n : Nat) -> CUDA n
+```
+
+`Tensor [4] (CUDA 0)` and `Tensor [4] (CUDA 1)` are different types;
+the compiler will reject mixing them. To declare the instance, bind
+the `Nat` parameter at the head of the instance declaration:
+
+```idris
+{n : Nat} -> UserDeviceCore (CUDA n) where
+  deviceName       = "cuda:" ++ show n
+  primAdd          = prim__addCuda
+  ...
+```
+
+The `{n : Nat} ->` prefix is the bit to notice. By default, type
+parameters in an instance head are 0-quantity (erased): a body that
+tried to `show n` would fail with "n is not accessible in this
+context." Binding `n` non-erased makes its runtime value available
+inside the method bodies.
+
+### When you need runtime access to a parameter from the wrong context
+
+There's one tripwire. `UserDeviceCore`'s `d` parameter is declared
+0-quantity (`interface UserDeviceCore (0 d : Device)`), and that
+0-quantity propagates: a *caller* of `deviceName` working with
+`d = CUDA n` has `n` only at the type level. The instance body has
+`n` at runtime (because the instance head binds it non-erased), but
+generic library code that only sees `UserDeviceCore d` doesn't.
+
+If you need a separate operation that recovers the parameter, add a
+helper interface:
+
+```idris
+public export
+interface HasDeviceIndex (d : Device) where
+  deviceIndex : Nat
+
+public export
+{n : Nat} -> HasDeviceIndex (CUDA n) where
+  deviceIndex = n
+```
+
+`HasDeviceIndex`'s `d` parameter is *unrestricted* (no `0`), so its
+methods may observe the parameter. The built-in `CUDA n` ships
+with this instance, and `deviceName` for `CUDA n` uses
+`show n` directly (the instance head binds `n` non-erased, the same
+trick).
+
+Type-only parameters (a phantom precision tag, a shape annotation
+that's only there to keep types apart) need no such workaround —
+just don't reference the parameter from the method body.
 
 ## What this would look like in Python
 

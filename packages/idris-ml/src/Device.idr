@@ -37,15 +37,47 @@ import public Device.Core
 public export
 data CPU : Type where MkCPU : CPU
 
-||| CUDA device tag, parameterised by device index. Untested as of
-||| Phase 2.1b — the torch backend's CUDA path is wired but never
-||| exercised in CI.
+||| CUDA device tag, parameterised by device index. Untested (the
+||| torch backend's CUDA path is wired but never exercised in CI as
+||| of 2026-05-13).
 public export
 data CUDA : Nat -> Type where MkCUDA : (n : Nat) -> CUDA n
 
 ||| MPS (Apple Metal Performance Shaders) device tag. Untested.
 public export
 data MPS : Type where MkMPS : MPS
+
+
+----------------------------------------------------------------------
+-- HasDeviceIndex — runtime-observable parameter for parameterized
+-- devices (e.g. `CUDA n`)
+--
+-- `UserDeviceCore` declares its `d` parameter at 0-quantity (it's a
+-- pure type-level dispatch tag), so an instance method body cannot
+-- observe the value of `d`'s type-level parameters. That makes
+-- writing `deviceName = "cuda:" ++ show n` for `UserDeviceCore
+-- (CUDA n)` impossible directly — `n` is erased.
+--
+-- `HasDeviceIndex` carries the runtime index separately: a
+-- non-erased typeclass over the device. The method `deviceIndex`
+-- returns the `Nat` parameter, so `UserDeviceCore (CUDA n)`'s
+-- `deviceName` can call `deviceIndex` to recover it.
+--
+-- See `docs/grad-mode-and-device-typing.md` "Parameterized devices"
+-- and `docs/develop/design-decisions.md` "Open `d` parameter".
+----------------------------------------------------------------------
+
+||| Devices whose type carries a runtime-observable Nat index (CUDA's
+||| device number is the canonical example). Methods of
+||| `UserDeviceCore` that need to see the parameter — most commonly
+||| `deviceName` — call `deviceIndex` to recover it.
+public export
+interface HasDeviceIndex (d : Device) where
+  deviceIndex : Nat
+
+public export
+{n : Nat} -> HasDeviceIndex (CUDA n) where
+  deviceIndex = n
 
 
 ----------------------------------------------------------------------
@@ -145,8 +177,8 @@ UserDeviceCore CPU where
   primClampMin     = prim__clampMinUnified
 
 public export
-UserDeviceCore (CUDA n) where
-  deviceName       = "cuda"  -- index dropped at this layer; toDevice picks it up
+{n : Nat} -> UserDeviceCore (CUDA n) where
+  deviceName       = "cuda:" ++ show n
   primCreateScalar = prim__createScalarUnified
   primCreate       = prim__createUnified
   primFree         = prim__freeUnified
