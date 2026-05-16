@@ -1777,7 +1777,8 @@ void tensor_backward(TensorHandle h) {
                 break;
             }
             case OP_MASKED_FILL: {
-                pool[out] = mx::where(b, mx::array(-1e9, mx::float32), a);
+                static const mx::array kNegInfMask(-1e9, mx::float32);
+                pool[out] = mx::where(b, kNegInfMask, a);
                 break;
             }
             case OP_RESHAPE: pool[out] = mx::reshape(a, e.result->data.shape()); break;
