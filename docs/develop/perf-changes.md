@@ -533,6 +533,64 @@ trade. Job 2b phase A closed.
 
 ----
 
+### 2026-05-11 — Batched Conv2D / MaxPool2D + MNIST → epochVarTensorBatch — `a5f9368`
+
+**Plan job**: Job 1 (reopened — Conv2D wrapper audit)
+
+**Motivation**: A side-by-side MNIST convergence comparison flagged
+a 4.0× wrapper-overhead ratio on idris-torch vs raw PyTorch ref
+(49.4 vs 12.5 s/epoch on 60K MNIST, batch_size=64). Job 1 phase A
+had only audited linear / RNN / NTM-DNC paths; the Conv2D path was
+unexamined. Tracing it: `Layer/Conv.idr:applyConv2D` operates on
+`TVec (inC*h*w)` (single sample), and `Backprop.idr:epochVarTensor`
+threads each `dataPoint` through the model individually — so the
+training loop calls `torch::conv2d` (and friends) 64× per minibatch
+instead of once batched. Every per-call autograd-graph setup and
+tensor-view bookkeeping ran 64× more than necessary.
+
+**Change**: wired Conv2D and MaxPool2D into the existing batched-
+forward infrastructure that Linear / Activation / Dropout already
+used.
+
+C-side:
+- `tensor_conv2d_batched` + `tensor_max_pool2d_batched` in all three
+  backends. Torch drops the per-call `unsqueeze(0)`/`squeeze(0)`
+  (libtorch is batch-native). mlx skips the per-call NHWC layout
+  reshape on the batch axis. Tape gets new `OP_CONV2D_BATCHED` /
+  `OP_MAX_POOL2D_BATCHED` op tags with batched-meta structs and
+  matching forward + backward kernels (B in the outer loop, d_kernel
+  accumulating across the batch in a single tight loop).
+- `tensor_reshape_4d` helper (was 1d/2d/3d only).
+
+Idris-side:
+- `prim__conv2d_batched`, `prim__maxpool2d_batched`, `prim__reshape4d`
+  FFI bindings.
+- `Conv2DState` / `MaxPool2DState` `applyVarBatch` impls that reshape
+  `[B, c*h*w]` → `[B, c, h, w]`, call the batched prim, reshape back.
+- `Example/Mnist.idr::trainOneFullPass` switches `epochVarTensor` →
+  `epochVarTensorBatch`.
+
+**Impact** (MNIST full 60K, seed=42 tape/torch, seed=99 mlx):
+
+| Backend | per-sample s/ep | batched s/ep | wrapper vs PyTorch ref (12.5 s/ep) |
+|---|---:|---:|---:|
+| torch | 49.4 | **21.3** | 4.0× → **1.68×** ✅ |
+| mlx   | (n/a baseline) | **26.0** | — / **2.08×** |
+| tape  | 175 | 176 | 14.0× → 14.1× (compute-bound) |
+
+Torch wrapper overhead halved. mlx in the ~2× range. Tape per-epoch
+unchanged because the bottleneck is the hand-rolled triple-nested
+conv kernel (the batched version runs the same FLOPs with the same
+naive code), not the FFI count — file follow-up for an im2col +
+`cblas_dgemm` tape conv2d kernel. Quality preserved on torch/mlx
+(98.4% / 98.1% acc), tape at the batched-default seed converges to
+97.3% in 3 epochs (down from 98.4% per-sample) — the now-familiar
+NTM-style ULP-shift seed-sensitivity reappearing on tape.
+
+**Outcome**: landed. Job 1 reopened-phase-A closed.
+
+----
+
 ## Future opportunities (not active)
 
 Ideas surfaced during the Job 1 phase A push that we don't plan to
