@@ -133,6 +133,13 @@ static void mlx_backend_init(void) {
    requires these to be declared before use; their definitions appear
    later. */
 extern "C" {
+/* core/elementwise/ extractions — declared here so internal callers
+   (loss helpers, lstm gates, etc.) can reach the streamed variants now
+   that they live in separate TUs. */
+TensorHandle tensor_add_mlx_streamed(TensorHandle ha, TensorHandle hb, int stream_tag);
+TensorHandle tensor_sub_mlx_streamed(TensorHandle ha, TensorHandle hb, int stream_tag);
+TensorHandle tensor_mul_mlx_streamed(TensorHandle ha, TensorHandle hb, int stream_tag);
+TensorHandle tensor_div_mlx_streamed(TensorHandle ha, TensorHandle hb, int stream_tag);
 TensorHandle tensor_transpose_last2_mlx_streamed(TensorHandle h, int stream_tag);
 TensorHandle tensor_bmm_3x3_mlx_streamed(TensorHandle ha, TensorHandle hb, int stream_tag);
 TensorHandle tensor_masked_fill_mlx_streamed(TensorHandle h, TensorHandle hmask, double value, int stream_tag);
@@ -665,53 +672,8 @@ const char* tensor_dtype_name(TensorHandle h) {
    Arithmetic
    ================================================================ */
 
-extern "C" TensorHandle tensor_add_mlx_streamed(TensorHandle ha, TensorHandle hb, int stream_tag) {
-    WITH_STREAM(stream_tag);
-    auto a = (Tensor*)ha; auto b = (Tensor*)hb;
-    bool rg = a->requires_grad || b->requires_grad;
-    auto r = new Tensor(mx::add(a->data, b->data), rg);
-    if (rg) tape_append(OP_ADD, r, a, b, 0);
-    return (TensorHandle)r;
-}
-TensorHandle tensor_add(TensorHandle ha, TensorHandle hb) {
-    return tensor_add_mlx_streamed(ha, hb, default_stream_tag());
-}
-
-extern "C" TensorHandle tensor_sub_mlx_streamed(TensorHandle ha, TensorHandle hb, int stream_tag) {
-    WITH_STREAM(stream_tag);
-    auto a = (Tensor*)ha; auto b = (Tensor*)hb;
-    bool rg = a->requires_grad || b->requires_grad;
-    auto r = new Tensor(mx::subtract(a->data, b->data), rg);
-    if (rg) tape_append(OP_SUB, r, a, b, 0);
-    return (TensorHandle)r;
-}
-TensorHandle tensor_sub(TensorHandle ha, TensorHandle hb) {
-    return tensor_sub_mlx_streamed(ha, hb, default_stream_tag());
-}
-
-extern "C" TensorHandle tensor_mul_mlx_streamed(TensorHandle ha, TensorHandle hb, int stream_tag) {
-    WITH_STREAM(stream_tag);
-    auto a = (Tensor*)ha; auto b = (Tensor*)hb;
-    bool rg = a->requires_grad || b->requires_grad;
-    auto r = new Tensor(mx::multiply(a->data, b->data), rg);
-    if (rg) tape_append(OP_MUL, r, a, b, 0);
-    return (TensorHandle)r;
-}
-TensorHandle tensor_mul(TensorHandle ha, TensorHandle hb) {
-    return tensor_mul_mlx_streamed(ha, hb, default_stream_tag());
-}
-
-extern "C" TensorHandle tensor_div_mlx_streamed(TensorHandle ha, TensorHandle hb, int stream_tag) {
-    WITH_STREAM(stream_tag);
-    auto a = (Tensor*)ha; auto b = (Tensor*)hb;
-    bool rg = a->requires_grad || b->requires_grad;
-    auto r = new Tensor(mx::divide(a->data, b->data), rg);
-    if (rg) tape_append(OP_DIV, r, a, b, 0);
-    return (TensorHandle)r;
-}
-TensorHandle tensor_div(TensorHandle ha, TensorHandle hb) {
-    return tensor_div_mlx_streamed(ha, hb, default_stream_tag());
-}
+/* tensor_add / tensor_sub / tensor_mul / tensor_div + their _mlx_streamed
+   variants extracted to backend_mlx/core/elementwise/. */
 
 extern "C" TensorHandle tensor_neg_mlx_streamed(TensorHandle h, int stream_tag) {
     WITH_STREAM(stream_tag);
