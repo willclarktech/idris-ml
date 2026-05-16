@@ -795,22 +795,23 @@ The Chez vector IS the Tensor's Idris-level identity. The `Tensor` record's `ten
 
 1. **Foreign calls in Chez aren't interrupted by GC.** While C code runs in a `foreign-procedure` invocation, Chez's GC can't fire. So C-side code can safely dereference the raw pointer extracted from the wrap; no concurrent free is possible.
 2. **The wrap is a heap-allocated Chez object.** Its live range is tracked by Chez's normal liveness analysis on let-bindings and function arguments — the same mechanism the compiler is allowed to optimise, but only via reachability, not via field-projection elision. The vector can't be reduced to "just the raw pointer" except through an explicit `vector-ref` call inside the FFI wrapper.
-3. **The guardian gives us an Idris-liveness signal.** When the wrap becomes unreachable from Idris-level bindings (Chez decides this), the guardian queues it. A drain pass (called from `withNoGrad`'s exit + periodically from inside no_grad `tape_append` via a foreign-callable trampoline) pops the dead queue and releases C-side retains. Refcount → 0 → Tensor freed → `mx::array` destroyed → MTLBuffer recycled.
+3. **The guardian gives us an Idris-liveness signal.** When the wrap becomes unreachable from Idris-level bindings (Chez decides this), the guardian queues it. A drain pass (called from `withNoGrad`'s exit) pops the dead queue and releases C-side retains. Refcount → 0 → Tensor freed → `mx::array` destroyed → MTLBuffer recycled. The plan originally called for a periodic mid-block drain via foreign-callable trampoline from `tape_append`'s no_grad branch; Phase 5' measurement found memory stays bounded at peak ~49MB on the originally-failing mlx examples (`ntm-copy`, `ntm-associative-recall`, `mountain-car-cont`) without it, so the trampoline is deferred until a workload actually needs it.
 
 **Trade-offs**:
 
 - **Allocation cost.** Each FFI now allocates a Chez vector. For ~5K FFIs/epoch that's 5K small vectors — negligible compared to mx::array allocations on the C side, but worth measuring.
 - **Library load timing.** `foreign-procedure` looks up symbols via dlsym in already-loaded libraries. If the first FFI invocation is a `%foreign "scheme:..."` (no implicit library-load hint), `libidrisml` may not be loaded yet. Mitigation: `initManagedHandles` explicitly calls `load-shared-object "libidrisml.dylib"` at first guardian creation, and each converted Scheme primitive does the same load check as a fallback.
-- **Per-FFI mechanical churn.** ~165 Tensor-touching FFIs each need their Scheme glue rewritten. Mechanical, lintable, but real work.
+- **Per-FFI mechanical churn.** ~600 Tensor-touching FFIs across Tensor.idr + Device.idr + Device/{Mlx,Tape,Torch}.idr each need their Scheme glue generated. Mechanical (driven by `scripts/lifecycle/ffi-convert-to-scheme.py`), lintable (`make check-ffi-wrap-template` in CI preflight), but real work.
 - **Cross-backend symmetry.** The ABI applies on mlx; on tape/torch primary builds, the wrappers still execute (allocate a vector, register with guardian) but `tensor_retain_handle` is a no-op stub, so the lifecycle is inert. Slight overhead on tape/torch (one vector per FFI) without lifecycle benefit. Acceptable until tape/torch want refcount-driven freeing for their own reasons.
 
 **Options considered**:
 
 1. **`prim__wrapHandle` in `MkTensor`** — the dormant Phase 2.2 design. Failed on codegen elision (see above).
 2. **Per-FFI `RetainGuard` (C++ RAII on the C side)** — explored in a session. Failed because a guard's retain-then-release cycle frees Tensors that had refcount=0 entering the FFI, breaking the caller's raw-pointer alias.
-3. **Wrapped-handle ABI** *(chosen)* — the wrap is the value. Verified end-to-end on Phase 0' with 4 FFIs (`prim__createScalar`, `prim__item`, `prim__requiresGrad`, `prim__setRequiresGrad`) and the `Test.ManagedHandle` unit tests. Drain reclaims 50 dropped wraps after forced major GC.
+3. **Wrapped-handle ABI** *(chosen)* — the wrap is the value. Verified end-to-end across all 5 wrap-handle files (~600 FFIs) in commit `0ec6a99`, with the `Test.ManagedHandle` unit tests (drain reclaims 50 dropped wraps after forced major GC) green on tape + mlx. Phase 3'-a (commit `78bc19b`) retired the `prim__wrapHandle` / `prim__unwrapHandle` / `managedShadow` / smart-constructor layer once the FFI's Scheme glue was doing all the work. Phase 4' (commit `9664726`) added a structural linter (`make check-ffi-wrap-template`) with CI gating.
 
 **Revisit triggers**: a future Idris-Chez codegen change that enables actual GC interruption of foreign calls would invalidate property #1 and require re-thinking. If Chez ever exposes a clean way for Idris to inject true module-init code, the per-primitive lib-load fallback could be retired. If the per-FFI allocation cost shows up materially in perf measurement, consider stack-allocating the vector for short-lived intermediates (Chez doesn't expose this, but a future ABI change could).
 
+Full model + how to add new FFIs: `docs/develop/tensor-lifecycle.md`.
 Plan + phased rollout: `docs/develop/tensor-lifecycle-plan.md`.
 

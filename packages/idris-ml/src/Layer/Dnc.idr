@@ -167,7 +167,7 @@ data DncState :
 
 -- Per-sequence transient state. Refcount-managed: lives as long as tape
 -- entries or wrapped Idris Tensors reference it, freed when both let go.
--- See docs/develop/tensor-lifecycle-spike.md and `Layer/Ntm.idr`'s
+-- See docs/develop/tensor-lifecycle.md and `Layer/Ntm.idr`'s
 -- zeroState comment.
 zeroState1d : (n : Nat) -> AnyPtr
 zeroState1d n =

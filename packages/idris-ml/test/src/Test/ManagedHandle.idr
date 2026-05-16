@@ -47,7 +47,7 @@ drainCollectsAfterGc = do
   _ <- drainManagedHandles
   allocAndDrop 50
   -- Without forced GC, drain yields 0 (Chez doesn't auto-GC under
-  -- foreign pressure — see tensor-lifecycle-spike.md).
+  -- foreign pressure — see docs/develop/tensor-lifecycle.md "The drain mechanism").
   preGc <- drainManagedHandles
   forceMajorGc
   postGc <- drainManagedHandles

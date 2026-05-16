@@ -1,6 +1,6 @@
 # Tensor lifecycle: wrapped-handle FFI ABI
 
-Plan for the next iteration of the tensor-lifecycle refactor on mlx, building on the state-only refcount work in commit `8ffd48b` and the failed wrap-everywhere + per-FFI-RetainGuard experiment (see `tensor-lifecycle-spike.md`).
+Plan for the next iteration of the tensor-lifecycle refactor on mlx, building on the state-only refcount work in commit `8ffd48b` and the failed wrap-everywhere + per-FFI-RetainGuard experiment (see `tensor-lifecycle.md`).
 
 ## Goal
 
@@ -77,7 +77,7 @@ The guardian is self-initialized in the wrapper (first call creates it). `foreig
 
 Minimally — most C code stays the same:
 
-- Tensor struct gains a `refcount` field if not already present (it already does in `tensor-lifecycle-spike.md`'s Phase 2.1 work).
+- Tensor struct gains a `refcount` field if not already present (it already does in `tensor-lifecycle.md`'s Phase 2.1 work).
 - `tensor_retain_handle` / `tensor_release_handle` already exist; behavior unchanged.
 - `tensor_create_*` returns Tensors with refcount=0 (caller's Scheme wrapper takes the first retain via `tensor_retain_handle` immediately after).
 - `tape_append` retains result + args; `tape_reset` releases. Unconditional — applies whether `rg=true` or `rg=false`. (For `rg=false` ops, the result still needs lifecycle tracking; the tape entry is the holder. The tape may or may not contain a replay-meaningful entry — `requires_grad=false` skips replay either way.)
@@ -251,20 +251,13 @@ which is *not* a memory leak (memory stays at 49MB throughout). Either
 a long-tail FFI lifecycle bug or the known post-main mlx VM issue
 firing earlier than usual. Separate ticket.
 
-### Phase 6' — Documentation
+### Phase 6' — Documentation — DONE
 
-1. Promote `docs/develop/tensor-lifecycle-spike.md` → `tensor-lifecycle.md`, restructured as:
-   - **The model** (the ownership story above).
-   - **The wrapped-handle ABI** (FFI conventions + Scheme templates).
-   - **The drain mechanism** (guardian + foreign-callable trampoline).
-   - **Discipline for new FFIs** (use the template; linter enforces).
-   - **Appendix: history of attempts** (Phase 2.1 state-only refcount; Phase 2.x wrap-everywhere + RetainGuard attempts; what was learned).
-2. Add to `docs/develop/design-decisions.md`:
-   - **Tensor lifecycle: wrapped-handle ABI on mlx.** Rationale: the elision contract on Idris-Chez codegen. The wrap is the value, not metadata around the value, so the compiler can't separate them.
-3. Add to `docs/develop/gotchas.md`:
-   - **Every new mlx FFI returning a Tensor handle must use the wrap-on-return Scheme template.** Linter enforces. Skipping it leaks; messing it up corrupts.
-   - **Don't pass `tensorPtr` to non-FFI code expecting a raw pointer.** On mlx the field is a Chez vector. Use FFIs (which know to unwrap internally) or explicit `vector-ref` via foreign expression.
-4. Update `CLAUDE.md` "Architecture" section: one-paragraph summary + link to `tensor-lifecycle.md`.
+- New consolidated reference: `docs/develop/tensor-lifecycle.md`. Structure: The model → The wrapped-handle ABI → The drain mechanism → Discipline for new FFIs → Appendix (history of attempts 1-4). Replaces the old `tensor-lifecycle-spike.md`, which is deleted (content preserved in the appendix + commit history that the appendix points at).
+- `docs/develop/design-decisions.md` "Tensor lifecycle: wrapped-handle FFI ABI" — already in place from Phase 1' (commit `30671d4`); Phase 6' refreshed the drain-mechanism paragraph (Phase 5' deferred the mid-block trampoline) and the per-FFI-churn paragraph (~600 FFIs not ~165; converter + CI linter in place).
+- `docs/develop/gotchas.md` "Wrapped-handle ABI" — refreshed to point at `ffi_manifest.py` as the manifest source of truth, link to the converter + linter, and drop "once landed" language now that both are in CI.
+- `CLAUDE.md` Architecture section — updated `Tensor` signature to current state (open `d : Device` kind alias, `g : GradMode` parameter), added a dedicated "Tensor lifecycle (wrapped-handle ABI)" paragraph linking to the new reference.
+- Cross-references from the deleted spike doc updated in: `packages/backends/backend.h`, `packages/idris-ml/test/src/Test/ManagedHandle.idr`, `packages/idris-ml/src/Layer/Ntm.idr`, `packages/idris-ml/src/Layer/Dnc.idr`.
 
 ## Verification (cumulative)
 

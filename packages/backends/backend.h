@@ -18,8 +18,8 @@ TensorHandle tensor_create(double* data, int* shape, int rank, int requires_grad
 TensorHandle tensor_clone(TensorHandle t);
 void         tensor_free(TensorHandle t);
 
-/* Refcount-driven lifecycle (in-progress per
- * docs/develop/tensor-lifecycle-spike.md). retain_handle bumps a Tensor's
+/* Refcount-driven lifecycle (see
+ * docs/develop/tensor-lifecycle.md). retain_handle bumps a Tensor's
  * refcount; release_handle decrements and frees when refcount reaches
  * zero. Called by tape capture, param_registry, and Idris-side managed
  * handle finalizers. */

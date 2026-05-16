@@ -75,7 +75,7 @@ data NtmState :
 -- managed: the Tensor lives as long as tape entries reference it and any
 -- Idris-wrapped Tensor handle is alive; freed once both let go. Without
 -- this management the per-sequence state leaks unboundedly across eval-
--- phase forwards on mlx (see docs/develop/tensor-lifecycle-spike.md).
+-- phase forwards on mlx (see docs/develop/tensor-lifecycle.md).
 zeroState1d : (n : Nat) -> AnyPtr
 zeroState1d n =
   let nI = cast {to=Int} n

@@ -118,15 +118,15 @@ This caused a subtle bug in the Transformer example where `toList` reversed pred
 
 Idris 2 compiles zero-argument `%noinline` definitions as constants evaluated once at load time. `tapeGeneration` must take a dummy argument (the tape index) passed through to `prim__tapeGen` to prevent the Chez backend from caching the result. This also applies to any other FFI wrapper reading mutable state. Even making it `foo _ = expr` doesn't help — the argument must be passed THROUGH to the FFI call: `foo dummy = cast (prim__ffi (cast dummy))`.
 
-### Wrapped-handle ABI on mlx — new Tensor FFIs must use the wrap-on-return template
+### Wrapped-handle ABI — new Tensor FFIs must use the wrap-on-return template
 
-On mlx (and any future backend that opts in), every `prim__` FFI that returns a Tensor handle binds to a Scheme wrapper, not directly to a C function. The wrapper allocates a Chez vector wrapping the raw pointer, registers it with `idris-tensor-guardian`, and retains via `tensor_retain_handle`. Every FFI consuming a Tensor handle starts its Scheme glue with `(vector-ref wt 1)` to extract the raw pointer. The Chez vector IS the Tensor's runtime identity — Idris-Chez can't elide it without eliding the value itself. See `docs/develop/design-decisions.md` "Tensor lifecycle: wrapped-handle FFI ABI."
+Every `prim__` FFI that touches Tensor handles binds to a Scheme wrapper, not directly to a C function. The wrapper extracts the raw pointer from each Tensor arg via `(vector-ref a<i> 1)` before the C call, and (for Tensor returns) wraps the C result in a fresh Chez vector + registers it with `idris-tensor-guardian` + retains via `tensor_retain_handle`. The vector IS the Tensor's runtime identity — Idris-Chez codegen can't elide it without eliding the value itself. See `docs/develop/tensor-lifecycle.md` for the full model and `docs/develop/design-decisions.md` "Tensor lifecycle: wrapped-handle FFI ABI" for the rationale.
 
-**For new FFIs**: copy the template from an existing one (`prim__createScalar` for a Tensor-returning, `prim__item` for a primitive-returning, `prim__requiresGrad` for an Int-returning). Each Scheme wrapper also includes a one-time `(load-shared-object "libidrisml.dylib")` guard to ensure `foreign-procedure` can resolve C symbols regardless of which FFI fires first.
+**For new FFIs**: add the C symbol to `scripts/lifecycle/ffi_manifest.py`'s `MANIFEST` with arg/return classifiers (`T` = wrapped Tensor handle, `R` = raw AnyPtr, `i`/`d`/`s`/`v` = primitive/void), then run `python3 scripts/lifecycle/ffi-convert-to-scheme.py <files>` (or hand-edit using its output as a template).
 
 **Do NOT** pass `tensorPtr` to non-FFI Scheme code that expects a raw pointer — on mlx it's a Chez vector. Either route through an FFI (which knows to unwrap) or write your own `(vector-ref ... 1)` extraction.
 
-**Linter**: `make check-ffi-wrap-template` (once landed) flags FFIs that don't follow the template. Until then, treat the pattern as a hand-checked convention.
+**Linter**: `make check-ffi-wrap-template` runs structural checks across all 5 wrap-handle files (Tensor.idr + Device.idr + Device/{Mlx,Tape,Torch}.idr). It catches missing conversions (raw `%foreign "C:..."` for a manifest symbol), missing `vector-ref` unwraps on T args, missing wrap/retain/guardian-register on T returns, and typespec mismatches. Wired into the CI `check-paired-defaults` preflight — violations fail the build before the long matrix burns minutes.
 
 ### FFI side-effect threading
 

@@ -66,20 +66,28 @@ Scalar       = Array []
 Vector elems = Array [elems]
 Matrix r c   = Array [r, c]
 
--- Device.idr (type-safe device placement, erased at runtime)
-data Device = CPU | CUDA Nat | MPS
+-- Device.idr (open device kind — pick a Type with a UserDeviceCore instance)
+0 Device : Type
+Device = Type
+-- CPU / CUDA Nat / MPS are types with built-in UserDeviceCore instances
+-- (forwarding to the primary backend's symbols); users can declare their
+-- own. See docs/develop/design-decisions.md "Open `d` parameter".
 
 -- Tensor.idr (autograd handle — backend-agnostic)
-record Tensor (dims : Vect rank Nat) (0 d : Device) where
+record Tensor (dims : Vect rank Nat) (0 d : Device) (0 g : GradMode) where
   constructor MkTensor
-  tensorPtr : AnyPtr      -- libtorch / mlx / tape handle
+  tensorPtr : AnyPtr      -- wrapped handle: Chez vector #(tensor-handle raw)
   paramId   : Maybe String  -- parameter name (Nothing = intermediate)
--- Aliases TVec n d / TMat m n d dodge the Idris-2 type-checker hang on multiplicative-Nat shape literals
+-- Aliases TVec n d g / TMat m n d g dodge the Idris-2 type-checker hang on multiplicative-Nat shape literals
 ```
 
 `Array` is the structural type used for input-data marshalling and Math.idr's pure-Idris ops; it is NOT the autograd type. `Tensor` is the daily user-facing autograd handle.
 
 The `LayerLike` interface (4 methods: `applyVar`, `applyVarBatch`, `layerPrefix`, `resetState`) + `AnyLayer` existential provides dynamic dispatch over layer types. `Network` chains `AnyLayer`s via `(~~>)`. Adding a new layer = one file implementing `LayerLike`, zero edits elsewhere.
+
+### Tensor lifecycle (wrapped-handle ABI)
+
+`tensorPtr` is a Chez vector `#(tensor-handle raw)`, not a raw pointer. Every Tensor-touching `%foreign` declaration binds to a Scheme wrapper that unwraps via `(vector-ref a<i> 1)` on Tensor args and wraps + retains + registers with `idris-tensor-guardian` on Tensor returns. The wrap IS the value — Idris-Chez codegen can't elide it without eliding the Tensor. C-side refcount drives freeing on mlx; tape and torch carry no-op retain/release stubs. New FFIs go through `scripts/lifecycle/ffi_manifest.py` (manifest) + `scripts/lifecycle/ffi-convert-to-scheme.py` (converter); `make check-ffi-wrap-template` (CI preflight) enforces the template. Full model in `docs/develop/tensor-lifecycle.md`.
 
 ## Key Patterns
 
