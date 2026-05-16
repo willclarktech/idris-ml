@@ -100,6 +100,7 @@ void tensor_free(TensorHandle h) {
 // backends.
 void tensor_retain_handle(TensorHandle h) { (void)h; }
 void tensor_release_handle(TensorHandle h) { (void)h; }
+int  tensor_is_state(TensorHandle h)      { (void)h; return 0; }
 
 /* ---------- Accessors ---------- */
 
@@ -1061,6 +1062,16 @@ TensorHandle tensor_create_state_2d(int rows, int cols, double* data) {
 TensorHandle tensor_create_state_1d(int n, double* data) {
     auto t = torch::from_blob(data, {(int64_t)n}, torch::kFloat64).clone();
     return from_tensor_persistent(std::move(t));
+}
+
+/* torch handles state lifecycle through libtorch — no refcount surface
+ * needed. Managed variants forward to the non-managed versions for
+ * multi-link symbol parity. */
+TensorHandle tensor_create_managed_state_2d(int rows, int cols, double* data) {
+    return tensor_create_state_2d(rows, cols, data);
+}
+TensorHandle tensor_create_managed_state_1d(int n, double* data) {
+    return tensor_create_state_1d(n, data);
 }
 
 TensorHandle tensor_view_2d(TensorHandle h, int row, int col) {

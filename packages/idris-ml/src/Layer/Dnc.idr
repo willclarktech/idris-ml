@@ -165,17 +165,21 @@ data DncState :
 -- State init helpers
 ----------------------------------------------------------------------
 
+-- Per-sequence transient state. Refcount-managed: lives as long as tape
+-- entries or wrapped Idris Tensors reference it, freed when both let go.
+-- See docs/develop/tensor-lifecycle-spike.md and `Layer/Ntm.idr`'s
+-- zeroState comment.
 zeroState1d : (n : Nat) -> AnyPtr
 zeroState1d n =
   let nI = cast {to=Int} n
       buf = prim__allocDoubles nI
-  in prim__createState1d nI buf
+  in prim__createManagedState1d nI buf
 
 constState1d : (n : Nat) -> Double -> AnyPtr
 constState1d n v =
   let nI = cast {to=Int} n
       buf = fillBuf (prim__allocDoubles nI) 0 nI v
-  in prim__createState1d nI buf
+  in prim__createManagedState1d nI buf
   where
     fillBuf : AnyPtr -> Int -> Int -> Double -> AnyPtr
     fillBuf b i n v = if i >= n then b
@@ -186,7 +190,7 @@ zeroState2d a b =
   let aI = cast {to=Int} a
       bI = cast {to=Int} b
       buf = prim__allocDoubles (aI * bI)
-  in prim__createState2d aI bI buf
+  in prim__createManagedState2d aI bI buf
 
 constState2d : (a, b : Nat) -> Double -> AnyPtr
 constState2d a b v =

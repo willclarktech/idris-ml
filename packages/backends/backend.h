@@ -25,6 +25,12 @@ void         tensor_free(TensorHandle t);
  * handle finalizers. */
 void         tensor_retain_handle(TensorHandle t);
 void         tensor_release_handle(TensorHandle t);
+/* Returns nonzero if `t` participates in the refcount lifecycle (state
+ * Tensors on mlx). The Idris-side managed-handle wrap reads this to
+ * decide whether to register a Chez guardian shadow + retain. Returns
+ * 0 on tape / torch — those backends manage state through their own
+ * mechanisms and don't need refcount + guardian. */
+int          tensor_is_state(TensorHandle t);
 
 /* ---------- Accessors ---------- */
 
@@ -310,6 +316,12 @@ TensorHandle tensor_create_param_1d(int n, double* data);
 /* Create persistent tensors WITHOUT requires_grad (for non-learnable state) */
 TensorHandle tensor_create_state_2d(int rows, int cols, double* data);
 TensorHandle tensor_create_state_1d(int n, double* data);
+/* Like tensor_create_state_*, but lifecycle-managed via refcount + Idris-side
+ * managed-handle wrap. Use for *per-sequence* transient state that the model
+ * record wraps in `MkTensor`; eligible for free when neither Idris nor the
+ * tape references it. mlx only — tape/torch return a normal state tensor. */
+TensorHandle tensor_create_managed_state_2d(int rows, int cols, double* data);
+TensorHandle tensor_create_managed_state_1d(int n, double* data);
 /* Get a scalar view into element [row, col] of a 2D tensor (shares storage) */
 TensorHandle tensor_view_2d(TensorHandle mat, int row, int col);
 /* Get a scalar view into element [idx] of a 1D tensor (shares storage) */

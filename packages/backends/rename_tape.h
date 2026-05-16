@@ -110,6 +110,8 @@
 #define tensor_create tensor_create_tape
 #define tensor_create_1d tensor_create_1d_tape
 #define tensor_create_2d tensor_create_2d_tape
+#define tensor_create_managed_state_1d tensor_create_managed_state_1d_tape
+#define tensor_create_managed_state_2d tensor_create_managed_state_2d_tape
 #define tensor_create_param_1d tensor_create_param_1d_tape
 #define tensor_create_param_2d tensor_create_param_2d_tape
 #define tensor_create_param_3d tensor_create_param_3d_tape
@@ -136,6 +138,7 @@
 #define tensor_grad tensor_grad_tape
 #define tensor_group_norm tensor_group_norm_tape
 #define tensor_gru_cell tensor_gru_cell_tape
+#define tensor_is_state tensor_is_state_tape
 #define tensor_item tensor_item_tape
 #define tensor_item_1d tensor_item_1d_tape
 #define tensor_item_2d tensor_item_2d_tape

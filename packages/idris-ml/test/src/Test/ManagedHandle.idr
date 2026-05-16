@@ -8,15 +8,17 @@ import Tensor
 -- real Tensor lifetimes (that's Phase 2.3); they confirm the primitives
 -- work end-to-end.
 
--- Wrap and *consume the wrapped value* so Idris doesn't elide the call.
--- We accumulate the scalar reads into a Double that's returned —
--- Idris's optimizer can't elide computation whose result flows to the
--- caller. In real Phase 2.3 usage, the wrapped result IS the return
--- value of every FFI wrapper, so this issue doesn't arise.
+-- State Tensors are the only Tensors that go through the guardian: wrap
+-- conditionally returns a Chez vector only when the C-side
+-- `tensor_is_state` flag is set. `prim__createState1d` sets it; plain
+-- scalar/intermediate allocations don't. Allocating a state Tensor +
+-- dropping its wrapper + forcing GC should land it in the guardian's
+-- dead queue.
 allocAndDropSum : Nat -> Double -> IO Double
 allocAndDropSum Z acc = pure acc
 allocAndDropSum (S k) acc = do
-  let raw = prim__createScalar (cast k) 0
+  let buf = prim__allocDoubles 1
+  let raw = prim__createState1d 1 buf
   let wrapped = prim__wrapHandle raw
   let v = prim__item (prim__unwrapHandle wrapped)
   allocAndDropSum k (acc + v)
@@ -24,9 +26,7 @@ allocAndDropSum (S k) acc = do
 allocAndDrop : Nat -> IO ()
 allocAndDrop n = do
   s <- allocAndDropSum n 0.0
-  -- Print or use s so the whole chain isn't dead-code-eliminated.
-  -- (We don't care about the value itself; it's just to keep the
-  -- compiler honest about evaluating the loop.)
+  -- Print s so the whole chain doesn't get dead-code-eliminated.
   putStrLn ("  (allocAndDrop accumulated sum: " ++ show s ++ ")")
 
 initIsIdempotent : IO Bool
@@ -40,6 +40,8 @@ drainCollectsAfterGc = do
   _ <- initManagedHandles
   -- Clear anything from prior tests
   _ <- drainManagedHandles
+  forceMajorGc
+  _ <- drainManagedHandles
   allocAndDrop 50
   -- Without forced GC, drain yields 0 (Chez doesn't auto-GC under
   -- foreign pressure — see tensor-lifecycle-spike.md).
@@ -49,6 +51,9 @@ drainCollectsAfterGc = do
   check ("drain post-GC = 50, pre-GC = 0 (got pre=" ++ show preGc ++ " post=" ++ show postGc ++ ")")
         (preGc == 0 && postGc == 50)
 
+-- Non-state Tensors get the raw pointer back from wrap (no guardian
+-- registration). The unwrap is the identity in that case so existing
+-- prim__item-style use keeps working.
 unwrapRoundTrip : IO Bool
 unwrapRoundTrip = do
   _ <- initManagedHandles

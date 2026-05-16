@@ -594,6 +594,7 @@ void tensor_free(TensorHandle h) {
  * multi-link build resolves these symbols across all backends. */
 void tensor_retain_handle(TensorHandle h) { (void)h; }
 void tensor_release_handle(TensorHandle h) { (void)h; }
+int  tensor_is_state(TensorHandle h)      { (void)h; return 0; }
 
 /* ================================================================
    Accessors
@@ -5040,6 +5041,16 @@ TensorHandle tensor_create_state_1d(int n, double* data) {
     t->tape_idx = -1;
     t->persistent = 1;
     return t;
+}
+
+/* tape doesn't need refcount lifecycle — its arena handles state already.
+ * The "managed" variants exist for multi-link symbol parity; behave
+ * identically to the non-managed versions. */
+TensorHandle tensor_create_managed_state_2d(int rows, int cols, double* data) {
+    return tensor_create_state_2d(rows, cols, data);
+}
+TensorHandle tensor_create_managed_state_1d(int n, double* data) {
+    return tensor_create_state_1d(n, data);
 }
 
 TensorHandle tensor_view_2d(TensorHandle h, int row, int col) {

@@ -39,17 +39,29 @@ prim__initManagedHandlesC : Int -> PrimIO Int
 
 -- Self-initializing: if guardian doesn't exist yet, create it. Callers
 -- can use prim__wrapHandle without first calling initManagedHandles.
-%foreign "scheme:(lambda (raw) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((w (vector 'tensor-handle raw))) ((top-level-value 'idris-tensor-guardian) w) w))"
+--
+-- The wrap is conditional on is_state: only state Tensors get a Chez
+-- shadow + retain. Non-state Tensors get their raw pointer back
+-- unchanged, no guardian registration, no refcount change. This keeps
+-- the lifecycle overhead off the hot path for the ~89 non-state Tensor
+-- allocation sites while routing state Tensors through the
+-- guardian/refcount machinery that fixes their per-eval-block leak on
+-- mlx. tape/torch backends return 0 from tensor_is_state, so this
+-- function is a no-op on those builds.
+%foreign "scheme:(lambda (raw) (if (zero? ((foreign-procedure \"tensor_is_state\" (void*) int) raw)) raw (begin (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((w (vector 'tensor-handle raw))) ((top-level-value 'idris-tensor-guardian) w) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw) w))))"
 export prim__wrapHandle : AnyPtr -> AnyPtr
 
-%foreign "scheme:(lambda (w) (vector-ref w 1))"
+-- Unwrap: if it's a Chez vector (state Tensor's wrapped handle), pull
+-- the raw ptr out. If it's already a raw ptr (non-state), return as-is.
+%foreign "scheme:(lambda (w) (if (vector? w) (vector-ref w 1) w))"
 export prim__unwrapHandle : AnyPtr -> AnyPtr
 
 -- Drain the guardian: pop dead wrappers, call C tensor_release_handle on
 -- each raw pointer. Returns the number drained. Uses (foreign-procedure
 -- ...) which resolves tensor_release_handle from the dlopened libidrisml
--- at first call (cached thereafter).
-%foreign "scheme:(lambda (dummy) (let ((rel (foreign-procedure \"tensor_release_handle\" (void*) void))) (let loop ((n 0)) (let ((d ((top-level-value 'idris-tensor-guardian)))) (if d (begin (rel (vector-ref d 1)) (loop (+ n 1))) n)))))"
+-- at first call (cached thereafter). Self-initializing — yields 0 if
+-- the guardian doesn't exist yet (no managed-handle wraps have happened).
+%foreign "scheme:(lambda (dummy) (if (not (top-level-bound? 'idris-tensor-guardian)) 0 (let ((rel (foreign-procedure \"tensor_release_handle\" (void*) void))) (let loop ((n 0)) (let ((d ((top-level-value 'idris-tensor-guardian)))) (if d (begin (rel (vector-ref d 1)) (loop (+ n 1))) n))))))"
 prim__drainManagedHandlesC : Int -> PrimIO Int
 
 -- Force a Chez major GC. Use sparingly — only at known-safe drain points.
@@ -397,6 +409,20 @@ prim__createState2d : Int -> Int -> AnyPtr -> AnyPtr
 export
 prim__createState1d : Int -> AnyPtr -> AnyPtr
 
+-- Lifecycle-managed variants. Use for *per-sequence transient state*:
+-- the Tensor record that wraps the result must hold a managed-handle
+-- shadow (any `MkTensor`-created Tensor will), so the C-side refcount
+-- can drop to zero and free the underlying mx::array when the model
+-- record is dropped + drained. On tape/torch these forward to the
+-- non-managed versions (those backends don't need refcount).
+%foreign "C:tensor_create_managed_state_2d,libidrisml"
+export
+prim__createManagedState2d : Int -> Int -> AnyPtr -> AnyPtr
+
+%foreign "C:tensor_create_managed_state_1d,libidrisml"
+export
+prim__createManagedState1d : Int -> AnyPtr -> AnyPtr
+
 %foreign "C:tensor_view_2d,libidrisml"
 export
 prim__view2d : AnyPtr -> Int -> Int -> AnyPtr
@@ -461,6 +487,14 @@ withNoGrad act = do
   primIO prim__noGradBeginC
   result <- act
   primIO prim__noGradEndC
+  -- Eval phases (typically wrapped in `withNoGrad`) can churn through
+  -- thousands of per-sequence managed state Tensors. On mlx that drives
+  -- the Metal MTLBuffer count past the paravirtualized-Metal ceiling on
+  -- Tart / GHA macOS runners. Force a Chez major GC + drain the guardian
+  -- here so dropped state Tensors release their C-side refs immediately.
+  -- Non-mlx backends: drain is a no-op (no shadows registered).
+  forceMajorGc
+  _ <- drainManagedHandles
   pure result
 
 -- LSTM
