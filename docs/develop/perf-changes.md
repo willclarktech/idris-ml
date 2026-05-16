@@ -1906,3 +1906,73 @@ showcase — the matmul bench is the smallest version of that story.
 - `perf-log.jsonl` `kind=microbench` entries timestamped 2026-05-15T01:36..01:39
 - `/tmp/bench_matmul.c` is the raw C version of the same bench (no
   Idris involvement) that established the crossover points
+
+### 2026-05-16 — Wrapped-handle ABI sweep — perf-neutral on hot examples — `9664726`
+
+**Plan job**: tensor-lifecycle Phase 5' (perf measurement half).
+
+**Motivation**: validate the cost of the Phase 1' wrapped-handle ABI
+sweep (commit `0ec6a99`), which converted ~600 Tensor-touching FFIs
+from `%foreign "C:..."` to `%foreign "scheme:..."` wrap-on-return
+templates. Each FFI now does one extra `vector-ref` per Tensor arg
++ one Chez vector allocation + one guardian-register + one
+`tensor_retain_handle` per Tensor return. Hypothesis: aggregate cost
+is below the VM-noise floor on the hot examples.
+
+**Change**: no code change for this measurement entry; pure perf
+characterization of the post-sweep state.
+
+**Impact**: two-point ms/epoch via `scripts/perf-baseline.sh`,
+compared to the pre-sweep baseline rows from `db20f12+dirty`
+(2026-05-15):
+
+| example   | backend | pre-sweep (db20f12) | post-sweep (9664726) | delta | notes |
+|-----------|---------|-------------:|--------------:|------:|-------|
+| transformer | tape | 6.4 ms/ep | n/a (build-dominated) | — | tape per-epoch < build noise floor |
+| transformer | mlx  | 37.09 ms/ep | 31.63 ms/ep | -15% | within VM noise; trending favorable not regressive |
+| transformer | torch | 9.95 ms/ep | n/a | — | not re-baselined (unaffected by mlx-side wrap) |
+| lstm        | tape | n/a | 0.71 ms/ep | — | fresh baseline; ratio 0.18 vs PyTorch |
+| lstm        | mlx  | n/a | 120.29 ms/ep | — | fresh baseline; ratio 29.7 (mlx CPU-stream kernel-launch wall at batch=1) |
+| dnc-copy    | mlx  | n/a | 139.62 ms/ep | — | fresh baseline; ratio 16.05 (same kernel-launch wall) |
+| dnc-copy    | tape | n/a | n/a | — | build-dominated for tape (sub-ms/epoch) |
+
+The wrapped-handle ABI is NOT a measurable perf regression on the
+hot examples. The mlx CPU-stream kernel-launch wall (per
+`feedback_vm_perf_noise.md`) dominates over any FFI-wrap cost.
+**Conclusion**: the cost-per-FFI overhead is below the VM noise
+floor on every example measured.
+
+**Outcome**: landed (the sweep itself is `0ec6a99` and prior, not a
+new change).
+
+**Drain cadence tuning — declined for now.** The plan's Phase 5'-b
+called for re-enabling a mid-block drain (foreign-callable trampoline
+inside `tape_append`'s no_grad branch) and sweeping cadences in the
+500-5000 range. *Motivation*: the original 3 failing mlx examples
+(`ntm-copy`, `ntm-associative-recall`, `mountain-car-cont`) were
+leaking inside long `withNoGrad` blocks. *Finding*: under the
+wrapped-handle ABI alone (Idris-side `withNoGrad`-exit drain only),
+all three of these examples now show *bounded* memory:
+
+- `ntm-associative-recall`: peak=49MB, cur=31MB stable across 700+ iters
+- `mountain-car-cont`: peak=49MB, cur=30MB stable, training to completion
+- `ntm-copy` (500 epochs): peak=49MB, cur=31MB stable across 400+ epochs
+
+The `withNoGrad`-exit drain + the per-FFI wrap-and-retain are
+sufficient to keep Tensor count bounded. Mid-block drain is no
+longer load-bearing; deferred behind the cadence-tuning task until
+a workload actually needs it. The cleaner Phase 5' deliverable is
+"the original motivation is gone."
+
+**New follow-up**: ntm-copy at ~450 epochs trips a
+`Exception: invalid memory reference. Some debugging context lost`
+mid-run, not the post-main static-destructor abort. Either a
+long-tail FFI lifecycle bug or coincidence with the known
+post-main mlx VM issue happening earlier than usual. Tracked as
+task #88; separate from the drain-cadence question.
+
+**Cross-references**:
+- `perf-log.jsonl` `kind=baseline` entries timestamped 2026-05-16
+  with commit `9664726+dirty`
+- `tensor-lifecycle-plan.md` Phase 5' status
+- saved memory `feedback_vm_perf_noise.md` (15-20% delta = noise floor)

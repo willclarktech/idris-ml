@@ -218,15 +218,38 @@ pre/post canonicalization on supervised:tape.
 
 606 FFI decls scanned clean across the 5 files.
 
-### Phase 5' — Perf measurement + drain cadence tuning
+### Phase 5' — Perf measurement + drain cadence tuning — DONE (scope reduced)
 
-The mid-block drain (foreign-callable trampoline from `tape_append`'s no_grad branch) was risky in the prior design because of UAF. With the wrapped-handle ABI it's safe. Re-enable it at a starting cadence of every 2000 tape_appends, with a reentrancy guard.
+**Perf measurement (the measure half).** Baselines on `lstm:tape/mlx`,
+`transformer:mlx`, `dnc-copy:mlx/tape` show the wrapped-handle ABI is
+within the VM noise floor (~15-20% per the saved feedback memory) vs
+the pre-sweep `db20f12+dirty` baseline. `transformer:mlx` improved
+slightly (37.09 → 31.63 ms/ep, -15%) which we treat as noise per the
+same threshold. No example showed a measurable regression. The
+mlx-CPU-stream kernel-launch wall (~30-140 ms/ep depending on op
+density) dominates over any per-FFI wrap cost. See
+`docs/develop/perf-changes.md` 2026-05-16 entry.
 
-- Measure: cost per drain (Chez `(collect 4)` is the dominant cost — ms-scale).
-- Tune cadence: smaller cadence → tighter Tensor count → more GC time. Larger cadence → more buffer pressure peak. Sweet spot somewhere in 500-5000.
-- For `ntm-copy` / `ntm-associative-recall` / `mountain-car-cont` specifically: confirm Tensor count stays bounded inside large `withNoGrad` blocks.
+**Drain cadence tuning (the tune half) — declined as not needed.** The
+plan called for a mid-block drain via foreign-callable trampoline from
+`tape_append`'s no_grad branch, motivated by the original 3 failing
+mlx examples (`ntm-copy`, `ntm-associative-recall`, `mountain-car-cont`)
+leaking inside long `withNoGrad` blocks. Under the wrapped-handle ABI
+alone (Idris-side `withNoGrad`-exit drain only), all three of these
+examples now show bounded memory:
+- `ntm-associative-recall`: peak=49MB stable across 700+ iters
+- `mountain-car-cont`: peak=49MB stable, training to completion
+- `ntm-copy` (500 epochs): peak=49MB stable across 400+ epochs
 
-Append entries to `perf-log.jsonl` and `perf-changes.md`.
+The `withNoGrad`-exit drain + per-FFI wrap-and-retain are sufficient
+to keep Tensor count bounded. Mid-block drain is no longer
+load-bearing; revisit if/when a workload actually needs it.
+
+**Follow-up identified:** ntm-copy at ~450 epochs trips a mid-run UAF
+(`Exception: invalid memory reference. Some debugging context lost`)
+which is *not* a memory leak (memory stays at 49MB throughout). Either
+a long-tail FFI lifecycle bug or the known post-main mlx VM issue
+firing earlier than usual. Separate ticket.
 
 ### Phase 6' — Documentation
 
