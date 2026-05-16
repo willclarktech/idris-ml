@@ -15,9 +15,16 @@
 #include <cstdlib>
 #include <vector>
 
+extern c10::Device g_torch_target_device;
+
 extern "C" TensorHandle tensor_one_hot(int* tokens, int n_tokens, int vocab_size, int dtag) {
     int total = n_tokens * vocab_size;
-    // Build the 0/1 pattern in F64, then cast to the requested dtype.
+    // Build the 0/1 pattern in F64 on CPU (we need .accessor<> to write
+    // the buffer cell-by-cell, which only works on CPU storage), then
+    // cast + migrate in a single .to(opts) call. Without the migration
+    // an F32-on-MPS build would see this tensor land on CPU and the
+    // first downstream op (typically the loss's elementwise mul) would
+    // abort with a "Expected all tensors to be on the same device" mismatch.
     auto t = torch::zeros({(int64_t)total}, torch::kFloat64);
     auto acc = t.accessor<double, 1>();
     for (int i = 0; i < n_tokens; i++) {
@@ -26,10 +33,14 @@ extern "C" TensorHandle tensor_one_hot(int* tokens, int n_tokens, int vocab_size
             acc[i * vocab_size + tok] = 1.0;
     }
     /* Delegate to st_for_dtag for the kind-major dtag layout; invalid
-       dtags abort there. F64 is the build dtype above, so skip the cast
-       only when the requested output dtype is already F64. */
+       dtags abort there. */
     torch::ScalarType st = st_for_dtag(dtag);
-    if (st != torch::kFloat64) t = t.to(st);
+    bool need_cast = st != torch::kFloat64;
+    bool need_move = g_torch_target_device != at::kCPU;
+    if (need_cast || need_move) {
+        auto opts = torch::TensorOptions().dtype(st).device(g_torch_target_device);
+        t = t.to(opts);
+    }
     return from_tensor(std::move(t));
 }
 
