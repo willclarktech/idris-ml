@@ -9,6 +9,7 @@ depends = contrib
 modules = Harness
         , Main
         , Test.Generate
+        , Test.Reinforce
 
 main = Main
 

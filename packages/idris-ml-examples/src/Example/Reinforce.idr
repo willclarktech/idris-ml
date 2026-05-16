@@ -22,6 +22,7 @@ import Tensor
 
 MaxSteps : Nat; MaxSteps = cartPoleMaxSteps
 
+export
 observe : CPState -> Vector 4 Double
 observe s = VArray (map SArray (cpObserve s))
 
@@ -31,9 +32,11 @@ observe s = VArray (map SArray (cpObserve s))
 ----------------------------------------------------------------------
 
 -- (logProbTensorPtr, logProbDoubleVal, reward)
+public export
 StepRec : Type
 StepRec = (AnyPtr, Double, Double)
 
+export
 rolloutEp : {hs : List Nat} ->
             Network 4 hs 2 CPU -> CPState -> List Double -> Nat ->
             List StepRec -> List StepRec
@@ -54,6 +57,80 @@ rolloutEp model st (r :: rs) (S k) acc =
          let acc' = (selLP, selLPVal, reward) :: acc
          in if done outcome then reverse acc'
             else rolloutEp model st' rs k acc'
+
+
+||| Run N parallel episodes with one batched policy forward per
+||| timestep. Each env has its own RNG sequence and starting state.
+||| Returns N independent StepRec lists (same shape as N sequential
+||| rolloutEp calls).
+|||
+||| Done envs are "frozen" — their state passes through the batched
+||| forward (so the [N, 4] shape stays constant timestep-to-timestep,
+||| keeping the tape graph stable for `mx::compile`-style fusers) but
+||| no further StepRec is appended for that env. Loop exits early if
+||| all envs terminate.
+export
+rolloutEpBatched : {n : Nat} -> {hs : List Nat} ->
+                   Network 4 hs 2 CPU ->
+                   Vect n CPState ->
+                   Vect n (List Double) ->
+                   Nat ->
+                   Vect n (List StepRec)
+rolloutEpBatched model states0 rss0 maxSteps =
+  map reverse (go maxSteps states0 rss0 (replicate n False) (replicate n []))
+  where
+    -- Per-env action selection + env step, given the batched log-prob
+    -- tensor and this env's integer index. Frozen (done) envs and
+    -- RNG-exhausted envs pass through unchanged.
+    perEnv : Tensor [n, 2] CPU -> Int ->
+             CPState -> List Double -> Bool -> List StepRec ->
+             (CPState, List Double, Bool, List StepRec)
+    perEnv _         _ st rs  True  acc = (st, rs, True, acc)
+    perEnv _         _ st []  _     acc = (st, [], True, acc)
+    perEnv logProbsV i st (r :: rs) False acc =
+      let logProbsT = logProbsV.tensorPtr
+          lp0       = prim__item2d logProbsT i 0
+          lp1       = prim__item2d logProbsT i 1
+          action    = categoricalSample [exp lp0, exp lp1] r
+          rowPtr    = prim__select logProbsT 0 i
+          selLP     = prim__select rowPtr 0 (cast {to=Int} action)
+          selLPVal  = if action == 0 then lp0 else lp1
+      in case cpStep st action of
+           (reward, st', outcome, _) =>
+             (st', rs, done outcome, (selLP, selLPVal, reward) :: acc)
+
+    -- Walk the four parallel Vects together, threading the row index.
+    -- Each pattern strips one element from each Vect simultaneously.
+    stepAllEnvs : Tensor [n, 2] CPU -> Int ->
+                  Vect k CPState -> Vect k (List Double) -> Vect k Bool ->
+                  Vect k (List StepRec) ->
+                  (Vect k CPState, Vect k (List Double), Vect k Bool, Vect k (List StepRec))
+    stepAllEnvs _         _ []         []         []         []         = ([], [], [], [])
+    stepAllEnvs logProbsV i (st :: sts) (rs :: rss) (d :: ds) (acc :: accs) =
+      let (st', rs', d', acc') = perEnv logProbsV i st rs d acc
+          (sts', rss', ds', accs') = stepAllEnvs logProbsV (i + 1) sts rss ds accs
+      in (st' :: sts', rs' :: rss', d' :: ds', acc' :: accs')
+
+    -- Recursive loop. Returns accumulators in REVERSED order.
+    go : Nat ->
+         Vect n CPState -> Vect n (List Double) -> Vect n Bool ->
+         Vect n (List StepRec) ->
+         Vect n (List StepRec)
+    go Z _ _ _ accs = accs
+    go (S k) sts rss dones accs =
+      if all id (toList dones) then accs
+      else
+        let obsRows : Vect n (Vector 4 Double)
+            obsRows = map observe sts
+            batchPtr = bulkToTensor2d obsRows
+            stateV : Tensor [n, 4] CPU
+            stateV = MkTensor batchPtr Nothing
+            predV : Tensor [n, 2] CPU
+            predV = snd (forwardVarBatch model stateV)
+            logProbsV : Tensor [n, 2] CPU
+            logProbsV = MkTensor (prim__logSoftmax2d predV.tensorPtr) Nothing
+        in case stepAllEnvs logProbsV 0 sts rss dones accs of
+             (sts', rss', dones', accs') => go k sts' rss' dones' accs'
 
 
 ----------------------------------------------------------------------
@@ -77,6 +154,7 @@ epStepLosses gamma baseline steps =
        the (Tensor [] CPU) (MkTensor (prim__mulScalar lp (baseline - gt)) Nothing))
      steps rets
 
+export
 sumRewards : List StepRec -> Double
 sumRewards steps = foldl (\a, (_, _, r) => a + r) 0.0 steps
 
