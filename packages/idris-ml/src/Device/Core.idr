@@ -431,13 +431,6 @@ interface UserDeviceConv d => UserDeviceTraining (0 d : Device) where
   ||| Ignored arg defeats constant-folding; pass a varying value.
   primPeakLiveCount       : Int -> Int
 
-  -- Param + state creation -----------------------------------------
-  primCreateParam1d     : Int -> AnyPtr -> AnyPtr
-  primCreateParam2d     : Int -> Int -> AnyPtr -> AnyPtr
-  primCreateParam3d     : Int -> Int -> Int -> AnyPtr -> AnyPtr
-  primCreateState1d     : Int -> AnyPtr -> AnyPtr
-  primCreateState2d     : Int -> Int -> AnyPtr -> AnyPtr
-
   -- dtype-streamed creation -----------------------------------------
   -- Each takes a trailing (streamTag, dtypeTag) pair; the backend's
   -- wrapper branches on dtypeTag (0=f32, 1=f64) to pick the right

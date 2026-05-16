@@ -155,11 +155,9 @@ TensorHandle tensor_conv1d_grouped(TensorHandle input, TensorHandle kernel,
 /* MaxPool1D: input [C, L]. Returns [C, oL] where oL = (L - kL) / stride + 1. */
 TensorHandle tensor_max_pool1d(TensorHandle input, int kL, int stride);
 
-/* Per-dtype variants */
+/* Per-dtype variants; F64 is the legacy default. */
 TensorHandle tensor_create_param_3d_f32(int d0, int d1, int d2, double* data);
 TensorHandle tensor_create_param_3d_f64(int d0, int d1, int d2, double* data);
-/* Create a [d0, d1, d2] tensor with requires_grad=true */
-TensorHandle tensor_create_param_3d(int d0, int d1, int d2, double* data);
 
 /* Conv2D: input [inC, H, W], kernel [outC, inC, kH, kW], bias [outC] or NULL.
    Returns [outC, oH, oW] where oH = (H + 2*padH - kH) / strideH + 1. */
@@ -347,27 +345,23 @@ TensorHandle   tensor_cat_from_array(TensorHandle* arr, int count, int dim);
 /* Per-dtype variants */
 TensorHandle tensor_create_param_1d_f32(int n, double* data);
 TensorHandle tensor_create_param_1d_f64(int n, double* data);
+/* Param creators: requires_grad=true. Per-dtype only; F64 is the
+ * legacy default. */
 TensorHandle tensor_create_param_2d_f32(int rows, int cols, double* data);
 TensorHandle tensor_create_param_2d_f64(int rows, int cols, double* data);
-/* Create a [rows, cols] tensor filled with given data, requires_grad=true */
-TensorHandle tensor_create_param_2d(int rows, int cols, double* data);
-/* Create a [n] tensor filled with given data, requires_grad=true */
-TensorHandle tensor_create_param_1d(int n, double* data);
+TensorHandle tensor_create_param_1d_f32(int n, double* data);
+TensorHandle tensor_create_param_1d_f64(int n, double* data);
 /* Create state tensors WITHOUT requires_grad. Covers both init-time
  * permanent state (NTM mask, BatchNorm running stats, transformer PE,
  * DNC mask) and per-sequence transient state (Ntm/Dnc zeroState). mlx:
  * is_state=1 + refcount=0; lifecycle is driven by the Idris-side wrap
  * (alive while the model record / per-sequence binding references it).
  * tape/torch: no refcount surface; the backend's own arena / shared_ptr
- * handles freeing. */
-/* Per-dtype variants */
+ * handles freeing. Per-dtype only. */
 TensorHandle tensor_create_state_1d_f32(int n, double* data);
 TensorHandle tensor_create_state_1d_f64(int n, double* data);
 TensorHandle tensor_create_state_2d_f32(int rows, int cols, double* data);
 TensorHandle tensor_create_state_2d_f64(int rows, int cols, double* data);
-/* Legacy unsuffixed (alias) */
-TensorHandle tensor_create_state_2d(int rows, int cols, double* data);
-TensorHandle tensor_create_state_1d(int n, double* data);
 /* Get a scalar view into element [row, col] of a 2D tensor (shares storage) */
 TensorHandle tensor_view_2d(TensorHandle mat, int row, int col);
 /* Get a scalar view into element [idx] of a 1D tensor (shares storage) */
@@ -508,11 +502,9 @@ void optimizer_set_v(OptimizerHandle opt, int idx, const double* data);
 void optimizer_get_meta(OptimizerHandle opt, double* out9);
 void optimizer_set_meta(OptimizerHandle opt, const double* in9);
 
-/* Per-dtype variants */
+/* Per-dtype variants; F64 is the legacy default. */
 TensorHandle tensor_create_param_4d_f32(int d0, int d1, int d2, int d3, double* data);
 TensorHandle tensor_create_param_4d_f64(int d0, int d1, int d2, int d3, double* data);
-/* Create a [d0, d1, d2, d3] tensor filled with given data, requires_grad=true */
-TensorHandle tensor_create_param_4d(int d0, int d1, int d2, int d3, double* data);
 
 /* ---------- Cross-Attention ---------- */
 

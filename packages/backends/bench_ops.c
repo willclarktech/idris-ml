@@ -215,7 +215,7 @@ static void bench_conv2d(int inC, int outC, int h, int w, int kH, int kW, int it
 
 static void bench_train_step(int inputDim, int outputDim, int iters) {
     /* Simple training step: y = Wx + b, loss = sum(y), backward, step.
-       Uses tensor_create_param_2d / _1d which create persistent param tensors. */
+       Uses tensor_create_param_{2d,1d}_f64 which create persistent param tensors. */
     param_clear();
 
     /* Allocate param data on heap (tensor_create_param_* takes ownership) */
@@ -226,8 +226,8 @@ static void bench_train_step(int inputDim, int outputDim, int iters) {
     for (int i = 0; i < outputDim; i++)
         bdata[i] = 0.0;
 
-    TensorHandle W = tensor_create_param_2d(outputDim, inputDim, wdata);
-    TensorHandle b = tensor_create_param_1d(outputDim, bdata);
+    TensorHandle W = tensor_create_param_2d_f64(outputDim, inputDim, wdata);
+    TensorHandle b = tensor_create_param_1d_f64(outputDim, bdata);
     param_register("W", W);
     param_register("b", b);
 

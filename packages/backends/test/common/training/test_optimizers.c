@@ -105,7 +105,7 @@ Test(training_optimizer_per_param_lr, partial_override) {
 Test(training_optimizer_fused_mv, multi_epoch_loss_decreases) {
     param_clear();
     double wdata[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
-    TensorHandle W = tensor_create_param_2d(2, 3, heap_copy(wdata, 6));
+    TensorHandle W = tensor_create_param_2d_f64(2, 3, heap_copy(wdata, 6));
     param_register("W", W);
     double xdata[] = {1.0, 0.0, -1.0};
     int xshape[] = {3};

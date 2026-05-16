@@ -20,7 +20,7 @@
  * matter (Criterion runs each Test in its own forked process anyway,
  * but param_clear keeps the assertion arithmetic explicit). The
  * underlying tensor used is a 4-elem F64 param created via
- * tensor_create_param_1d, which the tape arena allocates with its
+ * tensor_create_param_1d_f64, which the tape arena allocates with its
  * grad buffer pre-zeroed.
  */
 
@@ -33,10 +33,10 @@
 extern void param_clear(void);
 
 static TensorHandle mk_param(const char* name, int n) {
-    /* tensor_create_param_1d takes OWNERSHIP of the buffer (memcpy then
+    /* tensor_create_param_1d_f64 takes OWNERSHIP of the buffer (memcpy then
        free) — caller must not retain or re-free. */
     double* buf = calloc(n, sizeof(double));
-    TensorHandle t = tensor_create_param_1d(n, buf);
+    TensorHandle t = tensor_create_param_1d_f64(n, buf);
     tensor_set_requires_grad(t, 1);
     param_register(name, t);
     return t;

@@ -18,7 +18,7 @@
 #include "../tensor.h"
 #include "../../backend.h"
 
-TensorHandle tensor_create_param_1d(int n, double* data) {
+TensorHandle tensor_create_param_1d_f64(int n, double* data) {
     Tensor* t = calloc(1, sizeof(Tensor));
     t->data = malloc(n * sizeof(double));
     memcpy(t->data, data, n * sizeof(double));
@@ -33,7 +33,7 @@ TensorHandle tensor_create_param_1d(int n, double* data) {
     return t;
 }
 
-TensorHandle tensor_create_param_2d(int rows, int cols, double* data) {
+TensorHandle tensor_create_param_2d_f64(int rows, int cols, double* data) {
     int numel = rows * cols;
     Tensor* t = calloc(1, sizeof(Tensor));
     t->data = malloc(numel * sizeof(double));
@@ -49,7 +49,7 @@ TensorHandle tensor_create_param_2d(int rows, int cols, double* data) {
     return t;
 }
 
-TensorHandle tensor_create_param_3d(int d0, int d1, int d2, double* data) {
+TensorHandle tensor_create_param_3d_f64(int d0, int d1, int d2, double* data) {
     int numel = d0 * d1 * d2;
     Tensor* t = calloc(1, sizeof(Tensor));
     t->data = malloc(numel * sizeof(double));
@@ -65,7 +65,7 @@ TensorHandle tensor_create_param_3d(int d0, int d1, int d2, double* data) {
     return t;
 }
 
-TensorHandle tensor_create_param_4d(int d0, int d1, int d2, int d3, double* data) {
+TensorHandle tensor_create_param_4d_f64(int d0, int d1, int d2, int d3, double* data) {
     int numel = d0 * d1 * d2 * d3;
     Tensor* t = calloc(1, sizeof(Tensor));
     t->data = malloc(numel * sizeof(double));
@@ -83,7 +83,7 @@ TensorHandle tensor_create_param_4d(int d0, int d1, int d2, int d3, double* data
 
 /* Persistent tensors WITHOUT requires_grad — for non-learnable NTM state */
 
-TensorHandle tensor_create_state_1d(int n, double* data) {
+TensorHandle tensor_create_state_1d_f64(int n, double* data) {
     Tensor* t = calloc(1, sizeof(Tensor));
     t->data = malloc(n * sizeof(double));
     memcpy(t->data, data, n * sizeof(double));
@@ -97,7 +97,7 @@ TensorHandle tensor_create_state_1d(int n, double* data) {
     return t;
 }
 
-TensorHandle tensor_create_state_2d(int rows, int cols, double* data) {
+TensorHandle tensor_create_state_2d_f64(int rows, int cols, double* data) {
     int numel = rows * cols;
     Tensor* t = calloc(1, sizeof(Tensor));
     t->data = malloc(numel * sizeof(double));

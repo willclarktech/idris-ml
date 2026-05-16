@@ -33,12 +33,6 @@ extern "C" TensorHandle tensor_create_scalar_f64(double v, int rg);
 extern "C" TensorHandle tensor_create_f32(double* data, int* shape, int rank, int rg);
 extern "C" TensorHandle tensor_create_f64(double* data, int* shape, int rank, int rg);
 extern "C" TensorHandle tensor_create_2d(int rows, int cols, double* data, int rg);
-extern "C" TensorHandle tensor_create_param_1d(int n, double* data);
-extern "C" TensorHandle tensor_create_param_2d(int rows, int cols, double* data);
-extern "C" TensorHandle tensor_create_param_3d(int d0, int d1, int d2, double* data);
-extern "C" TensorHandle tensor_create_param_4d(int d0, int d1, int d2, int d3, double* data);
-extern "C" TensorHandle tensor_create_state_1d(int n, double* data);
-extern "C" TensorHandle tensor_create_state_2d(int rows, int cols, double* data);
 
 /* Process-wide target device pin set at dylib load from TORCH_DEVICE
    (see mps_init.cpp). The streamed-path creators consult this so that
@@ -297,14 +291,14 @@ TensorHandle torch_create_state_1d_dtag(int n, double* data, int dtag) {
     switch (dtag) {
         case 14: return tensor_create_state_1d_f32(n, data);
         case 15: return tensor_create_state_1d_f64(n, data);
-        default: return torch_cast_to(tensor_create_state_1d(n, data), st_for_dtag(dtag));
+        default: return torch_cast_to(tensor_create_state_1d_f64(n, data), st_for_dtag(dtag));
     }
 }
 TensorHandle torch_create_state_2d_dtag(int rows, int cols, double* data, int dtag) {
     switch (dtag) {
         case 14: return tensor_create_state_2d_f32(rows, cols, data);
         case 15: return tensor_create_state_2d_f64(rows, cols, data);
-        default: return torch_cast_to(tensor_create_state_2d(rows, cols, data), st_for_dtag(dtag));
+        default: return torch_cast_to(tensor_create_state_2d_f64(rows, cols, data), st_for_dtag(dtag));
     }
 }
 TensorHandle torch_cast_dtype_dtag(TensorHandle src, int dtag) {

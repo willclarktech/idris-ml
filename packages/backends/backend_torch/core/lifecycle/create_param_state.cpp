@@ -29,31 +29,10 @@ extern "C" TensorHandle tensor_create_2d(int rows, int cols, double* data, int r
     return from_tensor(std::move(t));
 }
 
-extern "C" TensorHandle tensor_create_param_1d(int n, double* data) {
-    return make_param_leaf(data, {(int64_t)n}, torch::kFloat64);
-}
-
-extern "C" TensorHandle tensor_create_param_2d(int rows, int cols, double* data) {
-    return make_param_leaf(data, {(int64_t)rows, (int64_t)cols}, torch::kFloat64);
-}
-
-extern "C" TensorHandle tensor_create_param_3d(int d0, int d1, int d2, double* data) {
-    return make_param_leaf(data, {(int64_t)d0, (int64_t)d1, (int64_t)d2}, torch::kFloat64);
-}
-
-extern "C" TensorHandle tensor_create_param_4d(int d0, int d1, int d2, int d3, double* data) {
-    return make_param_leaf(data, {(int64_t)d0, (int64_t)d1, (int64_t)d2, (int64_t)d3}, torch::kFloat64);
-}
-
-extern "C" TensorHandle tensor_create_state_1d(int n, double* data) {
-    auto t = torch::from_blob(data, {(int64_t)n}, torch::kFloat64).clone();
-    return from_tensor_persistent(std::move(t));
-}
-
-extern "C" TensorHandle tensor_create_state_2d(int rows, int cols, double* data) {
-    auto t = torch::from_blob(data, {(int64_t)rows, (int64_t)cols}, torch::kFloat64).clone();
-    return from_tensor_persistent(std::move(t));
-}
+/* Unsuffixed `tensor_create_{param,state}_{1,2,3,4}d` retired — the F64
+   path now lives in dtype_dispatch.cpp as `tensor_create_*_f64`, which
+   the streamed dtag dispatcher calls. Tests call the `_f64` symbols
+   directly. */
 
 extern "C" TensorHandle tensor_view_2d(TensorHandle h, int row, int col) {
     /* Returns a 0-dim view that shares storage with the parent tensor.

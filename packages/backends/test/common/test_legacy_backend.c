@@ -402,11 +402,11 @@ Test(legacy_backend, fused_mv_backward) {
     /* d_x[j] = sum_i W[i,j] = [5, 7, 9] */
 
     double wdata[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
-    TensorHandle W = tensor_create_param_2d(2, 3, heap_copy(wdata, 6));
+    TensorHandle W = tensor_create_param_2d_f64(2, 3, heap_copy(wdata, 6));
     param_register("W", W);
 
     double xdata[] = {1.0, 0.0, -1.0};
-    TensorHandle x = tensor_create_param_1d(3, heap_copy(xdata, 3));
+    TensorHandle x = tensor_create_param_1d_f64(3, heap_copy(xdata, 3));
     param_register("x", x);
 
     TensorHandle y = tensor_mv(W, x);
@@ -437,7 +437,7 @@ Test(legacy_backend, fused_mv_optimizer) {
     param_clear();
 
     double wdata[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
-    TensorHandle W = tensor_create_param_2d(2, 3, heap_copy(wdata, 6));
+    TensorHandle W = tensor_create_param_2d_f64(2, 3, heap_copy(wdata, 6));
     param_register("W", W);
 
     double xdata[] = {1.0, 0.0, -1.0};
@@ -478,12 +478,12 @@ Test(legacy_backend, lstm_gradient_chain) {
                        0.3, 0.4,   /* forget gate row */
                        0.5, 0.6,   /* cell gate row */
                        0.7, 0.8};  /* output gate row */
-    TensorHandle w = tensor_create_param_2d(4, 2, heap_copy(w_data, 8));
+    TensorHandle w = tensor_create_param_2d_f64(4, 2, heap_copy(w_data, 8));
     param_register("w", w);
 
     /* Create bias param [4] */
     double b_data[] = {0.0, 1.0, 0.0, 0.0};  /* forget bias = 1 */
-    TensorHandle b = tensor_create_param_1d(4, heap_copy(b_data, 4));
+    TensorHandle b = tensor_create_param_1d_f64(4, heap_copy(b_data, 4));
     param_register("b", b);
 
     /* Input [2] — not a param, requires_grad=0 */
@@ -551,7 +551,7 @@ Test(legacy_backend, lstm_select_stack_chain) {
 
     /* Param: linear weight [1, 2] */
     double lw_data[] = {0.3, 0.7};
-    TensorHandle lw = tensor_create_param_2d(1, 2, heap_copy(lw_data, 2));
+    TensorHandle lw = tensor_create_param_2d_f64(1, 2, heap_copy(lw_data, 2));
     param_register("lw", lw);
 
     /* Create a hidden vector [2] with requires_grad (like LSTM output) */
@@ -1390,13 +1390,13 @@ Test(legacy_backend, safetensors_roundtrip) {
 
     /* Register a 2D param and a 1D param with known values */
     double w_data[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
-    TensorHandle w = tensor_create_param_2d(2, 3, tensor_alloc_doubles(0));
+    TensorHandle w = tensor_create_param_2d_f64(2, 3, tensor_alloc_doubles(0));
     /* Fill via our own buffer */
     {
         double* buf = tensor_alloc_doubles(6);
         for (int i = 0; i < 6; i++) tensor_write_double_return(buf, i, w_data[i]);
         tensor_free(w);
-        w = tensor_create_param_2d(2, 3, buf);
+        w = tensor_create_param_2d_f64(2, 3, buf);
     }
     param_register("weights", w);
 
@@ -1404,7 +1404,7 @@ Test(legacy_backend, safetensors_roundtrip) {
     {
         double* buf = tensor_alloc_doubles(2);
         for (int i = 0; i < 2; i++) tensor_write_double_return(buf, i, b_data[i]);
-        TensorHandle b = tensor_create_param_1d(2, buf);
+        TensorHandle b = tensor_create_param_1d_f64(2, buf);
         param_register("biases", b);
     }
 
@@ -1564,9 +1564,9 @@ Test(legacy_backend, batch_norm_backward) {
     double rv_d[] = {1.0, 1.0};
     int s1[] = {2};
     double* g_buf = heap_copy(gamma_d, 2);
-    TensorHandle gamma = tensor_create_param_1d(2, g_buf);
+    TensorHandle gamma = tensor_create_param_1d_f64(2, g_buf);
     double* b_buf = heap_copy(beta_d, 2);
-    TensorHandle beta = tensor_create_param_1d(2, b_buf);
+    TensorHandle beta = tensor_create_param_1d_f64(2, b_buf);
     TensorHandle rm = tensor_create(rm_d, s1, 1, 0);
     TensorHandle rv = tensor_create(rv_d, s1, 1, 0);
 

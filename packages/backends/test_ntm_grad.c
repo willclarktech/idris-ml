@@ -18,19 +18,19 @@ int main(void) {
     /* Note: tensor_create_param_* takes ownership and frees the buffer */
     double* mem_data = (double*)malloc(N * W * sizeof(double));
     for (int i = 0; i < N * W; i++) mem_data[i] = 1e-6; /* small init */
-    TensorHandle mem = tensor_create_param_2d(N, W, mem_data);
+    TensorHandle mem = tensor_create_param_2d_f64(N, W, mem_data);
     param_register("mem", mem);
 
     /* Key vector [W] as a param */
     double* key_data = (double*)malloc(W * sizeof(double));
     for (int i = 0; i < W; i++) key_data[i] = ((double)rand() / RAND_MAX - 0.5) * 0.1;
-    TensorHandle key = tensor_create_param_1d(W, key_data);
+    TensorHandle key = tensor_create_param_1d_f64(W, key_data);
     param_register("key", key);
 
     /* Previous addressing weights [N] — uniform */
     double* prev_w_data = (double*)malloc(N * sizeof(double));
     for (int i = 0; i < N; i++) prev_w_data[i] = 1.0 / N;
-    TensorHandle prev_w = tensor_create_param_1d(N, prev_w_data);
+    TensorHandle prev_w = tensor_create_param_1d_f64(N, prev_w_data);
     param_register("prev_w", prev_w);
 
     /* Scalars: beta, g, gamma */
@@ -45,7 +45,7 @@ int main(void) {
     double sk_src[] = {0.1, 0.8, 0.1};
     double* sk_data = (double*)malloc(3 * sizeof(double));
     memcpy(sk_data, sk_src, 3 * sizeof(double));
-    TensorHandle shift_k = tensor_create_param_1d(3, sk_data);
+    TensorHandle shift_k = tensor_create_param_1d_f64(3, sk_data);
     param_register("shift", shift_k);
 
     printf("Params registered: %d\n", param_count());

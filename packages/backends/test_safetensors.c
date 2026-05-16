@@ -184,14 +184,14 @@ int main(void) {
     double w_data[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
     double* w_buf = tensor_alloc_doubles(6);
     for (int i = 0; i < 6; i++) w_buf[i] = w_data[i];
-    TensorHandle w = tensor_create_param_2d(2, 3, w_buf);
+    TensorHandle w = tensor_create_param_2d_f64(2, 3, w_buf);
     param_register("weights", w);
 
     /* Create a 1D param [2] */
     double b_data[] = {10.0, 20.0};
     double* b_buf = tensor_alloc_doubles(2);
     for (int i = 0; i < 2; i++) b_buf[i] = b_data[i];
-    TensorHandle b = tensor_create_param_1d(2, b_buf);
+    TensorHandle b = tensor_create_param_1d_f64(2, b_buf);
     param_register("biases", b);
 
     ASSERT_TRUE("param_count == 2", param_count() == 2);

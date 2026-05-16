@@ -452,24 +452,6 @@ prim__setInt : AnyPtr -> Int -> Int -> AnyPtr
 -- tensor_create_2d
 
 
--- tensor_create_param_1d
-
-
--- tensor_create_param_2d
-
-
--- tensor_create_param_3d
-
-
--- tensor_create_param_4d
-
-
--- tensor_create_state_1d
-
-
--- tensor_create_state_2d
-
-
 -- Per-dtype cast primitives. Backend support mirrors the create
 -- primitives: mlx/torch implement both; tape implements _f64 (no-op
 -- alias today, since the only valid source dtype is F64) and aborts
