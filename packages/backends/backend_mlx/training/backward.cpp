@@ -139,8 +139,13 @@ void tensor_backward(TensorHandle h) {
             }
             case OP_SILU: pool[out] = mx::multiply(a, mx::sigmoid(a)); break;
             case OP_SOFTPLUS: {
-                pool[out] = mx::add(mx::maximum(a, zero_like(a)),
-                                    mx::log(mx::add(one_like(a), mx::exp(mx::negative(mx::abs(a))))));
+                // Smooth form log(1 + exp(a)) — differentiable everywhere
+                // (d/dx = sigmoid(a)). The numerically-stable composite
+                // max(0,a) + log(1+exp(-|a|)) used in the forward kernel
+                // can't be used here: mx::vjp returns subgradient 0 for the
+                // non-differentiable kink at a=0 in mx::maximum, which would
+                // give a wrong d/dx softplus(0) = 0 instead of 0.5.
+                pool[out] = mx::log(mx::add(one_like(a), mx::exp(a)));
                 break;
             }
             case OP_TILE_2D: {

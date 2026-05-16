@@ -30,10 +30,7 @@ Test(core_elementwise_tanh, forward_backward) {
         "d tanh(0)/dx should be 1.0 (got %.6f)", param_grad_item_at(0, 0));
 }
 
-/* mlx: backward returns 0.0 instead of 0.5 — softplus' gradient path
-   isn't being registered. Forward is fine. Tracked in TODO.md
-   "mlx softplus backward gradient". */
-Test(core_elementwise_softplus, forward_backward, .disabled = SKIP_ON_MLX) {
+Test(core_elementwise_softplus, forward_backward) {
     param_clear();
     TensorHandle a = tensor_create_scalar(0.0, 1);
     param_register("a", a);
