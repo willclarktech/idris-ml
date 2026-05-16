@@ -187,27 +187,7 @@ TensorHandle tensor_silu(TensorHandle h) {
 /* tensor_add_scalar / tensor_mul_scalar / tensor_clamp_min extracted
    to backend_torch/core/scalar/. */
 
-/* ---------- Reduction ---------- */
-
-TensorHandle tensor_sum(TensorHandle h) {
-    return from_tensor(to_tensor(h)->sum());
-}
-
-TensorHandle tensor_sum_dim(TensorHandle h, int dim, int keepdim) {
-    return from_tensor(to_tensor(h)->sum(dim, keepdim != 0));
-}
-
-TensorHandle tensor_mean(TensorHandle h) {
-    return from_tensor(to_tensor(h)->mean());
-}
-
-TensorHandle tensor_min(TensorHandle h) {
-    return from_tensor(to_tensor(h)->min().detach());
-}
-
-TensorHandle tensor_max(TensorHandle h) {
-    return from_tensor(to_tensor(h)->max().detach());
-}
+/* Reduction ops live in backend_torch/linear/reduction/ */
 
 /* ---------- Linear algebra ---------- */
 
