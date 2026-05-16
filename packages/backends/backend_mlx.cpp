@@ -83,8 +83,12 @@ static void mlx_backend_init(void) {
     // workloads (NTM/DNC backward) abort with "[malloc] Unable to allocate
     // N bytes". 16 GB is well above what any example needs and well below
     // the runner's RAM. Cache limit follows.
-    mx::set_memory_limit((size_t)16 * 1024 * 1024 * 1024);
-    mx::set_cache_limit((size_t)4 * 1024 * 1024 * 1024);
+    // Leave memory_limit / cache_limit at mlx's defaults. mlx derives
+    // them from the Metal-reported recommended working set size, which
+    // is right-sized for the host. The previous override (16 GB on a
+    // 16 GB VM) was over-committing and not the right knob for the
+    // "Unable to allocate" issue — that's a system malloc-NULL
+    // condition independent of the mlx limit.
     g_prev_terminate_handler = std::set_terminate(mlx_terminate_handler);
     std::atexit(mlx_set_past_main);
 }
@@ -2339,7 +2343,45 @@ void tensor_set_requires_grad(TensorHandle h, int rg) {
 }
 
 void tensor_no_grad_begin(void) { no_grad_depth++; }
-void tensor_no_grad_end(void)   { if (no_grad_depth > 0) no_grad_depth--; }
+void tensor_no_grad_end(void) {
+    if (no_grad_depth > 0) no_grad_depth--;
+    if (no_grad_depth > 0) return;  // only sweep on outermost end
+
+    // No-grad blocks don't run optimizer_step → tape_reset doesn't fire,
+    // so non-persistent intermediates created inside withNoGrad leak in
+    // `all_tensors`. Eval is many forwards in tight loops; over the
+    // course of one or two blocks the leak grows to tens of MB. On Apple
+    // Virtualization VMs (Tart, GHA macOS runners) mlx 0.31 starts
+    // throwing `[malloc] Unable to allocate N bytes` once the leak
+    // crosses a VM-specific threshold (~40 MB on this Tart VM).
+    //
+    // Safe to free: tensors created during the no-grad block have
+    // tape_idx==-1 (no_grad doesn't append to tape) and persistent==0.
+    // Tape-attached and persistent tensors are skipped. The caller's
+    // result, if a Tensor, would also be swept here — but our eval-phase
+    // usage extracts a scalar via tensor_item before returning, so the
+    // Tensor handle is no longer reachable from Idris at this point.
+    //
+    // Force eval first so any lazy mx::array still referencing soon-to-be-
+    // freed inputs realizes its result before the inputs disappear.
+    std::vector<mx::array> to_eval;
+    for (auto* t : all_tensors) {
+        if (!t->persistent && t->tape_idx < 0) {
+            to_eval.push_back(t->data);
+        }
+    }
+    if (!to_eval.empty()) {
+        try { mx::eval(to_eval); } catch (...) { /* best-effort */ }
+    }
+    std::vector<Tensor*> survivors;
+    survivors.reserve(all_tensors.size());
+    for (auto* t : all_tensors) {
+        if (t->persistent || t->tape_idx >= 0) survivors.push_back(t);
+        else delete t;
+    }
+    all_tensors = std::move(survivors);
+    try { mx::clear_cache(); } catch (...) { /* best-effort */ }
+}
 
 /* ================================================================
    Device
