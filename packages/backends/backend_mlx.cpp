@@ -2635,6 +2635,20 @@ void optimizer_step(OptimizerHandle h) {
         }
     }
 
+    // Hoist optimizer-state scalars out of the per-param loop. These depend on
+    // opt and the current step, not on which param — re-allocating them per
+    // param added one graph node per param per step for nothing.
+    auto alpha_arr   = mx::array(opt->alpha);
+    auto one_m_alpha = mx::array(1.0 - opt->alpha);
+    auto beta1_arr   = mx::array(opt->beta1);
+    auto one_m_beta1 = mx::array(1.0 - opt->beta1);
+    auto beta2_arr   = mx::array(opt->beta2);
+    auto one_m_beta2 = mx::array(1.0 - opt->beta2);
+    auto eps_arr     = mx::array(opt->eps);
+    auto momentum_a  = mx::array(opt->momentum);
+    auto bc1_arr     = mx::array(1.0 - std::pow(opt->beta1, opt->t));
+    auto bc2_arr     = mx::array(1.0 - std::pow(opt->beta2, opt->t));
+
     for (int i = 0; i < np; i++) {
         if (!opt_owns_param_mlx(opt, i)) continue;
         auto t = param_registry[i].tensor;
@@ -2647,18 +2661,19 @@ void optimizer_step(OptimizerHandle h) {
         double lr = opt->lr;
         if (i < (int)opt->param_lr.size() && opt->param_lr[i] >= 0)
             lr = opt->param_lr[i];
+        auto lr_arr = mx::array(lr);
 
         switch (opt->type) {
         case 0: // SGD
-            t->data = mx::subtract(t->data, mx::multiply(mx::array(lr), g));
+            t->data = mx::subtract(t->data, mx::multiply(lr_arr, g));
             break;
         case 1: { // RMSprop
-            opt->v_bufs[i] = mx::add(mx::multiply(mx::array(opt->alpha), opt->v_bufs[i]),
-                                      mx::multiply(mx::array(1.0 - opt->alpha), mx::square(g)));
-            auto delta = mx::divide(mx::multiply(mx::array(lr), g),
-                                     mx::add(mx::sqrt(opt->v_bufs[i]), mx::array(opt->eps)));
+            opt->v_bufs[i] = mx::add(mx::multiply(alpha_arr, opt->v_bufs[i]),
+                                      mx::multiply(one_m_alpha, mx::square(g)));
+            auto delta = mx::divide(mx::multiply(lr_arr, g),
+                                     mx::add(mx::sqrt(opt->v_bufs[i]), eps_arr));
             if (opt->momentum > 0) {
-                opt->m_bufs[i] = mx::add(mx::multiply(mx::array(opt->momentum), opt->m_bufs[i]), delta);
+                opt->m_bufs[i] = mx::add(mx::multiply(momentum_a, opt->m_bufs[i]), delta);
                 t->data = mx::subtract(t->data, opt->m_bufs[i]);
             } else {
                 t->data = mx::subtract(t->data, delta);
@@ -2666,27 +2681,27 @@ void optimizer_step(OptimizerHandle h) {
             break;
         }
         case 2: { // Adam
-            opt->m_bufs[i] = mx::add(mx::multiply(mx::array(opt->beta1), opt->m_bufs[i]),
-                                      mx::multiply(mx::array(1.0 - opt->beta1), g));
-            opt->v_bufs[i] = mx::add(mx::multiply(mx::array(opt->beta2), opt->v_bufs[i]),
-                                      mx::multiply(mx::array(1.0 - opt->beta2), mx::square(g)));
-            auto mhat = mx::divide(opt->m_bufs[i], mx::array(1.0 - std::pow(opt->beta1, opt->t)));
-            auto vhat = mx::divide(opt->v_bufs[i], mx::array(1.0 - std::pow(opt->beta2, opt->t)));
+            opt->m_bufs[i] = mx::add(mx::multiply(beta1_arr, opt->m_bufs[i]),
+                                      mx::multiply(one_m_beta1, g));
+            opt->v_bufs[i] = mx::add(mx::multiply(beta2_arr, opt->v_bufs[i]),
+                                      mx::multiply(one_m_beta2, mx::square(g)));
+            auto mhat = mx::divide(opt->m_bufs[i], bc1_arr);
+            auto vhat = mx::divide(opt->v_bufs[i], bc2_arr);
             t->data = mx::subtract(t->data,
-                mx::divide(mx::multiply(mx::array(lr), mhat),
-                            mx::add(mx::sqrt(vhat), mx::array(opt->eps))));
+                mx::divide(mx::multiply(lr_arr, mhat),
+                            mx::add(mx::sqrt(vhat), eps_arr)));
             break;
         }
         case 3: { // AdamW (decoupled weight decay)
-            opt->m_bufs[i] = mx::add(mx::multiply(mx::array(opt->beta1), opt->m_bufs[i]),
-                                      mx::multiply(mx::array(1.0 - opt->beta1), g));
-            opt->v_bufs[i] = mx::add(mx::multiply(mx::array(opt->beta2), opt->v_bufs[i]),
-                                      mx::multiply(mx::array(1.0 - opt->beta2), mx::square(g)));
-            auto mhat = mx::divide(opt->m_bufs[i], mx::array(1.0 - std::pow(opt->beta1, opt->t)));
-            auto vhat = mx::divide(opt->v_bufs[i], mx::array(1.0 - std::pow(opt->beta2, opt->t)));
+            opt->m_bufs[i] = mx::add(mx::multiply(beta1_arr, opt->m_bufs[i]),
+                                      mx::multiply(one_m_beta1, g));
+            opt->v_bufs[i] = mx::add(mx::multiply(beta2_arr, opt->v_bufs[i]),
+                                      mx::multiply(one_m_beta2, mx::square(g)));
+            auto mhat = mx::divide(opt->m_bufs[i], bc1_arr);
+            auto vhat = mx::divide(opt->v_bufs[i], bc2_arr);
             t->data = mx::subtract(t->data,
-                mx::divide(mx::multiply(mx::array(lr), mhat),
-                            mx::add(mx::sqrt(vhat), mx::array(opt->eps))));
+                mx::divide(mx::multiply(lr_arr, mhat),
+                            mx::add(mx::sqrt(vhat), eps_arr)));
             t->data = mx::subtract(t->data,
                 mx::multiply(mx::array(lr * opt->weight_decay), t->data));
             break;
