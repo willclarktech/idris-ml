@@ -168,6 +168,8 @@ TensorHandle tensor_create_mlx_streamed(double* data, int* shape, int rank, int 
 TensorHandle tensor_cast_dtype_f32_mlx_streamed(TensorHandle h, int stream_tag);
 TensorHandle tensor_cast_dtype_f64_mlx_streamed(TensorHandle h, int stream_tag);
 TensorHandle tensor_clone_mlx_streamed(TensorHandle h, int stream_tag);
+TensorHandle tensor_mean_mlx_streamed(TensorHandle h, int stream_tag);
+TensorHandle tensor_mean(TensorHandle h);
 double       tensor_item_mlx_streamed(TensorHandle h, int stream_tag);
 double       tensor_item_1d_mlx_streamed(TensorHandle vec, int idx, int stream_tag);
 void         tensor_free_mlx_streamed(TensorHandle h, int stream_tag);
@@ -269,7 +271,7 @@ void tensor_release_handle(void* h) {
    backend_mlx/tape.h. Definitions live here for symbol uniqueness. */
 
 std::vector<TapeEntry> tape;
-int no_grad_depth = 0;
+static int no_grad_depth = 0;
 long prof_tape_appends_mlx = 0;
 
 int tape_append(int op, Tensor* result, Tensor* arg1, Tensor* arg2, double scalar_arg) {
@@ -556,81 +558,7 @@ TensorHandle tensor_silu(TensorHandle h) {
    tensor_add_scalar / tensor_mul_scalar / tensor_clamp_min extracted to
    backend_mlx/core/scalar/. */
 
-/* ================================================================
-   Reduction
-   ================================================================ */
-
-extern "C" TensorHandle tensor_sum_mlx_streamed(TensorHandle h, int stream_tag) {
-    WITH_STREAM(stream_tag);
-
-    auto t = (Tensor*)h;
-    auto r = new Tensor(mx::sum(t->data), t->requires_grad);
-    if (t->requires_grad) tape_append(OP_SUM, r, t, nullptr, 0);
-    return (TensorHandle)r;
-
-}
-TensorHandle tensor_sum(TensorHandle h) {
-    return tensor_sum_mlx_streamed(h, default_stream_tag());
-}
-
-extern "C" TensorHandle tensor_sum_dim_mlx_streamed(TensorHandle h, int dim, int keepdim, int stream_tag) {
-    WITH_STREAM(stream_tag);
-
-    auto t = (Tensor*)h;
-    int rank = (int)t->data.ndim();
-    int normalized = dim < 0 ? dim + rank : dim;
-    auto r = new Tensor(
-        mx::sum(t->data, std::vector<int>{normalized}, keepdim != 0),
-        t->requires_grad);
-    if (t->requires_grad) {
-        int idx = tape_append(OP_SUM_DIM, r, t, nullptr, 0);
-        auto meta = new SumDimReplayMeta{normalized, keepdim != 0 ? 1 : 0};
-        tape[idx].meta = meta;
-    }
-    return (TensorHandle)r;
-
-}
-TensorHandle tensor_sum_dim(TensorHandle h, int dim, int keepdim) {
-    return tensor_sum_dim_mlx_streamed(h, dim, keepdim, default_stream_tag());
-}
-extern "C" TensorHandle tensor_mean_mlx_streamed(TensorHandle h, int stream_tag) {
-    WITH_STREAM(stream_tag);
-
-    auto t = (Tensor*)h;
-    auto r = new Tensor(mx::mean(t->data), t->requires_grad);
-    if (t->requires_grad) tape_append(OP_MEAN, r, t, nullptr, 0);
-    return (TensorHandle)r;
-
-}
-TensorHandle tensor_mean(TensorHandle h) {
-    return tensor_mean_mlx_streamed(h, default_stream_tag());
-}
-
-extern "C" TensorHandle tensor_min_mlx_streamed(TensorHandle h, int stream_tag) {
-    WITH_STREAM(stream_tag);
-
-    auto t = (Tensor*)h;
-    auto result = mx::min(t->data);
-    mx::eval(result);
-    return (TensorHandle)new Tensor(result, false);
-
-}
-TensorHandle tensor_min(TensorHandle h) {
-    return tensor_min_mlx_streamed(h, default_stream_tag());
-}
-
-extern "C" TensorHandle tensor_max_mlx_streamed(TensorHandle h, int stream_tag) {
-    WITH_STREAM(stream_tag);
-
-    auto t = (Tensor*)h;
-    auto result = mx::max(t->data);
-    mx::eval(result);
-    return (TensorHandle)new Tensor(result, false);
-
-}
-TensorHandle tensor_max(TensorHandle h) {
-    return tensor_max_mlx_streamed(h, default_stream_tag());
-}
+/* Reduction ops live in backend_mlx/linear/reduction/ */
 
 /* ================================================================
    Linear algebra

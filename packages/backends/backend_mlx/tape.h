@@ -140,11 +140,9 @@ struct TapeEntry {
    tape_append (and never directly). */
 extern std::vector<TapeEntry> tape;
 
-/* When > 0, tape_append is a no-op and the result is marked
-   requires_grad=false so downstream ops don't propagate grad through
-   it. Mirrors PyTorch's torch.no_grad(); see tape backend's matching
-   no_grad_depth. */
-extern int no_grad_depth;
+/* no_grad_depth is private to backend_mlx.cpp (TU-local static). The
+   gating is enforced inside tape_append, so per-op TUs only need to
+   call tape_append and never touch the depth directly. */
 
 /* Diagnostic: count of FFI ops appended this epoch. tape_append fires
    once per grad-requiring op in the forward pass. Counts grad-tracked
