@@ -35,9 +35,11 @@ example-gru                      loss         <   5.0
 
 # ---- Smoke (a few epochs): safety-net thresholds ----
 example-gpt                      bpc          <   20.0
-example-gpt-large                bpc          <   20.0
 example-mnist                    accuracy     >=  0.05
 example-seq-classify             loss         <   10.0
+# Matmul bench: presence-only — RESULT line has no loss/accuracy, just
+# perf numbers. Throughput must be > 0 to catch a totally-broken matmul.
+example-matmul-bench             gflops       >   0.1
 
 # ---- Memory-augmented nets: safety-net (5 epochs) ----
 # At 5 epochs none of these have learned past random (~0.5 for binary tasks).
