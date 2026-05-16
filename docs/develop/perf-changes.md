@@ -48,6 +48,61 @@ is still useful (saves someone trying it again).
 
 ## Entries
 
+### 2026-05-14 — GPU-specific "Idris-side overhead" is actually accumulated kernel-launch wall — `<commit>`
+
+**Plan job**: follow-up to the GptLarge Phase 3 wallclock matrix, where
+"GPU is 20% slower on wall, but only 7% slower on C-total" left an
+unattributed ~800 ms/ep on GPU.
+
+**Motivation**: claim being tested — "mlx GPU has more Idris-side
+overhead per FFI call than mlx CPU stream." If true, the fix would
+involve Chez Scheme runtime work. If false, then the same accumulated
+kernel-launch wall that motivated the optimizer eval-removal is just
+showing up across the whole forward/backward graph too — fixable by
+fusing more ops, no Idris-side work needed.
+
+**Change**: built `/tmp/bench_per_op` — a tight loop of `tensor_add`
+calls with NO eval. Measured pure graph-build cost only:
+
+| measurement                       | CPU      | GPU      | gap |
+|-----------------------------------|---------:|---------:|----:|
+| graph-build only (no eval)        | 0.43 us/op | 0.44 us/op | **0** |
+| add+mul w/ force_eval per iter    | 28 us/op   | 200 us/op  | 7× |
+| supervised wall/ep                | 4 ms     | 8 ms     | +4 ms |
+| gpt-large wall/ep                 | 8500 ms  | 9300 ms  | +800 ms |
+
+Pure FFI dispatch + graph-node construction is identical on CPU and
+GPU. The cost only appears when something forces evaluation —
+`tensor_item`, the `mx::eval` calls inside `tensor_backward`, the
+final `mx::eval(to_eval)` in `optimizer_step`, etc.
+
+**Impact**: explains the GPU wall gap mechanistically. On mlx CPU
+stream, a sync runs the queued ops on a CPU worker thread — fast and
+pipelined. On mlx GPU, a sync encodes to a Metal command buffer,
+dispatches, and waits for completion — Metal has higher per-op
+latency. Across 293 ops per gpt-large epoch (plus backward and
+optimizer graph), the cumulative drain at each sync point produces
+the 800 ms/ep wall gap. No Idris-side work is the actual contributor.
+
+**Outcome**: investigation only, no code change. The actionable
+levers are the same as the optimizer story:
+- `mx::compile` wrapping over larger scopes (whole forward, whole
+  optimizer step) → fewer kernels → fewer launch-wall contributions
+  at each sync point
+- bigger per-op compute (bigger model) → wall amortizes naturally
+
+The investigation kills the "Idris-side GPU overhead" hypothesis
+cleanly. Filed two follow-ups: the existing "wrap optimizer step in
+`mx::compile`" TODO row remains the next concrete lever; the
+"investigate Idris-2 JIT / JAX backend" row stays open as the broader
+question even though THIS investigation showed Idris-side dispatch is
+fine on its own.
+
+**Cross-references**:
+- `perf-log.jsonl` post-eval-fix 3-run reproducibility entries
+- the per-op microbench `/tmp/bench_per_op.c` is one-off and not
+  checked in; reproducible from the recipe in this entry
+
 ### 2026-05-14 — GptLarge GPU-vs-CPU matrix: 20% wallclock gap, optimizer is the lever — `<commit>`
 
 **Plan job**: GPU-friendly-example TODO row (the deliverable said
