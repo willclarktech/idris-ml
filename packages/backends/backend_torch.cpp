@@ -56,33 +56,23 @@ static void torch_mps_eager_init(void) {
    backend_torch/training/profiling.{h,cpp}. */
 #include "backend_torch/training/profiling.h"
 
-/* ---------- Intermediate tensor tracking ---------- */
-
-// Track all non-persistent tensors so we can free them at optimizer_step.
-// Reserved up-front to a typical-DNC working-set size to avoid per-epoch
-// vector-grow churn (DNC-class workloads push ~3K intermediates/epoch).
-// Param tensors go via from_tensor_persistent and are never tracked here,
-// so free_intermediates can bulk-delete without filtering.
-static std::vector<at::Tensor*> intermediates;
-static std::vector<TensorPair*> all_pairs;
-static bool tracking_enabled = true;
-static long g_torch_peak_live = 0;  // high-water mark of intermediates.size()
-struct _ReserveIntermediates {
-    _ReserveIntermediates() { intermediates.reserve(4096); all_pairs.reserve(256); }
-};
-static _ReserveIntermediates _reserve_intermediates_instance;
+/* Intermediate tensor tracking (`intermediates`, `all_pairs`,
+   `tracking_enabled`, `g_torch_peak_live_intermediates`) lives in
+   backend_torch/training/intermediates.{h,cpp}. */
+#include "backend_torch/training/intermediates.h"
 
 /* ---------- Helpers ---------- */
 
 // to_tensor lives inline in backend_torch/tensor.h (the modular tree
 // header). from_tensor / from_tensor_persistent are declared there too,
-// but defined here so they retain visibility over the monolith-private
-// `intermediates` / `tracking_enabled` / `g_torch_peak_live` globals.
+// but defined here so they remain co-located with the intermediates
+// list they push into.
 TensorHandle from_tensor(at::Tensor t) {
     auto* p = new at::Tensor(std::move(t));
-    if (tracking_enabled) {
-        intermediates.push_back(p);
-        if ((long)intermediates.size() > g_torch_peak_live) g_torch_peak_live = (long)intermediates.size();
+    if (tracking_enabled_torch) {
+        intermediates_torch.push_back(p);
+        if ((long)intermediates_torch.size() > g_torch_peak_live_intermediates)
+            g_torch_peak_live_intermediates = (long)intermediates_torch.size();
     }
     return static_cast<TensorHandle>(p);
 }
@@ -92,8 +82,6 @@ TensorHandle from_tensor_persistent(at::Tensor t) {
     auto* p = new at::Tensor(std::move(t));
     return static_cast<TensorHandle>(p);
 }
-
-static void free_intermediates(); // defined after param_registry
 static TensorHandle make_param_leaf(double* data, c10::IntArrayRef dims, torch::ScalarType dt); // defined near the F32 param creators
 
 /* ---------- Lifecycle ----------
@@ -102,10 +90,8 @@ static TensorHandle make_param_leaf(double* data, c10::IntArrayRef dims, torch::
 
 /* tensor_clone / tensor_free / tensor_retain_handle / tensor_release_handle
    extracted to backend_torch/core/lifecycle/. The `freed_by_cleanup`
-   set + free_intermediates() impl stays here. */
-
-// Track pointers freed by free_intermediates so tensor_free skips them
-static std::unordered_set<void*> freed_by_cleanup;
+   set + free_intermediates() impl live in
+   backend_torch/training/intermediates.cpp. */
 
 /* ---------- Accessors ---------- */
 
@@ -337,26 +323,6 @@ extern "C" void _dbg_dump_param_grads_if_enabled_torch(void);
    per-tensor accessors (tensor_numel / tensor_has_grad / grad_read /
    grad_write / zero_grad / data_read / data_write / load_doubles /
    load_int64) through its port adapter at the bottom of this file. */
-
-static void free_intermediates() {
-    // Params are always created via from_tensor_persistent and are never
-    // tracked in `intermediates`, so we can bulk-delete here without
-    // filtering. (Previous version built an unordered_set<at::Tensor*>
-    // from param_registry per call as a safety net — that was a hot-path
-    // hash build for ~thousands of intermediates on DNC-class workloads.)
-    freed_by_cleanup.clear();
-    freed_by_cleanup.reserve(intermediates.size());
-    for (auto* p : intermediates) {
-        if (p) {
-            freed_by_cleanup.insert(p);
-            delete p;
-        }
-    }
-    intermediates.clear();
-    // Free TensorPair structs
-    for (auto* p : all_pairs) delete p;
-    all_pairs.clear();
-}
 
 // Byte-exact I64 readout — bypasses the double pivot so values
 // above 2^53 survive. The `.to(kInt64)` is a no-op when the source
@@ -1185,22 +1151,8 @@ void optimizer_set_meta(OptimizerHandle h, const double* in9) {
 
 /* tensor_lstm_gates lives in backend_torch/training/ntm_specific.cpp. */
 
-TensorPair* tensor_lstm_gates_pair(TensorHandle combined_h, TensorHandle prev_cell_h, int o) {
-    auto& combined = *to_tensor(combined_h);
-    auto& prev_cell = *to_tensor(prev_cell_h);
-    auto chunks = combined.split(o);
-    auto i_gate = torch::sigmoid(chunks[0]);
-    auto f_gate = torch::sigmoid(chunks[1]);
-    auto g_gate = torch::tanh(chunks[2]);
-    auto o_gate = torch::sigmoid(chunks[3]);
-    auto new_cell = f_gate * prev_cell + i_gate * g_gate;
-    auto new_hidden = o_gate * torch::tanh(new_cell);
-    auto* p = new TensorPair;
-    p->first = from_tensor(std::move(new_hidden));
-    p->second = from_tensor(std::move(new_cell));
-    all_pairs.push_back(p);
-    return p;
-}
+/* tensor_lstm_gates_pair lives in
+   backend_torch/nn/recurrent/lstm_gates_pair.cpp. */
 
 /* ---------- System ---------- */
 
@@ -1277,9 +1229,9 @@ int optimizer_step_with_clip(OptimizerHandle opt, int clip_mode, double clip_val
     optimizer_step(opt); optimizer_zero_grad(opt);
     return 0;
 }
-int tensor_live_count(int dummy) { (void)dummy; return (int)intermediates.size(); }
-int tensor_peak_live_count(int dummy) { (void)dummy; return (int)g_torch_peak_live; }
-/* dropout_random_seed lives in shared_utils.c. */
+/* tensor_live_count / tensor_peak_live_count live in
+   backend_torch/training/intermediates.cpp.
+   dropout_random_seed lives in shared_utils.c. */
 
 
 
