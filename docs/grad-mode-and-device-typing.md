@@ -1,8 +1,5 @@
 # Type-level grad-mode and device — what does it actually require?
 
-Status: design discussion, 2026-05-12. Companion to the
-"Type-level grad-mode enforcement" TODO entry.
-
 ## TL;DR
 
 Both **grad-mode** and **device restriction** are closed-sum phantom
@@ -234,46 +231,16 @@ a textbook value-determines-type story — but it's value-determines-
 *interface-instance*, which Haskell could also do with type classes.
 The dependent-types value is still mostly uniformity, not raw power.
 
-## Practical implication for the TODO
+## Bottom line
 
-The "Type-level grad-mode enforcement" TODO and the precision-type-
-parameter TODO are both **medium-effort uniformity wins**, not
-proof-of-concept dependent-types showcases. They're worth doing
-because:
+Grad-mode and device tracking at the type level are
+**medium-effort uniformity wins**, not proof-of-concept
+dependent-types showcases. They're worth doing because:
 
 - the runtime `requires_grad` flag and the runtime `device` string
   become statically redundant;
 - accidental cross-device / post-no-grad bugs become unrepresentable;
 - the API is uniform with the shape parameter that's already there.
 
-But they shouldn't be sold as "this is what dependent types unlock"
-in marketing material. The shape-safety story is the load-bearing
-one. Keep that distinct.
-
-## Open questions for the implementation phase
-
-If we proceed with the grad-mode TODO:
-
-1. **Where does `WithGrad` come from?** The default for
-   `prim__createScalar`, `tlinear`, etc. is "tracks grad if any input
-   does, else inherits from the surrounding mode." Concretely: every
-   leaf-creating op needs a `{g : GradMode}` implicit, and `Join` is
-   threaded through binary ops.
-
-2. **`withNoGrad` API shape.** Block-scoped (current) or value-level
-   coercion (`weakenGrad : Tensor d dev g -> Tensor d dev NoGrad`)?
-   The block form is what PyTorch users expect; in Idris it's a
-   higher-rank function `({g : GradMode} -> Tensor d dev g -> a) ->
-   (Tensor d dev NoGrad -> a)`, which compiles but reads weirdly.
-   Coercion is uglier at call sites but typechecks more locally.
-
-3. **Interaction with `Network` / `forwardVar`.** ~400 sites that
-   take `Tensor` need a `{g : GradMode}` thread-through. Almost all
-   want grad-polymorphism (work in either mode). Migration plan: add
-   `{auto g : GradMode} = WithGrad` as a defaulted implicit so old
-   code keeps compiling, then progressively tighten where it matters.
-
-4. **Does the runtime `requires_grad` flag stay or go?** If the type
-   says `NoGrad`, the runtime flag is redundant. But the FFI boundary
-   still needs *something* — we can't pass a type to libtorch. Likely
-   keep it as a debug invariant, drop it as a control surface.
+But they shouldn't be sold as "this is what dependent types unlock."
+The shape-safety story is the load-bearing one. Keep that distinct.

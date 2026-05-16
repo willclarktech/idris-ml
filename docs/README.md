@@ -4,6 +4,7 @@
 
 - [PyTorch Mapping](pytorch-mapping.md) -- concept translation for PyTorch users (tensors, models, optimizers, training loops)
 - [Static vs Dynamic Graphs](static-vs-dynamic-graphs.md) -- how dependent types give you static shape safety with dynamic graph ergonomics
+- [Grad-Mode and Device Typing](grad-mode-and-device-typing.md) -- what tracking grad-mode and device at the type level actually requires (spoiler: less than you'd think)
 - [Benchmarks](benchmarks.md) -- performance comparison vs PyTorch across tape, MLX, and torch backends
 - [Jupyter Notebooks](../jupyter/README.md) -- interactive notebook setup, tutorials, and per-model walkthroughs
 
