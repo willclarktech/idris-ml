@@ -675,6 +675,12 @@ ref-dnc-recall:
 ref-transformer:
 	cd packages/pytorch && uv run python -m torch_ref.scripts.transformer
 
+ref-gpt:
+	cd packages/pytorch && uv run python -m torch_ref.scripts.gpt
+
+ref-gpt-large:
+	cd packages/pytorch && uv run python -m torch_ref.scripts.gpt_large
+
 ref-reinforce:
 	cd packages/pytorch && uv run python -m torch_ref.scripts.reinforce
 
@@ -1013,6 +1019,7 @@ all: check-all test-all
         example-reinforce example-q-learning example-sarsa example-monte-carlo example-frozen-lake example-taxi \
         example-dqn example-mountain-car example-mountain-car-cont example-a2c example-ppo example-sac \
         example-gpt example-gpt-full example-mnist example-seq-classify example-transformer \
+        ref-gpt ref-gpt-large \
         example-transfer example-transfer-demo \
         example-bench example-profile sweep sweep-quick clean \
         backend print-torch ref-setup ref-supervised ref-rnn ref-lstm ref-gru ref-ntm-copy \
