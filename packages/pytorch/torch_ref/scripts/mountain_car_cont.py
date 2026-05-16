@@ -39,7 +39,7 @@ def main() -> None:
     parser.add_argument("--gamma", type=float, default=0.99)
     parser.add_argument("--alpha", type=float, default=0.2)
     parser.add_argument("--batch", type=int, default=64)
-    parser.add_argument("--buffer", type=int, default=100000)
+    parser.add_argument("--buffer-cap", dest="buffer", type=int, default=100000)
     parser.add_argument("--warmup", type=int, default=1000)
     parser.add_argument("--tau", type=float, default=0.005)
     parser.add_argument("--shaping", type=float, default=10.0)

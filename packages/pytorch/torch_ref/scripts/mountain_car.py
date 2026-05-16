@@ -34,7 +34,7 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--gamma", type=float, default=0.99)
     parser.add_argument("--batch", type=int, default=64)
-    parser.add_argument("--buffer", type=int, default=50000)
+    parser.add_argument("--buffer-cap", dest="buffer", type=int, default=50000)
     parser.add_argument("--target-sync", type=int, default=200)
     parser.add_argument("--eps-start", type=float, default=1.0)
     parser.add_argument("--eps-end", type=float, default=0.05)
