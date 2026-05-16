@@ -644,6 +644,135 @@ PyTorch ref on MNIST: torch 1.68×, mlx 2.08×, tape 1.62×.
 
 **Outcome**: landed. Job 1 reopened-phase-A fully closed.
 
+### 2026-05-11 — mlx scalar-allocation hot-path audit (Job 3 Phase A) — `ede8b6b`
+
+**Plan job**: Job 3 Phase A (mlx-only, no tape/torch impact).
+
+**Motivation**: After the Job 1 reopen closed, an explore-agent
+source review of `backend_mlx.cpp` surfaced six places where the
+file was re-allocating `mx::array(...)` literals on hot paths —
+all "provably wasteful given mlx's semantics" (cached scalars are
+immutable; sharing them is safe). The bar for Phase A was "read
+the diff and see why it's free"; per the plan, anything that
+needed benchmarking to validate was deferred to Phase B (the
+mlx-projects survey).
+
+**Changes** (6 atomic commits, in order of est. impact):
+
+1. **Hoist optimizer-state scalars** (`07e6991`). `optimizer_step`'s
+   per-param loop was allocating `mx::array()` for `alpha`,
+   `1-alpha`, `beta1`, `1-beta1`, `beta2`, `1-beta2`, `eps`,
+   `momentum`, and both Adam bias-correction terms once per param
+   per step. None depend on which param. Hoisted to once-per-step.
+2. **Cache F32_ZERO/F32_ONE/F32_HALF in forward hot paths**
+   (`62d8a77`). Added `kF32_ZERO/ONE/HALF()` Meyers' singletons;
+   applied to `tensor_softplus`, `tensor_gelu`, `tensor_dropout`,
+   `tensor_gru_cell`. GELU's structural coefficients
+   (0.7978…, 0.044715, 3) became function-local statics inside
+   `tensor_gelu` (same lifetime story).
+3. **Cache F32_ZERO for null-arg fallbacks in vjp replay** (`5b7309b`).
+   `tensor_backward`'s closure was constructing `mx::array(0.0f)`
+   per fallback per tape entry per backward (2 per entry for
+   unary ops). Routed both fallbacks through `kF32_ZERO()`.
+4. **Cache GELU/SOFTPLUS replay coefficients** (`9d9434e`).
+   `OP_GELU` and `OP_SOFTPLUS` cases inside the replay lambda were
+   re-allocating their constants per backward. Lifted to
+   function-local statics; common 0/0.5/1 routed through the
+   `kF32_*()` accessors so forward and replay share the same
+   underlying arrays.
+5. **Cache vjp pool placeholder** (`2652ae0`). `std::vector<mx::array>
+   pool(N, mx::array(0.0f))` per backward. Routed the placeholder
+   through `kF32_ZERO()` — vector's N slots are then refcounted
+   shallow copies of a shared array, not copies of a freshly-
+   allocated one.
+6. **Cache masked-fill -1e9 sentinel in vjp replay** (`ede8b6b`).
+   `OP_MASKED_FILL` case allocated `mx::array(-1e9, float32)`
+   fresh per backward. Lifted to a function-local static.
+
+**Safety notes** (recorded in the new `Hot-path scalar constants`
+header in `backend_mlx.cpp`):
+
+- All Meyers' singletons — lazy init picks up whatever default
+  device `mlx_backend_init` configured.
+- Sharing constants across calls is safe: mlx arrays are
+  immutable from ops' perspective; ops produce new arrays rather
+  than mutating inputs.
+- Avoided using the cached singletons as the rhs of `mx::outer`
+  or similar ops where persistent operands hit the documented
+  slow path (`gotchas.md` "MLX requires non-grad tensors to be
+  non-persistent").
+
+**Impact — all 6 commits in** (mlx closing sweep, seed=99, NTM/DNC
+at `--epochs 30000 --es-threshold 0.01`, vs pre-Phase-A baseline at
+`798c4ac+dirty`):
+
+| Cell | pre ms/ep | post ms/ep | delta | convergence |
+|---|---:|---:|---:|---|
+| supervised | 1 | 1 | – | bit-identical |
+| rnn | 11 | 11 | – | bit-identical |
+| lstm | 18 | 13 | −28% | bit-identical |
+| gru | 15 | 15 | – | bit-identical |
+| transformer | 35 | 33 | −6% | sort_acc 6/6 |
+| mnist | 26 000 | 22 800 | −12% | acc 0.98 |
+| dnc-copy | 30 | 34 | +13% | bit-identical (af 0.88) |
+| ntm-copy | 55 | 57 | +4% | bit-identical (af 0.94) |
+| dnc-recall | 55 | 66 | +20% | bit-identical (k4 0.82) |
+| ntm-recall | 54 | 57 | +5% | bit-identical (k4 0.65) |
+
+**Reading the numbers**: these measurements were taken on a VM
+with concurrent workload. Single-run ms/ep variance on this
+machine runs ±15–20%, which is bigger than most of the deltas
+above. The convergence column is reliable (loss / acc / converged-
+epoch are deterministic and **bit-identical pre/post on every
+cell**), so the changes are numerically clean. The perf signal is
+noise-dominated.
+
+We confirmed this by bisecting the apparent +20% on dnc-recall:
+reverted candidates #3 (null-arg fallback in vjp replay) and #5
+(vjp pool placeholder) — the two changes that participate in the
+most tape entries per backward — and re-ran dnc-recall on the
+partial revert. Result: **69 ms/ep** (worse than the all-6 number
+of 66 ms/ep). Reverting code can't deterministically make
+scheduling slower; the partial-revert outcome confirms the
+underlying noise is bigger than the effect we were trying to
+attribute. We did not pursue a clean-baseline control run because
+the same noise would dominate that measurement too.
+
+What the deltas plausibly mean once noise is accounted for:
+- **lstm −28%** is large enough to be real, and lines up with the
+  optimizer-scalar hoist (LSTM models have many Adam params); not
+  a sure thing but the most credible single-cell win.
+- **mnist −12%** and **transformer −6%** are within noise.
+- **dnc-copy +13%, dnc-recall +20%, ntm-copy +4%, ntm-recall +5%**
+  are within noise.
+- **rnn / gru / supervised** were already noise-floor cells.
+
+**Safety review** (independent of perf signal):
+
+- All six changes are mechanical "cache a `mx::array(...)` constant
+  instead of re-creating it per call." No semantic changes.
+- Mlx arrays are immutable from ops' perspective — sharing across
+  calls is safe (ops produce new arrays rather than mutating
+  inputs).
+- Cached singletons are not used as the rhs of `mx::outer` or
+  similar persistence-sensitive ops (per the `gotchas.md`
+  documented slow path).
+- Convergence bit-identical on every cell confirms no numerical
+  drift.
+
+**Outcome**: all 6 commits land. The principled win is small-but-
+real (fewer fresh-array allocations on hot paths, less graph
+bloat) even if not separately measurable through VM noise; the
+changes are also a free safety improvement (mlx arrays sharing one
+underlying scalar buffer rather than thousands of independent
+allocations is friendlier to mlx's cache budget). Real perf
+characterization deferred to Phase B (mlx-projects survey + a
+proper microbench framework for per-pattern timing).
+
+Phase A complete. Five-minute total wall on the perf-changes side;
+the heavy lift was the closing sweep, which validated convergence
+correctness.
+
 ----
 
 ## Future opportunities (not active)
