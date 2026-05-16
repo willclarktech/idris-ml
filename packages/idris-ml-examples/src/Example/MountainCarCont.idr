@@ -98,13 +98,13 @@ squashCorrection u =
 
 actorMean : ActorNet -> Vect ObsDim Double -> Double
 actorMean actor obs =
-  let stateV = the (TVec ObsDim CPU) (MkTensor (bulkToTensor (obsTensor obs)) Nothing)
+  let stateV = the (TVec ObsDim CPU WithGrad) (MkTensor (bulkToTensor (obsTensor obs)) Nothing)
       outV = snd (forwardVar actor stateV)
   in prim__item1d outV.tensorPtr 0
 
 qValue : QNet -> Vect ObsDim Double -> Double -> Double
 qValue q obs action =
-  let inV = the (TVec QInputDim CPU)
+  let inV = the (TVec QInputDim CPU WithGrad)
                 (MkTensor (bulkToTensor (qInputTensor (qInput obs action))) Nothing)
       outV = snd (forwardVar q inV)
   in prim__item1d outV.tensorPtr 0
@@ -200,7 +200,7 @@ computeTargetVal q1Tgt q2Tgt actor logStdV gamma alpha t = do
 perSampleQLoss : {n : Nat} -> (qOutB : Tensor [n, 1] CPU WithGrad) -> Double ->
                  Int -> Tensor [] CPU WithGrad
 perSampleQLoss qOutB tv k =
-  let qRow = the (TVec 1 CPU) (trowSelect qOutB k)
+  let qRow = the (TVec 1 CPU WithGrad) (trowSelect qOutB k)
       qScalar = the (Tensor [] CPU WithGrad) (telemSelect qRow 0)
       targetT = the (Tensor [] CPU WithGrad) (tconstScalar tv)
       diff = the (Tensor [] CPU WithGrad) (tsub qScalar targetT)
@@ -247,18 +247,18 @@ actorPerStepLoss : {n : Nat} ->
                    Tensor [] CPU WithGrad -> Double ->
                    Int -> Tensor [] CPU WithGrad
 actorPerStepLoss meanB uBT q1B q2B logStdV alpha rowIdx =
-  let q1Row = the (TVec 1 CPU) (trowSelect q1B rowIdx)
+  let q1Row = the (TVec 1 CPU WithGrad) (trowSelect q1B rowIdx)
       q1S = the (Tensor [] CPU WithGrad) (telemSelect q1Row 0)
       q1Val = prim__item1d q1Row.tensorPtr 0
-      q2Row = the (TVec 1 CPU) (trowSelect q2B rowIdx)
+      q2Row = the (TVec 1 CPU WithGrad) (trowSelect q2B rowIdx)
       q2S = the (Tensor [] CPU WithGrad) (telemSelect q2Row 0)
       q2Val = prim__item1d q2Row.tensorPtr 0
       minQS = if q1Val <= q2Val then q1S else q2S
 
-      meanRow = the (TVec 1 CPU) (trowSelect meanB rowIdx)
+      meanRow = the (TVec 1 CPU WithGrad) (trowSelect meanB rowIdx)
       meanS = the (Tensor [] CPU WithGrad) (telemSelect meanRow 0)
 
-      uRow = the (TVec 1 CPU) (trowSelect uBT rowIdx)
+      uRow = the (TVec 1 CPU WithGrad) (trowSelect uBT rowIdx)
       uS = the (Tensor [] CPU WithGrad) (telemSelect uRow 0)
       uVal = prim__item1d uRow.tensorPtr 0
 

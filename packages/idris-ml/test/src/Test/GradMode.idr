@@ -24,24 +24,26 @@ weakenGradFlipsRequiresGrad = do
   let after = prim__requiresGrad t'.tensorPtr
   check "weakenGrad: rg 1 -> 0" (before == 1 && after == 0)
 
--- freezeNetwork is purely type-level (no FFI). The compile-time
--- promise is what matters: the result type has `NoGrad`. We can't
--- exercise it cheaply at runtime (constructing a real Network would
--- pull in RNG-using layer initializers); the type signature being
--- present and the believe_me-cast compiling is the guarantee. This
--- test exists as a one-line lock to catch a future accidental
--- signature change.
+-- freezeNetwork + unfreezeNetwork round-trip on a parameter-free
+-- network (single tanh activation). Walks the layer chain, calls each
+-- layer's freezeLayer / unfreezeLayer, and confirms the types compose
+-- end-to-end. Avoids RNG-using layer constructors so downstream
+-- PRNG-seeded tests stay reproducible.
 
-freezeNetworkSignatureExists : IO Bool
-freezeNetworkSignatureExists =
-  let _ : (Network 2 [] 3 CPU WithGrad -> Network 2 [] 3 CPU NoGrad)
-       := freezeNetwork
-  in check "freezeNetwork: signature compiles" True
+freezeUnfreezeRoundTrip : IO Bool
+freezeUnfreezeRoundTrip = do
+  let net : Network 4 [] 4 CPU WithGrad
+      net = OutputLayer (the (AnyLayer 4 4 CPU WithGrad) tanhLayerAny)
+  frozen <- freezeNetwork net
+  -- frozen : Network 4 [] 4 CPU NoGrad — compile-checked
+  _ <- unfreezeNetwork frozen
+  -- unfrozen : Network 4 [] 4 CPU WithGrad — compile-checked
+  check "freezeNetwork / unfreezeNetwork round-trip typechecks" True
 
 
 export
 tests : List (IO Bool)
 tests =
   [ weakenGradFlipsRequiresGrad
-  , freezeNetworkSignatureExists
+  , freezeUnfreezeRoundTrip
   ]

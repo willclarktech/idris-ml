@@ -163,6 +163,13 @@ jobs:
         # has regressed.
         run: make check-gradmode-gate
 
+      - name: Verify GradMode aliasing rejection (linear freezeNetwork)
+        # Asserts that linear `freezeNetwork` consumes its input — using
+        # the pre-freeze Network reference afterwards must be a compile
+        # error. Prevents the "freeze net, train via original variable
+        # which silently no-ops" footgun.
+        run: make check-gradmode-aliasing
+
       - name: Run integration tests
         # SKIP_EXAMPLES: 4 mlx examples that hit an mlx 0.31 allocator
         # regression specific to GH Actions macOS-latest VMs (works fine

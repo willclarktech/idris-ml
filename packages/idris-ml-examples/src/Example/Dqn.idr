@@ -73,7 +73,7 @@ epsilonAt step start end decaySteps =
 greedyAction : QNet -> Vect ObsDim Double -> Nat
 greedyAction online obs =
   let stateT = bulkToTensor (obsTensor obs)
-      stateV = the (TVec ObsDim CPU) (MkTensor stateT Nothing)
+      stateV = the (TVec ObsDim CPU WithGrad) (MkTensor stateT Nothing)
       (_, qV) = forwardVar online stateV
       q0 = prim__item1d qV.tensorPtr 0
       q1 = prim__item1d qV.tensorPtr 1
@@ -107,7 +107,7 @@ vectorMaxPtr t =
 computeTargetVal : QNet -> Double -> Transition ObsDim 1 -> Double
 computeTargetVal target gamma t =
   let stateT = bulkToTensor (obsTensor t.nextObs)
-      stateV = the (TVec ObsDim CPU) (MkTensor stateT Nothing)
+      stateV = the (TVec ObsDim CPU WithGrad) (MkTensor stateT Nothing)
       (_, qV) = forwardVar target stateV
       nextMax = vectorMaxPtr qV.tensorPtr
       bootstrap = if t.done then 0.0 else gamma * nextMax
@@ -124,7 +124,7 @@ perSampleLoss : {n : Nat} -> (qOutB : Tensor [n, NumActions] CPU WithGrad) ->
                 Transition ObsDim 1 -> Double -> Int -> Tensor [] CPU WithGrad
 perSampleLoss qOutB t tv k =
   let aIdx = actionIdx t.action
-      qRow = the (TVec NumActions CPU) (trowSelect qOutB k)
+      qRow = the (TVec NumActions CPU WithGrad) (trowSelect qOutB k)
       qScalar = the (Tensor [] CPU WithGrad) (telemSelect qRow aIdx)
       targetT = the (Tensor [] CPU WithGrad) (tconstScalar tv)
       diff = the (Tensor [] CPU WithGrad) (tsub qScalar targetT)

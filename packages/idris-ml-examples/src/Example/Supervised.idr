@@ -44,7 +44,7 @@ specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
 
 
 -- Argmax on a TVec (read three values via prim__item1d).
-evalPrediction : TVec 3 CPU -> Nat
+evalPrediction : TVec 3 CPU WithGrad -> Nat
 evalPrediction outV =
   let v0 = prim__item1d outV.tensorPtr 0
       v1 = prim__item1d outV.tensorPtr 1
@@ -83,7 +83,7 @@ main = do
   -- Build persistent input tensors and forward through the trained model.
   let inputs = the (Vect 5 AnyPtr) (map mkInputTensor dataPoints)
   traverse_ (\(idx, dp) =>
-    let inV = the (TVec 2 CPU) (MkTensor (mkInputTensor dp) Nothing)
+    let inV = the (TVec 2 CPU WithGrad) (MkTensor (mkInputTensor dp) Nothing)
         (_, predV) = forwardVar trained inV
         predClass = evalPrediction predV
         targetClass = evalPredictionTarget (y dp)

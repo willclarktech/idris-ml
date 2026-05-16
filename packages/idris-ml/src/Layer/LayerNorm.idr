@@ -23,8 +23,8 @@ import Tensor
 -- (mirrors Dropout's pattern).
 
 public export
-data LayerNormState : Nat -> Nat -> (0 _ : Device) -> Type where
-  MkLayerNorm : TVec n d -> TVec n d -> LayerNormState n n d
+data LayerNormState : Nat -> Nat -> (0 _ : Device) -> (0 _ : GradMode) -> Type where
+  MkLayerNorm : TVec n d g -> TVec n d g -> LayerNormState n n d g
 
 
 ----------------------------------------------------------------------
@@ -35,9 +35,9 @@ data LayerNormState : Nat -> Nat -> (0 _ : Device) -> Type where
 
 export
 applyLayerNorm : {n : Nat} ->
-                   LayerNormState n n d ->
-                   TVec n d ->
-                   (LayerNormState n n d, TVec n d)
+                   LayerNormState n n d g ->
+                   TVec n d g ->
+                   (LayerNormState n n d g, TVec n d g)
 applyLayerNorm {n} st@(MkLayerNorm gamma beta) input =
   let nI = cast {to=Int} n
       input2d = prim__reshape2d input.tensorPtr 1 nI
@@ -67,7 +67,7 @@ fillConst buf off n v =
 ||| `<prefix>_gamma` / `<prefix>_beta`.
 export
 layerNormLayer : {n : Nat} -> (paramPrefix : String) ->
-                   IO (LayerNormState n n CPU)
+                   IO (LayerNormState n n CPU WithGrad)
 layerNormLayer paramPrefix = do
   let nI = cast {to=Int} n
       gBuf = prim__allocDoubles nI
@@ -90,8 +90,18 @@ LayerLike LayerNormState where
   applyVar st@(MkLayerNorm _ _) input = applyLayerNorm st input
   layerPrefix _ = "ln"
 
+  freezeLayer (MkLayerNorm g b) = do
+    g' <- weakenGrad g
+    b' <- weakenGrad b
+    pure (MkLayerNorm g' b')
+
+  unfreezeLayer (MkLayerNorm g b) = do
+    primIO (prim__setRequiresGrad g.tensorPtr 1)
+    primIO (prim__setRequiresGrad b.tensorPtr 1)
+    pure (MkLayerNorm (retypeGrad g) (retypeGrad b))
+
 ||| Wrap a LayerNorm in `AnyLayer`.
 export
 layerNormLayerAny : {n : Nat} -> (paramPrefix : String) ->
-                      IO (AnyLayer n n CPU)
+                      IO (AnyLayer n n CPU WithGrad)
 layerNormLayerAny pid = map (MkAnyLayer LayerNormState) (layerNormLayer pid)

@@ -32,14 +32,14 @@ import Tensor
 -- though shape arithmetic isn't needed here (no `4 *`).
 
 public export
-record RnnState (i : Nat) (o : Nat) (0 d : Device) where
+record RnnState (i : Nat) (o : Nat) (0 d : Device) (0 g : GradMode) where
   constructor MkRnn
-  iwT : TMat o i d         -- W_ih [o, i]
-  rwT : TMat o o d         -- W_hh [o, o]
-  ihB : TVec o d           -- input-hidden bias [o]
-  hhB : TVec o d           -- hidden-hidden bias [o]
-  activation : TVec o d -> TVec o d
-  prevOutT : Maybe (TVec o d)
+  iwT : TMat o i d g         -- W_ih [o, i]
+  rwT : TMat o o d g         -- W_hh [o, o]
+  ihB : TVec o d g           -- input-hidden bias [o]
+  hhB : TVec o d g           -- hidden-hidden bias [o]
+  activation : {0 g' : GradMode} -> TVec o d g' -> TVec o d g'
+  prevOutT : Maybe (TVec o d g)
 
 
 ----------------------------------------------------------------------
@@ -50,9 +50,9 @@ record RnnState (i : Nat) (o : Nat) (0 d : Device) where
 
 export
 applyRnn : {o : Nat} ->
-             RnnState i o d ->
-             TVec i d ->
-             (RnnState i o d, TVec o d)
+             RnnState i o d g ->
+             TVec i d g ->
+             (RnnState i o d g, TVec o d g)
 applyRnn {o} st input =
   let p = case st.prevOutT of
             Just po => po
@@ -93,8 +93,8 @@ zeroBuf buf off n =
 export
 rnnLayer : {i, o : Nat} ->
              (paramPrefix : String) ->
-             (activation : TVec o CPU -> TVec o CPU) ->
-             IO (RnnState i o CPU)
+             (activation : {0 g' : GradMode} -> TVec o CPU g' -> TVec o CPU g') ->
+             IO (RnnState i o CPU WithGrad)
 rnnLayer paramPrefix activation = do
   let oI = cast {to=Int} o
       iI = cast {to=Int} i
@@ -116,19 +116,19 @@ rnnLayer paramPrefix activation = do
       rwPtr = prim__paramRegister rwName (prim__createParam2d oI oI rwBuf')
       ibPtr = prim__paramRegister ibName (prim__createParam1d oI ibBuf')
       hbPtr = prim__paramRegister hbName (prim__createParam1d oI hbBuf')
-      iwTV : TMat o i CPU
+      iwTV : TMat o i CPU WithGrad
       iwTV = MkTensor iwPtr (Just iwName)
-      rwTV : TMat o o CPU
+      rwTV : TMat o o CPU WithGrad
       rwTV = MkTensor rwPtr (Just rwName)
-      ibTV : TVec o CPU
+      ibTV : TVec o CPU WithGrad
       ibTV = MkTensor ibPtr (Just ibName)
-      hbTV : TVec o CPU
+      hbTV : TVec o CPU WithGrad
       hbTV = MkTensor hbPtr (Just hbName)
   pure $ MkRnn iwTV rwTV ibTV hbTV activation Nothing
 
 ||| Reset hidden state. Lazy-allocate on next applyVar call.
 export
-resetRnnState : {o : Nat} -> {0 d : Device} -> RnnState i o d -> RnnState i o d
+resetRnnState : {o : Nat} -> {0 d : Device} -> {0 g : GradMode} -> RnnState i o d g -> RnnState i o d g
 resetRnnState st = { prevOutT := Nothing } st
 
 
@@ -141,9 +141,34 @@ LayerLike RnnState where
   applyVar = applyRnn
   layerPrefix _ = "rnn"
 
+  resetState = resetRnnState
+
+  freezeLayer (MkRnn iw rw ihB hhB act prev) = do
+    iw'  <- weakenGrad iw
+    rw'  <- weakenGrad rw
+    ihB' <- weakenGrad ihB
+    hhB' <- weakenGrad hhB
+    prev' <- case prev of
+      Nothing => pure Nothing
+      Just p  => Just <$> weakenGrad p
+    pure (MkRnn iw' rw' ihB' hhB' act prev')
+
+  unfreezeLayer (MkRnn iw rw ihB hhB act prev) = do
+    primIO (prim__setRequiresGrad iw.tensorPtr 1)
+    primIO (prim__setRequiresGrad rw.tensorPtr 1)
+    primIO (prim__setRequiresGrad ihB.tensorPtr 1)
+    primIO (prim__setRequiresGrad hhB.tensorPtr 1)
+    case prev of
+      Nothing => pure ()
+      Just p  => primIO (prim__setRequiresGrad p.tensorPtr 1)
+    pure (MkRnn (retypeGrad iw) (retypeGrad rw)
+                (retypeGrad ihB) (retypeGrad hhB)
+                act
+                (map retypeGrad prev))
+
 ||| Wrap an `RnnState` in `AnyLayer`. Defaults activation to `ttanh`
 ||| (matching PyTorch's `nn.RNN` default). Use `rnnLayer` directly
 ||| if you need a different activation.
 export
-rnnLayerAny : {i, o : Nat} -> (paramPrefix : String) -> IO (AnyLayer i o CPU)
+rnnLayerAny : {i, o : Nat} -> (paramPrefix : String) -> IO (AnyLayer i o CPU WithGrad)
 rnnLayerAny pid = map (MkAnyLayer RnnState) (rnnLayer pid ttanh)

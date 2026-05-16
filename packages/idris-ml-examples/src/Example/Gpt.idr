@@ -162,7 +162,7 @@ gptBatchVect corpus corpusLen (S k) = do
 ||| Categorical cross-entropy on ALL positions (standard LM loss).
 ||| Operates on a flat [SeqLen * VocabSize] Tensor; reshapes to
 ||| [SeqLen, VocabSize] and computes mean NLL across positions.
-allPositionsCELoss : TVec OutputDim CPU -> TVec OutputDim CPU -> Tensor [] CPU WithGrad
+allPositionsCELoss : TVec OutputDim CPU WithGrad -> TVec OutputDim CPU WithGrad -> Tensor [] CPU WithGrad
 allPositionsCELoss predV targetV =
   let vsI = cast {to=Int} VocabSize
       sI = cast {to=Int} SeqLen
@@ -218,7 +218,7 @@ generateText model seed genLen temperature =
     go m ctx (S k) acc =
       let sI = cast {to=Int} SeqLen
           inT = prim__create1d sI (packDoubleBuf (prim__allocDoubles sI) 0 ctx) 0
-          inV = the (TVec InputDim CPU) (MkTensor inT Nothing)
+          inV = the (TVec InputDim CPU WithGrad) (MkTensor inT Nothing)
           (_, predV) = forwardVar m inV
           unnorm = sampleAt predV.tensorPtr (minus SeqLen 1)
           totSum = foldl (+) 0.0 unnorm
@@ -247,8 +247,8 @@ evalBPC model corpus corpusLen nSamples = go nSamples 0.0
           inT = prim__create1d sI (packDoubleBuf (prim__allocDoubles sI) 0 inputToks) 0
           tgtIdxBuf = packIntBuf (prim__allocInts sI) 0 targetToks
           tgtT = prim__oneHot tgtIdxBuf sI vI
-          inV = the (TVec InputDim CPU) (MkTensor inT Nothing)
-          tgtV = the (TVec OutputDim CPU) (MkTensor tgtT Nothing)
+          inV = the (TVec InputDim CPU WithGrad) (MkTensor inT Nothing)
+          tgtV = the (TVec OutputDim CPU WithGrad) (MkTensor tgtT Nothing)
           (_, predV) = forwardVar model inV
           lossT = allPositionsCELoss predV tgtV
       in prim__item lossT.tensorPtr / log 2.0

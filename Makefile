@@ -283,6 +283,11 @@ check-paired-defaults:
 check-gradmode-gate: install
 	@./scripts/check-gradmode-gate.sh
 
+# Verify the aliasing footgun on `freezeNetwork` is closed by linear
+# types: using the pre-freeze Network reference must be a compile error.
+check-gradmode-aliasing: install
+	@./scripts/check-gradmode-aliasing.sh
+
 # Type-check examples (builds each as executable, which is the real check)
 check-examples: install
 	@for f in $(EXAMPLE_SRC)/Example/*.idr; do \

@@ -44,7 +44,7 @@ rolloutEp _ _ _ Z acc = reverse acc
 rolloutEp _ _ [] _ acc = reverse acc
 rolloutEp model st (r :: rs) (S k) acc =
   let stateT = bulkToTensor (observe st)
-      stateV = the (TVec 4 CPU) (MkTensor stateT Nothing)
+      stateV = the (TVec 4 CPU WithGrad) (MkTensor stateT Nothing)
       (_, predV) = forwardVar model stateV
       logProbsT = prim__logSoftmax predV.tensorPtr 0
       lp0 = prim__item1d logProbsT 0
@@ -262,7 +262,7 @@ evalEp : {hs : List Nat} ->
 evalEp _ _ Z acc = acc
 evalEp model st (S k) acc =
   let stateT = bulkToTensor (observe st)
-      stateV = the (TVec 4 CPU) (MkTensor stateT Nothing)
+      stateV = the (TVec 4 CPU WithGrad) (MkTensor stateT Nothing)
       (_, predV) = forwardVar model stateV
       logitsT = predV.tensorPtr
       action = if prim__item1d logitsT 0 >= prim__item1d logitsT 1 then the Nat 0 else 1

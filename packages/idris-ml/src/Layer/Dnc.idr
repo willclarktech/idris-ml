@@ -133,32 +133,32 @@ dncReadHeads idx (prevRw :: restRws) linkT linkTransT memT keysT betasT modesT m
 public export
 data DncState :
   (r : Nat) -> (n : Nat) -> (m : Nat) -> (h : Nat) ->
-  Nat -> Nat -> (0 _ : Device) -> Type
+  Nat -> Nat -> (0 _ : Device) -> (0 _ : GradMode) -> Type
   where
   MkDnc :
-    LstmState (DncControllerInput r m i) h d ->
-    LinearState h m d ->                  -- writeKeyFc
-    LinearState h 1 d ->                  -- writeBetaFc
-    LinearState h m d ->                  -- eraseFc
-    LinearState h m d ->                  -- addFc
-    LinearState h r d ->                  -- freeGatesFc
-    LinearState h 1 d ->                  -- allocGateFc
-    LinearState h 1 d ->                  -- writeGateFc
-    LinearState h (r * m) d ->            -- readKeysFc
-    LinearState h r d ->                  -- readBetasFc
-    LinearState h (r * 3) d ->            -- readModesFc
-    LinearState (DncOutputInput h r m) o d ->  -- outputFc
-    TVec (m * n) d ->                          -- memInit (LEARNED, raw flat)
+    LstmState (DncControllerInput r m i) h d g ->
+    LinearState h m d g ->                  -- writeKeyFc
+    LinearState h 1 d g ->                  -- writeBetaFc
+    LinearState h m d g ->                  -- eraseFc
+    LinearState h m d g ->                  -- addFc
+    LinearState h r d g ->                  -- freeGatesFc
+    LinearState h 1 d g ->                  -- allocGateFc
+    LinearState h 1 d g ->                  -- writeGateFc
+    LinearState h (r * m) d g ->            -- readKeysFc
+    LinearState h r d g ->                  -- readBetasFc
+    LinearState h (r * 3) d g ->            -- readModesFc
+    LinearState (DncOutputInput h r m) o d g ->  -- outputFc
+    TVec (m * n) d g ->                          -- memInit (LEARNED, raw flat)
     Vect r AnyPtr ->                          -- initReadOuts (Kaiming, NON-learned)
     AnyPtr ->                                 -- nonDiagMask: [n,n] (1 - I), precomputed once
-    Maybe (Tensor [n, m] d WithGrad) ->                -- memT
-    Maybe (TVec n d) ->                     -- usageT
-    Maybe (TVec n d) ->                     -- writeWtT
-    Maybe (TVec n d) ->                     -- precedenceT
-    Maybe (Tensor [n, n] d WithGrad) ->                -- linkT
+    Maybe (Tensor [n, m] d g) ->                -- memT
+    Maybe (TVec n d g) ->                     -- usageT
+    Maybe (TVec n d g) ->                     -- writeWtT
+    Maybe (TVec n d g) ->                     -- precedenceT
+    Maybe (Tensor [n, n] d g) ->                -- linkT
     Maybe (Vect r AnyPtr) ->                -- read weight tensor handles
     Maybe (Vect r AnyPtr) ->                -- read output tensor handles
-    DncState r n m h i o d
+    DncState r n m h i o d g
 
 
 ----------------------------------------------------------------------
@@ -215,9 +215,9 @@ mkZeroVectM (S k) m = zeroState1d m :: mkZeroVectM k m
 
 export
 applyDnc : {r, n, m, h, i, o : Nat} ->
-             DncState r n m h i o d ->
-             TVec i d ->
-             (DncState r n m h i o d, TVec o d)
+             DncState r n m h i o d g ->
+             TVec i d g ->
+             (DncState r n m h i o d g, TVec o d g)
 applyDnc {r} {n} {m}
            (MkDnc lstm wkFc wbFc eFc aFc fgFc agFc wgFc rkFc rbFc rmFc oFc
                     memInitT initReadOutsT nonDiagMaskT
@@ -252,7 +252,7 @@ applyDnc {r} {n} {m}
                    Nothing => initReadOutsT
       -- 1. cat(readOuts, input) -> [r*m + i]
       lstmInputPtr = catReadOutsAndInput roTsPtrs input.tensorPtr
-      lstmInputV = the (TVec (DncControllerInput r m i) d) (MkTensor lstmInputPtr Nothing)
+      lstmInputV = the (TVec (DncControllerInput r m i) d g) (MkTensor lstmInputPtr Nothing)
       -- 2. LSTM forward
       (updLstm, hiddenV) = applyLstm lstm lstmInputV
       -- 3. Cell-state for FCs
@@ -384,7 +384,7 @@ mkKaimingReadOuts (S k) m bound = do
 export
 dncLayer : {r, n, m, h, i, o : Nat} ->
              (paramPrefix : String) ->
-             IO (DncState r n m h i o CPU)
+             IO (DncState r n m h i o CPU WithGrad)
 dncLayer pfx = do
   lstm <- lstmLayer {i = DncControllerInput r m i} {o = h} (pfx ++ "_lstm")
   -- 10 head FCs: xavier_uniform(gain=1.4) weights, normal(std=0.01) biases
@@ -416,7 +416,7 @@ dncLayer pfx = do
   memInitVals <- traverse (\_ => xavier uniform m n) (Vect.replicate (m * n) ())
   let miBuf = prim__allocDoubles mnI
       miBuf' = packDoubles miBuf 0 memInitVals
-      memInitT : TVec (m * n) CPU
+      memInitT : TVec (m * n) CPU WithGrad
       memInitT = tparam1d (pfx ++ "_memoryInit") miBuf'
   -- initialReadOuts: PyTorch default kaiming_uniform on (R, m), bound=1/sqrt(m)
   let iroBound = 1.0 / prim__doubleSqrt (cast m)
@@ -435,8 +435,8 @@ dncLayer pfx = do
 ||| Kaiming-fixed `initReadOutsT`; clears per-sequence runtime state so
 ||| the next `applyDnc` re-derives initial memory + read outputs.
 export
-resetDncState : {r, n, m, h : Nat} ->
-                  DncState r n m h i o d -> DncState r n m h i o d
+resetDncState : {r, n, m, h : Nat} -> {0 g : GradMode} ->
+                  DncState r n m h i o d g -> DncState r n m h i o d g
 resetDncState (MkDnc lstm wkFc wbFc eFc aFc fgFc agFc wgFc rkFc rbFc rmFc oFc
                           memInitT initReadOutsT nonDiagMaskT _ _ _ _ _ _ _) =
   MkDnc (resetLstmState lstm) wkFc wbFc eFc aFc fgFc agFc wgFc rkFc rbFc rmFc oFc
@@ -456,9 +456,60 @@ public export
   layerPrefix _ = "dnc"
   resetState st = resetDncState st
 
+  freezeLayer (MkDnc lstm wkFc wbFc eFc aFc fgFc agFc wgFc rkFc rbFc rmFc oFc
+                     memInit iro nonDiag mem usage ww prec link rwTs roTs) = do
+    lstm'  <- freezeLayer lstm
+    wkFc'  <- freezeLayer wkFc
+    wbFc'  <- freezeLayer wbFc
+    eFc'   <- freezeLayer eFc
+    aFc'   <- freezeLayer aFc
+    fgFc'  <- freezeLayer fgFc
+    agFc'  <- freezeLayer agFc
+    wgFc'  <- freezeLayer wgFc
+    rkFc'  <- freezeLayer rkFc
+    rbFc'  <- freezeLayer rbFc
+    rmFc'  <- freezeLayer rmFc
+    oFc'   <- freezeLayer oFc
+    memInit' <- weakenGrad memInit
+    mem'  <- case mem  of Nothing => pure Nothing; Just t => Just <$> weakenGrad t
+    usage' <- case usage of Nothing => pure Nothing; Just t => Just <$> weakenGrad t
+    ww'   <- case ww   of Nothing => pure Nothing; Just t => Just <$> weakenGrad t
+    prec' <- case prec of Nothing => pure Nothing; Just t => Just <$> weakenGrad t
+    link' <- case link of Nothing => pure Nothing; Just t => Just <$> weakenGrad t
+    pure (MkDnc lstm' wkFc' wbFc' eFc' aFc' fgFc' agFc' wgFc'
+                rkFc' rbFc' rmFc' oFc'
+                memInit' iro nonDiag mem' usage' ww' prec' link' rwTs roTs)
+
+  unfreezeLayer (MkDnc lstm wkFc wbFc eFc aFc fgFc agFc wgFc rkFc rbFc rmFc oFc
+                       memInit iro nonDiag mem usage ww prec link rwTs roTs) = do
+    lstm'  <- unfreezeLayer lstm
+    wkFc'  <- unfreezeLayer wkFc
+    wbFc'  <- unfreezeLayer wbFc
+    eFc'   <- unfreezeLayer eFc
+    aFc'   <- unfreezeLayer aFc
+    fgFc'  <- unfreezeLayer fgFc
+    agFc'  <- unfreezeLayer agFc
+    wgFc'  <- unfreezeLayer wgFc
+    rkFc'  <- unfreezeLayer rkFc
+    rbFc'  <- unfreezeLayer rbFc
+    rmFc'  <- unfreezeLayer rmFc
+    oFc'   <- unfreezeLayer oFc
+    primIO (prim__setRequiresGrad memInit.tensorPtr 1)
+    case mem   of Nothing => pure (); Just t => primIO (prim__setRequiresGrad t.tensorPtr 1)
+    case usage of Nothing => pure (); Just t => primIO (prim__setRequiresGrad t.tensorPtr 1)
+    case ww    of Nothing => pure (); Just t => primIO (prim__setRequiresGrad t.tensorPtr 1)
+    case prec  of Nothing => pure (); Just t => primIO (prim__setRequiresGrad t.tensorPtr 1)
+    case link  of Nothing => pure (); Just t => primIO (prim__setRequiresGrad t.tensorPtr 1)
+    pure (MkDnc lstm' wkFc' wbFc' eFc' aFc' fgFc' agFc' wgFc'
+                rkFc' rbFc' rmFc' oFc'
+                (retypeGrad memInit) iro nonDiag
+                (map retypeGrad mem) (map retypeGrad usage)
+                (map retypeGrad ww) (map retypeGrad prec)
+                (map retypeGrad link) rwTs roTs)
+
 export
 dncLayerAny : {r, n, m, h, i, o : Nat} ->
                 (paramPrefix : String) ->
-                IO (AnyLayer i o CPU)
+                IO (AnyLayer i o CPU WithGrad)
 dncLayerAny pid =
   map (MkAnyLayer (DncState r n m h)) (dncLayer {r} {n} {m} {h} {i} {o} pid)

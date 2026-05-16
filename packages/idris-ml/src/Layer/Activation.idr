@@ -27,8 +27,8 @@ data ActivationKind
   | ALeakyRelu Double  -- slope
 
 public export
-data ActivationState : Nat -> Nat -> (0 _ : Device) -> Type where
-  MkActivation : ActivationKind -> ActivationState n n d
+data ActivationState : Nat -> Nat -> (0 _ : Device) -> (0 _ : GradMode) -> Type where
+  MkActivation : ActivationKind -> ActivationState n n d g
 
 
 ----------------------------------------------------------------------
@@ -58,56 +58,60 @@ LayerLike ActivationState where
 
   layerPrefix _ = "act"
 
+  -- Activation is stateless (no params); freeze/unfreeze just retypes.
+  freezeLayer (MkActivation k) = pure (MkActivation k)
+  unfreezeLayer (MkActivation k) = pure (MkActivation k)
+
 
 ----------------------------------------------------------------------
 -- Constructors
 ----------------------------------------------------------------------
 
 export
-tanhLayer : ActivationState n n d
+tanhLayer : ActivationState n n d g
 tanhLayer = MkActivation ATanh
 
 export
-sigmoidLayer : ActivationState n n d
+sigmoidLayer : ActivationState n n d g
 sigmoidLayer = MkActivation ASigmoid
 
 export
-reluLayer : ActivationState n n d
+reluLayer : ActivationState n n d g
 reluLayer = MkActivation ARelu
 
 export
-geluLayer : ActivationState n n d
+geluLayer : ActivationState n n d g
 geluLayer = MkActivation AGelu
 
 export
-siluLayer : ActivationState n n d
+siluLayer : ActivationState n n d g
 siluLayer = MkActivation ASilu
 
 export
-leakyReluLayer : Double -> ActivationState n n d
+leakyReluLayer : Double -> ActivationState n n d g
 leakyReluLayer slope = MkActivation (ALeakyRelu slope)
 
 ||| Wrap an activation in `AnyLayer` for use in a `Network` chain.
 export
-tanhLayerAny : AnyLayer n n d
+tanhLayerAny : AnyLayer n n d g
 tanhLayerAny = MkAnyLayer ActivationState tanhLayer
 
 export
-sigmoidLayerAny : AnyLayer n n d
+sigmoidLayerAny : AnyLayer n n d g
 sigmoidLayerAny = MkAnyLayer ActivationState sigmoidLayer
 
 export
-reluLayerAny : AnyLayer n n d
+reluLayerAny : AnyLayer n n d g
 reluLayerAny = MkAnyLayer ActivationState reluLayer
 
 export
-geluLayerAny : AnyLayer n n d
+geluLayerAny : AnyLayer n n d g
 geluLayerAny = MkAnyLayer ActivationState geluLayer
 
 export
-siluLayerAny : AnyLayer n n d
+siluLayerAny : AnyLayer n n d g
 siluLayerAny = MkAnyLayer ActivationState siluLayer
 
 export
-leakyReluLayerAny : Double -> AnyLayer n n d
+leakyReluLayerAny : Double -> AnyLayer n n d g
 leakyReluLayerAny slope = MkAnyLayer ActivationState (leakyReluLayer slope)

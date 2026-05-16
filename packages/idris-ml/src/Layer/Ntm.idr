@@ -49,20 +49,20 @@ WriteParamWidth m = ReadParamWidth m + m
 public export
 data NtmState :
   (n : Nat) -> (m : Nat) -> (h : Nat) ->
-  Nat -> Nat -> (0 _ : Device) -> Type
+  Nat -> Nat -> (0 _ : Device) -> (0 _ : GradMode) -> Type
   where
   MkNtm :
-    LstmState (m + i) h d ->
-    LinearState h (ReadParamWidth m) d ->
-    LinearState h (WriteParamWidth m) d ->
-    LinearState (h + m) o d ->
-    TVec (m * n) d ->                          -- memoryInit (LEARNED, raw flat)
-    TVec m d ->                                -- initialReadOut (Kaiming, NON-learned)
-    Maybe (Tensor [n, m] d WithGrad) ->                          -- memory state
-    Maybe (TVec n d) ->                               -- read addr
-    Maybe (TVec n d) ->                               -- write addr
-    Maybe (TVec m d) ->                               -- last read output
-    NtmState n m h i o d
+    LstmState (m + i) h d g ->
+    LinearState h (ReadParamWidth m) d g ->
+    LinearState h (WriteParamWidth m) d g ->
+    LinearState (h + m) o d g ->
+    TVec (m * n) d g ->                          -- memoryInit (LEARNED, raw flat)
+    TVec m d g ->                                -- initialReadOut (Kaiming, NON-learned)
+    Maybe (Tensor [n, m] d g) ->                          -- memory state
+    Maybe (TVec n d g) ->                               -- read addr
+    Maybe (TVec n d g) ->                               -- write addr
+    Maybe (TVec m d g) ->                               -- last read output
+    NtmState n m h i o d g
 
 
 ----------------------------------------------------------------------
@@ -133,9 +133,9 @@ ntmInterpWriteIdris {n} memT weightsT addVecT =
 
 export
 applyNtm : {n, m, h, i, o : Nat} ->
-             NtmState n m h i o d ->
-             TVec i d ->
-             (NtmState n m h i o d, TVec o d)
+             NtmState n m h i o d g ->
+             TVec i d g ->
+             (NtmState n m h i o d g, TVec o d g)
 applyNtm {n} {m} {h} {i} {o}
            (MkNtm lstm readFc writeFc outputFc memInitT initReadOutT memT raT waT roT) input =
   let nI = cast {to=Int} n
@@ -160,7 +160,7 @@ applyNtm {n} {m} {h} {i} {o}
                  Nothing => initReadOutT.tensorPtr
       -- 1. cat(readOut, input) -> [m + i]
       lstmInputPtr = prim__cat2 roTPtr input.tensorPtr
-      lstmInputV = the (TVec (m + i) d) (MkTensor lstmInputPtr Nothing)
+      lstmInputV = the (TVec (m + i) d g) (MkTensor lstmInputPtr Nothing)
       -- 2. LSTM forward
       (updLstm, hiddenV) = applyLstm lstm lstmInputV
       -- 3. Extract cell tensor (post-LSTM cell state)
@@ -226,7 +226,7 @@ applyNtm {n} {m} {h} {i} {o}
 export
 ntmLayer : {n, m, h, i, o : Nat} ->
              (paramPrefix : String) ->
-             IO (NtmState n m h i o CPU)
+             IO (NtmState n m h i o CPU WithGrad)
 ntmLayer pfx = do
   lstm <- lstmLayer {i = m + i} {o = h} (pfx ++ "_lstm")
   rfc  <- mkLinearWith {i = h} {o = ReadParamWidth m}
@@ -241,7 +241,7 @@ ntmLayer pfx = do
   memInitVals <- traverse (\_ => xavier uniform m n) (Vect.replicate (m * n) ())
   let miBuf = prim__allocDoubles mnI
       miBuf' = packDoubles miBuf 0 memInitVals
-      memInitT : TVec (m * n) CPU
+      memInitT : TVec (m * n) CPU WithGrad
       memInitT = tparam1d (pfx ++ "_memoryInit") miBuf'
   -- initialReadOut: PyTorch default kaiming_uniform on (1, m) — fan_in=m.
   -- Sampled once, non-learnable (state tensor handle).
@@ -249,7 +249,7 @@ ntmLayer pfx = do
   iroVals <- traverse (\_ => randomRIO (-iroBound, iroBound)) (Vect.replicate m ())
   let iroBuf = prim__allocDoubles mI
       iroBuf' = packDoubles iroBuf 0 iroVals
-      initReadOutT : TVec m CPU
+      initReadOutT : TVec m CPU WithGrad
       initReadOutT = MkTensor (prim__createState1d mI iroBuf') Nothing
   -- Per-sequence runtime state starts as Nothing — applyNtm computes the
   -- actual initial memT and roT from memInitT/initReadOutT on first call.
@@ -260,7 +260,7 @@ ntmLayer pfx = do
 ||| Kaiming-fixed `initReadOutT` parameters; clears per-sequence runtime
 ||| state so the next `applyNtm` re-derives initial memory + read output.
 export
-resetNtmState : {n, m, h : Nat} -> NtmState n m h i o d -> NtmState n m h i o d
+resetNtmState : {n, m, h : Nat} -> {0 g : GradMode} -> NtmState n m h i o d g -> NtmState n m h i o d g
 resetNtmState (MkNtm lstm rfc wfc ofc memInitT initReadOutT _ _ _ _) =
   MkNtm (resetLstmState lstm) rfc wfc ofc memInitT initReadOutT
         Nothing Nothing Nothing Nothing
@@ -277,9 +277,54 @@ public export
   layerPrefix _ = "ntm"
   resetState st = resetNtmState st
 
+  freezeLayer (MkNtm lstm rfc wfc ofc memInit iro mem ra wa ro) = do
+    lstm'   <- freezeLayer lstm
+    rfc'    <- freezeLayer rfc
+    wfc'    <- freezeLayer wfc
+    ofc'    <- freezeLayer ofc
+    memInit' <- weakenGrad memInit
+    iro'    <- weakenGrad iro
+    mem' <- case mem of
+      Nothing => pure Nothing
+      Just t  => Just <$> weakenGrad t
+    ra'  <- case ra of
+      Nothing => pure Nothing
+      Just t  => Just <$> weakenGrad t
+    wa'  <- case wa of
+      Nothing => pure Nothing
+      Just t  => Just <$> weakenGrad t
+    ro'  <- case ro of
+      Nothing => pure Nothing
+      Just t  => Just <$> weakenGrad t
+    pure (MkNtm lstm' rfc' wfc' ofc' memInit' iro' mem' ra' wa' ro')
+
+  unfreezeLayer (MkNtm lstm rfc wfc ofc memInit iro mem ra wa ro) = do
+    lstm'   <- unfreezeLayer lstm
+    rfc'    <- unfreezeLayer rfc
+    wfc'    <- unfreezeLayer wfc
+    ofc'    <- unfreezeLayer ofc
+    primIO (prim__setRequiresGrad memInit.tensorPtr 1)
+    primIO (prim__setRequiresGrad iro.tensorPtr 1)
+    case mem of
+      Nothing => pure ()
+      Just t  => primIO (prim__setRequiresGrad t.tensorPtr 1)
+    case ra of
+      Nothing => pure ()
+      Just t  => primIO (prim__setRequiresGrad t.tensorPtr 1)
+    case wa of
+      Nothing => pure ()
+      Just t  => primIO (prim__setRequiresGrad t.tensorPtr 1)
+    case ro of
+      Nothing => pure ()
+      Just t  => primIO (prim__setRequiresGrad t.tensorPtr 1)
+    pure (MkNtm lstm' rfc' wfc' ofc'
+                (retypeGrad memInit) (retypeGrad iro)
+                (map retypeGrad mem) (map retypeGrad ra)
+                (map retypeGrad wa) (map retypeGrad ro))
+
 export
 ntmLayerAny : {n, m, h, i, o : Nat} ->
                 (paramPrefix : String) ->
-                IO (AnyLayer i o CPU)
+                IO (AnyLayer i o CPU WithGrad)
 ntmLayerAny pid =
   map (MkAnyLayer (NtmState n m h)) (ntmLayer {n} {m} {h} {i} {o} pid)

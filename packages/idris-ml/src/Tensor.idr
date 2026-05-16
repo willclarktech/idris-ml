@@ -934,14 +934,27 @@ toDevice d2 t =
 ||| activation tensors it's harmless (they aren't graph leaves).
 ||| Mirrors PyTorch's `tensor.requires_grad_(False)`.
 |||
-||| Use this when you want a static "I won't backward through this"
-||| promise: the resulting type prevents passing the tensor to
-||| `runBackward` / `nativeTrainStep` (once Phase 4 lands).
+||| Linear in its input: consumes the original tensor reference at
+||| compile time, so a caller can't accidentally use the pre-weaken
+||| variable afterwards (the runtime state has changed under it).
+||| Closes the "freeze then keep using the original WithGrad type"
+||| aliasing footgun.
 export
-weakenGrad : Tensor dims d g -> IO (Tensor dims d NoGrad)
-weakenGrad t = do
-  primIO (prim__setRequiresGrad t.tensorPtr 0)
-  pure (MkTensor t.tensorPtr t.paramId)
+weakenGrad : (1 _ : Tensor dims d g) -> IO (Tensor dims d NoGrad)
+weakenGrad (MkTensor ptr pid) = do
+  primIO (prim__setRequiresGrad ptr 0)
+  pure (MkTensor ptr pid)
+
+||| Pure type-level cast between grad-modes. `g` is 0-quantity in
+||| `Tensor`'s declaration, so `MkTensor` is polymorphic in `g` and
+||| destructure-reconstruct flips the type tag with no runtime work
+||| and no type-system bypass. Used by `unfreezeLayer` impls to
+||| retype tensor fields after flipping the C-side `requires_grad`
+||| flag. Not a control surface for users — to *change* the runtime
+||| flag, use `weakenGrad`.
+export
+retypeGrad : Tensor dims d g1 -> Tensor dims d g2
+retypeGrad (MkTensor ptr pid) = MkTensor ptr pid
 
 ||| Type-level aliases for common Tensor shapes. Aliases route shape
 ||| arithmetic (e.g. `4 * o`) through a Nat-argument slot rather than
@@ -949,12 +962,12 @@ weakenGrad t = do
 ||| type-checker hang on multiplicative Nat expressions.
 ||| (`Tensor [4 * o, i] d` hangs; `TMat (4 * o) i d` works.)
 public export
-0 TVec : Nat -> Device -> Type
-TVec n d = Tensor [n] d WithGrad
+0 TVec : Nat -> Device -> GradMode -> Type
+TVec n d g = Tensor [n] d g
 
 public export
-0 TMat : Nat -> Nat -> Device -> Type
-TMat m n d = Tensor [m, n] d WithGrad
+0 TMat : Nat -> Nat -> Device -> GradMode -> Type
+TMat m n d g = Tensor [m, n] d g
 
 -- Smart constructors --------------------------------------------------
 
@@ -1002,7 +1015,7 @@ tadd a b = MkTensor (prim__add a.tensorPtr b.tensorPtr) Nothing
 ||| Matrix-vector multiply: [m, n] · [n] -> [m]. `%inline` for the
 ||| same reason as `tadd` (hot path in recurrent forward passes).
 export %inline
-tmv : Tensor [m, n] d WithGrad -> Tensor [n] d WithGrad -> Tensor [m] d WithGrad
+tmv : Tensor [m, n] d g -> Tensor [n] d g -> Tensor [m] d g
 tmv w x = MkTensor (prim__mv w.tensorPtr x.tensorPtr) Nothing
 
 ||| Fused 1D linear: y = W[m,n] · x[n] + bias[m]. One C call instead
@@ -1010,13 +1023,13 @@ tmv w x = MkTensor (prim__mv w.tensorPtr x.tensorPtr) Nothing
 ||| eliminates the intermediate Idris-side glue. Used by Layer.Linear's
 ||| applyVar and by NTM/DNC FCs.
 export %inline
-tlinear : Tensor [o, i] d WithGrad -> Tensor [i] d WithGrad -> Tensor [o] d WithGrad -> Tensor [o] d WithGrad
+tlinear : Tensor [o, i] d g -> Tensor [i] d g -> Tensor [o] d g -> Tensor [o] d g
 tlinear w x bias =
   MkTensor (prim__linear w.tensorPtr x.tensorPtr bias.tensorPtr) Nothing
 
 ||| Fused batched linear: W[o,i] · X^T[b,i] + bias[o] -> [b, o].
 export %inline
-tlinear2d : Tensor [o, i] d WithGrad -> Tensor [b, i] d WithGrad -> Tensor [o] d WithGrad -> Tensor [b, o] d WithGrad
+tlinear2d : Tensor [o, i] d g -> Tensor [b, i] d g -> Tensor [o] d g -> Tensor [b, o] d g
 tlinear2d w x bias =
   MkTensor (prim__linear2d w.tensorPtr x.tensorPtr bias.tensorPtr) Nothing
 
@@ -1143,8 +1156,8 @@ tlogSoftmax1d v = MkTensor (prim__logSoftmax v.tensorPtr 0) Nothing
 ||| `TVec` alias avoids the type-checker hang that direct
 ||| `Tensor [4 * n] d` triggers.
 export
-tlstmGatesPair : {n : Nat} -> TVec (4 * n) d -> TVec n d ->
-                 (TVec n d, TVec n d)
+tlstmGatesPair : {n : Nat} -> TVec (4 * n) d g -> TVec n d g ->
+                 (TVec n d g, TVec n d g)
 tlstmGatesPair {n} combined prevCell =
   let nI = cast {to=Int} n
       pair = prim__lstmGatesPair combined.tensorPtr prevCell.tensorPtr nI
@@ -1154,7 +1167,7 @@ tlstmGatesPair {n} combined prevCell =
 ||| Use for LSTM/RNN/GRU initial hidden + cell state. Persistent =
 ||| survives tape reset.
 export
-tzeroState1d : {n : Nat} -> Tensor [n] d WithGrad
+tzeroState1d : {n : Nat} -> Tensor [n] d g
 tzeroState1d {n} =
   let nI = cast {to=Int} n
       buf = prim__allocDoubles nI
@@ -1173,7 +1186,7 @@ tzeroState1d {n} =
 ||| `nn.GRU` equation so the example matches what library users
 ||| expect.
 export
-tgruCell : {n : Nat} -> TVec (3 * n) d -> TVec (3 * n) d -> TVec n d -> TVec n d
+tgruCell : {n : Nat} -> TVec (3 * n) d g -> TVec (3 * n) d g -> TVec n d g -> TVec n d g
 tgruCell {n} ih hh prevH =
   let nI = cast {to=Int} n
   in MkTensor (prim__gruCell ih.tensorPtr hh.tensorPtr prevH.tensorPtr nI) Nothing

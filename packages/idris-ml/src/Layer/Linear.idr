@@ -19,10 +19,10 @@ import Tensor
 -- Bias and weight are registered C params at construction time.
 
 public export
-record LinearState (i : Nat) (o : Nat) (0 d : Device) where
+record LinearState (i : Nat) (o : Nat) (0 d : Device) (0 g : GradMode) where
   constructor MkLinear
-  weightT : Tensor [o, i] d WithGrad
-  biasT   : Tensor [o] d WithGrad
+  weightT : Tensor [o, i] d g
+  biasT   : Tensor [o] d g
 
 
 ----------------------------------------------------------------------
@@ -40,6 +40,16 @@ LayerLike LinearState where
     (st, tlinear2d st.weightT input st.biasT)
 
   layerPrefix _ = "llv2"
+
+  freezeLayer (MkLinear w b) = do
+    w' <- weakenGrad w
+    b' <- weakenGrad b
+    pure (MkLinear w' b')
+
+  unfreezeLayer (MkLinear w b) = do
+    primIO (prim__setRequiresGrad w.tensorPtr 1)
+    primIO (prim__setRequiresGrad b.tensorPtr 1)
+    pure (MkLinear (retypeGrad w) (retypeGrad b))
 
 
 ----------------------------------------------------------------------
@@ -69,7 +79,7 @@ mkLinearWith : {i, o : Nat}
             -> (paramPrefix : String)
             -> (weightInit : InitStrategy)
             -> (biasInit : IO Double)
-            -> IO (LinearState i o CPU)
+            -> IO (LinearState i o CPU WithGrad)
 mkLinearWith pfx wInit bInit = do
   let oI = cast {to=Int} o
       iI = cast {to=Int} i
@@ -90,7 +100,7 @@ mkLinearWith pfx wInit bInit = do
 ||| matching the existing `Layer/Linear.idr` naming so the optimizer
 ||| picks them up via the global registry.
 export
-linearLayer : {i, o : Nat} -> (paramPrefix : String) -> IO (LinearState i o CPU)
+linearLayer : {i, o : Nat} -> (paramPrefix : String) -> IO (LinearState i o CPU WithGrad)
 linearLayer paramPrefix = do
   let oI = cast {to=Int} o
       iI = cast {to=Int} i
@@ -106,5 +116,5 @@ linearLayer paramPrefix = do
 
 ||| Wrap a Linear in `AnyLayer` for use in a `Network`.
 export
-linearLayerAny : {i, o : Nat} -> (paramPrefix : String) -> IO (AnyLayer i o CPU)
+linearLayerAny : {i, o : Nat} -> (paramPrefix : String) -> IO (AnyLayer i o CPU WithGrad)
 linearLayerAny pid = map (MkAnyLayer LinearState) (linearLayer pid)

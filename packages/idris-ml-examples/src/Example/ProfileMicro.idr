@@ -126,7 +126,7 @@ loopLstmApply (S k) st x _ =
 --    NTM-copy runs.
 partial
 loopNtmApply : {n : Nat} -> {m : Nat} -> {h : Nat} -> {i : Nat} -> {o : Nat} ->
-                 Nat -> NtmState n m h i o CPU -> TVec i CPU ->
+                 Nat -> NtmState n m h i o CPU -> TVec i CPU WithGrad ->
                  NtmState n m h i o CPU -> NtmState n m h i o CPU
 loopNtmApply Z _ _ acc = acc
 loopNtmApply (S k) st x _ =
@@ -181,7 +181,7 @@ main = do
 
   -- NTM bench setup at NTM-copy default dims (N=128 M=20 H=100 i=9).
   ntm <- ntmLayer {n = 128, m = 20, h = 100, i = 9, o = 8} "micro_ntm"
-  let xNtm : TVec 9 CPU
+  let xNtm : TVec 9 CPU WithGrad
       xNtm = MkTensor (prim__createState1d 9 (allocFilled 9 0.5)) Nothing
 
   -- Allocate grad-tracked PARAMS (registered in the param registry).

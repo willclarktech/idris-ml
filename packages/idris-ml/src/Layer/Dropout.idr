@@ -27,8 +27,8 @@ dropoutSeed : Int -> Int
 -- `Nat -> Nat -> Device -> Type` arity.
 
 public export
-data DropoutState : Nat -> Nat -> (0 _ : Device) -> Type where
-  MkDropout : (p : Double) -> (training : Bool) -> DropoutState n n d
+data DropoutState : Nat -> Nat -> (0 _ : Device) -> (0 _ : GradMode) -> Type where
+  MkDropout : (p : Double) -> (training : Bool) -> DropoutState n n d g
 
 
 ----------------------------------------------------------------------
@@ -39,9 +39,9 @@ data DropoutState : Nat -> Nat -> (0 _ : Device) -> Type where
 
 export
 applyDropout : {n : Nat} ->
-                 DropoutState n n d ->
-                 TVec n d ->
-                 (DropoutState n n d, TVec n d)
+                 DropoutState n n d g ->
+                 TVec n d g ->
+                 (DropoutState n n d g, TVec n d g)
 applyDropout st@(MkDropout p training) input =
   if training
     then
@@ -58,12 +58,12 @@ applyDropout st@(MkDropout p training) input =
 ||| Create a Dropout with given drop probability. Starts in training
 ||| mode; flip to eval via `setTraining False`.
 export
-dropoutLayer : {n : Nat} -> (p : Double) -> DropoutState n n d
+dropoutLayer : {n : Nat} -> (p : Double) -> DropoutState n n d g
 dropoutLayer p = MkDropout p True
 
 ||| Toggle training/eval mode.
 export
-setTraining : Bool -> DropoutState n n d -> DropoutState n n d
+setTraining : Bool -> DropoutState n n d g -> DropoutState n n d g
 setTraining mode (MkDropout p _) = MkDropout p mode
 
 
@@ -88,7 +88,11 @@ LayerLike DropoutState where
 
   layerPrefix _ = "drop"
 
+  -- Dropout is stateless (no params); freeze/unfreeze just retypes.
+  freezeLayer (MkDropout p t) = pure (MkDropout p t)
+  unfreezeLayer (MkDropout p t) = pure (MkDropout p t)
+
 ||| Wrap a Dropout in `AnyLayer`.
 export
-dropoutLayerAny : {n : Nat} -> (p : Double) -> AnyLayer n n d
+dropoutLayerAny : {n : Nat} -> (p : Double) -> AnyLayer n n d g
 dropoutLayerAny p = MkAnyLayer DropoutState (dropoutLayer p)

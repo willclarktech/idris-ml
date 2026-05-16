@@ -21,16 +21,16 @@ import Tensor
 -- than inside a Vect literal.
 
 public export
-record LstmState (i : Nat) (o : Nat) (0 d : Device) where
+record LstmState (i : Nat) (o : Nat) (0 d : Device) (0 g : GradMode) where
   constructor MkLstm
-  iwT : TMat (4 * o) i d
-  rwT : TMat (4 * o) o d
-  ihB : TVec (4 * o) d        -- input-hidden bias [4*o] (b_ih)
-  hhB : TVec (4 * o) d        -- hidden-hidden bias [4*o] (b_hh)
-  h0T : TVec o d              -- learned initial hidden state (zero-init)
-  c0T : TVec o d              -- learned initial cell state (zero-init)
-  hiddenT : Maybe (TVec o d)
-  cellT   : Maybe (TVec o d)
+  iwT : TMat (4 * o) i d g
+  rwT : TMat (4 * o) o d g
+  ihB : TVec (4 * o) d g        -- input-hidden bias [4*o] (b_ih)
+  hhB : TVec (4 * o) d g        -- hidden-hidden bias [4*o] (b_hh)
+  h0T : TVec o d g              -- learned initial hidden state (zero-init)
+  c0T : TVec o d g              -- learned initial cell state (zero-init)
+  hiddenT : Maybe (TVec o d g)
+  cellT   : Maybe (TVec o d g)
 
 
 ----------------------------------------------------------------------
@@ -44,9 +44,9 @@ record LstmState (i : Nat) (o : Nat) (0 d : Device) where
 ||| updated layer state and the new hidden output.
 export
 applyLstm : {o : Nat} ->
-              LstmState i o d ->
-              TVec i d ->
-              (LstmState i o d, TVec o d)
+              LstmState i o d g ->
+              TVec i d g ->
+              (LstmState i o d g, TVec o d g)
 applyLstm {o} st input =
   let h = case st.hiddenT of
             Just h => h
@@ -92,7 +92,7 @@ zeroBuf buf off n =
 ||| `<prefix>_h0`, `<prefix>_c0`.
 export
 lstmLayer : {i, o : Nat} -> (paramPrefix : String) ->
-              IO (LstmState i o CPU)
+              IO (LstmState i o CPU WithGrad)
 lstmLayer paramPrefix = do
   let gI = cast {to=Int} (4 * o)
       iI = cast {to=Int} i
@@ -123,17 +123,17 @@ lstmLayer paramPrefix = do
       hbPtr = prim__paramRegister hbName (prim__createParam1d gI hbBuf')
       h0Ptr = prim__paramRegister h0Name (prim__createParam1d oI h0Buf')
       c0Ptr = prim__paramRegister c0Name (prim__createParam1d oI c0Buf')
-      iwTV : TMat (4 * o) i CPU
+      iwTV : TMat (4 * o) i CPU WithGrad
       iwTV = MkTensor iwPtr (Just iwName)
-      rwTV : TMat (4 * o) o CPU
+      rwTV : TMat (4 * o) o CPU WithGrad
       rwTV = MkTensor rwPtr (Just rwName)
-      ibTV : TVec (4 * o) CPU
+      ibTV : TVec (4 * o) CPU WithGrad
       ibTV = MkTensor ibPtr (Just ibName)
-      hbTV : TVec (4 * o) CPU
+      hbTV : TVec (4 * o) CPU WithGrad
       hbTV = MkTensor hbPtr (Just hbName)
-      h0TV : TVec o CPU
+      h0TV : TVec o CPU WithGrad
       h0TV = MkTensor h0Ptr (Just h0Name)
-      c0TV : TVec o CPU
+      c0TV : TVec o CPU WithGrad
       c0TV = MkTensor c0Ptr (Just c0Name)
   pure $ MkLstm iwTV rwTV ibTV hbTV h0TV c0TV Nothing Nothing
 
@@ -141,7 +141,7 @@ lstmLayer paramPrefix = do
 ||| first call lazy-allocate fresh persistent zero buffers — mirrors
 ||| V1's `resetState`, where MLX trains correctly via this lazy path.
 export
-resetLstmState : {o : Nat} -> {0 d : Device} -> LstmState i o d -> LstmState i o d
+resetLstmState : {o : Nat} -> {0 d : Device} -> {0 g : GradMode} -> LstmState i o d g -> LstmState i o d g
 resetLstmState st = { hiddenT := Nothing, cellT := Nothing } st
 
 
@@ -155,7 +155,40 @@ LayerLike LstmState where
   layerPrefix _ = "lstm"
   resetState = resetLstmState
 
+  freezeLayer (MkLstm iw rw ihB hhB h0 c0 hid cell) = do
+    iw'  <- weakenGrad iw
+    rw'  <- weakenGrad rw
+    ihB' <- weakenGrad ihB
+    hhB' <- weakenGrad hhB
+    h0'  <- weakenGrad h0
+    c0'  <- weakenGrad c0
+    hid' <- case hid of
+      Nothing => pure Nothing
+      Just h  => Just <$> weakenGrad h
+    cell' <- case cell of
+      Nothing => pure Nothing
+      Just c  => Just <$> weakenGrad c
+    pure (MkLstm iw' rw' ihB' hhB' h0' c0' hid' cell')
+
+  unfreezeLayer (MkLstm iw rw ihB hhB h0 c0 hid cell) = do
+    primIO (prim__setRequiresGrad iw.tensorPtr 1)
+    primIO (prim__setRequiresGrad rw.tensorPtr 1)
+    primIO (prim__setRequiresGrad ihB.tensorPtr 1)
+    primIO (prim__setRequiresGrad hhB.tensorPtr 1)
+    primIO (prim__setRequiresGrad h0.tensorPtr 1)
+    primIO (prim__setRequiresGrad c0.tensorPtr 1)
+    case hid of
+      Nothing => pure ()
+      Just h  => primIO (prim__setRequiresGrad h.tensorPtr 1)
+    case cell of
+      Nothing => pure ()
+      Just c  => primIO (prim__setRequiresGrad c.tensorPtr 1)
+    pure (MkLstm (retypeGrad iw) (retypeGrad rw)
+                 (retypeGrad ihB) (retypeGrad hhB)
+                 (retypeGrad h0) (retypeGrad c0)
+                 (map retypeGrad hid) (map retypeGrad cell))
+
 ||| Wrap an `LstmState` in `AnyLayer`.
 export
-lstmLayerAny : {i, o : Nat} -> (paramPrefix : String) -> IO (AnyLayer i o CPU)
+lstmLayerAny : {i, o : Nat} -> (paramPrefix : String) -> IO (AnyLayer i o CPU WithGrad)
 lstmLayerAny pid = map (MkAnyLayer LstmState) (lstmLayer pid)

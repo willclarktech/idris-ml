@@ -24,7 +24,7 @@ import Tensor
 
 public export
 0 LossFn : (0 _ : Device) -> Nat -> Type
-LossFn d n = TVec n d -> TVec n d -> Tensor [] d WithGrad
+LossFn d n = TVec n d WithGrad -> TVec n d WithGrad -> Tensor [] d WithGrad
 
 
 ----------------------------------------------------------------------
@@ -92,8 +92,8 @@ perPointLoss : {0 d : Device} -> {i, o : Nat} -> {hs : List Nat} ->
 perPointLoss lossFn model dp =
   let inT = bulkToPersistent (x dp)
       tgtT = bulkToPersistent (y dp)
-      inV = the (TVec i d) (MkTensor inT Nothing)
-      tgtV = the (TVec o d) (MkTensor tgtT Nothing)
+      inV = the (TVec i d WithGrad) (MkTensor inT Nothing)
+      tgtV = the (TVec o d WithGrad) (MkTensor tgtT Nothing)
       (_, predV) = forwardVar model inV
   in lossFn predV tgtV
 
@@ -123,8 +123,8 @@ perPointLossTensor : {0 d : Device} -> {i, o : Nat} -> {hs : List Nat} ->
                      TensorDataPoint i o ->
                      Tensor [] d WithGrad
 perPointLossTensor lossFn model dp =
-  let inV = the (TVec i d) (MkTensor (inputTensor dp) Nothing)
-      tgtV = the (TVec o d) (MkTensor (targetTensor dp) Nothing)
+  let inV = the (TVec i d WithGrad) (MkTensor (inputTensor dp) Nothing)
+      tgtV = the (TVec o d WithGrad) (MkTensor (targetTensor dp) Nothing)
       (_, predV) = forwardVar model inV
   in lossFn predV tgtV
 
@@ -165,8 +165,8 @@ perRowLoss : {0 d : Device} -> {n, o : Nat} ->
              Int ->                                    -- row index
              Tensor [] d WithGrad
 perRowLoss lossFn predB tgtB k =
-  let predRow = the (TVec o d) (trowSelect predB k)
-      tgtRow = the (TVec o d) (trowSelect tgtB k)
+  let predRow = the (TVec o d WithGrad) (trowSelect predB k)
+      tgtRow = the (TVec o d WithGrad) (trowSelect tgtB k)
   in lossFn predRow tgtRow
 
 ||| Batched supervised epoch over `TensorDataPoint`s: stacks per-sample
@@ -217,8 +217,8 @@ recurStep : {0 d : Device} -> {i, o : Nat} -> {hs : List Nat} ->
             (Vector i Double, Vector o Double) ->
             (Network i hs o d WithGrad, Tensor [] d WithGrad)
 recurStep lossFn (net, accLoss) (xVec, yVec) =
-  let inV = the (TVec i d) (MkTensor (bulkToPersistent xVec) Nothing)
-      tgtV = the (TVec o d) (MkTensor (bulkToPersistent yVec) Nothing)
+  let inV = the (TVec i d WithGrad) (MkTensor (bulkToPersistent xVec) Nothing)
+      tgtV = the (TVec o d WithGrad) (MkTensor (bulkToPersistent yVec) Nothing)
       (net', predV) = forwardVar net inV
       stepL = lossFn predV tgtV
   in (net', taddScalar accLoss stepL)
@@ -267,8 +267,8 @@ decodeStep : {0 d : Device} -> {i, o : Nat} -> {hs : List Nat} ->
              Vector o Double ->
              (Network i hs o d WithGrad, Tensor [] d WithGrad)
 decodeStep lossFn zeroInPtr (net, accLoss) tgtVec =
-  let inV = the (TVec i d) (MkTensor zeroInPtr Nothing)
-      tgtV = the (TVec o d) (MkTensor (bulkToPersistent tgtVec) Nothing)
+  let inV = the (TVec i d WithGrad) (MkTensor zeroInPtr Nothing)
+      tgtV = the (TVec o d WithGrad) (MkTensor (bulkToPersistent tgtVec) Nothing)
       (net', predV) = forwardVar net inV
       stepL = lossFn predV tgtV
   in (net', taddScalar accLoss stepL)
@@ -279,7 +279,7 @@ encodeStep : {0 d : Device} -> {i, o : Nat} -> {hs : List Nat} ->
              Vector i Double ->
              Network i hs o d WithGrad
 encodeStep net xVec =
-  let inV = the (TVec i d) (MkTensor (bulkToPersistent xVec) Nothing)
+  let inV = the (TVec i d WithGrad) (MkTensor (bulkToPersistent xVec) Nothing)
       (net', _) = forwardVar net inV
   in net'
 
@@ -353,7 +353,7 @@ forwardTwoPhase model dp =
                    Vector o Double ->
                    (Network i hs o d WithGrad, List (Vector o Double))
       decodeOnce (net, preds) _ =
-        let inV = the (TVec i d) (MkTensor zeroIn Nothing)
+        let inV = the (TVec i d WithGrad) (MkTensor zeroIn Nothing)
             (net', predV) = forwardVar net inV
             predVec = the (Vector o Double) (tvecToVector {n = o} predV.tensorPtr)
         in (net', preds ++ [predVec])

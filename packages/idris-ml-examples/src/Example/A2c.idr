@@ -90,7 +90,7 @@ record RollStep where
 sampleActionIO : Actor -> Critic -> Vect ObsDim Double -> IO (Nat, Double)
 sampleActionIO actor critic obs = do
   let stateT  = bulkToTensor (obsTensor obs)
-      stateV  = the (TVec ObsDim CPU) (MkTensor stateT Nothing)
+      stateV  = the (TVec ObsDim CPU WithGrad) (MkTensor stateT Nothing)
       logitsV = snd (forwardVar actor stateV)
       logPT   = prim__logSoftmax logitsV.tensorPtr 0
       lp0     = prim__item1d logPT 0
@@ -123,7 +123,7 @@ rollout actor critic st (S k) = do
 
 bootstrapV : Critic -> Vect ObsDim Double -> Double
 bootstrapV critic obs =
-  let stateV = the (TVec ObsDim CPU) (MkTensor (bulkToTensor (obsTensor obs)) Nothing)
+  let stateV = the (TVec ObsDim CPU WithGrad) (MkTensor (bulkToTensor (obsTensor obs)) Nothing)
       valueV = snd (forwardVar critic stateV)
   in prim__item1d valueV.tensorPtr 0
 
@@ -165,14 +165,14 @@ perStepLoss : {n : Nat} -> (logitsB : Tensor [n, NumActions] CPU WithGrad) ->
               Double -> Double ->
               (RollStep, Double, Double) -> Tensor [] CPU WithGrad
 perStepLoss logitsB valuesB rowIdx entropyCoef valueCoef (step, adv, retT) =
-  let logitsRow = the (TVec NumActions CPU) (trowSelect logitsB rowIdx)
+  let logitsRow = the (TVec NumActions CPU WithGrad) (trowSelect logitsB rowIdx)
       logPT = the (Tensor [NumActions] CPU WithGrad)
                  (MkTensor (prim__logSoftmax logitsRow.tensorPtr 0) Nothing)
       aIdx : Int
       aIdx = cast {to=Int} (cast {to=Integer} step.action)
       logProbV = the (Tensor [] CPU WithGrad) (telemSelect logPT aIdx)
 
-      valueRow = the (TVec 1 CPU) (trowSelect valuesB rowIdx)
+      valueRow = the (TVec 1 CPU WithGrad) (trowSelect valuesB rowIdx)
       valueV = the (Tensor [] CPU WithGrad) (telemSelect valueRow 0)
 
       retC = the (Tensor [] CPU WithGrad) (tconstScalar retT)
@@ -317,7 +317,7 @@ a2cEpoch opt cfg st = do
 
 greedyAct : Actor -> Vect ObsDim Double -> Nat
 greedyAct actor obs =
-  let stateV = the (TVec ObsDim CPU) (MkTensor (bulkToTensor (obsTensor obs)) Nothing)
+  let stateV = the (TVec ObsDim CPU WithGrad) (MkTensor (bulkToTensor (obsTensor obs)) Nothing)
       logits = snd (forwardVar actor stateV)
       l0 = prim__item1d logits.tensorPtr 0
       l1 = prim__item1d logits.tensorPtr 1
