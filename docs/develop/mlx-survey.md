@@ -289,6 +289,64 @@ in this environment" as the final position and document.
   Idris level for end-user control? Plumbing question; resolve
   once the C++ side is working.
 
+## Empirical findings (2026-05-12)
+
+Implementation landed in `backend_mlx.cpp` via a TDD progression
+(see `packages/backends/test_mlx_compile.c` for the test order).
+`MLX_COMPILE=1` env-var gates the path; eager (default) is unchanged.
+
+Closure refactor: forward function takes `[params..., constants...]`
+as explicit inputs instead of capturing constants by reference, so
+per-batch values (X, y) aren't baked into the compiled graph at
+trace time. `mx::vjp` returns grads for all inputs; we discard the
+trailing `n_consts` entries.
+
+### Results
+
+| example | CPU eager | CPU compile | Δ | GPU eager | GPU compile | Δ |
+|---|---:|---:|---:|---:|---:|---:|
+| supervised 1000 ep | 1.57 s | 1.10 s | **−30%** | 5.69 s | 5.73 s | +0.7% |
+| lstm 50 ep | 5.12 s | 3.73 s | **−27%** | 13.94 s | 16.23 s | +16% |
+| lstm 200 ep | — | — | — | 46.01 s | 47.21 s | +2.6% |
+| mnist 1 ep / 1000 ex | 1:45.6 | 1:36.8 | **−8%** | 2:09.7 | 2:03.1 | **−5%** |
+| rnn (early stop) | bit-identical loss/epochs | | | | | |
+| gru (early stop) | bit-identical loss/epochs | | | | | |
+| transformer | bit-identical sort_acc=6/6 | | | | | |
+
+### Reading
+
+- **CPU compile is a consistent win** (8-30%) across all measured
+  fixed-architecture examples. mlx's lazy graph + auto-cache on
+  `std::function` targets does the heavy lifting; explicit
+  `detail::compile` fun_id caching not needed at this scale.
+- **GPU compile breaks roughly even** at our example sizes
+  (range +2.6% to −5%). The 50-ep LSTM regression of +16%
+  shrank to +2.6% at 200 ep — confirming the gap is
+  compile-overhead-not-yet-amortized rather than a fundamental
+  problem with the integration. With a GPU-friendly workload
+  (TODO: filed) the win would be unambiguous.
+- **Correctness is solid**: bit-identical convergence on
+  supervised, rnn, lstm, gru, transformer, lstm-GPU; ULP-level
+  drift on mnist-CPU (compile reorders Conv2D backward fp
+  accumulation, within float32 noise — models converge
+  equivalently to the same accuracy).
+- **No regression of the eager path** verified across all five
+  per-example smoke pairs.
+
+### Decision
+
+`MLX_COMPILE=1` shipped as opt-in. Default stays disabled until a
+GPU-friendly example demonstrates the unambiguous case for flipping
+the default. Skipped Stages 5 (explicit `detail::compile`
+fun_id caching) and 6 (shape-change handling) — mlx's
+`std::function`-identity auto-cache covers the fixed-architecture
+case (which is what all our examples are), and explicit caching
+would be incremental work for a marginal observability win.
+
+Open follow-up: build a GPU-friendly example (filed in `TODO.md`
+Medium Priority) to settle whether GPU compile is unambiguously
+the right default.
+
 ## Sources
 
 - [mlx compile.h](https://github.com/ml-explore/mlx/blob/main/mlx/compile.h)

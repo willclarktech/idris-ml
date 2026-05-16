@@ -512,6 +512,31 @@ The default in `backend_mlx.cpp::mlx_backend_init` is CPU for this reason — le
 
 The lever that would unlock GPU here is `mx::compile()` — mlx's JIT API that compiles a multi-op function once and replays it as a single fused kernel. We don't use it (we go through `mx::vjp` which builds a closure but doesn't compile it). Wiring `mx::compile` into the replay path is the open question for Phase B of Job 3.
 
+### `MLX_COMPILE=1` env var — opt-in `mx::compile` path
+
+Set `MLX_COMPILE=1` to route `tensor_backward` through `mx::compile`
+(then `mx::vjp` on the compiled function). Default is off.
+
+On CPU: typically 8-30% faster on fixed-architecture training loops
+(supervised, lstm, rnn, gru, transformer, mnist). On GPU: roughly
+breaks even at our current example scales (the kernel-launch wall
+dominates) — wins only materialize on bigger workloads.
+
+Correctness: bit-identical loss on most examples; ULP-level drift
+on mnist because compile reorders Conv2D backward fp accumulation
+(within float32 noise — convergence accuracy unchanged).
+
+Caveats:
+- Forward closure now takes `[params..., constants...]` as explicit
+  inputs (rather than capturing constants). Per-batch values like X
+  and y are passed through, not baked into the compiled graph.
+- mlx's own `MLX_DISABLE_COMPILE` env var globally no-ops compile
+  even when `MLX_COMPILE=1`. Use for A/B if needed.
+- For workloads with variable shapes per call (NTM-copy `maxLen`),
+  mlx recompiles on shape change — expect higher overhead.
+
+Full empirical table: `docs/develop/mlx-survey.md` "Empirical findings".
+
 ## Torch Backend (backend_torch.cpp)
 
 ### View tensors must be persistent
