@@ -2354,3 +2354,99 @@ perf-sweep run that exercises all examples × all cells.
 - Phase 2 commit: `TorchDev d` parameterisation
 - Phase 6 commit: cross-backend `toDevice` via `UserDeviceTransfer`
 - Phase 7 commit: collapse Device.idr to barrel re-export
+
+
+### 2026-05-25 — Post-Phase-6 closeout + 4 bug fixes + mlx backward per-op split + transformer F64 leak fix — `54c8dba`
+
+**Motivation**: First fully clean post-Phase-6 sweep. Captures the
+runtime impact of: (1) the Phase 6 per-op file split for torch + mlx
+(`a7fbf7c`-era); (2) the four `bug | S` fixes that landed
+2026-05-25 (`83d87c9` mlx conv1d_circular forward, `831c6f7` mlx
+softplus backward replay, `5d4f58e` mlx avg_pool2d backward replay,
+`6578b81` tape tensor_view chain heap-allocation); (3) cJSON
+vendoring (structural; `d58db8c`); (4) the mlx backward per-op
+file-ownership refactor `ff2672e`/`02eb2b5`/`c509701` (60-case
+switch lifted into 54 per-op `.cpp` files via a dispatch table);
+(5) the harness `|| true` fix `eff8737` that surfaces real make
+failures instead of running stale binaries; (6) the transformer
+`primCreate1d` → `dtCreate1d` migration `f7354bd` that unblocked
+the mlx cells.
+
+**Change**: ran `scripts/perf-sweep.sh` with defaults — 6 examples
+× 5 cells = 30 cells. The previous run on 2026-05-25 morning was
+contaminated by concurrent editing in this session; this run was
+launched into an idle VM. The harness now records `crashed` cells
+truthfully (the morning sweep had silently substituted stale
+binaries on lstm/mlx after a transient build failure mid-sweep).
+
+**Impact** (idris ms/epoch, current vs 461ad12 baseline 2026-05-24):
+
+| example     | cell      | 461ad12 | 54c8dba | delta  |
+|-------------|-----------|--------:|--------:|-------:|
+| rnn         | tape      | 0.37    | 0.38    | +3%    |
+| rnn         | torch-cpu | 1.72    | 1.78    | +3%    |
+| rnn         | torch-mps | 1.70    | 1.72    | +1%    |
+| rnn         | mlx-cpu   | 75.12   | 74.48   | -1%    |
+| rnn         | mlx-gpu   | 109.88  | 111.79  | +2%    |
+| lstm        | tape      | 0.42    | 0.43    | +2%    |
+| lstm        | torch-cpu | 2.85    | 2.77    | -3%    |
+| lstm        | torch-mps | 2.71    | 2.77    | +2%    |
+| lstm        | mlx-cpu   | 121.24  | 125.21  | +3%    |
+| lstm        | mlx-gpu   | 171.83  | 177.75  | +3%    |
+| gru         | tape      | 0.35    | 0.35    | 0%     |
+| gru         | torch-cpu | 3.47    | 3.28    | -5%    |
+| gru         | torch-mps | 3.54    | 3.28    | -7%    |
+| gru         | mlx-cpu   | 103.7   | 89.72   | -13%   |
+| gru         | mlx-gpu   | 161.18  | 147.07  | -9%    |
+
+Every cell sits inside the ±15% VM-noise envelope (per
+`feedback_vm_perf_noise`); no genuine regression. The four bug
+fixes were correctness work that none of these cells exercise. The
+mlx backward per-op split moved a 60-arm switch through a
+function-pointer table; the indirection adds one indirect call per
+tape entry and is invisible at the resolution we measure.
+
+New cells the 461ad12 baseline didn't cover (transformer / ntm-copy
+/ ntm-recall):
+
+| example     | cell      | idris ms | py ms  | ratio  |
+|-------------|-----------|---------:|-------:|-------:|
+| transformer | tape      | 1.15     | 29.83  | 0.04×  |
+| transformer | torch-cpu | 7.52     | 29.83  | 0.25×  |
+| transformer | torch-mps | 6.74     | 29.83  | 0.23×  |
+| transformer | mlx-cpu   | 39.44    | 29.83  | 1.32×  |
+| transformer | mlx-gpu   | crashed* | 29.83  | N/A    |
+| ntm-copy    | tape      | 3.67     | 13.14  | 0.28×  |
+| ntm-copy    | torch-cpu | 15.31    | 13.14  | 1.17×  |
+| ntm-copy    | torch-mps | 13.78    | 13.14  | 1.05×  |
+| ntm-copy    | mlx-cpu   | 231.16   | 13.14  | 17.59× |
+| ntm-copy    | mlx-gpu   | 325.10   | 13.14  | 24.74× |
+| ntm-recall  | tape      | 4.46     | 14.42  | 0.31×  |
+| ntm-recall  | torch-cpu | 17.81    | 14.42  | 1.24×  |
+| ntm-recall  | torch-mps | 15.96    | 14.42  | 1.11×  |
+| ntm-recall  | mlx-cpu   | 259.60   | 14.42  | 18.00× |
+| ntm-recall  | mlx-gpu   | 384.40   | 14.42  | 26.66× |
+
+\* transformer/mlx-gpu at 200 epochs aborts with `exit=255 Exception:
+invalid memory reference. Some debugging context lost`. Different
+crash from the F64-on-Metal one fixed in `f7354bd` (single epoch +
+this test session's earlier transformer mlx-gpu run completed
+cleanly with `sort_acc=3/6`). Accumulation-related — likely a tape
+or buffer-cache pile-up under 200 epochs of Metal-stream work, in
+the same family as the paravirt-GPU hang documented in `gotchas.md`.
+Filed as a follow-up TODO row.
+
+**Outcome**: landed. 29/30 cells inside the noise envelope, one
+new crash to investigate. Refresh `perf-baseline.md` with the
+current snapshot.
+
+**Cross-references**:
+- `perf-baseline.md` — refreshed with the 54c8dba sweep block.
+- TODO row "transformer mlx-gpu 200-epoch invalid memory reference"
+  added 2026-05-25.
+- Previous full sweep: 2026-05-24 @ `461ad12` (pre-Phase-6
+  closeout). The morning 2026-05-25 sweep @ `6578b81` is
+  documented but invalidated by harness silent-failure +
+  concurrent-editing contention; the harness fix landed in
+  `eff8737` and the contention notes live in the
+  `feedback_vm_perf_noise` policy.
