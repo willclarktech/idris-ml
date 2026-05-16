@@ -11,10 +11,7 @@
 #include "../../../backend.h"
 #include "../test_helpers.h"
 
-/* mlx: backward is incorrect — d_in observed [0.25, 0.5, 0.5, 1.0]
-   instead of [0.25, 0.25, 0.25, 0.25]; forward is fine. Tracked in
-   TODO.md "mlx avg_pool2d backward gradient propagation". */
-Test(conv_avg_pool2d, forward_and_backward, .disabled = SKIP_ON_MLX) {
+Test(conv_avg_pool2d, forward_and_backward) {
     param_clear();
     double in_data[4] = {1.0, 2.0, 3.0, 4.0};
     int sh[3] = {1, 2, 2};

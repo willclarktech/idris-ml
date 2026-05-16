@@ -20,7 +20,15 @@ extern "C" TensorHandle tensor_avg_pool2d_mlx_streamed(TensorHandle hinput, int 
         }
     result = mx::divide(result, mx::array((double)(kH * kW), dt));
     auto r = new Tensor(result, inp->requires_grad);
-    if (inp->requires_grad) tape_append(OP_AVG_POOL2D, r, inp, nullptr, 0);
+    if (inp->requires_grad) {
+        int idx = tape_append(OP_AVG_POOL2D, r, inp, nullptr, 0);
+        auto* meta = new AvgPool2DReplayMeta();
+        meta->C = C; meta->H = H; meta->W = W;
+        meta->kH = kH; meta->kW = kW;
+        meta->strH = strideH; meta->strW = strideW;
+        meta->oH = oH; meta->oW = oW;
+        tape[idx].meta = meta;
+    }
     return (TensorHandle)r;
 }
 

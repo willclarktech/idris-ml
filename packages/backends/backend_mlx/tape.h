@@ -112,6 +112,10 @@ struct MaxPool2DReplayMeta {
     int C, H, W, kH, kW, strH, strW, oH, oW;
 };
 
+struct AvgPool2DReplayMeta {
+    int C, H, W, kH, kW, strH, strW, oH, oW;
+};
+
 struct MaxPool2DBatchedReplayMeta {
     int B, C, H, W, kH, kW, strH, strW, oH, oW;
 };

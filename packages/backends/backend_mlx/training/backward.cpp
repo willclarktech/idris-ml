@@ -333,11 +333,10 @@ void tensor_backward(TensorHandle h) {
                 break;
             }
             case OP_AVG_POOL2D: {
-                // For simplicity, re-derive dims from input shape. Only k=2 s=2 common case tested.
-                int CC = (int)a.shape(0), HH = (int)a.shape(1), WW = (int)a.shape(2);
-                // Default: k=2, stride=2 (most common usage)
-                int kH = 2, kW = 2, sH = 2, sW = 2;
-                int oH = (HH - kH)/sH + 1, oW = (WW - kW)/sW + 1;
+                auto* meta = (AvgPool2DReplayMeta*)e.meta;
+                int CC = meta->C, kH = meta->kH, kW = meta->kW;
+                int sH = meta->strH, sW = meta->strW;
+                int oH = meta->oH, oW = meta->oW;
                 mx::array res = mx::zeros({CC, oH, oW}, a.dtype());
                 for (int kh = 0; kh < kH; kh++)
                     for (int kw = 0; kw < kW; kw++) {

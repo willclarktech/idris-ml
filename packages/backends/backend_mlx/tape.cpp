@@ -124,6 +124,10 @@ void tape_reset() {
             delete (MaxPool2DReplayMeta*)e.meta;
             e.meta = nullptr;
         }
+        if (e.op == OP_AVG_POOL2D && e.meta) {
+            delete (AvgPool2DReplayMeta*)e.meta;
+            e.meta = nullptr;
+        }
         if (e.op == OP_MAX_POOL2D_BATCHED && e.meta) {
             delete (MaxPool2DBatchedReplayMeta*)e.meta;
             e.meta = nullptr;
