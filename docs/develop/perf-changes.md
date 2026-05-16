@@ -1971,3 +1971,42 @@ a workload actually needs it. The cleaner Phase 5' deliverable is
   with commit `9664726+dirty`
 - `tensor-lifecycle-plan.md` Phase 5' status
 - saved memory `feedback_vm_perf_noise.md` (15-20% delta = noise floor)
+
+----
+
+### 2026-05-17 — IO refactor trade-off: per-FFI overhead on mlx small ops, mlx-GPU compute-regime intact — `b894fbb`
+
+**Motivation**: The IO refactor (every Tensor-touching smart constructor + `applyVar` + `forwardVar` returns `IO`) was load-bearing for correctness — `withNoGrad (pure expensiveFFI)` was a no-op under strict argument evaluation, so eval-during-training was running with autograd on and leaking handles into the next training epoch's tape. Closes the original three failing-on-mlx examples (`ntm-copy`, `ntm-associative-recall`, `mountain-car-cont`) plus the ntm-copy:mlx ~450-epoch UAF (#88) and ppo:tape mid-run UAF (#89). The question this entry answers: what did we pay in raw training-time perf?
+
+**Change**: `forwardVar`/`applyVar`/all smart constructors now return `IO (...)` via `ioRerun : (() -> a) -> IO a = primIO (\w => MkIORes (f ()) w)`. Each FFI call goes through one extra closure (the `() -> a` thunk) and one `MkIORes` allocation. Per-sequence `withNoGrad` brackets added inside long eval loops so the exit-drain (forceMajorGc + drainManagedHandles) fires after each sequence on mlx (otherwise Metal MTLBuffer count climbs past the Tart VM ceiling before drain).
+
+**Impact — small-op training (6 examples × 4 cells, two-point timing, ms/ep)**:
+
+| Example | tape | torch | mlx-cpu | mlx-gpu | pytorch |
+|---|---:|---:|---:|---:|---:|
+| rnn         |  0.34 |  1.36 |  76.0 | 123.3 |  1.75 |
+| lstm        |  0.29 |  3.48 | 140.6 | 183.1 |  3.81 |
+| gru         | ~0   |  3.97 |  95.2 | 157.6 |  3.78 |
+| transformer |  1.08 |  8.28 |  40.6 |  74.9 | 29.39 |
+| ntm-copy    | ~0   | 25.10 | 281.0 | 335.9 | 12.30 |
+| ntm-recall  |  3.13 | 23.53 | 285.5 | 360.9 | 13.13 |
+
+Tape backend wins or ties PyTorch on every cell (≥6× faster on transformer). Torch competitive on small ops, 4× faster on transformer. **mlx-cpu regressed ~5× vs pre-IO-refactor on small networks** (rnn/lstm/gru/ntm-*): pre-refactor mlx hit 4-7× PyTorch on these cells; now 22-43×. **mlx-gpu** is 1.4-1.7× slower than mlx-cpu in this regime — kernel-launch wall dominates at idris-ml's example sizes (matches `feedback_mlx_gpu_environment` note).
+
+**Impact — compute-bound (matmul-bench, GFLOPS)**:
+
+| N | tape | torch | mlx-cpu | mlx-gpu |
+|---:|---:|---:|---:|---:|
+| 1024 | 305 |  365 | 1054 |   682 |
+| 2048 | 339 |  329 | 1319 | **2993** |
+| 4096 | 317 |  334 | 1215 | **4290** |
+
+mlx-gpu wins decisively above N≈2048: **4.3 TFLOPS at N=4096, 13.5× the CPU backends**. The crossover between mlx-cpu and mlx-gpu lands around N=1024-2048; below that, kernel-launch overhead dominates. The IO refactor's per-FFI overhead is invisible at this scale — a 13-ms op doesn't notice a few μs of Idris-side wrapping.
+
+**Outcome**: landed. Trade-off accepted. The IO refactor delivers correctness (eval truly skips autograd graph, no_grad bracket actually brackets) for a 5× small-op-mlx training regression; tape (the convergence-class backend) is unaffected, torch improves on every cell, and mlx-gpu's compute-regime advantage is intact. The regression only matters where mlx is least useful anyway (tiny ops, no GPU advantage). A follow-up to streamline `ioRerun`'s closure+IORes shape could recover some of the mlx-cpu small-op regression if needed — tracked under the high-priority "side-effect-bearing non-IO audit" TODO row, since the audit and the optimisation are the same investigation.
+
+**Cross-references**:
+- `perf-log.jsonl` `kind=baseline` entries timestamped 2026-05-17 with commit `f018df5+dirty` (small-op sweep) and `b894fbb` (matmul-bench)
+- `scripts/perf-sweep.sh` — the new top-level sweep with cached PyTorch + mlx-cpu/mlx-gpu cells
+- `docs/develop/gotchas.md` — "Side-effect-bearing pure functions" entry
+- `CLAUDE.md` — `forwardVar`/IO-typed surfaces, per-sequence `withNoGrad` rule

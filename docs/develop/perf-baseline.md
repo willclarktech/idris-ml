@@ -53,6 +53,40 @@ simplification). Two-point timing via `scripts/perf-baseline.sh <key>
 > `Example/GptLarge` retired same day; was never structurally able to
 > show GPU > CPU at dModel=256.
 
+> **Full sweep 2026-05-17 @ commit `b894fbb`** (post IO refactor +
+> per-sequence withNoGrad, see `perf-changes.md` 2026-05-17 entry).
+> Six examples × four cells (tape / torch / mlx-cpu / mlx-gpu) via
+> `scripts/perf-sweep.sh`. mlx-gpu added as a first-class cell.
+>
+> | Example | tape ms | torch ms | mlx-cpu ms | mlx-gpu ms | pytorch ms | tape | torch | mlx-cpu | mlx-gpu |
+> |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+> | rnn         |  0.34 |  1.36 |  76.0 | 123.3 |  1.75 | 0.19× | 0.78× | 43× | 70× |
+> | lstm        |  0.29 |  3.48 | 140.6 | 183.1 |  3.81 | 0.08× | 0.91× | 37× | 48× |
+> | gru         |    ~0 |  3.97 |  95.2 | 157.6 |  3.78 | noise | 1.05× | 25× | 42× |
+> | transformer |  1.08 |  8.28 |  40.6 |  74.9 | 29.39 | 0.04× | 0.28× | 1.4× | 2.6× |
+> | ntm-copy    |    ~0 | 25.10 | 281.0 | 335.9 | 12.30 | noise | 2.04× | 23× | 27× |
+> | ntm-recall  |  3.13 | 23.53 | 285.5 | 360.9 | 13.13 | 0.24× | 1.79× | 22× | 27× |
+>
+> **Tape**: beats PyTorch on every measurable cell. **Torch**:
+> competitive on small ops, 4× faster on transformer. **mlx-cpu**:
+> 22-43× PyTorch on small-net training — the IO refactor's per-FFI
+> overhead compounding on mlx's already-high per-op cost. **mlx-gpu**:
+> 1.4-1.7× slower than mlx-cpu in this regime — kernel-launch wall.
+> Trade-off accepted: 5× small-op mlx training regression buys
+> correctness (eval truly skips autograd, no_grad bracket actually
+> brackets) on examples that previously crashed.
+>
+> Matmul-bench (the compute-bound regime mlx exists for) is intact:
+>
+> | N | tape GFLOPS | torch GFLOPS | mlx-cpu GFLOPS | mlx-gpu GFLOPS |
+> |---:|---:|---:|---:|---:|
+> | 1024 | 305 |  365 | 1054 |  682 |
+> | 2048 | 339 |  329 | 1319 | **2993** |
+> | 4096 | 317 |  334 | 1215 | **4290** |
+>
+> mlx-gpu hits **4.3 TFLOPS at N=4096, 13.5× the CPU backends**. The
+> per-FFI wrapping is invisible at this scale.
+
 > **Partial re-measurement 2026-05-15 @ commit `db20f12`** (post
 > Transformer PE-caching fix + `prim__tile2d` rewrite, see
 > `perf-changes.md`). The transformer row is now stale across all

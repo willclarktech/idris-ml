@@ -138,6 +138,10 @@ If a function with hidden FFI side effects has a *pure* type, the FFI calls fire
 
 The library fix (commit `8a32a86`'s parent and earlier): every Tensor-handle-touching smart constructor + every `applyVar` / `forwardVar` is now `IO`-typed. FFI bodies fire when the IO action is sequenced via `<-`, which happens *inside* the bracket. The helper `ioRerun : (() -> a) -> IO a = primIO (\w => MkIORes (f ()) w)` defers a pure body to IO without using the prelude's private `MkIO` constructor; `Lazy a` was rejected because it memoizes (we need re-evaluation per call).
 
+### Per-FFI `ioRerun` overhead amplifies on mlx small-op training
+
+The `ioRerun : (() -> a) -> IO a = primIO (\w => MkIORes (f ()) w)` helper that defers FFI-bearing pure bodies to IO adds one closure construction and one `MkIORes` allocation per FFI call. Tape's per-op cost is so low this is invisible. Torch absorbs it (libtorch's per-op is already heavy enough). mlx-cpu and mlx-gpu pay it visibly: small-net training (rnn/lstm/gru/ntm) regressed ~5× vs pre-IO-refactor on mlx (`perf-changes.md` 2026-05-17 entry). The matmul-bench compute-bound regime (N ≥ 2048) is invisible to the overhead because each op is ms-scale compute; mlx-gpu still hits 4.3 TFLOPS at N=4096. Treat the regression as the cost of correctness; if it ever matters, the lever is streamlining `ioRerun`'s shape (drop the closure or the IORes box).
+
 ### Long eval loops need per-sequence `withNoGrad`, not per-batch
 
 Even with the IO refactor, wrapping a 100-sequence × 20-step eval in a single outer `withNoGrad` can OOM mlx on Tart/GHA VMs: forward passes allocate Metal buffers that Chez has no visibility into, so Chez GC doesn't fire before the Metal MTLBuffer ceiling. `withNoGrad`'s exit does `forceMajorGc + drainManagedHandles`, but once-at-end is too late.
