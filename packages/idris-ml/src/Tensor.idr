@@ -998,7 +998,7 @@ tinput2d t = MkTensor t Nothing
 ||| adds ~20µs of Scheme-side overhead per call, accumulating to a
 ||| 2× regression on recurrent models.
 export %inline
-tadd : Tensor dims d WithGrad -> Tensor dims d WithGrad -> Tensor dims d WithGrad
+tadd : Tensor dims d g -> Tensor dims d g -> Tensor dims d g
 tadd a b = MkTensor (prim__add a.tensorPtr b.tensorPtr) Nothing
 
 ||| Matrix-vector multiply: [m, n] · [n] -> [m]. `%inline` for the
@@ -1030,13 +1030,13 @@ tlinear2d w x bias =
 ||| Wraps `prim__select` on dim 0; preserves the autograd graph.
 export
 trowSelect : {0 d : Device} -> {b, n : Nat} ->
-             Tensor [b, n] d WithGrad -> Int -> Tensor [n] d WithGrad
+             Tensor [b, n] d g -> Int -> Tensor [n] d g
 trowSelect t k = MkTensor (prim__select t.tensorPtr 0 k) Nothing
 
 ||| Select element `i` from an n-vector, returning a scalar Tensor.
 export
 telemSelect : {0 d : Device} -> {n : Nat} ->
-              Tensor [n] d WithGrad -> Int -> Tensor [] d WithGrad
+              Tensor [n] d g -> Int -> Tensor [] d g
 telemSelect t i = MkTensor (prim__select t.tensorPtr 0 i) Nothing
 
 ||| Scalar Tensor from a Double. Takes the value as a runtime argument
@@ -1050,17 +1050,17 @@ tconstScalar v = MkTensor (prim__createScalar v 0) Nothing
 
 ||| Subtract two equally-shaped Tensors (autograd-tracked).
 export %inline
-tsub : Tensor dims d WithGrad -> Tensor dims d WithGrad -> Tensor dims d WithGrad
+tsub : Tensor dims d g -> Tensor dims d g -> Tensor dims d g
 tsub a b = MkTensor (prim__sub a.tensorPtr b.tensorPtr) Nothing
 
 ||| Elementwise multiply two equally-shaped Tensors (autograd-tracked).
 export %inline
-tmul : Tensor dims d WithGrad -> Tensor dims d WithGrad -> Tensor dims d WithGrad
+tmul : Tensor dims d g -> Tensor dims d g -> Tensor dims d g
 tmul a b = MkTensor (prim__mul a.tensorPtr b.tensorPtr) Nothing
 
 ||| Negate a Tensor (autograd-tracked).
 export %inline
-tneg : Tensor dims d WithGrad -> Tensor dims d WithGrad
+tneg : Tensor dims d g -> Tensor dims d g
 tneg a = MkTensor (prim__neg a.tensorPtr) Nothing
 
 ||| Scale a Tensor by a Double (broadcasts the scalar; autograd-tracked).
@@ -1068,17 +1068,17 @@ tneg a = MkTensor (prim__neg a.tensorPtr) Nothing
 ||| building per-sample loss expressions where one side of a product is
 ||| a runtime Double (e.g. DQN target value).
 export %inline
-tmulScalar : Tensor dims d WithGrad -> Double -> Tensor dims d WithGrad
+tmulScalar : Tensor dims d g -> Double -> Tensor dims d g
 tmulScalar v s = MkTensor (prim__mulScalar v.tensorPtr s) Nothing
 
 ||| Elementwise exponential (autograd-tracked).
 export %inline
-texp : Tensor dims d WithGrad -> Tensor dims d WithGrad
+texp : Tensor dims d g -> Tensor dims d g
 texp v = MkTensor (prim__exp v.tensorPtr) Nothing
 
 ||| Elementwise natural log (autograd-tracked).
 export %inline
-tlog : Tensor dims d WithGrad -> Tensor dims d WithGrad
+tlog : Tensor dims d g -> Tensor dims d g
 tlog v = MkTensor (prim__log v.tensorPtr) Nothing
 
 ||| Create a registered learnable scalar parameter (e.g. SAC's
@@ -1096,45 +1096,45 @@ tparamScalar pid val =
 ||| to build a [B, ObsDim + ActDim] Q-input from obs + reparametrized
 ||| action while preserving the autograd path through the action.
 export
-tconcat2dAxis1 : {b, m, n : Nat} -> Tensor [b, m] d WithGrad -> Tensor [b, n] d WithGrad ->
-                 Tensor [b, m + n] d WithGrad
+tconcat2dAxis1 : {b, m, n : Nat} -> Tensor [b, m] d g -> Tensor [b, n] d g ->
+                 Tensor [b, m + n] d g
 tconcat2dAxis1 a b = MkTensor (prim__concat2dAxis1 a.tensorPtr b.tensorPtr) Nothing
 
 -- Activations (shape-preserving, pass-through autograd) ---------------
 -- All `%inline` for hot-path performance — see `tadd` rationale.
 
 export %inline
-ttanh : Tensor dims d WithGrad -> Tensor dims d WithGrad
+ttanh : Tensor dims d g -> Tensor dims d g
 ttanh v = MkTensor (prim__tanh v.tensorPtr) Nothing
 
 export %inline
-tsigmoid : Tensor dims d WithGrad -> Tensor dims d WithGrad
+tsigmoid : Tensor dims d g -> Tensor dims d g
 tsigmoid v = MkTensor (prim__sigmoid v.tensorPtr) Nothing
 
 export %inline
-trelu : Tensor dims d WithGrad -> Tensor dims d WithGrad
+trelu : Tensor dims d g -> Tensor dims d g
 trelu v = MkTensor (prim__clampMin v.tensorPtr 0.0) Nothing
 
 export %inline
-tgelu : Tensor dims d WithGrad -> Tensor dims d WithGrad
+tgelu : Tensor dims d g -> Tensor dims d g
 tgelu v = MkTensor (prim__gelu v.tensorPtr) Nothing
 
 export %inline
-tsilu : Tensor dims d WithGrad -> Tensor dims d WithGrad
+tsilu : Tensor dims d g -> Tensor dims d g
 tsilu v = MkTensor (prim__silu v.tensorPtr) Nothing
 
 export %inline
-tleakyRelu : Double -> Tensor dims d WithGrad -> Tensor dims d WithGrad
+tleakyRelu : Double -> Tensor dims d g -> Tensor dims d g
 tleakyRelu slope v = MkTensor (prim__leakyRelu v.tensorPtr slope) Nothing
 
 ||| Softmax along axis 0 (1D vector).
 export %inline
-tsoftmax1d : {n : Nat} -> Tensor [n] d WithGrad -> Tensor [n] d WithGrad
+tsoftmax1d : {n : Nat} -> Tensor [n] d g -> Tensor [n] d g
 tsoftmax1d v = MkTensor (prim__softmax v.tensorPtr 0) Nothing
 
 ||| Log-softmax along axis 0 (1D vector).
 export %inline
-tlogSoftmax1d : {n : Nat} -> Tensor [n] d WithGrad -> Tensor [n] d WithGrad
+tlogSoftmax1d : {n : Nat} -> Tensor [n] d g -> Tensor [n] d g
 tlogSoftmax1d v = MkTensor (prim__logSoftmax v.tensorPtr 0) Nothing
 
 ||| Fused LSTM gate computation: combined gates [4 * n] + previous cell [n]
@@ -1184,14 +1184,14 @@ tgruCell {n} ih hh prevH =
 
 ||| Read the scalar value out of a `Tensor [] d`.
 export
-tensorItem : Tensor [] d WithGrad -> Double
+tensorItem : Tensor [] d g -> Double
 tensorItem v = prim__item v.tensorPtr
 
 -- Loss (vector targets → scalar loss) ---------------------------------
 
 ||| MSE loss over a 1D prediction/target pair. Sum-reduced.
 export
-tmseLoss : {n : Nat} -> Tensor [n] d WithGrad -> Tensor [n] d WithGrad -> Tensor [] d WithGrad
+tmseLoss : {n : Nat} -> Tensor [n] d g -> Tensor [n] d g -> Tensor [] d g
 tmseLoss p t =
   let diff = prim__sub p.tensorPtr t.tensorPtr in
   let sqDiff = prim__mul diff diff in
@@ -1201,7 +1201,7 @@ tmseLoss p t =
 ||| `Example.Supervised.nllLossTensor` (divide by n to match the
 ||| reference's mean reduction).
 export
-tnllLoss : {n : Nat} -> Tensor [n] d WithGrad -> Tensor [n] d WithGrad -> Tensor [] d WithGrad
+tnllLoss : {n : Nat} -> Tensor [n] d g -> Tensor [n] d g -> Tensor [] d g
 tnllLoss {n} p t =
   let logP = prim__logSoftmax p.tensorPtr 0 in
   let prod = prim__mul logP t.tensorPtr in
@@ -1210,10 +1210,14 @@ tnllLoss {n} p t =
 
 ||| Binary cross-entropy with logits, mean-reduced. Numerically stable
 ||| (wraps `prim__bceWithLogits`). For multi-element predictions/targets
-||| use `tbceLoss : TVec n d -> TVec n d -> Tensor [] d`; the C op
-||| internally averages.
+||| use `tbceLoss : Tensor [n] d g -> Tensor [n] d g -> Tensor [] d g`;
+||| the C op internally averages. Polymorphic in `g`: the loss's
+||| grad-mode matches the predictions / targets, so a no-grad eval
+||| `tbceLoss` (e.g. inside `withNoGrad`) returns a `NoGrad` scalar
+||| that the type system will reject if accidentally fed to
+||| `nativeTrainStep`.
 export
-tbceLoss : {n : Nat} -> TVec n d -> TVec n d -> Tensor [] d WithGrad
+tbceLoss : {n : Nat} -> Tensor [n] d g -> Tensor [n] d g -> Tensor [] d g
 tbceLoss p t =
   MkTensor (prim__bceWithLogits p.tensorPtr t.tensorPtr) Nothing
 
