@@ -32,6 +32,7 @@
 
 #include "backend_mlx/tensor.h"
 #include "backend_mlx/tape.h"
+#include "backend_mlx/stream.h"
 /* `namespace mx = mlx::core;` is provided by backend_mlx/tensor.h. */
 
 /* ================================================================
@@ -123,28 +124,8 @@ static void mlx_backend_init(void) {
    in `Layer/Dnc.idr`, etc.). Threading the stream all the way to
    those callers requires a wider Idris refactor — separate row. */
 
-namespace {
-inline mx::Stream& cpu_stream() {
-    static const mx::Stream* s = new mx::Stream(mx::default_stream(mx::Device(mx::Device::cpu)));
-    return *const_cast<mx::Stream*>(s);
-}
-inline mx::Stream& gpu_stream() {
-    static const mx::Stream* s = new mx::Stream(mx::default_stream(mx::Device(mx::Device::gpu)));
-    return *const_cast<mx::Stream*>(s);
-}
-inline mx::Stream& stream_for_tag(int tag) {
-    return tag == 1 ? gpu_stream() : cpu_stream();
-}
-inline int default_stream_tag() {
-    static const int cached = []() {
-        const char* env = std::getenv("MLX_DEVICE");
-        return (env && (std::strcmp(env, "gpu") == 0 || std::strcmp(env, "metal") == 0)) ? 1 : 0;
-    }();
-    return cached;
-}
-}
-
-#define WITH_STREAM(stream_tag) mx::StreamContext _stream_guard(stream_for_tag(stream_tag))
+/* cpu_stream / gpu_stream / stream_for_tag / default_stream_tag +
+   the WITH_STREAM macro live in backend_mlx/stream.h. */
 
 /* Forward declarations for `_mlx_streamed` symbols that are called from
    inside other `_mlx_streamed` bodies earlier in the file (the L60
