@@ -1729,9 +1729,11 @@ void tensor_backward(TensorHandle h) {
             case OP_SIGMOID: pool[out] = mx::sigmoid(a); break;
             case OP_TANH: pool[out] = mx::tanh(a); break;
             case OP_GELU: {
-                auto c = mx::array(0.7978845608028654, mx::float32);
-                auto inner = mx::multiply(c, mx::add(a, mx::multiply(mx::array(0.044715, mx::float32), mx::power(a, mx::array(3, mx::float32)))));
-                pool[out] = mx::multiply(mx::multiply(mx::array(0.5, mx::float32), a), mx::add(mx::array(1.0, mx::float32), mx::tanh(inner)));
+                static const mx::array kGeluC(0.7978845608028654, mx::float32);
+                static const mx::array kGeluC3(0.044715, mx::float32);
+                static const mx::array kThree(3, mx::float32);
+                auto inner = mx::multiply(kGeluC, mx::add(a, mx::multiply(kGeluC3, mx::power(a, kThree))));
+                pool[out] = mx::multiply(mx::multiply(kF32_HALF(), a), mx::add(kF32_ONE(), mx::tanh(inner)));
                 break;
             }
             case OP_LEAKY_RELU: {
@@ -1741,10 +1743,8 @@ void tensor_backward(TensorHandle h) {
             }
             case OP_SILU: pool[out] = mx::multiply(a, mx::sigmoid(a)); break;
             case OP_SOFTPLUS: {
-                auto zero_sp = mx::array(0.0f, mx::float32);
-                auto one_sp = mx::array(1.0f, mx::float32);
-                pool[out] = mx::add(mx::maximum(a, zero_sp),
-                                    mx::log(mx::add(one_sp, mx::exp(mx::negative(mx::abs(a))))));
+                pool[out] = mx::add(mx::maximum(a, kF32_ZERO()),
+                                    mx::log(mx::add(kF32_ONE(), mx::exp(mx::negative(mx::abs(a))))));
                 break;
             }
             case OP_ADD_SCALAR: pool[out] = mx::add(a, mx::array(e.scalar_arg)); break;
