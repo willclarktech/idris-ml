@@ -563,6 +563,44 @@ ref-dnc-recall:
 ref-transformer:
 	cd packages/pytorch && uv run python -m torch_ref.scripts.transformer
 
+ref-reinforce:
+	cd packages/pytorch && uv run python -m torch_ref.scripts.reinforce
+
+ref-a2c:
+	cd packages/pytorch && uv run python -m torch_ref.scripts.a2c
+
+ref-ppo:
+	cd packages/pytorch && uv run python -m torch_ref.scripts.ppo
+
+ref-dqn:
+	cd packages/pytorch && uv run python -m torch_ref.scripts.dqn
+
+ref-mountain-car:
+	cd packages/pytorch && uv run python -m torch_ref.scripts.mountain_car
+
+ref-mountain-car-cont:
+	cd packages/pytorch && uv run python -m torch_ref.scripts.mountain_car_cont
+
+# SAC, tabular RL, and Monte Carlo have no scripts/ wrapper — invoke
+# models/*.py:__main__ directly (paired-side entry point in both cases).
+ref-sac:
+	cd packages/pytorch && uv run python -m torch_ref.models.sac
+
+ref-q-learning:
+	cd packages/pytorch && uv run python -m torch_ref.models.q_learning
+
+ref-sarsa:
+	cd packages/pytorch && uv run python -m torch_ref.models.sarsa
+
+ref-frozen-lake:
+	cd packages/pytorch && uv run python -m torch_ref.models.frozen_lake
+
+ref-taxi:
+	cd packages/pytorch && uv run python -m torch_ref.models.taxi
+
+ref-monte-carlo:
+	cd packages/pytorch && uv run python -m torch_ref.models.monte_carlo
+
 test-ref ref-test:
 	cd packages/pytorch && uv run pytest torch_ref/correctness/ -v
 
