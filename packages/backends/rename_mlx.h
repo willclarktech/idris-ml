@@ -181,11 +181,13 @@
 #define tensor_ptr_array_set tensor_ptr_array_set_mlx
 #define tensor_ptr_array_set_return tensor_ptr_array_set_return_mlx
 #define tensor_read_double tensor_read_double_mlx
+#define tensor_release_handle tensor_release_handle_mlx
 #define tensor_requires_grad tensor_requires_grad_mlx
 #define tensor_reshape tensor_reshape_mlx
 #define tensor_reshape_2d tensor_reshape_2d_mlx
 #define tensor_reshape_3d tensor_reshape_3d_mlx
 #define tensor_reshape_4d tensor_reshape_4d_mlx
+#define tensor_retain_handle tensor_retain_handle_mlx
 #define tensor_scatter_add tensor_scatter_add_mlx
 #define tensor_select tensor_select_mlx
 #define tensor_set_requires_grad tensor_set_requires_grad_mlx
@@ -205,6 +207,7 @@
 #define tensor_sum tensor_sum_mlx
 #define tensor_sum_dim tensor_sum_dim_mlx
 #define tensor_tanh tensor_tanh_mlx
+#define tensor_tile_2d tensor_tile_2d_mlx
 #define tensor_to_device tensor_to_device_mlx
 #define tensor_to_doubles tensor_to_doubles_mlx
 #define tensor_transpose_2d tensor_transpose_2d_mlx

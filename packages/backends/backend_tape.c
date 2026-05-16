@@ -588,6 +588,13 @@ void tensor_free(TensorHandle h) {
     (void)h;
 }
 
+/* Refcount API — currently a no-op on the tape backend. The arena lifecycle
+ * (tape_reset clears the whole arena at once) doesn't yet participate in
+ * per-tensor refcount tracking. Phase 2.4 wires it in. Stubs exist so the
+ * multi-link build resolves these symbols across all backends. */
+void tensor_retain_handle(TensorHandle h) { (void)h; }
+void tensor_release_handle(TensorHandle h) { (void)h; }
+
 /* ================================================================
    Accessors
    ================================================================ */

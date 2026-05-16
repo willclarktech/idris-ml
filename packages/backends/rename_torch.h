@@ -181,11 +181,13 @@
 #define tensor_ptr_array_set tensor_ptr_array_set_torch
 #define tensor_ptr_array_set_return tensor_ptr_array_set_return_torch
 #define tensor_read_double tensor_read_double_torch
+#define tensor_release_handle tensor_release_handle_torch
 #define tensor_requires_grad tensor_requires_grad_torch
 #define tensor_reshape tensor_reshape_torch
 #define tensor_reshape_2d tensor_reshape_2d_torch
 #define tensor_reshape_3d tensor_reshape_3d_torch
 #define tensor_reshape_4d tensor_reshape_4d_torch
+#define tensor_retain_handle tensor_retain_handle_torch
 #define tensor_scatter_add tensor_scatter_add_torch
 #define tensor_select tensor_select_torch
 #define tensor_set_requires_grad tensor_set_requires_grad_torch
@@ -205,6 +207,7 @@
 #define tensor_sum tensor_sum_torch
 #define tensor_sum_dim tensor_sum_dim_torch
 #define tensor_tanh tensor_tanh_torch
+#define tensor_tile_2d tensor_tile_2d_torch
 #define tensor_to_device tensor_to_device_torch
 #define tensor_to_doubles tensor_to_doubles_torch
 #define tensor_transpose_2d tensor_transpose_2d_torch

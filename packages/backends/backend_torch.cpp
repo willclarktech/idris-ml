@@ -94,6 +94,13 @@ void tensor_free(TensorHandle h) {
     (void)h;
 }
 
+// Refcount API — currently a no-op on the torch backend. Phase 2.4 will
+// wire torch's intermediates-vector cleanup to participate in refcount.
+// Stubs exist so the multi-link build resolves these symbols across all
+// backends.
+void tensor_retain_handle(TensorHandle h) { (void)h; }
+void tensor_release_handle(TensorHandle h) { (void)h; }
+
 /* ---------- Accessors ---------- */
 
 double tensor_item(TensorHandle h) {

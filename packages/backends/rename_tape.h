@@ -181,11 +181,13 @@
 #define tensor_ptr_array_set tensor_ptr_array_set_tape
 #define tensor_ptr_array_set_return tensor_ptr_array_set_return_tape
 #define tensor_read_double tensor_read_double_tape
+#define tensor_release_handle tensor_release_handle_tape
 #define tensor_requires_grad tensor_requires_grad_tape
 #define tensor_reshape tensor_reshape_tape
 #define tensor_reshape_2d tensor_reshape_2d_tape
 #define tensor_reshape_3d tensor_reshape_3d_tape
 #define tensor_reshape_4d tensor_reshape_4d_tape
+#define tensor_retain_handle tensor_retain_handle_tape
 #define tensor_scatter_add tensor_scatter_add_tape
 #define tensor_select tensor_select_tape
 #define tensor_set_requires_grad tensor_set_requires_grad_tape
@@ -205,6 +207,7 @@
 #define tensor_sum tensor_sum_tape
 #define tensor_sum_dim tensor_sum_dim_tape
 #define tensor_tanh tensor_tanh_tape
+#define tensor_tile_2d tensor_tile_2d_tape
 #define tensor_to_device tensor_to_device_tape
 #define tensor_to_doubles tensor_to_doubles_tape
 #define tensor_transpose_2d tensor_transpose_2d_tape

@@ -186,6 +186,18 @@ static void tensor_release_internal(Tensor* t) {
     delete t;
 }
 
+// C-exported retain/release for FFI consumers (Idris-side managed handles,
+// Scheme guardian-drain callbacks). Same semantics as the internal helpers
+// but with a void* signature for cross-language calling.
+extern "C" {
+void tensor_retain_handle(void* h) {
+    tensor_retain_internal(reinterpret_cast<Tensor*>(h));
+}
+void tensor_release_handle(void* h) {
+    tensor_release_internal(reinterpret_cast<Tensor*>(h));
+}
+}  // extern "C"
+
 /* ================================================================
    Precision bridge — mlx storage is float32 (Metal GPU constraint),
    Idris API surface is double. These helpers convert at the boundary.
