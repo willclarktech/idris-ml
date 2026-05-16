@@ -253,6 +253,11 @@ static std::vector<TapeEntry> tape;
    no_grad_depth. */
 static int no_grad_depth = 0;
 
+/* Diagnostic: count FFI ops per epoch (tape_append fires once per
+   grad-requiring op in the forward pass). Counts grad-tracked ops only;
+   pure-no-grad ops are not in the tape. */
+static long prof_tape_appends_mlx = 0;
+
 static int tape_append(int op, Tensor* result, Tensor* arg1, Tensor* arg2, double scalar_arg) {
     if (no_grad_depth > 0) {
         if (result) {
@@ -264,6 +269,7 @@ static int tape_append(int op, Tensor* result, Tensor* arg1, Tensor* arg2, doubl
     int idx = (int)tape.size();
     tape.push_back({op, result, arg1, arg2, scalar_arg, nullptr});
     result->tape_idx = idx;
+    prof_tape_appends_mlx++;
     return idx;
 }
 
@@ -373,6 +379,7 @@ static std::vector<ParamEntry> param_registry;
 static double prof_backward_ms_mlx = 0, prof_optimizer_ms_mlx = 0;
 static double prof_optimizer_math_ms_mlx = 0;
 static int prof_epochs_mlx = 0;
+/* prof_tape_appends_mlx is declared earlier (before tape_append uses it). */
 
 static double _wall_ms_mlx(void) {
     struct timeval tv;
@@ -3144,6 +3151,7 @@ void backend_profile_reset(void) {
     prof_backward_ms_mlx = prof_optimizer_ms_mlx = 0;
     prof_optimizer_math_ms_mlx = 0;
     prof_epochs_mlx = 0;
+    prof_tape_appends_mlx = 0;
 }
 
 void backend_profile_report(void) {
@@ -3160,6 +3168,9 @@ void backend_profile_report(void) {
     double total = prof_backward_ms_mlx + prof_optimizer_ms_mlx;
     fprintf(stderr, "  C total:   %.1fms total (%.1fms/epoch)\n",
             total, prof_epochs_mlx > 0 ? total / prof_epochs_mlx : 0);
+    fprintf(stderr, "  Forward tape_appends (grad-tracked ops): %ld total (%.0f/epoch)\n",
+            prof_tape_appends_mlx,
+            prof_epochs_mlx > 0 ? (double)prof_tape_appends_mlx / prof_epochs_mlx : 0);
 }
 
 /* ================================================================

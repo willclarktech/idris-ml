@@ -1475,3 +1475,105 @@ pass becomes one mlx call from Idris instead of N FFI dispatches.
   task #42 (decided non-trivial: the lambda capture pattern that
   the new compile path uses doesn't translate directly because the
   backward closure captures the per-step tape)
+
+### 2026-05-14 — Diagnostic: where the 9000 ms/ep GptLarge wall actually goes — `<commit>`
+
+**Plan job**: before committing to a 2-3 week architectural refactor
+("compile the whole training step" — eliminate per-op FFI dispatch),
+measure where the unaccounted-for ~8870 ms/ep of GptLarge wall is
+actually spent. Two-way fork: (a) FFI marshalling overhead per
+Idris→C transition → architectural change pays off; (b) Idris VM
+between FFI calls → architectural change is dead weight, Idris-side
+optimisation is the lever.
+
+**Method**: two independent measurements.
+
+1. **Per-FFI-call wall** (`/tmp/bench_per_op.c` — pure C, no Idris):
+   tight loop of `tensor_add(a, b); tensor_free(c)` against
+   libidrisml. mlx ops are lazy — each call allocates a graph node
+   and returns an `AnyPtr`, no compute. Both streams measured:
+
+   | stream | per-FFI wall | per-pair (add+mul) |
+   |--------|-------------:|-------------------:|
+   | CPU    |   0.46 µs    |       0.91 µs      |
+   | GPU    |   0.45 µs    |       1.01 µs      |
+
+2. **FFI count per epoch** (instrument `tape_append` in
+   `backend_mlx.cpp`): every grad-tracked forward op fires
+   `tape_append` once. GptLarge 5 epochs at dModel=256:
+
+   - **1136 tape_appends / epoch** (5678 total / 5).
+
+**Multiplication**: 1136 × 0.46 µs = **0.52 ms FFI wall per epoch**
+out of 8600 ms wall = **0.006%**.
+
+(Even doubling for non-grad ops not in the tape — input creation,
+masks — caps total FFI wall at ~1.2 ms/ep. Still negligible.)
+
+**Inference**: ~8600 ms/ep is **Idris VM time between FFI calls**.
+Per tensor op, the Idris side spends **7.6 ms** preparing/dispatching
+each op (8600 / 1136). For comparison, Chez Scheme can run plain
+arithmetic loops at >1M ops/sec — so a 7.6 ms-per-op overhead on a
+"call this C function with two AnyPtrs" operation is enormous, and
+the culprit isn't the FFI boundary itself (proven: 0.46 µs).
+
+**Likely candidates for the 7.6 ms-per-op Idris overhead**
+(not measured here; this is the *next* diagnostic step):
+
+- Existential `AnyLayer` dispatch in the `Network` chain — each
+  forward step walks the chain via `~~>` (existential pattern
+  match per layer, indirection through `LayerLike` method
+  dictionary)
+- Constraint dictionary construction at call sites — `UserDeviceCore d`
+  / `LayerLike d` are typeclass constraints that may resolve at runtime
+  rather than getting fully inlined, building a dictionary record per
+  call
+- `Tensor` record packing/unpacking on every op (the record carries
+  `tensorPtr : AnyPtr`, `paramId : Maybe String`)
+- `Vect` operations in shape arithmetic (Idris-2 `Nat` is `Integer`
+  at runtime but Vect/List operations still walk lists allocatively)
+- Per-op Idris-level closures inside layer methods (`applyVar`,
+  `applyVarBatch`) that allocate intermediate structures
+
+**Outcome** — **kills the "compile the whole training step" plan
+(Path A) before any code lands.** Path A's premise was that
+eliminating ~thousands of FFI dispatches per step would save the
+~8870 ms/ep that isn't C-side. We now know FFI dispatch costs
+~0.5 ms/ep — that's the entire upside ceiling. Even a perfect Path
+A implementation would save 0.006% of wall.
+
+**The actual lever (Path B): cut the Idris-side per-op overhead.**
+Even halving 7.6 ms → 3.8 ms drops wall from 8600 → 4300 ms/ep —
+**a 50% wall reduction**. And it's the kind of work that compounds:
+any per-op overhead fix lifts every example, not just GptLarge.
+
+**Open questions for the Path B plan** (next diagnostic step,
+not in scope of this commit):
+
+- Add Idris-level timing to `forwardVar` itself and the individual
+  `applyVar` / `LayerLike` methods to localise the cost
+- Try a single-layer harness (e.g. just `linearLayerAny` repeated
+  100k times) vs full Network — does cost scale with chain length?
+- Inspect Chez Scheme compiled output for one tensor op call —
+  what is each call actually doing?
+- Inspect whether `%inline` annotations on the `UserDeviceCore`
+  method bodies are being honoured by the compiler
+
+**Code change committed alongside**: just the `prof_tape_appends_mlx`
+counter in `backend_mlx.cpp` (used to produce this number). The
+counter stays — it's cheap and surfaces real signal.
+
+**Cross-references**:
+- `perf-log.jsonl` `kind=diagnostic` entries timestamped 2026-05-14T17:18
+  (CPU probe) and 2026-05-14T17:20 (GPU probe) — the
+  tape-invariance check that confirmed compile-once-replay is
+  semantically viable (the assumption Path A's design depended on)
+- `perf-log.jsonl` `kind=microbench` entry timestamped 2026-05-14T17:30
+  for the per-FFI-call wall measurement
+- `perf-log.jsonl` `kind=diagnostic` entry timestamped 2026-05-14T17:30
+  for the tape-append count
+- TODO row: a new row for "Idris-side per-op overhead reduction" lands
+  in this same commit. The mlx-optimizer-compile row (already partly
+  done) keeps the SGD/RMSprop/AdamW follow-up but loses its
+  "GPU C-total ≤ CPU C-total" acceptance gate (wall doesn't move
+  via this lever)
