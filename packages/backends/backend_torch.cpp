@@ -51,16 +51,10 @@ static void torch_mps_eager_init(void) {
     }
 }
 
-/* ---------- Profiling ---------- */
-static double prof_backward_ms = 0, prof_optimizer_ms = 0;
-static double prof_optimizer_math_ms = 0;  /* Just opt->step() / adam_step_foreach */
-static int prof_epochs = 0;
-
-static double _wall_ms_torch(void) {
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-    return tv.tv_sec * 1000.0 + tv.tv_usec / 1000.0;
-}
+/* Profiling counters (prof_backward_ms / prof_optimizer_ms /
+   prof_optimizer_math_ms / prof_epochs) + _wall_ms_torch live in
+   backend_torch/training/profiling.{h,cpp}. */
+#include "backend_torch/training/profiling.h"
 
 /* ---------- Intermediate tensor tracking ---------- */
 
@@ -227,7 +221,7 @@ extern "C" void _dbg_dump_param_grads_if_enabled_torch(void);
 void tensor_backward(TensorHandle h) {
     double t0 = _wall_ms_torch();
     to_tensor(h)->backward();
-    prof_backward_ms += _wall_ms_torch() - t0;
+    prof_backward_ms_torch += _wall_ms_torch() - t0;
     /* Phase 1.5e diagnostic: dump per-param gradient L2 norms after backward.
        Implementation lives below the param_registry declaration. */
     _dbg_dump_param_grads_if_enabled_torch();
@@ -997,11 +991,11 @@ void optimizer_step(OptimizerHandle h) {
         } else {
             opt->step();
         }
-        prof_optimizer_math_ms += _wall_ms_torch() - tm0;
+        prof_optimizer_math_ms_torch += _wall_ms_torch() - tm0;
     } else {
         double tm0 = _wall_ms_torch();
         opt->step();
-        prof_optimizer_math_ms += _wall_ms_torch() - tm0;
+        prof_optimizer_math_ms_torch += _wall_ms_torch() - tm0;
     }
     /* Phase 1.5e: dump h0/c0 trajectory if enabled */
     {
@@ -1010,8 +1004,8 @@ void optimizer_step(OptimizerHandle h) {
     }
     // Free intermediate tensors from this epoch's forward/backward
     free_intermediates();
-    prof_optimizer_ms += _wall_ms_torch() - t0;
-    prof_epochs++;
+    prof_optimizer_ms_torch += _wall_ms_torch() - t0;
+    prof_epochs_torch++;
 }
 
 void optimizer_zero_grad(OptimizerHandle h) {
@@ -1317,27 +1311,8 @@ void backend_reset_for_eval(void) {
     }
 }
 
-void backend_epoch_begin(void) { /* no-op for torch: profiling is backward+optimizer only */ }
-
-void backend_profile_reset(void) {
-    prof_backward_ms = prof_optimizer_ms = prof_optimizer_math_ms = 0;
-    prof_epochs = 0;
-}
-
-void backend_profile_report(void) {
-    fprintf(stderr, "=== Profile Report (torch backend) ===\n");
-    fprintf(stderr, "  Epochs: %d\n", prof_epochs);
-    fprintf(stderr, "  Params: %d tensors\n", (int)param_count());
-    fprintf(stderr, "  Backward:  %.1fms total (%.1fms/epoch)\n",
-            prof_backward_ms, prof_epochs > 0 ? prof_backward_ms / prof_epochs : 0);
-    fprintf(stderr, "  Optimizer: %.1fms total (%.1fms/epoch)\n",
-            prof_optimizer_ms, prof_epochs > 0 ? prof_optimizer_ms / prof_epochs : 0);
-    fprintf(stderr, "    of which math: %.1fms total (%.2fms/epoch)\n",
-            prof_optimizer_math_ms, prof_epochs > 0 ? prof_optimizer_math_ms / prof_epochs : 0);
-    double total = prof_backward_ms + prof_optimizer_ms;
-    fprintf(stderr, "  C total:   %.1fms total (%.1fms/epoch)\n",
-            total, prof_epochs > 0 ? total / prof_epochs : 0);
-}
+/* backend_epoch_begin / backend_profile_reset / backend_profile_report
+   live in backend_torch/training/profiling.cpp. */
 
 /* param_grad_item_at lives in shared/training/param_registry.c. */
 
