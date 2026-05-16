@@ -1757,7 +1757,10 @@ void tensor_backward(TensorHandle h) {
     }
     if (param_arrays.empty()) return;
 
-    // Build constant pool from tape (O(tape_size), not O(all_tensors))
+    // Build constant pool from tape (O(tape_size), not O(all_tensors)).
+    // Index/mask args (OP_GATHER.arg2, OP_SCATTER_ADD.arg2) are discrete and
+    // have no derivative — keep them out of the vjp inputs entirely.
+    // Replay reads them via closure-captured `e.argN->data` (see below).
     std::vector<std::pair<int, mx::array>> constants;
     std::unordered_set<int> seen;
     for (auto& idx : param_pool_indices) seen.insert(idx);
@@ -1767,11 +1770,14 @@ void tensor_backward(TensorHandle h) {
             constants.emplace_back(t->pool_idx, t->data);
         }
     };
+    auto arg2_is_index = [](int op) {
+        return op == OP_GATHER || op == OP_SCATTER_ADD;
+    };
     for (int i = 0; i <= loss->tape_idx; i++) {
         auto& e = tape[i];
         add_const(e.result);
         add_const(e.arg1);
-        add_const(e.arg2);
+        if (!arg2_is_index(e.op)) add_const(e.arg2);
     }
 
     // Capture tape state for the closure
@@ -2124,15 +2130,18 @@ void tensor_backward(TensorHandle h) {
                 break;
             }
             case OP_GATHER: {
-                // mlx 0.31.2 strictly rejects VJP through index inputs.
-                // stop_gradient pins this branch out of the autograd graph.
-                auto idx_int = mx::astype(mx::stop_gradient(b), mx::int32);
+                // Indices are discrete and non-differentiable — read directly
+                // from the tape entry's tensor (closure-captured, not via
+                // pool). The constants-collection above intentionally
+                // excludes arg2 for this op so mlx::vjp never sees it as a
+                // differentiable input. See `arg2_is_index` above.
+                auto idx_int = mx::astype(e.arg2->data, mx::int32);
                 pool[out] = mx::take(a, idx_int, 0);
                 break;
             }
             case OP_SCATTER_ADD: {
                 int out_size = (int)e.scalar_arg;
-                auto idx_int = mx::astype(mx::stop_gradient(b), mx::int32);
+                auto idx_int = mx::astype(e.arg2->data, mx::int32);
                 auto base = mx::zeros({out_size}, mx::float32);
                 auto updates_2d = mx::reshape(a, {(int)a.size(), 1});
                 pool[out] = mx::scatter_add(base, {idx_int}, updates_2d, std::vector<int>{0});
