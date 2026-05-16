@@ -234,3 +234,82 @@ UserDeviceLinear MlxDev where
   primScatterAdd     = prim__scatterAddMlx
   primArgsort        = prim__argsortMlx
   primCumprod        = prim__cumprodMlx
+
+
+----------------------------------------------------------------------
+-- NN-slice FFI bindings (mlx-suffixed)
+----------------------------------------------------------------------
+
+%foreign "C:tensor_gelu_mlx,libidrisml"
+prim__geluMlx : AnyPtr -> AnyPtr
+%foreign "C:tensor_leaky_relu_mlx,libidrisml"
+prim__leakyReluMlx : AnyPtr -> Double -> AnyPtr
+%foreign "C:tensor_silu_mlx,libidrisml"
+prim__siluMlx : AnyPtr -> AnyPtr
+%foreign "C:tensor_softplus_mlx,libidrisml"
+prim__softplusMlx : AnyPtr -> AnyPtr
+%foreign "C:tensor_softmax_mlx,libidrisml"
+prim__softmaxMlx : AnyPtr -> Int -> AnyPtr
+%foreign "C:tensor_log_softmax_mlx,libidrisml"
+prim__logSoftmaxMlx : AnyPtr -> Int -> AnyPtr
+%foreign "C:tensor_softmax_2d_mlx,libidrisml"
+prim__softmax2dMlx : AnyPtr -> AnyPtr
+%foreign "C:tensor_log_softmax_2d_mlx,libidrisml"
+prim__logSoftmax2dMlx : AnyPtr -> AnyPtr
+%foreign "C:tensor_softmax_3d_mlx,libidrisml"
+prim__softmax3dMlx : AnyPtr -> AnyPtr
+%foreign "C:tensor_masked_fill_mlx,libidrisml"
+prim__maskedFillMlx : AnyPtr -> AnyPtr -> Double -> AnyPtr
+%foreign "C:tensor_expand_mask_mlx,libidrisml"
+prim__expandMaskMlx : AnyPtr -> Int -> AnyPtr
+%foreign "C:tensor_causal_mask_mlx,libidrisml"
+prim__causalMaskMlx : Int -> AnyPtr
+%foreign "C:tensor_layer_norm_2d_mlx,libidrisml"
+prim__layerNorm2dMlx : AnyPtr -> AnyPtr -> AnyPtr -> Double -> AnyPtr
+%foreign "C:tensor_batch_norm_mlx,libidrisml"
+prim__batchNormMlx : AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> Int -> Int -> Int -> Double -> Double -> AnyPtr
+%foreign "C:tensor_dropout_mlx,libidrisml"
+prim__dropoutMlx : AnyPtr -> Double -> Int -> Int -> AnyPtr
+%foreign "C:tensor_embedding_mlx,libidrisml"
+prim__embeddingMlx : AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
+%foreign "C:tensor_cosine_similarity_mlx,libidrisml"
+prim__cosineSimilarityMlx : AnyPtr -> AnyPtr -> Int -> AnyPtr
+%foreign "C:tensor_cross_attention_mlx,libidrisml"
+prim__crossAttentionMlx : AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> Double -> AnyPtr
+%foreign "C:tensor_bce_with_logits_mlx,libidrisml"
+prim__bceWithLogitsMlx : AnyPtr -> AnyPtr -> AnyPtr
+%foreign "C:tensor_gru_cell_mlx,libidrisml"
+prim__gruCellMlx : AnyPtr -> AnyPtr -> AnyPtr -> Int -> AnyPtr
+%foreign "C:tensor_lstm_gates_pair_mlx,libidrisml"
+prim__lstmGatesPairMlx : AnyPtr -> AnyPtr -> Int -> AnyPtr
+%foreign "C:tensor_pair_first_mlx,libidrisml"
+prim__pairFirstMlx : AnyPtr -> AnyPtr
+%foreign "C:tensor_pair_second_mlx,libidrisml"
+prim__pairSecondMlx : AnyPtr -> AnyPtr
+
+
+public export
+UserDeviceNN MlxDev where
+  primGelu             = prim__geluMlx
+  primLeakyRelu        = prim__leakyReluMlx
+  primSilu             = prim__siluMlx
+  primSoftplus         = prim__softplusMlx
+  primSoftmax          = prim__softmaxMlx
+  primLogSoftmax       = prim__logSoftmaxMlx
+  primSoftmax2d        = prim__softmax2dMlx
+  primLogSoftmax2d     = prim__logSoftmax2dMlx
+  primSoftmax3d        = prim__softmax3dMlx
+  primMaskedFill       = prim__maskedFillMlx
+  primExpandMask       = prim__expandMaskMlx
+  primCausalMask       = prim__causalMaskMlx
+  primLayerNorm2d      = prim__layerNorm2dMlx
+  primBatchNorm        = prim__batchNormMlx
+  primDropout          = prim__dropoutMlx
+  primEmbedding        = prim__embeddingMlx
+  primCosineSimilarity = prim__cosineSimilarityMlx
+  primCrossAttention   = prim__crossAttentionMlx
+  primBceWithLogits    = prim__bceWithLogitsMlx
+  primGruCell          = prim__gruCellMlx
+  primLstmGatesPair    = prim__lstmGatesPairMlx
+  primPairFirst        = prim__pairFirstMlx
+  primPairSecond       = prim__pairSecondMlx

@@ -38,7 +38,7 @@ data DropoutState : Nat -> Nat -> (0 _ : Device) -> (0 _ : GradMode) -> Type whe
 %default partial
 
 export
-applyDropout : {0 d : Device} -> UserDeviceLinear d => {n : Nat} ->
+applyDropout : {0 d : Device} -> UserDeviceNN d => {n : Nat} ->
                  DropoutState n n d g ->
                  TVec n d g ->
                  (DropoutState n n d g, TVec n d g)

@@ -238,3 +238,82 @@ UserDeviceLinear TapeDev where
   primScatterAdd     = prim__scatterAddTape
   primArgsort        = prim__argsortTape
   primCumprod        = prim__cumprodTape
+
+
+----------------------------------------------------------------------
+-- NN-slice FFI bindings (tape-suffixed)
+----------------------------------------------------------------------
+
+%foreign "C:tensor_gelu_tape,libidrisml"
+prim__geluTape : AnyPtr -> AnyPtr
+%foreign "C:tensor_leaky_relu_tape,libidrisml"
+prim__leakyReluTape : AnyPtr -> Double -> AnyPtr
+%foreign "C:tensor_silu_tape,libidrisml"
+prim__siluTape : AnyPtr -> AnyPtr
+%foreign "C:tensor_softplus_tape,libidrisml"
+prim__softplusTape : AnyPtr -> AnyPtr
+%foreign "C:tensor_softmax_tape,libidrisml"
+prim__softmaxTape : AnyPtr -> Int -> AnyPtr
+%foreign "C:tensor_log_softmax_tape,libidrisml"
+prim__logSoftmaxTape : AnyPtr -> Int -> AnyPtr
+%foreign "C:tensor_softmax_2d_tape,libidrisml"
+prim__softmax2dTape : AnyPtr -> AnyPtr
+%foreign "C:tensor_log_softmax_2d_tape,libidrisml"
+prim__logSoftmax2dTape : AnyPtr -> AnyPtr
+%foreign "C:tensor_softmax_3d_tape,libidrisml"
+prim__softmax3dTape : AnyPtr -> AnyPtr
+%foreign "C:tensor_masked_fill_tape,libidrisml"
+prim__maskedFillTape : AnyPtr -> AnyPtr -> Double -> AnyPtr
+%foreign "C:tensor_expand_mask_tape,libidrisml"
+prim__expandMaskTape : AnyPtr -> Int -> AnyPtr
+%foreign "C:tensor_causal_mask_tape,libidrisml"
+prim__causalMaskTape : Int -> AnyPtr
+%foreign "C:tensor_layer_norm_2d_tape,libidrisml"
+prim__layerNorm2dTape : AnyPtr -> AnyPtr -> AnyPtr -> Double -> AnyPtr
+%foreign "C:tensor_batch_norm_tape,libidrisml"
+prim__batchNormTape : AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> Int -> Int -> Int -> Double -> Double -> AnyPtr
+%foreign "C:tensor_dropout_tape,libidrisml"
+prim__dropoutTape : AnyPtr -> Double -> Int -> Int -> AnyPtr
+%foreign "C:tensor_embedding_tape,libidrisml"
+prim__embeddingTape : AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
+%foreign "C:tensor_cosine_similarity_tape,libidrisml"
+prim__cosineSimilarityTape : AnyPtr -> AnyPtr -> Int -> AnyPtr
+%foreign "C:tensor_cross_attention_tape,libidrisml"
+prim__crossAttentionTape : AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> Double -> AnyPtr
+%foreign "C:tensor_bce_with_logits_tape,libidrisml"
+prim__bceWithLogitsTape : AnyPtr -> AnyPtr -> AnyPtr
+%foreign "C:tensor_gru_cell_tape,libidrisml"
+prim__gruCellTape : AnyPtr -> AnyPtr -> AnyPtr -> Int -> AnyPtr
+%foreign "C:tensor_lstm_gates_pair_tape,libidrisml"
+prim__lstmGatesPairTape : AnyPtr -> AnyPtr -> Int -> AnyPtr
+%foreign "C:tensor_pair_first_tape,libidrisml"
+prim__pairFirstTape : AnyPtr -> AnyPtr
+%foreign "C:tensor_pair_second_tape,libidrisml"
+prim__pairSecondTape : AnyPtr -> AnyPtr
+
+
+public export
+UserDeviceNN TapeDev where
+  primGelu             = prim__geluTape
+  primLeakyRelu        = prim__leakyReluTape
+  primSilu             = prim__siluTape
+  primSoftplus         = prim__softplusTape
+  primSoftmax          = prim__softmaxTape
+  primLogSoftmax       = prim__logSoftmaxTape
+  primSoftmax2d        = prim__softmax2dTape
+  primLogSoftmax2d     = prim__logSoftmax2dTape
+  primSoftmax3d        = prim__softmax3dTape
+  primMaskedFill       = prim__maskedFillTape
+  primExpandMask       = prim__expandMaskTape
+  primCausalMask       = prim__causalMaskTape
+  primLayerNorm2d      = prim__layerNorm2dTape
+  primBatchNorm        = prim__batchNormTape
+  primDropout          = prim__dropoutTape
+  primEmbedding        = prim__embeddingTape
+  primCosineSimilarity = prim__cosineSimilarityTape
+  primCrossAttention   = prim__crossAttentionTape
+  primBceWithLogits    = prim__bceWithLogitsTape
+  primGruCell          = prim__gruCellTape
+  primLstmGatesPair    = prim__lstmGatesPairTape
+  primPairFirst        = prim__pairFirstTape
+  primPairSecond       = prim__pairSecondTape

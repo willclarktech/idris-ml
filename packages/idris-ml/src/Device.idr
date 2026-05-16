@@ -395,3 +395,133 @@ UserDeviceLinear MPS where
   primScatterAdd = prim__scatterAddUnified
   primArgsort = prim__argsortUnified
   primCumprod = prim__cumprodUnified
+
+
+----------------------------------------------------------------------
+-- UserDeviceNN — unified-name FFI bindings (Phase 2.3) + 3 instances.
+----------------------------------------------------------------------
+
+%foreign "C:tensor_gelu,libidrisml"
+prim__geluUnified : AnyPtr -> AnyPtr
+%foreign "C:tensor_leaky_relu,libidrisml"
+prim__leakyReluUnified : AnyPtr -> Double -> AnyPtr
+%foreign "C:tensor_silu,libidrisml"
+prim__siluUnified : AnyPtr -> AnyPtr
+%foreign "C:tensor_softplus,libidrisml"
+prim__softplusUnified : AnyPtr -> AnyPtr
+%foreign "C:tensor_softmax,libidrisml"
+prim__softmaxUnified : AnyPtr -> Int -> AnyPtr
+%foreign "C:tensor_log_softmax,libidrisml"
+prim__logSoftmaxUnified : AnyPtr -> Int -> AnyPtr
+%foreign "C:tensor_softmax_2d,libidrisml"
+prim__softmax2dUnified : AnyPtr -> AnyPtr
+%foreign "C:tensor_log_softmax_2d,libidrisml"
+prim__logSoftmax2dUnified : AnyPtr -> AnyPtr
+%foreign "C:tensor_softmax_3d,libidrisml"
+prim__softmax3dUnified : AnyPtr -> AnyPtr
+%foreign "C:tensor_masked_fill,libidrisml"
+prim__maskedFillUnified : AnyPtr -> AnyPtr -> Double -> AnyPtr
+%foreign "C:tensor_expand_mask,libidrisml"
+prim__expandMaskUnified : AnyPtr -> Int -> AnyPtr
+%foreign "C:tensor_causal_mask,libidrisml"
+prim__causalMaskUnified : Int -> AnyPtr
+%foreign "C:tensor_layer_norm_2d,libidrisml"
+prim__layerNorm2dUnified : AnyPtr -> AnyPtr -> AnyPtr -> Double -> AnyPtr
+%foreign "C:tensor_batch_norm,libidrisml"
+prim__batchNormUnified : AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> Int -> Int -> Int -> Double -> Double -> AnyPtr
+%foreign "C:tensor_dropout,libidrisml"
+prim__dropoutUnified : AnyPtr -> Double -> Int -> Int -> AnyPtr
+%foreign "C:tensor_embedding,libidrisml"
+prim__embeddingUnified : AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
+%foreign "C:tensor_cosine_similarity,libidrisml"
+prim__cosineSimilarityUnified : AnyPtr -> AnyPtr -> Int -> AnyPtr
+%foreign "C:tensor_cross_attention,libidrisml"
+prim__crossAttentionUnified : AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> Double -> AnyPtr
+%foreign "C:tensor_bce_with_logits,libidrisml"
+prim__bceWithLogitsUnified : AnyPtr -> AnyPtr -> AnyPtr
+%foreign "C:tensor_gru_cell,libidrisml"
+prim__gruCellUnified : AnyPtr -> AnyPtr -> AnyPtr -> Int -> AnyPtr
+%foreign "C:tensor_lstm_gates_pair,libidrisml"
+prim__lstmGatesPairUnified : AnyPtr -> AnyPtr -> Int -> AnyPtr
+%foreign "C:tensor_pair_first,libidrisml"
+prim__pairFirstUnified : AnyPtr -> AnyPtr
+%foreign "C:tensor_pair_second,libidrisml"
+prim__pairSecondUnified : AnyPtr -> AnyPtr
+
+public export
+UserDeviceNN CPU where
+  primGelu             = prim__geluUnified
+  primLeakyRelu        = prim__leakyReluUnified
+  primSilu             = prim__siluUnified
+  primSoftplus         = prim__softplusUnified
+  primSoftmax          = prim__softmaxUnified
+  primLogSoftmax       = prim__logSoftmaxUnified
+  primSoftmax2d        = prim__softmax2dUnified
+  primLogSoftmax2d     = prim__logSoftmax2dUnified
+  primSoftmax3d        = prim__softmax3dUnified
+  primMaskedFill       = prim__maskedFillUnified
+  primExpandMask       = prim__expandMaskUnified
+  primCausalMask       = prim__causalMaskUnified
+  primLayerNorm2d      = prim__layerNorm2dUnified
+  primBatchNorm        = prim__batchNormUnified
+  primDropout          = prim__dropoutUnified
+  primEmbedding        = prim__embeddingUnified
+  primCosineSimilarity = prim__cosineSimilarityUnified
+  primCrossAttention   = prim__crossAttentionUnified
+  primBceWithLogits    = prim__bceWithLogitsUnified
+  primGruCell          = prim__gruCellUnified
+  primLstmGatesPair    = prim__lstmGatesPairUnified
+  primPairFirst        = prim__pairFirstUnified
+  primPairSecond       = prim__pairSecondUnified
+
+public export
+{n : Nat} -> UserDeviceNN (CUDA n) where
+  primGelu             = prim__geluUnified
+  primLeakyRelu        = prim__leakyReluUnified
+  primSilu             = prim__siluUnified
+  primSoftplus         = prim__softplusUnified
+  primSoftmax          = prim__softmaxUnified
+  primLogSoftmax       = prim__logSoftmaxUnified
+  primSoftmax2d        = prim__softmax2dUnified
+  primLogSoftmax2d     = prim__logSoftmax2dUnified
+  primSoftmax3d        = prim__softmax3dUnified
+  primMaskedFill       = prim__maskedFillUnified
+  primExpandMask       = prim__expandMaskUnified
+  primCausalMask       = prim__causalMaskUnified
+  primLayerNorm2d      = prim__layerNorm2dUnified
+  primBatchNorm        = prim__batchNormUnified
+  primDropout          = prim__dropoutUnified
+  primEmbedding        = prim__embeddingUnified
+  primCosineSimilarity = prim__cosineSimilarityUnified
+  primCrossAttention   = prim__crossAttentionUnified
+  primBceWithLogits    = prim__bceWithLogitsUnified
+  primGruCell          = prim__gruCellUnified
+  primLstmGatesPair    = prim__lstmGatesPairUnified
+  primPairFirst        = prim__pairFirstUnified
+  primPairSecond       = prim__pairSecondUnified
+
+public export
+UserDeviceNN MPS where
+  primGelu             = prim__geluUnified
+  primLeakyRelu        = prim__leakyReluUnified
+  primSilu             = prim__siluUnified
+  primSoftplus         = prim__softplusUnified
+  primSoftmax          = prim__softmaxUnified
+  primLogSoftmax       = prim__logSoftmaxUnified
+  primSoftmax2d        = prim__softmax2dUnified
+  primLogSoftmax2d     = prim__logSoftmax2dUnified
+  primSoftmax3d        = prim__softmax3dUnified
+  primMaskedFill       = prim__maskedFillUnified
+  primExpandMask       = prim__expandMaskUnified
+  primCausalMask       = prim__causalMaskUnified
+  primLayerNorm2d      = prim__layerNorm2dUnified
+  primBatchNorm        = prim__batchNormUnified
+  primDropout          = prim__dropoutUnified
+  primEmbedding        = prim__embeddingUnified
+  primCosineSimilarity = prim__cosineSimilarityUnified
+  primCrossAttention   = prim__crossAttentionUnified
+  primBceWithLogits    = prim__bceWithLogitsUnified
+  primGruCell          = prim__gruCellUnified
+  primLstmGatesPair    = prim__lstmGatesPairUnified
+  primPairFirst        = prim__pairFirstUnified
+  primPairSecond       = prim__pairSecondUnified

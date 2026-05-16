@@ -234,3 +234,82 @@ UserDeviceLinear TorchDev where
   primScatterAdd     = prim__scatterAddTorch
   primArgsort        = prim__argsortTorch
   primCumprod        = prim__cumprodTorch
+
+
+----------------------------------------------------------------------
+-- NN-slice FFI bindings (torch-suffixed)
+----------------------------------------------------------------------
+
+%foreign "C:tensor_gelu_torch,libidrisml"
+prim__geluTorch : AnyPtr -> AnyPtr
+%foreign "C:tensor_leaky_relu_torch,libidrisml"
+prim__leakyReluTorch : AnyPtr -> Double -> AnyPtr
+%foreign "C:tensor_silu_torch,libidrisml"
+prim__siluTorch : AnyPtr -> AnyPtr
+%foreign "C:tensor_softplus_torch,libidrisml"
+prim__softplusTorch : AnyPtr -> AnyPtr
+%foreign "C:tensor_softmax_torch,libidrisml"
+prim__softmaxTorch : AnyPtr -> Int -> AnyPtr
+%foreign "C:tensor_log_softmax_torch,libidrisml"
+prim__logSoftmaxTorch : AnyPtr -> Int -> AnyPtr
+%foreign "C:tensor_softmax_2d_torch,libidrisml"
+prim__softmax2dTorch : AnyPtr -> AnyPtr
+%foreign "C:tensor_log_softmax_2d_torch,libidrisml"
+prim__logSoftmax2dTorch : AnyPtr -> AnyPtr
+%foreign "C:tensor_softmax_3d_torch,libidrisml"
+prim__softmax3dTorch : AnyPtr -> AnyPtr
+%foreign "C:tensor_masked_fill_torch,libidrisml"
+prim__maskedFillTorch : AnyPtr -> AnyPtr -> Double -> AnyPtr
+%foreign "C:tensor_expand_mask_torch,libidrisml"
+prim__expandMaskTorch : AnyPtr -> Int -> AnyPtr
+%foreign "C:tensor_causal_mask_torch,libidrisml"
+prim__causalMaskTorch : Int -> AnyPtr
+%foreign "C:tensor_layer_norm_2d_torch,libidrisml"
+prim__layerNorm2dTorch : AnyPtr -> AnyPtr -> AnyPtr -> Double -> AnyPtr
+%foreign "C:tensor_batch_norm_torch,libidrisml"
+prim__batchNormTorch : AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> Int -> Int -> Int -> Double -> Double -> AnyPtr
+%foreign "C:tensor_dropout_torch,libidrisml"
+prim__dropoutTorch : AnyPtr -> Double -> Int -> Int -> AnyPtr
+%foreign "C:tensor_embedding_torch,libidrisml"
+prim__embeddingTorch : AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
+%foreign "C:tensor_cosine_similarity_torch,libidrisml"
+prim__cosineSimilarityTorch : AnyPtr -> AnyPtr -> Int -> AnyPtr
+%foreign "C:tensor_cross_attention_torch,libidrisml"
+prim__crossAttentionTorch : AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> Double -> AnyPtr
+%foreign "C:tensor_bce_with_logits_torch,libidrisml"
+prim__bceWithLogitsTorch : AnyPtr -> AnyPtr -> AnyPtr
+%foreign "C:tensor_gru_cell_torch,libidrisml"
+prim__gruCellTorch : AnyPtr -> AnyPtr -> AnyPtr -> Int -> AnyPtr
+%foreign "C:tensor_lstm_gates_pair_torch,libidrisml"
+prim__lstmGatesPairTorch : AnyPtr -> AnyPtr -> Int -> AnyPtr
+%foreign "C:tensor_pair_first_torch,libidrisml"
+prim__pairFirstTorch : AnyPtr -> AnyPtr
+%foreign "C:tensor_pair_second_torch,libidrisml"
+prim__pairSecondTorch : AnyPtr -> AnyPtr
+
+
+public export
+UserDeviceNN TorchDev where
+  primGelu             = prim__geluTorch
+  primLeakyRelu        = prim__leakyReluTorch
+  primSilu             = prim__siluTorch
+  primSoftplus         = prim__softplusTorch
+  primSoftmax          = prim__softmaxTorch
+  primLogSoftmax       = prim__logSoftmaxTorch
+  primSoftmax2d        = prim__softmax2dTorch
+  primLogSoftmax2d     = prim__logSoftmax2dTorch
+  primSoftmax3d        = prim__softmax3dTorch
+  primMaskedFill       = prim__maskedFillTorch
+  primExpandMask       = prim__expandMaskTorch
+  primCausalMask       = prim__causalMaskTorch
+  primLayerNorm2d      = prim__layerNorm2dTorch
+  primBatchNorm        = prim__batchNormTorch
+  primDropout          = prim__dropoutTorch
+  primEmbedding        = prim__embeddingTorch
+  primCosineSimilarity = prim__cosineSimilarityTorch
+  primCrossAttention   = prim__crossAttentionTorch
+  primBceWithLogits    = prim__bceWithLogitsTorch
+  primGruCell          = prim__gruCellTorch
+  primLstmGatesPair    = prim__lstmGatesPairTorch
+  primPairFirst        = prim__pairFirstTorch
+  primPairSecond       = prim__pairSecondTorch

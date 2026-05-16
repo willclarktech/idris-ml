@@ -153,3 +153,52 @@ interface UserDeviceCore d => UserDeviceLinear (0 d : Device) where
   -- Sort / scan -------------------------------------------------------
   primArgsort     : AnyPtr -> Int -> Int -> AnyPtr
   primCumprod    : AnyPtr -> Int -> AnyPtr
+
+
+----------------------------------------------------------------------
+-- UserDeviceNN — activations + softmax + norms + losses + recurrent
+-- cells + embedding + attention slice
+----------------------------------------------------------------------
+
+||| The third slice. Adds non-linearities, normalizations, recurrent
+||| cells, embeddings, and the loss surfaces. Subclass of
+||| `UserDeviceLinear` (transitively `UserDeviceCore`).
+public export
+interface UserDeviceLinear d => UserDeviceNN (0 d : Device) where
+  -- Activations -------------------------------------------------------
+  primGelu        : AnyPtr -> AnyPtr
+  primLeakyRelu   : AnyPtr -> Double -> AnyPtr
+  primSilu        : AnyPtr -> AnyPtr
+  primSoftplus    : AnyPtr -> AnyPtr
+
+  -- Softmax family ----------------------------------------------------
+  primSoftmax     : AnyPtr -> Int -> AnyPtr
+  primLogSoftmax  : AnyPtr -> Int -> AnyPtr
+  primSoftmax2d   : AnyPtr -> AnyPtr
+  primLogSoftmax2d : AnyPtr -> AnyPtr
+  primSoftmax3d   : AnyPtr -> AnyPtr
+
+  -- Masking -----------------------------------------------------------
+  primMaskedFill  : AnyPtr -> AnyPtr -> Double -> AnyPtr
+  primExpandMask  : AnyPtr -> Int -> AnyPtr
+  primCausalMask  : Int -> AnyPtr
+
+  -- Norms / dropout ---------------------------------------------------
+  primLayerNorm2d : AnyPtr -> AnyPtr -> AnyPtr -> Double -> AnyPtr
+  primBatchNorm   : AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr ->
+                     Int -> Int -> Int -> Double -> Double -> AnyPtr
+  primDropout     : AnyPtr -> Double -> Int -> Int -> AnyPtr
+
+  -- Embedding / similarity / attention -------------------------------
+  primEmbedding      : AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
+  primCosineSimilarity : AnyPtr -> AnyPtr -> Int -> AnyPtr
+  primCrossAttention : AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> Double -> AnyPtr
+
+  -- Loss --------------------------------------------------------------
+  primBceWithLogits : AnyPtr -> AnyPtr -> AnyPtr
+
+  -- Recurrent cells ---------------------------------------------------
+  primGruCell        : AnyPtr -> AnyPtr -> AnyPtr -> Int -> AnyPtr
+  primLstmGatesPair  : AnyPtr -> AnyPtr -> Int -> AnyPtr
+  primPairFirst      : AnyPtr -> AnyPtr
+  primPairSecond     : AnyPtr -> AnyPtr

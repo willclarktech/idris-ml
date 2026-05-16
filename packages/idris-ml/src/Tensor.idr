@@ -1021,7 +1021,7 @@ tadd a b = MkTensor (primAdd {d} a.tensorPtr b.tensorPtr) Nothing
 ||| Matrix-vector multiply: [m, n] · [n] -> [m]. `%inline` for the
 ||| same reason as `tadd` (hot path in recurrent forward passes).
 export %inline
-tmv : {0 d : Device} -> UserDeviceLinear d =>
+tmv : {0 d : Device} -> UserDeviceNN d =>
       Tensor [m, n] d g -> Tensor [n] d g -> Tensor [m] d g
 tmv w x = MkTensor (primMv {d} w.tensorPtr x.tensorPtr) Nothing
 
@@ -1030,14 +1030,14 @@ tmv w x = MkTensor (primMv {d} w.tensorPtr x.tensorPtr) Nothing
 ||| eliminates the intermediate Idris-side glue. Used by Layer.Linear's
 ||| applyVar and by NTM/DNC FCs.
 export %inline
-tlinear : {0 d : Device} -> UserDeviceLinear d =>
+tlinear : {0 d : Device} -> UserDeviceNN d =>
           Tensor [o, i] d g -> Tensor [i] d g -> Tensor [o] d g -> Tensor [o] d g
 tlinear w x bias =
   MkTensor (primLinear {d} w.tensorPtr x.tensorPtr bias.tensorPtr) Nothing
 
 ||| Fused batched linear: W[o,i] · X^T[b,i] + bias[o] -> [b, o].
 export %inline
-tlinear2d : {0 d : Device} -> UserDeviceLinear d =>
+tlinear2d : {0 d : Device} -> UserDeviceNN d =>
             Tensor [o, i] d g -> Tensor [b, i] d g -> Tensor [o] d g -> Tensor [b, o] d g
 tlinear2d w x bias =
   MkTensor (primLinear2d {d} w.tensorPtr x.tensorPtr bias.tensorPtr) Nothing
@@ -1049,13 +1049,13 @@ tlinear2d w x bias =
 ||| Select row `k` from a [b, n] Tensor, returning the n-vector slice.
 ||| Wraps `prim__select` on dim 0; preserves the autograd graph.
 export
-trowSelect : {0 d : Device} -> UserDeviceLinear d => {b, n : Nat} ->
+trowSelect : {0 d : Device} -> UserDeviceNN d => {b, n : Nat} ->
              Tensor [b, n] d g -> Int -> Tensor [n] d g
 trowSelect t k = MkTensor (primSelect {d} t.tensorPtr 0 k) Nothing
 
 ||| Select element `i` from an n-vector, returning a scalar Tensor.
 export
-telemSelect : {0 d : Device} -> UserDeviceLinear d => {n : Nat} ->
+telemSelect : {0 d : Device} -> UserDeviceNN d => {n : Nat} ->
               Tensor [n] d g -> Int -> Tensor [] d g
 telemSelect t i = MkTensor (primSelect {d} t.tensorPtr 0 i) Nothing
 
@@ -1127,7 +1127,7 @@ tparamScalar pid val =
 ||| to build a [B, ObsDim + ActDim] Q-input from obs + reparametrized
 ||| action while preserving the autograd path through the action.
 export
-tconcat2dAxis1 : {0 d : Device} -> UserDeviceLinear d => {b, m, n : Nat} ->
+tconcat2dAxis1 : {0 d : Device} -> UserDeviceNN d => {b, m, n : Nat} ->
                  Tensor [b, m] d g -> Tensor [b, n] d g ->
                  Tensor [b, m + n] d g
 tconcat2dAxis1 a b = MkTensor (primConcat2dAxis1 {d} a.tensorPtr b.tensorPtr) Nothing
@@ -1148,26 +1148,26 @@ trelu : {0 d : Device} -> UserDeviceCore d => Tensor dims d g -> Tensor dims d g
 trelu v = MkTensor (primClampMin {d} v.tensorPtr 0.0) Nothing
 
 export %inline
-tgelu : Tensor dims d g -> Tensor dims d g
-tgelu v = MkTensor (prim__gelu v.tensorPtr) Nothing
+tgelu : {0 d : Device} -> UserDeviceNN d => Tensor dims d g -> Tensor dims d g
+tgelu v = MkTensor (primGelu {d} v.tensorPtr) Nothing
 
 export %inline
-tsilu : Tensor dims d g -> Tensor dims d g
-tsilu v = MkTensor (prim__silu v.tensorPtr) Nothing
+tsilu : {0 d : Device} -> UserDeviceNN d => Tensor dims d g -> Tensor dims d g
+tsilu v = MkTensor (primSilu {d} v.tensorPtr) Nothing
 
 export %inline
-tleakyRelu : Double -> Tensor dims d g -> Tensor dims d g
-tleakyRelu slope v = MkTensor (prim__leakyRelu v.tensorPtr slope) Nothing
+tleakyRelu : {0 d : Device} -> UserDeviceNN d => Double -> Tensor dims d g -> Tensor dims d g
+tleakyRelu slope v = MkTensor (primLeakyRelu {d} v.tensorPtr slope) Nothing
 
 ||| Softmax along axis 0 (1D vector).
 export %inline
-tsoftmax1d : {n : Nat} -> Tensor [n] d g -> Tensor [n] d g
-tsoftmax1d v = MkTensor (prim__softmax v.tensorPtr 0) Nothing
+tsoftmax1d : {0 d : Device} -> UserDeviceNN d => {n : Nat} -> Tensor [n] d g -> Tensor [n] d g
+tsoftmax1d v = MkTensor (primSoftmax {d} v.tensorPtr 0) Nothing
 
 ||| Log-softmax along axis 0 (1D vector).
 export %inline
-tlogSoftmax1d : {n : Nat} -> Tensor [n] d g -> Tensor [n] d g
-tlogSoftmax1d v = MkTensor (prim__logSoftmax v.tensorPtr 0) Nothing
+tlogSoftmax1d : {0 d : Device} -> UserDeviceNN d => {n : Nat} -> Tensor [n] d g -> Tensor [n] d g
+tlogSoftmax1d v = MkTensor (primLogSoftmax {d} v.tensorPtr 0) Nothing
 
 ||| Fused LSTM gate computation: combined gates [4 * n] + previous cell [n]
 ||| → (new hidden [n], new cell [n]). Wraps `prim__lstmGatesPair`.
