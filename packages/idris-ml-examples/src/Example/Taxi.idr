@@ -187,10 +187,16 @@ main = do
            ++ " seed=" ++ show cfg.seed
   putStrLn ""
 
-  (trained, epochsDone, _) <- runTraining
-    (\m, d => epochQLearning cfg m d)
+  metrics <- newRLMetricsState 1000
+  (trained, epochsDone, _) <- runTrainingIO
+    (\m, d => do
+       let (m', loss) = epochQLearning cfg m d
+       recordReturn metrics (negate loss)
+       pure (m', loss))
     (genNoise (MaxSteps * 2))
-    (simpleConfig cfg.epochs) zeroQ
+    ({ metrics := \_ => readRLMetrics "recent_1000" metrics }
+       (simpleConfig {model = QTable} cfg.epochs))
+    zeroQ
 
   putStrLn ""
   let nEval = the Nat 100

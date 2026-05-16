@@ -477,10 +477,15 @@ main = do
     putStrLn "Done — re-run without --lr-find at the recommended LR."
     exitSuccess
 
+  metrics <- newRLMetricsState 50
   let trainCfg : TrainConfig PPOState
-      trainCfg = MkTrainConfig cfg.epochs 10 NoEarlyStop (const (pure [])) (\_ => pure ())
+      trainCfg = MkTrainConfig cfg.epochs 10 NoEarlyStop
+                   (\_ => readRLMetrics "recent_50" metrics) (\_ => pure ())
   (trained, epochsDone, _) <- runTrainingIO
-    (\s, _ => ppoEpoch opt cfg s)
+    (\s, _ => do
+       (s', loss) <- ppoEpoch opt cfg s
+       recordReturn metrics (negate loss)
+       pure (s', loss))
     (pure ())
     trainCfg st0
 

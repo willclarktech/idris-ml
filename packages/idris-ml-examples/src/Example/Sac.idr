@@ -447,12 +447,16 @@ main = do
     putStrLn "the LR-range-test pattern. See docs/develop/hyperparameter-tuning-2026.md."
     exitSuccess
 
+  metrics <- newRLMetricsState 20
   let trainCfg : TrainConfig SACState
       trainCfg = MkTrainConfig cfg.epochs 2000
                             (WindowedAvg cfg.esThreshold cfg.esWindow cfg.esPatience)
-                            (const (pure [])) (\_ => pure ())
+                            (\_ => readRLMetrics "recent_20" metrics) (\_ => pure ())
   (trained, epochsDone, _) <- runTrainingIO
-    (\s, _ => sacStep q1Opt q2Opt actorOpt cfg s)
+    (\s, _ => do
+       (s', loss) <- sacStep q1Opt q2Opt actorOpt cfg s
+       recordReturn metrics (negate loss)
+       pure (s', loss))
     (pure ())
     trainCfg st0
 

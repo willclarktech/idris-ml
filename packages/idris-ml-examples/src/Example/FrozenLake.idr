@@ -208,10 +208,15 @@ main = do
            ++ " seed=" ++ show cfg.seed
   putStrLn ""
 
+  metrics <- newRLMetricsState 1000
   let trainCfg : TrainConfig QTable
-      trainCfg = MkTrainConfig cfg.epochs 1000 NoEarlyStop (const (pure [])) (\_ => pure ())
-  (trained, epochsDone, _) <- runTraining
-    (\m, d => epochQLearning cfg m d)
+      trainCfg = MkTrainConfig cfg.epochs 1000 NoEarlyStop
+                   (\_ => readRLMetrics "recent_1000" metrics) (\_ => pure ())
+  (trained, epochsDone, _) <- runTrainingIO
+    (\m, d => do
+       let (m', loss) = epochQLearning cfg m d
+       recordReturn metrics (negate loss)
+       pure (m', loss))
     genInput
     trainCfg zeroQ
 

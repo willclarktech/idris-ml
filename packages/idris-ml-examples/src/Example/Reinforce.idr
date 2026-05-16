@@ -172,14 +172,14 @@ averageLoss (x :: xs) =
 
 computeLoss : {hs : List Nat} -> Double ->
               Network 4 hs 2 CPU WithGrad -> List (List Double) ->
-              Tensor [] CPU WithGrad
+              (Tensor [] CPU WithGrad, Double)
 computeLoss gamma model randomBatch =
   let episodes = map (\rs => rolloutEp model (MkCP 0 0 0 0) rs MaxSteps []) randomBatch
       epReturns = map sumRewards episodes
       nEp = cast {to=Double} (natToInteger (length epReturns))
       baseline = foldl (+) 0.0 epReturns / nEp
       stepLosses = concatMap (epStepLosses gamma baseline) episodes
-  in averageLoss stepLosses
+  in (averageLoss stepLosses, baseline)
 
 ||| Batched-rollout variant. Same loss math; the only difference is
 ||| how the per-step logProbs are obtained — one batched forward over
@@ -188,7 +188,7 @@ computeLoss gamma model randomBatch =
 ||| (one batched forward op per timestep instead of N separate ops).
 computeLossBatched : {n : Nat} -> {hs : List Nat} -> Double ->
                      Network 4 hs 2 CPU WithGrad -> Vect n (List Double) ->
-                     Tensor [] CPU WithGrad
+                     (Tensor [] CPU WithGrad, Double)
 computeLossBatched gamma model randomBatchV =
   let initStates : Vect n CPState = replicate n (MkCP 0 0 0 0)
       epsV  = rolloutEpBatched model initStates randomBatchV MaxSteps
@@ -197,7 +197,7 @@ computeLossBatched gamma model randomBatchV =
       nEp = cast {to=Double} (natToInteger (length epReturns))
       baseline = foldl (+) 0.0 epReturns / nEp
       stepLosses = concatMap (epStepLosses gamma baseline) eps
-  in averageLoss stepLosses
+  in (averageLoss stepLosses, baseline)
 
 
 ----------------------------------------------------------------------
@@ -206,20 +206,20 @@ computeLossBatched gamma model randomBatchV =
 
 epochRL : {hs : List Nat} -> NativeOptimizer -> Double ->
           Network 4 hs 2 CPU WithGrad -> List (List Double) ->
-          (Network 4 hs 2 CPU WithGrad, Double)
+          (Network 4 hs 2 CPU WithGrad, Double, Double)
 epochRL opt gamma model batch =
-  let loss = computeLoss gamma model batch
+  let (loss, avgRet) = computeLoss gamma model batch
       lossVal = nativeTrainStep opt loss
-  in (model, lossVal)
+  in (model, lossVal, avgRet)
 
 epochRLBatched : {n : Nat} -> {hs : List Nat} ->
                  NativeOptimizer -> Double ->
                  Network 4 hs 2 CPU WithGrad -> Vect n (List Double) ->
-                 (Network 4 hs 2 CPU WithGrad, Double)
+                 (Network 4 hs 2 CPU WithGrad, Double, Double)
 epochRLBatched opt gamma model batchV =
-  let loss = computeLossBatched gamma model batchV
+  let (loss, avgRet) = computeLossBatched gamma model batchV
       lossVal = nativeTrainStep opt loss
-  in (model, lossVal)
+  in (model, lossVal, avgRet)
 
 genBatch : Nat -> IO (List (List Double))
 genBatch batchSz = go batchSz
@@ -327,24 +327,36 @@ main = do
     let lrCfg : LrFindConfig
         lrCfg = { numIters := 100 } defaultLrFindConfig
     _ <- lrFind lrCfg
-      (\m, d => let (m', loss) = epochRL opt cfg.gamma m d
+      (\m, d => let (m', loss, _) = epochRL opt cfg.gamma m d
                 in pure (m', loss))
       (genBatch cfg.batchSz) opt model
     putStrLn ""
     putStrLn "Done — re-run without --lr-find at the recommended LR."
     exitSuccess
 
+  metrics <- newRLMetricsState 100
   let n : Nat = cfg.batchSz
+      modelType : Type = Network 4 [128, 128] 2 CPU WithGrad
   (trained, epochsDone, _) <- (
     if cfg.batched
-      then runTraining {dp = Vect n (List Double)}
-             (\m, d => epochRLBatched opt cfg.gamma m d)
+      then runTrainingIO {dp = Vect n (List Double)}
+             (\m, d => do
+                let (m', loss, avgRet) = epochRLBatched opt cfg.gamma m d
+                recordReturn metrics avgRet
+                pure (m', loss))
              (genBatchV n)
-             (simpleConfig cfg.epochs) model
-      else runTraining {dp = List (List Double)}
-             (\m, d => epochRL opt cfg.gamma m d)
+             ({ metrics := \_ => readRLMetrics "recent_100" metrics }
+                (simpleConfig {model = modelType} cfg.epochs))
+             model
+      else runTrainingIO {dp = List (List Double)}
+             (\m, d => do
+                let (m', loss, avgRet) = epochRL opt cfg.gamma m d
+                recordReturn metrics avgRet
+                pure (m', loss))
              (genBatch cfg.batchSz)
-             (simpleConfig cfg.epochs) model)
+             ({ metrics := \_ => readRLMetrics "recent_100" metrics }
+                (simpleConfig {model = modelType} cfg.epochs))
+             model)
 
   putStrLn ""
   putStrLn "Eval (100 episodes, greedy):"
