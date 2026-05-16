@@ -120,6 +120,53 @@ After bulk wrap, run the full test suite + `bash /tmp/mlx_baseline.sh`. Two outc
 - All previously-passing examples still pass (refactor is semantics-preserving with no functional change beyond when freeing happens).
 - The 3 previously-failing mlx examples (ntm-copy, ntm-recall, mountain-car-cont) need additional integration: explicit `forceMajorGc + drainManagedHandles` at strategic points (no_grad_end, periodically). Phase 2.3 lands the wrapping; Phase 2.3.5 wires the drain triggers.
 
+## Phase 2.3 attempts — design pivot + key learnings (2026-05-15 session 2)
+
+### Pivot: smart-constructor approach, NOT per-FFI bulk wrap
+
+Per-FFI bulk wrap (rename 165 `prim__X` → `prim__XRaw` + add Idris-side wrappers) ran into a thorny problem: many FFIs accept or return `AnyPtr` values that are NOT Tensor handles (data buffers, shape buffers, `TensorPair*`). Wrap/unwrap can't be blindly applied — needs per-FFI type discrimination. ~35 of the 165 FFIs touch non-Tensor pointers. Hand-coding the discrimination per-FFI is brittle.
+
+Pivot **landed in commit `1594699`**: the `Tensor` record's data constructor renamed to `MkTensorRaw`; a new function-of-the-same-name `MkTensor` becomes the smart constructor. Adds a `managedShadow : AnyPtr` field — a Chez vector wrapping `tensorPtr`, registered with the guardian. The shadow is kept alive by the Tensor record; when the record becomes unreachable, the shadow is collected, the guardian queues it, drain releases.
+
+**Key advantage**: zero FFI changes. The 185 `MkTensor X Y` call sites continue to work unchanged. The two pattern-match sites in `Tensor.idr` (`weakenGrad`, `retypeGrad`) were updated to match on `MkTensorRaw` and discard the shadow field.
+
+**Status of commit 1594699**: dormant. Shadows are registered for every Tensor record, but nothing yet drains the guardian, so no Tensor* ever actually gets released by the new pathway. Baseline preserved exactly.
+
+### What I tried next (REVERTED — preserved only as commits in this doc's history-of-lessons)
+
+Wired the C-side retain/release into the lifecycle:
+1. `tape_append` retains result/arg1/arg2.
+2. `tape_reset` releases the same.
+3. `withNoGrad` exit calls `forceMajorGc + drainManagedHandles`.
+4. `param_register` retains; `param_clear` releases.
+5. Constructor changed `refcount(1)` → `refcount(0)` (the constructor doesn't represent a holder; only real refs do).
+6. Removed the old `tape_reset` "delete non-persistent" walk.
+
+**Result**: increasingly subtle crashes. First: "invalid memory reference" during dnc-copy's eval phase. Diagnosis: `prim__wrapHandle` was registering a shadow but not retaining, so each shadow-drain release decremented refcount below balanced; the second wrap of the same ptr (via `retypeGrad` etc.) compounded the underflow.
+
+**Attempted fix**: bake `tensor_retain_handle` into `prim__wrapHandle` so wrap+retain are atomic. Result: different crash — "broadcast_shapes (32,32) and (100) cannot be broadcast." Symptom of premature free: a Tensor was freed and its `mx::array` slot reused by another Tensor of different shape.
+
+### The harder-than-expected lesson
+
+The refcount approach requires:
+- EVERY allocation of a `Tensor*` to be paired with a corresponding retain by some long-term holder (Idris handle, tape entry, param registry, persistent state, replay cache, ...) BEFORE any external code can drop the C-side caller's transient reference.
+- EVERY long-term holder to release exactly once when it drops the Tensor.
+- ZERO un-balanced retains or releases anywhere — including in `tensor_lstm_gates_pair`'s TensorPair construction, `tensor_one_hot`'s temporaries, and ~89 other `new Tensor(...)` sites.
+
+The mlx backend has ~89 `new Tensor(...)` call sites and an unknown number of internal references (closures, replay state, etc.). Auditing every one is a multi-session effort, and ANY missed site causes corruption. There's no "halfway-correct" intermediate state — partial refcount is worse than no refcount.
+
+### What to do next session
+
+Two viable paths:
+
+1. **Continue refcount, exhaustive audit**: spend a focused session enumerating every Tensor* lifecycle in the mlx backend, audit each for retain/release balance, instrument with sanity checks. Estimated 1-2 days of careful work. Validates option A at scale.
+
+2. **Different design — heap-tracked allocator**: instead of refcount, track Tensor* by allocation-epoch. Periodically sweep epoch ≤ N for non-tape, non-persistent Tensors. Same idea as the current `tape_reset` no-grad-block sweep (commit 524840d) but more aggressive. Less elegant than refcount but with fewer places to get wrong.
+
+3. **Pragmatic concession**: keep the dormant Phase 2.2 + smart constructor as a foundation. Skip the failing 4 examples locally (TODO row exists). Revisit when there's time for the exhaustive audit.
+
+The dormant commits land harmlessly; the test suite still passes (`make test` direct), the gauntlet baseline is preserved, no production behavior changes.
+
 ## Phase 2.4 — Tape + torch backends
 
 Wire actual refcount semantics on tape (arena needs to skip refcount-0 entries) and torch (intermediates-vector becomes ref-counted).
