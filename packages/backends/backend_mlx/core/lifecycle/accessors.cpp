@@ -25,8 +25,17 @@ extern "C" int tensor_size(TensorHandle h, int dim) { return (int)((Tensor*)h)->
 
 extern "C" void tensor_to_doubles(TensorHandle h, double* out) {
     auto t = (Tensor*)h;
-    mx::eval(t->data);
-    mx_to_doubles(t->data, out);
+    /* Force contiguous storage first — mlx ops like transpose return
+     * strided views over the original buffer; reading via data<T>()
+     * would walk storage order, not logical order. mx::contiguous
+     * materializes a fresh contiguous copy. Same pattern the
+     * adapter/optimizer/diagnostics readouts use (search
+     * "mx::contiguous" under backend_mlx/training/). Without this,
+     * any transposed/reshaped/narrowed view read by a user crashes
+     * with corrupted values — see W3 OP_TRANSPOSE_LAST2 test. */
+    auto contig = mx::contiguous(t->data);
+    mx::eval(contig);
+    mx_to_doubles(contig, out);
 }
 
 // Byte-level I64 readout — declared in backend.h with the byte-exact
@@ -38,24 +47,28 @@ extern "C" void tensor_to_doubles(TensorHandle h, double* out) {
 // is closed). Implemented for symbol completeness.
 extern "C" void tensor_to_int64(TensorHandle h, int64_t* out) {
     auto t = (Tensor*)h;
-    int n = (int)t->data.size();
+    /* See tensor_to_doubles re: mx::contiguous. Same requirement here. */
+    auto contig = mx::contiguous(t->data);
+    mx::eval(contig);
+    int n = (int)contig.size();
     double* tmp = (double*)malloc((size_t)n * sizeof(double));
     if (!tmp) return;
-    mx::eval(t->data);
-    mx_to_doubles(t->data, tmp);
+    mx_to_doubles(contig, tmp);
     for (int i = 0; i < n; i++) out[i] = (int64_t)tmp[i];
     free(tmp);
 }
 
 extern "C" void tensor_to_floats(TensorHandle h, float* out) {
     auto t = (Tensor*)h;
-    mx::eval(t->data);
-    int n = (int)t->data.size();
-    if (t->data.dtype() == mx::float32) {
-        const float* src = t->data.data<float>();
+    /* See tensor_to_doubles re: mx::contiguous. Same requirement here. */
+    auto contig = mx::contiguous(t->data);
+    mx::eval(contig);
+    int n = (int)contig.size();
+    if (contig.dtype() == mx::float32) {
+        const float* src = contig.data<float>();
         for (int i = 0; i < n; i++) out[i] = src[i];
     } else {
-        const double* src = t->data.data<double>();
+        const double* src = contig.data<double>();
         for (int i = 0; i < n; i++) out[i] = (float)src[i];
     }
 }
