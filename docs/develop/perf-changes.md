@@ -1577,3 +1577,109 @@ counter stays — it's cheap and surfaces real signal.
   done) keeps the SGD/RMSprop/AdamW follow-up but loses its
   "GPU C-total ≤ CPU C-total" acceptance gate (wall doesn't move
   via this lever)
+
+### 2026-05-14 — Chez source profile localises 7.6 ms-per-op cost to recursive Nat arithmetic in uncached positional encoding — `<commit>`
+
+**Plan job**: follow-up to the FFI-vs-Idris-VM diagnostic (earlier today,
+same `docs/develop/perf-changes.md`). That measurement bounded
+**Idris VM = 99.99% of wall**, but didn't say *which* Idris code. This
+commit identifies the dominant Idris-side hot path.
+
+**Method**: Chez Scheme's built-in source-level profiler. The Idris 2
+Chez codegen emits a `.ss` source file plus a `compileChez` script that
+parameterises `(optimize-level 3)` for the final `.so`. Adding
+`(compile-profile 'source)` to that parameterise plus a trailing
+`(profile-dump-html ...)` after the main call produces a per-line
+execution heatmap. Total round-trip from "we need this measurement" to
+"we have the answer" was about 20 minutes — no Idris-side instrumentation
+needed, no C-side counters, just one parameterise + dump call.
+
+**Result** — per-line execution counts on GptLarge 1 epoch, dModel=256:
+
+| Generated-Scheme line | Function (demangled) | Count | Notes |
+|----:|---|---:|---|
+| 923 | `Data.Nat.lte` | **1,956,671,790** | recursive walk on unary Nat |
+| 924 | `Prelude.Types.prim__integerToNat` | 980,740,575 | called per div'/mod' recursion |
+| 925 | `Data.Nat.divC-39` | 490,399,841 | recursive div' |
+| 1011 | `Data.Nat.modC-39` | 490,340,353 | recursive mod' |
+| 52-54 | `blodwen-toSignedInt` | 30,400,810 | runtime bit-fit (small) |
+| 96 | `bs+` (signed add) | 18,533,971 | (small) |
+
+The four Nat-recursive entries sum to **~3.9 billion `cond`/`equal?`/`sub1`
+operations per epoch**. These compile to recursive decrement because the
+Idris stdlib `Data.Nat.lte` / `div'` / `mod'` pattern-match on `Z/S k`
+constructors — even though `Nat` is `Integer` at runtime, the function
+*body* still does `(let ((e-0 (- arg-0 1))) (lte e-0 ...))`.
+
+**Root cause** — `Layer/Transformer.idr` `posEncVal`:
+
+```idris
+posEncVal : Nat -> Nat -> Nat -> Double
+posEncVal dModel pos dim =
+  let p = cast {to=Double} pos
+      i = cast {to=Double} (div dim 2)         -- ← recursive Peano on Nat
+      dm = cast {to=Double} dModel
+      angle = p / pow 10000.0 (2.0 * i / dm)
+  in if modNatNZ dim 2 ItIsSucc == 0 then sin angle else cos angle  -- ← idem
+```
+
+…called by `writePE` which loops over `(pos, dim) ∈ [0, seqLen) × [0, dModel)`
+= 128 × 256 = **32,768 `posEncVal` calls per forward**. And — crucially —
+**`writePE` runs *inside* `applyTransformer`** at `Transformer.idr:173`:
+
+```idris
+peBuf = prim__allocDoubles (sI * dI)
+peBuf' = writePE dModel peBuf 0 0 sI dI          -- rebuilt every step!
+peT = prim__createState2d sI dI peBuf'
+```
+
+So the positional encoding — which is **deterministic, parameterless,
+shape-only-dependent** — is recomputed from scratch on **every forward
+pass**. At 32 forwards/epoch × 32,768 `posEncVal`/forward × ~hundreds of
+Nat operations each = the billions of Nat operations we see in the profile.
+
+**Two compounding bugs, two orthogonal fixes**:
+
+1. **Cache PE on `TransformerState`**. Build once at `transformerLayer`
+   construction, store as a `TMat seqLen dModel d NoGrad` field on
+   `MkTransformer`. Forward passes use the cached tensor. Removes the
+   per-step writePE entirely. Single-batch case is trivial broadcast;
+   batched case needs the reshape-add-reshape dance (or a fresh
+   `prim__tilePE` helper).
+
+2. **Use `Int` arithmetic in `posEncVal`**. `div dim 2` and
+   `modNatNZ dim 2` on `Nat` are wildly wasteful regardless of caching.
+   `dim` is already a `Nat` ≤ `dModel` ≤ ~thousands; converting to `Int`
+   and using `div : Int -> Int -> Int` (which is a single CPU instruction)
+   makes the one-time PE construction fast too. Even before fix (1), this
+   alone would land an order of magnitude.
+
+**Audit for related issues elsewhere**: same pattern (Nat used in inner
+loop where Int would do, or per-step recomputation of deterministic
+state) very likely exists in other layer types. Candidates:
+
+- NTM / DNC's content-based addressing (cosine similarity loops?)
+- Convolution kernel index computations
+- RNN / LSTM / GRU per-step Nat indexing
+- LayerNorm's per-feature loops (less likely — those are usually fused C)
+- Any per-batch loop that walks shape-derived `Nat` values
+
+The same Chez `compile-profile 'source` recipe answers this in 20
+minutes per architecture. Bake it into the perf workflow as a
+**`make profile-gpt-large` / `make profile-ntm-copy` etc.** target so
+future regressions are caught without ad-hoc setup.
+
+**Outcome** — Path B's first concrete win is in flight (Fix 1 + Fix 2
+land in the next commit). Expected wall reduction on GptLarge: 30-50%
+just from PE caching; possibly more once `posEncVal` uses `Int`. Lifts
+every backend (tape, torch, mlx), not just mlx — this is pure Idris-side
+overhead.
+
+**Cross-references**:
+- The 20-min profile recipe lives in scratch state for now
+  (`/tmp/gpt-prof.{ss,so,*.html}`); when this finding lands, write up a
+  `docs/develop/chez-profiling.md` recipe for future use
+- The two known-recursive-Nat callers in idris-ml (only places `Data.Nat`
+  / `modNatNZ` are used per-step): `Layer/Transformer.idr:81` (this
+  finding) and `Train.idr:246` (eval-every-N-epochs, called per epoch
+  not per step, so negligible)
