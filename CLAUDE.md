@@ -103,10 +103,14 @@ Each `*LayerAny` constructor takes a paramPrefix and registers parameters in the
 ### Forward pass
 
 ```idris
-forwardVar : Network i hs o d -> Tensor [i] d -> (Network i hs o d, Tensor [o] d)
+forwardVar : Network i hs o d g -> Tensor [i] d g -> IO (Network i hs o d g, Tensor [o] d g)
 ```
 
+`forwardVar` (and every Tensor-handle-touching smart constructor: `tadd`, `tmul`, `ttanh`, etc.) is `IO`-typed. This is load-bearing: `withNoGrad (pure (forwardVar …))` would have fired the FFI *before* `noGradBegin` since `pure`'s argument is evaluated strictly. With IO typing the FFI body fires only on `<-` sequencing — inside the bracket. The helper `ioRerun : (() -> a) -> IO a` defers a pure body to IO without using the prelude's private `MkIO`; `Lazy a` was rejected because it memoizes.
+
 Swap `forwardVar` for `forwardVarTraced "label"` to dump per-layer min/max/mean/NaN to stderr without affecting numerics.
+
+**Long eval loops on mlx need per-sequence `withNoGrad`**: a single outer bracket around `traverse evalOne batch` lets mlx Metal MTLBuffer count blow past the Tart/GHA VM ceiling before exit-drain fires. Push the bracket inside: `evalOne dp = withNoGrad $ do { ... }` (NTM-style) or `withNoGrad (evalEp …)` inside `evalN`'s recursion (RL-style). Tape/torch don't need this; the per-sequence pattern is cheap on both.
 
 ### Training (Train.idr)
 
