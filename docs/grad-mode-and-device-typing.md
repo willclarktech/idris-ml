@@ -214,14 +214,68 @@ Three classes of guarantee that Python's type system can't reach:
 supporting machinery — `Fin` indices into a memory matrix, equality
 proofs for `reshape`.
 
-## In practice
+## Using grad-mode in practice
+
+idris-ml ships two mechanisms that work together — one runtime, one
+type-level:
+
+**`withNoGrad : IO a -> IO a`** — runtime block-scoped tape gating.
+Inside, tensor ops skip tape construction (saves memory and
+allocation) and libtorch's `NoGradGuard` is active. This is the
+direct analogue of PyTorch's `with torch.no_grad():` and is what you
+want around inference / RL rollout / eval forward passes for perf.
+The types of tensors created inside the block don't change.
+
+**`weakenGrad : Tensor dims d g -> IO (Tensor dims d NoGrad)`** —
+type-level cast that also flips the C-side `requires_grad` flag.
+After this, the tensor's *type* says `NoGrad`; passing it to
+`runBackward` or `nativeTrainStep` is a compile error. The mechanism
+is per-tensor (not block-scoped), so it survives across `IO`
+boundaries.
+
+The two are independent: `withNoGrad` is the perf knob,
+`weakenGrad` is the static safety knob. Use both for the strongest
+guarantee, or either alone where one fits the situation:
+
+```idris
+-- Inference: combine for runtime perf + static promise.
+result <- withNoGrad $ do
+  let (_, pred) = forwardVar net input
+  predNG <- weakenGrad pred              -- predNG : Tensor [o] d NoGrad
+  let probs = tsoftmax1d predNG          -- still NoGrad
+  pure (tensorItem (telemSelect probs 0))
+
+-- nativeTrainStep optimizer predNG       -- ❌ COMPILE ERROR
+
+-- Eval that only reads scalars: runtime gating is enough. The
+-- forward output stays WithGrad-typed but never flows to backward.
+acc <- withNoGrad (pure (computeAccuracy trained testBatch))
+```
+
+The user-visible compile failure when you accidentally feed a
+`NoGrad` loss back into training:
+
+```
+Mismatch between: NoGrad and WithGrad.
+
+  brokenStep opt = nativeTrainStep opt fakeNoGradLoss
+                                       ^^^^^^^^^^^^^^^
+```
+
+PyTorch's equivalent of this mistake — computing a loss inside
+`with torch.no_grad():` and then calling `loss.backward()` — fails
+at runtime with `RuntimeError: element 0 of tensors does not require
+grad and does not have a grad_fn`. Idris-ml fails at compile time
+instead.
+
+## Big picture
 
 If you're coming from PyTorch, the user-visible difference is that
 four properties — shape, device, grad-mode, precision — *could*
 each be enforced by the compiler instead of checked at runtime. In
 PyTorch only shape is checked, and only dynamically; in idris-ml
-shape is checked statically, and the others are natural extensions
-of the same machinery.
+shape is checked statically, and grad-mode is checked statically
+(device too, via the existing phantom parameter).
 
 The one that *requires* dependent types is shape. The others come
 along for free because the machinery is already there. That's the
