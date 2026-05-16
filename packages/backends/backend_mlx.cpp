@@ -1387,11 +1387,8 @@ const char* tensor_device(TensorHandle t) { return "gpu"; }
    no longer triggers tape_reset — that's covered by optimizer_step
    and backend_reset_for_eval. */
 
-TensorHandle tensor_subtract_scalar_inplace(TensorHandle h, double val) {
-    auto t = (Tensor*)h;
-    t->data = mx::subtract(t->data, scalar_like(val, t->data));
-    return h;
-}
+/* tensor_subtract_scalar_inplace lives in
+   backend_mlx/training/ntm_specific.cpp. */
 
 /* ================================================================
    Convenience functions
