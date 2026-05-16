@@ -562,116 +562,9 @@ TensorHandle tensor_silu(TensorHandle h) {
 
 /* Reduction ops live in backend_mlx/linear/reduction/ */
 
-/* ================================================================
-   Linear algebra
-   ================================================================ */
-
-extern "C" TensorHandle tensor_matmul_mlx_streamed(TensorHandle ha, TensorHandle hb, int stream_tag) {
-    WITH_STREAM(stream_tag);
-
-    auto a = (Tensor*)ha; auto b = (Tensor*)hb;
-    bool rg = a->requires_grad || b->requires_grad;
-    auto r = new Tensor(mx::matmul(a->data, b->data), rg);
-    if (rg) tape_append(OP_MM, r, a, b, 0);
-    return (TensorHandle)r;
-
-}
-TensorHandle tensor_matmul(TensorHandle ha, TensorHandle hb) {
-    return tensor_matmul_mlx_streamed(ha, hb, default_stream_tag());
-}
-
-extern "C" TensorHandle tensor_mv_mlx_streamed(TensorHandle hmat, TensorHandle hvec, int stream_tag) {
-    WITH_STREAM(stream_tag);
-
-    // mat=[m,n], vec=[n] → result=[m]
-    auto mat = (Tensor*)hmat; auto vec = (Tensor*)hvec;
-    int n = (int)vec->data.size();
-    int m_size = (int)mat->data.shape(0);
-    auto vec_col = mx::reshape(vec->data, {n, 1});
-    auto result_col = mx::matmul(mat->data, vec_col); // [m, 1]
-    auto result = mx::reshape(result_col, {m_size});   // [m]
-    bool rg = mat->requires_grad || vec->requires_grad;
-    auto r = new Tensor(result, rg);
-    if (rg) tape_append(OP_MV, r, mat, vec, 0);
-    return (TensorHandle)r;
-
-}
-TensorHandle tensor_mv(TensorHandle hmat, TensorHandle hvec) {
-    return tensor_mv_mlx_streamed(hmat, hvec, default_stream_tag());
-}
-
-extern "C" TensorHandle tensor_linear_mlx_streamed(TensorHandle hW, TensorHandle hx, TensorHandle hbias, int stream_tag) {
-    WITH_STREAM(stream_tag);
-
-    /* Decompose into mv + add so the bias dependency lands on the tape.
-       The previous fused form recorded only OP_MV(W,x), dropping the bias
-       from the replay graph — when tlinear chained (one tlinear's output
-       used as the next tlinear's bias), the inner branch had no path to
-       the loss in the VJP and gradients on those params went to zero. */
-    TensorHandle mv_h = tensor_mv_mlx_streamed(hW, hx, stream_tag);
-    if (!hbias) return mv_h;
-    return tensor_add_mlx_streamed(mv_h, hbias, stream_tag);
-
-}
-TensorHandle tensor_linear(TensorHandle hW, TensorHandle hx, TensorHandle hbias) {
-    return tensor_linear_mlx_streamed(hW, hx, hbias, default_stream_tag());
-}
-
-extern "C" TensorHandle tensor_linear_2d_mlx_streamed(TensorHandle hW, TensorHandle hX, TensorHandle hbias, int stream_tag) {
-    WITH_STREAM(stream_tag);
-
-    /* W: [o, i], X: [B, i], bias: [o] -> Y: [B, o] = X @ W^T + bias */
-    auto W = (Tensor*)hW; auto X = (Tensor*)hX; auto bias = (Tensor*)hbias;
-    auto WT = mx::transpose(W->data, {1, 0});
-    auto result = mx::matmul(X->data, WT);
-    if (bias) result = mx::add(result, bias->data);
-    bool rg = W->requires_grad || X->requires_grad || (bias && bias->requires_grad);
-    auto r = new Tensor(result, rg);
-    if (rg) {
-        int idx = tape_append(OP_LINEAR_2D, r, X, W, 0);
-        auto meta = new LinearReplayMeta();
-        meta->bias_pool_idx = bias ? bias->pool_idx : -1;
-        tape[idx].meta = meta;
-    }
-    return (TensorHandle)r;
-
-}
-TensorHandle tensor_linear_2d(TensorHandle hW, TensorHandle hX, TensorHandle hbias) {
-    return tensor_linear_2d_mlx_streamed(hW, hX, hbias, default_stream_tag());
-}
-
-extern "C" TensorHandle tensor_dot_mlx_streamed(TensorHandle ha, TensorHandle hb, int stream_tag) {
-    WITH_STREAM(stream_tag);
-
-    auto a = (Tensor*)ha; auto b = (Tensor*)hb;
-    bool rg = a->requires_grad || b->requires_grad;
-    auto r = new Tensor(mx::sum(mx::multiply(a->data, b->data)), rg);
-    // Use OP_MUL + OP_SUM for backward (approximate)
-    if (rg) {
-        auto prod = new Tensor(mx::multiply(a->data, b->data), rg);
-        tape_append(OP_MUL, prod, a, b, 0);
-        tape_append(OP_SUM, r, prod, nullptr, 0);
-    }
-    return (TensorHandle)r;
-
-}
-TensorHandle tensor_dot(TensorHandle ha, TensorHandle hb) {
-    return tensor_dot_mlx_streamed(ha, hb, default_stream_tag());
-}
-
-extern "C" TensorHandle tensor_outer_mlx_streamed(TensorHandle ha, TensorHandle hb, int stream_tag) {
-    WITH_STREAM(stream_tag);
-
-    auto a = (Tensor*)ha; auto b = (Tensor*)hb;
-    bool rg = a->requires_grad || b->requires_grad;
-    auto r = new Tensor(mx::outer(a->data, b->data), rg);
-    if (rg) tape_append(OP_OUTER, r, a, b, 0);
-    return (TensorHandle)r;
-
-}
-TensorHandle tensor_outer(TensorHandle ha, TensorHandle hb) {
-    return tensor_outer_mlx_streamed(ha, hb, default_stream_tag());
-}
+/* Linear algebra ops (matmul, mv, mm, linear, linear_2d, dot, outer,
+ * bmm, bmm_3x3, transpose_2d, transpose_last2, tile_2d) live in
+ * backend_mlx/linear/linalg/. */
 
 extern "C" TensorHandle tensor_softmax_mlx_streamed(TensorHandle h, int dim, int stream_tag) {
     WITH_STREAM(stream_tag);
@@ -1464,31 +1357,6 @@ TensorHandle tensor_max_pool2d_batched(TensorHandle hinput, int kH, int kW,
 /* tensor_stack / tensor_cat / tensor_cat2 live in
  * backend_mlx/linear/concat/{stack,cat}.cpp. */
 
-extern "C" TensorHandle tensor_mm_mlx_streamed(TensorHandle ha, TensorHandle hb, int stream_tag) {
-    WITH_STREAM(stream_tag);
-    auto a = (Tensor*)ha; auto b = (Tensor*)hb;
-    bool rg = a->requires_grad || b->requires_grad;
-    auto r = new Tensor(mx::matmul(a->data, b->data), rg);
-    if (rg) tape_append(OP_MM, r, a, b, 0);
-    return (TensorHandle)r;
-}
-TensorHandle tensor_mm(TensorHandle ha, TensorHandle hb) {
-    return tensor_mm_mlx_streamed(ha, hb, default_stream_tag());
-}
-
-extern "C" TensorHandle tensor_bmm_mlx_streamed(TensorHandle ha, TensorHandle hb, int stream_tag) {
-    WITH_STREAM(stream_tag);
-
-    auto a = (Tensor*)ha; auto b = (Tensor*)hb;
-    bool rg = a->requires_grad || b->requires_grad;
-    auto r = new Tensor(mx::matmul(a->data, b->data), rg);
-    if (rg) tape_append(OP_BMM, r, a, b, 0);
-    return (TensorHandle)r;
-
-}
-TensorHandle tensor_bmm(TensorHandle ha, TensorHandle hb) {
-    return tensor_bmm_mlx_streamed(ha, hb, default_stream_tag());
-}
 TensorHandle tensor_batch(TensorHandle* handles, int count) {
     /* Batch [...] tensors -> [count, ...] = stack along new dim 0 */
     return tensor_stack(handles, count, 0);
@@ -1507,18 +1375,6 @@ TensorHandle* tensor_unbatch(TensorHandle h, int* out_count) {
     return arr;
 }
 
-extern "C" TensorHandle tensor_bmm_3x3_mlx_streamed(TensorHandle ha, TensorHandle hb, int stream_tag) {
-    WITH_STREAM(stream_tag);
-    auto a = (Tensor*)ha; auto b = (Tensor*)hb;
-    bool rg = a->requires_grad || b->requires_grad;
-    auto r = new Tensor(mx::matmul(a->data, b->data), rg);
-    if (rg) tape_append(OP_BMM_3X3, r, a, b, 0);
-    return (TensorHandle)r;
-}
-TensorHandle tensor_bmm_3x3(TensorHandle ha, TensorHandle hb) {
-    return tensor_bmm_3x3_mlx_streamed(ha, hb, default_stream_tag());
-}
-
 extern "C" TensorHandle tensor_softmax_3d_mlx_streamed(TensorHandle h, int stream_tag) {
     WITH_STREAM(stream_tag);
 
@@ -1530,58 +1386,6 @@ extern "C" TensorHandle tensor_softmax_3d_mlx_streamed(TensorHandle h, int strea
 }
 TensorHandle tensor_softmax_3d(TensorHandle h) {
     return tensor_softmax_3d_mlx_streamed(h, default_stream_tag());
-}
-
-extern "C" TensorHandle tensor_transpose_last2_mlx_streamed(TensorHandle h, int stream_tag) {
-    WITH_STREAM(stream_tag);
-
-    auto t = (Tensor*)h;
-    auto r = new Tensor(mx::transpose(t->data, {0, 2, 1}), t->requires_grad);
-    if (t->requires_grad) tape_append(OP_TRANSPOSE_LAST2, r, t, nullptr, 0);
-    return (TensorHandle)r;
-
-}
-TensorHandle tensor_transpose_last2(TensorHandle h) {
-    return tensor_transpose_last2_mlx_streamed(h, default_stream_tag());
-}
-
-extern "C" TensorHandle tensor_tile_2d_mlx_streamed(TensorHandle h, int rep0, int rep1, int stream_tag) {
-    WITH_STREAM(stream_tag);
-    auto t = (Tensor*)h;
-    auto tiled = mx::tile(t->data, {rep0, rep1});
-    /* When the input is non-grad (e.g. cached positional encoding), the
-       tile is a constant from the autograd POV — eagerly materialize so
-       mx::vjp sees a leaf and doesn't trace back through the tile op
-       (which adds latency on each backward call, costing 10-15% wall on
-       small-model shapes). For grad inputs, leave lazy so the tape
-       replay can reconstruct the graph. */
-    if (!t->requires_grad) {
-        mx::eval(tiled);
-    }
-    auto r = new Tensor(tiled, t->requires_grad);
-    if (t->requires_grad) {
-        int* meta = (int*)std::malloc(sizeof(int) * 2);
-        meta[0] = rep0; meta[1] = rep1;
-        int idx = tape_append(OP_TILE_2D, r, t, nullptr, 0);
-        if (idx >= 0) tape[idx].meta = meta; else std::free(meta);
-    }
-    return (TensorHandle)r;
-}
-TensorHandle tensor_tile_2d(TensorHandle h, int rep0, int rep1) {
-    return tensor_tile_2d_mlx_streamed(h, rep0, rep1, default_stream_tag());
-}
-
-extern "C" TensorHandle tensor_transpose_2d_mlx_streamed(TensorHandle h, int stream_tag) {
-    WITH_STREAM(stream_tag);
-
-    auto t = (Tensor*)h;
-    auto r = new Tensor(mx::transpose(t->data, {1, 0}), t->requires_grad);
-    if (t->requires_grad) tape_append(OP_TRANSPOSE_2D, r, t, nullptr, 0);
-    return (TensorHandle)r;
-
-}
-TensorHandle tensor_transpose_2d(TensorHandle h) {
-    return tensor_transpose_2d_mlx_streamed(h, default_stream_tag());
 }
 
 extern "C" TensorHandle tensor_softmax_2d_mlx_streamed(TensorHandle h, int stream_tag) {
