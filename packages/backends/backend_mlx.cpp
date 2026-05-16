@@ -626,12 +626,8 @@ int g_compile_invocations = 0;
  * lives in backend_mlx/training/autograd.cpp. */
 
 
-/* ================================================================
-   Device
-   ================================================================ */
-
-TensorHandle tensor_to_device(TensorHandle t, const char* device) { return t; }
-const char* tensor_device(TensorHandle t) { return "gpu"; }
+/* Device surface (tensor_to_device + tensor_device — no-ops on mlx; see
+ * the file for rationale) lives in backend_mlx/device.cpp. */
 
 /* LSTM ops (lstm_cell, lstm_gates, lstm_gates_pair) + TensorPair
  * accessor helpers (pair_first/second/free) live in

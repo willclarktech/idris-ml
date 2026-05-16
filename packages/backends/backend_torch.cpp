@@ -14,42 +14,8 @@
 #include <mach/mach.h>
 #endif
 
-/* ---------- MPS eager-init ----------
- * libtorch lazily initializes its MPS allocator + Metal command queue on
- * the first tensor that touches MPS. In multi-backend builds where cross-
- * backend tensor transfers run early (test-multi's Transfer suite), that
- * lazy init races macOS work-queue threads (MTLDevice setup, MPS
- * allocator pool ramp-up) and sporadically aborts the process with
- * SIGSEGV inside libtorch's `at::native::mps::*` paths. We saw this
- * empirically: re-ordering tests so an intra-torch CPU→MPS migration
- * runs FIRST dropped the crash rate from 100% to ~3%. Forcing the
- * init at dylib-load time (here) closes the window entirely — by the
- * time any Idris-side code calls `tensor_to_device_torch(h, "mps")`,
- * the MPS subsystem is already warm.
- *
- * Cost: one MPS tensor alloc+dealloc at process start (microseconds).
- * Skipped if torch wasn't built with MPS support or if no MPS device
- * is available on this host (Linux CI, non-Apple-Silicon Mac). */
-__attribute__((constructor))
-static void torch_mps_eager_init(void) {
-    if (!at::hasMPS()) return;
-    try {
-        auto opts = torch::TensorOptions()
-            .dtype(torch::kFloat32)
-            .device(torch::Device(at::DeviceType::MPS));
-        auto warm = torch::zeros({1}, opts);
-        // Touch the data once to force the Metal command buffer to drain
-        // (synchronize). The `.cpu()` round-trip is what
-        // tensor_to_doubles_torch does at runtime — same code path.
-        (void)warm.cpu();
-        // `warm` falls out of scope; its storage refcount hits zero
-        // and libtorch returns the MPS buffer to the allocator pool.
-    } catch (...) {
-        // First-touch failures (paravirt-MPS quirks on Tart VMs etc.)
-        // shouldn't prevent dylib load. Subsequent Idris-side MPS use
-        // will surface the real error.
-    }
-}
+/* MPS eager-init constructor lives in backend_torch/mps_init.cpp. */
+
 
 /* Profiling counters (prof_backward_ms / prof_optimizer_ms /
    prof_optimizer_math_ms / prof_epochs) + _wall_ms_torch live in
@@ -194,38 +160,8 @@ TensorHandle tensor_create_param_3d(int d0, int d1, int d2, double* data) {
  * set_requires_grad/no_grad_begin/end/epoch_begin/end) lives in
  * backend_torch/training/autograd.cpp. */
 
-/* ---------- Device ---------- */
+/* tensor_to_device + tensor_device live in backend_torch/device.cpp. */
 
-/* EAFP availability gate: a device-pin to absent/invalid hardware
- * (e.g. "cuda:1" on a 1-GPU box, or MPS on a non-Apple host) makes
- * libtorch's `.to()` throw a c10::Error. Unguarded, that exception
- * crosses the C->Chez FFI boundary and becomes std::terminate/SIGABRT.
- * Catch it here and return a NULL handle; the Idris side lifts NULL ->
- * Left DeviceError. This is the one source of truth for availability —
- * no separate is_available probe to drift. All torch device-pinning
- * (primCreateFromHost, primIntraMigrate, primCreate's post-create
- * migration) routes through here, so this single guard covers them. */
-TensorHandle tensor_to_device(TensorHandle h, const char* device) {
-    try {
-        return from_tensor(to_tensor(h)->to(std::string(device)));
-    } catch (const std::exception& e) {
-        fprintf(stderr, "[torch] tensor_to_device(%s) failed: %s\n",
-                device, e.what());
-        return nullptr;
-    } catch (...) {
-        fprintf(stderr, "[torch] tensor_to_device(%s) failed: unknown\n",
-                device);
-        return nullptr;
-    }
-}
-
-static thread_local std::string device_str;
-
-const char* tensor_device(TensorHandle h) {
-    auto d = to_tensor(h)->device();
-    device_str = d.str();
-    return device_str.c_str();
-}
 
 /* _dbg_dump_lstm_traj_if_enabled_torch + _dbg_dump_param_grads_if_enabled_torch
    live in backend_torch/training/diagnostics.cpp. */
