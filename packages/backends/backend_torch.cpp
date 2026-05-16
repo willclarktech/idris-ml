@@ -190,84 +190,9 @@ TensorHandle tensor_create_param_3d(int d0, int d1, int d2, double* data) {
 
 /* Shape ops live in backend_torch/linear/shape/.
  * Stack / cat live in backend_torch/linear/concat/. */
-
-/* ---------- Autograd ---------- */
-
-extern "C" void _dbg_dump_param_grads_if_enabled_torch(void);
-
-void tensor_backward(TensorHandle h) {
-    double t0 = _wall_ms_torch();
-    to_tensor(h)->backward();
-    prof_backward_ms_torch += _wall_ms_torch() - t0;
-    /* Phase 1.5e diagnostic: dump per-param gradient L2 norms after backward.
-       Implementation lives below the param_registry declaration. */
-    _dbg_dump_param_grads_if_enabled_torch();
-}
-
-TensorHandle tensor_grad(TensorHandle h) {
-    auto& g = to_tensor(h)->grad();
-    if (!g.defined()) return nullptr;
-    return from_tensor(g);
-}
-
-void tensor_zero_grad(TensorHandle h) {
-    auto& t = *to_tensor(h);
-    if (t.grad().defined()) {
-        t.grad().zero_();
-    }
-}
-
-int tensor_requires_grad(TensorHandle h) {
-    return to_tensor(h)->requires_grad() ? 1 : 0;
-}
-
-TensorHandle tensor_detach(TensorHandle h) {
-    return from_tensor(to_tensor(h)->detach());
-}
-
-TensorHandle tensor_with_grad(TensorHandle h) {
-    auto t = to_tensor(h)->detach().clone();
-    t.requires_grad_(true);
-    return from_tensor(std::move(t));
-}
-
-/* idrisml_is_floating_st — defined in backend_torch/training/dtype_dispatch.cpp. */
-bool idrisml_is_floating_st(torch::ScalarType dt);
-
-void tensor_set_requires_grad(TensorHandle h, int requires_grad) {
-    auto t = to_tensor(h);
-    /* torch throws if you request grad on a non-floating tensor. Inference
-       dtypes (int/bool) can be registered (e.g. via registerParam, for
-       serialization) but can't carry gradients — silently leave grad off
-       rather than abort. */
-    if (requires_grad && !idrisml_is_floating_st(t->scalar_type())) return;
-    t->requires_grad_(requires_grad != 0);
-}
-
-/* No-grad scope. Counter (not bool) so nested withNoGrad scopes
-   nest correctly — only the outermost begin creates the guard,
-   only the outermost end releases it. */
-static thread_local int no_grad_depth = 0;
-static thread_local std::unique_ptr<torch::NoGradGuard> no_grad_guard;
-
-void tensor_no_grad_begin(void) {
-    if (no_grad_depth == 0) {
-        no_grad_guard = std::make_unique<torch::NoGradGuard>();
-    }
-    no_grad_depth++;
-}
-
-void tensor_no_grad_end(void) {
-    if (no_grad_depth > 0) {
-        no_grad_depth--;
-        if (no_grad_depth == 0) {
-            no_grad_guard.reset();
-        }
-    }
-}
-/* No buffer ceiling on torch; per-epoch generation free is a no-op. */
-void tensor_epoch_begin(void) {}
-void tensor_epoch_end(void) {}
+/* Autograd surface (tensor_backward + tensor_grad/zero_grad/detach/with_grad/
+ * set_requires_grad/no_grad_begin/end/epoch_begin/end) lives in
+ * backend_torch/training/autograd.cpp. */
 
 /* ---------- Device ---------- */
 
