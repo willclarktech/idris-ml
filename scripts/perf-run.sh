@@ -83,6 +83,18 @@ esac
 # mlx accepts "metal" as a synonym for "gpu"; normalize.
 [ "$DEVICE" = "metal" ] && DEVICE="gpu"
 
+# MLX_COMPILE state of record (Job 3 Phase B opt-in). Only meaningful
+# on the mlx backend; non-mlx always records "n/a".
+case "$BACKEND" in
+  mlx)
+    case "${MLX_COMPILE:-}" in
+      1|true|yes) MLX_COMPILE_STATE="on" ;;
+      *)          MLX_COMPILE_STATE="off" ;;
+    esac
+    ;;
+  *) MLX_COMPILE_STATE="n/a" ;;
+esac
+
 # Run the example and capture output. Use stdbuf -oL so we can tail
 # the log live during long-running tasks (per the "always use stdbuf"
 # convention for background tasks).
@@ -130,7 +142,8 @@ ISO_TS=$(python3 -c 'import time; from datetime import datetime, timezone; print
 JSON_LINE=$(
   ARG_SUMMARY="$ARG_SUMMARY" \
   ISO_TS="$ISO_TS" DATE="$DATE" EXAMPLE_KEY="$EXAMPLE_KEY" \
-  BACKEND="$BACKEND" DEVICE="$DEVICE" COMMIT="$COMMIT" RC="$RC" \
+  BACKEND="$BACKEND" DEVICE="$DEVICE" MLX_COMPILE_STATE="$MLX_COMPILE_STATE" \
+  COMMIT="$COMMIT" RC="$RC" \
   ELAPSED_MS="$ELAPSED_MS" ELAPSED_PRETTY="$ELAPSED_PRETTY" \
   CONVERGED_LINE="$CONVERGED_LINE" DIVERGED_LINE="$DIVERGED_LINE" \
   COMPLETED_LINE="$COMPLETED_LINE" RESULT_LINE="$RESULT_LINE" \
@@ -182,6 +195,7 @@ entry = {
     "example": os.environ["EXAMPLE_KEY"],
     "backend": os.environ["BACKEND"],
     "device": os.environ["DEVICE"],
+    "mlx_compile": os.environ["MLX_COMPILE_STATE"],
     "commit": os.environ["COMMIT"],
     "args": os.environ["ARG_SUMMARY"],
     "exit": int(os.environ["RC"]),

@@ -26,6 +26,7 @@ Every entry has these fields:
 | `example` | string | `ntm-copy`, `dnc-recall`, `a2c`, etc. |
 | `backend` | string | `tape`, `mlx`, or `torch` |
 | `device` | string | `cpu` or `gpu`. For `mlx` reflects `MLX_DEVICE`; for `tape`/`torch` always `cpu` (we don't pin tensors to MPS/CUDA at the wrapper). Added 2026-05-11 — entries before that date can be assumed `cpu`. |
+| `mlx_compile` | string | `on`, `off`, or `n/a`. Reflects the `MLX_COMPILE` env var on mlx runs; `n/a` on tape/torch. Added 2026-05-12 — entries before that date can be assumed `off` (mlx) or `n/a` (other). |
 | `commit` | string | abbreviated git hash (`+dirty` if uncommitted changes) |
 
 **`kind: "run"`** entries also have:
