@@ -779,5 +779,13 @@ Verified combinations on macOS (Apple Silicon, libtorch 2.x via uv venv, mlx 0.3
 - `bench-ops-compare` rebuilds the whole dylib per iteration (one backend at a time) to copy it to `libidrisml_<b>.dylib`. Slightly slower than the old per-backend variant build but isolates per-backend operator timing correctly.
 - `make` does NOT propagate `BACKEND` changes to downstream rules that consume the dylib path (e.g. example builds) — the dylib is unconditionally `libidrisml.{so,dylib}`, so example apps always link against whichever primary the current build has. Switching primary requires `make BACKEND=<new> backend && make example-<name>`.
 
-Phase 2.1 (Move `Tensor.idr`'s lifecycle + arithmetic FFI into `UserDeviceCore` instance methods) can begin once test-examples smoke matrix confirms no regressions under the new multi-link.
+**Phase 1c — test-examples smoke matrix (2026-05-13)**:
+
+74 of 76 example × backend combinations pass cleanly under the multi-link build. Every tape and every torch example passes; the two failures are both on mlx:
+- `mlx:example-dnc-copy` — crashes with `[scatter] Cannot calculate VJP with respect to indices` at `--epochs 5 --max-len 3 --batch 1 --seed 99`.
+- `mlx:example-dnc-recall` — same crash signature, same config.
+
+**Pre-existing**, not a Phase 1 regression: verified by checking out the pre-Phase-1 Makefile (`ee19b03`) and rebuilding `libidrisml_mlx.dylib`. The exact same crash reproduces at the smoke-test invocation. The TODO row "Re-enable 4 mlx examples on macOS CI" already tracks an overlapping class of mlx-specific DNC issues (the docs note `[malloc]` errors on the GH-Actions VM; what we see locally is the autograd scatter-VJP variant). Convergence-config runs of these examples DID pass historically (`perf-log.jsonl` shows `dnc-copy mlx` exit-0 at `--epochs 3500`+ on commits `798c4ac` / `ede8b6b` / `94700e5`), so the smoke-config bug is a narrower mlx flakiness that the long-run config doesn't trip. Both are added to the existing TODO row's scope. Phase 1 verification stands.
+
+Phase 2.1 (Move `Tensor.idr`'s lifecycle + arithmetic FFI into `UserDeviceCore` instance methods) is unblocked.
 
