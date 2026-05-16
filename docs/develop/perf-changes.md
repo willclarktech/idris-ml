@@ -1755,3 +1755,30 @@ answered immediately.
 - The Chez profile recipe (commands: `compile-profile 'source` +
   `profile-dump-html` after main) — write up as
   `docs/develop/chez-profiling.md` in a follow-up
+
+### 2026-05-14 — Architecture audit for PE-style oversights (post-fix) — `<commit>`
+
+After the transformer PE fix landed (22×, previous entry), audited
+remaining `Layer/*` for the same anti-pattern (per-forward recomputation
+of deterministic state, with or without recursive Nat arithmetic).
+
+| Pattern | Where | Hot path? | Verdict |
+|---|---|---|---|
+| `prim__causalMask sI` in `blockForward` | `Layer/Transformer.idr:117` | per-block × per-forward | **follow-up**: cache on `BlockState` or `TransformerState` |
+| `prim__expandMask (prim__causalMask sI) batchSize` in `batchBlockForward` | `Layer/Transformer.idr:230` | per-block × per-forward | **follow-up**: cache the 3D form per `(seqLen, batch)` pair, or cache 2D and broadcast |
+| `mkZeroVectN`, `mkZeroVectM` recursion on `r` (read heads) | `Layer/Dnc.idr:204-209` | per-sequence start only | OK — `r ≤ 4` in practice, only fires when state is `Nothing` |
+| `zeroState1d / zeroState2d` | `Layer/Ntm.idr:75-86` | per-sequence start | OK — single C op |
+| `Vect.replicate` calls | all `*Layer` constructors | init only | OK — once per model build |
+| `Data.Nat.modNatNZ` | `Train.idr:246` (eval-every-N-epochs gate) | per-epoch | OK — negligible vs epoch wall |
+
+The transformer was a uniquely bad case because two anti-patterns
+combined: per-forward recomputation **and** recursive Nat arithmetic
+inside the recomputed body. Other layers have at most one of those, in
+cold paths. The most plausible remaining win is the causal mask — same
+"computed from shape constants, recomputed per forward" shape as PE
+was, but each rebuild is a single C op rather than an Idris loop, so
+the magnitude is much smaller. Worth a follow-up commit, not load-bearing.
+
+**No commit attached to this audit** — pure documentation. The findings
+land here for future reference. The causal-mask follow-up gets its own
+TODO row.
