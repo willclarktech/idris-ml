@@ -466,6 +466,12 @@ int* create_index_array(int n);
 int* shuffle_index_array(int* arr, int n);
 int  index_array_get(int* arr, int i);
 
+/* ---------- MLX compile (Job 3 Phase B) ---------- */
+
+/* Returns 1 if MLX_COMPILE env var is set to a truthy value ("1", "true",
+   "yes"), 0 otherwise. Non-mlx backends always return 0. */
+int tensor_mlx_compile_enabled(void);
+
 /* ---------- Debug ---------- */
 
 void tensor_print(TensorHandle t);

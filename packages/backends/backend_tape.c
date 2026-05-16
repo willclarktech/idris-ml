@@ -5540,6 +5540,10 @@ void backend_profile_report(void) {
 
 const char* backend_name(void) { return "tape"; }
 
+/* Job 3 Phase B — mx::compile is mlx-only; tape backend always reports
+   disabled regardless of MLX_COMPILE env var. */
+int tensor_mlx_compile_enabled(void) { return 0; }
+
 void tensor_print(TensorHandle h) {
     Tensor* t = (Tensor*)h;
     if (t->rank == 0) {

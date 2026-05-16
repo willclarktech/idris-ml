@@ -231,6 +231,12 @@ test-ntm-timestep: $(BACKENDS_DIR)/test_ntm_timestep.c backend | $(BUILD)
 	cc -o $(BUILD)/test_ntm_timestep $(BACKENDS_DIR)/test_ntm_timestep.c -L$(BUILD) -lidrisml -Wl,-rpath,$(BUILD) -lm
 	./$(BUILD)/test_ntm_timestep
 
+# Job 3 Phase B — mx::compile integration tests. MLX-only.
+test-mlx-compile: $(BACKENDS_DIR)/test_mlx_compile.c
+	$(MAKE) BACKEND=mlx backend
+	cc -o $(BUILD)/test_mlx_compile $(BACKENDS_DIR)/test_mlx_compile.c -L$(BUILD) -lidrisml -Wl,-rpath,$(BUILD) -lm
+	./$(BUILD)/test_mlx_compile
+
 print-torch:
 	@echo "LIBTORCH_PATH=$(LIBTORCH_PATH)"
 	@echo "TORCH_INC=$(TORCH_INC)"

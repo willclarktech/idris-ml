@@ -1538,6 +1538,10 @@ void tensor_print(TensorHandle h) {
     std::cout << *to_tensor(h) << std::endl;
 }
 
+/* Job 3 Phase B — mx::compile is mlx-only; torch backend always reports
+   disabled regardless of MLX_COMPILE env var. */
+int tensor_mlx_compile_enabled(void) { return 0; }
+
 /* ---------- Portable FFI helpers ---------- */
 
 TensorHandle tensor_backward_return(TensorHandle t) { tensor_backward(t); return t; }

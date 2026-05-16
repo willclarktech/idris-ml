@@ -2973,6 +2973,19 @@ void tensor_print(TensorHandle h) {
     std::cout << t->data << std::endl;
 }
 
+/* ================================================================
+   MLX compile integration (Job 3 Phase B)
+   ================================================================ */
+
+int tensor_mlx_compile_enabled(void) {
+    const char* v = std::getenv("MLX_COMPILE");
+    if (!v) return 0;
+    if (v[0] == '1' && v[1] == '\0') return 1;
+    if (std::strcmp(v, "true") == 0) return 1;
+    if (std::strcmp(v, "yes") == 0) return 1;
+    return 0;
+}
+
 /* ---------- Portable FFI helpers ---------- */
 
 TensorHandle tensor_backward_return(TensorHandle t) { tensor_backward(t); return t; }
