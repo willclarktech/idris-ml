@@ -134,13 +134,25 @@ static void mlx_backend_init(void) {
    requires these to be declared before use; their definitions appear
    later. */
 extern "C" {
-/* core/elementwise/ extractions — declared here so internal callers
-   (loss helpers, lstm gates, etc.) can reach the streamed variants now
-   that they live in separate TUs. */
+/* core/elementwise/ + core/scalar/ extractions — declared here so
+   internal callers (loss helpers, lstm gates, etc.) can reach the
+   streamed variants now that they live in separate TUs. */
 TensorHandle tensor_add_mlx_streamed(TensorHandle ha, TensorHandle hb, int stream_tag);
 TensorHandle tensor_sub_mlx_streamed(TensorHandle ha, TensorHandle hb, int stream_tag);
 TensorHandle tensor_mul_mlx_streamed(TensorHandle ha, TensorHandle hb, int stream_tag);
 TensorHandle tensor_div_mlx_streamed(TensorHandle ha, TensorHandle hb, int stream_tag);
+TensorHandle tensor_neg_mlx_streamed(TensorHandle h, int stream_tag);
+TensorHandle tensor_abs_mlx_streamed(TensorHandle h, int stream_tag);
+TensorHandle tensor_exp_mlx_streamed(TensorHandle h, int stream_tag);
+TensorHandle tensor_log_mlx_streamed(TensorHandle h, int stream_tag);
+TensorHandle tensor_sqrt_mlx_streamed(TensorHandle h, int stream_tag);
+TensorHandle tensor_pow_mlx_streamed(TensorHandle hbase, TensorHandle hexp, int stream_tag);
+TensorHandle tensor_sigmoid_mlx_streamed(TensorHandle h, int stream_tag);
+TensorHandle tensor_tanh_mlx_streamed(TensorHandle h, int stream_tag);
+TensorHandle tensor_softplus_mlx_streamed(TensorHandle h, int stream_tag);
+TensorHandle tensor_add_scalar_mlx_streamed(TensorHandle h, double s, int stream_tag);
+TensorHandle tensor_mul_scalar_mlx_streamed(TensorHandle h, double s, int stream_tag);
+TensorHandle tensor_clamp_min_mlx_streamed(TensorHandle h, double min_val, int stream_tag);
 TensorHandle tensor_transpose_last2_mlx_streamed(TensorHandle h, int stream_tag);
 TensorHandle tensor_bmm_3x3_mlx_streamed(TensorHandle ha, TensorHandle hb, int stream_tag);
 TensorHandle tensor_masked_fill_mlx_streamed(TensorHandle h, TensorHandle hmask, double value, int stream_tag);
@@ -614,83 +626,8 @@ const char* tensor_dtype_name(TensorHandle h) {
 /* tensor_add / tensor_sub / tensor_mul / tensor_div + their _mlx_streamed
    variants extracted to backend_mlx/core/elementwise/. */
 
-extern "C" TensorHandle tensor_neg_mlx_streamed(TensorHandle h, int stream_tag) {
-    WITH_STREAM(stream_tag);
-    auto t = (Tensor*)h;
-    auto r = new Tensor(mx::negative(t->data), t->requires_grad);
-    if (t->requires_grad) tape_append(OP_NEG, r, t, nullptr, 0);
-    return (TensorHandle)r;
-}
-TensorHandle tensor_neg(TensorHandle h) {
-    return tensor_neg_mlx_streamed(h, default_stream_tag());
-}
-
-extern "C" TensorHandle tensor_abs_mlx_streamed(TensorHandle h, int stream_tag) {
-    WITH_STREAM(stream_tag);
-    auto t = (Tensor*)h;
-    auto r = new Tensor(mx::abs(t->data), t->requires_grad);
-    if (t->requires_grad) tape_append(OP_ABS, r, t, nullptr, 0);
-    return (TensorHandle)r;
-}
-TensorHandle tensor_abs(TensorHandle h) {
-    return tensor_abs_mlx_streamed(h, default_stream_tag());
-}
-
-extern "C" TensorHandle tensor_exp_mlx_streamed(TensorHandle h, int stream_tag) {
-    WITH_STREAM(stream_tag);
-    auto t = (Tensor*)h;
-    auto r = new Tensor(mx::exp(t->data), t->requires_grad);
-    if (t->requires_grad) tape_append(OP_EXP, r, t, nullptr, 0);
-    return (TensorHandle)r;
-}
-TensorHandle tensor_exp(TensorHandle h) {
-    return tensor_exp_mlx_streamed(h, default_stream_tag());
-}
-
-extern "C" TensorHandle tensor_log_mlx_streamed(TensorHandle h, int stream_tag) {
-    WITH_STREAM(stream_tag);
-    auto t = (Tensor*)h;
-    auto r = new Tensor(mx::log(t->data), t->requires_grad);
-    if (t->requires_grad) tape_append(OP_LOG, r, t, nullptr, 0);
-    return (TensorHandle)r;
-}
-TensorHandle tensor_log(TensorHandle h) {
-    return tensor_log_mlx_streamed(h, default_stream_tag());
-}
-
-extern "C" TensorHandle tensor_sqrt_mlx_streamed(TensorHandle h, int stream_tag) {
-    WITH_STREAM(stream_tag);
-    auto t = (Tensor*)h;
-    auto r = new Tensor(mx::sqrt(t->data), t->requires_grad);
-    if (t->requires_grad) tape_append(OP_SQRT, r, t, nullptr, 0);
-    return (TensorHandle)r;
-}
-TensorHandle tensor_sqrt(TensorHandle h) {
-    return tensor_sqrt_mlx_streamed(h, default_stream_tag());
-}
-
-extern "C" TensorHandle tensor_pow_mlx_streamed(TensorHandle hbase, TensorHandle hexp, int stream_tag) {
-    WITH_STREAM(stream_tag);
-    auto b = (Tensor*)hbase; auto e = (Tensor*)hexp;
-    bool rg = b->requires_grad || e->requires_grad;
-    auto r = new Tensor(mx::power(b->data, e->data), rg);
-    if (rg) tape_append(OP_POW, r, b, e, 0);
-    return (TensorHandle)r;
-}
-TensorHandle tensor_pow(TensorHandle hbase, TensorHandle hexp) {
-    return tensor_pow_mlx_streamed(hbase, hexp, default_stream_tag());
-}
-
-extern "C" TensorHandle tensor_sigmoid_mlx_streamed(TensorHandle h, int stream_tag) {
-    WITH_STREAM(stream_tag);
-    auto t = (Tensor*)h;
-    auto r = new Tensor(mx::sigmoid(t->data), t->requires_grad);
-    if (t->requires_grad) tape_append(OP_SIGMOID, r, t, nullptr, 0);
-    return (TensorHandle)r;
-}
-TensorHandle tensor_sigmoid(TensorHandle h) {
-    return tensor_sigmoid_mlx_streamed(h, default_stream_tag());
-}
+/* tensor_neg / abs / exp / log / sqrt / pow / sigmoid extracted to
+   backend_mlx/core/elementwise/. */
 extern "C" TensorHandle tensor_gelu_mlx_streamed(TensorHandle h, int stream_tag) {
     WITH_STREAM(stream_tag);
 
@@ -711,16 +648,7 @@ TensorHandle tensor_gelu(TensorHandle h) {
     return tensor_gelu_mlx_streamed(h, default_stream_tag());
 }
 
-extern "C" TensorHandle tensor_tanh_mlx_streamed(TensorHandle h, int stream_tag) {
-    WITH_STREAM(stream_tag);
-    auto t = (Tensor*)h;
-    auto r = new Tensor(mx::tanh(t->data), t->requires_grad);
-    if (t->requires_grad) tape_append(OP_TANH, r, t, nullptr, 0);
-    return (TensorHandle)r;
-}
-TensorHandle tensor_tanh(TensorHandle h) {
-    return tensor_tanh_mlx_streamed(h, default_stream_tag());
-}
+/* tensor_tanh extracted to backend_mlx/core/elementwise/tanh.cpp. */
 
 extern "C" TensorHandle tensor_leaky_relu_mlx_streamed(TensorHandle h, double alpha, int stream_tag) {
     WITH_STREAM(stream_tag);
@@ -751,60 +679,9 @@ TensorHandle tensor_silu(TensorHandle h) {
     return tensor_silu_mlx_streamed(h, default_stream_tag());
 }
 
-extern "C" TensorHandle tensor_softplus_mlx_streamed(TensorHandle h, int stream_tag) {
-    WITH_STREAM(stream_tag);
-
-    auto t = (Tensor*)h;
-    // Numerically stable softplus: max(0, x) + log(1 + exp(-|x|)).
-    // The naive log(1 + exp(x)) overflows in float32 for x > ~88 — and the
-    // NTM addressing path multiplies softplus(x) by cosine_sim and feeds
-    // softmax, so an overflow there silently produces ±inf inputs to softmax
-    // and the whole chain becomes NaN at the working point. The stable form
-    // is correct for all x: for large positive x it reduces to x, for large
-    // negative x it reduces to exp(x) ≈ 0.
-    auto result = mx::add(mx::maximum(t->data, zero_like(t->data)),
-                          mx::log(mx::add(one_like(t->data), mx::exp(mx::negative(mx::abs(t->data))))));
-    auto r = new Tensor(result, t->requires_grad);
-    if (t->requires_grad) tape_append(OP_SOFTPLUS, r, t, nullptr, 0);
-    return (TensorHandle)r;
-
-}
-TensorHandle tensor_softplus(TensorHandle h) {
-    return tensor_softplus_mlx_streamed(h, default_stream_tag());
-}
-
-extern "C" TensorHandle tensor_add_scalar_mlx_streamed(TensorHandle h, double s, int stream_tag) {
-    WITH_STREAM(stream_tag);
-    auto t = (Tensor*)h;
-    auto r = new Tensor(mx::add(t->data, scalar_like(s, t->data)), t->requires_grad);
-    if (t->requires_grad) tape_append(OP_ADD_SCALAR, r, t, nullptr, s);
-    return (TensorHandle)r;
-}
-TensorHandle tensor_add_scalar(TensorHandle h, double s) {
-    return tensor_add_scalar_mlx_streamed(h, s, default_stream_tag());
-}
-
-extern "C" TensorHandle tensor_mul_scalar_mlx_streamed(TensorHandle h, double s, int stream_tag) {
-    WITH_STREAM(stream_tag);
-    auto t = (Tensor*)h;
-    auto r = new Tensor(mx::multiply(t->data, scalar_like(s, t->data)), t->requires_grad);
-    if (t->requires_grad) tape_append(OP_MUL_SCALAR, r, t, nullptr, s);
-    return (TensorHandle)r;
-}
-TensorHandle tensor_mul_scalar(TensorHandle h, double s) {
-    return tensor_mul_scalar_mlx_streamed(h, s, default_stream_tag());
-}
-
-extern "C" TensorHandle tensor_clamp_min_mlx_streamed(TensorHandle h, double min_val, int stream_tag) {
-    WITH_STREAM(stream_tag);
-    auto t = (Tensor*)h;
-    auto r = new Tensor(mx::maximum(t->data, scalar_like(min_val, t->data)), t->requires_grad);
-    if (t->requires_grad) tape_append(OP_CLAMP_MIN, r, t, nullptr, min_val);
-    return (TensorHandle)r;
-}
-TensorHandle tensor_clamp_min(TensorHandle h, double min_val) {
-    return tensor_clamp_min_mlx_streamed(h, min_val, default_stream_tag());
-}
+/* tensor_softplus extracted to backend_mlx/core/elementwise/softplus.cpp.
+   tensor_add_scalar / tensor_mul_scalar / tensor_clamp_min extracted to
+   backend_mlx/core/scalar/. */
 
 /* ================================================================
    Reduction
