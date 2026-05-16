@@ -3,6 +3,7 @@
 ||| CLI arg parsing, and result formatting.
 module Train
 
+import Data.IORef
 import Data.List
 import Data.Nat
 import System.Clock
@@ -60,6 +61,34 @@ export
 formatResult : List (String, String) -> String
 formatResult kvs = "RESULT" ++ concatMap (\(k, v) => "\t" ++ k ++ "=" ++ v) kvs
 
+||| Show a Double with `digits` fixed decimal places (rounded half-up).
+||| Mirrors Python's `f"{x:.<digits>f}"` so paired-side logs diff cleanly.
+||| Handles negatives, NaN, and ±infinity.
+export
+showFix : (digits : Nat) -> Double -> String
+showFix d x =
+  if x /= x then "nan"
+  else if x == 1.0/0.0 then "inf"
+  else if x == -1.0/0.0 then "-inf"
+  else
+    let sign     : String  = if x < 0 then "-" else ""
+        absX     : Double  = if x < 0 then -x else x
+        scaleD   : Double  = pow 10.0 (cast {to=Double} (cast {to=Integer} d))
+        scaledI  : Integer = cast {to=Integer} (absX * scaleD + 0.5)
+        scaleI   : Integer = cast {to=Integer} scaleD
+        intPart  : Integer = scaledI `div` scaleI
+        fracPart : Integer = scaledI `mod` scaleI
+        fracStr  : String  = padZeros d (show fracPart)
+    in if d == 0
+         then sign ++ show intPart
+         else sign ++ show intPart ++ "." ++ fracStr
+  where
+    padZeros : Nat -> String -> String
+    padZeros n s =
+      if length s >= n
+        then s
+        else pack (List.replicate (n `minus` length s) '0') ++ s
+
 
 ----------------------------------------------------------------------
 -- Early Stopping Strategies
@@ -89,6 +118,48 @@ data EarlyStopConfig
 public export
 0 MetricsFn : Type -> Type
 MetricsFn model = model -> IO (List (String, String))
+
+||| Per-epoch return + rolling-window state for RL examples. Lets RL
+||| epoch closures push the most recent episodic return into a metrics
+||| callback for the unified `[hh:mm:ss] EP\tloss\tpeak\tcur\treturn\trecent_K`
+||| log format. Pair with `rlMetricsFn` below.
+public export
+record RLMetricsState where
+  constructor MkRLMetricsState
+  lastReturn : IORef Double
+  recentWindow : IORef (List Double)
+  windowSize : Nat
+
+||| Build a fresh `RLMetricsState` with an empty rolling window of size N.
+export
+newRLMetricsState : (windowSize : Nat) -> IO RLMetricsState
+newRLMetricsState n = do
+  r <- newIORef 0.0
+  w <- newIORef []
+  pure (MkRLMetricsState r w n)
+
+||| Record this epoch's episodic return. Updates `lastReturn` and pushes
+||| onto the rolling window, dropping the oldest entry when full.
+export
+recordReturn : RLMetricsState -> (ret : Double) -> IO ()
+recordReturn s ret = do
+  writeIORef s.lastReturn ret
+  w <- readIORef s.recentWindow
+  writeIORef s.recentWindow (take s.windowSize (ret :: w))
+
+||| Read the latest return + recent-window mean as a `List (String, String)`
+||| suitable for the per-epoch log metrics tail. Use inside an inline
+||| `metrics := \_ => readRLMetrics "recent_100" s` callback. Returns
+||| `[("return", X.X), (recentLabel, X.X)]` (both at 1 decimal place).
+export
+readRLMetrics : (recentLabel : String) -> RLMetricsState
+              -> IO (List (String, String))
+readRLMetrics recentLabel s = do
+  r <- readIORef s.lastReturn
+  w <- readIORef s.recentWindow
+  let n      : Double = cast (the Integer (cast (length w)))
+      recent : Double = if n == 0 then 0.0 else sum w / n
+  pure [("return", showFix 1 r), (recentLabel, showFix 1 recent)]
 
 ||| Training configuration.
 |||
@@ -185,7 +256,7 @@ runTrainingIO {model} epochFn dataSrc cfg model0 = do
       let memSuffix = "\tpeak=" ++ show (getRssMB 0) ++ "MB"
                    ++ "\tcur=" ++ show (getCurrentRssMB 0) ++ "MB"
       putStrLn $ "  " ++ formatElapsed t0 now ++ " " ++ show ep
-               ++ "\tloss=" ++ show loss ++ memSuffix ++ fmtMetrics extra
+               ++ "\tloss=" ++ showFix 6 loss ++ memSuffix ++ fmtMetrics extra
 
     -- Simple: no early stopping
     goSimple : Nat -> model -> Double -> Clock Monotonic -> IO (model, Nat, Double)
