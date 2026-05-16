@@ -102,45 +102,9 @@ TensorHandle from_tensor_persistent(at::Tensor t) {
 static void free_intermediates(); // defined after param_registry
 static TensorHandle make_param_leaf(double* data, c10::IntArrayRef dims, torch::ScalarType dt); // defined near the F32 param creators
 
-/* ---------- Lifecycle ---------- */
-
-// Internal impl: creation parameterized by torch::ScalarType.
-static TensorHandle tensor_create_scalar_impl(double value, int requires_grad, torch::ScalarType dt) {
-    auto t = torch::tensor(value, torch::dtype(dt));
-    if (requires_grad) t.requires_grad_(true);
-    return from_tensor_persistent(std::move(t));
-}
-
-static TensorHandle tensor_create_impl(double* data, int* shape, int rank, int requires_grad, torch::ScalarType dt) {
-    std::vector<int64_t> dims(rank);
-    for (int i = 0; i < rank; i++) dims[i] = shape[i];
-    // from_blob is fp64-typed (data is double*); .to(dt) casts to the target dtype.
-    auto opts = torch::TensorOptions().dtype(torch::kFloat64);
-    auto t = torch::from_blob(data, dims, opts).clone();
-    if (dt != torch::kFloat64) t = t.to(dt);
-    if (requires_grad) t.requires_grad_(true);
-    return from_tensor_persistent(std::move(t));
-}
-
-// Per-dtype exports.
-TensorHandle tensor_create_scalar_f32(double value, int requires_grad) { return tensor_create_scalar_impl(value, requires_grad, torch::kFloat32); }
-TensorHandle tensor_create_scalar_f64(double value, int requires_grad) { return tensor_create_scalar_impl(value, requires_grad, torch::kFloat64); }
-TensorHandle tensor_create_f32(double* data, int* shape, int rank, int requires_grad) { return tensor_create_impl(data, shape, rank, requires_grad, torch::kFloat32); }
-TensorHandle tensor_create_f64(double* data, int* shape, int rank, int requires_grad) { return tensor_create_impl(data, shape, rank, requires_grad, torch::kFloat64); }
-
-// Legacy unsuffixed: route to f64 (current historical behavior on torch).
-TensorHandle tensor_create_scalar(double value, int requires_grad) { return tensor_create_scalar_f64(value, requires_grad); }
-TensorHandle tensor_create(double* data, int* shape, int rank, int requires_grad) { return tensor_create_f64(data, shape, rank, requires_grad); }
-
-// Per-dtype cast primitives. at::Tensor::to(dtype) is autograd-traced
-// when both source and target are floating-point types, so gradients
-// flow through the cast naturally.
-TensorHandle tensor_cast_dtype_f32(TensorHandle src) {
-    return from_tensor(to_tensor(src)->to(torch::kFloat32));
-}
-TensorHandle tensor_cast_dtype_f64(TensorHandle src) {
-    return from_tensor(to_tensor(src)->to(torch::kFloat64));
-}
+/* ---------- Lifecycle ----------
+   tensor_create_scalar* / tensor_create* / tensor_cast_dtype_* extracted
+   to backend_torch/core/lifecycle/{create_scalar,create,cast}.cpp. */
 
 /* tensor_clone / tensor_free / tensor_retain_handle / tensor_release_handle
    extracted to backend_torch/core/lifecycle/. The `freed_by_cleanup`
