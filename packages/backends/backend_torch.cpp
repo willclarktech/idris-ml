@@ -331,42 +331,8 @@ TensorHandle tensor_embedding(TensorHandle hweight, TensorHandle hindices, int n
     return from_tensor(out.reshape({-1}));  /* flatten to [n * embedDim] */
 }
 
-TensorHandle tensor_gather(TensorHandle hinput, TensorHandle hindex, int n) {
-    auto& inp = *to_tensor(hinput);
-    auto& idx = *to_tensor(hindex);
-    auto idx_long = idx.to(torch::kLong);
-    return from_tensor(torch::index_select(inp, 0, idx_long));
-}
-
-TensorHandle tensor_scatter_add(TensorHandle hindex, TensorHandle hsrc, int out_size) {
-    auto& idx = *to_tensor(hindex);
-    auto& src = *to_tensor(hsrc);
-    // Match src's dtype + device — a hardcoded kFloat64 accumulator trips
-    // "scatter(): Expected self.dtype to be equal to src.dtype" against an
-    // F32 src (e.g. DNC allocation weighting on an F32 build).
-    auto out = torch::zeros({(int64_t)out_size}, src.options());
-    auto idx_long = idx.to(torch::kLong);
-    out.scatter_add_(0, idx_long, src);
-    return from_tensor(out);
-}
-
-TensorHandle tensor_argsort(TensorHandle ht, int dim, int descending) {
-    auto& t = *to_tensor(ht);
-    /* argsort produces indices — keep them in their natural integer dtype
-       (kLong/I64), not a float. This is what the type-safe `targsort` Idris
-       surface returns (Tensor _ d I64), and it sidesteps two latent bugs the
-       old `.to(kFloat64)` had: precision loss above 2^53 indices, and an
-       MPS abort (Metal has no F64). gather/scatter_add coerce the index to
-       kLong internally, so the untyped DNC path is unaffected. */
-    auto result = torch::argsort(t, dim, (bool)descending).to(torch::kLong);
-    return from_tensor(result);
-}
-
-TensorHandle tensor_cumprod(TensorHandle ht, int dim) {
-    auto& t = *to_tensor(ht);
-    auto result = torch::cumprod(t, dim);
-    return from_tensor(result);
-}
+/* Index ops (gather, scatter_add) live in backend_torch/linear/index/.
+ * Sort ops (argsort, cumprod) live in backend_torch/linear/sort/. */
 
 TensorHandle tensor_gru_cell(TensorHandle hih, TensorHandle hhh,
                               TensorHandle hprev, int o) {
