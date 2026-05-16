@@ -30,6 +30,12 @@ jobs:
       - uses: actions/checkout@v4
       - name: Verify paired Idris ↔ torch_ref defaults match
         run: python3 scripts/check-paired-defaults.py
+      - name: Verify FFI wrap-on-return template invariants
+        # Catches: (a) new Tensor-touching %foreign decls written as
+        # %foreign "C:..." instead of scheme-wrapped, (b) hand-edited
+        # scheme bodies missing the vector-ref unwrap or the wrap/retain
+        # on T return. See docs/develop/tensor-lifecycle-plan.md.
+        run: make check-ffi-wrap-template
 
   test-examples:
     name: test-examples (${{ matrix.os }})

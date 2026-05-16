@@ -343,6 +343,15 @@ rename-headers:
 check-rename-headers:
 	@python3 scripts/gen-rename-headers.py --check
 
+# Verify every Tensor-touching %foreign declaration matches the
+# wrap-on-return Scheme template. See
+# docs/develop/tensor-lifecycle-plan.md "FFI conventions". The single
+# source of truth for which C symbols are Tensor handles is
+# scripts/lifecycle/ffi_manifest.py — both the converter and the linter
+# read from it.
+check-ffi-wrap-template:
+	@python3 scripts/lifecycle/check-ffi-wrap-template.py
+
 # Backend API test suite — runs against whichever backend is active
 test-backend: $(BACKENDS_DIR)/test_backend.c backend | $(BUILD)
 	cc -o $(BUILD)/test_backend $(BACKENDS_DIR)/test_backend.c -L$(BUILD) -lidrisml -Wl,-rpath,$(BUILD) -lm

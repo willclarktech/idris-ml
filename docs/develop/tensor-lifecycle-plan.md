@@ -185,16 +185,38 @@ This is gated on the mid-block drain re-enable from Phase 5' — without it, rem
 
 Validate after each removal: `make BACKEND=tape,torch,mlx test` + `make BACKEND=mlx example-dnc-copy`.
 
-### Phase 4' — Linter
+### Phase 4' — Linter — DONE
 
-`scripts/check-ffi-wrap-template.py`:
+Landed alongside a refactor that extracts the canonical manifest into
+`scripts/lifecycle/ffi_manifest.py` — both the converter and the linter
+now read from it.
 
-1. Parse `Tensor.idr` for every `%foreign "scheme:..."` block.
-2. For each block whose Idris signature returns `AnyPtr` and at least one input is `AnyPtr`: check that the Scheme body matches the wrap-on-return template (regex on `vector-ref ... 1`, `(vector 'tensor-handle ...)`, `idris-tensor-guardian`, `tensor_retain_handle`).
-3. For each block whose Idris signature returns a primitive but takes `AnyPtr`: check `vector-ref` for the input(s).
-4. An explicit exemption file (`scripts/ffi-wrap-exemptions.txt`) lists FFIs known not to operate on Tensor handles — `prim__allocDoubles`, `prim__setDouble`, `prim__getDouble`, `prim__memoryReport`, etc.
+- `scripts/lifecycle/check-ffi-wrap-template.py` runs structural checks
+  across all 5 wrap-handle files (Tensor.idr + Device.idr +
+  Device/{Mlx,Tape,Torch}.idr). Per FFI decl:
+  - `%foreign "C:cname,..."` — error if base(cname) is in MANIFEST
+    (missing conversion).
+  - `%foreign "scheme:..."` — find the first foreign-procedure call
+    whose name is in MANIFEST; verify (a) the typespec matches the
+    manifest's arg/return classifiers, (b) every T arg at position i is
+    unwrapped via `(vector-ref a<i> 1)`, (c) T returns wrap +
+    register with `idris-tensor-guardian` + retain, (d) non-T returns
+    do *not* contain a stray `(vector 'tensor-handle …)`.
+  - Bespoke scheme helpers that don't call any MANIFEST symbol
+    (`drainManagedHandles`, `forceMajorGc`, `initManagedHandles`) are
+    exempt automatically — no annotation needed.
 
-`make check-ffi-wrap-template` + CI gate.
+- `make check-ffi-wrap-template` — local invocation.
+- `.github/workflows/test.yml` — added to the `check-paired-defaults`
+  preflight job so a PR fails before the long matrix burns CI minutes.
+
+Found and fixed: 3 stale Phase 0' hand-edits in Tensor.idr (`prim__item`,
+`prim__requiresGrad`, `prim__setRequiresGrad`) used named arg vars (`wt`,
+`rg`) instead of the canonical `a<i>` naming + one carried a stale
+`idris-libidrisml-loaded` lazy-init block. Bit-identical training loss
+pre/post canonicalization on supervised:tape.
+
+606 FFI decls scanned clean across the 5 files.
 
 ### Phase 5' — Perf measurement + drain cadence tuning
 

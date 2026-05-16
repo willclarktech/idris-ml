@@ -98,7 +98,7 @@ export prim__createScalar : Double -> Int -> AnyPtr
 %foreign "scheme:(lambda (a0)  ((foreign-procedure \"tensor_free\" (void*) void) (vector-ref a0 1)))"
 prim__free : AnyPtr -> ()
 
-%foreign "scheme:(lambda (wt) (when (not (top-level-bound? 'idris-libidrisml-loaded)) (load-shared-object \"libidrisml.dylib\") (set-top-level-value! 'idris-libidrisml-loaded #t)) ((foreign-procedure \"tensor_item\" (void*) double) (vector-ref wt 1)))"
+%foreign "scheme:(lambda (a0)  ((foreign-procedure \"tensor_item\" (void*) double) (vector-ref a0 1)))"
 export prim__item : AnyPtr -> Double
 
 -- Device transfer
@@ -279,10 +279,10 @@ export prim__tensorSizeAt : AnyPtr -> Int -> Int
 %foreign "scheme:(lambda (a0 a1 a2)  (let ((raw_r ((foreign-procedure \"tensor_sum_dim\" (void* int int) void*) (vector-ref a0 1) a1 a2))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export prim__sumDim : AnyPtr -> Int -> Int -> AnyPtr
 
-%foreign "scheme:(lambda (wt) ((foreign-procedure \"tensor_requires_grad\" (void*) int) (vector-ref wt 1)))"
+%foreign "scheme:(lambda (a0)  ((foreign-procedure \"tensor_requires_grad\" (void*) int) (vector-ref a0 1)))"
 export prim__requiresGrad : AnyPtr -> Int
 
-%foreign "scheme:(lambda (wt rg) ((foreign-procedure \"tensor_set_requires_grad\" (void* int) void) (vector-ref wt 1) rg))"
+%foreign "scheme:(lambda (a0 a1)  ((foreign-procedure \"tensor_set_requires_grad\" (void* int) void) (vector-ref a0 1) a1))"
 export prim__setRequiresGrad : AnyPtr -> Int -> PrimIO ()
 
 -- Gather / Scatter
