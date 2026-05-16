@@ -472,6 +472,12 @@ int  index_array_get(int* arr, int i);
    "yes"), 0 otherwise. Non-mlx backends always return 0. */
 int tensor_mlx_compile_enabled(void);
 
+/* Count of how many times tensor_backward has entered the compile-enabled
+   code path. Resets via tensor_mlx_compile_reset_stats(). Non-mlx backends
+   always return 0. */
+int  tensor_mlx_compile_invocations(void);
+void tensor_mlx_compile_reset_stats(void);
+
 /* ---------- Debug ---------- */
 
 void tensor_print(TensorHandle t);

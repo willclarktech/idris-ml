@@ -1540,7 +1540,9 @@ void tensor_print(TensorHandle h) {
 
 /* Job 3 Phase B — mx::compile is mlx-only; torch backend always reports
    disabled regardless of MLX_COMPILE env var. */
-int tensor_mlx_compile_enabled(void) { return 0; }
+int  tensor_mlx_compile_enabled(void) { return 0; }
+int  tensor_mlx_compile_invocations(void) { return 0; }
+void tensor_mlx_compile_reset_stats(void) { }
 
 /* ---------- Portable FFI helpers ---------- */
 

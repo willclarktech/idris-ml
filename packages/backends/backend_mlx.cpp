@@ -1662,6 +1662,12 @@ TensorHandle tensor_one_hot(int* tokens, int n_tokens, int vocab_size) {
    Zero hand-written backward rules.
    ================================================================ */
 
+/* Job 3 Phase B — compile-path probe counter. Defined here so
+   tensor_backward (below) and the FFI getters (further down) share
+   the same TU-local symbol. Real mx::compile wiring lands in a
+   later stage. */
+static int g_compile_invocations = 0;
+
 void tensor_backward(TensorHandle h) {
     double t0_bwd = _wall_ms_mlx();
     Tensor* loss = (Tensor*)h;
@@ -2048,7 +2054,17 @@ void tensor_backward(TensorHandle h) {
     auto forward_vec = [&](const std::vector<mx::array>& params) -> std::vector<mx::array> {
         return {forward_fn(params)};
     };
-    auto vjp_result = mx::vjp(forward_vec, param_arrays, {mx::array(1.0f)});
+
+    // Job 3 Phase B — compile-enabled path. At Stage 2 this is just an
+    // observable branch around the same eager vjp call; real mx::compile
+    // wiring lands in subsequent stages.
+    std::pair<std::vector<mx::array>, std::vector<mx::array>> vjp_result;
+    if (tensor_mlx_compile_enabled()) {
+        g_compile_invocations++;
+        vjp_result = mx::vjp(forward_vec, param_arrays, {mx::array(1.0f)});
+    } else {
+        vjp_result = mx::vjp(forward_vec, param_arrays, {mx::array(1.0f)});
+    }
     auto& grads = vjp_result.second;
 
     // Distribute gradients to parameter tensors
@@ -2985,6 +3001,12 @@ int tensor_mlx_compile_enabled(void) {
     if (std::strcmp(v, "yes") == 0) return 1;
     return 0;
 }
+
+/* Counter g_compile_invocations defined near top of file (before
+   tensor_backward, which references it). Getter/setter exposed here as
+   part of the public FFI surface. */
+int  tensor_mlx_compile_invocations(void) { return g_compile_invocations; }
+void tensor_mlx_compile_reset_stats(void) { g_compile_invocations = 0; }
 
 /* ---------- Portable FFI helpers ---------- */
 
