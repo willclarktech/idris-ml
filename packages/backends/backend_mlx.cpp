@@ -21,6 +21,8 @@
 #include <functional>
 #include <sys/resource.h>
 #include <sys/time.h>
+#include <unistd.h>      // _exit
+#include <exception>     // std::set_terminate, std::terminate_handler
 #ifdef __APPLE__
 #include <mach/mach.h>
 #endif
@@ -40,6 +42,33 @@ namespace mx = mlx::core;
 
    See TODO.md "MLX backend: support CPU+f64 mode + dependent-types
    demo" for the proper device-aware Tensor parameterization. */
+// Apple Virtualization VMs (Tart, GHA macOS runners) hit
+// `std::runtime_error: [malloc] Unable to allocate N bytes` (tiny N, 4–512)
+// during process *shutdown* on scalar-heavy workloads (NTM/DNC, SAC
+// actor). Training completes cleanly and the profile report prints; the
+// failure is in mlx-internal static destructors racing against the Metal
+// device teardown. Synchronising + clearing caches before destructors
+// fire (via atexit, which runs before destructors) doesn't help — the
+// throwing destructor is inside mlx itself.
+//
+// Fix: gate `std::terminate` to swallow post-main exceptions. A flag set
+// by atexit distinguishes "after main returned" from "during training" —
+// real exceptions during training still abort normally.
+static bool g_mlx_past_main = false;
+static std::terminate_handler g_prev_terminate_handler = nullptr;
+
+static void mlx_set_past_main(void) { g_mlx_past_main = true; }
+
+static void mlx_terminate_handler(void) {
+    if (g_mlx_past_main) {
+        // Process already exited cleanly; this is a destructor-order
+        // crash we can't fix without a libmlx-upstream change. Exit 0.
+        _exit(0);
+    }
+    if (g_prev_terminate_handler) g_prev_terminate_handler();
+    std::abort();
+}
+
 __attribute__((constructor))
 static void mlx_backend_init(void) {
     const char* env = std::getenv("MLX_DEVICE");
@@ -56,21 +85,30 @@ static void mlx_backend_init(void) {
     // the runner's RAM. Cache limit follows.
     mx::set_memory_limit((size_t)16 * 1024 * 1024 * 1024);
     mx::set_cache_limit((size_t)4 * 1024 * 1024 * 1024);
+    g_prev_terminate_handler = std::set_terminate(mlx_terminate_handler);
+    std::atexit(mlx_set_past_main);
 }
 
 /* ================================================================
    Hot-path scalar constants
    ================================================================
-   Lazy-init via Meyers' singletons so they pick up whatever default
-   device is configured by mlx_backend_init. Sharing a constant
+   Lazy-init via never-destroyed heap singletons. Sharing a constant
    across calls is safe — mlx arrays are immutable from an op's
    perspective; ops produce new arrays rather than mutating inputs.
    Avoid using these as the rhs of mx::outer or similar ops where
-   persistent operands hit a documented slow path (see gotchas.md). */
+   persistent operands hit a documented slow path (see gotchas.md).
+
+   Never-destroyed is intentional: an mx::array's destructor decrements
+   a refcount on an mlx-allocator-owned buffer. At process exit, our
+   compilation unit's static destructors race against mlx's internal
+   statics; on Apple Virtualization VMs (Tart, GHA macOS) the allocator
+   throws `[malloc] Unable to allocate N bytes` when its backing device
+   is already gone. Leaking ~12 bytes + one tiny mlx buffer at exit is
+   the right trade. */
 namespace {
-inline const mx::array& kF32_ZERO() { static const mx::array v(0.0f, mx::float32); return v; }
-inline const mx::array& kF32_ONE()  { static const mx::array v(1.0f, mx::float32); return v; }
-inline const mx::array& kF32_HALF() { static const mx::array v(0.5f, mx::float32); return v; }
+inline const mx::array& kF32_ZERO() { static const mx::array* v = new mx::array(0.0f, mx::float32); return *v; }
+inline const mx::array& kF32_ONE()  { static const mx::array* v = new mx::array(1.0f, mx::float32); return *v; }
+inline const mx::array& kF32_HALF() { static const mx::array* v = new mx::array(0.5f, mx::float32); return *v; }
 }
 
 /* ================================================================
