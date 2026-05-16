@@ -48,11 +48,11 @@ is still useful (saves someone trying it again).
 
 ## Entries
 
-### 2026-05-14 — GptLarge GPU-vs-CPU verdict: CPU still wins — `<commit>`
+### 2026-05-14 — GptLarge GPU-vs-CPU matrix: 20% wallclock gap, optimizer is the lever — `<commit>`
 
-**Plan job**: GPU-friendly-example TODO row (closes the open question
-from `docs/develop/mlx-survey.md` Phase B about whether `mx::compile`
-pays off on GPU-shaped workloads).
+**Plan job**: GPU-friendly-example TODO row (the deliverable said
+"showing GPU > CPU"; we didn't get it, but found the actionable
+next-step lever in the process).
 
 **Motivation**: All previous examples (NTM/DNC/LSTM/MNIST/small Gpt)
 were too small for Apple Metal to beat the CPU stream — kernel-launch
@@ -65,31 +65,43 @@ the paired `torch_ref/scripts/gpt_large.py` to find out.
 6-cell matrix was run at 10 epochs each (single sample; deltas large
 enough to clear the VM noise floor):
 
-| backend           | wall ms/ep | C-total ms/ep |
-|-------------------|-----------:|--------------:|
-| tape              |       9700 |          8830 |
-| torch             |       9500 |          1080 |
-| mlx CPU eager     |       8500 |            34 |
-| mlx CPU compile   |       8800 |            33 |
-| mlx GPU eager     |      10200 |           276 |
-| mlx GPU compile   |     ~10000 |           254 |
+| backend           | wall ms/ep | C-total ms/ep | C-total notes                          |
+|-------------------|-----------:|--------------:|----------------------------------------|
+| tape              |       9700 |          8830 | actual compute (synchronous)           |
+| torch             |       9500 |          1080 | mostly compute (sync per op)           |
+| mlx CPU eager     |       8500 |            34 | **enqueue only**                       |
+| mlx CPU compile   |       8800 |            33 | **enqueue only**                       |
+| mlx GPU eager     |      10200 |           276 | enqueue + per-`mx::eval` sync          |
+| mlx GPU compile   |     ~10000 |           254 | enqueue + per-`mx::eval` sync          |
 
 (GPU measured against pip mlx 0.31.2 with Metal at
 `/tmp/mlx-gpu-test`; nixpkgs mlx is CPU-only.)
 
-**Impact**: mlx GPU is **8-10× slower** than mlx CPU at C-time, and
-compile doesn't close the gap (–8% on GPU is within noise). The
-breakdown shows backward is fast (11 ms/ep on GPU), but optimizer is
-243-265 ms/ep — exactly the 293-param × ~1 ms/launch kernel-launch
-wall. PyTorch's `_foreach_*` fused multi-tensor optimizer ops are the
-standard fix for this; we don't have an equivalent on our mlx (or
-torch) optimizer surface.
+**Impact (revised)**: an earlier reading of this table called GPU
+"8-10× slower" — that was wrong; it treated the mlx C-totals as
+compute time when they're mostly enqueue cost. The honest read:
 
-**Outcome**: question closed — GPU+compile is NOT the right default at
-any example scale we currently ship. Default stays `MLX_DEVICE=cpu`.
-Filed a new high-prio TODO row for the fused-optimizer fix (the
-narrowly-actionable lever) alongside this entry. `mlx-survey.md` Phase
-B section updated with the table and the diagnosis.
+- **Wallclock**: mlx GPU is ~20% slower than mlx CPU stream. Real gap,
+  but small enough to be "not yet" rather than "never".
+- **GPU compute itself looks healthy** — backward forced via `mx::eval`
+  is ~11 ms/ep, which matches the ~7.5 ms FLOPS floor for ~75
+  GFLOPs/step on M2 (~10 TFLOPS) plus sync overhead.
+- **The optimizer step on GPU is 243-265 ms/ep**, exactly the per-param
+  kernel-launch wall: 293 params × ~1 ms each. PyTorch's `_foreach_*`
+  fused multi-tensor ops are the standard fix; we don't have an
+  equivalent on the mlx (or torch) optimizer surface.
+- **The mlx CPU "Backward 2.5 ms/ep" number is unreliable** — it would
+  imply ~30 TFLOPS on a CPU stream, which is impossible. The mlx CPU
+  C-total measures enqueue time; actual compute fires later.
+- **Idris-side / Chez overhead floods all wallclocks** at ~8 s/ep on
+  this hardware. Until that's reduced (separate TODO row), wallclock
+  comparisons are dominated by the constant.
+
+**Outcome**: partial. The example and the measurement matrix exist
+and are in CI; the GPU-wins outcome from the original TODO row isn't
+reached. The actionable lever is the fused multi-tensor optimizer
+(filed as a new high-prio TODO). Default stays `MLX_DEVICE=cpu` until
+that lands; verdict re-opens after.
 
 **Cross-references**:
 - `perf-log.jsonl` 2026-05-14 entries tagged "Phase 3 cell N/6"

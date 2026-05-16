@@ -358,49 +358,90 @@ Open follow-up: build a GPU-friendly example (filed in `TODO.md`
 Medium Priority) to settle whether GPU compile is unambiguously
 the right default.
 
-### Follow-up update (2026-05-14): GptLarge measured, GPU still loses
+### Follow-up update (2026-05-14): GptLarge measured — preliminary verdict needs caveats
 
 Built `Example.GptLarge` (dModel=256, heads=8, headDim=32, blocks=4,
 seq=128, batch=32; 3.17 M params) — significantly bigger than anything
-in the prior matrix — and ran the 6-cell perf grid at 10 epochs:
+in the prior matrix — and ran the 6-cell perf grid at 10 epochs each.
 
-| backend           | wall ms/ep | C-total ms/ep |
-|-------------------|-----------:|--------------:|
-| tape              |       9700 |          8830 |
-| torch             |       9500 |          1080 |
-| mlx CPU eager     |       8500 |            34 |
-| mlx CPU compile   |       8800 |            33 |
-| mlx GPU eager     |      10200 |           276 |
-| mlx GPU compile   |     ~10000 |           254 |
+#### Wallclock — the honest cross-backend comparator
 
-**GPU still loses to CPU stream at this scale.** Even with `mx::compile`
-on, GPU's C-time (254 ms/ep) is 7-8× the CPU stream's (33 ms/ep).
-Compile on CPU is a wash (within noise). Compile on GPU shaves 8% off
-C-time but doesn't close the CPU/GPU gap.
+| backend           | wall ms/ep | gap to mlx CPU eager |
+|-------------------|-----------:|---------------------:|
+| mlx CPU eager     |       8500 |                  —   |
+| mlx CPU compile   |       8800 |               +3.5%  |
+| mlx GPU eager     |      10200 |              +20.0%  |
+| mlx GPU compile   |     ~10000 |              +17.6%  |
+| torch             |       9500 |              +11.8%  |
+| tape              |       9700 |              +14.1%  |
 
-The full breakdown:
-- `Backward`: only 11 ms/ep on GPU — backward pass is fast, no issue
-- `Optimizer`: **243-265 ms/ep on GPU**, vs 20 ms/ep on torch / 54 ms/ep
-  on tape — this dominates GPU C-time
+**Wallclock gap mlx CPU → mlx GPU is ~20%, not 8×.** GPU is slower at
+this config, but the gap is modest — and most of every backend's
+wallclock (~8-10 s/ep) is the same Idris-side / Chez overhead that
+shows up in the parallel "Fix tape per-tape-entry Idris/Chez overhead"
+investigation. That overhead is roughly constant across backends and
+masks the underlying compute differences.
 
-Diagnosis: GptLarge registers 293 parameter tensors. The optimizer
-step launches a separate Metal kernel for each one. At ~1 ms of
-kernel-launch wall per param, that's ~250 ms/ep — exactly what we
-measure. PyTorch's `torch.optim.AdamW` uses fused multi-tensor kernels
-(`_foreach_addcmul_`, `_foreach_add_`, etc.) precisely to amortize
-this; our backend does each param eagerly.
+#### C-totals — mostly enqueue cost, not actual compute
 
-**Conclusion**: closing the "is GPU+compile the right default?" open
-question with "no, not at any example scale we currently ship". Default
-stays `MLX_DEVICE=cpu`. To make GPU the right default, the path
-forward is a fused `nativeAdamW`-class optimizer step on the mlx
-backend — filed as a new TODO row "Fused multi-tensor optimizer kernel
-on mlx (and torch) backends" alongside this finding.
+| backend           | C-total ms/ep | what this measures            |
+|-------------------|--------------:|-------------------------------|
+| tape              |          8830 | actual compute (synchronous)  |
+| torch             |          1080 | mostly compute (sync per op)  |
+| mlx CPU eager     |            34 | **enqueue only** — see below  |
+| mlx CPU compile   |            33 | **enqueue only**              |
+| mlx GPU eager     |           276 | enqueue + per-`mx::eval` sync |
+| mlx GPU compile   |           254 | enqueue + per-`mx::eval` sync |
 
-Wall ms/ep is similar across all backends (~9-10 s/ep) — that's
-Idris-side / Chez overhead, which is being investigated separately
-(see the TODO row "Fix tape per-tape-entry Idris/Chez overhead"; the
-same overhead affects mlx wall-time on this hardware).
+The "8× GPU vs CPU" headline from a first reading of this column is
+misleading. Sanity check: 75 GFLOPs/step at GptLarge size on an M2
+GPU (~10 TFLOPS) implies a compute floor of ~7.5 ms. The reported
+"Backward 11 ms/ep" on GPU includes `mx::eval` forced sync — that's
+real compute. But mlx CPU reports "Backward 2.5 ms/ep" which would
+imply ~30 TFLOPS on a CPU stream — impossible. The mlx CPU profile is
+recording **enqueue time**, not actual compute time; the real compute
+fires later and isn't attributed to the C-total.
+
+So the C-totals can be split honestly only on mlx GPU (where eval
+forces sync at the timing window): real backward ≈ 11 ms/ep, real
+optimizer step ≈ 250 ms/ep. The 250 ms is the per-param `mx::eval`
+in the AdamW loop: 293 params × ~1 ms launch wall.
+
+#### What we actually learned
+
+1. **GPU is ~20% slower on wallclock at GptLarge scale** — small enough
+   that it's a "not yet" rather than a "never". The model is still
+   inside the regime where kernel-launch overhead doesn't get
+   amortized.
+2. **Optimizer per-param `mx::eval` is the most actionable loss on GPU.**
+   PyTorch's `_foreach_addcmul_` / `_foreach_add_` consolidate this
+   into one kernel; our backend does each param eagerly. Filed as a
+   high-prio TODO. **This is the next lever** for getting a GPU-wins
+   example.
+3. **GPU compute itself looks healthy** at ~11 ms/ep for backward
+   (FLOPS-bound, ~75 GFLOPs in ~10 TFLOPS = 7.5 ms floor + sync
+   overhead). The compute path is not the bug.
+4. **Idris-side per-tape-entry overhead (~8 s/ep on this hardware)
+   floods the wallclock** on every backend. Until that's fixed,
+   wallclock comparisons are dominated by the constant, not the
+   compute. The companion TODO row covers that investigation.
+5. **`mx::compile` is still in the noise at this scale** — GPU compile
+   shaves 8% off the GPU C-total but doesn't change the verdict.
+   Compile on CPU is a wash. Default `MLX_COMPILE=0` stays.
+
+#### Conclusion (revised)
+
+Not "GPU is fundamentally too slow at this scale" — closer to "GPU's
+fixed costs aren't amortized yet at this config, and the most
+actionable contributor is the per-param optimizer eval". With a fused
+multi-tensor optimizer (the TODO row), expectation is GPU compute
+should *visibly* dominate the C-total picture and we re-run this
+matrix to settle the wallclock side.
+
+`MLX_DEVICE=cpu` stays the default for now. The GPU-friendly-example
+deliverable from `TODO.md` is "partial" — the example and measurements
+exist, but the GPU-wins outcome is blocked on the fused-optimizer
+prerequisite. Verdict re-opens after that lands.
 
 ## Sources
 
