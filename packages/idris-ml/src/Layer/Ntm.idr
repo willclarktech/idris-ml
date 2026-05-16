@@ -80,14 +80,14 @@ zeroState1d : (n : Nat) -> AnyPtr
 zeroState1d n =
   let nI = cast {to=Int} n
       buf = prim__allocDoubles nI
-  in prim__createManagedState1d nI buf
+  in prim__createState1d nI buf
 
 zeroState2d : (n, m : Nat) -> AnyPtr
 zeroState2d n m =
   let nI = cast {to=Int} n
       mI = cast {to=Int} m
       buf = prim__allocDoubles (nI * mI)
-  in prim__createManagedState2d nI mI buf
+  in prim__createState2d nI mI buf
 
 -- NTM read head decomposition (Graves et al. 2014, §3.3).
 -- Returns (newReadAddr [n], readOutput [m]) given memory [n,m],

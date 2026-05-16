@@ -176,15 +176,30 @@ Split into two sub-phases. Phase 3'-a is the Idris-side cleanup; Phase 3'-b is t
 - The `managedShadow` field on the `Tensor` record (it aliased `tensorPtr` under the wrapped-handle ABI — the wrap IS the value).
 - The `MkTensor`/`MkTensorRaw` split — the data constructor is now `MkTensor` directly; the smart-constructor function is gone. Pattern matches in `weakenGrad`, `retypeGrad` simplified accordingly.
 
-**Phase 3'-b (C-side is_state + state-helper collapse) — pending.** Will retire:
-- `tensor_is_state` (the gate that makes `tensor_retain_internal`/`tensor_release_internal` no-op on non-state Tensors).
-- `tensor_create_managed_state_*` (merged into `tensor_create_state_*`; the persistent=1 flag and is_state=1 flag both become meaningless under uniform refcount-driven lifecycle).
-- The "delete non-persistent at tape_reset" sweep in mlx.
-- `tensor_no_grad_end`'s persistent-only sweep.
-- The `is_state` field on the mlx Tensor struct.
-- Layer/Ntm.idr and Layer/Dnc.idr's `zeroState*` calls collapse to `prim__createState*`.
+**Phase 3'-b (C-side is_state + state-helper collapse) — partially done.**
 
-This is gated on the mid-block drain re-enable from Phase 5' — without it, removing the tape_reset sweep risks letting intermediate Tensor count grow unboundedly inside a single epoch. So Phase 3'-b lands after Phase 5'.
+The plan's *full* P3'-b (retire `is_state` gate, remove the tape_reset sweep, remove `tensor_no_grad_end`'s persistent-only sweep, remove the `is_state` field) requires intermediate-Tensor drain triggers during training to be safe — without those, removing the sweep lets intermediates accumulate across epochs. Phase 5' deferred the drain trigger; the full P3'-b inherits that gating.
+
+**What landed (P3'-b-min)** — the part that's safe without drain triggers:
+
+- mlx: `tensor_create_state_*` and `tensor_create_managed_state_*` collapsed into a single function. The merged version uses `is_state=1` semantics (refcount-managed, survives sweep via `is_state` rather than `persistent`). Callers previously using `persistent=1` (NTM mask, BatchNorm running stats, transformer PE, DNC mask) now go through the same refcount-driven path as the per-sequence transient state — alive via the Idris-side wrap held by the model record / per-sequence binding.
+- `tensor_create_managed_state_*` declarations removed from `backend.h`, definitions removed from `backend_tape.c`, `backend_torch.cpp`, `backend_mlx.cpp`. Per-backend rename headers regenerated.
+- Idris-side: `prim__createManagedState1d`/`prim__createManagedState2d` removed. `Layer/Ntm.idr` and `Layer/Dnc.idr`'s `zeroState1d/zeroState2d` helpers now call `prim__createState1d`/`prim__createState2d`.
+- `scripts/lifecycle/ffi_manifest.py`: removed the `tensor_create_managed_state_*` entries from MANIFEST and INIT_FFI.
+
+**Still pending (gated on drain triggers):**
+- Remove the `is_state` field on the mlx `Tensor` struct.
+- Make `tensor_retain_internal`/`tensor_release_internal` unconditional (drop the `is_state` gate).
+- Remove the "delete non-persistent at tape_reset" sweep.
+- Remove `tensor_no_grad_end`'s persistent-only sweep.
+- Remove the `persistent` field on the mlx `Tensor` struct (after the sweep removal makes it vestigial).
+
+**Verification of P3'-b-min:**
+- `make BACKEND=tape test` + `make BACKEND=mlx test`: 25/25 unit tests green (including `Test.ManagedHandle`).
+- `make check-ffi-wrap-template`: clean (604 FFI decls, 2 fewer than before).
+- `make test-examples`: 72/79 ok, 7 fail — same 7 mlx failures as commit `506d82b` plus `ppo:tape` *now passes* (was failing on `506d82b`).
+
+Side effect: ppo:tape went FAIL → PASS. Suggests the previous `ppo:tape` UAF (task #89) was related to the duplicate state-creation paths in some indirect way (e.g. a tape-iteration build state interacting with managed-state symbol resolution). Worth re-examining #89 in light of this.
 
 Validate after each removal: `make BACKEND=tape,torch,mlx test` + `make BACKEND=mlx example-dnc-copy`.
 

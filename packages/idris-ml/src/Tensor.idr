@@ -401,7 +401,12 @@ prim__createParam2d : Int -> Int -> AnyPtr -> AnyPtr
 export
 prim__createParam1d : Int -> AnyPtr -> AnyPtr
 
--- Persistent non-param tensors (for non-learnable state like NTM memory)
+-- State tensors (non-learnable, non-grad). Both init-time permanent state
+-- (NTM mask, BatchNorm running stats, transformer PE, DNC mask) AND
+-- per-sequence transient state (Ntm/Dnc zeroState) flow through this
+-- single path. mlx: is_state=1, refcount-driven; the Idris-side wrap is
+-- the only stable holder, so the Tensor lives as long as the holder does.
+-- tape/torch: the backend's own arena/shared_ptr handles freeing.
 %foreign "scheme:(lambda (a0 a1 a2) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_state_2d\" (int int void*) void*) a0 a1 a2))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export
 prim__createState2d : Int -> Int -> AnyPtr -> AnyPtr
@@ -409,22 +414,6 @@ prim__createState2d : Int -> Int -> AnyPtr -> AnyPtr
 %foreign "scheme:(lambda (a0 a1) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_state_1d\" (int void*) void*) a0 a1))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export
 prim__createState1d : Int -> AnyPtr -> AnyPtr
-
--- Lifecycle-managed variants. Use for *per-sequence transient state*:
--- the wrap registered with `idris-tensor-guardian` is the C-side
--- Tensor's only stable holder, so refcount can drop to zero and free
--- the underlying mx::array when the model record is dropped + drained.
--- On tape/torch these forward to the non-managed versions (those
--- backends don't need refcount).
--- TODO(P3'-b): collapse into prim__createState* once the C-side
--- is_state gate is retired and tape_reset drives off refcount.
-%foreign "scheme:(lambda (a0 a1 a2) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_managed_state_2d\" (int int void*) void*) a0 a1 a2))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-export
-prim__createManagedState2d : Int -> Int -> AnyPtr -> AnyPtr
-
-%foreign "scheme:(lambda (a0 a1) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_managed_state_1d\" (int void*) void*) a0 a1))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
-export
-prim__createManagedState1d : Int -> AnyPtr -> AnyPtr
 
 %foreign "scheme:(lambda (a0 a1 a2)  (let ((raw_r ((foreign-procedure \"tensor_view_2d\" (void* int int) void*) (vector-ref a0 1) a1 a2))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export

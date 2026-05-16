@@ -177,8 +177,6 @@ MANIFEST = {
     "tensor_create_param_4d":           (("i", "i", "i", "i", "R"), "T"),
     "tensor_create_state_1d":           (("i", "R"), "T"),
     "tensor_create_state_2d":           (("i", "i", "R"), "T"),
-    "tensor_create_managed_state_1d":   (("i", "R"), "T"),
-    "tensor_create_managed_state_2d":   (("i", "i", "R"), "T"),
 
     # Ptr array (raw array of Tensor handles)
     "tensor_ptr_array_set":             (("R", "i", "T"), "v"),
@@ -257,8 +255,6 @@ INIT_FFI = {
     "tensor_create_param_4d",
     "tensor_create_state_1d",
     "tensor_create_state_2d",
-    "tensor_create_managed_state_1d",
-    "tensor_create_managed_state_2d",
     "tensor_one_hot",
     "tensor_causal_mask",
     "mnist_get_image",

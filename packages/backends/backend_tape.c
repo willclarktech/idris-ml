@@ -5043,16 +5043,6 @@ TensorHandle tensor_create_state_1d(int n, double* data) {
     return t;
 }
 
-/* tape doesn't need refcount lifecycle — its arena handles state already.
- * The "managed" variants exist for multi-link symbol parity; behave
- * identically to the non-managed versions. */
-TensorHandle tensor_create_managed_state_2d(int rows, int cols, double* data) {
-    return tensor_create_state_2d(rows, cols, data);
-}
-TensorHandle tensor_create_managed_state_1d(int n, double* data) {
-    return tensor_create_state_1d(n, data);
-}
-
 TensorHandle tensor_view_2d(TensorHandle h, int row, int col) {
     Tensor* t = (Tensor*)h;
     int cols = t->shape[1];

@@ -1064,16 +1064,6 @@ TensorHandle tensor_create_state_1d(int n, double* data) {
     return from_tensor_persistent(std::move(t));
 }
 
-/* torch handles state lifecycle through libtorch — no refcount surface
- * needed. Managed variants forward to the non-managed versions for
- * multi-link symbol parity. */
-TensorHandle tensor_create_managed_state_2d(int rows, int cols, double* data) {
-    return tensor_create_state_2d(rows, cols, data);
-}
-TensorHandle tensor_create_managed_state_1d(int n, double* data) {
-    return tensor_create_state_1d(n, data);
-}
-
 TensorHandle tensor_view_2d(TensorHandle h, int row, int col) {
     /* Returns a 0-dim view that shares storage with the parent tensor.
        Must be persistent — views into param tensors survive free_intermediates. */

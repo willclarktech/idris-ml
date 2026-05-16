@@ -110,8 +110,6 @@
 #define tensor_create tensor_create_mlx
 #define tensor_create_1d tensor_create_1d_mlx
 #define tensor_create_2d tensor_create_2d_mlx
-#define tensor_create_managed_state_1d tensor_create_managed_state_1d_mlx
-#define tensor_create_managed_state_2d tensor_create_managed_state_2d_mlx
 #define tensor_create_param_1d tensor_create_param_1d_mlx
 #define tensor_create_param_2d tensor_create_param_2d_mlx
 #define tensor_create_param_3d tensor_create_param_3d_mlx

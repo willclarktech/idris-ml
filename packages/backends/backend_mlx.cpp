@@ -2721,33 +2721,20 @@ TensorHandle tensor_create_param_1d(int n, double* data) {
     return t;
 }
 
-// Init-time constants (persistent across the whole training run): masks,
-// fixed initialReadOuts, etc. Held as raw AnyPtr in model record fields.
-// persistent=1 — survives tape_reset forever. is_state=0 — refcount path
-// doesn't apply.
+// State Tensors — covers both init-time permanent state (NTM mask, batch
+// norm running stats, transformer positional encoding, DNC mask) AND
+// per-sequence transient state (Ntm/Dnc zeroState). Both flow through
+// the same lifecycle: is_state=1 → survives tape_reset's sweep AND is
+// refcount-managed. The Idris-side wrap-and-retain on creation gives the
+// first refcount bump; tape_append retains state args while the tape
+// references them; drain at withNoGrad exit / model-record destruction
+// releases. When refcount hits 0, the Tensor is freed.
+//
+// "Permanent" state stays alive via the Idris model record holding its
+// wrap for the whole training run — no separate persistent flag needed.
+// "Transient" per-sequence state's wrap dies at the end of each forward,
+// drain releases, and it gets freed.
 TensorHandle tensor_create_state_2d(int rows, int cols, double* data) {
-    int shape[] = {rows, cols};
-    auto t = tensor_create(data, shape, 2, 0);
-    ((Tensor*)t)->persistent = 1;
-    free(data);
-    return t;
-}
-
-TensorHandle tensor_create_state_1d(int n, double* data) {
-    int shape[] = {n};
-    auto t = tensor_create(data, shape, 1, 0);
-    ((Tensor*)t)->persistent = 1;
-    free(data);
-    return t;
-}
-
-// Per-sequence transient state — model record holds an Idris-wrapped
-// Tensor pointing here. Refcount semantics: the Idris-side managed-handle
-// wrap creates a guardian shadow that retains; tape_append retains as
-// long as the tape references it; release on shadow-drain and tape_reset.
-// When refcount drops to 0, the Tensor is freed. Drives the per-eval-block
-// state-leak fix.
-TensorHandle tensor_create_managed_state_2d(int rows, int cols, double* data) {
     int shape[] = {rows, cols};
     auto t = tensor_create(data, shape, 2, 0);
     auto* tt = (Tensor*)t;
@@ -2758,7 +2745,7 @@ TensorHandle tensor_create_managed_state_2d(int rows, int cols, double* data) {
     return t;
 }
 
-TensorHandle tensor_create_managed_state_1d(int n, double* data) {
+TensorHandle tensor_create_state_1d(int n, double* data) {
     int shape[] = {n};
     auto t = tensor_create(data, shape, 1, 0);
     auto* tt = (Tensor*)t;

@@ -313,15 +313,15 @@ TensorHandle   tensor_cat_from_array(TensorHandle* arr, int count, int dim);
 TensorHandle tensor_create_param_2d(int rows, int cols, double* data);
 /* Create a [n] tensor filled with given data, requires_grad=true */
 TensorHandle tensor_create_param_1d(int n, double* data);
-/* Create persistent tensors WITHOUT requires_grad (for non-learnable state) */
+/* Create state tensors WITHOUT requires_grad. Covers both init-time
+ * permanent state (NTM mask, BatchNorm running stats, transformer PE,
+ * DNC mask) and per-sequence transient state (Ntm/Dnc zeroState). mlx:
+ * is_state=1 + refcount=0; lifecycle is driven by the Idris-side wrap
+ * (alive while the model record / per-sequence binding references it).
+ * tape/torch: no refcount surface; the backend's own arena / shared_ptr
+ * handles freeing. */
 TensorHandle tensor_create_state_2d(int rows, int cols, double* data);
 TensorHandle tensor_create_state_1d(int n, double* data);
-/* Like tensor_create_state_*, but lifecycle-managed via refcount + Idris-side
- * managed-handle wrap. Use for *per-sequence* transient state that the model
- * record wraps in `MkTensor`; eligible for free when neither Idris nor the
- * tape references it. mlx only — tape/torch return a normal state tensor. */
-TensorHandle tensor_create_managed_state_2d(int rows, int cols, double* data);
-TensorHandle tensor_create_managed_state_1d(int n, double* data);
 /* Get a scalar view into element [row, col] of a 2D tensor (shares storage) */
 TensorHandle tensor_view_2d(TensorHandle mat, int row, int col);
 /* Get a scalar view into element [idx] of a 1D tensor (shares storage) */
