@@ -835,10 +835,8 @@ prim__backwardC : AnyPtr -> PrimIO ()
 %foreign "C:param_zero_all_grads,libidrisml"
 prim__zeroAllGradsC : PrimIO ()
 
-||| Run backward on a loss tensor.
-export
-runBackward : AnyPtr -> IO ()
-runBackward ptr = primIO (prim__backwardC ptr)
+-- runBackward is defined post-Tensor record below; the type-level
+-- gate (Tensor [] d WithGrad -> IO ()) lives there.
 
 %foreign "C:param_count,libidrisml"
 prim__paramCountC : PrimIO Int
@@ -1186,6 +1184,16 @@ tgruCell {n} ih hh prevH =
 export
 tensorItem : Tensor [] d g -> Double
 tensorItem v = prim__item v.tensorPtr
+
+||| Run backward on a loss tensor. The loss MUST be `WithGrad` —
+||| a `NoGrad` scalar can't have come from a path the autograd tape
+||| recorded, so backward would be a silent no-op at best and a
+||| malformed-tape crash at worst. Rejecting at the type level
+||| catches "loss computed inside `withNoGrad`, then fed to training"
+||| — the bug class the entire `GradMode` refactor exists to prevent.
+export
+runBackward : Tensor [] d WithGrad -> IO ()
+runBackward t = primIO (prim__backwardC t.tensorPtr)
 
 -- Loss (vector targets → scalar loss) ---------------------------------
 

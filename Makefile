@@ -276,6 +276,13 @@ check-gym:
 check-paired-defaults:
 	@python3 scripts/check-paired-defaults.py
 
+# Verify the GradMode gate is intact: a NoGrad loss must NOT type-check
+# as input to nativeTrainStep. Inverts the idris2 exit code (success =
+# compile failed) and matches on the WithGrad/NoGrad error message.
+# Depends on `install` so idris-ml is locatable in the local IDRIS2 prefix.
+check-gradmode-gate: install
+	@./scripts/check-gradmode-gate.sh
+
 # Type-check examples (builds each as executable, which is the real check)
 check-examples: install
 	@for f in $(EXAMPLE_SRC)/Example/*.idr; do \

@@ -155,6 +155,14 @@ jobs:
       - name: Install libraries
         run: make install
 
+      - name: Verify GradMode gate (NoGrad loss rejected at compile)
+        # Asserts the type-level gate `nativeTrainStep : ... -> Tensor [] d
+        # WithGrad -> Double` still rejects a `NoGrad` loss. If this step
+        # ever passes the negative test (i.e. the gate compiles a NoGrad
+        # loss), the "inference loss silently no-ops training" bug class
+        # has regressed.
+        run: make check-gradmode-gate
+
       - name: Run integration tests
         # SKIP_EXAMPLES: 4 mlx examples that hit an mlx 0.31 allocator
         # regression specific to GH Actions macOS-latest VMs (works fine
