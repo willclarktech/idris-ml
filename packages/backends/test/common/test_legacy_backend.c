@@ -1476,13 +1476,12 @@ Test(legacy_backend, safetensors_roundtrip) {
    T12: Tensor view / shared storage
    ================================================================ */
 
-/* The tensor_view test exercises `tensor_select(tensor_select(...))` chain
-   against a freshly-created param, then re-reads via another double-select
-   after the optimizer step. Standalone it segfaults on tape (something in
-   tape's intermediate-tracking after the optimizer step that the legacy
-   monolithic harness sidestepped via prior-test warm-up). Mark as
-   `.disabled = 1` here and document in TODO.md; rerun once tape's view-
-   chain semantics are revisited. */
+/* Regression for the arena-aliasing bug fixed in `6578b81` — exercises the
+   double-`tensor_select` chain against a fresh param both before and after
+   the optimizer step. The post-step branch (line 1510) is the one that
+   used to segfault when arena_reset rewound to reissue the parent struct
+   or its data buffer; tensor_create(requires_grad=1) now heap-allocates
+   those, so the alias can't fire. */
 Test(legacy_backend, tensor_view) {
     param_clear();
     double wdata[] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
