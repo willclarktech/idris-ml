@@ -64,9 +64,6 @@ EXAMPLES: list[dict] = [
     {"name": "gpt",
      "idris": "packages/idris-ml-examples/src/Example/Gpt.idr",
      "python": "packages/pytorch/torch_ref/scripts/gpt.py"},
-    {"name": "gpt-large",
-     "idris": "packages/idris-ml-examples/src/Example/GptLarge.idr",
-     "python": "packages/pytorch/torch_ref/scripts/gpt_large.py"},
     # NTM/DNC family: alpha/eps/momentum are RMSprop tuning. Idris exposes
     # them as CLI flags; Python bakes them into `torch.optim.RMSprop(...)`.
     # Same values used on both sides (verified at call site).

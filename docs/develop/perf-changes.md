@@ -1853,3 +1853,56 @@ the `OP_LSTM_GATES_CELL` cell-output fused op.
 - The chez-profile recipe (`docs/develop/chez-profiling.md`) was the
   tool that produced the 22× win; not used for this follow-up since
   the cost is on the mlx C side, not the Idris side
+
+### 2026-05-15 — New `Example/MatmulBench`; retire GptLarge — `<commit>`
+
+**Context**: the GptLarge example was added 2026-05-09 as the
+"GPU-shaped GPT variant" intended to demonstrate mlx GPU > CPU.
+Today's microbench (`/tmp/bench_matmul.c`) localised exactly where
+the crossover happens for mlx in this Tart VM environment:
+
+| N | CPU per-call | GPU per-call | Winner |
+|---|---:|---:|---|
+| 256  | 0.09 ms | 0.74 ms | CPU (GPU loses 8.2×) |
+| 512  | 0.29 ms | 1.03 ms | CPU |
+| **1024** | 1.69 ms | 1.60 ms | tied (crossover) |
+| **2048** | 14.15 ms | 6.28 ms | **GPU 2.3×** |
+| **4096** | 120.67 ms | 32.17 ms | **GPU 3.75×** |
+
+GptLarge sits at N=256-tensor-size territory — structurally CPU
+land. No amount of mx::compile / Path-A / etc. can flip it without
+either bigger tensors (Tart VM ceiling) or fundamental Idris
+runtime changes (out of scope).
+
+**Change**: new `Example/MatmulBench.idr` does pure forward
+matmuls at N=2048 (default) / 4096 (configurable) through the
+typed `Tensor` API. No training, no gradient — just a clean
+demonstration of "type-safe shape arithmetic AND GPU dominance"
+at the scale where the second part is true. Measured on this VM:
+
+| N | CPU (idris-ml) | GPU (idris-ml) | Speedup |
+|---|---:|---:|---:|
+| 2048 | 13.76 ms (1248 GFLOPS) | 7.81 ms (2197 GFLOPS) | **1.76×** |
+| 4096 | 120.96 ms (1136 GFLOPS) | 33.97 ms (4045 GFLOPS) | **3.56×** |
+
+The idris-ml numbers track the raw C bench within VM noise — the
+typed wrapper costs nothing material at these compute sizes.
+
+**Removed**: `Example/GptLarge.idr` + `torch_ref/scripts/gpt_large.py`
++ Makefile targets (`example-gpt-large`, `example-gpt-large-full`,
+`ref-gpt-large`) + `scripts/perf-run.sh` + `scripts/check-paired-defaults.py`
+entries. The historical perf-log + perf-changes entries about
+GptLarge stay (they're append-only and document real findings —
+the PE-caching 22× speedup, the Idris-VM-99.99%-of-wall diagnostic,
+the chez-profile recipe — all came out of that example's work).
+
+**TODO opened**: medium-priority row for a Llama-class inference
+example. mlx is canonically built for LLM inference (Llama, Mistral,
+etc.) where the per-op compute >> kernel launch and GPU dominates
+by 5-20×. Implementing tiny-Llama-1.1B inference would be the real
+showcase — the matmul bench is the smallest version of that story.
+
+**Cross-references**:
+- `perf-log.jsonl` `kind=microbench` entries timestamped 2026-05-15T01:36..01:39
+- `/tmp/bench_matmul.c` is the raw C version of the same bench (no
+  Idris involvement) that established the crossover points

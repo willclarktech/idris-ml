@@ -14,9 +14,9 @@ modules = Generate
         , Example.Dqn
         , Example.FrozenLake
         , Example.Gpt
-        , Example.GptLarge
         , Example.Gru
         , Example.Lstm
+        , Example.MatmulBench
         , Example.Mnist
         , Example.MonteCarlo
         , Example.MountainCar

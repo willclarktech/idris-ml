@@ -27,7 +27,7 @@ if [ $# -lt 2 ]; then
 usage: $0 <example-key> <backend> [example-args...]
 
 example-keys: ntm-copy, ntm-recall, dnc-copy, dnc-recall, supervised,
-              rnn, lstm, gru, transformer, gpt, gpt-large, mnist, seq-classify,
+              rnn, lstm, gru, transformer, gpt, matmul-bench, mnist, seq-classify,
               reinforce, dqn, mountain-car, mountain-car-cont, a2c,
               ppo, sac
 backends:     tape, mlx, torch
@@ -50,7 +50,7 @@ case "$EXAMPLE_KEY" in
   gru)                 TGT=example-gru;                        AVAR=GRU_ARGS ;;
   transformer)         TGT=example-transformer;                AVAR=TRANSFORMER_ARGS ;;
   gpt)                 TGT=example-gpt;                        AVAR=GPT_ARGS ;;
-  gpt-large)           TGT=example-gpt-large;                  AVAR=GPT_LARGE_ARGS ;;
+  matmul-bench)        TGT=example-matmul-bench;               AVAR=MATMUL_BENCH_ARGS ;;
   mnist)               TGT=example-mnist;                      AVAR=MNIST_ARGS ;;
   seq-classify)        TGT=example-seq-classify;               AVAR=SEQ_ARGS ;;
   reinforce)           TGT=example-reinforce;                  AVAR=REINFORCE_ARGS ;;
