@@ -941,80 +941,8 @@ TensorHandle tensor_embedding(TensorHandle hweight, TensorHandle hindices, int n
     return tensor_embedding_mlx_streamed(hweight, hindices, n, embedDim, default_stream_tag());
 }
 
-extern "C" TensorHandle tensor_gather_mlx_streamed(TensorHandle hinput, TensorHandle hindex, int n, int stream_tag) {
-    WITH_STREAM(stream_tag);
-
-    (void)n;
-    auto inp = (Tensor*)hinput;
-    auto idx = (Tensor*)hindex;
-    auto idx_int = mx::astype(idx->data, mx::int32);
-    auto result = mx::take(inp->data, idx_int, 0);
-    auto r = new Tensor(result, inp->requires_grad);
-    if (inp->requires_grad) tape_append(OP_GATHER, r, inp, idx, 0);
-    return (TensorHandle)r;
-
-}
-TensorHandle tensor_gather(TensorHandle hinput, TensorHandle hindex, int n) {
-    return tensor_gather_mlx_streamed(hinput, hindex, n, default_stream_tag());
-}
-
-extern "C" TensorHandle tensor_scatter_add_mlx_streamed(TensorHandle hindex, TensorHandle hsrc, int out_size, int stream_tag) {
-    WITH_STREAM(stream_tag);
-
-    auto idx = (Tensor*)hindex;
-    auto src = (Tensor*)hsrc;
-    auto idx_int = mx::astype(idx->data, mx::int32);
-    auto base = mx::zeros({out_size}, src->data.dtype());
-    /* mx::scatter_add updates shape: indices.shape + base.shape[axis+1:].
-       For 1D base on axis 0 that's [N, 1] (the trailing 1 is the empty
-       remainder reified as a singleton). */
-    auto updates_2d = mx::reshape(src->data, {(int)src->data.size(), 1});
-    auto result = mx::scatter_add(base, {idx_int}, updates_2d, std::vector<int>{0});
-    auto r = new Tensor(result, src->requires_grad);
-    if (src->requires_grad) tape_append(OP_SCATTER_ADD, r, src, idx, (double)out_size);
-    return (TensorHandle)r;
-
-}
-TensorHandle tensor_scatter_add(TensorHandle hindex, TensorHandle hsrc, int out_size) {
-    return tensor_scatter_add_mlx_streamed(hindex, hsrc, out_size, default_stream_tag());
-}
-
-extern "C" TensorHandle tensor_argsort_mlx_streamed(TensorHandle ht, int dim, int descending, int stream_tag) {
-    WITH_STREAM(stream_tag);
-
-    auto t = (Tensor*)ht;
-    // MLX argsort returns ascending by default
-    auto indices = mx::argsort(t->data, dim);
-    if (descending) {
-        // Reverse: take from end
-        int n = (int)t->data.size();
-        auto rev_idx = mx::subtract(mx::array(n - 1), mx::arange(n));
-        indices = mx::take(indices, rev_idx);
-    }
-    auto result = mx::astype(indices, mx::float32);
-    mx::eval(result);
-    return (TensorHandle)(new Tensor(result, false)); // no grad for indices
-
-}
-TensorHandle tensor_argsort(TensorHandle ht, int dim, int descending) {
-    return tensor_argsort_mlx_streamed(ht, dim, descending, default_stream_tag());
-}
-
-extern "C" TensorHandle tensor_cumprod_mlx_streamed(TensorHandle ht, int dim, int stream_tag) {
-    WITH_STREAM(stream_tag);
-
-    auto t = (Tensor*)ht;
-    auto result = mx::cumprod(t->data, dim);
-    auto r = new Tensor(result, t->requires_grad);
-    if (r->requires_grad) {
-        tape_append(OP_CUMPROD, r, t, NULL, 0.0);
-    }
-    return (TensorHandle)r;
-
-}
-TensorHandle tensor_cumprod(TensorHandle ht, int dim) {
-    return tensor_cumprod_mlx_streamed(ht, dim, default_stream_tag());
-}
+/* Index ops (gather, scatter_add) live in backend_mlx/linear/index/.
+ * Sort ops (argsort, cumprod) live in backend_mlx/linear/sort/. */
 
 extern "C" TensorHandle tensor_gru_cell_mlx_streamed(TensorHandle hih, TensorHandle hhh,
                               TensorHandle hprev, int o, int stream_tag) {
