@@ -1,0 +1,299 @@
+# mlx internals survey — Job 3 Phase B
+
+Survey of mlx 0.31.2's `compile` / `vjp` C++ API and how it could
+compose with our `tensor_backward`'s replay-VJP pattern in
+`backend_mlx.cpp`. Phase B step 1 deliverable per the plan.
+
+Date: 2026-05-12. Headers walked:
+- `mlx/include/mlx/compile.h` (public API)
+- `mlx/include/mlx/compile_impl.h` (detail / cache API)
+- `mlx/include/mlx/transforms.h` (`vjp`, `value_and_grad`, etc.)
+- mlx-examples MNIST `main.py` (canonical Python idiom)
+- ml-explore.github.io/mlx user-facing compile docs
+
+## TL;DR
+
+`mx::compile` does compose with `mx::vjp` (mlx docs say "function
+transformations are composable" and explicitly demonstrate
+`mx.compile(mx.grad(mx.exp))`). For a fixed-architecture training
+loop, compiling the forward closure once at first backward and
+reusing it across epochs is the canonical use case.
+
+Three real integration blockers stand between us and a working
+prototype:
+
+1. **Cache-key plumbing**. The public C++ `compile` overload takes
+   `std::function<...> fun` and has no `fun_id` parameter. The
+   *real* compile API (`mlx::core::detail::compile` in
+   `compile_impl.h`) takes a `std::uintptr_t fun_id` used as the
+   cache key. The Python binding derives this from
+   `reinterpret_cast<std::uintptr_t>(fun.ptr())` — Python object
+   identity. We need to do the equivalent in C++ ourselves — either
+   keep the `std::function` at a stable address and use its
+   pointer, or hash the tape signature into a `fun_id`.
+
+2. **Closure capture must become explicit inputs**. Today
+   `tensor_backward` captures `*tape_ref`, `constants`, and
+   `param_pool_indices` into the forward closure. Of these, the
+   `constants` array contains *non-param* inputs to the tape (input
+   data X, targets y, possibly initial RNN states) which **change
+   each batch**. mlx's compile bakes captured state into the graph
+   at trace time — so we'd compile against the first batch's X/y
+   and silently use them forever. Fix: thread constants through as
+   additional function arguments (Python's `inputs=` / `outputs=`
+   keywords are syntactic sugar for exactly this; the binding code
+   inserts them at the end of the arg list before each call).
+
+3. **Variable-shape examples need a different strategy**. mlx's
+   `compile` with `shapeless=false` (default) recompiles on shape
+   change. For variable-`maxLen` NTM-copy, the tape ops + shapes
+   change each epoch — naively, every epoch would recompile. Two
+   sub-options: (a) `shapeless=true` (mlx docs flag this as risky
+   for graphs with shape-conditional ops, of which we have many —
+   reshape, transpose, softmax-with-axis); (b) cache a compiled
+   artifact per `(tape_signature, shape_tuple)` and accept the
+   per-length compile cost.
+
+## Verified facts about `mx::compile`
+
+### Public C++ API (`compile.h`)
+
+```cpp
+namespace mlx::core {
+enum class CompileMode { disabled, no_simplify, no_fuse, enabled };
+
+MLX_API std::function<std::vector<array>(const std::vector<array>&)> compile(
+    std::function<std::vector<array>(const std::vector<array>&)> fun,
+    bool shapeless = false);
+
+MLX_API std::function<std::vector<array>(const std::vector<array>&)> compile(
+    std::vector<array> (*fun)(const std::vector<array>&),
+    bool shapeless = false);
+
+template <typename F, /* enable_if capture-less */>
+std::function<std::vector<array>(const std::vector<array>&)> compile(
+    F&& f, bool shapeless = false) { return compile(+f, shapeless); }
+
+MLX_API void disable_compile();
+MLX_API void enable_compile();
+MLX_API void set_compile_mode(CompileMode mode);
+}
+```
+
+- Returns a function with the same signature → composes with any
+  transform (`vjp`, `jvp`, `grad`, `vmap`) that accepts a
+  `vec<array> → vec<array>` function.
+- `shapeless=false` (default): recompile on input shape change.
+- `shapeless=true`: compile once for all shapes (risky — docs warn
+  "any graphs which are conditional on the input shapes will not
+  work as expected").
+- Capture-less lambda overload converts via unary `+f` (function-
+  pointer-decay). Our closure heavily captures state — cannot use.
+- `MLX_DISABLE_COMPILE` env var globally disables compilation.
+  Useful for A/B during prototype.
+
+### Internal API (`compile_impl.h`)
+
+```cpp
+namespace mlx::core::detail {
+
+MLX_API std::function<std::vector<array>(...)> compile(
+    std::function<std::vector<array>(...)> fun,
+    std::uintptr_t fun_id,
+    bool shapeless = false,
+    std::vector<uint64_t> constants = {});
+
+MLX_API void compile_erase(std::uintptr_t fun_id);
+MLX_API void compile_clear_cache();
+MLX_API bool compile_cache_empty();
+bool compile_available_for_device(const Device& device);
+}
+```
+
+Header comment: *"This is not part of the general C++ API as
+calling with a bad id is a bad idea."* Using it commits us to an
+mlx-internal symbol. Risk: future mlx version could remove or
+rename. Mitigation: pin mlx version + write a smoke test that
+asserts the symbol resolves.
+
+The `constants` parameter is **cache-key constants** (e.g. scalar
+config like axis values), not the Python `inputs=` feature.
+
+### Composition with `vjp`
+
+Header comment from mlx docs: *"In MLX function transformations
+are composable. You can apply any function transformation to the
+output of any other function transformation."* Example given:
+`compiled_grad_fn = mx.compile(mx.grad(mx.exp))`.
+
+For our pattern: `mx::vjp(compiled_forward, all_inputs, {1.0f})`
+should work — mlx will trace the compiled function (which already
+has the optimized graph baked in), then auto-derive the VJP.
+
+### Performance signal
+
+The only concrete number in mlx's compile docs: *"On an M1 Max the
+times are 15.5 and 3.1 milliseconds. The compiled `gelu` is five
+times faster."* — but that's for a chained elementwise gelu, the
+ideal kernel-fusion case. Our DNC-class tapes have ~3K entries
+mixing matmul / softmax / reshape / transpose; the achievable
+speedup depends on how much mlx's fuser collapses across op
+boundaries.
+
+### Canonical idiom (mlx-examples MNIST)
+
+```python
+@partial(mx.compile, inputs=model.state, outputs=model.state)
+def step(X, y):
+    loss, grads = loss_and_grad_fn(model, X, y)
+    optimizer.update(model, grads)
+    return loss
+```
+
+Note: this compiles the **entire training step** (forward + grad +
+optimizer update) into one compiled artifact. A stronger pattern
+than just compiling the forward — the optimizer's parameter
+updates are part of the compiled graph too. We could pursue this
+later; for the first prototype, just compile the forward and let
+the optimizer step run eagerly.
+
+## Our current `tensor_backward` (relevant excerpt)
+
+`packages/backends/backend_mlx.cpp:1665-2051`:
+
+```cpp
+void tensor_backward(TensorHandle h) {
+    // Collect param pool indices and arrays
+    std::vector<int> param_pool_indices;
+    std::vector<mx::array> param_arrays;
+    for (auto& p : param_registry) { ... }
+
+    // Build constant pool from tape (O(tape_size))
+    std::vector<std::pair<int, mx::array>> constants;
+    for (int i = 0; i <= loss->tape_idx; i++) {
+        auto& e = tape[i];
+        add_const(e.result); add_const(e.arg1); add_const(e.arg2);
+    }
+
+    // Capture tape state for the closure
+    int loss_tape_idx = loss->tape_idx;
+    auto tape_ref = &tape;
+    auto constants_ref = &constants;
+
+    auto forward_fn = [&](const std::vector<mx::array>& params) -> mx::array {
+        std::vector<mx::array> pool(pool_size, kF32_ZERO());
+        for (auto& [idx, arr] : *constants_ref) pool[idx] = arr;
+        for (int i = 0; i < (int)params.size(); i++)
+            pool[param_pool_indices[i]] = params[i];
+
+        for (int i = 0; i <= loss_tape_idx; i++) {
+            auto& e = (*tape_ref)[i];
+            // switch over e.op — 60+ cases applying mx::add/sub/mul/matmul/...
+        }
+        return pool[loss_pool_idx];
+    };
+
+    auto vjp_result = mx::vjp(forward_fn, param_arrays, {mx::array(1.0f)});
+    // ... write grads back to param.grad fields ...
+}
+```
+
+This closure is the right shape (`vec<array> → vec<array>`,
+modulo unary loss output) and is what we'd hand to `compile`. The
+two issues call out by the survey:
+
+1. **`constants` are captured by reference and change per batch**.
+   X/y/etc. would bake into the compiled graph. Refactor: thread
+   them as additional `params` entries; either tell `vjp` to skip
+   them via `argnums`, or just discard their grads.
+2. **The lambda is fresh per `tensor_backward` call** — no stable
+   address for `fun_id`. Cache the lambda + its compiled form in
+   a static map keyed on tape-signature hash.
+
+## Tape signature for caching
+
+For the cache key, hash:
+- The op sequence: `[e.op for e in tape[0..loss_tape_idx]]`
+- The shape signature: `[(arg1_shape, arg2_shape, result_shape) for e in tape[...]]`
+- The `scalar_arg` / `op_meta` for ops that carry them (axis values
+  for sum_dim, softmax dim, etc.)
+
+For fixed-architecture examples (MNIST, supervised, fixed-seq RNN),
+this hash is constant across epochs → one compile, infinite reuse.
+For variable shapes (NTM-copy maxLen), hash differs per epoch → one
+compile per (architecture, maxLen) tuple. With ~10 distinct lengths
+seen during training, that's 10 cached artifacts — bounded.
+
+## Prototype scope (Phase B step 2)
+
+Smallest end-to-end test:
+
+1. **Refactor `tensor_backward` closure** to take *all* inputs as
+   function args (params first, then constants). Bit-identical
+   convergence on tape (sanity check that the refactor itself
+   doesn't break things).
+2. **Add a `MLX_COMPILE` env-var-gated path** in `tensor_backward`:
+   - Compute tape-signature hash → `fun_id`.
+   - Look up cached compiled function for this `fun_id`.
+   - On miss: build the forward closure, call
+     `mlx::core::detail::compile(fwd, fun_id, /*shapeless=*/false,
+     /*constants=*/{})`, cache.
+   - Call `mx::vjp(compiled, all_inputs, {1.0f})`.
+3. **Smoke**: run `make example-supervised BACKEND=mlx
+   MLX_COMPILE=1` and compare loss / acc / gradients to
+   `MLX_COMPILE=0` baseline. Acceptance: bit-identical gradients
+   (or ULP-close on GPU — float32 noise).
+4. **Measure on GPU**: `MLX_DEVICE=gpu MLX_COMPILE=1` on the
+   handful of examples we can run without recompile-thrash
+   (supervised, mnist, fixed-arch RNN). Compare GPU ms/ep
+   pre/post.
+
+If the smoke passes AND GPU compiled ms/ep ≤ CPU stream ms/ep on
+at least one example, Phase B's acceptance gate is met and we land
+the change behind the env var. If smoke fails or no GPU
+configuration wins, we accept "mlx is structurally CPU-stream-only
+in this environment" as the final position and document.
+
+## Risks
+
+- **`detail::compile` is internal**. Pin mlx 0.31.2 in the project's
+  build instructions; add a compile-time assertion that the symbol
+  resolves; document the version constraint in `docs/develop/gotchas.md`.
+- **Compilation cost on first call may eat the wins** for examples
+  that run very few epochs. Phase A measurement showed
+  ~4400 ep / 4 min on mlx for NTM-copy — plenty of room to amortize
+  even a 1-second compile cost. MNIST runs 3 epochs total at fixed-
+  arch — compile cost might dominate; document if observed.
+- **Constants-as-inputs refactor changes our gradient flow shape**.
+  Currently `mx::vjp` returns grads for `param_arrays` only. The
+  refactored call returns grads for `[params, constants]` — we'd
+  ignore the constants slice. Verify no off-by-one in the grad
+  unpacking.
+- **Tape-signature hash collisions** would silently reuse the
+  wrong compiled artifact. Use a content-addressable hash (SHA-1
+  truncated to 64 bits, or `std::hash` chained over the full
+  signature). Document the hash invariant.
+- **Variable-arch examples on GPU** (NTM-copy variable maxLen)
+  may still lose to CPU due to per-length recompile overhead.
+  Acceptable per the plan's acceptance gate (only need ≤ 1× CPU
+  on at least one example, not all).
+
+## Open questions for follow-up
+
+- Does `mx::compile` work with `mx::value_and_grad` or only `mx::vjp`?
+  The docs say both compose; verify in the prototype.
+- Does the optimizer-step-also-compiled idiom (the Python MNIST
+  pattern) buy meaningful additional speedup over forward-only
+  compile? Defer until forward-only result is in hand.
+- Can we expose `MLX_COMPILE` (and compile-cache-clear) at the
+  Idris level for end-user control? Plumbing question; resolve
+  once the C++ side is working.
+
+## Sources
+
+- [mlx compile.h](https://github.com/ml-explore/mlx/blob/main/mlx/compile.h)
+- [mlx compile_impl.h](https://github.com/ml-explore/mlx/blob/main/mlx/compile_impl.h)
+- [mlx transforms.h](https://github.com/ml-explore/mlx/blob/main/mlx/transforms.h)
+- [mlx compile user docs](https://ml-explore.github.io/mlx/build/html/usage/compile.html)
+- [Python binding for compile](https://github.com/ml-explore/mlx/blob/main/python/src/transforms.cpp)
+- [mlx-examples MNIST](https://github.com/ml-explore/mlx-examples/blob/main/mnist/main.py)
