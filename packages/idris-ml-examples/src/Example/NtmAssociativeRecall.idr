@@ -160,23 +160,23 @@ main = do
     (\m, d => epochTwoPhaseVar opt d tbceLoss m) genBatch trainCfg model
 
   -- Evaluation
+  -- Per-sequence withNoGrad so the exit drain fires after each
+  -- forwardTwoPhase on mlx (one batch-level bracket can pile up
+  -- TestSize × seq-len mlx buffers before draining).
   let evalOne : TwoPhaseDataPoint InputW OutputW Double -> IO Double
-      evalOne dp = do
+      evalOne dp = withNoGrad $ do
         (_, preds) <- forwardTwoPhase trained dp
         pure (bitAccuracy preds (targets dp))
 
   k2Batch <- recallTaskBinaryBatchVect {w = W} TestSize 2 2 SeqLen
   k4Batch <- recallTaskBinaryBatchVect {w = W} TestSize 4 4 SeqLen
   k6Batch <- recallTaskBinaryBatchVect {w = W} TestSize 6 6 SeqLen
-  k2Acc <- withNoGrad $ do
-    accs <- traverse evalOne k2Batch
-    pure (foldl (+) 0.0 (toList accs) / cast TestSize)
-  k4Acc <- withNoGrad $ do
-    accs <- traverse evalOne k4Batch
-    pure (foldl (+) 0.0 (toList accs) / cast TestSize)
-  k6Acc <- withNoGrad $ do
-    accs <- traverse evalOne k6Batch
-    pure (foldl (+) 0.0 (toList accs) / cast TestSize)
+  k2Accs <- traverse evalOne k2Batch
+  k4Accs <- traverse evalOne k4Batch
+  k6Accs <- traverse evalOne k6Batch
+  let k2Acc = foldl (+) 0.0 (toList k2Accs) / cast TestSize
+      k4Acc = foldl (+) 0.0 (toList k4Accs) / cast TestSize
+      k6Acc = foldl (+) 0.0 (toList k6Accs) / cast TestSize
 
   putStrLn ""
   putStrLn "Eval:"

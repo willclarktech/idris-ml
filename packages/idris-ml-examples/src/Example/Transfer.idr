@@ -136,9 +136,9 @@ doTrain cfg model = do
       putStrLn $ (if ok then "Saved model to " else "FAILED to save model to ") ++ cfg.savePath
       ok2 <- saveOptimizer (optPath cfg.savePath) opt
       putStrLn $ (if ok2 then "Saved optimizer to " else "FAILED to save optimizer to ") ++ optPath cfg.savePath
-  evalLoss <- evalModel trained
+  evalLoss <- withNoGrad (evalModel trained)
   putStrLn $ "Eval loss: " ++ show evalLoss
-  printPredictions trained
+  withNoGrad (printPredictions trained)
   putStrLn $ formatResult [("mode", "train"), ("epochs", show epochsDone),
                             ("loss", show evalLoss), ("backend", backendName)]
 
@@ -161,9 +161,9 @@ doContinue cfg model = do
       putStrLn $ (if ok3 then "Saved model to " else "FAILED to save model to ") ++ cfg.savePath
       ok4 <- saveOptimizer (optPath cfg.savePath) opt
       putStrLn $ (if ok4 then "Saved optimizer to " else "FAILED to save optimizer to ") ++ optPath cfg.savePath
-  evalLoss <- evalModel trained
+  evalLoss <- withNoGrad (evalModel trained)
   putStrLn $ "Eval loss: " ++ show evalLoss
-  printPredictions trained
+  withNoGrad (printPredictions trained)
   putStrLn $ formatResult [("mode", "continue"), ("epochs", show epochsDone),
                             ("loss", show evalLoss), ("backend", backendName)]
 
@@ -171,9 +171,9 @@ doInfer : Config -> Network 2 [] 3 CPU WithGrad -> IO ()
 doInfer cfg model = do
   ok <- loadModel cfg.loadPath
   putStrLn $ (if ok then "Loaded model from " else "FAILED to load from ") ++ cfg.loadPath
-  evalLoss <- evalModel model
+  evalLoss <- withNoGrad (evalModel model)
   putStrLn $ "Eval loss: " ++ show evalLoss
-  printPredictions model
+  withNoGrad (printPredictions model)
   putStrLn $ formatResult [("mode", "infer"), ("loss", show evalLoss),
                             ("backend", backendName)]
 

@@ -358,7 +358,7 @@ main = do
   putStrLn ""
   putStrLn "Eval (100 episodes, greedy):"
   let nEval = the Nat 100
-  totalReturn <- evalN trained nEval 0.0
+  totalReturn <- withNoGrad (evalN trained nEval 0.0)
   let avgReturn = totalReturn / cast (natToInteger nEval)
   putStrLn $ "  avg_return=" ++ show avgReturn
 

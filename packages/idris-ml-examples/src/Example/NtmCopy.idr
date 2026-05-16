@@ -176,22 +176,19 @@ main = do
 
   -- Evaluation: forwardTwoPhase produces per-step Vector predictions
   -- directly from the trained model (no Double-network bridge).
+  -- Eval doesn't need gradients; each evalOne runs in its own
+  -- withNoGrad bracket so the exit drain fires per-sequence on mlx.
   let evalOne : TwoPhaseDataPoint InputW OutputW Double -> IO Double
-      evalOne dp = do
+      evalOne dp = withNoGrad $ do
         (_, preds) <- forwardTwoPhase trained dp
         pure (bitAccuracy preds (targets dp))
 
-  -- Eval doesn't need gradients; the FFI calls inside evalOne fire
-  -- when the IO action is sequenced, which is *inside* the withNoGrad
-  -- bracket — so the autograd graph is correctly skipped.
   shortBatch <- copyTaskBinaryBatchVect {w = W} TestSize 1 5
   fullBatch <- copyTaskBinaryBatchVect {w = W} TestSize 1 20
-  shortAcc <- withNoGrad $ do
-    accs <- traverse evalOne shortBatch
-    pure (foldl (+) 0.0 (toList accs) / cast TestSize)
-  fullAcc <- withNoGrad $ do
-    accs <- traverse evalOne fullBatch
-    pure (foldl (+) 0.0 (toList accs) / cast TestSize)
+  shortAccs <- traverse evalOne shortBatch
+  fullAccs <- traverse evalOne fullBatch
+  let shortAcc = foldl (+) 0.0 (toList shortAccs) / cast TestSize
+      fullAcc  = foldl (+) 0.0 (toList fullAccs) / cast TestSize
 
   putStrLn ""
   putStrLn "Eval:"
