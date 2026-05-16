@@ -527,6 +527,32 @@ TensorHandle tensor_max_pool2d(TensorHandle hinput, int kH, int kW,
     return from_tensor(out.squeeze(0));
 }
 
+/* Batched conv2d — takes [B, inC, H, W] directly, returns [B, outC, oH, oW].
+   torch::conv2d is already batch-native; the unsqueeze/squeeze dance in
+   tensor_conv2d above is just for the per-sample API. */
+TensorHandle tensor_conv2d_batched(TensorHandle hinput, TensorHandle hkernel,
+                                    TensorHandle hbias, int padH, int padW,
+                                    int strideH, int strideW) {
+    auto& inp = *to_tensor(hinput);   /* [B, inC, H, W] */
+    auto& ker = *to_tensor(hkernel);  /* [outC, inC, kH, kW] */
+    at::Tensor bias_t;
+    if (hbias) bias_t = *to_tensor(hbias);
+    auto out = hbias
+        ? torch::conv2d(inp, ker, bias_t,
+              /*stride=*/{strideH, strideW}, /*padding=*/{padH, padW})
+        : torch::conv2d(inp, ker, /*bias=*/{},
+              /*stride=*/{strideH, strideW}, /*padding=*/{padH, padW});
+    return from_tensor(out);
+}
+
+/* Batched max-pool2d — takes [B, C, H, W] directly, returns [B, C, oH, oW]. */
+TensorHandle tensor_max_pool2d_batched(TensorHandle hinput, int kH, int kW,
+                                        int strideH, int strideW) {
+    auto& inp = *to_tensor(hinput);  /* [B, C, H, W] */
+    auto out = torch::max_pool2d(inp, {kH, kW}, {strideH, strideW});
+    return from_tensor(out);
+}
+
 /* ---------- Shape manipulation ---------- */
 
 TensorHandle tensor_reshape(TensorHandle h, int* shape, int rank) {
@@ -915,6 +941,11 @@ TensorHandle tensor_transpose_last2(TensorHandle h) {
 
 TensorHandle tensor_reshape_3d(TensorHandle h, int d0, int d1, int d2) {
     return from_tensor(to_tensor(h)->reshape({(int64_t)d0, (int64_t)d1, (int64_t)d2}));
+}
+
+TensorHandle tensor_reshape_4d(TensorHandle h, int d0, int d1, int d2, int d3) {
+    return from_tensor(to_tensor(h)->reshape(
+        {(int64_t)d0, (int64_t)d1, (int64_t)d2, (int64_t)d3}));
 }
 
 TensorHandle tensor_expand_mask(TensorHandle hmask, int B) {

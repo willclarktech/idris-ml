@@ -249,9 +249,17 @@ prim__createParam3d : Int -> Int -> Int -> AnyPtr -> AnyPtr
 export
 prim__conv2d : AnyPtr -> AnyPtr -> AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
 
+%foreign "C:tensor_conv2d_batched,libidrisml"
+export
+prim__conv2dBatched : AnyPtr -> AnyPtr -> AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
+
 %foreign "C:tensor_max_pool2d,libidrisml"
 export
 prim__maxPool2d : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
+
+%foreign "C:tensor_max_pool2d_batched,libidrisml"
+export
+prim__maxPool2dBatched : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
 
 -- MNIST data loading
 %foreign "C:mnist_load,libidrisml"
@@ -454,6 +462,10 @@ prim__transposeLast2 : AnyPtr -> AnyPtr
 %foreign "C:tensor_reshape_3d,libidrisml"
 export
 prim__reshape3d : AnyPtr -> Int -> Int -> Int -> AnyPtr
+
+%foreign "C:tensor_reshape_4d,libidrisml"
+export
+prim__reshape4d : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
 
 %foreign "C:tensor_expand_mask,libidrisml"
 export

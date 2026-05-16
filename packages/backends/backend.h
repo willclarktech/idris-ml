@@ -127,6 +127,12 @@ TensorHandle tensor_create_param_3d(int d0, int d1, int d2, double* data);
 TensorHandle tensor_conv2d(TensorHandle input, TensorHandle kernel,
                            TensorHandle bias, int padH, int padW,
                            int strideH, int strideW);
+/* Batched Conv2D: input [B, inC, H, W], kernel [outC, inC, kH, kW], bias [outC] or NULL.
+   Returns [B, outC, oH, oW]. The training-loop fast path — one tape entry per
+   batched op vs B per-sample ones, single libtorch / mlx native batched call. */
+TensorHandle tensor_conv2d_batched(TensorHandle input, TensorHandle kernel,
+                                    TensorHandle bias, int padH, int padW,
+                                    int strideH, int strideW);
 /* Grouped Conv2D: same as conv2d but with groups parameter.
    kernel shape: [outC, inC/groups, kH, kW]. groups=inC for depthwise. */
 TensorHandle tensor_conv2d_grouped(TensorHandle input, TensorHandle kernel,
@@ -154,6 +160,9 @@ TensorHandle tensor_avg_pool2d(TensorHandle input, int kH, int kW, int strideH, 
    Returns [C, oH, oW] where oH = (H - kH) / strideH + 1. */
 TensorHandle tensor_max_pool2d(TensorHandle input, int kH, int kW,
                                int strideH, int strideW);
+/* Batched MaxPool2D: input [B, C, H, W]. Returns [B, C, oH, oW]. */
+TensorHandle tensor_max_pool2d_batched(TensorHandle input, int kH, int kW,
+                                        int strideH, int strideW);
 
 /* ---------- NTM-specific compositions ---------- */
 
@@ -187,6 +196,7 @@ TensorHandle tensor_bmm_3x3(TensorHandle a, TensorHandle b);  /* [B,m,n] x [B,n,
 TensorHandle tensor_softmax_3d(TensorHandle t);                /* softmax along last dim */
 TensorHandle tensor_transpose_last2(TensorHandle t);           /* [B,m,n] -> [B,n,m] */
 TensorHandle tensor_reshape_3d(TensorHandle t, int d0, int d1, int d2);
+TensorHandle tensor_reshape_4d(TensorHandle t, int d0, int d1, int d2, int d3);
 TensorHandle tensor_expand_mask(TensorHandle mask, int B);     /* [m,n] -> [B,m,n] */
 TensorHandle tensor_causal_mask(int n);
 

@@ -82,6 +82,31 @@ applyConv2D {inC} {outC} {h} {w} {kH} {kW} {padH} {padW}
       flatPtr = prim__reshape1d outT (cast {to=Int} outFlat)
   in MkTensor flatPtr Nothing
 
+-- Batched forward: input [b, inC * h * w], reshape to [b, inC, h, w] for
+-- the batched primitive, then flatten back. One conv2d call per batched
+-- forward (vs B single-sample calls in `applyConv2D`).
+export
+applyConv2DBatched : {inC, outC, h, w, kH, kW, padH, padW : Nat} -> {b : Nat} ->
+                       Conv2DState inC outC h w kH kW padH padW
+                                     (inC * (h * w))
+                                     (outC * (ConvOutDim h kH padH * ConvOutDim w kW padW))
+                                     d ->
+                       Tensor [b, inC * (h * w)] d ->
+                       Tensor [b, outC * (ConvOutDim h kH padH * ConvOutDim w kW padW)] d
+applyConv2DBatched {inC} {outC} {h} {w} {kH} {kW} {padH} {padW} {b}
+                     (MkConv2D ker bias) input =
+  let bI    = cast {to=Int} b
+      inCI  = cast {to=Int} inC
+      hI    = cast {to=Int} h
+      wI    = cast {to=Int} w
+      inp4d = prim__reshape4d input.tensorPtr bI inCI hI wI
+      padHI = cast {to=Int} padH
+      padWI = cast {to=Int} padW
+      outT  = prim__conv2dBatched inp4d ker.tensorPtr bias.tensorPtr padHI padWI 1 1
+      outFlat = outC * (ConvOutDim h kH padH * ConvOutDim w kW padW)
+      out2d = prim__reshape2d outT bI (cast {to=Int} outFlat)
+  in MkTensor out2d Nothing
+
 -- Pack a Vect of Doubles into a buffer.
 packDoubles : AnyPtr -> Int -> Vect k Double -> AnyPtr
 packDoubles buf _ [] = buf
@@ -125,6 +150,7 @@ public export
 {inC, outC, h, w, kH, kW, padH, padW : Nat} ->
   LayerLike (Conv2DState inC outC h w kH kW padH padW) where
   applyVar st@(MkConv2D _ _) input = (st, applyConv2D st input)
+  applyVarBatch st@(MkConv2D _ _) input = (st, applyConv2DBatched st input)
   layerPrefix _ = "conv"
 
 export
@@ -245,10 +271,33 @@ applyMaxPool2D {c} {inH} {inW} {poolH} {poolW} {strH} {strW} _ input =
       outFlat = c * (PoolOutDim inH poolH strH * PoolOutDim inW poolW strW)
   in MkTensor (prim__reshape1d outT (cast {to=Int} outFlat)) Nothing
 
+-- Batched: input [b, c * inH * inW], reshape to [b, c, inH, inW], pool,
+-- flatten back to [b, c * outH * outW].
+export
+applyMaxPool2DBatched : {c, inH, inW, poolH, poolW, strH, strW : Nat} -> {b : Nat} ->
+                          MaxPool2DState c inH inW poolH poolW strH strW
+                                           (c * (inH * inW))
+                                           (c * (PoolOutDim inH poolH strH * PoolOutDim inW poolW strW))
+                                           d ->
+                          Tensor [b, c * (inH * inW)] d ->
+                          Tensor [b, c * (PoolOutDim inH poolH strH * PoolOutDim inW poolW strW)] d
+applyMaxPool2DBatched {c} {inH} {inW} {poolH} {poolW} {strH} {strW} {b} _ input =
+  let bI = cast {to=Int} b
+      cI = cast {to=Int} c
+      hI = cast {to=Int} inH
+      wI = cast {to=Int} inW
+      inp4d = prim__reshape4d input.tensorPtr bI cI hI wI
+      outT = prim__maxPool2dBatched inp4d (cast {to=Int} poolH) (cast {to=Int} poolW)
+                                          (cast {to=Int} strH) (cast {to=Int} strW)
+      outFlat = c * (PoolOutDim inH poolH strH * PoolOutDim inW poolW strW)
+      out2d = prim__reshape2d outT bI (cast {to=Int} outFlat)
+  in MkTensor out2d Nothing
+
 public export
 {c, inH, inW, poolH, poolW, strH, strW : Nat} ->
   LayerLike (MaxPool2DState c inH inW poolH poolW strH strW) where
   applyVar st@MkMaxPool2D input = (st, applyMaxPool2D st input)
+  applyVarBatch st@MkMaxPool2D input = (st, applyMaxPool2DBatched st input)
   layerPrefix _ = "maxpool2d"
 
 export

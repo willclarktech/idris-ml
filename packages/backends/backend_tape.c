@@ -195,7 +195,9 @@ enum {
     OP_CONV1D,        /* [inC,L] * [outC,inC,kL] + [outC] -> [outC,oL] */
     OP_MAX_POOL1D,    /* [C,L] -> [C,oL] with max indices */
     OP_CONV2D,        /* [inC,H,W] * [outC,inC,kH,kW] + [outC] -> [outC,oH,oW] */
+    OP_CONV2D_BATCHED,    /* [B,inC,H,W] * [outC,inC,kH,kW] + [outC] -> [B,outC,oH,oW] */
     OP_MAX_POOL2D,    /* [C,H,W] -> [C,oH,oW] with max indices */
+    OP_MAX_POOL2D_BATCHED,    /* [B,C,H,W] -> [B,C,oH,oW] with max indices */
     OP_CUMPROD,       /* cumulative product along dim 0 */
     OP_GATHER,        /* gather by index: out[i] = input[index[i]] */
     OP_SCATTER_ADD,   /* scatter add: out[index[i]] += src[i] */
@@ -289,9 +291,18 @@ typedef struct {
 } Conv2DMeta;
 
 typedef struct {
+    int B, inC, outC, H, W, kH, kW, padH, padW, strH, strW, oH, oW;
+} Conv2DBatchedMeta;
+
+typedef struct {
     int C, H, W, kH, kW, strH, strW, oH, oW;
     int* max_indices;  /* [C * oH * oW] index into flat input per-channel */
 } MaxPool2DMeta;
+
+typedef struct {
+    int B, C, H, W, kH, kW, strH, strW, oH, oW;
+    int* max_indices;  /* [B * C * oH * oW] flat-input index per (b, c, oh, ow) */
+} MaxPool2DBatchedMeta;
 
 /* ================================================================
    Generic typed chunked arena.
@@ -510,6 +521,12 @@ static void tape_reset(void) {
         /* Free OP_MAX_POOL2D max indices */
         if (e->op == OP_MAX_POOL2D && e->op_meta) {
             MaxPool2DMeta* meta = (MaxPool2DMeta*)e->op_meta;
+            free(meta->max_indices);
+            meta->max_indices = NULL;
+        }
+        /* Free OP_MAX_POOL2D_BATCHED max indices */
+        if (e->op == OP_MAX_POOL2D_BATCHED && e->op_meta) {
+            MaxPool2DBatchedMeta* meta = (MaxPool2DBatchedMeta*)e->op_meta;
             free(meta->max_indices);
             meta->max_indices = NULL;
         }
@@ -1306,6 +1323,11 @@ TensorHandle tensor_transpose_last2(TensorHandle h) {
     free(data);
     if (t->requires_grad) tape_append(OP_TRANSPOSE_LAST2, r, t, NULL, 0);
     return r;
+}
+
+TensorHandle tensor_reshape_4d(TensorHandle h, int d0, int d1, int d2, int d3) {
+    int shape[] = {d0, d1, d2, d3};
+    return tensor_reshape(h, shape, 4);
 }
 
 TensorHandle tensor_reshape_3d(TensorHandle h, int d0, int d1, int d2) {
@@ -2347,6 +2369,74 @@ TensorHandle tensor_conv2d(TensorHandle hinput, TensorHandle hkernel,
 }
 
 /* ================================================================
+   Batched Conv2D: input [B, inC, H, W] x kernel [outC, inC, kH, kW]
+                   + bias [outC] -> [B, outC, oH, oW]
+   ================================================================ */
+
+TensorHandle tensor_conv2d_batched(TensorHandle hinput, TensorHandle hkernel,
+                                    TensorHandle hbias, int padH, int padW,
+                                    int strideH, int strideW) {
+    Tensor* input = (Tensor*)hinput;
+    Tensor* kernel = (Tensor*)hkernel;
+    Tensor* bias = (Tensor*)hbias;
+
+    int B = input->shape[0], inC = input->shape[1];
+    int H = input->shape[2], W = input->shape[3];
+    int outC = kernel->shape[0], kH = kernel->shape[2], kW = kernel->shape[3];
+    int oH = (H + 2*padH - kH) / strideH + 1;
+    int oW = (W + 2*padW - kW) / strideW + 1;
+    int out_per_sample = outC * oH * oW;
+    int out_numel = B * out_per_sample;
+
+    double* out = calloc(out_numel, sizeof(double));
+
+    for (int b = 0; b < B; b++) {
+        const double* inp_b = input->data + b * inC * H * W;
+        double* out_b = out + b * out_per_sample;
+        for (int oc = 0; oc < outC; oc++) {
+            for (int oh = 0; oh < oH; oh++) {
+                for (int ow = 0; ow < oW; ow++) {
+                    double val = bias ? bias->data[oc] : 0.0;
+                    for (int ic = 0; ic < inC; ic++) {
+                        for (int kh = 0; kh < kH; kh++) {
+                            for (int kw = 0; kw < kW; kw++) {
+                                int ih = oh * strideH - padH + kh;
+                                int iw = ow * strideW - padW + kw;
+                                if (ih >= 0 && ih < H && iw >= 0 && iw < W) {
+                                    val += inp_b[ic*H*W + ih*W + iw]
+                                         * kernel->data[oc*inC*kH*kW + ic*kH*kW + kh*kW + kw];
+                                }
+                            }
+                        }
+                    }
+                    out_b[oc*oH*oW + oh*oW + ow] = val;
+                }
+            }
+        }
+    }
+
+    int out_shape[] = {B, outC, oH, oW};
+    int rg = input->requires_grad || kernel->requires_grad || (bias && bias->requires_grad);
+    Tensor* r = make_tensor(out, out_shape, 4, rg);
+    free(out);
+
+    if (r->requires_grad) {
+        TapeEntry* e = tape_append(OP_CONV2D_BATCHED, r, input, kernel, 0);
+        Conv2DBatchedMeta* meta = arena_alloc(sizeof(Conv2DBatchedMeta));
+        meta->B = B; meta->inC = inC; meta->outC = outC;
+        meta->H = H; meta->W = W;
+        meta->kH = kH; meta->kW = kW;
+        meta->padH = padH; meta->padW = padW;
+        meta->strH = strideH; meta->strW = strideW;
+        meta->oH = oH; meta->oW = oW;
+        e->op_meta = meta;
+        /* Store bias pointer in scalar_arg slot (cast) for backward */
+        e->inputs = (Tensor**)bias;  /* reuse inputs field for bias ptr */
+    }
+    return r;
+}
+
+/* ================================================================
    MaxPool2D: input [C, H, W] -> [C, oH, oW]
    ================================================================ */
 
@@ -2396,6 +2486,70 @@ TensorHandle tensor_max_pool2d(TensorHandle hinput, int kH, int kW,
         meta->strH = strideH; meta->strW = strideW;
         meta->oH = oH; meta->oW = oW;
         meta->max_indices = max_idx;  /* heap-allocated, freed in tape_reset */
+        e->op_meta = meta;
+    } else {
+        free(max_idx);
+    }
+    return r;
+}
+
+/* ================================================================
+   Batched MaxPool2D: input [B, C, H, W] -> [B, C, oH, oW]
+   ================================================================ */
+
+TensorHandle tensor_max_pool2d_batched(TensorHandle hinput, int kH, int kW,
+                                        int strideH, int strideW) {
+    Tensor* input = (Tensor*)hinput;
+    int B = input->shape[0], C = input->shape[1];
+    int H = input->shape[2], W = input->shape[3];
+    int oH = (H - kH) / strideH + 1;
+    int oW = (W - kW) / strideW + 1;
+    int out_per_sample = C * oH * oW;
+    int out_numel = B * out_per_sample;
+
+    double* out = calloc(out_numel, sizeof(double));
+    int* max_idx = malloc(out_numel * sizeof(int));
+
+    for (int b = 0; b < B; b++) {
+        const double* inp_b = input->data + b * C * H * W;
+        double* out_b = out + b * out_per_sample;
+        int* idx_b = max_idx + b * out_per_sample;
+        for (int c = 0; c < C; c++) {
+            for (int oh = 0; oh < oH; oh++) {
+                for (int ow = 0; ow < oW; ow++) {
+                    double best = -1e30;
+                    int best_idx = 0;
+                    for (int kh = 0; kh < kH; kh++) {
+                        for (int kw = 0; kw < kW; kw++) {
+                            int ih = oh * strideH + kh;
+                            int iw = ow * strideW + kw;
+                            int flat = c*H*W + ih*W + iw;
+                            if (inp_b[flat] > best) {
+                                best = inp_b[flat];
+                                best_idx = b * C*H*W + flat;  /* absolute index into input.data */
+                            }
+                        }
+                    }
+                    int out_idx = c*oH*oW + oh*oW + ow;
+                    out_b[out_idx] = best;
+                    idx_b[out_idx] = best_idx;
+                }
+            }
+        }
+    }
+
+    int out_shape[] = {B, C, oH, oW};
+    Tensor* r = make_tensor(out, out_shape, 4, input->requires_grad);
+    free(out);
+
+    if (r->requires_grad) {
+        TapeEntry* e = tape_append(OP_MAX_POOL2D_BATCHED, r, input, NULL, 0);
+        MaxPool2DBatchedMeta* meta = arena_alloc(sizeof(MaxPool2DBatchedMeta));
+        meta->B = B; meta->C = C; meta->H = H; meta->W = W;
+        meta->kH = kH; meta->kW = kW;
+        meta->strH = strideH; meta->strW = strideW;
+        meta->oH = oH; meta->oW = oW;
+        meta->max_indices = max_idx;
         e->op_meta = meta;
     } else {
         free(max_idx);
@@ -3921,6 +4075,99 @@ void tensor_backward(TensorHandle h) {
             break;
         }
 
+        case OP_CONV2D_BATCHED: {
+            /* r = conv2d_batched(a=input [B,inC,H,W], b=kernel [outC,inC,kH,kW]) + bias
+               r=[B,outC,oH,oW] */
+            Conv2DBatchedMeta* meta = (Conv2DBatchedMeta*)e->op_meta;
+            int B = meta->B;
+            int inC = meta->inC, outC = meta->outC;
+            int HH = meta->H, WW = meta->W, kH = meta->kH, kW = meta->kW;
+            int padH = meta->padH, padW = meta->padW;
+            int strideH = meta->strH, strideW = meta->strW;
+            int oH = meta->oH, oW = meta->oW;
+            int in_per_sample = inC * HH * WW;
+            int out_per_sample = outC * oH * oW;
+            ensure_grad(r);
+
+            /* d_input */
+            if (a && a->requires_grad) {
+                ensure_grad(a);
+                for (int bb = 0; bb < B; bb++) {
+                    const double* dout_b = r->grad + bb * out_per_sample;
+                    double* din_b = a->grad + bb * in_per_sample;
+                    for (int oc = 0; oc < outC; oc++)
+                        for (int oh = 0; oh < oH; oh++)
+                            for (int ow = 0; ow < oW; ow++) {
+                                double dout = dout_b[oc*oH*oW + oh*oW + ow];
+                                for (int ic = 0; ic < inC; ic++)
+                                    for (int kh = 0; kh < kH; kh++)
+                                        for (int kw = 0; kw < kW; kw++) {
+                                            int ih = oh * strideH - padH + kh;
+                                            int iw = ow * strideW - padW + kw;
+                                            if (ih >= 0 && ih < HH && iw >= 0 && iw < WW)
+                                                din_b[ic*HH*WW + ih*WW + iw] +=
+                                                    dout * b->data[oc*inC*kH*kW + ic*kH*kW + kh*kW + kw];
+                                        }
+                            }
+                }
+            }
+
+            /* d_kernel — sum over batch */
+            if (b && b->requires_grad) {
+                ensure_grad(b);
+                for (int oc = 0; oc < outC; oc++)
+                    for (int ic = 0; ic < inC; ic++)
+                        for (int kh = 0; kh < kH; kh++)
+                            for (int kw = 0; kw < kW; kw++) {
+                                double s = 0;
+                                for (int bb = 0; bb < B; bb++) {
+                                    const double* inp_b = a->data + bb * in_per_sample;
+                                    const double* dout_b = r->grad + bb * out_per_sample;
+                                    for (int oh = 0; oh < oH; oh++)
+                                        for (int ow = 0; ow < oW; ow++) {
+                                            int ih = oh * strideH - padH + kh;
+                                            int iw = ow * strideW - padW + kw;
+                                            if (ih >= 0 && ih < HH && iw >= 0 && iw < WW)
+                                                s += dout_b[oc*oH*oW + oh*oW + ow]
+                                                   * inp_b[ic*HH*WW + ih*WW + iw];
+                                        }
+                                }
+                                b->grad[oc*inC*kH*kW + ic*kH*kW + kh*kW + kw] += s;
+                            }
+            }
+
+            /* d_bias — sum across B and (oH, oW) per output channel */
+            Tensor* bias_t = (Tensor*)e->inputs;
+            if (bias_t && bias_t->requires_grad) {
+                ensure_grad(bias_t);
+                for (int oc = 0; oc < outC; oc++) {
+                    double s = 0;
+                    for (int bb = 0; bb < B; bb++) {
+                        const double* dout_b = r->grad + bb * out_per_sample;
+                        for (int oh = 0; oh < oH; oh++)
+                            for (int ow = 0; ow < oW; ow++)
+                                s += dout_b[oc*oH*oW + oh*oW + ow];
+                    }
+                    bias_t->grad[oc] += s;
+                }
+            }
+            break;
+        }
+
+        case OP_MAX_POOL2D_BATCHED: {
+            /* r = max_pool2d_batched(a=input [B,C,H,W]). max_indices are absolute
+               into a->data, so direct scatter works the same as the per-sample case. */
+            MaxPool2DBatchedMeta* meta = (MaxPool2DBatchedMeta*)e->op_meta;
+            ensure_grad(r);
+            if (a && a->requires_grad) {
+                ensure_grad(a);
+                int out_numel = meta->B * meta->C * meta->oH * meta->oW;
+                for (int i = 0; i < out_numel; i++)
+                    a->grad[meta->max_indices[i]] += r->grad[i];
+            }
+            break;
+        }
+
         case OP_SCATTER_ADD: {
             /* r[index[i]] += a[i]. Backward: d_a[i] += d_r[index[i]] (gather). */
             ensure_grad(r);
@@ -5091,7 +5338,7 @@ static const char* op_name(int op) {
         "MM", "TRANS_2D", "SM_2D", "MASK_FILL", "LN_2D",
         "BMM", "BMM_3X3", "SM_3D", "TRANS_L2",
         "GELU", "GRU", "EMBED", "BATCH_NORM", "DROPOUT",
-        "AVGP1D", "AVGP2D", "CONV1D", "MAXP1D", "CONV2D", "MAXP2D",
+        "AVGP1D", "AVGP2D", "CONV1D", "MAXP1D", "CONV2D", "CONV2D_B", "MAXP2D", "MAXP2D_B",
         "CUMPROD", "GATHER", "SCATTER_ADD", "LEAKY_RELU", "SILU",
         "LINEAR_2D", "CONCAT_2D", "SOFTPLUS"
     };

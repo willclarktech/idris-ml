@@ -146,7 +146,9 @@ enum {
     OP_CONV1D,
     OP_MAX_POOL1D,
     OP_CONV2D,
+    OP_CONV2D_BATCHED,
     OP_MAX_POOL2D,
+    OP_MAX_POOL2D_BATCHED,
     OP_CUMPROD,
     OP_GATHER,        /* gather along axis 0 by integer indices */
     OP_SCATTER_ADD,   /* scatter-add along axis 0 by integer indices */
@@ -193,8 +195,18 @@ struct Conv2DReplayMeta {
     int bias_pool_idx;  // -1 if no bias
 };
 
+struct Conv2DBatchedReplayMeta {
+    int padH, padW, strH, strW;
+    int B, inC, H, W;
+    int bias_pool_idx;  // -1 if no bias
+};
+
 struct MaxPool2DReplayMeta {
     int C, H, W, kH, kW, strH, strW, oH, oW;
+};
+
+struct MaxPool2DBatchedReplayMeta {
+    int B, C, H, W, kH, kW, strH, strW, oH, oW;
 };
 
 struct SumDimReplayMeta {
@@ -273,8 +285,16 @@ static void tape_reset() {
             delete (Conv2DReplayMeta*)e.meta;
             e.meta = nullptr;
         }
+        if (e.op == OP_CONV2D_BATCHED && e.meta) {
+            delete (Conv2DBatchedReplayMeta*)e.meta;
+            e.meta = nullptr;
+        }
         if (e.op == OP_MAX_POOL2D && e.meta) {
             delete (MaxPool2DReplayMeta*)e.meta;
+            e.meta = nullptr;
+        }
+        if (e.op == OP_MAX_POOL2D_BATCHED && e.meta) {
+            delete (MaxPool2DBatchedReplayMeta*)e.meta;
             e.meta = nullptr;
         }
         if (e.op == OP_SUM_DIM && e.meta) {
@@ -1287,6 +1307,73 @@ TensorHandle tensor_max_pool2d(TensorHandle hinput, int kH, int kW,
     return (TensorHandle)r;
 }
 
+TensorHandle tensor_conv2d_batched(TensorHandle hinput, TensorHandle hkernel,
+                                    TensorHandle hbias, int padH, int padW,
+                                    int strideH, int strideW) {
+    auto inp = (Tensor*)hinput;   // [B, inC, H, W]
+    auto ker = (Tensor*)hkernel;  // [outC, inC, kH, kW]
+    Tensor* bias = hbias ? (Tensor*)hbias : nullptr;
+
+    int B = (int)inp->data.shape(0), inC = (int)inp->data.shape(1);
+    int H = (int)inp->data.shape(2), W = (int)inp->data.shape(3);
+
+    // MLX conv2d expects NHWC: [B, H, W, inC]; kernel [outC, kH, kW, inC]
+    auto inp_nhwc = mx::transpose(inp->data, {0, 2, 3, 1});
+    auto ker_mlx  = mx::transpose(ker->data, {0, 2, 3, 1});
+
+    auto out = mx::conv2d(inp_nhwc, ker_mlx,
+                          {strideH, strideW}, {padH, padW});
+    // out: [B, oH, oW, outC] -> [B, outC, oH, oW]
+    auto result = mx::transpose(out, {0, 3, 1, 2});
+
+    if (bias) result = mx::add(result, mx::reshape(bias->data, {1, -1, 1, 1}));
+
+    bool rg = inp->requires_grad || ker->requires_grad || (bias && bias->requires_grad);
+    auto r = new Tensor(result, rg);
+    if (rg) {
+        int idx = tape_append(OP_CONV2D_BATCHED, r, inp, ker, 0);
+        auto* meta = new Conv2DBatchedReplayMeta();
+        meta->padH = padH; meta->padW = padW;
+        meta->strH = strideH; meta->strW = strideW;
+        meta->B = B; meta->inC = inC; meta->H = H; meta->W = W;
+        meta->bias_pool_idx = bias ? bias->pool_idx : -1;
+        tape[idx].meta = meta;
+    }
+    return (TensorHandle)r;
+}
+
+TensorHandle tensor_max_pool2d_batched(TensorHandle hinput, int kH, int kW,
+                                        int strideH, int strideW) {
+    auto inp = (Tensor*)hinput;  // [B, C, H, W]
+    int B = (int)inp->data.shape(0), C = (int)inp->data.shape(1);
+    int H = (int)inp->data.shape(2), W = (int)inp->data.shape(3);
+    int oH = (H - kH) / strideH + 1;
+    int oW = (W - kW) / strideW + 1;
+
+    mx::array result = mx::full({B, C, oH, oW}, -1e30, mx::float32);
+    for (int kh = 0; kh < kH; kh++) {
+        for (int kw = 0; kw < kW; kw++) {
+            auto sliced = mx::slice(inp->data,
+                {0, 0, kh, kw},
+                {B, C, kh + oH * strideH, kw + oW * strideW},
+                {1, 1, strideH, strideW});
+            result = mx::maximum(result, sliced);
+        }
+    }
+
+    auto r = new Tensor(result, inp->requires_grad);
+    if (inp->requires_grad) {
+        int idx = tape_append(OP_MAX_POOL2D_BATCHED, r, inp, nullptr, 0);
+        auto* meta = new MaxPool2DBatchedReplayMeta();
+        meta->B = B; meta->C = C; meta->H = H; meta->W = W;
+        meta->kH = kH; meta->kW = kW;
+        meta->strH = strideH; meta->strW = strideW;
+        meta->oH = oH; meta->oW = oW;
+        tape[idx].meta = meta;
+    }
+    return (TensorHandle)r;
+}
+
 /* ================================================================
    Shape manipulation
    ================================================================ */
@@ -1457,6 +1544,11 @@ TensorHandle tensor_transpose_last2(TensorHandle h) {
 TensorHandle tensor_reshape_3d(TensorHandle h, int d0, int d1, int d2) {
     int shape[] = {d0, d1, d2};
     return tensor_reshape(h, shape, 3);
+}
+
+TensorHandle tensor_reshape_4d(TensorHandle h, int d0, int d1, int d2, int d3) {
+    int shape[] = {d0, d1, d2, d3};
+    return tensor_reshape(h, shape, 4);
 }
 
 TensorHandle tensor_expand_mask(TensorHandle hmask, int B) {
@@ -1876,6 +1968,38 @@ void tensor_backward(TensorHandle h) {
                             {0, kh, kw},
                             {pm->C, kh + pm->oH * pm->strH, kw + pm->oW * pm->strW},
                             {1, pm->strH, pm->strW});
+                        res = mx::maximum(res, sliced);
+                    }
+                }
+                pool[out] = res;
+                break;
+            }
+            case OP_CONV2D_BATCHED: {
+                auto* cm = (Conv2DBatchedReplayMeta*)e.meta;
+                int B = cm->B, inC = cm->inC, HH = cm->H, WW = cm->W;
+                (void)inC; (void)HH; (void)WW;  // dimensions inferred from shape
+                auto inp_nhwc = mx::transpose(a, {0, 2, 3, 1});
+                auto ker_mlx  = mx::transpose(b, {0, 2, 3, 1});
+                auto cv = mx::conv2d(inp_nhwc, ker_mlx,
+                                     {cm->strH, cm->strW}, {cm->padH, cm->padW});
+                auto cv_out = mx::transpose(cv, {0, 3, 1, 2});
+                if (cm->bias_pool_idx >= 0) {
+                    cv_out = mx::add(cv_out,
+                                     mx::reshape(pool[cm->bias_pool_idx], {1, -1, 1, 1}));
+                }
+                (void)B;
+                pool[out] = cv_out;
+                break;
+            }
+            case OP_MAX_POOL2D_BATCHED: {
+                auto* pm = (MaxPool2DBatchedReplayMeta*)e.meta;
+                mx::array res = mx::full({pm->B, pm->C, pm->oH, pm->oW}, -1e30, mx::float32);
+                for (int kh = 0; kh < pm->kH; kh++) {
+                    for (int kw = 0; kw < pm->kW; kw++) {
+                        auto sliced = mx::slice(a,
+                            {0, 0, kh, kw},
+                            {pm->B, pm->C, kh + pm->oH * pm->strH, kw + pm->oW * pm->strW},
+                            {1, 1, pm->strH, pm->strW});
                         res = mx::maximum(res, sliced);
                     }
                 }

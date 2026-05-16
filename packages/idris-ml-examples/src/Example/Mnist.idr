@@ -173,8 +173,12 @@ evalAccuracy model ds numImages nSamples = go nSamples 0 0.0
 ||| One epoch = one full pass over the training set (PyTorch semantics).
 ||| Threads the model and accumulates per-batch loss across all
 ||| `batchesPerEpoch` mini-batches drawn from the indexed loader.
-||| Each mini-batch invokes `epochVarTensor` (forward + loss + backward
-||| + step). Returns the model and the mean per-batch loss.
+||| Each mini-batch invokes `epochVarTensorBatch` (single batched
+||| forward through the Network + per-row loss + backward + step).
+||| This is the wrapper-overhead-killing version: one
+||| `tensor_conv2d_batched` C call per mini-batch instead of B per-
+||| sample `tensor_conv2d` calls.
+partial
 trainOneFullPass : {hs : List Nat} ->
                    NativeOptimizer ->
                    IO (Vect BatchSize (TensorDataPoint InputDim NumClasses)) ->
@@ -188,7 +192,7 @@ trainOneFullPass opt genBatch n m0 = go m0 n 0.0
     go m Z     acc = pure (m, acc / cast (natToInteger n))
     go m (S k) acc = do
       batch <- genBatch
-      let (m', loss) = epochVarTensor opt batch tnllLoss m
+      let (m', loss) = epochVarTensorBatch opt batch tnllLoss m
       go m' k (acc + loss)
 
 ||| Per-epoch metrics: test accuracy and test loss over a small eval slice.
@@ -288,7 +292,7 @@ main = do
     let lrCfg : LrFindConfig
         lrCfg = { numIters := 100 } defaultLrFindConfig
     _ <- lrFind lrCfg
-      (\m, batch => let (m', loss) = epochVarTensor opt batch tnllLoss m
+      (\m, batch => let (m', loss) = epochVarTensorBatch opt batch tnllLoss m
                     in pure (m', loss))
       genBatch opt model
     putStrLn ""
