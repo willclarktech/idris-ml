@@ -142,36 +142,18 @@ TensorHandle tensor_cast_dtype_f64(TensorHandle src) {
     return from_tensor(to_tensor(src)->to(torch::kFloat64));
 }
 
-TensorHandle tensor_clone(TensorHandle h) {
-    return from_tensor(to_tensor(h)->clone());
-}
+/* tensor_clone / tensor_free / tensor_retain_handle / tensor_release_handle
+   extracted to backend_torch/core/lifecycle/. The `freed_by_cleanup`
+   set + free_intermediates() impl stays here. */
 
 // Track pointers freed by free_intermediates so tensor_free skips them
 static std::unordered_set<void*> freed_by_cleanup;
 
-void tensor_free(TensorHandle h) {
-    // Torch tensors participate in autograd graphs — explicit deletion can
-    // corrupt torch's internal bookkeeping. Let free_intermediates (called
-    // by optimizer_step) handle bulk cleanup of computation intermediates.
-    // Persistent user-created tensors leak slightly — acceptable for tests.
-    (void)h;
-}
-
-// Refcount API — currently a no-op on the torch backend. Phase 2.4 will
-// wire torch's intermediates-vector cleanup to participate in refcount.
-// Stubs exist so the multi-link build resolves these symbols across all
-// backends.
-void tensor_retain_handle(TensorHandle h) { (void)h; }
-void tensor_release_handle(TensorHandle h) { (void)h; }
-
 /* ---------- Accessors ---------- */
 
-double tensor_item(TensorHandle h) {
-    // .cpu() is a no-op on CPU tensors; only MPS / CUDA tensors pay
-    // the round-trip. Readback to host memory via .item<double>()
-    // requires the tensor live on CPU.
-    return to_tensor(h)->cpu().item<double>();
-}
+/* tensor_item / tensor_item_1d / tensor_item_2d extracted to
+   backend_torch/core/lifecycle/. tensor_item_1d / item_2d definitions
+   that lived below are also gone. */
 
 int tensor_numel(TensorHandle h) {
     return static_cast<int>(to_tensor(h)->numel());
@@ -1186,18 +1168,8 @@ TensorHandle tensor_view_1d(TensorHandle h, int idx) {
     return from_tensor_persistent(to_tensor(h)->select(0, idx));
 }
 
-double tensor_item_2d(TensorHandle h, int row, int col) {
-    return to_tensor(h)->index({row, col}).cpu().item<double>();
-}
-
-double tensor_item_1d(TensorHandle h, int idx) {
-    /* Flat-buffer semantics matching tape (tape_load_d) and mlx
-       (mx_read_double on the flattened data buffer): `idx` is a flat
-       offset into the data layout, not a first-dim index. Required so
-       Idris's `tvecToVector` (Backprop.idr) and backend-agnostic tests
-       read the i-th underlying scalar regardless of tensor rank. */
-    return to_tensor(h)->flatten()[idx].cpu().item<double>();
-}
+/* tensor_item_1d / tensor_item_2d extracted to
+   backend_torch/core/lifecycle/. */
 
 /* ---------- Native Optimizer ---------- */
 
