@@ -3,6 +3,84 @@
 Completed work, most recent first. Moved out of `TODO.md` on 2026-05-22.
 
 
+Modular backends — Phase 6 per-op split for torch + mlx (closed 2026-05-25). The structural split deferred during Phases 3-4 of TODO row 32, finishing the original plan's per-op-file goal. ~25 paired commits over multiple sessions; one logical extraction per commit, each maintaining F64 byte-identical + tri-link green (`BACKEND=tape,torch,mlx`) + Criterion suites green throughout.
+
+Final monolith shrinkage (Phase 6 baseline → close):
+
+| File                  | Start  | End  | Reduction |
+|-----------------------|--------|------|-----------|
+| `backend_torch.cpp`   | 2,323  |   62 |   -97%    |
+| `backend_mlx.cpp`     | 4,655  |   78 |   -98%    |
+| Total                 | 6,978  |  140 |   -98%    |
+
+Both files are now header-comment skeletons that index into their per-op trees; all definitions live under `packages/backends/backend_<b>/`, mirroring the tape backend's tree adopted in Phases 1-4.
+
+Per-op tree shape (identical between `backend_torch/` and `backend_mlx/`):
+
+```
+backend_<b>/
+├── tensor.h          (Tensor handle helpers / Tensor struct)
+├── tape.{h,cpp}      [mlx only] OP_* enum + ReplayMeta + tape_append/reset
+├── precision.h       [mlx only] F32↔F64 + scalar_like helpers
+├── stream.h          [mlx only] cpu_stream / gpu_stream / WITH_STREAM
+├── init.cpp          [mlx only] mlx_backend_init + terminate gate
+├── mps_init.cpp      [torch only] MPS allocator eager-init constructor
+├── device.cpp        tensor_to_device + tensor_device
+├── core/
+│   ├── lifecycle/    create/cast/clone/free/item{,1d,2d}/accessors/
+│   │                 lifecycle_core/create_param_state/batch/view
+│   ├── elementwise/  add/sub/mul/div/neg/abs/exp/log/sqrt/pow/sigmoid/
+│   │                 tanh/softplus
+│   ├── scalar/       add_scalar/mul_scalar/clamp_min
+│   └── backend_meta.cpp
+├── linear/
+│   ├── linalg/       matmul/mv/mm/linear/dot/outer/bmm/transpose/tile
+│   ├── reduction/    sum/mean/min/max[/sum_dim]
+│   ├── shape/        reshape/squeeze/narrow/select/expand_mask
+│   ├── concat/       cat/stack/concat_2d_axis1
+│   ├── index/        gather/scatter_add
+│   └── sort/         argsort/cumprod
+├── nn/
+│   ├── softmax/      softmax/log_softmax
+│   ├── mask/         masked_fill
+│   ├── norm/         layer_norm/batch_norm/group_norm/dropout
+│   ├── attention/    cross_attention/embedding/cosine_similarity
+│   ├── loss/         bce_with_logits/cross_entropy/mse_loss
+│   ├── recurrent/    lstm_cell/lstm_gates_pair/gru_cell/pair_helpers
+│   └── activation/   gelu/leaky_relu/silu
+├── conv/             conv1d{,_circular}/conv2d{,_batched}/conv_transpose/
+│                     conv_grouped/max_pool1d/max_pool2d{,_batched}/
+│                     avg_pool1d/avg_pool2d
+└── training/
+    ├── optimizer.cpp        Adam / AdamW / RMSprop / SGD + clip
+    ├── adapter.cpp          BackendPort + per-backend port shims
+    ├── dtype_dispatch.cpp   dtag → torch::ScalarType / mx::Dtype
+    ├── autograd.cpp         grad/detach/no_grad_begin/end
+    ├── backward.cpp         [mlx only] replay-based tensor_backward (~570 LOC)
+    ├── diagnostics.cpp      DEBUG_LSTM_TRAJ + DEBUG_PARAM_GRADS
+    ├── intermediates.cpp    [torch only] intermediates list + from_tensor
+    ├── ntm_specific.cpp     tensor_lstm_gates + subtract_scalar_inplace
+    ├── profiling.{h,cpp}    prof_*_ms counters + _wall_ms_<b>
+    └── tensor_pair.cpp      [torch only — fold may follow]
+```
+
+Key invariants held through every commit: F64 byte-identical (`Example.Supervised seed=42` → `loss=0.13801130234059747` on tape and mlx), tri-link clean (single dylib with three backends linked), Criterion suite full pass on all three backends (tape 157/157, torch 148/148, mlx 144/144).
+
+Subphase highlights:
+- **Phase 6.0** Scaffolding: `tensor.h` + per-TU Makefile rules per backend.
+- **Phase 6a** Core: ~30 ops × 2 — elementwise / scalar / lifecycle.
+- **Phase 6b** Linear: ~30 ops × 2 — linalg / reduction / shape / concat / index / sort.
+- **Phase 6c** NN: ~20 ops × 2 — softmax / mask / norm / attention / loss / recurrent / activation.
+- **Phase 6d** Conv: ~11 ops × 2 — conv1d/2d + pools + transpose + grouped.
+- **Phase 6e** Training: optimizer / adapter / diagnostics / ntm_specific / intermediates / profiling / dtype_dispatch / backward (mlx) / autograd × 2.
+- **Phase 6f** Device + mps_init + tape mechanics + init + lifecycle_core + backend_meta × 2.
+
+Symbol-collision class encountered repeatedly (tri-link surfaces it): once a previously-file-static global needed to be exposed for an extraction (`prof_*_ms` counters, `all_pairs`, `no_grad_depth`, etc.), the other backend's same-named non-static global collided at the link step. Resolved consistently by `_<backend>` suffix renames on the newly-exposed copy. The `feedback_no_torch_only_fallback` rule applied: never time-box convergence on one backend's failure — fix the collision symmetrically. Documented in commit messages alongside each affected extraction.
+
+No behaviour change: per-op ops still call the same libtorch / mlx / tape primitives in the same order. Phase 6 is a pure structural refactor — the navigability win without the (intentional) numerical risk that would come from rewriting kernels.
+
+The shared/training surface (port + adapter pattern) remains the same as Phase 3-4: each backend's `adapter.cpp` populates `g_active_port` with backend-specific `tensor_port_*` shims; the shared TUs (`param_registry.c`, `optimizer.c` for tape, `ffi_shims.c`, `dtype_streamed.c`) call into the port for tensor introspection + element access. The per-backend optimizers (torch's `at::_foreach_*` Adam, mlx's mx::compile Adam) stay backend-local since their fused kernels can't lift to a port.
+
 Modular backends closeout — Phase 5 of TODO row 32 (closed 2026-05-24). Eight commits tying up the loose ends from the cross-backend port adoption:
 - **`test_backend.c` retired** (commit `6da7551`): the 4381-line monolithic harness becomes one Criterion suite (`packages/backends/test/common/test_legacy_backend.c`, 605 lines after stripping the dispatcher + main() and re-mapping ASSERT_NEAR/ASSERT_TRUE to single-evaluation `cr_assert_*` shims). All 72 `static void test_X(void)` functions become `Test(legacy_backend, X)` per-test forks under Criterion. The standalone `make BACKEND=<b> test-backend` target + its three convenience aliases are dropped; CI workflow + `make test-all` umbrella + `coverage-backend` updated to point at the Criterion lane instead. Coverage: tape 157/157, torch 148/148, mlx 144/144 (+3 mlx-bug skips, +1 tape view-chain skip). Phase 6 will split the legacy file into per-op files mirroring the rest of `test/common/`.
 - **Common Criterion suite portable to torch + mlx** (commit `7ed9e25`): added `packages/backends/test/common/test_helpers.h` with backend-aware tolerance (`TEST_TOL_TIGHT` 1e-12 on F64 backends / 1e-5 on mlx F32) + `SKIP_ON_MLX` flag for tracked mlx-only bugs (softplus backward, avg_pool2d backward, conv1d_circular forward). Moved the tape-specific simplified-`sum_dim` test to `test/tape/`. Made torch's `tensor_item_1d` flat-buffer (matches tape `tape_load_d` + mlx `mx_read_double`).
