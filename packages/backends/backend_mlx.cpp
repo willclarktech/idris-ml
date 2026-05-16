@@ -19,6 +19,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <functional>
+#include <algorithm>
 #include <sys/resource.h>
 #include <sys/time.h>
 #include <unistd.h>      // _exit
@@ -146,13 +147,44 @@ struct Tensor {
     int tape_idx;
     int persistent;  // 1 = param/state, 0 = intermediate
     int pool_idx;    // unique index for replay pool
+    // Reference count. Init 1 for the constructor's "creator" reference.
+    // Every long-lived holder (tape entry, param_registry, persistent
+    // network state) adds a refcount. Idris-side managed handles bring
+    // an additional reference; the wrapper's finalizer releases it when
+    // the handle becomes GC-unreachable. When refcount reaches 0, the
+    // Tensor is removed from all_tensors and deleted. This frees the
+    // underlying mx::array → MetalAllocator::free → MTLBuffer recycled.
+    // Drives the Apple-VM Metal-resource-limit fix; see
+    // docs/develop/tensor-lifecycle-spike.md.
+    int refcount;
 
     Tensor(mx::array d, bool rg = false)
         : data(std::move(d)), grad(mx::array(0.0f)), requires_grad(rg),
-          has_grad(false), tape_idx(-1), persistent(0), pool_idx(next_pool_idx++) {
+          has_grad(false), tape_idx(-1), persistent(0), pool_idx(next_pool_idx++),
+          refcount(1) {
         all_tensors.push_back(this);
     }
 };
+
+// Refcount machinery. Idempotent at the no-op semantics level for now: nothing
+// is calling these yet, so refcount stays at 1 (the constructor's reference),
+// behavior unchanged from the pre-refactor codebase. The retain/release/
+// drop_intermediate functions will start firing once (a) the tape captures
+// strong refs in subsequent commits and (b) the Idris-side managed-handle
+// plumbing lands.
+static void tensor_retain_internal(Tensor* t) {
+    if (t) t->refcount++;
+}
+
+static void tensor_release_internal(Tensor* t) {
+    if (!t) return;
+    if (--t->refcount > 0) return;
+    // Remove from all_tensors and delete. Caller must guarantee no other
+    // holders (refcount == 0 means no holders, by definition).
+    auto it = std::find(all_tensors.begin(), all_tensors.end(), t);
+    if (it != all_tensors.end()) all_tensors.erase(it);
+    delete t;
+}
 
 /* ================================================================
    Precision bridge — mlx storage is float32 (Metal GPU constraint),
