@@ -6,8 +6,22 @@ on:
   pull_request:
 
 jobs:
+  # Fast preflight: catches drift between Idris example defaults and the
+  # paired torch_ref/scripts/*.py argparse defaults. Runs in ~1s on any
+  # python3-capable runner; gates the matrix so a paired-side desync fails
+  # the build without burning ~220 minute-units on the long matrix.
+  check-paired-defaults:
+    name: check-paired-defaults
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify paired Idris ↔ torch_ref defaults match
+        run: python3 scripts/check-paired-defaults.py
+
   test-examples:
     name: test-examples (${{ matrix.os }})
+    needs: check-paired-defaults
     strategy:
       fail-fast: false
       matrix:
