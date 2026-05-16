@@ -20,11 +20,14 @@ import Tensor
 
 public export
 interface LayerLike (l : Nat -> Nat -> (0 _ : Device) -> (0 _ : GradMode) -> Type) where
-  ||| Array-level forward: `Tensor [i] d g -> Tensor [o] d g`.
+  ||| Array-level forward: `Tensor [i] d g -> Tensor [o] d g`, IO-typed
+  ||| because the forward pass triggers FFI side effects (tape append,
+  ||| tensor allocation). IO sequencing controls when those fire —
+  ||| critical for `withNoGrad` to correctly bracket eval-phase work.
   ||| Polymorphic in `g` so forwarding a `NoGrad` input through a
   ||| frozen layer yields a `NoGrad` output naturally.
   applyVar : {0 d : Device} -> UserDeviceTape d => {0 g : GradMode} -> {i, o : Nat} ->
-              l i o d g -> Tensor [i] d g -> (l i o d g, Tensor [o] d g)
+              l i o d g -> Tensor [i] d g -> IO (l i o d g, Tensor [o] d g)
 
   ||| Auto-naming prefix (e.g. "llv2" for Linear).
   layerPrefix : {0 d : Device} -> {0 g : GradMode} -> {i, o : Nat} -> l i o d g -> String
@@ -42,7 +45,7 @@ interface LayerLike (l : Nat -> Nat -> (0 _ : Device) -> (0 _ : GradMode) -> Typ
   ||| are not supported in this surface (use sequence-level batching
   ||| at the example level instead).
   applyVarBatch : {0 d : Device} -> UserDeviceTape d => {0 g : GradMode} -> {i, o : Nat} -> {b : Nat} ->
-                   l i o d g -> Tensor [b, i] d g -> (l i o d g, Tensor [b, o] d g)
+                   l i o d g -> Tensor [b, i] d g -> IO (l i o d g, Tensor [b, o] d g)
   applyVarBatch _ _ =
     idris_crash "applyVarBatch: layer does not support batched forward"
 
@@ -73,18 +76,18 @@ data AnyLayer : Nat -> Nat -> (0 _ : Device) -> (0 _ : GradMode) -> Type where
 
 export
 applyVarAny : {0 d : Device} -> UserDeviceTape d => {0 g : GradMode} -> {i, o : Nat} ->
-               AnyLayer i o d g -> Tensor [i] d g -> (AnyLayer i o d g, Tensor [o] d g)
-applyVarAny (MkAnyLayer l @{dict} layer) input =
-  case applyVar @{dict} layer input of
-    (layer', out) => (MkAnyLayer l @{dict} layer', out)
+               AnyLayer i o d g -> Tensor [i] d g -> IO (AnyLayer i o d g, Tensor [o] d g)
+applyVarAny (MkAnyLayer l @{dict} layer) input = do
+  (layer', out) <- applyVar @{dict} layer input
+  pure (MkAnyLayer l @{dict} layer', out)
 
 export
 applyVarBatchAny : {0 d : Device} -> UserDeviceTape d => {0 g : GradMode} -> {i, o : Nat} -> {b : Nat} ->
                     AnyLayer i o d g -> Tensor [b, i] d g ->
-                    (AnyLayer i o d g, Tensor [b, o] d g)
-applyVarBatchAny (MkAnyLayer l @{dict} layer) input =
-  case applyVarBatch @{dict} layer input of
-    (layer', out) => (MkAnyLayer l @{dict} layer', out)
+                    IO (AnyLayer i o d g, Tensor [b, o] d g)
+applyVarBatchAny (MkAnyLayer l @{dict} layer) input = do
+  (layer', out) <- applyVarBatch @{dict} layer input
+  pure (MkAnyLayer l @{dict} layer', out)
 
 export
 freezeAnyLayer : {0 d : Device} -> {0 g : GradMode} -> {i, o : Nat} ->
@@ -117,15 +120,14 @@ export infixr 5 ~~>
 ||| `NoGrad` output naturally.
 export
 forwardVar : {0 d : Device} -> UserDeviceTape d => {0 g : GradMode} -> {i, o : Nat} -> {hs : List Nat} ->
-              Network i hs o d g -> Tensor [i] d g -> (Network i hs o d g, Tensor [o] d g)
-forwardVar (OutputLayer l) input =
-  case applyVarAny l input of
-    (l', out) => (OutputLayer l', out)
-forwardVar {hs = h :: _} (l ~~> rest) input =
-  case applyVarAny l input of
-    (l', mid) =>
-      case forwardVar rest mid of
-        (rest', out) => (l' ~~> rest', out)
+              Network i hs o d g -> Tensor [i] d g -> IO (Network i hs o d g, Tensor [o] d g)
+forwardVar (OutputLayer l) input = do
+  (l', out) <- applyVarAny l input
+  pure (OutputLayer l', out)
+forwardVar {hs = h :: _} (l ~~> rest) input = do
+  (l', mid) <- applyVarAny l input
+  (rest', out) <- forwardVar rest mid
+  pure (l' ~~> rest', out)
 
 ||| Freeze a Network: walks each layer and calls `freezeLayer` on it,
 ||| which flips C-side `requires_grad=false` on every parameter tensor.
@@ -182,15 +184,14 @@ export
 forwardVarBatch : {0 d : Device} -> UserDeviceTape d => {0 g : GradMode} -> {i, o : Nat} -> {b : Nat} ->
                    {hs : List Nat} ->
                    Network i hs o d g -> Tensor [b, i] d g ->
-                   (Network i hs o d g, Tensor [b, o] d g)
-forwardVarBatch (OutputLayer l) input =
-  case applyVarBatchAny l input of
-    (l', out) => (OutputLayer l', out)
-forwardVarBatch {hs = h :: _} (l ~~> rest) input =
-  case applyVarBatchAny l input of
-    (l', mid) =>
-      case forwardVarBatch rest mid of
-        (rest', out) => (l' ~~> rest', out)
+                   IO (Network i hs o d g, Tensor [b, o] d g)
+forwardVarBatch (OutputLayer l) input = do
+  (l', out) <- applyVarBatchAny l input
+  pure (OutputLayer l', out)
+forwardVarBatch {hs = h :: _} (l ~~> rest) input = do
+  (l', mid) <- applyVarBatchAny l input
+  (rest', out) <- forwardVarBatch rest mid
+  pure (l' ~~> rest', out)
 
 
 ----------------------------------------------------------------------
@@ -242,14 +243,12 @@ forwardVarTraced label net input = go 0 net input
          Nat ->
          Network i hs o d g -> Tensor [i] d g ->
          IO (Network i hs o d g, Tensor [o] d g)
-    go idx (OutputLayer l) inp =
-      case applyVarAny l inp of
-        (l', out) => do
-          summarize (show idx ++ "(out)") out.tensorPtr
-          pure (OutputLayer l', out)
-    go {hs = h :: _} idx (l ~~> rest) inp =
-      case applyVarAny l inp of
-        (l', mid) => do
-          summarize (show idx) mid.tensorPtr
-          (rest', out) <- go (idx + 1) rest mid
-          pure (l' ~~> rest', out)
+    go idx (OutputLayer l) inp = do
+      (l', out) <- applyVarAny l inp
+      summarize (show idx ++ "(out)") out.tensorPtr
+      pure (OutputLayer l', out)
+    go {hs = h :: _} idx (l ~~> rest) inp = do
+      (l', mid) <- applyVarAny l inp
+      summarize (show idx) mid.tensorPtr
+      (rest', out) <- go (idx + 1) rest mid
+      pure (l' ~~> rest', out)

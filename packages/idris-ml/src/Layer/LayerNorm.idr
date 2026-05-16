@@ -37,13 +37,13 @@ export
 applyLayerNorm : {0 d : Device} -> UserDeviceTape d => {n : Nat} ->
                    LayerNormState n n d g ->
                    TVec n d g ->
-                   (LayerNormState n n d g, TVec n d g)
-applyLayerNorm {n} st@(MkLayerNorm gamma beta) input =
+                   IO (LayerNormState n n d g, TVec n d g)
+applyLayerNorm {n} st@(MkLayerNorm gamma beta) input = ioRerun (\_ =>
   let nI = cast {to=Int} n
       input2d = prim__reshape2d input.tensorPtr 1 nI
       norm2d = prim__layerNorm2d input2d gamma.tensorPtr beta.tensorPtr 1.0e-5
       norm1d = prim__reshape1d norm2d nI
-  in (st, MkTensor norm1d Nothing)
+  in (st, MkTensor norm1d Nothing))
 
 
 ----------------------------------------------------------------------

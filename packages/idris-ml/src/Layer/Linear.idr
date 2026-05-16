@@ -33,11 +33,13 @@ record LinearState (i : Nat) (o : Nat) (0 d : Device) (0 g : GradMode) where
 
 public export
 LayerLike LinearState where
-  applyVar st input =
-    (st, tlinear st.weightT input st.biasT)
+  applyVar st input = do
+    out <- tlinear st.weightT input st.biasT
+    pure (st, out)
 
-  applyVarBatch st input =
-    (st, tlinear2d st.weightT input st.biasT)
+  applyVarBatch st input = do
+    out <- tlinear2d st.weightT input st.biasT
+    pure (st, out)
 
   layerPrefix _ = "llv2"
 
@@ -90,9 +92,9 @@ mkLinearWith pfx wInit bInit = do
       wBuf' = packDoubles wBuf 0 weightVals
       bBuf = prim__allocDoubles oI
       bBuf' = packDoubles bBuf 0 biasVals
-  pure $ MkLinear
-    (tparam2d (pfx ++ "_weights") wBuf')
-    (tparam1d (pfx ++ "_biases") bBuf')
+  w <- tparam2d (pfx ++ "_weights") wBuf'
+  b <- tparam1d (pfx ++ "_biases") bBuf'
+  pure $ MkLinear w b
 
 ||| Build a `LinearState i o CPU` with Xavier-uniform weights and
 ||| zero bias. Weights and biases are allocated as registered C
@@ -110,9 +112,9 @@ linearLayer paramPrefix = do
       wBuf' = packDoubles wBuf 0 weightVals
       bBuf = prim__allocDoubles oI
       bBuf' = zeroBuf bBuf 0 oI
-  pure $ MkLinear
-    (tparam2d (paramPrefix ++ "_weights") wBuf')
-    (tparam1d (paramPrefix ++ "_biases") bBuf')
+  w <- tparam2d (paramPrefix ++ "_weights") wBuf'
+  b <- tparam1d (paramPrefix ++ "_biases") bBuf'
+  pure $ MkLinear w b
 
 ||| Wrap a Linear in `AnyLayer` for use in a `Network`.
 export

@@ -39,22 +39,22 @@ data ActivationState : Nat -> Nat -> (0 _ : Device) -> (0 _ : GradMode) -> Type 
 
 public export
 LayerLike ActivationState where
-  applyVar st@(MkActivation ATanh)         input = (st, ttanh input)
-  applyVar st@(MkActivation ASigmoid)      input = (st, tsigmoid input)
-  applyVar st@(MkActivation ARelu)         input = (st, trelu input)
-  applyVar st@(MkActivation AGelu)         input = (st, tgelu input)
-  applyVar st@(MkActivation ASilu)         input = (st, tsilu input)
-  applyVar st@(MkActivation (ALeakyRelu s)) input = (st, tleakyRelu s input)
+  applyVar st@(MkActivation ATanh)         input = do out <- ttanh input;          pure (st, out)
+  applyVar st@(MkActivation ASigmoid)      input = do out <- tsigmoid input;       pure (st, out)
+  applyVar st@(MkActivation ARelu)         input = do out <- trelu input;          pure (st, out)
+  applyVar st@(MkActivation AGelu)         input = do out <- tgelu input;          pure (st, out)
+  applyVar st@(MkActivation ASilu)         input = do out <- tsilu input;          pure (st, out)
+  applyVar st@(MkActivation (ALeakyRelu s)) input = do out <- tleakyRelu s input;  pure (st, out)
 
   -- Activation primitives are shape-polymorphic (operate elementwise),
   -- so the batched forward is identical to the single-sample form —
   -- just typed at `Tensor [b, n] d` instead of `Tensor [n] d`.
-  applyVarBatch st@(MkActivation ATanh)         input = (st, ttanh input)
-  applyVarBatch st@(MkActivation ASigmoid)      input = (st, tsigmoid input)
-  applyVarBatch st@(MkActivation ARelu)         input = (st, trelu input)
-  applyVarBatch st@(MkActivation AGelu)         input = (st, tgelu input)
-  applyVarBatch st@(MkActivation ASilu)         input = (st, tsilu input)
-  applyVarBatch st@(MkActivation (ALeakyRelu s)) input = (st, tleakyRelu s input)
+  applyVarBatch st@(MkActivation ATanh)         input = do out <- ttanh input;         pure (st, out)
+  applyVarBatch st@(MkActivation ASigmoid)      input = do out <- tsigmoid input;      pure (st, out)
+  applyVarBatch st@(MkActivation ARelu)         input = do out <- trelu input;         pure (st, out)
+  applyVarBatch st@(MkActivation AGelu)         input = do out <- tgelu input;         pure (st, out)
+  applyVarBatch st@(MkActivation ASilu)         input = do out <- tsilu input;         pure (st, out)
+  applyVarBatch st@(MkActivation (ALeakyRelu s)) input = do out <- tleakyRelu s input; pure (st, out)
 
   layerPrefix _ = "act"
 
