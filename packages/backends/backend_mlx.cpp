@@ -159,6 +159,7 @@ TensorHandle tensor_masked_fill_mlx_streamed(TensorHandle h, TensorHandle hmask,
 TensorHandle tensor_softmax_3d_mlx_streamed(TensorHandle h, int stream_tag);
 TensorHandle tensor_reshape_mlx_streamed(TensorHandle h, int* shape, int rank, int stream_tag);
 TensorHandle tensor_narrow_mlx_streamed(TensorHandle h, int dim, int start, int len, int stream_tag);
+TensorHandle tensor_select(TensorHandle h, int dim, int index);
 TensorHandle tensor_create_scalar_f32_mlx_streamed(double value, int requires_grad, int stream_tag);
 TensorHandle tensor_create_scalar_f64_mlx_streamed(double value, int requires_grad, int stream_tag);
 TensorHandle tensor_create_scalar_mlx_streamed(double value, int requires_grad, int stream_tag);
@@ -1544,75 +1545,8 @@ TensorHandle tensor_max_pool2d_batched(TensorHandle hinput, int kH, int kW,
    Shape manipulation
    ================================================================ */
 
-extern "C" TensorHandle tensor_reshape_mlx_streamed(TensorHandle h, int* shape, int rank, int stream_tag) {
-    WITH_STREAM(stream_tag);
-    auto t = (Tensor*)h;
-    mx::Shape sh(shape, shape + rank);
-    auto r = new Tensor(mx::reshape(t->data, sh), t->requires_grad);
-    if (t->requires_grad) tape_append(OP_RESHAPE, r, t, nullptr, 0);
-    return (TensorHandle)r;
-}
-TensorHandle tensor_reshape(TensorHandle h, int* shape, int rank) {
-    return tensor_reshape_mlx_streamed(h, shape, rank, default_stream_tag());
-}
-
-extern "C" TensorHandle tensor_unsqueeze_mlx_streamed(TensorHandle h, int dim, int stream_tag) {
-    WITH_STREAM(stream_tag);
-
-    auto t = (Tensor*)h;
-    const auto& orig = t->data.shape();
-    int rank = (int)orig.size();
-    std::vector<int> new_dims;
-    new_dims.reserve(rank + 1);
-    for (int i = 0; i <= rank; i++) {
-        if (i == dim) new_dims.push_back(1);
-        if (i < rank) new_dims.push_back(orig[i]);
-    }
-    mx::Shape sh(new_dims.begin(), new_dims.end());
-    auto r = new Tensor(mx::reshape(t->data, sh), t->requires_grad);
-    if (t->requires_grad) tape_append(OP_RESHAPE, r, t, nullptr, 0);
-    return (TensorHandle)r;
-
-}
-TensorHandle tensor_unsqueeze(TensorHandle h, int dim) {
-    return tensor_unsqueeze_mlx_streamed(h, dim, default_stream_tag());
-}
-extern "C" TensorHandle tensor_squeeze_mlx_streamed(TensorHandle h, int dim, int stream_tag) {
-    WITH_STREAM(stream_tag);
-
-    auto t = (Tensor*)h;
-    int rank = (int)t->data.ndim();
-    int normalized = dim < 0 ? dim + rank : dim;
-    /* No-op if dim is out of range or not size 1 — matches torch's .squeeze(dim) */
-    if (normalized < 0 || normalized >= rank || (int)t->data.shape(normalized) != 1) {
-        return tensor_clone_mlx_streamed(h, stream_tag);
-    }
-    std::vector<int> new_shape;
-    new_shape.reserve(rank - 1);
-    for (int i = 0; i < rank; i++) {
-        if (i != normalized) new_shape.push_back((int)t->data.shape(i));
-    }
-    /* Reshape preserves data layout: squeeze of a size-1 dim is identity on data.
-       Reuse OP_RESHAPE so backward replay reconstructs the same shape. */
-    return tensor_reshape_mlx_streamed(h, new_shape.data(), (int)new_shape.size(), stream_tag);
-
-}
-TensorHandle tensor_squeeze(TensorHandle h, int dim) {
-    return tensor_squeeze_mlx_streamed(h, dim, default_stream_tag());
-}
-
-extern "C" TensorHandle tensor_select_mlx_streamed(TensorHandle h, int dim, int index, int stream_tag) {
-    WITH_STREAM(stream_tag);
-
-    auto t = (Tensor*)h;
-    auto r = new Tensor(mx::take(t->data, mx::array(index), dim), t->requires_grad);
-    if (t->requires_grad) tape_append(OP_SELECT, r, t, nullptr, (double)index);
-    return (TensorHandle)r;
-
-}
-TensorHandle tensor_select(TensorHandle h, int dim, int index) {
-    return tensor_select_mlx_streamed(h, dim, index, default_stream_tag());
-}
+/* Shape ops (reshape*, squeeze, unsqueeze, select) live in
+ * backend_mlx/linear/shape/. */
 
 extern "C" TensorHandle tensor_stack_mlx_streamed(TensorHandle* tensors, int count, int dim, int stream_tag) {
     WITH_STREAM(stream_tag);
@@ -1680,22 +1614,6 @@ extern "C" TensorHandle tensor_cat2_mlx_streamed(TensorHandle ha, TensorHandle h
 }
 TensorHandle tensor_cat2(TensorHandle ha, TensorHandle hb) {
     return tensor_cat2_mlx_streamed(ha, hb, default_stream_tag());
-}
-
-extern "C" TensorHandle tensor_narrow_mlx_streamed(TensorHandle h, int dim, int start, int len, int stream_tag) {
-    WITH_STREAM(stream_tag);
-
-    auto t = (Tensor*)h;
-    // Flatten, then slice the 1D range — matches tape backend semantics
-    auto flat = mx::flatten(t->data);
-    auto sliced = mx::slice(flat, mx::Shape{start}, mx::Shape{start + len});
-    auto r = new Tensor(sliced, t->requires_grad);
-    if (t->requires_grad) tape_append(OP_NARROW, r, t, nullptr, (double)start);
-    return (TensorHandle)r;
-
-}
-TensorHandle tensor_narrow(TensorHandle h, int dim, int start, int len) {
-    return tensor_narrow_mlx_streamed(h, dim, start, len, default_stream_tag());
 }
 
 extern "C" TensorHandle tensor_mm_mlx_streamed(TensorHandle ha, TensorHandle hb, int stream_tag) {
@@ -1777,43 +1695,6 @@ extern "C" TensorHandle tensor_transpose_last2_mlx_streamed(TensorHandle h, int 
 }
 TensorHandle tensor_transpose_last2(TensorHandle h) {
     return tensor_transpose_last2_mlx_streamed(h, default_stream_tag());
-}
-
-extern "C" TensorHandle tensor_reshape_3d_mlx_streamed(TensorHandle h, int d0, int d1, int d2, int stream_tag) {
-    WITH_STREAM(stream_tag);
-
-    int shape[] = {d0, d1, d2};
-    return tensor_reshape_mlx_streamed(h, shape, 3, stream_tag);
-
-}
-TensorHandle tensor_reshape_3d(TensorHandle h, int d0, int d1, int d2) {
-    return tensor_reshape_3d_mlx_streamed(h, d0, d1, d2, default_stream_tag());
-}
-
-extern "C" TensorHandle tensor_reshape_4d_mlx_streamed(TensorHandle h, int d0, int d1, int d2, int d3, int stream_tag) {
-    WITH_STREAM(stream_tag);
-
-    int shape[] = {d0, d1, d2, d3};
-    return tensor_reshape_mlx_streamed(h, shape, 4, stream_tag);
-
-}
-TensorHandle tensor_reshape_4d(TensorHandle h, int d0, int d1, int d2, int d3) {
-    return tensor_reshape_4d_mlx_streamed(h, d0, d1, d2, d3, default_stream_tag());
-}
-
-extern "C" TensorHandle tensor_expand_mask_mlx_streamed(TensorHandle hmask, int B, int stream_tag) {
-    WITH_STREAM(stream_tag);
-
-    auto mask = (Tensor*)hmask;
-    int m = mask->data.shape(0), n = mask->data.shape(1);
-    // [m,n] → [1,m,n] → broadcast to [B,m,n]
-    auto expanded = mx::broadcast_to(mx::reshape(mask->data, {1, m, n}), {B, m, n});
-    auto r = new Tensor(expanded, false);
-    return (TensorHandle)r;
-
-}
-TensorHandle tensor_expand_mask(TensorHandle hmask, int B) {
-    return tensor_expand_mask_mlx_streamed(hmask, B, default_stream_tag());
 }
 
 extern "C" TensorHandle tensor_tile_2d_mlx_streamed(TensorHandle h, int rep0, int rep1, int stream_tag) {
@@ -1931,28 +1812,6 @@ extern "C" TensorHandle tensor_layer_norm_2d_mlx_streamed(TensorHandle h, Tensor
 TensorHandle tensor_layer_norm_2d(TensorHandle h, TensorHandle hgamma,
     TensorHandle hbias, double eps) {
     return tensor_layer_norm_2d_mlx_streamed(h, hgamma, hbias, eps, default_stream_tag());
-}
-
-extern "C" TensorHandle tensor_reshape_2d_mlx_streamed(TensorHandle h, int rows, int cols, int stream_tag) {
-    WITH_STREAM(stream_tag);
-
-    int shape[] = {rows, cols};
-    return tensor_reshape_mlx_streamed(h, shape, 2, stream_tag);
-
-}
-TensorHandle tensor_reshape_2d(TensorHandle h, int rows, int cols) {
-    return tensor_reshape_2d_mlx_streamed(h, rows, cols, default_stream_tag());
-}
-
-extern "C" TensorHandle tensor_reshape_1d_mlx_streamed(TensorHandle h, int n, int stream_tag) {
-    WITH_STREAM(stream_tag);
-
-    int shape[] = {n};
-    return tensor_reshape_mlx_streamed(h, shape, 1, stream_tag);
-
-}
-TensorHandle tensor_reshape_1d(TensorHandle h, int n) {
-    return tensor_reshape_1d_mlx_streamed(h, n, default_stream_tag());
 }
 
 TensorHandle tensor_one_hot(int* tokens, int n_tokens, int vocab_size, int dtag) {
