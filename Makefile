@@ -151,16 +151,65 @@ torch_LDFLAGS_Darwin := -L$(TORCH_LIB) -ltorch -ltorch_cpu -lc10 -Wl,-rpath,$(TO
 torch_LDFLAGS_Linux := -L$(TORCH_LIB) -Wl,--no-as-needed -ltorch -ltorch_cpu -lc10 -Wl,--as-needed -Wl,-rpath,$(TORCH_LIB)
 
 # MLX detection — only when mlx is in BACKEND_LIST; Apple-only.
+#
+# Resolution order, picks the first MLX install that has both
+# `include/mlx/mlx.h` AND a Metal-capable runtime. Metal capability is
+# detected by the presence of `lib/mlx.metallib` — the precompiled
+# Metal kernel library. mlx installs without it (e.g. nixpkgs'
+# python3Packages.mlx, which is built with MLX_BUILD_METAL=false)
+# silently fail at runtime with "Cannot set gpu device without gpu
+# backend", so we won't auto-pick those.
+#
+#   1. $MLX_SITE if you set it explicitly (no validation; you asked
+#      for this exact path)
+#   2. $UV_CACHE_DIR (or default ~/.cache/uv) — pip-installed via uv
+#   3. Project virtualenv at packages/pytorch/.venv
+#   4. Any importable `mlx` reachable from python3 (system, conda, etc.)
+#   5. CPU-only fallback via `nix build` — used only if you don't need
+#      MLX_DEVICE=gpu. Emits a warning at make time.
 ifneq ($(filter mlx,$(BACKEND_LIST)),)
   ifneq ($(UNAME), Darwin)
     $(error MLX backend requires macOS; current UNAME=$(UNAME))
   endif
+
+  # Validation helper: return $1 if it looks like a usable Metal-capable
+  # mlx install, empty otherwise. Tests for both headers (`mlx/mlx.h`)
+  # and the Metal kernel library (`mlx.metallib`).
+  _mlx_validate = $(if $(and $(wildcard $1/include/mlx/mlx.h),$(wildcard $1/lib/mlx.metallib)),$1,)
+
   ifndef MLX_SITE
-    MLX_SITE := $(shell python3 -c "import importlib.util as u, os; print(next((p for n in ('mlx','mlx_metal') for s in [u.find_spec(n)] if s for p in [s.submodule_search_locations[0] if s.submodule_search_locations else os.path.dirname(s.origin)] if os.path.isdir(os.path.join(p,'include'))), ''))" 2>/dev/null)
+    # (2) Search the uv pip cache for a Metal-capable install. uv stores
+    # under archive-v0/<hash>/mlx; we accept the first hit.
+    _mlx_uv := $(shell find "$${UV_CACHE_DIR:-$$HOME/.cache/uv}" -path "*/mlx/lib/mlx.metallib" -type f 2>/dev/null | head -n 1)
+    MLX_SITE := $(if $(_mlx_uv),$(patsubst %/lib/mlx.metallib,%,$(_mlx_uv)),)
   endif
   ifeq ($(MLX_SITE),)
-    MLX_SITE := $(shell nix build nixpkgs\#python3Packages.mlx --no-link --print-out-paths 2>/dev/null)/lib/python3.13/site-packages/mlx
+    # (3) Project venv.
+    MLX_SITE := $(call _mlx_validate,$(wildcard packages/pytorch/.venv/lib/python*/site-packages/mlx))
   endif
+  ifeq ($(MLX_SITE),)
+    # (4) Anything importable from python3 (will pick up conda / system
+    # site-packages installs that aren't in the uv cache).
+    _mlx_py := $(shell python3 -c "import importlib.util as u, os; s=u.find_spec('mlx'); print(s.submodule_search_locations[0] if s and s.submodule_search_locations else '')" 2>/dev/null)
+    MLX_SITE := $(call _mlx_validate,$(_mlx_py))
+  endif
+  ifeq ($(MLX_SITE),)
+    # (5) CPU-only nixpkgs fallback. Emit a warning — `MLX_DEVICE=gpu`
+    # will not work with this build, since `python3Packages.mlx` ships
+    # without Metal (MLX_BUILD_METAL=false). Users wanting GPU should
+    # `uv pip install mlx` in their project venv (or pass MLX_SITE
+    # explicitly) instead.
+    _mlx_nix := $(shell nix build nixpkgs\#python3Packages.mlx --no-link --print-out-paths 2>/dev/null)
+    ifneq ($(_mlx_nix),)
+      MLX_SITE := $(_mlx_nix)/lib/python3.13/site-packages/mlx
+      $(warning Falling back to nixpkgs python3Packages.mlx ($(MLX_SITE)). This is CPU-only — MLX_DEVICE=gpu will fail at runtime. To enable GPU, install mlx via uv pip (e.g. `cd packages/pytorch && uv pip install mlx`) or set MLX_SITE explicitly to a Metal-capable install.)
+    endif
+  endif
+
+  ifeq ($(MLX_SITE),)
+    $(error No mlx install found. Run `cd packages/pytorch && uv pip install mlx`, or set MLX_SITE=<path/to/mlx> where path contains include/mlx/mlx.h and lib/mlx.metallib.)
+  endif
+
   MLX_INC := $(MLX_SITE)/include
   MLX_LIB := $(MLX_SITE)/lib
 endif
