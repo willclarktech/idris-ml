@@ -23,6 +23,7 @@
 #define backend_reset_for_eval backend_reset_for_eval_mlx
 #define backend_reset_for_eval_return backend_reset_for_eval_return_mlx
 #define backend_supports_tensor_params backend_supports_tensor_params_mlx
+#define create_index_array create_index_array_mlx
 #define dropout_random_seed dropout_random_seed_mlx
 #define get_current_rss_mb get_current_rss_mb_mlx
 #define get_rss_mb get_rss_mb_mlx
@@ -37,6 +38,11 @@
 #define optimizer_buf_count optimizer_buf_count_mlx
 #define optimizer_clip_grad_norm optimizer_clip_grad_norm_mlx
 #define optimizer_clip_grad_value optimizer_clip_grad_value_mlx
+#define optimizer_create_adam optimizer_create_adam_mlx
+#define optimizer_create_adam_group optimizer_create_adam_group_mlx
+#define optimizer_create_adamw optimizer_create_adamw_mlx
+#define optimizer_create_rmsprop optimizer_create_rmsprop_mlx
+#define optimizer_create_sgd optimizer_create_sgd_mlx
 #define optimizer_free optimizer_free_mlx
 #define optimizer_get_m optimizer_get_m_mlx
 #define optimizer_get_meta optimizer_get_meta_mlx
@@ -67,9 +73,12 @@
 #define param_zero_all_grads param_zero_all_grads_mlx
 #define param_zero_all_grads_return param_zero_all_grads_return_mlx
 #define polyak_blend polyak_blend_mlx
+#define shuffle_index_array shuffle_index_array_mlx
 #define tensor_abs tensor_abs_mlx
 #define tensor_add tensor_add_mlx
 #define tensor_add_scalar tensor_add_scalar_mlx
+#define tensor_alloc_doubles tensor_alloc_doubles_mlx
+#define tensor_alloc_ints tensor_alloc_ints_mlx
 #define tensor_argsort tensor_argsort_mlx
 #define tensor_avg_pool1d tensor_avg_pool1d_mlx
 #define tensor_avg_pool2d tensor_avg_pool2d_mlx
@@ -139,6 +148,7 @@
 #define tensor_log_softmax_2d tensor_log_softmax_2d_mlx
 #define tensor_lstm_cell tensor_lstm_cell_mlx
 #define tensor_lstm_gates tensor_lstm_gates_mlx
+#define tensor_lstm_gates_pair tensor_lstm_gates_pair_mlx
 #define tensor_masked_fill tensor_masked_fill_mlx
 #define tensor_matmul tensor_matmul_mlx
 #define tensor_max tensor_max_mlx
@@ -206,6 +216,7 @@
 #define tensor_with_grad tensor_with_grad_mlx
 #define tensor_write_double tensor_write_double_mlx
 #define tensor_write_double_return tensor_write_double_return_mlx
+#define tensor_write_int_return tensor_write_int_return_mlx
 #define tensor_zero_grad tensor_zero_grad_mlx
 
 #endif /* IDRISML_RENAME_MLX_H */

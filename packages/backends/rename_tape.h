@@ -23,6 +23,7 @@
 #define backend_reset_for_eval backend_reset_for_eval_tape
 #define backend_reset_for_eval_return backend_reset_for_eval_return_tape
 #define backend_supports_tensor_params backend_supports_tensor_params_tape
+#define create_index_array create_index_array_tape
 #define dropout_random_seed dropout_random_seed_tape
 #define get_current_rss_mb get_current_rss_mb_tape
 #define get_rss_mb get_rss_mb_tape
@@ -37,6 +38,11 @@
 #define optimizer_buf_count optimizer_buf_count_tape
 #define optimizer_clip_grad_norm optimizer_clip_grad_norm_tape
 #define optimizer_clip_grad_value optimizer_clip_grad_value_tape
+#define optimizer_create_adam optimizer_create_adam_tape
+#define optimizer_create_adam_group optimizer_create_adam_group_tape
+#define optimizer_create_adamw optimizer_create_adamw_tape
+#define optimizer_create_rmsprop optimizer_create_rmsprop_tape
+#define optimizer_create_sgd optimizer_create_sgd_tape
 #define optimizer_free optimizer_free_tape
 #define optimizer_get_m optimizer_get_m_tape
 #define optimizer_get_meta optimizer_get_meta_tape
@@ -67,9 +73,12 @@
 #define param_zero_all_grads param_zero_all_grads_tape
 #define param_zero_all_grads_return param_zero_all_grads_return_tape
 #define polyak_blend polyak_blend_tape
+#define shuffle_index_array shuffle_index_array_tape
 #define tensor_abs tensor_abs_tape
 #define tensor_add tensor_add_tape
 #define tensor_add_scalar tensor_add_scalar_tape
+#define tensor_alloc_doubles tensor_alloc_doubles_tape
+#define tensor_alloc_ints tensor_alloc_ints_tape
 #define tensor_argsort tensor_argsort_tape
 #define tensor_avg_pool1d tensor_avg_pool1d_tape
 #define tensor_avg_pool2d tensor_avg_pool2d_tape
@@ -139,6 +148,7 @@
 #define tensor_log_softmax_2d tensor_log_softmax_2d_tape
 #define tensor_lstm_cell tensor_lstm_cell_tape
 #define tensor_lstm_gates tensor_lstm_gates_tape
+#define tensor_lstm_gates_pair tensor_lstm_gates_pair_tape
 #define tensor_masked_fill tensor_masked_fill_tape
 #define tensor_matmul tensor_matmul_tape
 #define tensor_max tensor_max_tape
@@ -206,6 +216,7 @@
 #define tensor_with_grad tensor_with_grad_tape
 #define tensor_write_double tensor_write_double_tape
 #define tensor_write_double_return tensor_write_double_return_tape
+#define tensor_write_int_return tensor_write_int_return_tape
 #define tensor_zero_grad tensor_zero_grad_tape
 
 #endif /* IDRISML_RENAME_TAPE_H */

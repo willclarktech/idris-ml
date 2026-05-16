@@ -32,31 +32,19 @@ OUT_DIR = REPO_ROOT / "packages" / "backends"
 
 BACKENDS = ("tape", "torch", "mlx")
 
-# Match C function declarations with a small but explicit set of return
-# types. Anything more permissive risks catching macros / typedefs /
-# struct members. Keep the type set aligned with what `backend.h`
-# actually uses.
-RETURN_TYPES = (
-    r"TensorHandle\s*\*",  # TensorHandle*
-    r"TensorHandle",
-    r"TensorPair",
-    r"const\s+char\s*\*",
-    r"char\s*\*",
-    r"void\s*\*",
-    r"void",
-    r"double",
-    r"float",
-    r"int",
-)
-RETURN_RE = r"(?:" + r"|".join(RETURN_TYPES) + r")"
-
+# Match C function declarations. Permissive: any sequence of
+# `(const)? <identifier>` words optionally followed by `*`s, plus
+# trailing whitespace, then the function name + `(`. Skips macros /
+# struct decls by anchoring at line start and requiring `(` after the
+# name.
 DECL_RE = re.compile(
     r"""
-    ^\s*                       # line start
-    """ + RETURN_RE + r"""     # return type
-    \s+                        # whitespace
-    (?P<name>[A-Za-z_]\w*)     # function name
-    \s*\(                      # opening paren of param list
+    ^\s*                                # line start (+ optional indent)
+    (?:const\s+)?                       # optional const
+    [A-Za-z_]\w*                        # return type identifier
+    \s*\**\s*                           # optional * (and whitespace around it)
+    (?P<name>[A-Za-z_]\w*)              # function name
+    \s*\(                               # opening paren of param list
     """,
     re.MULTILINE | re.VERBOSE,
 )

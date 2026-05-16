@@ -85,8 +85,41 @@ build/.library-cache-stamp: $(LIBRARY_SRCS)
 	@touch $@
 
 # --- Backend selection ---
-ifeq ($(BACKEND), torch)
-  # libtorch detection
+# BACKEND is a comma-separated list of built-in backends to link into
+# libidrisml.{so,dylib}. The first item is the **primary** backend —
+# its symbols are also exported under unified names (e.g.
+# `_tensor_add` aliased to `_tensor_add_<primary>`) so existing Idris
+# `%foreign "C:tensor_add,libidrisml"` declarations resolve to it.
+# Non-primary backends are reachable only by their suffixed names,
+# which Phase 2.x UserDevice instance methods will target directly.
+#
+# Examples:
+#   BACKEND=tape                  — single tape build (default, lean)
+#   BACKEND=tape,torch            — Linux full build; both linked
+#   BACKEND=tape,torch,mlx        — macOS full build
+#   BACKEND=torch                 — torch-only CI lane
+#   BACKEND=mlx                   — mlx-only CI lane
+empty :=
+space := $(empty) $(empty)
+comma := ,
+BACKEND_LIST := $(subst $(comma),$(space),$(BACKEND))
+PRIMARY := $(firstword $(BACKEND_LIST))
+
+# Per-backend property tables. Common compile flags (`-O2 -fPIC
+# -include rename_<b>.h`) are applied by the per-backend rule below;
+# `<b>_CFLAGS` adds whatever else that backend's compile needs
+# (include paths, C++ std). `<b>_LDFLAGS_<UNAME>` is per-platform.
+
+tape_SRC := $(BACKENDS_DIR)/backend_tape.c
+tape_CC := cc
+# ACCELERATE_NEW_LAPACK is a compile-time #define (gates BLAS API
+# version); the framework flag is link-time.
+tape_CFLAGS := -DACCELERATE_NEW_LAPACK
+tape_LDFLAGS_Darwin := -framework Accelerate
+tape_LDFLAGS_Linux := -lm -lblas
+
+# libtorch detection — only when torch is in BACKEND_LIST.
+ifneq ($(filter torch,$(BACKEND_LIST)),)
   ifndef LIBTORCH_PATH
     LIBTORCH_PATH := $(shell pkg-config --variable=prefix torch 2>/dev/null)
   endif
@@ -96,36 +129,32 @@ ifeq ($(BACKEND), torch)
   ifndef LIBTORCH_PATH
     LIBTORCH_PATH := $(shell packages/pytorch/.venv/bin/python3 -c "import torch, os; print(os.path.dirname(torch.__file__))" 2>/dev/null)
   endif
-  ifdef LIBTORCH_PATH
-    TORCH_INC := $(LIBTORCH_PATH)/include
-    TORCH_INC_API := $(LIBTORCH_PATH)/include/torch/csrc/api/include
-    TORCH_LIB := $(LIBTORCH_PATH)/lib
+  ifndef LIBTORCH_PATH
+    $(error libtorch not found. Set LIBTORCH_PATH, install via pkg-config, or run: cd packages/pytorch && uv sync)
   endif
-  BACKEND_SRC := $(BACKENDS_DIR)/backend_torch.cpp
-  ifeq ($(UNAME), Darwin)
-    LIB := $(BUILD)/libidrisml.dylib
-    BACKEND_FLAGS := -std=c++17 -O2 -shared -I$(TORCH_INC) -I$(TORCH_INC_API) -L$(TORCH_LIB) -ltorch -ltorch_cpu -lc10 -Wl,-rpath,$(TORCH_LIB)
-    BACKEND_CC := c++
-  else
-    LIB := $(BUILD)/libidrisml.so
-    # GNU ld defaults to --as-needed since binutils 2.x, which drops NEEDED tags
-    # for libs whose symbols aren't *directly* referenced in our object files.
-    # libidrisml.so calls torch C++ API which transitively pulls c10/torch_cpu
-    # symbols at runtime — but the linker can't see those needs at static-link
-    # time, so it strips the NEEDED tags and dlopen later trips on
-    # `undefined symbol: _ZTIN3c105ErrorE` (c10::Error RTTI).
-    # `--no-as-needed` forces NEEDED for the libtorch trio explicitly.
-    BACKEND_FLAGS := -std=c++17 -O2 -shared -fPIC -I$(TORCH_INC) -I$(TORCH_INC_API) -L$(TORCH_LIB) -Wl,--no-as-needed -ltorch -ltorch_cpu -lc10 -Wl,--as-needed -Wl,-rpath,$(TORCH_LIB)
-    BACKEND_CC := c++
+  TORCH_INC := $(LIBTORCH_PATH)/include
+  TORCH_INC_API := $(LIBTORCH_PATH)/include/torch/csrc/api/include
+  TORCH_LIB := $(LIBTORCH_PATH)/lib
+endif
+
+torch_SRC := $(BACKENDS_DIR)/backend_torch.cpp
+torch_CC := c++
+torch_CFLAGS := -std=c++17 -I$(TORCH_INC) -I$(TORCH_INC_API)
+torch_LDFLAGS_Darwin := -L$(TORCH_LIB) -ltorch -ltorch_cpu -lc10 -Wl,-rpath,$(TORCH_LIB)
+# GNU ld defaults to --as-needed since binutils 2.x, which drops NEEDED
+# tags for libs whose symbols aren't *directly* referenced in our object
+# files. libidrisml.so calls torch C++ API which transitively pulls c10/
+# torch_cpu symbols at runtime — but the linker can't see those needs at
+# static-link time, so it strips the NEEDED tags and dlopen later trips
+# on `undefined symbol: _ZTIN3c105ErrorE` (c10::Error RTTI).
+# `--no-as-needed` forces NEEDED for the libtorch trio explicitly.
+torch_LDFLAGS_Linux := -L$(TORCH_LIB) -Wl,--no-as-needed -ltorch -ltorch_cpu -lc10 -Wl,--as-needed -Wl,-rpath,$(TORCH_LIB)
+
+# MLX detection — only when mlx is in BACKEND_LIST; Apple-only.
+ifneq ($(filter mlx,$(BACKEND_LIST)),)
+  ifneq ($(UNAME), Darwin)
+    $(error MLX backend requires macOS; current UNAME=$(UNAME))
   endif
-else ifeq ($(BACKEND), mlx)
-  # MLX backend: Apple Metal GPU via MLX C++ API
-  #
-  # Detection covers both the historical single-package mlx wheel and the
-  # 0.31+ namespace-package layout (mlx + mlx-metal). For namespace
-  # packages, `mlx.__file__` is None and the C++ headers/libs ship in the
-  # mlx-metal package's site-packages dir. Pick whichever package has the
-  # `include/` subdir (where the Makefile expects MLX_SITE/include/mlx/*.h).
   ifndef MLX_SITE
     MLX_SITE := $(shell python3 -c "import importlib.util as u, os; print(next((p for n in ('mlx','mlx_metal') for s in [u.find_spec(n)] if s for p in [s.submodule_search_locations[0] if s.submodule_search_locations else os.path.dirname(s.origin)] if os.path.isdir(os.path.join(p,'include'))), ''))" 2>/dev/null)
   endif
@@ -134,104 +163,112 @@ else ifeq ($(BACKEND), mlx)
   endif
   MLX_INC := $(MLX_SITE)/include
   MLX_LIB := $(MLX_SITE)/lib
-  BACKEND_SRC := $(BACKENDS_DIR)/backend_mlx.cpp
-  ifeq ($(UNAME), Darwin)
-    LIB := $(BUILD)/libidrisml.dylib
-    BACKEND_FLAGS := -std=c++20 -O2 -shared -I$(MLX_INC) -L$(MLX_LIB) -lmlx -Wl,-rpath,$(MLX_LIB) -framework Accelerate -framework Metal -framework Foundation
-    BACKEND_CC := c++
-  else
-    # MLX is Apple-only. Without an explicit $(error), BACKEND_FLAGS and
-    # BACKEND_CC stay empty, the recipe expands to ` -o $@ ...`, and GNU
-    # make's leading-`-` "ignore errors" kicks in — silently turning a
-    # broken build into success. test-examples then runs examples against
-    # a non-existent dylib and they all crash. Errror loudly instead so
-    # test-examples' backend-skip path triggers (||).
-    $(error MLX backend requires macOS; current UNAME=$(UNAME))
-  endif
-else
-  # Tape backend (default): custom C, no libtorch dependency
-  BACKEND_SRC := $(BACKENDS_DIR)/backend_tape.c
-  ifeq ($(UNAME), Darwin)
-    LIB := $(BUILD)/libidrisml.dylib
-    BACKEND_FLAGS := -O2 -shared -DACCELERATE_NEW_LAPACK -framework Accelerate
-    BACKEND_CC := cc
-  else
-    LIB := $(BUILD)/libidrisml.so
-    BACKEND_FLAGS := -O2 -shared -fPIC -lm -lblas
-    BACKEND_CC := cc
-  endif
 endif
 
-# Per-backend shared library: each backend compiles to its own file.
-# Switching backends = updating a symlink (instant, no recompile).
-BACKEND_LIB := $(BUILD)/libidrisml_$(BACKEND).$(LIB_EXT)
+mlx_SRC := $(BACKENDS_DIR)/backend_mlx.cpp
+mlx_CC := c++
+mlx_CFLAGS := -std=c++20 -I$(MLX_INC)
+# MLX bundles its own Accelerate usage; we already get the framework from
+# tape_LDFLAGS_Darwin when tape is also in BACKEND_LIST. Don't double-add.
+mlx_LDFLAGS_Darwin := -L$(MLX_LIB) -lmlx -Wl,-rpath,$(MLX_LIB) -framework Metal -framework Foundation
+# Linux not reachable in practice — the `ifneq ($(UNAME), Darwin)
+# $(error ...)` guard above stops the build before we get here on
+# Linux. Empty value keeps the Makefile parseable on non-Darwin even
+# when mlx isn't in BACKEND_LIST.
+mlx_LDFLAGS_Linux :=
 
-# Per-backend C symbol rename header (auto-generated; see
-# scripts/gen-rename-headers.py). Injected via `-include` so each
-# backend's translation unit emits backend-suffixed symbols
-# (`tensor_add` -> `tensor_add_$(BACKEND)`). Phase 1 of the
-# pluggable-Device refactor — see docs/develop/design-decisions.md
-# "Pluggable Device via sliced UserDevice interfaces".
-BACKEND_RENAME_H := $(BACKENDS_DIR)/rename_$(BACKEND).h
+# Final dylib path — one file, all listed backends in it, primary aliases.
+LIB := $(BUILD)/libidrisml.$(LIB_EXT)
+
+# Primary backend's rename header drives the alias step + shared-source
+# rename (shared sources are compiled per-primary because their callers
+# use unified names which only resolve to the primary's suffixed defs).
+BACKEND_RENAME_H := $(BACKENDS_DIR)/rename_$(PRIMARY).h
 
 # Primary-backend unified-name aliases. Built from the rename header
 # by extracting each `#define <unified> <suffixed>` pair and emitting
 # a linker alias. Lets Idris-side `%foreign "C:tensor_add,libidrisml"`
 # declarations keep working unchanged through Phase 1 even though the
 # defining C symbol is now suffixed. Also lets backend-agnostic shared
-# objects (mnist.o, safetensors.o — compiled without the rename
-# header) link against the unified names. Phase 2.x retires this
-# alias step as each %foreign moves into a per-instance UserDevice
-# method bound to the suffixed name directly.
+# objects link against the unified names. Phase 2.x retires this alias
+# step as each %foreign moves into a per-instance UserDevice method
+# bound to the suffixed name directly.
+#
+# NF==3 filter skips the rename header's include-guard `#define
+# IDRISML_RENAME_*_H` (NF=2) and any other single-arg defines.
 ifeq ($(UNAME), Darwin)
   # macOS ld(1) takes a file of `<aliasee> <aliasname>` pairs, with
   # leading underscores per the Mach-O symbol convention.
-  BACKEND_ALIAS_FILE := $(BUILD)/aliases_$(BACKEND).macos.list
+  BACKEND_ALIAS_FILE := $(BUILD)/aliases_$(PRIMARY).macos.list
   BACKEND_ALIAS_FLAGS := -Wl,-alias_list,$(BACKEND_ALIAS_FILE)
 else
   # GNU ld takes `--defsym=<aliasname>=<aliasee>`; one flag per alias.
-  # Generated at recipe-expansion time so we don't need a dep rule.
-  # NF==3 filter skips the rename header's `#define IDRISML_RENAME_*_H`
-  # include guard (NF=2).
   BACKEND_ALIAS_FILE :=
   BACKEND_ALIAS_FLAGS := $(shell awk '/^\#define / && NF==3 { printf "-Wl,--defsym=%s=%s ", $$2, $$3 }' $(BACKEND_RENAME_H))
 endif
 
-# NF==3 filter skips the rename header's `#define IDRISML_RENAME_*_H`
-# include guard (NF=2) and any unrelated single-arg `#define`s.
 $(BACKEND_ALIAS_FILE): $(BACKEND_RENAME_H) | $(BUILD)
 	@awk '/^\#define / && NF==3 { print "_"$$3" _"$$2 }' $< > $@
 
-# Shared C sources (backend-agnostic: serialization, JSON, data loading).
-# These call into / define some `tensor_*`/`mnist_*`/`optimizer_*`/
-# `param_*`/`index_array_get` symbols, so they must also be compiled
-# with the active backend's rename header — otherwise their references
-# (or definitions) stay on the unified names while backend_<b>.c uses
-# suffixed names, and the alias step can't bridge cross-TU defs.
-# cJSON is pure-C (no tensor surface) so it stays backend-agnostic.
-# Output paths are backend-tagged so switching BACKEND triggers a
-# rebuild of the affected shared sources too.
-SHARED_OBJ := $(BUILD)/safetensors_$(BACKEND).o $(BUILD)/cJSON.o $(BUILD)/mnist_$(BACKEND).o $(BUILD)/dataloader_$(BACKEND).o
+# Per-backend object outputs.
+BACKEND_OBJS := $(foreach b,$(BACKEND_LIST),$(BUILD)/backend_$(b).o)
 
-$(BUILD)/safetensors_$(BACKEND).o: $(BACKENDS_DIR)/safetensors.c $(BACKENDS_DIR)/backend.h $(BACKENDS_DIR)/cJSON.h $(BACKEND_RENAME_H) | $(BUILD)
+# Per-backend compile template — generates a rule for each backend's
+# backend_<b>.o file. Each backend uses its own CC + CFLAGS + rename
+# header; the union of all per-backend LDFLAGS gets passed to the
+# final link.
+define backend_compile_rule
+$(BUILD)/backend_$(1).o: $($(1)_SRC) $(BACKENDS_DIR)/backend.h $(BACKENDS_DIR)/rename_$(1).h | $(BUILD)
+	$($(1)_CC) -O2 -fPIC $($(1)_CFLAGS) -include $(BACKENDS_DIR)/rename_$(1).h -c -o $$@ $$<
+endef
+
+$(foreach b,$(BACKEND_LIST),$(eval $(call backend_compile_rule,$(b))))
+
+# Shared C sources (serialization, JSON, data loading). These call /
+# define `tensor_*`/`mnist_*`/`optimizer_*`/`param_*`/`index_array_get`
+# symbols, so they're compiled with the PRIMARY backend's rename header
+# so their cross-TU references match the primary's suffixed defs (other
+# backends' suffixed defs are reachable but not by these shared TUs).
+# cJSON is pure-C (no tensor surface) so it stays backend-agnostic.
+SHARED_OBJ := $(BUILD)/safetensors_$(PRIMARY).o $(BUILD)/cJSON.o $(BUILD)/mnist_$(PRIMARY).o $(BUILD)/dataloader_$(PRIMARY).o
+
+$(BUILD)/safetensors_$(PRIMARY).o: $(BACKENDS_DIR)/safetensors.c $(BACKENDS_DIR)/backend.h $(BACKENDS_DIR)/cJSON.h $(BACKEND_RENAME_H) | $(BUILD)
 	cc -O2 -fPIC -include $(BACKEND_RENAME_H) -c -o $@ $<
 
 $(BUILD)/cJSON.o: $(BACKENDS_DIR)/cJSON.c $(BACKENDS_DIR)/cJSON.h | $(BUILD)
 	cc -O2 -fPIC -c -o $@ $<
 
-$(BUILD)/mnist_$(BACKEND).o: $(BACKENDS_DIR)/mnist.c $(BACKENDS_DIR)/backend.h $(BACKEND_RENAME_H) | $(BUILD)
+$(BUILD)/mnist_$(PRIMARY).o: $(BACKENDS_DIR)/mnist.c $(BACKENDS_DIR)/backend.h $(BACKEND_RENAME_H) | $(BUILD)
 	cc -O2 -fPIC -include $(BACKEND_RENAME_H) -c -o $@ $<
 
-$(BUILD)/dataloader_$(BACKEND).o: $(BACKENDS_DIR)/dataloader.c $(BACKEND_RENAME_H) | $(BUILD)
+$(BUILD)/dataloader_$(PRIMARY).o: $(BACKENDS_DIR)/dataloader.c $(BACKEND_RENAME_H) | $(BUILD)
 	cc -O2 -fPIC -include $(BACKEND_RENAME_H) -c -o $@ $<
 
-$(BACKEND_LIB): $(BACKEND_SRC) $(BACKENDS_DIR)/backend.h $(BACKEND_RENAME_H) $(BACKEND_ALIAS_FILE) $(SHARED_OBJ) | $(BUILD)
-ifeq ($(BACKEND), torch)
-  ifndef LIBTORCH_PATH
-	$(error libtorch not found. Set LIBTORCH_PATH, install via pkg-config, or run: cd packages/pytorch && uv sync)
-  endif
+# Final link compiler: c++ if any C++ backend (torch/mlx) is in the
+# list, else cc. Picks the right runtime libraries automatically.
+ifneq ($(filter torch mlx,$(BACKEND_LIST)),)
+  LINK_CC := c++
+else
+  LINK_CC := cc
 endif
-	$(BACKEND_CC) $(BACKEND_FLAGS) -include $(BACKEND_RENAME_H) $(BACKEND_ALIAS_FLAGS) -o $@ $< $(SHARED_OBJ)
+
+# Union of per-backend link flags for the current platform.
+BACKEND_LDFLAGS := $(foreach b,$(BACKEND_LIST),$($(b)_LDFLAGS_$(UNAME)))
+
+# Stamp that records the current BACKEND value. Touched only when the
+# value differs from disk; the dylib depends on it so changing BACKEND
+# invalidates the previous link even when target file names match.
+# `FORCE` runs every invocation so the comparison happens each time.
+.PHONY: FORCE
+FORCE:
+
+$(BUILD)/.backend-stamp: FORCE | $(BUILD)
+	@[ "$$(cat $@ 2>/dev/null)" = "$(BACKEND)" ] || { echo "$(BACKEND)" > $@; }
+
+# Final link: all listed backends' .o + shared objects (primary's
+# suffix) + primary's unified-name aliases. One dylib, no symlink.
+$(LIB): $(BACKEND_OBJS) $(BACKEND_ALIAS_FILE) $(SHARED_OBJ) $(BUILD)/.backend-stamp | $(BUILD)
+	$(LINK_CC) -O2 -shared -o $@ $(BACKEND_OBJS) $(SHARED_OBJ) $(BACKEND_LDFLAGS) $(BACKEND_ALIAS_FLAGS)
 
 # Download MNIST dataset
 dataset-mnist:
@@ -243,9 +280,11 @@ dataset-mnist:
 dataset-tinyshakespeare:
 	bash scripts/dataset_tinyshakespeare.sh
 
-# Always update symlink to point to the active backend
-backend: $(BACKEND_LIB)
-	@ln -sf libidrisml_$(BACKEND).$(LIB_EXT) $(LIB)
+# Multi-link: one libidrisml.{so,dylib} with all listed BACKENDs in it.
+# Primary backend's symbols are exported under both unified
+# (`tensor_add`) and suffixed (`tensor_add_<primary>`) names; other
+# backends' symbols are reachable only via their suffixed names.
+backend: $(LIB)
 
 # Regenerate the per-backend rename headers from backend.h. The
 # generated files are checked in; `make check-rename-headers` (in CI)
@@ -577,14 +616,17 @@ bench-ops-py:
 	cd packages/pytorch && uv run python -m torch_ref.bench_ops
 
 # Compare all available backends vs PyTorch.
-# Links each bench_ops_<backend> directly against its specific dylib.
+# Each iteration rebuilds libidrisml.dylib with only one backend as
+# primary (BACKEND=$$b → single-element list), then copies it to a
+# backend-named filename for the bench_ops binary to link against.
+# Under multi-link this is a real rebuild per backend, but bench_ops is
+# operator-level so we want isolated per-backend timings anyway.
 bench-ops-compare:
 	@for b in tape mlx torch; do \
-		if [ ! -f $(BUILD)/libidrisml_$$b.dylib ]; then \
-			$(MAKE) --no-print-directory BACKEND=$$b backend 2>/dev/null || continue; \
-		fi; \
+		$(MAKE) --no-print-directory BACKEND=$$b backend 2>/dev/null || continue; \
+		cp $(BUILD)/libidrisml.$(LIB_EXT) $(BUILD)/libidrisml_$$b.$(LIB_EXT); \
 		cc -o $(BUILD)/bench_ops_$$b $(BACKENDS_DIR)/bench_ops.c \
-			$(BUILD)/libidrisml_$$b.dylib -Wl,-rpath,$(CURDIR)/$(BUILD) -lm -lc++ 2>/dev/null \
+			$(BUILD)/libidrisml_$$b.$(LIB_EXT) -Wl,-rpath,$(CURDIR)/$(BUILD) -lm -lc++ 2>/dev/null \
 		|| true; \
 	done
 	cd packages/pytorch && uv run python -m torch_ref.compare_ops

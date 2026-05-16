@@ -23,6 +23,7 @@
 #define backend_reset_for_eval backend_reset_for_eval_torch
 #define backend_reset_for_eval_return backend_reset_for_eval_return_torch
 #define backend_supports_tensor_params backend_supports_tensor_params_torch
+#define create_index_array create_index_array_torch
 #define dropout_random_seed dropout_random_seed_torch
 #define get_current_rss_mb get_current_rss_mb_torch
 #define get_rss_mb get_rss_mb_torch
@@ -37,6 +38,11 @@
 #define optimizer_buf_count optimizer_buf_count_torch
 #define optimizer_clip_grad_norm optimizer_clip_grad_norm_torch
 #define optimizer_clip_grad_value optimizer_clip_grad_value_torch
+#define optimizer_create_adam optimizer_create_adam_torch
+#define optimizer_create_adam_group optimizer_create_adam_group_torch
+#define optimizer_create_adamw optimizer_create_adamw_torch
+#define optimizer_create_rmsprop optimizer_create_rmsprop_torch
+#define optimizer_create_sgd optimizer_create_sgd_torch
 #define optimizer_free optimizer_free_torch
 #define optimizer_get_m optimizer_get_m_torch
 #define optimizer_get_meta optimizer_get_meta_torch
@@ -67,9 +73,12 @@
 #define param_zero_all_grads param_zero_all_grads_torch
 #define param_zero_all_grads_return param_zero_all_grads_return_torch
 #define polyak_blend polyak_blend_torch
+#define shuffle_index_array shuffle_index_array_torch
 #define tensor_abs tensor_abs_torch
 #define tensor_add tensor_add_torch
 #define tensor_add_scalar tensor_add_scalar_torch
+#define tensor_alloc_doubles tensor_alloc_doubles_torch
+#define tensor_alloc_ints tensor_alloc_ints_torch
 #define tensor_argsort tensor_argsort_torch
 #define tensor_avg_pool1d tensor_avg_pool1d_torch
 #define tensor_avg_pool2d tensor_avg_pool2d_torch
@@ -139,6 +148,7 @@
 #define tensor_log_softmax_2d tensor_log_softmax_2d_torch
 #define tensor_lstm_cell tensor_lstm_cell_torch
 #define tensor_lstm_gates tensor_lstm_gates_torch
+#define tensor_lstm_gates_pair tensor_lstm_gates_pair_torch
 #define tensor_masked_fill tensor_masked_fill_torch
 #define tensor_matmul tensor_matmul_torch
 #define tensor_max tensor_max_torch
@@ -206,6 +216,7 @@
 #define tensor_with_grad tensor_with_grad_torch
 #define tensor_write_double tensor_write_double_torch
 #define tensor_write_double_return tensor_write_double_return_torch
+#define tensor_write_int_return tensor_write_int_return_torch
 #define tensor_zero_grad tensor_zero_grad_torch
 
 #endif /* IDRISML_RENAME_TORCH_H */
