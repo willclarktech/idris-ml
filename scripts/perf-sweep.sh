@@ -122,20 +122,31 @@ extract_marker() {
 # so the post-build run is cheap and effectively a warmup-we-discard.
 build_idris_binary() {
   local target="$1" var="$2" backend="$3" device="$4"
+  local errlog rc=0
+  errlog=$(mktemp "${TMPDIR:-/tmp}/perf-sweep-build.XXXXXX")
   case "$backend" in
     mlx)
       MLX_DEVICE="$device" BACKEND="$backend" make --no-print-directory "$target" \
-        "$var=--epochs 1 --seed $SEED" >/dev/null 2>&1 || true
+        "$var=--epochs 1 --seed $SEED" >/dev/null 2>"$errlog" || rc=$?
       ;;
     torch)
       TORCH_DEVICE="$device" BACKEND="$backend" make --no-print-directory "$target" \
-        "$var=--epochs 1 --seed $SEED" >/dev/null 2>&1 || true
+        "$var=--epochs 1 --seed $SEED" >/dev/null 2>"$errlog" || rc=$?
       ;;
     *)
       BACKEND="$backend" make --no-print-directory "$target" \
-        "$var=--epochs 1 --seed $SEED" >/dev/null 2>&1 || true
+        "$var=--epochs 1 --seed $SEED" >/dev/null 2>"$errlog" || rc=$?
       ;;
   esac
+  if [ "$rc" -ne 0 ]; then
+    # Surface the failure — pre-fix, this `|| true`'d silently and the
+    # next stage ran a stale binary from the previous cell, faking ratios.
+    echo "[BUILD FAIL] make $target backend=$backend device=$device exit=$rc" >&2
+    tail -5 "$errlog" >&2
+    rm -f "$errlog"
+    return "$rc"
+  fi
+  rm -f "$errlog"
 }
 
 # Derive binary path from make target: example-rnn -> ./build/exec/rnn.
@@ -192,7 +203,10 @@ run_pytorch_once() {
 # from stdout. No two-point subtraction.
 measure_idris() {
   local target="$1" var="$2" n_long="$3" backend="$4" device="$5"
-  build_idris_binary "$target" "$var" "$backend" "$device"
+  if ! build_idris_binary "$target" "$var" "$backend" "$device"; then
+    echo "crashed"
+    return 0
+  fi
   run_idris_once "$target" "$var" "$n_long" "$backend" "$device"
 }
 
