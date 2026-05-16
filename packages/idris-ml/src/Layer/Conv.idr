@@ -49,7 +49,7 @@ public export
 data Conv2DState :
   (inC : Nat) -> (outC : Nat) -> (h : Nat) -> (w : Nat) ->
   (kH : Nat) -> (kW : Nat) -> (padH : Nat) -> (padW : Nat) ->
-  Nat -> Nat -> (0 _ : Device) -> (0 _ : GradMode) -> Type
+  Nat -> Nat -> (0 _ : Type) -> (0 _ : GradMode) -> Type
   where
   MkConv2D :
     Tensor [outC, inC, kH, kW] d g ->                       -- kernel
@@ -181,7 +181,7 @@ conv2dLayerAny pid =
 public export
 data Conv1DState :
   (inC : Nat) -> (outC : Nat) -> (len : Nat) -> (kL : Nat) -> (pad : Nat) ->
-  Nat -> Nat -> (0 _ : Device) -> (0 _ : GradMode) -> Type
+  Nat -> Nat -> (0 _ : Type) -> (0 _ : GradMode) -> Type
   where
   MkConv1D :
     Tensor [outC, inC, kL] d g ->
@@ -265,7 +265,7 @@ public export
 data MaxPool2DState :
   (c : Nat) -> (inH : Nat) -> (inW : Nat) ->
   (poolH : Nat) -> (poolW : Nat) -> (strH : Nat) -> (strW : Nat) ->
-  Nat -> Nat -> (0 _ : Device) -> (0 _ : GradMode) -> Type
+  Nat -> Nat -> (0 _ : Type) -> (0 _ : GradMode) -> Type
   where
   MkMaxPool2D :
     MaxPool2DState c inH inW poolH poolW strH strW
@@ -337,7 +337,7 @@ public export
 data AvgPool2DState :
   (c : Nat) -> (inH : Nat) -> (inW : Nat) ->
   (poolH : Nat) -> (poolW : Nat) -> (strH : Nat) -> (strW : Nat) ->
-  Nat -> Nat -> (0 _ : Device) -> (0 _ : GradMode) -> Type
+  Nat -> Nat -> (0 _ : Type) -> (0 _ : GradMode) -> Type
   where
   MkAvgPool2D :
     AvgPool2DState c inH inW poolH poolW strH strW
@@ -389,7 +389,7 @@ avgPool2dLayer =
 public export
 data MaxPool1DState :
   (c : Nat) -> (len : Nat) -> (poolK : Nat) -> (str : Nat) ->
-  Nat -> Nat -> (0 _ : Device) -> (0 _ : GradMode) -> Type
+  Nat -> Nat -> (0 _ : Type) -> (0 _ : GradMode) -> Type
   where
   MkMaxPool1D :
     MaxPool1DState c len poolK str
@@ -428,7 +428,7 @@ maxPool1dLayer =
 public export
 data AvgPool1DState :
   (c : Nat) -> (len : Nat) -> (poolK : Nat) -> (str : Nat) ->
-  Nat -> Nat -> (0 _ : Device) -> (0 _ : GradMode) -> Type
+  Nat -> Nat -> (0 _ : Type) -> (0 _ : GradMode) -> Type
   where
   MkAvgPool1D :
     AvgPool1DState c len poolK str

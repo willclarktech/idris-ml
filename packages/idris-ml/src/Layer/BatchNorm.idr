@@ -25,7 +25,7 @@ import Tensor
 
 public export
 data BatchNormState : (channels : Nat) -> (spatialDim : Nat) ->
-                        Nat -> Nat -> (0 _ : Device) -> (0 _ : GradMode) -> Type where
+                        Nat -> Nat -> (0 _ : Type) -> (0 _ : GradMode) -> Type where
   MkBatchNorm :
     TVec channels d g ->          -- gamma (learnable)
     TVec channels d g ->          -- beta (learnable)

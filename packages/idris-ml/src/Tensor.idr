@@ -910,19 +910,25 @@ profileReport = primIO prim__profileReportC
 -- Spike-only; lives in a parallel layer/example axis.
 
 public export
-record Tensor (dims : Vect rank Nat) (0 d : Device) (0 g : GradMode) where
+record Tensor (dims : Vect rank Nat) (0 d : Type) (0 g : GradMode) where
   constructor MkTensor
   tensorPtr : AnyPtr
   paramId   : Maybe String
 
 ||| Transfer a tensor to a different device. The one place where
-||| device types intentionally change. Wraps `prim__toDevice`; the
-||| resulting tensor handle is on `d2`. `paramId` is preserved (the
-||| C-side parameter registry tracks the moved handle).
+||| device types intentionally change. Wraps `prim__toDevice` with
+||| the target device's `deviceName` as the C-side tag. `paramId` is
+||| preserved (the C-side parameter registry tracks the moved
+||| handle).
+|||
+||| Phase 2.1b: the target device is now a *type* with a
+||| `UserDeviceCore` instance, not a `Device`-sum value. The instance
+||| supplies the C-side string via its `deviceName` method.
 export
-toDevice : (d2 : Device) -> Tensor dims d1 WithGrad -> IO (Tensor dims d2 WithGrad)
+toDevice : {0 d1 : Type} -> (0 d2 : Type) -> UserDeviceCore d2 =>
+           Tensor dims d1 WithGrad -> IO (Tensor dims d2 WithGrad)
 toDevice d2 t =
-  pure (MkTensor (prim__toDevice t.tensorPtr (deviceToString d2))
+  pure (MkTensor (prim__toDevice t.tensorPtr (deviceName {d = d2}))
                  t.paramId)
 
 ||| Mark a tensor as no-grad: flips the C-side `requires_grad` flag to
@@ -962,11 +968,11 @@ retypeGrad (MkTensor ptr pid) = MkTensor ptr pid
 ||| type-checker hang on multiplicative Nat expressions.
 ||| (`Tensor [4 * o, i] d` hangs; `TMat (4 * o) i d` works.)
 public export
-0 TVec : Nat -> Device -> GradMode -> Type
+0 TVec : Nat -> Type -> GradMode -> Type
 TVec n d g = Tensor [n] d g
 
 public export
-0 TMat : Nat -> Nat -> Device -> GradMode -> Type
+0 TMat : Nat -> Nat -> Type -> GradMode -> Type
 TMat m n d g = Tensor [m, n] d g
 
 -- Smart constructors --------------------------------------------------
@@ -1040,13 +1046,13 @@ tlinear2d w x bias =
 ||| Select row `k` from a [b, n] Tensor, returning the n-vector slice.
 ||| Wraps `prim__select` on dim 0; preserves the autograd graph.
 export
-trowSelect : {0 d : Device} -> {b, n : Nat} ->
+trowSelect : {0 d : Type} -> {b, n : Nat} ->
              Tensor [b, n] d g -> Int -> Tensor [n] d g
 trowSelect t k = MkTensor (prim__select t.tensorPtr 0 k) Nothing
 
 ||| Select element `i` from an n-vector, returning a scalar Tensor.
 export
-telemSelect : {0 d : Device} -> {n : Nat} ->
+telemSelect : {0 d : Type} -> {n : Nat} ->
               Tensor [n] d g -> Int -> Tensor [] d g
 telemSelect t i = MkTensor (prim__select t.tensorPtr 0 i) Nothing
 
@@ -1056,7 +1062,7 @@ telemSelect t i = MkTensor (prim__select t.tensorPtr 0 i) Nothing
 ||| backend creates a non-persistent scalar that is freed by the next
 ||| `tape_reset` (i.e. fine to call inside an epoch's loss builder).
 export
-tconstScalar : {0 d : Device} -> Double -> Tensor [] d WithGrad
+tconstScalar : {0 d : Type} -> Double -> Tensor [] d WithGrad
 tconstScalar v = MkTensor (prim__createScalar v 0) Nothing
 
 ||| Subtract two equally-shaped Tensors (autograd-tracked).
@@ -1096,7 +1102,7 @@ tlog v = MkTensor (prim__log v.tensorPtr) Nothing
 ||| state-independent log_std). Mirrors V1's `param`. The optimizer
 ||| picks it up automatically by paramId scope.
 export
-tparamScalar : {0 d : Device} -> (paramId : String) -> (val : Double) -> Tensor [] d WithGrad
+tparamScalar : {0 d : Type} -> (paramId : String) -> (val : Double) -> Tensor [] d WithGrad
 tparamScalar pid val =
   let ptr = prim__createScalar val 1                  -- requires_grad=true
       reg = prim__paramRegister pid ptr
@@ -1248,7 +1254,7 @@ tbceLoss p t =
 ||| clip → step. Reads `prim__item` BEFORE the step so the returned
 ||| scalar is not stale. Mirrors `nativeTrainStep`.
 export
-nativeTrainStep : {d : Device} -> NativeOptimizer -> Tensor [] d WithGrad -> Double
+nativeTrainStep : {0 d : Type} -> NativeOptimizer -> Tensor [] d WithGrad -> Double
 nativeTrainStep opt loss =
   let clipMode : Int
       clipMode = case opt.clipMode of NoClip => 0; ValueClip _ => 1; NormClip _ => 2

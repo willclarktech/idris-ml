@@ -19,20 +19,20 @@ import Tensor
 -- migration widens this surface (toDouble, debug, batched, etc.).
 
 public export
-interface LayerLike (l : Nat -> Nat -> (0 _ : Device) -> (0 _ : GradMode) -> Type) where
+interface LayerLike (l : Nat -> Nat -> (0 _ : Type) -> (0 _ : GradMode) -> Type) where
   ||| Array-level forward: `Tensor [i] d g -> Tensor [o] d g`.
   ||| Polymorphic in `g` so forwarding a `NoGrad` input through a
   ||| frozen layer yields a `NoGrad` output naturally.
-  applyVar : {0 d : Device} -> {0 g : GradMode} -> {i, o : Nat} ->
+  applyVar : {0 d : Type} -> {0 g : GradMode} -> {i, o : Nat} ->
               l i o d g -> Tensor [i] d g -> (l i o d g, Tensor [o] d g)
 
   ||| Auto-naming prefix (e.g. "llv2" for Linear).
-  layerPrefix : {0 d : Device} -> {0 g : GradMode} -> {i, o : Nat} -> l i o d g -> String
+  layerPrefix : {0 d : Type} -> {0 g : GradMode} -> {i, o : Nat} -> l i o d g -> String
   layerPrefix _ = ""
 
   ||| Reset per-sequence state (recurrent layers override; default = id).
   ||| Used by `resetNetwork` between sequences in recurrent training.
-  resetState : {0 d : Device} -> {0 g : GradMode} -> {i, o : Nat} -> l i o d g -> l i o d g
+  resetState : {0 d : Type} -> {0 g : GradMode} -> {i, o : Nat} -> l i o d g -> l i o d g
   resetState = id
 
   ||| Batched tensor-level forward: `Tensor [b, i] d g -> Tensor [b, o] d g`.
@@ -41,7 +41,7 @@ interface LayerLike (l : Nat -> Nat -> (0 _ : Device) -> (0 _ : GradMode) -> Typ
   ||| (LSTM/RNN/GRU/NTM/DNC) keep the default; batched-cell semantics
   ||| are not supported in this surface (use sequence-level batching
   ||| at the example level instead).
-  applyVarBatch : {0 d : Device} -> {0 g : GradMode} -> {i, o : Nat} -> {b : Nat} ->
+  applyVarBatch : {0 d : Type} -> {0 g : GradMode} -> {i, o : Nat} -> {b : Nat} ->
                    l i o d g -> Tensor [b, i] d g -> (l i o d g, Tensor [b, o] d g)
   applyVarBatch _ _ =
     idris_crash "applyVarBatch: layer does not support batched forward"
@@ -52,13 +52,13 @@ interface LayerLike (l : Nat -> Nat -> (0 _ : Device) -> (0 _ : GradMode) -> Typ
   ||| value after the C-side flags have been mutated. Returns the
   ||| layer retyped as `NoGrad`. Optimizer steps won't update frozen
   ||| params (their gradients don't accumulate on rg=false leaves).
-  freezeLayer : {0 d : Device} -> {0 g : GradMode} -> {i, o : Nat} ->
+  freezeLayer : {0 d : Type} -> {0 g : GradMode} -> {i, o : Nat} ->
                 (1 _ : l i o d g) -> IO (l i o d NoGrad)
 
   ||| Inverse of `freezeLayer`. Sets `requires_grad=true` on every
   ||| parameter and retypes the layer as `WithGrad`. The result is
   ||| trainable again. Linear in input.
-  unfreezeLayer : {0 d : Device} -> {i, o : Nat} ->
+  unfreezeLayer : {0 d : Type} -> {i, o : Nat} ->
                   (1 _ : l i o d NoGrad) -> IO (l i o d WithGrad)
 
 
@@ -67,19 +67,19 @@ interface LayerLike (l : Nat -> Nat -> (0 _ : Device) -> (0 _ : GradMode) -> Typ
 ----------------------------------------------------------------------
 
 public export
-data AnyLayer : Nat -> Nat -> (0 _ : Device) -> (0 _ : GradMode) -> Type where
-  MkAnyLayer : (l : Nat -> Nat -> (0 _ : Device) -> (0 _ : GradMode) -> Type) -> LayerLike l =>
+data AnyLayer : Nat -> Nat -> (0 _ : Type) -> (0 _ : GradMode) -> Type where
+  MkAnyLayer : (l : Nat -> Nat -> (0 _ : Type) -> (0 _ : GradMode) -> Type) -> LayerLike l =>
                  l i o d g -> AnyLayer i o d g
 
 export
-applyVarAny : {0 d : Device} -> {0 g : GradMode} -> {i, o : Nat} ->
+applyVarAny : {0 d : Type} -> {0 g : GradMode} -> {i, o : Nat} ->
                AnyLayer i o d g -> Tensor [i] d g -> (AnyLayer i o d g, Tensor [o] d g)
 applyVarAny (MkAnyLayer l @{dict} layer) input =
   case applyVar @{dict} layer input of
     (layer', out) => (MkAnyLayer l @{dict} layer', out)
 
 export
-applyVarBatchAny : {0 d : Device} -> {0 g : GradMode} -> {i, o : Nat} -> {b : Nat} ->
+applyVarBatchAny : {0 d : Type} -> {0 g : GradMode} -> {i, o : Nat} -> {b : Nat} ->
                     AnyLayer i o d g -> Tensor [b, i] d g ->
                     (AnyLayer i o d g, Tensor [b, o] d g)
 applyVarBatchAny (MkAnyLayer l @{dict} layer) input =
@@ -87,14 +87,14 @@ applyVarBatchAny (MkAnyLayer l @{dict} layer) input =
     (layer', out) => (MkAnyLayer l @{dict} layer', out)
 
 export
-freezeAnyLayer : {0 d : Device} -> {0 g : GradMode} -> {i, o : Nat} ->
+freezeAnyLayer : {0 d : Type} -> {0 g : GradMode} -> {i, o : Nat} ->
                   (1 _ : AnyLayer i o d g) -> IO (AnyLayer i o d NoGrad)
 freezeAnyLayer (MkAnyLayer l @{dict} layer) = do
   layer' <- freezeLayer @{dict} layer
   pure (MkAnyLayer l @{dict} layer')
 
 export
-unfreezeAnyLayer : {0 d : Device} -> {i, o : Nat} ->
+unfreezeAnyLayer : {0 d : Type} -> {i, o : Nat} ->
                     (1 _ : AnyLayer i o d NoGrad) -> IO (AnyLayer i o d WithGrad)
 unfreezeAnyLayer (MkAnyLayer l @{dict} layer) = do
   layer' <- unfreezeLayer @{dict} layer
@@ -106,7 +106,7 @@ unfreezeAnyLayer (MkAnyLayer l @{dict} layer) = do
 ----------------------------------------------------------------------
 
 public export
-data Network : (i : Nat) -> (hs : List Nat) -> (o : Nat) -> (0 _ : Device) -> (0 _ : GradMode) -> Type where
+data Network : (i : Nat) -> (hs : List Nat) -> (o : Nat) -> (0 _ : Type) -> (0 _ : GradMode) -> Type where
   OutputLayer : AnyLayer i o d g -> Network i [] o d g
   (~~>) : AnyLayer i h d g -> Network h hs o d g -> Network i (h :: hs) o d g
 
@@ -116,7 +116,7 @@ export infixr 5 ~~>
 ||| forwarding a `NoGrad` input through a frozen network yields a
 ||| `NoGrad` output naturally.
 export
-forwardVar : {0 d : Device} -> {0 g : GradMode} -> {i, o : Nat} -> {hs : List Nat} ->
+forwardVar : {0 d : Type} -> {0 g : GradMode} -> {i, o : Nat} -> {hs : List Nat} ->
               Network i hs o d g -> Tensor [i] d g -> (Network i hs o d g, Tensor [o] d g)
 forwardVar (OutputLayer l) input =
   case applyVarAny l input of
@@ -138,7 +138,7 @@ forwardVar {hs = h :: _} (l ~~> rest) input =
 ||| `g`) — output adopts `NoGrad` and the type system prevents feeding
 ||| it back to `runBackward` / `nativeTrainStep`.
 export
-freezeNetwork : {0 d : Device} -> {0 g : GradMode} -> {i, o : Nat} -> {hs : List Nat} ->
+freezeNetwork : {0 d : Type} -> {0 g : GradMode} -> {i, o : Nat} -> {hs : List Nat} ->
                  (1 _ : Network i hs o d g) -> IO (Network i hs o d NoGrad)
 freezeNetwork (OutputLayer l) = do
   l' <- freezeAnyLayer l
@@ -153,7 +153,7 @@ freezeNetwork {hs = h :: _} (l ~~> rest) = do
 ||| Use for progressive fine-tuning workflows (train head with backbone
 ||| frozen, then unfreeze backbone for joint fine-tuning).
 export
-unfreezeNetwork : {0 d : Device} -> {i, o : Nat} -> {hs : List Nat} ->
+unfreezeNetwork : {0 d : Type} -> {i, o : Nat} -> {hs : List Nat} ->
                    (1 _ : Network i hs o d NoGrad) -> IO (Network i hs o d WithGrad)
 unfreezeNetwork (OutputLayer l) = do
   l' <- unfreezeAnyLayer l
@@ -167,7 +167,7 @@ unfreezeNetwork {hs = h :: _} (l ~~> rest) = do
 ||| between training sequences for recurrent layers (Lstm, Rnn,
 ||| Gru). Stateless layers' default `resetState` is identity.
 export
-resetNetwork : {0 d : Device} -> {0 g : GradMode} -> {i, o : Nat} -> {hs : List Nat} ->
+resetNetwork : {0 d : Type} -> {0 g : GradMode} -> {i, o : Nat} -> {hs : List Nat} ->
                  Network i hs o d g -> Network i hs o d g
 resetNetwork (OutputLayer (MkAnyLayer l @{dict} layer)) =
   OutputLayer (MkAnyLayer l @{dict} (resetState @{dict} layer))
@@ -179,7 +179,7 @@ resetNetwork ((MkAnyLayer l @{dict} layer) ~~> rest) =
 ||| Activation / Dropout override; other layers crash via the
 ||| interface default.
 export
-forwardVarBatch : {0 d : Device} -> {0 g : GradMode} -> {i, o : Nat} -> {b : Nat} ->
+forwardVarBatch : {0 d : Type} -> {0 g : GradMode} -> {i, o : Nat} -> {b : Nat} ->
                    {hs : List Nat} ->
                    Network i hs o d g -> Tensor [b, i] d g ->
                    (Network i hs o d g, Tensor [b, o] d g)
@@ -216,7 +216,7 @@ forwardVarBatch {hs = h :: _} (l ~~> rest) input =
 |||     epoch5:1 min=-0.234 max=0.567 mean=0.099
 |||     epoch5:out min=-0.300 max=0.700 mean=0.150  [NaN]
 export
-forwardVarTraced : {0 d : Device} -> {0 g : GradMode} -> {i, o : Nat} -> {hs : List Nat} ->
+forwardVarTraced : {0 d : Type} -> {0 g : GradMode} -> {i, o : Nat} -> {hs : List Nat} ->
                    (label : String) ->
                    Network i hs o d g -> Tensor [i] d g ->
                    IO (Network i hs o d g, Tensor [o] d g)
@@ -238,7 +238,7 @@ forwardVarTraced label net input = go 0 net input
           ++ " max=" ++ show mx
           ++ " mean=" ++ show me ++ tag
 
-    go : {0 d : Device} -> {0 g : GradMode} -> {i, o : Nat} -> {hs : List Nat} ->
+    go : {0 d : Type} -> {0 g : GradMode} -> {i, o : Nat} -> {hs : List Nat} ->
          Nat ->
          Network i hs o d g -> Tensor [i] d g ->
          IO (Network i hs o d g, Tensor [o] d g)

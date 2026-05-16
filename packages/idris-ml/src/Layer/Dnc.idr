@@ -133,7 +133,7 @@ dncReadHeads idx (prevRw :: restRws) linkT linkTransT memT keysT betasT modesT m
 public export
 data DncState :
   (r : Nat) -> (n : Nat) -> (m : Nat) -> (h : Nat) ->
-  Nat -> Nat -> (0 _ : Device) -> (0 _ : GradMode) -> Type
+  Nat -> Nat -> (0 _ : Type) -> (0 _ : GradMode) -> Type
   where
   MkDnc :
     LstmState (DncControllerInput r m i) h d g ->

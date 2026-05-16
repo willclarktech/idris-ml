@@ -32,7 +32,7 @@ import Device
 ||| generator. `threshold > 0.0` advances when the chunk loss falls
 ||| below it; `threshold = 0.0` never auto-advances.
 public export
-record Stage (0 d : Device) (i : Nat) (o : Nat) (n : Nat) where
+record Stage (0 d : Type) (i : Nat) (o : Nat) (n : Nat) where
   constructor MkStage
   label : String
   threshold : Double
@@ -47,7 +47,7 @@ minDelta : Double
 minDelta = 0.001
 
 ||| Run a chunk of training epochs over fixed data.
-runChunk : {d : Device} -> {i, o, n : Nat} -> {hs : List Nat} ->
+runChunk : {d : Type} -> {i, o, n : Nat} -> {hs : List Nat} ->
            NativeOptimizer -> Schedule ->
            Network i hs o d WithGrad ->
            Vect n (RecurrentDataPoint i o Double) ->
@@ -73,7 +73,7 @@ runChunk opt sched m ds lossFn (S k) ep bl sc = do
 ||| Train one curriculum stage. Returns
 ||| (model, totalEpochs, advanced?). `advanced=True` means the
 ||| caller should move to the next stage.
-trainStage : {d : Device} -> {i, o, n : Nat} -> {hs : List Nat} ->
+trainStage : {d : Type} -> {i, o, n : Nat} -> {hs : List Nat} ->
              NativeOptimizer -> Schedule ->
              Network i hs o d WithGrad ->
              Stage d i o n ->
@@ -130,7 +130,7 @@ trainStage opt sched model stage lossFn chunkSz patience budget done bestLoss st
 ||| per-epoch optimizer rebuild needed).
 export
 runCurriculum :
-  {d : Device} ->
+  {d : Type} ->
   {i, o, n : Nat} -> {hs : List Nat} ->
   NativeOptimizer ->
   Schedule ->
