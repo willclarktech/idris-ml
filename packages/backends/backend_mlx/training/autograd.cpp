@@ -86,8 +86,20 @@ void tensor_set_requires_grad(TensorHandle h, int rg) {
 // handle / Metal-buffer count instead of letting it accumulate past the
 // paravirt-Metal ceiling. Shared by no_grad_end and epoch_end.
 static void mlx_sweep_generation(long block_start) {
+    // Materialize every live mx::array — both `data` and (when present)
+    // `grad` — before the deletion pass. ~mx::array on a still-lazy graph
+    // recurses through input array shared_ptrs; if those inputs reference
+    // ArrayDesc nodes owned (transitively) by a Tensor that the same sweep
+    // is about to free, the deletion-order race materializes as a SIGBUS
+    // deep in ~ArrayDesc on a corrupted child (intermittent transformer
+    // mlx-gpu crash, see TODO.md). Evaluating up-front collapses every
+    // graph to a concrete buffer, so each ~mx::array becomes a leaf decref.
     std::vector<mx::array> to_eval;
-    for (auto* t : all_tensors) to_eval.push_back(t->data);
+    to_eval.reserve(all_tensors.size() * 2);
+    for (auto* t : all_tensors) {
+        to_eval.push_back(t->data);
+        if (t->has_grad) to_eval.push_back(t->grad);
+    }
     if (!to_eval.empty()) {
         try { mx::eval(to_eval); } catch (...) { /* best-effort */ }
     }

@@ -29,6 +29,9 @@
 #include <cstring>
 #include <exception>
 #include <unistd.h>      // _exit
+#include <signal.h>
+#include <execinfo.h>
+#include <cstdio>
 
 static bool g_mlx_past_main = false;
 static std::terminate_handler g_prev_terminate_handler = nullptr;
@@ -65,4 +68,33 @@ static void mlx_backend_init(void) {
     // low; see the refcount-driven Tensor lifecycle work.
     g_prev_terminate_handler = std::set_terminate(mlx_terminate_handler);
     std::atexit(mlx_set_past_main);
+
+    // Crash-trace install — opt-in via MLX_CRASH_TRACE=1. On SIGSEGV/SIGILL/
+    // SIGBUS, write a host-side backtrace to stderr then re-raise the
+    // signal with default disposition (which kills the process). Chez's
+    // signal handler normally swallows these with "invalid memory
+    // reference" — installing ours after the constructor leaves Chez's
+    // later sigaction call to overwrite us, so we re-install on the
+    // first FFI entry too. For diagnosis only.
+    if (std::getenv("MLX_CRASH_TRACE")) {
+        struct sigaction sa;
+        std::memset(&sa, 0, sizeof(sa));
+        sa.sa_flags = SA_SIGINFO | SA_RESETHAND;
+        sa.sa_sigaction = [](int signo, siginfo_t* info, void*) {
+            const char* sname = signo == SIGSEGV ? "SIGSEGV" :
+                                signo == SIGILL  ? "SIGILL"  :
+                                signo == SIGBUS  ? "SIGBUS"  : "SIG?";
+            std::fprintf(stderr, "\n=== mlx crash-trace: %s at addr=%p ===\n",
+                         sname, info ? info->si_addr : nullptr);
+            void* frames[64];
+            int n = backtrace(frames, 64);
+            backtrace_symbols_fd(frames, n, 2);
+            std::fflush(stderr);
+            // Re-raise (SA_RESETHAND restored default disposition)
+            raise(signo);
+        };
+        sigaction(SIGSEGV, &sa, nullptr);
+        sigaction(SIGILL,  &sa, nullptr);
+        sigaction(SIGBUS,  &sa, nullptr);
+    }
 }
