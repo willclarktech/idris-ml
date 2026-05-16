@@ -396,6 +396,40 @@ endef
 
 $(foreach b,$(filter-out tape torch mlx,$(BACKEND_LIST)),$(eval $(call backend_compile_rule,$(b))))
 
+# ---------------------------------------------------------------------
+# Vendored deps — fetched on demand into a gitignored directory.
+#
+# cJSON (Dave Gamble, MIT) is used only by safetensors.c. The pinned
+# v1.7.18 source previously sat in-tree at packages/backends/cJSON.{c,h}
+# (~3.1k lines committed); now fetched into vendored/cJSON/ on first
+# build with SHA256 verify. The file rules below only run when the
+# files are missing, so offline rebuilds reuse the cached copy.
+# ---------------------------------------------------------------------
+VENDORED_DIR    := vendored
+CJSON_VERSION   := v1.7.18
+CJSON_DIR       := $(VENDORED_DIR)/cJSON
+CJSON_C         := $(CJSON_DIR)/cJSON.c
+CJSON_H         := $(CJSON_DIR)/cJSON.h
+CJSON_URL_BASE  := https://raw.githubusercontent.com/DaveGamble/cJSON/$(CJSON_VERSION)
+CJSON_C_SHA256  := 75c51de8fa40ac9d7a99319c6330719bd692eb81c0a869265f3d4c682533f9b9
+CJSON_H_SHA256  := 0578cc29132912edbc88f83207a8fc76e5db3db0605497e909a9384ef3cc474b
+
+$(CJSON_DIR):
+	mkdir -p $@
+
+$(CJSON_C): | $(CJSON_DIR)
+	@echo "[vendor] fetching cJSON $(CJSON_VERSION) cJSON.c"
+	@curl -fsSL -o $@ $(CJSON_URL_BASE)/cJSON.c
+	@echo "$(CJSON_C_SHA256)  $@" | shasum -a 256 -c -
+
+$(CJSON_H): | $(CJSON_DIR)
+	@echo "[vendor] fetching cJSON $(CJSON_VERSION) cJSON.h"
+	@curl -fsSL -o $@ $(CJSON_URL_BASE)/cJSON.h
+	@echo "$(CJSON_H_SHA256)  $@" | shasum -a 256 -c -
+
+vendor-deps: $(CJSON_C) $(CJSON_H)
+.PHONY: vendor-deps
+
 # Shared C sources (serialization, JSON, MNIST data) compiled with the
 # PRIMARY backend's rename header so their cross-TU references match
 # the primary's suffixed defs (other backends' suffixed defs are
@@ -406,10 +440,10 @@ $(foreach b,$(filter-out tape torch mlx,$(BACKEND_LIST)),$(eval $(call backend_c
 # per backend).
 SHARED_OBJ := $(BUILD)/safetensors_$(PRIMARY).o $(BUILD)/cJSON.o $(BUILD)/mnist_$(PRIMARY).o $(BUILD)/shared_utils.o
 
-$(BUILD)/safetensors_$(PRIMARY).o: $(BACKENDS_DIR)/safetensors.c $(BACKENDS_DIR)/backend.h $(BACKENDS_DIR)/cJSON.h $(BACKEND_RENAME_H) | $(BUILD)
-	cc -O2 -fPIC $(EXTRA_CFLAGS) -include $(BACKEND_RENAME_H) -c -o $@ $<
+$(BUILD)/safetensors_$(PRIMARY).o: $(BACKENDS_DIR)/safetensors.c $(BACKENDS_DIR)/backend.h $(CJSON_H) $(BACKEND_RENAME_H) | $(BUILD)
+	cc -O2 -fPIC $(EXTRA_CFLAGS) -include $(BACKEND_RENAME_H) -I$(CJSON_DIR) -c -o $@ $<
 
-$(BUILD)/cJSON.o: $(BACKENDS_DIR)/cJSON.c $(BACKENDS_DIR)/cJSON.h | $(BUILD)
+$(BUILD)/cJSON.o: $(CJSON_C) $(CJSON_H) | $(BUILD)
 	cc -O2 -fPIC $(EXTRA_CFLAGS) -c -o $@ $<
 
 $(BUILD)/mnist_$(PRIMARY).o: $(BACKENDS_DIR)/mnist.c $(BACKENDS_DIR)/backend.h $(BACKEND_RENAME_H) | $(BUILD)

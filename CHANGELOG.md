@@ -3,6 +3,9 @@
 Completed work, most recent first. Moved out of `TODO.md` on 2026-05-22.
 
 
+Vendor cJSON out of VCS (closed 2026-05-25). `packages/backends/cJSON.{c,h}` (3,143 lines of canonical v1.7.18, MIT) moved to `vendored/cJSON/` and gitignored. Makefile rule fetches the pinned URL + verifies SHA256 on first build (and on demand thereafter); the cached copy is reused for offline rebuilds. Removes ~3.1k lines of vendored upstream from clone size and from `find . -name *.c | xargs wc -l` rankings; safetensors compile path picks up the new include via `-I$(CJSON_DIR)`. New target: `make vendor-deps`.
+
+
 Modular backends — Phase 6 per-op split for torch + mlx (closed 2026-05-25). The structural split deferred during Phases 3-4 of TODO row 32, finishing the original plan's per-op-file goal. ~25 paired commits over multiple sessions; one logical extraction per commit, each maintaining F64 byte-identical + tri-link green (`BACKEND=tape,torch,mlx`) + Criterion suites green throughout.
 
 Final monolith shrinkage (Phase 6 baseline → close):

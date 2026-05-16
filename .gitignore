@@ -19,6 +19,12 @@ data/
 .claude/
 .idris2/
 
+# Vendored third-party deps — fetched on demand by `make vendor-deps`
+# (auto-triggered when a SHARED_OBJ target needs the source). Pinned to
+# a specific version + SHA256 in the Makefile. Excluded from VCS so
+# upstream sources don't bloat clones or dominate LOC reports.
+vendored/
+
 .venv/
 *.egg-info/
 __pycache__/
