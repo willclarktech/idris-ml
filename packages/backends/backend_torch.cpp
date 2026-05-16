@@ -82,7 +82,10 @@ TensorHandle from_tensor_persistent(at::Tensor t) {
     auto* p = new at::Tensor(std::move(t));
     return static_cast<TensorHandle>(p);
 }
-static TensorHandle make_param_leaf(double* data, c10::IntArrayRef dims, torch::ScalarType dt); // defined near the F32 param creators
+/* make_param_leaf + the dtag-dispatch surface are declared in
+   backend_torch/training/dtype_dispatch.h. Included early because
+   tensor_create_param_3d below (and tensor_one_hot) call into it. */
+#include "backend_torch/training/dtype_dispatch.h"
 
 /* ---------- Lifecycle ----------
    tensor_create_scalar* / tensor_create* / tensor_cast_dtype_* extracted
@@ -228,7 +231,8 @@ TensorHandle tensor_with_grad(TensorHandle h) {
     return from_tensor(std::move(t));
 }
 
-static inline bool idrisml_is_floating_st(torch::ScalarType dt);  /* defined below */
+/* idrisml_is_floating_st — defined in backend_torch/training/dtype_dispatch.cpp. */
+bool idrisml_is_floating_st(torch::ScalarType dt);
 
 void tensor_set_requires_grad(TensorHandle h, int requires_grad) {
     auto t = to_tensor(h);
@@ -349,9 +353,11 @@ TensorHandle tensor_create_2d(int rows, int cols, double* data, int requires_gra
  * backend_torch/linear/concat/{stack,cat}.cpp. */
 
 
-/* Forward decl — st_for_dtag is defined further down with the unified
-   create/cast block; tensor_one_hot below calls it. */
-static torch::ScalarType st_for_dtag(int dtag);
+/* st_for_dtag + the unified create/cast dtag dispatchers + the F32/F64
+   explicit-suffix wrappers + make_param_leaf + idrisml_is_floating_st all
+   live in backend_torch/training/dtype_dispatch.cpp. tensor_one_hot below
+   calls st_for_dtag via the dtype_dispatch.h declaration (included
+   above). */
 
 TensorHandle tensor_one_hot(int* tokens, int n_tokens, int vocab_size, int dtag) {
     int total = n_tokens * vocab_size;
@@ -413,92 +419,9 @@ TensorHandle tensor_create_state_1d(int n, double* data) {
     return from_tensor_persistent(std::move(t));
 }
 
-/* ================================================================
-   Per-dtype creation variants
-   --------------------------------------------------------------
-   Torch supports F32 and F64 natively (both first-class). The _f64
-   variants are functionally identical to the existing unsuffixed
-   creators; the _f32 variants build with kFloat32 and cast the
-   double-typed input buffer down.
-   ================================================================ */
-
-static TensorHandle torch_cast_to(TensorHandle h, torch::ScalarType dt) {
-    auto t = *to_tensor(h);
-    return from_tensor_persistent(t.dtype() == dt ? t : t.to(dt));
-}
-
-/* Build a persistent grad-tracking leaf at dtype dt from a fp64 host buffer.
-   Cast-before-requires_grad is load-bearing: `.to(dt)` applied to an
-   already-requires_grad tensor yields a NON-LEAF (the ToCopy output), whose
-   .grad never populates during backward — the optimizer then reads a zero
-   gradient and silently no-ops, freezing F32 training at the init loss.
-   The F64 param creators set requires_grad on the un-cast leaf (no cast), so
-   they were unaffected; only the F32 path went cast-after-grad. */
-static TensorHandle make_param_leaf(double* data, c10::IntArrayRef dims, torch::ScalarType dt) {
-    auto t = torch::from_blob(data, dims, torch::kFloat64).clone();
-    if (dt != torch::kFloat64) t = t.to(dt);
-    t.requires_grad_(true);
-    // A parameter must be an autograd leaf or its .grad never populates and
-    // the optimizer silently no-ops (frozen training, no error). This fires
-    // immediately at the construction site if a future change reorders the
-    // cast/move after requires_grad_ on any backend build. See gotchas.md
-    // "A parameter must be cast/moved before requires_grad_".
-    TORCH_CHECK(t.is_leaf(),
-        "parameter tensor is not an autograd leaf: cast/move (.to(dtype/device)) "
-        "must precede requires_grad_, otherwise .grad never populates and the "
-        "optimizer silently freezes training");
-    return from_tensor_persistent(std::move(t));
-}
-
-/* F64 — aliases to existing unsuffixed implementations.
-   tensor_create_scalar_f64 and tensor_create_f64 are already defined
-   above via the _impl refactor, so they're omitted here. */
-TensorHandle tensor_create_1d_f64(int n, double* d, int rg)                             { return tensor_create_1d(n, d, rg); }
-TensorHandle tensor_create_2d_f64(int rows, int cols, double* d, int rg)                { return tensor_create_2d(rows, cols, d, rg); }
-TensorHandle tensor_create_param_1d_f64(int n, double* d)                               { return tensor_create_param_1d(n, d); }
-TensorHandle tensor_create_param_2d_f64(int rows, int cols, double* d)                  { return tensor_create_param_2d(rows, cols, d); }
-TensorHandle tensor_create_param_3d_f64(int d0, int d1, int d2, double* d)              { return tensor_create_param_3d(d0, d1, d2, d); }
-TensorHandle tensor_create_param_4d_f64(int d0, int d1, int d2, int d3, double* d)      { return tensor_create_param_4d(d0, d1, d2, d3, d); }
-TensorHandle tensor_create_state_1d_f64(int n, double* d)                               { return tensor_create_state_1d(n, d); }
-TensorHandle tensor_create_state_2d_f64(int rows, int cols, double* d)                  { return tensor_create_state_2d(rows, cols, d); }
-
-/* F32 — build at fp64 then cast down. Note: tensor_create_scalar_f32 and
-   tensor_create_f32 already exist (refactored in their original location
-   with _impl helpers); these wrappers cover the remaining 8 cases. */
-TensorHandle tensor_create_1d_f32(int n, double* d, int rg) {
-    auto t = torch::from_blob(d, {(int64_t)n}, torch::kFloat64).clone();
-    free(d);
-    t = t.to(torch::kFloat32);
-    if (rg) t.requires_grad_(true);   // cast-before-grad: keep the F32 tensor a leaf
-    return from_tensor(std::move(t));
-}
-TensorHandle tensor_create_2d_f32(int rows, int cols, double* d, int rg) {
-    auto t = torch::from_blob(d, {(int64_t)rows, (int64_t)cols}, torch::kFloat64).clone();
-    free(d);
-    t = t.to(torch::kFloat32);
-    if (rg) t.requires_grad_(true);   // cast-before-grad: keep the F32 tensor a leaf
-    return from_tensor(std::move(t));
-}
-TensorHandle tensor_create_param_1d_f32(int n, double* d) {
-    return make_param_leaf(d, {(int64_t)n}, torch::kFloat32);
-}
-TensorHandle tensor_create_param_2d_f32(int rows, int cols, double* d) {
-    return make_param_leaf(d, {(int64_t)rows, (int64_t)cols}, torch::kFloat32);
-}
-TensorHandle tensor_create_param_3d_f32(int d0, int d1, int d2, double* d) {
-    return make_param_leaf(d, {(int64_t)d0, (int64_t)d1, (int64_t)d2}, torch::kFloat32);
-}
-TensorHandle tensor_create_param_4d_f32(int d0, int d1, int d2, int d3, double* d) {
-    return make_param_leaf(d, {(int64_t)d0, (int64_t)d1, (int64_t)d2, (int64_t)d3}, torch::kFloat32);
-}
-TensorHandle tensor_create_state_1d_f32(int n, double* d) {
-    auto h = tensor_create_state_1d(n, d);
-    return torch_cast_to(h, torch::kFloat32);
-}
-TensorHandle tensor_create_state_2d_f32(int rows, int cols, double* d) {
-    auto h = tensor_create_state_2d(rows, cols, d);
-    return torch_cast_to(h, torch::kFloat32);
-}
+/* Per-dtype creation variants (F32/F64 explicit-suffix wrappers +
+ * make_param_leaf + torch_cast_to) live in
+ * backend_torch/training/dtype_dispatch.cpp. */
 
 TensorHandle tensor_view_2d(TensorHandle h, int row, int col) {
     /* Returns a 0-dim view that shares storage with the parent tensor.
@@ -582,156 +505,11 @@ void tensor_mlx_compile_reset_stats(void) { }
 /* tensor_live_count / tensor_peak_live_count live in
    backend_torch/training/intermediates.cpp.
    dropout_random_seed lives in shared_utils.c. */
+/* The dtype-dispatch block (Inference-only dtype scaffolding, st_for_dtag,
+ * create_*_dt helpers, and the torch_create_*_dtag / torch_cast_dtype_dtag
+ * family) lives in backend_torch/training/dtype_dispatch.cpp — declared in
+ * its header which the monolith includes above. */
 
-
-
-/* ---- Inference-only dtype scaffolding (BF16, F16, Int, Bool) ----
-   Generic dtype-parameterised create/cast over the lean non-grad set
-   (scalar/create/1d/2d/cast). requires_grad is honored only for floating
-   dtypes; torch rejects autograd on integer/bool. Grad param/state
-   variants for these dtypes are deferred to the mixed-precision-training
-   row; the f32/f64 param/state wrappers above are unchanged. */
-static inline bool idrisml_is_floating_st(torch::ScalarType dt) {
-    return dt == torch::kFloat32 || dt == torch::kFloat64 ||
-           dt == torch::kBFloat16 || dt == torch::kHalf;
-}
-static TensorHandle create_scalar_dt(double v, int rg, torch::ScalarType dt) {
-    auto t = torch::tensor(v, torch::dtype(dt));
-    if (rg && idrisml_is_floating_st(dt)) t.requires_grad_(true);
-    return from_tensor_persistent(std::move(t));
-}
-static TensorHandle create_nd_dt(double* data, int* shape, int rank, int rg, torch::ScalarType dt) {
-    std::vector<int64_t> dims(rank);
-    for (int i = 0; i < rank; i++) dims[i] = shape[i];
-    auto t = torch::from_blob(data, dims, torch::kFloat64).clone();
-    if (dt != torch::kFloat64) t = t.to(dt);
-    if (rg && idrisml_is_floating_st(dt)) t.requires_grad_(true);
-    return from_tensor_persistent(std::move(t));
-}
-static TensorHandle create_1d_dt(int n, double* d, int rg, torch::ScalarType dt) {
-    auto t = torch::from_blob(d, {(int64_t)n}, torch::kFloat64).clone();
-    free(d);
-    if (dt != torch::kFloat64) t = t.to(dt);
-    if (rg && idrisml_is_floating_st(dt)) t.requires_grad_(true);
-    return from_tensor(std::move(t));
-}
-static TensorHandle create_2d_dt(int rows, int cols, double* d, int rg, torch::ScalarType dt) {
-    auto t = torch::from_blob(d, {(int64_t)rows, (int64_t)cols}, torch::kFloat64).clone();
-    free(d);
-    if (dt != torch::kFloat64) t = t.to(dt);
-    if (rg && idrisml_is_floating_st(dt)) t.requires_grad_(true);
-    return from_tensor(std::move(t));
-}
-
-
-/* ---- Unified dtag-dispatch create/cast entry points ----
-   One symbol per shape, dtag-keyed, superseding the per-dtype
-   *_f32_streamed / *_f64_streamed / inference-dtype wrappers above. The
-   Idris-side Scheme wrappers pass the RuntimeDType tag as the trailing
-   `dtag` arg; the body switches internally. F32/F64 route to the existing
-   dedicated creators (byte-identical behavior); other dtags route through
-   the generic create_*_dt / make_param_leaf path. */
-static torch::ScalarType st_for_dtag(int dtag) {
-    switch (dtag) {
-        case 1:  return torch::kBool;       /* Bool */
-        case 4:  return torch::kByte;       /* U8 */
-        case 8:  return torch::kChar;       /* I8 */
-        case 9:  return torch::kShort;      /* I16 */
-        case 10: return torch::kInt;        /* I32 */
-        case 11: return torch::kLong;       /* I64 */
-        case 13: return torch::kHalf;       /* F16 */
-        case 14: return torch::kFloat32;    /* F32 */
-        case 15: return torch::kFloat64;    /* F64 */
-        case 17: return torch::kBFloat16;   /* BF16 */
-        default:
-            std::fprintf(stderr,
-                "invalid dtag %d: expected one of {1=Bool, 4=U8, 8-11=I8/I16/I32/I64, "
-                "13-15=F16/F32/F64, 17=BF16}\n", dtag);
-            std::abort();
-    }
-}
-
-/* Per-shape dtag dispatchers bound into the port struct below. Renamed
-   from `tensor_create_*_streamed` (FFI-named) — the shared
-   shared/training/dtype_streamed.c TU now provides the FFI surface
-   via port trampolines that strip the (mlx-only) stream_tag and call
-   into these. F32/F64 route to the dedicated dtype creators
-   (byte-identical with the previous in-file path); other dtags route
-   through the generic create_*_dt / make_param_leaf / torch_cast_to
-   path. */
-static TensorHandle torch_create_scalar_dtag(double v, int rg, int dtag) {
-    switch (dtag) {
-        case 14: return tensor_create_scalar_f32(v, rg);
-        case 15: return tensor_create_scalar_f64(v, rg);
-        default: return create_scalar_dt(v, rg, st_for_dtag(dtag));
-    }
-}
-static TensorHandle torch_create_dtag(double* data, int* shape, int rank, int rg, int dtag) {
-    switch (dtag) {
-        case 14: return tensor_create_f32(data, shape, rank, rg);
-        case 15: return tensor_create_f64(data, shape, rank, rg);
-        default: return create_nd_dt(data, shape, rank, rg, st_for_dtag(dtag));
-    }
-}
-static TensorHandle torch_create_1d_dtag(int n, double* data, int rg, int dtag) {
-    switch (dtag) {
-        case 14: return tensor_create_1d_f32(n, data, rg);
-        case 15: return tensor_create_1d_f64(n, data, rg);
-        default: return create_1d_dt(n, data, rg, st_for_dtag(dtag));
-    }
-}
-static TensorHandle torch_create_2d_dtag(int rows, int cols, double* data, int rg, int dtag) {
-    switch (dtag) {
-        case 14: return tensor_create_2d_f32(rows, cols, data, rg);
-        case 15: return tensor_create_2d_f64(rows, cols, data, rg);
-        default: return create_2d_dt(rows, cols, data, rg, st_for_dtag(dtag));
-    }
-}
-static TensorHandle torch_create_param_1d_dtag(int n, double* data, int dtag) {
-    switch (dtag) {
-        case 14: return tensor_create_param_1d_f32(n, data);
-        case 15: return tensor_create_param_1d_f64(n, data);
-        default: return make_param_leaf(data, {(int64_t)n}, st_for_dtag(dtag));
-    }
-}
-static TensorHandle torch_create_param_2d_dtag(int rows, int cols, double* data, int dtag) {
-    switch (dtag) {
-        case 14: return tensor_create_param_2d_f32(rows, cols, data);
-        case 15: return tensor_create_param_2d_f64(rows, cols, data);
-        default: return make_param_leaf(data, {(int64_t)rows, (int64_t)cols}, st_for_dtag(dtag));
-    }
-}
-static TensorHandle torch_create_param_3d_dtag(int d0, int d1, int d2, double* data, int dtag) {
-    switch (dtag) {
-        case 14: return tensor_create_param_3d_f32(d0, d1, d2, data);
-        case 15: return tensor_create_param_3d_f64(d0, d1, d2, data);
-        default: return make_param_leaf(data, {(int64_t)d0, (int64_t)d1, (int64_t)d2}, st_for_dtag(dtag));
-    }
-}
-static TensorHandle torch_create_param_4d_dtag(int d0, int d1, int d2, int d3, double* data, int dtag) {
-    switch (dtag) {
-        case 14: return tensor_create_param_4d_f32(d0, d1, d2, d3, data);
-        case 15: return tensor_create_param_4d_f64(d0, d1, d2, d3, data);
-        default: return make_param_leaf(data, {(int64_t)d0, (int64_t)d1, (int64_t)d2, (int64_t)d3}, st_for_dtag(dtag));
-    }
-}
-static TensorHandle torch_create_state_1d_dtag(int n, double* data, int dtag) {
-    switch (dtag) {
-        case 14: return tensor_create_state_1d_f32(n, data);
-        case 15: return tensor_create_state_1d_f64(n, data);
-        default: return torch_cast_to(tensor_create_state_1d(n, data), st_for_dtag(dtag));
-    }
-}
-static TensorHandle torch_create_state_2d_dtag(int rows, int cols, double* data, int dtag) {
-    switch (dtag) {
-        case 14: return tensor_create_state_2d_f32(rows, cols, data);
-        case 15: return tensor_create_state_2d_f64(rows, cols, data);
-        default: return torch_cast_to(tensor_create_state_2d(rows, cols, data), st_for_dtag(dtag));
-    }
-}
-static TensorHandle torch_cast_dtype_dtag(TensorHandle src, int dtag) {
-    return from_tensor(to_tensor(src)->to(st_for_dtag(dtag)));
-}
 
 /* ---------- Shared training port adapter ----------
  *
