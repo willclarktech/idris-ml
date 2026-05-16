@@ -40,12 +40,12 @@ export
 applyEmbedding : {0 d : Device} -> UserDeviceTape d => {seqLen, embedDim, vocab : Nat} ->
                    EmbeddingState vocab embedDim d g ->
                    TVec seqLen d g ->
-                   TVec (seqLen * embedDim) d g
-applyEmbedding {seqLen} {embedDim} (MkEmbedding w) tokens =
+                   IO (TVec (seqLen * embedDim) d g)
+applyEmbedding {seqLen} {embedDim} (MkEmbedding w) tokens = ioRerun (\_ =>
   let nI = cast {to=Int} seqLen
       dI = cast {to=Int} embedDim
       outPtr = prim__embedding w.tensorPtr tokens.tensorPtr nI dI
-  in MkTensor outPtr Nothing
+  in MkTensor outPtr Nothing)
 
 
 ----------------------------------------------------------------------
@@ -101,8 +101,9 @@ data EmbeddingWrap : (vocab : Nat) -> (embedDim : Nat) ->
 public export
 {vocab, embedDim : Nat} ->
   LayerLike (EmbeddingWrap vocab embedDim) where
-  applyVar (MkEmbeddingWrap st) input =
-    (MkEmbeddingWrap st, applyEmbedding st input)
+  applyVar (MkEmbeddingWrap st) input = do
+    out <- applyEmbedding st input
+    pure (MkEmbeddingWrap st, out)
   layerPrefix _ = "emb"
 
   freezeLayer (MkEmbeddingWrap (MkEmbedding w)) = do

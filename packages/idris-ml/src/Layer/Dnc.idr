@@ -221,11 +221,11 @@ export
 applyDnc : {0 d : Device} -> UserDeviceTape d => {r, n, m, h, i, o : Nat} ->
              DncState r n m h i o d g ->
              TVec i d g ->
-             (DncState r n m h i o d g, TVec o d g)
+             IO (DncState r n m h i o d g, TVec o d g)
 applyDnc {r} {n} {m}
            (MkDnc lstm wkFc wbFc eFc aFc fgFc agFc wgFc rkFc rbFc rmFc oFc
                     memInitT initReadOutsT nonDiagMaskT
-                    memT usageT wwT precT linkT rwTs roTs) input =
+                    memT usageT wwT precT linkT rwTs roTs) input = do
   let nI = cast {to=Int} n
       mI = cast {to=Int} m
       -- Initial memory at sequence start: sigmoid(memInit).reshape(n, m).
@@ -257,10 +257,10 @@ applyDnc {r} {n} {m}
       -- 1. cat(readOuts, input) -> [r*m + i]
       lstmInputPtr = catReadOutsAndInput roTsPtrs input.tensorPtr
       lstmInputV = the (TVec (DncControllerInput r m i) d g) (MkTensor lstmInputPtr Nothing)
-      -- 2. LSTM forward
-      (updLstm, hiddenV) = applyLstm lstm lstmInputV
-      -- 3. Cell-state for FCs
-      cellPtr = case updLstm.cellT of
+  -- 2. LSTM forward (IO)
+  (updLstm, hiddenV) <- applyLstm lstm lstmInputV
+  -- 3. Cell-state for FCs
+  let cellPtr = case updLstm.cellT of
                   Just c => c.tensorPtr
                   Nothing => idris_crash "Dnc: cell tensor missing post-LSTM"
       -- Sub-layer weight handles
@@ -344,16 +344,16 @@ applyDnc {r} {n} {m}
       allNewReadsT  = catReadOuts newRoTs
       outputInputT  = prim__cat2 hiddenV.tensorPtr allNewReadsT
       outputT       = prim__linear oW outputInputT oB
-  in ( MkDnc updLstm wkFc wbFc eFc aFc fgFc agFc wgFc rkFc rbFc rmFc oFc
-        memInitT initReadOutsT nonDiagMaskT
-        (Just (MkTensor newMemT Nothing))
-        (Just (MkTensor newUsageT Nothing))
-        (Just (MkTensor newWriteWT Nothing))
-        (Just (MkTensor newPrecT Nothing))
-        (Just (MkTensor newLinkT Nothing))
-        (Just newRwTs)
-        (Just newRoTs)
-     , MkTensor outputT Nothing )
+  pure ( MkDnc updLstm wkFc wbFc eFc aFc fgFc agFc wgFc rkFc rbFc rmFc oFc
+          memInitT initReadOutsT nonDiagMaskT
+          (Just (MkTensor newMemT Nothing))
+          (Just (MkTensor newUsageT Nothing))
+          (Just (MkTensor newWriteWT Nothing))
+          (Just (MkTensor newPrecT Nothing))
+          (Just (MkTensor newLinkT Nothing))
+          (Just newRwTs)
+          (Just newRoTs)
+       , MkTensor outputT Nothing )
 
 
 ----------------------------------------------------------------------
@@ -420,8 +420,7 @@ dncLayer pfx = do
   memInitVals <- traverse (\_ => xavier uniform m n) (Vect.replicate (m * n) ())
   let miBuf = prim__allocDoubles mnI
       miBuf' = packDoubles miBuf 0 memInitVals
-      memInitT : TVec (m * n) CPU WithGrad
-      memInitT = tparam1d (pfx ++ "_memoryInit") miBuf'
+  memInitT <- tparam1d {n = m * n} (pfx ++ "_memoryInit") miBuf'
   -- initialReadOuts: PyTorch default kaiming_uniform on (R, m), bound=1/sqrt(m)
   let iroBound = 1.0 / prim__doubleSqrt (cast m)
   initReadOutsT <- mkKaimingReadOuts r m iroBound

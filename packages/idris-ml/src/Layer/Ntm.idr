@@ -139,14 +139,11 @@ export
 applyNtm : {0 d : Device} -> UserDeviceTape d => {n, m, h, i, o : Nat} ->
              NtmState n m h i o d g ->
              TVec i d g ->
-             (NtmState n m h i o d g, TVec o d g)
+             IO (NtmState n m h i o d g, TVec o d g)
 applyNtm {n} {m} {h} {i} {o}
-           (MkNtm lstm readFc writeFc outputFc memInitT initReadOutT memT raT waT roT) input =
+           (MkNtm lstm readFc writeFc outputFc memInitT initReadOutT memT raT waT roT) input = do
   let nI = cast {to=Int} n
       mI = cast {to=Int} m
-      -- Initial memory at sequence start: sigmoid(memoryInit).reshape(n, m).
-      -- Mirrors `torch_ref/ntm/layer.py:96`. Gradient flows through sigmoid+
-      -- reshape back to the registered memInitT parameter.
       initMemPtr = prim__reshape2d (prim__sigmoid memInitT.tensorPtr) nI mI
       memTPtr = case memT of
                   Just t => t.tensorPtr
@@ -157,21 +154,16 @@ applyNtm {n} {m} {h} {i} {o}
       waTPtr = case waT of
                  Just t => t.tensorPtr
                  Nothing => zeroState1d n
-      -- Initial read output at sequence start: fixed Kaiming-uniform sample,
-      -- non-learnable. Mirrors `torch_ref/ntm/layer.py:84-86, 102`.
       roTPtr = case roT of
                  Just t => t.tensorPtr
                  Nothing => initReadOutT.tensorPtr
-      -- 1. cat(readOut, input) -> [m + i]
       lstmInputPtr = prim__cat2 roTPtr input.tensorPtr
       lstmInputV = the (TVec (m + i) d g) (MkTensor lstmInputPtr Nothing)
-      -- 2. LSTM forward
-      (updLstm, hiddenV) = applyLstm lstm lstmInputV
-      -- 3. Extract cell tensor (post-LSTM cell state)
-      cellPtr = case updLstm.cellT of
+  -- 2. LSTM forward (IO)
+  (updLstm, hiddenV) <- applyLstm lstm lstmInputV
+  let cellPtr = case updLstm.cellT of
                   Just c => c.tensorPtr
                   Nothing => idris_crash "Ntm: cell tensor missing post-LSTM"
-      -- Sub-layer weight tensor handles
       rfcW = readFc.weightT.tensorPtr
       rfcB = readFc.biasT.tensorPtr
       wfcW = writeFc.weightT.tensorPtr
@@ -179,7 +171,6 @@ applyNtm {n} {m} {h} {i} {o}
       ofcW = outputFc.weightT.tensorPtr
       ofcB = outputFc.biasT.tensorPtr
       skI = cast {to=Int} ShiftKernelSize
-      -- 4. Read FC: cell -> [ReadParamWidth m]
       readResultT = prim__linear rfcW cellPtr rfcB
       keyT = prim__narrow readResultT 0 0 mI
       shiftT = prim__softmax (prim__narrow readResultT 0 mI skI) 0
@@ -188,7 +179,6 @@ applyNtm {n} {m} {h} {i} {o}
       gammaT = prim__addScalar (prim__softplus
                   (prim__select readResultT 0 (mI + skI + 2))) 1.0
       (newReadAddrT, newReadOutT) = ntmReadHeadIdris memTPtr raTPtr keyT betaT gT gammaT shiftT
-      -- 5. Write FC: cell -> [WriteParamWidth m]
       writeResultT = prim__linear wfcW cellPtr wfcB
       rpw = cast {to=Int} (ReadParamWidth m)
       wKeyT = prim__narrow writeResultT 0 0 mI
@@ -200,15 +190,14 @@ applyNtm {n} {m} {h} {i} {o}
       (newWriteAddrT, _) = ntmReadHeadIdris memTPtr waTPtr wKeyT wBetaT wGT wGammaT wShiftT
       addT = prim__narrow writeResultT 0 rpw mI
       newMemT = ntmInterpWriteIdris {n} memTPtr newWriteAddrT addT
-      -- 6. Output FC: cat(hidden, readOut) -> [o]
       concatPtr = prim__cat2 hiddenV.tensorPtr newReadOutT
       outputPtr = prim__linear ofcW concatPtr ofcB
-  in ( MkNtm updLstm readFc writeFc outputFc memInitT initReadOutT
-        (Just (MkTensor newMemT Nothing))
-        (Just (MkTensor newReadAddrT Nothing))
-        (Just (MkTensor newWriteAddrT Nothing))
-        (Just (MkTensor newReadOutT Nothing))
-     , MkTensor outputPtr Nothing )
+  pure ( MkNtm updLstm readFc writeFc outputFc memInitT initReadOutT
+          (Just (MkTensor newMemT Nothing))
+          (Just (MkTensor newReadAddrT Nothing))
+          (Just (MkTensor newWriteAddrT Nothing))
+          (Just (MkTensor newReadOutT Nothing))
+       , MkTensor outputPtr Nothing )
 
 
 ----------------------------------------------------------------------
@@ -245,8 +234,7 @@ ntmLayer pfx = do
   memInitVals <- traverse (\_ => xavier uniform m n) (Vect.replicate (m * n) ())
   let miBuf = prim__allocDoubles mnI
       miBuf' = packDoubles miBuf 0 memInitVals
-      memInitT : TVec (m * n) CPU WithGrad
-      memInitT = tparam1d (pfx ++ "_memoryInit") miBuf'
+  memInitT <- tparam1d {n = m * n} (pfx ++ "_memoryInit") miBuf'
   -- initialReadOut: PyTorch default kaiming_uniform on (1, m) — fan_in=m.
   -- Sampled once, non-learnable (state tensor handle).
   let iroBound = 1.0 / prim__doubleSqrt (cast m)

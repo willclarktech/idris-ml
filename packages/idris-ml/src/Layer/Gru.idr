@@ -43,19 +43,15 @@ export
 applyGru : {0 d : Device} -> UserDeviceTape d => {o : Nat} ->
              GruState i o d g ->
              TVec i d g ->
-             (GruState i o d g, TVec o d g)
-applyGru {o} st input =
-  let h = case st.hiddenT of
-            Just h => h
-            Nothing => tzeroState1d {n = o}
-      -- nn.GRU equation. tgruCell takes ih and hh separately because
-      -- the n-gate uses r * hh_n (the r mask cannot be applied after
-      -- summing ih + hh). Three FFI calls (vs four with the prior
-      -- tadd-combine + simplified-no-r kernel).
-      ihPart = tlinear st.iwT input st.ihB    -- W_ih @ x + b_ih
-      hhPart = tlinear st.hwT h st.hhB        -- W_hh @ h + b_hh
-      newH = tgruCell {n = o} ihPart hhPart h
-  in ({ hiddenT := Just newH } st, newH)
+             IO (GruState i o d g, TVec o d g)
+applyGru {o} st input = do
+  h <- case st.hiddenT of
+         Just h => pure h
+         Nothing => tzeroState1d {n = o}
+  ihPart <- tlinear st.iwT input st.ihB    -- W_ih @ x + b_ih
+  hhPart <- tlinear st.hwT h st.hhB        -- W_hh @ h + b_hh
+  newH <- tgruCell {n = o} ihPart hhPart h
+  pure ({ hiddenT := Just newH } st, newH)
 
 
 ----------------------------------------------------------------------

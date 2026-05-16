@@ -46,27 +46,20 @@ export
 applyLstm : {0 d : Device} -> UserDeviceTape d => {o : Nat} ->
               LstmState i o d g ->
               TVec i d g ->
-              (LstmState i o d g, TVec o d g)
-applyLstm {o} st input =
+              IO (LstmState i o d g, TVec o d g)
+applyLstm {o} st input = do
   let h = case st.hiddenT of
             Just h => h
             Nothing => st.h0T
-      c = case st.cellT of
+  let c = case st.cellT of
             Just c => c
             Nothing => st.c0T
-      -- Gates: nn.LSTMCell equation
-      --   tanh-cell-input(W_ih @ x + b_ih + W_hh @ h + b_hh)
-      -- folded into a chain of tlinear + tadd. Three FFI calls:
-      --   inner    = tlinear iwT input ihB    -- W_ih @ x + b_ih
-      --   combined = tlinear rwT h inner      -- W_hh @ h + (above)
-      --   gates    = tadd combined hhB        -- + b_hh
-      -- (Pre-2026-05-09 we had a single fused bias, saving one FFI;
-      -- aligned to nn.LSTMCell's two-bias convention so the example
-      -- matches what library users expect.)
-      gates = tadd (tlinear st.rwT h (tlinear st.iwT input st.ihB)) st.hhB
-      (newH, newC) = tlstmGatesPair {n = o} gates c
-      st' = { hiddenT := Just newH, cellT := Just newC } st
-  in (st', newH)
+  inner    <- tlinear st.iwT input st.ihB
+  combined <- tlinear st.rwT h inner
+  gates    <- tadd combined st.hhB
+  (newH, newC) <- tlstmGatesPair {n = o} gates c
+  let st' = { hiddenT := Just newH, cellT := Just newC } st
+  pure (st', newH)
 
 
 ----------------------------------------------------------------------

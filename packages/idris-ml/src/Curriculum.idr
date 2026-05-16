@@ -60,7 +60,7 @@ runChunk : {0 d : Device} -> UserDeviceTape d => {i, o, n : Nat} -> {hs : List N
 runChunk _ _ m _ _ Z _ bl sc = pure (m, bl, sc)
 runChunk opt sched m ds lossFn (S k) ep bl sc = do
   setLearningRate opt (sched ep)
-  let (m', loss) = epochRecurrentVar opt ds lossFn m
+  (m', loss) <- epochRecurrentVar opt ds lossFn m
   let improved : Bool
       improved = loss < bl - minDelta
       bl' : Double

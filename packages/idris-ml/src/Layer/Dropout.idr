@@ -41,14 +41,14 @@ export
 applyDropout : {0 d : Device} -> UserDeviceTape d => {n : Nat} ->
                  DropoutState n n d g ->
                  TVec n d g ->
-                 (DropoutState n n d g, TVec n d g)
-applyDropout st@(MkDropout p training) input =
+                 IO (DropoutState n n d g, TVec n d g)
+applyDropout st@(MkDropout p training) input = ioRerun (\_ =>
   if training
     then
       let seed = dropoutSeed 0
           outPtr = prim__dropout input.tensorPtr p 1 seed
       in (st, MkTensor outPtr Nothing)
-    else (st, input)
+    else (st, input))
 
 
 ----------------------------------------------------------------------
@@ -79,12 +79,12 @@ LayerLike DropoutState where
 
   -- prim__dropout is rank-agnostic, so the batched form is identical
   -- to the single-sample form — same dropout rate, fresh per-call seed.
-  applyVarBatch st@(MkDropout p training) input =
+  applyVarBatch st@(MkDropout p training) input = ioRerun (\_ =>
     if training
       then let seed = dropoutSeed 0
                outPtr = prim__dropout input.tensorPtr p 1 seed
            in (st, MkTensor outPtr Nothing)
-      else (st, input)
+      else (st, input))
 
   layerPrefix _ = "drop"
 

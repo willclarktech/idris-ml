@@ -29,11 +29,11 @@ export
 applyResidual : {0 d : Device} -> UserDeviceTape d => {n : Nat} ->
                   ResidualState n n d g ->
                   TVec n d g ->
-                  (ResidualState n n d g, TVec n d g)
-applyResidual (MkResidual inner) input =
-  let (inner', innerOut) = applyVarAny inner input
-      sumT = tadd input innerOut
-  in (MkResidual inner', sumT)
+                  IO (ResidualState n n d g, TVec n d g)
+applyResidual (MkResidual inner) input = do
+  (inner', innerOut) <- applyVarAny inner input
+  sumT <- tadd input innerOut
+  pure (MkResidual inner', sumT)
 
 
 ----------------------------------------------------------------------

@@ -38,7 +38,7 @@ record RnnState (i : Nat) (o : Nat) (0 d : Device) (0 g : GradMode) where
   rwT : TMat o o d g         -- W_hh [o, o]
   ihB : TVec o d g           -- input-hidden bias [o]
   hhB : TVec o d g           -- hidden-hidden bias [o]
-  activation : {0 g' : GradMode} -> TVec o d g' -> TVec o d g'
+  activation : {0 g' : GradMode} -> TVec o d g' -> IO (TVec o d g')
   prevOutT : Maybe (TVec o d g)
 
 
@@ -52,20 +52,17 @@ export
 applyRnn : {0 d : Device} -> UserDeviceTape d => {o : Nat} ->
              RnnState i o d g ->
              TVec i d g ->
-             (RnnState i o d g, TVec o d g)
-applyRnn {o} st input =
-  let p = case st.prevOutT of
-            Just po => po
-            Nothing => tzeroState1d {n = o}
-      -- nn.RNNCell equation: activation(W_ih @ x + b_ih + W_hh @ h + b_hh).
-      -- Three FFI calls (vs 2 in the prior linear-RNN form):
-      --   inner    = tlinear iwT input ihB    -- W_ih @ x + b_ih
-      --   combined = tlinear rwT p inner      -- W_hh @ h + W_ih @ x + b_ih
-      --   preact   = tadd combined hhB        -- + b_hh
-      --   out      = activation preact
-      preact = tadd (tlinear st.rwT p (tlinear st.iwT input st.ihB)) st.hhB
-      out = st.activation preact
-  in ({ prevOutT := Just out } st, out)
+             IO (RnnState i o d g, TVec o d g)
+applyRnn {o} st input = do
+  p <- case st.prevOutT of
+         Just po => pure po
+         Nothing => tzeroState1d {n = o}
+  -- nn.RNNCell equation: activation(W_ih @ x + b_ih + W_hh @ h + b_hh).
+  inner    <- tlinear st.iwT input st.ihB
+  combined <- tlinear st.rwT p inner
+  preact   <- tadd combined st.hhB
+  out      <- st.activation preact
+  pure ({ prevOutT := Just out } st, out)
 
 
 ----------------------------------------------------------------------
@@ -93,7 +90,7 @@ zeroBuf buf off n =
 export
 rnnLayer : {i, o : Nat} ->
              (paramPrefix : String) ->
-             (activation : {0 g' : GradMode} -> TVec o CPU g' -> TVec o CPU g') ->
+             (activation : {0 g' : GradMode} -> TVec o CPU g' -> IO (TVec o CPU g')) ->
              IO (RnnState i o CPU WithGrad)
 rnnLayer paramPrefix activation = do
   let oI = cast {to=Int} o

@@ -149,8 +149,8 @@ conv2dLayer paramPrefix = do
 public export
 {inC, outC, h, w, kH, kW, padH, padW : Nat} ->
   LayerLike (Conv2DState inC outC h w kH kW padH padW) where
-  applyVar st@(MkConv2D _ _) input = (st, applyConv2D st input)
-  applyVarBatch st@(MkConv2D _ _) input = (st, applyConv2DBatched st input)
+  applyVar st@(MkConv2D _ _) input = ioRerun (\_ => (st, applyConv2D st input))
+  applyVarBatch st@(MkConv2D _ _) input = ioRerun (\_ => (st, applyConv2DBatched st input))
   layerPrefix _ = "conv"
 
   freezeLayer (MkConv2D k b) = do
@@ -235,7 +235,7 @@ conv1dLayer paramPrefix = do
 public export
 {inC, outC, len, kL, pad : Nat} ->
   LayerLike (Conv1DState inC outC len kL pad) where
-  applyVar st@(MkConv1D _ _) input = (st, applyConv1D st input)
+  applyVar st@(MkConv1D _ _) input = ioRerun (\_ => (st, applyConv1D st input))
   layerPrefix _ = "conv1d"
 
   freezeLayer (MkConv1D k b) = do
@@ -316,8 +316,8 @@ applyMaxPool2DBatched {c} {inH} {inW} {poolH} {poolW} {strH} {strW} {b} _ input 
 public export
 {c, inH, inW, poolH, poolW, strH, strW : Nat} ->
   LayerLike (MaxPool2DState c inH inW poolH poolW strH strW) where
-  applyVar st@MkMaxPool2D input = (st, applyMaxPool2D st input)
-  applyVarBatch st@MkMaxPool2D input = (st, applyMaxPool2DBatched st input)
+  applyVar st@MkMaxPool2D input = ioRerun (\_ => (st, applyMaxPool2D st input))
+  applyVarBatch st@MkMaxPool2D input = ioRerun (\_ => (st, applyMaxPool2DBatched st input))
   layerPrefix _ = "maxpool2d"
 
   -- Stateless: freeze/unfreeze just retypes.
@@ -366,7 +366,7 @@ applyAvgPool2D {c} {inH} {inW} {poolH} {poolW} {strH} {strW} _ input =
 public export
 {c, inH, inW, poolH, poolW, strH, strW : Nat} ->
   LayerLike (AvgPool2DState c inH inW poolH poolW strH strW) where
-  applyVar st@MkAvgPool2D input = (st, applyAvgPool2D st input)
+  applyVar st@MkAvgPool2D input = ioRerun (\_ => (st, applyAvgPool2D st input))
   layerPrefix _ = "avgpool2d"
 
   freezeLayer MkAvgPool2D = pure MkAvgPool2D
@@ -413,7 +413,7 @@ applyMaxPool1D {c} {len} {poolK} {str} _ input =
 public export
 {c, len, poolK, str : Nat} ->
   LayerLike (MaxPool1DState c len poolK str) where
-  applyVar st@MkMaxPool1D input = (st, applyMaxPool1D st input)
+  applyVar st@MkMaxPool1D input = ioRerun (\_ => (st, applyMaxPool1D st input))
   layerPrefix _ = "maxpool1d"
 
   freezeLayer MkMaxPool1D = pure MkMaxPool1D
@@ -452,7 +452,7 @@ applyAvgPool1D {c} {len} {poolK} {str} _ input =
 public export
 {c, len, poolK, str : Nat} ->
   LayerLike (AvgPool1DState c len poolK str) where
-  applyVar st@MkAvgPool1D input = (st, applyAvgPool1D st input)
+  applyVar st@MkAvgPool1D input = ioRerun (\_ => (st, applyAvgPool1D st input))
   layerPrefix _ = "avgpool1d"
 
   freezeLayer MkAvgPool1D = pure MkAvgPool1D

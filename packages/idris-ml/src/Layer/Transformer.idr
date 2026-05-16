@@ -459,9 +459,9 @@ unfreezeBlockVec (b :: bs) = do
 public export
 {seqLen, dModel, numHeads, headDim, numBlocks, vocabSize : Nat} ->
   LayerLike (TransformerState seqLen dModel numHeads headDim numBlocks vocabSize) where
-  applyVar st@(MkTransformer _ _ _ _ _) input = (st, applyTransformer st input)
-  applyVarBatch st@(MkTransformer _ _ _ _ _) input =
-    (st, applyTransformerBatch st input)
+  applyVar st@(MkTransformer _ _ _ _ _) input = ioRerun (\_ => (st, applyTransformer st input))
+  applyVarBatch st@(MkTransformer _ _ _ _ _) input = ioRerun (\_ =>
+    (st, applyTransformerBatch st input))
   layerPrefix _ = "tfm"
 
   freezeLayer (MkTransformer {prf} embedW blocks finalNorm vocabProj peCached) = do

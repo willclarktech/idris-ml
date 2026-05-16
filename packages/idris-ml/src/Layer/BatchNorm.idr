@@ -51,13 +51,13 @@ applyBatchNorm : {0 d : Device} -> UserDeviceTape d => {channels, spatialDim : N
                      (channels * spatialDim)
                      (channels * spatialDim) d g ->
                    TVec (channels * spatialDim) d g ->
-                   ( BatchNormState channels spatialDim
-                       (channels * spatialDim)
-                       (channels * spatialDim) d g
-                   , TVec (channels * spatialDim) d g )
+                   IO ( BatchNormState channels spatialDim
+                          (channels * spatialDim)
+                          (channels * spatialDim) d g
+                      , TVec (channels * spatialDim) d g )
 applyBatchNorm {channels} {spatialDim}
                  st@(MkBatchNorm gamma beta mean var training momentum eps)
-                 input =
+                 input = ioRerun (\_ =>
   let cI = cast {to=Int} channels
       sI = cast {to=Int} spatialDim
       tFlag : Int
@@ -65,7 +65,7 @@ applyBatchNorm {channels} {spatialDim}
       outPtr = prim__batchNorm input.tensorPtr gamma.tensorPtr beta.tensorPtr
                               mean.tensorPtr var.tensorPtr
                               cI sI tFlag momentum eps
-  in (st, MkTensor outPtr Nothing)
+  in (st, MkTensor outPtr Nothing))
 
 
 ----------------------------------------------------------------------
