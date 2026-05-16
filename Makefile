@@ -152,21 +152,26 @@ torch_LDFLAGS_Linux := -L$(TORCH_LIB) -Wl,--no-as-needed -ltorch -ltorch_cpu -lc
 
 # MLX detection — only when mlx is in BACKEND_LIST; Apple-only.
 #
-# Resolution order, picks the first MLX install that has both
+# Resolution order, picks the first install that has both
 # `include/mlx/mlx.h` AND a Metal-capable runtime. Metal capability is
 # detected by the presence of `lib/mlx.metallib` — the precompiled
 # Metal kernel library. mlx installs without it (e.g. nixpkgs'
-# python3Packages.mlx, which is built with MLX_BUILD_METAL=false)
+# `python3Packages.mlx`, which is built with `MLX_BUILD_METAL=false`)
 # silently fail at runtime with "Cannot set gpu device without gpu
-# backend", so we won't auto-pick those.
+# backend". We don't auto-pick those — including not auto-pulling
+# nixpkgs as a fallback, since the build side effect materialises mlx
+# in the nix store regardless of any `home-manager` / `nix-darwin`
+# uninstall.
 #
 #   1. $MLX_SITE if you set it explicitly (no validation; you asked
 #      for this exact path)
 #   2. $UV_CACHE_DIR (or default ~/.cache/uv) — pip-installed via uv
 #   3. Project virtualenv at packages/pytorch/.venv
 #   4. Any importable `mlx` reachable from python3 (system, conda, etc.)
-#   5. CPU-only fallback via `nix build` — used only if you don't need
-#      MLX_DEVICE=gpu. Emits a warning at make time.
+#
+# If none of these turn up a Metal-capable install, error with
+# explicit "install mlx via uv pip" instructions. No silent
+# fallthrough.
 ifneq ($(filter mlx,$(BACKEND_LIST)),)
   ifneq ($(UNAME), Darwin)
     $(error MLX backend requires macOS; current UNAME=$(UNAME))
@@ -193,21 +198,9 @@ ifneq ($(filter mlx,$(BACKEND_LIST)),)
     _mlx_py := $(shell python3 -c "import importlib.util as u, os; s=u.find_spec('mlx'); print(s.submodule_search_locations[0] if s and s.submodule_search_locations else '')" 2>/dev/null)
     MLX_SITE := $(call _mlx_validate,$(_mlx_py))
   endif
-  ifeq ($(MLX_SITE),)
-    # (5) CPU-only nixpkgs fallback. Emit a warning — `MLX_DEVICE=gpu`
-    # will not work with this build, since `python3Packages.mlx` ships
-    # without Metal (MLX_BUILD_METAL=false). Users wanting GPU should
-    # `uv pip install mlx` in their project venv (or pass MLX_SITE
-    # explicitly) instead.
-    _mlx_nix := $(shell nix build nixpkgs\#python3Packages.mlx --no-link --print-out-paths 2>/dev/null)
-    ifneq ($(_mlx_nix),)
-      MLX_SITE := $(_mlx_nix)/lib/python3.13/site-packages/mlx
-      $(warning Falling back to nixpkgs python3Packages.mlx ($(MLX_SITE)). This is CPU-only — MLX_DEVICE=gpu will fail at runtime. To enable GPU, install mlx via uv pip (e.g. `cd packages/pytorch && uv pip install mlx`) or set MLX_SITE explicitly to a Metal-capable install.)
-    endif
-  endif
 
   ifeq ($(MLX_SITE),)
-    $(error No mlx install found. Run `cd packages/pytorch && uv pip install mlx`, or set MLX_SITE=<path/to/mlx> where path contains include/mlx/mlx.h and lib/mlx.metallib.)
+    $(error No Metal-capable mlx install found. Run `cd packages/pytorch && uv pip install mlx`, or set MLX_SITE=<path/to/mlx> where the path contains both include/mlx/mlx.h and lib/mlx.metallib. The nixpkgs python3Packages.mlx is CPU-only and intentionally not used here — it silently breaks MLX_DEVICE=gpu and re-materialises in the nix store on every build.)
   endif
 
   MLX_INC := $(MLX_SITE)/include
