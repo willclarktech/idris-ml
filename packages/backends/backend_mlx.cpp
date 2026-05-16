@@ -16,7 +16,9 @@
 #include <iostream>
 #include <vector>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
+#include <functional>
 #include <sys/resource.h>
 #include <sys/time.h>
 #ifdef __APPLE__
@@ -369,6 +371,7 @@ static std::vector<ParamEntry> param_registry;
 
 /* Profiling counters */
 static double prof_backward_ms_mlx = 0, prof_optimizer_ms_mlx = 0;
+static double prof_optimizer_math_ms_mlx = 0;
 static int prof_epochs_mlx = 0;
 
 static double _wall_ms_mlx(void) {
@@ -2672,6 +2675,132 @@ static void _dbg_dump_param_grads_if_enabled_mlx(void) {
     fflush(stderr);
 }
 
+static bool mlx_opt_compile_enabled(void) {
+    static int cached = -1;
+    if (cached < 0) {
+        const char* e = std::getenv("MLX_OPT_COMPILE");
+        cached = (e && e[0] == '1') ? 1 : 0;
+    }
+    return cached == 1;
+}
+
+/* Adam step compiled via mx::compile.
+   Layout of inputs vector for the compiled function:
+     [0 .. N-1]            params (current values)
+     [N .. 2N-1]            grads
+     [2N .. 3N-1]           m buffers (exp_avg)
+     [3N .. 4N-1]           v buffers (exp_avg_sq)
+     [4N .. 5N-1]           per-param learning rates (scalar arrays)
+     [5N + 0 .. 5N + 6]     beta1, 1-beta1, beta2, 1-beta2, bc1, bc2, eps
+   Outputs:
+     [0 .. N-1]             new params
+     [N .. 2N-1]            new m
+     [2N .. 3N-1]           new v
+
+   We keep the compiled function in a static map keyed on N (the active param
+   count). mlx caches by input-shape signature internally, so repeated calls
+   with the same shape tuple hit the trace cache after first invocation. The
+   function lambda must be defined once per N — recreating it per call would
+   miss mlx's identity-based cache. */
+static std::unordered_map<int, std::function<std::vector<mx::array>(
+    const std::vector<mx::array>&)>> adam_compiled_by_n;
+
+static std::function<std::vector<mx::array>(const std::vector<mx::array>&)>&
+get_adam_compiled(int n) {
+    auto it = adam_compiled_by_n.find(n);
+    if (it != adam_compiled_by_n.end()) return it->second;
+    auto raw = [n](const std::vector<mx::array>& ins) -> std::vector<mx::array> {
+        const mx::array& beta1  = ins[5*n + 0];
+        const mx::array& one_b1 = ins[5*n + 1];
+        const mx::array& beta2  = ins[5*n + 2];
+        const mx::array& one_b2 = ins[5*n + 3];
+        const mx::array& bc1    = ins[5*n + 4];
+        const mx::array& bc2    = ins[5*n + 5];
+        const mx::array& eps    = ins[5*n + 6];
+        std::vector<mx::array> new_p, new_m, new_v;
+        new_p.reserve(n); new_m.reserve(n); new_v.reserve(n);
+        for (int i = 0; i < n; i++) {
+            const mx::array& p  = ins[i];
+            const mx::array& g  = ins[n + i];
+            const mx::array& m  = ins[2*n + i];
+            const mx::array& v  = ins[3*n + i];
+            const mx::array& lr = ins[4*n + i];
+            auto m_n = mx::add(mx::multiply(beta1, m), mx::multiply(one_b1, g));
+            auto v_n = mx::add(mx::multiply(beta2, v),
+                               mx::multiply(one_b2, mx::square(g)));
+            auto mhat = mx::divide(m_n, bc1);
+            auto vhat = mx::divide(v_n, bc2);
+            auto p_n = mx::subtract(p,
+                mx::divide(mx::multiply(lr, mhat),
+                           mx::add(mx::sqrt(vhat), eps)));
+            new_p.push_back(p_n);
+            new_m.push_back(m_n);
+            new_v.push_back(v_n);
+        }
+        std::vector<mx::array> outs;
+        outs.reserve(3*n);
+        for (auto& a : new_p) outs.push_back(a);
+        for (auto& a : new_m) outs.push_back(a);
+        for (auto& a : new_v) outs.push_back(a);
+        return outs;
+    };
+    adam_compiled_by_n[n] = mx::compile(raw);
+    return adam_compiled_by_n[n];
+}
+
+static void adam_step_compile(Optimizer* opt, int np) {
+    /* Gather active params (must have grads) and corresponding state. */
+    std::vector<int> active_idx;
+    active_idx.reserve(np);
+    std::vector<mx::array> ins;
+    /* Will fill in order [p..., g..., m..., v..., lr..., scalars(7)]. */
+    std::vector<mx::array> params_in, grads_in, ms_in, vs_in, lrs_in;
+    params_in.reserve(np); grads_in.reserve(np);
+    ms_in.reserve(np); vs_in.reserve(np); lrs_in.reserve(np);
+    for (int i = 0; i < np; i++) {
+        if (!opt_owns_param_mlx(opt, i)) continue;
+        auto t = param_registry[i].tensor;
+        if (!t->has_grad) continue;
+        double lr = opt->lr;
+        if (i < (int)opt->param_lr.size() && opt->param_lr[i] >= 0)
+            lr = opt->param_lr[i];
+        active_idx.push_back(i);
+        params_in.push_back(t->data);
+        grads_in.push_back(t->grad);
+        ms_in.push_back(opt->m_bufs[i]);
+        vs_in.push_back(opt->v_bufs[i]);
+        lrs_in.push_back(mx::array(lr));
+    }
+    int n = (int)active_idx.size();
+    if (n == 0) return;
+    ins.reserve(5*n + 7);
+    for (auto& a : params_in) ins.push_back(a);
+    for (auto& a : grads_in)  ins.push_back(a);
+    for (auto& a : ms_in)     ins.push_back(a);
+    for (auto& a : vs_in)     ins.push_back(a);
+    for (auto& a : lrs_in)    ins.push_back(a);
+    double bc1 = 1.0 - std::pow(opt->beta1, (double)opt->t);
+    double bc2 = 1.0 - std::pow(opt->beta2, (double)opt->t);
+    ins.push_back(mx::array(opt->beta1));
+    ins.push_back(mx::array(1.0 - opt->beta1));
+    ins.push_back(mx::array(opt->beta2));
+    ins.push_back(mx::array(1.0 - opt->beta2));
+    ins.push_back(mx::array(bc1));
+    ins.push_back(mx::array(bc2));
+    ins.push_back(mx::array(opt->eps));
+
+    auto& compiled = get_adam_compiled(n);
+    auto outs = compiled(ins);
+
+    /* Distribute results back to param_registry / optimizer state. */
+    for (int i = 0; i < n; i++) {
+        int idx = active_idx[i];
+        param_registry[idx].tensor->data = outs[i];
+        opt->m_bufs[idx] = outs[n + i];
+        opt->v_bufs[idx] = outs[2*n + i];
+    }
+}
+
 void optimizer_step(OptimizerHandle h) {
     double t0_opt = _wall_ms_mlx();
     auto opt = (Optimizer*)h;
@@ -2688,6 +2817,29 @@ void optimizer_step(OptimizerHandle h) {
             opt->v_bufs.push_back(mx::zeros(p.tensor->data.shape(), mx::float32));
         }
     }
+
+    /* Adam-only compile path: gate via MLX_OPT_COMPILE=1.
+       Reuses the cached compiled function (one per param-count signature).
+       Other optimizer types fall through to the per-op loop below. */
+    if (opt->type == 2 && mlx_opt_compile_enabled()) {
+        double tm0 = _wall_ms_mlx();
+        adam_step_compile(opt, np);
+        prof_optimizer_math_ms_mlx += _wall_ms_mlx() - tm0;
+        std::vector<mx::array> to_eval;
+        for (auto& p : param_registry) to_eval.push_back(p.tensor->data);
+        mx::eval(to_eval);
+        tape_reset();
+        for (auto& p : param_registry) {
+            p.tensor->tape_idx = -1;
+            p.tensor->has_grad = false;
+            tape_append(OP_CONST, p.tensor, nullptr, nullptr, 0);
+        }
+        prof_optimizer_ms_mlx += _wall_ms_mlx() - t0_opt;
+        prof_epochs_mlx++;
+        return;
+    }
+
+    double tm0 = _wall_ms_mlx();
 
     // Hoist optimizer-state scalars out of the per-param loop. These depend on
     // opt and the current step, not on which param — re-allocating them per
@@ -2769,6 +2921,7 @@ void optimizer_step(OptimizerHandle h) {
             break;
         }
     }
+    prof_optimizer_math_ms_mlx += _wall_ms_mlx() - tm0;
 
     // Eval all updated params
     std::vector<mx::array> to_eval;
@@ -2989,6 +3142,7 @@ void backend_epoch_begin(void) { /* no-op for MLX: profiling is backward+optimiz
 
 void backend_profile_reset(void) {
     prof_backward_ms_mlx = prof_optimizer_ms_mlx = 0;
+    prof_optimizer_math_ms_mlx = 0;
     prof_epochs_mlx = 0;
 }
 
@@ -3000,6 +3154,9 @@ void backend_profile_report(void) {
             prof_backward_ms_mlx, prof_epochs_mlx > 0 ? prof_backward_ms_mlx / prof_epochs_mlx : 0);
     fprintf(stderr, "  Optimizer: %.1fms total (%.1fms/epoch)\n",
             prof_optimizer_ms_mlx, prof_epochs_mlx > 0 ? prof_optimizer_ms_mlx / prof_epochs_mlx : 0);
+    fprintf(stderr, "    of which math: %.1fms total (%.1fms/epoch)\n",
+            prof_optimizer_math_ms_mlx,
+            prof_epochs_mlx > 0 ? prof_optimizer_math_ms_mlx / prof_epochs_mlx : 0);
     double total = prof_backward_ms_mlx + prof_optimizer_ms_mlx;
     fprintf(stderr, "  C total:   %.1fms total (%.1fms/epoch)\n",
             total, prof_epochs_mlx > 0 ? total / prof_epochs_mlx : 0);

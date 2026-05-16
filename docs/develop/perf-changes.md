@@ -1364,3 +1364,114 @@ idris-ml, since we don't currently run on torch GPU).
 - next concrete step from the high-priority TODO list: the
   `mx::compile` optimizer wrap (where the same pattern actually pays
   off because Metal kernel-launch latency is the bottleneck)
+
+### 2026-05-14 — MLX Adam: optimizer step via `mx::compile` — `<commit>`
+
+**Plan job**: the natural follow-up to the torch foreach landing (same
+day). The mlx-side analogue of `at::_foreach_*` is `mx::compile`: trace
+the per-param Adam math once into one fused mlx callable, then replay
+with new tensor inputs each step. Unlike torch CPU foreach (which is
+just a parallel for-loop), mlx compile actually fuses ops into one
+graph submission, so it saves the per-op kernel-launch tax on Metal.
+
+**Motivation**: before writing code, a 2×2 baseline (mlx × {cpu, gpu} ×
+{compile OFF, ON}) on GptLarge revealed two structural facts:
+
+| Config | Wall | C-total | Optimizer | Backward |
+|---|---:|---:|---:|---:|
+| mlx CPU + MLX_COMPILE=0 (default) | 9000 | 28.8 | 26.4 | 2.4 |
+| mlx CPU + MLX_COMPILE=1 (probe)   | 9600 | 112.9 | 104.0 | 8.9 |
+| mlx GPU + MLX_COMPILE=0           | 9000 | 132.6 | 121.8 | 10.7 |
+| mlx GPU + MLX_COMPILE=1           | 9800 | 156.7 | 145.1 | 11.6 |
+
+(`MLX_COMPILE` is the existing backward-pass-forward-replay probe.
+Recompiles every call → pure regression today. The new
+`MLX_OPT_COMPILE` is separate and caches.)
+
+The wall is identical at 9000 ms/ep regardless of device or compile
+flag — ~98% of wall is *outside* the C profile region (Idris VM +
+per-op FFI dispatch on the forward-pass tape build). mlx ops are lazy,
+so forward FFI calls are cheap to mlx but expensive to Chez. **The C
+gap (28.8 vs 132.6 ms/ep) is invisible at wall, so even driving
+optimizer math to zero saves <1% of wall.** This change therefore
+isn't a wall-mover at the current example scale; it's GPU-shaped perf
+hygiene + prerequisite for compiling the whole training step (the
+"whole-step compile" investigation, where wall actually moves).
+
+A path-C spike (scale GptLarge dModel from 256 to 512 to 768) was run
+in parallel to see if any reachable scale flips GPU > CPU on its own.
+At dModel=512 GPU edged out by 1000 ms/ep (within noise floor). At
+dModel=768 GPU lost by 3000 ms/ep and OOM'd on generation in the Tart
+VM. So scale alone doesn't fix the example; the compile work is the
+correct lever but lands as part of a larger plan.
+
+**Change**: `adam_step_compile` in `packages/backends/backend_mlx.cpp`
+implements the Adam update as a pure function
+`(params, grads, m, v, per-param lrs, scalars) → (new params, new m,
+new v)` and wraps it in `mx::compile`. The compiled callable is cached
+per active-param-count in a static `unordered_map<int, function<...>>`
+— mlx caches further by input-shape signature internally, so repeated
+calls with the same param shapes hit the trace cache after the first
+invocation. Gated on `MLX_OPT_COMPILE=1` env var, default OFF
+(opt-in). Only `opt->type == 2` (Adam) dispatches to the new path;
+SGD/RMSprop/AdamW fall through to the per-op loop unchanged. Added
+`prof_optimizer_math_ms_mlx` sub-timer that brackets just the math
+(not the surrounding `mx::eval(to_eval)` + `tape_reset`).
+
+The math sub-timer immediately revealed the structural ceiling:
+optimizer-math is only **1.4–1.8 ms/ep** of the 96–157 ms/ep
+`Optimizer` total. The remaining 94+ ms/ep is `mx::eval(to_eval)`
+synchronisation and tape rebuild — bookkeeping that the compile path
+cannot touch. So the max wallclock yield from compiling optimizer math
+is bounded by ~1.5 ms/ep, plus whatever kernel-launch savings the
+compile gives on the eval step downstream.
+
+**Impact** — gpt-large dModel=256, 5 epochs, A/B:
+
+| metric (ms/ep) | mlx CPU OFF | mlx CPU ON | mlx GPU OFF | mlx GPU ON |
+|---|---:|---:|---:|---:|
+| Wall              | 9000  | 9600  | 9200   | 9000   |
+| Backward          |  9.3  |  8.9  |  11.1  |   9.3  |
+| Optimizer         | 96.0  | 98.6  | 156.5  | 120.9  |
+| of which math     |  1.4  |  1.6  |   1.8  |   1.5  |
+| C total           | 105.3 | 107.5 | 167.7  | 130.2  |
+| val_bpc           | 4.746685288232547 | 4.746685288232547 | 4.746687874851618 | 4.746687482731175 |
+
+- **CPU: small regression** (+2.6 ms/ep optimizer). No kernel launches
+  to amortize on Apple Accelerate stream; mx::compile's tracing
+  overhead is pure cost. **Bit-identical fp64 numerics**
+  (`4.746685288232547` matches OFF down to the last digit).
+- **GPU: −35.6 ms/ep optimizer (−23%)**, −37.5 ms/ep C-total. Real
+  kernel-launch savings — the design hypothesis held. **Numerics
+  deviate ~4e-7 relative** (`4.746687482731175` vs OFF
+  `4.746687874851618`), within fp32 ULP noise — mlx GPU is fp32
+  internally and the compile pass reorders ops, which shows up at the
+  7th decimal. Well below convergence noise; not a correctness issue.
+- **Wall unchanged** on both, consistent with the diagnostic: C-side
+  cost is <2% of wall at this scale.
+
+**Outcome**: landed, opt-in (`MLX_OPT_COMPILE=1`). CPU users keep
+status quo (slight regression if enabled); GPU users get a measurable
+optimizer-math win on the device that benefits. Default OFF avoids the
+CPU regression and the existing-`MLX_COMPILE`-style "probe with no
+caching" gotcha. The same compile-once-then-replay pattern is the
+load-bearing technique for the future whole-training-step compile
+investigation, where wall actually moves because the entire forward
+pass becomes one mlx call from Idris instead of N FFI dispatches.
+
+**Cross-references**:
+- `perf-log.jsonl` `kind=ab` entries timestamped 2026-05-14T16:54 (mlx
+  CPU A/B) and 2026-05-14T16:58 (mlx GPU A/B)
+- `perf-log.jsonl` `kind=baseline` entries for the 2×2 diagnostic
+  timestamped 2026-05-14T16:43..16:46 (mlx CPU OFF/ON + GPU OFF/ON)
+- the parallel path-C spike: GptLarge dModel ∈ {256, 512, 768} on
+  mlx CPU vs GPU showed no clean crossover at reachable VM scales —
+  dModel=768 OOM'd on GPU during generation, so scale alone is dead
+  in this environment
+- existing `MLX_COMPILE` env var (separate from `MLX_OPT_COMPILE`) is
+  the backward-pass forward-replay probe at `backend_mlx.cpp:2080`,
+  added under Job 3 Phase B as a probe — still a regression because
+  it has no caching across calls. Future work to cache that one is
+  task #42 (decided non-trivial: the lambda capture pattern that
+  the new compile path uses doesn't translate directly because the
+  backward closure captures the per-step tape)
