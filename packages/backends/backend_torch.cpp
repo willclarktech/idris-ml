@@ -193,49 +193,12 @@ TensorHandle tensor_silu(TensorHandle h) {
  * bmm_3x3, transpose_2d, transpose_last2, tile_2d) lives in
  * backend_torch/linear/linalg/. */
 
-/* ---------- Activation / normalization ---------- */
+/* Softmax / log_softmax (incl. _2d / _3d variants) live in
+ * backend_torch/nn/softmax/. */
 
-TensorHandle tensor_softmax(TensorHandle h, int dim) {
-    return from_tensor(torch::softmax(*to_tensor(h), dim));
-}
-
-TensorHandle tensor_log_softmax(TensorHandle h, int dim) {
-    return from_tensor(torch::log_softmax(*to_tensor(h), dim));
-}
-
-/* ---------- Loss ---------- */
-
-TensorHandle tensor_bce_with_logits(TensorHandle input, TensorHandle target) {
-    return from_tensor(torch::nn::functional::binary_cross_entropy_with_logits(
-        *to_tensor(input), *to_tensor(target)));
-}
-
-TensorHandle tensor_cross_entropy(TensorHandle input, TensorHandle target) {
-    /* Match tape's convention: -sum(target * log_softmax(input)) / numel.
-       Differs from torch::nn::functional::cross_entropy, which expects
-       target as class indices and means over the batch dim. The Idris
-       side has no caller for this symbol today (the TODO row "Match
-       PyTorch's catalogue of fused ops" tracks the future fused
-       softmax_cross_entropy_with_logits landing); this impl just keeps
-       the two backends agreeing for test_backend.c. */
-    auto& in = *to_tensor(input);
-    auto& tg = *to_tensor(target);
-    auto ls = at::log_softmax(in, 0);
-    auto loss = -(tg * ls).sum() / static_cast<double>(ls.numel());
-    return from_tensor(loss);
-}
-
-TensorHandle tensor_mse_loss(TensorHandle input, TensorHandle target) {
-    return from_tensor(torch::mse_loss(*to_tensor(input), *to_tensor(target)));
-}
-
-/* ---------- NTM-specific compositions ---------- */
-
-TensorHandle tensor_cosine_similarity(TensorHandle a, TensorHandle b, int dim) {
-    return from_tensor(torch::nn::functional::cosine_similarity(
-        *to_tensor(a), *to_tensor(b),
-        torch::nn::functional::CosineSimilarityFuncOptions().dim(dim)));
-}
+/* Loss ops (bce_with_logits, cross_entropy, mse_loss) live in
+ * backend_torch/nn/loss/. cosine_similarity lives in
+ * backend_torch/nn/attention/. */
 
 TensorHandle tensor_conv1d_circular(TensorHandle input, TensorHandle kernel) {
     /* Circular convolution for NTM shift operation.
@@ -259,77 +222,14 @@ TensorHandle tensor_conv1d_circular(TensorHandle input, TensorHandle kernel) {
     return from_tensor(out.reshape({n}));
 }
 
-TensorHandle tensor_batch_norm(TensorHandle hinput, TensorHandle hgamma, TensorHandle hbeta,
-                               TensorHandle hrunning_mean, TensorHandle hrunning_var,
-                               int channels, int spatial, int training,
-                               double momentum, double eps) {
-    auto& inp = *to_tensor(hinput);
-    auto& gamma = *to_tensor(hgamma);
-    auto& beta = *to_tensor(hbeta);
-    auto& rm = *to_tensor(hrunning_mean);
-    auto& rv = *to_tensor(hrunning_var);
-
-    /* Reshape to [1, C, spatial] for torch::batch_norm (expects [N,C,...]) */
-    auto inp_3d = inp.reshape({1, (int64_t)channels, (int64_t)spatial});
-    auto out = torch::batch_norm(inp_3d, gamma, beta, rm, rv,
-                                 /*training=*/training, momentum, eps,
-                                 /*cudnn_enabled=*/false);
-    return from_tensor(out.reshape({-1}));  /* flatten back to [C*spatial] */
-}
-
-TensorHandle tensor_dropout(TensorHandle hinput, double p, int training, unsigned int seed) {
-    (void)seed;  /* torch uses its own RNG */
-    auto& inp = *to_tensor(hinput);
-    if (!training || p <= 0.0) return hinput;
-    auto out = torch::dropout(inp, p, /*train=*/true);
-    return from_tensor(out);
-}
-
-TensorHandle tensor_cross_attention(TensorHandle hQ, TensorHandle hK, TensorHandle hV,
-                                    TensorHandle hmask, double scale) {
-    auto& Q = *to_tensor(hQ);
-    auto& K = *to_tensor(hK);
-    auto& V = *to_tensor(hV);
-    auto scores = torch::bmm(Q, K.transpose(-2, -1)) * scale;
-    if (hmask) scores = scores.masked_fill(to_tensor(hmask)->to(torch::kBool), -1.0e20);
-    auto attn = torch::softmax(scores, -1);
-    return from_tensor(torch::bmm(attn, V));
-}
-
-TensorHandle tensor_embedding(TensorHandle hweight, TensorHandle hindices, int n, int embedDim) {
-    auto& weight = *to_tensor(hweight);  /* [vocabSize, embedDim] */
-    auto& indices = *to_tensor(hindices);
-    auto idx_long = indices.to(torch::kLong);
-    auto out = torch::embedding(weight, idx_long);  /* [n, embedDim] */
-    return from_tensor(out.reshape({-1}));  /* flatten to [n * embedDim] */
-}
+/* Norm ops (batch_norm, group_norm, dropout, layer_norm_2d) live in
+ * backend_torch/nn/norm/. Attention ops (cross_attention, embedding,
+ * cosine_similarity) live in backend_torch/nn/attention/. Recurrent
+ * ops (gru_cell, lstm_cell, pair_helpers) live in
+ * backend_torch/nn/recurrent/. */
 
 /* Index ops (gather, scatter_add) live in backend_torch/linear/index/.
  * Sort ops (argsort, cumprod) live in backend_torch/linear/sort/. */
-
-TensorHandle tensor_gru_cell(TensorHandle hih, TensorHandle hhh,
-                              TensorHandle hprev, int o) {
-    /* nn.GRU equation. ih = W_ih @ x + b_ih, hh = W_hh @ h + b_hh.
-       libtorch's autograd handles backward via the graph. */
-    auto& ih = *to_tensor(hih);
-    auto& hh = *to_tensor(hhh);
-    auto& prev = *to_tensor(hprev);
-    auto z = torch::sigmoid(ih.slice(0, 0, o) + hh.slice(0, 0, o));
-    auto r = torch::sigmoid(ih.slice(0, o, 2*o) + hh.slice(0, o, 2*o));
-    auto n = torch::tanh(ih.slice(0, 2*o, 3*o) + r * hh.slice(0, 2*o, 3*o));
-    auto h_new = (1.0 - z) * n + z * prev;
-    return from_tensor(h_new);
-}
-
-TensorHandle tensor_group_norm(TensorHandle hinput, TensorHandle hgamma, TensorHandle hbeta,
-                               int numGroups, int channels, int spatial, double eps) {
-    auto& inp = *to_tensor(hinput);
-    auto& gamma = *to_tensor(hgamma);
-    auto& beta = *to_tensor(hbeta);
-    auto inp_3d = inp.reshape({1, (int64_t)channels, (int64_t)spatial});
-    auto out = torch::group_norm(inp_3d, numGroups, gamma, beta, eps);
-    return from_tensor(out.reshape({-1}));
-}
 
 TensorHandle tensor_conv_transpose1d(TensorHandle hinput, TensorHandle hkernel,
                                      TensorHandle hbias, int pad, int stride) {
@@ -590,35 +490,6 @@ const char* tensor_device(TensorHandle h) {
     return device_str.c_str();
 }
 
-/* ---------- LSTM ---------- */
-
-void tensor_lstm_cell(
-    TensorHandle input, TensorHandle hx, TensorHandle cx,
-    TensorHandle w_ih, TensorHandle w_hh,
-    TensorHandle b_ih, TensorHandle b_hh,
-    TensorHandle* out_h, TensorHandle* out_c)
-{
-    /* torch::lstm_cell expects 2D input/hx/cx ([batch, *]). Mirror Python's
-       nn.LSTMCell which auto-unsqueezes 1D inputs so unbatched callers
-       (including the C-side gradient test harness) work. */
-    auto in1d = *to_tensor(input);
-    auto hx1d = *to_tensor(hx);
-    auto cx1d = *to_tensor(cx);
-    bool unbatched = (in1d.dim() == 1);
-    auto in2d = unbatched ? in1d.unsqueeze(0) : in1d;
-    auto hx2d = unbatched ? hx1d.unsqueeze(0) : hx1d;
-    auto cx2d = unbatched ? cx1d.unsqueeze(0) : cx1d;
-    auto result = torch::lstm_cell(
-        in2d, {hx2d, cx2d},
-        *to_tensor(w_ih), *to_tensor(w_hh),
-        *to_tensor(b_ih), *to_tensor(b_hh));
-    auto new_h = std::get<0>(result);
-    auto new_c = std::get<1>(result);
-    if (unbatched) { new_h = new_h.squeeze(0); new_c = new_c.squeeze(0); }
-    *out_h = from_tensor(new_h);
-    *out_c = from_tensor(new_c);
-}
-
 /* ---------- Diagnostics ---------- */
 
 /* DEBUG_LSTM_TRAJ: dump h0/c0 param value trajectories. Mirrors the
@@ -754,32 +625,6 @@ TensorHandle tensor_create_2d(int rows, int cols, double* data, int requires_gra
 
 /* tensor_stack_from_array / tensor_cat_from_array live in
  * backend_torch/linear/concat/{stack,cat}.cpp. */
-
-
-TensorHandle tensor_softmax_3d(TensorHandle h) {
-    return from_tensor(torch::softmax(*to_tensor(h), -1));
-}
-
-
-
-TensorHandle tensor_softmax_2d(TensorHandle h) {
-    return from_tensor(torch::softmax(*to_tensor(h), -1));
-}
-
-TensorHandle tensor_log_softmax_2d(TensorHandle h) {
-    return from_tensor(torch::log_softmax(*to_tensor(h), -1));
-}
-
-TensorHandle tensor_masked_fill(TensorHandle h, TensorHandle mask, double value) {
-    return from_tensor(to_tensor(h)->masked_fill(to_tensor(mask)->to(torch::kBool), value));
-}
-
-TensorHandle tensor_layer_norm_2d(TensorHandle input, TensorHandle gamma,
-                                   TensorHandle bias, double eps) {
-    auto& t = *to_tensor(input);
-    int64_t n = t.size(-1);
-    return from_tensor(torch::layer_norm(t, {n}, *to_tensor(gamma), *to_tensor(bias), eps));
-}
 
 
 /* Forward decl — st_for_dtag is defined further down with the unified
@@ -1610,10 +1455,6 @@ TensorPair* tensor_lstm_gates_pair(TensorHandle combined_h, TensorHandle prev_ce
     all_pairs.push_back(p);
     return p;
 }
-
-TensorHandle tensor_pair_first(TensorPair* p) { return p->first; }
-TensorHandle tensor_pair_second(TensorPair* p) { return p->second; }
-void tensor_pair_free(TensorPair* p) { delete p; }
 
 /* ---------- System ---------- */
 
