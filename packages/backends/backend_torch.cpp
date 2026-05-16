@@ -326,6 +326,8 @@ const char* tensor_device(TensorHandle h) {
 
 /* _dbg_dump_lstm_traj_if_enabled_torch + _dbg_dump_param_grads_if_enabled_torch
    live in backend_torch/training/diagnostics.cpp. */
+extern "C" void _dbg_dump_lstm_traj_if_enabled_torch(void);
+extern "C" void _dbg_dump_param_grads_if_enabled_torch(void);
 
 /* The param-registry surface (param_register / param_count / param_name
    / param_tensor / param_grad_item* / param_zero_all_grads /
@@ -932,11 +934,8 @@ void optimizer_step(OptimizerHandle h) {
         opt->step();
         prof_optimizer_math_ms_torch += _wall_ms_torch() - tm0;
     }
-    /* Phase 1.5e: dump h0/c0 trajectory if enabled */
-    {
-        extern void _dbg_dump_lstm_traj_if_enabled_torch(void);
-        _dbg_dump_lstm_traj_if_enabled_torch();
-    }
+    /* dump h0/c0 trajectory if enabled */
+    _dbg_dump_lstm_traj_if_enabled_torch();
     // Free intermediate tensors from this epoch's forward/backward
     free_intermediates();
     prof_optimizer_ms_torch += _wall_ms_torch() - t0;
