@@ -160,6 +160,7 @@ TensorHandle tensor_softmax_3d_mlx_streamed(TensorHandle h, int stream_tag);
 TensorHandle tensor_reshape_mlx_streamed(TensorHandle h, int* shape, int rank, int stream_tag);
 TensorHandle tensor_narrow_mlx_streamed(TensorHandle h, int dim, int start, int len, int stream_tag);
 TensorHandle tensor_select(TensorHandle h, int dim, int index);
+TensorHandle tensor_stack(TensorHandle* tensors, int count, int dim);
 TensorHandle tensor_create_scalar_f32_mlx_streamed(double value, int requires_grad, int stream_tag);
 TensorHandle tensor_create_scalar_f64_mlx_streamed(double value, int requires_grad, int stream_tag);
 TensorHandle tensor_create_scalar_mlx_streamed(double value, int requires_grad, int stream_tag);
@@ -637,22 +638,6 @@ extern "C" TensorHandle tensor_linear_2d_mlx_streamed(TensorHandle hW, TensorHan
 }
 TensorHandle tensor_linear_2d(TensorHandle hW, TensorHandle hX, TensorHandle hbias) {
     return tensor_linear_2d_mlx_streamed(hW, hX, hbias, default_stream_tag());
-}
-
-extern "C" TensorHandle tensor_concat_2d_axis1_mlx_streamed(TensorHandle hA, TensorHandle hB, int stream_tag) {
-    WITH_STREAM(stream_tag);
-
-    /* A: [m, n], B: [m, k] -> [m, n+k] along axis 1 */
-    auto A = (Tensor*)hA; auto B = (Tensor*)hB;
-    auto result = mx::concatenate({A->data, B->data}, 1);
-    bool rg = A->requires_grad || B->requires_grad;
-    auto r = new Tensor(result, rg);
-    if (rg) tape_append(OP_CONCAT_2D_AXIS1, r, A, B, 0);
-    return (TensorHandle)r;
-
-}
-TensorHandle tensor_concat_2d_axis1(TensorHandle hA, TensorHandle hB) {
-    return tensor_concat_2d_axis1_mlx_streamed(hA, hB, default_stream_tag());
 }
 
 extern "C" TensorHandle tensor_dot_mlx_streamed(TensorHandle ha, TensorHandle hb, int stream_tag) {
@@ -1548,73 +1533,8 @@ TensorHandle tensor_max_pool2d_batched(TensorHandle hinput, int kH, int kW,
 /* Shape ops (reshape*, squeeze, unsqueeze, select) live in
  * backend_mlx/linear/shape/. */
 
-extern "C" TensorHandle tensor_stack_mlx_streamed(TensorHandle* tensors, int count, int dim, int stream_tag) {
-    WITH_STREAM(stream_tag);
-
-    /* Same shape as tensor_stack_from_array, but the caller (test_backend or
-       internal C code) retains ownership of the input handle array — we do
-       NOT free it. tensor_stack_from_array is the variant that takes
-       ownership of an Idris-allocated handle array. */
-    std::vector<mx::array> arrs;
-    bool rg = false;
-    for (int i = 0; i < count; i++) {
-        auto t = (Tensor*)tensors[i];
-        arrs.push_back(t->data);
-        if (t->requires_grad) rg = true;
-    }
-    auto r = new Tensor(mx::stack(arrs, dim), rg);
-    if (rg) {
-        int idx = tape_append(OP_STACK, r, nullptr, nullptr, (double)dim);
-        auto* indices = new std::vector<int>();
-        for (int i = 0; i < count; i++)
-            indices->push_back(((Tensor*)tensors[i])->pool_idx);
-        tape[idx].meta = (void*)indices;
-    }
-    return (TensorHandle)r;
-
-}
-TensorHandle tensor_stack(TensorHandle* tensors, int count, int dim) {
-    return tensor_stack_mlx_streamed(tensors, count, dim, default_stream_tag());
-}
-
-extern "C" TensorHandle tensor_cat_mlx_streamed(TensorHandle* tensors, int count, int dim, int stream_tag) {
-    WITH_STREAM(stream_tag);
-
-    std::vector<mx::array> arrs;
-    bool rg = false;
-    for (int i = 0; i < count; i++) {
-        auto t = (Tensor*)tensors[i];
-        arrs.push_back(t->data);
-        if (t->requires_grad) rg = true;
-    }
-    auto r = new Tensor(mx::concatenate(arrs, dim), rg);
-    if (rg) {
-        int idx = tape_append(OP_CAT_MULTI, r, nullptr, nullptr, (double)dim);
-        auto* indices = new std::vector<int>();
-        for (int i = 0; i < count; i++)
-            indices->push_back(((Tensor*)tensors[i])->pool_idx);
-        tape[idx].meta = (void*)indices;
-    }
-    return (TensorHandle)r;
-
-}
-TensorHandle tensor_cat(TensorHandle* tensors, int count, int dim) {
-    return tensor_cat_mlx_streamed(tensors, count, dim, default_stream_tag());
-}
-
-extern "C" TensorHandle tensor_cat2_mlx_streamed(TensorHandle ha, TensorHandle hb, int stream_tag) {
-    WITH_STREAM(stream_tag);
-
-    auto a = (Tensor*)ha; auto b = (Tensor*)hb;
-    bool rg = a->requires_grad || b->requires_grad;
-    auto r = new Tensor(mx::concatenate({a->data, b->data}, 0), rg);
-    if (rg) tape_append(OP_CAT, r, a, b, (double)a->data.size());
-    return (TensorHandle)r;
-
-}
-TensorHandle tensor_cat2(TensorHandle ha, TensorHandle hb) {
-    return tensor_cat2_mlx_streamed(ha, hb, default_stream_tag());
-}
+/* tensor_stack / tensor_cat / tensor_cat2 live in
+ * backend_mlx/linear/concat/{stack,cat}.cpp. */
 
 extern "C" TensorHandle tensor_mm_mlx_streamed(TensorHandle ha, TensorHandle hb, int stream_tag) {
     WITH_STREAM(stream_tag);
@@ -2725,51 +2645,8 @@ TensorHandle tensor_create_2d(int rows, int cols, double* data, int requires_gra
 /* tensor_alloc_doubles / tensor_free_doubles / tensor_read_double /
  * tensor_ptr_array_alloc live in shared_utils.c. */
 
-TensorHandle tensor_stack_from_array(TensorHandle* arr, int count, int dim) {
-    std::vector<mx::array> arrs;
-    bool rg = false;
-    for (int i = 0; i < count; i++) {
-        auto t = (Tensor*)arr[i];
-        arrs.push_back(t->data);
-        if (t->requires_grad) rg = true;
-    }
-    auto r = new Tensor(mx::stack(arrs, dim), rg);
-    /* Record OP_STACK with scalar_arg=dim and meta=input pool indices.
-       Replay reads dim from scalar_arg so non-zero stack dims backprop correctly. */
-    if (rg) {
-        int idx = tape_append(OP_STACK, r, nullptr, nullptr, (double)dim);
-        auto* indices = new std::vector<int>();
-        for (int i = 0; i < count; i++)
-            indices->push_back(((Tensor*)arr[i])->pool_idx);
-        tape[idx].meta = (void*)indices;
-    }
-    /* Caller (Idris) allocates arr via prim__ptrArrayAlloc; tape and torch
-       both free it after consuming. MLX matches that convention. */
-    free(arr);
-    return (TensorHandle)r;
-}
-
-TensorHandle tensor_cat_from_array(TensorHandle* arr, int count, int dim) {
-    std::vector<mx::array> arrs;
-    bool rg = false;
-    for (int i = 0; i < count; i++) {
-        auto t = (Tensor*)arr[i];
-        arrs.push_back(t->data);
-        if (t->requires_grad) rg = true;
-    }
-    auto r = new Tensor(mx::concatenate(arrs, dim), rg);
-    if (rg) {
-        int idx = tape_append(OP_CAT_MULTI, r, nullptr, nullptr, (double)dim);
-        auto* indices = new std::vector<int>();
-        for (int i = 0; i < count; i++)
-            indices->push_back(((Tensor*)arr[i])->pool_idx);
-        tape[idx].meta = (void*)indices;
-    }
-    /* Match torch convention: caller passes ownership of arr (allocated via
-       tensor_ptr_array_alloc), we free it after consuming. */
-    free(arr);
-    return (TensorHandle)r;
-}
+/* tensor_stack_from_array / tensor_cat_from_array live in
+ * backend_mlx/linear/concat/{stack,cat}.cpp. */
 
 /* ================================================================
    Tensor-level parameter creation
