@@ -21,8 +21,8 @@ import Tensor
 public export
 record LinearState (i : Nat) (o : Nat) (0 d : Device) where
   constructor MkLinear
-  weightT : Tensor [o, i] d
-  biasT   : Tensor [o] d
+  weightT : Tensor [o, i] d WithGrad
+  biasT   : Tensor [o] d WithGrad
 
 
 ----------------------------------------------------------------------

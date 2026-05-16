@@ -38,7 +38,7 @@ StepRec = (AnyPtr, Double, Double)
 
 export
 rolloutEp : {hs : List Nat} ->
-            Network 4 hs 2 CPU -> CPState -> List Double -> Nat ->
+            Network 4 hs 2 CPU WithGrad -> CPState -> List Double -> Nat ->
             List StepRec -> List StepRec
 rolloutEp _ _ _ Z acc = reverse acc
 rolloutEp _ _ [] _ acc = reverse acc
@@ -71,7 +71,7 @@ rolloutEp model st (r :: rs) (S k) acc =
 ||| all envs terminate.
 export
 rolloutEpBatched : {n : Nat} -> {hs : List Nat} ->
-                   Network 4 hs 2 CPU ->
+                   Network 4 hs 2 CPU WithGrad ->
                    Vect n CPState ->
                    Vect n (List Double) ->
                    Nat ->
@@ -82,7 +82,7 @@ rolloutEpBatched model states0 rss0 maxSteps =
     -- Per-env action selection + env step, given the batched log-prob
     -- tensor and this env's integer index. Frozen (done) envs and
     -- RNG-exhausted envs pass through unchanged.
-    perEnv : Tensor [n, 2] CPU -> Int ->
+    perEnv : Tensor [n, 2] CPU WithGrad -> Int ->
              CPState -> List Double -> Bool -> List StepRec ->
              (CPState, List Double, Bool, List StepRec)
     perEnv _         _ st rs  True  acc = (st, rs, True, acc)
@@ -101,7 +101,7 @@ rolloutEpBatched model states0 rss0 maxSteps =
 
     -- Walk the four parallel Vects together, threading the row index.
     -- Each pattern strips one element from each Vect simultaneously.
-    stepAllEnvs : Tensor [n, 2] CPU -> Int ->
+    stepAllEnvs : Tensor [n, 2] CPU WithGrad -> Int ->
                   Vect k CPState -> Vect k (List Double) -> Vect k Bool ->
                   Vect k (List StepRec) ->
                   (Vect k CPState, Vect k (List Double), Vect k Bool, Vect k (List StepRec))
@@ -123,11 +123,11 @@ rolloutEpBatched model states0 rss0 maxSteps =
         let obsRows : Vect n (Vector 4 Double)
             obsRows = map observe sts
             batchPtr = bulkToTensor2d obsRows
-            stateV : Tensor [n, 4] CPU
+            stateV : Tensor [n, 4] CPU WithGrad
             stateV = MkTensor batchPtr Nothing
-            predV : Tensor [n, 2] CPU
+            predV : Tensor [n, 2] CPU WithGrad
             predV = snd (forwardVarBatch model stateV)
-            logProbsV : Tensor [n, 2] CPU
+            logProbsV : Tensor [n, 2] CPU WithGrad
             logProbsV = MkTensor (prim__logSoftmax2d predV.tensorPtr) Nothing
         in case stepAllEnvs logProbsV 0 sts rss dones accs of
              (sts', rss', dones', accs') => go k sts' rss' dones' accs'
@@ -146,12 +146,12 @@ discReturns gamma rewards = reverse (go 0.0 (reverse rewards))
 
 -- Compute per-episode step losses with advantage. Each loss is a
 -- scalar `Tensor [] CPU` carrying the autograd graph back to the policy.
-epStepLosses : Double -> Double -> List StepRec -> List (Tensor [] CPU)
+epStepLosses : Double -> Double -> List StepRec -> List (Tensor [] CPU WithGrad)
 epStepLosses gamma baseline steps =
   let rewards = map (\(_, _, r) => r) steps
       rets = discReturns gamma rewards
   in zipWith (\(lp, _, _), gt =>
-       the (Tensor [] CPU) (MkTensor (prim__mulScalar lp (baseline - gt)) Nothing))
+       the (Tensor [] CPU WithGrad) (MkTensor (prim__mulScalar lp (baseline - gt)) Nothing))
      steps rets
 
 export
@@ -161,18 +161,18 @@ sumRewards steps = foldl (\a, (_, _, r) => a + r) 0.0 steps
 -- Mean-reduce a non-empty list of scalar TVars. Empty case returns a
 -- fresh zero scalar (degenerate; runs only if the rollout produced no
 -- steps).
-averageLoss : List (Tensor [] CPU) -> Tensor [] CPU
+averageLoss : List (Tensor [] CPU WithGrad) -> Tensor [] CPU WithGrad
 averageLoss [] = MkTensor (prim__createScalar 0.0 0) Nothing
 averageLoss (x :: xs) =
   let n = cast {to=Double} (1 + length xs)
-      addT : Tensor [] CPU -> Tensor [] CPU -> Tensor [] CPU
+      addT : Tensor [] CPU WithGrad -> Tensor [] CPU WithGrad -> Tensor [] CPU WithGrad
       addT a b = MkTensor (prim__add a.tensorPtr b.tensorPtr) Nothing
       s = foldl addT x xs
   in MkTensor (prim__mulScalar s.tensorPtr (1.0 / n)) Nothing
 
 computeLoss : {hs : List Nat} -> Double ->
-              Network 4 hs 2 CPU -> List (List Double) ->
-              Tensor [] CPU
+              Network 4 hs 2 CPU WithGrad -> List (List Double) ->
+              Tensor [] CPU WithGrad
 computeLoss gamma model randomBatch =
   let episodes = map (\rs => rolloutEp model (MkCP 0 0 0 0) rs MaxSteps []) randomBatch
       epReturns = map sumRewards episodes
@@ -187,8 +187,8 @@ computeLoss gamma model randomBatch =
 ||| forwards. Gradients flow back through the same shape of graph
 ||| (one batched forward op per timestep instead of N separate ops).
 computeLossBatched : {n : Nat} -> {hs : List Nat} -> Double ->
-                     Network 4 hs 2 CPU -> Vect n (List Double) ->
-                     Tensor [] CPU
+                     Network 4 hs 2 CPU WithGrad -> Vect n (List Double) ->
+                     Tensor [] CPU WithGrad
 computeLossBatched gamma model randomBatchV =
   let initStates : Vect n CPState = replicate n (MkCP 0 0 0 0)
       epsV  = rolloutEpBatched model initStates randomBatchV MaxSteps
@@ -205,8 +205,8 @@ computeLossBatched gamma model randomBatchV =
 ----------------------------------------------------------------------
 
 epochRL : {hs : List Nat} -> NativeOptimizer -> Double ->
-          Network 4 hs 2 CPU -> List (List Double) ->
-          (Network 4 hs 2 CPU, Double)
+          Network 4 hs 2 CPU WithGrad -> List (List Double) ->
+          (Network 4 hs 2 CPU WithGrad, Double)
 epochRL opt gamma model batch =
   let loss = computeLoss gamma model batch
       lossVal = nativeTrainStep opt loss
@@ -214,8 +214,8 @@ epochRL opt gamma model batch =
 
 epochRLBatched : {n : Nat} -> {hs : List Nat} ->
                  NativeOptimizer -> Double ->
-                 Network 4 hs 2 CPU -> Vect n (List Double) ->
-                 (Network 4 hs 2 CPU, Double)
+                 Network 4 hs 2 CPU WithGrad -> Vect n (List Double) ->
+                 (Network 4 hs 2 CPU WithGrad, Double)
 epochRLBatched opt gamma model batchV =
   let loss = computeLossBatched gamma model batchV
       lossVal = nativeTrainStep opt loss
@@ -258,7 +258,7 @@ genBatchV (S k) = do
 ----------------------------------------------------------------------
 
 evalEp : {hs : List Nat} ->
-         Network 4 hs 2 CPU -> CPState -> Nat -> Double -> Double
+         Network 4 hs 2 CPU WithGrad -> CPState -> Nat -> Double -> Double
 evalEp _ _ Z acc = acc
 evalEp model st (S k) acc =
   let stateT = bulkToTensor (observe st)
@@ -271,7 +271,7 @@ evalEp model st (S k) acc =
          if done outcome then acc + reward
          else evalEp model st' k (acc + reward)
 
-evalN : {hs : List Nat} -> Network 4 hs 2 CPU -> Nat -> Double -> Double
+evalN : {hs : List Nat} -> Network 4 hs 2 CPU WithGrad -> Nat -> Double -> Double
 evalN _ Z acc = acc
 evalN model (S k) acc =
   evalN model k (acc + evalEp model (MkCP 0 0 0 0) MaxSteps 0.0)
@@ -319,7 +319,7 @@ main = do
 
   ll1Any <- linearLayerAny {i=4} {o=128} "ll1"
   ll2Any <- linearLayerAny {i=128} {o=2} "ll2"
-  let model : Network 4 [128, 128] 2 CPU
+  let model : Network 4 [128, 128] 2 CPU WithGrad
       model = ll1Any ~~> tanhLayerAny ~~> OutputLayer ll2Any
   putStrLn ""
 

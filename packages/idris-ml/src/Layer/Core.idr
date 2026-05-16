@@ -22,7 +22,7 @@ public export
 interface LayerLike (l : Nat -> Nat -> (0 _ : Device) -> Type) where
   ||| Array-level forward: `Tensor [i] d -> Tensor [o] d`.
   applyVar : {0 d : Device} -> {i, o : Nat} ->
-              l i o d -> Tensor [i] d -> (l i o d, Tensor [o] d)
+              l i o d -> Tensor [i] d WithGrad -> (l i o d, Tensor [o] d WithGrad)
 
   ||| Auto-naming prefix (e.g. "llv2" for Linear).
   layerPrefix : {0 d : Device} -> {i, o : Nat} -> l i o d -> String
@@ -40,7 +40,7 @@ interface LayerLike (l : Nat -> Nat -> (0 _ : Device) -> Type) where
   ||| are not supported in this surface (use sequence-level batching
   ||| at the example level instead).
   applyVarBatch : {0 d : Device} -> {i, o : Nat} -> {b : Nat} ->
-                   l i o d -> Tensor [b, i] d -> (l i o d, Tensor [b, o] d)
+                   l i o d -> Tensor [b, i] d WithGrad -> (l i o d, Tensor [b, o] d WithGrad)
   applyVarBatch _ _ =
     idris_crash "applyVarBatch: layer does not support batched forward"
 
@@ -56,15 +56,15 @@ data AnyLayer : Nat -> Nat -> (0 _ : Device) -> Type where
 
 export
 applyVarAny : {0 d : Device} -> {i, o : Nat} ->
-               AnyLayer i o d -> Tensor [i] d -> (AnyLayer i o d, Tensor [o] d)
+               AnyLayer i o d -> Tensor [i] d WithGrad -> (AnyLayer i o d, Tensor [o] d WithGrad)
 applyVarAny (MkAnyLayer l @{dict} layer) input =
   case applyVar @{dict} layer input of
     (layer', out) => (MkAnyLayer l @{dict} layer', out)
 
 export
 applyVarBatchAny : {0 d : Device} -> {i, o : Nat} -> {b : Nat} ->
-                    AnyLayer i o d -> Tensor [b, i] d ->
-                    (AnyLayer i o d, Tensor [b, o] d)
+                    AnyLayer i o d -> Tensor [b, i] d WithGrad ->
+                    (AnyLayer i o d, Tensor [b, o] d WithGrad)
 applyVarBatchAny (MkAnyLayer l @{dict} layer) input =
   case applyVarBatch @{dict} layer input of
     (layer', out) => (MkAnyLayer l @{dict} layer', out)
@@ -75,16 +75,16 @@ applyVarBatchAny (MkAnyLayer l @{dict} layer) input =
 ----------------------------------------------------------------------
 
 public export
-data Network : (i : Nat) -> (hs : List Nat) -> (o : Nat) -> (0 _ : Device) -> Type where
-  OutputLayer : AnyLayer i o d -> Network i [] o d
-  (~~>) : AnyLayer i h d -> Network h hs o d -> Network i (h :: hs) o d
+data Network : (i : Nat) -> (hs : List Nat) -> (o : Nat) -> (0 _ : Device) -> (0 _ : GradMode) -> Type where
+  OutputLayer : AnyLayer i o d -> Network i [] o d WithGrad
+  (~~>) : AnyLayer i h d -> Network h hs o d WithGrad -> Network i (h :: hs) o d WithGrad
 
 export infixr 5 ~~>
 
 ||| Array-level forward through a Network.
 export
 forwardVar : {0 d : Device} -> {i, o : Nat} -> {hs : List Nat} ->
-              Network i hs o d -> Tensor [i] d -> (Network i hs o d, Tensor [o] d)
+              Network i hs o d WithGrad -> Tensor [i] d WithGrad -> (Network i hs o d WithGrad, Tensor [o] d WithGrad)
 forwardVar (OutputLayer l) input =
   case applyVarAny l input of
     (l', out) => (OutputLayer l', out)
@@ -99,7 +99,7 @@ forwardVar {hs = h :: _} (l ~~> rest) input =
 ||| Gru). Stateless layers' default `resetState` is identity.
 export
 resetNetwork : {0 d : Device} -> {i, o : Nat} -> {hs : List Nat} ->
-                 Network i hs o d -> Network i hs o d
+                 Network i hs o d WithGrad -> Network i hs o d WithGrad
 resetNetwork (OutputLayer (MkAnyLayer l @{dict} layer)) =
   OutputLayer (MkAnyLayer l @{dict} (resetState @{dict} layer))
 resetNetwork ((MkAnyLayer l @{dict} layer) ~~> rest) =
@@ -112,8 +112,8 @@ resetNetwork ((MkAnyLayer l @{dict} layer) ~~> rest) =
 export
 forwardVarBatch : {0 d : Device} -> {i, o : Nat} -> {b : Nat} ->
                    {hs : List Nat} ->
-                   Network i hs o d -> Tensor [b, i] d ->
-                   (Network i hs o d, Tensor [b, o] d)
+                   Network i hs o d WithGrad -> Tensor [b, i] d WithGrad ->
+                   (Network i hs o d WithGrad, Tensor [b, o] d WithGrad)
 forwardVarBatch (OutputLayer l) input =
   case applyVarBatchAny l input of
     (l', out) => (OutputLayer l', out)
@@ -149,8 +149,8 @@ forwardVarBatch {hs = h :: _} (l ~~> rest) input =
 export
 forwardVarTraced : {0 d : Device} -> {i, o : Nat} -> {hs : List Nat} ->
                    (label : String) ->
-                   Network i hs o d -> Tensor [i] d ->
-                   IO (Network i hs o d, Tensor [o] d)
+                   Network i hs o d WithGrad -> Tensor [i] d WithGrad ->
+                   IO (Network i hs o d WithGrad, Tensor [o] d WithGrad)
 forwardVarTraced label net input = go 0 net input
   where
     -- Take the raw AnyPtr so we don't have to thread `d` through
@@ -171,8 +171,8 @@ forwardVarTraced label net input = go 0 net input
 
     go : {0 d : Device} -> {i, o : Nat} -> {hs : List Nat} ->
          Nat ->
-         Network i hs o d -> Tensor [i] d ->
-         IO (Network i hs o d, Tensor [o] d)
+         Network i hs o d WithGrad -> Tensor [i] d WithGrad ->
+         IO (Network i hs o d WithGrad, Tensor [o] d WithGrad)
     go idx (OutputLayer l) inp =
       case applyVarAny l inp of
         (l', out) => do

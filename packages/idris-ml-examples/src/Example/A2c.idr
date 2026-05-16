@@ -39,10 +39,10 @@ MaxSteps : Nat; MaxSteps = cartPoleMaxSteps
 RolloutLen : Nat; RolloutLen = 20
 
 Actor : Type
-Actor = Network ObsDim [Hidden, Hidden, Hidden, Hidden] NumActions CPU
+Actor = Network ObsDim [Hidden, Hidden, Hidden, Hidden] NumActions CPU WithGrad
 
 Critic : Type
-Critic = Network ObsDim [Hidden, Hidden, Hidden, Hidden] 1 CPU
+Critic = Network ObsDim [Hidden, Hidden, Hidden, Hidden] 1 CPU WithGrad
 
 mkActor : IO Actor
 mkActor = do
@@ -160,22 +160,22 @@ normAdvs triples =
 -- Per-step A2C loss ( typed-surface, autograd-tracked)
 ----------------------------------------------------------------------
 
-perStepLoss : {n : Nat} -> (logitsB : Tensor [n, NumActions] CPU) ->
-              (valuesB : Tensor [n, 1] CPU) -> (rowIdx : Int) ->
+perStepLoss : {n : Nat} -> (logitsB : Tensor [n, NumActions] CPU WithGrad) ->
+              (valuesB : Tensor [n, 1] CPU WithGrad) -> (rowIdx : Int) ->
               Double -> Double ->
-              (RollStep, Double, Double) -> Tensor [] CPU
+              (RollStep, Double, Double) -> Tensor [] CPU WithGrad
 perStepLoss logitsB valuesB rowIdx entropyCoef valueCoef (step, adv, retT) =
   let logitsRow = the (TVec NumActions CPU) (trowSelect logitsB rowIdx)
-      logPT = the (Tensor [NumActions] CPU)
+      logPT = the (Tensor [NumActions] CPU WithGrad)
                  (MkTensor (prim__logSoftmax logitsRow.tensorPtr 0) Nothing)
       aIdx : Int
       aIdx = cast {to=Int} (cast {to=Integer} step.action)
-      logProbV = the (Tensor [] CPU) (telemSelect logPT aIdx)
+      logProbV = the (Tensor [] CPU WithGrad) (telemSelect logPT aIdx)
 
       valueRow = the (TVec 1 CPU) (trowSelect valuesB rowIdx)
-      valueV = the (Tensor [] CPU) (telemSelect valueRow 0)
+      valueV = the (Tensor [] CPU WithGrad) (telemSelect valueRow 0)
 
-      retC = the (Tensor [] CPU) (tconstScalar retT)
+      retC = the (Tensor [] CPU WithGrad) (tconstScalar retT)
 
       -- Policy gradient: -logπ(a|s) * advantage. `adv` is a fixed Double
       -- (no grad path back to the value head); just scale logProbV by -adv.
@@ -187,11 +187,11 @@ perStepLoss logitsB valuesB rowIdx entropyCoef valueCoef (step, adv, retT) =
 
       -- Entropy bonus: -entropyCoef * H(π) where H(π) = -Σ p_i log p_i.
       -- Build (-H(π)) as Σ p_i log p_i using grad-tracked Tensor arithmetic.
-      lp0V = the (Tensor [] CPU) (telemSelect logPT 0)
-      lp1V = the (Tensor [] CPU) (telemSelect logPT 1)
+      lp0V = the (Tensor [] CPU WithGrad) (telemSelect logPT 0)
+      lp1V = the (Tensor [] CPU WithGrad) (telemSelect logPT 1)
       p0V = texp lp0V
       p1V = texp lp1V
-      negEntV = the (Tensor [] CPU) (MkTensor
+      negEntV = the (Tensor [] CPU WithGrad) (MkTensor
                   (prim__add (prim__mul p0V.tensorPtr lp0V.tensorPtr)
                              (prim__mul p1V.tensorPtr lp1V.tensorPtr))
                   Nothing)
@@ -200,7 +200,7 @@ perStepLoss logitsB valuesB rowIdx entropyCoef valueCoef (step, adv, retT) =
                        entTerm.tensorPtr) Nothing
 
 
-aggregateLoss : List (Tensor [] CPU) -> Tensor [] CPU
+aggregateLoss : List (Tensor [] CPU WithGrad) -> Tensor [] CPU WithGrad
 aggregateLoss losses =
   let zero = tconstScalar 0.0
       summed = foldl (\a, b => MkTensor (prim__add a.tensorPtr b.tensorPtr) Nothing) zero losses
@@ -215,7 +215,7 @@ aggregateLoss losses =
 -- withNoGrad — the bootstrap forward through critic doesn't need grad
 -- tracking, the value is just a Double consumed by GAE).
 buildLoss : Actor -> Critic -> Double -> Double -> Double -> Double ->
-            Double -> List RollStep -> Tensor [] CPU
+            Double -> List RollStep -> Tensor [] CPU WithGrad
 buildLoss actor critic gamma lam entropyCoef valueCoef bootstrap steps =
   let triples = map stepTriple steps
       gaeOut = gae gamma lam bootstrap triples
@@ -226,16 +226,16 @@ buildLoss actor critic gamma lam entropyCoef valueCoef bootstrap steps =
       obsBatch = the (Vect (length normalized) (Vector ObsDim Double))
                      (map (\(s, _, _) => obsTensor s.obs) normVec)
       stackedT = bulkToTensor2d obsBatch
-      stackedV = the (Tensor [n, ObsDim] CPU) (MkTensor stackedT Nothing)
+      stackedV = the (Tensor [n, ObsDim] CPU WithGrad) (MkTensor stackedT Nothing)
       logitsB = snd (forwardVarBatch actor stackedV)
       valuesB = snd (forwardVarBatch critic stackedV)
-      losses = the (List (Tensor [] CPU)) (enumeratedLosses logitsB valuesB normVec 0)
+      losses = the (List (Tensor [] CPU WithGrad)) (enumeratedLosses logitsB valuesB normVec 0)
   in aggregateLoss losses
   where
-    enumeratedLosses : {n : Nat} -> Tensor [n, NumActions] CPU ->
-                       Tensor [n, 1] CPU ->
+    enumeratedLosses : {n : Nat} -> Tensor [n, NumActions] CPU WithGrad ->
+                       Tensor [n, 1] CPU WithGrad ->
                        Vect k (RollStep, Double, Double) -> Int ->
-                       List (Tensor [] CPU)
+                       List (Tensor [] CPU WithGrad)
     enumeratedLosses _ _ [] _ = []
     enumeratedLosses lB vB (t :: rest) k =
       perStepLoss lB vB k entropyCoef valueCoef t :: enumeratedLosses lB vB rest (k + 1)

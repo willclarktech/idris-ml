@@ -67,7 +67,7 @@ main = do
            ++ " seed=" ++ show cfg.seed
 
   llAny <- linearLayerAny {i = 2} {o = 3} "ll"
-  let model : Network 2 [] 3 CPU
+  let model : Network 2 [] 3 CPU WithGrad
       model = OutputLayer llAny
   putStrLn ""
 

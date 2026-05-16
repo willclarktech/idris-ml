@@ -162,7 +162,7 @@ gptBatchVect corpus corpusLen (S k) = do
 ||| Categorical cross-entropy on ALL positions (standard LM loss).
 ||| Operates on a flat [SeqLen * VocabSize] Tensor; reshapes to
 ||| [SeqLen, VocabSize] and computes mean NLL across positions.
-allPositionsCELoss : TVec OutputDim CPU -> TVec OutputDim CPU -> Tensor [] CPU
+allPositionsCELoss : TVec OutputDim CPU -> TVec OutputDim CPU -> Tensor [] CPU WithGrad
 allPositionsCELoss predV targetV =
   let vsI = cast {to=Int} VocabSize
       sI = cast {to=Int} SeqLen
@@ -179,7 +179,7 @@ allPositionsCELoss predV targetV =
 -- Autoregressive Generation (single-sample forward)
 ----------------------------------------------------------------------
 
-generateText : Network InputDim [] OutputDim CPU ->
+generateText : Network InputDim [] OutputDim CPU WithGrad ->
                String -> Nat -> Double -> String
 generateText model seed genLen temperature =
   let seedIdxs = map charToIdx (unpack seed)
@@ -212,7 +212,7 @@ generateText model seed genLen temperature =
            (the (Int, Double) (0, -1.0e10))
            (zip (map cast vocabIdxs) probs))
 
-    go : Network InputDim [] OutputDim CPU ->
+    go : Network InputDim [] OutputDim CPU WithGrad ->
          List Int -> Nat -> List Char -> List Char
     go _ _ Z acc = reverse acc
     go m ctx (S k) acc =
@@ -233,7 +233,7 @@ generateText model seed genLen temperature =
 -- Evaluation: bits-per-character on a held-out corpus slice
 ----------------------------------------------------------------------
 
-evalBPC : Network InputDim [] OutputDim CPU ->
+evalBPC : Network InputDim [] OutputDim CPU WithGrad ->
           (corpus : List Int) -> (corpusLen : Nat) -> (nSamples : Nat) -> Double
 evalBPC model corpus corpusLen nSamples = go nSamples 0.0
   where
@@ -369,7 +369,7 @@ main = do
               {seqLen=SeqLen, dModel=DModel, numHeads=NumHeads,
                headDim=HeadDim, numBlocks=NumBlocks, vocabSize=VocabSize}
               "tfm0"
-  let model : Network InputDim [] OutputDim CPU
+  let model : Network InputDim [] OutputDim CPU WithGrad
       model = OutputLayer tfmAny
   putStrLn ""
 
@@ -381,7 +381,7 @@ main = do
   let genBatch : IO (Vect BatchSize (TensorDataPoint InputDim OutputDim))
       genBatch = gptBatchVect trainIndices trainLen BatchSize
 
-  let evalMetrics : Network InputDim [] OutputDim CPU -> IO (List (String, String))
+  let evalMetrics : Network InputDim [] OutputDim CPU WithGrad -> IO (List (String, String))
       evalMetrics m = do
         let valBpc = evalBPC m valIndices valLen 20
         pure [("val_bpc", show valBpc)]
@@ -403,9 +403,9 @@ main = do
                    evalMetrics
                    noOpHook
 
-  let stepFn : Network InputDim [] OutputDim CPU ->
+  let stepFn : Network InputDim [] OutputDim CPU WithGrad ->
                Vect BatchSize (TensorDataPoint InputDim OutputDim) ->
-               IO (Network InputDim [] OutputDim CPU, Double)
+               IO (Network InputDim [] OutputDim CPU WithGrad, Double)
       stepFn m d = do
         ep <- readIORef epochRef
         let lr = schedule ep

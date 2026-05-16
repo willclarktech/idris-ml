@@ -8,6 +8,7 @@ import Compat.Random
 
 import DataPoint
 import Device
+import public GradMode
 import Floating
 import Array
 import Util
@@ -908,7 +909,7 @@ profileReport = primIO prim__profileReportC
 -- Spike-only; lives in a parallel layer/example axis.
 
 public export
-record Tensor (dims : Vect rank Nat) (0 d : Device) where
+record Tensor (dims : Vect rank Nat) (0 d : Device) (0 g : GradMode) where
   constructor MkTensor
   tensorPtr : AnyPtr
   paramId   : Maybe String
@@ -918,7 +919,7 @@ record Tensor (dims : Vect rank Nat) (0 d : Device) where
 ||| resulting tensor handle is on `d2`. `paramId` is preserved (the
 ||| C-side parameter registry tracks the moved handle).
 export
-toDevice : (d2 : Device) -> Tensor dims d1 -> IO (Tensor dims d2)
+toDevice : (d2 : Device) -> Tensor dims d1 WithGrad -> IO (Tensor dims d2 WithGrad)
 toDevice d2 t =
   pure (MkTensor (prim__toDevice t.tensorPtr (deviceToString d2))
                  t.paramId)
@@ -930,18 +931,18 @@ toDevice d2 t =
 ||| (`Tensor [4 * o, i] d` hangs; `TMat (4 * o) i d` works.)
 public export
 0 TVec : Nat -> Device -> Type
-TVec n d = Tensor [n] d
+TVec n d = Tensor [n] d WithGrad
 
 public export
 0 TMat : Nat -> Nat -> Device -> Type
-TMat m n d = Tensor [m, n] d
+TMat m n d = Tensor [m, n] d WithGrad
 
 -- Smart constructors --------------------------------------------------
 
 ||| Create a registered learnable [o, i] parameter from a flat (row-major)
 ||| double buffer. Mirrors Linear.nameLayer's tensor path.
 export
-tparam2d : {o, i : Nat} -> (paramId : String) -> AnyPtr -> Tensor [o, i] d
+tparam2d : {o, i : Nat} -> (paramId : String) -> AnyPtr -> Tensor [o, i] d WithGrad
 tparam2d {o} {i} pid buf =
   let oI = cast {to=Int} o
       iI = cast {to=Int} i
@@ -950,7 +951,7 @@ tparam2d {o} {i} pid buf =
 
 ||| Create a registered learnable [n] parameter from a double buffer.
 export
-tparam1d : {n : Nat} -> (paramId : String) -> AnyPtr -> Tensor [n] d
+tparam1d : {n : Nat} -> (paramId : String) -> AnyPtr -> Tensor [n] d WithGrad
 tparam1d {n} pid buf =
   let nI = cast {to=Int} n
       reg = prim__paramRegister pid (prim__createParam1d nI buf)
@@ -958,12 +959,12 @@ tparam1d {n} pid buf =
 
 ||| Wrap an existing 1D tensor handle as a non-parameter input.
 export
-tinput1d : {n : Nat} -> AnyPtr -> Tensor [n] d
+tinput1d : {n : Nat} -> AnyPtr -> Tensor [n] d WithGrad
 tinput1d t = MkTensor t Nothing
 
 ||| Wrap an existing 2D tensor handle as a non-parameter input.
 export
-tinput2d : {m, n : Nat} -> AnyPtr -> Tensor [m, n] d
+tinput2d : {m, n : Nat} -> AnyPtr -> Tensor [m, n] d WithGrad
 tinput2d t = MkTensor t Nothing
 
 -- Arithmetic / linear algebra (autograd-tracked) ----------------------
@@ -976,13 +977,13 @@ tinput2d t = MkTensor t Nothing
 ||| adds ~20µs of Scheme-side overhead per call, accumulating to a
 ||| 2× regression on recurrent models.
 export %inline
-tadd : Tensor dims d -> Tensor dims d -> Tensor dims d
+tadd : Tensor dims d WithGrad -> Tensor dims d WithGrad -> Tensor dims d WithGrad
 tadd a b = MkTensor (prim__add a.tensorPtr b.tensorPtr) Nothing
 
 ||| Matrix-vector multiply: [m, n] · [n] -> [m]. `%inline` for the
 ||| same reason as `tadd` (hot path in recurrent forward passes).
 export %inline
-tmv : Tensor [m, n] d -> Tensor [n] d -> Tensor [m] d
+tmv : Tensor [m, n] d WithGrad -> Tensor [n] d WithGrad -> Tensor [m] d WithGrad
 tmv w x = MkTensor (prim__mv w.tensorPtr x.tensorPtr) Nothing
 
 ||| Fused 1D linear: y = W[m,n] · x[n] + bias[m]. One C call instead
@@ -990,13 +991,13 @@ tmv w x = MkTensor (prim__mv w.tensorPtr x.tensorPtr) Nothing
 ||| eliminates the intermediate Idris-side glue. Used by Layer.Linear's
 ||| applyVar and by NTM/DNC FCs.
 export %inline
-tlinear : Tensor [o, i] d -> Tensor [i] d -> Tensor [o] d -> Tensor [o] d
+tlinear : Tensor [o, i] d WithGrad -> Tensor [i] d WithGrad -> Tensor [o] d WithGrad -> Tensor [o] d WithGrad
 tlinear w x bias =
   MkTensor (prim__linear w.tensorPtr x.tensorPtr bias.tensorPtr) Nothing
 
 ||| Fused batched linear: W[o,i] · X^T[b,i] + bias[o] -> [b, o].
 export %inline
-tlinear2d : Tensor [o, i] d -> Tensor [b, i] d -> Tensor [o] d -> Tensor [b, o] d
+tlinear2d : Tensor [o, i] d WithGrad -> Tensor [b, i] d WithGrad -> Tensor [o] d WithGrad -> Tensor [b, o] d WithGrad
 tlinear2d w x bias =
   MkTensor (prim__linear2d w.tensorPtr x.tensorPtr bias.tensorPtr) Nothing
 
@@ -1008,13 +1009,13 @@ tlinear2d w x bias =
 ||| Wraps `prim__select` on dim 0; preserves the autograd graph.
 export
 trowSelect : {0 d : Device} -> {b, n : Nat} ->
-             Tensor [b, n] d -> Int -> Tensor [n] d
+             Tensor [b, n] d WithGrad -> Int -> Tensor [n] d WithGrad
 trowSelect t k = MkTensor (prim__select t.tensorPtr 0 k) Nothing
 
 ||| Select element `i` from an n-vector, returning a scalar Tensor.
 export
 telemSelect : {0 d : Device} -> {n : Nat} ->
-              Tensor [n] d -> Int -> Tensor [] d
+              Tensor [n] d WithGrad -> Int -> Tensor [] d WithGrad
 telemSelect t i = MkTensor (prim__select t.tensorPtr 0 i) Nothing
 
 ||| Scalar Tensor from a Double. Takes the value as a runtime argument
@@ -1023,22 +1024,22 @@ telemSelect t i = MkTensor (prim__select t.tensorPtr 0 i) Nothing
 ||| backend creates a non-persistent scalar that is freed by the next
 ||| `tape_reset` (i.e. fine to call inside an epoch's loss builder).
 export
-tconstScalar : {0 d : Device} -> Double -> Tensor [] d
+tconstScalar : {0 d : Device} -> Double -> Tensor [] d WithGrad
 tconstScalar v = MkTensor (prim__createScalar v 0) Nothing
 
 ||| Subtract two equally-shaped Tensors (autograd-tracked).
 export %inline
-tsub : Tensor dims d -> Tensor dims d -> Tensor dims d
+tsub : Tensor dims d WithGrad -> Tensor dims d WithGrad -> Tensor dims d WithGrad
 tsub a b = MkTensor (prim__sub a.tensorPtr b.tensorPtr) Nothing
 
 ||| Elementwise multiply two equally-shaped Tensors (autograd-tracked).
 export %inline
-tmul : Tensor dims d -> Tensor dims d -> Tensor dims d
+tmul : Tensor dims d WithGrad -> Tensor dims d WithGrad -> Tensor dims d WithGrad
 tmul a b = MkTensor (prim__mul a.tensorPtr b.tensorPtr) Nothing
 
 ||| Negate a Tensor (autograd-tracked).
 export %inline
-tneg : Tensor dims d -> Tensor dims d
+tneg : Tensor dims d WithGrad -> Tensor dims d WithGrad
 tneg a = MkTensor (prim__neg a.tensorPtr) Nothing
 
 ||| Scale a Tensor by a Double (broadcasts the scalar; autograd-tracked).
@@ -1046,24 +1047,24 @@ tneg a = MkTensor (prim__neg a.tensorPtr) Nothing
 ||| building per-sample loss expressions where one side of a product is
 ||| a runtime Double (e.g. DQN target value).
 export %inline
-tmulScalar : Tensor dims d -> Double -> Tensor dims d
+tmulScalar : Tensor dims d WithGrad -> Double -> Tensor dims d WithGrad
 tmulScalar v s = MkTensor (prim__mulScalar v.tensorPtr s) Nothing
 
 ||| Elementwise exponential (autograd-tracked).
 export %inline
-texp : Tensor dims d -> Tensor dims d
+texp : Tensor dims d WithGrad -> Tensor dims d WithGrad
 texp v = MkTensor (prim__exp v.tensorPtr) Nothing
 
 ||| Elementwise natural log (autograd-tracked).
 export %inline
-tlog : Tensor dims d -> Tensor dims d
+tlog : Tensor dims d WithGrad -> Tensor dims d WithGrad
 tlog v = MkTensor (prim__log v.tensorPtr) Nothing
 
 ||| Create a registered learnable scalar parameter (e.g. SAC's
 ||| state-independent log_std). Mirrors V1's `param`. The optimizer
 ||| picks it up automatically by paramId scope.
 export
-tparamScalar : {0 d : Device} -> (paramId : String) -> (val : Double) -> Tensor [] d
+tparamScalar : {0 d : Device} -> (paramId : String) -> (val : Double) -> Tensor [] d WithGrad
 tparamScalar pid val =
   let ptr = prim__createScalar val 1                  -- requires_grad=true
       reg = prim__paramRegister pid ptr
@@ -1074,45 +1075,45 @@ tparamScalar pid val =
 ||| to build a [B, ObsDim + ActDim] Q-input from obs + reparametrized
 ||| action while preserving the autograd path through the action.
 export
-tconcat2dAxis1 : {b, m, n : Nat} -> Tensor [b, m] d -> Tensor [b, n] d ->
-                 Tensor [b, m + n] d
+tconcat2dAxis1 : {b, m, n : Nat} -> Tensor [b, m] d WithGrad -> Tensor [b, n] d WithGrad ->
+                 Tensor [b, m + n] d WithGrad
 tconcat2dAxis1 a b = MkTensor (prim__concat2dAxis1 a.tensorPtr b.tensorPtr) Nothing
 
 -- Activations (shape-preserving, pass-through autograd) ---------------
 -- All `%inline` for hot-path performance — see `tadd` rationale.
 
 export %inline
-ttanh : Tensor dims d -> Tensor dims d
+ttanh : Tensor dims d WithGrad -> Tensor dims d WithGrad
 ttanh v = MkTensor (prim__tanh v.tensorPtr) Nothing
 
 export %inline
-tsigmoid : Tensor dims d -> Tensor dims d
+tsigmoid : Tensor dims d WithGrad -> Tensor dims d WithGrad
 tsigmoid v = MkTensor (prim__sigmoid v.tensorPtr) Nothing
 
 export %inline
-trelu : Tensor dims d -> Tensor dims d
+trelu : Tensor dims d WithGrad -> Tensor dims d WithGrad
 trelu v = MkTensor (prim__clampMin v.tensorPtr 0.0) Nothing
 
 export %inline
-tgelu : Tensor dims d -> Tensor dims d
+tgelu : Tensor dims d WithGrad -> Tensor dims d WithGrad
 tgelu v = MkTensor (prim__gelu v.tensorPtr) Nothing
 
 export %inline
-tsilu : Tensor dims d -> Tensor dims d
+tsilu : Tensor dims d WithGrad -> Tensor dims d WithGrad
 tsilu v = MkTensor (prim__silu v.tensorPtr) Nothing
 
 export %inline
-tleakyRelu : Double -> Tensor dims d -> Tensor dims d
+tleakyRelu : Double -> Tensor dims d WithGrad -> Tensor dims d WithGrad
 tleakyRelu slope v = MkTensor (prim__leakyRelu v.tensorPtr slope) Nothing
 
 ||| Softmax along axis 0 (1D vector).
 export %inline
-tsoftmax1d : {n : Nat} -> Tensor [n] d -> Tensor [n] d
+tsoftmax1d : {n : Nat} -> Tensor [n] d WithGrad -> Tensor [n] d WithGrad
 tsoftmax1d v = MkTensor (prim__softmax v.tensorPtr 0) Nothing
 
 ||| Log-softmax along axis 0 (1D vector).
 export %inline
-tlogSoftmax1d : {n : Nat} -> Tensor [n] d -> Tensor [n] d
+tlogSoftmax1d : {n : Nat} -> Tensor [n] d WithGrad -> Tensor [n] d WithGrad
 tlogSoftmax1d v = MkTensor (prim__logSoftmax v.tensorPtr 0) Nothing
 
 ||| Fused LSTM gate computation: combined gates [4 * n] + previous cell [n]
@@ -1134,7 +1135,7 @@ tlstmGatesPair {n} combined prevCell =
 ||| Use for LSTM/RNN/GRU initial hidden + cell state. Persistent =
 ||| survives tape reset.
 export
-tzeroState1d : {n : Nat} -> Tensor [n] d
+tzeroState1d : {n : Nat} -> Tensor [n] d WithGrad
 tzeroState1d {n} =
   let nI = cast {to=Int} n
       buf = prim__allocDoubles nI
@@ -1162,14 +1163,14 @@ tgruCell {n} ih hh prevH =
 
 ||| Read the scalar value out of a `Tensor [] d`.
 export
-tensorItem : Tensor [] d -> Double
+tensorItem : Tensor [] d WithGrad -> Double
 tensorItem v = prim__item v.tensorPtr
 
 -- Loss (vector targets → scalar loss) ---------------------------------
 
 ||| MSE loss over a 1D prediction/target pair. Sum-reduced.
 export
-tmseLoss : {n : Nat} -> Tensor [n] d -> Tensor [n] d -> Tensor [] d
+tmseLoss : {n : Nat} -> Tensor [n] d WithGrad -> Tensor [n] d WithGrad -> Tensor [] d WithGrad
 tmseLoss p t =
   let diff = prim__sub p.tensorPtr t.tensorPtr in
   let sqDiff = prim__mul diff diff in
@@ -1179,7 +1180,7 @@ tmseLoss p t =
 ||| `Example.Supervised.nllLossTensor` (divide by n to match the
 ||| reference's mean reduction).
 export
-tnllLoss : {n : Nat} -> Tensor [n] d -> Tensor [n] d -> Tensor [] d
+tnllLoss : {n : Nat} -> Tensor [n] d WithGrad -> Tensor [n] d WithGrad -> Tensor [] d WithGrad
 tnllLoss {n} p t =
   let logP = prim__logSoftmax p.tensorPtr 0 in
   let prod = prim__mul logP t.tensorPtr in
@@ -1191,7 +1192,7 @@ tnllLoss {n} p t =
 ||| use `tbceLoss : TVec n d -> TVec n d -> Tensor [] d`; the C op
 ||| internally averages.
 export
-tbceLoss : {n : Nat} -> TVec n d -> TVec n d -> Tensor [] d
+tbceLoss : {n : Nat} -> TVec n d -> TVec n d -> Tensor [] d WithGrad
 tbceLoss p t =
   MkTensor (prim__bceWithLogits p.tensorPtr t.tensorPtr) Nothing
 
@@ -1201,7 +1202,7 @@ tbceLoss p t =
 ||| clip → step. Reads `prim__item` BEFORE the step so the returned
 ||| scalar is not stale. Mirrors `nativeTrainStep`.
 export
-nativeTrainStep : {d : Device} -> NativeOptimizer -> Tensor [] d -> Double
+nativeTrainStep : {d : Device} -> NativeOptimizer -> Tensor [] d WithGrad -> Double
 nativeTrainStep opt loss =
   let clipMode : Int
       clipMode = case opt.clipMode of NoClip => 0; ValueClip _ => 1; NormClip _ => 2

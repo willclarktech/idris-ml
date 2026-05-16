@@ -49,14 +49,14 @@ minDelta = 0.001
 ||| Run a chunk of training epochs over fixed data.
 runChunk : {d : Device} -> {i, o, n : Nat} -> {hs : List Nat} ->
            NativeOptimizer -> Schedule ->
-           Network i hs o d ->
+           Network i hs o d WithGrad ->
            Vect n (RecurrentDataPoint i o Double) ->
            LossFn d o ->
            (chunkRemaining : Nat) ->
            (epoch : Nat) ->
            (bestLoss : Double) ->
            (staleCount : Nat) ->
-           IO (Network i hs o d, Double, Nat)
+           IO (Network i hs o d WithGrad, Double, Nat)
 runChunk _ _ m _ _ Z _ bl sc = pure (m, bl, sc)
 runChunk opt sched m ds lossFn (S k) ep bl sc = do
   setLearningRate opt (sched ep)
@@ -75,7 +75,7 @@ runChunk opt sched m ds lossFn (S k) ep bl sc = do
 ||| caller should move to the next stage.
 trainStage : {d : Device} -> {i, o, n : Nat} -> {hs : List Nat} ->
              NativeOptimizer -> Schedule ->
-             Network i hs o d ->
+             Network i hs o d WithGrad ->
              Stage d i o n ->
              LossFn d o ->
              (chunkSize : Nat) ->
@@ -85,7 +85,7 @@ trainStage : {d : Device} -> {i, o, n : Nat} -> {hs : List Nat} ->
              (bestLoss : Double) ->
              (staleCount : Nat) ->
              Clock Monotonic ->
-             IO (Network i hs o d, Nat, Bool)
+             IO (Network i hs o d WithGrad, Nat, Bool)
 trainStage _ _ model _ _ _ _ Z done _ _ _ = pure (model, done, False)
 trainStage opt sched model stage lossFn chunkSz patience budget done bestLoss staleCount t0 = do
   dps <- stage.generate
@@ -134,24 +134,24 @@ runCurriculum :
   {i, o, n : Nat} -> {hs : List Nat} ->
   NativeOptimizer ->
   Schedule ->
-  Network i hs o d ->
+  Network i hs o d WithGrad ->
   LossFn d o ->
   List (Stage d i o n) ->
   (totalEpochs : Nat) ->
   (patience : Nat) ->
   (chunkSize : Nat) ->
-  IO (Network i hs o d, Nat)
+  IO (Network i hs o d WithGrad, Nat)
 runCurriculum _ _ model _ [] _ _ _ = pure (model, 0)
 runCurriculum opt sched model lossFn stages totalEpochs patience chunkSize = do
   t0 <- clockTime Monotonic
   go model stages totalEpochs 0 t0
   where
-    go : Network i hs o d ->
+    go : Network i hs o d WithGrad ->
          List (Stage d i o n) ->
          (budget : Nat) ->
          (epochsDone : Nat) ->
          Clock Monotonic ->
-         IO (Network i hs o d, Nat)
+         IO (Network i hs o d WithGrad, Nat)
     go m [] _ done _ = pure (m, done)
     go m (stage :: rest) budget done t0 = do
       putStrLn $ "\n" ++ stage.label

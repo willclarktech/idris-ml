@@ -53,7 +53,7 @@ main = do
 
   rnnAny <- rnnLayerAny {i = 1} {o = 4} "rnn"
   llAny <- linearLayerAny {i = 4} {o = 1} "ll"
-  let model : Network 1 [4] 1 CPU
+  let model : Network 1 [4] 1 CPU WithGrad
       model = rnnAny ~~> OutputLayer llAny
   putStrLn ""
 

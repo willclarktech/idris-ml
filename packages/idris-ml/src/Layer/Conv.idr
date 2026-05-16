@@ -52,7 +52,7 @@ data Conv2DState :
   Nat -> Nat -> (0 _ : Device) -> Type
   where
   MkConv2D :
-    Tensor [outC, inC, kH, kW] d ->                       -- kernel
+    Tensor [outC, inC, kH, kW] d WithGrad ->                       -- kernel
     TVec outC d ->                                      -- bias
     Conv2DState inC outC h w kH kW padH padW
                   (inC * (h * w))
@@ -91,8 +91,8 @@ applyConv2DBatched : {inC, outC, h, w, kH, kW, padH, padW : Nat} -> {b : Nat} ->
                                      (inC * (h * w))
                                      (outC * (ConvOutDim h kH padH * ConvOutDim w kW padW))
                                      d ->
-                       Tensor [b, inC * (h * w)] d ->
-                       Tensor [b, outC * (ConvOutDim h kH padH * ConvOutDim w kW padW)] d
+                       Tensor [b, inC * (h * w)] d WithGrad ->
+                       Tensor [b, outC * (ConvOutDim h kH padH * ConvOutDim w kW padW)] d WithGrad
 applyConv2DBatched {inC} {outC} {h} {w} {kH} {kW} {padH} {padW} {b}
                      (MkConv2D ker bias) input =
   let bI    = cast {to=Int} b
@@ -140,7 +140,7 @@ conv2dLayer paramPrefix = do
         (prim__createParam4d (cast outC) (cast inC) (cast kH) (cast kW) kerBuf')
       biasPtr = prim__paramRegister biasName
         (prim__createParam1d (cast outC) biasBuf')
-      kerTV : Tensor [outC, inC, kH, kW] CPU
+      kerTV : Tensor [outC, inC, kH, kW] CPU WithGrad
       kerTV = MkTensor kerPtr (Just kerName)
       biasTV : TVec outC CPU
       biasTV = MkTensor biasPtr (Just biasName)
@@ -174,7 +174,7 @@ data Conv1DState :
   Nat -> Nat -> (0 _ : Device) -> Type
   where
   MkConv1D :
-    Tensor [outC, inC, kL] d ->
+    Tensor [outC, inC, kL] d WithGrad ->
     TVec outC d ->
     Conv1DState inC outC len kL pad
                   (inC * len)
@@ -216,7 +216,7 @@ conv1dLayer paramPrefix = do
         (prim__createParam3d (cast outC) (cast inC) (cast kL) kerBuf')
       biasPtr = prim__paramRegister biasName
         (prim__createParam1d (cast outC) biasBuf')
-      kerTV : Tensor [outC, inC, kL] CPU
+      kerTV : Tensor [outC, inC, kL] CPU WithGrad
       kerTV = MkTensor kerPtr (Just kerName)
       biasTV : TVec outC CPU
       biasTV = MkTensor biasPtr (Just biasName)
@@ -279,8 +279,8 @@ applyMaxPool2DBatched : {c, inH, inW, poolH, poolW, strH, strW : Nat} -> {b : Na
                                            (c * (inH * inW))
                                            (c * (PoolOutDim inH poolH strH * PoolOutDim inW poolW strW))
                                            d ->
-                          Tensor [b, c * (inH * inW)] d ->
-                          Tensor [b, c * (PoolOutDim inH poolH strH * PoolOutDim inW poolW strW)] d
+                          Tensor [b, c * (inH * inW)] d WithGrad ->
+                          Tensor [b, c * (PoolOutDim inH poolH strH * PoolOutDim inW poolW strW)] d WithGrad
 applyMaxPool2DBatched {c} {inH} {inW} {poolH} {poolW} {strH} {strW} {b} _ input =
   let bI = cast {to=Int} b
       cI = cast {to=Int} c

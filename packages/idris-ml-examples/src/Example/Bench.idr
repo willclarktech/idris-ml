@@ -48,7 +48,7 @@ supervisedData =
 benchSupervised : IO ()
 benchSupervised = do
   llAny <- linearLayerAny {i=2} {o=3} "ll"
-  let model : Network 2 [] 3 CPU
+  let model : Network 2 [] 3 CPU WithGrad
       model = OutputLayer llAny
   let opt = nativeSgd 0.03
 
@@ -90,7 +90,7 @@ rnnRawData n = map (\(is, os) => MkRecurrentDataPoint (prep is) (prep os)) $ gen
 benchRnn : IO ()
 benchRnn = do
   rnnAny <- rnnLayerAny {i=1} {o=1} "rnn"
-  let model : Network 1 [] 1 CPU
+  let model : Network 1 [] 1 CPU WithGrad
       model = OutputLayer rnnAny
   let dataPoints = rnnRawData 8
   let opt = nativeSgd 0.03
@@ -140,7 +140,7 @@ BenchBatch = 5
 benchNtm : IO ()
 benchNtm = do
   ntmAny <- ntmLayerAny {i=BenchInputW, o=BenchOutputW, n=BenchN, m=BenchM, h=BenchH} "ntm"
-  let model : Network BenchInputW [] BenchOutputW CPU
+  let model : Network BenchInputW [] BenchOutputW CPU WithGrad
       model = OutputLayer ntmAny
 
   -- Generate fixed training data (raw Doubles; epochTwoPhaseVar converts internally)
@@ -194,7 +194,7 @@ CopyBatch = 16
 benchNtmCopy : IO ()
 benchNtmCopy = do
   ntmAny <- ntmLayerAny {i=CopyInputW, o=CopyOutputW, n=CopyN, m=CopyM, h=CopyH} "ntm"
-  let model : Network CopyInputW [] CopyOutputW CPU
+  let model : Network CopyInputW [] CopyOutputW CPU WithGrad
       model = OutputLayer ntmAny
 
   batch <- copyTaskBinaryBatchVect {w = CopyW} CopyBatch 1 20
@@ -224,17 +224,17 @@ benchNtmCopy = do
 ----------------------------------------------------------------------
 
 copy1kEpoch : NativeOptimizer ->
-              Network CopyInputW [] CopyOutputW CPU ->
-              IO (Network CopyInputW [] CopyOutputW CPU, Double)
+              Network CopyInputW [] CopyOutputW CPU WithGrad ->
+              IO (Network CopyInputW [] CopyOutputW CPU WithGrad, Double)
 copy1kEpoch opt m = do
   batch <- copyTaskBinaryBatchVect {w = CopyW} CopyBatch 1 20
   let res = epochTwoPhaseVar opt batch tbceLoss m
   pure res
 
 copy1kLoop : NativeOptimizer -> Nat -> Nat ->
-             Network CopyInputW [] CopyOutputW CPU ->
+             Network CopyInputW [] CopyOutputW CPU WithGrad ->
              Double ->
-             IO (Network CopyInputW [] CopyOutputW CPU, Double)
+             IO (Network CopyInputW [] CopyOutputW CPU WithGrad, Double)
 copy1kLoop opt numEpochs remaining m loss =
   if remaining == 0 then pure (m, loss)
   else do
@@ -246,7 +246,7 @@ copy1kLoop opt numEpochs remaining m loss =
 benchNtmCopy1k : IO ()
 benchNtmCopy1k = do
   ntmAny <- ntmLayerAny {i=CopyInputW, o=CopyOutputW, n=CopyN, m=CopyM, h=CopyH} "ntm"
-  let model : Network CopyInputW [] CopyOutputW CPU
+  let model : Network CopyInputW [] CopyOutputW CPU WithGrad
       model = OutputLayer ntmAny
   let opt = nativeRmsprop 0.0001 0.95 1.0e-8 10.0 0.9
 
@@ -292,7 +292,7 @@ RecallBatch = 16
 benchNtmRecall : IO ()
 benchNtmRecall = do
   ntmAny <- ntmLayerAny {i=RecallInputW, o=RecallOutputW, n=RecallN, m=RecallM, h=RecallH} "ntm"
-  let model : Network RecallInputW [] RecallOutputW CPU
+  let model : Network RecallInputW [] RecallOutputW CPU WithGrad
       model = OutputLayer ntmAny
 
   batch <- recallTaskBinaryBatchVect {w = RecallW} RecallBatch 2 6 3

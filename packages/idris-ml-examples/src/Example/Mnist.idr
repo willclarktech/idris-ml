@@ -132,7 +132,7 @@ mnistItem ds idx = do
 ||| Evaluate accuracy on nSamples random test images by forwarding each
 ||| image through the  model and arg-maxing the logits.
 evalAccuracy : {hs : List Nat} ->
-               Network InputDim hs NumClasses CPU ->
+               Network InputDim hs NumClasses CPU WithGrad ->
                AnyPtr -> Int -> Nat -> (Double, Double)
 evalAccuracy model ds numImages nSamples = go nSamples 0 0.0
   where
@@ -183,12 +183,12 @@ trainOneFullPass : {hs : List Nat} ->
                    NativeOptimizer ->
                    IO (Vect BatchSize (TensorDataPoint InputDim NumClasses)) ->
                    (batchesPerEpoch : Nat) ->
-                   Network InputDim hs NumClasses CPU ->
-                   IO (Network InputDim hs NumClasses CPU, Double)
+                   Network InputDim hs NumClasses CPU WithGrad ->
+                   IO (Network InputDim hs NumClasses CPU WithGrad, Double)
 trainOneFullPass opt genBatch n m0 = go m0 n 0.0
   where
-    go : Network InputDim hs NumClasses CPU -> Nat -> Double ->
-         IO (Network InputDim hs NumClasses CPU, Double)
+    go : Network InputDim hs NumClasses CPU WithGrad -> Nat -> Double ->
+         IO (Network InputDim hs NumClasses CPU WithGrad, Double)
     go m Z     acc = pure (m, acc / cast (natToInteger n))
     go m (S k) acc = do
       batch <- genBatch
@@ -198,7 +198,7 @@ trainOneFullPass opt genBatch n m0 = go m0 n 0.0
 ||| Per-epoch metrics: test accuracy and test loss over a small eval slice.
 mnistMetrics : {hs : List Nat} ->
                AnyPtr -> Int ->
-               Network InputDim hs NumClasses CPU ->
+               Network InputDim hs NumClasses CPU WithGrad ->
                IO (List (String, String))
 mnistMetrics testDs testCount m =
   let pair = evalAccuracy m testDs testCount 200

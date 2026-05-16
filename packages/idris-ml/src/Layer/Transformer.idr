@@ -265,8 +265,8 @@ applyTransformerBatch :
   {b : Nat} ->
   TransformerState seqLen dModel numHeads headDim numBlocks vocabSize
                      seqLen (seqLen * vocabSize) d ->
-  Tensor [b, seqLen] d ->
-  Tensor [b, seqLen * vocabSize] d
+  Tensor [b, seqLen] d WithGrad ->
+  Tensor [b, seqLen * vocabSize] d WithGrad
 applyTransformerBatch {seqLen} {dModel} {headDim} {vocabSize} {b}
                         (MkTransformer embedW blocks (MkLayerNorm nfg nfb) vocabProj)
                         tokens =

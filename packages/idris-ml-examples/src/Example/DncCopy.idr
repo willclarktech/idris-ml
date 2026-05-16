@@ -140,7 +140,7 @@ main = do
   putStrLn $ "Architecture: N=" ++ show N ++ " M=" ++ show M ++ " H=" ++ show H ++ " R=" ++ show R
 
   dncAny <- dncLayerAny {r = R, n = N, m = M, h = H, i = InputW, o = OutputW} "dnc"
-  let model : Network InputW [] OutputW CPU
+  let model : Network InputW [] OutputW CPU WithGrad
       model = OutputLayer dncAny
   putStrLn ""
 
@@ -151,7 +151,7 @@ main = do
       genBatch = copyTaskBinaryBatchVect {w = W} cfg.batch cfg.minLen cfg.maxLen
 
   -- Metrics: bit accuracy + memory (computed at each log step)
-  let evalMetrics : Network InputW [] OutputW CPU -> IO (List (String, String))
+  let evalMetrics : Network InputW [] OutputW CPU WithGrad -> IO (List (String, String))
       evalMetrics m = do
         evalBatch <- copyTaskBinaryBatchVect {w = W} 10 1 20
         let avgAcc = foldl (+) 0.0

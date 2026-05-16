@@ -151,11 +151,11 @@ data DncState :
     TVec (m * n) d ->                          -- memInit (LEARNED, raw flat)
     Vect r AnyPtr ->                          -- initReadOuts (Kaiming, NON-learned)
     AnyPtr ->                                 -- nonDiagMask: [n,n] (1 - I), precomputed once
-    Maybe (Tensor [n, m] d) ->                -- memT
+    Maybe (Tensor [n, m] d WithGrad) ->                -- memT
     Maybe (TVec n d) ->                     -- usageT
     Maybe (TVec n d) ->                     -- writeWtT
     Maybe (TVec n d) ->                     -- precedenceT
-    Maybe (Tensor [n, n] d) ->                -- linkT
+    Maybe (Tensor [n, n] d WithGrad) ->                -- linkT
     Maybe (Vect r AnyPtr) ->                -- read weight tensor handles
     Maybe (Vect r AnyPtr) ->                -- read output tensor handles
     DncState r n m h i o d

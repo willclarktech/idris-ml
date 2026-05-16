@@ -24,7 +24,7 @@ import Tensor
 
 public export
 0 LossFn : (0 _ : Device) -> Nat -> Type
-LossFn d n = TVec n d -> TVec n d -> Tensor [] d
+LossFn d n = TVec n d -> TVec n d -> Tensor [] d WithGrad
 
 
 ----------------------------------------------------------------------
@@ -63,16 +63,16 @@ bulkToPersistent {n} (VArray elems) =
 -- cached — the cached AnyPtr is non-persistent and is freed by the first
 -- `tape_reset` at optimizer step, leaving every subsequent epoch reading
 -- a dangling pointer. MLX surfaces this as `invalid memory reference`.)
-freshZeroLossT : {0 d : Device} -> Double -> Tensor [] d
+freshZeroLossT : {0 d : Device} -> Double -> Tensor [] d WithGrad
 freshZeroLossT seed = MkTensor (prim__createScalar seed 0) Nothing
 
 -- Add two scalar TVars (bypasses the implicit-resolution overhead of
 -- the polymorphic `tadd`).
-taddScalar : {0 d : Device} -> Tensor [] d -> Tensor [] d -> Tensor [] d
+taddScalar : {0 d : Device} -> Tensor [] d WithGrad -> Tensor [] d WithGrad -> Tensor [] d WithGrad
 taddScalar a b = MkTensor (prim__add a.tensorPtr b.tensorPtr) Nothing
 
 -- Scale a scalar Tensor by a Double.
-scaleLoss : {0 d : Device} -> Tensor [] d -> Double -> Tensor [] d
+scaleLoss : {0 d : Device} -> Tensor [] d WithGrad -> Double -> Tensor [] d WithGrad
 scaleLoss v s = MkTensor (prim__mulScalar v.tensorPtr s) Nothing
 
 
@@ -86,9 +86,9 @@ scaleLoss v s = MkTensor (prim__mulScalar v.tensorPtr s) Nothing
 -- weirdness in epochVar's body.
 perPointLoss : {0 d : Device} -> {i, o : Nat} -> {hs : List Nat} ->
                LossFn d o ->
-               Network i hs o d ->
+               Network i hs o d WithGrad ->
                DataPoint i o Double ->
-               Tensor [] d
+               Tensor [] d WithGrad
 perPointLoss lossFn model dp =
   let inT = bulkToPersistent (x dp)
       tgtT = bulkToPersistent (y dp)
@@ -105,8 +105,8 @@ epochVar : {d : Device} -> {i, o, n : Nat} -> {hs : List Nat} ->
             NativeOptimizer ->
             Vect n (DataPoint i o Double) ->
             LossFn d o ->
-            Network i hs o d ->
-            (Network i hs o d, Double)
+            Network i hs o d WithGrad ->
+            (Network i hs o d WithGrad, Double)
 epochVar opt dataPoints lossFn model =
   let losses = map (perPointLoss lossFn model) dataPoints in
   let totalLoss = foldl taddScalar (freshZeroLossT 0.0) losses in
@@ -119,9 +119,9 @@ epochVar opt dataPoints lossFn model =
 -- (e.g. MNIST loaded via prim__mnistGetImage).
 perPointLossTensor : {0 d : Device} -> {i, o : Nat} -> {hs : List Nat} ->
                      LossFn d o ->
-                     Network i hs o d ->
+                     Network i hs o d WithGrad ->
                      TensorDataPoint i o ->
-                     Tensor [] d
+                     Tensor [] d WithGrad
 perPointLossTensor lossFn model dp =
   let inV = the (TVec i d) (MkTensor (inputTensor dp) Nothing)
       tgtV = the (TVec o d) (MkTensor (targetTensor dp) Nothing)
@@ -137,8 +137,8 @@ epochVarTensor : {d : Device} -> {i, o, n : Nat} -> {hs : List Nat} ->
                   NativeOptimizer ->
                   Vect n (TensorDataPoint i o) ->
                   LossFn d o ->
-                  Network i hs o d ->
-                  (Network i hs o d, Double)
+                  Network i hs o d WithGrad ->
+                  (Network i hs o d WithGrad, Double)
 epochVarTensor opt dataPoints lossFn model =
   let losses = map (perPointLossTensor lossFn model) dataPoints in
   let totalLoss = foldl taddScalar (freshZeroLossT 0.0) losses in
@@ -160,10 +160,10 @@ catAllTensors (x :: y :: rest) = catAllTensors (prim__cat2 x y :: rest)
 -- targets, mean-reduce.
 perRowLoss : {0 d : Device} -> {n, o : Nat} ->
              LossFn d o ->
-             Tensor [n, o] d ->                         -- batched predictions
-             Tensor [n, o] d ->                         -- batched targets
+             Tensor [n, o] d WithGrad ->                         -- batched predictions
+             Tensor [n, o] d WithGrad ->                         -- batched targets
              Int ->                                    -- row index
-             Tensor [] d
+             Tensor [] d WithGrad
 perRowLoss lossFn predB tgtB k =
   let predRow = the (TVec o d) (trowSelect predB k)
       tgtRow = the (TVec o d) (trowSelect tgtB k)
@@ -179,8 +179,8 @@ epochVarTensorBatch : {d : Device} -> {i, o, n : Nat} -> {hs : List Nat} ->
                        NativeOptimizer ->
                        Vect n (TensorDataPoint i o) ->
                        LossFn d o ->
-                       Network i hs o d ->
-                       (Network i hs o d, Double)
+                       Network i hs o d WithGrad ->
+                       (Network i hs o d WithGrad, Double)
 epochVarTensorBatch opt dataPoints lossFn model =
   let inputs = toList (map inputTensor dataPoints)
       targets = toList (map targetTensor dataPoints)
@@ -191,15 +191,15 @@ epochVarTensorBatch opt dataPoints lossFn model =
       nI = cast {to=Int} n
       stackedInReshaped = prim__reshape2d stackedIn nI iI
       stackedTgtReshaped = prim__reshape2d stackedTgt nI oI
-      inV = the (Tensor [n, i] d) (MkTensor stackedInReshaped Nothing)
-      tgtV = the (Tensor [n, o] d) (MkTensor stackedTgtReshaped Nothing)
+      inV = the (Tensor [n, i] d WithGrad) (MkTensor stackedInReshaped Nothing)
+      tgtV = the (Tensor [n, o] d WithGrad) (MkTensor stackedTgtReshaped Nothing)
       (_, predB) = forwardVarBatch model inV
-      losses = the (List (Tensor [] d)) (go predB tgtV 0 n)
+      losses = the (List (Tensor [] d WithGrad)) (go predB tgtV 0 n)
       totalLoss = foldl taddScalar (freshZeroLossT 0.0) losses
       mean = scaleLoss totalLoss (1.0 / cast n)
   in (model, nativeTrainStep opt mean)
   where
-    go : Tensor [n, o] d -> Tensor [n, o] d -> Int -> Nat -> List (Tensor [] d)
+    go : Tensor [n, o] d WithGrad -> Tensor [n, o] d WithGrad -> Int -> Nat -> List (Tensor [] d WithGrad)
     go _ _ _ Z = []
     go predB tgtV k (S rest) =
       perRowLoss lossFn predB tgtV k :: go predB tgtV (k + 1) rest
@@ -213,9 +213,9 @@ epochVarTensorBatch opt dataPoints lossFn model =
 -- accumulate.
 recurStep : {0 d : Device} -> {i, o : Nat} -> {hs : List Nat} ->
             LossFn d o ->
-            (Network i hs o d, Tensor [] d) ->
+            (Network i hs o d WithGrad, Tensor [] d WithGrad) ->
             (Vector i Double, Vector o Double) ->
-            (Network i hs o d, Tensor [] d)
+            (Network i hs o d WithGrad, Tensor [] d WithGrad)
 recurStep lossFn (net, accLoss) (xVec, yVec) =
   let inV = the (TVec i d) (MkTensor (bulkToPersistent xVec) Nothing)
       tgtV = the (TVec o d) (MkTensor (bulkToPersistent yVec) Nothing)
@@ -226,9 +226,9 @@ recurStep lossFn (net, accLoss) (xVec, yVec) =
 -- Per-sequence loss: reset state, walk timesteps, mean-reduce.
 perSeqLoss : {0 d : Device} -> {i, o : Nat} -> {hs : List Nat} ->
              LossFn d o ->
-             Network i hs o d ->
+             Network i hs o d WithGrad ->
              RecurrentDataPoint i o Double ->
-             Tensor [] d
+             Tensor [] d WithGrad
 perSeqLoss lossFn model dp =
   let pairs = zip (xs dp) (ys dp)
       startNet = resetNetwork model
@@ -246,8 +246,8 @@ epochRecurrentVar : {d : Device} -> {i, o, n : Nat} -> {hs : List Nat} ->
                      NativeOptimizer ->
                      Vect n (RecurrentDataPoint i o Double) ->
                      LossFn d o ->
-                     Network i hs o d ->
-                     (Network i hs o d, Double)
+                     Network i hs o d WithGrad ->
+                     (Network i hs o d WithGrad, Double)
 epochRecurrentVar opt dataPoints lossFn model =
   let seqLosses = map (perSeqLoss lossFn model) dataPoints in
   let totalLoss = foldl taddScalar (freshZeroLossT 0.0) seqLosses in
@@ -263,9 +263,9 @@ epochRecurrentVar opt dataPoints lossFn model =
 decodeStep : {0 d : Device} -> {i, o : Nat} -> {hs : List Nat} ->
              LossFn d o ->
              AnyPtr ->                                    -- zero input tensor (reused)
-             (Network i hs o d, Tensor [] d) ->
+             (Network i hs o d WithGrad, Tensor [] d WithGrad) ->
              Vector o Double ->
-             (Network i hs o d, Tensor [] d)
+             (Network i hs o d WithGrad, Tensor [] d WithGrad)
 decodeStep lossFn zeroInPtr (net, accLoss) tgtVec =
   let inV = the (TVec i d) (MkTensor zeroInPtr Nothing)
       tgtV = the (TVec o d) (MkTensor (bulkToPersistent tgtVec) Nothing)
@@ -275,9 +275,9 @@ decodeStep lossFn zeroInPtr (net, accLoss) tgtVec =
 
 -- Encode phase: forward each input, discard output, thread state.
 encodeStep : {0 d : Device} -> {i, o : Nat} -> {hs : List Nat} ->
-             Network i hs o d ->
+             Network i hs o d WithGrad ->
              Vector i Double ->
-             Network i hs o d
+             Network i hs o d WithGrad
 encodeStep net xVec =
   let inV = the (TVec i d) (MkTensor (bulkToPersistent xVec) Nothing)
       (net', _) = forwardVar net inV
@@ -287,9 +287,9 @@ encodeStep net xVec =
 -- with zeros for `length targets` steps, mean-reduce per-step loss.
 perSeqLossTwoPhase : {0 d : Device} -> {i, o : Nat} -> {hs : List Nat} ->
                      LossFn d o ->
-                     Network i hs o d ->
+                     Network i hs o d WithGrad ->
                      TwoPhaseDataPoint i o Double ->
-                     Tensor [] d
+                     Tensor [] d WithGrad
 perSeqLossTwoPhase lossFn model dp =
   let startNet = resetNetwork model
       encNet = foldl encodeStep startNet (encodingInputs dp)
@@ -310,8 +310,8 @@ epochTwoPhaseVar : {d : Device} -> {i, o, n : Nat} -> {hs : List Nat} ->
                     NativeOptimizer ->
                     Vect n (TwoPhaseDataPoint i o Double) ->
                     LossFn d o ->
-                    Network i hs o d ->
-                    (Network i hs o d, Double)
+                    Network i hs o d WithGrad ->
+                    (Network i hs o d WithGrad, Double)
 epochTwoPhaseVar opt dataPoints lossFn model =
   let seqLosses = map (perSeqLossTwoPhase lossFn model) dataPoints in
   let totalLoss = foldl taddScalar (freshZeroLossT 0.0) seqLosses in
@@ -341,17 +341,17 @@ tvecToVector {n} ptr = VArray (build 0 n)
 -- long eval runs.
 export
 forwardTwoPhase : {d : Device} -> {i, o : Nat} -> {hs : List Nat} ->
-                      Network i hs o d ->
+                      Network i hs o d WithGrad ->
                       TwoPhaseDataPoint i o Double ->
-                      (Network i hs o d, List (Vector o Double))
+                      (Network i hs o d WithGrad, List (Vector o Double))
 forwardTwoPhase model dp =
   let startNet = resetNetwork model
       encNet = foldl encodeStep startNet (encodingInputs dp)
       iI = cast {to=Int} i
       zeroIn = prim__create1d iI (prim__allocDoubles iI) 0
-      decodeOnce : (Network i hs o d, List (Vector o Double)) ->
+      decodeOnce : (Network i hs o d WithGrad, List (Vector o Double)) ->
                    Vector o Double ->
-                   (Network i hs o d, List (Vector o Double))
+                   (Network i hs o d WithGrad, List (Vector o Double))
       decodeOnce (net, preds) _ =
         let inV = the (TVec i d) (MkTensor zeroIn Nothing)
             (net', predV) = forwardVar net inV

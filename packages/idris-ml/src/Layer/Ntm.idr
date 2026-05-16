@@ -58,7 +58,7 @@ data NtmState :
     LinearState (h + m) o d ->
     TVec (m * n) d ->                          -- memoryInit (LEARNED, raw flat)
     TVec m d ->                                -- initialReadOut (Kaiming, NON-learned)
-    Maybe (Tensor [n, m] d) ->                          -- memory state
+    Maybe (Tensor [n, m] d WithGrad) ->                          -- memory state
     Maybe (TVec n d) ->                               -- read addr
     Maybe (TVec n d) ->                               -- write addr
     Maybe (TVec m d) ->                               -- last read output

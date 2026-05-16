@@ -35,7 +35,7 @@ MaxSteps : Nat; MaxSteps = cartPoleMaxSteps
 -- Two `linear ~~> relu` blocks followed by `OutputLayer Linear` give
 -- hidden dims [Hidden, Hidden, Hidden, Hidden].
 QNet : Type
-QNet = Network ObsDim [Hidden, Hidden, Hidden, Hidden] NumActions CPU
+QNet = Network ObsDim [Hidden, Hidden, Hidden, Hidden] NumActions CPU WithGrad
 
 ||| Build a Q-network with all params registered under `<scope>...`.
 ||| Reuse the same architecture for online and target nets, scoped
@@ -120,38 +120,38 @@ actionIdx [a] = cast {to=Int} (cast {to=Integer} a)
 -- `targetVals` are Doubles (no grad). Per-sample loss is
 -- (q_select - target)^2 — a Tensor [] CPU expression that flows back
 -- into the online net's weights.
-perSampleLoss : {n : Nat} -> (qOutB : Tensor [n, NumActions] CPU) ->
-                Transition ObsDim 1 -> Double -> Int -> Tensor [] CPU
+perSampleLoss : {n : Nat} -> (qOutB : Tensor [n, NumActions] CPU WithGrad) ->
+                Transition ObsDim 1 -> Double -> Int -> Tensor [] CPU WithGrad
 perSampleLoss qOutB t tv k =
   let aIdx = actionIdx t.action
       qRow = the (TVec NumActions CPU) (trowSelect qOutB k)
-      qScalar = the (Tensor [] CPU) (telemSelect qRow aIdx)
-      targetT = the (Tensor [] CPU) (tconstScalar tv)
-      diff = the (Tensor [] CPU) (tsub qScalar targetT)
+      qScalar = the (Tensor [] CPU WithGrad) (telemSelect qRow aIdx)
+      targetT = the (Tensor [] CPU WithGrad) (tconstScalar tv)
+      diff = the (Tensor [] CPU WithGrad) (tsub qScalar targetT)
   in tmul diff diff
 
 -- Mean-reduce a list of scalar Tensor losses. Mirrors Backprop's
 -- foldl-with-fresh-zero pattern.
-meanScalarLoss : (n : Nat) -> List (Tensor [] CPU) -> Tensor [] CPU
+meanScalarLoss : (n : Nat) -> List (Tensor [] CPU WithGrad) -> Tensor [] CPU WithGrad
 meanScalarLoss n losses =
   let zero = tconstScalar 0.0
       summed = foldl (\a, b => MkTensor (prim__add a.tensorPtr b.tensorPtr) Nothing) zero losses
   in tmulScalar summed (1.0 / cast n)
 
 batchLossBatched : (n : Nat) -> QNet -> QNet -> Double ->
-                   Vect n (Transition ObsDim 1) -> Tensor [] CPU
+                   Vect n (Transition ObsDim 1) -> Tensor [] CPU WithGrad
 batchLossBatched n online target gamma batch =
   let targetVals = the (Vect n Double) (map (computeTargetVal target gamma) batch)
       obsTensors = map (\t => obsTensor t.obs) batch
       obsBT = bulkToTensor2d obsTensors
-      obsBV = the (Tensor [n, ObsDim] CPU) (MkTensor obsBT Nothing)
+      obsBV = the (Tensor [n, ObsDim] CPU WithGrad) (MkTensor obsBT Nothing)
       qOutB = snd (forwardVarBatch online obsBV)
-      losses = the (List (Tensor [] CPU)) (go qOutB (toList batch) (toList targetVals) 0)
+      losses = the (List (Tensor [] CPU WithGrad)) (go qOutB (toList batch) (toList targetVals) 0)
   in meanScalarLoss n losses
   where
-    go : {n : Nat} -> Tensor [n, NumActions] CPU ->
+    go : {n : Nat} -> Tensor [n, NumActions] CPU WithGrad ->
          List (Transition ObsDim 1) ->
-         List Double -> Int -> List (Tensor [] CPU)
+         List Double -> Int -> List (Tensor [] CPU WithGrad)
     go _ [] _ _ = []
     go _ _ [] _ = []
     go qOutB (t :: tRest) (tv :: tvRest) k =

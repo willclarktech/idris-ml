@@ -84,7 +84,7 @@ ReversalLen = SeqLen `minus` InputLen
 |||  typed-surface CE loss on per-sample logits + target [seqLen *
 ||| vocabSize]. Masks the random-prefix positions so only the reversal
 ||| portion contributes (V1 `reversalCE` parity, returning a Tensor [] CPU).
-catCELossVar : TVec OutputDim CPU -> TVec OutputDim CPU -> Tensor [] CPU
+catCELossVar : TVec OutputDim CPU -> TVec OutputDim CPU -> Tensor [] CPU WithGrad
 catCELossVar predV targetV =
   let vsI = cast {to=Int} VocabSize
       sI = cast {to=Int} SeqLen
@@ -180,7 +180,7 @@ main = do
               {seqLen=SeqLen, dModel=DModel, numHeads=NumHeads,
                headDim=HeadDim, numBlocks=NumBlocks, vocabSize=VocabSize}
               "tfm0"
-  let model : Network InputDim [] OutputDim CPU
+  let model : Network InputDim [] OutputDim CPU WithGrad
       model = OutputLayer tfmAny
   putStrLn ""
 
@@ -188,7 +188,7 @@ main = do
       genBatch = sortingTensorBatchVect InputDim OutputDim VocabSize InputLen SeqLen SepToken EosToken BatchSize
 
   -- Per-epoch metrics: accuracy on a fresh eval batch via single-sample forwardVar.
-  let evalMetrics : Network InputDim [] OutputDim CPU -> IO (List (String, String))
+  let evalMetrics : Network InputDim [] OutputDim CPU WithGrad -> IO (List (String, String))
       evalMetrics m = do
         evalData <- sortingTensorBatchVect InputDim OutputDim VocabSize InputLen SeqLen SepToken EosToken BatchSize
         let results = map (\dp =>
