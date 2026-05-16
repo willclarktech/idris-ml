@@ -543,37 +543,8 @@ TensorHandle tensor_max_pool2d_batched(TensorHandle hinput, int kH, int kW,
     return from_tensor(out);
 }
 
-/* ---------- Shape manipulation ---------- */
-
-TensorHandle tensor_reshape(TensorHandle h, int* shape, int rank) {
-    std::vector<int64_t> dims(rank);
-    for (int i = 0; i < rank; i++) dims[i] = shape[i];
-    return from_tensor(to_tensor(h)->reshape(dims));
-}
-
-TensorHandle tensor_unsqueeze(TensorHandle h, int dim) {
-    return from_tensor(to_tensor(h)->unsqueeze(dim));
-}
-
-TensorHandle tensor_squeeze(TensorHandle h, int dim) {
-    return from_tensor(to_tensor(h)->squeeze(dim));
-}
-
-TensorHandle tensor_select(TensorHandle h, int dim, int index) {
-    return from_tensor(to_tensor(h)->select(dim, index));
-}
-
-TensorHandle tensor_stack(TensorHandle* tensors, int count, int dim) {
-    std::vector<at::Tensor> vec(count);
-    for (int i = 0; i < count; i++) vec[i] = *to_tensor(tensors[i]);
-    return from_tensor(torch::stack(vec, dim));
-}
-
-TensorHandle tensor_cat(TensorHandle* tensors, int count, int dim) {
-    std::vector<at::Tensor> vec(count);
-    for (int i = 0; i < count; i++) vec[i] = *to_tensor(tensors[i]);
-    return from_tensor(torch::cat(vec, dim));
-}
+/* Shape ops live in backend_torch/linear/shape/.
+ * Stack / cat live in backend_torch/linear/concat/. */
 
 /* ---------- Autograd ---------- */
 
@@ -892,19 +863,6 @@ TensorHandle tensor_transpose_last2(TensorHandle h) {
     return from_tensor(to_tensor(h)->transpose(-2, -1).contiguous());
 }
 
-TensorHandle tensor_reshape_3d(TensorHandle h, int d0, int d1, int d2) {
-    return from_tensor(to_tensor(h)->reshape({(int64_t)d0, (int64_t)d1, (int64_t)d2}));
-}
-
-TensorHandle tensor_reshape_4d(TensorHandle h, int d0, int d1, int d2, int d3) {
-    return from_tensor(to_tensor(h)->reshape(
-        {(int64_t)d0, (int64_t)d1, (int64_t)d2, (int64_t)d3}));
-}
-
-TensorHandle tensor_expand_mask(TensorHandle hmask, int B) {
-    return from_tensor(to_tensor(hmask)->unsqueeze(0).expand({(int64_t)B, -1, -1}).contiguous());
-}
-
 TensorHandle tensor_tile_2d(TensorHandle h, int rep0, int rep1) {
     return from_tensor(to_tensor(h)->repeat({(int64_t)rep0, (int64_t)rep1}));
 }
@@ -934,20 +892,6 @@ TensorHandle tensor_layer_norm_2d(TensorHandle input, TensorHandle gamma,
 
 TensorHandle tensor_cat2(TensorHandle a, TensorHandle b) {
     return from_tensor(torch::cat({*to_tensor(a), *to_tensor(b)}, 0));
-}
-
-TensorHandle tensor_narrow(TensorHandle h, int dim, int start, int len) {
-    // Match tape backend: always returns 1D (flattened)
-    auto t = to_tensor(h)->flatten().narrow(0, start, len).contiguous();
-    return from_tensor(std::move(t));
-}
-
-TensorHandle tensor_reshape_2d(TensorHandle h, int rows, int cols) {
-    return from_tensor(to_tensor(h)->reshape({(int64_t)rows, (int64_t)cols}));
-}
-
-TensorHandle tensor_reshape_1d(TensorHandle h, int n) {
-    return from_tensor(to_tensor(h)->reshape({(int64_t)n}));
 }
 
 
