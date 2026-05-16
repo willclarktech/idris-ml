@@ -238,17 +238,8 @@ TensorHandle tensor_silu(TensorHandle h) {
     return from_tensor(torch::silu(*to_tensor(h)));
 }
 
-TensorHandle tensor_add_scalar(TensorHandle h, double s) {
-    return from_tensor(*to_tensor(h) + s);
-}
-
-TensorHandle tensor_mul_scalar(TensorHandle h, double s) {
-    return from_tensor(*to_tensor(h) * s);
-}
-
-TensorHandle tensor_clamp_min(TensorHandle h, double min_val) {
-    return from_tensor(torch::clamp_min(*to_tensor(h), min_val));
-}
+/* tensor_add_scalar / tensor_mul_scalar / tensor_clamp_min extracted
+   to backend_torch/core/scalar/. */
 
 /* ---------- Reduction ---------- */
 
