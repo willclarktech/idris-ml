@@ -271,6 +271,11 @@ check: backend
 check-gym:
 	cd packages/idris-gym && idris2 --build idris-gym.ipkg
 
+# Verify Idris example defaults match the paired torch_ref/scripts/*.py defaults.
+# Catches the "I changed Idris's default but forgot the matching ref" drift class.
+check-paired-defaults:
+	@python3 scripts/check-paired-defaults.py
+
 # Type-check examples (builds each as executable, which is the real check)
 check-examples: install
 	@for f in $(EXAMPLE_SRC)/Example/*.idr; do \
