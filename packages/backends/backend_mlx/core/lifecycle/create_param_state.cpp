@@ -79,9 +79,6 @@ extern "C" TensorHandle tensor_create_2d_f64_mlx_streamed(int rows, int cols, do
 extern "C" TensorHandle tensor_create_2d_f64(int rows, int cols, double* data, int requires_grad) {
     return tensor_create_2d_f64_mlx_streamed(rows, cols, data, requires_grad, default_stream_tag());
 }
-extern "C" TensorHandle tensor_create_1d(int n, double* data, int requires_grad) {
-    return tensor_create_1d_f64(n, data, requires_grad);
-}
 extern "C" TensorHandle tensor_create_2d(int rows, int cols, double* data, int requires_grad) {
     return tensor_create_2d_f64(rows, cols, data, requires_grad);
 }

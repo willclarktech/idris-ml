@@ -97,7 +97,6 @@
 #define tensor_conv_transpose2d tensor_conv_transpose2d_torch
 #define tensor_cosine_similarity tensor_cosine_similarity_torch
 #define tensor_create tensor_create_torch
-#define tensor_create_1d tensor_create_1d_torch
 #define tensor_create_1d_f32 tensor_create_1d_f32_torch
 #define tensor_create_1d_f64 tensor_create_1d_f64_torch
 #define tensor_create_1d_streamed tensor_create_1d_streamed_torch

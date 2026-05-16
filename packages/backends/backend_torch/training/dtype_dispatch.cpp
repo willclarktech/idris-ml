@@ -32,7 +32,6 @@ extern "C" TensorHandle tensor_create_scalar_f32(double v, int rg);
 extern "C" TensorHandle tensor_create_scalar_f64(double v, int rg);
 extern "C" TensorHandle tensor_create_f32(double* data, int* shape, int rank, int rg);
 extern "C" TensorHandle tensor_create_f64(double* data, int* shape, int rank, int rg);
-extern "C" TensorHandle tensor_create_1d(int n, double* data, int rg);
 extern "C" TensorHandle tensor_create_2d(int rows, int cols, double* data, int rg);
 extern "C" TensorHandle tensor_create_param_1d(int n, double* data);
 extern "C" TensorHandle tensor_create_param_2d(int rows, int cols, double* data);
@@ -114,7 +113,12 @@ TensorHandle make_param_leaf(double* data, c10::IntArrayRef dims, torch::ScalarT
 /* ---- F64 explicit-suffix wrappers ----
    F64 aliases to the existing unsuffixed implementations.
    tensor_create_scalar_f64 and tensor_create_f64 live in the monolith. */
-extern "C" TensorHandle tensor_create_1d_f64(int n, double* d, int rg)                             { return tensor_create_1d(n, d, rg); }
+extern "C" TensorHandle tensor_create_1d_f64(int n, double* d, int rg) {
+    auto t = torch::from_blob(d, {(int64_t)n}, torch::kFloat64).clone();
+    free(d);
+    if (rg) t.requires_grad_(true);
+    return from_tensor(std::move(t));
+}
 extern "C" TensorHandle tensor_create_2d_f64(int rows, int cols, double* d, int rg)                { return tensor_create_2d(rows, cols, d, rg); }
 extern "C" TensorHandle tensor_create_param_1d_f64(int n, double* d)                               { return tensor_create_param_1d(n, d); }
 extern "C" TensorHandle tensor_create_param_2d_f64(int rows, int cols, double* d)                  { return tensor_create_param_2d(rows, cols, d); }

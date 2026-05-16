@@ -328,7 +328,6 @@ TensorHandle tensor_create_1d_f64(int n, double* data, int requires_grad);
 TensorHandle tensor_create_2d_f32(int rows, int cols, double* data, int requires_grad);
 TensorHandle tensor_create_2d_f64(int rows, int cols, double* data, int requires_grad);
 /* Legacy unsuffixed (alias). */
-TensorHandle tensor_create_1d(int n, double* data, int requires_grad);
 TensorHandle tensor_create_2d(int rows, int cols, double* data, int requires_grad);
 
 /* Buffer helpers (tensor_alloc_doubles / tensor_read_double /

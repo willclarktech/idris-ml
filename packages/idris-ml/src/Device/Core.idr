@@ -351,9 +351,6 @@ interface UserDeviceConv d => UserDeviceTraining (0 d : Device) where
   -- implement them; full backends provide them here.)
   ||| Read element `(r, c)` from a 2-D tensor as a host Double.
   primItem2d            : AnyPtr -> Int -> Int -> Double
-  ||| Allocate a 1-D tensor from a host buffer in the backend's
-  ||| default dtype. Args: (n, data, requires_grad).
-  primCreate1d          : Int -> AnyPtr -> Int -> AnyPtr
   ||| Load image `idx` from an MNIST dataset handle into a tensor of the
   ||| dtype selected by the trailing `dtypeTag`. Args: (handle, idx, dtypeTag).
   primMnistGetImage     : AnyPtr -> Int -> Int -> AnyPtr

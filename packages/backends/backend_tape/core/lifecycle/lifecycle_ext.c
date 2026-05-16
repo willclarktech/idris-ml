@@ -2,7 +2,7 @@
  *
  * The thin shape-fixed wrappers around
  * tensor_create / tensor_reshape that the Idris FFI uses:
- *   - tensor_create_1d / tensor_create_2d (with caller-owned data free)
+ *   - tensor_create_2d (with caller-owned data free)
  *   - tensor_reshape_1d / tensor_reshape_2d
  *   - tensor_item_2d (host-side scalar lookup)
  *   - tensor_one_hot (categorical → one-hot 1D)
@@ -19,13 +19,6 @@
 #include "../../../backend.h"
 
 extern void tape_abort_mixed_dtype(const char* op) __attribute__((noreturn));
-
-TensorHandle tensor_create_1d(int n, double* data, int requires_grad) {
-    int shape[] = {n};
-    TensorHandle t = tensor_create(data, shape, 1, requires_grad);
-    free(data);  /* tensor_create copies data into arena; free the original */
-    return t;
-}
 
 TensorHandle tensor_create_2d(int rows, int cols, double* data, int requires_grad) {
     int shape[] = {rows, cols};

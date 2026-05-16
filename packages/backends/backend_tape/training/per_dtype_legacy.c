@@ -34,7 +34,12 @@ static TensorHandle tape_f32_unsupported(const char* sym) {
 
 TensorHandle tensor_create_scalar_f64(double v, int rg)                                 { return tensor_create_scalar(v, rg); }
 TensorHandle tensor_create_f64(double* d, int* s, int r, int rg)                        { return tensor_create(d, s, r, rg); }
-TensorHandle tensor_create_1d_f64(int n, double* d, int rg)                             { return tensor_create_1d(n, d, rg); }
+TensorHandle tensor_create_1d_f64(int n, double* d, int rg) {
+    int shape[] = {n};
+    TensorHandle t = tensor_create(d, shape, 1, rg);
+    free(d);  /* tensor_create copies data into arena; free the original */
+    return t;
+}
 TensorHandle tensor_create_2d_f64(int rows, int cols, double* d, int rg)                { return tensor_create_2d(rows, cols, d, rg); }
 TensorHandle tensor_create_param_1d_f64(int n, double* d)                               { return tensor_create_param_1d(n, d); }
 TensorHandle tensor_create_param_2d_f64(int rows, int cols, double* d)                  { return tensor_create_param_2d(rows, cols, d); }

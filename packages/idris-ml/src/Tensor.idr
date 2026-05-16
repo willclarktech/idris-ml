@@ -449,9 +449,6 @@ prim__setInt : AnyPtr -> Int -> Int -> AnyPtr
 -- tensor_create
 
 
--- tensor_create_1d
-
-
 -- tensor_create_2d
 
 
@@ -763,7 +760,8 @@ getCurrentRssMB _ = prim__getCurrentRssMB
 
 
 ||| Bulk-convert a Vector of Doubles to a C tensor handle.
-||| The C tensor_create_1d function frees the input buffer after copying.
+||| The underlying C `tensor_create_1d_f64` (via dtCreate1d) frees the
+||| input buffer after copying.
 export
 bulkToTensor : {0 d : Device} -> UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt => {n : Nat} -> Vector n Double -> AnyPtr
 bulkToTensor {n} (VArray elems) =

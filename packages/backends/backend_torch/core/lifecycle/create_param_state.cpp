@@ -22,13 +22,6 @@
 #include <torch/torch.h>
 #include <cstdlib>
 
-extern "C" TensorHandle tensor_create_1d(int n, double* data, int requires_grad) {
-    auto t = torch::from_blob(data, {(int64_t)n}, torch::kFloat64).clone();
-    free(data);
-    if (requires_grad) t.requires_grad_(true);
-    return from_tensor(std::move(t));
-}
-
 extern "C" TensorHandle tensor_create_2d(int rows, int cols, double* data, int requires_grad) {
     auto t = torch::from_blob(data, {(int64_t)rows, (int64_t)cols}, torch::kFloat64).clone();
     free(data);
