@@ -2,6 +2,11 @@ UNAME := $(shell uname)
 BUILD := build
 BACKEND ?= tape
 
+# CPU core count for parallel builds. Used by recursive $(MAKE) calls
+# (notably coverage-backend) that need to force -j even when the outer
+# make was invoked without -j. macOS: hw.ncpu; Linux: nproc; fallback 4.
+NPROC ?= $(shell sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)
+
 # Per-build flag injection (Phase 0.4 coverage; future use for sanitizers,
 # debug builds, etc.). Threaded through every compile + link site below.
 EXTRA_CFLAGS  ?=
@@ -684,11 +689,15 @@ test-backend-criterion-torch:
 # Report-only — no CI gate yet. The HTML artifact lives at
 # build-cov/html-<b>/index.html.
 COV_BUILD := build-cov
+# Keep -O0 here: tried -O1 (which is compatible with -fcoverage-mapping),
+# but libtorch's template-heavy headers blew up compile time on the torch
+# coverage lane (8:58 → 21:58 cold). -O0 stays as the cheaper option.
+# The big win is -j$(NPROC) on the recursive make below.
 COV_CFLAGS := -fprofile-instr-generate -fcoverage-mapping -O0 -g
 COV_LDFLAGS := -fprofile-instr-generate
 
 coverage-backend:
-	$(MAKE) BUILD=$(COV_BUILD) \
+	$(MAKE) -j$(NPROC) BUILD=$(COV_BUILD) \
 	  EXTRA_CFLAGS="$(COV_CFLAGS)" \
 	  EXTRA_LDFLAGS="$(COV_LDFLAGS)" \
 	  BACKEND=$(BACKEND) \

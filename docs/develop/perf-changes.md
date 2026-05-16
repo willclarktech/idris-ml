@@ -48,6 +48,35 @@ is still useful (saves someone trying it again).
 
 ## Entries
 
+### 2026-05-26 — `coverage-backend` 4× speedup via -j$(NPROC) on recursive make
+
+**Plan**: coverage-policy plan (modular-petting-minsky.md), W2.
+
+**Motivation**: User reported `coverage-backend-torch` is "extremely slow (mostly setup it seems?)". Cold runs were ~9 minutes, dominated by serial recompile of libtorch-header-heavy `.cpp` files into `build-cov/`. The recursive `$(MAKE) ...` in the coverage-backend recipe didn't inject `-j`, and outer `make coverage-backend-torch` runs without `-j`, so the inner build ran serially (95% CPU on a 4-core machine).
+
+**Change**:
+- Define `NPROC ?= $(shell sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)` at the top of the Makefile.
+- Change the recursive call in `coverage-backend` to `$(MAKE) -j$(NPROC) BUILD=$(COV_BUILD) ...`.
+- Also tried `-O0 → -O1` (`-fcoverage-mapping` is optimization-independent) — REVERTED. libtorch template-heavy headers regressed compile time substantially at `-O1` (8:58 → 21:58). Kept `-O0`.
+
+**Impact** (cold builds, `rm -rf build-cov && time make coverage-backend-<b>`):
+
+| backend | before (-O0, no -j) | after (-O0, -j4) | speedup | CPU% |
+|---|---:|---:|---:|---:|
+| torch | 8:58 (538s) | **2:24 (144s)** | **3.73×** | 95% → 325% |
+| tape  | ~30s          | **7s**         | **~4×**  | serial → 160% |
+| mlx   | not measured  | -              | -        | (small surface — expected similar) |
+
+The 50% wall-time target in the W2 plan is met with margin (144s ≪ 268s).
+
+**Why -O1 backfired**: clang -O1 on libtorch headers triggers template instantiation passes (inlining attempts, basic dead-code elim) that aren't done at -O0. With 93 `.cpp` files each pulling `<torch/torch.h>` (heavy template chain), the per-TU compile time roughly doubled. The save from a smaller object file's link step didn't compensate. Kept -O0.
+
+**What's left**: PCH for `torch/torch.h` was planned but isn't needed — 144s cold is acceptable. If we ever push to a slower CI host, the next lever would be: (a) splitting the `test_criterion_smoke` single-cc invocation (37 .c files in one shot) into per-file `.o` compiles, (b) shipping a precompiled torch.h.gch. Both have non-trivial Makefile-surgery cost; defer until needed.
+
+**Cross-references**:
+- W2 plan in `/Users/admin/.claude/plans/modular-petting-minsky.md`.
+- `feedback_perf_compare_after_changes.md` — perf change recorded per the rule.
+
 ### 2026-05-19 — RL sweep post-gymnasium-migration + two-point timing breakdown — `0e2ecdc`
 
 **Plan job**: cross-cutting (after gymnasium-migration sweep)
