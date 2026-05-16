@@ -2371,7 +2371,77 @@ TensorHandle tensor_conv2d(TensorHandle hinput, TensorHandle hkernel,
 /* ================================================================
    Batched Conv2D: input [B, inC, H, W] x kernel [outC, inC, kH, kW]
                    + bias [outC] -> [B, outC, oH, oW]
+
+   Forward uses the standard im2col + cblas_dgemm decomposition:
+       X_col [M, K] where M = B*oH*oW, K = inC*kH*kW
+       Y_unf [M, outC] = X_col @ W^T   (single dgemm)
+       out   [B, outC, oH, oW] = permute(Y_unf, (0,2,1) on (B*oHoW, outC))
+                                + bias broadcast.
+   This is what PyTorch / cuDNN do at the unfused-conv path; the dgemm
+   replaces an O(B·outC·inC·kH·kW·oH·oW) hand-rolled triple loop with
+   Apple Accelerate's blocked sgemm.
    ================================================================ */
+
+/* im2col: build X_col [M, K] where M = B*oH*oW, K = inC*kH*kW.
+   Each row is one (batch, out-position)'s unfolded inC*kH*kW window. */
+static void conv2d_im2col(const double* input, int B, int inC, int H, int W,
+                          int kH, int kW, int padH, int padW,
+                          int strideH, int strideW, int oH, int oW,
+                          double* X_col) {
+    int K = inC * kH * kW;
+    int M = B * oH * oW;
+    memset(X_col, 0, (size_t)M * K * sizeof(double));
+    for (int b = 0; b < B; b++) {
+        const double* inp_b = input + (size_t)b * inC * H * W;
+        for (int oh = 0; oh < oH; oh++) {
+            for (int ow = 0; ow < oW; ow++) {
+                double* row = X_col + ((size_t)b * oH * oW + oh * oW + ow) * K;
+                for (int ic = 0; ic < inC; ic++) {
+                    for (int kh = 0; kh < kH; kh++) {
+                        int ih = oh * strideH - padH + kh;
+                        if (ih < 0 || ih >= H) continue;
+                        for (int kw = 0; kw < kW; kw++) {
+                            int iw = ow * strideW - padW + kw;
+                            if (iw < 0 || iw >= W) continue;
+                            row[ic * kH * kW + kh * kW + kw] =
+                                inp_b[ic * H * W + ih * W + iw];
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/* col2im (gradient accumulating version): scatter dX_col [M, K] back into
+   dInput [B, inC, H, W]. Padding cells are dropped. */
+static void conv2d_col2im_accumulate(const double* dX_col, int B, int inC,
+                                      int H, int W, int kH, int kW,
+                                      int padH, int padW, int strideH,
+                                      int strideW, int oH, int oW,
+                                      double* dInput) {
+    int K = inC * kH * kW;
+    for (int b = 0; b < B; b++) {
+        double* din_b = dInput + (size_t)b * inC * H * W;
+        for (int oh = 0; oh < oH; oh++) {
+            for (int ow = 0; ow < oW; ow++) {
+                const double* row = dX_col + ((size_t)b * oH * oW + oh * oW + ow) * K;
+                for (int ic = 0; ic < inC; ic++) {
+                    for (int kh = 0; kh < kH; kh++) {
+                        int ih = oh * strideH - padH + kh;
+                        if (ih < 0 || ih >= H) continue;
+                        for (int kw = 0; kw < kW; kw++) {
+                            int iw = ow * strideW - padW + kw;
+                            if (iw < 0 || iw >= W) continue;
+                            din_b[ic * H * W + ih * W + iw] +=
+                                row[ic * kH * kW + kh * kW + kw];
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 
 TensorHandle tensor_conv2d_batched(TensorHandle hinput, TensorHandle hkernel,
                                     TensorHandle hbias, int padH, int padW,
@@ -2385,35 +2455,50 @@ TensorHandle tensor_conv2d_batched(TensorHandle hinput, TensorHandle hkernel,
     int outC = kernel->shape[0], kH = kernel->shape[2], kW = kernel->shape[3];
     int oH = (H + 2*padH - kH) / strideH + 1;
     int oW = (W + 2*padW - kW) / strideW + 1;
-    int out_per_sample = outC * oH * oW;
-    int out_numel = B * out_per_sample;
+    int K = inC * kH * kW;
+    int M = B * oH * oW;
+    int out_numel = B * outC * oH * oW;
 
-    double* out = calloc(out_numel, sizeof(double));
+    /* Build X_col [M, K] — local workspace (heap, freed at end). */
+    double* X_col = (double*)calloc((size_t)M * K, sizeof(double));
+    conv2d_im2col(input->data, B, inC, H, W, kH, kW, padH, padW,
+                  strideH, strideW, oH, oW, X_col);
 
-    for (int b = 0; b < B; b++) {
-        const double* inp_b = input->data + b * inC * H * W;
-        double* out_b = out + b * out_per_sample;
+    /* Y_unf [M, outC] = X_col [M, K] @ W^T [K, outC]
+       W is stored row-major as [outC, K]. */
+    double* Y_unf = calloc((size_t)M * outC, sizeof(double));
+#ifdef __APPLE__
+    cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasTrans,
+                M, outC, K, 1.0,
+                X_col, K,
+                kernel->data, K,
+                0.0, Y_unf, outC);
+#else
+    for (int m = 0; m < M; m++)
         for (int oc = 0; oc < outC; oc++) {
+            double s = 0;
+            for (int k = 0; k < K; k++)
+                s += X_col[m*K + k] * kernel->data[oc*K + k];
+            Y_unf[m*outC + oc] = s;
+        }
+#endif
+
+    /* Permute Y_unf [B*oH*oW, outC] -> out [B, outC, oH, oW] + bias broadcast */
+    double* out = calloc(out_numel, sizeof(double));
+    for (int b = 0; b < B; b++) {
+        for (int oc = 0; oc < outC; oc++) {
+            double b_val = bias ? bias->data[oc] : 0.0;
+            double* out_chan = out + ((size_t)b * outC + oc) * oH * oW;
             for (int oh = 0; oh < oH; oh++) {
                 for (int ow = 0; ow < oW; ow++) {
-                    double val = bias ? bias->data[oc] : 0.0;
-                    for (int ic = 0; ic < inC; ic++) {
-                        for (int kh = 0; kh < kH; kh++) {
-                            for (int kw = 0; kw < kW; kw++) {
-                                int ih = oh * strideH - padH + kh;
-                                int iw = ow * strideW - padW + kw;
-                                if (ih >= 0 && ih < H && iw >= 0 && iw < W) {
-                                    val += inp_b[ic*H*W + ih*W + iw]
-                                         * kernel->data[oc*inC*kH*kW + ic*kH*kW + kh*kW + kw];
-                                }
-                            }
-                        }
-                    }
-                    out_b[oc*oH*oW + oh*oW + ow] = val;
+                    int row = b * oH * oW + oh * oW + ow;
+                    out_chan[oh*oW + ow] = Y_unf[row * outC + oc] + b_val;
                 }
             }
         }
     }
+    free(Y_unf);
+    free(X_col);
 
     int out_shape[] = {B, outC, oH, oW};
     int rg = input->requires_grad || kernel->requires_grad || (bias && bias->requires_grad);
@@ -4076,8 +4161,14 @@ void tensor_backward(TensorHandle h) {
         }
 
         case OP_CONV2D_BATCHED: {
-            /* r = conv2d_batched(a=input [B,inC,H,W], b=kernel [outC,inC,kH,kW]) + bias
-               r=[B,outC,oH,oW] */
+            /* r = conv2d_batched(input [B,inC,H,W], kernel [outC,inC,kH,kW]) + bias
+               r=[B,outC,oH,oW]. Backward via im2col + cblas_dgemm:
+                   dY_unf [M, outC] = permute(r.grad, (B,outC,oH,oW) -> (B*oH*oW, outC))
+                   dW   [outC, K] = dY_unf^T [outC, M] @ X_col [M, K]   (one dgemm)
+                   dX_col [M, K]  = dY_unf [M, outC]   @ W [outC, K]    (one dgemm)
+                   dInput += col2im(dX_col)
+                   dBias[oc]  += sum_{b,oh,ow} dY_unf[b*oH*oW+oh*oW+ow, oc]
+               K = inC*kH*kW, M = B*oH*oW. */
             Conv2DBatchedMeta* meta = (Conv2DBatchedMeta*)e->op_meta;
             int B = meta->B;
             int inC = meta->inC, outC = meta->outC;
@@ -4085,65 +4176,89 @@ void tensor_backward(TensorHandle h) {
             int padH = meta->padH, padW = meta->padW;
             int strideH = meta->strH, strideW = meta->strW;
             int oH = meta->oH, oW = meta->oW;
-            int in_per_sample = inC * HH * WW;
+            int K_unf = inC * kH * kW;
+            int M_unf = B * oH * oW;
             int out_per_sample = outC * oH * oW;
             ensure_grad(r);
 
-            /* d_input */
-            if (a && a->requires_grad) {
-                ensure_grad(a);
+            Tensor* bias_t = (Tensor*)e->inputs;
+            int need_dW = b && b->requires_grad;
+            int need_dX = a && a->requires_grad;
+            int need_dB = bias_t && bias_t->requires_grad;
+
+            /* Permute dY [B, outC, oH, oW] -> dY_unf [B*oH*oW, outC] */
+            double* dY_unf = (need_dW || need_dX) ?
+                (double*)calloc((size_t)M_unf * outC, sizeof(double)) : NULL;
+            if (dY_unf) {
                 for (int bb = 0; bb < B; bb++) {
-                    const double* dout_b = r->grad + bb * out_per_sample;
-                    double* din_b = a->grad + bb * in_per_sample;
-                    for (int oc = 0; oc < outC; oc++)
-                        for (int oh = 0; oh < oH; oh++)
+                    const double* dout_b = r->grad + (size_t)bb * out_per_sample;
+                    for (int oc = 0; oc < outC; oc++) {
+                        for (int oh = 0; oh < oH; oh++) {
                             for (int ow = 0; ow < oW; ow++) {
-                                double dout = dout_b[oc*oH*oW + oh*oW + ow];
-                                for (int ic = 0; ic < inC; ic++)
-                                    for (int kh = 0; kh < kH; kh++)
-                                        for (int kw = 0; kw < kW; kw++) {
-                                            int ih = oh * strideH - padH + kh;
-                                            int iw = ow * strideW - padW + kw;
-                                            if (ih >= 0 && ih < HH && iw >= 0 && iw < WW)
-                                                din_b[ic*HH*WW + ih*WW + iw] +=
-                                                    dout * b->data[oc*inC*kH*kW + ic*kH*kW + kh*kW + kw];
-                                        }
+                                int row = bb * oH * oW + oh * oW + ow;
+                                dY_unf[row * outC + oc] = dout_b[oc*oH*oW + oh*oW + ow];
                             }
+                        }
+                    }
                 }
             }
 
-            /* d_kernel — sum over batch */
-            if (b && b->requires_grad) {
+            /* d_kernel — single dgemm: dW[outC,K] = dY_unf^T[outC,M] @ X_col[M,K] */
+            if (need_dW) {
                 ensure_grad(b);
+                double* X_col = (double*)calloc((size_t)M_unf * K_unf, sizeof(double));
+                conv2d_im2col(a->data, B, inC, HH, WW, kH, kW, padH, padW,
+                              strideH, strideW, oH, oW, X_col);
+#ifdef __APPLE__
+                cblas_dgemm(CblasRowMajor, CblasTrans, CblasNoTrans,
+                            outC, K_unf, M_unf, 1.0,
+                            dY_unf, outC,
+                            X_col, K_unf,
+                            1.0, b->grad, K_unf);
+#else
                 for (int oc = 0; oc < outC; oc++)
-                    for (int ic = 0; ic < inC; ic++)
-                        for (int kh = 0; kh < kH; kh++)
-                            for (int kw = 0; kw < kW; kw++) {
-                                double s = 0;
-                                for (int bb = 0; bb < B; bb++) {
-                                    const double* inp_b = a->data + bb * in_per_sample;
-                                    const double* dout_b = r->grad + bb * out_per_sample;
-                                    for (int oh = 0; oh < oH; oh++)
-                                        for (int ow = 0; ow < oW; ow++) {
-                                            int ih = oh * strideH - padH + kh;
-                                            int iw = ow * strideW - padW + kw;
-                                            if (ih >= 0 && ih < HH && iw >= 0 && iw < WW)
-                                                s += dout_b[oc*oH*oW + oh*oW + ow]
-                                                   * inp_b[ic*HH*WW + ih*WW + iw];
-                                        }
-                                }
-                                b->grad[oc*inC*kH*kW + ic*kH*kW + kh*kW + kw] += s;
-                            }
+                    for (int kk = 0; kk < K_unf; kk++) {
+                        double s = 0;
+                        for (int m = 0; m < M_unf; m++)
+                            s += dY_unf[m*outC + oc] * X_col[m*K_unf + kk];
+                        b->grad[oc*K_unf + kk] += s;
+                    }
+#endif
+                free(X_col);
+            }
+
+            /* d_input — dX_col[M,K] = dY_unf[M,outC] @ W[outC,K], then col2im */
+            if (need_dX) {
+                ensure_grad(a);
+                double* dX_col = calloc((size_t)M_unf * K_unf, sizeof(double));
+#ifdef __APPLE__
+                cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
+                            M_unf, K_unf, outC, 1.0,
+                            dY_unf, outC,
+                            b->data, K_unf,
+                            0.0, dX_col, K_unf);
+#else
+                for (int m = 0; m < M_unf; m++)
+                    for (int kk = 0; kk < K_unf; kk++) {
+                        double s = 0;
+                        for (int oc = 0; oc < outC; oc++)
+                            s += dY_unf[m*outC + oc] * b->data[oc*K_unf + kk];
+                        dX_col[m*K_unf + kk] = s;
+                    }
+#endif
+                conv2d_col2im_accumulate(dX_col, B, inC, HH, WW, kH, kW,
+                                          padH, padW, strideH, strideW,
+                                          oH, oW, a->grad);
+                free(dX_col);
             }
 
             /* d_bias — sum across B and (oH, oW) per output channel */
-            Tensor* bias_t = (Tensor*)e->inputs;
-            if (bias_t && bias_t->requires_grad) {
+            if (need_dB) {
                 ensure_grad(bias_t);
                 for (int oc = 0; oc < outC; oc++) {
                     double s = 0;
                     for (int bb = 0; bb < B; bb++) {
-                        const double* dout_b = r->grad + bb * out_per_sample;
+                        const double* dout_b = r->grad + (size_t)bb * out_per_sample;
                         for (int oh = 0; oh < oH; oh++)
                             for (int ow = 0; ow < oW; ow++)
                                 s += dout_b[oc*oH*oW + oh*oW + ow];
@@ -4151,6 +4266,7 @@ void tensor_backward(TensorHandle h) {
                     bias_t->grad[oc] += s;
                 }
             }
+            if (dY_unf) free(dY_unf);
             break;
         }
 
