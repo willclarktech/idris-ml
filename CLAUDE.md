@@ -23,12 +23,18 @@ packages/
 
 ## Build Commands
 
+`BACKEND` is a comma-separated list of backends linked into one `libidrisml.{so,dylib}`. First item is the **primary** — its symbols are exported under both unified (`tensor_add`) and suffixed (`tensor_add_<primary>`) names, so existing Idris `%foreign "C:tensor_add,libidrisml"` calls resolve to it. Other backends contribute only suffixed symbols (reachable by future `UserDevice` instance methods). See `docs/develop/design-decisions.md` "Pluggable Device".
+
 ```bash
-make backend                          # C tape backend (default, no deps)
-make BACKEND=mlx MLX_SITE=... backend # MLX backend (Apple Metal)
-make BACKEND=torch backend            # libtorch backend
-make install                          # Install core lib + gym (required for examples/tests)
-make example-<name>                   # Build and run an example (all accept --epochs, --lr, --seed)
+make backend                              # Default: BACKEND=tape (lean, no C++ deps)
+make BACKEND=tape,torch backend           # Multi-link: both built into one dylib, tape primary
+make BACKEND=tape,torch,mlx backend       # macOS full build (all three)
+make BACKEND=torch backend                # Torch-only build (CI lane)
+make BACKEND=mlx MLX_SITE=... backend     # MLX-only (Apple Metal)
+make rename-headers                       # Regen packages/backends/rename_<b>.h from backend.h
+make check-rename-headers                 # CI gate: errors if regen would change anything
+make install                              # Install core lib + gym (required for examples/tests)
+make example-<name>                       # Build and run an example (all accept --epochs, --lr, --seed)
 
 # Tests — see docs/develop/testing.md for the full layer breakdown
 make test-examples              # Smoke gate: every example × 3 backends, ~13 min

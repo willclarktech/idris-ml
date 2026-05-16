@@ -756,3 +756,28 @@ Two compile-time symbol-rename strategies verified end-to-end with toy translati
 
 None of these block the Phase 1 design — they're implementation risks to surface during Phase 1, not Phase 0 stoppers.
 
+**Phase 1 — Multi-link landed (2026-05-13)**:
+
+- **1a (`98f17cf`)**: `scripts/gen-rename-headers.py` parses `backend.h` and emits `packages/backends/rename_<b>.h` with `#define <sym> <sym>_<backend>` lines for all 206 exported functions. `make rename-headers` / `make check-rename-headers` drive regen + CI drift gate. Initial regex caught 195 symbols; expanded in Phase 1b-2 to 206 to cover `TensorPair*`, `OptimizerHandle`, `int*` return types missed by the first pass.
+- **1b-1**: rename + unified-name aliases on single-backend builds. `-include rename_$(BACKEND).h` on every TU that emits or uses `tensor_*`/`mnist_*`/`optimizer_*`/`param_*` symbols (backend itself + shared sources: safetensors, mnist, dataloader). macOS uses `-Wl,-alias_list,<file>` to re-export each suffixed impl under its unified name; Linux uses one `-Wl,--defsym=<unified>=<suffixed>` per symbol. Idris-side `%foreign "C:tensor_add,libidrisml"` resolves unchanged via the alias.
+- **1b-2**: comma-`BACKEND` parsing + true multi-link. Makefile per-backend property tables (`<b>_SRC` / `<b>_CC` / `<b>_CFLAGS` / `<b>_LDFLAGS_<UNAME>`) + an `$(eval $(call …))` loop emit one compile rule per listed backend. Final link uses `c++` if any C++ backend is in the list, else `cc`, with the union of per-backend `LDFLAGS` for the platform. Symlink gone. A `.backend-stamp` FORCE rule re-links when `BACKEND` changes value (target file name is no longer `BACKEND`-parameterised).
+
+Symbol-collision risk from Phase 0d ("libtorch + mlx internal-symbol collisions") **did not materialise on macOS** — `BACKEND=tape,torch,mlx make backend` linked cleanly with no warnings. The resulting 601 KB `libidrisml.dylib` exports `_tensor_add`, `_tensor_add_tape`, `_tensor_add_torch`, `_tensor_add_mlx` (and same for every other op), with the unified name aliased to whichever backend is primary. `example-supervised` produces bit-identical loss output across single-backend, dual-link, triple-link, and primary-switched (`tape,torch,mlx` vs `torch,tape,mlx`) configurations.
+
+Verified combinations on macOS (Apple Silicon, libtorch 2.x via uv venv, mlx 0.31 via nix):
+
+| `BACKEND=` | Dylib size | Outcome |
+|------------|-----------|---------|
+| `tape` | 192 KB | single, primary=tape |
+| `torch` | (libtorch-dependent) | single, primary=torch |
+| `tape,torch` | 426 KB | dual, tape primary |
+| `tape,torch,mlx` | 601 KB | triple, tape primary |
+| `torch,tape,mlx` | 601 KB | triple, torch primary |
+
+**Outstanding follow-ups** (not blocking Phase 2.1):
+- Linux verification: macOS testing only here. Linux needs `BACKEND=tape,torch` smoke testing; `--defsym` flag generation is theoretically equivalent but unverified end-to-end.
+- `bench-ops-compare` rebuilds the whole dylib per iteration (one backend at a time) to copy it to `libidrisml_<b>.dylib`. Slightly slower than the old per-backend variant build but isolates per-backend operator timing correctly.
+- `make` does NOT propagate `BACKEND` changes to downstream rules that consume the dylib path (e.g. example builds) — the dylib is unconditionally `libidrisml.{so,dylib}`, so example apps always link against whichever primary the current build has. Switching primary requires `make BACKEND=<new> backend && make example-<name>`.
+
+Phase 2.1 (Move `Tensor.idr`'s lifecycle + arithmetic FFI into `UserDeviceCore` instance methods) can begin once test-examples smoke matrix confirms no regressions under the new multi-link.
+
