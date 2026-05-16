@@ -701,3 +701,37 @@ C backend time was **2ms/epoch throughout** — unchanged by any optimization. T
 1. An Idris→C compiler backend (bypass Chez entirely)
 2. Moving the entire epoch loop into C (eliminating Scheme from the hot path)
 3. Accepting the gap — the C backend itself is fast (2ms), and Chez overhead is constant per epoch regardless of model size
+
+### Pluggable Device via sliced `UserDevice` interfaces (2026-05-13)
+
+Phase 0 outcome of the pluggable-Device refactor (TODO row "Pluggable / dependent `Device` for user-supplied backends"). See the plan file at `~/.claude/plans/modular-petting-minsky.md` for the full multi-phase rollout; this section captures only the structural decision Phase 0 needed to settle before Phase 2.x begins.
+
+**The question**: today every backend op in `Tensor.idr` is a free `%foreign` declaration bound to one symbol name (e.g. `tensor_add`); a Makefile symlink picks which dylib backs it. User-supplied backends require forking the codebase. Three candidate replacements:
+
+1. **One big interface** — single `UserDevice` typeclass with ~160 methods covering every op in `Tensor.idr`.
+2. **Sliced interfaces** — `UserDeviceCore` / `UserDeviceLinear` / `UserDeviceNN` / `UserDeviceConv` / `UserDeviceTape`, ~30 methods each. A backend that doesn't implement `UserDeviceConv` simply can't be used with conv layers, and that's a *type error*.
+3. **Dictionary record** — a 160-field `record DeviceOps` passed explicitly. Cheaper at the typechecker; less ergonomic at call sites.
+
+**Decision: sliced (variant 2).** The "ops depend on device" pitch — which is the whole reason to open `Device` up — only lands cleanly under slicing. A `UserDeviceConv d` constraint on `convLayer` means a backend without conv support is a compile error at the layer's use-site, not a runtime crash from a missing method. Variant 1 conflates "any backend" with "every backend implements everything"; variant 3 loses interface coherence (methods become record fields, no implicit resolution).
+
+**Phase 0b evidence (typecheck time)**: the only risk for variant 2 was Idris-2 instance resolution choking at full sliced width. Built a stub `Device.ProtoWide` with 5 sliced interfaces × ~30 stub methods each (~150 total) plus a `TapeDevWide` instance covering all 5. Clean-build `idris2 --build idris-ml.ipkg` times (after `rm -rf build/ttc`):
+
+| Surface | Samples | Best-of-4 mean |
+|---------|---------|----------------|
+| Baseline (Phase 0a's 10-method `Device.Proto` only) | 7.18, 7.35, 7.43, 7.43, 8.08, 8.40 | 7.32s |
+| Sliced 5×30 + 5 instances (`ProtoWide` added) | 7.67, 7.73, 7.83, 8.02, 10.73, 13.28, 16.85, 22.03 | 7.74s |
+
+Best-of-4 delta is +0.42s (+5.7%), well under the 20% acceptance threshold. Outlier runs (>10s) reflect VM load and appear on both surfaces; they don't indicate an Idris-side scaling issue. Adding 150 interface methods + 5 sliced instances costs essentially nothing in typecheck time on the full ipkg.
+
+**Phase 0b also rules out variant 1**: a single 160-method interface would have a worse instance-resolution profile than 5 slices of 30, and we already see that 5×30 is fine — variant 1 has no ergonomic upside over slicing once the typechecker is comfortable.
+
+**What follows from this**:
+- Phase 2.x slicing maps directly onto the five interfaces above: Core (lifecycle + arithmetic), Linear (matmul + reductions + reshape), NN (activations + softmax + norms + losses), Conv (conv + pooling), Tape (autograd + param registry + IO).
+- Each Phase 2.x PR converts one slice end-to-end: declare the interface, ship the three built-in instances (`TapeDev`, `TorchDev`, `MlxDev`) forwarding to renamed per-backend C symbols, replace the free `%foreign` + Idris wrapper at the call-site in `Tensor.idr`. Five PRs total.
+- The closed sum `Device = CPU | CUDA Nat | MPS` stays as a re-exported alias backed by the appropriate built-in instance — `Tensor [10] CPU` keeps compiling.
+
+**Phase 0a and Phase 0b artifacts**:
+- `packages/idris-ml/src/Device/Proto.idr` — working 10-op interface + `TapeDev` instance, verified runtime-correct via `Example/DeviceProto.idr` (commit `b44eaf9`).
+- `packages/idris-ml/src/Device/ProtoWide.idr` — sliced 150-stub typechecker exerciser (commit `8fb7fec`).
+- Both files are deletable scaffolding; Phase 2.1 absorbs the real interface into `Tensor.idr` directly.
+
