@@ -2124,13 +2124,15 @@ void tensor_backward(TensorHandle h) {
                 break;
             }
             case OP_GATHER: {
-                auto idx_int = mx::astype(b, mx::int32);
+                // mlx 0.31.2 strictly rejects VJP through index inputs.
+                // stop_gradient pins this branch out of the autograd graph.
+                auto idx_int = mx::astype(mx::stop_gradient(b), mx::int32);
                 pool[out] = mx::take(a, idx_int, 0);
                 break;
             }
             case OP_SCATTER_ADD: {
                 int out_size = (int)e.scalar_arg;
-                auto idx_int = mx::astype(b, mx::int32);
+                auto idx_int = mx::astype(mx::stop_gradient(b), mx::int32);
                 auto base = mx::zeros({out_size}, mx::float32);
                 auto updates_2d = mx::reshape(a, {(int)a.size(), 1});
                 pool[out] = mx::scatter_add(base, {idx_int}, updates_2d, std::vector<int>{0});
