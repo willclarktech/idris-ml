@@ -1,7 +1,7 @@
 """1D sequence classification training script.
 
 Usage:
-    python -m torch_ref.scripts.seq_classify [--lr 0.001] [--epochs 500] [--seed 42]
+    python -m torch_ref.scripts.seq_classify [--lr 0.001] [--epochs 1000] [--seed 42]
 """
 
 import argparse
@@ -19,7 +19,7 @@ from torch_ref.training.runner import format_result
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--lr", type=float, default=0.001)
-    parser.add_argument("--epochs", type=int, default=500)
+    parser.add_argument("--epochs", type=int, default=1000)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument(
         "--lr-find",
