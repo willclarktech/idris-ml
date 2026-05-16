@@ -112,188 +112,188 @@ forceMajorGc = do
 %foreign "scheme:(lambda (val rg) (when (not (top-level-bound? 'idris-libidrisml-loaded)) (load-shared-object \"libidrisml.dylib\") (set-top-level-value! 'idris-libidrisml-loaded #t)) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_scalar\" (double int) void*) val rg))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export prim__createScalar : Double -> Int -> AnyPtr
 
-%foreign "C:tensor_free,libidrisml"
+%foreign "scheme:(lambda (a0)  ((foreign-procedure \"tensor_free\" (void*) void) (vector-ref a0 1)))"
 prim__free : AnyPtr -> ()
 
 %foreign "scheme:(lambda (wt) (when (not (top-level-bound? 'idris-libidrisml-loaded)) (load-shared-object \"libidrisml.dylib\") (set-top-level-value! 'idris-libidrisml-loaded #t)) ((foreign-procedure \"tensor_item\" (void*) double) (vector-ref wt 1)))"
 export prim__item : AnyPtr -> Double
 
 -- Device transfer
-%foreign "C:tensor_to_device,libidrisml"
+%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_to_device\" (void* string) void*) (vector-ref a0 1) a1))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export prim__toDevice : AnyPtr -> String -> AnyPtr
 
-%foreign "C:tensor_device,libidrisml"
+%foreign "scheme:(lambda (a0)  ((foreign-procedure \"tensor_device\" (void*) string) (vector-ref a0 1)))"
 export prim__tensorDevice : AnyPtr -> String
 
 -- Arithmetic (all return new tensors — libtorch builds autograd graph)
-%foreign "C:tensor_add,libidrisml"
+%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_add\" (void* void*) void*) (vector-ref a0 1) (vector-ref a1 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export prim__add : AnyPtr -> AnyPtr -> AnyPtr
 
-%foreign "C:tensor_sub,libidrisml"
+%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_sub\" (void* void*) void*) (vector-ref a0 1) (vector-ref a1 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export prim__sub : AnyPtr -> AnyPtr -> AnyPtr
 
-%foreign "C:tensor_mul,libidrisml"
+%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_mul\" (void* void*) void*) (vector-ref a0 1) (vector-ref a1 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export prim__mul : AnyPtr -> AnyPtr -> AnyPtr
 
-%foreign "C:tensor_div,libidrisml"
+%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_div\" (void* void*) void*) (vector-ref a0 1) (vector-ref a1 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export prim__div : AnyPtr -> AnyPtr -> AnyPtr
 
-%foreign "C:tensor_neg,libidrisml"
+%foreign "scheme:(lambda (a0)  (let ((raw_r ((foreign-procedure \"tensor_neg\" (void*) void*) (vector-ref a0 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export prim__neg : AnyPtr -> AnyPtr
 
-%foreign "C:tensor_abs,libidrisml"
+%foreign "scheme:(lambda (a0)  (let ((raw_r ((foreign-procedure \"tensor_abs\" (void*) void*) (vector-ref a0 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export prim__abs : AnyPtr -> AnyPtr
 
-%foreign "C:tensor_exp,libidrisml"
+%foreign "scheme:(lambda (a0)  (let ((raw_r ((foreign-procedure \"tensor_exp\" (void*) void*) (vector-ref a0 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export prim__exp : AnyPtr -> AnyPtr
 
-%foreign "C:tensor_log,libidrisml"
+%foreign "scheme:(lambda (a0)  (let ((raw_r ((foreign-procedure \"tensor_log\" (void*) void*) (vector-ref a0 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export prim__log : AnyPtr -> AnyPtr
 
-%foreign "C:tensor_sqrt,libidrisml"
+%foreign "scheme:(lambda (a0)  (let ((raw_r ((foreign-procedure \"tensor_sqrt\" (void*) void*) (vector-ref a0 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 prim__sqrt : AnyPtr -> AnyPtr
 
-%foreign "C:tensor_pow,libidrisml"
+%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_pow\" (void* void*) void*) (vector-ref a0 1) (vector-ref a1 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export prim__pow : AnyPtr -> AnyPtr -> AnyPtr
 
-%foreign "C:tensor_sigmoid,libidrisml"
+%foreign "scheme:(lambda (a0)  (let ((raw_r ((foreign-procedure \"tensor_sigmoid\" (void*) void*) (vector-ref a0 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export prim__sigmoid : AnyPtr -> AnyPtr
 
-%foreign "C:tensor_tanh,libidrisml"
+%foreign "scheme:(lambda (a0)  (let ((raw_r ((foreign-procedure \"tensor_tanh\" (void*) void*) (vector-ref a0 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export prim__tanh : AnyPtr -> AnyPtr
 
 -- Linear algebra
-%foreign "C:tensor_mv,libidrisml"
+%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_mv\" (void* void*) void*) (vector-ref a0 1) (vector-ref a1 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export prim__mv : AnyPtr -> AnyPtr -> AnyPtr
 
 -- Fused 1D linear: y = W @ x + bias. Eliminates the per-call FFI
 -- overhead of separate prim__mv + prim__add.
-%foreign "C:tensor_linear,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2)  (let ((raw_r ((foreign-procedure \"tensor_linear\" (void* void* void*) void*) (vector-ref a0 1) (vector-ref a1 1) (vector-ref a2 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export prim__linear : AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr
 
-%foreign "C:tensor_dot,libidrisml"
+%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_dot\" (void* void*) void*) (vector-ref a0 1) (vector-ref a1 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 prim__dot : AnyPtr -> AnyPtr -> AnyPtr
 
-%foreign "C:tensor_outer,libidrisml"
+%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_outer\" (void* void*) void*) (vector-ref a0 1) (vector-ref a1 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export prim__outer : AnyPtr -> AnyPtr -> AnyPtr
 
-%foreign "C:tensor_matmul,libidrisml"
+%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_matmul\" (void* void*) void*) (vector-ref a0 1) (vector-ref a1 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export prim__matmul : AnyPtr -> AnyPtr -> AnyPtr
 
 -- Activation
-%foreign "C:tensor_softmax,libidrisml"
+%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_softmax\" (void* int) void*) (vector-ref a0 1) a1))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export prim__softmax : AnyPtr -> Int -> AnyPtr
 
-%foreign "C:tensor_log_softmax,libidrisml"
+%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_log_softmax\" (void* int) void*) (vector-ref a0 1) a1))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export prim__logSoftmax : AnyPtr -> Int -> AnyPtr
 
 -- Loss
-%foreign "C:tensor_bce_with_logits,libidrisml"
+%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_bce_with_logits\" (void* void*) void*) (vector-ref a0 1) (vector-ref a1 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 prim__bceWithLogits : AnyPtr -> AnyPtr -> AnyPtr
 
 -- Reduction
-%foreign "C:tensor_sum,libidrisml"
+%foreign "scheme:(lambda (a0)  (let ((raw_r ((foreign-procedure \"tensor_sum\" (void*) void*) (vector-ref a0 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export prim__sum : AnyPtr -> AnyPtr
 
-%foreign "C:tensor_mean,libidrisml"
+%foreign "scheme:(lambda (a0)  (let ((raw_r ((foreign-procedure \"tensor_mean\" (void*) void*) (vector-ref a0 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export prim__mean : AnyPtr -> AnyPtr
 
-%foreign "C:tensor_min,libidrisml"
+%foreign "scheme:(lambda (a0)  (let ((raw_r ((foreign-procedure \"tensor_min\" (void*) void*) (vector-ref a0 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export prim__tensorMin : AnyPtr -> AnyPtr
 
-%foreign "C:tensor_max,libidrisml"
+%foreign "scheme:(lambda (a0)  (let ((raw_r ((foreign-procedure \"tensor_max\" (void*) void*) (vector-ref a0 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export prim__tensorMax : AnyPtr -> AnyPtr
 
 -- Array creation/accessors
-%foreign "C:tensor_create,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2 a3) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create\" (void* void* int int) void*) a0 a1 a2 a3))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 prim__create : AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
 
-%foreign "C:tensor_numel,libidrisml"
+%foreign "scheme:(lambda (a0)  ((foreign-procedure \"tensor_numel\" (void*) int) (vector-ref a0 1)))"
 prim__numel : AnyPtr -> Int
 
-%foreign "C:tensor_size,libidrisml"
+%foreign "scheme:(lambda (a0 a1)  ((foreign-procedure \"tensor_size\" (void* int) int) (vector-ref a0 1) a1))"
 prim__size : AnyPtr -> Int -> Int
 
-%foreign "C:tensor_select,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2)  (let ((raw_r ((foreign-procedure \"tensor_select\" (void* int int) void*) (vector-ref a0 1) a1 a2))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export prim__select : AnyPtr -> Int -> Int -> AnyPtr
 
-%foreign "C:tensor_unsqueeze,libidrisml"
+%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_unsqueeze\" (void* int) void*) (vector-ref a0 1) a1))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export prim__unsqueeze : AnyPtr -> Int -> AnyPtr
 
-%foreign "C:tensor_stack,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2)  (let ((raw_r ((foreign-procedure \"tensor_stack\" (void* int int) void*) a0 a1 a2))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 prim__stack : AnyPtr -> Int -> Int -> AnyPtr
 
-%foreign "C:tensor_detach,libidrisml"
+%foreign "scheme:(lambda (a0)  (let ((raw_r ((foreign-procedure \"tensor_detach\" (void*) void*) (vector-ref a0 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 prim__detach : AnyPtr -> AnyPtr
 
-%foreign "C:tensor_with_grad,libidrisml"
+%foreign "scheme:(lambda (a0)  (let ((raw_r ((foreign-procedure \"tensor_with_grad\" (void*) void*) (vector-ref a0 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 prim__withGrad : AnyPtr -> AnyPtr
 
-%foreign "C:tensor_mul_scalar,libidrisml"
+%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_mul_scalar\" (void* double) void*) (vector-ref a0 1) a1))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export prim__mulScalar : AnyPtr -> Double -> AnyPtr
 
-%foreign "C:tensor_add_scalar,libidrisml"
+%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_add_scalar\" (void* double) void*) (vector-ref a0 1) a1))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export prim__addScalar : AnyPtr -> Double -> AnyPtr
 
-%foreign "C:tensor_clamp_min,libidrisml"
+%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_clamp_min\" (void* double) void*) (vector-ref a0 1) a1))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export prim__clampMin : AnyPtr -> Double -> AnyPtr
 
 -- NTM
-%foreign "C:tensor_cosine_similarity,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2)  (let ((raw_r ((foreign-procedure \"tensor_cosine_similarity\" (void* void* int) void*) (vector-ref a0 1) (vector-ref a1 1) a2))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export prim__cosineSimilarity : AnyPtr -> AnyPtr -> Int -> AnyPtr
 
-%foreign "C:tensor_conv1d_circular,libidrisml"
+%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_conv1d_circular\" (void* void*) void*) (vector-ref a0 1) (vector-ref a1 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export prim__conv1dCircular : AnyPtr -> AnyPtr -> AnyPtr
 
-%foreign "C:tensor_gelu,libidrisml"
+%foreign "scheme:(lambda (a0)  (let ((raw_r ((foreign-procedure \"tensor_gelu\" (void*) void*) (vector-ref a0 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export prim__gelu : AnyPtr -> AnyPtr
 
-%foreign "C:tensor_leaky_relu,libidrisml"
+%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_leaky_relu\" (void* double) void*) (vector-ref a0 1) a1))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export prim__leakyRelu : AnyPtr -> Double -> AnyPtr
 
-%foreign "C:tensor_silu,libidrisml"
+%foreign "scheme:(lambda (a0)  (let ((raw_r ((foreign-procedure \"tensor_silu\" (void*) void*) (vector-ref a0 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export prim__silu : AnyPtr -> AnyPtr
 
-%foreign "C:tensor_softplus,libidrisml"
+%foreign "scheme:(lambda (a0)  (let ((raw_r ((foreign-procedure \"tensor_softplus\" (void*) void*) (vector-ref a0 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export prim__softplus : AnyPtr -> AnyPtr
 
 -- Cross-attention: Q @ K^T * scale [+ mask] -> softmax -> @ V
-%foreign "C:tensor_cross_attention,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2 a3 a4)  (let ((raw_r ((foreign-procedure \"tensor_cross_attention\" (void* void* void* void* double) void*) (vector-ref a0 1) (vector-ref a1 1) (vector-ref a2 1) (vector-ref a3 1) a4))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export
 prim__crossAttention : AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> Double -> AnyPtr
 
-%foreign "C:tensor_gru_cell,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2 a3)  (let ((raw_r ((foreign-procedure \"tensor_gru_cell\" (void* void* void* int) void*) (vector-ref a0 1) (vector-ref a1 1) (vector-ref a2 1) a3))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export prim__gruCell : AnyPtr -> AnyPtr -> AnyPtr -> Int -> AnyPtr
 
 -- Embedding
-%foreign "C:tensor_embedding,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2 a3)  (let ((raw_r ((foreign-procedure \"tensor_embedding\" (void* void* int int) void*) (vector-ref a0 1) (vector-ref a1 1) a2 a3))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export
 prim__embedding : AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
 
 -- Batch Norm
-%foreign "C:tensor_batch_norm,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2 a3 a4 a5 a6 a7 a8 a9)  (let ((raw_r ((foreign-procedure \"tensor_batch_norm\" (void* void* void* void* void* int int int double double) void*) (vector-ref a0 1) (vector-ref a1 1) (vector-ref a2 1) (vector-ref a3 1) (vector-ref a4 1) a5 a6 a7 a8 a9))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export
 prim__batchNorm : AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> Int -> Int -> Int -> Double -> Double -> AnyPtr
 
 -- Dropout
-%foreign "C:tensor_dropout,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2 a3)  (let ((raw_r ((foreign-procedure \"tensor_dropout\" (void* double int int) void*) (vector-ref a0 1) a1 a2 a3))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export
 prim__dropout : AnyPtr -> Double -> Int -> Int -> AnyPtr
 
 -- Shape / info queries
-%foreign "C:tensor_squeeze,libidrisml"
+%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_squeeze\" (void* int) void*) (vector-ref a0 1) a1))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export prim__squeeze : AnyPtr -> Int -> AnyPtr
 
-%foreign "C:tensor_clone,libidrisml"
+%foreign "scheme:(lambda (a0)  (let ((raw_r ((foreign-procedure \"tensor_clone\" (void*) void*) (vector-ref a0 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export prim__clone : AnyPtr -> AnyPtr
 
-%foreign "C:tensor_dim,libidrisml"
+%foreign "scheme:(lambda (a0)  ((foreign-procedure \"tensor_dim\" (void*) int) (vector-ref a0 1)))"
 export prim__tensorDim : AnyPtr -> Int
 
-%foreign "C:tensor_size,libidrisml"
+%foreign "scheme:(lambda (a0 a1)  ((foreign-procedure \"tensor_size\" (void* int) int) (vector-ref a0 1) a1))"
 export prim__tensorSizeAt : AnyPtr -> Int -> Int
 
-%foreign "C:tensor_sum_dim,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2)  (let ((raw_r ((foreign-procedure \"tensor_sum_dim\" (void* int int) void*) (vector-ref a0 1) a1 a2))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export prim__sumDim : AnyPtr -> Int -> Int -> AnyPtr
 
 %foreign "scheme:(lambda (wt) ((foreign-procedure \"tensor_requires_grad\" (void*) int) (vector-ref wt 1)))"
@@ -303,55 +303,55 @@ export prim__requiresGrad : AnyPtr -> Int
 export prim__setRequiresGrad : AnyPtr -> Int -> PrimIO ()
 
 -- Gather / Scatter
-%foreign "C:tensor_gather,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2)  (let ((raw_r ((foreign-procedure \"tensor_gather\" (void* void* int) void*) (vector-ref a0 1) (vector-ref a1 1) a2))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export prim__gather : AnyPtr -> AnyPtr -> Int -> AnyPtr
 
-%foreign "C:tensor_scatter_add,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2)  (let ((raw_r ((foreign-procedure \"tensor_scatter_add\" (void* void* int) void*) (vector-ref a0 1) (vector-ref a1 1) a2))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export prim__scatterAdd : AnyPtr -> AnyPtr -> Int -> AnyPtr
 
 -- Sort / Scan
-%foreign "C:tensor_argsort,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2)  (let ((raw_r ((foreign-procedure \"tensor_argsort\" (void* int int) void*) (vector-ref a0 1) a1 a2))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export prim__argsort : AnyPtr -> Int -> Int -> AnyPtr
 
-%foreign "C:tensor_cumprod,libidrisml"
+%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_cumprod\" (void* int) void*) (vector-ref a0 1) a1))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export prim__cumprod : AnyPtr -> Int -> AnyPtr
 
 -- Average Pooling
-%foreign "C:tensor_avg_pool1d,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2)  (let ((raw_r ((foreign-procedure \"tensor_avg_pool1d\" (void* int int) void*) (vector-ref a0 1) a1 a2))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export
 prim__avgPool1d : AnyPtr -> Int -> Int -> AnyPtr
 
-%foreign "C:tensor_avg_pool2d,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2 a3 a4)  (let ((raw_r ((foreign-procedure \"tensor_avg_pool2d\" (void* int int int int) void*) (vector-ref a0 1) a1 a2 a3 a4))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export
 prim__avgPool2d : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
 
 -- Conv1D / MaxPool1D
-%foreign "C:tensor_conv1d,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2 a3 a4)  (let ((raw_r ((foreign-procedure \"tensor_conv1d\" (void* void* void* int int) void*) (vector-ref a0 1) (vector-ref a1 1) (vector-ref a2 1) a3 a4))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export
 prim__conv1d : AnyPtr -> AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
 
-%foreign "C:tensor_max_pool1d,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2)  (let ((raw_r ((foreign-procedure \"tensor_max_pool1d\" (void* int int) void*) (vector-ref a0 1) a1 a2))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export
 prim__maxPool1d : AnyPtr -> Int -> Int -> AnyPtr
 
-%foreign "C:tensor_create_param_3d,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2 a3) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_param_3d\" (int int int void*) void*) a0 a1 a2 a3))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export
 prim__createParam3d : Int -> Int -> Int -> AnyPtr -> AnyPtr
 
 -- Conv2D / MaxPool2D
-%foreign "C:tensor_conv2d,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2 a3 a4 a5 a6)  (let ((raw_r ((foreign-procedure \"tensor_conv2d\" (void* void* void* int int int int) void*) (vector-ref a0 1) (vector-ref a1 1) (vector-ref a2 1) a3 a4 a5 a6))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export
 prim__conv2d : AnyPtr -> AnyPtr -> AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
 
-%foreign "C:tensor_conv2d_batched,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2 a3 a4 a5 a6)  (let ((raw_r ((foreign-procedure \"tensor_conv2d_batched\" (void* void* void* int int int int) void*) (vector-ref a0 1) (vector-ref a1 1) (vector-ref a2 1) a3 a4 a5 a6))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export
 prim__conv2dBatched : AnyPtr -> AnyPtr -> AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
 
-%foreign "C:tensor_max_pool2d,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2 a3 a4)  (let ((raw_r ((foreign-procedure \"tensor_max_pool2d\" (void* int int int int) void*) (vector-ref a0 1) a1 a2 a3 a4))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export
 prim__maxPool2d : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
 
-%foreign "C:tensor_max_pool2d_batched,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2 a3 a4)  (let ((raw_r ((foreign-procedure \"tensor_max_pool2d_batched\" (void* int int int int) void*) (vector-ref a0 1) a1 a2 a3 a4))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export
 prim__maxPool2dBatched : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
 
@@ -364,7 +364,7 @@ prim__mnistLoad : String -> String -> AnyPtr
 export
 prim__mnistCount : AnyPtr -> Int
 
-%foreign "C:mnist_get_image,libidrisml"
+%foreign "scheme:(lambda (a0 a1) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"mnist_get_image\" (void* int) void*) a0 a1))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export
 prim__mnistGetImage : AnyPtr -> Int -> AnyPtr
 
@@ -375,7 +375,7 @@ prim__mnistGetLabel : AnyPtr -> Int -> Int
 -- Parameter registry
 -- Registers a parameter: enables requires_grad and adds to the registry.
 -- Returns the tensorPtr for threading (prevents dead code elimination).
-%foreign "C:param_register_return,libidrisml"
+%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"param_register_return\" (string void*) void*) a0 (vector-ref a1 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export
 prim__paramRegister : String -> AnyPtr -> AnyPtr
 
@@ -405,25 +405,25 @@ prim__paramZeroAllGrads : Int -> Int
 prim__paramSubtractDelta : Int -> Double -> ()
 
 -- In-place scalar subtract on a tensor (under no_grad). Returns tensor for threading.
-%foreign "C:tensor_subtract_scalar_inplace,libidrisml"
+%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_subtract_scalar_inplace\" (void* double) void*) (vector-ref a0 1) a1))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export
 prim__tensorSubScalarInplace : AnyPtr -> Double -> AnyPtr
 
 -- Array-level parameter creation
-%foreign "C:tensor_create_param_2d,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_param_2d\" (int int void*) void*) a0 a1 a2))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export
 prim__createParam2d : Int -> Int -> AnyPtr -> AnyPtr
 
-%foreign "C:tensor_create_param_1d,libidrisml"
+%foreign "scheme:(lambda (a0 a1) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_param_1d\" (int void*) void*) a0 a1))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export
 prim__createParam1d : Int -> AnyPtr -> AnyPtr
 
 -- Persistent non-param tensors (for non-learnable state like NTM memory)
-%foreign "C:tensor_create_state_2d,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_state_2d\" (int int void*) void*) a0 a1 a2))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export
 prim__createState2d : Int -> Int -> AnyPtr -> AnyPtr
 
-%foreign "C:tensor_create_state_1d,libidrisml"
+%foreign "scheme:(lambda (a0 a1) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_state_1d\" (int void*) void*) a0 a1))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export
 prim__createState1d : Int -> AnyPtr -> AnyPtr
 
@@ -433,40 +433,40 @@ prim__createState1d : Int -> AnyPtr -> AnyPtr
 -- can drop to zero and free the underlying mx::array when the model
 -- record is dropped + drained. On tape/torch these forward to the
 -- non-managed versions (those backends don't need refcount).
-%foreign "C:tensor_create_managed_state_2d,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_managed_state_2d\" (int int void*) void*) a0 a1 a2))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export
 prim__createManagedState2d : Int -> Int -> AnyPtr -> AnyPtr
 
-%foreign "C:tensor_create_managed_state_1d,libidrisml"
+%foreign "scheme:(lambda (a0 a1) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_managed_state_1d\" (int void*) void*) a0 a1))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export
 prim__createManagedState1d : Int -> AnyPtr -> AnyPtr
 
-%foreign "C:tensor_view_2d,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2)  (let ((raw_r ((foreign-procedure \"tensor_view_2d\" (void* int int) void*) (vector-ref a0 1) a1 a2))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export
 prim__view2d : AnyPtr -> Int -> Int -> AnyPtr
 
-%foreign "C:tensor_view_1d,libidrisml"
+%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_view_1d\" (void* int) void*) (vector-ref a0 1) a1))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export
 prim__view1d : AnyPtr -> Int -> AnyPtr
 
-%foreign "C:tensor_item_2d,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2)  ((foreign-procedure \"tensor_item_2d\" (void* int int) double) (vector-ref a0 1) a1 a2))"
 export
 prim__item2d : AnyPtr -> Int -> Int -> Double
 
-%foreign "C:tensor_item_1d,libidrisml"
+%foreign "scheme:(lambda (a0 a1)  ((foreign-procedure \"tensor_item_1d\" (void* int) double) (vector-ref a0 1) a1))"
 export
 prim__item1d : AnyPtr -> Int -> Double
 
 -- Fused LSTM gates: takes combined [4*o] tensor + prev_cell [o], returns pair handle
-%foreign "C:tensor_lstm_gates_pair,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2)  ((foreign-procedure \"tensor_lstm_gates_pair\" (void* void* int) void*) (vector-ref a0 1) (vector-ref a1 1) a2))"
 export
 prim__lstmGatesPair : AnyPtr -> AnyPtr -> Int -> AnyPtr
 
-%foreign "C:tensor_pair_first,libidrisml"
+%foreign "scheme:(lambda (a0)  (let ((raw_r ((foreign-procedure \"tensor_pair_first\" (void*) void*) a0))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export
 prim__pairFirst : AnyPtr -> AnyPtr
 
-%foreign "C:tensor_pair_second,libidrisml"
+%foreign "scheme:(lambda (a0)  (let ((raw_r ((foreign-procedure \"tensor_pair_second\" (void*) void*) a0))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export
 prim__pairSecond : AnyPtr -> AnyPtr
 
@@ -516,11 +516,11 @@ withNoGrad act = do
   pure result
 
 -- LSTM
-%foreign "C:tensor_lstm_cell,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2 a3 a4 a5 a6 a7 a8)  ((foreign-procedure \"tensor_lstm_cell\" (void* void* void* void* void* void* void* void* void*) void) (vector-ref a0 1) (vector-ref a1 1) (vector-ref a2 1) (vector-ref a3 1) (vector-ref a4 1) (vector-ref a5 1) (vector-ref a6 1) a7 a8))"
 prim__lstmCell : AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> ()
 
 -- Debug
-%foreign "C:tensor_print,libidrisml"
+%foreign "scheme:(lambda (a0)  ((foreign-procedure \"tensor_print\" (void*) void) (vector-ref a0 1)))"
 prim__print : AnyPtr -> ()
 
 
@@ -531,7 +531,7 @@ prim__print : AnyPtr -> ()
 -- Force evaluation of first arg, return second.
 -- Must use concrete AnyPtr types (not polymorphic) to avoid
 -- argument count issues at the FFI boundary.
-%foreign "C:idrisml_seq,libidrisml"
+%foreign "scheme:(lambda (a0 a1)  ((foreign-procedure \"idrisml_seq\" (void* void*) void*) a0 a1))"
 export
 prim__seq : AnyPtr -> AnyPtr -> AnyPtr
 
@@ -554,50 +554,50 @@ prim__readDouble : AnyPtr -> Int -> Double
 export
 prim__setDouble : AnyPtr -> Int -> Double -> AnyPtr
 
-%foreign "C:tensor_one_hot,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_one_hot\" (void* int int) void*) a0 a1 a2))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export
 prim__oneHot : AnyPtr -> Int -> Int -> AnyPtr
 
-%foreign "C:tensor_bmm,libidrisml"
+%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_bmm\" (void* void*) void*) (vector-ref a0 1) (vector-ref a1 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export
 prim__bmm : AnyPtr -> AnyPtr -> AnyPtr
 
 -- 3D batched attention ops
-%foreign "C:tensor_bmm_3x3,libidrisml"
+%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_bmm_3x3\" (void* void*) void*) (vector-ref a0 1) (vector-ref a1 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export
 prim__bmm3x3 : AnyPtr -> AnyPtr -> AnyPtr
 
-%foreign "C:tensor_softmax_3d,libidrisml"
+%foreign "scheme:(lambda (a0)  (let ((raw_r ((foreign-procedure \"tensor_softmax_3d\" (void*) void*) (vector-ref a0 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export
 prim__softmax3d : AnyPtr -> AnyPtr
 
-%foreign "C:tensor_transpose_last2,libidrisml"
+%foreign "scheme:(lambda (a0)  (let ((raw_r ((foreign-procedure \"tensor_transpose_last2\" (void*) void*) (vector-ref a0 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export
 prim__transposeLast2 : AnyPtr -> AnyPtr
 
-%foreign "C:tensor_reshape_3d,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2 a3)  (let ((raw_r ((foreign-procedure \"tensor_reshape_3d\" (void* int int int) void*) (vector-ref a0 1) a1 a2 a3))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export
 prim__reshape3d : AnyPtr -> Int -> Int -> Int -> AnyPtr
 
-%foreign "C:tensor_reshape_4d,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2 a3 a4)  (let ((raw_r ((foreign-procedure \"tensor_reshape_4d\" (void* int int int int) void*) (vector-ref a0 1) a1 a2 a3 a4))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export
 prim__reshape4d : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
 
-%foreign "C:tensor_expand_mask,libidrisml"
+%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_expand_mask\" (void* int) void*) (vector-ref a0 1) a1))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export
 prim__expandMask : AnyPtr -> Int -> AnyPtr
 
 ||| Tile a 2D tensor: `[m, n] -> [m*rep0, n*rep1]`. Element `(i, j)` in the
 ||| output equals element `(i mod m, j mod n)` in the input.
-%foreign "C:tensor_tile_2d,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2)  (let ((raw_r ((foreign-procedure \"tensor_tile_2d\" (void* int int) void*) (vector-ref a0 1) a1 a2))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export
 prim__tile2d : AnyPtr -> Int -> Int -> AnyPtr
 
-%foreign "C:tensor_create_1d,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_1d\" (int void* int) void*) a0 a1 a2))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export
 prim__create1d : Int -> AnyPtr -> Int -> AnyPtr
 
-%foreign "C:tensor_create_2d,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2 a3) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_2d\" (int int void* int) void*) a0 a1 a2 a3))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export prim__create2d : Int -> Int -> AnyPtr -> Int -> AnyPtr
 
 -- Array pointer array: stack scalar Tensor tensorPtrs to create
@@ -606,72 +606,72 @@ export prim__create2d : Int -> Int -> AnyPtr -> Int -> AnyPtr
 prim__ptrArrayAlloc : Int -> AnyPtr
 
 -- Returns the array for threading
-%foreign "C:tensor_ptr_array_set_return,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2)  ((foreign-procedure \"tensor_ptr_array_set_return\" (void* int void*) void*) a0 a1 (vector-ref a2 1)))"
 prim__ptrArraySet : AnyPtr -> Int -> AnyPtr -> AnyPtr
 
-%foreign "C:tensor_stack_from_array,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2)  (let ((raw_r ((foreign-procedure \"tensor_stack_from_array\" (void* int int) void*) a0 a1 a2))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 prim__stackFromArray : AnyPtr -> Int -> Int -> AnyPtr
 
-%foreign "C:tensor_cat_from_array,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2)  (let ((raw_r ((foreign-procedure \"tensor_cat_from_array\" (void* int int) void*) a0 a1 a2))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export
 prim__catFromArray : AnyPtr -> Int -> Int -> AnyPtr
 
-%foreign "C:tensor_cat2,libidrisml"
+%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_cat2\" (void* void*) void*) (vector-ref a0 1) (vector-ref a1 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export
 prim__cat2 : AnyPtr -> AnyPtr -> AnyPtr
 
-%foreign "C:tensor_concat_2d_axis1,libidrisml"
+%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_concat_2d_axis1\" (void* void*) void*) (vector-ref a0 1) (vector-ref a1 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export
 prim__concat2dAxis1 : AnyPtr -> AnyPtr -> AnyPtr
 
 -- N-ary cat: caller retains ownership of the handle array.
 -- See tensor_cat in backend.h.
-%foreign "C:tensor_cat,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2)  (let ((raw_r ((foreign-procedure \"tensor_cat\" (void* int int) void*) a0 a1 a2))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export
 prim__cat : AnyPtr -> Int -> Int -> AnyPtr
 
 -- Batch [...] tensors into [count, ...]. Equivalent to stack at dim=0.
-%foreign "C:tensor_batch,libidrisml"
+%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_batch\" (void* int) void*) a0 a1))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export
 prim__batch : AnyPtr -> Int -> AnyPtr
 
-%foreign "C:tensor_narrow,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2 a3)  (let ((raw_r ((foreign-procedure \"tensor_narrow\" (void* int int int) void*) (vector-ref a0 1) a1 a2 a3))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export
 prim__narrow : AnyPtr -> Int -> Int -> Int -> AnyPtr
 
-%foreign "C:tensor_mm,libidrisml"
+%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_mm\" (void* void*) void*) (vector-ref a0 1) (vector-ref a1 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export
 prim__mm : AnyPtr -> AnyPtr -> AnyPtr
 
-%foreign "C:tensor_linear_2d,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2)  (let ((raw_r ((foreign-procedure \"tensor_linear_2d\" (void* void* void*) void*) (vector-ref a0 1) (vector-ref a1 1) (vector-ref a2 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export
 prim__linear2d : AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr
 
-%foreign "C:tensor_transpose_2d,libidrisml"
+%foreign "scheme:(lambda (a0)  (let ((raw_r ((foreign-procedure \"tensor_transpose_2d\" (void*) void*) (vector-ref a0 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export
 prim__transpose2d : AnyPtr -> AnyPtr
 
-%foreign "C:tensor_softmax_2d,libidrisml"
+%foreign "scheme:(lambda (a0)  (let ((raw_r ((foreign-procedure \"tensor_softmax_2d\" (void*) void*) (vector-ref a0 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export
 prim__softmax2d : AnyPtr -> AnyPtr
 
-%foreign "C:tensor_masked_fill,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2)  (let ((raw_r ((foreign-procedure \"tensor_masked_fill\" (void* void* double) void*) (vector-ref a0 1) (vector-ref a1 1) a2))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export
 prim__maskedFill : AnyPtr -> AnyPtr -> Double -> AnyPtr
 
-%foreign "C:tensor_causal_mask,libidrisml"
+%foreign "scheme:(lambda (a0) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_causal_mask\" (int) void*) a0))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export
 prim__causalMask : Int -> AnyPtr
 
-%foreign "C:tensor_log_softmax_2d,libidrisml"
+%foreign "scheme:(lambda (a0)  (let ((raw_r ((foreign-procedure \"tensor_log_softmax_2d\" (void*) void*) (vector-ref a0 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export
 prim__logSoftmax2d : AnyPtr -> AnyPtr
 
-%foreign "C:tensor_layer_norm_2d,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2 a3)  (let ((raw_r ((foreign-procedure \"tensor_layer_norm_2d\" (void* void* void* double) void*) (vector-ref a0 1) (vector-ref a1 1) (vector-ref a2 1) a3))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export
 prim__layerNorm2d : AnyPtr -> AnyPtr -> AnyPtr -> Double -> AnyPtr
 
-%foreign "C:tensor_reshape,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2)  (let ((raw_r ((foreign-procedure \"tensor_reshape\" (void* void* int) void*) (vector-ref a0 1) a1 a2))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 prim__reshape : AnyPtr -> AnyPtr -> Int -> AnyPtr
 
 %foreign "C:tensor_alloc_ints,libidrisml"
@@ -682,7 +682,7 @@ prim__allocInts : Int -> AnyPtr
 export
 prim__setInt : AnyPtr -> Int -> Int -> AnyPtr
 
-%foreign "C:tensor_reshape_2d,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2)  (let ((raw_r ((foreign-procedure \"tensor_reshape_2d\" (void* int int) void*) (vector-ref a0 1) a1 a2))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export prim__reshape2d : AnyPtr -> Int -> Int -> AnyPtr
 
 -- Reshape to 1D: flatten any tensor to [n]
@@ -693,7 +693,7 @@ prim__reshape1d t n =
       shape' = prim__setInt shape 0 n
   in prim__reshape t shape' 1
 
-%foreign "C:tensor_create_param_4d,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2 a3 a4) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_param_4d\" (int int int int void*) void*) a0 a1 a2 a3 a4))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export
 prim__createParam4d : Int -> Int -> Int -> Int -> AnyPtr -> AnyPtr
 
@@ -702,7 +702,7 @@ prim__createParam4d : Int -> Int -> Int -> Int -> AnyPtr -> AnyPtr
 -- Backpropagation: prims for native optimizer
 ----------------------------------------------------------------------
 
-%foreign "C:tensor_backward_conditional,libidrisml"
+%foreign "scheme:(lambda (a0)  ((foreign-procedure \"tensor_backward_conditional\" (void*) int) (vector-ref a0 1)))"
 prim__backwardAndCount : AnyPtr -> Int
 
 %foreign "C:param_zero_all_grads_return,libidrisml"
@@ -827,7 +827,7 @@ setLearningRate opt lr = primIO (prim__optimizerSetLrC opt.handle lr)
 -- Fused native train step: zero_grad → backward → clip → step.
 -- Fused: zero_grad → backward → clip → step in single C call.
 -- Returns loss value (read before step, so not stale).
-%foreign "C:native_train_step,libidrisml"
+%foreign "scheme:(lambda (a0 a1 a2 a3 a4)  ((foreign-procedure \"native_train_step\" (void* int double void* double) double) a0 a1 a2 (vector-ref a3 1) a4))"
 prim__nativeTrainStep : AnyPtr -> Int -> Double -> AnyPtr -> Double -> Double
 
 ----------------------------------------------------------------------
@@ -947,7 +947,7 @@ prim__profileReset : Int -> Int
 %foreign "C:backend_profile_report_return,libidrisml"
 prim__profileReport : Int -> Int
 
-%foreign "C:tensor_backward,libidrisml"
+%foreign "scheme:(lambda (a0)  ((foreign-procedure \"tensor_backward\" (void*) void) (vector-ref a0 1)))"
 prim__backwardC : AnyPtr -> PrimIO ()
 
 %foreign "C:param_zero_all_grads,libidrisml"

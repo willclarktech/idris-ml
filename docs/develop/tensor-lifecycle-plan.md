@@ -118,6 +118,23 @@ Then run `make BACKEND=mlx example-dnc-copy DNC_COPY_ARGS='--epochs 5 --max-len 
 
 This phase is more invasive than I'd hoped — coexistence isn't a free lunch — but it's still a contained scope (under 50 FFIs) before committing to the full 165.
 
+### Phase 1' status (2026-05-16, in-progress)
+
+The plan's original Phase 1' scope ("convert ~10 hot FFIs") proved insufficient: mixed-ABI doesn't compose, so a partial conversion of the dnc-copy hot path leaves *every* example crashing as soon as a converted FFI's wrapped return reaches an unconverted FFI expecting raw. Compounding that, the Device.idr typeclass-dispatch refactor added ~436 additional FFI declarations (Device.idr + Device/{Mlx,Tape,Torch}.idr), bringing the actual FFI surface to ~608 across 5 files (`scripts/lifecycle/ffi-convert-to-scheme.py` enumerates the manifest).
+
+**Mechanical sweep approach.** Convert *all* Tensor-touching FFIs to the wrap-on-return Scheme template in one commit. Non-Tensor FFIs (`tensor_alloc_doubles`, `optimizer_*`, `mnist_load/count/label`, `param_grad_item*`, `tensor_no_grad_*`, `backend_*`, `get_*_rss_mb`) keep the `%foreign "C:..."` form. The converter is the operative definition of which FFI gets which treatment — see its `MANIFEST` and the small `SKIP` set for `tensor_retain_handle` / `tensor_release_handle` / `tensor_is_state` (used inside the wrap template itself).
+
+**Performance trade-off in the wrapper template.** A naive `(when (not (top-level-bound? 'idris-libidrisml-loaded)) (load-shared-object …) …)` init check on every wrapper invocation costs measurable wall time on examples with high FFI counts. Removed: Idris-2's chez codegen already emits `(load-shared-object "libidrisml.dylib")` at top of the compiled `.ss` (line 14 of `supervised.ss`) for *any* `%foreign "C:..."` declaration in the source, and we retain ~40 of those (the non-Tensor ones above). So libidrisml is loaded before any Scheme wrapper runs. The guardian lazy-init is kept only on FFIs that can be the very first to touch the wrap layer (`tensor_create_scalar` + `tensor_create_*` + `tensor_one_hot` + `tensor_causal_mask` + `mnist_get_image` — see `INIT_FFI` in the converter).
+
+**Working after sweep (on tape):** `example-supervised`, `example-mnist`, `example-lstm`. Unit tests (`Test.ManagedHandle`) green on both `BACKEND=tape` and `BACKEND=mlx` primary builds.
+
+**Working after sweep (on mlx):** `example-supervised`, `example-dnc-copy` (training runs end-to-end on `--epochs 100 --max-len 5 --batch 1`; previously segfaulted), `example-ntm-copy` (training runs).
+
+**Known regressions (follow-ups for Phase 1'):**
+- `example-rnn` hangs at certain epoch counts (11–14 hang, 10 and 15 complete). Smells like a GC-timing / drain-cadence interaction; the loop produces enough wraps to trigger Chez major GC, and *that* path is the unverified one. Reproduces from inside `build/exec/rnn_app/` with `./rnn.so --seed 42 --epochs 11`.
+- mlx examples still exit with the post-main `Exception: invalid memory reference` after training prints its profile report. This is the known C++ static-destructor abort on Apple VMs (commit `9d15635`) and predates this work, but the wrapped-handle ABI hasn't yet been observed to clear it. Whether the destructor ordering changes under the new lifecycle still needs investigation.
+- `make test-examples` matrix sweep deferred until rnn is resolved.
+
 ### Phase 1' — Hot-path validation + perf baseline
 
 After Phase 0' passes, run on the broader set the test gate already covers on mlx (supervised, rnn, lstm, gru, transformer, gpt, mnist, seq-classify, dnc-copy, reinforce, q-learning, etc.). Anything that uses an unconverted FFI from the converted side will fail loudly (raw pointer passed to wrap-expecting glue, or vice versa).
