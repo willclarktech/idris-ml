@@ -71,6 +71,18 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
 fi
 DATE=$(date +%Y-%m-%d)
 
+# Device of record. Only mlx currently supports a runtime device switch
+# (MLX_DEVICE=cpu|gpu). tape is C-on-CPU; torch's libtorch is CPU in our
+# setup (we don't pin tensors to MPS/CUDA at the wrapper level).
+case "$BACKEND" in
+  mlx)   DEVICE="${MLX_DEVICE:-cpu}" ;;
+  tape)  DEVICE="cpu" ;;
+  torch) DEVICE="cpu" ;;
+  *)     DEVICE="unknown" ;;
+esac
+# mlx accepts "metal" as a synonym for "gpu"; normalize.
+[ "$DEVICE" = "metal" ] && DEVICE="gpu"
+
 # Run the example and capture output. Use stdbuf -oL so we can tail
 # the log live during long-running tasks (per the "always use stdbuf"
 # convention for background tasks).
@@ -118,7 +130,7 @@ ISO_TS=$(python3 -c 'import time; from datetime import datetime, timezone; print
 JSON_LINE=$(
   ARG_SUMMARY="$ARG_SUMMARY" \
   ISO_TS="$ISO_TS" DATE="$DATE" EXAMPLE_KEY="$EXAMPLE_KEY" \
-  BACKEND="$BACKEND" COMMIT="$COMMIT" RC="$RC" \
+  BACKEND="$BACKEND" DEVICE="$DEVICE" COMMIT="$COMMIT" RC="$RC" \
   ELAPSED_MS="$ELAPSED_MS" ELAPSED_PRETTY="$ELAPSED_PRETTY" \
   CONVERGED_LINE="$CONVERGED_LINE" DIVERGED_LINE="$DIVERGED_LINE" \
   COMPLETED_LINE="$COMPLETED_LINE" RESULT_LINE="$RESULT_LINE" \
@@ -169,6 +181,7 @@ entry = {
     "kind": "run",
     "example": os.environ["EXAMPLE_KEY"],
     "backend": os.environ["BACKEND"],
+    "device": os.environ["DEVICE"],
     "commit": os.environ["COMMIT"],
     "args": os.environ["ARG_SUMMARY"],
     "exit": int(os.environ["RC"]),

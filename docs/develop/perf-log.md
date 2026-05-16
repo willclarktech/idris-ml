@@ -25,6 +25,7 @@ Every entry has these fields:
 | `kind` | string | `"run"` (perf-run.sh) or `"baseline"` (perf-baseline.sh) |
 | `example` | string | `ntm-copy`, `dnc-recall`, `a2c`, etc. |
 | `backend` | string | `tape`, `mlx`, or `torch` |
+| `device` | string | `cpu` or `gpu`. For `mlx` reflects `MLX_DEVICE`; for `tape`/`torch` always `cpu` (we don't pin tensors to MPS/CUDA at the wrapper). Added 2026-05-11 — entries before that date can be assumed `cpu`. |
 | `commit` | string | abbreviated git hash (`+dirty` if uncommitted changes) |
 
 **`kind: "run"`** entries also have:

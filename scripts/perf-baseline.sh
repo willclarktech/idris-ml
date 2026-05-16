@@ -129,8 +129,15 @@ LOG_PATH="docs/develop/perf-log.jsonl"
 if [ ! -e "$LOG_PATH" ]; then : > "$LOG_PATH"; fi
 ISO_TS=$(python3 -c 'from datetime import datetime, timezone; print(datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))')
 DATE=$(date +%Y-%m-%d)
+case "$BACKEND" in
+  mlx)   DEVICE="${MLX_DEVICE:-cpu}" ;;
+  tape)  DEVICE="cpu" ;;
+  torch) DEVICE="cpu" ;;
+  *)     DEVICE="unknown" ;;
+esac
+[ "$DEVICE" = "metal" ] && DEVICE="gpu"
 ISO_TS="$ISO_TS" DATE="$DATE" EXAMPLE_KEY="$EXAMPLE_KEY" BACKEND="$BACKEND" \
-  COMMIT="$COMMIT" IDRIS_MS="$IDRIS_MS" PY_MS="$PY_MS" RATIO="$RATIO" \
+  DEVICE="$DEVICE" COMMIT="$COMMIT" IDRIS_MS="$IDRIS_MS" PY_MS="$PY_MS" RATIO="$RATIO" \
   N_LONG="$N_LONG" SEED="$SEED" \
   python3 <<'PY' >> "$LOG_PATH"
 import json, os
@@ -143,6 +150,7 @@ print(json.dumps({
     "kind": "baseline",
     "example": os.environ["EXAMPLE_KEY"],
     "backend": os.environ["BACKEND"],
+    "device": os.environ["DEVICE"],
     "commit": os.environ["COMMIT"],
     "idris_ms_per_epoch": num(os.environ["IDRIS_MS"]),
     "pytorch_ms_per_epoch": num(os.environ["PY_MS"]),
