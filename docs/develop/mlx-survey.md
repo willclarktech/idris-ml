@@ -360,6 +360,14 @@ the right default.
 
 ### Follow-up update (2026-05-14): GptLarge measured — preliminary verdict needs caveats
 
+> **2026-05-15 resolution** — the rest of this section is the journey,
+> kept for historical context. Short version: GptLarge couldn't be made
+> to show GPU > CPU because dModel=256 sits below the per-op kernel-launch
+> wall in this VM. Final fix: a new `Example/MatmulBench` at N=2048-4096
+> where compute >> launch — GPU wins 1.76-3.56× through the typed `Tensor`
+> API. GptLarge itself was retired; `perf-changes.md` 2026-05-15 entry
+> covers the swap.
+
 Built `Example.GptLarge` (dModel=256, heads=8, headDim=32, blocks=4,
 seq=128, batch=32; 3.17 M params) — significantly bigger than anything
 in the prior matrix — and ran the 6-cell perf grid at 10 epochs each.

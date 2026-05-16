@@ -38,6 +38,21 @@ mask + retention + linkTrans fixes, torch free_intermediates
 simplification). Two-point timing via `scripts/perf-baseline.sh <key>
 <backend>` at `--seed 42`.
 
+> **New example added 2026-05-15** — `Example/MatmulBench` (pure forward
+> matmul at N=2048/4096) is the canonical "mlx GPU > CPU" demo for
+> idris-ml. Measured on M-series in a Tart VM via the typed `Tensor`
+> API:
+>
+> | N | mlx CPU ms/call | mlx GPU ms/call | GPU speedup | CPU GFLOPS | GPU GFLOPS |
+> |---|---:|---:|---:|---:|---:|
+> | 2048 | 13.76 | 7.81 | **1.76×** | 1248 | 2197 |
+> | 4096 | 120.96 | 33.97 | **3.56×** | 1136 | 4045 |
+>
+> Above N≈1024, mlx GPU dominates; below, CPU wins on per-op kernel-launch
+> wall. See `perf-changes.md` 2026-05-15 "New `Example/MatmulBench`" entry.
+> `Example/GptLarge` retired same day; was never structurally able to
+> show GPU > CPU at dModel=256.
+
 > **Partial re-measurement 2026-05-15 @ commit `db20f12`** (post
 > Transformer PE-caching fix + `prim__tile2d` rewrite, see
 > `perf-changes.md`). The transformer row is now stale across all
