@@ -157,7 +157,6 @@ ifneq ($(filter torch,$(BACKEND_LIST)),)
   TORCH_LIB := $(LIBTORCH_PATH)/lib
 endif
 
-torch_SRC := $(BACKENDS_DIR)/backend_torch.cpp
 torch_CC := c++
 torch_CFLAGS := -std=c++17 -I$(TORCH_INC) -I$(TORCH_INC_API)
 torch_LDFLAGS_Darwin := -L$(TORCH_LIB) -ltorch -ltorch_cpu -lc10 -Wl,-rpath,$(TORCH_LIB)
@@ -230,7 +229,6 @@ ifneq ($(filter mlx,$(BACKEND_LIST)),)
   MLX_LIB := $(abspath $(MLX_SITE)/lib)
 endif
 
-mlx_SRC := $(BACKENDS_DIR)/backend_mlx.cpp
 mlx_CC := c++
 mlx_CFLAGS := -std=c++20 -I$(MLX_INC)
 # `-framework Accelerate` is still required even though tape may already
@@ -310,21 +308,17 @@ TRAINING_ADAPTER_BACKENDS := $(sort $(SHARED_BACKENDS_param_registry) \
                                     $(SHARED_BACKENDS_ffi_shims) \
                                     $(SHARED_BACKENDS_dtype_streamed))
 
-# Per-backend object outputs. Tape skipped — its TUs live under
-# backend_tape/ and are pulled in via BACKEND_TAPE_OBJS below.
-BACKEND_OBJS := $(foreach b,$(filter-out tape,$(BACKEND_LIST)),$(BUILD)/backend_$(b).o)
+# Per-backend object outputs. All three backends now live entirely under
+# their backend_<b>/ trees — no `backend_<b>.{c,cpp}` monoliths to compile.
+# Backends that haven't been modularized yet would fall through this
+# filter-out and pick up a monolithic `backend_<b>.o` via the compile
+# rule below; today the list is empty.
+BACKEND_OBJS := $(foreach b,$(filter-out tape torch mlx,$(BACKEND_LIST)),$(BUILD)/backend_$(b).o)
 
-# Add per-TU tape modular .o files when tape is in BACKEND_LIST.
-# Tape's entire implementation lives in backend_tape/ — there's no
-# `backend_tape.c` monolith to compile.
+# Pull in each backend's modular .o set when that backend is in BACKEND_LIST.
 ifneq ($(filter tape,$(BACKEND_LIST)),)
   BACKEND_OBJS += $(BACKEND_TAPE_OBJS)
 endif
-
-# Add per-TU torch + mlx modular .o files when each backend is in
-# BACKEND_LIST. Their monolithic `backend_<b>.cpp` still ships (the
-# per-backend compile rule below produces `backend_<b>.o`); these
-# modular .o objects link alongside it. Empty OBJS lists are harmless.
 ifneq ($(filter torch,$(BACKEND_LIST)),)
   BACKEND_OBJS += $(BACKEND_TORCH_OBJS)
 endif
@@ -400,7 +394,7 @@ $(BUILD)/backend_$(1).o: $($(1)_SRC) $(BACKENDS_DIR)/backend.h $(BACKENDS_DIR)/r
 	$($(1)_CC) -O2 -fPIC $(EXTRA_CFLAGS) $($(1)_CFLAGS) -include $(BACKENDS_DIR)/rename_$(1).h -c -o $$@ $$<
 endef
 
-$(foreach b,$(filter-out tape,$(BACKEND_LIST)),$(eval $(call backend_compile_rule,$(b))))
+$(foreach b,$(filter-out tape torch mlx,$(BACKEND_LIST)),$(eval $(call backend_compile_rule,$(b))))
 
 # Shared C sources (serialization, JSON, MNIST data) compiled with the
 # PRIMARY backend's rename header so their cross-TU references match
