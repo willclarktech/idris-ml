@@ -12,6 +12,7 @@ modules = Compat.Random
         , DataLoader
         , DataPoint
         , Device
+        , Device.Proto
         , Floating
         , GradMode
         , Hpo
