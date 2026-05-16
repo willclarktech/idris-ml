@@ -20,7 +20,7 @@ from torch_ref.training.runner import format_result
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--lr", type=float, default=0.001)
-    parser.add_argument("--epochs", type=int, default=100)
+    parser.add_argument("--epochs", type=int, default=5)
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--patience", type=int, default=3,
