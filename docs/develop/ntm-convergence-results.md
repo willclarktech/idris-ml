@@ -152,7 +152,7 @@ Experiments D and E below use the fixed architecture matching vlgiitr.
 
 ## Experiment F: vlgiitr reference (ground truth)
 
-**Config**: vlgiitr/ntm-pytorch reference run directly with their code. LSTM controller (hidden=100), N=128, M=20, 1 head, RMSprop lr=1e-4 alpha=0.95 momentum=0.9, value clip ±10, items=[2,6), seed=42. Script: `bench/reference/vlgiitr/run_recall.py`. Log: `logs/vlgiitr-recall.log`.
+**Config**: vlgiitr/ntm-pytorch reference run directly with their code. LSTM controller (hidden=100), N=128, M=20, 1 head, RMSprop lr=1e-4 alpha=0.95 momentum=0.9, value clip ±10, items=[2,6), seed=42. Script: `bench/reference/vlgiitr/run_recall.py`. Log: `docs/develop/vlgiitr-recall.log`.
 
 **Loss curve** (every 10K iterations):
 ```
