@@ -155,27 +155,41 @@ The refcount approach requires:
 
 The mlx backend has ~89 `new Tensor(...)` call sites and an unknown number of internal references (closures, replay state, etc.). Auditing every one is a multi-session effort, and ANY missed site causes corruption. There's no "halfway-correct" intermediate state — partial refcount is worse than no refcount.
 
-### What to do next session
+### Resolution: surgical refcount limited to state Tensors (commit `8ffd48b`)
 
-Two viable paths:
+Rather than auditing all ~89 `new Tensor(...)` sites, the refcount machinery now applies *only* to per-sequence transient state. The implementation:
 
-1. **Continue refcount, exhaustive audit**: spend a focused session enumerating every Tensor* lifecycle in the mlx backend, audit each for retain/release balance, instrument with sanity checks. Estimated 1-2 days of careful work. Validates option A at scale.
+1. **`is_state` flag on Tensor** (mlx-only). Set by `tensor_create_managed_state_{1d,2d}` to 1; default 0. Retain/release internals no-op when `is_state == 0`. tape/torch ship a zero-returning stub for symbol parity.
+2. **Two-tier state allocation**:
+   - `tensor_create_state_*` (unchanged behaviour) — `persistent=1`, holds forever. Used for init-time constants (DNC `buildNonDiagMask`, NTM/DNC fixed `initReadOutsT`, Transformer positional encoding, BatchNorm running stats).
+   - `tensor_create_managed_state_*` (new) — `is_state=1`, `refcount=0`. Used by `Layer/Ntm.idr` and `Layer/Dnc.idr`'s `zeroState1d`/`zeroState2d` helpers for per-sequence transient state.
+3. **Conditional wrap in `prim__wrapHandle`** — checks `tensor_is_state` via foreign-procedure; non-state Tensors return the raw pointer untouched. Eliminates the wrap-everything overhead the dormant infrastructure had.
+4. **Tape participation** — `tape_append` retains state args (no-op on non-state); `tape_reset` releases them. Bulk-eval first so lazy graphs collapse before any Tensor delete.
+5. **no_grad_end cleanup** — tracks state Tensors created inside each no_grad block and frees them at the outermost block exit (after a bulk `mx::eval`).
+6. **`withNoGrad` drains the guardian** — `forceMajorGc + drainManagedHandles` runs at block exit to release shadows the Idris-side just dropped.
 
-2. **Different design — heap-tracked allocator**: instead of refcount, track Tensor* by allocation-epoch. Periodically sweep epoch ≤ N for non-tape, non-persistent Tensors. Same idea as the current `tape_reset` no-grad-block sweep (commit 524840d) but more aggressive. Less elegant than refcount but with fewer places to get wrong.
+dnc-copy and dnc-recall pass on mlx. The harder-than-expected refcount lesson holds for "all-Tensors" scope — but stays manageable for the much smaller "state Tensors only" surface.
 
-3. **Pragmatic concession**: keep the dormant Phase 2.2 + smart constructor as a foundation. Skip the failing 4 examples locally (TODO row exists). Revisit when there's time for the exhaustive audit.
+### Remaining: ntm-copy / ntm-associative-recall / mountain-car-cont
 
-The dormant commits land harmlessly; the test suite still passes (`make test` direct), the gauntlet baseline is preserved, no production behavior changes.
+These three still fail on mlx, and it's a distinct problem from state lifecycle: intermediate-Tensor accumulation inside large `withNoGrad` blocks (NTM has `TestSize=100` × seqLen up to 20). Each Tensor holds an mx::array → potentially a Metal buffer; the per-process MTLBuffer ceiling on Apple Virtualization VMs (Tart, GHA macOS runners) is hit before `no_grad_end`'s sweep gets a chance to fire.
+
+Tried a periodic mid-block sweep (`every 2000 tape_appends, mx::eval all + delete non-state non-tape Tensors keeping the most recent 256`); produced UAF because creation-order isn't a sound liveness signal for Idris-held intermediates. Reverted.
+
+Plausible next steps:
+- Lower `TestSize` in the test gate for these examples (smallest surface).
+- Wrap the Idris-side intermediate handles with the guardian too — then drain becomes the liveness signal, same as state. But this is the "wrap-everything" path that already showed its costs.
+- Per-evalOne explicit `tensor_clear_block_intermediates` callable from the example. Cleaner but example-aware.
 
 ## Phase 2.4 — Tape + torch backends
 
-Wire actual refcount semantics on tape (arena needs to skip refcount-0 entries) and torch (intermediates-vector becomes ref-counted).
+Lifecycle on tape/torch is handled by those backends' own mechanisms (arena and libtorch autograd respectively); no refcount work required. Stubs for `tensor_is_state` / `tensor_retain_handle` / `tensor_release_handle` already exist (return 0 / no-op) for multi-link symbol parity.
 
 ## Phase 2.5 — Post-refactor measurements
 
-Re-run `bash /tmp/mlx_baseline.sh` — expect all 5 mlx examples to pass.
-Run `make bench-compare` and `make bench-ops-compare`; compare to baseline.
-Append `refcount-after` entry to `perf-log.jsonl`.
+Re-run `bash /tmp/mlx_baseline.sh` — expect dnc-copy / dnc-recall to pass (they do).
+Run `make bench-compare` and `make bench-ops-compare`; compare to baseline (state refcount adds two map lookups per tape_append, expected near-zero impact).
+Append a `refcount-state-only` entry to `perf-log.jsonl`.
 
 ## Phase 3-4 — Documentation
 
