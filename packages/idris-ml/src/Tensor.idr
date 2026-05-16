@@ -34,7 +34,15 @@ import Util
 -- happens at the boundary via prim__unwrapHandle / prim__wrapHandle.
 -- ----------------------------------------------------------------------
 
-%foreign "scheme:(lambda (dummy) (if (top-level-bound? 'idris-tensor-guardian) 0 (begin (set-top-level-value! 'idris-tensor-guardian (make-guardian)) 1)))"
+-- Self-init: creates the guardian and ensures libidrisml is loaded with
+-- RTLD_GLOBAL so subsequent `foreign-procedure` lookups for C symbols
+-- (tensor_retain_handle, tensor_release_handle, mlx_set_gc_drain_callback)
+-- succeed. The %foreign "C:..." declarations elsewhere in this file
+-- also trigger libidrisml load on first call, but the wrapped-handle ABI
+-- shifts many FFIs to %foreign "scheme:..." with embedded
+-- foreign-procedure calls; loading the lib here removes the ordering
+-- dependency on a stray %foreign "C:..." call firing first.
+%foreign "scheme:(lambda (dummy) (if (top-level-bound? 'idris-tensor-guardian) 0 (begin (load-shared-object \"libidrisml.dylib\") (set-top-level-value! 'idris-tensor-guardian (make-guardian)) 1)))"
 prim__initManagedHandlesC : Int -> PrimIO Int
 
 -- Self-initializing: if guardian doesn't exist yet, create it. Callers
@@ -91,13 +99,23 @@ forceMajorGc = do
   pure ()
 
 -- Lifecycle
-%foreign "C:tensor_create_scalar,libidrisml"
+--
+-- Wrapped-handle ABI (mlx): every Tensor-returning FFI's Scheme wrapper
+-- wraps the C return in a Chez vector + registers it with the
+-- idris-tensor-guardian + retains via tensor_retain_handle. Every
+-- Tensor-consuming FFI's Scheme wrapper extracts the raw pointer via
+-- vector-ref. The Idris-level value (AnyPtr) is the wrap; the wrap is
+-- the Tensor's identity in the Chez runtime — the Idris-Chez compiler
+-- can't elide it without eliding the value itself.
+--
+-- See docs/develop/tensor-lifecycle-plan.md.
+%foreign "scheme:(lambda (val rg) (when (not (top-level-bound? 'idris-libidrisml-loaded)) (load-shared-object \"libidrisml.dylib\") (set-top-level-value! 'idris-libidrisml-loaded #t)) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_scalar\" (double int) void*) val rg))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export prim__createScalar : Double -> Int -> AnyPtr
 
 %foreign "C:tensor_free,libidrisml"
 prim__free : AnyPtr -> ()
 
-%foreign "C:tensor_item,libidrisml"
+%foreign "scheme:(lambda (wt) (when (not (top-level-bound? 'idris-libidrisml-loaded)) (load-shared-object \"libidrisml.dylib\") (set-top-level-value! 'idris-libidrisml-loaded #t)) ((foreign-procedure \"tensor_item\" (void*) double) (vector-ref wt 1)))"
 export prim__item : AnyPtr -> Double
 
 -- Device transfer
@@ -278,10 +296,10 @@ export prim__tensorSizeAt : AnyPtr -> Int -> Int
 %foreign "C:tensor_sum_dim,libidrisml"
 export prim__sumDim : AnyPtr -> Int -> Int -> AnyPtr
 
-%foreign "C:tensor_requires_grad,libidrisml"
+%foreign "scheme:(lambda (wt) ((foreign-procedure \"tensor_requires_grad\" (void*) int) (vector-ref wt 1)))"
 export prim__requiresGrad : AnyPtr -> Int
 
-%foreign "C:tensor_set_requires_grad,libidrisml"
+%foreign "scheme:(lambda (wt rg) ((foreign-procedure \"tensor_set_requires_grad\" (void* int) void) (vector-ref wt 1) rg))"
 export prim__setRequiresGrad : AnyPtr -> Int -> PrimIO ()
 
 -- Gather / Scatter
@@ -1026,14 +1044,18 @@ record Tensor (dims : Vect rank Nat) (0 d : Device) (0 g : GradMode) where
   -- tensor_release_handle is called on tensorPtr.
   managedShadow : AnyPtr
 
-||| Smart constructor: wraps `ptr` with managed-handle lifecycle so the
-||| C-side Tensor* is released automatically when this record becomes
-||| unreachable on the Idris side. Replaces direct use of `MkTensorRaw`
-||| at call sites — those continue to write `MkTensor x y`, which now
-||| calls this function instead of the raw record constructor.
+||| Smart constructor. Under the wrapped-handle ABI (mlx), `ptr` is
+||| already a Chez vector (wrapped by the FFI's Scheme glue), so no
+||| further wrapping is needed — `managedShadow` aliases `tensorPtr`.
+||| On tape/torch primary builds, `ptr` is a raw pointer and the
+||| managedShadow is the same raw pointer (the guardian is never
+||| populated, drain is a no-op).
+|||
+||| `managedShadow` will likely be removed once we confirm the wrap on
+||| `tensorPtr` is sufficient for lifecycle tracking.
 public export
 MkTensor : AnyPtr -> Maybe String -> Tensor dims d g
-MkTensor ptr pid = MkTensorRaw ptr pid (prim__wrapHandle ptr)
+MkTensor ptr pid = MkTensorRaw ptr pid ptr
 
 ||| Transfer a tensor to a different device. The one place where
 ||| device types intentionally change. Wraps `prim__toDevice` with

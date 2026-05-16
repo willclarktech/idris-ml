@@ -1,0 +1,219 @@
+# Tensor lifecycle: wrapped-handle FFI ABI
+
+Plan for the next iteration of the tensor-lifecycle refactor on mlx, building on the state-only refcount work in commit `8ffd48b` and the failed wrap-everywhere + per-FFI-RetainGuard experiment (see `tensor-lifecycle-spike.md`).
+
+## Goal
+
+A single uniform Tensor lifecycle model that's robust to Idris-Chez compiler optimizations. Every Tensor's existence in Idris is represented by a Chez vector (the *wrapped handle*); that vector is what Idris-side code passes around and what every FFI takes/returns. The wrap is inseparable from the value — Idris cannot elide it without eliding the value itself. Refcount on the C side tracks all current holders (Idris bindings, tape entries, param registry, init-time constants). Free at refcount=0.
+
+The three mlx failures (`ntm-copy`, `ntm-associative-recall`, `mountain-car-cont`) clear because intermediate accumulation inside large `withNoGrad` blocks gets bounded by periodic Chez GC + drain that's now safe — the wrap retains Tensors as long as Idris is using them, and drain only frees ones Idris has actually dropped.
+
+## Why the previous experiments failed
+
+**`is_state`-only refcount (commit `8ffd48b`)** correctly handles per-sequence state Tensors but doesn't fix intermediate accumulation, which is what kills the failing examples.
+
+**Wrap-everywhere refcount via `prim__wrapHandle`** failed because Idris-Chez codegen does live-range analysis on let-bound records. When the only use of a `MkTensor` record is `.tensorPtr` extraction, the compiler can elide the record (and therefore the guardian shadow that held its retain). The raw pointer survives, the shadow doesn't, drain frees the Tensor while the raw pointer is still in use.
+
+**Per-FFI `RetainGuard`** failed because a `RetainGuard` is a transient holder (retain on entry, release on exit) — net zero contribution. If a Tensor enters an FFI at refcount=0 (no existing holder), the guard's `0 → 1 → 0` cycle causes a free at FFI exit. The Idris caller's next FFI hits a dangling pointer.
+
+Both failures share a root cause: **the Tensor's owner identity lives parallel to the Tensor's value (raw pointer)**, and the compiler can drop the owner while keeping the value. Any robust design must make owner = value.
+
+## Design
+
+### The wrapped handle
+
+Every Tensor on mlx is identified at the Idris level by a Chez vector:
+
+```scheme
+#(tensor-handle raw_ptr)
+```
+
+`raw_ptr` is the C-side `Tensor*`. The first element is a tag (currently the symbol `tensor-handle`) for debug introspection. The vector is registered with `idris-tensor-guardian`. Holding the vector retains the Tensor; dropping it eventually drains and releases.
+
+From Idris's type-system perspective, the vector is still `AnyPtr`. The change is purely at the value-representation layer:
+
+- Idris-level: an `AnyPtr` value that's actually a Chez vector.
+- Scheme-level: a vector object on the heap, allocated by the FFI's Scheme glue at the moment of Tensor creation, kept alive by reachability from Idris bindings.
+- C-level: the raw pointer extracted from the vector via `vector-ref` in the Scheme glue; never exposed to Idris.
+
+### FFI conventions
+
+Every `%foreign` declaration touching Tensors now binds to a Scheme wrapper, not directly to a C function. The wrapper:
+
+1. `vector-ref`s each Tensor-arg to extract the raw pointer.
+2. Calls the C function via cached `foreign-procedure` with raw pointers.
+3. For Tensor-returning FFIs: wraps the C return in a fresh Chez vector, registers it with the guardian, retains the C-side refcount, returns the vector.
+4. For primitive-returning FFIs (Double, Int): returns the C value directly.
+
+Template:
+
+```scheme
+;; Tensor -> Tensor -> Tensor
+(lambda (wa wb)
+  (let ((raw_r ((foreign-procedure "tensor_FOO" (void* void*) void*)
+                (vector-ref wa 1) (vector-ref wb 1))))
+    (let ((wr (vector 'tensor-handle raw_r)))
+      ((top-level-value 'idris-tensor-guardian) wr)
+      ((foreign-procedure "tensor_retain_handle" (void*) void) raw_r)
+      wr)))
+
+;; Tensor -> Int -> Tensor   (only the Tensor arg gets vector-ref'd)
+(lambda (wt dim)
+  (let ((raw_r ((foreign-procedure "tensor_FOO" (void* int) void*)
+                (vector-ref wt 1) dim)))
+    (let ((wr (vector 'tensor-handle raw_r)))
+      ((top-level-value 'idris-tensor-guardian) wr)
+      ((foreign-procedure "tensor_retain_handle" (void*) void) raw_r)
+      wr)))
+
+;; Tensor -> Double   (no wrapping on return)
+(lambda (wt)
+  ((foreign-procedure "tensor_FOO" (void*) double) (vector-ref wt 1)))
+```
+
+The guardian is self-initialized in the wrapper (first call creates it). `foreign-procedure` calls are cached by Chez per call site, so the overhead per FFI is one `vector-ref`, one C call, one `vector` allocation, one guardian registration, one retain — measured target <100 ns per FFI.
+
+### What changes on the C side
+
+Minimally — most C code stays the same:
+
+- Tensor struct gains a `refcount` field if not already present (it already does in `tensor-lifecycle-spike.md`'s Phase 2.1 work).
+- `tensor_retain_handle` / `tensor_release_handle` already exist; behavior unchanged.
+- `tensor_create_*` returns Tensors with refcount=0 (caller's Scheme wrapper takes the first retain via `tensor_retain_handle` immediately after).
+- `tape_append` retains result + args; `tape_reset` releases. Unconditional — applies whether `rg=true` or `rg=false`. (For `rg=false` ops, the result still needs lifecycle tracking; the tape entry is the holder. The tape may or may not contain a replay-meaningful entry — `requires_grad=false` skips replay either way.)
+- `param_register` retains; `param_clear` releases each.
+- Init-time constants (NTM `buildNonDiagMask`, etc.) get a permanent retain at creation.
+- The "delete non-persistent at tape_reset" sweep goes away. Refcount drives all freeing.
+
+### What changes on the Idris side
+
+- The `Tensor` record's `tensorPtr` field semantically becomes "wrapped handle, opaque to Idris." The data layout is still `AnyPtr`, just the runtime value is now a Chez vector.
+- `MkTensor wr pid = MkTensorRaw wr pid wr` — the `managedShadow` field is just `wr` itself (or we drop the field entirely since the shadow IS the tensorPtr now).
+- The old `prim__wrapHandle` is gone. No conditional wrap. No `is_state`-driven branching.
+- `prim__unwrapHandle` is gone (every FFI internally unwraps in its Scheme glue).
+- `withNoGrad`'s drain at exit still fires; the drain mechanism (guardian + `tensor_release_handle`) is unchanged.
+- Per-tape-step Chez GC + drain (foreign-callable trampoline) is still wired and now safe to fire mid-block because the wrap correctly retains across FFI calls.
+
+### What goes away entirely
+
+- `is_state` flag and the wrap-conditionally-on-state machinery.
+- `tensor_create_managed_state_*` (collapses into `tensor_create_state_*`; every state Tensor has the uniform lifecycle).
+- The "delete non-persistent at tape_reset" sweep.
+- `tensor_no_grad_end`'s persistent-only sweep.
+- `prim__wrapHandle` and `prim__unwrapHandle`.
+
+## Phased rollout
+
+### Phase 0' — Convert ONE FFI, validate dnc-copy
+
+**Goal:** prove the mechanism works before scaling.
+
+Convert just `prim__add` (`%foreign "C:tensor_add,libidrisml"` → `%foreign "scheme:..."` with the wrap-on-return template). All other FFIs continue with the old ABI. The mixed state has to coexist: when `prim__add` returns a wrapped handle and the next op is e.g. `prim__mul` (still old ABI taking raw `AnyPtr`), the wrap has to either flow through OR the next op needs to be converted too.
+
+Actually that won't work cleanly — once a value is wrapped, every downstream FFI must understand wrapped values. So Phase 0' has to convert ALL the FFIs in the chain that dnc-copy uses on its hot path, not just `tensor_add`.
+
+Refined Phase 0' scope: convert `tensor_add`, `tensor_mul`, `tensor_softmax`, `tensor_sigmoid`, `tensor_mv`, `tensor_cosine_similarity`, `tensor_narrow`, `tensor_reshape*`, `tensor_cat*`, `tensor_unsqueeze`, `tensor_linear`, `tensor_clamp_min`, `tensor_neg`, `tensor_sub`, `tensor_exp`, `tensor_log`, `tensor_sqrt`, `tensor_add_scalar`, `tensor_mul_scalar`, `tensor_item`, `tensor_create_scalar`, `tensor_create_param_*`, `tensor_create_state_*`, `prim__paramRegister`, plus the small fan-out around DNC's specific ops. Probably ~30-40 FFIs.
+
+Then run `make BACKEND=mlx example-dnc-copy DNC_COPY_ARGS='--epochs 5 --max-len 3 --batch 1'` and expect it to pass. If yes: design works on the hot path, proceed to Phase 1'. If no: lifecycle log + a minimal repro narrows the bug.
+
+This phase is more invasive than I'd hoped — coexistence isn't a free lunch — but it's still a contained scope (under 50 FFIs) before committing to the full 165.
+
+### Phase 1' — Hot-path validation + perf baseline
+
+After Phase 0' passes, run on the broader set the test gate already covers on mlx (supervised, rnn, lstm, gru, transformer, gpt, mnist, seq-classify, dnc-copy, reinforce, q-learning, etc.). Anything that uses an unconverted FFI from the converted side will fail loudly (raw pointer passed to wrap-expecting glue, or vice versa).
+
+Triage: each failure either points to (a) an FFI we missed converting, or (b) a coexistence pattern that needs both sides converted at once.
+
+Once mlx passes broadly with the ~40-FFI core converted, measure:
+- `make bench-compare` ratios before/after on a hot example (e.g. lstm or transformer).
+- `make bench-ops-compare` for the raw FFI overhead delta.
+- Append a `tensor-lifecycle-wrapped-handle-baseline` entry to `perf-log.jsonl`.
+
+Acceptable target: <10% wall-clock regression on the hot examples. If higher, investigate cache misses on `foreign-procedure` calls, vector allocation pressure on the Chez heap, etc.
+
+### Phase 2' — Convert the remaining ~125 FFIs
+
+Mechanical pass through `Tensor.idr`. Two passes:
+
+1. **Tensor-returning FFIs** (`AnyPtr -> ... -> AnyPtr`): wrap-on-return template.
+2. **Tensor-consuming FFIs returning primitive** (`AnyPtr -> ... -> Double` / `Int` / `()`): vector-ref args, return primitive.
+
+Edge cases:
+
+- **`TensorPair*` returns** (`tensor_lstm_gates_pair`): the C struct contains two raw pointers. Scheme glue: call C, get pair pointer, extract `first` and `second` (via `tensor_pair_first` / `tensor_pair_second` already exposed), wrap each, return as a Scheme pair or a 2-element vector. Idris-side `prim__pairFirst` / `prim__pairSecond` become Scheme accessors that take the wrapped pair and return the wrapped half.
+- **FFIs taking raw buffers (not Tensors)** like `tensor_create_param_2d(int rows, int cols, double* data)`: the `data` is a raw buffer pointer from `prim__allocDoubles`, not a Tensor. Don't `vector-ref` it. Wrap only the Tensor return.
+- **`prim__paramRegister(name, t) -> AnyPtr`**: returns the same Tensor pointer it was passed. In the wrapped ABI, returns the same WRAPPED handle. The wrap+retain happened upstream when `t` was created; `paramRegister` doesn't need to wrap again. Just `vector-ref` the input, call C, return the input wrap unchanged.
+- **`prim__createScalar(double, int) -> AnyPtr`**: takes no Tensor inputs but returns one. Wrap-on-return template applies.
+
+After this pass, every Tensor-touching FFI in `Tensor.idr` should be on the new ABI.
+
+### Phase 3' — Retire the old wrap machinery
+
+After all FFIs are converted:
+
+- Delete `prim__wrapHandle` and `prim__unwrapHandle`. Audit Idris-side callers (`MkTensor`, the unit test); update.
+- `MkTensor wr pid = MkTensorRaw wr pid wr` (or drop `managedShadow` field — it's the same value as `tensorPtr` now). Probably drop the field to remove redundancy. Pattern matches that destructured the field (`weakenGrad`, `retypeGrad`) get simplified.
+- C side: remove `tensor_is_state` (or have it always return 1 for back-compat with anything still using it via the unified symbol).
+- C side: remove `tensor_create_managed_state_*` — its semantics merge into `tensor_create_state_*` (which now has uniform lifecycle).
+- C side: remove the "delete non-persistent at tape_reset" sweep. Remove `tensor_no_grad_end`'s persistent-only sweep. Refcount drives.
+- Idris side: `Layer/Ntm.idr` and `Layer/Dnc.idr` revert their `zeroState1d`/`zeroState2d` helpers to use `prim__createState1d`/`prim__createState2d` (the `Managed` variant goes away).
+
+Validate after each removal: `make BACKEND=tape,torch,mlx test` + `make BACKEND=mlx example-dnc-copy`.
+
+### Phase 4' — Linter
+
+`scripts/check-ffi-wrap-template.py`:
+
+1. Parse `Tensor.idr` for every `%foreign "scheme:..."` block.
+2. For each block whose Idris signature returns `AnyPtr` and at least one input is `AnyPtr`: check that the Scheme body matches the wrap-on-return template (regex on `vector-ref ... 1`, `(vector 'tensor-handle ...)`, `idris-tensor-guardian`, `tensor_retain_handle`).
+3. For each block whose Idris signature returns a primitive but takes `AnyPtr`: check `vector-ref` for the input(s).
+4. An explicit exemption file (`scripts/ffi-wrap-exemptions.txt`) lists FFIs known not to operate on Tensor handles — `prim__allocDoubles`, `prim__setDouble`, `prim__getDouble`, `prim__memoryReport`, etc.
+
+`make check-ffi-wrap-template` + CI gate.
+
+### Phase 5' — Perf measurement + drain cadence tuning
+
+The mid-block drain (foreign-callable trampoline from `tape_append`'s no_grad branch) was risky in the prior design because of UAF. With the wrapped-handle ABI it's safe. Re-enable it at a starting cadence of every 2000 tape_appends, with a reentrancy guard.
+
+- Measure: cost per drain (Chez `(collect 4)` is the dominant cost — ms-scale).
+- Tune cadence: smaller cadence → tighter Tensor count → more GC time. Larger cadence → more buffer pressure peak. Sweet spot somewhere in 500-5000.
+- For `ntm-copy` / `ntm-associative-recall` / `mountain-car-cont` specifically: confirm Tensor count stays bounded inside large `withNoGrad` blocks.
+
+Append entries to `perf-log.jsonl` and `perf-changes.md`.
+
+### Phase 6' — Documentation
+
+1. Promote `docs/develop/tensor-lifecycle-spike.md` → `tensor-lifecycle.md`, restructured as:
+   - **The model** (the ownership story above).
+   - **The wrapped-handle ABI** (FFI conventions + Scheme templates).
+   - **The drain mechanism** (guardian + foreign-callable trampoline).
+   - **Discipline for new FFIs** (use the template; linter enforces).
+   - **Appendix: history of attempts** (Phase 2.1 state-only refcount; Phase 2.x wrap-everywhere + RetainGuard attempts; what was learned).
+2. Add to `docs/develop/design-decisions.md`:
+   - **Tensor lifecycle: wrapped-handle ABI on mlx.** Rationale: the elision contract on Idris-Chez codegen. The wrap is the value, not metadata around the value, so the compiler can't separate them.
+3. Add to `docs/develop/gotchas.md`:
+   - **Every new mlx FFI returning a Tensor handle must use the wrap-on-return Scheme template.** Linter enforces. Skipping it leaks; messing it up corrupts.
+   - **Don't pass `tensorPtr` to non-FFI code expecting a raw pointer.** On mlx the field is a Chez vector. Use FFIs (which know to unwrap internally) or explicit `vector-ref` via foreign expression.
+4. Update `CLAUDE.md` "Architecture" section: one-paragraph summary + link to `tensor-lifecycle.md`.
+
+## Verification (cumulative)
+
+- **Unit tests**: `make test` green at every commit.
+- **Examples**: `make BACKEND=mlx test-examples` — expect *all* mlx examples passing by end of Phase 2'.
+- **Cross-backend**: `make BACKEND=tape,torch,mlx test-examples` — no regressions on tape/torch (their stubs are unchanged).
+- **Performance**: `make bench-compare` within 10% of pre-refactor baseline. `make bench-ops-compare` within 20%. Hard regressions trigger cadence tuning.
+- **Linter**: `make check-ffi-wrap-template` clean.
+- **Numerics**: `forwardVarTraced` produces bit-identical output on at least one example pre/post-refactor.
+
+## Risks
+
+- **Mixed-ABI coexistence in Phase 0'.** Converting one FFI at a time doesn't compose — the wrapped handle returned by a converted FFI can't flow into an unconverted FFI. Phase 0' has to convert a self-contained subset that dnc-copy uses end-to-end. Realistically ~30-40 FFIs.
+- **Vector allocation pressure.** Every FFI allocates a Chez vector for the return. With ~5K FFIs/epoch, ~5K vectors/epoch on the Chez heap. Chez's GC handles this — vectors of size 2 are cheap — but watch for measurable allocation cost.
+- **`foreign-procedure` cache hits.** Each Scheme wrapper calls `(foreign-procedure ...)` to dispatch to the C function. Chez caches per call site; first call resolves dlsym, subsequent calls hit the cache. The first epoch is slower; subsequent should be fast.
+- **TensorPair handling.** Need to think through the two-Tensor return convention. Probably extract first and second on the Scheme side, wrap each separately, return a Scheme pair.
+
+## Out of scope
+
+- **Tape / torch backends.** Their lifecycles work differently (arena, libtorch shared_ptr). The wrapped-handle ABI is mlx-only for now. Tape/torch FFIs keep the raw-pointer ABI; their `tensor_is_state` / `tensor_retain_handle` stubs stay no-op. Idris-side code doesn't care because the wrap layer is purely an mlx-side implementation detail (the `AnyPtr` type doesn't distinguish).
+- **Removing the Tensor record's `managedShadow` field.** It becomes redundant with `tensorPtr` once wrap is the only thing flowing through `tensorPtr`. Probably remove it in Phase 3' but not critical.
+- **Idris-side language-level enforcement.** The wrap is a runtime contract, not a type-system property. A motivated user could `believe_me` past it. We're not chasing static guarantees here; the linter catches the only way to break it accidentally.

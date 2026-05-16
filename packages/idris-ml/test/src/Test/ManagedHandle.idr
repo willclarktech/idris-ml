@@ -3,24 +3,22 @@ module Test.ManagedHandle
 import Harness
 import Tensor
 
--- These tests verify the Chez guardian + drain plumbing introduced in
--- Phase 2.2 of the tensor-lifecycle refactor. They don't yet exercise
--- real Tensor lifetimes (that's Phase 2.3); they confirm the primitives
--- work end-to-end.
+-- These tests verify the Chez guardian + drain plumbing for the
+-- wrapped-handle ABI (see docs/develop/tensor-lifecycle-plan.md).
+-- Every Tensor-returning FFI wraps its result in a Chez vector +
+-- registers it with the guardian + retains. Every Tensor-consuming FFI
+-- extracts the raw pointer via vector-ref. The wrap is the Tensor's
+-- runtime identity in Chez; it's not separable from the value.
 
--- State Tensors are the only Tensors that go through the guardian: wrap
--- conditionally returns a Chez vector only when the C-side
--- `tensor_is_state` flag is set. `prim__createState1d` sets it; plain
--- scalar/intermediate allocations don't. Allocating a state Tensor +
--- dropping its wrapper + forcing GC should land it in the guardian's
--- dead queue.
+-- Allocate Tensors and immediately discard the handle (no further use).
+-- Idris's Chez codegen sees the binding `raw` as live only during the
+-- prim__item read; after that the binding is dead and the wrap is
+-- GC-eligible. Forced major GC will queue dead wraps with the guardian.
 allocAndDropSum : Nat -> Double -> IO Double
 allocAndDropSum Z acc = pure acc
 allocAndDropSum (S k) acc = do
-  let buf = prim__allocDoubles 1
-  let raw = prim__createState1d 1 buf
-  let wrapped = prim__wrapHandle raw
-  let v = prim__item (prim__unwrapHandle wrapped)
+  let h = prim__createScalar (cast k) 0
+  let v = prim__item h
   allocAndDropSum k (acc + v)
 
 allocAndDrop : Nat -> IO ()
@@ -29,11 +27,16 @@ allocAndDrop n = do
   -- Print s so the whole chain doesn't get dead-code-eliminated.
   putStrLn ("  (allocAndDrop accumulated sum: " ++ show s ++ ")")
 
+-- initManagedHandles is self-init + idempotent. The return value
+-- (1 on first call ever, 0 on subsequent) is unreliable when other
+-- primitives self-init the guardian too — what we actually want to
+-- verify is that two calls in a row both return 0 (the second call
+-- can't be the very first invocation). Plus init must not throw.
 initIsIdempotent : IO Bool
 initIsIdempotent = do
-  first  <- initManagedHandles
+  _ <- initManagedHandles
   second <- initManagedHandles
-  check "init is idempotent" (first == 1 && second == 0)
+  check "init is idempotent (second call returns 0)" (second == 0)
 
 drainCollectsAfterGc : IO Bool
 drainCollectsAfterGc = do
@@ -51,22 +54,17 @@ drainCollectsAfterGc = do
   check ("drain post-GC = 50, pre-GC = 0 (got pre=" ++ show preGc ++ " post=" ++ show postGc ++ ")")
         (preGc == 0 && postGc == 50)
 
--- Non-state Tensors get the raw pointer back from wrap (no guardian
--- registration). The unwrap is the identity in that case so existing
--- prim__item-style use keeps working.
-unwrapRoundTrip : IO Bool
-unwrapRoundTrip = do
+scalarRoundTrip : IO Bool
+scalarRoundTrip = do
   _ <- initManagedHandles
-  let raw = prim__createScalar 42.0 0
-  let wrapped = prim__wrapHandle raw
-  let unwrapped = prim__unwrapHandle wrapped
-  let v = prim__item unwrapped
-  check "wrap + unwrap preserves identity" (v == 42.0)
+  let h = prim__createScalar 42.0 0
+  let v = prim__item h
+  check "create + item round-trips through wrapped ABI" (v == 42.0)
 
 export
 tests : List (IO Bool)
 tests =
   [ initIsIdempotent
   , drainCollectsAfterGc
-  , unwrapRoundTrip
+  , scalarRoundTrip
   ]
