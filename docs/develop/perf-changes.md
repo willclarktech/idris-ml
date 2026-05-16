@@ -962,6 +962,76 @@ What lands instead:
 
 ----
 
+### 2026-05-12 — REINFORCE batched policy forward (Job 4 Phase B)
+
+**Change**: added `rolloutEpBatched` + `computeLossBatched` +
+`epochRLBatched` + `genBatchV` to `packages/idris-ml-examples/src/Example/Reinforce.idr`.
+New `--batched 1` CLI flag selects the batched path; default stays
+sequential. The batched rollout stacks N envs' observations into a
+single `Tensor [N, 4]`, does **one** `forwardVarBatch` per timestep,
+then per-env action sampling + `cpStep`. Done envs are frozen (their
+state passes through the batched forward; no `StepRec` appended)
+to keep the `[N, 4]` shape stable. Loop exits early once all envs
+terminate.
+
+**Why**: Job 4 Phase A had established (via `make bench-gym`) that
+env-step is already cheap (~100 ns/call for CartPole). The 20-40×
+RL-example ratio vs PyTorch ref is per-op-count, not env-step cost.
+Per-timestep batched policy forward collapses N×T forward calls
+into T forwards — same gradient math, fewer wrapper trips, fewer
+tape entries. The reframe is captured in the plan and in the
+"Job 4 Phase B" task description.
+
+**TDD progression** (per Job 3 Phase B pattern):
+
+1. Failing parity test added in
+   `packages/idris-ml-examples/test/src/Test/Reinforce.idr` — assert
+   per-episode total rewards match sequential rollout for matched
+   RNG, N=1 and N=2.
+2. `rolloutEpBatched` implemented; parity tests pass bit-identically
+   on all three backends (tape, torch, mlx-CPU). Verified via
+   `make test-examples-unit`.
+3. `--batched 1` wired into `main` via runtime dispatch; convergence
+   preserved (CartPole reaches max avg_return=200.0 at 100 epochs on
+   all three backends, both modes).
+
+**Wall-clock at 100 epochs** (matching seeds, same machine):
+
+| backend | sequential | batched | Δ |
+|---|---:|---:|---:|
+| tape  | 12.61s | 11.41s | −9.5% |
+| torch | 14.81s | 13.24s | −10.6% |
+| mlx   | 79.19s | 52.31s | **−34%** |
+
+The mlx win is the headline — wrapper overhead per call was highest
+there (mx::array construction, tape entry, VJP closure rebuild per
+call). Tape/torch wins are within the VM noise envelope (±15-20%
+per `feedback_vm_perf_noise`) but consistent in direction.
+
+**What this *doesn't* close**: the 20-40× ratio vs PyTorch ref. Even
+at the batched mlx number (52s for 100 epochs), we're well above
+what PyTorch ref does on the same workload. The remaining gap is
+shared with the rest of the codebase (Idris per-prim cost floor,
+the ~9 µs glue) and is a Job 1/2a concern, not specifically Job 4.
+
+**Files**:
+- `packages/idris-ml-examples/src/Example/Reinforce.idr` — new
+  rolloutEpBatched, computeLossBatched, epochRLBatched, genBatchV,
+  --batched flag.
+- `packages/idris-ml-examples/test/src/Test/Reinforce.idr` — parity
+  test suite (N=1, N=2 per-env reward parity).
+- `packages/idris-ml-examples/test/{test.ipkg,src/Main.idr}` — wire
+  the new test module.
+
+**Open follow-ups**:
+- Extract `rolloutEpBatched` to a shared module in idris-ml-examples
+  (e.g. `Example.RL.BatchRollout`) so other RL examples can reuse it,
+  once at least one more example wants it.
+- Port `a2c.idr`, `ppo.idr`, `sac.idr`, `dqn.idr`, `mountain-car.idr`
+  to use batched rollout. Apply the same TDD discipline per example.
+
+----
+
 ## Future opportunities (not active)
 
 Ideas surfaced during the Job 1 phase A push that we don't plan to
