@@ -459,6 +459,80 @@ matches its pre-broadcast best (perf-baseline).
 
 ----
 
+### 2026-05-11 — Tape: BLAS-accelerate matmul backward kernels — `9311eff`
+
+**Plan job**: Job 2b (phase A, stretch)
+
+**Motivation**: All matmul-class forward kernels (`OP_MM`, `OP_BMM`,
+`OP_MV`, `OP_LINEAR`, `OP_LINEAR_2D`) have dispatched to Apple
+Accelerate `cblas_dgemm`/`dgemv` since the file was written, but
+the matching backwards were hand-rolled triple-nested loops. Every
+transformer / GPT / DNC backward pass therefore left Accelerate on
+the table on the half of the computation that takes the most time
+at scale.
+
+**Change**: Each backward switched to the BLAS-equivalent:
+- `OP_MM`: `d_a = dgemm(NoTrans, Trans)`, `d_b = dgemm(Trans, NoTrans)`
+- `OP_BMM`: single dgemm collapsing the `B·m` dim (shared weight
+  means `d_b` accumulates over batch in one call)
+- `OP_MV`: `d_A = dger` (rank-1), `d_x = dgemv(Trans)`
+- `OP_LINEAR_2D`: `d_W = dgemm(Trans, NoTrans)`, `d_X = dgemm(NoTrans, NoTrans)`
+- `OP_LINEAR`: `d_W = dger`, `d_x = dgemv(Trans)`
+
+`beta=1.0` preserves the existing `+= grad` accumulation semantics.
+Each BLAS path is gated on `__APPLE__`; the portable scalar
+fallback is preserved.
+
+**Closing sweep** (full 9 examples × 3 backends, see
+`perf-log.jsonl` commit `9311eff+dirty`):
+
+| Example | Job 2a (naive) | Job 2b (BLAS) | Δ wall | quality Δ |
+|---|---|---|---|---|
+| supervised | 3.6s | 3.3s | **-8%** | bit-identical |
+| rnn | 8.7s | 8.1s | -7% | bit-identical |
+| lstm | 11.2s | 10.5s | -6% | bit-identical |
+| gru | 9.7s | 9.7s | 0% | bit-identical |
+| transformer | 31.8s | 28.8s | **-9%** | bit-identical |
+| dnc-copy | 89s / 0.877 | 76s / 0.873 | **-15%** | ≈0 |
+| dnc-recall | 480s / k4=0.94 | 433s / k4=0.96 | **-10%** | + |
+| ntm-copy | 84s / 4400ep / 1.0 | 118s / 7000ep / 1.0 | +40% wall | acc preserved |
+| ntm-recall | 163s / 8500ep / k4=0.98 | 321s / 18000ep / k4=0.91 | +97% wall | **-7pp** |
+
+Per-epoch ms is faster everywhere; the NTM wall-clock regression is
+purely seed-trajectory: BLAS `dgemm`/`dger`/`dgemv` reduce in a
+different floating-point order than the naive triple loop, and
+NTM-Copy's documented seed-sensitivity (`gotchas.md`) flips
+seed=42 onto a slower-converging branch. Quality preserved on
+ntm-copy (acc_full=1.0 either way); ntm-recall acc_k4 drops 7pt.
+
+**Decision (recorded here as the rationale)**: kept the
+unconditional BLAS path despite the NTM regression. Rationale:
+1. The library is general-purpose; NTM is one architecture out of
+   ~25 examples. Hobbling the linear-algebra fast-path for every
+   user just to preserve NTM-Copy's seed=42 trajectory is the
+   wrong trade. (See feedback memory
+   `feedback_library_users_not_examples.md`.)
+2. NTM-Copy still converges to acc_full=1.0; it just takes more
+   epochs at the default seed.
+3. NTM-Recall's k4 0.98→0.91 is a real quality regression but
+   acc_k2=1.0 stays perfect — short-sequence recall is unaffected
+   and length-generalization to k4/k6 is the inherently
+   seed-sensitive part of the benchmark.
+
+A threshold-dispatch variant (route to naive below
+`m·n·k = 5000`) was tried (commit `1518381`, reverted in
+`3128ad5`); even the act of wrapping the naive path in
+`if (use_blas) {...} else { naive }` shifts compiler codegen
+enough to drift gradients ULP-wise. The variant also fared worse
+than all-BLAS on dnc-recall in our run (k4 0.96 → 0.82).
+Threshold tuning is too noise-prone to do without a proper
+microbench framework (logged for Phase B).
+
+**Outcome**: landed. NTM regression accepted as a library-level
+trade. Job 2b phase A closed.
+
+----
+
 ## Future opportunities (not active)
 
 Ideas surfaced during the Job 1 phase A push that we don't plan to

@@ -218,6 +218,30 @@ Measurements at seed=42/7/99/123, batch=1, 5K epochs, threshold-disabled (`acc_s
 
 Implication: don't read a single-seed under-budget run as a backend bug. Compare the same seed against PyTorch ref before concluding anything. Final convergence (e.g. 25K+ epochs with `WindowedPercentile` early-stop) is the right gate; 5K epoch snapshots are too noisy. The ≥4/5 multi-seed pass rate gate in the convergence plan should be applied at full convergence budgets, not at fixed-epoch checkpoints.
 
+### NTM tape backward uses Apple Accelerate BLAS — seed=42 trajectory shifted
+
+After commit `9311eff` (2026-05-11), `OP_MM` / `OP_BMM` / `OP_MV` /
+`OP_LINEAR` / `OP_LINEAR_2D` backward kernels dispatch to
+`cblas_dgemm` / `dgemv` / `dger` on Apple. The forward kernels
+already used BLAS; the backward switch closes a long-standing
+performance gap for matmul-heavy backwards (transformer, DNC).
+
+`dgemm`/`dger` reduce in a different floating-point order than the
+hand-rolled triple loops they replaced, so per-step gradients
+differ by ~1 ULP from the pre-`9311eff` tape. NTM-Copy's
+seed-sensitivity is acute enough that this flips seed=42 onto a
+slower-converging branch: tape ntm-copy goes from ~4400 ep to
+~7000 ep (acc_full=1.0 either way); ntm-recall from ~8500 ep /
+k4=0.98 to ~18000 ep / k4=0.91. acc_short / acc_k2 stay at 1.0;
+the regression is on the inherently seed-sensitive
+length-generalization gates.
+
+Implication: if you're chasing best-case NTM-Copy convergence
+runtime, try multiple seeds — the BLAS reduction order may favour
+a different seed than seed=42 did pre-`9311eff`. For most
+workloads (transformer, DNC, supervised/RNN family) the BLAS path
+is a clean win and not a tradeoff at all.
+
 ### NTM-Copy default seed is per-backend after broadcast adoption
 
 The `Layer/Ntm.idr` `ntmInterpWriteIdris` helper now uses the tape backend's
