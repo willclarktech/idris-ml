@@ -156,4 +156,9 @@ extern long prof_tape_appends_mlx;
    result is then marked requires_grad=false). */
 int tape_append(int op, Tensor* result, Tensor* arg1, Tensor* arg2, double scalar_arg);
 
+/* Reset the tape — releases retains on every arg + result and clears the
+   per-op meta. Called at optimizer_step end (after eval+param update) and
+   at backend_reset_for_eval. Definition lives in backend_mlx.cpp. */
+void tape_reset(void);
+
 #endif /* IDRISML_BACKEND_MLX_TAPE_H */
