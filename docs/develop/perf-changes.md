@@ -1285,3 +1285,82 @@ place, it's natural to extend it with a memory limit.
   constructor is folded by the compiler.
 - **`buildMatrixRows` 2D scalar round-trip** — listed in early plans;
   already removed from the codebase. No-op.
+
+### 2026-05-14 — Torch Adam: multi-tensor step via `at::_foreach_*` — `<commit>`
+
+**Plan job**: follow-up to the GptLarge wallclock matrix. The
+PyTorch-precedent fused-optimizer story: PyTorch ships
+MultiTensorApply (`torch.optim.Adam(foreach=True)` since 1.12+) as the
+default Python path, but libtorch's C++ `torch::optim::Adam::step()`
+still loops per-parameter (no `foreach` / `fused` option in
+2.11.0's `adam.h`). idris-ml routes through the C++ API, so we get
+the per-param path.
+
+**Motivation**: validate the multi-tensor pattern that the existing
+"mlx backend: wrap optimizer step in `mx::compile`" TODO row will
+need. Torch `_foreach_*` is the easier landing because the API is a
+1:1 swap of `for (p : params) tensor_x_(p, ...)` to
+`at::_foreach_x_(params, ...)` — no tracing, no cache, no functional
+state-threading rewrite.
+
+**Change**: new `adam_step_foreach` static in
+`packages/backends/backend_torch.cpp` does Adam's m / v / denom /
+parameter update via `at::_foreach_mul_`, `at::_foreach_add_`,
+`at::_foreach_addcmul_`, `at::_foreach_sqrt`, `at::_foreach_div_`,
+`at::_foreach_add_`, `at::_foreach_addcdiv_`. Body is wrapped in
+`torch::NoGradGuard` — the in-place ops on leaf params with
+`requires_grad=true` would otherwise trip autograd's `check_inplace`
+(transformer / mnist / seq-classify / dqn / a2c / ppo crashed on this
+in the first pass). Params with undefined grad are filtered out of
+the gather lists (matches `torch::optim::Adam::step()` behaviour). m
+and v stay in `AdamParamState` so libtorch's serializer continues to
+work. `optimizer_step` dispatches to `adam_step_foreach` when
+`w->type == 2`; SGD / RMSprop / AdamW fall through to `opt->step()`
+unchanged. `TORCH_ADAM_FOREACH=0` env var routes back to libtorch's
+per-param step for A/B comparison. Added `prof_optimizer_math_ms`
+sub-timer to separate the math from `free_intermediates()` (the
+dominant non-math contributor inside `prof_optimizer_ms`).
+
+**Impact** — gpt-large @ torch CPU, 5 epochs, single-run A/B with
+otherwise-identical setup:
+
+| metric                    | A: foreach OFF | B: foreach ON | Δ           |
+|---------------------------|---------------:|--------------:|------------:|
+| optimizer-math ms/ep      |           9.27 |          8.66 | **−0.61** (−6.6%) |
+| optimizer total ms/ep     |           16.4 |          16.0 |        −0.4 |
+| backward ms/ep            |         1042.9 |         933.3 |       −109.6 (noise) |
+| C total ms/ep             |         1059.3 |         949.3 |       −110.0 |
+| val BPC @ ep 5            | 4.771089597130988 | 4.771089597130988 | **bit-identical** |
+
+Numerics are bit-identical down to the last fp64 digit — confirms the
+mul/add ordering matches PyTorch's per-param implementation
+(`m.mul_(β1).add_(g, 1-β1)` then `v.mul_(β2).addcmul_(g, g, 1-β2)`).
+
+The optimizer-math gain is tiny on CPU. The 110 ms/ep backward drop
+between the two runs is unrelated noise (a run-to-run delta of <15%
+sits below the VM noise floor; this is at 10%). On a 9500 ms/ep wall
+budget the foreach math itself moves <0.01% of wallclock.
+
+**Why so small on CPU**: PyTorch's MultiTensorApply is engineered to
+reduce GPU **kernel-launch** overhead. CPU `at::_foreach_*` is
+implemented as a parallel for-loop over the list, with no kernel-launch
+to save. The cost we measure on CPU is pure compute + dispatch, both
+of which the per-param loop already vectorises via Accelerate /
+OpenMP. So we get the structural benefit (one call instead of N) but
+the absolute speedup is in the µs-per-param noise.
+
+**Outcome**: landed. The change is correctness-neutral
+(bit-identical), perf-neutral on CPU (within noise), and forward-looks
+to the torch GPU path where it would land the typical 2–10× optimizer
+speedup PyTorch documents. Also validates the multi-tensor shape for
+the `mx::compile`-of-optimizer rewrite (the actual GPU work for
+idris-ml, since we don't currently run on torch GPU).
+
+**Cross-references**:
+- `perf-log.jsonl` `kind=ab` entries timestamped 2026-05-14T15:32 and
+  2026-05-14T15:34
+- libtorch 2.11.0 `adam.h` has neither `foreach` nor `fused` option
+  (Python-side only)
+- next concrete step from the high-priority TODO list: the
+  `mx::compile` optimizer wrap (where the same pattern actually pays
+  off because Metal kernel-launch latency is the bottleneck)

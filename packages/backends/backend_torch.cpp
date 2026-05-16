@@ -15,6 +15,7 @@
 
 /* ---------- Profiling ---------- */
 static double prof_backward_ms = 0, prof_optimizer_ms = 0;
+static double prof_optimizer_math_ms = 0;  /* Just opt->step() / adam_step_foreach */
 static int prof_epochs = 0;
 
 static double _wall_ms_torch(void) {
@@ -1164,6 +1165,73 @@ void optimizer_free(OptimizerHandle h) {
     delete w;
 }
 
+/* Fused multi-tensor Adam step using at::_foreach_*. Replaces the per-param
+   loop in torch::optim::Adam::step() with batched MultiTensorApply kernels.
+   Numerics are identical to the standard formulation: m and v live in the
+   AdamParamState slots so save/load still works through libtorch's serializer.
+   Params with undefined grad are skipped (matches libtorch behaviour). */
+static void adam_step_foreach(OptWrapper* w,
+                               const std::vector<at::Tensor>& params) {
+    auto& opt = *w->opt;
+    auto& state = opt.state();
+
+    std::vector<at::Tensor> active_params, m_list, v_list, g_list;
+    active_params.reserve(params.size());
+    m_list.reserve(params.size());
+    v_list.reserve(params.size());
+    g_list.reserve(params.size());
+
+    int64_t new_step = 0;
+    for (const auto& p : params) {
+        if (!p.grad().defined()) continue;
+        auto key = p.unsafeGetTensorImpl();
+        if (state.count(key) == 0) {
+            state[key] = std::make_unique<torch::optim::AdamParamState>();
+            auto& s0 = static_cast<torch::optim::AdamParamState&>(*state[key]);
+            s0.exp_avg(at::zeros_like(p));
+            s0.exp_avg_sq(at::zeros_like(p));
+            s0.step(0);
+        }
+        auto& s = static_cast<torch::optim::AdamParamState&>(*state.at(key));
+        s.step(s.step() + 1);
+        new_step = s.step();
+        active_params.push_back(p);
+        m_list.push_back(s.exp_avg());
+        v_list.push_back(s.exp_avg_sq());
+        g_list.push_back(p.grad());
+    }
+
+    if (active_params.empty()) return;
+
+    /* In-place updates on leaf params with requires_grad=true would trip
+       autograd's check_inplace. Same wrap as torch::optim::Adam::step(). */
+    torch::NoGradGuard no_grad;
+
+    double beta1 = w->beta1, beta2 = w->beta2;
+    double lr = w->lr, eps = w->eps;
+
+    double bc1 = 1.0 - std::pow(beta1, (double)new_step);
+    double bc2 = 1.0 - std::pow(beta2, (double)new_step);
+    double bc2_sqrt = std::sqrt(bc2);
+    double step_size = lr / bc1;
+
+    /* m = β1·m + (1-β1)·g — matches libtorch's mul_().add_(g, 1-β1) order. */
+    at::_foreach_mul_(m_list, beta1);
+    at::_foreach_add_(m_list, g_list, 1.0 - beta1);
+
+    /* v = β2·v + (1-β2)·g² */
+    at::_foreach_mul_(v_list, beta2);
+    at::_foreach_addcmul_(v_list, g_list, g_list, 1.0 - beta2);
+
+    /* denom = sqrt(v) / sqrt(bc2) + eps */
+    auto denom = at::_foreach_sqrt(v_list);
+    at::_foreach_div_(denom, bc2_sqrt);
+    at::_foreach_add_(denom, eps);
+
+    /* p -= step_size · m / denom */
+    at::_foreach_addcdiv_(active_params, m_list, denom, -step_size);
+}
+
 void optimizer_step(OptimizerHandle h) {
     double t0 = _wall_ms_torch();
     auto* w = static_cast<OptWrapper*>(h);
@@ -1172,14 +1240,34 @@ void optimizer_step(OptimizerHandle h) {
      * For group-scoped optimizers, only sync params whose name starts with w->prefix. */
     auto& param_groups = opt->param_groups();
     if (!param_groups.empty()) {
-        auto& params = param_groups[0].params();
+        auto& params_ref = param_groups[0].params();
         auto current = collect_param_tensors_filtered(w->prefix);
-        if (params.size() != current.size()) {
-            params.clear();
-            for (auto& t : current) params.push_back(t);
+        if (params_ref.size() != current.size()) {
+            params_ref.clear();
+            for (auto& t : current) params_ref.push_back(t);
         }
+        /* Fused foreach path for Adam (type=2). SGD/RMSprop/AdamW fall through
+           to libtorch's per-param step — those aren't currently hot in our
+           examples, and AdamW would need its own foreach impl for the
+           weight-decay step. */
+        double tm0 = _wall_ms_torch();
+        /* TORCH_ADAM_FOREACH=0 disables the fused multi-tensor path for A/B
+           perf comparison. Defaults to on. */
+        static const bool foreach_enabled = []() {
+            const char* e = std::getenv("TORCH_ADAM_FOREACH");
+            return !(e && (e[0] == '0'));
+        }();
+        if (w->type == 2 && foreach_enabled) {
+            adam_step_foreach(w, params_ref);
+        } else {
+            opt->step();
+        }
+        prof_optimizer_math_ms += _wall_ms_torch() - tm0;
+    } else {
+        double tm0 = _wall_ms_torch();
+        opt->step();
+        prof_optimizer_math_ms += _wall_ms_torch() - tm0;
     }
-    opt->step();
     /* Phase 1.5e: dump h0/c0 trajectory if enabled */
     {
         extern void _dbg_dump_lstm_traj_if_enabled_torch(void);
@@ -1509,7 +1597,7 @@ void backend_reset_for_eval(void) {
 void backend_epoch_begin(void) { /* no-op for torch: profiling is backward+optimizer only */ }
 
 void backend_profile_reset(void) {
-    prof_backward_ms = prof_optimizer_ms = 0;
+    prof_backward_ms = prof_optimizer_ms = prof_optimizer_math_ms = 0;
     prof_epochs = 0;
 }
 
@@ -1521,6 +1609,8 @@ void backend_profile_report(void) {
             prof_backward_ms, prof_epochs > 0 ? prof_backward_ms / prof_epochs : 0);
     fprintf(stderr, "  Optimizer: %.1fms total (%.1fms/epoch)\n",
             prof_optimizer_ms, prof_epochs > 0 ? prof_optimizer_ms / prof_epochs : 0);
+    fprintf(stderr, "    of which math: %.1fms total (%.2fms/epoch)\n",
+            prof_optimizer_math_ms, prof_epochs > 0 ? prof_optimizer_math_ms / prof_epochs : 0);
     double total = prof_backward_ms + prof_optimizer_ms;
     fprintf(stderr, "  C total:   %.1fms total (%.1fms/epoch)\n",
             total, prof_epochs > 0 ? total / prof_epochs : 0);
