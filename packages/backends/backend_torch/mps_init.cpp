@@ -75,10 +75,23 @@ static void torch_target_device_init(void) {
     if (std::strcmp(env, "cpu") == 0) {
         g_torch_target_device = at::kCPU;
     } else if (std::strcmp(env, "mps") == 0) {
-        g_torch_target_device = at::Device(at::DeviceType::MPS);
+        // Normalize to indexed (Device(MPS, 0)) to match what
+        // `tensor.device()` returns after a .to() lands on MPS — bare
+        // `Device(MPS, -1)` would never compare equal to a tensor's
+        // device, defeating the "skip .to() when already on target"
+        // no-op check in torch_migrate_to_target / the inline opt-out
+        // branches. There's only one Metal device per Mac, so index 0
+        // is the canonical form.
+        g_torch_target_device = at::Device(at::DeviceType::MPS, 0);
     } else if (std::strncmp(env, "cuda", 4) == 0) {
-        // accepts "cuda" or "cuda:N"
-        g_torch_target_device = at::Device(std::string(env));
+        // accepts "cuda" or "cuda:N"; bare "cuda" parses to
+        // Device(CUDA, -1) which libtorch then resolves to the current
+        // CUDA device on first use, so the same .device()-mismatch
+        // concern applies. Normalize unindexed to 0 explicitly.
+        std::string s(env);
+        g_torch_target_device = (s == "cuda")
+            ? at::Device(at::DeviceType::CUDA, 0)
+            : at::Device(s);
     }
     // Unknown strings fall through silently — the first .to() will throw
     // and the EAFP gate surfaces it.
