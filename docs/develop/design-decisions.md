@@ -702,69 +702,41 @@ C backend time was **2ms/epoch throughout** — unchanged by any optimization. T
 2. Moving the entire epoch loop into C (eliminating Scheme from the hot path)
 3. Accepting the gap — the C backend itself is fast (2ms), and Chez overhead is constant per epoch regardless of model size
 
-### Pluggable Device via sliced `UserDevice` interfaces (2026-05-13)
+### Pluggable Device — sliced `UserDevice` interfaces + per-backend C-symbol rename (2026-05-13)
 
-Phase 0 outcome of the pluggable-Device refactor (TODO row "Pluggable / dependent `Device` for user-supplied backends"). See the plan file at `~/.claude/plans/modular-petting-minsky.md` for the full multi-phase rollout; this section captures only the structural decision Phase 0 needed to settle before Phase 2.x begins.
+Tracks the TODO row "Pluggable / dependent `Device` for user-supplied backends." Before this refactor, every backend op in `Tensor.idr` was a free `%foreign` declaration bound to one symbol name (e.g. `tensor_add`), and a Makefile symlink picked which dylib backed it. User-supplied backends required forking the codebase.
 
-**The question**: today every backend op in `Tensor.idr` is a free `%foreign` declaration bound to one symbol name (e.g. `tensor_add`); a Makefile symlink picks which dylib backs it. User-supplied backends require forking the codebase. Three candidate replacements:
+**Structural choice — sliced typeclasses**. Three candidates were on the table:
 
 1. **One big interface** — single `UserDevice` typeclass with ~160 methods covering every op in `Tensor.idr`.
 2. **Sliced interfaces** — `UserDeviceCore` / `UserDeviceLinear` / `UserDeviceNN` / `UserDeviceConv` / `UserDeviceTape`, ~30 methods each. A backend that doesn't implement `UserDeviceConv` simply can't be used with conv layers, and that's a *type error*.
 3. **Dictionary record** — a 160-field `record DeviceOps` passed explicitly. Cheaper at the typechecker; less ergonomic at call sites.
 
-**Decision: sliced (variant 2).** The "ops depend on device" pitch — which is the whole reason to open `Device` up — only lands cleanly under slicing. A `UserDeviceConv d` constraint on `convLayer` means a backend without conv support is a compile error at the layer's use-site, not a runtime crash from a missing method. Variant 1 conflates "any backend" with "every backend implements everything"; variant 3 loses interface coherence (methods become record fields, no implicit resolution).
+Variant 2 (sliced) chosen. The "ops depend on device" pitch — which is the whole reason to open `Device` up — only lands cleanly under slicing. A `UserDeviceConv d` constraint on `convLayer` means a backend without conv support is a compile-time error at the layer's use-site, not a runtime crash from a missing method. Variant 1 conflates "any backend" with "every backend implements everything"; variant 3 loses interface coherence (methods become record fields, no implicit resolution).
 
-**Phase 0b evidence (typecheck time)**: the only risk for variant 2 was Idris-2 instance resolution choking at full sliced width. Built a stub `Device.ProtoWide` with 5 sliced interfaces × ~30 stub methods each (~150 total) plus a `TapeDevWide` instance covering all 5. Clean-build `idris2 --build idris-ml.ipkg` times (after `rm -rf build/ttc`):
+The risk for slicing was Idris-2 instance resolution choking at full width. A throwaway `Device.ProtoWide` module with 5 sliced interfaces × ~30 stub methods each (~150 total) plus a covering instance produced these clean-build times (`rm -rf build/ttc` between runs):
 
 | Surface | Samples | Best-of-4 mean |
 |---------|---------|----------------|
-| Baseline (Phase 0a's 10-method `Device.Proto` only) | 7.18, 7.35, 7.43, 7.43, 8.08, 8.40 | 7.32s |
-| Sliced 5×30 + 5 instances (`ProtoWide` added) | 7.67, 7.73, 7.83, 8.02, 10.73, 13.28, 16.85, 22.03 | 7.74s |
+| Baseline (no `ProtoWide`) | 7.18, 7.35, 7.43, 7.43, 8.08, 8.40 | 7.32s |
+| Sliced 5×30 + 5 instances added | 7.67, 7.73, 7.83, 8.02, 10.73, 13.28, 16.85, 22.03 | 7.74s |
 
-Best-of-4 delta is +0.42s (+5.7%), well under the 20% acceptance threshold. Outlier runs (>10s) reflect VM load and appear on both surfaces; they don't indicate an Idris-side scaling issue. Adding 150 interface methods + 5 sliced instances costs essentially nothing in typecheck time on the full ipkg.
+Best-of-4 delta +0.42s (+5.7%), well under the 20% threshold; outliers >10s reflect VM load and appear on both surfaces. Variant 1 (single 160-method interface) would have a *worse* resolution profile than 5 slices of 30, so it's also ruled out.
 
-**Phase 0b also rules out variant 1**: a single 160-method interface would have a worse instance-resolution profile than 5 slices of 30, and we already see that 5×30 is fine — variant 1 has no ergonomic upside over slicing once the typechecker is comfortable.
+**C-side multi-link — per-backend symbol rename via `-include` header**. The three backend dylibs export 144 colliding `tensor_*` symbol names (`nm -gj` on `libidrisml_{tape,torch,mlx}.dylib` confirms direct overlap), so naive linking into one shared library fails. Two rename strategies were tested with a toy:
 
-**What follows from this**:
-- Phase 2.x slicing maps directly onto the five interfaces above: Core (lifecycle + arithmetic), Linear (matmul + reductions + reshape), NN (activations + softmax + norms + losses), Conv (conv + pooling), Tape (autograd + param registry + IO).
-- Each Phase 2.x PR converts one slice end-to-end: declare the interface, ship the three built-in instances (`TapeDev`, `TorchDev`, `MlxDev`) forwarding to renamed per-backend C symbols, replace the free `%foreign` + Idris wrapper at the call-site in `Tensor.idr`. Five PRs total.
-- The closed sum `Device = CPU | CUDA Nat | MPS` stays as a re-exported alias backed by the appropriate built-in instance — `Tensor [10] CPU` keeps compiling.
+1. **`-D` flag macros**: `cc -Dtensor_add=tensor_add_tape -c …` → `_tensor_add_tape` in the resulting `.o`. Linker accepts both renamed `.o`s into one `.dylib`; both symbols exported, no collision.
+2. **`-include rename_<backend>.h` header**: a per-backend header full of `#define tensor_add tensor_add_tape` lines, prepended via `-include`. Same outcome; preferable for 200+ symbols since the rename surface lives in a checked-in file, not a multi-kilobyte compile line.
 
-**Phase 0a and Phase 0b artifacts**:
-- `packages/idris-ml/src/Device/Proto.idr` — working 10-op interface + `TapeDev` instance, verified runtime-correct via `Example/DeviceProto.idr` (commit `b44eaf9`).
-- `packages/idris-ml/src/Device/ProtoWide.idr` — sliced 150-stub typechecker exerciser (commit `8fb7fec`).
-- Both files are deletable scaffolding; Phase 2.1 absorbs the real interface into `Tensor.idr` directly.
+Adopted #2 (commit `98f17cf`). `scripts/gen-rename-headers.py` parses `backend.h` and emits `packages/backends/rename_{tape,torch,mlx}.h` with `#define <sym> <sym>_<backend>` lines for all 206 exported functions; `make rename-headers` regenerates, `make check-rename-headers` gates CI drift. Returns broadened from an initial 195 to 206 once we noticed `TensorPair*`, `OptimizerHandle`, `int*` return types missing.
 
-**Phase 0d — multi-link feasibility check (2026-05-13)**:
+**Unified-name aliases keep existing Idris `%foreign` working** (commit `9e20307`). After the rename, the dylib exports only suffixed names (`_tensor_add_tape`). Idris `%foreign "C:tensor_add,libidrisml"` declarations would fail to resolve. Solution: at link time, alias each suffixed primary-backend symbol back to its unified name. macOS uses `-Wl,-alias_list,<file>` with one `<aliasee> <aliasname>` pair per line; Linux uses one `-Wl,--defsym=<unified>=<suffixed>` per symbol. Idris-side declarations stay verbatim; the primary backend handles the dispatch via the alias.
 
-Question: can `libidrisml_tape.dylib` / `libidrisml_torch.dylib` / `libidrisml_mlx.dylib` co-exist linked into one binary, so the build no longer needs the `BACKEND=...` symlink dance? The three dylibs today export 144 overlapping `tensor_*` symbol names (`nm -gj` confirms exact-name collision on add/sub/mul/matmul/conv/...), so linking them as-is fails by definition.
+**`BACKEND` as a comma-separated list + symlink retired** (commit `93e96f2`). Makefile refactored to use per-backend property tables (`<b>_SRC` / `<b>_CC` / `<b>_CFLAGS` / `<b>_LDFLAGS_<UNAME>`) plus an `$(eval $(call …))` loop that emits one compile rule per listed backend. Final link uses `c++` if any C++ backend is in the list, else `cc`, with the union of per-backend `LDFLAGS` for the platform. `.backend-stamp` FORCE rule re-links when `BACKEND` changes value (the dylib filename is no longer `BACKEND`-parameterised).
 
-Two compile-time symbol-rename strategies verified end-to-end with toy translation units that define a colliding `tensor_add` / `tensor_mul`:
+The pre-rollout worry about libtorch + mlx internal-symbol collisions (flagged when scoping the multi-link refactor) **did not materialise on macOS**. `BACKEND=tape,torch,mlx make backend` linked cleanly, no warnings. The 601 KB `libidrisml.dylib` exports `_tensor_add`, `_tensor_add_tape`, `_tensor_add_torch`, `_tensor_add_mlx` (and same for every other op), with the unified name aliased to whichever backend is primary. `example-supervised` produces bit-identical loss output across single-backend, dual-link, triple-link, and primary-switched (`tape,torch,mlx` vs `torch,tape,mlx`) configurations.
 
-1. **`-D` flag macros**: `cc -Dtensor_add=tensor_add_tape -c …` → `_tensor_add_tape` in the resulting `.o`. Linker accepts both `.o` files into one `.dylib`; `nm -gj` shows both renamed symbols exported, no collision. (Verified 2026-05-13.)
-2. **`-include rename_<backend>.h` header**: a single per-backend header full of `#define tensor_add tensor_add_tape` lines, prepended via `-include`. Same outcome. Preferable for the real refactor — 144 `-D` flags would be unmaintainable on the compile line.
-
-**Decision: multi-link via per-backend `-include rename_<backend>.h`.** Phase 1 will add `packages/backends/rename_{tape,torch,mlx}.h`, each defining every `tensor_*` / `backend_*` / `param_*` / `mnist_*` symbol with the backend suffix; the Makefile injects the matching header via `-include` on each backend's compile command. After this:
-- Build artifact: one `libidrisml.(so|dylib)` containing the listed backends' renamed symbols.
-- `BACKEND` becomes a comma-separated list (`tape`, `tape,torch`, `tape,torch,mlx`, `torch` …).
-- Symlink dance gone.
-
-**Outstanding Phase 1 risks** the rename experiment does NOT resolve:
-- **libtorch + mlx internal-symbol collisions** — both libraries link their own dependency chains (libtorch's ATen/c10, mlx's runtime). Some of these libraries may *themselves* export overlapping symbol names. Won't show until both are linked into one dylib on a real build. Mitigation: if collisions appear, use `-fvisibility=hidden` + `__attribute__((visibility("default")))` on our entry points to suppress propagation of internal symbols.
-- **Static-init order across backends** — each backend has C++ global constructors (tape arena init, libtorch's autograd-thread bootstrap, mlx's stream init). One dylib means they all run at load time; conflicts (e.g. two backends grabbing the same TLS slot) would show up as load-time crashes. Mitigation: defer global init via lazy-init functions called from `backend_name_<backend>` instead of at `__attribute__((constructor))` time.
-- **Per-platform conditionals** — mlx is Apple-only. Linux builds default to `BACKEND=tape,torch`; macOS to `tape,torch,mlx`. The Makefile already conditionalises on `$(UNAME)`, so this is a small extension.
-
-None of these block the Phase 1 design — they're implementation risks to surface during Phase 1, not Phase 0 stoppers.
-
-**Phase 1 — Multi-link landed (2026-05-13)**:
-
-- **1a (`98f17cf`)**: `scripts/gen-rename-headers.py` parses `backend.h` and emits `packages/backends/rename_<b>.h` with `#define <sym> <sym>_<backend>` lines for all 206 exported functions. `make rename-headers` / `make check-rename-headers` drive regen + CI drift gate. Initial regex caught 195 symbols; expanded in Phase 1b-2 to 206 to cover `TensorPair*`, `OptimizerHandle`, `int*` return types missed by the first pass.
-- **1b-1**: rename + unified-name aliases on single-backend builds. `-include rename_$(BACKEND).h` on every TU that emits or uses `tensor_*`/`mnist_*`/`optimizer_*`/`param_*` symbols (backend itself + shared sources: safetensors, mnist, dataloader). macOS uses `-Wl,-alias_list,<file>` to re-export each suffixed impl under its unified name; Linux uses one `-Wl,--defsym=<unified>=<suffixed>` per symbol. Idris-side `%foreign "C:tensor_add,libidrisml"` resolves unchanged via the alias.
-- **1b-2**: comma-`BACKEND` parsing + true multi-link. Makefile per-backend property tables (`<b>_SRC` / `<b>_CC` / `<b>_CFLAGS` / `<b>_LDFLAGS_<UNAME>`) + an `$(eval $(call …))` loop emit one compile rule per listed backend. Final link uses `c++` if any C++ backend is in the list, else `cc`, with the union of per-backend `LDFLAGS` for the platform. Symlink gone. A `.backend-stamp` FORCE rule re-links when `BACKEND` changes value (target file name is no longer `BACKEND`-parameterised).
-
-Symbol-collision risk from Phase 0d ("libtorch + mlx internal-symbol collisions") **did not materialise on macOS** — `BACKEND=tape,torch,mlx make backend` linked cleanly with no warnings. The resulting 601 KB `libidrisml.dylib` exports `_tensor_add`, `_tensor_add_tape`, `_tensor_add_torch`, `_tensor_add_mlx` (and same for every other op), with the unified name aliased to whichever backend is primary. `example-supervised` produces bit-identical loss output across single-backend, dual-link, triple-link, and primary-switched (`tape,torch,mlx` vs `torch,tape,mlx`) configurations.
-
-Verified combinations on macOS (Apple Silicon, libtorch 2.x via uv venv, mlx 0.31 via nix):
+Verified `BACKEND` combinations on macOS (Apple Silicon, libtorch 2.x via uv venv, mlx 0.31 via nix):
 
 | `BACKEND=` | Dylib size | Outcome |
 |------------|-----------|---------|
@@ -774,24 +746,16 @@ Verified combinations on macOS (Apple Silicon, libtorch 2.x via uv venv, mlx 0.3
 | `tape,torch,mlx` | 601 KB | triple, tape primary |
 | `torch,tape,mlx` | 601 KB | triple, torch primary |
 
-**Outstanding follow-ups** (not blocking Phase 2.1):
-- Linux verification: macOS testing only here. Linux needs `BACKEND=tape,torch` smoke testing; `--defsym` flag generation is theoretically equivalent but unverified end-to-end.
-- `bench-ops-compare` rebuilds the whole dylib per iteration (one backend at a time) to copy it to `libidrisml_<b>.dylib`. Slightly slower than the old per-backend variant build but isolates per-backend operator timing correctly.
-- `make` does NOT propagate `BACKEND` changes to downstream rules that consume the dylib path (e.g. example builds) — the dylib is unconditionally `libidrisml.{so,dylib}`, so example apps always link against whichever primary the current build has. Switching primary requires `make BACKEND=<new> backend && make example-<name>`.
+**Outstanding follow-ups** (not blocking the typeclass slice rollout):
+- Linux verification: macOS testing only so far. Linux needs `BACKEND=tape,torch` smoke testing; the `--defsym` flag generation is theoretically equivalent but unverified end-to-end.
+- `bench-ops-compare` rebuilds the whole dylib per iteration (one backend at a time) to copy it to `libidrisml_<b>.dylib`. Slightly slower than the old per-backend-variant build but isolates per-backend operator timing correctly.
+- The dylib filename is unconditionally `libidrisml.{so,dylib}`, so example apps always link against whichever primary the current build has. Switching primary requires `make BACKEND=<new> backend && make example-<name>`.
 
-**Phase 1c — test-examples smoke matrix (2026-05-13)**:
-
-74 of 76 example × backend combinations pass cleanly under the multi-link build. Every tape and every torch example passes; the two failures are both on mlx:
-- `mlx:example-dnc-copy` — crashes with `[scatter] Cannot calculate VJP with respect to indices` at `--epochs 5 --max-len 3 --batch 1 --seed 99`.
-- `mlx:example-dnc-recall` — same crash signature, same config.
-
-**Pre-existing**, not a Phase 1 regression: verified by checking out the pre-Phase-1 Makefile (`ee19b03`) and rebuilding `libidrisml_mlx.dylib`. The exact same crash reproduces at the smoke-test invocation. The TODO row "Re-enable 4 mlx examples on macOS CI" already tracks an overlapping class of mlx-specific DNC issues (the docs note `[malloc]` errors on the GH-Actions VM; what we see locally is the autograd scatter-VJP variant). Convergence-config runs of these examples DID pass historically (`perf-log.jsonl` shows `dnc-copy mlx` exit-0 at `--epochs 3500`+ on commits `798c4ac` / `ede8b6b` / `94700e5`), so the smoke-config bug is a narrower mlx flakiness that the long-run config doesn't trip. Both are added to the existing TODO row's scope. Phase 1 verification stands.
-
-Phase 2.1 (Move `Tensor.idr`'s lifecycle + arithmetic FFI into `UserDeviceCore` instance methods) is unblocked.
+**test-examples smoke matrix after the multi-link land** (commit `1cab7f8`-ish): 74 of 76 example × backend combinations pass cleanly. Every tape and every torch example passes; both failures are on mlx and pre-existing — `mlx:example-dnc-copy` and `mlx:example-dnc-recall` crash with `[scatter] Cannot calculate VJP with respect to indices` at `--epochs 5 --max-len 3 --batch 1 --seed 99`. Verified pre-existing by checking out the pre-rename Makefile (`ee19b03`) and rebuilding the mlx dylib — same crash reproduces. The TODO row "Re-enable 4 mlx examples on macOS CI" already tracks this class of mlx DNC issues. Convergence-config runs of these examples DID pass historically (`perf-log.jsonl` shows `dnc-copy mlx` exit-0 at `--epochs 3500`+ on commits `798c4ac` / `ede8b6b` / `94700e5`), so the smoke-config bug is a narrower mlx flakiness that the long-run config doesn't trip.
 
 ### Open `d` parameter: why `Device = Type` instead of a real sub-type (2026-05-13)
 
-Phase 2.1b opened the `d` parameter on `Tensor` from the closed sum `Device = CPU | CUDA Nat | MPS` to the unrestricted `Type`. After landing, the worry surfaced: `Tensor [4] Bool` now type-checks at the record level. The kind-of-binder (in Haskell terms) is unrestricted; from a documentation perspective `Tensor [4] Bool` looks like a valid type.
+When the `Tensor` record's `d` parameter was opened from the closed sum (`CPU | CUDA Nat | MPS`) to admit any type with a `UserDeviceCore` instance, the worry surfaced: `Tensor [4] Bool` now type-checks at the record level. The binder is unrestricted; from a documentation perspective `Tensor [4] Bool` looks like a valid type.
 
 (Aside on terminology — Idris 2 doesn't have a separate "kind" sort the way Haskell does. `Type` is a value of `Type` (with universe stratification behind the scenes). What Haskell calls "the kind of `d`" is in Idris just "the type at which `d` is bound." Outside this document we'll keep saying "kind" for everyone's sanity, but strictly it's a Haskell-ism.)
 
@@ -804,7 +768,7 @@ So in practice, the worst a non-device `d` can do is type-check uselessly. The u
 
 **Options considered**:
 
-1. **Documentation-only `Device` kind alias** *(chosen, this commit)*: `0 Device : Type; Device = Type`. Every kind-binder reads `(0 d : Device)` instead of `(0 d : Type)`. Same kind at runtime, but the call-site documentation says "this is a device tag." No type-system enforcement. ~Zero cost.
+1. **Documentation-only `Device` kind alias** *(chosen)*: `0 Device : Type; Device = Type`. Every kind-binder reads `(0 d : Device)` instead of `(0 d : Type)`. Same kind at runtime, but the call-site documentation says "this is a device tag." No type-system enforcement. ~Zero cost.
 
 2. **Empty marker interface `IsDevice`** *(deferred)*: Empty interface implemented for each device type. `Tensor`'s `d` stays at `Type`, but every Tensor-producing function takes `IsDevice d =>`. Pushes the error one step earlier than "no `UserDeviceCore` instance"; user gets "no `IsDevice` instance" at type-checking the declaration. Cost: one interface declaration + per-built-in impl + the constraint threaded through alongside `UserDeviceCore`. Mostly redundant with `UserDeviceCore` (any device that supports any op already implements `UserDeviceCore`).
 
@@ -812,7 +776,7 @@ So in practice, the worst a non-device `d` can do is type-check uselessly. The u
 
 4. **Closed-sum GADT wrapping any device type** *(deferred)*: A `DeviceTag` data type with `MkDeviceTag : (0 d : Type) -> UserDeviceCore d => DeviceTag`. `Tensor` parameterised on `DeviceTag` values. Loses the "user can declare their own type" simplicity (they have to wrap it in `MkDeviceTag`).
 
-**Why option 1 now**: the practical risk of `Tensor [4] Bool` is bounded — nothing can be done with it. The kind alias gives every kind-binder site a meaningful name without forcing constraint propagation through the record or smart-constructor changes. If we later want sharper errors at the declaration site, option 2 (IsDevice marker) is the natural next step and can be added without breaking the Phase 2.1c interface plumbing.
+**Why option 1 now**: the practical risk of `Tensor [4] Bool` is bounded — nothing can be done with it. The kind alias gives every kind-binder site a meaningful name without forcing constraint propagation through the record or smart-constructor changes. If we later want sharper errors at the declaration site, option 2 (IsDevice marker) is the natural next step and can be added without breaking the interface plumbing for the lifecycle + arithmetic op slice.
 
 **Revisit triggers**: open if users in the wild file confusing "no `UserDeviceCore X` instance" errors traced back to a typo like `Tensor [4] Bool`, OR if we ever want to define library code that's polymorphic in `d` without `UserDeviceCore d` available (currently impossible — every op needs it, so every polymorphic-in-`d` site naturally has it). Option 2 (`IsDevice`) is the cheapest sharper variant; option 3 is the heaviest if we want compile-time rejection at declaration sites.
 
