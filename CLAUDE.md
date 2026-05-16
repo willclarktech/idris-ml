@@ -224,6 +224,8 @@ Commit at each step. PyTorch is the correctness oracle.
 
 **No "linked = green"**. The Phase 1 (unified FFI dispatch) slip — entry-point commits 1.1–1.4 shipped with only compile/link coverage; the behavioural test (`600ae11`) followed days later — is the failure mode this section exists to prevent.
 
+**Coverage policy** — what "covered" means for the three backends, the principled-exclusion list, and the contributor checklist for adding new ops live in [`docs/develop/coverage-policy.md`](docs/develop/coverage-policy.md). Run `make coverage-gap-probe` to see current OP_* and FFI-symbol gaps. The three-axis target (symbol coverage + OP_* backward coverage + F32 paired oracle) is the yardstick; C-line % is advisory only.
+
 ### Alignment policy (cross-cutting — governs all example work)
 
 **Identical defaults**: Idris examples and PyTorch references MUST use identical defaults for all hyperparameters (lr, batch size, epochs, seed, architecture, init). When a discrepancy is found, adopt the better practice in BOTH. When changing an example, always update both sides. See `docs/develop/reference-alignment.md`.
