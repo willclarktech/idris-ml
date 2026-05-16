@@ -18,6 +18,66 @@ import Util
 -- Backend FFI (libtorch via libidrisml)
 ----------------------------------------------------------------------
 
+-- ----------------------------------------------------------------------
+-- Managed-handle plumbing (Chez guardian + foreign-procedure drain).
+-- See docs/develop/tensor-lifecycle-spike.md for full design.
+--
+-- Every FFI that returns a Tensor handle wraps the raw pointer in a Chez
+-- vector and registers the wrapper with a top-level guardian. When the
+-- wrapper becomes GC-unreachable (Idris-side variable goes out of scope),
+-- it lands in the guardian's dead queue. prim__drainManagedHandles polls
+-- the queue and calls tensor_release_handle on each raw pointer.
+--
+-- Idris does not distinguish "raw AnyPtr" from "wrapped AnyPtr" at the
+-- type level — both are AnyPtr. Convention: %foreign declarations talking
+-- to C use raw pointers; everything else uses wrapped pointers. Conversion
+-- happens at the boundary via prim__unwrapHandle / prim__wrapHandle.
+-- ----------------------------------------------------------------------
+
+%foreign "scheme:(lambda (dummy) (if (top-level-bound? 'idris-tensor-guardian) 0 (begin (set-top-level-value! 'idris-tensor-guardian (make-guardian)) 1)))"
+prim__initManagedHandlesC : Int -> PrimIO Int
+
+-- Self-initializing: if guardian doesn't exist yet, create it. Callers
+-- can use prim__wrapHandle without first calling initManagedHandles.
+%foreign "scheme:(lambda (raw) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((w (vector 'tensor-handle raw))) ((top-level-value 'idris-tensor-guardian) w) w))"
+export prim__wrapHandle : AnyPtr -> AnyPtr
+
+%foreign "scheme:(lambda (w) (vector-ref w 1))"
+export prim__unwrapHandle : AnyPtr -> AnyPtr
+
+-- Drain the guardian: pop dead wrappers, call C tensor_release_handle on
+-- each raw pointer. Returns the number drained. Uses (foreign-procedure
+-- ...) which resolves tensor_release_handle from the dlopened libidrisml
+-- at first call (cached thereafter).
+%foreign "scheme:(lambda (dummy) (let ((rel (foreign-procedure \"tensor_release_handle\" (void*) void))) (let loop ((n 0)) (let ((d ((top-level-value 'idris-tensor-guardian)))) (if d (begin (rel (vector-ref d 1)) (loop (+ n 1))) n)))))"
+prim__drainManagedHandlesC : Int -> PrimIO Int
+
+-- Force a Chez major GC. Use sparingly — only at known-safe drain points.
+%foreign "scheme:(lambda (dummy) (collect 4) 0)"
+prim__forceMajorGcC : Int -> PrimIO Int
+
+||| Initialize the managed-handle guardian. Idempotent. Returns 1 the
+||| first time it runs, 0 thereafter. Call once at backend init / first
+||| tensor creation — wrapHandle assumes the guardian exists.
+export
+initManagedHandles : IO Int
+initManagedHandles = primIO (prim__initManagedHandlesC 0)
+
+||| Drain the guardian. Pops dead wrappers and calls
+||| tensor_release_handle on each. Returns the number drained.
+export
+drainManagedHandles : IO Int
+drainManagedHandles = primIO (prim__drainManagedHandlesC 0)
+
+||| Force a Chez major GC. Combined with drainManagedHandles, this is the
+||| reclamation mechanism for eval-phase tight loops. Expensive — only
+||| call at boundaries like no_grad_end or every Nth FFI in heavy code.
+export
+forceMajorGc : IO ()
+forceMajorGc = do
+  _ <- primIO (prim__forceMajorGcC 0)
+  pure ()
+
 -- Lifecycle
 %foreign "C:tensor_create_scalar,libidrisml"
 export prim__createScalar : Double -> Int -> AnyPtr

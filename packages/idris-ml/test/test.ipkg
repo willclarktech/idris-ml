@@ -11,6 +11,7 @@ modules = Harness
         , Test.GradMode
         , Test.Hpo.LrFinder
         , Test.Init
+        , Test.ManagedHandle
         , Test.Math
         , Test.RL.Gae
         , Test.RL.ReplayBuffer
