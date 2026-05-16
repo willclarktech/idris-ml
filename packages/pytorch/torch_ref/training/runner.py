@@ -10,6 +10,11 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+import psutil
+
+_PROC = psutil.Process()
+_PEAK_MB = 0
+
 
 @dataclass
 class TrainConfig:
@@ -40,7 +45,7 @@ class TrainConfig:
     lr_scheduler: Any | None = None
 
 
-def _format_elapsed(start: float) -> str:
+def format_elapsed(start: float) -> str:
     """Format elapsed time as [HH:MM:SS]."""
     total = int(time.monotonic() - start)
     hh = total // 3600
@@ -64,6 +69,20 @@ def _format_duration(total_sec: int) -> str:
 def _format_metrics(metrics: list[tuple[str, str]]) -> str:
     """Format metrics as tab-separated key=value pairs."""
     return "".join(f"\t{k}={v}" for k, v in metrics)
+
+
+def mem_suffix() -> str:
+    """Format `\\tpeak=NMB\\tcur=NMB` for the unified per-epoch log line.
+
+    Updates a module-level peak watermark on every call so the value reflects
+    the high-water mark across the whole training run. Mirrors the Idris
+    `Tensor.getRssMB` / `getCurrentRssMB` pair used by `Train.logEpoch`.
+    """
+    global _PEAK_MB
+    cur_mb = _PROC.memory_info().rss // (1024 * 1024)
+    if cur_mb > _PEAK_MB:
+        _PEAK_MB = cur_mb
+    return f"\tpeak={_PEAK_MB}MB\tcur={cur_mb}MB"
 
 
 def format_result(kvs: list[tuple[str, str]]) -> str:
@@ -117,11 +136,14 @@ def run_training(
         # Log progress
         if config.log_every > 0 and ep % config.log_every == 0:
             extra = metrics_fn() if metrics_fn else []
-            print(f"  {_format_elapsed(t_start)} {ep}\tloss={loss}{_format_metrics(extra)}")
+            print(
+                f"  {format_elapsed(t_start)} {ep}\tloss={loss:.6f}"
+                f"{mem_suffix()}{_format_metrics(extra)}"
+            )
 
         # NaN detection
         if math.isnan(loss):
-            print(f"  {_format_elapsed(t_start)} Diverged (NaN) at epoch {ep}")
+            print(f"  {format_elapsed(t_start)} Diverged (NaN) at epoch {ep}")
             return epochs_done, loss
 
         final_loss = loss
@@ -135,7 +157,7 @@ def run_training(
                 stale += 1
             if stale >= config.patience:
                 print(
-                    f"  {_format_elapsed(t_start)} Early stop at epoch {epochs_done}"
+                    f"  {format_elapsed(t_start)} Early stop at epoch {epochs_done}"
                     f" (patience={config.patience})"
                 )
                 break
@@ -156,12 +178,12 @@ def run_training(
                         conv_count += 1
                         if conv_count >= config.windowed_patience:
                             print(
-                                f"  {_format_elapsed(t_start)} Converged at epoch {epochs_done}"
+                                f"  {format_elapsed(t_start)} Converged at epoch {epochs_done}"
                                 f" (window_avg={window_avg})"
                             )
                             break
                         print(
-                            f"    {_format_elapsed(t_start)} convergence"
+                            f"    {format_elapsed(t_start)} convergence"
                             f" {conv_count}/{config.windowed_patience}"
                             f" (window_avg={window_avg})"
                         )
@@ -190,12 +212,12 @@ def run_training(
                     conv_count += 1
                     if conv_count >= config.windowed_patience:
                         print(
-                            f"  {_format_elapsed(t_start)} Converged at epoch {epochs_done}"
+                            f"  {format_elapsed(t_start)} Converged at epoch {epochs_done}"
                             f" ({pct_label}={pct_val})"
                         )
                         break
                     print(
-                        f"    {_format_elapsed(t_start)} convergence"
+                        f"    {format_elapsed(t_start)} convergence"
                         f" {conv_count}/{config.windowed_patience}"
                         f" ({pct_label}={pct_val})"
                     )
