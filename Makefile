@@ -725,6 +725,13 @@ coverage-backend-mlx:
 coverage-backend-torch:
 	$(MAKE) BACKEND=torch coverage-backend
 
+# Static coverage gap probe — no build required. Emits CSV reports of
+# OP_* tags + extern "C" symbols vs test-file mentions. Output land in
+# $(BUILD)/coverage-gap-{ops,symbols}.csv. Advisory exit; gating flip
+# tracked under W3+W4 in coverage-policy.md.
+coverage-gap-probe:
+	@bash scripts/coverage-gap-probe.sh $(BUILD)
+
 # Specialized C test suites
 test-safetensors: $(BACKENDS_DIR)/test_safetensors.c $(BACKEND_RENAME_H) backend | $(BUILD)
 	cc -o $(BUILD)/test_safetensors -include $(BACKEND_RENAME_H) $(BACKENDS_DIR)/test_safetensors.c -DBACKEND_$(shell echo $(PRIMARY) | tr a-z A-Z) -L$(BUILD) -lidrisml -Wl,-rpath,$(BUILD) -lm
