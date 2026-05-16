@@ -2010,3 +2010,31 @@ mlx-gpu wins decisively above N≈2048: **4.3 TFLOPS at N=4096, 13.5× the CPU b
 - `scripts/perf-sweep.sh` — the new top-level sweep with cached PyTorch + mlx-cpu/mlx-gpu cells
 - `docs/develop/gotchas.md` — "Side-effect-bearing pure functions" entry
 - `CLAUDE.md` — `forwardVar`/IO-typed surfaces, per-sequence `withNoGrad` rule
+
+----
+
+### 2026-05-17 — Transformer causal mask cache
+
+**Motivation**: Follow-up to the PE-caching commit. Per-forward audit surfaced one remaining instance of recomputed-deterministic-state: `prim__causalMask sI` was rebuilt every `blockForward` (single-sequence path) and `prim__expandMask (prim__causalMask sI) batchSize` was rebuilt every `batchBlockForward` (batched path). Mask only depends on `seqLen`, which is fixed at construction — the same shape of fix that already landed for PE.
+
+**Change**: Added `TMat seqLen seqLen` field to `TransformerState` carrying the cached 2D mask. Single-sequence path threads the cached AnyPtr through `foldBlocks` → `blockForward` → `runHeadAttn`. Batched path expands the cached mask to `[b, seqLen, seqLen]` once per batch in `applyTransformerBatch` (outside the fold) and threads the 3D AnyPtr through `foldBlocksBatched` → `batchBlockForward`. Bug discovered during numerics verification: routing through `prim__causalMask` directly (which calls `tensor_causal_mask` → `make_tensor` → arena-allocated) gave a dangling pointer after the first `tape_reset` — the cached handle pointed at clobbered arena memory. Fix: route through `prim__createState2d` with an Idris-side `writeCausalMask` recursive Int loop filling the upper triangle on a `prim__allocDoubles` buffer, mirroring the PE-cache pattern exactly. Persistent-state allocator on all three backends (tape `t->persistent=1` + `malloc`; torch `from_tensor_persistent`; mlx refcount-driven `new Tensor`) keeps the mask alive across `tape_reset` / `free_intermediates`.
+
+**Impact — transformer example, 4 cells (two-point timing, ms/ep)**:
+
+| Cell | Before (2026-05-17 IO-refactor baseline) | After (mask cache) | Δ |
+|---|---:|---:|---:|
+| tape    |  1.08 |  1.11 | +3% (noise) |
+| torch   |  8.28 |  7.91 | -5% |
+| mlx-cpu | 40.60 | 37.59 | -7% |
+| mlx-gpu | 74.90 | 67.87 | -9% |
+
+Deltas are within VM noise (`feedback_vm_perf_noise`: ±15-20%), but the direction is consistently negative on the FFI-cost-dominated cells (mlx-cpu, mlx-gpu, torch). What we saved per forward: `numBlocks` causalMask calls in the single-sequence path, and `numBlocks − 1` expandMask calls in the batched path. Eliminating those compounds in deeper transformers and larger seqLen — this row's "small example" measures the floor; the win grows with model size.
+
+**Bit-identical numerics**: 3-epoch transformer at seed=42 produces `Predicted: 11110$ sort_acc=1/6` on tape, torch, and mlx — matches the pre-change baseline exactly across all three backends.
+
+**Outcome**: landed. Clean architectural win: mask is now constructor-time data (same status as PE), forwards no longer fire deterministic-state-rebuild FFI calls, and the lifetime-management bug (arena tensor cached across `tape_reset`) is closed by routing through the existing persistent-state allocator. Closes the high-priority TODO row "Transformer: cache causal mask (follow-up to PE caching)".
+
+**Cross-references**:
+- `packages/idris-ml/src/Layer/Transformer.idr` — cache field, `writeCausalMask` helper, threaded mask AnyPtr
+- `perf-log.jsonl` `kind=baseline` entries timestamped 2026-05-17 with transformer rows
+- PE-cache precedent: 2026-05-14 entry above

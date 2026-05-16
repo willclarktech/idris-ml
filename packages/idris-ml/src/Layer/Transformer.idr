@@ -69,6 +69,11 @@ data TransformerState :
     -- instead of recomputing via `writePE` (which was the 1B-Nat-ops/epoch
     -- bottleneck per the 2026-05-14 profile diagnostic in perf-changes.md).
     TMat seqLen dModel d g ->
+    -- Cached causal mask `[seqLen, seqLen]` — depends only on `seqLen` (fixed
+    -- at construction). Reused across blocks and forwards; for the batched
+    -- path `applyTransformerBatch` calls `prim__expandMask` once per batch
+    -- rather than once per block.
+    TMat seqLen seqLen d g ->
     TransformerState seqLen dModel numHeads headDim numBlocks vocabSize
                        seqLen (seqLen * vocabSize) d g
 
@@ -104,6 +109,15 @@ writePE dModel buf pos dim sLen dMod =
            buf' = prim__setDouble buf (pos * dMod + dim) val
        in writePE dModel buf' pos (dim + 1) sLen dMod
 
+-- Fill the strict upper triangle of an n×n buffer with 1.0; rely on
+-- prim__allocDoubles (calloc-backed) for the zero baseline.
+writeCausalMask : AnyPtr -> Int -> Int -> Int -> AnyPtr
+writeCausalMask buf i j n =
+  if i >= n then buf
+  else if j >= n then writeCausalMask buf (i + 1) (i + 2) n
+  else let buf' = prim__setDouble buf (i * n + j) 1.0
+       in writeCausalMask buf' i (j + 1) n
+
 
 ----------------------------------------------------------------------
 -- Per-block forward (single sequence: [seqLen, dModel] tensor handle)
@@ -117,10 +131,10 @@ runHeadAttn : {dModel, headDim : Nat} ->
               Vect k (LinearState dModel headDim d g) ->
               Vect k (LinearState dModel headDim d g) ->
               Vect k (LinearState headDim dModel d g) ->
-              AnyPtr -> Int -> Int -> Maybe AnyPtr -> AnyPtr
-runHeadAttn [] [] [] [] _ _ _ (Just acc) = acc
-runHeadAttn [] [] [] [] normed _ _ Nothing = normed
-runHeadAttn (q :: qs) (k :: ks) (v :: vs) (op :: ops) normed sI hdI acc =
+              AnyPtr -> AnyPtr -> Int -> Int -> Maybe AnyPtr -> AnyPtr
+runHeadAttn [] [] [] [] _ _ _ _ (Just acc) = acc
+runHeadAttn [] [] [] [] normed _ _ _ Nothing = normed
+runHeadAttn (q :: qs) (k :: ks) (v :: vs) (op :: ops) normed mask sI hdI acc =
   let qW = q.weightT.tensorPtr
       kW = k.weightT.tensorPtr
       vW = v.weightT.tensorPtr
@@ -130,7 +144,6 @@ runHeadAttn (q :: qs) (k :: ks) (v :: vs) (op :: ops) normed sI hdI acc =
       vi = prim__mm normed (prim__transpose2d vW)
       scale = 1.0 / sqrt (cast {to=Double} hdI)
       scores = prim__mulScalar (prim__mm qi (prim__transpose2d ki)) scale
-      mask = prim__causalMask sI
       masked = prim__maskedFill scores mask (-1.0e20)
       attn = prim__softmax2d masked
       headOut = prim__mm attn vi
@@ -138,20 +151,22 @@ runHeadAttn (q :: qs) (k :: ks) (v :: vs) (op :: ops) normed sI hdI acc =
       acc' = case acc of
         Nothing => proj
         Just prev => prim__add prev proj
-  in runHeadAttn qs ks vs ops normed sI hdI (Just acc')
+  in runHeadAttn qs ks vs ops normed mask sI hdI (Just acc')
 
--- Forward one block on `[seqLen, dModel]` tensor handle.
+-- Forward one block on `[seqLen, dModel]` tensor handle. The caller passes
+-- the cached causal mask AnyPtr (shared across blocks; built once on
+-- `TransformerState`).
 blockForward : {dModel, numHeads, headDim : Nat} ->
                  BlockState dModel numHeads headDim d g ->
-                 AnyPtr -> Int -> Int -> AnyPtr
+                 AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
 blockForward (MkBlock qs ks vs ops
                           (MkLayerNorm n1g n1b)
                           (MkLayerNorm n2g n2b)
-                          ff1 ff2) h sI hdI =
+                          ff1 ff2) h mask sI hdI =
   let f1W = ff1.weightT.tensorPtr
       f2W = ff2.weightT.tensorPtr
       normed1 = prim__layerNorm2d h n1g.tensorPtr n1b.tensorPtr 1.0e-5
-      attnOut = runHeadAttn qs ks vs ops normed1 sI hdI Nothing
+      attnOut = runHeadAttn qs ks vs ops normed1 mask sI hdI Nothing
       h1 = prim__add attnOut h
       normed2 = prim__layerNorm2d h1 n2g.tensorPtr n2b.tensorPtr 1.0e-5
       ffHidden = prim__clampMin (prim__mm normed2 (prim__transpose2d f1W)) 0.0
@@ -161,10 +176,10 @@ blockForward (MkBlock qs ks vs ops
 -- Fold over blocks.
 foldBlocks : {dModel, numHeads, headDim : Nat} ->
                Vect k (BlockState dModel numHeads headDim d g) ->
-               AnyPtr -> Int -> Int -> AnyPtr
-foldBlocks [] h _ _ = h
-foldBlocks (b :: bs) h sI hdI =
-  foldBlocks bs (blockForward b h sI hdI) sI hdI
+               AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
+foldBlocks [] h _ _ _ = h
+foldBlocks (b :: bs) h mask sI hdI =
+  foldBlocks bs (blockForward b h mask sI hdI) mask sI hdI
 
 
 ----------------------------------------------------------------------
@@ -178,7 +193,8 @@ applyTransformer : {0 d : Device} -> UserDeviceTape d => {seqLen, dModel, numHea
                      TVec seqLen d g ->
                      TVec (seqLen * vocabSize) d g
 applyTransformer {seqLen} {dModel} {headDim} {vocabSize}
-                   (MkTransformer embedW blocks (MkLayerNorm nfg nfb) vocabProj peCached) tokens =
+                   (MkTransformer embedW blocks (MkLayerNorm nfg nfb) vocabProj peCached
+                                  maskCached) tokens =
   let sI = cast {to=Int} seqLen
       dI = cast {to=Int} dModel
       vI = cast {to=Int} vocabSize
@@ -186,7 +202,7 @@ applyTransformer {seqLen} {dModel} {headDim} {vocabSize}
       embFlat = prim__embedding embedW.tensorPtr tokens.tensorPtr sI dI
       embedded = prim__reshape2d embFlat sI dI
       h0 = prim__add embedded peCached.tensorPtr
-      hN = foldBlocks blocks h0 sI hdI
+      hN = foldBlocks blocks h0 maskCached.tensorPtr sI hdI
       normedFinal' = prim__layerNorm2d hN nfg.tensorPtr nfb.tensorPtr 1.0e-5
       vpW = vocabProj.weightT.tensorPtr
       outT = prim__mm normedFinal' (prim__transpose2d vpW)
@@ -228,19 +244,21 @@ batchedHeadLoop (q :: qs) (k :: ks) (v :: vs) (op :: ops) normed mask sc acc =
         Just prev => prim__add prev proj
   in batchedHeadLoop qs ks vs ops normed mask sc (Just acc')
 
+-- Batched per-block forward. The caller passes the 3D causal mask AnyPtr
+-- (built once per batch by `applyTransformerBatch` via `prim__expandMask`
+-- on the cached 2D mask).
 batchBlockForward : {dModel, numHeads, headDim : Nat} ->
                       BlockState dModel numHeads headDim d g ->
-                      AnyPtr -> Int -> Int -> Int -> AnyPtr
+                      AnyPtr -> AnyPtr -> Int -> Int -> Int -> AnyPtr
 batchBlockForward (MkBlock qs ks vs ops
                                 (MkLayerNorm n1g n1b)
                                 (MkLayerNorm n2g n2b)
-                                ff1 ff2) h bsI sI dI =
+                                ff1 ff2) h mask3d bsI sI dI =
   let f1W = ff1.weightT.tensorPtr
       f2W = ff2.weightT.tensorPtr
       batchSize = bsI `div` sI
       normed1 = prim__layerNorm2d h n1g.tensorPtr n1b.tensorPtr 1.0e-5
       normed3d = prim__reshape3d normed1 batchSize sI dI
-      mask3d = prim__expandMask (prim__causalMask sI) batchSize
       scale = 1.0 / sqrt (cast {to=Double} (dI `div` cast {to=Int} numHeads))
       attnOut3d = batchedHeadLoop qs ks vs ops normed3d mask3d scale Nothing
       attnOut = prim__reshape2d attnOut3d bsI dI
@@ -253,10 +271,10 @@ batchBlockForward (MkBlock qs ks vs ops
 
 foldBlocksBatched : {dModel, numHeads, headDim : Nat} ->
                       Vect k (BlockState dModel numHeads headDim d g) ->
-                      AnyPtr -> Int -> Int -> Int -> AnyPtr
-foldBlocksBatched [] h _ _ _ = h
-foldBlocksBatched (b :: bs) h bsI sI dI =
-  foldBlocksBatched bs (batchBlockForward b h bsI sI dI) bsI sI dI
+                      AnyPtr -> AnyPtr -> Int -> Int -> Int -> AnyPtr
+foldBlocksBatched [] h _ _ _ _ = h
+foldBlocksBatched (b :: bs) h mask3d bsI sI dI =
+  foldBlocksBatched bs (batchBlockForward b h mask3d bsI sI dI) mask3d bsI sI dI
 
 -- Write positional encoding for B*seqLen rows (PE repeated per sample).
 writePEBatch : (dModel : Nat) -> AnyPtr -> Int -> Int -> Int -> Int -> Int -> AnyPtr
@@ -281,7 +299,8 @@ applyTransformerBatch :
   Tensor [b, seqLen] d g ->
   Tensor [b, seqLen * vocabSize] d g
 applyTransformerBatch {seqLen} {dModel} {headDim} {vocabSize} {b}
-                        (MkTransformer embedW blocks (MkLayerNorm nfg nfb) vocabProj peCached)
+                        (MkTransformer embedW blocks (MkLayerNorm nfg nfb) vocabProj peCached
+                                       maskCached)
                         tokens =
   let bI = cast {to=Int} b
       bsI = cast {to=Int} (b * seqLen)
@@ -299,7 +318,11 @@ applyTransformerBatch {seqLen} {dModel} {headDim} {vocabSize} {b}
       -- 2026-05-15 "tile_2d" entry.
       peTiled = prim__tile2d peCached.tensorPtr bI 1
       h0 = prim__add embedded peTiled
-      hN = foldBlocksBatched blocks h0 bsI sI dI
+      -- Expand the cached 2D mask once per batch (depends on `b`, which can
+      -- vary between train/eval) and thread the 3D handle through every
+      -- block.
+      mask3d = prim__expandMask maskCached.tensorPtr bI
+      hN = foldBlocksBatched blocks h0 mask3d bsI sI dI
       normedFinal' = prim__layerNorm2d hN nfg.tensorPtr nfb.tensorPtr 1.0e-5
       vpW = vocabProj.weightT.tensorPtr
       outBatch = prim__mm normedFinal' (prim__transpose2d vpW)
@@ -377,7 +400,16 @@ transformerLayer {prf} paramPrefix = do
       peBuf' = writePE dModel peBuf 0 0 sI dI
       peTV : TMat seqLen dModel CPU WithGrad
       peTV = MkTensor (prim__createState2d sI dI peBuf') Nothing
-  pure $ MkTransformer {prf} embTV blks nf vp peTV
+      -- Build causal mask once via the same persistent-state path as PE
+      -- (routing through `prim__createState2d`). `prim__causalMask` itself
+      -- returns an arena/intermediate tensor whose memory gets clobbered by
+      -- `tape_reset` and `free_intermediates` between training steps, so
+      -- caching its result would dangle after the first optimizer step.
+      maskBufRaw = prim__allocDoubles (sI * sI)
+      maskBuf = writeCausalMask maskBufRaw 0 1 sI
+      maskTV : TMat seqLen seqLen CPU WithGrad
+      maskTV = MkTensor (prim__createState2d sI sI maskBuf) Nothing
+  pure $ MkTransformer {prf} embTV blks nf vp peTV maskTV
 
 
 ----------------------------------------------------------------------
@@ -459,24 +491,24 @@ unfreezeBlockVec (b :: bs) = do
 public export
 {seqLen, dModel, numHeads, headDim, numBlocks, vocabSize : Nat} ->
   LayerLike (TransformerState seqLen dModel numHeads headDim numBlocks vocabSize) where
-  applyVar st@(MkTransformer _ _ _ _ _) input = ioRerun (\_ => (st, applyTransformer st input))
-  applyVarBatch st@(MkTransformer _ _ _ _ _) input = ioRerun (\_ =>
+  applyVar st@(MkTransformer _ _ _ _ _ _) input = ioRerun (\_ => (st, applyTransformer st input))
+  applyVarBatch st@(MkTransformer _ _ _ _ _ _) input = ioRerun (\_ =>
     (st, applyTransformerBatch st input))
   layerPrefix _ = "tfm"
 
-  freezeLayer (MkTransformer {prf} embedW blocks finalNorm vocabProj peCached) = do
+  freezeLayer (MkTransformer {prf} embedW blocks finalNorm vocabProj peCached maskCached) = do
     embedW'    <- weakenGrad embedW
     blocks'    <- freezeBlockVec blocks
     finalNorm' <- freezeLayer finalNorm
     vocabProj' <- freezeLayer vocabProj
-    pure (MkTransformer {prf} embedW' blocks' finalNorm' vocabProj' (retypeGrad peCached))
+    pure (MkTransformer {prf} embedW' blocks' finalNorm' vocabProj' (retypeGrad peCached) (retypeGrad maskCached))
 
-  unfreezeLayer (MkTransformer {prf} embedW blocks finalNorm vocabProj peCached) = do
+  unfreezeLayer (MkTransformer {prf} embedW blocks finalNorm vocabProj peCached maskCached) = do
     primIO (prim__setRequiresGrad embedW.tensorPtr 1)
     blocks'    <- unfreezeBlockVec blocks
     finalNorm' <- unfreezeLayer finalNorm
     vocabProj' <- unfreezeLayer vocabProj
-    pure (MkTransformer {prf} (retypeGrad embedW) blocks' finalNorm' vocabProj' (retypeGrad peCached))
+    pure (MkTransformer {prf} (retypeGrad embedW) blocks' finalNorm' vocabProj' (retypeGrad peCached) (retypeGrad maskCached))
 
 export
 transformerLayerAny :
