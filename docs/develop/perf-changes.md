@@ -995,18 +995,21 @@ tape entries. The reframe is captured in the plan and in the
    preserved (CartPole reaches max avg_return=200.0 at 100 epochs on
    all three backends, both modes).
 
-**Wall-clock at 100 epochs** (matching seeds, same machine):
+**Per-epoch cost at 100 epochs** (canonical numbers from
+`scripts/perf-run.sh`, logged to `perf-log.jsonl`):
 
-| backend | sequential | batched | Δ |
+| backend | seq ms/ep | batched ms/ep | Δ wall |
 |---|---:|---:|---:|
-| tape  | 12.61s | 11.41s | −9.5% |
-| torch | 14.81s | 13.24s | −10.6% |
-| mlx   | 79.19s | 52.31s | **−34%** |
+| tape  | 70  | 70  | −4% (noise) |
+| torch | 100 | 90  | −16% |
+| mlx   | 800 | 440 | **−37%** |
 
 The mlx win is the headline — wrapper overhead per call was highest
 there (mx::array construction, tape entry, VJP closure rebuild per
 call). Tape/torch wins are within the VM noise envelope (±15-20%
-per `feedback_vm_perf_noise`) but consistent in direction.
+per `feedback_vm_perf_noise`) but consistent in direction. Confirmed
+across two independent measurement passes (ad-hoc `time` wrappers +
+perf-run.sh).
 
 **What this *doesn't* close**: the 20-40× ratio vs PyTorch ref. Even
 at the batched mlx number (52s for 100 epochs), we're well above
