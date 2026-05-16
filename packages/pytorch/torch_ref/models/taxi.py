@@ -13,8 +13,11 @@ Optimal trajectory under those walls is 13 actions → return = +8.
 from __future__ import annotations
 
 import random
+import time
 
 import numpy as np
+
+from torch_ref.training.runner import format_elapsed, mem_suffix
 
 # ---------------------------------------------------------------------------
 # Taxi environment
@@ -144,12 +147,16 @@ def train_q_learning(
     rng = random.Random(seed)
     q = np.zeros((NUM_STATES, NUM_ACTIONS), dtype=np.float64)
     history: list[float] = []
+    t_start = time.monotonic()
     for epoch in range(epochs):
         ret = q_learning_episode(q, alpha, gamma, epsilon, rng)
         history.append(ret)
         if (epoch + 1) % log_every == 0:
             recent = sum(history[-1000:]) / min(len(history), 1000)
-            print(f"  epoch {epoch + 1:5d}  return={ret:6.1f}  recent_1000={recent:.2f}")
+            print(
+                f"  {format_elapsed(t_start)} {epoch + 1}\tloss={-ret:.6f}"
+                f"{mem_suffix()}\treturn={ret:.1f}\trecent_1000={recent:.2f}"
+            )
     return q, history
 
 

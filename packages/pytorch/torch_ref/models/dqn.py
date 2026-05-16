@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import copy
 import random
+import time
 from collections import deque
 
 import torch
@@ -17,6 +18,7 @@ import torch.nn.functional as F
 from torch import Tensor
 
 from torch_ref.models.reinforce import MAX_STEPS, CartPoleState, cartpole_step, observe
+from torch_ref.training.runner import format_elapsed, mem_suffix
 
 # ---------------------------------------------------------------------------
 # Q-network
@@ -165,6 +167,7 @@ def train_dqn(
     buffer = ReplayBuffer(buffer_capacity)
     history: list[float] = []
     step_count = 0
+    t_start = time.monotonic()
     for ep in range(episodes):
         step_count, ep_return = dqn_episode(
             q, target, optimizer, buffer, step_count, batch_size, gamma, target_sync_every, rng
@@ -173,8 +176,8 @@ def train_dqn(
         if (ep + 1) % log_every == 0:
             recent = sum(history[-50:]) / min(len(history), 50)
             print(
-                f"  episode {ep + 1:4d}  return={ep_return:.0f}  "
-                f"recent_50={recent:.1f}  steps={step_count}"
+                f"  {format_elapsed(t_start)} {ep + 1}\tloss={-ep_return:.6f}"
+                f"{mem_suffix()}\treturn={ep_return:.1f}\trecent_50={recent:.1f}"
             )
     return q, history
 

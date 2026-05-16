@@ -11,6 +11,7 @@ import argparse
 import copy
 import random
 import sys
+import time
 
 import torch
 
@@ -27,7 +28,7 @@ from torch_ref.models.mountain_car_cont import (
     polyak_update,
     sac_update,
 )
-from torch_ref.training.runner import format_result
+from torch_ref.training.runner import format_elapsed, format_result, mem_suffix
 
 
 def main() -> None:
@@ -78,6 +79,7 @@ def main() -> None:
     state = MCCState()
     ep_return = 0.0
     ep_len = 0
+    t_start = time.monotonic()
     for step in range(args.epochs):
         obs = observe(state)
         if step < args.warmup:
@@ -110,9 +112,11 @@ def main() -> None:
             polyak_update(q2_target, q2, args.tau)
         if (step + 1) % 2000 == 0:
             recent = history[-20:] or [0.0]
+            last_ep = history[-1] if history else 0.0
             print(
-                f"  step {step + 1:6d}  eps_seen={len(history):4d}  "
-                f"recent_20_return={sum(recent)/len(recent):.1f}"
+                f"  {format_elapsed(t_start)} {step + 1}\tloss={-last_ep:.6f}"
+                f"{mem_suffix()}\treturn={last_ep:.1f}"
+                f"\trecent_20={sum(recent)/len(recent):.1f}"
             )
 
     print()

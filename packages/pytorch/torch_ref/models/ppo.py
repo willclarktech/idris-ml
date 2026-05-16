@@ -15,12 +15,15 @@ from __future__ import annotations
 
 import math
 import random
+import time
 from dataclasses import dataclass
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
+
+from torch_ref.training.runner import format_elapsed, mem_suffix
 
 # ---------------------------------------------------------------------------
 # Acrobot environment (matches Idris Gym.ClassicControl.Acrobot)
@@ -292,6 +295,7 @@ def train_ppo(
     critic_opt = torch.optim.Adam(critic.parameters(), lr=lr)
     state = AcrobotState()
     history: list[float] = []
+    t_start = time.monotonic()
     for r in range(total_rollouts):
         obs_l, act_l, lp_l, rew_l, val_l, done_l, state, ep_rets = collect_rollout(
             actor, critic, state, rollout_steps, max_ep_len, rng,
@@ -315,9 +319,11 @@ def train_ppo(
         history.extend(ep_rets)
         if (r + 1) % log_every == 0:
             recent = history[-50:] or [0.0]
+            last_ep = history[-1] if history else 0.0
             print(
-                f"  rollout {r + 1:4d}  eps={len(ep_rets):2d}  "
-                f"recent_50_return={sum(recent)/len(recent):.1f}"
+                f"  {format_elapsed(t_start)} {r + 1}\tloss={-last_ep:.6f}"
+                f"{mem_suffix()}\treturn={last_ep:.1f}"
+                f"\trecent_50={sum(recent)/len(recent):.1f}"
             )
     return actor, history
 

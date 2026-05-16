@@ -8,9 +8,12 @@ the Idris `Gym.ToyText.CliffWalking` env (4x12 grid, start (3,0), goal
 from __future__ import annotations
 
 import random
+import time
 from dataclasses import dataclass
 
 import numpy as np
+
+from torch_ref.training.runner import format_elapsed, mem_suffix
 
 # ---------------------------------------------------------------------------
 # CliffWalking environment
@@ -112,12 +115,16 @@ def train_q_learning(
     rng = random.Random(seed)
     q = np.zeros((NUM_STATES, NUM_ACTIONS), dtype=np.float64)
     history: list[float] = []
+    t_start = time.monotonic()
     for epoch in range(epochs):
         ret = q_learning_episode(q, alpha, gamma, epsilon, rng)
         history.append(ret)
         if (epoch + 1) % log_every == 0:
             recent = sum(history[-100:]) / min(len(history), 100)
-            print(f"  epoch {epoch + 1:4d}  return={ret:.1f}  recent_100={recent:.1f}")
+            print(
+                f"  {format_elapsed(t_start)} {epoch + 1}\tloss={-ret:.6f}"
+                f"{mem_suffix()}\treturn={ret:.1f}\trecent_100={recent:.1f}"
+            )
     return q, history
 
 

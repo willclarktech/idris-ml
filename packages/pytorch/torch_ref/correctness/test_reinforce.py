@@ -14,12 +14,12 @@ class TestReinforce:
 
         early_returns: list[float] = []
         for _ in range(50):
-            avg_ret = reinforce_epoch(policy, optimizer, batch_size=10)
+            avg_ret, _ = reinforce_epoch(policy, optimizer, batch_size=10)
             early_returns.append(avg_ret)
 
         late_returns: list[float] = []
         for _ in range(50):
-            avg_ret = reinforce_epoch(policy, optimizer, batch_size=10)
+            avg_ret, _ = reinforce_epoch(policy, optimizer, batch_size=10)
             late_returns.append(avg_ret)
 
         assert sum(late_returns) / len(late_returns) > sum(early_returns) / len(early_returns)

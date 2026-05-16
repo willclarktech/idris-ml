@@ -10,8 +10,11 @@ Q-learning, which walks right along the edge.
 from __future__ import annotations
 
 import random
+import time
 
 import numpy as np
+
+from torch_ref.training.runner import format_elapsed, mem_suffix
 
 from torch_ref.models.q_learning import (
     MAX_STEPS,
@@ -64,12 +67,16 @@ def train_sarsa(
     rng = random.Random(seed)
     q = np.zeros((NUM_STATES, NUM_ACTIONS), dtype=np.float64)
     history: list[float] = []
+    t_start = time.monotonic()
     for epoch in range(epochs):
         ret = sarsa_episode(q, alpha, gamma, epsilon, rng)
         history.append(ret)
         if (epoch + 1) % log_every == 0:
             recent = sum(history[-100:]) / min(len(history), 100)
-            print(f"  epoch {epoch + 1:4d}  return={ret:.1f}  recent_100={recent:.1f}")
+            print(
+                f"  {format_elapsed(t_start)} {epoch + 1}\tloss={-ret:.6f}"
+                f"{mem_suffix()}\treturn={ret:.1f}\trecent_100={recent:.1f}"
+            )
     return q, history
 
 

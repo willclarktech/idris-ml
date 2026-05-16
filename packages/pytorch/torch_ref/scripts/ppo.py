@@ -30,7 +30,7 @@ from torch_ref.models.ppo import (
     ppo_update,
 )
 from torch_ref.training.lr_finder import LrFindConfig, lr_find
-from torch_ref.training.runner import format_result
+from torch_ref.training.runner import format_elapsed, format_result, mem_suffix
 
 
 def main() -> None:
@@ -112,14 +112,20 @@ def main() -> None:
         sys.exit(0)
 
     print("Training...")
-    t0 = time.time()
+    t_start = time.monotonic()
+    history: list[float] = []
     for epoch in range(args.epochs):
-        loss = epoch_fn()
+        loss_val = epoch_fn()
+        reported = -loss_val
+        history.append(reported)
         if epoch % 10 == 0 or epoch == args.epochs - 1:
-            elapsed = time.time() - t0
-            print(f"  [{elapsed:07.2f}s] {epoch}\tloss={loss:.6f}")
+            recent = sum(history[-50:]) / min(len(history), 50)
+            print(
+                f"  {format_elapsed(t_start)} {epoch}\tloss={loss_val:.6f}"
+                f"{mem_suffix()}\treturn={reported:.1f}\trecent_50={recent:.1f}"
+            )
 
-    elapsed = time.time() - t0
+    elapsed = time.monotonic() - t_start
     s_per_ep = elapsed / args.epochs
     print(f"Completed in {elapsed:.0f}s ({args.epochs} rollouts, {s_per_ep:.2f}s/rollout)")
 

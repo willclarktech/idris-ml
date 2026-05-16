@@ -28,7 +28,7 @@ from torch_ref.models.a2c import (
 )
 from torch_ref.models.reinforce import CartPoleState, observe
 from torch_ref.training.lr_finder import LrFindConfig, lr_find
-from torch_ref.training.runner import format_result
+from torch_ref.training.runner import format_elapsed, format_result, mem_suffix
 
 
 def main() -> None:
@@ -87,7 +87,6 @@ def main() -> None:
             args.entropy, args.value_coef,
         )
 
-        # Track per-episode returns within the rollout (Idris convention).
         ep_returns: list[float] = []
         run = running_return[0]
         for t in range(args.rollout):
@@ -113,14 +112,20 @@ def main() -> None:
         sys.exit(0)
 
     print("Training...")
-    t0 = time.time()
+    t_start = time.monotonic()
+    history: list[float] = []
     for epoch in range(args.epochs):
-        loss = epoch_fn()
+        loss_val = epoch_fn()
+        reported = -loss_val
+        history.append(reported)
         if epoch % 500 == 0 or epoch == args.epochs - 1:
-            elapsed = time.time() - t0
-            print(f"  [{elapsed:07.2f}s] {epoch}\tloss={loss:.6f}")
+            recent = sum(history[-50:]) / min(len(history), 50)
+            print(
+                f"  {format_elapsed(t_start)} {epoch}\tloss={loss_val:.6f}"
+                f"{mem_suffix()}\treturn={reported:.1f}\trecent_50={recent:.1f}"
+            )
 
-    elapsed = time.time() - t0
+    elapsed = time.monotonic() - t_start
     ms_per_ep = elapsed / args.epochs * 1000
     print(f"Completed in {elapsed:.0f}s ({args.epochs} updates, {ms_per_ep:.0f}ms/update)")
 

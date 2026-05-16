@@ -22,7 +22,7 @@ import torch
 
 from torch_ref.models.dqn import QNetwork, ReplayBuffer, dqn_episode, evaluate
 from torch_ref.training.lr_finder import LrFindConfig, lr_find
-from torch_ref.training.runner import format_result
+from torch_ref.training.runner import format_elapsed, format_result, mem_suffix
 
 
 def main() -> None:
@@ -77,21 +77,20 @@ def main() -> None:
         sys.exit(0)
 
     print("Training...")
-    t0 = time.time()
+    t_start = time.monotonic()
     history: list[float] = []
     for epoch in range(args.epochs):
-        loss = epoch_fn()
-        ep_return = -loss
+        loss_val = epoch_fn()
+        ep_return = -loss_val
         history.append(ep_return)
         if (epoch + 1) % 50 == 0:
             recent = sum(history[-50:]) / min(len(history), 50)
-            elapsed = time.time() - t0
             print(
-                f"  [{elapsed:07.2f}s] episode {epoch + 1:4d}  return={ep_return:.0f}  "
-                f"recent_50={recent:.1f}  steps={step_count[0]}"
+                f"  {format_elapsed(t_start)} {epoch + 1}\tloss={loss_val:.6f}"
+                f"{mem_suffix()}\treturn={ep_return:.1f}\trecent_50={recent:.1f}"
             )
 
-    elapsed = time.time() - t0
+    elapsed = time.monotonic() - t_start
     ms_per_ep = elapsed / args.epochs * 1000
     print(f"Completed in {elapsed:.0f}s ({args.epochs} episodes, {ms_per_ep:.0f}ms/episode)")
 

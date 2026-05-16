@@ -23,7 +23,7 @@ from torch_ref.models.mountain_car import (
     evaluate,
 )
 from torch_ref.training.lr_finder import LrFindConfig, lr_find
-from torch_ref.training.runner import format_result
+from torch_ref.training.runner import format_elapsed, format_result, mem_suffix
 
 
 def main() -> None:
@@ -83,17 +83,17 @@ def main() -> None:
         sys.exit(0)
 
     print("Training...")
-    t0 = time.time()
+    t_start = time.monotonic()
     history: list[float] = []
     for ep in range(args.epochs):
-        ep_return = -epoch_fn()
+        loss_val = epoch_fn()
+        ep_return = -loss_val
         history.append(ep_return)
         if (ep + 1) % 50 == 0:
             recent = sum(history[-50:]) / min(len(history), 50)
-            elapsed = time.time() - t0
             print(
-                f"  episode {ep + 1:4d}  return={ep_return:.0f}  "
-                f"recent_50={recent:.1f}  ({elapsed:.0f}s)"
+                f"  {format_elapsed(t_start)} {ep + 1}\tloss={loss_val:.6f}"
+                f"{mem_suffix()}\treturn={ep_return:.1f}\trecent_50={recent:.1f}"
             )
 
     print()

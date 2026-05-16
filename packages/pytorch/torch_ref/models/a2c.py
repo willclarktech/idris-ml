@@ -8,12 +8,15 @@ single-env rollouts with auto-reset, matching Idris.
 
 from __future__ import annotations
 
+import time
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
 from torch_ref.models.reinforce import MAX_STEPS, CartPoleState, cartpole_step, observe
+from torch_ref.training.runner import format_elapsed, mem_suffix
 
 
 class Actor(nn.Module):
@@ -132,6 +135,7 @@ def train_a2c(
     state = CartPoleState()
     history: list[float] = []
     ep_return = 0.0
+    t_start = time.monotonic()
     for update in range(total_updates):
         obs, actions, rewards, values, dones, new_state = collect_rollout(
             actor, critic, state, rollout_len
@@ -152,9 +156,11 @@ def train_a2c(
         state = new_state
         if (update + 1) % log_every == 0:
             recent = history[-50:] or [0.0]
+            last_ep = history[-1] if history else 0.0
             print(
-                f"  update {update + 1:5d}  eps_seen={len(history):5d}  "
-                f"recent_50_return={sum(recent)/len(recent):.1f}"
+                f"  {format_elapsed(t_start)} {update + 1}\tloss={-last_ep:.6f}"
+                f"{mem_suffix()}\treturn={last_ep:.1f}"
+                f"\trecent_50={sum(recent)/len(recent):.1f}"
             )
     return actor, critic, history
 

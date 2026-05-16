@@ -16,6 +16,7 @@ from __future__ import annotations
 import copy
 import math
 import random
+import time
 
 import torch
 import torch.nn as nn
@@ -23,6 +24,7 @@ import torch.nn.functional as F
 from torch import Tensor
 
 from torch_ref.models.ppo import MAX_STEPS, PendulumState, observe, pendulum_step
+from torch_ref.training.runner import format_elapsed, mem_suffix
 
 MAX_ACTION = 2.0  # Pendulum torque range
 
@@ -191,6 +193,7 @@ def train_sac(
     state = PendulumState()
     ep_return = 0.0
     ep_len = 0
+    t_start = time.monotonic()
     for step in range(total_steps):
         obs = observe(state)
         if step < warmup_steps:
@@ -220,9 +223,11 @@ def train_sac(
             polyak_update(q2_target, q2, tau)
         if (step + 1) % log_every == 0:
             recent = history[-20:] or [0.0]
+            last_ep = history[-1] if history else 0.0
             print(
-                f"  step {step + 1:6d}  eps_seen={len(history):4d}  "
-                f"recent_20_return={sum(recent)/len(recent):.1f}"
+                f"  {format_elapsed(t_start)} {step + 1}\tloss={-last_ep:.6f}"
+                f"{mem_suffix()}\treturn={last_ep:.1f}"
+                f"\trecent_20={sum(recent)/len(recent):.1f}"
             )
     return actor, history
 

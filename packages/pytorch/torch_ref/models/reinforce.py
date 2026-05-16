@@ -7,11 +7,14 @@ matching Gymnasium's exact constants (no gymnasium dependency needed).
 from __future__ import annotations
 
 import math
+import time
 from dataclasses import dataclass
 
 import torch
 import torch.nn as nn
 from torch import Tensor
+
+from torch_ref.training.runner import format_elapsed, mem_suffix
 
 # ---------------------------------------------------------------------------
 # CartPole environment (Gymnasium-compatible constants, Euler integration)
@@ -125,10 +128,10 @@ def reinforce_epoch(
     optimizer: torch.optim.Optimizer,
     batch_size: int = 10,
     gamma: float = 0.99,
-) -> float:
+) -> tuple[float, float]:
     """One REINFORCE update: collect batch of episodes, compute policy gradient.
 
-    Returns mean episode return (higher = better).
+    Returns (mean episode return, policy-gradient loss scalar).
     """
     all_log_probs: list[Tensor] = []
     all_advantages: list[float] = []
@@ -153,11 +156,12 @@ def reinforce_epoch(
     for lp, adv in zip(all_log_probs, adjusted, strict=True):
         loss = loss - lp * adv
     loss = loss / len(all_log_probs)
+    loss_val = float(loss.item())
     loss.backward()
     torch.nn.utils.clip_grad_norm_(policy.parameters(), 1.0)
     optimizer.step()
 
-    return sum(episode_returns) / len(episode_returns)
+    return sum(episode_returns) / len(episode_returns), loss_val
 
 
 def train_reinforce(
@@ -174,13 +178,17 @@ def train_reinforce(
     optimizer = torch.optim.Adam(policy.parameters(), lr=lr)
 
     history: list[float] = []
+    t_start = time.monotonic()
     for epoch in range(epochs):
-        avg_return = reinforce_epoch(policy, optimizer, batch_size, gamma)
+        avg_return, loss_val = reinforce_epoch(policy, optimizer, batch_size, gamma)
         history.append(avg_return)
 
         if (epoch + 1) % log_every == 0:
             recent = sum(history[-100:]) / min(len(history), 100)
-            print(f"  epoch {epoch + 1:4d}  avg_return={avg_return:.1f}  recent_100={recent:.1f}")
+            print(
+                f"  {format_elapsed(t_start)} {epoch + 1}\tloss={loss_val:.6f}"
+                f"{mem_suffix()}\treturn={avg_return:.1f}\trecent_100={recent:.1f}"
+            )
 
         # Early stop if solved
         if len(history) >= 100:

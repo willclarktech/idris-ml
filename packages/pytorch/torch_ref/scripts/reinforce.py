@@ -14,7 +14,7 @@ import torch
 
 from torch_ref.models.reinforce import PolicyNetwork, evaluate, reinforce_epoch
 from torch_ref.training.lr_finder import LrFindConfig, lr_find
-from torch_ref.training.runner import format_result
+from torch_ref.training.runner import format_elapsed, format_result, mem_suffix
 
 
 def main() -> None:
@@ -50,26 +50,30 @@ def main() -> None:
 
     if args.lr_find:
         def epoch_fn() -> float:
-            # `reinforce_epoch` returns mean episodic return (higher=better),
-            # but `lr_find` follows the standard "lower loss = better"
-            # convention. Negate so the cross-backend comparison with the
-            # Idris example (which already reports `negate avg_return`) is
-            # meaningful.
-            return -reinforce_epoch(policy, optimizer, args.batch, args.gamma)
+            # `reinforce_epoch` returns (mean episodic return, policy loss).
+            # `lr_find` wants a "lower is better" scalar; the Idris example
+            # reports `negate avg_return` to runTraining, so we match.
+            avg_ret, _ = reinforce_epoch(policy, optimizer, args.batch, args.gamma)
+            return -avg_ret
         lr_find(LrFindConfig(num_iters=100), epoch_fn, optimizer)
         print()
         print("Done — re-run without --lr-find at the recommended LR.")
         sys.exit(0)
 
     print("Training...")
-    t0 = time.time()
+    t_start = time.monotonic()
+    history: list[float] = []
     for epoch in range(args.epochs):
-        loss = reinforce_epoch(policy, optimizer, args.batch, args.gamma)
+        avg_return, loss_val = reinforce_epoch(policy, optimizer, args.batch, args.gamma)
+        history.append(avg_return)
         if epoch % 100 == 0 or epoch == args.epochs - 1:
-            elapsed = time.time() - t0
-            print(f"  [{elapsed:07.2f}s] {epoch}\tloss={loss:.6f}")
+            recent = sum(history[-100:]) / min(len(history), 100)
+            print(
+                f"  {format_elapsed(t_start)} {epoch}\tloss={loss_val:.6f}"
+                f"{mem_suffix()}\treturn={avg_return:.1f}\trecent_100={recent:.1f}"
+            )
 
-    elapsed = time.time() - t0
+    elapsed = time.monotonic() - t_start
     ms_per_ep = elapsed / args.epochs * 1000
     print(f"Completed in {elapsed:.0f}s ({args.epochs} epochs, {ms_per_ep:.0f}ms/epoch)")
 
