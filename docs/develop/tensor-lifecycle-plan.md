@@ -130,10 +130,13 @@ The plan's original Phase 1' scope ("convert ~10 hot FFIs") proved insufficient:
 
 **Working after sweep (on mlx):** `example-supervised`, `example-dnc-copy` (training runs end-to-end on `--epochs 100 --max-len 5 --batch 1`; previously segfaulted), `example-ntm-copy` (training runs).
 
-**Known regressions (follow-ups for Phase 1'):**
-- `example-rnn` hangs at certain epoch counts (11–14 hang, 10 and 15 complete). Smells like a GC-timing / drain-cadence interaction; the loop produces enough wraps to trigger Chez major GC, and *that* path is the unverified one. Reproduces from inside `build/exec/rnn_app/` with `./rnn.so --seed 42 --epochs 11`.
-- mlx examples still exit with the post-main `Exception: invalid memory reference` after training prints its profile report. This is the known C++ static-destructor abort on Apple VMs (commit `9d15635`) and predates this work, but the wrapped-handle ABI hasn't yet been observed to clear it. Whether the destructor ordering changes under the new lifecycle still needs investigation.
-- `make test-examples` matrix sweep deferred until rnn is resolved.
+**Phase 1' follow-ups — status update (2026-05-16):**
+
+- `example-rnn` hang at epochs 11-14: **resolved**. 24+ trials (3 runs × 4 epoch counts × 2 backends) all complete with deterministic losses; full `make test-examples` matrix shows rnn passing on all 3 backends. The fix landed implicitly in either Phase 3'-a (commit `78bc19b`, removed the `managedShadow` field → Tensor record went 3 fields → 2 fields, shifting Chez GC timing) or Phase 4' canonicalization (commit `9664726`, normalized 3 stale Phase 0' FFI bodies that used named arg vars + a spurious `idris-libidrisml-loaded` lazy-init). The plan note's hypothesis ("GC-timing / drain-cadence interaction") is consistent with either explanation; bisecting would be expensive (build-cache invalidation) and the resolution is durable across stress tests.
+
+- Post-main mlx `Exception: invalid memory reference`: still fires on some mlx examples after training completes, manifesting as `make test-examples` "crashed (rc=2)" entries for the 4 CI-skipped mlx targets (`ntm-copy`, `ntm-associative-recall`, `dnc-recall`, `mountain-car-cont`) plus occasionally on `a2c`, `ppo`, `dnc-copy`. Pre-existing C++ static-destructor issue (commit `9d15635`); the wrapped-handle ABI did not clear it and is unlikely to without changes to mlx's own teardown order on Apple VMs.
+
+- `make test-examples` matrix sweep: completed on commit `506d82b`. 71/79 ok; 8 fail. The 8 break down: 4 are CI-skipped pre-existing (mlx destructor), 3 are likely the same post-main destructor reaching examples not yet in the skip list, 1 is `ppo:tape` mid-run UAF (separate issue — also reports `backend=mlx` in its banner despite being the tape iteration, suggesting test-examples loop is also susceptible to dylib cross-contamination on this VM).
 
 ### Phase 1' — Hot-path validation + perf baseline
 
