@@ -168,9 +168,12 @@ endif
 mlx_SRC := $(BACKENDS_DIR)/backend_mlx.cpp
 mlx_CC := c++
 mlx_CFLAGS := -std=c++20 -I$(MLX_INC)
-# MLX bundles its own Accelerate usage; we already get the framework from
-# tape_LDFLAGS_Darwin when tape is also in BACKEND_LIST. Don't double-add.
-mlx_LDFLAGS_Darwin := -L$(MLX_LIB) -lmlx -Wl,-rpath,$(MLX_LIB) -framework Metal -framework Foundation
+# `-framework Accelerate` is still required even though tape may already
+# pull it in: ld with duplicate framework refs deduplicates, but ld
+# without ANY ref to a transitively-needed framework rejects mlx's
+# Accelerate-using symbols at load time (manifested as a scatter-VJP
+# autograd failure in DNC examples — see Phase 1 verification).
+mlx_LDFLAGS_Darwin := -L$(MLX_LIB) -lmlx -Wl,-rpath,$(MLX_LIB) -framework Accelerate -framework Metal -framework Foundation
 # Linux not reachable in practice — the `ifneq ($(UNAME), Darwin)
 # $(error ...)` guard above stops the build before we get here on
 # Linux. Empty value keeps the Makefile parseable on non-Darwin even
