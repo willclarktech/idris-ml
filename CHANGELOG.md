@@ -3,6 +3,9 @@
 Completed work, most recent first. Moved out of `TODO.md` on 2026-05-22.
 
 
+mlx backward dispatch — per-op file ownership (closed 2026-05-25). `backend_mlx/training/backward.cpp`'s 354-line forward-replay switch (60 `case OP_*:` arms inside the closure passed to `mx::vjp`) lifted into per-op functions sitting alongside their forward kernels, mirroring `backend_tape`'s `TAPE_REGISTER_OP` pattern. New infrastructure: `backend_mlx/training/autograd/op_dispatch.{h,cpp}` with the `MLX_REGISTER_REPLAY` macro and the function-pointer table indexed by `OP_*`. Each per-op `.cpp` now registers a `static void mlx_replay_<op>(std::vector<mx::array>& pool, TapeEntry& e)` at file scope; the closure inside `tensor_backward` shrinks to a 3-line dispatch loop. 61 ops migrated across 54 files (shared-body cases like `OP_MM`/`OP_BMM`/`OP_BMM_3X3` collapsed into one function with three REGISTER macros). Bit-identical convergence verified post-cutover (mlx rnn seed=42 epochs=20 → `loss=0.13426678042376022` matched pre-cutover), tri-link green, F64 anchor preserved. Three commits: Phase 1 scaffold, Phase 2 generated-and-committed registrations, Phase 3 cutover + switch deletion. One-shot generator script (`scripts/migrate-mlx-replay.py`) deleted in Phase 3.
+
+
 Vendor cJSON out of VCS (closed 2026-05-25). `packages/backends/cJSON.{c,h}` (3,143 lines of canonical v1.7.18, MIT) moved to `vendored/cJSON/` and gitignored. Makefile rule fetches the pinned URL + verifies SHA256 on first build (and on demand thereafter); the cached copy is reused for offline rebuilds. Removes ~3.1k lines of vendored upstream from clone size and from `find . -name *.c | xargs wc -l` rankings; safetensors compile path picks up the new include via `-I$(CJSON_DIR)`. New target: `make vendor-deps`.
 
 
