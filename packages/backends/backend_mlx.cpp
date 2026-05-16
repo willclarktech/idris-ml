@@ -30,7 +30,8 @@
 
 #include <mlx/mlx.h>
 
-namespace mx = mlx::core;
+#include "backend_mlx/tensor.h"
+/* `namespace mx = mlx::core;` is provided by backend_mlx/tensor.h. */
 
 /* ================================================================
    Backend init — device selection
@@ -222,52 +223,31 @@ inline mx::array half_like(const mx::array& ref) { return scalar_like(0.5, ref);
    Tensor representation
    ================================================================ */
 
-/* Forward declarations for self-registration */
-static std::vector<struct Tensor*> all_tensors;
-static std::vector<TensorPair*> all_pairs;
+/* Tensor struct + tracking globals + retain/release helpers are
+   declared in backend_mlx/tensor.h (included above). The canonical
+   definitions live here so the symbols have one home for the link.
+   Per-op .cpp files in the modular tree see them via the header. */
 
-static int next_pool_idx = 0;
-static long g_mlx_create_calls_global = 0;  // monotonic Tensor-creation counter (feeds create_id)
-static long g_mlx_peak_live = 0;            // high-water mark of all_tensors.size()
+std::vector<Tensor*> all_tensors;
+std::vector<TensorPair*> all_pairs;
+int next_pool_idx = 0;
+long g_mlx_create_calls_global = 0;  /* monotonic Tensor-creation counter (feeds create_id) */
+long g_mlx_peak_live = 0;            /* high-water mark of all_tensors.size() */
 
-struct Tensor {
-    mx::array data;
-    mx::array grad;
-    bool requires_grad;
-    bool has_grad;
-    int tape_idx;
-    int pool_idx;    // unique index for replay pool
-    // Reference count = number of long-term holders pointing at this
-    // Tensor: the Idris-side wrap, each tape entry that has it as an
-    // arg, the param_registry, etc. Ctor sets it to 0 — the first
-    // holder takes the first retain. When the count drops to 0, the
-    // Tensor is removed from all_tensors and deleted, freeing the
-    // underlying mx::array → MetalAllocator releases the MTLBuffer.
-    int refcount;
-    long create_id;  // generation marker: g_mlx_create_calls_global at construction
+Tensor::Tensor(mx::array d, bool rg)
+    : data(std::move(d)), grad(mx::array(0.0f)), requires_grad(rg),
+      has_grad(false), tape_idx(-1),
+      pool_idx(next_pool_idx++), refcount(0) {
+    create_id = g_mlx_create_calls_global++;
+    all_tensors.push_back(this);
+    if ((long)all_tensors.size() > g_mlx_peak_live) g_mlx_peak_live = (long)all_tensors.size();
+}
 
-    Tensor(mx::array d, bool rg = false)
-        : data(std::move(d)), grad(mx::array(0.0f)), requires_grad(rg),
-          has_grad(false), tape_idx(-1),
-          pool_idx(next_pool_idx++), refcount(0) {
-        create_id = g_mlx_create_calls_global++;
-        all_tensors.push_back(this);
-        if ((long)all_tensors.size() > g_mlx_peak_live) g_mlx_peak_live = (long)all_tensors.size();
-    }
-};
-
-// Refcount machinery — unconditional. Every Tensor's lifecycle is
-// driven by refcount: the Idris-side wrap retains on creation,
-// tape_append retains as args, param_register retains. Symmetric
-// releases (wrap drain, tape_reset, param_clear). When the count drops
-// to 0, the Tensor's slot in all_tensors is reclaimed by the sweep at
-// the next tape_reset / no_grad_end (we don't delete on release — that
-// would invalidate any in-flight `Tensor*` arg currently mid-call).
-static void tensor_retain_internal(Tensor* t) {
+void tensor_retain_internal(Tensor* t) {
     if (t) t->refcount++;
 }
 
-static void tensor_release_internal(Tensor* t) {
+void tensor_release_internal(Tensor* t) {
     if (t && t->refcount > 0) t->refcount--;
 }
 
