@@ -166,14 +166,22 @@ After this pass, every Tensor-touching FFI in `Tensor.idr` should be on the new 
 
 ### Phase 3' — Retire the old wrap machinery
 
-After all FFIs are converted:
+Split into two sub-phases. Phase 3'-a is the Idris-side cleanup; Phase 3'-b is the deeper C-side surgery that interacts with Phase 5'.
 
-- Delete `prim__wrapHandle` and `prim__unwrapHandle`. Audit Idris-side callers (`MkTensor`, the unit test); update.
-- `MkTensor wr pid = MkTensorRaw wr pid wr` (or drop `managedShadow` field — it's the same value as `tensorPtr` now). Probably drop the field to remove redundancy. Pattern matches that destructured the field (`weakenGrad`, `retypeGrad`) get simplified.
-- C side: remove `tensor_is_state` (or have it always return 1 for back-compat with anything still using it via the unified symbol).
-- C side: remove `tensor_create_managed_state_*` — its semantics merge into `tensor_create_state_*` (which now has uniform lifecycle).
-- C side: remove the "delete non-persistent at tape_reset" sweep. Remove `tensor_no_grad_end`'s persistent-only sweep. Refcount drives.
-- Idris side: `Layer/Ntm.idr` and `Layer/Dnc.idr` revert their `zeroState1d`/`zeroState2d` helpers to use `prim__createState1d`/`prim__createState2d` (the `Managed` variant goes away).
+**Phase 3'-a (Idris-side smart-constructor wrap) — DONE.** Commit removes:
+- `prim__wrapHandle` and `prim__unwrapHandle`. No callers remained (every FFI's Scheme wrapper handles wrap/unwrap internally).
+- The `managedShadow` field on the `Tensor` record (it aliased `tensorPtr` under the wrapped-handle ABI — the wrap IS the value).
+- The `MkTensor`/`MkTensorRaw` split — the data constructor is now `MkTensor` directly; the smart-constructor function is gone. Pattern matches in `weakenGrad`, `retypeGrad` simplified accordingly.
+
+**Phase 3'-b (C-side is_state + state-helper collapse) — pending.** Will retire:
+- `tensor_is_state` (the gate that makes `tensor_retain_internal`/`tensor_release_internal` no-op on non-state Tensors).
+- `tensor_create_managed_state_*` (merged into `tensor_create_state_*`; the persistent=1 flag and is_state=1 flag both become meaningless under uniform refcount-driven lifecycle).
+- The "delete non-persistent at tape_reset" sweep in mlx.
+- `tensor_no_grad_end`'s persistent-only sweep.
+- The `is_state` field on the mlx Tensor struct.
+- Layer/Ntm.idr and Layer/Dnc.idr's `zeroState*` calls collapse to `prim__createState*`.
+
+This is gated on the mid-block drain re-enable from Phase 5' — without it, removing the tape_reset sweep risks letting intermediate Tensor count grow unboundedly inside a single epoch. So Phase 3'-b lands after Phase 5'.
 
 Validate after each removal: `make BACKEND=tape,torch,mlx test` + `make BACKEND=mlx example-dnc-copy`.
 

@@ -20,18 +20,20 @@ import Util
 
 -- ----------------------------------------------------------------------
 -- Managed-handle plumbing (Chez guardian + foreign-procedure drain).
--- See docs/develop/tensor-lifecycle-spike.md for full design.
+-- See docs/develop/tensor-lifecycle-plan.md for the design.
 --
--- Every FFI that returns a Tensor handle wraps the raw pointer in a Chez
--- vector and registers the wrapper with a top-level guardian. When the
--- wrapper becomes GC-unreachable (Idris-side variable goes out of scope),
--- it lands in the guardian's dead queue. prim__drainManagedHandles polls
--- the queue and calls tensor_release_handle on each raw pointer.
+-- Every Tensor-returning FFI's Scheme wrapper wraps the C return in a
+-- Chez vector (`#(tensor-handle raw_ptr)`) and registers it with a
+-- top-level guardian. The vector IS the Tensor's runtime identity in
+-- Chez — the Idris-Chez compiler can't elide it without eliding the
+-- value itself. When the wrap becomes GC-unreachable,
+-- prim__drainManagedHandles pops it and calls tensor_release_handle on
+-- the raw pointer.
 --
 -- Idris does not distinguish "raw AnyPtr" from "wrapped AnyPtr" at the
--- type level — both are AnyPtr. Convention: %foreign declarations talking
--- to C use raw pointers; everything else uses wrapped pointers. Conversion
--- happens at the boundary via prim__unwrapHandle / prim__wrapHandle.
+-- type level — both are AnyPtr. Every %foreign "scheme:..." wrapper
+-- internally `vector-ref`s its Tensor args to extract the raw pointer
+-- before calling the C function. The wrap layer is invisible to Idris.
 -- ----------------------------------------------------------------------
 
 -- Self-init: creates the guardian and ensures libidrisml is loaded with
@@ -44,25 +46,6 @@ import Util
 -- dependency on a stray %foreign "C:..." call firing first.
 %foreign "scheme:(lambda (dummy) (if (top-level-bound? 'idris-tensor-guardian) 0 (begin (load-shared-object \"libidrisml.dylib\") (set-top-level-value! 'idris-tensor-guardian (make-guardian)) 1)))"
 prim__initManagedHandlesC : Int -> PrimIO Int
-
--- Self-initializing: if guardian doesn't exist yet, create it. Callers
--- can use prim__wrapHandle without first calling initManagedHandles.
---
--- The wrap is conditional on is_state: only state Tensors get a Chez
--- shadow + retain. Non-state Tensors get their raw pointer back
--- unchanged, no guardian registration, no refcount change. This keeps
--- the lifecycle overhead off the hot path for the ~89 non-state Tensor
--- allocation sites while routing state Tensors through the
--- guardian/refcount machinery that fixes their per-eval-block leak on
--- mlx. tape/torch backends return 0 from tensor_is_state, so this
--- function is a no-op on those builds.
-%foreign "scheme:(lambda (raw) (if (zero? ((foreign-procedure \"tensor_is_state\" (void*) int) raw)) raw (begin (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((w (vector 'tensor-handle raw))) ((top-level-value 'idris-tensor-guardian) w) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw) w))))"
-export prim__wrapHandle : AnyPtr -> AnyPtr
-
--- Unwrap: if it's a Chez vector (state Tensor's wrapped handle), pull
--- the raw ptr out. If it's already a raw ptr (non-state), return as-is.
-%foreign "scheme:(lambda (w) (if (vector? w) (vector-ref w 1) w))"
-export prim__unwrapHandle : AnyPtr -> AnyPtr
 
 -- Drain the guardian: pop dead wrappers, call C tensor_release_handle on
 -- each raw pointer. Returns the number drained. Uses (foreign-procedure
@@ -428,11 +411,13 @@ export
 prim__createState1d : Int -> AnyPtr -> AnyPtr
 
 -- Lifecycle-managed variants. Use for *per-sequence transient state*:
--- the Tensor record that wraps the result must hold a managed-handle
--- shadow (any `MkTensor`-created Tensor will), so the C-side refcount
--- can drop to zero and free the underlying mx::array when the model
--- record is dropped + drained. On tape/torch these forward to the
--- non-managed versions (those backends don't need refcount).
+-- the wrap registered with `idris-tensor-guardian` is the C-side
+-- Tensor's only stable holder, so refcount can drop to zero and free
+-- the underlying mx::array when the model record is dropped + drained.
+-- On tape/torch these forward to the non-managed versions (those
+-- backends don't need refcount).
+-- TODO(P3'-b): collapse into prim__createState* once the C-side
+-- is_state gate is retired and tape_reset drives off refcount.
 %foreign "scheme:(lambda (a0 a1 a2) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_managed_state_2d\" (int int void*) void*) a0 a1 a2))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export
 prim__createManagedState2d : Int -> Int -> AnyPtr -> AnyPtr
@@ -1027,35 +1012,19 @@ profileReport = primIO prim__profileReportC
 --
 -- Spike-only; lives in a parallel layer/example axis.
 
+||| The autograd handle. Under the wrapped-handle ABI, `tensorPtr` is
+||| not a raw pointer but a Chez vector `#(tensor-handle raw_ptr)`
+||| produced by the creating FFI's Scheme glue and registered with the
+||| `idris-tensor-guardian`. The vector IS the Tensor's runtime
+||| identity — Idris-Chez codegen can't elide it without eliding the
+||| Tensor value itself. C FFIs internally `vector-ref` to extract the
+||| raw pointer, so this layer is invisible above the FFI boundary.
+||| See docs/develop/tensor-lifecycle-plan.md.
 public export
 record Tensor (dims : Vect rank Nat) (0 d : Device) (0 g : GradMode) where
-  -- `MkTensorRaw` is the data constructor; `MkTensor` (below) is the
-  -- smart-constructor function that should be used by all callers. It
-  -- additionally registers the pointer with the Chez guardian so the
-  -- C-side Tensor* is released when the Idris-level Tensor record goes
-  -- out of scope. See docs/develop/tensor-lifecycle-spike.md.
-  constructor MkTensorRaw
-  tensorPtr     : AnyPtr
-  paramId       : Maybe String
-  -- Shadow: a Chez vector wrapping tensorPtr, registered with the
-  -- guardian. The shadow is kept alive as long as this Tensor record
-  -- is alive. When the Tensor record becomes GC-unreachable, the
-  -- shadow becomes unreachable, the guardian's drain pops it, and
-  -- tensor_release_handle is called on tensorPtr.
-  managedShadow : AnyPtr
-
-||| Smart constructor. Under the wrapped-handle ABI (mlx), `ptr` is
-||| already a Chez vector (wrapped by the FFI's Scheme glue), so no
-||| further wrapping is needed — `managedShadow` aliases `tensorPtr`.
-||| On tape/torch primary builds, `ptr` is a raw pointer and the
-||| managedShadow is the same raw pointer (the guardian is never
-||| populated, drain is a no-op).
-|||
-||| `managedShadow` will likely be removed once we confirm the wrap on
-||| `tensorPtr` is sufficient for lifecycle tracking.
-public export
-MkTensor : AnyPtr -> Maybe String -> Tensor dims d g
-MkTensor ptr pid = MkTensorRaw ptr pid ptr
+  constructor MkTensor
+  tensorPtr : AnyPtr
+  paramId   : Maybe String
 
 ||| Transfer a tensor to a different device. The one place where
 ||| device types intentionally change. Wraps `prim__toDevice` with
@@ -1089,7 +1058,7 @@ toDevice d2 t =
 ||| aliasing footgun.
 export
 weakenGrad : (1 _ : Tensor dims d g) -> IO (Tensor dims d NoGrad)
-weakenGrad (MkTensorRaw ptr pid _) = do
+weakenGrad (MkTensor ptr pid) = do
   primIO (prim__setRequiresGrad ptr 0)
   pure (MkTensor ptr pid)
 
@@ -1102,7 +1071,7 @@ weakenGrad (MkTensorRaw ptr pid _) = do
 ||| flag, use `weakenGrad`.
 export
 retypeGrad : Tensor dims d g1 -> Tensor dims d g2
-retypeGrad (MkTensorRaw ptr pid _) = MkTensor ptr pid
+retypeGrad (MkTensor ptr pid) = MkTensor ptr pid
 
 ||| Type-level aliases for common Tensor shapes. Aliases route shape
 ||| arithmetic (e.g. `4 * o`) through a Nat-argument slot rather than
