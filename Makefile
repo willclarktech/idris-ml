@@ -166,28 +166,72 @@ endif
 # Switching backends = updating a symlink (instant, no recompile).
 BACKEND_LIB := $(BUILD)/libidrisml_$(BACKEND).$(LIB_EXT)
 
-# Shared C sources (backend-agnostic: serialization, JSON, data loading)
-SHARED_OBJ := $(BUILD)/safetensors.o $(BUILD)/cJSON.o $(BUILD)/mnist.o $(BUILD)/dataloader.o
+# Per-backend C symbol rename header (auto-generated; see
+# scripts/gen-rename-headers.py). Injected via `-include` so each
+# backend's translation unit emits backend-suffixed symbols
+# (`tensor_add` -> `tensor_add_$(BACKEND)`). Phase 1 of the
+# pluggable-Device refactor — see docs/develop/design-decisions.md
+# "Pluggable Device via sliced UserDevice interfaces".
+BACKEND_RENAME_H := $(BACKENDS_DIR)/rename_$(BACKEND).h
 
-$(BUILD)/safetensors.o: $(BACKENDS_DIR)/safetensors.c $(BACKENDS_DIR)/backend.h $(BACKENDS_DIR)/cJSON.h | $(BUILD)
-	cc -O2 -fPIC -c -o $@ $<
+# Primary-backend unified-name aliases. Built from the rename header
+# by extracting each `#define <unified> <suffixed>` pair and emitting
+# a linker alias. Lets Idris-side `%foreign "C:tensor_add,libidrisml"`
+# declarations keep working unchanged through Phase 1 even though the
+# defining C symbol is now suffixed. Also lets backend-agnostic shared
+# objects (mnist.o, safetensors.o — compiled without the rename
+# header) link against the unified names. Phase 2.x retires this
+# alias step as each %foreign moves into a per-instance UserDevice
+# method bound to the suffixed name directly.
+ifeq ($(UNAME), Darwin)
+  # macOS ld(1) takes a file of `<aliasee> <aliasname>` pairs, with
+  # leading underscores per the Mach-O symbol convention.
+  BACKEND_ALIAS_FILE := $(BUILD)/aliases_$(BACKEND).macos.list
+  BACKEND_ALIAS_FLAGS := -Wl,-alias_list,$(BACKEND_ALIAS_FILE)
+else
+  # GNU ld takes `--defsym=<aliasname>=<aliasee>`; one flag per alias.
+  # Generated at recipe-expansion time so we don't need a dep rule.
+  # NF==3 filter skips the rename header's `#define IDRISML_RENAME_*_H`
+  # include guard (NF=2).
+  BACKEND_ALIAS_FILE :=
+  BACKEND_ALIAS_FLAGS := $(shell awk '/^\#define / && NF==3 { printf "-Wl,--defsym=%s=%s ", $$2, $$3 }' $(BACKEND_RENAME_H))
+endif
+
+# NF==3 filter skips the rename header's `#define IDRISML_RENAME_*_H`
+# include guard (NF=2) and any unrelated single-arg `#define`s.
+$(BACKEND_ALIAS_FILE): $(BACKEND_RENAME_H) | $(BUILD)
+	@awk '/^\#define / && NF==3 { print "_"$$3" _"$$2 }' $< > $@
+
+# Shared C sources (backend-agnostic: serialization, JSON, data loading).
+# These call into / define some `tensor_*`/`mnist_*`/`optimizer_*`/
+# `param_*`/`index_array_get` symbols, so they must also be compiled
+# with the active backend's rename header — otherwise their references
+# (or definitions) stay on the unified names while backend_<b>.c uses
+# suffixed names, and the alias step can't bridge cross-TU defs.
+# cJSON is pure-C (no tensor surface) so it stays backend-agnostic.
+# Output paths are backend-tagged so switching BACKEND triggers a
+# rebuild of the affected shared sources too.
+SHARED_OBJ := $(BUILD)/safetensors_$(BACKEND).o $(BUILD)/cJSON.o $(BUILD)/mnist_$(BACKEND).o $(BUILD)/dataloader_$(BACKEND).o
+
+$(BUILD)/safetensors_$(BACKEND).o: $(BACKENDS_DIR)/safetensors.c $(BACKENDS_DIR)/backend.h $(BACKENDS_DIR)/cJSON.h $(BACKEND_RENAME_H) | $(BUILD)
+	cc -O2 -fPIC -include $(BACKEND_RENAME_H) -c -o $@ $<
 
 $(BUILD)/cJSON.o: $(BACKENDS_DIR)/cJSON.c $(BACKENDS_DIR)/cJSON.h | $(BUILD)
 	cc -O2 -fPIC -c -o $@ $<
 
-$(BUILD)/mnist.o: $(BACKENDS_DIR)/mnist.c $(BACKENDS_DIR)/backend.h | $(BUILD)
-	cc -O2 -fPIC -c -o $@ $<
+$(BUILD)/mnist_$(BACKEND).o: $(BACKENDS_DIR)/mnist.c $(BACKENDS_DIR)/backend.h $(BACKEND_RENAME_H) | $(BUILD)
+	cc -O2 -fPIC -include $(BACKEND_RENAME_H) -c -o $@ $<
 
-$(BUILD)/dataloader.o: $(BACKENDS_DIR)/dataloader.c | $(BUILD)
-	cc -O2 -fPIC -c -o $@ $<
+$(BUILD)/dataloader_$(BACKEND).o: $(BACKENDS_DIR)/dataloader.c $(BACKEND_RENAME_H) | $(BUILD)
+	cc -O2 -fPIC -include $(BACKEND_RENAME_H) -c -o $@ $<
 
-$(BACKEND_LIB): $(BACKEND_SRC) $(BACKENDS_DIR)/backend.h $(SHARED_OBJ) | $(BUILD)
+$(BACKEND_LIB): $(BACKEND_SRC) $(BACKENDS_DIR)/backend.h $(BACKEND_RENAME_H) $(BACKEND_ALIAS_FILE) $(SHARED_OBJ) | $(BUILD)
 ifeq ($(BACKEND), torch)
   ifndef LIBTORCH_PATH
 	$(error libtorch not found. Set LIBTORCH_PATH, install via pkg-config, or run: cd packages/pytorch && uv sync)
   endif
 endif
-	$(BACKEND_CC) $(BACKEND_FLAGS) -o $@ $< $(SHARED_OBJ)
+	$(BACKEND_CC) $(BACKEND_FLAGS) -include $(BACKEND_RENAME_H) $(BACKEND_ALIAS_FLAGS) -o $@ $< $(SHARED_OBJ)
 
 # Download MNIST dataset
 dataset-mnist:
@@ -202,6 +246,15 @@ dataset-tinyshakespeare:
 # Always update symlink to point to the active backend
 backend: $(BACKEND_LIB)
 	@ln -sf libidrisml_$(BACKEND).$(LIB_EXT) $(LIB)
+
+# Regenerate the per-backend rename headers from backend.h. The
+# generated files are checked in; `make check-rename-headers` (in CI)
+# gates that they stay in sync with backend.h.
+rename-headers:
+	@python3 scripts/gen-rename-headers.py
+
+check-rename-headers:
+	@python3 scripts/gen-rename-headers.py --check
 
 # Backend API test suite — runs against whichever backend is active
 test-backend: $(BACKENDS_DIR)/test_backend.c backend | $(BUILD)
