@@ -27,6 +27,15 @@ inline mx::array zero_like(const mx::array& ref) { return scalar_like(0.0, ref);
 inline mx::array one_like(const mx::array& ref)  { return scalar_like(1.0, ref); }
 inline mx::array half_like(const mx::array& ref) { return scalar_like(0.5, ref); }
 
+/* Hot-path f32 singletons. Heap-allocated, intentionally never freed —
+   destruction would race against mlx's internal statics on macOS VMs
+   (the allocator throws when its backing device is already gone), so
+   leaking ~12 bytes + a tiny mlx buffer at exit is the right trade.
+   Static-local pointer initialization is thread-safe under C++11+. */
+inline const mx::array& kF32_ZERO() { static const mx::array* v = new mx::array(0.0f, mx::float32); return *v; }
+inline const mx::array& kF32_ONE()  { static const mx::array* v = new mx::array(1.0f, mx::float32); return *v; }
+inline const mx::array& kF32_HALF() { static const mx::array* v = new mx::array(0.5f, mx::float32); return *v; }
+
 /* Convert an mlx array to a double buffer (caller-allocated). Branches
    on the array's dtype: f32 sources widen per-element; f64 sources
    copy through. Future dtypes (bf16/fp16/int*) plug in here. */
