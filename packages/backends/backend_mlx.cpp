@@ -1711,8 +1711,8 @@ void tensor_backward(TensorHandle h) {
         for (int i = 0; i <= loss_tape_idx; i++) {
             auto& e = (*tape_ref)[i];
             int out = e.result->pool_idx;
-            auto a = e.arg1 ? pool[e.arg1->pool_idx] : mx::array(0.0f);
-            auto b = e.arg2 ? pool[e.arg2->pool_idx] : mx::array(0.0f);
+            auto a = e.arg1 ? pool[e.arg1->pool_idx] : kF32_ZERO();
+            auto b = e.arg2 ? pool[e.arg2->pool_idx] : kF32_ZERO();
 
             switch (e.op) {
             case OP_CONST: break;
