@@ -773,6 +773,101 @@ Phase A complete. Five-minute total wall on the perf-changes side;
 the heavy lift was the closing sweep, which validated convergence
 correctness.
 
+### 2026-05-11 — mlx GPU (Metal) exploration — discovered universal regression — `94700e5`
+
+**Plan job**: Job 3 Phase A side-quest. The question was: are the mlx
+numbers we've been measuring this whole project actually CPU stream,
+and what changes if we run on Metal GPU?
+
+**What we found**:
+
+1. **The nixpkgs `python3Packages.mlx-0.31.2` package is CPU-only.**
+   The nix derivation at `pkgs/development/python-modules/mlx/default.nix`
+   hardcodes `MLX_BUILD_METAL=false` because Apple's `metal` shader
+   compiler isn't open-source and the nixpkgs maintainers don't want
+   to use sandbox escape hatches. `otool -L libmlx.dylib` on the nix
+   build shows no Metal framework linkage; `mx::is_available(gpu)`
+   returns 0 at runtime. Setting `MLX_DEVICE=gpu` on the nix build
+   aborts with `Cannot set gpu device without gpu backend`. So
+   **every mlx measurement before this entry was CPU stream**,
+   regardless of any `MLX_DEVICE` setting.
+
+2. **pip-installed mlx works** (`uv pip install mlx` auto-pulls in
+   `mlx-metal` with a 150 MB precompiled `mlx.metallib`; the dylib
+   links Metal.framework). Tested in this Tart VM:
+   `mx::is_available(gpu) == True`, a real GPU computation succeeds.
+   So GPU IS reachable in this Tart VM via Apple Virtualization
+   Framework's paravirt-graphics (consistent with Tart's
+   documentation that "Metal APIs work inside VMs with no
+   additional setup").
+
+3. **But GPU is universally slower in this environment.** Built
+   `backend_mlx.cpp` against the pip mlx and ran an `MLX_DEVICE=gpu`
+   sweep on the same 10-cell config (killed after 7 cells once the
+   pattern was clear):
+
+   | Cell | mlx CPU ms/ep | mlx GPU ms/ep | slowdown |
+   |---|---:|---:|---:|
+   | supervised | 1 | 11 | 11× |
+   | rnn | 11 | 114 | 10× |
+   | lstm | 13 | 156 | 12× |
+   | gru | 15 | 145 | 10× |
+   | transformer | 33 | 111 | 3× |
+   | mnist (ms/ep) | 22 800 | 112 800 | 5× |
+   | dnc-copy | 30 | 269 | 9× |
+
+   Convergence remained bit-identical / within seed-trajectory noise
+   on the cells we measured (`acc_short`, `acc_full`, `sort_acc`
+   etc. matched CPU runs). So GPU is numerically clean but a
+   throughput regression of 3–12× across the board.
+
+**Why GPU loses here**: the kernel-launch wall. Each `tensor_*` call
+dispatches one Metal kernel. The forward chain for an RNN cell is
+30-50 ops on tensors of <100 elements; the backward replays the
+same chain inside the VJP closure; with batched training that's
+~150k-300k Metal kernel dispatches per epoch on mnist. At those
+tensor sizes the per-op compute is microseconds but the launch
+overhead is comparable or larger — especially under Tart's paravirt-
+graphics path, which likely adds further per-dispatch latency on top
+of bare-metal Metal. CPU stream skips all of this and calls Apple
+Accelerate BLAS directly.
+
+The "GPU is good for image conv" intuition is rooted in workloads
+designed for GPUs — big batches (256–1024), bigger images (224×224×3
+ImageNet), deep models (ResNet, VGG). MNIST as a 32-batch / 28×28×1
+problem with a 2-conv-2-FC model is too small to amortize the
+per-dispatch cost.
+
+**The actual lever for GPU here is `mx::compile()`** — mlx's JIT
+API that compiles a multi-op function once and replays it as a
+single fused Metal kernel. We don't use it (the existing path uses
+`mx::vjp` which builds a closure but doesn't compile it). Wiring
+`mx::compile` into the replay path is the open Phase B work for
+Job 3; without it GPU is just an alternate-and-slower CPU stream
+in this environment.
+
+**Tooling changes that landed alongside this discovery**:
+- `device` field added to perf-log JSON schema (`scripts/perf-run.sh`,
+  `scripts/perf-baseline.sh`, `docs/develop/perf-log.md`).
+  mlx records `MLX_DEVICE` (default cpu); tape/torch always cpu.
+  Entries before this date can be assumed device=cpu.
+- `mlx` package removed from nix dotfiles (`vm/modules/unix/packages.nix`) —
+  this project uses a project-local pip install for the Metal build
+  rather than the nix CPU-only build.
+- `docs/develop/gotchas.md` got new entries documenting the nixpkgs
+  build flag, the pip workaround, and the "GPU usually loses at
+  these scales" finding.
+
+**Outcome**: `MLX_DEVICE=cpu` is the right default and stays. GPU
+remains supported but flagged as "available but typically slower
+at idris-ml example scales — requires `mx::compile`-style fusion
+to be competitive." No commits to `backend_mlx.cpp` from this
+investigation; the binary that's checked in builds against
+whatever mlx is detected at make time and reads `MLX_DEVICE` at
+runtime. Phase B's mlx-projects survey should now include `mlx`'s
+own `mx::compile` / `mx::value_and_grad` JIT path as a primary
+target rather than incidental side-reading.
+
 ----
 
 ## Future opportunities (not active)

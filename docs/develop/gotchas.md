@@ -472,6 +472,46 @@ The bug this caught: NTM content addressing computes `betaT = softplus(scalar)` 
 
 **Diagnosing it**: `DEBUG_NAN_TRAP=1` in `tensor_backward` walks the forward tape on first appearance of NaN/Inf in any param grad, prints the first NaN-producing op and its args' value ranges. Found this one in one shot: `first NaN at tape[2165] op=SOFTMAX_2D` with arg1 (a MUL output) range `[-inf, +inf]`.
 
+### nixpkgs `python3Packages.mlx` is CPU-only — use pip mlx for Metal
+
+The nixpkgs derivation hardcodes `MLX_BUILD_METAL=false`. From `pkgs/development/python-modules/mlx/default.nix`:
+
+> NOTE The `metal` command-line utility used to build the Metal kernels is not open-source. To build mlx with Metal support in Nix, you'd need to use one of the sandbox escape hatches which let you interact with a native install of Xcode, such as `composeXcodeWrapper`.
+
+Symptoms when you forget: setting `MLX_DEVICE=gpu` on a nix-mlx build hits `libc++abi: terminating due to uncaught exception of type std::invalid_argument: [set_default_device] Cannot set gpu device without gpu backend` at startup. `otool -L libmlx.dylib` on the nix package shows no Metal framework linkage; `mx::is_available(gpu)` returns 0 even when the host (Apple Silicon) and the guest (Tart VM on Apple Virtualization Framework) both can see Metal.
+
+The pip `mlx` package automatically pulls in `mlx-metal` (a 150 MB `mlx.metallib` of precompiled shaders) and links `Metal.framework` / `QuartzCore` / `Foundation` into `libmlx.dylib`. Setup for this project:
+
+```sh
+uv venv .venv-mlx
+source .venv-mlx/bin/activate
+uv pip install mlx
+# Then rebuild backend_mlx.cpp against this site-packages dir:
+make BACKEND=mlx MLX_SITE=$VIRTUAL_ENV/lib/python3.13/site-packages/mlx backend
+```
+
+The Makefile's auto-detect logic uses `python3 -c "import mlx"` to find a site-packages dir with an `include/`, so activating the venv before `make` makes detection just work.
+
+### `MLX_DEVICE=gpu` is usually a perf loss at idris-ml example scales
+
+Counter-intuitive but well-evidenced (2026-05-11 Job 3 sweep): switching mlx to Metal GPU made **every** example we tested *slower* than mlx CPU stream — by 3-12×:
+
+| Cell | mlx CPU ms/ep | mlx GPU ms/ep | slowdown |
+|---|---:|---:|---:|
+| supervised | 1 | 11 | 11× |
+| rnn | 11 | 114 | 10× |
+| lstm | 13 | 156 | 12× |
+| gru | 15 | 145 | 10× |
+| transformer | 33 | 111 | 3× |
+| mnist (ms/ep) | 22 800 | 112 800 | 5× |
+| dnc-copy | 30 | 269 | 9× |
+
+Why: per-prim Metal kernel-launch overhead dominates at these tensor sizes. The training loops here are dozens of small ops (matmuls on <100-element tensors, scalar mults, softplus, sigmoid). Each `tensor_*` call dispatches a Metal kernel, and at this granularity the launch cost dwarfs the actual compute. The replay-VJP closure compounds it — every backward call rebuilds and re-dispatches the same kernel chain. Under Tart's paravirt-graphics layer the per-dispatch latency is probably worse than bare metal too. **Convergence remains numerically clean** on GPU; it's a pure throughput issue.
+
+The default in `backend_mlx.cpp::mlx_backend_init` is CPU for this reason — leave it. `MLX_DEVICE=gpu` is reserved for workloads where per-op compute exceeds kernel-launch latency: large batched conv/attention on bigger images, transformer training with larger H/sequence-length, or anything where a single kernel does ≥1ms of work. None of the current examples qualify.
+
+The lever that would unlock GPU here is `mx::compile()` — mlx's JIT API that compiles a multi-op function once and replays it as a single fused kernel. We don't use it (we go through `mx::vjp` which builds a closure but doesn't compile it). Wiring `mx::compile` into the replay path is the open question for Phase B of Job 3.
+
 ## Torch Backend (backend_torch.cpp)
 
 ### View tensors must be persistent

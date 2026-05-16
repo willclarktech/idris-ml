@@ -92,6 +92,15 @@ make jupyter-install && make jupyter-lab  # interactive notebooks
 
 For the optional libtorch backend: `make BACKEND=torch backend`.
 
+For the optional Apple MLX backend on Apple Silicon: `make BACKEND=mlx backend`. The nixpkgs `python3Packages.mlx` is CPU-only (Metal compute is hardcoded off — see `docs/develop/gotchas.md`); to get a Metal-capable build use a project-local pip install:
+
+```bash
+uv venv .venv-mlx && source .venv-mlx/bin/activate && uv pip install mlx
+make BACKEND=mlx MLX_SITE=$VIRTUAL_ENV/lib/python3.13/site-packages/mlx backend
+```
+
+`MLX_DEVICE=gpu` enables Metal, but at the current example scales (RNN-cell, NTM/DNC, batch-32 MNIST) per-op kernel-launch overhead makes GPU 3-12× slower than the CPU stream. Default (`MLX_DEVICE=cpu`) is the right choice for the examples shipped here; GPU becomes interesting only with bigger batches/models or after `mx::compile`-style fusion lands.
+
 ## Performance
 
 NTM-copy runs at ~110ms/epoch on the C tape backend (Apple M-series), comparable to the PyTorch reference (~130ms/epoch). See [docs/benchmarks.md](docs/benchmarks.md) for comparisons across all backends.
