@@ -83,12 +83,16 @@ static void mlx_backend_init(void) {
     // workloads (NTM/DNC backward) abort with "[malloc] Unable to allocate
     // N bytes". 16 GB is well above what any example needs and well below
     // the runner's RAM. Cache limit follows.
-    // Leave memory_limit / cache_limit at mlx's defaults. mlx derives
-    // them from the Metal-reported recommended working set size, which
-    // is right-sized for the host. The previous override (16 GB on a
-    // 16 GB VM) was over-committing and not the right knob for the
-    // "Unable to allocate" issue — that's a system malloc-NULL
-    // condition independent of the mlx limit.
+    // Leave memory_limit / cache_limit at mlx's defaults. The
+    // "[malloc] Unable to allocate N bytes" failure on Apple
+    // Virtualization VMs (Tart, GHA macOS) is *not* hit because of an
+    // mlx limit — it's MetalAllocator throwing when paravirtualized
+    // Metal refuses a new MTLBuffer (per-process resource limit, not
+    // bytes). Stack trace confirms: throw originates in
+    // MetalAllocator::malloc even when MLX_DEVICE=cpu, because on
+    // Apple Silicon mlx routes all buffer allocations through Metal
+    // (unified memory). The real fix is keeping live MTLBuffer count
+    // low; see the refcount-driven Tensor lifecycle work.
     g_prev_terminate_handler = std::set_terminate(mlx_terminate_handler);
     std::atexit(mlx_set_past_main);
 }
