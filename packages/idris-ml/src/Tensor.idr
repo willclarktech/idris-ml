@@ -801,7 +801,16 @@ setLearningRate opt lr = primIO (prim__optimizerSetLrC opt.handle lr)
 -- Fused native train step: zero_grad → backward → clip → step.
 -- Fused: zero_grad → backward → clip → step in single C call.
 -- Returns loss value (read before step, so not stale).
-%foreign "scheme:(lambda (a0 a1 a2 a3 a4)  ((foreign-procedure \"native_train_step\" (void* int double void* double) double) a0 a1 a2 (vector-ref a3 1) a4))"
+--
+-- After the C call returns, force a Chez minor GC + drain the
+-- managed-handle guardian. This is the training-loop drain trigger
+-- that lets the mlx refcount-driven lifecycle reclaim per-step
+-- intermediate Tensors — without it, the wrap-and-retain on each
+-- Tensor's creation keeps its refcount at >=1 indefinitely (Chez
+-- doesn't auto-GC under foreign-side pressure alone, and drain is
+-- only otherwise called at withNoGrad exit). On tape/torch the drain
+-- is essentially a no-op (their retain/release are stubs).
+%foreign "scheme:(lambda (a0 a1 a2 a3 a4) (let ((result ((foreign-procedure \"native_train_step\" (void* int double void* double) double) a0 a1 a2 (vector-ref a3 1) a4))) (collect 0) (when (top-level-bound? 'idris-tensor-guardian) (let ((rel (foreign-procedure \"tensor_release_handle\" (void*) void))) (let loop () (let ((d ((top-level-value 'idris-tensor-guardian)))) (when d (rel (vector-ref d 1)) (loop)))))) result))"
 prim__nativeTrainStep : AnyPtr -> Int -> Double -> AnyPtr -> Double -> Double
 
 ----------------------------------------------------------------------

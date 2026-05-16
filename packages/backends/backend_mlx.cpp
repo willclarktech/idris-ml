@@ -145,55 +145,46 @@ struct Tensor {
     bool requires_grad;
     bool has_grad;
     int tape_idx;
-    int persistent;  // 1 = param, 0 = intermediate / state
-    int is_state;    // 1 = lifecycle-managed via refcount; 0 = lifecycle-managed via old sweep
     int pool_idx;    // unique index for replay pool
-    // Reference count. Only consulted when is_state == 1. State Tensors
-    // start at refcount 0; the Idris-side managed-handle wrap bumps to 1,
-    // every long-lived C-side holder (tape entry referencing it as an arg)
-    // adds another. When the count drops to 0, the Tensor is removed from
-    // all_tensors and deleted, freeing the underlying mx::array →
-    // MetalAllocator releases the MTLBuffer.
+    // Reference count = number of long-term holders pointing at this
+    // Tensor: the Idris-side wrap, each tape entry that has it as an
+    // arg, the param_registry, etc. Ctor sets it to 0 — the first
+    // holder takes the first retain. When the count drops to 0, the
+    // Tensor is removed from all_tensors and deleted, freeing the
+    // underlying mx::array → MetalAllocator releases the MTLBuffer.
     int refcount;
 
     Tensor(mx::array d, bool rg = false)
         : data(std::move(d)), grad(mx::array(0.0f)), requires_grad(rg),
-          has_grad(false), tape_idx(-1), persistent(0), is_state(0),
-          pool_idx(next_pool_idx++), refcount(1) {
+          has_grad(false), tape_idx(-1),
+          pool_idx(next_pool_idx++), refcount(0) {
         all_tensors.push_back(this);
     }
 };
 
-// Refcount machinery — only fires for state Tensors (is_state == 1).
-// Non-state Tensors keep their pre-refactor lifecycle (sweep at tape_reset /
-// no_grad_end based on persistent + tape_idx). The retain/release helpers
-// no-op on those, so it's safe for the Idris-side wrap to call them
-// unconditionally if the wrap itself was driven by is_state.
+// Refcount machinery — unconditional. Every Tensor's lifecycle is
+// driven by refcount: the Idris-side wrap retains on creation,
+// tape_append retains as args, param_register retains. Symmetric
+// releases (wrap drain, tape_reset, param_clear). When the count drops
+// to 0, the Tensor's slot in all_tensors is reclaimed by the sweep at
+// the next tape_reset / no_grad_end (we don't delete on release — that
+// would invalidate any in-flight `Tensor*` arg currently mid-call).
 static void tensor_retain_internal(Tensor* t) {
-    if (t && t->is_state) t->refcount++;
+    if (t) t->refcount++;
 }
 
 static void tensor_release_internal(Tensor* t) {
-    if (!t || !t->is_state) return;
-    if (--t->refcount > 0) return;
-    auto it = std::find(all_tensors.begin(), all_tensors.end(), t);
-    if (it != all_tensors.end()) all_tensors.erase(it);
-    delete t;
+    if (t && t->refcount > 0) t->refcount--;
 }
 
 // C-exported retain/release for FFI consumers (Idris-side managed handles,
-// Scheme guardian-drain callbacks). is_state gate inside the internal
-// helpers makes this safe to call on any Tensor pointer.
+// Scheme guardian-drain callbacks).
 extern "C" {
 void tensor_retain_handle(void* h) {
     tensor_retain_internal(reinterpret_cast<Tensor*>(h));
 }
 void tensor_release_handle(void* h) {
     tensor_release_internal(reinterpret_cast<Tensor*>(h));
-}
-int tensor_is_state(void* h) {
-    auto t = reinterpret_cast<Tensor*>(h);
-    return t ? t->is_state : 0;
 }
 }  // extern "C"
 
@@ -348,14 +339,6 @@ static int no_grad_depth = 0;
    pure-no-grad ops are not in the tape. */
 static long prof_tape_appends_mlx = 0;
 
-// Managed state Tensors created during a no_grad block. tape_append is
-// largely bypassed in no_grad (ops short-circuit when no input has
-// requires_grad), so we can't rely on tape retains/releases to size
-// state's lifetime. Instead: track everything created inside the block
-// and free it all at the outermost no_grad_end after a bulk mx::eval
-// materializes any lazy graph that referenced them.
-static std::vector<Tensor*> no_grad_state_created;
-
 static int tape_append(int op, Tensor* result, Tensor* arg1, Tensor* arg2, double scalar_arg) {
     if (no_grad_depth > 0) {
         if (result) {
@@ -367,8 +350,13 @@ static int tape_append(int op, Tensor* result, Tensor* arg1, Tensor* arg2, doubl
     int idx = (int)tape.size();
     tape.push_back({op, result, arg1, arg2, scalar_arg, nullptr});
     result->tape_idx = idx;
-    // Retain state args while the tape holds them. tape_reset releases.
-    // Non-state args are no-op (tensor_retain_internal checks is_state).
+    // The tape holds args until tape_reset; retain them while it does.
+    // Also retain the result — the FFI wrapper's wrap-and-retain holds
+    // refcount=1, but the tape entry holding `result` is a second
+    // long-term holder that must be reflected in the count, or backward
+    // replay can see a freed Tensor when the Idris wrap dies + drain
+    // releases before tape_reset.
+    tensor_retain_internal(result);
     tensor_retain_internal(arg1);
     tensor_retain_internal(arg2);
     prof_tape_appends_mlx++;
@@ -389,10 +377,11 @@ static void tape_reset() {
         }
         if (!to_eval.empty()) mx::eval(to_eval);
     }
-    // Release state args we retained in tape_append. Non-state args
-    // are no-op. Must happen before tape.clear() — once entries are
-    // gone we can't find which Tensors we retained.
+    // Release the args + result we retained in tape_append. Must
+    // happen before tape.clear() — once entries are gone we can't
+    // find which Tensors we retained.
     for (auto& e : tape) {
+        tensor_release_internal(e.result);
         tensor_release_internal(e.arg1);
         tensor_release_internal(e.arg2);
     }
@@ -456,13 +445,12 @@ static void tape_reset() {
         }
     }
     tape.clear();
-    // Now safely delete non-persistent tensors.
-    // - params and dropout-mask / embedding-idx constants (persistent=1) survive.
-    // - state tensors (is_state=1) are refcount-managed: leave them alone.
-    // - everything else: delete.
+    // Refcount-driven sweep: delete Tensors whose count is 0 (no
+    // long-term holder left — no Idris wrap, no tape entry, no
+    // param_registry entry). Everything else stays.
     std::vector<Tensor*> survivors;
     for (auto* t : all_tensors) {
-        if (t->persistent || t->is_state) survivors.push_back(t);
+        if (t->refcount > 0) survivors.push_back(t);
         else delete t;
     }
     all_tensors = std::move(survivors);
@@ -1031,7 +1019,6 @@ TensorHandle tensor_dropout(TensorHandle hinput, double p, int training, unsigne
     if (inp->requires_grad) {
         // For replay: store the mask as a constant in the pool so vjp can diff through multiply
         auto mask_t = new Tensor(mask, false);
-        mask_t->persistent = 1;  // survives tape_reset
         int idx = tape_append(OP_DROPOUT, r, inp, mask_t, 0);
     }
     return (TensorHandle)r;
@@ -1058,7 +1045,6 @@ TensorHandle tensor_embedding(TensorHandle hweight, TensorHandle hindices, int n
     if (weight->requires_grad) {
         // For replay: store indices as arg2 so vjp can differentiate through take
         auto idx_t = new Tensor(idx_int, false);
-        idx_t->persistent = 1;
         tape_append(OP_EMBEDDING, r, weight, idx_t, (double)embedDim);
     }
     return (TensorHandle)r;
@@ -1375,7 +1361,6 @@ TensorHandle tensor_create_param_3d(int d0, int d1, int d2, double* data) {
     int shape[] = {d0, d1, d2};
     auto t = tensor_create(data, shape, 3, 1);
     free(data);
-    ((Tensor*)t)->persistent = 1;
     return t;
 }
 
@@ -2417,60 +2402,24 @@ void tensor_no_grad_end(void) {
     if (no_grad_depth > 0) no_grad_depth--;
     if (no_grad_depth > 0) return;  // only sweep on outermost end
 
-    // Free managed-state Tensors that were created inside this block.
     // Bulk-eval first so any lazy mx::array referencing soon-to-be-freed
-    // state inputs materializes its result; the underlying impl
-    // refcount keeps it alive past our Tensor delete.
-    {
-        std::vector<mx::array> to_eval;
-        for (auto* t : all_tensors) to_eval.push_back(t->data);
-        if (!to_eval.empty()) {
-            try { mx::eval(to_eval); } catch (...) { /* best-effort */ }
-        }
-        for (auto* t : no_grad_state_created) {
-            auto it = std::find(all_tensors.begin(), all_tensors.end(), t);
-            if (it != all_tensors.end()) {
-                all_tensors.erase(it);
-                delete t;
-            }
-        }
-        no_grad_state_created.clear();
-    }
-
-    // No-grad blocks don't run optimizer_step → tape_reset doesn't fire,
-    // so non-persistent intermediates created inside withNoGrad leak in
-    // `all_tensors`. Eval is many forwards in tight loops; over the
-    // course of one or two blocks the leak grows to tens of MB. On Apple
-    // Virtualization VMs (Tart, GHA macOS runners) mlx 0.31 starts
-    // throwing `[malloc] Unable to allocate N bytes` once the leak
-    // crosses a VM-specific threshold (~40 MB on this Tart VM).
-    //
-    // Safe to free: tensors created during the no-grad block have
-    // tape_idx==-1 (no_grad doesn't append to tape) and persistent==0.
-    // Tape-attached and persistent tensors are skipped. The caller's
-    // result, if a Tensor, would also be swept here — but our eval-phase
-    // usage extracts a scalar via tensor_item before returning, so the
-    // Tensor handle is no longer reachable from Idris at this point.
-    //
-    // Force eval first so any lazy mx::array still referencing soon-to-be-
-    // freed inputs realizes its result before the inputs disappear.
+    // Tensors materializes; the underlying impl refcount in mlx keeps it
+    // alive past our Tensor delete.
     std::vector<mx::array> to_eval;
-    for (auto* t : all_tensors) {
-        if (!t->persistent && !t->is_state && t->tape_idx < 0) {
-            to_eval.push_back(t->data);
-        }
-    }
+    for (auto* t : all_tensors) to_eval.push_back(t->data);
     if (!to_eval.empty()) {
         try { mx::eval(to_eval); } catch (...) { /* best-effort */ }
     }
+    // Refcount-driven sweep — same logic as tape_reset. The Idris-side
+    // drainManagedHandles call in withNoGrad just before this releases
+    // Idris-wrap retains for Tensors whose let-bindings ended during
+    // the eval block, so by the time we get here their refcount has
+    // dropped to 0 and they're eligible for free.
     std::vector<Tensor*> survivors;
     survivors.reserve(all_tensors.size());
     for (auto* t : all_tensors) {
-        // State Tensors are refcount-managed (skip the sweep).
-        if (t->persistent || t->is_state || t->tape_idx >= 0)
-            survivors.push_back(t);
-        else
-            delete t;
+        if (t->refcount > 0) survivors.push_back(t);
+        else delete t;
     }
     all_tensors = std::move(survivors);
     try { mx::clear_cache(); } catch (...) { /* best-effort */ }
@@ -2551,12 +2500,13 @@ void tensor_pair_free(TensorPair* p) { if (p) free(p); }
 
 void param_register(const char* name, TensorHandle h) {
     auto t = (Tensor*)h;
-    t->persistent = 1;
     t->requires_grad = true;
+    tensor_retain_internal(t);  // registry holds a refcount
     param_registry.push_back({std::string(name), t});
 }
 
 void param_clear(void) {
+    for (auto& e : param_registry) tensor_release_internal(e.tensor);
     param_registry.clear();
     tape_reset();
 }
@@ -2710,7 +2660,6 @@ TensorHandle tensor_create_param_4d(int d0, int d1, int d2, int d3, double* data
     int shape[] = {d0, d1, d2, d3};
     auto t = tensor_create(data, shape, 4, 1);
     free(data);
-    ((Tensor*)t)->persistent = 1;
     return t;
 }
 
@@ -2724,23 +2673,14 @@ TensorHandle tensor_create_param_1d(int n, double* data) {
 // State Tensors — covers both init-time permanent state (NTM mask, batch
 // norm running stats, transformer positional encoding, DNC mask) AND
 // per-sequence transient state (Ntm/Dnc zeroState). Both flow through
-// the same lifecycle: is_state=1 → survives tape_reset's sweep AND is
-// refcount-managed. The Idris-side wrap-and-retain on creation gives the
-// first refcount bump; tape_append retains state args while the tape
-// references them; drain at withNoGrad exit / model-record destruction
-// releases. When refcount hits 0, the Tensor is freed.
-//
-// "Permanent" state stays alive via the Idris model record holding its
-// wrap for the whole training run — no separate persistent flag needed.
-// "Transient" per-sequence state's wrap dies at the end of each forward,
-// drain releases, and it gets freed.
+// the same refcount-driven lifecycle. The Idris-side wrap-and-retain on
+// creation gives the first refcount bump. "Permanent" state stays alive
+// via the Idris model record holding its wrap for the whole training
+// run; "transient" per-sequence state's wrap dies at the end of each
+// forward and drain + sweep eventually frees it.
 TensorHandle tensor_create_state_2d(int rows, int cols, double* data) {
     int shape[] = {rows, cols};
     auto t = tensor_create(data, shape, 2, 0);
-    auto* tt = (Tensor*)t;
-    tt->is_state = 1;
-    tt->refcount = 0;
-    if (no_grad_depth > 0) no_grad_state_created.push_back(tt);
     free(data);
     return t;
 }
@@ -2748,10 +2688,6 @@ TensorHandle tensor_create_state_2d(int rows, int cols, double* data) {
 TensorHandle tensor_create_state_1d(int n, double* data) {
     int shape[] = {n};
     auto t = tensor_create(data, shape, 1, 0);
-    auto* tt = (Tensor*)t;
-    tt->is_state = 1;
-    tt->refcount = 0;
-    if (no_grad_depth > 0) no_grad_state_created.push_back(tt);
     free(data);
     return t;
 }
@@ -2762,7 +2698,6 @@ TensorHandle tensor_view_2d(TensorHandle mat, int row, int col) {
     int cols = t->data.shape(1);
     auto val = mx::take(mx::flatten(t->data), mx::array(row * cols + col));
     auto r = new Tensor(val, t->requires_grad);
-    r->persistent = 1;
     return (TensorHandle)r;
 }
 
@@ -2770,7 +2705,6 @@ TensorHandle tensor_view_1d(TensorHandle vec, int idx) {
     auto t = (Tensor*)vec;
     auto val = mx::take(t->data, mx::array(idx));
     auto r = new Tensor(val, t->requires_grad);
-    r->persistent = 1;
     return (TensorHandle)r;
 }
 

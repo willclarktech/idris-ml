@@ -216,7 +216,6 @@ MANIFEST = {
 SKIP = {
     "tensor_retain_handle",
     "tensor_release_handle",
-    "tensor_is_state",
 }
 
 # Note: every literal " inside the Scheme body must be emitted as \" so

@@ -25,13 +25,6 @@ void         tensor_free(TensorHandle t);
  * handle finalizers. */
 void         tensor_retain_handle(TensorHandle t);
 void         tensor_release_handle(TensorHandle t);
-/* Returns nonzero if `t` participates in the refcount lifecycle (state
- * Tensors on mlx). The Idris-side managed-handle wrap reads this to
- * decide whether to register a Chez guardian shadow + retain. Returns
- * 0 on tape / torch — those backends manage state through their own
- * mechanisms and don't need refcount + guardian. */
-int          tensor_is_state(TensorHandle t);
-
 /* ---------- Accessors ---------- */
 
 double tensor_item(TensorHandle t);          /* scalar tensor -> double */

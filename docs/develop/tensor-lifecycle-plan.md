@@ -187,12 +187,19 @@ The plan's *full* P3'-b (retire `is_state` gate, remove the tape_reset sweep, re
 - Idris-side: `prim__createManagedState1d`/`prim__createManagedState2d` removed. `Layer/Ntm.idr` and `Layer/Dnc.idr`'s `zeroState1d/zeroState2d` helpers now call `prim__createState1d`/`prim__createState2d`.
 - `scripts/lifecycle/ffi_manifest.py`: removed the `tensor_create_managed_state_*` entries from MANIFEST and INIT_FFI.
 
-**Still pending (gated on drain triggers):**
-- Remove the `is_state` field on the mlx `Tensor` struct.
-- Make `tensor_retain_internal`/`tensor_release_internal` unconditional (drop the `is_state` gate).
-- Remove the "delete non-persistent at tape_reset" sweep.
-- Remove `tensor_no_grad_end`'s persistent-only sweep.
-- Remove the `persistent` field on the mlx `Tensor` struct (after the sweep removal makes it vestigial).
+**P3'-b-rest landed.** The drain-trigger gate was resolved by embedding the drain into `prim__nativeTrainStep`'s Scheme wrapper — minor GC + guardian drain runs after each training step, so refcounts from dead Idris wraps get released in time for the next sweep.
+
+- Removed `is_state` and `persistent` fields from the mlx `Tensor` struct.
+- Made `tensor_retain_internal`/`tensor_release_internal` unconditional. Release no longer deletes — it just decrements; the sweep handles deletion.
+- `tape_reset` sweep now refcount-driven: `if (t->refcount > 0) keep; else delete`.
+- `tensor_no_grad_end` sweep same — refcount-driven, no more flag checks.
+- `param_register` retains; `param_clear` releases each entry. No more persistent flag.
+- Removed `tensor_is_state` (declaration + tape/torch stubs + manifest SKIP entry).
+- Removed `no_grad_state_created` tracking (refcount handles it now).
+- Removed scattered `persistent = 1` assignments (dropout mask, embedding idx, param_3d/4d, view_1d/2d).
+- mlx `Tensor` constructor: `refcount(0)` (was 1). Tape_append retains result + arg1 + arg2 unconditionally.
+
+**Side effect on `make test-examples`**: 76/79 ok (was 72/79 on P3'-b-min). 4 mlx examples newly passing: `dnc-copy`, `dnc-recall`, `a2c`, `ppo`. Remaining 3 mlx failures are exactly the originally-hardest cases from the `refcount-baseline` JSONL: `ntm-copy`, `ntm-associative-recall`, `mountain-car-cont`. Same `[malloc] Unable to allocate N bytes` error, peak RSS stays bounded at 49MB → it's the Metal buffer-count ceiling on the Apple VM, not memory size. These need eval-phase drain triggers (the `withNoGrad`-exit drain isn't frequent enough for the very long eval loops these examples run).
 
 **Verification of P3'-b-min:**
 - `make BACKEND=tape test` + `make BACKEND=mlx test`: 25/25 unit tests green (including `Test.ManagedHandle`).

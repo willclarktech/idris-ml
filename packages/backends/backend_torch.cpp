@@ -100,7 +100,6 @@ void tensor_free(TensorHandle h) {
 // backends.
 void tensor_retain_handle(TensorHandle h) { (void)h; }
 void tensor_release_handle(TensorHandle h) { (void)h; }
-int  tensor_is_state(TensorHandle h)      { (void)h; return 0; }
 
 /* ---------- Accessors ---------- */
 

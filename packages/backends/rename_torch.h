@@ -136,7 +136,6 @@
 #define tensor_grad tensor_grad_torch
 #define tensor_group_norm tensor_group_norm_torch
 #define tensor_gru_cell tensor_gru_cell_torch
-#define tensor_is_state tensor_is_state_torch
 #define tensor_item tensor_item_torch
 #define tensor_item_1d tensor_item_1d_torch
 #define tensor_item_2d tensor_item_2d_torch
