@@ -3825,6 +3825,9 @@ Test(legacy_backend, tape_f32_non_elementwise_coverage) {
  *
  * Coverage gain (rungs added here):
  *   Rung 5  conv1d                — TAPE_F32_SKIP_CONV
+ *   Rung 6  avg_pool1d            — TAPE_F32_SKIP_POOL
+ *   Rung 8  gru_cell              — TAPE_F32_SKIP_RNN
+ *   Rung 10 embedding             — TAPE_F32_SKIP_INDEX
  */
 Test(legacy_backend, tape_f32_rnn_conv_coverage) {
     /* Rung 5: conv1d. Small 1-in-1-out kernel.
@@ -3879,6 +3882,99 @@ Test(legacy_backend, tape_f32_rnn_conv_coverage) {
     }
 #else
     printf("rung skipped: conv1d (TAPE_F32_SKIP_CONV)\n");
+#endif
+
+    /* Rung 6: avg_pool1d. input [1, 4] = [1,2,3,4], kL=2, stride=2
+     *   -> output [1, 2] = [1.5, 3.5]. */
+#ifndef TAPE_F32_SKIP_POOL
+    {
+        double inv[] = {1.0, 2.0, 3.0, 4.0};
+        double y_f64[2], y_f32[2];
+        double g_f64[4], g_f32[4];
+
+        param_clear();
+        TensorHandle in64 = tensor_create_param_2d_streamed(1, 4, heap_copy(inv, 4), 0, 15);
+        param_register("in", in64);
+        TensorHandle y64 = tensor_avg_pool1d(in64, 2, 2);
+        tensor_to_doubles(y64, y_f64);
+        tensor_backward(tensor_sum(y64));
+        for (int i = 0; i < 4; i++) g_f64[i] = param_grad_item_at(0, i);
+        param_clear();
+
+        TensorHandle in32 = tensor_create_param_2d_streamed(1, 4, heap_copy(inv, 4), 0, 14);
+        param_register("in", in32);
+        TensorHandle y32 = tensor_avg_pool1d(in32, 2, 2);
+        tensor_to_doubles(y32, y_f32);
+        tensor_backward(tensor_sum(y32));
+        for (int i = 0; i < 4; i++) g_f32[i] = param_grad_item_at(0, i);
+
+        ASSERT_TRUE("avg_pool1d: F32 output propagates F32 tag",
+                    strcmp(tensor_dtype_name(y32), "F32") == 0);
+        for (int i = 0; i < 2; i++) {
+            char m[64];
+            snprintf(m, sizeof m, "avg_pool1d: y_f32[%d] ~ y_f64", i);
+            ASSERT_NEAR(m, y_f32[i], y_f64[i], 1e-5);
+        }
+        for (int i = 0; i < 4; i++) {
+            char m[64];
+            snprintf(m, sizeof m, "avg_pool1d: in.grad_f32[%d] ~ in.grad_f64", i);
+            ASSERT_NEAR(m, g_f32[i], g_f64[i], 1e-5);
+        }
+        param_clear();
+    }
+#else
+    printf("rung skipped: avg_pool1d (TAPE_F32_SKIP_POOL)\n");
+#endif
+
+    /* Rung 8: gru_cell. Tiny 1-d hidden (o=1).
+     *   ih shape [3] (gate-stacked: r, z, n)
+     *   hh shape [3]
+     *   prev_hidden shape [1]
+     * Returns [1]. */
+#ifndef TAPE_F32_SKIP_RNN
+    {
+        double ihv[]   = {0.5, -0.25, 0.75};
+        double hhv[]   = {0.1, 0.2, -0.3};
+        double prevv[] = {0.2};
+        double y_f64[1], y_f32[1];
+        double g_f64[3], g_f32[3];
+
+        param_clear();
+        TensorHandle ih64 = tensor_create_param_1d_streamed(3, heap_copy(ihv, 3), 0, 15);
+        param_register("ih", ih64);
+        TensorHandle hh64 = tensor_create_1d_streamed(3, heap_copy(hhv, 3), 0, 0, 15);
+        TensorHandle prev64 = tensor_create_1d_streamed(1, heap_copy(prevv, 1), 0, 0, 15);
+        TensorHandle y64 = tensor_gru_cell(ih64, hh64, prev64, 1);
+        tensor_to_doubles(y64, y_f64);
+        tensor_backward(tensor_sum(y64));
+        for (int i = 0; i < 3; i++) g_f64[i] = param_grad_item_at(0, i);
+        param_clear();
+
+        TensorHandle ih32 = tensor_create_param_1d_streamed(3, heap_copy(ihv, 3), 0, 14);
+        param_register("ih", ih32);
+        TensorHandle hh32 = tensor_create_1d_streamed(3, heap_copy(hhv, 3), 0, 0, 14);
+        TensorHandle prev32 = tensor_create_1d_streamed(1, heap_copy(prevv, 1), 0, 0, 14);
+        TensorHandle y32 = tensor_gru_cell(ih32, hh32, prev32, 1);
+        tensor_to_doubles(y32, y_f32);
+        tensor_backward(tensor_sum(y32));
+        for (int i = 0; i < 3; i++) g_f32[i] = param_grad_item_at(0, i);
+
+        ASSERT_TRUE("gru_cell: F32 output propagates F32 tag",
+                    strcmp(tensor_dtype_name(y32), "F32") == 0);
+        {
+            char m[64];
+            snprintf(m, sizeof m, "gru_cell: y_f32[0] ~ y_f64");
+            ASSERT_NEAR(m, y_f32[0], y_f64[0], 1e-5);
+        }
+        for (int i = 0; i < 3; i++) {
+            char m[64];
+            snprintf(m, sizeof m, "gru_cell: ih.grad_f32[%d] ~ ih.grad_f64", i);
+            ASSERT_NEAR(m, g_f32[i], g_f64[i], 1e-5);
+        }
+        param_clear();
+    }
+#else
+    printf("rung skipped: gru_cell (TAPE_F32_SKIP_RNN)\n");
 #endif
 }
 #endif
