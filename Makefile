@@ -1348,6 +1348,20 @@ ref-lint:
 ref-typecheck:
 	cd packages/pytorch && uv run pyright torch_ref/
 
+# Regenerate + validate the HfBert forward-pass oracle. Runs
+# packages/idris-transformers/scripts/save_oracle.py through pytest
+# under the pytorch package's uv-managed venv (which carries the
+# `transformers` dep). The pytest is colocated with the script per
+# feedback_paired_side_alignment. Wire into CI alongside test-transformers.
+#
+# This target only runs the generator + asserts the fixture is
+# well-formed (shape, dtype, finite, nontrivial). The cross-language
+# Idris-vs-Python comparison gate lands in Phase 6 as
+# test-hf-bert-roundtrip.
+test-transformers-oracle:
+	cd packages/pytorch && uv run pytest \
+		../idris-transformers/scripts/test_save_oracle.py -v
+
 ref-convergence:
 	cd packages/pytorch && uv run python -u -m torch_ref.scripts.convergence --task both
 

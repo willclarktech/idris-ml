@@ -19,6 +19,11 @@ dependencies = [
     # `uv sync` installs into packages/pytorch/.venv/lib/python*/site-packages/mlx
     # on macOS; the Makefile's MLX_SITE resolution finds it there.
     "mlx>=0.31; sys_platform == 'darwin'",
+    # HuggingFace transformers — used by packages/idris-transformers's
+    # save_oracle.py to load a real HF model and produce the forward-pass
+    # oracle that Example/HfBertInference compares against. Not consumed
+    # by torch_ref's reference implementations.
+    "transformers>=4.40",
 ]
 
 [dependency-groups]
