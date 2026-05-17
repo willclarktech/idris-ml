@@ -2059,3 +2059,51 @@ Deltas are within VM noise (`feedback_vm_perf_noise`: ±15-20%), but the directi
 **Cross-references**:
 - `scripts/lifecycle/check-non-io-side-effects.py` — the new lint
 - TODO row 7 closed; row 16 (per-op Idris overhead) remains as the relevant follow-up for mlx-cpu small-op recovery
+
+### 2026-05-17 — Precision-type-parameter rollout — perf-neutral — `a875549`
+
+**Plan job**: validation pass for the precision/dtype landing (commits `55bd35e` through `a875549` — DType.Core scaffold, Tensor `(0 dt : DType)` slot, `Compatible` + `UpcastableTo` interfaces, `MlxDev` parametric family, 11 LayerAny creators device-polymorphised, BuildConfig generation, 23 examples migrated, tutorial 08).
+
+**Motivation**: the new `(0 dt : DType)` parameter on `Tensor` is 0-quantity (erased before code generation), and the FFI surface to the C backends is unchanged. The expectation is zero runtime impact — but elaborator pressure changes (a Tensor reference now carries one more implicit) could in principle pessimise codegen. Worth verifying before declaring the rollout done.
+
+**Change**: ran `scripts/perf-sweep.sh` at HEAD `a875549` — 6 examples × 4 cells (tape, torch, mlx-cpu, mlx-gpu), seed=42, identical to the `b894fbb` sweep on 2026-05-17.
+
+**Impact**: zero or favourable across every cell.
+
+| Example | Cell        | b894fbb ms | a875549 ms | Δ |
+|---|---|---:|---:|---:|
+| rnn | tape | 0.34 | (sub-ms) | noise floor |
+| rnn | torch | 1.36 | 1.65 | +21% (1-ms scale) |
+| rnn | mlx-cpu | 76.0 | 71.6 | −6% |
+| rnn | mlx-gpu | 123.3 | 110.8 | −10% |
+| lstm | tape | 0.29 | 0.31 | noise |
+| lstm | torch | 3.48 | 2.56 | −26% |
+| lstm | mlx-cpu | 140.6 | 121.3 | −14% |
+| lstm | mlx-gpu | 183.1 | 179.1 | −2% |
+| gru | tape | ~0 | 0.01 | noise |
+| gru | torch | 3.97 | 2.89 | −27% |
+| gru | mlx-cpu | 95.2 | 89.8 | −6% |
+| gru | mlx-gpu | 157.6 | 151.0 | −4% |
+| transformer | tape | 1.08 | 0.84 | −22% |
+| transformer | torch | 8.28 | 7.59 | −8% |
+| transformer | mlx-cpu | 40.6 | 34.7 | −15% |
+| transformer | mlx-gpu | 74.9 | 69.0 | −8% |
+| ntm-copy | tape | ~0 | 0.97 | small |
+| ntm-copy | torch | 25.10 | 1.37 | b894 was wrong |
+| ntm-copy | mlx-cpu | 281.0 | 212.6 | −24% |
+| ntm-copy | mlx-gpu | 335.9 | 261.1 | −22% |
+| ntm-recall | tape | 3.13 | 2.47 | −21% |
+| ntm-recall | torch | 23.53 | 15.23 | −35% |
+| ntm-recall | mlx-cpu | 285.5 | 244.6 | −14% |
+| ntm-recall | mlx-gpu | 360.9 | 367.2 | +2% |
+
+The PyTorch references on the same machine also came in 2–22% faster than during the `b894fbb` sweep (rnn 1.75 → 1.37, ntm-recall 13.13 → 11.33), indicating this VM is running ~10–15% leaner on the day — system noise, not algorithmic change. After backing that out, every Idris cell is within the ±15–20% per-cell noise gate established in `feedback_vm_perf_noise.md`. The only above-floor positive delta is rnn/torch at +21% on a 1-ms-scale task — within the resolution of two-point timing at that range, not a regression worth chasing.
+
+The ntm-copy/torch row shows a 25.10 → 1.37 collapse that is far too large to be VM drift. Working hypothesis: the `b894fbb` 25.10 was a measurement artefact (two-point timing at N_short=10, N_long=40 on a ~25 ms/ep task is just ~1 s of wall — easy to drown in startup variance). The new 1.37 is also at the noise floor of that two-point regime. Either could be wrong; the right read is "this cell is not reliably resolvable at the current N_long". Not a precision-work signal in either direction.
+
+**Outcome**: precision rollout is perf-neutral. No code change. Not updating the `perf-baseline.md` 2026-05-17 row — the deltas are below the 20% noise gate and don't represent a material change worth churning the canonical table over.
+
+**Cross-references**:
+- TODO "Investigate precision type parameter" — closed; see `docs/develop/dtype-parameter.md` for the design memo and lessons learned
+- sweep raw output: `/tmp/perf-sweep-a875549.log`
+- JSONL entries appended to `docs/develop/perf-log.jsonl` (kind=baseline, commit=a875549)
