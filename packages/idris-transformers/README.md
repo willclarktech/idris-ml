@@ -16,7 +16,7 @@ itself is the adapter, expressed as type-checked Idris.
 | --- | --- | --- |
 | `HfBert` | `google/bert_uncased_L-2_H-128_A-2` (~17 MB) | ready |
 | `HfGpt2` | `hf-internal-testing/tiny-random-gpt2` (~150 KB) | ready |
-| `HfLlama` | `meta-llama/Llama-3.2-1B` (~2.5 GB BF16, gated) | follow-up (needs RMSNorm + RoPE + SwiGLU + KV cache + tokenizer; tracked in TODO) |
+| `HfLlama` | `meta-llama/Llama-3.2-1B` (~2.5 GB BF16, gated) | ready (forward pass; KV cache follow-up — see `TODO.md`) |
 
 ## Conventions
 
