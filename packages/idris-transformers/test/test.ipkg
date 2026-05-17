@@ -10,6 +10,7 @@ modules = Harness
         , Main
         , Test.HfBert
         , Test.HfGpt2
+        , Test.HfLlama
         , Test.Tokenizer
 
 main = Main
