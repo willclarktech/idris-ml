@@ -352,6 +352,15 @@ check-rename-headers:
 check-ffi-wrap-template:
 	@python3 scripts/lifecycle/check-ffi-wrap-template.py
 
+# Lint: flag %foreign declarations whose Idris type is non-IO but whose
+# C body has side effects (allocate, mutate, log, append to tape).
+# Catches the bug class fixed by the IO refactor (commits leading up to
+# e337512) — see the audit doc + `feedback_typeclass_zero_arg_method_eval.md`
+# for the underlying mechanism. Known dead surfaces are skip-listed in
+# the script until the dead-code cleanup row lands.
+check-non-io-side-effects:
+	@python3 scripts/lifecycle/check-non-io-side-effects.py
+
 # Backend API test suite — runs against whichever backend is active
 test-backend: $(BACKENDS_DIR)/test_backend.c backend | $(BUILD)
 	cc -o $(BUILD)/test_backend $(BACKENDS_DIR)/test_backend.c -L$(BUILD) -lidrisml -Wl,-rpath,$(BUILD) -lm

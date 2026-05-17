@@ -702,7 +702,7 @@ prim__optimizerCreateAdamGroup : Double -> Double -> Double -> Double -> String 
 
 %foreign "C:polyak_blend,libidrisml"
 export
-prim__polyakBlend : Double -> String -> String -> Int
+prim__polyakBlend : Double -> String -> String -> PrimIO Int
 
 ||| Polyak soft update for twin-network param groups registered under
 ||| `onlineScope` vs `targetScope`: for each online param, finds the
@@ -713,7 +713,7 @@ prim__polyakBlend : Double -> String -> String -> Int
 export
 polyakUpdate : (tau : Double) -> (onlineScope : String) -> (targetScope : String) -> IO Int
 polyakUpdate tau onlineScope targetScope =
-  pure (prim__polyakBlend tau onlineScope targetScope)
+  primIO (prim__polyakBlend tau onlineScope targetScope)
 
 %foreign "C:optimizer_clip_grad_norm,libidrisml"
 prim__clipGradNorm : Double -> Double
@@ -779,14 +779,14 @@ nativeAdamW lr beta1 beta2 eps wd maxNorm =
     (NormClip maxNorm)
 
 %foreign "C:optimizer_set_param_lr,libidrisml"
-prim__optimizerSetParamLR : AnyPtr -> String -> Double -> ()
+prim__optimizerSetParamLR : AnyPtr -> String -> Double -> PrimIO ()
 
 ||| Set a per-parameter learning rate override. Parameters matching the given
 ||| name will use this LR instead of the optimizer's base LR.
 ||| Use LR=0 to freeze a parameter. Set LR<0 to revert to base LR.
 export
-setParamLR : NativeOptimizer -> String -> Double -> ()
-setParamLR opt name lr = prim__optimizerSetParamLR opt.handle name lr
+setParamLR : NativeOptimizer -> String -> Double -> IO ()
+setParamLR opt name lr = primIO (prim__optimizerSetParamLR opt.handle name lr)
 
 %foreign "C:optimizer_set_lr,libidrisml"
 prim__optimizerSetLrC : AnyPtr -> Double -> PrimIO ()
@@ -849,7 +849,7 @@ getCurrentRssMB : Nat -> Int
 getCurrentRssMB _ = prim__getCurrentRssMB
 
 %foreign "C:backend_memory_report_return,libidrisml"
-prim__memoryReport : Int -> Int
+prim__memoryReport : Int -> PrimIO Int
 
 %foreign "C:backend_reset_for_eval_return,libidrisml"
 prim__resetForEval : Int -> Int
@@ -922,7 +922,9 @@ resetForEval dummy = prim__resetForEval dummy
 ||| Print detailed memory breakdown to stderr.
 export
 memoryReport : IO ()
-memoryReport = let _ = prim__memoryReport 0 in pure ()
+memoryReport = do
+  _ <- primIO (prim__memoryReport 0)
+  pure ()
 
 %foreign "C:backend_profile_reset_return,libidrisml"
 prim__profileReset : Int -> Int

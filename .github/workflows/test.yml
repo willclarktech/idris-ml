@@ -36,6 +36,13 @@ jobs:
         # scheme bodies missing the vector-ref unwrap or the wrap/retain
         # on T return. See docs/develop/tensor-lifecycle-plan.md.
         run: make check-ffi-wrap-template
+      - name: Verify %foreign decls are correctly IO-typed
+        # Catches the bug class fixed by the IO refactor (commits leading
+        # up to e337512): side-effecting C calls bound to non-IO Idris
+        # types, where `let _ =` bindings get DCE'd and `pure (...)`
+        # fires the FFI before sequencing. Known dead surfaces are
+        # skip-listed in the script.
+        run: make check-non-io-side-effects
 
   test-examples:
     name: test-examples (${{ matrix.os }})

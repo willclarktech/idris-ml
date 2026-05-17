@@ -308,7 +308,7 @@ setLRAll opt lr = do
         then pure ()
         else do
           nm <- getParamName i
-          pure (setParamLR opt nm lr)
+          setParamLR opt nm lr
           go (i + 1) n
 
 
