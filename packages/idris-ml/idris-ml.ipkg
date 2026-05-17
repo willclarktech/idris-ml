@@ -38,6 +38,7 @@ modules = Compat.Random
         , Layer.Rnn
         , Layer.Transformer
         , Math
+        , Precision.Core
         , RL.Gae
         , RL.ReplayBuffer
         , Sampler
