@@ -231,10 +231,24 @@ interface UserDeviceNN d => UserDeviceConv (0 d : Device) where
 
 ||| The fifth and final slice. Closes the chain
 ||| `Core <- Linear <- NN <- Conv <- Tape`. Covers autograd
-||| (requiresGrad, noGradBegin/End, detach, withGrad), the param
-||| registry that the optimizer reads from, param + state allocation,
-||| and small IO helpers (allocDoubles, readDouble, writeDouble,
-||| print, seq).
+||| (requiresGrad, noGradBegin/End, detach, withGrad), tensor-handle
+||| shape queries, param/state allocation, and the doubles-array
+||| scratch helpers.
+|||
+||| Methods that read or mutate process-global state which the
+||| optimizer accesses via direct unaliased FFI (the param registry's
+||| `param_count` / `param_name` / `param_grad_item*` /
+||| `param_zero_all_grads` / `param_subtract_delta`, plus the global
+||| `tensor_print` / `tensor_write_double` debug paths) were removed
+||| from the interface. Their dispatch was a fiction: every built-in
+||| forwarded them to the same `*Unified` C symbol, and the consumer
+||| of that state (`native_train_step`, the layers' direct
+||| `prim__paramRegister` call) bypasses the interface entirely. A
+||| BYO author binding those methods to their own backend would have
+||| seen the bindings sit unused. The methods retained below operate
+||| on a backend-specific Tensor handle or autograd state, so they
+||| are the dispatch surface that can grow live as layers gain
+||| `UserDeviceTape d =>` constraints.
 public export
 interface UserDeviceConv d => UserDeviceTape (0 d : Device) where
   -- Autograd flag --------------------------------------------------
@@ -250,22 +264,7 @@ interface UserDeviceConv d => UserDeviceTape (0 d : Device) where
   primTensorSizeAt      : AnyPtr -> Int -> Int
 
   -- Param registry (optimizer-side) --------------------------------
-  --
-  -- Note: `primParamClear` is intentionally `PrimIO ()` (not bare
-  -- `()`). A zero-arg method of unit type gets eagerly evaluated at
-  -- instance-dictionary construction time and would silently call
-  -- `param_clear` every time `UserDeviceTape d =>` is brought into
-  -- scope — wiping the param registry mid-training. `PrimIO ()` is a
-  -- thunk; the side effect only fires when `primIO` runs it.
   primParamRegister     : String -> AnyPtr -> AnyPtr
-  primParamClear        : PrimIO ()
-  primParamCount        : () -> Int
-  primParamName         : Int -> String
-  primParamGradItem     : Int -> Double
-  primParamGradItemAt   : Int -> Int -> Double
-  primParamGradItemAndZero : Int -> Double
-  primParamZeroAllGrads : Int -> Int
-  primParamSubtractDelta : Int -> Double -> ()
 
   -- Param + state creation -----------------------------------------
   primCreateParam1d     : Int -> AnyPtr -> AnyPtr
@@ -277,7 +276,3 @@ interface UserDeviceConv d => UserDeviceTape (0 d : Device) where
   -- Doubles array helpers ------------------------------------------
   primAllocDoubles      : Int -> AnyPtr
   primReadDouble        : AnyPtr -> Int -> Double
-  primWriteDouble       : AnyPtr -> Int -> Double -> ()
-
-  -- Misc -----------------------------------------------------------
-  primPrint             : AnyPtr -> ()

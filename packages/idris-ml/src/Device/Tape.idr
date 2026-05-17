@@ -378,22 +378,6 @@ prim__tensorDimTape : AnyPtr -> Int
 prim__tensorSizeAtTape : AnyPtr -> Int -> Int
 %foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"param_register_return_tape\" (string void*) void*) a0 (vector-ref a1 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 prim__paramRegisterTape : String -> AnyPtr -> AnyPtr
-%foreign "C:param_clear_tape,libidrisml"
-prim__paramClearTape : PrimIO ()
-%foreign "C:param_count_tape,libidrisml"
-prim__paramCountTape : Int
-%foreign "C:param_name_tape,libidrisml"
-prim__paramNameTape : Int -> String
-%foreign "C:param_grad_item_tape,libidrisml"
-prim__paramGradItemTape : Int -> Double
-%foreign "C:param_grad_item_at_tape,libidrisml"
-prim__paramGradItemAtTape : Int -> Int -> Double
-%foreign "C:param_grad_item_and_zero_tape,libidrisml"
-prim__paramGradItemAndZeroTape : Int -> Double
-%foreign "C:param_zero_all_grads_return_tape,libidrisml"
-prim__paramZeroAllGradsTape : Int -> Int
-%foreign "C:param_subtract_delta_tape,libidrisml"
-prim__paramSubtractDeltaTape : Int -> Double -> ()
 %foreign "scheme:(lambda (a0 a1) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_param_1d_tape\" (int void*) void*) a0 a1))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 prim__createParam1dTape : Int -> AnyPtr -> AnyPtr
 %foreign "scheme:(lambda (a0 a1 a2) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_param_2d_tape\" (int int void*) void*) a0 a1 a2))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
@@ -408,10 +392,6 @@ prim__createState2dTape : Int -> Int -> AnyPtr -> AnyPtr
 prim__allocDoublesTape : Int -> AnyPtr
 %foreign "C:tensor_read_double_tape,libidrisml"
 prim__readDoubleTape : AnyPtr -> Int -> Double
-%foreign "C:tensor_write_double_tape,libidrisml"
-prim__writeDoubleTape : AnyPtr -> Int -> Double -> ()
-%foreign "scheme:(lambda (a0)  ((foreign-procedure \"tensor_print_tape\" (void*) void) (vector-ref a0 1)))"
-prim__printTape : AnyPtr -> ()
 
 
 public export
@@ -425,15 +405,6 @@ UserDeviceTape TapeDev where
   primTensorDim            = prim__tensorDimTape
   primTensorSizeAt         = prim__tensorSizeAtTape
   primParamRegister        = prim__paramRegisterTape
-  primParamClear        = prim__paramClearTape
-
-  primParamCount _         = prim__paramCountTape
-  primParamName            = prim__paramNameTape
-  primParamGradItem        = prim__paramGradItemTape
-  primParamGradItemAt      = prim__paramGradItemAtTape
-  primParamGradItemAndZero = prim__paramGradItemAndZeroTape
-  primParamZeroAllGrads    = prim__paramZeroAllGradsTape
-  primParamSubtractDelta   = prim__paramSubtractDeltaTape
   primCreateParam1d        = prim__createParam1dTape
   primCreateParam2d        = prim__createParam2dTape
   primCreateParam3d        = prim__createParam3dTape
@@ -441,5 +412,3 @@ UserDeviceTape TapeDev where
   primCreateState2d        = prim__createState2dTape
   primAllocDoubles         = prim__allocDoublesTape
   primReadDouble           = prim__readDoubleTape
-  primWriteDouble          = prim__writeDoubleTape
-  primPrint                = prim__printTape

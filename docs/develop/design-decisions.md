@@ -815,3 +815,19 @@ The Chez vector IS the Tensor's Idris-level identity. The `Tensor` record's `ten
 Full model + how to add new FFIs: `docs/develop/tensor-lifecycle.md`.
 Plan + phased rollout: `docs/develop/tensor-lifecycle-plan.md`.
 
+### `UserDevice` interface inclusion criterion: dispatches on `d` (2026-05-17)
+
+When trimming `UserDeviceTape` to its useful surface (commit landed 2026-05-17), the question that needed answering was: *which methods are pulling their weight as interface methods?* Some `UserDeviceTape` methods existed as instance bindings that all forwarded to the same `*Unified` C symbol — looking like a dispatch surface but not delivering one. Worse, removing them from the interface mattered for the [Pluggable Device pitch](#pluggable-device--sliced-userdevice-interfaces--per-backend-c-symbol-rename-2026-05-13): every method a BYO author "must implement" should give them actual control over the behaviour, otherwise it's onboarding tax.
+
+The criterion adopted: **a method belongs on `UserDevice<Slice>` iff three conditions hold**:
+
+1. **The C state it reads or mutates is per-tensor or per-backend**, not process-global. State that's truly process-wide (the `param_register` registry behind `param_count` / `param_name` / etc., the autograd-flag toggle behind `no_grad_begin`/`end` is borderline — the flag is global but the *interpretation* differs per backend's autograd machinery, so it stays) can't deliver per-`d` dispatch even if the method dispatch looks like it should.
+2. **The Idris consumer of that state uses the interface method**, not a direct `%foreign` symbol. The optimizer (`nativeTrainStep`) calls `param_grad_item_and_zero` etc. via a fixed unaliased `%foreign`, so even a backend that bound `primParamGradItemAndZero` to its own C function would never have that binding called. The Idris-side consumer has to be threaded through the typeclass for the method to deliver dispatch.
+3. **Different `UserDevice<X> d` instances bind it to different C symbols** in practice (or could, given a non-trivial backend implementation). If every built-in forwards to the same `*Unified` symbol, that's a smell — either the underlying state is process-global (fails #1) or the method should be a fixed FFI surface, not an interface method.
+
+The methods removed from `UserDeviceTape` on 2026-05-17 all failed at least two of the three: `primParamCount` / `primParamName` / `primParamGradItem*` / `primParamZeroAllGrads` / `primParamSubtractDelta` failed #1 (registry is global) and #2 (optimizer bypasses the interface); `primParamClear` / `primWriteDouble` / `primPrint` failed #1 + #3. The surviving methods (autograd flag toggles, tensor-handle shape queries, per-backend allocation + scratch buffers) all pass — they operate on backend-specific state and are the dispatch surface that can grow live as layers gain `UserDeviceTape d =>`.
+
+This criterion replaces the looser "is it dead code?" framing the original audit was using. "Dead code" was the wrong question — these methods were dead-as-dispatch, but exported as public interface members. Removing them is an *API improvement*, not a cleanup: BYO authors implement fewer no-op methods, and the interface stops looking like a slice that doesn't deliver.
+
+**Revisit triggers**: if a future refactor moves the param registry to be per-backend (one MLX-side, one torch-side, etc. — would address the row 11 / row 16 architecture conversation), the methods that failed #1 above could come back. The dispatch criterion would still apply: re-add only the methods whose new per-backend implementations actually get called via the typeclass, not because "every backend should expose registry queries."
+

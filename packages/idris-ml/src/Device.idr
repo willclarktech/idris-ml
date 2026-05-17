@@ -609,22 +609,6 @@ prim__tensorDimUnified : AnyPtr -> Int
 prim__tensorSizeAtUnified : AnyPtr -> Int -> Int
 %foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"param_register_return\" (string void*) void*) a0 (vector-ref a1 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 prim__paramRegisterUnified : String -> AnyPtr -> AnyPtr
-%foreign "C:param_clear,libidrisml"
-prim__paramClearUnified : PrimIO ()
-%foreign "C:param_count,libidrisml"
-prim__paramCountUnified : Int
-%foreign "C:param_name,libidrisml"
-prim__paramNameUnified : Int -> String
-%foreign "C:param_grad_item,libidrisml"
-prim__paramGradItemUnified : Int -> Double
-%foreign "C:param_grad_item_at,libidrisml"
-prim__paramGradItemAtUnified : Int -> Int -> Double
-%foreign "C:param_grad_item_and_zero,libidrisml"
-prim__paramGradItemAndZeroUnified : Int -> Double
-%foreign "C:param_zero_all_grads_return,libidrisml"
-prim__paramZeroAllGradsUnified : Int -> Int
-%foreign "C:param_subtract_delta,libidrisml"
-prim__paramSubtractDeltaUnified : Int -> Double -> ()
 %foreign "scheme:(lambda (a0 a1) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_param_1d\" (int void*) void*) a0 a1))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 prim__createParam1dUnified : Int -> AnyPtr -> AnyPtr
 %foreign "scheme:(lambda (a0 a1 a2) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_param_2d\" (int int void*) void*) a0 a1 a2))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
@@ -639,10 +623,6 @@ prim__createState2dUnified : Int -> Int -> AnyPtr -> AnyPtr
 prim__allocDoublesUnified : Int -> AnyPtr
 %foreign "C:tensor_read_double,libidrisml"
 prim__readDoubleUnified : AnyPtr -> Int -> Double
-%foreign "C:tensor_write_double,libidrisml"
-prim__writeDoubleUnified : AnyPtr -> Int -> Double -> ()
-%foreign "scheme:(lambda (a0)  ((foreign-procedure \"tensor_print\" (void*) void) (vector-ref a0 1)))"
-prim__printUnified : AnyPtr -> ()
 
 public export
 UserDeviceTape CPU where
@@ -655,15 +635,6 @@ UserDeviceTape CPU where
   primTensorDim            = prim__tensorDimUnified
   primTensorSizeAt         = prim__tensorSizeAtUnified
   primParamRegister        = prim__paramRegisterUnified
-  primParamClear        = prim__paramClearUnified
-
-  primParamCount _         = prim__paramCountUnified
-  primParamName            = prim__paramNameUnified
-  primParamGradItem        = prim__paramGradItemUnified
-  primParamGradItemAt      = prim__paramGradItemAtUnified
-  primParamGradItemAndZero = prim__paramGradItemAndZeroUnified
-  primParamZeroAllGrads    = prim__paramZeroAllGradsUnified
-  primParamSubtractDelta   = prim__paramSubtractDeltaUnified
   primCreateParam1d        = prim__createParam1dUnified
   primCreateParam2d        = prim__createParam2dUnified
   primCreateParam3d        = prim__createParam3dUnified
@@ -671,8 +642,6 @@ UserDeviceTape CPU where
   primCreateState2d        = prim__createState2dUnified
   primAllocDoubles         = prim__allocDoublesUnified
   primReadDouble           = prim__readDoubleUnified
-  primWriteDouble          = prim__writeDoubleUnified
-  primPrint                = prim__printUnified
 
 public export
 {n : Nat} -> UserDeviceTape (CUDA n) where
@@ -685,15 +654,6 @@ public export
   primTensorDim            = prim__tensorDimUnified
   primTensorSizeAt         = prim__tensorSizeAtUnified
   primParamRegister        = prim__paramRegisterUnified
-  primParamClear        = prim__paramClearUnified
-
-  primParamCount _         = prim__paramCountUnified
-  primParamName            = prim__paramNameUnified
-  primParamGradItem        = prim__paramGradItemUnified
-  primParamGradItemAt      = prim__paramGradItemAtUnified
-  primParamGradItemAndZero = prim__paramGradItemAndZeroUnified
-  primParamZeroAllGrads    = prim__paramZeroAllGradsUnified
-  primParamSubtractDelta   = prim__paramSubtractDeltaUnified
   primCreateParam1d        = prim__createParam1dUnified
   primCreateParam2d        = prim__createParam2dUnified
   primCreateParam3d        = prim__createParam3dUnified
@@ -701,8 +661,6 @@ public export
   primCreateState2d        = prim__createState2dUnified
   primAllocDoubles         = prim__allocDoublesUnified
   primReadDouble           = prim__readDoubleUnified
-  primWriteDouble          = prim__writeDoubleUnified
-  primPrint                = prim__printUnified
 
 public export
 UserDeviceTape MPS where
@@ -715,15 +673,6 @@ UserDeviceTape MPS where
   primTensorDim            = prim__tensorDimUnified
   primTensorSizeAt         = prim__tensorSizeAtUnified
   primParamRegister        = prim__paramRegisterUnified
-  primParamClear        = prim__paramClearUnified
-
-  primParamCount _         = prim__paramCountUnified
-  primParamName            = prim__paramNameUnified
-  primParamGradItem        = prim__paramGradItemUnified
-  primParamGradItemAt      = prim__paramGradItemAtUnified
-  primParamGradItemAndZero = prim__paramGradItemAndZeroUnified
-  primParamZeroAllGrads    = prim__paramZeroAllGradsUnified
-  primParamSubtractDelta   = prim__paramSubtractDeltaUnified
   primCreateParam1d        = prim__createParam1dUnified
   primCreateParam2d        = prim__createParam2dUnified
   primCreateParam3d        = prim__createParam3dUnified
@@ -731,5 +680,3 @@ UserDeviceTape MPS where
   primCreateState2d        = prim__createState2dUnified
   primAllocDoubles         = prim__allocDoublesUnified
   primReadDouble           = prim__readDoubleUnified
-  primWriteDouble          = prim__writeDoubleUnified
-  primPrint                = prim__printUnified

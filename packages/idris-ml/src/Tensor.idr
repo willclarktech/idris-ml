@@ -362,31 +362,6 @@ prim__mnistGetLabel : AnyPtr -> Int -> Int
 export
 prim__paramRegister : String -> AnyPtr -> AnyPtr
 
-%foreign "C:param_clear,libidrisml"
-prim__paramClear : ()
-
-%foreign "C:param_count,libidrisml"
-prim__paramCount : Int
-
-%foreign "C:param_name,libidrisml"
-prim__paramName : Int -> String
-
-%foreign "C:param_grad_item,libidrisml"
-prim__paramGradItem : Int -> Double
-
-%foreign "C:param_grad_item_at,libidrisml"
-export
-prim__paramGradItemAt : Int -> Int -> Double
-
-%foreign "C:param_grad_item_and_zero,libidrisml"
-prim__paramGradItemAndZero : Int -> Double
-
-%foreign "C:param_zero_all_grads_return,libidrisml"
-prim__paramZeroAllGrads : Int -> Int
-
-%foreign "C:param_subtract_delta,libidrisml"
-prim__paramSubtractDelta : Int -> Double -> ()
-
 -- In-place scalar subtract on a tensor (under no_grad). Returns tensor for threading.
 %foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_subtract_scalar_inplace\" (void* double) void*) (vector-ref a0 1) a1))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 export
@@ -489,15 +464,6 @@ withNoGrad act = do
   _ <- drainManagedHandles
   pure result
 
--- LSTM
-%foreign "scheme:(lambda (a0 a1 a2 a3 a4 a5 a6 a7 a8)  ((foreign-procedure \"tensor_lstm_cell\" (void* void* void* void* void* void* void* void* void*) void) (vector-ref a0 1) (vector-ref a1 1) (vector-ref a2 1) (vector-ref a3 1) (vector-ref a4 1) (vector-ref a5 1) (vector-ref a6 1) a7 a8))"
-prim__lstmCell : AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> ()
-
--- Debug
-%foreign "scheme:(lambda (a0)  ((foreign-procedure \"tensor_print\" (void*) void) (vector-ref a0 1)))"
-prim__print : AnyPtr -> ()
-
-
 ----------------------------------------------------------------------
 -- Sequencing helper
 ----------------------------------------------------------------------
@@ -516,9 +482,6 @@ prim__seq : AnyPtr -> AnyPtr -> AnyPtr
 
 %foreign "C:tensor_alloc_doubles,libidrisml"
 export prim__allocDoubles : Int -> AnyPtr
-
-%foreign "C:tensor_write_double,libidrisml"
-export prim__writeDouble : AnyPtr -> Int -> Double -> ()
 
 %foreign "C:tensor_read_double,libidrisml"
 prim__readDouble : AnyPtr -> Int -> Double
@@ -679,10 +642,6 @@ prim__createParam4d : Int -> Int -> Int -> Int -> AnyPtr -> AnyPtr
 %foreign "scheme:(lambda (a0)  ((foreign-procedure \"tensor_backward_conditional\" (void*) int) (vector-ref a0 1)))"
 prim__backwardAndCount : AnyPtr -> Int
 
-%foreign "C:param_zero_all_grads_return,libidrisml"
-prim__zeroAllGrads : Int -> Int
-
-
 ----------------------------------------------------------------------
 -- Native Optimizer
 ----------------------------------------------------------------------
@@ -715,8 +674,6 @@ polyakUpdate : (tau : Double) -> (onlineScope : String) -> (targetScope : String
 polyakUpdate tau onlineScope targetScope =
   primIO (prim__polyakBlend tau onlineScope targetScope)
 
-%foreign "C:optimizer_clip_grad_norm,libidrisml"
-prim__clipGradNorm : Double -> Double
 
 public export
 data ClipMode = NoClip | ValueClip Double | NormClip Double
@@ -814,15 +771,6 @@ setLearningRate opt lr = primIO (prim__optimizerSetLrC opt.handle lr)
 prim__nativeTrainStep : AnyPtr -> Int -> Double -> AnyPtr -> Double -> Double
 
 ----------------------------------------------------------------------
--- Parameter Count
-----------------------------------------------------------------------
-
-export
-getNumPids : Int -> Int
-getNumPids _ = prim__paramCount
-
-
-----------------------------------------------------------------------
 -- GC / RSS
 ----------------------------------------------------------------------
 
@@ -851,8 +799,6 @@ getCurrentRssMB _ = prim__getCurrentRssMB
 %foreign "C:backend_memory_report_return,libidrisml"
 prim__memoryReport : Int -> PrimIO Int
 
-%foreign "C:backend_reset_for_eval_return,libidrisml"
-prim__resetForEval : Int -> Int
 
 ||| Bulk-convert a Vector of Doubles to a C tensor handle.
 ||| The C tensor_create_1d function frees the input buffer after copying.
@@ -913,24 +859,12 @@ export
 toTDP : {i, o : Nat} -> DataPoint i o Double -> TensorDataPoint i o
 toTDP dp = MkTensorDataPoint (vectorToTensorPersistent (x dp)) (vectorToTensorPersistent (y dp))
 
-||| Reset tape + arena for a clean eval forward pass.
-||| Returns a dummy value that should be threaded into subsequent computation.
-export
-resetForEval : Int -> Int
-resetForEval dummy = prim__resetForEval dummy
-
 ||| Print detailed memory breakdown to stderr.
 export
 memoryReport : IO ()
 memoryReport = do
   _ <- primIO (prim__memoryReport 0)
   pure ()
-
-%foreign "C:backend_profile_reset_return,libidrisml"
-prim__profileReset : Int -> Int
-
-%foreign "C:backend_profile_report_return,libidrisml"
-prim__profileReport : Int -> Int
 
 %foreign "scheme:(lambda (a0)  ((foreign-procedure \"tensor_backward\" (void*) void) (vector-ref a0 1)))"
 prim__backwardC : AnyPtr -> PrimIO ()

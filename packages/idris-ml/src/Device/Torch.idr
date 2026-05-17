@@ -374,22 +374,6 @@ prim__tensorDimTorch : AnyPtr -> Int
 prim__tensorSizeAtTorch : AnyPtr -> Int -> Int
 %foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"param_register_return_torch\" (string void*) void*) a0 (vector-ref a1 1)))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 prim__paramRegisterTorch : String -> AnyPtr -> AnyPtr
-%foreign "C:param_clear_torch,libidrisml"
-prim__paramClearTorch : PrimIO ()
-%foreign "C:param_count_torch,libidrisml"
-prim__paramCountTorch : Int
-%foreign "C:param_name_torch,libidrisml"
-prim__paramNameTorch : Int -> String
-%foreign "C:param_grad_item_torch,libidrisml"
-prim__paramGradItemTorch : Int -> Double
-%foreign "C:param_grad_item_at_torch,libidrisml"
-prim__paramGradItemAtTorch : Int -> Int -> Double
-%foreign "C:param_grad_item_and_zero_torch,libidrisml"
-prim__paramGradItemAndZeroTorch : Int -> Double
-%foreign "C:param_zero_all_grads_return_torch,libidrisml"
-prim__paramZeroAllGradsTorch : Int -> Int
-%foreign "C:param_subtract_delta_torch,libidrisml"
-prim__paramSubtractDeltaTorch : Int -> Double -> ()
 %foreign "scheme:(lambda (a0 a1) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_param_1d_torch\" (int void*) void*) a0 a1))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
 prim__createParam1dTorch : Int -> AnyPtr -> AnyPtr
 %foreign "scheme:(lambda (a0 a1 a2) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((raw_r ((foreign-procedure \"tensor_create_param_2d_torch\" (int int void*) void*) a0 a1 a2))) (let ((wr (vector 'tensor-handle raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle\" (void*) void) raw_r) wr)))"
@@ -404,10 +388,6 @@ prim__createState2dTorch : Int -> Int -> AnyPtr -> AnyPtr
 prim__allocDoublesTorch : Int -> AnyPtr
 %foreign "C:tensor_read_double_torch,libidrisml"
 prim__readDoubleTorch : AnyPtr -> Int -> Double
-%foreign "C:tensor_write_double_torch,libidrisml"
-prim__writeDoubleTorch : AnyPtr -> Int -> Double -> ()
-%foreign "scheme:(lambda (a0)  ((foreign-procedure \"tensor_print_torch\" (void*) void) (vector-ref a0 1)))"
-prim__printTorch : AnyPtr -> ()
 
 
 public export
@@ -421,15 +401,6 @@ UserDeviceTape TorchDev where
   primTensorDim            = prim__tensorDimTorch
   primTensorSizeAt         = prim__tensorSizeAtTorch
   primParamRegister        = prim__paramRegisterTorch
-  primParamClear        = prim__paramClearTorch
-
-  primParamCount _         = prim__paramCountTorch
-  primParamName            = prim__paramNameTorch
-  primParamGradItem        = prim__paramGradItemTorch
-  primParamGradItemAt      = prim__paramGradItemAtTorch
-  primParamGradItemAndZero = prim__paramGradItemAndZeroTorch
-  primParamZeroAllGrads    = prim__paramZeroAllGradsTorch
-  primParamSubtractDelta   = prim__paramSubtractDeltaTorch
   primCreateParam1d        = prim__createParam1dTorch
   primCreateParam2d        = prim__createParam2dTorch
   primCreateParam3d        = prim__createParam3dTorch
@@ -437,5 +408,3 @@ UserDeviceTape TorchDev where
   primCreateState2d        = prim__createState2dTorch
   primAllocDoubles         = prim__allocDoublesTorch
   primReadDouble           = prim__readDoubleTorch
-  primWriteDouble          = prim__writeDoubleTorch
-  primPrint                = prim__printTorch

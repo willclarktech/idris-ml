@@ -92,52 +92,25 @@ PURE_READS = {
 }
 
 
-# Idris-side prim names known to be dead code. These declarations have
-# no live callers (verified by grep audit on 2026-05-17); they are kept
-# only because they back interface methods on `UserDeviceCore` /
-# `UserDeviceTape` that have no real callers either. Cleaning them out
-# means removing the dead interface methods + every backend binding,
-# which is a separately scoped refactor (see TODO "Remove dead non-IO
-# FFI surface"). Until that lands, exempt these from the lint so new
-# bugs of the same class don't hide behind a sea of known violations.
+# Idris-side prim names that legitimately stay non-IO and are exempt
+# from the lint. Anything not on this list and not on PURE_READS gets
+# checked. Kept short on purpose — every entry is an explicit decision.
 KNOWN_DEAD_PRIMS = {
-    # Tensor.idr — non-C-suffixed versions paralleled by PrimIO versions
-    "prim__paramClear",                # paired with prim__paramClearC (PrimIO ())
-    "prim__paramCount",                # paired with prim__paramCountC (PrimIO Int)
-    "prim__paramName",                 # paired with prim__paramNameC
-    "prim__paramGradItem",
-    "prim__paramGradItemAt",
-    "prim__paramGradItemAndZero",
-    "prim__paramZeroAllGrads",         # paired with prim__zeroAllGradsC
-    "prim__paramSubtractDelta",
-    "prim__writeDouble",               # superseded by prim__setDouble (threaded-ptr idiom)
-    "prim__print",
-    "prim__lstmCell",                  # superseded by prim__lstmGatesPair
-    "prim__clipGradNorm",
-    "prim__zeroAllGrads",
-    "prim__resetForEval",
-    "prim__profileReset",              # paired with prim__profileResetC
-    "prim__profileReport",             # paired with prim__profileReportC
-    # Per-backend interface bindings — every method below is dead in its
-    # `UserDeviceCore` / `UserDeviceTape` slice (zero live callers, only
-    # interface bindings reference them). See the audit on 2026-05-17.
-    "prim__paramCountMlx", "prim__paramCountTape", "prim__paramCountTorch", "prim__paramCountUnified",
-    "prim__paramNameMlx",  "prim__paramNameTape",  "prim__paramNameTorch",  "prim__paramNameUnified",
-    "prim__paramGradItemMlx", "prim__paramGradItemTape", "prim__paramGradItemTorch", "prim__paramGradItemUnified",
-    "prim__paramGradItemAtMlx", "prim__paramGradItemAtTape", "prim__paramGradItemAtTorch", "prim__paramGradItemAtUnified",
-    "prim__paramGradItemAndZeroMlx", "prim__paramGradItemAndZeroTape", "prim__paramGradItemAndZeroTorch", "prim__paramGradItemAndZeroUnified",
-    "prim__paramZeroAllGradsMlx", "prim__paramZeroAllGradsTape", "prim__paramZeroAllGradsTorch", "prim__paramZeroAllGradsUnified",
-    "prim__paramSubtractDeltaMlx", "prim__paramSubtractDeltaTape", "prim__paramSubtractDeltaTorch", "prim__paramSubtractDeltaUnified",
-    "prim__writeDoubleMlx", "prim__writeDoubleTape", "prim__writeDoubleTorch", "prim__writeDoubleUnified",
-    "prim__printMlx", "prim__printTape", "prim__printTorch", "prim__printUnified",
-    "prim__freeMlx", "prim__freeTape", "prim__freeTorch", "prim__freeUnified", "prim__freeBYO",
     # `tensor_write_double_return` mutates a caller-owned buffer and
     # returns the same pointer for let-chain threading. The threading
     # idiom (used in `writePE` / `writeCausalMask`) prevents CSE in
     # practice; flagging it would require either retyping every
     # mask/PE construction site as IO or extending the lint with an
-    # "intentional threaded-ptr" annotation. Defer.
+    # "intentional threaded-ptr" annotation.
     "prim__setDouble",
+    # primFree's UserDeviceCore method is the lifecycle "release this
+    # handle" hook. It's typed `AnyPtr -> ()` to match the method
+    # signature (the C bodies on mlx are refcount-driven, tape/torch
+    # are no-ops). The Idris-side guardian drives release, so the
+    # binding doesn't fire on a fixed schedule — keeping it `()` is
+    # intentional. The unit-arg ABI surface is identical across all
+    # backends.
+    "prim__freeMlx", "prim__freeTape", "prim__freeTorch", "prim__freeUnified", "prim__freeBYO",
 }
 
 
