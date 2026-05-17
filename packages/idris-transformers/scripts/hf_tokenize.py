@@ -32,8 +32,14 @@ from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
 
 from transformers import AutoTokenizer
+
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+REPO_ROOT  = SCRIPT_DIR.parent.parent.parent   # <repo-root>
+MODELS_DIR = REPO_ROOT / "models"
 
 
 def main() -> int:
@@ -47,7 +53,19 @@ def main() -> int:
     )
     args = ap.parse_args()
 
-    tok = AutoTokenizer.from_pretrained(args.repo)
+    # Load from the local <repo-root>/models/<repo>/ dir populated by
+    # hf-download.sh. Single physical copy shared with Idris's loadModel
+    # (no separate ~/.cache/huggingface).
+    local_path = MODELS_DIR / args.repo
+    if not local_path.is_dir():
+        print(
+            f"error: {local_path} not found — run\n"
+            f"  bash packages/idris-transformers/scripts/hf-download.sh {args.repo}\n"
+            f"first.",
+            file=sys.stderr,
+        )
+        return 1
+    tok = AutoTokenizer.from_pretrained(str(local_path))
 
     if args.mode == "vocab":
         # `vocab_size` reports the model's expected embedding-table size,

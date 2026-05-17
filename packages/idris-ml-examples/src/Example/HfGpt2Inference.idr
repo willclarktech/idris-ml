@@ -80,7 +80,7 @@ ModelRepo : String
 ModelRepo = "distilgpt2"
 
 modelDir : String
-modelDir = "packages/idris-transformers/models/" ++ ModelRepo
+modelDir = "models/" ++ ModelRepo
 
 hfWeightsPath : String
 hfWeightsPath = modelDir ++ "/model.safetensors"

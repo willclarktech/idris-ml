@@ -70,7 +70,7 @@ TypeVocab = 2
 
 modelDir : String
 modelDir =
-  "packages/idris-transformers/models/google/bert_uncased_L-2_H-128_A-2"
+  "models/google/bert_uncased_L-2_H-128_A-2"
 
 hfWeightsPath : String
 hfWeightsPath = modelDir ++ "/model.safetensors"

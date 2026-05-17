@@ -35,9 +35,11 @@ from safetensors.torch import save_file
 from transformers import AutoModel, AutoTokenizer
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-PKG_DIR = SCRIPT_DIR.parent  # packages/idris-transformers/
-MODELS_DIR = PKG_DIR / "models"
+REPO_ROOT  = SCRIPT_DIR.parent.parent.parent   # <repo-root>
+MODELS_DIR = REPO_ROOT / "models"
 ORACLE_PATH = MODELS_DIR / "distilgpt2-oracle.safetensors"
+# Local model dir populated by hf-download.sh (snapshot_download).
+MODEL_LOCAL = MODELS_DIR / "distilgpt2"
 
 MODEL_ID = "distilgpt2"
 
@@ -55,9 +57,13 @@ def main() -> None:
 
     torch.manual_seed(42)
 
-    print(f"loading {MODEL_ID} ...")
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
-    model = AutoModel.from_pretrained(MODEL_ID)
+    print(f"loading {MODEL_ID} from {MODEL_LOCAL} ...")
+    assert MODEL_LOCAL.is_dir(), (
+        f"{MODEL_LOCAL} not found — run `bash packages/idris-transformers/"
+        f"scripts/hf-download.sh {MODEL_ID}` first."
+    )
+    tokenizer = AutoTokenizer.from_pretrained(str(MODEL_LOCAL))
+    model = AutoModel.from_pretrained(str(MODEL_LOCAL))
     model.eval()
 
     cfg = model.config

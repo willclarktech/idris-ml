@@ -27,7 +27,8 @@ import torch
 from safetensors.torch import load_file
 
 SCRIPT = Path(__file__).resolve().parent / "save_oracle_gpt2.py"
-ORACLE = Path(__file__).resolve().parent.parent / "models" / "distilgpt2-oracle.safetensors"
+# Top-level <repo-root>/models/ (post 2026-05-27 refactor).
+ORACLE = Path(__file__).resolve().parent.parent.parent.parent / "models" / "distilgpt2-oracle.safetensors"
 # distilgpt2: real GPT-2 (6 layers, hidden 768), ~350 MB.
 HIDDEN = 768
 

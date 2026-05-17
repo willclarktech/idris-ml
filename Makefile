@@ -968,7 +968,7 @@ example-supervised: install
 # is checked here (the one place that actually fetches) rather than in
 # every consumer recipe. Gated models that need the token surface a
 # clear error; ungated models (BERT-tiny, distilgpt2) ignore the check.
-HF_MODELS_DIR := packages/idris-transformers/models
+HF_MODELS_DIR := models
 
 $(HF_MODELS_DIR)/%/model.safetensors:
 	@if echo "$*" | grep -q '^meta-llama/' && [ -z "$$HF_TOKEN" ]; then \
@@ -997,7 +997,7 @@ test-hf-bert-roundtrip: install $(HF_MODELS_DIR)/google/bert_uncased_L-2_H-128_A
 	cd packages/pytorch && uv run python \
 		../idris-transformers/scripts/compare_inference.py \
 		../../build/hf-bert-idris-out.txt \
-		../idris-transformers/models/bert-tiny-oracle.safetensors \
+		../../models/bert-tiny-oracle.safetensors \
 		1e-3
 
 # Build + run Example/HfGpt2Inference. Fetches distilgpt2 once via the
@@ -1036,7 +1036,7 @@ test-hf-gpt2-roundtrip: install $(HF_MODELS_DIR)/distilgpt2/model.safetensors
 	cd packages/pytorch && uv run python \
 		../idris-transformers/scripts/compare_inference.py \
 		../../build/hf-gpt2-idris-out.txt \
-		../idris-transformers/models/distilgpt2-oracle.safetensors \
+		../../models/distilgpt2-oracle.safetensors \
 		1e-3
 
 example-rnn: install
@@ -1564,6 +1564,8 @@ clean:
 # is slow; run this explicitly when you need to free disk space or force
 # a fresh fetch.
 clean-models:
+	rm -rf models/
+	# Legacy location (pre-2026-05-27 refactor); remove if leftover.
 	rm -rf packages/idris-transformers/models/
 
 # Examples run on every built backend. Keep in sync with packages/idris-ml-examples/src/Example/.

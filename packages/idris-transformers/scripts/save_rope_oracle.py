@@ -28,8 +28,8 @@ import torch
 from safetensors.torch import save_file
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-PKG_DIR    = SCRIPT_DIR.parent
-MODELS_DIR = PKG_DIR / "models"
+REPO_ROOT  = SCRIPT_DIR.parent.parent.parent   # <repo-root>
+MODELS_DIR = REPO_ROOT / "models"
 ORACLE_PATH = MODELS_DIR / "llama3-rope-oracle.safetensors"
 
 # Llama 3.2 1B's RoPE config.

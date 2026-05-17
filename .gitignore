@@ -17,6 +17,12 @@ packages/idris-ml/test/src/TestConfig.idr
 build/
 build-cov/
 data/
+# HF model checkpoints (and derived oracles) downloaded by
+# `bash packages/idris-transformers/scripts/hf-download.sh <repo>` —
+# materialised at the top level so Python's AutoModel.from_pretrained
+# + Idris's loadModel share a single physical copy. Gigabytes per
+# model, never checked in.
+models/
 .claude/
 .idris2/
 

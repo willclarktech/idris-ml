@@ -36,13 +36,17 @@ from transformers import AutoModel, AutoTokenizer
 # Example/HfBertInference.idr so the Idris side reads from the same
 # location.
 SCRIPT_DIR = Path(__file__).resolve().parent
-PKG_DIR = SCRIPT_DIR.parent  # packages/idris-transformers/
-MODELS_DIR = PKG_DIR / "models"
+REPO_ROOT  = SCRIPT_DIR.parent.parent.parent   # <repo-root>
+MODELS_DIR = REPO_ROOT / "models"
 ORACLE_PATH = MODELS_DIR / "bert-tiny-oracle.safetensors"
 
 # The model we anchor the oracle against. Same hidden=128, layers=2,
 # intermediate=512 family as prajjwal1/bert-tiny but ships safetensors.
 MODEL_ID = "google/bert_uncased_L-2_H-128_A-2"
+# Local copy populated by `hf-download.sh` (which calls
+# huggingface_hub.snapshot_download). Same files Idris's loadModel reads
+# — single physical copy on disk, no separate `~/.cache/huggingface/`.
+MODEL_LOCAL = MODELS_DIR / MODEL_ID
 
 # Fixed input. WordPiece tokenization of "hello" under BERT's
 # bert-base-uncased vocab yields [CLS]=101 hello=7592 [SEP]=102. The
@@ -61,9 +65,14 @@ def main() -> None:
     # changes that might add nondeterminism.
     torch.manual_seed(42)
 
-    print(f"loading {MODEL_ID} ...")
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
-    model = AutoModel.from_pretrained(MODEL_ID)
+    print(f"loading {MODEL_ID} from {MODEL_LOCAL} ...")
+    assert MODEL_LOCAL.is_dir(), (
+        f"{MODEL_LOCAL} not found — run `bash packages/idris-transformers/"
+        f"scripts/hf-download.sh {MODEL_ID}` first (or `make example-hf-bert-"
+        f"inference` which depends on it via the Makefile pattern rule)."
+    )
+    tokenizer = AutoTokenizer.from_pretrained(str(MODEL_LOCAL))
+    model = AutoModel.from_pretrained(str(MODEL_LOCAL))
     model.eval()
 
     # Sanity-check the tokenization matches our hardcoded IDs. If the

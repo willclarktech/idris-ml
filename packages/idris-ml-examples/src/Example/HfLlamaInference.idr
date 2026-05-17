@@ -106,7 +106,7 @@ ModelRepo : String
 ModelRepo = "meta-llama/Llama-3.2-1B"
 
 modelDir : String
-modelDir = "packages/idris-transformers/models/" ++ ModelRepo
+modelDir = "models/" ++ ModelRepo
 
 hfWeightsPath : String
 hfWeightsPath = modelDir ++ "/model.safetensors"

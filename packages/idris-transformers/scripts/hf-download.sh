@@ -1,118 +1,97 @@
 #!/usr/bin/env bash
-# hf-download.sh — fetch a HuggingFace safetensors checkpoint.
+# hf-download.sh — fetch a HuggingFace repo's safetensors weights + tokenizer
+# + config files into <repo-root>/models/<repo>/.
 #
 # Usage:
-#   bash scripts/hf-download.sh <repo> [filename]
+#   bash scripts/hf-download.sh <repo>
 #
-#   <repo>      HF Hub repo, e.g. `prajjwal1/bert-tiny` or `gpt2`.
-#   [filename]  File to fetch. Default: `model.safetensors`.
-#               If filename ends in `.index.json`, the script follows
-#               the manifest's `weight_map` and downloads every unique
-#               shard listed there.
-#
-# Examples:
-#   bash scripts/hf-download.sh prajjwal1/bert-tiny
-#   bash scripts/hf-download.sh sshleifer/tiny-gpt2 model.safetensors
-#   bash scripts/hf-download.sh TinyLlama/TinyLlama-1.1B-Chat-v1.0 \
-#        model.safetensors.index.json
+#   <repo>  HF Hub repo, e.g. `distilgpt2` or `meta-llama/Llama-3.2-1B`.
 #
 # Output:
-#   Files land in packages/idris-transformers/models/<repo>/ relative
-#   to the repo root. Directory is created if missing. Everything under
-#   `models/` is gitignored — it's the local cache, not source.
+#   Files land at <repo-root>/models/<repo>/ in flat layout matching
+#   HF on-disk (model.safetensors, config.json, tokenizer.json, ...).
+#   Both Idris's loadModel and Python's AutoModel.from_pretrained read
+#   from the same directory — no separate `~/.cache/huggingface/` copy.
 #
 # Env:
-#   HF_TOKEN  Optional bearer token for private/gated models. If set,
-#             `curl` includes `Authorization: Bearer $HF_TOKEN`.
-#   HF_FORCE_REDOWNLOAD  If set to "1", re-fetch every file even when
-#             cached. By default, an existing non-empty destination
-#             file is treated as cached and skipped. The .index.json
-#             for sharded models is *always* re-fetched (it's tiny and
-#             determines which shards exist).
+#   HF_TOKEN              Optional bearer token for private/gated repos.
+#   HF_FORCE_REDOWNLOAD   If set to "1", force re-download even when
+#                         huggingface_hub thinks the local copy is current.
+#                         By default snapshot_download checks ETags and
+#                         skips unchanged files (its own etag-based cache).
 #
 # Dependencies:
-#   - curl (with --fail and -L support)
-#   - python3 (for JSON parsing when filename is .index.json)
+#   - Python `huggingface_hub` (provided by the pytorch package's uv venv).
 #
-# Exit codes:
-#   0  success
-#   1  bad arguments / missing dependency
-#   2  HTTP error from Hub (curl --fail bubbled up)
+# Why snapshot_download (not curl):
+#   - One call grabs all needed files (config.json + model.safetensors +
+#     tokenizer files) so Python's AutoModel.from_pretrained(local_dir)
+#     can load directly without a separate ~/.cache copy.
+#   - Built-in etag-based caching — re-running the script when files
+#     are current is a no-op (no re-download, no re-write of files).
+#   - Handles sharded models automatically (model.safetensors.index.json
+#     + shards) without bespoke .index.json parsing.
+#   - `ignore_patterns` skips the `original/` PyTorch-pickled mirrors
+#     (Llama 3.2 1B's `original/consolidated.00.pth` is 2.4 GB — same
+#     weights as the safetensors we DO download). Also skips .bin / .h5
+#     / .msgpack mirrors. The package's stance is safetensors-only, so
+#     these are pure waste.
 set -euo pipefail
 
-usage() {
-  sed -n '1,/^set -euo/p' "$0" | sed -n '1,/^# Exit codes:/p'
-  exit "${1:-1}"
-}
-
-if [[ $# -lt 1 || $# -gt 2 ]]; then
-  echo "error: expected 1 or 2 args, got $#" >&2
-  usage 1
+if [[ $# -ne 1 ]]; then
+  echo "usage: $0 <repo>" >&2
+  exit 1
 fi
 
 REPO=$1
-FILENAME=${2:-model.safetensors}
-
-# Resolve the package models cache directory relative to this script.
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)
-PKG_DIR=$(cd -- "$SCRIPT_DIR/.." &>/dev/null && pwd)
-DEST_DIR="$PKG_DIR/models/$REPO"
+REPO_ROOT=$(cd -- "$SCRIPT_DIR/../../.." &>/dev/null && pwd)
+DEST_DIR="$REPO_ROOT/models/$REPO"
+
 mkdir -p "$DEST_DIR"
 
-# Build the curl invocation. Bash array so we can safely append the
-# auth header when HF_TOKEN is set.
-CURL=(curl -L --fail --silent --show-error)
-if [[ -n "${HF_TOKEN:-}" ]]; then
-  CURL+=(-H "Authorization: Bearer $HF_TOKEN")
+FORCE_FLAG=""
+if [[ "${HF_FORCE_REDOWNLOAD:-0}" == "1" ]]; then
+  FORCE_FLAG="force_download=True,"
 fi
 
-download_one() {
-  local fname=$1
-  local force=${2:-0}     # second arg = force-refetch flag (1 to bypass cache)
-  local url="https://huggingface.co/$REPO/resolve/main/$fname"
-  local dest="$DEST_DIR/$fname"
-  mkdir -p "$(dirname "$dest")"
-  # Skip if cached, unless force or HF_FORCE_REDOWNLOAD=1. The
-  # `-s` test requires the file to be non-empty (catches stale half-
-  # downloaded files from a previous interrupted run).
-  if [[ "$force" != "1" && "${HF_FORCE_REDOWNLOAD:-0}" != "1" && -s "$dest" ]]; then
-    echo "  cached:  $dest"
-    return 0
-  fi
-  echo "  fetching $url"
-  "${CURL[@]}" -o "$dest" "$url"
-}
+# Run via the pytorch package's uv venv (huggingface_hub lives there
+# alongside transformers). `cd`-ing in is the established pattern (see
+# `save_oracle.py` invocation).
+cd "$REPO_ROOT/packages/pytorch"
+uv run python - "$REPO" "$DEST_DIR" <<PYEOF
+import os, sys
+from huggingface_hub import snapshot_download
 
-case "$FILENAME" in
-  *.index.json)
-    # Sharded model: always re-fetch the index (it's tiny and tells us
-    # which shards exist; a stale local copy would mask a model
-    # republish). Then fetch each shard from the manifest's weight_map,
-    # cache-respecting per usual.
-    if ! command -v python3 >/dev/null 2>&1; then
-      echo "error: python3 not found; required to parse $FILENAME" >&2
-      exit 1
-    fi
-    download_one "$FILENAME" 1
-    INDEX_PATH="$DEST_DIR/$FILENAME"
-    SHARDS=$(python3 -c "
-import json, sys
-with open('$INDEX_PATH') as f:
-    idx = json.load(f)
-shards = sorted(set(idx.get('weight_map', {}).values()))
-print('\n'.join(shards))
-")
-    if [[ -z "$SHARDS" ]]; then
-      echo "warning: weight_map in $FILENAME was empty" >&2
-    fi
-    while IFS= read -r shard; do
-      [[ -z "$shard" ]] && continue
-      download_one "$shard"
-    done <<< "$SHARDS"
-    ;;
-  *)
-    download_one "$FILENAME"
-    ;;
-esac
-
-echo "done. files in: $DEST_DIR"
+repo, dest = sys.argv[1], sys.argv[2]
+print(f"hf-download: snapshot_download({repo!r}, local_dir={dest!r})")
+path = snapshot_download(
+    repo,
+    local_dir=dest,
+    token=os.environ.get("HF_TOKEN"),
+    ${FORCE_FLAG}
+    # Allow-list (not deny-list): explicitly grab only what
+    # AutoModel.from_pretrained + AutoTokenizer.from_pretrained need.
+    # Anything else (PT pickled mirrors, ONNX, CoreML, TFLite, Rust
+    # tract .ot files, original/* PyTorch bundles, README, license)
+    # stays in the cloud. Adding ".bin" / ".h5" / etc. to a deny-list
+    # would still miss future formats; allow-list is forward-safe.
+    allow_patterns=[
+        # Weights — sharded or single-file.
+        "*.safetensors",
+        "*.safetensors.index.json",
+        # Model configs.
+        "config.json",
+        "generation_config.json",
+        # Tokenizer files (BERT WordPiece uses vocab.txt; GPT-2 BPE
+        # uses vocab.json + merges.txt; modern HF uses tokenizer.json).
+        "tokenizer.json",
+        "tokenizer_config.json",
+        "vocab.json",
+        "vocab.txt",
+        "merges.txt",
+        "special_tokens_map.json",
+    ],
+)
+print(f"  -> {path}")
+PYEOF
