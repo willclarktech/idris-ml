@@ -37,6 +37,18 @@ static void* torch_port_create_state_1d(int n, double* d, int dtag)             
 static void* torch_port_create_state_2d(int rows, int cols, double* d, int dtag)                  { return torch_create_state_2d_dtag(rows, cols, d, dtag); }
 static void* torch_port_cast_dtype(void* src, int dtag)                                            { return torch_cast_dtype_dtag((TensorHandle)src, dtag); }
 
+/* Fused param create + init shims — forward to dtype_init.cpp's
+   torch_create_param_*_<init>_dtag. */
+static void* torch_port_create_param_1d_normal(int n, double mean, double std, int dtag)                                { return torch_create_param_1d_normal_dtag(n, mean, std, dtag); }
+static void* torch_port_create_param_2d_normal(int rows, int cols, double mean, double std, int dtag)                   { return torch_create_param_2d_normal_dtag(rows, cols, mean, std, dtag); }
+static void* torch_port_create_param_3d_normal(int d0, int d1, int d2, double mean, double std, int dtag)               { return torch_create_param_3d_normal_dtag(d0, d1, d2, mean, std, dtag); }
+static void* torch_port_create_param_4d_normal(int d0, int d1, int d2, int d3, double mean, double std, int dtag)       { return torch_create_param_4d_normal_dtag(d0, d1, d2, d3, mean, std, dtag); }
+static void* torch_port_create_param_1d_const (int n, double value, int dtag)                                            { return torch_create_param_1d_const_dtag(n, value, dtag); }
+static void* torch_port_create_param_2d_const (int rows, int cols, double value, int dtag)                               { return torch_create_param_2d_const_dtag(rows, cols, value, dtag); }
+static void* torch_port_create_param_3d_const (int d0, int d1, int d2, double value, int dtag)                           { return torch_create_param_3d_const_dtag(d0, d1, d2, value, dtag); }
+static void* torch_port_create_param_4d_const (int d0, int d1, int d2, int d3, double value, int dtag)                   { return torch_create_param_4d_const_dtag(d0, d1, d2, d3, value, dtag); }
+static void  torch_port_set_init_seed(uint64_t seed)                                                                     { torch_set_init_seed(seed); }
+
 static int torch_port_tensor_numel(void* h) {
     return (int)to_tensor(h)->numel();
 }
@@ -158,4 +170,18 @@ const BackendPort g_active_port = {
     .create_state_1d           = torch_port_create_state_1d,
     .create_state_2d           = torch_port_create_state_2d,
     .cast_dtype                = torch_port_cast_dtype,
+    /* Fused param create + init slots (see port.h struct doc). All
+       wired on torch; tape/mlx leave these nullptr until their
+       follow-up rows land (Phase 7). The shared trampolines in
+       dtype_streamed.c abort loudly if any of these is called via a
+       backend that hasn't wired the slot. */
+    .create_param_1d_normal    = torch_port_create_param_1d_normal,
+    .create_param_2d_normal    = torch_port_create_param_2d_normal,
+    .create_param_3d_normal    = torch_port_create_param_3d_normal,
+    .create_param_4d_normal    = torch_port_create_param_4d_normal,
+    .create_param_1d_const     = torch_port_create_param_1d_const,
+    .create_param_2d_const     = torch_port_create_param_2d_const,
+    .create_param_3d_const     = torch_port_create_param_3d_const,
+    .create_param_4d_const     = torch_port_create_param_4d_const,
+    .set_init_seed             = torch_port_set_init_seed,
 };

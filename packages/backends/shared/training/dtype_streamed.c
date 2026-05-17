@@ -79,3 +79,76 @@ TensorHandle tensor_cast_dtype_streamed(TensorHandle src, int stream_tag, int dt
     (void)stream_tag;
     return (TensorHandle)g_active_port.cast_dtype((void*)src, dtag);
 }
+
+/* ---- Fused param create + init ----
+ * Each `tensor_create_param_<rank>_<init>_streamed` forwards to the
+ * port's create_param_<rank>_<init>. If the active backend hasn't
+ * wired the slot (nullptr), abort loudly at the FFI boundary so the
+ * failure mode is "missing backend support" not "silent miscall".
+ * See the port.h struct doc for the per-backend wiring story. */
+#include <stdio.h>
+#include <stdlib.h>
+
+static void abort_unwired_init(const char* fn) {
+    fprintf(stderr,
+        "%s: this backend hasn't wired the fused-init port methods yet. "
+        "If you need this primitive, port the create_param_*_normal / "
+        "create_param_*_const slots in the backend's adapter (see torch's "
+        "adapter.cpp for the reference impl).\n",
+        fn);
+    abort();
+}
+
+TensorHandle tensor_create_param_1d_normal_streamed(int n, double mean, double std, int stream_tag, int dtag) {
+    (void)stream_tag;
+    if (!g_active_port.create_param_1d_normal) abort_unwired_init("tensor_create_param_1d_normal");
+    return (TensorHandle)g_active_port.create_param_1d_normal(n, mean, std, dtag);
+}
+
+TensorHandle tensor_create_param_2d_normal_streamed(int rows, int cols, double mean, double std, int stream_tag, int dtag) {
+    (void)stream_tag;
+    if (!g_active_port.create_param_2d_normal) abort_unwired_init("tensor_create_param_2d_normal");
+    return (TensorHandle)g_active_port.create_param_2d_normal(rows, cols, mean, std, dtag);
+}
+
+TensorHandle tensor_create_param_3d_normal_streamed(int d0, int d1, int d2, double mean, double std, int stream_tag, int dtag) {
+    (void)stream_tag;
+    if (!g_active_port.create_param_3d_normal) abort_unwired_init("tensor_create_param_3d_normal");
+    return (TensorHandle)g_active_port.create_param_3d_normal(d0, d1, d2, mean, std, dtag);
+}
+
+TensorHandle tensor_create_param_4d_normal_streamed(int d0, int d1, int d2, int d3, double mean, double std, int stream_tag, int dtag) {
+    (void)stream_tag;
+    if (!g_active_port.create_param_4d_normal) abort_unwired_init("tensor_create_param_4d_normal");
+    return (TensorHandle)g_active_port.create_param_4d_normal(d0, d1, d2, d3, mean, std, dtag);
+}
+
+TensorHandle tensor_create_param_1d_const_streamed(int n, double value, int stream_tag, int dtag) {
+    (void)stream_tag;
+    if (!g_active_port.create_param_1d_const) abort_unwired_init("tensor_create_param_1d_const");
+    return (TensorHandle)g_active_port.create_param_1d_const(n, value, dtag);
+}
+
+TensorHandle tensor_create_param_2d_const_streamed(int rows, int cols, double value, int stream_tag, int dtag) {
+    (void)stream_tag;
+    if (!g_active_port.create_param_2d_const) abort_unwired_init("tensor_create_param_2d_const");
+    return (TensorHandle)g_active_port.create_param_2d_const(rows, cols, value, dtag);
+}
+
+TensorHandle tensor_create_param_3d_const_streamed(int d0, int d1, int d2, double value, int stream_tag, int dtag) {
+    (void)stream_tag;
+    if (!g_active_port.create_param_3d_const) abort_unwired_init("tensor_create_param_3d_const");
+    return (TensorHandle)g_active_port.create_param_3d_const(d0, d1, d2, value, dtag);
+}
+
+TensorHandle tensor_create_param_4d_const_streamed(int d0, int d1, int d2, int d3, double value, int stream_tag, int dtag) {
+    (void)stream_tag;
+    if (!g_active_port.create_param_4d_const) abort_unwired_init("tensor_create_param_4d_const");
+    return (TensorHandle)g_active_port.create_param_4d_const(d0, d1, d2, d3, value, dtag);
+}
+
+void tensor_set_init_seed_streamed(unsigned long long seed, int stream_tag) {
+    (void)stream_tag;
+    if (g_active_port.set_init_seed) g_active_port.set_init_seed((uint64_t)seed);
+    /* else: silent no-op — some backends don't support init-RNG seeding (e.g. mlx). */
+}

@@ -49,7 +49,8 @@ extern c10::Device g_torch_target_device;
    explicitly (Transfer.idr's cross-backend hop chain, etc.) — they'll
    migrate to MPS later via the typed `toDevice` API if needed, gated by
    `Compatible (TorchDev TMps) F64` which deliberately doesn't exist. */
-static inline c10::Device torch_effective_device(torch::ScalarType dt) {
+/* Non-static so dtype_init.cpp can reuse the same fallback policy. */
+c10::Device torch_effective_device(torch::ScalarType dt) {
     if (g_torch_target_device.type() == c10::DeviceType::MPS &&
         dt == torch::kFloat64) {
         return at::kCPU;

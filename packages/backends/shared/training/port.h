@@ -158,6 +158,39 @@ typedef struct BackendPort {
   void* (*create_state_1d)(int n, double* data, int dtag);
   void* (*create_state_2d)(int rows, int cols, double* data, int dtag);
   void* (*cast_dtype)(void* src, int dtag);
+
+  /* ----------------------------------------------------------------------
+     Fused param create + in-place init. Replaces the per-element
+     Idris-side fill (`traverse normalSample + packDoubles`) that
+     dominated 1.24B-element model construction (HfLlama state took 58
+     min — 30 min in Box-Muller in Chez, 28 min in per-element
+     `prim__setDouble` FFI). These primitives allocate the parameter
+     tensor in the backend, run the init kernel in-place (libtorch's
+     `torch::nn::init::normal_` / `t.fill_` / etc. — bandwidth-bound
+     C++ loops, no FFI), then return the wrapped TensorHandle ready for
+     paramId registration.
+
+     For deterministic seed-stable runs the backend's global RNG must
+     be seeded once via `set_torch_seed` (or the backend's equivalent)
+     before any of these are called.
+
+     Backends that haven't wired these yet leave the slot nullptr; the
+     shared trampoline in dtype_streamed.c asserts non-null and aborts
+     with a clear message at the FFI boundary (loud, not silent).
+     ---------------------------------------------------------------------- */
+  void* (*create_param_1d_normal)(int n,                                    double mean, double std, int dtag);
+  void* (*create_param_2d_normal)(int rows, int cols,                       double mean, double std, int dtag);
+  void* (*create_param_3d_normal)(int d0, int d1, int d2,                   double mean, double std, int dtag);
+  void* (*create_param_4d_normal)(int d0, int d1, int d2, int d3,           double mean, double std, int dtag);
+  void* (*create_param_1d_const) (int n,                                    double value,            int dtag);
+  void* (*create_param_2d_const) (int rows, int cols,                       double value,            int dtag);
+  void* (*create_param_3d_const) (int d0, int d1, int d2,                   double value,            int dtag);
+  void* (*create_param_4d_const) (int d0, int d1, int d2, int d3,           double value,            int dtag);
+
+  /* Seed the backend's global RNG (torch::manual_seed equivalent) so
+     subsequent create_param_*_normal calls are deterministic. Idle on
+     backends without an init-RNG; loud-no-op rather than crash. */
+  void   (*set_init_seed)(uint64_t seed);
 } BackendPort;
 
 /* Each backend defines exactly one instance with internal linkage at

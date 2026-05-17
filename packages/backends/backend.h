@@ -598,6 +598,21 @@ TensorHandle tensor_create_state_1d_streamed(int n, double* data, int stream_tag
 TensorHandle tensor_create_state_2d_streamed(int rows, int cols, double* data, int stream_tag, int dtag);
 TensorHandle tensor_cast_dtype_streamed(TensorHandle src, int stream_tag, int dtag);
 
+/* Fused param create + init — allocate + run in-place init in C
+   (libtorch's `torch::nn::init::normal_` / `t.fill_`) instead of
+   filling element-by-element on the Idris side via traverse +
+   packDoubles. Backends that haven't wired their adapter slots abort
+   loudly at the FFI boundary (see shared/training/dtype_streamed.c). */
+TensorHandle tensor_create_param_1d_normal_streamed(int n,                                       double mean, double std, int stream_tag, int dtag);
+TensorHandle tensor_create_param_2d_normal_streamed(int rows, int cols,                          double mean, double std, int stream_tag, int dtag);
+TensorHandle tensor_create_param_3d_normal_streamed(int d0, int d1, int d2,                      double mean, double std, int stream_tag, int dtag);
+TensorHandle tensor_create_param_4d_normal_streamed(int d0, int d1, int d2, int d3,              double mean, double std, int stream_tag, int dtag);
+TensorHandle tensor_create_param_1d_const_streamed (int n,                                       double value,            int stream_tag, int dtag);
+TensorHandle tensor_create_param_2d_const_streamed (int rows, int cols,                          double value,            int stream_tag, int dtag);
+TensorHandle tensor_create_param_3d_const_streamed (int d0, int d1, int d2,                      double value,            int stream_tag, int dtag);
+TensorHandle tensor_create_param_4d_const_streamed (int d0, int d1, int d2, int d3,              double value,            int stream_tag, int dtag);
+void         tensor_set_init_seed_streamed(unsigned long long seed, int stream_tag);
+
 #ifdef __cplusplus
 }
 #endif
