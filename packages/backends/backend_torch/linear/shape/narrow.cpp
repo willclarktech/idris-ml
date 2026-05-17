@@ -1,12 +1,13 @@
 /* tensor_narrow for the torch backend.
  *
- * Matches the tape backend: always returns 1D (flattened input narrowed
- * along axis 0). The `dim` arg is accepted but ignored — the type-safe
- * Idris surface only narrows the leading axis. */
+ * Forwards `dim` straight through to libtorch's at::Tensor::narrow; the
+ * historical "flatten then narrow axis 0" behaviour was a silent shape
+ * lie when called with dim > 0 (used by HfBert's per-head Q/K/V split).
+ * Pinned by `linear_shape_narrow::axis1_correctness_rank2` in the
+ * common-backend test suite. */
 #include "../../tensor.h"
 
 extern "C" TensorHandle tensor_narrow(TensorHandle h, int dim, int start, int len) {
-    (void)dim;
-    auto t = to_tensor(h)->flatten().narrow(0, start, len).contiguous();
+    auto t = to_tensor(h)->narrow(dim, start, len).contiguous();
     return from_tensor(std::move(t));
 }

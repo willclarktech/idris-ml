@@ -550,13 +550,13 @@ buildHeads qFull kFull vFull headDimI scale (S k) startI acc =
 -- come in the caller).
 --
 -- numHeads is matched at the type level so the single-head case
--- (S Z) can avoid `primNarrow` entirely — tape's `tensor_narrow`
--- currently hardcodes axis=0 and returns a 1D view (rank=1
--- ignoring the requested axis), which corrupts the matmul shapes
--- when called with axis=1. Multi-head (S (S _)) goes through the
--- narrow path and is currently functional only on backends with
--- proper multi-dim narrow (torch, mlx). See follow-up row tracked
--- against `packages/backends/backend_tape/linear/shape/narrow.c`.
+-- (S Z) can avoid `primNarrow` entirely — kept as an optimisation
+-- (one less shape op + handle wrap per attention block). Multi-head
+-- (S (S _)) goes through the axis-1 narrow path, which all three
+-- backends handle correctly post the
+-- `linear_shape_narrow::axis1_correctness_rank2` fix
+-- (torch + mlx narrow kernels previously ignored the `dim` arg
+-- and silently flattened to axis-0; tape was always right).
 applySelfAttn : {0 d : Device} -> UserDeviceTraining d
              => {seqLen, hidden, numHeads, headDim : Nat}
              -> {auto prf : hidden = numHeads * headDim}
