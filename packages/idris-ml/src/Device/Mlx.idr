@@ -6,6 +6,7 @@
 module Device.Mlx
 
 import Device.Core
+import DType.Core
 
 
 ----------------------------------------------------------------------
@@ -74,15 +75,49 @@ prim__clampMinMlx : AnyPtr -> Double -> AnyPtr
 
 
 ----------------------------------------------------------------------
--- MlxDev type + UserDeviceCore instance
+-- MlxStream + MlxDev parameterized family
+--
+-- `MlxDev` is parameterized over a stream tag (`MGpu` vs `MCpu`) so
+-- that `MlxDev MGpu` and `MlxDev MCpu` are distinct device types at
+-- the type level while sharing one set of `UserDevice*` instances
+-- (the C-side symbols are stream-agnostic; the runtime stream is
+-- selected via `mx::set_default_stream`, currently driven by the
+-- `MLX_DEVICE` env var). Mirrors the `CUDA Nat` precedent in
+-- `Device.idr`.
+--
+-- Ergonomic aliases `MlxGpu : Type` and `MlxCpu : Type` are exported
+-- below so callers can write `Tensor [4] MlxGpu F32 WithGrad`
+-- without the constructor noise.
 ----------------------------------------------------------------------
 
+||| Stream tag for MLX devices.
 public export
-data MlxDev : Type where MkMlxDev : MlxDev
+data MlxStream : Type where
+  MGpu : MlxStream
+  MCpu : MlxStream
+
+||| MLX device, parameterized over its stream tag.
+public export
+data MlxDev : MlxStream -> Type where
+  MkMlxDev : MlxDev s
+
+||| `MlxDev MGpu` alias. Metal GPU stream. Only supports F32; dt
+||| has no `Compatible` instance and tensors of `MlxGpu dt` fail to
+||| typecheck at the construction site.
+public export
+MlxGpu : Type
+MlxGpu = MlxDev MGpu
+
+||| `MlxDev MCpu` alias. mlx CPU stream. Supports both F32 and dt.
+public export
+MlxCpu : Type
+MlxCpu = MlxDev MCpu
 
 public export
-UserDeviceCore MlxDev where
-  deviceName       = "mlx"
+{s : MlxStream} -> UserDeviceCore (MlxDev s) where
+  deviceName       = case s of
+                       MGpu => "mlx:gpu"
+                       MCpu => "mlx:cpu"
   primCreateScalar = prim__createScalarMlx
   primCreate       = prim__createMlx
   primFree         = prim__freeMlx
@@ -202,7 +237,7 @@ prim__cumprodMlx : AnyPtr -> Int -> AnyPtr
 
 
 public export
-UserDeviceLinear MlxDev where
+{s : MlxStream} -> UserDeviceLinear (MlxDev s) where
   primMv             = prim__mvMlx
   primMatmul         = prim__matmulMlx
   primLinear         = prim__linearMlx
@@ -289,7 +324,7 @@ prim__pairSecondMlx : AnyPtr -> AnyPtr
 
 
 public export
-UserDeviceNN MlxDev where
+{s : MlxStream} -> UserDeviceNN (MlxDev s) where
   primGelu             = prim__geluMlx
   primLeakyRelu        = prim__leakyReluMlx
   primSilu             = prim__siluMlx
@@ -340,7 +375,7 @@ prim__maxPool2dBatchedMlx : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
 
 
 public export
-UserDeviceConv MlxDev where
+{s : MlxStream} -> UserDeviceConv (MlxDev s) where
   primConv1d           = prim__conv1dMlx
   primConv1dCircular   = prim__conv1dCircularMlx
   primAvgPool1d        = prim__avgPool1dMlx
@@ -391,7 +426,7 @@ prim__readDoubleMlx : AnyPtr -> Int -> Double
 
 
 public export
-UserDeviceTape MlxDev where
+{s : MlxStream} -> UserDeviceTape (MlxDev s) where
   primRequiresGrad         = prim__requiresGradMlx
   primSetRequiresGrad      = prim__setRequiresGradMlx
   primNoGradBegin          = prim__noGradBeginMlx
@@ -408,3 +443,27 @@ UserDeviceTape MlxDev where
   primCreateState2d        = prim__createState2dMlx
   primAllocDoubles         = prim__allocDoublesMlx
   primReadDouble           = prim__readDoubleMlx
+
+
+----------------------------------------------------------------------
+-- Compatible (device, dtype) instances
+--
+-- `MlxCpu` (`MlxDev MCpu`) supports both F32 and dt — the mlx CPU
+-- stream can fall back to double precision. `MlxGpu` (`MlxDev MGpu`)
+-- only supports F32 because Metal GPUs dropped float64 support in
+-- mlx 0.31. The deliberately missing `Compatible (MlxDev MGpu) dt`
+-- instance is what makes `Tensor [..] MlxGpu dt WithGrad` fail to
+-- typecheck — PyTorch's runtime "Float64 not supported on Metal"
+-- error lifted to compile time.
+----------------------------------------------------------------------
+
+public export
+Compatible (MlxDev MCpu) F64 where
+
+public export
+Compatible (MlxDev MCpu) F32 where
+
+public export
+Compatible (MlxDev MGpu) F32 where
+
+-- DELIBERATELY NO `Compatible (MlxDev MGpu) dt` instance.

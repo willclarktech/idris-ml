@@ -28,7 +28,7 @@ dropoutSeed : Int -> Int
 
 public export
 data DropoutState : Nat -> Nat -> (0 _ : Device) -> (0 _ : DType) -> (0 _ : GradMode) -> Type where
-  MkDropout : (p : Double) -> (training : Bool) -> DropoutState n n d F64 g
+  MkDropout : (p : Double) -> (training : Bool) -> DropoutState n n d dt g
 
 
 ----------------------------------------------------------------------
@@ -39,9 +39,9 @@ data DropoutState : Nat -> Nat -> (0 _ : Device) -> (0 _ : DType) -> (0 _ : Grad
 
 export
 applyDropout : {0 d : Device} -> UserDeviceTape d => {n : Nat} ->
-                 DropoutState n n d F64 g ->
-                 TVec n d F64 g ->
-                 IO (DropoutState n n d F64 g, TVec n d F64 g)
+                 DropoutState n n d dt g ->
+                 TVec n d dt g ->
+                 IO (DropoutState n n d dt g, TVec n d dt g)
 applyDropout st@(MkDropout p training) input = ioRerun (\_ =>
   if training
     then
@@ -58,12 +58,12 @@ applyDropout st@(MkDropout p training) input = ioRerun (\_ =>
 ||| Create a Dropout with given drop probability. Starts in training
 ||| mode; flip to eval via `setTraining False`.
 export
-dropoutLayer : {n : Nat} -> (p : Double) -> DropoutState n n d F64 g
+dropoutLayer : {n : Nat} -> (p : Double) -> DropoutState n n d dt g
 dropoutLayer p = MkDropout p True
 
 ||| Toggle training/eval mode.
 export
-setTraining : Bool -> DropoutState n n d F64 g -> DropoutState n n d F64 g
+setTraining : Bool -> DropoutState n n d dt g -> DropoutState n n d dt g
 setTraining mode (MkDropout p _) = MkDropout p mode
 
 
@@ -94,5 +94,5 @@ LayerLike DropoutState where
 
 ||| Wrap a Dropout in `AnyLayer`.
 export
-dropoutLayerAny : {n : Nat} -> (p : Double) -> AnyLayer n n d F64 g
+dropoutLayerAny : {n : Nat} -> (p : Double) -> AnyLayer n n d dt g
 dropoutLayerAny p = MkAnyLayer DropoutState (dropoutLayer p)

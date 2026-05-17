@@ -6,6 +6,7 @@
 module Device.Tape
 
 import Device.Core
+import DType.Core
 
 
 ----------------------------------------------------------------------
@@ -412,3 +413,12 @@ UserDeviceTape TapeDev where
   primCreateState2d        = prim__createState2dTape
   primAllocDoubles         = prim__allocDoublesTape
   primReadDouble           = prim__readDoubleTape
+
+
+----------------------------------------------------------------------
+-- Compatible (TapeDev, dt). Tape backend stores doubles only; F32
+-- would require a parallel `float*` arena (deferred).
+----------------------------------------------------------------------
+
+public export
+Compatible TapeDev F64 where

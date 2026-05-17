@@ -24,7 +24,7 @@ import Tensor
 
 public export
 0 LossFn : (0 _ : Device) -> (0 _ : DType) -> Nat -> Type
-LossFn d F64 n = TVec n d F64 WithGrad -> TVec n d F64 WithGrad -> IO (Tensor [] d F64 WithGrad)
+LossFn d dt n = TVec n d dt WithGrad -> TVec n d dt WithGrad -> IO (Tensor [] d dt WithGrad)
 
 
 ----------------------------------------------------------------------
@@ -52,29 +52,29 @@ bulkToPersistent {n} (VArray elems) =
 
 -- Scalar Tensor holding 0.0. IO so its FFI side effect happens at
 -- sequence-time rather than at call-time.
-freshZeroLossT : {0 d : Device} -> Double -> IO (Tensor [] d F64 WithGrad)
+freshZeroLossT : {0 d : Device} -> Double -> IO (Tensor [] d dt WithGrad)
 freshZeroLossT seed = ioRerun (\_ => MkTensor (prim__createScalar seed 0) Nothing)
 
 -- Add two scalar TVars (bypasses the implicit-resolution overhead of
 -- the polymorphic `tadd`).
-taddScalar : {0 d : Device} -> Tensor [] d F64 WithGrad -> Tensor [] d F64 WithGrad -> IO (Tensor [] d F64 WithGrad)
+taddScalar : {0 d : Device} -> Tensor [] d dt WithGrad -> Tensor [] d dt WithGrad -> IO (Tensor [] d dt WithGrad)
 taddScalar a b = ioRerun (\_ => MkTensor (prim__add a.tensorPtr b.tensorPtr) Nothing)
 
 -- Scale a scalar Tensor by a Double.
-scaleLoss : {0 d : Device} -> Tensor [] d F64 WithGrad -> Double -> IO (Tensor [] d F64 WithGrad)
+scaleLoss : {0 d : Device} -> Tensor [] d dt WithGrad -> Double -> IO (Tensor [] d dt WithGrad)
 scaleLoss v s = ioRerun (\_ => MkTensor (prim__mulScalar v.tensorPtr s) Nothing)
 
 -- Sum a list of scalar tensors starting from a fresh zero. Replaces
 -- the old `foldl taddScalar (freshZeroLossT 0.0) losses` pattern under
 -- the IO-typed surface.
-sumLosses : {0 d : Device} -> List (Tensor [] d F64 WithGrad) -> IO (Tensor [] d F64 WithGrad)
+sumLosses : {0 d : Device} -> List (Tensor [] d dt WithGrad) -> IO (Tensor [] d dt WithGrad)
 sumLosses losses = do
   zero <- freshZeroLossT 0.0
   foldlM taddScalar zero losses
   where
-    foldlM : (Tensor [] d F64 WithGrad -> Tensor [] d F64 WithGrad -> IO (Tensor [] d F64 WithGrad)) ->
-             Tensor [] d F64 WithGrad -> List (Tensor [] d F64 WithGrad) ->
-             IO (Tensor [] d F64 WithGrad)
+    foldlM : (Tensor [] d dt WithGrad -> Tensor [] d dt WithGrad -> IO (Tensor [] d dt WithGrad)) ->
+             Tensor [] d dt WithGrad -> List (Tensor [] d dt WithGrad) ->
+             IO (Tensor [] d dt WithGrad)
     foldlM _ acc [] = pure acc
     foldlM f acc (x :: rest) = do
       acc' <- f acc x
@@ -90,15 +90,15 @@ sumLosses losses = do
 -- Per-point loss closure factored out to avoid let-block elaboration
 -- weirdness in epochVar's body.
 perPointLoss : {0 d : Device} -> UserDeviceTape d => {i, o : Nat} -> {hs : List Nat} ->
-               LossFn d F64 o ->
-               Network i hs o d F64 WithGrad ->
+               LossFn d dt o ->
+               Network i hs o d dt WithGrad ->
                DataPoint i o Double ->
-               IO (Tensor [] d F64 WithGrad)
+               IO (Tensor [] d dt WithGrad)
 perPointLoss lossFn model dp = do
   let inT = bulkToPersistent (x dp)
       tgtT = bulkToPersistent (y dp)
-      inV = the (TVec i d F64 WithGrad) (MkTensor inT Nothing)
-      tgtV = the (TVec o d F64 WithGrad) (MkTensor tgtT Nothing)
+      inV = the (TVec i d dt WithGrad) (MkTensor inT Nothing)
+      tgtV = the (TVec o d dt WithGrad) (MkTensor tgtT Nothing)
   (_, predV) <- forwardVar model inV
   lossFn predV tgtV
 
@@ -109,9 +109,9 @@ export
 epochVar : {0 d : Device} -> UserDeviceTape d => {i, o, n : Nat} -> {hs : List Nat} ->
             NativeOptimizer ->
             Vect n (DataPoint i o Double) ->
-            LossFn d F64 o ->
-            Network i hs o d F64 WithGrad ->
-            IO (Network i hs o d F64 WithGrad, Double)
+            LossFn d dt o ->
+            Network i hs o d dt WithGrad ->
+            IO (Network i hs o d dt WithGrad, Double)
 epochVar opt dataPoints lossFn model = do
   losses <- traverse (perPointLoss lossFn model) dataPoints
   totalLoss <- sumLosses (toList losses)
@@ -122,13 +122,13 @@ epochVar opt dataPoints lossFn model = do
 
 -- Per-point loss for already-tensor-pre-built inputs (TensorDataPoint).
 perPointLossTensor : {0 d : Device} -> UserDeviceTape d => {i, o : Nat} -> {hs : List Nat} ->
-                     LossFn d F64 o ->
-                     Network i hs o d F64 WithGrad ->
+                     LossFn d dt o ->
+                     Network i hs o d dt WithGrad ->
                      TensorDataPoint i o ->
-                     IO (Tensor [] d F64 WithGrad)
+                     IO (Tensor [] d dt WithGrad)
 perPointLossTensor lossFn model dp = do
-  let inV = the (TVec i d F64 WithGrad) (MkTensor (inputTensor dp) Nothing)
-      tgtV = the (TVec o d F64 WithGrad) (MkTensor (targetTensor dp) Nothing)
+  let inV = the (TVec i d dt WithGrad) (MkTensor (inputTensor dp) Nothing)
+      tgtV = the (TVec o d dt WithGrad) (MkTensor (targetTensor dp) Nothing)
   (_, predV) <- forwardVar model inV
   lossFn predV tgtV
 
@@ -137,9 +137,9 @@ export
 epochVarTensor : {0 d : Device} -> UserDeviceTape d => {i, o, n : Nat} -> {hs : List Nat} ->
                   NativeOptimizer ->
                   Vect n (TensorDataPoint i o) ->
-                  LossFn d F64 o ->
-                  Network i hs o d F64 WithGrad ->
-                  IO (Network i hs o d F64 WithGrad, Double)
+                  LossFn d dt o ->
+                  Network i hs o d dt WithGrad ->
+                  IO (Network i hs o d dt WithGrad, Double)
 epochVarTensor opt dataPoints lossFn model = do
   losses <- traverse (perPointLossTensor lossFn model) dataPoints
   totalLoss <- sumLosses (toList losses)
@@ -156,11 +156,11 @@ catAllTensors (x :: y :: rest) = catAllTensors (prim__cat2 x y :: rest)
 
 -- Per-sample loss for batched-forward shape.
 perRowLoss : {0 d : Device} -> UserDeviceTape d => {n, o : Nat} ->
-             LossFn d F64 o ->
-             Tensor [n, o] d F64 WithGrad ->
-             Tensor [n, o] d F64 WithGrad ->
+             LossFn d dt o ->
+             Tensor [n, o] d dt WithGrad ->
+             Tensor [n, o] d dt WithGrad ->
              Int ->
-             IO (Tensor [] d F64 WithGrad)
+             IO (Tensor [] d dt WithGrad)
 perRowLoss lossFn predB tgtB k = do
   predRow <- trowSelect predB k
   tgtRow <- trowSelect tgtB k
@@ -171,9 +171,9 @@ export
 epochVarTensorBatch : {0 d : Device} -> UserDeviceTape d => {i, o, n : Nat} -> {hs : List Nat} ->
                        NativeOptimizer ->
                        Vect n (TensorDataPoint i o) ->
-                       LossFn d F64 o ->
-                       Network i hs o d F64 WithGrad ->
-                       IO (Network i hs o d F64 WithGrad, Double)
+                       LossFn d dt o ->
+                       Network i hs o d dt WithGrad ->
+                       IO (Network i hs o d dt WithGrad, Double)
 epochVarTensorBatch opt dataPoints lossFn model = do
   let inputs = toList (map inputTensor dataPoints)
       targets = toList (map targetTensor dataPoints)
@@ -184,8 +184,8 @@ epochVarTensorBatch opt dataPoints lossFn model = do
       nI = cast {to=Int} n
       stackedInReshaped = prim__reshape2d stackedIn nI iI
       stackedTgtReshaped = prim__reshape2d stackedTgt nI oI
-      inV = the (Tensor [n, i] d F64 WithGrad) (MkTensor stackedInReshaped Nothing)
-      tgtV = the (Tensor [n, o] d F64 WithGrad) (MkTensor stackedTgtReshaped Nothing)
+      inV = the (Tensor [n, i] d dt WithGrad) (MkTensor stackedInReshaped Nothing)
+      tgtV = the (Tensor [n, o] d dt WithGrad) (MkTensor stackedTgtReshaped Nothing)
   (_, predB) <- forwardVarBatch model inV
   losses <- go predB tgtV 0 n
   totalLoss <- sumLosses losses
@@ -193,8 +193,8 @@ epochVarTensorBatch opt dataPoints lossFn model = do
   loss <- nativeTrainStep opt mean
   pure (model, loss)
   where
-    go : Tensor [n, o] d F64 WithGrad -> Tensor [n, o] d F64 WithGrad -> Int -> Nat ->
-         IO (List (Tensor [] d F64 WithGrad))
+    go : Tensor [n, o] d dt WithGrad -> Tensor [n, o] d dt WithGrad -> Int -> Nat ->
+         IO (List (Tensor [] d dt WithGrad))
     go _ _ _ Z = pure []
     go predB tgtV k (S rest) = do
       l <- perRowLoss lossFn predB tgtV k
@@ -209,13 +209,13 @@ epochVarTensorBatch opt dataPoints lossFn model = do
 -- One step of a sequence: forward, compute loss against target,
 -- accumulate.
 recurStep : {0 d : Device} -> UserDeviceTape d => {i, o : Nat} -> {hs : List Nat} ->
-            LossFn d F64 o ->
-            (Network i hs o d F64 WithGrad, Tensor [] d F64 WithGrad) ->
+            LossFn d dt o ->
+            (Network i hs o d dt WithGrad, Tensor [] d dt WithGrad) ->
             (Vector i Double, Vector o Double) ->
-            IO (Network i hs o d F64 WithGrad, Tensor [] d F64 WithGrad)
+            IO (Network i hs o d dt WithGrad, Tensor [] d dt WithGrad)
 recurStep lossFn (net, accLoss) (xVec, yVec) = do
-  let inV = the (TVec i d F64 WithGrad) (MkTensor (bulkToPersistent xVec) Nothing)
-      tgtV = the (TVec o d F64 WithGrad) (MkTensor (bulkToPersistent yVec) Nothing)
+  let inV = the (TVec i d dt WithGrad) (MkTensor (bulkToPersistent xVec) Nothing)
+      tgtV = the (TVec o d dt WithGrad) (MkTensor (bulkToPersistent yVec) Nothing)
   (net', predV) <- forwardVar net inV
   stepL <- lossFn predV tgtV
   newAcc <- taddScalar accLoss stepL
@@ -223,10 +223,10 @@ recurStep lossFn (net, accLoss) (xVec, yVec) = do
 
 -- Per-sequence loss: reset state, walk timesteps, mean-reduce.
 perSeqLoss : {0 d : Device} -> UserDeviceTape d => {i, o : Nat} -> {hs : List Nat} ->
-             LossFn d F64 o ->
-             Network i hs o d F64 WithGrad ->
+             LossFn d dt o ->
+             Network i hs o d dt WithGrad ->
              RecurrentDataPoint i o Double ->
-             IO (Tensor [] d F64 WithGrad)
+             IO (Tensor [] d dt WithGrad)
 perSeqLoss lossFn model dp = do
   let pairs = zip (xs dp) (ys dp)
       startNet = resetNetwork model
@@ -237,12 +237,12 @@ perSeqLoss lossFn model dp = do
      then pure totalLoss
      else scaleLoss totalLoss (1.0 / cast stepCount)
   where
-    foldlIO : ((Network i hs o d F64 WithGrad, Tensor [] d F64 WithGrad)
+    foldlIO : ((Network i hs o d dt WithGrad, Tensor [] d dt WithGrad)
                 -> (Vector i Double, Vector o Double)
-                -> IO (Network i hs o d F64 WithGrad, Tensor [] d F64 WithGrad))
-            -> (Network i hs o d F64 WithGrad, Tensor [] d F64 WithGrad)
+                -> IO (Network i hs o d dt WithGrad, Tensor [] d dt WithGrad))
+            -> (Network i hs o d dt WithGrad, Tensor [] d dt WithGrad)
             -> List (Vector i Double, Vector o Double)
-            -> IO (Network i hs o d F64 WithGrad, Tensor [] d F64 WithGrad)
+            -> IO (Network i hs o d dt WithGrad, Tensor [] d dt WithGrad)
     foldlIO _ acc [] = pure acc
     foldlIO f acc (x :: rest) = do
       acc' <- f acc x
@@ -253,9 +253,9 @@ export
 epochRecurrentVar : {0 d : Device} -> UserDeviceTape d => {i, o, n : Nat} -> {hs : List Nat} ->
                      NativeOptimizer ->
                      Vect n (RecurrentDataPoint i o Double) ->
-                     LossFn d F64 o ->
-                     Network i hs o d F64 WithGrad ->
-                     IO (Network i hs o d F64 WithGrad, Double)
+                     LossFn d dt o ->
+                     Network i hs o d dt WithGrad ->
+                     IO (Network i hs o d dt WithGrad, Double)
 epochRecurrentVar opt dataPoints lossFn model = do
   seqLosses <- traverse (perSeqLoss lossFn model) dataPoints
   totalLoss <- sumLosses (toList seqLosses)
@@ -269,33 +269,33 @@ epochRecurrentVar opt dataPoints lossFn model = do
 ----------------------------------------------------------------------
 
 decodeStep : {0 d : Device} -> UserDeviceTape d => {i, o : Nat} -> {hs : List Nat} ->
-             LossFn d F64 o ->
+             LossFn d dt o ->
              AnyPtr ->
-             (Network i hs o d F64 WithGrad, Tensor [] d F64 WithGrad) ->
+             (Network i hs o d dt WithGrad, Tensor [] d dt WithGrad) ->
              Vector o Double ->
-             IO (Network i hs o d F64 WithGrad, Tensor [] d F64 WithGrad)
+             IO (Network i hs o d dt WithGrad, Tensor [] d dt WithGrad)
 decodeStep lossFn zeroInPtr (net, accLoss) tgtVec = do
-  let inV = the (TVec i d F64 WithGrad) (MkTensor zeroInPtr Nothing)
-      tgtV = the (TVec o d F64 WithGrad) (MkTensor (bulkToPersistent tgtVec) Nothing)
+  let inV = the (TVec i d dt WithGrad) (MkTensor zeroInPtr Nothing)
+      tgtV = the (TVec o d dt WithGrad) (MkTensor (bulkToPersistent tgtVec) Nothing)
   (net', predV) <- forwardVar net inV
   stepL <- lossFn predV tgtV
   newAcc <- taddScalar accLoss stepL
   pure (net', newAcc)
 
 encodeStep : {0 d : Device} -> UserDeviceTape d => {i, o : Nat} -> {hs : List Nat} ->
-             Network i hs o d F64 WithGrad ->
+             Network i hs o d dt WithGrad ->
              Vector i Double ->
-             IO (Network i hs o d F64 WithGrad)
+             IO (Network i hs o d dt WithGrad)
 encodeStep net xVec = do
-  let inV = the (TVec i d F64 WithGrad) (MkTensor (bulkToPersistent xVec) Nothing)
+  let inV = the (TVec i d dt WithGrad) (MkTensor (bulkToPersistent xVec) Nothing)
   (net', _) <- forwardVar net inV
   pure net'
 
 perSeqLossTwoPhase : {0 d : Device} -> UserDeviceTape d => {i, o : Nat} -> {hs : List Nat} ->
-                     LossFn d F64 o ->
-                     Network i hs o d F64 WithGrad ->
+                     LossFn d dt o ->
+                     Network i hs o d dt WithGrad ->
                      TwoPhaseDataPoint i o Double ->
-                     IO (Tensor [] d F64 WithGrad)
+                     IO (Tensor [] d dt WithGrad)
 perSeqLossTwoPhase lossFn model dp = do
   let startNet = resetNetwork model
   encNet <- foldlIO encodeStep startNet (encodingInputs dp)
@@ -308,21 +308,21 @@ perSeqLossTwoPhase lossFn model dp = do
      then pure totalLoss
      else scaleLoss totalLoss (1.0 / cast stepCount)
   where
-    foldlIO : (Network i hs o d F64 WithGrad -> Vector i Double -> IO (Network i hs o d F64 WithGrad))
-            -> Network i hs o d F64 WithGrad
+    foldlIO : (Network i hs o d dt WithGrad -> Vector i Double -> IO (Network i hs o d dt WithGrad))
+            -> Network i hs o d dt WithGrad
             -> List (Vector i Double)
-            -> IO (Network i hs o d F64 WithGrad)
+            -> IO (Network i hs o d dt WithGrad)
     foldlIO _ acc [] = pure acc
     foldlIO f acc (x :: rest) = do
       acc' <- f acc x
       foldlIO f acc' rest
 
-    foldlIO2 : ((Network i hs o d F64 WithGrad, Tensor [] d F64 WithGrad)
+    foldlIO2 : ((Network i hs o d dt WithGrad, Tensor [] d dt WithGrad)
                  -> Vector o Double
-                 -> IO (Network i hs o d F64 WithGrad, Tensor [] d F64 WithGrad))
-             -> (Network i hs o d F64 WithGrad, Tensor [] d F64 WithGrad)
+                 -> IO (Network i hs o d dt WithGrad, Tensor [] d dt WithGrad))
+             -> (Network i hs o d dt WithGrad, Tensor [] d dt WithGrad)
              -> List (Vector o Double)
-             -> IO (Network i hs o d F64 WithGrad, Tensor [] d F64 WithGrad)
+             -> IO (Network i hs o d dt WithGrad, Tensor [] d dt WithGrad)
     foldlIO2 _ acc [] = pure acc
     foldlIO2 f acc (x :: rest) = do
       acc' <- f acc x
@@ -333,9 +333,9 @@ export
 epochTwoPhaseVar : {0 d : Device} -> UserDeviceTape d => {i, o, n : Nat} -> {hs : List Nat} ->
                     NativeOptimizer ->
                     Vect n (TwoPhaseDataPoint i o Double) ->
-                    LossFn d F64 o ->
-                    Network i hs o d F64 WithGrad ->
-                    IO (Network i hs o d F64 WithGrad, Double)
+                    LossFn d dt o ->
+                    Network i hs o d dt WithGrad ->
+                    IO (Network i hs o d dt WithGrad, Double)
 epochTwoPhaseVar opt dataPoints lossFn model = do
   seqLosses <- traverse (perSeqLossTwoPhase lossFn model) dataPoints
   totalLoss <- sumLosses (toList seqLosses)
@@ -358,9 +358,9 @@ tvecToVector {n} ptr = VArray (build 0 n)
 
 export
 forwardTwoPhase : {0 d : Device} -> UserDeviceTape d => {i, o : Nat} -> {hs : List Nat} ->
-                      Network i hs o d F64 WithGrad ->
+                      Network i hs o d dt WithGrad ->
                       TwoPhaseDataPoint i o Double ->
-                      IO (Network i hs o d F64 WithGrad, List (Vector o Double))
+                      IO (Network i hs o d dt WithGrad, List (Vector o Double))
 forwardTwoPhase model dp = do
   let startNet = resetNetwork model
   encNet <- foldlIO encodeStep startNet (encodingInputs dp)
@@ -369,30 +369,30 @@ forwardTwoPhase model dp = do
   foldlIO2 (decodeOnce zeroIn) (encNet, []) (targets dp)
   where
     decodeOnce : AnyPtr ->
-                 (Network i hs o d F64 WithGrad, List (Vector o Double)) ->
+                 (Network i hs o d dt WithGrad, List (Vector o Double)) ->
                  Vector o Double ->
-                 IO (Network i hs o d F64 WithGrad, List (Vector o Double))
+                 IO (Network i hs o d dt WithGrad, List (Vector o Double))
     decodeOnce zeroIn (net, preds) _ = do
-      let inV = the (TVec i d F64 WithGrad) (MkTensor zeroIn Nothing)
+      let inV = the (TVec i d dt WithGrad) (MkTensor zeroIn Nothing)
       (net', predV) <- forwardVar net inV
       let predVec = the (Vector o Double) (tvecToVector {n = o} predV.tensorPtr)
       pure (net', preds ++ [predVec])
 
-    foldlIO : (Network i hs o d F64 WithGrad -> Vector i Double -> IO (Network i hs o d F64 WithGrad))
-            -> Network i hs o d F64 WithGrad
+    foldlIO : (Network i hs o d dt WithGrad -> Vector i Double -> IO (Network i hs o d dt WithGrad))
+            -> Network i hs o d dt WithGrad
             -> List (Vector i Double)
-            -> IO (Network i hs o d F64 WithGrad)
+            -> IO (Network i hs o d dt WithGrad)
     foldlIO _ acc [] = pure acc
     foldlIO f acc (x :: rest) = do
       acc' <- f acc x
       foldlIO f acc' rest
 
-    foldlIO2 : ((Network i hs o d F64 WithGrad, List (Vector o Double))
+    foldlIO2 : ((Network i hs o d dt WithGrad, List (Vector o Double))
                  -> Vector o Double
-                 -> IO (Network i hs o d F64 WithGrad, List (Vector o Double)))
-             -> (Network i hs o d F64 WithGrad, List (Vector o Double))
+                 -> IO (Network i hs o d dt WithGrad, List (Vector o Double)))
+             -> (Network i hs o d dt WithGrad, List (Vector o Double))
              -> List (Vector o Double)
-             -> IO (Network i hs o d F64 WithGrad, List (Vector o Double))
+             -> IO (Network i hs o d dt WithGrad, List (Vector o Double))
     foldlIO2 _ acc [] = pure acc
     foldlIO2 f acc (x :: rest) = do
       acc' <- f acc x

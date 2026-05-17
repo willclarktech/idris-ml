@@ -52,12 +52,12 @@ data Conv2DState :
   Nat -> Nat -> (0 _ : Device) -> (0 _ : DType) -> (0 _ : GradMode) -> Type
   where
   MkConv2D :
-    Tensor [outC, inC, kH, kW] d F64 g ->                       -- kernel
-    TVec outC d F64 g ->                                      -- bias
+    Tensor [outC, inC, kH, kW] d dt g ->                       -- kernel
+    TVec outC d dt g ->                                      -- bias
     Conv2DState inC outC h w kH kW padH padW
                   (inC * (h * w))
                   (outC * (ConvOutDim h kH padH * ConvOutDim w kW padW))
-                  d F64 g
+                  d dt g
 
 %default partial
 
@@ -66,9 +66,9 @@ applyConv2D : {0 d : Device} -> UserDeviceTape d => {inC, outC, h, w, kH, kW, pa
                 Conv2DState inC outC h w kH kW padH padW
                               (inC * (h * w))
                               (outC * (ConvOutDim h kH padH * ConvOutDim w kW padW))
-                              d F64 g ->
-                TVec (inC * (h * w)) d F64 g->
-                TVec (outC * (ConvOutDim h kH padH * ConvOutDim w kW padW)) d F64 g
+                              d dt g ->
+                TVec (inC * (h * w)) d dt g->
+                TVec (outC * (ConvOutDim h kH padH * ConvOutDim w kW padW)) d dt g
 applyConv2D {inC} {outC} {h} {w} {kH} {kW} {padH} {padW}
               (MkConv2D ker bias) input =
   let inCI = cast {to=Int} inC
@@ -90,9 +90,9 @@ applyConv2DBatched : {0 d : Device} -> UserDeviceTape d => {inC, outC, h, w, kH,
                        Conv2DState inC outC h w kH kW padH padW
                                      (inC * (h * w))
                                      (outC * (ConvOutDim h kH padH * ConvOutDim w kW padW))
-                                     d F64 g ->
-                       Tensor [b, inC * (h * w)] d F64 g ->
-                       Tensor [b, outC * (ConvOutDim h kH padH * ConvOutDim w kW padW)] d F64 g
+                                     d dt g ->
+                       Tensor [b, inC * (h * w)] d dt g ->
+                       Tensor [b, outC * (ConvOutDim h kH padH * ConvOutDim w kW padW)] d dt g
 applyConv2DBatched {inC} {outC} {h} {w} {kH} {kW} {padH} {padW} {b}
                      (MkConv2D ker bias) input =
   let bI    = cast {to=Int} b
@@ -125,7 +125,7 @@ conv2dLayer : {inC, outC, h, w, kH, kW, padH, padW : Nat} ->
                 IO (Conv2DState inC outC h w kH kW padH padW
                                   (inC * (h * w))
                                   (outC * (ConvOutDim h kH padH * ConvOutDim w kW padW))
-                                  CPU F64 WithGrad)
+                                  CPU dt WithGrad)
 conv2dLayer paramPrefix = do
   let kerCount = outC * inC * kH * kW
   kerVals <- traverse (\_ => he normal (inC * kH * kW) outC)
@@ -140,9 +140,9 @@ conv2dLayer paramPrefix = do
         (prim__createParam4d (cast outC) (cast inC) (cast kH) (cast kW) kerBuf')
       biasPtr = prim__paramRegister biasName
         (prim__createParam1d (cast outC) biasBuf')
-      kerTV : Tensor [outC, inC, kH, kW] CPU F64 WithGrad
+      kerTV : Tensor [outC, inC, kH, kW] CPU dt WithGrad
       kerTV = MkTensor kerPtr (Just kerName)
-      biasTV : TVec outC CPU F64 WithGrad
+      biasTV : TVec outC CPU dt WithGrad
       biasTV = MkTensor biasPtr (Just biasName)
   pure $ MkConv2D kerTV biasTV
 
@@ -168,7 +168,7 @@ conv2dLayerAny : {inC, outC, h, w, kH, kW, padH, padW : Nat} ->
                    (paramPrefix : String) ->
                    IO (AnyLayer (inC * (h * w))
                                   (outC * (ConvOutDim h kH padH * ConvOutDim w kW padW))
-                                  CPU F64 WithGrad)
+                                  CPU dt WithGrad)
 conv2dLayerAny pid =
   map (MkAnyLayer (Conv2DState inC outC h w kH kW padH padW))
       (conv2dLayer {inC} {outC} {h} {w} {kH} {kW} {padH} {padW} pid)
@@ -184,20 +184,20 @@ data Conv1DState :
   Nat -> Nat -> (0 _ : Device) -> (0 _ : DType) -> (0 _ : GradMode) -> Type
   where
   MkConv1D :
-    Tensor [outC, inC, kL] d F64 g ->
-    TVec outC d F64 g ->
+    Tensor [outC, inC, kL] d dt g ->
+    TVec outC d dt g ->
     Conv1DState inC outC len kL pad
                   (inC * len)
                   (outC * ConvOutDim len kL pad)
-                  d F64 g
+                  d dt g
 
 export
 applyConv1D : {0 d : Device} -> UserDeviceTape d => {inC, outC, len, kL, pad : Nat} ->
                 Conv1DState inC outC len kL pad
                               (inC * len)
-                              (outC * ConvOutDim len kL pad) d F64 g ->
-                TVec (inC * len) d F64 g ->
-                TVec (outC * ConvOutDim len kL pad) d F64 g
+                              (outC * ConvOutDim len kL pad) d dt g ->
+                TVec (inC * len) d dt g ->
+                TVec (outC * ConvOutDim len kL pad) d dt g
 applyConv1D {inC} {outC} {len} {kL} {pad} (MkConv1D ker bias) input =
   let inCI = cast {to=Int} inC
       lenI = cast {to=Int} len
@@ -211,7 +211,7 @@ conv1dLayer : {inC, outC, len, kL, pad : Nat} ->
                 (paramPrefix : String) ->
                 IO (Conv1DState inC outC len kL pad
                                   (inC * len)
-                                  (outC * ConvOutDim len kL pad) CPU F64 WithGrad)
+                                  (outC * ConvOutDim len kL pad) CPU dt WithGrad)
 conv1dLayer paramPrefix = do
   let kerCount = outC * inC * kL
   kerVals <- traverse (\_ => he normal (inC * kL) outC)
@@ -226,9 +226,9 @@ conv1dLayer paramPrefix = do
         (prim__createParam3d (cast outC) (cast inC) (cast kL) kerBuf')
       biasPtr = prim__paramRegister biasName
         (prim__createParam1d (cast outC) biasBuf')
-      kerTV : Tensor [outC, inC, kL] CPU F64 WithGrad
+      kerTV : Tensor [outC, inC, kL] CPU dt WithGrad
       kerTV = MkTensor kerPtr (Just kerName)
-      biasTV : TVec outC CPU F64 WithGrad
+      biasTV : TVec outC CPU dt WithGrad
       biasTV = MkTensor biasPtr (Just biasName)
   pure $ MkConv1D kerTV biasTV
 
@@ -251,7 +251,7 @@ public export
 export
 conv1dLayerAny : {inC, outC, len, kL, pad : Nat} ->
                    (paramPrefix : String) ->
-                   IO (AnyLayer (inC * len) (outC * ConvOutDim len kL pad) CPU F64 WithGrad)
+                   IO (AnyLayer (inC * len) (outC * ConvOutDim len kL pad) CPU dt WithGrad)
 conv1dLayerAny pid =
   map (MkAnyLayer (Conv1DState inC outC len kL pad))
       (conv1dLayer {inC} {outC} {len} {kL} {pad} pid)
@@ -271,16 +271,16 @@ data MaxPool2DState :
     MaxPool2DState c inH inW poolH poolW strH strW
                      (c * (inH * inW))
                      (c * (PoolOutDim inH poolH strH * PoolOutDim inW poolW strW))
-                     d F64 g
+                     d dt g
 
 export
 applyMaxPool2D : {0 d : Device} -> UserDeviceTape d => {c, inH, inW, poolH, poolW, strH, strW : Nat} ->
                    MaxPool2DState c inH inW poolH poolW strH strW
                                     (c * (inH * inW))
                                     (c * (PoolOutDim inH poolH strH * PoolOutDim inW poolW strW))
-                                    d F64 g ->
-                   TVec (c * (inH * inW)) d F64 g->
-                   TVec (c * (PoolOutDim inH poolH strH * PoolOutDim inW poolW strW)) d F64 g
+                                    d dt g ->
+                   TVec (c * (inH * inW)) d dt g->
+                   TVec (c * (PoolOutDim inH poolH strH * PoolOutDim inW poolW strW)) d dt g
 applyMaxPool2D {c} {inH} {inW} {poolH} {poolW} {strH} {strW} _ input =
   let cI = cast {to=Int} c
       hI = cast {to=Int} inH
@@ -298,9 +298,9 @@ applyMaxPool2DBatched : {0 d : Device} -> UserDeviceTape d => {c, inH, inW, pool
                           MaxPool2DState c inH inW poolH poolW strH strW
                                            (c * (inH * inW))
                                            (c * (PoolOutDim inH poolH strH * PoolOutDim inW poolW strW))
-                                           d F64 g ->
-                          Tensor [b, c * (inH * inW)] d F64 g ->
-                          Tensor [b, c * (PoolOutDim inH poolH strH * PoolOutDim inW poolW strW)] d F64 g
+                                           d dt g ->
+                          Tensor [b, c * (inH * inW)] d dt g ->
+                          Tensor [b, c * (PoolOutDim inH poolH strH * PoolOutDim inW poolW strW)] d dt g
 applyMaxPool2DBatched {c} {inH} {inW} {poolH} {poolW} {strH} {strW} {b} _ input =
   let bI = cast {to=Int} b
       cI = cast {to=Int} c
@@ -328,7 +328,7 @@ export
 maxPool2dLayer : {c, inH, inW, poolH, poolW, strH, strW : Nat} ->
                    AnyLayer (c * (inH * inW))
                               (c * (PoolOutDim inH poolH strH * PoolOutDim inW poolW strW))
-                              d F64 g
+                              d dt g
 maxPool2dLayer =
   MkAnyLayer (MaxPool2DState c inH inW poolH poolW strH strW)
                MkMaxPool2D
@@ -343,16 +343,16 @@ data AvgPool2DState :
     AvgPool2DState c inH inW poolH poolW strH strW
                      (c * (inH * inW))
                      (c * (PoolOutDim inH poolH strH * PoolOutDim inW poolW strW))
-                     d F64 g
+                     d dt g
 
 export
 applyAvgPool2D : {0 d : Device} -> UserDeviceTape d => {c, inH, inW, poolH, poolW, strH, strW : Nat} ->
                    AvgPool2DState c inH inW poolH poolW strH strW
                                     (c * (inH * inW))
                                     (c * (PoolOutDim inH poolH strH * PoolOutDim inW poolW strW))
-                                    d F64 g ->
-                   TVec (c * (inH * inW)) d F64 g->
-                   TVec (c * (PoolOutDim inH poolH strH * PoolOutDim inW poolW strW)) d F64 g
+                                    d dt g ->
+                   TVec (c * (inH * inW)) d dt g->
+                   TVec (c * (PoolOutDim inH poolH strH * PoolOutDim inW poolW strW)) d dt g
 applyAvgPool2D {c} {inH} {inW} {poolH} {poolW} {strH} {strW} _ input =
   let cI = cast {to=Int} c
       hI = cast {to=Int} inH
@@ -376,7 +376,7 @@ export
 avgPool2dLayer : {c, inH, inW, poolH, poolW, strH, strW : Nat} ->
                    AnyLayer (c * (inH * inW))
                               (c * (PoolOutDim inH poolH strH * PoolOutDim inW poolW strW))
-                              d F64 g
+                              d dt g
 avgPool2dLayer =
   MkAnyLayer (AvgPool2DState c inH inW poolH poolW strH strW)
                MkAvgPool2D
@@ -394,14 +394,14 @@ data MaxPool1DState :
   MkMaxPool1D :
     MaxPool1DState c len poolK str
                      (c * len)
-                     (c * PoolOutDim len poolK str) d F64 g
+                     (c * PoolOutDim len poolK str) d dt g
 
 export
 applyMaxPool1D : {0 d : Device} -> UserDeviceTape d => {c, len, poolK, str : Nat} ->
                    MaxPool1DState c len poolK str
-                                    (c * len) (c * PoolOutDim len poolK str) d F64 g ->
-                   TVec (c * len) d F64 g ->
-                   TVec (c * PoolOutDim len poolK str) d F64 g
+                                    (c * len) (c * PoolOutDim len poolK str) d dt g ->
+                   TVec (c * len) d dt g ->
+                   TVec (c * PoolOutDim len poolK str) d dt g
 applyMaxPool1D {c} {len} {poolK} {str} _ input =
   let cI = cast {to=Int} c
       lenI = cast {to=Int} len
@@ -421,7 +421,7 @@ public export
 
 export
 maxPool1dLayer : {c, len, poolK, str : Nat} ->
-                   AnyLayer (c * len) (c * PoolOutDim len poolK str) d F64 g
+                   AnyLayer (c * len) (c * PoolOutDim len poolK str) d dt g
 maxPool1dLayer =
   MkAnyLayer (MaxPool1DState c len poolK str) MkMaxPool1D
 
@@ -433,14 +433,14 @@ data AvgPool1DState :
   MkAvgPool1D :
     AvgPool1DState c len poolK str
                      (c * len)
-                     (c * PoolOutDim len poolK str) d F64 g
+                     (c * PoolOutDim len poolK str) d dt g
 
 export
 applyAvgPool1D : {0 d : Device} -> UserDeviceTape d => {c, len, poolK, str : Nat} ->
                    AvgPool1DState c len poolK str
-                                    (c * len) (c * PoolOutDim len poolK str) d F64 g ->
-                   TVec (c * len) d F64 g ->
-                   TVec (c * PoolOutDim len poolK str) d F64 g
+                                    (c * len) (c * PoolOutDim len poolK str) d dt g ->
+                   TVec (c * len) d dt g ->
+                   TVec (c * PoolOutDim len poolK str) d dt g
 applyAvgPool1D {c} {len} {poolK} {str} _ input =
   let cI = cast {to=Int} c
       lenI = cast {to=Int} len
@@ -460,6 +460,6 @@ public export
 
 export
 avgPool1dLayer : {c, len, poolK, str : Nat} ->
-                   AnyLayer (c * len) (c * PoolOutDim len poolK str) d F64 g
+                   AnyLayer (c * len) (c * PoolOutDim len poolK str) d dt g
 avgPool1dLayer =
   MkAnyLayer (AvgPool1DState c len poolK str) MkAvgPool1D

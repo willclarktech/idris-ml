@@ -21,16 +21,16 @@ import Tensor
 -- than inside a Vect literal.
 
 public export
-record LstmState (i : Nat) (o : Nat) (0 d : Device) (0 F64 : DType) (0 g : GradMode) where
+record LstmState (i : Nat) (o : Nat) (0 d : Device) (0 dt : DType) (0 g : GradMode) where
   constructor MkLstm
-  iwT : TMat (4 * o) i d F64 g
-  rwT : TMat (4 * o) o d F64 g
-  ihB : TVec (4 * o) d F64 g        -- input-hidden bias [4*o] (b_ih)
-  hhB : TVec (4 * o) d F64 g        -- hidden-hidden bias [4*o] (b_hh)
-  h0T : TVec o d F64 g              -- learned initial hidden state (zero-init)
-  c0T : TVec o d F64 g              -- learned initial cell state (zero-init)
-  hiddenT : Maybe (TVec o d F64 g)
-  cellT   : Maybe (TVec o d F64 g)
+  iwT : TMat (4 * o) i d dt g
+  rwT : TMat (4 * o) o d dt g
+  ihB : TVec (4 * o) d dt g        -- input-hidden bias [4*o] (b_ih)
+  hhB : TVec (4 * o) d dt g        -- hidden-hidden bias [4*o] (b_hh)
+  h0T : TVec o d dt g              -- learned initial hidden state (zero-init)
+  c0T : TVec o d dt g              -- learned initial cell state (zero-init)
+  hiddenT : Maybe (TVec o d dt g)
+  cellT   : Maybe (TVec o d dt g)
 
 
 ----------------------------------------------------------------------
@@ -44,9 +44,9 @@ record LstmState (i : Nat) (o : Nat) (0 d : Device) (0 F64 : DType) (0 g : GradM
 ||| updated layer state and the new hidden output.
 export
 applyLstm : {0 d : Device} -> UserDeviceTape d => {o : Nat} ->
-              LstmState i o d F64 g ->
-              TVec i d F64 g ->
-              IO (LstmState i o d F64 g, TVec o d F64 g)
+              LstmState i o d dt g ->
+              TVec i d dt g ->
+              IO (LstmState i o d dt g, TVec o d dt g)
 applyLstm {o} st input = do
   let h = case st.hiddenT of
             Just h => h
@@ -85,7 +85,7 @@ zeroBuf buf off n =
 ||| `<prefix>_h0`, `<prefix>_c0`.
 export
 lstmLayer : {i, o : Nat} -> (paramPrefix : String) ->
-              IO (LstmState i o CPU F64 WithGrad)
+              IO (LstmState i o CPU dt WithGrad)
 lstmLayer paramPrefix = do
   let gI = cast {to=Int} (4 * o)
       iI = cast {to=Int} i
@@ -116,17 +116,17 @@ lstmLayer paramPrefix = do
       hbPtr = prim__paramRegister hbName (prim__createParam1d gI hbBuf')
       h0Ptr = prim__paramRegister h0Name (prim__createParam1d oI h0Buf')
       c0Ptr = prim__paramRegister c0Name (prim__createParam1d oI c0Buf')
-      iwTV : TMat (4 * o) i CPU F64 WithGrad
+      iwTV : TMat (4 * o) i CPU dt WithGrad
       iwTV = MkTensor iwPtr (Just iwName)
-      rwTV : TMat (4 * o) o CPU F64 WithGrad
+      rwTV : TMat (4 * o) o CPU dt WithGrad
       rwTV = MkTensor rwPtr (Just rwName)
-      ibTV : TVec (4 * o) CPU F64 WithGrad
+      ibTV : TVec (4 * o) CPU dt WithGrad
       ibTV = MkTensor ibPtr (Just ibName)
-      hbTV : TVec (4 * o) CPU F64 WithGrad
+      hbTV : TVec (4 * o) CPU dt WithGrad
       hbTV = MkTensor hbPtr (Just hbName)
-      h0TV : TVec o CPU F64 WithGrad
+      h0TV : TVec o CPU dt WithGrad
       h0TV = MkTensor h0Ptr (Just h0Name)
-      c0TV : TVec o CPU F64 WithGrad
+      c0TV : TVec o CPU dt WithGrad
       c0TV = MkTensor c0Ptr (Just c0Name)
   pure $ MkLstm iwTV rwTV ibTV hbTV h0TV c0TV Nothing Nothing
 
@@ -134,7 +134,7 @@ lstmLayer paramPrefix = do
 ||| first call lazy-allocate fresh persistent zero buffers — mirrors
 ||| V1's `resetState`, where MLX trains correctly via this lazy path.
 export
-resetLstmState : {o : Nat} -> {0 d : Device} -> {0 g : GradMode} -> LstmState i o d F64 g -> LstmState i o d F64 g
+resetLstmState : {o : Nat} -> {0 d : Device} -> {0 g : GradMode} -> LstmState i o d dt g -> LstmState i o d dt g
 resetLstmState st = { hiddenT := Nothing, cellT := Nothing } st
 
 
@@ -183,5 +183,5 @@ LayerLike LstmState where
 
 ||| Wrap an `LstmState` in `AnyLayer`.
 export
-lstmLayerAny : {i, o : Nat} -> (paramPrefix : String) -> IO (AnyLayer i o CPU F64 WithGrad)
+lstmLayerAny : {i, o : Nat} -> (paramPrefix : String) -> IO (AnyLayer i o CPU dt WithGrad)
 lstmLayerAny pid = map (MkAnyLayer LstmState) (lstmLayer pid)

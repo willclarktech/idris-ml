@@ -874,7 +874,7 @@ prim__backwardC : AnyPtr -> PrimIO ()
 prim__zeroAllGradsC : PrimIO ()
 
 -- runBackward is defined post-Tensor record below; the type-level
--- gate (Tensor [] d F64 WithGrad-> IO ()) lives there.
+-- gate (Tensor [] d dt WithGrad-> IO ()) lives there.
 
 %foreign "C:param_count,libidrisml"
 prim__paramCountC : PrimIO Int
@@ -956,7 +956,7 @@ profileReport = primIO prim__profileReportC
 ||| raw pointer, so this layer is invisible above the FFI boundary.
 ||| See docs/develop/tensor-lifecycle-plan.md.
 public export
-record Tensor (dims : Vect rank Nat) (0 d : Device) (0 F64 : DType) (0 g : GradMode) where
+record Tensor (dims : Vect rank Nat) (0 d : Device) (0 dt : DType) (0 g : GradMode) where
   constructor MkTensor
   tensorPtr : AnyPtr
   paramId   : Maybe String
@@ -972,7 +972,7 @@ record Tensor (dims : Vect rank Nat) (0 d : Device) (0 F64 : DType) (0 g : GradM
 ||| supplies the C-side string via its `deviceName` method.
 export
 toDevice : {0 d1 : Type} -> (0 d2 : Type) -> UserDeviceCore d2 =>
-           Tensor dims d1 F64 WithGrad -> IO (Tensor dims d2 F64 WithGrad)
+           Tensor dims d1 dt WithGrad -> IO (Tensor dims d2 dt WithGrad)
 toDevice d2 t =
   pure (MkTensor (prim__toDevice t.tensorPtr (deviceName {d = d2}))
                  t.paramId)
@@ -992,7 +992,7 @@ toDevice d2 t =
 ||| Closes the "freeze then keep using the original WithGrad type"
 ||| aliasing footgun.
 export
-weakenGrad : (1 _ : Tensor dims d F64 g) -> IO (Tensor dims d F64 NoGrad)
+weakenGrad : (1 _ : Tensor dims d dt g) -> IO (Tensor dims d dt NoGrad)
 weakenGrad (MkTensor ptr pid) = do
   primIO (prim__setRequiresGrad ptr 0)
   pure (MkTensor ptr pid)
@@ -1005,7 +1005,7 @@ weakenGrad (MkTensor ptr pid) = do
 ||| flag. Not a control surface for users — to *change* the runtime
 ||| flag, use `weakenGrad`.
 export
-retypeGrad : Tensor dims d F64 g1 -> Tensor dims d F64 g2
+retypeGrad : Tensor dims d dt g1 -> Tensor dims d dt g2
 retypeGrad (MkTensor ptr pid) = MkTensor ptr pid
 
 ||| Type-level aliases for common Tensor shapes. Aliases route shape
@@ -1037,7 +1037,7 @@ ioRerun f = primIO (\w => MkIORes (f ()) w)
 ||| Create a registered learnable [o, i] parameter from a flat (row-major)
 ||| double buffer. Mirrors Linear.nameLayer's tensor path.
 export
-tparam2d : {o, i : Nat} -> (paramId : String) -> AnyPtr -> IO (Tensor [o, i] d F64 WithGrad)
+tparam2d : {o, i : Nat} -> (paramId : String) -> AnyPtr -> IO (Tensor [o, i] d dt WithGrad)
 tparam2d {o} {i} pid buf = ioRerun (\_ =>
   let oI = cast {to=Int} o
       iI = cast {to=Int} i
@@ -1046,7 +1046,7 @@ tparam2d {o} {i} pid buf = ioRerun (\_ =>
 
 ||| Create a registered learnable [n] parameter from a double buffer.
 export
-tparam1d : {n : Nat} -> (paramId : String) -> AnyPtr -> IO (Tensor [n] d F64 WithGrad)
+tparam1d : {n : Nat} -> (paramId : String) -> AnyPtr -> IO (Tensor [n] d dt WithGrad)
 tparam1d {n} pid buf = ioRerun (\_ =>
   let nI = cast {to=Int} n
       reg = prim__paramRegister pid (prim__createParam1d nI buf)
@@ -1055,13 +1055,13 @@ tparam1d {n} pid buf = ioRerun (\_ =>
 ||| Wrap an existing 1D tensor handle as a non-parameter input.
 ||| Pure — no FFI side effect, just record construction.
 export
-tinput1d : {n : Nat} -> AnyPtr -> Tensor [n] d F64 WithGrad
+tinput1d : {n : Nat} -> AnyPtr -> Tensor [n] d dt WithGrad
 tinput1d t = MkTensor t Nothing
 
 ||| Wrap an existing 2D tensor handle as a non-parameter input.
 ||| Pure — no FFI side effect, just record construction.
 export
-tinput2d : {m, n : Nat} -> AnyPtr -> Tensor [m, n] d F64 WithGrad
+tinput2d : {m, n : Nat} -> AnyPtr -> Tensor [m, n] d dt WithGrad
 tinput2d t = MkTensor t Nothing
 
 -- Arithmetic / linear algebra (autograd-tracked) ----------------------
@@ -1074,14 +1074,14 @@ tinput2d t = MkTensor t Nothing
 ||| adds ~20µs of Scheme-side overhead per call, accumulating to a
 ||| 2× regression on recurrent models.
 export %inline
-tadd : {0 d : Device} -> UserDeviceCore d => Tensor dims d F64 g -> Tensor dims d F64 g -> IO (Tensor dims d F64 g)
+tadd : {0 d : Device} -> UserDeviceCore d => Tensor dims d dt g -> Tensor dims d dt g -> IO (Tensor dims d dt g)
 tadd a b = ioRerun (\_ => MkTensor (primAdd {d} a.tensorPtr b.tensorPtr) Nothing)
 
 ||| Matrix-vector multiply: [m, n] · [n] -> [m]. `%inline` for the
 ||| same reason as `tadd` (hot path in recurrent forward passes).
 export %inline
 tmv : {0 d : Device} -> UserDeviceTape d =>
-      Tensor [m, n] d F64 g -> Tensor [n] d F64 g -> IO (Tensor [m] d F64 g)
+      Tensor [m, n] d dt g -> Tensor [n] d dt g -> IO (Tensor [m] d dt g)
 tmv w x = ioRerun (\_ => MkTensor (primMv {d} w.tensorPtr x.tensorPtr) Nothing)
 
 ||| Fused 1D linear: y = W[m,n] · x[n] + bias[m]. One C call instead
@@ -1090,14 +1090,14 @@ tmv w x = ioRerun (\_ => MkTensor (primMv {d} w.tensorPtr x.tensorPtr) Nothing)
 ||| applyVar and by NTM/DNC FCs.
 export %inline
 tlinear : {0 d : Device} -> UserDeviceTape d =>
-          Tensor [o, i] d F64 g -> Tensor [i] d F64 g -> Tensor [o] d F64 g -> IO (Tensor [o] d F64 g)
+          Tensor [o, i] d dt g -> Tensor [i] d dt g -> Tensor [o] d dt g -> IO (Tensor [o] d dt g)
 tlinear w x bias = ioRerun (\_ =>
   MkTensor (primLinear {d} w.tensorPtr x.tensorPtr bias.tensorPtr) Nothing)
 
 ||| Fused batched linear: W[o,i] · X^T[b,i] + bias[o] -> [b, o].
 export %inline
 tlinear2d : {0 d : Device} -> UserDeviceTape d =>
-            Tensor [o, i] d F64 g -> Tensor [b, i] d F64 g -> Tensor [o] d F64 g -> IO (Tensor [b, o] d F64 g)
+            Tensor [o, i] d dt g -> Tensor [b, i] d dt g -> Tensor [o] d dt g -> IO (Tensor [b, o] d dt g)
 tlinear2d w x bias = ioRerun (\_ =>
   MkTensor (primLinear2d {d} w.tensorPtr x.tensorPtr bias.tensorPtr) Nothing)
 
@@ -1109,13 +1109,13 @@ tlinear2d w x bias = ioRerun (\_ =>
 ||| Wraps `prim__select` on dim 0; preserves the autograd graph.
 export
 trowSelect : {0 d : Device} -> UserDeviceTape d => {b, n : Nat} ->
-             Tensor [b, n] d F64 g -> Int -> IO (Tensor [n] d F64 g)
+             Tensor [b, n] d dt g -> Int -> IO (Tensor [n] d dt g)
 trowSelect t k = ioRerun (\_ => MkTensor (primSelect {d} t.tensorPtr 0 k) Nothing)
 
 ||| Select element `i` from an n-vector, returning a scalar Tensor.
 export
 telemSelect : {0 d : Device} -> UserDeviceTape d => {n : Nat} ->
-              Tensor [n] d F64 g -> Int -> IO (Tensor [] d F64 g)
+              Tensor [n] d dt g -> Int -> IO (Tensor [] d dt g)
 telemSelect t i = ioRerun (\_ => MkTensor (primSelect {d} t.tensorPtr 0 i) Nothing)
 
 ||| Scalar Tensor from a Double. Takes the value as a runtime argument
@@ -1135,22 +1135,22 @@ export
 ||| construct scalars via their own `UserDeviceCore.primCreateScalar`
 ||| directly. Same compromise applies to `tparamScalar` and
 ||| `freshZeroLossT`.
-tconstScalar : {0 d : Device} -> Double -> IO (Tensor [] d F64 WithGrad)
+tconstScalar : {0 d : Device} -> Double -> IO (Tensor [] d dt WithGrad)
 tconstScalar v = ioRerun (\_ => MkTensor (prim__createScalar v 0) Nothing)
 
 ||| Subtract two equally-shaped Tensors (autograd-tracked).
 export %inline
-tsub : {0 d : Device} -> UserDeviceCore d => Tensor dims d F64 g -> Tensor dims d F64 g -> IO (Tensor dims d F64 g)
+tsub : {0 d : Device} -> UserDeviceCore d => Tensor dims d dt g -> Tensor dims d dt g -> IO (Tensor dims d dt g)
 tsub a b = ioRerun (\_ => MkTensor (primSub {d} a.tensorPtr b.tensorPtr) Nothing)
 
 ||| Elementwise multiply two equally-shaped Tensors (autograd-tracked).
 export %inline
-tmul : {0 d : Device} -> UserDeviceCore d => Tensor dims d F64 g -> Tensor dims d F64 g -> IO (Tensor dims d F64 g)
+tmul : {0 d : Device} -> UserDeviceCore d => Tensor dims d dt g -> Tensor dims d dt g -> IO (Tensor dims d dt g)
 tmul a b = ioRerun (\_ => MkTensor (primMul {d} a.tensorPtr b.tensorPtr) Nothing)
 
 ||| Negate a Tensor (autograd-tracked).
 export %inline
-tneg : {0 d : Device} -> UserDeviceCore d => Tensor dims d F64 g -> IO (Tensor dims d F64 g)
+tneg : {0 d : Device} -> UserDeviceCore d => Tensor dims d dt g -> IO (Tensor dims d dt g)
 tneg a = ioRerun (\_ => MkTensor (primNeg {d} a.tensorPtr) Nothing)
 
 ||| Scale a Tensor by a Double (broadcasts the scalar; autograd-tracked).
@@ -1158,24 +1158,24 @@ tneg a = ioRerun (\_ => MkTensor (primNeg {d} a.tensorPtr) Nothing)
 ||| building per-sample loss expressions where one side of a product is
 ||| a runtime Double (e.g. DQN target value).
 export %inline
-tmulScalar : {0 d : Device} -> UserDeviceCore d => Tensor dims d F64 g -> Double -> IO (Tensor dims d F64 g)
+tmulScalar : {0 d : Device} -> UserDeviceCore d => Tensor dims d dt g -> Double -> IO (Tensor dims d dt g)
 tmulScalar v s = ioRerun (\_ => MkTensor (primMulScalar {d} v.tensorPtr s) Nothing)
 
 ||| Elementwise exponential (autograd-tracked).
 export %inline
-texp : {0 d : Device} -> UserDeviceCore d => Tensor dims d F64 g -> IO (Tensor dims d F64 g)
+texp : {0 d : Device} -> UserDeviceCore d => Tensor dims d dt g -> IO (Tensor dims d dt g)
 texp v = ioRerun (\_ => MkTensor (primExp {d} v.tensorPtr) Nothing)
 
 ||| Elementwise natural log (autograd-tracked).
 export %inline
-tlog : {0 d : Device} -> UserDeviceCore d => Tensor dims d F64 g -> IO (Tensor dims d F64 g)
+tlog : {0 d : Device} -> UserDeviceCore d => Tensor dims d dt g -> IO (Tensor dims d dt g)
 tlog v = ioRerun (\_ => MkTensor (primLog {d} v.tensorPtr) Nothing)
 
 ||| Create a registered learnable scalar parameter (e.g. SAC's
 ||| state-independent log_std). Mirrors V1's `param`. The optimizer
 ||| picks it up automatically by paramId scope.
 export
-tparamScalar : {0 d : Device} -> (paramId : String) -> (val : Double) -> IO (Tensor [] d F64 WithGrad)
+tparamScalar : {0 d : Device} -> (paramId : String) -> (val : Double) -> IO (Tensor [] d dt WithGrad)
 tparamScalar pid val = ioRerun (\_ =>
   let ptr = prim__createScalar val 1                  -- requires_grad=true
       reg = prim__paramRegister pid ptr
@@ -1187,45 +1187,45 @@ tparamScalar pid val = ioRerun (\_ =>
 ||| action while preserving the autograd path through the action.
 export
 tconcat2dAxis1 : {0 d : Device} -> UserDeviceTape d => {b, m, n : Nat} ->
-                 Tensor [b, m] d F64 g -> Tensor [b, n] d F64 g ->
-                 IO (Tensor [b, m + n] d F64 g)
+                 Tensor [b, m] d dt g -> Tensor [b, n] d dt g ->
+                 IO (Tensor [b, m + n] d dt g)
 tconcat2dAxis1 a b = ioRerun (\_ => MkTensor (primConcat2dAxis1 {d} a.tensorPtr b.tensorPtr) Nothing)
 
 -- Activations (shape-preserving, pass-through autograd) ---------------
 -- All `%inline` for hot-path performance — see `tadd` rationale.
 
 export %inline
-ttanh : {0 d : Device} -> UserDeviceCore d => Tensor dims d F64 g -> IO (Tensor dims d F64 g)
+ttanh : {0 d : Device} -> UserDeviceCore d => Tensor dims d dt g -> IO (Tensor dims d dt g)
 ttanh v = ioRerun (\_ => MkTensor (primTanh {d} v.tensorPtr) Nothing)
 
 export %inline
-tsigmoid : {0 d : Device} -> UserDeviceCore d => Tensor dims d F64 g -> IO (Tensor dims d F64 g)
+tsigmoid : {0 d : Device} -> UserDeviceCore d => Tensor dims d dt g -> IO (Tensor dims d dt g)
 tsigmoid v = ioRerun (\_ => MkTensor (primSigmoid {d} v.tensorPtr) Nothing)
 
 export %inline
-trelu : {0 d : Device} -> UserDeviceCore d => Tensor dims d F64 g -> IO (Tensor dims d F64 g)
+trelu : {0 d : Device} -> UserDeviceCore d => Tensor dims d dt g -> IO (Tensor dims d dt g)
 trelu v = ioRerun (\_ => MkTensor (primClampMin {d} v.tensorPtr 0.0) Nothing)
 
 export %inline
-tgelu : {0 d : Device} -> UserDeviceTape d => Tensor dims d F64 g -> IO (Tensor dims d F64 g)
+tgelu : {0 d : Device} -> UserDeviceTape d => Tensor dims d dt g -> IO (Tensor dims d dt g)
 tgelu v = ioRerun (\_ => MkTensor (primGelu {d} v.tensorPtr) Nothing)
 
 export %inline
-tsilu : {0 d : Device} -> UserDeviceTape d => Tensor dims d F64 g -> IO (Tensor dims d F64 g)
+tsilu : {0 d : Device} -> UserDeviceTape d => Tensor dims d dt g -> IO (Tensor dims d dt g)
 tsilu v = ioRerun (\_ => MkTensor (primSilu {d} v.tensorPtr) Nothing)
 
 export %inline
-tleakyRelu : {0 d : Device} -> UserDeviceTape d => Double -> Tensor dims d F64 g -> IO (Tensor dims d F64 g)
+tleakyRelu : {0 d : Device} -> UserDeviceTape d => Double -> Tensor dims d dt g -> IO (Tensor dims d dt g)
 tleakyRelu slope v = ioRerun (\_ => MkTensor (primLeakyRelu {d} v.tensorPtr slope) Nothing)
 
 ||| Softmax along axis 0 (1D vector).
 export %inline
-tsoftmax1d : {0 d : Device} -> UserDeviceTape d => {n : Nat} -> Tensor [n] d F64 g -> IO (Tensor [n] d F64 g)
+tsoftmax1d : {0 d : Device} -> UserDeviceTape d => {n : Nat} -> Tensor [n] d dt g -> IO (Tensor [n] d dt g)
 tsoftmax1d v = ioRerun (\_ => MkTensor (primSoftmax {d} v.tensorPtr 0) Nothing)
 
 ||| Log-softmax along axis 0 (1D vector).
 export %inline
-tlogSoftmax1d : {0 d : Device} -> UserDeviceTape d => {n : Nat} -> Tensor [n] d F64 g -> IO (Tensor [n] d F64 g)
+tlogSoftmax1d : {0 d : Device} -> UserDeviceTape d => {n : Nat} -> Tensor [n] d dt g -> IO (Tensor [n] d dt g)
 tlogSoftmax1d v = ioRerun (\_ => MkTensor (primLogSoftmax {d} v.tensorPtr 0) Nothing)
 
 ||| Fused LSTM gate computation: combined gates [4 * n] + previous cell [n]
@@ -1236,8 +1236,8 @@ tlogSoftmax1d v = ioRerun (\_ => MkTensor (primLogSoftmax {d} v.tensorPtr 0) Not
 ||| `TVec` alias avoids the type-checker hang that direct
 ||| `Tensor [4 * n] d` triggers.
 export
-tlstmGatesPair : {n : Nat} -> TVec (4 * n) d F64 g -> TVec n d F64 g ->
-                 IO (TVec n d F64 g, TVec n d F64 g)
+tlstmGatesPair : {n : Nat} -> TVec (4 * n) d dt g -> TVec n d dt g ->
+                 IO (TVec n d dt g, TVec n d dt g)
 tlstmGatesPair {n} combined prevCell = ioRerun (\_ =>
   let nI = cast {to=Int} n
       pair = prim__lstmGatesPair combined.tensorPtr prevCell.tensorPtr nI
@@ -1247,7 +1247,7 @@ tlstmGatesPair {n} combined prevCell = ioRerun (\_ =>
 ||| Use for LSTM/RNN/GRU initial hidden + cell state. Persistent =
 ||| survives tape reset.
 export
-tzeroState1d : {n : Nat} -> IO (Tensor [n] d F64 g)
+tzeroState1d : {n : Nat} -> IO (Tensor [n] d dt g)
 tzeroState1d {n} = ioRerun (\_ =>
   let nI = cast {to=Int} n
       buf = prim__allocDoubles nI
@@ -1266,7 +1266,7 @@ tzeroState1d {n} = ioRerun (\_ =>
 ||| `nn.GRU` equation so the example matches what library users
 ||| expect.
 export
-tgruCell : {n : Nat} -> TVec (3 * n) d F64 g -> TVec (3 * n) d F64 g -> TVec n d F64 g -> IO (TVec n d F64 g)
+tgruCell : {n : Nat} -> TVec (3 * n) d dt g -> TVec (3 * n) d dt g -> TVec n d dt g -> IO (TVec n d dt g)
 tgruCell {n} ih hh prevH = ioRerun (\_ =>
   let nI = cast {to=Int} n
   in MkTensor (prim__gruCell ih.tensorPtr hh.tensorPtr prevH.tensorPtr nI) Nothing)
@@ -1275,7 +1275,7 @@ tgruCell {n} ih hh prevH = ioRerun (\_ =>
 
 ||| Read the scalar value out of a `Tensor [] d`.
 export
-tensorItem : Tensor [] d F64 g -> Double
+tensorItem : Tensor [] d dt g -> Double
 tensorItem v = prim__item v.tensorPtr
 
 ||| Run backward on a loss tensor. The loss MUST be `WithGrad` —
@@ -1285,14 +1285,14 @@ tensorItem v = prim__item v.tensorPtr
 ||| catches "loss computed inside `withNoGrad`, then fed to training"
 ||| — the bug class the entire `GradMode` refactor exists to prevent.
 export
-runBackward : Tensor [] d F64 WithGrad -> IO ()
+runBackward : Tensor [] d dt WithGrad -> IO ()
 runBackward t = primIO (prim__backwardC t.tensorPtr)
 
 -- Loss (vector targets → scalar loss) ---------------------------------
 
 ||| MSE loss over a 1D prediction/target pair. Sum-reduced.
 export
-tmseLoss : {n : Nat} -> Tensor [n] d F64 g -> Tensor [n] d F64 g -> IO (Tensor [] d F64 g)
+tmseLoss : {n : Nat} -> Tensor [n] d dt g -> Tensor [n] d dt g -> IO (Tensor [] d dt g)
 tmseLoss p t = ioRerun (\_ =>
   let diff = prim__sub p.tensorPtr t.tensorPtr in
   let sqDiff = prim__mul diff diff in
@@ -1302,7 +1302,7 @@ tmseLoss p t = ioRerun (\_ =>
 ||| `Example.Supervised.nllLossTensor` (divide by n to match the
 ||| reference's mean reduction).
 export
-tnllLoss : {n : Nat} -> Tensor [n] d F64 g -> Tensor [n] d F64 g -> IO (Tensor [] d F64 g)
+tnllLoss : {n : Nat} -> Tensor [n] d dt g -> Tensor [n] d dt g -> IO (Tensor [] d dt g)
 tnllLoss {n} p t = ioRerun (\_ =>
   let logP = prim__logSoftmax p.tensorPtr 0 in
   let prod = prim__mul logP t.tensorPtr in
@@ -1311,14 +1311,14 @@ tnllLoss {n} p t = ioRerun (\_ =>
 
 ||| Binary cross-entropy with logits, mean-reduced. Numerically stable
 ||| (wraps `prim__bceWithLogits`). For multi-element predictions/targets
-||| use `tbceLoss : Tensor [n] d F64 g-> Tensor [n] d F64 g-> Tensor [] d F64 g`;
+||| use `tbceLoss : Tensor [n] d dt g-> Tensor [n] d dt g-> Tensor [] d dt g`;
 ||| the C op internally averages. Polymorphic in `g`: the loss's
 ||| grad-mode matches the predictions / targets, so a no-grad eval
 ||| `tbceLoss` (e.g. inside `withNoGrad`) returns a `NoGrad` scalar
 ||| that the type system will reject if accidentally fed to
 ||| `nativeTrainStep`.
 export
-tbceLoss : {n : Nat} -> Tensor [n] d F64 g -> Tensor [n] d F64 g -> IO (Tensor [] d F64 g)
+tbceLoss : {n : Nat} -> Tensor [n] d dt g -> Tensor [n] d dt g -> IO (Tensor [] d dt g)
 tbceLoss p t = ioRerun (\_ =>
   MkTensor (prim__bceWithLogits p.tensorPtr t.tensorPtr) Nothing)
 
@@ -1328,7 +1328,7 @@ tbceLoss p t = ioRerun (\_ =>
 ||| clip → step. Reads `prim__item` BEFORE the step so the returned
 ||| scalar is not stale. Mirrors `nativeTrainStep`.
 export
-nativeTrainStep : {0 d : Device} -> NativeOptimizer -> Tensor [] d F64 WithGrad -> IO Double
+nativeTrainStep : {0 d : Device} -> NativeOptimizer -> Tensor [] d dt WithGrad -> IO Double
 nativeTrainStep opt loss = ioRerun (\_ =>
   let clipMode : Int
       clipMode = case opt.clipMode of NoClip => 0; ValueClip _ => 1; NormClip _ => 2

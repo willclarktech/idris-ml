@@ -52,17 +52,17 @@ data NtmState :
   Nat -> Nat -> (0 _ : Device) -> (0 _ : DType) -> (0 _ : GradMode) -> Type
   where
   MkNtm :
-    LstmState (m + i) h d F64 g ->
-    LinearState h (ReadParamWidth m) d F64 g ->
-    LinearState h (WriteParamWidth m) d F64 g ->
-    LinearState (h + m) o d F64 g ->
-    TVec (m * n) d F64 g ->                          -- memoryInit (LEARNED, raw flat)
-    TVec m d F64 g ->                                -- initialReadOut (Kaiming, NON-learned)
-    Maybe (Tensor [n, m] d F64 g) ->                          -- memory state
-    Maybe (TVec n d F64 g) ->                               -- read addr
-    Maybe (TVec n d F64 g) ->                               -- write addr
-    Maybe (TVec m d F64 g) ->                               -- last read output
-    NtmState n m h i o d F64 g
+    LstmState (m + i) h d dt g ->
+    LinearState h (ReadParamWidth m) d dt g ->
+    LinearState h (WriteParamWidth m) d dt g ->
+    LinearState (h + m) o d dt g ->
+    TVec (m * n) d dt g ->                          -- memoryInit (LEARNED, raw flat)
+    TVec m d dt g ->                                -- initialReadOut (Kaiming, NON-learned)
+    Maybe (Tensor [n, m] d dt g) ->                          -- memory state
+    Maybe (TVec n d dt g) ->                               -- read addr
+    Maybe (TVec n d dt g) ->                               -- write addr
+    Maybe (TVec m d dt g) ->                               -- last read output
+    NtmState n m h i o d dt g
 
 
 ----------------------------------------------------------------------
@@ -137,9 +137,9 @@ ntmInterpWriteIdris {n} memT weightsT addVecT =
 
 export
 applyNtm : {0 d : Device} -> UserDeviceTape d => {n, m, h, i, o : Nat} ->
-             NtmState n m h i o d F64 g ->
-             TVec i d F64 g ->
-             IO (NtmState n m h i o d F64 g, TVec o d F64 g)
+             NtmState n m h i o d dt g ->
+             TVec i d dt g ->
+             IO (NtmState n m h i o d dt g, TVec o d dt g)
 applyNtm {n} {m} {h} {i} {o}
            (MkNtm lstm readFc writeFc outputFc memInitT initReadOutT memT raT waT roT) input = do
   let nI = cast {to=Int} n
@@ -158,7 +158,7 @@ applyNtm {n} {m} {h} {i} {o}
                  Just t => t.tensorPtr
                  Nothing => initReadOutT.tensorPtr
       lstmInputPtr = prim__cat2 roTPtr input.tensorPtr
-      lstmInputV = the (TVec (m + i) d F64 g) (MkTensor lstmInputPtr Nothing)
+      lstmInputV = the (TVec (m + i) d dt g) (MkTensor lstmInputPtr Nothing)
   -- 2. LSTM forward (IO)
   (updLstm, hiddenV) <- applyLstm lstm lstmInputV
   let cellPtr = case updLstm.cellT of
@@ -219,7 +219,7 @@ applyNtm {n} {m} {h} {i} {o}
 export
 ntmLayer : {n, m, h, i, o : Nat} ->
              (paramPrefix : String) ->
-             IO (NtmState n m h i o CPU F64 WithGrad)
+             IO (NtmState n m h i o CPU dt WithGrad)
 ntmLayer pfx = do
   lstm <- lstmLayer {i = m + i} {o = h} (pfx ++ "_lstm")
   rfc  <- mkLinearWith {i = h} {o = ReadParamWidth m}
@@ -241,7 +241,7 @@ ntmLayer pfx = do
   iroVals <- traverse (\_ => randomRIO (-iroBound, iroBound)) (Vect.replicate m ())
   let iroBuf = prim__allocDoubles mI
       iroBuf' = packDoubles iroBuf 0 iroVals
-      initReadOutT : TVec m CPU F64 WithGrad
+      initReadOutT : TVec m CPU dt WithGrad
       initReadOutT = MkTensor (prim__createState1d mI iroBuf') Nothing
   -- Per-sequence runtime state starts as Nothing — applyNtm computes the
   -- actual initial memT and roT from memInitT/initReadOutT on first call.
@@ -252,7 +252,7 @@ ntmLayer pfx = do
 ||| Kaiming-fixed `initReadOutT` parameters; clears per-sequence runtime
 ||| state so the next `applyNtm` re-derives initial memory + read output.
 export
-resetNtmState : {n, m, h : Nat} -> {0 g : GradMode} -> NtmState n m h i o d F64 g -> NtmState n m h i o d F64 g
+resetNtmState : {n, m, h : Nat} -> {0 g : GradMode} -> NtmState n m h i o d dt g -> NtmState n m h i o d dt g
 resetNtmState (MkNtm lstm rfc wfc ofc memInitT initReadOutT _ _ _ _) =
   MkNtm (resetLstmState lstm) rfc wfc ofc memInitT initReadOutT
         Nothing Nothing Nothing Nothing
@@ -317,6 +317,6 @@ public export
 export
 ntmLayerAny : {n, m, h, i, o : Nat} ->
                 (paramPrefix : String) ->
-                IO (AnyLayer i o CPU F64 WithGrad)
+                IO (AnyLayer i o CPU dt WithGrad)
 ntmLayerAny pid =
   map (MkAnyLayer (NtmState n m h)) (ntmLayer {n} {m} {h} {i} {o} pid)

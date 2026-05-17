@@ -36,16 +36,16 @@ import Tensor
 
 public export
 record BlockState (dModel : Nat) (numHeads : Nat) (headDim : Nat)
-                    (0 d : Device) (0 F64 : DType) (0 g : GradMode) where
+                    (0 d : Device) (0 dt : DType) (0 g : GradMode) where
   constructor MkBlock
-  queryWs   : Vect numHeads (LinearState dModel headDim d F64 g)
-  keyWs     : Vect numHeads (LinearState dModel headDim d F64 g)
-  valueWs   : Vect numHeads (LinearState dModel headDim d F64 g)
-  outProjWs : Vect numHeads (LinearState headDim dModel d F64 g)
-  norm1     : LayerNormState dModel dModel d F64 g
-  norm2     : LayerNormState dModel dModel d F64 g
-  ff1       : LinearState dModel (4 * dModel) d F64 g
-  ff2       : LinearState (4 * dModel) dModel d F64 g
+  queryWs   : Vect numHeads (LinearState dModel headDim d dt g)
+  keyWs     : Vect numHeads (LinearState dModel headDim d dt g)
+  valueWs   : Vect numHeads (LinearState dModel headDim d dt g)
+  outProjWs : Vect numHeads (LinearState headDim dModel d dt g)
+  norm1     : LayerNormState dModel dModel d dt g
+  norm2     : LayerNormState dModel dModel d dt g
+  ff1       : LinearState dModel (4 * dModel) d dt g
+  ff2       : LinearState (4 * dModel) dModel d dt g
 
 
 ----------------------------------------------------------------------
@@ -60,22 +60,22 @@ data TransformerState :
   where
   MkTransformer :
     {0 prf : dModel = numHeads * headDim} ->
-    TMat vocabSize dModel d F64 g ->                        -- token embedding
-    Vect numBlocks (BlockState dModel numHeads headDim d F64 g) ->
-    LayerNormState dModel dModel d F64 g ->                -- final norm
-    LinearState dModel vocabSize d F64 g ->                -- output projection
+    TMat vocabSize dModel d dt g ->                        -- token embedding
+    Vect numBlocks (BlockState dModel numHeads headDim d dt g) ->
+    LayerNormState dModel dModel d dt g ->                -- final norm
+    LinearState dModel vocabSize d dt g ->                -- output projection
     -- Cached positional encoding `[seqLen, dModel]` — sinusoidal, shape-only,
     -- non-learnable. Built once at construction; forward passes reuse it
     -- instead of recomputing via `writePE` (which was the 1B-Nat-ops/epoch
     -- bottleneck per the 2026-05-14 profile diagnostic in perf-changes.md).
-    TMat seqLen dModel d F64 g ->
+    TMat seqLen dModel d dt g ->
     -- Cached causal mask `[seqLen, seqLen]` — depends only on `seqLen` (fixed
     -- at construction). Reused across blocks and forwards; for the batched
     -- path `applyTransformerBatch` calls `prim__expandMask` once per batch
     -- rather than once per block.
-    TMat seqLen seqLen d F64 g ->
+    TMat seqLen seqLen d dt g ->
     TransformerState seqLen dModel numHeads headDim numBlocks vocabSize
-                       seqLen (seqLen * vocabSize) d F64 g
+                       seqLen (seqLen * vocabSize) d dt g
 
 
 ----------------------------------------------------------------------
@@ -127,10 +127,10 @@ writeCausalMask buf i j n =
 
 -- Recursive head loop — accumulates per-head projections over numHeads.
 runHeadAttn : {dModel, headDim : Nat} ->
-              Vect k (LinearState dModel headDim d F64 g) ->
-              Vect k (LinearState dModel headDim d F64 g) ->
-              Vect k (LinearState dModel headDim d F64 g) ->
-              Vect k (LinearState headDim dModel d F64 g) ->
+              Vect k (LinearState dModel headDim d dt g) ->
+              Vect k (LinearState dModel headDim d dt g) ->
+              Vect k (LinearState dModel headDim d dt g) ->
+              Vect k (LinearState headDim dModel d dt g) ->
               AnyPtr -> AnyPtr -> Int -> Int -> Maybe AnyPtr -> AnyPtr
 runHeadAttn [] [] [] [] _ _ _ _ (Just acc) = acc
 runHeadAttn [] [] [] [] normed _ _ _ Nothing = normed
@@ -157,7 +157,7 @@ runHeadAttn (q :: qs) (k :: ks) (v :: vs) (op :: ops) normed mask sI hdI acc =
 -- the cached causal mask AnyPtr (shared across blocks; built once on
 -- `TransformerState`).
 blockForward : {dModel, numHeads, headDim : Nat} ->
-                 BlockState dModel numHeads headDim d F64 g ->
+                 BlockState dModel numHeads headDim d dt g ->
                  AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
 blockForward (MkBlock qs ks vs ops
                           (MkLayerNorm n1g n1b)
@@ -175,7 +175,7 @@ blockForward (MkBlock qs ks vs ops
 
 -- Fold over blocks.
 foldBlocks : {dModel, numHeads, headDim : Nat} ->
-               Vect k (BlockState dModel numHeads headDim d F64 g) ->
+               Vect k (BlockState dModel numHeads headDim d dt g) ->
                AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
 foldBlocks [] h _ _ _ = h
 foldBlocks (b :: bs) h mask sI hdI =
@@ -189,9 +189,9 @@ foldBlocks (b :: bs) h mask sI hdI =
 export
 applyTransformer : {0 d : Device} -> UserDeviceTape d => {seqLen, dModel, numHeads, headDim, numBlocks, vocabSize : Nat} ->
                      TransformerState seqLen dModel numHeads headDim numBlocks
-                                       vocabSize seqLen (seqLen * vocabSize) d F64 g ->
-                     TVec seqLen d F64 g ->
-                     TVec (seqLen * vocabSize) d F64 g
+                                       vocabSize seqLen (seqLen * vocabSize) d dt g ->
+                     TVec seqLen d dt g ->
+                     TVec (seqLen * vocabSize) d dt g
 applyTransformer {seqLen} {dModel} {headDim} {vocabSize}
                    (MkTransformer embedW blocks (MkLayerNorm nfg nfb) vocabProj peCached
                                   maskCached) tokens =
@@ -222,10 +222,10 @@ applyTransformer {seqLen} {dModel} {headDim} {vocabSize}
 -- `prim__crossAttention` (Q·K^T·scale → mask → softmax → ·V), then
 -- output projection via `bmm`. Sums per-head contributions.
 batchedHeadLoop : {dModel, headDim : Nat} ->
-                    Vect k (LinearState dModel headDim d F64 g) ->
-                    Vect k (LinearState dModel headDim d F64 g) ->
-                    Vect k (LinearState dModel headDim d F64 g) ->
-                    Vect k (LinearState headDim dModel d F64 g) ->
+                    Vect k (LinearState dModel headDim d dt g) ->
+                    Vect k (LinearState dModel headDim d dt g) ->
+                    Vect k (LinearState dModel headDim d dt g) ->
+                    Vect k (LinearState headDim dModel d dt g) ->
                     AnyPtr -> AnyPtr -> Double -> Maybe AnyPtr -> AnyPtr
 batchedHeadLoop [] [] [] [] _ _ _ (Just acc) = acc
 batchedHeadLoop [] [] [] [] normed _ _ Nothing = normed
@@ -248,7 +248,7 @@ batchedHeadLoop (q :: qs) (k :: ks) (v :: vs) (op :: ops) normed mask sc acc =
 -- (built once per batch by `applyTransformerBatch` via `prim__expandMask`
 -- on the cached 2D mask).
 batchBlockForward : {dModel, numHeads, headDim : Nat} ->
-                      BlockState dModel numHeads headDim d F64 g ->
+                      BlockState dModel numHeads headDim d dt g ->
                       AnyPtr -> AnyPtr -> Int -> Int -> Int -> AnyPtr
 batchBlockForward (MkBlock qs ks vs ops
                                 (MkLayerNorm n1g n1b)
@@ -270,7 +270,7 @@ batchBlockForward (MkBlock qs ks vs ops
   in prim__add ffOut h1
 
 foldBlocksBatched : {dModel, numHeads, headDim : Nat} ->
-                      Vect k (BlockState dModel numHeads headDim d F64 g) ->
+                      Vect k (BlockState dModel numHeads headDim d dt g) ->
                       AnyPtr -> AnyPtr -> Int -> Int -> Int -> AnyPtr
 foldBlocksBatched [] h _ _ _ _ = h
 foldBlocksBatched (b :: bs) h mask3d bsI sI dI =
@@ -295,9 +295,9 @@ applyTransformerBatch :
   {seqLen, dModel, numHeads, headDim, numBlocks, vocabSize : Nat} ->
   {b : Nat} ->
   TransformerState seqLen dModel numHeads headDim numBlocks vocabSize
-                     seqLen (seqLen * vocabSize) d F64 g ->
-  Tensor [b, seqLen] d F64 g ->
-  Tensor [b, seqLen * vocabSize] d F64 g
+                     seqLen (seqLen * vocabSize) d dt g ->
+  Tensor [b, seqLen] d dt g ->
+  Tensor [b, seqLen * vocabSize] d dt g
 applyTransformerBatch {seqLen} {dModel} {headDim} {vocabSize} {b}
                         (MkTransformer embedW blocks (MkLayerNorm nfg nfb) vocabProj peCached
                                        maskCached)
@@ -336,7 +336,7 @@ applyTransformerBatch {seqLen} {dModel} {headDim} {vocabSize} {b}
 ----------------------------------------------------------------------
 
 -- Build a Vect of n Linear layers with sequential paramId suffixes.
-mkLinearVec : {i, o : Nat} -> (n : Nat) -> String -> IO (Vect n (LinearState i o CPU F64 WithGrad))
+mkLinearVec : {i, o : Nat} -> (n : Nat) -> String -> IO (Vect n (LinearState i o CPU dt WithGrad))
 mkLinearVec Z _ = pure []
 mkLinearVec (S k) pfx = do
   l <- linearLayer {i} {o} (pfx ++ show k)
@@ -346,7 +346,7 @@ mkLinearVec (S k) pfx = do
 -- Build one transformer block.
 mkBlock : {dModel, numHeads, headDim : Nat} ->
             (paramPrefix : String) ->
-            IO (BlockState dModel numHeads headDim CPU F64 WithGrad)
+            IO (BlockState dModel numHeads headDim CPU dt WithGrad)
 mkBlock pfx = do
   qs <- mkLinearVec {i = dModel} {o = headDim} numHeads (pfx ++ "_q")
   ks <- mkLinearVec {i = dModel} {o = headDim} numHeads (pfx ++ "_k")
@@ -360,7 +360,7 @@ mkBlock pfx = do
 
 mkBlocks : {dModel, numHeads, headDim : Nat} ->
              (k : Nat) -> (paramPrefix : String) ->
-             IO (Vect k (BlockState dModel numHeads headDim CPU F64 WithGrad))
+             IO (Vect k (BlockState dModel numHeads headDim CPU dt WithGrad))
 mkBlocks Z _ = pure []
 mkBlocks (S k) paramPrefix = do
   blk <- mkBlock paramPrefix
@@ -376,7 +376,7 @@ transformerLayer :
   {auto prf : dModel = numHeads * headDim} ->
   (paramPrefix : String) ->
   IO (TransformerState seqLen dModel numHeads headDim numBlocks vocabSize
-                         seqLen (seqLen * vocabSize) CPU F64 WithGrad)
+                         seqLen (seqLen * vocabSize) CPU dt WithGrad)
 transformerLayer {prf} paramPrefix = do
   let n = vocabSize * dModel
   embedVals <- traverse (\_ => xavier uniform vocabSize dModel) (Vect.replicate n ())
@@ -387,7 +387,7 @@ transformerLayer {prf} paramPrefix = do
       embBuf' = packDoubles embBuf 0 embedVals
       embName = paramPrefix ++ "_embed"
       embPtr = prim__paramRegister embName (prim__createParam2d vI dI embBuf')
-      embTV : TMat vocabSize dModel CPU F64 WithGrad
+      embTV : TMat vocabSize dModel CPU dt WithGrad
       embTV = MkTensor embPtr (Just embName)
   blks <- mkBlocks numBlocks (paramPrefix ++ "_b")
   nf <- layerNormLayer {n = dModel} (paramPrefix ++ "_nf")
@@ -398,7 +398,7 @@ transformerLayer {prf} paramPrefix = do
   let sI = cast {to=Int} seqLen
       peBuf = prim__allocDoubles (sI * dI)
       peBuf' = writePE dModel peBuf 0 0 sI dI
-      peTV : TMat seqLen dModel CPU F64 WithGrad
+      peTV : TMat seqLen dModel CPU dt WithGrad
       peTV = MkTensor (prim__createState2d sI dI peBuf') Nothing
       -- Build causal mask once via the same persistent-state path as PE
       -- (routing through `prim__createState2d`). `prim__causalMask` itself
@@ -407,7 +407,7 @@ transformerLayer {prf} paramPrefix = do
       -- caching its result would dangle after the first optimizer step.
       maskBufRaw = prim__allocDoubles (sI * sI)
       maskBuf = writeCausalMask maskBufRaw 0 1 sI
-      maskTV : TMat seqLen seqLen CPU F64 WithGrad
+      maskTV : TMat seqLen seqLen CPU dt WithGrad
       maskTV = MkTensor (prim__createState2d sI sI maskBuf) Nothing
   pure $ MkTransformer {prf} embTV blks nf vp peTV maskTV
 
@@ -420,8 +420,8 @@ transformerLayer {prf} paramPrefix = do
 -- can't be used because freezeLayer / unfreezeLayer are linear in
 -- their argument, not unrestricted).
 freezeLinearVec : {i, o : Nat} -> {0 d : Device} -> {0 g : GradMode} ->
-                    Vect k (LinearState i o d F64 g) ->
-                    IO (Vect k (LinearState i o d F64 NoGrad))
+                    Vect k (LinearState i o d dt g) ->
+                    IO (Vect k (LinearState i o d dt NoGrad))
 freezeLinearVec [] = pure []
 freezeLinearVec (l :: ls) = do
   l' <- freezeLayer l
@@ -429,8 +429,8 @@ freezeLinearVec (l :: ls) = do
   pure (l' :: ls')
 
 unfreezeLinearVec : {i, o : Nat} -> {0 d : Device} ->
-                      Vect k (LinearState i o d F64 NoGrad) ->
-                      IO (Vect k (LinearState i o d F64 WithGrad))
+                      Vect k (LinearState i o d dt NoGrad) ->
+                      IO (Vect k (LinearState i o d dt WithGrad))
 unfreezeLinearVec [] = pure []
 unfreezeLinearVec (l :: ls) = do
   l' <- unfreezeLayer l
@@ -438,8 +438,8 @@ unfreezeLinearVec (l :: ls) = do
   pure (l' :: ls')
 
 freezeBlock : {dModel, numHeads, headDim : Nat} -> {0 d : Device} -> {0 g : GradMode} ->
-                BlockState dModel numHeads headDim d F64 g ->
-                IO (BlockState dModel numHeads headDim d F64 NoGrad)
+                BlockState dModel numHeads headDim d dt g ->
+                IO (BlockState dModel numHeads headDim d dt NoGrad)
 freezeBlock (MkBlock qs ks vs ops n1 n2 ff1 ff2) = do
   qs'  <- freezeLinearVec qs
   ks'  <- freezeLinearVec ks
@@ -452,8 +452,8 @@ freezeBlock (MkBlock qs ks vs ops n1 n2 ff1 ff2) = do
   pure (MkBlock qs' ks' vs' ops' n1' n2' ff1' ff2')
 
 unfreezeBlock : {dModel, numHeads, headDim : Nat} -> {0 d : Device} ->
-                  BlockState dModel numHeads headDim d F64 NoGrad ->
-                  IO (BlockState dModel numHeads headDim d F64 WithGrad)
+                  BlockState dModel numHeads headDim d dt NoGrad ->
+                  IO (BlockState dModel numHeads headDim d dt WithGrad)
 unfreezeBlock (MkBlock qs ks vs ops n1 n2 ff1 ff2) = do
   qs'  <- unfreezeLinearVec qs
   ks'  <- unfreezeLinearVec ks
@@ -466,8 +466,8 @@ unfreezeBlock (MkBlock qs ks vs ops n1 n2 ff1 ff2) = do
   pure (MkBlock qs' ks' vs' ops' n1' n2' ff1' ff2')
 
 freezeBlockVec : {dModel, numHeads, headDim : Nat} -> {0 d : Device} -> {0 g : GradMode} ->
-                   Vect k (BlockState dModel numHeads headDim d F64 g) ->
-                   IO (Vect k (BlockState dModel numHeads headDim d F64 NoGrad))
+                   Vect k (BlockState dModel numHeads headDim d dt g) ->
+                   IO (Vect k (BlockState dModel numHeads headDim d dt NoGrad))
 freezeBlockVec [] = pure []
 freezeBlockVec (b :: bs) = do
   b' <- freezeBlock b
@@ -475,8 +475,8 @@ freezeBlockVec (b :: bs) = do
   pure (b' :: bs')
 
 unfreezeBlockVec : {dModel, numHeads, headDim : Nat} -> {0 d : Device} ->
-                     Vect k (BlockState dModel numHeads headDim d F64 NoGrad) ->
-                     IO (Vect k (BlockState dModel numHeads headDim d F64 WithGrad))
+                     Vect k (BlockState dModel numHeads headDim d dt NoGrad) ->
+                     IO (Vect k (BlockState dModel numHeads headDim d dt WithGrad))
 unfreezeBlockVec [] = pure []
 unfreezeBlockVec (b :: bs) = do
   b' <- unfreezeBlock b
@@ -515,7 +515,7 @@ transformerLayerAny :
   {seqLen, dModel, numHeads, headDim, numBlocks, vocabSize : Nat} ->
   {auto prf : dModel = numHeads * headDim} ->
   (paramPrefix : String) ->
-  IO (AnyLayer seqLen (seqLen * vocabSize) CPU F64 WithGrad)
+  IO (AnyLayer seqLen (seqLen * vocabSize) CPU dt WithGrad)
 transformerLayerAny {prf} pid =
   map (MkAnyLayer (TransformerState seqLen dModel numHeads headDim numBlocks vocabSize))
       (transformerLayer {prf} pid)

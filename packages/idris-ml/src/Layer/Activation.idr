@@ -28,7 +28,7 @@ data ActivationKind
 
 public export
 data ActivationState : Nat -> Nat -> (0 _ : Device) -> (0 _ : DType) -> (0 _ : GradMode) -> Type where
-  MkActivation : ActivationKind -> ActivationState n n d F64 g
+  MkActivation : ActivationKind -> ActivationState n n d dt g
 
 
 ----------------------------------------------------------------------
@@ -68,50 +68,50 @@ LayerLike ActivationState where
 ----------------------------------------------------------------------
 
 export
-tanhLayer : ActivationState n n d F64 g
+tanhLayer : ActivationState n n d dt g
 tanhLayer = MkActivation ATanh
 
 export
-sigmoidLayer : ActivationState n n d F64 g
+sigmoidLayer : ActivationState n n d dt g
 sigmoidLayer = MkActivation ASigmoid
 
 export
-reluLayer : ActivationState n n d F64 g
+reluLayer : ActivationState n n d dt g
 reluLayer = MkActivation ARelu
 
 export
-geluLayer : ActivationState n n d F64 g
+geluLayer : ActivationState n n d dt g
 geluLayer = MkActivation AGelu
 
 export
-siluLayer : ActivationState n n d F64 g
+siluLayer : ActivationState n n d dt g
 siluLayer = MkActivation ASilu
 
 export
-leakyReluLayer : Double -> ActivationState n n d F64 g
+leakyReluLayer : Double -> ActivationState n n d dt g
 leakyReluLayer slope = MkActivation (ALeakyRelu slope)
 
 ||| Wrap an activation in `AnyLayer` for use in a `Network` chain.
 export
-tanhLayerAny : AnyLayer n n d F64 g
+tanhLayerAny : AnyLayer n n d dt g
 tanhLayerAny = MkAnyLayer ActivationState tanhLayer
 
 export
-sigmoidLayerAny : AnyLayer n n d F64 g
+sigmoidLayerAny : AnyLayer n n d dt g
 sigmoidLayerAny = MkAnyLayer ActivationState sigmoidLayer
 
 export
-reluLayerAny : AnyLayer n n d F64 g
+reluLayerAny : AnyLayer n n d dt g
 reluLayerAny = MkAnyLayer ActivationState reluLayer
 
 export
-geluLayerAny : AnyLayer n n d F64 g
+geluLayerAny : AnyLayer n n d dt g
 geluLayerAny = MkAnyLayer ActivationState geluLayer
 
 export
-siluLayerAny : AnyLayer n n d F64 g
+siluLayerAny : AnyLayer n n d dt g
 siluLayerAny = MkAnyLayer ActivationState siluLayer
 
 export
-leakyReluLayerAny : Double -> AnyLayer n n d F64 g
+leakyReluLayerAny : Double -> AnyLayer n n d dt g
 leakyReluLayerAny slope = MkAnyLayer ActivationState (leakyReluLayer slope)

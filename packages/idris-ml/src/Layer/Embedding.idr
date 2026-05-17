@@ -22,9 +22,9 @@ import Tensor
 -- Type` interface.
 
 public export
-record EmbeddingState (vocab : Nat) (embedDim : Nat) (0 d : Device) (0 F64 : DType) (0 g : GradMode) where
+record EmbeddingState (vocab : Nat) (embedDim : Nat) (0 d : Device) (0 dt : DType) (0 g : GradMode) where
   constructor MkEmbedding
-  weightT : TMat vocab embedDim d F64 g
+  weightT : TMat vocab embedDim d dt g
 
 
 ----------------------------------------------------------------------
@@ -38,9 +38,9 @@ record EmbeddingState (vocab : Nat) (embedDim : Nat) (0 d : Device) (0 F64 : DTy
 ||| the flattened embedding vectors. Wraps `prim__embedding`.
 export
 applyEmbedding : {0 d : Device} -> UserDeviceTape d => {seqLen, embedDim, vocab : Nat} ->
-                   EmbeddingState vocab embedDim d F64 g ->
-                   TVec seqLen d F64 g ->
-                   IO (TVec (seqLen * embedDim) d F64 g)
+                   EmbeddingState vocab embedDim d dt g ->
+                   TVec seqLen d dt g ->
+                   IO (TVec (seqLen * embedDim) d dt g)
 applyEmbedding {seqLen} {embedDim} (MkEmbedding w) tokens = ioRerun (\_ =>
   let nI = cast {to=Int} seqLen
       dI = cast {to=Int} embedDim
@@ -63,7 +63,7 @@ packDoubles buf off (x :: rest) =
 ||| Weight registers as one C param under `<prefix>_weight`.
 export
 embeddingLayer : {vocab, embedDim : Nat} -> (paramPrefix : String) ->
-                   IO (EmbeddingState vocab embedDim CPU F64 WithGrad)
+                   IO (EmbeddingState vocab embedDim CPU dt WithGrad)
 embeddingLayer paramPrefix = do
   let vI = cast {to=Int} vocab
       eI = cast {to=Int} embedDim
@@ -73,7 +73,7 @@ embeddingLayer paramPrefix = do
       buf' = packDoubles buf 0 vals
       wName = paramPrefix ++ "_weight"
       wPtr = prim__paramRegister wName (prim__createParam2d vI eI buf')
-      wTV : TMat vocab embedDim CPU F64 WithGrad
+      wTV : TMat vocab embedDim CPU dt WithGrad
       wTV = MkTensor wPtr (Just wName)
   pure $ MkEmbedding wTV
 
@@ -95,8 +95,8 @@ embeddingLayer paramPrefix = do
 public export
 data EmbeddingWrap : (vocab : Nat) -> (embedDim : Nat) ->
                       Nat -> Nat -> (0 _ : Device) -> (0 _ : DType) -> (0 _ : GradMode) -> Type where
-  MkEmbeddingWrap : EmbeddingState vocab embedDim d F64 g ->
-                     EmbeddingWrap vocab embedDim seqLen (seqLen * embedDim) d F64 g
+  MkEmbeddingWrap : EmbeddingState vocab embedDim d dt g ->
+                     EmbeddingWrap vocab embedDim seqLen (seqLen * embedDim) d dt g
 
 public export
 {vocab, embedDim : Nat} ->
@@ -118,7 +118,7 @@ public export
 export
 embeddingLayerAny : {vocab, embedDim, seqLen : Nat} ->
                       (paramPrefix : String) ->
-                      IO (AnyLayer seqLen (seqLen * embedDim) CPU F64 WithGrad)
+                      IO (AnyLayer seqLen (seqLen * embedDim) CPU dt WithGrad)
 embeddingLayerAny pid = do
   st <- embeddingLayer {vocab} {embedDim} pid
   pure $ MkAnyLayer (EmbeddingWrap vocab embedDim) (MkEmbeddingWrap st)

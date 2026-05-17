@@ -6,6 +6,7 @@
 module Device.Torch
 
 import Device.Core
+import DType.Core
 
 
 ----------------------------------------------------------------------
@@ -408,3 +409,13 @@ UserDeviceTape TorchDev where
   primCreateState2d        = prim__createState2dTorch
   primAllocDoubles         = prim__allocDoublesTorch
   primReadDouble           = prim__readDoubleTorch
+
+
+----------------------------------------------------------------------
+-- Compatible (TorchDev, dt). The torch backend hardcodes
+-- `torch::kFloat64` today; threading a runtime dtype through
+-- `tensor_create*` is the F32 unlock (deferred).
+----------------------------------------------------------------------
+
+public export
+Compatible TorchDev F64 where

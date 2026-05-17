@@ -19,6 +19,7 @@
 module Device
 
 import public Device.Core
+import public DType.Core
 
 
 ----------------------------------------------------------------------
@@ -680,3 +681,22 @@ UserDeviceTape MPS where
   primCreateState2d        = prim__createState2dUnified
   primAllocDoubles         = prim__allocDoublesUnified
   primReadDouble           = prim__readDoubleUnified
+
+
+----------------------------------------------------------------------
+-- Compatible (default device, dt) instances
+--
+-- The closed-sum aliases (`CPU` / `CUDA n` / `MPS`) support dt only.
+-- Backend-specific dtype combinations live in their respective
+-- backend modules (`Device.Mlx` exposes the (MlxCpu/MlxGpu, F32)
+-- pairs).
+----------------------------------------------------------------------
+
+public export
+Compatible CPU F64 where
+
+public export
+Compatible (CUDA n) F64 where
+
+public export
+Compatible MPS F64 where
