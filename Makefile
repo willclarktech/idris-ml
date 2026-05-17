@@ -944,9 +944,29 @@ example-supervised: install
 # Pre-requisite: bash packages/idris-transformers/scripts/hf-download.sh
 # google/bert_uncased_L-2_H-128_A-2 must have run at least once to populate
 # packages/idris-transformers/models/.
-example-hf-bert-inference: install
-	bash packages/idris-transformers/scripts/hf-download.sh \
-		google/bert_uncased_L-2_H-128_A-2
+# Pattern rule for any HuggingFace single-file checkpoint. Make-native
+# dep tracking: each example/gate declares the safetensors path as a
+# prerequisite; Make skips the recipe when the file is already on disk.
+# Replaces the older shape (unconditional `bash hf-download.sh …` in
+# every recipe + an internal cache check inside the script).
+#
+# `%` matches the HF repo path (e.g. `meta-llama/Llama-3.2-1B`). HF_TOKEN
+# is checked here (the one place that actually fetches) rather than in
+# every consumer recipe. Gated models that need the token surface a
+# clear error; ungated models (BERT-tiny, distilgpt2) ignore the check.
+HF_MODELS_DIR := packages/idris-transformers/models
+
+$(HF_MODELS_DIR)/%/model.safetensors:
+	@if echo "$*" | grep -q '^meta-llama/' && [ -z "$$HF_TOKEN" ]; then \
+		echo "ERR: HF_TOKEN must be set ($* is gated)."; \
+		echo "     1. Accept the license at https://huggingface.co/$*"; \
+		echo "     2. Get a token at https://huggingface.co/settings/tokens"; \
+		echo "     3. export HF_TOKEN=hf_..."; \
+		exit 1; \
+	fi
+	bash packages/idris-transformers/scripts/hf-download.sh $*
+
+example-hf-bert-inference: install $(HF_MODELS_DIR)/google/bert_uncased_L-2_H-128_A-2/model.safetensors
 	idris2 $(IDRIS_FLAGS) -o hf-bert-inference $(EXAMPLE_SRC)/Example/HfBertInference.idr
 	cp $(LIB) build/exec/hf-bert-inference_app/
 	./build/exec/hf-bert-inference
@@ -954,9 +974,7 @@ example-hf-bert-inference: install
 # Cross-language correctness gate for HfBert: regenerates the Python
 # oracle via save_oracle.py, then runs the Idris example and compares
 # stdout against the oracle within F32 tolerance.
-test-hf-bert-roundtrip: install
-	bash packages/idris-transformers/scripts/hf-download.sh \
-		google/bert_uncased_L-2_H-128_A-2
+test-hf-bert-roundtrip: install $(HF_MODELS_DIR)/google/bert_uncased_L-2_H-128_A-2/model.safetensors
 	cd packages/pytorch && uv run pytest \
 		../idris-transformers/scripts/test_save_oracle.py -v
 	idris2 $(IDRIS_FLAGS) -o hf-bert-inference $(EXAMPLE_SRC)/Example/HfBertInference.idr
@@ -968,11 +986,9 @@ test-hf-bert-roundtrip: install
 		../idris-transformers/models/bert-tiny-oracle.safetensors \
 		1e-3
 
-# Build + run Example/HfGpt2Inference. Fetches distilgpt2 if
-# not already cached (~50 KB; HF's CI fixture).
-example-hf-gpt2-inference: install
-	bash packages/idris-transformers/scripts/hf-download.sh \
-		distilgpt2
+# Build + run Example/HfGpt2Inference. Fetches distilgpt2 once via the
+# pattern rule above.
+example-hf-gpt2-inference: install $(HF_MODELS_DIR)/distilgpt2/model.safetensors
 	idris2 $(IDRIS_FLAGS) -o hf-gpt2-inference $(EXAMPLE_SRC)/Example/HfGpt2Inference.idr
 	cp $(LIB) build/exec/hf-gpt2-inference_app/
 	./build/exec/hf-gpt2-inference
@@ -982,39 +998,22 @@ example-hf-gpt2-inference: install
 # stdout against the oracle within F32 tolerance. The Idris example
 # prints the final-position hidden state (the `last_hidden_state[-1]`
 # row) which the comparator diffs elementwise.
-#
-# distilgpt2 is intentionally degenerate (hidden=2); the
-# point is to validate the architectural plumbing (fused QKV, Conv1D
-# transpose, causal mask, tied LM head, primNarrow on axis=1 — the
-# multi-axis fix from bd61bef). Numerical drift across language
-# boundaries at hidden=2 is small.
 # Build + run the Llama 3.2 1B inference example. Requires HF_TOKEN
 # with Llama 3.2 license accepted on huggingface.co. The first
 # invocation fetches the ~2.5 GB safetensors; subsequent runs reuse
-# the cached file (see hf-download.sh cache behaviour).
+# the cached file (Make's existence check handles it — the pattern
+# rule's recipe doesn't fire).
 #
 # Tape lane (F64) doesn't fit in 16 GB; build with
 # `BACKEND=torch TORCH_DEVICE=mps make example-hf-llama-inference`
 # or `BACKEND=mlx MLX_DEVICE=gpu make example-hf-llama-inference` for
 # the F32 / GPU paths.
-example-hf-llama-inference: install
-	@if [ -z "$$HF_TOKEN" ]; then \
-		echo "ERR: HF_TOKEN must be set (Llama 3.2 is gated)."; \
-		echo "     1. Accept the Llama 3.2 license at"; \
-		echo "        https://huggingface.co/meta-llama/Llama-3.2-1B"; \
-		echo "     2. Get a token at https://huggingface.co/settings/tokens"; \
-		echo "     3. export HF_TOKEN=hf_..."; \
-		exit 1; \
-	fi
-	bash packages/idris-transformers/scripts/hf-download.sh \
-		meta-llama/Llama-3.2-1B
+example-hf-llama-inference: install $(HF_MODELS_DIR)/meta-llama/Llama-3.2-1B/model.safetensors
 	idris2 $(IDRIS_FLAGS) -o hf-llama-inference $(EXAMPLE_SRC)/Example/HfLlamaInference.idr
 	cp $(LIB) build/exec/hf-llama-inference_app/
 	./build/exec/hf-llama-inference
 
-test-hf-gpt2-roundtrip: install
-	bash packages/idris-transformers/scripts/hf-download.sh \
-		distilgpt2
+test-hf-gpt2-roundtrip: install $(HF_MODELS_DIR)/distilgpt2/model.safetensors
 	cd packages/pytorch && uv run pytest \
 		../idris-transformers/scripts/test_save_oracle_gpt2.py -v
 	idris2 $(IDRIS_FLAGS) -o hf-gpt2-inference $(EXAMPLE_SRC)/Example/HfGpt2Inference.idr
