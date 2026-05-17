@@ -947,6 +947,8 @@ example-supervised: install
 example-hf-bert-inference: install
 	bash packages/idris-transformers/scripts/hf-download.sh \
 		google/bert_uncased_L-2_H-128_A-2
+	bash packages/idris-transformers/scripts/hf-download.sh \
+		google/bert_uncased_L-2_H-128_A-2 vocab.txt
 	idris2 $(IDRIS_FLAGS) -o hf-bert-inference $(EXAMPLE_SRC)/Example/HfBertInference.idr
 	cp $(LIB) build/exec/hf-bert-inference_app/
 	./build/exec/hf-bert-inference
@@ -961,7 +963,7 @@ test-hf-bert-roundtrip: install
 		../idris-transformers/scripts/test_save_oracle.py -v
 	idris2 $(IDRIS_FLAGS) -o hf-bert-inference $(EXAMPLE_SRC)/Example/HfBertInference.idr
 	cp $(LIB) build/exec/hf-bert-inference_app/
-	./build/exec/hf-bert-inference > build/hf-bert-idris-out.txt
+	./build/exec/hf-bert-inference --dump-pooled > build/hf-bert-idris-out.txt
 	cd packages/pytorch && uv run python \
 		../idris-transformers/scripts/compare_inference.py \
 		../../build/hf-bert-idris-out.txt \

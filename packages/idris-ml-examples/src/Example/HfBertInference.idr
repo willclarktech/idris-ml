@@ -1,26 +1,30 @@
-||| HfBertInference — load `google/bert_uncased_L-2_H-128_A-2` weights
-||| via the HF-aligned `HfBert` module and run a forward pass on
-||| `[CLS] hello [SEP]`. Output is the 128-dim pooled `[CLS]` vector,
-||| one value per line on stdout.
+||| HfBertInference — fill-in-the-mask with `google/bert_uncased_L-2_H-128_A-2`.
 |||
-||| The companion `packages/idris-transformers/scripts/save_oracle.py`
-||| produces a `bert-tiny-oracle.safetensors` containing the same
-||| forward output computed by HF transformers' Python. The
-||| `test-hf-bert-roundtrip` Makefile target wires the two together:
-||| run this binary, capture stdout, hand off to `compare_inference.py`
-||| which loads the oracle and asserts element-wise agreement within
-||| F32 tolerance.
+||| By default the binary loads the HF checkpoint, runs three short
+||| sentences with a `[MASK]` token through `BertForMaskedLM`, and
+||| prints the top-5 predicted fill-ins per sentence — the canonical
+||| BERT demo, in idris-ml's typed-tensor surface.
 |||
-||| Pre-requisites (CI handles these automatically):
+||| The CI gate (`make test-hf-bert-roundtrip`) invokes this same
+||| binary with `--dump-pooled`, which switches output to the legacy
+||| 128-dim pooled `[CLS]` vector on the input `[101, 7592, 102]`
+||| (one float per line). `scripts/compare_inference.py` reads that and
+||| asserts element-wise agreement with the Python oracle.
+|||
+||| One binary, two modes — keeps the cross-language correctness gate
+||| and the user-facing demo on the same code path.
+|||
+||| Pre-requisites (CI handles these automatically via the make targets):
 |||   - `packages/idris-transformers/models/google/bert_uncased_L-2_H-128_A-2/model.safetensors`
-|||     — fetch with `bash packages/idris-transformers/scripts/hf-download.sh`
-|||   - Live registry — `hfBertModel "bert"` must register exactly the
-|||     param names HF's state_dict() exposes (locked down by
-|||     HfBert.bertParamNames + the package's unit test bucket 2).
+|||   - `packages/idris-transformers/models/google/bert_uncased_L-2_H-128_A-2/vocab.txt`
+|||     — fetch both with `bash packages/idris-transformers/scripts/hf-download.sh`
 module Example.HfBertInference
 
+import Data.List
+import Data.String
 import Data.Vect
 import System
+import System.File
 
 import Array
 import BuildConfig
@@ -30,8 +34,10 @@ import HfBert
 import Tensor
 
 
--- BERT-tiny config dims pinned at the type level so the
--- divisibility proof (128 = 2 * 64) resolves cleanly.
+----------------------------------------------------------------------
+-- Config (bert-tiny dims pinned at the type level)
+----------------------------------------------------------------------
+
 VocabSize : Nat
 VocabSize = 30522
 
@@ -56,74 +62,164 @@ MaxPos = 512
 TypeVocab : Nat
 TypeVocab = 2
 
-SeqLen : Nat
-SeqLen = 3
 
+modelDir : String
+modelDir =
+  "packages/idris-transformers/models/google/bert_uncased_L-2_H-128_A-2"
 
--- Path to the HF safetensors fixture. The path is relative to the
--- repo root so the binary works under `make example-hf-bert-inference`
--- (which is invoked from the repo root).
 hfWeightsPath : String
-hfWeightsPath =
-  "packages/idris-transformers/models/" ++
-  "google/bert_uncased_L-2_H-128_A-2/model.safetensors"
+hfWeightsPath = modelDir ++ "/model.safetensors"
+
+vocabTxtPath : String
+vocabTxtPath = modelDir ++ "/vocab.txt"
 
 
--- Print 128 doubles, one per line, by walking primItem1d. The
--- comparator script reads stdout line-by-line.
-printOutput : Int -> Int -> AnyPtr -> IO ()
-printOutput end i p =
+----------------------------------------------------------------------
+-- Vocab + small List helpers
+----------------------------------------------------------------------
+
+-- Idris-2 stdlib's `index` is total-via-`Fin`; the Maybe-returning form
+-- isn't always available. Inline it — 30k linear lookups × 5 tokens is
+-- a no-op next to the forward pass.
+listIndex : Nat -> List a -> Maybe a
+listIndex _     []        = Nothing
+listIndex Z     (x :: _)  = Just x
+listIndex (S k) (_ :: xs) = listIndex k xs
+
+lookupToken : List String -> Nat -> String
+lookupToken vs k = fromMaybe ("?id=" ++ show k) (listIndex k vs)
+
+
+----------------------------------------------------------------------
+-- Build small input-ID tensors
+----------------------------------------------------------------------
+
+mkIds : {n : Nat} -> Vect n Double
+     -> Tensor [n] ExampleDevice ExampleDType WithGrad
+mkIds xs =
+  let raw = bulkToTensor {d=ExampleDevice} {dt=ExampleDType}
+                         (VArray (map SArray xs))
+  in tinput1d {n} raw
+
+arangeVect : (n : Nat) -> Vect n Double
+arangeVect n = go n 0.0
+  where
+    go : (k : Nat) -> Double -> Vect k Double
+    go Z     _ = []
+    go (S k) v = v :: go k (v + 1.0)
+
+zerosVect : (n : Nat) -> Vect n Double
+zerosVect n = Vect.replicate n 0.0
+
+
+----------------------------------------------------------------------
+-- Top-K over the vocab logits
+----------------------------------------------------------------------
+
+-- Drain `vocab` floats out of a [vocab]-shape Tensor's raw pointer
+-- into a (index, logit) pair list. Done host-side because we want
+-- index ordering for the eventual top-5 print, and primItem1d is
+-- cheap — even 30522 calls take well under a second on tape.
+readLogits : (vocab : Nat) -> AnyPtr -> IO (List (Nat, Double))
+readLogits vocab p = go (cast {to=Int} vocab) 0 []
+  where
+    go : Int -> Int -> List (Nat, Double) -> IO (List (Nat, Double))
+    go end i acc =
+      if i >= end
+        then pure (reverse acc)
+        else let v = primItem1d {d=ExampleDevice} p i
+             in go end (i + 1) ((cast {to=Nat} i, v) :: acc)
+
+-- O(n log n) sort by descending logit + take 5. With vocab=30522 and
+-- k=5 a selection algorithm would shave a small constant; the sort is
+-- the obvious code and runs in tens of ms.
+topK : Nat -> List (Nat, Double) -> List (Nat, Double)
+topK k xs = take k (sortBy (\(_, a), (_, b) => compare b a) xs)
+
+formatPrediction : List String -> (Nat, Double) -> String
+formatPrediction vocab (id, logit) =
+  lookupToken vocab id ++ " (" ++ formatLogit logit ++ ")"
+  where
+    formatLogit : Double -> String
+    formatLogit x =
+      -- Two-decimal-place format. show on Double prints 13-15 digits
+      -- which is noisy; tidy it up.
+      let scaled : Int = cast (x * 100.0 + (if x < 0.0 then -0.5 else 0.5))
+          whole = scaled `div` 100
+          frac  = abs (scaled `mod` 100)
+          sign  = if x < 0.0 then "-" else "+"
+          fracStr = if frac < 10 then "0" ++ show frac else show frac
+      in sign ++ show (abs whole) ++ "." ++ fracStr
+
+
+----------------------------------------------------------------------
+-- One fill-in-the-mask demo
+----------------------------------------------------------------------
+
+runMaskDemo : (model : BertForMaskedLmState VocabSize Hidden NumLayers
+                                            Intermediate MaxPos TypeVocab
+                                            ExampleDevice ExampleDType WithGrad)
+           -> (vocab : List String)
+           -> (display : String)
+           -> {seqLen : Nat}
+           -> (ids : Vect seqLen Double)
+           -> (maskIdx : Nat)
+           -> IO ()
+runMaskDemo {seqLen} model vocab display ids maskIdx = do
+  let inputIds = mkIds ids
+      posIds   = mkIds (arangeVect seqLen)
+      typeIds  = mkIds (zerosVect seqLen)
+  logits <- hfBertMlmForward {d=ExampleDevice} {dt=ExampleDType}
+                             {seqLen}
+                             {vocab        = VocabSize}
+                             {hidden       = Hidden}
+                             {numLayers    = NumLayers}
+                             {numHeads     = NumHeads}
+                             {headDim      = HeadDim}
+                             {intermediate = Intermediate}
+                             {maxPos       = MaxPos}
+                             {typeVocab    = TypeVocab}
+                             model inputIds posIds typeIds
+  -- Logits are [seqLen, vocab]; pull the mask row.
+  maskRow <- trowSelect logits (cast {to=Int} maskIdx)
+  pairs   <- readLogits VocabSize maskRow.tensorPtr
+  let predictions = topK 5 pairs
+      formatted   = map (formatPrediction vocab) predictions
+  putStrLn ("Input:  " ++ display)
+  putStrLn ("Top-5:  " ++ joinBy ", " formatted)
+  putStrLn ""
+
+  where
+    joinBy : String -> List String -> String
+    joinBy _   []        = ""
+    joinBy _   [x]       = x
+    joinBy sep (x :: xs) = x ++ sep ++ joinBy sep xs
+
+
+----------------------------------------------------------------------
+-- --dump-pooled: legacy 128-float output for the CI comparator
+----------------------------------------------------------------------
+
+printPooled : Int -> Int -> AnyPtr -> IO ()
+printPooled end i p =
   if i >= end
     then pure ()
     else do
       let v = primItem1d {d=ExampleDevice} p i
       putStrLn (show v)
-      printOutput end (i + 1) p
+      printPooled end (i + 1) p
 
-
-main : IO ()
-main = do
-  -- Build the HF-aligned BERT model. Registers 39 params under
-  -- HF-native names like `bert.embeddings.word_embeddings.weight`.
-  model <- hfBertModel {d=ExampleDevice} {dt=ExampleDType}
-                       {vocab        = VocabSize}
-                       {hidden       = Hidden}
-                       {numLayers    = NumLayers}
-                       {numHeads     = NumHeads}
-                       {intermediate = Intermediate}
-                       {maxPos       = MaxPos}
-                       {typeVocab    = TypeVocab}
-                       "bert"
-  -- Load the HF safetensors. allow_cast=True because the on-disk
-  -- dtype is F32 and the active tape build is F64 — the safetensors
-  -- loader widens F32 → F64 via the lingua-franca double pivot.
-  ok <- loadModelAllowCast {d=ExampleDevice} hfWeightsPath
-  if not ok
-    then do
-      putStrLn ("ERR: loadModelAllowCast failed for " ++ hfWeightsPath)
-      exitFailure
-    else pure ()
-
-  -- Build the three input ID tensors. [CLS] hello [SEP] = [101, 7592,
-  -- 102]; position IDs are arange(0, seqLen); token-type IDs are all
-  -- zeros (single-sentence input). Same values save_oracle.py uses.
-  let inputIdsRaw = bulkToTensor {d=ExampleDevice} {dt=ExampleDType}
-                                 (VArray [SArray 101.0, SArray 7592.0, SArray 102.0])
-      posIdsRaw   = bulkToTensor {d=ExampleDevice} {dt=ExampleDType}
-                                 (VArray [SArray 0.0, SArray 1.0, SArray 2.0])
-      typeIdsRaw  = bulkToTensor {d=ExampleDevice} {dt=ExampleDType}
-                                 (VArray [SArray 0.0, SArray 0.0, SArray 0.0])
-  let inputIds : Tensor [SeqLen] ExampleDevice ExampleDType WithGrad
-      inputIds = tinput1d {n=SeqLen} inputIdsRaw
-      posIds : Tensor [SeqLen] ExampleDevice ExampleDType WithGrad
-      posIds = tinput1d {n=SeqLen} posIdsRaw
-      typeIds : Tensor [SeqLen] ExampleDevice ExampleDType WithGrad
-      typeIds = tinput1d {n=SeqLen} typeIdsRaw
-
-  -- Forward. Auto-proof resolves Hidden = NumHeads * HeadDim
-  -- (128 = 2 * 64).
+runPooledDump : (model : BertForMaskedLmState VocabSize Hidden NumLayers
+                                              Intermediate MaxPos TypeVocab
+                                              ExampleDevice ExampleDType WithGrad)
+             -> IO ()
+runPooledDump model = do
+  -- Same fixed input save_oracle.py uses: [CLS] hello [SEP].
+  let inputIds = mkIds (the (Vect 3 Double) [101.0, 7592.0, 102.0])
+      posIds   = mkIds (the (Vect 3 Double) [0.0, 1.0, 2.0])
+      typeIds  = mkIds (the (Vect 3 Double) [0.0, 0.0, 0.0])
   out <- hfBertForward {d=ExampleDevice} {dt=ExampleDType}
-                       {seqLen       = SeqLen}
+                       {seqLen       = 3}
                        {vocab        = VocabSize}
                        {hidden       = Hidden}
                        {numLayers    = NumLayers}
@@ -132,7 +228,63 @@ main = do
                        {intermediate = Intermediate}
                        {maxPos       = MaxPos}
                        {typeVocab    = TypeVocab}
-                       model inputIds posIds typeIds
+                       model.base inputIds posIds typeIds
+  printPooled (cast {to=Int} Hidden) 0 out.tensorPtr
 
-  -- Dump all 128 pooled-output values to stdout.
-  printOutput (cast {to=Int} Hidden) 0 out.tensorPtr
+
+----------------------------------------------------------------------
+-- main
+----------------------------------------------------------------------
+
+main : IO ()
+main = do
+  args <- getArgs
+  let dumpPooled = elem "--dump-pooled" args
+
+  -- Build the full BertForMaskedLM (encoder + pooler + MLM head, 44 params).
+  model <- hfBertForMaskedLm {d=ExampleDevice} {dt=ExampleDType}
+                             {vocab        = VocabSize}
+                             {hidden       = Hidden}
+                             {numLayers    = NumLayers}
+                             {numHeads     = NumHeads}
+                             {intermediate = Intermediate}
+                             {maxPos       = MaxPos}
+                             {typeVocab    = TypeVocab}
+                             "bert"
+  ok <- loadModelAllowCast {d=ExampleDevice} hfWeightsPath
+  if not ok
+    then do
+      putStrLn ("ERR: loadModelAllowCast failed for " ++ hfWeightsPath)
+      exitFailure
+    else pure ()
+
+  if dumpPooled
+    then runPooledDump model
+    else do
+      -- Read vocab.txt once; each demo reuses it for the top-5 lookup.
+      vocabR <- readFile vocabTxtPath
+      case vocabR of
+        Left err => do
+          putStrLn ("ERR: failed to read " ++ vocabTxtPath ++ ": " ++ show err)
+          exitFailure
+        Right contents => do
+          let vocab = lines contents
+          putStrLn ""
+          putStrLn "BERT fill-in-the-mask — google/bert_uncased_L-2_H-128_A-2"
+          putStrLn "=========================================================="
+          putStrLn ""
+          -- Three sentences, hand-picked + tokenized externally so the
+          -- example needs no tokenizer at runtime. Mask position is the
+          -- 0-indexed slot of the `[MASK]` token in the IDs vector.
+          runMaskDemo model vocab "paris is the capital of [MASK] ."
+                      (the (Vect 9 Double)
+                       [101, 3000, 2003, 1996, 3007, 1997, 103, 1012, 102])
+                      6
+          runMaskDemo model vocab "i went to the [MASK] to buy bread ."
+                      (the (Vect 11 Double)
+                       [101, 1045, 2253, 2000, 1996, 103, 2000, 4965, 7852, 1012, 102])
+                      5
+          runMaskDemo model vocab "the man worked as a [MASK] ."
+                      (the (Vect 9 Double)
+                       [101, 1996, 2158, 2499, 2004, 1037, 103, 1012, 102])
+                      6
