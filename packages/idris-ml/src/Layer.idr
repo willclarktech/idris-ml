@@ -11,6 +11,7 @@ import public Layer.Core
 import public Layer.Linear
 import public Layer.Activation
 import public Layer.LayerNorm
+import public Layer.RmsNorm
 import public Layer.BatchNorm
 import public Layer.Dropout
 import public Layer.Embedding

@@ -39,6 +39,7 @@ modules = Compat.Random
         , Layer.Lstm
         , Layer.Dnc
         , Layer.Ntm
+        , Layer.RmsNorm
         , Layer.Rnn
         , Layer.Transformer
         , Math
