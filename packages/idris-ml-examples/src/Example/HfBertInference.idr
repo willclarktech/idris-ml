@@ -28,6 +28,7 @@ import Data.List
 import Data.String
 import Data.Vect
 import System
+import System.Clock
 import System.File
 
 import Array
@@ -37,6 +38,7 @@ import Device
 import HfBert
 import Tensor
 import Tokenizer
+import Util
 
 
 ----------------------------------------------------------------------
@@ -239,10 +241,21 @@ runPooledDump model = do
 -- main
 ----------------------------------------------------------------------
 
+-- Stage timer for `main`. Construction + load are the two stages that
+-- can dominate wall time at fused-init scale; the `[stage] [hh:mm:ss]
+-- <label>` shape is parsed by `scripts/perf-run.sh` into the JSONL
+-- `stages` field, so cross-commit comparisons of these stage costs
+-- don't depend on conversation memory.
+stageStamp : (label : String) -> Clock Monotonic -> IO ()
+stageStamp label t0 = do
+  now <- clockTime Monotonic
+  putStrLn ("[stage] " ++ formatElapsed t0 now ++ " " ++ label)
+
 main : IO ()
 main = do
   args <- getArgs
   let dumpPooled = elem "--dump-pooled" args
+  t0 <- clockTime Monotonic
 
   -- Build the full BertForMaskedLM (encoder + pooler + MLM head, 44 params).
   model <- hfBertForMaskedLm {d=ExampleDevice} {dt=ExampleDType}
@@ -254,12 +267,14 @@ main = do
                              {maxPos       = MaxPos}
                              {typeVocab    = TypeVocab}
                              "bert"
+  stageStamp "hfBertForMaskedLm ok" t0
   ok <- loadModelAllowCast {d=ExampleDevice} hfWeightsPath
   if not ok
     then do
       putStrLn ("ERR: loadModelAllowCast failed for " ++ hfWeightsPath)
       exitFailure
     else pure ()
+  stageStamp "loadModelAllowCast ok" t0
 
   if dumpPooled
     then runPooledDump model

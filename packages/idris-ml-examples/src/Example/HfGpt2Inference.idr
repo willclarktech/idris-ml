@@ -40,6 +40,7 @@ import Data.List
 import Data.String
 import Data.Vect
 import System
+import System.Clock
 import System.File
 
 import Array
@@ -48,6 +49,7 @@ import Checkpoint
 import Device
 import HfGpt2
 import Tensor
+import Util
 import Tokenizer
 
 
@@ -282,10 +284,19 @@ runGenerate tok model prompt numTokens = do
 -- main
 ----------------------------------------------------------------------
 
+-- Stage timer for `main`. Same `[stage] [hh:mm:ss] <label>` shape as
+-- HfLlamaInference / HfBertInference; `scripts/perf-run.sh` parses
+-- the lines into the JSONL `stages` field.
+stageStamp : (label : String) -> Clock Monotonic -> IO ()
+stageStamp label t0 = do
+  now <- clockTime Monotonic
+  putStrLn ("[stage] " ++ formatElapsed t0 now ++ " " ++ label)
+
 main : IO ()
 main = do
   args <- getArgs
   let dumpHidden = elem "--dump-final-hidden" args
+  t0 <- clockTime Monotonic
 
   -- Build a distilgpt2 model. Each param registers under the literal
   -- HF name (`transformer.wte.weight`, etc.).
@@ -298,6 +309,7 @@ main = do
                        {intermediate = Intermediate}
                        {maxPos       = MaxPos}
                        ""
+  stageStamp "hfGpt2Model ok" t0
   -- Load the HF checkpoint. loadModelAllowCast handles dtype
   -- widening at the loader; distilgpt2 is F32 on disk so the cost is
   -- a copy on F32 backends (mlx-gpu / torch-mps) and a widen on F64
@@ -308,6 +320,7 @@ main = do
       putStrLn ("ERR: loadModelAllowCast failed for " ++ hfWeightsPath)
       exitFailure
     else pure ()
+  stageStamp "loadModelAllowCast ok" t0
 
   if dumpHidden
     then runDumpHidden model
