@@ -2,9 +2,13 @@
 
 Loads `google/bert_uncased_L-2_H-128_A-2` via HuggingFace transformers,
 runs forward on a fixed input, and writes the pooled `[CLS]` output to
-`fixtures/bert-tiny-oracle.safetensors`. The Idris side reads the same
-fixture and asserts max-abs-difference against its own forward output
+`models/bert-tiny-oracle.safetensors`. The Idris side reads the same
+file and asserts max-abs-difference against its own forward output
 within F32 tolerance.
+
+The oracle lives alongside the downloaded checkpoints under `models/`
+because both serve the same workflow — `models/` is the gitignored
+local cache for everything we pull from / generate against the Hub.
 
 This script is the canonical source of truth for the oracle. When
 HfBert.idr's forward semantics change, regenerate the fixture and the
@@ -27,14 +31,14 @@ import torch
 from safetensors.torch import save_file
 from transformers import AutoModel, AutoTokenizer
 
-# Resolve the fixtures directory relative to this script regardless of
-# where the user `cd`'d before invoking. The path is documented in
+# Resolve the models cache directory relative to this script regardless
+# of where the user `cd`'d before invoking. The path is documented in
 # Example/HfBertInference.idr so the Idris side reads from the same
 # location.
 SCRIPT_DIR = Path(__file__).resolve().parent
 PKG_DIR = SCRIPT_DIR.parent  # packages/idris-transformers/
-FIXTURES_DIR = PKG_DIR / "fixtures"
-ORACLE_PATH = FIXTURES_DIR / "bert-tiny-oracle.safetensors"
+MODELS_DIR = PKG_DIR / "models"
+ORACLE_PATH = MODELS_DIR / "bert-tiny-oracle.safetensors"
 
 # The model we anchor the oracle against. Same hidden=128, layers=2,
 # intermediate=512 family as prajjwal1/bert-tiny but ships safetensors.
@@ -49,7 +53,7 @@ HIDDEN: int = 128  # bert-tiny hidden size; matches the model config
 
 
 def main() -> None:
-    FIXTURES_DIR.mkdir(parents=True, exist_ok=True)
+    MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
     # Determinism: BERT inference has no stochastic ops at eval time
     # (no dropout, no sampling), so a fixed seed isn't strictly

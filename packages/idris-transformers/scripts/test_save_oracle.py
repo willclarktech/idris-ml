@@ -20,7 +20,7 @@ import torch
 from safetensors.torch import load_file
 
 SCRIPT = Path(__file__).resolve().parent / "save_oracle.py"
-ORACLE = Path(__file__).resolve().parent.parent / "fixtures" / "bert-tiny-oracle.safetensors"
+ORACLE = Path(__file__).resolve().parent.parent / "models" / "bert-tiny-oracle.safetensors"
 HIDDEN = 128
 
 

@@ -12,7 +12,7 @@
 ||| F32 tolerance.
 |||
 ||| Pre-requisites (CI handles these automatically):
-|||   - `packages/idris-transformers/fixtures/google/bert_uncased_L-2_H-128_A-2/model.safetensors`
+|||   - `packages/idris-transformers/models/google/bert_uncased_L-2_H-128_A-2/model.safetensors`
 |||     — fetch with `bash packages/idris-transformers/scripts/hf-download.sh`
 |||   - Live registry — `hfBertModel "bert"` must register exactly the
 |||     param names HF's state_dict() exposes (locked down by
@@ -65,7 +65,7 @@ SeqLen = 3
 -- (which is invoked from the repo root).
 hfWeightsPath : String
 hfWeightsPath =
-  "packages/idris-transformers/fixtures/" ++
+  "packages/idris-transformers/models/" ++
   "google/bert_uncased_L-2_H-128_A-2/model.safetensors"
 
 

@@ -943,7 +943,7 @@ example-supervised: install
 # and dumps the 128-dim pooled [CLS] output to stdout, one value per line.
 # Pre-requisite: bash packages/idris-transformers/scripts/hf-download.sh
 # google/bert_uncased_L-2_H-128_A-2 must have run at least once to populate
-# packages/idris-transformers/fixtures/.
+# packages/idris-transformers/models/.
 example-hf-bert-inference: install
 	bash packages/idris-transformers/scripts/hf-download.sh \
 		google/bert_uncased_L-2_H-128_A-2
@@ -965,7 +965,7 @@ test-hf-bert-roundtrip: install
 	cd packages/pytorch && uv run python \
 		../idris-transformers/scripts/compare_inference.py \
 		../../build/hf-bert-idris-out.txt \
-		../idris-transformers/fixtures/bert-tiny-oracle.safetensors \
+		../idris-transformers/models/bert-tiny-oracle.safetensors \
 		1e-3
 
 example-rnn: install
@@ -1470,6 +1470,13 @@ clean:
 	rm -f $(BUILD)/test_backend $(BUILD)/test_backend_debug $(BUILD)/test_safetensors \
 	      $(BUILD)/test_ntm_grad $(BUILD)/test_ntm_timestep $(BUILD)/test_tape \
 	      $(BUILD)/test_tensor $(BUILD)/bench_ops $(BUILD)/bench_ops_*
+
+# Downloaded HuggingFace checkpoints, tokenizer vocab files, and the
+# generated test oracle. Kept out of plain `clean` because re-downloading
+# is slow; run this explicitly when you need to free disk space or force
+# a fresh fetch.
+clean-models:
+	rm -rf packages/idris-transformers/models/
 
 # Examples run on every built backend. Keep in sync with packages/idris-ml-examples/src/Example/.
 # Excluded intentionally:

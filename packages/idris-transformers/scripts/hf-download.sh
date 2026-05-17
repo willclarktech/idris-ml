@@ -17,8 +17,9 @@
 #        model.safetensors.index.json
 #
 # Output:
-#   Files land in packages/idris-transformers/fixtures/<repo>/ relative
-#   to the repo root. Directory is created if missing.
+#   Files land in packages/idris-transformers/models/<repo>/ relative
+#   to the repo root. Directory is created if missing. Everything under
+#   `models/` is gitignored — it's the local cache, not source.
 #
 # Env:
 #   HF_TOKEN  Optional bearer token for private/gated models. If set,
@@ -47,10 +48,10 @@ fi
 REPO=$1
 FILENAME=${2:-model.safetensors}
 
-# Resolve the package fixtures directory relative to this script.
+# Resolve the package models cache directory relative to this script.
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)
 PKG_DIR=$(cd -- "$SCRIPT_DIR/.." &>/dev/null && pwd)
-DEST_DIR="$PKG_DIR/fixtures/$REPO"
+DEST_DIR="$PKG_DIR/models/$REPO"
 mkdir -p "$DEST_DIR"
 
 # Build the curl invocation. Bash array so we can safely append the

@@ -65,7 +65,8 @@ This:
 
 1. Downloads `google/bert_uncased_L-2_H-128_A-2` via the
    `scripts/hf-download.sh` helper into
-   `packages/idris-transformers/fixtures/`.
+   `packages/idris-transformers/models/` (gitignored local cache —
+   `make clean-models` removes it).
 2. Builds the Idris example.
 3. Runs forward on the fixed input `[CLS] hello [SEP]` (= token IDs
    `[101, 7592, 102]`).
@@ -100,8 +101,8 @@ bash packages/idris-transformers/scripts/hf-download.sh \
     private-org/gated-model
 ```
 
-Files land in `packages/idris-transformers/fixtures/<repo>/`,
-which is gitignored.
+Files land in `packages/idris-transformers/models/<repo>/`,
+which is gitignored. `make clean-models` wipes the whole cache.
 
 ## Writing your own HF-aligned module
 
