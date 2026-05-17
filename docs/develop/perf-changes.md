@@ -2038,3 +2038,24 @@ Deltas are within VM noise (`feedback_vm_perf_noise`: ±15-20%), but the directi
 - `packages/idris-ml/src/Layer/Transformer.idr` — cache field, `writeCausalMask` helper, threaded mask AnyPtr
 - `perf-log.jsonl` `kind=baseline` entries timestamped 2026-05-17 with transformer rows
 - PE-cache precedent: 2026-05-14 entry above
+
+
+### 2026-05-17 — Non-IO %foreign audit + `ioRerun` shape investigation — `<this commit>`
+
+**Plan job**: cross-cutting (TODO row 7 — audit for side-effect-bearing functions with non-IO types + optimise `ioRerun` shape).
+
+**Motivation**: row 7 hypothesised that streamlining the `ioRerun (\_ => body)` shape could recover some of the 2026-05-17 mlx-cpu small-op regression (rnn/lstm/gru/ntm-* at 22–43× pytorch ratio, vs 4–7× pre-IO-refactor). The IO refactor wrapped every Tensor smart constructor in `ioRerun f = primIO (\w => MkIORes (f ()) w)`, adding a thunk closure per FFI call. The conjecture: that closure (and the `MkIORes` box) is a meaningful slice of the regression.
+
+**Change**: investigated, no code change to `ioRerun` itself. The audit half found three live IO-typing bugs (`memoryReport`, `setParamLR`, `polyakUpdate`) and added a lint to prevent the bug class — those landed separately in the same commit chain. The perf half measured the closure-overhead hypothesis against the actual per-op cost.
+
+**Impact**: per-call analysis says `ioRerun` adds ~1 closure allocation per FFI call (~100ns on Chez). For LSTM at the measured workload (4 IO ops per timestep × 50 timesteps × 200 epochs = ~40k IO ops), that's <5 ms wall — within noise. Row 16's diagnostic on GptLarge already proves the actual per-op Idris cost is ~7.6 ms (the wall lever isn't FFI overhead at all; it's existential `AnyLayer` dispatch + typeclass dictionary resolution + Tensor record packing). The `ioRerun` shape isn't the bottleneck; the optimisation knob is elsewhere.
+
+| cell    | example | idris ms/ep | py ms/ep | ratio | source        |
+|---------|---------|-------------|----------|-------|---------------|
+| mlx-cpu | lstm    | 134.99      | 3.53     | 38.24 | post-investigation sweep |
+
+**Outcome**: investigated, no change to `ioRerun`. The audit half landed as a lint + three bug fixes. Future small-op mlx-cpu recovery work belongs in row 16's territory (per-op Idris VM overhead), not row 7's. Row 7's perf bullet retired; the audit/lint bullet stays as the durable deliverable.
+
+**Cross-references**:
+- `scripts/lifecycle/check-non-io-side-effects.py` — the new lint
+- TODO row 7 closed; row 16 (per-op Idris overhead) remains as the relevant follow-up for mlx-cpu small-op recovery
