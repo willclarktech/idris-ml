@@ -18,6 +18,7 @@ import Train
 import Util
 import Device
 import Tensor
+import BuildConfig
 
 
 MaxSteps : Nat; MaxSteps = cartPoleMaxSteps
@@ -38,13 +39,13 @@ StepRec = (AnyPtr, Double, Double)
 
 export
 rolloutEp : {hs : List Nat} ->
-            Network 4 hs 2 CPU F64 WithGrad -> CPState -> List Double -> Nat ->
+            Network 4 hs 2 ExampleDevice ExampleDType WithGrad -> CPState -> List Double -> Nat ->
             List StepRec -> IO (List StepRec)
 rolloutEp _ _ _ Z acc = pure (reverse acc)
 rolloutEp _ _ [] _ acc = pure (reverse acc)
 rolloutEp model st (r :: rs) (S k) acc = do
   let stateT = bulkToTensor (observe st)
-      stateV = the (TVec 4 CPU F64 WithGrad) (MkTensor stateT Nothing)
+      stateV = the (TVec 4 ExampleDevice ExampleDType WithGrad) (MkTensor stateT Nothing)
   (_, predV) <- forwardVar model stateV
   let logProbsT = prim__logSoftmax predV.tensorPtr 0
       lp0 = prim__item1d logProbsT 0
@@ -71,7 +72,7 @@ rolloutEp model st (r :: rs) (S k) acc = do
 ||| all envs terminate.
 export
 rolloutEpBatched : {n : Nat} -> {hs : List Nat} ->
-                   Network 4 hs 2 CPU F64 WithGrad ->
+                   Network 4 hs 2 ExampleDevice ExampleDType WithGrad ->
                    Vect n CPState ->
                    Vect n (List Double) ->
                    Nat ->
@@ -83,7 +84,7 @@ rolloutEpBatched model states0 rss0 maxSteps = do
     -- Per-env action selection + env step, given the batched log-prob
     -- tensor and this env's integer index. Frozen (done) envs and
     -- RNG-exhausted envs pass through unchanged.
-    perEnv : Tensor [n, 2] CPU F64 WithGrad -> Int ->
+    perEnv : Tensor [n, 2] ExampleDevice ExampleDType WithGrad -> Int ->
              CPState -> List Double -> Bool -> List StepRec ->
              (CPState, List Double, Bool, List StepRec)
     perEnv _         _ st rs  True  acc = (st, rs, True, acc)
@@ -102,7 +103,7 @@ rolloutEpBatched model states0 rss0 maxSteps = do
 
     -- Walk the four parallel Vects together, threading the row index.
     -- Each pattern strips one element from each Vect simultaneously.
-    stepAllEnvs : Tensor [n, 2] CPU F64 WithGrad -> Int ->
+    stepAllEnvs : Tensor [n, 2] ExampleDevice ExampleDType WithGrad -> Int ->
                   Vect k CPState -> Vect k (List Double) -> Vect k Bool ->
                   Vect k (List StepRec) ->
                   (Vect k CPState, Vect k (List Double), Vect k Bool, Vect k (List StepRec))
@@ -124,10 +125,10 @@ rolloutEpBatched model states0 rss0 maxSteps = do
         let obsRows : Vect n (Vector 4 Double)
             obsRows = map observe sts
             batchPtr = bulkToTensor2d obsRows
-            stateV : Tensor [n, 4] CPU F64 WithGrad
+            stateV : Tensor [n, 4] ExampleDevice ExampleDType WithGrad
             stateV = MkTensor batchPtr Nothing
         (_, predV) <- forwardVarBatch model stateV
-        let logProbsV : Tensor [n, 2] CPU F64 WithGrad
+        let logProbsV : Tensor [n, 2] ExampleDevice ExampleDType WithGrad
             logProbsV = MkTensor (prim__logSoftmax2d predV.tensorPtr) Nothing
         case stepAllEnvs logProbsV 0 sts rss dones accs of
           (sts', rss', dones', accs') => go k sts' rss' dones' accs'
@@ -146,12 +147,12 @@ discReturns gamma rewards = reverse (go 0.0 (reverse rewards))
 
 -- Compute per-episode step losses with advantage. Each loss is a
 -- scalar `Tensor [] CPU` carrying the autograd graph back to the policy.
-epStepLosses : Double -> Double -> List StepRec -> List (Tensor [] CPU F64 WithGrad)
+epStepLosses : Double -> Double -> List StepRec -> List (Tensor [] ExampleDevice ExampleDType WithGrad)
 epStepLosses gamma baseline steps =
   let rewards = map (\(_, _, r) => r) steps
       rets = discReturns gamma rewards
   in zipWith (\(lp, _, _), gt =>
-       the (Tensor [] CPU F64 WithGrad) (MkTensor (prim__mulScalar lp (baseline - gt)) Nothing))
+       the (Tensor [] ExampleDevice ExampleDType WithGrad) (MkTensor (prim__mulScalar lp (baseline - gt)) Nothing))
      steps rets
 
 export
@@ -161,18 +162,18 @@ sumRewards steps = foldl (\a, (_, _, r) => a + r) 0.0 steps
 -- Mean-reduce a non-empty list of scalar TVars. Empty case returns a
 -- fresh zero scalar (degenerate; runs only if the rollout produced no
 -- steps).
-averageLoss : List (Tensor [] CPU F64 WithGrad) -> Tensor [] CPU F64 WithGrad
+averageLoss : List (Tensor [] ExampleDevice ExampleDType WithGrad) -> Tensor [] ExampleDevice ExampleDType WithGrad
 averageLoss [] = MkTensor (prim__createScalar 0.0 0) Nothing
 averageLoss (x :: xs) =
   let n = cast {to=Double} (1 + length xs)
-      addT : Tensor [] CPU F64 WithGrad -> Tensor [] CPU F64 WithGrad -> Tensor [] CPU F64 WithGrad
+      addT : Tensor [] ExampleDevice ExampleDType WithGrad -> Tensor [] ExampleDevice ExampleDType WithGrad -> Tensor [] ExampleDevice ExampleDType WithGrad
       addT a b = MkTensor (prim__add a.tensorPtr b.tensorPtr) Nothing
       s = foldl addT x xs
   in MkTensor (prim__mulScalar s.tensorPtr (1.0 / n)) Nothing
 
 computeLoss : {hs : List Nat} -> Double ->
-              Network 4 hs 2 CPU F64 WithGrad -> List (List Double) ->
-              IO (Tensor [] CPU F64 WithGrad, Double)
+              Network 4 hs 2 ExampleDevice ExampleDType WithGrad -> List (List Double) ->
+              IO (Tensor [] ExampleDevice ExampleDType WithGrad, Double)
 computeLoss gamma model randomBatch = do
   episodes <- traverse (\rs => rolloutEp model (MkCP 0 0 0 0) rs MaxSteps []) randomBatch
   let epReturns = map sumRewards episodes
@@ -182,8 +183,8 @@ computeLoss gamma model randomBatch = do
   pure (averageLoss stepLosses, baseline)
 
 computeLossBatched : {n : Nat} -> {hs : List Nat} -> Double ->
-                     Network 4 hs 2 CPU F64 WithGrad -> Vect n (List Double) ->
-                     IO (Tensor [] CPU F64 WithGrad, Double)
+                     Network 4 hs 2 ExampleDevice ExampleDType WithGrad -> Vect n (List Double) ->
+                     IO (Tensor [] ExampleDevice ExampleDType WithGrad, Double)
 computeLossBatched gamma model randomBatchV = do
   let initStates : Vect n CPState = replicate n (MkCP 0 0 0 0)
   epsV  <- rolloutEpBatched model initStates randomBatchV MaxSteps
@@ -200,8 +201,8 @@ computeLossBatched gamma model randomBatchV = do
 ----------------------------------------------------------------------
 
 epochRL : {hs : List Nat} -> NativeOptimizer -> Double ->
-          Network 4 hs 2 CPU F64 WithGrad -> List (List Double) ->
-          IO (Network 4 hs 2 CPU F64 WithGrad, Double, Double)
+          Network 4 hs 2 ExampleDevice ExampleDType WithGrad -> List (List Double) ->
+          IO (Network 4 hs 2 ExampleDevice ExampleDType WithGrad, Double, Double)
 epochRL opt gamma model batch = do
   (loss, avgRet) <- computeLoss gamma model batch
   lossVal <- nativeTrainStep opt loss
@@ -209,8 +210,8 @@ epochRL opt gamma model batch = do
 
 epochRLBatched : {n : Nat} -> {hs : List Nat} ->
                  NativeOptimizer -> Double ->
-                 Network 4 hs 2 CPU F64 WithGrad -> Vect n (List Double) ->
-                 IO (Network 4 hs 2 CPU F64 WithGrad, Double, Double)
+                 Network 4 hs 2 ExampleDevice ExampleDType WithGrad -> Vect n (List Double) ->
+                 IO (Network 4 hs 2 ExampleDevice ExampleDType WithGrad, Double, Double)
 epochRLBatched opt gamma model batchV = do
   (loss, avgRet) <- computeLossBatched gamma model batchV
   lossVal <- nativeTrainStep opt loss
@@ -253,11 +254,11 @@ genBatchV (S k) = do
 ----------------------------------------------------------------------
 
 evalEp : {hs : List Nat} ->
-         Network 4 hs 2 CPU F64 WithGrad -> CPState -> Nat -> Double -> IO Double
+         Network 4 hs 2 ExampleDevice ExampleDType WithGrad -> CPState -> Nat -> Double -> IO Double
 evalEp _ _ Z acc = pure acc
 evalEp model st (S k) acc = do
   let stateT = bulkToTensor (observe st)
-      stateV = the (TVec 4 CPU F64 WithGrad) (MkTensor stateT Nothing)
+      stateV = the (TVec 4 ExampleDevice ExampleDType WithGrad) (MkTensor stateT Nothing)
   (_, predV) <- forwardVar model stateV
   let logitsT = predV.tensorPtr
       action = if prim__item1d logitsT 0 >= prim__item1d logitsT 1 then the Nat 0 else 1
@@ -266,7 +267,7 @@ evalEp model st (S k) acc = do
       if done outcome then pure (acc + reward)
       else evalEp model st' k (acc + reward)
 
-evalN : {hs : List Nat} -> Network 4 hs 2 CPU F64 WithGrad -> Nat -> Double -> IO Double
+evalN : {hs : List Nat} -> Network 4 hs 2 ExampleDevice ExampleDType WithGrad -> Nat -> Double -> IO Double
 evalN _ Z acc = pure acc
 evalN model (S k) acc = do
   v <- evalEp model (MkCP 0 0 0 0) MaxSteps 0.0
@@ -315,7 +316,7 @@ main = do
 
   ll1Any <- linearLayerAny {i=4} {o=128} "ll1"
   ll2Any <- linearLayerAny {i=128} {o=2} "ll2"
-  let model : Network 4 [128, 128] 2 CPU F64 WithGrad
+  let model : Network 4 [128, 128] 2 ExampleDevice ExampleDType WithGrad
       model = ll1Any ~~> tanhLayerAny ~~> OutputLayer ll2Any
   putStrLn ""
 
@@ -333,7 +334,7 @@ main = do
 
   metrics <- newRLMetricsState 100
   let n : Nat = cfg.batchSz
-      modelType : Type = Network 4 [128, 128] 2 CPU F64 WithGrad
+      modelType : Type = Network 4 [128, 128] 2 ExampleDevice ExampleDType WithGrad
   (trained, epochsDone, _) <- (
     if cfg.batched
       then runTrainingIO {dp = Vect n (List Double)}

@@ -28,6 +28,7 @@ import Train
 import Util
 import Device
 import Tensor
+import BuildConfig
 
 
 ----------------------------------------------------------------------
@@ -84,7 +85,7 @@ ReversalLen = SeqLen `minus` InputLen
 |||  typed-surface CE loss on per-sample logits + target [seqLen *
 ||| vocabSize]. Masks the random-prefix positions so only the reversal
 ||| portion contributes (V1 `reversalCE` parity, returning a Tensor [] CPU).
-catCELossVar : TVec OutputDim CPU F64 WithGrad -> TVec OutputDim CPU F64 WithGrad -> IO (Tensor [] CPU F64 WithGrad)
+catCELossVar : TVec OutputDim ExampleDevice ExampleDType WithGrad -> TVec OutputDim ExampleDevice ExampleDType WithGrad -> IO (Tensor [] ExampleDevice ExampleDType WithGrad)
 catCELossVar predV targetV = ioRerun (\_ =>
   let vsI = cast {to=Int} VocabSize
       sI = cast {to=Int} SeqLen
@@ -180,7 +181,7 @@ main = do
               {seqLen=SeqLen, dModel=DModel, numHeads=NumHeads,
                headDim=HeadDim, numBlocks=NumBlocks, vocabSize=VocabSize}
               "tfm0"
-  let model : Network InputDim [] OutputDim CPU F64 WithGrad
+  let model : Network InputDim [] OutputDim ExampleDevice ExampleDType WithGrad
       model = OutputLayer tfmAny
   putStrLn ""
 
@@ -188,11 +189,11 @@ main = do
       genBatch = sortingTensorBatchVect InputDim OutputDim VocabSize InputLen SeqLen SepToken EosToken BatchSize
 
   -- Per-epoch metrics: accuracy on a fresh eval batch via single-sample forwardVar.
-  let evalMetrics : Network InputDim [] OutputDim CPU F64 WithGrad -> IO (List (String, String))
+  let evalMetrics : Network InputDim [] OutputDim ExampleDevice ExampleDType WithGrad -> IO (List (String, String))
       evalMetrics m = do
         evalData <- sortingTensorBatchVect InputDim OutputDim VocabSize InputLen SeqLen SepToken EosToken BatchSize
         results <- traverse (\dp => do
-              let inV = the (TVec InputDim CPU F64 WithGrad) (MkTensor (inputTensor dp) Nothing)
+              let inV = the (TVec InputDim ExampleDevice ExampleDType WithGrad) (MkTensor (inputTensor dp) Nothing)
               (_, predV) <- forwardVar m inV
               let predicted = map (argmaxAtPtr VocabSize predV.tensorPtr) positions
                   expected = map (argmaxAtPtr VocabSize (targetTensor dp)) positions
@@ -223,7 +224,7 @@ main = do
   putStrLn "Evaluation:"
   evalRaw <- sortingTensorBatchVect InputDim OutputDim VocabSize InputLen SeqLen SepToken EosToken 1
   let tdp = index FZ evalRaw
-      inV = the (TVec InputDim CPU F64 WithGrad) (MkTensor (inputTensor tdp) Nothing)
+      inV = the (TVec InputDim ExampleDevice ExampleDType WithGrad) (MkTensor (inputTensor tdp) Nothing)
   (_, predV) <- forwardVar trained inV
   let inpT = inputTensor tdp
       inputDecoded = map (\p => cast {to=Nat} (cast {to=Integer} (prim__item1d inpT (cast p)))) positions

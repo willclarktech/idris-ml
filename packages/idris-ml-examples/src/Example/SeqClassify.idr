@@ -31,6 +31,7 @@ import Train
 import Util
 import Device
 import Tensor
+import BuildConfig
 
 
 ----------------------------------------------------------------------
@@ -172,7 +173,7 @@ main = do
            ++ " patience=" ++ show cfg.patience ++ " seed=" ++ show cfg.seed
   putStrLn "Architecture: Conv1d(1->4,k=3) -> ReLU -> Pool(2) -> Conv1d(4->8,k=3) -> ReLU -> Pool(2) -> Dropout(0.5) -> Linear(48->3)"
 
-  conv1Any <- the (IO (AnyLayer (InC * SeqLen) (C1 * ConvOutDim SeqLen K 0) CPU F64 WithGrad))
+  conv1Any <- the (IO (AnyLayer (InC * SeqLen) (C1 * ConvOutDim SeqLen K 0) ExampleDevice ExampleDType WithGrad))
                   (conv1dLayerAny {inC=InC, outC=C1, len=SeqLen, kL=K, pad=0} "conv1")
   conv2Any <- conv1dLayerAny {inC=C1, outC=C2, len=Pool1Out, kL=K, pad=0} "conv2"
   fcAny <- linearLayerAny {i=AfterPool2, o=NumClasses} "fc"

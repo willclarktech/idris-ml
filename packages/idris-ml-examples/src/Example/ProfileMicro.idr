@@ -27,6 +27,7 @@ import Layer.Linear
 import Layer.Lstm
 import Layer.Ntm
 import Tensor
+import BuildConfig
 
 %default partial
 
@@ -90,8 +91,8 @@ loopAdd (S k) ap bp _ =
 --    the result through MkTensor + .tensorPtr. Same FFI as loopLinear,
 --    plus record construction/destruction per iteration.
 loopTLinear : Nat -> {h : Nat} -> {o : Nat} ->
-                Tensor [o, h] CPU F64 WithGrad -> Tensor [h] CPU F64 WithGrad -> Tensor [o] CPU F64 WithGrad ->
-                Tensor [o] CPU F64 WithGrad -> Tensor [o] CPU F64 WithGrad
+                Tensor [o, h] ExampleDevice ExampleDType WithGrad -> Tensor [h] ExampleDevice ExampleDType WithGrad -> Tensor [o] ExampleDevice ExampleDType WithGrad ->
+                Tensor [o] ExampleDevice ExampleDType WithGrad -> Tensor [o] ExampleDevice ExampleDType WithGrad
 loopTLinear Z _ _ _ acc = acc
 loopTLinear (S k) w x b _ =
   loopTLinear k w x b (tlinear w x b)
@@ -101,8 +102,8 @@ loopTLinear (S k) w x b _ =
 --    Layer.Ntm / Layer.Dnc all hit). Includes record destructuring
 --    of LinearState, .weightT/.biasT extraction, etc.
 loopLinearApply : {h : Nat} -> {o : Nat} ->
-                    Nat -> LinearState h o CPU -> Tensor [h] CPU F64 WithGrad ->
-                    Tensor [o] CPU F64 WithGrad -> Tensor [o] CPU F64 WithGrad
+                    Nat -> LinearState h o CPU -> Tensor [h] ExampleDevice ExampleDType WithGrad ->
+                    Tensor [o] ExampleDevice ExampleDType WithGrad -> Tensor [o] ExampleDevice ExampleDType WithGrad
 loopLinearApply Z _ _ acc = acc
 loopLinearApply (S k) st x _ =
   let (_, y) = applyVar st x
@@ -113,7 +114,7 @@ loopLinearApply (S k) st x _ =
 --    multiple consecutive C calls are interleaved with state
 --    record destructuring.
 loopLstmApply : {i : Nat} -> {o : Nat} ->
-                  Nat -> LstmState i o CPU -> Tensor [i] CPU F64 WithGrad ->
+                  Nat -> LstmState i o CPU -> Tensor [i] ExampleDevice ExampleDType WithGrad ->
                   LstmState i o CPU -> LstmState i o CPU
 loopLstmApply Z _ _ acc = acc
 loopLstmApply (S k) st x _ =
@@ -126,7 +127,7 @@ loopLstmApply (S k) st x _ =
 --    NTM-copy runs.
 partial
 loopNtmApply : {n : Nat} -> {m : Nat} -> {h : Nat} -> {i : Nat} -> {o : Nat} ->
-                 Nat -> NtmState n m h i o CPU -> TVec i CPU F64 WithGrad ->
+                 Nat -> NtmState n m h i o CPU -> TVec i ExampleDevice ExampleDType WithGrad ->
                  NtmState n m h i o CPU -> NtmState n m h i o CPU
 loopNtmApply Z _ _ acc = acc
 loopNtmApply (S k) st x _ =
@@ -176,12 +177,12 @@ main = do
 
   -- LSTM bench setup: instantiate a real LstmState (params registered).
   lstm <- lstmLayer {i = H} {o = H} "micro_lstm"
-  let xLstm : Tensor [H] CPU F64 WithGrad
+  let xLstm : Tensor [H] ExampleDevice ExampleDType WithGrad
       xLstm = MkTensor (prim__createState1d (cast {to=Int} H) (allocFilled H 0.5)) Nothing
 
   -- NTM bench setup at NTM-copy default dims (N=128 M=20 H=100 i=9).
   ntm <- ntmLayer {n = 128, m = 20, h = 100, i = 9, o = 8} "micro_ntm"
-  let xNtm : TVec 9 CPU F64 WithGrad
+  let xNtm : TVec 9 ExampleDevice ExampleDType WithGrad
       xNtm = MkTensor (prim__createState1d 9 (allocFilled 9 0.5)) Nothing
 
   -- Allocate grad-tracked PARAMS (registered in the param registry).
@@ -200,11 +201,11 @@ main = do
       a2Ptr = prim__paramRegister "micro_a2" (prim__createParam1d wI a2Buf)
       b2Ptr = prim__paramRegister "micro_b2" (prim__createParam1d wI b2Buf)
       -- Boxed-tensor versions for tlinear / applyVar benches.
-      wT : Tensor [W, H] CPU F64 WithGrad
+      wT : Tensor [W, H] ExampleDevice ExampleDType WithGrad
       wT = MkTensor wPtr Nothing
-      xT : Tensor [H] CPU F64 WithGrad
+      xT : Tensor [H] ExampleDevice ExampleDType WithGrad
       xT = MkTensor xPtr Nothing
-      bT : Tensor [W] CPU F64 WithGrad
+      bT : Tensor [W] ExampleDevice ExampleDType WithGrad
       bT = MkTensor bPtr Nothing
       lin : LinearState H W CPU
       lin = MkLinear wT bT

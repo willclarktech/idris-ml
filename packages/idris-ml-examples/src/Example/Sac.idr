@@ -20,6 +20,7 @@ import Train
 import Util
 import Device
 import Tensor
+import BuildConfig
 
 
 ----------------------------------------------------------------------
@@ -43,10 +44,10 @@ MaxAction : Double; MaxAction = 2.0
 -- --- Architectures --------------------------------------------------
 
 ActorNet : Type
-ActorNet = Network ObsDim [Hidden, Hidden, Hidden, Hidden] 1 CPU F64 WithGrad
+ActorNet = Network ObsDim [Hidden, Hidden, Hidden, Hidden] 1 ExampleDevice ExampleDType WithGrad
 
 QNet : Type
-QNet = Network QInputDim [Hidden, Hidden, Hidden, Hidden] 1 CPU F64 WithGrad
+QNet = Network QInputDim [Hidden, Hidden, Hidden, Hidden] 1 ExampleDevice ExampleDType WithGrad
 
 
 mkActor : IO ActorNet
@@ -94,20 +95,20 @@ squashCorrection u =
 
 actorMean : ActorNet -> Vect ObsDim Double -> IO Double
 actorMean actor obs = do
-  let stateV = the (TVec ObsDim CPU F64 WithGrad) (MkTensor (bulkToTensor (obsTensor obs)) Nothing)
+  let stateV = the (TVec ObsDim ExampleDevice ExampleDType WithGrad) (MkTensor (bulkToTensor (obsTensor obs)) Nothing)
   (_, outV) <- forwardVar actor stateV
   pure (prim__item1d outV.tensorPtr 0)
 
 qValue : QNet -> Vect ObsDim Double -> Double -> IO Double
 qValue q obs action = do
-  let inV = the (TVec QInputDim CPU F64 WithGrad)
+  let inV = the (TVec QInputDim ExampleDevice ExampleDType WithGrad)
                 (MkTensor (bulkToTensor (qInputTensor (qInput obs action))) Nothing)
   (_, outV) <- forwardVar q inV
   pure (prim__item1d outV.tensorPtr 0)
 
 
 -- Sample a squashed Gaussian action — pure-Double, used for rollout.
-sampleActionIO : ActorNet -> Tensor [] CPU F64 WithGrad -> Vect ObsDim Double ->
+sampleActionIO : ActorNet -> Tensor [] ExampleDevice ExampleDType WithGrad -> Vect ObsDim Double ->
                  IO (Double, Double)
 sampleActionIO actor logStdV obs = do
   mean <- actorMean actor obs
@@ -130,7 +131,7 @@ record SACState where
   q2      : QNet
   q1Tgt   : QNet
   q2Tgt   : QNet
-  logStdV : Tensor [] CPU F64 WithGrad
+  logStdV : Tensor [] ExampleDevice ExampleDType WithGrad
   buffer  : ReplayBuffer ObsDim ActDim
   stepRef : IORef Nat
   envRef  : IORef PState
@@ -179,7 +180,7 @@ specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
 
 -- --- Q-network loss (batched) ---------------------------------------
 
-computeTargetVal : QNet -> QNet -> ActorNet -> Tensor [] CPU F64 WithGrad ->
+computeTargetVal : QNet -> QNet -> ActorNet -> Tensor [] ExampleDevice ExampleDType WithGrad ->
                    Double -> Double -> Transition ObsDim ActDim -> IO Double
 computeTargetVal q1Tgt q2Tgt actor logStdV gamma alpha t = do
   nextPair <- sampleActionIO actor logStdV t.nextObs
@@ -194,8 +195,8 @@ computeTargetVal q1Tgt q2Tgt actor logStdV gamma alpha t = do
 -- Per-sample MSE loss for a [B, 1] Q-output indexed by row k against
 -- a Double target. Mirrors Dqn's perSampleLoss but with a single
 -- Q-column (action dim is fixed at the input).
-perSampleQLoss : {n : Nat} -> (qOutB : Tensor [n, 1] CPU F64 WithGrad) -> Double ->
-                 Int -> IO (Tensor [] CPU F64 WithGrad)
+perSampleQLoss : {n : Nat} -> (qOutB : Tensor [n, 1] ExampleDevice ExampleDType WithGrad) -> Double ->
+                 Int -> IO (Tensor [] ExampleDevice ExampleDType WithGrad)
 perSampleQLoss qOutB tv k = do
   qRow    <- trowSelect qOutB k
   qScalar <- telemSelect qRow 0
@@ -203,28 +204,28 @@ perSampleQLoss qOutB tv k = do
   diff    <- tsub qScalar targetT
   tmul diff diff
 
-meanScalarLoss : (n : Nat) -> List (Tensor [] CPU F64 WithGrad) -> IO (Tensor [] CPU F64 WithGrad)
+meanScalarLoss : (n : Nat) -> List (Tensor [] ExampleDevice ExampleDType WithGrad) -> IO (Tensor [] ExampleDevice ExampleDType WithGrad)
 meanScalarLoss n losses = do
   zero <- tconstScalar 0.0
   let summed = foldl (\a, b => MkTensor (prim__add a.tensorPtr b.tensorPtr) Nothing) zero losses
   tmulScalar summed (1.0 / cast n)
 
-qLossBatch : (n : Nat) -> QNet -> QNet -> QNet -> ActorNet -> Tensor [] CPU F64 WithGrad ->
+qLossBatch : (n : Nat) -> QNet -> QNet -> QNet -> ActorNet -> Tensor [] ExampleDevice ExampleDType WithGrad ->
              Double -> Double -> Vect n (Transition ObsDim ActDim) ->
-             IO (Tensor [] CPU F64 WithGrad)
+             IO (Tensor [] ExampleDevice ExampleDType WithGrad)
 qLossBatch n qOnline q1Tgt q2Tgt actor logStdV gamma alpha batch = do
   targetVals <- traverse (computeTargetVal q1Tgt q2Tgt actor logStdV gamma alpha) batch
   let qInputs = the (Vect n (Vector QInputDim Double))
                     (map (\t => qInputTensor (qInput t.obs (oneAct t.action))) batch)
       qInputBT = bulkToTensor2d qInputs
-      qInputV = the (Tensor [n, QInputDim] CPU F64 WithGrad) (MkTensor qInputBT Nothing)
+      qInputV = the (Tensor [n, QInputDim] ExampleDevice ExampleDType WithGrad) (MkTensor qInputBT Nothing)
   (_, qOutB) <- forwardVarBatch qOnline qInputV
   losses <- go qOutB (toList targetVals) 0
   meanScalarLoss n losses
   where
     oneAct : Vect ActDim Double -> Double
     oneAct [a] = a
-    go : {n : Nat} -> Tensor [n, 1] CPU F64 WithGrad -> List Double -> Int -> IO (List (Tensor [] CPU F64 WithGrad))
+    go : {n : Nat} -> Tensor [n, 1] ExampleDevice ExampleDType WithGrad -> List Double -> Int -> IO (List (Tensor [] ExampleDevice ExampleDType WithGrad))
     go _ [] _ = pure []
     go qOutB (tv :: rest) k = do
       l <- perSampleQLoss qOutB tv k
@@ -235,18 +236,18 @@ qLossBatch n qOnline q1Tgt q2Tgt actor logStdV gamma alpha batch = do
 -- --- Actor loss with reparameterization -----------------------------
 
 -- Build a [n, 1] non-grad Tensor from a Vect of Doubles (one row each).
-buildScalarColumn : {n : Nat} -> Vect n Double -> Tensor [n, 1] CPU F64 WithGrad
+buildScalarColumn : {n : Nat} -> Vect n Double -> Tensor [n, 1] ExampleDevice ExampleDType WithGrad
 buildScalarColumn {n} xs =
   let rows = the (Vect n (Vector 1 Double)) (map (\x => VArray [SArray x]) xs)
       ptr = bulkToTensor2d rows
   in MkTensor ptr Nothing
 
 actorPerStepLoss : {n : Nat} ->
-                   Tensor [n, 1] CPU F64 WithGrad -> Tensor [n, 1] CPU F64 WithGrad ->
-                   Tensor [n, 1] CPU F64 WithGrad -> Tensor [n, 1] CPU F64 WithGrad ->
-                   Tensor [] CPU F64 WithGrad -> Double ->
+                   Tensor [n, 1] ExampleDevice ExampleDType WithGrad -> Tensor [n, 1] ExampleDevice ExampleDType WithGrad ->
+                   Tensor [n, 1] ExampleDevice ExampleDType WithGrad -> Tensor [n, 1] ExampleDevice ExampleDType WithGrad ->
+                   Tensor [] ExampleDevice ExampleDType WithGrad -> Double ->
                    Int ->
-                   IO (Tensor [] CPU F64 WithGrad)
+                   IO (Tensor [] ExampleDevice ExampleDType WithGrad)
 actorPerStepLoss meanB uBT q1B q2B logStdV alpha rowIdx = do
   q1Row <- trowSelect q1B rowIdx
   q1S   <- telemSelect q1Row 0
@@ -275,15 +276,15 @@ actorPerStepLoss meanB uBT q1B q2B logStdV alpha rowIdx = do
   alphaLogP <- tmulScalar lpV alpha
   tsub alphaLogP minQS
 
-actorLossBatch : (n : Nat) -> ActorNet -> QNet -> QNet -> Tensor [] CPU F64 WithGrad ->
-                 Double -> Vect n (Vect ObsDim Double) -> IO (Tensor [] CPU F64 WithGrad)
+actorLossBatch : (n : Nat) -> ActorNet -> QNet -> QNet -> Tensor [] ExampleDevice ExampleDType WithGrad ->
+                 Double -> Vect n (Vect ObsDim Double) -> IO (Tensor [] ExampleDevice ExampleDType WithGrad)
 actorLossBatch n actor q1 q2 logStdV alpha obsBatch = do
   let logStd = prim__item logStdV.tensorPtr
       stdVal = Prelude.exp logStd
   epses <- traverse (\_ => normalSample) obsBatch
   let obsTensors = the (Vect n (Vector ObsDim Double)) (map obsTensor obsBatch)
       obsBT = bulkToTensor2d obsTensors
-      obsBV = the (Tensor [n, ObsDim] CPU F64 WithGrad) (MkTensor obsBT Nothing)
+      obsBV = the (Tensor [n, ObsDim] ExampleDevice ExampleDType WithGrad) (MkTensor obsBT Nothing)
   (_, meanB) <- forwardVarBatch actor obsBV
   let epsScales = map (\e => stdVal * e) epses
       epsBV = buildScalarColumn epsScales
@@ -297,9 +298,9 @@ actorLossBatch n actor q1 q2 logStdV alpha obsBatch = do
   meanScalarLoss n losses
   where
     go : {n : Nat} ->
-         Tensor [n, 1] CPU F64 WithGrad -> Tensor [n, 1] CPU F64 WithGrad ->
-         Tensor [n, 1] CPU F64 WithGrad -> Tensor [n, 1] CPU F64 WithGrad ->
-         List Double -> Int -> IO (List (Tensor [] CPU F64 WithGrad))
+         Tensor [n, 1] ExampleDevice ExampleDType WithGrad -> Tensor [n, 1] ExampleDevice ExampleDType WithGrad ->
+         Tensor [n, 1] ExampleDevice ExampleDType WithGrad -> Tensor [n, 1] ExampleDevice ExampleDType WithGrad ->
+         List Double -> Int -> IO (List (Tensor [] ExampleDevice ExampleDType WithGrad))
     go _ _ _ _ [] _ = pure []
     go meanB uBT q1B q2B (_ :: rest) k = do
       l <- actorPerStepLoss meanB uBT q1B q2B logStdV alpha k
@@ -423,7 +424,7 @@ main = do
   q2 <- mkQ "q2_"
   q1Tgt <- mkQ "q1tgt_"
   q2Tgt <- mkQ "q2tgt_"
-  logStdV <- the (IO (Tensor [] CPU F64 WithGrad)) (tparamScalar "actor_log_std" 0.0)
+  logStdV <- the (IO (Tensor [] ExampleDevice ExampleDType WithGrad)) (tparamScalar "actor_log_std" 0.0)
 
   -- Hard-copy online → target at init.
   _ <- polyakUpdate 1.0 "q1_" "q1tgt_"

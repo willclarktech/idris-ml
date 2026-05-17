@@ -17,6 +17,7 @@ import Array
 import Train
 import Util
 import Tensor
+import BuildConfig
 
 
 -- LSTM pattern-prediction example. Single LSTM(1 -> 4) -> Linear(4 -> 1)
@@ -56,7 +57,7 @@ main = do
 
   lstmAny <- lstmLayerAny {i = 1} {o = 4} "lstm"
   llAny <- linearLayerAny {i = 4} {o = 1} "ll"
-  let model : Network 1 [4] 1 CPU F64 WithGrad
+  let model : Network 1 [4] 1 ExampleDevice ExampleDType WithGrad
       model = lstmAny ~~> OutputLayer llAny
   putStrLn ""
 

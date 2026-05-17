@@ -16,6 +16,7 @@ import Array
 import Util
 import Device
 import Tensor
+import BuildConfig
 
 
 ----------------------------------------------------------------------
@@ -82,9 +83,9 @@ BatchSize = 16
 profileEpoch :
   NativeOptimizer ->
   Vect BatchSize (TwoPhaseDataPoint InputW OutputW Double) ->
-  Network InputW [] OutputW CPU F64 WithGrad ->
+  Network InputW [] OutputW ExampleDevice ExampleDType WithGrad ->
   Nat ->
-  IO (Network InputW [] OutputW CPU F64 WithGrad)
+  IO (Network InputW [] OutputW ExampleDevice ExampleDType WithGrad)
 profileEpoch opt dataPoints model epochNum = do
   t0 <- clockTime Monotonic
   (model', lossVal) <- epochTwoPhaseVar opt dataPoints tbceLoss model
@@ -105,9 +106,9 @@ profileEpoch opt dataPoints model epochNum = do
 profileLoop :
   NativeOptimizer ->
   Vect BatchSize (TwoPhaseDataPoint InputW OutputW Double) ->
-  Network InputW [] OutputW CPU F64 WithGrad ->
+  Network InputW [] OutputW ExampleDevice ExampleDType WithGrad ->
   Nat -> Nat ->
-  IO (Network InputW [] OutputW CPU F64 WithGrad)
+  IO (Network InputW [] OutputW ExampleDevice ExampleDType WithGrad)
 profileLoop opt dataPoints model cur count =
   if cur >= count
     then pure model
@@ -130,7 +131,7 @@ main = do
   putStrLn ""
 
   ntmAny <- ntmLayerAny {n = N, m = M, h = H, i = InputW, o = OutputW} "ntm"
-  let model : Network InputW [] OutputW CPU F64 WithGrad
+  let model : Network InputW [] OutputW ExampleDevice ExampleDType WithGrad
       model = OutputLayer ntmAny
 
   let opt = nativeRmsprop 0.0001 0.95 1.0e-8 10.0 0.9
@@ -165,8 +166,8 @@ main = do
 
   where
     -- Warmup loop using epochTwoPhaseVar ( typed-surface fast path)
-    go : Nat -> Network InputW [] OutputW CPU F64 WithGrad ->
-         IO (Network InputW [] OutputW CPU F64 WithGrad)
+    go : Nat -> Network InputW [] OutputW ExampleDevice ExampleDType WithGrad ->
+         IO (Network InputW [] OutputW ExampleDevice ExampleDType WithGrad)
     go 5 m = pure m
     go k m = do
       dps <- copyTaskBinaryBatchVect {w = W} BatchSize 1 20

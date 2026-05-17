@@ -14,8 +14,8 @@
 ||| clobbered on the next build. Edit this `.in` file instead.
 module BuildConfig
 
-import Device
-import Device.Mlx
+import public Device
+import public Device.Mlx
 
 ||| Device tag examples target. `CPU` by default; `MlxDev MGpu` when
 ||| building with `BACKEND=mlx MLX_DEVICE=gpu`.

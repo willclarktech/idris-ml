@@ -17,6 +17,7 @@ import Array
 import Train
 import Util
 import Tensor
+import BuildConfig
 
 
 record Config where
@@ -53,7 +54,7 @@ main = do
 
   rnnAny <- rnnLayerAny {i = 1} {o = 4} "rnn"
   llAny <- linearLayerAny {i = 4} {o = 1} "ll"
-  let model : Network 1 [4] 1 CPU F64 WithGrad
+  let model : Network 1 [4] 1 ExampleDevice ExampleDType WithGrad
       model = rnnAny ~~> OutputLayer llAny
   putStrLn ""
 
