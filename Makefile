@@ -901,7 +901,10 @@ clean:
 # Excluded intentionally:
 #   Bench, Profile — no RESULT lines (covered by bench-compare / example-profile).
 EXAMPLES := example-supervised example-rnn example-lstm example-gru example-transformer example-gpt example-matmul-bench example-mnist example-seq-classify example-ntm-copy example-ntm-associative-recall example-dnc-copy example-dnc-recall example-reinforce example-q-learning example-sarsa example-monte-carlo example-frozen-lake example-taxi example-dqn example-mountain-car example-mountain-car-cont example-a2c example-ppo example-sac example-transfer
-BACKENDS := tape mlx torch
+# 4-lane matrix. `mlx-gpu` is a virtual lane that builds with
+# BACKEND=mlx MLX_DEVICE=gpu, exercising the F32-on-MlxGpu code path
+# (per BuildConfig.idr). All other lanes build at F64.
+BACKENDS := tape mlx mlx-gpu torch
 
 # Crash-only smoke gate: every example × 3 backends, 3-10 epochs each,
 # safety-net thresholds in test-examples.expect. Catches crashes / NaN /
@@ -912,17 +915,21 @@ test-examples:
 	if command -v timeout >/dev/null 2>&1; then TIMEOUT_PREFIX="timeout $(EXAMPLE_TIMEOUT)"; \
 	elif command -v gtimeout >/dev/null 2>&1; then TIMEOUT_PREFIX="gtimeout $(EXAMPLE_TIMEOUT)"; \
 	else echo "WARNING: no timeout/gtimeout binary; examples will not be time-bounded"; TIMEOUT_PREFIX=""; fi; \
-	for b in tape mlx torch; do \
-		backend_output=$$($(MAKE) --no-print-directory BACKEND=$$b backend 2>&1) || { \
-			echo "--- backend $$b: build failed, skipping its examples ---"; \
+	for lane in $(BACKENDS); do \
+		case "$$lane" in \
+			mlx-gpu) b=mlx; lane_env="MLX_DEVICE=gpu"; expect_suffix=.mlx-gpu ;; \
+			*)       b=$$lane; lane_env=""; expect_suffix="" ;; \
+		esac; \
+		backend_output=$$(env $$lane_env $(MAKE) --no-print-directory BACKEND=$$b backend 2>&1) || { \
+			echo "--- backend $$lane: build failed, skipping its examples ---"; \
 			echo "$$backend_output" | tail -20 | sed 's/^/  | /'; \
-			skip="$$skip $$b"; continue; \
+			skip="$$skip $$lane"; continue; \
 		}; \
 		for e in $(EXAMPLES); do \
-			case " $(SKIP_EXAMPLES) " in *" $$b:$$e "*) \
-				echo "skip: $$e [$$b] (in SKIP_EXAMPLES)"; continue ;; \
+			case " $(SKIP_EXAMPLES) " in *" $$lane:$$e "*|*" $$b:$$e "*) \
+				echo "skip: $$e [$$lane] (in SKIP_EXAMPLES)"; continue ;; \
 			esac; \
-			echo "--- $$e [$$b] ---"; \
+			echo "--- $$e [$$lane] ---"; \
 			extra_args=""; \
 			case "$$e" in \
 				example-supervised)  extra_args="SUPERVISED_ARGS=--epochs 5" ;; \
@@ -948,9 +955,9 @@ test-examples:
 			esac; \
 			t_start=$$(date +%s); \
 			if [ -n "$$extra_args" ]; then \
-				output=$$($$TIMEOUT_PREFIX $(MAKE) --no-print-directory BACKEND=$$b $$e "$$extra_args" 2>&1); rc=$$?; \
+				output=$$(env $$lane_env $$TIMEOUT_PREFIX $(MAKE) --no-print-directory BACKEND=$$b $$e "$$extra_args" 2>&1); rc=$$?; \
 			else \
-				output=$$($$TIMEOUT_PREFIX $(MAKE) --no-print-directory BACKEND=$$b $$e 2>&1); rc=$$?; \
+				output=$$(env $$lane_env $$TIMEOUT_PREFIX $(MAKE) --no-print-directory BACKEND=$$b $$e 2>&1); rc=$$?; \
 			fi; \
 			t_end=$$(date +%s); elapsed=$$((t_end - t_start)); \
 			if [ $$elapsed -lt 60 ]; then elapsed_fmt="$${elapsed}s"; \
@@ -958,20 +965,25 @@ test-examples:
 			else elapsed_fmt="$$((elapsed/3600))h$$(((elapsed%3600)/60))m"; fi; \
 			if [ $$rc -ne 0 ]; then \
 				if [ $$rc -eq 124 ]; then \
-					echo "FAIL: $$e [$$b] timed out (>$(EXAMPLE_TIMEOUT)s) ($$elapsed_fmt)"; \
+					echo "FAIL: $$e [$$lane] timed out (>$(EXAMPLE_TIMEOUT)s) ($$elapsed_fmt)"; \
 				else \
-					echo "FAIL: $$e [$$b] crashed (rc=$$rc) ($$elapsed_fmt)"; \
+					echo "FAIL: $$e [$$lane] crashed (rc=$$rc) ($$elapsed_fmt)"; \
 				fi; \
 				echo "$$output" | tail -40 | sed 's/^/  | /'; \
 				fail=1; continue; \
 			fi; \
 			result_line=$$(echo "$$output" | grep '^RESULT' | head -1); \
 			if [ -z "$$result_line" ]; then \
-				echo "FAIL: $$e [$$b] -- no RESULT line ($$elapsed_fmt)"; \
+				echo "FAIL: $$e [$$lane] -- no RESULT line ($$elapsed_fmt)"; \
 				echo "$$output" | tail -40 | sed 's/^/  | /'; \
 				fail=1; \
 			else \
-				scripts/check-result.sh "$$e" "$$result_line" || fail=1; \
+				expect_path="$$(dirname scripts/check-result.sh)/../test-examples.expect$$expect_suffix"; \
+				if [ -f "test-examples.expect$$expect_suffix" ]; then \
+					scripts/check-result.sh "$$e" "$$result_line" "test-examples.expect$$expect_suffix" || fail=1; \
+				else \
+					scripts/check-result.sh "$$e" "$$result_line" || fail=1; \
+				fi; \
 				echo "  ($$elapsed_fmt)"; \
 			fi; \
 		done; \
