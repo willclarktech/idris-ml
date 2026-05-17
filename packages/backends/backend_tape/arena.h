@@ -24,6 +24,13 @@ Tensor* make_tensor_arena(double* arena_data, int numel, int* shape, int rank, i
 Tensor* make_scalar_f32(double val, int requires_grad);
 Tensor* make_tensor_arena_f32(float* arena_data, int numel, int* shape, int rank, int requires_grad);
 
+/* tape_zero_tensor: arena-allocated zero tensor of arbitrary shape and dtype.
+ * Used by BLAS-backed kernels (mm/mv/linear/linear_2d/bmm/bmm_3x3) as the
+ * zero-dim-guard short-circuit return — cblas rejects lda=0, but the
+ * mathematical answer is a properly-shaped zero. Skip tape_append on the
+ * caller side: a constant-zero result has zero gradient w.r.t. its inputs. */
+Tensor* tape_zero_tensor(int* shape, int rank, int dtype_tag, int requires_grad);
+
 /* SFX(...) aliases for the .inc machinery (kernel.inc resolves SFX(make_scalar)
  * to make_scalar_f64 / make_scalar_f32 via macro substitution). */
 static inline Tensor* make_scalar_f64(double val, int rg) { return make_scalar(val, rg); }

@@ -25,6 +25,18 @@ static TensorHandle tensor_linear_f32(TensorHandle hW, TensorHandle hx, TensorHa
     Tensor* bias = (Tensor*)hbias;
     int m = W->shape[0], n = W->shape[1];
     int out_shape[] = {m};
+    /* Zero-dim guard (see mm.c). cblas_sgemv rejects lda=0; n=0 reduces to
+     * just adding the bias (or zero if no bias). */
+    if (m == 0 || n == 0) {
+        int rg0 = W->requires_grad || x->requires_grad || (bias && bias->requires_grad);
+        Tensor* r = tape_zero_tensor(out_shape, 1, DT_F32, rg0);
+        if (bias && m > 0) {
+            /* r += bias (n=0 case where the matmul drops out but bias remains) */
+            for (int i = 0; i < m; i++)
+                ((float*)r->data)[i] = ((float*)bias->data)[i];
+        }
+        return r;
+    }
     float* out_data = arena_alloc(m * sizeof(float));
 #ifdef __APPLE__
     cblas_sgemv(CblasRowMajor, CblasNoTrans, m, n, 1.0f,
@@ -70,6 +82,16 @@ TensorHandle tensor_linear(TensorHandle hW, TensorHandle hx, TensorHandle hbias)
     }
     int m = W->shape[0], n = W->shape[1];
     int out_shape[] = {m};
+    /* Zero-dim guard (see mm.c). cblas_dgemv rejects lda=0. */
+    if (m == 0 || n == 0) {
+        int rg0 = W->requires_grad || x->requires_grad || (bias && bias->requires_grad);
+        Tensor* r = tape_zero_tensor(out_shape, 1, DT_F64, rg0);
+        if (bias && m > 0) {
+            for (int i = 0; i < m; i++)
+                ((double*)r->data)[i] = ((double*)bias->data)[i];
+        }
+        return r;
+    }
     double* out_data = arena_alloc(m * sizeof(double));
 #ifdef __APPLE__
     cblas_dgemv(CblasRowMajor, CblasNoTrans, m, n, 1.0,

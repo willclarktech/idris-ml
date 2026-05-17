@@ -32,6 +32,24 @@ TensorHandle tensor_linear_2d(TensorHandle hW, TensorHandle hX, TensorHandle hbi
     int out_shape[] = {BB, oo};
     int rg = W->requires_grad || X->requires_grad || (bias && bias->requires_grad);
 
+    /* Zero-dim guard (see mm.c). cblas_*gemm rejects lda=0 when ii=0. */
+    if (BB == 0 || oo == 0 || ii == 0) {
+        Tensor* r = tape_zero_tensor(out_shape, 2, W->dtype_tag, rg);
+        if (bias && BB > 0 && oo > 0) {
+            /* ii=0 case: matmul drops out but bias broadcasts across batch */
+            if (W->dtype_tag == DT_F32) {
+                for (int b = 0; b < BB; b++)
+                    for (int o = 0; o < oo; o++)
+                        ((float*)r->data)[b * oo + o] = ((float*)bias->data)[o];
+            } else {
+                for (int b = 0; b < BB; b++)
+                    for (int o = 0; o < oo; o++)
+                        ((double*)r->data)[b * oo + o] = ((double*)bias->data)[o];
+            }
+        }
+        return r;
+    }
+
     if (W->dtype_tag == DT_F32) {
         float* out_data = arena_alloc(BB * oo * sizeof(float));
 #ifdef __APPLE__

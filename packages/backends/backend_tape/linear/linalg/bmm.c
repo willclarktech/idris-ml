@@ -24,6 +24,9 @@ TensorHandle tensor_bmm(TensorHandle ha, TensorHandle hb) {
     int B = a->shape[0], m = a->shape[1], n = a->shape[2], k = b->shape[1];
     int rg = a->requires_grad || b->requires_grad;
     int shape[] = {B, m, k};
+    /* Zero-dim guard (see mm.c). Per-batch cblas_*gemm rejects lda=0. */
+    if (B == 0 || m == 0 || n == 0 || k == 0)
+        return tape_zero_tensor(shape, 3, a->dtype_tag, rg);
     if (a->dtype_tag == DT_F32) {
         float* data = arena_alloc(B * m * k * sizeof(float));
         for (int bi = 0; bi < B; bi++) {

@@ -27,6 +27,10 @@ static TensorHandle tensor_mv_f32(TensorHandle hmat, TensorHandle hvec) {
     Tensor* vec = (Tensor*)hvec;
     int m = mat->shape[0], n = mat->shape[1];
     int out_shape[] = {m};
+    /* Zero-dim guard (see mm.c). cblas_sgemv rejects lda=0. */
+    if (m == 0 || n == 0)
+        return tape_zero_tensor(out_shape, 1, DT_F32,
+                                mat->requires_grad || vec->requires_grad);
     float* out_data = arena_alloc(m * sizeof(float));
 #ifdef __APPLE__
     cblas_sgemv(CblasRowMajor, CblasNoTrans, m, n, 1.0f,
@@ -61,6 +65,10 @@ TensorHandle tensor_mv(TensorHandle hmat, TensorHandle hvec) {
     }
     int m = mat->shape[0], n = mat->shape[1];
     int out_shape[] = {m};
+    /* Zero-dim guard (see mm.c). cblas_dgemv rejects lda=0. */
+    if (m == 0 || n == 0)
+        return tape_zero_tensor(out_shape, 1, DT_F64,
+                                mat->requires_grad || vec->requires_grad);
     double* out_data = arena_alloc(m * sizeof(double));
 #ifdef __APPLE__
     cblas_dgemv(CblasRowMajor, CblasNoTrans, m, n, 1.0,

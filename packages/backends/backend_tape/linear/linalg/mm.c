@@ -25,6 +25,9 @@ TensorHandle tensor_mm(TensorHandle ha, TensorHandle hb) {
     int m = a->shape[0], n = a->shape[1], k = b->shape[1];
     int rg = a->requires_grad || b->requires_grad;
     int shape[] = {m, k};
+    /* Zero-dim guard: cblas_*gemm rejects lda=0 (precondition lda >= max(K,1)).
+     * Mathematical answer when any of {m,n,k}=0 is the [m,k] zero tensor. */
+    if (m == 0 || n == 0 || k == 0) return tape_zero_tensor(shape, 2, a->dtype_tag, rg);
     if (a->dtype_tag == DT_F32) {
         float* data = arena_alloc(m * k * sizeof(float));
 #ifdef __APPLE__

@@ -148,6 +148,31 @@ Tensor* make_tensor_arena_f32(float* arena_data, int numel, int* shape, int rank
     return t;
 }
 
+/* Arena-allocated zero tensor of arbitrary rank + shape + dtype.
+ * Callers (BLAS-backed kernels) use this when an input has a zero-width
+ * dimension — cblas_*gemm rejects lda=0, but the mathematical answer is
+ * a properly-shaped zero tensor. Skip tape_append on the caller side:
+ * a constant-zero result has zero gradient w.r.t. its inputs. */
+Tensor* tape_zero_tensor(int* shape, int rank, int dtype_tag, int requires_grad) {
+    int numel = 1;
+    for (int i = 0; i < rank; i++) numel *= shape[i];
+    Tensor* t = arena_alloc(sizeof(Tensor));
+    memset(t, 0, sizeof(Tensor));
+    size_t elem_size = (dtype_tag == DT_F32) ? sizeof(float) : sizeof(double);
+    t->data = arena_alloc((size_t)numel * elem_size);
+    if (numel > 0) memset(t->data, 0, (size_t)numel * elem_size);
+    t->shape = arena_alloc((size_t)rank * sizeof(int));
+    memcpy(t->shape, shape, (size_t)rank * sizeof(int));
+    t->rank = rank;
+    t->numel = numel;
+    t->requires_grad = requires_grad;
+    t->tape_idx = -1;
+    t->grad = NULL;
+    t->persistent = 0;
+    t->dtype_tag = dtype_tag;
+    return t;
+}
+
 /* Grad allocator — grads stay F64 regardless of param dtype (asymmetric
    data=F32 / grad=F64 mirrors mixed-precision practice and keeps the 67-case
    backward switch dtype-agnostic). Optimizer step reads F64 grads and writes
