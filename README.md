@@ -92,6 +92,7 @@ All examples accept `--epochs`, `--lr`, `--seed` and task-specific flags.
 5. [Sequences](packages/jupyter/notebooks/tutorials/05_sequences.ipynb) — RNN/LSTM for time-series
 6. [Device Safety](packages/jupyter/notebooks/tutorials/06_device_safety.ipynb) — phantom Device parameter, type-safe CPU/GPU placement
 7. [Hyperparameter Optimization](packages/jupyter/notebooks/tutorials/07_hpo.ipynb) — `lr_find` and tuning workflows
+8. [Precision and Devices](packages/jupyter/notebooks/tutorials/08_precision_devices.ipynb) — `Compatible (device, dtype)` admissibility, parametric dtype families, `UpcastableTo` derivation, build-mode targeting
 
 **Quick start** — requires [Idris 2](https://github.com/idris-lang/Idris2) (0.8.0+) and a C compiler:
 
