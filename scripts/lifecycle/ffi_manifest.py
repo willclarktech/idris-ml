@@ -224,6 +224,21 @@ MANIFEST = {
     "tensor_create_state_1d_streamed":  (("i", "R", "i", "i"), "T"),
     "tensor_create_state_2d_streamed":  (("i", "i", "R", "i", "i"), "T"),
     "tensor_cast_dtype_streamed":       (("T", "i", "i"), "T"),
+
+    # Fused param create + in-place init (added 2026-05-28, see commit
+    # b38e71c). Allocates the param tensor in C and runs an in-place init
+    # kernel (torch::nn::init::normal_ for normal, t.fill_ for const),
+    # bypassing the per-element Idris-side sampler + per-element
+    # prim__setDouble FFI that dominated HfLlama state construction.
+    # Each takes (dims…, init-params, stream_tag, dtag).
+    "tensor_create_param_1d_normal_streamed": (("i", "d", "d", "i", "i"), "T"),
+    "tensor_create_param_2d_normal_streamed": (("i", "i", "d", "d", "i", "i"), "T"),
+    "tensor_create_param_3d_normal_streamed": (("i", "i", "i", "d", "d", "i", "i"), "T"),
+    "tensor_create_param_4d_normal_streamed": (("i", "i", "i", "i", "d", "d", "i", "i"), "T"),
+    "tensor_create_param_1d_const_streamed":  (("i", "d", "i", "i"), "T"),
+    "tensor_create_param_2d_const_streamed":  (("i", "i", "d", "i", "i"), "T"),
+    "tensor_create_param_3d_const_streamed":  (("i", "i", "i", "d", "i", "i"), "T"),
+    "tensor_create_param_4d_const_streamed":  (("i", "i", "i", "i", "d", "i", "i"), "T"),
 }
 
 # C function names to LEAVE AS-IS (don't convert).

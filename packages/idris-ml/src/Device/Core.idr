@@ -448,6 +448,23 @@ interface UserDeviceConv d => UserDeviceTraining (0 d : Device) where
   primCreateState2dStreamed : Int -> Int -> AnyPtr -> Int -> Int -> AnyPtr
   primCastStreamed         : AnyPtr -> Int -> Int -> AnyPtr
 
+  -- Fused param create + in-place init (added 2026-05-28). Replaces the
+  -- per-element Idris-side sampler + per-element prim__setDouble FFI for
+  -- model state construction. Each: (dims…, init-params, streamTag,
+  -- dtypeTag) → AnyPtr; backends that don't implement these (tape, mlx
+  -- pre-Phase 7) abort loudly at the FFI boundary via dtype_streamed.c.
+  primCreateParam1dNormalStreamed : Int -> Double -> Double -> Int -> Int -> AnyPtr
+  primCreateParam2dNormalStreamed : Int -> Int -> Double -> Double -> Int -> Int -> AnyPtr
+  primCreateParam3dNormalStreamed : Int -> Int -> Int -> Double -> Double -> Int -> Int -> AnyPtr
+  primCreateParam4dNormalStreamed : Int -> Int -> Int -> Int -> Double -> Double -> Int -> Int -> AnyPtr
+  primCreateParam1dConstStreamed  : Int -> Double -> Int -> Int -> AnyPtr
+  primCreateParam2dConstStreamed  : Int -> Int -> Double -> Int -> Int -> AnyPtr
+  primCreateParam3dConstStreamed  : Int -> Int -> Int -> Double -> Int -> Int -> AnyPtr
+  primCreateParam4dConstStreamed  : Int -> Int -> Int -> Int -> Double -> Int -> Int -> AnyPtr
+  -- Seed the backend's init RNG (torch::manual_seed equivalent). No-op
+  -- on backends without a seedable init-RNG.
+  primSetInitSeedStreamed : Bits64 -> Int -> ()
+
 
 ----------------------------------------------------------------------
 -- UserDeviceTransfer — cross-backend tensor transfer surface

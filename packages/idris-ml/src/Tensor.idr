@@ -573,6 +573,63 @@ dtCreateParam4d : {0 d : Device} -> UserDeviceTraining d => {0 t : Type} -> Runt
                   Int -> Int -> Int -> Int -> AnyPtr -> Int -> AnyPtr
 dtCreateParam4d a b c e dat stream = primCreateParam4dStreamed {d} a b c e dat stream (dtypeTag {t})
 
+-- Fused param create + in-place init (added 2026-05-28). Each
+-- `dtCreateParam<rank>{Normal,Const}` dispatches to the backend's
+-- `primCreateParam<rank><Init>Streamed` instance method, threading
+-- the dtypeTag from `RuntimeDType t`. Replaces the per-element
+-- Idris-side sampler + per-element `prim__setDouble` FFI in callers
+-- (HfBert / HfGpt2 / HfLlama smart constructors + the core
+-- Layer/{Linear,RmsNorm,SwiGLU,Embedding}). The actual init runs in
+-- the C backend (libtorch's `torch::nn::init::normal_` or
+-- `t.fill_`), at memory-bandwidth speed.
+public export
+dtCreateParam1dNormal : {0 d : Device} -> UserDeviceTraining d => {0 t : Type} -> RuntimeDType t =>
+                        Linked d => Compatible d t =>
+                        Int -> Double -> Double -> Int -> AnyPtr
+dtCreateParam1dNormal n mean std stream = primCreateParam1dNormalStreamed {d} n mean std stream (dtypeTag {t})
+
+public export
+dtCreateParam2dNormal : {0 d : Device} -> UserDeviceTraining d => {0 t : Type} -> RuntimeDType t =>
+                        Linked d => Compatible d t =>
+                        Int -> Int -> Double -> Double -> Int -> AnyPtr
+dtCreateParam2dNormal r c mean std stream = primCreateParam2dNormalStreamed {d} r c mean std stream (dtypeTag {t})
+
+public export
+dtCreateParam3dNormal : {0 d : Device} -> UserDeviceTraining d => {0 t : Type} -> RuntimeDType t =>
+                        Linked d => Compatible d t =>
+                        Int -> Int -> Int -> Double -> Double -> Int -> AnyPtr
+dtCreateParam3dNormal a b c mean std stream = primCreateParam3dNormalStreamed {d} a b c mean std stream (dtypeTag {t})
+
+public export
+dtCreateParam4dNormal : {0 d : Device} -> UserDeviceTraining d => {0 t : Type} -> RuntimeDType t =>
+                        Linked d => Compatible d t =>
+                        Int -> Int -> Int -> Int -> Double -> Double -> Int -> AnyPtr
+dtCreateParam4dNormal a b c e mean std stream = primCreateParam4dNormalStreamed {d} a b c e mean std stream (dtypeTag {t})
+
+public export
+dtCreateParam1dConst : {0 d : Device} -> UserDeviceTraining d => {0 t : Type} -> RuntimeDType t =>
+                       Linked d => Compatible d t =>
+                       Int -> Double -> Int -> AnyPtr
+dtCreateParam1dConst n value stream = primCreateParam1dConstStreamed {d} n value stream (dtypeTag {t})
+
+public export
+dtCreateParam2dConst : {0 d : Device} -> UserDeviceTraining d => {0 t : Type} -> RuntimeDType t =>
+                       Linked d => Compatible d t =>
+                       Int -> Int -> Double -> Int -> AnyPtr
+dtCreateParam2dConst r c value stream = primCreateParam2dConstStreamed {d} r c value stream (dtypeTag {t})
+
+public export
+dtCreateParam3dConst : {0 d : Device} -> UserDeviceTraining d => {0 t : Type} -> RuntimeDType t =>
+                       Linked d => Compatible d t =>
+                       Int -> Int -> Int -> Double -> Int -> AnyPtr
+dtCreateParam3dConst a b c value stream = primCreateParam3dConstStreamed {d} a b c value stream (dtypeTag {t})
+
+public export
+dtCreateParam4dConst : {0 d : Device} -> UserDeviceTraining d => {0 t : Type} -> RuntimeDType t =>
+                       Linked d => Compatible d t =>
+                       Int -> Int -> Int -> Int -> Double -> Int -> AnyPtr
+dtCreateParam4dConst a b c e value stream = primCreateParam4dConstStreamed {d} a b c e value stream (dtypeTag {t})
+
 public export
 dtCreateState1d : {0 d : Device} -> UserDeviceTraining d => {0 t : Type} -> RuntimeDType t =>
                   Linked d => Compatible d t =>
@@ -1155,6 +1212,122 @@ tparam1d {n} pid buf = ioRerun (\_ =>
   let nI = cast {to=Int} n
       reg = primParamRegister {d} pid (dtCreateParam1d {d} {t=dt} nI buf (deviceStreamTag {d}))
   in MkTensor reg (Just pid))
+
+-- ---------------------------------------------------------------
+-- Fused param create + in-place init (added 2026-05-28)
+-- ---------------------------------------------------------------
+-- Replaces the `traverse normalSample + packDoubles + tparam*` chain
+-- in HF model + core Layer/ smart constructors. The init runs in the
+-- C backend (libtorch's `torch::nn::init::normal_` or `t.fill_`); no
+-- per-element host-side loop, no per-element FFI marshalling. See
+-- `docs/develop/perf-changes.md` for the head-to-head measurements
+-- against PyTorch's `from_pretrained`.
+--
+-- Each variant registers the resulting tensor in the C-side optimizer
+-- registry under `paramId` (same wiring as `tparam<rank>`), so
+-- checkpointing + optimizer enumeration just work.
+
+||| Registered learnable [o, i] parameter initialised from a normal
+||| distribution `N(mean, std)`. Backend RNG is seeded once via
+||| `tsetInitSeed` — runs are otherwise deterministic per (seed, dtype).
+export
+tparam2dNormal : {0 d : Device} -> UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt
+              => {o, i : Nat} -> (paramId : String) -> (mean : Double) -> (std : Double)
+              -> IO (Tensor [o, i] d dt WithGrad)
+tparam2dNormal {o} {i} pid mean std = ioRerun (\_ =>
+  let oI = cast {to=Int} o
+      iI = cast {to=Int} i
+      reg = primParamRegister {d} pid (dtCreateParam2dNormal {d} {t=dt} oI iI mean std (deviceStreamTag {d}))
+  in MkTensor reg (Just pid))
+
+||| Registered learnable [n] parameter initialised from `N(mean, std)`.
+export
+tparam1dNormal : {0 d : Device} -> UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt
+              => {n : Nat} -> (paramId : String) -> (mean : Double) -> (std : Double)
+              -> IO (Tensor [n] d dt WithGrad)
+tparam1dNormal {n} pid mean std = ioRerun (\_ =>
+  let nI = cast {to=Int} n
+      reg = primParamRegister {d} pid (dtCreateParam1dNormal {d} {t=dt} nI mean std (deviceStreamTag {d}))
+  in MkTensor reg (Just pid))
+
+||| Registered learnable [d0, d1, d2] parameter initialised from `N(mean, std)`.
+export
+tparam3dNormal : {0 d : Device} -> UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt
+              => {a, b, c : Nat} -> (paramId : String) -> (mean : Double) -> (std : Double)
+              -> IO (Tensor [a, b, c] d dt WithGrad)
+tparam3dNormal {a} {b} {c} pid mean std = ioRerun (\_ =>
+  let aI = cast {to=Int} a
+      bI = cast {to=Int} b
+      cI = cast {to=Int} c
+      reg = primParamRegister {d} pid (dtCreateParam3dNormal {d} {t=dt} aI bI cI mean std (deviceStreamTag {d}))
+  in MkTensor reg (Just pid))
+
+||| Registered learnable [d0, d1, d2, d3] parameter initialised from `N(mean, std)`.
+export
+tparam4dNormal : {0 d : Device} -> UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt
+              => {a, b, c, e : Nat} -> (paramId : String) -> (mean : Double) -> (std : Double)
+              -> IO (Tensor [a, b, c, e] d dt WithGrad)
+tparam4dNormal {a} {b} {c} {e} pid mean std = ioRerun (\_ =>
+  let aI = cast {to=Int} a
+      bI = cast {to=Int} b
+      cI = cast {to=Int} c
+      eI = cast {to=Int} e
+      reg = primParamRegister {d} pid (dtCreateParam4dNormal {d} {t=dt} aI bI cI eI mean std (deviceStreamTag {d}))
+  in MkTensor reg (Just pid))
+
+||| Registered learnable [o, i] parameter filled with `value`. Covers
+||| RmsNorm's weight=1.0, BatchNorm beta=0, etc.
+export
+tparam2dConst : {0 d : Device} -> UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt
+             => {o, i : Nat} -> (paramId : String) -> (value : Double)
+             -> IO (Tensor [o, i] d dt WithGrad)
+tparam2dConst {o} {i} pid value = ioRerun (\_ =>
+  let oI = cast {to=Int} o
+      iI = cast {to=Int} i
+      reg = primParamRegister {d} pid (dtCreateParam2dConst {d} {t=dt} oI iI value (deviceStreamTag {d}))
+  in MkTensor reg (Just pid))
+
+||| Registered learnable [n] parameter filled with `value`.
+export
+tparam1dConst : {0 d : Device} -> UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt
+             => {n : Nat} -> (paramId : String) -> (value : Double)
+             -> IO (Tensor [n] d dt WithGrad)
+tparam1dConst {n} pid value = ioRerun (\_ =>
+  let nI = cast {to=Int} n
+      reg = primParamRegister {d} pid (dtCreateParam1dConst {d} {t=dt} nI value (deviceStreamTag {d}))
+  in MkTensor reg (Just pid))
+
+||| Registered learnable [a, b, c] parameter filled with `value`.
+export
+tparam3dConst : {0 d : Device} -> UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt
+             => {a, b, c : Nat} -> (paramId : String) -> (value : Double)
+             -> IO (Tensor [a, b, c] d dt WithGrad)
+tparam3dConst {a} {b} {c} pid value = ioRerun (\_ =>
+  let aI = cast {to=Int} a
+      bI = cast {to=Int} b
+      cI = cast {to=Int} c
+      reg = primParamRegister {d} pid (dtCreateParam3dConst {d} {t=dt} aI bI cI value (deviceStreamTag {d}))
+  in MkTensor reg (Just pid))
+
+||| Registered learnable [a, b, c, e] parameter filled with `value`.
+export
+tparam4dConst : {0 d : Device} -> UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt
+             => {a, b, c, e : Nat} -> (paramId : String) -> (value : Double)
+             -> IO (Tensor [a, b, c, e] d dt WithGrad)
+tparam4dConst {a} {b} {c} {e} pid value = ioRerun (\_ =>
+  let aI = cast {to=Int} a
+      bI = cast {to=Int} b
+      cI = cast {to=Int} c
+      eI = cast {to=Int} e
+      reg = primParamRegister {d} pid (dtCreateParam4dConst {d} {t=dt} aI bI cI eI value (deviceStreamTag {d}))
+  in MkTensor reg (Just pid))
+
+||| Seed the backend's init RNG. Subsequent `tparam*Normal` / etc.
+||| calls become deterministic per (seed, dtype, shape). No-op on
+||| backends without a seedable init-RNG.
+export
+tsetInitSeed : {0 d : Device} -> UserDeviceTraining d => Bits64 -> IO ()
+tsetInitSeed seed = ioRerun (\_ => primSetInitSeedStreamed {d} seed (deviceStreamTag {d}))
 
 ||| Register an already-constructed tensor (any dtype, grad or not) in the
 ||| param registry under `paramId`, so checkpointing (`saveModel`) includes
