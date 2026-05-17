@@ -264,7 +264,9 @@ Four files, each with a distinct role. Don't conflate them; updating the wrong o
 - `scripts/perf-baseline.sh <example-key> <backend>` — Idris-vs-PyTorch ratio with two-point timing.
 - `scripts/perf-sweep.sh [--examples …] [--cells tape,torch,mlx-cpu,mlx-gpu]` — **canonical for cross-backend cascade changes** (typeclass cascade, C ABI, lifecycle work). One PyTorch ref per example, cached across cells. A single-backend `bench-compare` on cross-backend work hides per-backend regressions and leaves no log entry.
 
-**Ad-hoc local exploration**: `make example-profile` → `make bench-compare` (same batch, currently 16) → `bash scripts/sweep.sh` for systematic grids → update `docs/develop/performance-analysis.md` with fresh data. `bench-compare` is convenient for eyeballing but does *not* log to `perf-log.jsonl`.
+**No expensive run without a perf log.** Any inference or training run that takes more than a few seconds — whether you're verifying correctness, eyeballing output, comparing backends, debugging, or doing ad-hoc exploration — MUST land in `perf-log.jsonl`. Run via `scripts/perf-run.sh` (or the equivalent script) instead of `make example-*` directly; if the example isn't yet wired into `perf-run.sh`, wire it in first (case arms are one line each). Build-only invocations (`make install`, `make backend`) are exempt — only the *run* must be logged. The rule applies to correctness gates too: `test-hf-bert-roundtrip` etc. are correctness scaffolding, but the underlying inference run is expensive and a paired `perf-run.sh` entry is the cheapest way to keep "yesterday's wall" comparable. Re-running a measurement that's already in the log is fine; missing measurements are not.
+
+**Ad-hoc local exploration**: `make example-profile` → `make bench-compare` (same batch, currently 16) → `bash scripts/sweep.sh` for systematic grids → update `docs/develop/performance-analysis.md` with fresh data. `bench-compare` is convenient for eyeballing but does *not* log to `perf-log.jsonl` — pair it with a `perf-run.sh` measurement if you're keeping the result.
 
 ## Conventions
 
