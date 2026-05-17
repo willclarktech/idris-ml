@@ -53,10 +53,10 @@ RolloutLen : Nat; RolloutLen = 1024
 BatchSize : Nat; BatchSize = 64
 
 Actor : Type
-Actor = Network ObsDim [Hidden, Hidden, Hidden, Hidden] NumActions CPU WithGrad
+Actor = Network ObsDim [Hidden, Hidden, Hidden, Hidden] NumActions CPU F64 WithGrad
 
 Critic : Type
-Critic = Network ObsDim [Hidden, Hidden, Hidden, Hidden] 1 CPU WithGrad
+Critic = Network ObsDim [Hidden, Hidden, Hidden, Hidden] 1 CPU F64 WithGrad
 
 mkActor : IO Actor
 mkActor = do
@@ -104,13 +104,13 @@ record RollStep where
 
 criticValue : Critic -> Vect ObsDim Double -> IO Double
 criticValue critic obs = do
-  let stateV = the (TVec ObsDim CPU WithGrad) (MkTensor (bulkToTensor (obsTensor obs)) Nothing)
+  let stateV = the (TVec ObsDim CPU F64 WithGrad) (MkTensor (bulkToTensor (obsTensor obs)) Nothing)
   (_, outV) <- forwardVar critic stateV
   pure (prim__item1d outV.tensorPtr 0)
 
 sampleActionIO : Actor -> Critic -> Vect ObsDim Double -> IO (Nat, Double, Double)
 sampleActionIO actor critic obs = do
-  let stateV  = the (TVec ObsDim CPU WithGrad) (MkTensor (bulkToTensor (obsTensor obs)) Nothing)
+  let stateV  = the (TVec ObsDim CPU F64 WithGrad) (MkTensor (bulkToTensor (obsTensor obs)) Nothing)
   (_, logitsV) <- forwardVar actor stateV
   let logPT   = prim__logSoftmax logitsV.tensorPtr 0
       lp0     = prim__item1d logPT 0
@@ -198,13 +198,13 @@ normAdvs triples =
 clipScalar : Double -> Double -> Double -> Double
 clipScalar lo hi x = if x < lo then lo else if x > hi then hi else x
 
-perStepLoss : {n : Nat} -> (logitsB : Tensor [n, NumActions] CPU WithGrad) ->
-              (valueB : Tensor [n, 1] CPU WithGrad) -> (rowIdx : Int) ->
+perStepLoss : {n : Nat} -> (logitsB : Tensor [n, NumActions] CPU F64 WithGrad) ->
+              (valueB : Tensor [n, 1] CPU F64 WithGrad) -> (rowIdx : Int) ->
               Double -> Double -> Double ->
-              (RollStep, Double, Double) -> IO (Tensor [] CPU WithGrad)
+              (RollStep, Double, Double) -> IO (Tensor [] CPU F64 WithGrad)
 perStepLoss logitsB valueB rowIdx clipEps entropyCoef valueCoef (step, adv, retT) = do
   logitsRow <- trowSelect logitsB rowIdx
-  let logPT = the (Tensor [NumActions] CPU WithGrad)
+  let logPT = the (Tensor [NumActions] CPU F64 WithGrad)
                   (MkTensor (prim__logSoftmax logitsRow.tensorPtr 0) Nothing)
       aIdx : Int
       aIdx = cast {to=Int} (cast {to=Integer} step.action)
@@ -233,7 +233,7 @@ perStepLoss logitsB valueB rowIdx clipEps entropyCoef valueCoef (step, adv, retT
   p0V  <- texp lp0V
   p1V  <- texp lp1V
   p2V  <- texp lp2V
-  let negEntV = the (Tensor [] CPU WithGrad)
+  let negEntV = the (Tensor [] CPU F64 WithGrad)
                     (MkTensor (prim__add
                               (prim__add (prim__mul p0V.tensorPtr lp0V.tensorPtr)
                                          (prim__mul p1V.tensorPtr lp1V.tensorPtr))
@@ -244,7 +244,7 @@ perStepLoss logitsB valueB rowIdx clipEps entropyCoef valueCoef (step, adv, retT
                        entTerm.tensorPtr) Nothing)
 
 
-meanScalarLoss : (n : Nat) -> List (Tensor [] CPU WithGrad) -> IO (Tensor [] CPU WithGrad)
+meanScalarLoss : (n : Nat) -> List (Tensor [] CPU F64 WithGrad) -> IO (Tensor [] CPU F64 WithGrad)
 meanScalarLoss n losses = do
   zero <- tconstScalar 0.0
   let summed = foldl (\a, b => MkTensor (prim__add a.tensorPtr b.tensorPtr) Nothing) zero losses
@@ -327,7 +327,7 @@ runBatch opt actor critic cfg batch = do
       obsBatch = the (Vect (length batch) (Vector ObsDim Double))
                      (map (\(s, _, _) => obsTensor s.obs) batchVec)
       stackedT = bulkToTensor2d obsBatch
-      stackedV = the (Tensor [n, ObsDim] CPU WithGrad) (MkTensor stackedT Nothing)
+      stackedV = the (Tensor [n, ObsDim] CPU F64 WithGrad) (MkTensor stackedT Nothing)
   (_, logitsB) <- forwardVarBatch actor stackedV
   (_, valueB)  <- forwardVarBatch critic stackedV
   losses <- enumeratedLosses logitsB valueB batchVec 0
@@ -335,10 +335,10 @@ runBatch opt actor critic cfg batch = do
   _ <- nativeTrainStep opt loss
   pure ()
   where
-    enumeratedLosses : {n : Nat} -> Tensor [n, NumActions] CPU WithGrad ->
-                       Tensor [n, 1] CPU WithGrad ->
+    enumeratedLosses : {n : Nat} -> Tensor [n, NumActions] CPU F64 WithGrad ->
+                       Tensor [n, 1] CPU F64 WithGrad ->
                        Vect k (RollStep, Double, Double) -> Int ->
-                       IO (List (Tensor [] CPU WithGrad))
+                       IO (List (Tensor [] CPU F64 WithGrad))
     enumeratedLosses _ _ [] _ = pure []
     enumeratedLosses lB vB (t :: rest) k = do
       l  <- perStepLoss lB vB k cfg.clipEps cfg.entropyCoef cfg.valueCoef t
@@ -409,7 +409,7 @@ ppoEpoch opt cfg st = do
 
 greedyAct : Actor -> Vect ObsDim Double -> IO Nat
 greedyAct actor obs = do
-  let stateV = the (TVec ObsDim CPU WithGrad) (MkTensor (bulkToTensor (obsTensor obs)) Nothing)
+  let stateV = the (TVec ObsDim CPU F64 WithGrad) (MkTensor (bulkToTensor (obsTensor obs)) Nothing)
   (_, logits) <- forwardVar actor stateV
   let l0 = prim__item1d logits.tensorPtr 0
       l1 = prim__item1d logits.tensorPtr 1

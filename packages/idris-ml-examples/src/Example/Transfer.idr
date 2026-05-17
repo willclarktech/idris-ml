@@ -87,23 +87,23 @@ optPath path =
 ----------------------------------------------------------------------
 
 -- Forward each datapoint, compute NLL loss as a Double, average.
-evalModel : Network 2 [] 3 CPU WithGrad -> IO Double
+evalModel : Network 2 [] 3 CPU F64 WithGrad -> IO Double
 evalModel model = do
   losses <- traverse (\dp => do
         let inT = bulkToTensor (x dp)
-            inV = the (TVec 2 CPU WithGrad) (MkTensor inT Nothing)
+            inV = the (TVec 2 CPU F64 WithGrad) (MkTensor inT Nothing)
         (_, predV) <- forwardVar model inV
         let tgtT = bulkToTensor (y dp)
-            tgtV = the (TVec 3 CPU WithGrad) (MkTensor tgtT Nothing)
+            tgtV = the (TVec 3 CPU F64 WithGrad) (MkTensor tgtT Nothing)
         lossT <- tnllLoss predV tgtV
         pure (prim__item lossT.tensorPtr)) dataPoints
   pure (foldl (+) 0.0 (toList losses) / 5.0)
 
-printPredictions : Network 2 [] 3 CPU WithGrad -> IO ()
+printPredictions : Network 2 [] 3 CPU F64 WithGrad -> IO ()
 printPredictions model = do
   traverse_ (\dp => do
     let inT = bulkToTensor (x dp)
-        inV = the (TVec 2 CPU WithGrad) (MkTensor inT Nothing)
+        inV = the (TVec 2 CPU F64 WithGrad) (MkTensor inT Nothing)
     (_, predV) <- forwardVar model inV
     let predClass = evalPrediction predV.tensorPtr
         targetClass = evalPredictionTarget (y dp)
@@ -122,7 +122,7 @@ printPredictions model = do
 -- Modes
 ----------------------------------------------------------------------
 
-doTrain : Config -> Network 2 [] 3 CPU WithGrad -> IO ()
+doTrain : Config -> Network 2 [] 3 CPU F64 WithGrad -> IO ()
 doTrain cfg model = do
   let opt = nativeSgd cfg.lr
   putStrLn $ "Training " ++ show cfg.epochs ++ " epochs..."
@@ -142,7 +142,7 @@ doTrain cfg model = do
   putStrLn $ formatResult [("mode", "train"), ("epochs", show epochsDone),
                             ("loss", show evalLoss), ("backend", backendName)]
 
-doContinue : Config -> Network 2 [] 3 CPU WithGrad -> IO ()
+doContinue : Config -> Network 2 [] 3 CPU F64 WithGrad -> IO ()
 doContinue cfg model = do
   ok <- loadModel cfg.loadPath
   putStrLn $ (if ok then "Loaded model from " else "FAILED to load from ") ++ cfg.loadPath
@@ -167,7 +167,7 @@ doContinue cfg model = do
   putStrLn $ formatResult [("mode", "continue"), ("epochs", show epochsDone),
                             ("loss", show evalLoss), ("backend", backendName)]
 
-doInfer : Config -> Network 2 [] 3 CPU WithGrad -> IO ()
+doInfer : Config -> Network 2 [] 3 CPU F64 WithGrad -> IO ()
 doInfer cfg model = do
   ok <- loadModel cfg.loadPath
   putStrLn $ (if ok then "Loaded model from " else "FAILED to load from ") ++ cfg.loadPath
@@ -189,7 +189,7 @@ main = do
   srand cfg.seed
 
   llAny <- linearLayerAny {i=2} {o=3} "ll"
-  let model : Network 2 [] 3 CPU WithGrad
+  let model : Network 2 [] 3 CPU F64 WithGrad
       model = OutputLayer llAny
 
   putStrLn $ "=== Cross-Backend Transfer [" ++ backendName ++ "] -- "

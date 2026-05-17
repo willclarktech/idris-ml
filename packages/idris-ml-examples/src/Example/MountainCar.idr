@@ -41,7 +41,7 @@ NumActions : Nat; NumActions = 3
 MaxSteps : Nat; MaxSteps = 200
 
 QNet : Type
-QNet = Network ObsDim [Hidden, Hidden, Hidden, Hidden] NumActions CPU WithGrad
+QNet = Network ObsDim [Hidden, Hidden, Hidden, Hidden] NumActions CPU F64 WithGrad
 
 mkQNet : (scope : String) -> IO QNet
 mkQNet scope = do
@@ -71,7 +71,7 @@ epsilonAt step start end decaySteps =
 greedyAction : QNet -> Vect ObsDim Double -> IO Nat
 greedyAction online obs = do
   let stateT = bulkToTensor (obsTensor obs)
-      stateV = the (TVec ObsDim CPU WithGrad) (MkTensor stateT Nothing)
+      stateV = the (TVec ObsDim CPU F64 WithGrad) (MkTensor stateT Nothing)
   (_, qV) <- forwardVar online stateV
   let q0 = prim__item1d qV.tensorPtr 0
       q1 = prim__item1d qV.tensorPtr 1
@@ -108,7 +108,7 @@ vectorMaxPtr t =
 computeTargetVal : QNet -> Double -> Transition ObsDim 1 -> IO Double
 computeTargetVal target gamma t = do
   let stateT = bulkToTensor (obsTensor t.nextObs)
-      stateV = the (TVec ObsDim CPU WithGrad) (MkTensor stateT Nothing)
+      stateV = the (TVec ObsDim CPU F64 WithGrad) (MkTensor stateT Nothing)
   (_, qV) <- forwardVar target stateV
   let nextMax = vectorMaxPtr qV.tensorPtr
       bootstrap = if t.done then 0.0 else gamma * nextMax
@@ -117,8 +117,8 @@ computeTargetVal target gamma t = do
 actionIdx : Vect 1 Double -> Int
 actionIdx [a] = cast {to=Int} (cast {to=Integer} a)
 
-perSampleLoss : {n : Nat} -> (qOutB : Tensor [n, NumActions] CPU WithGrad) ->
-                Transition ObsDim 1 -> Double -> Int -> IO (Tensor [] CPU WithGrad)
+perSampleLoss : {n : Nat} -> (qOutB : Tensor [n, NumActions] CPU F64 WithGrad) ->
+                Transition ObsDim 1 -> Double -> Int -> IO (Tensor [] CPU F64 WithGrad)
 perSampleLoss qOutB t tv k = do
   let aIdx = actionIdx t.action
   qRow    <- trowSelect qOutB k
@@ -127,26 +127,26 @@ perSampleLoss qOutB t tv k = do
   diff    <- tsub qScalar targetT
   tmul diff diff
 
-meanScalarLoss : (n : Nat) -> List (Tensor [] CPU WithGrad) -> IO (Tensor [] CPU WithGrad)
+meanScalarLoss : (n : Nat) -> List (Tensor [] CPU F64 WithGrad) -> IO (Tensor [] CPU F64 WithGrad)
 meanScalarLoss n losses = do
   zero <- tconstScalar 0.0
   let summed = foldl (\a, b => MkTensor (prim__add a.tensorPtr b.tensorPtr) Nothing) zero losses
   tmulScalar summed (1.0 / cast n)
 
 batchLossBatched : (n : Nat) -> QNet -> QNet -> Double ->
-                   Vect n (Transition ObsDim 1) -> IO (Tensor [] CPU WithGrad)
+                   Vect n (Transition ObsDim 1) -> IO (Tensor [] CPU F64 WithGrad)
 batchLossBatched n online target gamma batch = do
   targetVals <- traverse (computeTargetVal target gamma) batch
   let obsTensors = map (\t => obsTensor t.obs) batch
       obsBT = bulkToTensor2d obsTensors
-      obsBV = the (Tensor [n, ObsDim] CPU WithGrad) (MkTensor obsBT Nothing)
+      obsBV = the (Tensor [n, ObsDim] CPU F64 WithGrad) (MkTensor obsBT Nothing)
   (_, qOutB) <- forwardVarBatch online obsBV
   losses <- go qOutB (toList batch) (toList targetVals) 0
   meanScalarLoss n losses
   where
-    go : {n : Nat} -> Tensor [n, NumActions] CPU WithGrad ->
+    go : {n : Nat} -> Tensor [n, NumActions] CPU F64 WithGrad ->
          List (Transition ObsDim 1) ->
-         List Double -> Int -> IO (List (Tensor [] CPU WithGrad))
+         List Double -> Int -> IO (List (Tensor [] CPU F64 WithGrad))
     go _ [] _ _ = pure []
     go _ _ [] _ = pure []
     go qOutB (t :: tRest) (tv :: tvRest) k = do

@@ -44,7 +44,7 @@ specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
 
 
 -- Argmax on a TVec (read three values via prim__item1d).
-evalPrediction : TVec 3 CPU WithGrad -> Nat
+evalPrediction : TVec 3 CPU F64 WithGrad -> Nat
 evalPrediction outV =
   let v0 = prim__item1d outV.tensorPtr 0
       v1 = prim__item1d outV.tensorPtr 1
@@ -67,7 +67,7 @@ main = do
            ++ " seed=" ++ show cfg.seed
 
   llAny <- linearLayerAny {i = 2} {o = 3} "ll"
-  let model : Network 2 [] 3 CPU WithGrad
+  let model : Network 2 [] 3 CPU F64 WithGrad
       model = OutputLayer llAny
   putStrLn ""
 
@@ -83,7 +83,7 @@ main = do
   -- Build persistent input tensors and forward through the trained model.
   let inputs = the (Vect 5 AnyPtr) (map mkInputTensor dataPoints)
   traverse_ (\(idx, dp) => do
-    let inV = the (TVec 2 CPU WithGrad) (MkTensor (mkInputTensor dp) Nothing)
+    let inV = the (TVec 2 CPU F64 WithGrad) (MkTensor (mkInputTensor dp) Nothing)
     (_, predV) <- forwardVar trained inV
     let predClass = evalPrediction predV
         targetClass = evalPredictionTarget (y dp)

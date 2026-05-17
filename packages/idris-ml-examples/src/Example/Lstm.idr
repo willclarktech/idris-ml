@@ -56,7 +56,7 @@ main = do
 
   lstmAny <- lstmLayerAny {i = 1} {o = 4} "lstm"
   llAny <- linearLayerAny {i = 4} {o = 1} "ll"
-  let model : Network 1 [4] 1 CPU WithGrad
+  let model : Network 1 [4] 1 CPU F64 WithGrad
       model = lstmAny ~~> OutputLayer llAny
   putStrLn ""
 

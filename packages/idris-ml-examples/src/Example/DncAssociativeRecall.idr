@@ -126,7 +126,7 @@ main = do
   putStrLn $ "Architecture: N=" ++ show N ++ " M=" ++ show M ++ " H=" ++ show H ++ " R=" ++ show R
 
   dncAny <- dncLayerAny {r = R, n = N, m = M, h = H, i = InputW, o = OutputW} "dnc"
-  let model : Network InputW [] OutputW CPU WithGrad
+  let model : Network InputW [] OutputW CPU F64 WithGrad
       model = OutputLayer dncAny
   putStrLn ""
 
@@ -137,7 +137,7 @@ main = do
       genBatch = recallTaskBinaryBatchVect {w = W} cfg.batch cfg.minItems cfg.maxItems SeqLen
 
   -- Metrics: bit accuracy + memory
-  let evalMetrics : Network InputW [] OutputW CPU WithGrad -> IO (List (String, String))
+  let evalMetrics : Network InputW [] OutputW CPU F64 WithGrad -> IO (List (String, String))
       evalMetrics m = do
         evalBatch <- recallTaskBinaryBatchVect {w = W} 10 cfg.minItems cfg.maxItems SeqLen
         accs <- traverse (\dp => do

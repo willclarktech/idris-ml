@@ -132,7 +132,7 @@ mnistItem ds idx = do
 ||| Evaluate accuracy on nSamples random test images by forwarding each
 ||| image through the  model and arg-maxing the logits.
 evalAccuracy : {hs : List Nat} ->
-               Network InputDim hs NumClasses CPU WithGrad ->
+               Network InputDim hs NumClasses CPU F64 WithGrad ->
                AnyPtr -> Int -> Nat -> IO (Double, Double)
 evalAccuracy model ds numImages nSamples = go nSamples 0 0.0
   where
@@ -152,7 +152,7 @@ evalAccuracy model ds numImages nSamples = go nSamples 0 0.0
           imgT = prim__mnistGetImage ds pos
           lbl = prim__mnistGetLabel ds pos
           flatImg = prim__reshape1d imgT (cast {to=Int} InputDim)
-          inV = the (TVec InputDim CPU WithGrad) (MkTensor flatImg Nothing)
+          inV = the (TVec InputDim CPU F64 WithGrad) (MkTensor flatImg Nothing)
       (_, predV) <- forwardVar model inV
       let outT = predV.tensorPtr
           pred = argmax outT (-1.0e30) 0 0
@@ -160,7 +160,7 @@ evalAccuracy model ds numImages nSamples = go nSamples 0 0.0
           lblBuf = prim__allocInts 1
           lblBuf' = prim__setInt lblBuf 0 lbl
           tgtT = prim__oneHot lblBuf' 1 (cast {to=Int} NumClasses)
-          tgtV = the (TVec NumClasses CPU WithGrad) (MkTensor tgtT Nothing)
+          tgtV = the (TVec NumClasses CPU F64 WithGrad) (MkTensor tgtT Nothing)
       lossT <- tnllLoss predV tgtV
       let lossVal = prim__item lossT.tensorPtr
       go k correct' (totalLoss + lossVal)
@@ -183,12 +183,12 @@ trainOneFullPass : {hs : List Nat} ->
                    NativeOptimizer ->
                    IO (Vect BatchSize (TensorDataPoint InputDim NumClasses)) ->
                    (batchesPerEpoch : Nat) ->
-                   Network InputDim hs NumClasses CPU WithGrad ->
-                   IO (Network InputDim hs NumClasses CPU WithGrad, Double)
+                   Network InputDim hs NumClasses CPU F64 WithGrad ->
+                   IO (Network InputDim hs NumClasses CPU F64 WithGrad, Double)
 trainOneFullPass opt genBatch n m0 = go m0 n 0.0
   where
-    go : Network InputDim hs NumClasses CPU WithGrad -> Nat -> Double ->
-         IO (Network InputDim hs NumClasses CPU WithGrad, Double)
+    go : Network InputDim hs NumClasses CPU F64 WithGrad -> Nat -> Double ->
+         IO (Network InputDim hs NumClasses CPU F64 WithGrad, Double)
     go m Z     acc = pure (m, acc / cast (natToInteger n))
     go m (S k) acc = do
       batch <- genBatch
@@ -198,7 +198,7 @@ trainOneFullPass opt genBatch n m0 = go m0 n 0.0
 ||| Per-epoch metrics: test accuracy and test loss over a small eval slice.
 mnistMetrics : {hs : List Nat} ->
                AnyPtr -> Int ->
-               Network InputDim hs NumClasses CPU WithGrad ->
+               Network InputDim hs NumClasses CPU F64 WithGrad ->
                IO (List (String, String))
 mnistMetrics testDs testCount m = do
   pair <- withNoGrad (evalAccuracy m testDs testCount 200)

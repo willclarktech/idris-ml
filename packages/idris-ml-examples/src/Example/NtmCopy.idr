@@ -136,7 +136,7 @@ main = do
   putStrLn $ "Architecture: N=" ++ show N ++ " M=" ++ show M ++ " H=" ++ show H
 
   ntmAny <- ntmLayerAny {n = N, m = M, h = H, i = InputW, o = OutputW} "ntm"
-  let model : Network InputW [] OutputW CPU WithGrad
+  let model : Network InputW [] OutputW CPU F64 WithGrad
       model = OutputLayer ntmAny
   putStrLn ""
 
@@ -147,7 +147,7 @@ main = do
       genBatch = copyTaskBinaryBatchVect {w = W} cfg.batch cfg.minLen cfg.maxLen
 
   -- Metrics: bit accuracy + memory (computed at each log step)
-  let evalMetrics : Network InputW [] OutputW CPU WithGrad -> IO (List (String, String))
+  let evalMetrics : Network InputW [] OutputW CPU F64 WithGrad -> IO (List (String, String))
       evalMetrics m = do
         evalBatch <- copyTaskBinaryBatchVect {w = W} 10 1 20
         accs <- traverse (\dp => do

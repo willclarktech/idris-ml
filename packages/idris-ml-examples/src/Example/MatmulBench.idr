@@ -112,18 +112,18 @@ main = do
   t0 <- clockTime Monotonic
   loopMatmul cfg.iters a b
   t1 <- clockTime Monotonic
-  let dt = diffMs t1 t0
+  let dtMs = diffMs t1 t0
 
-  let perCall      = dt / cast cfg.iters
+  let perCall      = dtMs / cast cfg.iters
   let flopsPerCall = 2.0 * cast cfg.size * cast cfg.size * cast cfg.size
   let gflops       = flopsPerCall / (perCall / 1000.0) / 1.0e9
 
-  putStrLn $ "Total wall:  " ++ fmt2 dt      ++ " ms"
+  putStrLn $ "Total wall:  " ++ fmt2 dtMs      ++ " ms"
   putStrLn $ "Per matmul:  " ++ fmt2 perCall ++ " ms"
   putStrLn $ "Throughput:  " ++ fmt2 gflops  ++ " GFLOPS"
   putStrLn ""
   putStrLn $ "RESULT\tN=" ++ show cfg.size
            ++ "\titers=" ++ show cfg.iters
-           ++ "\ttotal_ms=" ++ fmt2 dt
+           ++ "\ttotal_ms=" ++ fmt2 dtMs
            ++ "\tper_call_ms=" ++ fmt2 perCall
            ++ "\tgflops=" ++ fmt2 gflops
