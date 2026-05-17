@@ -1,7 +1,8 @@
 /* Precompiled header for the torch backend.
  *
  * Pulls in `<torch/torch.h>` — the heavy libtorch C++ header that
- * every backend_torch/*.cpp TU includes (transitively via tensor.h).
+ * every backend_torch TU (*.cpp under that subtree) includes
+ * (transitively via tensor.h).
  * Building this PCH once and reusing it across all ~90 TUs saves a
  * significant chunk of the cold compile wall (libtorch headers are
  * ~30K lines of templates and most of the per-TU cost is parsing +
