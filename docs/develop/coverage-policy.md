@@ -141,6 +141,39 @@ When introducing a new `OP_FOO` to either tape or mlx:
 4. Re-run `make coverage-gap-probe`; the symbol should not appear
    with `test_hits = 0`.
 
+## Why we don't have a dedicated cross-backend agreement harness
+
+The original coverage plan included **W6 — cross-backend numeric agreement test**:
+a single multi-link Criterion file that would call tape's `tensor_add_tape`,
+torch's `tensor_add_torch`, and mlx's `tensor_add_mlx` on identical input and
+assert pairwise agreement within tolerance.
+
+It is intentionally deferred. The same divergence-catching is achieved
+by the common-test pattern at lower cost:
+
+- The Criterion suite under `packages/backends/test/common/` is built **once
+  per backend** (`-DBACKEND_<NAME>` selects assertions). When a test like
+  `test_gelu.c::forward_backward_at_one` is added, it runs on tape, torch,
+  and mlx in three separate CI invocations. If one backend's answer differs,
+  that backend's CI lane fails; the other lanes stay green; you immediately
+  know which backend disagrees.
+- This is how `test_gelu.c` caught torch using exact GELU instead of the
+  tanh approximation (commit `6251dc2`), how `test_transpose_last2.c` caught
+  mlx's `tensor_to_doubles` reading non-contiguous views in storage order
+  (commit `d2a5d25`), and how `test_clip_grad_norm.c` captured torch's
+  ~9e-8 post-clip precision drift (sentinel for TODO row 76).
+- The dedicated W6 harness would add infrastructure cost (multi-link build
+  variant, suffixed-FFI symbol declarations, cross-link `-DBACKEND_*` gating
+  per file) for marginal additional coverage — the only case it captures
+  that the common-test pattern doesn't is "all three forwards agree but
+  backwards disagree across all three", which is a small target with the
+  TODO row 76 sentinel already tracking the most-likely instance.
+
+If a real cross-backend divergence appears that the common-test pattern
+can't pin down (e.g. a multi-backend gradient-flow chain where the
+problematic step isn't obvious), revisit W6 then. Until then, the common
+tests are the gate.
+
 ## Cross-references
 
 - `scripts/coverage-gap-probe.sh` — the probe itself
