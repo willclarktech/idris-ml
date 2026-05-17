@@ -16,7 +16,9 @@ FILES=(
 
 for f in "${FILES[@]}"; do
   out="$DIR/${f%.gz}"
-  if [ -f "$out" ]; then
+  # `-s` (non-empty) not `-f` (exists) — catches half-downloaded
+  # files from interrupted curl runs that would otherwise look cached.
+  if [ -s "$out" ]; then
     echo "Already exists: $out"
     continue
   fi

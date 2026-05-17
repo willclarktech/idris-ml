@@ -9,7 +9,9 @@ mkdir -p "$DIR"
 URL="https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt"
 OUT="$DIR/input.txt"
 
-if [ -f "$OUT" ]; then
+# `-s` (non-empty) not `-f` (exists) — catches half-downloaded files
+# from interrupted curl runs that would otherwise look cached.
+if [ -s "$OUT" ]; then
   echo "Already exists: $OUT"
   exit 0
 fi

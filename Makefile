@@ -598,15 +598,29 @@ $(HWDEVICES_IDR): $(HWDEVICES_IN) $(BUILD)/.hwconfig-stamp
 $(LIB): $(BACKEND_OBJS) $(SHARED_OBJ) $(BUILD)/.backend-stamp | $(BUILD)
 	$(LINK_CC) -O2 -shared $(EXTRA_LDFLAGS) -o $@ $(BACKEND_OBJS) $(SHARED_OBJ) $(BACKEND_LDFLAGS)
 
-# Download MNIST dataset
-dataset-mnist:
+# Datasets: file-as-target so Make skips the fetch when the data is
+# already on disk (same pattern as HF_MODELS_DIR's HF safetensors).
+# Sentinel files anchor the recipe — `dataset_mnist.sh` writes 4
+# files in one shot; using the first as the Make target is enough
+# to gate the recipe.
+TINYSHAKESPEARE_FILE := data/tinyshakespeare/input.txt
+MNIST_SENTINEL       := data/mnist/train-images-idx3-ubyte
+
+$(TINYSHAKESPEARE_FILE):
+	bash scripts/dataset_tinyshakespeare.sh
+
+$(MNIST_SENTINEL):
 	bash scripts/dataset_mnist.sh
+
+# Convenience phony aliases preserving the public `make dataset-*`
+# interface. Existing CI / docs / users referencing these names keep
+# working; they just no-op when the data is already on disk.
+dataset-mnist: $(MNIST_SENTINEL)
 
 # Download tinyshakespeare corpus (~1 MB, 65-char vocab) for the GPT
 # convergence run. Smoke gate uses the small embedded corpus and does
 # not need this file.
-dataset-tinyshakespeare:
-	bash scripts/dataset_tinyshakespeare.sh
+dataset-tinyshakespeare: $(TINYSHAKESPEARE_FILE)
 
 # Multi-link: one libidrisml.{so,dylib} with all listed BACKENDs in it.
 # Primary backend's symbols are exported under both unified
@@ -1168,12 +1182,12 @@ example-gpt: install
 # Full-corpus convergence run (~hours on tape). Default `make example-gpt`
 # is a ~30s embedded-corpus demo; this target is the real char-LM
 # convergence target (matching nanoGPT/train_shakespeare_char.py).
-example-gpt-full: install dataset-tinyshakespeare
+example-gpt-full: install $(TINYSHAKESPEARE_FILE)
 	idris2 $(IDRIS_FLAGS) -o gpt $(EXAMPLE_SRC)/Example/Gpt.idr
 	cp $(LIB) build/exec/gpt_app/
 	$(STDBUF) ./build/exec/gpt $(SEED_FLAG) --corpus tinyshakespeare --epochs 1000 $(GPT_ARGS)
 
-example-mnist: install dataset-mnist
+example-mnist: install $(MNIST_SENTINEL)
 	idris2 $(IDRIS_FLAGS) -o mnist $(EXAMPLE_SRC)/Example/Mnist.idr
 	cp $(LIB) build/exec/mnist_app/
 	$(STDBUF) ./build/exec/mnist $(SEED_FLAG) $(MNIST_ARGS)
