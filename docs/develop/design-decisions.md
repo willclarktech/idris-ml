@@ -1216,3 +1216,27 @@ Two consequences worth naming:
 
 Cross-reference: the BERT module is the opposite-direction worked example — BERT *doesn't* fuse Q/K/V on disk, so HfBert stores them as three separate `[hidden, hidden]` linears matching `attention.self.{query,key,value}.weight`. The general rule: whatever HF does on disk, the module does in its state records.
 
+
+### Typed tokenizer handle: `Tokenizer vocab` + `(n ** Vect n (Fin vocab))` (2026-05-26)
+
+The Tokenizer.idr boundary is the canonical pattern for crossing from dynamic-shape input (file IO, network IO, subprocess output) into idris-ml's dependently-typed tensor world. Three pieces:
+
+1. **`Tokenizer vocab` GADT pairs the vocab size with the type at construction.** `mkTokenizer : String -> (vocab : Nat) -> IO (Either TokError (Tokenizer vocab))` probes the actual on-disk vocab via the Python subprocess's `vocab` subcommand and validates against the type-level `vocab` Nat — `Left TokVocabMismatch` if they disagree. Once you hold a `Tokenizer 30522`, you can't accidentally feed its outputs to a model expecting `Tokenizer 128256`; the *type* enforces alignment that's otherwise a silent runtime drift (token IDs read but interpreted against the wrong embedding table).
+
+2. **`tokenize` returns an existential `(n ** Vect n (Fin vocab))`.** The length `n` is runtime-determined (whatever the subprocess emits) but type-tracked via the dependent pair; each ID is `Fin vocab`, statically bounded by the type-level vocab. The lift from raw `Nat` to `Fin vocab` happens once at the FFI boundary via `natToFin`; any out-of-range ID surfaces as `Left TokIdOutOfRange` (means the Python tokenizer's vocab grew past the model's claim — exactly the alignment drift the typed boundary is supposed to catch).
+
+3. **`detokenize`'s input is `Vect n (Fin vocab)`.** Closes the loop: decoded IDs come back as a string, but the input was already validated bounded. No way to feed raw `Nat`s back through; the type lifts that to a programmer-visible mistake.
+
+This is the shape for any future dynamic→static crossing in idris-ml: existential dependent pair for the length, `Fin n` for bounded indices, smart constructor with on-disk validation for the parameter coupling. The KV-cache existential growing-`p` in Phase 4 is the same shape, just for sequence positions instead of vocab IDs.
+
+### Tokenizer backing: Python subprocess for v1, Rust FFI deferred (2026-05-26)
+
+Tokenizer.idr backs onto a Python subprocess via `scripts/hf_tokenize.py` — about ~1 s of Python startup per call. Acceptable because Python is already a dev dep (the oracle scripts use it), the call pattern is "tokenize the prompt once, generate N tokens in-process, detokenize once" so subprocess starts amortise across the model forward passes, and the API surface (`Tokenizer vocab` + `(n ** Vect n (Fin vocab))`) is Liskov-substitutable. A future row tracks the Rust-FFI upgrade in a new `packages/idris-tokenizers/` package: vendor `huggingface/tokenizers`, expose a C ABI, load via `%foreign`. Drops per-call cost from ~1 s to ~50 µs; existing callers don't change. Land trigger: a user reports the startup as a real perf issue, OR a non-HF Idris example wants tokenization (where the separate-package boundary pays for itself).
+
+### Why a separate `packages/idris-tokenizers/` package is NOT in v1 (2026-05-26)
+
+The deferred Rust-FFI upgrade above is filed as a *new package* (`packages/idris-tokenizers/`), but the v1 Python-subprocess shim lives *inside* `packages/idris-transformers/`. Avoid-speculative-generality: today the only consumer of tokenization is the HF-aligned model layer; a separate package's boundary cost (ipkg, test harness, install target, CI lane wiring) outweighs the benefit at this scale. Same shape as the "Pluggable Device" entry's "open-but-unused-still-costs" framing — peer packages land when a real second consumer appears, not on speculation.
+
+### Stdlib hypothesis ruled out for the large-Nat-pattern OOM (2026-05-26)
+
+While landing Test/Tokenizer.idr, the elaborator OOM'd on `case (Left (TokVocabMismatch 12345 30522)) => ...` — Nat literals in patterns unfold to Peano during case-tree construction (same class as the "Large Nat type-level reduction" entry in `gotchas.md`, in the pattern path rather than the unification path). Investigation followed the lead in the now-retired "Opaque type-level Nats" TODO row: the nixpkgs idris2 v0.8.0 derivation patches `bootstrap-stage2.sh` to replace `MAKE all` with `MAKE idris2-exec`, which seemed like it might be skipping a stage-2 stdlib rebuild that would otherwise pick up Nat optimisations. Traced through the full nixpkgs derivation chain (`by-name/id/idris2/unwrapped.nix`, `mkPrelude.nix`, `wrapped.nix`): the stdlib `.ttc` files are built by *separate* `mkPrelude.nix`-derived `prelude` / `base` / `contrib` / `linear` / `network` packages, each invoking the stage-2 `idris2-unwrapped` binary via `IDRIS2=...`. The `bootstrap-stage2` patch only skips an *additional* stdlib rebuild inside the idris2-unwrapped derivation; that build's output is discarded by `wrapped.nix` (which goes through the separate prelude/base derivations for `IDRIS2_PACKAGE_PATH`). Reverting the patch would add redundant build work; it does NOT change stdlib quality. The OOM is a compiler-level concern in Idris 2 v0.8.0; wait for v0.9.0 or use the `==` idiom in pattern arms. The investigation memo lives in `gotchas.md` so the next future-us doesn't re-trace the same dead-end.
