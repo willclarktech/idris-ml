@@ -8,3 +8,4 @@ depends = contrib
 modules = HfBert
         , HfGpt2
         , IdrisTransformers
+        , Tokenizer
