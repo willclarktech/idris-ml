@@ -221,3 +221,61 @@ buildLlamaRoPETables base scaling = ioRerun (\_ =>
       cosPtr   = dtCreateState2d {d} {t=dt} sLenI halfDimI cosBuf' (deviceStreamTag {d})
       sinPtr   = dtCreateState2d {d} {t=dt} sLenI halfDimI sinBuf' (deviceStreamTag {d})
   in MkRoPETables (MkTensor cosPtr Nothing) (MkTensor sinPtr Nothing))
+
+
+----------------------------------------------------------------------
+-- applyRope — rotate a [seq, headDim] tensor in place
+----------------------------------------------------------------------
+--
+-- Llama's split-half pair convention: split the input's last axis
+-- into halves, apply the 2D rotation per (firstHalf[i], secondHalf[i])
+-- pair using cos[m, i] / sin[m, i] sliced for the current positions.
+--
+--   firstOut  = firstHalf  * cos - secondHalf * sin
+--   secondOut = secondHalf * cos + firstHalf  * sin
+--   out       = concat firstOut secondOut along axis=1
+--
+-- Composes existing 2D primitives — primNarrow (axis-aware, fixed in
+-- bd61bef), primMul / primSub / primAdd (elementwise), and
+-- primConcat2dAxis1. No new core C surface needed.
+--
+-- `positionOffset` is the absolute starting position. For prefill
+-- (no KV cache, processing the full prompt) it's 0. For incremental
+-- decode step k after a prefill of L tokens it's L + k - 1 (single-
+-- token input). The cos/sin tables are sliced via primNarrow on axis
+-- 0 to pull the [seq, halfDim] rows aligned with the current input.
+
+||| Apply Llama-style RoPE to a single head's `[seq, headDim]` tensor.
+||| Assumes `seq + positionOffset <= maxPos` (caller's responsibility).
+||| Idris's type system can't catch this today without a runtime
+||| bounds-check.
+public export
+applyRope : {0 d : Device} -> UserDeviceTraining d =>
+            {seq, headDim, maxPos : Nat} ->
+            RoPETables maxPos headDim d dt g ->
+            (positionOffset : Nat) ->
+            Tensor [seq, headDim] d dt g ->
+            IO (Tensor [seq, headDim] d dt g)
+applyRope {seq} {headDim} (MkRoPETables cosT sinT) positionOffset input = ioRerun (\_ =>
+  let halfDimI = cast {to=Int} (div headDim 2)
+      seqI     = cast {to=Int} seq
+      offsetI  = cast {to=Int} positionOffset
+      inPtr    = input.tensorPtr
+      cosPtr   = cosT.tensorPtr
+      sinPtr   = sinT.tensorPtr
+      -- Split the input along axis=1 (head_dim) into the two halves.
+      firstHalf  = primNarrow {d} inPtr 1 0        halfDimI
+      secondHalf = primNarrow {d} inPtr 1 halfDimI halfDimI
+      -- Slice cos/sin tables to [seq, halfDim] starting at offset.
+      cosSlice = primNarrow {d} cosPtr 0 offsetI seqI
+      sinSlice = primNarrow {d} sinPtr 0 offsetI seqI
+      -- Rotation per pair (firstHalf[m, i], secondHalf[m, i]).
+      firstCos  = primMul {d} firstHalf  cosSlice
+      secondSin = primMul {d} secondHalf sinSlice
+      firstOut  = primSub {d} firstCos secondSin
+      secondCos = primMul {d} secondHalf cosSlice
+      firstSin  = primMul {d} firstHalf  sinSlice
+      secondOut = primAdd {d} secondCos firstSin
+      -- Concat halves back to [seq, headDim].
+      result    = primConcat2dAxis1 {d} firstOut secondOut
+  in MkTensor result Nothing)
