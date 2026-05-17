@@ -337,6 +337,17 @@ INIT_FFI = {
     "tensor_create_state_1d_streamed",
     "tensor_create_state_2d_streamed",
     "tensor_cast_dtype_streamed",
+    # Fused-init creators (added 2026-05-28) — same rule: each can be
+    # the first Tensor-creating call in a program (HfBert's
+    # makeBertLinear is now the first FFI on the BERT path, etc.).
+    "tensor_create_param_1d_normal_streamed",
+    "tensor_create_param_2d_normal_streamed",
+    "tensor_create_param_3d_normal_streamed",
+    "tensor_create_param_4d_normal_streamed",
+    "tensor_create_param_1d_const_streamed",
+    "tensor_create_param_2d_const_streamed",
+    "tensor_create_param_3d_const_streamed",
+    "tensor_create_param_4d_const_streamed",
 }
 
 

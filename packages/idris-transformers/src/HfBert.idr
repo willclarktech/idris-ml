@@ -211,16 +211,13 @@ makeBertLinear : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatib
               -> (paramPrefix : String)
               -> IO (BertLinearWb i o d dt WithGrad)
 makeBertLinear pfx = do
-  let wCount = o * i
-      wCountI = cast {to=Int} wCount
-      oI = cast {to=Int} o
-  weightVals <- traverse (\_ => map (* 0.02) normalSample) (Vect.replicate wCount ())
-  let wBuf = prim__allocDoubles wCountI
-      wBuf' = packDs wBuf 0 weightVals
-      bBuf = prim__allocDoubles oI
-      bBuf' = zeroBuf bBuf 0 oI
-  w <- tparam2d {o} {i} (pfx ++ ".weight") wBuf'
-  b <- tparam1d {n=o} (pfx ++ ".bias")     bBuf'
+  -- Fused C-side create + in-place init (added 2026-05-28). Weight:
+  -- normal(0, 0.02) matching HF's default Linear init; bias: zero.
+  -- Replaces the per-element `traverse normalSample` + `packDs` chain
+  -- that dominated state construction on 1B-param models (see
+  -- docs/develop/perf-changes.md).
+  w <- tparam2dNormal {o} {i} (pfx ++ ".weight") 0.0 0.02
+  b <- tparam1dConst  {n=o}   (pfx ++ ".bias")   0.0
   pure (MkBertLinear w b)
 
 
@@ -235,12 +232,9 @@ makeBertEmbedding : UserDeviceTraining d => RuntimeDType dt => Linked d => Compa
                  -> (paramPrefix : String)
                  -> IO (BertEmbedding vocab dim d dt WithGrad)
 makeBertEmbedding pfx = do
-  let nTotal = vocab * dim
-      nI = cast {to=Int} nTotal
-  vals <- traverse (\_ => map (* 0.02) normalSample) (Vect.replicate nTotal ())
-  let buf = prim__allocDoubles nI
-      buf' = packDs buf 0 vals
-  w <- tparam2d {o=vocab} {i=dim} (pfx ++ ".weight") buf'
+  -- Fused C-side create + normal(0, 0.02) init. See makeBertLinear
+  -- for the bottleneck this replaces.
+  w <- tparam2dNormal {o=vocab} {i=dim} (pfx ++ ".weight") 0.0 0.02
   pure (MkBertEmbedding w)
 
 
@@ -258,13 +252,11 @@ makeBertLN : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d
           -> (paramPrefix : String)
           -> IO (BertLN n d dt WithGrad)
 makeBertLN pfx = do
-  let nI = cast {to=Int} n
-      gBuf = prim__allocDoubles nI
-      gBuf' = fillConst gBuf 0 nI 1.0
-      bBuf = prim__allocDoubles nI
-      bBuf' = zeroBuf bBuf 0 nI
-  g <- tparam1d {n} (pfx ++ ".weight") gBuf'
-  b <- tparam1d {n} (pfx ++ ".bias")   bBuf'
+  -- Fused C-side const fill. γ = 1.0 (HF LayerNorm weight default),
+  -- β = 0.0 (bias default). Replaces the host-side fillConst/zeroBuf
+  -- loops + per-element prim__setDouble FFI.
+  g <- tparam1dConst {n} (pfx ++ ".weight") 1.0
+  b <- tparam1dConst {n} (pfx ++ ".bias")   0.0
   pure (MkBertLN g b)
 
 
