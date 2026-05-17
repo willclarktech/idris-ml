@@ -65,6 +65,34 @@ Idris 2 represents `Nat` as Peano numbers at the type level — `2304` becomes `
 
 **Root cause:** Idris 2 lacks opaque/machine-backed type-level naturals (like GHC's `TypeLits`). This is the single largest practical limitation for type-safe tensor shapes at scale. See the Idris 2 issue tracker for discussion.
 
+### Pattern-matching `Nat` literals in a case arm OOMs the elaborator at large values
+
+Same Peano-explosion class as the entry above, in the *pattern-compilation* path rather than the type-unification path. Symptom: a case arm like
+
+```idris
+case r of
+  Left (TokVocabMismatch 12345 30522) => check "..." True   -- BOOM
+  Left err                            => putStrLn (show err) >> pure False
+  Right _                             => ...
+```
+
+OOM-kills `idris2` (SIGKILL during compilation of the surrounding function). The literal patterns `12345` and `30522` get unfolded to Peano `S (S (... Z))` during case-tree construction.
+
+**Workaround**: match the constructor with pattern variables, compare values at runtime via `==`:
+
+```idris
+case r of
+  Left (TokVocabMismatch claimed onDisk) =>
+    if claimed == 12345 && onDisk == 30522
+      then check "..." True
+      else do { putStrLn ("FAIL: …"); pure False }
+  ...
+```
+
+`(==)` on `Nat` is fast because `Nat` is stored as `Integer` at runtime — the equality check is O(1) integer comparison, not recursive Peano walk. Only the *type-level* / *pattern-compilation* paths suffer.
+
+**Investigated and ruled out as a nixpkgs build issue (2026-05-26)**: the nixpkgs idris2 v0.8.0 derivation patches `bootstrap-stage2.sh` to replace `MAKE all` with `MAKE idris2-exec`, which seemed (per the now-replaced "Opaque type-level Nats" TODO row) like it might be the binding constraint. It isn't — the stdlib `.ttc` files are built by the *separate* `mkPrelude.nix`-derived `prelude` / `base` / `contrib` / etc. packages, each invoking the stage-2 `idris2-unwrapped` binary via `IDRIS2=...`. Reverting the patch would only add redundant rebuild work; it does NOT change the stdlib quality. The Nat-pattern OOM is an Idris-2-the-language thing in v0.8.0, not a nix packaging defect — wait for v0.9.0 or use the `==` idiom in pattern arms.
+
 ### `Data.Nat` stdlib functions compile to recursive Peano walks at runtime
 
 `Nat` is stored as a GMP `Integer` at runtime (`%builtin Natural`) — checking equality and adding 1 is O(1). But the stdlib `Data.Nat` functions are *defined* by pattern matching on `Z` / `S k` constructors, so the Chez codegen emits recursive decrement code regardless of the underlying representation. Functions affected: `Data.Nat.lte`, `gte`, `lt`, `gt`, `compare`, `divNat`, `modNatNZ`, `divCeilNZ`, and anything that calls them.
