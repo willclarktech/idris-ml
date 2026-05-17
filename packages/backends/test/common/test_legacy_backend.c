@@ -3812,6 +3812,78 @@ Test(legacy_backend, tape_f32_non_elementwise_coverage) {
 #endif
 
 #if defined(BACKEND_TAPE)
+/* W5 follow-on: F32 paired oracle for kernels NOT covered by the
+ * existing tape_f32_gradcheck_oracle rungs 1-4 or the
+ * tape_f32_non_elementwise_coverage batches A-H.
+ *
+ * Each "Rung" block targets one high-impact op family; the pattern is
+ * unchanged from the rest of this file: run identical computation on
+ * F32-tagged and F64-tagged inputs via the streamed entry points
+ * (dtag 14 = F32, dtag 15 = F64), assert the F32 result propagates the
+ * F32 dtype tag and matches the F64 reference within 1e-5 (forward and
+ * gradient).
+ *
+ * Coverage gain (rungs added here):
+ *   Rung 5  conv1d                — TAPE_F32_SKIP_CONV
+ */
+Test(legacy_backend, tape_f32_rnn_conv_coverage) {
+    /* Rung 5: conv1d. Small 1-in-1-out kernel.
+     *   input  [inC=1, L=4] = [1, 2, 3, 4]
+     *   kernel [outC=1, inC=1, kL=2] = [0.5, -1.0]
+     *   bias   [outC=1] = [0.1]
+     *   pad=0, stride=1 -> output [1, 3]
+     *   loss = sum(output). */
+#ifndef TAPE_F32_SKIP_CONV
+    {
+        double inv[]   = {1.0, 2.0, 3.0, 4.0};
+        double kv[]    = {0.5, -1.0};
+        double bv[]    = {0.1};
+        double y_f64[3], y_f32[3];
+        double gk_f64[2], gk_f32[2];
+
+        /* F64 path */
+        param_clear();
+        TensorHandle in64 = tensor_create_2d_streamed(1, 4, heap_copy(inv, 4), 0, 0, 15);
+        TensorHandle k64  = tensor_create_param_3d_streamed(1, 1, 2, heap_copy(kv, 2), 0, 15);
+        param_register("k", k64);
+        TensorHandle b64  = tensor_create_1d_streamed(1, heap_copy(bv, 1), 0, 0, 15);
+        TensorHandle y64  = tensor_conv1d(in64, k64, b64, 0, 1);
+        tensor_to_doubles(y64, y_f64);
+        tensor_backward(tensor_sum(y64));
+        for (int i = 0; i < 2; i++) gk_f64[i] = param_grad_item_at(0, i);
+        param_clear();
+
+        /* F32 path */
+        TensorHandle in32 = tensor_create_2d_streamed(1, 4, heap_copy(inv, 4), 0, 0, 14);
+        TensorHandle k32  = tensor_create_param_3d_streamed(1, 1, 2, heap_copy(kv, 2), 0, 14);
+        param_register("k", k32);
+        TensorHandle b32  = tensor_create_1d_streamed(1, heap_copy(bv, 1), 0, 0, 14);
+        TensorHandle y32  = tensor_conv1d(in32, k32, b32, 0, 1);
+        tensor_to_doubles(y32, y_f32);
+        tensor_backward(tensor_sum(y32));
+        for (int i = 0; i < 2; i++) gk_f32[i] = param_grad_item_at(0, i);
+
+        ASSERT_TRUE("conv1d: F32 output propagates F32 tag",
+                    strcmp(tensor_dtype_name(y32), "F32") == 0);
+        for (int i = 0; i < 3; i++) {
+            char m[64];
+            snprintf(m, sizeof m, "conv1d: y_f32[%d] ~ y_f64", i);
+            ASSERT_NEAR(m, y_f32[i], y_f64[i], 1e-5);
+        }
+        for (int i = 0; i < 2; i++) {
+            char m[64];
+            snprintf(m, sizeof m, "conv1d: k.grad_f32[%d] ~ k.grad_f64", i);
+            ASSERT_NEAR(m, gk_f32[i], gk_f64[i], 1e-5);
+        }
+        param_clear();
+    }
+#else
+    printf("rung skipped: conv1d (TAPE_F32_SKIP_CONV)\n");
+#endif
+}
+#endif
+
+#if defined(BACKEND_TAPE)
 Test(legacy_backend, tape_inference_dtype_matrix) {
     /* Half-precision rung.
        bf16 nearest representable for 0.1: 0x3DCD -> ~0.10009765625
