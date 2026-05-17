@@ -1059,7 +1059,7 @@ test-hf-bert-roundtrip: install $(HF_MODELS_DIR)/google/bert_uncased_L-2_H-128_A
 		../idris-transformers/scripts/test_save_oracle.py -v
 	idris2 $(IDRIS_FLAGS) -o hf-bert-inference $(EXAMPLE_SRC)/Example/HfBertInference.idr
 	cp $(LIB) $(BUILD)/exec/hf-bert-inference_app/
-	./$(BUILD)/exec/hf-bert-inference --dump-pooled > build/hf-bert-idris-out.txt
+	./$(BUILD)/exec/hf-bert-inference --dump-pooled > $(BUILD)/hf-bert-idris-out.txt
 	cd packages/pytorch && uv run python \
 		../idris-transformers/scripts/compare_inference.py \
 		../../$(BUILD)/hf-bert-idris-out.txt \
@@ -1098,7 +1098,7 @@ test-hf-gpt2-roundtrip: install $(HF_MODELS_DIR)/distilgpt2/config.json
 		../idris-transformers/scripts/test_save_oracle_gpt2.py -v
 	idris2 $(IDRIS_FLAGS) -o hf-gpt2-inference $(EXAMPLE_SRC)/Example/HfGpt2Inference.idr
 	cp $(LIB) $(BUILD)/exec/hf-gpt2-inference_app/
-	./$(BUILD)/exec/hf-gpt2-inference --dump-final-hidden > build/hf-gpt2-idris-out.txt
+	./$(BUILD)/exec/hf-gpt2-inference --dump-final-hidden > $(BUILD)/hf-gpt2-idris-out.txt
 	cd packages/pytorch && uv run python \
 		../idris-transformers/scripts/compare_inference.py \
 		../../$(BUILD)/hf-gpt2-idris-out.txt \
