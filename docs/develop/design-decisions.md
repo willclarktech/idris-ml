@@ -1325,3 +1325,88 @@ Out of scope (separate rows if measured to matter):
   attacks.
 - Pruning the installed-prefix tree (per-set installed libraries can
   duplicate set-agnostic content like idris-gym). Disk is cheap.
+
+### `TORCH_DTYPE` opt-in dtype override + BF16 torch-mps gate (2026-05-28)
+
+The default `(ExampleDevice, ExampleDType)` cell for `BACKEND=torch
+TORCH_DEVICE=mps` is `(TorchDev TMps, F32)` because MPS rejects F64 at
+construction (see [`gotchas.md`](gotchas.md) "libtorch MPS rejects F64 at
+tensor construction"). For inference, BF16 is more memory-efficient
+(2× smaller than F32) and libtorch's MPS BF16 kernel coverage is now
+sufficient for HF model forward (BERT, GPT-2, Llama-3.2-1B verified).
+Reduced-precision *training* on BF16 is a separate concern (gradients,
+loss scaling) and stays out of scope here.
+
+**Design choice**: a single opt-in env knob `TORCH_DTYPE=BF16` that
+overrides the per-cell default and bakes into `BuildConfig.idr` at
+build time. Unset (default): cell mapping unchanged. Set to `BF16`:
+forces `ExampleDType = BF16` on torch builds regardless of device.
+F32 stays the default for `torch/*/mps` because F32 is the broader
+gate for MPS kernel coverage (any newly-added op might lack a BF16
+kernel and abort with `c10::Error`); we don't make the user opt into
+a less-supported path by accident.
+
+**Why an env knob, not a third axis in BUILD_KEY's cell mapping
+matrix**: BF16 isn't a hardware variant, it's a precision/perf
+trade-off the user toggles per-experiment. Treating it like
+`MLX_DEVICE=cpu|gpu` (a hardware-presence fact) would conflate two
+orthogonal things — and would have required 12 cell-mapping rows
+instead of 6 in the BuildConfig generator. The env-knob approach
+keeps the cell mapping at 6 and adds one `if` for the override.
+
+**BUILD_KEY discriminator**: `BUILD_KEY` extends with
+`$(if $(TORCH_DTYPE),-tdt$(TORCH_DTYPE),)`, so
+`torch-mlxcpu-torchmps-tdtBF16` and `torch-mlxcpu-torchmps` keep
+distinct cache trees. Cross-mode switches stay near-free per the
+per-backend-set cache (above section).
+
+**Compatible instance**: `Compatible (TorchDev TMps) BF16` exists
+again — the deliberate exclusion at `Device/Torch.idr` lines 618-625
+(comment: "MPS reduced-precision support is version-dependent and
+untestable in this VM") was stale; the VM has libtorch with BF16-MPS
+kernels for the relevant op set. Instance restored in commit
+`ab5386a`.
+
+**Measured outcome**: Llama-3.2-1B inference on torch-mps, 8 greedy
+tokens, after the P1 `.contiguous()` removal:
+`F32 8:43 → BF16 7:35` (~13% additional wall reduction, dominated by
+the embedding lookup + per-layer projection storage halving). End-to-end
+output text matches F32 within the first ~2 greedy tokens (greedy decode
+diverges later as BF16's 8-bit mantissa accumulates rounding).
+
+**Non-blocker**: mlx-gpu BF16 still doesn't exist — mlx 0.31 has no
+BF16 storage on Metal. Filed as a deferred row; tracked separately
+from this torch-side gate.
+
+### torch-mps per-op MPSGraph submission cost — canonical lane choice (2026-05-28)
+
+Even after the P1 `.contiguous()` audit and the P2 BF16 gate, torch-mps
+on small-model inference (BERT, GPT-2-tiny) stays **5-20× slower** than
+mlx-gpu / torch-cpu at the same workload. Measured 2026-05-28:
+
+| Workload | torch-cpu | torch-mps | mlx-gpu | Ratio (mps/cpu) |
+|---|---|---|---|---|
+| hf-bert inference  | 19 s  | 1:27 | ~10 s | 4.6× |
+| hf-gpt2 inference  | 14 s  | 4:35 | ~12 s | 19.6× |
+| hf-llama inference | 46 s  | 6:42 | 38 s  | 8.7× |
+
+Root cause (confirmed via `gotchas.md` "Non-contiguous views" audit + the
+explore agent's submission-count analysis): libtorch's MPS path **submits
+each primitive op as a separate `MTLCommandBuffer`**, while mlx batches
+the entire forward into one Metal submission via its computation graph.
+HF model forward at our scale is ~660 primitive ops/layer × 16 layers
+= ~10K ops per Llama forward; at ~0.5-1 ms submission overhead per op,
+that's 5-10 s of pure overhead on Llama and proportionally more on
+BERT/GPT-2 where per-op compute is smaller.
+
+**Canonical lane choice for inference on Metal**:
+- **Prefer mlx-gpu** for HF inference (BERT, GPT-2, Llama).
+- **Use torch-mps** when graph-compile isn't available or when the model
+  uses a torch-only kernel.
+
+The fix (closing the gap) is filed as a follow-up row (TODO row +
+task #393); investigation paths include `jit::trace` / MPSGraph
+fusion, audit of Idris-side per-token graph rebuilds (RoPE table
+slicing), and a structural graph-mode constructor stack. Until that
+lands, the lane-choice paragraph above is the canonical answer to
+"which Metal backend for inference at idris-ml's scale".

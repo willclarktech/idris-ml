@@ -988,6 +988,65 @@ only where code escaped to the non-streamed F64 path or mixed an F64
 C-op result into the F32 graph. Verified no-op on F64 builds:
 tape/torch-cpu results were bit-identical before and after each fix.
 
+### `.contiguous()` on a libtorch op result is never free
+
+`at::Tensor::contiguous()` returns the same tensor when already row-major,
+and **a fresh materialised copy** otherwise. A "for safety" `.contiguous()`
+on a `narrow` / `expand` / `unbind` / `transpose` result silently forces
+a Metal command-buffer submission to copy ~`numel * dtype_size` bytes —
+that's tens of MB per call at Llama-3.2-1B scale, ~16K such calls per
+8-token forward (attention QKV split × 12K + RoPE table slice × 4K).
+
+Only legitimate use is when downstream code needs row-major byte layout:
+`data_ptr<T>()` reads, `safetensors.c` host buffer copies, FFI consumers
+that walk doubles by stride-1. Forward-path ops accept strided views just
+fine (libtorch's view-on-view chains compose without copies).
+
+Audit pattern: any `.contiguous()` *not* immediately followed by `.cpu()`
++ `.data_ptr<T>()` is suspicious. Three sites bit us — `narrow.cpp:11`,
+`expand_mask.cpp:8`, `core/lifecycle/batch.cpp` (`tensor_unbatch`) — all
+removed in commit `51df3cb`, dropping torch-mps Llama wall 11:45 → 8:43
+(~26%). The stale comments at those sites said "make safe for FFI
+consumers"; verified no FFI consumer downstream read the masks/views.
+
+### State tensors need atomic cast+migrate on non-F32/F64 dtags (torch-mps)
+
+Sibling to the "parameter must be cast/moved before `requires_grad_`"
+gotcha above. Same class of bug, different code path. `make_param_leaf`
+in `dtype_dispatch.cpp` does the atomic cast-then-move + `requires_grad_`
+for parameters. State tensors (non-grad) went through a *different* code
+path — the `default:` arm of `torch_create_state_{1d,2d}_dtag` called
+`tensor_cast_dtype_f64` (cast-without-migrate), then inherited CPU
+placement on MPS via the F64-fallback policy in `torch_effective_device`.
+
+This was silent on the F32/F64-fast-path arms; bit us only when the new
+`TORCH_DTYPE=BF16` opt-in started exercising the `default:` arm for state
+tensors on MPS. The Llama forward then crashed with
+`Expected all tensors to be on the same device, but found at least two
+devices, mps:0 and cpu!` on the first state-vs-param op.
+
+Fix (commit `ab5386a`): `make_state_persistent` helper mirroring
+`make_param_leaf` (atomic cast + device migrate, sans `requires_grad_`)
++ `cast_and_migrate` for create-1d/2d siblings. Every `default:` arm now
+goes through the helper. Audit pattern: any `tensor_cast_dtype_*` or
+post-cast `.to(dtype)` in a creator that's not paired with `.to(device)`
+in the same step is suspect on MPS for non-F32/F64 dtypes.
+
+### C++ block-comment unclosed by `*/` in prose
+
+The byte sequence `*/` anywhere inside a `/* ... */` block closes the
+comment immediately, regardless of context — including inside a list
+of dtype names like `(BF16/F16/Int*/Bool)` where the author meant the
+`*` as a glob/wildcard marker and `/Bool` to continue the list. The
+lexer then walks into what follows as code, producing confusing errors
+("`Bool` unknown type name", `unexpected character <U+2014>`) at lines
+far from the actual mistake.
+
+Cost: ~20 min lost during the BF16 torch-mps fix. Rule: when listing
+dtype names in a C/C++ comment, use commas (`BF16, F16, Int*, Bool`) or
+backticks-equivalents, never slashes paired with asterisks. Same trap
+applies to any prose containing `*/` (regex examples, glob patterns).
+
 ### `torch.multinomial` has no MPS kernel
 
 `torch.multinomial` calls into a CPU-only kernel for MPS tensors.
