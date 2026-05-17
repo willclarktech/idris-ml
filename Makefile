@@ -2,6 +2,13 @@ UNAME := $(shell uname)
 BUILD := build
 BACKEND ?= tape
 
+# MLX stream selection at runtime, also consumed by the BuildConfig
+# generation rule below — when PRIMARY=mlx and MLX_DEVICE=gpu, examples
+# spell `Tensor [..] (MlxDev MGpu) F32 WithGrad` so the type-level
+# claim matches what mlx actually runs (Metal GPU is float32-only per
+# the f32 rewrite). Any other configuration falls back to `CPU` + `F64`.
+MLX_DEVICE ?= cpu
+
 # Per-backend default seed for examples. Some examples (notably NTM-copy and
 # DNC-copy/recall — see docs/develop/gotchas.md) are highly seed-sensitive at
 # moderate epoch budgets, and a seed that converges cleanly on one backend can
@@ -313,6 +320,28 @@ FORCE:
 $(BUILD)/.backend-stamp: FORCE | $(BUILD)
 	@[ "$$(cat $@ 2>/dev/null)" = "$(BACKEND)" ] || { echo "$(BACKEND)" > $@; }
 
+# Stamp + generated source for the example device/dtype selection. When
+# PRIMARY=mlx and MLX_DEVICE=gpu, examples target `(MlxDev MGpu)` + `F32`;
+# everything else stays on `CPU` + `F64`. The stamp records the active
+# tuple so the generation step only writes the source file when the
+# config actually changes (avoiding TTC churn on no-op rebuilds), mirror
+# of the .backend-stamp pattern above.
+BUILDCONFIG_KEY := $(PRIMARY):$(MLX_DEVICE)
+BUILDCONFIG_IDR := packages/idris-ml-examples/src/BuildConfig.idr
+BUILDCONFIG_IN  := packages/idris-ml-examples/src/BuildConfig.idr.in
+
+$(BUILD)/.buildconfig-stamp: FORCE | $(BUILD)
+	@[ "$$(cat $@ 2>/dev/null)" = "$(BUILDCONFIG_KEY)" ] || { echo "$(BUILDCONFIG_KEY)" > $@; }
+
+$(BUILDCONFIG_IDR): $(BUILDCONFIG_IN) $(BUILD)/.buildconfig-stamp
+	@if [ "$(PRIMARY)" = "mlx" ] && [ "$(MLX_DEVICE)" = "gpu" ]; then \
+		DEVICE="MlxDev MGpu"; DTYPE="F32"; \
+	else \
+		DEVICE="CPU"; DTYPE="F64"; \
+	fi; \
+	sed "s|@DEVICE@|$$DEVICE|g; s|@DTYPE@|$$DTYPE|g" $< > $@
+	@echo "[BuildConfig] PRIMARY=$(PRIMARY) MLX_DEVICE=$(MLX_DEVICE) → $$(awk -F' = ' '/^ExampleDevice = / { print $$2; exit }' $@) / $$(awk -F' = ' '/^ExampleDType = / { print $$2; exit }' $@)"
+
 # Final link: all listed backends' .o + shared objects (primary's
 # suffix) + primary's unified-name aliases. One dylib, no symlink.
 $(LIB): $(BACKEND_OBJS) $(BACKEND_ALIAS_FILE) $(SHARED_OBJ) $(BUILD)/.backend-stamp | $(BUILD)
@@ -415,7 +444,7 @@ install-notebook: install-core
 	@cd packages/idris-ml-notebook && IDRIS2_PREFIX=$(IDRIS2_LOCAL) idris2 --install idris-ml-notebook.ipkg >/dev/null
 
 # Install idris-ml-examples as a library (needed by its test harness)
-install-examples: install-core install-gym
+install-examples: install-core install-gym $(BUILDCONFIG_IDR)
 	@cd packages/idris-ml-examples && IDRIS2_PREFIX=$(IDRIS2_LOCAL) idris2 --install idris-ml-examples.ipkg >/dev/null
 
 # Install all Idris packages locally

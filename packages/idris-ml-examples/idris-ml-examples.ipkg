@@ -6,7 +6,8 @@ depends = contrib
         , idris-ml
         , idris-gym
 
-modules = Generate
+modules = BuildConfig
+        , Generate
         , Example.A2c
         , Example.Bench
         , Example.DncAssociativeRecall
