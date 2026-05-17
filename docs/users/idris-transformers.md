@@ -63,26 +63,49 @@ make example-hf-bert-inference
 
 This:
 
-1. Downloads `google/bert_uncased_L-2_H-128_A-2` via the
-   `scripts/hf-download.sh` helper into
+1. Downloads `google/bert_uncased_L-2_H-128_A-2` (weights + `vocab.txt`)
+   via the `scripts/hf-download.sh` helper into
    `packages/idris-transformers/models/` (gitignored local cache —
    `make clean-models` removes it).
 2. Builds the Idris example.
-3. Runs forward on the fixed input `[CLS] hello [SEP]` (= token IDs
-   `[101, 7592, 102]`).
-4. Prints the 128-dim pooled `[CLS]` output to stdout, one value
-   per line.
+3. Loads the checkpoint via plain `loadModel` (44 params: 39 encoder +
+   pooler + 5 MLM-head).
+4. Runs **fill-in-the-mask** on three short sentences and prints the
+   top-5 predictions per `[MASK]`:
 
-To verify the output matches HF transformers' Python answer:
+```
+BERT fill-in-the-mask — google/bert_uncased_L-2_H-128_A-2
+==========================================================
+
+Input:  paris is the capital of [MASK] .
+Top-5:  france (+12.65), paris (+11.66), spain (+10.90), madrid (+10.82), brussels (+10.18)
+
+Input:  i went to the [MASK] to buy bread .
+Top-5:  kitchen (+8.94), bread (+8.76), money (+8.71), cash (+7.91), fridge (+7.91)
+
+Input:  the man worked as a [MASK] .
+Top-5:  man (+8.37), photographer (+7.95), teenager (+7.93), woman (+7.65), lawyer (+7.25)
+```
+
+The three sentences are pre-tokenized (hand-picked IDs hardcoded in
+the example) because there's no WordPiece tokenizer in Idris yet —
+that's gated on Row 7 (the LLM-class example). vocab.txt is read at
+runtime for the predicted-id → string decode.
+
+To verify the *forward-pass* output matches HF transformers' Python
+answer (independent of the MLM head — exercises the encoder + pooler
+on the same path):
 
 ```bash
 make test-hf-bert-roundtrip
 ```
 
-This regenerates a Python oracle (`scripts/save_oracle.py`) and
-runs `scripts/compare_inference.py`, asserting element-wise
-agreement within F32 tolerance (`< 1e-3` is the current gate;
-local runs see ~4e-4).
+This regenerates a Python oracle (`scripts/save_oracle.py`) and runs
+`scripts/compare_inference.py` against the Idris binary invoked with
+`--dump-pooled` (which switches output to the 128-dim pooled `[CLS]`
+vector on `[101, 7592, 102]` — one float per line). The gate asserts
+element-wise agreement within F32 tolerance (`< 1e-3`; local runs see
+~4e-4).
 
 ## The `hf-download.sh` helper
 
