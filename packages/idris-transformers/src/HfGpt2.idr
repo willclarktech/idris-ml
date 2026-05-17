@@ -179,17 +179,12 @@ makeConv1D : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d
           -> (paramPrefix : String)
           -> IO (Gpt2Conv1D i o d dt WithGrad)
 makeConv1D pfx = do
-  -- HF GPT-2 uses normal(0, 0.02) init for Conv1D weights.
-  let wCount = i * o
-      wCountI = cast {to=Int} wCount
-      oI = cast {to=Int} o
-  weightVals <- traverse (\_ => map (* 0.02) normalSample) (Vect.replicate wCount ())
-  let wBuf = prim__allocDoubles wCountI
-      wBuf' = packDs wBuf 0 weightVals
-      bBuf = prim__allocDoubles oI
-      bBuf' = zeroBuf bBuf 0 oI
-  w <- tparam2d {o=i} {i=o} (pfx ++ ".weight") wBuf'
-  b <- tparam1d {n=o} (pfx ++ ".bias") bBuf'
+  -- HF GPT-2 uses normal(0, 0.02) init for Conv1D weights, zero bias.
+  -- Fused C-side init via tparam2dNormal / tparam1dConst (commit
+  -- 085348d); see HfBert.idr's makeBertLinear for the bottleneck
+  -- replaced.
+  w <- tparam2dNormal {o=i} {i=o} (pfx ++ ".weight") 0.0 0.02
+  b <- tparam1dConst  {n=o}       (pfx ++ ".bias")   0.0
   pure (MkGpt2Conv1D w b)
 
 
@@ -208,13 +203,10 @@ makeGpt2LN : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d
           -> (paramPrefix : String)
           -> IO (Gpt2LN n d dt WithGrad)
 makeGpt2LN pfx = do
-  let nI = cast {to=Int} n
-      gBuf = prim__allocDoubles nI
-      gBuf' = fillConst gBuf 0 nI 1.0
-      bBuf = prim__allocDoubles nI
-      bBuf' = zeroBuf bBuf 0 nI
-  g <- tparam1d {n} (pfx ++ ".weight") gBuf'
-  b <- tparam1d {n} (pfx ++ ".bias")   bBuf'
+  -- Fused C-side const fill (γ = 1.0, β = 0.0); replaces fillConst /
+  -- zeroBuf host-side loops.
+  g <- tparam1dConst {n} (pfx ++ ".weight") 1.0
+  b <- tparam1dConst {n} (pfx ++ ".bias")   0.0
   pure (MkGpt2LN g b)
 
 
@@ -229,12 +221,8 @@ makeGpt2Embedding : UserDeviceTraining d => RuntimeDType dt => Linked d => Compa
                  -> (paramPrefix : String)
                  -> IO (Gpt2Embedding count hidden d dt WithGrad)
 makeGpt2Embedding pfx = do
-  let nTotal = count * hidden
-      nI = cast {to=Int} nTotal
-  vals <- traverse (\_ => map (* 0.02) normalSample) (Vect.replicate nTotal ())
-  let buf = prim__allocDoubles nI
-      buf' = packDs buf 0 vals
-  w <- tparam2d {o=count} {i=hidden} (pfx ++ ".weight") buf'
+  -- Fused C-side normal(0, 0.02) init.
+  w <- tparam2dNormal {o=count} {i=hidden} (pfx ++ ".weight") 0.0 0.02
   pure (MkGpt2Embedding w)
 
 
