@@ -15,6 +15,7 @@ modules = Harness
         , Test.ManagedHandle
         , Test.Math
         , Test.RmsNorm
+        , Test.SwiGLU
         , Test.RL.Gae
         , Test.RL.ReplayBuffer
         , Test.Sampler

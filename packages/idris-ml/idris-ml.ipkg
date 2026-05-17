@@ -41,6 +41,7 @@ modules = Compat.Random
         , Layer.Ntm
         , Layer.RmsNorm
         , Layer.Rnn
+        , Layer.SwiGLU
         , Layer.Transformer
         , Math
         , RL.Gae

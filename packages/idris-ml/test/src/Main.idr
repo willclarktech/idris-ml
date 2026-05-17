@@ -12,6 +12,7 @@ import Test.RL.ReplayBuffer
 import Test.Hpo.LrFinder
 import Test.ManagedHandle
 import Test.RmsNorm
+import Test.SwiGLU
 -- NOTE: Test.Transfer (UserDeviceTransfer / toDevice smoke) lives in
 -- the source tree but isn't wired into this default `tests` list:
 -- it deliberately references TapeDev / TorchDev / MlxDev by name to
@@ -35,4 +36,5 @@ main = runAll
   , ("Hpo.LrFinder",    Test.Hpo.LrFinder.tests)
   , ("ManagedHandle",   Test.ManagedHandle.tests)
   , ("RmsNorm",         Test.RmsNorm.tests)
+  , ("SwiGLU",          Test.SwiGLU.tests)
   ]
