@@ -14,7 +14,7 @@ itself is the adapter, expressed as type-checked Idris.
 
 | Module | HF checkpoint target | Status |
 | --- | --- | --- |
-| `HfBert` | `prajjwal1/bert-tiny` (4 MB) | in progress |
+| `HfBert` | `google/bert_uncased_L-2_H-128_A-2` (~17 MB) | in progress |
 | `HfGpt2` | `sshleifer/tiny-gpt2` (~14 MB) | follow-up |
 | `HfLlama` | `TinyLlama/TinyLlama-1.1B-Chat-v1.0` (~2.2 GB) | gated on Row 7 (LLM-class example) |
 

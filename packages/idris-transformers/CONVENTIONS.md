@@ -162,14 +162,18 @@ record BertConfig where
   intermediate  : Nat
   maxPosition   : Nat
 
-||| `prajjwal1/bert-tiny` config — the proof-of-concept target.
+||| `google/bert_uncased_L-2_H-128_A-2` config — the proof-of-concept
+||| target. (Originally `prajjwal1/bert-tiny` was the target, but
+||| that repo ships only `pytorch_model.bin`, no safetensors.
+||| Google's L-2/H-128 publication ships both formats and shares the
+||| same architectural family.)
 public export
 bertTinyConfig : BertConfig
 bertTinyConfig = MkBertConfig
   { vocabSize = 30522
   , hidden = 128
   , numLayers = 2
-  , numHeads = 4
+  , numHeads = 2
   , intermediate = 512
   , maxPosition = 512
   }
