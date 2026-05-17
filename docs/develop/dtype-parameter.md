@@ -449,3 +449,72 @@ not at an op deep inside the layer chain.
   adding f32 storage is a separate workstream).
 - The `Reinforce` test's pre-existing `Data.List.index : IO (Vect ...)`
   bug, surfaced (not caused) by the dtype refactor.
+
+
+## Per-build-mode dtype selection (2026-05-17)
+
+Once the type system supports two valid configurations — `CPU` + `F64`
+everywhere except mlx-GPU, and `MlxDev MGpu` + `F32` on mlx-GPU — the
+question is how to switch between them in the example surface.
+
+Idris-2 has no runtime-env-to-type-level escape hatch. `DType` and
+`Device` are type parameters fixed at elaboration time, before `main`
+runs. So `System.getEnv "MLX_DEVICE"` at runtime can't drive a
+type-level dtype choice on `Tensor`'s `dt` slot.
+
+The mechanism that works: a Makefile-generated source file
+`packages/idris-ml-examples/src/BuildConfig.idr`, sed-substituted
+from a version-controlled template `BuildConfig.idr.in`:
+
+```idris
+public export ExampleDevice : Type
+ExampleDevice = @DEVICE@        -- CPU or MlxDev MGpu
+
+public export ExampleDType : DType
+ExampleDType = @DTYPE@          -- F64 or F32
+```
+
+The generation rule mirrors the existing `.backend-stamp` pattern in
+the Makefile (line ~313): a `.buildconfig-stamp` records the active
+`$(PRIMARY):$(MLX_DEVICE)` tuple, regeneration fires only when the
+tuple changes (so no-op rebuilds don't churn TTC files and trigger
+unnecessary example recompiles).
+
+Every tensor-using example imports `BuildConfig` and references
+`ExampleDevice` / `ExampleDType` instead of hardcoded `CPU` / `F64`.
+Switching modes is `make BACKEND=mlx MLX_DEVICE=gpu install` — zero
+example source edits required. The library stays fully polymorphic in
+`dt` and `d`; the examples pin both at the leaf.
+
+**Layer creators device-polymorphisation.** A precondition for the
+example migration: 11 `*LayerAny` creators (`linearLayerAny`,
+`conv2dLayerAny`, etc.) used to hardcode `CPU` in their return types.
+Each got `CPU` swapped for a free type variable `d` (Idris auto-binds
+as `{0 d : Device}`). Bodies are unchanged — they use unsuffixed
+`prim__paramRegister` / `prim__createParam2d` calls routed to the
+primary backend via Phase-1's symbol-rename + alias mechanism, so they
+work for whichever device tag the caller pins.
+
+**4-lane test matrix.** `make test-examples` previously iterated
+`tape mlx torch`. Now it iterates `tape mlx mlx-gpu torch`. The
+`mlx-gpu` lane is a virtual entry: the loop parses it as `b=mlx` with
+`lane_env=MLX_DEVICE=gpu`, exported to the recursive inner Make so
+BuildConfig regenerates for F32 mode. Wall-clock cost: ~13 min →
+~30-60 min, dominated by Idris VM time (not the C-side; mlx GPU and
+CPU are similar at example scales per
+`project_mlx_gpu_environment.md`).
+
+**Special-case examples that don't migrate.** `DTypePitch.idr` —
+its rejection demo (`failMlxGpuF64`) requires hardcoded `F64` and
+`(MlxDev MGpu)` to demonstrate the type-level rejection; using
+`ExampleDType` would auto-resolve to F32 and lose the pedagogy.
+Skipped from the migration script. Verified to still build under both
+modes.
+
+**Per-lane expect thresholds.** The lane-specific
+`test-examples.expect.mlx-gpu` file is supported (Makefile picks it
+up if it exists, otherwise falls back to `test-examples.expect`).
+Not shipped yet — calibration requires a run on real Metal hardware
+that exposes the GPU stream cleanly. Add when an mlx-gpu CI run on
+real M-series surfaces F32-precision diffs from the F64 reference
+thresholds.

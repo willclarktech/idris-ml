@@ -31,13 +31,14 @@ make BACKEND=tape,torch backend           # Multi-link: both built into one dyli
 make BACKEND=tape,torch,mlx backend       # macOS full build (all three)
 make BACKEND=torch backend                # Torch-only build (CI lane)
 make BACKEND=mlx MLX_SITE=... backend     # MLX-only (Apple Metal)
+make BACKEND=mlx MLX_DEVICE=gpu install   # F32 mode: examples target Tensor [..] (MlxDev MGpu) F32
 make rename-headers                       # Regen packages/backends/rename_<b>.h from backend.h
 make check-rename-headers                 # CI gate: errors if regen would change anything
 make install                              # Install core lib + gym (required for examples/tests)
 make example-<name>                       # Build and run an example (all accept --epochs, --lr, --seed)
 
 # Tests — see docs/develop/testing.md for the full layer breakdown
-make test-examples              # Smoke gate: every example × 3 backends, ~13 min
+make test-examples              # Smoke gate: every example × 4 lanes (tape, mlx, mlx-gpu, torch), ~30-60 min
 make test-examples-convergence  # Every example to convergence (hours, tape only)
 make test                       # Idris unit tests
 make test-backend-{tape,mlx,torch}  # C backend FFI tests per backend
@@ -93,7 +94,9 @@ record Tensor (dims : Vect rank Nat) (0 d : Device) (0 dt : DType) (0 g : GradMo
 
 `Array` is the structural type used for input-data marshalling and Math.idr's pure-Idris ops; it is NOT the autograd type. `Tensor` is the daily user-facing autograd handle.
 
-The library is **fully polymorphic in dt** — every interface method, smart constructor, and layer state record binds `dt` as an implicit and uses it. Callers pin the concrete dtype at the leaf use site (examples use `F64` explicitly). Hardcoding F64 in method bodies while leaving the record's slot polymorphic caused a 30+ GB elaborator memory blowup; see `docs/develop/gotchas.md` "Polymorphic type-parameter slot vs concrete value in method body."
+The library is **fully polymorphic in dt** — every interface method, smart constructor, and layer state record binds `dt` as an implicit and uses it. Callers pin the concrete dtype at the leaf use site. Hardcoding F64 in method bodies while leaving the record's slot polymorphic caused a 30+ GB elaborator memory blowup; see `docs/develop/gotchas.md` "Polymorphic type-parameter slot vs concrete value in method body."
+
+Examples don't hardcode `CPU` / `F64`. They reference `ExampleDevice` / `ExampleDType` from `packages/idris-ml-examples/src/BuildConfig.idr` — a Makefile-generated source file (template at `BuildConfig.idr.in`, version-controlled). The generator reads `BACKEND` + `MLX_DEVICE` at build time and emits `MlxDev MGpu` + `F32` when `BACKEND=mlx MLX_DEVICE=gpu`, otherwise `CPU` + `F64`. Idris-2 can't drive type-level selection from a runtime env var (types fix at elaboration), so the env is observed at build time and baked in. Switching modes is `make BACKEND=mlx MLX_DEVICE=gpu install` — no example source edits needed.
 
 The `LayerLike` interface (4 methods: `applyVar`, `applyVarBatch`, `layerPrefix`, `resetState`) + `AnyLayer` existential provides dynamic dispatch over layer types. `Network` chains `AnyLayer`s via `(~~>)`. Adding a new layer = one file implementing `LayerLike`, zero edits elsewhere.
 
