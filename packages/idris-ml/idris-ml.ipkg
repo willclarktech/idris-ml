@@ -16,6 +16,8 @@ modules = Compat.Random
         , Device.Mlx
         , Device.Tape
         , Device.Torch
+        , DType.Core
+        , DType.Test
         , Floating
         , GradMode
         , Hpo
@@ -38,7 +40,6 @@ modules = Compat.Random
         , Layer.Rnn
         , Layer.Transformer
         , Math
-        , Precision.Core
         , RL.Gae
         , RL.ReplayBuffer
         , Sampler
