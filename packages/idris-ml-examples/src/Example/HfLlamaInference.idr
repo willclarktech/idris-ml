@@ -44,6 +44,7 @@ import Data.List
 import Data.String
 import Data.Vect
 import System
+import System.Clock
 import System.File
 
 import Array
@@ -54,6 +55,7 @@ import HfLlama
 import Layer.RoPE
 import Tensor
 import Tokenizer
+import Util
 
 
 ----------------------------------------------------------------------
@@ -282,10 +284,22 @@ runGenerate tok model tables prompt numTokens = do
 -- main
 ----------------------------------------------------------------------
 
+-- Stage timer for `main`. Llama setup goes through ~4 distinct stages
+-- (tokenizer probe / model construction / checkpoint load / RoPE table
+-- build) plus the forward / generation. Each can individually take
+-- minutes at 1.24B params, so when a run looks hung from outside the
+-- user needs to know WHICH stage to investigate. `formatElapsed` from
+-- `Util` returns the cumulative `[hh:mm:ss]` since `t0`.
+stageStamp : (label : String) -> Clock Monotonic -> IO ()
+stageStamp label t0 = do
+  now <- clockTime Monotonic
+  putStrLn ("[stage] " ++ formatElapsed t0 now ++ " " ++ label)
+
 main : IO ()
 main = do
   args <- getArgs
   let dumpHidden = elem "--dump-final-hidden" args
+  t0 <- clockTime Monotonic
 
   -- Probe the tokenizer up-front (~1s subprocess call) BEFORE the
   -- expensive model construction + 2.5 GB param load. If the
@@ -306,11 +320,13 @@ main = do
           putStrLn ("WARN: mkTokenizer failed (continuing — dump-hidden doesn't need it): "
                     ++ show err)
     Right _ => pure ()
+  stageStamp "tokenizer probe ok" t0
 
   -- Build the full Llama 3.2 1B state — 146 params, ~1.2B values at
   -- F64 = ~10 GB allocation. F32 backends (mlx-gpu / torch-mps) cut
   -- that to ~5 GB; that's the practical config for this VM. Tape
   -- (F64-only) doesn't fit in 16 GB; the example skips that lane.
+  putStrLn "[stage] hfLlamaModel — constructing 146-param state (~5 GB at F32 / 10 GB at F64)..."
   model <- hfLlamaModel {d=ExampleDevice} {dt=ExampleDType}
                         {vocab        = VocabSize}
                         {hidden       = Hidden}
@@ -319,25 +335,36 @@ main = do
                         {kvOut        = KvOut}
                         {intermediate = Intermediate}
                         "model"
+  stageStamp "hfLlamaModel ok" t0
+
   -- Load the gated HF checkpoint. Requires HF_TOKEN with Llama 3.2
   -- license accepted on huggingface.co. ~2.5 GB BF16 on disk; the
   -- cast-on-load widens to F32 / F64 depending on backend.
+  putStrLn ("[stage] loadModelAllowCast — reading " ++ hfWeightsPath ++ " (~2.5 GB BF16, casting to "
+            ++ "F32/F64 host-side)...")
   ok <- loadModelAllowCast {d=ExampleDevice} hfWeightsPath
   if not ok
     then do
       putStrLn ("ERR: loadModelAllowCast failed for " ++ hfWeightsPath)
       exitFailure
     else pure ()
+  stageStamp "loadModelAllowCast ok" t0
 
   -- Build RoPE tables once (reused across all forward passes /
   -- decode steps).
+  putStrLn "[stage] buildLlamaRoPETables — precomputing cos/sin tables..."
   tables <- buildLlamaRoPETables {d=ExampleDevice} {dt=ExampleDType}
                                   {maxPos  = MaxPos}
                                   {headDim = HeadDim}
                                   RopeBase llama3Scaling
+  stageStamp "buildLlamaRoPETables ok" t0
 
   if dumpHidden
-    then runDumpHidden model tables
+    then do
+      putStrLn "[stage] forward (dump-hidden mode) — single forward pass..."
+      runDumpHidden model tables
+      stageStamp "dump-hidden done" t0
+      pure ()
     else case tokR of
       -- Unreachable in practice: dumpHidden=False + Left would have
       -- exitFailure'd at the top-of-main probe. Idris's type checker
@@ -345,5 +372,8 @@ main = do
       Left err  => do
         putStrLn ("ERR: mkTokenizer (post-probe inconsistency): " ++ show err)
         exitFailure
-      Right tok =>
+      Right tok => do
+        putStrLn "[stage] runGenerate — greedy decode loop..."
         runGenerate tok model tables (extractPrompt args) (extractNumTokens args)
+        stageStamp "runGenerate done" t0
+        pure ()
