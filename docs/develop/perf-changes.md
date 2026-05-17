@@ -2576,3 +2576,84 @@ in the cached one-run-per-example PyTorch baseline.
 **Cross-references**: 30 new entries in `perf-log.jsonl`
 (`kind=baseline`, commit `7633a54`), `perf-baseline.md` table
 refreshed, no `TODO.md` impact.
+
+### 2026-05-28 — fused-init "going forward" baseline across all 5 lanes — `41a649c`
+
+**Motivation**: the fused-init epic landed across torch (`b38e71c`),
+mlx (`87ad1ac`), and tape (today's P4 commit). Per-backend
+construction-time impact was unmeasured for mlx + tape on small
+models because BERT/GPT-2/Llama inference examples lacked stage
+timers (only Llama's example emitted `[stage] …` lines). Added stage
+timers to `Example/HfBertInference.idr` + `Example/HfGpt2Inference.idr`
+this session; this entry is the first across-the-board baseline.
+
+**Change**: ran `scripts/perf-run.sh hf-bert <backend>` and
+`scripts/perf-run.sh hf-gpt2 <backend>` on five lanes — `tape`,
+`torch/cpu`, `torch/mps`, `mlx/cpu`, `mlx/gpu` — all at commit
+`41a649c` ("feat(examples): stage timers in HF BERT/GPT-2 inference").
+Each entry logs the construction-stage time (`hfBertForMaskedLm ok`,
+`hfGpt2Model ok`) and the safetensors-load-stage time
+(`loadModelAllowCast ok`) into the JSONL `stages` field, with the
+full wall-clock recorded in `wall_ms`.
+
+**Impact** (HEAD `41a649c`, fused init enabled on all backends):
+
+| Backend / device  | hf-bert wall | construct | load   | hf-gpt2 wall | construct | load   |
+|-------------------|-------------:|----------:|-------:|-------------:|----------:|-------:|
+| tape (F64)        |     15.9 s   |    < 1 s  | < 1 s  |     3 m 30 s |    1 s    | 1 s    |
+| torch / cpu (F64) |   1 m 42 s   |    < 1 s  | < 1 s  |     3 m 44 s |    1 s    | 1 s    |
+| torch / mps (F32) |   2 m 25 s   |    < 1 s  | < 1 s  |     6 m 37 s |    1 s    | 2 s    |
+| mlx / cpu (F64)   |   1 m 44 s   |    < 1 s  | < 1 s  |     3 m 14 s |    < 1 s  | < 1 s  |
+| mlx / gpu (F32)   |   1 m 37 s   |    < 1 s  | < 1 s  |     3 m 8 s  |    < 1 s  | < 1 s  |
+
+**Llama-3.2-1B reference** (from recent perf-log entries, only torch-mps
+and mlx-gpu run at this scale; tape's F64 storage at 10 GB doesn't fit
+the 16 GB VM):
+
+| Backend / device         | hfLlamaModel | load   | RoPE | runGenerate (8 tok) | commit          |
+|--------------------------|-------------:|-------:|-----:|--------------------:|-----------------|
+| torch / mps F32          |        28 s  | 65 s   | 0 s  |              388 s  | `51df3cb+dirty` |
+| torch / mps BF16         |        18 s  | 28 s   | 0 s  |              340 s  | `e5c4bba+dirty` |
+| mlx / gpu F32            |         2 s  | 14 s   | 0 s  |               37 s  | `e5c4bba`       |
+
+**Headline finding**: fused-init construction is **sub-2-seconds on
+all backends across BERT/GPT-2** — the kernel is bandwidth-bound and
+amortises away at small model scale. Wall-clock time on these
+examples is dominated by tokenizer subprocess startup (~1 s) + the
+forward pass / greedy decode (~all the rest). The fused-init
+contribution is invisible at BERT/GPT-2 scale.
+
+The fused-init win **scales with parameter count**:
+
+- BERT (4.4 M params): old per-element path would have taken
+  ~4–8 s across the host-side `traverse normalSample + packDoubles`
+  loop; new path is <1 s. Save: ~4–7 s per cold inference.
+- GPT-2 (~82 M params): old path ~80 s estimated; new path 1–2 s.
+  Save: ~78–80 s per cold inference. On a 3–7 min wall, that's
+  18–44 % of total.
+- Llama-3.2-1B (1.24 B params): well-documented torch-mps
+  57:53 → 22 s (158×); 5.6× speedup on total binary wall.
+
+Throughput per backend (from the Llama-1.24B numbers; lower is the
+F32/F64 boundary):
+
+| Backend / device | params/sec       | Note                              |
+|------------------|-----------------:|-----------------------------------|
+| mlx / gpu        | ~620 M / s       | F32 Metal `mx::random::normal`    |
+| torch / mps BF16 | ~70 M / s        | libtorch `init::normal_`, BF16    |
+| torch / mps F32  | ~45 M / s        | libtorch `init::normal_`, F32     |
+
+Tape, torch-cpu, mlx-cpu aren't measured on Llama (too big for tape;
+torch-cpu/mlx-cpu untried at 1.24 B in this VM); the BERT/GPT-2 data
+caps them at fast-enough-to-be-invisible-at-small-scale.
+
+**Conclusion**: fused init delivered. The bottleneck has shifted —
+on small models, time is now in tokenizer / forward / generation;
+on large models (Llama), it's in `runGenerate` (decode latency,
+which #393 tracks as the torch-mps per-op MPSGraph cost). No
+follow-up rows from this baseline.
+
+**Cross-references**: 10 new entries in `perf-log.jsonl` (5 lanes
+× 2 examples, all at commit `41a649c`), `perf-baseline.md` not
+refreshed (this baseline is HF inference only, separate from the
+training-example sweep that drives the baseline table).
