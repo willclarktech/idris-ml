@@ -24,19 +24,20 @@ extern "C" void param_clear(void);
 
 extern "C" const char* backend_name(void) { return "mlx"; }
 
-/* See backend.h: explicit pre-exit cleanup. mlx-cpu shows a smaller
- * post-main tail than torch-cpu (mlx 14:30, torch 20:05 on HfLlama
- * 1.2B). mlx's per-tensor delete sits behind the static-scoped
- * `mlx_sweep_generation` (`autograd.cpp`), unreachable from this TU;
- * the simplest available hooks are `param_clear` (decrements
- * refcount via tensor_release_handle → tensor_release_internal,
- * dropping params to 0) plus `mx::clear_cache` to drop cached
- * MTLBuffer / CPU allocator pool entries. Best-effort only — if
- * mlx-cpu's tail proves stubborn, expose `mlx_sweep_generation`
- * publicly + walk all_tensors here. */
+/* See backend.h: explicit pre-exit cleanup. No-op on mlx today —
+ * an initial attempt (param_clear + mx::clear_cache) regressed
+ * HfLlama mlx-cpu from 15:17 → 20:24 because `tensor_release_handle`
+ * on mlx only decrements refcount (doesn't delete), so param_clear
+ * didn't actually free any mx::array storage; only the synchronous
+ * mx::clear_cache call added wall (likely flushing the host
+ * allocator pool against running Idris work). The real fix would
+ * expose `mlx_sweep_generation` (static in `autograd.cpp`) and walk
+ * `all_tensors` here, deleting each Tensor* — but that's a wider
+ * lifecycle refactor. Documented as a follow-up TODO. mlx-cpu's
+ * post-main tail (~14 min on 1.2B Llama) is comparable to the
+ * torch-cpu baseline pre-fix; the GPU lanes are unaffected. */
 extern "C" void backend_release_all_persistent(void) {
-    param_clear();
-    try { mx::clear_cache(); } catch (...) { /* best-effort at shutdown */ }
+    /* deliberately no-op until mlx_sweep_generation is publicly callable */
 }
 
 extern "C" void backend_reset_for_eval(void) {

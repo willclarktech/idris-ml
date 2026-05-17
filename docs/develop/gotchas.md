@@ -242,6 +242,14 @@ The library fix (commit `8a32a86`'s parent and earlier): every Tensor-handle-tou
 
 The `ioRerun : (() -> a) -> IO a = primIO (\w => MkIORes (f ()) w)` helper that defers FFI-bearing pure bodies to IO adds one closure construction and one `MkIORes` allocation per FFI call. Tape's per-op cost is so low this is invisible. Torch absorbs it (libtorch's per-op is already heavy enough). mlx-cpu and mlx-gpu pay it visibly: small-net training (rnn/lstm/gru/ntm) regressed ~5× vs pre-IO-refactor on mlx (`perf-changes.md` 2026-05-17 entry). The matmul-bench compute-bound regime (N ≥ 2048) is invisible to the overhead because each op is ms-scale compute; mlx-gpu still hits 4.3 TFLOPS at N=4096. Treat the regression as the cost of correctness; if it ever matters, the lever is streamlining `ioRerun`'s shape (drop the closure or the IORes box).
 
+### Large-model inference needs explicit `releaseAllPersistent` at end of `main`
+
+Inference programs that complete with hundreds of MB of live tensor handles hit a 14-22 minute post-main C-side cleanup tail on the CPU lanes (torch-cpu, mlx-cpu). The work is libtorch's per-`at::Tensor` destructor cascade (`~at::Tensor → ~Storage → CPUAllocator-free`) walking the ~146 params + ~600 forward intermediates accumulated across an 8-token no-cache greedy decode. The GPU lanes (`torch-mps`, `mlx-gpu`) don't show this — MTLBuffer release is async.
+
+Fix: call `releaseAllPersistent {d=ExampleDevice}` after `runGenerate` and before `pure ()`. On torch this `free_intermediates()` + walks `param_registry_arr` deleting each `at::Tensor*`; cascade runs inside `main` where it's timed + bounded. Measured on HfLlama-1.2B BF16 torch-cpu (commit `81e3caa`): **wall 23m22s → 1m21s**.
+
+Pair with `drainManagedHandles + forceMajorGc` immediately before (the standard `withNoGrad` cleanup pair) so any guardian-tracked wraps from the run are popped before the explicit release. mlx-cpu's `releaseAllPersistent` is a no-op today — `mlx_sweep_generation` is static-scoped in `autograd.cpp` and the simpler `param_clear + mx::clear_cache` regressed the mlx-cpu wall; exposing the sweep + walking `all_tensors` is the proper fix and a deferred follow-up.
+
 ### Long eval loops need per-sequence `withNoGrad`, not per-batch
 
 Even with the IO refactor, wrapping a 100-sequence × 20-step eval in a single outer `withNoGrad` can OOM mlx on Tart/GHA VMs: forward passes allocate Metal buffers that Chez has no visibility into, so Chez GC doesn't fire before the Metal MTLBuffer ceiling. `withNoGrad`'s exit does `forceMajorGc + drainManagedHandles`, but once-at-end is too late.
