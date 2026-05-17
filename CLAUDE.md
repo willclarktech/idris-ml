@@ -15,7 +15,8 @@ packages/
   idris-ml/           # Core ML library (Idris ipkg)
   idris-ml-notebook/  # Notebook Prelude (re-exports all idris-ml modules for Jupyter)
   idris-gym/          # Pure Idris RL environments (Gymnasium-parity API)
-  idris-ml-examples/  # Example programs (depends on idris-ml + idris-gym), plus Generate.idr
+  idris-transformers/ # HF-aligned model library on top of idris-ml (HfBert, HfGpt2, HfLlama)
+  idris-ml-examples/  # Example programs (depends on idris-ml + idris-gym + idris-transformers), plus Generate.idr
   backends/           # C/C++ backends (tape, MLX, torch)
   jupyter/            # Jupyter kernel (Python)
   pytorch/            # PyTorch reference implementations (Python)
@@ -186,6 +187,8 @@ The only optimizer surface — `nativeSgd` / `nativeRmsprop` / `nativeAdamGlobal
 Backend-agnostic SafeTensors (`.safetensors`) via `Checkpoint` module: `saveModel` / `loadModel` / `saveOptimizer` / `loadOptimizer`. Python interop: PyTorch loads via `safetensors.torch.load_file()`, MLX via `mx.load()`.
 
 Training-loop integration: attach a `CheckpointPolicy` (built by `fileCheckpoint dir everyN keepBest opt`) to a `TrainConfig` via `withCheckpoint`. `runTrainingIO` then auto-saves every N epochs to `<dir>/last`, keeps the best to `<dir>/best`, resumes from `<dir>/last` if present, and reloads best at the end (return-best). Resume scalars (epoch, best metric) live in a `trainer_state.json` sidecar; safetensors stays the only on-disk format. Examples expose `--checkpoint-dir` / `--resume` / `--checkpoint-every` (gpt, transformer, ntm-copy, dnc-copy). See design-decisions.md "Training-loop checkpointing".
+
+Foreign HuggingFace checkpoints — where param names + storage shapes diverge from idris-ml's conventions — are handled by `packages/idris-transformers/`. That package contains one Idris module per HF architecture (`HfBert.idr`, etc.) whose params and shapes match HF on-disk, so loading is plain `loadModel "model.safetensors"` with no remap or shape-split machinery in core. The module IS the adapter, expressed as type-checked code. See `packages/idris-transformers/CONVENTIONS.md` for the design rules every `Hf*` module follows.
 
 ### Type-safety conventions
 
