@@ -48,6 +48,34 @@ is still useful (saves someone trying it again).
 
 ## Entries
 
+### 2026-05-26 — `coverage-backend-torch` further 2.4× via libtorch PCH
+
+**Plan**: coverage-policy plan W2 follow-up after the user noted "still extremely slow" at the prior 144s cold.
+
+**Motivation**: Per-stage cold breakdown showed 202s of the 240s wall is the dylib build, dominated by libtorch's heavy template-rich `<torch/torch.h>` (~30K lines) being parsed 90× — once per backend_torch `.cpp`.
+
+**Change**:
+- Added `packages/backends/backend_torch/torch_pch.h` (single-include precompiled header for `<torch/torch.h>`).
+- Makefile rule `$(BUILD)/torch_pch.gch` builds the PCH once per build tree with the same flags as the per-TU compile (so the PCH is valid for every consuming TU; clang rejects PCHs whose flags don't match).
+- Per-TU rule now does `-include-pch $(BUILD)/torch_pch.gch -include rename_torch.h ...`.
+
+**Impact**:
+
+| state | torch coverage cold wall | speedup vs prior |
+|---|---:|---:|
+| pre-W2 (`-O0`, no `-j`)        | 538s (8:58)  | 1.0× |
+| W2 (`-O0`, `-j4`)              | ~240s (4:00) | 2.24× |
+| W2 + PCH (`-O0`, `-j4`, PCH)   | **101s (1:41)** | **5.3× cumulative, 2.4× over W2** |
+
+Tape coverage cold wall unchanged from W2 (~7s — tape headers are cheap).
+
+**Test suites all pass after the PCH change**:
+- tape 183/183, mlx 175/175, torch 174/174
+
+**Cross-references**:
+- `feedback_perf_compare_after_changes.md` — perf change recorded per the rule.
+- PCH stays per-build because the same PCH binary is incompatible across flag-incompatible builds (`-O0 -g -fcoverage-mapping` for cov vs `-O2` for normal). $(BUILD) is `build/` for normal and `build-cov/` for cov, so each gets its own PCH.
+
 ### 2026-05-26 — `coverage-backend` 4× speedup via -j$(NPROC) on recursive make
 
 **Plan**: coverage-policy plan (modular-petting-minsky.md), W2.

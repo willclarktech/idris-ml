@@ -356,9 +356,18 @@ $(BUILD)/backend_tape/%.o: $(BACKENDS_DIR)/backend_tape/%.c $(BACKEND_TAPE_HEADE
 # (incl. libtorch / mlx include paths). Force-includes the rename
 # header so every symbol gets the backend suffix at link time. Rules
 # defined unconditionally (only fire if BACKEND_<b>_OBJS pulls them in).
-$(BUILD)/backend_torch/%.o: $(BACKENDS_DIR)/backend_torch/%.cpp $(BACKEND_TORCH_HEADERS) $(SHARED_TRAINING_HEADERS) $(BACKENDS_DIR)/rename_torch.h | $(BUILD)
+# Precompiled header for torch — `<torch/torch.h>` is ~30K lines of
+# templates and parsing it 90× per cold build dominates the wall.
+# Build the PCH once into $(BUILD)/torch_pch.gch with the same flags
+# as the per-TU compile, then `-include-pch` it from every TU below.
+# PCH lives in $(BUILD)/ so coverage and normal builds get their own
+# (clang rejects PCHs whose flags don't match the consuming TU).
+$(BUILD)/torch_pch.gch: $(BACKENDS_DIR)/backend_torch/torch_pch.h | $(BUILD)
+	$(torch_CC) -O2 -fPIC $(EXTRA_CFLAGS) $(torch_CFLAGS) -x c++-header -c -o $@ $<
+
+$(BUILD)/backend_torch/%.o: $(BACKENDS_DIR)/backend_torch/%.cpp $(BACKEND_TORCH_HEADERS) $(SHARED_TRAINING_HEADERS) $(BACKENDS_DIR)/rename_torch.h $(BUILD)/torch_pch.gch | $(BUILD)
 	@mkdir -p $(dir $@)
-	$(torch_CC) -O2 -fPIC $(EXTRA_CFLAGS) $(torch_CFLAGS) -include $(BACKENDS_DIR)/rename_torch.h -c -o $@ $<
+	$(torch_CC) -O2 -fPIC $(EXTRA_CFLAGS) $(torch_CFLAGS) -include-pch $(BUILD)/torch_pch.gch -include $(BACKENDS_DIR)/rename_torch.h -c -o $@ $<
 
 $(BUILD)/backend_mlx/%.o: $(BACKENDS_DIR)/backend_mlx/%.cpp $(BACKEND_MLX_HEADERS) $(SHARED_TRAINING_HEADERS) $(BACKENDS_DIR)/rename_mlx.h | $(BUILD)
 	@mkdir -p $(dir $@)
