@@ -25,18 +25,18 @@ import Tensor
 
 public export
 data BatchNormState : (channels : Nat) -> (spatialDim : Nat) ->
-                        Nat -> Nat -> (0 _ : Device) -> (0 _ : GradMode) -> Type where
+                        Nat -> Nat -> (0 _ : Device) -> (0 _ : DType) -> (0 _ : GradMode) -> Type where
   MkBatchNorm :
-    TVec channels d g ->          -- gamma (learnable)
-    TVec channels d g ->          -- beta (learnable)
-    TVec channels d g ->          -- running mean (state)
-    TVec channels d g ->          -- running var (state)
+    TVec channels d F64 g ->          -- gamma (learnable)
+    TVec channels d F64 g ->          -- beta (learnable)
+    TVec channels d F64 g ->          -- running mean (state)
+    TVec channels d F64 g ->          -- running var (state)
     (training : Bool) ->
     (momentum : Double) ->
     (eps : Double) ->
     BatchNormState channels spatialDim
                      (channels * spatialDim)
-                     (channels * spatialDim) d g
+                     (channels * spatialDim) d F64 g
 
 
 ----------------------------------------------------------------------
@@ -49,12 +49,12 @@ export
 applyBatchNorm : {0 d : Device} -> UserDeviceTape d => {channels, spatialDim : Nat} ->
                    BatchNormState channels spatialDim
                      (channels * spatialDim)
-                     (channels * spatialDim) d g ->
-                   TVec (channels * spatialDim) d g ->
+                     (channels * spatialDim) d F64 g ->
+                   TVec (channels * spatialDim) d F64 g ->
                    IO ( BatchNormState channels spatialDim
                           (channels * spatialDim)
-                          (channels * spatialDim) d g
-                      , TVec (channels * spatialDim) d g )
+                          (channels * spatialDim) d F64 g
+                      , TVec (channels * spatialDim) d F64 g )
 applyBatchNorm {channels} {spatialDim}
                  st@(MkBatchNorm gamma beta mean var training momentum eps)
                  input = ioRerun (\_ =>
@@ -88,7 +88,7 @@ batchNormLayer : {channels, spatialDim : Nat} ->
                    (paramPrefix : String) ->
                    IO (BatchNormState channels spatialDim
                          (channels * spatialDim)
-                         (channels * spatialDim) CPU WithGrad)
+                         (channels * spatialDim) CPU F64 WithGrad)
 batchNormLayer paramPrefix = do
   let cI = cast {to=Int} channels
       gBuf = fillConst (prim__allocDoubles cI) 0 cI 1.0
@@ -101,21 +101,21 @@ batchNormLayer paramPrefix = do
       bPtr = prim__paramRegister bName (prim__createParam1d cI bBuf)
       mPtr = prim__createState1d cI mBuf
       vPtr = prim__createState1d cI vBuf
-      gTV : TVec channels CPU WithGrad
+      gTV : TVec channels CPU F64 WithGrad
       gTV = MkTensor gPtr (Just gName)
-      bTV : TVec channels CPU WithGrad
+      bTV : TVec channels CPU F64 WithGrad
       bTV = MkTensor bPtr (Just bName)
-      mTV : TVec channels CPU WithGrad
+      mTV : TVec channels CPU F64 WithGrad
       mTV = MkTensor mPtr Nothing
-      vTV : TVec channels CPU WithGrad
+      vTV : TVec channels CPU F64 WithGrad
       vTV = MkTensor vPtr Nothing
   pure $ MkBatchNorm gTV bTV mTV vTV True 0.1 1.0e-5
 
 ||| Toggle training/eval mode.
 export
 setBatchNormTraining : Bool ->
-  BatchNormState channels spatialDim i o d g ->
-  BatchNormState channels spatialDim i o d g
+  BatchNormState channels spatialDim i o d F64 g ->
+  BatchNormState channels spatialDim i o d F64 g
 setBatchNormTraining mode (MkBatchNorm g b m v _ mom eps) =
   MkBatchNorm g b m v mode mom eps
 
@@ -149,8 +149,7 @@ public export
 export
 batchNormLayerAny : {channels, spatialDim : Nat} ->
                       (paramPrefix : String) ->
-                      IO (AnyLayer (channels * spatialDim)
-                                     (channels * spatialDim) CPU WithGrad)
+                      IO (AnyLayer (channels * spatialDim) (channels * spatialDim) CPU F64 WithGrad)
 batchNormLayerAny pid =
   map (MkAnyLayer (BatchNormState channels spatialDim))
       (batchNormLayer {channels} {spatialDim} pid)

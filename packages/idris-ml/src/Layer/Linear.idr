@@ -19,10 +19,10 @@ import Tensor
 -- Bias and weight are registered C params at construction time.
 
 public export
-record LinearState (i : Nat) (o : Nat) (0 d : Device) (0 g : GradMode) where
+record LinearState (i : Nat) (o : Nat) (0 d : Device) (0 F64 : DType) (0 g : GradMode) where
   constructor MkLinear
-  weightT : Tensor [o, i] d g
-  biasT   : Tensor [o] d g
+  weightT : Tensor [o, i] d F64 g
+  biasT   : Tensor [o] d F64 g
 
 
 ----------------------------------------------------------------------
@@ -81,7 +81,7 @@ mkLinearWith : {i, o : Nat}
             -> (paramPrefix : String)
             -> (weightInit : InitStrategy)
             -> (biasInit : IO Double)
-            -> IO (LinearState i o CPU WithGrad)
+            -> IO (LinearState i o CPU F64 WithGrad)
 mkLinearWith pfx wInit bInit = do
   let oI = cast {to=Int} o
       iI = cast {to=Int} i
@@ -102,7 +102,7 @@ mkLinearWith pfx wInit bInit = do
 ||| matching the existing `Layer/Linear.idr` naming so the optimizer
 ||| picks them up via the global registry.
 export
-linearLayer : {i, o : Nat} -> (paramPrefix : String) -> IO (LinearState i o CPU WithGrad)
+linearLayer : {i, o : Nat} -> (paramPrefix : String) -> IO (LinearState i o CPU F64 WithGrad)
 linearLayer paramPrefix = do
   let oI = cast {to=Int} o
       iI = cast {to=Int} i
@@ -118,5 +118,5 @@ linearLayer paramPrefix = do
 
 ||| Wrap a Linear in `AnyLayer` for use in a `Network`.
 export
-linearLayerAny : {i, o : Nat} -> (paramPrefix : String) -> IO (AnyLayer i o CPU WithGrad)
+linearLayerAny : {i, o : Nat} -> (paramPrefix : String) -> IO (AnyLayer i o CPU F64 WithGrad)
 linearLayerAny pid = map (MkAnyLayer LinearState) (linearLayer pid)

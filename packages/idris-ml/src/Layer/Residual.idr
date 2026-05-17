@@ -15,8 +15,8 @@ import Tensor
 -- and output dim. GADT enforces `i = o = n`.
 
 public export
-data ResidualState : Nat -> Nat -> (0 _ : Device) -> (0 _ : GradMode) -> Type where
-  MkResidual : AnyLayer n n d g -> ResidualState n n d g
+data ResidualState : Nat -> Nat -> (0 _ : Device) -> (0 _ : DType) -> (0 _ : GradMode) -> Type where
+  MkResidual : AnyLayer n n d F64 g -> ResidualState n n d F64 g
 
 
 ----------------------------------------------------------------------
@@ -27,9 +27,9 @@ data ResidualState : Nat -> Nat -> (0 _ : Device) -> (0 _ : GradMode) -> Type wh
 
 export
 applyResidual : {0 d : Device} -> UserDeviceTape d => {n : Nat} ->
-                  ResidualState n n d g ->
-                  TVec n d g ->
-                  IO (ResidualState n n d g, TVec n d g)
+                  ResidualState n n d F64 g ->
+                  TVec n d F64 g ->
+                  IO (ResidualState n n d F64 g, TVec n d F64 g)
 applyResidual (MkResidual inner) input = do
   (inner', innerOut) <- applyVarAny inner input
   sumT <- tadd input innerOut
@@ -63,10 +63,10 @@ LayerLike ResidualState where
 
 ||| Wrap a same-dim AnyLayer in a residual connection.
 export
-residualLayer : {n : Nat} -> AnyLayer n n d g -> ResidualState n n d g
+residualLayer : {n : Nat} -> AnyLayer n n d F64 g -> ResidualState n n d F64 g
 residualLayer inner = MkResidual inner
 
 ||| Same, wrapped in `AnyLayer`.
 export
-residualLayerAny : {n : Nat} -> AnyLayer n n d g -> AnyLayer n n d g
+residualLayerAny : {n : Nat} -> AnyLayer n n d F64 g -> AnyLayer n n d F64 g
 residualLayerAny inner = MkAnyLayer ResidualState (MkResidual inner)

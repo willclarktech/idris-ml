@@ -24,13 +24,13 @@ import Tensor
 -- `TMat (3 * o) ...` and `TVec (3 * o) ...` aliases.
 
 public export
-record GruState (i : Nat) (o : Nat) (0 d : Device) (0 g : GradMode) where
+record GruState (i : Nat) (o : Nat) (0 d : Device) (0 F64 : DType) (0 g : GradMode) where
   constructor MkGru
-  iwT : TMat (3 * o) i d g         -- W_ih [3*o, i]
-  ihB : TVec (3 * o) d g           -- b_ih [3*o]
-  hwT : TMat (3 * o) o d g         -- W_hh [3*o, o]
-  hhB : TVec (3 * o) d g           -- b_hh [3*o]
-  hiddenT : Maybe (TVec o d g)
+  iwT : TMat (3 * o) i d F64 g         -- W_ih [3*o, i]
+  ihB : TVec (3 * o) d F64 g           -- b_ih [3*o]
+  hwT : TMat (3 * o) o d F64 g         -- W_hh [3*o, o]
+  hhB : TVec (3 * o) d F64 g           -- b_hh [3*o]
+  hiddenT : Maybe (TVec o d F64 g)
 
 
 ----------------------------------------------------------------------
@@ -41,9 +41,9 @@ record GruState (i : Nat) (o : Nat) (0 d : Device) (0 g : GradMode) where
 
 export
 applyGru : {0 d : Device} -> UserDeviceTape d => {o : Nat} ->
-             GruState i o d g ->
-             TVec i d g ->
-             IO (GruState i o d g, TVec o d g)
+             GruState i o d F64 g ->
+             TVec i d F64 g ->
+             IO (GruState i o d F64 g, TVec o d F64 g)
 applyGru {o} st input = do
   h <- case st.hiddenT of
          Just h => pure h
@@ -73,7 +73,7 @@ zeroBuf buf off n =
 ||| `<prefix>_hw`, `<prefix>_hh_b`.
 export
 gruLayer : {i, o : Nat} -> (paramPrefix : String) ->
-             IO (GruState i o CPU WithGrad)
+             IO (GruState i o CPU F64 WithGrad)
 gruLayer paramPrefix = do
   let gI = cast {to=Int} (3 * o)
       iI = cast {to=Int} i
@@ -96,19 +96,19 @@ gruLayer paramPrefix = do
       hwPtr  = prim__paramRegister hwName  (prim__createParam2d gI oI hwBuf')
       ihBPtr = prim__paramRegister ihBName (prim__createParam1d gI ihBBuf')
       hhBPtr = prim__paramRegister hhBName (prim__createParam1d gI hhBBuf')
-      iwTV : TMat (3 * o) i CPU WithGrad
+      iwTV : TMat (3 * o) i CPU F64 WithGrad
       iwTV = MkTensor iwPtr (Just iwName)
-      hwTV : TMat (3 * o) o CPU WithGrad
+      hwTV : TMat (3 * o) o CPU F64 WithGrad
       hwTV = MkTensor hwPtr (Just hwName)
-      ihBTV : TVec (3 * o) CPU WithGrad
+      ihBTV : TVec (3 * o) CPU F64 WithGrad
       ihBTV = MkTensor ihBPtr (Just ihBName)
-      hhBTV : TVec (3 * o) CPU WithGrad
+      hhBTV : TVec (3 * o) CPU F64 WithGrad
       hhBTV = MkTensor hhBPtr (Just hhBName)
   pure $ MkGru iwTV ihBTV hwTV hhBTV Nothing
 
 ||| Reset hidden state. Lazy-allocate on next applyVar call.
 export
-resetGruState : {o : Nat} -> {0 d : Device} -> {0 g : GradMode} -> GruState i o d g -> GruState i o d g
+resetGruState : {o : Nat} -> {0 d : Device} -> {0 g : GradMode} -> GruState i o d F64 g -> GruState i o d F64 g
 resetGruState st = { hiddenT := Nothing } st
 
 
@@ -147,5 +147,5 @@ LayerLike GruState where
 
 ||| Wrap a `GruState` in `AnyLayer`.
 export
-gruLayerAny : {i, o : Nat} -> (paramPrefix : String) -> IO (AnyLayer i o CPU WithGrad)
+gruLayerAny : {i, o : Nat} -> (paramPrefix : String) -> IO (AnyLayer i o CPU F64 WithGrad)
 gruLayerAny pid = map (MkAnyLayer GruState) (gruLayer pid)

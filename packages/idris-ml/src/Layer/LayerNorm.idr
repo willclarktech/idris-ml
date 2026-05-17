@@ -23,8 +23,8 @@ import Tensor
 -- (mirrors Dropout's pattern).
 
 public export
-data LayerNormState : Nat -> Nat -> (0 _ : Device) -> (0 _ : GradMode) -> Type where
-  MkLayerNorm : TVec n d g -> TVec n d g -> LayerNormState n n d g
+data LayerNormState : Nat -> Nat -> (0 _ : Device) -> (0 _ : DType) -> (0 _ : GradMode) -> Type where
+  MkLayerNorm : TVec n d F64 g -> TVec n d F64 g -> LayerNormState n n d F64 g
 
 
 ----------------------------------------------------------------------
@@ -35,9 +35,9 @@ data LayerNormState : Nat -> Nat -> (0 _ : Device) -> (0 _ : GradMode) -> Type w
 
 export
 applyLayerNorm : {0 d : Device} -> UserDeviceTape d => {n : Nat} ->
-                   LayerNormState n n d g ->
-                   TVec n d g ->
-                   IO (LayerNormState n n d g, TVec n d g)
+                   LayerNormState n n d F64 g ->
+                   TVec n d F64 g ->
+                   IO (LayerNormState n n d F64 g, TVec n d F64 g)
 applyLayerNorm {n} st@(MkLayerNorm gamma beta) input = ioRerun (\_ =>
   let nI = cast {to=Int} n
       input2d = prim__reshape2d input.tensorPtr 1 nI
@@ -67,7 +67,7 @@ fillConst buf off n v =
 ||| `<prefix>_gamma` / `<prefix>_beta`.
 export
 layerNormLayer : {n : Nat} -> (paramPrefix : String) ->
-                   IO (LayerNormState n n CPU WithGrad)
+                   IO (LayerNormState n n CPU F64 WithGrad)
 layerNormLayer paramPrefix = do
   let nI = cast {to=Int} n
       gBuf = prim__allocDoubles nI
@@ -103,5 +103,5 @@ LayerLike LayerNormState where
 ||| Wrap a LayerNorm in `AnyLayer`.
 export
 layerNormLayerAny : {n : Nat} -> (paramPrefix : String) ->
-                      IO (AnyLayer n n CPU WithGrad)
+                      IO (AnyLayer n n CPU F64 WithGrad)
 layerNormLayerAny pid = map (MkAnyLayer LayerNormState) (layerNormLayer pid)

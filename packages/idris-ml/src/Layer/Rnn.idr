@@ -32,14 +32,14 @@ import Tensor
 -- though shape arithmetic isn't needed here (no `4 *`).
 
 public export
-record RnnState (i : Nat) (o : Nat) (0 d : Device) (0 g : GradMode) where
+record RnnState (i : Nat) (o : Nat) (0 d : Device) (0 F64 : DType) (0 g : GradMode) where
   constructor MkRnn
-  iwT : TMat o i d g         -- W_ih [o, i]
-  rwT : TMat o o d g         -- W_hh [o, o]
-  ihB : TVec o d g           -- input-hidden bias [o]
-  hhB : TVec o d g           -- hidden-hidden bias [o]
-  activation : {0 g' : GradMode} -> TVec o d g' -> IO (TVec o d g')
-  prevOutT : Maybe (TVec o d g)
+  iwT : TMat o i d F64 g         -- W_ih [o, i]
+  rwT : TMat o o d F64 g         -- W_hh [o, o]
+  ihB : TVec o d F64 g           -- input-hidden bias [o]
+  hhB : TVec o d F64 g           -- hidden-hidden bias [o]
+  activation : {0 g' : GradMode} -> TVec o d F64 g' -> IO (TVec o d F64 g')
+  prevOutT : Maybe (TVec o d F64 g)
 
 
 ----------------------------------------------------------------------
@@ -50,9 +50,9 @@ record RnnState (i : Nat) (o : Nat) (0 d : Device) (0 g : GradMode) where
 
 export
 applyRnn : {0 d : Device} -> UserDeviceTape d => {o : Nat} ->
-             RnnState i o d g ->
-             TVec i d g ->
-             IO (RnnState i o d g, TVec o d g)
+             RnnState i o d F64 g ->
+             TVec i d F64 g ->
+             IO (RnnState i o d F64 g, TVec o d F64 g)
 applyRnn {o} st input = do
   p <- case st.prevOutT of
          Just po => pure po
@@ -90,8 +90,8 @@ zeroBuf buf off n =
 export
 rnnLayer : {i, o : Nat} ->
              (paramPrefix : String) ->
-             (activation : {0 g' : GradMode} -> TVec o CPU g' -> IO (TVec o CPU g')) ->
-             IO (RnnState i o CPU WithGrad)
+             (activation : {0 g' : GradMode} -> TVec o CPU F64 g' -> IO (TVec o CPU F64 g')) ->
+             IO (RnnState i o CPU F64 WithGrad)
 rnnLayer paramPrefix activation = do
   let oI = cast {to=Int} o
       iI = cast {to=Int} i
@@ -113,19 +113,19 @@ rnnLayer paramPrefix activation = do
       rwPtr = prim__paramRegister rwName (prim__createParam2d oI oI rwBuf')
       ibPtr = prim__paramRegister ibName (prim__createParam1d oI ibBuf')
       hbPtr = prim__paramRegister hbName (prim__createParam1d oI hbBuf')
-      iwTV : TMat o i CPU WithGrad
+      iwTV : TMat o i CPU F64 WithGrad
       iwTV = MkTensor iwPtr (Just iwName)
-      rwTV : TMat o o CPU WithGrad
+      rwTV : TMat o o CPU F64 WithGrad
       rwTV = MkTensor rwPtr (Just rwName)
-      ibTV : TVec o CPU WithGrad
+      ibTV : TVec o CPU F64 WithGrad
       ibTV = MkTensor ibPtr (Just ibName)
-      hbTV : TVec o CPU WithGrad
+      hbTV : TVec o CPU F64 WithGrad
       hbTV = MkTensor hbPtr (Just hbName)
   pure $ MkRnn iwTV rwTV ibTV hbTV activation Nothing
 
 ||| Reset hidden state. Lazy-allocate on next applyVar call.
 export
-resetRnnState : {o : Nat} -> {0 d : Device} -> {0 g : GradMode} -> RnnState i o d g -> RnnState i o d g
+resetRnnState : {o : Nat} -> {0 d : Device} -> {0 g : GradMode} -> RnnState i o d F64 g -> RnnState i o d F64 g
 resetRnnState st = { prevOutT := Nothing } st
 
 
@@ -167,5 +167,5 @@ LayerLike RnnState where
 ||| (matching PyTorch's `nn.RNN` default). Use `rnnLayer` directly
 ||| if you need a different activation.
 export
-rnnLayerAny : {i, o : Nat} -> (paramPrefix : String) -> IO (AnyLayer i o CPU WithGrad)
+rnnLayerAny : {i, o : Nat} -> (paramPrefix : String) -> IO (AnyLayer i o CPU F64 WithGrad)
 rnnLayerAny pid = map (MkAnyLayer RnnState) (rnnLayer pid ttanh)

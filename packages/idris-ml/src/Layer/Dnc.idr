@@ -133,32 +133,32 @@ dncReadHeads idx (prevRw :: restRws) linkT linkTransT memT keysT betasT modesT m
 public export
 data DncState :
   (r : Nat) -> (n : Nat) -> (m : Nat) -> (h : Nat) ->
-  Nat -> Nat -> (0 _ : Device) -> (0 _ : GradMode) -> Type
+  Nat -> Nat -> (0 _ : Device) -> (0 _ : DType) -> (0 _ : GradMode) -> Type
   where
   MkDnc :
-    LstmState (DncControllerInput r m i) h d g ->
-    LinearState h m d g ->                  -- writeKeyFc
-    LinearState h 1 d g ->                  -- writeBetaFc
-    LinearState h m d g ->                  -- eraseFc
-    LinearState h m d g ->                  -- addFc
-    LinearState h r d g ->                  -- freeGatesFc
-    LinearState h 1 d g ->                  -- allocGateFc
-    LinearState h 1 d g ->                  -- writeGateFc
-    LinearState h (r * m) d g ->            -- readKeysFc
-    LinearState h r d g ->                  -- readBetasFc
-    LinearState h (r * 3) d g ->            -- readModesFc
-    LinearState (DncOutputInput h r m) o d g ->  -- outputFc
-    TVec (m * n) d g ->                          -- memInit (LEARNED, raw flat)
+    LstmState (DncControllerInput r m i) h d F64 g ->
+    LinearState h m d F64 g ->                  -- writeKeyFc
+    LinearState h 1 d F64 g ->                  -- writeBetaFc
+    LinearState h m d F64 g ->                  -- eraseFc
+    LinearState h m d F64 g ->                  -- addFc
+    LinearState h r d F64 g ->                  -- freeGatesFc
+    LinearState h 1 d F64 g ->                  -- allocGateFc
+    LinearState h 1 d F64 g ->                  -- writeGateFc
+    LinearState h (r * m) d F64 g ->            -- readKeysFc
+    LinearState h r d F64 g ->                  -- readBetasFc
+    LinearState h (r * 3) d F64 g ->            -- readModesFc
+    LinearState (DncOutputInput h r m) o d F64 g ->  -- outputFc
+    TVec (m * n) d F64 g ->                          -- memInit (LEARNED, raw flat)
     Vect r AnyPtr ->                          -- initReadOuts (Kaiming, NON-learned)
     AnyPtr ->                                 -- nonDiagMask: [n,n] (1 - I), precomputed once
-    Maybe (Tensor [n, m] d g) ->                -- memT
-    Maybe (TVec n d g) ->                     -- usageT
-    Maybe (TVec n d g) ->                     -- writeWtT
-    Maybe (TVec n d g) ->                     -- precedenceT
-    Maybe (Tensor [n, n] d g) ->                -- linkT
+    Maybe (Tensor [n, m] d F64 g) ->                -- memT
+    Maybe (TVec n d F64 g) ->                     -- usageT
+    Maybe (TVec n d F64 g) ->                     -- writeWtT
+    Maybe (TVec n d F64 g) ->                     -- precedenceT
+    Maybe (Tensor [n, n] d F64 g) ->                -- linkT
     Maybe (Vect r AnyPtr) ->                -- read weight tensor handles
     Maybe (Vect r AnyPtr) ->                -- read output tensor handles
-    DncState r n m h i o d g
+    DncState r n m h i o d F64 g
 
 
 ----------------------------------------------------------------------
@@ -219,9 +219,9 @@ mkZeroVectM (S k) m = zeroState1d m :: mkZeroVectM k m
 
 export
 applyDnc : {0 d : Device} -> UserDeviceTape d => {r, n, m, h, i, o : Nat} ->
-             DncState r n m h i o d g ->
-             TVec i d g ->
-             IO (DncState r n m h i o d g, TVec o d g)
+             DncState r n m h i o d F64 g ->
+             TVec i d F64 g ->
+             IO (DncState r n m h i o d F64 g, TVec o d F64 g)
 applyDnc {r} {n} {m}
            (MkDnc lstm wkFc wbFc eFc aFc fgFc agFc wgFc rkFc rbFc rmFc oFc
                     memInitT initReadOutsT nonDiagMaskT
@@ -256,7 +256,7 @@ applyDnc {r} {n} {m}
                    Nothing => initReadOutsT
       -- 1. cat(readOuts, input) -> [r*m + i]
       lstmInputPtr = catReadOutsAndInput roTsPtrs input.tensorPtr
-      lstmInputV = the (TVec (DncControllerInput r m i) d g) (MkTensor lstmInputPtr Nothing)
+      lstmInputV = the (TVec (DncControllerInput r m i) d F64 g) (MkTensor lstmInputPtr Nothing)
   -- 2. LSTM forward (IO)
   (updLstm, hiddenV) <- applyLstm lstm lstmInputV
   -- 3. Cell-state for FCs
@@ -388,7 +388,7 @@ mkKaimingReadOuts (S k) m bound = do
 export
 dncLayer : {r, n, m, h, i, o : Nat} ->
              (paramPrefix : String) ->
-             IO (DncState r n m h i o CPU WithGrad)
+             IO (DncState r n m h i o CPU F64 WithGrad)
 dncLayer pfx = do
   lstm <- lstmLayer {i = DncControllerInput r m i} {o = h} (pfx ++ "_lstm")
   -- 10 head FCs: xavier_uniform(gain=1.4) weights, normal(std=0.01) biases
@@ -439,7 +439,7 @@ dncLayer pfx = do
 ||| the next `applyDnc` re-derives initial memory + read outputs.
 export
 resetDncState : {r, n, m, h : Nat} -> {0 g : GradMode} ->
-                  DncState r n m h i o d g -> DncState r n m h i o d g
+                  DncState r n m h i o d F64 g -> DncState r n m h i o d F64 g
 resetDncState (MkDnc lstm wkFc wbFc eFc aFc fgFc agFc wgFc rkFc rbFc rmFc oFc
                           memInitT initReadOutsT nonDiagMaskT _ _ _ _ _ _ _) =
   MkDnc (resetLstmState lstm) wkFc wbFc eFc aFc fgFc agFc wgFc rkFc rbFc rmFc oFc
@@ -513,6 +513,6 @@ public export
 export
 dncLayerAny : {r, n, m, h, i, o : Nat} ->
                 (paramPrefix : String) ->
-                IO (AnyLayer i o CPU WithGrad)
+                IO (AnyLayer i o CPU F64 WithGrad)
 dncLayerAny pid =
   map (MkAnyLayer (DncState r n m h)) (dncLayer {r} {n} {m} {h} {i} {o} pid)
