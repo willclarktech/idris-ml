@@ -81,8 +81,32 @@ bool idrisml_is_floating_st(torch::ScalarType dt) {
    Generic dtype-parameterised create/cast over the lean non-grad set
    (scalar/create/1d/2d/cast). requires_grad is honored only for floating
    dtypes; torch rejects autograd on integer/bool. */
+/* Atomic cast + device-migrate for non-grad-leaf paths. Mirrors the
+   make_param_leaf logic minus the requires_grad/leaf check. Used by
+   the generic `create_*_dt` family below and by `make_state_persistent`
+   for non-F32/F64 dtypes (BF16, F16, Int*, Bool) so they land on the
+   active target device — not stranded on CPU after the F64-staged
+   construction. Surfaced by the BF16 Llama bring-up: the previous
+   "F64-create + cast (no migrate)" sequence left the staged tensor on
+   CPU when target was MPS, then the cast inherited that, mixing
+   BF16-on-CPU intermediates with BF16-on-MPS params at the first
+   downstream elementwise op. */
+static inline at::Tensor cast_and_migrate(at::Tensor t, torch::ScalarType dt) {
+    c10::Device target = torch_effective_device(dt);
+    bool need_cast = dt != t.scalar_type();
+    bool need_move = target != t.device();
+    if (need_cast || need_move) {
+        auto opts = torch::TensorOptions().dtype(dt).device(target);
+        t = t.to(opts);
+    }
+    return t;
+}
 static TensorHandle create_scalar_dt(double v, int rg, torch::ScalarType dt) {
+    /* No host-buffer staging for scalars; build directly at target dtype.
+       Device migration handled via .to(target) when dt allows MPS. */
     auto t = torch::tensor(v, torch::dtype(dt));
+    c10::Device target = torch_effective_device(dt);
+    if (target != at::kCPU) t = t.to(target);
     if (rg && idrisml_is_floating_st(dt)) t.requires_grad_(true);
     return from_tensor_persistent(std::move(t));
 }
@@ -90,21 +114,21 @@ static TensorHandle create_nd_dt(double* data, int* shape, int rank, int rg, tor
     std::vector<int64_t> dims(rank);
     for (int i = 0; i < rank; i++) dims[i] = shape[i];
     auto t = torch::from_blob(data, dims, torch::kFloat64).clone();
-    if (dt != torch::kFloat64) t = t.to(dt);
+    t = cast_and_migrate(std::move(t), dt);
     if (rg && idrisml_is_floating_st(dt)) t.requires_grad_(true);
     return from_tensor_persistent(std::move(t));
 }
 static TensorHandle create_1d_dt(int n, double* d, int rg, torch::ScalarType dt) {
     auto t = torch::from_blob(d, {(int64_t)n}, torch::kFloat64).clone();
     free(d);
-    if (dt != torch::kFloat64) t = t.to(dt);
+    t = cast_and_migrate(std::move(t), dt);
     if (rg && idrisml_is_floating_st(dt)) t.requires_grad_(true);
     return from_tensor(std::move(t));
 }
 static TensorHandle create_2d_dt(int rows, int cols, double* d, int rg, torch::ScalarType dt) {
     auto t = torch::from_blob(d, {(int64_t)rows, (int64_t)cols}, torch::kFloat64).clone();
     free(d);
-    if (dt != torch::kFloat64) t = t.to(dt);
+    t = cast_and_migrate(std::move(t), dt);
     if (rg && idrisml_is_floating_st(dt)) t.requires_grad_(true);
     return from_tensor(std::move(t));
 }
@@ -113,6 +137,24 @@ static TensorHandle create_2d_dt(int rows, int cols, double* d, int rg, torch::S
 TensorHandle torch_cast_to(TensorHandle h, torch::ScalarType dt) {
     auto t = *to_tensor(h);
     return from_tensor_persistent(t.dtype() == dt ? t : t.to(dt));
+}
+
+/* ---- State (non-grad persistent) builder mirroring make_param_leaf ----
+   State tensors take the same cast-and-move-to-effective-device path as
+   params, but without the requires_grad / leaf check. Used by the
+   `default:` branch of `torch_create_state_{1d,2d}_dtag` so that
+   non-F32/F64 dtypes (BF16, F16, Int*, Bool) land on the active target
+   device — not on CPU via the F64-on-MPS-fallback. Surfaced via the
+   BF16 Llama bring-up: the previous "F64-create + cast" sequence left
+   the F64-staged tensor on CPU when target was MPS, and the cast
+   inherited that, mixing BF16-on-CPU state with BF16-on-MPS params at
+   the first downstream elementwise op. */
+static TensorHandle make_state_persistent(double* data, c10::IntArrayRef dims, torch::ScalarType dt) {
+    auto t = torch::from_blob(data, dims, torch::kFloat64).clone();
+    /* Reuses the `cast_and_migrate` helper defined above so the
+       cast-or-move conditions stay in one place. */
+    t = cast_and_migrate(std::move(t), dt);
+    return from_tensor_persistent(std::move(t));
 }
 
 /* ---- Cast-and-move-before-requires_grad parameter builder ----
@@ -312,14 +354,14 @@ TensorHandle torch_create_state_1d_dtag(int n, double* data, int dtag) {
     switch (dtag) {
         case 14: return tensor_create_state_1d_f32(n, data);
         case 15: return tensor_create_state_1d_f64(n, data);
-        default: return torch_cast_to(tensor_create_state_1d_f64(n, data), st_for_dtag(dtag));
+        default: return make_state_persistent(data, {(int64_t)n}, st_for_dtag(dtag));
     }
 }
 TensorHandle torch_create_state_2d_dtag(int rows, int cols, double* data, int dtag) {
     switch (dtag) {
         case 14: return tensor_create_state_2d_f32(rows, cols, data);
         case 15: return tensor_create_state_2d_f64(rows, cols, data);
-        default: return torch_cast_to(tensor_create_state_2d_f64(rows, cols, data), st_for_dtag(dtag));
+        default: return make_state_persistent(data, {(int64_t)rows, (int64_t)cols}, st_for_dtag(dtag));
     }
 }
 TensorHandle torch_cast_dtype_dtag(TensorHandle src, int dtag) {

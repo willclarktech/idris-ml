@@ -24,6 +24,15 @@ MLX_DEVICE ?= cpu
 # rejects F64 at MPS tensor construction); TCpu and TCuda stay at F64.
 TORCH_DEVICE ?= cpu
 
+# Torch dtype override for the BuildConfig rule. Empty (the default)
+# uses the per-device default in the case below (F32 for MPS, F64 for
+# CPU/CUDA). Set TORCH_DTYPE=BF16 to override the torch-mps cell to
+# BFloat16 — halves memory for HF model inference (Llama-3.2-1B drops
+# 5 GB → 2.5 GB) on a libtorch that ships BF16 kernel coverage on MPS.
+# F32 stays the default until BF16 coverage is proven across more
+# examples.
+TORCH_DTYPE ?=
+
 # --- Backend selection + per-backend-set build key ---
 # Defined early so downstream variables (IDRIS2_LOCAL, LIB, BACKEND_OBJS,
 # stamps, …) can reference $(BUILD) / $(PRIMARY) / $(BACKEND_LIST) at
@@ -64,7 +73,7 @@ PRIMARY := $(firstword $(BACKEND_LIST))
 # F64 elsewhere — see those files' .in templates for the matrix).
 #
 # See `docs/develop/design-decisions.md` "Per-backend-set build cache".
-BUILD_KEY := $(subst $(comma),-,$(strip $(BACKEND)))-mlx$(MLX_DEVICE)-torch$(TORCH_DEVICE)
+BUILD_KEY := $(subst $(comma),-,$(strip $(BACKEND)))-mlx$(MLX_DEVICE)-torch$(TORCH_DEVICE)$(if $(TORCH_DTYPE),-tdt$(TORCH_DTYPE),)
 BUILD := build/$(BUILD_KEY)
 
 # Per-backend default seed for examples. Some examples (notably NTM-copy and
@@ -586,9 +595,10 @@ $(BUILDCONFIG_IDR): $(BUILDCONFIG_IN) $(BUILD)/.buildconfig-stamp
 		tape/*/*)     DEVICE="TapeDev";           DTYPE="F64" ;; \
 		*)            DEVICE="TapeDev";           DTYPE="F64" ;; \
 	esac; \
+	if [ -n "$(TORCH_DTYPE)" ] && [ "$(PRIMARY)" = "torch" ]; then DTYPE="$(TORCH_DTYPE)"; fi; \
 	sed "s|@DEVICE@|$$DEVICE|g; s|@DTYPE@|$$DTYPE|g" $< > $@.tmp; \
 	if cmp -s $@.tmp $@ 2>/dev/null; then rm $@.tmp; else mv $@.tmp $@; fi
-	@echo "[BuildConfig] PRIMARY=$(PRIMARY) MLX_DEVICE=$(MLX_DEVICE) TORCH_DEVICE=$(TORCH_DEVICE) → $$(awk -F' = ' '/^ExampleDevice = / { print $$2; exit }' $@) / $$(awk -F' = ' '/^ExampleDType = / { print $$2; exit }' $@)"
+	@echo "[BuildConfig] PRIMARY=$(PRIMARY) MLX_DEVICE=$(MLX_DEVICE) TORCH_DEVICE=$(TORCH_DEVICE) TORCH_DTYPE=$(TORCH_DTYPE) → $$(awk -F' = ' '/^ExampleDevice = / { print $$2; exit }' $@) / $$(awk -F' = ' '/^ExampleDType = / { print $$2; exit }' $@)"
 
 $(TESTCONFIG_IDR): $(TESTCONFIG_IN) $(BUILD)/.buildconfig-stamp
 	@case "$(PRIMARY)/$(MLX_DEVICE)/$(TORCH_DEVICE)" in \
@@ -600,9 +610,10 @@ $(TESTCONFIG_IDR): $(TESTCONFIG_IN) $(BUILD)/.buildconfig-stamp
 		tape/*/*)     DEVICE="TapeDev";           DTYPE="F64" ;; \
 		*)            DEVICE="TapeDev";           DTYPE="F64" ;; \
 	esac; \
+	if [ -n "$(TORCH_DTYPE)" ] && [ "$(PRIMARY)" = "torch" ]; then DTYPE="$(TORCH_DTYPE)"; fi; \
 	sed "s|@DEVICE@|$$DEVICE|g; s|@DTYPE@|$$DTYPE|g" $< > $@.tmp; \
 	if cmp -s $@.tmp $@ 2>/dev/null; then rm $@.tmp; else mv $@.tmp $@; fi
-	@echo "[TestConfig] PRIMARY=$(PRIMARY) MLX_DEVICE=$(MLX_DEVICE) TORCH_DEVICE=$(TORCH_DEVICE) → $$(awk -F' = ' '/^TestDevice = / { print $$2; exit }' $@) / $$(awk -F' = ' '/^TestDType = / { print $$2; exit }' $@)"
+	@echo "[TestConfig] PRIMARY=$(PRIMARY) MLX_DEVICE=$(MLX_DEVICE) TORCH_DEVICE=$(TORCH_DEVICE) TORCH_DTYPE=$(TORCH_DTYPE) → $$(awk -F' = ' '/^TestDevice = / { print $$2; exit }' $@) / $$(awk -F' = ' '/^TestDType = / { print $$2; exit }' $@)"
 
 # Same always-touch logic as the .buildconfig-stamp recipe above; see
 # the comment there for why a content-equal stamp still needs an mtime

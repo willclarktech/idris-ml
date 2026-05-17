@@ -616,13 +616,21 @@ public export
 {n : Nat} -> Compatible (TorchDev (TCuda n)) F64 where
 
 -- Inference-only dtypes (2026-05-22): BF16/F16/Int*/Bool on TCpu + TCuda.
--- MPS deliberately excluded — its reduced-precision/int dtype support is
--- version-dependent and untestable in this VM (mirrors the F64-on-MPS
--- rejection above). Wiring is torch-only; tape/mlx have no instances.
+-- MPS BF16 added 2026-05-28 (opt-in via TORCH_DTYPE=BF16 BuildConfig
+-- cell). The earlier "MPS deliberately excluded" exclusion was retired
+-- after the Llama-3.2-1B perf push showed BF16 storage halves the
+-- memory footprint (5 GB → 2.5 GB) and the libtorch MPS backend has
+-- shipped BF16 kernel coverage for the ops the HF forward exercises.
+-- F16 + Int* / Bool on MPS stay excluded — F16's reduced-precision
+-- training support is unproven, and Int* + Bool on MPS run into the
+-- same construction-time rejection as F64 (Metal storage support is
+-- per-version). Wiring is torch-only; tape/mlx have no instances.
 public export
 Compatible (TorchDev TCpu) BF16 where
 public export
 {n : Nat} -> Compatible (TorchDev (TCuda n)) BF16 where
+public export
+Compatible (TorchDev TMps) BF16 where
 public export
 Compatible (TorchDev TCpu) F16 where
 public export
