@@ -16,10 +16,10 @@ class NTM(nn.Module):
 
 Change the memory width `m` and five layer dimensions must update in concert. A typo in any one crashes mid-training -- or worse, silently broadcasts wrong shapes into plausible-looking garbage.
 
-**idris-ml makes these compile errors.** Tensor shapes are part of the autograd-aware tensor type:
+**idris-ml makes these compile errors.** Shape, device, dtype, and grad-mode are all part of the autograd-aware tensor type:
 
 ```idris
-record Tensor (dims : Vect rank Nat) (0 d : Device) where
+record Tensor (dims : Vect rank Nat) (0 d : Device) (0 dt : DType) (0 g : GradMode) where
   constructor MkTensor
   tensorPtr : AnyPtr        -- backend handle (carries autograd graph)
   paramId   : Maybe String  -- registry key for the optimizer
@@ -49,7 +49,20 @@ WriteParamWidth : Nat -> Nat
 WriteParamWidth m = ReadParamWidth m + m
 ```
 
-You get dynamic graph ergonomics (standard `if`/`for`/`while`, normal debugging, define-by-run autograd) with static graph safety (shape errors are impossible at runtime). See [docs/static-vs-dynamic-graphs.md](docs/static-vs-dynamic-graphs.md) for the full discussion.
+The same compile-time discipline catches **device × dtype** mismatches. Metal GPU dropped float64 support in mlx 0.31; PyTorch users find out at runtime with a deep-in-C++ `RuntimeError`. idris-ml's `Compatible` capability interface lifts the check to the type system:
+
+```idris
+-- Compiles: MlxCpu supports both F32 and F64; MlxGpu supports F32.
+gpuF32 : Tensor [4] (MlxDev MGpu) F32 WithGrad
+cpuF64 : Tensor [4] (MlxDev MCpu) F64 WithGrad
+
+-- Compile error: Can't find an implementation for Compatible (MlxDev MGpu) F64
+gpuF64 : Tensor [4] (MlxDev MGpu) F64 WithGrad
+```
+
+`Tensor`'s dtype slot also carries a derived lossless-upcast partial order: `UpcastableTo F32 F64` resolves automatically (lossless), `UpcastableTo F64 F32` doesn't (narrowing — would need an explicit `tcast`). The same machinery applies to integer ladders (`Int 16 → Int 32`) and the brain-float family. Cross-family conversions (UInt 8 → F16, BF16 → F32) deliberately have no instance — even when the bit pattern fits, the semantic interpretation might not be what the user wants. See [`docs/develop/dtype-parameter.md`](docs/develop/dtype-parameter.md) for the design.
+
+You get dynamic graph ergonomics (standard `if`/`for`/`while`, normal debugging, define-by-run autograd) with static graph safety (shape errors, illegal device-dtype combinations, and silently lossy casts are all impossible at runtime). See [docs/static-vs-dynamic-graphs.md](docs/static-vs-dynamic-graphs.md) for the full discussion.
 
 ## What works today
 

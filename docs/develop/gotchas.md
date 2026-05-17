@@ -98,6 +98,36 @@ The Ord-instance comparators (`<`, `<=`, etc.) route through `compare_Ord_Intege
 
 **Upstream:** the cleaner fix is in the Idris 2 stdlib — define `Data.Nat.divNat` etc. as `fromInteger (cast n `div` cast m)` directly, which preserves the type and proof obligations but compiles to a single GMP `div`. File-level rewrite of ~8 stdlib helpers. Not yet attempted.
 
+### Polymorphic type-parameter slot vs concrete value in method body — exponential metavar accumulation
+
+If a record carries a polymorphic type-parameter slot (`record Tensor ... (0 dt : DType) ...`) but the interface methods that operate on values of that record hardcode a concrete value in the slot (`applyVar : ... -> Tensor [i] d F64 g -> ...`), Idris-2's elaborator allocates a fresh unification variable for `dt` at every Tensor reference and keeps it alive across the module to support cross-method elaboration. The variable always unifies to F64 trivially — but the metavar state isn't released until the module compiles.
+
+For a small module this is invisible. For a layer with hundreds of Tensor references (`Layer/Dnc.idr` is the canonical case — DNC's memory + temporal-link matrix + read/write heads = many nested record-update chains), the kept-alive metavars accumulate. Observed on this codebase: 33+ GB resident in Chez Scheme on a single `idris-ml` build, climbing as Layer.Dnc elaboration proceeded. Four parallel idris2 builds during iteration drove the host (iTerm2 + spawned processes) to 99 GB.
+
+**Symptom:** `idris2 --build` builds that exceed ~10 GB resident on a codebase that previously fit in <5 GB, with the slowdown concentrated on the most reference-dense layer files. Examples build fine; the cost is on the library where the polymorphic slot meets the concrete methods.
+
+**Fix:** make the methods polymorphic in the slot too. Interface bodies should bind the type parameter and use it, not hardcode a concrete value:
+
+```idris
+-- ❌ Polymorphic record slot, concrete method body:
+record Tensor (dims : Vect rank Nat) (0 d : Device) (0 dt : DType) (0 g : GradMode)
+interface LayerLike (l : Nat -> Nat -> Device -> DType -> GradMode -> Type) where
+  applyVar : ... -> l i o d F64 g -> Tensor [i] d F64 g -> ...
+
+-- ✓ Polymorphic record slot, polymorphic method body:
+record Tensor (dims : Vect rank Nat) (0 d : Device) (0 dt : DType) (0 g : GradMode)
+interface LayerLike (l : Nat -> Nat -> Device -> DType -> GradMode -> Type) where
+  applyVar : {0 dt : DType} -> ... -> l i o d dt g -> Tensor [i] d dt g -> ...
+```
+
+The polymorphic version binds `dt` once per function call instead of per Tensor reference, so each call site allocates one metavar regardless of how many Tensor references the function body contains. Build memory drops back to baseline.
+
+**When you'll hit it:** any refactor that adds a new 0-quantity phantom to `Tensor` and tries to migrate the library "loosely" — leaving methods concrete because they only support one value of the new parameter today. Resist that. Plumb the parameter all the way through methods even when only one instantiation exists; let callers pick the concrete value at the leaf use site.
+
+**Watch signal:** during the refactor, if a single `idris2 --build` exceeds ~10 GB RSS on a module that historically built in <2 GB, that's the warning. Stop and check whether method bodies hardcode the new parameter while the record is polymorphic.
+
+Discovered during the dt-parameter refactor on 2026-05-17. Documented in detail in `docs/develop/dtype-parameter.md` "Lessons learned."
+
 ### Tensor Foldable reversal
 
 The `foldr` instance for `Tensor` processes elements in reversed order (head into accumulator first). `toList` produces elements backwards. Use direct `Vect` traversal instead when element order matters (e.g., packing into C buffers, extracting prediction values for argmax).

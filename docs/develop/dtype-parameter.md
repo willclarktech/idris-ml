@@ -375,3 +375,77 @@ must say this explicitly.
 - `docs/develop/design-decisions.md` — "Type-safe device placement" /
   "Type-level grad-mode" entries are the natural neighbours; a new
   "Open `t` parameter" entry slots in after the MLX f32 work lands.
+
+
+## Lessons learned
+
+Documented after the dt-parameter refactor landed (commit `02dc04b`).
+
+### The polymorphic-vs-concrete-slot mismatch
+
+The first attempt at threading `(0 dt : DType)` through the library
+took a "loose migration" shape: the Tensor record gained the
+polymorphic slot, but the LayerLike interface's methods and the
+library smart constructors hardcoded F64 in their bodies. The
+reasoning seemed reasonable — only F64 worked at the C side anyway,
+so why expose dt polymorphism in the interface?
+
+The result was an elaborator memory blowup. Each Tensor reference in a
+layer's `applyVar` body allocated a fresh `dt` unification variable
+(because the record is polymorphic). Idris-2 kept those metavars alive
+across the module to support cross-method elaboration. With hundreds
+of references per layer file (Layer.Dnc the worst), the kept-alive
+metavar state pushed Chez Scheme's resident set above **30 GB on a
+single idris-ml build**. Running four parallel idris2 builds during
+iteration drove iTerm2 (and its spawned processes) to **99 GB total**,
+triggering an out-of-memory event.
+
+### The fix: full polymorphism
+
+Switching to fully polymorphic dt in every interface method and smart
+constructor signature collapsed the metavar accumulation. Each
+function now binds `dt` once at its signature; all internal Tensor
+references reuse that one bound variable. The same idris-ml build
+that had been at 30+ GB now completes inside the normal memory budget.
+
+The principle: **never mix a polymorphic record slot with a concrete
+hardcoded value in the methods that operate on it.** Plumb the
+parameter all the way through, even when only one value of the
+parameter is supported by the current C side. Callers pick the
+concrete value at the leaf use site (examples set `dt = F64`); the
+library stays polymorphic.
+
+Filed as a gotcha in `docs/develop/gotchas.md` under "Polymorphic
+type-parameter slot vs concrete value in method body."
+
+### Demo outcome
+
+`Example.DTypePitch` is the type-system pitch demo. Positive cases
+(`Tensor [4] CPU F64 WithGrad`, `Tensor [4] MlxCpu F32 WithGrad`,
+`Tensor [4] (MlxDev MGpu) F32 WithGrad`, etc.) compile cleanly because
+the corresponding `Compatible` instances exist.
+
+The deliberately missing `Compatible (MlxDev MGpu) F64` instance means
+uncommenting the demo's `failMlxGpuF64` line produces:
+
+```
+Can't find an implementation for Compatible (MlxDev MGpu) F64.
+```
+
+PyTorch's runtime `RuntimeError: Float64 not supported on Metal`
+lifted to compile time. The error points at the user's spelling site,
+not at an op deep inside the layer chain.
+
+### Deferred for follow-up
+
+- F32 runtime implementation on MLX (smart constructors currently
+  allocate F64 buffers; the `(MlxDev MGpu) F32` type rejects the
+  bad pair statically but doesn't yet route F32 data through the C
+  side at runtime).
+- C-side stream selection (`MlxDev MGpu` should set the Metal stream;
+  `MlxDev MCpu` should set the CPU stream — currently both forward to
+  the global `MLX_DEVICE` env var).
+- F32 on tape and torch backends (the C arenas are double-only;
+  adding f32 storage is a separate workstream).
+- The `Reinforce` test's pre-existing `Data.List.index : IO (Vect ...)`
+  bug, surfaced (not caused) by the dtype refactor.

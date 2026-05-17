@@ -780,6 +780,93 @@ So in practice, the worst a non-device `d` can do is type-check uselessly. The u
 
 **Revisit triggers**: open if users in the wild file confusing "no `UserDeviceCore X` instance" errors traced back to a typo like `Tensor [4] Bool`, OR if we ever want to define library code that's polymorphic in `d` without `UserDeviceCore d` available (currently impossible — every op needs it, so every polymorphic-in-`d` site naturally has it). Option 2 (`IsDevice`) is the cheapest sharper variant; option 3 is the heaviest if we want compile-time rejection at declaration sites.
 
+### Open `dt` parameter: same `Type` alias trick, with Compatible + UpcastableTo on top (2026-05-17)
+
+`Tensor` gained a fourth 0-quantity phantom parameter for the data
+type tag:
+
+```idris
+record Tensor (dims : Vect rank Nat) (0 d : Device) (0 dt : DType) (0 g : GradMode) where
+```
+
+`DType` is the same kind-alias trick (`0 DType : Type; DType = Type`)
+used for `Device`. The dtype tags are `Nat`-parameterized type
+constructors: `Float n`, `BFloat n`, `IntN n`, `UInt n`, plus an
+unparameterized `Bool`. Aliases for common widths (`F32 = Float 32`,
+`F64 = Float 64`, `I32 = IntN 32`, etc.) ship in `DType.Core`.
+
+Three layered typeclasses sit on top:
+
+- `IsDType t` — capability marker, "t is a valid tensor element type."
+  One polymorphic instance per family (`IsDType (Float n)`,
+  `IsDType (IntN n)`, ...). Carries `dtypeName` / `dtypeBytes`
+  metadata for FFI shims.
+- `IsDType t => Precision t` — rank-aware subset for `Nat`-parameterized
+  families. Method `precisionRank : Nat` returns the bit width and
+  seeds `UpcastableTo`'s derivation.
+- `UpcastableTo from to` — lossless conversion witness, **derived
+  per-family** from `LTE m n` via Idris's auto-search. `Float m → Float n`
+  iff `LTE m n`, same for `BFloat`/`IntN`/`UInt`. No cross-family
+  instances — converting `UInt 8 → F16` or `BF16 → F32` requires
+  explicit `tcast`.
+
+A separate empty `Compatible (0 d : Device) (0 t : DType)` interface
+gates which (device, dtype) pairs are admissible. The deliberately
+missing `Compatible (MlxDev MGpu) F64` instance is what makes
+`Tensor [4] (MlxDev MGpu) F64 WithGrad` fail to typecheck — Metal GPU
+dropped float64 support in mlx 0.31, and our `Compatible` table makes
+the constraint compile-time.
+
+Full design memo and decision log: `docs/develop/dtype-parameter.md`.
+
+**Why a kind alias rather than a real sub-type (same answer as for
+`Device`)**: the alias is pure documentation — `(0 dt : DType)` reads
+"this is a dtype tag" but compiles to `(0 dt : Type)` underneath. The
+real constraint is delivered by `Compatible d dt =>` (and
+`IsDType dt =>`) on tensor-constructing functions; a non-DType `dt`
+can be declared but never inhabited.
+
+**Why a separate `Compatible` interface rather than a method on
+`UserDeviceCore`**: dtype admissibility is per-(device, dtype) pair,
+not per-device. If MLX-GPU supports F32 add, it supports F32 every
+op; there is no realistic backend with op-specific dtype
+restrictions. So an empty marker interface — one instance per
+admissible pair — is the right shape. Adding methods would be pure
+ceremony.
+
+**Why per-family `UpcastableTo` rather than a single closed sum**:
+each family's bit-width ladder is its own partial order. F32→F64 is
+lossless within the `Float` ladder; F32→I64 would not be (even though
+the bit-width fits, the semantic interpretation changes). Cross-family
+upcasts are deliberately impossible to derive; the compiler can't
+decide whether a `UInt 8 → F16` is what the user wanted even when the
+bit-pattern fits losslessly.
+
+**MlxDev parameterization** lives in the same PR: `data MlxDev :
+MlxStream -> Type` with `MGpu` / `MCpu` constructors and ergonomic
+aliases `MlxGpu = MlxDev MGpu` / `MlxCpu = MlxDev MCpu`. Mirrors the
+existing `CUDA Nat` shape. One set of `UserDevice*` instances
+parameterized over `{s : MlxStream}` rather than two opaque siblings.
+
+**Lessons**: the first attempt at threading dt was a "loose
+migration" that left method bodies hardcoded to F64 while the Tensor
+record's slot was polymorphic. The polymorphic-vs-concrete mismatch
+caused Idris-2's elaborator to allocate a fresh dt unification
+variable at every Tensor reference and keep it alive across the
+module — 30+ GB Chez Scheme RSS on a single library build before the
+fix. Switching to full polymorphism (every method body binds dt,
+callers pin the concrete value at the leaf) collapsed memory back to
+baseline. Documented in
+`docs/develop/gotchas.md` "Polymorphic type-parameter slot vs
+concrete value in method body" and
+`docs/develop/dtype-parameter.md` "Lessons learned."
+
+**Revisit triggers**: when F32 runtime support lands on a backend, the
+`Compatible` table grows that cell and the demo's `MlxGpu F32` path
+becomes runnable (not just type-checkable). When BF16/F16/CUDA support
+arrives, the same machinery picks up new `Compatible` + `UpcastableTo`
+entries with no further refactor.
+
 ## Tensor lifecycle: wrapped-handle FFI ABI
 
 **Problem**: a refcount-driven Tensor lifecycle needs every holder of a Tensor pointer to retain on acquisition and release on drop. The Idris side's natural holder is the `Tensor` record's `tensorPtr` field. Earlier attempts (`is_state`-only refcount, wrap-everywhere via `prim__wrapHandle` in `MkTensor`, per-FFI `RetainGuard`) all foundered on the same root cause: **the Tensor record's "owner identity" (a parallel Chez guardian shadow registered by `prim__wrapHandle`) lives separately from the `tensorPtr` field's value**. Idris-Chez's codegen does live-range narrowing on let-bound records — when a record's only use is `.tensorPtr` extraction, the record (and its shadow) can be elided while the raw pointer survives. The shadow goes to the guardian's dead queue, drain releases the Tensor, and the in-flight raw pointer becomes dangling.

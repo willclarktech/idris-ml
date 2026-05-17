@@ -73,15 +73,27 @@ Device = Type
 -- (forwarding to the primary backend's symbols); users can declare their
 -- own. See docs/develop/design-decisions.md "Open `d` parameter".
 
+-- DType.Core (open dtype kind — pick a Type with an IsDType / Compatible instance)
+0 DType : Type
+DType = Type
+-- Float n / BFloat n / IntN n / UInt n / Bool are types with built-in
+-- IsDType instances. Aliases F32 = Float 32, F64 = Float 64, etc.
+-- `Compatible d t` gates which (device, dtype) pairs are admissible.
+-- `Compatible (MlxDev MGpu) F64` deliberately does not exist — that
+-- compile-time rejection is the Phase-3 demo. See
+-- docs/develop/design-decisions.md "Open `dt` parameter".
+
 -- Tensor.idr (autograd handle — backend-agnostic)
-record Tensor (dims : Vect rank Nat) (0 d : Device) (0 g : GradMode) where
+record Tensor (dims : Vect rank Nat) (0 d : Device) (0 dt : DType) (0 g : GradMode) where
   constructor MkTensor
   tensorPtr : AnyPtr      -- wrapped handle: Chez vector #(tensor-handle raw)
   paramId   : Maybe String  -- parameter name (Nothing = intermediate)
--- Aliases TVec n d g / TMat m n d g dodge the Idris-2 type-checker hang on multiplicative-Nat shape literals
+-- Aliases TVec n d dt g / TMat m n d dt g dodge the Idris-2 type-checker hang on multiplicative-Nat shape literals
 ```
 
 `Array` is the structural type used for input-data marshalling and Math.idr's pure-Idris ops; it is NOT the autograd type. `Tensor` is the daily user-facing autograd handle.
+
+The library is **fully polymorphic in dt** — every interface method, smart constructor, and layer state record binds `dt` as an implicit and uses it. Callers pin the concrete dtype at the leaf use site (examples use `F64` explicitly). Hardcoding F64 in method bodies while leaving the record's slot polymorphic caused a 30+ GB elaborator memory blowup; see `docs/develop/gotchas.md` "Polymorphic type-parameter slot vs concrete value in method body."
 
 The `LayerLike` interface (4 methods: `applyVar`, `applyVarBatch`, `layerPrefix`, `resetState`) + `AnyLayer` existential provides dynamic dispatch over layer types. `Network` chains `AnyLayer`s via `(~~>)`. Adding a new layer = one file implementing `LayerLike`, zero edits elsewhere.
 

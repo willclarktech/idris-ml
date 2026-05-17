@@ -174,6 +174,54 @@ record NtmState (n : Nat) (m : Nat) (h : Nat) (inputSize : Nat) (outputSize : Na
 
 If you change `m` from 20 to 32, the compiler propagates the change through every dependent dimension. If any sub-layer constructor doesn't match, you get a compile error — not a crash 10,000 epochs into training.
 
+### Device-dtype compatibility as compile-time constraint
+
+The same dependent-types lever applies to **runtime errors that aren't about shapes at all**. Metal GPU dropped float64 support in mlx 0.31. PyTorch users find out at runtime:
+
+```python
+x = torch.tensor([1.0, 2.0], dtype=torch.float64).to("mps")
+# RuntimeError: Cannot convert a MPS Tensor to float64 dtype as the
+# MPS framework doesn't support float64. Please use float32 instead.
+```
+
+Same problem class as the shape error: a hardware/library limitation discovered when a particular code path runs. idris-ml lifts it to the type system via a `Compatible (0 d : Device) (0 t : DType)` empty marker interface — the instance head IS the proof:
+
+```idris
+public export Compatible (MlxDev MCpu) F64 where  -- ✓ mlx CPU supports f64
+public export Compatible (MlxDev MCpu) F32 where  -- ✓ mlx CPU supports f32
+public export Compatible (MlxDev MGpu) F32 where  -- ✓ Metal GPU supports f32
+-- DELIBERATELY NO `Compatible (MlxDev MGpu) F64` instance
+```
+
+The `Tensor` record has a 0-quantity dtype slot, and every tensor-construction smart constructor carries `Compatible d t =>`. So:
+
+```idris
+gpuF32 : IO (Tensor [4] (MlxDev MGpu) F32 WithGrad)
+gpuF32 = tparam2d {dt=F32} "gpuW" buf          -- ✓ Compatible instance exists
+
+gpuF64 : IO (Tensor [4] (MlxDev MGpu) F64 WithGrad)
+gpuF64 = tparam2d {dt=F64} "gpuW" buf
+-- ✗ Can't find an implementation for Compatible (MlxDev MGpu) F64
+```
+
+The error fires at the construction site, with a name the user wrote (`MlxGpu`, `F64`) and a concept the user can act on (`Compatible`).
+
+A *derived* partial order extends the same machinery to lossless casts. Each parametric dtype family (`Float n`, `BFloat n`, `IntN n`, `UInt n`) declares a `Precision` instance with `precisionRank = n`, and an `UpcastableTo from to` instance per family that requires `LTE m n` on the bit-widths. Idris's auto-search synthesises the `LTE` proof from `Nat` constructors at the call site:
+
+```idris
+demoUpcast : UpcastableTo from to => IO ()
+
+okF32ToF64 : IO ()
+okF32ToF64 = demoUpcast {from=F32} {to=F64}    -- ✓ LTE 32 64 is provable
+
+failF64ToF32 : IO ()
+failF64ToF32 = demoUpcast {from=F64} {to=F32}  -- ✗ LTE 64 32 is not provable
+```
+
+Cross-family conversions (`UInt 8 → F16`, `BF16 → F32`) have no instance and require an explicit `tcast` — even when the bit-pattern fits, the compiler can't decide whether that's what the user wanted.
+
+This is exactly the kind of guarantee a dynamic graph can't give you. PyTorch's `Tensor` is a single runtime type with a dtype field; the dtype isn't visible to the type system, so the "this can't run on Metal" check happens when the kernel launches. Static graphs in TensorFlow 1.x knew the dtype at graph-construction time but didn't enforce device-dtype admissibility either; you found out at session-run. Dependent types put the (device, dtype) pair into the tensor's type, and the `Compatible` table makes the per-pair check a one-line interface declaration.
+
 ### What you get
 
 The `forward` function's type signature guarantees dimension correctness through the entire network:
@@ -194,7 +242,9 @@ This gives you:
 | Variable-length sequences | Awkward | Natural | Natural |
 | Silent broadcasting bugs | Possible | Possible | **Impossible** |
 | Dimension change propagation | Manual | Manual | **Automatic** |
+| Illegal device-dtype combinations | Runtime | Runtime | **Compile time** |
+| Silently lossy precision casts | Allowed | Allowed | **Require explicit `tcast`** |
 
-idris-ml's computation graph is dynamic — each forward pass builds a fresh autograd tape, control flow is standard Idris, variable-length sequences work naturally. But the *shape constraints* are static, verified at compile time by the type system. You get the ergonomics of PyTorch with stronger safety guarantees than TensorFlow 1.x ever provided.
+idris-ml's computation graph is dynamic — each forward pass builds a fresh autograd tape, control flow is standard Idris, variable-length sequences work naturally. But the *shape constraints, device-dtype admissibility, and lossless-upcast partial order* are static, verified at compile time by the type system. You get the ergonomics of PyTorch with stronger safety guarantees than TensorFlow 1.x ever provided.
 
-The key insight: static graphs conflated two concerns — **shape safety** and **graph structure**. You don't need a static graph to get static shape checking. You need a type system that can express dimensional constraints. Dependent types provide exactly this: shapes live in types, checked at compile time, erased at runtime.
+The key insight: static graphs conflated two concerns — **shape safety** and **graph structure**. You don't need a static graph to get static shape checking. You need a type system that can express dimensional constraints. Dependent types provide exactly this: shapes (and devices, and dtypes, and grad-modes) live in types, checked at compile time, erased at runtime.
