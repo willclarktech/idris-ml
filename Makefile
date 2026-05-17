@@ -905,11 +905,15 @@ test-gym: install-gym
 	cd packages/idris-gym/test && idris2 --build test.ipkg
 	$(STDBUF) ./packages/idris-gym/test/build/exec/idris-gym-test
 
-# Idris tests for idris-transformers package. Pure Idris until HfBert
-# lands — the test harness exists to verify the package wiring (ipkg,
-# install path, executable build) before any HF model code arrives.
+# Idris tests for idris-transformers package. Pure-Idris suite for
+# bertParamNames catalogue + an FFI suite that constructs a real
+# HfBert and asserts the C-side param registry matches the catalogue
+# exactly. The dylib gets copied alongside the test executable so the
+# FFI registry calls land on the active backend's symbols (mirrors
+# the test-idris recipe).
 test-transformers: install-transformers
 	cd packages/idris-transformers/test && IDRIS2_PREFIX=$(IDRIS2_LOCAL) idris2 --build test.ipkg
+	cp $(LIB) packages/idris-transformers/test/build/exec/idris-transformers-test_app/
 	$(STDBUF) ./packages/idris-transformers/test/build/exec/idris-transformers-test
 
 # Microbench for idris-gym hot paths (RNG, Blackjack obs, env step+observe).
