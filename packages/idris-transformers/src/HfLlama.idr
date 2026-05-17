@@ -181,12 +181,13 @@ makeLlamaLinear : UserDeviceTraining d => RuntimeDType dt => Linked d => Compati
                -> (paramFullName : String)
                -> IO (LlamaLinearNoBias i o d dt WithGrad)
 makeLlamaLinear paramFullName = do
-  let wCount = o * i
-      wCountI = cast {to=Int} wCount
-  weightVals <- traverse (\_ => map (* 0.02) normalSample) (Vect.replicate wCount ())
-  let wBuf = prim__allocDoubles wCountI
-      wBuf' = packDs wBuf 0 weightVals
-  w <- tparam2d {o} {i} paramFullName wBuf'
+  -- Fused C-side normal(0, 0.02) init (commit 085348d). Replaces the
+  -- `traverse normalSample` + `packDs` chain that, at Llama-3.2-1B's
+  -- 1.24B-element scale, took 58 min for the full hfLlamaModel state
+  -- (per the head-to-head in scripts/time_inference_llama.py). With
+  -- the fused primitive, libtorch's torch::nn::init::normal_ runs the
+  -- entire fill at memory-bandwidth speed in C — no per-element FFI.
+  w <- tparam2dNormal {o} {i} paramFullName 0.0 0.02
   pure (MkLlamaLinear w)
 
 
@@ -204,10 +205,9 @@ makeLlamaRmsNorm : UserDeviceTraining d => RuntimeDType dt => Linked d => Compat
                 -> (paramFullName : String)
                 -> IO (LlamaRmsNorm n d dt WithGrad)
 makeLlamaRmsNorm paramFullName = do
-  let nI = cast {to=Int} n
-      wBuf = prim__allocDoubles nI
-      wBuf' = fillConst wBuf 0 nI 1.0
-  w <- tparam1d {n} paramFullName wBuf'
+  -- Fused C-side const fill (weight = 1.0). Replaces fillConst loop
+  -- + per-element FFI.
+  w <- tparam1dConst {n} paramFullName 1.0
   pure (MkLlamaRmsNorm w)
 
 
@@ -223,12 +223,12 @@ makeLlamaEmbedding : UserDeviceTraining d => RuntimeDType dt => Linked d => Comp
                   -> (paramFullName : String)
                   -> IO (LlamaEmbedding vocab hidden d dt WithGrad)
 makeLlamaEmbedding paramFullName = do
-  let nTotal = vocab * hidden
-      nI = cast {to=Int} nTotal
-  vals <- traverse (\_ => map (* 0.02) normalSample) (Vect.replicate nTotal ())
-  let buf = prim__allocDoubles nI
-      buf' = packDs buf 0 vals
-  w <- tparam2d {o=vocab} {i=hidden} paramFullName buf'
+  -- Fused C-side normal(0, 0.02) init. Llama 3.2's embed_tokens is
+  -- [128256, 2048] = 263M elements — the single largest tensor in
+  -- the model. At per-element FFI rates the host-side fill alone was
+  -- ~10 min; under the fused-init primitive it's a libtorch in-place
+  -- kernel that completes in ~ms.
+  w <- tparam2dNormal {o=vocab} {i=hidden} paramFullName 0.0 0.02
   pure (MkLlamaEmbedding w)
 
 
