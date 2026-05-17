@@ -29,35 +29,27 @@ import Array
 -- Reference catalogue (mirrors `sshleifer/tiny-gpt2`'s safetensors header)
 ----------------------------------------------------------------------
 
+-- Build the 12 per-layer names so we don't have to repeat them 5 times.
+oneLayer : Nat -> List String
+oneLayer i =
+  let p = "transformer.h." ++ show i in
+  [ p ++ ".ln_1.weight",     p ++ ".ln_1.bias"
+  , p ++ ".attn.c_attn.weight", p ++ ".attn.c_attn.bias"
+  , p ++ ".attn.c_proj.weight", p ++ ".attn.c_proj.bias"
+  , p ++ ".ln_2.weight",     p ++ ".ln_2.bias"
+  , p ++ ".mlp.c_fc.weight", p ++ ".mlp.c_fc.bias"
+  , p ++ ".mlp.c_proj.weight", p ++ ".mlp.c_proj.bias"
+  ]
+
+||| 64 names: 2 embeddings + 5 layers * 12 params/layer + 2 final-norm.
 expectedTinyGpt2ParamNames : List String
 expectedTinyGpt2ParamNames =
   [ "transformer.wte.weight"
   , "transformer.wpe.weight"
-  , "transformer.h.0.ln_1.weight"
-  , "transformer.h.0.ln_1.bias"
-  , "transformer.h.0.attn.c_attn.weight"
-  , "transformer.h.0.attn.c_attn.bias"
-  , "transformer.h.0.attn.c_proj.weight"
-  , "transformer.h.0.attn.c_proj.bias"
-  , "transformer.h.0.ln_2.weight"
-  , "transformer.h.0.ln_2.bias"
-  , "transformer.h.0.mlp.c_fc.weight"
-  , "transformer.h.0.mlp.c_fc.bias"
-  , "transformer.h.0.mlp.c_proj.weight"
-  , "transformer.h.0.mlp.c_proj.bias"
-  , "transformer.h.1.ln_1.weight"
-  , "transformer.h.1.ln_1.bias"
-  , "transformer.h.1.attn.c_attn.weight"
-  , "transformer.h.1.attn.c_attn.bias"
-  , "transformer.h.1.attn.c_proj.weight"
-  , "transformer.h.1.attn.c_proj.bias"
-  , "transformer.h.1.ln_2.weight"
-  , "transformer.h.1.ln_2.bias"
-  , "transformer.h.1.mlp.c_fc.weight"
-  , "transformer.h.1.mlp.c_fc.bias"
-  , "transformer.h.1.mlp.c_proj.weight"
-  , "transformer.h.1.mlp.c_proj.bias"
-  , "transformer.ln_f.weight"
+  ]
+  ++ concatMap oneLayer (the (List Nat) [0, 1, 2, 3, 4])
+  ++
+  [ "transformer.ln_f.weight"
   , "transformer.ln_f.bias"
   ]
 
@@ -83,15 +75,15 @@ firstMismatch xs ys = go Z xs ys
 testParamCount : IO Bool
 testParamCount =
   let got      = length (hfGpt2ParamNames tinyGpt2Config "")
-      expected = 28
-  in check ("hfGpt2ParamNames length = 28 (got " ++ show got ++ ")")
+      expected = 64
+  in check ("hfGpt2ParamNames length = 64 (got " ++ show got ++ ")")
            (got == expected)
 
 testParamNamesMatchHfReference : IO Bool
 testParamNamesMatchHfReference =
   let got = hfGpt2ParamNames tinyGpt2Config ""
   in case firstMismatch got expectedTinyGpt2ParamNames of
-       Nothing => check "all 28 param names match HF reference exactly" True
+       Nothing => check "all 64 param names match HF reference exactly" True
        Just (i, g, e) => do
          putStrLn ("  FAIL: param[" ++ show i ++ "] mismatch:")
          putStrLn ("    got:      " ++ g)
@@ -137,13 +129,13 @@ testConstructorRegistersHfNames = do
   -- existentially-quantified and the auto-implicit can't resolve.
   preCount <- primIO (primParamCount {d=TapeDev})
   _ <- hfGpt2Model {d=TapeDev} {dt=F64}
-                   {vocab        = 50257}
-                   {hidden       = 2}
-                   {numLayers    = 2}
-                   {numHeads     = 2}
-                   {headDim      = 1}
-                   {intermediate = 8}
-                   {maxPos       = 1024}
+                   {vocab        = 1000}
+                   {hidden       = 32}
+                   {numLayers    = 5}
+                   {numHeads     = 4}
+                   {headDim      = 8}
+                   {intermediate = 128}
+                   {maxPos       = 512}
                    ""
   allNames <- readAllParamNames
   let registered = drop (cast {to=Nat} preCount) allNames

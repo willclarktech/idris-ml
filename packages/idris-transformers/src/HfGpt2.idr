@@ -60,20 +60,23 @@ record Gpt2Config where
   maxPosition  : Nat
 
 
-||| `sshleifer/tiny-gpt2` — the proof-of-concept target anchored by
-||| `scripts/save_oracle_gpt2.py`. Intentionally tiny (hidden=2,
-||| n_head=2, head_dim=1, n_layer=2, intermediate=8) but exercises
-||| every GPT-2 architectural piece.
+||| `hf-internal-testing/tiny-random-gpt2` — the proof-of-concept target
+||| anchored by `scripts/save_oracle_gpt2.py`. Random-init test fixture
+||| with the standard GPT-2 architecture (vocab=1000, hidden=32,
+||| n_layer=5, n_head=4, head_dim=8, intermediate=128 [= 4 * hidden,
+||| the GPT-2 default; the `intermediate_size: 37` in the config.json
+||| is a stray BERT field GPT-2 ignores when `n_inner` is null],
+||| max_pos=512). Ships safetensors on disk.
 public export
 tinyGpt2Config : Gpt2Config
 tinyGpt2Config = MkGpt2Config
-  { vocabSize    = 50257
-  , hidden       = 2
-  , numLayers    = 2
-  , numHeads     = 2
-  , headDim      = 1
-  , intermediate = 8
-  , maxPosition  = 1024
+  { vocabSize    = 1000
+  , hidden       = 32
+  , numLayers    = 5
+  , numHeads     = 4
+  , headDim      = 8
+  , intermediate = 128
+  , maxPosition  = 512
   }
 
 

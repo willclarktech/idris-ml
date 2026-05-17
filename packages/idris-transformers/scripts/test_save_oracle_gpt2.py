@@ -28,9 +28,9 @@ from safetensors.torch import load_file
 
 SCRIPT = Path(__file__).resolve().parent / "save_oracle_gpt2.py"
 ORACLE = Path(__file__).resolve().parent.parent / "models" / "tiny-gpt2-oracle.safetensors"
-# `sshleifer/tiny-gpt2` is HF's CI fixture — hidden=2, degenerate but
-# exercises every GPT-2 architectural piece.
-HIDDEN = 2
+# `hf-internal-testing/tiny-random-gpt2` — random-init GPT-2 fixture
+# that ships safetensors. hidden=32.
+HIDDEN = 32
 
 
 @pytest.fixture(scope="module")

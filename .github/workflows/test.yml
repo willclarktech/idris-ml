@@ -221,6 +221,15 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: make test-hf-bert-roundtrip
 
+      - name: Run HfGpt2 end-to-end roundtrip (Ubuntu)
+        # Same gate shape as HfBert but for GPT-2: regenerate the Python
+        # oracle from hf-internal-testing/tiny-random-gpt2, run the Idris
+        # HfGpt2Inference binary, assert the 32-dim last-position hidden
+        # state matches within max-abs-diff 1e-3. Currently passes at
+        # ~1e-6 locally on tape. Ubuntu-only: depends on the uv venv.
+        if: matrix.os == 'ubuntu-latest'
+        run: make test-hf-gpt2-roundtrip
+
       - name: Verify GradMode gate (NoGrad loss rejected at compile)
         # Asserts the type-level gate `nativeTrainStep : ... -> Tensor [] d
         # WithGrad -> Double` still rejects a `NoGrad` loss. If this step
