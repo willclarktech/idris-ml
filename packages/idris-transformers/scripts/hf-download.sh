@@ -24,6 +24,11 @@
 # Env:
 #   HF_TOKEN  Optional bearer token for private/gated models. If set,
 #             `curl` includes `Authorization: Bearer $HF_TOKEN`.
+#   HF_FORCE_REDOWNLOAD  If set to "1", re-fetch every file even when
+#             cached. By default, an existing non-empty destination
+#             file is treated as cached and skipped. The .index.json
+#             for sharded models is *always* re-fetched (it's tiny and
+#             determines which shards exist).
 #
 # Dependencies:
 #   - curl (with --fail and -L support)
@@ -63,22 +68,32 @@ fi
 
 download_one() {
   local fname=$1
+  local force=${2:-0}     # second arg = force-refetch flag (1 to bypass cache)
   local url="https://huggingface.co/$REPO/resolve/main/$fname"
   local dest="$DEST_DIR/$fname"
   mkdir -p "$(dirname "$dest")"
+  # Skip if cached, unless force or HF_FORCE_REDOWNLOAD=1. The
+  # `-s` test requires the file to be non-empty (catches stale half-
+  # downloaded files from a previous interrupted run).
+  if [[ "$force" != "1" && "${HF_FORCE_REDOWNLOAD:-0}" != "1" && -s "$dest" ]]; then
+    echo "  cached:  $dest"
+    return 0
+  fi
   echo "  fetching $url"
   "${CURL[@]}" -o "$dest" "$url"
 }
 
 case "$FILENAME" in
   *.index.json)
-    # Sharded model: fetch the index, parse its weight_map, fetch each
-    # unique shard filename listed there.
+    # Sharded model: always re-fetch the index (it's tiny and tells us
+    # which shards exist; a stale local copy would mask a model
+    # republish). Then fetch each shard from the manifest's weight_map,
+    # cache-respecting per usual.
     if ! command -v python3 >/dev/null 2>&1; then
       echo "error: python3 not found; required to parse $FILENAME" >&2
       exit 1
     fi
-    download_one "$FILENAME"
+    download_one "$FILENAME" 1
     INDEX_PATH="$DEST_DIR/$FILENAME"
     SHARDS=$(python3 -c "
 import json, sys
