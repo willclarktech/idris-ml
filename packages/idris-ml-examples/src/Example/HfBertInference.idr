@@ -16,10 +16,14 @@
 |||
 ||| Pre-requisites (CI handles these automatically via the make targets):
 |||   - `packages/idris-transformers/models/google/bert_uncased_L-2_H-128_A-2/model.safetensors`
-|||   - `packages/idris-transformers/models/google/bert_uncased_L-2_H-128_A-2/vocab.txt`
-|||     — fetch both with `bash packages/idris-transformers/scripts/hf-download.sh`
+|||     — fetch with `bash packages/idris-transformers/scripts/hf-download.sh`
+|||   - Python `transformers` package available via packages/pytorch's uv
+|||     venv — `Tokenizer.idr` shells out to `scripts/hf_tokenize.py`
+|||     for encode + decode, replacing the pre-2026-05-26 hardcoded ID
+|||     lists + vocab.txt lookup table.
 module Example.HfBertInference
 
+import Data.Fin
 import Data.List
 import Data.String
 import Data.Vect
@@ -32,6 +36,7 @@ import Checkpoint
 import Device
 import HfBert
 import Tensor
+import Tokenizer
 
 
 ----------------------------------------------------------------------
@@ -69,26 +74,6 @@ modelDir =
 
 hfWeightsPath : String
 hfWeightsPath = modelDir ++ "/model.safetensors"
-
-vocabTxtPath : String
-vocabTxtPath = modelDir ++ "/vocab.txt"
-
-
-----------------------------------------------------------------------
--- Vocab + small List helpers
-----------------------------------------------------------------------
-
--- Idris-2 stdlib's `index` is total-via-`Fin`; the Maybe-returning form
--- isn't always available. Inline it — 30k linear lookups × 5 tokens is
--- a no-op next to the forward pass.
-listIndex : Nat -> List a -> Maybe a
-listIndex _     []        = Nothing
-listIndex Z     (x :: _)  = Just x
-listIndex (S k) (_ :: xs) = listIndex k xs
-
-lookupToken : List String -> Nat -> String
-lookupToken vs k = fromMaybe ("?id=" ++ show k) (listIndex k vs)
-
 
 ----------------------------------------------------------------------
 -- Build small input-ID tensors
@@ -136,64 +121,82 @@ readLogits vocab p = go (cast {to=Int} vocab) 0 []
 topK : Nat -> List (Nat, Double) -> List (Nat, Double)
 topK k xs = take k (sortBy (\(_, a), (_, b) => compare b a) xs)
 
-formatPrediction : List String -> (Nat, Double) -> String
-formatPrediction vocab (id, logit) =
-  lookupToken vocab id ++ " (" ++ formatLogit logit ++ ")"
-  where
-    formatLogit : Double -> String
-    formatLogit x =
-      -- Two-decimal-place format. show on Double prints 13-15 digits
-      -- which is noisy; tidy it up.
-      let scaled : Int = cast (x * 100.0 + (if x < 0.0 then -0.5 else 0.5))
-          whole = scaled `div` 100
-          frac  = abs (scaled `mod` 100)
-          sign  = if x < 0.0 then "-" else "+"
-          fracStr = if frac < 10 then "0" ++ show frac else show frac
-      in sign ++ show (abs whole) ++ "." ++ fracStr
-
 
 ----------------------------------------------------------------------
 -- One fill-in-the-mask demo
 ----------------------------------------------------------------------
 
-runMaskDemo : (model : BertForMaskedLmState VocabSize Hidden NumLayers
+-- BERT's WordPiece vocab assigns id 103 to the [MASK] token. The Idris
+-- side searches for this token in the tokenized input to find the mask
+-- position; tokenizing "paris is the capital of [MASK] ." returns
+-- [101, 3000, …, 103, 1012, 102] (verified upstream by the tokenizer
+-- subprocess + pinned in Test/Tokenizer.idr's BERT encode test).
+bertMaskTokenId : Nat
+bertMaskTokenId = 103
+
+-- The detokenize call returns the top-5 predicted tokens
+-- space-separated (BERT WordPiece decode joins tokens with single
+-- spaces), so we split on whitespace via `words` to recover
+-- individual words. `joinBy` for the formatted output comes from
+-- Data.String.
+
+runMaskDemo : Tokenizer VocabSize
+           -> (model : BertForMaskedLmState VocabSize Hidden NumLayers
                                             Intermediate MaxPos TypeVocab
                                             ExampleDevice ExampleDType WithGrad)
-           -> (vocab : List String)
-           -> (display : String)
-           -> {seqLen : Nat}
-           -> (ids : Vect seqLen Double)
-           -> (maskIdx : Nat)
+           -> (sentence : String)
            -> IO ()
-runMaskDemo {seqLen} model vocab display ids maskIdx = do
-  let inputIds = mkIds ids
-      posIds   = mkIds (arangeVect seqLen)
-      typeIds  = mkIds (zerosVect seqLen)
-  logits <- hfBertMlmForward {d=ExampleDevice} {dt=ExampleDType}
-                             {seqLen}
-                             {vocab        = VocabSize}
-                             {hidden       = Hidden}
-                             {numLayers    = NumLayers}
-                             {numHeads     = NumHeads}
-                             {headDim      = HeadDim}
-                             {intermediate = Intermediate}
-                             {maxPos       = MaxPos}
-                             {typeVocab    = TypeVocab}
-                             model inputIds posIds typeIds
-  -- Logits are [seqLen, vocab]; pull the mask row.
-  maskRow <- trowSelect logits (cast {to=Int} maskIdx)
-  pairs   <- readLogits VocabSize maskRow.tensorPtr
-  let predictions = topK 5 pairs
-      formatted   = map (formatPrediction vocab) predictions
-  putStrLn ("Input:  " ++ display)
-  putStrLn ("Top-5:  " ++ joinBy ", " formatted)
-  putStrLn ""
-
+runMaskDemo tok model sentence = do
+  Right (seqLen ** tokens) <- tokenize tok sentence
+    | Left err => putStrLn ("  ERR: tokenize: " ++ show err)
+  case findIndex (\f => finToNat f == bertMaskTokenId) tokens of
+    Nothing => putStrLn ("  ERR: input has no [MASK] token: " ++ show sentence)
+    Just maskFin => do
+      -- Each Fin VocabSize → Double via finToNat → cast.
+      let idDoubles = map (cast {to=Double} . finToNat) tokens
+          inputIds  = mkIds idDoubles
+          posIds    = mkIds (arangeVect seqLen)
+          typeIds   = mkIds (zerosVect seqLen)
+      logits <- hfBertMlmForward {d=ExampleDevice} {dt=ExampleDType}
+                                 {seqLen}
+                                 {vocab        = VocabSize}
+                                 {hidden       = Hidden}
+                                 {numLayers    = NumLayers}
+                                 {numHeads     = NumHeads}
+                                 {headDim      = HeadDim}
+                                 {intermediate = Intermediate}
+                                 {maxPos       = MaxPos}
+                                 {typeVocab    = TypeVocab}
+                                 model inputIds posIds typeIds
+      maskRow <- trowSelect logits (cast {to=Int} (finToNat maskFin))
+      pairs   <- readLogits VocabSize maskRow.tensorPtr
+      let top5     = topK 5 pairs
+          topIds   = map fst top5
+          topLogits = map snd top5
+      -- Lift each Nat → Fin VocabSize. mapMaybe drops any that fail;
+      -- our IDs come from readLogits over the 30522-wide logits row
+      -- so all of them are < VocabSize and Nothings should be impossible.
+      let lifted : List (Fin VocabSize)
+          lifted = mapMaybe (\n => natToFin n VocabSize) topIds
+      -- Detokenize all 5 IDs in one subprocess call; BERT WordPiece's
+      -- decode joins space-separated → split back on whitespace.
+      Right decoded <- detokenize tok (fromList lifted)
+        | Left err => putStrLn ("  ERR: detokenize: " ++ show err)
+      let topWords = words decoded
+          formatted = zipWith fmt topWords topLogits
+      putStrLn ("Input:  " ++ sentence)
+      putStrLn ("Top-5:  " ++ joinBy ", " formatted)
+      putStrLn ""
   where
-    joinBy : String -> List String -> String
-    joinBy _   []        = ""
-    joinBy _   [x]       = x
-    joinBy sep (x :: xs) = x ++ sep ++ joinBy sep xs
+    -- Two-decimal-place logit formatter — same shape as the original.
+    fmt : String -> Double -> String
+    fmt tok x =
+      let scaled : Int = cast (x * 100.0 + (if x < 0.0 then -0.5 else 0.5))
+          whole = scaled `div` 100
+          frac  = abs (scaled `mod` 100)
+          sign  = if x < 0.0 then "-" else "+"
+          fracStr = if frac < 10 then "0" ++ show frac else show frac
+      in tok ++ " (" ++ sign ++ show (abs whole) ++ "." ++ fracStr ++ ")"
 
 
 ----------------------------------------------------------------------
@@ -261,30 +264,23 @@ main = do
   if dumpPooled
     then runPooledDump model
     else do
-      -- Read vocab.txt once; each demo reuses it for the top-5 lookup.
-      vocabR <- readFile vocabTxtPath
-      case vocabR of
+      -- Construct the BERT tokenizer once; each demo reuses it for both
+      -- the input-string encode AND the top-5 token-id decode. The
+      -- subprocess startup cost (~1s) amortises across the three demos.
+      tokR <- mkTokenizer "google/bert_uncased_L-2_H-128_A-2" VocabSize
+      case tokR of
         Left err => do
-          putStrLn ("ERR: failed to read " ++ vocabTxtPath ++ ": " ++ show err)
+          putStrLn ("ERR: mkTokenizer: " ++ show err)
           exitFailure
-        Right contents => do
-          let vocab = lines contents
+        Right tok => do
           putStrLn ""
           putStrLn "BERT fill-in-the-mask — google/bert_uncased_L-2_H-128_A-2"
           putStrLn "=========================================================="
           putStrLn ""
-          -- Three sentences, hand-picked + tokenized externally so the
-          -- example needs no tokenizer at runtime. Mask position is the
-          -- 0-indexed slot of the `[MASK]` token in the IDs vector.
-          runMaskDemo model vocab "paris is the capital of [MASK] ."
-                      (the (Vect 9 Double)
-                       [101, 3000, 2003, 1996, 3007, 1997, 103, 1012, 102])
-                      6
-          runMaskDemo model vocab "i went to the [MASK] to buy bread ."
-                      (the (Vect 11 Double)
-                       [101, 1045, 2253, 2000, 1996, 103, 2000, 4965, 7852, 1012, 102])
-                      5
-          runMaskDemo model vocab "the man worked as a [MASK] ."
-                      (the (Vect 9 Double)
-                       [101, 1996, 2158, 2499, 2004, 1037, 103, 1012, 102])
-                      6
+          -- Three sentences fed through the tokenizer. The "[MASK]"
+          -- literal in each string is tokenized to BERT's mask token
+          -- id 103 (by AutoTokenizer); runMaskDemo searches for it to
+          -- locate the position to score.
+          runMaskDemo tok model "paris is the capital of [MASK] ."
+          runMaskDemo tok model "i went to the [MASK] to buy bread ."
+          runMaskDemo tok model "the man worked as a [MASK] ."
