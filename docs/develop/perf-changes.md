@@ -2101,9 +2101,19 @@ The PyTorch references on the same machine also came in 2–22% faster than duri
 
 The ntm-copy/torch row shows a 25.10 → 1.37 collapse that is far too large to be VM drift. Working hypothesis: the `b894fbb` 25.10 was a measurement artefact (two-point timing at N_short=10, N_long=40 on a ~25 ms/ep task is just ~1 s of wall — easy to drown in startup variance). The new 1.37 is also at the noise floor of that two-point regime. Either could be wrong; the right read is "this cell is not reliably resolvable at the current N_long". Not a precision-work signal in either direction.
 
-**Outcome**: precision rollout is perf-neutral. No code change. Not updating the `perf-baseline.md` 2026-05-17 row — the deltas are below the 20% noise gate and don't represent a material change worth churning the canonical table over.
+Follow-up: also ran the matmul-bench compute-bound suite (the canonical "mlx GPU > CPU" demo, separate code path — pure forward matmul, no autograd, no FFI hot loop), 3 sizes × 4 cells, iters=5, identical to the `abc3552` 2026-05-17 sweep:
+
+| N | tape GFLOPS abc3552 → now | torch abc3552 → now | mlx-cpu abc3552 → now | mlx-gpu abc3552 → now |
+|---:|---:|---:|---:|---:|
+| 1024 | 305 → 307 | 365 → 346 | 1054 → 1091 | 682 → 649 |
+| 2048 | 339 → 335 | 329 → 353 | 1319 → 1264 | 2993 → 2719 |
+| 4096 | 317 → 341 | 334 → 347 | 1215 → 1227 | 4290 → 4271 |
+
+All 12 cells within ±10%, including the headline mlx-gpu 4.3-TFLOPS @ N=4096 — fully preserved. The largest negative delta is mlx-gpu @ N=2048 at −9%, well within the noise gate.
+
+**Outcome**: precision rollout is perf-neutral on both the training sweep (small-op, FFI-heavy) and the compute-bound matmul sweep. No code change. Not updating the `perf-baseline.md` 2026-05-17 rows — deltas are below the 20% noise gate and don't represent a material change worth churning the canonical tables over.
 
 **Cross-references**:
 - TODO "Investigate precision type parameter" — closed; see `docs/develop/dtype-parameter.md` for the design memo and lessons learned
-- sweep raw output: `/tmp/perf-sweep-a875549.log`
-- JSONL entries appended to `docs/develop/perf-log.jsonl` (kind=baseline, commit=a875549)
+- sweep raw output: `/tmp/perf-sweep-a875549.log` (training), `/tmp/matmul-bench-a875549.log` (matmul-bench)
+- JSONL entries appended to `docs/develop/perf-log.jsonl` (training: kind=baseline, commit=a875549; matmul-bench: kind=matmul-bench, commit=dbc39cc)
