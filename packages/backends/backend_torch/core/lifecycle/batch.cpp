@@ -1,7 +1,11 @@
 /* Batch / unbatch / one-hot — torch.
  *
  *   - tensor_batch    stack along new leading dim ([..] × N → [N, ...]).
- *   - tensor_unbatch  inverse: unbind along dim 0, contiguous() each slice.
+ *   - tensor_unbatch  inverse: unbind along dim 0; slices are already
+ *                     memory-contiguous (axis-0 unbind on a row-major
+ *                     tensor), so no `.contiguous()` needed. The earlier
+ *                     `.contiguous()` was a no-op that still queued a
+ *                     Metal command-buffer submission on MPS.
  *   - tensor_one_hot  builds the 0/1 pattern in F64, then casts to the
  *                     requested dtype so the result honestly matches the
  *                     Idris `dt` (0/1 is exact in every dtype — float
@@ -59,6 +63,6 @@ extern "C" TensorHandle* tensor_unbatch(TensorHandle h, int* out_count) {
     *out_count = (int)tensors.size();
     auto* arr = (TensorHandle*)malloc(*out_count * sizeof(TensorHandle));
     for (int i = 0; i < *out_count; i++)
-        arr[i] = from_tensor(tensors[i].contiguous());
+        arr[i] = from_tensor(at::Tensor(tensors[i]));
     return arr;
 }
