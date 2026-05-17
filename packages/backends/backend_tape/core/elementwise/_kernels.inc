@@ -97,11 +97,26 @@ static TensorHandle SFX(binop_elementwise_inner)(TensorHandle ha, TensorHandle h
     {
         extern int prof_binop_path_count[];
         prof_binop_path_count[2]++;
-        /* Log shapes once per op_tag so we can spot which call sites
-           are taking the slow path. */
+        /* Log shapes once per op_tag (production default; off by
+           default if IDRISML_BCAST_QUIET=1 is set). Useful to spot
+           call sites taking the slow path. Set
+           IDRISML_BCAST_TRACE=1 to log every call (debug-only). */
+        static int env_checked = 0;
+        static int trace_enabled = 0;
+        static int quiet_enabled = 0;
+        if (!env_checked) {
+            const char* t = getenv("IDRISML_BCAST_TRACE");
+            const char* q = getenv("IDRISML_BCAST_QUIET");
+            trace_enabled = (t && t[0] == '1');
+            quiet_enabled = (q && q[0] == '1');
+            env_checked = 1;
+        }
         static int logged[OP_COUNT] = {0};
-        if (op_tag >= 0 && op_tag < OP_COUNT && !logged[op_tag]) {
-            logged[op_tag] = 1;
+        int should_log = trace_enabled
+                       || (!quiet_enabled && op_tag >= 0
+                           && op_tag < OP_COUNT && !logged[op_tag]);
+        if (should_log) {
+            if (op_tag >= 0 && op_tag < OP_COUNT) logged[op_tag] = 1;
             fprintf(stderr, "[tape diag] op=%d general_bcast shapes: a=[", op_tag);
             for (int k = 0; k < a->rank; k++)
                 fprintf(stderr, "%d%s", a->shape[k], k+1<a->rank?",":"");
@@ -114,7 +129,13 @@ static TensorHandle SFX(binop_elementwise_inner)(TensorHandle ha, TensorHandle h
     double _gb0 = _wall_ms();
     int r_shape[MAX_BCAST_RANK], r_rank, r_numel;
     if (!compute_bcast_shape(a, b, r_shape, &r_rank, &r_numel)) {
-        fprintf(stderr, "binop_elementwise: incompatible shapes\n");
+        fprintf(stderr, "binop_elementwise: incompatible shapes op=%d a=[", op_tag);
+        for (int k = 0; k < a->rank; k++)
+            fprintf(stderr, "%d%s", a->shape[k], k+1<a->rank?",":"");
+        fprintf(stderr, "] b=[");
+        for (int k = 0; k < b->rank; k++)
+            fprintf(stderr, "%d%s", b->shape[k], k+1<b->rank?",":"");
+        fprintf(stderr, "]\n");
         abort();
     }
     int a_strides[MAX_BCAST_RANK], b_strides[MAX_BCAST_RANK];
