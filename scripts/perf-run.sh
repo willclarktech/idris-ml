@@ -60,6 +60,14 @@ case "$EXAMPLE_KEY" in
   a2c)                 TGT=example-a2c;                        AVAR=A2C_ARGS ;;
   ppo)                 TGT=example-ppo;                        AVAR=PPO_ARGS ;;
   sac)                 TGT=example-sac;                        AVAR=SAC_ARGS ;;
+  # HF inference examples — no training loop, no RESULT line; we extract
+  # `[stage] [hh:mm:ss] <label>` timings into entry.stages instead. AVAR
+  # is set to a no-op make-variable name so the existing AVAR=ARGS
+  # plumbing doesn't fight us (the inference examples don't take CLI args
+  # via *_ARGS).
+  hf-bert)             TGT=example-hf-bert-inference;          AVAR=_HF_NOARGS ;;
+  hf-gpt2)             TGT=example-hf-gpt2-inference;          AVAR=_HF_NOARGS ;;
+  hf-llama)            TGT=example-hf-llama-inference;         AVAR=_HF_NOARGS ;;
   *) echo "unknown example-key: $EXAMPLE_KEY" >&2; exit 2 ;;
 esac
 
@@ -74,17 +82,23 @@ if [ -n "$(git status --porcelain -- ':!docs/develop/perf-log.jsonl' 2>/dev/null
 fi
 DATE=$(date +%Y-%m-%d)
 
-# Device of record. Only mlx currently supports a runtime device switch
-# (MLX_DEVICE=cpu|gpu). tape is C-on-CPU; torch's libtorch is CPU in our
-# setup (we don't pin tensors to MPS/CUDA at the wrapper level).
+# Device of record. Both mlx and torch support a runtime device switch
+# (MLX_DEVICE=cpu|gpu; TORCH_DEVICE=cpu|mps|cuda). tape is C-on-CPU.
 case "$BACKEND" in
   mlx)   DEVICE="${MLX_DEVICE:-cpu}" ;;
   tape)  DEVICE="cpu" ;;
-  torch) DEVICE="cpu" ;;
+  torch) DEVICE="${TORCH_DEVICE:-cpu}" ;;
   *)     DEVICE="unknown" ;;
 esac
 # mlx accepts "metal" as a synonym for "gpu"; normalize.
 [ "$DEVICE" = "metal" ] && DEVICE="gpu"
+
+# Dtype override of record. Only set when caller explicitly chose
+# TORCH_DTYPE (e.g. BF16 on torch-mps); empty otherwise (the BuildConfig
+# default for the (backend, device) cell applies). Tracked in the JSONL
+# entry so a BF16 run is visibly distinct from the default-F32 run on
+# the same example/backend/device.
+TORCH_DTYPE_STATE="${TORCH_DTYPE:-}"
 
 # MLX_COMPILE state of record (Job 3 Phase B opt-in). Only meaningful
 # on the mlx backend; non-mlx always records "n/a".
@@ -131,6 +145,12 @@ RESULT_LINE=$(grep '^RESULT' "$LOG" | tail -1 || true)
 COMPLETED_LINE=$(grep '^Completed' "$LOG" | tail -1 || true)
 CONVERGED_LINE=$(grep -E '^\s*\[[^]]+\]\s+Converged' "$LOG" | tail -1 || true)
 DIVERGED_LINE=$(grep -E '^\s*\[[^]]+\]\s+Diverged' "$LOG" | tail -1 || true)
+# HF inference examples emit per-stage timings as
+# `[stage] [hh:mm:ss] <label>` (e.g. `[stage] [00:00:22] hfLlamaModel ok`).
+# Capture all such lines so the JSON entry's `stages` field reflects
+# per-phase wall (state construction vs load vs decode), not just the
+# total. Empty for training-loop examples.
+STAGE_LINES=$(grep -E '^\[stage\] \[[0-9]{2}:[0-9]{2}:[0-9]{2}\]' "$LOG" || true)
 
 LOG_PATH="docs/develop/perf-log.jsonl"
 if [ ! -e "$LOG_PATH" ]; then
@@ -146,10 +166,12 @@ JSON_LINE=$(
   ARG_SUMMARY="$ARG_SUMMARY" \
   ISO_TS="$ISO_TS" DATE="$DATE" EXAMPLE_KEY="$EXAMPLE_KEY" \
   BACKEND="$BACKEND" DEVICE="$DEVICE" MLX_COMPILE_STATE="$MLX_COMPILE_STATE" \
+  TORCH_DTYPE_STATE="$TORCH_DTYPE_STATE" \
   COMMIT="$COMMIT" RC="$RC" \
   ELAPSED_MS="$ELAPSED_MS" ELAPSED_PRETTY="$ELAPSED_PRETTY" \
   CONVERGED_LINE="$CONVERGED_LINE" DIVERGED_LINE="$DIVERGED_LINE" \
   COMPLETED_LINE="$COMPLETED_LINE" RESULT_LINE="$RESULT_LINE" \
+  STAGE_LINES="$STAGE_LINES" \
   python3 <<'PY'
 import json, os, re
 
@@ -191,6 +213,24 @@ def parse_result(line):
                     out[k] = v
     return out
 
+# Parse multi-line `[stage] [hh:mm:ss] <label>` block → list of
+# {"label": str, "elapsed_s": int} entries. Cumulative wall (seconds
+# since program start), not deltas — matches the raw `[hh:mm:ss]` in
+# the log. Caller can compute deltas if wanted. Returns [] when no
+# stage lines were captured.
+def parse_stages(blob):
+    if not blob:
+        return []
+    out = []
+    for line in blob.splitlines():
+        m = re.match(r"^\[stage\] \[(\d{2}):(\d{2}):(\d{2})\]\s+(.*)$", line)
+        if not m:
+            continue
+        h, mi, s, label = m.groups()
+        elapsed = int(h) * 3600 + int(mi) * 60 + int(s)
+        out.append({"label": label.strip(), "elapsed_s": elapsed})
+    return out
+
 entry = {
     "ts": os.environ["ISO_TS"],
     "date": os.environ["DATE"],
@@ -205,6 +245,11 @@ entry = {
     "wall_ms": int(os.environ["ELAPSED_MS"]),
     "wall_human": os.environ["ELAPSED_PRETTY"],
 }
+# Only emit torch_dtype when explicitly set; absence means "BuildConfig
+# default for the (backend, device) cell" (F32 for torch-mps, F64
+# elsewhere).
+if os.environ.get("TORCH_DTYPE_STATE"):
+    entry["torch_dtype"] = os.environ["TORCH_DTYPE_STATE"]
 conv = parse_epoch(os.environ.get("CONVERGED_LINE", ""))
 div  = parse_epoch(os.environ.get("DIVERGED_LINE",  ""))
 if conv is not None: entry["converged_at_epoch"] = conv
@@ -213,6 +258,8 @@ stats = parse_completed(os.environ.get("COMPLETED_LINE", ""))
 if stats: entry["stats"] = stats
 result = parse_result(os.environ.get("RESULT_LINE", ""))
 if result: entry["result"] = result
+stages = parse_stages(os.environ.get("STAGE_LINES", ""))
+if stages: entry["stages"] = stages
 
 print(json.dumps(entry))
 PY
@@ -221,12 +268,13 @@ PY
 echo "$JSON_LINE" >> "$LOG_PATH"
 
 # Mirror to stdout for the operator
-echo "=== ${EXAMPLE_KEY} [${BACKEND}] @ ${COMMIT} ==="
+echo "=== ${EXAMPLE_KEY} [${BACKEND}/${DEVICE}${TORCH_DTYPE_STATE:+/$TORCH_DTYPE_STATE}] @ ${COMMIT} ==="
 echo "wall:    ${ELAPSED_PRETTY} (exit ${RC})"
 [ -n "$CONVERGED_LINE" ] && echo "${CONVERGED_LINE}"
 [ -n "$DIVERGED_LINE"  ] && echo "${DIVERGED_LINE}"
 [ -n "$COMPLETED_LINE" ] && echo "${COMPLETED_LINE}"
 [ -n "$RESULT_LINE"    ] && echo "${RESULT_LINE}"
+[ -n "$STAGE_LINES"    ] && printf '%s\n' "$STAGE_LINES"
 echo "Logged to ${LOG_PATH}"
 
 # Forward the make exit code so callers can detect failure.

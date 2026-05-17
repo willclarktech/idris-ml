@@ -25,8 +25,9 @@ Every entry has these fields:
 | `kind` | string | `"run"` (perf-run.sh) or `"baseline"` (perf-baseline.sh) |
 | `example` | string | `ntm-copy`, `dnc-recall`, `a2c`, etc. |
 | `backend` | string | `tape`, `mlx`, or `torch` |
-| `device` | string | `cpu` or `gpu`. For `mlx` reflects `MLX_DEVICE`; for `tape`/`torch` always `cpu` (we don't pin tensors to MPS/CUDA at the wrapper). Added 2026-05-11 — entries before that date can be assumed `cpu`. |
+| `device` | string | `cpu`, `gpu`, `mps`, `cuda`. For `mlx` reflects `MLX_DEVICE`; for `torch` reflects `TORCH_DEVICE` (added 2026-05-28; entries before that date with `backend=torch` can be assumed `cpu`); for `tape` always `cpu`. Added 2026-05-11 — entries before that date can be assumed `cpu`. |
 | `mlx_compile` | string | `on`, `off`, or `n/a`. Reflects the `MLX_COMPILE` env var on mlx runs; `n/a` on tape/torch. Added 2026-05-12 — entries before that date can be assumed `off` (mlx) or `n/a` (other). |
+| `torch_dtype` | string? | Present only when `TORCH_DTYPE` was explicitly set (e.g. `"BF16"` on a torch-mps BF16 run). Absent means the BuildConfig default for the (backend, device) cell applies. Added 2026-05-28. |
 | `commit` | string | abbreviated git hash (`+dirty` if uncommitted changes) |
 
 **`kind: "run"`** entries also have:
@@ -41,6 +42,7 @@ Every entry has these fields:
 | `diverged_at_epoch` | int? | present when training NaN'd |
 | `stats` | object? | `{total_epochs, ms_per_epoch, wall}` from "Completed in …" line |
 | `result` | object? | parsed `RESULT` line, e.g. `{epochs, acc_short, acc_full, seed}` |
+| `stages` | array? | List of `{label, elapsed_s}` entries parsed from `[stage] [hh:mm:ss] <label>` lines. Used by the HF inference examples (`hf-bert`, `hf-gpt2`, `hf-llama`) to capture per-phase wall (state construction vs load vs RoPE-table vs decode) rather than a single training-loop ms/epoch. `elapsed_s` is cumulative since process start (not delta); the caller computes per-stage deltas if wanted. Added 2026-05-28. |
 
 **`kind: "baseline"`** entries also have:
 
