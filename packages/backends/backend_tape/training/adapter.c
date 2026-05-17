@@ -91,6 +91,22 @@ extern TensorHandle tape_create_state_1d_dtag(int n, double* data, int dtag);
 extern TensorHandle tape_create_state_2d_dtag(int rows, int cols, double* data, int dtag);
 extern TensorHandle tape_cast_dtype_dtag(TensorHandle src, int dtag);
 
+/* ----------------------------------------------------------------------
+   Fused param create + init — bound from training/dtype_init.c.
+   These provide the in-place init kernel surface the shared
+   dtype_streamed.c trampolines require; mirrors torch's
+   dtype_init.cpp surface.
+   ---------------------------------------------------------------------- */
+extern TensorHandle tape_create_param_1d_normal_dtag(int n,                                  double mean, double std, int dtag);
+extern TensorHandle tape_create_param_2d_normal_dtag(int rows, int cols,                     double mean, double std, int dtag);
+extern TensorHandle tape_create_param_3d_normal_dtag(int d0, int d1, int d2,                 double mean, double std, int dtag);
+extern TensorHandle tape_create_param_4d_normal_dtag(int d0, int d1, int d2, int d3,         double mean, double std, int dtag);
+extern TensorHandle tape_create_param_1d_const_dtag (int n,                                  double value,            int dtag);
+extern TensorHandle tape_create_param_2d_const_dtag (int rows, int cols,                     double value,            int dtag);
+extern TensorHandle tape_create_param_3d_const_dtag (int d0, int d1, int d2,                 double value,            int dtag);
+extern TensorHandle tape_create_param_4d_const_dtag (int d0, int d1, int d2, int d3,         double value,            int dtag);
+extern void         tape_set_init_seed(uint64_t seed);
+
 static void* tape_port_create_scalar(double v, int rg, int dtag)                                 { return tape_create_scalar_dtag(v, rg, dtag); }
 static void* tape_port_create(double* d, int* s, int r, int rg, int dtag)                        { return tape_create_dtag(d, s, r, rg, dtag); }
 static void* tape_port_create_1d(int n, double* d, int rg, int dtag)                             { return tape_create_1d_dtag(n, d, rg, dtag); }
@@ -102,6 +118,17 @@ static void* tape_port_create_param_4d(int d0, int d1, int d2, int d3, double* d
 static void* tape_port_create_state_1d(int n, double* d, int dtag)                               { return tape_create_state_1d_dtag(n, d, dtag); }
 static void* tape_port_create_state_2d(int rows, int cols, double* d, int dtag)                  { return tape_create_state_2d_dtag(rows, cols, d, dtag); }
 static void* tape_port_cast_dtype(void* src, int dtag)                                            { return tape_cast_dtype_dtag((TensorHandle)src, dtag); }
+
+/* Fused param create + init trampolines — forward to dtype_init.c. */
+static void* tape_port_create_param_1d_normal(int n, double mean, double std, int dtag)                                { return tape_create_param_1d_normal_dtag(n, mean, std, dtag); }
+static void* tape_port_create_param_2d_normal(int rows, int cols, double mean, double std, int dtag)                   { return tape_create_param_2d_normal_dtag(rows, cols, mean, std, dtag); }
+static void* tape_port_create_param_3d_normal(int d0, int d1, int d2, double mean, double std, int dtag)               { return tape_create_param_3d_normal_dtag(d0, d1, d2, mean, std, dtag); }
+static void* tape_port_create_param_4d_normal(int d0, int d1, int d2, int d3, double mean, double std, int dtag)       { return tape_create_param_4d_normal_dtag(d0, d1, d2, d3, mean, std, dtag); }
+static void* tape_port_create_param_1d_const (int n, double value, int dtag)                                           { return tape_create_param_1d_const_dtag(n, value, dtag); }
+static void* tape_port_create_param_2d_const (int rows, int cols, double value, int dtag)                              { return tape_create_param_2d_const_dtag(rows, cols, value, dtag); }
+static void* tape_port_create_param_3d_const (int d0, int d1, int d2, double value, int dtag)                          { return tape_create_param_3d_const_dtag(d0, d1, d2, value, dtag); }
+static void* tape_port_create_param_4d_const (int d0, int d1, int d2, int d3, double value, int dtag)                  { return tape_create_param_4d_const_dtag(d0, d1, d2, d3, value, dtag); }
+static void  tape_port_set_init_seed(uint64_t seed)                                                                    { tape_set_init_seed(seed); }
 
 /* ----------------------------------------------------------------------
    Optimizer surface — bound from training/optimizer.c.
@@ -152,6 +179,15 @@ const BackendPort g_active_port = {
   .create_state_1d           = tape_port_create_state_1d,
   .create_state_2d           = tape_port_create_state_2d,
   .cast_dtype                = tape_port_cast_dtype,
+  .create_param_1d_normal    = tape_port_create_param_1d_normal,
+  .create_param_2d_normal    = tape_port_create_param_2d_normal,
+  .create_param_3d_normal    = tape_port_create_param_3d_normal,
+  .create_param_4d_normal    = tape_port_create_param_4d_normal,
+  .create_param_1d_const     = tape_port_create_param_1d_const,
+  .create_param_2d_const     = tape_port_create_param_2d_const,
+  .create_param_3d_const     = tape_port_create_param_3d_const,
+  .create_param_4d_const     = tape_port_create_param_4d_const,
+  .set_init_seed             = tape_port_set_init_seed,
   .optimizer_create_sgd      = tape_optimizer_create_sgd,
   .optimizer_create_rmsprop  = tape_optimizer_create_rmsprop,
   .optimizer_create_adam     = tape_optimizer_create_adam,
