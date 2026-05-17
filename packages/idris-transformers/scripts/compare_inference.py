@@ -25,9 +25,15 @@ def main() -> None:
     oracle_path = Path(sys.argv[2])
     tol = float(sys.argv[3]) if len(sys.argv) > 3 else 1e-2
 
-    # Idris dumped one float per line to stdout.
+    # Idris dumped one float per line to stdout. Filter out `[stage] ...`
+    # diagnostic lines (added by stageStamp in the HF inference examples
+    # for perf-log JSONL parsing) — they are non-numeric.
     with stdout_path.open() as f:
-        idris_vals = [float(line.strip()) for line in f if line.strip()]
+        idris_vals = [
+            float(line.strip())
+            for line in f
+            if line.strip() and not line.lstrip().startswith("[stage]")
+        ]
 
     oracle_tensor = load_file(str(oracle_path))["output"]
     oracle_vals = oracle_tensor.tolist()
