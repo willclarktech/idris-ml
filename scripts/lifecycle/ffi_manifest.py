@@ -326,7 +326,14 @@ INIT_FFI = {
 
 
 def strip_suffix(cname):
-    """Strip _mlx / _tape / _torch suffix from a C name to get the base."""
+    """Strip _mlx / _tape / _torch suffix from a C name to get the base.
+
+    Note: `_<backend>_streamed` compound names (mlx-specific, e.g.
+    `tensor_mv_mlx_streamed`) are NOT stripped — they have an extra
+    stream-arg vs their base manifest entry (`tensor_mv` is 2-arg, the
+    streamed variant is 3-arg), so the manifest classifiers don't
+    apply. Those variants are managed by hand outside the manifest
+    pipeline."""
     for suf in ("_mlx", "_tape", "_torch"):
         if cname.endswith(suf):
             return cname[: -len(suf)]
@@ -386,6 +393,21 @@ def scheme_type(cls):
     raise ValueError(f"Unknown classifier {cls!r}")
 
 
+def cache_var(c_symbol):
+    """Per-FFI Chez top-level binding name for the cached foreign-procedure.
+
+    Maps `tensor_add_torch` → `idris-ffi-tensor-add-torch`. The
+    `idris-ffi-` prefix scopes the cache to this binding family and avoids
+    collisions with the existing `idris-tensor-guardian` /
+    `idris-release-cache` / `idris-drain-once` top-level symbols.
+
+    Globally unique because the C symbols themselves are globally unique
+    within libidrisml.dylib (each is suffixed `_tape` / `_torch` / `_mlx`
+    unless it's a primary-backend unified alias).
+    """
+    return "idris-ffi-" + c_symbol.replace("_", "-")
+
+
 def backend_tag_of(cname):
     """Derive the backend tag for a wrap from the C function name.
 
@@ -427,6 +449,19 @@ def gen_scheme_wrapper(cname, arg_classes, ret_class):
     `tensor_release_handle_<tag>` (or unified `tensor_release_handle`
     for "primary"). Retain is symmetric — each wrap calls the
     suffixed retain so refcounts land on the right backend.
+
+    **FFI symbol caching (added 2026-05-27):** each `foreign-procedure`
+    is lazy-cached at first call via a per-FFI Chez top-level binding
+    (`idris-ffi-<c-symbol-with-dashes>`). Without the cache every call
+    re-evaluates `(foreign-procedure …)` → fresh dlsym → walks every
+    loaded library's symbol table; on a Llama-3.2-1B forward pass that
+    dominated 100% of CPU wall (see sample at
+    `/tmp/scheme_2026-05-27_180602_BTJW.sample.txt`). The lazy-init
+    block uses the same `(when (not (top-level-bound? 'name))
+    (set-top-level-value! 'name …))` idiom the codebase already uses
+    for `idris-tensor-guardian`, extended from one shared symbol to
+    one per `%foreign`. First call to each FFI still pays dlsym;
+    subsequent warm calls pay only a hashtable lookup.
     """
     n_args = len(arg_classes)
     arg_names = [f"a{i}" for i in range(n_args)]
@@ -441,7 +476,16 @@ def gen_scheme_wrapper(cname, arg_classes, ret_class):
         else:
             call_args.append(nm)
     call_args_str = " ".join(call_args)
-    fp = f'(foreign-procedure \\"{cname}\\" ({fp_arg_types}) {fp_ret_type})'
+
+    # Lazy-init for the main FFI symbol. Constructs the foreign-procedure
+    # once on first call, then reuses the cached top-level binding.
+    main_var = cache_var(cname)
+    init_main = (
+        f" (when (not (top-level-bound? '{main_var}))"
+        f" (set-top-level-value! '{main_var}"
+        f" (foreign-procedure \\\"{cname}\\\" ({fp_arg_types}) {fp_ret_type})))"
+    )
+    call_main = f"((top-level-value '{main_var}) {call_args_str})"
 
     if ret_class == "T":
         tag = backend_tag_of(cname)
@@ -450,18 +494,33 @@ def gen_scheme_wrapper(cname, arg_classes, ret_class):
             if tag == "primary"
             else f"tensor_retain_handle_{tag}"
         )
+        # Lazy-init for the per-backend retain symbol (mirrors the main
+        # FFI cache; one top-level binding per distinct retain symbol).
+        retain_var = cache_var(retain_sym)
+        init_retain = (
+            f" (when (not (top-level-bound? '{retain_var}))"
+            f" (set-top-level-value! '{retain_var}"
+            f" (foreign-procedure \\\"{retain_sym}\\\" (void*) void)))"
+        )
+        call_retain = f"((top-level-value '{retain_var}) raw_r)"
+        ffi_init = init_main + init_retain
         body = (
-            f" (let ((raw_r ({fp} {call_args_str})))"
+            f" (let ((raw_r {call_main}))"
             f" (let ((wr (vector 'tensor-handle-v2 \\\"{tag}\\\" raw_r)))"
             f" ((top-level-value 'idris-tensor-guardian) wr)"
-            f" ((foreign-procedure \\\"{retain_sym}\\\" (void*) void) raw_r)"
+            f" {call_retain}"
             f" wr))"
         )
     else:
-        body = f" ({fp} {call_args_str})"
+        ffi_init = init_main
+        body = f" {call_main}"
 
-    init = GUARDIAN_LAZY_INIT if strip_suffix(cname) in INIT_FFI else ""
-    return f"(lambda ({' '.join(arg_names)}) {init}{body})"
+    # `GUARDIAN_LAZY_INIT` is conditional on this being an INIT_FFI
+    # function; it installs the guardian/drain-once. Independent of the
+    # per-FFI cache above. Order: guardian first (existing convention),
+    # then per-FFI cache, then body — though they're commutative.
+    guardian_init = GUARDIAN_LAZY_INIT if strip_suffix(cname) in INIT_FFI else ""
+    return f"(lambda ({' '.join(arg_names)}) {guardian_init}{ffi_init}{body})"
 
 
 # Files in the wrap-handle FFI set — the linter and converter both
