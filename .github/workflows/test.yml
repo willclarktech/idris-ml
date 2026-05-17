@@ -196,12 +196,21 @@ jobs:
         # pytest under the pytorch uv venv (carries the transformers dep).
         # Downloads google/bert_uncased_L-2_H-128_A-2 from HF Hub on each
         # run, runs forward on the fixed input, asserts the resulting
-        # oracle is shape [128] F32 finite + non-trivial. The full
-        # Idris-vs-Python comparison gate lands in test-hf-bert-roundtrip
-        # alongside Example/HfBertInference.idr (Phase 6). Ubuntu-only:
+        # oracle is shape [128] F32 finite + non-trivial. Ubuntu-only:
         # ref-setup runs only there in this matrix.
         if: matrix.os == 'ubuntu-latest'
         run: make test-transformers-oracle
+
+      - name: Run HfBert end-to-end roundtrip (Ubuntu)
+        # The cross-language correctness gate: regenerates the Python
+        # oracle, runs the Idris HfBertInference example (loading the
+        # real Google bert-tiny weights via the HF-aligned HfBert
+        # module), and asserts elementwise agreement within
+        # max-abs-diff 1e-3 on the 128-dim pooled [CLS] output.
+        # Currently passes at 4.1e-4 locally on tape. Ubuntu-only:
+        # depends on the uv venv set up by ref-setup.
+        if: matrix.os == 'ubuntu-latest'
+        run: make test-hf-bert-roundtrip
 
       - name: Verify GradMode gate (NoGrad loss rejected at compile)
         # Asserts the type-level gate `nativeTrainStep : ... -> Tensor [] d

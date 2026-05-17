@@ -89,7 +89,7 @@ export IDRIS2_PACKAGE_PATH := $(IDRIS2_LOCAL)/idris2-0.8.0:$(SYS_IDRIS2_PREFIX)/
 endif
 
 # Idris flags for example/test builds (use installed packages)
-IDRIS_FLAGS := --source-dir $(EXAMPLE_SRC) -p contrib -p idris-ml -p idris-gym
+IDRIS_FLAGS := --source-dir $(EXAMPLE_SRC) -p contrib -p idris-ml -p idris-gym -p idris-transformers
 
 # Library source files — any change invalidates top-level build/ttc/ cache.
 # Idris 2's interface-hash dependency tracking doesn't invalidate downstream
@@ -937,6 +937,36 @@ example-supervised: install
 	idris2 $(IDRIS_FLAGS) -o supervised $(EXAMPLE_SRC)/Example/Supervised.idr
 	cp $(LIB) build/exec/supervised_app/
 	./build/exec/supervised $(SEED_FLAG) $(SUPERVISED_ARGS)
+
+# HuggingFace BERT inference example. Loads google/bert_uncased_L-2_H-128_A-2
+# weights via the HF-aligned HfBert layer module (from idris-transformers)
+# and dumps the 128-dim pooled [CLS] output to stdout, one value per line.
+# Pre-requisite: bash packages/idris-transformers/scripts/hf-download.sh
+# google/bert_uncased_L-2_H-128_A-2 must have run at least once to populate
+# packages/idris-transformers/fixtures/.
+example-hf-bert-inference: install
+	bash packages/idris-transformers/scripts/hf-download.sh \
+		google/bert_uncased_L-2_H-128_A-2
+	idris2 $(IDRIS_FLAGS) -o hf-bert-inference $(EXAMPLE_SRC)/Example/HfBertInference.idr
+	cp $(LIB) build/exec/hf-bert-inference_app/
+	./build/exec/hf-bert-inference
+
+# Cross-language correctness gate for HfBert: regenerates the Python
+# oracle via save_oracle.py, then runs the Idris example and compares
+# stdout against the oracle within F32 tolerance.
+test-hf-bert-roundtrip: install
+	bash packages/idris-transformers/scripts/hf-download.sh \
+		google/bert_uncased_L-2_H-128_A-2
+	cd packages/pytorch && uv run pytest \
+		../idris-transformers/scripts/test_save_oracle.py -v
+	idris2 $(IDRIS_FLAGS) -o hf-bert-inference $(EXAMPLE_SRC)/Example/HfBertInference.idr
+	cp $(LIB) build/exec/hf-bert-inference_app/
+	./build/exec/hf-bert-inference > build/hf-bert-idris-out.txt
+	cd packages/pytorch && uv run python \
+		../idris-transformers/scripts/compare_inference.py \
+		../../build/hf-bert-idris-out.txt \
+		../idris-transformers/fixtures/bert-tiny-oracle.safetensors \
+		1e-3
 
 example-rnn: install
 	idris2 $(IDRIS_FLAGS) -o rnn $(EXAMPLE_SRC)/Example/Rnn.idr
