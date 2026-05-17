@@ -988,6 +988,30 @@ example-hf-gpt2-inference: install
 # transpose, causal mask, tied LM head, primNarrow on axis=1 — the
 # multi-axis fix from bd61bef). Numerical drift across language
 # boundaries at hidden=2 is small.
+# Build + run the Llama 3.2 1B inference example. Requires HF_TOKEN
+# with Llama 3.2 license accepted on huggingface.co. The first
+# invocation fetches the ~2.5 GB safetensors; subsequent runs reuse
+# the cached file (see hf-download.sh cache behaviour).
+#
+# Tape lane (F64) doesn't fit in 16 GB; build with
+# `BACKEND=torch TORCH_DEVICE=mps make example-hf-llama-inference`
+# or `BACKEND=mlx MLX_DEVICE=gpu make example-hf-llama-inference` for
+# the F32 / GPU paths.
+example-hf-llama-inference: install
+	@if [ -z "$$HF_TOKEN" ]; then \
+		echo "ERR: HF_TOKEN must be set (Llama 3.2 is gated)."; \
+		echo "     1. Accept the Llama 3.2 license at"; \
+		echo "        https://huggingface.co/meta-llama/Llama-3.2-1B"; \
+		echo "     2. Get a token at https://huggingface.co/settings/tokens"; \
+		echo "     3. export HF_TOKEN=hf_..."; \
+		exit 1; \
+	fi
+	bash packages/idris-transformers/scripts/hf-download.sh \
+		meta-llama/Llama-3.2-1B
+	idris2 $(IDRIS_FLAGS) -o hf-llama-inference $(EXAMPLE_SRC)/Example/HfLlamaInference.idr
+	cp $(LIB) build/exec/hf-llama-inference_app/
+	./build/exec/hf-llama-inference
+
 test-hf-gpt2-roundtrip: install
 	bash packages/idris-transformers/scripts/hf-download.sh \
 		distilgpt2

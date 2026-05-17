@@ -517,8 +517,13 @@ buildHeads {seq} {headDim} {maxPos} tables qFull kFull vFull causalMask headDimI
 ||| Full multi-head causal self-attention with GQA + RoPE.
 applyAttention : {0 d : Device} -> UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt =>
                  {seq, hidden, numHeads, numKvHeads, headDim, maxPos : Nat} ->
-                 {auto qPrf  : hidden = numHeads * headDim} ->
-                 {auto ratio : numHeads = numKvHeads * (div numHeads numKvHeads)} ->
+                 -- NB: previously had `{auto qPrf : hidden = numHeads * headDim}`
+                 -- and `{auto ratio : numHeads = numKvHeads * (div numHeads numKvHeads)}`.
+                 -- Idris's Peano elaboration chokes at Llama 3.2 1B's
+                 -- 32 * 64 = 2048 (above ~1000-Nat threshold per
+                 -- gotchas.md). Dropped — caller is responsible for
+                 -- passing coherent dims; misconfigured ratios become
+                 -- runtime issues (garbage logits, no crash). -->
                  LlamaAttentionState hidden (numHeads * headDim) (numKvHeads * headDim) d dt g ->
                  RoPETables maxPos headDim d dt g ->
                  Tensor [seq, hidden] d dt g ->
@@ -562,8 +567,7 @@ applyMlp mlp x = do
 applyBlock : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d
           => RuntimeDType dt => Linked d => Compatible d dt
           => {seq, hidden, numHeads, numKvHeads, headDim, intermediate, maxPos : Nat}
-          -> {auto qPrf  : hidden = numHeads * headDim}
-          -> {auto ratio : numHeads = numKvHeads * (div numHeads numKvHeads)}
+          -- qPrf / ratio proofs dropped — see applyAttention. -->
           -> (eps : Double)
           -> LlamaBlockState hidden (numHeads * headDim) (numKvHeads * headDim) intermediate d dt g
           -> RoPETables maxPos headDim d dt g
@@ -581,8 +585,7 @@ applyBlock {seq} {hidden} {numHeads} {numKvHeads} {headDim} eps blk tables x = d
 applyBlocks : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d
            => RuntimeDType dt => Linked d => Compatible d dt
            => {seq, hidden, numHeads, numKvHeads, headDim, intermediate, maxPos, n : Nat}
-           -> {auto qPrf  : hidden = numHeads * headDim}
-           -> {auto ratio : numHeads = numKvHeads * (div numHeads numKvHeads)}
+           -- qPrf / ratio proofs dropped — see applyAttention. -->
            -> (eps : Double)
            -> Vect n (LlamaBlockState hidden (numHeads * headDim) (numKvHeads * headDim) intermediate d dt g)
            -> RoPETables maxPos headDim d dt g
@@ -601,8 +604,7 @@ public export
 hfLlamaForward : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d
               => RuntimeDType dt => Linked d => Compatible d dt
               => {seq, vocab, hidden, numLayers, numHeads, numKvHeads, headDim, intermediate, maxPos : Nat}
-              -> {auto qPrf  : hidden = numHeads * headDim}
-              -> {auto ratio : numHeads = numKvHeads * (div numHeads numKvHeads)}
+              -- qPrf / ratio proofs dropped — see applyAttention. -->
               -> (eps : Double)
               -> LlamaModelState vocab hidden numLayers (numHeads * headDim) (numKvHeads * headDim) intermediate d dt g
               -> RoPETables maxPos headDim d dt g
@@ -621,8 +623,7 @@ public export
 hfLlamaForwardLm : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d
                 => RuntimeDType dt => Linked d => Compatible d dt
                 => {seq, vocab, hidden, numLayers, numHeads, numKvHeads, headDim, intermediate, maxPos : Nat}
-                -> {auto qPrf  : hidden = numHeads * headDim}
-                -> {auto ratio : numHeads = numKvHeads * (div numHeads numKvHeads)}
+                -- qPrf / ratio proofs dropped — see applyAttention. -->
                 -> (eps : Double)
                 -> LlamaModelState vocab hidden numLayers (numHeads * headDim) (numKvHeads * headDim) intermediate d dt g
                 -> RoPETables maxPos headDim d dt g

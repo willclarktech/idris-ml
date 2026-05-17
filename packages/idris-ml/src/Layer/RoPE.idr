@@ -208,7 +208,7 @@ buildLlamaRoPETables : {0 d : Device} -> UserDeviceTraining d =>
                     => {maxPos, headDim : Nat}
                     -> (base : Double)
                     -> (scaling : LlamaRopeScaling)
-                    -> IO (RoPETables maxPos headDim d dt NoGrad)
+                    -> IO (RoPETables maxPos headDim d dt WithGrad)
 buildLlamaRoPETables base scaling = ioRerun (\_ =>
   let halfDimI = cast {to=Int} (div headDim 2)
       sLenI    = cast {to=Int} maxPos
