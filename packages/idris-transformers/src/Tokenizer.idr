@@ -102,6 +102,9 @@ tmpIn = "/tmp/idris-hf-tokenize-in.txt"
 tmpOut : String
 tmpOut = "/tmp/idris-hf-tokenize-out.txt"
 
+tmpErr : String
+tmpErr = "/tmp/idris-hf-tokenize-err.txt"
+
 -- The script lives under packages/idris-transformers/scripts/.
 -- Examples run from the repo root so this relative path resolves.
 scriptPath : String
@@ -115,16 +118,23 @@ buildCmd : (repo : String) -> (mode : String) -> (extraArgs : String) -> String
 buildCmd repo mode extraArgs =
   "cd packages/pytorch && uv run python ../idris-transformers/scripts/hf_tokenize.py " ++
   repo ++ " " ++ mode ++ " " ++ extraArgs ++
-  " > " ++ tmpOut ++ " 2>/dev/null"
+  " > " ++ tmpOut ++ " 2> " ++ tmpErr
 
 -- Run a command via System.system, return Either TokError String holding
--- whatever landed on stdout. Caller's responsibility to validate the
--- contents are well-formed for the requested subcommand.
+-- whatever landed on stdout. On failure, the captured stderr is folded
+-- into the TokSubprocessFail message — previously discarded via
+-- 2>/dev/null, which ate Python's actual exception text and made tokenizer
+-- failures opaque ("rc=1" with no clue why).
 runCapture : (cmd : String) -> IO (Either TokError String)
 runCapture cmd = do
   rc <- system cmd
   if rc /= 0
-    then pure (Left (TokSubprocessFail cmd rc))
+    then do
+      errText <- readFile tmpErr
+      let stderrSnippet = case errText of
+            Right s => "\n  stderr:\n" ++ s
+            Left _  => ""
+      pure (Left (TokSubprocessFail (cmd ++ stderrSnippet) rc))
     else do
       r <- readFile tmpOut
       case r of

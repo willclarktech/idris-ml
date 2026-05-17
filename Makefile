@@ -970,7 +970,7 @@ example-supervised: install
 # clear error; ungated models (BERT-tiny, distilgpt2) ignore the check.
 HF_MODELS_DIR := models
 
-$(HF_MODELS_DIR)/%/model.safetensors:
+$(HF_MODELS_DIR)/%/config.json:
 	@if echo "$*" | grep -q '^meta-llama/' && [ -z "$$HF_TOKEN" ]; then \
 		echo "ERR: HF_TOKEN must be set ($* is gated)."; \
 		echo "     1. Accept the license at https://huggingface.co/$*"; \
@@ -980,7 +980,7 @@ $(HF_MODELS_DIR)/%/model.safetensors:
 	fi
 	bash packages/idris-transformers/scripts/hf-download.sh $*
 
-example-hf-bert-inference: install $(HF_MODELS_DIR)/google/bert_uncased_L-2_H-128_A-2/model.safetensors
+example-hf-bert-inference: install $(HF_MODELS_DIR)/google/bert_uncased_L-2_H-128_A-2/config.json
 	idris2 $(IDRIS_FLAGS) -o hf-bert-inference $(EXAMPLE_SRC)/Example/HfBertInference.idr
 	cp $(LIB) build/exec/hf-bert-inference_app/
 	./build/exec/hf-bert-inference
@@ -988,7 +988,7 @@ example-hf-bert-inference: install $(HF_MODELS_DIR)/google/bert_uncased_L-2_H-12
 # Cross-language correctness gate for HfBert: regenerates the Python
 # oracle via save_oracle.py, then runs the Idris example and compares
 # stdout against the oracle within F32 tolerance.
-test-hf-bert-roundtrip: install $(HF_MODELS_DIR)/google/bert_uncased_L-2_H-128_A-2/model.safetensors
+test-hf-bert-roundtrip: install $(HF_MODELS_DIR)/google/bert_uncased_L-2_H-128_A-2/config.json
 	cd packages/pytorch && uv run pytest \
 		../idris-transformers/scripts/test_save_oracle.py -v
 	idris2 $(IDRIS_FLAGS) -o hf-bert-inference $(EXAMPLE_SRC)/Example/HfBertInference.idr
@@ -1002,7 +1002,7 @@ test-hf-bert-roundtrip: install $(HF_MODELS_DIR)/google/bert_uncased_L-2_H-128_A
 
 # Build + run Example/HfGpt2Inference. Fetches distilgpt2 once via the
 # pattern rule above.
-example-hf-gpt2-inference: install $(HF_MODELS_DIR)/distilgpt2/model.safetensors
+example-hf-gpt2-inference: install $(HF_MODELS_DIR)/distilgpt2/config.json
 	idris2 $(IDRIS_FLAGS) -o hf-gpt2-inference $(EXAMPLE_SRC)/Example/HfGpt2Inference.idr
 	cp $(LIB) build/exec/hf-gpt2-inference_app/
 	./build/exec/hf-gpt2-inference
@@ -1022,12 +1022,12 @@ example-hf-gpt2-inference: install $(HF_MODELS_DIR)/distilgpt2/model.safetensors
 # `BACKEND=torch TORCH_DEVICE=mps make example-hf-llama-inference`
 # or `BACKEND=mlx MLX_DEVICE=gpu make example-hf-llama-inference` for
 # the F32 / GPU paths.
-example-hf-llama-inference: install $(HF_MODELS_DIR)/meta-llama/Llama-3.2-1B/model.safetensors
+example-hf-llama-inference: install $(HF_MODELS_DIR)/meta-llama/Llama-3.2-1B/config.json
 	idris2 $(IDRIS_FLAGS) -o hf-llama-inference $(EXAMPLE_SRC)/Example/HfLlamaInference.idr
 	cp $(LIB) build/exec/hf-llama-inference_app/
 	./build/exec/hf-llama-inference
 
-test-hf-gpt2-roundtrip: install $(HF_MODELS_DIR)/distilgpt2/model.safetensors
+test-hf-gpt2-roundtrip: install $(HF_MODELS_DIR)/distilgpt2/config.json
 	cd packages/pytorch && uv run pytest \
 		../idris-transformers/scripts/test_save_oracle_gpt2.py -v
 	idris2 $(IDRIS_FLAGS) -o hf-gpt2-inference $(EXAMPLE_SRC)/Example/HfGpt2Inference.idr

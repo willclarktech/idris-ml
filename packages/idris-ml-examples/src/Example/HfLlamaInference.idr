@@ -287,6 +287,26 @@ main = do
   args <- getArgs
   let dumpHidden = elem "--dump-final-hidden" args
 
+  -- Probe the tokenizer up-front (~1s subprocess call) BEFORE the
+  -- expensive model construction + 2.5 GB param load. If the
+  -- tokenizer files aren't downloaded yet, fail in seconds instead
+  -- of after 30+ seconds of model setup. The dump-hidden mode
+  -- doesn't strictly need a tokenizer but probing in both branches
+  -- keeps the failure semantics uniform.
+  tokR <- mkTokenizer ModelRepo VocabSize
+  case tokR of
+    Left err =>
+      if not dumpHidden
+        then do
+          putStrLn ("ERR: mkTokenizer failed: " ++ show err)
+          putStrLn ("     Likely missing tokenizer files at models/" ++ ModelRepo ++ "/")
+          putStrLn ("     Run: bash packages/idris-transformers/scripts/hf-download.sh " ++ ModelRepo)
+          exitFailure
+        else
+          putStrLn ("WARN: mkTokenizer failed (continuing — dump-hidden doesn't need it): "
+                    ++ show err)
+    Right _ => pure ()
+
   -- Build the full Llama 3.2 1B state — 146 params, ~1.2B values at
   -- F64 = ~10 GB allocation. F32 backends (mlx-gpu / torch-mps) cut
   -- that to ~5 GB; that's the practical config for this VM. Tape
@@ -318,11 +338,12 @@ main = do
 
   if dumpHidden
     then runDumpHidden model tables
-    else do
-      tokR <- mkTokenizer ModelRepo VocabSize
-      case tokR of
-        Left err  => do
-          putStrLn ("ERR: mkTokenizer: " ++ show err)
-          exitFailure
-        Right tok =>
-          runGenerate tok model tables (extractPrompt args) (extractNumTokens args)
+    else case tokR of
+      -- Unreachable in practice: dumpHidden=False + Left would have
+      -- exitFailure'd at the top-of-main probe. Idris's type checker
+      -- doesn't know that, so we handle Left defensively.
+      Left err  => do
+        putStrLn ("ERR: mkTokenizer (post-probe inconsistency): " ++ show err)
+        exitFailure
+      Right tok =>
+        runGenerate tok model tables (extractPrompt args) (extractNumTokens args)
