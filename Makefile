@@ -1398,6 +1398,15 @@ test-transformers-oracle:
 	cd packages/pytorch && uv run pytest \
 		../idris-transformers/scripts/test_save_oracle.py -v
 
+# Same shape as test-transformers-oracle, paired with HfGpt2.idr:
+# generates `models/tiny-gpt2-oracle.safetensors` from
+# `sshleifer/tiny-gpt2`'s last-hidden-state for [15496, 995] and
+# asserts the fixture is well-formed. The cross-language gate lands
+# as test-hf-gpt2-roundtrip alongside the Idris example.
+test-transformers-oracle-gpt2:
+	cd packages/pytorch && uv run pytest \
+		../idris-transformers/scripts/test_save_oracle_gpt2.py -v
+
 ref-convergence:
 	cd packages/pytorch && uv run python -u -m torch_ref.scripts.convergence --task both
 

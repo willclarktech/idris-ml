@@ -201,6 +201,15 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: make test-transformers-oracle
 
+      - name: Run HfGpt2 oracle generator + pytest (Ubuntu)
+        # Same shape as the HfBert oracle gate but for sshleifer/tiny-gpt2.
+        # Downloads the checkpoint, runs forward on [15496, 995], asserts
+        # the last-position hidden state is shape [2] (sshleifer/tiny-gpt2
+        # is intentionally degenerate at hidden=2 — exercises the
+        # architectural pieces without burning CI disk). Ubuntu-only.
+        if: matrix.os == 'ubuntu-latest'
+        run: make test-transformers-oracle-gpt2
+
       - name: Run HfBert end-to-end roundtrip (Ubuntu)
         # The cross-language correctness gate: regenerates the Python
         # oracle, runs the Idris HfBertInference example (loading the
