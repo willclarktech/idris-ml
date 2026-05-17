@@ -111,6 +111,26 @@ poolerParamNames pfx =
   , p ++ ".dense.bias"
   ]
 
+-- MLM head naming: HF stores the masked-language-modeling head under
+-- the literal `cls.predictions.*` subtree, sibling to `bert.*`. The
+-- `decoder.weight` is TIED to `bert.embeddings.word_embeddings.weight`
+-- (so it's NOT on disk); only the bias is stored separately. The
+-- transform block (dense + LayerNorm) is fully present.
+--
+-- The `clsPrefix` parameter exists so unit tests can register under a
+-- distinct prefix (`clstest`) to avoid C-side param-registry collisions
+-- with prior tests; real callers pass `"cls"` to match HF exactly.
+export
+mlmHeadParamNames : (clsPrefix : String) -> List String
+mlmHeadParamNames pfx =
+  let p = pfx ++ ".predictions" in
+  [ p ++ ".transform.dense.weight"
+  , p ++ ".transform.dense.bias"
+  , p ++ ".transform.LayerNorm.weight"
+  , p ++ ".transform.LayerNorm.bias"
+  , p ++ ".bias"
+  ]
+
 encoderParamNames : (pfx : String) -> (numLayers : Nat) -> List String
 encoderParamNames _   Z     = []
 encoderParamNames pfx (S k) =
@@ -129,6 +149,17 @@ bertParamNames cfg pfx =
   embeddingsParamNames pfx
     ++ encoderParamNames pfx cfg.numLayers
     ++ poolerParamNames pfx
+
+||| Full catalogue for `BertForMaskedLM` — the encoder + pooler from
+||| `bertParamNames` plus the 5 MLM-head params (`cls.predictions.*`).
+||| For `bertTinyConfig` this is 39 + 5 = 44.
+export
+bertForMaskedLmParamNames : (cfg : BertConfig)
+                         -> (bertPrefix : String)
+                         -> (clsPrefix : String)
+                         -> List String
+bertForMaskedLmParamNames cfg bertPfx clsPfx =
+  bertParamNames cfg bertPfx ++ mlmHeadParamNames clsPfx
 
 
 ----------------------------------------------------------------------
@@ -643,3 +674,121 @@ hfBertForward (MkBertModel emb layers pool) inputIds positionIds tokenTypeIds = 
   hEmb <- applyEmbeddings emb inputIds positionIds tokenTypeIds
   hEnc <- applyEncoder {numHeads} {headDim} layers hEmb
   applyPooler pool hEnc
+
+
+----------------------------------------------------------------------
+-- MLM head (BertForMaskedLM)
+----------------------------------------------------------------------
+--
+-- HF's BertForMaskedLM = BertModel + a small head:
+--
+--   transform.dense  : Linear[hidden, hidden]
+--   transform.act    : GELU                        (hidden_act in config)
+--   transform.LN     : LayerNorm[hidden]
+--   decoder          : Linear[hidden, vocab], weight TIED to
+--                      bert.embeddings.word_embeddings.weight (so
+--                      `decoder.weight` is NOT on disk)
+--   bias             : [vocab]                     (decoder bias, named
+--                      `cls.predictions.bias` on disk)
+--
+-- We model that as a triple: the transform Linear, the transform LN,
+-- and a standalone bias Tensor. At forward time the tied decoder is
+-- synthesised by reusing the embeddings' word_embeddings tensor as a
+-- BertLinearWb [vocab, hidden] handle.
+
+public export
+record BertMlmHeadState
+        (vocab, hidden : Nat) (0 d : Device) (0 dt : DType) (0 g : GradMode) where
+  constructor MkBertMlmHead
+  transformDense : BertLinearWb hidden hidden d dt g
+  transformLn    : BertLN hidden d dt g
+  bias           : Tensor [vocab] d dt g
+
+||| Register the 5 MLM-head params under `<clsPrefix>.predictions.*`.
+||| Real callers pass `"cls"` to match HF; tests pass a distinct prefix
+||| to avoid C-side param-registry collisions.
+makeMlmHead : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt
+           => {vocab, hidden : Nat}
+           -> (clsPrefix : String)
+           -> IO (BertMlmHeadState vocab hidden d dt WithGrad)
+makeMlmHead clsPfx = do
+  let p = clsPfx ++ ".predictions"
+  td <- makeBertLinear {i=hidden} {o=hidden} (p ++ ".transform.dense")
+  tn <- makeBertLN     {n=hidden}            (p ++ ".transform.LayerNorm")
+  -- Standalone decoder bias. The decoder *weight* is tied to the word
+  -- embedding and is not registered separately — only the bias is.
+  let vI    = cast {to=Int} vocab
+      bBuf  = prim__allocDoubles vI
+      bBuf' = zeroBuf bBuf 0 vI
+  bias <- tparam1d {n=vocab} (p ++ ".bias") bBuf'
+  pure (MkBertMlmHead td tn bias)
+
+
+public export
+record BertForMaskedLmState
+        (vocab, hidden, numLayers, intermediate, maxPos, typeVocab : Nat)
+        (0 d : Device) (0 dt : DType) (0 g : GradMode) where
+  constructor MkBertForMaskedLm
+  base    : BertModelState vocab hidden numLayers intermediate maxPos typeVocab d dt g
+  mlmHead : BertMlmHeadState vocab hidden d dt g
+
+||| Build a fresh BertForMaskedLM. Combines `hfBertModel` (the
+||| encoder + pooler under `<paramPrefix>.*`) with the MLM head under
+||| literal `cls.predictions.*`. 44 params total for `bertTinyConfig`
+||| (39 base + 5 head). Loading a HF safetensors with `loadModel` fills
+||| every name; `bert.pooler.*` is filled too (HF's BertForMaskedLM
+||| ships pooler weights, just doesn't use them at MLM time).
+|||
+||| The MLM head's `cls.predictions.*` prefix is fixed by HF
+||| convention; a second `BertForMaskedLmState` in the same process
+||| would re-register those names and collide. That's a non-issue for
+||| the v1 demo (one model per process); a future row can parameterise
+||| the prefix if multi-model workflows arrive.
+export
+hfBertForMaskedLm : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt
+                 => {vocab, hidden, numLayers, numHeads, intermediate, maxPos, typeVocab : Nat}
+                 -> (paramPrefix : String)
+                 -> IO (BertForMaskedLmState vocab hidden numLayers intermediate maxPos typeVocab d dt WithGrad)
+hfBertForMaskedLm pfx = do
+  base <- hfBertModel {vocab} {hidden} {numLayers} {numHeads}
+                      {intermediate} {maxPos} {typeVocab} pfx
+  mlm  <- makeMlmHead {vocab} {hidden} "cls"
+  pure (MkBertForMaskedLm base mlm)
+
+
+-- Apply the MLM head to encoder output [seq, hidden] producing logits
+-- [seq, vocab]. The tied decoder is reconstituted as a BertLinearWb
+-- whose `weight` is the embedding tensor and whose `bias` is the head's
+-- standalone bias.
+applyMlmHead : {0 d : Device} -> UserDeviceCore d => UserDeviceTraining d
+            => {seqLen, vocab, hidden : Nat}
+            -> (head : BertMlmHeadState vocab hidden d dt g)
+            -> (wordEmb : Tensor [vocab, hidden] d dt g)
+            -> (encoderOut : Tensor [seqLen, hidden] d dt g)
+            -> IO (Tensor [seqLen, vocab] d dt g)
+applyMlmHead (MkBertMlmHead td tn b) wordEmb x = do
+  h1 <- applyBertLinear2d td x       -- [seq, hidden]
+  h2 <- tgelu h1
+  h3 <- applyLN2d tn h2
+  -- Tied decoder: word_emb is shape [vocab, hidden] — exactly the
+  -- BertLinearWb hidden vocab weight shape.
+  let decoder = MkBertLinear {i=hidden} {o=vocab} wordEmb b
+  applyBertLinear2d decoder h3       -- [seq, vocab]
+
+||| Full MLM forward: input IDs → per-token vocab logits. Caller
+||| extracts the row at any `[MASK]` position and takes top-K to get
+||| candidate fill-ins.
+export
+hfBertMlmForward : {0 d : Device} -> UserDeviceCore d => UserDeviceTraining d
+                => {seqLen, vocab, hidden, numLayers, numHeads, headDim,
+                    intermediate, maxPos, typeVocab : Nat}
+                -> {auto prf : hidden = numHeads * headDim}
+                -> BertForMaskedLmState vocab hidden numLayers intermediate maxPos typeVocab d dt g
+                -> (inputIds     : Tensor [seqLen] d dt g)
+                -> (positionIds  : Tensor [seqLen] d dt g)
+                -> (tokenTypeIds : Tensor [seqLen] d dt g)
+                -> IO (Tensor [seqLen, vocab] d dt g)
+hfBertMlmForward (MkBertForMaskedLm (MkBertModel emb layers _) head) i p t = do
+  hEmb <- applyEmbeddings emb i p t
+  hEnc <- applyEncoder {numHeads} {headDim} layers hEmb
+  applyMlmHead head emb.wordEmb.weight hEnc

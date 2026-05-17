@@ -253,6 +253,52 @@ testForwardShapeAndFinite = do
 
 
 ----------------------------------------------------------------------
+-- Bucket 4 — MLM-head catalogue (cls.predictions.* naming gate)
+----------------------------------------------------------------------
+
+-- The MLM head's 5 params in HF's exact spelling. Mirrors what
+-- save_oracle.py would emit under `cls.predictions.*` if it loaded
+-- BertForMaskedLM instead of BertModel.
+expectedMlmHeadParamNames : List String
+expectedMlmHeadParamNames =
+  [ "cls.predictions.transform.dense.weight"
+  , "cls.predictions.transform.dense.bias"
+  , "cls.predictions.transform.LayerNorm.weight"
+  , "cls.predictions.transform.LayerNorm.bias"
+  , "cls.predictions.bias"
+  ]
+
+testMlmParamCount : IO Bool
+testMlmParamCount =
+  let got = length (mlmHeadParamNames "cls")
+  in check ("mlmHeadParamNames length = 5 (got " ++ show got ++ ")")
+           (got == 5)
+
+testMlmParamNamesMatchHfReference : IO Bool
+testMlmParamNamesMatchHfReference =
+  let got = mlmHeadParamNames "cls"
+  in case firstMismatch got expectedMlmHeadParamNames of
+       Nothing => check "all 5 MLM-head names match HF reference exactly" True
+       Just (i, g, e) => do
+         putStrLn ("  FAIL: mlm[" ++ show i ++ "] mismatch:")
+         putStrLn ("    got:      " ++ g)
+         putStrLn ("    expected: " ++ e)
+         pure False
+
+testMaskedLmCombinedCatalogue : IO Bool
+testMaskedLmCombinedCatalogue =
+  let got = bertForMaskedLmParamNames bertTinyConfig "bert" "cls"
+      expected = expectedBertTinyParamNames ++ expectedMlmHeadParamNames
+  in case firstMismatch got expected of
+       Nothing => check "bertForMaskedLmParamNames concatenates correctly (44 = 39 + 5)" True
+       Just (i, g, e) => do
+         putStrLn ("  FAIL: combined[" ++ show i ++ "] mismatch:")
+         putStrLn ("    got:      " ++ g)
+         putStrLn ("    expected: " ++ e)
+         pure False
+
+
+----------------------------------------------------------------------
 -- Test suite
 ----------------------------------------------------------------------
 
@@ -269,5 +315,10 @@ suite =
      ])
   , ("HfBert forward pass — shape + finite",
      [ testForwardShapeAndFinite
+     ])
+  , ("HfBert MLM-head catalogue",
+     [ testMlmParamCount
+     , testMlmParamNamesMatchHfReference
+     , testMaskedLmCombinedCatalogue
      ])
   ]
