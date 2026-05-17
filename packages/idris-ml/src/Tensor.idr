@@ -1008,6 +1008,46 @@ export
 retypeGrad : Tensor dims d dt g1 -> Tensor dims d dt g2
 retypeGrad (MkTensor ptr pid) = MkTensor ptr pid
 
+
+----------------------------------------------------------------------
+-- Cross-dtype conversion: lossless via `UpcastableTo`, lossy via
+-- explicit `tcast`.
+----------------------------------------------------------------------
+
+||| Lossless precision upcast within a single dtype family
+||| (`F32 → F64`, `Int 16 → Int 32`, `BFloat 16 → BFloat 32`, …).
+||| The `UpcastableTo from to` constraint is solved by Idris's
+||| auto-search via per-family `LTE m n` instances in `DType.Core`;
+||| narrowing casts (`F64 → F32`) and cross-family casts
+||| (`UInt 8 → F16`) have no `UpcastableTo` instance and use
+||| `tcast` (below) instead.
+|||
+||| Runtime support is deferred — the body is a hole that will be
+||| filled when the C-side cast primitives land (`tensor_cast_dtype`).
+||| Type signature is stable; calls type-check today and will
+||| activate at runtime when the primitive arrives.
+export
+tcastSafe : (UpcastableTo from to, IsDType from, IsDType to) =>
+            Tensor dims d from g -> IO (Tensor dims d to g)
+tcastSafe v = ?tcastSafe_impl
+
+||| Explicit precision/dtype cast in ANY direction, including
+||| narrowing (`F64 → F32`) and cross-family (`UInt 8 → F16`).
+||| The caller takes responsibility for any precision loss or
+||| representation change — calling `tcast` is the explicit signal
+||| that the conversion was intentional.
+|||
+||| For lossless conversions, prefer `tcastSafe` so the compiler
+||| verifies via `UpcastableTo` that no information is lost. Use
+||| `tcast` only when the conversion is deliberately narrowing or
+||| cross-family.
+|||
+||| Runtime support is deferred — see `tcastSafe`.
+export
+tcast : (0 to : DType) -> (IsDType from, IsDType to) =>
+        Tensor dims d from g -> IO (Tensor dims d to g)
+tcast _ v = ?tcast_impl
+
 ||| Type-level aliases for common Tensor shapes. Aliases route shape
 ||| arithmetic (e.g. `4 * o`) through a Nat-argument slot rather than
 ||| inlining inside a Vect literal — the latter triggers an Idris 2
