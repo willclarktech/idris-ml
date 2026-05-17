@@ -117,7 +117,9 @@ two_point_pytorch() {
 }
 
 COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo unknown)
-if [ -n "$(git status --porcelain 2>/dev/null)" ]; then COMMIT="${COMMIT}+dirty"; fi
+# Exclude perf-log.jsonl — the sweep itself appends to it mid-run,
+# and that churn is not a code change worth flagging.
+if [ -n "$(git status --porcelain -- ':!docs/develop/perf-log.jsonl' 2>/dev/null)" ]; then COMMIT="${COMMIT}+dirty"; fi
 LOG_PATH="docs/develop/perf-log.jsonl"
 [ -e "$LOG_PATH" ] || : > "$LOG_PATH"
 

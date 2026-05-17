@@ -65,9 +65,11 @@ esac
 
 # Commit metadata at run-time. +dirty if the working tree has uncommitted
 # changes — important so we know the entry isn't reproducible from a
-# clean checkout.
+# clean checkout. perf-log.jsonl is excluded from the dirty check since
+# this script itself appends to it mid-run; including it would mark
+# every entry after the first as +dirty.
 COMMIT=$(git rev-parse --short HEAD)
-if ! git diff --quiet || ! git diff --cached --quiet; then
+if [ -n "$(git status --porcelain -- ':!docs/develop/perf-log.jsonl' 2>/dev/null)" ]; then
   COMMIT="${COMMIT}+dirty"
 fi
 DATE=$(date +%Y-%m-%d)

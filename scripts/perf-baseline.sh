@@ -109,8 +109,10 @@ two_point_pytorch() {
 }
 
 # Capture the active commit (with +dirty marker), mirroring perf-run.sh.
+# perf-log.jsonl is excluded from the dirty check — the perf scripts
+# append to it mid-run, and that's not a code change worth flagging.
 COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
-if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
+if [ -n "$(git status --porcelain -- ':!docs/develop/perf-log.jsonl' 2>/dev/null)" ]; then
   COMMIT="${COMMIT}+dirty"
 fi
 
