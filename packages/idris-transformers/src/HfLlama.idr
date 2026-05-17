@@ -56,6 +56,7 @@ import Data.Vect
 import Compat.Random
 import Device
 import Init
+import Layer.RoPE
 import Sampler
 import Tensor
 
@@ -356,3 +357,283 @@ hfLlamaModel pfx = do
   blocks <- makeBlocks {hidden} {qOut} {kvOut} {intermediate} pfx numLayers 0
   ln     <- makeLlamaRmsNorm {n=hidden} (pfx ++ ".norm.weight")
   pure (MkLlamaModel emb blocks ln)
+
+
+----------------------------------------------------------------------
+-- Forward (composed from existing 2D primitives + Layer.RoPE)
+----------------------------------------------------------------------
+
+%default partial
+
+||| Per-position RmsNorm on a `[seqLen, hidden]` tensor. Loops over
+||| rows because tape's `primSumDim` is a stub (full-reduction); the
+||| 1D RmsNorm formula composes cleanly per-row. Each row pays ~7
+||| primitive calls; for 16 layers × 2 RmsNorms × seq=8 prompt =
+||| 256 row passes, well under a second of overhead on tape.
+applyRmsNorm2d : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d =>
+                 {seqLen, hidden : Nat} ->
+                 (eps : Double) ->
+                 LlamaRmsNorm hidden d dt g ->
+                 Tensor [seqLen, hidden] d dt g ->
+                 IO (Tensor [seqLen, hidden] d dt g)
+applyRmsNorm2d {seqLen} {hidden} eps (MkLlamaRmsNorm weight) input = ioRerun (\_ =>
+  let hI = cast {to=Int} hidden
+      hD = cast {to=Double} hidden
+      inPtr = input.tensorPtr
+      wPtr  = weight.tensorPtr
+      -- Per-row: select row → normalise → emit row. Concat all the
+      -- rows along axis=0. To keep the loop straight we'd want a
+      -- `narrow axis=0` style helper; the existing `primNarrow` on
+      -- axis 0 returns a `[1, hidden]` shared-storage view (cheap).
+      processRow : Int -> AnyPtr
+      processRow r =
+        let row    = primNarrow {d} inPtr 0 r 1                -- [1, hidden]
+            sq     = primMul {d} row row
+            tot    = primSum {d} sq
+            mean   = primMulScalar {d} tot (1.0 / hD)
+            meanEps = primAddScalar {d} mean eps
+            rms    = primSqrt {d} meanEps
+            normed = primDiv {d} row rms
+            scaled = primMul {d} normed wPtr                   -- broadcasts [hidden]
+        in scaled
+      -- Walk rows, accumulating via primConcat2dAxis0. Materialise
+      -- row 0 first; fold the rest in. concat2dAxis0 takes two
+      -- [seqA, hidden] / [seqB, hidden] -> [seqA+seqB, hidden].
+      foldRows : Int -> AnyPtr -> AnyPtr
+      foldRows i acc =
+        if i >= cast {to=Int} seqLen
+          then acc
+          else foldRows (i + 1) (primCat2 {d} acc (processRow i))
+      out = if seqLen == 0
+              then inPtr  -- impossible at well-typed call sites
+              else foldRows 1 (processRow 0)
+  in MkTensor out Nothing)
+
+
+||| Bias-free Linear forward on `[seqLen, in] -> [seqLen, out]`.
+||| Plain matmul `x @ W^T`. Used for q/k/v/o_proj and gate/up/down_proj.
+applyLinear2d : {0 d : Device} -> UserDeviceTraining d =>
+                LlamaLinearNoBias i o d dt g ->
+                Tensor [seqLen, i] d dt g ->
+                IO (Tensor [seqLen, o] d dt g)
+applyLinear2d (MkLlamaLinear w) x = ioRerun (\_ =>
+  let wT  = primTranspose2d {d} w.tensorPtr        -- [i, o]
+      out = primMm {d} x.tensorPtr wT              -- [seqLen, o]
+  in MkTensor out Nothing)
+
+
+||| Embedding lookup: token IDs `[seqLen]` → `[seqLen, hidden]`. Same
+||| pattern as HfBert.idr's applyEmbedLookup2d.
+applyEmbedLookup : {0 d : Device} -> UserDeviceTraining d =>
+                   {seqLen, vocab, hidden : Nat} ->
+                   LlamaEmbedding vocab hidden d dt g ->
+                   Tensor [seqLen] d dt g ->
+                   IO (Tensor [seqLen, hidden] d dt g)
+applyEmbedLookup {seqLen} {hidden} (MkLlamaEmbedding w) tokens = ioRerun (\_ =>
+  let sI = cast {to=Int} seqLen
+      hI = cast {to=Int} hidden
+      flat = primEmbedding {d} w.tensorPtr tokens.tensorPtr sI hI
+      twoD = primReshape2d {d} flat sI hI
+  in MkTensor twoD Nothing)
+
+
+-- Build the strict-upper-triangle causal mask (1.0 above diagonal,
+-- 0.0 elsewhere). Same routine as Layer/Transformer.idr / HfGpt2.
+writeCausalMask : AnyPtr -> Int -> Int -> Int -> AnyPtr
+writeCausalMask buf i j n =
+  if i >= n then buf
+  else if j >= n then writeCausalMask buf (i + 1) (i + 2) n
+  else let buf' = prim__setDouble buf (i * n + j) 1.0
+       in writeCausalMask buf' i (j + 1) n
+
+
+||| Per-Q-head attention math. Slices the head's Q from `qFull`
+||| (`[seq, qOut]`) at offset `q_idx * headDim`; slices K and V from
+||| `kFull` / `vFull` (`[seq, kvOut]`) at the SHARED kv-head offset
+||| `kv_idx * headDim` (GQA — `numHeads / numKvHeads` query heads share
+||| each KV head's projection). Applies RoPE to Q + K. Returns the
+||| per-head context `[seq, headDim]`.
+oneHeadAttention :
+     {0 d : Device} -> UserDeviceTraining d =>
+     {seq, headDim, maxPos : Nat} ->
+     RoPETables maxPos headDim d dt g ->
+     (qFull, kFull, vFull : AnyPtr) ->
+     (causalMask : AnyPtr) ->
+     (qStartI, kvStartI, headDimI : Int) ->
+     (scale : Double) ->
+     IO AnyPtr
+oneHeadAttention {seq} {headDim} {maxPos} tables qFull kFull vFull causalMask qStartI kvStartI headDimI scale = do
+  -- Each `the (Tensor [seq, headDim] d dt g)` annotation pins the
+  -- type for Idris's elaborator — without it the implicit dims/d/dt
+  -- can't be inferred from the surrounding context (applyRope sees
+  -- a Tensor but its dims are existentially quantified across the
+  -- `>>=` boundary).
+  qHeadT <- ioRerun (\_ =>
+    the (Tensor [seq, headDim] d dt g)
+        (MkTensor (primNarrow {d} qFull 1 qStartI headDimI) Nothing))
+  qRot <- applyRope {seq} {headDim} {maxPos} tables 0 qHeadT
+  kHeadT <- ioRerun (\_ =>
+    the (Tensor [seq, headDim] d dt g)
+        (MkTensor (primNarrow {d} kFull 1 kvStartI headDimI) Nothing))
+  kRot <- applyRope {seq} {headDim} {maxPos} tables 0 kHeadT
+  ioRerun (\_ =>
+    let vHead  = primNarrow {d} vFull 1 kvStartI headDimI
+        kT     = primTranspose2d {d} kRot.tensorPtr
+        scores = primMulScalar {d} (primMm {d} qRot.tensorPtr kT) scale
+        masked = primMaskedFill {d} scores causalMask (-1.0e20)
+        attn   = primSoftmax2d {d} masked
+        ctx    = primMm {d} attn vHead
+    in ctx)
+
+
+-- Fold over query heads, applying GQA's shared-KV-head pattern. The
+-- ratio = numHeads / numKvHeads; each kv head is shared by `ratio`
+-- adjacent query heads. Accumulates ctx blocks via primConcat2dAxis1.
+buildHeads :
+     {0 d : Device} -> UserDeviceTraining d =>
+     {seq, headDim, maxPos : Nat} ->
+     RoPETables maxPos headDim d dt g ->
+     (qFull, kFull, vFull, causalMask : AnyPtr) ->
+     (headDimI : Int) -> (scale : Double) ->
+     (numHeadsToGo : Nat) -> (qHeadIdx : Nat) -> (kvRatio : Nat) ->
+     (acc : Maybe AnyPtr) ->
+     IO AnyPtr
+buildHeads tables qFull kFull vFull causalMask headDimI scale Z _ _ (Just acc) = pure acc
+buildHeads tables qFull kFull vFull causalMask headDimI scale Z _ _ Nothing =
+  -- Degenerate (numHeads=0). Caller responsibility — return something safe.
+  pure qFull
+buildHeads {seq} {headDim} {maxPos} tables qFull kFull vFull causalMask headDimI scale (S k) qIdx kvRatio acc = do
+  let kvIdx = div qIdx kvRatio
+      qStartI  = cast {to=Int} (qIdx * cast {to=Nat} headDimI)
+      kvStartI = cast {to=Int} (kvIdx * cast {to=Nat} headDimI)
+  ctx <- oneHeadAttention {seq} {headDim} {maxPos} tables qFull kFull vFull causalMask qStartI kvStartI headDimI scale
+  case acc of
+    Nothing => buildHeads {seq} {headDim} {maxPos} tables qFull kFull vFull causalMask headDimI scale k (S qIdx) kvRatio (Just ctx)
+    Just prev =>
+      let joined = primConcat2dAxis1 {d} prev ctx
+      in buildHeads {seq} {headDim} {maxPos} tables qFull kFull vFull causalMask headDimI scale k (S qIdx) kvRatio (Just joined)
+
+
+||| Full multi-head causal self-attention with GQA + RoPE.
+applyAttention : {0 d : Device} -> UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt =>
+                 {seq, hidden, numHeads, numKvHeads, headDim, maxPos : Nat} ->
+                 {auto qPrf  : hidden = numHeads * headDim} ->
+                 {auto ratio : numHeads = numKvHeads * (div numHeads numKvHeads)} ->
+                 LlamaAttentionState hidden (numHeads * headDim) (numKvHeads * headDim) d dt g ->
+                 RoPETables maxPos headDim d dt g ->
+                 Tensor [seq, hidden] d dt g ->
+                 IO (Tensor [seq, hidden] d dt g)
+applyAttention {seq} {hidden} {numHeads} {numKvHeads} {headDim} {maxPos} attn tables input = do
+  q <- applyLinear2d attn.qProj input
+  k <- applyLinear2d attn.kProj input
+  v <- applyLinear2d attn.vProj input
+  -- Build the strict-upper-triangle causal mask sized to seqxseq.
+  let sI = cast {to=Int} seq
+      hdI = cast {to=Int} headDim
+      scale = 1.0 / sqrt (cast {to=Double} headDim)
+      kvRatio = div numHeads numKvHeads
+      maskBuf = prim__allocDoubles (sI * sI)
+      maskBuf' = writeCausalMask maskBuf 0 1 sI
+      mask = dtCreateState2d {d} {t=dt} sI sI maskBuf' (deviceStreamTag {d})
+  -- Loop over query heads (the kv-head idx = qIdx / kvRatio).
+  ctxPtr <- buildHeads {seq} {headDim} {maxPos} tables
+              q.tensorPtr k.tensorPtr v.tensorPtr mask
+              hdI scale numHeads 0 kvRatio Nothing
+  ctxT <- ioRerun (\_ => MkTensor ctxPtr Nothing)
+  applyLinear2d attn.oProj ctxT
+
+
+||| SwiGLU MLP on `[seq, hidden]`. Composes three bias-free linears
+||| and tsilu element-wise.
+applyMlp : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d =>
+           LlamaMlpState hidden intermediate d dt g ->
+           Tensor [seqLen, hidden] d dt g ->
+           IO (Tensor [seqLen, hidden] d dt g)
+applyMlp mlp x = do
+  g <- applyLinear2d mlp.gateProj x       -- [seq, intermediate]
+  u <- applyLinear2d mlp.upProj   x       -- [seq, intermediate]
+  sg <- tsilu g                           -- [seq, intermediate]
+  mid <- tmul sg u                        -- [seq, intermediate]
+  applyLinear2d mlp.downProj mid
+
+
+||| One Llama decoder block: pre-norm + attn + residual; pre-norm +
+||| MLP + residual.
+applyBlock : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d
+          => RuntimeDType dt => Linked d => Compatible d dt
+          => {seq, hidden, numHeads, numKvHeads, headDim, intermediate, maxPos : Nat}
+          -> {auto qPrf  : hidden = numHeads * headDim}
+          -> {auto ratio : numHeads = numKvHeads * (div numHeads numKvHeads)}
+          -> (eps : Double)
+          -> LlamaBlockState hidden (numHeads * headDim) (numKvHeads * headDim) intermediate d dt g
+          -> RoPETables maxPos headDim d dt g
+          -> Tensor [seq, hidden] d dt g
+          -> IO (Tensor [seq, hidden] d dt g)
+applyBlock {seq} {hidden} {numHeads} {numKvHeads} {headDim} eps blk tables x = do
+  xLn1   <- applyRmsNorm2d eps blk.inputNorm x
+  aOut   <- applyAttention {seq} {hidden} {numHeads} {numKvHeads} {headDim} blk.attn tables xLn1
+  xMid   <- tadd x aOut
+  xLn2   <- applyRmsNorm2d eps blk.postAttnNorm xMid
+  mOut   <- applyMlp blk.mlp xLn2
+  tadd xMid mOut
+
+
+applyBlocks : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d
+           => RuntimeDType dt => Linked d => Compatible d dt
+           => {seq, hidden, numHeads, numKvHeads, headDim, intermediate, maxPos, n : Nat}
+           -> {auto qPrf  : hidden = numHeads * headDim}
+           -> {auto ratio : numHeads = numKvHeads * (div numHeads numKvHeads)}
+           -> (eps : Double)
+           -> Vect n (LlamaBlockState hidden (numHeads * headDim) (numKvHeads * headDim) intermediate d dt g)
+           -> RoPETables maxPos headDim d dt g
+           -> Tensor [seq, hidden] d dt g
+           -> IO (Tensor [seq, hidden] d dt g)
+applyBlocks _   []        _      x = pure x
+applyBlocks eps (b :: bs) tables x = do
+  x' <- applyBlock {numHeads} {numKvHeads} {headDim} eps b tables x
+  applyBlocks {numHeads} {numKvHeads} {headDim} eps bs tables x'
+
+
+||| Forward pass: token IDs → final hidden state `[seq, hidden]`
+||| post-`model.norm`. The LM head (tied to embed_tokens) is applied
+||| separately via `hfLlamaForwardLm`.
+public export
+hfLlamaForward : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d
+              => RuntimeDType dt => Linked d => Compatible d dt
+              => {seq, vocab, hidden, numLayers, numHeads, numKvHeads, headDim, intermediate, maxPos : Nat}
+              -> {auto qPrf  : hidden = numHeads * headDim}
+              -> {auto ratio : numHeads = numKvHeads * (div numHeads numKvHeads)}
+              -> (eps : Double)
+              -> LlamaModelState vocab hidden numLayers (numHeads * headDim) (numKvHeads * headDim) intermediate d dt g
+              -> RoPETables maxPos headDim d dt g
+              -> Tensor [seq] d dt g
+              -> IO (Tensor [seq, hidden] d dt g)
+hfLlamaForward {numHeads} {numKvHeads} {headDim} eps model tables tokens = do
+  emb   <- applyEmbedLookup model.embedTokens tokens
+  hMid  <- applyBlocks {numHeads} {numKvHeads} {headDim} eps model.blocks tables emb
+  applyRmsNorm2d eps model.finalNorm hMid
+
+
+||| LM head: tied to `embed_tokens.weight`. Output `[seq, vocab]`
+||| logits per position. Reuses the embedding tensor as the LM
+||| projection weight (same pattern as HfBert's applyMlmHead).
+public export
+hfLlamaForwardLm : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d
+                => RuntimeDType dt => Linked d => Compatible d dt
+                => {seq, vocab, hidden, numLayers, numHeads, numKvHeads, headDim, intermediate, maxPos : Nat}
+                -> {auto qPrf  : hidden = numHeads * headDim}
+                -> {auto ratio : numHeads = numKvHeads * (div numHeads numKvHeads)}
+                -> (eps : Double)
+                -> LlamaModelState vocab hidden numLayers (numHeads * headDim) (numKvHeads * headDim) intermediate d dt g
+                -> RoPETables maxPos headDim d dt g
+                -> Tensor [seq] d dt g
+                -> IO (Tensor [seq, vocab] d dt g)
+hfLlamaForwardLm {numHeads} {numKvHeads} {headDim} eps model tables tokens = do
+  hFinal <- hfLlamaForward {numHeads} {numKvHeads} {headDim} eps model tables tokens
+  -- LM head via the tied embed_tokens.weight (shape [vocab, hidden]).
+  -- tlinear2d expects weight [out, in] = [vocab, hidden] which matches.
+  let vI = cast {to=Int} vocab
+      zBuf = prim__allocDoubles vI  -- calloc-backed → already zeros
+      zeroBias : Tensor [vocab] d dt g
+      zeroBias = MkTensor (dtCreateState1d {d} {t=dt} vI zBuf (deviceStreamTag {d})) Nothing
+  tlinear2d model.embedTokens.weight hFinal zeroBias
