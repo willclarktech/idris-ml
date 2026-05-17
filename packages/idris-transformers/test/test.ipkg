@@ -8,6 +8,7 @@ depends = contrib
 
 modules = Harness
         , Main
+        , Test.HfBert
 
 main = Main
 executable = idris-transformers-test
