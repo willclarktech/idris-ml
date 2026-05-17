@@ -27,10 +27,9 @@ import torch
 from safetensors.torch import load_file
 
 SCRIPT = Path(__file__).resolve().parent / "save_oracle_gpt2.py"
-ORACLE = Path(__file__).resolve().parent.parent / "models" / "tiny-gpt2-oracle.safetensors"
-# `hf-internal-testing/tiny-random-gpt2` — random-init GPT-2 fixture
-# that ships safetensors. hidden=32.
-HIDDEN = 32
+ORACLE = Path(__file__).resolve().parent.parent / "models" / "distilgpt2-oracle.safetensors"
+# distilgpt2: real GPT-2 (6 layers, hidden 768), ~350 MB.
+HIDDEN = 768
 
 
 @pytest.fixture(scope="module")
@@ -52,7 +51,7 @@ def oracle_path() -> Path:
 
 
 def test_oracle_shape(oracle_path: Path) -> None:
-    """Final hidden state of last position — [hidden=32]."""
+    """Final hidden state of last position — [hidden=768]."""
     tensors = load_file(str(oracle_path))
     assert "output" in tensors, f"oracle missing 'output' key; keys: {list(tensors)}"
     out = tensors["output"]

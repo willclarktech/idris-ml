@@ -60,23 +60,22 @@ record Gpt2Config where
   maxPosition  : Nat
 
 
-||| `hf-internal-testing/tiny-random-gpt2` — the proof-of-concept target
-||| anchored by `scripts/save_oracle_gpt2.py`. Random-init test fixture
-||| with the standard GPT-2 architecture (vocab=1000, hidden=32,
-||| n_layer=5, n_head=4, head_dim=8, intermediate=128 [= 4 * hidden,
-||| the GPT-2 default; the `intermediate_size: 37` in the config.json
-||| is a stray BERT field GPT-2 ignores when `n_inner` is null],
-||| max_pos=512). Ships safetensors on disk.
+||| `distilgpt2` — the proof-of-concept target anchored by
+||| `scripts/save_oracle_gpt2.py`. Pretrained GPT-2 distilled by HF;
+||| 6 layers (half of gpt2-small's 12), hidden=768, n_head=12,
+||| head_dim=64, intermediate=3072, max_pos=1024, vocab=50257. Same
+||| HF-on-disk naming as gpt2 / gpt2-medium / gpt2-large / gpt2-xl, so
+||| this module covers the whole GPT-2 family by swapping dims.
 public export
-tinyGpt2Config : Gpt2Config
-tinyGpt2Config = MkGpt2Config
-  { vocabSize    = 1000
-  , hidden       = 32
-  , numLayers    = 5
-  , numHeads     = 4
-  , headDim      = 8
-  , intermediate = 128
-  , maxPosition  = 512
+distilGpt2Config : Gpt2Config
+distilGpt2Config = MkGpt2Config
+  { vocabSize    = 50257
+  , hidden       = 768
+  , numLayers    = 6
+  , numHeads     = 12
+  , headDim      = 64
+  , intermediate = 3072
+  , maxPosition  = 1024
   }
 
 

@@ -968,38 +968,38 @@ test-hf-bert-roundtrip: install
 		../idris-transformers/models/bert-tiny-oracle.safetensors \
 		1e-3
 
-# Build + run Example/HfGpt2Inference. Fetches hf-internal-testing/tiny-random-gpt2 if
+# Build + run Example/HfGpt2Inference. Fetches distilgpt2 if
 # not already cached (~50 KB; HF's CI fixture).
 example-hf-gpt2-inference: install
 	bash packages/idris-transformers/scripts/hf-download.sh \
-		hf-internal-testing/tiny-random-gpt2
+		distilgpt2
 	idris2 $(IDRIS_FLAGS) -o hf-gpt2-inference $(EXAMPLE_SRC)/Example/HfGpt2Inference.idr
 	cp $(LIB) build/exec/hf-gpt2-inference_app/
 	./build/exec/hf-gpt2-inference
 
 # Cross-language correctness gate for HfGpt2: regenerate the Python
-# oracle from hf-internal-testing/tiny-random-gpt2 + run the Idris example + compare
+# oracle from distilgpt2 + run the Idris example + compare
 # stdout against the oracle within F32 tolerance. The Idris example
 # prints the final-position hidden state (the `last_hidden_state[-1]`
 # row) which the comparator diffs elementwise.
 #
-# hf-internal-testing/tiny-random-gpt2 is intentionally degenerate (hidden=2); the
+# distilgpt2 is intentionally degenerate (hidden=2); the
 # point is to validate the architectural plumbing (fused QKV, Conv1D
 # transpose, causal mask, tied LM head, primNarrow on axis=1 — the
 # multi-axis fix from bd61bef). Numerical drift across language
 # boundaries at hidden=2 is small.
 test-hf-gpt2-roundtrip: install
 	bash packages/idris-transformers/scripts/hf-download.sh \
-		hf-internal-testing/tiny-random-gpt2
+		distilgpt2
 	cd packages/pytorch && uv run pytest \
 		../idris-transformers/scripts/test_save_oracle_gpt2.py -v
 	idris2 $(IDRIS_FLAGS) -o hf-gpt2-inference $(EXAMPLE_SRC)/Example/HfGpt2Inference.idr
 	cp $(LIB) build/exec/hf-gpt2-inference_app/
-	./build/exec/hf-gpt2-inference > build/hf-gpt2-idris-out.txt
+	./build/exec/hf-gpt2-inference --dump-final-hidden > build/hf-gpt2-idris-out.txt
 	cd packages/pytorch && uv run python \
 		../idris-transformers/scripts/compare_inference.py \
 		../../build/hf-gpt2-idris-out.txt \
-		../idris-transformers/models/tiny-gpt2-oracle.safetensors \
+		../idris-transformers/models/distilgpt2-oracle.safetensors \
 		1e-3
 
 example-rnn: install
@@ -1432,7 +1432,7 @@ test-transformers-oracle:
 
 # Same shape as test-transformers-oracle, paired with HfGpt2.idr:
 # generates `models/tiny-gpt2-oracle.safetensors` from
-# `hf-internal-testing/tiny-random-gpt2`'s last-hidden-state for [15496, 995] and
+# `distilgpt2`'s last-hidden-state for [15496, 995] and
 # asserts the fixture is well-formed. The cross-language gate lands
 # as test-hf-gpt2-roundtrip alongside the Idris example.
 test-transformers-oracle-gpt2:
