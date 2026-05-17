@@ -43,10 +43,24 @@ extern "C" void backend_reset_for_eval(void) {
  *       releases the ~146 params (saves the remaining ~13 min).
  * param_clear() resets the registry count; tensor_release_handle on
  * torch is a no-op so calling it on the now-freed pointer is safe
- * (pointer read but not dereferenced). */
+ * (pointer read but not dereferenced).
+ *
+ * **CPU-only**: on MPS/CUDA `delete (at::Tensor*)` forces a per-tensor
+ * Metal/CUDA stream sync (~146 syncs of ~7 s each on a 1.2 B model)
+ * which REGRESSED torch-mps wall 6:42 → 24:07. The async device
+ * release that runs at process exit is fine on GPU lanes. We probe
+ * the first param's device and bail when it's not CPU. */
 extern "C" void backend_release_all_persistent(void) {
-    free_intermediates();
     int n = param_count();
+    if (n > 0) {
+        auto* first = (at::Tensor*)param_tensor(0);
+        if (first && !first->is_cpu()) {
+            /* GPU lane — async device release is cheap; explicit
+             * delete forces sync per tensor and regresses wall. */
+            return;
+        }
+    }
+    free_intermediates();
     for (int i_ = 0; i_ < n; i_++) {
         auto* tensor = (at::Tensor*)param_tensor(i_);
         delete tensor;
