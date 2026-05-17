@@ -17,6 +17,7 @@ module Test.HfBert
 
 import Data.List
 import Data.String
+import Data.Vect
 
 import HfBert
 import Harness
@@ -25,6 +26,7 @@ import Device
 import Device.Core
 import Device.Tape
 import Tensor
+import Array
 
 
 ----------------------------------------------------------------------
@@ -172,6 +174,85 @@ testConstructorRegistersHfNames = do
 
 
 ----------------------------------------------------------------------
+-- Bucket 3 — forward pass shape + finite smoke
+----------------------------------------------------------------------
+
+-- Build a Tensor [n] from a Vect of doubles. Wraps bulkToTensor (which
+-- copies into a fresh C buffer) + tinput1d (which records the handle
+-- as a non-parameter input). The values represent token IDs encoded
+-- as doubles — same convention as Layer.Embedding's input contract.
+mkIdsTensor : {n : Nat} -> Vect n Double -> Tensor [n] TapeDev F64 WithGrad
+mkIdsTensor xs =
+  let raw = bulkToTensor {d=TapeDev} {dt=F64}
+                         (VArray (map SArray xs))
+  in tinput1d {n} raw
+
+-- Read out an [N]-shape Tensor's values via primItem1d, one at a time.
+-- Threads the raw pointer through the where-helper so it doesn't have
+-- to capture the outer Tensor's implicit `n`.
+readOut : {n : Nat} -> AnyPtr -> IO (List Double)
+readOut {n} p = loop (cast {to=Int} n) 0 []
+  where
+    loop : Int -> Int -> List Double -> IO (List Double)
+    loop end i acc =
+      if i >= end
+        then pure (reverse acc)
+        else let v = primItem1d {d=TapeDev} p i
+             in loop end (i + 1) (v :: acc)
+
+-- Finite ≡ neither NaN nor ±Inf. NaN self-inequality + magnitude
+-- check rules both out without depending on a stdlib helper.
+isFinite : Double -> Bool
+isFinite x = x == x && abs x < 1.0e100
+
+testForwardShapeAndFinite : IO Bool
+testForwardShapeAndFinite = do
+  -- Tiny config: hidden=8, layers=1, heads=2, headDim=4, intermediate=16.
+  -- Distinct paramPrefix from bertTinyConfig's "bert" so this test
+  -- doesn't collide with the bucket-2 registry.
+  model <- hfBertModel {d=TapeDev} {dt=F64}
+                       {vocab        = 4}
+                       {hidden       = 8}
+                       {numLayers    = 1}
+                       {numHeads     = 1}
+                       {intermediate = 16}
+                       {maxPos       = 4}
+                       {typeVocab    = 2}
+                       "fwdtest"
+  -- seqLen=3 input. IDs all < their respective vocab caps. Use the
+  -- explicit Vect 3 type annotation so the literal isn't ambiguous
+  -- between List and Vect at the bare-bracket level.
+  let inputIds = mkIdsTensor (the (Vect 3 Double) [1.0, 2.0, 3.0])
+      posIds   = mkIdsTensor (the (Vect 3 Double) [0.0, 1.0, 2.0])
+      typeIds  = mkIdsTensor (the (Vect 3 Double) [0.0, 0.0, 0.0])
+  out <- hfBertForward {d=TapeDev} {dt=F64}
+                       {seqLen       = 3}
+                       {vocab        = 4}
+                       {hidden       = 8}
+                       {numLayers    = 1}
+                       {numHeads     = 1}
+                       {headDim      = 8}
+                       {intermediate = 16}
+                       {maxPos       = 4}
+                       {typeVocab    = 2}
+                       model inputIds posIds typeIds
+  -- primItem1d takes an AnyPtr directly; no need to coerce the
+  -- Tensor's gradmode.
+  vals <- readOut {n=8} out.tensorPtr
+  if length vals /= 8
+    then do
+      putStrLn ("  FAIL: expected 8 output values, got " ++ show (length vals))
+      pure False
+    else if not (all isFinite vals)
+      then do
+        putStrLn "  FAIL: forward output contains non-finite values"
+        putStrLn ("    values: " ++ show vals)
+        pure False
+      else check ("forward produced 8 finite values "
+                    ++ "(sample: " ++ show (take 3 vals) ++ "...)") True
+
+
+----------------------------------------------------------------------
 -- Test suite
 ----------------------------------------------------------------------
 
@@ -185,5 +266,8 @@ suite =
      ])
   , ("HfBert constructor registers HF-native names",
      [ testConstructorRegistersHfNames
+     ])
+  , ("HfBert forward pass — shape + finite",
+     [ testForwardShapeAndFinite
      ])
   ]

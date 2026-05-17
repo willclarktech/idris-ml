@@ -421,3 +421,225 @@ hfBertModel pfx = do
   layers <- makeLayers     {hidden} {intermediate} numLayers pfx
   pool   <- makePooler     {hidden} pfx
   pure (MkBertModel emb layers pool)
+
+
+----------------------------------------------------------------------
+-- Forward pass
+----------------------------------------------------------------------
+--
+-- Math mirrors HF's BertModel forward (no decoder, no LM head):
+--
+--   x = embeddings(input_ids, position_ids, token_type_ids)  -- [seq, hidden]
+--   for layer in encoder.layer:
+--     attn_out = self_attention(x)
+--     x1 = LayerNorm(x + attn.output.dense(attn_out))         -- post-attn
+--     ffn = output.dense(GELU(intermediate.dense(x1)))
+--     x  = LayerNorm(x1 + ffn)                                -- post-FFN
+--   pooled = tanh(pooler.dense(x[CLS]))                       -- [hidden]
+--
+-- Inner attention uses primitives directly (primMm / primTranspose2d /
+-- primSoftmax2d / primNarrow / primConcat2dAxis1) for the per-head
+-- loop — same pattern as Layer/Transformer.idr's runHeadAttn. The
+-- typed surface re-emerges at the BertLayer boundary.
+
+
+-- ε for LayerNorm. HF BERT defaults to 1e-12.
+bertLnEps : Double
+bertLnEps = 1.0e-12
+
+-- Embedding lookup returning [seqLen, dim]. Wraps primEmbedding +
+-- primReshape2d in the same way Layer/Transformer.idr does its token
+-- lookup.
+applyEmbedLookup2d : {0 d : Device} -> UserDeviceTraining d
+                  => {seqLen, vocab, dim : Nat}
+                  -> BertEmbedding vocab dim d dt g
+                  -> Tensor [seqLen] d dt g
+                  -> IO (Tensor [seqLen, dim] d dt g)
+applyEmbedLookup2d {seqLen} {dim} (MkBertEmbedding w) tokens = ioRerun (\_ =>
+  let sI = cast {to=Int} seqLen
+      dI = cast {to=Int} dim
+      flat = primEmbedding {d} w.tensorPtr tokens.tensorPtr sI dI
+      twoD = primReshape2d {d} flat sI dI
+  in MkTensor twoD Nothing)
+
+-- 2D LayerNorm: applies γ and β along the last dim of a [seq, hidden]
+-- tensor. Wraps primLayerNorm2d.
+applyLN2d : {0 d : Device} -> UserDeviceTraining d
+         => BertLN hidden d dt g
+         -> Tensor [seqLen, hidden] d dt g
+         -> IO (Tensor [seqLen, hidden] d dt g)
+applyLN2d (MkBertLN g b) input = ioRerun (\_ =>
+  MkTensor (primLayerNorm2d {d} input.tensorPtr g.tensorPtr b.tensorPtr bertLnEps)
+           Nothing)
+
+-- Apply a BertLinearWb to a batched input [seq, i] -> [seq, o]. Uses
+-- the typed tlinear2d which handles bias broadcast.
+applyBertLinear2d : {0 d : Device} -> UserDeviceTraining d
+                 => BertLinearWb i o d dt g
+                 -> Tensor [seqLen, i] d dt g
+                 -> IO (Tensor [seqLen, o] d dt g)
+applyBertLinear2d (MkBertLinear w b) x = tlinear2d w x b
+
+
+-- Per-head attention math. Returns AnyPtr to a [seqLen, headDim]
+-- block; the caller's job is to either concat it with siblings or
+-- (for the single-head case) wrap directly into a Tensor.
+oneHeadCtx : {0 d : Device} -> UserDeviceTraining d
+          => (qFull, kFull, vFull : AnyPtr)
+          -> (startI, headDimI : Int) -> (scale : Double)
+          -> AnyPtr
+oneHeadCtx qFull kFull vFull startI headDimI scale =
+  let qh     = primNarrow {d} qFull 1 startI headDimI
+      kh     = primNarrow {d} kFull 1 startI headDimI
+      vh     = primNarrow {d} vFull 1 startI headDimI
+      kT     = primTranspose2d {d} kh
+      scores = primMulScalar {d} (primMm {d} qh kT) scale
+      attn   = primSoftmax2d {d} scores
+  in primMm {d} attn vh
+
+-- Build the multi-head context by concatenating per-head blocks
+-- along axis=1. Head 0 is the starting accumulator; heads 1..N-1 are
+-- folded in. `remaining` counts heads still to process; `startI`
+-- is the column offset for the *next* head.
+buildHeads : {0 d : Device} -> UserDeviceTraining d
+          => (qFull, kFull, vFull : AnyPtr)
+          -> (headDimI : Int) -> (scale : Double)
+          -> (remaining : Nat) -> (startI : Int) -> (acc : AnyPtr)
+          -> AnyPtr
+buildHeads _ _ _ _ _ Z _ acc = acc
+buildHeads qFull kFull vFull headDimI scale (S k) startI acc =
+  let nextCtx = oneHeadCtx {d} qFull kFull vFull startI headDimI scale
+      newAcc  = primConcat2dAxis1 {d} acc nextCtx
+  in buildHeads {d} qFull kFull vFull headDimI scale k (startI + headDimI) newAcc
+
+-- Full multi-head self-attention. Computes Q/K/V via the three fused
+-- linears, then splits + recombines per-head. Output is the
+-- attention.output.dense applied to the concatenated context — i.e.
+-- HF's BertSelfAttention + BertSelfOutput's dense (residual + LN
+-- come in the caller).
+--
+-- numHeads is matched at the type level so the single-head case
+-- (S Z) can avoid `primNarrow` entirely — tape's `tensor_narrow`
+-- currently hardcodes axis=0 and returns a 1D view (rank=1
+-- ignoring the requested axis), which corrupts the matmul shapes
+-- when called with axis=1. Multi-head (S (S _)) goes through the
+-- narrow path and is currently functional only on backends with
+-- proper multi-dim narrow (torch, mlx). See follow-up row tracked
+-- against `packages/backends/backend_tape/linear/shape/narrow.c`.
+applySelfAttn : {0 d : Device} -> UserDeviceTraining d
+             => {seqLen, hidden, numHeads, headDim : Nat}
+             -> {auto prf : hidden = numHeads * headDim}
+             -> BertSelfAttentionState hidden d dt g
+             -> Tensor [seqLen, hidden] d dt g
+             -> IO (Tensor [seqLen, hidden] d dt g)
+applySelfAttn {numHeads = Z} _ input = pure input
+applySelfAttn {numHeads = S Z} {headDim} sa input = do
+  -- Single-head: q/k/v are already the full attention tensors;
+  -- no narrow needed. Drop to primitives only for the matmul +
+  -- softmax chain.
+  q  <- applyBertLinear2d sa.query input  -- [seq, hidden]
+  k' <- applyBertLinear2d sa.key   input
+  v  <- applyBertLinear2d sa.value input
+  ioRerun (\_ =>
+    let scale  = 1.0 / sqrt (cast {to=Double} headDim)
+        kT     = primTranspose2d {d} k'.tensorPtr
+        scores = primMulScalar {d} (primMm {d} q.tensorPtr kT) scale
+        attn   = primSoftmax2d {d} scores
+        ctx    = primMm {d} attn v.tensorPtr
+    in MkTensor ctx Nothing)
+applySelfAttn {numHeads = S (S k)} {headDim} sa input = do
+  -- Multi-head: per-head narrow → matmul → softmax → matmul, then
+  -- concat. Crashes on tape today (see docstring above); torch/mlx
+  -- expected to work.
+  q  <- applyBertLinear2d sa.query input
+  k' <- applyBertLinear2d sa.key   input
+  v  <- applyBertLinear2d sa.value input
+  let headDimI = cast {to=Int} headDim
+      scale    = 1.0 / sqrt (cast {to=Double} headDim)
+      qP       = q.tensorPtr
+      kP       = k'.tensorPtr
+      vP       = v.tensorPtr
+      head0    = oneHeadCtx {d} qP kP vP 0 headDimI scale
+      ctxPtr   = buildHeads {d} qP kP vP headDimI scale (S k) headDimI head0
+  pure (MkTensor ctxPtr Nothing)
+
+-- One BERT layer: self-attention + residual + LayerNorm + FFN
+-- (intermediate + GELU + output dense) + residual + LayerNorm.
+applyLayer : {0 d : Device} -> UserDeviceCore d => UserDeviceTraining d
+          => {seqLen, hidden, intermediate, numHeads, headDim : Nat}
+          -> {auto prf : hidden = numHeads * headDim}
+          -> BertLayerState hidden intermediate d dt g
+          -> Tensor [seqLen, hidden] d dt g
+          -> IO (Tensor [seqLen, hidden] d dt g)
+applyLayer (MkBertLayer sa so im out) input = do
+  attnCtx  <- applySelfAttn {numHeads} {headDim} sa input
+  attnDen  <- applyBertLinear2d so.dense attnCtx
+  postAttn <- tadd input attnDen
+  postLN1  <- applyLN2d so.layerNorm postAttn
+  ffnHid   <- applyBertLinear2d im.dense postLN1
+  ffnAct   <- tgelu ffnHid
+  ffnOut   <- applyBertLinear2d out.dense ffnAct
+  postFfn  <- tadd postLN1 ffnOut
+  applyLN2d out.layerNorm postFfn
+
+-- Fold over the encoder layers.
+applyEncoder : {0 d : Device} -> UserDeviceCore d => UserDeviceTraining d
+            => {seqLen, hidden, intermediate, numHeads, headDim, numLayers : Nat}
+            -> {auto prf : hidden = numHeads * headDim}
+            -> Vect numLayers (BertLayerState hidden intermediate d dt g)
+            -> Tensor [seqLen, hidden] d dt g
+            -> IO (Tensor [seqLen, hidden] d dt g)
+applyEncoder []        h = pure h
+applyEncoder (l :: ls) h = do
+  h' <- applyLayer {numHeads} {headDim} l h
+  applyEncoder {numHeads} {headDim} ls h'
+
+-- Pooler: take the [CLS] (row 0), apply dense + tanh.
+applyPooler : {0 d : Device} -> UserDeviceCore d => UserDeviceTraining d
+           => {seqLen, hidden : Nat}
+           -> BertPoolerState hidden d dt g
+           -> Tensor [seqLen, hidden] d dt g
+           -> IO (Tensor [hidden] d dt g)
+applyPooler (MkBertPooler dn) input = do
+  -- Extract row 0 — the [CLS] token's contextualised hidden state.
+  cls    <- trowSelect input 0  -- [hidden]
+  dense  <- tlinear dn.weight cls dn.bias
+  ttanh dense
+
+-- Embeddings forward: sum word + position + token-type, LayerNorm.
+applyEmbeddings : {0 d : Device} -> UserDeviceCore d => UserDeviceTraining d
+               => {seqLen, vocab, hidden, maxPos, typeVocab : Nat}
+               -> BertEmbeddingsState vocab hidden maxPos typeVocab d dt g
+               -> (inputIds     : Tensor [seqLen] d dt g)
+               -> (positionIds  : Tensor [seqLen] d dt g)
+               -> (tokenTypeIds : Tensor [seqLen] d dt g)
+               -> IO (Tensor [seqLen, hidden] d dt g)
+applyEmbeddings (MkBertEmbeddings we pe te ln) inputIds positionIds tokenTypeIds = do
+  wordE   <- applyEmbedLookup2d we inputIds
+  posE    <- applyEmbedLookup2d pe positionIds
+  typeE   <- applyEmbedLookup2d te tokenTypeIds
+  sum1    <- tadd wordE posE
+  sum2    <- tadd sum1 typeE
+  applyLN2d ln sum2
+
+||| Full BERT forward: input IDs → pooled [CLS] output. The caller
+||| supplies the three ID sequences explicitly (no tokenizer or
+||| arange in v1; see Row 7's LLM-class example for tokenizer
+||| integration).
+|||
+||| numHeads / headDim are implicit Nats with the
+||| `hidden = numHeads * headDim` proof required at the call site.
+export
+hfBertForward : {0 d : Device} -> UserDeviceCore d => UserDeviceTraining d
+             => {seqLen, vocab, hidden, numLayers, numHeads, headDim,
+                 intermediate, maxPos, typeVocab : Nat}
+             -> {auto prf : hidden = numHeads * headDim}
+             -> BertModelState vocab hidden numLayers intermediate maxPos typeVocab d dt g
+             -> (inputIds     : Tensor [seqLen] d dt g)
+             -> (positionIds  : Tensor [seqLen] d dt g)
+             -> (tokenTypeIds : Tensor [seqLen] d dt g)
+             -> IO (Tensor [hidden] d dt g)
+hfBertForward (MkBertModel emb layers pool) inputIds positionIds tokenTypeIds = do
+  hEmb <- applyEmbeddings emb inputIds positionIds tokenTypeIds
+  hEnc <- applyEncoder {numHeads} {headDim} layers hEmb
+  applyPooler pool hEnc
