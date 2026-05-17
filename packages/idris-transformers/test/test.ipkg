@@ -1,0 +1,13 @@
+package idris-transformers-test
+
+sourcedir = "src"
+
+depends = contrib
+        , idris-ml
+        , idris-transformers
+
+modules = Harness
+        , Main
+
+main = Main
+executable = idris-transformers-test

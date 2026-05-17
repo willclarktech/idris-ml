@@ -98,7 +98,7 @@ IDRIS_FLAGS := --source-dir $(EXAMPLE_SRC) -p contrib -p idris-ml -p idris-gym
 # builds then reuse stale build/ttc/Example/*.ttc with old inlined code baked
 # in. Wiping build/ttc when any library source is newer than this stamp
 # forces a clean rebuild. See docs/develop/gotchas.md.
-LIBRARY_SRCS := $(shell find packages/idris-ml/src packages/idris-gym/src -name '*.idr' 2>/dev/null) \
+LIBRARY_SRCS := $(shell find packages/idris-ml/src packages/idris-gym/src packages/idris-transformers/src -name '*.idr' 2>/dev/null) \
                 packages/idris-ml-examples/src/Generate.idr
 
 build/.library-cache-stamp: $(LIBRARY_SRCS)
@@ -784,16 +784,21 @@ install-core: backend $(HWCONFIG_IDR) $(HWDEVICES_IDR)
 install-gym:
 	@cd packages/idris-gym && IDRIS2_PREFIX=$(IDRIS2_LOCAL) idris2 --install idris-gym.ipkg >/dev/null
 
+# Install idris-transformers (HF-aligned model library) to local prefix.
+# Depends on install-core because every Hf* module imports from idris-ml.
+install-transformers: install-core
+	@cd packages/idris-transformers && IDRIS2_PREFIX=$(IDRIS2_LOCAL) idris2 --install idris-transformers.ipkg >/dev/null
+
 # Install notebook prelude to local prefix
 install-notebook: install-core
 	@cd packages/idris-ml-notebook && IDRIS2_PREFIX=$(IDRIS2_LOCAL) idris2 --install idris-ml-notebook.ipkg >/dev/null
 
 # Install idris-ml-examples as a library (needed by its test harness)
-install-examples: install-core install-gym $(BUILDCONFIG_IDR)
+install-examples: install-core install-gym install-transformers $(BUILDCONFIG_IDR)
 	@cd packages/idris-ml-examples && IDRIS2_PREFIX=$(IDRIS2_LOCAL) idris2 --install idris-ml-examples.ipkg >/dev/null
 
 # Install all Idris packages locally
-install: install-core install-gym install-notebook install-examples build/.library-cache-stamp
+install: install-core install-gym install-transformers install-notebook install-examples build/.library-cache-stamp
 
 # Idris build (type-check core library)
 check: backend $(HWCONFIG_IDR) $(HWDEVICES_IDR)
@@ -802,6 +807,10 @@ check: backend $(HWCONFIG_IDR) $(HWDEVICES_IDR)
 # Type-check gym package
 check-gym:
 	cd packages/idris-gym && idris2 --build idris-gym.ipkg
+
+# Type-check idris-transformers package (depends on idris-ml being installed).
+check-transformers: install-core
+	cd packages/idris-transformers && IDRIS2_PREFIX=$(IDRIS2_LOCAL) idris2 --build idris-transformers.ipkg
 
 # Verify Idris example defaults match the paired torch_ref/scripts/*.py defaults.
 # Catches the "I changed Idris's default but forgot the matching ref" drift class.
@@ -895,6 +904,13 @@ test-multi: $(TESTCONFIG_IDR)
 test-gym: install-gym
 	cd packages/idris-gym/test && idris2 --build test.ipkg
 	$(STDBUF) ./packages/idris-gym/test/build/exec/idris-gym-test
+
+# Idris tests for idris-transformers package. Pure Idris until HfBert
+# lands — the test harness exists to verify the package wiring (ipkg,
+# install path, executable build) before any HF model code arrives.
+test-transformers: install-transformers
+	cd packages/idris-transformers/test && IDRIS2_PREFIX=$(IDRIS2_LOCAL) idris2 --build test.ipkg
+	$(STDBUF) ./packages/idris-transformers/test/build/exec/idris-transformers-test
 
 # Microbench for idris-gym hot paths (RNG, Blackjack obs, env step+observe).
 # Pure Idris, no backend dependency. Useful for Job 4-style env-side

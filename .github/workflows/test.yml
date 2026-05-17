@@ -183,6 +183,14 @@ jobs:
       - name: Install libraries
         run: make install
 
+      - name: Run idris-transformers unit tests
+        # Pure-Idris test harness for the HF-aligned model package
+        # (packages/idris-transformers/). Type-checks the package + builds
+        # the test executable, then runs it. No backend dependency at this
+        # stage — the package wiring is the gate; HfBert model tests land
+        # alongside HfBert.idr in a later commit.
+        run: make test-transformers
+
       - name: Verify GradMode gate (NoGrad loss rejected at compile)
         # Asserts the type-level gate `nativeTrainStep : ... -> Tensor [] d
         # WithGrad -> Double` still rejects a `NoGrad` loss. If this step

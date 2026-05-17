@@ -1,0 +1,8 @@
+package idris-transformers
+
+sourcedir = "src"
+
+depends = contrib
+        , idris-ml
+
+modules = IdrisTransformers
