@@ -12,6 +12,7 @@ import public Layer.Linear
 import public Layer.Activation
 import public Layer.LayerNorm
 import public Layer.RmsNorm
+import public Layer.RoPE
 import public Layer.SwiGLU
 import public Layer.BatchNorm
 import public Layer.Dropout

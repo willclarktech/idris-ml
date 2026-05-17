@@ -12,6 +12,7 @@ import Test.RL.ReplayBuffer
 import Test.Hpo.LrFinder
 import Test.ManagedHandle
 import Test.RmsNorm
+import Test.RoPE
 import Test.SwiGLU
 -- NOTE: Test.Transfer (UserDeviceTransfer / toDevice smoke) lives in
 -- the source tree but isn't wired into this default `tests` list:
@@ -36,5 +37,6 @@ main = runAll
   , ("Hpo.LrFinder",    Test.Hpo.LrFinder.tests)
   , ("ManagedHandle",   Test.ManagedHandle.tests)
   , ("RmsNorm",         Test.RmsNorm.tests)
+  , ("RoPE",            Test.RoPE.tests)
   , ("SwiGLU",          Test.SwiGLU.tests)
   ]

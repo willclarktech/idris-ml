@@ -1430,6 +1430,14 @@ test-transformers-oracle:
 	cd packages/pytorch && uv run pytest \
 		../idris-transformers/scripts/test_save_oracle.py -v
 
+# Produce the Llama-3 RoPE table oracle (inv_freq + a slice of
+# cos/sin tables). Pinned by Test.RoPE in the idris-ml unit suite;
+# this target lets you regenerate the oracle if the upstream Llama-3
+# rope_scaling formula changes.
+test-rope-oracle:
+	cd packages/pytorch && uv run python \
+		../idris-transformers/scripts/save_rope_oracle.py
+
 # Same shape as test-transformers-oracle, paired with HfGpt2.idr:
 # generates `models/tiny-gpt2-oracle.safetensors` from
 # `distilgpt2`'s last-hidden-state for [15496, 995] and
