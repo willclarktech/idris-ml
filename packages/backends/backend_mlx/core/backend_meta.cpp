@@ -20,8 +20,24 @@
 
 extern "C" int param_count(void);
 extern "C" void* param_tensor(int i);
+extern "C" void param_clear(void);
 
 extern "C" const char* backend_name(void) { return "mlx"; }
+
+/* See backend.h: explicit pre-exit cleanup. mlx-cpu shows a smaller
+ * post-main tail than torch-cpu (mlx 14:30, torch 20:05 on HfLlama
+ * 1.2B). mlx's per-tensor delete sits behind the static-scoped
+ * `mlx_sweep_generation` (`autograd.cpp`), unreachable from this TU;
+ * the simplest available hooks are `param_clear` (decrements
+ * refcount via tensor_release_handle → tensor_release_internal,
+ * dropping params to 0) plus `mx::clear_cache` to drop cached
+ * MTLBuffer / CPU allocator pool entries. Best-effort only — if
+ * mlx-cpu's tail proves stubborn, expose `mlx_sweep_generation`
+ * publicly + walk all_tensors here. */
+extern "C" void backend_release_all_persistent(void) {
+    param_clear();
+    try { mx::clear_cache(); } catch (...) { /* best-effort at shutdown */ }
+}
 
 extern "C" void backend_reset_for_eval(void) {
     tape_reset();

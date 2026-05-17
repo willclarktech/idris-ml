@@ -477,6 +477,8 @@ prim__profileReportTorch : PrimIO ()
 prim__epochBeginTorch : PrimIO ()
 %foreign "C:tensor_epoch_end_torch,libidrisml"
 prim__epochEndTorch : PrimIO ()
+%foreign "C:backend_release_all_persistent_torch,libidrisml"
+prim__releaseAllPersistentTorch : PrimIO ()
 %foreign "C:tensor_live_count_torch,libidrisml"
 prim__liveCountTorch : Int -> Int
 %foreign "C:tensor_peak_live_count_torch,libidrisml"
@@ -588,6 +590,7 @@ public export
   primProfileReport            = prim__profileReportTorch
   primEpochBegin               = prim__epochBeginTorch
   primEpochEnd                 = prim__epochEndTorch
+  primReleaseAllPersistent     = prim__releaseAllPersistentTorch
   primLiveCount                = prim__liveCountTorch
   primPeakLiveCount            = prim__peakLiveCountTorch
 

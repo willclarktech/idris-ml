@@ -420,6 +420,19 @@ int tensor_live_count(int dummy);
 int tensor_peak_live_count(int dummy);
 void backend_reset_for_eval(void); /* reset tape + arena for clean eval forward */
 
+/* Backend-controlled teardown helper. Inference programs that complete
+ * with thousands of live `at::Tensor*` / `mlx::array` allocations hit a
+ * libtorch CPUAllocator / OS-cleanup tail of up to tens of minutes at
+ * `main` exit (large-model CPU lanes only; GPU lanes async-release).
+ * `backend_release_all_persistent` performs the explicit deletes inside
+ * `main` where they can be timed, then resets the registry. Cheap on
+ * tape (no per-tensor heap allocations beyond the arena); meaningful on
+ * torch + mlx where it forces `~at::Tensor` / `~mx::array` cascades to
+ * run at a controlled point rather than during process shutdown. Idris-
+ * side callers (the HF inference examples) pair this with a final
+ * `drainManagedHandles` + `forceMajorGc` for guardian-side bookkeeping. */
+void backend_release_all_persistent(void);
+
 /* ---------- Profiling ---------- */
 
 void backend_profile_reset(void);

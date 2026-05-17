@@ -421,6 +421,13 @@ interface UserDeviceConv d => UserDeviceTraining (0 d : Device) where
   ||| `primEpochBegin` (grad-mode intermediates), sparing registry params
   ||| and pre-epoch state. mlx frees; tape/torch are no-ops.
   primEpochEnd            : PrimIO ()
+  ||| Force the backend to release every persistent at::Tensor /
+  ||| mx::array up front (before `main` returns). Inference programs
+  ||| that complete with hundreds of MB of live handles hit a 14-22 min
+  ||| post-main libtorch CPUAllocator destructor cascade on the CPU
+  ||| lanes; calling this brings that work inside the timed region.
+  ||| Cheap on tape (arena reset); meaningful on torch + mlx.
+  primReleaseAllPersistent : PrimIO ()
   ||| Count of live backend tensor handles (mlx: all_tensors; torch:
   ||| intermediates; tape: tape entries). The arg is ignored — it exists
   ||| only to defeat Idris-Chez constant-folding of the FFI call so the

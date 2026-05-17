@@ -16,6 +16,7 @@
 #define backend_profile_report_return backend_profile_report_return_mlx
 #define backend_profile_reset backend_profile_reset_mlx
 #define backend_profile_reset_return backend_profile_reset_return_mlx
+#define backend_release_all_persistent backend_release_all_persistent_mlx
 #define backend_reset_for_eval backend_reset_for_eval_mlx
 #define backend_reset_for_eval_return backend_reset_for_eval_return_mlx
 #define g_active_port g_active_port_mlx

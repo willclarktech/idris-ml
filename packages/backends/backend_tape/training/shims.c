@@ -30,6 +30,17 @@ void backend_reset_for_eval(void) {
     }
 }
 
+/* See backend.h: explicit pre-exit cleanup. Cheap on tape — params +
+ * intermediates all live in the arena which is reset wholesale; no
+ * per-tensor `delete` cascade. param_clear releases handles (no-op on
+ * tape) + resets registry count; tape_reset clears the autograd tape.
+ * Included for ABI parity across backends; tape never showed the post-
+ * main hang torch-cpu does. */
+void backend_release_all_persistent(void) {
+    param_clear();
+    tape_reset();
+}
+
 int tensor_live_count(int dummy)      { (void)dummy; return (int)tape_size; }
 int tensor_peak_live_count(int dummy) { (void)dummy; return (int)g_tape_peak; }
 

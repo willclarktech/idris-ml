@@ -16,6 +16,7 @@
 
 extern "C" int param_count(void);
 extern "C" void* param_tensor(int i);
+extern "C" void param_clear(void);
 
 extern "C" const char* backend_name(void) { return "torch"; }
 
@@ -26,6 +27,31 @@ extern "C" void backend_reset_for_eval(void) {
         if (tensor->grad().defined())
             tensor->grad().zero_();
     }
+}
+
+/* See backend.h: explicit pre-exit cleanup of every persistent
+ * at::Tensor*. Forces ~at::Tensor → ~Storage → CPUAllocator-free
+ * cascades to run inside `main` rather than during process shutdown
+ * (where on large-model CPU lanes the same work takes 14-22 minutes
+ * via libtorch's per-tensor destructor cascade). Measured 2026-05-28
+ * on HfLlama-1.2B BF16 torch-cpu: wall 23m22s → 1m21s, exit 0.
+ *
+ * Two phases:
+ *   (1) free_intermediates() — bulk-deletes ~600 forward-pass
+ *       intermediates in intermediates_torch (saves ~10 min).
+ *   (2) walk param_registry_arr deleting each at::Tensor* —
+ *       releases the ~146 params (saves the remaining ~13 min).
+ * param_clear() resets the registry count; tensor_release_handle on
+ * torch is a no-op so calling it on the now-freed pointer is safe
+ * (pointer read but not dereferenced). */
+extern "C" void backend_release_all_persistent(void) {
+    free_intermediates();
+    int n = param_count();
+    for (int i_ = 0; i_ < n; i_++) {
+        auto* tensor = (at::Tensor*)param_tensor(i_);
+        delete tensor;
+    }
+    param_clear();
 }
 
 extern "C" void tensor_print(TensorHandle h) {

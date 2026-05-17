@@ -446,6 +446,8 @@ prim__profileReportTape : PrimIO ()
 prim__epochBeginTape : PrimIO ()
 %foreign "C:tensor_epoch_end_tape,libidrisml"
 prim__epochEndTape : PrimIO ()
+%foreign "C:backend_release_all_persistent_tape,libidrisml"
+prim__releaseAllPersistentTape : PrimIO ()
 %foreign "C:tensor_live_count_tape,libidrisml"
 prim__liveCountTape : Int -> Int
 %foreign "C:tensor_peak_live_count_tape,libidrisml"
@@ -558,6 +560,7 @@ UserDeviceTraining TapeDev where
   primProfileReport            = prim__profileReportTape
   primEpochBegin               = prim__epochBeginTape
   primEpochEnd                 = prim__epochEndTape
+  primReleaseAllPersistent     = prim__releaseAllPersistentTape
   primLiveCount                = prim__liveCountTape
   primPeakLiveCount            = prim__peakLiveCountTape
 

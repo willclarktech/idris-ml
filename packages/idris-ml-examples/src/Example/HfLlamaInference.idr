@@ -376,4 +376,16 @@ main = do
         putStrLn "[stage] runGenerate — greedy decode loop..."
         runGenerate tok model tables (extractPrompt args) (extractNumTokens args)
         stageStamp "runGenerate done" t0
+        -- Explicit pre-exit cleanup. Forces the backend's per-tensor
+        -- destructor cascade (libtorch CPUAllocator releases on torch-
+        -- cpu, mlx::array refcount drops on mlx-cpu) to run inside main
+        -- where the cost is timed + bounded, rather than during the
+        -- post-main C/OS teardown (where it took 20+ min on torch-cpu
+        -- BF16 Llama). See TODO #394.
+        _ <- drainManagedHandles
+        forceMajorGc
+        _ <- drainManagedHandles
+        stageStamp "drain + GC done" t0
+        releaseAllPersistent {d=ExampleDevice}
+        stageStamp "releaseAllPersistent done" t0
         pure ()

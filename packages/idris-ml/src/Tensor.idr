@@ -895,6 +895,20 @@ export
 backendName : UserDeviceTransfer d => String
 backendName = backendTag {d}
 
+||| Force the backend to release every persistent at::Tensor /
+||| mx::array and reset the param registry. Inference programs that
+||| return ~hundreds of MB of live tensor handles to `main` hit a
+||| post-main libtorch CPUAllocator / OS-cleanup tail of tens of minutes
+||| (torch-cpu, mlx-cpu; GPU lanes release async). Calling this at the
+||| end of `main` shifts the destructor cascade inside the timed region
+||| so the cost is observable + bounded. Cheap on tape (arena reset).
+||| Routes via `UserDeviceTraining d` so the dispatch picks the active
+||| backend's suffixed symbol (the unified-name alias machinery was
+||| retired in 2026-05; see Makefile lines 318-323).
+export
+releaseAllPersistent : {0 d : Device} -> UserDeviceTraining d => IO ()
+releaseAllPersistent = primIO (primReleaseAllPersistent {d})
+
 ||| Reset profiling counters for backend `d`.
 export
 profileReset : UserDeviceTraining d => IO ()
