@@ -68,11 +68,17 @@ def main() -> int:
     tok = AutoTokenizer.from_pretrained(str(local_path))
 
     if args.mode == "vocab":
-        # `vocab_size` reports the model's expected embedding-table size,
-        # not the number of entries in the underlying BPE/WordPiece dict.
-        # For HF-aligned modules we want the embedding-table size — it's
-        # what the model.wte.weight first dim is.
-        print(tok.vocab_size)
+        # `len(tok)` reports BPE/WordPiece base vocab PLUS added special
+        # tokens; this is the actual size of the token-ID space the
+        # tokenizer can produce, and matches the model's embedding-table
+        # first dim. `tok.vocab_size` reports only the base trained vocab
+        # (excludes added specials) and is WRONG for modern HF tokenizers
+        # — Llama 3.x adds 256 special tokens to a base 128000 BPE vocab,
+        # making vocab_size=128000 but `embed_tokens.weight` is 128256×H.
+        # BERT/GPT-2 happen to have len(tok) == vocab_size because their
+        # special tokens were part of the original training vocab, so
+        # the prior `tok.vocab_size` reading worked there by accident.
+        print(len(tok))
         return 0
 
     if args.input_file is None:
