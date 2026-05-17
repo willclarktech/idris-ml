@@ -67,7 +67,7 @@ fillConst buf off n v =
 ||| `<prefix>_gamma` / `<prefix>_beta`.
 export
 layerNormLayer : {n : Nat} -> (paramPrefix : String) ->
-                   IO (LayerNormState n n CPU dt WithGrad)
+                   IO (LayerNormState n n d dt WithGrad)
 layerNormLayer paramPrefix = do
   let nI = cast {to=Int} n
       gBuf = prim__allocDoubles nI
@@ -103,5 +103,5 @@ LayerLike LayerNormState where
 ||| Wrap a LayerNorm in `AnyLayer`.
 export
 layerNormLayerAny : {n : Nat} -> (paramPrefix : String) ->
-                      IO (AnyLayer n n CPU dt WithGrad)
+                      IO (AnyLayer n n d dt WithGrad)
 layerNormLayerAny pid = map (MkAnyLayer LayerNormState) (layerNormLayer pid)

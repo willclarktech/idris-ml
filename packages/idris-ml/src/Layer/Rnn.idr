@@ -90,8 +90,8 @@ zeroBuf buf off n =
 export
 rnnLayer : {i, o : Nat} ->
              (paramPrefix : String) ->
-             (activation : {0 g' : GradMode} -> TVec o CPU dt g' -> IO (TVec o CPU dt g')) ->
-             IO (RnnState i o CPU dt WithGrad)
+             (activation : {0 g' : GradMode} -> TVec o d dt g' -> IO (TVec o d dt g')) ->
+             IO (RnnState i o d dt WithGrad)
 rnnLayer paramPrefix activation = do
   let oI = cast {to=Int} o
       iI = cast {to=Int} i
@@ -113,13 +113,13 @@ rnnLayer paramPrefix activation = do
       rwPtr = prim__paramRegister rwName (prim__createParam2d oI oI rwBuf')
       ibPtr = prim__paramRegister ibName (prim__createParam1d oI ibBuf')
       hbPtr = prim__paramRegister hbName (prim__createParam1d oI hbBuf')
-      iwTV : TMat o i CPU dt WithGrad
+      iwTV : TMat o i d dt WithGrad
       iwTV = MkTensor iwPtr (Just iwName)
-      rwTV : TMat o o CPU dt WithGrad
+      rwTV : TMat o o d dt WithGrad
       rwTV = MkTensor rwPtr (Just rwName)
-      ibTV : TVec o CPU dt WithGrad
+      ibTV : TVec o d dt WithGrad
       ibTV = MkTensor ibPtr (Just ibName)
-      hbTV : TVec o CPU dt WithGrad
+      hbTV : TVec o d dt WithGrad
       hbTV = MkTensor hbPtr (Just hbName)
   pure $ MkRnn iwTV rwTV ibTV hbTV activation Nothing
 
@@ -167,5 +167,6 @@ LayerLike RnnState where
 ||| (matching PyTorch's `nn.RNN` default). Use `rnnLayer` directly
 ||| if you need a different activation.
 export
-rnnLayerAny : {i, o : Nat} -> (paramPrefix : String) -> IO (AnyLayer i o CPU dt WithGrad)
+rnnLayerAny : {0 d : Device} -> UserDeviceCore d =>
+              {i, o : Nat} -> (paramPrefix : String) -> IO (AnyLayer i o d dt WithGrad)
 rnnLayerAny pid = map (MkAnyLayer RnnState) (rnnLayer pid ttanh)

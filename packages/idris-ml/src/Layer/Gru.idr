@@ -73,7 +73,7 @@ zeroBuf buf off n =
 ||| `<prefix>_hw`, `<prefix>_hh_b`.
 export
 gruLayer : {i, o : Nat} -> (paramPrefix : String) ->
-             IO (GruState i o CPU dt WithGrad)
+             IO (GruState i o d dt WithGrad)
 gruLayer paramPrefix = do
   let gI = cast {to=Int} (3 * o)
       iI = cast {to=Int} i
@@ -96,13 +96,13 @@ gruLayer paramPrefix = do
       hwPtr  = prim__paramRegister hwName  (prim__createParam2d gI oI hwBuf')
       ihBPtr = prim__paramRegister ihBName (prim__createParam1d gI ihBBuf')
       hhBPtr = prim__paramRegister hhBName (prim__createParam1d gI hhBBuf')
-      iwTV : TMat (3 * o) i CPU dt WithGrad
+      iwTV : TMat (3 * o) i d dt WithGrad
       iwTV = MkTensor iwPtr (Just iwName)
-      hwTV : TMat (3 * o) o CPU dt WithGrad
+      hwTV : TMat (3 * o) o d dt WithGrad
       hwTV = MkTensor hwPtr (Just hwName)
-      ihBTV : TVec (3 * o) CPU dt WithGrad
+      ihBTV : TVec (3 * o) d dt WithGrad
       ihBTV = MkTensor ihBPtr (Just ihBName)
-      hhBTV : TVec (3 * o) CPU dt WithGrad
+      hhBTV : TVec (3 * o) d dt WithGrad
       hhBTV = MkTensor hhBPtr (Just hhBName)
   pure $ MkGru iwTV ihBTV hwTV hhBTV Nothing
 
@@ -147,5 +147,5 @@ LayerLike GruState where
 
 ||| Wrap a `GruState` in `AnyLayer`.
 export
-gruLayerAny : {i, o : Nat} -> (paramPrefix : String) -> IO (AnyLayer i o CPU dt WithGrad)
+gruLayerAny : {i, o : Nat} -> (paramPrefix : String) -> IO (AnyLayer i o d dt WithGrad)
 gruLayerAny pid = map (MkAnyLayer GruState) (gruLayer pid)

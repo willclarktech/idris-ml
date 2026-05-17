@@ -88,7 +88,7 @@ batchNormLayer : {channels, spatialDim : Nat} ->
                    (paramPrefix : String) ->
                    IO (BatchNormState channels spatialDim
                          (channels * spatialDim)
-                         (channels * spatialDim) CPU dt WithGrad)
+                         (channels * spatialDim) d dt WithGrad)
 batchNormLayer paramPrefix = do
   let cI = cast {to=Int} channels
       gBuf = fillConst (prim__allocDoubles cI) 0 cI 1.0
@@ -101,13 +101,13 @@ batchNormLayer paramPrefix = do
       bPtr = prim__paramRegister bName (prim__createParam1d cI bBuf)
       mPtr = prim__createState1d cI mBuf
       vPtr = prim__createState1d cI vBuf
-      gTV : TVec channels CPU dt WithGrad
+      gTV : TVec channels d dt WithGrad
       gTV = MkTensor gPtr (Just gName)
-      bTV : TVec channels CPU dt WithGrad
+      bTV : TVec channels d dt WithGrad
       bTV = MkTensor bPtr (Just bName)
-      mTV : TVec channels CPU dt WithGrad
+      mTV : TVec channels d dt WithGrad
       mTV = MkTensor mPtr Nothing
-      vTV : TVec channels CPU dt WithGrad
+      vTV : TVec channels d dt WithGrad
       vTV = MkTensor vPtr Nothing
   pure $ MkBatchNorm gTV bTV mTV vTV True 0.1 1.0e-5
 
@@ -149,7 +149,7 @@ public export
 export
 batchNormLayerAny : {channels, spatialDim : Nat} ->
                       (paramPrefix : String) ->
-                      IO (AnyLayer (channels * spatialDim) (channels * spatialDim) CPU dt WithGrad)
+                      IO (AnyLayer (channels * spatialDim) (channels * spatialDim) d dt WithGrad)
 batchNormLayerAny pid =
   map (MkAnyLayer (BatchNormState channels spatialDim))
       (batchNormLayer {channels} {spatialDim} pid)

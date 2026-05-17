@@ -388,7 +388,7 @@ mkKaimingReadOuts (S k) m bound = do
 export
 dncLayer : {r, n, m, h, i, o : Nat} ->
              (paramPrefix : String) ->
-             IO (DncState r n m h i o CPU dt WithGrad)
+             IO (DncState r n m h i o d dt WithGrad)
 dncLayer pfx = do
   lstm <- lstmLayer {i = DncControllerInput r m i} {o = h} (pfx ++ "_lstm")
   -- 10 head FCs: xavier_uniform(gain=1.4) weights, normal(std=0.01) biases
@@ -513,6 +513,6 @@ public export
 export
 dncLayerAny : {r, n, m, h, i, o : Nat} ->
                 (paramPrefix : String) ->
-                IO (AnyLayer i o CPU dt WithGrad)
+                IO (AnyLayer i o d dt WithGrad)
 dncLayerAny pid =
   map (MkAnyLayer (DncState r n m h)) (dncLayer {r} {n} {m} {h} {i} {o} pid)

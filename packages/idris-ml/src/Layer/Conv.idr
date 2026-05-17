@@ -125,7 +125,7 @@ conv2dLayer : {inC, outC, h, w, kH, kW, padH, padW : Nat} ->
                 IO (Conv2DState inC outC h w kH kW padH padW
                                   (inC * (h * w))
                                   (outC * (ConvOutDim h kH padH * ConvOutDim w kW padW))
-                                  CPU dt WithGrad)
+                                  d dt WithGrad)
 conv2dLayer paramPrefix = do
   let kerCount = outC * inC * kH * kW
   kerVals <- traverse (\_ => he normal (inC * kH * kW) outC)
@@ -140,9 +140,9 @@ conv2dLayer paramPrefix = do
         (prim__createParam4d (cast outC) (cast inC) (cast kH) (cast kW) kerBuf')
       biasPtr = prim__paramRegister biasName
         (prim__createParam1d (cast outC) biasBuf')
-      kerTV : Tensor [outC, inC, kH, kW] CPU dt WithGrad
+      kerTV : Tensor [outC, inC, kH, kW] d dt WithGrad
       kerTV = MkTensor kerPtr (Just kerName)
-      biasTV : TVec outC CPU dt WithGrad
+      biasTV : TVec outC d dt WithGrad
       biasTV = MkTensor biasPtr (Just biasName)
   pure $ MkConv2D kerTV biasTV
 
@@ -168,7 +168,7 @@ conv2dLayerAny : {inC, outC, h, w, kH, kW, padH, padW : Nat} ->
                    (paramPrefix : String) ->
                    IO (AnyLayer (inC * (h * w))
                                   (outC * (ConvOutDim h kH padH * ConvOutDim w kW padW))
-                                  CPU dt WithGrad)
+                                  d dt WithGrad)
 conv2dLayerAny pid =
   map (MkAnyLayer (Conv2DState inC outC h w kH kW padH padW))
       (conv2dLayer {inC} {outC} {h} {w} {kH} {kW} {padH} {padW} pid)
@@ -211,7 +211,7 @@ conv1dLayer : {inC, outC, len, kL, pad : Nat} ->
                 (paramPrefix : String) ->
                 IO (Conv1DState inC outC len kL pad
                                   (inC * len)
-                                  (outC * ConvOutDim len kL pad) CPU dt WithGrad)
+                                  (outC * ConvOutDim len kL pad) d dt WithGrad)
 conv1dLayer paramPrefix = do
   let kerCount = outC * inC * kL
   kerVals <- traverse (\_ => he normal (inC * kL) outC)
@@ -226,9 +226,9 @@ conv1dLayer paramPrefix = do
         (prim__createParam3d (cast outC) (cast inC) (cast kL) kerBuf')
       biasPtr = prim__paramRegister biasName
         (prim__createParam1d (cast outC) biasBuf')
-      kerTV : Tensor [outC, inC, kL] CPU dt WithGrad
+      kerTV : Tensor [outC, inC, kL] d dt WithGrad
       kerTV = MkTensor kerPtr (Just kerName)
-      biasTV : TVec outC CPU dt WithGrad
+      biasTV : TVec outC d dt WithGrad
       biasTV = MkTensor biasPtr (Just biasName)
   pure $ MkConv1D kerTV biasTV
 
@@ -251,7 +251,7 @@ public export
 export
 conv1dLayerAny : {inC, outC, len, kL, pad : Nat} ->
                    (paramPrefix : String) ->
-                   IO (AnyLayer (inC * len) (outC * ConvOutDim len kL pad) CPU dt WithGrad)
+                   IO (AnyLayer (inC * len) (outC * ConvOutDim len kL pad) d dt WithGrad)
 conv1dLayerAny pid =
   map (MkAnyLayer (Conv1DState inC outC len kL pad))
       (conv1dLayer {inC} {outC} {len} {kL} {pad} pid)

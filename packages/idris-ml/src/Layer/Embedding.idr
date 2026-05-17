@@ -63,7 +63,7 @@ packDoubles buf off (x :: rest) =
 ||| Weight registers as one C param under `<prefix>_weight`.
 export
 embeddingLayer : {vocab, embedDim : Nat} -> (paramPrefix : String) ->
-                   IO (EmbeddingState vocab embedDim CPU dt WithGrad)
+                   IO (EmbeddingState vocab embedDim d dt WithGrad)
 embeddingLayer paramPrefix = do
   let vI = cast {to=Int} vocab
       eI = cast {to=Int} embedDim
@@ -73,7 +73,7 @@ embeddingLayer paramPrefix = do
       buf' = packDoubles buf 0 vals
       wName = paramPrefix ++ "_weight"
       wPtr = prim__paramRegister wName (prim__createParam2d vI eI buf')
-      wTV : TMat vocab embedDim CPU dt WithGrad
+      wTV : TMat vocab embedDim d dt WithGrad
       wTV = MkTensor wPtr (Just wName)
   pure $ MkEmbedding wTV
 
@@ -118,7 +118,7 @@ public export
 export
 embeddingLayerAny : {vocab, embedDim, seqLen : Nat} ->
                       (paramPrefix : String) ->
-                      IO (AnyLayer seqLen (seqLen * embedDim) CPU dt WithGrad)
+                      IO (AnyLayer seqLen (seqLen * embedDim) d dt WithGrad)
 embeddingLayerAny pid = do
   st <- embeddingLayer {vocab} {embedDim} pid
   pure $ MkAnyLayer (EmbeddingWrap vocab embedDim) (MkEmbeddingWrap st)

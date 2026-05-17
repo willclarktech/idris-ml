@@ -336,7 +336,7 @@ applyTransformerBatch {seqLen} {dModel} {headDim} {vocabSize} {b}
 ----------------------------------------------------------------------
 
 -- Build a Vect of n Linear layers with sequential paramId suffixes.
-mkLinearVec : {i, o : Nat} -> (n : Nat) -> String -> IO (Vect n (LinearState i o CPU dt WithGrad))
+mkLinearVec : {i, o : Nat} -> (n : Nat) -> String -> IO (Vect n (LinearState i o d dt WithGrad))
 mkLinearVec Z _ = pure []
 mkLinearVec (S k) pfx = do
   l <- linearLayer {i} {o} (pfx ++ show k)
@@ -346,7 +346,7 @@ mkLinearVec (S k) pfx = do
 -- Build one transformer block.
 mkBlock : {dModel, numHeads, headDim : Nat} ->
             (paramPrefix : String) ->
-            IO (BlockState dModel numHeads headDim CPU dt WithGrad)
+            IO (BlockState dModel numHeads headDim d dt WithGrad)
 mkBlock pfx = do
   qs <- mkLinearVec {i = dModel} {o = headDim} numHeads (pfx ++ "_q")
   ks <- mkLinearVec {i = dModel} {o = headDim} numHeads (pfx ++ "_k")
@@ -360,7 +360,7 @@ mkBlock pfx = do
 
 mkBlocks : {dModel, numHeads, headDim : Nat} ->
              (k : Nat) -> (paramPrefix : String) ->
-             IO (Vect k (BlockState dModel numHeads headDim CPU dt WithGrad))
+             IO (Vect k (BlockState dModel numHeads headDim d dt WithGrad))
 mkBlocks Z _ = pure []
 mkBlocks (S k) paramPrefix = do
   blk <- mkBlock paramPrefix
@@ -376,7 +376,7 @@ transformerLayer :
   {auto prf : dModel = numHeads * headDim} ->
   (paramPrefix : String) ->
   IO (TransformerState seqLen dModel numHeads headDim numBlocks vocabSize
-                         seqLen (seqLen * vocabSize) CPU dt WithGrad)
+                         seqLen (seqLen * vocabSize) d dt WithGrad)
 transformerLayer {prf} paramPrefix = do
   let n = vocabSize * dModel
   embedVals <- traverse (\_ => xavier uniform vocabSize dModel) (Vect.replicate n ())
@@ -387,7 +387,7 @@ transformerLayer {prf} paramPrefix = do
       embBuf' = packDoubles embBuf 0 embedVals
       embName = paramPrefix ++ "_embed"
       embPtr = prim__paramRegister embName (prim__createParam2d vI dI embBuf')
-      embTV : TMat vocabSize dModel CPU dt WithGrad
+      embTV : TMat vocabSize dModel d dt WithGrad
       embTV = MkTensor embPtr (Just embName)
   blks <- mkBlocks numBlocks (paramPrefix ++ "_b")
   nf <- layerNormLayer {n = dModel} (paramPrefix ++ "_nf")
@@ -398,7 +398,7 @@ transformerLayer {prf} paramPrefix = do
   let sI = cast {to=Int} seqLen
       peBuf = prim__allocDoubles (sI * dI)
       peBuf' = writePE dModel peBuf 0 0 sI dI
-      peTV : TMat seqLen dModel CPU dt WithGrad
+      peTV : TMat seqLen dModel d dt WithGrad
       peTV = MkTensor (prim__createState2d sI dI peBuf') Nothing
       -- Build causal mask once via the same persistent-state path as PE
       -- (routing through `prim__createState2d`). `prim__causalMask` itself
@@ -407,7 +407,7 @@ transformerLayer {prf} paramPrefix = do
       -- caching its result would dangle after the first optimizer step.
       maskBufRaw = prim__allocDoubles (sI * sI)
       maskBuf = writeCausalMask maskBufRaw 0 1 sI
-      maskTV : TMat seqLen seqLen CPU dt WithGrad
+      maskTV : TMat seqLen seqLen d dt WithGrad
       maskTV = MkTensor (prim__createState2d sI sI maskBuf) Nothing
   pure $ MkTransformer {prf} embTV blks nf vp peTV maskTV
 
@@ -515,7 +515,7 @@ transformerLayerAny :
   {seqLen, dModel, numHeads, headDim, numBlocks, vocabSize : Nat} ->
   {auto prf : dModel = numHeads * headDim} ->
   (paramPrefix : String) ->
-  IO (AnyLayer seqLen (seqLen * vocabSize) CPU dt WithGrad)
+  IO (AnyLayer seqLen (seqLen * vocabSize) d dt WithGrad)
 transformerLayerAny {prf} pid =
   map (MkAnyLayer (TransformerState seqLen dModel numHeads headDim numBlocks vocabSize))
       (transformerLayer {prf} pid)

@@ -219,7 +219,7 @@ applyNtm {n} {m} {h} {i} {o}
 export
 ntmLayer : {n, m, h, i, o : Nat} ->
              (paramPrefix : String) ->
-             IO (NtmState n m h i o CPU dt WithGrad)
+             IO (NtmState n m h i o d dt WithGrad)
 ntmLayer pfx = do
   lstm <- lstmLayer {i = m + i} {o = h} (pfx ++ "_lstm")
   rfc  <- mkLinearWith {i = h} {o = ReadParamWidth m}
@@ -241,7 +241,7 @@ ntmLayer pfx = do
   iroVals <- traverse (\_ => randomRIO (-iroBound, iroBound)) (Vect.replicate m ())
   let iroBuf = prim__allocDoubles mI
       iroBuf' = packDoubles iroBuf 0 iroVals
-      initReadOutT : TVec m CPU dt WithGrad
+      initReadOutT : TVec m d dt WithGrad
       initReadOutT = MkTensor (prim__createState1d mI iroBuf') Nothing
   -- Per-sequence runtime state starts as Nothing — applyNtm computes the
   -- actual initial memT and roT from memInitT/initReadOutT on first call.
@@ -317,6 +317,6 @@ public export
 export
 ntmLayerAny : {n, m, h, i, o : Nat} ->
                 (paramPrefix : String) ->
-                IO (AnyLayer i o CPU dt WithGrad)
+                IO (AnyLayer i o d dt WithGrad)
 ntmLayerAny pid =
   map (MkAnyLayer (NtmState n m h)) (ntmLayer {n} {m} {h} {i} {o} pid)

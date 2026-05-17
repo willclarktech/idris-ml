@@ -85,7 +85,7 @@ zeroBuf buf off n =
 ||| `<prefix>_h0`, `<prefix>_c0`.
 export
 lstmLayer : {i, o : Nat} -> (paramPrefix : String) ->
-              IO (LstmState i o CPU dt WithGrad)
+              IO (LstmState i o d dt WithGrad)
 lstmLayer paramPrefix = do
   let gI = cast {to=Int} (4 * o)
       iI = cast {to=Int} i
@@ -116,17 +116,17 @@ lstmLayer paramPrefix = do
       hbPtr = prim__paramRegister hbName (prim__createParam1d gI hbBuf')
       h0Ptr = prim__paramRegister h0Name (prim__createParam1d oI h0Buf')
       c0Ptr = prim__paramRegister c0Name (prim__createParam1d oI c0Buf')
-      iwTV : TMat (4 * o) i CPU dt WithGrad
+      iwTV : TMat (4 * o) i d dt WithGrad
       iwTV = MkTensor iwPtr (Just iwName)
-      rwTV : TMat (4 * o) o CPU dt WithGrad
+      rwTV : TMat (4 * o) o d dt WithGrad
       rwTV = MkTensor rwPtr (Just rwName)
-      ibTV : TVec (4 * o) CPU dt WithGrad
+      ibTV : TVec (4 * o) d dt WithGrad
       ibTV = MkTensor ibPtr (Just ibName)
-      hbTV : TVec (4 * o) CPU dt WithGrad
+      hbTV : TVec (4 * o) d dt WithGrad
       hbTV = MkTensor hbPtr (Just hbName)
-      h0TV : TVec o CPU dt WithGrad
+      h0TV : TVec o d dt WithGrad
       h0TV = MkTensor h0Ptr (Just h0Name)
-      c0TV : TVec o CPU dt WithGrad
+      c0TV : TVec o d dt WithGrad
       c0TV = MkTensor c0Ptr (Just c0Name)
   pure $ MkLstm iwTV rwTV ibTV hbTV h0TV c0TV Nothing Nothing
 
@@ -183,5 +183,5 @@ LayerLike LstmState where
 
 ||| Wrap an `LstmState` in `AnyLayer`.
 export
-lstmLayerAny : {i, o : Nat} -> (paramPrefix : String) -> IO (AnyLayer i o CPU dt WithGrad)
+lstmLayerAny : {i, o : Nat} -> (paramPrefix : String) -> IO (AnyLayer i o d dt WithGrad)
 lstmLayerAny pid = map (MkAnyLayer LstmState) (lstmLayer pid)
