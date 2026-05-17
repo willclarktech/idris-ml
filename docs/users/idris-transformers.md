@@ -49,7 +49,7 @@ mirrors that.
 | Module | HF target | Status |
 | --- | --- | --- |
 | `HfBert` | `google/bert_uncased_L-2_H-128_A-2` (and BERT-family checkpoints sharing the same naming) | ready |
-| `HfGpt2` | `sshleifer/tiny-gpt2` and GPT-2 family | follow-up (fused QKV via `c_attn.weight` + the HF Conv1D transpose wart) |
+| `HfGpt2` | `hf-internal-testing/tiny-random-gpt2` (and GPT-2 family) | ready |
 | `HfLlama` | `TinyLlama/TinyLlama-1.1B-Chat-v1.0` and Llama family | follow-up (gated on Row 7 — needs RMSNorm + RoPE + GQA + SwiGLU layer primitives in core) |
 
 ## Worked example: load and run BERT-tiny

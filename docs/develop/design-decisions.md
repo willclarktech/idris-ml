@@ -1206,3 +1206,13 @@ Backend-scoping (`TapeDev` / `TorchDev d` / `MlxDev s`) says *which backend* a t
 
 Both gates preserve the open-`d` property: a BYO backend self-declares `Linked MyDev`, gets EAFP gating for free if its construction throws on bad hardware, and maps `hardwareClass` to `Other "user/<name>"`.
 
+### HF-aligned modules store fused tensors fused (never split-at-load) (2026-05-26)
+
+CONVENTIONS rule 2 said "storage shapes match HF on disk". The HfGpt2 worked example pinned what that means in practice for the trickiest case: HuggingFace's GPT-2 stores its Q/K/V projections as one fused `[hidden, 3*hidden]` weight per layer (the `c_attn` `Conv1D` blob), and idris-transformers mirrors this — there's no `splitFusedQkv` step at load time, no separate Q / K / V Idris-level records. The `Gpt2AttentionState` record holds one `Gpt2Conv1D hidden (3*hidden)` field, registered as `transformer.h.{i}.attn.c_attn.weight`. The Q/K/V split happens at forward time as three `primNarrow ... 1 ...` views (zero-copy on tape, fast on torch + mlx after the `bd61bef` axis-arg fix). The multi-head split per Q/K/V is then a second nested narrow inside the per-head loop.
+
+Two consequences worth naming:
+- **The module is the rename adapter.** A `loadModel "model.safetensors"` is plain string-matching against the param registry. If on-disk has `attn.c_attn.weight` and the module registered the same name with the same shape, the bytes land in the right place with no transformation. No `param_load_with_remap`, no shape-split machinery in core.
+- **HF naming wart hardware travels with the storage.** GPT-2 wraps its linears in `Conv1D` (which is `nn.Linear` *transposed* — weight is `[in, out]` rather than `[out, in]`). The HfGpt2 module stores it transposed too (`Gpt2Conv1D` record holds `Tensor [i, o]`, registered with HF's exact name) and the forward `applyConv1D2d` computes `y = x @ W + bias` directly via `primMm + primAdd`, bypassing `tlinear2d` (which expects `[out, in]`). The tied LM head in `hfGpt2ForwardLm` reuses `wte.weight` the same way HfBert's `applyMlmHead` reconstitutes the decoder from `wordEmb.weight` at HfBert.idr:769 — the tied parameter is on disk once, used twice at forward.
+
+Cross-reference: the BERT module is the opposite-direction worked example — BERT *doesn't* fuse Q/K/V on disk, so HfBert stores them as three separate `[hidden, hidden]` linears matching `attention.self.{query,key,value}.weight`. The general rule: whatever HF does on disk, the module does in its state records.
+
