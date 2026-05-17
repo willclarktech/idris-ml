@@ -526,6 +526,37 @@ default both stay at seed=42 (matches the primary tape/torch path).
 
 C kernels, buffer systems, optimizer internals, and the layer system.
 
+### Per-backend-set build tree (`build/<BUILD_KEY>/`)
+
+All build artifacts (ttc cache, installed library prefix, dylib, example
+executables, stamps) live under `build/$(BUILD_KEY)/` where
+`BUILD_KEY := <backend-list>-mlx<MLX_DEVICE>-torch<TORCH_DEVICE>` (e.g.
+`tape-mlxcpu-torchcpu`, `torch-mlxcpu-torchmps`,
+`tape-torch-mlxcpu-torchmps`). Each distinct
+`(BACKEND, MLX_DEVICE, TORCH_DEVICE)` tuple gets its own warm cache.
+
+Implications:
+- `make clean` removes ALL backend sets' trees + `build-cov/` + legacy
+  `.idris2/`. `make clean-set` removes just `$(BUILD)` (active set
+  only). `make clean-all` cascades to `clean-models` + removes
+  `vendored/` + `data/`.
+- Disk usage scales with sets exercised. Each single-backend tree is
+  ~200-300 MB; full triple (`tape,torch,mlx`) is larger. Run `du -sh
+  build/*` to inspect; `clean-set BACKEND=<key>` to prune a single set.
+- Trees are gitignored (`build/` recursive ignore).
+- The generated `.idr` files (`HwConfig.idr`, `HwDevices.idr`,
+  `BuildConfig.idr`, `TestConfig.idr`) still live at their fixed
+  `packages/<pkg>/src/...` paths. Cross-set switches *do* rewrite them
+  (their content depends on the active set); the per-set ttc cache
+  absorbs the cascade — those four files re-elaborate (~4 s total),
+  but downstream modules with matching interface hashes don't. The
+  cmp-then-mv pattern in the recipes avoids unnecessary mtime bumps
+  within a single set's reruns.
+- `LIBRARY_SRCS` (the `.library-cache-stamp` dependency list)
+  *excludes* the generated `.idr` files. Including them would defeat
+  the per-set cache: cross-set rewrites would look like "library
+  source changed" and wipe the active set's ttc on every switch.
+
 ### Test suite
 
 Run `make test` for Idris unit tests, `make test-c` for C tests. Tests live in `test/src/Test/*.idr` with `Harness.idr` providing assertion helpers.

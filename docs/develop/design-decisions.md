@@ -1240,3 +1240,88 @@ The deferred Rust-FFI upgrade above is filed as a *new package* (`packages/idris
 ### Stdlib hypothesis ruled out for the large-Nat-pattern OOM (2026-05-26)
 
 While landing Test/Tokenizer.idr, the elaborator OOM'd on `case (Left (TokVocabMismatch 12345 30522)) => ...` — Nat literals in patterns unfold to Peano during case-tree construction (same class as the "Large Nat type-level reduction" entry in `gotchas.md`, in the pattern path rather than the unification path). Investigation followed the lead in the now-retired "Opaque type-level Nats" TODO row: the nixpkgs idris2 v0.8.0 derivation patches `bootstrap-stage2.sh` to replace `MAKE all` with `MAKE idris2-exec`, which seemed like it might be skipping a stage-2 stdlib rebuild that would otherwise pick up Nat optimisations. Traced through the full nixpkgs derivation chain (`by-name/id/idris2/unwrapped.nix`, `mkPrelude.nix`, `wrapped.nix`): the stdlib `.ttc` files are built by *separate* `mkPrelude.nix`-derived `prelude` / `base` / `contrib` / `linear` / `network` packages, each invoking the stage-2 `idris2-unwrapped` binary via `IDRIS2=...`. The `bootstrap-stage2` patch only skips an *additional* stdlib rebuild inside the idris2-unwrapped derivation; that build's output is discarded by `wrapped.nix` (which goes through the separate prelude/base derivations for `IDRIS2_PACKAGE_PATH`). Reverting the patch would add redundant build work; it does NOT change stdlib quality. The OOM is a compiler-level concern in Idris 2 v0.8.0; wait for v0.9.0 or use the `==` idiom in pattern arms. The investigation memo lives in `gotchas.md` so the next future-us doesn't re-trace the same dead-end.
+
+### Per-backend-set build cache (2026-05-27)
+
+All build artifacts (Idris ttc, installed library prefix, dylib, example
+executables, stamps) live under `build/$(BUILD_KEY)/` where the key is
+`<backend-list>-mlx<MLX_DEVICE>-torch<TORCH_DEVICE>` (e.g.
+`tape-mlxcpu-torchcpu`, `torch-mlxcpu-torchmps`,
+`tape-torch-mlxcpu-torchmps`).
+
+**Why all three vars in the key:** the four generated `.idr` files —
+`HwConfig.idr`, `HwDevices.idr`, `BuildConfig.idr`, `TestConfig.idr` —
+embed the active build's choices. HwConfig/HwDevices content depends
+on the full `BACKEND` list (one `Linked` instance per linked backend);
+BuildConfig/TestConfig depend on `(PRIMARY, MLX_DEVICE, TORCH_DEVICE)`
+(F32 on mlx-gpu / torch-mps, F64 elsewhere). All three vars contribute
+to *which* installed library + ttc you need to find on disk.
+
+**Why backend ordering matters:** PRIMARY is the first comma-separated
+entry. `BACKEND=tape,torch` and `BACKEND=torch,tape` produce different
+dylibs (tape-primary vs torch-primary, different unified-symbol
+aliases), so they need distinct cache trees. A PRIMARY-only key would
+collide them.
+
+**Why the four generated `.idr` files stay at fixed `packages/<pkg>/src/`
+paths instead of moving under `build/<KEY>/`:** the `.ipkg`
+`sourcedir = "src"` field is fixed; relocating the file would require
+parallel source trees per set. Cross-set switches *do* rewrite their
+content (mtime bumps), but Phase-0 verification at
+`/tmp/idris-mtime-test` confirmed Idris 2 uses **interface-hash
+matching** for downstream cascade (not mtime), so the cost is just the
+four files themselves re-elaborating (~4 s total) — downstream modules
+with matching interface hashes don't cascade.
+
+**Why `LIBRARY_SRCS` excludes the generated `.idr` files:** the
+`.library-cache-stamp` recipe wipes the per-set ttc on any
+LIBRARY_SRCS change (compensates for Idris's interface-hash check
+missing where-clause body changes). Including the generated files
+would defeat the per-set cache — a cross-set switch would look like
+"library source changed" and wipe the just-switched-to set's warm
+ttc. Their own per-set ttc + interface-hash check is sufficient.
+
+**Why write-if-different (cmp-then-mv) on the four generated files:**
+within a single set's reruns, a `make` re-evaluation regenerates the
+file but the content is identical. Unconditional `>` would bump the
+mtime, forcing a re-elab of that file + its 1-second cost on every
+no-op rebuild. cmp-then-mv keeps mtime stable when content matches.
+
+Measured outcome (`make install` round-trip wall-clock):
+- Cold tape: ~60 s.
+- Cold torch: ~250 s.
+- Warm switch tape → torch (both already built): ~3 s.
+- Warm switch torch → tape: ~2.5 s.
+
+The pre-refactor wall-clock for a cross-set switch was ~60 minutes
+(full re-elab of idris-ml + idris-gym + idris-transformers +
+idris-ml-examples). The new cost is dominated by Make's directory
+walk + Idris startup for the 5 `--install` calls.
+
+Implementation outline:
+- `BUILD := build/$(BUILD_KEY)` cascades through every `$(BUILD)/...`
+  path reference.
+- `IDRIS2_LOCAL := $(CURDIR)/$(BUILD)/idris2-prefix` per-set install
+  prefix; `IDRIS2_PACKAGE_PATH` reads from it.
+- Every `idris2 --install` / `idris2 --build` passes
+  `--build-dir $(CURDIR)/$(BUILD)/ttc-<pkg>` (per-package ttc dir);
+  repo-root example/test builds get
+  `--build-dir $(BUILD)` (folded into `IDRIS_FLAGS`).
+- Test-package builds (`test-gym`, `test-transformers`,
+  `test-examples-unit`, `bench-gym`) get
+  `--build-dir $(CURDIR)/$(BUILD)/test-<pkg>` so their executables
+  land at `$(BUILD)/test-<pkg>/exec/<name>` instead of inside the
+  test source tree.
+- `test-multi` recipe split into a wrapper + `_test-multi-build`
+  sub-target so the `BACKEND=torch,tape,mlx install` sub-make and the
+  example-build sub-make both resolve `$(BUILD)` / `$(LIB)` /
+  `$(TESTCONFIG_IDR)` under the multi-link set, not the outer make's
+  BACKEND context.
+
+Out of scope (separate rows if measured to matter):
+- Sharing `backend_<b>.o` across sets (set-agnostic compile of each
+  backend's `.o`, per-set link). Saves a few seconds of C compile on
+  set switch; the Idris re-elab is the dominant cost this row
+  attacks.
+- Pruning the installed-prefix tree (per-set installed libraries can
+  duplicate set-agnostic content like idris-gym). Disk is cheap.

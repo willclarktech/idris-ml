@@ -57,6 +57,17 @@ bash scripts/sweep.sh --task copy --parallel 4 [--quick]  # hyperparameter sweep
 
 See the `Makefile` for the full target list (jupyter, safetensors, ntm-grad, etc.).
 
+Build artifacts live under `build/<BUILD_KEY>/` where
+`BUILD_KEY := <backend-list>-mlx<MLX_DEVICE>-torch<TORCH_DEVICE>` (e.g.
+`tape-mlxcpu-torchcpu`, `torch-mlxcpu-torchmps`, `tape-torch-mlxcpu-torchmps`).
+Each distinct `(BACKEND, MLX_DEVICE, TORCH_DEVICE)` tuple keeps its own warm
+ttc/install/dylib/exec tree, so switching between sets (e.g. `make test` on
+tape ↔ `BACKEND=torch TORCH_DEVICE=mps make example-hf-llama-inference`) is
+near-free instead of triggering 60-min cascading re-elaboration. `clean`
+removes every backend set's tree (plus `build-cov/` + legacy `.idris2/`);
+`clean-set` removes just the active set; `clean-all` cascades to
+`clean-models` + removes `vendored/` + `data/`.
+
 ## Architecture
 
 Module dependency order (leaves first): **Device → Floating → Util → Sampler → Init → Array → Math → Tensor → DataPoint → DataLoader → Layer.\* → Schedule → Hpo → Backprop → Train → Curriculum → Checkpoint → Notebook.Prelude**. Single `import Layer` brings in all layer modules (Linear, Activation, LayerNorm, BatchNorm, Conv, Dropout, Embedding, Residual, Rnn/Lstm/Gru, Ntm, Dnc, Transformer).

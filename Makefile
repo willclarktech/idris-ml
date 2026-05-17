@@ -1,5 +1,4 @@
 UNAME := $(shell uname)
-BUILD := build
 BACKEND ?= tape
 
 # CPU core count for parallel builds. Used by recursive $(MAKE) calls
@@ -24,6 +23,49 @@ MLX_DEVICE ?= cpu
 # `TorchDev (TCuda 0)` based on this env var. TMps forces F32 (libtorch
 # rejects F64 at MPS tensor construction); TCpu and TCuda stay at F64.
 TORCH_DEVICE ?= cpu
+
+# --- Backend selection + per-backend-set build key ---
+# Defined early so downstream variables (IDRIS2_LOCAL, LIB, BACKEND_OBJS,
+# stamps, …) can reference $(BUILD) / $(PRIMARY) / $(BACKEND_LIST) at
+# `:=` expansion time.
+#
+# BACKEND is a comma-separated list of built-in backends to link into
+# libidrisml.{so,dylib}. The first item is the **primary** backend —
+# its symbols are also exported under unified names (e.g.
+# `_tensor_add` aliased to `_tensor_add_<primary>`) so existing Idris
+# `%foreign "C:tensor_add,libidrisml"` declarations resolve to it.
+# Non-primary backends are reachable only by their suffixed names,
+# which Phase 2.x UserDevice instance methods will target directly.
+#
+# Examples:
+#   BACKEND=tape                  — single tape build (default, lean)
+#   BACKEND=tape,torch            — Linux full build; both linked
+#   BACKEND=tape,torch,mlx        — macOS full build
+#   BACKEND=torch                 — torch-only CI lane
+#   BACKEND=mlx                   — mlx-only CI lane
+empty :=
+space := $(empty) $(empty)
+comma := ,
+BACKEND_LIST := $(subst $(comma),$(space),$(BACKEND))
+PRIMARY := $(firstword $(BACKEND_LIST))
+
+# Per-backend-set build key. Distinct values of `(BACKEND, MLX_DEVICE,
+# TORCH_DEVICE)` get their own `build/<KEY>/` tree (ttc cache, installed
+# library prefix, dylib, example executables, stamps). Each set's warm
+# cache survives backend-set switches indefinitely; switching between
+# `BACKEND=tape make test` and `BACKEND=torch TORCH_DEVICE=mps make
+# example-hf-llama-inference` no longer triggers full re-elaboration.
+#
+# The key includes the backend-list ordering because PRIMARY decides
+# multi-link symbol resolution: `tape,torch` and `torch,tape` produce
+# different dylibs and would clobber each other under a PRIMARY-only key.
+# It includes MLX_DEVICE / TORCH_DEVICE because `BuildConfig.idr` and
+# `TestConfig.idr` content depend on them (F32 on mlx-gpu / torch-mps,
+# F64 elsewhere — see those files' .in templates for the matrix).
+#
+# See `docs/develop/design-decisions.md` "Per-backend-set build cache".
+BUILD_KEY := $(subst $(comma),-,$(strip $(BACKEND)))-mlx$(MLX_DEVICE)-torch$(TORCH_DEVICE)
+BUILD := build/$(BUILD_KEY)
 
 # Per-backend default seed for examples. Some examples (notably NTM-copy and
 # DNC-copy/recall — see docs/develop/gotchas.md) are highly seed-sensitive at
@@ -73,8 +115,12 @@ EXAMPLE_SRC := packages/idris-ml-examples/src
 TEST_SRC := packages/idris-ml/test/src
 BACKENDS_DIR := packages/backends
 
-# Local package install prefix (writable, avoids polluting system Idris2)
-IDRIS2_LOCAL := $(CURDIR)/.idris2
+# Local package install prefix (writable, avoids polluting system Idris2).
+# Per-backend-set (under `$(BUILD)`) so each set has its own installed
+# library tree — `idris-ml-0`'s installed `.ttc` interface hashes differ
+# across backend sets (they embed the `HwConfig.idr` / `HwDevices.idr`
+# linkage instances), so they cannot share a prefix.
+IDRIS2_LOCAL := $(CURDIR)/$(BUILD)/idris2-prefix
 
 # Where the system idris2 was installed — needed to find contrib/base/etc.
 # when our install rules override IDRIS2_PREFIX with $(IDRIS2_LOCAL). Returns
@@ -88,45 +134,35 @@ else
 export IDRIS2_PACKAGE_PATH := $(IDRIS2_LOCAL)/idris2-0.8.0:$(SYS_IDRIS2_PREFIX)/idris2-0.8.0
 endif
 
-# Idris flags for example/test builds (use installed packages)
-IDRIS_FLAGS := --source-dir $(EXAMPLE_SRC) -p contrib -p idris-ml -p idris-gym -p idris-transformers
+# Idris flags for example/test builds (use installed packages). `--build-dir`
+# routes ttc + exec output under `$(BUILD)` so each backend set has its own
+# warm cache for example/test compilation, mirroring the per-set install tree.
+IDRIS_FLAGS := --build-dir $(BUILD) --source-dir $(EXAMPLE_SRC) -p contrib -p idris-ml -p idris-gym -p idris-transformers
 
-# Library source files — any change invalidates top-level build/ttc/ cache.
+# Library source files — any change invalidates the per-set ttc caches.
 # Idris 2's interface-hash dependency tracking doesn't invalidate downstream
 # TTCs when a module's public interface is unchanged but a where-clause body
 # (or other inlined internal) changed. Single-file `idris2 -o <name>` example
-# builds then reuse stale build/ttc/Example/*.ttc with old inlined code baked
-# in. Wiping build/ttc when any library source is newer than this stamp
-# forces a clean rebuild. See docs/develop/gotchas.md.
-LIBRARY_SRCS := $(shell find packages/idris-ml/src packages/idris-gym/src packages/idris-transformers/src -name '*.idr' 2>/dev/null) \
+# builds then reuse stale `$(BUILD)/ttc-*/.../Example/*.ttc` with old inlined
+# code baked in. Wiping the per-set ttc when any library source is newer than
+# this stamp forces a clean rebuild. See docs/develop/gotchas.md.
+#
+# The generated `.idr` files (HwConfig, HwDevices) get *rewritten on backend-set
+# switch* — their mtime bumps even when their per-set content is stable. Including
+# them here would defeat the per-set ttc cache: `tape → torch → tape` would
+# rewrite HwConfig.idr (set-A → set-B), then rewrite back (set-B → set-A), then
+# the next tape install would see the stamp older than HwConfig.idr and wipe
+# `build/tape-…/ttc-*`. Their own staleness tracking via `--build-dir`-keyed
+# ttc + interface-hash check is sufficient.
+LIBRARY_SRCS := $(filter-out packages/idris-ml/src/HwConfig.idr packages/idris-ml/src/HwDevices.idr, \
+                  $(shell find packages/idris-ml/src packages/idris-gym/src packages/idris-transformers/src -name '*.idr' 2>/dev/null)) \
                 packages/idris-ml-examples/src/Generate.idr
 
-build/.library-cache-stamp: $(LIBRARY_SRCS)
-	@echo "Library source changed — invalidating build/ttc cache"
-	@rm -rf build/ttc
-	@mkdir -p build
+$(BUILD)/.library-cache-stamp: $(LIBRARY_SRCS)
+	@echo "[$(BUILD_KEY)] Library source changed — invalidating ttc caches"
+	@rm -rf $(BUILD)/ttc-*
+	@mkdir -p $(BUILD)
 	@touch $@
-
-# --- Backend selection ---
-# BACKEND is a comma-separated list of built-in backends to link into
-# libidrisml.{so,dylib}. The first item is the **primary** backend —
-# its symbols are also exported under unified names (e.g.
-# `_tensor_add` aliased to `_tensor_add_<primary>`) so existing Idris
-# `%foreign "C:tensor_add,libidrisml"` declarations resolve to it.
-# Non-primary backends are reachable only by their suffixed names,
-# which Phase 2.x UserDevice instance methods will target directly.
-#
-# Examples:
-#   BACKEND=tape                  — single tape build (default, lean)
-#   BACKEND=tape,torch            — Linux full build; both linked
-#   BACKEND=tape,torch,mlx        — macOS full build
-#   BACKEND=torch                 — torch-only CI lane
-#   BACKEND=mlx                   — mlx-only CI lane
-empty :=
-space := $(empty) $(empty)
-comma := ,
-BACKEND_LIST := $(subst $(comma),$(space),$(BACKEND))
-PRIMARY := $(firstword $(BACKEND_LIST))
 
 # Per-backend property tables. Common compile flags (`-O2 -fPIC
 # -include rename_<b>.h`) are applied by the per-backend rule below;
@@ -229,7 +265,7 @@ ifneq ($(filter mlx,$(BACKEND_LIST)),)
   endif
 
   # Absolute paths so `-Wl,-rpath,$(MLX_LIB)` works regardless of the
-  # CWD at runtime (the matmul-bench wrapper chdir's into build/exec/...).
+  # CWD at runtime (the matmul-bench wrapper chdir's into $(BUILD)/exec/...).
   MLX_INC := $(abspath $(MLX_SITE)/include)
   MLX_LIB := $(abspath $(MLX_SITE)/lib)
 endif
@@ -523,9 +559,23 @@ HWDEVICES_IN  := packages/idris-ml/src/HwDevices.idr.in
 TESTCONFIG_IDR := packages/idris-ml/test/src/TestConfig.idr
 TESTCONFIG_IN  := packages/idris-ml/test/src/TestConfig.idr.in
 
+# Always-touch the stamp so it's at least as fresh as the current `make`
+# invocation, even when content matches. Without the trailing touch, a
+# *different* backend set rewriting BuildConfig.idr (mtime bumps) would
+# leave this set's stamp older than the (now-other-content) BuildConfig.idr,
+# Make would consider BuildConfig.idr "fresh" relative to its dep, and skip
+# the recipe — leaving torch content on disk during a tape build. The
+# recipe for the generated `.idr` is cmp-then-mv, so always-running is
+# essentially free when content matches.
 $(BUILD)/.buildconfig-stamp: FORCE | $(BUILD)
-	@[ "$$(cat $@ 2>/dev/null)" = "$(BUILDCONFIG_KEY)" ] || { echo "$(BUILDCONFIG_KEY)" > $@; }
+	@if [ "$$(cat $@ 2>/dev/null)" != "$(BUILDCONFIG_KEY)" ]; then echo "$(BUILDCONFIG_KEY)" > $@; else touch $@; fi
 
+# Write-if-different: render to `.tmp`, then `cmp` against the existing
+# generated file and `mv` only when content actually differs. Within a
+# single set's reruns this keeps the .idr's mtime stable across re-makes;
+# across sets it correctly bumps mtime when the (device, dtype) changes.
+# The per-set ttc cache then absorbs the cascade — the .idr re-elabs but
+# downstream modules with matching interface hashes don't.
 $(BUILDCONFIG_IDR): $(BUILDCONFIG_IN) $(BUILD)/.buildconfig-stamp
 	@case "$(PRIMARY)/$(MLX_DEVICE)/$(TORCH_DEVICE)" in \
 		mlx/gpu/*)    DEVICE="MlxDev MGpu";       DTYPE="F32" ;; \
@@ -536,7 +586,8 @@ $(BUILDCONFIG_IDR): $(BUILDCONFIG_IN) $(BUILD)/.buildconfig-stamp
 		tape/*/*)     DEVICE="TapeDev";           DTYPE="F64" ;; \
 		*)            DEVICE="TapeDev";           DTYPE="F64" ;; \
 	esac; \
-	sed "s|@DEVICE@|$$DEVICE|g; s|@DTYPE@|$$DTYPE|g" $< > $@
+	sed "s|@DEVICE@|$$DEVICE|g; s|@DTYPE@|$$DTYPE|g" $< > $@.tmp; \
+	if cmp -s $@.tmp $@ 2>/dev/null; then rm $@.tmp; else mv $@.tmp $@; fi
 	@echo "[BuildConfig] PRIMARY=$(PRIMARY) MLX_DEVICE=$(MLX_DEVICE) TORCH_DEVICE=$(TORCH_DEVICE) → $$(awk -F' = ' '/^ExampleDevice = / { print $$2; exit }' $@) / $$(awk -F' = ' '/^ExampleDType = / { print $$2; exit }' $@)"
 
 $(TESTCONFIG_IDR): $(TESTCONFIG_IN) $(BUILD)/.buildconfig-stamp
@@ -549,15 +600,20 @@ $(TESTCONFIG_IDR): $(TESTCONFIG_IN) $(BUILD)/.buildconfig-stamp
 		tape/*/*)     DEVICE="TapeDev";           DTYPE="F64" ;; \
 		*)            DEVICE="TapeDev";           DTYPE="F64" ;; \
 	esac; \
-	sed "s|@DEVICE@|$$DEVICE|g; s|@DTYPE@|$$DTYPE|g" $< > $@
+	sed "s|@DEVICE@|$$DEVICE|g; s|@DTYPE@|$$DTYPE|g" $< > $@.tmp; \
+	if cmp -s $@.tmp $@ 2>/dev/null; then rm $@.tmp; else mv $@.tmp $@; fi
 	@echo "[TestConfig] PRIMARY=$(PRIMARY) MLX_DEVICE=$(MLX_DEVICE) TORCH_DEVICE=$(TORCH_DEVICE) → $$(awk -F' = ' '/^TestDevice = / { print $$2; exit }' $@) / $$(awk -F' = ' '/^TestDType = / { print $$2; exit }' $@)"
 
+# Same always-touch logic as the .buildconfig-stamp recipe above; see
+# the comment there for why a content-equal stamp still needs an mtime
+# bump when other backend sets share the generated `.idr` file paths.
 $(BUILD)/.hwconfig-stamp: FORCE | $(BUILD)
-	@[ "$$(cat $@ 2>/dev/null)" = "$(HWCONFIG_KEY)" ] || { echo "$(HWCONFIG_KEY)" > $@; }
+	@if [ "$$(cat $@ 2>/dev/null)" != "$(HWCONFIG_KEY)" ]; then echo "$(HWCONFIG_KEY)" > $@; else touch $@; fi
 
 # Emit one `Linked` instance per backend in BACKEND_LIST, appended to the
 # .in header. Per-backend linkage admits every hardware variant of that
 # backend (runtime presence is the EAFP concern, not this gate).
+# Write-if-different (see BuildConfig rule above for rationale).
 $(HWCONFIG_IDR): $(HWCONFIG_IN) $(BUILD)/.hwconfig-stamp
 	@{ cat $(HWCONFIG_IN); \
 	   for b in $(BACKEND_LIST); do \
@@ -567,7 +623,8 @@ $(HWCONFIG_IDR): $(HWCONFIG_IN) $(BUILD)/.hwconfig-stamp
 	       mlx)   printf 'public export\n{s : MlxStream} -> Linked (MlxDev s) where\n\n' ;; \
 	     esac; \
 	   done; \
-	 } > $@
+	 } > $@.tmp
+	@if cmp -s $@.tmp $@ 2>/dev/null; then rm $@.tmp; else mv $@.tmp $@; fi
 	@echo "[HwConfig] BACKEND=$(BACKEND) → Linked instances for: $(BACKEND_LIST)"
 
 # Emit `builtinDevices` as `[] ++ <per-backend candidate lists>`. Seeding
@@ -589,7 +646,8 @@ $(HWDEVICES_IDR): $(HWDEVICES_IN) $(BUILD)/.hwconfig-stamp
 	       mlx)   printf '  ++ [ someDevice {d = MlxDev MCpu} {dt = F64}\n     , someDevice {d = MlxDev MGpu} {dt = F32} ]\n' ;; \
 	     esac; \
 	   done; \
-	 } > $@
+	 } > $@.tmp
+	@if cmp -s $@.tmp $@ 2>/dev/null; then rm $@.tmp; else mv $@.tmp $@; fi
 	@echo "[HwDevices] BACKEND=$(BACKEND) → builtinDevices for: $(BACKEND_LIST)"
 
 # Final link: all listed backends' .o + shared objects (primary's
@@ -790,41 +848,43 @@ print-torch:
 	@echo "BACKEND=$(BACKEND)"
 	@echo "LIB=$(LIB)"
 
-# Install core library to local prefix (needed before building examples/tests)
+# Install core library to local prefix (needed before building examples/tests).
+# `--build-dir` keys the per-package ttc cache on the active BUILD_KEY so
+# `BACKEND=tape` and `BACKEND=torch` (etc.) each have their own warm cache.
 install-core: backend $(HWCONFIG_IDR) $(HWDEVICES_IDR)
-	@cd packages/idris-ml && IDRIS2_PREFIX=$(IDRIS2_LOCAL) idris2 --install idris-ml.ipkg >/dev/null
+	@cd packages/idris-ml && IDRIS2_PREFIX=$(IDRIS2_LOCAL) idris2 --build-dir $(CURDIR)/$(BUILD)/ttc-idris-ml --install idris-ml.ipkg >/dev/null
 
 # Install gym to local prefix
 install-gym:
-	@cd packages/idris-gym && IDRIS2_PREFIX=$(IDRIS2_LOCAL) idris2 --install idris-gym.ipkg >/dev/null
+	@cd packages/idris-gym && IDRIS2_PREFIX=$(IDRIS2_LOCAL) idris2 --build-dir $(CURDIR)/$(BUILD)/ttc-idris-gym --install idris-gym.ipkg >/dev/null
 
 # Install idris-transformers (HF-aligned model library) to local prefix.
 # Depends on install-core because every Hf* module imports from idris-ml.
 install-transformers: install-core
-	@cd packages/idris-transformers && IDRIS2_PREFIX=$(IDRIS2_LOCAL) idris2 --install idris-transformers.ipkg >/dev/null
+	@cd packages/idris-transformers && IDRIS2_PREFIX=$(IDRIS2_LOCAL) idris2 --build-dir $(CURDIR)/$(BUILD)/ttc-idris-transformers --install idris-transformers.ipkg >/dev/null
 
 # Install notebook prelude to local prefix
 install-notebook: install-core
-	@cd packages/idris-ml-notebook && IDRIS2_PREFIX=$(IDRIS2_LOCAL) idris2 --install idris-ml-notebook.ipkg >/dev/null
+	@cd packages/idris-ml-notebook && IDRIS2_PREFIX=$(IDRIS2_LOCAL) idris2 --build-dir $(CURDIR)/$(BUILD)/ttc-idris-ml-notebook --install idris-ml-notebook.ipkg >/dev/null
 
 # Install idris-ml-examples as a library (needed by its test harness)
 install-examples: install-core install-gym install-transformers $(BUILDCONFIG_IDR)
-	@cd packages/idris-ml-examples && IDRIS2_PREFIX=$(IDRIS2_LOCAL) idris2 --install idris-ml-examples.ipkg >/dev/null
+	@cd packages/idris-ml-examples && IDRIS2_PREFIX=$(IDRIS2_LOCAL) idris2 --build-dir $(CURDIR)/$(BUILD)/ttc-idris-ml-examples --install idris-ml-examples.ipkg >/dev/null
 
 # Install all Idris packages locally
-install: install-core install-gym install-transformers install-notebook install-examples build/.library-cache-stamp
+install: install-core install-gym install-transformers install-notebook install-examples $(BUILD)/.library-cache-stamp
 
 # Idris build (type-check core library)
 check: backend $(HWCONFIG_IDR) $(HWDEVICES_IDR)
-	cd packages/idris-ml && idris2 --build idris-ml.ipkg
+	cd packages/idris-ml && idris2 --build-dir $(CURDIR)/$(BUILD)/ttc-idris-ml --build idris-ml.ipkg
 
 # Type-check gym package
 check-gym:
-	cd packages/idris-gym && idris2 --build idris-gym.ipkg
+	cd packages/idris-gym && idris2 --build-dir $(CURDIR)/$(BUILD)/ttc-idris-gym --build idris-gym.ipkg
 
 # Type-check idris-transformers package (depends on idris-ml being installed).
 check-transformers: install-core
-	cd packages/idris-transformers && IDRIS2_PREFIX=$(IDRIS2_LOCAL) idris2 --build idris-transformers.ipkg
+	cd packages/idris-transformers && IDRIS2_PREFIX=$(IDRIS2_LOCAL) idris2 --build-dir $(CURDIR)/$(BUILD)/ttc-idris-transformers --build idris-transformers.ipkg
 
 # Verify Idris example defaults match the paired torch_ref/scripts/*.py defaults.
 # Catches the "I changed Idris's default but forgot the matching ref" drift class.
@@ -860,7 +920,7 @@ check-examples: install
 		esac; \
 		slug=$$(echo "$$mod" | tr 'A-Z' 'a-z'); \
 		echo "Building Example.$$mod..."; \
-		idris2 $(IDRIS_FLAGS) -o "check-$$slug" "$$f" || exit 1; \
+		idris2 $(IDRIS_FLAGS) --build-dir $(BUILD) -o "check-$$slug" "$$f" || exit 1; \
 	done
 	@echo "All examples type-check."
 
@@ -883,9 +943,9 @@ test: test-idris test-backend-criterion test-safetensors
 # resolve through `{d=TestDevice}` which the Makefile-generated
 # `TestConfig.idr` pins to the active backend.
 test-idris: install $(TESTCONFIG_IDR)
-	idris2 --source-dir $(TEST_SRC) -p contrib -p idris-ml -o test $(TEST_SRC)/Main.idr
-	cp $(LIB) build/exec/test_app/
-	./build/exec/test
+	idris2 --build-dir $(BUILD) --source-dir $(TEST_SRC) -p contrib -p idris-ml -o test $(TEST_SRC)/Main.idr
+	cp $(LIB) $(BUILD)/exec/test_app/
+	./$(BUILD)/exec/test
 
 # Multi-backend Idris tests — adds Test.Transfer (cross-backend
 # `toDevice` smoke + roundtrip) to the unit-test list. Forces
@@ -905,19 +965,25 @@ test-idris: install $(TESTCONFIG_IDR)
 # dylib is exercised by Test.Transfer above; the Criterion suites
 # exercise the same op-level behaviour each lane would ship to
 # users.
-test-multi: $(TESTCONFIG_IDR)
+test-multi:
 	$(MAKE) BACKEND=torch,tape,mlx install
-	idris2 --source-dir $(TEST_SRC) -p contrib -p idris-ml -o test-multi $(TEST_SRC)/MainMulti.idr
-	cp $(LIB) build/exec/test-multi_app/
-	./build/exec/test-multi
+	$(MAKE) BACKEND=torch,tape,mlx _test-multi-build
 	$(MAKE) BACKEND=tape test-backend-criterion
 	$(MAKE) BACKEND=torch test-backend-criterion
 	$(MAKE) BACKEND=mlx test-backend-criterion
 
+# Sub-target invoked by test-multi under BACKEND=torch,tape,mlx so $(BUILD)
+# / $(LIB) / $(TESTCONFIG_IDR) all resolve in the multi-link set's tree,
+# not the outer make's BACKEND context.
+_test-multi-build: $(TESTCONFIG_IDR)
+	idris2 --build-dir $(BUILD) --source-dir $(TEST_SRC) -p contrib -p idris-ml -o test-multi $(TEST_SRC)/MainMulti.idr
+	cp $(LIB) $(BUILD)/exec/test-multi_app/
+	./$(BUILD)/exec/test-multi
+
 # Idris tests for idris-gym package (pure Idris, no backend required)
 test-gym: install-gym
-	cd packages/idris-gym/test && idris2 --build test.ipkg
-	$(STDBUF) ./packages/idris-gym/test/build/exec/idris-gym-test
+	cd packages/idris-gym/test && idris2 --build-dir $(CURDIR)/$(BUILD)/test-idris-gym --build test.ipkg
+	$(STDBUF) ./$(BUILD)/test-idris-gym/exec/idris-gym-test
 
 # Idris tests for idris-transformers package. Pure-Idris suite for
 # bertParamNames catalogue + an FFI suite that constructs a real
@@ -926,9 +992,9 @@ test-gym: install-gym
 # FFI registry calls land on the active backend's symbols (mirrors
 # the test-idris recipe).
 test-transformers: install-transformers
-	cd packages/idris-transformers/test && IDRIS2_PREFIX=$(IDRIS2_LOCAL) idris2 --build test.ipkg
-	cp $(LIB) packages/idris-transformers/test/build/exec/idris-transformers-test_app/
-	$(STDBUF) ./packages/idris-transformers/test/build/exec/idris-transformers-test
+	cd packages/idris-transformers/test && IDRIS2_PREFIX=$(IDRIS2_LOCAL) idris2 --build-dir $(CURDIR)/$(BUILD)/test-idris-transformers --build test.ipkg
+	cp $(LIB) $(BUILD)/test-idris-transformers/exec/idris-transformers-test_app/
+	$(STDBUF) ./$(BUILD)/test-idris-transformers/exec/idris-transformers-test
 
 # Microbench for idris-gym hot paths (RNG, Blackjack obs, env step+observe).
 # Pure Idris, no backend dependency. Useful for Job 4-style env-side
@@ -937,20 +1003,20 @@ test-transformers: install-transformers
 # Pass bench names (rng, blackjack, pendulum, acrobot, taxi, cliffwalking)
 # to run a subset, e.g. `make bench-gym BENCH_ARGS=rng`. Default runs all.
 bench-gym: install-gym
-	cd packages/idris-gym/test && idris2 --build bench.ipkg
-	$(STDBUF) ./packages/idris-gym/test/build/exec/idris-gym-bench $(BENCH_ARGS)
+	cd packages/idris-gym/test && idris2 --build-dir $(CURDIR)/$(BUILD)/bench-idris-gym --build bench.ipkg
+	$(STDBUF) ./$(BUILD)/bench-idris-gym/exec/idris-gym-bench $(BENCH_ARGS)
 
 # Unit tests for idris-ml-examples (runs moved Test.Generate)
 test-examples-unit: install-examples
-	cd packages/idris-ml-examples/test && idris2 --build test.ipkg
-	cp $(LIB) packages/idris-ml-examples/test/build/exec/idris-ml-examples-test_app/
-	$(STDBUF) ./packages/idris-ml-examples/test/build/exec/idris-ml-examples-test
+	cd packages/idris-ml-examples/test && idris2 --build-dir $(CURDIR)/$(BUILD)/test-idris-ml-examples --build test.ipkg
+	cp $(LIB) $(BUILD)/test-idris-ml-examples/exec/idris-ml-examples-test_app/
+	$(STDBUF) ./$(BUILD)/test-idris-ml-examples/exec/idris-ml-examples-test
 
 # Build and run examples (require: make install)
 example-supervised: install
 	idris2 $(IDRIS_FLAGS) -o supervised $(EXAMPLE_SRC)/Example/Supervised.idr
-	cp $(LIB) build/exec/supervised_app/
-	./build/exec/supervised $(SEED_FLAG) $(SUPERVISED_ARGS)
+	cp $(LIB) $(BUILD)/exec/supervised_app/
+	./$(BUILD)/exec/supervised $(SEED_FLAG) $(SUPERVISED_ARGS)
 
 # HuggingFace BERT inference example. Loads google/bert_uncased_L-2_H-128_A-2
 # weights via the HF-aligned HfBert layer module (from idris-transformers)
@@ -982,8 +1048,8 @@ $(HF_MODELS_DIR)/%/config.json:
 
 example-hf-bert-inference: install $(HF_MODELS_DIR)/google/bert_uncased_L-2_H-128_A-2/config.json
 	idris2 $(IDRIS_FLAGS) -o hf-bert-inference $(EXAMPLE_SRC)/Example/HfBertInference.idr
-	cp $(LIB) build/exec/hf-bert-inference_app/
-	./build/exec/hf-bert-inference
+	cp $(LIB) $(BUILD)/exec/hf-bert-inference_app/
+	./$(BUILD)/exec/hf-bert-inference
 
 # Cross-language correctness gate for HfBert: regenerates the Python
 # oracle via save_oracle.py, then runs the Idris example and compares
@@ -992,11 +1058,11 @@ test-hf-bert-roundtrip: install $(HF_MODELS_DIR)/google/bert_uncased_L-2_H-128_A
 	cd packages/pytorch && uv run pytest \
 		../idris-transformers/scripts/test_save_oracle.py -v
 	idris2 $(IDRIS_FLAGS) -o hf-bert-inference $(EXAMPLE_SRC)/Example/HfBertInference.idr
-	cp $(LIB) build/exec/hf-bert-inference_app/
-	./build/exec/hf-bert-inference --dump-pooled > build/hf-bert-idris-out.txt
+	cp $(LIB) $(BUILD)/exec/hf-bert-inference_app/
+	./$(BUILD)/exec/hf-bert-inference --dump-pooled > build/hf-bert-idris-out.txt
 	cd packages/pytorch && uv run python \
 		../idris-transformers/scripts/compare_inference.py \
-		../../build/hf-bert-idris-out.txt \
+		../../$(BUILD)/hf-bert-idris-out.txt \
 		../../models/bert-tiny-oracle.safetensors \
 		1e-3
 
@@ -1004,8 +1070,8 @@ test-hf-bert-roundtrip: install $(HF_MODELS_DIR)/google/bert_uncased_L-2_H-128_A
 # pattern rule above.
 example-hf-gpt2-inference: install $(HF_MODELS_DIR)/distilgpt2/config.json
 	idris2 $(IDRIS_FLAGS) -o hf-gpt2-inference $(EXAMPLE_SRC)/Example/HfGpt2Inference.idr
-	cp $(LIB) build/exec/hf-gpt2-inference_app/
-	./build/exec/hf-gpt2-inference
+	cp $(LIB) $(BUILD)/exec/hf-gpt2-inference_app/
+	./$(BUILD)/exec/hf-gpt2-inference
 
 # Cross-language correctness gate for HfGpt2: regenerate the Python
 # oracle from distilgpt2 + run the Idris example + compare
@@ -1024,35 +1090,35 @@ example-hf-gpt2-inference: install $(HF_MODELS_DIR)/distilgpt2/config.json
 # the F32 / GPU paths.
 example-hf-llama-inference: install $(HF_MODELS_DIR)/meta-llama/Llama-3.2-1B/config.json
 	idris2 $(IDRIS_FLAGS) -o hf-llama-inference $(EXAMPLE_SRC)/Example/HfLlamaInference.idr
-	cp $(LIB) build/exec/hf-llama-inference_app/
-	./build/exec/hf-llama-inference
+	cp $(LIB) $(BUILD)/exec/hf-llama-inference_app/
+	./$(BUILD)/exec/hf-llama-inference
 
 test-hf-gpt2-roundtrip: install $(HF_MODELS_DIR)/distilgpt2/config.json
 	cd packages/pytorch && uv run pytest \
 		../idris-transformers/scripts/test_save_oracle_gpt2.py -v
 	idris2 $(IDRIS_FLAGS) -o hf-gpt2-inference $(EXAMPLE_SRC)/Example/HfGpt2Inference.idr
-	cp $(LIB) build/exec/hf-gpt2-inference_app/
-	./build/exec/hf-gpt2-inference --dump-final-hidden > build/hf-gpt2-idris-out.txt
+	cp $(LIB) $(BUILD)/exec/hf-gpt2-inference_app/
+	./$(BUILD)/exec/hf-gpt2-inference --dump-final-hidden > build/hf-gpt2-idris-out.txt
 	cd packages/pytorch && uv run python \
 		../idris-transformers/scripts/compare_inference.py \
-		../../build/hf-gpt2-idris-out.txt \
+		../../$(BUILD)/hf-gpt2-idris-out.txt \
 		../../models/distilgpt2-oracle.safetensors \
 		1e-3
 
 example-rnn: install
 	idris2 $(IDRIS_FLAGS) -o rnn $(EXAMPLE_SRC)/Example/Rnn.idr
-	cp $(LIB) build/exec/rnn_app/
-	./build/exec/rnn $(SEED_FLAG) $(RNN_ARGS)
+	cp $(LIB) $(BUILD)/exec/rnn_app/
+	./$(BUILD)/exec/rnn $(SEED_FLAG) $(RNN_ARGS)
 
 example-lstm: install
 	idris2 $(IDRIS_FLAGS) -o lstm $(EXAMPLE_SRC)/Example/Lstm.idr
-	cp $(LIB) build/exec/lstm_app/
-	./build/exec/lstm $(SEED_FLAG) $(LSTM_ARGS)
+	cp $(LIB) $(BUILD)/exec/lstm_app/
+	./$(BUILD)/exec/lstm $(SEED_FLAG) $(LSTM_ARGS)
 
 example-gru: install
 	idris2 $(IDRIS_FLAGS) -o gru $(EXAMPLE_SRC)/Example/Gru.idr
-	cp $(LIB) build/exec/gru_app/
-	./build/exec/gru $(SEED_FLAG) $(GRU_ARGS)
+	cp $(LIB) $(BUILD)/exec/gru_app/
+	./$(BUILD)/exec/gru $(SEED_FLAG) $(GRU_ARGS)
 
 # BringYourOwn — worked example of a user-supplied backend. Builds
 # libbyo.dylib alongside the active libidrisml so the example app
@@ -1065,38 +1131,38 @@ $(BUILD)/libbyo.$(LIB_EXT): $(BACKENDS_DIR)/backend_byo.c | $(BUILD)
 
 example-bring-your-own: install $(BUILD)/libbyo.$(LIB_EXT)
 	idris2 $(IDRIS_FLAGS) -o bring-your-own $(EXAMPLE_SRC)/Example/BringYourOwn.idr
-	cp $(LIB) $(BUILD)/libbyo.$(LIB_EXT) build/exec/bring-your-own_app/
-	./build/exec/bring-your-own
+	cp $(LIB) $(BUILD)/libbyo.$(LIB_EXT) $(BUILD)/exec/bring-your-own_app/
+	./$(BUILD)/exec/bring-your-own
 
 example-ntm-copy: install
 	idris2 $(IDRIS_FLAGS) -o ntm-copy $(EXAMPLE_SRC)/Example/NtmCopy.idr
-	cp $(LIB) build/exec/ntm-copy_app/
-	$(STDBUF) ./build/exec/ntm-copy $(SEED_FLAG) $(NTM_COPY_ARGS)
+	cp $(LIB) $(BUILD)/exec/ntm-copy_app/
+	$(STDBUF) ./$(BUILD)/exec/ntm-copy $(SEED_FLAG) $(NTM_COPY_ARGS)
 
 example-ntm-associative-recall: install
 	idris2 $(IDRIS_FLAGS) -o ntm-associative-recall $(EXAMPLE_SRC)/Example/NtmAssociativeRecall.idr
-	cp $(LIB) build/exec/ntm-associative-recall_app/
-	$(STDBUF) ./build/exec/ntm-associative-recall $(SEED_FLAG) $(NTM_RECALL_ARGS)
+	cp $(LIB) $(BUILD)/exec/ntm-associative-recall_app/
+	$(STDBUF) ./$(BUILD)/exec/ntm-associative-recall $(SEED_FLAG) $(NTM_RECALL_ARGS)
 
 example-dnc-copy: install
 	idris2 $(IDRIS_FLAGS) -o dnc-copy $(EXAMPLE_SRC)/Example/DncCopy.idr
-	cp $(LIB) build/exec/dnc-copy_app/
-	$(STDBUF) ./build/exec/dnc-copy $(SEED_FLAG) $(DNC_COPY_ARGS)
+	cp $(LIB) $(BUILD)/exec/dnc-copy_app/
+	$(STDBUF) ./$(BUILD)/exec/dnc-copy $(SEED_FLAG) $(DNC_COPY_ARGS)
 
 example-dnc-recall: install
 	idris2 $(IDRIS_FLAGS) -o dnc-recall $(EXAMPLE_SRC)/Example/DncAssociativeRecall.idr
-	cp $(LIB) build/exec/dnc-recall_app/
-	$(STDBUF) ./build/exec/dnc-recall $(SEED_FLAG) $(DNC_RECALL_ARGS)
+	cp $(LIB) $(BUILD)/exec/dnc-recall_app/
+	$(STDBUF) ./$(BUILD)/exec/dnc-recall $(SEED_FLAG) $(DNC_RECALL_ARGS)
 
 example-transformer: install
 	idris2 $(IDRIS_FLAGS) -o transformer $(EXAMPLE_SRC)/Example/Transformer.idr
-	cp $(LIB) build/exec/transformer_app/
-	./build/exec/transformer $(SEED_FLAG) $(TRANSFORMER_ARGS)
+	cp $(LIB) $(BUILD)/exec/transformer_app/
+	./$(BUILD)/exec/transformer $(SEED_FLAG) $(TRANSFORMER_ARGS)
 
 example-tcast-demo: install
 	idris2 $(IDRIS_FLAGS) -o tcast-demo $(EXAMPLE_SRC)/Example/TCastDemo.idr
-	cp $(LIB) build/exec/tcast-demo_app/
-	./build/exec/tcast-demo $(TCAST_DEMO_ARGS)
+	cp $(LIB) $(BUILD)/exec/tcast-demo_app/
+	./$(BUILD)/exec/tcast-demo $(TCAST_DEMO_ARGS)
 
 # Cross-language dtype serialization demo. Forces BACKEND=torch (bf16/f16/
 # int are Compatible only on torch), writes a multi-dtype .safetensors from
@@ -1105,8 +1171,8 @@ example-tcast-demo: install
 example-dtype-serialize:
 	$(MAKE) BACKEND=torch install >/dev/null
 	idris2 $(IDRIS_FLAGS) -o dtype-serialize $(EXAMPLE_SRC)/Example/DTypeSerialize.idr
-	cp $(LIB) build/exec/dtype-serialize_app/
-	./build/exec/dtype-serialize /tmp/idrisml-dtypes.safetensors
+	cp $(LIB) $(BUILD)/exec/dtype-serialize_app/
+	./$(BUILD)/exec/dtype-serialize /tmp/idrisml-dtypes.safetensors
 	@if [ -x packages/pytorch/.venv/bin/python3 ]; then \
 		echo "=== cross-language verify (safetensors.torch) ==="; \
 		packages/pytorch/.venv/bin/python3 packages/idris-ml-examples/scripts/verify_dtypes.py /tmp/idrisml-dtypes.safetensors; \
@@ -1120,16 +1186,16 @@ example-dtype-serialize:
 example-index-ops:
 	$(MAKE) BACKEND=torch install >/dev/null
 	idris2 $(IDRIS_FLAGS) -o index-ops $(EXAMPLE_SRC)/Example/IndexOps.idr
-	cp $(LIB) build/exec/index-ops_app/
-	./build/exec/index-ops
+	cp $(LIB) $(BUILD)/exec/index-ops_app/
+	./$(BUILD)/exec/index-ops
 
 # Compile-time (device, dtype) Compatible gate demo. The example's `ok*`
 # witnesses typecheck against the real constructor across all backends;
 # main constructs on the build-selected cell, so it runs on any BACKEND.
 example-dtype-pitch: install
 	idris2 $(IDRIS_FLAGS) -o dtype-pitch $(EXAMPLE_SRC)/Example/DTypePitch.idr
-	cp $(LIB) build/exec/dtype-pitch_app/
-	./build/exec/dtype-pitch
+	cp $(LIB) $(BUILD)/exec/dtype-pitch_app/
+	./$(BUILD)/exec/dtype-pitch
 
 # Cross-dtype SafeTensors round-trip smoke test for L63.
 #   1. Save F32 (BACKEND=mlx MLX_DEVICE=gpu): writes a checkpoint with
@@ -1143,17 +1209,17 @@ example-precision-checkpoint:
 	@echo "=== Step 1: save F32 (BACKEND=mlx MLX_DEVICE=gpu) ==="
 	$(MAKE) BACKEND=mlx MLX_DEVICE=gpu install >/dev/null
 	idris2 $(IDRIS_FLAGS) -o precision-checkpoint $(EXAMPLE_SRC)/Example/PrecisionCheckpoint.idr
-	cp $(LIB) build/exec/precision-checkpoint_app/
-	./build/exec/precision-checkpoint --mode save --path /tmp/precision-checkpoint.safetensors --expect pass
+	cp $(LIB) $(BUILD)/exec/precision-checkpoint_app/
+	./$(BUILD)/exec/precision-checkpoint --mode save --path /tmp/precision-checkpoint.safetensors --expect pass
 	@echo ""
 	@echo "=== Step 2: load-strict into F64 (BACKEND=mlx), expect FAIL ==="
 	$(MAKE) BACKEND=mlx install >/dev/null
 	idris2 $(IDRIS_FLAGS) -o precision-checkpoint $(EXAMPLE_SRC)/Example/PrecisionCheckpoint.idr
-	cp $(LIB) build/exec/precision-checkpoint_app/
-	./build/exec/precision-checkpoint --mode load-strict --path /tmp/precision-checkpoint.safetensors --expect fail
+	cp $(LIB) $(BUILD)/exec/precision-checkpoint_app/
+	./$(BUILD)/exec/precision-checkpoint --mode load-strict --path /tmp/precision-checkpoint.safetensors --expect fail
 	@echo ""
 	@echo "=== Step 3: load-cast into F64 (BACKEND=mlx), expect PASS ==="
-	./build/exec/precision-checkpoint --mode load-cast --path /tmp/precision-checkpoint.safetensors --expect pass
+	./$(BUILD)/exec/precision-checkpoint --mode load-cast --path /tmp/precision-checkpoint.safetensors --expect pass
 	@echo ""
 	@echo "All three steps passed (PrecisionCheckpoint L63 round-trip)."
 
@@ -1163,99 +1229,99 @@ example-precision-checkpoint:
 # integration. See scripts/test-checkpoint-resume.sh.
 test-checkpoint-resume: install
 	idris2 $(IDRIS_FLAGS) -o gpt $(EXAMPLE_SRC)/Example/Gpt.idr
-	cp $(LIB) build/exec/gpt_app/
-	bash scripts/test-checkpoint-resume.sh ./build/exec/gpt
+	cp $(LIB) $(BUILD)/exec/gpt_app/
+	bash scripts/test-checkpoint-resume.sh ./$(BUILD)/exec/gpt
 
 # Mlx-only: cross-stream MlxCpu F64 / MlxGpu F32 smoke test. Builds
 # under any BACKEND list that includes mlx; references MlxCpu / MlxGpu
 # directly, so won't link under tape-only or torch-only builds.
 example-mlx-stream-demo: install
 	idris2 $(IDRIS_FLAGS) -o mlx-stream-demo $(EXAMPLE_SRC)/Example/MlxStreamDemo.idr
-	cp $(LIB) build/exec/mlx-stream-demo_app/
-	./build/exec/mlx-stream-demo $(MLX_STREAM_DEMO_ARGS)
+	cp $(LIB) $(BUILD)/exec/mlx-stream-demo_app/
+	./$(BUILD)/exec/mlx-stream-demo $(MLX_STREAM_DEMO_ARGS)
 
 example-gpt: install
 	idris2 $(IDRIS_FLAGS) -o gpt $(EXAMPLE_SRC)/Example/Gpt.idr
-	cp $(LIB) build/exec/gpt_app/
-	$(STDBUF) ./build/exec/gpt $(SEED_FLAG) $(GPT_ARGS)
+	cp $(LIB) $(BUILD)/exec/gpt_app/
+	$(STDBUF) ./$(BUILD)/exec/gpt $(SEED_FLAG) $(GPT_ARGS)
 
 # Full-corpus convergence run (~hours on tape). Default `make example-gpt`
 # is a ~30s embedded-corpus demo; this target is the real char-LM
 # convergence target (matching nanoGPT/train_shakespeare_char.py).
 example-gpt-full: install $(TINYSHAKESPEARE_FILE)
 	idris2 $(IDRIS_FLAGS) -o gpt $(EXAMPLE_SRC)/Example/Gpt.idr
-	cp $(LIB) build/exec/gpt_app/
-	$(STDBUF) ./build/exec/gpt $(SEED_FLAG) --corpus tinyshakespeare --epochs 1000 $(GPT_ARGS)
+	cp $(LIB) $(BUILD)/exec/gpt_app/
+	$(STDBUF) ./$(BUILD)/exec/gpt $(SEED_FLAG) --corpus tinyshakespeare --epochs 1000 $(GPT_ARGS)
 
 example-mnist: install $(MNIST_SENTINEL)
 	idris2 $(IDRIS_FLAGS) -o mnist $(EXAMPLE_SRC)/Example/Mnist.idr
-	cp $(LIB) build/exec/mnist_app/
-	$(STDBUF) ./build/exec/mnist $(SEED_FLAG) $(MNIST_ARGS)
+	cp $(LIB) $(BUILD)/exec/mnist_app/
+	$(STDBUF) ./$(BUILD)/exec/mnist $(SEED_FLAG) $(MNIST_ARGS)
 
 example-seq-classify: install
 	idris2 $(IDRIS_FLAGS) -o seq-classify $(EXAMPLE_SRC)/Example/SeqClassify.idr
-	cp $(LIB) build/exec/seq-classify_app/
-	$(STDBUF) ./build/exec/seq-classify $(SEED_FLAG) $(SEQ_ARGS)
+	cp $(LIB) $(BUILD)/exec/seq-classify_app/
+	$(STDBUF) ./$(BUILD)/exec/seq-classify $(SEED_FLAG) $(SEQ_ARGS)
 
 example-reinforce: install
 	idris2 $(IDRIS_FLAGS) -o reinforce $(EXAMPLE_SRC)/Example/Reinforce.idr
-	cp $(LIB) build/exec/reinforce_app/
-	./build/exec/reinforce $(SEED_FLAG) $(REINFORCE_ARGS)
+	cp $(LIB) $(BUILD)/exec/reinforce_app/
+	./$(BUILD)/exec/reinforce $(SEED_FLAG) $(REINFORCE_ARGS)
 
 example-q-learning: install
 	idris2 $(IDRIS_FLAGS) -o q-learning $(EXAMPLE_SRC)/Example/QLearning.idr
-	cp $(LIB) build/exec/q-learning_app/
-	./build/exec/q-learning $(SEED_FLAG) $(Q_LEARNING_ARGS)
+	cp $(LIB) $(BUILD)/exec/q-learning_app/
+	./$(BUILD)/exec/q-learning $(SEED_FLAG) $(Q_LEARNING_ARGS)
 
 example-sarsa: install
 	idris2 $(IDRIS_FLAGS) -o sarsa $(EXAMPLE_SRC)/Example/Sarsa.idr
-	cp $(LIB) build/exec/sarsa_app/
-	./build/exec/sarsa $(SEED_FLAG) $(SARSA_ARGS)
+	cp $(LIB) $(BUILD)/exec/sarsa_app/
+	./$(BUILD)/exec/sarsa $(SEED_FLAG) $(SARSA_ARGS)
 
 example-monte-carlo: install
 	idris2 $(IDRIS_FLAGS) -o monte-carlo $(EXAMPLE_SRC)/Example/MonteCarlo.idr
-	cp $(LIB) build/exec/monte-carlo_app/
-	./build/exec/monte-carlo $(SEED_FLAG) $(MONTE_CARLO_ARGS)
+	cp $(LIB) $(BUILD)/exec/monte-carlo_app/
+	./$(BUILD)/exec/monte-carlo $(SEED_FLAG) $(MONTE_CARLO_ARGS)
 
 example-frozen-lake: install
 	idris2 $(IDRIS_FLAGS) -o frozen-lake $(EXAMPLE_SRC)/Example/FrozenLake.idr
-	cp $(LIB) build/exec/frozen-lake_app/
-	./build/exec/frozen-lake $(SEED_FLAG) $(FROZEN_LAKE_ARGS)
+	cp $(LIB) $(BUILD)/exec/frozen-lake_app/
+	./$(BUILD)/exec/frozen-lake $(SEED_FLAG) $(FROZEN_LAKE_ARGS)
 
 example-taxi: install
 	idris2 $(IDRIS_FLAGS) -o taxi $(EXAMPLE_SRC)/Example/Taxi.idr
-	cp $(LIB) build/exec/taxi_app/
-	./build/exec/taxi $(SEED_FLAG) $(TAXI_ARGS)
+	cp $(LIB) $(BUILD)/exec/taxi_app/
+	./$(BUILD)/exec/taxi $(SEED_FLAG) $(TAXI_ARGS)
 
 example-dqn: install
 	idris2 $(IDRIS_FLAGS) -o dqn $(EXAMPLE_SRC)/Example/Dqn.idr
-	cp $(LIB) build/exec/dqn_app/
-	$(STDBUF) ./build/exec/dqn $(SEED_FLAG) $(DQN_ARGS)
+	cp $(LIB) $(BUILD)/exec/dqn_app/
+	$(STDBUF) ./$(BUILD)/exec/dqn $(SEED_FLAG) $(DQN_ARGS)
 
 example-mountain-car: install
 	idris2 $(IDRIS_FLAGS) -o mountain-car $(EXAMPLE_SRC)/Example/MountainCar.idr
-	cp $(LIB) build/exec/mountain-car_app/
-	$(STDBUF) ./build/exec/mountain-car $(SEED_FLAG) $(MOUNTAIN_CAR_ARGS)
+	cp $(LIB) $(BUILD)/exec/mountain-car_app/
+	$(STDBUF) ./$(BUILD)/exec/mountain-car $(SEED_FLAG) $(MOUNTAIN_CAR_ARGS)
 
 example-mountain-car-cont: install
 	idris2 $(IDRIS_FLAGS) -o mountain-car-cont $(EXAMPLE_SRC)/Example/MountainCarCont.idr
-	cp $(LIB) build/exec/mountain-car-cont_app/
-	$(STDBUF) ./build/exec/mountain-car-cont $(SEED_FLAG) $(MOUNTAIN_CAR_CONT_ARGS)
+	cp $(LIB) $(BUILD)/exec/mountain-car-cont_app/
+	$(STDBUF) ./$(BUILD)/exec/mountain-car-cont $(SEED_FLAG) $(MOUNTAIN_CAR_CONT_ARGS)
 
 example-a2c: install
 	idris2 $(IDRIS_FLAGS) -o a2c $(EXAMPLE_SRC)/Example/A2c.idr
-	cp $(LIB) build/exec/a2c_app/
-	$(STDBUF) ./build/exec/a2c $(SEED_FLAG) $(A2C_ARGS)
+	cp $(LIB) $(BUILD)/exec/a2c_app/
+	$(STDBUF) ./$(BUILD)/exec/a2c $(SEED_FLAG) $(A2C_ARGS)
 
 example-ppo: install
 	idris2 $(IDRIS_FLAGS) -o ppo $(EXAMPLE_SRC)/Example/Ppo.idr
-	cp $(LIB) build/exec/ppo_app/
-	$(STDBUF) ./build/exec/ppo $(SEED_FLAG) $(PPO_ARGS)
+	cp $(LIB) $(BUILD)/exec/ppo_app/
+	$(STDBUF) ./$(BUILD)/exec/ppo $(SEED_FLAG) $(PPO_ARGS)
 
 example-sac: install
 	idris2 $(IDRIS_FLAGS) -o sac $(EXAMPLE_SRC)/Example/Sac.idr
-	cp $(LIB) build/exec/sac_app/
-	$(STDBUF) ./build/exec/sac $(SEED_FLAG) $(SAC_ARGS)
+	cp $(LIB) $(BUILD)/exec/sac_app/
+	$(STDBUF) ./$(BUILD)/exec/sac $(SEED_FLAG) $(SAC_ARGS)
 
 # Live cross-backend Tensor transfer demo. Builds with all three
 # backends linked so the example can call tape / torch / mlx C
@@ -1275,8 +1341,8 @@ example-sac: install
 example-transfer:
 	$(MAKE) BACKEND=torch,tape,mlx install
 	idris2 $(IDRIS_FLAGS) -o transfer $(EXAMPLE_SRC)/Example/Transfer.idr
-	cp $(LIB) build/exec/transfer_app/
-	./build/exec/transfer $(TRANSFER_ARGS)
+	cp $(LIB) $(BUILD)/exec/transfer_app/
+	./$(BUILD)/exec/transfer $(TRANSFER_ARGS)
 
 # F32/F64 precision artifact + cross-backend hop demo. References
 # TapeDev/TorchDev/MlxDev directly, so it needs all three backends
@@ -1285,16 +1351,16 @@ example-transfer:
 example-precision-demo:
 	$(MAKE) BACKEND=tape,torch,mlx install
 	idris2 $(IDRIS_FLAGS) -o precision-demo $(EXAMPLE_SRC)/Example/PrecisionDemo.idr
-	cp $(LIB) build/exec/precision-demo_app/
-	./build/exec/precision-demo $(PRECISION_DEMO_ARGS)
+	cp $(LIB) $(BUILD)/exec/precision-demo_app/
+	./$(BUILD)/exec/precision-demo $(PRECISION_DEMO_ARGS)
 
 # SafeTensors checkpoint demo (formerly the Example/Transfer.idr
 # content). Per-phase BACKEND= invocation; `example-checkpoint-demo`
 # drives the tape→mlx→torch on-disk round-trip via three calls.
 example-checkpoint: install
 	idris2 $(IDRIS_FLAGS) -o checkpoint $(EXAMPLE_SRC)/Example/Checkpoint.idr
-	cp $(LIB) build/exec/checkpoint_app/
-	./build/exec/checkpoint $(SEED_FLAG) $(CHECKPOINT_ARGS)
+	cp $(LIB) $(BUILD)/exec/checkpoint_app/
+	./$(BUILD)/exec/checkpoint $(SEED_FLAG) $(CHECKPOINT_ARGS)
 
 example-checkpoint-demo:
 	@echo "=== Phase 1: Train on tape ==="
@@ -1308,17 +1374,17 @@ example-checkpoint-demo:
 
 example-matmul-bench: install
 	idris2 $(IDRIS_FLAGS) -o matmul-bench $(EXAMPLE_SRC)/Example/MatmulBench.idr
-	cp $(LIB) build/exec/matmul-bench_app/
-	$(STDBUF) ./build/exec/matmul-bench $(MATMUL_BENCH_ARGS)
+	cp $(LIB) $(BUILD)/exec/matmul-bench_app/
+	$(STDBUF) ./$(BUILD)/exec/matmul-bench $(MATMUL_BENCH_ARGS)
 
 example-bench: install
 	idris2 $(IDRIS_FLAGS) -o bench $(EXAMPLE_SRC)/Example/Bench.idr
-	cp $(LIB) build/exec/bench_app/
+	cp $(LIB) $(BUILD)/exec/bench_app/
 	@# Each benchmark runs in its own process. Sharing one process across
 	@# all six accumulates allocator state that nondeterministically trips
 	@# the unresolved tape stale-reader bug (see TODO.md High Priority).
 	@for b in supervised rnn ntm ntm-copy ntm-copy-1k ntm-recall; do \
-	    ./build/exec/bench $$b || exit $$?; \
+	    ./$(BUILD)/exec/bench $$b || exit $$?; \
 	done
 
 $(BUILD):
@@ -1326,8 +1392,8 @@ $(BUILD):
 
 example-profile: install
 	idris2 $(IDRIS_FLAGS) -o profile $(EXAMPLE_SRC)/Example/Profile.idr
-	cp $(LIB) build/exec/profile_app/
-	./build/exec/profile
+	cp $(LIB) $(BUILD)/exec/profile_app/
+	./$(BUILD)/exec/profile
 
 sweep: backend
 	bash scripts/sweep.sh --parallel 4
@@ -1549,15 +1615,34 @@ test-notebooks: jupyter-install
 	rm -f /tmp/test_nb_out.ipynb; \
 	[ $$fail -eq 0 ] && echo "All notebooks passed" || { echo "Some notebooks failed"; exit 1; }
 
+# `clean` removes everything `make install` / `make backend` can regenerate
+# from source: every backend set's tree under `build/`, the coverage tree
+# under `build-cov/`, and the legacy pre-per-set `.idris2/` install prefix
+# (orphan from before commit-XXX). Does NOT touch downloaded deps:
+# `vendored/` (third-party C source), `data/` (datasets), `models/` (HF
+# checkpoints) — those are network-expensive and out of scope for clean.
+# Use `clean-all` to nuke those too.
 clean:
-	rm -rf $(BUILD)/ttc $(BUILD)/exec
-	rm -f $(BUILD)/.library-cache-stamp $(BUILD)/.backend_stamp
-	rm -f $(BUILD)/libidrisml*.dylib $(BUILD)/libidrisml*.so
-	rm -rf $(BUILD)/libidrisml*.dylib.dSYM
-	rm -f $(BUILD)/*.o
-	rm -f $(BUILD)/test_backend $(BUILD)/test_backend_debug $(BUILD)/test_safetensors \
-	      $(BUILD)/test_ntm_grad $(BUILD)/test_ntm_timestep $(BUILD)/test_tape \
-	      $(BUILD)/test_tensor $(BUILD)/bench_ops $(BUILD)/bench_ops_*
+	rm -rf build/
+	rm -rf build-cov/
+	rm -rf .idris2/
+
+# Active backend set's tree only — `BACKEND=tape make clean-set` removes
+# `build/tape-mlxcpu-torchcpu/` but leaves other set caches alone. Use
+# when a single set is in a weird state and a full `clean` would discard
+# other sets' warm caches unnecessarily.
+clean-set:
+	rm -rf $(BUILD)
+
+# Everything that's gitignored: build artifacts + vendored third-party
+# source + downloaded datasets + downloaded HF model checkpoints.
+# Network-expensive (re-running `make backend` will re-clone vendored/,
+# re-running examples will re-download datasets, and HF models are
+# gigabytes). Reach for this when freeing disk space or before a deep
+# refactor; otherwise plain `clean` is enough.
+clean-all: clean clean-models
+	rm -rf vendored/
+	rm -rf data/
 
 # Downloaded HuggingFace checkpoints, tokenizer vocab files, and the
 # generated test oracle. Kept out of plain `clean` because re-downloading
@@ -1826,7 +1911,7 @@ test-all:
 
 # Type-check notebook prelude package
 check-notebook: install-core
-	cd packages/idris-ml-notebook && idris2 --build idris-ml-notebook.ipkg
+	cd packages/idris-ml-notebook && IDRIS2_PREFIX=$(IDRIS2_LOCAL) idris2 --build-dir $(CURDIR)/$(BUILD)/ttc-idris-ml-notebook --build idris-ml-notebook.ipkg
 
 # Build backend + type-check all packages (default target)
 check-all: check check-gym check-notebook check-examples
