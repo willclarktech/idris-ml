@@ -1243,6 +1243,85 @@ static void adam_step_foreach(OptWrapper* w,
     at::_foreach_addcdiv_(active_params, m_list, denom, -step_size);
 }
 
+/* Fused multi-tensor RMSprop step (non-centered). Matches libtorch's
+   `torch::optim::RMSprop::step()` op order:
+     (optional)  g_eff = g + weight_decay * p     (fresh clone, don't mutate real grad)
+                 v.mul_(α).addcmul_(g, g, 1 - α)
+                 avg = sqrt(v) + eps               (fresh tensor; preserves v for next step)
+     (momentum)  buf.mul_(m).addcdiv_(g, avg);     p -= lr * buf
+     (no momentum)                                 p -= lr * g / avg
+   v / buf live in RMSpropParamState so libtorch's serializer keeps working.
+   Params with undefined grad are skipped. */
+static void rmsprop_step_foreach(OptWrapper* w,
+                                  const std::vector<at::Tensor>& params) {
+    auto& opt = *w->opt;
+    auto& state = opt.state();
+    const bool use_momentum = (w->momentum > 0.0);
+    const bool use_wd = (w->weight_decay != 0.0);
+
+    std::vector<at::Tensor> active_params, v_list, g_list, buf_list;
+    active_params.reserve(params.size());
+    v_list.reserve(params.size());
+    g_list.reserve(params.size());
+    if (use_momentum) buf_list.reserve(params.size());
+
+    for (const auto& p : params) {
+        if (!p.grad().defined()) continue;
+        auto key = p.unsafeGetTensorImpl();
+        if (state.count(key) == 0) {
+            state[key] = std::make_unique<torch::optim::RMSpropParamState>();
+            auto& s0 = static_cast<torch::optim::RMSpropParamState&>(*state[key]);
+            s0.square_avg(at::zeros_like(p));
+            s0.step(0);
+        }
+        auto& s = static_cast<torch::optim::RMSpropParamState&>(*state.at(key));
+        s.step(s.step() + 1);
+        if (use_momentum && !s.momentum_buffer().defined()) {
+            s.momentum_buffer(at::zeros_like(p));
+        }
+        active_params.push_back(p);
+        v_list.push_back(s.square_avg());
+        g_list.push_back(p.grad());
+        if (use_momentum) buf_list.push_back(s.momentum_buffer());
+    }
+
+    if (active_params.empty()) return;
+
+    torch::NoGradGuard no_grad;
+
+    /* g_eff = grads with weight_decay folded in, if any. Fresh-allocate so
+       we don't mutate the real .grad() — matches per-param behaviour where
+       libtorch does `grad = grad.add(p, alpha=wd)` and uses the result. */
+    std::vector<at::Tensor> g_eff;
+    if (use_wd) {
+        g_eff.reserve(g_list.size());
+        for (auto& g : g_list) g_eff.push_back(g.clone());
+        at::_foreach_add_(g_eff, active_params, w->weight_decay);
+    } else {
+        g_eff = g_list;  /* alias — only read downstream, not mutated */
+    }
+
+    double alpha = w->alpha, lr = w->lr, eps = w->eps;
+
+    /* v = α·v + (1-α)·g² */
+    at::_foreach_mul_(v_list, alpha);
+    at::_foreach_addcmul_(v_list, g_eff, g_eff, 1.0 - alpha);
+
+    /* avg = sqrt(v) + ε  (fresh tensor list; v stays intact for next step) */
+    auto avg = at::_foreach_sqrt(v_list);
+    at::_foreach_add_(avg, eps);
+
+    if (use_momentum) {
+        /* buf = momentum·buf + g/avg ; p -= lr·buf */
+        at::_foreach_mul_(buf_list, w->momentum);
+        at::_foreach_addcdiv_(buf_list, g_eff, avg, 1.0);
+        at::_foreach_add_(active_params, buf_list, -lr);
+    } else {
+        /* p -= lr · g / avg */
+        at::_foreach_addcdiv_(active_params, g_eff, avg, -lr);
+    }
+}
+
 /* Fused multi-tensor SGD step. Our wrapper exposes only `lr` (no momentum,
    no weight_decay, no nesterov), so the math collapses to a single
    _foreach_add_ call. Skips params with undefined grad. */
@@ -1275,9 +1354,9 @@ void optimizer_step(OptimizerHandle h) {
             params_ref.clear();
             for (auto& t : current) params_ref.push_back(t);
         }
-        /* Fused multi-tensor foreach paths. SGD (type=0) and Adam (type=2)
-           use at::_foreach_*. RMSprop (type=1) and AdamW (type=3) fall through
-           to libtorch's per-param step until their foreach impls land. */
+        /* Fused multi-tensor foreach paths. SGD (type=0), RMSprop (type=1),
+           and Adam (type=2) use at::_foreach_*. AdamW (type=3) falls through
+           to libtorch's per-param step until its foreach impl lands. */
         double tm0 = _wall_ms_torch();
         /* TORCH_FOREACH=0 disables every fused multi-tensor path for A/B
            perf comparison. Defaults to on. */
@@ -1288,6 +1367,7 @@ void optimizer_step(OptimizerHandle h) {
         if (foreach_enabled) {
             switch (w->type) {
                 case 0: sgd_step_foreach(w, params_ref); break;
+                case 1: rmsprop_step_foreach(w, params_ref); break;
                 case 2: adam_step_foreach(w, params_ref); break;
                 default: opt->step();
             }
