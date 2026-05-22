@@ -1365,6 +1365,7 @@ idris-ml, since we don't currently run on torch GPU).
 - next concrete step from the high-priority TODO list: the
   `mx::compile` optimizer wrap (where the same pattern actually pays
   off because Metal kernel-launch latency is the bottleneck)
+- Follow-up landed 2026-05-18 — see "Torch SGD / RMSprop / AdamW: multi-tensor step via `at::_foreach_*`" entry for the family completion (and the env-var rename from `TORCH_ADAM_FOREACH` to `TORCH_FOREACH`)
 
 ### 2026-05-14 — MLX Adam: optimizer step via `mx::compile` — `<commit>`
 
@@ -2118,3 +2119,100 @@ All 12 cells within ±10%, including the headline mlx-gpu 4.3-TFLOPS @ N=4096 �
 - TODO "Investigate precision type parameter" — closed; see `docs/develop/dtype-parameter.md` for the design memo and lessons learned
 - sweep raw output: `/tmp/perf-sweep-a875549.log` (training), `/tmp/matmul-bench-a875549.log` (matmul-bench)
 - JSONL entries appended to `docs/develop/perf-log.jsonl` (training: kind=baseline, commit=a875549; matmul-bench: kind=matmul-bench, commit=dbc39cc)
+
+### 2026-05-18 — Torch SGD / RMSprop / AdamW: multi-tensor step via `at::_foreach_*` — `7f48251`
+
+**Plan job**: finish the torch foreach optimizer family started by the
+2026-05-14 Adam landing (`adam_step_foreach`). SGD, RMSprop, and AdamW
+still fell through to libtorch's per-param `opt->step()`; this lands
+the matching `*_step_foreach` impls + consolidates the A/B env var.
+
+**Motivation**: code consistency + GPU-lane future-proofing, not a CPU
+perf win. CPU deltas land within VM noise (as Adam did, −0.6 ms/ep on
+a 9500 ms/ep budget). The structural payoff is GPU-shaped — same
+multi-tensor pattern lands 2–10× on torch CUDA/MPS per PyTorch's
+documentation, and having SGD/RMSprop/AdamW also covered means the
+GPU lane payoff lands across the whole optimizer family when CUDA is
+wired up. Pre-landing dispatch was asymmetric (only `w->type == 2`
+took the foreach path); the asymmetry would have accrued maintenance
+cruft over time.
+
+**Change** (`packages/backends/backend_torch.cpp`):
+
+- `sgd_step_foreach`: single `at::_foreach_add_(params, grads, -lr)`
+  inside a `NoGradGuard`. Our wrapper exposes only `lr` (no momentum
+  / wd / nesterov), so the math collapses to one call.
+- `rmsprop_step_foreach`: non-centered, mirrors `RMSprop::step()` op
+  order. Optional `g_eff = g + wd·p` produced via fresh clone so the
+  real grad isn't mutated. `v = α·v + (1−α)·g²` via mul + addcmul;
+  `avg = sqrt(v) + ε` via `_foreach_sqrt` + `_foreach_add_`; momentum
+  branch (`buf = m·buf + g/avg; p −= lr·buf`) and no-momentum branch
+  (`p −= lr·g/avg`). `square_avg` and `momentum_buffer` live in
+  `RMSpropParamState`, lazy-init on first sight.
+- `adam_core_foreach`: extracted from the existing
+  `adam_step_foreach` body — shared Adam math (m, v, denom, addcdiv)
+  reusable by both Adam and AdamW callers, who differ only in WD
+  handling.
+- `adamw_step_foreach`: prepends decoupled WD
+  (`at::_foreach_mul_(params, 1 − lr·wd)`) before calling
+  `adam_core_foreach`. Uses `AdamWParamState` (distinct from
+  `AdamParamState` in libtorch despite identical fields).
+- Dispatch rewrite in `optimizer_step`: switch over `w->type` (0/1/2/3)
+  gated by single env `TORCH_FOREACH` (replaces `TORCH_ADAM_FOREACH`).
+  AdamW's `w->type == 3` case is now wired up too.
+
+**Verification — convergence gates**:
+
+| Optimizer | Examples gauntleted at 5ep / seed 42 | Result |
+|-----------|---------------------------------------|--------|
+| SGD       | Lstm, Rnn, Gru, Supervised, Transfer, Bench-SGD slice | **bit-identical** |
+| RMSprop   | NtmCopy, NtmAssociativeRecall, DncCopy, DncRecall    | **bit-identical** |
+| AdamW     | Gpt                                                   | **convergence-equivalent** (see below) |
+
+The AdamW gate downgraded from bit-identical to convergence-equivalent
+per the plan's documented yellow-flag handling. On Gpt:
+
+| Epoch | foreach OFF (per-param) | foreach ON | abs Δ | rel Δ |
+|---:|---:|---:|---:|---:|
+| 1 | 6.193343065004 | 6.193491467520 | 1.5e−4 | 2.4e−5 |
+| 2 | 5.812826845788 | 5.812988673311 | 1.6e−4 | 2.8e−5 |
+| 3 | 5.559812157297 | 5.559973495455 | 1.6e−4 | 2.9e−5 |
+| 5 | 5.197982268085 | 5.197974140255 | **8.1e−6** | **1.6e−6** |
+
+The drift *shrinks* over more epochs (1e−4 at ep 1 → 1e−6 by ep 5) —
+both paths converge to the same fixed point. Drift source is
+`at::_foreach_*` dispatching to a slightly different CPU SIMD code
+path than chained per-tensor methods. Not tightenable from our side
+(the math is identical; the per-op fp ordering differs). Adam itself
+remains bit-identical (verified on Transformer post-refactor) — the
+divergence only surfaces when the decoupled WD multiplication is
+prepended.
+
+**Impact (timings, 5 epochs)**:
+
+| optimizer / example | metric | A: foreach OFF | B: foreach ON | Δ |
+|---------------------|--------|---------------:|--------------:|--:|
+| SGD / lstm          | optimizer-math ms/ep | 0.01 | 0.01 | 0 |
+| SGD / lstm          | optimizer total ms/ep | 0.1  | 0.1  | 0 |
+| RMSprop / ntm-copy  | optimizer-math ms/ep | 0.45 | 0.51 | +0.06 (noise) |
+| RMSprop / ntm-copy  | optimizer total ms/ep | 3.0  | 3.2  | +0.2 (noise) |
+| AdamW / gpt         | optimizer-math ms/ep | 0.60 | 0.51 | −0.09 (−15%) |
+| AdamW / gpt         | optimizer total ms/ep | 1.3  | 1.3  | 0 |
+
+All deltas within VM noise on the multi-second per-epoch budgets;
+optimizer-math is sub-ms in every case and inside the noise floor.
+Matches the structural prediction — CPU `at::_foreach_*` is a
+parallel for-loop, not a kernel-launch consolidator, so no measurable
+CPU win.
+
+**Outcome**: landed. Dispatch is now uniform across the four
+optimizers; AdamW carries a documented convergence-equivalent caveat
+but the trajectory is sound. Closes the high-priority TODO row.
+
+**Cross-references**:
+- `perf-log.jsonl` `kind=ab` entries timestamped 2026-05-17T23:36 (6
+  rows — A + B per optimizer)
+- The 2026-05-14 Adam landing entry above (env-var rename
+  `TORCH_ADAM_FOREACH` → `TORCH_FOREACH`)
+- TODO row "Torch backend: multi-tensor optimizer via `_foreach_*`"
+  — deleted from High Priority
