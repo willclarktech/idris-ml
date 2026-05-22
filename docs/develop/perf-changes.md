@@ -1316,10 +1316,11 @@ the gather lists (matches `torch::optim::Adam::step()` behaviour). m
 and v stay in `AdamParamState` so libtorch's serializer continues to
 work. `optimizer_step` dispatches to `adam_step_foreach` when
 `w->type == 2`; SGD / RMSprop / AdamW fall through to `opt->step()`
-unchanged. `TORCH_ADAM_FOREACH=0` env var routes back to libtorch's
-per-param step for A/B comparison. Added `prof_optimizer_math_ms`
-sub-timer to separate the math from `free_intermediates()` (the
-dominant non-math contributor inside `prof_optimizer_ms`).
+unchanged. `TORCH_ADAM_FOREACH=0` (later renamed to `TORCH_FOREACH=0`
+when SGD foreach landed) routes back to libtorch's per-param step for
+A/B comparison. Added `prof_optimizer_math_ms` sub-timer to separate
+the math from `free_intermediates()` (the dominant non-math contributor
+inside `prof_optimizer_ms`).
 
 **Impact** — gpt-large @ torch CPU, 5 epochs, single-run A/B with
 otherwise-identical setup:

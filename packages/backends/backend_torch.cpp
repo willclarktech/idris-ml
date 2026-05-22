@@ -1243,6 +1243,24 @@ static void adam_step_foreach(OptWrapper* w,
     at::_foreach_addcdiv_(active_params, m_list, denom, -step_size);
 }
 
+/* Fused multi-tensor SGD step. Our wrapper exposes only `lr` (no momentum,
+   no weight_decay, no nesterov), so the math collapses to a single
+   _foreach_add_ call. Skips params with undefined grad. */
+static void sgd_step_foreach(OptWrapper* w,
+                              const std::vector<at::Tensor>& params) {
+    std::vector<at::Tensor> active, grads;
+    active.reserve(params.size());
+    grads.reserve(params.size());
+    for (const auto& p : params) {
+        if (!p.grad().defined()) continue;
+        active.push_back(p);
+        grads.push_back(p.grad());
+    }
+    if (active.empty()) return;
+    torch::NoGradGuard no_grad;
+    at::_foreach_add_(active, grads, -w->lr);  /* p -= lr * g */
+}
+
 void optimizer_step(OptimizerHandle h) {
     double t0 = _wall_ms_torch();
     auto* w = static_cast<OptWrapper*>(h);
@@ -1257,19 +1275,22 @@ void optimizer_step(OptimizerHandle h) {
             params_ref.clear();
             for (auto& t : current) params_ref.push_back(t);
         }
-        /* Fused foreach path for Adam (type=2). SGD/RMSprop/AdamW fall through
-           to libtorch's per-param step — those aren't currently hot in our
-           examples, and AdamW would need its own foreach impl for the
-           weight-decay step. */
+        /* Fused multi-tensor foreach paths. SGD (type=0) and Adam (type=2)
+           use at::_foreach_*. RMSprop (type=1) and AdamW (type=3) fall through
+           to libtorch's per-param step until their foreach impls land. */
         double tm0 = _wall_ms_torch();
-        /* TORCH_ADAM_FOREACH=0 disables the fused multi-tensor path for A/B
+        /* TORCH_FOREACH=0 disables every fused multi-tensor path for A/B
            perf comparison. Defaults to on. */
         static const bool foreach_enabled = []() {
-            const char* e = std::getenv("TORCH_ADAM_FOREACH");
+            const char* e = std::getenv("TORCH_FOREACH");
             return !(e && (e[0] == '0'));
         }();
-        if (w->type == 2 && foreach_enabled) {
-            adam_step_foreach(w, params_ref);
+        if (foreach_enabled) {
+            switch (w->type) {
+                case 0: sgd_step_foreach(w, params_ref); break;
+                case 2: adam_step_foreach(w, params_ref); break;
+                default: opt->step();
+            }
         } else {
             opt->step();
         }
