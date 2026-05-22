@@ -1181,6 +1181,38 @@ void optimizer_free(OptimizerHandle h) {
    Numerics are identical to the standard formulation: m and v live in the
    AdamParamState slots so save/load still works through libtorch's serializer.
    Params with undefined grad are skipped (matches libtorch behaviour). */
+/* Core Adam foreach math: assumes caller has gathered lists, materialised
+   state, bumped step, and entered a NoGradGuard. Shared by adam_step_foreach
+   and adamw_step_foreach (AdamW adds decoupled weight-decay before the
+   call but uses the same math thereafter). */
+static void adam_core_foreach(double lr, double beta1, double beta2, double eps,
+                              int64_t new_step,
+                              std::vector<at::Tensor>& params,
+                              std::vector<at::Tensor>& m_list,
+                              std::vector<at::Tensor>& v_list,
+                              std::vector<at::Tensor>& g_list) {
+    double bc1 = 1.0 - std::pow(beta1, (double)new_step);
+    double bc2 = 1.0 - std::pow(beta2, (double)new_step);
+    double bc2_sqrt = std::sqrt(bc2);
+    double step_size = lr / bc1;
+
+    /* m = β1·m + (1-β1)·g — matches libtorch's mul_().add_(g, 1-β1) order. */
+    at::_foreach_mul_(m_list, beta1);
+    at::_foreach_add_(m_list, g_list, 1.0 - beta1);
+
+    /* v = β2·v + (1-β2)·g² */
+    at::_foreach_mul_(v_list, beta2);
+    at::_foreach_addcmul_(v_list, g_list, g_list, 1.0 - beta2);
+
+    /* denom = sqrt(v) / sqrt(bc2) + eps */
+    auto denom = at::_foreach_sqrt(v_list);
+    at::_foreach_div_(denom, bc2_sqrt);
+    at::_foreach_add_(denom, eps);
+
+    /* p -= step_size · m / denom */
+    at::_foreach_addcdiv_(params, m_list, denom, -step_size);
+}
+
 static void adam_step_foreach(OptWrapper* w,
                                const std::vector<at::Tensor>& params) {
     auto& opt = *w->opt;
@@ -1217,30 +1249,64 @@ static void adam_step_foreach(OptWrapper* w,
     /* In-place updates on leaf params with requires_grad=true would trip
        autograd's check_inplace. Same wrap as torch::optim::Adam::step(). */
     torch::NoGradGuard no_grad;
+    adam_core_foreach(w->lr, w->beta1, w->beta2, w->eps, new_step,
+                      active_params, m_list, v_list, g_list);
+}
 
-    double beta1 = w->beta1, beta2 = w->beta2;
-    double lr = w->lr, eps = w->eps;
+/* Fused multi-tensor AdamW step. Mirrors libtorch's AdamW::step(): decoupled
+   weight-decay applied to params as `p *= 1 - lr*wd` BEFORE the Adam math
+   (distinct from Adam, which folds weight_decay into the gradient if any).
+   AdamWParamState is a separate type from AdamParamState in libtorch but
+   carries the same field accessors (step / exp_avg / exp_avg_sq), so the
+   shared adam_core_foreach math is reusable. */
+static void adamw_step_foreach(OptWrapper* w,
+                                const std::vector<at::Tensor>& params) {
+    auto& opt = *w->opt;
+    auto& state = opt.state();
 
-    double bc1 = 1.0 - std::pow(beta1, (double)new_step);
-    double bc2 = 1.0 - std::pow(beta2, (double)new_step);
-    double bc2_sqrt = std::sqrt(bc2);
-    double step_size = lr / bc1;
+    std::vector<at::Tensor> active_params, m_list, v_list, g_list;
+    active_params.reserve(params.size());
+    m_list.reserve(params.size());
+    v_list.reserve(params.size());
+    g_list.reserve(params.size());
 
-    /* m = β1·m + (1-β1)·g — matches libtorch's mul_().add_(g, 1-β1) order. */
-    at::_foreach_mul_(m_list, beta1);
-    at::_foreach_add_(m_list, g_list, 1.0 - beta1);
+    int64_t new_step = 0;
+    for (const auto& p : params) {
+        if (!p.grad().defined()) continue;
+        auto key = p.unsafeGetTensorImpl();
+        if (state.count(key) == 0) {
+            state[key] = std::make_unique<torch::optim::AdamWParamState>();
+            auto& s0 = static_cast<torch::optim::AdamWParamState&>(*state[key]);
+            s0.exp_avg(at::zeros_like(p));
+            s0.exp_avg_sq(at::zeros_like(p));
+            s0.step(0);
+        }
+        auto& s = static_cast<torch::optim::AdamWParamState&>(*state.at(key));
+        s.step(s.step() + 1);
+        new_step = s.step();
+        active_params.push_back(p);
+        m_list.push_back(s.exp_avg());
+        v_list.push_back(s.exp_avg_sq());
+        g_list.push_back(p.grad());
+    }
 
-    /* v = β2·v + (1-β2)·g² */
-    at::_foreach_mul_(v_list, beta2);
-    at::_foreach_addcmul_(v_list, g_list, g_list, 1.0 - beta2);
+    if (active_params.empty()) return;
 
-    /* denom = sqrt(v) / sqrt(bc2) + eps */
-    auto denom = at::_foreach_sqrt(v_list);
-    at::_foreach_div_(denom, bc2_sqrt);
-    at::_foreach_add_(denom, eps);
+    torch::NoGradGuard no_grad;
 
-    /* p -= step_size · m / denom */
-    at::_foreach_addcdiv_(active_params, m_list, denom, -step_size);
+    /* Decoupled weight decay: p *= 1 - lr*wd  (skip when wd == 0).
+       Numerically equivalent to libtorch's AdamW::step() but not bit-identical
+       on CPU — the at::_foreach_* code paths use slightly different SIMD /
+       FMA ordering than chained per-tensor methods, producing ~1e-5 relative
+       drift over a few epochs. Convergence trajectory matches (verified on
+       Gpt). The structural benefit is GPU-shaped where the kernel-launch
+       savings dominate any per-op fp noise. */
+    if (w->weight_decay != 0.0) {
+        at::_foreach_mul_(active_params, 1.0 - w->lr * w->weight_decay);
+    }
+
+    adam_core_foreach(w->lr, w->beta1, w->beta2, w->eps, new_step,
+                      active_params, m_list, v_list, g_list);
 }
 
 /* Fused multi-tensor RMSprop step (non-centered). Matches libtorch's
@@ -1354,9 +1420,8 @@ void optimizer_step(OptimizerHandle h) {
             params_ref.clear();
             for (auto& t : current) params_ref.push_back(t);
         }
-        /* Fused multi-tensor foreach paths. SGD (type=0), RMSprop (type=1),
-           and Adam (type=2) use at::_foreach_*. AdamW (type=3) falls through
-           to libtorch's per-param step until its foreach impl lands. */
+        /* Fused multi-tensor foreach paths for the full optimizer family:
+           SGD (type=0), RMSprop (type=1), Adam (type=2), AdamW (type=3). */
         double tm0 = _wall_ms_torch();
         /* TORCH_FOREACH=0 disables every fused multi-tensor path for A/B
            perf comparison. Defaults to on. */
@@ -1369,6 +1434,7 @@ void optimizer_step(OptimizerHandle h) {
                 case 0: sgd_step_foreach(w, params_ref); break;
                 case 1: rmsprop_step_foreach(w, params_ref); break;
                 case 2: adam_step_foreach(w, params_ref); break;
+                case 3: adamw_step_foreach(w, params_ref); break;
                 default: opt->step();
             }
         } else {
