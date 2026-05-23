@@ -188,17 +188,26 @@ main = do
   -- input; we run the same forward and dump the same vector.
   let inputIds = mkIds (the (Vect 2 Double) [9906.0, 1917.0])
   putStrLn "[stage] hfBitnetForwardLm — single forward pass (seq=2)..."
-  logits <- hfBitnetForwardLm {d=ExampleDevice} {dt=ExampleDType}
-                              {seq          = 2}
-                              {vocab        = VocabSize}
-                              {hidden       = Hidden}
-                              {numLayers    = NumLayers}
-                              {numHeads     = NumHeads}
-                              {numKvHeads   = NumKvHeads}
-                              {headDim      = HeadDim}
-                              {intermediate = Intermediate}
-                              {maxPos       = MaxPos}
-                              RmsNormEps loaded tables inputIds
+  -- withNoGradKeep: every BitLinear layer materialises a dequantised
+  -- float copy of its int8 weight ([out, in]) at call time. With
+  -- autograd on, libtorch keeps each of those for backward — 30
+  -- layers × ~278 MB per layer = ~8 GB of dead intermediates on top
+  -- of the params, which busts MPS's 18 GB watermark. NoGrad drops
+  -- each cast tensor as soon as the matmul returns. Keep is needed
+  -- because the resulting `logits` tensor was created inside the
+  -- bracket and must survive the exit-drain.
+  logits <- withNoGradKeep {d=ExampleDevice} $
+    hfBitnetForwardLm {d=ExampleDevice} {dt=ExampleDType}
+                      {seq          = 2}
+                      {vocab        = VocabSize}
+                      {hidden       = Hidden}
+                      {numLayers    = NumLayers}
+                      {numHeads     = NumHeads}
+                      {numKvHeads   = NumKvHeads}
+                      {headDim      = HeadDim}
+                      {intermediate = Intermediate}
+                      {maxPos       = MaxPos}
+                      RmsNormEps loaded tables inputIds
   stageStamp "hfBitnetForwardLm ok" t0
 
   -- Last-position row = logits[1, :] — the position-1 prediction the

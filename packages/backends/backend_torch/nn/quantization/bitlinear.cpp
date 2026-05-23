@@ -13,6 +13,14 @@
  * torch would require bypassing every framework op + the dispatcher;
  * we don't pay that cost yet.
  *
+ * Device placement: we unpack on CPU (per-byte loop is fast there),
+ * then move the int8 tensor to `g_torch_target_device` so subsequent
+ * matmuls against MPS / CUDA activations stay device-consistent.
+ * Without this move, a TORCH_DEVICE=mps build crashes inside
+ * `addmv_out_mps_impl` with `Expected mat.is_mps() to be true, but
+ * got false` because the int8 W stays on CPU while the activations
+ * land on MPS.
+ *
  * Forward: y = (W_ternary.to(scale.dtype()) * scale.unsqueeze(1)) @ x + bias.
  * NoGrad on the weight (BitNet b1.58 weight is frozen). The cast +
  * mul + matmul still flow through torch's autograd if scale / x have
@@ -23,6 +31,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include "../../tensor.h"
+
+extern c10::Device g_torch_target_device;
 
 extern "C" TensorHandle tensor_create_ternary_packed_2d(
         const uint8_t* packed_bytes, int packed_byte_count,
@@ -64,6 +74,9 @@ extern "C" TensorHandle tensor_create_ternary_packed_2d(
             "requires_grad=1 not supported on int8/ternary storage; "
             "Ternary weights must be NoGrad.\n");
         std::abort();
+    }
+    if (g_torch_target_device.type() != c10::DeviceType::CPU) {
+        unpacked = unpacked.to(g_torch_target_device);
     }
     return from_tensor_persistent(unpacked);
 }
@@ -145,6 +158,9 @@ extern "C" TensorHandle tensor_create_ternary_from_hf_packed_2d(
             }
             dst[(size_t)j * (size_t)i_dim + (size_t)k] = (int8_t)v;
         }
+    }
+    if (g_torch_target_device.type() != c10::DeviceType::CPU) {
+        unpacked = unpacked.to(g_torch_target_device);
     }
     return from_tensor_persistent(unpacked);
 }
