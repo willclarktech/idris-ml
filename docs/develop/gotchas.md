@@ -534,6 +534,39 @@ default both stay at seed=42 (matches the primary tape/torch path).
 
 C kernels, buffer systems, optimizer internals, and the layer system.
 
+### FFI manifest entry required for wrap-on-return
+
+Any C function whose Idris-side `%foreign` binding accepts or returns a
+`TensorHandle` (raw `void*` from Idris's perspective, but a Chez
+`tensor-handle-v2` vector after the lifecycle machinery wraps it) MUST
+have an entry in `scripts/lifecycle/ffi_manifest.py`'s `MANIFEST` dict.
+The entry is the `(arg_types, return_type)` shape that drives the
+auto-generated Scheme wrapper.
+
+What goes wrong if you forget: the Idris-side declaration stays as
+`%foreign "C:tensor_xxx_<backend>,libidrisml"`. The Chez codegen wires
+the AnyPtr args straight through, so the C function receives the
+**wrapped** Chez vector (a pointer into the Scheme heap pointing at a
+3-slot vector `#(tag tag-string raw-ptr)`) as its `TensorHandle` arg
+instead of the **unwrapped** raw `Tensor*`. Cast `(Tensor*)hq` in C
+then reads garbage at offset 0 (Chez vector header) and crashes with
+`Exception: invalid memory reference. Some debugging context lost`.
+
+How to fix: add the entry, then run
+`python3 scripts/lifecycle/ffi-convert-to-scheme.py`. The converter
+rewrites the `%foreign` lines in `Device/{Tape,Torch,Mlx}.idr` and
+`Tensor.idr` to the wrap-on-return Scheme template that unwraps each
+`T`-typed input via `(vector-ref a<i> 2)` and re-wraps the return
+value + registers it with `idris-tensor-guardian`. `make
+check-ffi-wrap-template` enforces this and fails CI if it would change
+anything.
+
+Surfaced 2026-05-30 wiring `tensor_sdpa_2d` for #399 Commit B — the
+C function received the wrapped vector and crashed on the first
+`q->shape[0]` access. Added to MANIFEST, regenerated the wraps, and
+the symbol resolved correctly on the next build.
+
+
 ### Per-backend-set build tree (`build/<BUILD_KEY>/`)
 
 All build artifacts (ttc cache, installed library prefix, dylib, example

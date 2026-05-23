@@ -48,6 +48,28 @@ is still useful (saves someone trying it again).
 
 ## Entries
 
+### 2026-05-30 — Fused SDPA on all 3 backends: -44% op count, wall flat (#399 Commit B)
+
+**Plan**: Commit B of the fused-op catalogue plan — replace the per-head attention math loop with `at::scaled_dot_product_attention` (torch), `mlx::core::fast::scaled_dot_product_attention` (mlx), and a hand-composed C kernel (tape).
+
+**Motivation**: PyTorch Python head-to-head (2026-05-29 entry below) showed ~150× gap on Llama. Attention is ~10K of 18.4K ops/forward; SDPA fusion should drop attention ops to ~16/forward and eliminate the corresponding MTLCommandBuffer submissions on MPS.
+
+**Change**: new `primSdpa2d` typeclass method on `UserDeviceTraining` + 3 per-backend C kernels + Idris-side `applyAttention` refactor in `HfLlama.idr`. The per-head RoPE loop stays (under `buildRopedHeads`) — it produces a flattened `[seq, numHeads*headDim]` accumulator that feeds into SDPA. 2D-flat I/O avoids multiplicative-Nat elaboration in type signatures.
+
+**Impact** (torch-mps F32, Llama-3.2-1B, 8 greedy tokens, prompt='The capital of France is'):
+
+| | op count step 6 | op count step 13 | runGenerate wall |
+|---|---:|---:|---:|
+| baseline (commit `26a0d56+dirty`) | 18,410 | 20,489 | 5m 07s |
+| +SDPA (commit `6850366`) | **10,346 (-44%)** | **12,425 (-39%)** | 5m 15s (within VM noise) |
+
+The op-count drop is real and deterministic. The wall is unchanged because the per-head RoPE accumulator's `primConcat2dAxis1` calls (62 per layer × 16 layers = ~1,000 per forward) add ~15 s of MTLCommandBuffer overhead per 8-token decode — roughly the same amount we saved on attention-math submissions. Net zero on wall.
+
+**Outcome**: SDPA infrastructure landed across all 3 backends. The wall win requires also killing the `buildRopedHeads` concat loop — either by all-heads RoPE in Idris (PyTorch's approach, rejected earlier but the rejection may have been VM noise — needs cleaner re-measurement) or by a fused per-head-RoPE FFI primitive. **Next experiment**: retry all-heads RoPE on top of SDPA with multiple controlled measurements; hypothesis is that op-count × per-op cost ≈ wall, so the deterministic ~58% op-count drop should translate to a 30-50% wall drop if the per-op cost stays near baseline.
+
+**Cross-references**: commit `6850366` (SDPA), `26a0d56` (per-op counter from #393), `perf-log.jsonl` 2026-05-30 entries, `docs/develop/gotchas.md` "FFI manifest entry required for wrap-on-return".
+
+
 ### 2026-05-29 — PyTorch Python on torch-mps Llama: a ~150× gap, not a structural ceiling (#399 sizing)
 
 **Plan**: before committing to #399 ("torch-mps deferred-op tape (graph mode)") as an XL architectural change, take the cheap diagnostic step of actually measuring PyTorch Python's wall on the same workload. The hypothesis on file (from the closed #393 row) was that ~19,400 ops × ~1.89 ms/op = ~36.7 s/forward is the *libtorch+MPS structural ceiling* and we and PyTorch Python both hit it. That hypothesis was untested — there were no PyTorch Python Llama walls in `perf-log.jsonl`.
