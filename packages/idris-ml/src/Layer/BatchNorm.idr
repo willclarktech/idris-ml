@@ -91,25 +91,23 @@ batchNormLayer : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatib
                          (channels * spatialDim) d dt WithGrad)
 batchNormLayer paramPrefix = do
   let cI = cast {to=Int} channels
-      gBuf = fillConst (prim__allocDoubles cI) 0 cI 1.0
-      bBuf = fillConst (prim__allocDoubles cI) 0 cI 0.0
-      mBuf = fillConst (prim__allocDoubles cI) 0 cI 0.0
-      vBuf = fillConst (prim__allocDoubles cI) 0 cI 1.0
       gName = paramPrefix ++ "_gamma"
       bName = paramPrefix ++ "_beta"
-      gPtr = primParamRegister {d} gName (dtCreateParam1d {d} {t=dt} cI gBuf (deviceStreamTag {d}))
-      bPtr = primParamRegister {d} bName (dtCreateParam1d {d} {t=dt} cI bBuf (deviceStreamTag {d}))
+  -- Learnable params (γ=1, β=0) via fused C-side init.
+  gamma <- tparam1dConst {d} {dt} {n=channels} gName 1.0
+  beta  <- tparam1dConst {d} {dt} {n=channels} bName 0.0
+  -- Non-learnable state (running mean=0, running var=1). State tensors
+  -- keep the old fill-then-create pattern — no tstate1dConst surface
+  -- yet (deferred to a follow-up).
+  let mBuf = fillConst (prim__allocDoubles cI) 0 cI 0.0
+      vBuf = fillConst (prim__allocDoubles cI) 0 cI 1.0
       mPtr = dtCreateState1d {d} {t=dt} cI mBuf (deviceStreamTag {d})
       vPtr = dtCreateState1d {d} {t=dt} cI vBuf (deviceStreamTag {d})
-      gTV : TVec channels d dt WithGrad
-      gTV = MkTensor gPtr (Just gName)
-      bTV : TVec channels d dt WithGrad
-      bTV = MkTensor bPtr (Just bName)
       mTV : TVec channels d dt WithGrad
       mTV = MkTensor mPtr Nothing
       vTV : TVec channels d dt WithGrad
       vTV = MkTensor vPtr Nothing
-  pure $ MkBatchNorm gTV bTV mTV vTV True 0.1 1.0e-5
+  pure $ MkBatchNorm gamma beta mTV vTV True 0.1 1.0e-5
 
 ||| Toggle training/eval mode.
 export
