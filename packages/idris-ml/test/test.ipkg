@@ -9,6 +9,8 @@ modules = Harness
         , Main
         , TestConfig
         , Test.Array
+        , Test.BitLinear
+        , Test.BitNet
         , Test.GradMode
         , Test.GradScaler
         , Test.Hpo.LrFinder

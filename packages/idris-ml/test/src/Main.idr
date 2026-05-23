@@ -14,6 +14,7 @@ import Test.Hpo.LrFinder
 import Test.Lossless
 import Test.ManagedHandle
 import Test.BitLinear
+import Test.BitNet
 import Test.MixedLayerLike
 import Test.RmsNorm
 import Test.RoPE
@@ -43,6 +44,7 @@ main = runAll
   , ("Lossless",        Test.Lossless.tests)
   , ("ManagedHandle",   Test.ManagedHandle.tests)
   , ("BitLinear",       Test.BitLinear.tests)
+  , ("BitNet",          Test.BitNet.tests)
   , ("MixedLayerLike",  Test.MixedLayerLike.tests)
   , ("RmsNorm",         Test.RmsNorm.tests)
   , ("RoPE",            Test.RoPE.tests)
