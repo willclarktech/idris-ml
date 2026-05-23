@@ -295,6 +295,46 @@ TensorHandle tensor_pair_first(TensorPair* p);
 TensorHandle tensor_pair_second(TensorPair* p);
 void tensor_pair_free(TensorPair* p);
 
+/* ---------- Quantization (BitNet b1.58 — #411) ---------- */
+
+/* Build a Ternary tensor from a packed-2-bit byte buffer.
+ *
+ * `packed_bytes` carries values in {-1, 0, +1} encoded as 2-bit codes
+ * via shared_utils.h `ternary_pack` (00=0, 01=+1, 11=-1). Layout is
+ * row-major with each row packed independently: row j occupies
+ * `((i + 3) / 4)` bytes starting at offset `j * ((i + 3) / 4)`.
+ * Trailing bits in a row's final byte are padded to 0 and ignored on
+ * unpack.
+ *
+ * Per-backend storage (see design-decisions.md "Per-backend ternary
+ * storage"):
+ *   - tape:   keeps the packed bytes verbatim (2 bits/value, sub-byte
+ *             arena branch). Decoded on the inner loop of
+ *             `tensor_bitlinear_fwd`.
+ *   - torch / mlx: unpacks into int8 storage at construction time (8
+ *             bits/value, framework-native dtype). The 4× memory hit
+ *             is the cost of staying inside framework op dispatch +
+ *             autograd.
+ *
+ * `packed_byte_count` is the length of the buffer; the call aborts
+ * if it doesn't equal `((i + 3) / 4) * o`. */
+TensorHandle tensor_create_ternary_packed_2d(
+    const uint8_t* packed_bytes, int packed_byte_count,
+    int o, int i, int requires_grad);
+
+/* BitLinear inference forward: y = (W_ternary * scale.unsqueeze(1)) @ x + bias.
+ *
+ *   W:     [o, i] tagged Ternary (see tensor_create_ternary_packed_2d).
+ *   scale: [o]    float (compute dtype = output dtype).
+ *   x:     [i]    float (compute dtype).
+ *   bias:  [o]    float, or NULL for no bias.
+ *
+ * Output is shape [o] in scale's dtype. NoGrad path (BitNet b1.58
+ * weight is a frozen quantized param); bias gradient flow lands in a
+ * follow-up. */
+TensorHandle tensor_bitlinear_fwd(
+    TensorHandle W, TensorHandle scale, TensorHandle x, TensorHandle bias);
+
 /* ---------- Parameter Registry ---------- */
 
 /* Register a named parameter for gradient collection after backward() */

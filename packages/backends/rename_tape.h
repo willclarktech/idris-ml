@@ -78,6 +78,7 @@
 #define tensor_batch tensor_batch_tape
 #define tensor_batch_norm tensor_batch_norm_tape
 #define tensor_bce_with_logits tensor_bce_with_logits_tape
+#define tensor_bitlinear_fwd tensor_bitlinear_fwd_tape
 #define tensor_bmm tensor_bmm_tape
 #define tensor_bmm_3x3 tensor_bmm_3x3_tape
 #define tensor_cast_dtype_f32 tensor_cast_dtype_f32_tape
@@ -139,6 +140,7 @@
 #define tensor_create_state_2d_f64 tensor_create_state_2d_f64_tape
 #define tensor_create_state_2d_streamed tensor_create_state_2d_streamed_tape
 #define tensor_create_streamed tensor_create_streamed_tape
+#define tensor_create_ternary_packed_2d tensor_create_ternary_packed_2d_tape
 #define tensor_cross_attention tensor_cross_attention_tape
 #define tensor_cross_entropy tensor_cross_entropy_tape
 #define tensor_cumprod tensor_cumprod_tape
