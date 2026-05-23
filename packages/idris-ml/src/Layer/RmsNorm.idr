@@ -77,16 +77,6 @@ applyRmsNormEps {n} eps st@(MkRmsNorm weight) input = ioRerun (\_ =>
 -- Constructor
 ----------------------------------------------------------------------
 
-packDoubles : AnyPtr -> Int -> Vect k Double -> AnyPtr
-packDoubles buf _ [] = buf
-packDoubles buf off (x :: rest) =
-  packDoubles (prim__setDouble buf off x) (off + 1) rest
-
-fillConst : AnyPtr -> Int -> Int -> Double -> AnyPtr
-fillConst buf _ 0 _ = buf
-fillConst buf off n v =
-  fillConst (prim__setDouble buf off v) (off + 1) (n - 1) v
-
 ||| Build a `RmsNormState n n` with `weight` initialised to 1.0
 ||| (HF-default — same as LayerNorm's gamma). Registers as a C param
 ||| under `<prefix>_weight`. HF-aligned modules (HfLlama) re-bind the
@@ -96,12 +86,9 @@ rmsNormLayer : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible
                {n : Nat} -> (paramPrefix : String) ->
                IO (RmsNormState n n d dt WithGrad)
 rmsNormLayer paramPrefix = do
-  let nI = cast {to=Int} n
-      wBuf = prim__allocDoubles nI
-      wBuf' = fillConst wBuf 0 nI 1.0
-      wName = paramPrefix ++ "_weight"
-      wPtr  = primParamRegister {d} wName (dtCreateParam1d {d} {t=dt} nI wBuf' (deviceStreamTag {d}))
-  pure $ MkRmsNorm (MkTensor wPtr (Just wName))
+  let wName = paramPrefix ++ "_weight"
+  weight <- tparam1dConst {d} {dt} {n} wName 1.0
+  pure $ MkRmsNorm weight
 
 
 ----------------------------------------------------------------------
