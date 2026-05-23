@@ -3,13 +3,10 @@ module Layer.Transformer
 import Data.Vect
 import Decidable.Equality
 
-import Compat.Random
 import Device
-import Init
 import Layer.Core
 import Layer.LayerNorm
 import Layer.Linear
-import Sampler
 import Tensor
 
 
@@ -380,17 +377,11 @@ transformerLayer :
   IO (TransformerState seqLen dModel numHeads headDim numBlocks vocabSize
                          seqLen (seqLen * vocabSize) d dt WithGrad)
 transformerLayer {prf} paramPrefix = do
-  let n = vocabSize * dModel
-  embedVals <- traverse (\_ => xavier uniform vocabSize dModel) (Vect.replicate n ())
-  let nI = cast {to=Int} n
-      vI = cast {to=Int} vocabSize
-      dI = cast {to=Int} dModel
-      embBuf = prim__allocDoubles nI
-      embBuf' = packDoubles embBuf 0 embedVals
+  -- Embedding init: xavier-normal-via-uniform, std = sqrt(2/(vocab+dModel)).
+  let embStd = sqrt (2.0 / cast {to=Double} (vocabSize + dModel))
       embName = paramPrefix ++ "_embed"
-      embPtr = primParamRegister {d} embName (dtCreateParam2d {d} {t=dt} vI dI embBuf' (deviceStreamTag {d}))
-      embTV : TMat vocabSize dModel d dt WithGrad
-      embTV = MkTensor embPtr (Just embName)
+      dI = cast {to=Int} dModel
+  embTV <- tparam2dNormal {o=vocabSize} {i=dModel} embName 0.0 embStd
   blks <- mkBlocks numBlocks (paramPrefix ++ "_b")
   nf <- layerNormLayer {n = dModel} (paramPrefix ++ "_nf")
   vp <- linearLayer {i = dModel} {o = vocabSize} (paramPrefix ++ "_vp")
