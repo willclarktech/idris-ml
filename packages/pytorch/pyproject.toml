@@ -24,6 +24,7 @@ dependencies = [
     # oracle that Example/HfBertInference compares against. Not consumed
     # by torch_ref's reference implementations.
     "transformers>=4.40",
+    "accelerate>=1.13.0",
 ]
 
 [dependency-groups]
