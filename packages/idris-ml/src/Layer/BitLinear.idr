@@ -40,53 +40,33 @@ record BitLinearState (i : Nat) (o : Nat) (0 d : Device)
 
 
 ----------------------------------------------------------------------
--- Forward + lifecycle helpers
+-- LayerLikeMixed instance
 ----------------------------------------------------------------------
+--
+-- `applyVarMixed` is generic over paramDt at the interface level,
+-- but `tBitlinearFwd`'s signature pins `Tensor [o, i] d Ternary
+-- NoGrad` as the weight slot — so the BitLinear instance only
+-- typechecks when callers instantiate `paramDt = Ternary`. The
+-- type-level guard is the field annotation in `BitLinearState`'s
+-- `weightT`, not a constraint on the instance head.
 
--- `LayerLikeMixed.applyVarMixed`'s constraint list doesn't include
--- `UserDeviceQuant d` (the surface is generic over all layers), so
--- the BitLinear instance can't resolve it from the interface's auto-
--- implicit list. Until LayerLikeMixed grows a quant escape hatch,
--- BitLinear is constructed + driven via its standalone forward
--- helpers (`tBitlinearFwd`) at the network-construction site that
--- has `UserDeviceQuant d` in scope. The unfreezable bias edge is
--- exposed via a separate helper so the standard freeze/unfreeze
--- workflow still works.
-||| Freeze the bias edge (weight + scale are already NoGrad by
-||| construction). Linear in input — parallel to `LayerLike.freezeLayer`.
-export
-freezeBitLinear : {0 d : Device} -> UserDeviceTraining d =>
-                  {i, o : Nat} -> {0 g : GradMode} ->
-                  (1 _ : BitLinearState i o d Ternary cDt g) ->
-                  IO (BitLinearState i o d Ternary cDt NoGrad)
-freezeBitLinear (MkBitLinear w s b) = do
-  b' <- weakenGrad b
-  pure (MkBitLinear w s b')
+%default partial
 
-||| Unfreeze the bias edge (weight + scale stay NoGrad). Linear in
-||| input — parallel to `LayerLike.unfreezeLayer`.
-export
-unfreezeBitLinear : {0 d : Device} -> UserDeviceTraining d =>
-                    {i, o : Nat} ->
-                    (1 _ : BitLinearState i o d Ternary cDt NoGrad) ->
-                    IO (BitLinearState i o d Ternary cDt WithGrad)
-unfreezeBitLinear (MkBitLinear w s b) = do
-  primIO (primSetRequiresGrad {d} b.tensorPtr 1)
-  pure (MkBitLinear w s (retypeGrad b))
+public export
+LayerLikeMixed BitLinearState where
+  applyVarMixed st input = do
+    out <- tBitlinearFwd st.weightT st.scaleT input st.biasT
+    pure (st, out)
 
-||| Run a BitLinear forward step on a `BitLinearState`. Mirrors
-||| `LayerLikeMixed.applyVarMixed`'s shape (returns the unchanged
-||| state and the output) so the call site looks consistent with
-||| other mixed-precision layers.
-export
-applyBitLinear : {0 d : Device} -> UserDeviceQuant d =>
-                 {i, o : Nat} -> {0 g : GradMode} ->
-                 BitLinearState i o d Ternary cDt g ->
-                 Tensor [i] d cDt g ->
-                 IO (BitLinearState i o d Ternary cDt g, Tensor [o] d cDt g)
-applyBitLinear st input = do
-  out <- tBitlinearFwd st.weightT st.scaleT input st.biasT
-  pure (st, out)
+  layerPrefixMixed _ = "bitlinear"
+
+  freezeLayerMixed (MkBitLinear w s b) = do
+    b' <- weakenGrad b
+    pure (MkBitLinear w s b')
+
+  unfreezeLayerMixed (MkBitLinear w s b) = do
+    primIO (primSetRequiresGrad {d} b.tensorPtr 1)
+    pure (MkBitLinear w s (retypeGrad b))
 
 
 ----------------------------------------------------------------------
@@ -111,3 +91,17 @@ bitLinearFromTensors :
   Tensor [o] d cDt g ->
   BitLinearState i o d Ternary cDt g
 bitLinearFromTensors w s b = MkBitLinear w s b
+
+||| Wrap a `BitLinearState` in `AnyLayerMixed` for use in a
+||| `NetworkMixed`. The chained network uses the standard
+||| `forwardVarMixed` pipeline; BitLinear slots in alongside
+||| `mixedLinearLayerAny` etc.
+export
+bitLinearFromTensorsAny :
+  {i, o : Nat} -> {0 d : Device} -> {0 cDt : DType} -> {0 g : GradMode} ->
+  Tensor [o, i] d Ternary NoGrad ->
+  Tensor [o] d cDt NoGrad ->
+  Tensor [o] d cDt g ->
+  AnyLayerMixed i o d Ternary cDt g
+bitLinearFromTensorsAny w s b =
+  MkAnyLayerMixed BitLinearState (bitLinearFromTensors w s b)

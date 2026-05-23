@@ -38,7 +38,15 @@ interface LayerLikeMixed (l : Nat -> Nat -> (0 _ : Device) -> (0 _ : DType) -> (
   ||| the `AsMixed` bridge). `IsDType pDt` is required so layers can
   ||| call `tcastUnsafe` to materialise the paramDt → computeDt cast
   ||| inside their forward.
+  |||
+  ||| `UserDeviceQuant d` is in the constraint list so quantization-
+  ||| aware layers (BitLinear under #411) can call `tBitlinearFwd`
+  ||| from their `applyVarMixed`. All three built-in backends
+  ||| implement `UserDeviceQuant`; BYO backends that want to slot
+  ||| layers into a `NetworkMixed` must implement it too (stub the
+  ||| methods with `idris_crash` if they don't ship BitNet kernels).
   applyVarMixed : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d =>
+                  UserDeviceQuant d =>
                   IsDType pDt => IsDType cDt =>
                   {auto rdtP : RuntimeDType pDt} ->
                   {auto rdtC : RuntimeDType cDt} ->
@@ -62,6 +70,7 @@ interface LayerLikeMixed (l : Nat -> Nat -> (0 _ : Device) -> (0 _ : DType) -> (
   ||| Batched forward (default crashes; layers participating in
   ||| batched training override).
   applyVarBatchMixed : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d =>
+                       UserDeviceQuant d =>
                        IsDType pDt => IsDType cDt =>
                        {auto rdtP : RuntimeDType pDt} ->
                        {auto rdtC : RuntimeDType cDt} ->
@@ -144,6 +153,7 @@ data AnyLayerMixed : Nat -> Nat -> (0 _ : Device) -> (0 _ : DType) -> (0 _ : DTy
 
 export
 applyVarAnyMixed : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d =>
+                   UserDeviceQuant d =>
                    IsDType pDt => IsDType cDt =>
                    RuntimeDType pDt => RuntimeDType cDt =>
                    Linked d => Compatible d pDt => Compatible d cDt =>
@@ -156,6 +166,7 @@ applyVarAnyMixed (MkAnyLayerMixed l @{dict} layer) input = do
 
 export
 applyVarBatchAnyMixed : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d =>
+                        UserDeviceQuant d =>
                         IsDType pDt => IsDType cDt =>
                         RuntimeDType pDt => RuntimeDType cDt =>
                         Linked d => Compatible d pDt => Compatible d cDt =>
@@ -199,6 +210,7 @@ export infixr 5 ~~~>
 ||| Array-level forward through a NetworkMixed.
 export
 forwardVarMixed : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d =>
+                  UserDeviceQuant d =>
                   IsDType pDt => IsDType cDt =>
                   RuntimeDType pDt => RuntimeDType cDt =>
                   Linked d => Compatible d pDt => Compatible d cDt =>
@@ -253,6 +265,7 @@ resetNetworkMixed ((MkAnyLayerMixed l @{dict} layer) ~~~> rest) =
 ||| Batched tensor-level forward through a NetworkMixed.
 export
 forwardVarBatchMixed : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d =>
+                       UserDeviceQuant d =>
                        IsDType pDt => IsDType cDt =>
                        RuntimeDType pDt => RuntimeDType cDt =>
                        Linked d => Compatible d pDt => Compatible d cDt =>

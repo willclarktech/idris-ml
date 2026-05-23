@@ -118,9 +118,39 @@ bitlinearStateRoundtrip = do
   checkClose "BitLinearState forward through stored fields" 0.975 y0 1.0e-6
 
 
+-- BitLinear slots into NetworkMixed via the LayerLikeMixed instance
+-- (B2 follow-up). Builds a single-layer NetworkMixed BitLinear,
+-- runs forwardVarMixed, and asserts the output matches the same
+-- PyTorch oracle (the network is just the layer wrapped in
+-- OutputLayerMixed). This proves the cross-layer plumbing —
+-- LayerLikeMixed instance + AnyLayerMixed wrapping + forwardVarMixed
+-- chain — works end-to-end for a quantized layer.
+bitlinearLayerLikeMixedOracle : IO Bool
+bitlinearLayerLikeMixedOracle = do
+  (bytesPtr, byteCount) <- buildFixtureBytes
+  w <- tCreateTernaryPacked2d {d=TestDevice} {o=3} {i=4} bytesPtr byteCount
+  s <- mkVecNoGrad (the (Vect 3 Double) [0.5, 0.25, 0.75])
+  b <- mkVec       (the (Vect 3 Double) [0.1, -0.2, 0.3])
+  let anyL : AnyLayerMixed 4 3 TestDevice Ternary TestDType WithGrad
+      anyL = bitLinearFromTensorsAny w s b
+      net : NetworkMixed 4 [] 3 TestDevice Ternary TestDType WithGrad
+      net = OutputLayerMixed anyL
+  x <- mkVec (the (Vect 4 Double) [1.0, 2.0, -0.5, 0.25])
+  (_, y) <- forwardVarMixed net x
+  y0 <- readElem3 y 0
+  y1 <- readElem3 y 1
+  y2 <- readElem3 y 2
+  let tol = 1.0e-6
+  ok0 <- checkClose "NetworkMixed BitLinear y[0]"   0.975    y0 tol
+  ok1 <- checkClose "NetworkMixed BitLinear y[1]" (-0.075)   y1 tol
+  ok2 <- checkClose "NetworkMixed BitLinear y[2]" (-1.0125)  y2 tol
+  pure (ok0 && ok1 && ok2)
+
+
 export
 tests : List (IO Bool)
 tests =
   [ bitlinearForwardOracle
   , bitlinearStateRoundtrip
+  , bitlinearLayerLikeMixedOracle
   ]

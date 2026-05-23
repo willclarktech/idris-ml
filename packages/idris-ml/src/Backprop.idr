@@ -136,6 +136,7 @@ epochVar opt dataPoints lossFn model = do
 -- at the forward boundary — params get cast paramDt → cDt inside
 -- the layer's `applyVarMixed`.
 perPointLossMixed : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d =>
+                    UserDeviceQuant d =>
                     IsDType pDt => IsDType cDt =>
                     RuntimeDType pDt => RuntimeDType cDt =>
                     Linked d => Compatible d pDt => Compatible d cDt =>
@@ -165,6 +166,7 @@ perPointLossMixed lossFn model dp = do
 ||| epoch losses as "skip" rather than "diverged").
 export
 epochVarMixed : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d =>
+                UserDeviceQuant d =>
                 IsDType pDt => IsDType cDt =>
                 RuntimeDType pDt => RuntimeDType cDt =>
                 Linked d => Compatible d pDt => Compatible d cDt =>
@@ -279,6 +281,7 @@ epochVarTensorBatch opt dataPoints lossFn model = do
 -- `forwardVarMixed`.
 perPointLossTensorMixed :
   {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d =>
+  UserDeviceQuant d =>
   IsDType pDt => IsDType cDt =>
   RuntimeDType pDt => RuntimeDType cDt =>
   Linked d => Compatible d pDt => Compatible d cDt =>
@@ -298,6 +301,7 @@ perPointLossTensorMixed lossFn model dp = do
 export
 epochVarTensorMixed :
   {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d =>
+  UserDeviceQuant d =>
   IsDType pDt => IsDType cDt =>
   RuntimeDType pDt => RuntimeDType cDt =>
   Linked d => Compatible d pDt => Compatible d cDt =>
@@ -324,6 +328,7 @@ epochVarTensorMixed opt gs dataPoints lossFn model = do
 export
 epochVarTensorBatchMixed :
   {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d =>
+  UserDeviceQuant d =>
   IsDType pDt => IsDType cDt =>
   RuntimeDType pDt => RuntimeDType cDt =>
   Linked d => Compatible d pDt => Compatible d cDt =>
