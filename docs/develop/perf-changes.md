@@ -48,6 +48,46 @@ is still useful (saves someone trying it again).
 
 ## Entries
 
+### 2026-05-31 — Rank-3 broadcast microbench localises the gap to OUR wrapper (#402 Commit 1)
+
+**Plan**: before committing to any specific wrapper-side fix for the 400-2000× rank-3 broadcast gap, measure raw libtorch vs PyTorch Python on the same shape, same device. Decide direction from the data, per the plan's decision tree.
+
+**Motivation**: the `c09d374` perf-changes entry showed torch-mps Llama wall flat at 5m 17s despite the all-heads RoPE landing -86% op count (18,410 → 2,634). Per-op cost ~10–26 ms/op vs PyTorch Python's ~2 ms/op on the same MPS device. Four candidate causes: H1 (FFI marshalling), H2 (strided-view materialization), H3 (MPSGraph compile-cache misses), H4 (MTLCommandBuffer submission overhead). The plan's microbenchmark variants isolate H1/H2.
+
+**Change**: new `packages/backends/bench_rank3_broadcast.cpp` (links directly against libtorch, no FFI/libidrisml) and `packages/idris-transformers/scripts/time_rank3_broadcast.py` (PyTorch Python equivalent). Both run `mul([6, 32, 32], [6, 1, 32])` × 100 after 10 warmup, with strided (via `narrow + reshape`) and contiguous variants. New `make bench-rank3-broadcast` target.
+
+**Impact** (per-op µs/op on MPS, F32):
+
+| variant | strided | contig | strided/contig | gap to our wrapper |
+|---|---:|---:|---:|---:|
+| libtorch C++ direct | **25.36** | 25.07 | 1.01× | ~400–1000× |
+| PyTorch Python | **12.54** | 12.14 | 1.03× | ~800–2000× |
+| our wrapper (from #399 measurements) | ~10,000–26,000 | n/a | n/a | baseline |
+
+**Hypothesis verdict**:
+- H1 (FFI marshalling / wrapper) — **confirmed**: raw libtorch C++ matches PyTorch Python (~25 vs ~12 µs); both are 400-2000× faster than our wrapper for the same op. The bottleneck is between our `tensor_mul_torch` entry point and libtorch's `torch::mul`.
+- H2 (strided-view materialization) — **refuted**: strided/contig ratio is 1.01× in C++ and 1.03× in Python. The strided view is essentially free for libtorch's MPS path. Pre-materializing cos/sin contiguous would not move the needle.
+- H3 (MPSGraph compile-cache misses) — **not yet measured**: would require varying the shape across iterations rather than reusing. Lower priority since H1 alone is ≥99% of the wall.
+- H4 (MTLCommandBuffer submission overhead) — **bounded above at ~25 µs/op**: that's libtorch's own per-op floor; can't be more than that in our wrapper unless we're somehow flushing extra command buffers per op. Even if doubled by extra sync, doesn't explain 10 ms.
+
+**What's in our wrapper that could cost ~10 ms/op**:
+1. `from_tensor()` in `intermediates.cpp:56-68` — `new at::Tensor(std::move(t))`, `intermediates_torch.push_back(p)`, `prof_op_count_torch++`. The heap alloc itself is ~hundreds of ns; the vector push and atomic are similar.
+2. Scheme-side wrap: `(vector 'tensor-handle-v2 "torch" raw_r)` — Chez vector construction; should be µs-scale.
+3. Guardian registration: `((top-level-value 'idris-tensor-guardian) wr)` — function call.
+4. Per-op retain: separate `(foreign-procedure)` call to `tensor_retain_handle_torch` (cached but still a foreign-procedure dispatch).
+5. Lazy-init `(when (not (top-level-bound? ...)))` checks at the top of every Scheme wrapper.
+
+Each individually should be ~µs at most. Together they shouldn't reach 10 ms. Something else amplifies. Plausible candidates not yet measured:
+- MPS implicit sync triggered by storage reference patterns we induce (e.g., the new `at::Tensor` heap-allocation pattern in `from_tensor` may interact with libtorch's MPS storage-tracking differently than the bench's stack-allocated `auto y = …`).
+- The intermediates vector tracking changing storage residency hints.
+
+**Next step**: Commit 1b — add a "wrapper-direct" microbench that links libidrisml and calls `tensor_mul_torch` in a tight loop (mirroring this bench's pattern). That isolates whether the gap is in `from_tensor`/`tensor_mul` C-side or in the Scheme wrapper layer.
+
+**Outcome**: H1 confirmed at the libtorch boundary. Direction for Commit 2 is wrapper-side (slim `from_tensor`, profile what's adding milliseconds per op) — not deferred-op tape, not MPS-flag tweaks, not materialization. Microbenchmark stays as the regression gate for future wrapper optimizations.
+
+**Cross-references**: `docs/develop/perf-log-ref.jsonl` 2026-05-31 entries (3 measurements); `bench_rank3_broadcast.cpp`; `time_rank3_broadcast.py`; commit (this commit's hash) + the follow-up.
+
+
 ### 2026-05-31 — Tape F32 HfLlama mid-decode crash fixed by `PrimIO Int` (#401)
 
 **Plan**: unblock tape F32 HfLlama inference, which has crashed mid-decode (~step 8) since commit `26a0d56` introduced the `primPerfOpCount : PrimIO Bits64` FFI for the #393 op-submission counter. Three hypotheses on file (TODO #401): (1) `PrimIO Bits64` shape, (2) typeclass dispatch, (3) Chez `unsigned-64` marshalling. Test cheapest first.
