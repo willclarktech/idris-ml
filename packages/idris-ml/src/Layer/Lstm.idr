@@ -2,11 +2,8 @@ module Layer.Lstm
 
 import Data.Vect
 
-import Compat.Random
 import Device
-import Init
 import Layer.Core
-import Sampler
 import Tensor
 
 
@@ -66,17 +63,6 @@ applyLstm {o} st input = do
 -- Constructor
 ----------------------------------------------------------------------
 
--- Pack a Vect of Doubles into a pre-allocated buffer at offset.
-packDoubles : AnyPtr -> Int -> Vect k Double -> AnyPtr
-packDoubles buf _ [] = buf
-packDoubles buf off (x :: rest) =
-  packDoubles (prim__setDouble buf off x) (off + 1) rest
-
--- Zero a buffer for `n` elements starting at offset.
-zeroBuf : AnyPtr -> Int -> Int -> AnyPtr
-zeroBuf buf _ 0 = buf
-zeroBuf buf off n =
-  zeroBuf (prim__setDouble buf off 0.0) (off + 1) (n - 1)
 
 ||| Build an `LstmState i o TapeDev` with Xavier-uniform weight init,
 ||| two zero biases (matching `nn.LSTMCell`), and learned `h0`/`c0`
@@ -87,48 +73,25 @@ export
 lstmLayer : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt => {i, o : Nat} -> (paramPrefix : String) ->
               IO (LstmState i o d dt WithGrad)
 lstmLayer paramPrefix = do
-  let gI = cast {to=Int} (4 * o)
-      iI = cast {to=Int} i
-      oI = cast {to=Int} o
-  iwVals <- traverse (\_ => xavier uniform i (4 * o)) (Vect.replicate (4 * o * i) ())
-  rwVals <- traverse (\_ => xavier uniform o (4 * o)) (Vect.replicate (4 * o * o) ())
-  let iwBuf = prim__allocDoubles (gI * iI)
-      iwBuf' = packDoubles iwBuf 0 iwVals
-      rwBuf = prim__allocDoubles (gI * oI)
-      rwBuf' = packDoubles rwBuf 0 rwVals
-      ibBuf = prim__allocDoubles gI
-      ibBuf' = zeroBuf ibBuf 0 gI
-      hbBuf = prim__allocDoubles gI
-      hbBuf' = zeroBuf hbBuf 0 gI
-      h0Buf = prim__allocDoubles oI
-      h0Buf' = zeroBuf h0Buf 0 oI
-      c0Buf = prim__allocDoubles oI
-      c0Buf' = zeroBuf c0Buf 0 oI
+  -- 4 gates (input, forget, gate, output) stacked along axis=0 →
+  -- weights are [4*o, i] / [4*o, o]. Xavier-normal-via-uniform std =
+  -- sqrt(2/(fan_in + fan_out)) with fan_out = 4*o. Biases + learned
+  -- (h0, c0) initial states zero-init.
+  let iwStd = sqrt (2.0 / cast {to=Double} (i + 4 * o))
+      rwStd = sqrt (2.0 / cast {to=Double} (o + 4 * o))
       iwName = paramPrefix ++ "_iw"
       rwName = paramPrefix ++ "_rw"
       ibName = paramPrefix ++ "_ib"
       hbName = paramPrefix ++ "_hb"
       h0Name = paramPrefix ++ "_h0"
       c0Name = paramPrefix ++ "_c0"
-      iwPtr = primParamRegister {d} iwName (dtCreateParam2d {d} {t=dt} gI iI iwBuf' (deviceStreamTag {d}))
-      rwPtr = primParamRegister {d} rwName (dtCreateParam2d {d} {t=dt} gI oI rwBuf' (deviceStreamTag {d}))
-      ibPtr = primParamRegister {d} ibName (dtCreateParam1d {d} {t=dt} gI ibBuf' (deviceStreamTag {d}))
-      hbPtr = primParamRegister {d} hbName (dtCreateParam1d {d} {t=dt} gI hbBuf' (deviceStreamTag {d}))
-      h0Ptr = primParamRegister {d} h0Name (dtCreateParam1d {d} {t=dt} oI h0Buf' (deviceStreamTag {d}))
-      c0Ptr = primParamRegister {d} c0Name (dtCreateParam1d {d} {t=dt} oI c0Buf' (deviceStreamTag {d}))
-      iwTV : TMat (4 * o) i d dt WithGrad
-      iwTV = MkTensor iwPtr (Just iwName)
-      rwTV : TMat (4 * o) o d dt WithGrad
-      rwTV = MkTensor rwPtr (Just rwName)
-      ibTV : TVec (4 * o) d dt WithGrad
-      ibTV = MkTensor ibPtr (Just ibName)
-      hbTV : TVec (4 * o) d dt WithGrad
-      hbTV = MkTensor hbPtr (Just hbName)
-      h0TV : TVec o d dt WithGrad
-      h0TV = MkTensor h0Ptr (Just h0Name)
-      c0TV : TVec o d dt WithGrad
-      c0TV = MkTensor c0Ptr (Just c0Name)
-  pure $ MkLstm iwTV rwTV ibTV hbTV h0TV c0TV Nothing Nothing
+  iw <- tparam2dNormal {o = 4 * o} {i} iwName 0.0 iwStd
+  rw <- tparam2dNormal {o = 4 * o} {i = o} rwName 0.0 rwStd
+  ib <- tparam1dConst {n = 4 * o} ibName 0.0
+  hb <- tparam1dConst {n = 4 * o} hbName 0.0
+  h0 <- tparam1dConst {n = o} h0Name 0.0
+  c0 <- tparam1dConst {n = o} c0Name 0.0
+  pure $ MkLstm iw rw ib hb h0 c0 Nothing Nothing
 
 ||| Reset hidden/cell state. Setting to `Nothing` lets `applyLstm`'s
 ||| first call lazy-allocate fresh persistent zero buffers — mirrors
