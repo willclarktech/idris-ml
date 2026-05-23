@@ -288,12 +288,13 @@ upcastLteRefl {n = S k} = LTESucc (upcastLteRefl {n = k})
 public export
 interface UpcastableTo (0 from : Type) (0 to : Type) where
 
-public export
-{m, n : Nat} -> LTE m n => UpcastableTo (Float m) (Float n) where
-
-public export
-{m, n : Nat} -> LTE m n => UpcastableTo (BFloat m) (BFloat n) where
-
+-- Within-family integer ladders. `Float`/`BFloat` within-family
+-- ladders used to live here too, but are now derived via
+-- `LosslessTo → UpcastableTo` (see #410 F1). The integer ladders
+-- stay per-family because `LosslessTo` doesn't currently witness
+-- integer→integer; if/when needed, fold them into the LosslessTo
+-- machinery (a future "Bridge LosslessTo within integer families"
+-- row).
 public export
 {m, n : Nat} -> LTE m n => UpcastableTo (IntN m) (IntN n) where
 
@@ -388,34 +389,66 @@ FloatPrecision (BFloat 16) where
 
 
 ----------------------------------------------------------------------
--- LosslessTo — cross-family lossless float cast witness
+-- LosslessTo — structural "every value of `from` is exactly
+-- representable in `to`" witness, across families.
 --
--- A pair of `LTE` proofs: mantissa-bits non-decreasing AND
--- exponent-bits non-decreasing from source to target. Auto-resolved
--- by Idris's hint search because both `LTE` proofs are derivable
--- structurally for concrete dtype pairs.
+-- Empty typeclass with per-family-pair instances. Each instance
+-- carries whatever structural condition fits its (from, to) pair:
+-- mantissa+exponent LTE for float→float, `n ≤ mantissaBits + 2` for
+-- IntN→Float (signed-integer max value 2^(n-1) bounded by float's
+-- 2^(mb+1) exact-integer range), `n ≤ mantissaBits + 1` for
+-- UInt→Float (max 2^n - 1), no condition for Bool→float (0/1
+-- representable everywhere), no condition for Ternary/Binary→float
+-- (value sets `{-1, 0, +1}` / `{-1, +1}` exactly representable in
+-- any IEEE float — these instances ship with the BitNet ternary
+-- dtype row, #411).
 --
--- The constraint complements `UpcastableTo` (within-family LTE on
--- `precisionRank`): `LosslessTo` covers cross-family edges like
--- `BFloat 16 → Float 32`, `Float 16 → Float 64`, etc. The two
--- mechanisms don't overlap — `UpcastableTo` instances are spelled
--- per family, while `LosslessTo` derives across them via the
--- explicit mantissa+exponent dimensions.
+-- Bridge `LosslessTo from to => UpcastableTo from to` (below)
+-- threads every LosslessTo edge into the existing `tcast` /
+-- `toDeviceAs` resolution surface, so users get implicit safe
+-- cross-family casts (`tcast bf16_t {to=F32}` just compiles,
+-- `tcast int32_t {to=F64}` likewise) — while lossy edges
+-- (`tcast f32_t {to=BF16}`, `tcast int64_t {to=F32}`) still refuse
+-- to type-check and require explicit `tcastUnsafe`.
 --
--- Lossless cross-family edges this catches (incomplete list):
---   * BFloat 16 → Float 32   (mantissa 7→23, exponent 8→8)
---   * BFloat 16 → Float 64   (7→52, 8→11)
---   * Float 16  → Float 32   (10→23, 5→8) — also via within-family
---                                            for `Float n` ladders
---   * Float 16  → Float 64   (10→52, 5→11)
---   * Float 32  → Float 64   (23→52, 8→11) — also within-family
+-- The lossless edges this covers (concrete pairs at the float
+-- widths idris-ml ships — F16, F32, F64, BF16):
 --
--- Lossy edges (no `LosslessTo` resolution; explicit `tcastUnsafe`
--- required):
---   * Float 32  → BFloat 16  (mantissa shrinks: 23→7)
---   * Float 32  → Float 16   (mantissa shrinks: 23→10)
---   * BFloat 16 ↔ Float 16   (each direction shrinks one dimension)
---   * Float 64  → any        (mantissa shrinks)
+-- Float / BFloat → Float / BFloat:
+--   * F16  → F32   (mantissa 10→23, exponent 5→8)
+--   * F16  → F64   (10→52, 5→11)
+--   * F32  → F64   (23→52, 8→11)
+--   * BF16 → F32   (7→23, 8→8)
+--   * BF16 → F64   (7→52, 8→11)
+--   * F16  → BF16  — actually lossy (exponent 5→8 grows but
+--                   mantissa 10→7 shrinks); refuses to derive.
+--   * BF16 → F16   — actually lossy (mantissa 7→10 grows but
+--                   exponent 8→5 shrinks); refuses to derive.
+--
+-- IntN → Float / BFloat (max IntN n value is 2^(n-1); fits exactly
+-- if 2^(n-1) ≤ 2^(mb+1), i.e. n ≤ mb + 2):
+--   * I8   → F16   (8 ≤ 12), F32, F64, BF16 (8 ≤ 9)
+--   * I16  → F32 (16 ≤ 25), F64 (16 ≤ 54)
+--   * I32  → F64   (32 ≤ 54)
+--   * I64  → none of the floats we ship (54 too small for 64-bit)
+--
+-- UInt → Float / BFloat (max value 2^n - 1; fits exactly if
+-- 2^n ≤ 2^(mb+1), conservatively n ≤ mb + 1):
+--   * U8   → F16   (8 ≤ 11), F32, F64, BF16 (8 ≤ 8)
+--
+-- Bool → any Float / BFloat: trivially representable (0/1 always
+-- exact).
+-- Bool → IntN m: trivially representable if m ≥ 2 (IntN 2 covers
+-- -2..1, fits {0, 1}). Not enforced via LTE today — IntN starts at
+-- 8 bits in practice, so trivially satisfied.
+-- Bool → UInt m: trivially representable if m ≥ 1.
+--
+-- Lossy edges (no LosslessTo instance; explicit `tcastUnsafe`
+-- required) at the float widths we ship:
+--   * F32 / F64 → BF16 / F16        (mantissa shrinks)
+--   * F64 → F32                     (mantissa shrinks)
+--   * BF16 ↔ F16                    (each direction shrinks one dim)
+--   * I64 → any float we ship       (mantissa overflow)
 --
 -- The point: idris-ml refuses silent lossy mid-graph casts that
 -- PyTorch's autocast would silently introduce. Lossy edges have to
@@ -423,12 +456,50 @@ FloatPrecision (BFloat 16) where
 ----------------------------------------------------------------------
 
 public export
-LosslessTo : (0 from : Type) -> (0 to : Type) ->
-             FloatPrecision from => FloatPrecision to => Type
-LosslessTo from to =
-  ( LTE (mantissaBits {t=from}) (mantissaBits {t=to})
-  , LTE (exponentBits {t=from}) (exponentBits {t=to})
-  )
+interface LosslessTo (0 from : Type) (0 to : Type) where
+
+-- Float / BFloat → Float / BFloat: mantissa-bits + exponent-bits
+-- both non-decreasing. Covers all four cross-product combinations
+-- (F→F, BF→BF, F→BF, BF→F) since both families have FloatPrecision.
+public export
+{from, to : Type} ->
+FloatPrecision from => FloatPrecision to =>
+LTE (mantissaBits {t=from}) (mantissaBits {t=to}) =>
+LTE (exponentBits {t=from}) (exponentBits {t=to}) =>
+LosslessTo from to where
+
+-- IntN n → Float / BFloat: signed-integer max value 2^(n-1) bounded
+-- by float's 2^(mb+1) exact-integer range → `n ≤ mb + 2`.
+public export
+{n : Nat} -> {to : Type} ->
+FloatPrecision to =>
+LTE n (S (S (mantissaBits {t=to}))) =>
+LosslessTo (IntN n) to where
+
+-- UInt n → Float / BFloat: max value 2^n - 1 ≤ 2^(mb+1) → `n ≤ mb + 1`.
+public export
+{n : Nat} -> {to : Type} ->
+FloatPrecision to =>
+LTE n (S (mantissaBits {t=to})) =>
+LosslessTo (UInt n) to where
+
+-- Bool → Float / BFloat: trivially lossless (0 and 1 representable
+-- in every IEEE float).
+public export
+{to : Type} -> FloatPrecision to => LosslessTo Bool to where
+
+-- Bool → IntN m (m ≥ 2): IntN 2 covers -2..1 which contains {0, 1}.
+-- Bool → UInt m (m ≥ 1): UInt 1 covers {0, 1}.
+public export
+{m : Nat} -> LTE 2 m => LosslessTo Bool (IntN m) where
+public export
+{m : Nat} -> LTE 1 m => LosslessTo Bool (UInt m) where
+
+-- Bridge: every LosslessTo instance is an UpcastableTo. Threads the
+-- cross-family lossless edges into the existing `tcast` /
+-- `toDeviceAs` surface.
+public export
+LosslessTo from to => UpcastableTo from to where
 
 
 ----------------------------------------------------------------------

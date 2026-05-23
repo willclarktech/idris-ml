@@ -251,6 +251,12 @@ jobs:
         # casts. Pairs with the positive Test.Lossless suite.
         run: make check-lossy-cast-gate
 
+      - name: Verify int-overflow lossless-cast gate (#412 F1)
+        # Asserts LosslessTo refuses I64 to F32 (max int value far
+        # exceeds F32 mantissa exact-integer ceiling). Pairs with the
+        # I32 to F64 + U8 to F32 positive cases in Test.Lossless.
+        run: make check-int-overflow-cast-gate
+
       # C backend FFI tests per available backend, via the Criterion
       # harness under `packages/backends/test/`. Per-OS: tape everywhere,
       # torch on Ubuntu (libtorch installed via uv), mlx on macOS

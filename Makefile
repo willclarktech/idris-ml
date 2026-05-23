@@ -972,6 +972,14 @@ check-gradmode-aliasing: install
 check-lossy-cast-gate: install
 	@IDRIS2_LOCAL=$(IDRIS2_LOCAL) ./scripts/check-lossy-cast-gate.sh
 
+# Verify the int-overflow lossless-cast gate (F1 of #410, #412)
+# refuses I64 → F32 (max int value far exceeds F32 mantissa). Inverts
+# the idris2 exit code (success = compile failed) and matches on the
+# `LTE 64 25` error so unrelated regressions don't pass the gate.
+check-int-overflow-cast-gate: install
+	@chmod +x ./scripts/check-int-overflow-cast-gate.sh
+	@IDRIS2_LOCAL=$(IDRIS2_LOCAL) ./scripts/check-int-overflow-cast-gate.sh
+
 # Type-check examples (builds each as executable, which is the real check)
 check-examples: install
 	@for f in $(EXAMPLE_SRC)/Example/*.idr; do \

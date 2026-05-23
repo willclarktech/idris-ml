@@ -41,6 +41,70 @@ proofF16ToF64 : LosslessTo (Float 16) (Float 64)
 proofF16ToF64 = %search
 
 
+-- ---------------------------------------------------------------
+-- F1 (#412): int/uint/bool → float lossless witnesses
+-- ---------------------------------------------------------------
+--
+-- The float-only LosslessTo from A0.5 generalised to a typeclass
+-- with per-family-pair instances. New witnesses:
+--
+-- IntN n → Float m: n ≤ mantissaBits + 2.
+--   F64 mantissa = 52, so I32 (n=32 ≤ 54) ✓, I16 ✓, I8 ✓; I64 ✗.
+proofI32ToF64 : LosslessTo (IntN 32) (Float 64)
+proofI32ToF64 = %search
+
+proofI16ToF32 : LosslessTo (IntN 16) (Float 32)
+proofI16ToF32 = %search
+
+proofI8ToF16 : LosslessTo (IntN 8) (Float 16)
+proofI8ToF16 = %search
+
+-- UInt n → Float m: n ≤ mantissaBits + 1.
+--   F32 mantissa = 23, so U8 ✓, U16 ✓, U24 boundary ✓; U25 ✗.
+proofU8ToF32 : LosslessTo (UInt 8) (Float 32)
+proofU8ToF32 = %search
+
+proofU16ToF64 : LosslessTo (UInt 16) (Float 64)
+proofU16ToF64 = %search
+
+-- Bool → any float / BFloat (trivially: 0 and 1 always representable).
+proofBoolToF32 : LosslessTo Bool (Float 32)
+proofBoolToF32 = %search
+
+proofBoolToBF16 : LosslessTo Bool (BFloat 16)
+proofBoolToBF16 = %search
+
+-- Bool → IntN m (m ≥ 2) / UInt m (m ≥ 1).
+proofBoolToI8 : LosslessTo Bool (IntN 8)
+proofBoolToI8 = %search
+
+proofBoolToU8 : LosslessTo Bool (UInt 8)
+proofBoolToU8 = %search
+
+
+-- ---------------------------------------------------------------
+-- F1 (#412): UpcastableTo bridge — LosslessTo edges thread into
+-- the existing tcast-resolution surface
+-- ---------------------------------------------------------------
+--
+-- These probe that the `LosslessTo from to => UpcastableTo from to`
+-- bridge wires every cross-family lossless edge into `tcast`'s
+-- typeclass constraint. Failure of any of these to compile means
+-- the bridge isn't firing.
+
+0 upcastableBF16ToF32 : UpcastableTo (BFloat 16) (Float 32)
+upcastableBF16ToF32   = %search
+
+0 upcastableI32ToF64 : UpcastableTo (IntN 32) (Float 64)
+upcastableI32ToF64   = %search
+
+0 upcastableU8ToF32 : UpcastableTo (UInt 8) (Float 32)
+upcastableU8ToF32   = %search
+
+0 upcastableBoolToF32 : UpcastableTo Bool (Float 32)
+upcastableBoolToF32   = %search
+
+
 -- Smoke: if all proofs above compile, this module loads and the
 -- assertion is trivially true. The actual test is the compile-time
 -- check; this runtime check just gives the test harness a row to
@@ -54,9 +118,36 @@ losslessResolvesForKnownEdges = do
       _ = proofF16ToF64
   check "LosslessTo resolves for known-safe cross-family float upcasts" True
 
+crossFamilyIntToFloatResolves : IO Bool
+crossFamilyIntToFloatResolves = do
+  let _ = proofI32ToF64
+      _ = proofI16ToF32
+      _ = proofI8ToF16
+      _ = proofU8ToF32
+      _ = proofU16ToF64
+  check "LosslessTo resolves IntN/UInt → Float at the right widths" True
+
+boolToAnyResolves : IO Bool
+boolToAnyResolves = do
+  let _ = proofBoolToF32
+      _ = proofBoolToBF16
+      _ = proofBoolToI8
+      _ = proofBoolToU8
+  check "LosslessTo resolves Bool → Float / BFloat / IntN / UInt" True
+
+upcastableBridgeWiresThrough : IO Bool
+upcastableBridgeWiresThrough = do
+  -- These references are at the type level — if the bridge instance
+  -- isn't firing, this module doesn't compile and the test runner
+  -- never reaches us.
+  check "LosslessTo → UpcastableTo bridge resolves cross-family" True
+
 
 export
 tests : List (IO Bool)
 tests =
   [ losslessResolvesForKnownEdges
+  , crossFamilyIntToFloatResolves
+  , boolToAnyResolves
+  , upcastableBridgeWiresThrough
   ]
