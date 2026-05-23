@@ -18,7 +18,7 @@ import Layer
 weakenGradFlipsRequiresGrad : IO Bool
 weakenGradFlipsRequiresGrad = do
   let ptr = prim__createScalar 1.0 1  -- rg=1 at construction
-  let t = the (Tensor (the (Vect 0 Nat) []) CPU dt WithGrad) (MkTensor ptr Nothing)
+  let t = the (Tensor (the (Vect 0 Nat) []) CPU F64 WithGrad) (MkTensor ptr Nothing)
   let before = prim__requiresGrad t.tensorPtr
   t' <- weakenGrad t
   let after = prim__requiresGrad t'.tensorPtr
@@ -32,12 +32,12 @@ weakenGradFlipsRequiresGrad = do
 
 freezeUnfreezeRoundTrip : IO Bool
 freezeUnfreezeRoundTrip = do
-  let net : Network 4 [] 4 CPU dt WithGrad
-      net = OutputLayer (the (AnyLayer 4 4 CPU dt WithGrad) tanhLayerAny)
+  let net : Network 4 [] 4 CPU F64 WithGrad
+      net = OutputLayer (the (AnyLayer 4 4 CPU F64 WithGrad) tanhLayerAny)
   frozen <- freezeNetwork net
-  -- frozen : Network 4 [] 4 CPU dt NoGrad — compile-checked
+  -- frozen : Network 4 [] 4 CPU F64 NoGrad — compile-checked
   _ <- unfreezeNetwork frozen
-  -- unfrozen : Network 4 [] 4 CPU dt WithGrad — compile-checked
+  -- unfrozen : Network 4 [] 4 CPU F64 WithGrad — compile-checked
   check "freezeNetwork / unfreezeNetwork round-trip typechecks" True
 
 
