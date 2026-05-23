@@ -68,6 +68,7 @@ case "$EXAMPLE_KEY" in
   hf-bert)             TGT=example-hf-bert-inference;          AVAR=_HF_NOARGS ;;
   hf-gpt2)             TGT=example-hf-gpt2-inference;          AVAR=_HF_NOARGS ;;
   hf-llama)            TGT=example-hf-llama-inference;         AVAR=_HF_NOARGS ;;
+  hf-bitnet)           TGT=example-hf-bitnet-inference;        AVAR=_HF_NOARGS ;;
   *) echo "unknown example-key: $EXAMPLE_KEY" >&2; exit 2 ;;
 esac
 
