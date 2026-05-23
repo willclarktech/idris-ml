@@ -135,14 +135,19 @@ U8 = UInt 8
 ----------------------------------------------------------------------
 -- IsDType — valid-element-type capability
 --
--- One polymorphic instance per family. Methods carry metadata for
--- the C-side FFI shim (dtype enum tag, bytes-per-element).
+-- One polymorphic instance per family. Carries diagnostic metadata
+-- (human-readable name, bytes-per-element). Runtime support — the
+-- per-dtype FFI primitives — lives on the separate `RuntimeDType`
+-- interface below, so that polymorphic dtypes (e.g. `Float n` for
+-- arbitrary n) can claim `IsDType` for type-system purposes without
+-- needing a C backend implementation.
 ----------------------------------------------------------------------
 
 public export
 interface IsDType (0 t : Type) where
-  ||| Human-readable tag matching the C-side dtype enum ("f32", "f64",
-  ||| "bf16", "i32", ...).
+  ||| Human-readable tag ("f32", "f64", "bf16", "i32", ...). Used for
+  ||| diagnostic printing; runtime dispatch goes through `RuntimeDType`'s
+  ||| per-dtype FFI symbols, not via this name.
   dtypeName  : String
 
   ||| Storage size of one element in bytes.
@@ -172,6 +177,60 @@ public export
 IsDType Bool where
   dtypeName  = "bool"
   dtypeBytes = 1
+
+
+----------------------------------------------------------------------
+-- RuntimeDType — per-dtype FFI primitive capability
+--
+-- Carries the concrete `prim__create*` family for each dtype that has
+-- a C-side implementation. Each instance binds the methods to its own
+-- per-dtype FFI symbols (e.g. `tensor_create_scalar_f32` vs `_f64`),
+-- so dispatch is static through typeclass resolution — no global
+-- enum, no runtime tag passed across the FFI.
+--
+-- Unlike `IsDType` (polymorphic across `Float n` etc.), `RuntimeDType`
+-- instances are concrete-per-dtype: only dtypes with a working C
+-- runtime declare them. Backend asymmetry (e.g. tape has no fp32
+-- arena) is expressed by which per-dtype C symbols exist — link-time
+-- error if you try to use an unsupported (backend, dtype) pair.
+--
+-- Method signatures mirror the existing top-level `prim__create*`
+-- bindings in `Tensor.idr`; instances are defined where those
+-- primitives are accessible.
+----------------------------------------------------------------------
+
+public export
+interface RuntimeDType (0 t : Type) where
+  ||| Allocate a scalar tensor. (value, requires_grad) → handle.
+  primCreateScalar  : Double -> Int -> AnyPtr
+
+  ||| Allocate a general rank-N tensor from a contiguous double buffer.
+  ||| (data, shape, rank, requires_grad) → handle.
+  primCreate        : AnyPtr -> AnyPtr -> Int -> Int -> AnyPtr
+
+  ||| Allocate a 1D tensor. (n, data, requires_grad) → handle.
+  primCreate1d      : Int -> AnyPtr -> Int -> AnyPtr
+
+  ||| Allocate a 2D tensor. (rows, cols, data, requires_grad) → handle.
+  primCreate2d      : Int -> Int -> AnyPtr -> Int -> AnyPtr
+
+  ||| Allocate + register a 1D parameter (rg=1 implicit, registered).
+  primCreateParam1d : Int -> AnyPtr -> AnyPtr
+
+  ||| Allocate + register a 2D parameter.
+  primCreateParam2d : Int -> Int -> AnyPtr -> AnyPtr
+
+  ||| Allocate + register a 3D parameter.
+  primCreateParam3d : Int -> Int -> Int -> AnyPtr -> AnyPtr
+
+  ||| Allocate + register a 4D parameter.
+  primCreateParam4d : Int -> Int -> Int -> Int -> AnyPtr -> AnyPtr
+
+  ||| Allocate a 1D per-sequence state tensor (refcounted on mlx).
+  primCreateState1d : Int -> AnyPtr -> AnyPtr
+
+  ||| Allocate a 2D per-sequence state tensor.
+  primCreateState2d : Int -> Int -> AnyPtr -> AnyPtr
 
 
 ----------------------------------------------------------------------
