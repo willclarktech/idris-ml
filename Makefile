@@ -1439,6 +1439,18 @@ example-matmul-bench: install
 	cp $(LIB) $(BUILD)/exec/matmul-bench_app/
 	$(STDBUF) ./$(BUILD)/exec/matmul-bench $(MATMUL_BENCH_ARGS)
 
+# #402 Idris-level rank-3 broadcast microbench. Counterpart to the
+# `bench-rank3-broadcast{,-wrapped}` C harnesses; calls `primMul` in a
+# tight loop on `[6, 32, 32] x [6, 1, 32]` — same shape and iteration
+# counts. The delta vs the wrapped C bench is the Scheme wrap layer
+# (cached foreign-procedure dispatch + tensor-handle-v2 unwrap/wrap +
+# guardian register). Identical wrap structure across all three
+# backends — any wrap-layer overhead measured here applies symmetrically.
+example-rank-broadcast-bench: install
+	idris2 $(IDRIS_FLAGS) -o rank-broadcast-bench $(EXAMPLE_SRC)/Example/RankBroadcastBench.idr
+	cp $(LIB) $(BUILD)/exec/rank-broadcast-bench_app/
+	$(STDBUF) ./$(BUILD)/exec/rank-broadcast-bench $(RANK_BROADCAST_BENCH_ARGS)
+
 example-bench: install
 	idris2 $(IDRIS_FLAGS) -o bench $(EXAMPLE_SRC)/Example/Bench.idr
 	cp $(LIB) $(BUILD)/exec/bench_app/

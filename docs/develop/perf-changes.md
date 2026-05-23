@@ -118,6 +118,43 @@ Each individually should be ~µs at most. Together they shouldn't reach 10 ms. S
 **Cross-references**: `bench_rank3_broadcast_wrapped.cpp`; the Commit 1 entry above for the libtorch-direct baseline numbers.
 
 
+### 2026-05-31 — Idris-level microbench refutes the "10 ms/op rank-3 broadcast" premise (#402 Commit 1c)
+
+**Plan**: complete the layer-by-layer ladder by measuring the same `mul([6, 32, 32], [6, 1, 32])` shape from the highest level — through `primMul` on the typeclass-dispatched device instance. Layer (a) C wrapper measured ~26 µs/op; (b) Scheme wrap + (c) Idris autograd are everything above. Bench is `packages/idris-ml-examples/src/Example/RankBroadcastBench.idr`, called via `make example-rank-broadcast-bench`. Same iteration counts (warmup=10, measure=100), same shape, same chained-mul pattern (tail-recursive to keep the result alive against DCE).
+
+**Motivation**: Commit 1b ruled out the C boundary (~1 µs/op overhead). Commit 1c isolates whatever's above. If Scheme/Idris adds milliseconds, the fix is in the generated wrapper or `Tensor.idr`. If Scheme/Idris also adds only microseconds, the original "rank-3 broadcast costs 10–26 ms/op" framing is wrong and the cost has to live somewhere else — in op *mix*, op *count*, or shape-dependent libtorch behaviour that doesn't trigger in a tight same-shape loop.
+
+**Impact** (per-op µs/op, all four idris-ml backends, F32 where the build forces it):
+
+| layer | tape (F64) | torch-mps (F32) | mlx-cpu (F64) | mlx-gpu (F32) |
+|---|---:|---:|---:|---:|
+| libtorch direct (C++ bench) | n/a | 25.36 | n/a | n/a |
+| C wrapper (`tensor_mul_torch`) | n/a | 25.90 | n/a | n/a |
+| **Idris `primMul` (this bench)** | **15.81** | **23.91** | **26.29** | **74.95** |
+
+mlx-gpu's per-op floor is higher because GPU kernel-launch dominates at this small shape (matches `project_mlx_gpu_environment.md` — sub-1024 dim ops are CPU-faster on mlx). The other three backends all sit in the 16–26 µs/op band.
+
+**The original #402 premise is refuted.** The "10–26 ms/op rank-3 broadcast" figure from the c09d374 perf-changes entry was **arithmetic**, not measured: it was computed as `runGenerate wall (~317 s) / total ops (~21K)` ≈ 15 ms/op. That ratio collapses to "per-op cost" *only if* every op is the same. After the all-heads RoPE landing in `c09d374`, the op mix shifted dramatically — most remaining ops are LARGER per call (32× more head data in each broadcast mul) so total compute is constant, total wall is constant, op count drops 7×, and `wall/op_count` *appears* to rise. That's the 10–26 ms/op number.
+
+This means **all three originally-planned commits 2A/2B/2C are out of scope**:
+- 2A (slim `from_tensor` / intermediates) — was already ruled out at the C boundary (Commit 1b).
+- 2B (MPS optimization flags) — the per-op µs/op numbers above show our libtorch use is already at libtorch's own floor.
+- 2C (pre-materialize cos/sin contiguous) — strided/contig ratio is 0.97× in our wrapper, 1.01× in direct libtorch (Commit 1). Materialization is already free.
+
+**Cross-backend lesson** (user-flagged early in the session): the C wrapper and Scheme-wrap layers are NOT a bottleneck on any of the three backends I could measure here. The wrapper is efficient at ~16–26 µs/op across tape, torch-mps, and mlx-cpu. mlx-gpu's 75 µs is GPU-launch-bound — a different problem (project-memo'd in `project_mlx_gpu_environment.md`).
+
+**Re-framing #402**: the row is closing as "investigated and refuted". The actual gap between idris-ml HfLlama and PyTorch HfLlama on torch-mps lives elsewhere. Candidates (now untested):
+1. **Op count, not op cost** — we still issue ~2,634 ops per forward where PyTorch Python issues ~few hundred. The "Match PyTorch's catalogue of fused ops" row (TODO Medium #42) is the standing direction for this.
+2. **Single-op time on LARGER shapes** — `[6, 32, 32]` is small. Llama-3.2-1B's attention matmul is `[seq, numHeads, headDim] @ [seq, headDim, numHeads]` for `numHeads=32, headDim=64, seq=N`. A matmul-shaped microbench would catch any per-op asymmetry that doesn't show up on small elementwise ops.
+3. **Implicit syncs in our compositional layer** — `applyRopeAllHeads` returns from `ioRerun (\_ => let ...)` and then sequences via `>>=`. If there's a per-`ioRerun` cost (closure allocation, IO state restoration) and HfLlama has ~5K-10K layer-level steps, that's per-call overhead × calls.
+
+The clean follow-up is to file a new row "torch-mps HfLlama wall gap" with these three sub-hypotheses listed, run a per-op-class microbench (matmul, RMSNorm reductions, embedding lookup) one at a time, and let the data narrow.
+
+**Outcome**: #402 closes. The rank-3 broadcast at every layer of the stack is fast. Microbenches stay as permanent regression gates for the layers they exercise. Direction moves to op-count reduction (more fusion) and to per-op-class microbenchmarks for the other ops in Llama's forward.
+
+**Cross-references**: `packages/idris-ml-examples/src/Example/RankBroadcastBench.idr`; commit (this commit's hash); related closing commits for the TODO row update.
+
+
 ### 2026-05-31 — Tape F32 HfLlama mid-decode crash fixed by `PrimIO Int` (#401)
 
 **Plan**: unblock tape F32 HfLlama inference, which has crashed mid-decode (~step 8) since commit `26a0d56` introduced the `primPerfOpCount : PrimIO Bits64` FFI for the #393 op-submission counter. Three hypotheses on file (TODO #401): (1) `PrimIO Bits64` shape, (2) typeclass dispatch, (3) Chez `unsigned-64` marshalling. Test cheapest first.

@@ -29,6 +29,7 @@ modules = BuildConfig
         , Example.PrecisionCheckpoint
         , Example.Profile
         , Example.QLearning
+        , Example.RankBroadcastBench
         , Example.Reinforce
         , Example.Rnn
         , Example.Sac
