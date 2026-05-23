@@ -9,8 +9,11 @@ import Compat.Random
 import Backprop
 import DataPoint
 import Device
+import GradScaler
 import Layer.Core
 import Layer.Linear
+import Layer.LinearMixed
+import Layer.MixedCore
 import Array
 import Train
 import Util
@@ -34,14 +37,23 @@ record Config where
   lr : Double
   epochs : Nat
   seed : Bits64
+  mixedPrecision : Bool
 
 defaultConfig : Config
-defaultConfig = MkConfig 0.03 1000 42
+defaultConfig = MkConfig 0.03 1000 42 False
+
+-- Treat "1" or any "true"-prefix string as true; anything else (the
+-- bare flag with no value, "0", "false") falls through to false. The
+-- bare-flag idiom is `--mixed-precision true` because ArgSpec's
+-- parser is value-taking.
+boolFlag : String -> Bool
+boolFlag v = v == "1" || v == "true" || v == "True" || v == "yes"
 
 specs : List (ArgSpec Config)
 specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
         , Arg "--epochs" (\v, c => { epochs := castNat v } c)
-        , Arg "--seed" (\v, c => { seed := castBits64 v } c) ]
+        , Arg "--seed" (\v, c => { seed := castBits64 v } c)
+        , Arg "--mixed-precision" (\v, c => { mixedPrecision := boolFlag v } c) ]
 
 
 -- Argmax on a TVec (read three values via prim__item1d).
@@ -54,19 +66,17 @@ evalPrediction outV =
 
 %default partial
 
-main : IO ()
-main = do
-  args <- getArgs
-  let cfg = parseArgs defaultConfig specs (drop 1 args)
+evalPredictionTarget : Vector 3 Double -> Nat
+evalPredictionTarget (VArray [SArray a, SArray b, SArray c]) =
+  if a >= b && a >= c then 0 else if b >= c then 1 else 2
 
-  srand cfg.seed
+showVecD : Vector 2 Double -> String
+showVecD (VArray [SArray a, SArray b]) = "[" ++ show a ++ ", " ++ show b ++ "]"
 
-  let opt = nativeSgd cfg.lr
-
-  putStrLn "=== Supervised Classification ==="
-  putStrLn $ "Config: lr=" ++ show cfg.lr ++ " epochs=" ++ show cfg.epochs
-           ++ " seed=" ++ show cfg.seed
-
+-- Default-precision path: builds a `Network`, trains via `epochVar`,
+-- evals via `forwardVar`.
+runDefault : Config -> NativeOptimizer ExampleDevice -> IO ()
+runDefault cfg opt = do
   llAny <- linearLayerAny {i = 2} {o = 3} "ll"
   let model : Network 2 [] 3 ExampleDevice ExampleDType WithGrad
       model = OutputLayer llAny
@@ -81,10 +91,6 @@ main = do
   putStrLn ""
   putStrLn "Eval:"
 
-  -- Build persistent input tensors and forward through the trained model.
-  -- Use the dtype-aware constructor (same path training tensorizes through)
-  -- so the input matches ExampleDType — a raw F64 creator would crash on an
-  -- F32-only device (MPS rejects an F64 tensor at construction).
   traverse_ (\(idx, dp) => do
     let inV = the (TVec 2 ExampleDevice ExampleDType WithGrad)
                   (MkTensor (vectorToTensorPersistent {d=ExampleDevice} {dt=ExampleDType} (x dp)) Nothing)
@@ -99,10 +105,61 @@ main = do
   putStrLn $ formatResult [ ("epochs", show epochsDone)
                           , ("loss", show finalLoss)
                           , ("seed", show cfg.seed) ]
-  where
-    evalPredictionTarget : Vector 3 Double -> Nat
-    evalPredictionTarget (VArray [SArray a, SArray b, SArray c]) =
-      if a >= b && a >= c then 0 else if b >= c then 1 else 2
 
-    showVecD : Vector 2 Double -> String
-    showVecD (VArray [SArray a, SArray b]) = "[" ++ show a ++ ", " ++ show b ++ "]"
+-- Mixed-precision path (F3 of #410): builds a `NetworkMixed`
+-- (paramDt = computeDt = ExampleDType so the cast is a structural
+-- no-op on default builds; users wanting an actual lossy cast
+-- supply a different `MLX_DTYPE` / `TORCH_DTYPE` for ExampleDType),
+-- a `defaultGradScaler`, trains via `epochVarMixed`, evals via
+-- `forwardVarMixed`.
+runMixed : Config -> NativeOptimizer ExampleDevice -> IO ()
+runMixed cfg opt = do
+  llAny <- mixedLinearLayerAny {paramDt = ExampleDType} {computeDt = ExampleDType}
+                               {i = 2} {o = 3} "ll"
+  let model : NetworkMixed 2 [] 3 ExampleDevice ExampleDType ExampleDType WithGrad
+      model = OutputLayerMixed llAny
+  gs <- defaultGradScaler {d=ExampleDevice} {dt=ExampleDType}
+  putStrLn "Mixed-precision mode: paramDt = computeDt = ExampleDType"
+  putStrLn ""
+
+  (trained, epochsDone, finalLoss) <- runTraining {d=ExampleDevice}
+    (\m, d => epochVarMixed opt gs d tnllLoss m)
+    (pure dataPoints)
+    (simpleConfig cfg.epochs)
+    model
+
+  putStrLn ""
+  putStrLn "Eval:"
+
+  traverse_ (\(idx, dp) => do
+    let inV = the (TVec 2 ExampleDevice ExampleDType WithGrad)
+                  (MkTensor (vectorToTensorPersistent {d=ExampleDevice} {dt=ExampleDType} (x dp)) Nothing)
+    (_, predV) <- forwardVarMixed trained inV
+    let predClass = evalPrediction predV
+        targetClass = evalPredictionTarget (y dp)
+        ok = if targetClass == predClass then " ok" else " WRONG"
+    putStrLn $ "  " ++ showVecD (x dp) ++ " -> class " ++ show predClass ++ ok)
+    (zip Fin.range dataPoints)
+
+  scaleAtEnd <- currentScale gs
+  putStrLn ""
+  putStrLn $ formatResult [ ("epochs", show epochsDone)
+                          , ("loss", show finalLoss)
+                          , ("seed", show cfg.seed)
+                          , ("final_scale", show scaleAtEnd) ]
+
+main : IO ()
+main = do
+  args <- getArgs
+  let cfg = parseArgs defaultConfig specs (drop 1 args)
+
+  srand cfg.seed
+
+  let opt = nativeSgd cfg.lr
+
+  putStrLn "=== Supervised Classification ==="
+  putStrLn $ "Config: lr=" ++ show cfg.lr ++ " epochs=" ++ show cfg.epochs
+           ++ " seed=" ++ show cfg.seed
+           ++ " mixed-precision=" ++ show cfg.mixedPrecision
+
+  if cfg.mixedPrecision then runMixed cfg opt else runDefault cfg opt
