@@ -3,14 +3,16 @@
  *   - tensor_numel / tensor_dim / tensor_size: shape introspection.
  *   - tensor_to_doubles / tensor_to_floats: host readback bridges.
  *     `tensor_to_floats` fast-paths F32 (memcpy-style loop over the
- *     native buffer); F64 goes through the lingua-franca cast.
+ *     native buffer); BF16 widens per-element via the bfloat16_t scalar
+ *     conversion; F64 goes through the lingua-franca cast.
  *   - tensor_to_int64: byte-level I64 readout. mlx has no native int64
  *     storage; integer round-trip goes through double, so this inherits
  *     the 2^53 ceiling. Implemented for symbol completeness — the
  *     Idris-side `Compatible MlxDev I64` is closed, so the realistic
- *     reachable use is safetensors I/O on F32/F64-typed tensors.
- *   - tensor_dtype_name: F32 or F64; mlx storage doesn't support other
- *     dtypes (Metal has no bf16/f16/int storage).
+ *     reachable use is safetensors I/O on F32/F64/BF16-typed tensors.
+ *   - tensor_dtype_name: F32, BF16, or F64; mlx storage supports those
+ *     three. F16 + int* + bool are not wired (Idris `Compatible` gates
+ *     each pair at the type level).
  *
  * `tensor_item` (scalar readout) lives in core/lifecycle/item.cpp.
  */
@@ -67,6 +69,9 @@ extern "C" void tensor_to_floats(TensorHandle h, float* out) {
     if (contig.dtype() == mx::float32) {
         const float* src = contig.data<float>();
         for (int i = 0; i < n; i++) out[i] = src[i];
+    } else if (contig.dtype() == mx::bfloat16) {
+        const mx::bfloat16_t* src = contig.data<mx::bfloat16_t>();
+        for (int i = 0; i < n; i++) out[i] = (float)src[i];
     } else {
         const double* src = contig.data<double>();
         for (int i = 0; i < n; i++) out[i] = (float)src[i];
@@ -75,5 +80,8 @@ extern "C" void tensor_to_floats(TensorHandle h, float* out) {
 
 extern "C" const char* tensor_dtype_name(TensorHandle h) {
     auto t = (Tensor*)h;
-    return (t->data.dtype() == mx::float32) ? "F32" : "F64";
+    auto dt = t->data.dtype();
+    if (dt == mx::float32)  return "F32";
+    if (dt == mx::bfloat16) return "BF16";
+    return "F64";
 }

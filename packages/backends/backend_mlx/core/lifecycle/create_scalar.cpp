@@ -34,6 +34,11 @@ extern "C" TensorHandle tensor_create_scalar_f64(double value, int requires_grad
     return tensor_create_scalar_f64_mlx_streamed(value, requires_grad, default_stream_tag());
 }
 
+extern "C" TensorHandle tensor_create_scalar_bf16_mlx_streamed(double value, int requires_grad, int stream_tag) {
+    WITH_STREAM(stream_tag);
+    return tensor_create_scalar_impl(value, requires_grad, mx::bfloat16);
+}
+
 /* Legacy unsuffixed: route to fp32 (current historical behavior on mlx). */
 extern "C" TensorHandle tensor_create_scalar_mlx_streamed(double value, int requires_grad, int stream_tag) {
     WITH_STREAM(stream_tag);

@@ -44,11 +44,13 @@ mx::Dtype dt_for_dtag(const char* sym, int dtag) {
     switch (dtag) {
         case 14: return mx::float32;
         case 15: return mx::float64;
+        case 17: return mx::bfloat16;
         default:
             fprintf(stderr,
-                "[mlx backend] %s called with dtag=%d. mlx stores f32/f64 only "
-                "(Metal has no bf16/f16/int storage). Bind your code to F32/F64 "
-                "on mlx, or build with BACKEND=torch.\n", sym, dtag);
+                "[mlx backend] %s called with dtag=%d. mlx storage supports "
+                "f32 (dtag=14), f64 (dtag=15), and bf16 (dtag=17); f16 + int* + "
+                "bool are not wired. Bind your code to one of those, or build "
+                "with BACKEND=torch for the wider dtype surface.\n", sym, dtag);
             abort();
     }
 }
