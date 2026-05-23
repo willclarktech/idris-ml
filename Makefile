@@ -884,6 +884,25 @@ bench-rank3-broadcast: $(BACKENDS_DIR)/bench_rank3_broadcast.cpp | $(BUILD)
 	@echo "--- bench_rank3_broadcast: device=mps ---"
 	./$(BUILD)/bench_rank3_broadcast mps
 
+# #402 wrapper-direct rank-3 broadcast microbenchmark. Links libidrisml
+# and calls tensor_mul_torch in the same tight loop as
+# bench_rank3_broadcast.cpp. The delta between the two numbers is the
+# C-side wrapper cost (from_tensor's new + intermediates push + counter
+# bump); any further gap up to HfLlama's observed ~10-26 ms/op lives
+# above the C boundary (Scheme wrap / Idris autograd / typeclass
+# dispatch). Requires the libidrisml dylib at $(LIB), which depends on
+# `make backend BACKEND=torch TORCH_DEVICE=mps`.
+bench-rank3-broadcast-wrapped: $(BACKENDS_DIR)/bench_rank3_broadcast_wrapped.cpp $(LIB) | $(BUILD)
+	$(torch_CC) $(torch_CFLAGS) -I$(BACKENDS_DIR) \
+		-o $(BUILD)/bench_rank3_broadcast_wrapped \
+		$(BACKENDS_DIR)/bench_rank3_broadcast_wrapped.cpp \
+		-L$(BUILD) -lidrisml -Wl,-rpath,$(BUILD) \
+		$(torch_LDFLAGS_$(UNAME))
+	@echo "--- bench_rank3_broadcast_wrapped: device=cpu ---"
+	./$(BUILD)/bench_rank3_broadcast_wrapped cpu
+	@echo "--- bench_rank3_broadcast_wrapped: device=mps ---"
+	TORCH_DEVICE=mps ./$(BUILD)/bench_rank3_broadcast_wrapped mps
+
 print-torch:
 	@echo "LIBTORCH_PATH=$(LIBTORCH_PATH)"
 	@echo "TORCH_INC=$(TORCH_INC)"

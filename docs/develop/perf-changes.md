@@ -88,6 +88,36 @@ Each individually should be ~µs at most. Together they shouldn't reach 10 ms. S
 **Cross-references**: `docs/develop/perf-log-ref.jsonl` 2026-05-31 entries (3 measurements); `bench_rank3_broadcast.cpp`; `time_rank3_broadcast.py`; commit (this commit's hash) + the follow-up.
 
 
+### 2026-05-31 — Wrapper-direct microbench rules out the C boundary (#402 Commit 1b)
+
+**Plan**: Commit 1's libtorch-direct vs PyTorch-Python measurement confirmed H1 (the gap is in our wrapper) but didn't say *where* in the wrapper. Three layers between Idris and libtorch: (a) C wrapper (`tensor_mul_torch` → `to_tensor` + `torch::mul` + `from_tensor` + intermediates push + counter), (b) generated Scheme wrap (`prim__mulTorch`), (c) Idris autograd / smart-constructor / typeclass dispatch in `Tensor.idr`. Each layer needs measuring before picking the fix.
+
+**Motivation**: Commit 2A was scoped to slim `from_tensor`'s `intermediates_torch.push_back` and the `prof_op_count_torch++` bump under no-grad. Before touching that, isolate whether layer (a) is actually contributing — if `tensor_mul_torch` matches `torch::mul` directly, the C-side intermediates work is bystander and the fix has to land above the C boundary.
+
+**Change**: new `packages/backends/bench_rank3_broadcast_wrapped.cpp`: links libidrisml.dylib, calls `tensor_mul_torch` in the same warmup+measure loop as `bench_rank3_broadcast.cpp`. Goes through `from_tensor`, intermediates push, and counter bump but bypasses every Scheme/Idris layer. New `make bench-rank3-broadcast-wrapped` target. Verified `tensor_perf_op_count_torch` returns 100 in each measure block (counter wired correctly through the wrapper).
+
+**Impact** (per-op µs/op):
+
+| variant | C++ direct (Commit 1) | C wrapper via libidrisml | delta |
+|---|---:|---:|---:|
+| MPS strided | 25.36 | **25.90** | +0.54 µs (~2%) |
+| MPS contig | 25.07 | **26.78** | +1.71 µs (~7%) |
+| CPU strided | n/a | 14.72 | n/a |
+| CPU contig | n/a | 13.63 | n/a |
+
+**Hypothesis refinement**:
+- Layer (a) C wrapper — **not the bottleneck**: ~1 µs/op overhead on top of libtorch direct. `new at::Tensor(std::move(t))` + `intermediates_torch.push_back(p)` + `g_torch_peak_live_intermediates` update + `prof_op_count_torch++` together cost ~1 µs/op. Slimming any of this would harvest at most 1 µs against a 10–26 ms/op observed cost — i.e. negligible.
+- Layer (b)/(c) — **must contain ~99% of the wrapper gap**: the remaining 10,000–26,000 µs/op observed in HfLlama lives above `tensor_mul_torch`. Candidates: Scheme glue per-call overhead (foreign-procedure cache lookup, vector wrap, guardian register, no-op retain FFI), or Idris-level smart-constructor work (`tmul` allocations, typeclass dispatch, autograd-graph book-keeping, `paramId` lookups).
+
+**Cross-backend implication**: the C-side ruling-out generalises — every backend uses the same `from_tensor`-style intermediates pattern, so slimming it on torch would have been similarly bounded on mlx/tape. The Scheme wrap is identical across the three backends (same template, only the tag differs); whatever's adding milliseconds in that layer applies to every backend. mlx-gpu's all-heads RoPE wall did drop (45.5s → 16s after `c09d374`), so its per-op cost is lower than torch-mps's — but the wrapper inefficiency is likely still there, just amortised by mlx's lazy graph.
+
+**Next step**: Commit 1c — Idris-level rank-3-broadcast microbench (smallest possible program that calls `tmul` on `[6, 32, 32] × [6, 1, 32]` in a tight loop, on torch-mps + mlx-gpu + tape). The delta between layer (a) and layer (c) is the Scheme+Idris glue. Once that's measured, decide whether to attack Scheme wrap (would benefit all three backends symmetrically) or Idris-level `tmul` (likely smaller, easier).
+
+**Outcome**: Commit 2A as originally planned (C-side `from_tensor` slimming) is now **out of scope** — measurement shows the C wrapper is not the culprit. Direction has narrowed to the Scheme/Idris layers above. Microbench stays as a permanent harness; both bench targets become the regression gates for any wrapper-layer changes.
+
+**Cross-references**: `bench_rank3_broadcast_wrapped.cpp`; the Commit 1 entry above for the libtorch-direct baseline numbers.
+
+
 ### 2026-05-31 — Tape F32 HfLlama mid-decode crash fixed by `PrimIO Int` (#401)
 
 **Plan**: unblock tape F32 HfLlama inference, which has crashed mid-decode (~step 8) since commit `26a0d56` introduced the `primPerfOpCount : PrimIO Bits64` FFI for the #393 op-submission counter. Three hypotheses on file (TODO #401): (1) `PrimIO Bits64` shape, (2) typeclass dispatch, (3) Chez `unsigned-64` marshalling. Test cheapest first.
