@@ -752,6 +752,24 @@ After training with `NativeOptimizer`, the optimizer mutates param tensor data i
 
 ## MLX Backend (backend_mlx.cpp)
 
+### `tensor_item` BF16/F16 readback — `item<float>()` mis-sizes 2-byte storage
+
+mlx scalar storage is `bfloat16_t` / `float16_t` (2 bytes), not `float`
+(4 bytes). The pre-2026-05-31 `tensor_item_mlx_streamed` branched
+`f64 → item<double>()`, *default → `item<float>()`* — which on BF16
+storage read 16 useful bits + 16 bits of adjacent buffer slot as if
+it were a 32-bit float, returning denormal-range garbage like
+`2.3e-41` for an actual `1.1` BF16 scalar. The Supervised example on
+`MLX_DTYPE=BF16` exhibited this as "loss=2.3e-41 from epoch 1"
+(initial random weights, no training yet) — looked like total BF16
+training failure but the math was correct; just `tensor_item` lying.
+Fix in `core/lifecycle/item.cpp`: explicit branches for
+`mx::bfloat16` and `mx::float16` reading via the matching
+`item<bfloat16_t>()` / `item<float16_t>()`. Lesson: when adding a
+storage dtype, audit every per-element reader for the right-sized
+`item<T>()` / `data<T>()` template instantiation; the default arm is
+not safe for 2-byte types.
+
 ### Tensor lifetime: tape vs non-tape
 
 All `Tensor*` objects self-register in `all_tensors` via the constructor. `tape_reset()` frees non-persistent ones. Unlike the tape backend's arena (which bulk-frees by resetting a pointer), MLX individually `delete`s each tensor. This means:

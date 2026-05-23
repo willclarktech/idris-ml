@@ -20,16 +20,18 @@ Three lanes work today; pick by `BACKEND` and device:
 
 ```bash
 # mlx-gpu (the fast lane, the "GPU > CPU" showcase)
-BACKEND=mlx MLX_DEVICE=gpu MLX_DTYPE=F32 make example-hf-llama-inference   # ~46 s
+BACKEND=mlx MLX_DEVICE=gpu MLX_DTYPE=F32 make example-hf-llama-inference    # ~46 s
+BACKEND=mlx MLX_DEVICE=gpu MLX_DTYPE=BF16 make example-hf-llama-inference   # native Metal BF16 (2026-05-31)
+BACKEND=mlx MLX_DEVICE=gpu MLX_DTYPE=F16  make example-hf-llama-inference   # native Metal F16  (2026-05-31)
 
 # torch-mps F32 (libtorch + Metal)
-BACKEND=torch TORCH_DEVICE=mps make example-hf-llama-inference            # ~5 min
+BACKEND=torch TORCH_DEVICE=mps make example-hf-llama-inference             # ~5 min
 
-# torch-mps BF16 (real reduced precision)
+# torch-mps BF16 (real reduced precision; runtime ≈ F32 on M4 — see perf-changes.md 2026-05-31)
 BACKEND=torch TORCH_DEVICE=mps TORCH_DTYPE=BF16 make example-hf-llama-inference
 
 # tape F32 (CPU; ~7.5 GB working set; OOMs at default F64 — see TODO row)
-TAPE_DTYPE=F32 make example-hf-llama-inference                            # ~1 m
+TAPE_DTYPE=F32 make example-hf-llama-inference                             # ~1 m
 ```
 
 The checkpoint is downloaded via the `models/` rule the first time

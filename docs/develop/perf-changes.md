@@ -2988,3 +2988,62 @@ existing row "Tape F64 HfLlama OOM" already documents that.
 `2026-05-31T13:39:50Z` (clean F32), `2026-05-31T13:44:45Z`
 (clean BF16); TODO.md rows 11 + 40 + 41 reframed in this commit;
 new TODO row for mlx-Metal BF16 enablement.
+
+
+### 2026-05-31 — mlx-Metal BF16 + F16 enablement: Supervised converges, headline HfLlama BF16 vs F32 measurement deferred — `e2ad295` + `de993e7` + `9856771`
+
+**Motivation**: The 2026-05-31 torch-mps BF16 measurement (entry above)
+filed "mlx-Metal BF16 enablement" as the natural follow-up — fix the
+factually-wrong abort message ("Metal has no bf16/f16/int storage") +
+add real BF16 storage end-to-end + measure whether mlx's lazy graph
+mode delivers a bigger BF16 win than libtorch's eager mode did on
+the same Apple Silicon hardware.
+
+**Change**: Three commits over the same M4 Pro VM:
+- `e2ad295` — added `tensor_create_*_bf16_mlx_streamed` for every
+  shape (scalar / 1d / 2d generic + 1d/2d/3d/4d param + 1d/2d state) +
+  `tensor_cast_dtype_bf16_mlx_streamed` + `Compatible (MlxDev MGpu)
+  BF16` + `Compatible (MlxDev MCpu) BF16` instances. Routes dtag 17 →
+  `mx::bfloat16` end-to-end. Abort message rewritten to honestly list
+  the real supported dtype set.
+- `de993e7` — fixed a `tensor_item` BF16 readback bug: the prior
+  `item<float>()` cast misread 2-byte BF16 storage as a 4-byte float
+  (16 bits of valid data + 16 bits of adjacent buffer slot), producing
+  denormal `2.3e-41` garbage where a `1.1` BF16 scalar was stored.
+  Manifested as "loss=2.3e-41 from epoch 1" silent training failure
+  on `MLX_DTYPE=BF16 BACKEND=mlx MLX_DEVICE=gpu make example-supervised`.
+- `9856771` — mirrored the BF16 work for F16: dtag 13 → `mx::float16`
+  end-to-end, both Compatible instances admissible.
+
+**Impact (microbench + Supervised, NOT HfLlama)**: The headline
+HfLlama F32 vs BF16 wall comparison on mlx-gpu — the natural follow-up
+— is **deferred to a future measurement session**. What we did measure:
+
+| Workload | mlx-gpu F32 | mlx-gpu BF16 | mlx-gpu F16 |
+|---|---|---|---|
+| rank-broadcast-bench (6×32×32 mul, kernel-launch-bound) | 53.75 µs/op | 49.36 µs/op | not measured |
+| Supervised (1000 epochs, 2-3-class FC) — loss | 0.13 | 0.18 | 0.13 |
+| Supervised — eval correctness | 5/5 | 3/5 | 5/5 |
+
+At kernel-launch-bound microbench scale BF16 ≈ F32 within noise (8%
+delta on a single-run measurement, well below the 20% VM noise
+threshold). The Supervised loss / eval gap is the BF16 precision floor
+on a tiny model (3 classes, 5 samples, F32 weights → BF16 narrowing
+amplifies decision-boundary noise), not a perf issue — F16 retains
+5/5 eval because of its larger mantissa.
+
+**HfLlama-scale measurement still owed**: the headline question
+"does mlx-gpu BF16 beat mlx-gpu F32 for HfLlama-1B inference?" is the
+direct test of the "mlx-Metal BF16 might win bigger than libtorch's
+MPS BF16 did" hypothesis. Today's perf-log shows mlx-gpu F32 HfLlama
+at ~16 s (post all-heads RoPE, commit `c09d374`). The matching BF16
+run hasn't been added to `perf-log.jsonl`. Filed as a follow-up: run
+`MLX_DTYPE=BF16 BACKEND=mlx MLX_DEVICE=gpu scripts/perf-run.sh hf-llama mlx`,
+log to perf-log, append a follow-up entry here with the side-by-side.
+
+**Cross-references**: `CHANGELOG.md` 2026-05-31 entries ("BF16/F16
+training end-to-end across all three backends" + "mlx-Metal BF16
+enablement"); `Device/Mlx.idr:643-668` (5 Compatible instances);
+`gotchas.md` "tensor_item BF16/F16 readback" entry; the prior
+2026-05-31 entry above (torch-mps BF16 vs F32 measurement that
+motivated this row).

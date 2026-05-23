@@ -1374,9 +1374,20 @@ the embedding lookup + per-layer projection storage halving). End-to-end
 output text matches F32 within the first ~2 greedy tokens (greedy decode
 diverges later as BF16's 8-bit mantissa accumulates rounding).
 
-**Non-blocker**: mlx-gpu BF16 still doesn't exist — mlx 0.31 has no
-BF16 storage on Metal. Filed as a deferred row; tracked separately
-from this torch-side gate.
+**Non-blocker resolved 2026-05-31** (commits `e2ad295` + `9856771`):
+mlx-Metal BF16 + F16 storage are now both wired. The original "mlx
+0.31 has no BF16 storage on Metal" claim was a misreading — the C
+backend was rejecting BF16 dtags via a defensive abort whose message
+said "Metal has no bf16/f16/int storage", but mlx 0.31's
+`mx::bfloat16` and `mx::float16` types are first-class and work on
+M3+ Metal. `Compatible (MlxDev MGpu) BF16/F16` and `Compatible (MlxDev
+MCpu) BF16/F16` are now admissible; the dispatch table routes
+dtag 13 → `mx::float16` and dtag 17 → `mx::bfloat16` end-to-end
+(per-shape streamed creators, cast, readback). Supervised converges
+5/5 eval on mlx-gpu F16 (loss 0.135) and 3/5 on mlx-gpu BF16
+(loss 0.193) — BF16's 7-bit mantissa is the precision floor on
+small-model classification, same as torch-mps BF16. See CHANGELOG
+2026-05-31 entry for full storage-vs-precision breakdown.
 
 ### torch-mps per-op MPSGraph submission cost — canonical lane choice (2026-05-28)
 

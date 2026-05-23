@@ -94,11 +94,14 @@ esac
 [ "$DEVICE" = "metal" ] && DEVICE="gpu"
 
 # Dtype override of record. Only set when caller explicitly chose
-# TORCH_DTYPE (e.g. BF16 on torch-mps); empty otherwise (the BuildConfig
-# default for the (backend, device) cell applies). Tracked in the JSONL
-# entry so a BF16 run is visibly distinct from the default-F32 run on
-# the same example/backend/device.
+# TORCH_DTYPE / MLX_DTYPE / TAPE_DTYPE; empty otherwise (the
+# BuildConfig default for the (backend, device) cell applies — F32 for
+# torch-mps and mlx-gpu, F64 elsewhere). Tracked in the JSONL entry so
+# a BF16/F16 run is visibly distinct from the default-F32 run on the
+# same example/backend/device.
 TORCH_DTYPE_STATE="${TORCH_DTYPE:-}"
+MLX_DTYPE_STATE="${MLX_DTYPE:-}"
+TAPE_DTYPE_STATE="${TAPE_DTYPE:-}"
 
 # MLX_COMPILE state of record (Job 3 Phase B opt-in). Only meaningful
 # on the mlx backend; non-mlx always records "n/a".
@@ -173,6 +176,8 @@ JSON_LINE=$(
   ISO_TS="$ISO_TS" DATE="$DATE" EXAMPLE_KEY="$EXAMPLE_KEY" \
   BACKEND="$BACKEND" DEVICE="$DEVICE" MLX_COMPILE_STATE="$MLX_COMPILE_STATE" \
   TORCH_DTYPE_STATE="$TORCH_DTYPE_STATE" \
+  MLX_DTYPE_STATE="$MLX_DTYPE_STATE" \
+  TAPE_DTYPE_STATE="$TAPE_DTYPE_STATE" \
   COMMIT="$COMMIT" RC="$RC" \
   ELAPSED_MS="$ELAPSED_MS" ELAPSED_PRETTY="$ELAPSED_PRETTY" \
   CONVERGED_LINE="$CONVERGED_LINE" DIVERGED_LINE="$DIVERGED_LINE" \
@@ -251,11 +256,15 @@ entry = {
     "wall_ms": int(os.environ["ELAPSED_MS"]),
     "wall_human": os.environ["ELAPSED_PRETTY"],
 }
-# Only emit torch_dtype when explicitly set; absence means "BuildConfig
-# default for the (backend, device) cell" (F32 for torch-mps, F64
-# elsewhere).
+# Only emit *_dtype when explicitly set; absence means "BuildConfig
+# default for the (backend, device) cell" (F32 for torch-mps and
+# mlx-gpu, F64 elsewhere).
 if os.environ.get("TORCH_DTYPE_STATE"):
     entry["torch_dtype"] = os.environ["TORCH_DTYPE_STATE"]
+if os.environ.get("MLX_DTYPE_STATE"):
+    entry["mlx_dtype"] = os.environ["MLX_DTYPE_STATE"]
+if os.environ.get("TAPE_DTYPE_STATE"):
+    entry["tape_dtype"] = os.environ["TAPE_DTYPE_STATE"]
 conv = parse_epoch(os.environ.get("CONVERGED_LINE", ""))
 div  = parse_epoch(os.environ.get("DIVERGED_LINE",  ""))
 if conv is not None: entry["converged_at_epoch"] = conv
@@ -274,7 +283,8 @@ PY
 echo "$JSON_LINE" >> "$LOG_PATH"
 
 # Mirror to stdout for the operator
-echo "=== ${EXAMPLE_KEY} [${BACKEND}/${DEVICE}${TORCH_DTYPE_STATE:+/$TORCH_DTYPE_STATE}] @ ${COMMIT} ==="
+DTYPE_TAG="${TORCH_DTYPE_STATE}${MLX_DTYPE_STATE}${TAPE_DTYPE_STATE}"
+echo "=== ${EXAMPLE_KEY} [${BACKEND}/${DEVICE}${DTYPE_TAG:+/$DTYPE_TAG}] @ ${COMMIT} ==="
 echo "wall:    ${ELAPSED_PRETTY} (exit ${RC})"
 [ -n "$CONVERGED_LINE" ] && echo "${CONVERGED_LINE}"
 [ -n "$DIVERGED_LINE"  ] && echo "${DIVERGED_LINE}"
