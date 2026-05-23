@@ -259,6 +259,12 @@ MANIFEST = {
     # F-stored BitNet weights into our Ternary tag.
     "tensor_absmean_per_row_2d":         (("T",), "T"),
     "tensor_ternary_quant_with_scale_2d":(("T", "T"), "T"),
+
+    # HF -> ours ternary repack. Reads HF's `[(o + 3) / 4, i]` uint8
+    # buffer (microsoft/bitnet-b1.58-2B-4T-style layout) + (o, i) and
+    # returns a DT_TERNARY tensor in our packed/int8 layout. NoGrad —
+    # one-shot at safetensors load.
+    "tensor_create_ternary_from_hf_packed_2d": (("R", "i", "i"), "T"),
 }
 
 # C function names to LEAVE AS-IS (don't convert).
@@ -368,11 +374,14 @@ INIT_FFI = {
     "tensor_create_param_2d_const_streamed",
     "tensor_create_param_3d_const_streamed",
     "tensor_create_param_4d_const_streamed",
-    # Quantization (#411 B2). `tensor_create_ternary_packed_2d` is a
-    # tensor-creating wrapper that may be the first FFI on a BitNet
-    # inference path (load weights → forward), so it needs the guardian
+    # Quantization. `tensor_create_ternary_packed_2d` is a tensor-
+    # creating wrapper that may be the first FFI on a BitNet inference
+    # path (load weights → forward), so it needs the guardian
     # lazy-init. `tensor_bitlinear_fwd` takes existing handles only.
+    # `tensor_create_ternary_from_hf_packed_2d` is the HF-format variant —
+    # same first-FFI rationale.
     "tensor_create_ternary_packed_2d",
+    "tensor_create_ternary_from_hf_packed_2d",
 }
 
 

@@ -1499,6 +1499,20 @@ tCreateTernaryPacked2d bytesPtr byteCount = ioRerun (\_ =>
               (cast o) (cast i) 0)
            Nothing)
 
+||| Build a Ternary tensor from HF's `[(o + 3) / 4, i]` uint8 packed
+||| buffer (microsoft/bitnet-b1.58-2B-4T-style layout). One-shot at
+||| safetensors load; layout repack + encoding remap happens inside
+||| the C primitive. `bytesPtr` must point at `((o + 3) / 4) * i`
+||| HF-format bytes the caller keeps alive across the call (the C
+||| side copies into device storage).
+export
+tCreateTernaryFromHfPacked2d : {0 d : Device} -> UserDeviceQuant d =>
+                               {o, i : Nat} -> AnyPtr ->
+                               IO (Tensor [o, i] d Ternary NoGrad)
+tCreateTernaryFromHfPacked2d bytesPtr = ioRerun (\_ =>
+  MkTensor (primCreateTernaryFromHfPacked2d {d} bytesPtr (cast o) (cast i))
+           Nothing)
+
 ||| BitLinear forward: y = (W_ternary .* scale[:, None]) @ x + bias.
 ||| W and scale are NoGrad (BitNet b1.58 freezes both the ternary
 ||| weight and the per-row dequant scale); x and bias share an

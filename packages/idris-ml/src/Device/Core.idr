@@ -612,9 +612,16 @@ interface UserDeviceCore d => UserDeviceTransfer (0 d : Device) where
 ||| `packages/pytorch/torch_ref/models/bitlinear.py`
 ||| `absmean_ternary_quant` for the reference implementation. Both
 ||| NoGrad; the pair runs once per linear at load.
+|||
+||| `primCreateTernaryFromHfPacked2d` reads HF's `[(o + 3) / 4, i]`
+||| uint8 buffer (microsoft/bitnet-b1.58-2B-4T-style storage with
+||| `{-1, 0, +1} -> {0, 1, 2}` codes packed along axis 0) and
+||| produces a Ternary tensor in our layout. One-shot at safetensors
+||| load.
 public export
 interface UserDeviceCore d => UserDeviceQuant (0 d : Device) where
-  primCreateTernaryPacked2d   : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
-  primBitlinearFwd            : AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr
-  primAbsmeanPerRow2d         : AnyPtr -> AnyPtr
-  primTernaryQuantWithScale2d : AnyPtr -> AnyPtr -> AnyPtr
+  primCreateTernaryPacked2d       : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
+  primBitlinearFwd                : AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr
+  primAbsmeanPerRow2d             : AnyPtr -> AnyPtr
+  primTernaryQuantWithScale2d     : AnyPtr -> AnyPtr -> AnyPtr
+  primCreateTernaryFromHfPacked2d : AnyPtr -> Int -> Int -> AnyPtr

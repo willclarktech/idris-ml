@@ -347,6 +347,34 @@ TensorHandle tensor_bitlinear_fwd(
  * `tensor_ternary_quant_with_scale_2d` below). */
 TensorHandle tensor_absmean_per_row_2d(TensorHandle w);
 
+/* Build a Ternary tensor from a HuggingFace-format packed-2-bit byte buffer.
+ *
+ * HuggingFace's BitNet weight storage layout (transformers.integrations.bitnet
+ * `pack_weights` / `unpack_weights`, used by `microsoft/bitnet-b1.58-2B-4T`
+ * and similar checkpoints):
+ *
+ *   shape:    [(o + 3) / 4, i] uint8     -- packed along axis 0 (4 OUT
+ *                                            positions per byte, same IN)
+ *   encoding: original ternary value v in {-1, 0, +1}
+ *              -> add 1: code in {0, 1, 2}
+ *              -> 2-bit slot, low two bits = chunk 0 (= rows 0..row_dim-1)
+ *              -> 2 bits up = chunk 1 (= rows row_dim..2*row_dim-1), etc.
+ *
+ * Our packed layout (see `tensor_create_ternary_packed_2d`) is the
+ * transposed packing: axis-1 (4 IN positions per byte, same OUT) with
+ * two's-complement-aligned codes {0->00, +1->01, -1->11}. This
+ * function does the layout reshuffle + encoding remap in one pass.
+ *
+ * Inputs:
+ *   hf_packed_bytes: pointer to `((o + 3) / 4) * i` HF-format bytes.
+ *   o, i:            target logical shape.
+ *
+ * Returns: TensorHandle with dtype_tag = DT_TERNARY, shape [o, i], NoGrad.
+ * The output storage is per-backend (packed 2-bit on tape, int8 [o, i]
+ * on torch / mlx) — same as `tensor_create_ternary_packed_2d`. */
+TensorHandle tensor_create_ternary_from_hf_packed_2d(
+    const uint8_t* hf_packed_bytes, int o, int i);
+
 /* Quantize a 2D float weight to ternary via a pre-computed per-row scale.
  *
  * Inputs:

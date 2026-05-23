@@ -764,6 +764,9 @@ prim__absmeanPerRow2dMlxStreamed : AnyPtr -> Int -> AnyPtr
 %foreign "scheme:(lambda (a0 a1 a2) (let ((raw_r ((foreign-procedure \"tensor_ternary_quant_with_scale_2d_mlx_streamed\" (void* void* int) void*) (vector-ref a0 2) (vector-ref a1 2) a2))) (let ((wr (vector 'tensor-handle-v2 \"mlx\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle_mlx\" (void*) void) raw_r) wr)))"
 prim__ternaryQuantWithScale2dMlxStreamed : AnyPtr -> AnyPtr -> Int -> AnyPtr
 
+%foreign "scheme:(lambda (a0 a1 a2 a3) (let ((raw_r ((foreign-procedure \"tensor_create_ternary_from_hf_packed_2d_mlx_streamed\" (void* int int int) void*) a0 a1 a2 a3))) (let ((wr (vector 'tensor-handle-v2 \"mlx\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle_mlx\" (void*) void) raw_r) wr)))"
+prim__createTernaryFromHfPacked2dMlxStreamed : AnyPtr -> Int -> Int -> Int -> AnyPtr
+
 public export
 {s : MlxStream} -> UserDeviceQuant (MlxDev s) where
   primCreateTernaryPacked2d bytes bc o i rg =
@@ -774,6 +777,8 @@ public export
     prim__absmeanPerRow2dMlxStreamed w (streamTag s)
   primTernaryQuantWithScale2d w sc =
     prim__ternaryQuantWithScale2dMlxStreamed w sc (streamTag s)
+  primCreateTernaryFromHfPacked2d bytes o i =
+    prim__createTernaryFromHfPacked2dMlxStreamed bytes o i (streamTag s)
 
 
 ----------------------------------------------------------------------

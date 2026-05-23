@@ -105,6 +105,47 @@ extern "C" TensorHandle tensor_bitlinear_fwd(
 
 
 /* ------------------------------------------------------------------
+   HF-format ternary load (microsoft/bitnet-b1.58-2B-4T-style checkpoints)
+   ------------------------------------------------------------------ */
+
+/* HF -> ours: read HF's `[(o+3)/4, i]` uint8 buffer (axis-0 packing,
+   value+1 encoding) and produce an int8 [o, i] mx::array. Same int8
+   storage as `tensor_create_ternary_packed_2d` on mlx. */
+extern "C" TensorHandle tensor_create_ternary_from_hf_packed_2d_mlx_streamed(
+        const uint8_t* hf_packed_bytes, int o, int i_dim, int stream_tag) {
+    WITH_STREAM(stream_tag);
+    int hf_row_dim = (o + 3) / 4;
+    std::vector<int8_t> unpacked((size_t)o * (size_t)i_dim);
+    for (int j = 0; j < o; j++) {
+        int hf_chunk = j / hf_row_dim;
+        int hf_byte_row = j % hf_row_dim;
+        for (int k = 0; k < i_dim; k++) {
+            uint8_t hf_byte = hf_packed_bytes[(size_t)hf_byte_row * (size_t)i_dim + (size_t)k];
+            int hf_code = (hf_byte >> (2 * hf_chunk)) & 0x3;
+            int v = hf_code - 1;
+            if (v < -1 || v > 1) {
+                std::fprintf(stderr, "[mlx] tensor_create_ternary_from_hf_packed_2d: "
+                    "invalid HF code %d (byte 0x%02x) at (j=%d, k=%d)\n",
+                    hf_code, hf_byte, j, k);
+                std::abort();
+            }
+            unpacked[(size_t)j * (size_t)i_dim + (size_t)k] = (int8_t)v;
+        }
+    }
+    mx::Shape sh = {o, i_dim};
+    auto arr = mx::array(unpacked.data(), sh, mx::int8);
+    auto t = new Tensor(arr, /*requires_grad=*/false);
+    return (TensorHandle)t;
+}
+
+extern "C" TensorHandle tensor_create_ternary_from_hf_packed_2d(
+        const uint8_t* hf_packed_bytes, int o, int i_dim) {
+    return tensor_create_ternary_from_hf_packed_2d_mlx_streamed(
+        hf_packed_bytes, o, i_dim, default_stream_tag());
+}
+
+
+/* ------------------------------------------------------------------
    Load-time absmean ternary quantization
    ------------------------------------------------------------------ */
 

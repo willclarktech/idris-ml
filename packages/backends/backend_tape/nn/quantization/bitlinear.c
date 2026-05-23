@@ -255,6 +255,54 @@ TensorHandle tensor_absmean_per_row_2d(TensorHandle hw) {
     }
 }
 
+/* HF -> ours layout repack. Reads HF's `[(o+3)/4, i]` uint8 buffer
+   (HF encoding: value+1 packed in 2-bit slots, low bits = row 0..row_dim-1,
+   etc.) and produces our `[o, (i+3)/4]` packed-ternary tensor with the
+   two's-complement codes the rest of the kernels expect. One-shot at
+   load time; not a hot path. */
+TensorHandle tensor_create_ternary_from_hf_packed_2d(
+        const uint8_t* hf_packed_bytes, int o, int i_dim) {
+    int hf_row_dim = (o + 3) / 4;
+    int our_bytes_per_row = (i_dim + 3) / 4;
+    int total_bytes = o * our_bytes_per_row;
+    Tensor* t = arena_alloc(sizeof(Tensor));
+    memset(t, 0, sizeof(Tensor));
+    uint8_t* packed = arena_alloc((size_t)total_bytes);
+    memset(packed, 0, (size_t)total_bytes);
+    int* shape_out = arena_alloc(2 * sizeof(int));
+    shape_out[0] = o;
+    shape_out[1] = i_dim;
+    t->data = packed;
+    t->shape = shape_out;
+    t->rank = 2;
+    t->numel = o * i_dim;
+    t->requires_grad = 0;
+    t->tape_idx = -1;
+    t->grad = NULL;
+    t->persistent = 0;
+    t->dtype_tag = DT_TERNARY;
+    for (int j = 0; j < o; j++) {
+        int hf_chunk = j / hf_row_dim;
+        int hf_byte_row = j % hf_row_dim;
+        for (int k = 0; k < i_dim; k++) {
+            uint8_t hf_byte = hf_packed_bytes[(size_t)hf_byte_row * (size_t)i_dim + (size_t)k];
+            int hf_code = (hf_byte >> (2 * hf_chunk)) & 0x3;
+            int value = hf_code - 1;  /* {-1, 0, +1} */
+            if (value < -1 || value > 1) {
+                fprintf(stderr, "[tape] tensor_create_ternary_from_hf_packed_2d: "
+                    "invalid HF code %d (byte 0x%02x, chunk %d) at (j=%d, k=%d)\n",
+                    hf_code, hf_byte, hf_chunk, j, k);
+                abort();
+            }
+            uint8_t our_code = (value == 0) ? 0u : (value == 1 ? 1u : 3u);
+            int our_byte_idx = j * our_bytes_per_row + (k >> 2);
+            int our_slot = k & 0x3;
+            packed[our_byte_idx] |= (uint8_t)(our_code << (our_slot * 2));
+        }
+    }
+    return (TensorHandle)t;
+}
+
 /* Quantize a 2D float weight to ternary via a pre-computed per-row scale.
  *
  * For each (j, k): t[j, k] = round(w[j, k] / scale[j]).clamp(-1, +1)

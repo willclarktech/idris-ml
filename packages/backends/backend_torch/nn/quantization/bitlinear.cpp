@@ -88,6 +88,35 @@ extern "C" TensorHandle tensor_bitlinear_fwd(
 
 
 /* ------------------------------------------------------------------
+   HF-format ternary load (microsoft/bitnet-b1.58-2B-4T-style checkpoints)
+   ------------------------------------------------------------------ */
+
+extern "C" TensorHandle tensor_create_ternary_from_hf_packed_2d(
+        const uint8_t* hf_packed_bytes, int o, int i_dim) {
+    int hf_row_dim = (o + 3) / 4;
+    auto unpacked = torch::empty({o, i_dim}, at::TensorOptions().dtype(at::kChar));
+    int8_t* dst = unpacked.data_ptr<int8_t>();
+    for (int j = 0; j < o; j++) {
+        int hf_chunk = j / hf_row_dim;
+        int hf_byte_row = j % hf_row_dim;
+        for (int k = 0; k < i_dim; k++) {
+            uint8_t hf_byte = hf_packed_bytes[(size_t)hf_byte_row * (size_t)i_dim + (size_t)k];
+            int hf_code = (hf_byte >> (2 * hf_chunk)) & 0x3;
+            int v = hf_code - 1;
+            if (v < -1 || v > 1) {
+                std::fprintf(stderr, "[torch] tensor_create_ternary_from_hf_packed_2d: "
+                    "invalid HF code %d (byte 0x%02x) at (j=%d, k=%d)\n",
+                    hf_code, hf_byte, j, k);
+                std::abort();
+            }
+            dst[(size_t)j * (size_t)i_dim + (size_t)k] = (int8_t)v;
+        }
+    }
+    return from_tensor_persistent(unpacked);
+}
+
+
+/* ------------------------------------------------------------------
    Load-time absmean ternary quantization
    ------------------------------------------------------------------ */
 

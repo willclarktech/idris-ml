@@ -260,6 +260,64 @@ absmeanQuantRoundtripOracle = do
   pure (ok0 && ok1 && ok2 && ok3 && ok4 && ok5)
 
 
+----------------------------------------------------------------------
+-- HF-format ternary load (microsoft/bitnet-b1.58-2B-4T-style)
+----------------------------------------------------------------------
+--
+-- Roundtrip the HF -> ours layout reshuffle + encoding remap. Takes a
+-- known HF-packed byte sequence (the SAME logical ternary matrix as
+-- `bitlinearForwardOracle` above, but stored in HF's `[(o+3)/4, i]`
+-- layout with `{-1, 0, +1} -> {0, 1, 2}` encoding), runs through
+-- `tCreateTernaryFromHfPacked2d`, then through `tBitlinearFwd`, and
+-- asserts the output matches FIXTURE_EXPECTED_Y.
+--
+-- Derivation for the [3, 4] fixture (o=3 → hf_row_dim = (3+3)/4 = 1):
+--   Original ternary:
+--     [[ 1,  0, -1,  1],
+--      [-1,  1,  1,  0],
+--      [ 0, -1,  0,  1]]
+--   +1 (HF encoding):
+--     [[ 2,  1,  0,  2],
+--      [ 0,  2,  2,  1],
+--      [ 1,  0,  1,  2]]
+--   HF packed shape: [hf_row_dim, i] = [1, 4]. Each byte holds 4
+--   chunks of 2 bits (low to high) corresponding to the 4 output rows
+--   at the same column. With o=3, only chunks 0..2 are populated;
+--   chunk 3 stays 0.
+--     col 0: low=2, then 0, then 1, then 0 → 2 | (0<<2) | (1<<4) | (0<<6) = 0x12
+--     col 1: 1 | (2<<2) | (0<<4) | (0<<6) = 0x09
+--     col 2: 0 | (2<<2) | (1<<4) | (0<<6) = 0x18
+--     col 3: 2 | (1<<2) | (2<<4) | (0<<6) = 0x26
+--   So FIXTURE_HF_PACKED = [0x12, 0x09, 0x18, 0x26], total bytes = 4.
+
+buildHfFixtureBytes : IO (AnyPtr, Int)
+buildHfFixtureBytes = do
+  let buf    = prim__allocBytes 4
+      buf'   = prim__setByte buf  0 0x12
+      buf''  = prim__setByte buf' 1 0x09
+      buf''' = prim__setByte buf'' 2 0x18
+      buf4   = prim__setByte buf''' 3 0x26
+  pure (buf4, 4)
+
+
+bitlinearHfPackedRoundtrip : IO Bool
+bitlinearHfPackedRoundtrip = do
+  (bytesPtr, _) <- buildHfFixtureBytes
+  w <- tCreateTernaryFromHfPacked2d {d=TestDevice} {o=3} {i=4} bytesPtr
+  s <- mkVecNoGrad (the (Vect 3 Double) [0.5, 0.25, 0.75])
+  x <- mkVec       (the (Vect 4 Double) [1.0, 2.0, -0.5, 0.25])
+  b <- mkVec       (the (Vect 3 Double) [0.1, -0.2, 0.3])
+  y <- tBitlinearFwd {d=TestDevice} {cDt=TestDType} w s x b
+  y0 <- readElem3 y 0
+  y1 <- readElem3 y 1
+  y2 <- readElem3 y 2
+  let tol = 1.0e-6
+  ok0 <- checkClose "HF-pack y[0] matches the our-pack oracle"   0.975    y0 tol
+  ok1 <- checkClose "HF-pack y[1] matches the our-pack oracle" (-0.075)   y1 tol
+  ok2 <- checkClose "HF-pack y[2] matches the our-pack oracle" (-1.0125)  y2 tol
+  pure (ok0 && ok1 && ok2)
+
+
 export
 tests : List (IO Bool)
 tests =
@@ -268,4 +326,5 @@ tests =
   , bitlinearLayerLikeMixedOracle
   , bitlinearForwardOracleF32
   , absmeanQuantRoundtripOracle
+  , bitlinearHfPackedRoundtrip
   ]
