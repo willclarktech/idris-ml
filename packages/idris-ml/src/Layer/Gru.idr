@@ -2,11 +2,8 @@ module Layer.Gru
 
 import Data.Vect
 
-import Compat.Random
 import Device
-import Init
 import Layer.Core
-import Sampler
 import Tensor
 
 
@@ -58,16 +55,6 @@ applyGru {o} st input = do
 -- Constructor
 ----------------------------------------------------------------------
 
-packDoubles : AnyPtr -> Int -> Vect k Double -> AnyPtr
-packDoubles buf _ [] = buf
-packDoubles buf off (x :: rest) =
-  packDoubles (prim__setDouble buf off x) (off + 1) rest
-
-zeroBuf : AnyPtr -> Int -> Int -> AnyPtr
-zeroBuf buf _ 0 = buf
-zeroBuf buf off n =
-  zeroBuf (prim__setDouble buf off 0.0) (off + 1) (n - 1)
-
 ||| Build a `GruState i o TapeDev` with Xavier-uniform weights and
 ||| zero biases. Params register under `<prefix>_iw`, `<prefix>_ih_b`,
 ||| `<prefix>_hw`, `<prefix>_hh_b`.
@@ -75,36 +62,21 @@ export
 gruLayer : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt => {i, o : Nat} -> (paramPrefix : String) ->
              IO (GruState i o d dt WithGrad)
 gruLayer paramPrefix = do
-  let gI = cast {to=Int} (3 * o)
-      iI = cast {to=Int} i
-      oI = cast {to=Int} o
-  iwVals <- traverse (\_ => xavier uniform i (3 * o)) (Vect.replicate (3 * o * i) ())
-  hwVals <- traverse (\_ => xavier uniform o (3 * o)) (Vect.replicate (3 * o * o) ())
-  let iwBuf = prim__allocDoubles (gI * iI)
-      iwBuf' = packDoubles iwBuf 0 iwVals
-      hwBuf = prim__allocDoubles (gI * oI)
-      hwBuf' = packDoubles hwBuf 0 hwVals
-      ihBBuf = prim__allocDoubles gI
-      ihBBuf' = zeroBuf ihBBuf 0 gI
-      hhBBuf = prim__allocDoubles gI
-      hhBBuf' = zeroBuf hhBBuf 0 gI
+  -- GRU has 3 gates (reset, update, new); weights are stacked along
+  -- axis=0 → [3*o, i] for W_ih and [3*o, o] for W_hh. Xavier-normal-
+  -- via-uniform: std = sqrt(2/(fan_in + fan_out)) where fan_out = 3*o.
+  -- Biases zero-init.
+  let iwStd = sqrt (2.0 / cast {to=Double} (i + 3 * o))
+      hwStd = sqrt (2.0 / cast {to=Double} (o + 3 * o))
       iwName  = paramPrefix ++ "_iw"
       hwName  = paramPrefix ++ "_hw"
       ihBName = paramPrefix ++ "_ih_b"
       hhBName = paramPrefix ++ "_hh_b"
-      iwPtr  = primParamRegister {d} iwName  (dtCreateParam2d {d} {t=dt} gI iI iwBuf' (deviceStreamTag {d}))
-      hwPtr  = primParamRegister {d} hwName  (dtCreateParam2d {d} {t=dt} gI oI hwBuf' (deviceStreamTag {d}))
-      ihBPtr = primParamRegister {d} ihBName (dtCreateParam1d {d} {t=dt} gI ihBBuf' (deviceStreamTag {d}))
-      hhBPtr = primParamRegister {d} hhBName (dtCreateParam1d {d} {t=dt} gI hhBBuf' (deviceStreamTag {d}))
-      iwTV : TMat (3 * o) i d dt WithGrad
-      iwTV = MkTensor iwPtr (Just iwName)
-      hwTV : TMat (3 * o) o d dt WithGrad
-      hwTV = MkTensor hwPtr (Just hwName)
-      ihBTV : TVec (3 * o) d dt WithGrad
-      ihBTV = MkTensor ihBPtr (Just ihBName)
-      hhBTV : TVec (3 * o) d dt WithGrad
-      hhBTV = MkTensor hhBPtr (Just hhBName)
-  pure $ MkGru iwTV ihBTV hwTV hhBTV Nothing
+  iw  <- tparam2dNormal {o = 3 * o} {i} iwName 0.0 iwStd
+  hw  <- tparam2dNormal {o = 3 * o} {i = o} hwName 0.0 hwStd
+  ihB <- tparam1dConst {n = 3 * o} ihBName 0.0
+  hhB <- tparam1dConst {n = 3 * o} hhBName 0.0
+  pure $ MkGru iw ihB hw hhB Nothing
 
 ||| Reset hidden state. Lazy-allocate on next applyVar call.
 export
