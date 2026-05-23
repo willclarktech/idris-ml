@@ -2906,3 +2906,85 @@ follow-up rows from this baseline.
 × 2 examples, all at commit `41a649c`), `perf-baseline.md` not
 refreshed (this baseline is HF inference only, separate from the
 training-example sweep that drives the baseline table).
+
+### 2026-05-31 — torch-mps BF16 vs F32 on M4 Pro: runtime is noise; setup wins one-shot — `c39371f`
+
+**Motivation**: the three BF16-related TODO rows ("Mixed-precision
+training", "Mixed-precision training on tape", "BF16/F16 kernels —
+GPU-fast paths") were all framed as "value gated on CUDA hardware".
+That framing predates the M4 Pro VM (this host) and ignores that
+Apple M3+ ships native BF16 in Metal + ARM NEON FEAT_BF16 in the CPU
+SIMD path (`sysctl hw.optional.arm.FEAT_BF16 = 1`). Question: does
+BF16 actually win at all on this hardware, or is "CUDA tensor cores
+only" the real shape?
+
+**Change**: paired measurement of HfLlama-3.2-1B 8-token greedy
+decode at `c39371f` on `torch-mps`. Identical example, identical
+prompt, identical per-step op count (2634 → 4713 ops across the 8
+generated tokens — byte-identical between F32 and BF16 runs,
+confirming this is purely per-op cost, not op-count). Only
+`TORCH_DTYPE` differs.
+
+Ran two passes — an initial pass that turned out to have a
+contaminated F32 baseline (a concurrent `make` in another shell was
+elaborating BF16 idris2 at 100% CPU during the F32 run), then a
+clean serial pass with no concurrent build activity.
+
+**Impact** (clean serial pass):
+
+| Cell                | Total wall | Decode (`runGenerate`) | Setup (tok → buildRoPE) |
+|---------------------|----------:|----------------------:|------------------------:|
+| torch / mps **F32**  |   5 m 3 s  |              4 m 37 s  |                    19 s |
+| torch / mps **BF16** |   4 m 54 s |              4 m 35 s  |                    13 s |
+| Δ                    |   **−3%**  |              **−1%**   |                **−32%** |
+
+**Headline**: BF16 on torch-mps M4 Pro is **same-perf as F32 within
+noise** for the decode loop (the wall sink). The only measurable
+benefit is the **−6 s one-shot setup win** — `loadModelAllowCast`
+skips a BF16-on-disk → F32 cast pass. Decode is identical because
+the kernel cost per op is the same: libtorch's MPS BF16 kernels
+apparently don't engage M3+'s hardware BF16 path in a way that beats
+F32, or the wall is dominated by something other than the math
+(kernel launch / FFI dispatch / MTLCommandBuffer submission — see
+the High-priority "Cache Chez FFI symbol lookups" row).
+
+**The contaminated initial pass** for the record (so future readers
+can spot the same trap): F32 6m 53s, BF16 5m 38s, headline −18%. The
+F32 number was inflated by ~110 s of CPU contention from a parallel
+idris2 elaboration consuming 100% of one core. Lesson: serialize
+build-then-run absolutely — `feedback_no_rebuild_during_running_harness`
+already says this, and the same logic extends to "no build in any
+shell while a perf-run is going" not just dylib relinks.
+
+**What it kills**: the "−18% wall on M4" headline I drafted and
+then dropped. The TODO row reframes in this commit reflect the
+clean numbers: BF16 *is* testable on Apple Silicon (no CUDA needed
+to evaluate), but the runtime benefit on torch-mps is too small to
+motivate it as a default-on optimisation. The one-shot setup win is
+real but is amortised away on any longer-running workload.
+
+**On the mlx side**: tried to measure mlx-gpu BF16 too — no instance.
+`Compatible (MlxDev MGpu) BF16` doesn't exist in
+`packages/idris-ml/src/Device/Mlx.idr` (only F32/F64), and the C-side
+mlx backend has explicit `mlx_dtype_unsupported` aborts in
+`backend_mlx/training/dtype_dispatch.cpp` saying "Metal has no
+bf16/f16/int storage" — that error message is **factually wrong**
+on M3+ (Apple Metal supports BF16; mlx's `mx::bfloat16` type
+exists). Filed as a new TODO row ("mlx-Metal BF16 enablement"):
+correctness fix even though the torch-mps measurement suggests the
+runtime payoff may be similarly modest. mlx's design is more
+graph-mode (closer to JAX) than libtorch's eager — there's a
+plausible story that mlx-Metal BF16 could win bigger than libtorch
+did, but we won't know until we measure.
+
+**Tape stays unchanged**: tape's BF16 is lingua-franca (F64 storage
+with values rounded to BF16 precision), so `TAPE_DTYPE=BF16` has
+the same memory footprint and the same kernel speed as F64. The
+existing row "Tape F64 HfLlama OOM" already documents that.
+
+**Cross-references**: perf-log.jsonl entries —
+`2026-05-31T13:19:56Z` (contaminated F32), `2026-05-31T13:31:15Z`
+(BF16 after the contaminating elab finished),
+`2026-05-31T13:39:50Z` (clean F32), `2026-05-31T13:44:45Z`
+(clean BF16); TODO.md rows 11 + 40 + 41 reframed in this commit;
+new TODO row for mlx-Metal BF16 enablement.
