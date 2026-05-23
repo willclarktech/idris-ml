@@ -2,11 +2,8 @@ module Layer.Conv
 
 import Data.Vect
 
-import Compat.Random
 import Device
-import Init
 import Layer.Core
-import Sampler
 import Tensor
 
 
@@ -107,16 +104,6 @@ applyConv2DBatched {inC} {outC} {h} {w} {kH} {kW} {padH} {padW} {b}
       out2d = primReshape2d {d} outT bI (cast {to=Int} outFlat)
   in MkTensor out2d Nothing
 
--- Pack a Vect of Doubles into a buffer.
-packDoubles : AnyPtr -> Int -> Vect k Double -> AnyPtr
-packDoubles buf _ [] = buf
-packDoubles buf off (x :: rest) =
-  packDoubles (prim__setDouble buf off x) (off + 1) rest
-
-zeroBuf : AnyPtr -> Int -> Int -> AnyPtr
-zeroBuf buf _ 0 = buf
-zeroBuf buf off n =
-  zeroBuf (prim__setDouble buf off 0.0) (off + 1) (n - 1)
 
 ||| Build a Conv2D layer with He-normal kernel init and zero bias.
 export
@@ -127,24 +114,14 @@ conv2dLayer : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible 
                                   (outC * (ConvOutDim h kH padH * ConvOutDim w kW padW))
                                   d dt WithGrad)
 conv2dLayer paramPrefix = do
-  let kerCount = outC * inC * kH * kW
-  kerVals <- traverse (\_ => he normal (inC * kH * kW) outC)
-                      (Vect.replicate kerCount ())
-  let kerBuf = prim__allocDoubles (cast {to=Int} kerCount)
-      kerBuf' = packDoubles kerBuf 0 kerVals
-      biasBuf = prim__allocDoubles (cast {to=Int} outC)
-      biasBuf' = zeroBuf biasBuf 0 (cast {to=Int} outC)
-      kerName = paramPrefix ++ "_kernel"
+  -- He-normal kernel init: std = sqrt(2 / fan_in) where fan_in for a
+  -- conv kernel is inC * kH * kW. Zero bias.
+  let kerStd = sqrt (2.0 / cast {to=Double} (inC * kH * kW))
+      kerName  = paramPrefix ++ "_kernel"
       biasName = paramPrefix ++ "_bias"
-      kerPtr = primParamRegister {d} kerName
-        (dtCreateParam4d {d} {t=dt} (cast outC) (cast inC) (cast kH) (cast kW) kerBuf' (deviceStreamTag {d}))
-      biasPtr = primParamRegister {d} biasName
-        (dtCreateParam1d {d} {t=dt} (cast outC) biasBuf' (deviceStreamTag {d}))
-      kerTV : Tensor [outC, inC, kH, kW] d dt WithGrad
-      kerTV = MkTensor kerPtr (Just kerName)
-      biasTV : TVec outC d dt WithGrad
-      biasTV = MkTensor biasPtr (Just biasName)
-  pure $ MkConv2D kerTV biasTV
+  kernel <- tparam4dNormal {a=outC} {b=inC} {c=kH} {e=kW} kerName 0.0 kerStd
+  bias   <- tparam1dConst {n=outC} biasName 0.0
+  pure $ MkConv2D kernel bias
 
 public export
 {inC, outC, h, w, kH, kW, padH, padW : Nat} ->
@@ -213,24 +190,14 @@ conv1dLayer : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible 
                                   (inC * len)
                                   (outC * ConvOutDim len kL pad) d dt WithGrad)
 conv1dLayer paramPrefix = do
-  let kerCount = outC * inC * kL
-  kerVals <- traverse (\_ => he normal (inC * kL) outC)
-                      (Vect.replicate kerCount ())
-  let kerBuf = prim__allocDoubles (cast {to=Int} kerCount)
-      kerBuf' = packDoubles kerBuf 0 kerVals
-      biasBuf = prim__allocDoubles (cast {to=Int} outC)
-      biasBuf' = zeroBuf biasBuf 0 (cast {to=Int} outC)
-      kerName = paramPrefix ++ "_kernel"
+  -- He-normal kernel init: std = sqrt(2 / fan_in) with fan_in = inC * kL.
+  -- Zero bias.
+  let kerStd = sqrt (2.0 / cast {to=Double} (inC * kL))
+      kerName  = paramPrefix ++ "_kernel"
       biasName = paramPrefix ++ "_bias"
-      kerPtr = primParamRegister {d} kerName
-        (dtCreateParam3d {d} {t=dt} (cast outC) (cast inC) (cast kL) kerBuf' (deviceStreamTag {d}))
-      biasPtr = primParamRegister {d} biasName
-        (dtCreateParam1d {d} {t=dt} (cast outC) biasBuf' (deviceStreamTag {d}))
-      kerTV : Tensor [outC, inC, kL] d dt WithGrad
-      kerTV = MkTensor kerPtr (Just kerName)
-      biasTV : TVec outC d dt WithGrad
-      biasTV = MkTensor biasPtr (Just biasName)
-  pure $ MkConv1D kerTV biasTV
+  kernel <- tparam3dNormal {a=outC} {b=inC} {c=kL} kerName 0.0 kerStd
+  bias   <- tparam1dConst {n=outC} biasName 0.0
+  pure $ MkConv1D kernel bias
 
 public export
 {inC, outC, len, kL, pad : Nat} ->
