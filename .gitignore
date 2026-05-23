@@ -21,8 +21,9 @@ data/
 # `bash packages/idris-transformers/scripts/hf-download.sh <repo>` —
 # materialised at the top level so Python's AutoModel.from_pretrained
 # + Idris's loadModel share a single physical copy. Gigabytes per
-# model, never checked in.
-models/
+# model, never checked in. Root-anchored — `torch_ref/models/` is a
+# tracked Python package, not an HF cache.
+/models/
 .claude/
 .idris2/
 
