@@ -10,6 +10,7 @@ modules = Harness
         , TestConfig
         , Test.Array
         , Test.GradMode
+        , Test.GradScaler
         , Test.Hpo.LrFinder
         , Test.Init
         , Test.Lossless

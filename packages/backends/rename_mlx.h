@@ -24,6 +24,7 @@
 #define mnist_free mnist_free_mlx
 #define mnist_get_image mnist_get_image_mlx
 #define native_train_step native_train_step_mlx
+#define native_train_step_scaled native_train_step_scaled_mlx
 #define optimizer_buf_count optimizer_buf_count_mlx
 #define optimizer_clip_grad_norm optimizer_clip_grad_norm_mlx
 #define optimizer_clip_grad_value optimizer_clip_grad_value_mlx

@@ -20,6 +20,7 @@ modules = Compat.Random
         , DType.Test
         , Floating
         , GradMode
+        , GradScaler
         , HwConfig
         , HwDevices
         , Hpo

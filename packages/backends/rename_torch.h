@@ -24,6 +24,7 @@
 #define mnist_free mnist_free_torch
 #define mnist_get_image mnist_get_image_torch
 #define native_train_step native_train_step_torch
+#define native_train_step_scaled native_train_step_scaled_torch
 #define optimizer_buf_count optimizer_buf_count_torch
 #define optimizer_clip_grad_norm optimizer_clip_grad_norm_torch
 #define optimizer_clip_grad_value optimizer_clip_grad_value_torch
