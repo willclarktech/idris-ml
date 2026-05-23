@@ -1536,6 +1536,28 @@ ref-taxi:
 ref-monte-carlo:
 	cd packages/pytorch && uv run python -m torch_ref.models.monte_carlo
 
+# PyTorch reference inference for the HF-aligned models. Each invokes the
+# canonical HF transformers forward pass for the same model the matching
+# Idris example runs, so users can eyeball PyTorch's output (or wall
+# time) for direct comparison with `make example-hf-{bert,gpt2,llama}-inference`.
+#
+# bert + gpt2 reuse the oracle scripts (load via HF, run forward, save
+# the comparison-target tensor) — re-running them refreshes the oracle
+# files used by `test-hf-{bert,gpt2}-roundtrip`. llama uses
+# `time_inference_llama.py` (PyTorch greedy decode, stage timers
+# mirroring the Idris example).
+ref-hf-bert:
+	cd packages/pytorch && uv run python \
+		../idris-transformers/scripts/save_oracle.py
+
+ref-hf-gpt2:
+	cd packages/pytorch && uv run python \
+		../idris-transformers/scripts/save_oracle_gpt2.py
+
+ref-hf-llama:
+	cd packages/pytorch && uv run python \
+		../idris-transformers/scripts/time_inference_llama.py
+
 test-ref ref-test:
 	cd packages/pytorch && uv run pytest torch_ref/correctness/ -v
 
@@ -1960,6 +1982,7 @@ all: check-all test-all
         example-bench example-profile sweep sweep-quick clean \
         backend print-torch ref-setup ref-supervised ref-rnn ref-lstm ref-gru ref-ntm-copy \
         ref-ntm-recall ref-dnc-copy ref-dnc-recall \
-        ref-transformer bench-py bench-compare bench-ops bench-ops-py bench-ops-compare test-ref ref-test ref-lint \
+        ref-transformer ref-hf-bert ref-hf-gpt2 ref-hf-llama \
+        bench-py bench-compare bench-ops bench-ops-py bench-ops-compare test-ref ref-test ref-lint \
         ref-typecheck ref-convergence ref-convergence-copy ref-convergence-recall \
         jupyter-install jupyter-lab test-jupyter test-jupyter-unit test-notebooks
