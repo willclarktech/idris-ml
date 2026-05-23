@@ -48,6 +48,29 @@ is still useful (saves someone trying it again).
 
 ## Entries
 
+### 2026-05-29 — PyTorch Python on torch-mps Llama: a ~150× gap, not a structural ceiling (#399 sizing)
+
+**Plan**: before committing to #399 ("torch-mps deferred-op tape (graph mode)") as an XL architectural change, take the cheap diagnostic step of actually measuring PyTorch Python's wall on the same workload. The hypothesis on file (from the closed #393 row) was that ~19,400 ops × ~1.89 ms/op = ~36.7 s/forward is the *libtorch+MPS structural ceiling* and we and PyTorch Python both hit it. That hypothesis was untested — there were no PyTorch Python Llama walls in `perf-log.jsonl`.
+
+**Motivation**: a 150× perf gap with a workable fix is worth knowing about before sinking weeks into a deferred-op-tape architectural rewrite that may be solving the wrong problem.
+
+**Change**: introduced `docs/develop/perf-log-ref.jsonl` + `perf-log-ref.md` for reference / third-party baseline measurements (kept separate from `perf-log.jsonl` so reference numbers aren't drowned by commit-keyed churn). Ran `packages/idris-transformers/scripts/time_inference_llama.py` on MPS F32, captured both cache modes.
+
+**Impact**:
+
+| | runGenerate wall | per-forward avg |
+|---|---:|---:|
+| idris-ml torch-mps F32 (commit `26a0d56+dirty`) | 5 m 07 s | ~38 s/forward |
+| PyTorch Python `use_cache=False` (apples-to-Idris) | **2 s** | ~0.25 s/forward |
+| PyTorch Python `use_cache=True` (real user pattern) | **3 s** | ~0.4 s/forward |
+
+**idris-ml is ~150× slower than PyTorch Python on the same libtorch + same MPS device, same workload, same model.** This refutes the "we're at PyTorch parity on a libtorch structural ceiling" reading. The ~19,400 ops/forward is *our* count — PyTorch's Llama implementation doesn't have 19,400 ops per forward, it has maybe 1–2 orders of magnitude fewer because it aggressively fuses (likely `F.scaled_dot_product_attention` via MPSGraph, `F.rms_norm`, fused embedding lookup, etc.).
+
+**Outcome**: #399's scope refactors from XL "deferred-op tape (architectural)" to L "match PyTorch's fused-op catalogue on torch backend". The fix is op-level: identify which of our composite smart-constructor chains decompose into many `from_tensor` wraps when PyTorch lands a single fused op, then expose those fused ops as FFI primitives in `backend_torch/`. Prime suspect is attention (`at::scaled_dot_product_attention` exists in libtorch and uses MPSGraph internally on MPS); RMSNorm and the SwiGLU MLP gate are runners-up. Per-forward op count is the right proxy metric — the existing `tensor_perf_op_count` counter (commit `26a0d56`) already tracks this without further instrumentation; we just need to compare counts pre/post each fused-op landing.
+
+**Cross-references**: `perf-log-ref.jsonl` entries 2026-05-29 (the two PyTorch measurements); `time_inference_llama.py` is the canonical head-to-head script; the #393 closure's "structural ceiling" claim is now superseded by this finding (the per-op submission overhead is real, but our op count is 30–100× higher than PyTorch's — the ceiling we measured was our own decomposition, not libtorch's).
+
+
 ### 2026-05-29 — torch-mps per-op submission overhead diagnosed (#393)
 
 **Plan**: close #393 — two-phase per the modular-petting-minsky plan: tactical fix first (Phase B1), then per-op timing harness (Phase B2) to make the structural ceiling visible.
