@@ -11,17 +11,24 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/* Internal tape dtype tags. Deliberately dense (0..9) **F64 = 0** so that
+/* Internal tape dtype tags. Deliberately dense (0..N) **F64 = 0** so that
    every memset/calloc-zeroed Tensor defaults to F64 without touching the
    ~27 constructors. This is NOT the cross-language RuntimeDType ABI, which
    uses the kind-major layout (closed 2026-05-23: 1=Bool, 4=U8, 8-11=I8..I64,
-   13-15=F16/F32/F64, 17=BF16; 0 reserved as invalid). The ABI dtag is
-   mapped to/from this internal tag only at the create/cast boundary via
-   `tape_tag_from_dtag`. Non-F64 tape tensors are inference/storage-only
-   except F32 — F32 has real 4-byte float storage + autograd kernels
-  ; the rest store doubles rounded through the dtype's precision
-   (the `double` lingua franca). */
-enum { DT_F64 = 0, DT_F32, DT_BF16, DT_F16, DT_I8, DT_I16, DT_I32, DT_I64, DT_U8, DT_BOOL };
+   13-15=F16/F32/F64, 17=BF16; 24=Binary, 25=Ternary; 0 reserved as invalid).
+   The ABI dtag is mapped to/from this internal tag only at the create/cast
+   boundary via `tape_tag_from_dtag`. Non-F64 tape tensors are inference/
+   storage-only except F32 — F32 has real 4-byte float storage + autograd
+   kernels; the rest store doubles rounded through the dtype's precision
+   (the `double` lingua franca).
+
+   Sub-byte tags (`DT_BINARY`, `DT_TERNARY`, #411 BitNet) are reserved
+   here but no kernel writes them in B1 — the tape arena's sub-byte
+   storage path lands in B3 along with `tensor_bitlinear_fwd`. The
+   ABI-to-internal mapping is in place so a future cast-into-Ternary
+   call has a deterministic abort site rather than UB. */
+enum { DT_F64 = 0, DT_F32, DT_BF16, DT_F16, DT_I8, DT_I16, DT_I32, DT_I64, DT_U8, DT_BOOL,
+       DT_BINARY, DT_TERNARY };
 
 typedef struct {
     void* data;         /* owned, heap-allocated; element type per dtype_tag */

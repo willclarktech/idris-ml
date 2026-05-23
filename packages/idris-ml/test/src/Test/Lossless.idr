@@ -83,6 +83,35 @@ proofBoolToU8 = %search
 
 
 -- ---------------------------------------------------------------
+-- B1 (#411): Ternary / Binary lossless witnesses
+-- ---------------------------------------------------------------
+--
+-- {-1, 0, +1} and {-1, +1} fit exactly into every IEEE float (the
+-- mantissa needs only to hold integers up to 1, which it does in
+-- F16). The LosslessTo instances are FloatPrecision-gated to inherit
+-- the float-family scope from the existing typeclass setup; no
+-- additional Nat bound is needed.
+
+proofTernaryToF32 : LosslessTo Ternary (Float 32)
+proofTernaryToF32 = %search
+
+proofTernaryToBF16 : LosslessTo Ternary (BFloat 16)
+proofTernaryToBF16 = %search
+
+proofTernaryToF16 : LosslessTo Ternary (Float 16)
+proofTernaryToF16 = %search
+
+proofTernaryToI8 : LosslessTo Ternary (IntN 8)
+proofTernaryToI8 = %search
+
+proofBinaryToF32 : LosslessTo Binary (Float 32)
+proofBinaryToF32 = %search
+
+proofBinaryToI8 : LosslessTo Binary (IntN 8)
+proofBinaryToI8 = %search
+
+
+-- ---------------------------------------------------------------
 -- F1 (#412): UpcastableTo bridge — LosslessTo edges thread into
 -- the existing tcast-resolution surface
 -- ---------------------------------------------------------------
@@ -135,6 +164,16 @@ boolToAnyResolves = do
       _ = proofBoolToU8
   check "LosslessTo resolves Bool → Float / BFloat / IntN / UInt" True
 
+ternaryAndBinaryResolve : IO Bool
+ternaryAndBinaryResolve = do
+  let _ = proofTernaryToF32
+      _ = proofTernaryToBF16
+      _ = proofTernaryToF16
+      _ = proofTernaryToI8
+      _ = proofBinaryToF32
+      _ = proofBinaryToI8
+  check "LosslessTo resolves Ternary / Binary → Float / BFloat / IntN" True
+
 upcastableBridgeWiresThrough : IO Bool
 upcastableBridgeWiresThrough = do
   -- These references are at the type level — if the bridge instance
@@ -149,5 +188,6 @@ tests =
   [ losslessResolvesForKnownEdges
   , crossFamilyIntToFloatResolves
   , boolToAnyResolves
+  , ternaryAndBinaryResolve
   , upcastableBridgeWiresThrough
   ]

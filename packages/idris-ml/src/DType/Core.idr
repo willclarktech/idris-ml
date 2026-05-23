@@ -96,6 +96,23 @@ data UInt : Nat -> Type where MkUInt : UInt n
 -- better than `Tensor [4] TapeDev (Float 64) WithGrad`.
 ----------------------------------------------------------------------
 
+||| Ternary value-set {-1, 0, +1}, packed 4 elements per byte using
+||| a 2-bit two's-complement encoding (00 -> 0, 01 -> +1, 11 -> -1,
+||| 10 -> reserved/invalid). Distinct from `IntN 2` (which has full
+||| -2..1 range) — Ternary's value set is fixed to BitNet b1.58's
+||| three-value alphabet so backend kernels can specialise for it.
+||| Pack/unpack helpers in `packages/backends/shared_utils.c`.
+public export
+data Ternary : Type where MkTernary : Ternary
+
+||| Binary value-set {-1, +1}, packed 8 elements per byte (1 bit each,
+||| 0 -> +1, 1 -> -1). Slot reserved for future BitNet 1-bit variants
+||| (e.g. BitNet b1, original 2023 paper). No kernels in B1; the
+||| typeclass instances exist so callers can spell `tcast` targets
+||| without a backend round-trip.
+public export
+data Binary : Type where MkBinary : Binary
+
 public export
 F16 : Type
 F16 = Float 16
@@ -178,6 +195,23 @@ public export
 IsDType Bool where
   dtypeName  = "bool"
   dtypeBytes = 1
+
+-- Sub-byte dtypes: dtypeBytes is 0 as a "size-is-not-1-byte-per-element"
+-- sentinel — callers that compute buffer sizes must consult the dtype's
+-- pack rate (4 ternary or 8 binary slots per byte) rather than
+-- multiplying numel by dtypeBytes. The sentinel is intentional: a code
+-- path that asks dtypeBytes for a packed dtype is using the wrong
+-- arithmetic and crashes loudly (numel * 0 = 0 buffer) rather than
+-- silently undersizing.
+public export
+IsDType Ternary where
+  dtypeName  = "ternary"
+  dtypeBytes = 0
+
+public export
+IsDType Binary where
+  dtypeName  = "binary"
+  dtypeBytes = 0
 
 
 ----------------------------------------------------------------------
@@ -494,6 +528,27 @@ public export
 {m : Nat} -> LTE 2 m => LosslessTo Bool (IntN m) where
 public export
 {m : Nat} -> LTE 1 m => LosslessTo Bool (UInt m) where
+
+-- Ternary {-1, 0, +1} → any Float / BFloat: all three values are
+-- exactly representable in every IEEE float (the mantissa needs
+-- to hold integers up to 1, which it does even in F16). No FloatPrecision
+-- gate needed.
+public export
+{to : Type} -> FloatPrecision to => LosslessTo Ternary to where
+
+-- Binary {-1, +1} → any Float / BFloat: same reasoning.
+public export
+{to : Type} -> FloatPrecision to => LosslessTo Binary to where
+
+-- Ternary → IntN m (m ≥ 2): IntN 2 covers -2..1 which contains {-1, 0, 1}.
+-- No UInt edge (Ternary has -1, which UInt can't represent).
+public export
+{m : Nat} -> LTE 2 m => LosslessTo Ternary (IntN m) where
+
+-- Binary → IntN m (m ≥ 2): IntN 2 covers -2..1 which contains {-1, +1}.
+-- No UInt edge (Binary has -1).
+public export
+{m : Nat} -> LTE 2 m => LosslessTo Binary (IntN m) where
 
 -- Bridge: every LosslessTo instance is an UpcastableTo. Threads the
 -- cross-family lossless edges into the existing `tcast` /

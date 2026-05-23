@@ -476,7 +476,9 @@ prim__setInt : AnyPtr -> Int -> Int -> AnyPtr
 --   13 F16   14  F32  15 F64           (family 3: F; lane 0 / F8 reserved)
 --   17 BF16                            (family 4: BF; lanes for BF8/32/64 reserved)
 --   (family 5: TF — TF8/16/32/64 — all reserved)
---   (families 6-7: sub-byte quant — named lanes, not arithmetic — all reserved)
+--   24 Binary, 25 Ternary              (family 6: sub-byte quant — named
+--                                       lanes, not arithmetic; B1 of #411)
+--   (family 7: 4-bit-and-up quant — NF4/MX/FP4 — all reserved)
 
 public export
 RuntimeDType Bool where
@@ -517,6 +519,18 @@ RuntimeDType F64 where
 public export
 RuntimeDType BF16 where
   dtypeTag = 17
+
+-- Sub-byte quantization dtypes (#411 BitNet). The C-side dispatch
+-- table only routes these through pack/unpack and (eventually)
+-- BitLinear forward; ordinary create/cast paths abort if reached
+-- with these tags until B3's per-backend kernels land.
+public export
+RuntimeDType Binary where
+  dtypeTag = 24
+
+public export
+RuntimeDType Ternary where
+  dtypeTag = 25
 
 -- dtCreate* free functions — device × dtype create dispatch.
 -- `d` selects the backend (via the `primCreate*Streamed` method),

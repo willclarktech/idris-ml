@@ -74,6 +74,26 @@ uint16_t double_to_bf16_bits(double d);
 double   f16_bits_to_double(uint16_t h);
 uint16_t double_to_f16_bits(double d);
 
+/* Ternary {-1, 0, +1} packing (#411 BitNet).
+ *
+ * Storage: 2 bits per element, 4 elements per byte. Encoding chosen as
+ * 2-bit two's complement so a sign-extending fetch of a slot yields
+ * the original integer:
+ *
+ *   00 -> 0    01 -> +1    11 -> -1    10 -> reserved / invalid
+ *
+ * Within a byte, slot 0 lives in bits 0..1 (low) and slot 3 in bits
+ * 6..7 (high). Inputs outside {-1, 0, +1} abort.
+ *
+ * `ternary_pack(values, n, out)` writes ceil(n/4) bytes to `out` and
+ * returns that byte count. Trailing slots in the final byte (when
+ * n % 4 != 0) are zero-padded.
+ *
+ * `ternary_unpack(packed, n, out)` reads ceil(n/4) bytes from `packed`
+ * and writes n elements to `out`. */
+int  ternary_pack(const int8_t* values, int n, uint8_t* out);
+void ternary_unpack(const uint8_t* packed, int n, int8_t* out);
+
 #ifdef __cplusplus
 }
 #endif

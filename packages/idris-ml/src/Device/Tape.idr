@@ -668,6 +668,16 @@ Compatible TapeDev U8 where
 public export
 Compatible TapeDev Bool where
 
+-- Sub-byte quantization dtypes (#411 BitNet b1.58). Storage + pack/
+-- unpack are backend-agnostic (`shared_utils.c::ternary_pack`); per-
+-- backend kernels land in B3. Tape is the pioneering arena for sub-
+-- byte storage — `DT_TERNARY` / `DT_BINARY` are reserved in tape's
+-- internal enum but no kernel writes them in B1.
+public export
+Compatible TapeDev Ternary where
+public export
+Compatible TapeDev Binary where
+
 
 ----------------------------------------------------------------------
 -- HardwareClass: the tape backend runs on the host CPU.

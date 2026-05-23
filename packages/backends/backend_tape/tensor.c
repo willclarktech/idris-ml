@@ -18,6 +18,8 @@ size_t tape_elem_size(int tag) {
         case DT_I16:                                return sizeof(int16_t);
         case DT_I32:                                return sizeof(int32_t);
         case DT_I64:                                return sizeof(int64_t);
+        case DT_BINARY: case DT_TERNARY:            return 0;  /* sub-byte;
+            consult tape_packed_bytes() (#411 B3) for buffer sizing. */
         default:                                    return sizeof(double);
     }
 }
@@ -34,9 +36,12 @@ int tape_tag_from_dtag(int dtag) {
         case 14: return DT_F32;
         case 15: return DT_F64;
         case 17: return DT_BF16;
+        case 24: return DT_BINARY;
+        case 25: return DT_TERNARY;
         default:
             fprintf(stderr, "[tape backend] invalid dtag=%d (expected one of "
-                "{1=Bool, 4=U8, 8-11=I8/I16/I32/I64, 13-15=F16/F32/F64, 17=BF16})\n",
+                "{1=Bool, 4=U8, 8-11=I8/I16/I32/I64, 13-15=F16/F32/F64, 17=BF16, "
+                "24=Binary, 25=Ternary})\n",
                 dtag);
             abort();
     }

@@ -297,3 +297,70 @@ uint16_t double_to_f16_bits(double d) {
     }
     return (uint16_t)(sign | ((uint32_t)exp << 10) | halfm);
 }
+
+/* ----------------------------------------------------------------------
+   Ternary {-1, 0, +1} packing (#411 BitNet b1.58)
+
+   Sub-byte storage: 2 bits per element, 4 elements per byte. Encoding
+   is 2-bit two's complement so a sign-extending read of a slot yields
+   the original integer:
+
+     00 -> 0    01 -> +1    11 -> -1    10 -> reserved / invalid
+
+   Within a byte, slot 0 lives in bits 0..1 (low) and slot 3 in bits
+   6..7 (high). The encoding is also the calloc-zero default: an
+   all-zero byte buffer unpacks as all-zero ternary, so freshly-
+   allocated arena storage for a Ternary tensor has the right semantic
+   default.
+
+   Pack/unpack here are pure-C and backend-agnostic — Bitnet inference
+   on every backend converges on the same packed layout regardless of
+   what compute fabric ultimately reads it. Per-backend C kernels
+   (#411 B3) will share the unpack to broadcast the row into compute
+   dtype before matmul.
+   ---------------------------------------------------------------------- */
+
+int ternary_pack(const int8_t* values, int n, uint8_t* out) {
+    int out_bytes = (n + 3) / 4;
+    for (int b = 0; b < out_bytes; b++) {
+        uint8_t byte = 0;
+        for (int slot = 0; slot < 4; slot++) {
+            int i = b * 4 + slot;
+            if (i >= n) continue;  /* trailing slot -> 0 (decodes to zero) */
+            uint8_t code;
+            switch (values[i]) {
+                case  0: code = 0x0; break;
+                case  1: code = 0x1; break;
+                case -1: code = 0x3; break;
+                default:
+                    fprintf(stderr,
+                        "ternary_pack: invalid value %d at index %d "
+                        "(expected -1, 0, or +1)\n",
+                        (int)values[i], i);
+                    abort();
+            }
+            byte |= (uint8_t)((code & 0x3u) << (slot * 2));
+        }
+        out[b] = byte;
+    }
+    return out_bytes;
+}
+
+void ternary_unpack(const uint8_t* packed, int n, int8_t* out) {
+    for (int i = 0; i < n; i++) {
+        int b = i / 4;
+        int slot = i % 4;
+        uint8_t code = (uint8_t)((packed[b] >> (slot * 2)) & 0x3u);
+        switch (code) {
+            case 0x0: out[i] =  0; break;
+            case 0x1: out[i] =  1; break;
+            case 0x3: out[i] = -1; break;
+            default:  /* 0x2 = reserved */
+                fprintf(stderr,
+                    "ternary_unpack: invalid 2-bit code 0x%x at index %d "
+                    "(byte %d slot %d)\n",
+                    code, i, b, slot);
+                abort();
+        }
+    }
+}

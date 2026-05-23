@@ -673,6 +673,15 @@ Compatible (MlxDev MGpu) F16 where
 -- DELIBERATELY NO `Compatible (MlxDev MGpu) F64` instance — Metal
 -- has no fp64. (Int* + bool stay unwired on both streams.)
 
+-- Sub-byte quantization dtypes (#411 BitNet b1.58). CPU stream only —
+-- mlx's Metal sub-byte support requires custom kernels that arrive in
+-- B3. The CPU instance is enough to validate the typeclass surface +
+-- exercise pack/unpack via the shared C helpers.
+public export
+Compatible (MlxDev MCpu) Ternary where
+public export
+Compatible (MlxDev MCpu) Binary where
+
 
 ----------------------------------------------------------------------
 -- UserDeviceTransfer instance (cross-backend transfer surface)

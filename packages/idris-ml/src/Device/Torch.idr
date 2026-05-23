@@ -678,6 +678,19 @@ Compatible (TorchDev TCpu) Bool where
 public export
 {n : Nat} -> Compatible (TorchDev (TCuda n)) Bool where
 
+-- Sub-byte quantization dtypes (#411 BitNet b1.58). CPU + CUDA only —
+-- libtorch MPS lacks the construction-side sub-byte storage routing
+-- (mirrors the Int* / Bool MPS exclusion). The Idris-side Compatible
+-- gate is the structural prereq; per-backend kernels arrive in B3.
+public export
+Compatible (TorchDev TCpu) Ternary where
+public export
+{n : Nat} -> Compatible (TorchDev (TCuda n)) Ternary where
+public export
+Compatible (TorchDev TCpu) Binary where
+public export
+{n : Nat} -> Compatible (TorchDev (TCuda n)) Binary where
+
 
 ----------------------------------------------------------------------
 -- UserDeviceTransfer instance (cross-backend transfer surface)
