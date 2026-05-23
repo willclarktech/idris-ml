@@ -446,6 +446,26 @@ void backend_epoch_begin(void);  /* mark start of forward pass for timing */
 void tensor_perf_reset(void);
 long tensor_perf_op_count(void);
 
+/* TODO #399 Commit B — fused scaled-dot-product attention.
+ * Replaces the Idris-side per-head attention math (matmul/scale/
+ * mask/softmax/matmul) with a single fused libtorch op (on torch:
+ * `at::scaled_dot_product_attention`, MPSGraph-fused on MPS) or
+ * the analogous fast path on mlx; tape composes the existing
+ * matmul/softmax kernels in one C call to save Idris-side FFI hops.
+ *
+ *   Q : [seq, numHeads   * headDim]
+ *   K : [seq, numKvHeads * headDim]
+ *   V : [seq, numKvHeads * headDim]
+ *   out [seq, numHeads * headDim]
+ *
+ * GQA (numHeads != numKvHeads) is handled internally. Causal mask is
+ * a flag (no mask tensor passed) since the SDPA kernel can construct
+ * it directly. Caller's responsibility: Q and K must already have
+ * RoPE applied. */
+TensorHandle tensor_sdpa_2d(TensorHandle q, TensorHandle k, TensorHandle v,
+                            int numHeads, int numKvHeads, int headDim,
+                            int isCausal);
+
 /* ---------- Portable FFI helpers (for RefC compatibility) ---------- */
 
 /* These wrap void-returning functions to return an argument for value threading.

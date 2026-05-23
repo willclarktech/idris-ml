@@ -447,71 +447,40 @@ writeCausalMask buf i j n =
        in writeCausalMask buf' i (j + 1) n
 
 
-||| Per-Q-head attention math. Slices the head's Q from `qFull`
-||| (`[seq, qOut]`) at offset `q_idx * headDim`; slices K and V from
-||| `kFull` / `vFull` (`[seq, kvOut]`) at the SHARED kv-head offset
-||| `kv_idx * headDim` (GQA — `numHeads / numKvHeads` query heads share
-||| each KV head's projection). Applies RoPE to Q + K. Returns the
-||| per-head context `[seq, headDim]`.
-oneHeadAttention :
+-- Per-head RoPE accumulator. Each iteration narrows one head's
+-- [seq, headDim] slice from the full projection, applies RoPE, and
+-- concats the result onto a growing [seq, headsSoFar*headDim] tensor.
+-- After numHeads iterations the accumulator is [seq, numHeads*headDim]
+-- — same shape as the original projection but with RoPE applied per
+-- head. Used twice per layer (Q with numHeads, K with numKvHeads); V
+-- skips this since RoPE doesn't apply to V. Replaces the per-head
+-- attention loop in the prior `buildHeads` (#399 Commit B 2026-05-29) —
+-- the matmul/softmax/matmul math moves into one fused `primSdpa2d`
+-- call.
+buildRopedHeads :
      {0 d : Device} -> UserDeviceTraining d =>
      {seq, headDim, maxPos : Nat} ->
      RoPETables maxPos headDim d dt g ->
-     (qFull, kFull, vFull : AnyPtr) ->
-     (causalMask : AnyPtr) ->
-     (qStartI, kvStartI, headDimI : Int) ->
-     (scale : Double) ->
-     IO AnyPtr
-oneHeadAttention {seq} {headDim} {maxPos} tables qFull kFull vFull causalMask qStartI kvStartI headDimI scale = do
-  -- Each `the (Tensor [seq, headDim] d dt g)` annotation pins the
-  -- type for Idris's elaborator — without it the implicit dims/d/dt
-  -- can't be inferred from the surrounding context (applyRope sees
-  -- a Tensor but its dims are existentially quantified across the
-  -- `>>=` boundary).
-  qHeadT <- ioRerun (\_ =>
-    the (Tensor [seq, headDim] d dt g)
-        (MkTensor (primNarrow {d} qFull 1 qStartI headDimI) Nothing))
-  qRot <- applyRope {seq} {headDim} {maxPos} tables 0 qHeadT
-  kHeadT <- ioRerun (\_ =>
-    the (Tensor [seq, headDim] d dt g)
-        (MkTensor (primNarrow {d} kFull 1 kvStartI headDimI) Nothing))
-  kRot <- applyRope {seq} {headDim} {maxPos} tables 0 kHeadT
-  ioRerun (\_ =>
-    let vHead  = primNarrow {d} vFull 1 kvStartI headDimI
-        kT     = primTranspose2d {d} kRot.tensorPtr
-        scores = primMulScalar {d} (primMm {d} qRot.tensorPtr kT) scale
-        masked = primMaskedFill {d} scores causalMask (-1.0e20)
-        attn   = primSoftmax2d {d} masked
-        ctx    = primMm {d} attn vHead
-    in ctx)
-
-
--- Fold over query heads, applying GQA's shared-KV-head pattern. The
--- ratio = numHeads / numKvHeads; each kv head is shared by `ratio`
--- adjacent query heads. Accumulates ctx blocks via primConcat2dAxis1.
-buildHeads :
-     {0 d : Device} -> UserDeviceTraining d =>
-     {seq, headDim, maxPos : Nat} ->
-     RoPETables maxPos headDim d dt g ->
-     (qFull, kFull, vFull, causalMask : AnyPtr) ->
-     (headDimI : Int) -> (scale : Double) ->
-     (numHeadsToGo : Nat) -> (qHeadIdx : Nat) -> (kvRatio : Nat) ->
+     (full : AnyPtr) ->                     -- [seq, numH * headDim] post-projection
+     (headDimI : Int) ->
+     (numHeadsToGo : Nat) -> (headIdx : Nat) ->
      (acc : Maybe AnyPtr) ->
      IO AnyPtr
-buildHeads tables qFull kFull vFull causalMask headDimI scale Z _ _ (Just acc) = pure acc
-buildHeads tables qFull kFull vFull causalMask headDimI scale Z _ _ Nothing =
-  -- Degenerate (numHeads=0). Caller responsibility — return something safe.
-  pure qFull
-buildHeads {seq} {headDim} {maxPos} tables qFull kFull vFull causalMask headDimI scale (S k) qIdx kvRatio acc = do
-  let kvIdx = div qIdx kvRatio
-      qStartI  = cast {to=Int} (qIdx * cast {to=Nat} headDimI)
-      kvStartI = cast {to=Int} (kvIdx * cast {to=Nat} headDimI)
-  ctx <- oneHeadAttention {seq} {headDim} {maxPos} tables qFull kFull vFull causalMask qStartI kvStartI headDimI scale
+buildRopedHeads tables full headDimI Z _ (Just acc) = pure acc
+buildRopedHeads tables full headDimI Z _ Nothing =
+  -- Degenerate (numH=0). Caller responsibility — return something safe.
+  pure full
+buildRopedHeads {d} {seq} {headDim} {maxPos} tables full headDimI (S k) hIdx acc = do
+  let startI = cast {to=Int} (hIdx * cast {to=Nat} headDimI)
+  headT <- ioRerun (\_ =>
+            the (Tensor [seq, headDim] d dt g)
+                (MkTensor (primNarrow {d} full 1 startI headDimI) Nothing))
+  ropedT <- applyRope {seq} {headDim} {maxPos} tables 0 headT
   case acc of
-    Nothing => buildHeads {seq} {headDim} {maxPos} tables qFull kFull vFull causalMask headDimI scale k (S qIdx) kvRatio (Just ctx)
+    Nothing => buildRopedHeads {d} {seq} {headDim} {maxPos} tables full headDimI k (S hIdx) (Just ropedT.tensorPtr)
     Just prev =>
-      let joined = primConcat2dAxis1 {d} prev ctx
-      in buildHeads {seq} {headDim} {maxPos} tables qFull kFull vFull causalMask headDimI scale k (S qIdx) kvRatio (Just joined)
+      let joined = primConcat2dAxis1 {d} prev ropedT.tensorPtr
+      in buildRopedHeads {d} {seq} {headDim} {maxPos} tables full headDimI k (S hIdx) (Just joined)
 
 
 ||| Full multi-head causal self-attention with GQA + RoPE.
@@ -529,21 +498,28 @@ applyAttention : {0 d : Device} -> UserDeviceTraining d => RuntimeDType dt => Li
                  Tensor [seq, hidden] d dt g ->
                  IO (Tensor [seq, hidden] d dt g)
 applyAttention {seq} {hidden} {numHeads} {numKvHeads} {headDim} {maxPos} attn tables input = do
-  q <- applyLinear2d attn.qProj input
-  k <- applyLinear2d attn.kProj input
-  v <- applyLinear2d attn.vProj input
-  -- Build the strict-upper-triangle causal mask sized to seqxseq.
-  let sI = cast {to=Int} seq
-      hdI = cast {to=Int} headDim
-      scale = 1.0 / sqrt (cast {to=Double} headDim)
-      kvRatio = div numHeads numKvHeads
-      maskBuf = prim__allocDoubles (sI * sI)
-      maskBuf' = writeCausalMask maskBuf 0 1 sI
-      mask = dtCreateState2d {d} {t=dt} sI sI maskBuf' (deviceStreamTag {d})
-  -- Loop over query heads (the kv-head idx = qIdx / kvRatio).
-  ctxPtr <- buildHeads {seq} {headDim} {maxPos} tables
-              q.tensorPtr k.tensorPtr v.tensorPtr mask
-              hdI scale numHeads 0 kvRatio Nothing
+  q <- applyLinear2d attn.qProj input  -- [seq, numHeads   * headDim]
+  k <- applyLinear2d attn.kProj input  -- [seq, numKvHeads * headDim]
+  v <- applyLinear2d attn.vProj input  -- [seq, numKvHeads * headDim]
+  let hdI    = cast {to=Int} headDim
+      nHI    = cast {to=Int} numHeads
+      nKvHI  = cast {to=Int} numKvHeads
+  -- Per-head RoPE on Q and K (V skips RoPE). Each accumulator ends up
+  -- shape-equal to its projection input. This keeps RoPE per-head
+  -- (matches the rank-2 fast-path on tape; rank-3 broadcast was a
+  -- net loss on torch-mps + tape — see #399 Commit A diagnostic 2026-05-29).
+  qRopedPtr <- buildRopedHeads {d} {seq} {headDim} {maxPos} tables
+                 q.tensorPtr hdI numHeads 0 Nothing
+  kRopedPtr <- buildRopedHeads {d} {seq} {headDim} {maxPos} tables
+                 k.tensorPtr hdI numKvHeads 0 Nothing
+  -- ONE fused SDPA call replaces the per-head matmul/scale/mask/
+  -- softmax/matmul loop. On torch-mps this routes to MPSGraph's fused
+  -- attention kernel (~1 op/layer vs ~5/head/layer = 160/layer prior);
+  -- mlx routes to its fast::sdpa; tape composes the existing kernels
+  -- in one C call (saves Idris↔C FFI hops, same math).
+  ctxPtr <- ioRerun (\_ =>
+              primSdpa2d {d} qRopedPtr kRopedPtr v.tensorPtr
+                         nHI nKvHI hdI 1)  -- isCausal=1
   ctxT <- ioRerun (\_ => MkTensor ctxPtr Nothing)
   applyLinear2d attn.oProj ctxT
 

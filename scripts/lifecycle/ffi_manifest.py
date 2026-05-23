@@ -122,6 +122,7 @@ MANIFEST = {
     "tensor_cat2":                      (("T", "T"), "T"),
     "tensor_narrow":                    (("T", "i", "i", "i"), "T"),
     "tensor_mm":                        (("T", "T"), "T"),
+    "tensor_sdpa_2d":                   (("T", "T", "T", "i", "i", "i", "i"), "T"),
     "tensor_bmm":                       (("T", "T"), "T"),
     "tensor_bmm_3x3":                   (("T", "T"), "T"),
     "tensor_batch":                     (("R", "i"), "T"),

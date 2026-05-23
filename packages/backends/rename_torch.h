@@ -213,6 +213,7 @@
 #define tensor_reshape_4d tensor_reshape_4d_torch
 #define tensor_retain_handle tensor_retain_handle_torch
 #define tensor_scatter_add tensor_scatter_add_torch
+#define tensor_sdpa_2d tensor_sdpa_2d_torch
 #define tensor_select tensor_select_torch
 #define tensor_set_init_seed_streamed tensor_set_init_seed_streamed_torch
 #define tensor_set_requires_grad tensor_set_requires_grad_torch

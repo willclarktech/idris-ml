@@ -458,6 +458,18 @@ interface UserDeviceConv d => UserDeviceTraining (0 d : Device) where
   primPerfReset           : PrimIO ()
   primPerfOpCount         : PrimIO Bits64
 
+  ||| TODO #399 Commit B — fused scaled-dot-product attention.
+  ||| Q : [seq, numHeads * headDim] (flat layout, axis-1 = nH*hd)
+  ||| K : [seq, numKvHeads * headDim]
+  ||| V : [seq, numKvHeads * headDim]
+  ||| Result: [seq, numHeads * headDim].
+  ||| Caller's responsibility: Q and K must already have RoPE applied
+  ||| per-head before this call.
+  primSdpa2d : AnyPtr -> AnyPtr -> AnyPtr
+            -> Int -> Int -> Int  -- numHeads, numKvHeads, headDim
+            -> Int                 -- isCausal (0/1)
+            -> AnyPtr
+
   -- dtype-streamed creation -----------------------------------------
   -- Each takes a trailing (streamTag, dtypeTag) pair; the backend's
   -- wrapper branches on dtypeTag (0=f32, 1=f64) to pick the right
