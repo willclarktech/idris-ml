@@ -40,10 +40,10 @@ extern "C" TensorHandle* tensor_unbatch(TensorHandle h, int* out_count) {
 extern "C" TensorHandle tensor_one_hot(int* tokens, int n_tokens, int vocab_size, int dtag) {
     // Create one-hot encoded 1D tensor in the requested dtype so the result
     // honestly matches the Idris `dt` (0/1 is exact in every dtype). mlx
-    // admits F32/F64/BF16 per the Compatible table; under the kind-major
-    // dtag layout dtag 14 = F32, dtag 15 = F64, dtag 17 = BF16. Any other
-    // dtag would fail the Compatible gate Idris-side; this routes to F32
-    // as a sentinel so a stray call doesn't silently return F64.
+    // admits F32/F64/BF16/F16 per the Compatible table; under the kind-major
+    // dtag layout dtag 13 = F16, dtag 14 = F32, dtag 15 = F64, dtag 17 = BF16.
+    // Any other dtag would fail the Compatible gate Idris-side; this routes
+    // to F32 as a sentinel so a stray call doesn't silently return F64.
     int total = n_tokens * vocab_size;
     std::vector<double> data(total, 0.0);
     for (int i = 0; i < n_tokens; i++) {
@@ -54,6 +54,7 @@ extern "C" TensorHandle tensor_one_hot(int* tokens, int n_tokens, int vocab_size
     mx::Shape sh = {total};
     mx::Dtype dt = (dtag == 15) ? mx::float64
                  : (dtag == 17) ? mx::bfloat16
+                 : (dtag == 13) ? mx::float16
                  :                mx::float32;
     auto t = new Tensor(mx_array_from_doubles(data.data(), sh, dt), false);
     free(tokens);

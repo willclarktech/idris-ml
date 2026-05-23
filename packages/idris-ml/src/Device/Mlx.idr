@@ -622,24 +622,28 @@ public export
 ----------------------------------------------------------------------
 -- Compatible (device, dtype) instances
 --
--- `MlxCpu` (`MlxDev MCpu`) supports F32, F64, and BF16 — mlx's CPU
--- stream has fp64 kernel coverage (see mlx/backend/cpu/{unary,binary}.h
--- `case float64` branches) and bfloat16 storage works under
--- `mx::bfloat16` (mlx ships scalar bfloat16 via `bfloat16_t` from
--- arm_bf16.h on Apple Silicon, or `_MLX_BFloat16` struct elsewhere).
+-- `MlxCpu` (`MlxDev MCpu`) supports F32, F64, BF16, and F16. mlx's
+-- CPU stream has fp64 kernel coverage (see mlx/backend/cpu/{unary,
+-- binary}.h `case float64` branches); bfloat16 + float16 storage
+-- work under `mx::bfloat16` and `mx::float16` (mlx ships scalar
+-- `bfloat16_t` from arm_bf16.h on Apple Silicon, or `_MLX_BFloat16`
+-- struct elsewhere; same shape for `float16_t`).
+--
 -- The 2026-05-18 mlx-runtime-fp64 work routes `RuntimeDType F64` to
 -- `tensor_create_*_f64` symbols that allocate `mx::float64`; the
--- corresponding 2026-05-31 mlx-bf16 work added `tensor_create_*_bf16`.
--- The type-level claim is honored at allocation. Outstanding: ~72
--- hardcoded `mx::float32` constants in fused-op kernels mix dtype
--- with fp64/bf16 inputs and produce wrong math — being audited
--- (see TODO row "Audit mlx fused-op + constant pool dtype handling").
+-- corresponding 2026-05-31 mlx-bf16 + mlx-f16 work added the bf16/f16
+-- siblings. The type-level claim is honored at allocation.
+-- Outstanding: ~72 hardcoded `mx::float32` constants in fused-op
+-- kernels mix dtype with fp64/bf16/f16 inputs and produce wrong
+-- math — being audited (see TODO row "Audit mlx fused-op + constant
+-- pool dtype handling").
 --
--- `MlxGpu` (`MlxDev MGpu`) supports F32 and BF16. Metal GPUs dropped
--- float64 support in mlx 0.31 (`Compatible (MlxDev MGpu) F64` stays
--- deliberately missing — the PyTorch runtime "Float64 not supported
--- on Metal" error lifted to compile time), but M3+ has hardware
--- bfloat16 in Metal so `Compatible (MlxDev MGpu) BF16` is admissible.
+-- `MlxGpu` (`MlxDev MGpu`) supports F32, BF16, and F16. Metal GPUs
+-- dropped float64 support in mlx 0.31 (`Compatible (MlxDev MGpu) F64`
+-- stays deliberately missing — the PyTorch runtime "Float64 not
+-- supported on Metal" error lifted to compile time), but M3+ has
+-- hardware bfloat16 + float16 in Metal so the BF16 and F16 instances
+-- are admissible.
 ----------------------------------------------------------------------
 
 public export
@@ -652,13 +656,19 @@ public export
 Compatible (MlxDev MCpu) BF16 where
 
 public export
+Compatible (MlxDev MCpu) F16 where
+
+public export
 Compatible (MlxDev MGpu) F32 where
 
 public export
 Compatible (MlxDev MGpu) BF16 where
 
+public export
+Compatible (MlxDev MGpu) F16 where
+
 -- DELIBERATELY NO `Compatible (MlxDev MGpu) F64` instance — Metal
--- has no fp64. (F16 + int* + bool stay unwired on both streams.)
+-- has no fp64. (Int* + bool stay unwired on both streams.)
 
 
 ----------------------------------------------------------------------

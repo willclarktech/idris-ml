@@ -39,6 +39,11 @@ extern "C" TensorHandle tensor_create_bf16_mlx_streamed(double* data, int* shape
     return tensor_create_impl(data, shape, rank, requires_grad, mx::bfloat16);
 }
 
+extern "C" TensorHandle tensor_create_f16_mlx_streamed(double* data, int* shape, int rank, int requires_grad, int stream_tag) {
+    WITH_STREAM(stream_tag);
+    return tensor_create_impl(data, shape, rank, requires_grad, mx::float16);
+}
+
 extern "C" TensorHandle tensor_create_mlx_streamed(double* data, int* shape, int rank, int requires_grad, int stream_tag) {
     WITH_STREAM(stream_tag);
     return tensor_create_f32_mlx_streamed(data, shape, rank, requires_grad, stream_tag);

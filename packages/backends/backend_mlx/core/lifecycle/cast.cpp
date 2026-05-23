@@ -1,8 +1,8 @@
-/* tensor_cast_dtype_{f32,f64,bf16} for the mlx backend.
+/* tensor_cast_dtype_{f32,f64,bf16,f16} for the mlx backend.
  *
  * mx::astype builds a new node in mlx's autograd graph; the
  * OP_CAST_DTYPE tape entry's scalar_arg encodes the target dtype for
- * replay (0.0 = f32, 1.0 = f64, 2.0 = bf16). */
+ * replay (0.0 = f32, 1.0 = f64, 2.0 = bf16, 3.0 = f16). */
 #include "../../tensor.h"
 #include "../../tape.h"
 #include "../../stream.h"
@@ -41,13 +41,22 @@ extern "C" TensorHandle tensor_cast_dtype_bf16_mlx_streamed(TensorHandle h, int 
     return (TensorHandle)r;
 }
 
+extern "C" TensorHandle tensor_cast_dtype_f16_mlx_streamed(TensorHandle h, int stream_tag) {
+    WITH_STREAM(stream_tag);
+    auto t = (Tensor*)h;
+    auto r = new Tensor(mx::astype(t->data, mx::float16), t->requires_grad);
+    if (t->requires_grad) tape_append(OP_CAST_DTYPE, r, t, nullptr, 3.0);
+    return (TensorHandle)r;
+}
+
 static void mlx_replay_cast_dtype(std::vector<mx::array>& pool, TapeEntry& e) {
     int out = e.result->pool_idx;
     [[maybe_unused]] auto a = e.arg1 ? pool[e.arg1->pool_idx] : kF32_ZERO();
     [[maybe_unused]] auto b = e.arg2 ? pool[e.arg2->pool_idx] : kF32_ZERO();
     mx::Dtype target = (e.scalar_arg == 0.0) ? mx::float32
                      : (e.scalar_arg == 1.0) ? mx::float64
-                     :                         mx::bfloat16;  /* 2.0 */
+                     : (e.scalar_arg == 2.0) ? mx::bfloat16
+                     :                         mx::float16;   /* 3.0 */
     pool[out] = mx::astype(a, target);
 }
 MLX_REGISTER_REPLAY(OP_CAST_DTYPE, mlx_replay_cast_dtype)

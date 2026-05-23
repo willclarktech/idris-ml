@@ -37,9 +37,9 @@ inline const mx::array& kF32_ONE()  { static const mx::array* v = new mx::array(
 inline const mx::array& kF32_HALF() { static const mx::array* v = new mx::array(0.5f, mx::float32); return *v; }
 
 /* Convert an mlx array to a double buffer (caller-allocated). Branches
-   on the array's dtype: f64 sources copy through; f32 widens; bf16
-   widens via the mlx scalar conversion. Future dtypes (fp16/int*)
-   plug in here. */
+   on the array's dtype: f64 sources copy through; f32 widens; bf16/f16
+   widen via the mlx scalar conversion. Future dtypes (int*) plug in
+   here. */
 inline void mx_to_doubles(const mx::array& a, double* out) {
     int n = (int)a.size();
     if (a.dtype() == mx::float64) {
@@ -47,6 +47,9 @@ inline void mx_to_doubles(const mx::array& a, double* out) {
         for (int i = 0; i < n; i++) out[i] = src[i];
     } else if (a.dtype() == mx::bfloat16) {
         const mx::bfloat16_t* src = a.data<mx::bfloat16_t>();
+        for (int i = 0; i < n; i++) out[i] = (double)(float)src[i];
+    } else if (a.dtype() == mx::float16) {
+        const mx::float16_t* src = a.data<mx::float16_t>();
         for (int i = 0; i < n; i++) out[i] = (double)(float)src[i];
     } else {
         const float* src = a.data<float>();
@@ -56,8 +59,9 @@ inline void mx_to_doubles(const mx::array& a, double* out) {
 
 /* Read a single element from an mlx array as a double, dtype-aware. */
 inline double mx_read_double(const mx::array& a, long idx) {
-    if (a.dtype() == mx::float64) return a.data<double>()[idx];
+    if (a.dtype() == mx::float64)  return a.data<double>()[idx];
     if (a.dtype() == mx::bfloat16) return (double)(float)a.data<mx::bfloat16_t>()[idx];
+    if (a.dtype() == mx::float16)  return (double)(float)a.data<mx::float16_t>()[idx];
     return (double)a.data<float>()[idx];
 }
 
@@ -85,11 +89,23 @@ inline mx::array mx_bf16_from_doubles(const double* data,
     return mx::astype(fp32, mx::bfloat16);
 }
 
+/* Construct a float16 mx::array from a double buffer + shape. Same
+   F32-staged narrowing pattern as bf16. */
+inline mx::array mx_f16_from_doubles(const double* data,
+                                     const mx::Shape& shape) {
+    int n = 1;
+    for (auto s : shape) n *= (int)s;
+    std::vector<float> tmp((size_t)n);
+    for (int i = 0; i < n; i++) tmp[i] = (float)data[i];
+    auto fp32 = mx::array(tmp.data(), shape, mx::float32);
+    return mx::astype(fp32, mx::float16);
+}
+
 /* Construct an mx::array of the requested dtype from a double buffer.
    For float64 storage, pass the buffer through unchanged (lossless).
    For float32 storage, convert per-element (lossy at allocation).
-   For bfloat16 storage, widen to F32 then narrow via astype.
-   Future dtypes (fp16, int*) plug in here. */
+   For bfloat16/float16 storage, widen to F32 then narrow via astype.
+   Future dtypes (int*) plug in here. */
 inline mx::array mx_array_from_doubles(const double* data,
                                        const mx::Shape& shape,
                                        mx::Dtype dt) {
@@ -98,6 +114,9 @@ inline mx::array mx_array_from_doubles(const double* data,
     }
     if (dt == mx::bfloat16) {
         return mx_bf16_from_doubles(data, shape);
+    }
+    if (dt == mx::float16) {
+        return mx_f16_from_doubles(data, shape);
     }
     return mx_from_doubles(data, shape);
 }

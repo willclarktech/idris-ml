@@ -72,6 +72,9 @@ extern "C" void tensor_to_floats(TensorHandle h, float* out) {
     } else if (contig.dtype() == mx::bfloat16) {
         const mx::bfloat16_t* src = contig.data<mx::bfloat16_t>();
         for (int i = 0; i < n; i++) out[i] = (float)src[i];
+    } else if (contig.dtype() == mx::float16) {
+        const mx::float16_t* src = contig.data<mx::float16_t>();
+        for (int i = 0; i < n; i++) out[i] = (float)src[i];
     } else {
         const double* src = contig.data<double>();
         for (int i = 0; i < n; i++) out[i] = (float)src[i];
@@ -83,5 +86,6 @@ extern "C" const char* tensor_dtype_name(TensorHandle h) {
     auto dt = t->data.dtype();
     if (dt == mx::float32)  return "F32";
     if (dt == mx::bfloat16) return "BF16";
+    if (dt == mx::float16)  return "F16";
     return "F64";
 }
