@@ -502,7 +502,7 @@ prim__peakLiveCountMlx : Int -> Int
 %foreign "C:tensor_perf_reset_mlx,libidrisml"
 prim__perfResetMlx : PrimIO ()
 %foreign "C:tensor_perf_op_count_mlx,libidrisml"
-prim__perfOpCountMlx : PrimIO Bits64
+prim__perfOpCountMlx : PrimIO Int
 %foreign "scheme:(lambda (a0 a1 a2 a3 a4 a5 a6)  (when (not (top-level-bound? 'idris-ffi-tensor-sdpa-2d-mlx)) (set-top-level-value! 'idris-ffi-tensor-sdpa-2d-mlx (foreign-procedure \"tensor_sdpa_2d_mlx\" (void* void* void* int int int int) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-mlx)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-mlx (foreign-procedure \"tensor_retain_handle_mlx\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-sdpa-2d-mlx) (vector-ref a0 2) (vector-ref a1 2) (vector-ref a2 2) a3 a4 a5 a6))) (let ((wr (vector 'tensor-handle-v2 \"mlx\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-mlx) raw_r) wr)))"
 prim__sdpa2dMlx : AnyPtr -> AnyPtr -> AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
 

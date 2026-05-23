@@ -456,7 +456,13 @@ interface UserDeviceConv d => UserDeviceTraining (0 d : Device) where
   ||| per-forward op counts without instrumenting every kernel
   ||| wrapper.
   primPerfReset           : PrimIO ()
-  primPerfOpCount         : PrimIO Bits64
+  ||| Returns `Int` (not `Bits64`) — `PrimIO Bits64` triggered a
+  ||| cumulative-state crash on tape F32 HfLlama (#401, 2026-05-31).
+  ||| Idris-2's chez codegen emits `unsigned-64` for Bits64 returns;
+  ||| something about that path corrupts state across calls. `Int`
+  ||| (int64 on 64-bit platforms) holds the same value and is the
+  ||| codepath used by every other counter FFI in the codebase.
+  primPerfOpCount         : PrimIO Int
 
   ||| TODO #399 Commit B — fused scaled-dot-product attention.
   ||| Q : [seq, numHeads * headDim] (flat layout, axis-1 = nH*hd)

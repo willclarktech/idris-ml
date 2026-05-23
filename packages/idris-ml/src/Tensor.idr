@@ -934,7 +934,7 @@ perfReset = primIO (primPerfReset {d})
 ||| `perfOpCount` after). On torch this is the number of graph nodes
 ||| since the last reset; on tape + mlx returns 0.
 export
-perfOpCount : {0 d : Device} -> UserDeviceTraining d => IO Bits64
+perfOpCount : {0 d : Device} -> UserDeviceTraining d => IO Int
 perfOpCount = primIO (primPerfOpCount {d})
 
 ||| Reset profiling counters for backend `d`.

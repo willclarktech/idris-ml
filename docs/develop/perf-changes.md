@@ -48,6 +48,30 @@ is still useful (saves someone trying it again).
 
 ## Entries
 
+### 2026-05-31 — Tape F32 HfLlama mid-decode crash fixed by `PrimIO Int` (#401)
+
+**Plan**: unblock tape F32 HfLlama inference, which has crashed mid-decode (~step 8) since commit `26a0d56` introduced the `primPerfOpCount : PrimIO Bits64` FFI for the #393 op-submission counter. Three hypotheses on file (TODO #401): (1) `PrimIO Bits64` shape, (2) typeclass dispatch, (3) Chez `unsigned-64` marshalling. Test cheapest first.
+
+**Motivation**: with the perf-op-count diagnostic disabled on tape (the existing workaround), tape F32 lost the per-step op-count reporting that's the main signal for verifying op-count changes (e.g. #399's SDPA + all-heads RoPE landings). Restoring it unlocks the diagnostic on all 3 backends.
+
+**Change**: changed the FFI declaration from `prim__perfOpCount<Backend> : PrimIO Bits64` → `: PrimIO Int` in all three of `Device/{Tape,Torch,Mlx}.idr`, the typeclass method signature in `Device/Core.idr`, the smart constructor `perfOpCount` in `Tensor.idr`, and the call site type in `HfLlamaInference.idr`. The C side already returns `long` (= `int64_t` on macOS), which fits both `Bits64` and `Int` — same kernel, just different chez codegen path on the return.
+
+**Impact** (Llama-3.2-1B F32, 8 greedy tokens, prompt='The capital of France is'):
+
+| backend / config | runGenerate wall | decode steps reached |
+|---|---:|---:|
+| tape F32 baseline (pre-fix, `26a0d56+`) | crashed @ step 8 | 3 of 8 |
+| tape F32 + `PrimIO Int` fix (this commit) | **1m 00s** | **8 of 8** ✅ |
+
+All 8 `[perf] step N: 0 ops` lines now print (op counter is a stub on tape — returns 0 always; the diagnostic value is the *call surviving* across decode iterations).
+
+**Hypothesis verdict**: (1) `PrimIO Bits64` shape **confirmed as the trigger**; (2) and (3) not independently isolated. Idris-2's chez codegen for `unsigned-64` returns through `PrimIO` in tight loops corrupts something — exact mechanism unknown, but `Int` (= `int64_t`) sidesteps it on the same workload. Documented as a gotcha; lesson is "default to `PrimIO Int` for FFI counters/sizes/handle-indices unless unsigned semantics genuinely matter".
+
+**Outcome**: landed. `#401` closed. Unblocks tape F32 as a first-class lane for the #399/#402 op-count investigations.
+
+**Cross-references**: TODO #401; `docs/develop/gotchas.md` "PrimIO Bits64 FFI returns corrupt state in tight loops"; commit `26a0d56` (introduced the bug); fix commit (this commit).
+
+
 ### 2026-05-30 — All-heads RoPE: mlx-gpu 45.5s → 16s (2.8×); torch-mps op count -86%, wall flat (#399 follow-up)
 
 **Plan**: replace the per-head `buildRopedHeads` Idris-side concat loop (~1,000 concats/forward, ~80% of post-SDPA op count) with one `applyRopeAllHeads` call per Q/K that uses rank-3 broadcast cos/sin over the head axis. PyTorch's `apply_rotary_pos_emb` uses this exact pattern.

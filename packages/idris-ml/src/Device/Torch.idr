@@ -488,7 +488,7 @@ prim__peakLiveCountTorch : Int -> Int
 %foreign "C:tensor_perf_reset_torch,libidrisml"
 prim__perfResetTorch : PrimIO ()
 %foreign "C:tensor_perf_op_count_torch,libidrisml"
-prim__perfOpCountTorch : PrimIO Bits64
+prim__perfOpCountTorch : PrimIO Int
 %foreign "scheme:(lambda (a0 a1 a2 a3 a4 a5 a6)  (when (not (top-level-bound? 'idris-ffi-tensor-sdpa-2d-torch)) (set-top-level-value! 'idris-ffi-tensor-sdpa-2d-torch (foreign-procedure \"tensor_sdpa_2d_torch\" (void* void* void* int int int int) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-torch)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-torch (foreign-procedure \"tensor_retain_handle_torch\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-sdpa-2d-torch) (vector-ref a0 2) (vector-ref a1 2) (vector-ref a2 2) a3 a4 a5 a6))) (let ((wr (vector 'tensor-handle-v2 \"torch\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-torch) raw_r) wr)))"
 prim__sdpa2dTorch : AnyPtr -> AnyPtr -> AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
 

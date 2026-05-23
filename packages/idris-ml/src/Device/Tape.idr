@@ -457,7 +457,7 @@ prim__peakLiveCountTape : Int -> Int
 %foreign "C:tensor_perf_reset_tape,libidrisml"
 prim__perfResetTape : PrimIO ()
 %foreign "C:tensor_perf_op_count_tape,libidrisml"
-prim__perfOpCountTape : PrimIO Bits64
+prim__perfOpCountTape : PrimIO Int
 %foreign "scheme:(lambda (a0 a1 a2 a3 a4 a5 a6)  (when (not (top-level-bound? 'idris-ffi-tensor-sdpa-2d-tape)) (set-top-level-value! 'idris-ffi-tensor-sdpa-2d-tape (foreign-procedure \"tensor_sdpa_2d_tape\" (void* void* void* int int int int) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-tape)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-tape (foreign-procedure \"tensor_retain_handle_tape\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-sdpa-2d-tape) (vector-ref a0 2) (vector-ref a1 2) (vector-ref a2 2) a3 a4 a5 a6))) (let ((wr (vector 'tensor-handle-v2 \"tape\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-tape) raw_r) wr)))"
 prim__sdpa2dTape : AnyPtr -> AnyPtr -> AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
 
