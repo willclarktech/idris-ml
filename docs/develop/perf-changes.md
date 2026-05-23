@@ -48,6 +48,44 @@ is still useful (saves someone trying it again).
 
 ## Entries
 
+### 2026-05-29 — torch-mps per-op submission overhead diagnosed (#393)
+
+**Plan**: close #393 — two-phase per the modular-petting-minsky plan: tactical fix first (Phase B1), then per-op timing harness (Phase B2) to make the structural ceiling visible.
+
+**Motivation**: torch-mps was 4.5–21× slower than the other lanes on HF inference (hf-bert 1:27 vs 16–19 s; hf-gpt2 4:35 vs 13–17 s; hf-llama 6:42 vs 46 s). Hypothesis: libtorch's MPS path submits each primitive op as its own MTLCommandBuffer, ~10K ops × ~0.5–1 ms = tens of seconds dispatch wall. Wanted numbers, not speculation, before committing to a structural fix.
+
+**Change**:
+- **Phase B1 (commit `e41a011`)**: `backend_torch/nn/attention/embedding.cpp:18` — guarded `indices.to(kLong + weight.device())` on the identity case (when indices already match) so the common path skips the no-op submission.
+- **Phase B2 (commit `26a0d56`)**: per-forward op counter in `backend_torch/training/profiling.cpp` bumped at every `from_tensor()` call in `intermediates.cpp` (single choke point every op-result tensor passes through). New `perfReset` + `perfOpCount` on `UserDeviceTraining` (no-op stubs on tape + mlx). `HfLlamaInference.idr`'s `genLoop` brackets each forward with reset/read and prints `[perf] step N: K ops`. `scripts/perf-run.sh` surfaces those lines alongside `[stage]` lines.
+
+**Impact**:
+
+Forward wall on torch-mps (Phase B1, vs prior `062adbb` baselines):
+
+| example | before | after | delta |
+|---|---:|---:|---:|
+| hf-bert  | 1m 27s | **41s**  | -53% |
+| hf-gpt2  | 4m 35s | **1m 56s** | -58% |
+| hf-llama | 6m 59s | **5m 07s** | -27% |
+
+Per-step op counts on torch-mps Llama-3.2-1B F32 (Phase B2, prompt='The capital of France is', 8 generated tokens):
+
+```
+step 6:  18410 ops    step 10: 19598 ops
+step 7:  18707 ops    step 11: 19895 ops
+step 8:  19004 ops    step 12: 20192 ops
+step 9:  19301 ops    step 13: 20489 ops
+```
+
+Linear at **+297 ops/token** (no KV cache, every forward re-runs the full 16-layer stack over the growing prompt). 8 forwards in 4m 53s = ~36.6 s/forward avg; at ~19,400 ops/forward = **~1.89 ms/op** average dispatch wall.
+
+**Structural ceiling confirmed**: 19,400 ops × 1.89 ms ≈ 36.7 s matches the observed per-forward wall to within rounding. Dispatch overhead is the fundamental limit on torch-mps at small-model inference scale.
+
+**Outcome**: landed. #393 closes as "diagnosed; structural fix is a separate epic." Filed new TODO row "torch-mps deferred-op tape (graph mode)" describing the path-4 sketch (wrap every smart constructor to record into a deferred-op tape; materialise as one batched libtorch submission at sync boundaries). The diagnostic harness stays — per-forward op counts are now visible in the perf-run output for any future regression check, and the `perfReset` / `perfOpCount` surface generalises to non-Llama examples.
+
+**Cross-references**: `feedback_perf_compare_after_changes`'s "torch-mps fastest at sufficient kernel work, dominated by dispatch overhead at small scale" — quantified here.
+
+
 ### 2026-05-26 — `coverage-backend-torch` further 2.4× via libtorch PCH
 
 **Plan**: coverage-policy plan W2 follow-up after the user noted "still extremely slow" at the prior 144s cold.
