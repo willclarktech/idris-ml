@@ -76,6 +76,12 @@ prim__mulScalarTorch : AnyPtr -> Double -> AnyPtr
 %foreign "scheme:(lambda (a0 a1)  (when (not (top-level-bound? 'idris-ffi-tensor-clamp-min-torch)) (set-top-level-value! 'idris-ffi-tensor-clamp-min-torch (foreign-procedure \"tensor_clamp_min_torch\" (void* double) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-torch)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-torch (foreign-procedure \"tensor_retain_handle_torch\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-clamp-min-torch) (vector-ref a0 2) a1))) (let ((wr (vector 'tensor-handle-v2 \"torch\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-torch) raw_r) wr)))"
 prim__clampMinTorch : AnyPtr -> Double -> AnyPtr
 
+%foreign "scheme:(lambda (a0 a1 a2)  (when (not (top-level-bound? 'idris-ffi-tensor-clamp-torch)) (set-top-level-value! 'idris-ffi-tensor-clamp-torch (foreign-procedure \"tensor_clamp_torch\" (void* double double) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-torch)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-torch (foreign-procedure \"tensor_retain_handle_torch\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-clamp-torch) (vector-ref a0 2) a1 a2))) (let ((wr (vector 'tensor-handle-v2 \"torch\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-torch) raw_r) wr)))"
+prim__clampTorch : AnyPtr -> Double -> Double -> AnyPtr
+
+%foreign "scheme:(lambda (a0)  (when (not (top-level-bound? 'idris-ffi-tensor-round-torch)) (set-top-level-value! 'idris-ffi-tensor-round-torch (foreign-procedure \"tensor_round_torch\" (void*) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-torch)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-torch (foreign-procedure \"tensor_retain_handle_torch\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-round-torch) (vector-ref a0 2)))) (let ((wr (vector 'tensor-handle-v2 \"torch\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-torch) raw_r) wr)))"
+prim__roundTorch : AnyPtr -> AnyPtr
+
 
 ----------------------------------------------------------------------
 -- TorchHwDev + TorchDev type + UserDeviceCore instance
@@ -151,6 +157,8 @@ public export
   primAddScalar    = prim__addScalarTorch
   primMulScalar    = prim__mulScalarTorch
   primClampMin     = prim__clampMinTorch
+  primClamp        = prim__clampTorch
+  primRound        = prim__roundTorch
 ----------------------------------------------------------------------
 -- Linear-slice FFI bindings (torch-suffixed)
 ----------------------------------------------------------------------

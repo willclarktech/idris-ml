@@ -347,6 +347,20 @@ TensorHandle tensor_bitlinear_fwd(
  * `tensor_ternary_quant_with_scale_2d` below). */
 TensorHandle tensor_absmean_per_row_2d(TensorHandle w);
 
+/* Element-wise round-to-nearest (half-to-even, matches `at::round` and
+ * `mx::round`). Inference-only — no tape entry, gradient never flows
+ * through `round` (constant-by-pieces). Returns a new tensor with the
+ * same shape + dtype as the input. */
+TensorHandle tensor_round(TensorHandle t);
+
+/* Element-wise two-sided clamp by scalars. `r[i] = min(max(t[i], lo), hi)`.
+ * Inference-only — the gradient story for two-sided clamp is identical
+ * to `tensor_clamp_min` (pass-through in-range, zero out-of-range) but
+ * the use cases we have for two-sided clamp are activation
+ * quantization rounding-window clipping, which is no-grad by
+ * construction. */
+TensorHandle tensor_clamp(TensorHandle t, double lo, double hi);
+
 /* Build a Ternary tensor from a HuggingFace-format packed-2-bit byte buffer.
  *
  * HuggingFace's BitNet weight storage layout (transformers.integrations.bitnet

@@ -88,6 +88,7 @@
 #define tensor_cat tensor_cat_mlx
 #define tensor_cat2 tensor_cat2_mlx
 #define tensor_cat_from_array tensor_cat_from_array_mlx
+#define tensor_clamp tensor_clamp_mlx
 #define tensor_clamp_min tensor_clamp_min_mlx
 #define tensor_clone tensor_clone_mlx
 #define tensor_concat_2d_axis1 tensor_concat_2d_axis1_mlx
@@ -217,6 +218,7 @@
 #define tensor_reshape_3d tensor_reshape_3d_mlx
 #define tensor_reshape_4d tensor_reshape_4d_mlx
 #define tensor_retain_handle tensor_retain_handle_mlx
+#define tensor_round tensor_round_mlx
 #define tensor_scatter_add tensor_scatter_add_mlx
 #define tensor_sdpa_2d tensor_sdpa_2d_mlx
 #define tensor_select tensor_select_mlx

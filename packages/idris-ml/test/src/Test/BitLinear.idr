@@ -318,6 +318,48 @@ bitlinearHfPackedRoundtrip = do
   pure (ok0 && ok1 && ok2)
 
 
+----------------------------------------------------------------------
+-- Activation quantization (per-token symmetric int8)
+----------------------------------------------------------------------
+--
+-- Mirrors HF transformers' `BitLinear.activation_quant` recipe (from
+-- `packages/pytorch/.venv/.../transformers/integrations/bitnet.py`):
+--
+--   scale  = 127 / max(|x|).clamp(min=1e-5)
+--   quant  = round(x * scale).clamp(-128, 127)
+--
+-- Hand-computed for fixture x = [-1.5, 0.3, 0.8, -0.6]:
+--   max(|x|)    = 1.5
+--   safe_max    = max(1.5, 1e-5) = 1.5
+--   in_scale    = 127 / 1.5 ≈ 84.6666666...
+--   x * in_scale = [-127.0, 25.4, 67.7333..., -50.8]
+--   round       = [-127, 25, 68, -51]
+--   clamp(-128,127) = same (none out of range)
+
+activationQuantInt8Oracle : IO Bool
+activationQuantInt8Oracle = do
+  x <- mkVec (the (Vect 4 Double) [-1.5, 0.3, 0.8, -0.6])
+  (xq, inScale) <- tActivationQuantInt8 x
+  -- Read 4 elements of xq
+  q0 <- readElemN xq 0
+  q1 <- readElemN xq 1
+  q2 <- readElemN xq 2
+  q3 <- readElemN xq 3
+  let tol = 1.0e-6
+  ok0 <- checkClose "act-quant x[0] = -127"  (-127.0) q0 tol
+  ok1 <- checkClose "act-quant x[1] =   25"    25.0   q1 tol
+  ok2 <- checkClose "act-quant x[2] =   68"    68.0   q2 tol
+  ok3 <- checkClose "act-quant x[3] =  -51"  (-51.0)  q3 tol
+  -- 127 / 1.5 = 84.66666...
+  ok4 <- checkClose "input_scale = 127/1.5" (127.0 / 1.5) inScale 1.0e-9
+  pure (ok0 && ok1 && ok2 && ok3 && ok4)
+  where
+    readElemN : Tensor [4] TestDevice TestDType NoGrad -> Int -> IO Double
+    readElemN t k = do
+      s <- telemSelect {d=TestDevice} {n=4} t k
+      pure (tensorItem {d=TestDevice} s)
+
+
 export
 tests : List (IO Bool)
 tests =
@@ -327,4 +369,5 @@ tests =
   , bitlinearForwardOracleF32
   , absmeanQuantRoundtripOracle
   , bitlinearHfPackedRoundtrip
+  , activationQuantInt8Oracle
   ]

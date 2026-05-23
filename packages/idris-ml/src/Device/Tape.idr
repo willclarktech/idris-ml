@@ -76,6 +76,12 @@ prim__mulScalarTape : AnyPtr -> Double -> AnyPtr
 %foreign "scheme:(lambda (a0 a1)  (when (not (top-level-bound? 'idris-ffi-tensor-clamp-min-tape)) (set-top-level-value! 'idris-ffi-tensor-clamp-min-tape (foreign-procedure \"tensor_clamp_min_tape\" (void* double) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-tape)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-tape (foreign-procedure \"tensor_retain_handle_tape\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-clamp-min-tape) (vector-ref a0 2) a1))) (let ((wr (vector 'tensor-handle-v2 \"tape\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-tape) raw_r) wr)))"
 prim__clampMinTape : AnyPtr -> Double -> AnyPtr
 
+%foreign "scheme:(lambda (a0 a1 a2)  (when (not (top-level-bound? 'idris-ffi-tensor-clamp-tape)) (set-top-level-value! 'idris-ffi-tensor-clamp-tape (foreign-procedure \"tensor_clamp_tape\" (void* double double) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-tape)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-tape (foreign-procedure \"tensor_retain_handle_tape\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-clamp-tape) (vector-ref a0 2) a1 a2))) (let ((wr (vector 'tensor-handle-v2 \"tape\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-tape) raw_r) wr)))"
+prim__clampTape : AnyPtr -> Double -> Double -> AnyPtr
+
+%foreign "scheme:(lambda (a0)  (when (not (top-level-bound? 'idris-ffi-tensor-round-tape)) (set-top-level-value! 'idris-ffi-tensor-round-tape (foreign-procedure \"tensor_round_tape\" (void*) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-tape)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-tape (foreign-procedure \"tensor_retain_handle_tape\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-round-tape) (vector-ref a0 2)))) (let ((wr (vector 'tensor-handle-v2 \"tape\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-tape) raw_r) wr)))"
+prim__roundTape : AnyPtr -> AnyPtr
+
 
 ----------------------------------------------------------------------
 -- TapeDev type + UserDeviceCore instance
@@ -119,6 +125,8 @@ UserDeviceCore TapeDev where
   primAddScalar    = prim__addScalarTape
   primMulScalar    = prim__mulScalarTape
   primClampMin     = prim__clampMinTape
+  primClamp        = prim__clampTape
+  primRound        = prim__roundTape
 
 ----------------------------------------------------------------------
 -- Linear-slice FFI bindings (tape-suffixed)

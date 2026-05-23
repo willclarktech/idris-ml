@@ -160,6 +160,8 @@ interface UserDeviceCore (0 d : Device) where
   primAddScalar : AnyPtr -> Double -> AnyPtr
   primMulScalar : AnyPtr -> Double -> AnyPtr
   primClampMin  : AnyPtr -> Double -> AnyPtr
+  primClamp     : AnyPtr -> Double -> Double -> AnyPtr
+  primRound     : AnyPtr -> AnyPtr
 
 
 ----------------------------------------------------------------------

@@ -88,6 +88,7 @@
 #define tensor_cat tensor_cat_torch
 #define tensor_cat2 tensor_cat2_torch
 #define tensor_cat_from_array tensor_cat_from_array_torch
+#define tensor_clamp tensor_clamp_torch
 #define tensor_clamp_min tensor_clamp_min_torch
 #define tensor_clone tensor_clone_torch
 #define tensor_concat_2d_axis1 tensor_concat_2d_axis1_torch
@@ -217,6 +218,7 @@
 #define tensor_reshape_3d tensor_reshape_3d_torch
 #define tensor_reshape_4d tensor_reshape_4d_torch
 #define tensor_retain_handle tensor_retain_handle_torch
+#define tensor_round tensor_round_torch
 #define tensor_scatter_add tensor_scatter_add_torch
 #define tensor_sdpa_2d tensor_sdpa_2d_torch
 #define tensor_select tensor_select_torch

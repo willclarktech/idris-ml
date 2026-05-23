@@ -88,6 +88,7 @@
 #define tensor_cat tensor_cat_tape
 #define tensor_cat2 tensor_cat2_tape
 #define tensor_cat_from_array tensor_cat_from_array_tape
+#define tensor_clamp tensor_clamp_tape
 #define tensor_clamp_min tensor_clamp_min_tape
 #define tensor_clone tensor_clone_tape
 #define tensor_concat_2d_axis1 tensor_concat_2d_axis1_tape
@@ -217,6 +218,7 @@
 #define tensor_reshape_3d tensor_reshape_3d_tape
 #define tensor_reshape_4d tensor_reshape_4d_tape
 #define tensor_retain_handle tensor_retain_handle_tape
+#define tensor_round tensor_round_tape
 #define tensor_scatter_add tensor_scatter_add_tape
 #define tensor_sdpa_2d tensor_sdpa_2d_tape
 #define tensor_select tensor_select_tape

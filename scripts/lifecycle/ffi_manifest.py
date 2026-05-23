@@ -55,6 +55,8 @@ MANIFEST = {
     "tensor_add_scalar":                (("T", "d"), "T"),
     "tensor_mul_scalar":                (("T", "d"), "T"),
     "tensor_clamp_min":                 (("T", "d"), "T"),
+    "tensor_clamp":                     (("T", "d", "d"), "T"),
+    "tensor_round":                     (("T",), "T"),
     "tensor_subtract_scalar_inplace":   (("T", "d"), "T"),
 
     # Reduction

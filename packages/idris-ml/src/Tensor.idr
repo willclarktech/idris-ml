@@ -1743,6 +1743,63 @@ export %inline
 trelu : {0 d : Device} -> UserDeviceCore d => Tensor dims d dt g -> IO (Tensor dims d dt g)
 trelu v = ioRerun (\_ => MkTensor (primClampMin {d} v.tensorPtr 0.0) Nothing)
 
+||| Two-sided element-wise clamp: r[i] = min(max(t[i], lo), hi).
+||| NoGrad output (the kernel is inference-only — file the
+||| differentiable variant if a training path needs it). Bridges
+||| straight to `tensor_clamp` on each backend.
+export
+tclamp : {0 d : Device} -> UserDeviceCore d =>
+         (lo, hi : Double) -> Tensor dims d dt g -> IO (Tensor dims d dt NoGrad)
+tclamp lo hi v = ioRerun (\_ => MkTensor (primClamp {d} v.tensorPtr lo hi) Nothing)
+
+||| Element-wise round-to-nearest-even (banker's rounding — matches
+||| `torch.round` and `mx::round`). NoGrad output. Used by the
+||| BitNet activation quantization recipe.
+export
+tround : {0 d : Device} -> UserDeviceCore d =>
+         Tensor dims d dt g -> IO (Tensor dims d dt NoGrad)
+tround v = ioRerun (\_ => MkTensor (primRound {d} v.tensorPtr) Nothing)
+
+||| Element-wise absolute value. Bridges to `primAbs` on each backend.
+||| Inference-only — the autograd story for `abs` is sign-of-x times
+||| upstream-grad which we don't yet thread; file the differentiable
+||| variant if a training path needs it.
+export
+tabs : {0 d : Device} -> UserDeviceCore d =>
+       Tensor dims d dt g -> IO (Tensor dims d dt NoGrad)
+tabs v = ioRerun (\_ => MkTensor (primAbs {d} v.tensorPtr) Nothing)
+
+||| Per-token symmetric int8 activation quantization (BitNet b1.58 /
+||| HF microsoft/bitnet-b1.58-2B-4T recipe). Given a [n] activation:
+|||
+|||   input_scale = 127 / max(|x|).clamp(min=1e-5)        -- scalar
+|||   x_quant     = round(x * input_scale).clamp(-128, 127)
+|||
+|||  Returns `(x_quant, input_scale)`. `x_quant`'s values lie in the
+|||  int8 grid but the storage stays in the compute dtype — the BitNet
+|||  forward composes this with `tBitlinearFwd` which dequants by
+|||  `1 / (input_scale * weight_scale)` post-matmul.
+|||
+|||  The clamp-min of 1e-5 on `max(|x|)` matches HF transformers'
+|||  `BitLinear.activation_quant` (`packages/pytorch/.venv/.../
+|||  transformers/integrations/bitnet.py`). Pure Idris composition of
+|||  `tabs` / `primTensorMax` / scalar arithmetic / `tmulScalar` /
+|||  `tround` / `tclamp` — no new C kernel.
+export
+tActivationQuantInt8 : {0 d : Device} -> UserDeviceCore d =>
+                       UserDeviceLinear d =>
+                       {n : Nat} -> Tensor [n] d dt g ->
+                       IO (Tensor [n] d dt NoGrad, Double)
+tActivationQuantInt8 x = do
+  xAbs <- tabs x
+  let xMax = primItem {d} (primTensorMax {d} xAbs.tensorPtr)
+      safeMax = if xMax > 1.0e-5 then xMax else 1.0e-5
+      inScale = 127.0 / safeMax
+  scaled <- tmulScalar x inScale
+  rounded <- tround scaled
+  clamped <- tclamp (-128.0) 127.0 rounded
+  pure (clamped, inScale)
+
 export %inline
 tgelu : {0 d : Device} -> UserDeviceTraining d => Tensor dims d dt g -> IO (Tensor dims d dt g)
 tgelu v = ioRerun (\_ => MkTensor (primGelu {d} v.tensorPtr) Nothing)

@@ -82,6 +82,12 @@ prim__mulScalarMlxStreamed : AnyPtr -> Double -> Int -> AnyPtr
 %foreign "scheme:(lambda (a0 a1 a2)  (let ((raw_r ((foreign-procedure \"tensor_clamp_min_mlx_streamed\" (void* double int) void*) (vector-ref a0 2) a1 a2))) (let ((wr (vector 'tensor-handle-v2 \"mlx\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle_mlx\" (void*) void) raw_r) wr)))"
 prim__clampMinMlxStreamed : AnyPtr -> Double -> Int -> AnyPtr
 
+%foreign "scheme:(lambda (a0 a1 a2 a3)  (let ((raw_r ((foreign-procedure \"tensor_clamp_mlx_streamed\" (void* double double int) void*) (vector-ref a0 2) a1 a2 a3))) (let ((wr (vector 'tensor-handle-v2 \"mlx\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle_mlx\" (void*) void) raw_r) wr)))"
+prim__clampMlxStreamed : AnyPtr -> Double -> Double -> Int -> AnyPtr
+
+%foreign "scheme:(lambda (a0 a1)  (let ((raw_r ((foreign-procedure \"tensor_round_mlx_streamed\" (void* int) void*) (vector-ref a0 2) a1))) (let ((wr (vector 'tensor-handle-v2 \"mlx\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle_mlx\" (void*) void) raw_r) wr)))"
+prim__roundMlxStreamed : AnyPtr -> Int -> AnyPtr
+
 
 ----------------------------------------------------------------------
 -- MlxStream + MlxDev parameterized family
@@ -169,6 +175,8 @@ public export
   primAddScalar a v              = prim__addScalarMlxStreamed a v (streamTag s)
   primMulScalar a v              = prim__mulScalarMlxStreamed a v (streamTag s)
   primClampMin a v               = prim__clampMinMlxStreamed a v (streamTag s)
+  primClamp a lo hi              = prim__clampMlxStreamed a lo hi (streamTag s)
+  primRound a                    = prim__roundMlxStreamed a (streamTag s)
 ----------------------------------------------------------------------
 -- Linear-slice FFI bindings (mlx-suffixed, streamed)
 ----------------------------------------------------------------------
