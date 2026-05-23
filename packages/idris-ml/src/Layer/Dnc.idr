@@ -419,12 +419,10 @@ dncLayer pfx = do
   oFc  <- mkLinearWith {i = DncOutputInput h r m} {o = o}
             (pfx ++ "_output")
             (1.0 / sqrt (cast {to=Double} (DncOutputInput h r m))) 0.0001
-  -- memoryInit: shape (n, m) Xavier — fan_in=m, fan_out=n.
-  let mnI = cast {to=Int} (m * n)
-  memInitVals <- traverse (\_ => xavier uniform m n) (Vect.replicate (m * n) ())
-  let miBuf = prim__allocDoubles mnI
-      miBuf' = packDoubles miBuf 0 memInitVals
-  memInitT <- tparam1d {n = m * n} (pfx ++ "_memoryInit") miBuf'
+  -- memoryInit: learnable [m * n] (flat shape; underlying shape is [n, m]
+  -- where fan_in=m, fan_out=n). Xavier-normal-via-uniform std = sqrt(2/(m+n)).
+  let memStd = sqrt (2.0 / cast {to=Double} (m + n))
+  memInitT <- tparam1dNormal {n = m * n} (pfx ++ "_memoryInit") 0.0 memStd
   -- initialReadOuts: PyTorch default kaiming_uniform on (R, m), bound=1/sqrt(m)
   let iroBound = 1.0 / prim__doubleSqrt (cast m)
   initReadOutsT <- mkKaimingReadOuts {d} {dt} r m iroBound
