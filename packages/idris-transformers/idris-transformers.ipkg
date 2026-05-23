@@ -6,6 +6,7 @@ depends = contrib
         , idris-ml
 
 modules = HfBert
+        , HfBitNet
         , HfGpt2
         , HfLlama
         , IdrisTransformers

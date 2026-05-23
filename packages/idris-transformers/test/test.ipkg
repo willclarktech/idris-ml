@@ -9,6 +9,7 @@ depends = contrib
 modules = Harness
         , Main
         , Test.HfBert
+        , Test.HfBitNet
         , Test.HfGpt2
         , Test.HfLlama
         , Test.Tokenizer
