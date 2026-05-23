@@ -335,6 +335,42 @@ TensorHandle tensor_create_ternary_packed_2d(
 TensorHandle tensor_bitlinear_fwd(
     TensorHandle W, TensorHandle scale, TensorHandle x, TensorHandle bias);
 
+/* HF-semantics BitLinear forward — one fused kernel that bundles
+ * RMSNorm (optional) + per-token symmetric int8 activation
+ * quantization + ternary matmul + post-quant dequant scale + bias.
+ *
+ * Matches `BitLinear.forward` in HF transformers'
+ * `integrations/bitnet.py` (used by `microsoft/bitnet-b1.58-2B-4T`
+ * and similar checkpoints):
+ *
+ *   if use_rms_norm: x = rms_norm(x, rms_norm_w, rms_norm_eps)
+ *   in_scale = 127 / max(|x|).clamp(min=1e-5)         -- scalar
+ *   x_q      = round(x * in_scale).clamp(-128, 127)   -- int8 grid
+ *   y        = (W_ternary @ x_q) / (in_scale * w_scale) + bias
+ *
+ * Inputs:
+ *   W:           [o, i] tagged Ternary (any per-backend storage).
+ *   weight_scale: scalar (HF's per-linear scale, NOT per-row).
+ *   x:           [i] float in compute dtype.
+ *   bias:        [o] or NULL.
+ *   use_rms_norm: 0 or 1.
+ *   rms_norm_w:  [i] float weight when use_rms_norm=1, NULL otherwise.
+ *   rms_norm_eps: float (typically 1e-5 / 1e-6 per the model config).
+ *
+ * Output: y [o] in `x`'s compute dtype. NoGrad.
+ *
+ * The fused form is the perf path; users who want to compose the
+ * pieces a la carte can call `tActivationQuantInt8` + `tBitlinearFwd`
+ * directly (the math is equivalent — exact-match within FP error). */
+TensorHandle tensor_bitlinear_fwd_hf_quant(
+    TensorHandle W,
+    double weight_scale,
+    TensorHandle x,
+    TensorHandle bias,
+    int use_rms_norm,
+    TensorHandle rms_norm_w,
+    double rms_norm_eps);
+
 /* Per-row absmean scale for ternary quantization.
  *
  * Input: `w` shape [o, i] in F32 or F64 (tape) or any IEEE float

@@ -360,6 +360,59 @@ activationQuantInt8Oracle = do
       pure (tensorItem {d=TestDevice} s)
 
 
+----------------------------------------------------------------------
+-- Fused HF BitLinear (tBitlinearFwdHfQuant) consistency vs composed
+----------------------------------------------------------------------
+--
+-- The fused `tBitlinearFwdHfQuant` and the composed
+-- `tActivationQuantInt8` + `tBitlinearFwd` formulation should
+-- produce identical results (modulo FP rounding within the
+-- intermediate accumulators). Validates both paths agree on a
+-- known fixture. The cross-language gate vs HF transformers'
+-- actual `BitLinear.forward` lands in a separate slice once
+-- HfBitNet.idr ships an end-to-end model load path.
+--
+-- Fixture (o=3, i=4, no RMSNorm):
+--   W_ternary = bitlinearForwardOracle's [[1,0,-1,1], [-1,1,1,0], [0,-1,0,1]]
+--   weight_scale = 0.5 (HF's scalar)
+--   x   = [1.0, 2.0, -0.5, 0.25]
+--   bias = [0.1, -0.2, 0.3]
+
+bitlinearFwdHfQuantConsistency : IO Bool
+bitlinearFwdHfQuantConsistency = do
+  (bytesPtr, byteCount) <- buildFixtureBytes
+  w <- tCreateTernaryPacked2d {d=TestDevice} {o=3} {i=4} bytesPtr byteCount
+  x <- mkVec    (the (Vect 4 Double) [1.0, 2.0, -0.5, 0.25])
+  b <- mkVec    (the (Vect 3 Double) [0.1, -0.2, 0.3])
+
+  -- Composed path: tActivationQuantInt8 + tBitlinearFwd with
+  -- per-row scale = 1 / (in_scale * w_scale) broadcast to [o].
+  let weightScale = 0.5
+  (xq, inScale) <- tActivationQuantInt8 x
+  let perRowScale = 1.0 / (inScale * weightScale)
+  s <- mkVecNoGrad (the (Vect 3 Double) [perRowScale, perRowScale, perRowScale])
+  -- xq is NoGrad; weakenGrad? Actually tBitlinearFwd wants matching grad mode on x and bias.
+  -- xq : Tensor [4] d dt NoGrad; bias : WithGrad. Promote bias to NoGrad to match.
+  bNoG <- weakenGrad {d=TestDevice} b
+  yComposed <- tBitlinearFwd {d=TestDevice} {cDt=TestDType} w s xq bNoG
+
+  -- Fused path: tBitlinearFwdHfQuant (useRmsNorm = False; rmsW is placeholder).
+  xNoG <- weakenGrad {d=TestDevice} x
+  yFused <- tBitlinearFwdHfQuant {d=TestDevice} {cDt=TestDType} w weightScale x b False xNoG 1.0e-5
+
+  yc0 <- readElem3 yComposed 0
+  yc1 <- readElem3 yComposed 1
+  yc2 <- readElem3 yComposed 2
+  yf0 <- readElem3 yFused 0
+  yf1 <- readElem3 yFused 1
+  yf2 <- readElem3 yFused 2
+  let tol = 1.0e-9
+  ok0 <- checkClose "fused y[0] matches composed" yc0 yf0 tol
+  ok1 <- checkClose "fused y[1] matches composed" yc1 yf1 tol
+  ok2 <- checkClose "fused y[2] matches composed" yc2 yf2 tol
+  pure (ok0 && ok1 && ok2)
+
+
 export
 tests : List (IO Bool)
 tests =
@@ -370,4 +423,5 @@ tests =
   , absmeanQuantRoundtripOracle
   , bitlinearHfPackedRoundtrip
   , activationQuantInt8Oracle
+  , bitlinearFwdHfQuantConsistency
   ]

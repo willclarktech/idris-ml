@@ -1513,6 +1513,34 @@ tCreateTernaryFromHfPacked2d bytesPtr = ioRerun (\_ =>
   MkTensor (primCreateTernaryFromHfPacked2d {d} bytesPtr (cast o) (cast i))
            Nothing)
 
+||| Fused HF BitLinear forward — RMSNorm + per-token int8 act-quant +
+||| matmul + scalar dequant + bias. Matches HF transformers'
+||| `BitLinear.forward` semantics for microsoft/bitnet-b1.58-2B-4T-
+||| style checkpoints. Equivalent to (and ~2x faster than) composing
+||| `tActivationQuantInt8` + `tBitlinearFwd` from Idris.
+|||
+||| `useRmsNorm = True` applies RMSNorm with `rmsNormWeight` + `eps`
+|||  to `x` before the activation quant; `rmsNormWeight` must be
+|||  non-null when this flag is set. With `useRmsNorm = False`, the
+|||  `rmsNormWeight` tensor is ignored — pass any [i]-shaped tensor
+|||  (e.g. the same `x` placeholder) and the C side won't read it.
+export
+tBitlinearFwdHfQuant : {0 d : Device} -> UserDeviceQuant d =>
+                      {o, i : Nat} ->
+                      Tensor [o, i] d Ternary NoGrad ->
+                      (weightScale : Double) ->
+                      Tensor [i] d cDt g ->
+                      Tensor [o] d cDt g ->
+                      (useRmsNorm : Bool) ->
+                      Tensor [i] d cDt NoGrad ->
+                      (rmsNormEps : Double) ->
+                      IO (Tensor [o] d cDt g)
+tBitlinearFwdHfQuant w wScale x bias useRmsNorm rmsW rmsEps = ioRerun (\_ =>
+  MkTensor (primBitlinearFwdHfQuant {d} w.tensorPtr wScale
+              x.tensorPtr bias.tensorPtr
+              (if useRmsNorm then 1 else 0) rmsW.tensorPtr rmsEps)
+           Nothing)
+
 ||| BitLinear forward: y = (W_ternary .* scale[:, None]) @ x + bias.
 ||| W and scale are NoGrad (BitNet b1.58 freezes both the ternary
 ||| weight and the per-row dequant scale); x and bias share an

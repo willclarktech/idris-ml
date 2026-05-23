@@ -80,6 +80,7 @@
 #define tensor_batch_norm tensor_batch_norm_torch
 #define tensor_bce_with_logits tensor_bce_with_logits_torch
 #define tensor_bitlinear_fwd tensor_bitlinear_fwd_torch
+#define tensor_bitlinear_fwd_hf_quant tensor_bitlinear_fwd_hf_quant_torch
 #define tensor_bmm tensor_bmm_torch
 #define tensor_bmm_3x3 tensor_bmm_3x3_torch
 #define tensor_cast_dtype_f32 tensor_cast_dtype_f32_torch

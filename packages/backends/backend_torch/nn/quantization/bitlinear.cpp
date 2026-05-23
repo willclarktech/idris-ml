@@ -88,6 +88,40 @@ extern "C" TensorHandle tensor_bitlinear_fwd(
 
 
 /* ------------------------------------------------------------------
+   Fused HF BitLinear forward (RMSNorm + act-quant + matmul + bias)
+   ------------------------------------------------------------------ */
+
+extern "C" TensorHandle tensor_bitlinear_fwd_hf_quant(
+        TensorHandle hW, double w_scale,
+        TensorHandle hx, TensorHandle hbias,
+        int use_rms_norm, TensorHandle hrms_w, double rms_eps) {
+    auto W = *to_tensor(hW);          /* [o, i] int8 */
+    auto x = *to_tensor(hx);          /* [i] float */
+    bool has_bias = (hbias != nullptr);
+    auto dtype = x.scalar_type();
+    /* Optional RMSNorm */
+    if (use_rms_norm && hrms_w) {
+        auto w_rms = *to_tensor(hrms_w);
+        auto var = at::mean(x * x);                                       /* scalar */
+        auto inv = at::rsqrt(var + rms_eps);
+        x = x * inv * w_rms;
+    }
+    /* Per-token activation quant: scale = 127 / max(|x|, 1e-5). */
+    auto xabs_max = at::clamp_min(at::max(at::abs(x)), 1e-5);
+    auto in_scale = 127.0 / xabs_max;
+    auto x_q = at::clamp(at::round(x * in_scale), -128.0, 127.0);
+    /* Matmul + dequant. W.to(dtype) lifts int8 -> float dequant.
+       in_scale is a [] (scalar) tensor; combined scale broadcasts. */
+    auto y_q = at::matmul(W.to(dtype), x_q);                  /* [o] */
+    auto y = y_q / (in_scale * w_scale);
+    if (has_bias) {
+        y = y + *to_tensor(hbias);
+    }
+    return from_tensor(y);
+}
+
+
+/* ------------------------------------------------------------------
    HF-format ternary load (microsoft/bitnet-b1.58-2B-4T-style checkpoints)
    ------------------------------------------------------------------ */
 

@@ -775,12 +775,17 @@ prim__ternaryQuantWithScale2dMlxStreamed : AnyPtr -> AnyPtr -> Int -> AnyPtr
 %foreign "scheme:(lambda (a0 a1 a2 a3) (let ((raw_r ((foreign-procedure \"tensor_create_ternary_from_hf_packed_2d_mlx_streamed\" (void* int int int) void*) a0 a1 a2 a3))) (let ((wr (vector 'tensor-handle-v2 \"mlx\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle_mlx\" (void*) void) raw_r) wr)))"
 prim__createTernaryFromHfPacked2dMlxStreamed : AnyPtr -> Int -> Int -> Int -> AnyPtr
 
+%foreign "scheme:(lambda (a0 a1 a2 a3 a4 a5 a6 a7) (let ((raw_r ((foreign-procedure \"tensor_bitlinear_fwd_hf_quant_mlx_streamed\" (void* double void* void* int void* double int) void*) (vector-ref a0 2) a1 (vector-ref a2 2) (if a3 (vector-ref a3 2) 0) a4 (if a5 (vector-ref a5 2) 0) a6 a7))) (let ((wr (vector 'tensor-handle-v2 \"mlx\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle_mlx\" (void*) void) raw_r) wr)))"
+prim__bitlinearFwdHfQuantMlxStreamed : AnyPtr -> Double -> AnyPtr -> AnyPtr -> Int -> AnyPtr -> Double -> Int -> AnyPtr
+
 public export
 {s : MlxStream} -> UserDeviceQuant (MlxDev s) where
   primCreateTernaryPacked2d bytes bc o i rg =
     prim__createTernaryPacked2dMlxStreamed bytes bc o i rg (streamTag s)
   primBitlinearFwd w sc x b =
     prim__bitlinearFwdMlxStreamed w sc x b (streamTag s)
+  primBitlinearFwdHfQuant w ws x b urn rnw eps =
+    prim__bitlinearFwdHfQuantMlxStreamed w ws x b urn rnw eps (streamTag s)
   primAbsmeanPerRow2d w =
     prim__absmeanPerRow2dMlxStreamed w (streamTag s)
   primTernaryQuantWithScale2d w sc =

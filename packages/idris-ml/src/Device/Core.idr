@@ -627,3 +627,4 @@ interface UserDeviceCore d => UserDeviceQuant (0 d : Device) where
   primAbsmeanPerRow2d             : AnyPtr -> AnyPtr
   primTernaryQuantWithScale2d     : AnyPtr -> AnyPtr -> AnyPtr
   primCreateTernaryFromHfPacked2d : AnyPtr -> Int -> Int -> AnyPtr
+  primBitlinearFwdHfQuant         : AnyPtr -> Double -> AnyPtr -> AnyPtr -> Int -> AnyPtr -> Double -> AnyPtr

@@ -403,3 +403,161 @@ TensorHandle tensor_ternary_quant_with_scale_2d(TensorHandle hw, TensorHandle hs
     }
     return (TensorHandle)t;
 }
+
+
+/* ------------------------------------------------------------------
+   Fused HF BitLinear forward (RMSNorm + act-quant + matmul + bias)
+   ------------------------------------------------------------------ */
+
+/* Tape F64 path. Same decode-inline inner loop as `tensor_bitlinear_fwd`
+   but with the activation quantization + RMSNorm + scalar weight_scale
+   fused in. The math (per HF transformers' `BitLinear.forward`):
+
+     if use_rms_norm: x = x * rsqrt(mean(x^2) + eps) * rms_norm_w
+     in_scale = 127 / max(|x|, 1e-5)
+     x_q[k] = round(x[k] * in_scale).clamp(-128, 127)
+     y[j] = (sum_k W_ternary[j, k] * x_q[k]) / (in_scale * w_scale)
+            + bias[j] if bias else 0
+
+   Output y is F64. */
+static TensorHandle tensor_bitlinear_fwd_hf_quant_tape_f64(
+        TensorHandle hW, double w_scale,
+        TensorHandle hx, TensorHandle hbias,
+        int use_rms_norm, TensorHandle hrms_w, double rms_eps) {
+    Tensor* W = (Tensor*)hW;
+    Tensor* x = (Tensor*)hx;
+    Tensor* bias = hbias ? (Tensor*)hbias : NULL;
+    Tensor* rms_w = (use_rms_norm && hrms_w) ? (Tensor*)hrms_w : NULL;
+    int o = W->shape[0];
+    int i_dim = W->shape[1];
+    int bytes_per_row = (i_dim + 3) / 4;
+    const uint8_t* W_data = (const uint8_t*)W->data;
+    const double* x_data = (const double*)x->data;
+    const double* bias_data = bias ? (const double*)bias->data : NULL;
+    const double* rms_w_data = rms_w ? (const double*)rms_w->data : NULL;
+
+    /* Optional RMSNorm */
+    double* xn = malloc((size_t)i_dim * sizeof(double));
+    if (use_rms_norm && rms_w_data) {
+        double ss = 0.0;
+        for (int k = 0; k < i_dim; k++) ss += x_data[k] * x_data[k];
+        double inv = 1.0 / sqrt(ss / (double)i_dim + rms_eps);
+        for (int k = 0; k < i_dim; k++) xn[k] = x_data[k] * inv * rms_w_data[k];
+    } else {
+        for (int k = 0; k < i_dim; k++) xn[k] = x_data[k];
+    }
+
+    /* Activation quant */
+    double xmax = 0.0;
+    for (int k = 0; k < i_dim; k++) {
+        double a = xn[k] < 0 ? -xn[k] : xn[k];
+        if (a > xmax) xmax = a;
+    }
+    if (xmax < 1.0e-5) xmax = 1.0e-5;
+    double in_scale = 127.0 / xmax;
+    double* xq = malloc((size_t)i_dim * sizeof(double));
+    for (int k = 0; k < i_dim; k++) {
+        double v = rint(xn[k] * in_scale);
+        if (v < -128.0) v = -128.0;
+        if (v >  127.0) v =  127.0;
+        xq[k] = v;
+    }
+    free(xn);
+
+    /* Matmul with ternary W (decode inline), then dequant + bias */
+    double inv_scale = 1.0 / (in_scale * w_scale);
+    int out_shape[1] = {o};
+    double* out_data = arena_alloc((size_t)o * sizeof(double));
+    for (int j = 0; j < o; j++) {
+        const uint8_t* row = W_data + (size_t)j * (size_t)bytes_per_row;
+        double sum = 0.0;
+        for (int k = 0; k < i_dim; k++) {
+            int8_t v = decode_slot(row, k);
+            if (v != 0) sum += (double)v * xq[k];
+        }
+        double y = sum * inv_scale;
+        if (bias_data) y += bias_data[j];
+        out_data[j] = y;
+    }
+    free(xq);
+    Tensor* r = make_tensor_arena(out_data, o, out_shape, 1, 0);
+    return (TensorHandle)r;
+}
+
+/* Tape F32 path — same loop with float storage. */
+static TensorHandle tensor_bitlinear_fwd_hf_quant_tape_f32(
+        TensorHandle hW, double w_scale,
+        TensorHandle hx, TensorHandle hbias,
+        int use_rms_norm, TensorHandle hrms_w, double rms_eps) {
+    Tensor* W = (Tensor*)hW;
+    Tensor* x = (Tensor*)hx;
+    Tensor* bias = hbias ? (Tensor*)hbias : NULL;
+    Tensor* rms_w = (use_rms_norm && hrms_w) ? (Tensor*)hrms_w : NULL;
+    int o = W->shape[0];
+    int i_dim = W->shape[1];
+    int bytes_per_row = (i_dim + 3) / 4;
+    const uint8_t* W_data = (const uint8_t*)W->data;
+    const float* x_data = (const float*)x->data;
+    const float* bias_data = bias ? (const float*)bias->data : NULL;
+    const float* rms_w_data = rms_w ? (const float*)rms_w->data : NULL;
+
+    float* xn = malloc((size_t)i_dim * sizeof(float));
+    if (use_rms_norm && rms_w_data) {
+        float ss = 0.0f;
+        for (int k = 0; k < i_dim; k++) ss += x_data[k] * x_data[k];
+        float inv = 1.0f / sqrtf(ss / (float)i_dim + (float)rms_eps);
+        for (int k = 0; k < i_dim; k++) xn[k] = x_data[k] * inv * rms_w_data[k];
+    } else {
+        for (int k = 0; k < i_dim; k++) xn[k] = x_data[k];
+    }
+    float xmax = 0.0f;
+    for (int k = 0; k < i_dim; k++) {
+        float a = xn[k] < 0 ? -xn[k] : xn[k];
+        if (a > xmax) xmax = a;
+    }
+    if (xmax < 1.0e-5f) xmax = 1.0e-5f;
+    float in_scale_f = 127.0f / xmax;
+    float* xq = malloc((size_t)i_dim * sizeof(float));
+    for (int k = 0; k < i_dim; k++) {
+        float v = rintf(xn[k] * in_scale_f);
+        if (v < -128.0f) v = -128.0f;
+        if (v >  127.0f) v =  127.0f;
+        xq[k] = v;
+    }
+    free(xn);
+    float inv_scale = 1.0f / (in_scale_f * (float)w_scale);
+    int out_shape[1] = {o};
+    float* out_data = arena_alloc((size_t)o * sizeof(float));
+    for (int j = 0; j < o; j++) {
+        const uint8_t* row = W_data + (size_t)j * (size_t)bytes_per_row;
+        float sum = 0.0f;
+        for (int k = 0; k < i_dim; k++) {
+            int8_t v = decode_slot(row, k);
+            if (v != 0) sum += (float)v * xq[k];
+        }
+        float y = sum * inv_scale;
+        if (bias_data) y += bias_data[j];
+        out_data[j] = y;
+    }
+    free(xq);
+    Tensor* r = make_tensor_arena_f32(out_data, o, out_shape, 1, 0);
+    return (TensorHandle)r;
+}
+
+TensorHandle tensor_bitlinear_fwd_hf_quant(
+        TensorHandle hW, double w_scale,
+        TensorHandle hx, TensorHandle hbias,
+        int use_rms_norm, TensorHandle hrms_w, double rms_eps) {
+    Tensor* x = (Tensor*)hx;
+    if (x->dtype_tag == DT_F32) {
+        return tensor_bitlinear_fwd_hf_quant_tape_f32(
+            hW, w_scale, hx, hbias, use_rms_norm, hrms_w, rms_eps);
+    }
+    if (x->dtype_tag != DT_F64) {
+        fprintf(stderr, "[tape] tensor_bitlinear_fwd_hf_quant: only F64 + F32 "
+            "supported (x dtype_tag=%d)\n", x->dtype_tag);
+        abort();
+    }
+    return tensor_bitlinear_fwd_hf_quant_tape_f64(
+        hW, w_scale, hx, hbias, use_rms_norm, hrms_w, rms_eps);
+}

@@ -105,6 +105,61 @@ extern "C" TensorHandle tensor_bitlinear_fwd(
 
 
 /* ------------------------------------------------------------------
+   Fused HF BitLinear forward (RMSNorm + act-quant + matmul + bias)
+   ------------------------------------------------------------------ */
+
+extern "C" TensorHandle tensor_bitlinear_fwd_hf_quant_mlx_streamed(
+        TensorHandle hW, double w_scale,
+        TensorHandle hx, TensorHandle hbias,
+        int use_rms_norm, TensorHandle hrms_w, double rms_eps,
+        int stream_tag) {
+    WITH_STREAM(stream_tag);
+    auto W = (Tensor*)hW;
+    auto x_t = (Tensor*)hx;
+    auto bias = hbias ? (Tensor*)hbias : nullptr;
+    auto dtype = x_t->data.dtype();
+    auto x = x_t->data;
+    /* Optional RMSNorm */
+    if (use_rms_norm && hrms_w) {
+        auto rms_w = ((Tensor*)hrms_w)->data;
+        auto var = mx::mean(mx::multiply(x, x));
+        auto eps = mx::astype(mx::array((float)rms_eps), dtype);
+        auto inv = mx::rsqrt(mx::add(var, eps));
+        x = mx::multiply(mx::multiply(x, inv), rms_w);
+    }
+    /* Per-token activation quant */
+    auto xabs_max = mx::maximum(
+        mx::max(mx::abs(x)),
+        mx::astype(mx::array(1.0e-5f), dtype));
+    auto in_scale = mx::divide(
+        mx::astype(mx::array(127.0f), dtype), xabs_max);
+    auto x_q = mx::clip(mx::round(mx::multiply(x, in_scale)),
+        mx::astype(mx::array(-128.0f), dtype),
+        mx::astype(mx::array( 127.0f), dtype));
+    /* Matmul + dequant */
+    auto W_dequant = mx::astype(W->data, dtype);
+    auto y_q = mx::matmul(W_dequant, x_q);                    /* [o] */
+    auto w_scale_t = mx::astype(mx::array((float)w_scale), dtype);
+    auto combined = mx::multiply(in_scale, w_scale_t);
+    auto y = mx::divide(y_q, combined);
+    if (bias) {
+        y = mx::add(y, bias->data);
+    }
+    auto r = new Tensor(y, /*requires_grad=*/false);
+    return (TensorHandle)r;
+}
+
+extern "C" TensorHandle tensor_bitlinear_fwd_hf_quant(
+        TensorHandle hW, double w_scale,
+        TensorHandle hx, TensorHandle hbias,
+        int use_rms_norm, TensorHandle hrms_w, double rms_eps) {
+    return tensor_bitlinear_fwd_hf_quant_mlx_streamed(
+        hW, w_scale, hx, hbias, use_rms_norm, hrms_w, rms_eps,
+        default_stream_tag());
+}
+
+
+/* ------------------------------------------------------------------
    HF-format ternary load (microsoft/bitnet-b1.58-2B-4T-style checkpoints)
    ------------------------------------------------------------------ */
 

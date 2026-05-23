@@ -252,6 +252,11 @@ MANIFEST = {
     # Idris-level type (zero-init when caller doesn't want one).
     "tensor_create_ternary_packed_2d":  (("R", "i", "i", "i", "i"), "T"),
     "tensor_bitlinear_fwd":             (("T", "T", "T", "T"), "T"),
+    # Fused HF BitLinear forward. Args: W, w_scale, x, bias, use_rms_norm,
+    # rms_norm_w (or NULL), rms_norm_eps. Matches HF transformers'
+    # `BitLinear.forward` semantics for microsoft/bitnet-b1.58-2B-4T-style
+    # checkpoints.
+    "tensor_bitlinear_fwd_hf_quant":    (("T", "d", "T", "T", "i", "T", "d"), "T"),
 
     # Load-time absmean ternary quantization. `absmean_per_row_2d` reads
     # a float [o, i] weight and returns [o] in same dtype.
