@@ -48,6 +48,41 @@ is still useful (saves someone trying it again).
 
 ## Entries
 
+### 2026-05-30 — All-heads RoPE: mlx-gpu 45.5s → 16s (2.8×); torch-mps op count -86%, wall flat (#399 follow-up)
+
+**Plan**: replace the per-head `buildRopedHeads` Idris-side concat loop (~1,000 concats/forward, ~80% of post-SDPA op count) with one `applyRopeAllHeads` call per Q/K that uses rank-3 broadcast cos/sin over the head axis. PyTorch's `apply_rotary_pos_emb` uses this exact pattern.
+
+**Motivation**: the SDPA fusion (entry below) dropped op count 44% but wall stayed flat because per-head RoPE concats added back the saved submission overhead. Killing the concat loop should let SDPA's gain land.
+
+**Change**: new `applyRopeAllHeads` in `Layer/RoPE.idr` (the rank-3 variant of `applyRope`); `ropeAllHeadsFlat` wrapper in `HfLlama.idr` does the flat ↔ rank-3 reshape boundary so SDPA's 2D-flat I/O stays unchanged. Tape's `tensor_narrow` extended to rank-3 axes 0 and 2 (the rank-2 narrow only supported axes 0/1).
+
+**Hypothesis** (logged, then tested):
+- Op count: 10,346 → ~2,500–3,000 (additional ~75% drop on top of SDPA)
+- Wall (if per-op cost stays at baseline ~1.89 ms): ~3,000 × 1.89 ms × 8 forwards ≈ 45 s ≈ ~4× wall speedup on torch-mps
+- Wall (worst case, if rank-3 broadcast is ~5 ms/op): ~2.5× speedup
+- Three controlled torch-mps measurements to characterise variance
+
+**Impact** (Llama-3.2-1B F32, 8 greedy tokens):
+
+| backend / config        | op count step 6 | runGenerate wall |
+|-------------------------|----------------:|-----------------:|
+| baseline (no SDPA)      | 18,410          | torch-mps 5:07   |
+| +SDPA only              | 10,346 (-44%)   | torch-mps 5:15   |
+| +all-heads RoPE         | **2,634 (-86%)** | **torch-mps 5:17** (M1: 5:22, M2: 5:17, M3: 5:17 — variance ~2%) |
+| **mlx-gpu**, +all-heads | n/a (counter stub) | **16 s** (baseline 45.5 s — **2.8× faster**) |
+| PyTorch Python (ref)    | ~1,000          | 2 s              |
+
+**Hypothesis verdict**: op-count prediction **confirmed exactly** (deterministic 2,634, matched the predicted 2,500–3,000 range). Wall prediction **falsified** on torch-mps — per-op cost rose from baseline ~3.4 ms to ~10.9 ms (29,400 ops × 10.9 ms = ~320 s). The rank-3 broadcast muls in our wrapper cost ~10–26 ms/op on MPS where rank-2 same-shape muls cost ~2 ms/op. PyTorch Python does the same broadcasts in ~2 ms/op (the time_inference_llama.py reference). Net torch-mps wall unchanged.
+
+**mlx-gpu** is the lane that wins: its lazy `mx::array` graph rewards fewer ops directly. Smaller op count → smaller graph → faster `mx::eval`. The 2.8× speedup brings mlx-gpu within 8× of PyTorch Python (was 23×).
+
+**Outcome**: landed. The per-op-cost asymmetry on torch-mps is a real finding — for a general-purpose tensor library, the right follow-up is closing the gap between our rank-3 broadcast path and PyTorch Python's (likely in our FFI marshalling or `from_tensor` overhead specific to rank-3 strided views), not adding architecture-specific fused C kernels. Filed as a new investigation row.
+
+**Library-design rationale**: keeping RoPE expressed as composable rank-3 primitives (narrow, mul, sub, add, reshape) is the principled call. The one-backend-doesn't-benefit finding is a backend perf issue, not a reason to switch to a megafused C kernel that hides the math.
+
+**Cross-references**: commit `c09d374`; perf-log.jsonl 2026-05-30 entries M1-M3 torch-mps + mlx-gpu; `Layer/RoPE.idr` (applyRopeAllHeads); the per-op cost gap is the next investigation under #399 follow-up.
+
+
 ### 2026-05-30 — Fused SDPA on all 3 backends: -44% op count, wall flat (#399 Commit B)
 
 **Plan**: Commit B of the fused-op catalogue plan — replace the per-head attention math loop with `at::scaled_dot_product_attention` (torch), `mlx::core::fast::scaled_dot_product_attention` (mlx), and a hand-composed C kernel (tape).

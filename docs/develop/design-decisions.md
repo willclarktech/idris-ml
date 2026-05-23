@@ -1410,3 +1410,57 @@ fusion, audit of Idris-side per-token graph rebuilds (RoPE table
 slicing), and a structural graph-mode constructor stack. Until that
 lands, the lane-choice paragraph above is the canonical answer to
 "which Metal backend for inference at idris-ml's scale".
+
+
+## Keep RoPE / RmsNorm / SwiGLU as composable rank-3 primitives, not megafused kernels
+
+When closing the ~150× torch-mps Llama gap to PyTorch Python (commits
+`6850366` SDPA + `c09d374` all-heads RoPE under #399), one option
+considered was wrapping the whole attention block — including RoPE —
+into one fused C kernel per backend, so per-head RoPE math + Q/K/V
+projections + matmul + softmax + matmul + concat all live in one
+`tensor_attention_block_*` symbol. That would have been the fastest
+single-architecture path: one MTLCommandBuffer per layer on torch-mps,
+no Idris-side composition cost.
+
+Rejected. Reasons:
+
+- **Different LLM families use different RoPE variants** (Llama-3
+  split-half vs GPT-NeoX interleaved vs no-RoPE), so one fused kernel
+  would either duplicate per-variant (3+ symbols per backend = ~9+
+  hand-written kernels) or hard-code Llama. Either gates the perf
+  improvement behind specific architectures, which is the
+  general-purpose-library anti-pattern.
+
+- **The fusion targets aren't attention-specific**. RoPE is a layer
+  (we already have `Layer/RoPE.idr`); RmsNorm is a layer; SwiGLU is
+  a layer. They get composed into many architectures (transformer
+  variants, future state-space models, mixed designs). Keeping each
+  as its own primitive lets a hypothetical "Mamba + Llama-attention
+  hybrid" reuse the same pieces.
+
+- **The right fix is closing the per-op gap, not hiding ops behind
+  fused kernels**. PyTorch Python's `apply_rotary_pos_emb` uses the
+  same broadcast pattern we landed (`q * cos.unsqueeze(1) +
+  rotate_half(q) * sin.unsqueeze(1)`) — and runs in ~2 ms/op. Our
+  rank-3 broadcast through `primMul` on torch-mps is ~10–26 ms/op.
+  That's a backend-level performance issue in our wrapper (likely
+  contiguity-tracking, MPSGraph cache invalidation per shape, or FFI
+  marshalling overhead specific to rank-3 strided views), not a
+  reason to switch off composable primitives.
+
+The all-heads RoPE landing (`c09d374`) shipped exactly the composable
+rank-3 form. It delivers **2.8× speedup on mlx-gpu** (lazy `mx::array`
+graph rewards fewer ops directly: 45.5s → 16s) and a deterministic
+**86% op-count drop on torch-mps** (18,410 → 2,634) while leaving the
+torch-mps wall flat pending the per-op investigation. The op-count
+metric is the principled one for a library aiming at general
+composition; the per-op cost is a separable concern we attack in
+isolation.
+
+Library-perf principle: **prefer composable primitives + per-backend
+work to close per-op gaps**, over fused kernels that buy speed by
+constraining model architecture. The latter is appropriate for
+production-only inference libraries (mlx-lm, vLLM); idris-ml's stance
+matches PyTorch's research-oriented choice of staying composable and
+investing in the underlying op dispatch.
