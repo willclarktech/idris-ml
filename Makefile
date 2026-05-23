@@ -1170,6 +1170,36 @@ example-hf-llama-inference: install $(HF_MODELS_DIR)/meta-llama/Llama-3.2-1B/con
 	cp $(LIB) $(BUILD)/exec/hf-llama-inference_app/
 	./$(BUILD)/exec/hf-llama-inference
 
+# Build + run Example/HfBitNetInference. Fetches microsoft/bitnet-b1.58-2B-4T
+# once via the pattern rule (1.18 GB, not gated). Default mode runs the
+# fixed-prompt forward and prints the top 5 logits; `--dump-logits` mode
+# prints all 128256 logits for the roundtrip gate.
+#
+# Tape lane (F64) won't fit in 16 GB; build with
+# `BACKEND=torch TORCH_DEVICE=mps make example-hf-bitnet-inference` or
+# `BACKEND=mlx MLX_DEVICE=gpu make example-hf-bitnet-inference`.
+example-hf-bitnet-inference: install $(HF_MODELS_DIR)/microsoft/bitnet-b1.58-2B-4T/config.json
+	idris2 $(IDRIS_FLAGS) -o hf-bitnet-inference $(EXAMPLE_SRC)/Example/HfBitNetInference.idr
+	cp $(LIB) $(BUILD)/exec/hf-bitnet-inference_app/
+	./$(BUILD)/exec/hf-bitnet-inference
+
+# Cross-language correctness gate for HfBitNet: regenerate the Python
+# oracle from microsoft/bitnet-b1.58-2B-4T, run the Idris example
+# in --dump-logits mode, compare stdout against the oracle. Tolerance
+# starts at 1e-1 — BitNet's compounded BF16-vs-F32 + ternary quant noise
+# is wider than the dense Llama path; tighten once the gate is green.
+test-hf-bitnet-roundtrip: install $(HF_MODELS_DIR)/microsoft/bitnet-b1.58-2B-4T/config.json
+	cd packages/pytorch && uv run python \
+		../idris-transformers/scripts/save_oracle_bitnet.py
+	idris2 $(IDRIS_FLAGS) -o hf-bitnet-inference $(EXAMPLE_SRC)/Example/HfBitNetInference.idr
+	cp $(LIB) $(BUILD)/exec/hf-bitnet-inference_app/
+	./$(BUILD)/exec/hf-bitnet-inference --dump-logits > $(BUILD)/hf-bitnet-idris-out.txt
+	cd packages/pytorch && uv run python \
+		../idris-transformers/scripts/compare_inference.py \
+		../../$(BUILD)/hf-bitnet-idris-out.txt \
+		../../models/bitnet-2b-4t-oracle.safetensors \
+		1e-1
+
 test-hf-gpt2-roundtrip: install $(HF_MODELS_DIR)/distilgpt2/config.json
 	cd packages/pytorch && uv run pytest \
 		../idris-transformers/scripts/test_save_oracle_gpt2.py -v
