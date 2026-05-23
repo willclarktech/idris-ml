@@ -2,10 +2,8 @@ module Layer.Embedding
 
 import Data.Vect
 
-import Compat.Random
 import Device
 import Layer.Core
-import Sampler
 import Tensor
 
 
@@ -52,30 +50,16 @@ applyEmbedding {seqLen} {embedDim} (MkEmbedding w) tokens = ioRerun (\_ =>
 -- Constructor
 ----------------------------------------------------------------------
 
--- Pack a Vect of Doubles into a buffer at offset.
-packDoubles : AnyPtr -> Int -> Vect k Double -> AnyPtr
-packDoubles buf _ [] = buf
-packDoubles buf off (x :: rest) =
-  packDoubles (prim__setDouble buf off x) (off + 1) rest
-
 ||| Build an `EmbeddingState vocab embedDim TapeDev` with weights
-||| sampled from N(0, 0.02) — same init as V1 `embeddingLayer`.
+||| sampled from N(0, 0.02) — HF default for token / position embeddings.
 ||| Weight registers as one C param under `<prefix>_weight`.
 export
 embeddingLayer : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt => {vocab, embedDim : Nat} -> (paramPrefix : String) ->
                    IO (EmbeddingState vocab embedDim d dt WithGrad)
 embeddingLayer paramPrefix = do
-  let vI = cast {to=Int} vocab
-      eI = cast {to=Int} embedDim
-      n = vocab * embedDim
-  vals <- traverse (\_ => map (* 0.02) normalSample) (Vect.replicate n ())
-  let buf = prim__allocDoubles (cast {to=Int} n)
-      buf' = packDoubles buf 0 vals
-      wName = paramPrefix ++ "_weight"
-      wPtr = primParamRegister {d} wName (dtCreateParam2d {d} {t=dt} vI eI buf' (deviceStreamTag {d}))
-      wTV : TMat vocab embedDim d dt WithGrad
-      wTV = MkTensor wPtr (Just wName)
-  pure $ MkEmbedding wTV
+  let wName = paramPrefix ++ "_weight"
+  weight <- tparam2dNormal {d} {dt} {o=vocab} {i=embedDim} wName 0.0 0.02
+  pure $ MkEmbedding weight
 
 
 ----------------------------------------------------------------------
