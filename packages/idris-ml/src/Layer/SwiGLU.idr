@@ -2,11 +2,8 @@ module Layer.SwiGLU
 
 import Data.Vect
 
-import Compat.Random
 import Device
-import Init
 import Layer.Core
-import Sampler
 import Tensor
 
 
@@ -72,28 +69,11 @@ applySwiGLU st@(MkSwiGLU gateW upW downW) input = do
 -- Constructor
 ----------------------------------------------------------------------
 
--- Pack a `Vect k Double` into a freshly-allocated AnyPtr buffer at
--- offset 0. Mirrors HfBert / HfGpt2's local `packDs` helper.
-packDoubles : AnyPtr -> Int -> Vect k Double -> AnyPtr
-packDoubles buf _ [] = buf
-packDoubles buf off (x :: rest) =
-  packDoubles (prim__setDouble buf off x) (off + 1) rest
-
--- Init one weight tensor with Xavier-uniform values and register
--- it under `<prefix>_<name>_weight`.
-mkWeight : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt =>
-           {o, i : Nat} -> (paramName : String) ->
-           IO (Tensor [o, i] d dt WithGrad)
-mkWeight {o} {i} paramName = do
-  let wCount = o * i
-  weightVals <- traverse (\_ => xavier uniform i o) (Vect.replicate wCount ())
-  let wBuf = prim__allocDoubles (cast {to=Int} wCount)
-      wBuf' = packDoubles wBuf 0 weightVals
-  tparam2d {o} {i} paramName wBuf'
-
 ||| Build a `SwiGLUState hidden intermediate` with all three weight
-||| tensors initialised Xavier-uniform. Registers as
-|||   `<prefix>_gate_weight`, `<prefix>_up_weight`, `<prefix>_down_weight`
+||| tensors initialised N(0, 1/sqrt(fan_in)) — PyTorch nn.Linear's
+||| default re-expressed as a normal distribution (was xavier-uniform
+||| pre-P3; switched in lockstep with `linearLayer`'s default). Registers
+||| as `<prefix>_gate_weight`, `<prefix>_up_weight`, `<prefix>_down_weight`.
 ||| HF-aligned modules (HfLlama) re-bind at construction to e.g.
 ||| `model.layers.{i}.mlp.gate_proj.weight`.
 export
@@ -101,9 +81,13 @@ swigluLayer : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible 
               {hidden, intermediate : Nat} -> (paramPrefix : String) ->
               IO (SwiGLUState hidden intermediate d dt WithGrad)
 swigluLayer paramPrefix = do
-  gateW <- mkWeight {o=intermediate} {i=hidden}       (paramPrefix ++ "_gate_weight")
-  upW   <- mkWeight {o=intermediate} {i=hidden}       (paramPrefix ++ "_up_weight")
-  downW <- mkWeight {o=hidden}       {i=intermediate} (paramPrefix ++ "_down_weight")
+  -- fan_in is hidden for gate/up (W: [intermediate, hidden]) and
+  -- intermediate for down (W: [hidden, intermediate]).
+  let stdH = 1.0 / sqrt (cast {to=Double} hidden)
+      stdI = 1.0 / sqrt (cast {to=Double} intermediate)
+  gateW <- tparam2dNormal {o=intermediate} {i=hidden}       (paramPrefix ++ "_gate_weight") 0.0 stdH
+  upW   <- tparam2dNormal {o=intermediate} {i=hidden}       (paramPrefix ++ "_up_weight")   0.0 stdH
+  downW <- tparam2dNormal {o=hidden}       {i=intermediate} (paramPrefix ++ "_down_weight") 0.0 stdI
   pure (MkSwiGLU gateW upW downW)
 
 
