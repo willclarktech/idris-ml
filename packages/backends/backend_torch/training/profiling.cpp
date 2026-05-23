@@ -13,6 +13,7 @@ double prof_backward_ms_torch = 0;
 double prof_optimizer_ms_torch = 0;
 double prof_optimizer_math_ms_torch = 0;
 int    prof_epochs_torch = 0;
+long   prof_op_count_torch = 0;
 
 double _wall_ms_torch(void) {
     struct timeval tv;
@@ -30,6 +31,18 @@ extern "C" void backend_epoch_begin(void) {
 extern "C" void backend_profile_reset(void) {
     prof_backward_ms_torch = prof_optimizer_ms_torch = prof_optimizer_math_ms_torch = 0;
     prof_epochs_torch = 0;
+}
+
+/* TODO #393 op-submission counter. Bumped at every from_tensor() call
+ * (see intermediates.cpp), which is the choke point every per-op kernel
+ * passes through to wrap its at::Tensor result. Reset between forward
+ * passes to isolate per-forward op counts; reads as int64. */
+extern "C" void tensor_perf_reset(void) {
+    prof_op_count_torch = 0;
+}
+
+extern "C" long tensor_perf_op_count(void) {
+    return prof_op_count_torch;
 }
 
 extern "C" void backend_profile_report(void) {

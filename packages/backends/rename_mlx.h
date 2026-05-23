@@ -200,6 +200,8 @@
 #define tensor_pair_free tensor_pair_free_mlx
 #define tensor_pair_second tensor_pair_second_mlx
 #define tensor_peak_live_count tensor_peak_live_count_mlx
+#define tensor_perf_op_count tensor_perf_op_count_mlx
+#define tensor_perf_reset tensor_perf_reset_mlx
 #define tensor_pow tensor_pow_mlx
 #define tensor_print tensor_print_mlx
 #define tensor_release_handle tensor_release_handle_mlx

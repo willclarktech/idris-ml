@@ -13,6 +13,7 @@
  * the cleanup path. */
 #include <unordered_set>
 #include "intermediates.h"
+#include "profiling.h"
 
 std::vector<at::Tensor*> intermediates_torch;
 std::vector<TensorPair*> all_pairs_torch;
@@ -59,6 +60,10 @@ TensorHandle from_tensor(at::Tensor t) {
         if ((long)intermediates_torch.size() > g_torch_peak_live_intermediates)
             g_torch_peak_live_intermediates = (long)intermediates_torch.size();
     }
+    /* TODO #393 op-submission counter — count graph nodes per forward
+     * by counting at::Tensor wraps. Read via tensor_perf_op_count and
+     * reset via tensor_perf_reset (both in profiling.cpp). */
+    prof_op_count_torch++;
     return static_cast<TensorHandle>(p);
 }
 

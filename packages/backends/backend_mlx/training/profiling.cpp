@@ -34,6 +34,14 @@ extern "C" void backend_profile_reset(void) {
     prof_tape_appends_mlx = 0;
 }
 
+/* TODO #393 op-submission counter stubs — diagnostic surface
+ * implemented on torch (counts at::Tensor wraps in from_tensor); mlx
+ * already batches via lazy mx::array graphs (the analog metric is
+ * prof_tape_appends_mlx above), so this counter always reads 0 and
+ * reset is a no-op. */
+extern "C" void tensor_perf_reset(void)    { }
+extern "C" long tensor_perf_op_count(void) { return 0; }
+
 extern "C" void backend_profile_report(void) {
     fprintf(stderr, "=== Profile Report (MLX backend) ===\n");
     fprintf(stderr, "  Epochs: %d\n", prof_epochs_mlx);

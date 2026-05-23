@@ -499,6 +499,10 @@ prim__resetForEvalMlx : PrimIO ()
 prim__liveCountMlx : Int -> Int
 %foreign "C:tensor_peak_live_count_mlx,libidrisml"
 prim__peakLiveCountMlx : Int -> Int
+%foreign "C:tensor_perf_reset_mlx,libidrisml"
+prim__perfResetMlx : PrimIO ()
+%foreign "C:tensor_perf_op_count_mlx,libidrisml"
+prim__perfOpCountMlx : PrimIO Bits64
 
 
 %foreign "scheme:(lambda (a0 a1 a2 a3) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (when (not (top-level-bound? 'idris-drain-once)) (when (not (top-level-bound? 'idris-release-cache)) (set-top-level-value! 'idris-release-cache (make-hashtable string-hash string=?))) (set-top-level-value! 'idris-drain-once (lambda () (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((d ((top-level-value 'idris-tensor-guardian)))) (if (not d) #f (let ((tag (vector-ref d 1)) (raw (vector-ref d 2)) (cache (top-level-value 'idris-release-cache))) (let ((rel (or (hashtable-ref cache tag #f) (let ((sym (if (string=? tag \"primary\") \"tensor_release_handle\" (string-append \"tensor_release_handle_\" tag)))) (let ((fp (foreign-procedure sym (void*) void))) (hashtable-set! cache tag fp) fp))))) (rel raw) #t))))))) (when (not (top-level-bound? 'idris-ffi-tensor-create-scalar-streamed-mlx)) (set-top-level-value! 'idris-ffi-tensor-create-scalar-streamed-mlx (foreign-procedure \"tensor_create_scalar_streamed_mlx\" (double int int int) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-mlx)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-mlx (foreign-procedure \"tensor_retain_handle_mlx\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-create-scalar-streamed-mlx) a0 a1 a2 a3))) (let ((wr (vector 'tensor-handle-v2 \"mlx\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-mlx) raw_r) wr)))"
@@ -608,6 +612,8 @@ public export
   primResetForEval             = prim__resetForEvalMlx
   primLiveCount                = prim__liveCountMlx
   primPeakLiveCount            = prim__peakLiveCountMlx
+  primPerfReset                = prim__perfResetMlx
+  primPerfOpCount              = prim__perfOpCountMlx
 
 
 ----------------------------------------------------------------------

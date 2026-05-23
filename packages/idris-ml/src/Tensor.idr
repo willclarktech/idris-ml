@@ -921,6 +921,22 @@ export
 resetForEval : {0 d : Device} -> UserDeviceTraining d => IO ()
 resetForEval = primIO (primResetForEval {d})
 
+||| TODO #393 op-submission diagnostic — zero the per-forward op
+||| counter on backend `d`. On torch counts every `at::Tensor` wrap
+||| in `from_tensor()` (one per graph node); on tape + mlx it's a
+||| no-op so this resets a counter that always reads 0.
+export
+perfReset : {0 d : Device} -> UserDeviceTraining d => IO ()
+perfReset = primIO (primPerfReset {d})
+
+||| Read the current op-submission counter on backend `d`. Pair with
+||| `perfReset` for per-forward op counts (`reset` before forward,
+||| `perfOpCount` after). On torch this is the number of graph nodes
+||| since the last reset; on tape + mlx returns 0.
+export
+perfOpCount : {0 d : Device} -> UserDeviceTraining d => IO Bits64
+perfOpCount = primIO (primPerfOpCount {d})
+
 ||| Reset profiling counters for backend `d`.
 export
 profileReset : UserDeviceTraining d => IO ()

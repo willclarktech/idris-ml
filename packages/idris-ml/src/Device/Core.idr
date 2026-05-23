@@ -448,6 +448,16 @@ interface UserDeviceConv d => UserDeviceTraining (0 d : Device) where
   ||| Ignored arg defeats constant-folding; pass a varying value.
   primPeakLiveCount       : Int -> Int
 
+  ||| TODO #393 op-submission diagnostic. Bumped at every from_tensor()
+  ||| wrap on torch (counts graph nodes per forward); no-op on tape
+  ||| and mlx (their per-op submission story is different — tape is
+  ||| eager-CPU, mlx is lazy-batched via mx::array). Use bracketed
+  ||| `primPerfReset` + `primPerfOpCount` at example sites to extract
+  ||| per-forward op counts without instrumenting every kernel
+  ||| wrapper.
+  primPerfReset           : PrimIO ()
+  primPerfOpCount         : PrimIO Bits64
+
   -- dtype-streamed creation -----------------------------------------
   -- Each takes a trailing (streamTag, dtypeTag) pair; the backend's
   -- wrapper branches on dtypeTag (0=f32, 1=f64) to pick the right

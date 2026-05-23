@@ -200,6 +200,8 @@
 #define tensor_pair_free tensor_pair_free_tape
 #define tensor_pair_second tensor_pair_second_tape
 #define tensor_peak_live_count tensor_peak_live_count_tape
+#define tensor_perf_op_count tensor_perf_op_count_tape
+#define tensor_perf_reset tensor_perf_reset_tape
 #define tensor_pow tensor_pow_tape
 #define tensor_print tensor_print_tape
 #define tensor_release_handle tensor_release_handle_tape

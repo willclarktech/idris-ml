@@ -439,6 +439,13 @@ void backend_profile_reset(void);
 void backend_profile_report(void);
 void backend_epoch_begin(void);  /* mark start of forward pass for timing */
 
+/* TODO #393 op-submission diagnostic — count per-forward graph nodes
+ * on torch (counts at::Tensor wraps in from_tensor()); no-op stubs on
+ * tape and mlx. Use bracketed reset/read at example sites to extract
+ * per-forward op counts without instrumenting every kernel wrapper. */
+void tensor_perf_reset(void);
+long tensor_perf_op_count(void);
+
 /* ---------- Portable FFI helpers (for RefC compatibility) ---------- */
 
 /* These wrap void-returning functions to return an argument for value threading.

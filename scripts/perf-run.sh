@@ -151,6 +151,12 @@ DIVERGED_LINE=$(grep -E '^\s*\[[^]]+\]\s+Diverged' "$LOG" | tail -1 || true)
 # per-phase wall (state construction vs load vs decode), not just the
 # total. Empty for training-loop examples.
 STAGE_LINES=$(grep -E '^\[stage\] \[[0-9]{2}:[0-9]{2}:[0-9]{2}\]' "$LOG" || true)
+# HF inference examples may also emit `[perf] step N: K ops` lines from
+# the per-forward op-submission counter (TODO #393 diagnostic harness).
+# Surface these alongside stages so the operator sees per-step counts;
+# the JSON entry doesn't include them (they're per-forward, not
+# per-phase). Empty for non-instrumented examples.
+PERF_LINES=$(grep -E '^\[perf\]' "$LOG" || true)
 
 LOG_PATH="docs/develop/perf-log.jsonl"
 if [ ! -e "$LOG_PATH" ]; then
@@ -275,6 +281,7 @@ echo "wall:    ${ELAPSED_PRETTY} (exit ${RC})"
 [ -n "$COMPLETED_LINE" ] && echo "${COMPLETED_LINE}"
 [ -n "$RESULT_LINE"    ] && echo "${RESULT_LINE}"
 [ -n "$STAGE_LINES"    ] && printf '%s\n' "$STAGE_LINES"
+[ -n "$PERF_LINES"     ] && printf '%s\n' "$PERF_LINES"
 echo "Logged to ${LOG_PATH}"
 
 # Forward the make exit code so callers can detect failure.

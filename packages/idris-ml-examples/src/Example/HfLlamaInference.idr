@@ -195,7 +195,10 @@ genLoop : LlamaModelState VocabSize Hidden NumLayers QOut KvOut Intermediate
        -> IO (List (Fin VocabSize))
 genLoop _     _      tokens Z     = pure tokens
 genLoop model tables tokens (S k) = do
+  perfReset {d=ExampleDevice}
   mNext <- genOneStep model tables tokens
+  ops <- perfOpCount {d=ExampleDevice}
+  putStrLn ("[perf] step " ++ show (length tokens) ++ ": " ++ show ops ++ " ops")
   case mNext of
     Nothing => do
       putStrLn "  (argmax produced out-of-range token; stopping)"

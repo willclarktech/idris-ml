@@ -62,6 +62,13 @@ void backend_profile_reset(void) {
     prof_binop_general_ms = 0;
 }
 
+/* TODO #393 op-submission counter stubs — diagnostic surface
+ * implemented on torch (counts at::Tensor wraps in from_tensor); tape
+ * doesn't have the same per-op submission model, so the counter
+ * always reads 0 and reset is a no-op. */
+void tensor_perf_reset(void)       { }
+long tensor_perf_op_count(void)    { return 0; }
+
 static const char* op_name(int op) {
     static const char* names[] = {
         "CONST", "ADD", "SUB", "MUL", "DIV",
