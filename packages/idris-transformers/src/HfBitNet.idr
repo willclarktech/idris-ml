@@ -22,7 +22,7 @@
 |||   max_position_embeddings = 2048
 |||   rope_theta            = 500000.0
 |||   rms_norm_eps          = 1e-5
-|||   tie_word_embeddings   = false     (lm_head is a separate weight)
+|||   tie_word_embeddings   = true      (lm_head shares embed_tokens.weight)
 |||   attention_bias        = false     (all BitLinears are bias-free)
 |||   hidden_act            = "relu2"   (squared ReLU; gate(x) * up(x))
 |||
@@ -39,10 +39,12 @@
 |||         compute dtype (F32 / F16 / BF16 — single value per linear).
 |||       - All BitLinears are BIAS-FREE (`attention_bias=False`,
 |||         MLP linears are explicit `bias=False`).
-|||       - LM head is a SEPARATE `[vocab, hidden]` tensor under
-|||         `lm_head.weight` (NOT tied to `embed_tokens.weight`).
+|||       - LM head is TIED to `embed_tokens.weight`
+|||         (`tie_word_embeddings=True` in HF's config.json — there's no
+|||         separate `lm_head.weight` on disk; `hfBitnetForwardLm`
+|||         reuses the embedding tensor for the final projection).
 |||   - One module-level state record per HF subtree (BitLinearHf,
-|||     BitNetRmsNorm, BitNetEmbedding, BitNetLmHead, attention, MLP,
+|||     BitNetRmsNorm, BitNetEmbedding, attention, MLP,
 |||     block, model) so the type system pins shapes at construction.
 |||
 ||| Forward composition (per layer):
@@ -114,9 +116,9 @@ bitnet2B4T_Config = MkBitNetConfig
 -- decoder block has 7 BitLinears (q/k/v/o + gate/up/down) + 4 RmsNorms
 -- (input_layernorm, post_attention_layernorm, attn_sub_norm,
 -- ffn_sub_norm). 7*2 + 4 = 18 params per layer. Plus 1 embedding +
--- 1 final norm + 1 lm_head at the top level.
+-- 1 final norm at the top level (no `lm_head.weight` — tied).
 --
--- For bitnet2B4T_Config (30 layers): 1 + 30*18 + 1 + 1 = 543 params.
+-- For bitnet2B4T_Config (30 layers): 1 + 30*18 + 1 = 542 params.
 
 layerPrefix : String -> Nat -> String
 layerPrefix pfx i = pfx ++ ".layers." ++ show i
@@ -126,11 +128,6 @@ embeddingsParamName pfx = pfx ++ ".embed_tokens.weight"
 
 finalNormParamName : (pfx : String) -> String
 finalNormParamName pfx = pfx ++ ".norm.weight"
-
-||| LM head is NOT under `pfx` because HF stores it as a top-level
-||| `lm_head.weight` (sibling to `model.…`), not under `model.…`.
-lmHeadParamName : String
-lmHeadParamName = "lm_head.weight"
 
 layerParamNames : (pfx : String) -> (i : Nat) -> List String
 layerParamNames pfx i =
@@ -156,10 +153,13 @@ layerParamNames pfx i =
   ]
 
 ||| All params HfBitNet registers, in the order they're constructed.
-||| For `bitnet2B4T_Config` (numLayers=30) this is 1 + 30*18 + 1 + 1
-||| = 543 tensors. `pfx` is the HF on-disk prefix — typically `"model"`.
+||| For `bitnet2B4T_Config` (numLayers=30) this is 1 + 30*18 + 1
+||| = 542 tensors. `pfx` is the HF on-disk prefix — typically `"model"`.
 ||| BitNet on disk uses `model.embed_tokens.weight`, `model.layers.{i}.…`,
-||| `model.norm.weight`, AND `lm_head.weight` (NOT under `model.`).
+||| and `model.norm.weight`. The LM head is NOT a separate weight —
+||| `tie_word_embeddings=True` in `microsoft/bitnet-b1.58-2B-4T`'s
+||| config.json, so the embedding's `[vocab, hidden]` weight is also
+||| the LM-head projection at the top of `hfBitnetForwardLm`.
 public export
 hfBitnetParamNames : (cfg : BitNetConfig) -> (pfx : String) -> List String
 hfBitnetParamNames cfg pfx =
@@ -167,7 +167,6 @@ hfBitnetParamNames cfg pfx =
   in [embeddingsParamName pfx]
   ++ concatMap mkLayer (rangeNat cfg.numLayers)
   ++ [finalNormParamName pfx]
-  ++ [lmHeadParamName]
 
   where
     rangeNat : Nat -> List Nat
@@ -276,9 +275,9 @@ makeBitNetRmsNorm paramFullName = do
 
 
 ||| Token embedding: `[vocab, hidden]`. Stored under
-||| `model.embed_tokens.weight`. BitNet does NOT tie this to the LM
-||| head (`tie_word_embeddings=False`); the LM head is a separate
-||| `lm_head.weight` tensor.
+||| `model.embed_tokens.weight`. This SAME tensor is reused as the
+||| LM-head projection in `hfBitnetForwardLm`
+||| (`tie_word_embeddings=True` — no separate `lm_head.weight`).
 public export
 record BitNetEmbedding (vocab, hidden : Nat) (0 d : Device) (0 dt : DType) (0 g : GradMode) where
   constructor MkBitNetEmbedding
@@ -293,20 +292,9 @@ makeBitNetEmbedding paramFullName = do
   pure (MkBitNetEmbedding w)
 
 
-||| LM head: separate `[vocab, hidden]` tensor stored at `lm_head.weight`
-||| (top-level, NOT under `model.…`). Bias-free.
-public export
-record BitNetLmHead (vocab, hidden : Nat) (0 d : Device) (0 dt : DType) (0 g : GradMode) where
-  constructor MkBitNetLmHead
-  weight : Tensor [vocab, hidden] d dt g
-
-makeBitNetLmHead : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt
-                => {vocab, hidden : Nat}
-                -> (paramFullName : String)
-                -> IO (BitNetLmHead vocab hidden d dt WithGrad)
-makeBitNetLmHead paramFullName = do
-  w <- tparam2dNormal {o=vocab} {i=hidden} paramFullName 0.0 0.02
-  pure (MkBitNetLmHead w)
+-- LM head is tied to the token embedding (`tie_word_embeddings=True`).
+-- `hfBitnetForwardLm` reuses `model.embedTokens.weight` directly for
+-- the final projection — no separate `BitNetLmHead` record.
 
 
 ----------------------------------------------------------------------
@@ -378,7 +366,8 @@ record BitNetModelState
   embedTokens : BitNetEmbedding vocab hidden d dt g
   blocks      : Vect numLayers (BitNetBlockState hidden qOut kvOut intermediate d dt g)
   finalNorm   : BitNetRmsNorm hidden d dt g
-  lmHead      : BitNetLmHead vocab hidden d dt g
+  -- No `lmHead` field — `tie_word_embeddings=True` means the embed
+  -- weight is also the LM-head projection (see `hfBitnetForwardLm`).
 
 
 ----------------------------------------------------------------------
@@ -454,8 +443,8 @@ makeBlocks pfx (S k) offset = do
 ||| Construct a full BitNet model with named-param registration. The
 ||| param-prefix is typically `"model"` so registered names exactly
 ||| match HF on-disk (`model.embed_tokens.weight`, `model.layers.0.…`,
-||| etc.). The LM head is registered under top-level `lm_head.weight`,
-||| NOT under `pfx`, matching HF on-disk.
+||| etc.). No LM-head param is created — `tie_word_embeddings=True`
+||| means the embedding tensor serves as both.
 |||
 ||| Like HfLlama, `qOut = numHeads * headDim` and `kvOut = numKvHeads *
 ||| headDim` are explicit Nat args (not derived from the BitNetConfig)
@@ -465,10 +454,10 @@ makeBlocks pfx (S k) offset = do
 |||
 ||| BitLinear weights themselves are NOT populated by the standard
 ||| `loadModel` (which assumes float dtypes) — they're materialised
-||| as zero-filled ternary placeholders here, and overwritten by a
-||| custom load helper (filed under the HfBitNetLoader follow-up).
-||| The float-typed params (norms, embeddings, weight_scales, lm_head)
-||| ARE registered under their HF names and load via the standard
+||| as zero-filled ternary placeholders here, and overwritten by
+||| `loadHfBitnetCheckpoint`. The float-typed params (norms, embeddings,
+||| weight_scales) ARE registered under their HF names and load via
+||| the standard
 ||| safetensors path.
 public export
 hfBitnetModel : UserDeviceTraining d => UserDeviceQuant d
@@ -480,8 +469,7 @@ hfBitnetModel pfx = do
   emb    <- makeBitNetEmbedding {vocab} {hidden} (pfx ++ ".embed_tokens.weight")
   blocks <- makeBlocks {hidden} {qOut} {kvOut} {intermediate} pfx numLayers 0
   ln     <- makeBitNetRmsNorm {n=hidden} (pfx ++ ".norm.weight")
-  lm     <- makeBitNetLmHead {vocab} {hidden} lmHeadParamName
-  pure (MkBitNetModel emb blocks ln lm)
+  pure (MkBitNetModel emb blocks ln)
 
 
 ----------------------------------------------------------------------
@@ -753,7 +741,7 @@ hfBitnetForward {numHeads} {numKvHeads} {headDim} {intermediate} eps model table
   applyRmsNorm2d eps model.finalNorm hMid
 
 
-||| LM head: separate `lm_head.weight` ([vocab, hidden], NOT tied).
+||| LM head: tied to `embed_tokens.weight` ([vocab, hidden]).
 ||| Output `[seq, vocab]` logits per position. Bias-free, so we feed
 ||| a zero placeholder bias the same way HfLlama does.
 public export
@@ -772,7 +760,10 @@ hfBitnetForwardLm {numHeads} {numKvHeads} {headDim} {intermediate} eps model tab
       zBuf = prim__allocDoubles vI
       zeroBias : Tensor [vocab] d dt g
       zeroBias = MkTensor (dtCreateState1d {d} {t=dt} vI zBuf (deviceStreamTag {d})) Nothing
-  tlinear2d model.lmHead.weight hFinal zeroBias
+  -- Tied LM head: HF's `tie_word_embeddings=True` means the embedding
+  -- weight IS the LM-head projection. No separate `lm_head.weight`
+  -- exists in the safetensors file for `microsoft/bitnet-b1.58-2B-4T`.
+  tlinear2d model.embedTokens.weight hFinal zeroBias
 
 
 ----------------------------------------------------------------------
@@ -780,11 +771,11 @@ hfBitnetForwardLm {numHeads} {numKvHeads} {headDim} {intermediate} eps model tab
 ----------------------------------------------------------------------
 --
 -- BitNet's safetensors checkpoint is a mix of two on-disk shapes:
---   1. Float-typed params (embed_tokens, lm_head, all RmsNorm weights,
---      every BitLinear's weight_scale) — go through the standard
+--   1. Float-typed params (embed_tokens, all RmsNorm weights, every
+--      BitLinear's weight_scale) — go through the standard
 --      `loadModelAllowCast` path. They're already in the C-side param
 --      registry under their HF names from `makeBitNetEmbedding` /
---      `makeBitNetLmHead` / `makeBitNetRmsNorm` / `makeBitLinearHf`.
+--      `makeBitNetRmsNorm` / `makeBitLinearHf`.
 --   2. Ternary BitLinear weights — stored as uint8 axis-0 packed
 --      `[(out+3)/4, in]` with a custom 2-bit encoding the standard
 --      `param_load*` path's dtype gate would refuse. We read the raw
@@ -894,9 +885,10 @@ loadBlocksTernary path pfx offset (b :: bs) = do
 |||      weight with one materialised from the safetensors file's
 |||      packed-uint8 bytes (via `safetensorsReadRawBytes` +
 |||      `tCreateTernaryFromHfPacked2d`).
-|||   2. Loads all float-typed params (embed_tokens, lm_head, all
-|||      RmsNorms, every BitLinear `weight_scale`) in place via
-|||      `loadModelAllowCast`.
+|||   2. Loads all float-typed params (embed_tokens, all RmsNorms,
+|||      every BitLinear `weight_scale`) in place via
+|||      `loadModelAllowCast`. The LM head is tied to `embed_tokens`,
+|||      so no separate weight is loaded.
 |||
 ||| Returns `(newModel, summary)` where `summary` is a triple of
 ||| `(ternaryLoaded, ternaryExpected, floatLoadOk)`. Callers typically
@@ -923,5 +915,5 @@ loadHfBitnetCheckpoint pfx path model = do
   -- record's float-typed Tensor fields keep their handles; their
   -- underlying C-side storage is overwritten).
   floatOk <- loadModelAllowCast {d} path
-  let newModel = MkBitNetModel model.embedTokens blocks' model.finalNorm model.lmHead
+  let newModel = MkBitNetModel model.embedTokens blocks' model.finalNorm
   pure (newModel, (tnLoaded, tnExpected, floatOk))

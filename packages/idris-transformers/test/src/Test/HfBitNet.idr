@@ -81,26 +81,25 @@ oneLayerRegistered i =
 range30 : List Nat
 range30 = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29]
 
-||| 543 names: 1 embeddings + 30 layers × 18 params/layer + 1 final-
-||| norm + 1 lm_head. BitNet 2B-4T's `tie_word_embeddings=false` means
-||| `lm_head.weight` IS stored separately (the off-by-one vs Llama
-||| 3.2 1B, which ties it).
+||| 542 names: 1 embeddings + 30 layers × 18 params/layer + 1 final-
+||| norm. BitNet 2B-4T's `tie_word_embeddings=true` means there's NO
+||| separate `lm_head.weight` on disk — the embedding tensor serves
+||| as both, just like Llama 3.2 1B.
 expectedBitnet2B4T_ParamNames : List String
 expectedBitnet2B4T_ParamNames =
   [ "model.embed_tokens.weight" ]
   ++ concatMap oneLayerFull range30
   ++ [ "model.norm.weight" ]
-  ++ [ "lm_head.weight" ]
 
-||| 333 names: 1 embeddings + 30 layers × 11 params/layer (4 norms +
-||| 7 weight_scales) + 1 final-norm + 1 lm_head. This is the subset
-||| the C-side param registry actually has after `hfBitnetModel`.
+||| 332 names: 1 embeddings + 30 layers × 11 params/layer (4 norms +
+||| 7 weight_scales) + 1 final-norm. This is the subset the C-side
+||| param registry actually has after `hfBitnetModel` (no lm_head —
+||| tied to the embedding).
 expectedBitnet2B4T_RegisteredParamNames : List String
 expectedBitnet2B4T_RegisteredParamNames =
   [ "model.embed_tokens.weight" ]
   ++ concatMap oneLayerRegistered range30
   ++ [ "model.norm.weight" ]
-  ++ [ "lm_head.weight" ]
 
 
 strContains : String -> String -> Bool
@@ -124,15 +123,15 @@ firstMismatch xs ys = go Z xs ys
 testParamCount : IO Bool
 testParamCount =
   let got      = length (hfBitnetParamNames bitnet2B4T_Config "model")
-      expected = 543
-  in check ("hfBitnetParamNames length = 543 (got " ++ show got ++ ")")
+      expected = 542
+  in check ("hfBitnetParamNames length = 542 (got " ++ show got ++ ")")
            (got == expected)
 
 testParamNamesMatchHfReference : IO Bool
 testParamNamesMatchHfReference =
   let got = hfBitnetParamNames bitnet2B4T_Config "model"
   in case firstMismatch got expectedBitnet2B4T_ParamNames of
-       Nothing => check "all 543 param names match HF reference exactly" True
+       Nothing => check "all 542 param names match HF reference exactly" True
        Just (i, g, e) => do
          putStrLn ("  FAIL: param[" ++ show i ++ "] mismatch:")
          putStrLn ("    got:      " ++ g)
