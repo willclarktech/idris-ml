@@ -1604,3 +1604,111 @@ concrete user); `packages/idris-ml/src/GradScaler.idr` (the IORef-
 based state machine that pairs with `LinearMixed` in
 `epochVarMixed`); `docs/develop/dtype-parameter.md` "FloatPrecision +
 LosslessTo" section.
+
+
+## Per-backend ternary storage — BitNet b1.58 (#411)
+
+Added 2026-06-01 with the BitLinear forward kernel work. The
+question this section answers: BitNet b1.58 ternary weights live in
+the set `{-1, 0, +1}` and need only 2 bits per value. The Idris-side
+dtype slot is uniformly `Ternary` (dtag 25, shipped under #411 B1).
+But the three backends have very different storage stories — what
+shape does "a Ternary tensor" actually take in memory on each?
+
+### The decision
+
+| Backend | Physical storage | Bits/value | Logical shape | Tag carried |
+|---|---|---|---|---|
+| tape   | packed 2-bit, four values per byte (`(i+3)/4 * o` bytes for `[o, i]`) | 2 | `[o, i]` | `dtype_tag = DT_TERNARY` |
+| torch  | int8 tensor with values in {-1, 0, +1} | 8 | `[o, i]` | C-wrapper tag `DT_TERNARY`; underlying `at::Tensor` is `at::ScalarType::Char` |
+| mlx    | int8 tensor with values in {-1, 0, +1} | 8 | `[o, i]` | C-wrapper tag `DT_TERNARY`; underlying `mlx::array` is `int8` |
+
+The Idris type system sees `Tensor [o, i] d Ternary NoGrad` on every
+backend. The 4× storage difference between tape and the others is
+invisible at the type level — it's purely a backend implementation
+choice, mirrored by the existing pattern where BF16 / F16 on tape
+are F64-lingua-franca stored (8 bytes/value) while on torch/mlx
+they're native 2-byte storage.
+
+### Why asymmetric storage
+
+The clean alternative — packed 2-bit on **all three** backends — has
+significant engineering cost on torch and mlx, which we explicitly
+chose not to pay:
+
+1. **No native sub-byte dtype**. `at::Tensor` and `mlx::core::array`
+   have no 2-bit storage class. Packed-2-bit ternary on those
+   backends would require a parallel wrapper that records logical
+   shape + ternary-tag externally, with the raw bytes living in a
+   1D uint8 framework tensor. Every cross-cutting op
+   (`tensor_to_doubles`, `tensor_clone`, `tensor_dtype_name`,
+   safetensors save/load, refcount lifecycle) would need its own
+   ternary branch.
+2. **No framework GEMM**. `at::matmul` won't run on a custom-bytes
+   tensor; the bitlinear forward kernel on torch/mlx would become a
+   hand-rolled loop instead of dispatching through libtorch's BLAS
+   / MKL / cuBLAS. For inference on real BitNet models that costs
+   real wall.
+3. **No framework autograd**. Custom-bytes tensors are opaque to
+   torch/mlx autograd. Acceptable today (BitLinear weight is
+   `NoGrad`) but would block future STE-aware training on those
+   backends.
+
+Int8 storage on torch/mlx sidesteps every one of those: int8 IS a
+native framework dtype, `tensor.to(scale.dtype())` dequantises with
+one framework call, `at::matmul` works, and autograd through the
+dequant cast is free.
+
+### Why tape stays 2-bit
+
+Tape's `Tensor` is a hand-rolled C struct we own end-to-end — no
+external framework constrains the storage. The bitlinear kernel
+already needs hand-written matmul (tape has no autograd-tracing
+framework either), so decoding 2-bit codes on the inner loop is the
+natural shape. And tape is the only backend that historically
+absorbs novel storage paths cheaply (BF16 / F16 via F64-rounding,
+Conv's im2col, NTM's circular shift). Sub-byte arena layout fits
+that pattern.
+
+### The 4× memory cost on torch/mlx
+
+A 700M-param BitNet model weighs:
+
+- Tape: ~175 MB (2 bits/param + scale tensors)
+- Torch / mlx: ~700 MB (8 bits/param + scale tensors)
+
+Both fit a 24 GB box comfortably. The penalty becomes more visible
+for larger BitNet variants (3B param = ~3 GB on torch/mlx vs
+~750 MB on tape). When that crosses into a real ceiling, the
+follow-up is a torch/mlx packed-storage path — same byte format as
+tape, dequant in the kernel — filed under #411 follow-ups.
+
+### Why this differs from the BF16 / F16 lingua-franca on tape
+
+The dtype-lingua-franca pattern on tape (BF16/F16 stored as F64
+doubles, rounded into the target dtype's precision) is asymmetric
+in the *opposite* direction: tape uses *more* bytes than its
+intrinsic dtype demands; torch/mlx use the native byte width. For
+ternary the asymmetry flips: tape uses *fewer* bytes; torch/mlx use
+more. Both asymmetries live in the same shape — "the dtype tag is
+authoritative; physical storage is per-backend" — but the
+arithmetic is reversed.
+
+The pattern this entrenches: each new sub-native dtype (the next
+candidates are NF4, FP4, MX) faces the same trichotomy. Default to
+matching the on-disk format on the backend that owns the storage
+end-to-end (tape today, a future "raw-bytes" backend tomorrow); use
+the nearest framework-native dtype on torch/mlx if engineering cost
+demands it; document the asymmetry in a row here.
+
+Cross-references:
+`packages/idris-ml/src/DType/Core.idr` (`Ternary`, `Binary` types
++ `dtypeBytes = 0` sub-byte sentinel);
+`packages/backends/backend_tape/tensor.h` (`DT_TERNARY` enum,
+sub-byte storage docstring);
+`packages/backends/shared_utils.{h,c}`
+(`ternary_pack` / `ternary_unpack`);
+`packages/pytorch/torch_ref/models/bitlinear.py` (PyTorch oracle
++ `absmean_ternary_quant`);
+TODO #411 + the upcoming per-backend `tensor_bitlinear_fwd`
+kernel commits.
