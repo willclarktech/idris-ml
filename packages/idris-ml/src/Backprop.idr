@@ -6,7 +6,9 @@ import Data.Vect
 import DataPoint
 import Device
 import Layer.Core
+import Layer.MixedCore
 import Array
+import GradScaler
 import Tensor
 
 
@@ -120,6 +122,66 @@ epochVar opt dataPoints lossFn model = do
   totalLoss <- sumLosses (toList losses)
   mean <- scaleLoss totalLoss (1.0 / cast n)
   loss <- nativeTrainStep opt mean
+  pure (model, loss)
+
+
+----------------------------------------------------------------------
+-- Mixed-precision supervised epoch (A4 of #410)
+----------------------------------------------------------------------
+
+-- Per-point loss for mixed-precision networks. Mirrors `perPointLoss`
+-- but threads the cDt (compute / activation dtype) through both the
+-- bulkToPersistent material​isation of inputs/targets and the
+-- forwardVarMixed call. The paramDt slot on the network is unused
+-- at the forward boundary — params get cast paramDt → cDt inside
+-- the layer's `applyVarMixed`.
+perPointLossMixed : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d =>
+                    IsDType pDt => IsDType cDt =>
+                    RuntimeDType pDt => RuntimeDType cDt =>
+                    Linked d => Compatible d pDt => Compatible d cDt =>
+                    {i, o : Nat} -> {hs : List Nat} ->
+                    LossFn d cDt o ->
+                    NetworkMixed i hs o d pDt cDt WithGrad ->
+                    DataPoint i o Double ->
+                    IO (Tensor [] d cDt WithGrad)
+perPointLossMixed lossFn model dp = do
+  let inT  = bulkToPersistent {d} {dt=cDt} (x dp)
+      tgtT = bulkToPersistent {d} {dt=cDt} (y dp)
+      inV  = the (TVec i d cDt WithGrad) (MkTensor inT  Nothing)
+      tgtV = the (TVec o d cDt WithGrad) (MkTensor tgtT Nothing)
+  (_, predV) <- forwardVarMixed model inV
+  lossFn predV tgtV
+
+||| One supervised epoch in mixed precision: forward each data point
+||| in `cDt` (activations / compute), accumulate per-sample losses,
+||| mean-reduce, scale by the GradScaler's current factor, and run
+||| `trainStepScaled` which (a) backwards at the scaled magnitude,
+||| (b) divides grads by the scale, (c) checks for non-finite values
+||| and skips the step + halves the scaler on overflow, (d) clips +
+||| steps + advances the scaler's growth/backoff state machine.
+|||
+||| Returns the loss scalar from `trainStepScaled` (which is NaN if
+||| the step was skipped due to overflow — callers should treat NaN
+||| epoch losses as "skip" rather than "diverged").
+export
+epochVarMixed : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d =>
+                IsDType pDt => IsDType cDt =>
+                RuntimeDType pDt => RuntimeDType cDt =>
+                Linked d => Compatible d pDt => Compatible d cDt =>
+                IsFloating cDt =>
+                {i, o, n : Nat} -> {hs : List Nat} ->
+                NativeOptimizer d ->
+                GradScaler d cDt ->
+                Vect n (DataPoint i o Double) ->
+                LossFn d cDt o ->
+                NetworkMixed i hs o d pDt cDt WithGrad ->
+                IO (NetworkMixed i hs o d pDt cDt WithGrad, Double)
+epochVarMixed opt gs dataPoints lossFn model = do
+  losses <- traverse (perPointLossMixed lossFn model) dataPoints
+  totalLoss <- sumLosses (toList losses)
+  mean <- scaleLoss totalLoss (1.0 / cast n)
+  scaledMean <- applyScale gs mean
+  loss <- trainStepScaled opt gs scaledMean
   pure (model, loss)
 
 

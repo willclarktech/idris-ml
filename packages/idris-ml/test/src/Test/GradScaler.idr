@@ -33,7 +33,7 @@ runOneStep opt gs = do
   let xT = the (Tensor [] TestDevice TestDType WithGrad)
               (MkTensor xptr Nothing)
   loss <- pure $ MkTensor (primMul {d=TestDevice} wT.tensorPtr xT.tensorPtr) Nothing
-  scaled <- scaleLoss gs (the (Tensor [] TestDevice TestDType WithGrad) loss)
+  scaled <- applyScale gs (the (Tensor [] TestDevice TestDType WithGrad) loss)
   trainStepScaled opt gs scaled
 
 

@@ -69,14 +69,16 @@ export
 currentScale : GradScaler d dt -> IO Double
 currentScale gs = readIORef gs.scaleRef
 
-||| Apply the scaler's current scale to a loss tensor. The caller
-||| feeds the returned tensor into backward + `trainStepScaled`
-||| (which unscales the grads).
+||| Apply the scaler's current scale to a loss tensor (multiplies
+||| by `currentScale gs`). The caller feeds the returned tensor
+||| into backward + `trainStepScaled` (which unscales the grads).
+||| Named `applyScale` rather than `scaleLoss` to avoid clashing
+||| with Backprop.idr's `scaleLoss` (the mean-reduction helper).
 export
-scaleLoss : {0 d : Device} -> UserDeviceCore d =>
-            GradScaler d dt -> Tensor [] d dt WithGrad ->
-            IO (Tensor [] d dt WithGrad)
-scaleLoss gs loss = do
+applyScale : {0 d : Device} -> UserDeviceCore d =>
+             GradScaler d dt -> Tensor [] d dt WithGrad ->
+             IO (Tensor [] d dt WithGrad)
+applyScale gs loss = do
   s <- readIORef gs.scaleRef
   tmulScalar loss s
 

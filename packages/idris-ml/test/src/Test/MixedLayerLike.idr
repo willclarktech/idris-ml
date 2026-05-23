@@ -6,6 +6,9 @@ import Harness
 import Device
 import Tensor
 import Array
+import Backprop
+import DataPoint
+import GradScaler
 import Layer
 import Layer.MixedCore
 import TestConfig
@@ -81,10 +84,36 @@ bridgeFreezeUnfreezeRoundTrip = do
   check "freezeNetworkMixed / unfreezeNetworkMixed round-trip" True
 
 
+-- A4: epochVarMixed compiles, runs one epoch on a tiny LinearMixed
+-- network + GradScaler, and the returned loss is finite. This is
+-- the end-to-end smoke for the type-safe mixed-precision plan #410
+-- — every prior piece (LayerLikeMixed, LinearMixed, autograd-aware
+-- tcast, nativeTrainStepScaled, GradScaler) is exercised in series.
+epochVarMixedSmoke : IO Bool
+epochVarMixedSmoke = do
+  lin <- mixedLinearLayerAny {d=TestDevice} {paramDt=TestDType} {computeDt=TestDType}
+                             {i=2} {o=1} "epoch_mixed_smoke"
+  let netM : NetworkMixed 2 [] 1 TestDevice TestDType TestDType WithGrad
+      netM = OutputLayerMixed lin
+  gs <- defaultGradScaler {d=TestDevice} {dt=TestDType}
+  opt <- pure $ nativeSgd {d=TestDevice} 0.01
+  let dataPoints : Vect 2 (DataPoint 2 1 Double)
+      dataPoints =
+        [ MkDataPoint (VArray [1.0, 0.0]) (VArray [1.0])
+        , MkDataPoint (VArray [0.0, 1.0]) (VArray [-1.0])
+        ]
+  (_, loss) <- epochVarMixed opt gs dataPoints tmseLoss netM
+  let isFinite : Double -> Bool
+      isFinite x = x == x && x /= 1.0/0.0 && x /= -1.0/0.0
+  check ("epochVarMixed returns finite loss (got " ++ show loss ++ ")")
+        (isFinite loss)
+
+
 export
 tests : List (IO Bool)
 tests =
   [ bridgeForwardTypechecks
   , bridgeFreezeUnfreezeRoundTrip
   , linearMixedForwardTypechecks
+  , epochVarMixedSmoke
   ]
