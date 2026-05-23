@@ -381,6 +381,44 @@ record RnnState (i o : Nat) (0 d : Device) (0 g : GradMode) where
 
 The fixed-`g` version forces `activation` to be specialized at construction, so after `freezeLayer` retypes the state to `NoGrad`, the stored activation function no longer matches. The polymorphic-`g'` version transports unchanged — standard activations like `ttanh` are already polymorphic post-Phase-3, so they unify with this field type automatically.
 
+### Higher-order type parameter doesn't propagate erasure annotations
+
+When you write a `data` declaration whose first parameter is a layer-kind type constructor like `Nat -> Nat -> (0 _ : Device) -> (0 _ : DType) -> (0 _ : GradMode) -> Type`, applying that parameter inside a constructor body **loses the `(0 _ : ...)` multiplicity annotations**. Idris-2's unifier can't propagate erasure from the parameter type to the application site, and you get:
+
+```
+Mismatch between: Type -> Type -> GradMode -> Type
+and (0 _ : Device) -> (0 _ : DType) -> (0 _ : GradMode) -> Type
+```
+
+The natural-looking `LayerLike l => LayerLikeMixed (\i, o, d, _, ct, g => l i o d ct g)` type-level-lambda instance head also doesn't work — the lambda body's argument types lose multiplicity the same way.
+
+Workaround: **wrap the higher-order type through an existing existential**. Instead of `LayerLikeMixed (LambdaOver l)`, define a concrete `data AsMixed` whose constructor takes an `AnyLayer i o d dt g` (which already has the multiplicity-annotated args bound correctly) and produces an `AsMixed i o d dt dt g`. Pattern-matching `MkAsMixed (MkAnyLayer l @{dict} layer)` recovers the inner `LayerLike` dict + layer, and your instance methods delegate. See `Layer/MixedCore.idr` (`AsMixed`) and the design-decisions "LayerLikeMixed bridge" section.
+
+Take-away: layer-kind-to-layer-kind bridges in Idris-2 default to **concrete wrapper data types**, not type-level lambdas.
+
+### Named auto-implicit collision when type parameters unify
+
+If your typeclass method signature has two auto-implicit constraints on different type parameters (e.g. `{auto rdtP : RuntimeDType pDt}` + `{auto rdtC : RuntimeDType cDt}`), and a downstream instance collapses those type parameters (`pDt = cDt`), the two dicts BOTH type-match an inner call's single `RuntimeDType dt` constraint and Idris's resolver can't pick. You'll see:
+
+```
+Error: Multiple solutions found in search of:
+    RuntimeDType pDt
+Possible correct results:
+    i_con (implicitly bound at ...)
+    i_con (implicitly bound at ...)
+```
+
+Fix: **name the auto-implicits in the interface signature** (`{auto rdtP : ...}` + `{auto rdtC : ...}`), then at the call site bind by name and pass explicitly, using `@{%search}` to mark the positions where auto-resolution should still run:
+
+```idris
+applyVarMixed {rdtC} {cmpC} (MkAsMixed (MkAnyLayer l @{dict} layer)) input = do
+  (layer', out) <- applyVar @{dict} @{%search} @{%search} @{rdtC}
+                                    @{%search} @{cmpC} layer input
+  ...
+```
+
+This pins the slots that need disambiguation while letting unconflicted constraints (`UserDeviceTraining`, `UserDeviceCore`, `Linked`) auto-resolve normally. Pattern recurs anywhere a typeclass collapses two type parameters that an inner call disambiguates by type. See `Layer/MixedCore.idr` `LayerLikeMixed AsMixed where`.
+
 ## Training & Numerics
 
 Gradient flow, numerical stability, and training patterns.
@@ -537,6 +575,61 @@ default both stay at seed=42 (matches the primary tape/torch path).
 ## Architecture & Infrastructure
 
 C kernels, buffer systems, optimizer internals, and the layer system.
+
+### Any new C symbol needs `make rename-headers` regenerated
+
+When you add a new `extern "C"` function to a backend (or to a
+shared `.c` that links into a backend's dylib), the Idris-side FFI
+binding likely targets the per-backend suffixed name
+(`my_func_tape`, `my_func_torch`, `my_func_mlx`) — but those
+suffixes are macro renames from `packages/backends/rename_<b>.h`,
+auto-generated from `backend.h`. If the new function isn't in the
+regenerated rename header, the dylib exports only the un-suffixed
+symbol and the Idris binding fails at **link time** with:
+
+```
+Exception in foreign-procedure: no entry for "my_func_tape"
+```
+
+Fix: add the function declaration to `packages/backends/backend.h`,
+then run `make rename-headers` to regenerate the per-backend rename
+headers. The `make check-rename-headers` CI gate catches drift —
+run it after every backend.h addition.
+
+This bit during the #410 A3 work when `native_train_step_scaled`
+was declared in `backend.h` but `rename-headers` wasn't regenerated;
+`primNativeTrainStepScaled` linked against `native_train_step_scaled_tape`
+which didn't exist as an exported symbol until the rename macro was
+added. The fix took one `make rename-headers` command.
+
+### Shared `optimizer.c` only links into tape — torch/mlx need per-backend ports
+
+The `packages/backends/shared/training/optimizer.c` file is gated by
+`SHARED_BACKENDS_optimizer := tape` in the Makefile, so it compiles
+**only into the tape dylib**. Torch and mlx have their own
+`backend_*/training/optimizer.cpp` files that implement
+`native_train_step` directly against their respective libraries
+(libtorch's `at::Tensor` accessors for torch; mlx's lazy arrays for
+mlx).
+
+Consequence: when you add a new train-step variant (like
+`native_train_step_scaled`), you need **three implementations**, not
+one. The shared file gets the tape version; each per-backend
+`optimizer.cpp` gets its own port. The behavioural test then runs
+on all three with the same assertion shape, catching per-backend
+divergence.
+
+Symptom of forgetting: the test links cleanly only on `BACKEND=tape`;
+on torch and mlx the linker fails with `Undefined symbol:
+_native_train_step_scaled` because the symbol exists only in tape's
+dylib.
+
+This bit during #410 A3 — the initial `native_train_step_scaled`
+landed only in the shared file and gated the test with `#ifdef
+BACKEND_TAPE`. Three commits later, torch's
+`backend_torch/training/optimizer.cpp` and mlx's
+`backend_mlx/training/optimizer.cpp` got their own ports and the
+gate came off.
 
 ### FFI manifest entry required for wrap-on-return
 

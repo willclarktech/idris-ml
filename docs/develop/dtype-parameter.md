@@ -233,6 +233,79 @@ more specific named cast like `tcastUintToFloat`). The compiler's role
 is to *reject* implicit cross-family, not to be a numerical-correctness
 oracle.
 
+**Update 2026-06-01 (#410 A0.5):** the "bit-pattern lossless" cases
+above (`BF16 → F32`, `UInt 8 → F16` etc.) are now witnessable via a
+new `LosslessTo from to` typeclass that captures *only* the structural
+"every value of the source dtype is exactly representable in the
+target dtype" property. The two-dimensional structural check —
+mantissa-bits AND exponent-bits both non-decreasing — is enough to
+detect that `BF16 → F32` is lossless (7→23 mantissa, 8→8 exponent)
+while `F32 → BF16` is not (mantissa shrinks 23→7). The witness lives
+in `packages/idris-ml/src/DType/Core.idr`'s `FloatPrecision` typeclass
++ `LosslessTo` definition; a negative compile-test gate
+(`packages/idris-ml/test/neg/LossyDirectionRejected.idr`, gated by
+`make check-lossy-cast-gate`) confirms F32→BF16 refuses to type-check.
+The semantic-confusion concern still holds — `LosslessTo` is purely
+structural — so we don't auto-derive `UpcastableTo` from `LosslessTo`
+at the framework level by default. The follow-up row #412 wires that
+bridge for the cases where bit-pattern losslessness IS the wanted
+semantics (the mixed-precision-training case: F32 master → BF16
+compute on forward, BF16 grad → F32 master on backward).
+
+### `FloatPrecision` + `LosslessTo` — structural cross-family witness
+
+Added 2026-06-01 (#410 A0.5). `FloatPrecision dt` refines `IsFloating`
+with explicit mantissa-bits and exponent-bits per dtype:
+
+```idris
+interface IsFloating t => FloatPrecision (0 t : Type) where
+  mantissaBits : Nat
+  exponentBits : Nat
+
+FloatPrecision (Float 16)  where mantissaBits = 10 ; exponentBits = 5
+FloatPrecision (Float 32)  where mantissaBits = 23 ; exponentBits = 8
+FloatPrecision (Float 64)  where mantissaBits = 52 ; exponentBits = 11
+FloatPrecision (BFloat 16) where mantissaBits = 7  ; exponentBits = 8
+```
+
+`LosslessTo from to` is a definitional pair of `LTE` proofs on the
+two dimensions:
+
+```idris
+LosslessTo : (0 from : DType) -> (0 to : DType) ->
+             FloatPrecision from => FloatPrecision to => Type
+LosslessTo from to =
+  ( LTE (mantissaBits {dt=from}) (mantissaBits {dt=to})
+  , LTE (exponentBits {dt=from}) (exponentBits {dt=to})
+  )
+```
+
+Auto-resolves via Idris's hint search for the safe edges:
+`LosslessTo (BFloat 16) (Float 32)` is provable (7≤23, 8≤8), and
+`LosslessTo (Float 32) (BFloat 16)` is not (the mantissa LTE proof
+`LTE 23 7` has no inhabitant). The two-dimensional view catches what
+the single-`precisionRank` view misses: `BF16` and `F16` both have
+bit-width 16, but neither is a lossless upcast of the other (each
+shrinks one dimension while growing the other).
+
+**Why ternary / binary need no `FloatPrecision`-style metadata**:
+their value sets `{-1, 0, +1}` and `{-1, +1}` are finite and exactly
+representable in any IEEE float, any BFloat, and any IntN with ≥2
+bits. The `LosslessTo` typeclass shape (per-pair instances, each
+with its own structural condition or empty if always-lossless) is
+open enough to admit those instances without extending the
+`FloatPrecision` framework. Ternary / Binary `LosslessTo` instances
+will ship with the BitNet b1.58 row (#411).
+
+**Lossy edges still require explicit `tcastUnsafe`**: the mixed-
+precision training case (F32 master → BF16 compute) IS lossy — the
+mantissa shrinks 23→7 bits. The cast is intentional, code-visible at
+the layer boundary inside `LinearMixed.applyVarMixed`, and uses
+`tcastUnsafe`. The autograd-aware backward path (commit `66eca8f`)
+propagates a BF16 gradient back through the cast and accumulates an
+F32 grad into the master weight; the F32→BF16 lossiness applies only
+to the forward, not to the gradient flow.
+
 ### `MlxDev` as a parameterized family, not opaque siblings
 
 A naïve split would introduce two unrelated types:

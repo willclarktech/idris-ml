@@ -1475,3 +1475,132 @@ constraining model architecture. The latter is appropriate for
 production-only inference libraries (mlx-lm, vLLM); idris-ml's stance
 matches PyTorch's research-oriented choice of staying composable and
 investing in the underlying op dispatch.
+
+
+## LayerLikeMixed bridge — type-safe mixed precision (#410)
+
+Added 2026-06-01 alongside the type-safe mixed-precision work. The
+question this section answers: when we extend `LayerLike` from a
+single-dtype interface to a two-dtype-slot interface
+(`paramDt`/`computeDt`) so layers like `LinearMixed F32 BF16` and
+the future `BitLinear Ternary BF16` express the dtype split in their
+type, how do the 15 existing single-dtype layers participate without
+a system-wide rewrite?
+
+### The interface split, not the system migration
+
+`LayerLikeMixed` lives parallel to `LayerLike` in
+`packages/idris-ml/src/Layer/MixedCore.idr`. Its method signatures
+carry both `pDt` and `cDt` slots; the input/output tensors are in
+`cDt`; the layer state is over `(pDt, cDt)`. Layers that genuinely
+need different param/activation dtypes (`LinearMixed`, `BitLinear`)
+implement `LayerLikeMixed` directly. Layers that don't (`Linear`,
+`Activation`, `LayerNorm`, …) keep their existing `LayerLike`
+instances and *bridge* into the mixed world via an `AsMixed` wrapper.
+
+This is deliberately NOT a system-wide migration of `LayerLike` to
+two slots. Two reasons:
+
+1. **Most layers don't need it**. An `Activation` layer takes a
+   tensor of some dtype and returns a tensor of the same dtype — no
+   weight storage, no dtype split. Forcing the activation layer to
+   carry a second dtype slot is interface bloat for zero semantic
+   gain.
+2. **The bridge is zero-cost**. `AsMixed` is a wrapper around the
+   existing `AnyLayer` existential; its `LayerLikeMixed` instance
+   delegates each method back to the underlying `LayerLike` after
+   pattern-matching into `MkAnyLayer`. No runtime overhead; existing
+   layers compose into `NetworkMixed` chains via `liftAnyLayer` /
+   `liftNetwork` without code changes.
+
+### Why `AsMixed` wraps `AnyLayer`, not a type-level lambda
+
+The natural-looking design — a type-level lambda instance —
+**doesn't work in Idris-2**:
+
+```idris
+-- ❌ This refuses to elaborate.
+LayerLike l => LayerLikeMixed (\i, o, d, _, cDt, g => l i o d cDt g)
+```
+
+Idris-2 can't propagate the `(0 _ : Device)` / `(0 _ : DType)` /
+`(0 _ : GradMode)` multiplicity-annotated erasure annotations
+through the lambda's argument types when the constructor body
+applies them. Multiple attempts (data-type parameter with `(0 l :
+...)`, explicit-multiplicity implicits on the constructor, named
+auto-implicits) all failed at the unification layer with `Mismatch
+between: Type -> Type -> GradMode -> Type and (0 _ : Device) ->
+(0 _ : DType) -> (0 _ : GradMode) -> Type`.
+
+The working design wraps a concrete data type:
+
+```idris
+data AsMixed : Nat -> Nat -> (0 _ : Device) ->
+               (0 _ : DType) -> (0 _ : DType) -> (0 _ : GradMode) ->
+               Type where
+  MkAsMixed : AnyLayer i o d dt g -> AsMixed i o d dt dt g
+```
+
+`AsMixed` is concrete (no higher-order type parameter), and its
+constructor `MkAsMixed` only inhabits the diagonal `pDt = cDt = dt`.
+Pattern matching `MkAsMixed (MkAnyLayer l @{dict} layer)` recovers
+the inner `LayerLike` instance dict and the underlying layer; the
+`LayerLikeMixed AsMixed` instance delegates each method to the
+inner `applyVar` / `freezeLayer` / etc.
+
+**Take-away rule**: when you need a layer-kind-to-layer-kind bridge
+in Idris-2, default to a concrete wrapper that passes the
+higher-order type through an existing existential, not a type-level
+lambda instance. The lambda form looks clean but loses the
+multiplicity annotations the constructor needs.
+
+### Named auto-implicits + `@{%search}` slot-pinning
+
+A second-order problem: `LayerLikeMixed`'s `applyVarMixed` has both
+`{auto rdtP : RuntimeDType pDt}` and `{auto rdtC : RuntimeDType
+cDt}`. The `AsMixed` bridge collapses `pDt = cDt`, so both dicts
+type-match the inner `LayerLike.applyVar` call's single `RuntimeDType
+dt` constraint — and Idris-2's typeclass resolver can't pick one of
+the two. Same problem for `Compatible d pDt` vs `Compatible d cDt`.
+
+Fix: name the auto-implicits in the interface signature, then pass
+them explicitly at the call site, position-pinning the others with
+`@{%search}` (the "do normal auto-resolution here" marker):
+
+```idris
+applyVarMixed {rdtC} {cmpC} (MkAsMixed (MkAnyLayer l @{dict} layer)) input = do
+  (layer', out) <- applyVar @{dict} @{%search} @{%search} @{rdtC}
+                                    @{%search} @{cmpC} layer input
+  ...
+```
+
+This pins slot 4 (`RuntimeDType`) to `rdtC` and slot 6 (`Compatible`)
+to `cmpC`, while letting `UserDeviceTraining`, `UserDeviceCore`,
+`Linked` auto-resolve. The pattern recurs anywhere a typeclass
+collapses two type parameters that the inner call disambiguates by
+type.
+
+### Why static typing over runtime autocast
+
+PyTorch's `torch.autocast(dtype=bf16)` is a thread-local context
+manager + monkey-patched op dispatch — efficient, but it gives up
+the property "the tensor's type tells you its dtype." idris-ml takes
+the opposite stance: the dtype shows up in `Tensor [..] d dt g`'s
+fourth type parameter, mixed-precision layers carry both
+`paramDt` and `computeDt` in their type, and the lossy cast (F32
+master → BF16 compute) is visible inside the layer's forward as a
+`tcastUnsafe` call.
+
+The payoff is structurally stronger than PyTorch autocast: PyTorch
+silently casts mid-graph in either direction; idris-ml refuses
+silent lossy casts (`LossyDirectionRejected.idr` neg-gate confirms
+F32 → BF16 doesn't type-check via `LosslessTo`) and forces the
+lossy edges to be code-visible.
+
+Cross-references: `packages/idris-ml/src/Layer/MixedCore.idr`
+(`LayerLikeMixed`, `AsMixed`, `NetworkMixed`, `liftAnyLayer` /
+`liftNetwork`); `packages/idris-ml/src/Layer/LinearMixed.idr` (first
+concrete user); `packages/idris-ml/src/GradScaler.idr` (the IORef-
+based state machine that pairs with `LinearMixed` in
+`epochVarMixed`); `docs/develop/dtype-parameter.md` "FloatPrecision +
+LosslessTo" section.
