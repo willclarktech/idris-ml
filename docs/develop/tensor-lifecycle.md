@@ -236,6 +236,66 @@ auto-exempt — no annotation needed.
   ordering of guardian → drain → retain matters. Use the
   `withNoGrad`-exit drain or call `drainManagedHandles` from Idris.
 
+## `tensor_free` in the refcount world
+
+Pre-refcount, `tensor_free` was the C-level "release this handle"
+primitive — it called `delete t` directly and removed the Tensor from
+`all_tensors`. In the wrapped-handle ABI (Phase 4'), that role is
+covered by the guardian → drain → `tensor_release_handle` chain, so
+`tensor_free` is now legacy. Backends handle it as follows:
+
+| Backend | `tensor_free` body | Why |
+|---------|--------------------|-----|
+| mlx     | `tensor_release_internal(t)` after probing `all_tensors` for liveness | Refcount sweep at next `tape_reset` reclaims. Force-delete would dangle tape entries. |
+| tape    | no-op (`(void)h`) | Arena owns lifetimes; `tape_reset` clears the whole arena. |
+| torch   | no-op (`(void)h`) | `at::Tensor` `shared_ptr` handles lifetime; small documented leak for test-only paths. |
+
+The mlx behavior here was tightened on 2026-05-18 (`<commit>`) after
+test_backend.c surfaced an intermittent Bus error on tape_reset.
+The pre-existing code force-deleted intermediates, leaving dangling
+`Tensor*` pointers in tape entries; the next `tape_reset` walked
+them and crashed. The new behavior drops one refcount and lets the
+sweep at `tape_reset` do the deletion when the count actually hits 0
+— consistent with the doc model above. The `all_tensors` probe
+defends against the caller passing an already-swept handle (e.g.
+across an `optimizer_step` that called `tape_reset` internally).
+
+### Test-harness implication: read grads before `param_clear`
+
+`param_clear` on mlx is part of the refcount lifecycle: it releases
+the per-param retain and runs `tape_reset` (which itself sweeps
+refcount=0 tensors). The vector backing `param_registry` is actually
+emptied. So any code path that reads `param_grad_item_at(...)` after
+`param_clear` on mlx hits an empty vector — historically undefined,
+in practice "got 0.000000" or worse.
+
+Tape's `param_clear` is count-only (`param_count_val = 0` — see
+`backend_tape.c`) and leaves the registry array intact. Reads after
+clear accidentally still work on tape, masking the bug class.
+
+The fix lives at the test layer, not the backend. Capture analytical
+grads **before** any `param_clear` inside an FD block:
+
+```c
+tensor_backward(loss);
+
+/* Capture analytical grads before FD scaffolding —
+   each FD block below calls param_clear. */
+double analytic_x = param_grad_item_at(0, 0);
+double analytic_y = param_grad_item_at(1, 0);
+
+/* FD checks (each subblock free to call param_clear) */
+{
+    param_clear();
+    /* ... fresh non-grad tensors for FD ... */
+    ASSERT_NEAR("x grad", analytic_x, fd, FD_TOL);
+}
+```
+
+Applied across `test_mm_backward`, `test_bmm_backward`, and
+`test_layer_norm_2d_backward` on 2026-05-18. The pattern is the same
+on every backend; mlx just surfaces the latent bug visibly.
+
 ## Appendix: history of attempts
 
 The wrapped-handle ABI was the third design attempted; the previous

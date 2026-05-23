@@ -418,6 +418,38 @@ library stays polymorphic.
 Filed as a gotcha in `docs/develop/gotchas.md` under "Polymorphic
 type-parameter slot vs concrete value in method body."
 
+### Test files pin a concrete dtype at the leaf
+
+Library code stays polymorphic in `dt`; examples pin both `d` and
+`dt` via `BuildConfig`'s `ExampleDevice`/`ExampleDType` (see "Per-
+build-mode dtype selection" below). Tests live one layer further out:
+each test function is its own leaf with no upstream caller to infer
+`dt` from, so the dtype slot has to be a concrete type literal in
+the test's body, not a free variable.
+
+`Test.GradMode` originally read:
+
+```idris
+weakenGradFlipsRequiresGrad : IO Bool
+weakenGradFlipsRequiresGrad = do
+  let t = the (Tensor (the (Vect 0 Nat) []) CPU dt WithGrad) (MkTensor ptr Nothing)
+  ...
+```
+
+`dt` is unbound — the function's signature is `IO Bool` so there's
+no implicit slot Idris can pick up. Build failed with "Undefined name
+dt." Fix on 2026-05-18: pin to `F64` directly (the test exercises
+grad-mode flipping, not dtype polymorphism, so concreteness is fine):
+
+```idris
+let t = the (Tensor (the (Vect 0 Nat) []) CPU F64 WithGrad) (MkTensor ptr Nothing)
+```
+
+The choice of `F64` matches the default `CPU`-lane convention; the
+test runs identically on tape and torch (the only test-backed lanes
+today). When mlx-GPU lanes start running the Idris-side unit tests,
+this concrete pin will need to gain `BuildConfig`-style indirection.
+
 ### Demo outcome
 
 `Example.DTypePitch` is the type-system pitch demo. Positive cases

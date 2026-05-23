@@ -612,6 +612,10 @@ The attention weight normalization `focused = powered / sum(powered)` must use a
 
 MLX's Metal GPU computes `exp`, `sigmoid`, `tanh`, etc. in float32 even when the input array is float64. Expect ~1e-6 precision for these ops, not 1e-10. Test tolerances for transcendental functions should be 1e-5 or wider on MLX.
 
+### Non-smooth `softplus` stable form gives wrong subgradient at x=0
+
+`tensor_softplus` uses the numerically stable form `max(0,x) + log(1 + exp(-|x|))` to avoid `log(1+exp(x))` overflowing in float32 for `x > ~88`. The naive form is C^∞ smooth and gives correct `sigmoid(x)` backward via mlx's `vjp` everywhere; the stable form is non-smooth at exactly `x=0` (both `max` and `abs` have subgradient ambiguity). At that boundary point mlx's `vjp` picks the 0 subgradient for each → `d_softplus(0)` returns 0 instead of the expected `sigmoid(0) = 0.5`. All non-boundary inputs (|x| > 0 by even a float ulp) get the correct derivative. Test workaround: skip the `x=0` probe on mlx — see `test_backend.c` `d_softplus(0)`. Permanent fix would be a piecewise smooth forward or a registered custom backward.
+
 ### Non-contiguous views and `data<T>()`
 
 `mx::transpose` and similar ops return views with swapped strides. The raw `data<double>()` pointer still points to the original contiguous memory layout. Index arithmetic like `data[row * cols + col]` produces wrong results on transposed views. Use `mx::flatten` to force a contiguous copy first, or use MLX's indexing API.
