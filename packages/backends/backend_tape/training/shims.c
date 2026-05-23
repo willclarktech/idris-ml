@@ -11,7 +11,9 @@
  */
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include "../arena.h"
 #include "../tape.h"
 #include "../tensor.h"
 #include "../../backend.h"
@@ -30,15 +32,46 @@ void backend_reset_for_eval(void) {
     }
 }
 
-/* See backend.h: explicit pre-exit cleanup. Cheap on tape — params +
- * intermediates all live in the arena which is reset wholesale; no
- * per-tensor `delete` cascade. param_clear releases handles (no-op on
- * tape) + resets registry count; tape_reset clears the autograd tape.
- * Included for ABI parity across backends; tape never showed the post-
- * main hang torch-cpu does. */
+/* See backend.h: explicit pre-exit cleanup. Three-phase free pass:
+ *
+ *   (1) tape_reset() — drains the autograd tape, freeing per-entry
+ *       malloc'd op_meta (LayerNormMeta x_hat/rstd, DropoutMeta mask,
+ *       EmbeddingMeta indices, OP_STACK inputs arrays, etc.) and
+ *       non-persistent grad arrays. Must run first because tape entries
+ *       hold `e->result` pointers into the bump arena — dereferencing
+ *       them after arena_free_all would touch freed memory.
+ *   (2) walk param_registry_arr and free every persistent param tensor's
+ *       malloc'd struct + data + shape + grad. `tensor_release_handle`
+ *       is a no-op on tape (params are non-arena heap allocations from
+ *       param_create.c; tape's handle ABI doesn't refcount), so the
+ *       buffers leak until process exit unless we free them here.
+ *       `param_clear` after the loop zeroes the registry count.
+ *   (3) arena_free_all() — walks the bump arena chunk linked list,
+ *       free(c->data) + free(c) per chunk. arena_reset only zeroes
+ *       `used` counters; the chunks themselves only got freed at
+ *       process exit by libc previously.
+ *
+ * On HfLlama-1B F32 the leaked param + arena heap is multi-GB; macOS
+ * libmalloc is slow on teardowns at that scale, which caused a ~17 min
+ * post-main tail observed in commit `e924b5e`. Running the work inside
+ * main() makes it bounded and timeable via the existing stage stamps.
+ *
+ * Safety: only call from end-of-main once Idris-land is done touching
+ * tensor handles. Every previously-returned arena pointer becomes
+ * dangling after step (3). */
 void backend_release_all_persistent(void) {
-    param_clear();
     tape_reset();
+    int n = param_count();
+    for (int i = 0; i < n; i++) {
+        Tensor* t = (Tensor*)param_tensor(i);
+        if (!t) continue;
+        free(t->shape);
+        free(t->data);
+        free(t->grad);
+        free(t);
+    }
+    param_clear();
+    arena_free_all();
 }
 
 int tensor_live_count(int dummy)      { (void)dummy; return (int)tape_size; }

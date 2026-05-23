@@ -64,6 +64,18 @@ void arena_reset(void) {
     arena_current = arena_head;
 }
 
+void arena_free_all(void) {
+    ArenaChunk* c = arena_head;
+    while (c) {
+        ArenaChunk* next = c->next;
+        free(c->data);
+        free(c);
+        c = next;
+    }
+    arena_head = NULL;
+    arena_current = NULL;
+}
+
 /* make_scalar/make_tensor: use arena for intermediate tensors */
 
 Tensor* make_scalar(double val, int requires_grad) {

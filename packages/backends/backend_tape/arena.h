@@ -16,6 +16,13 @@
 /* Arena lifecycle */
 void* arena_alloc(size_t bytes);
 void  arena_reset(void);
+/* arena_free_all: walk the chunk list, free(c->data) + free(c) per chunk,
+ * null arena_head / arena_current. Invalidates every previously-returned
+ * arena pointer; call only from backend_release_all_persistent (end-of-main
+ * pre-exit cleanup), never during a live forward. Moves the multi-GB libc
+ * teardown inside main where it's bounded + timeable instead of leaking
+ * to a 17-min process-exit tail. */
+void  arena_free_all(void);
 
 /* make_*: arena-allocated Tensor constructors */
 Tensor* make_scalar(double val, int requires_grad);
