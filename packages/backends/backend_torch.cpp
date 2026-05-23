@@ -278,8 +278,18 @@ TensorHandle tensor_bce_with_logits(TensorHandle input, TensorHandle target) {
 }
 
 TensorHandle tensor_cross_entropy(TensorHandle input, TensorHandle target) {
-    return from_tensor(torch::nn::functional::cross_entropy(
-        *to_tensor(input), *to_tensor(target)));
+    /* Match tape's convention: -sum(target * log_softmax(input)) / numel.
+       Differs from torch::nn::functional::cross_entropy, which expects
+       target as class indices and means over the batch dim. The Idris
+       side has no caller for this symbol today (the TODO row "Match
+       PyTorch's catalogue of fused ops" tracks the future fused
+       softmax_cross_entropy_with_logits landing); this impl just keeps
+       the two backends agreeing for test_backend.c. */
+    auto& in = *to_tensor(input);
+    auto& tg = *to_tensor(target);
+    auto ls = at::log_softmax(in, 0);
+    auto loss = -(tg * ls).sum() / static_cast<double>(ls.numel());
+    return from_tensor(loss);
 }
 
 TensorHandle tensor_mse_loss(TensorHandle input, TensorHandle target) {
@@ -681,13 +691,25 @@ void tensor_lstm_cell(
     TensorHandle b_ih, TensorHandle b_hh,
     TensorHandle* out_h, TensorHandle* out_c)
 {
+    /* torch::lstm_cell expects 2D input/hx/cx ([batch, *]). Mirror Python's
+       nn.LSTMCell which auto-unsqueezes 1D inputs so unbatched callers
+       (including the C-side gradient test harness) work. */
+    auto in1d = *to_tensor(input);
+    auto hx1d = *to_tensor(hx);
+    auto cx1d = *to_tensor(cx);
+    bool unbatched = (in1d.dim() == 1);
+    auto in2d = unbatched ? in1d.unsqueeze(0) : in1d;
+    auto hx2d = unbatched ? hx1d.unsqueeze(0) : hx1d;
+    auto cx2d = unbatched ? cx1d.unsqueeze(0) : cx1d;
     auto result = torch::lstm_cell(
-        *to_tensor(input),
-        {*to_tensor(hx), *to_tensor(cx)},
+        in2d, {hx2d, cx2d},
         *to_tensor(w_ih), *to_tensor(w_hh),
         *to_tensor(b_ih), *to_tensor(b_hh));
-    *out_h = from_tensor(std::get<0>(result));
-    *out_c = from_tensor(std::get<1>(result));
+    auto new_h = std::get<0>(result);
+    auto new_c = std::get<1>(result);
+    if (unbatched) { new_h = new_h.squeeze(0); new_c = new_c.squeeze(0); }
+    *out_h = from_tensor(new_h);
+    *out_c = from_tensor(new_c);
 }
 
 /* ---------- Parameter Registry ---------- */
