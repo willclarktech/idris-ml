@@ -66,6 +66,7 @@ enum {
     OP_CONCAT_2D_AXIS1, /* [m,n] ++ [m,k] -> [m,n+k] along axis 1 */
     OP_SOFTPLUS,      /* log(1 + exp(x)), backward = sigmoid(x) */
     OP_TILE_2D,       /* [m,n] -> [m*rep0, n*rep1]; reps in scalar_arg via 2 int fields */
+    OP_CAST_DTYPE,    /* dtype cast — locally linear; identity grad flow back to source */
     OP_COUNT          /* sentinel — must be last */
 };
 

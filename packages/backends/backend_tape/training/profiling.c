@@ -89,7 +89,8 @@ static const char* op_name(int op) {
         "GELU", "GRU", "EMBED", "BATCH_NORM", "DROPOUT",
         "AVGP1D", "AVGP2D", "CONV1D", "MAXP1D", "CONV2D", "CONV2D_B", "MAXP2D", "MAXP2D_B",
         "CUMPROD", "GATHER", "SCATTER_ADD", "LEAKY_RELU", "SILU",
-        "LINEAR_2D", "CONCAT_2D", "SOFTPLUS", "TILE_2D"
+        "LINEAR_2D", "CONCAT_2D", "SOFTPLUS", "TILE_2D",
+        "CAST_DTYPE"
     };
     /* Compile-time check: names[] must cover every op tag.
        Add to BOTH this list and the enum when introducing new ops. */

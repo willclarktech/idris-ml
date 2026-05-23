@@ -168,6 +168,46 @@ Test(legacy_backend, autograd_basic) {
     param_clear();
 }
 
+/* A1 (type-safe mixed precision plan, #410): tcast must be autograd-
+   aware on every backend. Forward: F64 source rg=1 → F32 cast → F32
+   mul by scalar 3.0. Backward: source.grad must be 3.0 (chain rule:
+   d(cast(x, F32) * 3) / dx = 3, since cast is locally linear).
+   On tape pre-fix this RED-fails because tape_cast_dtype_dtag's non-F64
+   branches create a fresh tensor with rg=0 (autograd flag dropped),
+   so the F32 mul has no autograd lineage back to src. After the fix
+   (OP_CAST_DTYPE registered + tape_append on rg sources): GREEN.
+   On torch the cast goes through at::Tensor::to which is already
+   autograd-traced for float-to-float, so this is a regression guard.
+   On mlx the cast goes through mx::astype + OP_CAST_DTYPE tape entry,
+   also already autograd-aware. */
+Test(legacy_backend, cast_grad_propagation) {
+    param_clear();
+
+    /* F64 source, rg=1, registered as a param so we can read .grad. */
+    TensorHandle src = tensor_create_scalar(2.0, 1);
+    param_register("src", src);
+
+    /* Cast src to F32 (dtag=14) through the streamed dispatch. */
+    TensorHandle src_f32 = tensor_cast_dtype_streamed(src, 0, 14);
+
+    /* F32 scalar constant for the mul. */
+    TensorHandle three_f32 = tensor_create_scalar_streamed(3.0, 0, 0, 14);
+
+    /* loss = cast(src, F32) * 3.0 */
+    TensorHandle loss = tensor_mul(src_f32, three_f32);
+
+    tensor_backward(loss);
+
+    /* Expected: src.grad = 3.0 (chain rule through the cast). 1e-3
+       tolerance accommodates F32 round-trip precision. */
+    ASSERT_NEAR("cast preserves autograd: src.grad == 3.0",
+                param_grad_item(0), 3.0, 1e-3);
+
+    tensor_free(src); tensor_free(src_f32);
+    tensor_free(three_f32); tensor_free(loss);
+    param_clear();
+}
+
 /* Regression: an F32 param must be an autograd leaf so its grad flows.
    The F32 param creators once cast to float32 *after* requires_grad_, which
    produced a non-leaf whose .grad never populated — the optimizer then read a

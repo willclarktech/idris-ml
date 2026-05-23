@@ -25,6 +25,7 @@
 #include "../arena.h"
 #include "../tensor.h"
 #include "../../backend.h"
+#include "autograd/op_dispatch.h"
 
 static TensorHandle tape_retag_round(TensorHandle h, int dtag) {
     Tensor* t = (Tensor*)h;
@@ -143,13 +144,36 @@ TensorHandle tape_create_state_2d_dtag(int rows, int cols, double* data, int dta
     return tape_retag_round(tensor_create_state_2d_f64(rows, cols, data), dtag);
 }
 
+/* Cast is locally linear (the rounding is value-level, not gradient-level),
+   so backward passes the upstream gradient through unchanged. Both r->grad
+   and a->grad are F64 buffers via ensure_grad regardless of value storage,
+   so the loop is dtype-agnostic. */
+static void tape_backward_cast_dtype(TapeEntry* e) {
+    Tensor* r = e->result;
+    Tensor* a = e->arg1;
+    if (!a) return;
+    ensure_grad(a);
+    ensure_grad(r);
+    for (int i = 0; i < r->numel; i++) {
+        ((double*)a->grad)[i] += ((double*)r->grad)[i];
+    }
+}
+TAPE_REGISTER_OP(OP_CAST_DTYPE, tape_backward_cast_dtype)
+
 TensorHandle tape_cast_dtype_dtag(TensorHandle src, int dtag) {
     Tensor* s = (Tensor*)src;
     int tag = tape_tag_from_dtag(dtag);
+    int rg = s->requires_grad;
     /* F64 → F64 stays observational identity (preserves autograd-through-cast).
        The shortcut applies only when the *source* is already F64 — casting a
        non-F64 source up to F64 must still produce a fresh F64-tagged tensor. */
     if (tag == DT_F64 && s->dtype_tag == DT_F64) return tensor_cast_dtype_f64(src);
+    /* For all other directions, propagate `requires_grad` from the source and
+       record an OP_CAST_DTYPE entry so backward flows through. Pre-A1 this
+       hardcoded `rg=0` on every non-F64-identity path, which silently dropped
+       autograd lineage at every dtype boundary — broke mixed-precision
+       training in the typed-layer path. */
+    Tensor* result = NULL;
     /* F32 target: real F32 storage (4 bytes/elem), matching the streamed-create
        path. Skipping this and falling through to tape_retag_round would produce
        a lingua-franca F32 (double storage, DT_F32 tag) — internally consistent
@@ -160,22 +184,25 @@ TensorHandle tape_cast_dtype_dtag(TensorHandle src, int dtag) {
     if (tag == DT_F32) {
         if (s->rank == 0) {
             double v = tape_load_d(s, 0);
-            return make_scalar_f32(v, 0);
+            result = make_scalar_f32(v, rg);
+        } else {
+            float* arena_d = arena_alloc(s->numel * sizeof(float));
+            for (int i = 0; i < s->numel; i++) arena_d[i] = (float)tape_load_d(s, i);
+            result = make_tensor_arena_f32(arena_d, s->numel, s->shape, s->rank, rg);
         }
-        float* arena_d = arena_alloc(s->numel * sizeof(float));
-        for (int i = 0; i < s->numel; i++) arena_d[i] = (float)tape_load_d(s, i);
-        return make_tensor_arena_f32(arena_d, s->numel, s->shape, s->rank, 0);
+    } else {
+        /* Lingua-franca path: fresh F64-storage tensor with the values rounded
+           into the target dtype's representable precision, then retagged. */
+        if (s->rank == 0) {
+            double v = tape_load_d(s, 0);
+            result = (Tensor*)tape_retag_round(make_scalar(v, rg), dtag);
+        } else {
+            double* arena_d = arena_alloc(s->numel * sizeof(double));
+            for (int i = 0; i < s->numel; i++) arena_d[i] = tape_load_d(s, i);
+            Tensor* t = make_tensor_arena(arena_d, s->numel, s->shape, s->rank, rg);
+            result = (Tensor*)tape_retag_round((TensorHandle)t, dtag);
+        }
     }
-    /* Otherwise: a fresh non-grad tensor cloning src's values, rounded into the
-       target dtype. (Inference / precision-demo casts are NoGrad.) Source is
-       read via tape_load_d so a real-F32 source casts correctly into the
-       lingua-franca target. */
-    if (s->rank == 0) {
-        double v = tape_load_d(s, 0);
-        return tape_retag_round(make_scalar(v, 0), dtag);
-    }
-    double* arena_d = arena_alloc(s->numel * sizeof(double));
-    for (int i = 0; i < s->numel; i++) arena_d[i] = tape_load_d(s, i);
-    Tensor* t = make_tensor_arena(arena_d, s->numel, s->shape, s->rank, 0);
-    return tape_retag_round((TensorHandle)t, dtag);
+    if (rg) tape_append(OP_CAST_DTYPE, result, s, NULL, 0.0);
+    return (TensorHandle)result;
 }
