@@ -447,40 +447,31 @@ writeCausalMask buf i j n =
        in writeCausalMask buf' i (j + 1) n
 
 
--- Per-head RoPE accumulator. Each iteration narrows one head's
--- [seq, headDim] slice from the full projection, applies RoPE, and
--- concats the result onto a growing [seq, headsSoFar*headDim] tensor.
--- After numHeads iterations the accumulator is [seq, numHeads*headDim]
--- — same shape as the original projection but with RoPE applied per
--- head. Used twice per layer (Q with numHeads, K with numKvHeads); V
--- skips this since RoPE doesn't apply to V. Replaces the per-head
--- attention loop in the prior `buildHeads` (#399 Commit B 2026-05-29) —
--- the matmul/softmax/matmul math moves into one fused `primSdpa2d`
--- call.
-buildRopedHeads :
+-- All-heads RoPE helper: reshape flat [seq, numH*headDim] projection
+-- to rank-3 [seq, numH, headDim], call `applyRopeAllHeads` (which
+-- handles all heads in one call via broadcast cos/sin over the head
+-- axis), reshape back to flat. The flat ↔ rank-3 reshapes are
+-- metadata-only on torch + mlx (view-with-strides) and copy-free on
+-- tape (shape metadata only).
+--
+-- Replaces the per-head `buildRopedHeads` loop (closed 2026-05-30,
+-- predecessor commit `6850366`) which emitted ~31 per-head concats
+-- per layer × 2 (Q + K) × 16 layers ≈ ~1,000 concats per forward.
+-- All-heads RoPE collapses that to ~7 ops per Q or K per layer
+-- (broadcast muls + narrow + reshape + 1 concat for the rotate-half).
+ropeAllHeadsFlat :
      {0 d : Device} -> UserDeviceTraining d =>
-     {seq, headDim, maxPos : Nat} ->
+     {seq, numH, headDim, maxPos : Nat} ->
      RoPETables maxPos headDim d dt g ->
-     (full : AnyPtr) ->                     -- [seq, numH * headDim] post-projection
-     (headDimI : Int) ->
-     (numHeadsToGo : Nat) -> (headIdx : Nat) ->
-     (acc : Maybe AnyPtr) ->
+     (full : AnyPtr) ->                     -- [seq, numH * headDim]
+     (sI, nHI, hdI : Int) ->
      IO AnyPtr
-buildRopedHeads tables full headDimI Z _ (Just acc) = pure acc
-buildRopedHeads tables full headDimI Z _ Nothing =
-  -- Degenerate (numH=0). Caller responsibility — return something safe.
-  pure full
-buildRopedHeads {d} {seq} {headDim} {maxPos} tables full headDimI (S k) hIdx acc = do
-  let startI = cast {to=Int} (hIdx * cast {to=Nat} headDimI)
-  headT <- ioRerun (\_ =>
-            the (Tensor [seq, headDim] d dt g)
-                (MkTensor (primNarrow {d} full 1 startI headDimI) Nothing))
-  ropedT <- applyRope {seq} {headDim} {maxPos} tables 0 headT
-  case acc of
-    Nothing => buildRopedHeads {d} {seq} {headDim} {maxPos} tables full headDimI k (S hIdx) (Just ropedT.tensorPtr)
-    Just prev =>
-      let joined = primConcat2dAxis1 {d} prev ropedT.tensorPtr
-      in buildRopedHeads {d} {seq} {headDim} {maxPos} tables full headDimI k (S hIdx) (Just joined)
+ropeAllHeadsFlat {d} {seq} {numH} {headDim} {maxPos} tables full sI nHI hdI = do
+  full3 <- ioRerun (\_ =>
+            the (Tensor [seq, numH, headDim] d dt g)
+                (MkTensor (primReshape3d {d} full sI nHI hdI) Nothing))
+  rot3 <- applyRopeAllHeads {seq} {numHeads=numH} {headDim} {maxPos} tables 0 full3
+  ioRerun (\_ => primReshape2d {d} rot3.tensorPtr sI (nHI * hdI))
 
 
 ||| Full multi-head causal self-attention with GQA + RoPE.
@@ -501,17 +492,17 @@ applyAttention {seq} {hidden} {numHeads} {numKvHeads} {headDim} {maxPos} attn ta
   q <- applyLinear2d attn.qProj input  -- [seq, numHeads   * headDim]
   k <- applyLinear2d attn.kProj input  -- [seq, numKvHeads * headDim]
   v <- applyLinear2d attn.vProj input  -- [seq, numKvHeads * headDim]
-  let hdI    = cast {to=Int} headDim
+  let sI     = cast {to=Int} seq
+      hdI    = cast {to=Int} headDim
       nHI    = cast {to=Int} numHeads
       nKvHI  = cast {to=Int} numKvHeads
-  -- Per-head RoPE on Q and K (V skips RoPE). Each accumulator ends up
-  -- shape-equal to its projection input. This keeps RoPE per-head
-  -- (matches the rank-2 fast-path on tape; rank-3 broadcast was a
-  -- net loss on torch-mps + tape — see #399 Commit A diagnostic 2026-05-29).
-  qRopedPtr <- buildRopedHeads {d} {seq} {headDim} {maxPos} tables
-                 q.tensorPtr hdI numHeads 0 Nothing
-  kRopedPtr <- buildRopedHeads {d} {seq} {headDim} {maxPos} tables
-                 k.tensorPtr hdI numKvHeads 0 Nothing
+  -- All-heads RoPE on Q and K (V skips RoPE). One call per Q/K replaces
+  -- the per-head loop (#399 Commit B-followup 2026-05-30): kills the
+  -- ~62 per-layer `primConcat2dAxis1` calls that were ~80% of the
+  -- forward op count post-SDPA. Net per layer drops from ~518 RoPE ops
+  -- to ~15 (rank-3 broadcast cos/sin over [seq, numH, headDim] halves).
+  qRopedPtr <- ropeAllHeadsFlat {d} {seq} {numH=numHeads}   {headDim} {maxPos} tables q.tensorPtr sI nHI   hdI
+  kRopedPtr <- ropeAllHeadsFlat {d} {seq} {numH=numKvHeads} {headDim} {maxPos} tables k.tensorPtr sI nKvHI hdI
   -- ONE fused SDPA call replaces the per-head matmul/scale/mask/
   -- softmax/matmul loop. On torch-mps this routes to MPSGraph's fused
   -- attention kernel (~1 op/layer vs ~5/head/layer = 160/layer prior);

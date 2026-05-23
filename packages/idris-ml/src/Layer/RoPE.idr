@@ -279,3 +279,72 @@ applyRope {seq} {headDim} (MkRoPETables cosT sinT) positionOffset input = ioReru
       -- Concat halves back to [seq, headDim].
       result    = primConcat2dAxis1 {d} firstOut secondOut
   in MkTensor result Nothing)
+
+
+----------------------------------------------------------------------
+-- applyRopeAllHeads — vectorized rotation across the head axis
+----------------------------------------------------------------------
+--
+-- Input layout `[seq, numHeads, headDim]`; output same shape. The
+-- rotation math is identical to `applyRope`, lifted one rank via
+-- cos/sin unsqueeze + broadcast:
+--
+--   cos / sin slice : [seq, halfDim]
+--   reshape         : [seq, 1, halfDim]   (rank-3 view with unit head axis)
+--   primMul against : [seq, numHeads, halfDim] half slices
+--
+-- numpy-style broadcasting fills the unit head dim. Replaces the
+-- Idris-side per-head loop that, on Llama-3.2-1B (32 heads × 2 ops
+-- × 16 layers), accounted for ~80% of forward op count — see
+-- `docs/develop/perf-changes.md` 2026-05-30 entry on #399.
+--
+-- Caveat: relies on the elementwise primitives' rank-3 × rank-3
+-- broadcast support. Tape's general_bcast path handles this (up to
+-- MAX_BCAST_RANK=8); torch's `at::mul` is shape-generic; mlx's
+-- `mx::multiply` is too.
+
+||| All-heads variant of `applyRope`. Input layout
+||| `[seq, numHeads, headDim]`; rotates each head's headDim chunk
+||| via the same cos/sin tables broadcast across the head axis.
+||| Caller's responsibility: `seq + positionOffset <= maxPos`.
+public export
+applyRopeAllHeads : {0 d : Device} -> UserDeviceTraining d =>
+                    {seq, numHeads, headDim, maxPos : Nat} ->
+                    RoPETables maxPos headDim d dt g ->
+                    (positionOffset : Nat) ->
+                    Tensor [seq, numHeads, headDim] d dt g ->
+                    IO (Tensor [seq, numHeads, headDim] d dt g)
+applyRopeAllHeads {seq} {numHeads} {headDim} (MkRoPETables cosT sinT) positionOffset input = ioRerun (\_ =>
+  let halfDimI = cast {to=Int} (div headDim 2)
+      seqI     = cast {to=Int} seq
+      numHI    = cast {to=Int} numHeads
+      headDI   = cast {to=Int} headDim
+      offsetI  = cast {to=Int} positionOffset
+      inPtr    = input.tensorPtr
+      cosPtr   = cosT.tensorPtr
+      sinPtr   = sinT.tensorPtr
+      -- Split [seq, numHeads, headDim] along axis=2 into halves
+      firstHalf  = primNarrow {d} inPtr 2 0        halfDimI  -- [seq, nH, halfDim]
+      secondHalf = primNarrow {d} inPtr 2 halfDimI halfDimI
+      -- Slice cos/sin tables to [seq, halfDim] starting at offset
+      cosSlice2  = primNarrow {d} cosPtr 0 offsetI seqI
+      sinSlice2  = primNarrow {d} sinPtr 0 offsetI seqI
+      -- Unsqueeze cos/sin to [seq, 1, halfDim] for broadcast against
+      -- [seq, numHeads, halfDim] halves.
+      cosSlice   = primReshape3d {d} cosSlice2 seqI 1 halfDimI
+      sinSlice   = primReshape3d {d} sinSlice2 seqI 1 halfDimI
+      -- Rotation per pair (cos/sin broadcast across head axis).
+      firstCos   = primMul {d} firstHalf  cosSlice
+      secondSin  = primMul {d} secondHalf sinSlice
+      firstOut   = primSub {d} firstCos secondSin
+      secondCos  = primMul {d} secondHalf cosSlice
+      firstSin   = primMul {d} firstHalf  sinSlice
+      secondOut  = primAdd {d} secondCos firstSin
+      -- Concat halves back along axis=2. No rank-3 concat primitive
+      -- today — flatten to 2D, use primConcat2dAxis1, reshape back.
+      flat       = seqI * numHI
+      firstOut2  = primReshape2d {d} firstOut  flat halfDimI
+      secondOut2 = primReshape2d {d} secondOut flat halfDimI
+      concat2    = primConcat2dAxis1 {d} firstOut2 secondOut2  -- [seq*nH, headDim]
+      result     = primReshape3d {d} concat2 seqI numHI headDI
+  in MkTensor result Nothing)

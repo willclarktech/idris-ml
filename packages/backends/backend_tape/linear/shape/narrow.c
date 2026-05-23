@@ -65,10 +65,42 @@ TensorHandle tensor_narrow(TensorHandle h, int dim, int start, int len) {
         r->shape[1] = len;
         r->rank = 2;
         r->numel = rows * len;
+    } else if (t->rank == 3 && dim == 0) {
+        /* 3D axis-0 narrow: contiguous pages, view works. */
+        int b = t->shape[1];
+        int c = t->shape[2];
+        r->data = (char*)t->data + (size_t)start * (size_t)b * (size_t)c * esz;
+        r->shape = arena_alloc(3 * sizeof(int));
+        r->shape[0] = len; r->shape[1] = b; r->shape[2] = c;
+        r->rank = 3;
+        r->numel = len * b * c;
+    } else if (t->rank == 3 && dim == 2) {
+        /* 3D axis-2 narrow: innermost slice non-contiguous across the middle
+         * axis. Copy a*b slabs of `len * esz` bytes each. Used by
+         * `applyRopeAllHeads` to split the per-head dim into halves on
+         * a [seq, numHeads, headDim] view in one pass. */
+        int a = t->shape[0];
+        int b = t->shape[1];
+        int c = t->shape[2];
+        size_t slab = (size_t)len * esz;
+        char* dst = arena_alloc((size_t)a * (size_t)b * slab);
+        char* src = (char*)t->data;
+        for (int i = 0; i < a; i++) {
+            for (int j = 0; j < b; j++) {
+                size_t out_off = ((size_t)i * (size_t)b + (size_t)j) * slab;
+                size_t in_off  = (((size_t)i * (size_t)b + (size_t)j) * (size_t)c + (size_t)start) * esz;
+                memcpy(dst + out_off, src + in_off, slab);
+            }
+        }
+        r->data = dst;
+        r->shape = arena_alloc(3 * sizeof(int));
+        r->shape[0] = a; r->shape[1] = b; r->shape[2] = len;
+        r->rank = 3;
+        r->numel = a * b * len;
     } else {
         fprintf(stderr,
                 "tape tensor_narrow: unsupported (rank=%d, dim=%d). "
-                "Supported: rank=1+dim=0, rank=2+dim=0/1.\n",
+                "Supported: rank=1+dim=0, rank=2+dim=0/1, rank=3+dim=0/2.\n",
                 t->rank, dim);
         abort();
     }
