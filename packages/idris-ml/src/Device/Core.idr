@@ -428,6 +428,16 @@ interface UserDeviceConv d => UserDeviceTraining (0 d : Device) where
   ||| lanes; calling this brings that work inside the timed region.
   ||| Cheap on tape (arena reset); meaningful on torch + mlx.
   primReleaseAllPersistent : PrimIO ()
+  ||| Reset the backend's arena + autograd tape between inference
+  ||| forward passes. Tape: drops the arena (drops every intermediate
+  ||| from the previous forward — without this, multi-token decode
+  ||| accumulates ~GB of arena and OOMs the 16 GB VM around 4-8 tokens
+  ||| on Llama-1B). Torch + mlx: free_intermediates + zero param grads
+  ||| (mild beneficial, no semantic change for `withNoGrad` callers).
+  ||| Safe between forwards in pure-inference loops; UNSAFE in
+  ||| training (clobbers param grads). Wraps the existing C
+  ||| `backend_reset_for_eval` symbol.
+  primResetForEval : PrimIO ()
   ||| Count of live backend tensor handles (mlx: all_tensors; torch:
   ||| intermediates; tape: tape entries). The arg is ignored — it exists
   ||| only to defeat Idris-Chez constant-folding of the FFI call so the

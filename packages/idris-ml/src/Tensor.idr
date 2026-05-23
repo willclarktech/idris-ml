@@ -909,6 +909,18 @@ export
 releaseAllPersistent : {0 d : Device} -> UserDeviceTraining d => IO ()
 releaseAllPersistent = primIO (primReleaseAllPersistent {d})
 
+||| Reset the backend's arena + autograd tape between inference
+||| forward passes. On tape this drops every intermediate from the
+||| previous forward — required for multi-token decode on large
+||| models (without it, the arena grows ~GB per forward and OOMs).
+||| On torch + mlx, drops forward intermediates + zeros param grads
+||| (mild beneficial, no semantic change inside `withNoGrad`).
+||| **UNSAFE in training** — clobbers any param grads in flight.
+||| Routes via `UserDeviceTraining d`.
+export
+resetForEval : {0 d : Device} -> UserDeviceTraining d => IO ()
+resetForEval = primIO (primResetForEval {d})
+
 ||| Reset profiling counters for backend `d`.
 export
 profileReset : UserDeviceTraining d => IO ()

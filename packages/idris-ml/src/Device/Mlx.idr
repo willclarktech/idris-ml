@@ -493,6 +493,8 @@ prim__epochBeginMlx : PrimIO ()
 prim__epochEndMlx : PrimIO ()
 %foreign "C:backend_release_all_persistent_mlx,libidrisml"
 prim__releaseAllPersistentMlx : PrimIO ()
+%foreign "C:backend_reset_for_eval_mlx,libidrisml"
+prim__resetForEvalMlx : PrimIO ()
 %foreign "C:tensor_live_count_mlx,libidrisml"
 prim__liveCountMlx : Int -> Int
 %foreign "C:tensor_peak_live_count_mlx,libidrisml"
@@ -603,6 +605,7 @@ public export
   primEpochBegin               = prim__epochBeginMlx
   primEpochEnd                 = prim__epochEndMlx
   primReleaseAllPersistent     = prim__releaseAllPersistentMlx
+  primResetForEval             = prim__resetForEvalMlx
   primLiveCount                = prim__liveCountMlx
   primPeakLiveCount            = prim__peakLiveCountMlx
 

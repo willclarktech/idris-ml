@@ -479,6 +479,8 @@ prim__epochBeginTorch : PrimIO ()
 prim__epochEndTorch : PrimIO ()
 %foreign "C:backend_release_all_persistent_torch,libidrisml"
 prim__releaseAllPersistentTorch : PrimIO ()
+%foreign "C:backend_reset_for_eval_torch,libidrisml"
+prim__resetForEvalTorch : PrimIO ()
 %foreign "C:tensor_live_count_torch,libidrisml"
 prim__liveCountTorch : Int -> Int
 %foreign "C:tensor_peak_live_count_torch,libidrisml"
@@ -591,6 +593,7 @@ public export
   primEpochBegin               = prim__epochBeginTorch
   primEpochEnd                 = prim__epochEndTorch
   primReleaseAllPersistent     = prim__releaseAllPersistentTorch
+  primResetForEval             = prim__resetForEvalTorch
   primLiveCount                = prim__liveCountTorch
   primPeakLiveCount            = prim__peakLiveCountTorch
 

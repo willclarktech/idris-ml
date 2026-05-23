@@ -200,7 +200,13 @@ genLoop model tables tokens (S k) = do
     Nothing => do
       putStrLn "  (argmax produced out-of-range token; stopping)"
       pure tokens
-    Just next =>
+    Just next => do
+      -- Drop the previous forward's arena/autograd-tape entries before
+      -- the next forward. On tape this prevents ~GB-per-forward arena
+      -- accumulation that OOMs the VM on a no-KV-cache Llama decode.
+      -- Params survive (they're persistent, re-registered on the fresh
+      -- tape). Mild beneficial on torch + mlx; no-op-equivalent there.
+      resetForEval {d=ExampleDevice}
       genLoop model tables (tokens ++ [next]) k
 
 
