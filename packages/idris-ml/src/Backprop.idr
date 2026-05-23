@@ -270,6 +270,101 @@ epochVarTensorBatch opt dataPoints lossFn model = do
 
 
 ----------------------------------------------------------------------
+-- Mixed-precision Tensor + Batched variants (F2 of #410)
+----------------------------------------------------------------------
+
+-- Mirror of `perPointLossTensor` for mixed-precision networks.
+-- Pre-built input/target tensors (no `bulkToPersistent` step); the
+-- network is `NetworkMixed pDt cDt` and the forward goes through
+-- `forwardVarMixed`.
+perPointLossTensorMixed :
+  {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d =>
+  IsDType pDt => IsDType cDt =>
+  RuntimeDType pDt => RuntimeDType cDt =>
+  Linked d => Compatible d pDt => Compatible d cDt =>
+  {i, o : Nat} -> {hs : List Nat} ->
+  LossFn d cDt o ->
+  NetworkMixed i hs o d pDt cDt WithGrad ->
+  TensorDataPoint i o ->
+  IO (Tensor [] d cDt WithGrad)
+perPointLossTensorMixed lossFn model dp = do
+  let inV = the (TVec i d cDt WithGrad) (MkTensor (inputTensor dp) Nothing)
+      tgtV = the (TVec o d cDt WithGrad) (MkTensor (targetTensor dp) Nothing)
+  (_, predV) <- forwardVarMixed model inV
+  lossFn predV tgtV
+
+||| Mixed-precision supervised epoch over already-tensor-pre-built
+||| data points (parallel to `epochVarTensor`).
+export
+epochVarTensorMixed :
+  {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d =>
+  IsDType pDt => IsDType cDt =>
+  RuntimeDType pDt => RuntimeDType cDt =>
+  Linked d => Compatible d pDt => Compatible d cDt =>
+  IsFloating cDt =>
+  {i, o, n : Nat} -> {hs : List Nat} ->
+  NativeOptimizer d ->
+  GradScaler d cDt ->
+  Vect n (TensorDataPoint i o) ->
+  LossFn d cDt o ->
+  NetworkMixed i hs o d pDt cDt WithGrad ->
+  IO (NetworkMixed i hs o d pDt cDt WithGrad, Double)
+epochVarTensorMixed opt gs dataPoints lossFn model = do
+  losses <- traverse (perPointLossTensorMixed lossFn model) dataPoints
+  totalLoss <- sumLosses (toList losses)
+  mean <- scaleLoss totalLoss (1.0 / cast n)
+  scaledMean <- applyScale gs mean
+  loss <- trainStepScaled opt gs scaledMean
+  pure (model, loss)
+
+||| Mixed-precision *batched* supervised epoch over already-tensor-
+||| pre-built data points (parallel to `epochVarTensorBatch`). Uses
+||| `forwardVarBatchMixed` for the batched forward; per-row loss
+||| accumulation matches `epochVarTensorBatch`'s shape.
+export
+epochVarTensorBatchMixed :
+  {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d =>
+  IsDType pDt => IsDType cDt =>
+  RuntimeDType pDt => RuntimeDType cDt =>
+  Linked d => Compatible d pDt => Compatible d cDt =>
+  IsFloating cDt =>
+  {i, o, n : Nat} -> {hs : List Nat} ->
+  NativeOptimizer d ->
+  GradScaler d cDt ->
+  Vect n (TensorDataPoint i o) ->
+  LossFn d cDt o ->
+  NetworkMixed i hs o d pDt cDt WithGrad ->
+  IO (NetworkMixed i hs o d pDt cDt WithGrad, Double)
+epochVarTensorBatchMixed opt gs dataPoints lossFn model = do
+  let inputs = toList (map inputTensor dataPoints)
+      targets = toList (map targetTensor dataPoints)
+      stackedIn = catAllTensors {d} inputs
+      stackedTgt = catAllTensors {d} targets
+      iI = cast {to=Int} i
+      oI = cast {to=Int} o
+      nI = cast {to=Int} n
+      stackedInReshaped = primReshape2d {d} stackedIn nI iI
+      stackedTgtReshaped = primReshape2d {d} stackedTgt nI oI
+      inV = the (Tensor [n, i] d cDt WithGrad) (MkTensor stackedInReshaped Nothing)
+      tgtV = the (Tensor [n, o] d cDt WithGrad) (MkTensor stackedTgtReshaped Nothing)
+  (_, predB) <- forwardVarBatchMixed model inV
+  losses <- go predB tgtV 0 n
+  totalLoss <- sumLosses losses
+  mean <- scaleLoss totalLoss (1.0 / cast n)
+  scaledMean <- applyScale gs mean
+  loss <- trainStepScaled opt gs scaledMean
+  pure (model, loss)
+  where
+    go : Tensor [n, o] d cDt WithGrad -> Tensor [n, o] d cDt WithGrad -> Int -> Nat ->
+         IO (List (Tensor [] d cDt WithGrad))
+    go _ _ _ Z = pure []
+    go predB tgtV k (S rest) = do
+      l <- perRowLoss lossFn predB tgtV k
+      ls <- go predB tgtV (k + 1) rest
+      pure (l :: ls)
+
+
+----------------------------------------------------------------------
 -- Recurrent epoch (sequence per data point)
 ----------------------------------------------------------------------
 
