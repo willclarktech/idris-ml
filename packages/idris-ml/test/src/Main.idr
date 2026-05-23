@@ -11,6 +11,7 @@ import Test.RL.Gae
 import Test.RL.ReplayBuffer
 import Test.Hpo.LrFinder
 import Test.ManagedHandle
+import Test.MixedLayerLike
 import Test.RmsNorm
 import Test.RoPE
 import Test.SwiGLU
@@ -36,6 +37,7 @@ main = runAll
   , ("RL.ReplayBuffer", Test.RL.ReplayBuffer.tests)
   , ("Hpo.LrFinder",    Test.Hpo.LrFinder.tests)
   , ("ManagedHandle",   Test.ManagedHandle.tests)
+  , ("MixedLayerLike",  Test.MixedLayerLike.tests)
   , ("RmsNorm",         Test.RmsNorm.tests)
   , ("RoPE",            Test.RoPE.tests)
   , ("SwiGLU",          Test.SwiGLU.tests)
