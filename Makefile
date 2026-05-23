@@ -867,6 +867,23 @@ test-mlx-compile: $(BACKENDS_DIR)/test_mlx_compile.c
 	cc -o $(BUILD)/test_mlx_compile $(BACKENDS_DIR)/test_mlx_compile.c -L$(BUILD) -lidrisml -Wl,-rpath,$(BUILD) -lm
 	./$(BUILD)/test_mlx_compile
 
+# #402 rank-3 broadcast microbenchmark. Links directly against libtorch
+# (no libidrisml / no FFI) to baseline what torch::mul takes on a
+# strided rank-3 broadcast — the hot pattern in applyRopeAllHeads.
+# Comparing this number against our wrapper's per-op cost (~10-26 ms/op
+# observed) and PyTorch Python's (~2 ms/op observed) localises whether
+# the gap is in our FFI/wrapper or in libtorch's MPS path.
+# Pair with `time_rank3_broadcast.py` for cross-language confirmation.
+# Requires BACKEND=torch (so TORCH_INC + TORCH_LIB resolve).
+bench-rank3-broadcast: $(BACKENDS_DIR)/bench_rank3_broadcast.cpp | $(BUILD)
+	$(torch_CC) $(torch_CFLAGS) -o $(BUILD)/bench_rank3_broadcast \
+		$(BACKENDS_DIR)/bench_rank3_broadcast.cpp \
+		$(torch_LDFLAGS_$(UNAME))
+	@echo "--- bench_rank3_broadcast: device=cpu ---"
+	./$(BUILD)/bench_rank3_broadcast cpu
+	@echo "--- bench_rank3_broadcast: device=mps ---"
+	./$(BUILD)/bench_rank3_broadcast mps
+
 print-torch:
 	@echo "LIBTORCH_PATH=$(LIBTORCH_PATH)"
 	@echo "TORCH_INC=$(TORCH_INC)"
