@@ -324,7 +324,14 @@ record BitNetAttentionState
   qProj       : BitLinearHf hidden qOut  d dt g
   kProj       : BitLinearHf hidden kvOut d dt g
   vProj       : BitLinearHf hidden kvOut d dt g
-  attnSubNorm : BitNetRmsNorm hidden d dt g
+  -- `attn_sub_norm` is applied to the post-SDPA `[seq, qOut]` tensor,
+  -- so it's sized to `qOut` here, NOT `hidden`. For HF BitNet the
+  -- config invariant is `hidden = numHeads * headDim = qOut`, so the
+  -- safetensors-stored shape `[hidden_size]` loads cleanly under
+  -- either typing — `qOut` is the one that makes the type-checked
+  -- apply work without a proof. Same trick as HfLlama's `qOut` in
+  -- `oProj : LlamaLinearNoBias qOut hidden`.
+  attnSubNorm : BitNetRmsNorm qOut d dt g
   oProj       : BitLinearHf qOut hidden d dt g
 
 
@@ -392,7 +399,7 @@ makeAttention layerPfx = do
   v  <- makeBitLinearHf {i=hidden} {o=kvOut}
           (layerPfx ++ ".self_attn.v_proj.weight")
           (layerPfx ++ ".self_attn.v_proj.weight_scale")
-  sn <- makeBitNetRmsNorm {n=hidden}
+  sn <- makeBitNetRmsNorm {n=qOut}
           (layerPfx ++ ".self_attn.attn_sub_norm.weight")
   o  <- makeBitLinearHf {i=qOut} {o=hidden}
           (layerPfx ++ ".self_attn.o_proj.weight")
@@ -474,3 +481,294 @@ hfBitnetModel pfx = do
   ln     <- makeBitNetRmsNorm {n=hidden} (pfx ++ ".norm.weight")
   lm     <- makeBitNetLmHead {vocab} {hidden} lmHeadParamName
   pure (MkBitNetModel emb blocks ln lm)
+
+
+----------------------------------------------------------------------
+-- Forward (composed from existing 2D primitives + Layer.RoPE +
+-- tBitlinearFwdHfQuant for the BitLinears)
+----------------------------------------------------------------------
+
+%default partial
+
+||| BitNet uses plain RoPE (no NTK / Llama-3 scaling). `factor=1.0`
+||| in the LlamaRopeScaling record is the no-op short-circuit in
+||| `applyLlamaFreqScaling`, so we get the standard RoPE table.
+public export
+bitnetRopeScaling : LlamaRopeScaling
+bitnetRopeScaling = MkRopeScaling 1.0 1.0 1.0 0
+
+
+||| Per-position RmsNorm on a `[seqLen, hidden]` tensor. Same row-loop
+||| structure as HfLlama's `applyRmsNorm2d` — `primSumDim` is a stub on
+||| tape, so we fold over rows with `primCat2`. For BitNet 2B at seq=8
+||| / hidden=2560, ~16 RmsNorms/layer × 30 layers × 8 rows = 3840 row
+||| ops total. Acceptable for the correctness gate; a fused 2D RMSNorm
+||| C primitive is the natural perf follow-up.
+applyRmsNorm2d : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d =>
+                 {seqLen, hidden : Nat} ->
+                 (eps : Double) ->
+                 BitNetRmsNorm hidden d dt g ->
+                 Tensor [seqLen, hidden] d dt g ->
+                 IO (Tensor [seqLen, hidden] d dt g)
+applyRmsNorm2d {seqLen} {hidden} eps (MkBitNetRmsNorm weight) input = ioRerun (\_ =>
+  let hD = cast {to=Double} hidden
+      inPtr = input.tensorPtr
+      wPtr  = weight.tensorPtr
+      processRow : Int -> AnyPtr
+      processRow r =
+        let row     = primNarrow {d} inPtr 0 r 1
+            sq      = primMul {d} row row
+            tot     = primSum {d} sq
+            mean    = primMulScalar {d} tot (1.0 / hD)
+            meanEps = primAddScalar {d} mean eps
+            rms     = primSqrt {d} meanEps
+            normed  = primDiv {d} row rms
+            scaled  = primMul {d} normed wPtr
+        in scaled
+      foldRows : Int -> AnyPtr -> AnyPtr
+      foldRows i acc =
+        if i >= cast {to=Int} seqLen
+          then acc
+          else foldRows (i + 1) (primCat2 {d} acc (processRow i))
+      out = if seqLen == 0
+              then inPtr
+              else foldRows 1 (processRow 0)
+  in MkTensor out Nothing)
+
+
+||| 2D wrapper around the 1D `tBitlinearFwdHfQuant`. Walks `seqLen`
+||| rows, calling the fused kernel per row, concatenating the [out]
+||| outputs into a [seqLen, out] result. `useRmsNorm=False` here —
+||| HfBitNet applies the external `input_layernorm` /
+||| `post_attention_layernorm` / `attn_sub_norm` / `ffn_sub_norm`
+||| around the BitLinears, not the kernel's optional fused norm.
+|||
+||| Bias is bias-free in BitNet's BitLinears; the fused kernel takes
+||| a bias arg unconditionally so we feed a zero-init [out] tensor.
+||| Same zero-bias trick as HfLlama's LM head + the kernel ignores
+||| the rmsNormWeight when `useRmsNorm=False`, so we reuse the bias
+||| placeholder as the placeholder rmsNormWeight (any [in]-shaped
+||| tensor would do, but matching shapes keeps the call site simple).
+applyBitLinearHf2d : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d
+                  => UserDeviceQuant d => RuntimeDType dt
+                  => Linked d => Compatible d dt
+                  => {seqLen, i, o : Nat} ->
+                  BitLinearHf i o d dt g ->
+                  Tensor [seqLen, i] d dt g ->
+                  IO (Tensor [seqLen, o] d dt g)
+applyBitLinearHf2d {seqLen} {i} {o} bl x = do
+  let scaleVal : Double
+      scaleVal = primItem {d} bl.weightScaleT.tensorPtr
+      oI = cast {to=Int} o
+      iI = cast {to=Int} i
+      -- Zero bias placeholder ([out], NoGrad). Calloc-backed buffer
+      -- + dt-streamed creation, identical to HfLlama's LM head trick.
+      zBuf       = prim__allocDoubles oI
+      biasPtr    = dtCreateState1d {d} {t=dt} oI zBuf (deviceStreamTag {d})
+      biasT      : Tensor [o] d dt NoGrad
+      biasT      = MkTensor biasPtr Nothing
+      -- Placeholder rmsNormWeight ([in], NoGrad). C side won't read it
+      -- since useRmsNorm=False, but the kernel signature still requires
+      -- a non-null handle. Allocate a tiny zero buffer.
+      rBuf       = prim__allocDoubles iI
+      rmsPtr     = dtCreateState1d {d} {t=dt} iI rBuf (deviceStreamTag {d})
+      rmsPlaceholder : Tensor [i] d dt NoGrad
+      rmsPlaceholder = MkTensor rmsPtr Nothing
+  -- Row loop: narrow → reshape to 1D → fused BitLinear → reshape to
+  -- [1, out] → concat. Each layer's seven BitLinears × seqLen rows
+  -- pays seqLen kernel launches per BitLinear. A fused 2D BitLinear
+  -- kernel is the natural perf follow-up.
+  let processRow : Int -> AnyPtr
+      processRow r =
+        let row2d  = primNarrow {d} x.tensorPtr 0 r 1                 -- [1, i]
+            row1d  = primReshape1d {d} row2d iI                       -- [i]
+            rowOut = primBitlinearFwdHfQuant {d} bl.weightT.tensorPtr scaleVal
+                       row1d biasT.tensorPtr 0 rmsPlaceholder.tensorPtr 0.0
+        in primReshape2d {d} rowOut 1 oI
+      foldRows : Int -> AnyPtr -> AnyPtr
+      foldRows r acc =
+        if r >= cast {to=Int} seqLen
+          then acc
+          else foldRows (r + 1) (primCat2 {d} acc (processRow r))
+  ioRerun (\_ =>
+    let out = if seqLen == 0
+                then x.tensorPtr  -- impossible at well-typed call sites
+                else foldRows 1 (processRow 0)
+    in MkTensor out Nothing)
+
+
+||| Embedding lookup: token IDs `[seqLen]` → `[seqLen, hidden]`.
+||| Same pattern as HfLlama's `applyEmbedLookup`.
+applyEmbedLookup : {0 d : Device} -> UserDeviceTraining d =>
+                   {seqLen, vocab, hidden : Nat} ->
+                   BitNetEmbedding vocab hidden d dt g ->
+                   Tensor [seqLen] d dt g ->
+                   IO (Tensor [seqLen, hidden] d dt g)
+applyEmbedLookup {seqLen} {hidden} (MkBitNetEmbedding w) tokens = ioRerun (\_ =>
+  let sI = cast {to=Int} seqLen
+      hI = cast {to=Int} hidden
+      flat = primEmbedding {d} w.tensorPtr tokens.tensorPtr sI hI
+      twoD = primReshape2d {d} flat sI hI
+  in MkTensor twoD Nothing)
+
+
+-- All-heads RoPE helper — same shape as HfLlama's `ropeAllHeadsFlat`.
+ropeAllHeadsFlat :
+     {0 d : Device} -> UserDeviceTraining d =>
+     {seq, numH, headDim, maxPos : Nat} ->
+     RoPETables maxPos headDim d dt g ->
+     (full : AnyPtr) ->
+     (sI, nHI, hdI : Int) ->
+     IO AnyPtr
+ropeAllHeadsFlat {d} {seq} {numH} {headDim} {maxPos} tables full sI nHI hdI = do
+  full3 <- ioRerun (\_ =>
+            the (Tensor [seq, numH, headDim] d dt g)
+                (MkTensor (primReshape3d {d} full sI nHI hdI) Nothing))
+  rot3 <- applyRopeAllHeads {seq} {numHeads=numH} {headDim} {maxPos} tables 0 full3
+  ioRerun (\_ => primReshape2d {d} rot3.tensorPtr sI (nHI * hdI))
+
+
+||| Full multi-head causal self-attention with GQA + RoPE +
+||| BitNet-specific `attn_sub_norm` between context aggregation and
+||| `o_proj`.
+applyAttention : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d
+              => UserDeviceQuant d => RuntimeDType dt => Linked d => Compatible d dt
+              => {seq, hidden, numHeads, numKvHeads, headDim, maxPos : Nat} ->
+              (eps : Double) ->
+              BitNetAttentionState hidden (numHeads * headDim) (numKvHeads * headDim) d dt g ->
+              RoPETables maxPos headDim d dt g ->
+              Tensor [seq, hidden] d dt g ->
+              IO (Tensor [seq, hidden] d dt g)
+applyAttention {seq} {hidden} {numHeads} {numKvHeads} {headDim} {maxPos}
+               eps attn tables input = do
+  q <- applyBitLinearHf2d {seqLen=seq} attn.qProj input
+  k <- applyBitLinearHf2d {seqLen=seq} attn.kProj input
+  v <- applyBitLinearHf2d {seqLen=seq} attn.vProj input
+  let sI    = cast {to=Int} seq
+      hdI   = cast {to=Int} headDim
+      nHI   = cast {to=Int} numHeads
+      nKvHI = cast {to=Int} numKvHeads
+  qRopedPtr <- ropeAllHeadsFlat {d} {seq} {numH=numHeads}
+                                {headDim} {maxPos} tables q.tensorPtr sI nHI   hdI
+  kRopedPtr <- ropeAllHeadsFlat {d} {seq} {numH=numKvHeads}
+                                {headDim} {maxPos} tables k.tensorPtr sI nKvHI hdI
+  ctxPtr <- ioRerun (\_ =>
+              primSdpa2d {d} qRopedPtr kRopedPtr v.tensorPtr
+                         nHI nKvHI hdI 1)
+  ctxT <- ioRerun (\_ => MkTensor ctxPtr Nothing)
+  -- attn_sub_norm: BitNet-specific RmsNorm over the post-SDPA tensor,
+  -- BEFORE the output projection. Diff with Llama. Sized to qOut to
+  -- match ctxT's last dim (config invariant: hidden = numHeads *
+  -- headDim = qOut).
+  ctxNormed <- applyRmsNorm2d {seqLen=seq} {hidden=numHeads * headDim}
+                              eps attn.attnSubNorm ctxT
+  applyBitLinearHf2d {seqLen=seq} attn.oProj ctxNormed
+
+
+-- BitNet's hidden_act is `relu2` — squared ReLU (`relu(x) ** 2`).
+-- Composes from existing primitives. Element-wise.
+applyRelu2 : {0 d : Device} -> UserDeviceCore d =>
+             {seqLen, n : Nat} ->
+             Tensor [seqLen, n] d dt g ->
+             IO (Tensor [seqLen, n] d dt g)
+applyRelu2 x = do
+  r <- trelu x
+  tmul r r
+
+
+||| MLP sublayer: gate/up BitLinears → relu² gate → ffn_sub_norm →
+||| down BitLinear. Mirrors HF `BitNetMLP.forward`:
+|||
+|||   y = down_proj(ffn_sub_norm(act_fn(gate_proj(x)) * up_proj(x)))
+applyMlp : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d
+        => UserDeviceQuant d => RuntimeDType dt => Linked d => Compatible d dt
+        => {seqLen, hidden, intermediate : Nat} ->
+        (eps : Double) ->
+        BitNetMlpState hidden intermediate d dt g ->
+        Tensor [seqLen, hidden] d dt g ->
+        IO (Tensor [seqLen, hidden] d dt g)
+applyMlp {seqLen} {intermediate} eps mlp x = do
+  g <- applyBitLinearHf2d {seqLen} mlp.gateProj x       -- [seq, intermediate]
+  u <- applyBitLinearHf2d {seqLen} mlp.upProj   x       -- [seq, intermediate]
+  ag <- applyRelu2 {seqLen} {n=intermediate} g          -- [seq, intermediate]
+  gated <- tmul ag u                                     -- [seq, intermediate]
+  normed <- applyRmsNorm2d {seqLen} {hidden=intermediate}
+                           eps mlp.ffnSubNorm gated     -- [seq, intermediate]
+  applyBitLinearHf2d {seqLen} mlp.downProj normed
+
+
+||| One BitNet decoder block: pre-norm + attn (with attn_sub_norm) +
+||| residual; pre-norm + MLP (with ffn_sub_norm) + residual.
+applyBlock : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d
+          => UserDeviceQuant d => RuntimeDType dt => Linked d => Compatible d dt
+          => {seq, hidden, numHeads, numKvHeads, headDim, intermediate, maxPos : Nat}
+          -> (eps : Double)
+          -> BitNetBlockState hidden (numHeads * headDim) (numKvHeads * headDim) intermediate d dt g
+          -> RoPETables maxPos headDim d dt g
+          -> Tensor [seq, hidden] d dt g
+          -> IO (Tensor [seq, hidden] d dt g)
+applyBlock {seq} {hidden} {numHeads} {numKvHeads} {headDim} {intermediate}
+           eps blk tables x = do
+  xLn1   <- applyRmsNorm2d {seqLen=seq} {hidden} eps blk.inputNorm x
+  aOut   <- applyAttention {seq} {hidden} {numHeads} {numKvHeads} {headDim}
+                           eps blk.attn tables xLn1
+  xMid   <- tadd x aOut
+  xLn2   <- applyRmsNorm2d {seqLen=seq} {hidden} eps blk.postAttnNorm xMid
+  mOut   <- applyMlp {seqLen=seq} {hidden} {intermediate} eps blk.mlp xLn2
+  tadd xMid mOut
+
+
+applyBlocks : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d
+           => UserDeviceQuant d => RuntimeDType dt => Linked d => Compatible d dt
+           => {seq, hidden, numHeads, numKvHeads, headDim, intermediate, maxPos, n : Nat}
+           -> (eps : Double)
+           -> Vect n (BitNetBlockState hidden (numHeads * headDim) (numKvHeads * headDim) intermediate d dt g)
+           -> RoPETables maxPos headDim d dt g
+           -> Tensor [seq, hidden] d dt g
+           -> IO (Tensor [seq, hidden] d dt g)
+applyBlocks _   []        _      x = pure x
+applyBlocks eps (b :: bs) tables x = do
+  x' <- applyBlock {numHeads} {numKvHeads} {headDim} {intermediate} eps b tables x
+  applyBlocks {numHeads} {numKvHeads} {headDim} {intermediate} eps bs tables x'
+
+
+||| Forward pass: token IDs → final hidden state `[seq, hidden]`
+||| post-`model.norm`. The LM head is a SEPARATE [vocab, hidden]
+||| tensor (NOT tied to `embed_tokens.weight`), applied via
+||| `hfBitnetForwardLm`.
+public export
+hfBitnetForward : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d
+              => UserDeviceQuant d => RuntimeDType dt => Linked d => Compatible d dt
+              => {seq, vocab, hidden, numLayers, numHeads, numKvHeads, headDim, intermediate, maxPos : Nat}
+              -> (eps : Double)
+              -> BitNetModelState vocab hidden numLayers (numHeads * headDim) (numKvHeads * headDim) intermediate d dt g
+              -> RoPETables maxPos headDim d dt g
+              -> Tensor [seq] d dt g
+              -> IO (Tensor [seq, hidden] d dt g)
+hfBitnetForward {numHeads} {numKvHeads} {headDim} {intermediate} eps model tables tokens = do
+  emb   <- applyEmbedLookup model.embedTokens tokens
+  hMid  <- applyBlocks {numHeads} {numKvHeads} {headDim} {intermediate}
+                       eps model.blocks tables emb
+  applyRmsNorm2d eps model.finalNorm hMid
+
+
+||| LM head: separate `lm_head.weight` ([vocab, hidden], NOT tied).
+||| Output `[seq, vocab]` logits per position. Bias-free, so we feed
+||| a zero placeholder bias the same way HfLlama does.
+public export
+hfBitnetForwardLm : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d
+                => UserDeviceQuant d => RuntimeDType dt => Linked d => Compatible d dt
+                => {seq, vocab, hidden, numLayers, numHeads, numKvHeads, headDim, intermediate, maxPos : Nat}
+                -> (eps : Double)
+                -> BitNetModelState vocab hidden numLayers (numHeads * headDim) (numKvHeads * headDim) intermediate d dt g
+                -> RoPETables maxPos headDim d dt g
+                -> Tensor [seq] d dt g
+                -> IO (Tensor [seq, vocab] d dt g)
+hfBitnetForwardLm {numHeads} {numKvHeads} {headDim} {intermediate} eps model tables tokens = do
+  hFinal <- hfBitnetForward {numHeads} {numKvHeads} {headDim} {intermediate}
+                            eps model tables tokens
+  let vI = cast {to=Int} vocab
+      zBuf = prim__allocDoubles vI
+      zeroBias : Tensor [vocab] d dt g
+      zeroBias = MkTensor (dtCreateState1d {d} {t=dt} vI zBuf (deviceStreamTag {d})) Nothing
+  tlinear2d model.lmHead.weight hFinal zeroBias

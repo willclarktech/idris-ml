@@ -9,6 +9,10 @@
 |||      under the HfBitNetLoader follow-up) because the param registry
 |||      today assumes float-dtype storage. The test checks the
 |||      registered subset matches `hfBitnetRegisteredParamNames`.
+|||   3. Forward-pass smoke — construct a tiny model end-to-end and
+|||      verify the LM forward emits a finite `[seq, vocab]` tensor.
+|||      Correctness against an HF reference is gated by the roundtrip
+|||      target landing in the follow-up commit.
 |||
 ||| Pins `{d=TapeDev}`.
 module Test.HfBitNet
@@ -23,6 +27,7 @@ import Harness
 import Device
 import Device.Core
 import Device.Tape
+import Layer.RoPE
 import Tensor
 
 
@@ -204,6 +209,81 @@ testConstructorRegistersHfNames = do
 -- Suite export
 ----------------------------------------------------------------------
 
+----------------------------------------------------------------------
+-- Bucket 3 — Forward-pass smoke
+----------------------------------------------------------------------
+
+-- Walk a List of Doubles, return True if any element is NaN or ±Inf.
+-- NaN detected via `x /= x` (IEEE 754: NaN compares unequal to itself);
+-- ±Inf via comparison against `1.0/0.0` / `-1.0/0.0`. Same idiom as
+-- `Train.showFix`'s fallback rendering.
+anyNonFinite : List Double -> Bool
+anyNonFinite = any nonFinite
+  where
+    nonFinite : Double -> Bool
+    nonFinite x = x /= x || x == 1.0/0.0 || x == -1.0/0.0
+
+testForwardLmSmoke : IO Bool
+testForwardLmSmoke = do
+  -- Tiny config: vocab=8, hidden=4 (= numHeads*headDim = 2*2),
+  -- intermediate=8, numKvHeads=1 (GQA 2:1), numLayers=2, maxPos=16.
+  -- seq=2 (a two-token "prompt").
+  model <- hfBitnetModel {d=TapeDev} {dt=F64}
+                         {vocab        = 8}
+                         {hidden       = 4}
+                         {numLayers    = 2}
+                         {qOut         = 4}
+                         {kvOut        = 2}
+                         {intermediate = 8}
+                         "bitnet_smoke"
+  tables <- buildLlamaRoPETables {d=TapeDev} {dt=F64}
+                                 {maxPos=16} {headDim=2}
+                                 500000.0 bitnetRopeScaling
+  -- Two-token input: token IDs 1 and 3 (both within vocab=8).
+  let tokBuf  = prim__allocDoubles 2
+      tokBuf' = prim__setDouble tokBuf 0 1.0
+      tokBuf2 = prim__setDouble tokBuf' 1 3.0
+      tokPtr  = dtCreateState1d {d=TapeDev} {t=F64} 2 tokBuf2 (deviceStreamTag {d=TapeDev})
+      tokens  : Tensor [2] TapeDev F64 WithGrad
+      tokens  = MkTensor tokPtr Nothing
+  logits <- hfBitnetForwardLm {d=TapeDev} {dt=F64}
+                              {seq=2} {vocab=8} {hidden=4} {numLayers=2}
+                              {numHeads=2} {numKvHeads=1} {headDim=2}
+                              {intermediate=8} {maxPos=16}
+                              1.0e-5 model tables tokens
+  -- Extract all 2*8=16 logits as doubles to assert finiteness.
+  let logitVals : List Double
+      logitVals = collect logits
+  if anyNonFinite logitVals
+    then do
+      putStrLn ("  FAIL: non-finite logit in forward output:")
+      putStrLn ("    sample: " ++ show (take 6 logitVals))
+      pure False
+    else check ("forward emitted " ++ show (length logitVals)
+                ++ " finite logits (sample: "
+                ++ show (take 3 logitVals) ++ "...)")
+               (length logitVals == 16)
+  where
+    -- Read every element of the [seq=2, vocab=8] logits tensor by
+    -- per-position narrow+reshape+item. seq*vocab=16 elements total.
+    collect : Tensor [2, 8] TapeDev F64 WithGrad -> List Double
+    collect t = go 0 0 []
+      where
+        go : Int -> Int -> List Double -> List Double
+        go 2 _ acc = reverse acc
+        go r 8 acc = go (r + 1) 0 acc
+        go r c acc =
+          let row1d  = primReshape1d {d=TapeDev}
+                         (primNarrow {d=TapeDev} t.tensorPtr 0 r 1) 8
+              scalar = primNarrow {d=TapeDev} row1d 0 c 1
+              v      = primItem {d=TapeDev} scalar
+          in go r (c + 1) (v :: acc)
+
+
+----------------------------------------------------------------------
+-- Suite export
+----------------------------------------------------------------------
+
 public export
 suite : List (String, List (IO Bool))
 suite =
@@ -214,5 +294,8 @@ suite =
      ])
   , ("HfBitNet — FFI constructor registry (float subset)",
      [ testConstructorRegistersHfNames
+     ])
+  , ("HfBitNet — forward-pass smoke",
+     [ testForwardLmSmoke
      ])
   ]
