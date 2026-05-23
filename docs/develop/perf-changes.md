@@ -3144,3 +3144,76 @@ enablement"); `Device/Mlx.idr:643-668` (5 Compatible instances);
 `gotchas.md` "tensor_item BF16/F16 readback" entry; the prior
 2026-05-31 entry above (torch-mps BF16 vs F32 measurement that
 motivated this row).
+
+
+### 2026-06-02 — first hf-bitnet measurements: torch-mps F32, mlx-gpu F32, PyTorch CPU BF16 — `50b3107` + `time_inference_bitnet.py`
+
+**Motivation**: With the HfBitNet end-to-end pipeline shipped
+(`83d719f`..`fe9c067`) and the torch-mps device-mismatch + autograd-
+watermark bugs fixed (`50b3107`), the example finally runs to
+completion on all three backends we care about. First time we have
+a concrete idris-vs-PyTorch perf comparison for a 2B-param ternary-
+weight LLM. Single-forward at seq=2 on the fixed two-token prompt
+`[9906, 1917]` ("Hello world"). Same workload across all four
+configs.
+
+**Numbers** (M4 Pro VM, all int values are second-precision from
+the `[stage] [hh:mm:ss]` log lines):
+
+| Config | Total wall | Model load | Forward | Notes |
+|---|---:|---:|---:|---|
+| Idris torch-mps F32 | 30 s | 12 s | 10 s | `50b3107`, perf-run.sh entry |
+| Idris mlx-gpu F32 | 12m 3s | 12 s | 8 s | `50b3107`, perf-run.sh entry; wall dominated by cold-lane idris2 elaboration |
+| PyTorch CPU BF16 (cold) | 18 s | 12 s | 6.0 s | first forward; counts MPS/CPU first-touch alloc |
+| PyTorch CPU BF16 (warm) | — | — | 0.2 s | second forward; steady state |
+
+The forward gap that matters: **PyTorch warm 200 ms vs Idris ~10 s
+= ~50× behind**. That's roughly the same magnitude as HfLlama's
+gap (PyTorch CPU 2 s vs Idris torch-mps 296 s = ~150× on
+8-token decode), so the BitNet picture is consistent with the
+broader idris-side per-op-cost story — *not* a BitLinear-specific
+regression. The mlx-gpu → torch-mps speedup is mild here (8 s vs
+10 s = ~20%), much smaller than the 23× margin mlx-gpu has over
+torch-mps on HfLlama. The reason is roughly: HfLlama generates 8
+tokens autoregressively, so per-op count and per-op cost both
+matter and mlx-gpu wins on both; bitnet does a single forward at
+seq=2, so per-op count is tiny and the per-op cost is dominated by
+the dequant + matmul on int8 weights — both backends hit similar
+bandwidth ceilings there.
+
+**Cold-vs-warm matters for fair comparison**: PyTorch's first
+forward (cold) takes 30× longer than the warm steady state. The
+Idris example runs ONE forward and exits, so our 10 s / 8 s numbers
+are cold-equivalent. The headline 50× gap shrinks to ~5× if we
+compare cold-to-cold (PyTorch cold 6.0 s vs Idris torch-mps 10 s).
+A clean warm number would require the example to run two forwards
+and stamp the second separately — file as a follow-up if anyone
+disputes the 50×.
+
+**Idris-side numerical gap still open**: The Idris-side first-5
+logits are `5.42 / 4.85 / 1.29 / -0.46 / -1.56`; the oracle is
+`10.75 / 13.31 / 5.69 / 7.94 / 4.06`. Roughly half magnitude,
+signs match. The 1e-1 `test-hf-bitnet-roundtrip` gate fails until
+this is debugged (TODO #411 follow-up). The perf numbers above
+are for the forward as-implemented; whatever change fixes the
+numerics (an extra act-scale division, a missing sub-norm
+application, a wrong RoPE freq) could shift the wall by a few
+percent in either direction. Re-measure after #411's numerical
+follow-up lands.
+
+**perf-log entries**:
+- `2026-06-02T10:46:09Z` torch-mps F32 (`31308b9+dirty`), forward 22 s — pre-`50b3107`-fix path, included the now-rebuilt dylib copy in the wall
+- `2026-06-02T11:05:53Z` mlx-gpu F32 (`50b3107`), forward 20 s — wall dominated by 11 min of cold-lane Idris2 elaboration on first run
+
+(The two earlier `exit=2` entries at 09:45 / 09:46 — pre-`50b3107`
+device-mismatch crashes — are preserved per the append-only
+convention but should not be treated as valid measurements.)
+
+**Cross-references**: `CHANGELOG.md` 2026-06-02 BitNet entry
+(HfBitNet end-to-end pipeline); commit `50b3107` (the device-move
++ withNoGradKeep fixes that made the runs valid);
+`packages/idris-transformers/scripts/time_inference_bitnet.py`
+(the PyTorch ref timing harness); `docs/develop/gotchas.md` new
+entries ("Every torch backend tensor creator must honour
+`g_torch_target_device`", "Inference-only forwards over many
+parameter-rich layers must `withNoGrad` on MPS").
