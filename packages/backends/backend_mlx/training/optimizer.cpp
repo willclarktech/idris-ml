@@ -577,6 +577,40 @@ extern "C" double native_train_step(OptimizerHandle opt, int clip_mode, double c
     return loss_val;
 }
 
+/* GradScaler-aware variant (A3 of #410). Mirror of torch's
+   `native_train_step_scaled` but using mlx's lazy-eval array ops:
+   unscale grads via `mx::multiply(g, scalar_like(inv_scale, g))`,
+   check for non-finite values via `mx::all(mx::isfinite(g))` —
+   forced to materialise by the host-side item-read. NaN return =
+   overflow, caller halves scale and skips. */
+extern "C" double native_train_step_scaled(OptimizerHandle opt, int clip_mode, double clip_val,
+                                           TensorHandle loss_ptr, double loss_val,
+                                           double scale) {
+    auto* o = (Optimizer*)opt;
+    optimizer_zero_grad(opt);
+    if (tensor_requires_grad(loss_ptr)) tensor_backward(loss_ptr);
+
+    double inv_scale = 1.0 / scale;
+    bool has_nonfinite = false;
+    for (int i = 0; i < param_count(); i++) {
+        std::string p_name = param_name(i);
+        auto* p_tensor = (Tensor*)param_tensor(i);
+        if (!o->prefix.empty() && p_name.rfind(o->prefix, 0) != 0) continue;
+        if (!p_tensor->has_grad) continue;
+        p_tensor->grad = mx::multiply(p_tensor->grad,
+                                      scalar_like(inv_scale, p_tensor->grad));
+        auto all_fin = mx::all(mx::isfinite(p_tensor->grad));
+        mx::eval(all_fin);
+        if (!all_fin.item<bool>()) has_nonfinite = true;
+    }
+    if (has_nonfinite) return std::nan("");
+
+    if (clip_mode == 1) clip_grad_value_filtered(o->prefix, clip_val);
+    else if (clip_mode == 2) clip_grad_norm_filtered(o->prefix, clip_val);
+    optimizer_step(opt);
+    return loss_val * inv_scale;
+}
+
 extern "C" int optimizer_step_with_clip(OptimizerHandle opt, int clip_mode, double clip_val, int dummy) {
     (void)dummy;
     auto* o = (Optimizer*)opt;

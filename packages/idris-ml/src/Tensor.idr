@@ -1747,10 +1747,7 @@ nativeTrainStep opt loss = ioRerun (\_ =>
 ||| steps + returns the unscaled loss, or returns NaN (= overflow
 ||| detected, step was skipped; caller halves its scale state).
 |||
-||| Currently wired on tape only — torch + mlx crash with
-||| "not yet implemented" until their `native_train_step_scaled`
-||| C ports are written. Use `nativeTrainStep` for unscaled training
-||| in the meantime.
+||| Wired across all three backends.
 export
 nativeTrainStepScaled : {0 d : Device} -> UserDeviceTraining d => IsFloating dt =>
                         NativeOptimizer d -> Tensor [] d dt WithGrad ->

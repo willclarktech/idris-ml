@@ -403,8 +403,8 @@ interface UserDeviceConv d => UserDeviceTraining (0 d : Device) where
   ||| → unscale grads (divide by `scale`, check non-finite) → clip →
   ||| step → return the *unscaled* loss. NaN return = non-finite grad
   ||| detected, step was skipped (caller halves the scale state).
-  ||| Wired on tape only at present; torch + mlx return NaN via stub
-  ||| until their per-backend C ports are written.
+  ||| Wired on all three backends — tape via shared/training/optimizer.c,
+  ||| torch + mlx via per-backend optimizer.cpp ports.
   primNativeTrainStepScaled : AnyPtr -> Int -> Double -> AnyPtr -> Double -> Double -> Double
 
   -- SafeTensors serialization (registry + optimizer state) ---------

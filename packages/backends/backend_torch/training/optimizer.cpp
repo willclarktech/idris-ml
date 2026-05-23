@@ -635,6 +635,43 @@ extern "C" double native_train_step(OptimizerHandle opt, int clip_mode, double c
     return loss_val;
 }
 
+/* GradScaler-aware variant (A3 of #410). The caller has pre-multiplied
+   the loss by `scale` so backward produces grads at the scaled
+   magnitude. This op runs zero_grad + backward, then walks the prefix-
+   filtered param set, divides each .grad() by scale in-place via
+   libtorch's `div_`, and checks for any non-finite values via
+   `at::isfinite(...).all()`. If overflow is detected, returns NaN and
+   skips the step — caller halves the scale. Otherwise: clip + step +
+   return unscaled loss = loss_val / scale.
+
+   Mirror of the shared/training/optimizer.c implementation used by the
+   tape backend; the only difference is that torch walks libtorch
+   tensors directly (param.grad() returns an at::Tensor) instead of
+   the port's data_read/grad_read accessors. */
+extern "C" double native_train_step_scaled(OptimizerHandle opt, int clip_mode, double clip_val,
+                                           TensorHandle loss_ptr, double loss_val,
+                                           double scale) {
+    auto* w = static_cast<OptWrapper*>(opt);
+    optimizer_zero_grad(opt);
+    if (tensor_requires_grad(loss_ptr)) tensor_backward(loss_ptr);
+
+    auto params = collect_param_tensors_filtered(w->prefix);
+    double inv_scale = 1.0 / scale;
+    bool has_nonfinite = false;
+    for (auto& p : params) {
+        auto g = p.grad();
+        if (!g.defined()) continue;
+        g.mul_(inv_scale);
+        if (!at::isfinite(g).all().item<bool>()) has_nonfinite = true;
+    }
+    if (has_nonfinite) return std::nan("");
+
+    if (clip_mode == 1) clip_grad_value_filtered(w->prefix, clip_val);
+    else if (clip_mode == 2) clip_grad_norm_filtered(w->prefix, clip_val);
+    optimizer_step(opt);
+    return loss_val * inv_scale;
+}
+
 extern "C" int optimizer_step_with_clip(OptimizerHandle opt, int clip_mode, double clip_val, int dummy) {
     (void)dummy;
     auto* w = static_cast<OptWrapper*>(opt);

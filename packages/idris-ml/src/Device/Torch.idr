@@ -459,6 +459,8 @@ prim__optimizerSetLrTorch : AnyPtr -> Double -> PrimIO ()
 prim__optimizerSetParamLrTorch : AnyPtr -> String -> Double -> PrimIO ()
 %foreign "scheme:(lambda (a0 a1 a2 a3 a4)  (when (not (top-level-bound? 'idris-ffi-native-train-step-torch)) (set-top-level-value! 'idris-ffi-native-train-step-torch (foreign-procedure \"native_train_step_torch\" (void* int double void* double) double))) ((top-level-value 'idris-ffi-native-train-step-torch) a0 a1 a2 (vector-ref a3 2) a4))"
 prim__nativeTrainStepTorch : AnyPtr -> Int -> Double -> AnyPtr -> Double -> Double
+%foreign "scheme:(lambda (a0 a1 a2 a3 a4 a5)  (when (not (top-level-bound? 'idris-ffi-native-train-step-scaled-torch)) (set-top-level-value! 'idris-ffi-native-train-step-scaled-torch (foreign-procedure \"native_train_step_scaled_torch\" (void* int double void* double double) double))) ((top-level-value 'idris-ffi-native-train-step-scaled-torch) a0 a1 a2 (vector-ref a3 2) a4 a5))"
+prim__nativeTrainStepScaledTorch : AnyPtr -> Int -> Double -> AnyPtr -> Double -> Double -> Double
 %foreign "C:param_save_torch,libidrisml"
 prim__paramSaveTorch : String -> PrimIO Int
 %foreign "C:param_load_torch,libidrisml"
@@ -589,12 +591,7 @@ public export
   primOptimizerSetLr           = prim__optimizerSetLrTorch
   primOptimizerSetParamLr      = prim__optimizerSetParamLrTorch
   primNativeTrainStep          = prim__nativeTrainStepTorch
-  -- A3 of #410: scaled-step C port is tape-only at present.
-  -- Crashing stub keeps the interface satisfied; remove when
-  -- `backend_torch/training/optimizer.cpp` grows its own
-  -- `native_train_step_scaled` body.
-  primNativeTrainStepScaled    = \_, _, _, _, _, _ =>
-    assert_total $ idris_crash "primNativeTrainStepScaled: not yet implemented on torch backend"
+  primNativeTrainStepScaled    = prim__nativeTrainStepScaledTorch
   primParamSave                = prim__paramSaveTorch
   primParamLoad                = prim__paramLoadTorch
   primParamLoadWithPolicy      = prim__paramLoadWithPolicyTorch

@@ -473,6 +473,8 @@ prim__optimizerSetLrMlx : AnyPtr -> Double -> PrimIO ()
 prim__optimizerSetParamLrMlx : AnyPtr -> String -> Double -> PrimIO ()
 %foreign "scheme:(lambda (a0 a1 a2 a3 a4)  (when (not (top-level-bound? 'idris-ffi-native-train-step-mlx)) (set-top-level-value! 'idris-ffi-native-train-step-mlx (foreign-procedure \"native_train_step_mlx\" (void* int double void* double) double))) ((top-level-value 'idris-ffi-native-train-step-mlx) a0 a1 a2 (vector-ref a3 2) a4))"
 prim__nativeTrainStepMlx : AnyPtr -> Int -> Double -> AnyPtr -> Double -> Double
+%foreign "scheme:(lambda (a0 a1 a2 a3 a4 a5)  (when (not (top-level-bound? 'idris-ffi-native-train-step-scaled-mlx)) (set-top-level-value! 'idris-ffi-native-train-step-scaled-mlx (foreign-procedure \"native_train_step_scaled_mlx\" (void* int double void* double double) double))) ((top-level-value 'idris-ffi-native-train-step-scaled-mlx) a0 a1 a2 (vector-ref a3 2) a4 a5))"
+prim__nativeTrainStepScaledMlx : AnyPtr -> Int -> Double -> AnyPtr -> Double -> Double -> Double
 %foreign "C:param_save_mlx,libidrisml"
 prim__paramSaveMlx : String -> PrimIO Int
 %foreign "C:param_load_mlx,libidrisml"
@@ -601,12 +603,7 @@ public export
   primOptimizerSetLr           = prim__optimizerSetLrMlx
   primOptimizerSetParamLr      = prim__optimizerSetParamLrMlx
   primNativeTrainStep          = prim__nativeTrainStepMlx
-  -- A3 of #410: scaled-step C port is tape-only at present.
-  -- Crashing stub keeps the interface satisfied; remove when
-  -- `backend_mlx/training/optimizer.cpp` grows its own
-  -- `native_train_step_scaled` body.
-  primNativeTrainStepScaled    = \_, _, _, _, _, _ =>
-    assert_total $ idris_crash "primNativeTrainStepScaled: not yet implemented on mlx backend"
+  primNativeTrainStepScaled    = prim__nativeTrainStepScaledMlx
   primParamSave                = prim__paramSaveMlx
   primParamLoad                = prim__paramLoadMlx
   primParamLoadWithPolicy      = prim__paramLoadWithPolicyMlx

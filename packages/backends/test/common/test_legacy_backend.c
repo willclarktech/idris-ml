@@ -219,12 +219,9 @@ Test(legacy_backend, cast_grad_propagation) {
    move from 0.5 to 0.5 - 0.01 * 3.0 = 0.47. Return value: 15.0 / 10.0
    = 1.5 (the unscaled loss).
 
-   Gated on BACKEND_TAPE for now: torch and mlx have their own
-   per-backend `native_train_step` in their optimizer.cpp, and need
-   their own `native_train_step_scaled` ports (TODO follow-up). The
-   shared version in `shared/training/optimizer.c` is compiled only
-   for tape per `SHARED_BACKENDS_optimizer := tape`. */
-#ifdef BACKEND_TAPE
+   Runs on all three backends: tape (via shared optimizer.c), torch
+   (via backend_torch/training/optimizer.cpp port), mlx (via
+   backend_mlx/training/optimizer.cpp port). */
 Test(legacy_backend, native_train_step_scaled_unscale) {
     param_clear();
 
@@ -241,15 +238,18 @@ Test(legacy_backend, native_train_step_scaled_unscale) {
 
     double returned = native_train_step_scaled(sgd, 0, 0.0, scaled_loss, 15.0, scale);
 
-    ASSERT_NEAR("return value is unscaled loss (= 1.5)", returned, 1.5, 1e-9);
-    ASSERT_NEAR("w stepped to 0.47 (= 0.5 - 0.01 * 3.0)", tensor_item(w), 0.47, 1e-9);
+    ASSERT_NEAR("return value is unscaled loss (= 1.5)", returned, 1.5, 1e-6);
+    /* Tolerance 1e-6: mlx-cpu / mlx-gpu store weight as F32 by default
+       (~7 decimal digits), so the 0.5 - 0.01 * 3.0 = 0.47 step has
+       single-precision roundoff at that scale. tape's F64 lingua
+       franca and torch's F64 default give 1e-15-class diffs. */
+    ASSERT_NEAR("w stepped to 0.47 (= 0.5 - 0.01 * 3.0)", tensor_item(w), 0.47, 1e-6);
 
     tensor_free(x); tensor_free(prod); tensor_free(scale_t); tensor_free(scaled_loss);
     optimizer_free(sgd);
     tensor_free(w);
     param_clear();
 }
-#endif
 
 /* Regression: an F32 param must be an autograd leaf so its grad flows.
    The F32 param creators once cast to float32 *after* requires_grad_, which
