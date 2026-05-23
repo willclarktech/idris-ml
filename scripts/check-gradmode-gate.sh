@@ -11,7 +11,11 @@ set -u
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 NEG_FILE="$REPO_ROOT/packages/idris-ml/test/neg/GateRejectsNoGrad.idr"
-IDRIS_LOCAL="$REPO_ROOT/.idris2"
+# IDRIS2_LOCAL is provided by the Makefile invoking this script. The
+# multi-build-key refactor moved the installed-package prefix from
+# `$REPO_ROOT/.idris2` to `$REPO_ROOT/build/<BUILD_KEY>/idris2-prefix`,
+# so scripts can no longer hard-code the location.
+IDRIS_LOCAL="${IDRIS2_LOCAL:-$REPO_ROOT/.idris2}"
 
 if [ ! -f "$NEG_FILE" ]; then
   echo "FAIL: negative test file missing at $NEG_FILE" >&2
@@ -19,7 +23,7 @@ if [ ! -f "$NEG_FILE" ]; then
 fi
 
 if [ ! -d "$IDRIS_LOCAL" ]; then
-  echo "FAIL: $IDRIS_LOCAL not found — run 'make install' first" >&2
+  echo "FAIL: $IDRIS_LOCAL not found — run 'make install' first (sets IDRIS2_LOCAL)" >&2
   exit 1
 fi
 

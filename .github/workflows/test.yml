@@ -245,6 +245,12 @@ jobs:
         # which silently no-ops" footgun.
         run: make check-gradmode-aliasing
 
+      - name: Verify cross-family lossless-cast gate (DType.Core.LosslessTo)
+        # Asserts LosslessTo refuses a mantissa-shrinking direction
+        # (F32 to BF16). Prevents silent precision-losing mid-graph
+        # casts. Pairs with the positive Test.Lossless suite.
+        run: make check-lossy-cast-gate
+
       # C backend FFI tests per available backend, via the Criterion
       # harness under `packages/backends/test/`. Per-OS: tape everywhere,
       # torch on Ubuntu (libtorch installed via uv), mlx on macOS

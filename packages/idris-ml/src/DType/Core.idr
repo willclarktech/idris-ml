@@ -339,6 +339,99 @@ public export
 
 
 ----------------------------------------------------------------------
+-- FloatPrecision — explicit mantissa + exponent bit counts
+--
+-- A cast `from → to` between two float dtypes is **lossless** iff
+-- `mantissaBits from ≤ mantissaBits to` AND
+-- `exponentBits from ≤ exponentBits to` — neither precision nor range
+-- shrinks. The single-`precisionRank` (storage bit-width) view is
+-- enough for within-family ladders (F16→F32 via 16≤32) but loses the
+-- separate dimensions across families: BF16 and F16 both have
+-- bit-width 16, but BF16 has wider exponent (8 vs 5) and narrower
+-- mantissa (7 vs 10) — so neither is a lossless upcast of the other.
+--
+-- This typeclass exposes both dimensions so a proof witness
+-- `LosslessTo from to` can be derived structurally — see below.
+--
+-- Instances are spelled out per concrete bit-width rather than as
+-- polymorphic `{n : Nat} ->` because each width has a distinct
+-- (mantissa, exponent) layout (IEEE 754: F16 has 10/5, F32 has 23/8,
+-- F64 has 52/11; BF16 has 7/8). No formula collapses them cleanly.
+----------------------------------------------------------------------
+
+public export
+interface IsFloating t => FloatPrecision (0 t : Type) where
+  ||| Explicit-stored fraction bits (excluding IEEE 754's hidden 1).
+  mantissaBits : Nat
+  ||| Biased exponent bits.
+  exponentBits : Nat
+
+public export
+FloatPrecision (Float 16) where
+  mantissaBits = 10
+  exponentBits = 5
+
+public export
+FloatPrecision (Float 32) where
+  mantissaBits = 23
+  exponentBits = 8
+
+public export
+FloatPrecision (Float 64) where
+  mantissaBits = 52
+  exponentBits = 11
+
+public export
+FloatPrecision (BFloat 16) where
+  mantissaBits = 7
+  exponentBits = 8
+
+
+----------------------------------------------------------------------
+-- LosslessTo — cross-family lossless float cast witness
+--
+-- A pair of `LTE` proofs: mantissa-bits non-decreasing AND
+-- exponent-bits non-decreasing from source to target. Auto-resolved
+-- by Idris's hint search because both `LTE` proofs are derivable
+-- structurally for concrete dtype pairs.
+--
+-- The constraint complements `UpcastableTo` (within-family LTE on
+-- `precisionRank`): `LosslessTo` covers cross-family edges like
+-- `BFloat 16 → Float 32`, `Float 16 → Float 64`, etc. The two
+-- mechanisms don't overlap — `UpcastableTo` instances are spelled
+-- per family, while `LosslessTo` derives across them via the
+-- explicit mantissa+exponent dimensions.
+--
+-- Lossless cross-family edges this catches (incomplete list):
+--   * BFloat 16 → Float 32   (mantissa 7→23, exponent 8→8)
+--   * BFloat 16 → Float 64   (7→52, 8→11)
+--   * Float 16  → Float 32   (10→23, 5→8) — also via within-family
+--                                            for `Float n` ladders
+--   * Float 16  → Float 64   (10→52, 5→11)
+--   * Float 32  → Float 64   (23→52, 8→11) — also within-family
+--
+-- Lossy edges (no `LosslessTo` resolution; explicit `tcastUnsafe`
+-- required):
+--   * Float 32  → BFloat 16  (mantissa shrinks: 23→7)
+--   * Float 32  → Float 16   (mantissa shrinks: 23→10)
+--   * BFloat 16 ↔ Float 16   (each direction shrinks one dimension)
+--   * Float 64  → any        (mantissa shrinks)
+--
+-- The point: idris-ml refuses silent lossy mid-graph casts that
+-- PyTorch's autocast would silently introduce. Lossy edges have to
+-- be code-visible.
+----------------------------------------------------------------------
+
+public export
+LosslessTo : (0 from : Type) -> (0 to : Type) ->
+             FloatPrecision from => FloatPrecision to => Type
+LosslessTo from to =
+  ( LTE (mantissaBits {t=from}) (mantissaBits {t=to})
+  , LTE (exponentBits {t=from}) (exponentBits {t=to})
+  )
+
+
+----------------------------------------------------------------------
 -- Compatible — (device, dtype) admissibility
 --
 -- Empty capability marker. `Compatible D T where` declares "device

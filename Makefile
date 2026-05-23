@@ -958,12 +958,19 @@ check-paired-defaults:
 # compile failed) and matches on the WithGrad/NoGrad error message.
 # Depends on `install` so idris-ml is locatable in the local IDRIS2 prefix.
 check-gradmode-gate: install
-	@./scripts/check-gradmode-gate.sh
+	@IDRIS2_LOCAL=$(IDRIS2_LOCAL) ./scripts/check-gradmode-gate.sh
 
 # Verify the aliasing footgun on `freezeNetwork` is closed by linear
 # types: using the pre-freeze Network reference must be a compile error.
 check-gradmode-aliasing: install
-	@./scripts/check-gradmode-aliasing.sh
+	@IDRIS2_LOCAL=$(IDRIS2_LOCAL) ./scripts/check-gradmode-aliasing.sh
+
+# Verify the cross-family lossless-cast gate (DType.Core.LosslessTo)
+# refuses a mantissa-shrinking direction (F32 → BF16). Inverts the
+# idris2 exit code (success = compile failed) and matches on the
+# `LTE 23 7` error so unrelated regressions don't pass the gate.
+check-lossy-cast-gate: install
+	@IDRIS2_LOCAL=$(IDRIS2_LOCAL) ./scripts/check-lossy-cast-gate.sh
 
 # Type-check examples (builds each as executable, which is the real check)
 check-examples: install

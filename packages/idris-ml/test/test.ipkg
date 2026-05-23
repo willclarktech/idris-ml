@@ -12,6 +12,7 @@ modules = Harness
         , Test.GradMode
         , Test.Hpo.LrFinder
         , Test.Init
+        , Test.Lossless
         , Test.ManagedHandle
         , Test.Math
         , Test.MixedLayerLike
