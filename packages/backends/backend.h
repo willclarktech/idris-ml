@@ -13,6 +13,22 @@ typedef struct { TensorHandle first; TensorHandle second; } TensorPair;
 
 /* ---------- Lifecycle ---------- */
 
+/* Per-dtype creation primitives. Each backend defines the dtype variants
+ * it actually supports — tape only implements _f64 (no fp32 arena), torch
+ * and mlx implement both. The _f32 stubs on tape exist for link-time
+ * symbol completeness only; calling them aborts. Idris-side dispatch goes
+ * through RuntimeDType typeclass instances (Phase 4): the `RuntimeDType F32`
+ * instance is intentionally missing for tape, so F32-typed code can't
+ * compile against a tape-primary build. */
+TensorHandle tensor_create_scalar_f32(double value, int requires_grad);
+TensorHandle tensor_create_scalar_f64(double value, int requires_grad);
+TensorHandle tensor_create_f32(double* data, int* shape, int rank, int requires_grad);
+TensorHandle tensor_create_f64(double* data, int* shape, int rank, int requires_grad);
+
+/* Legacy unsuffixed creation primitives. Currently route to whichever
+ * dtype the backend has historically used (mlx → _f32, tape/torch → _f64).
+ * Kept while Idris-side call sites migrate to RuntimeDType dispatch
+ * (Phase 4-5). Removed once migration completes. */
 TensorHandle tensor_create_scalar(double value, int requires_grad);
 TensorHandle tensor_create(double* data, int* shape, int rank, int requires_grad);
 TensorHandle tensor_clone(TensorHandle t);
@@ -126,6 +142,9 @@ TensorHandle tensor_conv1d_grouped(TensorHandle input, TensorHandle kernel,
 /* MaxPool1D: input [C, L]. Returns [C, oL] where oL = (L - kL) / stride + 1. */
 TensorHandle tensor_max_pool1d(TensorHandle input, int kL, int stride);
 
+/* Per-dtype variants */
+TensorHandle tensor_create_param_3d_f32(int d0, int d1, int d2, double* data);
+TensorHandle tensor_create_param_3d_f64(int d0, int d1, int d2, double* data);
 /* Create a [d0, d1, d2] tensor with requires_grad=true */
 TensorHandle tensor_create_param_3d(int d0, int d1, int d2, double* data);
 
@@ -281,6 +300,12 @@ TensorHandle tensor_subtract_scalar_inplace(TensorHandle t, double val);
 
 /* Create a 1D tensor from n doubles passed as individual args via a C array */
 TensorHandle tensor_one_hot(int* tokens, int n_tokens, int vocab_size);
+/* Per-dtype variants — see lifecycle block comment for dispatch rules. */
+TensorHandle tensor_create_1d_f32(int n, double* data, int requires_grad);
+TensorHandle tensor_create_1d_f64(int n, double* data, int requires_grad);
+TensorHandle tensor_create_2d_f32(int rows, int cols, double* data, int requires_grad);
+TensorHandle tensor_create_2d_f64(int rows, int cols, double* data, int requires_grad);
+/* Legacy unsuffixed (alias). */
 TensorHandle tensor_create_1d(int n, double* data, int requires_grad);
 TensorHandle tensor_create_2d(int rows, int cols, double* data, int requires_grad);
 
@@ -302,6 +327,11 @@ TensorHandle   tensor_cat_from_array(TensorHandle* arr, int count, int dim);
 
 /* ---------- Tensor-level parameter creation ---------- */
 
+/* Per-dtype variants */
+TensorHandle tensor_create_param_1d_f32(int n, double* data);
+TensorHandle tensor_create_param_1d_f64(int n, double* data);
+TensorHandle tensor_create_param_2d_f32(int rows, int cols, double* data);
+TensorHandle tensor_create_param_2d_f64(int rows, int cols, double* data);
 /* Create a [rows, cols] tensor filled with given data, requires_grad=true */
 TensorHandle tensor_create_param_2d(int rows, int cols, double* data);
 /* Create a [n] tensor filled with given data, requires_grad=true */
@@ -313,6 +343,12 @@ TensorHandle tensor_create_param_1d(int n, double* data);
  * (alive while the model record / per-sequence binding references it).
  * tape/torch: no refcount surface; the backend's own arena / shared_ptr
  * handles freeing. */
+/* Per-dtype variants */
+TensorHandle tensor_create_state_1d_f32(int n, double* data);
+TensorHandle tensor_create_state_1d_f64(int n, double* data);
+TensorHandle tensor_create_state_2d_f32(int rows, int cols, double* data);
+TensorHandle tensor_create_state_2d_f64(int rows, int cols, double* data);
+/* Legacy unsuffixed (alias) */
 TensorHandle tensor_create_state_2d(int rows, int cols, double* data);
 TensorHandle tensor_create_state_1d(int n, double* data);
 /* Get a scalar view into element [row, col] of a 2D tensor (shares storage) */
@@ -432,6 +468,9 @@ void optimizer_set_v(OptimizerHandle opt, int idx, const double* data);
 void optimizer_get_meta(OptimizerHandle opt, double* out9);
 void optimizer_set_meta(OptimizerHandle opt, const double* in9);
 
+/* Per-dtype variants */
+TensorHandle tensor_create_param_4d_f32(int d0, int d1, int d2, int d3, double* data);
+TensorHandle tensor_create_param_4d_f64(int d0, int d1, int d2, int d3, double* data);
 /* Create a [d0, d1, d2, d3] tensor filled with given data, requires_grad=true */
 TensorHandle tensor_create_param_4d(int d0, int d1, int d2, int d3, double* data);
 
