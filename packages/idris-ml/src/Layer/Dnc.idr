@@ -391,30 +391,34 @@ dncLayer : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d d
              IO (DncState r n m h i o d dt WithGrad)
 dncLayer pfx = do
   lstm <- lstmLayer {i = DncControllerInput r m i} {o = h} (pfx ++ "_lstm")
-  -- 10 head FCs: xavier_uniform(gain=1.4) weights, normal(std=0.01) biases
+  -- 10 head FCs: xavier-normal-via-uniform (gain=1.4) → std = 1.4 * sqrt(2/(i+o));
+  -- biases ~ N(0, 0.0001). Output FC: PyTorch nn.Linear default
+  -- (1/sqrt(fan_in)); same N(0, 0.0001) biases.
+  let xavStd : (i, o : Nat) -> Double
+      xavStd i' o' = 1.4 * sqrt (2.0 / cast {to=Double} (i' + o'))
   wkFc <- mkLinearWith {i = h} {o = m}     (pfx ++ "_writeKey")
-            (xavierGain 1.4 uniform) (normal 0.0001)
+            (xavStd h m)       0.0001
   wbFc <- mkLinearWith {i = h} {o = 1}     (pfx ++ "_writeBeta")
-            (xavierGain 1.4 uniform) (normal 0.0001)
+            (xavStd h 1)       0.0001
   eFc  <- mkLinearWith {i = h} {o = m}     (pfx ++ "_erase")
-            (xavierGain 1.4 uniform) (normal 0.0001)
+            (xavStd h m)       0.0001
   aFc  <- mkLinearWith {i = h} {o = m}     (pfx ++ "_add")
-            (xavierGain 1.4 uniform) (normal 0.0001)
+            (xavStd h m)       0.0001
   fgFc <- mkLinearWith {i = h} {o = r}     (pfx ++ "_freeGates")
-            (xavierGain 1.4 uniform) (normal 0.0001)
+            (xavStd h r)       0.0001
   agFc <- mkLinearWith {i = h} {o = 1}     (pfx ++ "_allocGate")
-            (xavierGain 1.4 uniform) (normal 0.0001)
+            (xavStd h 1)       0.0001
   wgFc <- mkLinearWith {i = h} {o = 1}     (pfx ++ "_writeGate")
-            (xavierGain 1.4 uniform) (normal 0.0001)
+            (xavStd h 1)       0.0001
   rkFc <- mkLinearWith {i = h} {o = r * m} (pfx ++ "_readKeys")
-            (xavierGain 1.4 uniform) (normal 0.0001)
+            (xavStd h (r*m))   0.0001
   rbFc <- mkLinearWith {i = h} {o = r}     (pfx ++ "_readBetas")
-            (xavierGain 1.4 uniform) (normal 0.0001)
+            (xavStd h r)       0.0001
   rmFc <- mkLinearWith {i = h} {o = r * 3} (pfx ++ "_readModes")
-            (xavierGain 1.4 uniform) (normal 0.0001)
-  -- Output FC: kaiming_uniform default (LeCun), normal(std=0.01) bias
+            (xavStd h (r*3))   0.0001
   oFc  <- mkLinearWith {i = DncOutputInput h r m} {o = o}
-            (pfx ++ "_output") (ptKaimingDefault uniform) (normal 0.0001)
+            (pfx ++ "_output")
+            (1.0 / sqrt (cast {to=Double} (DncOutputInput h r m))) 0.0001
   -- memoryInit: shape (n, m) Xavier — fan_in=m, fan_out=n.
   let mnI = cast {to=Int} (m * n)
   memInitVals <- traverse (\_ => xavier uniform m n) (Vect.replicate (m * n) ())

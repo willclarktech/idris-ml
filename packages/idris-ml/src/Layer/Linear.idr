@@ -72,49 +72,41 @@ zeroBuf buf _ 0 = buf
 zeroBuf buf off n =
   zeroBuf (prim__setDouble buf off 0.0) (off + 1) (n - 1)
 
-||| Build a `LinearState i o TapeDev` with custom weight + bias init
-||| strategies. Mirrors PyTorch's per-FC init customization (e.g. NTM's
-||| read FCs use Xavier(gain=1.4) + normal(std=0.01) biases). The default
-||| `linearLayer` is `mkLinearWith ... (xavier uniform) (pure 0.0)`.
+||| Build a `LinearState i o` with normal-distributed weights and a
+||| user-specified bias init. `weightStd = 0` is invalid (a zero-std
+||| normal would produce a constant-zero weight matrix); pass a
+||| positive value. `biasStd > 0` samples bias ~ N(0, biasStd);
+||| `biasStd = 0` registers a zero-init bias via tparam1dConst.
+|||
+||| This replaces the old `mkLinearWith wInit bInit` (which took an
+||| `InitStrategy` + `IO Double`). The new shape mirrors PyTorch's
+||| `torch.nn.init.normal_(weight, std=...)` + `torch.nn.init.normal_(bias, std=...)`
+||| pair; callers wanting other distributions wire the underlying
+||| FFI directly.
 export
 mkLinearWith : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt => {i, o : Nat}
             -> (paramPrefix : String)
-            -> (weightInit : InitStrategy)
-            -> (biasInit : IO Double)
+            -> (weightStd : Double)
+            -> (biasStd : Double)
             -> IO (LinearState i o d dt WithGrad)
-mkLinearWith pfx wInit bInit = do
-  let oI = cast {to=Int} o
-      iI = cast {to=Int} i
-      wCount = o * i
-  weightVals <- traverse (\_ => wInit i o) (Vect.replicate wCount ())
-  biasVals <- traverse (\_ => bInit) (Vect.replicate o ())
-  let wBuf = prim__allocDoubles (cast wCount)
-      wBuf' = packDoubles wBuf 0 weightVals
-      bBuf = prim__allocDoubles oI
-      bBuf' = packDoubles bBuf 0 biasVals
-  w <- tparam2d (pfx ++ "_weights") wBuf'
-  b <- tparam1d (pfx ++ "_biases") bBuf'
+mkLinearWith pfx wStd bStd = do
+  let wName = pfx ++ "_weights"
+      bName = pfx ++ "_biases"
+  w <- tparam2dNormal {d} {dt} {o} {i} wName 0.0 wStd
+  b <- if bStd == 0.0
+         then tparam1dConst  {d} {dt} {n=o} bName 0.0
+         else tparam1dNormal {d} {dt} {n=o} bName 0.0 bStd
   pure $ MkLinear w b
 
-||| Build a `LinearState i o TapeDev` with Xavier-uniform weights and
-||| zero bias. Weights and biases are allocated as registered C
-||| params under `<paramPrefix>_weights` and `<paramPrefix>_biases` —
-||| matching the existing `Layer/Linear.idr` naming so the optimizer
-||| picks them up via the global registry.
+||| Build a `LinearState i o` with PyTorch's default `nn.Linear` init
+||| (normal approximation): weight ~ N(0, 1/sqrt(fan_in)), zero bias.
+||| Was Xavier-uniform pre-2026-05-28; switched to normal here to
+||| match the new fused-init primitive surface — see plan P3 lock-in.
+||| Registers under `<paramPrefix>_weights` / `<paramPrefix>_biases`.
 export
 linearLayer : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt => {i, o : Nat} -> (paramPrefix : String) -> IO (LinearState i o d dt WithGrad)
-linearLayer paramPrefix = do
-  let oI = cast {to=Int} o
-      iI = cast {to=Int} i
-      wCount = o * i
-  weightVals <- traverse (\_ => xavier uniform i o) (Vect.replicate wCount ())
-  let wBuf = prim__allocDoubles (cast {to=Int} wCount)
-      wBuf' = packDoubles wBuf 0 weightVals
-      bBuf = prim__allocDoubles oI
-      bBuf' = zeroBuf bBuf 0 oI
-  w <- tparam2d (paramPrefix ++ "_weights") wBuf'
-  b <- tparam1d (paramPrefix ++ "_biases") bBuf'
-  pure $ MkLinear w b
+linearLayer paramPrefix =
+  mkLinearWith paramPrefix (1.0 / sqrt (cast {to=Double} i)) 0.0
 
 ||| Wrap a Linear in `AnyLayer` for use in a `Network`.
 export

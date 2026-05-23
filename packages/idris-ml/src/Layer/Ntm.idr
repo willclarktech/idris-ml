@@ -223,12 +223,18 @@ ntmLayer : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d d
              IO (NtmState n m h i o d dt WithGrad)
 ntmLayer pfx = do
   lstm <- lstmLayer {i = m + i} {o = h} (pfx ++ "_lstm")
+  -- xavierGain 1.4 uniform → equivalent normal std = 1.4 * sqrt(2/(i+o)).
+  -- bias ~ N(0, 0.0001).
+  let xavStd : (i, o : Nat) -> Double
+      xavStd i' o' = 1.4 * sqrt (2.0 / cast {to=Double} (i' + o'))
   rfc  <- mkLinearWith {i = h} {o = ReadParamWidth m}
-            (pfx ++ "_readFc")  (xavierGain 1.4 uniform) (normal 0.0001)
+            (pfx ++ "_readFc")  (xavStd h (ReadParamWidth m))  0.0001
   wfc  <- mkLinearWith {i = h} {o = WriteParamWidth m}
-            (pfx ++ "_writeFc") (xavierGain 1.4 uniform) (normal 0.0001)
+            (pfx ++ "_writeFc") (xavStd h (WriteParamWidth m)) 0.0001
+  -- Output FC: PyTorch nn.Linear default (kaiming-uniform-as-normal),
+  -- std = 1/sqrt(fan_in) ≈ 1/sqrt(h+m); bias ~ N(0, 0.0001).
   ofc  <- mkLinearWith {i = h + m} {o = o}
-            (pfx ++ "_outputFc") (ptKaimingDefault uniform) (normal 0.0001)
+            (pfx ++ "_outputFc") (1.0 / sqrt (cast {to=Double} (h + m))) 0.0001
   -- memoryInit: shape (n, m) Xavier — fan_in=m, fan_out=n.
   let mnI = cast {to=Int} (m * n)
       mI  = cast {to=Int} m
