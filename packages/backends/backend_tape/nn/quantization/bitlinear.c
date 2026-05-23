@@ -12,11 +12,13 @@
  * have i much larger than the L1 line size, so the 2-bit codes
  * dominate the bandwidth even though the multiply is by ±1 or 0.
  *
- * Scope of this commit (#411 B2): F64 lingua-franca path only.
- * Scale / x / bias must all be F64 (the tape default); F32 lands
- * in a follow-up. NoGrad — BitNet b1.58 weight is a frozen
- * quantized param; bias gradient flow lands later if a training
- * path needs it.
+ * Two compute dtypes are supported: F64 (the tape default) and F32
+ * (real `float*` storage via tape's existing F32 arena path —
+ * matches the dispatch shape of `tensor_linear` / `tensor_mv`). Both
+ * are NoGrad — BitNet b1.58 weight is a frozen quantized param;
+ * bias gradient flow lands later if a training path needs it.
+ * BF16/F16 inputs are not supported; they would need a separate
+ * cast-down step (filed as #411 follow-up if a use case appears).
  */
 
 #include <stdio.h>
@@ -82,6 +84,44 @@ static inline int8_t decode_slot(const uint8_t* row_base, int k) {
     }
 }
 
+/* F32 forward — real `float*` data on scale / x / bias / output. Same
+   decode-inline inner loop as the F64 path; ternary multiplies are
+   exact in both dtypes so the only precision difference is in the
+   `scale * sum + bias` accumulate. F32 accumulation can lose a few
+   ulps on long inner dims (i >= a few thousand); BitNet workloads
+   typically have i ≈ 4k-8k, so an upper-bound max-abs-error in the
+   1e-5 / 1e-6 range is expected. */
+static TensorHandle tensor_bitlinear_fwd_tape_f32(
+        TensorHandle hW, TensorHandle hscale, TensorHandle hx, TensorHandle hbias) {
+    Tensor* W = (Tensor*)hW;
+    Tensor* scale = (Tensor*)hscale;
+    Tensor* x = (Tensor*)hx;
+    Tensor* bias = hbias ? (Tensor*)hbias : NULL;
+    int o = W->shape[0];
+    int i_dim = W->shape[1];
+    int bytes_per_row = (i_dim + 3) / 4;
+    const uint8_t* W_data = (const uint8_t*)W->data;
+    const float* scale_data = (const float*)scale->data;
+    const float* x_data = (const float*)x->data;
+    const float* bias_data = bias ? (const float*)bias->data : NULL;
+
+    int out_shape[1] = {o};
+    float* out_data = arena_alloc((size_t)o * sizeof(float));
+    for (int j = 0; j < o; j++) {
+        const uint8_t* row = W_data + (size_t)j * (size_t)bytes_per_row;
+        float sum = 0.0f;
+        for (int k = 0; k < i_dim; k++) {
+            int8_t v = decode_slot(row, k);
+            if (v != 0) sum += (float)v * x_data[k];
+        }
+        float y = scale_data[j] * sum;
+        if (bias_data) y += bias_data[j];
+        out_data[j] = y;
+    }
+    Tensor* r = make_tensor_arena_f32(out_data, o, out_shape, 1, 0);
+    return (TensorHandle)r;
+}
+
 TensorHandle tensor_bitlinear_fwd(
         TensorHandle hW, TensorHandle hscale, TensorHandle hx, TensorHandle hbias) {
     Tensor* W = (Tensor*)hW;
@@ -95,15 +135,30 @@ TensorHandle tensor_bitlinear_fwd(
             W->dtype_tag);
         abort();
     }
-    /* F64-only path in this commit (#411 B2). The lingua-franca on tape
-       means BF16 / F16 land here too as F64 storage — but the
-       enforcement is "match scale's tag". F32 inputs would need a
-       separate real-F32 path mirroring tensor_linear_f32 + decode_slot;
-       we abort for now to surface the gap loudly. */
+    /* F32 dispatch: if any of scale/x/bias is F32, require all three. */
+    int any_f32 = scale->dtype_tag == DT_F32 || x->dtype_tag == DT_F32 ||
+                  (bias && bias->dtype_tag == DT_F32);
+    if (any_f32) {
+        int all_f32 = scale->dtype_tag == DT_F32 && x->dtype_tag == DT_F32 &&
+                      (!bias || bias->dtype_tag == DT_F32);
+        if (!all_f32) {
+            fprintf(stderr, "[tape] tensor_bitlinear_fwd: mixed-dtype inputs "
+                "(scale=%d, x=%d, bias=%d). All of scale/x/bias must share "
+                "the same dtype (F32 or F64).\n",
+                scale->dtype_tag, x->dtype_tag, bias ? bias->dtype_tag : -1);
+            abort();
+        }
+        return tensor_bitlinear_fwd_tape_f32(hW, hscale, hx, hbias);
+    }
+    /* F64 path. The lingua-franca on tape means BF16 / F16 inputs would
+       arrive here too (their storage is F64 with a narrower dtype_tag);
+       the strict equality check rejects them since they need a separate
+       cast-down step that this kernel doesn't yet implement. */
     if (scale->dtype_tag != DT_F64 || x->dtype_tag != DT_F64 ||
             (bias && bias->dtype_tag != DT_F64)) {
-        fprintf(stderr, "[tape] tensor_bitlinear_fwd: F64-only in this commit "
-            "(scale=%d, x=%d, bias=%d). F32 path is filed under #411 follow-up.\n",
+        fprintf(stderr, "[tape] tensor_bitlinear_fwd: only F64 + F32 inputs "
+            "supported (scale=%d, x=%d, bias=%d). BF16 / F16 lands in a "
+            "#411 follow-up.\n",
             scale->dtype_tag, x->dtype_tag, bias ? bias->dtype_tag : -1);
         abort();
     }

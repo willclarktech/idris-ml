@@ -41,11 +41,15 @@ import TestConfig
 -- deterministic order; without it Idris/Chez can reorder the calls
 -- across multiple let-bound tensors and one of them ends up
 -- referencing an uninitialised arena slot.
-mkVec : {n : Nat} -> Vect n Double -> IO (Tensor [n] TestDevice TestDType WithGrad)
-mkVec xs = do
-  raw <- ioRerun (\_ => bulkToTensor {d=TestDevice} {dt=TestDType}
+mkVecDt : {0 dt : DType} -> RuntimeDType dt => Compatible TestDevice dt =>
+          {n : Nat} -> Vect n Double -> IO (Tensor [n] TestDevice dt WithGrad)
+mkVecDt xs = do
+  raw <- ioRerun (\_ => bulkToTensor {d=TestDevice} {dt=dt}
                                      (VArray (map SArray xs)))
   pure (tinput1d {n} raw)
+
+mkVec : {n : Nat} -> Vect n Double -> IO (Tensor [n] TestDevice TestDType WithGrad)
+mkVec = mkVecDt {dt=TestDType}
 
 
 -- 1-vec helper: lift NoGrad scale + bias for the BitLinear field
@@ -53,11 +57,15 @@ mkVec xs = do
 -- so the underlying FFI chain inside `bulkToTensor` fires when the
 -- IO action runs; without an IO bracket the Tensor was lazily
 -- evaluated mid-FFI-call and showed rank=0 in the kernel.
-mkVecNoGrad : {n : Nat} -> Vect n Double -> IO (Tensor [n] TestDevice TestDType NoGrad)
-mkVecNoGrad xs = do
-  raw <- ioRerun (\_ => bulkToTensor {d=TestDevice} {dt=TestDType}
+mkVecNoGradDt : {0 dt : DType} -> RuntimeDType dt => Compatible TestDevice dt =>
+                {n : Nat} -> Vect n Double -> IO (Tensor [n] TestDevice dt NoGrad)
+mkVecNoGradDt xs = do
+  raw <- ioRerun (\_ => bulkToTensor {d=TestDevice} {dt=dt}
                                      (VArray (map SArray xs)))
   weakenGrad {d=TestDevice} (tinput1d {n} raw)
+
+mkVecNoGrad : {n : Nat} -> Vect n Double -> IO (Tensor [n] TestDevice TestDType NoGrad)
+mkVecNoGrad = mkVecNoGradDt {dt=TestDType}
 
 
 -- Build the 3-byte packed buffer via prim__allocBytes + prim__setByte.
@@ -75,6 +83,13 @@ buildFixtureBytes = do
 -- Read element `k` of a [3] result Tensor as a Double.
 readElem3 : Tensor [3] TestDevice TestDType g -> Int -> IO Double
 readElem3 t k = do
+  s <- telemSelect {d=TestDevice} {n=3} t k
+  pure (tensorItem {d=TestDevice} s)
+
+-- Read element `k` of a [3] result Tensor parameterised by dtype.
+readElem3Dt : {0 dt : DType} -> {0 g : GradMode} ->
+              Tensor [3] TestDevice dt g -> Int -> IO Double
+readElem3Dt t k = do
   s <- telemSelect {d=TestDevice} {n=3} t k
   pure (tensorItem {d=TestDevice} s)
 
@@ -147,10 +162,35 @@ bitlinearLayerLikeMixedOracle = do
   pure (ok0 && ok1 && ok2)
 
 
+-- F32 oracle: same fixture as `bitlinearForwardOracle`, but scale/x/
+-- bias materialised in F32. Exercises the F32 path of the kernel —
+-- on tape this is the dedicated `tensor_bitlinear_fwd_f32` dispatch
+-- (#411 B2 follow-up); on torch/mlx it's the native int8-mul-cast
+-- path operating with `at::ScalarType::Float` / `mx::float32`.
+-- F32 precision target: 1e-5 (single-precision relative error budget).
+bitlinearForwardOracleF32 : IO Bool
+bitlinearForwardOracleF32 = do
+  (bytesPtr, byteCount) <- buildFixtureBytes
+  w <- tCreateTernaryPacked2d {d=TestDevice} {o=3} {i=4} bytesPtr byteCount
+  s <- mkVecNoGradDt {dt=F32} (the (Vect 3 Double) [0.5, 0.25, 0.75])
+  x <- mkVecDt       {dt=F32} (the (Vect 4 Double) [1.0, 2.0, -0.5, 0.25])
+  b <- mkVecDt       {dt=F32} (the (Vect 3 Double) [0.1, -0.2, 0.3])
+  y <- tBitlinearFwd {d=TestDevice} {cDt=F32} w s x b
+  y0 <- readElem3Dt y 0
+  y1 <- readElem3Dt y 1
+  y2 <- readElem3Dt y 2
+  let tol = 1.0e-5
+  ok0 <- checkClose "F32 y[0] matches PyTorch oracle"   0.975    y0 tol
+  ok1 <- checkClose "F32 y[1] matches PyTorch oracle" (-0.075)   y1 tol
+  ok2 <- checkClose "F32 y[2] matches PyTorch oracle" (-1.0125)  y2 tol
+  pure (ok0 && ok1 && ok2)
+
+
 export
 tests : List (IO Bool)
 tests =
   [ bitlinearForwardOracle
   , bitlinearStateRoundtrip
   , bitlinearLayerLikeMixedOracle
+  , bitlinearForwardOracleF32
   ]
