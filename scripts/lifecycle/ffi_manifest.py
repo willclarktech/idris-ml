@@ -200,6 +200,7 @@ MANIFEST = {
 
     # Native train
     "native_train_step":                (("R", "i", "d", "T", "d"), "d"),
+    "native_train_step_scaled":         (("R", "i", "d", "T", "d", "d"), "d"),
 
     # Print
     "tensor_print":                     (("T",), "v"),

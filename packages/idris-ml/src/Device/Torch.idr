@@ -589,6 +589,12 @@ public export
   primOptimizerSetLr           = prim__optimizerSetLrTorch
   primOptimizerSetParamLr      = prim__optimizerSetParamLrTorch
   primNativeTrainStep          = prim__nativeTrainStepTorch
+  -- A3 of #410: scaled-step C port is tape-only at present.
+  -- Crashing stub keeps the interface satisfied; remove when
+  -- `backend_torch/training/optimizer.cpp` grows its own
+  -- `native_train_step_scaled` body.
+  primNativeTrainStepScaled    = \_, _, _, _, _, _ =>
+    assert_total $ idris_crash "primNativeTrainStepScaled: not yet implemented on torch backend"
   primParamSave                = prim__paramSaveTorch
   primParamLoad                = prim__paramLoadTorch
   primParamLoadWithPolicy      = prim__paramLoadWithPolicyTorch

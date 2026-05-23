@@ -397,6 +397,15 @@ interface UserDeviceConv d => UserDeviceTraining (0 d : Device) where
   ||| Fused step: zero_grad → backward → clip → step. Args:
   ||| (optimizer handle, clip mode, clip val, loss tensor, loss val).
   primNativeTrainStep     : AnyPtr -> Int -> Double -> AnyPtr -> Double -> Double
+  ||| GradScaler-aware fused step (A3 of #410). Args same as
+  ||| `primNativeTrainStep` plus a trailing `scale : Double`. The caller
+  ||| pre-scaled the loss by `scale`; this op runs zero_grad → backward
+  ||| → unscale grads (divide by `scale`, check non-finite) → clip →
+  ||| step → return the *unscaled* loss. NaN return = non-finite grad
+  ||| detected, step was skipped (caller halves the scale state).
+  ||| Wired on tape only at present; torch + mlx return NaN via stub
+  ||| until their per-backend C ports are written.
+  primNativeTrainStepScaled : AnyPtr -> Int -> Double -> AnyPtr -> Double -> Double -> Double
 
   -- SafeTensors serialization (registry + optimizer state) ---------
   ||| Save every registered param to a .safetensors file (rc 0 = ok).

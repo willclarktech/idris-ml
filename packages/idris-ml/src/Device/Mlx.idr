@@ -601,6 +601,12 @@ public export
   primOptimizerSetLr           = prim__optimizerSetLrMlx
   primOptimizerSetParamLr      = prim__optimizerSetParamLrMlx
   primNativeTrainStep          = prim__nativeTrainStepMlx
+  -- A3 of #410: scaled-step C port is tape-only at present.
+  -- Crashing stub keeps the interface satisfied; remove when
+  -- `backend_mlx/training/optimizer.cpp` grows its own
+  -- `native_train_step_scaled` body.
+  primNativeTrainStepScaled    = \_, _, _, _, _, _ =>
+    assert_total $ idris_crash "primNativeTrainStepScaled: not yet implemented on mlx backend"
   primParamSave                = prim__paramSaveMlx
   primParamLoad                = prim__paramLoadMlx
   primParamLoadWithPolicy      = prim__paramLoadWithPolicyMlx

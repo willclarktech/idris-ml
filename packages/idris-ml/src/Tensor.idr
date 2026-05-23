@@ -1739,3 +1739,26 @@ nativeTrainStep opt loss = ioRerun (\_ =>
       clipVal  = case opt.clipMode of NoClip => 0.0; ValueClip v => v; NormClip v => v
       lossVal  = primItem {d} loss.tensorPtr
   in primNativeTrainStep {d} opt.handle clipMode clipVal loss.tensorPtr lossVal)
+
+||| GradScaler-aware fused step (A3 of #410). The caller has already
+||| multiplied the loss by `scale` so backward computes grads at the
+||| scaled magnitude (avoiding F16 underflow). The C port unscales
+||| grads by `1/scale`, checks for non-finite values, and either
+||| steps + returns the unscaled loss, or returns NaN (= overflow
+||| detected, step was skipped; caller halves its scale state).
+|||
+||| Currently wired on tape only — torch + mlx crash with
+||| "not yet implemented" until their `native_train_step_scaled`
+||| C ports are written. Use `nativeTrainStep` for unscaled training
+||| in the meantime.
+export
+nativeTrainStepScaled : {0 d : Device} -> UserDeviceTraining d => IsFloating dt =>
+                        NativeOptimizer d -> Tensor [] d dt WithGrad ->
+                        (scale : Double) -> IO Double
+nativeTrainStepScaled opt loss scale = ioRerun (\_ =>
+  let clipMode : Int
+      clipMode = case opt.clipMode of NoClip => 0; ValueClip _ => 1; NormClip _ => 2
+      clipVal  : Double
+      clipVal  = case opt.clipMode of NoClip => 0.0; ValueClip v => v; NormClip v => v
+      scaledLossVal = primItem {d} loss.tensorPtr
+  in primNativeTrainStepScaled {d} opt.handle clipMode clipVal loss.tensorPtr scaledLossVal scale)
