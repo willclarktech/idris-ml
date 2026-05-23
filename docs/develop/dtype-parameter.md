@@ -768,3 +768,58 @@ Not shipped yet — calibration requires a run on real Metal hardware
 that exposes the GPU stream cleanly. Add when an mlx-gpu CI run on
 real M-series surfaces F32-precision diffs from the F64 reference
 thresholds.
+
+
+## Ternary / Binary: sub-native dtypes (2026-06-01)
+
+`Ternary` (dtag 25, values {-1, 0, +1}) and `Binary` (dtag 24,
+reserved, values {-1, +1}) are the first dtypes whose intrinsic
+storage is sub-byte — 2 bits and 1 bit respectively. They land
+under #411 alongside BitNet b1.58 inference work. The IsDType
+instances use `dtypeBytes = 0` as a sentinel: any arithmetic that
+multiplies `numel * dtypeBytes` and reaches zero is a guaranteed
+loud crash, forcing callers onto the sub-byte-aware path
+(`tape_packed_bytes()` on tape, framework-native int8 storage on
+torch/mlx).
+
+The `LosslessTo` instances (shipped under #411 B1) capture the fact
+that {-1, 0, +1} fits exactly into every IEEE float, BFloat, and
+IntN m≥2 — there's no `FloatPrecision`-style metadata
+predicate to satisfy. Empty-body instances:
+
+```idris
+{to : Type} -> FloatPrecision to => LosslessTo Ternary to where
+{m : Nat} -> LTE 2 m => LosslessTo Ternary (IntN m) where
+-- + symmetric for Binary
+```
+
+The `LosslessTo → UpcastableTo` bridge from F1 (#412) threads these
+edges into `tcast`-typeclass resolution so `tcast` on a Ternary
+tensor works on every backend without an `UpcastableTo` instance
+per dtype-pair.
+
+### Per-backend physical storage diverges
+
+See `design-decisions.md` "Per-backend ternary storage —
+BitNet b1.58 (#411)" for the full rationale. The summary table:
+
+| Backend | Physical storage | Bits/value |
+|---|---|---|
+| tape   | packed 2-bit (4 values / byte) | 2 |
+| torch  | int8 with values in {-1, 0, +1}  | 8 |
+| mlx    | int8 with values in {-1, 0, +1}  | 8 |
+
+The Idris-side `Tensor [o, i] d Ternary g` type is the same
+everywhere. The 4× tape-vs-others byte-count difference is invisible
+above the FFI boundary and parallels the existing tape-side
+F64-lingua-franca for BF16 / F16 (where the asymmetry goes in the
+opposite direction: tape uses more bytes than the intrinsic dtype
+demands; torch/mlx use the native width).
+
+The pattern for future sub-native dtypes (NF4, FP4, MX): if the
+target on-disk format is sub-byte AND a backend's native tensor
+type lacks the dtype, use the nearest framework-native dtype and
+document the asymmetry in the per-backend storage table above.
+Don't force-fit framework-foreign storage shapes onto torch / mlx
+just for byte-symmetry with tape — the engineering cost of bypassing
+framework op dispatch is real.
