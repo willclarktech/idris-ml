@@ -2652,6 +2652,15 @@ Test(legacy_backend, mlx_bf16_storage) {
     ASSERT_NEAR("mlx BF16 roundtrip[0]", rt[0], 1.5, 1e-2);
     ASSERT_NEAR("mlx BF16 roundtrip[1]", rt[1], 2.25, 1e-2);
 
+    /* `tensor_item` regression — BF16 storage is 2-byte; the previous
+       `item<float>()` cast read 16 bits of valid BF16 + 16 bits of
+       adjacent buffer garbage as a 32-bit float, returning denormal
+       values like 2.3e-41 for an actual 1.1 BF16 scalar. Caught via a
+       silent Supervised-training failure (loss=2.3e-41 from epoch 1)
+       2026-05-31, fixed in core/lifecycle/item.cpp. */
+    TensorHandle bf_scalar = tensor_create_scalar_streamed(1.1, 0, 0, 17);
+    ASSERT_NEAR("mlx BF16 tensor_item not denormal", tensor_item(bf_scalar), 1.1, 1e-2);
+
     param_clear();
 }
 #endif
