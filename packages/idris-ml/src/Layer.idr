@@ -10,6 +10,7 @@ module Layer
 import public Layer.Core
 import public Layer.MixedCore
 import public Layer.Linear
+import public Layer.LinearMixed
 import public Layer.Activation
 import public Layer.LayerNorm
 import public Layer.RmsNorm

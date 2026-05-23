@@ -35,8 +35,11 @@ interface LayerLikeMixed (l : Nat -> Nat -> (0 _ : Device) -> (0 _ : DType) -> (
   ||| (if any) are stored in paramDt and cast internally.
   ||| Constraints are named so instance bodies can disambiguate when
   ||| `pDt` and `cDt` happen to unify to the same type (e.g. in
-  ||| the `AsMixed` bridge).
+  ||| the `AsMixed` bridge). `IsDType pDt` is required so layers can
+  ||| call `tcastUnsafe` to materialise the paramDt → computeDt cast
+  ||| inside their forward.
   applyVarMixed : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d =>
+                  IsDType pDt => IsDType cDt =>
                   {auto rdtP : RuntimeDType pDt} ->
                   {auto rdtC : RuntimeDType cDt} ->
                   Linked d =>
@@ -59,6 +62,7 @@ interface LayerLikeMixed (l : Nat -> Nat -> (0 _ : Device) -> (0 _ : DType) -> (
   ||| Batched forward (default crashes; layers participating in
   ||| batched training override).
   applyVarBatchMixed : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d =>
+                       IsDType pDt => IsDType cDt =>
                        {auto rdtP : RuntimeDType pDt} ->
                        {auto rdtC : RuntimeDType cDt} ->
                        Linked d =>
@@ -140,6 +144,7 @@ data AnyLayerMixed : Nat -> Nat -> (0 _ : Device) -> (0 _ : DType) -> (0 _ : DTy
 
 export
 applyVarAnyMixed : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d =>
+                   IsDType pDt => IsDType cDt =>
                    RuntimeDType pDt => RuntimeDType cDt =>
                    Linked d => Compatible d pDt => Compatible d cDt =>
                    {0 g : GradMode} -> {i, o : Nat} ->
@@ -151,6 +156,7 @@ applyVarAnyMixed (MkAnyLayerMixed l @{dict} layer) input = do
 
 export
 applyVarBatchAnyMixed : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d =>
+                        IsDType pDt => IsDType cDt =>
                         RuntimeDType pDt => RuntimeDType cDt =>
                         Linked d => Compatible d pDt => Compatible d cDt =>
                         {0 g : GradMode} -> {i, o : Nat} -> {b : Nat} ->
@@ -193,6 +199,7 @@ export infixr 5 ~~~>
 ||| Array-level forward through a NetworkMixed.
 export
 forwardVarMixed : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d =>
+                  IsDType pDt => IsDType cDt =>
                   RuntimeDType pDt => RuntimeDType cDt =>
                   Linked d => Compatible d pDt => Compatible d cDt =>
                   {0 g : GradMode} -> {i, o : Nat} -> {hs : List Nat} ->
@@ -246,6 +253,7 @@ resetNetworkMixed ((MkAnyLayerMixed l @{dict} layer) ~~~> rest) =
 ||| Batched tensor-level forward through a NetworkMixed.
 export
 forwardVarBatchMixed : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d =>
+                       IsDType pDt => IsDType cDt =>
                        RuntimeDType pDt => RuntimeDType cDt =>
                        Linked d => Compatible d pDt => Compatible d cDt =>
                        {0 g : GradMode} -> {i, o : Nat} -> {b : Nat} ->

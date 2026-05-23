@@ -32,6 +32,22 @@ mkInput xs =
   in tinput1d {n} raw
 
 
+-- A2: LinearMixed constructs end-to-end and runs through the
+-- mixed-precision pipeline. Uses paramDt = computeDt = TestDType so
+-- the cast inside applyVarMixed is a no-op at the dtype level — the
+-- test verifies the layer machinery composes, the lossy-cast variants
+-- are covered by C-level cast_grad_propagation (A1).
+linearMixedForwardTypechecks : IO Bool
+linearMixedForwardTypechecks = do
+  lin <- mixedLinearLayerAny {d=TestDevice} {paramDt=TestDType} {computeDt=TestDType}
+                             {i=4} {o=3} "lin_mixed_test"
+  let netM : NetworkMixed 4 [] 3 TestDevice TestDType TestDType WithGrad
+      netM = OutputLayerMixed lin
+  let input = mkInput (the (Vect 4 Double) [0.5, -1.0, 0.0, 1.0])
+  (_, _) <- forwardVarMixed netM input
+  check "mixedLinearLayer + forwardVarMixed compose end-to-end" True
+
+
 -- Parameter-free single-tanh wrapped via AsMixed lifts cleanly and
 -- runs through `forwardVarMixed`. `tanhLayerAny` is a parameter-free
 -- Activation layer so this test doesn't perturb global PRNG state
@@ -70,4 +86,5 @@ tests : List (IO Bool)
 tests =
   [ bridgeForwardTypechecks
   , bridgeFreezeUnfreezeRoundTrip
+  , linearMixedForwardTypechecks
   ]
