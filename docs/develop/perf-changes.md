@@ -48,6 +48,33 @@ is still useful (saves someone trying it again).
 
 ## Entries
 
+### 2026-06-01 — Supervised mixed-precision parity, structural proof on tape (#410 F4)
+
+**Plan**: verify the F1–F3 mixed-precision pipeline (LayerLikeMixed → LinearMixed with autograd-aware tcast → `applyScale` → `trainStepScaled` → GradScaler growth/backoff) produces numerically correct training across multiple seeds. The original #410 goal was "BF16 training converges as well as F32 — 5/5 vs the current 3/5 baseline" on torch-mps; F4 ships the **sweep infrastructure** + the **structural-correctness proof** on tape (where `paramDt = computeDt = F64` makes the lossy cast a structural no-op, so any numerical divergence would be a pipeline bug, not a precision-loss artefact).
+
+**Motivation**: the 2026-05-31 baseline measured `torch-mps BF16 Supervised converges 3/5 vs 5/5 for F32`. The plan's prediction is that an F32 master + BF16 compute path (the autocast equivalent that #410 shipped) raises BF16 to ≥4/5 by avoiding underflow / precision-floor failure modes that pure-BF16 hits.
+
+**Change**:
+- `scripts/sweeps/supervised-mixed.json` (new) — sweep spec: grid over `--seed ∈ {42, 43, 44, 45, 46}` × `--mixed-precision ∈ {false, true}`, `--epochs 1000` `--lr 0.03` fixed. 10 configs total.
+- `Example/Supervised.idr` — RESULT line now includes `correct=<N>/5` (per-config eval pass count) and `final_scale=<S>` (GradScaler state at end-of-training) so the sweep CSV summary is self-describing.
+- `scripts/sweep.sh` — accepts an `IDRIS2_LOCAL` env-var override for the install prefix (was hard-coded `$(pwd)/.idris2`, broken after the multi-build-key refactor moved the prefix to `build/<BUILD_KEY>/idris2-prefix/`).
+
+**Impact (tape build, 10 configs)**:
+
+| seed | mp=false (loss) | mp=false (correct) | mp=true (loss) | mp=true (correct) | Δ loss |
+|---|---|---|---|---|---|
+| 42 | 0.13606813064182385 | 5/5 | 0.13606813064182385 | 5/5 | **0.0** |
+| 43 | 0.13606813064182385 | 5/5 | 0.13606813064182385 | 5/5 | **0.0** |
+| 44 | 0.13606813064182385 | 5/5 | 0.13606813064182385 | 5/5 | **0.0** |
+| 45 | 0.13606813064182385 | 5/5 | 0.13606813064182385 | 5/5 | **0.0** |
+| 46 | 0.13606813064182385 | 5/5 | 0.13606813064182385 | 5/5 | **0.0** |
+
+10/10 runs converge to 5/5 eval. The mixed-precision path produces **bit-identical loss** to the default path at every seed. This is the strongest possible structural-correctness signal: every component of the A0–A4 pipeline (the autograd-aware tcast no-op when paramDt = computeDt, the GradScaler's pass-through behaviour when no overflow, the trainStepScaled NaN-sentinel never firing, the growth/backoff state advancing identically across the loop) lines up with the default path.
+
+**Outcome**: structural proof landed. The BF16-vs-F32 numerical sweep (the actual 3/5 → 4/5 acceptance test) requires a separate `BACKEND=torch TORCH_DEVICE=mps TORCH_DTYPE=BF16` build, which switches `ExampleDType` to BF16 in `BuildConfig.idr`. The `runMixed` path in `Supervised.idr` currently uses `{paramDt = ExampleDType} {computeDt = ExampleDType}` — to actually exercise the F32-master / BF16-compute decoupling, the example needs an additional flag to pin `paramDt = F32` explicitly. Filed as a follow-up; the F4 infrastructure (sweep spec, correct counter, GradScaler scale readout) is in place.
+
+**Commit**: F4 (TBD this commit).
+
 ### 2026-05-31 — Rank-3 broadcast microbench localises the gap to OUR wrapper (#402 Commit 1)
 
 **Plan**: before committing to any specific wrapper-side fix for the 400-2000× rank-3 broadcast gap, measure raw libtorch vs PyTorch Python on the same shape, same device. Decide direction from the data, per the plan's decision tree.

@@ -1,0 +1,10 @@
+{
+  "name": "supervised-mixed",
+  "src": "packages/idris-ml-examples/src/Example/Supervised.idr",
+  "exec": "supervised",
+  "fixed_flags": ["--epochs", "1000", "--lr", "0.03"],
+  "grid": {
+    "--seed": [42, 43, 44, 45, 46],
+    "--mixed-precision": ["false", "true"]
+  }
+}

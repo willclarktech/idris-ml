@@ -73,6 +73,21 @@ evalPredictionTarget (VArray [SArray a, SArray b, SArray c]) =
 showVecD : Vector 2 Double -> String
 showVecD (VArray [SArray a, SArray b]) = "[" ++ show a ++ ", " ++ show b ++ "]"
 
+-- Run the per-sample eval, return (printed lines, correct count).
+evalOneDefault :
+  Network 2 [] 3 ExampleDevice ExampleDType WithGrad ->
+  (Nat, DataPoint 2 3 Double) -> IO Nat
+evalOneDefault trained (_, dp) = do
+  let inV = the (TVec 2 ExampleDevice ExampleDType WithGrad)
+                (MkTensor (vectorToTensorPersistent {d=ExampleDevice} {dt=ExampleDType} (x dp)) Nothing)
+  (_, predV) <- forwardVar trained inV
+  let predClass = evalPrediction predV
+      targetClass = evalPredictionTarget (y dp)
+      okFlag = targetClass == predClass
+      ok = if okFlag then " ok" else " WRONG"
+  putStrLn $ "  " ++ showVecD (x dp) ++ " -> class " ++ show predClass ++ ok
+  pure (if okFlag then 1 else 0)
+
 -- Default-precision path: builds a `Network`, trains via `epochVar`,
 -- evals via `forwardVar`.
 runDefault : Config -> NativeOptimizer ExampleDevice -> IO ()
@@ -91,20 +106,33 @@ runDefault cfg opt = do
   putStrLn ""
   putStrLn "Eval:"
 
-  traverse_ (\(idx, dp) => do
-    let inV = the (TVec 2 ExampleDevice ExampleDType WithGrad)
-                  (MkTensor (vectorToTensorPersistent {d=ExampleDevice} {dt=ExampleDType} (x dp)) Nothing)
-    (_, predV) <- forwardVar trained inV
-    let predClass = evalPrediction predV
-        targetClass = evalPredictionTarget (y dp)
-        ok = if targetClass == predClass then " ok" else " WRONG"
-    putStrLn $ "  " ++ showVecD (x dp) ++ " -> class " ++ show predClass ++ ok)
-    (zip Fin.range dataPoints)
+  let dpListV : Vect 5 (Fin 5, DataPoint 2 3 Double)
+      dpListV = zip Fin.range dataPoints
+      dpList : List (Nat, DataPoint 2 3 Double)
+      dpList = toList (map (\(f, d) => (finToNat f, d)) dpListV)
+  correctCounts <- traverse (evalOneDefault trained) dpList
+  let correct = the Nat (sum correctCounts)
 
   putStrLn ""
   putStrLn $ formatResult [ ("epochs", show epochsDone)
                           , ("loss", show finalLoss)
-                          , ("seed", show cfg.seed) ]
+                          , ("seed", show cfg.seed)
+                          , ("correct", show correct ++ "/5") ]
+
+-- Mixed-precision eval helper.
+evalOneMixed :
+  NetworkMixed 2 [] 3 ExampleDevice ExampleDType ExampleDType WithGrad ->
+  (Nat, DataPoint 2 3 Double) -> IO Nat
+evalOneMixed trained (_, dp) = do
+  let inV = the (TVec 2 ExampleDevice ExampleDType WithGrad)
+                (MkTensor (vectorToTensorPersistent {d=ExampleDevice} {dt=ExampleDType} (x dp)) Nothing)
+  (_, predV) <- forwardVarMixed trained inV
+  let predClass = evalPrediction predV
+      targetClass = evalPredictionTarget (y dp)
+      okFlag = targetClass == predClass
+      ok = if okFlag then " ok" else " WRONG"
+  putStrLn $ "  " ++ showVecD (x dp) ++ " -> class " ++ show predClass ++ ok
+  pure (if okFlag then 1 else 0)
 
 -- Mixed-precision path (F3 of #410): builds a `NetworkMixed`
 -- (paramDt = computeDt = ExampleDType so the cast is a structural
@@ -131,21 +159,19 @@ runMixed cfg opt = do
   putStrLn ""
   putStrLn "Eval:"
 
-  traverse_ (\(idx, dp) => do
-    let inV = the (TVec 2 ExampleDevice ExampleDType WithGrad)
-                  (MkTensor (vectorToTensorPersistent {d=ExampleDevice} {dt=ExampleDType} (x dp)) Nothing)
-    (_, predV) <- forwardVarMixed trained inV
-    let predClass = evalPrediction predV
-        targetClass = evalPredictionTarget (y dp)
-        ok = if targetClass == predClass then " ok" else " WRONG"
-    putStrLn $ "  " ++ showVecD (x dp) ++ " -> class " ++ show predClass ++ ok)
-    (zip Fin.range dataPoints)
+  let dpListV : Vect 5 (Fin 5, DataPoint 2 3 Double)
+      dpListV = zip Fin.range dataPoints
+      dpList : List (Nat, DataPoint 2 3 Double)
+      dpList = toList (map (\(f, d) => (finToNat f, d)) dpListV)
+  correctCounts <- traverse (evalOneMixed trained) dpList
+  let correct = the Nat (sum correctCounts)
 
   scaleAtEnd <- currentScale gs
   putStrLn ""
   putStrLn $ formatResult [ ("epochs", show epochsDone)
                           , ("loss", show finalLoss)
                           , ("seed", show cfg.seed)
+                          , ("correct", show correct ++ "/5")
                           , ("final_scale", show scaleAtEnd) ]
 
 main : IO ()

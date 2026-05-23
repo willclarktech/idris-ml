@@ -68,8 +68,11 @@ done
 cd "$(dirname "$0")/.."
 
 # Mirror Makefile's idris2 package-path setup so this script works
-# without `make` being involved.
-IDRIS2_LOCAL="$(pwd)/.idris2"
+# without `make` being involved. IDRIS2_LOCAL is exported by the
+# Makefile after the multi-build-key refactor (build/<BUILD_KEY>/
+# idris2-prefix); fall back to the legacy `.idris2` at repo root
+# for users invoking the script outside `make`.
+IDRIS2_LOCAL="${IDRIS2_LOCAL:-$(pwd)/.idris2}"
 SYS_IDRIS2_PREFIX="$(idris2 --paths 2>/dev/null | sed -n 's/.*Installation Prefix.*"\([^"]*\)".*/\1/p' || true)"
 if [[ -z "$SYS_IDRIS2_PREFIX" ]]; then
   export IDRIS2_PACKAGE_PATH="$IDRIS2_LOCAL/idris2-0.8.0"
