@@ -523,20 +523,24 @@ TensorHandle tensor_clone(TensorHandle h) {
 void tensor_free(TensorHandle h) {
     if (!h) return;
     auto t = (Tensor*)h;
-    // Skip registered params — they're managed by param_clear
+    // Skip registered params — they're managed by param_clear.
     for (auto& p : param_registry) {
         if (p.tensor == t) return;
     }
-    // Remove from all_tensors tracking and delete.
-    // If not found in all_tensors, it was already freed by tape_reset — skip.
-    for (size_t i = 0; i < all_tensors.size(); i++) {
-        if (all_tensors[i] == t) {
-            all_tensors.erase(all_tensors.begin() + i);
-            delete t;
-            return;
-        }
+    // Refcount-driven world (since commit 7eab36c): forcing `delete t` here
+    // leaves dangling Tensor* pointers in tape entries that still reference
+    // this result/arg, and the next tape_reset crashes when it walks the
+    // tape to release retains. Instead drop the caller's implicit hold;
+    // the tape's own retains (set by tape_append on result/arg1/arg2) keep
+    // the Tensor alive until tape_reset releases them and sweeps refcount=0.
+    //
+    // We must also defend against the caller passing a handle that was
+    // already swept by a prior tape_reset (common when optimizer_step
+    // ran between the user's create and their free): touching `t` would
+    // be use-after-free. Probe all_tensors first; skip if absent.
+    for (auto* alive : all_tensors) {
+        if (alive == t) { tensor_release_internal(t); return; }
     }
-    // Not in all_tensors — already freed by tape_reset, skip
 }
 
 /* ================================================================

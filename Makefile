@@ -392,7 +392,7 @@ check-non-io-side-effects:
 
 # Backend API test suite — runs against whichever backend is active
 test-backend: $(BACKENDS_DIR)/test_backend.c backend | $(BUILD)
-	cc -o $(BUILD)/test_backend $(BACKENDS_DIR)/test_backend.c -L$(BUILD) -lidrisml -Wl,-rpath,$(BUILD) -lm
+	cc -o $(BUILD)/test_backend $(BACKENDS_DIR)/test_backend.c -DBACKEND_$(shell echo $(PRIMARY) | tr a-z A-Z) -L$(BUILD) -lidrisml -Wl,-rpath,$(BUILD) -lm
 	./$(BUILD)/test_backend
 
 # Per-backend convenience targets
