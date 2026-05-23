@@ -38,9 +38,16 @@ record Config where
   epochs : Nat
   seed : Bits64
   mixedPrecision : Bool
+  ||| Mixed-precision parameter-storage mode (F5 of #410). Only
+  ||| consulted when `mixedPrecision = True`. Accepted values:
+  ||| - `"native"` (default): `paramDt = computeDt = ExampleDType`
+  ||| - `"f32"`: `paramDt = F32`, `computeDt = ExampleDType`. On the
+  ||| torch-mps BF16 build this is the actual F32-master /
+  ||| BF16-compute decoupling that the autocast equivalent targets.
+  paramDtype : String
 
 defaultConfig : Config
-defaultConfig = MkConfig 0.03 1000 42 False
+defaultConfig = MkConfig 0.03 1000 42 False "native"
 
 -- Treat "1" or any "true"-prefix string as true; anything else (the
 -- bare flag with no value, "0", "false") falls through to false. The
@@ -53,7 +60,8 @@ specs : List (ArgSpec Config)
 specs = [ Arg "--lr" (\v, c => { lr := cast v } c)
         , Arg "--epochs" (\v, c => { epochs := castNat v } c)
         , Arg "--seed" (\v, c => { seed := castBits64 v } c)
-        , Arg "--mixed-precision" (\v, c => { mixedPrecision := boolFlag v } c) ]
+        , Arg "--mixed-precision" (\v, c => { mixedPrecision := boolFlag v } c)
+        , Arg "--param-dtype" (\v, c => { paramDtype := v } c) ]
 
 
 -- Argmax on a TVec (read three values via prim__item1d).
@@ -119,9 +127,14 @@ runDefault cfg opt = do
                           , ("seed", show cfg.seed)
                           , ("correct", show correct ++ "/5") ]
 
--- Mixed-precision eval helper.
+-- Mixed-precision eval helper. Polymorphic over the param dtype
+-- slot — the forward only sees computeDt at the value level, but
+-- the typeclass dispatch needs the paramDt constraints to resolve.
 evalOneMixed :
-  NetworkMixed 2 [] 3 ExampleDevice ExampleDType ExampleDType WithGrad ->
+  {0 pDt : DType} ->
+  RuntimeDType pDt => IsDType pDt =>
+  Compatible ExampleDevice pDt =>
+  NetworkMixed 2 [] 3 ExampleDevice pDt ExampleDType WithGrad ->
   (Nat, DataPoint 2 3 Double) -> IO Nat
 evalOneMixed trained (_, dp) = do
   let inV = the (TVec 2 ExampleDevice ExampleDType WithGrad)
@@ -134,20 +147,25 @@ evalOneMixed trained (_, dp) = do
   putStrLn $ "  " ++ showVecD (x dp) ++ " -> class " ++ show predClass ++ ok
   pure (if okFlag then 1 else 0)
 
--- Mixed-precision path (F3 of #410): builds a `NetworkMixed`
--- (paramDt = computeDt = ExampleDType so the cast is a structural
--- no-op on default builds; users wanting an actual lossy cast
--- supply a different `MLX_DTYPE` / `TORCH_DTYPE` for ExampleDType),
--- a `defaultGradScaler`, trains via `epochVarMixed`, evals via
--- `forwardVarMixed`.
-runMixed : Config -> NativeOptimizer ExampleDevice -> IO ()
-runMixed cfg opt = do
-  llAny <- mixedLinearLayerAny {paramDt = ExampleDType} {computeDt = ExampleDType}
-                               {i = 2} {o = 3} "ll"
-  let model : NetworkMixed 2 [] 3 ExampleDevice ExampleDType ExampleDType WithGrad
+-- Mixed-precision train+eval pipeline, polymorphic over the param
+-- dtype slot. The caller supplies the layer-construction action so
+-- the paramDt is concretely pinned by the `mixedLinearLayerAny`
+-- call site (Idris-2 can't dispatch types from a runtime string,
+-- so each --param-dtype mode is its own typed sub-program below).
+runMixedGeneric :
+  {0 pDt : DType} ->
+  RuntimeDType pDt => IsDType pDt =>
+  Compatible ExampleDevice pDt =>
+  Config -> NativeOptimizer ExampleDevice ->
+  IO (AnyLayerMixed 2 3 ExampleDevice pDt ExampleDType WithGrad) ->
+  String ->
+  IO ()
+runMixedGeneric cfg opt mkLayer modeLabel = do
+  llAny <- mkLayer
+  let model : NetworkMixed 2 [] 3 ExampleDevice pDt ExampleDType WithGrad
       model = OutputLayerMixed llAny
   gs <- defaultGradScaler {d=ExampleDevice} {dt=ExampleDType}
-  putStrLn "Mixed-precision mode: paramDt = computeDt = ExampleDType"
+  putStrLn modeLabel
   putStrLn ""
 
   (trained, epochsDone, finalLoss) <- runTraining {d=ExampleDevice}
@@ -174,6 +192,28 @@ runMixed cfg opt = do
                           , ("correct", show correct ++ "/5")
                           , ("final_scale", show scaleAtEnd) ]
 
+-- F3 mixed mode (paramDt = computeDt = ExampleDType): the cast
+-- inside LinearMixed.applyVarMixed is structurally a no-op on
+-- builds where ExampleDType is the only dtype in play.
+runMixedNative : Config -> NativeOptimizer ExampleDevice -> IO ()
+runMixedNative cfg opt =
+  runMixedGeneric cfg opt
+    (mixedLinearLayerAny {paramDt = ExampleDType} {computeDt = ExampleDType}
+                         {i = 2} {o = 3} "ll")
+    "Mixed-precision mode: paramDt = computeDt = ExampleDType (native)"
+
+-- F5 mixed mode (paramDt = F32, computeDt = ExampleDType): the
+-- F32-master / ExampleDType-compute decoupling. On the torch-mps
+-- BF16 build this is the actual autocast-equivalent recipe — F32
+-- weights, BF16 forward/backward via the autograd-aware tcast,
+-- F32 grad accumulation, optimizer steps F32 directly.
+runMixedF32Master : Config -> NativeOptimizer ExampleDevice -> IO ()
+runMixedF32Master cfg opt =
+  runMixedGeneric cfg opt
+    (mixedLinearLayerAny {paramDt = F32} {computeDt = ExampleDType}
+                         {i = 2} {o = 3} "ll")
+    "Mixed-precision mode: paramDt = F32, computeDt = ExampleDType (f32-master)"
+
 main : IO ()
 main = do
   args <- getArgs
@@ -187,5 +227,10 @@ main = do
   putStrLn $ "Config: lr=" ++ show cfg.lr ++ " epochs=" ++ show cfg.epochs
            ++ " seed=" ++ show cfg.seed
            ++ " mixed-precision=" ++ show cfg.mixedPrecision
+           ++ " param-dtype=" ++ cfg.paramDtype
 
-  if cfg.mixedPrecision then runMixed cfg opt else runDefault cfg opt
+  if cfg.mixedPrecision
+    then case cfg.paramDtype of
+      "f32" => runMixedF32Master cfg opt
+      _     => runMixedNative cfg opt
+    else runDefault cfg opt
