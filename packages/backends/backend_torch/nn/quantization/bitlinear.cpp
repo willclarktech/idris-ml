@@ -85,3 +85,51 @@ extern "C" TensorHandle tensor_bitlinear_fwd(
     }
     return from_tensor(y);
 }
+
+
+/* ------------------------------------------------------------------
+   Load-time absmean ternary quantization
+   ------------------------------------------------------------------ */
+
+extern "C" TensorHandle tensor_absmean_per_row_2d(TensorHandle hw) {
+    auto w = *to_tensor(hw);
+    if (w.dim() != 2) {
+        std::fprintf(stderr, "[torch] tensor_absmean_per_row_2d: expected 2D, "
+            "got dim=%lld\n", (long long)w.dim());
+        std::abort();
+    }
+    /* at::mean(abs(w), dim=1) → [o], same dtype as w. NoGrad — one-shot
+       frozen-quant calculation. */
+    auto scale = at::mean(at::abs(w), /*dim=*/1, /*keepdim=*/false);
+    return from_tensor(scale);
+}
+
+extern "C" TensorHandle tensor_ternary_quant_with_scale_2d(
+        TensorHandle hw, TensorHandle hscale) {
+    auto w = *to_tensor(hw);
+    auto scale = *to_tensor(hscale);
+    if (w.dim() != 2) {
+        std::fprintf(stderr, "[torch] tensor_ternary_quant_with_scale_2d: "
+            "expected 2D weight, got dim=%lld\n", (long long)w.dim());
+        std::abort();
+    }
+    if (scale.dim() != 1 || scale.size(0) != w.size(0)) {
+        std::fprintf(stderr, "[torch] tensor_ternary_quant_with_scale_2d: "
+            "scale shape mismatch (expected [%lld], got dim=%lld size0=%lld)\n",
+            (long long)w.size(0), (long long)scale.dim(),
+            scale.dim() > 0 ? (long long)scale.size(0) : -1);
+        std::abort();
+    }
+    /* Clamp the divisor at 1e-12 — same /0 guard as
+       `absmean_ternary_quant` in pytorch/torch_ref/models/bitlinear.py.
+       Then mask rows where the *original* scale was zero so they stay
+       all-zero post-cast. */
+    auto safe = at::clamp_min(scale, 1e-12);
+    auto ratio = w / safe.unsqueeze(1);              /* [o, i] */
+    auto rounded = at::round(ratio);
+    auto clamped = at::clamp(rounded, -1.0, 1.0);
+    auto active = (scale > 0).to(w.scalar_type());   /* [o] in w dtype */
+    auto t_float = clamped * active.unsqueeze(1);
+    auto t_int8 = t_float.to(at::kChar);             /* [o, i] int8 */
+    return from_tensor_persistent(t_int8);
+}

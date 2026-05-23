@@ -250,6 +250,15 @@ MANIFEST = {
     # Idris-level type (zero-init when caller doesn't want one).
     "tensor_create_ternary_packed_2d":  (("R", "i", "i", "i", "i"), "T"),
     "tensor_bitlinear_fwd":             (("T", "T", "T", "T"), "T"),
+
+    # Load-time absmean ternary quantization. `absmean_per_row_2d` reads
+    # a float [o, i] weight and returns [o] in same dtype.
+    # `ternary_quant_with_scale_2d` consumes the weight + that scale and
+    # returns DT_TERNARY in per-backend packed/int8 layout. Both NoGrad —
+    # the pair runs once per linear at checkpoint load time to convert
+    # F-stored BitNet weights into our Ternary tag.
+    "tensor_absmean_per_row_2d":         (("T",), "T"),
+    "tensor_ternary_quant_with_scale_2d":(("T", "T"), "T"),
 }
 
 # C function names to LEAVE AS-IS (don't convert).

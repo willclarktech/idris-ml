@@ -601,8 +601,20 @@ interface UserDeviceCore d => UserDeviceTransfer (0 d : Device) where
 |||
 ||| `primBitlinearFwd` runs y = (W_ternary .* scale[:, None]) @ x +
 ||| bias with W decoded inline (tape) or via int8-cast (torch/mlx).
-||| Inference-only; the STE-aware training path is filed under #411 B5.
+||| Inference-only; STE-aware training is filed as a follow-up to #411.
+|||
+||| `primAbsmeanPerRow2d` returns the per-row absmean of a float [o, i]
+||| weight: scale[j] = mean_k(|w[j, k]|), shape [o], same dtype as `w`.
+||| `primTernaryQuantWithScale2d` takes the weight + that scale and
+||| produces a Ternary tensor via per-row round-and-clamp. Together
+||| they're the load-time recipe for converting an HF-stored F-dtype
+||| BitNet checkpoint into our packed-ternary tag — see
+||| `packages/pytorch/torch_ref/models/bitlinear.py`
+||| `absmean_ternary_quant` for the reference implementation. Both
+||| NoGrad; the pair runs once per linear at load.
 public export
 interface UserDeviceCore d => UserDeviceQuant (0 d : Device) where
-  primCreateTernaryPacked2d : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
-  primBitlinearFwd          : AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr
+  primCreateTernaryPacked2d   : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
+  primBitlinearFwd            : AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr
+  primAbsmeanPerRow2d         : AnyPtr -> AnyPtr
+  primTernaryQuantWithScale2d : AnyPtr -> AnyPtr -> AnyPtr

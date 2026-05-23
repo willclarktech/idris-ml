@@ -25,6 +25,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <math.h>
 #include "../../arena.h"
 #include "../../tensor.h"
 #include "../../../backend.h"
@@ -197,4 +198,160 @@ TensorHandle tensor_bitlinear_fwd(
        this op — same shape as the existing F64 inference-only kernels. */
     Tensor* r = make_tensor_arena(out_data, o, out_shape, 1, 0);
     return (TensorHandle)r;
+}
+
+
+/* ------------------------------------------------------------------
+   Load-time absmean ternary quantization
+   ------------------------------------------------------------------ */
+
+/* Per-row absmean: scale[j] = mean_k(|w[j, k]|).
+ *
+ * `w` must be 2D in F64 or F32. Output matches `w`'s dtype + shape
+ * [w->shape[0]]. NoGrad (rhs of the BitNet quantization pipeline). */
+TensorHandle tensor_absmean_per_row_2d(TensorHandle hw) {
+    Tensor* w = (Tensor*)hw;
+    if (w->rank != 2) {
+        fprintf(stderr, "[tape] tensor_absmean_per_row_2d: expected 2D input, "
+            "got rank=%d\n", w->rank);
+        abort();
+    }
+    int o = w->shape[0];
+    int i_dim = w->shape[1];
+    int out_shape[1] = {o};
+
+    if (w->dtype_tag == DT_F64) {
+        const double* wd = (const double*)w->data;
+        double* sd = arena_alloc((size_t)o * sizeof(double));
+        for (int j = 0; j < o; j++) {
+            double s = 0.0;
+            const double* row = wd + (size_t)j * (size_t)i_dim;
+            for (int k = 0; k < i_dim; k++) {
+                double v = row[k];
+                s += v < 0.0 ? -v : v;
+            }
+            sd[j] = s / (double)i_dim;
+        }
+        Tensor* r = make_tensor_arena(sd, o, out_shape, 1, 0);
+        return (TensorHandle)r;
+    } else if (w->dtype_tag == DT_F32) {
+        const float* wf = (const float*)w->data;
+        float* sf = arena_alloc((size_t)o * sizeof(float));
+        for (int j = 0; j < o; j++) {
+            float s = 0.0f;
+            const float* row = wf + (size_t)j * (size_t)i_dim;
+            for (int k = 0; k < i_dim; k++) {
+                float v = row[k];
+                s += v < 0.0f ? -v : v;
+            }
+            sf[j] = s / (float)i_dim;
+        }
+        Tensor* r = make_tensor_arena_f32(sf, o, out_shape, 1, 0);
+        return (TensorHandle)r;
+    } else {
+        fprintf(stderr, "[tape] tensor_absmean_per_row_2d: only F64 and F32 "
+            "inputs supported (got dtype_tag=%d)\n", w->dtype_tag);
+        abort();
+    }
+}
+
+/* Quantize a 2D float weight to ternary via a pre-computed per-row scale.
+ *
+ * For each (j, k): t[j, k] = round(w[j, k] / scale[j]).clamp(-1, +1)
+ * (rows with scale == 0 produce all-zero ternary).
+ *
+ * Output: DT_TERNARY in tape's packed 2-bit layout
+ * ([o, (i + 3) / 4] bytes). NoGrad. */
+static inline int8_t round_clamp_ternary(double x) {
+    /* round-half-to-even (banker's) — matches `torch.round` and the
+       absmean_ternary_quant reference in pytorch/torch_ref/models/bitlinear.py. */
+    double r = (x >= 0.0) ? floor(x + 0.5) : ceil(x - 0.5);
+    if (r > 1.0) r = 1.0;
+    if (r < -1.0) r = -1.0;
+    return (int8_t)r;
+}
+
+TensorHandle tensor_ternary_quant_with_scale_2d(TensorHandle hw, TensorHandle hscale) {
+    Tensor* w = (Tensor*)hw;
+    Tensor* scale = (Tensor*)hscale;
+    if (w->rank != 2) {
+        fprintf(stderr, "[tape] tensor_ternary_quant_with_scale_2d: expected "
+            "2D weight, got rank=%d\n", w->rank);
+        abort();
+    }
+    if (scale->rank != 1 || scale->shape[0] != w->shape[0]) {
+        fprintf(stderr, "[tape] tensor_ternary_quant_with_scale_2d: scale shape "
+            "mismatch (expected [%d], got rank=%d shape0=%d)\n",
+            w->shape[0], scale->rank, scale->rank > 0 ? scale->shape[0] : -1);
+        abort();
+    }
+    if (w->dtype_tag != scale->dtype_tag) {
+        fprintf(stderr, "[tape] tensor_ternary_quant_with_scale_2d: dtype "
+            "mismatch (w=%d, scale=%d)\n", w->dtype_tag, scale->dtype_tag);
+        abort();
+    }
+    int o = w->shape[0];
+    int i_dim = w->shape[1];
+    int bytes_per_row = (i_dim + 3) / 4;
+    int total_bytes = bytes_per_row * o;
+
+    /* Output tensor: tape's packed-ternary storage. */
+    Tensor* t = arena_alloc(sizeof(Tensor));
+    memset(t, 0, sizeof(Tensor));
+    uint8_t* packed = arena_alloc((size_t)total_bytes);
+    memset(packed, 0, (size_t)total_bytes);  /* default code 00 == ternary 0 */
+    int* shape_out = arena_alloc(2 * sizeof(int));
+    shape_out[0] = o;
+    shape_out[1] = i_dim;
+    t->data = packed;
+    t->shape = shape_out;
+    t->rank = 2;
+    t->numel = o * i_dim;
+    t->requires_grad = 0;
+    t->tape_idx = -1;
+    t->grad = NULL;
+    t->persistent = 0;
+    t->dtype_tag = DT_TERNARY;
+
+    if (w->dtype_tag == DT_F64) {
+        const double* wd = (const double*)w->data;
+        const double* sd = (const double*)scale->data;
+        for (int j = 0; j < o; j++) {
+            double sj = sd[j];
+            uint8_t* row_out = packed + (size_t)j * (size_t)bytes_per_row;
+            const double* row_in = wd + (size_t)j * (size_t)i_dim;
+            if (sj <= 0.0) continue;  /* scale==0 row stays all-zero */
+            double inv = 1.0 / sj;
+            for (int k = 0; k < i_dim; k++) {
+                int8_t v = round_clamp_ternary(row_in[k] * inv);
+                /* Encode: 0 -> 00, +1 -> 01, -1 -> 11. Slot 0 in low bits. */
+                uint8_t code = (v == 0) ? 0u : (v == 1 ? 1u : 3u);
+                int byte_idx = k >> 2;
+                int slot = k & 0x3;
+                row_out[byte_idx] |= (uint8_t)(code << (slot * 2));
+            }
+        }
+    } else if (w->dtype_tag == DT_F32) {
+        const float* wf = (const float*)w->data;
+        const float* sf = (const float*)scale->data;
+        for (int j = 0; j < o; j++) {
+            float sj = sf[j];
+            uint8_t* row_out = packed + (size_t)j * (size_t)bytes_per_row;
+            const float* row_in = wf + (size_t)j * (size_t)i_dim;
+            if (sj <= 0.0f) continue;
+            float inv = 1.0f / sj;
+            for (int k = 0; k < i_dim; k++) {
+                int8_t v = round_clamp_ternary((double)(row_in[k] * inv));
+                uint8_t code = (v == 0) ? 0u : (v == 1 ? 1u : 3u);
+                int byte_idx = k >> 2;
+                int slot = k & 0x3;
+                row_out[byte_idx] |= (uint8_t)(code << (slot * 2));
+            }
+        }
+    } else {
+        fprintf(stderr, "[tape] tensor_ternary_quant_with_scale_2d: only F64 "
+            "and F32 inputs supported (got dtype_tag=%d)\n", w->dtype_tag);
+        abort();
+    }
+    return (TensorHandle)t;
 }

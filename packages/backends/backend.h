@@ -335,6 +335,40 @@ TensorHandle tensor_create_ternary_packed_2d(
 TensorHandle tensor_bitlinear_fwd(
     TensorHandle W, TensorHandle scale, TensorHandle x, TensorHandle bias);
 
+/* Per-row absmean scale for ternary quantization.
+ *
+ * Input: `w` shape [o, i] in F32 or F64 (tape) or any IEEE float
+ *        (torch / mlx — uses framework abs+mean).
+ * Output: shape [o] in `w`'s dtype. NoGrad.
+ *
+ * scale[j] = mean_k(|w[j, k]|), with mean computed in `w`'s compute
+ * dtype. Rows whose absmean is zero produce scale == 0 (the caller's
+ * ternary kernel must guard against /0 in that row — see
+ * `tensor_ternary_quant_with_scale_2d` below). */
+TensorHandle tensor_absmean_per_row_2d(TensorHandle w);
+
+/* Quantize a 2D float weight to ternary via a pre-computed per-row scale.
+ *
+ * Inputs:
+ *   w:     [o, i] in F32 or F64 (tape) or any IEEE float (torch / mlx).
+ *   scale: [o] same dtype as `w`. Typically the output of
+ *          `tensor_absmean_per_row_2d`, but the caller can supply any
+ *          per-row divisor.
+ *
+ * For each (j, k):
+ *   t[j, k] = round(w[j, k] / scale[j]).clamp(-1, +1) if scale[j] > 0
+ *           else 0
+ *
+ * Storage of the output is per-backend (matches
+ * `tensor_create_ternary_packed_2d`):
+ *   - tape: packed 2-bit per slot, [o, (i + 3) / 4] bytes,
+ *           tag DT_TERNARY.
+ *   - torch / mlx: int8 [o, i], values in {-1, 0, +1}, tag DT_TERNARY.
+ *
+ * NoGrad on the output. */
+TensorHandle tensor_ternary_quant_with_scale_2d(
+    TensorHandle w, TensorHandle scale);
+
 /* ---------- Parameter Registry ---------- */
 
 /* Register a named parameter for gradient collection after backward() */

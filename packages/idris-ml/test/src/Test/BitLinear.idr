@@ -186,6 +186,80 @@ bitlinearForwardOracleF32 = do
   pure (ok0 && ok1 && ok2)
 
 
+----------------------------------------------------------------------
+-- Load-time absmean quant: real-valued weights → ternary
+----------------------------------------------------------------------
+--
+-- Roundtrip the per-row absmean quantization recipe. Starts from a
+-- real-valued weight (the kind a HF BitNet checkpoint actually
+-- carries on disk), runs `tAbsmeanTernaryQuant2d`, runs the
+-- resulting (W_ternary, scale) through `tBitlinearFwd`, and asserts
+-- the output matches the dequant-then-bitlinear oracle.
+--
+-- Fixture weights are pre-snapped to {-0.5, 0, +0.5} so the
+-- absmean is unambiguous (0.25 for rows with all three values, etc.)
+-- and the resulting (W_ternary, scale) pair is byte-deterministic.
+--
+-- Fixture (o=3, i=4) — chosen so each row has a different non-zero
+-- absmean and the ternary pattern matches `FIXTURE_W_TERNARY` of the
+-- oracle test above (so we can reuse the same expected y).
+--
+--   W_raw = [[ 0.5,  0.0, -0.5,  0.5],   row 0, absmean = 0.375
+--            [-1.0,  1.0,  1.0,  0.0],   row 1, absmean = 0.75
+--            [ 0.0, -0.5,  0.0,  0.5]]   row 2, absmean = 0.25
+--
+-- Quantization:
+--   scale[j] = mean_k(|W[j, k]|)
+--   t[j, k]  = round(W[j, k] / scale[j]).clamp(-1, +1)
+-- Yields:
+--   ternary = [[ 1,  0, -1,  1],   (row 0 / 0.375 = ±1.33 → ±1, clamp)
+--              [-1,  1,  1,  0],
+--              [ 0, -1,  0,  1]]
+--   scale   = [0.375, 0.75, 0.25]
+--
+-- Forward with x = [1.0, 2.0, -0.5, 0.25], bias = [0.1, -0.2, 0.3]:
+--   y[0] = 0.375 * (1*1.0 + 0*2.0 + (-1)*(-0.5) + 1*0.25) + 0.1
+--        = 0.375 * 1.75 + 0.1 = 0.65625 + 0.1 = 0.75625
+--   y[1] = 0.75 * ((-1)*1.0 + 1*2.0 + 1*(-0.5) + 0*0.25) - 0.2
+--        = 0.75 * 0.5 - 0.2 = 0.375 - 0.2 = 0.175
+--   y[2] = 0.25 * (0*1.0 + (-1)*2.0 + 0*(-0.5) + 1*0.25) + 0.3
+--        = 0.25 * (-1.75) + 0.3 = -0.4375 + 0.3 = -0.1375
+
+mkMat34NoGrad : Vect 3 (Vect 4 Double) ->
+                IO (Tensor [3, 4] TestDevice TestDType NoGrad)
+mkMat34NoGrad xs = do
+  raw <- ioRerun (\_ => bulkToTensor2d {d=TestDevice} {dt=TestDType}
+                                       (map (\row => VArray (map SArray row)) xs))
+  weakenGrad {d=TestDevice} (tinput2d {m=3} {n=4} raw)
+
+
+absmeanQuantRoundtripOracle : IO Bool
+absmeanQuantRoundtripOracle = do
+  w <- mkMat34NoGrad [
+         [ 0.5,  0.0, -0.5,  0.5],
+         [-1.0,  1.0,  1.0,  0.0],
+         [ 0.0, -0.5,  0.0,  0.5]]
+  (ternaryW, scale) <- tAbsmeanTernaryQuant2d w
+  x <- mkVec       (the (Vect 4 Double) [1.0, 2.0, -0.5, 0.25])
+  b <- mkVec       (the (Vect 3 Double) [0.1, -0.2, 0.3])
+  y <- tBitlinearFwd {d=TestDevice} {cDt=TestDType} ternaryW scale x b
+  y0 <- readElem3 y 0
+  y1 <- readElem3 y 1
+  y2 <- readElem3 y 2
+  let tol = 1.0e-6
+  ok0 <- checkClose "absmean-quant y[0] matches hand-computed" 0.75625   y0 tol
+  ok1 <- checkClose "absmean-quant y[1] matches hand-computed" 0.175     y1 tol
+  ok2 <- checkClose "absmean-quant y[2] matches hand-computed" (-0.1375) y2 tol
+  -- Also assert the scale matches the absmean by hand:
+  s0 <- readElem3 scale 0
+  s1 <- readElem3 scale 1
+  s2 <- readElem3 scale 2
+  ok3 <- checkClose "scale[0] = 0.375" 0.375 s0 tol
+  ok4 <- checkClose "scale[1] = 0.75"  0.75  s1 tol
+  ok5 <- checkClose "scale[2] = 0.25"  0.25  s2 tol
+  pure (ok0 && ok1 && ok2 && ok3 && ok4 && ok5)
+
+
 export
 tests : List (IO Bool)
 tests =
@@ -193,4 +267,5 @@ tests =
   , bitlinearStateRoundtrip
   , bitlinearLayerLikeMixedOracle
   , bitlinearForwardOracleF32
+  , absmeanQuantRoundtripOracle
   ]

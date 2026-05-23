@@ -645,10 +645,18 @@ prim__createTernaryPacked2dTape : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
 %foreign "scheme:(lambda (a0 a1 a2 a3)  (when (not (top-level-bound? 'idris-ffi-tensor-bitlinear-fwd-tape)) (set-top-level-value! 'idris-ffi-tensor-bitlinear-fwd-tape (foreign-procedure \"tensor_bitlinear_fwd_tape\" (void* void* void* void*) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-tape)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-tape (foreign-procedure \"tensor_retain_handle_tape\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-bitlinear-fwd-tape) (vector-ref a0 2) (vector-ref a1 2) (vector-ref a2 2) (vector-ref a3 2)))) (let ((wr (vector 'tensor-handle-v2 \"tape\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-tape) raw_r) wr)))"
 prim__bitlinearFwdTape : AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr
 
+%foreign "scheme:(lambda (a0)  (when (not (top-level-bound? 'idris-ffi-tensor-absmean-per-row-2d-tape)) (set-top-level-value! 'idris-ffi-tensor-absmean-per-row-2d-tape (foreign-procedure \"tensor_absmean_per_row_2d_tape\" (void*) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-tape)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-tape (foreign-procedure \"tensor_retain_handle_tape\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-absmean-per-row-2d-tape) (vector-ref a0 2)))) (let ((wr (vector 'tensor-handle-v2 \"tape\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-tape) raw_r) wr)))"
+prim__absmeanPerRow2dTape : AnyPtr -> AnyPtr
+
+%foreign "scheme:(lambda (a0 a1)  (when (not (top-level-bound? 'idris-ffi-tensor-ternary-quant-with-scale-2d-tape)) (set-top-level-value! 'idris-ffi-tensor-ternary-quant-with-scale-2d-tape (foreign-procedure \"tensor_ternary_quant_with_scale_2d_tape\" (void* void*) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-tape)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-tape (foreign-procedure \"tensor_retain_handle_tape\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-ternary-quant-with-scale-2d-tape) (vector-ref a0 2) (vector-ref a1 2)))) (let ((wr (vector 'tensor-handle-v2 \"tape\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-tape) raw_r) wr)))"
+prim__ternaryQuantWithScale2dTape : AnyPtr -> AnyPtr -> AnyPtr
+
 public export
 UserDeviceQuant TapeDev where
-  primCreateTernaryPacked2d = prim__createTernaryPacked2dTape
-  primBitlinearFwd          = prim__bitlinearFwdTape
+  primCreateTernaryPacked2d   = prim__createTernaryPacked2dTape
+  primBitlinearFwd            = prim__bitlinearFwdTape
+  primAbsmeanPerRow2d         = prim__absmeanPerRow2dTape
+  primTernaryQuantWithScale2d = prim__ternaryQuantWithScale2dTape
 
 
 ----------------------------------------------------------------------

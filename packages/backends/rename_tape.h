@@ -66,6 +66,7 @@
 #define param_zero_all_grads_return param_zero_all_grads_return_tape
 #define polyak_blend polyak_blend_tape
 #define tensor_abs tensor_abs_tape
+#define tensor_absmean_per_row_2d tensor_absmean_per_row_2d_tape
 #define tensor_add tensor_add_tape
 #define tensor_add_scalar tensor_add_scalar_tape
 #define tensor_argsort tensor_argsort_tape
@@ -236,6 +237,7 @@
 #define tensor_sum tensor_sum_tape
 #define tensor_sum_dim tensor_sum_dim_tape
 #define tensor_tanh tensor_tanh_tape
+#define tensor_ternary_quant_with_scale_2d tensor_ternary_quant_with_scale_2d_tape
 #define tensor_tile_2d tensor_tile_2d_tape
 #define tensor_to_device tensor_to_device_tape
 #define tensor_to_doubles tensor_to_doubles_tape

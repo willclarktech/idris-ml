@@ -765,10 +765,18 @@ prim__createTernaryPacked2dTorch : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
 %foreign "scheme:(lambda (a0 a1 a2 a3)  (when (not (top-level-bound? 'idris-ffi-tensor-bitlinear-fwd-torch)) (set-top-level-value! 'idris-ffi-tensor-bitlinear-fwd-torch (foreign-procedure \"tensor_bitlinear_fwd_torch\" (void* void* void* void*) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-torch)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-torch (foreign-procedure \"tensor_retain_handle_torch\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-bitlinear-fwd-torch) (vector-ref a0 2) (vector-ref a1 2) (vector-ref a2 2) (vector-ref a3 2)))) (let ((wr (vector 'tensor-handle-v2 \"torch\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-torch) raw_r) wr)))"
 prim__bitlinearFwdTorch : AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr
 
+%foreign "scheme:(lambda (a0)  (when (not (top-level-bound? 'idris-ffi-tensor-absmean-per-row-2d-torch)) (set-top-level-value! 'idris-ffi-tensor-absmean-per-row-2d-torch (foreign-procedure \"tensor_absmean_per_row_2d_torch\" (void*) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-torch)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-torch (foreign-procedure \"tensor_retain_handle_torch\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-absmean-per-row-2d-torch) (vector-ref a0 2)))) (let ((wr (vector 'tensor-handle-v2 \"torch\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-torch) raw_r) wr)))"
+prim__absmeanPerRow2dTorch : AnyPtr -> AnyPtr
+
+%foreign "scheme:(lambda (a0 a1)  (when (not (top-level-bound? 'idris-ffi-tensor-ternary-quant-with-scale-2d-torch)) (set-top-level-value! 'idris-ffi-tensor-ternary-quant-with-scale-2d-torch (foreign-procedure \"tensor_ternary_quant_with_scale_2d_torch\" (void* void*) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-torch)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-torch (foreign-procedure \"tensor_retain_handle_torch\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-ternary-quant-with-scale-2d-torch) (vector-ref a0 2) (vector-ref a1 2)))) (let ((wr (vector 'tensor-handle-v2 \"torch\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-torch) raw_r) wr)))"
+prim__ternaryQuantWithScale2dTorch : AnyPtr -> AnyPtr -> AnyPtr
+
 public export
 {d : TorchHwDev} -> UserDeviceQuant (TorchDev d) where
-  primCreateTernaryPacked2d = prim__createTernaryPacked2dTorch
-  primBitlinearFwd          = prim__bitlinearFwdTorch
+  primCreateTernaryPacked2d   = prim__createTernaryPacked2dTorch
+  primBitlinearFwd            = prim__bitlinearFwdTorch
+  primAbsmeanPerRow2d         = prim__absmeanPerRow2dTorch
+  primTernaryQuantWithScale2d = prim__ternaryQuantWithScale2dTorch
 
 
 ----------------------------------------------------------------------

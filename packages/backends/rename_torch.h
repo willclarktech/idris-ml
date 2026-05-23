@@ -66,6 +66,7 @@
 #define param_zero_all_grads_return param_zero_all_grads_return_torch
 #define polyak_blend polyak_blend_torch
 #define tensor_abs tensor_abs_torch
+#define tensor_absmean_per_row_2d tensor_absmean_per_row_2d_torch
 #define tensor_add tensor_add_torch
 #define tensor_add_scalar tensor_add_scalar_torch
 #define tensor_argsort tensor_argsort_torch
@@ -236,6 +237,7 @@
 #define tensor_sum tensor_sum_torch
 #define tensor_sum_dim tensor_sum_dim_torch
 #define tensor_tanh tensor_tanh_torch
+#define tensor_ternary_quant_with_scale_2d tensor_ternary_quant_with_scale_2d_torch
 #define tensor_tile_2d tensor_tile_2d_torch
 #define tensor_to_device tensor_to_device_torch
 #define tensor_to_doubles tensor_to_doubles_torch

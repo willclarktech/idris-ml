@@ -1514,6 +1514,49 @@ tBitlinearFwd w s x b = ioRerun (\_ =>
   MkTensor (primBitlinearFwd {d} w.tensorPtr s.tensorPtr x.tensorPtr b.tensorPtr)
            Nothing)
 
+||| Per-row absmean of a 2D float weight: scale[j] = mean_k(|w[j, k]|).
+||| One half of the load-time BitNet quantization recipe (the other is
+||| `tTernaryQuantWithScale2d` below). NoGrad; the pair runs once per
+||| linear at checkpoint load. Matches `absmean_ternary_quant` in
+||| `packages/pytorch/torch_ref/models/bitlinear.py`.
+export
+tAbsmeanPerRow2d : {0 d : Device} -> UserDeviceQuant d =>
+                   {o, i : Nat} ->
+                   Tensor [o, i] d cDt NoGrad ->
+                   IO (Tensor [o] d cDt NoGrad)
+tAbsmeanPerRow2d w = ioRerun (\_ =>
+  MkTensor (primAbsmeanPerRow2d {d} w.tensorPtr) Nothing)
+
+||| Quantize a 2D float weight to ternary via a per-row divisor:
+||| t[j, k] = round(w[j, k] / scale[j]).clamp(-1, +1)
+||| (rows with scale == 0 produce all-zero ternary, no /0 trap).
+||| Storage is per-backend packed/int8 (see design-decisions.md
+||| "Per-backend ternary storage"). NoGrad.
+export
+tTernaryQuantWithScale2d : {0 d : Device} -> UserDeviceQuant d =>
+                           {o, i : Nat} ->
+                           Tensor [o, i] d cDt NoGrad ->
+                           Tensor [o] d cDt NoGrad ->
+                           IO (Tensor [o, i] d Ternary NoGrad)
+tTernaryQuantWithScale2d w scale = ioRerun (\_ =>
+  MkTensor (primTernaryQuantWithScale2d {d} w.tensorPtr scale.tensorPtr)
+           Nothing)
+
+||| Combined load-time recipe: per-row absmean + ternary-quant. Returns
+||| (ternary_weight, scale) ready to drop into a `BitLinearState`. The
+||| caller is responsible for the up-stream load of `w` from
+||| safetensors / a host buffer / etc.
+export
+tAbsmeanTernaryQuant2d : {0 d : Device} -> UserDeviceQuant d =>
+                         {o, i : Nat} ->
+                         Tensor [o, i] d cDt NoGrad ->
+                         IO (Tensor [o, i] d Ternary NoGrad,
+                             Tensor [o] d cDt NoGrad)
+tAbsmeanTernaryQuant2d w = do
+  scale <- tAbsmeanPerRow2d w
+  ternary <- tTernaryQuantWithScale2d w scale
+  pure (ternary, scale)
+
 -- Per-sample extraction + scalar arithmetic (used by batched RL loss
 -- builders: pluck a row from a [b, o] result, then a scalar from the
 -- row, then build (q - target)^2 etc.) ---------------------------------

@@ -102,3 +102,74 @@ extern "C" TensorHandle tensor_bitlinear_fwd(
         TensorHandle hW, TensorHandle hscale, TensorHandle hx, TensorHandle hbias) {
     return tensor_bitlinear_fwd_mlx_streamed(hW, hscale, hx, hbias, default_stream_tag());
 }
+
+
+/* ------------------------------------------------------------------
+   Load-time absmean ternary quantization
+   ------------------------------------------------------------------ */
+
+extern "C" TensorHandle tensor_absmean_per_row_2d_mlx_streamed(
+        TensorHandle hw, int stream_tag) {
+    WITH_STREAM(stream_tag);
+    auto w = (Tensor*)hw;
+    if (w->data.ndim() != 2) {
+        std::fprintf(stderr, "[mlx] tensor_absmean_per_row_2d: expected 2D, "
+            "got ndim=%d\n", (int)w->data.ndim());
+        std::abort();
+    }
+    /* mean(abs(w), axis=1, keepdims=false) → [o] in w's dtype.
+       NoGrad — this is a one-shot frozen-quant computation. */
+    auto scale = mx::mean(mx::abs(w->data), 1, /*keepdims=*/false);
+    auto t = new Tensor(scale, /*requires_grad=*/false);
+    return (TensorHandle)t;
+}
+
+extern "C" TensorHandle tensor_absmean_per_row_2d(TensorHandle hw) {
+    return tensor_absmean_per_row_2d_mlx_streamed(hw, default_stream_tag());
+}
+
+extern "C" TensorHandle tensor_ternary_quant_with_scale_2d_mlx_streamed(
+        TensorHandle hw, TensorHandle hscale, int stream_tag) {
+    WITH_STREAM(stream_tag);
+    auto w = (Tensor*)hw;
+    auto scale = (Tensor*)hscale;
+    if (w->data.ndim() != 2) {
+        std::fprintf(stderr, "[mlx] tensor_ternary_quant_with_scale_2d: expected "
+            "2D weight, got ndim=%d\n", (int)w->data.ndim());
+        std::abort();
+    }
+    if (scale->data.ndim() != 1 || scale->data.shape(0) != w->data.shape(0)) {
+        std::fprintf(stderr, "[mlx] tensor_ternary_quant_with_scale_2d: scale "
+            "shape mismatch (expected [%d], got ndim=%d shape0=%d)\n",
+            (int)w->data.shape(0), (int)scale->data.ndim(),
+            scale->data.ndim() > 0 ? (int)scale->data.shape(0) : -1);
+        std::abort();
+    }
+    /* Per-row divisor; guard against /0 by clamping the divisor at a
+       tiny floor (mlx's astype handles inf gracefully but we want the
+       same {-1, 0, +1} clamp behaviour as the tape kernel). The clamp
+       at 1e-12 matches `absmean_ternary_quant`'s `clamp(min=1e-12)` in
+       `pytorch/torch_ref/models/bitlinear.py`. */
+    auto safe = mx::maximum(scale->data,
+                            mx::astype(mx::array(1e-12f), scale->data.dtype()));
+    auto divisor = mx::expand_dims(safe, 1);                    /* [o, 1] */
+    auto ratio = mx::divide(w->data, divisor);                  /* [o, i] */
+    auto rounded = mx::round(ratio);
+    auto clamped = mx::clip(rounded,
+        mx::astype(mx::array(-1.0f), w->data.dtype()),
+        mx::astype(mx::array( 1.0f), w->data.dtype()));
+    /* Zero out rows where original scale <= 0 (all-zero rows). */
+    auto active = mx::greater(scale->data,
+                              mx::astype(mx::array(0.0f), scale->data.dtype()));
+    auto mask = mx::expand_dims(mx::astype(active, w->data.dtype()), 1);
+    auto t_float = mx::multiply(clamped, mask);
+    auto t_int8 = mx::astype(t_float, mx::int8);                /* [o, i] int8 */
+    auto out = new Tensor(t_int8, /*requires_grad=*/false);
+    return (TensorHandle)out;
+}
+
+extern "C" TensorHandle tensor_ternary_quant_with_scale_2d(
+        TensorHandle hw, TensorHandle hscale) {
+    return tensor_ternary_quant_with_scale_2d_mlx_streamed(
+        hw, hscale, default_stream_tag());
+}
