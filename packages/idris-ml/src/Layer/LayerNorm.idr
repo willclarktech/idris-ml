@@ -50,18 +50,6 @@ applyLayerNorm {n} st@(MkLayerNorm gamma beta) input = ioRerun (\_ =>
 -- Constructor
 ----------------------------------------------------------------------
 
--- Pack a Vect of Doubles into a buffer.
-packDoubles : AnyPtr -> Int -> Vect k Double -> AnyPtr
-packDoubles buf _ [] = buf
-packDoubles buf off (x :: rest) =
-  packDoubles (prim__setDouble buf off x) (off + 1) rest
-
--- Fill a buffer with a constant value.
-fillConst : AnyPtr -> Int -> Int -> Double -> AnyPtr
-fillConst buf _ 0 _ = buf
-fillConst buf off n v =
-  fillConst (prim__setDouble buf off v) (off + 1) (n - 1) v
-
 ||| Build a `LayerNormState n n TapeDev` with gamma initialised to 1.0
 ||| and beta to 0.0. Both register as C params under
 ||| `<prefix>_gamma` / `<prefix>_beta`.
@@ -69,16 +57,11 @@ export
 layerNormLayer : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt => {n : Nat} -> (paramPrefix : String) ->
                    IO (LayerNormState n n d dt WithGrad)
 layerNormLayer paramPrefix = do
-  let nI = cast {to=Int} n
-      gBuf = prim__allocDoubles nI
-      gBuf' = fillConst gBuf 0 nI 1.0
-      bBuf = prim__allocDoubles nI
-      bBuf' = fillConst bBuf 0 nI 0.0
-      gName = paramPrefix ++ "_gamma"
+  let gName = paramPrefix ++ "_gamma"
       bName = paramPrefix ++ "_beta"
-      gPtr = primParamRegister {d} gName (dtCreateParam1d {d} {t=dt} nI gBuf' (deviceStreamTag {d}))
-      bPtr = primParamRegister {d} bName (dtCreateParam1d {d} {t=dt} nI bBuf' (deviceStreamTag {d}))
-  pure $ MkLayerNorm (MkTensor gPtr (Just gName)) (MkTensor bPtr (Just bName))
+  gamma <- tparam1dConst {d} {dt} {n} gName 1.0
+  beta  <- tparam1dConst {d} {dt} {n} bName 0.0
+  pure $ MkLayerNorm gamma beta
 
 
 ----------------------------------------------------------------------
