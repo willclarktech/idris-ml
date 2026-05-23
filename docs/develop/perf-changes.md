@@ -3032,14 +3032,44 @@ on a tiny model (3 classes, 5 samples, F32 weights → BF16 narrowing
 amplifies decision-boundary noise), not a perf issue — F16 retains
 5/5 eval because of its larger mantissa.
 
-**HfLlama-scale measurement still owed**: the headline question
-"does mlx-gpu BF16 beat mlx-gpu F32 for HfLlama-1B inference?" is the
-direct test of the "mlx-Metal BF16 might win bigger than libtorch's
-MPS BF16 did" hypothesis. Today's perf-log shows mlx-gpu F32 HfLlama
-at ~16 s (post all-heads RoPE, commit `c09d374`). The matching BF16
-run hasn't been added to `perf-log.jsonl`. Filed as a follow-up: run
-`MLX_DTYPE=BF16 BACKEND=mlx MLX_DEVICE=gpu scripts/perf-run.sh hf-llama mlx`,
-log to perf-log, append a follow-up entry here with the side-by-side.
+**HfLlama-scale measurement landed in the same session** and the
+answer is the **opposite of the hypothesis**: mlx-gpu BF16 is *slower*
+than mlx-gpu F32 on HfLlama-1B inference, not faster.
+
+Apples-to-apples on the same M4 Pro VM:
+
+| Cell | runGenerate (8-token decode) | Total wall (incl. idris2 elab) |
+|---|---:|---:|
+| mlx-gpu F32  (`c0897ed`) | **13 s** | 11 m 9 s  |
+| mlx-gpu BF16 (`6bf2ca8+dirty`) | **21 s** (+62%) | 12 m 3 s |
+
++62% is far above the ±20% single-run noise threshold and matches
+the same direction the torch-mps BF16 measurement showed (BF16 ≈ F32
+within noise on libtorch's MPS path) — mlx's lazy graph mode does
+**not** rescue BF16 here either; if anything it's worse.
+
+**Likely cause** (untested but mechanically plausible): the mlx
+backend has ~72 hardcoded `mx::float32` constants in fused-op
+kernels (scalar epsilons, mask values, optimizer state, etc.).
+Each one becomes a mixed-dtype operation when the operand is BF16 —
+mlx promotes the BF16 intermediate to F32 to match the constant's
+dtype, does the math, narrows back. The pre-existing audit row
+"Audit mlx fused-op + constant pool dtype handling" was filed for
+F64 correctness (some constants silently downcast F64 inputs); the
+BF16 measurement promotes it from "correctness audit" to "active
+perf row" since the cast traffic adds per-op wall to every fused
+op touched.
+
+**Takeaway**: BF16 storage on mlx-Metal correctness-wise works
+(5/5 to 3/5 eval on Supervised across the dtype matrix); BF16
+runtime remains gated on either (a) the constant-pool audit closing
+the mixed-dtype cast traffic, or (b) CUDA tensor-cores when CUDA
+hardware lands. The Apple-Silicon BF16 *runtime* story stays
+unproven on both libtorch (within noise) and mlx (regression).
+
+**perf-log entries**:
+- `2026-05-31T19:54:52Z` mlx-gpu BF16 (`6bf2ca8+dirty`), runGen 21 s
+- `2026-05-31T20:25:30Z`-ish mlx-gpu F32 (`c0897ed`), runGen 13 s
 
 **Cross-references**: `CHANGELOG.md` 2026-05-31 entries ("BF16/F16
 training end-to-end across all three backends" + "mlx-Metal BF16
