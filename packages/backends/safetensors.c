@@ -423,6 +423,62 @@ int param_load(const char* path) {
     return param_load_with_policy(path, /*allow_cast=*/0);
 }
 
+/* Reads the raw on-disk bytes of a named tensor from a safetensors
+   file without dtype interpretation. See backend.h for the contract. */
+int64_t safetensors_read_raw_bytes(const char* path,
+                                   const char* tensor_name,
+                                   uint8_t* out_buf,
+                                   size_t out_cap) {
+    if (!path || !tensor_name || !out_buf) return -1;
+
+    FILE* f = fopen(path, "rb");
+    if (!f) return -1;
+
+    uint64_t header_size;
+    if (fread(&header_size, sizeof(uint64_t), 1, f) != 1) {
+        fclose(f);
+        return -1;
+    }
+
+    char* json_str = (char*)malloc(header_size + 1);
+    if (!json_str) { fclose(f); return -1; }
+    if (fread(json_str, 1, header_size, f) != header_size) {
+        free(json_str); fclose(f);
+        return -1;
+    }
+    json_str[header_size] = '\0';
+
+    long data_start = 8 + (long)header_size;
+
+    cJSON* root = cJSON_Parse(json_str);
+    free(json_str);
+    if (!root) { fclose(f); return -1; }
+
+    cJSON* entry = cJSON_GetObjectItem(root, tensor_name);
+    if (!entry) { cJSON_Delete(root); fclose(f); return -1; }
+
+    cJSON* offsets = cJSON_GetObjectItem(entry, "data_offsets");
+    if (!offsets || cJSON_GetArraySize(offsets) != 2) {
+        cJSON_Delete(root); fclose(f); return -1;
+    }
+    size_t start = (size_t)cJSON_GetArrayItem(offsets, 0)->valuedouble;
+    size_t end   = (size_t)cJSON_GetArrayItem(offsets, 1)->valuedouble;
+    if (end < start) { cJSON_Delete(root); fclose(f); return -1; }
+    size_t byte_len = end - start;
+    cJSON_Delete(root);
+
+    if (byte_len > out_cap) { fclose(f); return -1; }
+
+    if (fseek(f, data_start + (long)start, SEEK_SET) != 0) {
+        fclose(f); return -1;
+    }
+    if (fread(out_buf, 1, byte_len, f) != byte_len) {
+        fclose(f); return -1;
+    }
+    fclose(f);
+    return (int64_t)byte_len;
+}
+
 /* ================================================================
    Optimizer state save/load
    ================================================================ */

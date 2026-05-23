@@ -176,6 +176,67 @@ static void run_i64_exact_roundtrip(void) {
 }
 #endif /* BACKEND_TORCH */
 
+/* Raw on-disk bytes reader — used by HfBitNet's packed-uint8 ternary
+   load (no dtype interpretation, the caller knows the layout). The
+   test saves a 1D F64 tensor, then asks for the raw bytes back and
+   verifies byte-exact equality with the original doubles' memory
+   representation. */
+static void run_raw_bytes_reader_test(void) {
+    printf("\n--- safetensors_read_raw_bytes ---\n\n");
+    param_clear();
+
+    /* Distinct double values whose 8-byte little-endian encodings
+       are unique — catches off-by-one offset bugs. */
+    double src[] = { 1.0, -2.0, 0.5, 3.14159265358979, -0.0 };
+    int n = (int)(sizeof(src) / sizeof(src[0]));
+    size_t byte_len = (size_t)n * sizeof(double);
+
+    double* buf = tensor_alloc_doubles(n);
+    for (int i = 0; i < n; i++) buf[i] = src[i];
+    TensorHandle t = tensor_create_param_1d_f64(n, buf);
+    param_register("raw_test_tensor", t);
+    param_register("other_tensor",
+        tensor_create_param_1d_f64(2, tensor_alloc_doubles(2)));
+
+    const char* path = "/tmp/idrisml_raw_bytes.safetensors";
+    ASSERT_TRUE("raw: param_save returns 0", param_save(path) == 0);
+
+    /* Happy path — read into a sufficient buffer. */
+    uint8_t out[256] = {0xCC};  /* sentinel — must overwrite first byte_len */
+    int64_t got = safetensors_read_raw_bytes(path, "raw_test_tensor",
+                                              out, sizeof(out));
+    ASSERT_I64_EQ("raw: returned byte count", got, (int64_t)byte_len);
+    /* Round-trip: bytes match the source doubles' memory. */
+    int bytes_match = (memcmp(out, src, byte_len) == 0);
+    ASSERT_TRUE("raw: bytes byte-exact match source", bytes_match);
+
+    /* Reading the second tensor must work too (offset isn't 0). */
+    uint8_t out2[64] = {0xCC};
+    int64_t got2 = safetensors_read_raw_bytes(path, "other_tensor",
+                                               out2, sizeof(out2));
+    ASSERT_I64_EQ("raw: second-tensor byte count", got2,
+                  (int64_t)(2 * sizeof(double)));
+
+    /* Negative — missing key returns negative. */
+    int64_t miss = safetensors_read_raw_bytes(path, "nope_no_such_key",
+                                               out, sizeof(out));
+    ASSERT_TRUE("raw: missing key returns negative", miss < 0);
+
+    /* Negative — out_cap too small returns negative. */
+    int64_t small = safetensors_read_raw_bytes(path, "raw_test_tensor",
+                                                out, byte_len - 1);
+    ASSERT_TRUE("raw: out_cap too small returns negative", small < 0);
+
+    /* Negative — bogus file path. */
+    int64_t bogus = safetensors_read_raw_bytes("/tmp/no-such-file-zzz.st",
+                                                "raw_test_tensor",
+                                                out, sizeof(out));
+    ASSERT_TRUE("raw: missing file returns negative", bogus < 0);
+
+    remove(path);
+    param_clear();
+}
+
 int main(void) {
     printf("--- SafeTensors round-trip test ---\n\n");
     param_clear();
@@ -337,6 +398,8 @@ int main(void) {
     optimizer_free(opt);
     optimizer_free(opt2);
     param_clear();
+
+    run_raw_bytes_reader_test();
 
 #ifdef BACKEND_TORCH
     run_inference_dtype_tests();

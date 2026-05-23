@@ -2,6 +2,7 @@
 #define IDRISML_BACKEND_H
 
 #include <stdint.h>
+#include <stddef.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -757,6 +758,24 @@ int tensor_mlx_compile_enabled(void);
    always return 0. */
 int  tensor_mlx_compile_invocations(void);
 void tensor_mlx_compile_reset_stats(void);
+
+/* Read the raw on-disk bytes of a named tensor from a safetensors file
+   without dtype interpretation. The caller is responsible for knowing
+   the on-disk layout — useful for custom encodings the standard
+   `param_load*` path would refuse, e.g. HF BitNet's packed-uint8
+   ternary weights (`[(o + 3) / 4, i]` axis-0 packed, 2 bits per
+   ternary slot). On success returns the number of bytes copied
+   (equal to the file's `data_offsets` span for the tensor). Returns
+   a negative value on error: file not found, missing key, malformed
+   header, or `out_cap` too small to hold the tensor's bytes.
+   `out_buf` must be caller-allocated and at least `out_cap` bytes.
+   Backend-agnostic — pure file I/O, no tensor handles or device
+   side effects, so the symbol is intentionally not renamed
+   per-backend. */
+int64_t safetensors_read_raw_bytes(const char* path,
+                                   const char* tensor_name,
+                                   uint8_t* out_buf,
+                                   size_t out_cap);
 
 /* ---------- Debug ---------- */
 
