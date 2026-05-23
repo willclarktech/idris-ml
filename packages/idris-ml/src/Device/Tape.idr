@@ -631,6 +631,27 @@ UserDeviceTransfer TapeDev where
 
 
 ----------------------------------------------------------------------
+-- UserDeviceQuant instance (#411 BitNet b1.58)
+----------------------------------------------------------------------
+--
+-- Tape stores ternary weights as packed 2-bit codes (4 values/byte)
+-- — the pioneering sub-byte storage path. See design-decisions.md
+-- "Per-backend ternary storage" + backend_tape/nn/quantization/
+-- bitlinear.c for the layout + decode loop.
+
+%foreign "scheme:(lambda (a0 a1 a2 a3 a4) (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (when (not (top-level-bound? 'idris-drain-once)) (when (not (top-level-bound? 'idris-release-cache)) (set-top-level-value! 'idris-release-cache (make-hashtable string-hash string=?))) (set-top-level-value! 'idris-drain-once (lambda () (when (not (top-level-bound? 'idris-tensor-guardian)) (set-top-level-value! 'idris-tensor-guardian (make-guardian))) (let ((d ((top-level-value 'idris-tensor-guardian)))) (if (not d) #f (let ((tag (vector-ref d 1)) (raw (vector-ref d 2)) (cache (top-level-value 'idris-release-cache))) (let ((rel (or (hashtable-ref cache tag #f) (let ((sym (if (string=? tag \"primary\") \"tensor_release_handle\" (string-append \"tensor_release_handle_\" tag)))) (let ((fp (foreign-procedure sym (void*) void))) (hashtable-set! cache tag fp) fp))))) (rel raw) #t))))))) (when (not (top-level-bound? 'idris-ffi-tensor-create-ternary-packed-2d-tape)) (set-top-level-value! 'idris-ffi-tensor-create-ternary-packed-2d-tape (foreign-procedure \"tensor_create_ternary_packed_2d_tape\" (void* int int int int) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-tape)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-tape (foreign-procedure \"tensor_retain_handle_tape\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-create-ternary-packed-2d-tape) a0 a1 a2 a3 a4))) (let ((wr (vector 'tensor-handle-v2 \"tape\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-tape) raw_r) wr)))"
+prim__createTernaryPacked2dTape : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
+
+%foreign "scheme:(lambda (a0 a1 a2 a3)  (when (not (top-level-bound? 'idris-ffi-tensor-bitlinear-fwd-tape)) (set-top-level-value! 'idris-ffi-tensor-bitlinear-fwd-tape (foreign-procedure \"tensor_bitlinear_fwd_tape\" (void* void* void* void*) void*))) (when (not (top-level-bound? 'idris-ffi-tensor-retain-handle-tape)) (set-top-level-value! 'idris-ffi-tensor-retain-handle-tape (foreign-procedure \"tensor_retain_handle_tape\" (void*) void))) (let ((raw_r ((top-level-value 'idris-ffi-tensor-bitlinear-fwd-tape) (vector-ref a0 2) (vector-ref a1 2) (vector-ref a2 2) (vector-ref a3 2)))) (let ((wr (vector 'tensor-handle-v2 \"tape\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((top-level-value 'idris-ffi-tensor-retain-handle-tape) raw_r) wr)))"
+prim__bitlinearFwdTape : AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr
+
+public export
+UserDeviceQuant TapeDev where
+  primCreateTernaryPacked2d = prim__createTernaryPacked2dTape
+  primBitlinearFwd          = prim__bitlinearFwdTape
+
+
+----------------------------------------------------------------------
 -- Compatible (TapeDev, dt).
 --
 -- F64 + F32 are trainable: every public `tensor_*` kernel routes F32

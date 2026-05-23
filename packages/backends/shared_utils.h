@@ -55,6 +55,13 @@ int*    tensor_alloc_ints(int n);
 void    tensor_free_ints(int* buf);
 int*    tensor_write_int_return(int* buf, int off, int val);
 
+/* Byte buffer helpers (#411 B2 — packed-ternary input to
+ * tensor_create_ternary_packed_2d). Mirrors the int helpers above but
+ * for unsigned 8-bit values. */
+uint8_t* tensor_alloc_bytes(int n);
+void     tensor_free_bytes(uint8_t* buf);
+uint8_t* tensor_write_byte_return(uint8_t* buf, int off, int val);
+
 /* Tensor-pointer arrays (the Idris-side staging buffer used by
  * stack/cat). Stores opaque void* handles; the per-backend
  * `tensor_stack_from_array` / `tensor_cat_from_array` consumers

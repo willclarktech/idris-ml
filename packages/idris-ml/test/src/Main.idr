@@ -13,6 +13,7 @@ import Test.RL.ReplayBuffer
 import Test.Hpo.LrFinder
 import Test.Lossless
 import Test.ManagedHandle
+import Test.BitLinear
 import Test.MixedLayerLike
 import Test.RmsNorm
 import Test.RoPE
@@ -41,6 +42,7 @@ main = runAll
   , ("Hpo.LrFinder",    Test.Hpo.LrFinder.tests)
   , ("Lossless",        Test.Lossless.tests)
   , ("ManagedHandle",   Test.ManagedHandle.tests)
+  , ("BitLinear",       Test.BitLinear.tests)
   , ("MixedLayerLike",  Test.MixedLayerLike.tests)
   , ("RmsNorm",         Test.RmsNorm.tests)
   , ("RoPE",            Test.RoPE.tests)

@@ -428,6 +428,17 @@ prim__allocInts : Int -> AnyPtr
 export
 prim__setInt : AnyPtr -> Int -> Int -> AnyPtr
 
+-- Byte buffer (#411 B2). Used for the packed-ternary byte buffer that
+-- feeds `tensor_create_ternary_packed_2d`. `prim__setByte` takes
+-- Idris-level Int (no Bits8 FFI type); shared_utils.c narrows to uint8.
+%foreign "C:tensor_alloc_bytes,libidrisml"
+export
+prim__allocBytes : Int -> AnyPtr
+
+%foreign "C:tensor_write_byte_return,libidrisml"
+export
+prim__setByte : AnyPtr -> Int -> Int -> AnyPtr
+
 
 ----------------------------------------------------------------------
 -- Per-dtype creation primitives + RuntimeDType F32 / F64 instances
@@ -1446,6 +1457,62 @@ tlinear2d : {0 d : Device} -> UserDeviceTraining d =>
             Tensor [o, i] d dt g -> Tensor [b, i] d dt g -> Tensor [o] d dt g -> IO (Tensor [b, o] d dt g)
 tlinear2d w x bias = ioRerun (\_ =>
   MkTensor (primLinear2d {d} w.tensorPtr x.tensorPtr bias.tensorPtr) Nothing)
+
+
+----------------------------------------------------------------------
+-- BitNet b1.58 quantized linear (#411 B2)
+--
+-- `tCreateTernaryPacked2d` constructs a `Tensor [o, i] d Ternary NoGrad`
+-- from a host buffer of packed 2-bit ternary codes (4 values/byte, see
+-- the C-side `tensor_create_ternary_packed_2d` docstring + design-
+-- decisions.md "Per-backend ternary storage" for the per-backend
+-- storage layouts).
+--
+-- `tBitlinearFwd` runs y = (W_ternary .* scale[:, None]) @ x + bias on
+-- the device, decoding W inline (tape) or via int8-cast (torch/mlx).
+-- Weight is NoGrad by construction (BitNet b1.58 freezes the ternary
+-- params); bias is grad-mode-parametric so callers can attach the
+-- usual autograd edge for fine-tuning.
+--
+-- Both go through the opt-in `UserDeviceQuant d =>` typeclass —
+-- built-in backends (tape/torch/mlx) implement it; BYO backends opt
+-- in only if they want BitNet. Dispatches on `d` to the suffixed C
+-- symbol on each backend (the unified-name alias machinery was
+-- removed earlier so unprefixed dispatch isn't available).
+----------------------------------------------------------------------
+
+||| Build a `Tensor [o, i] d Ternary NoGrad` from a host buffer of
+||| packed 2-bit ternary codes. The buffer layout is row-major with
+||| each row padded to `(i + 3) / 4` bytes (trailing slots zero-padded
+||| as ternary 0). See the C docstring for the bit-level encoding.
+|||
+||| `bytesPtr` must be backed by `prim__allocBytes` or another host
+||| buffer the caller keeps alive across the call; the C side copies
+||| into the device arena, so the buffer is freeable on return.
+export
+tCreateTernaryPacked2d : {0 d : Device} -> UserDeviceQuant d =>
+                         {o, i : Nat} ->
+                         AnyPtr -> (byteCount : Int) ->
+                         IO (Tensor [o, i] d Ternary NoGrad)
+tCreateTernaryPacked2d bytesPtr byteCount = ioRerun (\_ =>
+  MkTensor (primCreateTernaryPacked2d {d} bytesPtr byteCount
+              (cast o) (cast i) 0)
+           Nothing)
+
+||| BitLinear forward: y = (W_ternary .* scale[:, None]) @ x + bias.
+||| W and scale are NoGrad (BitNet b1.58 freezes both the ternary
+||| weight and the per-row dequant scale); x and bias share an
+||| arbitrary grad mode so gradients flow through the rest of the
+||| chain. Inference-only in this commit (#411 B2); the training
+||| path with STE backward is filed under #411 B5.
+export
+tBitlinearFwd : {0 d : Device} -> UserDeviceQuant d =>
+                Tensor [o, i] d Ternary NoGrad ->
+                Tensor [o] d cDt NoGrad -> Tensor [i] d cDt g ->
+                Tensor [o] d cDt g -> IO (Tensor [o] d cDt g)
+tBitlinearFwd w s x b = ioRerun (\_ =>
+  MkTensor (primBitlinearFwd {d} w.tensorPtr s.tensorPtr x.tensorPtr b.tensorPtr)
+           Nothing)
 
 -- Per-sample extraction + scalar arithmetic (used by batched RL loss
 -- builders: pluck a row from a [b, o] result, then a scalar from the

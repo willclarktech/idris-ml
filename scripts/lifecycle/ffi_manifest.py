@@ -241,6 +241,15 @@ MANIFEST = {
     "tensor_create_param_2d_const_streamed":  (("i", "i", "d", "i", "i"), "T"),
     "tensor_create_param_3d_const_streamed":  (("i", "i", "i", "d", "i", "i"), "T"),
     "tensor_create_param_4d_const_streamed":  (("i", "i", "i", "i", "d", "i", "i"), "T"),
+
+    # BitNet b1.58 quantization (#411 B2). The packed-2d creator takes a
+    # host byte buffer (R) and 4 ints; the bitlinear forward takes 4
+    # tensor handles (W is Ternary on tape's packed-byte storage / int8
+    # on torch+mlx; scale, x, bias are float). See design-decisions.md
+    # "Per-backend ternary storage". Bias is always-present at the
+    # Idris-level type (zero-init when caller doesn't want one).
+    "tensor_create_ternary_packed_2d":  (("R", "i", "i", "i", "i"), "T"),
+    "tensor_bitlinear_fwd":             (("T", "T", "T", "T"), "T"),
 }
 
 # C function names to LEAVE AS-IS (don't convert).
@@ -350,6 +359,11 @@ INIT_FFI = {
     "tensor_create_param_2d_const_streamed",
     "tensor_create_param_3d_const_streamed",
     "tensor_create_param_4d_const_streamed",
+    # Quantization (#411 B2). `tensor_create_ternary_packed_2d` is a
+    # tensor-creating wrapper that may be the first FFI on a BitNet
+    # inference path (load weights → forward), so it needs the guardian
+    # lazy-init. `tensor_bitlinear_fwd` takes existing handles only.
+    "tensor_create_ternary_packed_2d",
 }
 
 

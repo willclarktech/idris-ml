@@ -582,3 +582,27 @@ interface UserDeviceCore d => UserDeviceTransfer (0 d : Device) where
   ||| underlying tensor in place where the backend supports it;
   ||| preserves param-registry membership.
   primIntraMigrate : AnyPtr -> String -> AnyPtr
+
+
+----------------------------------------------------------------------
+-- UserDeviceQuant — quantization slice (BitNet b1.58 → #411)
+----------------------------------------------------------------------
+
+||| Opt-in slice for quantization ops. The three built-in backends
+||| (tape, torch, mlx) implement it; BYO backends opt in only if they
+||| want BitNet b1.58. Subclass of `UserDeviceCore` so a `UserDeviceQuant
+||| d =>` constraint also brings the lifecycle + arithmetic surface.
+|||
+||| `primCreateTernaryPacked2d` takes (host-byte-buffer, byte_count, o,
+||| i, requires_grad) and builds a `[o, i]` Ternary tensor with
+||| dtype_tag = DT_TERNARY (25). Per-backend storage layout — packed
+||| 2-bit on tape, unpacked int8 on torch/mlx — is hidden behind this
+||| ABI; see design-decisions.md "Per-backend ternary storage".
+|||
+||| `primBitlinearFwd` runs y = (W_ternary .* scale[:, None]) @ x +
+||| bias with W decoded inline (tape) or via int8-cast (torch/mlx).
+||| Inference-only; the STE-aware training path is filed under #411 B5.
+public export
+interface UserDeviceCore d => UserDeviceQuant (0 d : Device) where
+  primCreateTernaryPacked2d : AnyPtr -> Int -> Int -> Int -> Int -> AnyPtr
+  primBitlinearFwd          : AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr

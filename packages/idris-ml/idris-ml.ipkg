@@ -29,6 +29,7 @@ modules = Compat.Random
         , Layer
         , Layer.Activation
         , Layer.BatchNorm
+        , Layer.BitLinear
         , Layer.Conv
         , Layer.Core
         , Layer.Dropout

@@ -119,6 +119,23 @@ int* tensor_write_int_return(int* buf, int off, int val) {
     return buf;
 }
 
+/* Byte buffer helpers (#411 B2). Used by Idris-side construction of
+ * the packed-ternary byte buffer passed to
+ * tensor_create_ternary_packed_2d. `val` is an int from Idris because
+ * Idris-2 doesn't have a Bits8 FFI type — we narrow to uint8_t here. */
+uint8_t* tensor_alloc_bytes(int n) {
+    return (uint8_t*)calloc((size_t)n, 1);
+}
+
+void tensor_free_bytes(uint8_t* buf) {
+    free(buf);
+}
+
+uint8_t* tensor_write_byte_return(uint8_t* buf, int off, int val) {
+    buf[off] = (uint8_t)(val & 0xff);
+    return buf;
+}
+
 void** tensor_ptr_array_alloc(int n) {
     return (void**)calloc(n, sizeof(void*));
 }

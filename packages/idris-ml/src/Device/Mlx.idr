@@ -680,7 +680,11 @@ Compatible (MlxDev MGpu) F16 where
 public export
 Compatible (MlxDev MCpu) Ternary where
 public export
+Compatible (MlxDev MGpu) Ternary where
+public export
 Compatible (MlxDev MCpu) Binary where
+public export
+Compatible (MlxDev MGpu) Binary where
 
 
 ----------------------------------------------------------------------
@@ -734,6 +738,32 @@ public export
   primSetIntHost     = prim__setIntHostMlx
   primCreateFromHost = prim__createFromHostMlx
   primIntraMigrate   = prim__intraMigrateMlx
+
+
+----------------------------------------------------------------------
+-- UserDeviceQuant instance (#411 BitNet b1.58)
+----------------------------------------------------------------------
+--
+-- Mlx unpacks the 2-bit codes to int8 at construction (storage is
+-- `mx::array` with dtype `mx::int8`); the forward dequants via
+-- `mx::astype` then runs `mx::matmul`. The streamed variants take a
+-- trailing stream-tag arg (managed by hand below — manifest-driven
+-- wrappers don't cover `*_mlx_streamed` compound names). See
+-- design-decisions.md "Per-backend ternary storage" + backend_mlx/
+-- nn/quantization/bitlinear.cpp.
+
+%foreign "scheme:(lambda (a0 a1 a2 a3 a4 a5) (let ((raw_r ((foreign-procedure \"tensor_create_ternary_packed_2d_mlx_streamed\" (void* int int int int int) void*) a0 a1 a2 a3 a4 a5))) (let ((wr (vector 'tensor-handle-v2 \"mlx\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle_mlx\" (void*) void) raw_r) wr)))"
+prim__createTernaryPacked2dMlxStreamed : AnyPtr -> Int -> Int -> Int -> Int -> Int -> AnyPtr
+
+%foreign "scheme:(lambda (a0 a1 a2 a3 a4) (let ((raw_r ((foreign-procedure \"tensor_bitlinear_fwd_mlx_streamed\" (void* void* void* void* int) void*) (vector-ref a0 2) (vector-ref a1 2) (vector-ref a2 2) (vector-ref a3 2) a4))) (let ((wr (vector 'tensor-handle-v2 \"mlx\" raw_r))) ((top-level-value 'idris-tensor-guardian) wr) ((foreign-procedure \"tensor_retain_handle_mlx\" (void*) void) raw_r) wr)))"
+prim__bitlinearFwdMlxStreamed : AnyPtr -> AnyPtr -> AnyPtr -> AnyPtr -> Int -> AnyPtr
+
+public export
+{s : MlxStream} -> UserDeviceQuant (MlxDev s) where
+  primCreateTernaryPacked2d bytes bc o i rg =
+    prim__createTernaryPacked2dMlxStreamed bytes bc o i rg (streamTag s)
+  primBitlinearFwd w sc x b =
+    prim__bitlinearFwdMlxStreamed w sc x b (streamTag s)
 
 
 ----------------------------------------------------------------------
