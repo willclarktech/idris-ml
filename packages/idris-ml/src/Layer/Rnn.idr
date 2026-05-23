@@ -2,11 +2,8 @@ module Layer.Rnn
 
 import Data.Vect
 
-import Compat.Random
 import Device
-import Init
 import Layer.Core
-import Sampler
 import Tensor
 
 
@@ -69,16 +66,6 @@ applyRnn {o} st input = do
 -- Constructor
 ----------------------------------------------------------------------
 
-packDoubles : AnyPtr -> Int -> Vect k Double -> AnyPtr
-packDoubles buf _ [] = buf
-packDoubles buf off (x :: rest) =
-  packDoubles (prim__setDouble buf off x) (off + 1) rest
-
-zeroBuf : AnyPtr -> Int -> Int -> AnyPtr
-zeroBuf buf _ 0 = buf
-zeroBuf buf off n =
-  zeroBuf (prim__setDouble buf off 0.0) (off + 1) (n - 1)
-
 ||| Build an `RnnState i o TapeDev` with Xavier-uniform weights, zero
 ||| biases, and the given activation function. State starts as
 ||| Nothing; first `applyRnn` call zero-initialises it. Params
@@ -93,35 +80,21 @@ rnnLayer : UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d d
              (activation : {0 g' : GradMode} -> TVec o d dt g' -> IO (TVec o d dt g')) ->
              IO (RnnState i o d dt WithGrad)
 rnnLayer paramPrefix activation = do
-  let oI = cast {to=Int} o
-      iI = cast {to=Int} i
-  iwVals <- traverse (\_ => xavier uniform i o) (Vect.replicate (o * i) ())
-  rwVals <- traverse (\_ => xavier uniform o o) (Vect.replicate (o * o) ())
-  let iwBuf = prim__allocDoubles (oI * iI)
-      iwBuf' = packDoubles iwBuf 0 iwVals
-      rwBuf = prim__allocDoubles (oI * oI)
-      rwBuf' = packDoubles rwBuf 0 rwVals
-      ibBuf = prim__allocDoubles oI
-      ibBuf' = zeroBuf ibBuf 0 oI
-      hbBuf = prim__allocDoubles oI
-      hbBuf' = zeroBuf hbBuf 0 oI
+  -- Xavier-normal-via-uniform for weights:
+  --   input weight  W_ih: fan_in=i, fan_out=o → std = sqrt(2/(i+o))
+  --   hidden weight W_hh: fan_in=o, fan_out=o → std = 1/sqrt(o)
+  -- Zero bias init.
+  let iwStd = sqrt (2.0 / cast {to=Double} (i + o))
+      rwStd = 1.0 / sqrt (cast {to=Double} o)
       iwName = paramPrefix ++ "_iw"
       rwName = paramPrefix ++ "_rw"
       ibName = paramPrefix ++ "_ib"
       hbName = paramPrefix ++ "_hb"
-      iwPtr = primParamRegister {d} iwName (dtCreateParam2d {d} {t=dt} oI iI iwBuf' (deviceStreamTag {d}))
-      rwPtr = primParamRegister {d} rwName (dtCreateParam2d {d} {t=dt} oI oI rwBuf' (deviceStreamTag {d}))
-      ibPtr = primParamRegister {d} ibName (dtCreateParam1d {d} {t=dt} oI ibBuf' (deviceStreamTag {d}))
-      hbPtr = primParamRegister {d} hbName (dtCreateParam1d {d} {t=dt} oI hbBuf' (deviceStreamTag {d}))
-      iwTV : TMat o i d dt WithGrad
-      iwTV = MkTensor iwPtr (Just iwName)
-      rwTV : TMat o o d dt WithGrad
-      rwTV = MkTensor rwPtr (Just rwName)
-      ibTV : TVec o d dt WithGrad
-      ibTV = MkTensor ibPtr (Just ibName)
-      hbTV : TVec o d dt WithGrad
-      hbTV = MkTensor hbPtr (Just hbName)
-  pure $ MkRnn iwTV rwTV ibTV hbTV activation Nothing
+  iw <- tparam2dNormal {o} {i} iwName 0.0 iwStd
+  rw <- tparam2dNormal {o} {i=o} rwName 0.0 rwStd
+  ib <- tparam1dConst {n=o} ibName 0.0
+  hb <- tparam1dConst {n=o} hbName 0.0
+  pure $ MkRnn iw rw ib hb activation Nothing
 
 ||| Reset hidden state. Lazy-allocate on next applyVar call.
 export
