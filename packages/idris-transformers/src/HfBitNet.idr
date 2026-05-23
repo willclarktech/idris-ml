@@ -58,6 +58,7 @@ module HfBitNet
 
 import Data.Vect
 
+import Checkpoint
 import Compat.Random
 import Device
 import Init
@@ -772,3 +773,155 @@ hfBitnetForwardLm {numHeads} {numKvHeads} {headDim} {intermediate} eps model tab
       zeroBias : Tensor [vocab] d dt g
       zeroBias = MkTensor (dtCreateState1d {d} {t=dt} vI zBuf (deviceStreamTag {d})) Nothing
   tlinear2d model.lmHead.weight hFinal zeroBias
+
+
+----------------------------------------------------------------------
+-- Checkpoint load (B4.6 — HF-format ternary + float roundtrip)
+----------------------------------------------------------------------
+--
+-- BitNet's safetensors checkpoint is a mix of two on-disk shapes:
+--   1. Float-typed params (embed_tokens, lm_head, all RmsNorm weights,
+--      every BitLinear's weight_scale) — go through the standard
+--      `loadModelAllowCast` path. They're already in the C-side param
+--      registry under their HF names from `makeBitNetEmbedding` /
+--      `makeBitNetLmHead` / `makeBitNetRmsNorm` / `makeBitLinearHf`.
+--   2. Ternary BitLinear weights — stored as uint8 axis-0 packed
+--      `[(out+3)/4, in]` with a custom 2-bit encoding the standard
+--      `param_load*` path's dtype gate would refuse. We read the raw
+--      bytes via `safetensorsReadRawBytes` and feed them to
+--      `tCreateTernaryFromHfPacked2d` to materialise fresh Ternary
+--      tensors, then splice them into a new `BitNetModelState`.
+--
+-- This pass returns a new model state with the ternary weights
+-- overwritten; the float params are mutated in place by the C side.
+
+%default partial
+
+||| Load one HF-packed-uint8 ternary BitLinear weight by name. The
+||| on-disk layout is `[(out+3)/4, in]` uint8 = `((out+3)/4) * in`
+||| bytes; we allocate that, read the bytes, and route them through
+||| `tCreateTernaryFromHfPacked2d` to get a `Tensor [o, i] d Ternary
+||| NoGrad`. Returns `Nothing` if the file/key is missing or the byte
+||| count doesn't match — the caller keeps the placeholder weight.
+loadHfTernaryWeight : {0 d : Device} -> UserDeviceQuant d => Linked d
+                   => {o, i : Nat}
+                   -> (path : String) -> (key : String)
+                   -> IO (Maybe (Tensor [o, i] d Ternary NoGrad))
+loadHfTernaryWeight path key = do
+  let oPackedI : Int
+      oPackedI = cast {to=Int} ((o + 3) `div` 4)
+      iI : Int
+      iI = cast {to=Int} i
+      expected : Int
+      expected = oPackedI * iI
+  buf <- ioRerun (\_ => prim__allocBytes expected)
+  got <- safetensorsReadRawBytes path key buf expected
+  if got /= expected
+    then pure Nothing
+    else do
+      w <- tCreateTernaryFromHfPacked2d {d} {o} {i} buf
+      pure (Just w)
+
+
+loadBitLinearTernary : {0 d : Device} -> UserDeviceQuant d => Linked d
+                    => {i, o : Nat}
+                    -> (path : String) -> (key : String)
+                    -> BitLinearHf i o d dt g
+                    -> IO (BitLinearHf i o d dt g, Bool)
+loadBitLinearTernary path key bl = do
+  mw <- loadHfTernaryWeight {d} {o} {i} path key
+  case mw of
+    Nothing => pure (bl, False)
+    Just w  => pure (MkBitLinearHf w bl.weightScaleT, True)
+
+
+loadAttentionTernary : {0 d : Device} -> UserDeviceQuant d => Linked d
+                    => {hidden, qOut, kvOut : Nat}
+                    -> (path : String) -> (layerPfx : String)
+                    -> BitNetAttentionState hidden qOut kvOut d dt g
+                    -> IO (BitNetAttentionState hidden qOut kvOut d dt g, Nat)
+loadAttentionTernary path lp (MkBitNetAttention q k v sn o) = do
+  (q', okQ) <- loadBitLinearTernary {i=hidden} {o=qOut}  path (lp ++ ".self_attn.q_proj.weight") q
+  (k', okK) <- loadBitLinearTernary {i=hidden} {o=kvOut} path (lp ++ ".self_attn.k_proj.weight") k
+  (v', okV) <- loadBitLinearTernary {i=hidden} {o=kvOut} path (lp ++ ".self_attn.v_proj.weight") v
+  (o', okO) <- loadBitLinearTernary {i=qOut}   {o=hidden} path (lp ++ ".self_attn.o_proj.weight") o
+  let ok = (if okQ then 1 else 0) + (if okK then 1 else 0)
+         + (if okV then 1 else 0) + (if okO then 1 else 0)
+  pure (MkBitNetAttention q' k' v' sn o', ok)
+
+
+loadMlpTernary : {0 d : Device} -> UserDeviceQuant d => Linked d
+              => {hidden, intermediate : Nat}
+              -> (path : String) -> (layerPfx : String)
+              -> BitNetMlpState hidden intermediate d dt g
+              -> IO (BitNetMlpState hidden intermediate d dt g, Nat)
+loadMlpTernary path lp (MkBitNetMlp g u fn dn) = do
+  (g',  okG) <- loadBitLinearTernary {i=hidden}       {o=intermediate} path (lp ++ ".mlp.gate_proj.weight") g
+  (u',  okU) <- loadBitLinearTernary {i=hidden}       {o=intermediate} path (lp ++ ".mlp.up_proj.weight")   u
+  (dn', okD) <- loadBitLinearTernary {i=intermediate} {o=hidden}       path (lp ++ ".mlp.down_proj.weight") dn
+  let ok = (if okG then 1 else 0) + (if okU then 1 else 0) + (if okD then 1 else 0)
+  pure (MkBitNetMlp g' u' fn dn', ok)
+
+
+loadBlockTernary : {0 d : Device} -> UserDeviceQuant d => Linked d
+                => {hidden, qOut, kvOut, intermediate : Nat}
+                -> (path : String) -> (modelPfx : String) -> (idx : Nat)
+                -> BitNetBlockState hidden qOut kvOut intermediate d dt g
+                -> IO (BitNetBlockState hidden qOut kvOut intermediate d dt g, Nat)
+loadBlockTernary path pfx idx (MkBitNetBlock ln1 at ln2 mp) = do
+  let lp = layerPrefix pfx idx
+  (at', nA) <- loadAttentionTernary {hidden} {qOut} {kvOut} path lp at
+  (mp', nM) <- loadMlpTernary {hidden} {intermediate} path lp mp
+  pure (MkBitNetBlock ln1 at' ln2 mp', nA + nM)
+
+
+loadBlocksTernary : {0 d : Device} -> UserDeviceQuant d => Linked d
+                 => {hidden, qOut, kvOut, intermediate : Nat}
+                 -> (path : String) -> (modelPfx : String)
+                 -> (offset : Nat)
+                 -> Vect n (BitNetBlockState hidden qOut kvOut intermediate d dt g)
+                 -> IO (Vect n (BitNetBlockState hidden qOut kvOut intermediate d dt g), Nat)
+loadBlocksTernary _    _   _      []        = pure ([], 0)
+loadBlocksTernary path pfx offset (b :: bs) = do
+  (b',  nB)  <- loadBlockTernary {hidden} {qOut} {kvOut} {intermediate} path pfx offset b
+  (bs', nBs) <- loadBlocksTernary {hidden} {qOut} {kvOut} {intermediate} path pfx (S offset) bs
+  pure (b' :: bs', nB + nBs)
+
+
+||| Load a microsoft/bitnet-b1.58-2B-4T checkpoint into a model state.
+|||
+|||   1. Walks every BitLinear in the model and replaces its ternary
+|||      weight with one materialised from the safetensors file's
+|||      packed-uint8 bytes (via `safetensorsReadRawBytes` +
+|||      `tCreateTernaryFromHfPacked2d`).
+|||   2. Loads all float-typed params (embed_tokens, lm_head, all
+|||      RmsNorms, every BitLinear `weight_scale`) in place via
+|||      `loadModelAllowCast`.
+|||
+||| Returns `(newModel, summary)` where `summary` is a triple of
+||| `(ternaryLoaded, ternaryExpected, floatLoadOk)`. Callers typically
+||| just check `ternaryLoaded == ternaryExpected && floatLoadOk`.
+public export
+loadHfBitnetCheckpoint :
+  {0 d : Device} -> UserDeviceTraining d => UserDeviceQuant d
+  => RuntimeDType dt => Linked d => Compatible d dt
+  => {vocab, hidden, numLayers, qOut, kvOut, intermediate : Nat}
+  -> (modelPrefix : String)
+  -> (path : String)
+  -> BitNetModelState vocab hidden numLayers qOut kvOut intermediate d dt g
+  -> IO ( BitNetModelState vocab hidden numLayers qOut kvOut intermediate d dt g
+        , (Nat, Nat, Bool))
+loadHfBitnetCheckpoint pfx path model = do
+  -- 1. Ternary BitLinear weights — read raw bytes per weight.
+  (blocks', tnLoaded) <- loadBlocksTernary {hidden} {qOut} {kvOut} {intermediate}
+                                            path pfx 0 model.blocks
+  -- Each block carries 7 ternary weights: 4 in attention (q/k/v/o), 3 in
+  -- MLP (gate/up/down). N layers × 7 = expected count.
+  let tnExpected = numLayers * 7
+  -- 2. Float-typed params via the standard allow_cast path. This
+  -- mutates the existing param registry slots in place (the model
+  -- record's float-typed Tensor fields keep their handles; their
+  -- underlying C-side storage is overwritten).
+  floatOk <- loadModelAllowCast {d} path
+  let newModel = MkBitNetModel model.embedTokens blocks' model.finalNorm model.lmHead
+  pure (newModel, (tnLoaded, tnExpected, floatOk))

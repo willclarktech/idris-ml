@@ -439,6 +439,27 @@ prim__allocBytes : Int -> AnyPtr
 export
 prim__setByte : AnyPtr -> Int -> Int -> AnyPtr
 
+-- Backend-agnostic raw-bytes reader from a safetensors file. Pure file
+-- I/O — no tensor handles, no per-backend dispatch (symbol lives in
+-- safetensors.c with no rename). Returns the byte count copied on
+-- success, or a negative value on error (missing file/key, malformed
+-- header, or `outCap` too small). Used by HF BitNet's ternary-weight
+-- load path: HF stores those as uint8 [(o+3)/4, i] with a custom 2-bit
+-- encoding the standard `param_load*` dtype gate would refuse.
+%foreign "C:safetensors_read_raw_bytes,libidrisml"
+prim__safetensorsReadRawBytes : String -> String -> AnyPtr -> Int -> PrimIO Int
+
+||| Read the raw on-disk bytes of a named tensor from a safetensors
+||| file into a host buffer. Returns the byte count copied (>= 0) on
+||| success, or a negative value on error. The caller owns `outBuf`
+||| and must keep it alive across the call.
+export
+safetensorsReadRawBytes : (path : String) -> (key : String) ->
+                          (outBuf : AnyPtr) -> (outCap : Int) ->
+                          IO Int
+safetensorsReadRawBytes path key buf cap =
+  primIO (prim__safetensorsReadRawBytes path key buf cap)
+
 
 ----------------------------------------------------------------------
 -- Per-dtype creation primitives + RuntimeDType F32 / F64 instances
