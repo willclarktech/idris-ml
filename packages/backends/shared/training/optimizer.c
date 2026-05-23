@@ -209,6 +209,54 @@ double native_train_step(OptimizerHandle opt, int clip_mode, double clip_val,
     return loss_val;
 }
 
+/* GradScaler-aware train step (A3 of the type-safe mixed-precision
+   plan #410). The caller has already multiplied the loss by `scale`
+   before backward — this function:
+     1. zero_grad
+     2. backward(scaled_loss) — grads at the scaled magnitude
+     3. walk the registry: divide each grad by `scale`, checking for
+        non-finite values (overflow from low-precision compute)
+     4. if any non-finite: skip clip+step, return NaN — caller halves
+        the scale and discards the update
+     5. else: clip + step, return the *unscaled* loss
+   The NaN-sentinel return lets the caller advance its own scale state
+   machine (Idris-side IORef-based or equivalent) without an extra FFI
+   roundtrip. */
+double native_train_step_scaled(OptimizerHandle opt, int clip_mode, double clip_val,
+                                TensorHandle loss_ptr, double loss_val,
+                                double scale) {
+    optimizer_zero_grad(opt);
+    if (g_active_port.tensor_requires_grad((void*)loss_ptr))
+        g_active_port.backward((void*)loss_ptr);
+
+    double inv_scale = 1.0 / scale;
+    int has_nonfinite = 0;
+    for (int i = 0; i < param_count(); i++) {
+        void* t = param_tensor(i);
+        if (!g_active_port.tensor_has_grad(t)) continue;
+        int n = g_active_port.tensor_numel(t);
+        for (int j = 0; j < n; j++) {
+            double v = g_active_port.grad_read(t, j);
+            if (!isfinite(v)) has_nonfinite = 1;
+            g_active_port.grad_write(t, j, v * inv_scale);
+        }
+    }
+
+    if (has_nonfinite) {
+        /* Signal the caller to skip + halve. NaN sentinel; callers
+           compare via isnan() (or Idris-side equivalent). The grads
+           have already been unscaled (mostly into +/-Inf or NaN), so
+           the optimizer would skip them or produce garbage — we
+           explicitly DO NOT call optimizer_step. */
+        return (double)NAN;
+    }
+
+    if      (clip_mode == 1) g_active_port.optimizer_clip_grad_value_filtered((void*)opt, clip_val);
+    else if (clip_mode == 2) g_active_port.optimizer_clip_grad_norm_filtered((void*)opt, clip_val);
+    optimizer_step(opt);
+    return loss_val * inv_scale;
+}
+
 int optimizer_step_with_clip(OptimizerHandle opt, int clip_mode, double clip_val, int dummy) {
     (void)dummy;
     if      (clip_mode == 1) g_active_port.optimizer_clip_grad_value_filtered((void*)opt, clip_val);

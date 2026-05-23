@@ -208,6 +208,49 @@ Test(legacy_backend, cast_grad_propagation) {
     param_clear();
 }
 
+/* A3 (type-safe mixed-precision plan #410): native_train_step_scaled
+   must (a) unscale grads after backward, (b) step the optimizer with
+   the unscaled grads, (c) return the unscaled loss. This is the
+   GradScaler-aware variant of native_train_step that lets the caller
+   train in low-precision compute without underflow during backward.
+   Forward: loss = w * x * scale = 0.5 * 3.0 * 10.0 = 15.0 (scaled).
+   Backward at scaled magnitude → dL/dw = x * scale = 30.0. Unscale
+   by /10 → 3.0 (the true gradient). SGD step at lr=0.01 → w should
+   move from 0.5 to 0.5 - 0.01 * 3.0 = 0.47. Return value: 15.0 / 10.0
+   = 1.5 (the unscaled loss).
+
+   Gated on BACKEND_TAPE for now: torch and mlx have their own
+   per-backend `native_train_step` in their optimizer.cpp, and need
+   their own `native_train_step_scaled` ports (TODO follow-up). The
+   shared version in `shared/training/optimizer.c` is compiled only
+   for tape per `SHARED_BACKENDS_optimizer := tape`. */
+#ifdef BACKEND_TAPE
+Test(legacy_backend, native_train_step_scaled_unscale) {
+    param_clear();
+
+    TensorHandle w = tensor_create_scalar(0.5, 1);
+    param_register("w", w);
+
+    OptimizerHandle sgd = optimizer_create_sgd(0.01);
+    double scale = 10.0;
+
+    TensorHandle x = tensor_create_scalar(3.0, 0);
+    TensorHandle prod = tensor_mul(w, x);
+    TensorHandle scale_t = tensor_create_scalar(scale, 0);
+    TensorHandle scaled_loss = tensor_mul(prod, scale_t);
+
+    double returned = native_train_step_scaled(sgd, 0, 0.0, scaled_loss, 15.0, scale);
+
+    ASSERT_NEAR("return value is unscaled loss (= 1.5)", returned, 1.5, 1e-9);
+    ASSERT_NEAR("w stepped to 0.47 (= 0.5 - 0.01 * 3.0)", tensor_item(w), 0.47, 1e-9);
+
+    tensor_free(x); tensor_free(prod); tensor_free(scale_t); tensor_free(scaled_loss);
+    optimizer_free(sgd);
+    tensor_free(w);
+    param_clear();
+}
+#endif
+
 /* Regression: an F32 param must be an autograd leaf so its grad flows.
    The F32 param creators once cast to float32 *after* requires_grad_, which
    produced a non-leaf whose .grad never populated — the optimizer then read a

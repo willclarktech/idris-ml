@@ -481,6 +481,9 @@ int          tensor_backward_conditional(TensorHandle t); /* backward if require
 double       tensor_backward_return_loss(TensorHandle loss_ptr, double loss_val); /* backward if rg; return loss_val */
 double       native_train_step(OptimizerHandle opt, int clip_mode, double clip_val,
                                TensorHandle loss_ptr, double loss_val); /* zero+bwd+clip+step; return loss_val */
+double       native_train_step_scaled(OptimizerHandle opt, int clip_mode, double clip_val,
+                                      TensorHandle loss_ptr, double loss_val,
+                                      double scale); /* GradScaler variant: scaled bwd, unscale grads, NaN if non-finite seen (skip step) */
 int          optimizer_step_with_clip(OptimizerHandle opt, int clip_mode, double clip_val, int dummy); /* clip+step+zero; return 0 */
 void*        idrisml_seq(void* a, void* b); /* evaluate a, return b */
 int          backend_reset_for_eval_return(int dummy);
