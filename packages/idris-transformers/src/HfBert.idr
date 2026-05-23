@@ -709,10 +709,7 @@ makeMlmHead clsPfx = do
   tn <- makeBertLN     {n=hidden}            (p ++ ".transform.LayerNorm")
   -- Standalone decoder bias. The decoder *weight* is tied to the word
   -- embedding and is not registered separately — only the bias is.
-  let vI    = cast {to=Int} vocab
-      bBuf  = prim__allocDoubles vI
-      bBuf' = zeroBuf bBuf 0 vI
-  bias <- tparam1d {n=vocab} (p ++ ".bias") bBuf'
+  bias <- tparam1dConst {n=vocab} (p ++ ".bias") 0.0
   pure (MkBertMlmHead td tn bias)
 
 
