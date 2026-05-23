@@ -8,14 +8,24 @@
  * land both args on MPS via earlier device-aware ops; the BF16 lane
  * exposed the device mismatch). The result is flattened to
  * [n * embedDim] so the FFI consumer sees a 1D buffer — the Idris
- * layer reshapes back as needed. */
+ * layer reshapes back as needed.
+ *
+ * Cast is guarded so the common (indices already int64 + on weight's
+ * device) case skips an `.to()` no-op submission; on MPS that no-op
+ * still queues an MTLCommandBuffer per embedding lookup, contributing
+ * to the per-op submission overhead tracked under TODO #393. */
 #include "../../tensor.h"
 
 extern "C" TensorHandle tensor_embedding(TensorHandle hweight, TensorHandle hindices, int n, int embedDim) {
     (void)n; (void)embedDim;
     auto& weight = *to_tensor(hweight);
     auto& indices = *to_tensor(hindices);
-    auto idx_long = indices.to(torch::TensorOptions().dtype(torch::kLong).device(weight.device()));
+    auto idx_long = (indices.scalar_type() == torch::kLong &&
+                     indices.device() == weight.device())
+                    ? indices
+                    : indices.to(torch::TensorOptions()
+                                 .dtype(torch::kLong)
+                                 .device(weight.device()));
     auto out = torch::embedding(weight, idx_long);
     return from_tensor(out.reshape({-1}));
 }
