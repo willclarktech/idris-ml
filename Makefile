@@ -776,6 +776,16 @@ rename-headers:
 test-integration-lint-rename-headers:
 	@python3 scripts/gen-rename-headers.py --check
 
+# Gate: regenerate .github/workflows/test.yml from
+# .github/workflows/test.yml.spec.json and fail if the on-disk file
+# diverges. Catches "someone hand-edited the workflow without updating
+# the spec" — the spec is the single source of truth for the
+# test-invocation block of the workflow. Adding a new gate: append to
+# the spec, run scripts/gen-ci-workflow.py, commit both. See Phase 4
+# of the test-rationalization epic.
+test-integration-lint-ci-workflow:
+	@python3 scripts/gen-ci-workflow.py --check
+
 # Verify every Tensor-touching %foreign declaration matches the
 # wrap-on-return Scheme template. See
 # docs/develop/tensor-lifecycle-plan.md "FFI conventions". The single
@@ -1083,6 +1093,7 @@ test-integration: \
 		test-integration-lint-non-io-side-effects \
 		test-integration-lint-paired-defaults \
 		test-integration-lint-hf-llama-inference \
+		test-integration-lint-ci-workflow \
 		test-integration-typegate-gradmode \
 		test-integration-typegate-gradmode-aliasing \
 		test-integration-typegate-lossy-cast \
@@ -2265,7 +2276,8 @@ all: check-all test-all
         test-unit-safetensors test-unit-ntm-grad test-unit-ntm-timestep test-unit-mlx-compile \
         test-integration test-integration-lint-rename-headers test-integration-lint-ffi-wrap-template \
         test-integration-lint-non-io-side-effects test-integration-lint-paired-defaults \
-        test-integration-lint-hf-llama-inference test-integration-typegate-gradmode \
+        test-integration-lint-hf-llama-inference test-integration-lint-ci-workflow \
+        test-integration-typegate-gradmode \
         test-integration-typegate-gradmode-aliasing test-integration-typegate-lossy-cast \
         test-integration-typegate-int-overflow-cast test-integration-checkpoint-resume \
         test-integration-jupyter-cellparser \

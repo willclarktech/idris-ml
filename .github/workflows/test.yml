@@ -43,6 +43,13 @@ jobs:
         # fires the FFI before sequencing. Known dead surfaces are
         # skip-listed in the script.
         run: make test-integration-lint-non-io-side-effects
+      - name: Verify CI workflow is in sync with its spec
+        # Re-runs scripts/gen-ci-workflow.py --check. Fails if anyone
+        # hand-edited the test-invocation block of this workflow
+        # without updating .github/workflows/test.yml.spec.json. Spec
+        # is the single source of truth; add a gate by appending to
+        # the spec and regenerating, not by editing the workflow.
+        run: make test-integration-lint-ci-workflow
 
   test-examples:
     name: test-examples (${{ matrix.os }})
@@ -183,6 +190,7 @@ jobs:
       - name: Install libraries
         run: make install
 
+      # >>> GENERATED FROM test.yml.spec.json >>>
       - name: Run idris-transformers unit tests
         # Pure-Idris test harness for the HF-aligned model package
         # (packages/idris-transformers/). Type-checks the package + builds
@@ -306,14 +314,15 @@ jobs:
         # I32 to F64 + U8 to F32 positive cases in Test.Lossless.
         run: make test-integration-typegate-int-overflow-cast
 
-      # C backend FFI tests per available backend, via the Criterion
-      # harness under `packages/backends/test/`. Per-OS: tape everywhere,
-      # torch on Ubuntu (libtorch installed via uv), mlx on macOS
-      # (MLX_SITE set above). The legacy `test_backend.c` monolith was
-      # retired with the Criterion port — every assertion lives under
-      # `test/common/test_legacy_backend.c` for now, slated for a
-      # per-op file split during the structural Phase 6 work.
       - name: Run coverage gap probe (advisory)
+        # C backend FFI tests per available backend, via the Criterion
+        # harness under `packages/backends/test/`. Per-OS: tape everywhere,
+        # torch on Ubuntu (libtorch installed via uv), mlx on macOS
+        # (MLX_SITE set above). The legacy `test_backend.c` monolith was
+        # retired with the Criterion port — every assertion lives under
+        # `test/common/test_legacy_backend.c` for now, slated for a
+        # per-op file split during the structural Phase 6 work.
+        #
         # Static probe: parses OP_* enums from backend_<b>/tape.h and
         # extern "C" decls from backend.h, cross-references against
         # test/. Writes CSVs to build/coverage-gap-{ops,symbols}.csv.
@@ -368,7 +377,7 @@ jobs:
       - name: Run safetensors round-trip (tape)
         # F32/F64 param + optimizer-state round-trip; runs on every OS.
         # Re-installs the tape dylib so subsequent steps that expect
-        # tape symbols (test-examples default lane) see them.
+        # tape symbols (test-e2e-examples default lane) see them.
         run: make BACKEND=tape test-unit-safetensors
 
       - name: Run safetensors round-trip (torch, Ubuntu)
@@ -397,6 +406,7 @@ jobs:
         # asserts the sidecar epoch + resume log + completion. Gates the
         # Train.idr / Checkpoint.idr auto-save / resume integration.
         run: make test-integration-checkpoint-resume
+      # <<< END GENERATED <<<
 
       - name: Upload Criterion JUnit XML artifacts
         # Always uploads, even on test failure, so the GitHub Actions UI
