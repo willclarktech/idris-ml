@@ -3,6 +3,9 @@
 Completed work, most recent first. Moved out of `TODO.md` on 2026-05-22.
 
 
+prop_reshape_preserves_numel — second Hedgehog property + scoped follow-ups (2026-06-05). Closes the "Expand Hedgehog property coverage (4 more first-wave properties)" row with revised scope. The original row claimed 4 droppable-in properties but exploration found 3 of 4 are blocked: `prop_rmsnorm_output_bounded` + `prop_f32_grad_matches_f64` need `PropertyT IO` infrastructure (Hedgehog's default `PropertyT Identity` can't host `IO`-bound smart constructors / FFI-driven generators); `prop_rope_inverse_commutativity` needs an `applyRopeInverse` primitive that doesn't exist yet. The one unblocked property landed: `prop_reshape_preserves_numel` — pure-Idris arithmetic invariant on `Vect`-of-`Nat` shape values, generates `a, b, c ∈ [1, 20]`, asserts `product [a, b, c] === product [a*b, c]`. 100 generated cases pass clean under `make BACKEND=tape test-unit-idris-ml`. The over-claimed row is replaced by three specific follow-up rows: (i) `PropertyT IO` infrastructure (M, infra), (ii) `applyRopeInverse` primitive (M, feature), (iii) property-test cadence checklist for new OP_* (S, infra). `Test.Main.idr` + `idris-ml-tests.ipkg` register the new module alongside `Test.Properties.Softmax` and `Test.Properties.GoldenDemo`.
+
+
 test-unit-examples wired into CI (2026-06-05). Closes the "Wire `test-unit-examples` into CI" row. Three new entries in `.github/workflows/test.yml.spec.json` mirror the `test-unit-idris-ml` pattern: tape unconditional, torch on ubuntu, mlx on macos. `scripts/gen-ci-workflow.py` regenerated `test.yml` (29 spec entries, idempotent). The drift class this catches: pre-existing test failures in `packages/idris-ml-examples` that slipped past PR gating. The two bug-fix commits paired with this gate (Test.Reinforce IO-unwrap, Test.BitLinear scale fix) verify on the new lanes; future drift gets caught at PR time, not by post-hoc rediscovery.
 
 
