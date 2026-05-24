@@ -35,14 +35,14 @@ jobs:
         # %foreign "C:..." instead of scheme-wrapped, (b) hand-edited
         # scheme bodies missing the vector-ref unwrap or the wrap/retain
         # on T return. See docs/develop/tensor-lifecycle-plan.md.
-        run: make check-ffi-wrap-template
+        run: make test-integration-lint-ffi-wrap-template
       - name: Verify %foreign decls are correctly IO-typed
         # Catches the bug class fixed by the IO refactor (commits leading
         # up to e337512): side-effecting C calls bound to non-IO Idris
         # types, where `let _ =` bindings get DCE'd and `pure (...)`
         # fires the FFI before sequencing. Known dead surfaces are
         # skip-listed in the script.
-        run: make check-non-io-side-effects
+        run: make test-integration-lint-non-io-side-effects
 
   test-examples:
     name: test-examples (${{ matrix.os }})
@@ -285,26 +285,26 @@ jobs:
         # ever passes the negative test (i.e. the gate compiles a NoGrad
         # loss), the "inference loss silently no-ops training" bug class
         # has regressed.
-        run: make check-gradmode-gate
+        run: make test-integration-typegate-gradmode
 
       - name: Verify GradMode aliasing rejection (linear freezeNetwork)
         # Asserts that linear `freezeNetwork` consumes its input — using
         # the pre-freeze Network reference afterwards must be a compile
         # error. Prevents the "freeze net, train via original variable
         # which silently no-ops" footgun.
-        run: make check-gradmode-aliasing
+        run: make test-integration-typegate-gradmode-aliasing
 
       - name: Verify cross-family lossless-cast gate (DType.Core.LosslessTo)
         # Asserts LosslessTo refuses a mantissa-shrinking direction
         # (F32 to BF16). Prevents silent precision-losing mid-graph
         # casts. Pairs with the positive Test.Lossless suite.
-        run: make check-lossy-cast-gate
+        run: make test-integration-typegate-lossy-cast
 
       - name: Verify int-overflow lossless-cast gate (#412 F1)
         # Asserts LosslessTo refuses I64 to F32 (max int value far
         # exceeds F32 mantissa exact-integer ceiling). Pairs with the
         # I32 to F64 + U8 to F32 positive cases in Test.Lossless.
-        run: make check-int-overflow-cast-gate
+        run: make test-integration-typegate-int-overflow-cast
 
       # C backend FFI tests per available backend, via the Criterion
       # harness under `packages/backends/test/`. Per-OS: tape everywhere,
@@ -396,7 +396,7 @@ jobs:
         # Trains gpt 10 epochs to a checkpoint dir, resumes to 20, and
         # asserts the sidecar epoch + resume log + completion. Gates the
         # Train.idr / Checkpoint.idr auto-save / resume integration.
-        run: make test-checkpoint-resume
+        run: make test-integration-checkpoint-resume
 
       - name: Upload Criterion JUnit XML artifacts
         # Always uploads, even on test failure, so the GitHub Actions UI

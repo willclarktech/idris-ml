@@ -768,12 +768,12 @@ dataset-tinyshakespeare: $(TINYSHAKESPEARE_FILE)
 backend: $(LIB)
 
 # Regenerate the per-backend rename headers from backend.h. The
-# generated files are checked in; `make check-rename-headers` (in CI)
-# gates that they stay in sync with backend.h.
+# generated files are checked in; `make test-integration-lint-rename-headers`
+# (in CI) gates that they stay in sync with backend.h.
 rename-headers:
 	@python3 scripts/gen-rename-headers.py
 
-check-rename-headers:
+test-integration-lint-rename-headers:
 	@python3 scripts/gen-rename-headers.py --check
 
 # Verify every Tensor-touching %foreign declaration matches the
@@ -782,7 +782,7 @@ check-rename-headers:
 # source of truth for which C symbols are Tensor handles is
 # scripts/lifecycle/ffi_manifest.py — both the converter and the linter
 # read from it.
-check-ffi-wrap-template:
+test-integration-lint-ffi-wrap-template:
 	@python3 scripts/lifecycle/check-ffi-wrap-template.py
 
 # Lint: flag %foreign declarations whose Idris type is non-IO but whose
@@ -791,7 +791,7 @@ check-ffi-wrap-template:
 # e337512) — see the audit doc + `feedback_typeclass_zero_arg_method_eval.md`
 # for the underlying mechanism. Known dead surfaces are skip-listed in
 # the script until the dead-code cleanup row lands.
-check-non-io-side-effects:
+test-integration-lint-non-io-side-effects:
 	@python3 scripts/lifecycle/check-non-io-side-effects.py
 
 # Criterion-driven test suite (per-test process isolation + JUnit XML).
@@ -1010,33 +1010,33 @@ check-transformers: install-core
 
 # Verify Idris example defaults match the paired torch_ref/scripts/*.py defaults.
 # Catches the "I changed Idris's default but forgot the matching ref" drift class.
-check-paired-defaults:
+test-integration-lint-paired-defaults:
 	@python3 scripts/check-paired-defaults.py
 
 # Verify the GradMode gate is intact: a NoGrad loss must NOT type-check
 # as input to nativeTrainStep. Inverts the idris2 exit code (success =
 # compile failed) and matches on the WithGrad/NoGrad error message.
 # Depends on `install` so idris-ml is locatable in the local IDRIS2 prefix.
-check-gradmode-gate: install
+test-integration-typegate-gradmode: install
 	@IDRIS2_LOCAL=$(IDRIS2_LOCAL) ./scripts/check-gradmode-gate.sh
 
 # Verify the aliasing footgun on `freezeNetwork` is closed by linear
 # types: using the pre-freeze Network reference must be a compile error.
-check-gradmode-aliasing: install
+test-integration-typegate-gradmode-aliasing: install
 	@IDRIS2_LOCAL=$(IDRIS2_LOCAL) ./scripts/check-gradmode-aliasing.sh
 
 # Verify the cross-family lossless-cast gate (DType.Core.LosslessTo)
 # refuses a mantissa-shrinking direction (F32 → BF16). Inverts the
 # idris2 exit code (success = compile failed) and matches on the
 # `LTE 23 7` error so unrelated regressions don't pass the gate.
-check-lossy-cast-gate: install
+test-integration-typegate-lossy-cast: install
 	@IDRIS2_LOCAL=$(IDRIS2_LOCAL) ./scripts/check-lossy-cast-gate.sh
 
 # Verify the int-overflow lossless-cast gate (F1 of #410, #412)
 # refuses I64 → F32 (max int value far exceeds F32 mantissa). Inverts
 # the idris2 exit code (success = compile failed) and matches on the
 # `LTE 64 25` error so unrelated regressions don't pass the gate.
-check-int-overflow-cast-gate: install
+test-integration-typegate-int-overflow-cast: install
 	@chmod +x ./scripts/check-int-overflow-cast-gate.sh
 	@IDRIS2_LOCAL=$(IDRIS2_LOCAL) ./scripts/check-int-overflow-cast-gate.sh
 
@@ -1069,6 +1069,26 @@ check-examples: install
 # the CI workflow consumes `make test-unit` (post-Phase-4) and so
 # auto-includes any new leaf without a workflow edit.
 test-unit: test-unit-idris-ml test-unit-backend test-unit-safetensors test-unit-ntm-grad test-unit-ntm-timestep
+
+# Integration test layer — see docs/develop/testing-taxonomy.md.
+#
+# Canonical aggregator: every integration-layer leaf (negative type-check
+# gates, source-code linters, multi-module integration probes that don't
+# run a full training loop). Run locally when you touched a type-level
+# guarantee or the FFI wrap convention. Adding a new integration-layer
+# test means adding the target name to this list.
+test-integration: \
+		test-integration-lint-rename-headers \
+		test-integration-lint-ffi-wrap-template \
+		test-integration-lint-non-io-side-effects \
+		test-integration-lint-paired-defaults \
+		test-integration-lint-hf-llama-inference \
+		test-integration-typegate-gradmode \
+		test-integration-typegate-gradmode-aliasing \
+		test-integration-typegate-lossy-cast \
+		test-integration-typegate-int-overflow-cast \
+		test-integration-checkpoint-resume \
+		test-integration-jupyter-cellparser
 
 # Idris-side unit suite against the active backend. Buckets that
 # touch the C surface (GradMode, ManagedHandle, Tensor lifecycle)
@@ -1237,7 +1257,7 @@ example-hf-llama-inference: install $(HF_MODELS_DIR)/meta-llama/Llama-3.2-1B/con
 # Same install dep as the full build so dependent libraries (idris-ml,
 # idris-transformers) are present; the difference is that the example
 # file itself is `--check`ed rather than `-o`'d.
-check-example-hf-llama-inference: install
+test-integration-lint-hf-llama-inference: install
 	IDRIS2_PREFIX=$(IDRIS2_LOCAL) idris2 -p contrib -p idris-ml -p idris-gym -p idris-transformers \
 		--build-dir $(BUILD)/check-hf-llama-inference --source-dir $(EXAMPLE_SRC) \
 		--check $(EXAMPLE_SRC)/Example/HfLlamaInference.idr
@@ -1469,7 +1489,7 @@ example-precision-checkpoint:
 # Trains gpt 10 epochs to a checkpoint dir, resumes to 20, asserts the
 # sidecar epoch + resume log + completion. Gates the Train/Checkpoint
 # integration. See scripts/test-checkpoint-resume.sh.
-test-checkpoint-resume: install
+test-integration-checkpoint-resume: install
 	idris2 $(IDRIS_FLAGS) -o gpt $(EXAMPLE_SRC)/Example/Gpt.idr
 	cp $(LIB) $(BUILD)/exec/gpt_app/
 	bash scripts/test-checkpoint-resume.sh ./$(BUILD)/exec/gpt
@@ -1883,7 +1903,7 @@ test-jupyter: backend check $(JUPYTER_VENV)/bin/activate
 	cd packages/jupyter && ../../$(JUPYTER_PYTEST) tests/ -v
 
 # Quick: just cell parser (no REPL, no backend needed)
-test-jupyter-unit: $(JUPYTER_VENV)/bin/activate
+test-integration-jupyter-cellparser: $(JUPYTER_VENV)/bin/activate
 	$(JUPYTER_PIP) install -q -e packages/jupyter/.[dev]
 	cd packages/jupyter && ../../$(JUPYTER_PYTEST) tests/test_cell_parser.py -v
 
@@ -2206,6 +2226,12 @@ all: check-all test-all
         test-unit-gym test-unit-examples test-unit-multi-backend test-all dataset-mnist dataset-tinyshakespeare \
         test-unit-backend test-unit-backend-tape test-unit-backend-mlx test-unit-backend-torch \
         test-unit-safetensors test-unit-ntm-grad test-unit-ntm-timestep test-unit-mlx-compile \
+        test-integration test-integration-lint-rename-headers test-integration-lint-ffi-wrap-template \
+        test-integration-lint-non-io-side-effects test-integration-lint-paired-defaults \
+        test-integration-lint-hf-llama-inference test-integration-typegate-gradmode \
+        test-integration-typegate-gradmode-aliasing test-integration-typegate-lossy-cast \
+        test-integration-typegate-int-overflow-cast test-integration-checkpoint-resume \
+        test-integration-jupyter-cellparser \
         test-examples test-examples-convergence \
         check check-gym check-notebook check-examples install install-core install-gym install-notebook install-examples \
         example-supervised example-rnn example-lstm example-gru \
@@ -2214,14 +2240,14 @@ all: check-all test-all
         example-dqn example-mountain-car example-mountain-car-cont example-a2c example-ppo example-sac \
         example-gpt example-gpt-full example-matmul-bench example-mnist example-seq-classify example-transformer \
         ref-gpt \
-        example-transfer example-checkpoint example-checkpoint-demo test-checkpoint-resume \
+        example-transfer example-checkpoint example-checkpoint-demo \
         example-bench example-profile sweep sweep-quick clean \
         backend print-torch ref-setup ref-supervised ref-rnn ref-lstm ref-gru ref-ntm-copy \
         ref-ntm-recall ref-dnc-copy ref-dnc-recall \
         ref-transformer ref-hf-bert ref-hf-gpt2 ref-hf-llama \
         bench-py bench-compare bench-ops bench-ops-py bench-ops-compare test-ref ref-test ref-lint \
         ref-typecheck ref-convergence ref-convergence-copy ref-convergence-recall \
-        jupyter-install jupyter-lab test-jupyter test-jupyter-unit test-notebooks
+        jupyter-install jupyter-lab test-jupyter test-notebooks
 
 
 
