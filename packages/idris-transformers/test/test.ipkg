@@ -12,6 +12,7 @@ modules = Harness
         , Test.HfBitNet
         , Test.HfGpt2
         , Test.HfLlama
+        , Test.KVCache
         , Test.Tokenizer
 
 main = Main

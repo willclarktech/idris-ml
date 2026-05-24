@@ -11,4 +11,5 @@ modules = HfBert
         , HfGpt2
         , HfLlama
         , IdrisTransformers
+        , KVCache
         , Tokenizer

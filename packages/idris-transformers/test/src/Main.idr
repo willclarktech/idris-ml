@@ -5,6 +5,7 @@ import Test.HfBert
 import Test.HfBitNet
 import Test.HfGpt2
 import Test.HfLlama
+import Test.KVCache
 import Test.Tokenizer
 
 
@@ -14,4 +15,4 @@ main = runAll (
      [ check "ipkg parses and harness links" True
      ])
   ] ++ Test.HfBert.suite ++ Test.HfGpt2.suite ++ Test.HfLlama.suite
-    ++ Test.HfBitNet.suite ++ Test.Tokenizer.suite)
+    ++ Test.HfBitNet.suite ++ Test.KVCache.suite ++ Test.Tokenizer.suite)

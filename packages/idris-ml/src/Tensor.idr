@@ -1725,6 +1725,21 @@ tconcat2dAxis1 : {0 d : Device} -> UserDeviceTraining d => {b, m, n : Nat} ->
                  IO (Tensor [b, m + n] d dt g)
 tconcat2dAxis1 a b = ioRerun (\_ => MkTensor (primConcat2dAxis1 {d} a.tensorPtr b.tensorPtr) Nothing)
 
+||| Concatenate two [a, n] / [b, n] TVars along axis 0, producing
+||| [a + b, n]. Wraps `primCat2` (which under the hood is
+||| `torch::cat({a, b}, 0)` / `mx::concatenate({a, b}, 0)` /
+||| tape's `tensor_cat2` — all rank-preserving). Distinct from
+||| `tconcat2dAxis1` (axis-1 cat); pairs with it.
+|||
+||| Used by KV cache append: previous-step K (shape [len, kvOut])
+||| concatenated with new-step K (shape [s, kvOut]) → [len + s,
+||| kvOut]. The `kvOut` (trailing) dim must match on both inputs.
+export
+tconcat2dAxis0 : {0 d : Device} -> UserDeviceTraining d => {a, b, n : Nat} ->
+                 Tensor [a, n] d dt g -> Tensor [b, n] d dt g ->
+                 IO (Tensor [a + b, n] d dt g)
+tconcat2dAxis0 x y = ioRerun (\_ => MkTensor (primCat2 {d} x.tensorPtr y.tensorPtr) Nothing)
+
 ----------------------------------------------------------------------
 -- Type-safe integral index API — argsort / gather / scatterAdd
 --
