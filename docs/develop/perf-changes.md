@@ -63,14 +63,21 @@ Idris-side: `primRmsNorm2d : AnyPtr -> AnyPtr -> Double -> AnyPtr` on `UserDevic
 
 **Impact** (Llama-3.2-1B F32, 8 greedy tokens, prompt='The capital of France is'):
 
-| backend / config | cross-language gate | max-abs-diff vs HF Python oracle (tol 1.0) |
-|---|---|---:|
-| **mlx-gpu** F32 | PASS | **1.20e-04** |
-| **torch-mps** F32 | PASS | **4.96e-05** |
+| backend / config | cross-language gate | max-abs-diff vs HF Python oracle (tol 1.0) | op count step 6 | runGenerate wall |
+|---|---|---:|---:|---:|
+| **mlx-gpu** F32 (pre-RMSNorm baseline n/a — counter stub) | n/a | n/a | n/a | n/a |
+| **mlx-gpu** F32 (this commit) | PASS | **1.20e-04** | counter stub | **1 m 3 s** (total wall) |
+| **torch-mps** F32 (post all-heads RoPE baseline, commit `c39371f+dirty` 2026-05-31) | n/a | n/a | **2,634** | 4 m 56 s |
+| **torch-mps** F32 (this commit) | PASS | **4.96e-05** | **918 (-65%)** | 4 m 56 s |
+
+- mlx-gpu's `tensor_perf_op_count` is a stub (only torch tracks per-op submission since #393).
+- **Op-count drop**: deterministic — 2,634 → 918 across all decode steps 6-13 in the torch-mps log.
+- **Wall on torch-mps is flat** — `runGenerate` is 296 s on both the pre- and post-RMSNorm commits. Same finding as the prior all-heads RoPE entry: the per-op cost on torch-mps rises in inverse proportion to the op count when we collapse decomposed chains into single primitives, because the bigger remaining ops use MPS paths with higher launch latency. Op-count × per-op-cost ≈ wall. On a rank-2 fused op (which RMSNorm is) the asymmetry is smaller than the rank-3 case (where the cost rose 3-5×), but it's still enough to neutralise the wall on this workload.
+- **Wall on mlx-gpu**: total 1 m 3 s end-to-end on the current commit. Direct comparison to a same-dtype mlx-gpu F32 baseline isn't on file — the recent mlx-gpu HfLlama entries were BF16-mode (which is ~62% slower than F32 on mlx per the 2026-05-31 BF16 measurement). The 1 m 3 s figure is the new mlx-gpu F32 baseline post-RMSNorm.
 
 C-level: criterion suite 213/213 tape, 203/203 torch, 205/205 mlx (after adding 4 new `test_rms_norm.c` cases: unit weight, per-row independence, per-column weighting, decomposed-chain agreement vs host-side oracle).
 
-**Outcome**: landed. HfCommon's role narrows from "structural wrapper around a chain" to "thin wrapper around a single FFI call" — the chain it used to contain is preserved as `primRmsNorm2d`'s no-op fallback ON EACH backend (each backend implements the math; there's no Idris-side chain fallback). The op-count and wall measurements per-backend land in `perf-log.jsonl` on the followups to this commit.
+**Outcome**: landed. HfCommon's role narrows from "structural wrapper around a chain" to "thin wrapper around a single FFI call" — the chain it used to contain is preserved as `primRmsNorm2d`'s no-op fallback ON EACH backend (each backend implements the math; there's no Idris-side chain fallback). Cross-backend op count drops as expected on torch-mps; mlx-gpu's lazy graph rewards the fewer-ops shape directly.
 
 **TDD discipline** (per `feedback_tdd_default`): test file authored first, RED observed at link time (`call to undeclared function 'tensor_rms_norm_2d'`), then backend impl + Idris wiring turned it GREEN. RED-before-commit recorded in commit body.
 
