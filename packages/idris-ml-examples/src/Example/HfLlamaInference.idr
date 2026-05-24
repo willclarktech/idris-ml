@@ -340,11 +340,10 @@ main = do
     Right _ => pure ()
   stageStamp "tokenizer probe ok" t0
 
-  -- Build the full Llama 3.2 1B state — 146 params, ~1.2B values.
-  -- All backends now default to F32 (2026-06-04 flip) = ~5 GB
-  -- allocation, fits comfortably on a 16 GB VM. Override via
-  -- TORCH_DTYPE=F64 etc if you need F64 precision; that doubles
-  -- the footprint to ~10 GB and may not fit on smaller hosts.
+  -- Build the full Llama 3.2 1B state — 146 params, ~1.2B values at
+  -- F64 = ~10 GB allocation. F32 backends (mlx-gpu / torch-mps) cut
+  -- that to ~5 GB; that's the practical config for this VM. Tape
+  -- (F64-only) doesn't fit in 16 GB; the example skips that lane.
   putStrLn "[stage] hfLlamaModel — constructing 146-param state (~5 GB at F32 / 10 GB at F64)..."
   model <- hfLlamaModel {d=ExampleDevice} {dt=ExampleDType}
                         {vocab        = VocabSize}

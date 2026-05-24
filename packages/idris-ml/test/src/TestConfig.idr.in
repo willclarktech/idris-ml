@@ -12,21 +12,10 @@
 |||
 |||   tape, *                     → TapeDev,              F64
 |||   torch, TORCH_DEVICE=cpu      → TorchDev TCpu,        F64
-|||   torch, TORCH_DEVICE=mps      → TorchDev TMps,        F32   (Metal-forced)
+|||   torch, TORCH_DEVICE=mps      → TorchDev TMps,        F32
 |||   torch, TORCH_DEVICE=cuda     → TorchDev (TCuda 0),   F64
 |||   mlx, MLX_DEVICE=cpu          → MlxDev MCpu,          F64
-|||   mlx, MLX_DEVICE=gpu          → MlxDev MGpu,          F32   (Metal-forced)
-|||
-||| **TestConfig stays on F64** while `BuildConfig` (the example
-||| side) flipped to F32 default (2026-06-04). Unit tests value-pin
-||| against PyTorch F64 oracle values at tolerances like 1e-12
-||| (Test.RoPE) and 1e-9 (Test.SwiGLU) — F32's ~7-decimal mantissa
-||| can't satisfy those. The two sides have different goals:
-||| examples care about end-to-end workflow + memory + speed (F32
-||| wins); unit tests care about value-level correctness of math
-||| primitives (F64 keeps tolerances meaningful). Flipping the
-||| test side to F32 would require a tolerance audit across every
-||| `Test.*` module; filed as a separate follow-up.
+|||   mlx, MLX_DEVICE=gpu          → MlxDev MGpu,          F32
 |||
 ||| Pre-existing unit tests (GradMode / ManagedHandle / …) used to pin
 ||| `{d=TapeDev}` directly; that bound them to a tape-linked dylib and

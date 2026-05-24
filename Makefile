@@ -84,6 +84,46 @@ PRIMARY := $(firstword $(BACKEND_LIST))
 # F64 elsewhere — see those files' .in templates for the matrix).
 #
 # See `docs/develop/design-decisions.md` "Per-backend-set build cache".
+#
+# Auto-F32 for HF inference targets: the 1.24B-param Llama at F64
+# (~10 GB) + per-forward intermediates don't fit comfortably on a
+# 16 GB VM. The other Hf models (BERT-tiny / GPT-2-small) are
+# small enough that F64 is fine; the heavy-LM examples + their
+# roundtrip gates are the only ones that need the override. Set
+# TORCH_DTYPE/MLX_DTYPE/TAPE_DTYPE to F32 ONLY IF the user hasn't
+# already specified them on the command line (`?=` semantics
+# inlined since this is `:=` parse-time). User-side override:
+# `TORCH_DTYPE=F64 make test-hf-llama-roundtrip` keeps F64 (e.g.
+# for numerical bisection vs the F64 oracle path).
+HF_HEAVY_GOALS := example-hf-llama-inference \
+                  test-hf-llama-roundtrip \
+                  test-hf-llama-generate-roundtrip \
+                  example-hf-bitnet-inference \
+                  test-hf-bitnet-roundtrip
+ifneq ($(filter $(HF_HEAVY_GOALS),$(MAKECMDGOALS)),)
+  # `?=` not used here — Make's `?=` treats an exported-empty env var
+  # ("" from the shell) as already-set and skips the default. The HF
+  # heavy targets need F32 unless the user EXPLICITLY set a non-empty
+  # value at the command line. Detect "no value" via filter against
+  # empty string. Set only the dtype for the active PRIMARY (BACKEND's
+  # first item) — setting all three would balloon the BUILD_KEY with
+  # `-tdtF32-mdtF32-tpdtF32` suffixes when only one matters.
+  HF_HEAVY_PRIMARY := $(firstword $(subst $(comma), ,$(BACKEND)))
+  ifeq ($(HF_HEAVY_PRIMARY),torch)
+    ifeq ($(strip $(TORCH_DTYPE)),)
+      TORCH_DTYPE := F32
+    endif
+  else ifeq ($(HF_HEAVY_PRIMARY),mlx)
+    ifeq ($(strip $(MLX_DTYPE)),)
+      MLX_DTYPE := F32
+    endif
+  else ifeq ($(HF_HEAVY_PRIMARY),tape)
+    ifeq ($(strip $(TAPE_DTYPE)),)
+      TAPE_DTYPE := F32
+    endif
+  endif
+endif
+
 BUILD_KEY := $(subst $(comma),-,$(strip $(BACKEND)))-mlx$(MLX_DEVICE)-torch$(TORCH_DEVICE)$(if $(TORCH_DTYPE),-tdt$(TORCH_DTYPE),)$(if $(MLX_DTYPE),-mdt$(MLX_DTYPE),)$(if $(TAPE_DTYPE),-tpdt$(TAPE_DTYPE),)
 BUILD := build/$(BUILD_KEY)
 
@@ -599,12 +639,12 @@ $(BUILD)/.buildconfig-stamp: FORCE | $(BUILD)
 $(BUILDCONFIG_IDR): $(BUILDCONFIG_IN) $(BUILD)/.buildconfig-stamp
 	@case "$(PRIMARY)/$(MLX_DEVICE)/$(TORCH_DEVICE)" in \
 		mlx/gpu/*)    DEVICE="MlxDev MGpu";       DTYPE="F32" ;; \
-		mlx/cpu/*)    DEVICE="MlxDev MCpu";       DTYPE="F32" ;; \
+		mlx/cpu/*)    DEVICE="MlxDev MCpu";       DTYPE="F64" ;; \
 		torch/*/mps)  DEVICE="TorchDev TMps";     DTYPE="F32" ;; \
-		torch/*/cuda) DEVICE="TorchDev (TCuda 0)"; DTYPE="F32" ;; \
-		torch/*/*)    DEVICE="TorchDev TCpu";     DTYPE="F32" ;; \
-		tape/*/*)     DEVICE="TapeDev";           DTYPE="F32" ;; \
-		*)            DEVICE="TapeDev";           DTYPE="F32" ;; \
+		torch/*/cuda) DEVICE="TorchDev (TCuda 0)"; DTYPE="F64" ;; \
+		torch/*/*)    DEVICE="TorchDev TCpu";     DTYPE="F64" ;; \
+		tape/*/*)     DEVICE="TapeDev";           DTYPE="F64" ;; \
+		*)            DEVICE="TapeDev";           DTYPE="F64" ;; \
 	esac; \
 	if [ -n "$(TORCH_DTYPE)" ] && [ "$(PRIMARY)" = "torch" ]; then DTYPE="$(TORCH_DTYPE)"; fi; \
 	if [ -n "$(MLX_DTYPE)"   ] && [ "$(PRIMARY)" = "mlx"   ]; then DTYPE="$(MLX_DTYPE)";   fi; \
@@ -1165,6 +1205,13 @@ example-hf-gpt2-inference: install $(HF_MODELS_DIR)/distilgpt2/config.json
 # `BACKEND=torch TORCH_DEVICE=mps make example-hf-llama-inference`
 # or `BACKEND=mlx MLX_DEVICE=gpu make example-hf-llama-inference` for
 # the F32 / GPU paths.
+#
+# HF inference targets auto-set TORCH_DTYPE/MLX_DTYPE/TAPE_DTYPE
+# to F32 (see the MAKECMDGOALS conditional near BUILD_KEY); the
+# 1.24B-param Llama at F64 is ~10 GB which doesn't fit comfortably
+# on a 16 GB VM. Override by setting TORCH_DTYPE=F64 (etc) on the
+# command line if you genuinely want F64 (e.g. for numerical
+# bisection vs the F64 oracle in `save_oracle_llama.py`).
 example-hf-llama-inference: install $(HF_MODELS_DIR)/meta-llama/Llama-3.2-1B/config.json
 	idris2 $(IDRIS_FLAGS) -o hf-llama-inference $(EXAMPLE_SRC)/Example/HfLlamaInference.idr
 	cp $(LIB) $(BUILD)/exec/hf-llama-inference_app/
@@ -2165,3 +2212,6 @@ all: check-all test-all
         bench-py bench-compare bench-ops bench-ops-py bench-ops-compare test-ref ref-test ref-lint \
         ref-typecheck ref-convergence ref-convergence-copy ref-convergence-recall \
         jupyter-install jupyter-lab test-jupyter test-jupyter-unit test-notebooks
+
+
+

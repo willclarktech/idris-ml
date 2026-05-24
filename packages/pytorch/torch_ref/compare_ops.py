@@ -130,7 +130,7 @@ def print_system_info(available: dict[str, dict[str, float]]) -> None:
     if mem_gb:
         print(f"  Memory:    {mem_gb}")
     print(f"  PyTorch:   {torch.__version__}")
-    print("  Precision: float32 (single)")
+    print("  Precision: float64 (double)")
     print(f"  Backends:  {', '.join(available.keys())}")
 
 
