@@ -1786,8 +1786,8 @@ bench-layers-py:
 test-perf-fast:
 	bash scripts/perf-fast.sh
 
-test-perf-nightly: test-perf-fast
-	@echo "test-perf-nightly: Axes B/C/D not yet wired up — see TODO.md"
+test-perf-nightly:
+	bash scripts/perf-nightly.sh
 
 test-perf-full:
 	bash scripts/perf-sweep.sh

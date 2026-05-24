@@ -124,7 +124,39 @@ that Axis A's pure C-kernel timings don't see.
 
 ## Axis C — End-to-end training (vs PyTorch)
 
-_No entries yet — Axis C benches not yet wired up._
+Wall-clock per epoch on a representative end-to-end training
+workload per training mode (supervised / RNN / transformer /
+NTM-class / RL). One entry per distinct compute pattern.
+
+### lstm-train
+
+| Workload | tape (ms/iter) | pytorch (ms/iter) | ratio (tape / pytorch) | iters | commit |
+|---|---:|---:|---:|---:|---|
+| lstm-train | 0.2646 | 5.3233 | 0.05× | 20 | `6713b3ca+dirty` |
+
+### ntm-copy-train
+
+| Workload | tape (ms/iter) | pytorch (ms/iter) | ratio (tape / pytorch) | iters | commit |
+|---|---:|---:|---:|---:|---|
+| ntm-copy-train | 4.6230 | 23.1916 | 0.20× | 10 | `6713b3ca+dirty` |
+
+### reinforce-train
+
+| Workload | tape (ms/iter) | pytorch (ms/iter) | ratio (tape / pytorch) | iters | commit |
+|---|---:|---:|---:|---:|---|
+| reinforce-train | 4.6572 | 25.4418 | 0.18× | 50 | `6713b3ca+dirty` |
+
+### supervised-train
+
+| Workload | tape (ms/iter) | pytorch (ms/iter) | ratio (tape / pytorch) | iters | commit |
+|---|---:|---:|---:|---:|---|
+| supervised-train | 0.0400 | 0.9303 | 0.04× | 50 | `6713b3ca+dirty` |
+
+### transformer-train
+
+| Workload | tape (ms/iter) | pytorch (ms/iter) | ratio (tape / pytorch) | iters | commit |
+|---|---:|---:|---:|---:|---|
+| transformer-train | 1.3976 | 27.1076 | 0.05× | 10 | `6713b3ca+dirty` |
 
 ## Axis D — End-to-end HF inference (vs HF transformers)
 
