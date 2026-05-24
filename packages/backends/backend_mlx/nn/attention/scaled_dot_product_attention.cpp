@@ -1,4 +1,4 @@
-/* tensor_sdpa_2d for the mlx backend (TODO #399 Commit B).
+/* tensor_sdpa_2d for the mlx backend.
  *
  * Wraps `mlx::core::fast::scaled_dot_product_attention`, mlx-lm's
  * canonical fused attention path (one mlx graph node for the whole
@@ -8,15 +8,25 @@
  * ratio per call.
  *
  * I/O is 2D-flat to match the Idris caller's `[seq, h*hd]` projection
- * outputs without paying multiplicative-Nat elaboration cost:
- *   Q : [seq, numHeads   * headDim]
- *   K : [seq, numKvHeads * headDim]
- *   V : [seq, numKvHeads * headDim]
+ * outputs without paying multiplicative-Nat elaboration cost. **Q and
+ * KV may have different sequence lengths** for the cache-aware decode
+ * path: Q.size(0) = q_seq (1 in steady state); K.size(0) = V.size(0)
+ * = kv_seq (cache_len + q_seq). For prefill / training, q_seq ==
+ * kv_seq.
+ *   Q : [q_seq,  numHeads   * headDim]
+ *   K : [kv_seq, numKvHeads * headDim]
+ *   V : [kv_seq, numKvHeads * headDim]
+ *   out [q_seq, numHeads * headDim]
  *
  * Reshape + transpose to mlx-lm's expected [1, num_heads, seq, head_dim]
  * 4D layout, call SDPA, transpose + reshape back. Reshapes are
  * metadata-only on mlx; transposes are lazy graph nodes that mlx fuses
- * with the SDPA call at eval time. */
+ * with the SDPA call at eval time.
+ *
+ * Causal mask under asymmetric: `mask_mode="causal"` on mlx aligns to
+ * the lower-right corner of the [q_seq, kv_seq] grid — query position
+ * i sees K positions [0 .. kv_seq - q_seq + i] — matching the cache-
+ * aware semantics. */
 #include "../../tensor.h"
 #include "../../tape.h"
 #include "../../stream.h"
@@ -33,17 +43,18 @@ extern "C" TensorHandle tensor_sdpa_2d_mlx_streamed(
     auto q = (Tensor*)hq;
     auto k = (Tensor*)hk;
     auto v = (Tensor*)hv;
-    int seq = (int)q->data.shape(0);
+    int q_seq  = (int)q->data.shape(0);
+    int kv_seq = (int)k->data.shape(0);
     // [seq, h*hd] -> [1, seq, h, hd] -> [1, h, seq, hd]
-    auto q3 = mx::transpose(mx::reshape(q->data, {1, seq, numHeads,   headDim}), {0, 2, 1, 3});
-    auto k3 = mx::transpose(mx::reshape(k->data, {1, seq, numKvHeads, headDim}), {0, 2, 1, 3});
-    auto v3 = mx::transpose(mx::reshape(v->data, {1, seq, numKvHeads, headDim}), {0, 2, 1, 3});
+    auto q3 = mx::transpose(mx::reshape(q->data, {1, q_seq,  numHeads,   headDim}), {0, 2, 1, 3});
+    auto k3 = mx::transpose(mx::reshape(k->data, {1, kv_seq, numKvHeads, headDim}), {0, 2, 1, 3});
+    auto v3 = mx::transpose(mx::reshape(v->data, {1, kv_seq, numKvHeads, headDim}), {0, 2, 1, 3});
     float scale = 1.0f / std::sqrt((float)headDim);
     std::string mask_mode = isCausal ? "causal" : "";
     auto out3 = mx::fast::scaled_dot_product_attention(q3, k3, v3, scale, mask_mode);
-    // [1, h, seq, hd] -> [1, seq, h, hd] -> [seq, h*hd]
+    // [1, h, q_seq, hd] -> [1, q_seq, h, hd] -> [q_seq, h*hd]
     auto out2 = mx::reshape(mx::transpose(out3, {0, 2, 1, 3}),
-                            {seq, numHeads * headDim});
+                            {q_seq, numHeads * headDim});
 
     bool rg = q->requires_grad || k->requires_grad || v->requires_grad;
     auto r = new Tensor(out2, rg);

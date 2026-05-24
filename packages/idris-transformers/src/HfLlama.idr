@@ -57,6 +57,7 @@ import Compat.Random
 import Device
 import HfCommon
 import Init
+import KVCache
 import Layer.RoPE
 import Sampler
 import Tensor
@@ -435,12 +436,13 @@ ropeAllHeadsFlat :
      RoPETables maxPos headDim d dt g ->
      (full : AnyPtr) ->                     -- [seq, numH * headDim]
      (sI, nHI, hdI : Int) ->
+     (positionOffset : Nat) ->
      IO AnyPtr
-ropeAllHeadsFlat {d} {seq} {numH} {headDim} {maxPos} tables full sI nHI hdI = do
+ropeAllHeadsFlat {d} {seq} {numH} {headDim} {maxPos} tables full sI nHI hdI offset = do
   full3 <- ioRerun (\_ =>
             the (Tensor [seq, numH, headDim] d dt g)
                 (MkTensor (primReshape3d {d} full sI nHI hdI) Nothing))
-  rot3 <- applyRopeAllHeads {seq} {numHeads=numH} {headDim} {maxPos} tables 0 full3
+  rot3 <- applyRopeAllHeads {seq} {numHeads=numH} {headDim} {maxPos} tables offset full3
   ioRerun (\_ => primReshape2d {d} rot3.tensorPtr sI (nHI * hdI))
 
 
@@ -471,8 +473,8 @@ applyAttention {seq} {hidden} {numHeads} {numKvHeads} {headDim} {maxPos} attn ta
   -- ~62 per-layer `primConcat2dAxis1` calls that were ~80% of the
   -- forward op count post-SDPA. Net per layer drops from ~518 RoPE ops
   -- to ~15 (rank-3 broadcast cos/sin over [seq, numH, headDim] halves).
-  qRopedPtr <- ropeAllHeadsFlat {d} {seq} {numH=numHeads}   {headDim} {maxPos} tables q.tensorPtr sI nHI   hdI
-  kRopedPtr <- ropeAllHeadsFlat {d} {seq} {numH=numKvHeads} {headDim} {maxPos} tables k.tensorPtr sI nKvHI hdI
+  qRopedPtr <- ropeAllHeadsFlat {d} {seq} {numH=numHeads}   {headDim} {maxPos} tables q.tensorPtr sI nHI   hdI 0
+  kRopedPtr <- ropeAllHeadsFlat {d} {seq} {numH=numKvHeads} {headDim} {maxPos} tables k.tensorPtr sI nKvHI hdI 0
   -- ONE fused SDPA call replaces the per-head matmul/scale/mask/
   -- softmax/matmul loop. On torch-mps this routes to MPSGraph's fused
   -- attention kernel (~1 op/layer vs ~5/head/layer = 160/layer prior);
@@ -577,3 +579,171 @@ hfLlamaForwardLm {numHeads} {numKvHeads} {headDim} eps model tables tokens = do
       zeroBias : Tensor [vocab] d dt g
       zeroBias = MkTensor (dtCreateState1d {d} {t=dt} vI zBuf (deviceStreamTag {d})) Nothing
   tlinear2d model.embedTokens.weight hFinal zeroBias
+
+
+----------------------------------------------------------------------
+-- Cache-aware forward (incremental decode)
+----------------------------------------------------------------------
+--
+-- Mirrors applyAttention / applyBlock / applyBlocks / hfLlamaForward
+-- but threads a per-layer KVCache through. Each layer's cache stores
+-- post-RoPE K and pre-RoPE V (RoPE is position-dependent and applied
+-- once per cached position, whereas V skips RoPE). For the seed call
+-- (cache=Empty, seq=promptLen), positionOffset is 0 and the cache
+-- gets the full prompt's K/V. For the steady-state decode (cache=
+-- Filled, seq=1), positionOffset is cacheLen and the cache grows by
+-- one row per step. SDPA receives Q from the new tokens only
+-- (q_seq=seq) and K/V from the full cached prefix (kv_seq=cacheLen+
+-- seq) — torch / mlx / tape all align is_causal=True to the lower-
+-- right of the [q_seq, kv_seq] mask grid, which matches the cache-
+-- aware causal semantics.
+
+||| Cache-aware multi-head causal self-attention with GQA + RoPE.
+||| Reads the current cache length to set the RoPE position offset,
+||| appends the new K/V chunk to the cache, runs SDPA against the
+||| full cached prefix, and returns the updated cache + projected
+||| output.
+applyAttentionCached :
+       {0 d : Device} -> UserDeviceTraining d => RuntimeDType dt => Linked d => Compatible d dt
+    => {seq, hidden, numHeads, numKvHeads, headDim, maxPos : Nat}
+    -> LlamaAttentionState hidden (numHeads * headDim) (numKvHeads * headDim) d dt g
+    -> RoPETables maxPos headDim d dt g
+    -> KVCache (numKvHeads * headDim) d dt
+    -> Tensor [seq, hidden] d dt g
+    -> IO (KVCache (numKvHeads * headDim) d dt, Tensor [seq, hidden] d dt g)
+applyAttentionCached {seq} {hidden} {numHeads} {numKvHeads} {headDim} {maxPos}
+                     attn tables cache input = do
+  q <- applyLinear2d attn.qProj input  -- [seq, numHeads   * headDim]
+  k <- applyLinear2d attn.kProj input  -- [seq, numKvHeads * headDim]
+  v <- applyLinear2d attn.vProj input  -- [seq, numKvHeads * headDim]
+  let sI     = cast {to=Int} seq
+      hdI    = cast {to=Int} headDim
+      nHI    = cast {to=Int} numHeads
+      nKvHI  = cast {to=Int} numKvHeads
+      offset = cacheLen cache
+  qRopedPtr <- ropeAllHeadsFlat {d} {seq} {numH=numHeads}   {headDim} {maxPos}
+                                 tables q.tensorPtr sI nHI   hdI offset
+  kRopedPtr <- ropeAllHeadsFlat {d} {seq} {numH=numKvHeads} {headDim} {maxPos}
+                                 tables k.tensorPtr sI nKvHI hdI offset
+  -- Wrap post-RoPE K and pre-RoPE V as NoGrad for the cache. Grad
+  -- mode is a phantom type; the underlying Chez vector is shared
+  -- (no extra retain or copy — Idris's refcount handles multi-
+  -- reference correctly).
+  let kNewNoGrad : Tensor [seq, numKvHeads * headDim] d dt NoGrad
+      kNewNoGrad = MkTensor kRopedPtr Nothing
+      vNewNoGrad : Tensor [seq, numKvHeads * headDim] d dt NoGrad
+      vNewNoGrad = MkTensor v.tensorPtr Nothing
+  cache' <- appendKV {s=seq} {kvOut=numKvHeads * headDim} cache kNewNoGrad vNewNoGrad
+  -- SDPA against the FULL cached K/V (post-append). For seed step
+  -- with Empty cache, cache' = Filled seq newK newV → q_seq == kv_seq
+  -- (matches non-cached behaviour). For steady step, cache' has
+  -- kv_seq = cacheLen + seq > q_seq=seq → SDPA picks lower-right
+  -- causal alignment.
+  case cache' of
+    Empty => idris_crash "applyAttentionCached: appendKV returned Empty (impossible)"
+    Filled _ kFull vFull => do
+      ctxPtr <- ioRerun (\_ =>
+                  primSdpa2d {d} qRopedPtr kFull.tensorPtr vFull.tensorPtr
+                             nHI nKvHI hdI 1)  -- isCausal=1
+      ctxT <- ioRerun (\_ =>
+                the (Tensor [seq, numHeads * headDim] d dt g)
+                    (MkTensor ctxPtr Nothing))
+      oOut <- applyLinear2d attn.oProj ctxT
+      pure (cache', oOut)
+
+
+||| One Llama decoder block with KV cache threading.
+applyBlockCached :
+       {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d
+    => RuntimeDType dt => Linked d => Compatible d dt
+    => {seq, hidden, numHeads, numKvHeads, headDim, intermediate, maxPos : Nat}
+    -> (eps : Double)
+    -> LlamaBlockState hidden (numHeads * headDim) (numKvHeads * headDim) intermediate d dt g
+    -> RoPETables maxPos headDim d dt g
+    -> KVCache (numKvHeads * headDim) d dt
+    -> Tensor [seq, hidden] d dt g
+    -> IO (KVCache (numKvHeads * headDim) d dt, Tensor [seq, hidden] d dt g)
+applyBlockCached {seq} {hidden} {numHeads} {numKvHeads} {headDim}
+                 eps blk tables cache x = do
+  xLn1            <- applyRmsNorm2d eps blk.inputNorm x
+  (cache', aOut)  <- applyAttentionCached {seq} {hidden} {numHeads} {numKvHeads} {headDim}
+                                          blk.attn tables cache xLn1
+  xMid            <- tadd x aOut
+  xLn2            <- applyRmsNorm2d eps blk.postAttnNorm xMid
+  mOut            <- applyMlp blk.mlp xLn2
+  out             <- tadd xMid mOut
+  pure (cache', out)
+
+
+||| Thread a Vect of per-layer KV caches through the decoder stack.
+applyBlocksCached :
+       {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d
+    => RuntimeDType dt => Linked d => Compatible d dt
+    => {seq, hidden, numHeads, numKvHeads, headDim, intermediate, maxPos, n : Nat}
+    -> (eps : Double)
+    -> Vect n (LlamaBlockState hidden (numHeads * headDim) (numKvHeads * headDim) intermediate d dt g)
+    -> RoPETables maxPos headDim d dt g
+    -> Vect n (KVCache (numKvHeads * headDim) d dt)
+    -> Tensor [seq, hidden] d dt g
+    -> IO (Vect n (KVCache (numKvHeads * headDim) d dt), Tensor [seq, hidden] d dt g)
+applyBlocksCached _   []        _      []        x = pure ([], x)
+applyBlocksCached eps (b :: bs) tables (c :: cs) x = do
+  (c', x')        <- applyBlockCached {numHeads} {numKvHeads} {headDim} eps b tables c x
+  (cs', xFinal)   <- applyBlocksCached {numHeads} {numKvHeads} {headDim} eps bs tables cs x'
+  pure (c' :: cs', xFinal)
+
+
+||| Cache-aware forward step. Empty caches + full prompt is the seed
+||| call (equivalent to `hfLlamaForward`); subsequent calls take the
+||| previous caches + a single new token and return the updated
+||| caches + new logits. The PUBLIC entry point for incremental
+||| generation.
+public export
+hfLlamaForwardStep :
+       {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d
+    => RuntimeDType dt => Linked d => Compatible d dt
+    => {seq, vocab, hidden, numLayers, numHeads, numKvHeads, headDim, intermediate, maxPos : Nat}
+    -> (eps : Double)
+    -> LlamaModelState vocab hidden numLayers (numHeads * headDim) (numKvHeads * headDim) intermediate d dt g
+    -> RoPETables maxPos headDim d dt g
+    -> Vect numLayers (KVCache (numKvHeads * headDim) d dt)
+    -> Tensor [seq] d dt g
+    -> IO (Vect numLayers (KVCache (numKvHeads * headDim) d dt), Tensor [seq, hidden] d dt g)
+hfLlamaForwardStep {numHeads} {numKvHeads} {headDim} eps model tables caches tokens = do
+  emb              <- applyEmbedLookup model.embedTokens tokens
+  (caches', hMid)  <- applyBlocksCached {numHeads} {numKvHeads} {headDim}
+                                        eps model.blocks tables caches emb
+  hFinal           <- applyRmsNorm2d eps model.finalNorm hMid
+  pure (caches', hFinal)
+
+
+||| Cache-aware LM-head forward: returns updated caches + per-position
+||| logits `[seq, vocab]`. Companion to `hfLlamaForwardLm`.
+public export
+hfLlamaForwardLmStep :
+       {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d
+    => RuntimeDType dt => Linked d => Compatible d dt
+    => {seq, vocab, hidden, numLayers, numHeads, numKvHeads, headDim, intermediate, maxPos : Nat}
+    -> (eps : Double)
+    -> LlamaModelState vocab hidden numLayers (numHeads * headDim) (numKvHeads * headDim) intermediate d dt g
+    -> RoPETables maxPos headDim d dt g
+    -> Vect numLayers (KVCache (numKvHeads * headDim) d dt)
+    -> Tensor [seq] d dt g
+    -> IO (Vect numLayers (KVCache (numKvHeads * headDim) d dt), Tensor [seq, vocab] d dt g)
+hfLlamaForwardLmStep {numHeads} {numKvHeads} {headDim} eps model tables caches tokens = do
+  (caches', hFinal) <- hfLlamaForwardStep {numHeads} {numKvHeads} {headDim}
+                                          eps model tables caches tokens
+  let vI = cast {to=Int} vocab
+      zBuf = prim__allocDoubles vI  -- calloc-backed → already zeros
+      zeroBias : Tensor [vocab] d dt g
+      zeroBias = MkTensor (dtCreateState1d {d} {t=dt} vI zBuf (deviceStreamTag {d})) Nothing
+  logits <- tlinear2d model.embedTokens.weight hFinal zeroBias
+  pure (caches', logits)
+
+
+||| Build a `Vect numLayers` of empty `KVCache`s for the given Llama
+||| dimensions. Use this to seed the per-layer caches at the start of
+||| a generation loop, before the first `hfLlamaForwardStep` call.
+public export
+emptyKVCaches : {numLayers, kvOut : Nat} -> Vect numLayers (KVCache kvOut d dt)
+emptyKVCaches = replicate numLayers emptyKVCache
