@@ -109,7 +109,7 @@ extract_marker() {
 }
 
 # Build the example binary for a (backend, device) cell ONCE, leaving
-# ./build/exec/<name> and ./build/exec/<name>_app/libidrisml.dylib in
+# ./build/<BUILD_KEY>/exec/<name> and the matching dylib in
 # place for direct invocation. The make-driven build + dylib copy is
 # the bulk of per-call wallclock on tiny examples (rnn/gru tape are
 # sub-ms/epoch real, vs ~100-500ms of make overhead per make invocation),
@@ -149,10 +149,33 @@ build_idris_binary() {
   rm -f "$errlog"
 }
 
-# Derive binary path from make target: example-rnn -> ./build/exec/rnn.
+# Build the per-cell BUILD_KEY (matches Makefile's BUILD_KEY := ...
+# construction). Used by binary_for_target to find the binary under
+# `build/<BUILD_KEY>/exec/` — the Makefile's per-(backend, device,
+# dtype) tree layout (CLAUDE.md "Per-backend-set build cache").
+# Default dtypes are empty (= the matrix's default — no -tdt/-mdt/
+# -tpdt suffix in BUILD_KEY), which matches what perf-sweep's
+# build_idris_binary invocation does — it doesn't set TORCH_DTYPE
+# / MLX_DTYPE / TAPE_DTYPE, so the default cells live at the
+# unsuffixed paths.
+build_key_for_cell() {
+  local backend="$1" device="$2"
+  local mlx_dev=cpu torch_dev=cpu
+  case "$backend" in
+    mlx)   mlx_dev="$device"   ;;
+    torch) torch_dev="$device" ;;
+    tape)  ;;  # neither device matters; the matrix's defaults stand
+  esac
+  echo "${backend}-mlx${mlx_dev}-torch${torch_dev}"
+}
+
+# Derive binary path from make target + cell:
+# example-rnn (tape, cpu) -> ./build/tape-mlxcpu-torchcpu/exec/rnn
 binary_for_target() {
-  local target="$1"
-  echo "./build/exec/${target#example-}"
+  local target="$1" backend="$2" device="$3"
+  local build_key
+  build_key=$(build_key_for_cell "$backend" "$device")
+  echo "./build/${build_key}/exec/${target#example-}"
 }
 
 # Run one idris invocation. Captures stdout, parses PERF_MS_PER_EP
@@ -161,7 +184,7 @@ binary_for_target() {
 run_idris_once() {
   local target="$1" _var="$2" n="$3" backend="$4" device="$5"
   local bin rc stdout_path errlog
-  bin=$(binary_for_target "$target")
+  bin=$(binary_for_target "$target" "$backend" "$device")
   stdout_path=$(mktemp "${TMPDIR:-/tmp}/perf-sweep-out.XXXXXX")
   errlog=$(mktemp "${TMPDIR:-/tmp}/perf-sweep-err.XXXXXX")
   rc=0
