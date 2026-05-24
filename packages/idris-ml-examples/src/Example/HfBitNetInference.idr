@@ -137,6 +137,59 @@ printRow end i p =
       printRow end (i + 1) p
 
 
+-- Helpers for --bisect-blocks mode: collect a 1D tensor's values as
+-- a List of `show`-formatted strings, then writeFile the whole thing
+-- once. Avoids per-element file syscalls for large dumps (the largest
+-- single dump is the [128256] logits = 128k lines).
+collectShown : Int -> Int -> AnyPtr -> IO (List String)
+collectShown end startIdx ptr = go startIdx []
+  where
+    go : Int -> List String -> IO (List String)
+    go i acc =
+      if i >= end
+        then pure (reverse acc)
+        else do
+          let v = primItem1d {d=ExampleDevice} ptr i
+          go (i + 1) (show v :: acc)
+
+dumpRowToFile : String -> Int -> AnyPtr -> IO ()
+dumpRowToFile path nElems ptr = do
+  xs <- collectShown nElems 0 ptr
+  res <- writeFile path (unlines xs)
+  case res of
+    Right () => pure ()
+    Left  err =>
+      putStrLn ("ERR: writeFile " ++ path ++ ": " ++ show err)
+
+
+-- Manual per-block iteration with dumps after each block. Calls
+-- `applyBlock` (exported from HfBitNet) once per Vect element and
+-- invokes `dumpFn` with a "block_NN" label. Idris-2's elaborator hung
+-- (>90 min, killed) when this iteration was attempted as a new
+-- polymorphic helper inside HfBitNet.idr; moving it here with the
+-- ExampleDevice/ExampleDType types pinned concretely lets the
+-- elaborator skip the per-call constraint specialisation that the
+-- BitNet quant-typeclass surface forces.
+iterateBlocksDumping :
+     {n : Nat}
+  -> Vect n (BitNetBlockState Hidden QOut KvOut Intermediate
+                              ExampleDevice ExampleDType WithGrad)
+  -> RoPETables MaxPos HeadDim ExampleDevice ExampleDType WithGrad
+  -> Tensor [2, Hidden] ExampleDevice ExampleDType WithGrad
+  -> (idx : Nat)
+  -> (dumpFn : String -> AnyPtr -> Int -> IO ())
+  -> IO (Tensor [2, Hidden] ExampleDevice ExampleDType WithGrad)
+iterateBlocksDumping []        _      x _   _      = pure x
+iterateBlocksDumping (b :: bs) tables x idx dumpFn = do
+  x' <- applyBlock {numHeads=NumHeads} {numKvHeads=NumKvHeads}
+                   {headDim=HeadDim}   {intermediate=Intermediate}
+                   RmsNormEps b tables x
+  let label = "block_" ++ (if idx < 10 then "0" ++ show idx else show idx)
+      n     = cast {to=Int} 2 * cast {to=Int} Hidden
+  dumpFn label x'.tensorPtr n
+  iterateBlocksDumping bs tables x' (S idx) dumpFn
+
+
 ----------------------------------------------------------------------
 -- Greedy generation
 ----------------------------------------------------------------------
@@ -267,9 +320,10 @@ stageStamp label t0 = do
 main : IO ()
 main = do
   args <- getArgs
-  let dumpLogits = elem "--dump-logits" args
-  let prompt     = extractPrompt args
-  let numTokens  = extractNumTokens args
+  let dumpLogits   = elem "--dump-logits"   args
+  let bisectBlocks = elem "--bisect-blocks" args
+  let prompt       = extractPrompt args
+  let numTokens    = extractNumTokens args
   t0 <- clockTime Monotonic
 
   -- Probe the tokenizer up-front so a missing tokenizer fails fast,
@@ -331,36 +385,75 @@ main = do
                                   RopeBase bitnetRopeScaling
   stageStamp "buildLlamaRoPETables ok" t0
 
-  if dumpLogits
+  if bisectBlocks
     then do
-      -- CI gate path: fixed two-token prompt [9906, 1917] = "Hello world"
-      -- under Llama-3 BPE. Forward once, dump all 128256 last-position
-      -- logits one per line so compare_inference.py can read them back.
+      -- Per-block divergence-bisection mode: run the forward dumping
+      -- post-embedding, post-each-block, post-final-norm hidden states
+      -- to models/idris-bisect/<label>.txt (one float per line). Also
+      -- dump the final last-position logits to logits.txt. The companion
+      -- script `save_oracle_bitnet_blocks.py` produces matching oracle
+      -- safetensors under models/bitnet-2b-4t-bisect/; `compare_bitnet_blocks.py`
+      -- walks both directories and reports per-label max-rel-diff.
+      _ <- system "mkdir -p models/idris-bisect"
       let inputIds = mkIds (the (Vect 2 Double) [9906.0, 1917.0])
-      putStrLn "[stage] hfBitnetForwardLm — single forward pass (seq=2)..."
-      logits <- withNoGradKeep {d=ExampleDevice} $
-        hfBitnetForwardLm {d=ExampleDevice} {dt=ExampleDType}
-                          {seq          = 2}
-                          {vocab        = VocabSize}
-                          {hidden       = Hidden}
-                          {numLayers    = NumLayers}
-                          {numHeads     = NumHeads}
-                          {numKvHeads   = NumKvHeads}
-                          {headDim      = HeadDim}
-                          {intermediate = Intermediate}
-                          {maxPos       = MaxPos}
-                          RmsNormEps loaded tables inputIds
-      stageStamp "hfBitnetForwardLm ok" t0
+      let dumpFn : String -> AnyPtr -> Int -> IO ()
+          dumpFn label ptr nElems = do
+            let path = "models/idris-bisect/" ++ label ++ ".txt"
+            dumpRowToFile path nElems ptr
+            putStrLn ("[bisect] wrote " ++ label ++
+                      " (" ++ show nElems ++ " floats)")
+      putStrLn "[stage] bisect-blocks forward..."
+      let nHidden = cast {to=Int} 2 * cast {to=Int} Hidden
+      -- Step 1: embedding
+      emb <- applyEmbedLookup loaded.embedTokens inputIds
+      dumpFn "embedding" emb.tensorPtr nHidden
+      -- Step 2: iterate the 30 decoder blocks, dumping after each
+      hMid <- iterateBlocksDumping loaded.blocks tables emb Z dumpFn
+      -- Step 3: final RmsNorm
+      hFinal <- applyRmsNorm2d {seqLen=2} {hidden=Hidden}
+                               RmsNormEps loaded.finalNorm hMid
+      dumpFn "final_norm" hFinal.tensorPtr nHidden
+      -- Step 4: tied LM head — project hFinal through embed_tokens.weight
+      let vI = cast {to=Int} VocabSize
+          zBuf = prim__allocDoubles vI
+          zeroBias : Tensor [VocabSize] ExampleDevice ExampleDType WithGrad
+          zeroBias = MkTensor (dtCreateState1d {d=ExampleDevice} {t=ExampleDType}
+                                vI zBuf (deviceStreamTag {d=ExampleDevice})) Nothing
+      logits <- tlinear2d loaded.embedTokens.weight hFinal zeroBias
       lastRow <- trowSelect logits 1
-      printRow (cast {to=Int} VocabSize) 0 lastRow.tensorPtr
-      stageStamp "dump-logits done" t0
+      dumpFn "logits" lastRow.tensorPtr vI
+      stageStamp "bisect-blocks done" t0
       pure ()
-    else do
-      case tokR of
-        Left _ => exitFailure
-        Right tokVal => do
-          putStrLn ("[stage] runGenerate — greedy decode loop (" ++
-                    show numTokens ++ " tokens)...")
-          runGenerate tokVal loaded tables prompt numTokens
-          stageStamp "runGenerate done" t0
-          pure ()
+    else if dumpLogits
+      then do
+        -- CI gate path: fixed two-token prompt [9906, 1917] = "Hello world"
+        -- under Llama-3 BPE. Forward once, dump all 128256 last-position
+        -- logits one per line so compare_inference.py can read them back.
+        let inputIds = mkIds (the (Vect 2 Double) [9906.0, 1917.0])
+        putStrLn "[stage] hfBitnetForwardLm — single forward pass (seq=2)..."
+        logits <- withNoGradKeep {d=ExampleDevice} $
+          hfBitnetForwardLm {d=ExampleDevice} {dt=ExampleDType}
+                            {seq          = 2}
+                            {vocab        = VocabSize}
+                            {hidden       = Hidden}
+                            {numLayers    = NumLayers}
+                            {numHeads     = NumHeads}
+                            {numKvHeads   = NumKvHeads}
+                            {headDim      = HeadDim}
+                            {intermediate = Intermediate}
+                            {maxPos       = MaxPos}
+                            RmsNormEps loaded tables inputIds
+        stageStamp "hfBitnetForwardLm ok" t0
+        lastRow <- trowSelect logits 1
+        printRow (cast {to=Int} VocabSize) 0 lastRow.tensorPtr
+        stageStamp "dump-logits done" t0
+        pure ()
+      else do
+        case tokR of
+          Left _ => exitFailure
+          Right tokVal => do
+            putStrLn ("[stage] runGenerate — greedy decode loop (" ++
+                      show numTokens ++ " tokens)...")
+            runGenerate tokVal loaded tables prompt numTokens
+            stageStamp "runGenerate done" t0
+            pure ()

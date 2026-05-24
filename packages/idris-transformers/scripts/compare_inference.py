@@ -2,11 +2,16 @@
 `save_oracle.py`-produced safetensors fixture.
 
 Usage:
-    python compare_inference.py <idris_stdout_file> <oracle.safetensors> [tol]
+    python compare_inference.py <idris_stdout_file> <oracle.safetensors> [tol] [--argmax-match]
+
+Optional `--argmax-match` adds a stricter check: argmax(idris) must
+equal argmax(oracle). Useful for LM-style gates where the absolute
+tolerance is loose (BF16 + many-layer accumulation noise) but the
+top-1 prediction is what semantically matters.
 
 Exit codes:
-    0  max-abs-diff < tol — passing
-    1  shape or value mismatch — failing
+    0  max-abs-diff < tol (and argmax matches if --argmax-match) — passing
+    1  shape, value, or argmax mismatch — failing
 """
 
 from __future__ import annotations
@@ -18,12 +23,15 @@ from safetensors.torch import load_file
 
 
 def main() -> None:
-    if len(sys.argv) < 3:
+    args = sys.argv[1:]
+    check_argmax = "--argmax-match" in args
+    args = [a for a in args if a != "--argmax-match"]
+    if len(args) < 2:
         print(__doc__, file=sys.stderr)
         sys.exit(2)
-    stdout_path = Path(sys.argv[1])
-    oracle_path = Path(sys.argv[2])
-    tol = float(sys.argv[3]) if len(sys.argv) > 3 else 1e-2
+    stdout_path = Path(args[0])
+    oracle_path = Path(args[1])
+    tol = float(args[2]) if len(args) > 2 else 1e-2
 
     # Idris dumped one float per line to stdout. Filter out `[stage] ...`
     # diagnostic lines (added by stageStamp in the HF inference examples
@@ -63,7 +71,23 @@ def main() -> None:
         print(f"  first 5 oracle: {oracle_vals[:5]}", file=sys.stderr)
         sys.exit(1)
 
-    print(f"PASS: max-abs-diff {max_diff:.6e} < tol {tol:.6e}")
+    if check_argmax:
+        idris_argmax = max(range(n_idris), key=lambda i: idris_vals[i])
+        oracle_argmax = max(range(n_oracle), key=lambda i: oracle_vals[i])
+        if idris_argmax != oracle_argmax:
+            print(
+                f"FAIL: argmax mismatch (idris={idris_argmax}, oracle={oracle_argmax})",
+                file=sys.stderr,
+            )
+            print(f"  idris[{idris_argmax}]  = {idris_vals[idris_argmax]:+.6f}",
+                  file=sys.stderr)
+            print(f"  oracle[{oracle_argmax}] = {oracle_vals[oracle_argmax]:+.6f}",
+                  file=sys.stderr)
+            sys.exit(1)
+        print(f"PASS: max-abs-diff {max_diff:.6e} < tol {tol:.6e}  "
+              f"argmax matches ({idris_argmax})")
+    else:
+        print(f"PASS: max-abs-diff {max_diff:.6e} < tol {tol:.6e}")
 
 
 if __name__ == "__main__":

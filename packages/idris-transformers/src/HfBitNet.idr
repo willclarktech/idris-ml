@@ -526,6 +526,7 @@ rmsNorm2dFoldRows inPtr wPtr hD eps seqLenI r acc =
 ||| / hidden=2560, ~16 RmsNorms/layer × 30 layers × 8 rows = 3840 row
 ||| ops total. Acceptable for the correctness gate; a fused 2D RMSNorm
 ||| C primitive is the natural perf follow-up.
+export
 applyRmsNorm2d : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d =>
                  {seqLen, hidden : Nat} ->
                  (eps : Double) ->
@@ -632,6 +633,7 @@ applyBitLinearHf2d {seqLen} {i} {o} bl x = do
 
 ||| Embedding lookup: token IDs `[seqLen]` → `[seqLen, hidden]`.
 ||| Same pattern as HfLlama's `applyEmbedLookup`.
+export
 applyEmbedLookup : {0 d : Device} -> UserDeviceTraining d =>
                    {seqLen, vocab, hidden : Nat} ->
                    BitNetEmbedding vocab hidden d dt g ->
@@ -732,6 +734,7 @@ applyMlp {seqLen} {intermediate} eps mlp x = do
 
 ||| One BitNet decoder block: pre-norm + attn (with attn_sub_norm) +
 ||| residual; pre-norm + MLP (with ffn_sub_norm) + residual.
+export
 applyBlock : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d
           => UserDeviceQuant d => RuntimeDType dt => Linked d => Compatible d dt
           => {seq, hidden, numHeads, numKvHeads, headDim, intermediate, maxPos : Nat}
