@@ -3,6 +3,9 @@
 Completed work, most recent first. Moved out of `TODO.md` on 2026-05-22.
 
 
+bench_ops conv2d crash fixed (2026-06-05). The "conv2d segfaults after train_step on tape" symptom filed alongside the testing-rationalization epic (`02fc8e33`) turned out to be a rank-mismatch bug in `bench_ops.c`, not a tape state-machine bug. `bench_conv2d` constructed its input with `make_vector(inC*H*W)` (rank-1, shape `[N]`) where `tensor_conv2d` unconditionally reads `input->shape[1]` and `[2]` for H and W. The "post-train_step" framing was a coincidence: pre-training the shape-array slots happened to be 0 (loop body never ran); post-training the heap held garbage values that produced a runaway loop and segfault. Fixed by constructing a rank-3 input via `tensor_create(data, shape={inC,H,W}, rank=3, requires_grad=0)`. The `#if 0` workaround in `bench_ops.c:main` is removed; conv2d benches print clean numbers (2.1 ms / 7.4 ms on tape). Regression guard at `packages/backends/test/common/conv/test_conv2d_post_train_step.c` exercises the bench pattern (3 optimizer.step iterations then conv2d forward) end-to-end. Gotcha entry added under "Architecture & Infrastructure" explaining why FFI-level rank checks aren't present and what the rank contract is for `tensor_conv2d` / `tensor_conv2d_batched`.
+
+
 Testing rationalization epic (commits `b8f8850c` .. `d7287779`, ~7 commits across two sessions). Closes High-priority TODO row "Rationalize the testing approach across all packages" — what was a 30+ Make-target organic-growth surface gets one canonical aggregator per taxonomy layer, one shared test harness instead of four duplicates, generated CI workflow with a drift-detection gate, and the first principled perf-benchmark axis (op kernels) with an external-facing `BENCHMARKS.md` comparison artifact.
 
 **Six phases**:

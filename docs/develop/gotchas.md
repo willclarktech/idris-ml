@@ -578,6 +578,25 @@ default both stay at seed=42 (matches the primary tape/torch path).
 
 C kernels, buffer systems, optimizer internals, and the layer system.
 
+### `tensor_conv2d` requires a rank-3 input (not flat)
+
+`tensor_conv2d` (single-sample) takes a rank-3 input `[inC, H, W]` and
+unconditionally reads `input->shape[1]` and `input->shape[2]` for H and
+W. Passing a rank-1 flat buffer (e.g. `make_vector(inC*H*W, ...)`) reads
+past the populated entries of the shape array into uninitialised memory,
+giving garbage H/W. Depending on what's left over on the heap, the
+result is either a tiny loop that exits without effect or a runaway
+loop that segfaults with no diagnostic. There is no FFI-level rank check
+to catch this — the caller is responsible for the correct rank.
+
+For the batched variant (`tensor_conv2d_batched`) the input is rank-4
+`[B, inC, H, W]`; the same trap applies one rank up.
+
+This was the actual root cause of the `bench_ops` "conv2d segfaults
+after train_step on tape" symptom — the `post-train_step` framing was a
+red herring caused by which uninitialised values happened to occupy the
+shape slots after a few optimizer steps had run.
+
 ### Any new C symbol needs `make rename-headers` regenerated
 
 When you add a new `extern "C"` function to a backend (or to a

@@ -295,8 +295,17 @@ static void bench_rms_norm(int seqLen, int hidden, int iters) {
    ================================================================ */
 
 static void bench_conv2d(int inC, int outC, int h, int w, int kH, int kW, int iters) {
-    /* input: [1, inC, h, w] as flat [inC*h*w] */
-    TensorHandle input = make_vector(inC * h * w, 0);
+    /* tensor_conv2d (single-sample) takes a rank-3 input [inC, H, W].
+       Passing a flat rank-1 buffer reads past shape[] into uninitialised
+       memory for H/W and either loops over garbage or segfaults — that
+       was the original bench_ops crash before the rank fix landed. */
+    int numel = inC * h * w;
+    double* idata = (double*)malloc(numel * sizeof(double));
+    for (int i = 0; i < numel; i++)
+        idata[i] = 0.01 * ((i * 3 + 7) % 100 - 50);
+    int ishape[3] = {inC, h, w};
+    TensorHandle input = tensor_create(idata, ishape, 3, 0);
+    free(idata);
     TensorHandle kernel = make_4d(outC, inC, kH, kW, 0);
     TensorHandle bias = make_vector(outC, 0);
 
@@ -432,21 +441,12 @@ int main(void) {
 
     backend_profile_report();
 
-    /* --- Conv2d forward (disabled) ---
-     * conv2d segfaults after train_step on the current tape build; was
-     * historically wrapped with "may crash on torch backend" but in
-     * practice crashes on tape too after the train_step section warms
-     * the param registry. Track as a separate fix; doesn't block the
-     * Axis A signal below. Re-enable by removing the #if 0 once the
-     * post-train_step conv2d crash is rooted.
-     */
-#if 0
+    /* --- Conv2d forward --- */
     printf("--- Conv2d forward ---\n");
     bench_conv2d(1, 16, 28, 28, 5, 5, 10);
     bench_conv2d(16, 32, 12, 12, 5, 5, 10);
     fflush(stdout);
     printf("\n");
-#endif
 
     /* Reset tape + param registry once before Axis A so the SDPA /
        embedding / rmsnorm benches start from a clean tape. */
