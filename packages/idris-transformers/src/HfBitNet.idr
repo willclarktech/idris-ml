@@ -487,6 +487,39 @@ bitnetRopeScaling : LlamaRopeScaling
 bitnetRopeScaling = MkRopeScaling 1.0 1.0 1.0 0
 
 
+||| One row of `applyRmsNorm2d`. Lifted to top-level so its body
+||| elaborates once at module compile, not per call site of the
+||| outer `applyRmsNorm2d` (which is called O(numLayers × 4) times
+||| inside the recursive `applyBlocks` chain).
+private
+rmsNorm2dProcessRow : {0 d : Device} -> UserDeviceLinear d =>
+                      (inPtr : AnyPtr) -> (wPtr : AnyPtr) ->
+                      (hD : Double) -> (eps : Double) ->
+                      (r : Int) -> AnyPtr
+rmsNorm2dProcessRow inPtr wPtr hD eps r =
+  let row     = primNarrow {d} inPtr 0 r 1
+      sq      = primMul {d} row row
+      tot     = primSum {d} sq
+      mean    = primMulScalar {d} tot (1.0 / hD)
+      meanEps = primAddScalar {d} mean eps
+      rms     = primSqrt {d} meanEps
+      normed  = primDiv {d} row rms
+      scaled  = primMul {d} normed wPtr
+  in scaled
+
+||| Row-folding helper for `applyRmsNorm2d`. Lifted to top-level
+||| (see `rmsNorm2dProcessRow`).
+private
+rmsNorm2dFoldRows : {0 d : Device} -> UserDeviceLinear d =>
+                    (inPtr : AnyPtr) -> (wPtr : AnyPtr) ->
+                    (hD : Double) -> (eps : Double) ->
+                    (seqLenI : Int) -> (r : Int) -> (acc : AnyPtr) -> AnyPtr
+rmsNorm2dFoldRows inPtr wPtr hD eps seqLenI r acc =
+  if r >= seqLenI
+    then acc
+    else rmsNorm2dFoldRows {d} inPtr wPtr hD eps seqLenI (r + 1)
+           (primCat2 {d} acc (rmsNorm2dProcessRow {d} inPtr wPtr hD eps r))
+
 ||| Per-position RmsNorm on a `[seqLen, hidden]` tensor. Same row-loop
 ||| structure as HfLlama's `applyRmsNorm2d` — `primSumDim` is a stub on
 ||| tape, so we fold over rows with `primCat2`. For BitNet 2B at seq=8
@@ -500,28 +533,14 @@ applyRmsNorm2d : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d =>
                  Tensor [seqLen, hidden] d dt g ->
                  IO (Tensor [seqLen, hidden] d dt g)
 applyRmsNorm2d {seqLen} {hidden} eps (MkBitNetRmsNorm weight) input = ioRerun (\_ =>
-  let hD = cast {to=Double} hidden
-      inPtr = input.tensorPtr
-      wPtr  = weight.tensorPtr
-      processRow : Int -> AnyPtr
-      processRow r =
-        let row     = primNarrow {d} inPtr 0 r 1
-            sq      = primMul {d} row row
-            tot     = primSum {d} sq
-            mean    = primMulScalar {d} tot (1.0 / hD)
-            meanEps = primAddScalar {d} mean eps
-            rms     = primSqrt {d} meanEps
-            normed  = primDiv {d} row rms
-            scaled  = primMul {d} normed wPtr
-        in scaled
-      foldRows : Int -> AnyPtr -> AnyPtr
-      foldRows i acc =
-        if i >= cast {to=Int} seqLen
-          then acc
-          else foldRows (i + 1) (primCat2 {d} acc (processRow i))
-      out = if seqLen == 0
-              then inPtr
-              else foldRows 1 (processRow 0)
+  let hD       = cast {to=Double} hidden
+      inPtr    = input.tensorPtr
+      wPtr     = weight.tensorPtr
+      seqLenI  = cast {to=Int} seqLen
+      out      = if seqLen == 0
+                   then inPtr
+                   else rmsNorm2dFoldRows {d} inPtr wPtr hD eps seqLenI 1
+                          (rmsNorm2dProcessRow {d} inPtr wPtr hD eps 0)
   in MkTensor out Nothing)
 
 
@@ -538,6 +557,43 @@ applyRmsNorm2d {seqLen} {hidden} eps (MkBitNetRmsNorm weight) input = ioRerun (\
 ||| the rmsNormWeight when `useRmsNorm=False`, so we reuse the bias
 ||| placeholder as the placeholder rmsNormWeight (any [in]-shaped
 ||| tensor would do, but matching shapes keeps the call site simple).
+||| One row of `applyBitLinearHf2d`. Lifted to top-level so its body
+||| elaborates once at module compile, not per call site of the outer
+||| `applyBitLinearHf2d` (7 BitLinears per block × 30 layers = 210
+||| call sites on BitNet 2B-4T). Takes all dependencies (weight,
+||| scale, bias, rms placeholder, input pointers + shapes) as plain
+||| AnyPtr / Int / Double args so the body doesn't close over the
+||| constraint-heavy `BitLinearHf i o d dt g` record type.
+private
+bitlinearHfProcessRow : {0 d : Device} -> UserDeviceLinear d
+                     => UserDeviceQuant d =>
+                     (weightTPtr : AnyPtr) -> (scaleVal : Double) ->
+                     (biasTPtr : AnyPtr) -> (rmsTPtr : AnyPtr) ->
+                     (xPtr : AnyPtr) -> (iI : Int) -> (oI : Int) ->
+                     (r : Int) -> AnyPtr
+bitlinearHfProcessRow weightTPtr scaleVal biasTPtr rmsTPtr xPtr iI oI r =
+  let row2d  = primNarrow {d} xPtr 0 r 1                              -- [1, i]
+      row1d  = primReshape1d {d} row2d iI                             -- [i]
+      rowOut = primBitlinearFwdHfQuant {d} weightTPtr scaleVal
+                 row1d biasTPtr 0 rmsTPtr 0.0
+  in primReshape2d {d} rowOut 1 oI
+
+||| Row-folding helper for `applyBitLinearHf2d`. Lifted to top-level
+||| (see `bitlinearHfProcessRow`).
+private
+bitlinearHfFoldRows : {0 d : Device} -> UserDeviceLinear d
+                   => UserDeviceQuant d =>
+                   (weightTPtr : AnyPtr) -> (scaleVal : Double) ->
+                   (biasTPtr : AnyPtr) -> (rmsTPtr : AnyPtr) ->
+                   (xPtr : AnyPtr) -> (iI : Int) -> (oI : Int) ->
+                   (seqLenI : Int) -> (r : Int) -> (acc : AnyPtr) -> AnyPtr
+bitlinearHfFoldRows weightTPtr scaleVal biasTPtr rmsTPtr xPtr iI oI seqLenI r acc =
+  if r >= seqLenI
+    then acc
+    else bitlinearHfFoldRows {d} weightTPtr scaleVal biasTPtr rmsTPtr xPtr iI oI seqLenI (r + 1)
+           (primCat2 {d} acc
+             (bitlinearHfProcessRow {d} weightTPtr scaleVal biasTPtr rmsTPtr xPtr iI oI r))
+
 applyBitLinearHf2d : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d
                   => UserDeviceQuant d => RuntimeDType dt
                   => Linked d => Compatible d dt
@@ -548,41 +604,29 @@ applyBitLinearHf2d : {0 d : Device} -> UserDeviceTraining d => UserDeviceCore d
 applyBitLinearHf2d {seqLen} {i} {o} bl x = do
   let scaleVal : Double
       scaleVal = primItem {d} bl.weightScaleT.tensorPtr
-      oI = cast {to=Int} o
-      iI = cast {to=Int} i
+      oI       = cast {to=Int} o
+      iI       = cast {to=Int} i
       -- Zero bias placeholder ([out], NoGrad). Calloc-backed buffer
       -- + dt-streamed creation, identical to HfLlama's LM head trick.
-      zBuf       = prim__allocDoubles oI
-      biasPtr    = dtCreateState1d {d} {t=dt} oI zBuf (deviceStreamTag {d})
-      biasT      : Tensor [o] d dt NoGrad
-      biasT      = MkTensor biasPtr Nothing
+      zBuf     = prim__allocDoubles oI
+      biasPtr  = dtCreateState1d {d} {t=dt} oI zBuf (deviceStreamTag {d})
       -- Placeholder rmsNormWeight ([in], NoGrad). C side won't read it
       -- since useRmsNorm=False, but the kernel signature still requires
       -- a non-null handle. Allocate a tiny zero buffer.
-      rBuf       = prim__allocDoubles iI
-      rmsPtr     = dtCreateState1d {d} {t=dt} iI rBuf (deviceStreamTag {d})
-      rmsPlaceholder : Tensor [i] d dt NoGrad
-      rmsPlaceholder = MkTensor rmsPtr Nothing
+      rBuf     = prim__allocDoubles iI
+      rmsPtr   = dtCreateState1d {d} {t=dt} iI rBuf (deviceStreamTag {d})
+      wTPtr    = bl.weightT.tensorPtr
+      xPtr     = x.tensorPtr
+      seqLenI  = cast {to=Int} seqLen
   -- Row loop: narrow → reshape to 1D → fused BitLinear → reshape to
   -- [1, out] → concat. Each layer's seven BitLinears × seqLen rows
   -- pays seqLen kernel launches per BitLinear. A fused 2D BitLinear
   -- kernel is the natural perf follow-up.
-  let processRow : Int -> AnyPtr
-      processRow r =
-        let row2d  = primNarrow {d} x.tensorPtr 0 r 1                 -- [1, i]
-            row1d  = primReshape1d {d} row2d iI                       -- [i]
-            rowOut = primBitlinearFwdHfQuant {d} bl.weightT.tensorPtr scaleVal
-                       row1d biasT.tensorPtr 0 rmsPlaceholder.tensorPtr 0.0
-        in primReshape2d {d} rowOut 1 oI
-      foldRows : Int -> AnyPtr -> AnyPtr
-      foldRows r acc =
-        if r >= cast {to=Int} seqLen
-          then acc
-          else foldRows (r + 1) (primCat2 {d} acc (processRow r))
   ioRerun (\_ =>
     let out = if seqLen == 0
-                then x.tensorPtr  -- impossible at well-typed call sites
-                else foldRows 1 (processRow 0)
+                then xPtr  -- impossible at well-typed call sites
+                else bitlinearHfFoldRows {d} wTPtr scaleVal biasPtr rmsPtr xPtr iI oI seqLenI 1
+                       (bitlinearHfProcessRow {d} wTPtr scaleVal biasPtr rmsPtr xPtr iI oI 0)
     in MkTensor out Nothing)
 
 
