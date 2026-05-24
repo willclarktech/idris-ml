@@ -48,6 +48,32 @@ is still useful (saves someone trying it again).
 
 ## Entries
 
+### 2026-06-03 — Retroactive entry: Chez FFI symbol cache shipped 2026-05-27 (TODO row closes)
+
+**Status**: retroactive paper-trail for commit `f9d7212` (2026-05-27 19:22:40 BST). The fix landed but its narrative entry never made it into perf-changes.md, so the corresponding TODO row stayed open — re-verified during the #1 follow-up sweep and closed via this entry.
+
+**Symptom (pre-fix)**: sample profile of HfLlamaInference at ~44 min into a torch-mps F32 decode (`/tmp/scheme_2026-05-27_180602_BTJW.sample.txt`, 18:06:02 BST) showed 100% of CPU time in `S_foreign_entry → lookup → dyld4::Loader::hasExportedSymbol`, recursively walking every loaded library for each tensor-touching FFI call. With libtorch contributing thousands of symbols on top of libidrisml, each `%foreign "scheme:..."` call was effectively paying a full dyld symbol-table walk.
+
+**Root cause**: `%foreign "scheme:EXPR"` wraps EXPR inside `(lambda (farg-0) (EXPR farg-0))`. The lambda body is re-evaluated on every call. The generated Scheme wrappers put the `(foreign-procedure "C-name" ...)` constructor inside the lambda body, so each call constructed a fresh `foreign-procedure` object — and that object's first use triggers dlsym to resolve the C symbol.
+
+**Fix (commit `f9d7212`)**: each `%foreign` now lazy-caches its `foreign-procedure` value at first call via Chez `top-level-bound?` + `set-top-level-value!`, stashed under `idris-ffi-<c-symbol>`. First call still pays one dlsym; subsequent calls pay only a top-level-value lookup. Same idiom the codebase already uses for `idris-tensor-guardian`, extended from one shared symbol to 245 per-FFI symbols across `Device/Mlx.idr` (24), `Device/Tape.idr` (111), `Device/Torch.idr` (110). The lint (`check-ffi-wrap-template`) was unchanged — its structural invariants tolerate the new lazy-init blocks. Mlx `_streamed` variants stay on the old form (out of scope until a workload needs them).
+
+**Verification at commit (recorded in the commit body)**:
+- `example-supervised BACKEND=tape` produces bit-identical loss (1.356680328199114 / seed=42 / 5 epochs).
+- `make test BACKEND=tape` green.
+- Sample profile of `example-gpt --epochs 50 BACKEND=tape` post-fix: no `S_foreign_entry`/`lookup`/`dlsym` in the hot path. New top is `S_do_gc → sweep_generation → mark_object` — Chez GC, attributable to Tensor-wrapper vector allocation (separate row).
+
+**Wall-time confirmation from perf-log**:
+- Pre-fix HfLlama torch-mps F32: 44+ minutes mid-decode (the sample artifact's run).
+- Post-fix HfLlama torch-mps (perf-log 2026-05-31, BF16 + RoPE/SDPA fusions): 4 m 54 s end-to-end.
+
+The wall improvement is the combined effect of (a) this FFI cache landing, (b) the all-heads RoPE + SDPA fusions (`c09d374` + `6850366`), and (c) BF16 routing experiments. The FFI cache contribution alone isn't isolated by a controlled pre/post measurement on a single workload — but the sample-profile shape change (`S_foreign_entry/lookup/dlsym` → `S_do_gc/sweep_generation`) confirms the specific bottleneck the TODO row described is gone.
+
+**TODO row closes** (was "Cache Chez FFI symbol lookups across calls", High priority). Closure entry moved to `CHANGELOG.md`. The follow-on Phase 2 (pre-bind at module-load rather than first-call lazy-init) was preserved as a TODO sub-row but is unblocked from the headline #1 work — it's now an unprioritised optimisation, not a fix-the-bottleneck row.
+
+**Cross-references**: commit `f9d7212`; `scripts/lifecycle/ffi_manifest.py` (the `cache_var(c_symbol)` helper); `scripts/lifecycle/ffi-convert-to-scheme.py` (the regenerator that rewrites existing `scheme:` declarations on template change); `feedback_typeclass_zero_arg_method_eval.md` (the related "%foreign body re-evaluated per call" gotcha that motivated lifting the cache outside the lambda); the Medium-priority "Idris-side per-op overhead" row (now the dominant bottleneck, since FFI dispatch isn't).
+
+
 ### 2026-06-01 — Supervised mixed-precision parity, structural proof on tape (#410 F4)
 
 **Plan**: verify the F1–F3 mixed-precision pipeline (LayerLikeMixed → LinearMixed with autograd-aware tcast → `applyScale` → `trainStepScaled` → GradScaler growth/backoff) produces numerically correct training across multiple seeds. The original #410 goal was "BF16 training converges as well as F32 — 5/5 vs the current 3/5 baseline" on torch-mps; F4 ships the **sweep infrastructure** + the **structural-correctness proof** on tape (where `paramDt = computeDt = F64` makes the lossy cast a structural no-op, so any numerical divergence would be a pipeline bug, not a precision-loss artefact).
