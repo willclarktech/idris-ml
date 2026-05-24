@@ -35,6 +35,7 @@ import Array
 import BuildConfig
 import Checkpoint
 import Device
+import Example.HfInferenceHelper
 import HfBert
 import Tensor
 import Tokenizer
@@ -78,15 +79,8 @@ hfWeightsPath : String
 hfWeightsPath = modelDir ++ "/model.safetensors"
 
 ----------------------------------------------------------------------
--- Build small input-ID tensors
+-- Build small input-ID tensors (mkIds lives in HfInferenceHelper)
 ----------------------------------------------------------------------
-
-mkIds : {n : Nat} -> Vect n Double
-     -> Tensor [n] ExampleDevice ExampleDType WithGrad
-mkIds xs =
-  let raw = bulkToTensor {d=ExampleDevice} {dt=ExampleDType}
-                         (VArray (map SArray xs))
-  in tinput1d {n} raw
 
 arangeVect : (n : Nat) -> Vect n Double
 arangeVect n = go n 0.0
@@ -238,18 +232,8 @@ runPooledDump model = do
 
 
 ----------------------------------------------------------------------
--- main
+-- main (stageStamp lives in HfInferenceHelper)
 ----------------------------------------------------------------------
-
--- Stage timer for `main`. Construction + load are the two stages that
--- can dominate wall time at fused-init scale; the `[stage] [hh:mm:ss]
--- <label>` shape is parsed by `scripts/perf-run.sh` into the JSONL
--- `stages` field, so cross-commit comparisons of these stage costs
--- don't depend on conversation memory.
-stageStamp : (label : String) -> Clock Monotonic -> IO ()
-stageStamp label t0 = do
-  now <- clockTime Monotonic
-  putStrLn ("[stage] " ++ formatElapsed t0 now ++ " " ++ label)
 
 main : IO ()
 main = do

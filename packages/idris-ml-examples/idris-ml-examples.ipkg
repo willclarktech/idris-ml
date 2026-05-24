@@ -17,6 +17,7 @@ modules = BuildConfig
         , Example.FrozenLake
         , Example.Gpt
         , Example.Gru
+        , Example.HfInferenceHelper
         , Example.Lstm
         , Example.MatmulBench
         , Example.Mnist

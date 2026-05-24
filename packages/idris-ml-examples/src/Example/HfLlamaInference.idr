@@ -51,6 +51,7 @@ import Array
 import BuildConfig
 import Checkpoint
 import Device
+import Example.HfInferenceHelper
 import HfLlama
 import Layer.RoPE
 import Tensor
@@ -115,51 +116,8 @@ hfWeightsPath = modelDir ++ "/model.safetensors"
 
 
 ----------------------------------------------------------------------
--- Input-ID + position tensor helpers (mirror HfGpt2Inference)
+-- Greedy generation (helpers live in Example.HfInferenceHelper)
 ----------------------------------------------------------------------
-
-mkIds : {n : Nat} -> Vect n Double
-     -> Tensor [n] ExampleDevice ExampleDType WithGrad
-mkIds xs =
-  let raw = bulkToTensor {d=ExampleDevice} {dt=ExampleDType}
-                         (VArray (map SArray xs))
-  in tinput1d {n} raw
-
-
-toExistVect : (xs : List a) -> (n : Nat ** Vect n a)
-toExistVect xs = (length xs ** fromList xs)
-
-
-----------------------------------------------------------------------
--- Dump a [hidden]-shape tensor row to stdout, one float per line
-----------------------------------------------------------------------
-
-printRow : Int -> Int -> AnyPtr -> IO ()
-printRow end i p =
-  if i >= end
-    then pure ()
-    else do
-      let v = primItem1d {d=ExampleDevice} p i
-      putStrLn (show v)
-      printRow end (i + 1) p
-
-
-----------------------------------------------------------------------
--- Greedy generation
-----------------------------------------------------------------------
-
-argmaxRow : (vocab : Nat) -> AnyPtr -> IO Nat
-argmaxRow vocab p = go (cast {to=Int} vocab) 0 0 (-1.0e300)
-  where
-    go : Int -> Int -> Int -> Double -> IO Nat
-    go end i bestI bestV =
-      if i >= end
-        then pure (cast {to=Nat} bestI)
-        else let v = primItem1d {d=ExampleDevice} p i
-             in if v > bestV
-                  then go end (i + 1) i v
-                  else go end (i + 1) bestI bestV
-
 
 genOneStep : LlamaModelState VocabSize Hidden NumLayers QOut KvOut Intermediate
                              ExampleDevice ExampleDType WithGrad
@@ -242,28 +200,6 @@ runDumpHidden model tables = do
 
 
 ----------------------------------------------------------------------
--- --prompt + --num-tokens argv parsing
-----------------------------------------------------------------------
-
-extractPrompt : List String -> String
-extractPrompt args = go args
-  where
-    go : List String -> String
-    go ("--prompt" :: p :: _) = p
-    go (_ :: rest)            = go rest
-    go []                     = "The capital of France is"
-
-extractNumTokens : List String -> Nat
-extractNumTokens args = go args
-  where
-    go : List String -> Nat
-    go ("--num-tokens" :: n :: _) =
-      fromMaybe 8 (parsePositive {a=Nat} n)
-    go (_ :: rest)                = go rest
-    go []                         = 8
-
-
-----------------------------------------------------------------------
 -- Default mode: greedy generation demo
 ----------------------------------------------------------------------
 
@@ -292,17 +228,6 @@ runGenerate tok model tables prompt numTokens = do
 ----------------------------------------------------------------------
 -- main
 ----------------------------------------------------------------------
-
--- Stage timer for `main`. Llama setup goes through ~4 distinct stages
--- (tokenizer probe / model construction / checkpoint load / RoPE table
--- build) plus the forward / generation. Each can individually take
--- minutes at 1.24B params, so when a run looks hung from outside the
--- user needs to know WHICH stage to investigate. `formatElapsed` from
--- `Util` returns the cumulative `[hh:mm:ss]` since `t0`.
-stageStamp : (label : String) -> Clock Monotonic -> IO ()
-stageStamp label t0 = do
-  now <- clockTime Monotonic
-  putStrLn ("[stage] " ++ formatElapsed t0 now ++ " " ++ label)
 
 main : IO ()
 main = do
@@ -383,7 +308,7 @@ main = do
         exitFailure
       Right tok => do
         putStrLn "[stage] runGenerate — greedy decode loop..."
-        runGenerate tok model tables (extractPrompt args) (extractNumTokens args)
+        runGenerate tok model tables (extractPrompt "The capital of France is" args) (extractNumTokens 8 args)
         stageStamp "runGenerate done" t0
         -- Explicit pre-exit cleanup. Forces the backend's per-tensor
         -- destructor cascade (libtorch CPUAllocator releases on torch-

@@ -46,6 +46,7 @@ import Array
 import BuildConfig
 import Checkpoint
 import Device
+import Example.HfInferenceHelper
 import HfBitNet
 import Layer.RoPE
 import Tensor
@@ -107,61 +108,6 @@ hfWeightsPath : String
 hfWeightsPath = modelDir ++ "/model.safetensors"
 
 
-----------------------------------------------------------------------
--- Input-ID tensor helper (mirrors HfLlamaInference)
-----------------------------------------------------------------------
-
-mkIds : {n : Nat} -> Vect n Double
-     -> Tensor [n] ExampleDevice ExampleDType WithGrad
-mkIds xs =
-  let raw = bulkToTensor {d=ExampleDevice} {dt=ExampleDType}
-                         (VArray (map SArray xs))
-  in tinput1d {n} raw
-
-
-toExistVect : (xs : List a) -> (n : Nat ** Vect n a)
-toExistVect xs = (length xs ** fromList xs)
-
-
-----------------------------------------------------------------------
--- Stdout dump of [vocab]-shape row, one float per line (dump-logits gate)
-----------------------------------------------------------------------
-
-printRow : Int -> Int -> AnyPtr -> IO ()
-printRow end i p =
-  if i >= end
-    then pure ()
-    else do
-      let v = primItem1d {d=ExampleDevice} p i
-      putStrLn (show v)
-      printRow end (i + 1) p
-
-
--- Helpers for --bisect-blocks mode: collect a 1D tensor's values as
--- a List of `show`-formatted strings, then writeFile the whole thing
--- once. Avoids per-element file syscalls for large dumps (the largest
--- single dump is the [128256] logits = 128k lines).
-collectShown : Int -> Int -> AnyPtr -> IO (List String)
-collectShown end startIdx ptr = go startIdx []
-  where
-    go : Int -> List String -> IO (List String)
-    go i acc =
-      if i >= end
-        then pure (reverse acc)
-        else do
-          let v = primItem1d {d=ExampleDevice} ptr i
-          go (i + 1) (show v :: acc)
-
-dumpRowToFile : String -> Int -> AnyPtr -> IO ()
-dumpRowToFile path nElems ptr = do
-  xs <- collectShown nElems 0 ptr
-  res <- writeFile path (unlines xs)
-  case res of
-    Right () => pure ()
-    Left  err =>
-      putStrLn ("ERR: writeFile " ++ path ++ ": " ++ show err)
-
-
 -- Manual per-block iteration with dumps after each block. Calls
 -- `applyBlock` (exported from HfBitNet) once per Vect element and
 -- invokes `dumpFn` with a "block_NN" label. Idris-2's elaborator hung
@@ -191,21 +137,8 @@ iterateBlocksDumping (b :: bs) tables x idx dumpFn = do
 
 
 ----------------------------------------------------------------------
--- Greedy generation
+-- Greedy generation (helpers live in Example.HfInferenceHelper)
 ----------------------------------------------------------------------
-
-argmaxRow : (vocab : Nat) -> AnyPtr -> IO Nat
-argmaxRow vocab p = go (cast {to=Int} vocab) 0 0 (-1.0e300)
-  where
-    go : Int -> Int -> Int -> Double -> IO Nat
-    go end i bestI bestV =
-      if i >= end
-        then pure (cast {to=Nat} bestI)
-        else let v = primItem1d {d=ExampleDevice} p i
-             in if v > bestV
-                  then go end (i + 1) i v
-                  else go end (i + 1) bestI bestV
-
 
 genOneStep : BitNetModelState VocabSize Hidden NumLayers QOut KvOut Intermediate
                               ExampleDevice ExampleDType WithGrad
@@ -260,28 +193,6 @@ genLoop model tables tokens (S k) = do
 
 
 ----------------------------------------------------------------------
--- --prompt + --num-tokens argv parsing
-----------------------------------------------------------------------
-
-extractPrompt : List String -> String
-extractPrompt args = go args
-  where
-    go : List String -> String
-    go ("--prompt" :: p :: _) = p
-    go (_ :: rest)            = go rest
-    go []                     = "The capital of France is"
-
-extractNumTokens : List String -> Nat
-extractNumTokens args = go args
-  where
-    go : List String -> Nat
-    go ("--num-tokens" :: n :: _) =
-      fromMaybe 5 (parsePositive {a=Nat} n)
-    go (_ :: rest)                = go rest
-    go []                         = 5
-
-
-----------------------------------------------------------------------
 -- Default mode: greedy generation demo
 ----------------------------------------------------------------------
 
@@ -311,19 +222,13 @@ runGenerate tok model tables prompt numTokens = do
 -- main
 ----------------------------------------------------------------------
 
-stageStamp : (label : String) -> Clock Monotonic -> IO ()
-stageStamp label t0 = do
-  now <- clockTime Monotonic
-  putStrLn ("[stage] " ++ formatElapsed t0 now ++ " " ++ label)
-
-
 main : IO ()
 main = do
   args <- getArgs
   let dumpLogits   = elem "--dump-logits"   args
   let bisectBlocks = elem "--bisect-blocks" args
-  let prompt       = extractPrompt args
-  let numTokens    = extractNumTokens args
+  let prompt       = extractPrompt "The capital of France is" args
+  let numTokens    = extractNumTokens 5 args
   t0 <- clockTime Monotonic
 
   -- Probe the tokenizer up-front so a missing tokenizer fails fast,

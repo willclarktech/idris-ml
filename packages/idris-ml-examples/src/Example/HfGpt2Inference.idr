@@ -47,6 +47,7 @@ import Array
 import BuildConfig
 import Checkpoint
 import Device
+import Example.HfInferenceHelper
 import HfGpt2
 import Tensor
 import Util
@@ -89,15 +90,8 @@ hfWeightsPath = modelDir ++ "/model.safetensors"
 
 
 ----------------------------------------------------------------------
--- Build small input-ID + position tensors
+-- Build small input-ID + position tensors (mkIds lives in HfInferenceHelper)
 ----------------------------------------------------------------------
-
-mkIds : {n : Nat} -> Vect n Double
-     -> Tensor [n] ExampleDevice ExampleDType WithGrad
-mkIds xs =
-  let raw = bulkToTensor {d=ExampleDevice} {dt=ExampleDType}
-                         (VArray (map SArray xs))
-  in tinput1d {n} raw
 
 arangeVect : (n : Nat) -> Vect n Double
 arangeVect n = go n 0.0
@@ -105,20 +99,6 @@ arangeVect n = go n 0.0
     go : (k : Nat) -> Double -> Vect k Double
     go Z     _ = []
     go (S k) v = v :: go k (v + 1.0)
-
-
-----------------------------------------------------------------------
--- Dump a [hidden]-shape tensor to stdout, one float per line
-----------------------------------------------------------------------
-
-printRow : Int -> Int -> AnyPtr -> IO ()
-printRow end i p =
-  if i >= end
-    then pure ()
-    else do
-      let v = primItem1d {d=ExampleDevice} p i
-      putStrLn (show v)
-      printRow end (i + 1) p
 
 
 ----------------------------------------------------------------------
@@ -147,30 +127,8 @@ runDumpHidden model = do
 
 
 ----------------------------------------------------------------------
--- Greedy generation
+-- Greedy generation (argmaxRow / toExistVect live in HfInferenceHelper)
 ----------------------------------------------------------------------
-
--- argmax over a [vocab]-shape row. Reads all values via primItem1d
--- (50257 FFI calls per token ≈ 50 ms) and picks the largest. Trades
--- a small constant cost vs primArgsort + index-0 read for code
--- simplicity; the forward pass dominates regardless.
-argmaxRow : (vocab : Nat) -> AnyPtr -> IO Nat
-argmaxRow vocab p = go (cast {to=Int} vocab) 0 0 (-1.0e300)
-  where
-    go : Int -> Int -> Int -> Double -> IO Nat
-    go end i bestI bestV =
-      if i >= end
-        then pure (cast {to=Nat} bestI)
-        else let v = primItem1d {d=ExampleDevice} p i
-             in if v > bestV
-                  then go end (i + 1) i v
-                  else go end (i + 1) bestI bestV
-
--- Helper to convert a plain List to a dependent-pair Vect. The
--- explicit signature dodges the elaboration ambiguity Idris hits when
--- the DPair literal is written inline at a use site.
-toExistVect : (xs : List a) -> (n : Nat ** Vect n a)
-toExistVect xs = (length xs ** fromList xs)
 
 -- One generation step: forward the current sequence, pick argmax of
 -- the last position's LM-head logits, return the next token ID as a
@@ -226,29 +184,8 @@ genLoop model tokens (S k) = do
 
 
 ----------------------------------------------------------------------
--- --prompt argv parsing
+-- --prompt argv parsing (helpers in HfInferenceHelper)
 ----------------------------------------------------------------------
-
--- Pull the value after `--prompt` from the argv list, or fall back to
--- the demo default.
-extractPrompt : List String -> String
-extractPrompt args = go args
-  where
-    go : List String -> String
-    go ("--prompt" :: p :: _) = p
-    go (_ :: rest)            = go rest
-    go []                     = "The quick brown fox"
-
--- How many tokens to generate. Default is small to keep the demo
--- under a minute on tape; user can override with --num-tokens.
-extractNumTokens : List String -> Nat
-extractNumTokens args = go args
-  where
-    go : List String -> Nat
-    go ("--num-tokens" :: n :: _) =
-      fromMaybe 8 (parsePositive {a=Nat} n)
-    go (_ :: rest)                = go rest
-    go []                         = 8
 
 
 ----------------------------------------------------------------------
@@ -281,16 +218,8 @@ runGenerate tok model prompt numTokens = do
 
 
 ----------------------------------------------------------------------
--- main
+-- main (stageStamp lives in HfInferenceHelper)
 ----------------------------------------------------------------------
-
--- Stage timer for `main`. Same `[stage] [hh:mm:ss] <label>` shape as
--- HfLlamaInference / HfBertInference; `scripts/perf-run.sh` parses
--- the lines into the JSONL `stages` field.
-stageStamp : (label : String) -> Clock Monotonic -> IO ()
-stageStamp label t0 = do
-  now <- clockTime Monotonic
-  putStrLn ("[stage] " ++ formatElapsed t0 now ++ " " ++ label)
 
 main : IO ()
 main = do
@@ -331,4 +260,4 @@ main = do
           putStrLn ("ERR: mkTokenizer: " ++ show err)
           exitFailure
         Right tok =>
-          runGenerate tok model (extractPrompt args) (extractNumTokens args)
+          runGenerate tok model (extractPrompt "The quick brown fox" args) (extractNumTokens 8 args)
