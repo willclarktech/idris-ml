@@ -95,12 +95,27 @@ PRIMARY := $(firstword $(BACKEND_LIST))
 # inlined since this is `:=` parse-time). User-side override:
 # `TORCH_DTYPE=F64 make test-hf-llama-roundtrip` keeps F64 (e.g.
 # for numerical bisection vs the F64 oracle path).
-HF_HEAVY_GOALS := example-hf-llama-inference \
+# Every HF model target — Llama / BitNet need F32 for memory
+# (1.24B / 2B params at F64 don't fit on a 16 GB VM); BERT-tiny /
+# GPT-2-small don't NEED F32 for memory but the convention is "no
+# HF model runs at F64". The HF on-disk reference weights are
+# BF16, oracle generators cast to F32 — running Idris at F64
+# means we're MORE precise than the comparison oracle, which is
+# pure waste. F32 is the canonical HF inference dtype.
+HF_GOALS := example-hf-bert-inference \
+                  example-hf-bitnet-inference \
+                  example-hf-gpt2-inference \
+                  example-hf-llama-inference \
+                  test-hf-bert-roundtrip \
+                  test-hf-bitnet-roundtrip \
+                  test-hf-gpt2-roundtrip \
                   test-hf-llama-roundtrip \
                   test-hf-llama-generate-roundtrip \
-                  example-hf-bitnet-inference \
-                  test-hf-bitnet-roundtrip
-ifneq ($(filter $(HF_HEAVY_GOALS),$(MAKECMDGOALS)),)
+                  test-transformers-oracle \
+                  test-transformers-oracle-gpt2 \
+                  test-transformers-oracle-llama \
+                  test-transformers-oracle-llama-generate
+ifneq ($(filter $(HF_GOALS),$(MAKECMDGOALS)),)
   # `?=` not used here — Make's `?=` treats an exported-empty env var
   # ("" from the shell) as already-set and skips the default. The HF
   # heavy targets need F32 unless the user EXPLICITLY set a non-empty
@@ -108,16 +123,16 @@ ifneq ($(filter $(HF_HEAVY_GOALS),$(MAKECMDGOALS)),)
   # empty string. Set only the dtype for the active PRIMARY (BACKEND's
   # first item) — setting all three would balloon the BUILD_KEY with
   # `-tdtF32-mdtF32-tpdtF32` suffixes when only one matters.
-  HF_HEAVY_PRIMARY := $(firstword $(subst $(comma), ,$(BACKEND)))
-  ifeq ($(HF_HEAVY_PRIMARY),torch)
+  HF_PRIMARY := $(firstword $(subst $(comma), ,$(BACKEND)))
+  ifeq ($(HF_PRIMARY),torch)
     ifeq ($(strip $(TORCH_DTYPE)),)
       TORCH_DTYPE := F32
     endif
-  else ifeq ($(HF_HEAVY_PRIMARY),mlx)
+  else ifeq ($(HF_PRIMARY),mlx)
     ifeq ($(strip $(MLX_DTYPE)),)
       MLX_DTYPE := F32
     endif
-  else ifeq ($(HF_HEAVY_PRIMARY),tape)
+  else ifeq ($(HF_PRIMARY),tape)
     ifeq ($(strip $(TAPE_DTYPE)),)
       TAPE_DTYPE := F32
     endif
@@ -2212,6 +2227,7 @@ all: check-all test-all
         bench-py bench-compare bench-ops bench-ops-py bench-ops-compare test-ref ref-test ref-lint \
         ref-typecheck ref-convergence ref-convergence-copy ref-convergence-recall \
         jupyter-install jupyter-lab test-jupyter test-jupyter-unit test-notebooks
+
 
 
 
