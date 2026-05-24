@@ -16,6 +16,7 @@ import Test.ManagedHandle
 import Test.BitLinear
 import Test.BitNet
 import Test.MixedLayerLike
+import Test.Properties.Softmax as Props.Softmax
 import Test.RmsNorm
 import Test.RoPE
 import Test.SwiGLU
@@ -46,6 +47,7 @@ main = runAll
   , ("BitLinear",       Test.BitLinear.tests)
   , ("BitNet",          Test.BitNet.tests)
   , ("MixedLayerLike",  Test.MixedLayerLike.tests)
+  , ("Properties",      Props.Softmax.tests)
   , ("RmsNorm",         Test.RmsNorm.tests)
   , ("RoPE",            Test.RoPE.tests)
   , ("SwiGLU",          Test.SwiGLU.tests)

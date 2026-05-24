@@ -2,6 +2,12 @@ package idris-test
 
 sourcedir = "src"
 
+-- `hedgehog` brings in the property-based testing engine that
+-- backs Test.Property. Consumers automatically get it through their
+-- dependence on idris-test; they don't need to list `hedgehog`
+-- themselves.
 depends = base
+        , hedgehog
 
 modules = Test.Harness
+        , Test.Property

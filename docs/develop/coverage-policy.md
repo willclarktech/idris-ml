@@ -5,14 +5,17 @@ This doc defines what "covered" means for the three backends
 chased, where it's principally excluded, and the contributor
 checklist when adding new ops.
 
-## The three-axis target
+## The four-axis target
 
-A backend is fully covered when **all three** of these hold:
+A backend is fully covered when the **first three** axes hold; the
+fourth is **additive** (confidence, not coverage *per se*):
 
 1. **Symbol coverage** — every `extern "C"` entry in
    `packages/backends/backend.h` that is not on the exclusion list
-   below has at least one Criterion test in
-   `packages/backends/test/` that exercises it.
+   below has at least one Criterion test (now under
+   `packages/backends/backend_{tape,torch,mlx}/<subsystem>/test_*.c`
+   for colocated per-op tests + `packages/idris-test-c/src/` for
+   cross-cutting infra) that exercises it.
 2. **Backward coverage** — every `OP_*` tag in the backend's
    `tape.h` enum (`backend_tape/tape.h`, `backend_mlx/tape.h`) has a
    test that triggers its backward dispatch case and asserts gradient
@@ -21,8 +24,28 @@ A backend is fully covered when **all three** of these hold:
    symbol coverage + W3b's custom-logic-path tests.
 3. **F32 paired oracle** — every op routed through the F32 storage
    path has a paired F32-vs-F64 gradcheck rung in the tape T29 ladder
-   (`test/common/test_legacy_backend.c`). This axis is tape-specific
-   (mlx and torch's F32 paths live in their respective frameworks).
+   (`packages/idris-test-c/src/test_legacy_backend.c`). This axis is
+   tape-specific (mlx and torch's F32 paths live in their respective
+   frameworks).
+4. **Property-based confidence (additive, not gating).** When a
+   kernel or pure-math operation has an invariant that fixed-shape
+   tests can only sample-check (sum-to-one, norm-bounded, round-trip,
+   F32-vs-F64 oracle), prefer a Hedgehog property in
+   `packages/idris-ml/src/Test/Properties/*.idr` over a hand-coded
+   fixed-shape test. Properties run via the `Test.Property` adapter
+   from `idris-test` (`checkProperty "<name>" prop`); the underlying
+   `Hedgehog.Property` is `PropertyT Identity`-based, so the
+   *current* property surface is pure-math (softmax/rmsnorm
+   formulas, shape arithmetic). FFI-driven properties — Hedgehog
+   generators of shapes/values driving the C kernel through the
+   FFI — need an IO-aware property runner; out of scope until a
+   concrete need surfaces. Property tests do *not* replace Axes 1-3
+   — they sit alongside, raising implementation confidence rather
+   than coverage line count. Contributor checklist when adding a
+   new OP_*: check whether the op has an invariant worth asserting
+   beyond the fixed-shape oracle. If yes, file a `prop_*` in
+   `Test/Properties/`. If not, the fixed-shape T29 oracle remains
+   sufficient.
 
 C-line coverage (`llvm-cov report` %) is a **secondary** metric —
 recorded in HTML artifacts via `make coverage-backend-<b>`, but not
