@@ -50,43 +50,16 @@ extern "C" TensorHandle tensor_sdpa_2d_mlx_streamed(
     auto k3 = mx::transpose(mx::reshape(k->data, {1, kv_seq, numKvHeads, headDim}), {0, 2, 1, 3});
     auto v3 = mx::transpose(mx::reshape(v->data, {1, kv_seq, numKvHeads, headDim}), {0, 2, 1, 3});
     float scale = 1.0f / std::sqrt((float)headDim);
-    // Defensive: under asymmetric q_seq != kv_seq with isCausal=1, do
-    // NOT rely on mask_mode="causal" doing lower-right alignment —
-    // torch's math impl of SDPA was found 2026-06-04 to apply
-    // `.tril(diagonal=0)` without the offset, collapsing visible
-    // positions to just j=0 (cache-aware decode produced wrong
-    // tokens from the first decode step). Same risk class for mlx
-    // (newer kernels likely handle it, older ones may not). Fall
-    // back to the legacy per-head decomposition path with an
-    // explicit lower-right mask for the asymmetric case; symmetric
-    // path stays on the fused kernel.
-    if (isCausal && q_seq != kv_seq) {
-        // Build [q_seq, kv_seq] additive mask: 0 where visible,
-        // -inf where masked. mask[i, j] = 0 if j <= (kv_seq - q_seq) + i
-        // else -inf.
-        int offset = kv_seq - q_seq;
-        std::vector<float> mask_data((size_t)q_seq * (size_t)kv_seq);
-        for (int i = 0; i < q_seq; i++) {
-            for (int j = 0; j < kv_seq; j++) {
-                mask_data[i * kv_seq + j] =
-                    (j <= offset + i) ? 0.0f : -std::numeric_limits<float>::infinity();
-            }
-        }
-        auto mask_arr_2d = mx::array(mask_data.data(),
-                                     {q_seq, kv_seq},
-                                     q3.dtype());
-        // Broadcast mask to [1, 1, q_seq, kv_seq] for the [1, h,
-        // q_seq, kv_seq] SDPA layout — mlx broadcast-add handles
-        // the head + batch axis fan-out.
-        auto mask_arr = mx::reshape(mask_arr_2d, {1, 1, q_seq, kv_seq});
-        auto out3 = mx::fast::scaled_dot_product_attention(q3, k3, v3, scale, mask_arr);
-        // [1, h, q_seq, hd] -> [1, q_seq, h, hd] -> [q_seq, h*hd]
-        auto out2 = mx::reshape(mx::transpose(out3, {0, 2, 1, 3}),
-                                {q_seq, numHeads * headDim});
-        bool rg = q->requires_grad || k->requires_grad || v->requires_grad;
-        auto r = new Tensor(out2, rg);
-        return (TensorHandle)r;
-    }
+    // mlx::fast::scaled_dot_product_attention in the pinned mlx
+    // version (see packages/pytorch/.venv/.../mlx/include/mlx/fast.h)
+    // only accepts a string `mask_mode`, not an explicit array mask.
+    // We trust mask_mode="causal" to do the right lower-right
+    // alignment under asymmetric q_seq != kv_seq (newer mlx kernel
+    // documentation makes this promise). If a token-sequence gate
+    // ever fails on mlx-gpu with the cache-aware decode the way
+    // torch-cpu math-impl did 2026-06-04, the fix is either an mlx
+    // version bump or a hand-rolled `mm(softmax(scale*mm(Q, K^T) +
+    // mask), V)` path here. Until then, trust the docs.
     std::string mask_mode = isCausal ? "causal" : "";
     auto out3 = mx::fast::scaled_dot_product_attention(q3, k3, v3, scale, mask_mode);
     // [1, h, q_seq, hd] -> [1, q_seq, h, hd] -> [q_seq, h*hd]

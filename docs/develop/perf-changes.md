@@ -48,6 +48,98 @@ is still useful (saves someone trying it again).
 
 ## Entries
 
+### 2026-06-04 — BuildConfig default flipped F64 → F32 + three-backend HfLlama cache gate verified — c01cd56b
+
+**Plan**: Two changes shipped same day, in sequence.
+
+1. Flip `BuildConfig` default dtype from F64 (everywhere except
+   Metal-forced cells) to F32 (everywhere). Examples-side only;
+   `TestConfig` stays F64 (unit tests value-pin against F64
+   oracles at tolerances down to 1e-12 which F32 can't satisfy —
+   separate follow-up).
+2. Verify the KV-cache token-sequence gate (commit `b5443135` ..
+   `3b87291f`) GREEN on all three backends at F32: torch-cpu,
+   torch-mps, mlx-gpu.
+
+**Motivation**: F64 default was historical, not a design decision.
+F32 matches modern ML practice + the on-disk reference weights of
+every shipped HF adapter (BF16 → F32 at load), uses half the
+memory (a 1.24B-param Llama is 5 GB at F32 vs 10 GB at F64), and
+runs ~2× faster on CPU via better SIMD. Run-time memory pressure
+on a 16 GB VM was a real constraint pre-flip — Chez during
+elaboration + libtorch in-memory model + Python pytest oracle
+process together pushed system memory past the swap line.
+
+**Change**: `Makefile`'s `BUILDCONFIG_IDR` recipe — all default
+cells set DTYPE="F32"; `BuildConfig.idr.in` + `TestConfig.idr.in`
+docstrings updated; `CLAUDE.md` matrix updated; `HfLlamaInference.idr`
+comment updated. Commit `c01cd56b`.
+
+**Side fix shipped during verification** (mlx-gpu side, commit
+unstaged-then-reverted at `93f9108b`):
+
+In Phase C (commit `78c95d56`) I'd added a defensive explicit-
+mask path to the mlx SDPA wrapper to handle asymmetric Q/KV under
+`is_causal=True` — same risk class as the torch math-impl bug
+fixed two commits earlier. Building against the pinned mlx
+version (`packages/pytorch/.venv/.../mlx/include/mlx/fast.h`)
+revealed mlx's `scaled_dot_product_attention` only accepts a
+`std::string` mask_mode, not an `array` for explicit-mask paths.
+Reverted to the simple `mask_mode = isCausal ? "causal" : ""`
+shape and added a comment that the lower-right alignment
+correctness on asymmetric q/kv is trusted to mlx's documented
+behaviour. If a mlx-gpu gate ever fails on asymmetric the way
+torch-cpu did, the fix is either an mlx version bump or a
+hand-rolled `softmax(scale*mm(Q, K^T) + mask) @ V` in the
+asymmetric branch.
+
+**Impact** (FIRST F32 build per backend; full ttc cache regen
+included — subsequent warm-cache runs would be ~1-2 min total):
+
+| backend / device | wall (first F32 build) | exit |
+|---|---|---|
+| torch / cpu | 28m 11s | GREEN ✓ |
+| torch / mps | 37m 20s | GREEN ✓ |
+| mlx / gpu | 22m 4s | GREEN ✓ |
+
+All three produce the same token sequence `[128000, 791, 6864,
+315, 9822, 374, 12366, 13, 1102, 374, 279, 1455, 95551, 3363]` =
+"<|begin_of_text|>The capital of France is Paris. It is the most
+populous city" — exact match to the HF oracle's
+`save_oracle_llama_generate.py` output.
+
+**What's NOT measured here**: steady-state decode wall (the
+~30-60s number with warm ttc cache). The gate-target's stdout
+redirect into the compare-file means perf-run.sh can't extract
+`[stage]` lines, so we don't have the breakdown of model load /
+decode / cleanup phases. Decode-only numbers can be captured by
+running the binary directly: `./build/<KEY>/exec/hf-llama-inference
+--dump-tokens --num-tokens 8` post-build. Filed as a soft
+follow-up; the GREEN gate result is the load-bearing signal.
+
+**Re-baselining still pending** (filed for the user to drive in
+later sessions):
+- `make test-examples` smoke gate at F32 (the torch-mps +
+  mlx-gpu lanes already ran at F32 pre-flip, so the new exposure
+  is tape-F32 + torch-cpu-F32 + mlx-cpu-F32 — likely the
+  NTM/DNC examples are riskiest; their seeds were tuned per-
+  backend at F64).
+- `make test-examples-convergence` (long-horizon, tape only).
+- Flip `torch_ref/` to `torch.float32` for apples-to-apples
+  `bench-compare` ratios.
+- Regenerate `docs/develop/perf-baseline.md` from new
+  measurements.
+
+**Commits**:
+- `c01cd56b` BuildConfig flip + docstring/CLAUDE.md updates.
+- `9be7469a` (interim) Medium TODO row for elaboration-memory
+  reduction (the related Chez 17-23 GB peak symptom — separate
+  problem from F32, dtype is phantom-type-only).
+- mlx defensive-fix revert (this commit) — only torch had the
+  documented math-impl lower-right-alignment bug; mlx is trusted
+  to honour the docs in the pinned version.
+
+
 ### 2026-06-04 — HfLlama KV cache + token-sequence gate — b5443135..49872b4b
 
 **Plan**: Land the cache-aware forward step that lets greedy
