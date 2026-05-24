@@ -376,6 +376,21 @@ jobs:
         if: matrix.os == 'macos-latest'
         run: make BACKEND=mlx test-unit-idris-ml
 
+      - name: Run examples unit suite (tape)
+        # Idris-side suite living in packages/idris-ml-examples (Test.Reinforce,
+        # Test.Generate). Wired in to catch drift like the IO-lift mismatch on
+        # rolloutEpBatched and the bitlinear-test scale formula — both pre-existed
+        # in tree because the target was not previously gated by CI.
+        run: make BACKEND=tape test-unit-examples
+
+      - name: Run examples unit suite (torch, Ubuntu)
+        if: matrix.os == 'ubuntu-latest'
+        run: make BACKEND=torch test-unit-examples
+
+      - name: Run examples unit suite (mlx, macOS)
+        if: matrix.os == 'macos-latest'
+        run: make BACKEND=mlx test-unit-examples
+
       - name: Run multi-backend Idris suite (macOS)
         # Adds Test.Transfer (cross-backend `toDevice` smoke) +
         # Test.MultiDeviceRegistry (registry isolation invariant) on

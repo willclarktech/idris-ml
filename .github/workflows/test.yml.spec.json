@@ -241,6 +241,26 @@
       ]
     },
     {
+      "name": "Run examples unit suite (tape)",
+      "run": "make BACKEND=tape test-unit-examples",
+      "comment": [
+        "Idris-side suite living in packages/idris-ml-examples (Test.Reinforce,",
+        "Test.Generate). Wired in to catch drift like the IO-lift mismatch on",
+        "rolloutEpBatched and the bitlinear-test scale formula — both pre-existed",
+        "in tree because the target was not previously gated by CI."
+      ]
+    },
+    {
+      "name": "Run examples unit suite (torch, Ubuntu)",
+      "run": "make BACKEND=torch test-unit-examples",
+      "os": "ubuntu"
+    },
+    {
+      "name": "Run examples unit suite (mlx, macOS)",
+      "run": "make BACKEND=mlx test-unit-examples",
+      "os": "macos"
+    },
+    {
       "name": "Run multi-backend Idris suite (macOS)",
       "run": "make test-unit-multi-backend",
       "os": "macos",

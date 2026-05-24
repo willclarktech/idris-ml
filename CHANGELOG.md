@@ -3,6 +3,9 @@
 Completed work, most recent first. Moved out of `TODO.md` on 2026-05-22.
 
 
+test-unit-examples wired into CI (2026-06-05). Closes the "Wire `test-unit-examples` into CI" row. Three new entries in `.github/workflows/test.yml.spec.json` mirror the `test-unit-idris-ml` pattern: tape unconditional, torch on ubuntu, mlx on macos. `scripts/gen-ci-workflow.py` regenerated `test.yml` (29 spec entries, idempotent). The drift class this catches: pre-existing test failures in `packages/idris-ml-examples` that slipped past PR gating. The two bug-fix commits paired with this gate (Test.Reinforce IO-unwrap, Test.BitLinear scale fix) verify on the new lanes; future drift gets caught at PR time, not by post-hoc rediscovery.
+
+
 Test.BitLinear composed-path scale formula fix (2026-06-05). Closes the "Test.BitLinear fused-y vs composed-y discrepancy on tape" row. The "fused y[N] matches composed" block failed on tape (F64) with `expected=3.6275 actual=0.9818` (ratio 3.7×). Root cause: the test setup at `packages/idris-ml/src/Test/BitLinear.idr:392` wrote `perRowScale = 1.0 / (inScale * weightScale)`, but the correct rescale for ternary `W` with per-token activation quant is `weightScale / inScale`. Math: ternary `W` stores ±1; the logical weight is `wScale × W[j]`. With `xq ≈ x × inScale`, the dot product `W[j]·xq ≈ inScale × W[j]·x`, so to recover `y[j] = wScale × W[j]·x` we rescale by `wScale / inScale`. With `wScale=0.5, inScale=63.5`: the wrong formula gives `1/31.75`, the right one gives `1/127` — factor of 4 = ratio matches. Both the composed `tensor_bitlinear_fwd_tape_f64` kernel and the fused `tensor_bitlinear_fwd_hf_quant_tape_f64` kernel are mathematically correct; the test alone was wrong. Multi-line comment block above the formula now documents the derivation so future readers don't rediscover the bug.
 
 
