@@ -3,6 +3,9 @@
 Completed work, most recent first. Moved out of `TODO.md` on 2026-05-22.
 
 
+Test.Reinforce IO-unwrap fix (2026-06-05). Closes the "Test.Reinforce:93 pre-existing type error blocks `test-unit-examples`" row. Both `testParityN1` (line 67) and `testParityN2` (line 92) tried to use `Data.Vect.head` / `Data.Vect.index` directly on the result of `rolloutEpBatched : ... -> IO (Vect n (List StepRec))` — left from the era before `rolloutEpBatched` was lifted into `IO`. Refactored both to bind via `<-` before the indexing. The drift slipped past CI because `test-unit-examples` is not in `.github/workflows/test.yml.spec.json` yet (filed as the paired "Wire `test-unit-examples` into CI" follow-up — landed in the same push).
+
+
 Test.Property.Golden — in-Idris golden-file primitive (2026-06-05, commit `9c7367af`). Closes the Test.Golden TODO row. `Test.Property.Golden.checkGolden : String -> String -> IO String -> IO Bool` compares an action's `IO String` output against a fixture file; `GOLDEN_UPDATE=1` re-baselines. Complements the existing `.expect` harness (which handles RESULT-line threshold checks) — different semantics, both coexist. The contrib shell-test-style Test.Golden is also installable via `pack install test` (pack-DB names it "test"). Demo fixture + drift test verified: `golden_demo_string` PASS against committed fixture, FAIL on sed-edit drift with a clear "Re-baseline: GOLDEN_UPDATE=1 make ..." hint. Wholesale migration of `.expect` → Test.Golden filed as a separate follow-up row.
 
 

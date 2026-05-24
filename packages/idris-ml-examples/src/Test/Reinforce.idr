@@ -67,10 +67,8 @@ testParityN1 = do
       seqSteps : List StepRec
       seqSteps = rolloutEp model initState rs testMaxSteps []
 
-      batchSteps : Vect 1 (List StepRec)
-      batchSteps = rolloutEpBatched model states rss testMaxSteps
-
-      seqReward = sumRewards seqSteps
+  batchSteps <- rolloutEpBatched model states rss testMaxSteps
+  let seqReward = sumRewards seqSteps
       batchReward = sumRewards (head batchSteps)
 
   checkClose "N=1 parity (total reward)" seqReward batchReward 1.0e-9
@@ -89,8 +87,8 @@ testParityN2 = do
       seq1 = rolloutEp model initState rs1 testMaxSteps []
       seq2 = rolloutEp model initState rs2 testMaxSteps []
 
-      batch = rolloutEpBatched model states rss testMaxSteps
-      batch1 = index 0 batch
+  batch <- rolloutEpBatched model states rss testMaxSteps
+  let batch1 = index 0 batch
       batch2 = index 1 batch
 
   ok1 <- checkClose "N=2 env0 reward parity" (sumRewards seq1) (sumRewards batch1) 1.0e-9
