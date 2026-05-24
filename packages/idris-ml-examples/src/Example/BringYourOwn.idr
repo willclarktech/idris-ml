@@ -102,6 +102,12 @@ prim__mulScalarBYO : AnyPtr -> Double -> AnyPtr
 %foreign "C:byo_tensor_clamp_min,libbyo"
 prim__clampMinBYO : AnyPtr -> Double -> AnyPtr
 
+%foreign "C:byo_tensor_clamp,libbyo"
+prim__clampBYO : AnyPtr -> Double -> Double -> AnyPtr
+
+%foreign "C:byo_tensor_round,libbyo"
+prim__roundBYO : AnyPtr -> AnyPtr
+
 
 ----------------------------------------------------------------------
 -- Step 3: implement `UserDeviceCore` for your type.
@@ -136,6 +142,8 @@ UserDeviceCore BYO where
   primAddScalar    = prim__addScalarBYO
   primMulScalar    = prim__mulScalarBYO
   primClampMin     = prim__clampMinBYO
+  primClamp        = prim__clampBYO
+  primRound        = prim__roundBYO
 
 -- A BYO author self-declares `Linked` for their device: by compiling it
 -- in, it is available by definition (the generated HwConfig only

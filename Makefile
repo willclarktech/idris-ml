@@ -1024,12 +1024,19 @@ install-examples: install-core install-gym install-transformers $(BUILDCONFIG_ID
 	@cd packages/idris-ml-examples && IDRIS2_PREFIX=$(IDRIS2_LOCAL) idris2 --build-dir $(CURDIR)/$(BUILD)/ttc-idris-ml-examples --install idris-ml-examples.ipkg >/dev/null
 
 # Install the shared test harness (Test.Harness) used by every package's
-# test/ suite. Pure-Idris, no backend dep — installs against base only.
+# test/ suite. Pure-Idris harness PLUS hedgehog adapter. Since
+# adding the hedgehog dep, idris-test must be installed via pack
+# (nix's idris2 doesn't know hedgehog). The pack-managed test
+# ipkgs (idris-ml-tests etc.) pick it up automatically; this
+# explicit recipe stays for callers that need a pre-installed
+# idris-test in pack's collection (idempotent).
 install-test-harness:
-	@cd packages/idris-test && IDRIS2_PREFIX=$(IDRIS2_LOCAL) idris2 --build-dir $(CURDIR)/$(BUILD)/ttc-idris-test --install idris-test.ipkg >/dev/null
+	@pack --no-prompt install idris-test >/dev/null
 
-# Install all Idris packages locally
-install: install-core install-gym install-transformers install-notebook install-examples install-test-harness $(BUILD)/.library-cache-stamp
+# Install all Idris packages locally. install-test-harness is NOT
+# in the chain — pack lazily installs idris-test the first time
+# any tests ipkg references it.
+install: install-core install-gym install-transformers install-notebook install-examples $(BUILD)/.library-cache-stamp
 
 # Idris build (type-check core library)
 check: backend $(HWCONFIG_IDR) $(HWDEVICES_IDR)
