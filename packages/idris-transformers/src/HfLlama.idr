@@ -633,15 +633,36 @@ applyAttentionCached {seq} {hidden} {numHeads} {numKvHeads} {headDim} {maxPos}
       kNewNoGrad = MkTensor kRopedPtr Nothing
       vNewNoGrad : Tensor [seq, numKvHeads * headDim] d dt NoGrad
       vNewNoGrad = MkTensor v.tensorPtr Nothing
-  cache' <- appendKV {s=seq} {kvOut=numKvHeads * headDim} cache kNewNoGrad vNewNoGrad
-  -- SDPA against the FULL cached K/V (post-append). For seed step
-  -- with Empty cache, cache' = Filled seq newK newV → q_seq == kv_seq
-  -- (matches non-cached behaviour). For steady step, cache' has
-  -- kv_seq = cacheLen + seq > q_seq=seq → SDPA picks lower-right
-  -- causal alignment.
-  case cache' of
-    Empty => idris_crash "applyAttentionCached: appendKV returned Empty (impossible)"
-    Filled _ kFull vFull => do
+  -- Pattern-match on the input cache (Empty | Filled). Two cases
+  -- produce the result cache + the SDPA inputs.
+  --
+  -- Empty branch (seed step): cache' = Filled seq new new; SDPA
+  -- inputs are the new K/V directly (q_seq == kv_seq).
+  -- Filled branch (steady): cache' = Filled (len+seq) catK catV;
+  -- SDPA gets the concatenated full prefix (q_seq < kv_seq → lower-
+  -- right causal alignment).
+  --
+  -- Each branch is inlined rather than threading a tuple through a
+  -- case scrutinee — Idris's elaborator struggles to infer the
+  -- scrutinee type when the inferred result mentions implicit args
+  -- of the enclosing function (notably `numKvHeads * headDim`).
+  case cache of
+    Empty => do
+      let cache' : KVCache (numKvHeads * headDim) d dt
+          cache' = Filled seq kNewNoGrad vNewNoGrad
+      ctxPtr <- ioRerun (\_ =>
+                  primSdpa2d {d} qRopedPtr kRopedPtr v.tensorPtr
+                             nHI nKvHI hdI 1)  -- isCausal=1
+      ctxT <- ioRerun (\_ =>
+                the (Tensor [seq, numHeads * headDim] d dt g)
+                    (MkTensor ctxPtr Nothing))
+      oOut <- applyLinear2d attn.oProj ctxT
+      pure (cache', oOut)
+    Filled len kCached vCached => do
+      kFull <- tconcat2dAxis0 kCached kNewNoGrad
+      vFull <- tconcat2dAxis0 vCached vNewNoGrad
+      let cache' : KVCache (numKvHeads * headDim) d dt
+          cache' = Filled (len + seq) kFull vFull
       ctxPtr <- ioRerun (\_ =>
                   primSdpa2d {d} qRopedPtr kFull.tensorPtr vFull.tensorPtr
                              nHI nKvHI hdI 1)  -- isCausal=1

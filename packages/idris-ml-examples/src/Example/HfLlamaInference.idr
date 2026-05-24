@@ -65,6 +65,7 @@ import Checkpoint
 import Device
 import Example.HfInferenceHelper
 import HfLlama
+import KVCache
 import Layer.RoPE
 import Tensor
 import Tokenizer
@@ -184,6 +185,83 @@ genLoop model tables tokens (S k) = do
 
 
 ----------------------------------------------------------------------
+-- Cache-aware generation (genLoopCached)
+----------------------------------------------------------------------
+
+||| Single decode step with KV cache. Takes the current per-layer
+||| caches + the tokens to feed (the prompt on the seed call, then
+||| [prevGenerated] each subsequent step), returns updated caches +
+||| next-token id (or Nothing on out-of-range argmax).
+genStepCached :
+     LlamaModelState VocabSize Hidden NumLayers QOut KvOut Intermediate
+                     ExampleDevice ExampleDType WithGrad
+  -> RoPETables MaxPos HeadDim ExampleDevice ExampleDType WithGrad
+  -> Vect NumLayers (KVCache KvOut ExampleDevice ExampleDType)
+  -> List (Fin VocabSize)
+  -> IO (Vect NumLayers (KVCache KvOut ExampleDevice ExampleDType),
+         Maybe (Fin VocabSize))
+genStepCached model tables caches toksList = do
+  let idsList = map (cast {to=Double} . finToNat) toksList
+  case toExistVect idsList of
+    (curLen ** idDoubles) => do
+      let inputIds = mkIds idDoubles
+      (caches', logits) <- hfLlamaForwardLmStep
+                                 {d=ExampleDevice} {dt=ExampleDType}
+                                 {seq          = curLen}
+                                 {vocab        = VocabSize}
+                                 {hidden       = Hidden}
+                                 {numLayers    = NumLayers}
+                                 {numHeads     = NumHeads}
+                                 {numKvHeads   = NumKvHeads}
+                                 {headDim      = HeadDim}
+                                 {intermediate = Intermediate}
+                                 {maxPos       = MaxPos}
+                                 RmsNormEps model tables caches inputIds
+      lastRow <- trowSelect logits (cast {to=Int} curLen - 1)
+      nextN   <- argmaxRow VocabSize lastRow.tensorPtr
+      pure (caches', natToFin nextN VocabSize)
+
+
+||| Cache-aware greedy decode. Seed step feeds the full prompt into
+||| empty caches; each subsequent step feeds only the previously-
+||| generated token, with the per-layer caches threading through. The
+||| caches store post-RoPE K and pre-RoPE V from earlier positions, so
+||| each new step computes only the new token's K/V (constant per
+||| step) instead of re-projecting the full growing prefix every time.
+|||
+||| Returns the full token list (prompt + generated). Caller is
+||| responsible for any tokenizer-side decoding.
+genLoopCached :
+     LlamaModelState VocabSize Hidden NumLayers QOut KvOut Intermediate
+                     ExampleDevice ExampleDType WithGrad
+  -> RoPETables MaxPos HeadDim ExampleDevice ExampleDType WithGrad
+  -> List (Fin VocabSize)   -- prompt
+  -> (remaining : Nat)
+  -> IO (List (Fin VocabSize))
+genLoopCached model tables prompt remaining =
+  let initialCaches : Vect NumLayers (KVCache KvOut ExampleDevice ExampleDType)
+      initialCaches = emptyKVCaches {numLayers=NumLayers} {kvOut=KvOut}
+  in go initialCaches prompt prompt remaining
+  where
+    go : Vect NumLayers (KVCache KvOut ExampleDevice ExampleDType)
+      -> List (Fin VocabSize)   -- accumulator (prompt + generated so far)
+      -> List (Fin VocabSize)   -- new tokens to feed this step (prompt on seed, [prev] on steady)
+      -> Nat                     -- remaining tokens to generate
+      -> IO (List (Fin VocabSize))
+    go _      acc _    Z         = pure acc
+    go caches acc feed (S k)     = do
+      perfReset {d=ExampleDevice}
+      (caches', mNext) <- genStepCached model tables caches feed
+      ops <- perfOpCount {d=ExampleDevice}
+      putStrLn ("[perf] step " ++ show (length acc) ++ ": " ++ show ops ++ " ops")
+      case mNext of
+        Nothing => do
+          putStrLn "  (argmax produced out-of-range token; stopping)"
+          pure acc
+        Just next => go caches' (acc ++ [next]) [next] k
+
+
+----------------------------------------------------------------------
 -- --dump-final-hidden mode
 ----------------------------------------------------------------------
 
@@ -215,12 +293,13 @@ runDumpHidden model tables = do
 -- Default mode: greedy generation demo
 ----------------------------------------------------------------------
 
-runGenerate : Tokenizer VocabSize
+runGenerate : (useCache : Bool)
+           -> Tokenizer VocabSize
            -> LlamaModelState VocabSize Hidden NumLayers QOut KvOut Intermediate
                               ExampleDevice ExampleDType WithGrad
            -> RoPETables MaxPos HeadDim ExampleDevice ExampleDType WithGrad
            -> (prompt : String) -> (numTokens : Nat) -> IO ()
-runGenerate tok model tables prompt numTokens = do
+runGenerate useCache tok model tables prompt numTokens = do
   Right (promptLen ** promptIds) <- tokenize tok prompt
     | Left err => putStrLn ("ERR: tokenize: " ++ show err)
   putStrLn ""
@@ -228,10 +307,13 @@ runGenerate tok model tables prompt numTokens = do
   putStrLn "=============================="
   putStrLn ""
   putStrLn ("Prompt:    " ++ prompt)
-  putStrLn ("Tokens in: " ++ show promptLen ++ ", generating: " ++ show numTokens)
+  putStrLn ("Tokens in: " ++ show promptLen ++ ", generating: " ++ show numTokens ++
+           (if useCache then " (KV cache ON)" else " (KV cache OFF)"))
   putStrLn ""
   let promptList = toList promptIds
-  finalList <- genLoop model tables promptList numTokens
+  finalList <- if useCache
+                  then genLoopCached model tables promptList numTokens
+                  else genLoop       model tables promptList numTokens
   Right text <- detokenize tok (fromList finalList)
     | Left err => putStrLn ("ERR: detokenize: " ++ show err)
   putStrLn ("Output:    " ++ text)
@@ -256,18 +338,21 @@ runGenerate tok model tables prompt numTokens = do
 ||| (unreachable in practice) `genLoop` emits a human-facing diag
 ||| line that would FAIL the comparator — that's the correct
 ||| failure mode.
-runDumpTokens : Tokenizer VocabSize
+runDumpTokens : (useCache : Bool)
+             -> Tokenizer VocabSize
              -> LlamaModelState VocabSize Hidden NumLayers QOut KvOut Intermediate
                                 ExampleDevice ExampleDType WithGrad
              -> RoPETables MaxPos HeadDim ExampleDevice ExampleDType WithGrad
              -> (prompt : String) -> (numTokens : Nat) -> IO ()
-runDumpTokens tok model tables prompt numTokens = do
+runDumpTokens useCache tok model tables prompt numTokens = do
   Right (_ ** promptIds) <- tokenize tok prompt
     | Left err => do
         putStrLn ("ERR: tokenize: " ++ show err)
         exitFailure
   let promptList = toList promptIds
-  finalList <- genLoop model tables promptList numTokens
+  finalList <- if useCache
+                  then genLoopCached model tables promptList numTokens
+                  else genLoop       model tables promptList numTokens
   traverse_ (putStrLn . show . finToNat) finalList
 
 
@@ -280,6 +365,12 @@ main = do
   args <- getArgs
   let dumpHidden = elem "--dump-final-hidden" args
   let dumpTokens = elem "--dump-tokens" args
+  -- KV cache is on by default for --dump-tokens (the fast path).
+  -- `--no-cache` opt-out keeps the legacy `genLoop` path reachable
+  -- for differential debugging (the no-cache path must produce the
+  -- same token sequence as the cache path; if they ever diverge,
+  -- run with `--no-cache` to see which side the bug is on).
+  let useCache  = not (elem "--no-cache" args)
   t0 <- clockTime Monotonic
 
   -- Probe the tokenizer up-front (~1s subprocess call) BEFORE the
@@ -357,8 +448,9 @@ main = do
       Right tok =>
         if dumpTokens
           then do
-            putStrLn "[stage] runDumpTokens — greedy decode + dump token ids..."
-            runDumpTokens tok model tables
+            putStrLn ("[stage] runDumpTokens — greedy decode + dump token ids" ++
+                      (if useCache then " (KV cache ON)" else " (KV cache OFF)") ++ "...")
+            runDumpTokens useCache tok model tables
                           (extractPrompt "The capital of France is" args)
                           (extractNumTokens 4 args)
             stageStamp "runDumpTokens done" t0
@@ -370,8 +462,9 @@ main = do
             stageStamp "releaseAllPersistent done" t0
             pure ()
           else do
-            putStrLn "[stage] runGenerate — greedy decode loop..."
-            runGenerate tok model tables (extractPrompt "The capital of France is" args) (extractNumTokens 8 args)
+            putStrLn ("[stage] runGenerate — greedy decode loop" ++
+                      (if useCache then " (KV cache ON)" else " (KV cache OFF)") ++ "...")
+            runGenerate useCache tok model tables (extractPrompt "The capital of France is" args) (extractNumTokens 8 args)
             stageStamp "runGenerate done" t0
             -- Explicit pre-exit cleanup. Forces the backend's per-tensor
             -- destructor cascade (libtorch CPUAllocator releases on torch-
